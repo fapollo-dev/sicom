@@ -1,6 +1,5 @@
-import { useId } from 'react';
+import { FormFieldCheckbox } from '@apollosg/design-system';
 import { useMnemonic } from '../keyboard/useMnemonic';
-import { parseMnemonic } from '../keyboard/parseMnemonic';
 
 type Props = {
   label: string; // & → Alt+letra alterna a flag (ADR-010)
@@ -11,29 +10,21 @@ type Props = {
 };
 
 /**
- * Campo booleano (TDBCheckBox → Checkbox, recon §5c). Mapeia o checkbox para a
- * flag char 'S'/'N' do legado (business-rule-extraction: flags 'S'/'N' viram boolean).
- * Alt+letra alterna a marca.
+ * Campo booleano (TDBCheckBox → Checkbox, recon §5c) usando o **FormFieldCheckbox do DS**
+ * (L-023/L-025: nada de <input>/<label> cru). Mapeia o checkbox para a flag char 'S'/'N'
+ * do legado. Alt+letra alterna a marca (camada de teclado ADR-010).
  */
 export function CheckboxField({ label, value, onChange, disabled }: Props) {
-  const id = useId();
   const checked = value === 'S';
-  const toggle = () => onChange?.(checked ? 'N' : 'S');
-  useMnemonic(label, () => {
-    if (!disabled) toggle();
+  const { text } = useMnemonic(label, () => {
+    if (!disabled) onChange?.(checked ? 'N' : 'S');
   });
-  const clean = parseMnemonic(label).text;
   return (
-    <label htmlFor={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: disabled ? 'default' : 'pointer' }}>
-      <input
-        id={id}
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={toggle}
-        style={{ width: 16, height: 16 }}
-      />
-      <span>{clean}</span>
-    </label>
+    <FormFieldCheckbox
+      label={text}
+      checked={checked}
+      disabled={disabled}
+      onCheckedChange={(c) => onChange?.(c ? 'S' : 'N')}
+    />
   );
 }
