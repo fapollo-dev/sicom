@@ -42,7 +42,7 @@ Publicar o DS como pacote npm (`@apollosg/design-system`) resolve **consumo de r
 O DS já foi forkado, desversionado e rebrandeado (ver [design-system-rebrand.md](design-system-rebrand.md)). Ele está em `apollo-designsystem-admin`, **sem remote**. Antes de virar submodule:
 
 1. **Publicar o DS no git da Apollo** — criar o repo remoto deles (ex: `github.com/apollosg/apollo-designsystem-admin`) e dar o primeiro push do fork limpo.
-2. Confirmar que o checklist de **strip iGreen** passou (ver [design-system-rebrand.md](design-system-rebrand.md)).
+2. Confirmar que o checklist de **strip Apollo** passou (ver [design-system-rebrand.md](design-system-rebrand.md)).
 
 Só depois disso o submodule referencia um remote real.
 
@@ -121,5 +121,5 @@ Isso materializa a ideia do **tronco central**: o DS cresce (componentes novos, 
 
 ## Ver também
 - [ds-agent-workflow.md](ds-agent-workflow.md) — como o agente trabalha com o DS em cada etapa (contrato, crud-builder, autonomia).
-- [design-system-rebrand.md](design-system-rebrand.md) — o fork verde→azul e o strip iGreen.
+- [design-system-rebrand.md](design-system-rebrand.md) — o fork verde→azul e o strip Apollo.
 - [../02-stack-and-standards/frontend-react-standards.md](../02-stack-and-standards/frontend-react-standards.md) — padrões do app que consome o DS.

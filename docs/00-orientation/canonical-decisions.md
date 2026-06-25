@@ -68,10 +68,10 @@ Formato: cada ADR tem **Decisão**, **Porquê**, **Implicação**.
 - **Porquê:** É a materialização da tese "contexto é tudo".
 - **Implicação:** Ver [../04-screen-dossier/dossier-process.md](../04-screen-dossier/dossier-process.md).
 
-## ADR-013 — Design System e DataScience são **forks limpos** (sem vínculo iGreen)
-- **Decisão:** O design system do cliente é um **clone** do DS de referência com **rebrand verde→azul**; o DataScience/IA é um **port** — ambos com **toda referência à iGreen removida** antes de subir no git deles.
-- **Porquê:** Reuso acelera, mas não pode vazar marca/dados/segredos da iGreen.
-- **Implicação:** Checklist de "strip iGreen" obrigatório. Ver [../09-design-system-and-ai/](../09-design-system-and-ai/).
+## ADR-013 — Design System e DataScience são **forks limpos** (sem vínculo Apollo)
+- **Decisão:** O design system do cliente é um **clone** do DS de referência com **rebrand verde→azul**; o DataScience/IA é um **port** — ambos com **toda referência à Apollo removida** antes de subir no git deles.
+- **Porquê:** Reuso acelera, mas não pode vazar marca/dados/segredos da Apollo.
+- **Implicação:** Checklist de "strip Apollo" obrigatório. Ver [../09-design-system-and-ai/](../09-design-system-and-ai/).
 
 ## ADR-014 — DS como submodule; agentes deferem ao pipeline do DS; autonomia em zonas
 - **Decisão:** O Apollo DS (`@apollosg/design-system`) entra nos repos de app como **git submodule** (pinado). Todo trabalho de frontend/DS começa lendo `design-system/CLAUDE.md` + `.claude/rules/ds-standards.md`. Os agentes **deferem ao pipeline do próprio DS** (`ds-designer → GATE → ds-dev → ds-reviewer`) e à skill `crud-builder` (`/ds-create-crud`) para telas de tabela/CRUD. Autonomia em 3 zonas: 🟢 consumir/compor/gerar CRUD (sem parar) · 🟡 componente/token novo (o agente roda o pipeline; usuário só dá o "sim" da spec curta) · 🔴 push/publish/release/bump de submodule (só mantenedor).

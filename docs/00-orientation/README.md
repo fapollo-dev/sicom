@@ -63,7 +63,7 @@ README.md ........................... porta de entrada, diretriz primária, índ
   review-loop.md .................... o ciclo de revisão e revisão legado×novo
   mcp-and-tools.md .................. MCPs (Postgres p/ decisões de banco), Playwright
 09-design-system-and-ai/
-  design-system-rebrand.md .......... clonar DS verde→azul, remover vínculos iGreen
+  design-system-rebrand.md .......... clonar DS verde→azul, remover vínculos Apollo
   ds-as-submodule.md ................ DS como git submodule, consumo e versionamento
   ds-agent-workflow.md .............. contrato, crud-builder, autonomia em 3 zonas
   datascience-port.md ............... port do DataScience/IA para o git deles

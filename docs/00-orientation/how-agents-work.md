@@ -66,7 +66,7 @@ Todo trabalho de frontend passa pelo **Apollo DS** (submodule). Regras canônica
 
 ## Higiene de fork (DS e DataScience)
 
-Ao clonar Design System ou DataScience da iGreen: rode o **checklist de strip iGreen** antes de
+Ao clonar Design System ou DataScience da Apollo: rode o **checklist de strip Apollo** antes de
 qualquer commit no git do cliente (marca, cores, nomes, tokens, URLs, dados, segredos). Detalhe em
 [../09-design-system-and-ai/](../09-design-system-and-ai/).
 

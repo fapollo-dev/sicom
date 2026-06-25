@@ -179,13 +179,13 @@ Entregas por cliente:
 
 Entregas:
 
-- Port do **DataScience** com **strip iGreen total** + re-domínio para varejo (ADR-013) — ver [../09-design-system-and-ai/datascience-port.md](../09-design-system-and-ai/datascience-port.md).
+- Port do **DataScience** com **strip Apollo total** + re-domínio para varejo (ADR-013) — ver [../09-design-system-and-ai/datascience-port.md](../09-design-system-and-ai/datascience-port.md).
 - Casos de valor: previsão de demanda, ruptura, ABC, precificação, perdas/validade, cesta de compras.
 
 **Critério de saída:**
 
 - [ ] **BI baseline determinístico** validado contra o legado (pré-requisito).
-- [ ] Strip iGreen do DataScience completo + CI gate verde.
+- [ ] Strip Apollo do DataScience completo + CI gate verde.
 - [ ] Pelo menos um caso de IA medido contra o baseline (valor provado, não prometido).
 - [ ] FinOps por tenant/dia pesado orçado — ver [blind-spots.md](blind-spots.md).
 
