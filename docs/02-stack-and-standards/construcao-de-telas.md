@@ -47,6 +47,7 @@ Mestre-detalhe (header+itens): troque por `AggregateConfig` + `createAggregateCo
 | `colunas` | colunas editáveis (delta) — o que o create/update gravam |
 | `rbacForm` | nome do form p/ `PossuiAcessoForm` (tabela `permissoes`) |
 | `softDelete?` | `true` = excluir marca `INDR='E'` (lista filtra); omitido = hard-delete |
+| `empresaScoped?` | `true` = tabela tem `IDEMPRESA` (multi-tenant por empresa, ex.: CONTAS_BANCARIAS): o create **carimba** `idempresa = currentTenant().empresaId` (fail-closed) e read/list **filtram** por empresa. A view de listagem precisa expor `idempresa`. Default `false` (tabela global). |
 | `audit?` | default `true` (carimba `usultalteracao/dt*`); `false` quando a tabela não tem essas colunas |
 | `historico?` | default `true` — grava `HISTORICO_DINAMICO` (1 linha por campo alterado), na mesma transação |
 | `replica?` | `true` = gera evento no `outbox` (tabelas com trigger `REM_*`); default `false` |

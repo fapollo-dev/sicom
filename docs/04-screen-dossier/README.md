@@ -20,6 +20,22 @@
 1. [dossier-template.md](dossier-template.md) — entenda **o que** um dossiê captura e a profundidade exigida.
 2. [dossier-process.md](dossier-process.md) — entenda **como** ele é construído, revisado e fechado.
 
+## Dossiês construídos (`dossiers/retaguarda/`)
+
+> Um por tela migrada. Status: `rascunho` → `em-revisão` → `paridade-verde` → `concluído`. Hoje a paridade é de **resultado** (testes/integração/smoke verdes no novo); o **golden RUNTIME do legado** (captura V$SQL) é a pendência comum para fechar em `concluído`.
+
+| Dossiê | Tela | Status | Notas |
+|---|---|---|---|
+| [uCadBancos.md](dossiers/retaguarda/uCadBancos.md) | Bancos (piloto) | implementado + revisado | golden capturado; fan-out de replicação = Fase 4 |
+| [uCadOperacoesConta.md](dossiers/retaguarda/uCadOperacoesConta.md) | Operações de Conta | em-revisão | paridade OK (default tipo='D', sem uppercase) |
+| [uCadMarcas.md](dossiers/retaguarda/uCadMarcas.md) | Marcas | em-revisão | soft-delete; filtro de read corrigido no engine |
+| [uCadNCM.md](dossiers/retaguarda/uCadNCM.md) | NCM | em-revisão | NCMSH derivado; +CATEGORIA/UN_TRIBUTADA |
+| [uCadCidades.md](dossiers/retaguarda/uCadCidades.md) | Cidades | em-revisão | FK UF (IDUF=IBGE confirmado) |
+| [uCadBairros.md](dossiers/retaguarda/uCadBairros.md) | Bairros | em-revisão | tela NOVA sobre tabela real (sem form legado) |
+| [UCadTabelaPreco.md](dossiers/retaguarda/UCadTabelaPreco.md) | Tabela de Preço | em-revisão | VALOR_REAJUSTE percentual; CkbReajuste |
+| [UCadContasBancarias.md](dossiers/retaguarda/UCadContasBancarias.md) | Contas Bancárias | em-revisão | completa; FK Plano de Contas + Operadores deferidos |
+| [UCadLoteCobranca.md](dossiers/retaguarda/UCadLoteCobranca.md) | Lote de Cobrança | em-revisão | master-detail; ARECEBER/PARCEIROS migradas; juros |
+
 ## O que esta seção exige (resumo)
 
 - **Toda** SQL reconstruída — estática e dinâmica, com **todos** os caminhos condicionais, confirmada em **runtime**.
