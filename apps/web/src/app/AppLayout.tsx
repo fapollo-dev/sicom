@@ -22,7 +22,7 @@ const TELAS = [
   { href: '/cadastro/ncm', name: 'NCM', icon: FileText },
   { href: '/cadastro/contas-bancarias', name: 'Contas Bancárias', icon: Wallet },
   { href: '/cadastro/operacoes-conta', name: 'Operações de Conta', icon: Receipt },
-  { href: '/cobranca/lotes-md', name: 'Lote de Cobrança', icon: ListChecks },
+  { href: '/cobranca/lotes', name: 'Lote de Cobrança', icon: ListChecks },
 ] as const;
 
 /**
