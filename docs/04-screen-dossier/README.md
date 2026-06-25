@@ -35,7 +35,7 @@
 | [UCadTabelaPreco.md](dossiers/retaguarda/UCadTabelaPreco.md) | Tabela de Preço | em-revisão | VALOR_REAJUSTE percentual; CkbReajuste |
 | [UCadContasBancarias.md](dossiers/retaguarda/UCadContasBancarias.md) | Contas Bancárias | em-revisão | completa; FK Plano de Contas + Operadores deferidos |
 | [UCadLoteCobranca.md](dossiers/retaguarda/UCadLoteCobranca.md) | Lote de Cobrança | em-revisão | master-detail; ARECEBER/PARCEIROS migradas; juros |
-| [uCadClientes.md](dossiers/retaguarda/uCadClientes.md) | **Parceiros (Cliente/Fornecedor/…)** | rascunho | tela unificada multi-papel (CLI/FRN/FUN/TRA/CON); 195 col + 6 sub-tabelas; recon profunda feita, código pendente de plano |
+| [uCadClientes.md](dossiers/retaguarda/uCadClientes.md) | **Parceiros (Cliente/Fornecedor/…)** | em-revisão | tela unificada multi-papel (CLI/FRN/FUN/TRA/CON); **F1 (núcleo) verde**: master+endereços, papéis, CEP autofill, dup-CNPJ, multi-tenant. F2–F4 (sub-recursos/fiscal/replicação/golden) pendentes |
 
 ## O que esta seção exige (resumo)
 
