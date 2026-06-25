@@ -217,17 +217,24 @@ describe('5ª tela — Marcas via ENGINE CRUD (config declarativa; soft-delete h
     const lista = await withTenant(() => eng().list(cfg));
     expect(lista.length).toBe(3);
   });
-  it('SOFT-DELETE herdado do engine: excluir NÃO apaga — INDR=E e some da listagem', async () => {
+  it('SOFT-DELETE herdado do engine: excluir NÃO apaga — INDR=E, some da listagem E não reabre por código', async () => {
     const cod = await withTenant(() => eng().create(cfg, { descricao: 'MARCA TESTE' }));
     expect((await withTenant(() => eng().list(cfg))).length).toBe(4);
 
     await withTenant(() => eng().remove(cfg, cod)); // soft-delete (via config)
 
-    const row = (await withTenant(() => eng().read(cfg, cod))) as any;
-    expect(row).toBeDefined();
-    expect(row.indr).toBe('E');
-    expect(row.indr_usuario).toBe(7); // carimbo herdado
-    expect(row.indr_data).toBeTruthy();
+    // PARIDADE BR-05/G-05: carregar por código NÃO reabre o excluído → read() esconde.
+    const row = await withTenant(() => eng().read(cfg, cod));
+    expect(row).toBeUndefined();
+
+    // mas a linha CONTINUA na tabela (soft-delete): INDR=E + carimbo herdado.
+    const persistido = (await withTenant(() =>
+      (dbp.forTenantRead() as any).selectFrom(cfg.tabela).selectAll().where(cfg.pk, '=', cod).executeTakeFirst(),
+    )) as any;
+    expect(persistido).toBeDefined();
+    expect(persistido.indr).toBe('E');
+    expect(persistido.indr_usuario).toBe(7); // carimbo herdado
+    expect(persistido.indr_data).toBeTruthy();
 
     const lista = (await withTenant(() => eng().list(cfg))) as any[];
     expect(lista.length).toBe(3);

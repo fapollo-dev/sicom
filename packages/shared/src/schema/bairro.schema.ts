@@ -1,10 +1,11 @@
 import { z } from 'zod';
 
 /**
- * Cadastro de Bairros (legado `BAIRRO`) — 1ª tela HERDEIRA COMPLETA via <CadMaster>.
- * Exercita o palette: texto (DESCRICAO) + COMBO (REGIAO) + flag (ATIVO). Soft-delete
- * por INDR (como Marcas). O domínio de REGIAO é inferido do decode do GET_BAIRRO real
- * (C/N/S/L/O/NL/SL/NO/SO). ATIVO é uma flag editável S/N, distinta do soft-delete.
+ * Cadastro de Bairros — tabela REAL `BAIRRO` do schema legado (existe no Oracle, porém
+ * VAZIA e SEM tela Delphi de referência). Tela NOVA de manutenção sobre tabela real;
+ * exercita o palette: texto (DESCRICAO) + COMBO (REGIAO) + flag (ATIVO). Soft-delete por
+ * INDR (como Marcas). REGIAO é um código VARCHAR2(2): o domínio C/N/S/L/O/NL/SL/NO/SO é
+ * NOSSA interpretação de zona urbana (não há view/legado que o defina). ATIVO é flag S/N.
  */
 export const REGIAO_BAIRRO = [
   { value: 'C', label: 'Centro' },

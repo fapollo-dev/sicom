@@ -1,13 +1,15 @@
 -- 7ª tela: Cadastro de PRECO (Tabela de Reajuste) — completa o PALETTE de campos:
--- texto (DESCRICAO) + NÚMERO/MOEDA (VALOR_REAJUSTE numeric) + 2 CHECKBOX (REAJUSTE, ATIVO).
+-- texto (DESCRICAO) + PERCENTUAL (VALOR_REAJUSTE numeric 0–100) + 2 CHECKBOX (REAJUSTE, ATIVO).
 -- Tipos Oracle→PG: NUMBER(13,2)→numeric(13,2), CHAR(1)→char(1), VARCHAR2→varchar.
+-- Legado (UCadTabelaPreco.dfm): DESCRICAO Size=60; VALOR_REAJUSTE percentual (MaxValue=100,
+-- DisplayFormat '0.00'); OnNewRecord default REAJUSTE='S', ATIVO='S'.
 CREATE SEQUENCE IF NOT EXISTS seq_preco_id_preco;
 
 CREATE TABLE IF NOT EXISTS preco (
   id_preco         integer PRIMARY KEY DEFAULT nextval('seq_preco_id_preco'),
-  descricao        varchar(100),
-  valor_reajuste   numeric(13,2),          -- campo numérico/moeda (NumberField)
-  reajuste         char(1) DEFAULT 'N',    -- flag S/N (checkbox)
+  descricao        varchar(60),
+  valor_reajuste   numeric(13,2),          -- percentual 0–100 (NumberField, NÃO moeda)
+  reajuste         char(1) DEFAULT 'S',    -- flag S/N (checkbox) — default legado 'S'
   ativo            varchar(1) DEFAULT 'S', -- flag S/N (checkbox)
   indr             char(1),                -- 'E' = excluído (soft-delete)
   indr_usuario     integer,

@@ -24,12 +24,19 @@ export class CrudEngineService {
     return out;
   }
 
+  /** aplica campos derivados (BeforePost do legado) sobre o dto antes do delta. */
+  protected derivados(cfg: CrudConfig, dto: Record<string, unknown>, id?: number): Record<string, unknown> {
+    return cfg.derivar ? { ...dto, ...cfg.derivar(dto, id) } : dto;
+  }
+
   read(cfg: CrudConfig, id: number) {
-    return (this.dbp.forTenantRead() as AnyDB)
+    let q = (this.dbp.forTenantRead() as AnyDB)
       .selectFrom(cfg.tabela)
       .selectAll()
-      .where(cfg.pk, '=', id)
-      .executeTakeFirst();
+      .where(cfg.pk, '=', id);
+    // paridade BR-05/G-05: carregar por código NÃO reabre registro excluído (INDR='E').
+    if (cfg.softDelete) q = q.where(sql`coalesce(indr, 'I')`, '<>', 'E');
+    return q.executeTakeFirst();
   }
 
   /** Listagem da Pesquisa: filtro campo+operador+valor + ordenação, sobre a view GET_*. */
@@ -84,7 +91,7 @@ export class CrudEngineService {
   async create(cfg: CrudConfig, dto: Record<string, unknown>): Promise<number> {
     const op = currentTenant().operadorId ?? null;
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx) => {
-      const d = this.delta(cfg, dto);
+      const d = this.delta(cfg, this.derivados(cfg, dto, cfg.pkGerada === false ? Number(dto[cfg.pk]) : undefined));
       let id: number;
       if (cfg.pkGerada === false) {
         // chave natural: a PK vem do dto (usuário digitou); insere junto, sem sequence.
@@ -108,7 +115,7 @@ export class CrudEngineService {
   async update(cfg: CrudConfig, id: number, dto: Record<string, unknown>): Promise<void> {
     const op = currentTenant().operadorId ?? null;
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx) => {
-      const d = this.delta(cfg, dto);
+      const d = this.delta(cfg, this.derivados(cfg, dto, id));
       // lê o estado anterior ANTES do update (diff campo-a-campo p/ o histórico)
       const antes =
         cfg.historico === false || !Object.keys(d).length

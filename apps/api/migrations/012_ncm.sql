@@ -2,16 +2,19 @@
 -- NCM é a classificação fiscal (liga-se ao trabalho de DET_ALIQUOTA/reforma). PK = CODIGO
 -- é DIGITADA pelo usuário (não sequence). Sem INDR → hard-delete. CLOB→text, DATE→date.
 CREATE TABLE IF NOT EXISTS ncm (
-  codigo           integer PRIMARY KEY,    -- CHAVE NATURAL (código NCM), não gerada
-  ncmsh            varchar(20),            -- código formatado (texto)
-  descricao        text,                   -- CLOB no legado → memo (TextArea)
-  ipi              varchar(3),
-  vigencia_inicio  date,                   -- DateField
-  vigencia_fim     date,                   -- DateField
-  observacao       text,                   -- CLOB no legado → memo (TextArea)
-  usultalteracao   integer,
-  dtultimalteracao timestamptz,
-  dtcadastro       timestamptz
+  codigo                   integer PRIMARY KEY,    -- CHAVE NATURAL (código NCM), não gerada
+  ncmsh                    varchar(20) NOT NULL,   -- derivado: ConcatenaLeft(CODIGO,8,'0') (read-only)
+  descricao                text NOT NULL,          -- CLOB no legado → memo (TextArea); obrigatório
+  ipi                      varchar(3),             -- existe na tabela p/ data load; não editado por esta tela
+  categoria                text,                   -- CLOB no legado → memo (dbmmoCategoria)
+  un_tributada             varchar(10),            -- combo cbbUnidadeTributada (UN/DUZIA/TON/…)
+  un_tributada_descricao   varchar(50),            -- rótulo da unidade tributada
+  vigencia_inicio          date,                   -- DateField
+  vigencia_fim             date,                   -- DateField
+  observacao               text,                   -- CLOB no legado → memo (TextArea)
+  usultalteracao           integer,
+  dtultimalteracao         timestamptz,
+  dtcadastro               timestamptz
 );
 
 -- View de pesquisa fiel ao GET_NCM real: projeta codigo, descricao (cast p/ varchar),

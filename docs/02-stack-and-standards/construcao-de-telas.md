@@ -51,8 +51,11 @@ Mestre-detalhe (header+itens): troque por `AggregateConfig` + `createAggregateCo
 | `historico?` | default `true` — grava `HISTORICO_DINAMICO` (1 linha por campo alterado), na mesma transação |
 | `replica?` | `true` = gera evento no `outbox` (tabelas com trigger `REM_*`); default `false` |
 | `colunasPesquisa` | **whitelist** (anti-injection) das colunas filtráveis/ordenáveis na Pesquisa |
+| `derivar?` | `(dto, id?) => Record<string,unknown>` — **campos DERIVADOS server-side** (espelha derivações do `BeforePost`/`OnValidate` do legado). Ex.: NCM grava `NCMSH = ConcatenaLeft(CODIGO,8,'0')` → `derivar: (dto,id) => ({ ncmsh: String(dto.codigo ?? id).padStart(8,'0') })`. O usuário **nunca** digita o campo (read-only na tela); a coluna derivada deve estar em `colunas` para persistir. |
 
 O engine herda automaticamente: carimbo de auditoria, soft/hard-delete por `INDR`, `HISTORICO_DINAMICO` (helper `shared/crud/historico.ts`, usado igual pelo engine e por verticais hand-written), outbox de replicação, e a listagem com filtro `campo+operador+valor` + situação (rdgAtivo) + ordenação.
+
+> **Contrato do `read()` (paridade BR-05/G-05):** em telas com `softDelete`, carregar por código **não reabre** um registro excluído (`INDR='E'`) — o `read()` filtra `coalesce(indr,'I')<>'E'`. O registro continua na tabela (soft-delete), mas some de toda leitura por id e da listagem padrão. Para campos derivados, declare `derivar` na config e marque o campo como **read-only** na tela (não `register()` editável).
 
 `AggregateConfig` (mestre-detalhe) adiciona `detalhes: DetalheConfig[]` (`{ tabela, pk, fk, colunas, chave }`). O `AggregateEngineService` grava header + N itens numa **única transação**, **substitui** itens no update e exclui em **cascata em código** (espelha `TfrmCadMasterDet`).
 

@@ -34,6 +34,13 @@ export interface CrudConfig {
   historico?: boolean;
   /** colunas da view filtráveis/ordenáveis na Pesquisa (whitelist — anti-injection). */
   colunasPesquisa?: string[];
+  /**
+   * Campos DERIVADOS server-side (espelha derivações do BeforePost/OnValidate do legado,
+   * ex.: NCM grava NCMSH = ConcatenaLeft(CODIGO,8,'0')). Recebe o dto (e a PK no update)
+   * e retorna os valores a sobrepor ANTES do delta — o usuário nunca os digita.
+   * As colunas derivadas devem estar em `colunas` para serem persistidas.
+   */
+  derivar?: (dto: Record<string, unknown>, id?: number) => Record<string, unknown>;
 }
 
 /**
