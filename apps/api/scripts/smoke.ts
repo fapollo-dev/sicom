@@ -182,6 +182,45 @@ async function main() {
     const agg = (await aggPost.json()) as any;
     const aggId = Number(agg.codlotecob);
     check('POST /cobranca/lotes-md cria agregado (header+2 itens)', aggPost.status === 201 && agg.itens?.length === 2, agg);
+
+    // 13b) LOTE FULL (legado-fiel): read ENRIQUECIDO — itens com colunas de exibição
+    // (JOIN ARECEBER→PARCEIROS→PARCEIROS_END) + JUROS/TOTAL + RAZAO do cobrador.
+    const aggRead = (await (await fetch(`${base}/cobranca/lotes-md/${aggId}`, { headers: H })).json()) as any;
+    const it0 = aggRead?.itens?.[0] ?? {};
+    check(
+      'GET lote-md/:id traz itens com colunas de exibição (duplicata/valor/juros/total)',
+      aggRead?.itens?.length === 2 && 'duplicata' in it0 && 'valor' in it0 && 'juros' in it0 && 'total' in it0,
+      it0,
+    );
+    check('lote-md/:id expõe RAZAO do cobrador (JOIN parceiros)', typeof aggRead?.razao === 'string' && aggRead.razao.length > 0, aggRead?.razao);
+
+    // 13c) Picker ARECEBER (multi-select da inclusão de item): títulos da empresa do contexto
+    const arRes = await fetch(`${base}/cobranca/areceber`, { headers: H });
+    const ar = (await arRes.json().catch(() => [])) as any[];
+    check('GET /cobranca/areceber lista títulos da empresa (picker)', arRes.status === 200 && Array.isArray(ar) && ar.length > 0, ar?.length);
+
+    // 13c.2) Lookup do Cobrador (parceiros FUN='S') — alimenta o SelectField da tela
+    const cobRes = await fetch(`${base}/cobranca/cobradores`, { headers: H });
+    const cob = (await cobRes.json().catch(() => [])) as any[];
+    check(
+      'GET /cobranca/cobradores lista só FUN=S (com razao)',
+      cobRes.status === 200 && Array.isArray(cob) && cob.length > 0 && typeof cob[0]?.razao === 'string',
+      cob?.length,
+    );
+
+    // 13d) Cobrador deve ser FUN='S' — codparceiro de CLIENTE (FUN='N') é REJEITADO em PT (nunca 500)
+    const badCob = await fetch(`${base}/cobranca/lotes-md`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({ codparceiro: 20, data: '2026-06-25', itens: [{ codrcb: 300 }] }),
+    });
+    const badCobBody = (await badCob.json().catch(() => ({}))) as any;
+    check(
+      'POST lote com cobrador FUN=N → erro PT (status ajustado, nunca 500)',
+      badCob.status >= 400 && badCob.status !== 500 && typeof badCobBody.message === 'string',
+      { status: badCob.status, body: badCobBody },
+    );
+
     const aggDel = await fetch(`${base}/cobranca/lotes-md/${aggId}`, { method: 'DELETE', headers: H });
     check('DELETE /cobranca/lotes-md remove em cascata (204)', aggDel.status === 204, aggDel.status);
     const aggGone = await fetch(`${base}/cobranca/lotes-md/${aggId}`, { headers: H });

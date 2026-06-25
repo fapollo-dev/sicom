@@ -36,12 +36,17 @@ export class CrudEngineService {
       .where(cfg.pk, '=', id);
     // paridade BR-05/G-05: carregar por código NÃO reabre registro excluído (INDR='E').
     if (cfg.softDelete) q = q.where(sql`coalesce(indr, 'I')`, '<>', 'E');
+    // escopo multi-tenant: só lê registros da empresa do contexto (fail-closed).
+    if (cfg.empresaScoped) q = q.where('idempresa', '=', this.emp());
     return q.executeTakeFirst();
   }
 
   /** Listagem da Pesquisa: filtro campo+operador+valor + ordenação, sobre a view GET_*. */
   list(cfg: CrudConfig, query?: PesquisaQuery) {
     let q = (this.dbp.forTenantRead() as AnyDB).selectFrom(cfg.view).selectAll();
+
+    // escopo multi-tenant por empresa (a view expõe idempresa).
+    if (cfg.empresaScoped) q = q.where('idempresa', '=', this.emp());
 
     // filtro rdgAtivo (F6): ativos (INDR='I') · inativos (INDR='E') · todos.
     // 'incluirExcluidos' do legado mapeia para 'todos'.
@@ -92,6 +97,8 @@ export class CrudEngineService {
     const op = currentTenant().operadorId ?? null;
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx) => {
       const d = this.delta(cfg, this.derivados(cfg, dto, cfg.pkGerada === false ? Number(dto[cfg.pk]) : undefined));
+      // carimba o escopo de empresa (multi-tenant) — fail-closed se ausente.
+      if (cfg.empresaScoped) d.idempresa = this.emp();
       let id: number;
       if (cfg.pkGerada === false) {
         // chave natural: a PK vem do dto (usuário digitou); insere junto, sem sequence.

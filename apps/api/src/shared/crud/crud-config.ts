@@ -23,6 +23,13 @@ export interface CrudConfig {
   rbacForm: string;
   /** soft-delete via INDR (legado): excluir marca INDR='E' e a lista filtra. Default: hard-delete. */
   softDelete?: boolean;
+  /**
+   * Tabela tem IDEMPRESA (escopo multi-tenant por empresa, ex.: CONTAS_BANCARIAS).
+   * Quando true: o create CARIMBA `idempresa = currentTenant().empresaId` (fail-closed —
+   * sem empresa no contexto a coluna NOT NULL barra a escrita), e read/list FILTRAM por
+   * empresa. A view de listagem precisa expor `idempresa`. Default: false (tabela global).
+   */
+  empresaScoped?: boolean;
   /** gera evento de replicação no outbox (como BANCOS tem REM_*). Default: false. */
   replica?: boolean;
   /** carimba USULTALTERACAO/DTULTIMALTERACAO/DTCADASTRO. Default: true. */

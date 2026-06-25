@@ -30,7 +30,7 @@ let repo: BancoRepository;
 let dbp: DatabaseProvider;
 
 const withTenant = <T>(fn: () => Promise<T>) =>
-  runWithTenant({ tenantId: 'pinheirao', operadorId: 7 }, fn);
+  runWithTenant({ tenantId: 'pinheirao', operadorId: 7, empresaId: 1 }, fn);
 
 beforeAll(async () => {
   pg = await startEmbeddedPg();
@@ -145,11 +145,11 @@ describe('2ª tela — Operações de Conta via ENGINE (combo TIPO; sem replica�
 describe('3ª tela — Contas Bancárias via ENGINE (FK/lookup → bancos)', () => {
   const eng = () => new CrudEngineService(dbp);
   const cfg = contasBancariasCrudConfig;
-  it('seed (2 contas) + view traz o NOME do banco (lookup via JOIN)', async () => {
+  it('seed (3 contas, idempresa=1) + view traz o NOME do banco (lookup via JOIN)', async () => {
     const lista = (await withTenant(() => eng().list(cfg))) as any[];
-    expect(lista.length).toBe(2);
-    const matriz = lista.find((c) => c.titular === 'MATRIZ');
-    expect(matriz?.banco).toBe('BANCO DO BRASIL'); // JOIN na view
+    expect(lista.length).toBe(3); // tela completa: 3 contas semeadas (empresa 1)
+    const matriz = lista.find((c) => c.titular === 'APOLLO MATRIZ LTDA');
+    expect(matriz?.banco).toBe('BANCO DO BRASIL'); // JOIN na view (codbco=1)
   });
   it('CREATE com FK válido (codbco=2) funciona; carimba', async () => {
     const cod = await withTenant(() => eng().create(cfg, { codbco: 2, titular: 'NOVA', nroconta: '111', ativo: 'S' }));

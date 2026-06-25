@@ -161,6 +161,7 @@ const CODE_PT: Record<string, string> = {
   TRIBUTOS_ATUAIS_AUSENTES: 'Tributos atuais não cadastrados.',
   TRIBUTOS_REFORMA_AUSENTES: 'Tributos da Reforma não cadastrados.',
   TRIBUTOS_TRANSICAO_INCOMPLETOS: 'Tributos do período de transição estão incompletos.',
+  FORNECEDOR_NAO_ENCONTRADO: 'Fornecedor não encontrado com o código informado. Verifique!',
   // autorização
   TENANT_FORBIDDEN: 'Acesso negado: empresa/tenant não autorizado.',
   SEM_PERMISSAO: 'Você não tem permissão para executar esta ação.',

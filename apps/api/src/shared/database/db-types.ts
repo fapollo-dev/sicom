@@ -105,7 +105,81 @@ export interface GetLoteCobrancaView {
   codlotecob: number;
   codparceiro: number;
   data: Timestamptz;
+  razao: string | null; // RAZAO do "Cobrador" (LEFT JOIN parceiros) — coluna 016
   qtd_itens: number;
+}
+
+/**
+ * Tela "Lotes de Cobrança" COMPLETA (legado-fiel): tabelas transacionais e views de
+ * exibição/picker. Só CODRCB é coluna STORED do item; o resto do grid é LIVE-JOIN.
+ */
+export interface ParceirosTable {
+  codparceiro: Generated<number>;
+  razao: string | null;
+  fun: string | null; // 'S' = cobrador/fornecedor
+  tolerancia: number | null; // dias de carência p/ juros
+  codend: number | null; // → parceiros_end.codend
+}
+export interface ParceirosEndTable {
+  codend: Generated<number>;
+  endereco: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
+  telefone: string | null;
+}
+export interface AreceberTable {
+  codrcb: Generated<number>;
+  codparceiro: number | null;
+  codempresa: number; // ATENÇÃO: ARECEBER usa CODEMPRESA (não IDEMPRESA)
+  dtvenda: Timestamptz | null;
+  dtvenc: Timestamptz | null;
+  duplicata: string | null;
+  valor: number | null;
+  txjuros: number | null;
+  consiliado: string | null; // 'S' = conciliado
+}
+/** Picker GET_ARECEBER — documentos disponíveis p/ adicionar ao lote (live-join + juros/total). */
+export interface GetAreceberView {
+  codrcb: number;
+  codparceiro: number | null;
+  codempresa: number;
+  consiliado: string | null;
+  razao: string | null;
+  duplicata: string | null;
+  dtvenda: Timestamptz | null;
+  dtvenc: Timestamptz | null;
+  valor: number | null;
+  txjuros: number | null;
+  dias_atrazo: number;
+  dias_tolerancia: number;
+  juro: number;
+  total: number;
+  endereco: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
+  telefone: string | null;
+}
+/** Detalhe de exibição do lote GET_ITENS_LOTECOB — grid live-joined + juros/total. */
+export interface GetItensLotecobView {
+  codilotcob: number;
+  codlotecob: number;
+  codrcb: number;
+  codparceiro: number | null;
+  razao: string | null;
+  dtvenda: Timestamptz | null;
+  dtvenc: Timestamptz | null;
+  duplicata: string | null;
+  valor: number | null;
+  txjuros: number | null;
+  juros: number;
+  total: number;
+  endereco: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
+  telefone: string | null;
 }
 
 /** 5ª tela: MARCAS — cadastro com SOFT-DELETE (INDR). */
@@ -181,6 +255,11 @@ export interface TenantDB {
   lote_cobranca: LoteCobrancaTable;
   itens_lotecob: ItensLotecobTable;
   get_lote_cobranca: GetLoteCobrancaView;
+  parceiros: ParceirosTable;
+  parceiros_end: ParceirosEndTable;
+  areceber: AreceberTable;
+  get_areceber: GetAreceberView;
+  get_itens_lotecob: GetItensLotecobView;
   marcas: MarcasTable;
   get_marcas: GetMarcasView;
   det_aliquota: DetAliquotaTable;
