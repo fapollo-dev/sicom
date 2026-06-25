@@ -47,7 +47,9 @@ Errar a fronteira é o erro mais comum: criar uma tela dentro do DS, ou hackear 
 
 ## 3. Telas de tabela/CRUD → skill `crud-builder` (o caminho padrão do ERP)
 
-A retaguarda de um ERP é **majoritariamente tabela e CRUD**. Para essas telas existe um caminho sancionado e à prova de drift — a skill `crud-builder`, entry point `/ds-create-crud`. O agente **segue a skill à risca**: não inventa API de props, não gera de memória, não toca em disco antes do gate.
+> **Reconciliação ADR-016 (ler primeiro):** os **cadastros** do Apollo (massa das herdeiras de `TfrmCadMaster`) seguem o **pilar `<CadMaster>` record-first** (código+Enter, paridade de teclado ADR-010), consumindo o DS — e **não** o list-first do `crud-builder`. O `DataTable` do DS entra na **Pesquisa** e em telas de **consulta/alto volume**. Antes de construir tela de cadastro, leia o **[Guia de Construção de Telas](../02-stack-and-standards/construcao-de-telas.md)** e **copie de uma tela de referência real**. O `crud-builder` abaixo é o caminho para as telas **list-first** (consultas/grids), e a fronteira/autonomia/tronco do DS valem para os dois.
+
+A retaguarda de um ERP é **majoritariamente tabela e CRUD**. Para telas **list-first** existe um caminho sancionado e à prova de drift — a skill `crud-builder`, entry point `/ds-create-crud`. O agente **segue a skill à risca**: não inventa API de props, não gera de memória, não toca em disco antes do gate.
 
 ### Fluxo (3 estágios, carga incremental)
 
