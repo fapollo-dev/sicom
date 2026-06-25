@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useForm, type FieldValues, type UseFormReturn } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { ZodSchema } from 'zod';
-import { PageHeader, AlertModal } from '@apollosg/design-system';
+import { PageHeader, AlertModal, FormFieldInput } from '@apollosg/design-system';
 import { FormScope, useShortcutRegistry } from '../keyboard';
 import { Button } from '../ui/Button';
 import { createResourceApi } from './resourceApi';
@@ -110,16 +110,16 @@ export function CadMaster<T extends FieldValues>({
   };
 
   return (
-    <div style={{ maxWidth: 720 }}>
+    <div className="flex flex-col gap-form-gap max-w-3xl">
       <PageHeader title={titulo} description="Cadastro — teclado-first (Enter carrega · setas navegam · F6 filtra · Alt+letra)" />
-      <div style={{ marginTop: 16 }} />
       <FormScope onSubmit={onGravar}>
-        {/* CABEÇALHO: código (editável só no browse; Enter carrega) */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 12 }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span>Código</span>
-            <input
+        {/* CABEÇALHO: código (editável só no browse; Enter carrega) — FormFieldInput do DS */}
+        <div className="flex items-end gap-gp-sm mb-form-gap">
+          <div className="w-40">
+            <FormFieldInput
+              label="Código"
               value={codigo}
+              inputMode="numeric"
               onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ''))}
               onKeyDown={(e) => {
                 // mapa de teclado do edtCodigo (form-base): Enter carrega, setas navegam
@@ -141,9 +141,8 @@ export function CadMaster<T extends FieldValues>({
                 }
               }}
               disabled={!cad.codigoEditavel && !codigoEditavelInsert}
-              style={{ padding: '6px 8px', border: '1px solid #999', borderRadius: 4, width: 120 }}
             />
-          </label>
+          </div>
           {colunasPesquisa && cad.codigoEditavel && (
             <Button label="&Pesquisar" variant="soft" onClick={() => setPesquisaAberta(true)} />
           )}
@@ -163,7 +162,7 @@ export function CadMaster<T extends FieldValues>({
         )}
 
         {/* CAMPOS DA TELA (read-only fora de insert/edit) */}
-        <fieldset disabled={!cad.editavel} style={{ border: 'none', padding: 0, margin: 0 }}>
+        <fieldset disabled={!cad.editavel} className="border-0 p-0 m-0">
           {campos({ form, editavel: cad.editavel })}
         </fieldset>
 
@@ -199,8 +198,8 @@ function Rodape({ cad, onNovo, onEditar, onExcluir, onCancelar, outros }: any) {
   const [outrosAberto, setOutrosAberto] = useState(false);
   const temOutros: boolean = Array.isArray(outros) && outros.length > 0;
   return (
-    <div style={{ display: 'flex', gap: 8, marginTop: 16, position: 'relative' }}>
-      <button type="submit" style={{ display: 'none' }} aria-hidden />
+    <div className="flex gap-gp-sm relative">
+      <button type="submit" className="hidden" aria-hidden />
       {cad.podeAdicionar && <Button label="&Adicionar" variant="soft" onClick={onNovo} />}
       {cad.podeEditar && <Button label="&Editar" onClick={onEditar} />}
       {cad.podeExcluir && <Button label="E&xcluir" variant="ghost" onClick={onExcluir} />}
@@ -213,11 +212,7 @@ function Rodape({ cad, onNovo, onEditar, onExcluir, onCancelar, outros }: any) {
         <div
           role="menu"
           aria-label="Outros"
-          style={{
-            position: 'absolute', bottom: '100%', right: 0, marginBottom: 4, zIndex: 40,
-            background: '#fff', border: '1px solid #ccc', borderRadius: 6,
-            boxShadow: '0 4px 16px rgba(0,0,0,.12)', minWidth: 200, display: 'flex', flexDirection: 'column',
-          }}
+          className="absolute bottom-full right-0 mb-gp-xs z-40 flex w-56 flex-col rounded-radius-base border border-border bg-bg-surface shadow-sh-md"
         >
           {outros.map((a: { label: string; onClick: () => void }, i: number) => (
             <button
@@ -228,7 +223,7 @@ function Rodape({ cad, onNovo, onEditar, onExcluir, onCancelar, outros }: any) {
                 setOutrosAberto(false);
                 a.onClick();
               }}
-              style={{ textAlign: 'left', padding: '8px 12px', border: 'none', background: 'none', cursor: 'pointer' }}
+              className="cursor-pointer border-0 bg-transparent px-pad-md py-gp-xs text-left text-body-sm text-fg-default hover:bg-bg-canvas"
             >
               {a.label.replace('&', '')}
             </button>

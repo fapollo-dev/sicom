@@ -24,7 +24,7 @@ export function PrecosCadMaster() {
       schema={tabelaPrecoSchema}
       defaultValues={{ descricao: '', valor_reajuste: undefined, reajuste: 'N', ativo: 'S' }}
       campos={({ form, editavel }) => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="flex flex-col gap-form-gap">
           <Field
             label="&Descrição"
             disabled={!editavel}
@@ -44,7 +44,7 @@ export function PrecosCadMaster() {
               />
             )}
           />
-          <div style={{ display: 'flex', gap: 24 }}>
+          <div className="flex gap-gp-lg">
             <Controller
               control={form.control}
               name="reajuste"

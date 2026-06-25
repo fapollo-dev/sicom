@@ -21,7 +21,7 @@ export function CidadesCadMaster() {
       schema={cidadeSchema}
       defaultValues={{ cidade: '', iduf: undefined }}
       campos={({ form, editavel }) => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="flex flex-col gap-form-gap">
           <Field
             label="&Cidade"
             disabled={!editavel}

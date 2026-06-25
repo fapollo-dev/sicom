@@ -36,7 +36,7 @@ export function BairrosCadMaster() {
       schema={bairroSchema}
       defaultValues={{ descricao: '', regiao: undefined, ativo: 'S', idcidade: undefined }}
       campos={({ form, editavel }) => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="flex flex-col gap-form-gap">
           <Field
             label="&Descrição"
             disabled={!editavel}

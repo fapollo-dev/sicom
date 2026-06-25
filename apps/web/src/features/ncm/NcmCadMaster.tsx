@@ -24,7 +24,7 @@ export function NcmCadMaster() {
       schema={ncmSchema}
       defaultValues={{ ncmsh: '', descricao: '', ipi: '', observacao: '' }}
       campos={({ form, editavel }) => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="flex flex-col gap-form-gap">
           <Field
             label="&NCM (formatado)"
             disabled={!editavel}
@@ -43,7 +43,7 @@ export function NcmCadMaster() {
             error={form.formState.errors.ipi?.message as string | undefined}
             {...form.register('ipi')}
           />
-          <div style={{ display: 'flex', gap: 12 }}>
+          <div className="flex gap-gp-md">
             <Controller
               control={form.control}
               name="vigencia_inicio"

@@ -27,9 +27,9 @@ export function useMnemonic(
   // filho flex evita o gap e preserva o sublinhado do acelerador (com Alt).
   const node: ReactNode =
     key && index >= 0 ? (
-      <span style={{ whiteSpace: 'pre' }}>
+      <span className="whitespace-pre">
         {text.slice(0, index)}
-        <u style={{ textDecoration: altDown ? 'underline' : 'none' }}>{text[index]}</u>
+        <u className={altDown ? 'underline' : 'no-underline'}>{text[index]}</u>
         {text.slice(index + 1)}
       </span>
     ) : (

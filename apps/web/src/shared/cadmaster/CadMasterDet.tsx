@@ -75,13 +75,16 @@ function DetalheGrid<T extends FieldValues>({
 }) {
   const { fields, append, remove } = useFieldArray<T>({ control: form.control, name: spec.chave });
   return (
-    <fieldset disabled={!editavel} style={{ border: '1px solid #eee', borderRadius: 6, padding: 12, marginTop: 16 }}>
-      <legend style={{ padding: '0 6px', fontWeight: 600 }}>{spec.titulo}</legend>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {fields.length === 0 && <small style={{ color: '#888' }}>Sem itens.</small>}
+    <fieldset
+      disabled={!editavel}
+      className="mt-form-gap rounded-radius-base border border-border p-pad-md"
+    >
+      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">{spec.titulo}</legend>
+      <div className="flex flex-col gap-gp-sm">
+        {fields.length === 0 && <small className="text-fg-muted">Sem itens.</small>}
         {fields.map((f, index) => (
-          <div key={f.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-            <div style={{ flex: 1 }}>{spec.itemCampos({ form, editavel, index })}</div>
+          <div key={f.id} className="flex items-end gap-gp-sm">
+            <div className="flex-1">{spec.itemCampos({ form, editavel, index })}</div>
             <Button label="Remover" variant="ghost" onClick={() => remove(index)} />
           </div>
         ))}
