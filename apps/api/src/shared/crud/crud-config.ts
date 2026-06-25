@@ -1,0 +1,78 @@
+/**
+ * Configuração declarativa de um CRUD de tabela única — o "engine" lê isto e
+ * implementa read/list/create/update/delete herdando a fundação (auditoria,
+ * soft/hard-delete, outbox, view de listagem). Telas triviais viram ~config,
+ * não um vertical copiado (espírito da ADR-014 / contrato do form-base TfrmCadMaster).
+ */
+export interface CrudConfig {
+  /** tabela física (snake_case), ex.: 'marcas' */
+  tabela: string;
+  /** coluna PK, ex.: 'idmarca' */
+  pk: string;
+  /**
+   * PK gerada pelo banco (sequence). Default: true. Em cadastros de CHAVE NATURAL
+   * (ex.: NCM, CFOP, CST), o usuário digita o código → false: o create insere a PK
+   * vinda do dto, sem sequence.
+   */
+  pkGerada?: boolean;
+  /** view de listagem, ex.: 'get_marcas' */
+  view: string;
+  /** colunas editáveis pelo usuário (delta), ex.: ['descricao'] */
+  colunas: string[];
+  /** nome do form p/ RBAC (PossuiAcessoForm), ex.: 'FRMCADMARCAS' */
+  rbacForm: string;
+  /** soft-delete via INDR (legado): excluir marca INDR='E' e a lista filtra. Default: hard-delete. */
+  softDelete?: boolean;
+  /** gera evento de replicação no outbox (como BANCOS tem REM_*). Default: false. */
+  replica?: boolean;
+  /** carimba USULTALTERACAO/DTULTIMALTERACAO/DTCADASTRO. Default: true. */
+  audit?: boolean;
+  /**
+   * grava HISTORICO_DINAMICO (SetaHistorico_Dinamico): 1 linha por campo alterado
+   * em toda gravação/exclusão. Default: true (o form-base faz para todo cadastro).
+   */
+  historico?: boolean;
+  /** colunas da view filtráveis/ordenáveis na Pesquisa (whitelist — anti-injection). */
+  colunasPesquisa?: string[];
+}
+
+/**
+ * Detalhe de um agregado mestre-detalhe (espelha um ClientDataSet de detalhe do
+ * TfrmCadMasterDet). Ex.: itens_lotecob (pk codilotcob, fk codlotecob → master).
+ */
+export interface DetalheConfig {
+  tabela: string; // tabela do detalhe, ex.: 'itens_lotecob'
+  pk: string; // pk do detalhe (gerada), ex.: 'codilotcob'
+  fk: string; // coluna que aponta ao master, ex.: 'codlotecob'
+  colunas: string[]; // colunas editáveis do item, ex.: ['codrcb']
+  /** propriedade no dto/registro que carrega o array de itens (ex.: 'itens') */
+  chave: string;
+}
+
+/**
+ * Config de um CRUD MESTRE-DETALHE: o master é uma CrudConfig + N detalhes.
+ * O agregado (header + itens) é gravado/excluído numa ÚNICA transação (contrato
+ * TfrmCadMasterDet, recon §5b): validação e itens junto do master; cascata na exclusão.
+ */
+export interface AggregateConfig extends CrudConfig {
+  detalhes: DetalheConfig[];
+}
+
+/** Operadores da Pesquisa (espelham os TTipoPesquisa do frmPesquisa). */
+export type OperadorPesquisa = 'contem' | 'comeca' | 'igual' | 'diferente' | 'maior' | 'menor';
+
+/** rdgAtivo do form-base (F6): ativos → inativos(excluídos) → todos. */
+export type SituacaoRegistro = 'ativos' | 'inativos' | 'todos';
+
+/** Filtro da Pesquisa: campo + operador + valor, ordenação e situação (rdgAtivo). */
+export interface PesquisaQuery {
+  campo?: string;
+  operador?: OperadorPesquisa;
+  valor?: string;
+  orderBy?: string;
+  orderDir?: 'asc' | 'desc';
+  /** rdgAtivo (F6): default 'ativos'. Tem precedência sobre incluirExcluidos. */
+  situacao?: SituacaoRegistro;
+  incluirExcluidos?: boolean; // legado: equivale a situacao='todos'
+  limite?: number;
+}

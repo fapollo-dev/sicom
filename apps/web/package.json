@@ -1,0 +1,40 @@
+{
+  "name": "@apollo/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@apollo/shared": "workspace:*",
+    "@apollosg/design-system": "file:../../design-system",
+    "@hookform/resolvers": "^3.9.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "@tanstack/react-query": "^5.59.0",
+    "geist": "^1.7.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-hook-form": "^7.53.0",
+    "react-router-dom": "^6.26.2",
+    "tailwindcss": "^4.0.0",
+    "zod": "^3.23.8",
+    "lucide-react": "1.21.0"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.0.1",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/node": "^20.16.10",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.2",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.0",
+    "vitest": "^2.1.2"
+  }
+}

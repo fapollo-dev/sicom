@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dist-lib/
+.toolchain/
+.pgdata/
+*.log
+.env
+.DS_Store
+coverage/
+
+# distribuição Node baixada solta (toolchain headless tem a sua própria cópia)
+node-v20.20.2-darwin-arm64/
+
+# settings locais do Claude Code
+.claude/settings.local.json

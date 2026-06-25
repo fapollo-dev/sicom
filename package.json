@@ -1,0 +1,15 @@
+{
+  "name": "apollo-erp",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Apollo ERP — migração web (NestJS + React). Fase 0 esqueleto andante.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "api:dev": "pnpm --filter @apollo/api start:dev",
+    "api:test": "pnpm --filter @apollo/api test",
+    "web:dev": "pnpm --filter @apollo/web dev",
+    "build": "pnpm -r build"
+  }
+}

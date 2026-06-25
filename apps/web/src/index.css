@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+/* Tailwind v4 precisa escanear os bundles do DS p/ gerar as utilities usadas
+   DENTRO dos componentes do pacote (node_modules é ignorado por default). */
+@source "../node_modules/@apollosg/design-system/dist-lib/**/*.{mjs,cjs,js}";
+
+/* Tokens/tema do Apollo DS (cores, espaçamentos, etc. como CSS vars). */
+@import "@apollosg/design-system/theme.css";
+
+/* (Fonte Geist omitida nesta fatia — cai no system-ui; o pacote `geist`
+   não expõe o woff2 no caminho do template. Reativar quando alinharmos a fonte.) */
+html,
+body {
+  background: var(--color-bg-canvas);
+  color: var(--color-fg-default);
+  font-family: system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+  margin: 0;
+}

@@ -1,0 +1,38 @@
+# 04 — Dossiê de Tela
+
+> O **dossiê de tela** é a unidade de trabalho do Apollo (ADR-012): nenhuma tela vira código sem dossiê completo, revisão independente e paridade verde contra o legado. Esta seção tem o **template** preenchível e o **processo** que o move pelo loop fazer→revisar→legado×novo.
+
+## Pré-requisitos de leitura
+
+- [../00-orientation/mission-and-principles.md](../00-orientation/mission-and-principles.md) — a tese "contexto é tudo"; o dossiê é sua materialização.
+- [../00-orientation/canonical-decisions.md](../00-orientation/canonical-decisions.md) — **ADR-012** (dossiê = unidade de trabalho e contrato de refatoração).
+- [../00-orientation/how-agents-work.md](../00-orientation/how-agents-work.md) — o loop de trabalho e "uma tela = uma unidade".
+
+## Arquivos da seção
+
+| Arquivo | Para quê |
+|---------|----------|
+| [dossier-template.md](dossier-template.md) | **Arquivo-coroa.** O template preenchível, seções 1–10: Identidade, UI (`.dfm`→React + reflow), Eventos, **Dados** (toda SQL estática+dinâmica com todos os caminhos), Regras de negócio (o *porquê*), Efeitos colaterais + estado externo (a armadilha de acoplamento), Dependências, TabOrder + mnemônicos, Casos golden, Alvo (NestJS + React + offline). Com exemplos de campo preenchido. |
+| [dossier-process.md](dossier-process.md) | O processo: quem faz o quê, o loop por tela, quando uma tela está "concluída" (dossiê + revisão + paridade verde), como o dossiê alimenta backend/frontend/testes, versionar dossiê com o código, e a regra "verde só conta se exercita o caminho real". |
+
+## Ordem de leitura sugerida
+
+1. [dossier-template.md](dossier-template.md) — entenda **o que** um dossiê captura e a profundidade exigida.
+2. [dossier-process.md](dossier-process.md) — entenda **como** ele é construído, revisado e fechado.
+
+## O que esta seção exige (resumo)
+
+- **Toda** SQL reconstruída — estática e dinâmica, com **todos** os caminhos condicionais, confirmada em **runtime**.
+- **Toda** regra de negócio com o *porquê* e procedência (`.pas`/`.dfm`/runtime/datamodule).
+- **Todo** efeito colateral em estado externo mapeado — datamodules globais, triggers, escritas-fantasma.
+- **Mapa de teclado** extraído do `.dfm` (taborder + mnemônicos + F-keys).
+- **Golden** capturados do legado cobrindo cada condicional e regra.
+- **Revisão** independente + **paridade verde** que exercita o caminho real.
+
+## Ver também
+
+- [../03-legacy-analysis/](../03-legacy-analysis/) — de onde vem o conteúdo do dossiê (anatomia Delphi, SQL dinâmica, regra de negócio, acoplamento oculto).
+- [../02-stack-and-standards/keyboard-ux-layer.md](../02-stack-and-standards/keyboard-ux-layer.md) — o mapa de teclado do `.dfm` (seção 8 do dossiê).
+- [../06-testing-quality/](../06-testing-quality/) — onde os golden viram teste de paridade e Playwright.
+- [../08-agents/roster.md](../08-agents/roster.md) — os papéis que executam o processo.
+- [../00-orientation/canonical-decisions.md](../00-orientation/canonical-decisions.md) — ADR-012.
