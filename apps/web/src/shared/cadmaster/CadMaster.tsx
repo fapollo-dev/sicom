@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useForm, type FieldValues, type UseFormReturn } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { ZodSchema } from 'zod';
-import { PageHeader } from '@apollosg/design-system';
+import { PageHeader, AlertModal } from '@apollosg/design-system';
 import { FormScope, useShortcutRegistry } from '../keyboard';
 import { Button } from '../ui/Button';
 import { createResourceApi } from './resourceApi';
@@ -65,6 +65,7 @@ export function CadMaster<T extends FieldValues>({
   const form = useForm<T>({ resolver: zodResolver(schema), defaultValues });
   const [codigo, setCodigo] = useState('');
   const [pesquisaAberta, setPesquisaAberta] = useState(false);
+  const [confirmExcluir, setConfirmExcluir] = useState(false);
   // chave natural: no insert o usuário DIGITA o código (que vira a PK)
   const codigoEditavelInsert = !pkGerada && cad.modo === 'insert';
 
@@ -96,12 +97,12 @@ export function CadMaster<T extends FieldValues>({
     cad.novo();
   };
   const onEditar = () => cad.editar();
-  const onExcluir = async () => {
-    if (confirm('Confirma a exclusão do registro?')) {
-      await cad.excluir();
-      form.reset(defaultValues ?? ({} as T));
-      setCodigo('');
-    }
+  const onExcluir = () => setConfirmExcluir(true); // abre o AlertModal do DS (≠ confirm() nativo)
+  const doExcluir = async () => {
+    await cad.excluir();
+    form.reset(defaultValues ?? ({} as T));
+    setCodigo('');
+    setConfirmExcluir(false);
   };
   const onCancelar = () => {
     cad.cancelar();
@@ -176,6 +177,18 @@ export function CadMaster<T extends FieldValues>({
           outros={outros}
         />
       </FormScope>
+
+      {/* Confirmação de exclusão — AlertModal do DS (substitui o confirm() nativo) */}
+      <AlertModal
+        open={confirmExcluir}
+        onOpenChange={setConfirmExcluir}
+        tone="danger"
+        title="Confirma a exclusão do registro?"
+        description="Esta ação remove o registro corrente."
+        confirmLabel="Excluir"
+        cancelLabel="Cancelar"
+        onConfirm={doExcluir}
+      />
     </div>
   );
 }
