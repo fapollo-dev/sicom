@@ -7,7 +7,7 @@ import { z } from 'zod';
  */
 export const ncmSchema = z.object({
   // chave natural: obrigatória no insert (o usuário digita o código NCM)
-  codigo: z.number().int().positive(),
+  codigo: z.number().int('Código NCM inválido').positive('Código NCM inválido'),
   ncmsh: z.string().trim().max(20).optional(),
   descricao: z.string().trim().max(500).optional(),
   ipi: z.string().trim().max(3).optional(),

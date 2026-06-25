@@ -26,10 +26,12 @@ export const ATIVO_SN = [
 export const bairroSchema = z.object({
   // DESCRICAO nullable no legado; mantemos só o limite de tamanho (sem "obrigatório").
   descricao: z.string().trim().max(100).optional(),
-  regiao: z.enum(['C', 'N', 'S', 'L', 'O', 'NL', 'SL', 'NO', 'SO']).optional(),
-  ativo: z.enum(['S', 'N']).optional(),
+  regiao: z
+    .enum(['C', 'N', 'S', 'L', 'O', 'NL', 'SL', 'NO', 'SO'], { message: 'Região inválida' })
+    .optional(),
+  ativo: z.enum(['S', 'N'], { message: "Informe 'S' ou 'N'" }).optional(),
   // LOOKUP/FK → CIDADES (idcidade). Opcional (bairro pode não ter cidade).
-  idcidade: z.number().int().positive().optional(),
+  idcidade: z.number().int('Cidade inválida').positive('Cidade inválida').optional(),
 });
 
 export type CriarBairroDto = z.infer<typeof bairroSchema>;

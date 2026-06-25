@@ -24,12 +24,12 @@ export const bancoSchema = z.object({
   cidade: z.string().trim().min(1, 'Cidade é obrigatória').pipe(upper(50)),
   // opcionais
   agencia: upper(10).optional(),
-  uf: z.string().trim().length(2).toUpperCase().optional(),
-  agenciaCedente: z.number().int().optional(),
-  codbcoblt: z.number().int().optional(),
-  convenio: z.number().int().optional(),
-  carteiraCobranca: z.number().int().optional(),
-  variacaoCarteira: z.number().int().optional(),
+  uf: z.string().trim().length(2, 'UF inválida (use a sigla de 2 letras)').toUpperCase().optional(),
+  agenciaCedente: z.number().int('Agência cedente inválida').optional(),
+  codbcoblt: z.number().int('Código do banco (boleto) inválido').optional(),
+  convenio: z.number().int('Convênio inválido').optional(),
+  carteiraCobranca: z.number().int('Carteira de cobrança inválida').optional(),
+  variacaoCarteira: z.number().int('Variação da carteira inválida').optional(),
 });
 
 /** Entrada de criação (sem CODBCO — gerado por sequence). */

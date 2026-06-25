@@ -16,11 +16,11 @@ export function LotesCobrancaCadMaster() {
       schema={loteCobrancaSchema}
       defaultValues={{ codparceiro: undefined, data: '', itens: [] }}
       colunasPesquisa={[
-        { campo: 'codlotecob', label: 'Código' },
-        { campo: 'codparceiro', label: 'Parceiro' },
+        { campo: 'codlotecob', label: 'Código', tipo: 'text', largura: 110 },
+        { campo: 'codparceiro', label: 'Parceiro', tipo: 'text' },
       ]}
       campos={({ form, editavel }) => (
-        <div className="flex flex-col gap-form-gap">
+        <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
           <Field
             label="&Parceiro (cod)"
             type="number"

@@ -5,8 +5,8 @@ import { z } from 'zod';
  * Alvo do LOOKUP/FK de Bairros. Campos = nomes de coluna (engine mapeia direto).
  */
 export const cidadeSchema = z.object({
-  idcidade: z.number().int().positive(),
-  iduf: z.number().int().optional(),
+  idcidade: z.number().int('Código IBGE inválido').positive('Código IBGE inválido'),
+  iduf: z.number().int('UF inválida').optional(),
   cidade: z.string().trim().max(200).optional(),
 });
 

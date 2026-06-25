@@ -14,18 +14,22 @@ export function MarcasCadMaster() {
       pk="idmarca"
       viewPk="codigo" // get_marcas expõe a PK como 'codigo'
       colunasPesquisa={[
-        { campo: 'codigo', label: 'Código' },
-        { campo: 'descricao', label: 'Descrição' },
+        { campo: 'codigo', label: 'Código', tipo: 'text', largura: 110 },
+        { campo: 'descricao', label: 'Descrição', tipo: 'text' },
       ]}
       schema={marcaSchema}
       defaultValues={{ descricao: '' }}
       campos={({ form, editavel }) => (
-        <Field
-          label="&Descrição"
-          disabled={!editavel}
-          error={form.formState.errors.descricao?.message as string | undefined}
-          {...form.register('descricao')}
-        />
+        <div className="grid grid-cols-1 gap-form-gap">
+          <div className="sm:col-span-2">
+            <Field
+              label="&Descrição"
+              disabled={!editavel}
+              error={form.formState.errors.descricao?.message as string | undefined}
+              {...form.register('descricao')}
+            />
+          </div>
+        </div>
       )}
     />
   );

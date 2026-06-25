@@ -213,16 +213,21 @@ function Rodape({ cad, onNovo, onEditar, onExcluir, onCancelar, outros }: any) {
   const [outrosAberto, setOutrosAberto] = useState(false);
   const temOutros: boolean = Array.isArray(outros) && outros.length > 0;
   return (
-    <div className="flex gap-gp-sm relative">
+    <div className="relative mt-form-gap flex items-center gap-gp-sm border-t border-border pt-form-gap">
       <button type="submit" className="hidden" aria-hidden />
-      {cad.podeAdicionar && <Button label="&Adicionar" variant="soft" onClick={onNovo} />}
-      {cad.podeEditar && <Button label="&Editar" onClick={onEditar} />}
-      {cad.podeExcluir && <Button label="E&xcluir" variant="ghost" onClick={onExcluir} />}
-      {cad.podeGravar && <Button label="&Gravar" onClick={onGravarSubmit} />}
-      <Button label={cad.cancelarLabel === 'Sair' ? '&Sair' : '&Cancelar'} variant="ghost" onClick={onCancelar} />
 
-      {/* "Outros" (Alt+O) — popup de ações extras por-tela (ppmBotaoOutros) */}
+      {/* esquerda: destrutivas / secundárias */}
+      {cad.podeExcluir && <Button label="E&xcluir" variant="ghost" onClick={onExcluir} />}
       {temOutros && <Button label="&Outros" variant="ghost" onClick={() => setOutrosAberto((v) => !v)} />}
+
+      {/* direita: ações primárias por estado (mnemônicos como no form-base) */}
+      <div className="ml-auto flex gap-gp-sm">
+        <Button label={cad.cancelarLabel === 'Sair' ? '&Sair' : '&Cancelar'} variant="outline" onClick={onCancelar} />
+        {cad.podeAdicionar && <Button label="&Adicionar" variant="soft" onClick={onNovo} />}
+        {cad.podeEditar && <Button label="&Editar" variant="outline" onClick={onEditar} />}
+        {cad.podeGravar && <Button label="&Gravar" variant="filled" onClick={onGravarSubmit} />}
+      </div>
+
       {temOutros && outrosAberto && (
         <div
           role="menu"

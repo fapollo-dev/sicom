@@ -8,9 +8,23 @@ CREATE TABLE IF NOT EXISTS cidades (
 );
 
 -- GET_CIDADES real faz LEFT JOIN em UF p/ a sigla; aqui (sem cadastro de UF nesta
--- fatia) projetamos idcidade/iduf/cidade. Divergência documentada.
+-- fatia) decodificamos IDUF→SIGLA (códigos IBGE) na própria view, espelhando o
+-- LEFT JOIN em UF do GET_CIDADES real — o lookup mostra a sigla, não o id cru.
 CREATE OR REPLACE VIEW get_cidades AS
-SELECT idcidade, iduf, cidade FROM cidades;
+SELECT
+  idcidade,
+  iduf,
+  cidade,
+  CASE iduf
+    WHEN 11 THEN 'RO' WHEN 12 THEN 'AC' WHEN 13 THEN 'AM' WHEN 14 THEN 'RR'
+    WHEN 15 THEN 'PA' WHEN 16 THEN 'AP' WHEN 17 THEN 'TO' WHEN 21 THEN 'MA'
+    WHEN 22 THEN 'PI' WHEN 23 THEN 'CE' WHEN 24 THEN 'RN' WHEN 25 THEN 'PB'
+    WHEN 26 THEN 'PE' WHEN 27 THEN 'AL' WHEN 28 THEN 'SE' WHEN 29 THEN 'BA'
+    WHEN 31 THEN 'MG' WHEN 32 THEN 'ES' WHEN 33 THEN 'RJ' WHEN 35 THEN 'SP'
+    WHEN 41 THEN 'PR' WHEN 42 THEN 'SC' WHEN 43 THEN 'RS' WHEN 50 THEN 'MS'
+    WHEN 51 THEN 'MT' WHEN 52 THEN 'GO' WHEN 53 THEN 'DF' ELSE NULL
+  END AS uf
+FROM cidades;
 
 -- Seed: cidades reais (código IBGE).
 INSERT INTO cidades (idcidade, iduf, cidade) VALUES

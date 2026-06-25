@@ -31,29 +31,31 @@ export function ContasBancariasCadMaster() {
       resourcePath="cadastro/contas-bancarias"
       pk="codconta"
       colunasPesquisa={[
-        { campo: 'codconta', label: 'Código' },
-        { campo: 'banco', label: 'Banco' },
-        { campo: 'titular', label: 'Titular' },
-        { campo: 'nroconta', label: 'Nº Conta' },
+        { campo: 'codconta', label: 'Código', tipo: 'text', largura: 110 },
+        { campo: 'banco', label: 'Banco', tipo: 'text' },
+        { campo: 'titular', label: 'Titular', tipo: 'text' },
+        { campo: 'nroconta', label: 'Nº Conta', tipo: 'text', largura: 140 },
       ]}
       schema={contaBancariaSchema}
       defaultValues={{ codbco: undefined, titular: '', nroconta: '', ativo: 'S' }}
       campos={({ form }) => (
-        <div className="flex flex-col gap-form-gap">
-          <Controller
-            control={form.control}
-            name="codbco"
-            render={({ field }) => (
-              <SelectField
-                label="&Banco"
-                options={bancoOptions}
-                value={field.value != null ? String(field.value) : undefined}
-                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                placeholder="Selecione o banco…"
-                error={form.formState.errors.codbco?.message as string | undefined}
-              />
-            )}
-          />
+        <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Controller
+              control={form.control}
+              name="codbco"
+              render={({ field }) => (
+                <SelectField
+                  label="&Banco"
+                  options={bancoOptions}
+                  value={field.value != null ? String(field.value) : undefined}
+                  onChange={(v) => field.onChange(v ? Number(v) : undefined)}
+                  placeholder="Selecione o banco…"
+                  error={form.formState.errors.codbco?.message as string | undefined}
+                />
+              )}
+            />
+          </div>
           <Field
             label="&Titular"
             error={form.formState.errors.titular?.message as string | undefined}

@@ -7,11 +7,11 @@ import { z } from 'zod';
  * o contrato `TfrmCadMasterDet` do form-base (ver form-base-cadmaster.md §5b).
  */
 export const itemLoteSchema = z.object({
-  codrcb: z.number({ message: 'Conta a receber é obrigatória' }).int(), // → ARECEBER
+  codrcb: z.number({ message: 'Conta a receber é obrigatória' }).int('Conta a receber inválida'), // → ARECEBER
 });
 
 export const loteCobrancaSchema = z.object({
-  codparceiro: z.number({ message: 'Parceiro é obrigatório' }).int(),
+  codparceiro: z.number({ message: 'Parceiro é obrigatório' }).int('Parceiro inválido'),
   data: z.string().min(1, 'Data é obrigatória'), // ISO
   itens: z.array(itemLoteSchema).min(1, 'Informe ao menos um item'),
 });

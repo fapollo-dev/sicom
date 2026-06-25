@@ -7,10 +7,10 @@ import { z } from 'zod';
  * Subconjunto fiel das 28 colunas reais — foco no padrão de lookup/FK.
  */
 export const contaBancariaSchema = z.object({
-  codbco: z.number({ message: 'Banco é obrigatório' }).int(), // FK → BANCOS (obrigatório)
+  codbco: z.number({ message: 'Banco é obrigatório' }).int('Banco inválido'), // FK → BANCOS (obrigatório)
   titular: z.string().trim().max(50).optional(),
   nroconta: z.string().trim().max(10).optional(),
-  ativo: z.enum(['S', 'N']).default('S'),
+  ativo: z.enum(['S', 'N'], { message: "Informe 'S' ou 'N'" }).default('S'),
 });
 
 export type CriarContaBancariaDto = z.infer<typeof contaBancariaSchema>;

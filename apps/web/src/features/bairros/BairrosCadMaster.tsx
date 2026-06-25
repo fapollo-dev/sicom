@@ -28,21 +28,23 @@ export function BairrosCadMaster() {
       resourcePath="cadastro/bairros"
       pk="idbairro"
       colunasPesquisa={[
-        { campo: 'idbairro', label: 'Código' },
-        { campo: 'descricao', label: 'Descrição' },
-        { campo: 'regiao', label: 'Região' },
-        { campo: 'ativo', label: 'Ativo' },
+        { campo: 'idbairro', label: 'Código', tipo: 'text', largura: 90 },
+        { campo: 'descricao', label: 'Descrição', tipo: 'text' },
+        { campo: 'regiao', label: 'Região', tipo: 'text', largura: 140 },
+        { campo: 'ativo', label: 'Ativo', tipo: 'text', largura: 90 },
       ]}
       schema={bairroSchema}
       defaultValues={{ descricao: '', regiao: undefined, ativo: 'S', idcidade: undefined }}
       campos={({ form, editavel }) => (
-        <div className="flex flex-col gap-form-gap">
-          <Field
-            label="&Descrição"
-            disabled={!editavel}
-            error={form.formState.errors.descricao?.message as string | undefined}
-            {...form.register('descricao')}
-          />
+        <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Field
+              label="&Descrição"
+              disabled={!editavel}
+              error={form.formState.errors.descricao?.message as string | undefined}
+              {...form.register('descricao')}
+            />
+          </div>
           <Controller
             control={form.control}
             name="regiao"
@@ -59,20 +61,6 @@ export function BairrosCadMaster() {
           />
           <Controller
             control={form.control}
-            name="idcidade"
-            render={({ field }) => (
-              <SelectField
-                label="&Cidade"
-                options={cidadeOptions}
-                value={field.value != null ? String(field.value) : undefined}
-                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                placeholder="Selecione a cidade…"
-                error={form.formState.errors.idcidade?.message as string | undefined}
-              />
-            )}
-          />
-          <Controller
-            control={form.control}
             name="ativo"
             render={({ field }) => (
               <SelectField
@@ -83,6 +71,22 @@ export function BairrosCadMaster() {
               />
             )}
           />
+          <div className="sm:col-span-2">
+            <Controller
+              control={form.control}
+              name="idcidade"
+              render={({ field }) => (
+                <SelectField
+                  label="&Cidade"
+                  options={cidadeOptions}
+                  value={field.value != null ? String(field.value) : undefined}
+                  onChange={(v) => field.onChange(v ? Number(v) : undefined)}
+                  placeholder="Selecione a cidade…"
+                  error={form.formState.errors.idcidade?.message as string | undefined}
+                />
+              )}
+            />
+          </div>
         </div>
       )}
     />

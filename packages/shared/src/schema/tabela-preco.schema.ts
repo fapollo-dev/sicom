@@ -9,9 +9,9 @@ import { z } from 'zod';
 export const tabelaPrecoSchema = z.object({
   descricao: z.string().trim().max(100).optional(),
   // numeric(13,2): aceita number; vazio = undefined (NumberField já entrega undefined).
-  valor_reajuste: z.number().nonnegative().optional(),
-  reajuste: z.enum(['S', 'N']).optional(),
-  ativo: z.enum(['S', 'N']).optional(),
+  valor_reajuste: z.number().nonnegative('Valor de reajuste inválido').optional(),
+  reajuste: z.enum(['S', 'N'], { message: "Informe 'S' ou 'N'" }).optional(),
+  ativo: z.enum(['S', 'N'], { message: "Informe 'S' ou 'N'" }).optional(),
 });
 
 export type CriarTabelaPrecoDto = z.infer<typeof tabelaPrecoSchema>;

@@ -13,8 +13,12 @@ export const TIPO_OPERACAO_CONTA = [
 ] as const;
 
 export const operacaoContaSchema = z.object({
-  descricao: z.string().trim().min(1, 'Descrição é obrigatória').max(100),
-  tipo: z.enum(['C', 'D'], { message: 'Tipo é obrigatório' }),
+  descricao: z
+    .string()
+    .trim()
+    .min(1, 'Descrição é obrigatória')
+    .max(100, 'Descrição deve ter no máximo 100 caracteres'),
+  tipo: z.enum(['C', 'D'], { message: "Tipo inválido (informe 'C' ou 'D')" }),
 });
 
 export type CriarOperacaoContaDto = z.infer<typeof operacaoContaSchema>;

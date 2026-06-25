@@ -32,10 +32,10 @@ export function BancosCadMaster() {
       pk="codbco"
       viewPk="codigo" // get_bancos expõe a PK como 'codigo'
       colunasPesquisa={[
-        { campo: 'codigo', label: 'Código' },
-        { campo: 'banco', label: 'Banco' },
-        { campo: 'agencia', label: 'Agência' },
-        { campo: 'cidade', label: 'Cidade' },
+        { campo: 'codigo', label: 'Código', tipo: 'text', largura: 110 },
+        { campo: 'banco', label: 'Banco', tipo: 'text' },
+        { campo: 'agencia', label: 'Agência', tipo: 'text', largura: 140 },
+        { campo: 'cidade', label: 'Cidade', tipo: 'text' },
       ]}
       schema={bancoSchema}
       defaultValues={{
@@ -49,13 +49,15 @@ export function BancosCadMaster() {
         variacaoCarteira: undefined,
       }}
       campos={({ form, editavel }) => (
-        <div className="flex flex-col gap-form-gap">
-          <Field
-            label="&Banco"
-            disabled={!editavel}
-            error={form.formState.errors.banco?.message as string | undefined}
-            {...form.register('banco')}
-          />
+        <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Field
+              label="&Banco"
+              disabled={!editavel}
+              error={form.formState.errors.banco?.message as string | undefined}
+              {...form.register('banco')}
+            />
+          </div>
           <Field
             label="&Cidade"
             disabled={!editavel}

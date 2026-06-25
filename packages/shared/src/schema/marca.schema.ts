@@ -9,7 +9,7 @@ import { z } from 'zod';
 export const marcaSchema = z.object({
   // Fiel ao legado: DESCRICAO é NULLABLE e NÃO é Required (a tela não valida obrigatório).
   // Mantemos só o limite de tamanho da coluna (VARCHAR2(100)) — sem "obrigatório".
-  descricao: z.string().trim().max(100).optional(),
+  descricao: z.string().trim().max(100, 'Descrição deve ter no máximo 100 caracteres').optional(),
 });
 
 export type CriarMarcaDto = z.infer<typeof marcaSchema>;

@@ -1,24 +1,28 @@
 import { z } from 'zod';
 
 /** Precificação — regra de cálculo (TMargemPreco). Modo D=markup/custo, M=margem/venda. */
-export const modoPrecificacao = z.enum(['D', 'M']);
+export const modoPrecificacao = z.enum(['D', 'M'], {
+  message: "Modo de precificação inválido (informe 'D' ou 'M')",
+});
 
 export const calcularVendaSchema = z.object({
-  custo: z.number().nonnegative(),
+  custo: z.number().nonnegative('Custo não pode ser negativo'),
   margem: z.number(),
   modo: modoPrecificacao,
 });
 export type CalcularVendaDto = z.infer<typeof calcularVendaSchema>;
 
 export const calcularMargemSchema = z.object({
-  venda: z.number().nonnegative(),
-  custo: z.number().nonnegative(),
+  venda: z.number().nonnegative('Venda não pode ser negativa'),
+  custo: z.number().nonnegative('Custo não pode ser negativo'),
   modo: modoPrecificacao,
 });
 export type CalcularMargemDto = z.infer<typeof calcularMargemSchema>;
 
 /** Precificação fiscal — parametrizável por regime (atual/reforma/transição). */
-export const regimeTributario = z.enum(['atual', 'reforma', 'transicao']);
+export const regimeTributario = z.enum(['atual', 'reforma', 'transicao'], {
+  message: 'Regime tributário inválido',
+});
 const tributosAtuais = z.object({
   icmsEfetivo: z.number(),
   fcp: z.number().default(0),
@@ -28,7 +32,9 @@ const tributosAtuais = z.object({
   irpj: z.number().optional(),
   csll: z.number().optional(),
   simplesNacional: z.boolean().optional(),
-  modoMargem: z.enum(['final', 'liquido']).optional(),
+  modoMargem: z
+    .enum(['final', 'liquido'], { message: "Modo de margem inválido (informe 'final' ou 'liquido')" })
+    .optional(),
 });
 const tributosReforma = z.object({
   ibs: z.number(),
@@ -36,7 +42,7 @@ const tributosReforma = z.object({
   impostoSeletivo: z.number().optional(),
 });
 export const calcularFiscalSchema = z.object({
-  custo: z.number().nonnegative(),
+  custo: z.number().nonnegative('Custo não pode ser negativo'),
   margem: z.number(),
   tabela: z.object({
     regime: regimeTributario,
@@ -50,14 +56,16 @@ export type CalcularFiscalDto = z.infer<typeof calcularFiscalSchema>;
 
 /** Precificação de produto: regra legada (aliquota/UF) + regime da Reforma. */
 export const precificarProdutoSchema = z.object({
-  custo: z.number().nonnegative(),
+  custo: z.number().nonnegative('Custo não pode ser negativo'),
   margem: z.number(),
-  aliquota: z.string().min(1), // código fiscal do produto (T01, T56, STB...) — regra legada
-  uf: z.string().length(2),
+  aliquota: z.string().min(1, 'Código fiscal é obrigatório'), // código fiscal do produto (T01, T56, STB...) — regra legada
+  uf: z.string().length(2, 'UF inválida (use a sigla de 2 letras)'),
   pis: z.number().default(0),
   cofins: z.number().default(0),
   despOperacional: z.number().default(0),
-  modoMargem: z.enum(['final', 'liquido']).optional(),
+  modoMargem: z
+    .enum(['final', 'liquido'], { message: "Modo de margem inválido (informe 'final' ou 'liquido')" })
+    .optional(),
   regime: regimeTributario,
   dataRef: z.string().optional(),
 });

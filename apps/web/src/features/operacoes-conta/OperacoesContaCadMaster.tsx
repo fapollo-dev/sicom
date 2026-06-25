@@ -26,20 +26,22 @@ export function OperacoesContaCadMaster() {
       resourcePath="cadastro/operacoes-conta"
       pk="codopconta"
       colunasPesquisa={[
-        { campo: 'codopconta', label: 'Código' },
-        { campo: 'descricao', label: 'Descrição' },
-        { campo: 'tipo', label: 'Tipo' },
+        { campo: 'codopconta', label: 'Código', tipo: 'text', largura: 110 },
+        { campo: 'descricao', label: 'Descrição', tipo: 'text' },
+        { campo: 'tipo', label: 'Tipo', tipo: 'text', largura: 130 },
       ]}
       schema={operacaoContaSchema}
       defaultValues={{ descricao: '', tipo: 'D' }}
       campos={({ form, editavel }) => (
-        <div className="flex flex-col gap-form-gap">
-          <Field
-            label="&Descrição"
-            disabled={!editavel}
-            error={form.formState.errors.descricao?.message as string | undefined}
-            {...form.register('descricao')}
-          />
+        <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Field
+              label="&Descrição"
+              disabled={!editavel}
+              error={form.formState.errors.descricao?.message as string | undefined}
+              {...form.register('descricao')}
+            />
+          </div>
           <Controller
             control={form.control}
             name="tipo"

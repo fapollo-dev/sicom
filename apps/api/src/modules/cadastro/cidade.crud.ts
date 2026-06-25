@@ -16,7 +16,7 @@ export const cidadeCrudConfig: CrudConfig = {
   rbacForm: 'FRMCADCIDADES',
   audit: false, // sem USULTALTERACAO/DT* na tabela real
   replica: false,
-  colunasPesquisa: ['idcidade', 'cidade', 'iduf'],
+  colunasPesquisa: ['idcidade', 'cidade', 'iduf', 'uf'],
 };
 
 export const CidadeCrudController = createCrudController({

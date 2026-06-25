@@ -5,7 +5,20 @@ import { createResourceApi } from './resourceApi';
 export interface ColunaPesquisa {
   campo: string;
   label: string;
+  /** tipo de coluna do DataTable (render+alinhamento+filtro corretos). Default 'text'. */
+  tipo?: 'text' | 'number' | 'date' | 'currency' | 'status' | 'badge' | 'email' | 'phone';
+  /** largura fixa (px). Sem isso, o autoFit do DataTable distribui. */
+  largura?: number;
+  /** override do tipo de filtro (default derivado do `tipo`). */
+  filtro?: 'text' | 'number' | 'date' | 'select' | 'multiSelect' | 'boolean';
 }
+
+/** filtro default por tipo de coluna (espelha o registry do DataTable). */
+const FILTRO_POR_TIPO: Record<string, 'text' | 'number' | 'date'> = {
+  number: 'number',
+  currency: 'number',
+  date: 'date',
+};
 
 // rdgAtivo do form-base: F6 cicla nesta ordem
 const SITUACOES = ['ativos', 'inativos', 'todos'] as const;
@@ -59,10 +72,13 @@ export function Pesquisa({ resourcePath, colunas, onSelecionar, onFechar }: Prop
       colunas.map((c, i) => ({
         field: c.campo,
         headerName: c.label,
+        type: c.tipo ?? 'text',
+        width: c.largura,
         sortable: true,
         enableColumnFilter: true,
-        filterType: 'text' as const,
-        isPrimary: i === 0,
+        filterType: c.filtro ?? FILTRO_POR_TIPO[c.tipo ?? 'text'] ?? 'text',
+        // a 2ª coluna (descrição) é o "título" no card/mobile; o código fica estreito
+        isPrimary: i === 1,
       })),
     [colunas],
   );
