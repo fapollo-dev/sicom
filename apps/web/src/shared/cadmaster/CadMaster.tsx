@@ -5,6 +5,7 @@ import type { ZodSchema } from 'zod';
 import { PageHeader, AlertModal, FormFieldInput } from '@apollosg/design-system';
 import { FormScope, useShortcutRegistry } from '../keyboard';
 import { Button } from '../ui/Button';
+import { useMensagem } from '../mensagem';
 import { createResourceApi } from './resourceApi';
 import { useCadMaster } from './useCadMaster';
 import { Pesquisa, type ColunaPesquisa } from './Pesquisa';
@@ -63,6 +64,7 @@ export function CadMaster<T extends FieldValues>({
   const colunaCodigo = viewPk ?? pk;
   const cad = useCadMaster(api, pk, colunaCodigo);
   const form = useForm<T>({ resolver: zodResolver(schema), defaultValues });
+  const mensagem = useMensagem(); // exibição padronizada de erros (ADR-015)
   const [codigo, setCodigo] = useState('');
   const [pesquisaAberta, setPesquisaAberta] = useState(false);
   const [confirmExcluir, setConfirmExcluir] = useState(false);
@@ -71,7 +73,11 @@ export function CadMaster<T extends FieldValues>({
 
   const carregar = async () => {
     if (!codigo) return;
-    await cad.carregarPorCodigo(Number(codigo));
+    try {
+      await cad.carregarPorCodigo(Number(codigo));
+    } catch (e) {
+      mensagem.erro(e);
+    }
   };
   // ao carregar/gravar, sincroniza o form com o registro corrente
   const sincroniza = () => form.reset((cad.registro as any) ?? ({} as T));
@@ -89,7 +95,11 @@ export function CadMaster<T extends FieldValues>({
   const onGravar = form.handleSubmit(async (values) => {
     // chave natural no insert: o código digitado entra no dto como a PK
     const dto = codigoEditavelInsert ? { ...values, [pk]: Number(codigo) } : values;
-    await cad.gravar(dto);
+    try {
+      await cad.gravar(dto);
+    } catch (e) {
+      mensagem.erro(e);
+    }
   });
   const onNovo = () => {
     form.reset(defaultValues ?? ({} as T));
@@ -99,10 +109,15 @@ export function CadMaster<T extends FieldValues>({
   const onEditar = () => cad.editar();
   const onExcluir = () => setConfirmExcluir(true); // abre o AlertModal do DS (≠ confirm() nativo)
   const doExcluir = async () => {
-    await cad.excluir();
-    form.reset(defaultValues ?? ({} as T));
-    setCodigo('');
-    setConfirmExcluir(false);
+    try {
+      await cad.excluir();
+      form.reset(defaultValues ?? ({} as T));
+      setCodigo('');
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setConfirmExcluir(false);
+    }
   };
   const onCancelar = () => {
     cad.cancelar();

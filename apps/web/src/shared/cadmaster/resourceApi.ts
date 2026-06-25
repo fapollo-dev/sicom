@@ -1,4 +1,6 @@
 /** Cliente CRUD genérico por recurso (substitui os api.ts duplicados por feature). */
+import { isErroResposta, type ErroResposta } from '@apollo/shared';
+
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 const HEADERS = {
   'content-type': 'application/json',
@@ -7,11 +9,29 @@ const HEADERS = {
   'x-empresa-id': '1',
 };
 
+/** Error lançado por `req` no !ok, carregando o envelope padrão (ADR-015). */
+export interface ErroRequisicao extends Error {
+  /** envelope padrão da API (sempre preenchido — sintetizado se o body não casar) */
+  envelope: ErroResposta;
+  /** HTTP status (retrocompat) */
+  status: number;
+  /** body cru parseado (retrocompat) */
+  body: any;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { ...init, headers: HEADERS });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw Object.assign(new Error(body.code ?? res.statusText), { status: res.status, body });
+    // envelope: usa o body se já for o contrato padrão; senão sintetiza um (ADR-015)
+    const envelope: ErroResposta = isErroResposta(body)
+      ? body
+      : { statusCode: res.status, code: 'ERRO', message: body?.message ?? res.statusText };
+    throw Object.assign(new Error(envelope.code ?? res.statusText), {
+      envelope, // novo: envelope padrão p/ a camada de mensagem
+      status: res.status, // retrocompat
+      body, // retrocompat
+    });
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }

@@ -14,6 +14,7 @@
 | [tech-stack.md](tech-stack.md) | Stack travada com versões e justificativa: NestJS, React+Vite+TS (uma app, duas cascas), PostgreSQL, Redis+BullMQ, Electron; query builder explícito (Kysely/Knex) vs ORM; UI headless (Radix/React Aria), grid teclado-first (AG Grid/TanStack), react-hook-form+zod, React Query, Playwright. Tabela resumo. |
 | [backend-nestjs-standards.md](backend-nestjs-standards.md) | **ADR-006**: monólito modular (um módulo por domínio, fronteira via módulo); camadas controller/service/repository; DTOs+zod; **tenant context module** (request-scoped + connection por tenant); app sobe como web ou worker; **mapeamento SQL dinâmica do Delphi → query builder** lado a lado; tratamento de erro, pastas, nomenclatura. |
 | [frontend-react-standards.md](frontend-react-standards.md) | Estrutura feature-based; React Query (server state); forms react-hook-form+zod; routing; **duas cascas (browser/Electron) com código único**; biblioteca de componentes sobre o design system; grid teclado-first; estado de cliente mínimo. |
+| [api-erros-e-validacao.md](api-erros-e-validacao.md) | **ADR-015 (fundação)**: contrato único de erro `ErroResposta` (envelope PT, status ajustado, **nunca 500 genérico**); tabela de mapeamento (zod→400 VALIDACAO; FK/unique→409; not-null/check→400/422; …); validadores BR de `@apollo/shared` (CPF/CNPJ/celular/e-mail/CEP/UF — normalizam + checksum, PT); e o padrão do front (`MensagemProvider`/`useMensagem` + modal de mensagens padrão do DS). |
 | [performance-playbook.md](performance-playbook.md) | **ADR-007**: paginação keyset/cursor (não offset); índices decididos com EXPLAIN via MCP de Postgres; evitar N+1; rollups/materialized views incrementais; streaming de export; particionamento por loja/período; pooling; sem SELECT *; operações em lote; leitura pesada na read replica. |
 | [keyboard-ux-layer.md](keyboard-ux-layer.md) | **ADR-010 (arquivo-coroa)**: a UX de teclado como fundação compartilhada — taborder, Enter-avança-campo, atalhos F-keys/Ctrl com escopo (e o caveat do browser que reserva teclas → **Electron resolve**), foco/focus-trap/roving tabindex, grid teclado-first, e os **mnemônicos `&` (Alt+letra sublinhada)** implementados na própria camada e **extraídos do `.dfm`**. |
 
@@ -21,8 +22,9 @@
 
 1. [tech-stack.md](tech-stack.md) — o que usamos e por quê.
 2. [backend-nestjs-standards.md](backend-nestjs-standards.md) / [frontend-react-standards.md](frontend-react-standards.md) — como estruturar cada lado.
-3. [performance-playbook.md](performance-playbook.md) — como escalar a leitura/processamento.
-4. [keyboard-ux-layer.md](keyboard-ux-layer.md) — a fundação de teclado que toda tela herda (leitura obrigatória para qualquer trabalho de UI).
+3. [api-erros-e-validacao.md](api-erros-e-validacao.md) — **ADR-015**: o contrato único de erro/validação que back e front herdam (leitura obrigatória para qualquer rota/tela).
+4. [performance-playbook.md](performance-playbook.md) — como escalar a leitura/processamento.
+5. [keyboard-ux-layer.md](keyboard-ux-layer.md) — a fundação de teclado que toda tela herda (leitura obrigatória para qualquer trabalho de UI).
 
 ## Ver também
 

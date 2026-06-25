@@ -161,6 +161,8 @@ export function ProdutoFormPage() {
 
 O `FormScope` é o componente da camada de teclado que liga Enter-avança-campo e os mnemônicos `&` ao escopo do form — detalhado em [keyboard-ux-layer.md](keyboard-ux-layer.md). O componente de form **não reimplementa** teclado; herda.
 
+> **ADR-015:** o erro da API volta no envelope único `ErroResposta` (PT). O front **não inventa texto**: exibe a `message` num **modal de mensagens padrão** via `useMensagem().mostrarErro(e)` e mapeia `campos[]` para os inputs do `react-hook-form`. Contrato, validadores BR e o `MensagemProvider`/Modal do DS em [api-erros-e-validacao.md](api-erros-e-validacao.md).
+
 ---
 
 ## Routing

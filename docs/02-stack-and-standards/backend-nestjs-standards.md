@@ -332,6 +332,8 @@ export class ProdutoRepository {
 
 ## Tratamento de erro
 
+> **ADR-015 (contrato travado):** toda resposta de erro é o envelope único `ErroResposta { statusCode, code, message(PT), campos?[] }` — status **ajustado**, motivo real em PT, **nunca 500 genérico**; o filtro mapeia também os erros de banco (FK `23503`→409, unique `23505`→409 DUPLICADO, not-null `23502`→400, check `23514`→422). Tabela completa, validadores BR e o modal do front em **[api-erros-e-validacao.md](api-erros-e-validacao.md)**.
+
 Hierarquia de exceções de aplicação + filtro global que mapeia para HTTP. Regras de negócio lançam exceções **tipadas e nomeadas** (o nome vira código de erro estável que o frontend trata), nunca `throw new Error('...')` solto.
 
 ```ts

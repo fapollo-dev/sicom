@@ -8,3 +8,5 @@ export * from './schema/tabela-preco.schema';
 export * from './schema/ncm.schema';
 export * from './schema/cidade.schema';
 export * from './schema/preco.schema';
+export * from './erro';
+export * from './validators/br';

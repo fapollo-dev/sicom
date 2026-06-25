@@ -89,6 +89,13 @@ async function main() {
       body: JSON.stringify({ cidade: 'x' }),
     });
     check('POST sem BANCO → 400 (BR-02, validação antes do banco)', bad.status === 400, bad.status);
+    // ADR-015: envelope padrão de validação (code VALIDACAO + campos[] em PT)
+    const badBody = (await bad.json().catch(() => ({}))) as any;
+    check(
+      'erro de validação segue o envelope ErroResposta (code + message PT + campos)',
+      badBody.code === 'VALIDACAO' && typeof badBody.message === 'string' && Array.isArray(badBody.campos),
+      badBody,
+    );
 
     // 7) RBAC: operador SEM grant em PERMISSOES → 403 (BR-01 real, não stub)
     const semAcesso = await fetch(`${base}/cadastro/bancos`, {
@@ -158,6 +165,13 @@ async function main() {
       body: JSON.stringify({ descricao: 'FANTASMA', regiao: 'N', idcidade: 9999999 }),
     });
     check('POST bairro com idcidade INEXISTENTE → erro (FK rejeita)', bairroBad.status >= 400, bairroBad.status);
+    // ADR-015: FK do banco vira 409 PT (NÃO 500 genérico "erro no servidor")
+    const fkBody = (await bairroBad.json().catch(() => ({}))) as any;
+    check(
+      'FK violada → 409 envelope PT (status ajustado, motivo real, nunca 500 genérico)',
+      bairroBad.status === 409 && fkBody.code === 'REGISTRO_RELACIONADO_INEXISTENTE' && fkBody.statusCode !== 500,
+      fkBody,
+    );
 
     // 13) MESTRE-DETALHE declarativo — agregado (header+itens) numa transação + cascata
     const aggPost = await fetch(`${base}/cobranca/lotes-md`, {
