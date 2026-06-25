@@ -10,6 +10,7 @@ import { LoteCobrancaRepository } from '../src/modules/cobranca/lote-cobranca.re
 import { CrudEngineService } from '../src/shared/crud/crud-engine.service';
 import { AggregateEngineService } from '../src/shared/crud/aggregate-engine.service';
 import { loteCobrancaAggregateConfig } from '../src/modules/cobranca/lote-cobranca.aggregate';
+import { parceiroAggregateConfig } from '../src/modules/cadastro/parceiro.aggregate';
 import { marcasCrudConfig } from '../src/modules/cadastro/marcas.crud';
 import { bairroCrudConfig } from '../src/modules/cadastro/bairro.crud';
 import { precoCrudConfig } from '../src/modules/cadastro/preco.crud';
@@ -676,6 +677,71 @@ describe('10ª — MESTRE-DETALHE DECLARATIVO (AggregateEngineService espelha o 
       (dbp.forTenantRead() as any).selectFrom('itens_lotecob').selectAll().where('codlotecob', '=', cod).execute(),
     )) as any[];
     expect(itensOrfaos.length).toBe(0); // cascata em código removeu os itens
+  });
+});
+
+describe('11ª — PARCEIROS unificado (multi-papel + endereços; empresaScoped; dup CNPJ)', () => {
+  const eng = () => new AggregateEngineService(dbp);
+  const cfg = parceiroAggregateConfig;
+
+  it('seed: 6 parceiros da empresa 1 na listagem (empresaScoped; canônico em 014)', async () => {
+    const lista = (await withTenant(() => eng().list(cfg))) as any[];
+    expect(lista.length).toBe(6); // 1/2/10 (cobradores) + 20/21/22 (clientes)
+  });
+
+  let cod: number;
+  it('CREATE agregado: parceiro CLI + 1 endereço (CNPJ no endereço); carimba idempresa', async () => {
+    cod = await withTenant(() =>
+      eng().createAggregate(cfg, {
+        razao: 'NOVO CLIENTE TESTE',
+        tipofj: 'J',
+        cli: 'S',
+        enderecos: [
+          {
+            endereco: 'RUA X',
+            bairro: 'CENTRO',
+            cidade: 'SAO PAULO',
+            idcidade: 3550308,
+            uf: 'SP',
+            cnpj_cpf: '11444777000161',
+            endereco_padrao: 'S',
+            ativado: 'S',
+          },
+        ],
+      }),
+    );
+    const agg = (await withTenant(() => eng().readAggregate(cfg, cod))) as any;
+    expect(agg.razao).toBe('NOVO CLIENTE TESTE');
+    expect(agg.idempresa).toBe(1); // carimbo multi-tenant no caminho do agregado
+    expect(agg.enderecos.length).toBe(1);
+    expect(agg.enderecos[0].cnpj_cpf).toBe('11444777000161');
+  });
+
+  it('LIST traz o novo com cnpj/cidade/uf do endereço padrão (view LATERAL)', async () => {
+    const lista = (await withTenant(() => eng().list(cfg))) as any[];
+    const linha = lista.find((p) => p.codparceiro === cod);
+    expect(linha?.cnpj_cpf).toBe('11444777000161');
+    expect(linha?.uf).toBe('SP');
+  });
+
+  it('empresaScoped: outra empresa NÃO enxerga os parceiros da empresa 1', async () => {
+    const lista = (await runWithTenant({ tenantId: 'pinheirao', operadorId: 7, empresaId: 2 }, () =>
+      eng().list(cfg),
+    )) as any[];
+    expect(lista.length).toBe(0);
+  });
+
+  it('DUP de CNPJ é rejeitada pelo índice único (vira 409 DUPLICADO no HTTP)', async () => {
+    await expect(
+      withTenant(() =>
+        eng().createAggregate(cfg, {
+          razao: 'DUPLICADO',
+          tipofj: 'J',
+          frn: 'S',
+          enderecos: [{ cnpj_cpf: '11222333000181', endereco_padrao: 'S' }], // doc do seed parceiro 1
+        }),
+      ),
+    ).rejects.toThrow();
   });
 });
 

@@ -226,6 +226,60 @@ async function main() {
     const aggGone = await fetch(`${base}/cobranca/lotes-md/${aggId}`, { headers: H });
     const goneBody = await aggGone.json().catch(() => null);
     check('GET após delete → agregado sumiu', !goneBody || goneBody === '' || goneBody == null || Object.keys(goneBody).length === 0, goneBody);
+
+    // 14) PARCEIROS — tela UNIFICADA multi-papel (mestre + endereços), via HTTP
+    const parcPost = await fetch(`${base}/cadastro/parceiros`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        razao: 'CLIENTE SMOKE LTDA',
+        tipofj: 'J',
+        cli: 'S',
+        enderecos: [
+          { endereco: 'RUA SMOKE', bairro: 'CENTRO', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', cnpj_cpf: '11444777000161', endereco_padrao: 'S' },
+        ],
+      }),
+    });
+    const parc = (await parcPost.json()) as any;
+    check(
+      'POST /cadastro/parceiros cria agregado (master + 1 endereço com CNPJ no endereço)',
+      parcPost.status === 201 && Number.isFinite(Number(parc.codparceiro)) && parc.enderecos?.length === 1 && parc.enderecos[0].cnpj_cpf === '11444777000161',
+      parc,
+    );
+
+    // 14b) "ao menos um papel" obrigatório (todas as flags 'N') → 400 VALIDACAO PT (não 500)
+    const semPapel = await fetch(`${base}/cadastro/parceiros`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({ razao: 'SEM PAPEL', tipofj: 'J', enderecos: [] }),
+    });
+    const semPapelBody = (await semPapel.json().catch(() => ({}))) as any;
+    check(
+      'POST parceiro sem papel → 400 VALIDACAO (tipo obrigatório), nunca 500',
+      semPapel.status === 400 && semPapelBody.code === 'VALIDACAO' && semPapel.status !== 500,
+      { status: semPapel.status, code: semPapelBody.code },
+    );
+
+    // 14c) duplicidade de CNPJ (doc do seed codend1) → 409 DUPLICADO (ADR-015)
+    const dupDoc = await fetch(`${base}/cadastro/parceiros`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({ razao: 'DUP SMOKE', tipofj: 'J', frn: 'S', enderecos: [{ cnpj_cpf: '11222333000181', endereco_padrao: 'S' }] }),
+    });
+    const dupBody = (await dupDoc.json().catch(() => ({}))) as any;
+    check('POST parceiro com CNPJ duplicado → 409 DUPLICADO', dupDoc.status === 409 && dupBody.code === 'DUPLICADO', { status: dupDoc.status, code: dupBody.code });
+
+    // 14d) lookup de VENDEDOR (FUN='S') — alimenta o SelectField da tela
+    const vend = (await (await fetch(`${base}/cadastro/parceiros?campo=fun&operador=igual&valor=S`, { headers: H })).json()) as any[];
+    check(
+      'GET /cadastro/parceiros?campo=fun=S lista vendedores/funcionários',
+      Array.isArray(vend) && vend.length >= 3 && vend.every((p) => p.fun === 'S'),
+      vend?.length,
+    );
+
+    // 14e) filtro por PAPEL (a tela "Clientes" lista só CLI='S')
+    const cli = (await (await fetch(`${base}/cadastro/parceiros?campo=cli&operador=igual&valor=S`, { headers: H })).json()) as any[];
+    check('GET /cadastro/parceiros?campo=cli=S lista só clientes', Array.isArray(cli) && cli.length > 0 && cli.every((p) => p.cli === 'S'), cli?.length);
   } finally {
     await app.close();
     await pg.stop();

@@ -23,6 +23,12 @@ interface Props<T extends FieldValues> {
   defaultValues?: any;
   /** colunas da Pesquisa (campo na view + rótulo) */
   colunasPesquisa?: ColunaPesquisa[];
+  /**
+   * Filtro fixo da Pesquisa — para recursos PARAMETRIZADOS (ex.: a tela única de
+   * Parceiros que lista só CLI='S' ou FRN='S' conforme o papel). Repassado tal qual
+   * para `<Pesquisa>`. Opcional → sem ele a Pesquisa lista o recurso inteiro.
+   */
+  filtroPesquisa?: { campo: string; operador?: string; valor: string };
   /** coluna na view que contém o código a carregar (default: pk) */
   viewPk?: string;
   /**
@@ -55,6 +61,7 @@ export function CadMaster<T extends FieldValues>({
   schema,
   defaultValues,
   colunasPesquisa,
+  filtroPesquisa,
   viewPk,
   pkGerada = true,
   outros,
@@ -167,6 +174,7 @@ export function CadMaster<T extends FieldValues>({
           <Pesquisa
             resourcePath={resourcePath}
             colunas={colunasPesquisa}
+            filtroExtra={filtroPesquisa}
             onFechar={() => setPesquisaAberta(false)}
             onSelecionar={(row) => {
               const id = Number(row[colunaCodigo]);

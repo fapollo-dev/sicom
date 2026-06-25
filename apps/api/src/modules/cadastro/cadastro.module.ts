@@ -9,6 +9,8 @@ import { BairroCrudController } from './bairro.crud';
 import { PrecoCrudController } from './preco.crud';
 import { NcmCrudController } from './ncm.crud';
 import { CidadeCrudController } from './cidade.crud';
+import { ParceiroAggregateController } from './parceiro.aggregate';
+import { CepController } from './cep.controller';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 
 /**
@@ -26,6 +28,8 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     PrecoCrudController, // engine (palette completo: número/moeda + checkbox)
     NcmCrudController, // engine (CHAVE NATURAL + data + memo)
     CidadeCrudController, // engine (chave natural; alvo do lookup de Bairros)
+    ParceiroAggregateController, // engine MESTRE-DETALHE (Parceiros unificado: master + endereços)
+    CepController, // proxy ViaCEP (autofill de endereço)
   ],
   providers: [BancosService, BancoRepository, DatabaseProvider],
   exports: [BancosService],

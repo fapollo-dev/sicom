@@ -36,7 +36,9 @@ export class AggregateEngineService extends CrudEngineService {
   async createAggregate(cfg: AggregateConfig, dto: Record<string, unknown>): Promise<number> {
     const op = currentTenant().operadorId ?? null;
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const d = this.delta(cfg, dto);
+      const d = this.delta(cfg, this.derivados(cfg, dto, cfg.pkGerada === false ? Number(dto[cfg.pk]) : undefined));
+      // carimba o escopo de empresa (multi-tenant) — fail-closed se ausente (igual ao create base).
+      if (cfg.empresaScoped) d.idempresa = this.emp();
       let id: number;
       if (cfg.pkGerada === false) {
         id = Number(dto[cfg.pk]);

@@ -30,6 +30,13 @@ interface Props {
   colunas: ColunaPesquisa[];
   onSelecionar: (row: Record<string, any>) => void;
   onFechar: () => void;
+  /**
+   * Filtro fixo aplicado à listagem (espelha um recurso PARAMETRIZADO — ex.: a tela
+   * unificada de Parceiros lista só CLI='S' ou FRN='S' conforme o papel). É somado ao
+   * `situacao` na query (campo=<col>&operador=igual&valor=S). Opcional → sem ele a
+   * Pesquisa se comporta exatamente como antes.
+   */
+  filtroExtra?: { campo: string; operador?: string; valor: string };
 }
 
 /**
@@ -38,21 +45,28 @@ interface Props {
  * substituem o campo+operador+valor feito à mão; F6 mantém o rdgAtivo (situação); clique na
  * linha seleciona (onRowClick). Ref.: design-system/src/preview/pages/ClientsCRUDPreview.tsx.
  */
-export function Pesquisa({ resourcePath, colunas, onSelecionar, onFechar }: Props) {
+export function Pesquisa({ resourcePath, colunas, onSelecionar, onFechar, filtroExtra }: Props) {
   const api = useMemo(() => createResourceApi(resourcePath), [resourcePath]);
   const [situacao, setSituacao] = useState<Situacao>('ativos');
   const [rows, setRows] = useState<Record<string, any>[]>([]);
 
-  // carrega a lista pela view (GET_*), refazendo quando a situação muda
+  // carrega a lista pela view (GET_*), refazendo quando a situação muda. O `filtroExtra`
+  // (papel da tela parametrizada) entra como campo/operador/valor na mesma query.
+  const campo = filtroExtra?.campo;
+  const valor = filtroExtra?.valor;
+  const operador = filtroExtra?.operador ?? 'igual';
   useEffect(() => {
     let alive = true;
-    void api.listar({ situacao }).then((r) => {
+    const params = campo
+      ? { situacao, campo, operador, valor }
+      : { situacao };
+    void api.listar(params).then((r) => {
       if (alive) setRows(r);
     });
     return () => {
       alive = false;
     };
-  }, [api, situacao]);
+  }, [api, situacao, campo, operador, valor]);
 
   // F6 cicla a situação (ativos→inativos→todos) enquanto a Pesquisa está aberta
   useEffect(() => {
