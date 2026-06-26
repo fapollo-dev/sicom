@@ -9,6 +9,7 @@ import {
   gerarCodigoInternoEan13,
   type CriarProdutoDto,
   type CodAuxiliarDto,
+  type PrecoProdutoDto,
 } from '@apollo/shared';
 import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
@@ -18,6 +19,7 @@ import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { Button } from '../../shared/ui/Button';
 import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
 import { CodAuxiliarModal } from './CodAuxiliarModal';
+import { PrecoModal } from './PrecoModal';
 
 /**
  * Cadastro de PRODUTO (hub do ERP) — Fase 1: NÚCLEO fiel (legado `UCadProduto.pas`),
@@ -105,6 +107,7 @@ export function ProdutoCadMaster() {
       fatorcx: 1,
       controle_validade: 'S',
       codauxiliares: [],
+      precos: [], // F2 — MULTI_PRECO por empresa (mesma form/transação)
     }),
     [],
   );
@@ -138,6 +141,7 @@ export function ProdutoCadMaster() {
             secaoOptions={secaoOptions}
           />
           <FiscalSection form={form} editavel={editavel} aliquotaOptions={aliquotaOptions} />
+          <PrecosSection form={form} editavel={editavel} aliquotaOptions={aliquotaOptions} />
           <CodAuxiliaresSection
             form={form}
             editavel={editavel}
@@ -569,13 +573,161 @@ function FiscalSection({
   );
 }
 
+// ───────────────────────────── Preços ─────────────────────────────
+
+/** formata número → "R$ 1.234,56" (pt-BR) para as células de moeda do grid. */
+function fmtBRLCelula(n: number | undefined): string {
+  if (n == null) return '';
+  return `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Detalhe 1:N de PREÇOS por empresa (MULTI_PRECO) — GRID + Adicionar/Editar/Remover via
+ * `useFieldArray('precos')`, uma linha por empresa. Mesmo padrão de CodAuxiliares/Parceiros:
+ * itens recém-adicionados (do modal) e os carregados (read do master) compartilham o shape
+ * `PrecoProdutoDto`, exibidos de forma idêntica antes mesmo de gravar; a gravação cascateia
+ * no engine agregado (master + preços numa só transação). O VRVENDA vem do motor REUSADO
+ * (POST /precificacao/produto), disparado pelo botão "Calcular venda" do modal.
+ */
+function PrecosSection({
+  form,
+  editavel,
+  aliquotaOptions,
+}: {
+  form: UseFormReturn<CriarProdutoDto>;
+  editavel: boolean;
+  aliquotaOptions: Opcao[];
+}) {
+  const { fields, append, update, remove } = useFieldArray<CriarProdutoDto, 'precos', 'fieldId'>({
+    control: form.control,
+    name: 'precos',
+    keyName: 'fieldId',
+  });
+  const [editIdx, setEditIdx] = useState<number | null>(null);
+  // alíquota do produto (default da alíquota de saída e do cálculo no modal).
+  const produtoAliquota = form.watch('aliquota');
+
+  const onConfirmar = (item: PrecoProdutoDto) => {
+    if (editIdx == null) return;
+    if (editIdx < 0) append(item);
+    else update(editIdx, item);
+    setEditIdx(null);
+  };
+
+  const columns = useMemo<DataTableColumnDef<PrecoProdutoDto & { fieldId: string }>[]>(
+    () => [
+      { field: 'idempresa', headerName: 'Empresa', type: 'text', isPrimary: true, width: 120 },
+      {
+        field: 'vrcusto',
+        headerName: 'Custo',
+        type: 'text',
+        width: 140,
+        valueGetter: (row) => fmtBRLCelula(row.vrcusto),
+      },
+      {
+        field: 'markup',
+        headerName: 'Markup',
+        type: 'text',
+        width: 120,
+        valueGetter: (row) => (row.markup == null ? '' : `${row.markup}%`),
+      },
+      {
+        field: 'vrvenda',
+        headerName: 'Venda',
+        type: 'text',
+        width: 140,
+        valueGetter: (row) => fmtBRLCelula(row.vrvenda),
+      },
+      { field: 'promocao', headerName: 'Promoção', type: 'text', width: 110 },
+      {
+        field: 'aliquotasaida',
+        headerName: 'Alíquota saída',
+        type: 'text',
+        width: 150,
+        valueGetter: (row) => rotuloOpcao(aliquotaOptions, undefined, row.aliquotasaida),
+      },
+      { field: 'ativo', headerName: 'Ativo', type: 'text', width: 90 },
+      {
+        field: 'acoes',
+        headerName: '',
+        type: 'actions',
+        width: 110,
+        getActions: () => [
+          {
+            id: 'editar',
+            label: 'Editar',
+            icon: <Pencil className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            onClick: (r: PrecoProdutoDto & { fieldId: string }) => {
+              const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
+              if (idx >= 0) setEditIdx(idx);
+            },
+          },
+          {
+            id: 'remover',
+            label: 'Remover',
+            icon: <Trash2 className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            destructive: true,
+            onClick: (r: PrecoProdutoDto & { fieldId: string }) => {
+              const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
+              if (idx >= 0) remove(idx);
+            },
+          },
+        ],
+      },
+    ],
+    [fields, remove, aliquotaOptions],
+  );
+
+  return (
+    <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
+      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Preços</legend>
+      <div className="flex flex-col gap-gp-sm">
+        <div>
+          <Button label="Adicionar &preço" variant="soft" onClick={() => setEditIdx(-1)} />
+        </div>
+
+        {fields.length === 0 ? (
+          <small className="text-fg-muted">Sem preços por empresa.</small>
+        ) : (
+          <DataTable
+            rows={fields as Array<PrecoProdutoDto & { fieldId: string }>}
+            columns={columns}
+            getRowId={(r) => r.fieldId}
+            toolbar={{ enableSearch: false, enableFilters: false }}
+            paginationConfig={{ enabled: true, initialPageSize: 10 }}
+            cardBreakpoint={false}
+          />
+        )}
+      </div>
+
+      {editIdx != null && (
+        <PrecoModal
+          inicial={editIdx >= 0 ? (fields[editIdx] as PrecoProdutoDto) : undefined}
+          produtoAliquota={produtoAliquota}
+          aliquotaOptions={aliquotaOptions}
+          onFechar={() => setEditIdx(null)}
+          onConfirmar={onConfirmar}
+        />
+      )}
+    </fieldset>
+  );
+}
+
 // ───────────────────────── Códigos auxiliares ─────────────────────────
 
-/** célula utilitária: resolve o label de uma opção a partir do value (lookup → "sigla - desc"). */
-function rotuloOpcao(options: Opcao[], value: number | undefined): string {
-  if (value == null) return '';
-  const o = options.find((op) => op.value === String(value));
-  return o ? o.label : String(value);
+/**
+ * célula utilitária: resolve o label de uma opção a partir do value. Aceita value numérico
+ * (lookups numéricos, ex.: unidade) OU string (lookups de chave natural, ex.: alíquota).
+ */
+function rotuloOpcao(
+  options: Opcao[],
+  value: number | undefined,
+  valueStr?: string,
+): string {
+  const v = valueStr != null ? valueStr : value != null ? String(value) : undefined;
+  if (v == null || v === '') return '';
+  const o = options.find((op) => op.value === v);
+  return o ? o.label : v;
 }
 
 /**

@@ -39,6 +39,19 @@ export const produtoAggregateConfig: AggregateConfig = {
       chave: 'codauxiliares',
       colunas: ['codauxiliar', 'codbarra', 'fatoremb', 'codunidade', 'operacao'],
     },
+    // F2 — MULTI_PRECO: preço/custo POR EMPRESA, na MESMA form (detalhe 1:N do agregado).
+    // PK surrogate id_multi_preco; idempresa é coluna (1 linha por empresa). O cálculo
+    // custo→venda é REUSADO de POST /precificacao/produto (não reescrito aqui).
+    {
+      tabela: 'multi_preco',
+      pk: 'id_multi_preco',
+      fk: 'idproduto',
+      chave: 'precos',
+      colunas: [
+        'idempresa', 'vrcusto', 'vrcustorep', 'markup', 'vrvenda', 'vrpromo',
+        'promocao', 'margeml', 'aliquotasaida', 'ativo', 'ativo_compra',
+      ],
+    },
   ],
   colunasPesquisa: ['idproduto', 'codbarra', 'descricao', 'ncmsh', 'marca', 'aliquota', 'ativo'],
 };

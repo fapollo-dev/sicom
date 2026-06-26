@@ -898,6 +898,52 @@ describe('14ª — PRODUTO núcleo (MESTRE-DETALHE: produtos + codauxiliar; GLOB
   });
 });
 
+describe('15ª — PRODUTO F2 (MULTI_PRECO por empresa)', () => {
+  // F2: preço/custo POR EMPRESA na MESMA form do produto — detalhe `precos` (1:N) do
+  // agregado, 1 linha por idempresa, substituído (delete+insert) na gravação como os outros.
+  const eng = () => new AggregateEngineService(dbp);
+  const cfg = produtoAggregateConfig;
+
+  it('READ do seed (produto 1): precos populado; empresa-1 com vrvenda 4.55 e aliquotasaida T01', async () => {
+    const agg = (await withTenant(() => eng().readAggregate(cfg, 1))) as any;
+    expect(agg.precos.length).toBeGreaterThanOrEqual(1);
+    const e1 = agg.precos.find((p: any) => p.idempresa === 1);
+    expect(e1).toBeDefined();
+    expect(Number(e1.vrvenda)).toBe(4.55); // numeric volta como string do pg
+    expect(e1.aliquotasaida).toBe('T01');
+  });
+
+  let cod: number;
+  it('CREATE agregado com precos: produto + 1 preço da empresa 1; round-trip', async () => {
+    cod = await withTenant(() =>
+      eng().createAggregate(cfg, {
+        codbarra: '7891000099991',
+        descricao: 'PRODUTO F2 MULTI_PRECO',
+        unidade: 'UN',
+        codfor: 2,
+        aliquota: 'T01',
+        codauxiliares: [],
+        precos: [
+          { idempresa: 1, vrcusto: 10, markup: 50, vrvenda: 15, promocao: 'N', aliquotasaida: 'T01', ativo: 'S' },
+        ],
+      }),
+    );
+    const agg = (await withTenant(() => eng().readAggregate(cfg, cod))) as any;
+    expect(agg.precos.length).toBe(1);
+    expect(agg.precos[0].idempresa).toBe(1);
+    expect(Number(agg.precos[0].vrvenda)).toBe(15);
+  });
+
+  it('UPDATE substitui precos (delete+insert): vrvenda 15 → 19.9', async () => {
+    await withTenant(() =>
+      eng().updateAggregate(cfg, cod, { precos: [{ idempresa: 1, vrvenda: 19.9, aliquotasaida: 'T01' }] }),
+    );
+    const agg = (await withTenant(() => eng().readAggregate(cfg, cod))) as any;
+    expect(agg.precos.length).toBe(1); // substituição (não acréscimo)
+    expect(Number(agg.precos[0].vrvenda)).toBe(19.9);
+  });
+});
+
 function outbox(chave: number, tipo: 'INSERT' | 'UPDATE' | 'DELETE') {
   return runWithTenant({ tenantId: 'pinheirao' }, () =>
     dbp

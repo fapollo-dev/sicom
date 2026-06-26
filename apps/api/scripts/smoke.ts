@@ -401,7 +401,35 @@ async function main() {
       prod,
     );
 
-    // 15b) CODFOR (fornecedor) obrigatório → 400 VALIDACAO PT (nunca 500)
+    // 15b) PRODUTO F2 — MULTI_PRECO (preço/custo POR EMPRESA na mesma form), via HTTP
+    const prodPrecoPost = await fetch(`${base}/cadastro/produtos`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        codbarra: '7890000001250', // EAN-13 com dígito verificador válido (zod valida na camada HTTP)
+        descricao: 'PRODUTO F2 SMOKE',
+        unidade: 'UN',
+        codfor: 2,
+        aliquota: 'T01',
+        precos: [{ idempresa: 1, vrcusto: 8, markup: 25, vrvenda: 10, promocao: 'N', aliquotasaida: 'T01', ativo: 'S' }],
+      }),
+    });
+    const prodPreco = (await prodPrecoPost.json()) as any;
+    check(
+      'POST /cadastro/produtos cria com precos por empresa (vrvenda 10 round-trip)',
+      prodPrecoPost.status === 201 && prodPreco.precos?.length === 1 && Number(prodPreco.precos[0].vrvenda) === 10,
+      prodPreco,
+    );
+
+    // 15b.2) GET /:id traz precos do seed (produto 1, empresa 1)
+    const prod1 = (await (await fetch(`${base}/cadastro/produtos/1`, { headers: H })).json()) as any;
+    check(
+      'GET /cadastro/produtos/1 traz precos do seed (linha da empresa 1)',
+      Array.isArray(prod1?.precos) && prod1.precos.some((p: any) => p.idempresa === 1),
+      { precos: prod1?.precos?.length },
+    );
+
+    // 15c) CODFOR (fornecedor) obrigatório → 400 VALIDACAO PT (nunca 500)
     const semFor = await fetch(`${base}/cadastro/produtos`, {
       method: 'POST',
       headers: H,
@@ -414,7 +442,7 @@ async function main() {
       { status: semFor.status, code: semForBody.code },
     );
 
-    // 15c) DESCRICAO não pode conter ';' → 400 VALIDACAO PT
+    // 15d) DESCRICAO não pode conter ';' → 400 VALIDACAO PT
     const descBad = await fetch(`${base}/cadastro/produtos`, {
       method: 'POST',
       headers: H,
@@ -427,7 +455,7 @@ async function main() {
       { status: descBad.status, code: descBadBody.code },
     );
 
-    // 15d) ALIQUOTA 'STB' exige CEST (superRefine) → 400 VALIDACAO PT
+    // 15e) ALIQUOTA 'STB' exige CEST (superRefine) → 400 VALIDACAO PT
     const cestBad = await fetch(`${base}/cadastro/produtos`, {
       method: 'POST',
       headers: H,
@@ -440,7 +468,7 @@ async function main() {
       { status: cestBad.status, code: cestBadBody.code },
     );
 
-    // 15e) lookups de apoio do Produto (unidades / familias filtradas / aliquotas)
+    // 15f) lookups de apoio do Produto (unidades / familias filtradas / aliquotas)
     const unidades = (await (await fetch(`${base}/cadastro/unidades`, { headers: H })).json()) as any[];
     check('GET /cadastro/unidades lista o seed (≥6)', Array.isArray(unidades) && unidades.length >= 6, unidades?.length);
 

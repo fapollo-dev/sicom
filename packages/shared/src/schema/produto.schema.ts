@@ -73,6 +73,26 @@ export const codAuxiliarSchema = z.object({
 });
 export type CodAuxiliarDto = z.infer<typeof codAuxiliarSchema>;
 
+/**
+ * Preço/custo POR EMPRESA (detalhe 1:N — MULTI_PRECO). No legado fica na MESMA form do
+ * produto. O VRVENDA é o resultado do cálculo (custo+markup+impostos), REUSADO de
+ * POST /precificacao/produto — a tela só ARMAZENA o resultado por empresa.
+ */
+export const precoProdutoSchema = z.object({
+  idempresa: z.number({ message: 'Informe a empresa.' }).int('Empresa inválida.'),
+  vrcusto: z.number().nonnegative('Custo inválido').optional(),
+  vrcustorep: z.number().nonnegative('Custo rep. inválido').optional(),
+  markup: z.number({ message: 'Markup inválido' }).optional(),
+  vrvenda: z.number().nonnegative('Preço de venda inválido').optional(),
+  vrpromo: z.number().nonnegative('Preço promocional inválido').optional(),
+  promocao: sn().default('N'),
+  margeml: z.number({ message: 'Margem inválida' }).optional(),
+  aliquotasaida: z.string().trim().max(3).optional(), // código fiscal de saída (→ det_aliquota)
+  ativo: sn().default('S'),
+  ativo_compra: sn().default('S'),
+});
+export type PrecoProdutoDto = z.infer<typeof precoProdutoSchema>;
+
 /** Base do master (sem o superRefine) — reusada p/ o schema de atualização (partial). */
 const produtoBase = z.object({
   // identidade
@@ -126,8 +146,9 @@ const produtoBase = z.object({
   ativo_compra: sn().default('S'),
   idproduto_pai: z.number().int().optional(),
   fator_filho: z.number().nonnegative('Fator do filho inválido').optional(),
-  // detalhe 1:N (engine de agregado grava todos numa transação)
+  // detalhes 1:N (engine de agregado grava todos numa transação)
   codauxiliares: z.array(codAuxiliarSchema).optional().default([]),
+  precos: z.array(precoProdutoSchema).optional().default([]), // F2 — MULTI_PRECO por empresa (mesma form)
 });
 
 /** Regra do legado (btnGravarClick): CEST é obrigatório quando a alíquota é do tipo 'STB' (ST). */
