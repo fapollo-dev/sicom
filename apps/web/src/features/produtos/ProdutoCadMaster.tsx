@@ -10,6 +10,7 @@ import {
   type CriarProdutoDto,
   type CodAuxiliarDto,
   type PrecoProdutoDto,
+  type EstoqueProdutoDto,
 } from '@apollo/shared';
 import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
@@ -23,7 +24,10 @@ import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResour
 import { CodAuxiliarModal } from './CodAuxiliarModal';
 import { precificarProduto } from './precificacaoApi';
 
-/** empresa única do contexto F2 — toda a edição inline de preço acontece em `precos.0`. */
+/**
+ * empresa única do contexto F2/F3 — toda a edição inline de preço acontece em `precos.0`
+ * e a de estoque em `estoques.0`.
+ */
 const IDEMPRESA_F2 = 1;
 
 /**
@@ -115,6 +119,10 @@ export function ProdutoCadMaster() {
       // F2 — MULTI_PRECO por empresa: a tela edita a linha da empresa única INLINE em
       // `precos.0`; semeada aqui p/ o binding existir num registro NOVO (defaults do legado).
       precos: [{ idempresa: IDEMPRESA_F2, promocao: 'N', ativo: 'S', ativo_compra: 'S' }],
+      // F3 — ESTOQUE por empresa: linha da empresa única INLINE em `estoques.0`; semeada
+      // zerada (saldo movido por transação) p/ o binding existir num registro NOVO — espelha
+      // o legado, onde a linha de estoque de um produto novo nasce zerada.
+      estoques: [{ idempresa: IDEMPRESA_F2, qtde: 0, minimo: 0, maximo: 0 }],
     }),
     [],
   );
@@ -149,6 +157,8 @@ export function ProdutoCadMaster() {
           />
           {/* Preços INLINE logo após a Principal — espelha o legado (preço/custo na aba Principal). */}
           <PrecosSection form={form} editavel={editavel} aliquotaOptions={aliquotaOptions} />
+          {/* Estoque INLINE logo após Preços — saldo (qtde) read-only; só mín/máx/local editáveis. */}
+          <EstoqueSection form={form} editavel={editavel} />
           <FiscalSection form={form} editavel={editavel} aliquotaOptions={aliquotaOptions} />
           <CodAuxiliaresSection
             form={form}
@@ -815,6 +825,116 @@ function PrecosSection({
             )}
           />
         </div>
+      </div>
+    </fieldset>
+  );
+}
+
+// ───────────────────────────── Estoque ─────────────────────────────
+
+/**
+ * ESTOQUE da empresa única (F3) — INLINE na MESMA form do produto, espelhando a seção de
+ * Preços (`PrecosSection`). NÃO é grid/modal: os campos são `Controller`/register direto em
+ * `estoques.0.*` (ESTOQUE por empresa continua sendo o modelo; em F3 há 1 empresa, idempresa=1).
+ *
+ * REGRA DE NEGÓCIO: o SALDO (`qtde`) é MOVIDO POR TRANSAÇÃO (NF/vendas/ajuste) — no cadastro
+ * é READ-ONLY (no legado os 3 campos de saldo são Enabled=False). Aqui exibimos só o saldo,
+ * desabilitado; o usuário edita apenas MÍNIMO, MÁXIMO e LOCAL. `qtde` ronda no payload (input
+ * hidden) só p/ preservar o saldo no substitute do agregado — nunca é alterado pelo usuário.
+ *
+ * Robustez na edição: o pilar faz `form.reset(registroCarregado)`, trocando `estoques` pelo
+ * array carregado — a linha da empresa única pode não estar no índice 0 (ou `estoques` pode vir
+ * vazio em produtos antigos). O efeito de normalização garante que `estoques.0` SEMPRE é a linha
+ * da empresa F3 (com `idempresa`/`qtde` preservados), para o binding inline e o `idempresa`
+ * exigido pelo schema funcionarem na gravação.
+ */
+function EstoqueSection({
+  form,
+  editavel,
+}: {
+  form: UseFormReturn<CriarProdutoDto>;
+  editavel: boolean;
+}) {
+  // ── Normalização edit-load: garante que `estoques.0` é SEMPRE a linha da empresa F3 ──
+  // O `form.reset` do pilar substitui `estoques` pelo array carregado (idempresa=1 pode não
+  // estar no índice 0; produtos antigos podem vir sem linha). Reordena/inicializa uma única
+  // vez por carga, sem sujar o form (shouldDirty:false), preservando `idempresa` e `qtde`.
+  const estoques = form.watch('estoques');
+  useEffect(() => {
+    const lista = (estoques ?? []) as EstoqueProdutoDto[];
+    const atual0 = lista[0];
+    // já normalizado: linha 0 existe e é a empresa F3 → nada a fazer (evita loop).
+    if (atual0 && Number(atual0.idempresa) === IDEMPRESA_F2) return;
+
+    const daEmpresa = lista.find((e) => Number(e.idempresa) === IDEMPRESA_F2);
+    const restante = lista.filter((e) => Number(e.idempresa) !== IDEMPRESA_F2);
+    const linha0: EstoqueProdutoDto = daEmpresa
+      ? { ...daEmpresa, idempresa: IDEMPRESA_F2 }
+      : { idempresa: IDEMPRESA_F2, qtde: 0, minimo: 0, maximo: 0 };
+    form.setValue('estoques', [linha0, ...restante], { shouldDirty: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estoques]);
+
+  // saldo carregado (read-only) — apenas exibido; o valor real ronda via o input hidden de qtde.
+  const saldo = form.watch('estoques.0.qtde');
+
+  return (
+    <fieldset disabled={!editavel} className="rounded-radius-md border border-border p-pad-md">
+      <legend className="px-pad-xs text-fg-muted">Estoque</legend>
+      {/* idempresa fixo da empresa F3 — mantido no form (exigido pelo schema) sem campo visível. */}
+      <input type="hidden" {...form.register('estoques.0.idempresa', { valueAsNumber: true })} />
+      {/* qtde (saldo) movido por transação — ronda no payload p/ o substitute do agregado preservar o saldo. */}
+      <input type="hidden" {...form.register('estoques.0.qtde', { valueAsNumber: true })} />
+      <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+        {/* SALDO — READ-ONLY: movido por transação (NF/vendas/ajuste); nunca editável no cadastro. */}
+        <NumberField
+          label="&Saldo (movido por transação)"
+          value={saldo as number | undefined}
+          decimais={3}
+          disabled
+        />
+        <Controller
+          control={form.control}
+          name="estoques.0.minimo"
+          render={({ field }) => (
+            <NumberField
+              label="&Mínimo"
+              value={field.value as number | undefined}
+              onChange={field.onChange}
+              decimais={3}
+              min={0}
+              error={form.formState.errors.estoques?.[0]?.minimo?.message as string | undefined}
+            />
+          )}
+        />
+        <Controller
+          control={form.control}
+          name="estoques.0.maximo"
+          render={({ field }) => (
+            <NumberField
+              label="Má&ximo"
+              value={field.value as number | undefined}
+              onChange={field.onChange}
+              decimais={3}
+              min={0}
+              error={form.formState.errors.estoques?.[0]?.maximo?.message as string | undefined}
+            />
+          )}
+        />
+        {/* LOCAL (edtLOCAL do legado) — uppercase, máx. 50. */}
+        <Controller
+          control={form.control}
+          name="estoques.0.local"
+          render={({ field }) => (
+            <Field
+              label="&Local"
+              maxLength={50}
+              value={field.value ?? ''}
+              onChange={(e) => field.onChange(e.target.value.toUpperCase())}
+              error={form.formState.errors.estoques?.[0]?.local?.message as string | undefined}
+            />
+          )}
+        />
       </div>
     </fieldset>
   );

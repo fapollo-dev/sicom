@@ -109,6 +109,21 @@ export const precoProdutoSchema = z.object({
 });
 export type PrecoProdutoDto = z.infer<typeof precoProdutoSchema>;
 
+/**
+ * Estoque POR EMPRESA (detalhe 1:N — ESTOQUE). Na MESMA form do produto (aba Estoque).
+ * REGRA: o SALDO (`qtde`) é MOVIDO POR TRANSAÇÃO (NF/vendas/ajuste) — no cadastro é
+ * READ-ONLY; só MINIMO/MAXIMO/LOCAL são editáveis. `qtde` ronda no payload (read-only) só
+ * para preservar o saldo no substitute do agregado; nunca é alterado pelo usuário aqui.
+ */
+export const estoqueProdutoSchema = z.object({
+  idempresa: z.number({ message: 'Informe a empresa.' }).int('Empresa inválida.'),
+  qtde: dec(z.number().nonnegative('Saldo inválido')), // saldo (read-only no cadastro)
+  minimo: dec(z.number().nonnegative('Mínimo inválido')),
+  maximo: dec(z.number().nonnegative('Máximo inválido')),
+  local: z.string().trim().max(50).optional(),
+});
+export type EstoqueProdutoDto = z.infer<typeof estoqueProdutoSchema>;
+
 /** Base do master (sem o superRefine) — reusada p/ o schema de atualização (partial). */
 const produtoBase = z.object({
   // identidade
@@ -165,6 +180,7 @@ const produtoBase = z.object({
   // detalhes 1:N (engine de agregado grava todos numa transação)
   codauxiliares: z.array(codAuxiliarSchema).optional().default([]),
   precos: z.array(precoProdutoSchema).optional().default([]), // F2 — MULTI_PRECO por empresa (mesma form)
+  estoques: z.array(estoqueProdutoSchema).optional().default([]), // F3 — ESTOQUE por empresa (saldo read-only)
 });
 
 /**

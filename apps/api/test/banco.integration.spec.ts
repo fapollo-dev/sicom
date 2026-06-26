@@ -944,6 +944,59 @@ describe('15ª — PRODUTO F2 (MULTI_PRECO por empresa)', () => {
   });
 });
 
+describe('PRODUTO F3 (ESTOQUE por empresa)', () => {
+  // F3: saldo por empresa na MESMA form do produto — detalhe `estoques` (1:N), 1 linha por
+  // idempresa, substituído (delete+insert) na gravação como os outros. REGRA: qtde (saldo) é
+  // movido por transação — READ-ONLY no cadastro; só minimo/maximo/local são editáveis. qtde
+  // entra no payload só p/ PRESERVAR o saldo no substitute (round-trip).
+  const eng = () => new AggregateEngineService(dbp);
+  const cfg = produtoAggregateConfig;
+
+  it('READ do seed (produto 1): estoques populado; empresa-1 com qtde 120, min 10, max 500, local COR-A1', async () => {
+    const agg = (await withTenant(() => eng().readAggregate(cfg, 1))) as any;
+    expect(agg.estoques.length).toBeGreaterThanOrEqual(1);
+    const e1 = agg.estoques.find((e: any) => e.idempresa === 1);
+    expect(e1).toBeDefined();
+    expect(Number(e1.qtde)).toBe(120); // numeric volta como string do pg
+    expect(Number(e1.minimo)).toBe(10);
+    expect(Number(e1.maximo)).toBe(500);
+    expect(e1.local).toBe('COR-A1');
+  });
+
+  let cod: number;
+  it('CREATE agregado com estoques: produto + 1 estoque da empresa 1 (qtde 0); round-trip', async () => {
+    cod = await withTenant(() =>
+      eng().createAggregate(cfg, {
+        codbarra: '7890000002233',
+        descricao: 'PRODUTO F3 ESTOQUE',
+        unidade: 'UN',
+        codfor: 2,
+        aliquota: 'T01',
+        codauxiliares: [],
+        estoques: [{ idempresa: 1, qtde: 0, minimo: 5, maximo: 50, local: 'X1' }],
+      }),
+    );
+    const agg = (await withTenant(() => eng().readAggregate(cfg, cod))) as any;
+    expect(agg.estoques.length).toBe(1);
+    expect(agg.estoques[0].idempresa).toBe(1);
+    expect(Number(agg.estoques[0].minimo)).toBe(5);
+    expect(Number(agg.estoques[0].qtde)).toBe(0);
+  });
+
+  it('UPDATE preserva saldo (regra): só min/max/local mudam; qtde reenviado 0 fica 0', async () => {
+    await withTenant(() =>
+      eng().updateAggregate(cfg, cod, {
+        estoques: [{ idempresa: 1, qtde: 0, minimo: 9, maximo: 90, local: 'X2' }],
+      }),
+    );
+    const agg = (await withTenant(() => eng().readAggregate(cfg, cod))) as any;
+    expect(agg.estoques.length).toBe(1); // substituição (não acréscimo)
+    expect(Number(agg.estoques[0].minimo)).toBe(9);
+    expect(agg.estoques[0].local).toBe('X2');
+    expect(Number(agg.estoques[0].qtde)).toBe(0); // saldo inalterado pelo cadastro
+  });
+});
+
 function outbox(chave: number, tipo: 'INSERT' | 'UPDATE' | 'DELETE') {
   return runWithTenant({ tenantId: 'pinheirao' }, () =>
     dbp

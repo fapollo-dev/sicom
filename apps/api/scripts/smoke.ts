@@ -499,6 +499,56 @@ async function main() {
       Array.isArray(aliquotas) && aliquotas.some((a) => a.codigo === 'T01'),
       aliquotas?.length,
     );
+
+    // 15h) PRODUTO F3 — ESTOQUE (saldo por empresa na mesma form), via HTTP
+    // REGRA: qtde (saldo) é read-only no cadastro (movido por transação); só min/max/local editáveis.
+    // 15h.1) CREATE com estoques (empresa 1, qtde 0; EAN-13 7890000002257 com DV válido, distinto)
+    const prodEstPost = await fetch(`${base}/cadastro/produtos`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        codbarra: '7890000002257', // EAN-13 com dígito verificador válido (zod valida na camada HTTP)
+        descricao: 'PRODUTO F3 SMOKE',
+        unidade: 'UN',
+        codfor: 2,
+        aliquota: 'T01',
+        estoques: [{ idempresa: 1, qtde: 0, minimo: 7, maximo: 70, local: 'SMOKE' }],
+      }),
+    });
+    const prodEst = (await prodEstPost.json()) as any;
+    check(
+      'POST /cadastro/produtos cria com estoques por empresa (minimo 7 round-trip)',
+      prodEstPost.status === 201 && prodEst.estoques?.length === 1 && Number(prodEst.estoques[0].minimo) === 7,
+      prodEst,
+    );
+
+    // 15h.2) GET /:id traz estoques do seed (produto 1, empresa 1, qtde 120)
+    const prod1Est = (await (await fetch(`${base}/cadastro/produtos/1`, { headers: H })).json()) as any;
+    const est1 = Array.isArray(prod1Est?.estoques) ? prod1Est.estoques.find((e: any) => e.idempresa === 1) : undefined;
+    check(
+      'GET /cadastro/produtos/1 traz estoques do seed (empresa 1, qtde 120)',
+      !!est1 && Number(est1.qtde) === 120,
+      { estoques: prod1Est?.estoques?.length, qtde: est1?.qtde },
+    );
+
+    // 15h.3) EDIÇÃO round-trip preserva saldo: muda minimo→11, mantém qtde como carregado (string).
+    // PUT deve gravar (200) e re-GET mostra minimo 11 e qtde AINDA 120 (cadastro não mexe no saldo).
+    if (est1) est1.minimo = 11; // só o min/max/local é editável; qtde fica a string carregada
+    const prod1EstEdit = await fetch(`${base}/cadastro/produtos/1`, {
+      method: 'PUT',
+      headers: H,
+      body: JSON.stringify(prod1Est),
+    });
+    const prod1EstEditBody = (await prod1EstEdit.json().catch(() => ({}))) as any;
+    const prod1EstReget = (await (await fetch(`${base}/cadastro/produtos/1`, { headers: H })).json()) as any;
+    const estReget = Array.isArray(prod1EstReget?.estoques)
+      ? prod1EstReget.estoques.find((e: any) => e.idempresa === 1)
+      : undefined;
+    check(
+      'PUT /cadastro/produtos/1 edita estoque (minimo 11) e PRESERVA saldo (qtde ainda 120)',
+      prod1EstEdit.status === 200 && !!estReget && Number(estReget.minimo) === 11 && Number(estReget.qtde) === 120,
+      { status: prod1EstEdit.status, minimo: estReget?.minimo, qtde: estReget?.qtde, putCode: prod1EstEditBody?.code },
+    );
   } finally {
     await app.close();
     await pg.stop();

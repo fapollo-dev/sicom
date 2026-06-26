@@ -52,6 +52,17 @@ export const produtoAggregateConfig: AggregateConfig = {
         'promocao', 'margeml', 'aliquotasaida', 'ativo', 'ativo_compra',
       ],
     },
+    // F3 — ESTOQUE: saldo por empresa, na MESMA form. REGRA: qtde (saldo) é movido por
+    // transação (NF/vendas/ajuste) — read-only no cadastro; só minimo/maximo/local editáveis.
+    // qtde entra em `colunas` apenas p/ PRESERVAR o saldo no substitute (delete+insert) — o
+    // usuário nunca o altera aqui. Movimentação/ajuste/auditoria/replicação = fases futuras.
+    {
+      tabela: 'estoque',
+      pk: 'id_estoque',
+      fk: 'idproduto',
+      chave: 'estoques',
+      colunas: ['idempresa', 'qtde', 'minimo', 'maximo', 'local'],
+    },
   ],
   colunasPesquisa: ['idproduto', 'codbarra', 'descricao', 'ncmsh', 'marca', 'aliquota', 'ativo'],
 };
