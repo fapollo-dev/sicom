@@ -799,6 +799,46 @@ describe('12ª — PARCEIROS F2 (sub-recursos + colunas por papel)', () => {
   });
 });
 
+describe('13ª — PARCEIROS F3 (config fiscal)', () => {
+  // engine-direct (sem zod): prova o round-trip das colunas fiscais do master.
+  // A validação de IE por UF é um refine do zod → coberta no smoke (camada HTTP).
+  const eng = () => new AggregateEngineService(dbp);
+  const cfg = parceiroAggregateConfig;
+
+  it('READ do seed (parceiro 1): colunas fiscais semeadas na 019 fazem round-trip', async () => {
+    const agg = (await withTenant(() => eng().readAggregate(cfg, 1))) as any;
+    expect(agg.contribuinte_icms).toBe('1');
+    expect(agg.classfiscal).toBe('LR');
+    expect(agg.habilita_retencao_ir_nf).toBe('S');
+    expect(Number(agg.perc_aliquota_ir)).toBe(1.5); // numeric volta como string do pg
+    expect(agg.envianfe).toBe('S');
+    expect(agg.irrf).toBe('I');
+  });
+
+  it('CREATE com config fiscal completa: persiste e relê todas as colunas (incl. numeric)', async () => {
+    const cod = await withTenant(() =>
+      eng().createAggregate(cfg, {
+        razao: 'CLIENTE F3 TESTE',
+        tipofj: 'J',
+        cli: 'S',
+        contribuinte_icms: '9',
+        habilita_retencao_pis_nf: 'S',
+        perc_aliquota_issqn: 3.25,
+        classificacao: 'C',
+        codparceiro_ent_issqn: 1,
+        enderecos: [{ endereco: 'RUA F3', uf: 'SP', endereco_padrao: 'S', ativado: 'S' }],
+      }),
+    );
+    const agg = (await withTenant(() => eng().readAggregate(cfg, cod))) as any;
+    expect(agg.contribuinte_icms).toBe('9');
+    expect(agg.habilita_retencao_pis_nf).toBe('S');
+    expect(Number(agg.perc_aliquota_issqn)).toBe(3.25); // numeric(15,4) volta como string
+    expect(agg.classificacao).toBe('C');
+    expect(agg.codparceiro_ent_issqn).toBe(1);
+    expect(agg.enderecos.length).toBe(1);
+  });
+});
+
 function outbox(chave: number, tipo: 'INSERT' | 'UPDATE' | 'DELETE') {
   return runWithTenant({ tenantId: 'pinheirao' }, () =>
     dbp

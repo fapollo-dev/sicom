@@ -30,6 +30,11 @@ export const parceiroAggregateConfig: AggregateConfig = {
     'venc_prev', 'dtultcompra', 'classfornecedor', 'codref', 'codcontabil_for',
     'limite_especial', 'codcontabil', 'renda', 'cargo', 'empresatrabalha',
     'contribuinte_icms', 'classfiscal',
+    // F3 — configuração fiscal (a tela armazena; cálculo vive a jusante em NF/financeiro)
+    'estrangeiro', 'envianfe', 'devolucao_zera_imposto_icmsst', 'irrf', 'apuracao', 'classificacao',
+    'habilita_retencao_pis_nf', 'habilita_retencao_cofins_nf', 'habilita_retencao_csll_nf',
+    'habilita_retencao_ir_nf', 'habilita_retencao_inss_nf', 'habilita_retencao_issqn_nf',
+    'habilita_retencao_funrural_nf', 'perc_aliquota_ir', 'perc_aliquota_issqn', 'codparceiro_ent_issqn',
   ],
   detalhes: [
     {
@@ -49,7 +54,7 @@ export const parceiroAggregateConfig: AggregateConfig = {
     { tabela: 'parceiros_rel', pk: 'codrelacionamento', fk: 'codparceiro', chave: 'relacionamentos', colunas: ['nome', 'doc1', 'doc2', 'tiporel', 'telefone', 'celular', 'endereco'] },
     { tabela: 'parceiros_vendedores', pk: 'codparceirovendedor', fk: 'codparceiro', chave: 'vendedores', colunas: ['codvendedor'] },
   ],
-  colunasPesquisa: ['codparceiro', 'razao', 'fantasia', 'cnpj_cpf', 'cidade', 'uf', 'cli', 'frn', 'fun', 'tra', 'con'],
+  colunasPesquisa: ['codparceiro', 'razao', 'fantasia', 'cnpj_cpf', 'cidade', 'uf', 'tipofj', 'cli', 'frn', 'fun', 'tra', 'con'],
 };
 
 export const ParceiroAggregateController = createAggregateController({

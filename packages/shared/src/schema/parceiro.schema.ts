@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { zCpfCnpj, zCep, zUf, zCelular, zEmail } from '../validators/br';
+import { inscricaoEstadualValida, ieIsenta } from '../validators/inscricao-estadual';
 
 /**
  * Cadastro UNIFICADO de PARCEIROS (a tela viva do legado é `TfrmCadClientes` — uma só,
@@ -30,6 +31,55 @@ export const PAPEIS_PARCEIRO = [
   { campo: 'fun', label: 'Funcionário/Vendedor' },
   { campo: 'tra', label: 'Transportador' },
   { campo: 'con', label: 'Convênio' },
+] as const;
+
+/**
+ * CONTRIBUINTE_ICMS — código Sintegra (NÃO é S/N!). Itens VERBATIM do .dfm (cbbContribuinteICMS).
+ */
+export const CONTRIBUINTE_ICMS_OPCOES = [
+  { value: '1', label: '1 - Contribuinte ICMS (informar a IE do destinatário)' },
+  { value: '2', label: '2 - Contribuinte isento de Inscrição no cadastro de Contribuintes do ICMS' },
+  { value: '9', label: '9 - Não Contribuinte (pode ou não possuir IE)' },
+] as const;
+
+/** CLASSFISCAL — regime tributário (cmbCLASSFISCAL). */
+export const CLASSFISCAL_OPCOES = [
+  { value: 'ME', label: 'ME - Microempresa' },
+  { value: 'LR', label: 'LR - Lucro Real' },
+  { value: 'SN', label: 'SN - Simples Nacional' },
+  { value: 'LP', label: 'LP - Lucro Presumido' },
+] as const;
+
+/** IRRF / classificação de retenção (cmbClassIR: ''/I/F/R). */
+export const IRRF_OPCOES = [
+  { value: 'I', label: 'IRRF retido na fonte' },
+  { value: 'F', label: 'Funrural' },
+  { value: 'R', label: 'Retém PIS/COFINS' },
+] as const;
+
+/** APURACAO (cmbApuracao: M/A). */
+export const APURACAO_OPCOES = [
+  { value: 'M', label: 'Mensal' },
+  { value: 'A', label: 'Anual' },
+] as const;
+
+/** CLASSIFICACAO / tipo de figura (cmbTpFigura: F/I/C/S). */
+export const CLASSIFICACAO_OPCOES = [
+  { value: 'F', label: 'Fornecedor/Atacado' },
+  { value: 'I', label: 'Indústria' },
+  { value: 'C', label: 'Comércio' },
+  { value: 'S', label: 'Simples Nacional' },
+] as const;
+
+/** Flags de retenção de ENTRADA (aba "Retenções Nota fiscal"). Só as que a tela expõe. */
+export const RETENCOES_PARCEIRO = [
+  { campo: 'habilita_retencao_pis_nf', label: 'PIS' },
+  { campo: 'habilita_retencao_cofins_nf', label: 'COFINS' },
+  { campo: 'habilita_retencao_csll_nf', label: 'CSLL' },
+  { campo: 'habilita_retencao_ir_nf', label: 'IR' },
+  { campo: 'habilita_retencao_inss_nf', label: 'INSS' },
+  { campo: 'habilita_retencao_issqn_nf', label: 'ISSQN' },
+  { campo: 'habilita_retencao_funrural_nf', label: 'FUNRURAL' },
 ] as const;
 
 /** trata '' / null como ausente (campo opcional) antes de aplicar um validador que transforma. */
@@ -137,9 +187,26 @@ const parceiroBase = z.object({
   renda: z.number().nonnegative().optional(), // Funcionário
   cargo: z.string().trim().max(60).optional(), // Funcionário
   empresatrabalha: z.string().trim().max(100).optional(), // Funcionário
-  // F2 — fiscal essencial
-  contribuinte_icms: z.string().trim().max(1).optional(),
-  classfiscal: z.string().trim().max(2).optional(),
+  // F3 — CONFIGURAÇÃO fiscal (a tela ARMAZENA; cálculo vive a jusante em NF/financeiro).
+  estrangeiro: sn().default('N'),
+  contribuinte_icms: opcional(z.enum(['1', '2', '9'], { message: 'Contribuinte ICMS inválido' })), // código Sintegra (NÃO S/N)
+  classfiscal: opcional(z.enum(['ME', 'LR', 'SN', 'LP'], { message: 'Classificação fiscal inválida' })),
+  envianfe: sn().optional(),
+  devolucao_zera_imposto_icmsst: sn().optional(),
+  irrf: opcional(z.enum(['I', 'F', 'R'], { message: 'IRRF inválido' })),
+  apuracao: opcional(z.enum(['M', 'A'], { message: 'Apuração inválida' })),
+  classificacao: opcional(z.enum(['F', 'I', 'C', 'S'], { message: 'Classificação inválida' })),
+  // Flags de retenção de ENTRADA (checkbox S/N). Alíquotas IR/ISSQN (a tela só edita estas 2).
+  habilita_retencao_pis_nf: sn().optional(),
+  habilita_retencao_cofins_nf: sn().optional(),
+  habilita_retencao_csll_nf: sn().optional(),
+  habilita_retencao_ir_nf: sn().optional(),
+  habilita_retencao_inss_nf: sn().optional(),
+  habilita_retencao_issqn_nf: sn().optional(),
+  habilita_retencao_funrural_nf: sn().optional(),
+  perc_aliquota_ir: z.number().nonnegative('Alíquota IR inválida').optional(),
+  perc_aliquota_issqn: z.number().nonnegative('Alíquota ISSQN inválida').optional(),
+  codparceiro_ent_issqn: z.number().int().optional(), // FK → parceiros (TIPOFJ='E')
   // detalhes 1:N (engine de agregado grava todos numa transação)
   enderecos: z.array(enderecoParceiroSchema).optional().default([]),
   bancos: z.array(bancoParceiroSchema).optional().default([]),
@@ -158,6 +225,19 @@ export const parceiroSchema = parceiroBase.superRefine((d, ctx) => {
       code: z.ZodIssueCode.custom,
       message: 'Preenchimento do tipo de parceiro é obrigatório (Cliente, Fornecedor, etc.). Verifique!',
       path: ['cli'],
+    });
+  }
+  // IE por UF (legado edtIERGExit): valida só quando NÃO é pessoa física e a IE não é isenta.
+  if (d.tipofj && d.tipofj !== 'F') {
+    (d.enderecos ?? []).forEach((e, i) => {
+      const ie = (e.rg_insc ?? '').trim();
+      if (ie && !ieIsenta(ie) && e.uf && !inscricaoEstadualValida(e.uf, ie)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Inscrição Estadual inválida para a UF informada.',
+          path: ['enderecos', i, 'rg_insc'],
+        });
+      }
     });
   }
 });

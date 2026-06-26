@@ -538,6 +538,25 @@ Acordo gera financeiro (APAGAR/ARECEBER) e arquivos (`ARQUIVO_ACORDO`); PKs por 
 
 ---
 
+## Estado de implementação (F1 → F3) e itens fiscais ADIADOS (com a SQL exata — não perder)
+
+**Achado de escopo (delimita F3):** a tela de Parceiros **NÃO calcula imposto** — ela só **ARMAZENA a configuração** (flags de retenção, alíquotas, contribuinte ICMS, classificação). O **motor de cálculo vive a jusante** (emissão de NF / pagamento a fornecedor / financeiro). Logo a migração desta tela é **configuração + validação local**; o cálculo será portado fielmente quando NF/financeiro forem migrados — já com a config que eles consomem mapeada aqui.
+
+**Entregue e verde:**
+- **F1 (núcleo):** master + endereços (CNPJ/CPF/IE no endereço), 6 papéis (ao-menos-um), CEP autofill (ViaCEP), dup-CNPJ (índice único → 409), multi-tenant (`empresaScoped`). Telas `/cadastro/clientes` e `/cadastro/fornecedores` parametrizadas por papel.
+- **F2:** sub-recursos 1:N (bancos/pgto/relacionamentos/vendedores) como detalhes do agregado + abas condicionais por papel (Fornecedor/Cliente/Funcionário).
+- **F3 (config fiscal):** flags de retenção de ENTRADA (PIS/COFINS/CSLL/IR/INSS/ISSQN/FUNRURAL), alíquotas IR/ISSQN, entidade ISSQN (lookup `TIPOFJ='E'`), `CONTRIBUINTE_ICMS` (combo Sintegra **1/2/9**, corrigido de S/N), `CLASSFISCAL` (ME/LR/SN/LP), `ENVIANFE`, `DEVOLUCAO_ZERA_IMPOSTO_ICMSST`, `IRRF`/`APURACAO`/`CLASSIFICACAO`, `ESTRANGEIRO` (bloqueia consulta CEP). **Validador de IE por UF** (27 UFs) aplicado quando `TIPOFJ<>'F'` e IE≠isenta. **Paridade:** alíquotas são sempre editáveis (o legado NÃO amarra alíquota↔flag — não inventar).
+
+**ADIADO — regras do legado a NÃO perder (implementar quando a dependência existir):**
+- **(B) Travas de integridade — dependem de NF/NFC/INDEXADOR_TRIBUTARIO/PLANO_CONTAS (não migradas):**
+  - `CNPJLiberadoParaEdicao` (libera editar/excluir endereço sse total=0): `COUNT(*) NF WHERE CODPARCEIRO_END=:codend` + `COUNT(*) INDEXADOR_TRIBUTARIO I JOIN PARCEIROS_END E ON E.CODPARCEIRO=I.CODPARCEIRO WHERE I.CNPJ_CPF=:cnpj AND E.ATIVADO='S'` + `COUNT(*) NFC WHERE CODPARCEIRO_END=:codend` `[uCadClientes.pas:4707-4743]`. Se >0: editar CNPJ/UF é bloqueado e excluir vira **desativar** (`UPDATE PARCEIROS_END SET ATIVADO='N', ENDERECO_PADRAO='N'`).
+  - Contabilizado não exclui: `CLI='S' AND CODCONTABIL<>''` → bloqueia ("Cliente contabilizado..."); `FRN='S' AND CODCONTABIL_FOR<>''` → bloqueia `[pas:1660-1669]`.
+  - CNPJ de fornecedor ativo único / FRN com NF não perde o tipo (via os COUNTs de B1).
+- **(C) Serviços externos:** Receita Federal (CNPJ) `btnConsultarCPFCNPJ`; SINTEGRA (IE) `btnSintegra`. (CEP/Correios já feito.)
+- **(D) Configs de sessão/empresa (precisam de infra de config por tenant):** `VALIDA_CPF_CNPJ_VAZIO` (N/C/J/A → exige CPF/CNPJ por TIPOFJ), `BLOQUEAR_CADASTRAR_PARCEIRO_CPF_EXISTENTE` (caminho 'S' já coberto pelo índice único; o caminho "aviso+senha ADM" depende de config), `PARCEIRO_EXIBIR_DADOS_FINANCEIROS`, `PERMITIR_HISTORICO`, `SEGMENTO='INDUSTRIA'`.
+- **(país≠Brasil para estrangeiro):** depende da tabela `PAIS` (`CODPAIS_SEFAZ=1058`) — não migrada; hoje só bloqueamos a consulta de CEP.
+- **Colunas fiscais SEM UI nesta tela (existem no Oracle, NÃO modelar aqui):** `*_SAI` (saída), `SENAR`, alíquota FUNRURAL, `LIBERA_DIGITAR_RETENCOES(_SAI)`, `RETENCAO_COOPERATIVA(_SAI)`, `BASE_RETENCAO_INSS_DIF` — pertencem ao módulo de NF, não ao cadastro.
+
 ## Lacunas (para sair de `rascunho`)
 
 **✅ Confirmado (`[.pas]`/`[.dfm]`/`[Oracle-dict]`/recon):** party único multi-papel (6 flags, `ASS` morto); tela única `TfrmCadClientes` (stubs mortos fora do build); CNPJ/IE em `PARCEIROS_END`; SELECT master (16 JOINs, `V.FUN='S'`) e SQL dos 7+ nested; mapa dos combos; defaults/auditoria do DM; todas as BR-01..BR-27 com procedência e mensagens PT exatas; sequence `ID_CODPARCEIRO` sem trigger; replicação `REM_PARCEIROS`(cond. CLI no UPDATE)/`REM_PARCEIROSEND`; `GET_PARCEIROS` sem filtro de papel (`GET_FORNECEDORES` não existe); configs de sessão/empresa; 195 colunas físicas / 169 agrupadas / ~140 no SELECT; dados reais (TIPOFJ com sujeira 'L'/null; 57% multi-papel).

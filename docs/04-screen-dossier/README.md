@@ -35,7 +35,7 @@
 | [UCadTabelaPreco.md](dossiers/retaguarda/UCadTabelaPreco.md) | Tabela de Preço | em-revisão | VALOR_REAJUSTE percentual; CkbReajuste |
 | [UCadContasBancarias.md](dossiers/retaguarda/UCadContasBancarias.md) | Contas Bancárias | em-revisão | completa; FK Plano de Contas + Operadores deferidos |
 | [UCadLoteCobranca.md](dossiers/retaguarda/UCadLoteCobranca.md) | Lote de Cobrança | em-revisão | master-detail; ARECEBER/PARCEIROS migradas; juros |
-| [uCadClientes.md](dossiers/retaguarda/uCadClientes.md) | **Parceiros (Cliente/Fornecedor/…)** | em-revisão | tela unificada multi-papel (CLI/FRN/FUN/TRA/CON). **F1+F2 verdes**: master+endereços+papéis+CEP+dup-CNPJ+multi-tenant; sub-recursos (bancos/pgto/relacionamentos/vendedores) + abas condicionais por papel + fiscal essencial. F3–F4 (fiscal completo/retenções+Receita/SINTEGRA; replicação+golden+cutover) pendentes |
+| [uCadClientes.md](dossiers/retaguarda/uCadClientes.md) | **Parceiros (Cliente/Fornecedor/…)** | em-revisão | tela unificada multi-papel. **F1+F2+F3 verdes**: núcleo+endereços+papéis+CEP+dup-CNPJ+multi-tenant; sub-recursos+abas por papel; **config fiscal completa (retenções/alíquotas/contrib.ICMS/classfiscal) + validador de IE por UF (27)**. Adiado (doc c/ SQL): travas NF/Indexador, Receita/SINTEGRA, config-flags, cálculo de imposto (vive em NF/financeiro) |
 
 ## O que esta seção exige (resumo)
 

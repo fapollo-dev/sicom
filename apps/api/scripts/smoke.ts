@@ -316,6 +316,70 @@ async function main() {
         Array.isArray(seed20?.vendedores) && seed20.vendedores.length === 2,
       { bancos: seed20?.bancos?.length, pgtos: seed20?.pgtos?.length, rel: seed20?.relacionamentos?.length, vend: seed20?.vendedores?.length },
     );
+
+    // 14g) F3 — CONFIGURAÇÃO fiscal + validação de IE por UF (refine do zod) no caminho HTTP
+    const f3Post = await fetch(`${base}/cadastro/parceiros`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        razao: 'CLIENTE F3 SMOKE LTDA',
+        tipofj: 'J',
+        cli: 'S',
+        contribuinte_icms: '1',
+        classfiscal: 'SN',
+        habilita_retencao_ir_nf: 'S',
+        perc_aliquota_ir: 1.5,
+        perc_aliquota_issqn: 2.0,
+        envianfe: 'S',
+        irrf: 'I',
+        apuracao: 'M',
+        classificacao: 'F',
+        // endereço SEM cnpj_cpf (evita índice único por doc) + IE SP VÁLIDA em rg_insc.
+        enderecos: [{ uf: 'SP', rg_insc: '110042490114', endereco_padrao: 'S' }],
+      }),
+    });
+    const f3 = (await f3Post.json()) as any;
+    check(
+      'POST /cadastro/parceiros cria com config fiscal F3 + IE SP válida (201, round-trip)',
+      f3Post.status === 201 && f3.contribuinte_icms === '1' && f3.habilita_retencao_ir_nf === 'S',
+      { status: f3Post.status, body: f3 },
+    );
+
+    // 14g.2) IE INVÁLIDA p/ SP → 400 VALIDACAO PT (refine do zod), nunca 500
+    const ieBad = await fetch(`${base}/cadastro/parceiros`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        razao: 'IE INVALIDA SMOKE',
+        tipofj: 'J',
+        cli: 'S',
+        enderecos: [{ uf: 'SP', rg_insc: '111', endereco_padrao: 'S' }],
+      }),
+    });
+    const ieBadBody = (await ieBad.json().catch(() => ({}))) as any;
+    check(
+      'POST parceiro com IE SP inválida → 400 VALIDACAO (refine zod), nunca 500',
+      ieBad.status === 400 && ieBadBody.code === 'VALIDACAO' && ieBad.status !== 500,
+      { status: ieBad.status, code: ieBadBody.code },
+    );
+
+    // 14g.3) contribuinte_icms fora do enum (1/2/9) → 400 VALIDACAO PT
+    const cicBad = await fetch(`${base}/cadastro/parceiros`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        razao: 'CICMS INVALIDO SMOKE',
+        tipofj: 'J',
+        cli: 'S',
+        contribuinte_icms: '5',
+      }),
+    });
+    const cicBadBody = (await cicBad.json().catch(() => ({}))) as any;
+    check(
+      'POST parceiro com contribuinte_icms inválido (5) → 400 VALIDACAO (enum 1/2/9)',
+      cicBad.status === 400 && cicBadBody.code === 'VALIDACAO',
+      { status: cicBad.status, code: cicBadBody.code },
+    );
   } finally {
     await app.close();
     await pg.stop();

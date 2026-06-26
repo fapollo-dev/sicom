@@ -44,6 +44,12 @@ interface Props {
   inicial?: EnderecoParceiroDto;
   /** tipofj do master — máscara CPF/CNPJ dinâmica + rótulo do campo de documento. */
   tipofj?: TipoFj;
+  /**
+   * Parceiro ESTRANGEIRO (master `estrangeiro === 'S'`). Legado: "parceiro estrangeiro →
+   * impossível consulta aos Correios" — bloqueia o autofill de CEP (onBlur) e sinaliza
+   * com uma dica no campo. O CEP segue digitável manualmente.
+   */
+  estrangeiro?: boolean;
   onFechar: () => void;
   /** devolve o endereço pronto ao pai (que faz append/update no useFieldArray). */
   onConfirmar: (endereco: EnderecoParceiroDto) => void;
@@ -63,7 +69,7 @@ const ENDERECO_VAZIO: EnderecoParceiroDto = {
  * A validação de formato (CPF/CNPJ/CEP/UF/telefone) é do `parceiroSchema` no submit
  * do master; aqui só montamos o registro.
  */
-export function EnderecoModal({ inicial, tipofj, onFechar, onConfirmar }: Props) {
+export function EnderecoModal({ inicial, tipofj, estrangeiro, onFechar, onConfirmar }: Props) {
   const mensagem = useMensagem();
   const [end, setEnd] = useState<EnderecoParceiroDto>(inicial ?? ENDERECO_VAZIO);
   const [buscandoCep, setBuscandoCep] = useState(false);
@@ -71,8 +77,10 @@ export function EnderecoModal({ inicial, tipofj, onFechar, onConfirmar }: Props)
   const set = <K extends keyof EnderecoParceiroDto>(k: K, v: EnderecoParceiroDto[K]) =>
     setEnd((e) => ({ ...e, [k]: v }));
 
-  // CEP no blur → autofill endereco/bairro/cidade/uf/idcidade (proxy do legado)
+  // CEP no blur → autofill endereco/bairro/cidade/uf/idcidade (proxy do legado).
+  // Parceiro estrangeiro: consulta aos Correios é impossível → autofill bloqueado.
   const onBlurCep = async () => {
+    if (estrangeiro) return; // estrangeiro → sem consulta de CEP (legado)
     const cep = (end.cep ?? '').replace(/\D/g, '');
     if (cep.length !== 8) return; // valida formato só no submit; aqui só dispara se completo
     setBuscandoCep(true);
@@ -101,19 +109,30 @@ export function EnderecoModal({ inicial, tipofj, onFechar, onConfirmar }: Props)
       onClose={onFechar}
       size="lg"
       title={inicial ? 'Editar endereço' : 'Adicionar endereço'}
-      description="CEP preenche o endereço automaticamente · Esc fecha"
+      description={
+        estrangeiro
+          ? 'Parceiro estrangeiro · consulta de CEP indisponível · Esc fecha'
+          : 'CEP preenche o endereço automaticamente · Esc fecha'
+      }
       primaryAction={{ label: 'Salvar', onClick: () => onConfirmar(end) }}
       secondaryAction={{ label: 'Cancelar', onClick: onFechar }}
     >
       <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
-        <Field
-          label="&CEP"
-          value={end.cep ?? ''}
-          inputMode="numeric"
-          disabled={buscandoCep}
-          onChange={(e) => set('cep', e.target.value)}
-          onBlur={onBlurCep}
-        />
+        <div className="flex flex-col gap-gp-xs">
+          <Field
+            label="&CEP"
+            value={end.cep ?? ''}
+            inputMode="numeric"
+            disabled={buscandoCep}
+            onChange={(e) => set('cep', e.target.value)}
+            onBlur={onBlurCep}
+          />
+          {estrangeiro && (
+            <small className="text-fg-muted">
+              Parceiro estrangeiro: consulta automática de CEP desabilitada.
+            </small>
+          )}
+        </div>
         <Field
           label="&Logradouro"
           value={end.endereco ?? ''}

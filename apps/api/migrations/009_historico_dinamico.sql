@@ -8,7 +8,7 @@ CREATE SEQUENCE IF NOT EXISTS seq_historico_dinamico;
 
 CREATE TABLE IF NOT EXISTS historico_dinamico (
   codhistorico    bigint PRIMARY KEY DEFAULT nextval('seq_historico_dinamico'),
-  campo           varchar(20),
+  campo           varchar(60),       -- nome da COLUNA auditada (ex.: 'HABILITA_RETENCAO_PIS_NF'); fiscais F3 passam de 20 chars
   valor_anterior  varchar(20),
   valor_atual     varchar(20),
   tabela          varchar(30),

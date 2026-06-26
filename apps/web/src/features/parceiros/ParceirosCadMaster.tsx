@@ -6,6 +6,12 @@ import {
   parceiroSchema,
   PAPEIS_PARCEIRO,
   TIPOFJ_OPCOES,
+  CONTRIBUINTE_ICMS_OPCOES,
+  CLASSFISCAL_OPCOES,
+  IRRF_OPCOES,
+  APURACAO_OPCOES,
+  CLASSIFICACAO_OPCOES,
+  RETENCOES_PARCEIRO,
   type CriarParceiroDto,
   type EnderecoParceiroDto,
 } from '@apollo/shared';
@@ -74,6 +80,12 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
     (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao}` }),
     { campo: 'con', operador: 'igual', valor: 'S' }, // convênio = parceiro CON='S'
   );
+  // F3 — entidade recolhedora de ISSQN: parceiro com TIPOFJ='E' (entidade). Mostra "cod - razão".
+  const { data: entidadeIssqnOptions = [] } = useResourceOptions(
+    'cadastro/parceiros',
+    (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao}` }),
+    { campo: 'tipofj', operador: 'igual', valor: 'E' }, // entidades (TIPOFJ='E')
+  );
 
   // OnNewRecord do legado: ATIVADO='S', BLOQUED='N', tipofj='F', e a flag do papel já
   // marcada (cli/frn = 'S'). Os demais papéis começam 'N'.
@@ -112,8 +124,28 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
       renda: undefined,
       cargo: undefined,
       empresatrabalha: undefined,
-      contribuinte_icms: 'N',
+      // F3 — fiscal (configuração; a tela armazena). estrangeiro bloqueia o autofill de CEP.
+      estrangeiro: 'N',
+      // combos fiscais começam vazios (undefined) — contribuinte_icms é código Sintegra (1/2/9),
+      // NÃO uma flag S/N (correção F3: era CheckboxField, virou SelectField).
+      contribuinte_icms: undefined,
       classfiscal: undefined,
+      irrf: undefined,
+      apuracao: undefined,
+      classificacao: undefined,
+      envianfe: 'N',
+      devolucao_zera_imposto_icmsst: 'N',
+      // 7 flags de retenção de ENTRADA (NF) — começam 'N'
+      habilita_retencao_pis_nf: 'N',
+      habilita_retencao_cofins_nf: 'N',
+      habilita_retencao_csll_nf: 'N',
+      habilita_retencao_ir_nf: 'N',
+      habilita_retencao_inss_nf: 'N',
+      habilita_retencao_issqn_nf: 'N',
+      habilita_retencao_funrural_nf: 'N',
+      perc_aliquota_ir: undefined,
+      perc_aliquota_issqn: undefined,
+      codparceiro_ent_issqn: undefined,
       // F2 — detalhes 1:N (engine grava todos numa transação)
       enderecos: [],
       bancos: [],
@@ -250,6 +282,19 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
                     />
                   )}
                 />
+                {/* F3 — parceiro estrangeiro: bloqueia consulta de CEP aos Correios no endereço. */}
+                <Controller
+                  control={form.control}
+                  name="estrangeiro"
+                  render={({ field }) => (
+                    <CheckboxField
+                      label="E&strangeiro"
+                      value={field.value}
+                      onChange={field.onChange}
+                      disabled={!editavel}
+                    />
+                  )}
+                />
               </div>
             </div>
           </fieldset>
@@ -375,8 +420,12 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
           {/* ===== Seções condicionais por papel (F2) — só aparecem com a flag marcada ===== */}
           <CamposCondicionais form={form} editavel={editavel} />
 
-          {/* ===== Seção: Fiscal essencial (sempre) ===== */}
-          <FiscalSection form={form} editavel={editavel} />
+          {/* ===== Seção: Fiscal (sempre) ===== */}
+          <FiscalSection
+            form={form}
+            editavel={editavel}
+            entidadeIssqnOptions={entidadeIssqnOptions}
+          />
 
           {/* ===== Seção: Endereços (detalhe 1:N) ===== */}
           <EnderecosSection form={form} editavel={editavel} />
@@ -542,27 +591,143 @@ function CamposCondicionais({
 }
 
 /**
- * Fiscal essencial (sempre visível, seção curta). `contribuinte_icms` é flag S/N
- * (CheckboxField → 'S'/'N'); `classfiscal` é texto de 2 chars.
+ * Fiscal (sempre visível). PAINEL de configuração fiscal do parceiro — a tela ARMAZENA;
+ * o cálculo vive a jusante (NF/financeiro). Todos os combos vêm de constantes do schema
+ * (@apollo/shared), zero hardcode.
+ *
+ * Correções F3 (vs. F2):
+ *  - `contribuinte_icms` NÃO é S/N — é código Sintegra (1/2/9) → SelectField
+ *    (CONTRIBUINTE_ICMS_OPCOES). Antes estava (errado) como CheckboxField.
+ *  - `classfiscal` é regime tributário (ME/LR/SN/LP) → SelectField (CLASSFISCAL_OPCOES),
+ *    não Field de 2 chars.
+ *
+ * Sub-painel "Retenções (NF de entrada)": as 7 flags S/N (RETENCOES_PARCEIRO) + as alíquotas
+ * IR (2 casas) e ISSQN (4 casas). PARIDADE: as alíquotas são SEMPRE editáveis — o legado não
+ * as desabilita/zera conforme as flags; amarrá-las seria regra inventada.
+ *
+ * Entidade ISSQN: lookup de parceiro TIPOFJ='E' (codparceiro_ent_issqn).
  */
 function FiscalSection({
   form,
   editavel,
+  entidadeIssqnOptions,
 }: {
   form: UseFormReturn<CriarParceiroDto>;
   editavel: boolean;
+  entidadeIssqnOptions: { value: string; label: string }[];
 }) {
   return (
     <fieldset className="rounded-radius-md border border-border p-pad-md">
       <legend className="px-pad-xs text-fg-muted">Fiscal</legend>
-      <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
-        <div className="flex items-center">
+      <div className="flex flex-col gap-form-gap">
+        {/* Combos fiscais do master */}
+        <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
           <Controller
             control={form.control}
             name="contribuinte_icms"
             render={({ field }) => (
-              <CheckboxField
+              <SelectField
                 label="Contri&buinte de ICMS"
+                options={CONTRIBUINTE_ICMS_OPCOES}
+                value={field.value ?? undefined}
+                onChange={field.onChange}
+                placeholder="Selecione…"
+                error={form.formState.errors.contribuinte_icms?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="classfiscal"
+            render={({ field }) => (
+              <SelectField
+                label="Class. &fiscal"
+                options={CLASSFISCAL_OPCOES}
+                value={field.value ?? undefined}
+                onChange={field.onChange}
+                placeholder="Selecione…"
+                error={form.formState.errors.classfiscal?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="irrf"
+            render={({ field }) => (
+              <SelectField
+                label="&IRRF"
+                options={IRRF_OPCOES}
+                value={field.value ?? undefined}
+                onChange={field.onChange}
+                placeholder="Selecione…"
+                error={form.formState.errors.irrf?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="apuracao"
+            render={({ field }) => (
+              <SelectField
+                label="A&puração"
+                options={APURACAO_OPCOES}
+                value={field.value ?? undefined}
+                onChange={field.onChange}
+                placeholder="Selecione…"
+                error={form.formState.errors.apuracao?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="classificacao"
+            render={({ field }) => (
+              <SelectField
+                label="Classi&ficação"
+                options={CLASSIFICACAO_OPCOES}
+                value={field.value ?? undefined}
+                onChange={field.onChange}
+                placeholder="Selecione…"
+                error={form.formState.errors.classificacao?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="codparceiro_ent_issqn"
+            render={({ field }) => (
+              <SelectField
+                label="Entidade I&SSQN"
+                options={entidadeIssqnOptions}
+                value={field.value != null ? String(field.value) : undefined}
+                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
+                placeholder="Selecione a entidade…"
+                error={form.formState.errors.codparceiro_ent_issqn?.message as string | undefined}
+              />
+            )}
+          />
+        </div>
+
+        {/* Flags fiscais (S/N) */}
+        <div className="flex flex-wrap items-center gap-gp-lg">
+          <Controller
+            control={form.control}
+            name="envianfe"
+            render={({ field }) => (
+              <CheckboxField
+                label="Envia &NF-e"
+                value={field.value as string | undefined}
+                onChange={field.onChange}
+                disabled={!editavel}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="devolucao_zera_imposto_icmsst"
+            render={({ field }) => (
+              <CheckboxField
+                label="Devolução &zera imposto ICMS-ST"
                 value={field.value as string | undefined}
                 onChange={field.onChange}
                 disabled={!editavel}
@@ -570,13 +735,67 @@ function FiscalSection({
             )}
           />
         </div>
-        <Field
-          label="Class. &fiscal"
-          maxLength={2}
-          disabled={!editavel}
-          error={form.formState.errors.classfiscal?.message as string | undefined}
-          {...form.register('classfiscal')}
-        />
+
+        {/* Sub-painel: Retenções (NF de entrada) */}
+        <fieldset className="rounded-radius-base border border-border p-pad-md">
+          <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">
+            Retenções (NF de entrada)
+          </legend>
+          <div className="flex flex-col gap-form-gap">
+            <div className="flex flex-wrap items-center gap-gp-lg">
+              {RETENCOES_PARCEIRO.map((r) => (
+                <Controller
+                  key={r.campo}
+                  control={form.control}
+                  name={r.campo as keyof CriarParceiroDto as any}
+                  render={({ field }) => (
+                    <CheckboxField
+                      label={r.label}
+                      value={field.value as string | undefined}
+                      onChange={field.onChange}
+                      disabled={!editavel}
+                    />
+                  )}
+                />
+              ))}
+            </div>
+            {/* Alíquotas SEMPRE editáveis (paridade: não atreladas às flags acima). */}
+            <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+              <Controller
+                control={form.control}
+                name="perc_aliquota_ir"
+                render={({ field }) => (
+                  <NumberField
+                    label="Alíquota I&R (%)"
+                    value={field.value as number | undefined}
+                    onChange={field.onChange}
+                    decimais={2}
+                    min={0}
+                    endAddon="%"
+                    disabled={!editavel}
+                    error={form.formState.errors.perc_aliquota_ir?.message as string | undefined}
+                  />
+                )}
+              />
+              <Controller
+                control={form.control}
+                name="perc_aliquota_issqn"
+                render={({ field }) => (
+                  <NumberField
+                    label="Alíquota ISS&QN (%)"
+                    value={field.value as number | undefined}
+                    onChange={field.onChange}
+                    decimais={4}
+                    min={0}
+                    endAddon="%"
+                    disabled={!editavel}
+                    error={form.formState.errors.perc_aliquota_issqn?.message as string | undefined}
+                  />
+                )}
+              />
+            </div>
+          </div>
+        </fieldset>
       </div>
     </fieldset>
   );
@@ -606,6 +825,8 @@ function EnderecosSection({
   // índice em edição (null = modal fechado; -1 = adicionar; >=0 = editar a linha)
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const tipofj = form.watch('tipofj') as TipoFj | undefined;
+  // F3 — parceiro estrangeiro → bloqueia a consulta de CEP aos Correios no modal de endereço.
+  const estrangeiro = form.watch('estrangeiro') === 'S';
 
   const onConfirmar = (end: EnderecoParceiroDto) => {
     if (editIdx == null) return;
@@ -683,6 +904,7 @@ function EnderecosSection({
         <EnderecoModal
           inicial={editIdx >= 0 ? (fields[editIdx] as EnderecoParceiroDto) : undefined}
           tipofj={tipofj}
+          estrangeiro={estrangeiro}
           onFechar={() => setEditIdx(null)}
           onConfirmar={onConfirmar}
         />
