@@ -11,6 +11,10 @@ import { CrudEngineService } from '../src/shared/crud/crud-engine.service';
 import { AggregateEngineService } from '../src/shared/crud/aggregate-engine.service';
 import { loteCobrancaAggregateConfig } from '../src/modules/cobranca/lote-cobranca.aggregate';
 import { parceiroAggregateConfig } from '../src/modules/cadastro/parceiro.aggregate';
+import { produtoAggregateConfig } from '../src/modules/cadastro/produto.aggregate';
+import { unidadeCrudConfig } from '../src/modules/cadastro/unidade.crud';
+import { familiasCrudConfig } from '../src/modules/cadastro/familias.crud';
+import { aliquotaCrudConfig } from '../src/modules/cadastro/aliquota.crud';
 import { marcasCrudConfig } from '../src/modules/cadastro/marcas.crud';
 import { bairroCrudConfig } from '../src/modules/cadastro/bairro.crud';
 import { precoCrudConfig } from '../src/modules/cadastro/preco.crud';
@@ -836,6 +840,61 @@ describe('13ª — PARCEIROS F3 (config fiscal)', () => {
     expect(agg.classificacao).toBe('C');
     expect(agg.codparceiro_ent_issqn).toBe(1);
     expect(agg.enderecos.length).toBe(1);
+  });
+});
+
+describe('14ª — PRODUTO núcleo (MESTRE-DETALHE: produtos + codauxiliar; GLOBAL) + lookups', () => {
+  const eng = () => new AggregateEngineService(dbp);
+  const crud = () => new CrudEngineService(dbp);
+  const cfg = produtoAggregateConfig;
+
+  it('seed: 3 produtos na listagem (GLOBAL — sem escopo de empresa)', async () => {
+    const lista = (await withTenant(() => eng().list(cfg))) as any[];
+    expect(lista.length).toBe(3);
+  });
+
+  let cod: number;
+  it('CREATE agregado: produto + 1 codauxiliar numa transação; round-trip', async () => {
+    cod = await withTenant(() =>
+      eng().createAggregate(cfg, {
+        codbarra: '7891000053508',
+        descricao: 'PRODUTO TESTE INTEGRACAO',
+        unidade: 'UN',
+        codunidade: 1,
+        codfor: 2,
+        aliquota: 'T01',
+        balanca: 'N',
+        ativo: 'S',
+        codauxiliares: [{ codauxiliar: '7891000053508', codbarra: '7896000000123', fatoremb: 6, codunidade: 3 }],
+      }),
+    );
+    const agg = (await withTenant(() => eng().readAggregate(cfg, cod))) as any;
+    expect(agg.descricao).toBe('PRODUTO TESTE INTEGRACAO');
+    expect(agg.codfor).toBe(2);
+    expect(agg.codauxiliares.length).toBe(1);
+    expect(agg.codauxiliares[0].codbarra).toBe('7896000000123');
+    expect(agg.usultalteracao).toBe(7); // carimbo de auditoria no master
+  });
+
+  it('LIST traz o novo com marca/fornecedor decodificados (view com JOINs)', async () => {
+    const lista = (await withTenant(() => eng().list(cfg))) as any[];
+    const linha = lista.find((p) => p.idproduto === cod);
+    expect(linha?.descricao).toBe('PRODUTO TESTE INTEGRACAO');
+    expect(linha?.fornecedor).toBeTruthy(); // razao do fornecedor (codfor=2)
+  });
+
+  it('lookups: unidades ≥ 6; familias tipo=G (≥ 2); aliquota tem T01', async () => {
+    const unidades = (await withTenant(() => crud().list(unidadeCrudConfig))) as any[];
+    expect(unidades.length).toBeGreaterThanOrEqual(6);
+
+    const grupos = (await withTenant(() =>
+      crud().list(familiasCrudConfig, { campo: 'tipo', operador: 'igual', valor: 'G' }),
+    )) as any[];
+    expect(grupos.length).toBeGreaterThanOrEqual(2);
+    expect(grupos.every((g) => g.tipo === 'G')).toBe(true);
+
+    const aliquotas = (await withTenant(() => crud().list(aliquotaCrudConfig))) as any[];
+    expect(aliquotas.find((a) => a.codigo === 'T01')).toBeDefined();
   });
 });
 

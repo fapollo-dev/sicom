@@ -380,6 +380,83 @@ async function main() {
       cicBad.status === 400 && cicBadBody.code === 'VALIDACAO',
       { status: cicBad.status, code: cicBadBody.code },
     );
+    // 15) PRODUTOS — tela de NÚCLEO (mestre + codauxiliar), GLOBAL, via HTTP
+    const prodPost = await fetch(`${base}/cadastro/produtos`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        codbarra: '7891000100103',
+        descricao: 'PRODUTO SMOKE',
+        unidade: 'UN',
+        codunidade: 1,
+        codfor: 2,
+        aliquota: 'T01',
+        codauxiliares: [{ codauxiliar: '7891000100103', codbarra: '7896000000017', fatoremb: 12, codunidade: 3 }],
+      }),
+    });
+    const prod = (await prodPost.json()) as any;
+    check(
+      'POST /cadastro/produtos cria agregado (master + 1 codauxiliar)',
+      prodPost.status === 201 && Number.isFinite(Number(prod.idproduto)) && prod.codauxiliares?.length === 1,
+      prod,
+    );
+
+    // 15b) CODFOR (fornecedor) obrigatório → 400 VALIDACAO PT (nunca 500)
+    const semFor = await fetch(`${base}/cadastro/produtos`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({ codbarra: '7891000100103', descricao: 'SEM FORNECEDOR', unidade: 'UN', aliquota: 'T01' }),
+    });
+    const semForBody = (await semFor.json().catch(() => ({}))) as any;
+    check(
+      'POST produto sem CODFOR → 400 VALIDACAO (fornecedor obrigatório), nunca 500',
+      semFor.status === 400 && semForBody.code === 'VALIDACAO' && semFor.status !== 500,
+      { status: semFor.status, code: semForBody.code },
+    );
+
+    // 15c) DESCRICAO não pode conter ';' → 400 VALIDACAO PT
+    const descBad = await fetch(`${base}/cadastro/produtos`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({ codbarra: '7891000100103', descricao: 'INVALIDO; AQUI', unidade: 'UN', codfor: 2, aliquota: 'T01' }),
+    });
+    const descBadBody = (await descBad.json().catch(() => ({}))) as any;
+    check(
+      "POST produto com ';' na descrição → 400 VALIDACAO, nunca 500",
+      descBad.status === 400 && descBadBody.code === 'VALIDACAO',
+      { status: descBad.status, code: descBadBody.code },
+    );
+
+    // 15d) ALIQUOTA 'STB' exige CEST (superRefine) → 400 VALIDACAO PT
+    const cestBad = await fetch(`${base}/cadastro/produtos`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({ codbarra: '7891000100103', descricao: 'PRODUTO ST SEM CEST', unidade: 'UN', codfor: 2, aliquota: 'STB' }),
+    });
+    const cestBadBody = (await cestBad.json().catch(() => ({}))) as any;
+    check(
+      'POST produto STB sem CEST → 400 VALIDACAO (CEST obrigatório), nunca 500',
+      cestBad.status === 400 && cestBadBody.code === 'VALIDACAO',
+      { status: cestBad.status, code: cestBadBody.code },
+    );
+
+    // 15e) lookups de apoio do Produto (unidades / familias filtradas / aliquotas)
+    const unidades = (await (await fetch(`${base}/cadastro/unidades`, { headers: H })).json()) as any[];
+    check('GET /cadastro/unidades lista o seed (≥6)', Array.isArray(unidades) && unidades.length >= 6, unidades?.length);
+
+    const grupos = (await (await fetch(`${base}/cadastro/familias?campo=tipo&operador=igual&valor=G`, { headers: H })).json()) as any[];
+    check(
+      'GET /cadastro/familias?tipo=G lista só grupos (G)',
+      Array.isArray(grupos) && grupos.length >= 2 && grupos.every((g) => g.tipo === 'G'),
+      grupos?.length,
+    );
+
+    const aliquotas = (await (await fetch(`${base}/cadastro/aliquotas`, { headers: H })).json()) as any[];
+    check(
+      'GET /cadastro/aliquotas lista o catálogo (tem T01)',
+      Array.isArray(aliquotas) && aliquotas.some((a) => a.codigo === 'T01'),
+      aliquotas?.length,
+    );
   } finally {
     await app.close();
     await pg.stop();

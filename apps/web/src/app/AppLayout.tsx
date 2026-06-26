@@ -12,12 +12,14 @@ import {
   ListChecks,
   Users,
   Truck,
+  Package,
 } from 'lucide-react';
 
 /** Telas do menu lateral (rota → rótulo + ícone). Uma TForm = um item. */
 const TELAS = [
   { href: '/cadastro/clientes', name: 'Clientes', icon: Users },
   { href: '/cadastro/fornecedores', name: 'Fornecedores', icon: Truck },
+  { href: '/cadastro/produtos', name: 'Produtos', icon: Package },
   { href: '/cadastro/bancos', name: 'Bancos', icon: Landmark },
   { href: '/cadastro/marcas', name: 'Marcas', icon: Tags },
   { href: '/cadastro/bairros', name: 'Bairros', icon: MapPin },

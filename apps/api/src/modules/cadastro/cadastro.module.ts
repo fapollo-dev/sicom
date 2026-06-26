@@ -10,6 +10,10 @@ import { PrecoCrudController } from './preco.crud';
 import { NcmCrudController } from './ncm.crud';
 import { CidadeCrudController } from './cidade.crud';
 import { ParceiroAggregateController } from './parceiro.aggregate';
+import { ProdutoAggregateController } from './produto.aggregate';
+import { UnidadeCrudController } from './unidade.crud';
+import { FamiliasCrudController } from './familias.crud';
+import { AliquotaCrudController } from './aliquota.crud';
 import { CepController } from './cep.controller';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 
@@ -29,6 +33,10 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     NcmCrudController, // engine (CHAVE NATURAL + data + memo)
     CidadeCrudController, // engine (chave natural; alvo do lookup de Bairros)
     ParceiroAggregateController, // engine MESTRE-DETALHE (Parceiros unificado: master + endereços)
+    ProdutoAggregateController, // engine MESTRE-DETALHE (Produto núcleo: master + codauxiliar)
+    UnidadeCrudController, // engine (lookup de apoio do Produto)
+    FamiliasCrudController, // engine (lookup único G/S/D/O/R do Produto)
+    AliquotaCrudController, // engine (catálogo fiscal; chave natural CODIGO)
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
   providers: [BancosService, BancoRepository, DatabaseProvider],
