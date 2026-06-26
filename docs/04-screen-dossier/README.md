@@ -35,6 +35,7 @@
 | [UCadTabelaPreco.md](dossiers/retaguarda/UCadTabelaPreco.md) | Tabela de Preço | em-revisão | VALOR_REAJUSTE percentual; CkbReajuste |
 | [UCadContasBancarias.md](dossiers/retaguarda/UCadContasBancarias.md) | Contas Bancárias | em-revisão | completa; FK Plano de Contas + Operadores deferidos |
 | [UCadLoteCobranca.md](dossiers/retaguarda/UCadLoteCobranca.md) | Lote de Cobrança | em-revisão | master-detail; ARECEBER/PARCEIROS migradas; juros |
+| [UCadProduto.md](dossiers/retaguarda/UCadProduto.md) | **Produto** (hub do ERP) | rascunho | 213 col / 43k linhas / 40 tabelas FK. Arquitetura 3-partes: PRODUTOS(config) + MULTI_PRECO(preço/empresa) + DET_ALIQUOTA(já migrado). Tela NÃO calcula (motor já portado em `precificacao`). Recon profunda feita; plano/código pendentes |
 | [uCadClientes.md](dossiers/retaguarda/uCadClientes.md) | **Parceiros (Cliente/Fornecedor/…)** | em-revisão | tela unificada multi-papel. **F1+F2+F3 verdes**: núcleo+endereços+papéis+CEP+dup-CNPJ+multi-tenant; sub-recursos+abas por papel; **config fiscal completa (retenções/alíquotas/contrib.ICMS/classfiscal) + validador de IE por UF (27)**. Adiado (doc c/ SQL): travas NF/Indexador, Receita/SINTEGRA, config-flags, cálculo de imposto (vive em NF/financeiro) |
 
 ## O que esta seção exige (resumo)
