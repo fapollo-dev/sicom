@@ -280,6 +280,42 @@ async function main() {
     // 14e) filtro por PAPEL (a tela "Clientes" lista só CLI='S')
     const cli = (await (await fetch(`${base}/cadastro/parceiros?campo=cli&operador=igual&valor=S`, { headers: H })).json()) as any[];
     check('GET /cadastro/parceiros?campo=cli=S lista só clientes', Array.isArray(cli) && cli.length > 0 && cli.every((p) => p.cli === 'S'), cli?.length);
+
+    // 14f) F2 — sub-recursos 1:N (bancos/pgtos/relacionamentos/vendedores) no caminho HTTP
+    const f2Post = await fetch(`${base}/cadastro/parceiros`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        razao: 'CLIENTE F2 SMOKE LTDA',
+        tipofj: 'J',
+        cli: 'S',
+        bancos: [{ codbco: 1, agencia: '1', nrconta: '9' }],
+        relacionamentos: [{ nome: 'CONTATO SMOKE', tiporel: 'FIN', telefone: '98988880001' }],
+        vendedores: [{ codvendedor: 1 }],
+        pgtos: [{ idpgto: 1, modalidade: 'A VISTA' }],
+      }),
+    });
+    const f2 = (await f2Post.json()) as any;
+    check(
+      'POST /cadastro/parceiros cria agregado F2 (bancos+rel+vendedores+pgtos numa transação)',
+      f2Post.status === 201 &&
+        f2.bancos?.length === 1 &&
+        f2.relacionamentos?.length === 1 &&
+        f2.vendedores?.length === 1 &&
+        f2.pgtos?.length === 1,
+      f2,
+    );
+
+    // 14f.2) GET do parceiro 20 (seed F2) traz os sub-grids populados
+    const seed20 = (await (await fetch(`${base}/cadastro/parceiros/20`, { headers: H })).json()) as any;
+    check(
+      'GET /cadastro/parceiros/20 traz bancos/pgtos/relacionamentos/vendedores do seed',
+      Array.isArray(seed20?.bancos) && seed20.bancos.length >= 1 &&
+        Array.isArray(seed20?.pgtos) && seed20.pgtos.length === 2 &&
+        Array.isArray(seed20?.relacionamentos) && seed20.relacionamentos.length >= 1 &&
+        Array.isArray(seed20?.vendedores) && seed20.vendedores.length === 2,
+      { bancos: seed20?.bancos?.length, pgtos: seed20?.pgtos?.length, rel: seed20?.relacionamentos?.length, vend: seed20?.vendedores?.length },
+    );
   } finally {
     await app.close();
     await pg.stop();

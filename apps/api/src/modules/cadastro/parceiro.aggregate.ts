@@ -26,6 +26,10 @@ export const parceiroAggregateConfig: AggregateConfig = {
     'email', 'dtnascimento', 'sexo', 'estado_civil', 'obs',
     'credito', 'txjuro', 'tolerancia', 'descpadrao', 'diasprazo',
     'codvendedor', 'codconvenio', 'codend',
+    // F2 — abas condicionais por papel + fiscal essencial
+    'venc_prev', 'dtultcompra', 'classfornecedor', 'codref', 'codcontabil_for',
+    'limite_especial', 'codcontabil', 'renda', 'cargo', 'empresatrabalha',
+    'contribuinte_icms', 'classfiscal',
   ],
   detalhes: [
     {
@@ -39,6 +43,11 @@ export const parceiroAggregateConfig: AggregateConfig = {
         'endereco_padrao', 'ativado', 'codpais',
       ],
     },
+    // F2 — sub-recursos 1:N (engine grava todos na mesma transação; substitui no update)
+    { tabela: 'parceiros_bancos', pk: 'codparceirobanco', fk: 'codparceiro', chave: 'bancos', colunas: ['codbco', 'agencia', 'nrconta'] },
+    { tabela: 'parceiros_pgto', pk: 'codparceiros_pgto', fk: 'codparceiro', chave: 'pgtos', colunas: ['idpgto', 'modalidade'] },
+    { tabela: 'parceiros_rel', pk: 'codrelacionamento', fk: 'codparceiro', chave: 'relacionamentos', colunas: ['nome', 'doc1', 'doc2', 'tiporel', 'telefone', 'celular', 'endereco'] },
+    { tabela: 'parceiros_vendedores', pk: 'codparceirovendedor', fk: 'codparceiro', chave: 'vendedores', colunas: ['codvendedor'] },
   ],
   colunasPesquisa: ['codparceiro', 'razao', 'fantasia', 'cnpj_cpf', 'cidade', 'uf', 'cli', 'frn', 'fun', 'tra', 'con'],
 };

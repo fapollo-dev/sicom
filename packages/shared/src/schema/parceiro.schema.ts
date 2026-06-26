@@ -60,6 +60,39 @@ export const enderecoParceiroSchema = z.object({
 });
 export type EnderecoParceiroDto = z.infer<typeof enderecoParceiroSchema>;
 
+/** Dados bancários do parceiro (PARCEIROS_BANCOS). codbco → BANCOS (lookup). */
+export const bancoParceiroSchema = z.object({
+  codbco: z.number().int().optional(), // FK → bancos
+  agencia: z.string().trim().max(15).optional(),
+  nrconta: z.string().trim().max(20).optional(),
+});
+export type BancoParceiroDto = z.infer<typeof bancoParceiroSchema>;
+
+/** Forma de pagamento liberada (PARCEIROS_PGTO). idpgto → FORMAS_PGTO (lookup F3). */
+export const pgtoParceiroSchema = z.object({
+  idpgto: z.number().int().optional(),
+  modalidade: z.string().trim().max(60).optional(),
+});
+export type PgtoParceiroDto = z.infer<typeof pgtoParceiroSchema>;
+
+/** Relacionamento/contato (PARCEIROS_REL). */
+export const relParceiroSchema = z.object({
+  nome: z.string().trim().max(150).optional(),
+  doc1: z.string().trim().max(30).optional(),
+  doc2: z.string().trim().max(30).optional(),
+  tiporel: z.string().trim().max(50).optional(),
+  telefone: opcional(zCelular),
+  celular: opcional(zCelular),
+  endereco: z.string().trim().max(150).optional(),
+});
+export type RelParceiroDto = z.infer<typeof relParceiroSchema>;
+
+/** Vendedor vinculado (PARCEIROS_VENDEDORES). codvendedor → parceiros (FUN='S'). */
+export const vendedorParceiroSchema = z.object({
+  codvendedor: z.number().int().optional(),
+});
+export type VendedorParceiroDto = z.infer<typeof vendedorParceiroSchema>;
+
 /** Base do master (sem o refine de papel) — reusada p/ o schema de atualização (partial). */
 const parceiroBase = z.object({
   razao: z.string().trim().min(1, 'Informe a razão social / nome.').max(150),
@@ -93,8 +126,26 @@ const parceiroBase = z.object({
   codvendedor: z.number().int().optional(), // → parceiros (FUN='S')
   codconvenio: z.number().int().optional(), // → parceiros (CON='S')
   codend: z.number().int().optional(),
-  // detalhe 1:N
+  // F2 — abas condicionais por papel
+  venc_prev: z.number().int().optional(), // Fornecedor
+  dtultcompra: z.string().optional(), // Fornecedor (ISO date)
+  classfornecedor: z.number().int().optional(), // Fornecedor
+  codref: z.string().trim().max(16).optional(), // Fornecedor
+  codcontabil_for: z.string().trim().max(30).optional(), // Fornecedor
+  limite_especial: z.number().nonnegative().optional(), // Cliente
+  codcontabil: z.string().trim().max(30).optional(), // Cliente
+  renda: z.number().nonnegative().optional(), // Funcionário
+  cargo: z.string().trim().max(60).optional(), // Funcionário
+  empresatrabalha: z.string().trim().max(100).optional(), // Funcionário
+  // F2 — fiscal essencial
+  contribuinte_icms: z.string().trim().max(1).optional(),
+  classfiscal: z.string().trim().max(2).optional(),
+  // detalhes 1:N (engine de agregado grava todos numa transação)
   enderecos: z.array(enderecoParceiroSchema).optional().default([]),
+  bancos: z.array(bancoParceiroSchema).optional().default([]),
+  pgtos: z.array(pgtoParceiroSchema).optional().default([]),
+  relacionamentos: z.array(relParceiroSchema).optional().default([]),
+  vendedores: z.array(vendedorParceiroSchema).optional().default([]),
 });
 
 /** Regra do legado (btnGravarClick): ao menos um papel marcado. */

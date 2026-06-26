@@ -745,6 +745,60 @@ describe('11ª — PARCEIROS unificado (multi-papel + endereços; empresaScoped;
   });
 });
 
+describe('12ª — PARCEIROS F2 (sub-recursos + colunas por papel)', () => {
+  const eng = () => new AggregateEngineService(dbp);
+  const cfg = parceiroAggregateConfig;
+
+  it('READ do seed (parceiro 20): bancos/pgtos/relacionamentos/vendedores populados', async () => {
+    const agg = (await withTenant(() => eng().readAggregate(cfg, 20))) as any;
+    expect(agg.bancos.length).toBeGreaterThanOrEqual(1);
+    expect(agg.pgtos.length).toBe(2);
+    expect(agg.relacionamentos.length).toBeGreaterThanOrEqual(1);
+    expect(agg.vendedores.length).toBe(2);
+  });
+
+  let cod: number;
+  it('CREATE com sub-recursos + colunas por papel: tudo numa transação; round-trip', async () => {
+    // sem `enderecos` → evita o índice único em parceiros_end.cnpj_cpf (a dup é por doc).
+    cod = await withTenant(() =>
+      eng().createAggregate(cfg, {
+        razao: 'CLIENTE F2 TESTE',
+        tipofj: 'J',
+        cli: 'S',
+        classfornecedor: 3,
+        contribuinte_icms: 'S',
+        bancos: [{ codbco: 1, agencia: '1', nrconta: '9' }],
+        relacionamentos: [{ nome: 'X', tiporel: 'FIN' }],
+        vendedores: [{ codvendedor: 1 }],
+      }),
+    );
+    const agg = (await withTenant(() => eng().readAggregate(cfg, cod))) as any;
+    expect(agg.bancos.length).toBe(1);
+    expect(agg.bancos[0].codbco).toBe(1);
+    expect(agg.relacionamentos.length).toBe(1);
+    expect(agg.relacionamentos[0].nome).toBe('X');
+    expect(agg.vendedores.length).toBe(1);
+    expect(agg.vendedores[0].codvendedor).toBe(1);
+    // colunas do master por papel + fiscal fazem round-trip
+    expect(agg.classfornecedor).toBe(3);
+    expect(agg.contribuinte_icms).toBe('S');
+  });
+
+  it('UPDATE substitui um detalhe (delete+insert): bancos → [codbco 2]', async () => {
+    await withTenant(() =>
+      eng().updateAggregate(cfg, cod, {
+        razao: 'CLIENTE F2 TESTE',
+        tipofj: 'J',
+        cli: 'S',
+        bancos: [{ codbco: 2 }],
+      }),
+    );
+    const agg = (await withTenant(() => eng().readAggregate(cfg, cod))) as any;
+    expect(agg.bancos.length).toBe(1); // substituição (não acréscimo)
+    expect(agg.bancos[0].codbco).toBe(2);
+  });
+});
+
 function outbox(chave: number, tipo: 'INSERT' | 'UPDATE' | 'DELETE') {
   return runWithTenant({ tenantId: 'pinheirao' }, () =>
     dbp

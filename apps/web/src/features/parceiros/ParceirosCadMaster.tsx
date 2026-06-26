@@ -20,6 +20,12 @@ import { TextArea } from '../../shared/ui/TextArea';
 import { Button } from '../../shared/ui/Button';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { EnderecoModal, type TipoFj } from './EnderecoModal';
+import {
+  BancosSection,
+  PgtosSection,
+  RelacionamentosSection,
+  VendedoresSection,
+} from './ParceirosDetalhes';
 
 /**
  * Papel da tela (parametrização). A MESMA tela serve Cliente/Fornecedor/etc. — só muda
@@ -95,7 +101,25 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
       diasprazo: undefined,
       codvendedor: undefined,
       codconvenio: undefined,
+      // F2 — campos condicionais por papel (Fornecedor/Cliente/Funcionário) + fiscal
+      venc_prev: undefined,
+      dtultcompra: '',
+      classfornecedor: undefined,
+      codref: undefined,
+      codcontabil_for: undefined,
+      limite_especial: undefined,
+      codcontabil: undefined,
+      renda: undefined,
+      cargo: undefined,
+      empresatrabalha: undefined,
+      contribuinte_icms: 'N',
+      classfiscal: undefined,
+      // F2 — detalhes 1:N (engine grava todos numa transação)
       enderecos: [],
+      bancos: [],
+      pgtos: [],
+      relacionamentos: [],
+      vendedores: [],
     }),
     [flag],
   );
@@ -348,11 +372,213 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
             {...form.register('obs')}
           />
 
+          {/* ===== Seções condicionais por papel (F2) — só aparecem com a flag marcada ===== */}
+          <CamposCondicionais form={form} editavel={editavel} />
+
+          {/* ===== Seção: Fiscal essencial (sempre) ===== */}
+          <FiscalSection form={form} editavel={editavel} />
+
           {/* ===== Seção: Endereços (detalhe 1:N) ===== */}
           <EnderecosSection form={form} editavel={editavel} />
+
+          {/* ===== Detalhes 1:N adicionais (F2) ===== */}
+          <BancosSection form={form} editavel={editavel} />
+          <PgtosSection form={form} editavel={editavel} />
+          <RelacionamentosSection form={form} editavel={editavel} />
+          <VendedoresSection form={form} editavel={editavel} />
         </div>
       )}
     />
+  );
+}
+
+/**
+ * Campos CONDICIONAIS por papel (F2). As seções aparecem/somem conforme as flags do
+ * master (frn/cli/fun), observadas via `form.watch`. Os campos vivem no master (mesmo
+ * objeto do `parceiroSchema`); a visibilidade é puramente de UI — o legado só preenche
+ * esses dados quando o parceiro tem o papel correspondente.
+ */
+function CamposCondicionais({
+  form,
+  editavel,
+}: {
+  form: UseFormReturn<CriarParceiroDto>;
+  editavel: boolean;
+}) {
+  // observa as 3 flags que governam as seções condicionais
+  const ehFornecedor = form.watch('frn') === 'S';
+  const ehCliente = form.watch('cli') === 'S';
+  const ehFuncionario = form.watch('fun') === 'S';
+
+  return (
+    <>
+      {/* ===== Fornecedor (frn === 'S') ===== */}
+      {ehFornecedor && (
+        <fieldset className="rounded-radius-md border border-border p-pad-md">
+          <legend className="px-pad-xs text-fg-muted">Fornecedor</legend>
+          <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+            <Controller
+              control={form.control}
+              name="venc_prev"
+              render={({ field }) => (
+                <NumberField
+                  label="&Vencimento previsto (dias)"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={0}
+                  min={0}
+                  disabled={!editavel}
+                  error={form.formState.errors.venc_prev?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="dtultcompra"
+              render={({ field }) => (
+                <DateField
+                  label="&Última compra"
+                  value={field.value as string | undefined}
+                  onChange={(v) => field.onChange(v ?? '')}
+                  disabled={!editavel}
+                  error={form.formState.errors.dtultcompra?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="classfornecedor"
+              render={({ field }) => (
+                <NumberField
+                  label="&Classificação"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={0}
+                  min={0}
+                  disabled={!editavel}
+                  error={form.formState.errors.classfornecedor?.message as string | undefined}
+                />
+              )}
+            />
+            <Field
+              label="Cód. &referência"
+              disabled={!editavel}
+              error={form.formState.errors.codref?.message as string | undefined}
+              {...form.register('codref')}
+            />
+            <Field
+              label="Cód. con&tábil (forn.)"
+              disabled={!editavel}
+              error={form.formState.errors.codcontabil_for?.message as string | undefined}
+              {...form.register('codcontabil_for')}
+            />
+          </div>
+        </fieldset>
+      )}
+
+      {/* ===== Cliente (cli === 'S') ===== */}
+      {ehCliente && (
+        <fieldset className="rounded-radius-md border border-border p-pad-md">
+          <legend className="px-pad-xs text-fg-muted">Cliente</legend>
+          <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+            <Controller
+              control={form.control}
+              name="limite_especial"
+              render={({ field }) => (
+                <CurrencyField
+                  label="&Limite especial"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  disabled={!editavel}
+                  error={form.formState.errors.limite_especial?.message as string | undefined}
+                />
+              )}
+            />
+            <Field
+              label="Cód. con&tábil"
+              disabled={!editavel}
+              error={form.formState.errors.codcontabil?.message as string | undefined}
+              {...form.register('codcontabil')}
+            />
+          </div>
+        </fieldset>
+      )}
+
+      {/* ===== Funcionário (fun === 'S') ===== */}
+      {ehFuncionario && (
+        <fieldset className="rounded-radius-md border border-border p-pad-md">
+          <legend className="px-pad-xs text-fg-muted">Funcionário</legend>
+          <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+            <Controller
+              control={form.control}
+              name="renda"
+              render={({ field }) => (
+                <CurrencyField
+                  label="&Renda"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  disabled={!editavel}
+                  error={form.formState.errors.renda?.message as string | undefined}
+                />
+              )}
+            />
+            <Field
+              label="&Cargo"
+              disabled={!editavel}
+              error={form.formState.errors.cargo?.message as string | undefined}
+              {...form.register('cargo')}
+            />
+            <Field
+              label="&Empresa onde trabalha"
+              disabled={!editavel}
+              error={form.formState.errors.empresatrabalha?.message as string | undefined}
+              {...form.register('empresatrabalha')}
+            />
+          </div>
+        </fieldset>
+      )}
+    </>
+  );
+}
+
+/**
+ * Fiscal essencial (sempre visível, seção curta). `contribuinte_icms` é flag S/N
+ * (CheckboxField → 'S'/'N'); `classfiscal` é texto de 2 chars.
+ */
+function FiscalSection({
+  form,
+  editavel,
+}: {
+  form: UseFormReturn<CriarParceiroDto>;
+  editavel: boolean;
+}) {
+  return (
+    <fieldset className="rounded-radius-md border border-border p-pad-md">
+      <legend className="px-pad-xs text-fg-muted">Fiscal</legend>
+      <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+        <div className="flex items-center">
+          <Controller
+            control={form.control}
+            name="contribuinte_icms"
+            render={({ field }) => (
+              <CheckboxField
+                label="Contri&buinte de ICMS"
+                value={field.value as string | undefined}
+                onChange={field.onChange}
+                disabled={!editavel}
+              />
+            )}
+          />
+        </div>
+        <Field
+          label="Class. &fiscal"
+          maxLength={2}
+          disabled={!editavel}
+          error={form.formState.errors.classfiscal?.message as string | undefined}
+          {...form.register('classfiscal')}
+        />
+      </div>
+    </fieldset>
   );
 }
 
