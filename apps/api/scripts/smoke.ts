@@ -429,6 +429,20 @@ async function main() {
       { precos: prod1?.precos?.length },
     );
 
+    // 15b.3) EDIÇÃO: reenviar o registro carregado (numeric do pg vem como STRING, ex. '4.5500')
+    // deve gravar (PUT 200) — prova a coerção string→número (antes reprovava no zod).
+    const prod1Edit = await fetch(`${base}/cadastro/produtos/1`, {
+      method: 'PUT',
+      headers: H,
+      body: JSON.stringify(prod1), // body com vrcusto/vrvenda/markup como strings, igual ao carregado
+    });
+    const prod1EditBody = (await prod1Edit.json().catch(() => ({}))) as any;
+    check(
+      'PUT /cadastro/produtos/1 reenviando numeric-string grava (edição não trava)',
+      prod1Edit.status === 200 && Array.isArray(prod1EditBody?.precos) && Number(prod1EditBody.precos[0]?.vrvenda) === 4.55,
+      { status: prod1Edit.status, vrvenda: prod1EditBody?.precos?.[0]?.vrvenda },
+    );
+
     // 15c) CODFOR (fornecedor) obrigatório → 400 VALIDACAO PT (nunca 500)
     const semFor = await fetch(`${base}/cadastro/produtos`, {
       method: 'POST',

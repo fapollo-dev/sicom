@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Pencil, Trash2 } from 'lucide-react';
 import { DataTable, type DataTableColumnDef } from '@apollosg/design-system';
@@ -15,11 +15,16 @@ import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { NumberField } from '../../shared/ui/NumberField';
+import { CurrencyField } from '../../shared/ui/CurrencyField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { Button } from '../../shared/ui/Button';
+import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
 import { CodAuxiliarModal } from './CodAuxiliarModal';
-import { PrecoModal } from './PrecoModal';
+import { precificarProduto } from './precificacaoApi';
+
+/** empresa única do contexto F2 — toda a edição inline de preço acontece em `precos.0`. */
+const IDEMPRESA_F2 = 1;
 
 /**
  * Cadastro de PRODUTO (hub do ERP) — Fase 1: NÚCLEO fiel (legado `UCadProduto.pas`),
@@ -107,7 +112,9 @@ export function ProdutoCadMaster() {
       fatorcx: 1,
       controle_validade: 'S',
       codauxiliares: [],
-      precos: [], // F2 — MULTI_PRECO por empresa (mesma form/transação)
+      // F2 — MULTI_PRECO por empresa: a tela edita a linha da empresa única INLINE em
+      // `precos.0`; semeada aqui p/ o binding existir num registro NOVO (defaults do legado).
+      precos: [{ idempresa: IDEMPRESA_F2, promocao: 'N', ativo: 'S', ativo_compra: 'S' }],
     }),
     [],
   );
@@ -140,8 +147,9 @@ export function ProdutoCadMaster() {
             dptoOptions={dptoOptions}
             secaoOptions={secaoOptions}
           />
-          <FiscalSection form={form} editavel={editavel} aliquotaOptions={aliquotaOptions} />
+          {/* Preços INLINE logo após a Principal — espelha o legado (preço/custo na aba Principal). */}
           <PrecosSection form={form} editavel={editavel} aliquotaOptions={aliquotaOptions} />
+          <FiscalSection form={form} editavel={editavel} aliquotaOptions={aliquotaOptions} />
           <CodAuxiliaresSection
             form={form}
             editavel={editavel}
@@ -575,19 +583,22 @@ function FiscalSection({
 
 // ───────────────────────────── Preços ─────────────────────────────
 
-/** formata número → "R$ 1.234,56" (pt-BR) para as células de moeda do grid. */
-function fmtBRLCelula(n: number | undefined): string {
-  if (n == null) return '';
-  return `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
 /**
- * Detalhe 1:N de PREÇOS por empresa (MULTI_PRECO) — GRID + Adicionar/Editar/Remover via
- * `useFieldArray('precos')`, uma linha por empresa. Mesmo padrão de CodAuxiliares/Parceiros:
- * itens recém-adicionados (do modal) e os carregados (read do master) compartilham o shape
- * `PrecoProdutoDto`, exibidos de forma idêntica antes mesmo de gravar; a gravação cascateia
- * no engine agregado (master + preços numa só transação). O VRVENDA vem do motor REUSADO
- * (POST /precificacao/produto), disparado pelo botão "Calcular venda" do modal.
+ * PREÇOS da empresa única (F2) — INLINE e editável, espelhando o legado (`frmCadProduto`),
+ * onde Custo/Custo Rep./Markup/Valor Venda/VL.Promo + flags ficam na própria aba Principal,
+ * com um botão "Precificação". Substitui o antigo grid+modal (`PrecoModal`), que o operador
+ * achava ruim de ver/editar. NÃO é mais um sub-grid: os campos são `Controller`/register
+ * direto em `precos.0.*` (MULTI_PRECO continua sendo o modelo; em F2 há 1 empresa, idempresa=1).
+ *
+ * O VRVENDA continua sendo RESULTADO do motor REUSADO (POST /precificacao/produto), agora via
+ * um botão "Calcular venda" inline. A gravação cascateia no engine agregado (master + preços
+ * numa só transação).
+ *
+ * Robustez na edição: o pilar faz `form.reset(registroCarregado)`, trocando `precos` pelo
+ * array carregado — a linha da empresa única pode não estar no índice 0 (ou `precos` pode vir
+ * vazio em produtos antigos). O efeito de normalização garante que `precos.0` SEMPRE é a linha
+ * da empresa F2 (com `idempresa` preservado), para o binding inline e o `idempresa` exigido
+ * pelo schema funcionarem na gravação.
  */
 function PrecosSection({
   form,
@@ -598,117 +609,213 @@ function PrecosSection({
   editavel: boolean;
   aliquotaOptions: Opcao[];
 }) {
-  const { fields, append, update, remove } = useFieldArray<CriarProdutoDto, 'precos', 'fieldId'>({
-    control: form.control,
-    name: 'precos',
-    keyName: 'fieldId',
-  });
-  const [editIdx, setEditIdx] = useState<number | null>(null);
-  // alíquota do produto (default da alíquota de saída e do cálculo no modal).
+  const mensagem = useMensagem();
+  // alíquota do produto: default da alíquota de saída e do cálculo de venda (como no legado).
   const produtoAliquota = form.watch('aliquota');
+  // UF do cálculo: MULTI_PRECO é por empresa, mas EMPRESAS ainda não foi migrada.
+  // TODO: a UF virá da EMPRESA (idempresa) quando o cadastro for migrado. Default 'SP'.
+  const [uf, setUf] = useState('SP');
+  const [calculando, setCalculando] = useState(false);
 
-  const onConfirmar = (item: PrecoProdutoDto) => {
-    if (editIdx == null) return;
-    if (editIdx < 0) append(item);
-    else update(editIdx, item);
-    setEditIdx(null);
+  // ── Normalização edit-load: garante que `precos.0` é SEMPRE a linha da empresa F2 ──
+  // O `form.reset` do pilar substitui `precos` pelo array carregado (idempresa=1 pode não
+  // estar no índice 0; produtos antigos podem vir sem linha). Reordena/inicializa uma única
+  // vez por carga, sem sujar o form (shouldDirty:false), preservando `idempresa`.
+  const precos = form.watch('precos');
+  useEffect(() => {
+    const lista = (precos ?? []) as PrecoProdutoDto[];
+    const atual0 = lista[0];
+    // já normalizado: linha 0 existe e é a empresa F2 → nada a fazer (evita loop).
+    if (atual0 && Number(atual0.idempresa) === IDEMPRESA_F2) return;
+
+    const daEmpresa = lista.find((p) => Number(p.idempresa) === IDEMPRESA_F2);
+    const restante = lista.filter((p) => Number(p.idempresa) !== IDEMPRESA_F2);
+    const linha0: PrecoProdutoDto = daEmpresa
+      ? { ...daEmpresa, idempresa: IDEMPRESA_F2 }
+      : { idempresa: IDEMPRESA_F2, promocao: 'N', ativo: 'S', ativo_compra: 'S' };
+    form.setValue('precos', [linha0, ...restante], { shouldDirty: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [precos]);
+
+  // alíquota de saída efetiva p/ o cálculo: a do preço, senão a do produto (default).
+  const aliquotaCalc =
+    (form.watch('precos.0.aliquotasaida') ?? '').trim() || (produtoAliquota ?? '').trim();
+
+  /** REUSO do motor: POST /precificacao/produto → seta `precos.0.vrvenda` (e mostra o CST). */
+  const calcularVenda = async () => {
+    if (calculando) return; // guarda de reentrância (o Button do app não tem `disabled`)
+    setCalculando(true);
+    try {
+      const r = await precificarProduto({
+        custo: form.getValues('precos.0.vrcusto') ?? 0,
+        margem: form.getValues('precos.0.markup') ?? 0,
+        aliquota: aliquotaCalc,
+        uf: uf.trim().toUpperCase(),
+        pis: 0,
+        cofins: 0,
+        regime: 'atual',
+      });
+      form.setValue('precos.0.vrvenda', r.valorVenda, { shouldDirty: true });
+      mensagem.sucesso(`Preço de venda calculado: R$ ${r.valorVenda.toFixed(2)} (CST ${r.cst}).`);
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setCalculando(false);
+    }
   };
 
-  const columns = useMemo<DataTableColumnDef<PrecoProdutoDto & { fieldId: string }>[]>(
-    () => [
-      { field: 'idempresa', headerName: 'Empresa', type: 'text', isPrimary: true, width: 120 },
-      {
-        field: 'vrcusto',
-        headerName: 'Custo',
-        type: 'text',
-        width: 140,
-        valueGetter: (row) => fmtBRLCelula(row.vrcusto),
-      },
-      {
-        field: 'markup',
-        headerName: 'Markup',
-        type: 'text',
-        width: 120,
-        valueGetter: (row) => (row.markup == null ? '' : `${row.markup}%`),
-      },
-      {
-        field: 'vrvenda',
-        headerName: 'Venda',
-        type: 'text',
-        width: 140,
-        valueGetter: (row) => fmtBRLCelula(row.vrvenda),
-      },
-      { field: 'promocao', headerName: 'Promoção', type: 'text', width: 110 },
-      {
-        field: 'aliquotasaida',
-        headerName: 'Alíquota saída',
-        type: 'text',
-        width: 150,
-        valueGetter: (row) => rotuloOpcao(aliquotaOptions, undefined, row.aliquotasaida),
-      },
-      { field: 'ativo', headerName: 'Ativo', type: 'text', width: 90 },
-      {
-        field: 'acoes',
-        headerName: '',
-        type: 'actions',
-        width: 110,
-        getActions: () => [
-          {
-            id: 'editar',
-            label: 'Editar',
-            icon: <Pencil className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
-            onClick: (r: PrecoProdutoDto & { fieldId: string }) => {
-              const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
-              if (idx >= 0) setEditIdx(idx);
-            },
-          },
-          {
-            id: 'remover',
-            label: 'Remover',
-            icon: <Trash2 className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
-            destructive: true,
-            onClick: (r: PrecoProdutoDto & { fieldId: string }) => {
-              const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
-              if (idx >= 0) remove(idx);
-            },
-          },
-        ],
-      },
-    ],
-    [fields, remove, aliquotaOptions],
-  );
-
   return (
-    <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
-      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Preços</legend>
-      <div className="flex flex-col gap-gp-sm">
-        <div>
-          <Button label="Adicionar &preço" variant="soft" onClick={() => setEditIdx(-1)} />
+    <fieldset disabled={!editavel} className="rounded-radius-md border border-border p-pad-md">
+      <legend className="px-pad-xs text-fg-muted">Preços</legend>
+      {/* idempresa fixo da empresa F2 — mantido no form (exigido pelo schema) sem campo visível. */}
+      <input type="hidden" {...form.register('precos.0.idempresa', { valueAsNumber: true })} />
+      <div className="flex flex-col gap-form-gap">
+        <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+          <Controller
+            control={form.control}
+            name="precos.0.vrcusto"
+            render={({ field }) => (
+              <CurrencyField
+                label="&Custo"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                error={form.formState.errors.precos?.[0]?.vrcusto?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="precos.0.vrcustorep"
+            render={({ field }) => (
+              <CurrencyField
+                label="Custo &reposição"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                error={
+                  form.formState.errors.precos?.[0]?.vrcustorep?.message as string | undefined
+                }
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="precos.0.markup"
+            render={({ field }) => (
+              <NumberField
+                label="&Markup"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={4}
+                min={0}
+                endAddon="%"
+                error={form.formState.errors.precos?.[0]?.markup?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="precos.0.margeml"
+            render={({ field }) => (
+              <NumberField
+                label="Margem (&ML)"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={4}
+                min={0}
+                endAddon="%"
+                error={form.formState.errors.precos?.[0]?.margeml?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="precos.0.vrvenda"
+            render={({ field }) => (
+              <CurrencyField
+                label="Valor &venda"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                error={form.formState.errors.precos?.[0]?.vrvenda?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="precos.0.vrpromo"
+            render={({ field }) => (
+              <CurrencyField
+                label="VL.&promo"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                error={form.formState.errors.precos?.[0]?.vrpromo?.message as string | undefined}
+              />
+            )}
+          />
+          {/* alíquota de saída — default da alíquota fiscal do produto (form.watch('aliquota')). */}
+          <Controller
+            control={form.control}
+            name="precos.0.aliquotasaida"
+            render={({ field }) => (
+              <SelectField
+                label="A&líquota saída"
+                options={aliquotaOptions}
+                value={field.value ?? undefined}
+                onChange={(v) => field.onChange(v || undefined)}
+                placeholder={produtoAliquota ? `Padrão: ${produtoAliquota}` : 'Selecione a alíquota…'}
+                error={
+                  form.formState.errors.precos?.[0]?.aliquotasaida?.message as string | undefined
+                }
+              />
+            )}
+          />
         </div>
 
-        {fields.length === 0 ? (
-          <small className="text-fg-muted">Sem preços por empresa.</small>
-        ) : (
-          <DataTable
-            rows={fields as Array<PrecoProdutoDto & { fieldId: string }>}
-            columns={columns}
-            getRowId={(r) => r.fieldId}
-            toolbar={{ enableSearch: false, enableFilters: false }}
-            paginationConfig={{ enabled: true, initialPageSize: 10 }}
-            cardBreakpoint={false}
-          />
-        )}
-      </div>
+        {/* "Precificação" do legado → REUSO do motor (POST /precificacao/produto). UF temporária. */}
+        <div className="flex items-end gap-gp-sm">
+          <div className="w-32">
+            <Field
+              label="&UF (cálculo)"
+              value={uf}
+              maxLength={2}
+              onChange={(e) => setUf(e.target.value.toUpperCase().slice(0, 2))}
+            />
+          </div>
+          <Button label="&Calcular venda" variant="soft" onClick={() => void calcularVenda()} />
+        </div>
 
-      {editIdx != null && (
-        <PrecoModal
-          inicial={editIdx >= 0 ? (fields[editIdx] as PrecoProdutoDto) : undefined}
-          produtoAliquota={produtoAliquota}
-          aliquotaOptions={aliquotaOptions}
-          onFechar={() => setEditIdx(null)}
-          onConfirmar={onConfirmar}
-        />
-      )}
+        {/* Flags de controle (char 'S'/'N') — espelham Ativo p/Compra, Ativo p/Venda, Promoção. */}
+        <div className="flex flex-wrap items-center gap-gp-lg">
+          <Controller
+            control={form.control}
+            name="precos.0.ativo"
+            render={({ field }) => (
+              <CheckboxField
+                label="Ativo p/ &venda"
+                value={field.value}
+                onChange={field.onChange}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="precos.0.ativo_compra"
+            render={({ field }) => (
+              <CheckboxField
+                label="Ativo p/ &compra"
+                value={field.value}
+                onChange={field.onChange}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="precos.0.promocao"
+            render={({ field }) => (
+              <CheckboxField label="&Promoção" value={field.value} onChange={field.onChange} />
+            )}
+          />
+        </div>
+      </div>
     </fieldset>
   );
 }

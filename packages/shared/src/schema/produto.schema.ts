@@ -39,6 +39,22 @@ const opcional = <T extends z.ZodTypeAny>(s: T) =>
 const sn = (msg = "Informe 'S' ou 'N'") => z.enum(['S', 'N'], { message: msg });
 
 /**
+ * Campo DECIMAL tolerante: a API retorna colunas `numeric` do Postgres como STRING
+ * (ex.: '4.5500'); ao reabrir o registro p/ edição, o form carrega a string. Este helper
+ * aceita número OU string numérica e normaliza ('' / null → ausente) ANTES de validar —
+ * sem ele, `z.number()` reprovaria a gravação na edição (campo não tocado fica string).
+ */
+const dec = (inner: z.ZodNumber = z.number()) =>
+  z.preprocess((v) => {
+    if (v === '' || v == null) return undefined;
+    if (typeof v === 'string') {
+      const n = Number(v);
+      return Number.isNaN(n) ? v : n;
+    }
+    return v;
+  }, inner.optional());
+
+/**
  * CODBARRA (edtCODBARRAExit): obrigatório, sem '*', e EAN-13 válido quando o valor
  * normalizado tem 13 dígitos. PLU de balança / código interno mais curto passa.
  */
@@ -67,7 +83,7 @@ const descricao = z
 export const codAuxiliarSchema = z.object({
   codauxiliar: z.string().trim().max(14).optional(),
   codbarra: z.string().trim().max(14).optional(),
-  fatoremb: z.number().nonnegative('Fator de embalagem inválido').optional(),
+  fatoremb: dec(z.number().nonnegative('Fator de embalagem inválido')),
   codunidade: z.number().int().optional(),
   operacao: z.string().trim().max(1).optional(),
 });
@@ -80,13 +96,13 @@ export type CodAuxiliarDto = z.infer<typeof codAuxiliarSchema>;
  */
 export const precoProdutoSchema = z.object({
   idempresa: z.number({ message: 'Informe a empresa.' }).int('Empresa inválida.'),
-  vrcusto: z.number().nonnegative('Custo inválido').optional(),
-  vrcustorep: z.number().nonnegative('Custo rep. inválido').optional(),
-  markup: z.number({ message: 'Markup inválido' }).optional(),
-  vrvenda: z.number().nonnegative('Preço de venda inválido').optional(),
-  vrpromo: z.number().nonnegative('Preço promocional inválido').optional(),
+  vrcusto: dec(z.number().nonnegative('Custo inválido')),
+  vrcustorep: dec(z.number().nonnegative('Custo rep. inválido')),
+  markup: dec(),
+  vrvenda: dec(z.number().nonnegative('Preço de venda inválido')),
+  vrpromo: dec(z.number().nonnegative('Preço promocional inválido')),
   promocao: sn().default('N'),
-  margeml: z.number({ message: 'Margem inválida' }).optional(),
+  margeml: dec(),
   aliquotasaida: z.string().trim().max(3).optional(), // código fiscal de saída (→ det_aliquota)
   ativo: sn().default('S'),
   ativo_compra: sn().default('S'),
@@ -131,13 +147,13 @@ const produtoBase = z.object({
   idpiscofins: z.number().int().optional(),
   codfigurafiscal: z.number().int().optional(),
   codfcp: z.number().int().optional(),
-  mva: z.number().nonnegative('MVA inválido').optional(),
+  mva: dec(z.number().nonnegative('MVA inválido')),
   origemprod: opcional(z.enum(ORIGEM_VALUES, { message: 'Origem inválida.' })),
   // unidade/balança/validade
   balanca: sn().default('N'),
   codbalanca: z.number().int().optional(),
-  fatorkg: z.number().nonnegative('Fator KG inválido').optional(),
-  peso: z.number().nonnegative('Peso inválido').optional(),
+  fatorkg: dec(z.number().nonnegative('Fator KG inválido')),
+  peso: dec(z.number().nonnegative('Peso inválido')),
   fatorcx: z.number().int().optional(),
   validade: z.number().int().optional(),
   controle_validade: sn().default('S'),
@@ -145,14 +161,34 @@ const produtoBase = z.object({
   ativo: sn().default('S'),
   ativo_compra: sn().default('S'),
   idproduto_pai: z.number().int().optional(),
-  fator_filho: z.number().nonnegative('Fator do filho inválido').optional(),
+  fator_filho: dec(z.number().nonnegative('Fator do filho inválido')),
   // detalhes 1:N (engine de agregado grava todos numa transação)
   codauxiliares: z.array(codAuxiliarSchema).optional().default([]),
   precos: z.array(precoProdutoSchema).optional().default([]), // F2 — MULTI_PRECO por empresa (mesma form)
 });
 
+/**
+ * A API devolve colunas vazias como `null` (e numeric como string). Ao REABRIR o registro
+ * p/ edição e reenviar, `z.optional()` reprovaria `null` (só aceita `undefined`). Este
+ * preprocess torna o schema IDEMPOTENTE com a própria saída: remove `null` (→ ausente),
+ * recursivo em arrays/objetos (cobre os detalhes precos/codauxiliares). A coerção de
+ * numeric-string fica no `dec()` por campo.
+ */
+const stripNulls = (v: unknown): unknown => {
+  if (Array.isArray(v)) return v.map(stripNulls);
+  if (v && typeof v === 'object') {
+    const o: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      const x = stripNulls(val);
+      if (x !== undefined) o[k] = x;
+    }
+    return o;
+  }
+  return v === null ? undefined : v;
+};
+
 /** Regra do legado (btnGravarClick): CEST é obrigatório quando a alíquota é do tipo 'STB' (ST). */
-export const produtoSchema = produtoBase.superRefine((d, ctx) => {
+export const produtoSchema = z.preprocess(stripNulls, produtoBase).superRefine((d, ctx) => {
   if (d.aliquota === 'STB' && !(d.cest && d.cest.trim())) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -163,7 +199,7 @@ export const produtoSchema = produtoBase.superRefine((d, ctx) => {
 });
 export type CriarProdutoDto = z.infer<typeof produtoSchema>;
 
-export const atualizarProdutoSchema = produtoBase.partial();
+export const atualizarProdutoSchema = z.preprocess(stripNulls, produtoBase.partial());
 export type AtualizarProdutoDto = z.infer<typeof atualizarProdutoSchema>;
 
 export interface Produto extends CriarProdutoDto {
