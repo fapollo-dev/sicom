@@ -65,6 +65,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('020_produtos.sql'));
   await pool.query(sql('021_multi_preco.sql'));
   await pool.query(sql('022_estoque.sql'));
+  await pool.query(sql('023_produto_kit.sql'));
   await pool.end();
   return pg;
 }

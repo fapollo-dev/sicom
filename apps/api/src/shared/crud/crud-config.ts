@@ -70,6 +70,13 @@ export interface DetalheConfig {
  */
 export interface AggregateConfig extends CrudConfig {
   detalhes: DetalheConfig[];
+  /**
+   * Validação de REGRA DE NEGÓCIO cross-row ANTES de gravar (espelha checagens do btnGravar
+   * do legado que consultam outras tabelas). Recebe o dto, o id (no update) e um db de leitura;
+   * deve LANÇAR (ex.: BusinessRuleError) p/ bloquear. Ex.: Produto não pode ser desativado se é
+   * componente de algum kit (COMPOSICAO.idproduto_01). Roda no create e no update, antes da escrita.
+   */
+  validar?: (ctx: { dto: Record<string, unknown>; id?: number; db: any }) => Promise<void> | void;
 }
 
 /** Operadores da Pesquisa (espelham os TTipoPesquisa do frmPesquisa). */

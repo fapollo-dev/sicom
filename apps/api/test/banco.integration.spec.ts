@@ -997,6 +997,69 @@ describe('PRODUTO F3 (ESTOQUE por empresa)', () => {
   });
 });
 
+describe('PRODUTO F4 (kit/BOM)', () => {
+  // F4: 3 sub-grids na MESMA form — COMPOSIÇÃO (kit), DECOMPOSIÇÃO (1→N), RECEITA (ficha
+  // técnica). Detalhes 1:N do agregado, substituídos (delete+insert) na gravação. Flags
+  // COMPOSICAO/DECOMPOSICAO/RECEITA do master DERIVADAS server-side (derivar) da presença de
+  // itens. REGRA (validar): não desativar produto que é COMPONENTE de algum kit.
+  // (a regra "decomposição soma 100%" é zod/HTTP → coberta no smoke, não no engine-direct.)
+  const eng = () => new AggregateEngineService(dbp);
+  const cfg = produtoAggregateConfig;
+
+  it('READ do seed (produto 1): composicoes 1 item (idproduto_01=2, qtde 2, valor 5); flag composicao=S', async () => {
+    const agg = (await withTenant(() => eng().readAggregate(cfg, 1))) as any;
+    expect(agg.composicoes.length).toBe(1);
+    expect(agg.composicoes[0].idproduto_01).toBe(2);
+    expect(Number(agg.composicoes[0].qtde)).toBe(2);
+    expect(Number(agg.composicoes[0].valor)).toBe(5);
+    expect(agg.composicao).toBe('S'); // flag derivada do seed
+  });
+
+  it('READ do seed: produto 2 tem decomposicoes (percentual 100, flag=S); produto 3 tem receitas (flag=S)', async () => {
+    const p2 = (await withTenant(() => eng().readAggregate(cfg, 2))) as any;
+    expect(p2.decomposicoes.length).toBe(1);
+    expect(Number(p2.decomposicoes[0].percentual)).toBe(100);
+    expect(p2.decomposicao).toBe('S');
+
+    const p3 = (await withTenant(() => eng().readAggregate(cfg, 3))) as any;
+    expect(p3.receitas.length).toBe(1);
+    expect(p3.receita).toBe('S');
+  });
+
+  let cod: number;
+  it('CREATE com composicoes deriva flag composicao=S; UPDATE com [] deriva =N e zera o sub-grid', async () => {
+    cod = await withTenant(() =>
+      eng().createAggregate(cfg, {
+        codbarra: '7890000003254', // EAN-13 com DV válido, distinto dos seeds/smoke
+        descricao: 'PRODUTO F4 KIT',
+        unidade: 'UN',
+        codfor: 2,
+        aliquota: 'T01',
+        composicoes: [{ idproduto_01: 2, qtde: 1, valor: 3 }],
+      }),
+    );
+    const agg = (await withTenant(() => eng().readAggregate(cfg, cod))) as any;
+    expect(agg.composicoes.length).toBe(1);
+    expect(agg.composicoes[0].idproduto_01).toBe(2);
+    expect(agg.composicao).toBe('S'); // derivada da presença de itens
+
+    // gravar com composicoes vazio → flag deriva 'N' e o substitute limpa o sub-grid
+    await withTenant(() => eng().updateAggregate(cfg, cod, { composicoes: [] }));
+    const agg2 = (await withTenant(() => eng().readAggregate(cfg, cod))) as any;
+    expect(agg2.composicoes.length).toBe(0);
+    expect(agg2.composicao).toBe('N');
+  });
+
+  it('BLOQUEIO: desativar produto que é COMPONENTE de kit (produto 2) é rejeitado; kit (produto 1) não', async () => {
+    // produto 2 é componente do kit 1 (composicao.idproduto_01=2) → validar() barra ativo='N'.
+    await expect(withTenant(() => eng().updateAggregate(cfg, 2, { ativo: 'N' }))).rejects.toThrow();
+    // produto 1 é o KIT (não é componente de ninguém) → desativar é permitido (resolve sem erro).
+    await expect(withTenant(() => eng().updateAggregate(cfg, 1, { ativo: 'N' }))).resolves.not.toThrow();
+    // reativa para não afetar outros testes do mesmo arquivo.
+    await withTenant(() => eng().updateAggregate(cfg, 1, { ativo: 'S' }));
+  });
+});
+
 function outbox(chave: number, tipo: 'INSERT' | 'UPDATE' | 'DELETE') {
   return runWithTenant({ tenantId: 'pinheirao' }, () =>
     dbp

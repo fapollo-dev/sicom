@@ -1,6 +1,7 @@
 import { produtoSchema, atualizarProdutoSchema } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
+import { BusinessRuleError } from '../../shared/errors/app-error';
 
 /**
  * PRODUTO (hub do ERP) — tela de NÚCLEO, mestre-detalhe via AggregateEngineService:
@@ -30,7 +31,30 @@ export const produtoAggregateConfig: AggregateConfig = {
     'balanca', 'codbalanca', 'fatorkg', 'peso', 'fatorcx', 'validade', 'controle_validade',
     // controle / auto-relacionamento
     'ativo', 'ativo_compra', 'idproduto_pai', 'fator_filho',
+    // F4 — flags de kit/BOM (derivadas por derivar() conforme presença de itens)
+    'composicao', 'decomposicao', 'receita',
   ],
+  // F4 — flags COMPOSICAO/DECOMPOSICAO/RECEITA derivadas da presença de itens ('N' se vazio),
+  // só quando o respectivo array vem no dto (espelha o set 'N' no btnGravar do legado).
+  derivar: (dto) => {
+    const out: Record<string, unknown> = {};
+    const tem = (v: unknown) => (Array.isArray(v) && v.length > 0 ? 'S' : 'N');
+    if (dto.composicoes !== undefined) out.composicao = tem(dto.composicoes);
+    if (dto.decomposicoes !== undefined) out.decomposicao = tem(dto.decomposicoes);
+    if (dto.receitas !== undefined) out.receita = tem(dto.receitas);
+    return out;
+  },
+  // F4 — regra do legado (chbATIVOClick): não desativar produto que é COMPONENTE de algum kit.
+  validar: async ({ dto, id, db }) => {
+    if (id != null && dto.ativo === 'N') {
+      const comp = await db
+        .selectFrom('composicao')
+        .select('idproduto')
+        .where('idproduto_01', '=', id)
+        .executeTakeFirst();
+      if (comp) throw new BusinessRuleError('PRODUTO_EM_COMPOSICAO', { idproduto: id });
+    }
+  },
   detalhes: [
     {
       tabela: 'codauxiliar',
@@ -62,6 +86,28 @@ export const produtoAggregateConfig: AggregateConfig = {
       fk: 'idproduto',
       chave: 'estoques',
       colunas: ['idempresa', 'qtde', 'minimo', 'maximo', 'local'],
+    },
+    // F4 — kit/BOM (3 detalhes; cada item referencia outro produto via idproduto_01/idproduto_receita)
+    {
+      tabela: 'composicao',
+      pk: 'codcomp',
+      fk: 'idproduto',
+      chave: 'composicoes',
+      colunas: ['idproduto_01', 'qtde', 'valor', 'descricao'],
+    },
+    {
+      tabela: 'decomposicao',
+      pk: 'coddecomp',
+      fk: 'idproduto',
+      chave: 'decomposicoes',
+      colunas: ['idproduto_01', 'percentual'],
+    },
+    {
+      tabela: 'receita_prod',
+      pk: 'codreceita',
+      fk: 'idproduto',
+      chave: 'receitas',
+      colunas: ['idproduto_receita', 'qtde', 'valor', 'unidade', 'servico', 'fatorcxprod'],
     },
   ],
   colunasPesquisa: ['idproduto', 'codbarra', 'descricao', 'ncmsh', 'marca', 'aliquota', 'ativo'],

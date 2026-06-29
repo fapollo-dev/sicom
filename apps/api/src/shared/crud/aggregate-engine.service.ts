@@ -35,6 +35,7 @@ export class AggregateEngineService extends CrudEngineService {
   /** cria o agregado: master (delta+stamp+histórico+outbox) + itens, numa transação. */
   async createAggregate(cfg: AggregateConfig, dto: Record<string, unknown>): Promise<number> {
     const op = currentTenant().operadorId ?? null;
+    if (cfg.validar) await cfg.validar({ dto, db: this.dbp.forTenantRead() }); // regra cross-row antes de gravar
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const d = this.delta(cfg, this.derivados(cfg, dto, cfg.pkGerada === false ? Number(dto[cfg.pk]) : undefined));
       // carimba o escopo de empresa (multi-tenant) — fail-closed se ausente (igual ao create base).
@@ -58,8 +59,9 @@ export class AggregateEngineService extends CrudEngineService {
   /** atualiza o master (delta+stamp+histórico+outbox) e SUBSTITUI os itens, numa transação. */
   async updateAggregate(cfg: AggregateConfig, id: number, dto: Record<string, unknown>): Promise<void> {
     const op = currentTenant().operadorId ?? null;
+    if (cfg.validar) await cfg.validar({ dto, id, db: this.dbp.forTenantRead() }); // regra cross-row antes de gravar
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const d = this.delta(cfg, dto);
+      const d = this.delta(cfg, this.derivados(cfg, dto, id)); // derivar (ex.: flags COMPOSICAO/DECOMPOSICAO) também no update
       const antes =
         cfg.historico === false || !Object.keys(d).length
           ? {}

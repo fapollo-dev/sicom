@@ -549,6 +549,77 @@ async function main() {
       prod1EstEdit.status === 200 && !!estReget && Number(estReget.minimo) === 11 && Number(estReget.qtde) === 120,
       { status: prod1EstEdit.status, minimo: estReget?.minimo, qtde: estReget?.qtde, putCode: prod1EstEditBody?.code },
     );
+
+    // 15i) PRODUTO F4 — kit/BOM (COMPOSIÇÃO/DECOMPOSIÇÃO/RECEITA), via HTTP
+    // 15i.1) GET do seed: produto 1 (kit) traz composicoes; produto 2 (partida) traz decomposicoes 100%
+    const prod1Comp = (await (await fetch(`${base}/cadastro/produtos/1`, { headers: H })).json()) as any;
+    check(
+      'GET /cadastro/produtos/1 traz composicoes do seed (kit)',
+      Array.isArray(prod1Comp?.composicoes) && prod1Comp.composicoes.length >= 1,
+      { composicoes: prod1Comp?.composicoes?.length },
+    );
+    const prod2Dec = (await (await fetch(`${base}/cadastro/produtos/2`, { headers: H })).json()) as any;
+    const dec0 = Array.isArray(prod2Dec?.decomposicoes) ? prod2Dec.decomposicoes[0] : undefined;
+    check(
+      'GET /cadastro/produtos/2 traz decomposicoes do seed (percentual 100)',
+      !!dec0 && Number(dec0.percentual) === 100,
+      { decomposicoes: prod2Dec?.decomposicoes?.length, percentual: dec0?.percentual },
+    );
+
+    // 15i.2) CREATE com composicoes → 201 e flag composicao='S' derivada (1 item)
+    const prodKitPost = await fetch(`${base}/cadastro/produtos`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        codbarra: '7890000003261', // EAN-13 com DV válido, distinto dos seeds/smoke
+        descricao: 'PRODUTO F4 KIT SMOKE',
+        unidade: 'UN',
+        codfor: 2,
+        aliquota: 'T01',
+        composicoes: [{ idproduto_01: 2, qtde: 1, valor: 3 }],
+      }),
+    });
+    const prodKit = (await prodKitPost.json()) as any;
+    check(
+      'POST /cadastro/produtos com composicoes → 201 e composicao=S derivada (1 item)',
+      prodKitPost.status === 201 && prodKit.composicao === 'S' && prodKit.composicoes?.length === 1,
+      { status: prodKitPost.status, composicao: prodKit.composicao, n: prodKit.composicoes?.length },
+    );
+
+    // 15i.3) DECOMPOSIÇÃO != 100% (soma 50) → 400 VALIDACAO PT (refine do zod), nunca 500
+    const decBad = await fetch(`${base}/cadastro/produtos`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        codbarra: '7890000003278', // EAN-13 válido, distinto
+        descricao: 'PRODUTO F4 DECOMP 50',
+        unidade: 'UN',
+        codfor: 2,
+        aliquota: 'T01',
+        decomposicoes: [{ idproduto_01: 1, percentual: 50 }],
+      }),
+    });
+    const decBadBody = (await decBad.json().catch(() => ({}))) as any;
+    check(
+      'POST produto com decomposição != 100% (soma 50) → 400 VALIDACAO, nunca 500',
+      decBad.status === 400 && decBadBody.code === 'VALIDACAO' && decBad.status !== 500,
+      { status: decBad.status, code: decBadBody.code },
+    );
+
+    // 15i.4) BLOQUEIO desativar componente: produto 2 é COMPONENTE do kit 1 → PUT ativo='N' → 422 PT, nunca 500
+    const prod2Full = (await (await fetch(`${base}/cadastro/produtos/2`, { headers: H })).json()) as any;
+    prod2Full.ativo = 'N';
+    const desativaComp = await fetch(`${base}/cadastro/produtos/2`, {
+      method: 'PUT',
+      headers: H,
+      body: JSON.stringify(prod2Full),
+    });
+    const desativaCompBody = (await desativaComp.json().catch(() => ({}))) as any;
+    check(
+      'PUT desativar produto componente de kit → 422 PRODUTO_EM_COMPOSICAO, nunca 500',
+      desativaComp.status === 422 && desativaCompBody.code === 'PRODUTO_EM_COMPOSICAO' && desativaComp.status !== 500,
+      { status: desativaComp.status, code: desativaCompBody.code },
+    );
   } finally {
     await app.close();
     await pg.stop();

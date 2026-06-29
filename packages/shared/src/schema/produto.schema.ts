@@ -124,6 +124,33 @@ export const estoqueProdutoSchema = z.object({
 });
 export type EstoqueProdutoDto = z.infer<typeof estoqueProdutoSchema>;
 
+/** Item de COMPOSIÇÃO (kit): idproduto_01 = componente (outro produto, lookup). */
+export const composicaoItemSchema = z.object({
+  idproduto_01: z.number().int().optional(), // componente (→ produtos)
+  qtde: dec(z.number().nonnegative('Quantidade inválida')),
+  valor: dec(z.number().nonnegative('Valor inválido')), // custo unitário do componente
+  descricao: z.string().trim().max(100).optional(),
+});
+export type ComposicaoItemDto = z.infer<typeof composicaoItemSchema>;
+
+/** Item de DECOMPOSIÇÃO (1 produto → vários): idproduto_01 = resultante; percentual da partida. */
+export const decomposicaoItemSchema = z.object({
+  idproduto_01: z.number().int().optional(),
+  percentual: dec(z.number().nonnegative('Percentual inválido')),
+});
+export type DecomposicaoItemDto = z.infer<typeof decomposicaoItemSchema>;
+
+/** Item de RECEITA (ficha técnica): idproduto_receita = ingrediente. */
+export const receitaItemSchema = z.object({
+  idproduto_receita: z.number().int().optional(),
+  qtde: dec(z.number().nonnegative('Quantidade inválida')),
+  valor: dec(z.number().nonnegative('Valor inválido')),
+  unidade: z.string().trim().max(2).optional(),
+  servico: sn().optional(),
+  fatorcxprod: dec(z.number().nonnegative('Fator inválido')),
+});
+export type ReceitaItemDto = z.infer<typeof receitaItemSchema>;
+
 /** Base do master (sem o superRefine) — reusada p/ o schema de atualização (partial). */
 const produtoBase = z.object({
   // identidade
@@ -177,10 +204,18 @@ const produtoBase = z.object({
   ativo_compra: sn().default('S'),
   idproduto_pai: z.number().int().optional(),
   fator_filho: dec(z.number().nonnegative('Fator do filho inválido')),
+  // F4 — flags de kit/BOM (derivadas server-side da presença de itens; round-trip)
+  composicao: sn().optional(),
+  decomposicao: sn().optional(),
+  receita: sn().optional(),
   // detalhes 1:N (engine de agregado grava todos numa transação)
   codauxiliares: z.array(codAuxiliarSchema).optional().default([]),
   precos: z.array(precoProdutoSchema).optional().default([]), // F2 — MULTI_PRECO por empresa (mesma form)
   estoques: z.array(estoqueProdutoSchema).optional().default([]), // F3 — ESTOQUE por empresa (saldo read-only)
+  // F4 — kit/BOM (3 sub-grids na mesma form; cada item referencia outro produto)
+  composicoes: z.array(composicaoItemSchema).optional().default([]),
+  decomposicoes: z.array(decomposicaoItemSchema).optional().default([]),
+  receitas: z.array(receitaItemSchema).optional().default([]),
 });
 
 /**
@@ -203,6 +238,24 @@ const stripNulls = (v: unknown): unknown => {
   return v === null ? undefined : v;
 };
 
+/** Regra do legado (btnGravar): a DECOMPOSIÇÃO deve somar 100% (só quando há itens; 2 casas). */
+const validaDecomposicao100 = (
+  d: { decomposicoes?: { percentual?: number }[] },
+  ctx: z.RefinementCtx,
+) => {
+  const dec = d.decomposicoes ?? [];
+  if (dec.length > 0) {
+    const total = dec.reduce((s, it) => s + (Number(it.percentual) || 0), 0);
+    if (total.toFixed(2) !== (100).toFixed(2)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A decomposição não atingiu 100% da partida, verifique',
+        path: ['decomposicoes'],
+      });
+    }
+  }
+};
+
 /** Regra do legado (btnGravarClick): CEST é obrigatório quando a alíquota é do tipo 'STB' (ST). */
 export const produtoSchema = z.preprocess(stripNulls, produtoBase).superRefine((d, ctx) => {
   if (d.aliquota === 'STB' && !(d.cest && d.cest.trim())) {
@@ -212,10 +265,13 @@ export const produtoSchema = z.preprocess(stripNulls, produtoBase).superRefine((
       path: ['cest'],
     });
   }
+  validaDecomposicao100(d, ctx);
 });
 export type CriarProdutoDto = z.infer<typeof produtoSchema>;
 
-export const atualizarProdutoSchema = z.preprocess(stripNulls, produtoBase.partial());
+export const atualizarProdutoSchema = z
+  .preprocess(stripNulls, produtoBase.partial())
+  .superRefine((d, ctx) => validaDecomposicao100(d as { decomposicoes?: { percentual?: number }[] }, ctx));
 export type AtualizarProdutoDto = z.infer<typeof atualizarProdutoSchema>;
 
 export interface Produto extends CriarProdutoDto {

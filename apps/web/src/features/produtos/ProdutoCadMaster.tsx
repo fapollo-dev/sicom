@@ -11,6 +11,9 @@ import {
   type CodAuxiliarDto,
   type PrecoProdutoDto,
   type EstoqueProdutoDto,
+  type ComposicaoItemDto,
+  type DecomposicaoItemDto,
+  type ReceitaItemDto,
 } from '@apollo/shared';
 import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
@@ -22,6 +25,9 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
 import { CodAuxiliarModal } from './CodAuxiliarModal';
+import { ComposicaoModal } from './ComposicaoModal';
+import { DecomposicaoModal } from './DecomposicaoModal';
+import { ReceitaModal } from './ReceitaModal';
 import { precificarProduto } from './precificacaoApi';
 
 /**
@@ -81,6 +87,13 @@ export function ProdutoCadMaster() {
     value: String(a.codigo),
     label: `${a.codigo} - ${a.descricao}`,
   }));
+  // Produtos (F4 — kit/BOM): lista TODOS os produtos (um componente/ingrediente é qualquer
+  // produto). Reusado nas 3 sub-grids (Composição, Decomposição, Receita). A PK ora vem como
+  // idproduto, ora como codigo → value; label = "codbarra - descrição".
+  const { data: produtoOptions = [] } = useResourceOptions('cadastro/produtos', (r: any) => ({
+    value: String(r.idproduto ?? r.codigo),
+    label: `${r.codbarra} - ${r.descricao}`,
+  }));
 
   // OnNewRecord do legado: ativo/ativo_compra='S', balanca='N', controle de validade='S',
   // fatorcx=1, e o detalhe 1:N começa vazio.
@@ -123,6 +136,10 @@ export function ProdutoCadMaster() {
       // zerada (saldo movido por transação) p/ o binding existir num registro NOVO — espelha
       // o legado, onde a linha de estoque de um produto novo nasce zerada.
       estoques: [{ idempresa: IDEMPRESA_F2, qtde: 0, minimo: 0, maximo: 0 }],
+      // F4 — kit/BOM: 3 sub-grids 1:N na mesma form, começam vazios num registro NOVO.
+      composicoes: [],
+      decomposicoes: [],
+      receitas: [],
     }),
     [],
   );
@@ -165,6 +182,10 @@ export function ProdutoCadMaster() {
             editavel={editavel}
             unidadeOptions={unidadeOptions}
           />
+          {/* F4 — kit/BOM: 3 sub-grids na MESMA form, espelhando o padrão dos códigos auxiliares. */}
+          <ComposicaoSection form={form} editavel={editavel} produtoOptions={produtoOptions} />
+          <DecomposicaoSection form={form} editavel={editavel} produtoOptions={produtoOptions} />
+          <ReceitaSection form={form} editavel={editavel} produtoOptions={produtoOptions} />
         </div>
       )}
     />
@@ -1066,6 +1087,406 @@ function CodAuxiliaresSection({
         <CodAuxiliarModal
           inicial={editIdx >= 0 ? (fields[editIdx] as CodAuxiliarDto) : undefined}
           unidadeOptions={unidadeOptions}
+          onFechar={() => setEditIdx(null)}
+          onConfirmar={onConfirmar}
+        />
+      )}
+    </fieldset>
+  );
+}
+
+// ───────────────────────── F4 — kit/BOM (helpers) ─────────────────────────
+
+/** formata número → "1.234,56" (pt-BR, 2 casas) — display dos totais (read-only). */
+const fmtBRL = (n: number) =>
+  n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// ───────────────────────── Composição (kit) ─────────────────────────
+
+/**
+ * Detalhe 1:N de COMPOSIÇÃO (kit — PRODUTO_COMPOSICAO) — GRID + adicionar/editar/remover via
+ * `useFieldArray('composicoes')`. Espelha EXATAMENTE o padrão dos códigos auxiliares (DataTable
+ * + modal + getRowId por fieldId). Cada item referencia OUTRO produto (idproduto_01 = componente,
+ * via lookup `produtoOptions`). A flag `composicao` do master é DERIVADA server-side da presença
+ * de itens — sem checkbox de UI. A gravação cascateia no engine agregado.
+ *
+ * Total do kit = Σ(qtde×valor) — exibido READ-ONLY abaixo do grid (computado; não grava).
+ */
+function ComposicaoSection({
+  form,
+  editavel,
+  produtoOptions,
+}: {
+  form: UseFormReturn<CriarProdutoDto>;
+  editavel: boolean;
+  produtoOptions: Opcao[];
+}) {
+  const { fields, append, update, remove } = useFieldArray<
+    CriarProdutoDto,
+    'composicoes',
+    'fieldId'
+  >({
+    control: form.control,
+    name: 'composicoes',
+    keyName: 'fieldId',
+  });
+  const [editIdx, setEditIdx] = useState<number | null>(null);
+
+  const onConfirmar = (item: ComposicaoItemDto) => {
+    if (editIdx == null) return;
+    if (editIdx < 0) append(item);
+    else update(editIdx, item);
+    setEditIdx(null);
+  };
+
+  // Total do kit = Σ(qtde × valor) — recomputa a cada render (fields reflete o array atual).
+  const totalKit = (fields as Array<ComposicaoItemDto & { fieldId: string }>).reduce(
+    (s, it) => s + (Number(it.qtde) || 0) * (Number(it.valor) || 0),
+    0,
+  );
+
+  const columns = useMemo<DataTableColumnDef<ComposicaoItemDto & { fieldId: string }>[]>(
+    () => [
+      {
+        field: 'idproduto_01',
+        headerName: 'Produto',
+        type: 'text',
+        isPrimary: true,
+        valueGetter: (row) => rotuloOpcao(produtoOptions, row.idproduto_01),
+      },
+      { field: 'qtde', headerName: 'Qtde', type: 'number', width: 120 },
+      {
+        field: 'valor',
+        headerName: 'Valor (R$)',
+        type: 'text',
+        width: 140,
+        valueGetter: (row) => fmtBRL(Number(row.valor) || 0),
+      },
+      {
+        field: 'acoes',
+        headerName: '',
+        type: 'actions',
+        width: 110,
+        getActions: () => [
+          {
+            id: 'editar',
+            label: 'Editar',
+            icon: <Pencil className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            onClick: (r: ComposicaoItemDto & { fieldId: string }) => {
+              const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
+              if (idx >= 0) setEditIdx(idx);
+            },
+          },
+          {
+            id: 'remover',
+            label: 'Remover',
+            icon: <Trash2 className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            destructive: true,
+            onClick: (r: ComposicaoItemDto & { fieldId: string }) => {
+              const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
+              if (idx >= 0) remove(idx);
+            },
+          },
+        ],
+      },
+    ],
+    [fields, remove, produtoOptions],
+  );
+
+  return (
+    <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
+      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">
+        Composição (kit)
+      </legend>
+      <div className="flex flex-col gap-gp-sm">
+        <div>
+          <Button
+            label="Adicionar &componente"
+            variant="soft"
+            onClick={() => setEditIdx(-1)}
+          />
+        </div>
+
+        {fields.length === 0 ? (
+          <small className="text-fg-muted">Sem componentes.</small>
+        ) : (
+          <>
+            <DataTable
+              rows={fields as Array<ComposicaoItemDto & { fieldId: string }>}
+              columns={columns}
+              getRowId={(r) => r.fieldId}
+              toolbar={{ enableSearch: false, enableFilters: false }}
+              paginationConfig={{ enabled: true, initialPageSize: 10 }}
+              cardBreakpoint={false}
+            />
+            <small className="text-fg-muted">Total do kit: R$ {fmtBRL(totalKit)}</small>
+          </>
+        )}
+      </div>
+
+      {editIdx != null && (
+        <ComposicaoModal
+          inicial={editIdx >= 0 ? (fields[editIdx] as ComposicaoItemDto) : undefined}
+          produtoOptions={produtoOptions}
+          onFechar={() => setEditIdx(null)}
+          onConfirmar={onConfirmar}
+        />
+      )}
+    </fieldset>
+  );
+}
+
+// ───────────────────────── Decomposição ─────────────────────────
+
+/**
+ * Detalhe 1:N de DECOMPOSIÇÃO (1 produto → vários — PRODUTO_DECOMPOSICAO) — GRID +
+ * adicionar/editar/remover via `useFieldArray('decomposicoes')`. Espelha o padrão dos códigos
+ * auxiliares. Cada item referencia OUTRO produto (idproduto_01 = resultante, via lookup). A flag
+ * `decomposicao` é DERIVADA server-side. A REGRA "deve somar 100%" é enforced pelo back no save
+ * (envelope VALIDACAO PT exibido pelo CadMaster/useMensagem); aqui exibimos o Total % corrente
+ * com dica visual quando ≠ 100, p/ ajudar o usuário antes de gravar.
+ */
+function DecomposicaoSection({
+  form,
+  editavel,
+  produtoOptions,
+}: {
+  form: UseFormReturn<CriarProdutoDto>;
+  editavel: boolean;
+  produtoOptions: Opcao[];
+}) {
+  const { fields, append, update, remove } = useFieldArray<
+    CriarProdutoDto,
+    'decomposicoes',
+    'fieldId'
+  >({
+    control: form.control,
+    name: 'decomposicoes',
+    keyName: 'fieldId',
+  });
+  const [editIdx, setEditIdx] = useState<number | null>(null);
+
+  const onConfirmar = (item: DecomposicaoItemDto) => {
+    if (editIdx == null) return;
+    if (editIdx < 0) append(item);
+    else update(editIdx, item);
+    setEditIdx(null);
+  };
+
+  // Total % = Σ(percentual) — a regra do back exige 100% (2 casas); dica visual quando ≠ 100.
+  const totalPct = (fields as Array<DecomposicaoItemDto & { fieldId: string }>).reduce(
+    (s, it) => s + (Number(it.percentual) || 0),
+    0,
+  );
+  const cem = totalPct.toFixed(2) === (100).toFixed(2);
+
+  const columns = useMemo<DataTableColumnDef<DecomposicaoItemDto & { fieldId: string }>[]>(
+    () => [
+      {
+        field: 'idproduto_01',
+        headerName: 'Produto',
+        type: 'text',
+        isPrimary: true,
+        valueGetter: (row) => rotuloOpcao(produtoOptions, row.idproduto_01),
+      },
+      {
+        field: 'percentual',
+        headerName: 'Percentual (%)',
+        type: 'number',
+        width: 160,
+      },
+      {
+        field: 'acoes',
+        headerName: '',
+        type: 'actions',
+        width: 110,
+        getActions: () => [
+          {
+            id: 'editar',
+            label: 'Editar',
+            icon: <Pencil className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            onClick: (r: DecomposicaoItemDto & { fieldId: string }) => {
+              const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
+              if (idx >= 0) setEditIdx(idx);
+            },
+          },
+          {
+            id: 'remover',
+            label: 'Remover',
+            icon: <Trash2 className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            destructive: true,
+            onClick: (r: DecomposicaoItemDto & { fieldId: string }) => {
+              const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
+              if (idx >= 0) remove(idx);
+            },
+          },
+        ],
+      },
+    ],
+    [fields, remove, produtoOptions],
+  );
+
+  return (
+    <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
+      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">
+        Decomposição
+      </legend>
+      <div className="flex flex-col gap-gp-sm">
+        <div>
+          <Button
+            label="Adicionar &resultante"
+            variant="soft"
+            onClick={() => setEditIdx(-1)}
+          />
+        </div>
+
+        {fields.length === 0 ? (
+          <small className="text-fg-muted">Sem itens de decomposição.</small>
+        ) : (
+          <>
+            <DataTable
+              rows={fields as Array<DecomposicaoItemDto & { fieldId: string }>}
+              columns={columns}
+              getRowId={(r) => r.fieldId}
+              toolbar={{ enableSearch: false, enableFilters: false }}
+              paginationConfig={{ enabled: true, initialPageSize: 10 }}
+              cardBreakpoint={false}
+            />
+            <small className={cem ? 'text-fg-muted' : 'text-fg-danger'}>
+              Total %: {totalPct.toFixed(2)}%{cem ? '' : ' — deve somar 100%'}
+            </small>
+          </>
+        )}
+      </div>
+
+      {editIdx != null && (
+        <DecomposicaoModal
+          inicial={editIdx >= 0 ? (fields[editIdx] as DecomposicaoItemDto) : undefined}
+          produtoOptions={produtoOptions}
+          onFechar={() => setEditIdx(null)}
+          onConfirmar={onConfirmar}
+        />
+      )}
+    </fieldset>
+  );
+}
+
+// ───────────────────────── Receita (ficha técnica) ─────────────────────────
+
+/**
+ * Detalhe 1:N de RECEITA (ficha técnica — PRODUTO_RECEITA) — GRID + adicionar/editar/remover via
+ * `useFieldArray('receitas')`. Espelha o padrão dos códigos auxiliares. Cada item referencia OUTRO
+ * produto (idproduto_receita = ingrediente, via lookup). A flag `receita` é DERIVADA server-side
+ * da presença de itens. A gravação cascateia no engine agregado.
+ */
+function ReceitaSection({
+  form,
+  editavel,
+  produtoOptions,
+}: {
+  form: UseFormReturn<CriarProdutoDto>;
+  editavel: boolean;
+  produtoOptions: Opcao[];
+}) {
+  const { fields, append, update, remove } = useFieldArray<
+    CriarProdutoDto,
+    'receitas',
+    'fieldId'
+  >({
+    control: form.control,
+    name: 'receitas',
+    keyName: 'fieldId',
+  });
+  const [editIdx, setEditIdx] = useState<number | null>(null);
+
+  const onConfirmar = (item: ReceitaItemDto) => {
+    if (editIdx == null) return;
+    if (editIdx < 0) append(item);
+    else update(editIdx, item);
+    setEditIdx(null);
+  };
+
+  const columns = useMemo<DataTableColumnDef<ReceitaItemDto & { fieldId: string }>[]>(
+    () => [
+      {
+        field: 'idproduto_receita',
+        headerName: 'Ingrediente',
+        type: 'text',
+        isPrimary: true,
+        valueGetter: (row) => rotuloOpcao(produtoOptions, row.idproduto_receita),
+      },
+      { field: 'qtde', headerName: 'Qtde', type: 'number', width: 120 },
+      { field: 'unidade', headerName: 'Unidade', type: 'text', width: 110 },
+      {
+        field: 'valor',
+        headerName: 'Valor (R$)',
+        type: 'text',
+        width: 140,
+        valueGetter: (row) => fmtBRL(Number(row.valor) || 0),
+      },
+      {
+        field: 'acoes',
+        headerName: '',
+        type: 'actions',
+        width: 110,
+        getActions: () => [
+          {
+            id: 'editar',
+            label: 'Editar',
+            icon: <Pencil className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            onClick: (r: ReceitaItemDto & { fieldId: string }) => {
+              const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
+              if (idx >= 0) setEditIdx(idx);
+            },
+          },
+          {
+            id: 'remover',
+            label: 'Remover',
+            icon: <Trash2 className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            destructive: true,
+            onClick: (r: ReceitaItemDto & { fieldId: string }) => {
+              const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
+              if (idx >= 0) remove(idx);
+            },
+          },
+        ],
+      },
+    ],
+    [fields, remove, produtoOptions],
+  );
+
+  return (
+    <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
+      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">
+        Receita (ficha técnica)
+      </legend>
+      <div className="flex flex-col gap-gp-sm">
+        <div>
+          <Button
+            label="Adicionar &ingrediente"
+            variant="soft"
+            onClick={() => setEditIdx(-1)}
+          />
+        </div>
+
+        {fields.length === 0 ? (
+          <small className="text-fg-muted">Sem ingredientes.</small>
+        ) : (
+          <DataTable
+            rows={fields as Array<ReceitaItemDto & { fieldId: string }>}
+            columns={columns}
+            getRowId={(r) => r.fieldId}
+            toolbar={{ enableSearch: false, enableFilters: false }}
+            paginationConfig={{ enabled: true, initialPageSize: 10 }}
+            cardBreakpoint={false}
+          />
+        )}
+      </div>
+
+      {editIdx != null && (
+        <ReceitaModal
+          inicial={editIdx >= 0 ? (fields[editIdx] as ReceitaItemDto) : undefined}
+          produtoOptions={produtoOptions}
           onFechar={() => setEditIdx(null)}
           onConfirmar={onConfirmar}
         />
