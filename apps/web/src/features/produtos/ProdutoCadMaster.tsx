@@ -186,6 +186,9 @@ export function ProdutoCadMaster() {
           <ComposicaoSection form={form} editavel={editavel} produtoOptions={produtoOptions} />
           <DecomposicaoSection form={form} editavel={editavel} produtoOptions={produtoOptions} />
           <ReceitaSection form={form} editavel={editavel} produtoOptions={produtoOptions} />
+          {/* F4b — campos-mestre de armazenamento puro (sem cálculo), INLINE na MESMA form. */}
+          <NutricionalSection form={form} editavel={editavel} />
+          <LogisticaSection form={form} editavel={editavel} />
         </div>
       )}
     />
@@ -1491,6 +1494,766 @@ function ReceitaSection({
           onConfirmar={onConfirmar}
         />
       )}
+    </fieldset>
+  );
+}
+
+// ───────────────────────── Informação nutricional (F4b) ─────────────────────────
+
+/**
+ * NUTRICIONAL (F4b) — campos-mestre de ROTULAGEM, INLINE na MESMA form (não é detalhe 1:N).
+ * ARMAZENAMENTO PURO: a tela só guarda os valores; NÃO calcula (no legado o único enforcement
+ * é o formato de gordura-trans, já no schema). Os **VD%** são DIGITADOS (não computados), por
+ * isso cada macro vem com seu par valor + VD% lado a lado. Campos são `Controller`/NumberField
+ * direto no MASTER (`form`), espelhando FiscalSection/EstoqueSection (grid 2-col, tokens do DS).
+ *
+ * Layout: Porção (unporcao/qtde_porcao/desc_porcao) → macros (valor + VD%) → rotulagem (flags S/N).
+ */
+function NutricionalSection({
+  form,
+  editavel,
+}: {
+  form: UseFormReturn<CriarProdutoDto>;
+  editavel: boolean;
+}) {
+  const err = form.formState.errors;
+  return (
+    <fieldset disabled={!editavel} className="rounded-radius-md border border-border p-pad-md">
+      <legend className="px-pad-xs text-fg-muted">Informação nutricional</legend>
+      <div className="flex flex-col gap-form-gap">
+        {/* ── Porção (unidades/qtde + medida caseira) ── */}
+        <fieldset className="rounded-radius-base border border-border p-pad-sm">
+          <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Porção</legend>
+          <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+            <Controller
+              control={form.control}
+              name="unporcao"
+              render={({ field }) => (
+                <NumberField
+                  label="&Unidades por porção"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={0}
+                  min={0}
+                  error={err.unporcao?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="qtde_porcao"
+              render={({ field }) => (
+                <NumberField
+                  label="&Qtde da porção"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={2}
+                  min={0}
+                  error={err.qtde_porcao?.message as string | undefined}
+                />
+              )}
+            />
+            <div className="sm:col-span-2">
+              <Field
+                label="&Medida caseira"
+                maxLength={35}
+                error={err.desc_porcao?.message as string | undefined}
+                {...form.register('desc_porcao')}
+              />
+            </div>
+          </div>
+        </fieldset>
+
+        {/* ── Macros: cada linha = valor + VD% (ambos NumberField 2 dec; VD% com addon "%") ── */}
+        <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+          <Controller
+            control={form.control}
+            name="valorenergetico"
+            render={({ field }) => (
+              <NumberField
+                label="&Valor energético"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                error={err.valorenergetico?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="vd_valorenergetico"
+            render={({ field }) => (
+              <NumberField
+                label="VD% valor &energético"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                endAddon="%"
+                error={err.vd_valorenergetico?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="carboidrato"
+            render={({ field }) => (
+              <NumberField
+                label="&Carboidrato"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                error={err.carboidrato?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="vd_carboidrato"
+            render={({ field }) => (
+              <NumberField
+                label="VD% carboi&drato"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                endAddon="%"
+                error={err.vd_carboidrato?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="proteina"
+            render={({ field }) => (
+              <NumberField
+                label="&Proteína"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                error={err.proteina?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="vd_proteina"
+            render={({ field }) => (
+              <NumberField
+                label="VD% prot&eína"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                endAddon="%"
+                error={err.vd_proteina?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="gorduratotal"
+            render={({ field }) => (
+              <NumberField
+                label="&Gordura total"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                error={err.gorduratotal?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="vd_gorduratotal"
+            render={({ field }) => (
+              <NumberField
+                label="VD% gordura &total"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                endAddon="%"
+                error={err.vd_gorduratotal?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="gordurasaturada"
+            render={({ field }) => (
+              <NumberField
+                label="Gordura &saturada"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                error={err.gordurasaturada?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="vd_gordurasaturada"
+            render={({ field }) => (
+              <NumberField
+                label="VD% gordura sat&urada"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                endAddon="%"
+                error={err.vd_gordurasaturada?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="gorduratrans"
+            render={({ field }) => (
+              <NumberField
+                label="Gordura t&rans"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                error={err.gorduratrans?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="vd_gorduratrans"
+            render={({ field }) => (
+              <NumberField
+                label="VD% gordura tra&ns"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                endAddon="%"
+                error={err.vd_gorduratrans?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="fibra"
+            render={({ field }) => (
+              <NumberField
+                label="&Fibra alimentar"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                error={err.fibra?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="vd_fibra"
+            render={({ field }) => (
+              <NumberField
+                label="VD% f&ibra"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                endAddon="%"
+                error={err.vd_fibra?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="sodio"
+            render={({ field }) => (
+              <NumberField
+                label="Sódi&o"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                error={err.sodio?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="vd_sodio"
+            render={({ field }) => (
+              <NumberField
+                label="VD% &sódio"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                endAddon="%"
+                error={err.vd_sodio?.message as string | undefined}
+              />
+            )}
+          />
+          {/* açúcares — sem par VD% no modelo (não há vd_acucares_*) */}
+          <Controller
+            control={form.control}
+            name="acucares_totais"
+            render={({ field }) => (
+              <NumberField
+                label="Açúcares totai&s"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                error={err.acucares_totais?.message as string | undefined}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="acucares_adicionados"
+            render={({ field }) => (
+              <NumberField
+                label="&Açúcares adicionados"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={2}
+                min={0}
+                error={err.acucares_adicionados?.message as string | undefined}
+              />
+            )}
+          />
+          {/* código da informação nutricional (referência externa de rótulo) */}
+          <Controller
+            control={form.control}
+            name="codinfanutri"
+            render={({ field }) => (
+              <NumberField
+                label="Cód. info nutricio&nal"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={0}
+                min={0}
+                error={err.codinfanutri?.message as string | undefined}
+              />
+            )}
+          />
+        </div>
+
+        {/* ── Rotulagem (flags S/N) ── */}
+        <div className="flex flex-wrap items-center gap-gp-lg">
+          <Controller
+            control={form.control}
+            name="acucar_adcionado"
+            render={({ field }) => (
+              <CheckboxField
+                label="Contém açúcar adicio&nado"
+                value={field.value}
+                onChange={field.onChange}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="gordura_saturada"
+            render={({ field }) => (
+              <CheckboxField
+                label="Alto em gordura satura&da"
+                value={field.value}
+                onChange={field.onChange}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="altoem_sodio"
+            render={({ field }) => (
+              <CheckboxField
+                label="Alto em sódi&o"
+                value={field.value}
+                onChange={field.onChange}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="expdadosnutricionais"
+            render={({ field }) => (
+              <CheckboxField
+                label="E&xportar dados nutricionais"
+                value={field.value}
+                onChange={field.onChange}
+              />
+            )}
+          />
+        </div>
+      </div>
+    </fieldset>
+  );
+}
+
+// ───────────────────────── Logística / embalagem (F4b) ─────────────────────────
+
+/**
+ * LOGÍSTICA / EMBALAGEM (F4b) — campos-mestre de ARMAZENAMENTO PURO, INLINE na MESMA form.
+ * NÃO calcula nada: guarda dimensões/pesos do Produto/Caixa/Pallet e os parâmetros de
+ * paletização. Campos são `Controller`/NumberField direto no MASTER (`form`), espelhando
+ * FiscalSection (grid 2-col, tokens do DS).
+ *
+ * Layout: sub-grid de DIMENSÕES (Comprimento/Largura/Altura × Produto/Caixa/Pallet) →
+ * PESOS (Peso líq./Peso bruto × Produto/Caixa/Pallet) → PALETIZAÇÃO (inteiros) + fator caixa.
+ */
+function LogisticaSection({
+  form,
+  editavel,
+}: {
+  form: UseFormReturn<CriarProdutoDto>;
+  editavel: boolean;
+}) {
+  const err = form.formState.errors;
+  return (
+    <fieldset disabled={!editavel} className="rounded-radius-md border border-border p-pad-md">
+      <legend className="px-pad-xs text-fg-muted">Logística / embalagem</legend>
+      <div className="flex flex-col gap-form-gap">
+        {/* ── Dimensões: 3 linhas (Comprimento/Largura/Altura) × 3 colunas (Produto/Caixa/Pallet) ── */}
+        <fieldset className="rounded-radius-base border border-border p-pad-sm">
+          <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">
+            Dimensões (Produto / Caixa / Pallet)
+          </legend>
+          <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
+            <Controller
+              control={form.control}
+              name="comprimento_produto"
+              render={({ field }) => (
+                <NumberField
+                  label="&Comprimento (produto)"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={2}
+                  min={0}
+                  error={err.comprimento_produto?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="comprimento_caixa"
+              render={({ field }) => (
+                <NumberField
+                  label="Comprimento (caixa)"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={2}
+                  min={0}
+                  error={err.comprimento_caixa?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="comprimento_pallet"
+              render={({ field }) => (
+                <NumberField
+                  label="Comprimento (pallet)"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={2}
+                  min={0}
+                  error={err.comprimento_pallet?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="largura_produto"
+              render={({ field }) => (
+                <NumberField
+                  label="&Largura (produto)"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={2}
+                  min={0}
+                  error={err.largura_produto?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="largura_caixa"
+              render={({ field }) => (
+                <NumberField
+                  label="Largura (caixa)"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={2}
+                  min={0}
+                  error={err.largura_caixa?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="largura_pallet"
+              render={({ field }) => (
+                <NumberField
+                  label="Largura (pallet)"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={2}
+                  min={0}
+                  error={err.largura_pallet?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="altura_produto"
+              render={({ field }) => (
+                <NumberField
+                  label="&Altura (produto)"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={2}
+                  min={0}
+                  error={err.altura_produto?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="altura_caixa"
+              render={({ field }) => (
+                <NumberField
+                  label="Altura (caixa)"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={2}
+                  min={0}
+                  error={err.altura_caixa?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="altura_pallet"
+              render={({ field }) => (
+                <NumberField
+                  label="Altura (pallet)"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={2}
+                  min={0}
+                  error={err.altura_pallet?.message as string | undefined}
+                />
+              )}
+            />
+          </div>
+        </fieldset>
+
+        {/* ── Pesos: 2 linhas (Peso líq./Peso bruto) × 3 colunas (Produto/Caixa/Pallet) ── */}
+        <fieldset className="rounded-radius-base border border-border p-pad-sm">
+          <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">
+            Pesos (Produto / Caixa / Pallet)
+          </legend>
+          <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
+            <Controller
+              control={form.control}
+              name="pesoliq_produto"
+              render={({ field }) => (
+                <NumberField
+                  label="Peso líq. (produto)"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={3}
+                  min={0}
+                  error={err.pesoliq_produto?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="pesoliq_caixa"
+              render={({ field }) => (
+                <NumberField
+                  label="Peso líq. (caixa)"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={3}
+                  min={0}
+                  error={err.pesoliq_caixa?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="pesoliq_pallet"
+              render={({ field }) => (
+                <NumberField
+                  label="Peso líq. (pallet)"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={3}
+                  min={0}
+                  error={err.pesoliq_pallet?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="pesobruto_produto"
+              render={({ field }) => (
+                <NumberField
+                  label="Peso &bruto (produto)"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={3}
+                  min={0}
+                  error={err.pesobruto_produto?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="pesobruto_caixa"
+              render={({ field }) => (
+                <NumberField
+                  label="Peso bruto (caixa)"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={3}
+                  min={0}
+                  error={err.pesobruto_caixa?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="pesobruto_pallet"
+              render={({ field }) => (
+                <NumberField
+                  label="Peso bruto (pallet)"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={3}
+                  min={0}
+                  error={err.pesobruto_pallet?.message as string | undefined}
+                />
+              )}
+            />
+          </div>
+        </fieldset>
+
+        {/* ── Paletização (inteiros) + fator de caixa ── */}
+        <fieldset className="rounded-radius-base border border-border p-pad-sm">
+          <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">
+            Paletização
+          </legend>
+          <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+            <Controller
+              control={form.control}
+              name="pallet_caixas_por_camada"
+              render={({ field }) => (
+                <NumberField
+                  label="Caixas por &camada"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={0}
+                  min={0}
+                  error={err.pallet_caixas_por_camada?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="pallet_camadas_por_pallet"
+              render={({ field }) => (
+                <NumberField
+                  label="Camadas por p&allet"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={0}
+                  min={0}
+                  error={err.pallet_camadas_por_pallet?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="pallet_caixas_por_pallet"
+              render={({ field }) => (
+                <NumberField
+                  label="Cai&xas por pallet"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={0}
+                  min={0}
+                  error={err.pallet_caixas_por_pallet?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="pallet_empilhamento"
+              render={({ field }) => (
+                <NumberField
+                  label="&Empilhamento"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={0}
+                  min={0}
+                  error={err.pallet_empilhamento?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="pallet_produtos_por_caixa"
+              render={({ field }) => (
+                <NumberField
+                  label="&Produtos por caixa"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={0}
+                  min={0}
+                  error={err.pallet_produtos_por_caixa?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="pallet_produtos_por_pallet"
+              render={({ field }) => (
+                <NumberField
+                  label="Produtos por pa&llet"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={0}
+                  min={0}
+                  error={err.pallet_produtos_por_pallet?.message as string | undefined}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="fatorcx_prod"
+              render={({ field }) => (
+                <NumberField
+                  label="&Fator caixa/produto"
+                  value={field.value as number | undefined}
+                  onChange={field.onChange}
+                  decimais={2}
+                  min={0}
+                  error={err.fatorcx_prod?.message as string | undefined}
+                />
+              )}
+            />
+          </div>
+        </fieldset>
+      </div>
     </fieldset>
   );
 }

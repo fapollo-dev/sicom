@@ -620,6 +620,22 @@ async function main() {
       desativaComp.status === 422 && desativaCompBody.code === 'PRODUTO_EM_COMPOSICAO' && desativaComp.status !== 500,
       { status: desativaComp.status, code: desativaCompBody.code },
     );
+
+    // 15j) NUTRICIONAL/LOGÍSTICA (F4b — campos do master): seed do produto 1 + round-trip de edição
+    const prodNutri = (await (await fetch(`${base}/cadastro/produtos/1`, { headers: H })).json()) as any;
+    check(
+      'GET /cadastro/produtos/1 traz nutricional (valorenergetico=387, peso líq.)',
+      Number(prodNutri.valorenergetico) === 387 && Number(prodNutri.pesoliq_produto) === 1,
+      { ve: prodNutri.valorenergetico, peso: prodNutri.pesoliq_produto },
+    );
+    prodNutri.carboidrato = 50; // edita um campo nutricional
+    const nutriPut = await fetch(`${base}/cadastro/produtos/1`, { method: 'PUT', headers: H, body: JSON.stringify(prodNutri) });
+    const nutriBody = (await nutriPut.json().catch(() => ({}))) as any;
+    check(
+      'PUT produto/1 edita nutricional (carboidrato=50) e mantém valorenergetico=387',
+      nutriPut.status === 200 && Number(nutriBody.carboidrato) === 50 && Number(nutriBody.valorenergetico) === 387,
+      { status: nutriPut.status, carb: nutriBody.carboidrato },
+    );
   } finally {
     await app.close();
     await pg.stop();

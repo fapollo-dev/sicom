@@ -33,6 +33,21 @@ export const produtoAggregateConfig: AggregateConfig = {
     'ativo', 'ativo_compra', 'idproduto_pai', 'fator_filho',
     // F4 — flags de kit/BOM (derivadas por derivar() conforme presença de itens)
     'composicao', 'decomposicao', 'receita',
+    // F4b — nutricional (rotulagem)
+    'valorenergetico', 'carboidrato', 'proteina', 'gorduratotal', 'gordurasaturada', 'gorduratrans',
+    'fibra', 'sodio', 'acucares_totais', 'acucares_adicionados',
+    'vd_valorenergetico', 'vd_carboidrato', 'vd_proteina', 'vd_gorduratotal', 'vd_gordurasaturada',
+    'vd_gorduratrans', 'vd_fibra', 'vd_sodio',
+    'unporcao', 'qtde_porcao', 'desc_porcao', 'acucar_adcionado', 'gordura_saturada', 'altoem_sodio',
+    'expdadosnutricionais', 'codinfanutri',
+    // F4b — logística (dimensões + paletização)
+    'comprimento_produto', 'comprimento_caixa', 'comprimento_pallet',
+    'largura_produto', 'largura_caixa', 'largura_pallet',
+    'altura_produto', 'altura_caixa', 'altura_pallet',
+    'pesoliq_produto', 'pesoliq_caixa', 'pesoliq_pallet',
+    'pesobruto_produto', 'pesobruto_caixa', 'pesobruto_pallet',
+    'pallet_caixas_por_camada', 'pallet_camadas_por_pallet', 'pallet_caixas_por_pallet',
+    'pallet_empilhamento', 'pallet_produtos_por_caixa', 'pallet_produtos_por_pallet', 'fatorcx_prod',
   ],
   // F4 — flags COMPOSICAO/DECOMPOSICAO/RECEITA derivadas da presença de itens ('N' se vazio),
   // só quando o respectivo array vem no dto (espelha o set 'N' no btnGravar do legado).
