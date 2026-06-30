@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { currentTenant } from '../../shared/tenant/tenant-context';
 import { TributacaoRepository } from '../precificacao/tributacao.repository';
 import { FiscalPricingService } from '../precificacao/preco-fiscal.service';
 
@@ -48,14 +49,34 @@ export class NfFiscalService {
   private round2(v: number): number {
     return Math.round((v + Number.EPSILON) * 100) / 100;
   }
+  private trunc2(v: number): number {
+    return Math.trunc(v * 100) / 100;
+  }
+  /** F2b — ARREDONDA por item: 'N' trunca 2 casas; senão arredonda (golden: o valor ARMAZENADO segue a flag). */
+  private arred(v: number, modo: string): number {
+    return modo === 'N' ? this.trunc2(v) : this.round2(v);
+  }
 
   /** Recalcula os impostos de cada item; devolve o dto enriquecido (NÃO grava). */
   async recalcular(dto: Record<string, unknown>): Promise<Record<string, unknown>> {
     const uf = await this.resolverUf(dto);
+    const ufOrigem = await this.resolverUfOrigem(); // empresa_fiscal (F6) — p/ interestadual (MVA ajustado)
     const itens = Array.isArray(dto.itens) ? (dto.itens as Record<string, unknown>[]) : [];
     const calculados: Record<string, unknown>[] = [];
-    for (const it of itens) calculados.push(await this.calcularItem(it, uf));
+    for (const it of itens) calculados.push(await this.calcularItem(it, uf, ufOrigem));
     return { ...dto, itens: calculados };
+  }
+
+  /** UF de ORIGEM (emitente) — da empresa_fiscal (F6) do tenant; null se não cadastrada. */
+  private async resolverUfOrigem(): Promise<string | null> {
+    const emp = currentTenant().empresaId ?? null;
+    if (emp == null) return null;
+    const ef = await (this.dbp.forTenantRead() as AnyDB)
+      .selectFrom('empresa_fiscal')
+      .select('uf')
+      .where('idempresa', '=', emp)
+      .executeTakeFirst();
+    return ef?.uf ? String(ef.uf).toUpperCase() : null;
   }
 
   /** UF da nota (não por item): nf.codparceiro_end → parceiros_end.uf; senão endereço padrão. */
@@ -81,11 +102,16 @@ export class NfFiscalService {
     throw new BusinessRuleError('NF_UF_NAO_RESOLVIDA', { codparceiro: dto.codparceiro });
   }
 
-  private async calcularItem(it: Record<string, unknown>, uf: string): Promise<Record<string, unknown>> {
+  private async calcularItem(
+    it: Record<string, unknown>,
+    uf: string,
+    ufOrigem: string | null,
+  ): Promise<Record<string, unknown>> {
     const item: Record<string, unknown> = { ...it };
     const codAliquota = it.aliquota != null ? String(it.aliquota).trim() : '';
     if (!codAliquota) return item; // sem config fiscal por item → nada a recalcular
 
+    const modo = it.arredonda != null ? String(it.arredonda) : 'S'; // F2b: arredonda(S)/trunca(N) por item
     const totalProds = this.round2(num(it.quantidade) * num(it.vrvenda)); // TOTALPRODS do item
 
     // (1) ICMS próprio — resolve (aliquota, uf) e aplica as fórmulas verbatim do legado.
@@ -99,18 +125,22 @@ export class NfFiscalService {
     item.bcr = a.base; // % base reduzida (BCR)
 
     // (3) IPI = % sobre o total de produtos do item (ipi guarda a alíquota %).
+    // O IPI SEMPRE arredonda (udmNF.pas:4164 — TruncarArredondar 'A', independe de ARREDONDA).
     const vripi = this.round2((totalProds * num(it.ipi)) / 100);
     item.vripi = vripi;
 
     // complementoBase (flags GERAICM_*; default 'N' = revenda dominante) — udmNF.pas:4189-4196.
-    // Nota: acessórias usa vroutrasdesp (o schema F1 não tem coluna DEPSACESS separada do legado).
+    // F2b: acessórias usa DEPSACESS (× BCR) — coluna correta (udmNF.pas:4193). Frete entra integral.
     let complemento = 0;
     if (it.geraicm_ipi === 'S') complemento += vripi;
     if (it.geraicm_frete === 'S') complemento += num(it.frete);
-    if (it.geraicm_acess === 'S') complemento += this.round2((num(it.vroutrasdesp) * a.base) / 100);
+    if (it.geraicm_acess === 'S') complemento += this.round2((num(it.depsacess) * a.base) / 100);
 
-    let vrbasecalculo = this.round2((totalProds * a.base) / 100 + complemento);
-    let vricm = this.round2((vrbasecalculo * a.icm) / 100); // alíquota DESTACADA (redução já no BCR)
+    // Base CRUA do ICMS. ARREDONDA (udmNF.pas:4199-4202/4217-4220): em 'S' arredonda a base e
+    // calcula o VRICM sobre ela; em 'N' deixa a base CHEIA e trunca SÓ o VRICM (não a base).
+    const baseIcm = (totalProds * a.base) / 100 + complemento;
+    let vrbasecalculo = this.arred(baseIcm, modo);
+    let vricm = this.arred(((modo === 'N' ? baseIcm : vrbasecalculo) * a.icm) / 100, modo); // alíquota DESTACADA (redução no BCR)
 
     // (2) Zeramento de crédito por CFOP/CST. (Adiado: o gate por config
     // APROVEITAMENTO_CREDITO_ICMSST_NF do legado — default <>'S' = zerar, que é o que fazemos.)
@@ -121,21 +151,31 @@ export class NfFiscalService {
     item.vrbasecalculo = vrbasecalculo;
     item.vricm = vricm;
 
-    // (4) ICMS-ST clássico — só p/ CFOP da lista + MVA>0 (reuso do motor; sem MVA ajustado).
+    // (4) ICMS-ST (F2b profundo): MVA ajustado interestadual + redução BC-ST (REDCOM) + crédito (LR).
     const cfop = String(it.cfop ?? '');
     const ncm = it.ncm != null ? String(it.ncm).trim() : '';
     if (NfFiscalService.CFOP_ST.has(cfop) && ncm && !this.bonificacaoSemSt(cfop, a.cst)) {
-      const idx = await this.trib.resolverIndexador(ncm); // {aliquotaDest, icmFonte, mva}
+      const idx = await this.trib.resolverIndexador(ncm);
       if (idx.mva > 0) {
+        const interstate = !!ufOrigem && ufOrigem !== uf; // UF emitente ≠ destino → MVA ajustado
         const st = this.fiscal.calcularIcmsSt(
           totalProds,
-          { aliquotaDest: idx.aliquotaDest, icmFonte: idx.icmFonte, mva: idx.mva },
+          {
+            aliquotaDest: idx.aliquotaDest,
+            icmFonte: idx.icmFonte,
+            mva: idx.mva,
+            redcom: idx.redcom, // redução da BC-ST (default 100 = sem)
+            aliquotaFem: idx.aliquotaFem, // FEM no MVA ajustado
+            interstate,
+            fornecedorSn: idx.tpFigura === 'S', // fornecedor Simples → não ajusta MVA
+            // reducaoAliqFonte default 100 (crédito sem redução) — coluna específica adiada.
+          },
           'atual',
         );
-        item.mva = idx.mva;
-        item.vrbasest = st.baseSt;
-        item.vricmst = st.icmsSt;
-        item.streal = st.icmsSt;
+        item.mva = st.mvaEfetivo; // MVA AJUSTADO (golden: armazena o ajustado)
+        item.vrbasest = this.arred(st.baseSt, modo);
+        item.vricmst = this.arred(st.icmsSt, modo);
+        item.streal = this.arred(st.icmsSt, modo);
       }
     }
     return item;

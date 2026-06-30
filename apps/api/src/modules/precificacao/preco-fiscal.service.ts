@@ -48,6 +48,12 @@ export class FiscalPricingService {
     return Math.round((v + Number.EPSILON) * 100) / 100;
   }
 
+  /** arredonda a `d` casas (espelha o `RoundTo(x, -d)` do legado — ex.: MVA ajustado a 3 casas). */
+  private roundTo(v: number, d: number): number {
+    const f = Math.pow(10, d);
+    return Math.round((v + Number.EPSILON) * f) / f;
+  }
+
   /** Despacha pelo regime vigente. */
   calcular(custo: number, margem: number, tab: TabelaTributaria): number {
     if (custo <= 0) return 0;
@@ -101,22 +107,58 @@ export class FiscalPricingService {
   }
 
   /**
-   * ICMS-ST (Substituição Tributária) — regra clássica reusando o MVA do legado:
-   *   baseST = valor·(1 + MVA/100) ; ICMS-ST = baseST·alíqDest − ICMS próprio(origem).
-   * DESENVOLVIDO: sob a **Reforma** a ST é EXTINTA (IBS/CBS são não-cumulativos) → 0.
+   * ICMS-ST (Substituição Tributária) — porta fiel do `TIndexadorTributario` (uIndexadorTributario.pas),
+   * caminho **Lucro Real** (débito − crédito). Parâmetros opcionais com default **no-op** → reduz à
+   * fórmula clássica (caller do Produto e teste STB intactos). DESENVOLVIDO: sob a **Reforma** a ST é
+   * EXTINTA (IBS/CBS não-cumulativos) → 0.
+   *
+   * Fórmulas (uIndexadorTributario.pas):
+   *  - MVA ajustado interestadual (só interestadual e fornecedor não-SN): `GetMVAAjustado:259-285`
+   *      mvaAj = ((1+MVA/100)·(1−AliqFonte/100)/(1−(AliqDest−FEM)/100) − 1)·100, RoundTo 3 casas.
+   *  - BC-ST reduzida (REDCOM): `VrBCSTReduzida:308` = (valor−desconto)·REDCOM/100.
+   *  - baseST = bcReduzida·(1+mvaAj/100); crédito = (valor−desconto)·ReducaoAliqFonte/100·AliqFonte/100;
+   *    débito = baseST·AliqDest/100; **ST = débito − crédito** (LR), clamp ≥ 0.
    */
   calcularIcmsSt(
     valorProduto: number,
-    p: { aliquotaDest: number; icmFonte: number; mva: number },
+    p: {
+      aliquotaDest: number;
+      icmFonte: number;
+      mva: number;
+      redcom?: number; // % da BC-ST (100 = sem redução)
+      reducaoAliqFonte?: number; // % de redução da alíquota-fonte no crédito (100 = sem)
+      aliquotaFem?: number; // FEM (entra no denominador do MVA ajustado)
+      interstate?: boolean; // UF origem ≠ destino → MVA ajustado
+      fornecedorSn?: boolean; // fornecedor Simples → não ajusta MVA
+      desconto?: number; // desconto deduzido da base e do crédito
+    },
     regime: RegimeTributario,
-  ): { icmsSt: number; baseSt: number; aplicavel: boolean } {
+  ): { icmsSt: number; baseSt: number; mvaEfetivo: number; aplicavel: boolean } {
     if (regime === 'reforma') {
-      return { icmsSt: 0, baseSt: 0, aplicavel: false }; // ST não existe mais na Reforma
+      return { icmsSt: 0, baseSt: 0, mvaEfetivo: 0, aplicavel: false }; // ST não existe mais na Reforma
     }
-    const icmsProprio = valorProduto * (p.icmFonte / 100);
-    const baseSt = valorProduto * (1 + p.mva / 100);
-    const icmsSt = baseSt * (p.aliquotaDest / 100) - icmsProprio;
-    return { icmsSt: this.round2(Math.max(icmsSt, 0)), baseSt: this.round2(baseSt), aplicavel: true };
+    // cadastro usa 100 p/ "sem redução"; valor ≤ 0 também trata como 100 (não zerar a base).
+    const redcom = p.redcom != null && p.redcom > 0 ? p.redcom : 100;
+    const reducaoFonte = p.reducaoAliqFonte != null && p.reducaoAliqFonte > 0 ? p.reducaoAliqFonte : 100;
+    const fem = p.aliquotaFem ?? 0;
+    const desconto = p.desconto ?? 0;
+
+    // MVA ajustado interestadual (preserva (AliqDest − FEM) no denominador e RoundTo 3 casas).
+    let mvaEfetivo = p.mva;
+    if (p.interstate && !p.fornecedorSn) {
+      const denom = 1 - (p.aliquotaDest - fem) / 100;
+      if (denom !== 0) {
+        mvaEfetivo = this.roundTo(((1 + p.mva / 100) * (1 - p.icmFonte / 100) / denom - 1) * 100, 3);
+      }
+    }
+
+    const valorBase = valorProduto - desconto;
+    const bcReduzida = valorBase * (redcom / 100);
+    const baseSt = bcReduzida * (1 + mvaEfetivo / 100);
+    const credito = valorBase * (reducaoFonte / 100) * (p.icmFonte / 100); // crédito a deduzir (LR)
+    const debito = baseSt * (p.aliquotaDest / 100);
+    const icmsSt = Math.max(debito - credito, 0);
+    return { icmsSt: this.round2(icmsSt), baseSt: this.round2(baseSt), mvaEfetivo, aplicavel: true };
   }
 
   /** TRANSIÇÃO (2026+) — regime atual vigente + acréscimo "por fora" do IBS/CBS de transição. */

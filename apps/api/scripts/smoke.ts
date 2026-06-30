@@ -982,6 +982,50 @@ async function main() {
       { status: nfTot.status, totais: { tb: nfTotBody.totalbaseicm, ti: nfTotBody.totalicm, tipi: nfTotBody.totalipi, tst: nfTotBody.totalicm_st } },
     );
 
+    // 17.4) F2b — ST PROFUNDO: MVA ajustado interestadual (empresa MG × destino MA) + redução BC-ST (REDCOM 70).
+    // NCM 99999999: aliqDest 18, icmFonte 12, mva 40, redcom 70, fem 2. Espelha TIndexadorTributario (LR).
+    const mvaAj = Math.round((((1 + 40 / 100) * (1 - 12 / 100) / (1 - (18 - 2) / 100)) - 1) * 100 * 1000) / 1000; // 46.667
+    const baseStRaw = 100 * (70 / 100) * (1 + mvaAj / 100); // valor 100 × redcom × (1+mvaAj)
+    const stEsperado = Math.round((baseStRaw * 18 / 100 - 100 * 12 / 100) * 100) / 100; // débito − crédito
+    const baseStEsperado = Math.round(baseStRaw * 100) / 100;
+    const recSt = await fetch(`${base}/fiscal/nf/recalcular`, {
+      method: 'POST', headers: H,
+      body: JSON.stringify({
+        tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22,
+        itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, aliquota: 'STB', cfop: '1403', ncm: '99999999' }],
+      }),
+    });
+    const recStB = (await recSt.json().catch(() => ({}))) as any;
+    const iSt = recStB.itens?.[0] ?? {};
+    check(
+      'F2b ST profundo: MVA ajustado (40→46,667) + REDCOM 70 → vrbasest/vricmst conferem (interestadual, LR)',
+      recSt.status === 200 && Number(iSt.mva) === mvaAj && Number(iSt.vrbasest) === baseStEsperado && Number(iSt.vricmst) === stEsperado,
+      { mva: iSt.mva, mvaAj, vrbasest: iSt.vrbasest, baseStEsperado, vricmst: iSt.vricmst, stEsperado },
+    );
+
+    // 17.5) F2b — ARREDONDA por item: 'N' TRUNCA (vricm 2,19) vs 'S'/default ARREDONDA (2,20).
+    // T01/MA (icm 22, base 100), qtd 3 × 3,33 = 9,99 → vricm bruto 2,1978.
+    const recTrunc = await fetch(`${base}/fiscal/nf/recalcular`, {
+      method: 'POST', headers: H,
+      body: JSON.stringify({
+        tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22,
+        itens: [{ codproduto: 1, quantidade: 3, vrvenda: 3.33, aliquota: 'T01', cfop: '1102', arredonda: 'N' }],
+      }),
+    });
+    const recTruncB = (await recTrunc.json().catch(() => ({}))) as any;
+    const itTrunc = recTruncB.itens?.[0] ?? {};
+    check('F2b ARREDONDA=N TRUNCA o ICMS (2,1978 → 2,19, não 2,20)', recTrunc.status === 200 && Number(itTrunc.vricm) === 2.19, { vricm: itTrunc.vricm });
+    const recRound = await fetch(`${base}/fiscal/nf/recalcular`, {
+      method: 'POST', headers: H,
+      body: JSON.stringify({
+        tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22,
+        itens: [{ codproduto: 1, quantidade: 3, vrvenda: 3.33, aliquota: 'T01', cfop: '1102', arredonda: 'S' }],
+      }),
+    });
+    const recRoundB = (await recRound.json().catch(() => ({}))) as any;
+    const itRound = recRoundB.itens?.[0] ?? {};
+    check('F2b ARREDONDA=S ARREDONDA o ICMS (2,1978 → 2,20)', recRound.status === 200 && Number(itRound.vricm) === 2.2, { vricm: itRound.vricm });
+
     // 20) NF F4 — FATURAMENTO (gera títulos financeiros ARECEBER/APAGAR). Dinheiro.
     // títulos de uma NF por IDNF (a duplicata agora é "<NRONF> - NNN/NNN", golden — não filtra por codnf).
     const titulosDaNf = async (cod: number): Promise<any[]> => {

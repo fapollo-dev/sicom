@@ -53,13 +53,16 @@ export class TributacaoRepository {
     };
   }
 
-  /** Regra LEGADA de ST: MVA/alíquotas por NCM (INDEXADOR_TRIBUTARIO). */
+  /** Regra LEGADA de ST: MVA/alíquotas por NCM (INDEXADOR_TRIBUTARIO). F2b: +redcom/aliquotaFem/tpFigura. */
   async resolverIndexador(ncm: string): Promise<{
     ncm: string;
     aliquotaDest: number;
     icmFonte: number;
     mva: number;
-    reducao: number;
+    reducao: number; // % de redução da alíquota-fonte no crédito (100 = sem)
+    redcom: number; // % da BC-ST (REDCOM; 100 = sem redução)
+    aliquotaFem: number; // FEM (denominador do MVA ajustado)
+    tpFigura: string; // 'S' = fornecedor Simples Nacional (pula MVA ajustado)
   }> {
     const r = await this.dbp
       .forTenantRead()
@@ -68,12 +71,16 @@ export class TributacaoRepository {
       .where('ncm', '=', ncm)
       .executeTakeFirst();
     if (!r) throw new BusinessRuleError('INDEXADOR_NAO_CADASTRADO', { ncm });
+    const rr = r as Record<string, unknown>;
     return {
       ncm: r.ncm,
       aliquotaDest: Number(r.aliquota_dest),
       icmFonte: Number(r.icm_fonte),
       mva: Number(r.mva),
       reducao: Number(r.reducao),
+      redcom: rr.redcom != null ? Number(rr.redcom) : 100,
+      aliquotaFem: rr.aliquota_fem != null ? Number(rr.aliquota_fem) : 0,
+      tpFigura: rr.tp_figura != null ? String(rr.tp_figura) : 'N',
     };
   }
 

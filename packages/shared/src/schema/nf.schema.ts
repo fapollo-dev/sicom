@@ -145,6 +145,8 @@ export const nfItemSchema = z.object({
   frete: dec(z.number().nonnegative()),
   seguro: dec(z.number().nonnegative()),
   vroutrasdesp: dec(z.number().nonnegative()),
+  depsacess: dec(z.number().nonnegative()), // F2b — despesas acessórias (× BCR na base ICMS)
+  arredonda: sn().optional(), // F2b — 'S' arredonda / 'N' trunca (por item)
 });
 export type NfItemDto = z.infer<typeof nfItemSchema>;
 

@@ -182,7 +182,7 @@ export const nfAggregateConfig: AggregateConfig = {
         'ipi', 'vripi', 'geraicm_ipi', 'geraicm_frete', 'geraicm_acess',
         'fcp_aliquota', 'fcp_valor', 'pis', 'cstpiscofins',
         'aliqpise', 'aliqpiss', 'aliqcofinse', 'aliqcofinss',
-        'frete', 'seguro', 'vroutrasdesp',
+        'frete', 'seguro', 'vroutrasdesp', 'depsacess', 'arredonda',
       ],
     },
     {
