@@ -636,6 +636,166 @@ async function main() {
       nutriPut.status === 200 && Number(nutriBody.carboidrato) === 50 && Number(nutriBody.valorenergetico) === 387,
       { status: nutriPut.status, carb: nutriBody.carboidrato },
     );
+    // 16) NOTA FISCAL (tela-coroa) — F1 NÚCLEO CADASTRO, SEM EFEITOS. Header+itens+referências.
+    // 16.1) saldo de estoque do produto 1 ANTES (prova de que a NF NÃO move estoque na F1)
+    const estAntes = (await (await fetch(`${base}/cadastro/produtos/1`, { headers: H })).json()) as any;
+    const qtdeAntes = Number((estAntes?.estoques ?? []).find((e: any) => e.idempresa === 1)?.qtde);
+
+    // 16.2) CREATE entrada (fornecedor 22 FRN) com 2 itens + 1 referência → 201; totais derivados (Σ itens)
+    const nfPost = await fetch(`${base}/fiscal/nf`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        tipo: 'E', modelo: 55, nronf: '3001', serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10',
+        tipoemissao: '0', finalidade: '1', cfop: '1102', idsituacao_nf: 6, codparceiro: 22, codparceiro_end: 6,
+        itens: [
+          { codproduto: 1, quantidade: 10, vrvenda: 3.5, cfop: '1102', ncm: '17019900', aliquota: 'T01', icms: 18, origem_estoque: 'E' },
+          { codproduto: 2, quantidade: 5, vrvenda: 6, cfop: '1102', ncm: '22021000', aliquota: 'T01', icms: 18, origem_estoque: 'E' },
+        ],
+        referencias: [{ codnf_ref: 1, valor_ref: 50 }],
+      }),
+    });
+    const nf = (await nfPost.json()) as any;
+    const nfId = Number(nf.codnf);
+    check(
+      'POST /fiscal/nf cria agregado entrada (header + 2 itens + 1 referência)',
+      nfPost.status === 201 && Number.isFinite(nfId) && nf.itens?.length === 2 && nf.referencias?.length === 1,
+      { status: nfPost.status, itens: nf.itens?.length, refs: nf.referencias?.length },
+    );
+    check(
+      'NF totais DERIVADOS server-side (totalprod=65 = 10×3,5 + 5×6; totalnf=65 sem imposto)',
+      Number(nf.totalprod) === 65 && Number(nf.totalnf) === 65,
+      { totalprod: nf.totalprod, totalnf: nf.totalnf },
+    );
+    check('NF nasce com PROC=N e STATUSNFE vazio (digitação)', nf.proc === 'N' && (nf.statusnfe == null || nf.statusnfe === ''), { proc: nf.proc, statusnfe: nf.statusnfe });
+
+    // 16.3) SEM EFEITO: o saldo de estoque do produto 1 NÃO mudou (F1 só armazena)
+    const estDepois = (await (await fetch(`${base}/cadastro/produtos/1`, { headers: H })).json()) as any;
+    const qtdeDepois = Number((estDepois?.estoques ?? []).find((e: any) => e.idempresa === 1)?.qtde);
+    check(
+      'F1 NÃO move estoque: saldo do produto 1 inalterado após gravar a NF de entrada',
+      Number.isFinite(qtdeAntes) && qtdeAntes === qtdeDepois,
+      { antes: qtdeAntes, depois: qtdeDepois },
+    );
+
+    // 16.4) round-trip de edição: reenviar o agregado carregado (numeric-string) → PUT 200 (idempotência)
+    const nfRead = (await (await fetch(`${base}/fiscal/nf/${nfId}`, { headers: H })).json()) as any;
+    const nfPut = await fetch(`${base}/fiscal/nf/${nfId}`, { method: 'PUT', headers: H, body: JSON.stringify(nfRead) });
+    check('PUT /fiscal/nf/:id reenviando o registro carregado grava (edição não trava)', nfPut.status === 200, nfPut.status);
+
+    // 16.5) CREATE saída (cliente 20 CLI) → 201
+    const nfSaida = await fetch(`${base}/fiscal/nf`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        tipo: 'S', modelo: 55, nronf: '4001', serie: '1', dtemissao: '2026-06-11', dtcontabil: '2026-06-11',
+        tipoemissao: '0', finalidade: '1', cfop: '5102', idsituacao_nf: 8, codparceiro: 20,
+        itens: [{ codproduto: 1, quantidade: 2, vrvenda: 4.2, cfop: '5102', aliquota: 'T01', icms: 18 }],
+      }),
+    });
+    check('POST /fiscal/nf cria agregado de saída (cliente)', nfSaida.status === 201, nfSaida.status);
+
+    // 16.6) DUPLICIDADE: mesma chave (nronf 1001 + série + modelo + tipo + fornecedor 22 do seed) → 422 PT
+    const nfDup = await fetch(`${base}/fiscal/nf`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        tipo: 'E', modelo: 55, nronf: '1001', serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', cfop: '1102', codparceiro: 22,
+        itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1 }],
+      }),
+    });
+    const nfDupBody = (await nfDup.json().catch(() => ({}))) as any;
+    check(
+      'POST NF com número+fornecedor duplicados → 422 NF_DUPLICADA (msg PT), nunca 500',
+      nfDup.status === 422 && nfDupBody.code === 'NF_DUPLICADA' && nfDup.status !== 500,
+      { status: nfDup.status, code: nfDupBody.code },
+    );
+
+    // 16.7) TERCEIROS Modelo 55 (tipoemissao=1 + modelo=55) → 400 VALIDACAO (bloqueio de digitação manual)
+    const nfM55 = await fetch(`${base}/fiscal/nf`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        tipo: 'E', modelo: 55, tipoemissao: '1', nronf: '7777', serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22,
+        itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1 }],
+      }),
+    });
+    const nfM55Body = (await nfM55.json().catch(() => ({}))) as any;
+    check(
+      'POST NF terceiros Modelo 55 → 400 VALIDACAO (digitação manual bloqueada), nunca 500',
+      nfM55.status === 400 && nfM55Body.code === 'VALIDACAO' && nfM55.status !== 500,
+      { status: nfM55.status, code: nfM55Body.code },
+    );
+
+    // 16.8) NF sem itens → 400 VALIDACAO
+    const nfSemItem = await fetch(`${base}/fiscal/nf`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({ tipo: 'E', modelo: 1, nronf: '8001', serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, itens: [] }),
+    });
+    const nfSemItemBody = (await nfSemItem.json().catch(() => ({}))) as any;
+    check('POST NF sem itens → 400 VALIDACAO, nunca 500', nfSemItem.status === 400 && nfSemItemBody.code === 'VALIDACAO', { status: nfSemItem.status, code: nfSemItemBody.code });
+
+    // 16.9) DTCONTABIL < DTEMISSAO → 400 VALIDACAO
+    const nfData = await fetch(`${base}/fiscal/nf`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        tipo: 'E', modelo: 1, nronf: '8101', serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-01', codparceiro: 22,
+        itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1 }],
+      }),
+    });
+    const nfDataBody = (await nfData.json().catch(() => ({}))) as any;
+    check('POST NF com data contábil < emissão → 400 VALIDACAO, nunca 500', nfData.status === 400 && nfDataBody.code === 'VALIDACAO', { status: nfData.status, code: nfDataBody.code });
+
+    // 16.10) TRAVA DE ESTADO — PROC='S' bloqueia edição (NF já processada não pode ser modificada)
+    const nfProc = await fetch(`${base}/fiscal/nf`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        tipo: 'E', modelo: 1, nronf: '9001', serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, proc: 'S',
+        itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1 }],
+      }),
+    });
+    const nfProcBody = (await nfProc.json()) as any;
+    const nfProcId = Number(nfProcBody.codnf);
+    const nfProcPut = await fetch(`${base}/fiscal/nf/${nfProcId}`, {
+      method: 'PUT', headers: H, body: JSON.stringify({ obs: 'tentando editar processada' }),
+    });
+    const nfProcPutBody = (await nfProcPut.json().catch(() => ({}))) as any;
+    check(
+      'PUT NF com PROC=S → 422 NF_PROCESSADA (trava de estado), nunca 500',
+      nfProcPut.status === 422 && nfProcPutBody.code === 'NF_PROCESSADA' && nfProcPut.status !== 500,
+      { status: nfProcPut.status, code: nfProcPutBody.code },
+    );
+
+    // 16.11) TRAVA DE ESTADO — STATUSNFE='P' (autorizada SEFAZ) bloqueia edição
+    const nfEnv = await fetch(`${base}/fiscal/nf`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        tipo: 'S', modelo: 55, nronf: '9101', serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 20, statusnfe: 'P',
+        itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1 }],
+      }),
+    });
+    const nfEnvId = Number(((await nfEnv.json()) as any).codnf);
+    const nfEnvPut = await fetch(`${base}/fiscal/nf/${nfEnvId}`, { method: 'PUT', headers: H, body: JSON.stringify({ obs: 'x' }) });
+    const nfEnvPutBody = (await nfEnvPut.json().catch(() => ({}))) as any;
+    check(
+      'PUT NF com STATUSNFE=P → 422 NF_ENVIADA (trava de estado), nunca 500',
+      nfEnvPut.status === 422 && nfEnvPutBody.code === 'NF_ENVIADA',
+      { status: nfEnvPut.status, code: nfEnvPutBody.code },
+    );
+
+    // 16.12) lookups da NF (situações + CFOP) alimentam os selects da tela
+    const sits = (await (await fetch(`${base}/cadastro/situacoes-nf`, { headers: H })).json()) as any[];
+    check('GET /cadastro/situacoes-nf lista o seed (≥6)', Array.isArray(sits) && sits.length >= 6, sits?.length);
+    const cfops = (await (await fetch(`${base}/cadastro/cfops`, { headers: H })).json()) as any[];
+    check('GET /cadastro/cfops lista o catálogo (tem 5102)', Array.isArray(cfops) && cfops.some((c) => c.codcfop === '5102'), cfops?.length);
+
+    // 16.13) DELETE em cascata (header + itens + referências)
+    const nfDel = await fetch(`${base}/fiscal/nf/${nfId}`, { method: 'DELETE', headers: H });
+    check('DELETE /fiscal/nf remove em cascata (204)', nfDel.status === 204, nfDel.status);
   } finally {
     await app.close();
     await pg.stop();

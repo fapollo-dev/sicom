@@ -14,6 +14,6 @@ import { CrudModule } from './shared/crud/crud.module';
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // Tenant resolvido nas rotas de domínio; /healthz fica livre (infra).
-    consumer.apply(TenantMiddleware).forRoutes('cadastro', 'cobranca', 'precificacao');
+    consumer.apply(TenantMiddleware).forRoutes('cadastro', 'cobranca', 'precificacao', 'fiscal');
   }
 }

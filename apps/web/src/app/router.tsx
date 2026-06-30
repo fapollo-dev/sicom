@@ -11,6 +11,7 @@ import { ContasBancariasCadMaster } from '../features/contas-bancarias/ContasBan
 import { LotesCobrancaCadMaster } from '../features/lotes-md/LotesCobrancaCadMaster';
 import { ParceirosCadMaster } from '../features/parceiros/ParceirosCadMaster';
 import { ProdutoCadMaster } from '../features/produtos/ProdutoCadMaster';
+import { NfCadMaster } from '../features/nf/NfCadMaster';
 
 // Rotas = telas (uma TForm = uma rota), todas no pilar <CadMaster>/<CadMasterDet>,
 // dentro da casca AppShell (<Outlet>). Consolidado — sem List/Form standalone.
@@ -32,6 +33,9 @@ export const router = createBrowserRouter([
       { path: '/cadastro/fornecedores', element: <ParceirosCadMaster papel="fornecedor" /> },
       { path: '/cadastro/produtos', element: <ProdutoCadMaster /> },
       { path: '/cobranca/lotes', element: <LotesCobrancaCadMaster /> }, // mestre-detalhe
+      // tela-coroa NF — mesmo componente, tipo diferente (Entrada/Saída), como Parceiros (papel)
+      { path: '/fiscal/notas/entrada', element: <NfCadMaster tipo="E" /> },
+      { path: '/fiscal/notas/saida', element: <NfCadMaster tipo="S" /> },
     ],
   },
 ]);

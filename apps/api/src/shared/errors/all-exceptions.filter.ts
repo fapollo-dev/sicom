@@ -163,6 +163,11 @@ const CODE_PT: Record<string, string> = {
   TRIBUTOS_TRANSICAO_INCOMPLETOS: 'Tributos do período de transição estão incompletos.',
   FORNECEDOR_NAO_ENCONTRADO: 'Fornecedor não encontrado com o código informado. Verifique!',
   PRODUTO_EM_COMPOSICAO: 'Não é permitido desativar o produto, pois ele faz parte da composição de um kit.',
+  // Nota Fiscal (travas de estado + duplicidade — uNF.pas)
+  NF_PROCESSADA: 'Nota fiscal já processada não pode ser modificada.',
+  NF_CONTABILIZADA: 'Documento contabilizado. Não é permitido editar.',
+  NF_ENVIADA: 'Nota fiscal já enviada para receita.',
+  NF_DUPLICADA: 'Esta nota fiscal já está lançada com o mesmo número e o mesmo fornecedor.',
   // autorização
   TENANT_FORBIDDEN: 'Acesso negado: empresa/tenant não autorizado.',
   SEM_PERMISSAO: 'Você não tem permissão para executar esta ação.',
