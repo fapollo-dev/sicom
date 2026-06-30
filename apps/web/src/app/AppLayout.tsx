@@ -15,6 +15,7 @@ import {
   Package,
   FileInput,
   FileOutput,
+  Building,
 } from 'lucide-react';
 
 /** Telas do menu lateral (rota → rótulo + ícone). Uma TForm = um item. */
@@ -33,6 +34,7 @@ const TELAS = [
   { href: '/cadastro/contas-bancarias', name: 'Contas Bancárias', icon: Wallet },
   { href: '/cadastro/operacoes-conta', name: 'Operações de Conta', icon: Receipt },
   { href: '/cobranca/lotes', name: 'Lote de Cobrança', icon: ListChecks },
+  { href: '/cadastro/empresas', name: 'Empresas', icon: Building },
 ] as const;
 
 /**

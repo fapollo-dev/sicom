@@ -396,7 +396,7 @@ export type RecalcularNfDto = z.infer<typeof recalcularNfSchema>;
 
 /**
  * F6 — body da transmissão (POST /fiscal/nf/:id/transmitir). Sem campos obrigatórios:
- * o id vai na rota e os dados saem da própria NF + empresa_fiscal. (Espaço p/ flags de
+ * o id vai na rota e os dados saem da própria NF + empresas. (Espaço p/ flags de
  * contingência/ambiente quando o provider real entrar.)
  */
 export const transmitirNfSchema = z

@@ -69,17 +69,15 @@ export class NfFaturamentoService {
       const totalCents = Math.round(num(nf.totalnf) * 100); // base em CENTAVOS
       if (totalCents <= 0) throw new BusinessRuleError('NF_SEM_VALOR', { codnf });
 
-      // txjuros do título. ⚠️ DÍVIDA (F4b, golden/auditoria): o legado semeia a taxa do título a
-      // partir da PADRÃO DA EMPRESA (`EmpresaTXJUROPADRAO`, udmCadAReceber.pas:214), não do parceiro.
-      // Como EMPRESAS não foi migrada (não há empresa.txjuropadrao), mantemos o parceiro como
-      // proxy até o cutover de EMPRESAS — então trocar a origem. Não afeta o VALOR das parcelas.
-      const parc = await trx
-        .selectFrom('parceiros')
-        .select('txjuro')
-        .where('codparceiro', '=', nf.codparceiro)
-        .where('idempresa', '=', emp) // escopo de empresa (defesa em profundidade)
+      // txjuros do título: taxa PADRÃO DA EMPRESA (`empresas.txjuropadrao` = EmpresaTXJUROPADRAO,
+      // udmCadAReceber.pas:214) — F4b corrigido (antes era proxy em parceiros.txjuro). Não afeta o
+      // VALOR das parcelas; só a taxa de juro gravada no título (alimenta o Lote de Cobrança).
+      const empFin = await trx
+        .selectFrom('empresas')
+        .select('txjuropadrao')
+        .where('idempresa', '=', emp)
         .executeTakeFirst();
-      const txjuros = num(parc?.txjuro);
+      const txjuros = num(empFin?.txjuropadrao);
 
       // rateio: base por parcela + sobra na ÚLTIMA → Σ == totalCents exatamente.
       const baseCents = Math.floor(totalCents / p.numParcelas);

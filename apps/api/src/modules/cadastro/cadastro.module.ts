@@ -18,6 +18,7 @@ import { AliquotaCrudController } from './aliquota.crud';
 import { SituacaoNfCrudController } from './situacao-nf.crud';
 import { CfopCrudController } from './cfop.crud';
 import { PlcCrudController } from './plc.crud';
+import { EmpresasCrudController } from './empresas.crud';
 import { NfFiscalController } from './nf-fiscal.controller';
 import { NfFiscalService } from './nf-fiscal.service';
 import { NfProcessamentoController } from './nf-processamento.controller';
@@ -57,6 +58,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     SituacaoNfCrudController, // engine (lookup da NF: natureza do documento)
     CfopCrudController, // engine (lookup da NF: CFOP; chave natural)
     PlcCrudController, // engine (lookup do rateio contábil da NF: centro de custo gerencial; chave natural)
+    EmpresasCrudController, // engine (cadastro da empresa/tenant: núcleo+fiscal+precificação; pk digitada, não-empresaScoped)
     NfFiscalController, // F2 — recálculo fiscal por item (POST /fiscal/nf/recalcular), reusa precificacao
     NfProcessamentoController, // F3 — processar/reverter (move estoque atômico)
     NfFaturamentoController, // F4 — faturar/estornar (gera títulos ARECEBER/APAGAR atômico)

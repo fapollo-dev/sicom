@@ -1302,6 +1302,41 @@ async function main() {
     check('21ª CCe (limite 20) → 422 NF_CCE_LIMITE', cce21.status === 422 && cce21Body.code === 'NF_CCE_LIMITE', { status: cce21.status, code: cce21Body.code });
 
     await pg23.end();
+
+    // 24) EMPRESAS — cadastro da empresa/tenant (consolidou empresa_fiscal) + F4b txjuros de empresas.
+    // 24.1) GET lista (seed empresa 1, LR/MG) + GET /1 com campos fiscais reais (golden Oracle).
+    const emps = (await (await fetch(`${base}/cadastro/empresas`, { headers: H })).json()) as any[];
+    check('GET /cadastro/empresas lista (seed empresa 1)', Array.isArray(emps) && emps.some((e) => Number(e.idempresa) === 1 && e.classfiscal === 'LR'), { n: emps?.length });
+    const emp1 = (await (await fetch(`${base}/cadastro/empresas/1`, { headers: H })).json()) as any;
+    check(
+      'GET /cadastro/empresas/1 traz fiscal real (LR/MG/IBGE 3170206/DESPOPER 20/TXJURO 5)',
+      emp1.classfiscal === 'LR' && emp1.uf === 'MG' && Number(emp1.idcidade) === 3170206 && Number(emp1.despoperacional) === 20 && Number(emp1.txjuropadrao) === 5,
+      { classfiscal: emp1.classfiscal, uf: emp1.uf, idcidade: emp1.idcidade, despoper: emp1.despoperacional, txjuro: emp1.txjuropadrao },
+    );
+
+    // 24.2) POST cria empresa 2 (PK digitada, não-empresaScoped) → 201.
+    const emp2 = await fetch(`${base}/cadastro/empresas`, {
+      method: 'POST', headers: H,
+      body: JSON.stringify({ idempresa: 2, razao_social: 'EMPRESA DOIS LTDA', cnpj: '11444777000161', uf: 'MG', classfiscal: 'LR', despoperacional: 18, txjuropadrao: 3, figurafiscal: 'O' }),
+    });
+    const emp2Body = (await emp2.json().catch(() => ({}))) as any;
+    check('POST /cadastro/empresas cria empresa 2 (idempresa digitado)', emp2.status === 201 && Number(emp2Body.idempresa) === 2, { status: emp2.status, id: emp2Body.idempresa });
+
+    // 24.3) validações.
+    const empCnpjBad = await fetch(`${base}/cadastro/empresas`, { method: 'POST', headers: H, body: JSON.stringify({ idempresa: 3, razao_social: 'X', cnpj: '11111111111111', uf: 'MG', classfiscal: 'LR' }) });
+    check('POST empresa com CNPJ inválido → 400 VALIDACAO', empCnpjBad.status === 400 && ((await empCnpjBad.json().catch(() => ({}))) as any).code === 'VALIDACAO', empCnpjBad.status);
+    const empSnBad = await fetch(`${base}/cadastro/empresas`, { method: 'POST', headers: H, body: JSON.stringify({ idempresa: 3, razao_social: 'X', cnpj: '11444777000161', uf: 'MG', classfiscal: 'SN' }) });
+    check('POST empresa SN sem ALQSIMPLESNAC → 400 VALIDACAO', empSnBad.status === 400 && ((await empSnBad.json().catch(() => ({}))) as any).code === 'VALIDACAO', empSnBad.status);
+    const empMargBad = await fetch(`${base}/cadastro/empresas`, { method: 'POST', headers: H, body: JSON.stringify({ idempresa: 3, razao_social: 'X', cnpj: '11444777000161', uf: 'MG', classfiscal: 'LR', margem_contribuicao: -1 }) });
+    check('POST empresa com margem_contribuicao<0 → 400 VALIDACAO', empMargBad.status === 400 && ((await empMargBad.json().catch(() => ({}))) as any).code === 'VALIDACAO', empMargBad.status);
+
+    // 24.4) F4b: faturar grava txjuros = empresas.txjuropadrao (5,0), não mais do parceiro.
+    const nfTxj = await novaNf(baseNf({ tipo: 'S', nronf: 'E5001', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 5, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    await fetch(`${base}/fiscal/nf/${nfTxj}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const pgTxj = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    const titTxj = (await pgTxj.query(`SELECT txjuros FROM areceber WHERE idnf=$1`, [nfTxj])).rows[0];
+    await pgTxj.end();
+    check('F4b: faturar grava txjuros = empresas.txjuropadrao (5,0), não do parceiro', Number(titTxj?.txjuros) === 5, { txjuros: titTxj?.txjuros, esperado: 5 });
   } finally {
     await app.close();
     await pg.stop();

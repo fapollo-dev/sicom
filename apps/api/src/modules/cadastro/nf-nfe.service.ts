@@ -75,7 +75,7 @@ export class NfNfeService {
       if (itens.length === 0) throw new BusinessRuleError('NF_SEM_ITENS', { codnf });
 
       const ef = await trx
-        .selectFrom('empresa_fiscal')
+        .selectFrom('empresas')
         .select(['cnpj', 'uf', 'cuf', 'serie_nfe', 'ambiente'])
         .where('idempresa', '=', emp)
         .executeTakeFirst();
@@ -181,7 +181,7 @@ export class NfNfeService {
 
       // fail-closed igual ao transmitir: o evento precisa do CNPJ/ambiente reais (não montar
       // com CNPJ vazio / ambiente assumido — fatal com o provider real).
-      const ef = await trx.selectFrom('empresa_fiscal').select(['cnpj', 'ambiente']).where('idempresa', '=', emp).executeTakeFirst();
+      const ef = await trx.selectFrom('empresas').select(['cnpj', 'ambiente']).where('idempresa', '=', emp).executeTakeFirst();
       if (!ef?.cnpj) throw new BusinessRuleError('EMPRESA_FISCAL_NAO_CONFIGURADA', { idempresa: emp });
 
       const res = await this.sefaz.cancelar({
@@ -275,7 +275,7 @@ export class NfNfeService {
       if (num(ag?.qtd) >= 20) throw new BusinessRuleError('NF_CCE_LIMITE', { codnf });
       const seq = num(ag?.maxseq) + 1;
 
-      const ef = await trx.selectFrom('empresa_fiscal').select(['cnpj', 'ambiente']).where('idempresa', '=', emp).executeTakeFirst();
+      const ef = await trx.selectFrom('empresas').select(['cnpj', 'ambiente']).where('idempresa', '=', emp).executeTakeFirst();
       if (!ef?.cnpj) throw new BusinessRuleError('EMPRESA_FISCAL_NAO_CONFIGURADA', { idempresa: emp });
 
       const res = await this.sefaz.cartaCorrecao({

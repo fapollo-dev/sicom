@@ -60,19 +60,19 @@ export class NfFiscalService {
   /** Recalcula os impostos de cada item; devolve o dto enriquecido (NÃO grava). */
   async recalcular(dto: Record<string, unknown>): Promise<Record<string, unknown>> {
     const uf = await this.resolverUf(dto);
-    const ufOrigem = await this.resolverUfOrigem(); // empresa_fiscal (F6) — p/ interestadual (MVA ajustado)
+    const ufOrigem = await this.resolverUfOrigem(); // empresas (tenant) — p/ interestadual (MVA ajustado)
     const itens = Array.isArray(dto.itens) ? (dto.itens as Record<string, unknown>[]) : [];
     const calculados: Record<string, unknown>[] = [];
     for (const it of itens) calculados.push(await this.calcularItem(it, uf, ufOrigem));
     return { ...dto, itens: calculados };
   }
 
-  /** UF de ORIGEM (emitente) — da empresa_fiscal (F6) do tenant; null se não cadastrada. */
+  /** UF de ORIGEM (emitente) — da tabela empresas (consolidou o stub empresa_fiscal) do tenant; null se não cadastrada. */
   private async resolverUfOrigem(): Promise<string | null> {
     const emp = currentTenant().empresaId ?? null;
     if (emp == null) return null;
     const ef = await (this.dbp.forTenantRead() as AnyDB)
-      .selectFrom('empresa_fiscal')
+      .selectFrom('empresas')
       .select('uf')
       .where('idempresa', '=', emp)
       .executeTakeFirst();
