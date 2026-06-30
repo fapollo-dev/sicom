@@ -187,6 +187,7 @@ const CODE_PT: Record<string, string> = {
   NF_JA_TRANSMITIDA: 'Esta nota fiscal já foi transmitida para a SEFAZ.',
   NF_NAO_AUTORIZADA: 'A nota fiscal não está autorizada pela SEFAZ.',
   NF_MODELO_INVALIDO_PARA_TRANSMISSAO: 'Apenas notas modelo 55 (NF-e) podem ser transmitidas pela retaguarda.',
+  NF_TERCEIROS_NAO_TRANSMITE: 'Não é possível enviar uma nota com emissão de terceiros. Verifique!',
   NF_SEM_NUMERO: 'A nota fiscal não tem número para transmitir.',
   NF_SEM_DESTINATARIO: 'A nota fiscal não tem destinatário (parceiro) informado.',
   NF_SEM_ITENS: 'A nota fiscal não tem itens para transmitir.',

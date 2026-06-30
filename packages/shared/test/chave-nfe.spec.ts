@@ -61,6 +61,13 @@ describe('dvChaveNfe', () => {
     expect(dvChaveNfe('3124060392385700015555001000000101112345678')).toBe(3);
     expect(chaveNfeValida('31240603923857000155550010000001011123456783')).toBe(true);
   });
+
+  it('chaves REAIS de produção (golden Oracle PINHEIRAO) — ancora o DV em dados reais', () => {
+    // capturadas do legado (NF.CHAVENFE, autorizadas); DV conferido (5000/5000 passam no golden).
+    expect(chaveNfeValida('31200866312653000114550010005599791528020227')).toBe(true); // CODNF 2222, DV 7
+    expect(chaveNfeValida('31200861586558000608550030030145361815729057')).toBe(true); // CODNF 2246, DV 7
+    expect(chaveNfeValida('31200837954975000169550010000000041045077624')).toBe(true); // CODNF 2248, DV 4
+  });
 });
 
 describe('chaveNfeValida', () => {

@@ -56,7 +56,7 @@ export class NfProcessamentoService {
       // lê e TRAVA o header (escopo empresa). Bloqueios de estado por modo.
       const nf = await trx
         .selectFrom('nf')
-        .select(['codnf', 'tipo', 'proc', 'cancelada', 'statusnfe'])
+        .select(['codnf', 'tipo', 'proc', 'cancelada', 'statusnfe', 'contabilizado'])
         .where('codnf', '=', codnf)
         .where('idempresa', '=', emp)
         .forUpdate()
@@ -70,80 +70,14 @@ export class NfProcessamentoService {
         if (nf.proc !== 'S') throw new BusinessRuleError('NF_NAO_PROCESSADA', { codnf });
         // reverter bloqueado se já enviada à SEFAZ (uNF.pas:8945) — 'T' (terceiros importada) libera.
         if (nf.statusnfe && nf.statusnfe !== 'T') throw new BusinessRuleError('NF_ENVIADA', { codnf });
+        // reverter bloqueado se já contabilizada (uNF.pas:8951).
+        if (nf.contabilizado === 'S') throw new BusinessRuleError('NF_CONTABILIZADA', { codnf });
       }
 
       // sentido: entrada soma / saída baixa; estorno = inverso.
       const base = nf.tipo === 'E' ? 1 : -1;
       const sinal = modo === 'processar' ? base : -base;
-
-      const itens = await trx
-        .selectFrom('nf_prod as i')
-        .innerJoin('produtos as p', 'p.idproduto', 'i.codproduto')
-        .select([
-          'i.codproduto as codproduto',
-          'i.quantidade as quantidade',
-          'i.fatorembal as fatorembal',
-          'i.geraestoque as geraestoque',
-          'i.movimenta_estoque as movimenta_estoque',
-          'p.geraqtde as geraqtde',
-        ])
-        .where('i.codnf', '=', codnf)
-        .execute();
-
-      for (const it of itens as Record<string, unknown>[]) {
-        // guardas: produto e item precisam gerar/movimentar estoque.
-        if (it.geraqtde !== 'S' || it.geraestoque !== 'S' || it.movimenta_estoque !== 'S') continue;
-        const qtdex = num(it.quantidade) * (num(it.fatorembal) || 1); // qtde efetiva
-        if (qtdex === 0) continue;
-        const delta = sinal * qtdex;
-        const cod = Number(it.codproduto);
-
-        // saldo atual TRAVADO (linha pode não existir → 0).
-        const ant = await trx
-          .selectFrom('estoque')
-          .select('qtde')
-          .where('idproduto', '=', cod)
-          .where('idempresa', '=', emp)
-          .forUpdate()
-          .executeTakeFirst();
-        const saldoAnt = num(ant?.qtde);
-        const saldoNovo = Math.round((saldoAnt + delta) * 1000) / 1000;
-
-        // bloqueio conservador de negativo (banco não impede; legado tinha validação comentada).
-        if (saldoNovo < 0) {
-          throw new BusinessRuleError('NF_ESTOQUE_NEGATIVO', { idproduto: cod, saldo: saldoAnt, qtde: qtdex });
-        }
-
-        // upsert RELATIVO (resolve linha ausente + concorrência) — nunca grava saldo absoluto.
-        await trx
-          .insertInto('estoque')
-          .values({ idproduto: cod, idempresa: emp, qtde: delta, minimo: 0, maximo: 0 })
-          .onConflict((oc: AnyDB) =>
-            oc.columns(['idproduto', 'idempresa']).doUpdateSet({ qtde: sql`estoque.qtde + ${delta}` }),
-          )
-          .execute();
-
-        // kardex (mesma transação).
-        const estorno = modo === 'reverter';
-        const historico = estorno
-          ? `ESTORNO DE ESTOQUE; REF. A REVERSAO DA NOTA COD: ${codnf}`
-          : `${nf.tipo === 'E' ? 'ENTRADA' : 'SAIDA'} DE ESTOQUE; REF. NOTA COD: ${codnf}`;
-        await trx
-          .insertInto('historico_prod')
-          .values({
-            idproduto: cod,
-            idempresa: emp,
-            tipo: nf.tipo,
-            qtde: Math.abs(qtdex),
-            saldo_anterior: saldoAnt,
-            saldo_novo: saldoNovo,
-            origem: estorno ? 'NF-REV' : 'NF',
-            codnf,
-            historico,
-            codoperador: op,
-          })
-          .execute();
-      }
+      await this.aplicarMovimentoItens(trx, codnf, String(nf.tipo), sinal, modo === 'reverter' ? 'NF-REV' : 'NF', op, emp);
 
       // flip de estado com compare-and-set (anti-corrida/replay).
       const novoProc = modo === 'processar' ? 'S' : 'N';
@@ -164,5 +98,98 @@ export class NfProcessamentoService {
         throw new BusinessRuleError(modo === 'processar' ? 'NF_JA_PROCESSADA' : 'NF_NAO_PROCESSADA', { codnf });
       }
     });
+  }
+
+  /**
+   * Estorno de estoque do CANCELAMENTO da NFe (F6), DENTRO da transação do cancelamento.
+   * Golden: uma NF cancelada tem o kardex zerado por um estorno compensatório (o movimento
+   * original é preservado, um novo registro de estorno é adicionado → saldo volta ao original).
+   * Como o `reverter` é bloqueado em nota enviada à SEFAZ, o estorno só pode vir do cancelamento.
+   * NÃO faz flip de PROC (o movimento original é preservado; só compensa o saldo). `tipo` E/S
+   * define o sinal original; o estorno aplica o inverso.
+   */
+  async estornarEstoquePorCancelamento(trx: AnyDB, codnf: number, tipo: string, op: number | null, emp: number): Promise<void> {
+    const base = tipo === 'E' ? 1 : -1;
+    await this.aplicarMovimentoItens(trx, codnf, tipo, -base, 'NF-CANC', op, emp);
+  }
+
+  /**
+   * Move o estoque dos itens de uma NF numa transação já aberta (`trx`). Guarda fiel à trigger
+   * ESTOQUE_NOTAS: move quando `GERAESTOQUE='S' AND MOVIMENTA_ESTOQUE='S'` (2 flags de NF_PROD —
+   * a trigger NÃO gateia por PRODUTOS.GERAQTDE). QTDEX = QUANTIDADE×FATOREMBAL; upsert RELATIVO
+   * (`qtde = qtde + delta`); bloqueia negativo (conservador — o banco legado não impedia); grava
+   * kardex (historico_prod) com saldo anterior/novo e origem.
+   */
+  private async aplicarMovimentoItens(
+    trx: AnyDB,
+    codnf: number,
+    tipo: string,
+    sinal: number,
+    origem: 'NF' | 'NF-REV' | 'NF-CANC',
+    op: number | null,
+    emp: number,
+  ): Promise<void> {
+    const itens = await trx
+      .selectFrom('nf_prod')
+      .select(['codproduto', 'quantidade', 'fatorembal', 'geraestoque', 'movimenta_estoque'])
+      .where('codnf', '=', codnf)
+      .execute();
+
+    for (const it of itens as Record<string, unknown>[]) {
+      // guarda fiel à trigger (2 flags de NF_PROD; sem PRODUTOS.GERAQTDE).
+      if (it.geraestoque !== 'S' || it.movimenta_estoque !== 'S') continue;
+      const qtdex = num(it.quantidade) * (num(it.fatorembal) || 1); // qtde efetiva
+      if (qtdex === 0) continue;
+      const delta = sinal * qtdex;
+      const cod = Number(it.codproduto);
+
+      // saldo atual TRAVADO (linha pode não existir → 0).
+      const ant = await trx
+        .selectFrom('estoque')
+        .select('qtde')
+        .where('idproduto', '=', cod)
+        .where('idempresa', '=', emp)
+        .forUpdate()
+        .executeTakeFirst();
+      const saldoAnt = num(ant?.qtde);
+      const saldoNovo = Math.round((saldoAnt + delta) * 1000) / 1000;
+
+      // bloqueio conservador de negativo (banco não impede; legado tinha validação comentada).
+      if (saldoNovo < 0) {
+        throw new BusinessRuleError('NF_ESTOQUE_NEGATIVO', { idproduto: cod, saldo: saldoAnt, qtde: qtdex });
+      }
+
+      // upsert RELATIVO (resolve linha ausente + concorrência) — nunca grava saldo absoluto.
+      await trx
+        .insertInto('estoque')
+        .values({ idproduto: cod, idempresa: emp, qtde: delta, minimo: 0, maximo: 0 })
+        .onConflict((oc: AnyDB) =>
+          oc.columns(['idproduto', 'idempresa']).doUpdateSet({ qtde: sql`estoque.qtde + ${delta}` }),
+        )
+        .execute();
+
+      // kardex (mesma transação).
+      const historico =
+        origem === 'NF-REV'
+          ? `ESTORNO DE ESTOQUE; REF. A REVERSAO DA NOTA COD: ${codnf}`
+          : origem === 'NF-CANC'
+            ? `ESTORNO DE ESTOQUE; REF. AO CANCELAMENTO DA NOTA COD: ${codnf}`
+            : `${tipo === 'E' ? 'ENTRADA' : 'SAIDA'} DE ESTOQUE; REF. NOTA COD: ${codnf}`;
+      await trx
+        .insertInto('historico_prod')
+        .values({
+          idproduto: cod,
+          idempresa: emp,
+          tipo,
+          qtde: Math.abs(qtdex),
+          saldo_anterior: saldoAnt,
+          saldo_novo: saldoNovo,
+          origem,
+          codnf,
+          historico,
+          codoperador: op,
+        })
+        .execute();
+    }
   }
 }

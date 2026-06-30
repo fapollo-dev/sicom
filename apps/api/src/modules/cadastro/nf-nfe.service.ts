@@ -4,6 +4,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { SEFAZ_PORT, type SefazPort } from './sefaz/sefaz.port';
+import { NfProcessamentoService } from './nf-processamento.service';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -35,6 +36,7 @@ export class NfNfeService {
   constructor(
     private readonly dbp: DatabaseProvider,
     @Inject(SEFAZ_PORT) private readonly sefaz: SefazPort,
+    private readonly proc: NfProcessamentoService,
   ) {}
 
   /** transmite a NFe (mod.55) à SEFAZ (via porta) e persiste chave/protocolo/status. */
@@ -47,18 +49,22 @@ export class NfNfeService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nf = await trx
         .selectFrom('nf')
-        .select(['codnf', 'tipo', 'modelo', 'nronf', 'serie', 'dtemissao', 'codparceiro', 'totalnf', 'proc', 'statusnfe', 'cancelada', 'tpemissao'])
+        .select(['codnf', 'tipo', 'tipoemissao', 'modelo', 'nronf', 'serie', 'dtemissao', 'codparceiro', 'totalnf', 'proc', 'statusnfe', 'cancelada', 'tpemissao'])
         .where('codnf', '=', codnf)
         .where('idempresa', '=', emp)
         .forUpdate()
         .executeTakeFirst();
       if (!nf) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf });
 
-      // pré-condições (fiéis ao legado — não inventar proc='S').
+      // pré-condições (fiéis ao legado).
       if (Number(nf.modelo) !== 55) throw new BusinessRuleError('NF_MODELO_INVALIDO_PARA_TRANSMISSAO', { codnf });
+      // terceiros (TIPOEMISSAO='1') não podem ser transmitidos — uNF.pas:10761 (EnviarNFE aborta).
+      if (String(nf.tipoemissao) === '1') throw new BusinessRuleError('NF_TERCEIROS_NAO_TRANSMITE', { codnf });
       if (nf.cancelada === 'S' || nf.statusnfe === 'C') throw new BusinessRuleError('NF_CANCELADA', { codnf });
       if (nf.statusnfe === 'P') throw new BusinessRuleError('NF_JA_TRANSMITIDA', { codnf });
       if (nf.statusnfe === 'D') throw new BusinessRuleError('NF_DENEGADA', { codnf });
+      // o botão Transmitir do legado só habilita com a nota PROCESSADA (uNF.pas:8273: PROC='S').
+      if (nf.proc !== 'S') throw new BusinessRuleError('NF_NAO_PROCESSADA', { codnf });
       if (nf.nronf == null || String(nf.nronf).trim() === '') throw new BusinessRuleError('NF_SEM_NUMERO', { codnf });
       // nNF entra na chave com 9 dígitos: número maior não cabe (evita chave truncada silenciosa).
       if (String(nf.nronf).replace(/\D/g, '').length > 9) throw new BusinessRuleError('NF_CHAVE_INVALIDA', { codnf, nronf: nf.nronf });
@@ -87,6 +93,10 @@ export class NfNfeService {
         ambiente: ef.ambiente ?? '2',
         tpEmis: num(nf.tpemissao) || 1,
       });
+      // só persiste se a SEFAZ autorizou (P) ou denegou (D) — qualquer outro cStat é rejeição:
+      // não flipa o estado (espelha o legado, que só grava em retorno válido). O provider real
+      // deve mapear o cStat via statusFromCstat; o Simulador sempre devolve 100→P.
+      if (res.status !== 'P' && res.status !== 'D') throw new BusinessRuleError('NF_SEFAZ_ERRO', { codnf, cstat: res.cstat });
 
       // flip de estado com compare-and-set (idempotente: só transmite se ainda não enviada).
       const r = await trx
@@ -160,7 +170,7 @@ export class NfNfeService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nf = await trx
         .selectFrom('nf')
-        .select(['codnf', 'chavenfe', 'protocolo_nfe', 'statusnfe', 'cancelada'])
+        .select(['codnf', 'tipo', 'chavenfe', 'protocolo_nfe', 'statusnfe', 'cancelada', 'proc'])
         .where('codnf', '=', codnf)
         .where('idempresa', '=', emp)
         .forUpdate()
@@ -183,6 +193,8 @@ export class NfNfeService {
         seq: 1,
         protocoloNfe: nf.protocolo_nfe ?? undefined,
       });
+      // evento só é válido com cStat de sucesso (135 vinculado / 136 registrado) — legado NFe.pas:383.
+      if (![135, 136].includes(res.cstat)) throw new BusinessRuleError('NF_SEFAZ_ERRO', { codnf, cstat: res.cstat });
 
       // flip P→C com CAS (idempotente).
       const r = await trx
@@ -222,6 +234,13 @@ export class NfNfeService {
           codoperador: op,
         })
         .execute();
+
+      // golden: cancelar uma NF PROCESSADA estorna o estoque (movimento compensatório, net-0 no
+      // kardex). Como o `reverter` é bloqueado em nota enviada à SEFAZ, o estorno do estoque só
+      // pode vir daqui. Na MESMA transação do cancelamento (atômico).
+      if (nf.proc === 'S') {
+        await this.proc.estornarEstoquePorCancelamento(trx, codnf, String(nf.tipo), op, emp);
+      }
 
       return { codnf, statusnfe: 'C', protocolo: res.protocolo, cstat: res.cstat, simulado: res.simulado };
     });
@@ -267,6 +286,8 @@ export class NfNfeService {
         texto: correcao,
         seq,
       });
+      // evento só é válido com cStat de sucesso (135/136) — legado NFe.pas:383.
+      if (![135, 136].includes(res.cstat)) throw new BusinessRuleError('NF_SEFAZ_ERRO', { codnf, cstat: res.cstat });
 
       await trx
         .insertInto('nfe_evento')

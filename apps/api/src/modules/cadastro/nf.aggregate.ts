@@ -68,13 +68,17 @@ export const nfAggregateConfig: AggregateConfig = {
     for (const it of itens as Record<string, unknown>[]) {
       const bruto = num(it.quantidade) * num(it.vrvenda);
       totalprod += bruto;
-      totaldesc += num(it.desconto) + num(it.vrdescprod);
+      // golden: TOTALDESC = SUM do desconto-VALOR por item (um único campo). No migrado o desconto
+      // é capturado como dinheiro em `desconto` (CurrencyField no modal). NÃO somar `vrdescprod`
+      // junto (dupla contagem — ambos são dinheiro; o legado soma só um, SUM(VRDESCPROD)).
+      totaldesc += num(it.desconto);
       totalipi += num(it.vripi); // F2: vripi é o VALOR (ipi virou a alíquota %)
       totalicm_st += num(it.vricmst);
       totalicm += num(it.vricm);
       totalbaseicm += num(it.vrbasecalculo);
-      const cst = Number(it.cst);
-      if (cst === 40 || cst === 41) totalisento += bruto; // isento / não tributado
+      // golden/legado: isento é disparado pelo CÓDIGO DE ALÍQUOTA 'IST' (udmNF.pas:4169/4299),
+      // não pelo CST. (CST 40/41 correlacionam mas não são idênticos a ALIQUOTA='IST'.)
+      if (String(it.aliquota) === 'IST') totalisento += bruto;
     }
     const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
     const totalfrete = num(dto.totalfrete);
@@ -100,12 +104,12 @@ export const nfAggregateConfig: AggregateConfig = {
     // Espelha NotaEletronica/btnEditar do legado: NF processada/contabilizada/faturada/enviada/
     // cancelada é read-only (editar deixaria efeitos dessincronizados).
     let atual:
-      | { proc?: string; statusnfe?: string; contabilizado?: string; cancelada?: string; faturada?: string; nronf?: string; serie?: string; modelo?: number; tipo?: string; codparceiro?: number }
+      | { proc?: string; statusnfe?: string; contabilizado?: string; cancelada?: string; faturada?: string; nronf?: string; serie?: string; modelo?: number; tipoemissao?: string; codparceiro?: number }
       | undefined;
     if (id != null) {
       atual = (await db
         .selectFrom('nf')
-        .select(['proc', 'statusnfe', 'contabilizado', 'cancelada', 'faturada', 'nronf', 'serie', 'modelo', 'tipo', 'codparceiro'])
+        .select(['proc', 'statusnfe', 'contabilizado', 'cancelada', 'faturada', 'nronf', 'serie', 'modelo', 'tipoemissao', 'codparceiro'])
         .where('codnf', '=', id)
         .where('idempresa', '=', emp)
         .executeTakeFirst()) as typeof atual;
@@ -118,22 +122,26 @@ export const nfAggregateConfig: AggregateConfig = {
       }
     }
 
-    // duplicidade da chave fiscal: mesmo número + série + modelo + empresa + tipo + fornecedor.
+    // duplicidade da chave fiscal — tupla de identidade confirmada no golden (V$SQL real):
+    // (IDEMPRESA, CODPARCEIRO, MODELO, SERIE, NRONF, TIPOEMISSAO). NÃO inclui TIPO (E/S): o
+    // legado não usa o tipo na chave (uNF.pas:4735/4761). USA TIPOEMISSAO (própria '0' / terceiros '1').
     const nronf = (dto.nronf ?? atual?.nronf) as string | number | undefined;
     if (nronf != null && String(nronf).trim() !== '') {
       const serie = (dto.serie ?? atual?.serie ?? null) as string | null;
       const modelo = (dto.modelo ?? atual?.modelo ?? null) as number | null;
-      const tipo = (dto.tipo ?? atual?.tipo ?? null) as string | null;
+      // default '0' (própria) quando ausente — espelha o DEFAULT da coluna nf.tipoemissao, que é o
+      // valor que SERÁ inserido; o validar roda no dto (antes do insert) e precisa casar com ele.
+      const tipoemissao = (dto.tipoemissao ?? atual?.tipoemissao ?? '0') as string | null;
       const codparceiro = (dto.codparceiro ?? atual?.codparceiro ?? null) as number | null;
       let q = db
         .selectFrom('nf')
         .select('codnf')
         .where('nronf', '=', String(nronf))
         .where('idempresa', '=', emp)
-        .where('tipo', '=', tipo)
         .where('codparceiro', '=', codparceiro);
       q = serie == null ? q.where('serie', 'is', null) : q.where('serie', '=', serie);
       q = modelo == null ? q.where('modelo', 'is', null) : q.where('modelo', '=', modelo);
+      q = tipoemissao == null ? q.where('tipoemissao', 'is', null) : q.where('tipoemissao', '=', tipoemissao);
       if (id != null) q = q.where('codnf', '<>', id);
       const dup = await q.executeTakeFirst();
       if (dup) throw new BusinessRuleError('NF_DUPLICADA');

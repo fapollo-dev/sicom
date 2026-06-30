@@ -45,13 +45,14 @@ export class NfFaturamentoService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nf = await trx
         .selectFrom('nf')
-        .select(['codnf', 'tipo', 'cancelada', 'faturada', 'codparceiro', 'totalnf', 'dtemissao', 'dtcontabil'])
+        .select(['codnf', 'tipo', 'nronf', 'cancelada', 'faturada', 'contabilizado', 'codparceiro', 'totalnf', 'dtemissao', 'dtcontabil'])
         .where('codnf', '=', codnf)
         .where('idempresa', '=', emp)
         .forUpdate()
         .executeTakeFirst();
       if (!nf) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf });
       if (nf.cancelada === 'S') throw new BusinessRuleError('NF_CANCELADA', { codnf });
+      if (nf.contabilizado === 'S') throw new BusinessRuleError('NF_CONTABILIZADA', { codnf });
       if (nf.faturada === 'S') throw new BusinessRuleError('NF_JA_FATURADA', { codnf });
 
       const tabela: 'areceber' | 'apagar' = nf.tipo === 'E' ? 'apagar' : 'areceber';
@@ -68,7 +69,10 @@ export class NfFaturamentoService {
       const totalCents = Math.round(num(nf.totalnf) * 100); // base em CENTAVOS
       if (totalCents <= 0) throw new BusinessRuleError('NF_SEM_VALOR', { codnf });
 
-      // txjuros do parceiro (alimenta o cálculo de juros no Lote de Cobrança).
+      // txjuros do título. ⚠️ DÍVIDA (F4b, golden/auditoria): o legado semeia a taxa do título a
+      // partir da PADRÃO DA EMPRESA (`EmpresaTXJUROPADRAO`, udmCadAReceber.pas:214), não do parceiro.
+      // Como EMPRESAS não foi migrada (não há empresa.txjuropadrao), mantemos o parceiro como
+      // proxy até o cutover de EMPRESAS — então trocar a origem. Não afeta o VALOR das parcelas.
       const parc = await trx
         .selectFrom('parceiros')
         .select('txjuro')
@@ -97,8 +101,10 @@ export class NfFaturamentoService {
             idnf: codnf,
             dtvenda: dtdoc,
             dtvenc: dt.toISOString().slice(0, 10),
-            // sequência i+1 na duplicata; NRODUP = TOTAL de parcelas (paridade legado: AQtdPar).
-            duplicata: `NF-${codnf}-${i + 1}/${p.numParcelas}`,
+            // formato da duplicata confirmado no golden: "<NRONF> - NNN/NNN" (referencia NRONF, não
+            // CODNF). NRODUP = TOTAL de parcelas (paridade legado: AQtdPar). nronf pode faltar em
+            // rascunho → fallback p/ codnf.
+            duplicata: `${nf.nronf ?? codnf} - ${String(i + 1).padStart(3, '0')}/${String(p.numParcelas).padStart(3, '0')}`,
             nrodup: p.numParcelas,
             valor: cents / 100,
             txjuros,
@@ -130,13 +136,15 @@ export class NfFaturamentoService {
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nf = await trx
         .selectFrom('nf')
-        .select(['codnf', 'tipo', 'faturada'])
+        .select(['codnf', 'tipo', 'faturada', 'contabilizado'])
         .where('codnf', '=', codnf)
         .where('idempresa', '=', emp)
         .forUpdate()
         .executeTakeFirst();
       if (!nf) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf });
       if (nf.faturada !== 'S') throw new BusinessRuleError('NF_NAO_FATURADA', { codnf });
+      // estorno bloqueado se já contabilizada (uNF.pas:8951 — espelha a guarda do reverter).
+      if (nf.contabilizado === 'S') throw new BusinessRuleError('NF_CONTABILIZADA', { codnf });
 
       const tabela = nf.tipo === 'E' ? 'apagar' : 'areceber';
 
