@@ -183,6 +183,18 @@ const CODE_PT: Record<string, string> = {
   NUM_PARCELAS_INVALIDO: 'Número de parcelas inválido.',
   TITULO_QUITADO:
     'Existem documentos financeiros que já foram baixados, agrupados ou contabilizados relacionados à essa nota. Não é possível excluir o financeiro. Verifique!',
+  // NFe / SEFAZ (F6)
+  NF_JA_TRANSMITIDA: 'Esta nota fiscal já foi transmitida para a SEFAZ.',
+  NF_NAO_AUTORIZADA: 'A nota fiscal não está autorizada pela SEFAZ.',
+  NF_MODELO_INVALIDO_PARA_TRANSMISSAO: 'Apenas notas modelo 55 (NF-e) podem ser transmitidas pela retaguarda.',
+  NF_SEM_NUMERO: 'A nota fiscal não tem número para transmitir.',
+  NF_SEM_DESTINATARIO: 'A nota fiscal não tem destinatário (parceiro) informado.',
+  NF_SEM_ITENS: 'A nota fiscal não tem itens para transmitir.',
+  NF_DENEGADA: 'Nota fiscal denegada pela SEFAZ. Emita uma nova nota.',
+  NF_CCE_LIMITE: 'Não é possível enviar carta de correção, pois já foi atingido o limite de 20 cartas!',
+  NF_CHAVE_INVALIDA: 'Chave de acesso inválida (formato ou dígito verificador).',
+  NF_SEFAZ_ERRO: 'A SEFAZ retornou erro na transmissão.',
+  EMPRESA_FISCAL_NAO_CONFIGURADA: 'Configuração fiscal da empresa (CNPJ/UF) não cadastrada.',
   // autorização
   TENANT_FORBIDDEN: 'Acesso negado: empresa/tenant não autorizado.',
   SEM_PERMISSAO: 'Você não tem permissão para executar esta ação.',

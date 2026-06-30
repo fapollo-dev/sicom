@@ -24,6 +24,10 @@ import { NfProcessamentoController } from './nf-processamento.controller';
 import { NfProcessamentoService } from './nf-processamento.service';
 import { NfFaturamentoController } from './nf-faturamento.controller';
 import { NfFaturamentoService } from './nf-faturamento.service';
+import { NfNfeController } from './nf-nfe.controller';
+import { NfNfeService } from './nf-nfe.service';
+import { SEFAZ_PORT } from './sefaz/sefaz.port';
+import { SimuladorSefazProvider } from './sefaz/simulador.provider';
 import { CepController } from './cep.controller';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { PrecificacaoModule } from '../precificacao/precificacao.module';
@@ -56,6 +60,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     NfFiscalController, // F2 — recálculo fiscal por item (POST /fiscal/nf/recalcular), reusa precificacao
     NfProcessamentoController, // F3 — processar/reverter (move estoque atômico)
     NfFaturamentoController, // F4 — faturar/estornar (gera títulos ARECEBER/APAGAR atômico)
+    NfNfeController, // F6 — NFe mod.55 (transmitir/cancelar/cce) atrás da porta SEFAZ
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
   providers: [
@@ -65,6 +70,29 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     NfFiscalService,
     NfProcessamentoService,
     NfFaturamentoService,
+    NfNfeService,
+    // Porta SEFAZ (F6): seleção REAL por env SEFAZ_PROVIDER (default 'simulador'). Hoje só existe
+    // o SIMULADOR (homologação); o provider real (ACBrLibNFe/lib NFe Node/microserviço) implementa
+    // a mesma SefazPort e entra aqui sem tocar no service. Travas: 'simulador' é PROIBIDO em
+    // produção (NODE_ENV='production') e qualquer outro valor falha (o real ainda não existe) —
+    // assim nunca se transmite de mentira em produção nem se assume um provider inexistente.
+    {
+      provide: SEFAZ_PORT,
+      useFactory: () => {
+        const provider = (process.env.SEFAZ_PROVIDER ?? 'simulador').toLowerCase();
+        if (provider === 'simulador') {
+          if (process.env.NODE_ENV === 'production') {
+            throw new Error(
+              "SEFAZ_PROVIDER='simulador' é proibido em produção (NODE_ENV=production): configure o provider real de SEFAZ.",
+            );
+          }
+          return new SimuladorSefazProvider();
+        }
+        throw new Error(
+          `SEFAZ_PROVIDER='${provider}' indisponível: o provider real de SEFAZ ainda não foi implementado (F6b). Use 'simulador' (homologação).`,
+        );
+      },
+    },
   ],
   exports: [BancosService],
 })

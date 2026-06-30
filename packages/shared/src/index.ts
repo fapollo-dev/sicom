@@ -15,4 +15,6 @@ export * from './erro';
 export * from './validators/br';
 export * from './validators/inscricao-estadual';
 export * from './validators/codigo-barras';
+export * from './validators/chave-nfe';
+export * from './nfe-status';
 export * from './ufs';

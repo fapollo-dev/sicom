@@ -392,6 +392,48 @@ export type FaturarNfDto = z.infer<typeof faturarNfSchema>;
 export const recalcularNfSchema = z.preprocess(stripNulls, nfBase);
 export type RecalcularNfDto = z.infer<typeof recalcularNfSchema>;
 
+/**
+ * F6 — body da transmissão (POST /fiscal/nf/:id/transmitir). Sem campos obrigatórios:
+ * o id vai na rota e os dados saem da própria NF + empresa_fiscal. (Espaço p/ flags de
+ * contingência/ambiente quando o provider real entrar.)
+ */
+export const transmitirNfSchema = z
+  .object({
+    tpEmissao: z.number().int().optional(), // 1 normal / 6,7 contingência SVC (futuro)
+  })
+  .partial();
+export type TransmitirNfDto = z.infer<typeof transmitirNfSchema>;
+
+/**
+ * F6 — body do cancelamento (POST /fiscal/nf/:id/cancelar). Justificativa ≥ 15 caracteres
+ * (regra SEFAZ; legado uNF.pas:4397 — a mensagem foi NORMALIZADA: o legado escreve "no mínimo 15
+ * dígitos", que é impreciso; aqui "caracteres"). Normaliza p/ MAIÚSCULAS (padrão do evento).
+ */
+export const cancelarNfSchema = z.object({
+  xjust: z
+    .string({ message: 'Informe a justificativa do cancelamento.' })
+    .trim()
+    .min(15, 'A justificativa deve conter no mínimo 15 caracteres.')
+    .max(255, 'A justificativa deve conter no máximo 255 caracteres.')
+    .transform((s) => s.toUpperCase()),
+});
+export type CancelarNfDto = z.infer<typeof cancelarNfSchema>;
+
+/**
+ * F6 — body da carta de correção (POST /fiscal/nf/:id/cce). Texto ≥ 15 caracteres
+ * (legado uCartaCorrecao.pas:54 — mensagem NORMALIZADA: o legado tem o typo "caracters",
+ * corrigido p/ "caracteres"). Normaliza p/ MAIÚSCULAS.
+ */
+export const cceNfSchema = z.object({
+  correcao: z
+    .string({ message: 'Informe o texto da correção.' })
+    .trim()
+    .min(15, 'O Ajuste deve conter no mínimo 15 caracteres. Verifique!')
+    .max(1000, 'O texto da correção deve conter no máximo 1000 caracteres.')
+    .transform((s) => s.toUpperCase()),
+});
+export type CceNfDto = z.infer<typeof cceNfSchema>;
+
 export interface Nf extends CriarNfDto {
   codnf: number;
   idempresa?: number;

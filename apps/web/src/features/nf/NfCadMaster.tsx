@@ -27,6 +27,7 @@ import { NfItemModal } from './NfItemModal';
 import { recalcularNf } from './nfFiscalApi';
 import { processarNf, reverterNf } from './nfProcessamentoApi';
 import { faturarNf, estornarFaturamentoNf } from './nfFaturamentoApi';
+import { transmitirNf, cancelarNf, cceNf } from './nfNfeApi';
 
 /** Tipo da nota (parametrização Entrada/Saída — espelha o `ParametroCriacao` 35/36 do legado). */
 export type NfTipo = 'E' | 'S';
@@ -156,6 +157,8 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
             <ProcessamentoSection form={form} />
             {/* F4 — faturar/estornar (gera títulos ARECEBER/APAGAR). Também fora do gate `liberado`. */}
             <FaturamentoSection form={form} tipo={tipo} />
+            {/* F6 — NFe/SEFAZ (mod.55): transmitir/cancelar/CCe. Fora do gate `liberado` (age na nota travada). */}
+            <NfeSefazSection form={form} />
             {travado && (
               <div className="rounded-radius-base border border-border bg-bg-subtle p-pad-sm text-fg-muted">
                 Nota{' '}
@@ -340,6 +343,141 @@ function FaturamentoSection({ form, tipo }: { form: UseFormReturn<CriarNfDto>; t
           <Button label="&Faturar" variant="soft" onClick={() => void faturar()} />
         </div>
       )}
+    </fieldset>
+  );
+}
+
+// ───────────────────────────── NFe / SEFAZ (F6) ─────────────────────────────
+
+/**
+ * Ações de NFe (F6 — mod.55) atrás da porta SEFAZ. Só em nota SALVA (codnf) e modelo 55.
+ * "Transmitir" quando statusnfe vazio; "Cancelar"/"CCe" quando autorizada (statusnfe='P').
+ * O cancelamento NÃO reverte estoque/financeiro (fiel ao legado). No corte 1 o backend usa o
+ * SIMULADOR de homologação — o aviso deixa isso explícito. PURO na UI: o efeito é server-side;
+ * aqui só refletimos chave/status p/ a tela.
+ */
+function NfeSefazSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
+  const mensagem = useMensagem();
+  const [executando, setExecutando] = useState(false);
+  const [modo, setModo] = useState<'cancelar' | 'cce' | null>(null);
+  const [texto, setTexto] = useState('');
+  const statusnfe = form.watch('statusnfe');
+  const modelo = Number(form.watch('modelo'));
+  const chavenfe = form.watch('chavenfe') as string | undefined;
+  const codnf = (form.getValues() as { codnf?: number }).codnf;
+  if (codnf == null || modelo !== 55) return null; // só NFe (mod.55) já gravada
+
+  const naoEnviada = !statusnfe; // '' / null
+  const autorizada = statusnfe === 'P';
+  const denegada = statusnfe === 'D';
+  const cancelada = statusnfe === 'C';
+
+  const transmitir = async () => {
+    if (executando) return;
+    setExecutando(true);
+    try {
+      const r = await transmitirNf(codnf);
+      form.setValue('chavenfe', r.chave);
+      form.setValue('statusnfe', r.statusnfe);
+      form.setValue('confirmada', r.statusnfe === 'P' ? 'S' : 'N');
+      mensagem.sucesso(
+        `NFe ${r.statusnfe === 'P' ? 'autorizada' : 'denegada'}: ${r.chave}${r.simulado ? ' (SIMULADO — homologação)' : ''}.`,
+      );
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  const confirmarEvento = async () => {
+    if (executando || modo == null) return;
+    if (texto.trim().length < 15) return; // o contador inline orienta; o back também valida (≥15)
+    setExecutando(true);
+    try {
+      if (modo === 'cancelar') {
+        await cancelarNf(codnf, { xjust: texto });
+        form.setValue('statusnfe', 'C');
+        form.setValue('cancelada', 'S');
+        form.setValue('xjust', texto);
+        mensagem.sucesso('NFe cancelada.');
+      } else {
+        const r = await cceNf(codnf, { correcao: texto });
+        mensagem.sucesso(`Carta de correção registrada (sequência ${r.seq}).`);
+      }
+      setModo(null);
+      setTexto('');
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  const badge =
+    naoEnviada ? 'Não enviada'
+    : autorizada ? 'Autorizada'
+    : cancelada ? 'Cancelada'
+    : denegada ? 'Denegada'
+    : statusnfe;
+
+  return (
+    <fieldset className="rounded-radius-md border border-border p-pad-md">
+      <legend className="px-pad-xs text-fg-muted">NFe / SEFAZ</legend>
+      <div className="flex flex-col gap-gp-sm">
+        <div className="flex flex-wrap items-center gap-gp-sm">
+          <span className="rounded-radius-base bg-bg-subtle px-pad-sm py-pad-xs text-fg-muted">{badge}</span>
+          {chavenfe && (
+            <>
+              <code className="font-mono text-sm text-fg-default">{chavenfe}</code>
+              <button
+                type="button"
+                className="text-sm text-fg-link"
+                onClick={() => void navigator.clipboard?.writeText(chavenfe)}
+              >
+                Copiar
+              </button>
+            </>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-gp-sm">
+          {naoEnviada && <Button label="&Transmitir NFe" variant="soft" onClick={() => void transmitir()} />}
+          {autorizada && (
+            <>
+              <Button label="&Cancelar NFe" variant="soft" onClick={() => { setModo('cancelar'); setTexto(''); }} />
+              <Button label="Carta de &correção" variant="soft" onClick={() => { setModo('cce'); setTexto(''); }} />
+            </>
+          )}
+          {denegada && <small className="text-fg-danger">NFe denegada pela SEFAZ — emita uma nova nota.</small>}
+          {cancelada && <small className="text-fg-muted">NFe cancelada.</small>}
+        </div>
+
+        {modo != null && (
+          <div className="flex flex-col gap-gp-xs rounded-radius-base border border-border p-pad-sm">
+            <TextArea
+              label={modo === 'cancelar' ? 'Justificativa do cancelamento (mín. 15)' : 'Texto da correção (mín. 15)'}
+              value={texto}
+              onChange={(e) => setTexto(e.target.value)}
+              rows={3}
+            />
+            <div className="flex items-center gap-gp-sm">
+              <Button
+                label={modo === 'cancelar' ? '&Confirmar cancelamento' : '&Enviar correção'}
+                variant="soft"
+                onClick={() => void confirmarEvento()}
+              />
+              <Button label="Cancelar" variant="ghost" onClick={() => { setModo(null); setTexto(''); }} />
+              <small className="text-fg-muted">{texto.trim().length}/15+ caracteres</small>
+            </div>
+          </div>
+        )}
+
+        <small className="text-fg-muted">
+          Transmissão atrás da porta SEFAZ — no momento via simulador de homologação (nenhuma NFe é
+          autorizada na Receita). O cancelamento não reverte estoque nem financeiro.
+        </small>
+      </div>
     </fieldset>
   );
 }
