@@ -52,8 +52,9 @@ export const nfAggregateConfig: AggregateConfig = {
     // observações
     'obs', 'obsnf', 'complemento',
   ],
-  // F1 = btnCalcular: totais a partir dos itens (Σ), SEM calcular imposto (só soma o armazenado).
-  // Só recalcula quando o dto traz os itens (espelha o "não zerar totais em edição de header").
+  // Totais do header por Σ dos itens (F1 btnCalcular; F2 inclui os totais fiscais). SÍNCRONO —
+  // só SOMA valores já presentes no dto (o cálculo do imposto por item é async e vive no
+  // NfFiscalService, via POST /fiscal/nf/recalcular). Só recalcula quando o dto traz os itens.
   derivar: (dto) => {
     const itens = dto.itens;
     if (!Array.isArray(itens)) return {};
@@ -61,16 +62,21 @@ export const nfAggregateConfig: AggregateConfig = {
     let totaldesc = 0;
     let totalipi = 0;
     let totalicm_st = 0;
+    let totalicm = 0;
+    let totalbaseicm = 0;
+    let totalisento = 0;
     for (const it of itens as Record<string, unknown>[]) {
-      const qtde = num(it.quantidade);
-      const venda = num(it.vrvenda);
-      const desc = num(it.desconto) + num(it.vrdescprod);
-      totalprod += qtde * venda;
-      totaldesc += desc;
-      totalipi += num(it.ipi);
+      const bruto = num(it.quantidade) * num(it.vrvenda);
+      totalprod += bruto;
+      totaldesc += num(it.desconto) + num(it.vrdescprod);
+      totalipi += num(it.vripi); // F2: vripi é o VALOR (ipi virou a alíquota %)
       totalicm_st += num(it.vricmst);
+      totalicm += num(it.vricm);
+      totalbaseicm += num(it.vrbasecalculo);
+      const cst = Number(it.cst);
+      if (cst === 40 || cst === 41) totalisento += bruto; // isento / não tributado
     }
-    const r2 = (n: number) => Math.round(n * 100) / 100;
+    const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
     const totalfrete = num(dto.totalfrete);
     const totalseguro = num(dto.totalseguro);
     const totalacessorias = num(dto.totalacessorias);
@@ -80,6 +86,9 @@ export const nfAggregateConfig: AggregateConfig = {
       totaldesc: r2(totaldesc),
       totalipi: r2(totalipi),
       totalicm_st: r2(totalicm_st),
+      totalicm: r2(totalicm),
+      totalbaseicm: r2(totalbaseicm),
+      totalisento: r2(totalisento),
       totalnf,
     };
   },
@@ -136,7 +145,8 @@ export const nfAggregateConfig: AggregateConfig = {
         'nroitem', 'codproduto', 'codprodnota', 'quantidade', 'fatorembal', 'unidade',
         'vrvenda', 'vrcusto', 'desconto', 'vrdescprod', 'bonificacao',
         'cfop', 'ncm', 'cest', 'origem_estoque', 'aliquota', 'icms', 'cst', 'csosn',
-        'vrbasecalculo', 'vricm', 'icme', 'mva', 'vrbasest', 'vricmst', 'streal', 'ipi',
+        'bcr', 'vrbasecalculo', 'vricm', 'icme', 'mva', 'vrbasest', 'vricmst', 'streal',
+        'ipi', 'vripi', 'geraicm_ipi', 'geraicm_frete', 'geraicm_acess',
         'fcp_aliquota', 'fcp_valor', 'pis', 'cstpiscofins',
         'aliqpise', 'aliqpiss', 'aliqcofinse', 'aliqcofinss',
         'frete', 'seguro', 'vroutrasdesp',

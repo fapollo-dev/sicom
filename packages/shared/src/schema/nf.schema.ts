@@ -117,6 +117,7 @@ export const nfItemSchema = z.object({
   icms: dec(z.number().nonnegative('Alíquota de ICMS inválida')),
   cst: z.number().int().optional(),
   csosn: z.string().trim().max(3).optional(),
+  bcr: dec(z.number().nonnegative()), // % base reduzida ICMS (F2: resolvido de det_aliquota)
   vrbasecalculo: dec(z.number().nonnegative()),
   vricm: dec(z.number().nonnegative()),
   icme: dec(z.number().nonnegative()),
@@ -124,7 +125,12 @@ export const nfItemSchema = z.object({
   vrbasest: dec(z.number().nonnegative()),
   vricmst: dec(z.number().nonnegative()),
   streal: dec(z.number().nonnegative()),
-  ipi: dec(z.number().nonnegative()),
+  ipi: dec(z.number().nonnegative()), // alíquota IPI %
+  vripi: dec(z.number().nonnegative()), // valor do IPI (F2: TOTALPRODS * ipi% / 100)
+  // flags GERAICM_* (compõem a base do ICMS próprio na F2); default 'N' no banco
+  geraicm_ipi: sn().optional(),
+  geraicm_frete: sn().optional(),
+  geraicm_acess: sn().optional(),
   fcp_aliquota: dec(z.number().nonnegative()),
   fcp_valor: dec(z.number().nonnegative()),
   pis: z.string().trim().max(1).optional(),
@@ -267,6 +273,14 @@ export const atualizarNfSchema = z.preprocess(stripNulls, nfBase.partial()).supe
   validaTerceirosM55(d as { tipoemissao?: string; modelo?: number }, ctx);
 });
 export type AtualizarNfDto = z.infer<typeof atualizarNfSchema>;
+
+/**
+ * F2 — body do recálculo fiscal (POST /fiscal/nf/recalcular). É o dto da NF (header + itens),
+ * sem o superRefine de gravação (não exige ≥1 item p/ ser robusto) — só valida formato e
+ * exige codparceiro (p/ resolver a UF) e tipo. NÃO grava; só calcula e devolve enriquecido.
+ */
+export const recalcularNfSchema = z.preprocess(stripNulls, nfBase);
+export type RecalcularNfDto = z.infer<typeof recalcularNfSchema>;
 
 export interface Nf extends CriarNfDto {
   codnf: number;

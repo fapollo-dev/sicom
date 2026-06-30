@@ -796,6 +796,92 @@ async function main() {
     // 16.13) DELETE em cascata (header + itens + referências)
     const nfDel = await fetch(`${base}/fiscal/nf/${nfId}`, { method: 'DELETE', headers: H });
     check('DELETE /fiscal/nf remove em cascata (204)', nfDel.status === 204, nfDel.status);
+
+    // 17) NF F2 — RECÁLCULO fiscal por item (REUSO do motor precificacao). PURO (não grava).
+    // 17.1) recalcular: parceiro 22 (UF=MA, seed 026), item T01 (ICMS próprio + IPI) + item STB/CFOP-ST.
+    const recalc = await fetch(`${base}/fiscal/nf/recalcular`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22,
+        itens: [
+          { codproduto: 1, quantidade: 10, vrvenda: 3.5, aliquota: 'T01', cfop: '1102', ncm: '17019900', ipi: 5 },
+          { codproduto: 3, quantidade: 2, vrvenda: 20, aliquota: 'STB', cfop: '1403', ncm: '04061010' },
+        ],
+      }),
+    });
+    const recalcBody = (await recalc.json().catch(() => ({}))) as any;
+    const i0 = recalcBody?.itens?.[0] ?? {};
+    const i1 = recalcBody?.itens?.[1] ?? {};
+    check(
+      'POST /fiscal/nf/recalcular calcula ICMS próprio do item T01/MA (base 35, ICMS 7,70, CST 0, IPI 1,75)',
+      recalc.status === 200 &&
+        Number(i0.vrbasecalculo) === 35 && Number(i0.vricm) === 7.7 &&
+        Number(i0.cst) === 0 && Number(i0.icme) === 22 && Number(i0.bcr) === 100 && Number(i0.vripi) === 1.75,
+      { status: recalc.status, i0 },
+    );
+    check(
+      'recalcular calcula ICMS-ST do item STB/CFOP 1403 (reuso calcularIcmsSt: baseST 58, ST 3,24, CST 60)',
+      Number(i1.cst) === 60 && Number(i1.vrbasest) === 58 && Number(i1.vricmst) === 3.24 && Number(i1.vrbasecalculo) === 0,
+      i1,
+    );
+
+    // 17.1b) REDUÇÃO DE BASE: a redução vive 1× no BCR; o destaque usa a alíquota CHEIA
+    // (não a efetiva) — senão a redução seria aplicada 2× (bug A1). T20/MA: icm 22, efetiva 12,
+    // base 54,55. Item 100,00 → base 54,55 e ICMS 54,55·22% = 12,00 (com o bug daria 6,55).
+    const recalcRed = await fetch(`${base}/fiscal/nf/recalcular`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22,
+        itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, aliquota: 'T20', cfop: '1102', ncm: '17019900' }],
+      }),
+    });
+    const ir = ((await recalcRed.json().catch(() => ({}))) as any)?.itens?.[0] ?? {};
+    check(
+      'recalcular com redução de base (T20): BCR 54,55, ICMS 12,00 (alíquota CHEIA na base reduzida, não 2× redução)',
+      recalcRed.status === 200 && Number(ir.bcr) === 54.55 && Number(ir.vrbasecalculo) === 54.55 &&
+        Number(ir.vricm) === 12 && Number(ir.cst) === 20,
+      ir,
+    );
+
+    // 17.2) alíquota não cadastrada p/ a UF da nota → 422 PT (resolverAtual), nunca 500
+    const recalcBad = await fetch(`${base}/fiscal/nf/recalcular`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22,
+        itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1, aliquota: 'T99', cfop: '1102' }],
+      }),
+    });
+    const recalcBadBody = (await recalcBad.json().catch(() => ({}))) as any;
+    check(
+      'recalcular com alíquota inexistente p/ a UF → 422 ALIQUOTA_NAO_CADASTRADA, nunca 500',
+      recalcBad.status === 422 && recalcBadBody.code === 'ALIQUOTA_NAO_CADASTRADA' && recalcBad.status !== 500,
+      { status: recalcBad.status, code: recalcBadBody.code },
+    );
+
+    // 17.3) derivar soma os TOTAIS FISCAIS do header a partir dos valores por item (no create).
+    const nfTot = await fetch(`${base}/fiscal/nf`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        tipo: 'E', modelo: 55, nronf: '6001', serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10',
+        tipoemissao: '0', cfop: '1102', codparceiro: 22,
+        itens: [
+          { codproduto: 1, quantidade: 10, vrvenda: 3.5, aliquota: 'T01', cfop: '1102', vrbasecalculo: 35, vricm: 7.7, vripi: 1.75, cst: 0 },
+          { codproduto: 3, quantidade: 2, vrvenda: 20, aliquota: 'STB', cfop: '1403', vrbasecalculo: 0, vricm: 0, vrbasest: 58, vricmst: 3.24, cst: 60 },
+        ],
+      }),
+    });
+    const nfTotBody = (await nfTot.json().catch(() => ({}))) as any;
+    check(
+      'derivar soma totais fiscais no header (totalbaseicm 35, totalicm 7,70, totalipi 1,75, totalicm_st 3,24)',
+      nfTot.status === 201 &&
+        Number(nfTotBody.totalbaseicm) === 35 && Number(nfTotBody.totalicm) === 7.7 &&
+        Number(nfTotBody.totalipi) === 1.75 && Number(nfTotBody.totalicm_st) === 3.24,
+      { status: nfTot.status, totais: { tb: nfTotBody.totalbaseicm, ti: nfTotBody.totalicm, tipi: nfTotBody.totalipi, tst: nfTotBody.totalicm_st } },
+    );
   } finally {
     await app.close();
     await pg.stop();

@@ -15,6 +15,6 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     PrecificacaoProdutoService,
     DatabaseProvider,
   ],
-  exports: [PrecoService, FiscalPricingService, PrecificacaoProdutoService],
+  exports: [PrecoService, FiscalPricingService, PrecificacaoProdutoService, TributacaoRepository],
 })
 export class PrecificacaoModule {}

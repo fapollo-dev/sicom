@@ -17,8 +17,11 @@ import { FamiliasCrudController } from './familias.crud';
 import { AliquotaCrudController } from './aliquota.crud';
 import { SituacaoNfCrudController } from './situacao-nf.crud';
 import { CfopCrudController } from './cfop.crud';
+import { NfFiscalController } from './nf-fiscal.controller';
+import { NfFiscalService } from './nf-fiscal.service';
 import { CepController } from './cep.controller';
 import { DatabaseProvider } from '../../shared/database/database.provider';
+import { PrecificacaoModule } from '../precificacao/precificacao.module';
 
 /**
  * Cadastros. Bancos é hand-written (piloto de referência, com golden de runtime).
@@ -26,6 +29,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
  * cada uma é só uma config; o engine herda auditoria/soft-delete/outbox/RBAC.
  */
 @Module({
+  imports: [PrecificacaoModule], // reuso do motor fiscal (TributacaoRepository/FiscalPricingService) na NF F2
   controllers: [
     BancosController, // hand-written (referência + paridade SQL + golden)
     OperacoesContaCrudController, // engine (combo)
@@ -43,9 +47,10 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     AliquotaCrudController, // engine (catálogo fiscal; chave natural CODIGO)
     SituacaoNfCrudController, // engine (lookup da NF: natureza do documento)
     CfopCrudController, // engine (lookup da NF: CFOP; chave natural)
+    NfFiscalController, // F2 — recálculo fiscal por item (POST /fiscal/nf/recalcular), reusa precificacao
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
-  providers: [BancosService, BancoRepository, DatabaseProvider],
+  providers: [BancosService, BancoRepository, DatabaseProvider, NfFiscalService],
   exports: [BancosService],
 })
 export class CadastroModule {}

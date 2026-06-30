@@ -21,7 +21,9 @@ import { DateField } from '../../shared/ui/DateField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { Button } from '../../shared/ui/Button';
 import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
+import { useMensagem } from '../../shared/mensagem';
 import { NfItemModal } from './NfItemModal';
+import { recalcularNf } from './nfFiscalApi';
 
 /** Tipo da nota (parametrização Entrada/Saída — espelha o `ParametroCriacao` 35/36 do legado). */
 export type NfTipo = 'E' | 'S';
@@ -335,16 +337,42 @@ function ItensSection({
   aliquotaOptions: Opcao[];
   unidadeOptions: Opcao[];
 }) {
-  const { fields, append, update, remove } = useFieldArray<CriarNfDto, 'itens', 'fieldId'>({
+  const { fields, append, update, remove, replace } = useFieldArray<CriarNfDto, 'itens', 'fieldId'>({
     control: form.control,
     name: 'itens',
     keyName: 'fieldId',
   });
   const [editIdx, setEditIdx] = useState<number | null>(null);
+  const mensagem = useMensagem();
+  const [recalculando, setRecalculando] = useState(false);
 
   // próximo NROITEM (máx+1) — espelha o cálculo do btnAddItem do legado.
   const proximoNroItem = () =>
     (fields as NfItemDto[]).reduce((m, it) => Math.max(m, Number(it.nroitem) || 0), 0) + 1;
+
+  /**
+   * "Recalcular impostos" (F2) — REUSO do motor: POST /fiscal/nf/recalcular com o dto atual
+   * (header + itens) → devolve os itens com ICMS próprio + ICMS-ST + IPI calculados; aplica de
+   * volta no field-array (os totais do header são re-somados server-side ao gravar). PURO: não grava.
+   */
+  const recalcular = async () => {
+    if (recalculando) return; // guarda de reentrância
+    if (!fields.length) {
+      mensagem.erro('Adicione itens à nota antes de recalcular os impostos.');
+      return;
+    }
+    setRecalculando(true);
+    try {
+      const dto = form.getValues();
+      const r = await recalcularNf(dto as CriarNfDto);
+      replace((r.itens ?? []) as NfItemDto[]);
+      mensagem.sucesso('Impostos recalculados. Confira os valores e grave a nota.');
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setRecalculando(false);
+    }
+  };
 
   const onConfirmar = (item: NfItemDto) => {
     if (editIdx == null) return;
@@ -393,7 +421,21 @@ function ItensSection({
         valueGetter: (row) => fmtBRL((Number(row.quantidade) || 0) * (Number(row.vrvenda) || 0)),
       },
       { field: 'cfop', headerName: 'CFOP', type: 'text', width: 90 },
-      { field: 'cst', headerName: 'CST', type: 'text', width: 80 },
+      { field: 'cst', headerName: 'CST', type: 'text', width: 70 },
+      {
+        field: 'vricm',
+        headerName: 'ICMS',
+        type: 'text',
+        width: 110,
+        valueGetter: (row) => fmtBRL(Number(row.vricm) || 0),
+      },
+      {
+        field: 'vricmst',
+        headerName: 'ICMS-ST',
+        type: 'text',
+        width: 110,
+        valueGetter: (row) => fmtBRL(Number(row.vricmst) || 0),
+      },
       {
         field: 'acoes',
         headerName: '',
@@ -429,8 +471,10 @@ function ItensSection({
     <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
       <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Itens da nota</legend>
       <div className="flex flex-col gap-gp-sm">
-        <div>
+        <div className="flex flex-wrap gap-gp-sm">
           <Button label="Adicionar &item" variant="soft" onClick={() => setEditIdx(-1)} />
+          {/* F2 — recálculo fiscal por item (reusa o motor precificacao); puro, não grava. */}
+          <Button label="Recalcular &impostos" variant="soft" onClick={() => void recalcular()} />
         </div>
 
         {fields.length === 0 ? (

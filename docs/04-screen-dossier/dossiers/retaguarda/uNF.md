@@ -4,7 +4,7 @@
 >
 > Síntese de 5 inspeções profundas isoladas (2026-06-29): (1) modelo de dados + Oracle, (2) fluxo/UI/ciclo de vida, (3) fiscal/impostos + reuso, (4) efeitos estoque/financeiro/contábil, (5) NFe/NFC-e/TEF. Procedência citada como `[arquivo:Lnnn]` / `[Oracle-dict]` / `[trigger:Lnnn]`.
 >
-> **Status:** `F1 implementada e verde` (núcleo cadastro, SEM efeitos). Recon (5 inspeções) + dossiê + plano aprovado + build com 2 auditorias adversariais (sem-efeitos: CONFIRMADO; paridade/colunas: desvios de NOT NULL corrigidos). Verde: shared build, api/web `tsc`, **API 123 testes**, **web 25 testes**, **smoke 77/0** (inclui prova de que a NF não move estoque). F2..F6 (fiscal/estoque/financeiro/contábil/SEFAZ) são fases dedicadas. **Nada pode dar errado** — efeitos e transmissão preservados aqui e desligados na F1.
+> **Status:** `F1+F2 implementadas e verdes`. **F1** = núcleo cadastro, SEM efeitos. **F2** = cálculo fiscal por item de entrada (ICMS próprio + ICMS-ST clássico + IPI), REUSANDO o motor `precificacao` via `POST /fiscal/nf/recalcular` (puro — não grava). Recon (5+2 inspeções) + 4 auditorias adversariais. Auditoria F2 pegou e corrigiu um bug crítico (ICMS aplicava a redução de base 2× — `vricm` usava a alíquota efetiva; o correto é a **destacada** sobre a base já reduzida) + guarda de bonificação-sem-ST; ambos com regressão no smoke. Verde: shared build, api/web `tsc`, **API 123 testes**, **web 25 testes**, **smoke 82/0** (NF não move estoque; recalcular não grava; redução de base correta). F3..F6 (estoque/financeiro/contábil/SEFAZ) são fases dedicadas. **Nada pode dar errado** — efeitos e transmissão preservados aqui e desligados; o motor fiscal é reusado, não reinventado.
 
 ---
 
@@ -222,8 +222,18 @@ A recon §4 subdocumentou alguns NOT NULL; auditoria adversarial conferiu no Ora
 - **"Total NF" em entrada** (`VALIDATOTALNF`, "É necessário informar o campo total NF…", `uNF.pas:4651`): na F1 o `totalnf` é **derivado server-side** (Σ itens) — a conferência manual de digitação do total é **substituída pela derivação**; reavaliar na F2 se a conferência operador-informado-vs-calculado é desejada.
 - **STATUSNFE='T'** (NF de terceiros importada trava edição via `EdicaoNFTerceirosLiberada`): a F1 trava digitação manual de terceiros M55 no insert (`validaTerceirosM55`), mas o **lock de update por `statusnfe='T'`** entra na **F6** (quando a importação de XML existir; hoje 'T' não ocorre sem importação).
 
+### F2 — ENTREGUE e verde (cálculo fiscal por item, corte 1; reuso do motor `precificacao`)
+Ação **"Recalcular impostos"** = `POST /fiscal/nf/recalcular` (`NfFiscalService`, **puro — não grava**; a tela aplica o resultado e o save do agregado persiste). Migration `026_nf_fiscal.sql` (ALTER `nf_prod` ADD `bcr`/`vripi`/`geraicm_*`; seed `det_aliquota` p/ MA). Implementado, verbatim do legado:
+- **ICMS próprio:** `vrbasecalculo = round(TOTALPRODS·BCR/100 + complemento)`; **`vricm = round(vrbasecalculo·ICM/100)`** — a alíquota **DESTACADA** (`a.icm`) sobre a base já reduzida; a redução vive UMA vez no BCR (auditoria pegou o bug de usar a efetiva → dupla redução; corrigido + teste T20). `a.icmEfetivo` é só exibição/crédito.
+- **IPI:** `vripi = round(TOTALPRODS·ipi%/100)` (`ipi`=alíquota %, `vripi`=valor).
+- **Zeramento de crédito** por CFOP/CST (`x401/x403/x933/x556`; `x101/x102`+CST 40/90; `1910/2910` não-T).
+- **ICMS-ST clássico** via `resolverIndexador`+`FiscalPricingService.calcularIcmsSt` (reuso), só p/ a lista de CFOPs + `mva>0`, **com guarda de bonificação** (CFOP 19xx/29xx só com CST 10/70/60).
+- **CST** de `det_aliquota.cst`; **totais do header** por Σ (`derivar`). **UF** da nota (parceiro→parceiros_end.uf).
+
 ### Adiado (documentado, nada perdido)
-- **F2 fiscal:** verdade fiscal por item + extensões de motor (MVA ajustado, redução BC, IPI, rateio, FCP) + NF_PROD_LOTE + serviço/ISS + colunas `CST/ICMS/IPI/ALIQUOTA/CFOP/MARKUP/BCR`.
+- **F2b fiscal (refino):** MVA **ajustado** interestadual (`GetMVAAjustado:276`); redução de BC-ST (REDCOM) e BC própria encadeada; ST a recolher **SN-vs-LR + crédito + Lei 3166**; **rateio fino** (`RateioNota`); **figura fiscal completa** (CFOP derivado/CSOSN); **modo-truncar** (flag `ARREDONDA` por item — hoje `round2` half-up, divergência ≤1 centavo); gate `APROVEITAMENTO_CREDITO_ICMSST_NF` (config por tenant); `DEPSACESS` separado de `vroutrasdesp`; colunas `MARKUP` (precificação) e NF_PROD_LOTE; serviço/ISS.
+- **DIFAL/partilha + FCP/FCP-ST** (lib externa `TICMSUFDest`) → F3+.
+- **PIS/COFINS valor** fiscal → SPED (fase própria).
 - **F3 estoque:** flip PROC→estoque (trigger `ESTOQUE_NOTAS` fiel: sentido/origem/decomposição/composição/reversão) — liga ao Produto F5.
 - **F4 financeiro:** FATURAMENTO → ARECEBER/APAGAR (parcelas/condição pgto/retenções/funrural/acordo), NF_FORMA_PAGAMENTO, exclusão/trava de baixa.
 - **F5 contábil:** CODCONTABILNF + DIARIO (depende de plano de contas/integração).
