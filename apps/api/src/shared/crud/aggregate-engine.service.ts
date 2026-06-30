@@ -123,6 +123,7 @@ export class AggregateEngineService extends CrudEngineService {
 
   /** exclui o agregado em CASCATA (itens primeiro, depois master), numa transação. */
   async removeAggregate(cfg: AggregateConfig, id: number): Promise<void> {
+    if (cfg.validarRemocao) await cfg.validarRemocao({ id, db: this.dbp.forTenantRead() }); // guarda de exclusão (cross-row)
     const op = currentTenant().operadorId ?? null;
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       // cascata em código (como TfrmCadMasterDet) — não depende do ON DELETE CASCADE

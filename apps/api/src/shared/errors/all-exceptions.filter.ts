@@ -172,7 +172,8 @@ const CODE_PT: Record<string, string> = {
   NF_NAO_ENCONTRADA: 'Nota fiscal não encontrada no sistema.',
   NF_JA_PROCESSADA: 'A nota selecionada já está processada!',
   NF_NAO_PROCESSADA: 'A nota fiscal não está processada.',
-  NF_CANCELADA: 'Nota fiscal cancelada não pode ser processada.',
+  NF_CANCELADA: 'Nota fiscal cancelada não pode ser modificada nem excluída.',
+  NF_TEM_FATURAMENTO: 'Estorne o faturamento antes de excluir/editar a nota fiscal.',
   NF_ESTOQUE_NEGATIVO:
     'Processamento de Nota Fiscal não permitido, pois com sua emissão o estoque ficará negativo.',
   // faturamento / financeiro (F4)

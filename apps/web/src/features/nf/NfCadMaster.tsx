@@ -138,8 +138,11 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
         const proc = form.watch('proc');
         const statusnfe = form.watch('statusnfe');
         const contabilizado = form.watch('contabilizado');
+        const cancelada = form.watch('cancelada');
+        const faturada = form.watch('faturada');
         const travado =
-          proc === 'S' || contabilizado === 'S' || statusnfe === 'P' || statusnfe === 'D';
+          proc === 'S' || contabilizado === 'S' || faturada === 'S' ||
+          cancelada === 'S' || statusnfe === 'P' || statusnfe === 'D' || statusnfe === 'C';
         const liberado = editavel && !travado;
         return (
           <div className="flex flex-col gap-form-gap">
@@ -149,8 +152,17 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
             <FaturamentoSection form={form} tipo={tipo} />
             {travado && (
               <div className="rounded-radius-base border border-border bg-bg-subtle p-pad-sm text-fg-muted">
-                Nota {proc === 'S' ? 'processada' : contabilizado === 'S' ? 'contabilizada' : 'enviada à Receita'} —
-                edição bloqueada.
+                Nota{' '}
+                {proc === 'S'
+                  ? 'processada'
+                  : faturada === 'S'
+                    ? 'faturada'
+                    : cancelada === 'S' || statusnfe === 'C'
+                      ? 'cancelada'
+                      : contabilizado === 'S'
+                        ? 'contabilizada'
+                        : 'enviada à Receita'}{' '}
+                — edição bloqueada.
               </div>
             )}
             <CabecalhoSection

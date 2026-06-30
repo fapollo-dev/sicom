@@ -97,19 +97,23 @@ export const nfAggregateConfig: AggregateConfig = {
     const emp = currentTenant().empresaId ?? null;
 
     // estado atual (update): travas de edição por estado + fallback dos campos da chave.
+    // Espelha NotaEletronica/btnEditar do legado: NF processada/contabilizada/faturada/enviada/
+    // cancelada é read-only (editar deixaria efeitos dessincronizados).
     let atual:
-      | { proc?: string; statusnfe?: string; contabilizado?: string; nronf?: string; serie?: string; modelo?: number; tipo?: string; codparceiro?: number }
+      | { proc?: string; statusnfe?: string; contabilizado?: string; cancelada?: string; faturada?: string; nronf?: string; serie?: string; modelo?: number; tipo?: string; codparceiro?: number }
       | undefined;
     if (id != null) {
       atual = (await db
         .selectFrom('nf')
-        .select(['proc', 'statusnfe', 'contabilizado', 'nronf', 'serie', 'modelo', 'tipo', 'codparceiro'])
+        .select(['proc', 'statusnfe', 'contabilizado', 'cancelada', 'faturada', 'nronf', 'serie', 'modelo', 'tipo', 'codparceiro'])
         .where('codnf', '=', id)
         .where('idempresa', '=', emp)
         .executeTakeFirst()) as typeof atual;
       if (atual) {
         if (atual.proc === 'S') throw new BusinessRuleError('NF_PROCESSADA');
+        if (atual.faturada === 'S') throw new BusinessRuleError('NF_TEM_FATURAMENTO');
         if (atual.contabilizado === 'S') throw new BusinessRuleError('NF_CONTABILIZADA');
+        if (atual.cancelada === 'S' || atual.statusnfe === 'C') throw new BusinessRuleError('NF_CANCELADA');
         if (atual.statusnfe === 'P' || atual.statusnfe === 'D') throw new BusinessRuleError('NF_ENVIADA');
       }
     }
@@ -134,6 +138,26 @@ export const nfAggregateConfig: AggregateConfig = {
       const dup = await q.executeTakeFirst();
       if (dup) throw new BusinessRuleError('NF_DUPLICADA');
     }
+  },
+  // Guarda de EXCLUSÃO (btnExcluir do legado): não apagar NF com efeitos — apagar deixaria
+  // estoque movido e títulos órfãos. Exige reverter (F3) / estornar (F4) antes. (Travas de
+  // referência por outras NFs e devoluções emitidas → adiadas, dossiê §10.)
+  validarRemocao: async ({ id, db }) => {
+    const emp = currentTenant().empresaId ?? null;
+    const nf = (await db
+      .selectFrom('nf')
+      .select(['proc', 'faturada', 'contabilizado', 'statusnfe', 'cancelada'])
+      .where('codnf', '=', id)
+      .where('idempresa', '=', emp)
+      .executeTakeFirst()) as
+      | { proc?: string; faturada?: string; contabilizado?: string; statusnfe?: string; cancelada?: string }
+      | undefined;
+    if (!nf) return; // not-found é tratado pelo fluxo normal
+    if (nf.proc === 'S') throw new BusinessRuleError('NF_PROCESSADA'); // reverter o processamento antes
+    if (nf.faturada === 'S') throw new BusinessRuleError('NF_TEM_FATURAMENTO'); // estornar o faturamento antes
+    if (nf.contabilizado === 'S') throw new BusinessRuleError('NF_CONTABILIZADA');
+    if (nf.cancelada === 'S' || nf.statusnfe === 'C') throw new BusinessRuleError('NF_CANCELADA');
+    if (nf.statusnfe === 'P' || nf.statusnfe === 'D') throw new BusinessRuleError('NF_ENVIADA');
   },
   detalhes: [
     {

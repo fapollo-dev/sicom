@@ -21,7 +21,9 @@ const num = (v: unknown): number => {
  *  - gatilho: PROC 'N'->'S' (processar) / 'S'->'N' (reverter), COALESCE(ALTERAESTOQUEREVERSAO,'S')='S'
  *  - QTDEX = QUANTIDADE * FATOREMBAL; entrada (+QTDEX) / saída (−QTDEX); estorno = inverso
  *  - UPDATE ESTOQUE SET QTDE = QTDE + QTDEX WHERE IDPRODUTO=x AND IDEMPRESA=emp (loja)
- *  - guardas: GERAQTDE (produto) + GERAESTOQUE + MOVIMENTA_ESTOQUE (item) = 'S'
+ *  - guarda: na trigger é só GERAESTOQUE='S' (= GERAQTDE OR DEPOSITO OR PRODUCAO; MOVIMENTA_ESTOQUE
+ *    é carregado mas não gateia o ramo loja). Aqui exigimos GERAQTDE & GERAESTOQUE & MOVIMENTA_ESTOQUE
+ *    = 'S' — MAIS restritivo (conservador): só PULA o movimento, nunca o inventa.
  *
  * Segurança: o banco legado NÃO impede negativo e a validação de cabeçalho está comentada —
  * aqui BLOQUEAMOS negativo por padrão (postura conservadora). Incremento SEMPRE relativo

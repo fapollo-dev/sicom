@@ -253,15 +253,50 @@ const validaTerceirosM55 = (d: { tipoemissao?: string; modelo?: number }, ctx: z
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message:
-        'Não é permitido inserir manualmente notas fiscais de terceiros, Modelo 55. Importe ou Recupere o XML.',
+        'Não é permitido inserir manualmente notas fiscais de terceiros, Modelo 55. Importe ou Recupere o XML, ou utilize o Importador de XML automático.',
       path: ['modelo'],
     });
   }
 };
 
+/** Devolução (FINALIDADE='4') exige documento referenciado (uProcessaNotaFiscal.pas). */
+const validaDevolucao = (
+  d: { finalidade?: string; referencias?: unknown[] },
+  ctx: z.RefinementCtx,
+) => {
+  if (d.finalidade === '4' && !(Array.isArray(d.referencias) && d.referencias.length > 0)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Nota fiscal de devolução sem documento referenciado. Verifique.',
+      path: ['referencias'],
+    });
+  }
+};
+
+/** CFOP do item deve ter o mesmo 1º dígito do CFOP da nota (uItensNF.pas / uNF.pas). */
+const validaCfopItemNota = (
+  d: { cfop?: string; itens?: { cfop?: string }[] },
+  ctx: z.RefinementCtx,
+) => {
+  const cab = (d.cfop ?? '').trim();
+  if (!cab) return;
+  (d.itens ?? []).forEach((it, i) => {
+    const ic = (it.cfop ?? '').trim();
+    if (ic && ic[0] !== cab[0]) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'O início do CFOP dos itens deve ser igual ao início do CFOP da nota fiscal. Verifique!',
+        path: ['itens', i, 'cfop'],
+      });
+    }
+  });
+};
+
 export const nfSchema = z.preprocess(stripNulls, nfBase).superRefine((d, ctx) => {
   validaDatas(d, ctx);
   validaTerceirosM55(d, ctx);
+  validaDevolucao(d, ctx);
+  validaCfopItemNota(d, ctx);
   if (!d.itens || d.itens.length === 0) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -275,6 +310,8 @@ export type CriarNfDto = z.infer<typeof nfSchema>;
 export const atualizarNfSchema = z.preprocess(stripNulls, nfBase.partial()).superRefine((d, ctx) => {
   validaDatas(d as { dtemissao?: string; dtcontabil?: string }, ctx);
   validaTerceirosM55(d as { tipoemissao?: string; modelo?: number }, ctx);
+  validaDevolucao(d as { finalidade?: string; referencias?: unknown[] }, ctx);
+  validaCfopItemNota(d as { cfop?: string; itens?: { cfop?: string }[] }, ctx);
 });
 export type AtualizarNfDto = z.infer<typeof atualizarNfSchema>;
 

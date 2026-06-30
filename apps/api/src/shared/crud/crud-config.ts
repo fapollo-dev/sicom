@@ -91,6 +91,13 @@ export interface AggregateConfig extends CrudConfig {
    * componente de algum kit (COMPOSICAO.idproduto_01). Roda no create e no update, antes da escrita.
    */
   validar?: (ctx: { dto: Record<string, unknown>; id?: number; db: any }) => Promise<void> | void;
+  /**
+   * Validação de REGRA DE NEGÓCIO antes de EXCLUIR (espelha as guardas do btnExcluir do legado
+   * que impedem apagar um documento com efeitos: ex.: NF já processada/faturada/enviada — apagar
+   * deixaria estoque movido e títulos órfãos). Recebe o id e um db de leitura; deve LANÇAR p/
+   * bloquear. Roda no início do removeAggregate, antes da cascata.
+   */
+  validarRemocao?: (ctx: { id: number; db: any }) => Promise<void> | void;
 }
 
 /** Operadores da Pesquisa (espelham os TTipoPesquisa do frmPesquisa). */

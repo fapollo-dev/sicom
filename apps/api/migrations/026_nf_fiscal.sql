@@ -5,7 +5,7 @@
 -- + TributacaoRepository); nada de motor novo. Doc: dossiê uNF.md §7/§10.
 
 -- Colunas fiscais por item (destaque). `ipi` (já em 025) é a ALÍQUOTA %; `vripi` é o valor.
-ALTER TABLE nf_prod ADD COLUMN IF NOT EXISTS bcr   numeric(7,2);            -- % base reduzida ICMS (legado NF_PROD.BCR)
+ALTER TABLE nf_prod ADD COLUMN IF NOT EXISTS bcr   numeric(13,4);          -- % base reduzida ICMS (legado NF_PROD.BCR NUMBER(13,4))
 ALTER TABLE nf_prod ADD COLUMN IF NOT EXISTS vripi numeric(13,2) DEFAULT 0; -- valor do IPI (= TOTALPRODS * ipi% / 100)
 -- flags GERAICM_* (compõem a base do ICMS próprio); default 'N' = caso revenda dominante.
 ALTER TABLE nf_prod ADD COLUMN IF NOT EXISTS geraicm_ipi   char(1) DEFAULT 'N';
