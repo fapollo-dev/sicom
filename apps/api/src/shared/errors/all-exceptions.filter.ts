@@ -168,6 +168,13 @@ const CODE_PT: Record<string, string> = {
   NF_CONTABILIZADA: 'Documento contabilizado. Não é permitido editar.',
   NF_ENVIADA: 'Nota fiscal já enviada para receita.',
   NF_DUPLICADA: 'Esta nota fiscal já está lançada com o mesmo número e o mesmo fornecedor.',
+  // processamento / movimento de estoque (F3)
+  NF_NAO_ENCONTRADA: 'Nota fiscal não encontrada no sistema.',
+  NF_JA_PROCESSADA: 'A nota selecionada já está processada!',
+  NF_NAO_PROCESSADA: 'A nota fiscal não está processada.',
+  NF_CANCELADA: 'Nota fiscal cancelada não pode ser processada.',
+  NF_ESTOQUE_NEGATIVO:
+    'Processamento de Nota Fiscal não permitido, pois com sua emissão o estoque ficará negativo.',
   // autorização
   TENANT_FORBIDDEN: 'Acesso negado: empresa/tenant não autorizado.',
   SEM_PERMISSAO: 'Você não tem permissão para executar esta ação.',

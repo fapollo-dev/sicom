@@ -103,6 +103,9 @@ export const nfItemSchema = z.object({
   ),
   fatorembal: dec(z.number().positive('Fator de embalagem inválido')),
   unidade: z.string().trim().max(2).optional(),
+  // F3 — guardas de movimento de estoque (default 'S' no banco); permitem item que não move físico
+  geraestoque: sn().optional(),
+  movimenta_estoque: sn().optional(),
   vrvenda: dec(z.number().nonnegative('Valor de venda inválido')),
   vrcusto: dec(z.number().nonnegative('Custo inválido')),
   desconto: dec(z.number().nonnegative('Desconto inválido')),

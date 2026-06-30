@@ -24,6 +24,7 @@ import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResour
 import { useMensagem } from '../../shared/mensagem';
 import { NfItemModal } from './NfItemModal';
 import { recalcularNf } from './nfFiscalApi';
+import { processarNf, reverterNf } from './nfProcessamentoApi';
 
 /** Tipo da nota (parametrização Entrada/Saída — espelha o `ParametroCriacao` 35/36 do legado). */
 export type NfTipo = 'E' | 'S';
@@ -141,6 +142,8 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
         const liberado = editavel && !travado;
         return (
           <div className="flex flex-col gap-form-gap">
+            {/* F3 — processar/reverter (move estoque). Fora do gate `liberado` (age na nota travada). */}
+            <ProcessamentoSection form={form} />
             {travado && (
               <div className="rounded-radius-base border border-border bg-bg-subtle p-pad-sm text-fg-muted">
                 Nota {proc === 'S' ? 'processada' : contabilizado === 'S' ? 'contabilizada' : 'enviada à Receita'} —
@@ -171,6 +174,72 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
         );
       }}
     />
+  );
+}
+
+// ───────────────────────────── Processamento (F3) ─────────────────────────────
+
+/**
+ * Ações de PROCESSAMENTO (F3): movem o estoque (entrada soma / saída baixa) e travam a nota.
+ * Só aparece em nota SALVA (codnf). "Processar" quando proc='N'; "Reverter" quando proc='S' e
+ * a nota não foi enviada à SEFAZ (statusnfe P/D bloqueia — o back também rejeita). PURO na UI:
+ * o efeito é server-side/atômico; aqui só refletimos o novo estado (proc) p/ a tela travar.
+ */
+function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
+  const mensagem = useMensagem();
+  const [executando, setExecutando] = useState(false);
+  const proc = form.watch('proc');
+  const statusnfe = form.watch('statusnfe');
+  const codnf = (form.getValues() as { codnf?: number }).codnf;
+  if (codnf == null) return null; // só em nota já gravada
+
+  const enviada = statusnfe === 'P' || statusnfe === 'D';
+
+  const processar = async () => {
+    if (executando) return;
+    setExecutando(true);
+    try {
+      await processarNf(codnf);
+      form.setValue('proc', 'S');
+      mensagem.sucesso('Nota processada: estoque movimentado.');
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  const reverter = async () => {
+    if (executando) return;
+    if (!window.confirm('Ao reverter o processamento, o estoque será revertido. Confirma a operação?')) return;
+    setExecutando(true);
+    try {
+      await reverterNf(codnf);
+      form.setValue('proc', 'N');
+      mensagem.sucesso('Processamento revertido: estoque estornado.');
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  return (
+    <fieldset className="rounded-radius-md border border-border p-pad-md">
+      <legend className="px-pad-xs text-fg-muted">Processamento</legend>
+      <div className="flex flex-wrap items-center gap-gp-sm">
+        {proc !== 'S' && (
+          <Button label="&Processar nota" variant="soft" onClick={() => void processar()} />
+        )}
+        {proc === 'S' && !enviada && (
+          <Button label="&Reverter processamento" variant="soft" onClick={() => void reverter()} />
+        )}
+        <small className="text-fg-muted">
+          {proc === 'S' ? 'Nota processada (estoque movimentado).' : 'Nota não processada.'}
+          {enviada ? ' Enviada à SEFAZ — reversão bloqueada.' : ''}
+        </small>
+      </div>
+    </fieldset>
   );
 }
 

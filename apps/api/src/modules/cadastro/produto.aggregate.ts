@@ -30,7 +30,7 @@ export const produtoAggregateConfig: AggregateConfig = {
     // unidade/balança/validade
     'balanca', 'codbalanca', 'fatorkg', 'peso', 'fatorcx', 'validade', 'controle_validade',
     // controle / auto-relacionamento
-    'ativo', 'ativo_compra', 'idproduto_pai', 'fator_filho',
+    'ativo', 'ativo_compra', 'idproduto_pai', 'fator_filho', 'geraqtde',
     // F4 — flags de kit/BOM (derivadas por derivar() conforme presença de itens)
     'composicao', 'decomposicao', 'receita',
     // F4b — nutricional (rotulagem)

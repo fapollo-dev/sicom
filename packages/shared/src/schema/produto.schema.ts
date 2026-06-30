@@ -202,6 +202,7 @@ const produtoBase = z.object({
   // controle / auto-relacionamento
   ativo: sn().default('S'),
   ativo_compra: sn().default('S'),
+  geraqtde: sn().optional(), // F3 (NF): controla se o produto movimenta estoque (default 'S' no banco)
   idproduto_pai: z.number().int().optional(),
   fator_filho: dec(z.number().nonnegative('Fator do filho inválido')),
   // F4 — flags de kit/BOM (derivadas server-side da presença de itens; round-trip)

@@ -143,6 +143,7 @@ export const nfAggregateConfig: AggregateConfig = {
       chave: 'itens',
       colunas: [
         'nroitem', 'codproduto', 'codprodnota', 'quantidade', 'fatorembal', 'unidade',
+        'geraestoque', 'movimenta_estoque',
         'vrvenda', 'vrcusto', 'desconto', 'vrdescprod', 'bonificacao',
         'cfop', 'ncm', 'cest', 'origem_estoque', 'aliquota', 'icms', 'cst', 'csosn',
         'bcr', 'vrbasecalculo', 'vricm', 'icme', 'mva', 'vrbasest', 'vricmst', 'streal',

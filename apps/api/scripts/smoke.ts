@@ -797,6 +797,84 @@ async function main() {
     const nfDel = await fetch(`${base}/fiscal/nf/${nfId}`, { method: 'DELETE', headers: H });
     check('DELETE /fiscal/nf remove em cascata (204)', nfDel.status === 204, nfDel.status);
 
+    // 18) NF F3 — PROCESSAMENTO (move estoque atômico). A fase mais perigosa.
+    const saldoProd1 = async (): Promise<number> => {
+      const p = (await (await fetch(`${base}/cadastro/produtos/1`, { headers: H })).json()) as any;
+      return Number((p?.estoques ?? []).find((e: any) => e.idempresa === 1)?.qtde);
+    };
+    const novaNf = async (body: Record<string, unknown>): Promise<number> => {
+      const r = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify(body) });
+      return Number(((await r.json()) as any).codnf);
+    };
+    const itemP1 = (q: number) => ({ codproduto: 1, quantidade: q, vrvenda: 3.5, cfop: '1102', aliquota: 'T01' });
+    const baseNf = (extra: Record<string, unknown>) => ({
+      modelo: 55, serie: '1', dtemissao: '2026-06-12', dtcontabil: '2026-06-12', tipoemissao: '0', cfop: '1102', ...extra,
+    });
+
+    // 18.1) ENTRADA processada SOMA o saldo (120 -> +10) e trava a nota (proc='S').
+    const s0 = await saldoProd1();
+    const nfEnt = await novaNf(baseNf({ tipo: 'E', nronf: 'P3001', codparceiro: 22, itens: [itemP1(10)] }));
+    const proc1 = await fetch(`${base}/fiscal/nf/${nfEnt}/processar`, { method: 'POST', headers: H });
+    const s1 = await saldoProd1();
+    const nfEntRead = (await (await fetch(`${base}/fiscal/nf/${nfEnt}`, { headers: H })).json()) as any;
+    check(
+      'POST /fiscal/nf/:id/processar (entrada) SOMA o estoque (+10) e seta proc=S',
+      proc1.status === 200 && s1 === s0 + 10 && nfEntRead.proc === 'S',
+      { status: proc1.status, s0, s1, proc: nfEntRead.proc },
+    );
+
+    // 18.2) processar 2x → 422 NF_JA_PROCESSADA (idempotência), saldo inalterado.
+    const proc1b = await fetch(`${base}/fiscal/nf/${nfEnt}/processar`, { method: 'POST', headers: H });
+    const proc1bBody = (await proc1b.json().catch(() => ({}))) as any;
+    check(
+      'processar nota já processada → 422 NF_JA_PROCESSADA (não move 2x), nunca 500',
+      proc1b.status === 422 && proc1bBody.code === 'NF_JA_PROCESSADA' && (await saldoProd1()) === s1,
+      { status: proc1b.status, code: proc1bBody.code },
+    );
+
+    // 18.3) REVERTER devolve o saldo (-10 de volta) e proc='N'.
+    const rev1 = await fetch(`${base}/fiscal/nf/${nfEnt}/reverter`, { method: 'POST', headers: H });
+    const s2 = await saldoProd1();
+    const nfEntRead2 = (await (await fetch(`${base}/fiscal/nf/${nfEnt}`, { headers: H })).json()) as any;
+    check(
+      'POST /fiscal/nf/:id/reverter estorna o estoque (volta a ' + s0 + ') e seta proc=N',
+      rev1.status === 200 && s2 === s0 && nfEntRead2.proc === 'N',
+      { status: rev1.status, s2, proc: nfEntRead2.proc },
+    );
+
+    // 18.4) SAÍDA processada BAIXA o saldo (-2).
+    const nfSai = await novaNf(baseNf({ tipo: 'S', nronf: 'P4001', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 2, vrvenda: 4.2, cfop: '5102', aliquota: 'T01' }] }));
+    const procS = await fetch(`${base}/fiscal/nf/${nfSai}/processar`, { method: 'POST', headers: H });
+    const s3 = await saldoProd1();
+    check('processar (saída) BAIXA o estoque (−2)', procS.status === 200 && s3 === s0 - 2, { status: procS.status, s3, esperado: s0 - 2 });
+
+    // 18.5) NEGATIVO bloqueia: saída maior que o saldo → 422, saldo INALTERADO (rollback atômico).
+    const nfNeg = await novaNf(baseNf({ tipo: 'S', nronf: 'P4002', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 999999, vrvenda: 1, cfop: '5102', aliquota: 'T01' }] }));
+    const procNeg = await fetch(`${base}/fiscal/nf/${nfNeg}/processar`, { method: 'POST', headers: H });
+    const procNegBody = (await procNeg.json().catch(() => ({}))) as any;
+    const s4 = await saldoProd1();
+    check(
+      'processar saída que deixaria saldo negativo → 422 NF_ESTOQUE_NEGATIVO, saldo INALTERADO (rollback)',
+      procNeg.status === 422 && procNegBody.code === 'NF_ESTOQUE_NEGATIVO' && s4 === s3 && procNeg.status !== 500,
+      { status: procNeg.status, code: procNegBody.code, s4, s3 },
+    );
+
+    // 18.6) REVERTER bloqueado se enviada à SEFAZ: processa NF com statusnfe='P' e tenta reverter.
+    const nfEnvSef = await novaNf(baseNf({ tipo: 'E', nronf: 'P5001', codparceiro: 22, statusnfe: 'P', itens: [itemP1(1)] }));
+    await fetch(`${base}/fiscal/nf/${nfEnvSef}/processar`, { method: 'POST', headers: H }); // proc -> 'S'
+    const revEnv = await fetch(`${base}/fiscal/nf/${nfEnvSef}/reverter`, { method: 'POST', headers: H });
+    const revEnvBody = (await revEnv.json().catch(() => ({}))) as any;
+    check(
+      'reverter NF enviada à SEFAZ (statusnfe=P) → 422 NF_ENVIADA, nunca 500',
+      revEnv.status === 422 && revEnvBody.code === 'NF_ENVIADA',
+      { status: revEnv.status, code: revEnvBody.code },
+    );
+
+    // 18.7) F1/F2 INTACTAS: gravar a NF (sem processar) NÃO move estoque.
+    const s5 = await saldoProd1();
+    await novaNf(baseNf({ tipo: 'E', nronf: 'P6001', codparceiro: 22, itens: [itemP1(50)] }));
+    check('gravar NF (sem processar) NÃO move estoque (invariante F1/F2)', (await saldoProd1()) === s5, { s5, depois: await saldoProd1() });
+
     // 17) NF F2 — RECÁLCULO fiscal por item (REUSO do motor precificacao). PURO (não grava).
     // 17.1) recalcular: parceiro 22 (UF=MA, seed 026), item T01 (ICMS próprio + IPI) + item STB/CFOP-ST.
     const recalc = await fetch(`${base}/fiscal/nf/recalcular`, {
