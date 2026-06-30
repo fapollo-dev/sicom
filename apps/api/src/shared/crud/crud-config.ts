@@ -61,6 +61,20 @@ export interface DetalheConfig {
   colunas: string[]; // colunas editáveis do item, ex.: ['codrcb']
   /** propriedade no dto/registro que carrega o array de itens (ex.: 'itens') */
   chave: string;
+  /**
+   * Chave NATURAL do detalhe (colunas que identificam a linha ALÉM da fk), ex.: ['idempresa']
+   * p/ ESTOQUE. Usada com `preservar` para casar a linha do dto com a existente no banco
+   * durante o substitute (delete+insert).
+   */
+  chaveNatural?: string[];
+  /**
+   * Colunas cujo valor é OWNED pelo banco — movidas por OUTRO processo (ex.: `estoque.qtde`,
+   * movido pela NF no processamento/F3) — e que NÃO podem ser regravadas pelo valor do cliente
+   * no substitute. São lidas da linha existente (casada por `chaveNatural`, com lock) e
+   * carregadas adiante, evitando LOST-UPDATE do saldo. Sem isso, o save do cadastro clobberia
+   * o saldo movido pela NF. Requer `chaveNatural`.
+   */
+  preservar?: string[];
 }
 
 /**

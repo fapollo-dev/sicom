@@ -875,6 +875,25 @@ async function main() {
     await novaNf(baseNf({ tipo: 'E', nronf: 'P6001', codparceiro: 22, itens: [itemP1(50)] }));
     check('gravar NF (sem processar) NÃO move estoque (invariante F1/F2)', (await saldoProd1()) === s5, { s5, depois: await saldoProd1() });
 
+    // 19) FIX lost-update: o cadastro de Produto NÃO clobbera o saldo movido pela NF.
+    // O saldo (qtde) é OWNED pelo movimento; o substitute do agregado PRESERVA o valor do banco.
+    // Simula um cliente obsoleto (qtde bogus) editando minimo → qtde preservada, minimo aplicado.
+    const saldoReal = await saldoProd1();
+    const prodReg = (await (await fetch(`${base}/cadastro/produtos/1`, { headers: H })).json()) as any;
+    const estReg = (prodReg.estoques ?? []).find((e: any) => e.idempresa === 1);
+    if (estReg) {
+      estReg.qtde = 88888; // valor OBSOLETO/bogus do cliente — não pode vencer
+      estReg.minimo = 33; // campo editável — deve ser aplicado
+    }
+    const putReg = await fetch(`${base}/cadastro/produtos/1`, { method: 'PUT', headers: H, body: JSON.stringify(prodReg) });
+    const prodRegB = (await putReg.json().catch(() => ({}))) as any;
+    const estRegB = (prodRegB.estoques ?? []).find((e: any) => e.idempresa === 1);
+    check(
+      'PUT produto PRESERVA o saldo movido pela NF (qtde do banco, ignora 88888) e aplica minimo=33',
+      putReg.status === 200 && Number(estRegB?.qtde) === saldoReal && Number(estRegB?.minimo) === 33,
+      { status: putReg.status, saldoReal, qtde: estRegB?.qtde, minimo: estRegB?.minimo },
+    );
+
     // 17) NF F2 — RECÁLCULO fiscal por item (REUSO do motor precificacao). PURO (não grava).
     // 17.1) recalcular: parceiro 22 (UF=MA, seed 026), item T01 (ICMS próprio + IPI) + item STB/CFOP-ST.
     const recalc = await fetch(`${base}/fiscal/nf/recalcular`, {

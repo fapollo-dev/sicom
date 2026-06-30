@@ -74,10 +74,51 @@ export class AggregateEngineService extends CrudEngineService {
       // substituição de itens (delete + insert), por detalhe — só quando o dto traz a chave
       for (const det of cfg.detalhes) {
         if (dto[det.chave] === undefined) continue;
+        let itens = this.itens(dto, det);
+        // colunas OWNED pelo banco (ex.: estoque.qtde, movido pela NF/F3): preserva o valor
+        // ATUAL do banco em vez de regravar o (possivelmente obsoleto) valor do cliente —
+        // evita LOST-UPDATE do saldo quando um save de cadastro interleava com um movimento.
+        if (det.preservar?.length && det.chaveNatural?.length) {
+          itens = await this.preservarColunas(trx, det, id, itens);
+        }
         await trx.deleteFrom(det.tabela).where(det.fk, '=', id).execute();
-        await this.inserirItens(trx, det, id, this.itens(dto, det));
+        await this.inserirItens(trx, det, id, itens);
       }
     });
+  }
+
+  /**
+   * Para cada item, sobrescreve as colunas `preservar` com o valor da linha EXISTENTE no banco
+   * (casada por `chaveNatural` dentro da fk), lida COM LOCK (`forUpdate`) na mesma transação.
+   * Assim o substitute não clobbera valores owned por outro processo (ex.: estoque.qtde da NF).
+   * Itens sem linha existente (nova) ficam com o valor do dto.
+   */
+  private async preservarColunas(
+    trx: AnyDB,
+    det: DetalheConfig,
+    masterId: number,
+    itens: Record<string, unknown>[],
+  ): Promise<Record<string, unknown>[]> {
+    const cols = [...(det.chaveNatural ?? []), ...(det.preservar ?? [])];
+    const existentes = await trx
+      .selectFrom(det.tabela)
+      .select(cols)
+      .where(det.fk, '=', masterId)
+      .forUpdate()
+      .execute();
+    const mapa = new Map<string, Record<string, unknown>>();
+    for (const e of existentes as Record<string, unknown>[]) mapa.set(this.chaveNat(det, e), e);
+    return itens.map((it) => {
+      const ex = mapa.get(this.chaveNat(det, it));
+      if (!ex) return it; // linha nova → mantém o valor do dto (saldo inicial)
+      const out = { ...it };
+      for (const c of det.preservar ?? []) out[c] = ex[c]; // owned pelo banco → preserva
+      return out;
+    });
+  }
+
+  private chaveNat(det: DetalheConfig, row: Record<string, unknown>): string {
+    return (det.chaveNatural ?? []).map((c) => String(row[c])).join('|');
   }
 
   /** exclui o agregado em CASCATA (itens primeiro, depois master), numa transação. */

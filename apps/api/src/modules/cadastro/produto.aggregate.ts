@@ -101,6 +101,11 @@ export const produtoAggregateConfig: AggregateConfig = {
       fk: 'idproduto',
       chave: 'estoques',
       colunas: ['idempresa', 'qtde', 'minimo', 'maximo', 'local'],
+      // `qtde` (saldo) é OWNED pelo movimento (NF/F3), não pelo cadastro: no substitute, o engine
+      // PRESERVA o saldo atual do banco (casado por idempresa) em vez de regravar o valor obsoleto
+      // do cliente — evita lost-update quando um save de produto interleava com um processar de NF.
+      chaveNatural: ['idempresa'],
+      preservar: ['qtde'],
     },
     // F4 — kit/BOM (3 detalhes; cada item referencia outro produto via idproduto_01/idproduto_receita)
     {
