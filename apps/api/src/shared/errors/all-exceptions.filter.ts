@@ -175,6 +175,13 @@ const CODE_PT: Record<string, string> = {
   NF_CANCELADA: 'Nota fiscal cancelada não pode ser processada.',
   NF_ESTOQUE_NEGATIVO:
     'Processamento de Nota Fiscal não permitido, pois com sua emissão o estoque ficará negativo.',
+  // faturamento / financeiro (F4)
+  NF_JA_FATURADA: 'Esta nota fiscal já está faturada.',
+  NF_NAO_FATURADA: 'Esta nota fiscal não está faturada.',
+  NF_SEM_VALOR: 'A nota fiscal não tem valor total para faturar.',
+  NUM_PARCELAS_INVALIDO: 'Número de parcelas inválido.',
+  TITULO_QUITADO:
+    'Existem documentos financeiros que já foram baixados, agrupados ou contabilizados relacionados à essa nota. Não é possível excluir o financeiro. Verifique!',
   // autorização
   TENANT_FORBIDDEN: 'Acesso negado: empresa/tenant não autorizado.',
   SEM_PERMISSAO: 'Você não tem permissão para executar esta ação.',

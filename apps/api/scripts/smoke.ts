@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { Pool } from 'pg';
 import { NestFactory } from '@nestjs/core';
 import { startEmbeddedPg, PG_CONN } from '../test/embedded-db';
 import { AppModule } from '../src/app.module';
@@ -979,6 +980,81 @@ async function main() {
         Number(nfTotBody.totalipi) === 1.75 && Number(nfTotBody.totalicm_st) === 3.24,
       { status: nfTot.status, totais: { tb: nfTotBody.totalbaseicm, ti: nfTotBody.totalicm, tipi: nfTotBody.totalipi, tst: nfTotBody.totalicm_st } },
     );
+
+    // 20) NF F4 — FATURAMENTO (gera títulos financeiros ARECEBER/APAGAR). Dinheiro.
+    // títulos de uma NF no picker do Lote (duplicata começa "NF-<codnf>-").
+    const titulosDaNf = async (cod: number): Promise<any[]> => {
+      const ar = (await (await fetch(`${base}/cobranca/areceber`, { headers: H })).json()) as any[];
+      return (ar ?? []).filter((r) => String(r.duplicata ?? '').startsWith(`NF-${cod}-`));
+    };
+
+    // 20.1) SAÍDA com itens (totalnf>0) → faturar 3 parcelas → títulos em ARECEBER, Σ == totalnf.
+    const nfFat = await novaNf(baseNf({ tipo: 'S', nronf: 'F4001', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const totalNf = Number(((await (await fetch(`${base}/fiscal/nf/${nfFat}`, { headers: H })).json()) as any).totalnf);
+    const fatRes = await fetch(`${base}/fiscal/nf/${nfFat}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 3, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const fatBody = (await fatRes.json().catch(() => ({}))) as any;
+    const titulos1 = await titulosDaNf(nfFat);
+    const soma1 = titulos1.reduce((s, t) => s + Number(t.valor), 0);
+    check(
+      'POST /fiscal/nf/:id/faturar (saída) gera 3 títulos em ARECEBER com Σ == totalnf (ao centavo)',
+      fatRes.status === 200 && fatBody.tabela === 'areceber' && titulos1.length === 3 && Math.abs(soma1 - totalNf) < 0.005,
+      { status: fatRes.status, tabela: fatBody.tabela, n: titulos1.length, soma1, totalNf },
+    );
+    const nfFatRead = (await (await fetch(`${base}/fiscal/nf/${nfFat}`, { headers: H })).json()) as any;
+    check('NF fica faturada=S após faturar', nfFatRead.faturada === 'S', { faturada: nfFatRead.faturada });
+
+    // 20.2) faturar 2x → 422 NF_JA_FATURADA (idempotência).
+    const fat2 = await fetch(`${base}/fiscal/nf/${nfFat}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const fat2Body = (await fat2.json().catch(() => ({}))) as any;
+    check('faturar nota já faturada → 422 NF_JA_FATURADA, nunca 500', fat2.status === 422 && fat2Body.code === 'NF_JA_FATURADA', { status: fat2.status, code: fat2Body.code });
+
+    // 20.3) ESTORNAR → títulos somem; faturada=N.
+    const estRes = await fetch(`${base}/fiscal/nf/${nfFat}/estornar-faturamento`, { method: 'POST', headers: H });
+    const titulosPosEstorno = await titulosDaNf(nfFat);
+    const nfFatRead2 = (await (await fetch(`${base}/fiscal/nf/${nfFat}`, { headers: H })).json()) as any;
+    check(
+      'POST /fiscal/nf/:id/estornar-faturamento apaga os títulos e seta faturada=N',
+      estRes.status === 200 && titulosPosEstorno.length === 0 && nfFatRead2.faturada === 'N',
+      { status: estRes.status, n: titulosPosEstorno.length, faturada: nfFatRead2.faturada },
+    );
+
+    // 20.4) ENTRADA → faturar gera em APAGAR (modalidade A Pagar).
+    const nfFatE = await novaNf(baseNf({ tipo: 'E', nronf: 'F4100', codparceiro: 22, itens: [itemP1(4)] }));
+    const fatE = await fetch(`${base}/fiscal/nf/${nfFatE}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 2, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const fatEBody = (await fatE.json().catch(() => ({}))) as any;
+    check('faturar (entrada) gera em APAGAR (2 parcelas)', fatE.status === 200 && fatEBody.tabela === 'apagar' && fatEBody.parcelas === 2, { status: fatE.status, body: fatEBody });
+
+    // 20.5) totalnf=0 (item com vrvenda 0) → 422 NF_SEM_VALOR.
+    const nfZero = await novaNf(baseNf({ tipo: 'S', nronf: 'F4200', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 0, cfop: '5102', aliquota: 'T01' }] }));
+    const fatZero = await fetch(`${base}/fiscal/nf/${nfZero}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const fatZeroBody = (await fatZero.json().catch(() => ({}))) as any;
+    check('faturar NF com total 0 → 422 NF_SEM_VALOR', fatZero.status === 422 && fatZeroBody.code === 'NF_SEM_VALOR', { status: fatZero.status, code: fatZeroBody.code });
+
+    // 20.6) numParcelas inválido (0) → 400 VALIDACAO (zod).
+    const fatBad = await fetch(`${base}/fiscal/nf/${nfZero}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 0, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const fatBadBody = (await fatBad.json().catch(() => ({}))) as any;
+    check('faturar com numParcelas 0 → 400 VALIDACAO', fatBad.status === 400 && fatBadBody.code === 'VALIDACAO', { status: fatBad.status, code: fatBadBody.code });
+
+    // 20.7) TRAVA de estorno: título QUITADO bloqueia (simula baixa via UPDATE direto no pg).
+    const nfQuit = await novaNf(baseNf({ tipo: 'S', nronf: 'F4300', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 5, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    await fetch(`${base}/fiscal/nf/${nfQuit}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 2, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const pool = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    await pool.query(`UPDATE areceber SET quitada='S' WHERE idnf=$1`, [nfQuit]);
+    await pool.end();
+    const estQuit = await fetch(`${base}/fiscal/nf/${nfQuit}/estornar-faturamento`, { method: 'POST', headers: H });
+    const estQuitBody = (await estQuit.json().catch(() => ({}))) as any;
+    const titulosQuit = await titulosDaNf(nfQuit);
+    check(
+      'estornar com título QUITADO → 422 TITULO_QUITADO e títulos INTACTOS (não apaga financeiro liquidado)',
+      estQuit.status === 422 && estQuitBody.code === 'TITULO_QUITADO' && titulosQuit.length === 2,
+      { status: estQuit.status, code: estQuitBody.code, n: titulosQuit.length },
+    );
+
+    // 20.8) INVARIANTE: faturar NÃO move estoque (F3 intacta).
+    const sFat = await saldoProd1();
+    const nfFatInv = await novaNf(baseNf({ tipo: 'S', nronf: 'F4400', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 3, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    await fetch(`${base}/fiscal/nf/${nfFatInv}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    check('faturar NÃO move estoque (invariante F3)', (await saldoProd1()) === sFat, { sFat, depois: await saldoProd1() });
   } finally {
     await app.close();
     await pg.stop();

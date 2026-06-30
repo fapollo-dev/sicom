@@ -21,6 +21,8 @@ import { NfFiscalController } from './nf-fiscal.controller';
 import { NfFiscalService } from './nf-fiscal.service';
 import { NfProcessamentoController } from './nf-processamento.controller';
 import { NfProcessamentoService } from './nf-processamento.service';
+import { NfFaturamentoController } from './nf-faturamento.controller';
+import { NfFaturamentoService } from './nf-faturamento.service';
 import { CepController } from './cep.controller';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { PrecificacaoModule } from '../precificacao/precificacao.module';
@@ -51,9 +53,17 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     CfopCrudController, // engine (lookup da NF: CFOP; chave natural)
     NfFiscalController, // F2 — recálculo fiscal por item (POST /fiscal/nf/recalcular), reusa precificacao
     NfProcessamentoController, // F3 — processar/reverter (move estoque atômico)
+    NfFaturamentoController, // F4 — faturar/estornar (gera títulos ARECEBER/APAGAR atômico)
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
-  providers: [BancosService, BancoRepository, DatabaseProvider, NfFiscalService, NfProcessamentoService],
+  providers: [
+    BancosService,
+    BancoRepository,
+    DatabaseProvider,
+    NfFiscalService,
+    NfProcessamentoService,
+    NfFaturamentoService,
+  ],
   exports: [BancosService],
 })
 export class CadastroModule {}

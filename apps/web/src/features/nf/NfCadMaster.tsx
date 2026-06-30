@@ -25,6 +25,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { NfItemModal } from './NfItemModal';
 import { recalcularNf } from './nfFiscalApi';
 import { processarNf, reverterNf } from './nfProcessamentoApi';
+import { faturarNf, estornarFaturamentoNf } from './nfFaturamentoApi';
 
 /** Tipo da nota (parametrização Entrada/Saída — espelha o `ParametroCriacao` 35/36 do legado). */
 export type NfTipo = 'E' | 'S';
@@ -144,6 +145,8 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
           <div className="flex flex-col gap-form-gap">
             {/* F3 — processar/reverter (move estoque). Fora do gate `liberado` (age na nota travada). */}
             <ProcessamentoSection form={form} />
+            {/* F4 — faturar/estornar (gera títulos ARECEBER/APAGAR). Também fora do gate `liberado`. */}
+            <FaturamentoSection form={form} tipo={tipo} />
             {travado && (
               <div className="rounded-radius-base border border-border bg-bg-subtle p-pad-sm text-fg-muted">
                 Nota {proc === 'S' ? 'processada' : contabilizado === 'S' ? 'contabilizada' : 'enviada à Receita'} —
@@ -239,6 +242,85 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
           {enviada ? ' Enviada à SEFAZ — reversão bloqueada.' : ''}
         </small>
       </div>
+    </fieldset>
+  );
+}
+
+// ───────────────────────────── Faturamento (F4) ─────────────────────────────
+
+/**
+ * Ações de FATURAMENTO (F4): geram títulos financeiros (ARECEBER saída / APAGAR entrada) por
+ * IDNF. Só em nota SALVA (codnf). "Faturar" quando faturada!='S' (com nº parcelas / 1º
+ * vencimento / intervalo); "Estornar faturamento" quando faturada='S' (bloqueado no back se
+ * houver título quitado). Os títulos aparecem no picker do Lote de Cobrança.
+ */
+function FaturamentoSection({ form, tipo }: { form: UseFormReturn<CriarNfDto>; tipo: NfTipo }) {
+  const mensagem = useMensagem();
+  const [executando, setExecutando] = useState(false);
+  const [numParcelas, setNumParcelas] = useState<number | undefined>(1);
+  const [primeiroVencimento, setPrimeiroVencimento] = useState<string | undefined>(hojeISO());
+  const [intervaloDias, setIntervaloDias] = useState<number | undefined>(30);
+  const faturada = form.watch('faturada');
+  const codnf = (form.getValues() as { codnf?: number }).codnf;
+  if (codnf == null) return null;
+
+  const modalidade = tipo === 'E' ? 'A Pagar' : 'A Receber';
+
+  const faturar = async () => {
+    if (executando) return;
+    setExecutando(true);
+    try {
+      const r = await faturarNf(codnf, {
+        numParcelas: Number(numParcelas) || 1,
+        primeiroVencimento: primeiroVencimento ?? hojeISO(),
+        intervaloDias: Number(intervaloDias) || 0,
+      });
+      form.setValue('faturada', 'S');
+      mensagem.sucesso(`Faturamento gerado: ${r.parcelas} parcela(s) em ${modalidade}.`);
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  const estornar = async () => {
+    if (executando) return;
+    if (!window.confirm('Remover o faturamento desta nota? Os títulos financeiros serão excluídos.')) return;
+    setExecutando(true);
+    try {
+      await estornarFaturamentoNf(codnf);
+      form.setValue('faturada', 'N');
+      mensagem.sucesso('Faturamento estornado: títulos removidos.');
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  return (
+    <fieldset className="rounded-radius-md border border-border p-pad-md">
+      <legend className="px-pad-xs text-fg-muted">Faturamento ({modalidade})</legend>
+      {faturada === 'S' ? (
+        <div className="flex flex-wrap items-center gap-gp-sm">
+          <Button label="&Estornar faturamento" variant="soft" onClick={() => void estornar()} />
+          <small className="text-fg-muted">Financeiro gerado (títulos em {modalidade}).</small>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-end gap-gp-sm">
+          <div className="w-32">
+            <NumberField label="Nº &parcelas" value={numParcelas} onChange={setNumParcelas} decimais={0} min={1} />
+          </div>
+          <div className="w-44">
+            <DateField label="1º &vencimento" value={primeiroVencimento} onChange={setPrimeiroVencimento} />
+          </div>
+          <div className="w-36">
+            <NumberField label="&Intervalo (dias)" value={intervaloDias} onChange={setIntervaloDias} decimais={0} min={0} />
+          </div>
+          <Button label="&Faturar" variant="soft" onClick={() => void faturar()} />
+        </div>
+      )}
     </fieldset>
   );
 }

@@ -217,6 +217,7 @@ const nfBase = z.object({
   sequencia_nfe: z.number().int().optional(),
   tpemissao: z.number().int().optional(),
   // flags
+  faturada: sn().optional(), // F4: financeiro gerado (server-controlled; fora das colunas do agregado)
   rateio: sn().optional(),
   contribuinte_icms: z.string().trim().max(1).optional(),
   aproveitamentocredito: z.string().trim().max(1).optional(),
@@ -276,6 +277,25 @@ export const atualizarNfSchema = z.preprocess(stripNulls, nfBase.partial()).supe
   validaTerceirosM55(d as { tipoemissao?: string; modelo?: number }, ctx);
 });
 export type AtualizarNfDto = z.infer<typeof atualizarNfSchema>;
+
+/**
+ * F4 — body do faturamento (POST /fiscal/nf/:id/faturar). Condição de pagamento: nº de parcelas,
+ * 1º vencimento (ISO) e intervalo em dias entre parcelas. (O legado deriva de PARCEIROS.diasprazo/
+ * venc_prev; aqui os parâmetros vêm na chamada — corte 1 F4.)
+ */
+export const faturarNfSchema = z.object({
+  numParcelas: z
+    .number({ message: 'Informe o número de parcelas.' })
+    .int('Número de parcelas inválido.')
+    .min(1, 'Número de parcelas inválido.')
+    .max(200, 'Máximo de 200 parcelas.'),
+  primeiroVencimento: z
+    .string({ message: 'Informe o primeiro vencimento.' })
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (use AAAA-MM-DD).'),
+  intervaloDias: z.number().int().min(0).default(30),
+});
+export type FaturarNfDto = z.infer<typeof faturarNfSchema>;
 
 /**
  * F2 — body do recálculo fiscal (POST /fiscal/nf/recalcular). É o dto da NF (header + itens),
