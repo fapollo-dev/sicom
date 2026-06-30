@@ -11,6 +11,7 @@ import {
   type CriarNfDto,
   type NfItemDto,
   type NfReferenciaDto,
+  type NfContabilItemDto,
 } from '@apollo/shared';
 import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
@@ -80,6 +81,10 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
     value: String(s.idsituacao_nf),
     label: `${s.idsituacao_nf} - ${s.descricao}`,
   }));
+  const { data: plcOptions = [] } = useResourceOptions('cadastro/plc', (c: any) => ({
+    value: String(c.codplc),
+    label: `${c.desccodplc ?? c.codplc} - ${c.descricao}`,
+  }));
   const { data: aliquotaOptions = [] } = useResourceOptions('cadastro/aliquotas', (a: any) => ({
     value: String(a.codigo),
     label: `${a.codigo} - ${a.descricao}`,
@@ -111,6 +116,7 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
       codparceiro: undefined,
       itens: [],
       referencias: [],
+      contabil: [],
     }),
     [tipo],
   );
@@ -183,6 +189,7 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
               unidadeOptions={unidadeOptions}
             />
             <TransporteSection form={form} editavel={liberado} transpOptions={transpOptions} />
+            <ContabilSection form={form} editavel={liberado} situacaoOptions={situacaoOptions} plcOptions={plcOptions} />
             <ReferenciasSection form={form} editavel={liberado} />
             <ObsSection form={form} editavel={liberado} />
           </div>
@@ -750,6 +757,200 @@ function TransporteSection({
         />
       </div>
     </fieldset>
+  );
+}
+
+// ───────────────────────────── Contábil (F5) ─────────────────────────────
+
+/**
+ * Rateio CONTÁBIL (F5 — CODCONTABILNF): distribui o total da NF por situação + centro de custo
+ * (PLC) + valor. É config ARMAZENADA (detalhe do agregado, sem efeito). A soma deve fechar o
+ * TOTALNF (back valida; aqui mostramos Restante/Excedido). Espelha ReferenciasSection.
+ */
+function ContabilSection({
+  form,
+  editavel,
+  situacaoOptions,
+  plcOptions,
+}: {
+  form: UseFormReturn<CriarNfDto>;
+  editavel: boolean;
+  situacaoOptions: Opcao[];
+  plcOptions: Opcao[];
+}) {
+  const { fields, append, update, remove } = useFieldArray<CriarNfDto, 'contabil', 'fieldId'>({
+    control: form.control,
+    name: 'contabil',
+    keyName: 'fieldId',
+  });
+  const [editIdx, setEditIdx] = useState<number | null>(null);
+
+  const onConfirmar = (item: NfContabilItemDto) => {
+    if (editIdx == null) return;
+    if (editIdx < 0) append(item);
+    else update(editIdx, item);
+    setEditIdx(null);
+  };
+
+  const rotulo = (opts: Opcao[], v?: number) => {
+    if (v == null) return '';
+    const o = opts.find((op) => op.value === String(v));
+    return o ? o.label : String(v);
+  };
+
+  const linhas = fields as Array<NfContabilItemDto & { fieldId: string }>;
+  const soma = linhas.reduce((s, it) => s + (Number(it.valor) || 0), 0);
+  const total = Number(form.watch('totalnf')) || 0;
+  const diff = Math.round((total - soma) * 100) / 100;
+
+  const columns = useMemo<DataTableColumnDef<NfContabilItemDto & { fieldId: string }>[]>(
+    () => [
+      {
+        field: 'idsituacao_nf',
+        headerName: 'Situação',
+        type: 'text',
+        isPrimary: true,
+        valueGetter: (row) => rotulo(situacaoOptions, row.idsituacao_nf),
+      },
+      {
+        field: 'codcc',
+        headerName: 'Centro de custo',
+        type: 'text',
+        valueGetter: (row) => rotulo(plcOptions, row.codcc),
+      },
+      {
+        field: 'valor',
+        headerName: 'Valor',
+        type: 'text',
+        width: 130,
+        valueGetter: (row) => fmtBRL(Number(row.valor) || 0),
+      },
+      {
+        field: 'acoes',
+        headerName: '',
+        type: 'actions',
+        width: 110,
+        getActions: () => [
+          {
+            id: 'editar',
+            label: 'Editar',
+            icon: <Pencil className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            onClick: (r: NfContabilItemDto & { fieldId: string }) => {
+              const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
+              if (idx >= 0) setEditIdx(idx);
+            },
+          },
+          {
+            id: 'remover',
+            label: 'Remover',
+            icon: <Trash2 className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            destructive: true,
+            onClick: (r: NfContabilItemDto & { fieldId: string }) => {
+              const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
+              if (idx >= 0) remove(idx);
+            },
+          },
+        ],
+      },
+    ],
+    [fields, remove, situacaoOptions, plcOptions],
+  );
+
+  return (
+    <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
+      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Centro de custo / Contábil</legend>
+      <div className="flex flex-col gap-gp-sm">
+        <div>
+          <Button label="Adicionar &centro de custo" variant="soft" onClick={() => setEditIdx(-1)} />
+        </div>
+        {fields.length === 0 ? (
+          <small className="text-fg-muted">Sem rateio contábil.</small>
+        ) : (
+          <>
+            <DataTable
+              rows={linhas}
+              columns={columns}
+              getRowId={(r) => r.fieldId}
+              toolbar={{ enableSearch: false, enableFilters: false }}
+              paginationConfig={{ enabled: true, initialPageSize: 10 }}
+              cardBreakpoint={false}
+            />
+            <small className={Math.abs(diff) < 0.005 ? 'text-fg-muted' : 'text-fg-danger'}>
+              {Math.abs(diff) < 0.005
+                ? 'Lançamentos efetuados corretamente.'
+                : diff > 0
+                  ? `Valor restante: R$ ${fmtBRL(diff)}`
+                  : `Valor excedido: R$ ${fmtBRL(-diff)}`}
+            </small>
+          </>
+        )}
+      </div>
+
+      {editIdx != null && (
+        <ContabilModal
+          inicial={editIdx >= 0 ? (fields[editIdx] as NfContabilItemDto) : undefined}
+          situacaoOptions={situacaoOptions}
+          plcOptions={plcOptions}
+          onFechar={() => setEditIdx(null)}
+          onConfirmar={onConfirmar}
+        />
+      )}
+    </fieldset>
+  );
+}
+
+function ContabilModal({
+  inicial,
+  situacaoOptions,
+  plcOptions,
+  onFechar,
+  onConfirmar,
+}: {
+  inicial?: NfContabilItemDto;
+  situacaoOptions: Opcao[];
+  plcOptions: Opcao[];
+  onFechar: () => void;
+  onConfirmar: (item: NfContabilItemDto) => void;
+}) {
+  const [item, setItem] = useState<NfContabilItemDto>(inicial ?? {});
+  const [erro, setErro] = useState<string | undefined>();
+  const set = <K extends keyof NfContabilItemDto>(k: K, v: NfContabilItemDto[K]) =>
+    setItem((i) => ({ ...i, [k]: v }));
+
+  const salvar = () => {
+    if (item.idsituacao_nf == null) return setErro('A situação de NF. é obrigatória.');
+    if (item.codcc == null) return setErro('O centro de custo é obrigatório.');
+    onConfirmar(item);
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onFechar}
+      size="md"
+      title={inicial ? 'Editar rateio contábil' : 'Adicionar rateio contábil'}
+      primaryAction={{ label: 'Salvar', onClick: salvar }}
+      secondaryAction={{ label: 'Cancelar', onClick: onFechar }}
+    >
+      <div className="flex flex-col gap-form-gap">
+        {erro && <small className="text-fg-danger">{erro}</small>}
+        <SelectField
+          label="&Situação (natureza)"
+          options={situacaoOptions}
+          value={item.idsituacao_nf != null ? String(item.idsituacao_nf) : undefined}
+          onChange={(v) => set('idsituacao_nf', v ? Number(v) : undefined)}
+          placeholder="Selecione a situação…"
+        />
+        <SelectField
+          label="&Centro de custo"
+          options={plcOptions}
+          value={item.codcc != null ? String(item.codcc) : undefined}
+          onChange={(v) => set('codcc', v ? Number(v) : undefined)}
+          placeholder="Selecione o centro de custo…"
+        />
+        <CurrencyField label="&Valor" value={item.valor} onChange={(v) => set('valor', v)} />
+      </div>
+    </Modal>
   );
 }
 

@@ -184,6 +184,15 @@ export const nfAggregateConfig: AggregateConfig = {
       chave: 'referencias',
       colunas: ['codnf_ref', 'chave_ref', 'valor_ref'],
     },
+    // F5 — rateio contábil (CODCONTABILNF): config armazenada na transação do agregado (sem efeito).
+    // codcc = PLC (centro de custo gerencial). Soma = TOTALNF é validada no schema (validaRateioContabil).
+    {
+      tabela: 'nf_contabil',
+      pk: 'codcontabilnf',
+      fk: 'codnf',
+      chave: 'contabil',
+      colunas: ['idsituacao_nf', 'codcc', 'valor', 'adicional', 'tipovalor', 'insert_manual'],
+    },
   ],
   colunasPesquisa: ['codnf', 'nronf', 'serie', 'tipo', 'codparceiro', 'dtemissao', 'statusnfe', 'proc', 'totalnf'],
 };

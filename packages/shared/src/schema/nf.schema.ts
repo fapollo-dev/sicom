@@ -156,6 +156,21 @@ export const nfReferenciaSchema = z.object({
 });
 export type NfReferenciaDto = z.infer<typeof nfReferenciaSchema>;
 
+/**
+ * F5 — linha do rateio contábil (CODCONTABILNF): situação + centro de custo (PLC) + valor.
+ * idsituacao_nf/codcc são int opcionais NO SHAPE; a obrigatoriedade + par único + soma=TOTALNF
+ * vêm do superRefine `validaRateioContabil` (mensagens verbatim do legado). É config ARMAZENADA.
+ */
+export const nfContabilItemSchema = z.object({
+  idsituacao_nf: z.number().int().optional(),
+  codcc: z.number().int().optional(), // = CODPLC (centro de custo gerencial)
+  valor: dec(z.number().nonnegative('Valor inválido')),
+  adicional: sn().optional(),
+  tipovalor: opcional(z.string().trim().max(1)),
+  insert_manual: sn().optional(),
+});
+export type NfContabilItemDto = z.infer<typeof nfContabilItemSchema>;
+
 /* ───────────────────────────────────  header  ─────────────────────────────────── */
 
 const nfBase = z.object({
@@ -230,6 +245,7 @@ const nfBase = z.object({
   // detalhes (engine grava todos numa transação)
   itens: z.array(nfItemSchema).optional().default([]),
   referencias: z.array(nfReferenciaSchema).optional().default([]),
+  contabil: z.array(nfContabilItemSchema).optional().default([]), // F5 — rateio CODCONTABILNF (config)
 });
 
 /** DTCONTABIL não pode ser MENOR que DTEMISSAO (btnGravar). */
@@ -292,11 +308,44 @@ const validaCfopItemNota = (
   });
 };
 
+/**
+ * F5 — rateio contábil (CODCONTABILNF): por linha, situação e centro de custo obrigatórios + par
+ * (idsituacao_nf, codcc) único (regras HARD, mensagens verbatim do legado). A soma Σ valor = TOTALNF
+ * NÃO é validada aqui — no legado é apenas advisory (label "Valor restante/excedido", sem Abort), e
+ * 172/22.014 NFs reais gravadas estão desbalanceadas → fica como preview na UI (back aceita). Só
+ * valida quando há rateio (OPCIONAL — espelha validaDecomposicao100 do Produto).
+ */
+const validaRateioContabil = (
+  d: { contabil?: { idsituacao_nf?: number; codcc?: number }[] },
+  ctx: z.RefinementCtx,
+) => {
+  const rateio = d.contabil ?? [];
+  if (rateio.length === 0) return; // rateio é opcional
+  // Regras HARD do legado (uLancamentoContabilNF.pas:cdsTempBeforePost): situação/centro de custo
+  // obrigatórios + par (situação, centro de custo) único. A soma=TOTALNF é APENAS ADVISORY no
+  // legado (label "Valor restante/excedido", L481-496 — sem Abort; 172/22.014 NFs reais são
+  // desbalanceadas) → fica como preview na UI, NÃO bloqueia o save (paridade fiel).
+  const vistos = new Set<string>();
+  rateio.forEach((it, i) => {
+    if (it.idsituacao_nf == null)
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'A situação de NF. é obrigatória. Favor, preencher o campo.', path: ['contabil', i, 'idsituacao_nf'] });
+    if (it.codcc == null)
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'O centro de custo é obrigatório. Favor, preencher o campo.', path: ['contabil', i, 'codcc'] });
+    if (it.idsituacao_nf != null && it.codcc != null) {
+      const chave = `${it.idsituacao_nf}|${it.codcc}`;
+      if (vistos.has(chave))
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Este centro de custo já está informado. Verifique!', path: ['contabil', i, 'codcc'] });
+      vistos.add(chave);
+    }
+  });
+};
+
 export const nfSchema = z.preprocess(stripNulls, nfBase).superRefine((d, ctx) => {
   validaDatas(d, ctx);
   validaTerceirosM55(d, ctx);
   validaDevolucao(d, ctx);
   validaCfopItemNota(d, ctx);
+  validaRateioContabil(d, ctx);
   if (!d.itens || d.itens.length === 0) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -312,6 +361,7 @@ export const atualizarNfSchema = z.preprocess(stripNulls, nfBase.partial()).supe
   validaTerceirosM55(d as { tipoemissao?: string; modelo?: number }, ctx);
   validaDevolucao(d as { finalidade?: string; referencias?: unknown[] }, ctx);
   validaCfopItemNota(d as { cfop?: string; itens?: { cfop?: string }[] }, ctx);
+  validaRateioContabil(d as { totalnf?: number; contabil?: { idsituacao_nf?: number; codcc?: number; valor?: number }[] }, ctx);
 });
 export type AtualizarNfDto = z.infer<typeof atualizarNfSchema>;
 
@@ -371,3 +421,14 @@ export type CriarCfopDto = z.infer<typeof cfopSchema>;
 export const atualizarCfopSchema = cfopSchema.partial();
 export type AtualizarCfopDto = z.infer<typeof atualizarCfopSchema>;
 export interface Cfop extends CriarCfopDto {}
+
+/** PLC — centro de custo gerencial (chave natural codplc; alvo do CODCC do rateio contábil — F5). */
+export const plcSchema = z.object({
+  codplc: z.number({ message: 'Informe o código do centro de custo.' }).int('Código inválido.'),
+  desccodplc: opcional(z.string().trim().max(30)),
+  descricao: z.string().trim().min(1, 'Informe a descrição.').max(80),
+});
+export type CriarPlcDto = z.infer<typeof plcSchema>;
+export const atualizarPlcSchema = plcSchema.partial();
+export type AtualizarPlcDto = z.infer<typeof atualizarPlcSchema>;
+export interface Plc extends CriarPlcDto {}

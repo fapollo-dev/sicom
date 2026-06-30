@@ -1091,6 +1091,57 @@ async function main() {
     const nfDelOk = await novaNf(baseNf({ tipo: 'E', nronf: 'R7006', codparceiro: 22, itens: [itemP1(1)] }));
     const delOk = await fetch(`${base}/fiscal/nf/${nfDelOk}`, { method: 'DELETE', headers: H });
     check('DELETE NF limpa (proc=N/faturada=N) → 204 (exclusão normal preservada)', delOk.status === 204, delOk.status);
+
+    // 22) NF F5 — CONTÁBIL (rateio CODCONTABILNF por centro de custo). Config armazenada, SEM efeito.
+    const itemS100 = { codproduto: 1, quantidade: 10, vrvenda: 10, cfop: '5102', aliquota: 'T01' }; // totalnf=100
+    // 22.1) lookup PLC + criar NF saída com rateio que SOMA o total → 201 e GET traz 2 linhas.
+    const plc = (await (await fetch(`${base}/cadastro/plc`, { headers: H })).json()) as any[];
+    check('GET /cadastro/plc lista o catálogo (≥5)', Array.isArray(plc) && plc.length >= 5, plc?.length);
+    const nfCtb = await fetch(`${base}/fiscal/nf`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify(baseNf({ tipo: 'S', nronf: 'C8001', cfop: '5102', codparceiro: 20, itens: [itemS100], contabil: [{ idsituacao_nf: 8, codcc: 3, valor: 60 }, { idsituacao_nf: 8, codcc: 2, valor: 40 }] })),
+    });
+    const nfCtbBody = (await nfCtb.json().catch(() => ({}))) as any;
+    check(
+      'POST /fiscal/nf com rateio contábil (Σ = totalnf) → 201 e 2 linhas',
+      nfCtb.status === 201 && nfCtbBody.contabil?.length === 2,
+      { status: nfCtb.status, n: nfCtbBody.contabil?.length },
+    );
+    // 22.1b) SEM EFEITO: criar NF com rateio NÃO move estoque, NÃO contabiliza/fatura.
+    check(
+      'rateio contábil é CONFIG (não contabiliza/fatura)',
+      (nfCtbBody.contabilizado == null || nfCtbBody.contabilizado === 'N') && (nfCtbBody.faturada == null || nfCtbBody.faturada === 'N'),
+      { contabilizado: nfCtbBody.contabilizado, faturada: nfCtbBody.faturada },
+    );
+
+    // 22.2) soma ≠ total → ACEITA (201): a soma=TOTALNF é ADVISORY no legado (label, sem Abort) —
+    // preview na UI; não bloqueia o save (paridade fiel; 172/22.014 NFs reais são desbalanceadas).
+    const ctbDif = await fetch(`${base}/fiscal/nf`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify(baseNf({ tipo: 'S', nronf: 'C8002', cfop: '5102', codparceiro: 20, itens: [itemS100], contabil: [{ idsituacao_nf: 8, codcc: 3, valor: 60 }, { idsituacao_nf: 8, codcc: 2, valor: 30 }] })),
+    });
+    const ctbDifB = (await ctbDif.json().catch(() => ({}))) as any;
+    check('rateio com soma ≠ total → 201 ACEITO (soma é advisory, paridade legado)', ctbDif.status === 201 && ctbDifB.contabil?.length === 2, { status: ctbDif.status, n: ctbDifB.contabil?.length });
+
+    // 22.3) linha sem centro de custo → 400 VALIDACAO.
+    const ctbSemCC = await fetch(`${base}/fiscal/nf`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify(baseNf({ tipo: 'S', nronf: 'C8003', cfop: '5102', codparceiro: 20, itens: [itemS100], contabil: [{ idsituacao_nf: 8, valor: 100 }] })),
+    });
+    const ctbSemCCB = (await ctbSemCC.json().catch(() => ({}))) as any;
+    check('rateio sem centro de custo → 400 VALIDACAO', ctbSemCC.status === 400 && ctbSemCCB.code === 'VALIDACAO', { status: ctbSemCC.status, code: ctbSemCCB.code });
+
+    // 22.4) par (situação, centro de custo) duplicado → 400 VALIDACAO.
+    const ctbDup = await fetch(`${base}/fiscal/nf`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify(baseNf({ tipo: 'S', nronf: 'C8004', cfop: '5102', codparceiro: 20, itens: [itemS100], contabil: [{ idsituacao_nf: 8, codcc: 3, valor: 50 }, { idsituacao_nf: 8, codcc: 3, valor: 50 }] })),
+    });
+    const ctbDupB = (await ctbDup.json().catch(() => ({}))) as any;
+    check('rateio com par (situação,CC) duplicado → 400 VALIDACAO', ctbDup.status === 400 && ctbDupB.code === 'VALIDACAO', { status: ctbDup.status, code: ctbDupB.code });
   } finally {
     await app.close();
     await pg.stop();
