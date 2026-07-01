@@ -1518,6 +1518,22 @@ async function main() {
     await fetch(`${base}/fiscal/nf/${nfSR}/processar`, { method: 'POST', headers: H });
     const srRes = await fetch(`${base}/fiscal/nf/${nfSR}/contabilizar`, { method: 'POST', headers: H });
     check('F5b: contabilizar sem rateio → 422 NF_SEM_RATEIO_CONTABIL', srRes.status === 422 && ((await srRes.json().catch(() => ({}))) as any).code === 'NF_SEM_RATEIO_CONTABIL', { status: srRes.status });
+    // 29b) F5b-fase2: conta AUTOMÁTICA TIPO='A' (situação 900: débito=PLC[1]→148, crédito=parceiro[22]→11141).
+    const nfA = await novaNf(baseNf({ tipo: 'E', nronf: 'E9003', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 2, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));
+    await fetch(`${base}/fiscal/nf/${nfA}/processar`, { method: 'POST', headers: H });
+    await pgCon.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,900,1,20)`, [nfA]);
+    const conA = await fetch(`${base}/fiscal/nf/${nfA}/contabilizar`, { method: 'POST', headers: H });
+    const linA = await diarioDe(nfA);
+    check('F5b-2: conta AUTOMÁTICA (débito=PLC→148, crédito=parceiro→11141, valor 20)', conA.status === 200 && linA.length === 1 && Number(linA[0].contadebito) === 148 && Number(linA[0].contacredito) === 11141 && Number(linA[0].valor) === 20, { status: conA.status, lin: linA });
+    // 29c) F5b-fase2: linhas de IMPOSTO PIS/COFINS (golden NF 72044: cfop 1403 → PIS 788 D235/C154, COFINS 789 D236/C153).
+    const nfPC = await novaNf(baseNf({ tipo: 'E', nronf: 'E9004', cfop: '1403', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, cfop: '1403', aliquota: 'T01' }] }));
+    await fetch(`${base}/fiscal/nf/${nfPC}/processar`, { method: 'POST', headers: H });
+    await pgCon.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,6,1,100)`, [nfPC]);
+    const conPC = await fetch(`${base}/fiscal/nf/${nfPC}/contabilizar`, { method: 'POST', headers: H });
+    const linPC = await diarioDe(nfPC);
+    const pisLine = (linPC as any[]).find((l) => Number(l.contadebito) === 235 && Number(l.contacredito) === 154);
+    const cofinsLine = (linPC as any[]).find((l) => Number(l.contadebito) === 236 && Number(l.contacredito) === 153);
+    check('F5b-2: PIS/COFINS golden (principal + PIS 100×1,65%=1,65 + COFINS 100×7,6%=7,60)', conPC.status === 200 && linPC.length === 3 && Number(pisLine?.valor) === 1.65 && Number(cofinsLine?.valor) === 7.6, { status: conPC.status, n: linPC.length, pis: pisLine?.valor, cofins: cofinsLine?.valor });
     // guarda: empresa não-AUTOMATICA → 422 INTEGRACAO_NAO_AUTOMATICA.
     await pgCon.query(`UPDATE empresas SET integracao=NULL WHERE idempresa=1`);
     const naRes = await fetch(`${base}/fiscal/nf/${nfSR}/contabilizar`, { method: 'POST', headers: H });

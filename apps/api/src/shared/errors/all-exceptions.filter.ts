@@ -185,7 +185,9 @@ const CODE_PT: Record<string, string> = {
   NF_SEM_DTCONTABIL: 'A nota fiscal não tem data contábil (DTCONTABIL).',
   INTEGRACAO_NAO_AUTOMATICA: 'A integração contábil da empresa não é automática.',
   CONTAS_NAO_INFORMADAS: 'Não foram informadas as contas (débito e crédito) para a situação. Verifique!',
-  CONTA_AUTOMATICA_NAO_SUPORTADA: 'Conta contábil automática (parceiro/PLC) ainda não suportada nesta situação.',
+  CONTA_PARCEIRO_NAO_DEFINIDA: 'O parceiro não tem conta contábil definida para o lançamento automático.',
+  CONTA_PLC_NAO_DEFINIDA: 'O centro de custo (PLC) não tem conta contábil formal vinculada.',
+  CONTA_AUTOMATICA_NAO_SUPORTADA: 'Conta contábil automática de débito exige centro de custo (CODCC).',
   // faturamento / financeiro (F4)
   NF_JA_FATURADA: 'Esta nota fiscal já está faturada.',
   NF_NAO_FATURADA: 'Esta nota fiscal não está faturada.',
