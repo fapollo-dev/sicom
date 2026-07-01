@@ -21,6 +21,7 @@ import { PlcCrudController } from './plc.crud';
 import { EmpresasCrudController } from './empresas.crud';
 import { NfFiscalController } from './nf-fiscal.controller';
 import { NfFiscalService } from './nf-fiscal.service';
+import { ConfigService } from './config.service';
 import { NfProcessamentoController } from './nf-processamento.controller';
 import { NfProcessamentoService } from './nf-processamento.service';
 import { NfFaturamentoController } from './nf-faturamento.controller';
@@ -69,6 +70,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     BancosService,
     BancoRepository,
     DatabaseProvider,
+    ConfigService,
     NfFiscalService,
     NfProcessamentoService,
     NfFaturamentoService,
