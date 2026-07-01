@@ -40,6 +40,8 @@ export class AggregateEngineService extends CrudEngineService {
       const d = this.delta(cfg, this.derivados(cfg, dto, cfg.pkGerada === false ? Number(dto[cfg.pk]) : undefined));
       // carimba o escopo de empresa (multi-tenant) — fail-closed se ausente (igual ao create base).
       if (cfg.empresaScoped) d.idempresa = this.emp();
+      // derivação assíncrona/transacional (ex.: auto-numeração NRONF = MAX+1) — dentro da trx, atômica.
+      if (cfg.derivarTrx) Object.assign(d, await cfg.derivarTrx({ dto: d, trx, emp: this.emp() }));
       let id: number;
       if (cfg.pkGerada === false) {
         id = Number(dto[cfg.pk]);

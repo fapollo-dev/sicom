@@ -1,3 +1,4 @@
+import { sql } from 'kysely';
 import { nfSchema, atualizarNfSchema } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
@@ -203,6 +204,26 @@ export const nfAggregateConfig: AggregateConfig = {
     },
   ],
   colunasPesquisa: ['codnf', 'nronf', 'serie', 'tipo', 'codparceiro', 'dtemissao', 'statusnfe', 'proc', 'totalnf'],
+  // A2 — AUTO-NUMERAÇÃO do NRONF na EMISSÃO PRÓPRIA (SetaNroNF, uNF.pas:15787): quando não é terceiros
+  // (tipoemissao≠'1') e o número não foi informado, NRONF = MAX(NRONF numérico)+1 por (idempresa,
+  // modelo, série, tipoemissao). Terceiros mantêm o número digitado; própria já numerada é preservada
+  // (a validação de continuidade sem-lacunas + override por senha ADM = ValidaSequenciaNFE, é da UI).
+  // Roda dentro da transação do create (atômico); a UNIQUE parcial da NF barra colisão sob concorrência.
+  derivarTrx: async ({ dto, trx, emp }) => {
+    const tipoemissao = String(dto.tipoemissao ?? '0');
+    if (tipoemissao === '1') return {}; // terceiros: número digitado
+    const nronf = dto.nronf != null ? String(dto.nronf).trim() : '';
+    if (nronf !== '' && nronf !== '000000') return {}; // própria já numerada → mantém
+    const row = await trx
+      .selectFrom('nf')
+      .select(sql<number>`coalesce(max(case when nronf ~ '^[0-9]+$' then nronf::integer else 0 end), 0)`.as('maxn'))
+      .where('idempresa', '=', emp)
+      .where('modelo', '=', dto.modelo)
+      .where('serie', '=', dto.serie)
+      .where('tipoemissao', '=', tipoemissao)
+      .executeTakeFirst();
+    return { nronf: String((Number(row?.maxn) || 0) + 1) };
+  },
 };
 
 export const NfAggregateController = createAggregateController({

@@ -98,6 +98,14 @@ export interface AggregateConfig extends CrudConfig {
    * bloquear. Roda no início do removeAggregate, antes da cascata.
    */
   validarRemocao?: (ctx: { id: number; db: any }) => Promise<void> | void;
+  /**
+   * Derivação ASSÍNCRONA e TRANSACIONAL antes do INSERT (o que `derivar` é para campos síncronos).
+   * Roda DENTRO da transação do create, com a `trx` (pode travar/consultar), e retorna um patch a
+   * mesclar no registro do master. Uso: auto-numeração de documento (ex.: NRONF = MAX+1 por
+   * empresa/modelo/série na emissão própria — SetaNroNF, uNF.pas:15787), onde o valor depende do banco
+   * e precisa ser atômico. Só master; recebe o delta já carimbado (com idempresa).
+   */
+  derivarTrx?: (ctx: { dto: Record<string, unknown>; trx: any; emp: number | null }) => Promise<Record<string, unknown>>;
 }
 
 /** Operadores da Pesquisa (espelham os TTipoPesquisa do frmPesquisa). */
