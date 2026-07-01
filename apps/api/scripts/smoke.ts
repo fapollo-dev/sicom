@@ -850,16 +850,30 @@ async function main() {
     const s3 = await saldoProd1();
     check('processar (saída) BAIXA o estoque (−2)', procS.status === 200 && s3 === s0 - 2, { status: procS.status, s3, esperado: s0 - 2 });
 
-    // 18.5) NEGATIVO bloqueia: saída maior que o saldo → 422, saldo INALTERADO (rollback atômico).
-    const nfNeg = await novaNf(baseNf({ tipo: 'S', nronf: 'P4002', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 999999, vrvenda: 1, cfop: '5102', aliquota: 'T01' }] }));
-    const procNeg = await fetch(`${base}/fiscal/nf/${nfNeg}/processar`, { method: 'POST', headers: H });
+    // 18.5) NEGATIVO — gate PERMITE_PROC_NF_ESTOQUE_NEG (F3b, udmNF.pas:11643; golden default 'S').
+    const pgNeg = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    // (a) override Empresa='N' → BLOQUEIA saída que deixaria negativo (422, rollback atômico, saldo intacto).
+    await pgNeg.query(`INSERT INTO configuracoes_especificas (id,tipo,chave,valor) VALUES (84,'Empresa','1','N') ON CONFLICT (id,tipo,chave) DO UPDATE SET valor='N'`);
+    const nfNegN = await novaNf(baseNf({ tipo: 'S', nronf: 'P4002', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 999999, vrvenda: 1, cfop: '5102', aliquota: 'T01' }] }));
+    const procNeg = await fetch(`${base}/fiscal/nf/${nfNegN}/processar`, { method: 'POST', headers: H });
     const procNegBody = (await procNeg.json().catch(() => ({}))) as any;
-    const s4 = await saldoProd1();
     check(
-      'processar saída que deixaria saldo negativo → 422 NF_ESTOQUE_NEGATIVO, saldo INALTERADO (rollback)',
-      procNeg.status === 422 && procNegBody.code === 'NF_ESTOQUE_NEGATIVO' && s4 === s3 && procNeg.status !== 500,
-      { status: procNeg.status, code: procNegBody.code, s4, s3 },
+      "F3b config 'N': saída que deixaria negativo → 422 NF_ESTOQUE_NEGATIVO, saldo INALTERADO (rollback)",
+      procNeg.status === 422 && procNegBody.code === 'NF_ESTOQUE_NEGATIVO' && (await saldoProd1()) === s3 && procNeg.status !== 500,
+      { status: procNeg.status, code: procNegBody.code, saldo: await saldoProd1(), s3 },
     );
+    // (b) default 'S' (fiel ao legado) → PERMITE saldo negativo; processa e reverte p/ restaurar.
+    await pgNeg.query(`DELETE FROM configuracoes_especificas WHERE id=84 AND tipo='Empresa' AND chave='1'`);
+    const nfNegS = await novaNf(baseNf({ tipo: 'S', nronf: 'P4003', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 5, vrvenda: 1, cfop: '5102', aliquota: 'T01' }] }));
+    const procNegS = await fetch(`${base}/fiscal/nf/${nfNegS}/processar`, { method: 'POST', headers: H });
+    check(
+      "F3b default 'S': saída PERMITE saldo negativo (fiel ao legado, udmNF:11643)",
+      procNegS.status === 200 && (await saldoProd1()) === s3 - 5,
+      { status: procNegS.status, saldo: await saldoProd1(), esperado: s3 - 5 },
+    );
+    await fetch(`${base}/fiscal/nf/${nfNegS}/reverter`, { method: 'POST', headers: H }); // restaura o saldo
+    await pgNeg.end();
+    check('F3b: reverter restaura o saldo após processamento negativo', (await saldoProd1()) === s3, { saldo: await saldoProd1(), s3 });
 
     // 18.6) REVERTER bloqueado se enviada à SEFAZ: processa NF com statusnfe='P' e tenta reverter.
     const nfEnvSef = await novaNf(baseNf({ tipo: 'E', nronf: 'P5001', codparceiro: 22, statusnfe: 'P', itens: [itemP1(1)] }));

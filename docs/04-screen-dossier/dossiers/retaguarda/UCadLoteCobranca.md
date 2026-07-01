@@ -101,6 +101,7 @@ Handlers próprios de `UCadLoteCobranca.pas` (o ciclo de gravar/excluir/pesquisa
 > 4. **Filtro do picker depende de `FECHAMENTO_CAIXA`** `[.pas:L91-95]` — regra escondida: só quando a empresa está em fechamento de caixa o picker exige `CONSILIADO='S'`. Ver [BR-05](#5-regras-de-negócio).
 > 5. **`SegFornecedor.Open(False)` no `edtCODFORExit`** valida o cobrador digitado (FUN='S') **antes** de prosseguir — é a checagem que o alvo replica em `assertCobradorValido` (Q3, BR-02).
 > 6. **Não há `btnGravarClick`/`btnExcluirClick` próprios** — a gravação do agregado (header+itens, cascata) é 100% `inherited` de `TfrmCadMasterDet` (nested datasets → provider único → uma transação) ([form-base §5b](../../03-legacy-analysis/recon/form-base-cadmaster.md)).
+> 7. **Multi-tenant — DECIDIDO manter FIEL (sem coluna de empresa).** A validação cross-cutting (2026-06-30) confirmou no Oracle real que `LOTE_COBRANCA` (6 cols: CODLOTECOB/CODPARCEIRO/DATA/auditoria) e `ITENS_LOTECOB` **não têm coluna de empresa** — o schema migrado (sem `idempresa`) já é fiel. O isolamento por empresa é **transitivo via ARECEBER**: o picker `listAreceber` filtra por `codempresa` (nota 4), então um lote só contém títulos da empresa do contexto. A LISTA de lotes não é filtrada por empresa (o legado também não tem como) — endurecer isso seria divergência consciente, adiada. Os lookups de cobrador (`assertCobradorValido`/`listCobradores`) foram escopados por `idempresa` na validação (`parceiros` é empresaScoped). Ver `docs/06-testing-quality/validacao-cross-cutting-2026-06.md`.
 
 ---
 

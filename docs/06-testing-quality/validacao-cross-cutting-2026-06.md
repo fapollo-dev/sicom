@@ -23,7 +23,7 @@ Confronto no PINHEIRAO das chaves de gate. **Confirmado EXATO** o seed mantido: 
 | UTILIZA_INTEGRACAO_CONTABIL | 100 | N (+Modulo/Retaguarda='S') | Modulo;Empresa | F5b |
 | CALCULA_ICMSST_EMISSAOPROPRIA_NF_SEM_INDEX | 291 | N | Modulo;Empresa | F2b |
 
-> **Achado de negócio:** `PERMITE_PROC_NF_ESTOQUE_NEG` default legado = **'S'** (o legado permite estoque negativo). O corte-1 da F3 **bloqueia** por padrão — divergência consciente, a restaurar no wire F3b. O escopo `Grupo` do whitelist ainda **não** é implementado no resolver.
+> **Achado de negócio → RESOLVIDO (wire F3b):** `PERMITE_PROC_NF_ESTOQUE_NEG` default legado = **'S'** (o legado permite estoque negativo). O corte-1 da F3 bloqueava por padrão — **agora wired e fiel**: `nf-processamento` resolve a config (`ligado`, default 'S') e só bloqueia quando **'N'**; seed id 84 em `033`. Legado: `udmNF.pas:11643` (gate) / `11659` (override por senha — adiado). Smoke §18.5 prova 'N'→bloqueia (rollback), default 'S'→permite, reverter restaura. O escopo `Grupo` do whitelist e o override por senha ficam adiados.
 
 ## Confirmado FIEL / limpo (sem ação)
 - **ConfigService**: limpo em todos os casos-borda (whitelist vazio não gera `['']`; precedência Usuario>Empresa>Modulo>default correta; chave numérica→string; código inexistente→null→`ligado`=false; parametrizado, sem injeção).
@@ -42,7 +42,7 @@ Confronto no PINHEIRAO das chaves de gate. **Confirmado EXATO** o seed mantido: 
 
 ### Multi-tenant — resíduos
 - **Detalhes por-empresa de Produto** (`multi_preco`/`estoque`) num master **global**: o substitute deleta por `fk=idproduto` (todas as empresas) e reinsere com `idempresa` do cliente; `readAggregate` expõe todas as empresas. **Consistente com um design de catálogo multi-empresa central** (o form faz round-trip do grid inteiro; `preservar` protege o saldo). Risco só com payload **parcial**. **Decisão de UX/paridade** (grid multi-empresa central vs. escopo por empresa) + endurecer contra payload parcial. `produto.aggregate.ts`, `aggregate-engine.service.ts`.
-- **`lote_cobranca`/`itens_lotecob` sem coluna `idempresa`** → `list`/`read`/`update`/`remove` sem escopo de empresa. Casa a nota "Lotes pendentes de decisão": exige migration (+coluna) + carimbo/filtro. `lote-cobranca.repository.ts`, `005_lote_cobranca.sql`.
+- **`lote_cobranca`/`itens_lotecob` sem coluna `idempresa` → DECIDIDO: manter FIEL (sem coluna).** Recon no Oracle real: a `LOTE_COBRANCA` legada tem **6 colunas** (CODLOTECOB, CODPARCEIRO, DATA, auditoria) — **nenhuma de empresa**; `ITENS_LOTECOB` idem. O schema migrado (sem `idempresa`) **já é fiel**. O isolamento por empresa é **transitivo via ARECEBER**: o picker `listAreceber` já filtra por `codempresa`, então um lote só contém itens da empresa do contexto. A visibilidade da LISTA de lotes não é filtrada por empresa (o legado também não tem como, sem a coluna) — endurecer isso (join a `itens_lotecob→areceber.codempresa` ou adicionar coluna) seria uma **divergência consciente** do legado, deixada para decisão futura, não feita agora por fidelidade. `005_lote_cobranca.sql`.
 - **`nf-fiscal.resolverUf`** lê `parceiros`/`parceiros_end` por `codparceiro`/`codend` sem `idempresa` (só entrada de cálculo puro, não escrita) — **BAIXA**. Filtrar por consistência.
 
 ### Engine — atomicidade (MÉDIA, narrow)

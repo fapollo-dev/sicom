@@ -3,6 +3,7 @@ import { sql } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { ConfigService } from './config.service';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -25,19 +26,22 @@ const num = (v: unknown): number => {
  *    é carregado mas não gateia o ramo loja). Aqui exigimos GERAQTDE & GERAESTOQUE & MOVIMENTA_ESTOQUE
  *    = 'S' — MAIS restritivo (conservador): só PULA o movimento, nunca o inventa.
  *
- * Segurança: o banco legado NÃO impede negativo e a validação de cabeçalho está comentada —
- * aqui BLOQUEAMOS negativo por padrão (postura conservadora). Incremento SEMPRE relativo
- * (`qtde = qtde + delta`, nunca absoluto) + `.forUpdate()` → à prova de corrida. CAS no flip
- * (`WHERE proc=<esperado>`) → idempotente (processar/reverter 2x não duplica).
+ * Estoque negativo: gateado por config PERMITE_PROC_NF_ESTOQUE_NEG (udmNF.pas:11643) — 'S' (default
+ * legado, confirmado no golden PINHEIRAO) PERMITE saldo negativo; 'N' bloqueia (NF_ESTOQUE_NEGATIVO,
+ * com rollback atômico). Incremento SEMPRE relativo (`qtde = qtde + delta`, nunca absoluto) +
+ * `.forUpdate()` → à prova de corrida. CAS no flip (`WHERE proc=<esperado>`) → idempotente.
  *
  * Adiado (F3b+, dossiê §10): ORIGEM 'D'/'P'/'X' (depósito/produção/almox), local/congelado,
- * composição/decomposição (kit), autorização de negativo por senha, conferência, e os efeitos
- * financeiro (F4)/contábil (F5). O corte 1 move SÓ a loja (ESTOQUE.QTDE), sem gatear por
- * ORIGEM_ESTOQUE (cujo uso fiscal/balde foi conflado na F1 — limpeza em F3b).
+ * composição/decomposição (kit), **override de negativo por SENHA** (UsuarioAutorizouComSenha,
+ * uNF:11659) + **escopo Grupo** do whitelist, conferência, e os efeitos financeiro (F4)/contábil
+ * (F5). O corte 1 move SÓ a loja (ESTOQUE.QTDE), sem gatear por ORIGEM_ESTOQUE.
  */
 @Injectable()
 export class NfProcessamentoService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly config: ConfigService,
+  ) {}
 
   processar(codnf: number): Promise<void> {
     return this.mover(codnf, 'processar');
@@ -129,6 +133,14 @@ export class NfProcessamentoService {
     op: number | null,
     emp: number,
   ): Promise<void> {
+    // Gate PERMITE_PROC_NF_ESTOQUE_NEG (udmNF.pas:11643): 'S' (default legado, golden PINHEIRAO) PERMITE
+    // saldo negativo; 'N' bloqueia. Resolvido uma vez por movimento (Empresa/Usuario/Modulo/default).
+    // Adiado: override por senha (UsuarioAutorizouComSenha, uNF:11659) e escopo Grupo.
+    const permiteNegativo = await this.config.ligado('PERMITE_PROC_NF_ESTOQUE_NEG', {
+      empresaId: emp,
+      operadorId: op ?? undefined,
+    });
+
     const itens = await trx
       .selectFrom('nf_prod')
       .select(['codproduto', 'quantidade', 'fatorembal', 'geraestoque', 'movimenta_estoque'])
@@ -154,8 +166,8 @@ export class NfProcessamentoService {
       const saldoAnt = num(ant?.qtde);
       const saldoNovo = Math.round((saldoAnt + delta) * 1000) / 1000;
 
-      // bloqueio conservador de negativo (banco não impede; legado tinha validação comentada).
-      if (saldoNovo < 0) {
+      // bloqueio de negativo gateado por config (udmNF.pas:11643): só bloqueia se PERMITE_PROC_NF_ESTOQUE_NEG='N'.
+      if (!permiteNegativo && saldoNovo < 0) {
         throw new BusinessRuleError('NF_ESTOQUE_NEGATIVO', { idproduto: cod, saldo: saldoAnt, qtde: qtdex });
       }
 
