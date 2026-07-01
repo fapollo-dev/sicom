@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { sql } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 
@@ -82,6 +83,76 @@ export class TributacaoRepository {
       aliquotaFem: rr.aliquota_fem != null ? Number(rr.aliquota_fem) : 0,
       tpFigura: rr.tp_figura != null ? String(rr.tp_figura) : 'N',
     };
+  }
+
+  /**
+   * FIGURA FISCAL (F2c-2 P2) — resolução MULTI-CHAVE do INDEXADOR_TRIBUTARIO (udmNF.dfm:17593 /
+   * udmNF.pas:9987-10162): filtra por CODFIGURAFISCAL + TP_CADASTRO + ORIGEM + DESTINO + CODCFOP e,
+   * entre as candidatas, aplica o OR-null de CODBARRA/NCM/CODPARCEIRO com DESEMPATE por especificidade
+   * (mais específica vence). Devolve os mesmos parâmetros do resolverIndexador + `operacao`/`cst`.
+   * Retorna null se não houver figura (o chamador cai no caminho por alíquota/NCM). NÃO substitui o
+   * resolverIndexador (caminho NCM do ST F2b, intacto p/ compat).
+   */
+  async resolverFigura(chave: {
+    codfigurafiscal: number;
+    tpCadastro: string; // 'F' entrada / 'C' saída
+    origem: string;
+    destino: string;
+    codcfop: number;
+    codbarra?: string | null;
+    ncm?: string | null;
+    codparceiro?: number | null;
+  }): Promise<{
+    aliquotaDest: number;
+    icmFonte: number;
+    mva: number;
+    reducao: number;
+    redcom: number;
+    aliquotaFem: number;
+    tpFigura: string;
+    operacao: string;
+    cst: number;
+  } | null> {
+    const rows = await (this.dbp.forTenantRead() as any)
+      .selectFrom('indexador_tributario')
+      .selectAll()
+      .where('codfigurafiscal', '=', chave.codfigurafiscal)
+      .where('tp_cadastro', '=', chave.tpCadastro)
+      .where('origem', '=', chave.origem)
+      .where('destino', '=', chave.destino)
+      .where('codcfop', '=', chave.codcfop)
+      .where(sql`coalesce(indr, 'I')`, '<>', 'E')
+      .execute();
+    // OR-null: mantém a linha cujo campo é NULL (curinga) OU casa exatamente a chave.
+    const casa = (rowVal: unknown, chaveVal: unknown) =>
+      rowVal == null || String(rowVal) === String(chaveVal ?? '');
+    const cands = (rows as Record<string, unknown>[]).filter(
+      (r) => casa(r.codbarra, chave.codbarra) && casa(r.ncm, chave.ncm) && casa(r.codparceiro, chave.codparceiro),
+    );
+    if (!cands.length) return null;
+    // desempate por ESPECIFICIDADE (udmNF.pas:10029-10088): CODBARRA > NCM > CODPARCEIRO.
+    const esp = (r: Record<string, unknown>) =>
+      (r.codbarra != null ? 4 : 0) + (r.ncm != null ? 2 : 0) + (r.codparceiro != null ? 1 : 0);
+    cands.sort((a, b) => esp(b) - esp(a));
+    const r = cands[0];
+    const operacao = r.operacao != null ? String(r.operacao) : 'T';
+    return {
+      aliquotaDest: Number(r.aliquota_dest),
+      icmFonte: Number(r.icm_fonte),
+      mva: Number(r.mva),
+      reducao: Number(r.reducao),
+      redcom: r.redcom != null ? Number(r.redcom) : 100,
+      aliquotaFem: r.aliquota_fem != null ? Number(r.aliquota_fem) : 0,
+      tpFigura: r.tp_figura != null ? String(r.tp_figura) : 'N',
+      operacao,
+      cst: TributacaoRepository.cstDaOperacao(operacao),
+    };
+  }
+
+  /** CST derivado da OPERACAO do indexador (udmNF.pas:10096-10120). */
+  static cstDaOperacao(op: string): number {
+    const map: Record<string, number> = { T: 0, R: 20, C: 10, F: 60, S: 50, D: 51, I: 40, N: 90, Y: 41, Z: 70 };
+    return map[op] ?? 0;
   }
 
   /** Regra NOVA: Reforma por UF, escolhendo a vigência mais recente <= dataRef. */

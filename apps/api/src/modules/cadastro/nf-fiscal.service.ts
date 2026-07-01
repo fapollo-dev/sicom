@@ -68,12 +68,16 @@ export class NfFiscalService {
     const empresaSn = empresa?.classfiscal === 'SN';
     const alqSimplesNac = num(empresa?.alqsimplesnac);
     const tipoNota = dto.tipo != null ? String(dto.tipo) : ''; // 'E' entrada / 'S' saída (regime SN difere)
+    // F2c-2: figura fiscal só é consultada quando FIGURAFISCAL 'O'/'S' (udmNF.pas:6666); 'D' usa alíquota/NCM.
+    const figuraFiscal = empresa?.figurafiscal ?? 'D';
     // Epic-config: gate real do zeramento de crédito de ST (udmNF.pas:4231/4470); default 'N' = zera.
     const aproveitaCreditoSt = await this.config.ligado('APROVEITAMENTO_CREDITO_ICMSST_NF', { empresaId: emp });
     const itens = Array.isArray(dto.itens) ? (dto.itens as Record<string, unknown>[]) : [];
     const calculados: Record<string, unknown>[] = [];
     for (const it of itens)
-      calculados.push(await this.calcularItem(it, uf, empresa?.uf ?? null, empresaSn, aproveitaCreditoSt, tipoNota, alqSimplesNac));
+      calculados.push(
+        await this.calcularItem(it, uf, empresa?.uf ?? null, empresaSn, aproveitaCreditoSt, tipoNota, alqSimplesNac, figuraFiscal),
+      );
     return { ...dto, itens: calculados };
   }
 
@@ -81,11 +85,11 @@ export class NfFiscalService {
    * (CLASSFISCAL 'LR'/'SN'). Consolidou o stub empresa_fiscal. null se não cadastrada. */
   private async resolverEmpresa(
     emp: number | null,
-  ): Promise<{ uf: string | null; classfiscal: string | null; alqsimplesnac: number } | null> {
+  ): Promise<{ uf: string | null; classfiscal: string | null; alqsimplesnac: number; figurafiscal: string | null } | null> {
     if (emp == null) return null;
     const ef = await (this.dbp.forTenantRead() as AnyDB)
       .selectFrom('empresas')
-      .select(['uf', 'classfiscal', 'alqsimplesnac'])
+      .select(['uf', 'classfiscal', 'alqsimplesnac', 'figurafiscal'])
       .where('idempresa', '=', emp)
       .executeTakeFirst();
     if (!ef) return null;
@@ -93,6 +97,7 @@ export class NfFiscalService {
       uf: ef.uf ? String(ef.uf).toUpperCase() : null,
       classfiscal: ef.classfiscal ? String(ef.classfiscal) : null,
       alqsimplesnac: num(ef.alqsimplesnac), // crédito presumido do Simples na ENTRADA (udmNF.pas:4021)
+      figurafiscal: ef.figurafiscal ? String(ef.figurafiscal) : null, // 'D' não consulta / 'O'-'S' consultam
     };
   }
 
@@ -127,6 +132,7 @@ export class NfFiscalService {
     aproveitaCreditoSt: boolean,
     tipoNota: string,
     alqSimplesNac: number,
+    figuraFiscal: string,
   ): Promise<Record<string, unknown>> {
     const item: Record<string, unknown> = { ...it };
     const codAliquota = it.aliquota != null ? String(it.aliquota).trim() : '';
@@ -144,6 +150,31 @@ export class NfFiscalService {
     item.icms = a.icm; // alíquota destacada/operação (a usada no destaque)
     item.icme = a.icmEfetivo; // alíquota efetiva (exibição; legado a guarda no campo "ICMS")
     item.bcr = a.base; // % base reduzida (BCR)
+
+    // F2c-2: FIGURA FISCAL — quando a empresa é 'O'/'S' (udmNF.pas:6666), resolve a chave MULTI-CAMPO do
+    // INDEXADOR (produtos.codfigurafiscal + tp_cadastro + origem/destino + cfop) e sobrepõe o CST pela
+    // OPERAÇÃO (udmNF.pas:10096). 'D' (empresa do corte-1) NÃO consulta → segue por alíquota/NCM. A figura
+    // dirige CST + ST aqui; o destaque de ICMS próprio (ICME/BCR) por figura é resíduo (precisa golden).
+    let figura: any = null;
+    if (figuraFiscal === 'O' || figuraFiscal === 'S') {
+      const prod = await (this.dbp.forTenantRead() as AnyDB)
+        .selectFrom('produtos')
+        .select('codfigurafiscal')
+        .where('idproduto', '=', Number(it.codproduto))
+        .executeTakeFirst();
+      if (prod?.codfigurafiscal != null) {
+        figura = await this.trib.resolverFigura({
+          codfigurafiscal: Number(prod.codfigurafiscal),
+          tpCadastro: tipoNota === 'E' ? 'F' : 'C', // entrada 'F' / saída 'C'
+          origem: tipoNota === 'E' ? uf : ufOrigem ?? '', // entrada: parceiro→empresa; saída: empresa→parceiro
+          destino: tipoNota === 'E' ? ufOrigem ?? '' : uf,
+          codcfop: Number(it.cfop),
+          ncm: it.ncm != null ? String(it.ncm).trim() : null,
+          codparceiro: it.codparceiro != null ? Number(it.codparceiro) : null,
+        });
+        if (figura) item.cst = figura.cst; // CST pela OPERAÇÃO da figura (sobrepõe o de resolverAtual)
+      }
+    }
 
     // (3) IPI = % sobre o total de produtos do item (ipi guarda a alíquota %).
     // O IPI SEMPRE arredonda (udmNF.pas:4164 — TruncarArredondar 'A', independe de ARREDONDA).
@@ -173,31 +204,36 @@ export class NfFiscalService {
     item.vricm = vricm;
 
     // (4) ICMS-ST (F2b profundo): MVA ajustado interestadual + redução BC-ST (REDCOM) + crédito (LR).
+    // A FIGURA (F2c-2, quando resolvida) tem PRIORIDADE sobre o caminho por NCM/CFOP_ST (o legado com
+    // FIGURAFISCAL='O'/'S' resolve o ST pela figura, não pela lista fixa de CFOPs).
     const cfop = String(it.cfop ?? '');
     const ncm = it.ncm != null ? String(it.ncm).trim() : '';
-    if (NfFiscalService.CFOP_ST.has(cfop) && ncm && !this.bonificacaoSemSt(cfop, a.cst)) {
-      const idx = await this.trib.resolverIndexador(ncm);
-      if (idx.mva > 0) {
-        const interstate = !!ufOrigem && ufOrigem !== uf; // UF emitente ≠ destino → MVA ajustado
-        const st = this.fiscal.calcularIcmsSt(
-          totalProds,
-          {
-            aliquotaDest: idx.aliquotaDest,
-            icmFonte: idx.icmFonte,
-            mva: idx.mva,
-            redcom: idx.redcom, // redução da BC-ST (default 100 = sem)
-            aliquotaFem: idx.aliquotaFem, // FEM no MVA ajustado
-            interstate,
-            fornecedorSn: idx.tpFigura === 'S', // fornecedor Simples → não ajusta MVA
-            // reducaoAliqFonte default 100 (crédito sem redução) — coluna específica adiada.
-          },
-          'atual',
-        );
-        item.mva = st.mvaEfetivo; // MVA AJUSTADO (golden: armazena o ajustado)
-        item.vrbasest = this.arred(st.baseSt, modo);
-        item.vricmst = this.arred(st.icmsSt, modo);
-        item.streal = this.arred(st.icmsSt, modo);
-      }
+    let stp: { aliquotaDest: number; icmFonte: number; mva: number; redcom: number; aliquotaFem: number; tpFigura: string } | null = null;
+    if (figura) {
+      stp = { aliquotaDest: figura.aliquotaDest, icmFonte: figura.icmFonte, mva: figura.mva, redcom: figura.redcom, aliquotaFem: figura.aliquotaFem, tpFigura: figura.tpFigura };
+    } else if (NfFiscalService.CFOP_ST.has(cfop) && ncm && !this.bonificacaoSemSt(cfop, a.cst)) {
+      stp = await this.trib.resolverIndexador(ncm);
+    }
+    if (stp && stp.mva > 0) {
+      const interstate = !!ufOrigem && ufOrigem !== uf; // UF emitente ≠ destino → MVA ajustado
+      const st = this.fiscal.calcularIcmsSt(
+        totalProds,
+        {
+          aliquotaDest: stp.aliquotaDest,
+          icmFonte: stp.icmFonte,
+          mva: stp.mva,
+          redcom: stp.redcom, // redução da BC-ST (default 100 = sem)
+          aliquotaFem: stp.aliquotaFem, // FEM no MVA ajustado
+          interstate,
+          fornecedorSn: stp.tpFigura === 'S', // fornecedor Simples → não ajusta MVA
+          // reducaoAliqFonte default 100 (crédito sem redução) — coluna específica adiada.
+        },
+        'atual',
+      );
+      item.mva = st.mvaEfetivo; // MVA AJUSTADO (golden: armazena o ajustado)
+      item.vrbasest = this.arred(st.baseSt, modo);
+      item.vricmst = this.arred(st.icmsSt, modo);
+      item.streal = this.arred(st.icmsSt, modo);
     }
 
     // (5) F2c — REGIME DA EMPRESA (Simples Nacional). SN nunca é substituto → zera ST em qualquer
