@@ -6,6 +6,7 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 import { SEFAZ_PORT, type SefazPort } from './sefaz/sefaz.port';
 import { NfProcessamentoService } from './nf-processamento.service';
 import { NfFaturamentoService } from './nf-faturamento.service';
+import { NfContabilizacaoService } from './nf-contabilizacao.service';
 import { ConfigService } from './config.service';
 
 type AnyDB = any;
@@ -30,7 +31,8 @@ const num = (v: unknown): number => {
  *    (TfrmNF.CancelarNFE, uNF.pas:6773), na MESMA transação: ESTOQUE estornado se proc='S'
  *    (golden, net-0 no kardex); FINANCEIRO via CancelaFaturamento (uNF:6668) GATED por
  *    ESTORNA_FINANCEIRO_NF (default 'N' NÃO deleta — fiel; 'S' exclui títulos, best-effort se
- *    quitado). CONTÁBIL (TIntegracaoContabil.Estornar) = F5b (depende do DIÁRIO/PLANO_CONTAS).
+ *    quitado). CONTÁBIL: se CONTABILIZADO='S', estorna o DIÁRIO (F5b, TIntegracaoContabil.Estornar,
+ *    uNF:6808) na mesma transação.
  *  - CCe exige NFe autorizada, texto ≥15 (schema), MÁX 20/nota (NFe.pas:332), nSeqEvento=MAX+1.
  *
  * Idempotência: o flip de STATUSNFE usa CAS (`WHERE statusnfe IS NULL` / `='P'`) → transmitir/
@@ -43,6 +45,7 @@ export class NfNfeService {
     @Inject(SEFAZ_PORT) private readonly sefaz: SefazPort,
     private readonly proc: NfProcessamentoService,
     private readonly fat: NfFaturamentoService,
+    private readonly contab: NfContabilizacaoService,
     private readonly config: ConfigService,
   ) {}
 
@@ -177,7 +180,7 @@ export class NfNfeService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nf = await trx
         .selectFrom('nf')
-        .select(['codnf', 'tipo', 'chavenfe', 'protocolo_nfe', 'statusnfe', 'cancelada', 'proc', 'faturada'])
+        .select(['codnf', 'tipo', 'chavenfe', 'protocolo_nfe', 'statusnfe', 'cancelada', 'proc', 'faturada', 'contabilizado'])
         .where('codnf', '=', codnf)
         .where('idempresa', '=', emp)
         .forUpdate()
@@ -257,7 +260,12 @@ export class NfNfeService {
         financeiro = await this.fat.estornarNoCancelamento(trx, codnf, String(nf.tipo), emp, op);
       }
 
-      return { codnf, statusnfe: 'C', protocolo: res.protocolo, cstat: res.cstat, simulado: res.simulado, financeiro };
+      // contábil (F5b): cancelar estorna o DIÁRIO se contabilizada (TIntegracaoContabil.Estornar,
+      // uNF.pas:6808). Na MESMA transação. Inerte se a NF não foi contabilizada.
+      const contabil = nf.contabilizado === 'S';
+      if (contabil) await this.contab.estornarNoTrx(trx, codnf, emp, op);
+
+      return { codnf, statusnfe: 'C', protocolo: res.protocolo, cstat: res.cstat, simulado: res.simulado, financeiro, contabil };
     });
   }
 

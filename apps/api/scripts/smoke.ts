@@ -1496,6 +1496,34 @@ async function main() {
     const stRev = (await pgF3b.query(`SELECT statusnfe, chavenfe, proc FROM nf WHERE codnf=$1`, [nfDen])).rows[0];
     check('F3b denegada: reverter estorna estoque + limpa status (statusnfe/chave null, proc N, saldo restaurado)', revDen.status === 200 && stRev?.statusnfe === null && stRev?.chavenfe === null && stRev?.proc === 'N' && (await saldoProd1()) === s0Den, { status: revDen.status, statusnfe: stRev?.statusnfe, chave: stRev?.chavenfe, proc: stRev?.proc, saldo: await saldoProd1(), s0Den });
     await pgF3b.end();
+
+    // 29) F5b — CONTÁBIL / DIÁRIO (partida dobrada): contabilizar gera linhas no diario + estorno + guardas.
+    const pgCon = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    const diarioDe = async (codnf: number) => (await pgCon.query(`SELECT contadebito, contacredito, valor FROM diario WHERE codorigem=12 AND idorigem=$1 ORDER BY coddiario`, [codnf])).rows;
+    // NF entrada processada + rateio contábil (situação 6 → IIC D=148/C=11141).
+    const nfCon = await novaNf(baseNf({ tipo: 'E', nronf: 'E9001', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 5, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));
+    await fetch(`${base}/fiscal/nf/${nfCon}/processar`, { method: 'POST', headers: H });
+    await pgCon.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,6,1,30),($1,6,1,20)`, [nfCon]); // Σ situação 6 = 50
+    const conRes = await fetch(`${base}/fiscal/nf/${nfCon}/contabilizar`, { method: 'POST', headers: H });
+    const linhas = await diarioDe(nfCon);
+    const conFlag = (await pgCon.query(`SELECT contabilizado FROM nf WHERE codnf=$1`, [nfCon])).rows[0]?.contabilizado;
+    check('F5b: contabilizar gera DIÁRIO (situação 6 → D148/C11141 valor 50) + contabilizado=S', conRes.status === 200 && linhas.length === 1 && Number(linhas[0].contadebito) === 148 && Number(linhas[0].contacredito) === 11141 && Number(linhas[0].valor) === 50 && conFlag === 'S', { status: conRes.status, linhas, flag: conFlag });
+    const con2 = await fetch(`${base}/fiscal/nf/${nfCon}/contabilizar`, { method: 'POST', headers: H });
+    check('F5b: contabilizar 2x → 422 NF_JA_CONTABILIZADA', con2.status === 422 && ((await con2.json().catch(() => ({}))) as any).code === 'NF_JA_CONTABILIZADA', { status: con2.status });
+    const estCon = await fetch(`${base}/fiscal/nf/${nfCon}/estornar-contabilizacao`, { method: 'POST', headers: H });
+    const flagE = (await pgCon.query(`SELECT contabilizado FROM nf WHERE codnf=$1`, [nfCon])).rows[0]?.contabilizado;
+    check('F5b: estornar-contabilizacao deleta o DIÁRIO + reabre (contabilizado null)', estCon.status === 200 && (await diarioDe(nfCon)).length === 0 && flagE == null, { status: estCon.status, linhas: (await diarioDe(nfCon)).length, flag: flagE });
+    // guarda: NF processada SEM rateio → 422 NF_SEM_RATEIO_CONTABIL.
+    const nfSR = await novaNf(baseNf({ tipo: 'E', nronf: 'E9002', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));
+    await fetch(`${base}/fiscal/nf/${nfSR}/processar`, { method: 'POST', headers: H });
+    const srRes = await fetch(`${base}/fiscal/nf/${nfSR}/contabilizar`, { method: 'POST', headers: H });
+    check('F5b: contabilizar sem rateio → 422 NF_SEM_RATEIO_CONTABIL', srRes.status === 422 && ((await srRes.json().catch(() => ({}))) as any).code === 'NF_SEM_RATEIO_CONTABIL', { status: srRes.status });
+    // guarda: empresa não-AUTOMATICA → 422 INTEGRACAO_NAO_AUTOMATICA.
+    await pgCon.query(`UPDATE empresas SET integracao=NULL WHERE idempresa=1`);
+    const naRes = await fetch(`${base}/fiscal/nf/${nfSR}/contabilizar`, { method: 'POST', headers: H });
+    check('F5b: empresa não-AUTOMATICA → 422 INTEGRACAO_NAO_AUTOMATICA', naRes.status === 422 && ((await naRes.json().catch(() => ({}))) as any).code === 'INTEGRACAO_NAO_AUTOMATICA', { status: naRes.status });
+    await pgCon.query(`UPDATE empresas SET integracao='AUTOMATICA' WHERE idempresa=1`);
+    await pgCon.end();
   } finally {
     await app.close();
     await pg.stop();

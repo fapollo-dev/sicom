@@ -178,6 +178,14 @@ const CODE_PT: Record<string, string> = {
     'Processamento de Nota Fiscal não permitido, pois com sua emissão o estoque ficará negativo.',
   NF_TOTAL_DIVERGENTE: 'Valor informado no total da NF não confere com o calculado. Verifique!',
   NF_ST_DIVERGENTE: 'Valores do ICMS ST divergentes do calculado. Verifique!',
+  // contábil / DIÁRIO (F5b)
+  NF_JA_CONTABILIZADA: 'Esta nota fiscal já está contabilizada.',
+  NF_NAO_CONTABILIZADA: 'Esta nota fiscal não está contabilizada.',
+  NF_SEM_RATEIO_CONTABIL: 'Informe o rateio contábil (situação/centro de custo) antes de contabilizar.',
+  NF_SEM_DTCONTABIL: 'A nota fiscal não tem data contábil (DTCONTABIL).',
+  INTEGRACAO_NAO_AUTOMATICA: 'A integração contábil da empresa não é automática.',
+  CONTAS_NAO_INFORMADAS: 'Não foram informadas as contas (débito e crédito) para a situação. Verifique!',
+  CONTA_AUTOMATICA_NAO_SUPORTADA: 'Conta contábil automática (parceiro/PLC) ainda não suportada nesta situação.',
   // faturamento / financeiro (F4)
   NF_JA_FATURADA: 'Esta nota fiscal já está faturada.',
   NF_NAO_FATURADA: 'Esta nota fiscal não está faturada.',
