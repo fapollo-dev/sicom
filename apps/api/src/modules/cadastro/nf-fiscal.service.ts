@@ -40,6 +40,10 @@ export class NfFiscalService {
     '1949', '2949', '5411', '6411', '5202', '6202', '1910', '2910', '1911', '2911',
     '1902', '2902', '1124', '1923', '2923', '1406', '2406',
   ]);
+  // CFOPs que disparam retenção de FUNRURAL (udmNF.pas:3728).
+  private static readonly FUNRURAL_CFOP = new Set([
+    '1403', '2403', '1401', '2401', '1102', '2102', '1101', '2101', '1949', '2949', '1556', '2556', '1407', '2407',
+  ]);
 
   constructor(
     private readonly dbp: DatabaseProvider,
@@ -78,7 +82,108 @@ export class NfFiscalService {
       calculados.push(
         await this.calcularItem(it, uf, empresa?.uf ?? null, empresaSn, aproveitaCreditoSt, tipoNota, alqSimplesNac, figuraFiscal),
       );
-    return { ...dto, itens: calculados };
+    // A1 — retenções de serviço no cabeçalho (CalcularRetencoes, udmNF.pas:3558). Só ENTRADA c/ situação E03.
+    const retencoes = await this.calcularRetencoes(dto, tipoNota, emp, calculados);
+    return { ...dto, ...retencoes, itens: calculados };
+  }
+
+  /** valor de config numérico (aceita vírgula ou ponto decimal). */
+  private numCfg(s: string | null | undefined): number {
+    if (!s) return 0;
+    const n = Number(String(s).replace(',', '.'));
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  /**
+   * A1 — cálculo das RETENÇÕES no cabeçalho (CalcularRetencoes, udmNF.pas:3558). Retenção só em ENTRADA
+   * de serviço: gate TIPO='E' + codparceiro + SITUACAO_NF.TIPO_OPERACAO='E03' (SituacaoGeraRetencao) +
+   * totalnf>0. Cada retenção = base × alíquota/100. Flags por parceiro (HABILITA_RETENCAO_*_NF); alíquotas
+   * da camada de config (ALIQUOTA_RETENCAO_*) — IR/ISSQN preferem PERC_ALIQUOTA_IR/ISSQN do parceiro.
+   * Bases: PIS/COFINS/CSLL/IR sobre BASE_RET_IRRF_PISCOFINS_CSLL (default totalnf); INSS sobre
+   * BASE_RETENCAO_INSS (default totalnf); ISSQN/FUNRURAL sobre TOTALNOTA (=totalnf). FUNRURAL tem gate
+   * próprio por lista de CFOP. Puro (não grava). Override manual das bases = UI (adiado).
+   */
+  private async calcularRetencoes(
+    dto: Record<string, unknown>,
+    tipoNota: string,
+    emp: number | null,
+    itens: Record<string, unknown>[],
+  ): Promise<Record<string, unknown>> {
+    const zero = {
+      total_ret_pis: 0, total_ret_cofins: 0, total_ret_csll: 0, total_ret_ir: 0,
+      total_ret_inss: 0, total_ret_issqn: 0, total_ret_funrural: 0,
+      base_ret_irrf_piscofins_csll: 0, base_retencao_inss: 0,
+    };
+    const codparceiro = dto.codparceiro != null ? Number(dto.codparceiro) : 0;
+    const idsit = dto.idsituacao_nf != null ? Number(dto.idsituacao_nf) : 0;
+    if (tipoNota !== 'E' || !codparceiro || !idsit) return zero;
+
+    // base = totalnf recomputado dos itens (mesma fórmula do nf.aggregate.derivar).
+    const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+    let totalprod = 0, totaldesc = 0, totalipi = 0, totalicmSt = 0;
+    for (const it of itens) {
+      totalprod += num(it.quantidade) * num(it.vrvenda);
+      totaldesc += num(it.desconto);
+      totalipi += num(it.vripi);
+      totalicmSt += num(it.vricmst);
+    }
+    const totalnf = r2(totalprod - totaldesc + num(dto.totalfrete) + num(dto.totalseguro) + num(dto.totalacessorias) + totalipi + totalicmSt);
+    if (totalnf <= 0) return zero;
+
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const sit = await db.selectFrom('situacao_nf').select('tipo_operacao').where('idsituacao_nf', '=', idsit).executeTakeFirst();
+    const geraRetencao = sit?.tipo_operacao === 'E03'; // SituacaoGeraRetencao (udmNF:5356)
+    const cfop = String(dto.cfop ?? '');
+    const funruralCfop = NfFiscalService.FUNRURAL_CFOP.has(cfop);
+    if (!geraRetencao && !funruralCfop) return zero;
+
+    const p = await db
+      .selectFrom('parceiros')
+      .select([
+        'habilita_retencao_pis_nf', 'habilita_retencao_cofins_nf', 'habilita_retencao_csll_nf',
+        'habilita_retencao_ir_nf', 'habilita_retencao_inss_nf', 'habilita_retencao_issqn_nf',
+        'habilita_retencao_funrural_nf', 'perc_aliquota_ir', 'perc_aliquota_issqn',
+      ])
+      .where('codparceiro', '=', codparceiro)
+      .executeTakeFirst();
+    if (!p) return zero;
+
+    const cfg = (codigo: string) => this.config.resolver(codigo, { empresaId: emp ?? undefined });
+    const out = { ...zero, base_ret_irrf_piscofins_csll: totalnf, base_retencao_inss: totalnf };
+
+    // PIS/COFINS/CSLL/IR/INSS/ISSQN — só quando a SITUAÇÃO gera retenção (E03).
+    if (geraRetencao) {
+      if (p.habilita_retencao_pis_nf === 'S') {
+        const a = this.numCfg(await cfg('ALIQUOTA_RETENCAO_PIS'));
+        if (a > 0) out.total_ret_pis = r2((totalnf * a) / 100);
+      }
+      if (p.habilita_retencao_cofins_nf === 'S') {
+        const a = this.numCfg(await cfg('ALIQUOTA_RETENCAO_COFINS'));
+        if (a > 0) out.total_ret_cofins = r2((totalnf * a) / 100);
+      }
+      if (p.habilita_retencao_csll_nf === 'S') {
+        const a = this.numCfg(await cfg('ALIQUOTA_RETENCAO_CSLL'));
+        if (a > 0) out.total_ret_csll = r2((totalnf * a) / 100);
+      }
+      if (p.habilita_retencao_ir_nf === 'S') {
+        const a = num(p.perc_aliquota_ir) > 0 ? num(p.perc_aliquota_ir) : this.numCfg(await cfg('ALIQUOTA_RETENCAO_IR'));
+        if (a > 0) out.total_ret_ir = r2((totalnf * a) / 100);
+      }
+      if (p.habilita_retencao_inss_nf === 'S') {
+        const a = this.numCfg(await cfg('ALIQUOTA_RETENCAO_INSS'));
+        if (a > 0) out.total_ret_inss = r2((totalnf * a) / 100);
+      }
+      if (p.habilita_retencao_issqn_nf === 'S') {
+        const a = num(p.perc_aliquota_issqn); // ISSQN vem SEMPRE do parceiro (udmNF:3710)
+        if (a > 0) out.total_ret_issqn = r2((totalnf * a) / 100);
+      }
+    }
+    // FUNRURAL — gate próprio por CFOP (udmNF:3728), independe de E03.
+    if (funruralCfop && p.habilita_retencao_funrural_nf === 'S') {
+      const a = this.numCfg(await cfg('ALIQUOTA_RETENCAO_FUNRURAL'));
+      if (a > 0) out.total_ret_funrural = r2((totalnf * a) / 100);
+    }
+    return out;
   }
 
   /** Config fiscal da EMPRESA (emitente/tenant): UF de origem (MVA ajustado interestadual) + regime
