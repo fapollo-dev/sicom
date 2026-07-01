@@ -4,6 +4,7 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { TributacaoRepository } from '../precificacao/tributacao.repository';
 import { FiscalPricingService } from '../precificacao/preco-fiscal.service';
+import { ConfigService } from './config.service';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -44,6 +45,7 @@ export class NfFiscalService {
     private readonly dbp: DatabaseProvider,
     private readonly trib: TributacaoRepository,
     private readonly fiscal: FiscalPricingService,
+    private readonly config: ConfigService,
   ) {}
 
   private round2(v: number): number {
@@ -60,23 +62,29 @@ export class NfFiscalService {
   /** Recalcula os impostos de cada item; devolve o dto enriquecido (NÃO grava). */
   async recalcular(dto: Record<string, unknown>): Promise<Record<string, unknown>> {
     const uf = await this.resolverUf(dto);
-    const ufOrigem = await this.resolverUfOrigem(); // empresas (tenant) — p/ interestadual (MVA ajustado)
+    const emp = currentTenant().empresaId ?? null;
+    const empresa = await this.resolverEmpresa(emp); // { uf origem, classfiscal } — regime + interestadual
+    // F2c: empresa Simples Nacional NÃO destaca ICMS/ST na emissão (DmOld/udmNF.pas:1869).
+    const empresaSn = empresa?.classfiscal === 'SN';
+    // Epic-config: gate real do zeramento de crédito de ST (udmNF.pas:4231/4470); default 'N' = zera.
+    const aproveitaCreditoSt = await this.config.ligado('APROVEITAMENTO_CREDITO_ICMSST_NF', { empresaId: emp });
     const itens = Array.isArray(dto.itens) ? (dto.itens as Record<string, unknown>[]) : [];
     const calculados: Record<string, unknown>[] = [];
-    for (const it of itens) calculados.push(await this.calcularItem(it, uf, ufOrigem));
+    for (const it of itens) calculados.push(await this.calcularItem(it, uf, empresa?.uf ?? null, empresaSn, aproveitaCreditoSt));
     return { ...dto, itens: calculados };
   }
 
-  /** UF de ORIGEM (emitente) — da tabela empresas (consolidou o stub empresa_fiscal) do tenant; null se não cadastrada. */
-  private async resolverUfOrigem(): Promise<string | null> {
-    const emp = currentTenant().empresaId ?? null;
+  /** Config fiscal da EMPRESA (emitente/tenant): UF de origem (MVA ajustado interestadual) + regime
+   * (CLASSFISCAL 'LR'/'SN'). Consolidou o stub empresa_fiscal. null se não cadastrada. */
+  private async resolverEmpresa(emp: number | null): Promise<{ uf: string | null; classfiscal: string | null } | null> {
     if (emp == null) return null;
     const ef = await (this.dbp.forTenantRead() as AnyDB)
       .selectFrom('empresas')
-      .select('uf')
+      .select(['uf', 'classfiscal'])
       .where('idempresa', '=', emp)
       .executeTakeFirst();
-    return ef?.uf ? String(ef.uf).toUpperCase() : null;
+    if (!ef) return null;
+    return { uf: ef.uf ? String(ef.uf).toUpperCase() : null, classfiscal: ef.classfiscal ? String(ef.classfiscal) : null };
   }
 
   /** UF da nota (não por item): nf.codparceiro_end → parceiros_end.uf; senão endereço padrão. */
@@ -106,6 +114,8 @@ export class NfFiscalService {
     it: Record<string, unknown>,
     uf: string,
     ufOrigem: string | null,
+    empresaSn: boolean,
+    aproveitaCreditoSt: boolean,
   ): Promise<Record<string, unknown>> {
     const item: Record<string, unknown> = { ...it };
     const codAliquota = it.aliquota != null ? String(it.aliquota).trim() : '';
@@ -142,9 +152,9 @@ export class NfFiscalService {
     let vrbasecalculo = this.arred(baseIcm, modo);
     let vricm = this.arred(((modo === 'N' ? baseIcm : vrbasecalculo) * a.icm) / 100, modo); // alíquota DESTACADA (redução no BCR)
 
-    // (2) Zeramento de crédito por CFOP/CST. (Adiado: o gate por config
-    // APROVEITAMENTO_CREDITO_ICMSST_NF do legado — default <>'S' = zerar, que é o que fazemos.)
-    if (this.zeraCreditoIcms(String(it.cfop ?? ''), a.cst, codAliquota)) {
+    // (2) Zeramento de crédito por CFOP/CST — GATE por config `APROVEITAMENTO_CREDITO_ICMSST_NF`
+    // (udmNF.pas:4231/4470): default <>'S' → zera; se a empresa tiver o override 'S', APROVEITA (não zera).
+    if (!aproveitaCreditoSt && this.zeraCreditoIcms(String(it.cfop ?? ''), a.cst, codAliquota)) {
       vrbasecalculo = 0;
       vricm = 0;
     }
@@ -177,6 +187,17 @@ export class NfFiscalService {
         item.vricmst = this.arred(st.icmsSt, modo);
         item.streal = this.arred(st.icmsSt, modo);
       }
+    }
+
+    // (5) F2c — REGIME DA EMPRESA: Simples Nacional NÃO destaca ICMS próprio nem ST na emissão
+    // (DmOld/udmNF.pas:1869: `if not (CLASSFISCAL='SN') then calcula else zera`). Zera o destaque
+    // ICMS/ST desta empresa SN. (O crédito de entrada SN via ALQSIMPLESNAC = adiado, F2c-fase-2.)
+    if (empresaSn) {
+      item.vrbasecalculo = 0;
+      item.vricm = 0;
+      item.vrbasest = 0;
+      item.vricmst = 0;
+      item.streal = 0;
     }
     return item;
   }

@@ -1337,6 +1337,32 @@ async function main() {
     const titTxj = (await pgTxj.query(`SELECT txjuros FROM areceber WHERE idnf=$1`, [nfTxj])).rows[0];
     await pgTxj.end();
     check('F4b: faturar grava txjuros = empresas.txjuropadrao (5,0), não do parceiro', Number(titTxj?.txjuros) === 5, { txjuros: titTxj?.txjuros, esperado: 5 });
+
+    // 25) Camada de config (APROVEITAMENTO_CREDITO_ICMSST_NF) + F2c (gate SN da empresa).
+    const pgCfg = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    // T01/MA (base 100, icm 22) + CFOP 1403 (fim '403' → zeraCreditoIcms). vrbasecalculo: 0 (default) / 100 (aproveita).
+    const recalcCredito = async (): Promise<number> => {
+      const r = await fetch(`${base}/fiscal/nf/recalcular`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, aliquota: 'T01', cfop: '1403' }] }) });
+      return Number(((await r.json().catch(() => ({}))) as any).itens?.[0]?.vrbasecalculo);
+    };
+    // 25.1) resolver: default 'N' zera o crédito; override Empresa='S' APROVEITA; remover volta ao default.
+    check("config: default 'N' → zera o crédito de ST (base 0)", (await recalcCredito()) === 0, { base: await recalcCredito() });
+    await pgCfg.query(`INSERT INTO configuracoes_especificas (id,tipo,chave,valor) VALUES (290,'Empresa','1','S') ON CONFLICT (id,tipo,chave) DO UPDATE SET valor='S'`);
+    check("config: override Empresa='S' → APROVEITA o crédito (base 100)", (await recalcCredito()) === 100, { base: await recalcCredito() });
+    await pgCfg.query(`DELETE FROM configuracoes_especificas WHERE id=290 AND tipo='Empresa' AND chave='1'`);
+    check("config: removido o override → volta ao default 'N' (base 0)", (await recalcCredito()) === 0, { base: await recalcCredito() });
+
+    // 25.2) F2c gate SN: empresa Simples NÃO destaca ICMS (DmOld/udmNF.pas:1869). T01/MA CFOP 1102 (não zera).
+    const recalcIcm = async (): Promise<number> => {
+      const r = await fetch(`${base}/fiscal/nf/recalcular`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'S', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, aliquota: 'T01', cfop: '1102' }] }) });
+      return Number(((await r.json().catch(() => ({}))) as any).itens?.[0]?.vricm);
+    };
+    check('F2c: empresa LR destaca ICMS (vricm 22,00)', (await recalcIcm()) === 22, { vricm: await recalcIcm() });
+    await pgCfg.query(`UPDATE empresas SET classfiscal='SN' WHERE idempresa=1`);
+    check('F2c: empresa SN NÃO destaca ICMS (vricm 0) — DmOld:1869', (await recalcIcm()) === 0, { vricm: await recalcIcm() });
+    await pgCfg.query(`UPDATE empresas SET classfiscal='LR' WHERE idempresa=1`);
+    check('F2c: revertida p/ LR volta a destacar (vricm 22,00)', (await recalcIcm()) === 22, { vricm: await recalcIcm() });
+    await pgCfg.end();
   } finally {
     await app.close();
     await pg.stop();
