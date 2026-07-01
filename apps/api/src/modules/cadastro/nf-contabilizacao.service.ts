@@ -267,9 +267,12 @@ export class NfContabilizacaoService {
   }
 
   /**
-   * Linha de imposto PIS/COFINS: valor = base(totalnf) × rate% (golden LR não-cumulativo: PIS 1,65 /
-   * COFINS 7,6 — NF 72044/71822). Situação vem do CFOP (por sentido). Só lança se o CFOP tiver a situação
-   * e a IIC existir. Rate/base fixos = fase-3 (PC_CONFIG/regime). Retorna 1 se lançou, 0 senão.
+   * Linha de imposto PIS/COFINS. ⚠️ PLACEHOLDER do corte: valor = totalnf × rate FIXO (1,65/7,6). Bate
+   * no golden de ENTRADA 72044/71822 por COINCIDÊNCIA. A fórmula FIEL (recon golden 500 NFs) é
+   * POR-ITEM (base = VRCUSTO×QTD−desc% na saída; +ICMST/frete/IPI na entrada) com rate POR-PRODUTO
+   * (tabela PISCOFINS, ALIQ_*_ENT/SAI) — GetSQLPisCofins (UIntegracaoContabil.pas:527). = **fase-4b**
+   * (requer migrar a catálogo PISCOFINS + PRODUTOS/NF_PROD.IDPISCOFINS). INERTE em produção: só lança se
+   * o CFOP tiver situacao_pis/cofins configurada (nenhum CFOP real seedado; só o CFOP 1403 de teste).
    */
   private async lancarImposto(
     trx: AnyDB,

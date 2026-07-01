@@ -1543,7 +1543,7 @@ async function main() {
     const linPC = await diarioDe(nfPC);
     const pisLine = (linPC as any[]).find((l) => Number(l.contadebito) === 235 && Number(l.contacredito) === 154);
     const cofinsLine = (linPC as any[]).find((l) => Number(l.contadebito) === 236 && Number(l.contacredito) === 153);
-    check('F5b-2: PIS/COFINS golden (principal + PIS 100×1,65%=1,65 + COFINS 100×7,6%=7,60)', conPC.status === 200 && linPC.length === 3 && Number(pisLine?.valor) === 1.65 && Number(cofinsLine?.valor) === 7.6, { status: conPC.status, n: linPC.length, pis: pisLine?.valor, cofins: cofinsLine?.valor });
+    check('F5b-2: PIS/COFINS placeholder (principal + PIS 100×1,65% + COFINS 100×7,6%; fórmula fiel por-item/produto=fase-4b)', conPC.status === 200 && linPC.length === 3 && Number(pisLine?.valor) === 1.65 && Number(cofinsLine?.valor) === 7.6, { status: conPC.status, n: linPC.length, pis: pisLine?.valor, cofins: cofinsLine?.valor });
     // 29d) F5b-fase3: AUTO-DISPARO — processar uma ENTRADA (AUTOMATICA) COM rateio contabiliza sozinho;
     // reverter (AUTOMATICA) estorna o contábil e reverte o estoque.
     const nfAuto = await novaNf(baseNf({ tipo: 'E', nronf: 'E9005', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 3, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));
