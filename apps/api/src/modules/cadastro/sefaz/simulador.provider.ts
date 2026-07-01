@@ -47,8 +47,17 @@ export class SimuladorSefazProvider implements SefazPort {
       cnf,
     });
     const protocolo = this.protocoloSimulado();
-    const cstat = 100; // autorizada
-    const status = statusFromCstat(cstat) as 'P' | 'D'; // mapeamento puro (= GetStatusNFE) → 'P'
+    // MODO de teste (homolog/dev): SEFAZ_SIM_CSTAT força o cStat de retorno (default 100=autorizada),
+    // permitindo exercitar o ramo DENEGADA (110/301/302/303) e rejeição PONTA-A-PONTA sem SEFAZ real.
+    // O factory já PROÍBE o simulador em produção; SEFAZ_SIM_CSTAT nunca deve ser ligado lá.
+    const cstat = Number(process.env.SEFAZ_SIM_CSTAT ?? 100) || 100;
+    const status = statusFromCstat(cstat) as 'P' | 'D'; // mapeamento puro (= GetStatusNFE): 100→P, 110/301/302/303→D
+    const xMotivo =
+      cstat === 100
+        ? 'Autorizado o uso da NF-e (SIMULADO)'
+        : status === 'D'
+          ? `Nota fiscal DENEGADA (SIMULADO cStat ${cstat})`
+          : `Retorno SIMULADO cStat ${cstat}`;
     const xml =
       `<!-- SIMULADO homologacao (NAO transmitido a SEFAZ) -->` +
       `<nfeSimulada chave="${chave}" protocolo="${protocolo}" cStat="${cstat}" tpAmb="${req.ambiente}"/>`;
@@ -56,7 +65,7 @@ export class SimuladorSefazProvider implements SefazPort {
       chave,
       protocolo,
       cstat,
-      xMotivo: 'Autorizado o uso da NF-e (SIMULADO)',
+      xMotivo,
       status,
       xml,
       ambiente: req.ambiente,

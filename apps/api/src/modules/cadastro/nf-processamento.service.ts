@@ -60,7 +60,10 @@ export class NfProcessamentoService {
       // lê e TRAVA o header (escopo empresa). Bloqueios de estado por modo.
       const nf = await trx
         .selectFrom('nf')
-        .select(['codnf', 'tipo', 'proc', 'cancelada', 'statusnfe', 'contabilizado'])
+        .select([
+          'codnf', 'tipo', 'proc', 'cancelada', 'statusnfe', 'contabilizado',
+          'totalnf', 'totalicm_st', 'totalfrete', 'totalseguro', 'totalacessorias',
+        ])
         .where('codnf', '=', codnf)
         .where('idempresa', '=', emp)
         .forUpdate()
@@ -70,10 +73,15 @@ export class NfProcessamentoService {
       if (modo === 'processar') {
         if (nf.cancelada === 'S') throw new BusinessRuleError('NF_CANCELADA', { codnf });
         if (nf.proc === 'S') throw new BusinessRuleError('NF_JA_PROCESSADA', { codnf });
+        // reconciliação (ValidaTotalICMSStNota, uProcessaNotaFiscal.pas:564): recomputa os totais
+        // dos itens e confere contra o header ANTES de mover estoque (evita processar total adulterado).
+        await this.reconciliarTotais(trx, codnf, emp, nf);
       } else {
         if (nf.proc !== 'S') throw new BusinessRuleError('NF_NAO_PROCESSADA', { codnf });
-        // reverter bloqueado se já enviada à SEFAZ (uNF.pas:8945) — 'T' (terceiros importada) libera.
-        if (nf.statusnfe && nf.statusnfe !== 'T') throw new BusinessRuleError('NF_ENVIADA', { codnf });
+        // reverter bloqueado se já enviada à SEFAZ (uNF.pas:8945) — 'T' (terceiros importada) e 'D'
+        // (DENEGADA) liberam: a denegada é fiscalmente inválida e precisa voltar a editável p/ reemissão
+        // (uNF.pas:8939 bloqueava 'D' por não haver caminho de estorno; migrado abre-o).
+        if (nf.statusnfe && nf.statusnfe !== 'T' && nf.statusnfe !== 'D') throw new BusinessRuleError('NF_ENVIADA', { codnf });
         // reverter bloqueado se já contabilizada (uNF.pas:8951).
         if (nf.contabilizado === 'S') throw new BusinessRuleError('NF_CONTABILIZADA', { codnf });
       }
@@ -86,14 +94,22 @@ export class NfProcessamentoService {
       // flip de estado com compare-and-set (anti-corrida/replay).
       const novoProc = modo === 'processar' ? 'S' : 'N';
       const procEsperado = modo === 'processar' ? 'N' : 'S';
+      const set: Record<string, unknown> = {
+        proc: novoProc,
+        dtprocessamento: modo === 'processar' ? sql`now()` : null,
+        usultalteracao: op,
+        dtultimalteracao: sql`now()`,
+      };
+      // reverter uma DENEGADA limpa o status fiscal → a nota volta a editável p/ reemissão (a chave da
+      // denegada não serve; a reemissão gera nova). Só neste caso — 'T' e demais preservam o status.
+      if (modo === 'reverter' && nf.statusnfe === 'D') {
+        set.statusnfe = null;
+        set.chavenfe = null;
+        set.protocolo_nfe = null;
+      }
       const r = await trx
         .updateTable('nf')
-        .set({
-          proc: novoProc,
-          dtprocessamento: modo === 'processar' ? sql`now()` : null,
-          usultalteracao: op,
-          dtultimalteracao: sql`now()`,
-        })
+        .set(set)
         .where('codnf', '=', codnf)
         .where('idempresa', '=', emp)
         .where('proc', '=', procEsperado)
@@ -102,6 +118,43 @@ export class NfProcessamentoService {
         throw new BusinessRuleError(modo === 'processar' ? 'NF_JA_PROCESSADA' : 'NF_NAO_PROCESSADA', { codnf });
       }
     });
+  }
+
+  /**
+   * Reconciliação server-side antes de processar (ValidaTotalICMSStNota, uProcessaNotaFiscal.pas:564):
+   * recomputa os totais a partir dos itens gravados (MESMA fórmula do `nf.aggregate.derivar`) e confere
+   * contra o header, com tolerância de ±0,01 (o legado usa FormatFloat '0.00'). Como `recalcular` é PURO
+   * (não grava), esta é a barreira que impede processar uma NF com total/ICMS-ST adulterado ou defasado.
+   * TOTAL sempre; ICMS-ST só quando EMPRESAS.FIGURAFISCAL='D' (paridade fiel).
+   */
+  private async reconciliarTotais(trx: AnyDB, codnf: number, emp: number, nf: Record<string, unknown>): Promise<void> {
+    const itens = await trx
+      .selectFrom('nf_prod')
+      .select(['quantidade', 'vrvenda', 'desconto', 'vripi', 'vricmst'])
+      .where('codnf', '=', codnf)
+      .execute();
+    let totalprod = 0;
+    let totaldesc = 0;
+    let totalipi = 0;
+    let totalicmSt = 0;
+    for (const it of itens as Record<string, unknown>[]) {
+      totalprod += num(it.quantidade) * num(it.vrvenda);
+      totaldesc += num(it.desconto);
+      totalipi += num(it.vripi);
+      totalicmSt += num(it.vricmst);
+    }
+    const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+    const totalnfRec = r2(
+      totalprod - totaldesc + num(nf.totalfrete) + num(nf.totalseguro) + num(nf.totalacessorias) + totalipi + totalicmSt,
+    );
+    if (Math.abs(num(nf.totalnf) - totalnfRec) > 0.01) {
+      throw new BusinessRuleError('NF_TOTAL_DIVERGENTE', { informado: num(nf.totalnf), calculado: totalnfRec });
+    }
+    // ICMS-ST só quando FIGURAFISCAL='D' (uProcessaNotaFiscal.pas:564-585).
+    const ef = await trx.selectFrom('empresas').select('figurafiscal').where('idempresa', '=', emp).executeTakeFirst();
+    if (ef?.figurafiscal === 'D' && Math.abs(num(nf.totalicm_st) - r2(totalicmSt)) > 0.01) {
+      throw new BusinessRuleError('NF_ST_DIVERGENTE', { informado: num(nf.totalicm_st), calculado: r2(totalicmSt) });
+    }
   }
 
   /**

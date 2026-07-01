@@ -45,13 +45,16 @@ export class NfFaturamentoService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nf = await trx
         .selectFrom('nf')
-        .select(['codnf', 'tipo', 'nronf', 'cancelada', 'faturada', 'contabilizado', 'codparceiro', 'totalnf', 'dtemissao', 'dtcontabil'])
+        .select(['codnf', 'tipo', 'nronf', 'cancelada', 'faturada', 'contabilizado', 'codparceiro', 'totalnf', 'dtemissao', 'dtcontabil', 'statusnfe'])
         .where('codnf', '=', codnf)
         .where('idempresa', '=', emp)
         .forUpdate()
         .executeTakeFirst();
       if (!nf) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf });
-      if (nf.cancelada === 'S') throw new BusinessRuleError('NF_CANCELADA', { codnf });
+      if (nf.cancelada === 'S' || nf.statusnfe === 'C') throw new BusinessRuleError('NF_CANCELADA', { codnf });
+      // nota DENEGADA é fiscalmente inválida → não gera financeiro (o legado só fatura no processar,
+      // após autorização; nunca sobre denegada). statusnfe='D' = GetStatusNFE (NFe.pas:2792).
+      if (nf.statusnfe === 'D') throw new BusinessRuleError('NF_DENEGADA', { codnf });
       if (nf.contabilizado === 'S') throw new BusinessRuleError('NF_CONTABILIZADA', { codnf });
       if (nf.faturada === 'S') throw new BusinessRuleError('NF_JA_FATURADA', { codnf });
 

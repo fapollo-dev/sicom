@@ -176,6 +176,8 @@ const CODE_PT: Record<string, string> = {
   NF_TEM_FATURAMENTO: 'Estorne o faturamento antes de excluir/editar a nota fiscal.',
   NF_ESTOQUE_NEGATIVO:
     'Processamento de Nota Fiscal não permitido, pois com sua emissão o estoque ficará negativo.',
+  NF_TOTAL_DIVERGENTE: 'Valor informado no total da NF não confere com o calculado. Verifique!',
+  NF_ST_DIVERGENTE: 'Valores do ICMS ST divergentes do calculado. Verifique!',
   // faturamento / financeiro (F4)
   NF_JA_FATURADA: 'Esta nota fiscal já está faturada.',
   NF_NAO_FATURADA: 'Esta nota fiscal não está faturada.',

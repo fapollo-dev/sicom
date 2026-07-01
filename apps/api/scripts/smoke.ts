@@ -1452,6 +1452,41 @@ async function main() {
     check("F4b 'S' com título quitado: MANTÉM financeiro e cancela mesmo assim (best-effort)", canQ.status === 200 && (await titulosDe(nfFinQ)) === 2 && canQBody.financeiro === 'mantido-quitado', { status: canQ.status, titulos: await titulosDe(nfFinQ), fin: canQBody.financeiro });
     await pgFin.query(`DELETE FROM configuracoes_especificas WHERE id=4 AND tipo='Empresa' AND chave='1'`);
     await pgFin.end();
+
+    // 28) F3b — reconciliação no processar + tratamento de DENEGADA (statusnfe='D') + guarda de faturar.
+    const pgF3b = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    // 28.1) reconciliação de TOTAL: total adulterado → 422 (rollback, proc intacto); corrigido → processa.
+    const nfRec = await novaNf(baseNf({ tipo: 'S', nronf: 'E8101', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 2, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    await pgF3b.query(`UPDATE nf SET totalnf = totalnf + 1 WHERE codnf=$1`, [nfRec]);
+    const procRec = await fetch(`${base}/fiscal/nf/${nfRec}/processar`, { method: 'POST', headers: H });
+    const procRecBody = (await procRec.json().catch(() => ({}))) as any;
+    const procRecState = (await pgF3b.query(`SELECT proc FROM nf WHERE codnf=$1`, [nfRec])).rows[0]?.proc;
+    check('F3b reconciliação: total adulterado → 422 NF_TOTAL_DIVERGENTE, proc intacto (N)', procRec.status === 422 && procRecBody.code === 'NF_TOTAL_DIVERGENTE' && procRecState === 'N', { status: procRec.status, code: procRecBody.code, proc: procRecState });
+    await pgF3b.query(`UPDATE nf SET totalnf = totalnf - 1 WHERE codnf=$1`, [nfRec]);
+    const procRecOk = await fetch(`${base}/fiscal/nf/${nfRec}/processar`, { method: 'POST', headers: H });
+    check('F3b reconciliação: total correto → processa (200)', procRecOk.status === 200, { status: procRecOk.status });
+    // 28.2) reconciliação de ICMS-ST (empresa figurafiscal='D'): totalicm_st adulterado → 422 NF_ST_DIVERGENTE.
+    const nfSt = await novaNf(baseNf({ tipo: 'S', nronf: 'E8102', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    await pgF3b.query(`UPDATE nf SET totalicm_st = 5 WHERE codnf=$1`, [nfSt]);
+    const procStF = await fetch(`${base}/fiscal/nf/${nfSt}/processar`, { method: 'POST', headers: H });
+    const procStBody = (await procStF.json().catch(() => ({}))) as any;
+    check("F3b reconciliação ST (figurafiscal='D'): totalicm_st adulterado → 422 NF_ST_DIVERGENTE", procStF.status === 422 && procStBody.code === 'NF_ST_DIVERGENTE', { status: procStF.status, code: procStBody.code });
+    // 28.3) DENEGADA: transmitir cStat 110 → statusnfe='D' com estoque preso; faturar bloqueia; reverter estorna+limpa.
+    const nfDen = await novaNf(baseNf({ tipo: 'S', nronf: 'E8201', cfop: '5102', codparceiro: 20, modelo: 55, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const s0Den = await saldoProd1();
+    await fetch(`${base}/fiscal/nf/${nfDen}/processar`, { method: 'POST', headers: H }); // proc='S' (saldo −1)
+    process.env.SEFAZ_SIM_CSTAT = '110'; // força a SEFAZ simulada a DENEGAR só neste transmitir
+    const txDen = await fetch(`${base}/fiscal/nf/${nfDen}/transmitir`, { method: 'POST', headers: H });
+    delete process.env.SEFAZ_SIM_CSTAT;
+    const stDen = (await pgF3b.query(`SELECT statusnfe, proc FROM nf WHERE codnf=$1`, [nfDen])).rows[0];
+    check('F3b denegada: transmitir cStat 110 → statusnfe=D, proc=S (estoque preso)', txDen.status === 200 && stDen?.statusnfe === 'D' && stDen?.proc === 'S', { status: txDen.status, statusnfe: stDen?.statusnfe, proc: stDen?.proc });
+    const fatDen = await fetch(`${base}/fiscal/nf/${nfDen}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-09-10', intervaloDias: 30 }) });
+    const fatDenBody = (await fatDen.json().catch(() => ({}))) as any;
+    check('F3b denegada: faturar → 422 NF_DENEGADA', fatDen.status === 422 && fatDenBody.code === 'NF_DENEGADA', { status: fatDen.status, code: fatDenBody.code });
+    const revDen = await fetch(`${base}/fiscal/nf/${nfDen}/reverter`, { method: 'POST', headers: H });
+    const stRev = (await pgF3b.query(`SELECT statusnfe, chavenfe, proc FROM nf WHERE codnf=$1`, [nfDen])).rows[0];
+    check('F3b denegada: reverter estorna estoque + limpa status (statusnfe/chave null, proc N, saldo restaurado)', revDen.status === 200 && stRev?.statusnfe === null && stRev?.chavenfe === null && stRev?.proc === 'N' && (await saldoProd1()) === s0Den, { status: revDen.status, statusnfe: stRev?.statusnfe, chave: stRev?.chavenfe, proc: stRev?.proc, saldo: await saldoProd1(), s0Den });
+    await pgF3b.end();
   } finally {
     await app.close();
     await pg.stop();
