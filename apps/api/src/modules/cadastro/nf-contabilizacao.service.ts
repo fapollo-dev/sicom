@@ -57,6 +57,7 @@ export class NfContabilizacaoService {
       // gate: só integra quando a empresa é AUTOMATICA (EMPRESA.INTEGRACAO, udmNF.pas:7778).
       const empc = await trx.selectFrom('empresas').select('integracao').where('idempresa', '=', emp).executeTakeFirst();
       if (empc?.integracao !== 'AUTOMATICA') throw new BusinessRuleError('INTEGRACAO_NAO_AUTOMATICA', { codnf });
+      await this.assertPeriodoAberto(trx, emp, nf.dtcontabil); // período contábil fechado barra contabilização
 
       // rateio por SITUAÇÃO (nf_contabil, Σ valor) — a base das linhas principais do DIÁRIO. Exclui
       // situações marcadas SITUACAO_NF.NAO_REALIZA_INTEGRACAO='S' (GetSQLNF:507).
@@ -172,6 +173,26 @@ export class NfContabilizacaoService {
     }
   }
 
+  /**
+   * Barra contabilização/estorno quando a DTCONTABIL cai em período contábil FECHADO para NF
+   * (PERIODO_CONTABIL: STATUS='S' AND BLOQ_NF='S', data em [DATA_INICIO, DATA_FIM]). Fiel ao legado
+   * FECHADO por dia (uNF.pas:4565) / CHAVEAMENTO_PERIODO por data-limite (UIntegracaoContabil.pas:286).
+   * Fail-open: sem período fechado casando a data → segue (CHAVEAMENTO_PERIODO NULL = nada fechado).
+   */
+  private async assertPeriodoAberto(trx: AnyDB, emp: number, dtcontabil: unknown): Promise<void> {
+    if (dtcontabil == null) return;
+    const fechado = await trx
+      .selectFrom('periodo_contabil')
+      .select('competencia_contabil')
+      .where('codempresa', '=', emp)
+      .where('status', '=', 'S')
+      .where('bloq_nf', '=', 'S')
+      .where('data_inicio', '<=', dtcontabil)
+      .where('data_fim', '>=', dtcontabil)
+      .executeTakeFirst();
+    if (fechado) throw new BusinessRuleError('PERIODO_FECHADO', { dtcontabil, competencia: fechado.competencia_contabil });
+  }
+
   /** as duas linhas (D e C) da IIC para a situação — 1 'D' + 1 'C' por CODOPERACAO no legado. */
   private async iicDC(trx: AnyDB, codnf: number, situacao: number): Promise<{ d: Record<string, unknown>; c: Record<string, unknown> }> {
     const iic = await trx
@@ -279,13 +300,14 @@ export class NfContabilizacaoService {
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nf = await trx
         .selectFrom('nf')
-        .select(['codnf', 'contabilizado'])
+        .select(['codnf', 'contabilizado', 'dtcontabil'])
         .where('codnf', '=', codnf)
         .where('idempresa', '=', emp)
         .forUpdate()
         .executeTakeFirst();
       if (!nf) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf });
       if (nf.contabilizado !== 'S') throw new BusinessRuleError('NF_NAO_CONTABILIZADA', { codnf });
+      await this.assertPeriodoAberto(trx, emp, nf.dtcontabil); // não estorna em período fechado
       await this.estornarNoTrx(trx, codnf, emp, op);
     });
   }
