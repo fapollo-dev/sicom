@@ -1534,6 +1534,27 @@ async function main() {
     const pisLine = (linPC as any[]).find((l) => Number(l.contadebito) === 235 && Number(l.contacredito) === 154);
     const cofinsLine = (linPC as any[]).find((l) => Number(l.contadebito) === 236 && Number(l.contacredito) === 153);
     check('F5b-2: PIS/COFINS golden (principal + PIS 100×1,65%=1,65 + COFINS 100×7,6%=7,60)', conPC.status === 200 && linPC.length === 3 && Number(pisLine?.valor) === 1.65 && Number(cofinsLine?.valor) === 7.6, { status: conPC.status, n: linPC.length, pis: pisLine?.valor, cofins: cofinsLine?.valor });
+    // 29d) F5b-fase3: AUTO-DISPARO — processar uma ENTRADA (AUTOMATICA) COM rateio contabiliza sozinho;
+    // reverter (AUTOMATICA) estorna o contábil e reverte o estoque.
+    const nfAuto = await novaNf(baseNf({ tipo: 'E', nronf: 'E9005', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 3, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));
+    await pgCon.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,6,1,30)`, [nfAuto]); // rateio ANTES do processar
+    await fetch(`${base}/fiscal/nf/${nfAuto}/processar`, { method: 'POST', headers: H }); // auto-contabiliza
+    const autoF = (await pgCon.query(`SELECT contabilizado FROM nf WHERE codnf=$1`, [nfAuto])).rows[0]?.contabilizado;
+    const autoLin = await diarioDe(nfAuto);
+    check('F5b-3: auto-disparo — processar (AUTOMATICA+rateio) contabiliza sozinho (D148/C11141)', autoF === 'S' && autoLin.length === 1 && Number(autoLin[0].contadebito) === 148, { flag: autoF, n: autoLin.length });
+    const revAuto = await fetch(`${base}/fiscal/nf/${nfAuto}/reverter`, { method: 'POST', headers: H });
+    const autoF2 = (await pgCon.query(`SELECT contabilizado, proc FROM nf WHERE codnf=$1`, [nfAuto])).rows[0];
+    check('F5b-3: reverter (AUTOMATICA) estorna o contábil e reverte (contabilizado null, proc N, diario vazio)', revAuto.status === 200 && autoF2?.contabilizado == null && autoF2?.proc === 'N' && (await diarioDe(nfAuto)).length === 0, { status: revAuto.status, flag: autoF2?.contabilizado, proc: autoF2?.proc });
+    // 29e) F5b-fase3: linha de ICMS (golden saída: valor = nf.totalicm; cfop 5102 → sit791 D127/C232).
+    const nfIcms = await novaNf(baseNf({ tipo: 'S', nronf: 'E9006', cfop: '5102', codparceiro: 20, modelo: 55, statusnfe: 'P', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 5, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    await fetch(`${base}/fiscal/nf/${nfIcms}/processar`, { method: 'POST', headers: H }); // auto-contab barrado (sem rateio ainda)
+    // ICMS do razão = Σ VRICM dos itens tributados ('T'), NÃO o header. Seta o VRICM do item T01.
+    await pgCon.query(`UPDATE nf_prod SET vricm=52.25 WHERE codnf=$1`, [nfIcms]);
+    await pgCon.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,8,1,100)`, [nfIcms]);
+    const conIcms = await fetch(`${base}/fiscal/nf/${nfIcms}/contabilizar`, { method: 'POST', headers: H });
+    const linIcms = await diarioDe(nfIcms);
+    const icmsLine = (linIcms as any[]).find((l) => Number(l.contadebito) === 127 && Number(l.contacredito) === 232);
+    check('F5b-3: linha de ICMS (valor = Σ VRICM dos itens tributados 52,25, sit791 D127/C232)', conIcms.status === 200 && Number(icmsLine?.valor) === 52.25, { status: conIcms.status, icms: icmsLine?.valor, n: linIcms.length });
     // guarda: empresa não-AUTOMATICA → 422 INTEGRACAO_NAO_AUTOMATICA.
     await pgCon.query(`UPDATE empresas SET integracao=NULL WHERE idempresa=1`);
     const naRes = await fetch(`${base}/fiscal/nf/${nfSR}/contabilizar`, { method: 'POST', headers: H });

@@ -56,7 +56,7 @@ export class NfNfeService {
     const op = t.operadorId ?? null;
     if (emp == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
 
-    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+    const resultado = await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nf = await trx
         .selectFrom('nf')
         .select(['codnf', 'tipo', 'tipoemissao', 'modelo', 'nronf', 'serie', 'dtemissao', 'codparceiro', 'totalnf', 'proc', 'statusnfe', 'cancelada', 'tpemissao'])
@@ -168,6 +168,11 @@ export class NfNfeService {
         simulado: res.simulado,
       };
     });
+
+    // AUTO-DISPARO contábil (F5b-fase3): a saída autorizada (statusnfe='P') integra no ENVIO
+    // (uNF.pas:10946). Best-effort (fora da transação, como o legado). Entrada já integrou no processar.
+    if (resultado.statusnfe === 'P') await this.contab.tentarContabilizar(codnf);
+    return resultado;
   }
 
   /** cancela a NFe autorizada (evento teCancelamento). NÃO toca estoque/financeiro/contábil. */

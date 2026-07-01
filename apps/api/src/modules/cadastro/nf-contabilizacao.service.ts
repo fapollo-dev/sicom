@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { sql } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
@@ -26,6 +26,7 @@ const num = (v: unknown): number => {
  */
 @Injectable()
 export class NfContabilizacaoService {
+  private readonly logger = new Logger(NfContabilizacaoService.name);
   constructor(private readonly dbp: DatabaseProvider) {}
 
   async contabilizar(codnf: number): Promise<{ codnf: number; linhas: number; codlote: number; total: number }> {
@@ -37,7 +38,7 @@ export class NfContabilizacaoService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nf = await trx
         .selectFrom('nf')
-        .select(['codnf', 'tipo', 'modelo', 'proc', 'cancelada', 'contabilizado', 'totalnf', 'nronf', 'dtcontabil', 'statusnfe', 'codparceiro', 'cfop'])
+        .select(['codnf', 'tipo', 'modelo', 'proc', 'cancelada', 'contabilizado', 'totalnf', 'totalicm', 'nronf', 'dtcontabil', 'statusnfe', 'codparceiro', 'cfop'])
         .where('codnf', '=', codnf)
         .where('idempresa', '=', emp)
         .forUpdate()
@@ -104,9 +105,39 @@ export class NfContabilizacaoService {
       // golden NF 72044/71822). ICMS-line/CMV = fase-3. Só lança se o CFOP tiver a situação + IIC.
       const cfopRow = await trx
         .selectFrom('cfop')
-        .select(['situacao_pis_entradas_nf', 'situacao_pis_saidas_nf', 'situacao_cofins_entradas_nf', 'situacao_cofins_saidas_nf'])
+        .select([
+          'situacao_pis_entradas_nf', 'situacao_pis_saidas_nf', 'situacao_cofins_entradas_nf', 'situacao_cofins_saidas_nf',
+          'situacao_icms_entradas_nf', 'situacao_icms_saidas_nf',
+        ])
         .where('codcfop', '=', String(nf.cfop ?? ''))
         .executeTakeFirst();
+      // (3) linha de ICMS próprio (F5b-fase3). Valor = Σ dos ITENS (NÃO o header NF.TOTALICM): soma
+      // VRICM só de itens TRIBUTADOS (ALIQUOTA começa com 'T') e de CFOP NÃO-cupom (PROC_CUPOM≠'S') —
+      // fórmula exata de GetSQLNF (UIntegracaoContabil.pas:483-492). O header inclui cupom/não-'T' e
+      // diverge (~8% + omite NFs de header-zero que têm ICMS real). Golden: 500/500 pela soma dos itens.
+      const icmsAgg = await trx
+        .selectFrom('nf_prod as np')
+        .leftJoin('cfop as cf', 'cf.codcfop', 'np.cfop')
+        .select((eb: AnyDB) =>
+          eb.fn
+            .sum(sql`case when coalesce(cf.proc_cupom, 'N') = 'S' then 0 when substr(np.aliquota, 1, 1) = 'T' then np.vricm else 0 end`)
+            .as('vicms'),
+        )
+        .where('np.codnf', '=', codnf)
+        .executeTakeFirst();
+      const vicms = Math.round(num(icmsAgg?.vicms) * 100) / 100;
+      const sitIcms = cfopRow?.[ctx.tipo === 'E' ? 'situacao_icms_entradas_nf' : 'situacao_icms_saidas_nf'];
+      if (vicms > 0) {
+        // ICMS devido mas CFOP sem situação configurada → erro de config (GetSQLNF aborta na nota-única).
+        if (sitIcms == null) throw new BusinessRuleError('ICMS_SEM_SITUACAO', { codnf, cfop: nf.cfop });
+        const situacao = Number(sitIcms);
+        const { d, c } = await this.iicDC(trx, codnf, situacao);
+        const contadebito = await this.resolveConta(trx, d, 'D', ctx, null, situacao);
+        const contacredito = await this.resolveConta(trx, c, 'C', ctx, null, situacao);
+        await this.lancar(trx, ctx, situacao, contadebito, contacredito, vicms, d.codhistorico ?? null, `ICMS NF ${nf.nronf ?? codnf}`);
+        linhas++;
+      }
+      // (4) linhas de imposto PIS/COFINS (base=totalnf×rate — golden ENTRADA; base de saída por regime = fase-4).
       linhas += await this.lancarImposto(trx, ctx, cfopRow, num(nf.totalnf), 'pis', 1.65);
       linhas += await this.lancarImposto(trx, ctx, cfopRow, num(nf.totalnf), 'cofins', 7.6);
 
@@ -124,6 +155,23 @@ export class NfContabilizacaoService {
   }
 
   /** conta fixa (TIPO='F'). TIPO='A' (parceiro/PLC automático) = fase-2 (não seedado no corte-1). */
+  /**
+   * AUTO-DISPARO best-effort (F5b-fase3): contabiliza se a NF for elegível; engole as regras de
+   * NÃO-elegibilidade (não-AUTOMATICA / sem rateio / já contabilizada / não-autorizada) — espelha o
+   * legado, que integra no processar/envio e apenas AVISA se não integrar (não aborta o fluxo).
+   * Erros técnicos (não-BusinessRuleError) sobem. Chamado após processar (entrada) e transmitir (saída).
+   */
+  async tentarContabilizar(codnf: number): Promise<void> {
+    try {
+      await this.contabilizar(codnf);
+    } catch (e) {
+      if (!(e instanceof BusinessRuleError)) throw e;
+      // best-effort: regra de negócio (inelegível/config) NÃO aborta o processar/envio — só deixa
+      // trilha (o legado avisa no log de integração). O operador pode contabilizar explicitamente depois.
+      this.logger.warn(`auto-disparo contábil pulou NF ${codnf}: ${e.code ?? e.message}`);
+    }
+  }
+
   /** as duas linhas (D e C) da IIC para a situação — 1 'D' + 1 'C' por CODOPERACAO no legado. */
   private async iicDC(trx: AnyDB, codnf: number, situacao: number): Promise<{ d: Record<string, unknown>; c: Record<string, unknown> }> {
     const iic = await trx

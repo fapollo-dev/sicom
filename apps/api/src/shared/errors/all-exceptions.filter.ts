@@ -188,6 +188,7 @@ const CODE_PT: Record<string, string> = {
   CONTA_PARCEIRO_NAO_DEFINIDA: 'O parceiro não tem conta contábil definida para o lançamento automático.',
   CONTA_PLC_NAO_DEFINIDA: 'O centro de custo (PLC) não tem conta contábil formal vinculada.',
   CONTA_AUTOMATICA_NAO_SUPORTADA: 'Conta contábil automática de débito exige centro de custo (CODCC).',
+  ICMS_SEM_SITUACAO: 'CFOP sem situação contábil de ICMS configurada, mas há ICMS a lançar. Verifique!',
   // faturamento / financeiro (F4)
   NF_JA_FATURADA: 'Esta nota fiscal já está faturada.',
   NF_NAO_FATURADA: 'Esta nota fiscal não está faturada.',

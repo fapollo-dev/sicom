@@ -4,6 +4,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ConfigService } from './config.service';
+import { NfContabilizacaoService } from './nf-contabilizacao.service';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -41,10 +42,14 @@ export class NfProcessamentoService {
   constructor(
     private readonly dbp: DatabaseProvider,
     private readonly config: ConfigService,
+    private readonly contab: NfContabilizacaoService,
   ) {}
 
-  processar(codnf: number): Promise<void> {
-    return this.mover(codnf, 'processar');
+  async processar(codnf: number): Promise<void> {
+    await this.mover(codnf, 'processar');
+    // AUTO-DISPARO contábil (F5b-fase3): entrada AUTOMATICA integra no processar (udmNF.pas:7778);
+    // saída M55 é barrada aqui (exige statusnfe='P') e integra no transmitir. Best-effort (não aborta).
+    await this.contab.tentarContabilizar(codnf);
   }
   reverter(codnf: number): Promise<void> {
     return this.mover(codnf, 'reverter');
@@ -82,8 +87,13 @@ export class NfProcessamentoService {
         // (DENEGADA) liberam: a denegada é fiscalmente inválida e precisa voltar a editável p/ reemissão
         // (uNF.pas:8939 bloqueava 'D' por não haver caminho de estorno; migrado abre-o).
         if (nf.statusnfe && nf.statusnfe !== 'T' && nf.statusnfe !== 'D') throw new BusinessRuleError('NF_ENVIADA', { codnf });
-        // reverter bloqueado se já contabilizada (uNF.pas:8951).
-        if (nf.contabilizado === 'S') throw new BusinessRuleError('NF_CONTABILIZADA', { codnf });
+        // reverter + contabilizada (uNF.pas:8949): se a empresa é AUTOMATICA, ESTORNA o contábil e segue;
+        // senão bloqueia (o operador tem de estornar o contábil manualmente antes).
+        if (nf.contabilizado === 'S') {
+          const empc = await trx.selectFrom('empresas').select('integracao').where('idempresa', '=', emp).executeTakeFirst();
+          if (empc?.integracao === 'AUTOMATICA') await this.contab.estornarNoTrx(trx, codnf, emp, op);
+          else throw new BusinessRuleError('NF_CONTABILIZADA', { codnf });
+        }
       }
 
       // sentido: entrada soma / saída baixa; estorno = inverso.
