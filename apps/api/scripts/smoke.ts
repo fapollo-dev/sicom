@@ -1414,6 +1414,38 @@ async function main() {
     // cleanup: a dona exclui
     const delDona = await fetch(`${base}/cadastro/contas-bancarias/${contaId}`, { method: 'DELETE', headers: H2 });
     check('MT: a empresa DONA (2) exclui a própria conta (cleanup)', delDona.status === 204, { status: delDona.status });
+
+    // 27) F4b — estorno do FINANCEIRO no CANCELAMENTO (ESTORNA_FINANCEIRO_NF; CancelaFaturamento uNF:6668).
+    const pgFin = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    // prepara uma NF de saída cancelável: processa (proc='S') → fatura (2 títulos ARECEBER) → transmite (statusnfe='P').
+    const prepCancelavel = async (nronf: string): Promise<number> => {
+      const id = await novaNf(baseNf({ tipo: 'S', nronf, cfop: '5102', codparceiro: 20, modelo: 55, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+      await fetch(`${base}/fiscal/nf/${id}/processar`, { method: 'POST', headers: H });
+      await fetch(`${base}/fiscal/nf/${id}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 2, primeiroVencimento: '2026-08-10', intervaloDias: 30 }) });
+      await fetch(`${base}/fiscal/nf/${id}/transmitir`, { method: 'POST', headers: H });
+      return id;
+    };
+    const titulosDe = async (idnf: number): Promise<number> => Number((await pgFin.query(`SELECT count(*)::int n FROM areceber WHERE idnf=$1`, [idnf])).rows[0].n);
+    // (a) default 'N' → cancelar MANTÉM os títulos (fiel: CancelaFaturamento gated por ESTORNA_FINANCEIRO_NF).
+    await pgFin.query(`DELETE FROM configuracoes_especificas WHERE id=4 AND tipo='Empresa' AND chave='1'`);
+    const nfFinN = await prepCancelavel('E7001');
+    const canN = await fetch(`${base}/fiscal/nf/${nfFinN}/cancelar`, { method: 'POST', headers: H, body: JSON.stringify({ xjust: 'CANCELAMENTO TESTE F4B DEFAULT N MANTEM TITULOS' }) });
+    check("F4b default 'N': cancelar MANTÉM os títulos (fiel ao legado)", canN.status === 200 && (await titulosDe(nfFinN)) === 2, { status: canN.status, titulos: await titulosDe(nfFinN) });
+    // (b) override 'S' → cancelar ESTORNA (deleta títulos) e reabre faturada.
+    await pgFin.query(`INSERT INTO configuracoes_especificas (id,tipo,chave,valor) VALUES (4,'Empresa','1','S') ON CONFLICT (id,tipo,chave) DO UPDATE SET valor='S'`);
+    const nfFinS = await prepCancelavel('E7002');
+    const canS = await fetch(`${base}/fiscal/nf/${nfFinS}/cancelar`, { method: 'POST', headers: H, body: JSON.stringify({ xjust: 'CANCELAMENTO TESTE F4B S ESTORNA FINANCEIRO' }) });
+    const canSBody = (await canS.json().catch(() => ({}))) as any;
+    const fatS = (await pgFin.query(`SELECT faturada FROM nf WHERE codnf=$1`, [nfFinS])).rows[0]?.faturada;
+    check("F4b config 'S': cancelar ESTORNA os títulos e reabre faturada", canS.status === 200 && (await titulosDe(nfFinS)) === 0 && fatS === 'N' && canSBody.financeiro === 'estornado', { status: canS.status, titulos: await titulosDe(nfFinS), faturada: fatS, fin: canSBody.financeiro });
+    // (c) 'S' mas título QUITADO → MANTÉM financeiro (VerificaExisteBaixas), sem abortar o cancelamento.
+    const nfFinQ = await prepCancelavel('E7003');
+    await pgFin.query(`UPDATE areceber SET quitada='S' WHERE idnf=$1 AND codempresa=1`, [nfFinQ]);
+    const canQ = await fetch(`${base}/fiscal/nf/${nfFinQ}/cancelar`, { method: 'POST', headers: H, body: JSON.stringify({ xjust: 'CANCELAMENTO TESTE F4B QUITADO MANTEM FINANCEIRO' }) });
+    const canQBody = (await canQ.json().catch(() => ({}))) as any;
+    check("F4b 'S' com título quitado: MANTÉM financeiro e cancela mesmo assim (best-effort)", canQ.status === 200 && (await titulosDe(nfFinQ)) === 2 && canQBody.financeiro === 'mantido-quitado', { status: canQ.status, titulos: await titulosDe(nfFinQ), fin: canQBody.financeiro });
+    await pgFin.query(`DELETE FROM configuracoes_especificas WHERE id=4 AND tipo='Empresa' AND chave='1'`);
+    await pgFin.end();
   } finally {
     await app.close();
     await pg.stop();

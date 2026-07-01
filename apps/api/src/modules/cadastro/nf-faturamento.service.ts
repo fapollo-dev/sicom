@@ -168,4 +168,46 @@ export class NfFaturamentoService {
       if (Number(r?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('NF_NAO_FATURADA', { codnf });
     });
   }
+
+  /**
+   * Estorno do financeiro DENTRO da transação do CANCELAMENTO da NFe (F6→F4b). Espelha
+   * `CancelaFaturamento` (uNF.pas:6668) quando `ESTORNA_FINANCEIRO_NF='S'`: exclui os títulos
+   * (`ExcluiFaturamento`) e reabre `nf.faturada`. **Best-effort** — se algum título já foi
+   * quitado (`VerificaExisteBaixas`, uNF:6683), MANTÉM o financeiro e NÃO aborta o cancelamento
+   * fiscal já efetivado (o legado só exibe mensagem / registra pendência). NÃO abre transação
+   * própria: usa a `trx` do cancelamento (atômico com o flip P→C). O gate de config e a guarda
+   * `faturada='S'` são responsabilidade do chamador (nf-nfe.cancelar). Retorna o desfecho.
+   */
+  async estornarNoCancelamento(
+    trx: AnyDB,
+    codnf: number,
+    tipo: string,
+    emp: number,
+    op: number | null,
+  ): Promise<'estornado' | 'mantido-quitado' | 'sem-financeiro'> {
+    const tabela = tipo === 'E' ? 'apagar' : 'areceber';
+    const existe = await trx
+      .selectFrom(tabela)
+      .select('idnf')
+      .where('idnf', '=', codnf)
+      .where('codempresa', '=', emp)
+      .executeTakeFirst();
+    if (!existe) return 'sem-financeiro';
+    const quit = await trx
+      .selectFrom(tabela)
+      .select('idnf')
+      .where('idnf', '=', codnf)
+      .where('codempresa', '=', emp)
+      .where('quitada', '=', 'S')
+      .executeTakeFirst();
+    if (quit) return 'mantido-quitado'; // título baixado → não exclui (pendência); cancelamento segue
+    await trx.deleteFrom(tabela).where('idnf', '=', codnf).where('codempresa', '=', emp).execute();
+    await trx
+      .updateTable('nf')
+      .set({ faturada: 'N', usultalteracao: op, dtultimalteracao: sql`now()` })
+      .where('codnf', '=', codnf)
+      .where('idempresa', '=', emp)
+      .execute();
+    return 'estornado';
+  }
 }

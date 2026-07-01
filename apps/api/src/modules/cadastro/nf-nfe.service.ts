@@ -5,6 +5,8 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { SEFAZ_PORT, type SefazPort } from './sefaz/sefaz.port';
 import { NfProcessamentoService } from './nf-processamento.service';
+import { NfFaturamentoService } from './nf-faturamento.service';
+import { ConfigService } from './config.service';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -24,8 +26,11 @@ const num = (v: unknown): number => {
  * Fidelidade ao legado (NFe.pas):
  *  - estados ''(rascunho)/P(autorizada)/C(cancelada)/D(denegada); mapeamento cStat→status na porta.
  *  - cancelamento exige NFe autorizada e justificativa ≥15 (schema); grava STATUSNFE='C' +
- *    PROTOCOLO_CANCELAMENTO + CANCELADA='S' + XJUST. **NÃO reverte estoque/financeiro/contábil**
- *    (NFe.pas:254-297 — cancelar é puramente fiscal/SEFAZ). Invariante provada no smoke.
+ *    PROTOCOLO_CANCELAMENTO + CANCELADA='S' + XJUST. Efeitos do botão real da retaguarda
+ *    (TfrmNF.CancelarNFE, uNF.pas:6773), na MESMA transação: ESTOQUE estornado se proc='S'
+ *    (golden, net-0 no kardex); FINANCEIRO via CancelaFaturamento (uNF:6668) GATED por
+ *    ESTORNA_FINANCEIRO_NF (default 'N' NÃO deleta — fiel; 'S' exclui títulos, best-effort se
+ *    quitado). CONTÁBIL (TIntegracaoContabil.Estornar) = F5b (depende do DIÁRIO/PLANO_CONTAS).
  *  - CCe exige NFe autorizada, texto ≥15 (schema), MÁX 20/nota (NFe.pas:332), nSeqEvento=MAX+1.
  *
  * Idempotência: o flip de STATUSNFE usa CAS (`WHERE statusnfe IS NULL` / `='P'`) → transmitir/
@@ -37,6 +42,8 @@ export class NfNfeService {
     private readonly dbp: DatabaseProvider,
     @Inject(SEFAZ_PORT) private readonly sefaz: SefazPort,
     private readonly proc: NfProcessamentoService,
+    private readonly fat: NfFaturamentoService,
+    private readonly config: ConfigService,
   ) {}
 
   /** transmite a NFe (mod.55) à SEFAZ (via porta) e persiste chave/protocolo/status. */
@@ -170,7 +177,7 @@ export class NfNfeService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nf = await trx
         .selectFrom('nf')
-        .select(['codnf', 'tipo', 'chavenfe', 'protocolo_nfe', 'statusnfe', 'cancelada', 'proc'])
+        .select(['codnf', 'tipo', 'chavenfe', 'protocolo_nfe', 'statusnfe', 'cancelada', 'proc', 'faturada'])
         .where('codnf', '=', codnf)
         .where('idempresa', '=', emp)
         .forUpdate()
@@ -242,7 +249,15 @@ export class NfNfeService {
         await this.proc.estornarEstoquePorCancelamento(trx, codnf, String(nf.tipo), op, emp);
       }
 
-      return { codnf, statusnfe: 'C', protocolo: res.protocolo, cstat: res.cstat, simulado: res.simulado };
+      // financeiro (F4b): CancelaFaturamento (uNF.pas:6668/6802) é GATED por ESTORNA_FINANCEIRO_NF
+      // (default golden 'N' → NÃO deleta títulos, fiel ao legado; só 'S' exclui). Best-effort: título
+      // quitado é mantido (VerificaExisteBaixas) sem abortar o cancelamento fiscal. Mesma transação.
+      let financeiro: 'estornado' | 'mantido-quitado' | 'sem-financeiro' | 'nao-aplicavel' = 'nao-aplicavel';
+      if (nf.faturada === 'S' && (await this.config.ligado('ESTORNA_FINANCEIRO_NF', { empresaId: emp, operadorId: op ?? undefined }))) {
+        financeiro = await this.fat.estornarNoCancelamento(trx, codnf, String(nf.tipo), emp, op);
+      }
+
+      return { codnf, statusnfe: 'C', protocolo: res.protocolo, cstat: res.cstat, simulado: res.simulado, financeiro };
     });
   }
 

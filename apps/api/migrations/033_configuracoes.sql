@@ -31,15 +31,17 @@ CREATE TABLE IF NOT EXISTS configuracoes_especificas (
 --   APROVEITAMENTO_CREDITO_ICMSST_NF (id 290, 'N', wl 'Modulo;Empresa' — gate do zeramento de crédito de ST, F2);
 --   PERMITE_PROC_NF_ESTOQUE_NEG (id 84, 'S', wl 'Modulo;Empresa;Grupo;Usuario' — gate do bloqueio de estoque
 --     negativo na F3, udmNF.pas:11643; default 'S' = PERMITE, fiel ao legado);
+--   ESTORNA_FINANCEIRO_NF (id 4, 'N', wl 'Modulo;Empresa;Grupo;Usuario' — gate do estorno de títulos no
+--     CANCELAMENTO da NFe, CancelaFaturamento uNF.pas:6668/6678; default 'N' = NÃO deleta, fiel ao legado);
 --   AMBIENTE_NF (id 48, 'P', 'Empresa'; ÓRFÃO — o ambiente real vem de NFE.TIPONFE; override real emp.1='H').
 -- As demais chaves de gate JÁ ESTÃO CONFIRMADAS no Oracle p/ o wire respectivo (não seedar às cegas):
---   ESTORNA_FINANCEIRO_NF ...................... id 4,   default 'N', wl 'Modulo;Empresa;Grupo;Usuario' (F4b)
 --   UTILIZA_INTEGRACAO_CONTABIL ............... id 100, default 'N', wl 'Modulo;Empresa' (+ Modulo/Retaguarda='S') (F5b)
 --   CALCULA_ICMSST_EMISSAOPROPRIA_NF_SEM_INDEX  id 291, default 'N', wl 'Modulo;Empresa' (F2b)
 -- (o escopo 'Grupo' do whitelist ainda NÃO é implementado no resolver — só Usuario/Empresa/Modulo/default.)
 INSERT INTO configuracoes (id, codigo, valor, tipovalor, config_especificas_permitidas, descricao) VALUES
   (290, 'APROVEITAMENTO_CREDITO_ICMSST_NF', 'N', 'S/N', 'Modulo;Empresa', 'Aproveita o crédito de ICMS próprio em CFOP de ST na NF (S) ou zera o crédito (N). Gate do zeramento da F2 (udmNF.pas:4231/4470).'),
   (84,  'PERMITE_PROC_NF_ESTOQUE_NEG', 'S', 'S/N', 'Modulo;Empresa;Grupo;Usuario', 'Permite processar/reverter NF deixando saldo de estoque NEGATIVO (S, default legado) ou bloqueia (N). Gate da F3 (udmNF.pas:11643). Override por senha (UsuarioAutorizouComSenha, uNF:11659) e escopo Grupo adiados.'),
+  (4,   'ESTORNA_FINANCEIRO_NF', 'N', 'S/N', 'Modulo;Empresa;Grupo;Usuario', 'No CANCELAMENTO da NFe, exclui os títulos financeiros (S) ou mantém (N, default legado). Gate de CancelaFaturamento (uNF.pas:6668/6678). Título quitado é mantido mesmo com S (VerificaExisteBaixas). Escopo Grupo adiado.'),
   (48,  'AMBIENTE_NF', 'P', 'lista', 'Empresa', 'Ambiente de emissão NFe (P=Produção/H=Homologação). ÓRFÃO no retaguarda — o ambiente real vem de NFE.TIPONFE; NÃO consumido pela NF migrada.')
 ON CONFLICT (id) DO NOTHING;
 -- (overrides por empresa entram via CONFIGURACOES_ESPECIFICAS quando cadastrados; nenhum no seed —
