@@ -1376,6 +1376,12 @@ async function main() {
     check('F2c: empresa SN NÃO destaca ICMS (vricm 0) — DmOld:1869', (await recalcIcm()) === 0, { vricm: await recalcIcm() });
     await pgCfg.query(`UPDATE empresas SET classfiscal='LR' WHERE idempresa=1`);
     check('F2c: revertida p/ LR volta a destacar (vricm 22,00)', (await recalcIcm()) === 22, { vricm: await recalcIcm() });
+    // 25.3) F2c-2 P1 — crédito de ENTRADA da empresa SN = base·ALQSIMPLESNAC/100 (udmNF.pas:4021).
+    await pgCfg.query(`UPDATE empresas SET classfiscal='SN', alqsimplesnac=3 WHERE idempresa=1`);
+    const recEntSn = await fetch(`${base}/fiscal/nf/recalcular`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, aliquota: 'T01', cfop: '1102' }] }) });
+    const itEntSn = ((((await recEntSn.json().catch(() => ({}))) as any).itens ?? [])[0] ?? {}) as any;
+    check('F2c-2: entrada SN → crédito presumido base·ALQSIMPLESNAC/100 (vricm 3, base 100, ST 0)', Number(itEntSn.vricm) === 3 && Number(itEntSn.vrbasecalculo) === 100 && Number(itEntSn.vrbasest ?? 0) === 0, { vricm: itEntSn.vricm, base: itEntSn.vrbasecalculo, st: itEntSn.vrbasest });
+    await pgCfg.query(`UPDATE empresas SET classfiscal='LR', alqsimplesnac=NULL WHERE idempresa=1`);
     await pgCfg.end();
 
     // 26) ISOLAMENTO MULTI-TENANT no WRITE-PATH (achado da auditoria de validação): update/remove

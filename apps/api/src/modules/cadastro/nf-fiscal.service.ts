@@ -63,28 +63,37 @@ export class NfFiscalService {
   async recalcular(dto: Record<string, unknown>): Promise<Record<string, unknown>> {
     const uf = await this.resolverUf(dto);
     const emp = currentTenant().empresaId ?? null;
-    const empresa = await this.resolverEmpresa(emp); // { uf origem, classfiscal } — regime + interestadual
+    const empresa = await this.resolverEmpresa(emp); // { uf origem, classfiscal, alqsimplesnac }
     // F2c: empresa Simples Nacional NÃO destaca ICMS/ST na emissão (DmOld/udmNF.pas:1869).
     const empresaSn = empresa?.classfiscal === 'SN';
+    const alqSimplesNac = num(empresa?.alqsimplesnac);
+    const tipoNota = dto.tipo != null ? String(dto.tipo) : ''; // 'E' entrada / 'S' saída (regime SN difere)
     // Epic-config: gate real do zeramento de crédito de ST (udmNF.pas:4231/4470); default 'N' = zera.
     const aproveitaCreditoSt = await this.config.ligado('APROVEITAMENTO_CREDITO_ICMSST_NF', { empresaId: emp });
     const itens = Array.isArray(dto.itens) ? (dto.itens as Record<string, unknown>[]) : [];
     const calculados: Record<string, unknown>[] = [];
-    for (const it of itens) calculados.push(await this.calcularItem(it, uf, empresa?.uf ?? null, empresaSn, aproveitaCreditoSt));
+    for (const it of itens)
+      calculados.push(await this.calcularItem(it, uf, empresa?.uf ?? null, empresaSn, aproveitaCreditoSt, tipoNota, alqSimplesNac));
     return { ...dto, itens: calculados };
   }
 
   /** Config fiscal da EMPRESA (emitente/tenant): UF de origem (MVA ajustado interestadual) + regime
    * (CLASSFISCAL 'LR'/'SN'). Consolidou o stub empresa_fiscal. null se não cadastrada. */
-  private async resolverEmpresa(emp: number | null): Promise<{ uf: string | null; classfiscal: string | null } | null> {
+  private async resolverEmpresa(
+    emp: number | null,
+  ): Promise<{ uf: string | null; classfiscal: string | null; alqsimplesnac: number } | null> {
     if (emp == null) return null;
     const ef = await (this.dbp.forTenantRead() as AnyDB)
       .selectFrom('empresas')
-      .select(['uf', 'classfiscal'])
+      .select(['uf', 'classfiscal', 'alqsimplesnac'])
       .where('idempresa', '=', emp)
       .executeTakeFirst();
     if (!ef) return null;
-    return { uf: ef.uf ? String(ef.uf).toUpperCase() : null, classfiscal: ef.classfiscal ? String(ef.classfiscal) : null };
+    return {
+      uf: ef.uf ? String(ef.uf).toUpperCase() : null,
+      classfiscal: ef.classfiscal ? String(ef.classfiscal) : null,
+      alqsimplesnac: num(ef.alqsimplesnac), // crédito presumido do Simples na ENTRADA (udmNF.pas:4021)
+    };
   }
 
   /** UF da nota (não por item): nf.codparceiro_end → parceiros_end.uf; senão endereço padrão. */
@@ -116,6 +125,8 @@ export class NfFiscalService {
     ufOrigem: string | null,
     empresaSn: boolean,
     aproveitaCreditoSt: boolean,
+    tipoNota: string,
+    alqSimplesNac: number,
   ): Promise<Record<string, unknown>> {
     const item: Record<string, unknown> = { ...it };
     const codAliquota = it.aliquota != null ? String(it.aliquota).trim() : '';
@@ -189,15 +200,21 @@ export class NfFiscalService {
       }
     }
 
-    // (5) F2c — REGIME DA EMPRESA: Simples Nacional NÃO destaca ICMS próprio nem ST na emissão
-    // (DmOld/udmNF.pas:1869: `if not (CLASSFISCAL='SN') then calcula else zera`). Zera o destaque
-    // ICMS/ST desta empresa SN. (O crédito de entrada SN via ALQSIMPLESNAC = adiado, F2c-fase-2.)
+    // (5) F2c — REGIME DA EMPRESA (Simples Nacional). SN nunca é substituto → zera ST em qualquer
+    // sentido. O ICMS próprio depende do TIPO da nota (udmNF.pas:4011-4022 / DmOld:1869-1877):
+    //  - SAÍDA/emissão: SN NÃO destaca ICMS → zera base+ICMS (`if not (CLASSFISCAL='SN') then ...`).
+    //  - ENTRADA: crédito PRESUMIDO do Simples = base_ICMS × ALQSIMPLESNAC/100 (udmNF.pas:4021,
+    //    TruncarArredondar 'A'); mantém a base. (Substitui o crédito-por-diferença do Lucro Real.)
     if (empresaSn) {
-      item.vrbasecalculo = 0;
-      item.vricm = 0;
       item.vrbasest = 0;
       item.vricmst = 0;
       item.streal = 0;
+      if (tipoNota === 'E') {
+        item.vricm = this.round2((num(item.vrbasecalculo) * alqSimplesNac) / 100); // crédito presumido
+      } else {
+        item.vrbasecalculo = 0;
+        item.vricm = 0;
+      }
     }
     return item;
   }
