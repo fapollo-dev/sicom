@@ -61,6 +61,8 @@ export class AggregateEngineService extends CrudEngineService {
     const op = currentTenant().operadorId ?? null;
     if (cfg.validar) await cfg.validar({ dto, id, db: this.dbp.forTenantRead() }); // regra cross-row antes de gravar
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      // escopo multi-tenant (fail-closed): guarda master E cascata de detalhes (que deletam por fk).
+      if (!(await this.pertenceAEmpresa(trx, cfg, id))) return;
       const d = this.delta(cfg, this.derivados(cfg, dto, id)); // derivar (ex.: flags COMPOSICAO/DECOMPOSICAO) também no update
       const antes =
         cfg.historico === false || !Object.keys(d).length
@@ -126,6 +128,8 @@ export class AggregateEngineService extends CrudEngineService {
     if (cfg.validarRemocao) await cfg.validarRemocao({ id, db: this.dbp.forTenantRead() }); // guarda de exclusão (cross-row)
     const op = currentTenant().operadorId ?? null;
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      // escopo multi-tenant (fail-closed): guarda master E cascata de detalhes (que deletam por fk).
+      if (!(await this.pertenceAEmpresa(trx, cfg, id))) return;
       // cascata em código (como TfrmCadMasterDet) — não depende do ON DELETE CASCADE
       for (const det of cfg.detalhes) await trx.deleteFrom(det.tabela).where(det.fk, '=', id).execute();
       if (cfg.softDelete) {

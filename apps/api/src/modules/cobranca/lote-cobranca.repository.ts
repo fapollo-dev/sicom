@@ -73,12 +73,15 @@ export class LoteCobrancaRepository {
    * regra de negócio → BusinessRuleError (envelope ADR-015, nunca 500).
    */
   async assertCobradorValido(codparceiro: number): Promise<void> {
+    const empresaId = currentTenant().empresaId;
+    if (empresaId == null) throw new UnauthorizedTenantError(); // fail-closed (403)
     const db = this.dbp.forTenantRead() as AnyDB;
     const row = await db
       .selectFrom('parceiros')
       .select('codparceiro')
       .where('codparceiro', '=', codparceiro)
       .where('fun', '=', 'S')
+      .where('idempresa', '=', empresaId) // escopo multi-tenant: cobrador tem de ser da empresa do contexto
       .executeTakeFirst();
     if (!row) throw new BusinessRuleError('FORNECEDOR_NAO_ENCONTRADO', { codparceiro });
   }
@@ -88,10 +91,13 @@ export class LoteCobrancaRepository {
    * F3/SegFornecedor do legado (filtro PARCEIROS.FUN='S'). Retorna codparceiro + razao.
    */
   listCobradores() {
+    const empresaId = currentTenant().empresaId;
+    if (empresaId == null) throw new UnauthorizedTenantError(); // fail-closed (403)
     return (this.dbp.forTenantRead() as AnyDB)
       .selectFrom('parceiros')
       .select(['codparceiro', 'razao'])
       .where('fun', '=', 'S')
+      .where('idempresa', '=', empresaId) // escopo multi-tenant: só cobradores da empresa do contexto
       .orderBy('razao')
       .execute();
   }

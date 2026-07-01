@@ -122,6 +122,8 @@ export class CrudEngineService {
   async update(cfg: CrudConfig, id: number, dto: Record<string, unknown>): Promise<void> {
     const op = currentTenant().operadorId ?? null;
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx) => {
+      // escopo multi-tenant (fail-closed): só escreve se a linha for da empresa do contexto.
+      if (!(await this.pertenceAEmpresa(trx, cfg, id))) return;
       const d = this.delta(cfg, this.derivados(cfg, dto, id));
       // lê o estado anterior ANTES do update (diff campo-a-campo p/ o histórico)
       const antes =
@@ -139,6 +141,8 @@ export class CrudEngineService {
   async remove(cfg: CrudConfig, id: number): Promise<void> {
     const op = currentTenant().operadorId ?? null;
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx) => {
+      // escopo multi-tenant (fail-closed): só exclui se a linha for da empresa do contexto.
+      if (!(await this.pertenceAEmpresa(trx, cfg, id))) return;
       if (cfg.softDelete) {
         await trx
           .updateTable(cfg.tabela)
@@ -172,6 +176,28 @@ export class CrudEngineService {
   }
   protected emp(): number | null {
     return currentTenant().empresaId ?? null;
+  }
+
+  /**
+   * Guarda de posse multi-tenant: em tabela empresaScoped, confirma que a linha `id`
+   * pertence à empresa do contexto ANTES de qualquer escrita. read/list já filtram por
+   * idempresa; sem esta guarda, update/remove — e a cascata de detalhes do agregado, que
+   * deleta por fk=masterId sem idempresa — casariam por PK entre empresas do MESMO banco de
+   * tenant (IDOR / perda-de-dados cross-empresa). Fail-closed: emp()=null ⇒ não pertence.
+   */
+  protected async pertenceAEmpresa(
+    trx: AnyDB,
+    cfg: { tabela: string; pk: string; empresaScoped?: boolean },
+    id: number,
+  ): Promise<boolean> {
+    if (!cfg.empresaScoped) return true;
+    const r = await trx
+      .selectFrom(cfg.tabela)
+      .select(cfg.pk)
+      .where(cfg.pk, '=', id)
+      .where('idempresa', '=', this.emp())
+      .executeTakeFirst();
+    return !!r;
   }
 
   protected async outbox(trx: AnyDB, cfg: CrudConfig, tipo: 'INSERT' | 'UPDATE' | 'DELETE', id: number) {

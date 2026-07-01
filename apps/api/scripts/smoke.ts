@@ -1363,6 +1363,43 @@ async function main() {
     await pgCfg.query(`UPDATE empresas SET classfiscal='LR' WHERE idempresa=1`);
     check('F2c: revertida p/ LR volta a destacar (vricm 22,00)', (await recalcIcm()) === 22, { vricm: await recalcIcm() });
     await pgCfg.end();
+
+    // 26) ISOLAMENTO MULTI-TENANT no WRITE-PATH (achado da auditoria de validação): update/remove
+    //     do engine agora exigem POSSE por idempresa (pertenceAEmpresa). Empresa 1 NÃO pode
+    //     alterar/excluir linha empresaScoped da empresa 2 (antes casava só por PK → IDOR cross-empresa).
+    const H2 = { ...H, 'x-empresa-id': '2' };
+    const pgMt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    // RBAC é por empresa: concede ao operador 7 gravar/excluir contas nas DUAS empresas, para que o
+    // teste exercite a GUARDA DO ENGINE (posse por idempresa), não o RBAC.
+    await pgMt.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES
+      ('FRMCADCONTASBANCARIAS','BTNGRAVAR',7,1),('FRMCADCONTASBANCARIAS','BTNEXCLUIR',7,1),
+      ('FRMCADCONTASBANCARIAS','BTNGRAVAR',7,2),('FRMCADCONTASBANCARIAS','BTNEXCLUIR',7,2)`);
+    await pgMt.end();
+    const bancosMt = (await (await fetch(`${base}/cadastro/bancos`, { headers: H2 })).json()) as any[];
+    const codbcoMt = Number(bancosMt?.[0]?.codigo); // a view get_bancos aliasa codbco AS codigo
+    // empresa 2 cria uma conta (setup)
+    const contaRes = await fetch(`${base}/cadastro/contas-bancarias`, {
+      method: 'POST', headers: H2,
+      body: JSON.stringify({ codbco: codbcoMt, titular: 'CONTA EMPRESA 2', nroconta: '111', ativo: 'S' }),
+    });
+    const contaId = Number(((await contaRes.json().catch(() => ({}))) as any).codconta);
+    check('MT: empresa 2 cria conta bancária (setup)', contaRes.status === 201 && contaId > 0, { status: contaRes.status, id: contaId });
+    // empresa 1 TENTA alterar a conta da empresa 2 → guarda fail-closed (no-op)
+    await fetch(`${base}/cadastro/contas-bancarias/${contaId}`, { method: 'PUT', headers: H, body: JSON.stringify({ codbco: codbcoMt, titular: 'INVASOR EMPRESA 1', ativo: 'N' }) });
+    const aposPut = (await (await fetch(`${base}/cadastro/contas-bancarias/${contaId}`, { headers: H2 })).json()) as any;
+    check('MT: empresa 1 NÃO altera conta da empresa 2 (titular/ativo intactos)', aposPut?.titular === 'CONTA EMPRESA 2' && aposPut?.ativo === 'S', { titular: aposPut?.titular, ativo: aposPut?.ativo });
+    // empresa 1 TENTA excluir a conta da empresa 2 → no-op
+    await fetch(`${base}/cadastro/contas-bancarias/${contaId}`, { method: 'DELETE', headers: H });
+    const aposDel = await fetch(`${base}/cadastro/contas-bancarias/${contaId}`, { headers: H2 });
+    const aposDelBody = (await aposDel.json().catch(() => ({}))) as any;
+    check('MT: empresa 1 NÃO exclui conta da empresa 2 (conta persiste)', aposDel.status === 200 && Number(aposDelBody?.codconta) === contaId, { status: aposDel.status, id: aposDelBody?.codconta });
+    // controle positivo: a DONA (empresa 2) altera a própria conta normalmente
+    await fetch(`${base}/cadastro/contas-bancarias/${contaId}`, { method: 'PUT', headers: H2, body: JSON.stringify({ codbco: codbcoMt, titular: 'DONA ALTEROU', ativo: 'S' }) });
+    const aposDona = (await (await fetch(`${base}/cadastro/contas-bancarias/${contaId}`, { headers: H2 })).json()) as any;
+    check('MT: a empresa DONA (2) altera a própria conta (controle positivo)', aposDona?.titular === 'DONA ALTEROU', { titular: aposDona?.titular });
+    // cleanup: a dona exclui
+    const delDona = await fetch(`${base}/cadastro/contas-bancarias/${contaId}`, { method: 'DELETE', headers: H2 });
+    check('MT: a empresa DONA (2) exclui a própria conta (cleanup)', delDona.status === 204, { status: delDona.status });
   } finally {
     await app.close();
     await pg.stop();

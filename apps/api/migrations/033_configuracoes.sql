@@ -26,11 +26,17 @@ CREATE TABLE IF NOT EXISTS configuracoes_especificas (
   PRIMARY KEY (id, tipo, chave)
 );
 
--- Seed das chaves fiscais que a NF consulta. Ids/defaults = CONFIGURACOES real do legado, VERIFICADOS
--- no Oracle (só as com procedência forte entram). WIRED no corte-1: APROVEITAMENTO_CREDITO_ICMSST_NF.
--- As demais chaves de gate (PERMITE_PROC_NF_ESTOQUE_NEG/ESTORNA_FINANCEIRO_NF/UTILIZA_INTEGRACAO_CONTABIL/
--- CALCULA_ICMSST_EMISSAOPROPRIA_NF_SEM_INDEX) serão seedadas COM id/default confirmados no Oracle no
--- momento de cada wire (F3b/F4b/F5b) — o resolver e o whitelist já as suportam. Não seedar id não-verificado.
+-- Seed das chaves fiscais que a NF consulta. Ids/defaults/whitelist = CONFIGURACOES real do PINHEIRAO,
+-- CONFRONTADOS no Oracle (golden 2026-06-30). WIRED no corte-1: APROVEITAMENTO_CREDITO_ICMSST_NF
+-- (id 290, 'N', whitelist 'Modulo;Empresa' — confirmado EXATO) + AMBIENTE_NF (id 48, 'P', 'Empresa'; órfão,
+-- override real emp.1='H'). As demais chaves de gate JÁ ESTÃO CONFIRMADAS no Oracle p/ o wire respectivo
+-- (não seedar às cegas — a suposição anterior errava id/default em 3 de 4):
+--   ESTORNA_FINANCEIRO_NF ...................... id 4,   default 'N', wl 'Modulo;Empresa;Grupo;Usuario' (F4b)
+--   PERMITE_PROC_NF_ESTOQUE_NEG ............... id 84,  default 'S', wl 'Modulo;Empresa;Grupo;Usuario' (F3b)
+--     ^ legado PERMITE estoque negativo por padrão; o corte-1 da F3 BLOQUEIA — divergência a restaurar no wire.
+--   UTILIZA_INTEGRACAO_CONTABIL ............... id 100, default 'N', wl 'Modulo;Empresa' (+ Modulo/Retaguarda='S') (F5b)
+--   CALCULA_ICMSST_EMISSAOPROPRIA_NF_SEM_INDEX  id 291, default 'N', wl 'Modulo;Empresa' (F2b)
+-- (o escopo 'Grupo' do whitelist ainda NÃO é implementado no resolver — só Usuario/Empresa/Modulo/default.)
 INSERT INTO configuracoes (id, codigo, valor, tipovalor, config_especificas_permitidas, descricao) VALUES
   (290, 'APROVEITAMENTO_CREDITO_ICMSST_NF', 'N', 'S/N', 'Modulo;Empresa', 'Aproveita o crédito de ICMS próprio em CFOP de ST na NF (S) ou zera o crédito (N). Gate do zeramento da F2 (udmNF.pas:4231/4470).'),
   (48,  'AMBIENTE_NF', 'P', 'lista', 'Empresa', 'Ambiente de emissão NFe (P=Produção/H=Homologação). ÓRFÃO no retaguarda — o ambiente real vem de NFE.TIPONFE; NÃO consumido pela NF migrada.')
