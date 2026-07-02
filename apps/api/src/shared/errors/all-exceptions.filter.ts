@@ -206,6 +206,11 @@ const CODE_PT: Record<string, string> = {
   TITULO_DE_NF: 'Este título foi gerado por uma nota fiscal — altere pela própria nota (faturar/estornar).',
   TITULO_ORIGEM_AUTO: 'Título gerado por outro processo (quitação/convênio/caixa) não pode ser alterado nem excluído por aqui.',
   TITULO_CONCILIADO: 'Título conciliado na tesouraria não pode ser alterado nem excluído.',
+  // Baixa / recebimento (corte-2)
+  TITULO_EM_LOTE: 'Título está em um lote de cobrança — remova-o do lote antes de baixar.',
+  TITULO_NAO_BAIXADO: 'Título não está baixado — não há baixa a estornar.',
+  BAIXA_CONTABILIZADA: 'A baixa já foi contabilizada — estorne a contabilização antes.',
+  TITULO_VALOR_INVALIDO: 'O valor da baixa deve ser maior que zero.',
   // NFe / SEFAZ (F6)
   NF_JA_TRANSMITIDA: 'Esta nota fiscal já foi transmitida para a SEFAZ.',
   NF_NAO_AUTORIZADA: 'A nota fiscal não está autorizada pela SEFAZ.',

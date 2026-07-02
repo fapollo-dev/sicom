@@ -86,6 +86,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('041_nf_piscofins.sql'));
   await pool.query(sql('042_nf_chave_natural.sql'));
   await pool.query(sql('043_areceber_gestao.sql'));
+  await pool.query(sql('044_areceber_bx.sql'));
   await pool.end();
   return pg;
 }

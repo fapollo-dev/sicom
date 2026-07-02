@@ -1718,6 +1718,62 @@ async function main() {
     check('CR: GET :id cross-tenant não vaza (empresa 2 não lê título da empresa 1)', idorRead == null || Object.keys(idorRead).length === 0, { idorRead });
     const idorPut = await fetch(`${base}/${AR}/999`, { method: 'PUT', headers: H_EMP2, body: JSON.stringify({ valor: 1 }) });
     check('CR: PUT cross-tenant → 422 TITULO_NAO_ENCONTRADO (não edita título de outra empresa)', idorPut.status === 422 && ((await idorPut.json().catch(() => ({}))) as any).code === 'TITULO_NAO_ENCONTRADO', { status: idorPut.status });
+
+    // 32) CONTAS A RECEBER — corte-2 (BAIXA/recebimento): areceber_bx (INDR estorno lógico) + guardas.
+    const pgBx = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    const bxDe = async (id: number) => (await pgBx.query(`SELECT indr, valorpg FROM areceber_bx WHERE codrcb=$1 ORDER BY codrcbbx`, [id])).rows as any[];
+    const quitOf = async (id: number) => (await pgBx.query(`SELECT quitada FROM areceber WHERE codrcb=$1`, [id])).rows[0]?.quitada;
+    const crNovo = async (extra: Record<string, unknown> = {}) => {
+      const r = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100, ...extra }) });
+      return Number(((await r.json()) as any).codrcb);
+    };
+
+    // 32.1) baixar QUITA o título: 200, quitada=S, 1 linha areceber_bx INDR='I', valorpg=100 (a vencer → juro 0).
+    const bxId = await crNovo();
+    const bxRes = await fetch(`${base}/${AR}/${bxId}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ dtpgto: '2026-07-02' }) });
+    const q1 = await quitOf(bxId);
+    const bxRows = await bxDe(bxId);
+    check('CR-baixa: baixar quita (200, quitada=S, areceber_bx INDR=I, valorpg=100)', bxRes.status === 200 && q1 === 'S' && bxRows.length === 1 && bxRows[0].indr === 'I' && Number(bxRows[0].valorpg) === 100, { status: bxRes.status, rows: bxRows });
+    // 32.2) baixar 2x → 422 TITULO_JA_BAIXADO.
+    const bx2 = await fetch(`${base}/${AR}/${bxId}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('CR-baixa: baixar 2x → 422 TITULO_JA_BAIXADO', bx2.status === 422 && ((await bx2.json().catch(() => ({}))) as any).code === 'TITULO_JA_BAIXADO', { status: bx2.status });
+    // 32.3) estorno LÓGICO: 200, quitada=N, a MESMA linha vira INDR='E' (não apaga — preserva histórico).
+    const est = await fetch(`${base}/${AR}/${bxId}/estornar-baixa`, { method: 'POST', headers: H });
+    const q2 = await quitOf(bxId);
+    const bxRows2 = await bxDe(bxId);
+    check('CR-baixa: estorno lógico (200, quitada=N, linha vira INDR=E, não apaga)', est.status === 200 && q2 === 'N' && bxRows2.length === 1 && bxRows2[0].indr === 'E', { status: est.status, rows: bxRows2 });
+    // 32.4) estornar sem baixa ativa → 422 TITULO_NAO_BAIXADO.
+    const est2 = await fetch(`${base}/${AR}/${bxId}/estornar-baixa`, { method: 'POST', headers: H });
+    check('CR-baixa: estornar sem baixa → 422 TITULO_NAO_BAIXADO', est2.status === 422 && ((await est2.json().catch(() => ({}))) as any).code === 'TITULO_NAO_BAIXADO', { status: est2.status });
+    // 32.5) juros/desconto compõem o valor pago: 100 + 10 − 5 = 105.
+    const bxId2 = await crNovo();
+    const bxJ = await fetch(`${base}/${AR}/${bxId2}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ juros: 10, desconto: 5 }) });
+    const bxJBody = (await bxJ.json().catch(() => ({}))) as any;
+    check('CR-baixa: juros/desconto compõem valorpg (100+10−5=105)', bxJ.status === 200 && Number(bxJBody.valorpg) === 105, { body: bxJBody });
+    // 32.6) guarda: baixar AGRUPADO (400) → 422 TITULO_AGRUPADO.
+    const bxAgr = await fetch(`${base}/${AR}/400/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('CR-baixa: baixar agrupado → 422 TITULO_AGRUPADO', bxAgr.status === 422 && ((await bxAgr.json().catch(() => ({}))) as any).code === 'TITULO_AGRUPADO', { status: bxAgr.status });
+    // 32.7) guarda: baixar título EM LOTE → 422 TITULO_EM_LOTE (não dessincroniza o lote).
+    const bxId3 = await crNovo();
+    const loteId = (await pgBx.query(`INSERT INTO lote_cobranca (codparceiro, data) VALUES (20, '2026-07-02') RETURNING codlotecob`)).rows[0].codlotecob;
+    await pgBx.query(`INSERT INTO itens_lotecob (codlotecob, codrcb) VALUES ($1, $2)`, [loteId, bxId3]);
+    const bxLote = await fetch(`${base}/${AR}/${bxId3}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('CR-baixa: baixar título em lote → 422 TITULO_EM_LOTE', bxLote.status === 422 && ((await bxLote.json().catch(() => ({}))) as any).code === 'TITULO_EM_LOTE', { status: bxLote.status });
+    // 32.8) IDOR: baixar cross-tenant (empresa 2 num título da empresa 1) → 422 TITULO_NAO_ENCONTRADO.
+    const bxIdor = await fetch(`${base}/${AR}/${bxId2}/baixar`, { method: 'POST', headers: { ...H, 'x-empresa-id': '2' }, body: JSON.stringify({}) });
+    check('CR-baixa: baixar cross-tenant → 422 TITULO_NAO_ENCONTRADO', bxIdor.status === 422 && ((await bxIdor.json().catch(() => ({}))) as any).code === 'TITULO_NAO_ENCONTRADO', { status: bxIdor.status });
+    // 32.9) valorpg ≤ 0 barrado (ação de dinheiro): desconto ≥ valor → 422; valorpg 0 explícito → 400.
+    const bxId4 = await crNovo();
+    const bxNeg = await fetch(`${base}/${AR}/${bxId4}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ desconto: 200 }) });
+    check('CR-baixa: valorpg ≤ 0 (desconto ≥ valor) → 422 TITULO_VALOR_INVALIDO', bxNeg.status === 422 && ((await bxNeg.json().catch(() => ({}))) as any).code === 'TITULO_VALOR_INVALIDO', { status: bxNeg.status });
+    const bxZero = await fetch(`${base}/${AR}/${bxId4}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ valorpg: 0 }) });
+    check('CR-baixa: valorpg 0 explícito → 400 VALIDACAO', bxZero.status === 400 && ((await bxZero.json().catch(() => ({}))) as any).code === 'VALIDACAO', { status: bxZero.status });
+    // 32.10) estorno cross-tenant → 422 TITULO_NAO_ENCONTRADO (empresa 2 não estorna baixa da empresa 1).
+    const bxId5 = await crNovo();
+    await fetch(`${base}/${AR}/${bxId5}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    const estIdor = await fetch(`${base}/${AR}/${bxId5}/estornar-baixa`, { method: 'POST', headers: { ...H, 'x-empresa-id': '2' } });
+    check('CR-baixa: estornar cross-tenant → 422 TITULO_NAO_ENCONTRADO', estIdor.status === 422 && ((await estIdor.json().catch(() => ({}))) as any).code === 'TITULO_NAO_ENCONTRADO', { status: estIdor.status });
+    await pgBx.end();
   } finally {
     await app.close();
     await pg.stop();

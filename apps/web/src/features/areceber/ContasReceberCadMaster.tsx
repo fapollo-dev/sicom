@@ -8,8 +8,11 @@ import { NumberField } from '../../shared/ui/NumberField';
 import { CurrencyField } from '../../shared/ui/CurrencyField';
 import { DateField } from '../../shared/ui/DateField';
 import { TextArea } from '../../shared/ui/TextArea';
+import { Button } from '../../shared/ui/Button';
 import { Tabs, TabPanel, type TabDef } from '../../shared/ui/Tabs';
 import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
+import { useMensagem } from '../../shared/mensagem';
+import { baixarTitulo, estornarBaixaTitulo } from './areceberApi';
 
 const hojeISO = () => new Date().toISOString().slice(0, 10);
 const fmtBRL = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -120,6 +123,7 @@ function ArForm({
         </div>
       )}
       <EstadoBar form={form} />
+      <BaixaSection form={form} />
       <div>
         <Tabs tabs={tabs} active={aba} onChange={setAba} />
         <TabPanel>
@@ -155,6 +159,76 @@ function EstadoBar({ form }: { form: UseFormReturn<CriarAreceberDto> }) {
       <span className="text-fg-muted">Total</span>
       <span className="tabular-nums font-semibold text-fg-default">R$ {fmtBRL(total)}</span>
     </div>
+  );
+}
+
+/** BAIXA / recebimento (corte-2): baixar quando aberto, estornar quando quitado. Só em título gravado. */
+function BaixaSection({ form }: { form: UseFormReturn<CriarAreceberDto> }) {
+  const mensagem = useMensagem();
+  const g = form.getValues() as Record<string, unknown>;
+  const codrcb = g.codrcb as number | undefined;
+  const quitada = (form.watch('quitada' as any) ?? g.quitada) === 'S';
+  const agrupado = (form.watch('agrupado' as any) ?? g.agrupado) === 'S';
+  const [executando, setExecutando] = useState(false);
+  const [dtpgto, setDtpgto] = useState<string | undefined>(hojeISO());
+  const [juros, setJuros] = useState<number | undefined>(undefined);
+  const [desconto, setDesconto] = useState<number | undefined>(undefined);
+  if (codrcb == null) return null;
+
+  const baixar = async () => {
+    if (executando) return;
+    setExecutando(true);
+    try {
+      const r = await baixarTitulo(codrcb, { dtpgto, juros, desconto });
+      form.setValue('quitada' as any, 'S');
+      mensagem.sucesso(`Título baixado: recebido R$ ${fmtBRL(r.valorpg)} (juros R$ ${fmtBRL(r.juros)}).`);
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+  const estornar = async () => {
+    if (executando) return;
+    if (!window.confirm('Estornar a baixa deste título? O título volta a ficar em aberto.')) return;
+    setExecutando(true);
+    try {
+      await estornarBaixaTitulo(codrcb);
+      form.setValue('quitada' as any, 'N');
+      mensagem.sucesso('Baixa estornada: título reaberto.');
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  return (
+    <fieldset className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
+      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Baixa / Recebimento</legend>
+      {agrupado ? (
+        <small className="text-fg-muted">Título agrupado — a baixa é feita pelo agrupamento (fase futura).</small>
+      ) : quitada ? (
+        <div className="flex flex-wrap items-center gap-gp-sm">
+          <Button label="&Estornar baixa" variant="soft" onClick={() => void estornar()} />
+          <small className="text-fg-muted">Título quitado (baixado). O estorno reabre o título.</small>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-end gap-gp-sm">
+          <div className="w-44">
+            <DateField label="Data do &pagamento" value={dtpgto} onChange={setDtpgto} />
+          </div>
+          <div className="w-36">
+            <NumberField label="&Juros (R$)" value={juros} onChange={setJuros} decimais={2} min={0} />
+          </div>
+          <div className="w-36">
+            <NumberField label="&Desconto (R$)" value={desconto} onChange={setDesconto} decimais={2} min={0} />
+          </div>
+          <Button label="&Baixar título" variant="soft" onClick={() => void baixar()} />
+          <small className="text-fg-muted">Sem juros informado, aplica a fórmula padrão (atraso × taxa).</small>
+        </div>
+      )}
+    </fieldset>
   );
 }
 

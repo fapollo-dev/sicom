@@ -165,6 +165,22 @@ export interface AreceberTable {
   dtultimalteracao: Timestamptz | null;
   dtcadastro: Timestamptz | null;
 }
+/** ARECEBER_BX (044) — baixas do título (1:N); estorno LÓGICO via INDR ('I'/'E'). */
+export interface AreceberBxTable {
+  codrcbbx: Generated<number>;
+  codrcb: number;
+  codempresa: number;
+  valorpg: number | null;
+  juros: number | null;
+  multa: number | null;
+  acre_desc: number | null;
+  dtpgto: Timestamptz | null;
+  codopbx: number | null;
+  data_operacao: Timestamptz | null;
+  indr: string | null; // 'I' válida / 'E' estornada
+  contabilizado: string | null;
+  obs: string | null;
+}
 /** Picker GET_ARECEBER — documentos disponíveis p/ adicionar ao lote (live-join + juros/total). */
 export interface GetAreceberView {
   codrcb: number;

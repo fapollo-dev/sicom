@@ -90,6 +90,25 @@ export const atualizarAreceberSchema = z
 
 export type CriarAreceberDto = z.infer<typeof areceberBase>;
 
+/**
+ * BAIXA (recebimento) — corte-2 núcleo. Quita o título TOTAL com juros/multa/desconto. Os campos
+ * são opcionais: sem valorpg, o service calcula `valor + juros + acréscimo − desconto` e usa a data
+ * de hoje. (Baixa parcial / recursos / troco / saldo = corte-3.)
+ */
+export const baixarTituloSchema = z.preprocess(
+  stripNulls,
+  z.object({
+    dtpgto: opcional(z.string()), // ISO; default = hoje no service
+    juros: dec(z.number().min(0)),
+    multa: dec(z.number().min(0)),
+    desconto: dec(z.number().min(0)),
+    acrescimo: dec(z.number().min(0)),
+    valorpg: dec(z.number().positive('O valor recebido deve ser maior que zero.')),
+    obs: opcional(z.string()),
+  }),
+);
+export type BaixarTituloDto = z.infer<typeof baixarTituloSchema>;
+
 /** registro devolvido pela API (view get_areceber) — colunas cruas + calculadas + display. */
 export interface Areceber {
   codrcb: number;

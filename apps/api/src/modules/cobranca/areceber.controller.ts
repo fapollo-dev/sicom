@@ -1,8 +1,9 @@
 import {
   Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put, Query, UseGuards,
 } from '@nestjs/common';
-import { areceberSchema, atualizarAreceberSchema } from '@apollo/shared';
+import { areceberSchema, atualizarAreceberSchema, baixarTituloSchema } from '@apollo/shared';
 import { AreceberService } from './areceber.service';
+import { AreceberBaixaService } from './areceber-baixa.service';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -16,7 +17,10 @@ import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 @Controller('cadastro/areceber')
 @UseGuards(AcessoGuard)
 export class AreceberController {
-  constructor(private readonly svc: AreceberService) {}
+  constructor(
+    private readonly svc: AreceberService,
+    private readonly baixa: AreceberBaixaService,
+  ) {}
 
   @Get()
   list(@Query() query: Record<string, string>) {
@@ -48,5 +52,23 @@ export class AreceberController {
   @HttpCode(204)
   excluir(@Param('id', ParseIntPipe) id: number) {
     return this.svc.excluir(id);
+  }
+
+  // ── BAIXA / recebimento (corte-2) ──
+  @Post(':id/baixar')
+  @HttpCode(200)
+  @RequerAcesso('FRMCADARECEBER', 'BTNBAIXAR')
+  baixar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(baixarTituloSchema)) dto: Record<string, unknown>,
+  ) {
+    return this.baixa.baixar(id, dto);
+  }
+
+  @Post(':id/estornar-baixa')
+  @HttpCode(200)
+  @RequerAcesso('FRMCADARECEBER', 'BTNESTORNARBAIXA')
+  estornarBaixa(@Param('id', ParseIntPipe) id: number) {
+    return this.baixa.estornar(id);
   }
 }
