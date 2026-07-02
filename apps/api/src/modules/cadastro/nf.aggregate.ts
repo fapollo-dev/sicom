@@ -183,8 +183,28 @@ export const nfAggregateConfig: AggregateConfig = {
         'ipi', 'vripi', 'geraicm_ipi', 'geraicm_frete', 'geraicm_acess',
         'fcp_aliquota', 'fcp_valor', 'pis', 'cstpiscofins',
         'aliqpise', 'aliqpiss', 'aliqcofinse', 'aliqcofinss',
-        'frete', 'seguro', 'vroutrasdesp', 'depsacess', 'arredonda',
+        'frete', 'seguro', 'vroutrasdesp', 'depsacess', 'arredonda', 'vl_custo',
       ],
+      // congela o CUSTO do item = MULTI_PRECO.VRCUSTO corrente por (produto, empresa) no lançamento
+      // (GetCustoProduto, udmNF.pas:12057). É a base do CMV; snapshot (não acompanha a deriva do MP).
+      derivarItensTrx: async (itens, trx, emp) => {
+        const out: Record<string, unknown>[] = [];
+        for (const it of itens) {
+          const cod = it.codproduto != null ? Number(it.codproduto) : null;
+          let vl = 0;
+          if (cod != null && emp != null) {
+            const mp = await trx
+              .selectFrom('multi_preco')
+              .select('vrcusto')
+              .where('idproduto', '=', cod)
+              .where('idempresa', '=', emp)
+              .executeTakeFirst();
+            vl = mp?.vrcusto != null ? Number(mp.vrcusto) : 0;
+          }
+          out.push({ ...it, vl_custo: vl });
+        }
+        return out;
+      },
     },
     {
       tabela: 'nf_referencia',

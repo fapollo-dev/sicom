@@ -155,6 +155,8 @@ export class AggregateEngineService extends CrudEngineService {
 
   private async inserirItens(trx: AnyDB, det: DetalheConfig, masterId: number, itens: Record<string, unknown>[]) {
     if (!itens.length) return;
+    // enriquecimento transacional por item (ex.: congelar nf_prod.vl_custo de multi_preco).
+    if (det.derivarItensTrx) itens = await det.derivarItensTrx(itens, trx, this.emp());
     const linhas = itens.map((i) => {
       const row: Record<string, unknown> = { [det.fk]: masterId };
       for (const c of det.colunas) if (i[c] !== undefined) row[c] = i[c];

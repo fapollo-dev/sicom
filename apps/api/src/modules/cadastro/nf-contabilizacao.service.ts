@@ -27,6 +27,8 @@ const num = (v: unknown): number => {
 @Injectable()
 export class NfContabilizacaoService {
   private readonly logger = new Logger(NfContabilizacaoService.name);
+  // CFOPs de venda que disparam o CMV (GetSQLCMVNF, UIntegracaoContabil.pas:427).
+  private static readonly CMV_CFOP = new Set(['5102', '6102', '5402', '6402', '5403', '6403', '5405', '6405']);
   constructor(private readonly dbp: DatabaseProvider) {}
 
   async contabilizar(codnf: number): Promise<{ codnf: number; linhas: number; codlote: number; total: number }> {
@@ -138,9 +140,26 @@ export class NfContabilizacaoService {
         await this.lancar(trx, ctx, situacao, contadebito, contacredito, vicms, d.codhistorico ?? null, `ICMS NF ${nf.nronf ?? codnf}`);
         linhas++;
       }
-      // (4) linhas de imposto PIS/COFINS (base=totalnf×rate — golden ENTRADA; base de saída por regime = fase-4).
-      linhas += await this.lancarImposto(trx, ctx, cfopRow, num(nf.totalnf), 'pis', 1.65);
-      linhas += await this.lancarImposto(trx, ctx, cfopRow, num(nf.totalnf), 'cofins', 7.6);
+      // (3b) CMV — custo da venda (F5b-fase4b, GetSQLCMVNF UIntegracaoContabil:427): só SAÍDA, CFOP de
+      // venda, valor = Σ(VL_CUSTO×FATOREMBAL×QUANTIDADE) do congelado. Situação 873 (config), D134/C147.
+      if (ctx.tipo === 'S' && NfContabilizacaoService.CMV_CFOP.has(String(nf.cfop ?? ''))) {
+        const cmvAgg = await trx
+          .selectFrom('nf_prod')
+          .select((eb: AnyDB) => eb.fn.sum(sql`coalesce(vl_custo * fatorembal * quantidade, 0)`).as('cmv'))
+          .where('codnf', '=', codnf)
+          .executeTakeFirst();
+        const cmv = Math.round(num(cmvAgg?.cmv) * 100) / 100;
+        if (cmv > 0) {
+          const situacao = 873; // = CONFIG_INTEGRACAO_CONTABIL.CONFIG_CUSTO_NF_VENDA
+          const { d, c } = await this.iicDC(trx, codnf, situacao);
+          const cd = await this.resolveConta(trx, d, 'D', ctx, null, situacao);
+          const cc = await this.resolveConta(trx, c, 'C', ctx, null, situacao);
+          await this.lancar(trx, ctx, situacao, cd, cc, cmv, d.codhistorico ?? null, 'Custo de venda da nota de saída');
+          linhas++;
+        }
+      }
+      // (4) linhas de imposto PIS/COFINS FIEL (por-item, rate por-produto do catálogo PISCOFINS).
+      linhas += await this.lancarPisCofins(trx, ctx, cfopRow, String(nf.cfop ?? ''));
 
       const upd = await trx
         .updateTable('nf')
@@ -267,31 +286,83 @@ export class NfContabilizacaoService {
   }
 
   /**
-   * Linha de imposto PIS/COFINS. ⚠️ PLACEHOLDER do corte: valor = totalnf × rate FIXO (1,65/7,6). Bate
-   * no golden de ENTRADA 72044/71822 por COINCIDÊNCIA. A fórmula FIEL (recon golden 500 NFs) é
-   * POR-ITEM (base = VRCUSTO×QTD−desc% na saída; +ICMST/frete/IPI na entrada) com rate POR-PRODUTO
-   * (tabela PISCOFINS, ALIQ_*_ENT/SAI) — GetSQLPisCofins (UIntegracaoContabil.pas:527). = **fase-4b**
-   * (requer migrar a catálogo PISCOFINS + PRODUTOS/NF_PROD.IDPISCOFINS). INERTE em produção: só lança se
-   * o CFOP tiver situacao_pis/cofins configurada (nenhum CFOP real seedado; só o CFOP 1403 de teste).
+   * PIS/COFINS FIEL (F5b-fase4b, GetSQLPisCofins UIntegracaoContabil.pas:527-683): valor POR-ITEM com
+   * rate POR-PRODUTO do catálogo PISCOFINS, agregado por SITUAÇÃO (vinda do CFOP do item). 3 branches:
+   *  - ENTRADA: item CFOP ∈ PC_CONFIG; base = (vrcusto·qtd−desc) + vricmst + depsacess + vroutrasdesp +
+   *    frete/100·descItem + ipi/100·descItem; rate ALIQ_*_ENT de coalesce(nf_prod.idpiscofins, produtos.idpiscofins).
+   *  - SAÍDA-específica (header CFOP ∈ {5202,6202,5411,6411}): rate ALIQ_*_SAI de PRODUTOS.idpiscofins (puro).
+   *  - SAÍDA-geral (header CFOP ∉ {5202,6202,5411,6411,5929,6929,5927}): rate ALIQ_*_SAI de coalesce.
+   * Item saída entra só se CFOP ∈ {5202,6202,5411,6411,5102,6102,5403,6403}. base por item arredondada a 2;
+   * a soma por situação é feita no SQL (paridade exata com o golden). Adiado: regra parceiro-PF-CST (entrada),
+   * drift histórico de VRCUSTO. Retorna o nº de linhas lançadas.
    */
-  private async lancarImposto(
+  private async lancarPisCofins(
     trx: AnyDB,
     ctx: { tipo: string; codparceiro: number; dtcontabil: unknown; nronf: unknown; codnf: number; emp: number; codlote: number },
     cfopRow: Record<string, unknown> | undefined,
-    totalnf: number,
-    imposto: 'pis' | 'cofins',
-    rate: number,
+    headerCfop: string,
   ): Promise<number> {
-    const col = ctx.tipo === 'E' ? `situacao_${imposto}_entradas_nf` : `situacao_${imposto}_saidas_nf`;
-    const situacao = cfopRow?.[col] != null ? Number(cfopRow[col]) : null;
-    if (situacao == null) return 0;
-    const valor = Math.round(totalnf * rate) / 100; // totalnf × rate/100, 2 casas
-    if (valor <= 0) return 0;
-    const { d, c } = await this.iicDC(trx, ctx.codnf, situacao);
-    const contadebito = await this.resolveConta(trx, d, 'D', ctx, null, situacao);
-    const contacredito = await this.resolveConta(trx, c, 'C', ctx, null, situacao);
-    await this.lancar(trx, ctx, situacao, contadebito, contacredito, valor, d.codhistorico ?? null, `${imposto.toUpperCase()} NF ${ctx.nronf ?? ctx.codnf}`);
-    return 1;
+    const entrada = ctx.tipo === 'E';
+    const saidaEspecifica = !entrada && ['5202', '6202', '5411', '6411'].includes(headerCfop);
+    // saída fora do escopo do razão (transferência/acordo) → não lança.
+    if (!entrada && !saidaEspecifica && ['5929', '6929', '5927'].includes(headerCfop)) return 0;
+
+    let linhas = 0;
+    for (const imposto of ['pis', 'cofins'] as const) {
+      // base por item (arredondada a 2), por sentido.
+      const descItem = sql`((np.vrcusto - np.vrcusto * coalesce(np.desconto,0)/100) * np.quantidade)`;
+      const baseSaida = sql`round(np.vrcusto * np.quantidade - np.vrcusto * np.quantidade * coalesce(np.desconto,0)/100, 2)`;
+      const baseEntrada = sql`round((np.vrcusto * np.quantidade - np.vrcusto * np.quantidade * coalesce(np.desconto,0)/100) + coalesce(np.vricmst,0) + coalesce(np.depsacess,0) + coalesce(np.vroutrasdesp,0) + coalesce(np.frete,0)/100 * ${descItem} + coalesce(np.ipi,0)/100 * ${descItem}, 2)`;
+      const base = entrada ? baseEntrada : baseSaida;
+      // rate por-produto: saída-específica usa produtos.idpiscofins puro; senão coalesce(nf_prod, produtos).
+      const pc = saidaEspecifica ? 'pcp' : 'pcc';
+      const rateCol = entrada ? `aliq_${imposto}_ent` : `aliq_${imposto}_sai`;
+      const rate = sql`coalesce(${sql.raw(pc)}.${sql.raw(rateCol)}, 0)`;
+      // GATE do item = ALIQ_PIS>0 (o legado usa PIS p/ AMBOS os impostos, GetSQLPisCofins) — não aliq_cofins.
+      const gate = sql`coalesce(${sql.raw(pc)}.${sql.raw(entrada ? 'aliq_pis_ent' : 'aliq_pis_sai')}, 0)`;
+      const sitCol = entrada ? `situacao_${imposto}_entradas_nf` : `situacao_${imposto}_saidas_nf`;
+      // allow-list de CFOP do item (+ blacklist de entrada, GetSQLPisCofins:586).
+      const itemCfopOk = entrada
+        ? sql`np.cfop in (select cfop from pc_config) and np.cfop not in ('1407','1556','1653','1908','1910','2556','2910','1949')`
+        : sql`np.cfop in ('5202','6202','5411','6411','5102','6102','5403','6403')`;
+
+      // legado: CAST(SUM(base×rate) AS NUMERIC(15,2)) POR (CODNF, CFOP), depois o loop soma as parcelas
+      // JÁ ARREDONDADAS por situação. Replicamos: round por (situação, cfop) no SQL, soma por situação no JS.
+      const grupos = await trx
+        .selectFrom('nf_prod as np')
+        .innerJoin('produtos as p', 'p.idproduto', 'np.codproduto')
+        .leftJoin('piscofins as pcc', (j: AnyDB) => j.onRef('pcc.idpiscofins', '=', sql`coalesce(np.idpiscofins, p.idpiscofins)`))
+        .leftJoin('piscofins as pcp', 'pcp.idpiscofins', 'p.idpiscofins')
+        .innerJoin('cfop as cf', 'cf.codcfop', 'np.cfop')
+        .select([
+          sql`cf.${sql.raw(sitCol)}`.as('situacao'),
+          sql<number>`round(coalesce(sum(${base} * ${rate} / 100), 0), 2)`.as('valor'),
+        ])
+        .where('np.codnf', '=', ctx.codnf)
+        .where(sql`p.idpiscofins`, '>', 0)
+        .where(gate as AnyDB, '>', 0)
+        .where(itemCfopOk as AnyDB)
+        .where(sql`cf.${sql.raw(sitCol)}`, 'is not', null)
+        .groupBy([sql`cf.${sql.raw(sitCol)}`, sql`np.cfop`]) // por (situação, CFOP) — arredonda a parcela do CFOP
+        .execute();
+
+      // soma as parcelas (já arredondadas por CFOP) por SITUAÇÃO.
+      const porSituacao = new Map<number, number>();
+      for (const g of grupos as Record<string, unknown>[]) {
+        const situacao = Number(g.situacao);
+        if (!situacao) continue;
+        porSituacao.set(situacao, Math.round((((porSituacao.get(situacao) ?? 0) + num(g.valor)) * 100)) / 100);
+      }
+      for (const [situacao, valor] of porSituacao) {
+        if (valor <= 0) continue;
+        const { d, c } = await this.iicDC(trx, ctx.codnf, situacao);
+        const cd = await this.resolveConta(trx, d, 'D', ctx, null, situacao);
+        const cc = await this.resolveConta(trx, c, 'C', ctx, null, situacao);
+        await this.lancar(trx, ctx, situacao, cd, cc, valor, d.codhistorico ?? null, `${imposto.toUpperCase()} nota de ${entrada ? 'entrada' : 'saída'} ${ctx.nronf ?? ctx.codnf}`);
+        linhas++;
+      }
+    }
+    return linhas;
   }
 
   /** estorno do DIÁRIO (endpoint explícito). Espelha .Estornar (UIntegracaoContabil.pas:346). */

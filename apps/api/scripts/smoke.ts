@@ -1535,15 +1535,44 @@ async function main() {
     const conA = await fetch(`${base}/fiscal/nf/${nfA}/contabilizar`, { method: 'POST', headers: H });
     const linA = await diarioDe(nfA);
     check('F5b-2: conta AUTOMÁTICA (débito=PLC→148, crédito=parceiro→11141, valor 20)', conA.status === 200 && linA.length === 1 && Number(linA[0].contadebito) === 148 && Number(linA[0].contacredito) === 11141 && Number(linA[0].valor) === 20, { status: conA.status, lin: linA });
-    // 29c) F5b-fase2: linhas de IMPOSTO PIS/COFINS (golden NF 72044: cfop 1403 → PIS 788 D235/C154, COFINS 789 D236/C153).
-    const nfPC = await novaNf(baseNf({ tipo: 'E', nronf: 'E9004', cfop: '1403', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, cfop: '1403', aliquota: 'T01' }] }));
+    // 29c) F5b-fase4b: PIS/COFINS FIEL — base POR-ITEM (VRCUSTO×QTD, NÃO totalnf) × rate POR-PRODUTO
+    // (PISCOFINS idpc13=1,65/7,6). Saída-específica CFOP 5202 → situação PIS 826/COFINS 827 (D235/C154, D236/C153).
+    await pgCon.query(`UPDATE produtos SET idpiscofins=13 WHERE idproduto=1`);
+    const nfPC = await novaNf(baseNf({ tipo: 'S', nronf: 'E9004', cfop: '5202', codparceiro: 20, modelo: 55, statusnfe: 'P', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 200, vrcusto: 100, cfop: '5202', aliquota: 'T01' }] }));
     await fetch(`${base}/fiscal/nf/${nfPC}/processar`, { method: 'POST', headers: H });
-    await pgCon.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,6,1,100)`, [nfPC]);
+    await pgCon.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,8,1,200)`, [nfPC]);
     const conPC = await fetch(`${base}/fiscal/nf/${nfPC}/contabilizar`, { method: 'POST', headers: H });
     const linPC = await diarioDe(nfPC);
     const pisLine = (linPC as any[]).find((l) => Number(l.contadebito) === 235 && Number(l.contacredito) === 154);
     const cofinsLine = (linPC as any[]).find((l) => Number(l.contadebito) === 236 && Number(l.contacredito) === 153);
-    check('F5b-2: PIS/COFINS placeholder (principal + PIS 100×1,65% + COFINS 100×7,6%; fórmula fiel por-item/produto=fase-4b)', conPC.status === 200 && linPC.length === 3 && Number(pisLine?.valor) === 1.65 && Number(cofinsLine?.valor) === 7.6, { status: conPC.status, n: linPC.length, pis: pisLine?.valor, cofins: cofinsLine?.valor });
+    // base = VRCUSTO×QTD = 100 (NÃO totalnf=200): PIS 100×1,65%=1,65; COFINS 100×7,6%=7,60 — prova a fórmula por-item.
+    check('F5b-4b: PIS/COFINS FIEL por-item (base=custo 100 ≠ totalnf 200 → PIS 1,65 / COFINS 7,60, sit 826/827)', conPC.status === 200 && Number(pisLine?.valor) === 1.65 && Number(cofinsLine?.valor) === 7.6, { status: conPC.status, pis: pisLine?.valor, cofins: cofinsLine?.valor });
+    await pgCon.query(`UPDATE produtos SET idpiscofins=NULL WHERE idproduto=1`);
+    // 29g) F5b-fase4b: CMV — vl_custo CONGELADO de multi_preco no lançamento (snapshot não acompanha o MP).
+    await pgCon.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto) VALUES (1,1,5.57) ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=5.57`);
+    const nfCmv = await novaNf(baseNf({ tipo: 'S', nronf: 'E9008', cfop: '5102', codparceiro: 20, modelo: 55, statusnfe: 'P', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const vlFrozen = (await pgCon.query(`SELECT vl_custo FROM nf_prod WHERE codnf=$1`, [nfCmv])).rows[0]?.vl_custo;
+    await pgCon.query(`UPDATE multi_preco SET vrcusto=9.99 WHERE idproduto=1 AND idempresa=1`); // altera DEPOIS do lançamento
+    await fetch(`${base}/fiscal/nf/${nfCmv}/processar`, { method: 'POST', headers: H });
+    await pgCon.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,8,1,10)`, [nfCmv]);
+    const conCmv = await fetch(`${base}/fiscal/nf/${nfCmv}/contabilizar`, { method: 'POST', headers: H });
+    const cmvLine = (await diarioDe(nfCmv) as any[]).find((l) => Number(l.contadebito) === 134 && Number(l.contacredito) === 147);
+    check('F5b-4b: CMV = vl_custo congelado 5,57 (D134/C147); snapshot NÃO acompanha multi_preco (→9,99)', conCmv.status === 200 && Number(vlFrozen) === 5.57 && Number(cmvLine?.valor) === 5.57, { frozen: vlFrozen, cmv: cmvLine?.valor });
+    // 29h) F5b-4b: arredondamento POR (situação, CFOP) — 2 CFOPs (1102+1403) → mesma sit 788; cada parcela
+    // 50×1,65%=0,825→0,83; soma 1,66 (o bug de agrupar só por situação daria round(1,65)=1,65). Prova o fix do auditor.
+    await pgCon.query(`UPDATE produtos SET idpiscofins=13 WHERE idproduto=1`);
+    await pgCon.query(`UPDATE cfop SET situacao_pis_entradas_nf=788, situacao_cofins_entradas_nf=789 WHERE codcfop='1102'`);
+    const nfMc = await novaNf(baseNf({ tipo: 'E', nronf: 'E9009', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [
+      { codproduto: 1, quantidade: 1, vrvenda: 10, vrcusto: 50, cfop: '1102', aliquota: 'T01' },
+      { codproduto: 1, quantidade: 1, vrvenda: 10, vrcusto: 50, cfop: '1403', aliquota: 'T01' },
+    ] }));
+    await fetch(`${base}/fiscal/nf/${nfMc}/processar`, { method: 'POST', headers: H });
+    await pgCon.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,6,1,100)`, [nfMc]);
+    const conMc = await fetch(`${base}/fiscal/nf/${nfMc}/contabilizar`, { method: 'POST', headers: H });
+    const pisMc = (await diarioDe(nfMc) as any[]).find((l) => Number(l.contadebito) === 235 && Number(l.contacredito) === 154);
+    check('F5b-4b: PIS multi-CFOP arredonda por CFOP (0,83+0,83=1,66; não round(1,65))', conMc.status === 200 && Number(pisMc?.valor) === 1.66, { pis: pisMc?.valor });
+    await pgCon.query(`UPDATE produtos SET idpiscofins=NULL WHERE idproduto=1`);
+    await pgCon.query(`UPDATE cfop SET situacao_pis_entradas_nf=NULL, situacao_cofins_entradas_nf=NULL WHERE codcfop='1102'`);
     // 29d) F5b-fase3: AUTO-DISPARO — processar uma ENTRADA (AUTOMATICA) COM rateio contabiliza sozinho;
     // reverter (AUTOMATICA) estorna o contábil e reverte o estoque.
     const nfAuto = await novaNf(baseNf({ tipo: 'E', nronf: 'E9005', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 3, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));

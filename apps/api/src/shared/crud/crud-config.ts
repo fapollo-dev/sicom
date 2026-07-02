@@ -75,6 +75,14 @@ export interface DetalheConfig {
    * o saldo movido pela NF. Requer `chaveNatural`.
    */
   preservar?: string[];
+  /**
+   * Enriquecimento ASSÍNCRONO/TRANSACIONAL de cada item ANTES do insert (o análogo por-linha do
+   * `derivarTrx` do master). Recebe os itens, a `trx` e a empresa; devolve os itens com colunas
+   * derivadas do banco. Uso: CONGELAR o custo do item (nf_prod.vl_custo = snapshot de
+   * MULTI_PRECO.VRCUSTO por idproduto/idempresa — GetCustoProduto, udmNF.pas:12057), base do CMV.
+   * A coluna derivada deve estar em `colunas` para ser gravada.
+   */
+  derivarItensTrx?: (itens: Record<string, unknown>[], trx: any, emp: number | null) => Promise<Record<string, unknown>[]>;
 }
 
 /**
