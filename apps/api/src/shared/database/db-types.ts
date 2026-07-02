@@ -285,6 +285,38 @@ export interface GetApagarView {
   codplc: number | null;
   idsituacao_nf: number | null;
 }
+/** PLANO_CONTAS (046) — razão contábil em árvore (codpai). Chave de negócio = codiexpandido (máscara). */
+export interface PlanoContasTable {
+  codplanocontas: Generated<number>;
+  codiexpandido: string | null;
+  codireduzido: string | null;
+  descricao: string;
+  classe: string | null; // T sintética / A analítica
+  natureza: number | null; // 1 Ativo/2 Passivo/3 PL/4 Resultado/5 Comp/9 Outras
+  nivel: number | null;
+  codpai: number | null;
+  codparceiro: number | null;
+  tipo: string | null;
+  status: string | null;
+  integrado: string | null;
+  usultalteracao: number | null;
+  dtultimalteracao: Timestamptz | null;
+  dtcadastro: Timestamptz | null;
+}
+/** View GET_PLANO_CONTAS — cadastro do plano (flat; a árvore é montada no front por codpai). */
+export interface GetPlanoContasView {
+  codplanocontas: number;
+  codiexpandido: string | null;
+  codireduzido: string | null;
+  descricao: string;
+  descricao_completa: string | null;
+  classe: string | null;
+  natureza: number | null;
+  nivel: number | null;
+  codpai: number | null;
+  tipo: string | null;
+  status: string | null;
+}
 /** Detalhe de exibição do lote GET_ITENS_LOTECOB — grid live-joined + juros/total. */
 export interface GetItensLotecobView {
   codilotcob: number;
@@ -387,6 +419,8 @@ export interface TenantDB {
   apagar: ApagarTable;
   apagar_bx: ApagarBxTable;
   get_apagar: GetApagarView;
+  plano_contas: PlanoContasTable;
+  get_plano_contas: GetPlanoContasView;
   get_itens_lotecob: GetItensLotecobView;
   marcas: MarcasTable;
   get_marcas: GetMarcasView;

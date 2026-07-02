@@ -1844,6 +1844,62 @@ async function main() {
       && apDelNf.status === 422 && ((await apDelNf.json().catch(() => ({}))) as any).code === 'TITULO_DE_NF',
       { agr: apDelAgr.status, nf: apDelNf.status });
     await pgAp.end();
+
+    // 34) PLANO DE CONTAS (contábil) — cadastro em árvore + validações + travas de exclusão.
+    const PC = 'cadastro/plano-contas';
+    const pgPc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    // 34.1) árvore seedada: lista traz o esqueleto (≥30) + a conta 148 tem máscara/classe/natureza/pai.
+    const pcLista = (await (await fetch(`${base}/${PC}`, { headers: H })).json()) as any[];
+    const c148 = (await (await fetch(`${base}/${PC}/148`, { headers: H })).json()) as any;
+    check('PC: lista árvore (≥30) + 148 tem máscara/classe A/natureza/pai',
+      pcLista.length >= 30 && c148.codiexpandido === '1.1.03.01.0002' && c148.classe === 'A' && Number(c148.natureza) === 1 && Number(c148.codpai) === 9008,
+      { n: pcLista.length, c148 });
+    // 34.2) criar analítica sob a sintética 9008 (1.1.03.01) → 201, nível 5 derivado.
+    const pcNova = await fetch(`${base}/${PC}`, { method: 'POST', headers: H, body: JSON.stringify({ codiexpandido: '1.1.03.01.9001', descricao: 'CONTA TESTE', classe: 'A', natureza: 1, codpai: 9008 }) });
+    const pcNovaBody = (await pcNova.json().catch(() => ({}))) as any;
+    check('PC: POST cria analítica (201, nível 5 derivado do código)', pcNova.status === 201 && Number(pcNovaBody.nivel) === 5 && pcNovaBody.classe === 'A', { status: pcNova.status, body: pcNovaBody });
+    const pcId = Number(pcNovaBody.codplanocontas);
+    // 34.3) validações: pai analítica → 422; prefixo incompatível → 422; código duplicado → 422; sem natureza → 400.
+    const pcPaiA = await fetch(`${base}/${PC}`, { method: 'POST', headers: H, body: JSON.stringify({ codiexpandido: '1.1.03.01.0002.1', descricao: 'X', classe: 'A', natureza: 1, codpai: 148 }) });
+    check('PC: filha de conta ANALÍTICA → 422 CONTA_PAI_ANALITICA', pcPaiA.status === 422 && ((await pcPaiA.json().catch(() => ({}))) as any).code === 'CONTA_PAI_ANALITICA', { status: pcPaiA.status });
+    const pcPref = await fetch(`${base}/${PC}`, { method: 'POST', headers: H, body: JSON.stringify({ codiexpandido: '2.1.01.01.9002', descricao: 'X', classe: 'A', natureza: 2, codpai: 9008 }) });
+    check('PC: prefixo incompatível com o pai → 422 CONTA_PREFIXO_INVALIDO', pcPref.status === 422 && ((await pcPref.json().catch(() => ({}))) as any).code === 'CONTA_PREFIXO_INVALIDO', { status: pcPref.status });
+    const pcDup = await fetch(`${base}/${PC}`, { method: 'POST', headers: H, body: JSON.stringify({ codiexpandido: '1.1.03.01.0002', descricao: 'X', classe: 'A', natureza: 1, codpai: 9008 }) });
+    check('PC: código duplicado → 422 CONTA_CODIGO_DUPLICADO', pcDup.status === 422 && ((await pcDup.json().catch(() => ({}))) as any).code === 'CONTA_CODIGO_DUPLICADO', { status: pcDup.status });
+    const pcSemNat = await fetch(`${base}/${PC}`, { method: 'POST', headers: H, body: JSON.stringify({ codiexpandido: '1.1.03.01.9003', descricao: 'X', classe: 'A', codpai: 9008 }) });
+    check('PC: sem natureza → 400 VALIDACAO', pcSemNat.status === 400 && ((await pcSemNat.json().catch(() => ({}))) as any).code === 'VALIDACAO', { status: pcSemNat.status });
+    // 34.4) editar descrição → 200.
+    const pcEdit = await fetch(`${base}/${PC}/${pcId}`, { method: 'PUT', headers: H, body: JSON.stringify({ descricao: 'CONTA TESTE EDIT' }) });
+    check('PC: PUT edita descrição (200)', pcEdit.status === 200 && ((await pcEdit.json().catch(() => ({}))) as any).descricao === 'CONTA TESTE EDIT', { status: pcEdit.status });
+    // 34.4b) CICLO: setar codpai de 9007 (1.1.03) para 9008 (1.1.03.01, seu descendente) → 422 CONTA_PAI_INVALIDO.
+    const pcCiclo = await fetch(`${base}/${PC}/9007`, { method: 'PUT', headers: H, body: JSON.stringify({ codpai: 9008 }) });
+    check('PC: reparent p/ descendente (ciclo) → 422 CONTA_PAI_INVALIDO', pcCiclo.status === 422 && ((await pcCiclo.json().catch(() => ({}))) as any).code === 'CONTA_PAI_INVALIDO', { status: pcCiclo.status });
+    // 34.4c) código reduzido duplicado (reduzido '148' já existe) → 422 CONTA_REDUZIDO_DUPLICADO.
+    const pcRed = await fetch(`${base}/${PC}`, { method: 'POST', headers: H, body: JSON.stringify({ codiexpandido: '1.1.03.01.9020', descricao: 'X', classe: 'A', natureza: 1, codpai: 9008, codireduzido: '148' }) });
+    check('PC: código reduzido duplicado → 422 CONTA_REDUZIDO_DUPLICADO', pcRed.status === 422 && ((await pcRed.json().catch(() => ({}))) as any).code === 'CONTA_REDUZIDO_DUPLICADO', { status: pcRed.status });
+    // 34.5) TRAVAS de exclusão: com filhos (9008) → 422; com movimento no DIÁRIO → 422; em uso (parceiro) → 422.
+    const pcFilhos = await fetch(`${base}/${PC}/9008`, { method: 'DELETE', headers: H });
+    check('PC: DELETE conta com filhos → 422 CONTA_COM_FILHOS', pcFilhos.status === 422 && ((await pcFilhos.json().catch(() => ({}))) as any).code === 'CONTA_COM_FILHOS', { status: pcFilhos.status });
+    // movimento: cria conta + lança 1 linha no diário apontando p/ ela.
+    const pcMovId = Number(((await (await fetch(`${base}/${PC}`, { method: 'POST', headers: H, body: JSON.stringify({ codiexpandido: '1.1.03.01.9010', descricao: 'MOV', classe: 'A', natureza: 1, codpai: 9008 }) })).json()) as any).codplanocontas);
+    await pgPc.query(`INSERT INTO diario (datalan, contadebito, contacredito, valor, codorigem, idorigem, codempresa) VALUES ('2026-07-02',$1,11141,1,99,1,1)`, [pcMovId]);
+    const pcMov = await fetch(`${base}/${PC}/${pcMovId}`, { method: 'DELETE', headers: H });
+    check('PC: DELETE conta com movimento no DIÁRIO → 422 CONTA_COM_MOVIMENTO', pcMov.status === 422 && ((await pcMov.json().catch(() => ({}))) as any).code === 'CONTA_COM_MOVIMENTO', { status: pcMov.status });
+    // em uso: cria conta + vincula a um parceiro.
+    const pcUsoId = Number(((await (await fetch(`${base}/${PC}`, { method: 'POST', headers: H, body: JSON.stringify({ codiexpandido: '1.1.03.01.9011', descricao: 'USO', classe: 'A', natureza: 1, codpai: 9008 }) })).json()) as any).codplanocontas);
+    await pgPc.query(`UPDATE parceiros SET codcontabil=$1 WHERE codparceiro=20`, [pcUsoId]);
+    const pcUso = await fetch(`${base}/${PC}/${pcUsoId}`, { method: 'DELETE', headers: H });
+    check('PC: DELETE conta em uso (parceiro) → 422 CONTA_EM_USO', pcUso.status === 422 && ((await pcUso.json().catch(() => ({}))) as any).code === 'CONTA_EM_USO', { status: pcUso.status });
+    await pgPc.query(`UPDATE parceiros SET codcontabil=NULL WHERE codparceiro=20`);
+    // 34.6) inativar + exclusão limpa: a conta teste (sem refs) inativa (status I) e depois exclui (204).
+    const pcInat = await fetch(`${base}/${PC}/${pcId}/status`, { method: 'POST', headers: H, body: JSON.stringify({ status: 'I' }) });
+    check('PC: inativar (status=I) → 200', pcInat.status === 200 && ((await pcInat.json().catch(() => ({}))) as any).status === 'I', { status: pcInat.status });
+    const pcDel = await fetch(`${base}/${PC}/${pcId}`, { method: 'DELETE', headers: H });
+    check('PC: DELETE conta limpa → 204', pcDel.status === 204, { status: pcDel.status });
+    // 34.7) RBAC sem grant → 403.
+    const pcRbac = await fetch(`${base}/${PC}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codiexpandido: '1.1.03.01.9099', descricao: 'X', classe: 'A', natureza: 1, codpai: 9008 }) });
+    check('PC: POST sem grant RBAC → 403', pcRbac.status === 403, { status: pcRbac.status });
+    await pgPc.end();
   } finally {
     await app.close();
     await pg.stop();

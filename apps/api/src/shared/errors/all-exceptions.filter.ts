@@ -211,6 +211,17 @@ const CODE_PT: Record<string, string> = {
   TITULO_NAO_BAIXADO: 'Título não está baixado — não há baixa a estornar.',
   BAIXA_CONTABILIZADA: 'A baixa já foi contabilizada — estorne a contabilização antes.',
   TITULO_VALOR_INVALIDO: 'O valor da baixa deve ser maior que zero.',
+  // Plano de Contas (uCadPlanoContas — árvore/validações/travas)
+  CONTA_NAO_ENCONTRADA: 'Conta contábil não encontrada no sistema.',
+  CONTA_CODIGO_DUPLICADO: 'Já existe uma conta com este código.',
+  CONTA_REDUZIDO_DUPLICADO: 'Já existe uma conta com este código reduzido.',
+  CONTA_PAI_INEXISTENTE: 'A conta-pai informada não existe.',
+  CONTA_PAI_ANALITICA: 'Não é possível criar contas filhas em uma conta analítica. A conta-pai deve ser sintética.',
+  CONTA_PAI_INVALIDO: 'A conta não pode ser pai de si mesma.',
+  CONTA_PREFIXO_INVALIDO: 'O código é incompatível com a estrutura da conta-pai (deve conter o prefixo do pai).',
+  CONTA_COM_FILHOS: 'A conta possui contas filhas — remova ou reclassifique as filhas antes.',
+  CONTA_COM_MOVIMENTO: 'A conta possui movimento no diário — não é possível excluir. Inative-a.',
+  CONTA_EM_USO: 'A conta está em uso (integração/centro de custo/parceiro) — não é possível excluir. Inative-a.',
   // NFe / SEFAZ (F6)
   NF_JA_TRANSMITIDA: 'Esta nota fiscal já foi transmitida para a SEFAZ.',
   NF_NAO_AUTORIZADA: 'A nota fiscal não está autorizada pela SEFAZ.',
