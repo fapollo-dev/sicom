@@ -9,6 +9,7 @@ import { NcmCadMaster } from '../features/ncm/NcmCadMaster';
 import { OperacoesContaCadMaster } from '../features/operacoes-conta/OperacoesContaCadMaster';
 import { ContasBancariasCadMaster } from '../features/contas-bancarias/ContasBancariasCadMaster';
 import { LotesCobrancaCadMaster } from '../features/lotes-md/LotesCobrancaCadMaster';
+import { ContasReceberCadMaster } from '../features/areceber/ContasReceberCadMaster';
 import { ParceirosCadMaster } from '../features/parceiros/ParceirosCadMaster';
 import { ProdutoCadMaster } from '../features/produtos/ProdutoCadMaster';
 import { NfCadMaster } from '../features/nf/NfCadMaster';
@@ -35,6 +36,7 @@ export const router = createBrowserRouter([
       { path: '/cadastro/fornecedores', element: <ParceirosCadMaster papel="fornecedor" /> },
       { path: '/cadastro/produtos', element: <ProdutoCadMaster /> },
       { path: '/cobranca/lotes', element: <LotesCobrancaCadMaster /> }, // mestre-detalhe
+      { path: '/cadastro/areceber', element: <ContasReceberCadMaster /> }, // contas a receber (corte-1)
       // tela-coroa NF — mesmo componente, tipo diferente (Entrada/Saída), como Parceiros (papel)
       { path: '/fiscal/notas/entrada', element: <NfCadMaster tipo="E" /> },
       { path: '/fiscal/notas/saida', element: <NfCadMaster tipo="S" /> },

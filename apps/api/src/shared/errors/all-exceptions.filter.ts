@@ -198,6 +198,14 @@ const CODE_PT: Record<string, string> = {
   NUM_PARCELAS_INVALIDO: 'Número de parcelas inválido.',
   TITULO_QUITADO:
     'Existem documentos financeiros que já foram baixados, agrupados ou contabilizados relacionados à essa nota. Não é possível excluir o financeiro. Verifique!',
+  // Contas a Receber (uCadAReceber — travas de estado do título)
+  TITULO_NAO_ENCONTRADO: 'Título a receber não encontrado no sistema.',
+  TITULO_JA_BAIXADO: 'Título já quitado (baixado) — estorne a baixa antes de alterar ou excluir.',
+  TITULO_AGRUPADO: 'Título agrupado não pode ser modificado nem excluído. Remova do agrupamento antes.',
+  TITULO_CONTABILIZADO: 'Título contabilizado não pode ser modificado nem excluído.',
+  TITULO_DE_NF: 'Este título foi gerado por uma nota fiscal — altere pela própria nota (faturar/estornar).',
+  TITULO_ORIGEM_AUTO: 'Título gerado por outro processo (quitação/convênio/caixa) não pode ser alterado nem excluído por aqui.',
+  TITULO_CONCILIADO: 'Título conciliado na tesouraria não pode ser alterado nem excluído.',
   // NFe / SEFAZ (F6)
   NF_JA_TRANSMITIDA: 'Esta nota fiscal já foi transmitida para a SEFAZ.',
   NF_NAO_AUTORIZADA: 'A nota fiscal não está autorizada pela SEFAZ.',

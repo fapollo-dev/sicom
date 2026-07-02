@@ -138,6 +138,32 @@ export interface AreceberTable {
   valor: number | null;
   txjuros: number | null;
   consiliado: string | null; // 'S' = conciliado
+  // 028 (faturamento da NF)
+  idnf: number | null;
+  quitada: string | null; // 'S' = baixado
+  nrodup: number | null;
+  // 043 (gestão do título — corte-1)
+  dtpgto: Timestamptz | null;
+  txmulta: number | null;
+  desconto_boleto: number | null;
+  tipodoc: string | null;
+  origem: string | null; // A/B/F/Q/O/C
+  gerado: string | null; // SISTEMA/OPERADOR
+  cadastrado_manualmente: string | null;
+  codvendedor: number | null;
+  codcobrador: number | null;
+  idpgto: number | null;
+  codbco: number | null;
+  codplc: number | null;
+  obs: string | null;
+  nroped: string | null;
+  nrocupom: string | null;
+  idsituacao_nf: number | null;
+  agrupado: string | null; // 'S' = em agrupamento
+  contabilizado: string | null;
+  usultalteracao: number | null;
+  dtultimalteracao: Timestamptz | null;
+  dtcadastro: Timestamptz | null;
 }
 /** Picker GET_ARECEBER — documentos disponíveis p/ adicionar ao lote (live-join + juros/total). */
 export interface GetAreceberView {

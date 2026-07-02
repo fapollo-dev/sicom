@@ -1651,6 +1651,73 @@ async function main() {
     const nfT = await novaNf(baseNf({ tipo: 'E', modelo: 1, serie: '99', tipoemissao: '1', nronf: '777777', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));
     check('A2: terceiros (tipoemissao 1) mantém o número digitado (777777)', String(await rdNronf(nfT)) === '777777', { n: await rdNronf(nfT) });
     await pgNum.end();
+
+    // 31) CONTAS A RECEBER — corte-1 (cadastro/gestão). CRUD + travas de estado (quitada/agrupado/de-NF).
+    const AR = 'cadastro/areceber';
+    // 31.1) listagem (escopo empresa) traz os títulos seed; filtro situacao=abertos exclui quitado/agrupado.
+    const arLista = (await (await fetch(`${base}/${AR}`, { headers: H })).json()) as any[];
+    check('CR: GET lista títulos do escopo (≥8 seed)', Array.isArray(arLista) && arLista.length >= 8, { n: arLista?.length });
+    const arAbertos = (await (await fetch(`${base}/${AR}?situacao=abertos`, { headers: H })).json()) as any[];
+    const temQuitadoOuAgrupado = arAbertos.some((t) => t.codrcb === 999 || t.codrcb === 400);
+    check('CR: situacao=abertos exclui quitado(999)/agrupado(400)', !temQuitadoOuAgrupado, { ids: arAbertos.map((t) => t.codrcb) });
+    // a view calcula juro/total (título 300 vencido) — total ≥ valor.
+    const t300 = (await (await fetch(`${base}/${AR}/300`, { headers: H })).json()) as any;
+    check('CR: GET :id traz juro/total calculados (view)', t300 && Number(t300.total) >= Number(t300.valor), { valor: t300?.valor, total: t300?.total });
+
+    // 31.2) criar título MANUAL → 201, quitada=N, cadastrado_manualmente=S.
+    const arNovo = await fetch(`${base}/${AR}`, {
+      method: 'POST', headers: H,
+      body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 350.5, duplicata: 'CR-NOVA', tipodoc: 'DUPLICATA' }),
+    });
+    const arNovoBody = (await arNovo.json().catch(() => ({}))) as any;
+    check('CR: POST cria título manual (201, quitada=N, manual=S)', arNovo.status === 201 && arNovoBody.quitada === 'N' && arNovoBody.cadastrado_manualmente === 'S' && Number(arNovoBody.valor) === 350.5, { status: arNovo.status, body: arNovoBody });
+    const novoId = Number(arNovoBody.codrcb);
+
+    // 31.3) validações: valor ≤ 0 → 400; venc < venda → 400.
+    const arVal0 = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 0 }) });
+    check('CR: POST valor 0 → 400 VALIDACAO', arVal0.status === 400 && ((await arVal0.json().catch(() => ({}))) as any).code === 'VALIDACAO', { status: arVal0.status });
+    const arData = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-08-01', dtvenc: '2026-07-01', valor: 10 }) });
+    check('CR: POST venc < venda → 400 VALIDACAO', arData.status === 400 && ((await arData.json().catch(() => ({}))) as any).code === 'VALIDACAO', { status: arData.status });
+
+    // 31.4) editar o título manual → 200, valor atualizado.
+    const arEdit = await fetch(`${base}/${AR}/${novoId}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 400 }) });
+    const arEditBody = (await arEdit.json().catch(() => ({}))) as any;
+    check('CR: PUT edita título manual (valor 400)', arEdit.status === 200 && Number(arEditBody.valor) === 400, { status: arEdit.status, valor: arEditBody?.valor });
+
+    // 31.5) TRAVAS de estado (editar): cada estado do legado → 422 com seu código PT.
+    const putTrava = async (id: number) => {
+      const r = await fetch(`${base}/${AR}/${id}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 1 }) });
+      return { status: r.status, code: ((await r.json().catch(() => ({}))) as any).code };
+    };
+    const tQ = await putTrava(999);
+    check('CR: PUT título quitado → 422 TITULO_JA_BAIXADO', tQ.status === 422 && tQ.code === 'TITULO_JA_BAIXADO', tQ);
+    const tA = await putTrava(400);
+    check('CR: PUT título agrupado → 422 TITULO_AGRUPADO', tA.status === 422 && tA.code === 'TITULO_AGRUPADO', tA);
+    const tN = await putTrava(300);
+    check('CR: PUT título de NF → 422 TITULO_DE_NF', tN.status === 422 && tN.code === 'TITULO_DE_NF', tN);
+    const tC = await putTrava(201);
+    check('CR: PUT título contabilizado → 422 TITULO_CONTABILIZADO', tC.status === 422 && tC.code === 'TITULO_CONTABILIZADO', tC);
+    const tO = await putTrava(102);
+    check('CR: PUT título origem-auto (Q) → 422 TITULO_ORIGEM_AUTO', tO.status === 422 && tO.code === 'TITULO_ORIGEM_AUTO', tO);
+    const tK = await putTrava(500);
+    check('CR: PUT título conciliado não-manual → 422 TITULO_CONCILIADO', tK.status === 422 && tK.code === 'TITULO_CONCILIADO', tK);
+
+    // 31.6) excluir: manual → 204; quitado(999) → 422 (mesma trava simétrica).
+    const arDel = await fetch(`${base}/${AR}/${novoId}`, { method: 'DELETE', headers: H });
+    check('CR: DELETE título manual → 204', arDel.status === 204, { status: arDel.status });
+    const arDelQ = await fetch(`${base}/${AR}/999`, { method: 'DELETE', headers: H });
+    check('CR: DELETE título quitado → 422 TITULO_JA_BAIXADO', arDelQ.status === 422 && ((await arDelQ.json().catch(() => ({}))) as any).code === 'TITULO_JA_BAIXADO', { status: arDelQ.status });
+
+    // 31.7) RBAC: operador sem grant não cria.
+    const arRbac = await fetch(`${base}/${AR}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 10 }) });
+    check('CR: POST sem grant RBAC → 403', arRbac.status === 403, { status: arRbac.status });
+
+    // 31.8) IDOR multi-tenant: empresa 2 NÃO enxerga/edita título da empresa 1 (999).
+    const H_EMP2 = { ...H, 'x-empresa-id': '2' };
+    const idorRead = await (await fetch(`${base}/${AR}/999`, { headers: H_EMP2 })).json().catch(() => null);
+    check('CR: GET :id cross-tenant não vaza (empresa 2 não lê título da empresa 1)', idorRead == null || Object.keys(idorRead).length === 0, { idorRead });
+    const idorPut = await fetch(`${base}/${AR}/999`, { method: 'PUT', headers: H_EMP2, body: JSON.stringify({ valor: 1 }) });
+    check('CR: PUT cross-tenant → 422 TITULO_NAO_ENCONTRADO (não edita título de outra empresa)', idorPut.status === 422 && ((await idorPut.json().catch(() => ({}))) as any).code === 'TITULO_NAO_ENCONTRADO', { status: idorPut.status });
   } finally {
     await app.close();
     await pg.stop();
