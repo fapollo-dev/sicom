@@ -1831,6 +1831,18 @@ async function main() {
     check('CP-baixa: valorpg ≤ 0 → 422 TITULO_VALOR_INVALIDO', apNeg.status === 422 && ((await apNeg.json().catch(() => ({}))) as any).code === 'TITULO_VALOR_INVALIDO', { status: apNeg.status });
     const apIdor = await fetch(`${base}/${AP}/${apBxId3}/baixar`, { method: 'POST', headers: { ...H, 'x-empresa-id': '2' }, body: JSON.stringify({}) });
     check('CP-baixa: pagar cross-tenant → 422 TITULO_NAO_ENCONTRADO', apIdor.status === 422 && ((await apIdor.json().catch(() => ({}))) as any).code === 'TITULO_NAO_ENCONTRADO', { status: apIdor.status });
+    // 33.8) estorno cross-tenant → 422 TITULO_NAO_ENCONTRADO (empresa 2 não estorna pagamento da empresa 1).
+    const apBxId4 = await crAp();
+    await fetch(`${base}/${AP}/${apBxId4}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    const apEstIdor = await fetch(`${base}/${AP}/${apBxId4}/estornar-baixa`, { method: 'POST', headers: { ...H, 'x-empresa-id': '2' } });
+    check('CP-baixa: estornar cross-tenant → 422 TITULO_NAO_ENCONTRADO', apEstIdor.status === 422 && ((await apEstIdor.json().catch(() => ({}))) as any).code === 'TITULO_NAO_ENCONTRADO', { status: apEstIdor.status });
+    // 33.9) excluir por-estado: agrupado(7004)→422 AGRUPADO; de-NF(7005)→422 DE_NF (trava simétrica ao editar).
+    const apDelAgr = await fetch(`${base}/${AP}/7004`, { method: 'DELETE', headers: H });
+    const apDelNf = await fetch(`${base}/${AP}/7005`, { method: 'DELETE', headers: H });
+    check('CP: DELETE por-estado (agrupado→422 AGRUPADO, de-NF→422 DE_NF)',
+      apDelAgr.status === 422 && ((await apDelAgr.json().catch(() => ({}))) as any).code === 'TITULO_AGRUPADO'
+      && apDelNf.status === 422 && ((await apDelNf.json().catch(() => ({}))) as any).code === 'TITULO_DE_NF',
+      { agr: apDelAgr.status, nf: apDelNf.status });
     await pgAp.end();
   } finally {
     await app.close();

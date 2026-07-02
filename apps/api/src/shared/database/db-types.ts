@@ -382,7 +382,11 @@ export interface TenantDB {
   parceiros: ParceirosTable;
   parceiros_end: ParceirosEndTable;
   areceber: AreceberTable;
+  areceber_bx: AreceberBxTable;
   get_areceber: GetAreceberView;
+  apagar: ApagarTable;
+  apagar_bx: ApagarBxTable;
+  get_apagar: GetApagarView;
   get_itens_lotecob: GetItensLotecobView;
   marcas: MarcasTable;
   get_marcas: GetMarcasView;
