@@ -203,6 +203,88 @@ export interface GetAreceberView {
   uf: string | null;
   telefone: string | null;
 }
+/** APAGAR (028 + 045) — contas a pagar (gêmea de areceber; tenant por codempresa). */
+export interface ApagarTable {
+  codapg: Generated<number>;
+  codparceiro: number | null;
+  codempresa: number;
+  idnf: number | null;
+  dtvenda: Timestamptz | null;
+  dtvenc: Timestamptz | null;
+  duplicata: string | null;
+  nrodup: number | null;
+  valor: number | null;
+  txjuros: number | null;
+  quitada: string | null;
+  consiliado: string | null;
+  // 045 (gestão)
+  dtpgto: Timestamptz | null;
+  txmulta: number | null;
+  desconto_boleto: number | null;
+  tipodoc: string | null;
+  origem: string | null;
+  gerado: string | null;
+  cadastrado_manualmente: string | null;
+  idpgto: number | null;
+  codbco: number | null;
+  codplc: number | null;
+  obs: string | null;
+  nroped: string | null;
+  nrocupom: string | null;
+  idsituacao_nf: number | null;
+  agrupado: string | null;
+  contabilizado: string | null;
+  usultalteracao: number | null;
+  dtultimalteracao: Timestamptz | null;
+  dtcadastro: Timestamptz | null;
+}
+/** APAGAR_BX (045) — baixas/pagamentos (1:N; estorno lógico via INDR). */
+export interface ApagarBxTable {
+  codapgbx: Generated<number>;
+  codapg: number;
+  codempresa: number;
+  valorpg: number | null;
+  juros: number | null;
+  multa: number | null;
+  acre_desc: number | null;
+  dtpgto: Timestamptz | null;
+  codopbx: number | null;
+  data_operacao: Timestamptz | null;
+  indr: string | null;
+  contabilizado: string | null;
+  obs: string | null;
+}
+/** View GET_APAGAR — gestão do título a pagar (juro/total live). */
+export interface GetApagarView {
+  codapg: number;
+  codparceiro: number | null;
+  codempresa: number;
+  consiliado: string | null;
+  razao: string | null;
+  duplicata: string | null;
+  dtvenda: Timestamptz | null;
+  dtvenc: Timestamptz | null;
+  valor: number | null;
+  txjuros: number | null;
+  dias_atrazo: number;
+  dias_tolerancia: number;
+  juro: number;
+  total: number;
+  idnf: number | null;
+  nrodup: number | null;
+  quitada: string | null;
+  agrupado: string | null;
+  contabilizado: string | null;
+  tipodoc: string | null;
+  origem: string | null;
+  gerado: string | null;
+  cadastrado_manualmente: string | null;
+  dtpgto: Timestamptz | null;
+  idpgto: number | null;
+  codbco: number | null;
+  codplc: number | null;
+  idsituacao_nf: number | null;
+}
 /** Detalhe de exibição do lote GET_ITENS_LOTECOB — grid live-joined + juros/total. */
 export interface GetItensLotecobView {
   codilotcob: number;

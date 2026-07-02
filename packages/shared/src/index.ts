@@ -13,6 +13,7 @@ export * from './schema/produto.schema';
 export * from './schema/nf.schema';
 export * from './schema/empresa.schema';
 export * from './schema/areceber.schema';
+export * from './schema/apagar.schema';
 export * from './erro';
 export * from './validators/br';
 export * from './validators/inscricao-estadual';

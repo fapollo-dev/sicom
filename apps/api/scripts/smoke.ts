@@ -1774,6 +1774,64 @@ async function main() {
     const estIdor = await fetch(`${base}/${AR}/${bxId5}/estornar-baixa`, { method: 'POST', headers: { ...H, 'x-empresa-id': '2' } });
     check('CR-baixa: estornar cross-tenant → 422 TITULO_NAO_ENCONTRADO', estIdor.status === 422 && ((await estIdor.json().catch(() => ({}))) as any).code === 'TITULO_NAO_ENCONTRADO', { status: estIdor.status });
     await pgBx.end();
+
+    // 33) CONTAS A PAGAR (gêmea) — cadastro/gestão + baixa/pagamento. Espelha §31/§32 (tabela apagar).
+    const AP = 'cadastro/apagar';
+    const pgAp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    const apBxDe = async (id: number) => (await pgAp.query(`SELECT indr, valorpg FROM apagar_bx WHERE codapg=$1 ORDER BY codapgbx`, [id])).rows as any[];
+    const apQuit = async (id: number) => (await pgAp.query(`SELECT quitada FROM apagar WHERE codapg=$1`, [id])).rows[0]?.quitada;
+    const crAp = async (extra: Record<string, unknown> = {}) => {
+      const r = await fetch(`${base}/${AP}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100, ...extra }) });
+      return Number(((await r.json()) as any).codapg);
+    };
+    // 33.1) listagem + filtro abertos (exclui pago 7003 / agrupado 7004).
+    const apLista = (await (await fetch(`${base}/${AP}`, { headers: H })).json()) as any[];
+    const apAb = (await (await fetch(`${base}/${AP}?situacao=abertos`, { headers: H })).json()) as any[];
+    check('CP: lista (≥8) + abertos exclui pago(7003)/agrupado(7004)', apLista.length >= 8 && !apAb.some((t) => t.codapg === 7003 || t.codapg === 7004), { n: apLista.length });
+    // 33.2) criar manual + validações.
+    const apNovo = await fetch(`${base}/${AP}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 250, duplicata: 'AP-NOVA' }) });
+    const apNovoBody = (await apNovo.json().catch(() => ({}))) as any;
+    check('CP: POST cria título manual (201, quitada=N, manual=S)', apNovo.status === 201 && apNovoBody.quitada === 'N' && apNovoBody.cadastrado_manualmente === 'S' && Number(apNovoBody.valor) === 250, { status: apNovo.status });
+    const apId = Number(apNovoBody.codapg);
+    const apVal0 = await fetch(`${base}/${AP}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 0 }) });
+    check('CP: POST valor 0 → 400 VALIDACAO', apVal0.status === 400 && ((await apVal0.json().catch(() => ({}))) as any).code === 'VALIDACAO', { status: apVal0.status });
+    // 33.3) editar manual + TRAVAS de estado (7003 pago/7004 agrup/7005 NF/7006 contab/7007 origem/7008 concil).
+    const apEdit = await fetch(`${base}/${AP}/${apId}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 300 }) });
+    check('CP: PUT edita manual (valor 300)', apEdit.status === 200 && Number(((await apEdit.json().catch(() => ({}))) as any).valor) === 300, { status: apEdit.status });
+    const putAp = async (id: number) => { const r = await fetch(`${base}/${AP}/${id}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 1 }) }); return { s: r.status, c: ((await r.json().catch(() => ({}))) as any).code }; };
+    const g3 = await putAp(7003), g4 = await putAp(7004), g5 = await putAp(7005), g6 = await putAp(7006), g7 = await putAp(7007), g8 = await putAp(7008);
+    check('CP: travas de estado editar (pago/agrup/NF/contab/origem/concil → 422)',
+      g3.c === 'TITULO_JA_BAIXADO' && g4.c === 'TITULO_AGRUPADO' && g5.c === 'TITULO_DE_NF' && g6.c === 'TITULO_CONTABILIZADO' && g7.c === 'TITULO_ORIGEM_AUTO' && g8.c === 'TITULO_CONCILIADO',
+      { g3, g4, g5, g6, g7, g8 });
+    // 33.4) excluir manual → 204; pago(7003) → 422.
+    const apDel = await fetch(`${base}/${AP}/${apId}`, { method: 'DELETE', headers: H });
+    const apDelP = await fetch(`${base}/${AP}/7003`, { method: 'DELETE', headers: H });
+    check('CP: DELETE manual → 204; pago → 422', apDel.status === 204 && apDelP.status === 422, { manual: apDel.status, pago: apDelP.status });
+    // 33.5) RBAC sem grant → 403.
+    const apRbac = await fetch(`${base}/${AP}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 10 }) });
+    check('CP: POST sem grant RBAC → 403', apRbac.status === 403, { status: apRbac.status });
+    // 33.6) BAIXA: pagar quita (apagar_bx INDR=I, valorpg=100); estorno lógico (INDR=E, não apaga).
+    const apBxId = await crAp();
+    const apPag = await fetch(`${base}/${AP}/${apBxId}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ dtpgto: '2026-07-02' }) });
+    const apQ1 = await apQuit(apBxId); const apRows = await apBxDe(apBxId);
+    check('CP-baixa: pagar quita (200, quitada=S, apagar_bx INDR=I, valorpg=100)', apPag.status === 200 && apQ1 === 'S' && apRows.length === 1 && apRows[0].indr === 'I' && Number(apRows[0].valorpg) === 100, { status: apPag.status, rows: apRows });
+    const apPag2 = await fetch(`${base}/${AP}/${apBxId}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('CP-baixa: pagar 2x → 422 TITULO_JA_BAIXADO', apPag2.status === 422 && ((await apPag2.json().catch(() => ({}))) as any).code === 'TITULO_JA_BAIXADO', { status: apPag2.status });
+    const apEst = await fetch(`${base}/${AP}/${apBxId}/estornar-baixa`, { method: 'POST', headers: H });
+    const apQ2 = await apQuit(apBxId); const apRows2 = await apBxDe(apBxId);
+    check('CP-baixa: estorno lógico (200, quitada=N, INDR=E, não apaga)', apEst.status === 200 && apQ2 === 'N' && apRows2.length === 1 && apRows2[0].indr === 'E', { status: apEst.status, rows: apRows2 });
+    // 33.7) juros/desconto compõem valorpg; agrupado→422; valorpg≤0→422; IDOR cross-tenant→422.
+    const apBxId2 = await crAp();
+    const apJ = await fetch(`${base}/${AP}/${apBxId2}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ juros: 10, desconto: 5 }) });
+    check('CP-baixa: juros/desconto compõem valorpg (105)', apJ.status === 200 && Number(((await apJ.json().catch(() => ({}))) as any).valorpg) === 105, {});
+    const apAgr = await fetch(`${base}/${AP}/7004/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('CP-baixa: pagar agrupado → 422 TITULO_AGRUPADO', apAgr.status === 422 && ((await apAgr.json().catch(() => ({}))) as any).code === 'TITULO_AGRUPADO', { status: apAgr.status });
+    const apBxId3 = await crAp();
+    const apNeg = await fetch(`${base}/${AP}/${apBxId3}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ desconto: 200 }) });
+    check('CP-baixa: valorpg ≤ 0 → 422 TITULO_VALOR_INVALIDO', apNeg.status === 422 && ((await apNeg.json().catch(() => ({}))) as any).code === 'TITULO_VALOR_INVALIDO', { status: apNeg.status });
+    const apIdor = await fetch(`${base}/${AP}/${apBxId3}/baixar`, { method: 'POST', headers: { ...H, 'x-empresa-id': '2' }, body: JSON.stringify({}) });
+    check('CP-baixa: pagar cross-tenant → 422 TITULO_NAO_ENCONTRADO', apIdor.status === 422 && ((await apIdor.json().catch(() => ({}))) as any).code === 'TITULO_NAO_ENCONTRADO', { status: apIdor.status });
+    await pgAp.end();
   } finally {
     await app.close();
     await pg.stop();
