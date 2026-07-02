@@ -29,6 +29,10 @@ export class NfContabilizacaoService {
   private readonly logger = new Logger(NfContabilizacaoService.name);
   // CFOPs de venda que disparam o CMV (GetSQLCMVNF, UIntegracaoContabil.pas:427).
   private static readonly CMV_CFOP = new Set(['5102', '6102', '5402', '6402', '5403', '6403', '5405', '6405']);
+  // Situação contábil do CMV. No legado vem de CONFIG_INTEGRACAO_CONTABIL.CONFIG_CUSTO_NF_VENDA
+  // (UConfigIntegracaoContabil.pas); golden do cliente = 873. Constante até a camada de config
+  // chave-valor (CONFIGURACOES_ESPECIFICAS) ser migrada (epic próprio, dossiê §10).
+  private static readonly CMV_SITUACAO = 873;
   constructor(private readonly dbp: DatabaseProvider) {}
 
   async contabilizar(codnf: number): Promise<{ codnf: number; linhas: number; codlote: number; total: number }> {
@@ -90,7 +94,15 @@ export class NfContabilizacaoService {
       const ctx = { tipo: String(nf.tipo), codparceiro: Number(nf.codparceiro), dtcontabil: nf.dtcontabil, nronf: nf.nronf, codnf, emp, codlote };
       let linhas = 0;
       let total = 0;
-      // (1) linhas PRINCIPAIS: uma por (situação, centro de custo) do rateio.
+      // (1) linhas PRINCIPAIS. O DIÁRIO real CONSOLIDA por situação: uma NF cujo rateio (CODCONTABILNF)
+      // tem VÁRIOS centros de custo na MESMA situação gera UMA linha por situação (valor = Σ, codcc nulo).
+      // Golden confirmado: CODNF 72296 sit 7 (rateio CC 246 + 3101) → 1 linha valor 41.521,49; idem 84938/
+      // 80589 sit 468 (2 CC → 1 linha). O CODCC só influencia a RESOLUÇÃO do débito automático (TIPO='A',
+      // ponte PLC): por isso resolvemos as contas por linha de rateio e CONSOLIDAMOS por (situação,
+      // contadebito, contacredito), somando o valor. 'F' multi-CC → colapsa em 1 linha (fiel ao DIARIO);
+      // 'A' com débito distinto por CC → preserva as linhas realmente distintas. Σ preservado.
+      // (UIntegracaoContabil.pas: GetSQLSituacoesNF agrupa por IDSITUACAO_NF, L691-695.)
+      const consolidado = new Map<string, { situacao: number; contadebito: number; contacredito: number; valor: number; codhist: unknown }>();
       for (const r of rateio as Record<string, unknown>[]) {
         const situacao = Number(r.idsituacao_nf);
         const codcc = r.codcc != null ? Number(r.codcc) : null;
@@ -99,9 +111,15 @@ export class NfContabilizacaoService {
         const { d, c } = await this.iicDC(trx, codnf, situacao);
         const contadebito = await this.resolveConta(trx, d, 'D', ctx, codcc, situacao);
         const contacredito = await this.resolveConta(trx, c, 'C', ctx, codcc, situacao);
-        await this.lancar(trx, ctx, situacao, contadebito, contacredito, valor, d.codhistorico ?? null, `Nota ${nf.tipo === 'E' ? 'de entrada' : 'de saída'} ${nf.nronf ?? codnf}`);
+        const key = `${situacao}|${contadebito}|${contacredito}`;
+        const acc = consolidado.get(key);
+        if (acc) acc.valor = Math.round((acc.valor + valor) * 100) / 100;
+        else consolidado.set(key, { situacao, contadebito, contacredito, valor, codhist: d.codhistorico ?? null });
+      }
+      for (const l of consolidado.values()) {
+        await this.lancar(trx, ctx, l.situacao, l.contadebito, l.contacredito, l.valor, l.codhist, `Nota ${nf.tipo === 'E' ? 'de entrada' : 'de saída'} ${nf.nronf ?? codnf}`);
         linhas++;
-        total += valor;
+        total += l.valor;
       }
 
       // (2) linhas de IMPOSTO PIS/COFINS (situação vem do CFOP; rate legal LR não-cumulativo; base=totalnf,
@@ -150,7 +168,7 @@ export class NfContabilizacaoService {
           .executeTakeFirst();
         const cmv = Math.round(num(cmvAgg?.cmv) * 100) / 100;
         if (cmv > 0) {
-          const situacao = 873; // = CONFIG_INTEGRACAO_CONTABIL.CONFIG_CUSTO_NF_VENDA
+          const situacao = NfContabilizacaoService.CMV_SITUACAO;
           const { d, c } = await this.iicDC(trx, codnf, situacao);
           const cd = await this.resolveConta(trx, d, 'D', ctx, null, situacao);
           const cc = await this.resolveConta(trx, c, 'C', ctx, null, situacao);

@@ -174,6 +174,7 @@ const CODE_PT: Record<string, string> = {
   NF_NAO_PROCESSADA: 'A nota fiscal não está processada.',
   NF_CANCELADA: 'Nota fiscal cancelada não pode ser modificada nem excluída.',
   NF_TEM_FATURAMENTO: 'Estorne o faturamento antes de excluir/editar a nota fiscal.',
+  NF_REFERENCIADA: 'Esta nota fiscal está referenciada por outra nota (devolução/complemento) e não pode ser excluída.',
   NF_ESTOQUE_NEGATIVO:
     'Processamento de Nota Fiscal não permitido, pois com sua emissão o estoque ficará negativo.',
   NF_TOTAL_DIVERGENTE: 'Valor informado no total da NF não confere com o calculado. Verifique!',

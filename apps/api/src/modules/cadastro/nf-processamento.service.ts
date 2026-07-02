@@ -66,7 +66,7 @@ export class NfProcessamentoService {
       const nf = await trx
         .selectFrom('nf')
         .select([
-          'codnf', 'tipo', 'proc', 'cancelada', 'statusnfe', 'contabilizado',
+          'codnf', 'tipo', 'proc', 'cancelada', 'statusnfe', 'contabilizado', 'faturada',
           'totalnf', 'totalicm_st', 'totalfrete', 'totalseguro', 'totalacessorias',
         ])
         .where('codnf', '=', codnf)
@@ -87,6 +87,11 @@ export class NfProcessamentoService {
         // (DENEGADA) liberam: a denegada é fiscalmente inválida e precisa voltar a editável p/ reemissão
         // (uNF.pas:8939 bloqueava 'D' por não haver caminho de estorno; migrado abre-o).
         if (nf.statusnfe && nf.statusnfe !== 'T' && nf.statusnfe !== 'D') throw new BusinessRuleError('NF_ENVIADA', { codnf });
+        // reverter + FATURADA (uNF.pas:9000-9002 `ReverteProcessamento` desfaz o financeiro junto com o
+        // estoque): no legado processar/reverter geram/desfazem o financeiro juntos. No corte-1 o faturar
+        // é ação SEPARADA (F4b) — reverter uma NF faturada aqui deixaria os títulos ARECEBER/APAGAR órfãos.
+        // Espelhamos a INTENÇÃO barrando: o operador estorna o faturamento (endpoint próprio) antes de reverter.
+        if (nf.faturada === 'S') throw new BusinessRuleError('NF_TEM_FATURAMENTO', { codnf });
         // reverter + contabilizada (uNF.pas:8949): se a empresa é AUTOMATICA, ESTORNA o contábil e segue;
         // senão bloqueia (o operador tem de estornar o contábil manualmente antes).
         if (nf.contabilizado === 'S') {

@@ -148,9 +148,15 @@ export const nfAggregateConfig: AggregateConfig = {
       if (dup) throw new BusinessRuleError('NF_DUPLICADA');
     }
   },
-  // Guarda de EXCLUSÃO (btnExcluir do legado): não apagar NF com efeitos — apagar deixaria
-  // estoque movido e títulos órfãos. Exige reverter (F3) / estornar (F4) antes. (Travas de
-  // referência por outras NFs e devoluções emitidas → adiadas, dossiê §10.)
+  // Guarda de EXCLUSÃO (btnExcluir do legado, uNF.pas:4072): não apagar NF com efeitos — apagar deixaria
+  // estoque movido e títulos órfãos. Exige reverter (F3) / estornar (F4) antes.
+  //   • Travas de estado (proc/faturada/contabilizada/enviada/cancelada) — uNF:4080/4085/4109 → abaixo.
+  //   • Referenciada por OUTRA NF (devolução/complemento apontam p/ esta) — uNF:4145 → abaixo (F5b, tabela existe).
+  //   • "Numeração gerada" (uNF:4099: NRONF≠'000000' AND STATUSNFE not null) → já coberto pelas travas de
+  //     statusnfe P/C/D abaixo (própria numerada+transmitida cai nelas; própria numerada SEM status é rascunho
+  //     e pode ser apagada — o MAX+1 da renumeração só abre lacuna, sem quebra de integridade).
+  //   • Devolução de COMPRA emitida (uNF:4176, PEDIDO_DEVOLUCAO_COMPRA_ITENS) → módulo de compras não migrado
+  //     (dossiê §10 "verificar NF com pedido de compra"): re-avaliar quando o módulo entrar.
   validarRemocao: async ({ id, db }) => {
     const emp = currentTenant().empresaId ?? null;
     const nf = (await db
@@ -167,6 +173,17 @@ export const nfAggregateConfig: AggregateConfig = {
     if (nf.contabilizado === 'S') throw new BusinessRuleError('NF_CONTABILIZADA');
     if (nf.cancelada === 'S' || nf.statusnfe === 'C') throw new BusinessRuleError('NF_CANCELADA');
     if (nf.statusnfe === 'P' || nf.statusnfe === 'D') throw new BusinessRuleError('NF_ENVIADA');
+    // referenciada por OUTRA NF via nf_referencia.codnf_ref (uNF.pas:4145: EXISTS NF_REFERENCIA CODNF_REF=:nf
+    // com a nota-origem MODELO<>65). Apagar romperia a cadeia devolução/complemento (ponteiro órfão).
+    const ref = await db
+      .selectFrom('nf_referencia as r')
+      .innerJoin('nf as n', 'n.codnf', 'r.codnf')
+      .select('r.codnfreferencia')
+      .where('r.codnf_ref', '=', id)
+      .where('n.idempresa', '=', emp)
+      .where(sql`coalesce(n.modelo, 0)`, '<>', 65)
+      .executeTakeFirst();
+    if (ref) throw new BusinessRuleError('NF_REFERENCIADA');
   },
   detalhes: [
     {

@@ -1153,6 +1153,30 @@ async function main() {
     const delOk = await fetch(`${base}/fiscal/nf/${nfDelOk}`, { method: 'DELETE', headers: H });
     check('DELETE NF limpa (proc=N/faturada=N) → 204 (exclusão normal preservada)', delOk.status === 204, delOk.status);
 
+    // 21.7) REVERTER bloqueado em NF FATURADA (cert 2026-07-02): no legado `ReverteProcessamento`
+    // (uNF:9000-9002) desfaz o financeiro junto com o estoque; no corte-1 faturar é ação SEPARADA, então
+    // barramos para não deixar título ARECEBER/APAGAR órfão. Estornar o faturamento LIBERA o reverter.
+    const nfRevFat = await novaNf(baseNf({ tipo: 'S', nronf: 'R7007', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    await fetch(`${base}/fiscal/nf/${nfRevFat}/processar`, { method: 'POST', headers: H });
+    await fetch(`${base}/fiscal/nf/${nfRevFat}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const revFat = await fetch(`${base}/fiscal/nf/${nfRevFat}/reverter`, { method: 'POST', headers: H });
+    const revFatB = (await revFat.json().catch(() => ({}))) as any;
+    check('reverter NF FATURADA → 422 NF_TEM_FATURAMENTO (sem título órfão)', revFat.status === 422 && revFatB.code === 'NF_TEM_FATURAMENTO', { status: revFat.status, code: revFatB.code });
+    await fetch(`${base}/fiscal/nf/${nfRevFat}/estornar-faturamento`, { method: 'POST', headers: H });
+    const revFat2 = await fetch(`${base}/fiscal/nf/${nfRevFat}/reverter`, { method: 'POST', headers: H });
+    check('após estornar-faturamento, reverter é liberado (200)', revFat2.status === 200, revFat2.status);
+
+    // 21.8) DELETE bloqueado em NF REFERENCIADA por outra (cert 2026-07-02, uNF:4145): a nota-origem de uma
+    // devolução/complemento aponta p/ esta via nf_referencia.codnf_ref — apagar romperia a cadeia (órfão).
+    const nfRefAlvo = await novaNf(baseNf({ tipo: 'S', nronf: 'R7008', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfRefOrigem = await novaNf(baseNf({ tipo: 'S', nronf: 'R7009', cfop: '5102', codparceiro: 20, referencias: [{ codnf_ref: nfRefAlvo }], itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const delRef = await fetch(`${base}/fiscal/nf/${nfRefAlvo}`, { method: 'DELETE', headers: H });
+    const delRefB = (await delRef.json().catch(() => ({}))) as any;
+    check('DELETE NF referenciada por outra → 422 NF_REFERENCIADA (cadeia devolução/complemento)', delRef.status === 422 && delRefB.code === 'NF_REFERENCIADA', { status: delRef.status, code: delRefB.code });
+    const delOrigem = await fetch(`${base}/fiscal/nf/${nfRefOrigem}`, { method: 'DELETE', headers: H });
+    const delAlvo = await fetch(`${base}/fiscal/nf/${nfRefAlvo}`, { method: 'DELETE', headers: H });
+    check('removida a origem, DELETE do alvo referenciado é liberado (204)', delOrigem.status === 204 && delAlvo.status === 204, { origem: delOrigem.status, alvo: delAlvo.status });
+
     // 22) NF F5 — CONTÁBIL (rateio CODCONTABILNF por centro de custo). Config armazenada, SEM efeito.
     const itemS100 = { codproduto: 1, quantidade: 10, vrvenda: 10, cfop: '5102', aliquota: 'T01' }; // totalnf=100
     // 22.1) lookup PLC + criar NF saída com rateio que SOMA o total → 201 e GET traz 2 linhas.
@@ -1523,6 +1547,16 @@ async function main() {
     const estCon = await fetch(`${base}/fiscal/nf/${nfCon}/estornar-contabilizacao`, { method: 'POST', headers: H });
     const flagE = (await pgCon.query(`SELECT contabilizado FROM nf WHERE codnf=$1`, [nfCon])).rows[0]?.contabilizado;
     check('F5b: estornar-contabilizacao deleta o DIÁRIO + reabre (contabilizado null)', estCon.status === 200 && (await diarioDe(nfCon)).length === 0 && flagE == null, { status: estCon.status, linhas: (await diarioDe(nfCon)).length, flag: flagE });
+    // 29a2) CONSOLIDAÇÃO por situação (cert 2026-07-02): rateio com 2 centros de custo DIFERENTES na MESMA
+    // situação 'F' (6 → D148/C11141) gera UMA linha no DIÁRIO com valor=Σ — fiel ao golden (CODNF 72296/
+    // 84938/80589: N centros de custo → 1 linha consolidada, codcc nulo). Antes do fix eram 2 linhas
+    // idênticas (fragmentação). O CODCC só quebraria a linha se o débito fosse automático 'A' por CC.
+    const nfCons = await novaNf(baseNf({ tipo: 'E', nronf: 'E9100', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));
+    await fetch(`${base}/fiscal/nf/${nfCons}/processar`, { method: 'POST', headers: H }); // proc=S (rateio entra depois → auto-disparo pula)
+    await pgCon.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,6,1,60),($1,6,2,40)`, [nfCons]); // 2 CC DIFERENTES, Σ situação 6 = 100
+    const conCons = await fetch(`${base}/fiscal/nf/${nfCons}/contabilizar`, { method: 'POST', headers: H });
+    const principais = ((await diarioDe(nfCons)) as any[]).filter((l) => Number(l.contadebito) === 148 && Number(l.contacredito) === 11141);
+    check('F5b-cert: rateio multi-CC na MESMA situação F → 1 linha consolidada (valor Σ=100), sem fragmentar', conCons.status === 200 && principais.length === 1 && Number(principais[0].valor) === 100, { status: conCons.status, principais });
     // guarda: NF processada SEM rateio → 422 NF_SEM_RATEIO_CONTABIL.
     const nfSR = await novaNf(baseNf({ tipo: 'E', nronf: 'E9002', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));
     await fetch(`${base}/fiscal/nf/${nfSR}/processar`, { method: 'POST', headers: H });
