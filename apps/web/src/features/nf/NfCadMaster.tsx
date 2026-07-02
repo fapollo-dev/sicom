@@ -21,6 +21,7 @@ import { CurrencyField } from '../../shared/ui/CurrencyField';
 import { DateField } from '../../shared/ui/DateField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { Button } from '../../shared/ui/Button';
+import { Tabs, TabPanel, type TabDef } from '../../shared/ui/Tabs';
 import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
 import { useMensagem } from '../../shared/mensagem';
 import { NfItemModal } from './NfItemModal';
@@ -47,18 +48,28 @@ const fmtBRL = (n: number) =>
 const toStr = (opts: ReadonlyArray<{ value: number; label: string }>): Opcao[] =>
   opts.map((o) => ({ value: String(o.value), label: o.label }));
 
+type LookupOptions = {
+  parceiroOptions: Opcao[];
+  transpOptions: Opcao[];
+  cfopOptions: Opcao[];
+  situacaoOptions: Opcao[];
+  plcOptions: Opcao[];
+  aliquotaOptions: Opcao[];
+  unidadeOptions: Opcao[];
+  produtoOptions: Opcao[];
+  modeloOptions: Opcao[];
+};
+
 /**
- * NOTA FISCAL (tela-coroa) — Fase 1: NÚCLEO CADASTRO, SEM EFEITOS. Construída sobre o pilar
- * <CadMaster> + o engine agregado (master NF + detalhes NF_PROD/itens e NF_REFERENCIA numa só
- * gravação). A tela ARMAZENA o documento (cabeçalho + itens + config fiscal + status inicial).
+ * NOTA FISCAL (tela-coroa) — UI fiel ao LEGADO (`TfrmNF`): banda de cabeçalho + barra de abas em
+ * folder (Cálculo de impostos / Itens / Financeiro / NF's Referência / Dados Gerais / Transporte /
+ * Lançamentos contábeis + abas de fase futura) e barra de ações NF-e no rodapé — POSIÇÕES do legado,
+ * VISUAL do design system (tokens Apollo). Construída sobre o `<CadMaster>` (largo) + o engine agregado.
  *
- * **NÃO dispara efeito** (estoque/financeiro/contábil/SEFAZ) — isso é F3..F6. A NF nasce com
- * PROC='N' e STATUSNFE vazio; as TRAVAS de edição (PROC='S'/CONTABILIZADO='S'/STATUSNFE
- * enviado) são reforçadas no servidor (422 PT) e refletidas aqui (campos desabilitados).
- *
- * Parametrizada por `tipo` ('E'/'S'): /fiscal/notas/entrada e /saida são ESTE componente com
- * props diferentes — muda o título, o papel do parceiro (FRN/CLI), os modelos e o filtro da
- * Pesquisa (campo=tipo&igual&valor=E|S). Erros de negócio sobem como envelope PT (useMensagem).
+ * Wiring por fase: Cadastro/Itens/Cálculo (F1/F2), Financeiro (F4), Contábil (F5), NFe/SEFAZ (F6).
+ * As abas presentes-mas-inertes (Pedidos/Serviço/Importação/Devoluções/NFe Avulsa/NF devolução/Acesso
+ * XML/Carta Correção como aba) reproduzem o strip do legado; o conteúdo entra em fases futuras (dossiê §10).
+ * As TRAVAS de estado (proc/faturada/contabilizado/enviada) desabilitam os campos (o servidor reforça 422).
  */
 export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
   const flag = PAPEL_FLAG[tipo];
@@ -100,6 +111,10 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
   }));
 
   const modeloOptions = tipo === 'E' ? toStr(NF_MODELO_OPCOES_ENTRADA) : toStr(NF_MODELO_OPCOES_SAIDA);
+  const opts: LookupOptions = {
+    parceiroOptions, transpOptions, cfopOptions, situacaoOptions,
+    plcOptions, aliquotaOptions, unidadeOptions, produtoOptions, modeloOptions,
+  };
 
   const defaultValues = useMemo<Partial<CriarNfDto>>(
     () => ({
@@ -129,6 +144,7 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
       pk="codnf"
       schema={nfSchema}
       defaultValues={defaultValues}
+      largura="6xl"
       filtroPesquisa={{ campo: 'tipo', operador: 'igual', valor: tipo }}
       colunasPesquisa={[
         { campo: 'codnf', label: 'Código', tipo: 'text', largura: 100 },
@@ -139,380 +155,154 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
         { campo: 'statusnfe', label: 'Status', tipo: 'text', largura: 100 },
         { campo: 'totalnf', label: 'Total', tipo: 'text', largura: 130 },
       ]}
-      campos={({ form, editavel }) => {
-        // TRAVA de estado (espelha dsNFStateChange + bloqueios do btnEditar do legado):
-        // NF processada / contabilizada / enviada à SEFAZ não é editável (servidor reforça 422).
-        const proc = form.watch('proc');
-        const statusnfe = form.watch('statusnfe');
-        const contabilizado = form.watch('contabilizado');
-        const cancelada = form.watch('cancelada');
-        const faturada = form.watch('faturada');
-        const travado =
-          proc === 'S' || contabilizado === 'S' || faturada === 'S' ||
-          cancelada === 'S' || statusnfe === 'P' || statusnfe === 'D' || statusnfe === 'C';
-        const liberado = editavel && !travado;
-        return (
-          <div className="flex flex-col gap-form-gap">
-            {/* F3 — processar/reverter (move estoque). Fora do gate `liberado` (age na nota travada). */}
-            <ProcessamentoSection form={form} />
-            {/* F4 — faturar/estornar (gera títulos ARECEBER/APAGAR). Também fora do gate `liberado`. */}
-            <FaturamentoSection form={form} tipo={tipo} />
-            {/* F6 — NFe/SEFAZ (mod.55): transmitir/cancelar/CCe. Fora do gate `liberado` (age na nota travada). */}
-            <NfeSefazSection form={form} />
-            {travado && (
-              <div className="rounded-radius-base border border-border bg-bg-subtle p-pad-sm text-fg-muted">
-                Nota{' '}
-                {proc === 'S'
-                  ? 'processada'
-                  : faturada === 'S'
-                    ? 'faturada'
-                    : cancelada === 'S' || statusnfe === 'C'
-                      ? 'cancelada'
-                      : contabilizado === 'S'
-                        ? 'contabilizada'
-                        : 'enviada à Receita'}{' '}
-                — edição bloqueada.
-              </div>
-            )}
-            <CabecalhoSection
-              form={form}
-              editavel={liberado}
-              tipo={tipo}
-              modeloOptions={modeloOptions}
-              parceiroOptions={parceiroOptions}
-              cfopOptions={cfopOptions}
-              situacaoOptions={situacaoOptions}
-            />
-            <ItensSection
-              form={form}
-              editavel={liberado}
-              produtoOptions={produtoOptions}
-              cfopOptions={cfopOptions}
-              aliquotaOptions={aliquotaOptions}
-              unidadeOptions={unidadeOptions}
-            />
-            <TransporteSection form={form} editavel={liberado} transpOptions={transpOptions} />
-            <ContabilSection form={form} editavel={liberado} situacaoOptions={situacaoOptions} plcOptions={plcOptions} />
-            <ReferenciasSection form={form} editavel={liberado} />
-            <ObsSection form={form} editavel={liberado} />
-          </div>
-        );
-      }}
+      campos={({ form, editavel }) => <NfForm form={form} editavel={editavel} tipo={tipo} opts={opts} />}
     />
   );
 }
 
-// ───────────────────────────── Processamento (F3) ─────────────────────────────
+// ═══════════════════════════════ Formulário tabulado (layout do legado) ═══════════════════════════════
 
-/**
- * Ações de PROCESSAMENTO (F3): movem o estoque (entrada soma / saída baixa) e travam a nota.
- * Só aparece em nota SALVA (codnf). "Processar" quando proc='N'; "Reverter" quando proc='S' e
- * a nota não foi enviada à SEFAZ (statusnfe P/D bloqueia — o back também rejeita). PURO na UI:
- * o efeito é server-side/atômico; aqui só refletimos o novo estado (proc) p/ a tela travar.
- */
-function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
-  const mensagem = useMensagem();
-  const [executando, setExecutando] = useState(false);
-  const proc = form.watch('proc');
-  const statusnfe = form.watch('statusnfe');
-  const codnf = (form.getValues() as { codnf?: number }).codnf;
-  if (codnf == null) return null; // só em nota já gravada
+const DEFERRED_TABS = new Set(['pedidos', 'servico', 'cce', 'impexp', 'devcompra', 'avulsa', 'nfdev', 'xml']);
 
-  const enviada = statusnfe === 'P' || statusnfe === 'D';
-
-  const processar = async () => {
-    if (executando) return;
-    setExecutando(true);
-    try {
-      await processarNf(codnf);
-      form.setValue('proc', 'S');
-      mensagem.sucesso('Nota processada: estoque movimentado.');
-    } catch (e) {
-      mensagem.erro(e);
-    } finally {
-      setExecutando(false);
-    }
-  };
-
-  const reverter = async () => {
-    if (executando) return;
-    if (!window.confirm('Ao reverter o processamento, o estoque será revertido. Confirma a operação?')) return;
-    setExecutando(true);
-    try {
-      await reverterNf(codnf);
-      form.setValue('proc', 'N');
-      mensagem.sucesso('Processamento revertido: estoque estornado.');
-    } catch (e) {
-      mensagem.erro(e);
-    } finally {
-      setExecutando(false);
-    }
-  };
-
-  return (
-    <fieldset className="rounded-radius-md border border-border p-pad-md">
-      <legend className="px-pad-xs text-fg-muted">Processamento</legend>
-      <div className="flex flex-wrap items-center gap-gp-sm">
-        {proc !== 'S' && (
-          <Button label="&Processar nota" variant="soft" onClick={() => void processar()} />
-        )}
-        {proc === 'S' && !enviada && (
-          <Button label="&Reverter processamento" variant="soft" onClick={() => void reverter()} />
-        )}
-        <small className="text-fg-muted">
-          {proc === 'S' ? 'Nota processada (estoque movimentado).' : 'Nota não processada.'}
-          {enviada ? ' Enviada à SEFAZ — reversão bloqueada.' : ''}
-        </small>
-      </div>
-    </fieldset>
-  );
-}
-
-// ───────────────────────────── Faturamento (F4) ─────────────────────────────
-
-/**
- * Ações de FATURAMENTO (F4): geram títulos financeiros (ARECEBER saída / APAGAR entrada) por
- * IDNF. Só em nota SALVA (codnf). "Faturar" quando faturada!='S' (com nº parcelas / 1º
- * vencimento / intervalo); "Estornar faturamento" quando faturada='S' (bloqueado no back se
- * houver título quitado). Os títulos aparecem no picker do Lote de Cobrança.
- */
-function FaturamentoSection({ form, tipo }: { form: UseFormReturn<CriarNfDto>; tipo: NfTipo }) {
-  const mensagem = useMensagem();
-  const [executando, setExecutando] = useState(false);
-  const [numParcelas, setNumParcelas] = useState<number | undefined>(1);
-  const [primeiroVencimento, setPrimeiroVencimento] = useState<string | undefined>(hojeISO());
-  const [intervaloDias, setIntervaloDias] = useState<number | undefined>(30);
-  const faturada = form.watch('faturada');
-  const codnf = (form.getValues() as { codnf?: number }).codnf;
-  if (codnf == null) return null;
-
-  const modalidade = tipo === 'E' ? 'A Pagar' : 'A Receber';
-
-  const faturar = async () => {
-    if (executando) return;
-    setExecutando(true);
-    try {
-      const r = await faturarNf(codnf, {
-        numParcelas: Number(numParcelas) || 1,
-        primeiroVencimento: primeiroVencimento ?? hojeISO(),
-        intervaloDias: Number(intervaloDias) || 0,
-      });
-      form.setValue('faturada', 'S');
-      mensagem.sucesso(`Faturamento gerado: ${r.parcelas} parcela(s) em ${modalidade}.`);
-    } catch (e) {
-      mensagem.erro(e);
-    } finally {
-      setExecutando(false);
-    }
-  };
-
-  const estornar = async () => {
-    if (executando) return;
-    if (!window.confirm('Remover o faturamento desta nota? Os títulos financeiros serão excluídos.')) return;
-    setExecutando(true);
-    try {
-      await estornarFaturamentoNf(codnf);
-      form.setValue('faturada', 'N');
-      mensagem.sucesso('Faturamento estornado: títulos removidos.');
-    } catch (e) {
-      mensagem.erro(e);
-    } finally {
-      setExecutando(false);
-    }
-  };
-
-  return (
-    <fieldset className="rounded-radius-md border border-border p-pad-md">
-      <legend className="px-pad-xs text-fg-muted">Faturamento ({modalidade})</legend>
-      {faturada === 'S' ? (
-        <div className="flex flex-wrap items-center gap-gp-sm">
-          <Button label="&Estornar faturamento" variant="soft" onClick={() => void estornar()} />
-          <small className="text-fg-muted">Financeiro gerado (títulos em {modalidade}).</small>
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="w-32">
-            <NumberField label="Nº &parcelas" value={numParcelas} onChange={setNumParcelas} decimais={0} min={1} />
-          </div>
-          <div className="w-44">
-            <DateField label="1º &vencimento" value={primeiroVencimento} onChange={setPrimeiroVencimento} />
-          </div>
-          <div className="w-36">
-            <NumberField label="&Intervalo (dias)" value={intervaloDias} onChange={setIntervaloDias} decimais={0} min={0} />
-          </div>
-          <Button label="&Faturar" variant="soft" onClick={() => void faturar()} />
-        </div>
-      )}
-    </fieldset>
-  );
-}
-
-// ───────────────────────────── NFe / SEFAZ (F6) ─────────────────────────────
-
-/**
- * Ações de NFe (F6 — mod.55) atrás da porta SEFAZ. Só em nota SALVA (codnf) e modelo 55.
- * "Transmitir" quando statusnfe vazio; "Cancelar"/"CCe" quando autorizada (statusnfe='P').
- * O cancelamento NÃO reverte estoque/financeiro (fiel ao legado). No corte 1 o backend usa o
- * SIMULADOR de homologação — o aviso deixa isso explícito. PURO na UI: o efeito é server-side;
- * aqui só refletimos chave/status p/ a tela.
- */
-function NfeSefazSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
-  const mensagem = useMensagem();
-  const [executando, setExecutando] = useState(false);
-  const [modo, setModo] = useState<'cancelar' | 'cce' | null>(null);
-  const [texto, setTexto] = useState('');
-  const statusnfe = form.watch('statusnfe');
-  const modelo = Number(form.watch('modelo'));
-  const chavenfe = form.watch('chavenfe') as string | undefined;
-  const codnf = (form.getValues() as { codnf?: number }).codnf;
-  if (codnf == null || modelo !== 55) return null; // só NFe (mod.55) já gravada
-
-  const naoEnviada = !statusnfe; // '' / null
-  const autorizada = statusnfe === 'P';
-  const denegada = statusnfe === 'D';
-  const cancelada = statusnfe === 'C';
-
-  const transmitir = async () => {
-    if (executando) return;
-    setExecutando(true);
-    try {
-      const r = await transmitirNf(codnf);
-      form.setValue('chavenfe', r.chave);
-      form.setValue('statusnfe', r.statusnfe);
-      form.setValue('confirmada', r.statusnfe === 'P' ? 'S' : 'N');
-      mensagem.sucesso(
-        `NFe ${r.statusnfe === 'P' ? 'autorizada' : 'denegada'}: ${r.chave}${r.simulado ? ' (SIMULADO — homologação)' : ''}.`,
-      );
-    } catch (e) {
-      mensagem.erro(e);
-    } finally {
-      setExecutando(false);
-    }
-  };
-
-  const confirmarEvento = async () => {
-    if (executando || modo == null) return;
-    if (texto.trim().length < 15) return; // o contador inline orienta; o back também valida (≥15)
-    setExecutando(true);
-    try {
-      if (modo === 'cancelar') {
-        await cancelarNf(codnf, { xjust: texto });
-        form.setValue('statusnfe', 'C');
-        form.setValue('cancelada', 'S');
-        form.setValue('xjust', texto);
-        mensagem.sucesso('NFe cancelada.');
-      } else {
-        const r = await cceNf(codnf, { correcao: texto });
-        mensagem.sucesso(`Carta de correção registrada (sequência ${r.seq}).`);
-      }
-      setModo(null);
-      setTexto('');
-    } catch (e) {
-      mensagem.erro(e);
-    } finally {
-      setExecutando(false);
-    }
-  };
-
-  const badge =
-    naoEnviada ? 'Não enviada'
-    : autorizada ? 'Autorizada'
-    : cancelada ? 'Cancelada'
-    : denegada ? 'Denegada'
-    : statusnfe;
-
-  return (
-    <fieldset className="rounded-radius-md border border-border p-pad-md">
-      <legend className="px-pad-xs text-fg-muted">NFe / SEFAZ</legend>
-      <div className="flex flex-col gap-gp-sm">
-        <div className="flex flex-wrap items-center gap-gp-sm">
-          <span className="rounded-radius-base bg-bg-subtle px-pad-sm py-pad-xs text-fg-muted">{badge}</span>
-          {chavenfe && (
-            <>
-              <code className="font-mono text-sm text-fg-default">{chavenfe}</code>
-              <button
-                type="button"
-                className="text-sm text-fg-link"
-                onClick={() => void navigator.clipboard?.writeText(chavenfe)}
-              >
-                Copiar
-              </button>
-            </>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-gp-sm">
-          {naoEnviada && <Button label="&Transmitir NFe" variant="soft" onClick={() => void transmitir()} />}
-          {autorizada && (
-            <>
-              <Button label="&Cancelar NFe" variant="soft" onClick={() => { setModo('cancelar'); setTexto(''); }} />
-              <Button label="Carta de &correção" variant="soft" onClick={() => { setModo('cce'); setTexto(''); }} />
-            </>
-          )}
-          {denegada && <small className="text-fg-danger">NFe denegada pela SEFAZ — emita uma nova nota.</small>}
-          {cancelada && <small className="text-fg-muted">NFe cancelada.</small>}
-        </div>
-
-        {modo != null && (
-          <div className="flex flex-col gap-gp-xs rounded-radius-base border border-border p-pad-sm">
-            <TextArea
-              label={modo === 'cancelar' ? 'Justificativa do cancelamento (mín. 15)' : 'Texto da correção (mín. 15)'}
-              value={texto}
-              onChange={(e) => setTexto(e.target.value)}
-              rows={3}
-            />
-            <div className="flex items-center gap-gp-sm">
-              <Button
-                label={modo === 'cancelar' ? '&Confirmar cancelamento' : '&Enviar correção'}
-                variant="soft"
-                onClick={() => void confirmarEvento()}
-              />
-              <Button label="Cancelar" variant="ghost" onClick={() => { setModo(null); setTexto(''); }} />
-              <small className="text-fg-muted">{texto.trim().length}/15+ caracteres</small>
-            </div>
-          </div>
-        )}
-
-        <small className="text-fg-muted">
-          Transmissão atrás da porta SEFAZ — no momento via simulador de homologação (nenhuma NFe é
-          autorizada na Receita). O cancelamento não reverte estoque nem financeiro.
-        </small>
-      </div>
-    </fieldset>
-  );
-}
-
-// ───────────────────────────── Cabeçalho ─────────────────────────────
-
-function CabecalhoSection({
+function NfForm({
   form,
   editavel,
   tipo,
-  modeloOptions,
-  parceiroOptions,
-  cfopOptions,
-  situacaoOptions,
+  opts,
 }: {
   form: UseFormReturn<CriarNfDto>;
   editavel: boolean;
   tipo: NfTipo;
-  modeloOptions: Opcao[];
-  parceiroOptions: Opcao[];
-  cfopOptions: Opcao[];
-  situacaoOptions: Opcao[];
+  opts: LookupOptions;
+}) {
+  // aba ativa (o legado abre em "Cálculo de impostos"; começamos em Itens, que é onde se digita)
+  const [aba, setAba] = useState('itens');
+
+  // TRAVA de estado (espelha dsNFStateChange + bloqueios do btnEditar do legado):
+  const proc = form.watch('proc');
+  const statusnfe = form.watch('statusnfe');
+  const contabilizado = form.watch('contabilizado');
+  const cancelada = form.watch('cancelada');
+  const faturada = form.watch('faturada');
+  const travado =
+    proc === 'S' || contabilizado === 'S' || faturada === 'S' ||
+    cancelada === 'S' || statusnfe === 'P' || statusnfe === 'D' || statusnfe === 'C';
+  const liberado = editavel && !travado;
+
+  // strip de abas do legado (2 linhas → flex-wrap). Abas de fase futura entram como `disabled`.
+  const mainTabs: TabDef[] = [
+    { id: 'calc', label: 'Cálculo de impostos' },
+    { id: 'itens', label: 'Itens da nota' },
+    { id: 'fin', label: 'Financeiro' },
+    { id: 'ref', label: "NF's Referência" },
+    { id: 'dados', label: 'Dados Gerais / Obs' },
+    { id: 'transp', label: 'Transporte' },
+    { id: 'contabil', label: 'Lançamentos contábeis' },
+    { id: 'pedidos', label: 'Pedidos', disabled: true },
+    { id: 'servico', label: 'Serviço', disabled: true },
+    { id: 'cce', label: 'Carta Correção', disabled: true },
+    { id: 'impexp', label: 'Importação/Exportação', disabled: true },
+    { id: 'devcompra', label: 'Devoluções da Compra', disabled: true },
+    { id: 'avulsa', label: 'NFe Avulsa', disabled: true },
+    { id: 'nfdev', label: 'NF de devolução', disabled: true },
+    { id: 'xml', label: 'Acesso ao XML', disabled: true },
+  ];
+
+  return (
+    <div className="flex flex-col gap-form-gap">
+      {travado && (
+        <div className="rounded-radius-base border border-border bg-bg-subtle p-pad-sm text-fg-muted">
+          Nota{' '}
+          {proc === 'S'
+            ? 'processada'
+            : faturada === 'S'
+              ? 'faturada'
+              : cancelada === 'S' || statusnfe === 'C'
+                ? 'cancelada'
+                : contabilizado === 'S'
+                  ? 'contabilizada'
+                  : 'enviada à Receita'}{' '}
+          — edição bloqueada.
+        </div>
+      )}
+
+      {/* BANDA DE CABEÇALHO (posições do legado: Tipo/Modelo/Nº/Série/Emissão/… + Destinatário + Total NF) */}
+      <CabecalhoBand form={form} editavel={liberado} tipo={tipo} opts={opts} />
+
+      {/* BARRA DE ABAS + CONTEÚDO (folder tabs do legado) */}
+      <div>
+        <Tabs tabs={mainTabs} active={aba} onChange={setAba} />
+        <TabPanel>
+          {aba === 'calc' && <CalcTab form={form} liberado={liberado} />}
+          {aba === 'itens' && <ItensSection form={form} editavel={liberado} opts={opts} />}
+          {aba === 'fin' && <FinTab form={form} liberado={liberado} tipo={tipo} />}
+          {aba === 'ref' && <ReferenciasSection form={form} editavel={liberado} />}
+          {aba === 'dados' && <DadosGeraisTab form={form} editavel={liberado} />}
+          {aba === 'transp' && <TransporteSection form={form} editavel={liberado} transpOptions={opts.transpOptions} />}
+          {aba === 'contabil' && (
+            <ContabilSection form={form} editavel={liberado} situacaoOptions={opts.situacaoOptions} plcOptions={opts.plcOptions} />
+          )}
+          {DEFERRED_TABS.has(aba) && <PlaceholderTab nome={mainTabs.find((t) => t.id === aba)?.label ?? ''} />}
+        </TabPanel>
+      </div>
+
+      {/* BARRA DE AÇÕES NF-e (rodapé do legado): Processar/Reverter (F3) + NFe/SEFAZ (F6) + strip inerte. */}
+      <AcoesNfeBar form={form} />
+    </div>
+  );
+}
+
+/** aba presente no legado, conteúdo de fase futura (dossiê §10). Mantém a fidelidade do strip. */
+function PlaceholderTab({ nome }: { nome: string }) {
+  return (
+    <div className="flex min-h-24 flex-col items-center justify-center gap-gp-xs text-center text-fg-muted">
+      <span className="text-body-sm font-semibold text-fg-default">{nome}</span>
+      <small>Aba do legado — conteúdo previsto para fase futura (ver dossiê §10).</small>
+    </div>
+  );
+}
+
+// ───────────────────────────── Banda de cabeçalho ─────────────────────────────
+
+function CabecalhoBand({
+  form,
+  editavel,
+  tipo,
+  opts,
+}: {
+  form: UseFormReturn<CriarNfDto>;
+  editavel: boolean;
+  tipo: NfTipo;
+  opts: LookupOptions;
 }) {
   const err = form.formState.errors;
+  const totalnf = Number(form.watch('totalnf')) || 0;
+  const chavenfe = form.watch('chavenfe') as string | undefined;
+  const tipoLabel = tipo === 'E' ? 'Entrada' : 'Saída';
+
   return (
-    <fieldset disabled={!editavel} className="rounded-radius-md border border-border p-pad-md">
-      <legend className="px-pad-xs text-fg-muted">Cabeçalho</legend>
-      <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2 lg:grid-cols-3">
+    <fieldset disabled={!editavel} className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
+      <div className="mb-form-gap flex items-center gap-gp-sm">
+        <span className="rounded-radius-base bg-bg-subtle px-pad-sm py-pad-xs text-body-sm font-semibold text-fg-default">
+          {tipoLabel}
+        </span>
+        <span className="text-fg-muted">·</span>
+        <span className="text-body-sm text-fg-muted">Cabeçalho da nota</span>
+        <span className="ml-auto text-body-sm text-fg-muted">Total da nota</span>
+        <span className="rounded-radius-base bg-bg-subtle px-pad-sm py-pad-xs text-body-sm font-semibold text-fg-default tabular-nums">
+          R$ {fmtBRL(totalnf)}
+        </span>
+      </div>
+
+      {/* linha 1: Modelo / Nº / Série / Emissão / Data contábil / Tipo de emissão */}
+      <div className="grid grid-cols-2 gap-form-gap sm:grid-cols-3 lg:grid-cols-6">
         <Controller
           control={form.control}
           name="modelo"
           render={({ field }) => (
             <SelectField
               label="&Modelo"
-              options={modeloOptions}
+              options={opts.modeloOptions}
               value={field.value != null ? String(field.value) : undefined}
               onChange={(v) => field.onChange(v ? Number(v) : undefined)}
               placeholder="Selecione…"
@@ -565,43 +355,17 @@ function CabecalhoSection({
             />
           )}
         />
-        <Controller
-          control={form.control}
-          name="finalidade"
-          render={({ field }) => (
-            <SelectField
-              label="&Finalidade"
-              options={NF_FINALIDADE_OPCOES as unknown as Opcao[]}
-              value={field.value ?? undefined}
-              onChange={(v) => field.onChange(v || undefined)}
-              placeholder="Selecione…"
-              error={err.finalidade?.message as string | undefined}
-            />
-          )}
-        />
-        <div className="sm:col-span-2">
-          <Controller
-            control={form.control}
-            name="codparceiro"
-            render={({ field }) => (
-              <SelectField
-                label={`&${PARCEIRO_LABEL[tipo]}`}
-                options={parceiroOptions}
-                value={field.value != null ? String(field.value) : undefined}
-                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
-                placeholder={`Selecione o ${PARCEIRO_LABEL[tipo].toLowerCase()}…`}
-                error={err.codparceiro?.message as string | undefined}
-              />
-            )}
-          />
-        </div>
+      </div>
+
+      {/* linha 2: CFOP / Situação / Finalidade */}
+      <div className="mt-form-gap grid grid-cols-1 gap-form-gap sm:grid-cols-3">
         <Controller
           control={form.control}
           name="cfop"
           render={({ field }) => (
             <SelectField
               label="C&FOP"
-              options={cfopOptions}
+              options={opts.cfopOptions}
               value={field.value ?? undefined}
               onChange={(v) => field.onChange(v || undefined)}
               placeholder="Selecione o CFOP…"
@@ -615,7 +379,7 @@ function CabecalhoSection({
           render={({ field }) => (
             <SelectField
               label="&Situação (natureza)"
-              options={situacaoOptions}
+              options={opts.situacaoOptions}
               value={field.value != null ? String(field.value) : undefined}
               onChange={(v) => field.onChange(v ? Number(v) : undefined)}
               placeholder="Selecione a situação…"
@@ -623,8 +387,438 @@ function CabecalhoSection({
             />
           )}
         />
+        <Controller
+          control={form.control}
+          name="finalidade"
+          render={({ field }) => (
+            <SelectField
+              label="&Finalidade da nota"
+              options={NF_FINALIDADE_OPCOES as unknown as Opcao[]}
+              value={field.value ?? undefined}
+              onChange={(v) => field.onChange(v || undefined)}
+              placeholder="Selecione…"
+              error={err.finalidade?.message as string | undefined}
+            />
+          )}
+        />
+      </div>
+
+      {/* linha 3: Destinatário / Remetente (parceiro, largo) */}
+      <div className="mt-form-gap">
+        <Controller
+          control={form.control}
+          name="codparceiro"
+          render={({ field }) => (
+            <SelectField
+              label={`&${PARCEIRO_LABEL[tipo]} (destinatário / remetente)`}
+              options={opts.parceiroOptions}
+              value={field.value != null ? String(field.value) : undefined}
+              onChange={(v) => field.onChange(v ? Number(v) : undefined)}
+              placeholder={`Selecione o ${PARCEIRO_LABEL[tipo].toLowerCase()}…`}
+              error={err.codparceiro?.message as string | undefined}
+            />
+          )}
+        />
+      </div>
+
+      {chavenfe && (
+        <div className="mt-form-gap flex flex-wrap items-center gap-gp-sm">
+          <span className="text-body-sm text-fg-muted">Chave NFe</span>
+          <code className="font-mono text-sm text-fg-default">{chavenfe}</code>
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
+// ───────────────────────────── Aba: Cálculo de impostos (totais read-only + sub-abas) ─────────────────────────────
+
+function Ro({ label, value }: { label: string; value: number }) {
+  return (
+    <label className="flex flex-col gap-gp-xs">
+      <span className="text-body-sm text-fg-muted">{label}</span>
+      <span className="rounded-radius-base border border-border bg-bg-subtle px-pad-sm py-pad-xs text-right tabular-nums text-fg-default">
+        {fmtBRL(value)}
+      </span>
+    </label>
+  );
+}
+
+function CalcTab({ form, liberado }: { form: UseFormReturn<CriarNfDto>; liberado: boolean }) {
+  const [sub, setSub] = useState('internos');
+  const w = (n: keyof CriarNfDto) => Number(form.watch(n as any)) || 0;
+  const subTabs: TabDef[] = [
+    { id: 'internos', label: 'Impostos Internos' },
+    { id: 'stext', label: 'ICMS ST Externo', disabled: true },
+    { id: 'inter', label: 'ICMS Interestadual', disabled: true },
+    { id: 'ret', label: 'Retenções' },
+    { id: 'tribdev', label: 'Tributos devolvidos', disabled: true },
+  ];
+  return (
+    <div className="flex flex-col gap-form-gap">
+      <Tabs tabs={subTabs} active={sub} onChange={setSub} variant="sub" />
+      {sub === 'internos' && (
+        <>
+          <div className="grid grid-cols-2 gap-form-gap sm:grid-cols-3 lg:grid-cols-4">
+            <Ro label="Base ICMS" value={w('totalbaseicm')} />
+            <Ro label="Valor ICMS" value={w('totalicm')} />
+            <Ro label="ICMS Substituição" value={w('totalicm_st')} />
+            <Ro label="Total dos produtos" value={w('totalprod')} />
+            <Ro label="Descontos" value={w('totaldesc')} />
+            <Ro label="Frete" value={w('totalfrete')} />
+            <Ro label="Seguro" value={w('totalseguro')} />
+            <Ro label="Acessórias" value={w('totalacessorias')} />
+            <Ro label="IPI" value={w('totalipi')} />
+            <Ro label="Isento" value={w('totalisento')} />
+            <Ro label="Total da nota" value={w('totalnf')} />
+          </div>
+          <small className="text-fg-muted">
+            Valores calculados a partir dos itens (aba «Itens da nota» → «Recalcular impostos»). Somente leitura.
+          </small>
+        </>
+      )}
+      {sub === 'ret' && (
+        <>
+          <div className="grid grid-cols-2 gap-form-gap sm:grid-cols-3 lg:grid-cols-4">
+            <Ro label="Total PIS" value={w('total_ret_pis' as any)} />
+            <Ro label="Total COFINS" value={w('total_ret_cofins' as any)} />
+            <Ro label="Total CSLL" value={w('total_ret_csll' as any)} />
+            <Ro label="Total IR" value={w('total_ret_ir' as any)} />
+            <Ro label="Total INSS" value={w('total_ret_inss' as any)} />
+            <Ro label="Total ISSQN" value={w('total_ret_issqn' as any)} />
+            <Ro label="Total FUNRURAL" value={w('total_ret_funrural' as any)} />
+          </div>
+          <small className="text-fg-muted">
+            Retenções (PIS/COFINS/CSLL/IR/INSS/ISSQN/FUNRURAL) calculadas no servidor conforme a situação da NF
+            e as flags do parceiro. {!liberado && 'Nota travada — somente leitura.'}
+          </small>
+        </>
+      )}
+      {(sub === 'stext' || sub === 'inter' || sub === 'tribdev') && (
+        <PlaceholderTab nome={subTabs.find((t) => t.id === sub)?.label ?? ''} />
+      )}
+    </div>
+  );
+}
+
+// ───────────────────────────── Aba: Financeiro (sub-abas do legado) ─────────────────────────────
+
+function FinTab({ form, liberado, tipo }: { form: UseFormReturn<CriarNfDto>; liberado: boolean; tipo: NfTipo }) {
+  const [sub, setSub] = useState('cobranca');
+  const subTabs: TabDef[] = [
+    { id: 'cobranca', label: 'Dados da cobrança' },
+    { id: 'docs', label: 'Documentos financeiros' },
+    { id: 'formas', label: 'Formas de pagamento', disabled: true },
+  ];
+  return (
+    <div className="flex flex-col gap-form-gap">
+      <Tabs tabs={subTabs} active={sub} onChange={setSub} variant="sub" />
+      {sub === 'cobranca' && <FaturamentoSection form={form} tipo={tipo} />}
+      {sub === 'docs' && (
+        <small className="text-fg-muted">
+          Os documentos financeiros (títulos em {tipo === 'E' ? 'A Pagar' : 'A Receber'}) são gerados ao
+          «Faturar» (aba «Dados da cobrança») e aparecem no Lote de Cobrança. {!liberado && ''}
+        </small>
+      )}
+      {sub === 'formas' && <PlaceholderTab nome="Formas de pagamento" />}
+    </div>
+  );
+}
+
+// ───────────────────────────── Barra de ações NF-e (rodapé do legado) ─────────────────────────────
+
+const NFE_INERTES = ['Inutilizar', 'Imprimir', 'Importar', 'Salvar XML', 'Recuperar XML', 'Enviar Email'];
+
+function AcoesNfeBar({ form }: { form: UseFormReturn<CriarNfDto> }) {
+  const codnf = (form.getValues() as { codnf?: number }).codnf;
+  if (codnf == null) return null; // ações só em nota gravada (como o legado habilita o rodapé)
+  return (
+    <fieldset className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
+      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">NF-e / Ações</legend>
+      <div className="flex flex-col gap-form-gap">
+        <div className="flex flex-wrap items-start gap-form-gap">
+          <ProcessamentoSection form={form} />
+          <NfeSefazSection form={form} />
+        </div>
+        {/* strip inerte fiel ao rodapé "NF-e" do legado (fase futura / infra externa) */}
+        <div className="flex flex-wrap items-center gap-gp-xs border-t border-border pt-pad-sm">
+          <span className="text-body-sm text-fg-muted">NF-e:</span>
+          {NFE_INERTES.map((l) => (
+            <button
+              key={l}
+              type="button"
+              disabled
+              title="Disponível em fase futura (impressão/XML/e-mail/inutilização — infra externa)"
+              className="cursor-not-allowed rounded-radius-base border border-border bg-bg-subtle px-pad-sm py-pad-xs text-body-sm text-fg-muted opacity-60"
+            >
+              {l}
+            </button>
+          ))}
+        </div>
       </div>
     </fieldset>
+  );
+}
+
+// ───────────────────────────── Processamento (F3) ─────────────────────────────
+
+/**
+ * Ações de PROCESSAMENTO (F3): movem o estoque (entrada soma / saída baixa) e travam a nota.
+ * "Processar" quando proc='N'; "Reverter" quando proc='S' e a nota não foi enviada à SEFAZ.
+ */
+function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
+  const mensagem = useMensagem();
+  const [executando, setExecutando] = useState(false);
+  const proc = form.watch('proc');
+  const statusnfe = form.watch('statusnfe');
+  const codnf = (form.getValues() as { codnf?: number }).codnf;
+  if (codnf == null) return null;
+
+  const enviada = statusnfe === 'P' || statusnfe === 'D';
+
+  const processar = async () => {
+    if (executando) return;
+    setExecutando(true);
+    try {
+      await processarNf(codnf);
+      form.setValue('proc', 'S');
+      mensagem.sucesso('Nota processada: estoque movimentado.');
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  const reverter = async () => {
+    if (executando) return;
+    if (!window.confirm('Ao reverter o processamento, o estoque será revertido. Confirma a operação?')) return;
+    setExecutando(true);
+    try {
+      await reverterNf(codnf);
+      form.setValue('proc', 'N');
+      mensagem.sucesso('Processamento revertido: estoque estornado.');
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  return (
+    <div className="flex min-w-56 flex-1 flex-col gap-gp-xs rounded-radius-base border border-border p-pad-sm">
+      <span className="text-body-sm font-semibold text-fg-default">Processamento (estoque)</span>
+      <div className="flex flex-wrap items-center gap-gp-sm">
+        {proc !== 'S' && <Button label="&Processar nota" variant="soft" onClick={() => void processar()} />}
+        {proc === 'S' && !enviada && (
+          <Button label="&Reverter processamento" variant="soft" onClick={() => void reverter()} />
+        )}
+      </div>
+      <small className="text-fg-muted">
+        {proc === 'S' ? 'Nota processada (estoque movimentado).' : 'Nota não processada.'}
+        {enviada ? ' Enviada à SEFAZ — reversão bloqueada.' : ''}
+      </small>
+    </div>
+  );
+}
+
+// ───────────────────────────── Faturamento (F4) ─────────────────────────────
+
+/**
+ * Ações de FATURAMENTO (F4): geram títulos (ARECEBER saída / APAGAR entrada) por IDNF. Vive na aba
+ * Financeiro › Dados da cobrança (fiel ao legado). "Faturar" com nº parcelas / 1º venc / intervalo.
+ */
+function FaturamentoSection({ form, tipo }: { form: UseFormReturn<CriarNfDto>; tipo: NfTipo }) {
+  const mensagem = useMensagem();
+  const [executando, setExecutando] = useState(false);
+  const [numParcelas, setNumParcelas] = useState<number | undefined>(1);
+  const [primeiroVencimento, setPrimeiroVencimento] = useState<string | undefined>(hojeISO());
+  const [intervaloDias, setIntervaloDias] = useState<number | undefined>(30);
+  const faturada = form.watch('faturada');
+  const codnf = (form.getValues() as { codnf?: number }).codnf;
+  if (codnf == null) return <small className="text-fg-muted">Grave a nota para faturar.</small>;
+
+  const modalidade = tipo === 'E' ? 'A Pagar' : 'A Receber';
+
+  const faturar = async () => {
+    if (executando) return;
+    setExecutando(true);
+    try {
+      const r = await faturarNf(codnf, {
+        numParcelas: Number(numParcelas) || 1,
+        primeiroVencimento: primeiroVencimento ?? hojeISO(),
+        intervaloDias: Number(intervaloDias) || 0,
+      });
+      form.setValue('faturada', 'S');
+      mensagem.sucesso(`Faturamento gerado: ${r.parcelas} parcela(s) em ${modalidade}.`);
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  const estornar = async () => {
+    if (executando) return;
+    if (!window.confirm('Remover o faturamento desta nota? Os títulos financeiros serão excluídos.')) return;
+    setExecutando(true);
+    try {
+      await estornarFaturamentoNf(codnf);
+      form.setValue('faturada', 'N');
+      mensagem.sucesso('Faturamento estornado: títulos removidos.');
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-gp-sm">
+      <span className="text-body-sm font-semibold text-fg-default">Faturas ({modalidade})</span>
+      {faturada === 'S' ? (
+        <div className="flex flex-wrap items-center gap-gp-sm">
+          <Button label="&Estornar faturamento" variant="soft" onClick={() => void estornar()} />
+          <small className="text-fg-muted">Financeiro gerado (títulos em {modalidade}).</small>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-end gap-gp-sm">
+          <div className="w-32">
+            <NumberField label="Nº &parcelas" value={numParcelas} onChange={setNumParcelas} decimais={0} min={1} />
+          </div>
+          <div className="w-44">
+            <DateField label="1º &vencimento" value={primeiroVencimento} onChange={setPrimeiroVencimento} />
+          </div>
+          <div className="w-36">
+            <NumberField label="&Intervalo (dias)" value={intervaloDias} onChange={setIntervaloDias} decimais={0} min={0} />
+          </div>
+          <Button label="&Gerar financeiro" variant="soft" onClick={() => void faturar()} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ───────────────────────────── NFe / SEFAZ (F6) ─────────────────────────────
+
+function NfeSefazSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
+  const mensagem = useMensagem();
+  const [executando, setExecutando] = useState(false);
+  const [modo, setModo] = useState<'cancelar' | 'cce' | null>(null);
+  const [texto, setTexto] = useState('');
+  const statusnfe = form.watch('statusnfe');
+  const modelo = Number(form.watch('modelo'));
+  const chavenfe = form.watch('chavenfe') as string | undefined;
+  const codnf = (form.getValues() as { codnf?: number }).codnf;
+  if (codnf == null || modelo !== 55) return null;
+
+  const naoEnviada = !statusnfe;
+  const autorizada = statusnfe === 'P';
+  const denegada = statusnfe === 'D';
+  const cancelada = statusnfe === 'C';
+
+  const transmitir = async () => {
+    if (executando) return;
+    setExecutando(true);
+    try {
+      const r = await transmitirNf(codnf);
+      form.setValue('chavenfe', r.chave);
+      form.setValue('statusnfe', r.statusnfe);
+      form.setValue('confirmada', r.statusnfe === 'P' ? 'S' : 'N');
+      mensagem.sucesso(
+        `NFe ${r.statusnfe === 'P' ? 'autorizada' : 'denegada'}: ${r.chave}${r.simulado ? ' (SIMULADO — homologação)' : ''}.`,
+      );
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  const confirmarEvento = async () => {
+    if (executando || modo == null) return;
+    if (texto.trim().length < 15) return;
+    setExecutando(true);
+    try {
+      if (modo === 'cancelar') {
+        await cancelarNf(codnf, { xjust: texto });
+        form.setValue('statusnfe', 'C');
+        form.setValue('cancelada', 'S');
+        form.setValue('xjust', texto);
+        mensagem.sucesso('NFe cancelada.');
+      } else {
+        const r = await cceNf(codnf, { correcao: texto });
+        mensagem.sucesso(`Carta de correção registrada (sequência ${r.seq}).`);
+      }
+      setModo(null);
+      setTexto('');
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  const badge =
+    naoEnviada ? 'Não enviada'
+    : autorizada ? 'Autorizada'
+    : cancelada ? 'Cancelada'
+    : denegada ? 'Denegada'
+    : statusnfe;
+
+  return (
+    <div className="flex min-w-64 flex-[2] flex-col gap-gp-sm rounded-radius-base border border-border p-pad-sm">
+      <div className="flex flex-wrap items-center gap-gp-sm">
+        <span className="text-body-sm font-semibold text-fg-default">NFe / SEFAZ</span>
+        <span className="rounded-radius-base bg-bg-subtle px-pad-sm py-pad-xs text-body-sm text-fg-muted">{badge}</span>
+        {chavenfe && (
+          <button
+            type="button"
+            className="text-sm text-fg-link"
+            onClick={() => void navigator.clipboard?.writeText(chavenfe)}
+          >
+            Copiar chave
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-gp-sm">
+        {naoEnviada && <Button label="&Transmitir NFe" variant="soft" onClick={() => void transmitir()} />}
+        {autorizada && (
+          <>
+            <Button label="&Cancelar NFe" variant="soft" onClick={() => { setModo('cancelar'); setTexto(''); }} />
+            <Button label="Carta de &correção" variant="soft" onClick={() => { setModo('cce'); setTexto(''); }} />
+          </>
+        )}
+        {denegada && <small className="text-fg-danger">NFe denegada pela SEFAZ — emita uma nova nota.</small>}
+        {cancelada && <small className="text-fg-muted">NFe cancelada.</small>}
+      </div>
+
+      {modo != null && (
+        <div className="flex flex-col gap-gp-xs rounded-radius-base border border-border p-pad-sm">
+          <TextArea
+            label={modo === 'cancelar' ? 'Justificativa do cancelamento (mín. 15)' : 'Texto da correção (mín. 15)'}
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+            rows={3}
+          />
+          <div className="flex items-center gap-gp-sm">
+            <Button
+              label={modo === 'cancelar' ? '&Confirmar cancelamento' : '&Enviar correção'}
+              variant="soft"
+              onClick={() => void confirmarEvento()}
+            />
+            <Button label="Cancelar" variant="ghost" onClick={() => { setModo(null); setTexto(''); }} />
+            <small className="text-fg-muted">{texto.trim().length}/15+ caracteres</small>
+          </div>
+        </div>
+      )}
+
+      <small className="text-fg-muted">
+        Transmissão via simulador de homologação (nenhuma NFe autorizada na Receita). Cancelamento não reverte
+        estoque nem financeiro.
+      </small>
+    </div>
   );
 }
 
@@ -633,17 +827,11 @@ function CabecalhoSection({
 function ItensSection({
   form,
   editavel,
-  produtoOptions,
-  cfopOptions,
-  aliquotaOptions,
-  unidadeOptions,
+  opts,
 }: {
   form: UseFormReturn<CriarNfDto>;
   editavel: boolean;
-  produtoOptions: Opcao[];
-  cfopOptions: Opcao[];
-  aliquotaOptions: Opcao[];
-  unidadeOptions: Opcao[];
+  opts: LookupOptions;
 }) {
   const { fields, append, update, remove, replace } = useFieldArray<CriarNfDto, 'itens', 'fieldId'>({
     control: form.control,
@@ -654,17 +842,11 @@ function ItensSection({
   const mensagem = useMensagem();
   const [recalculando, setRecalculando] = useState(false);
 
-  // próximo NROITEM (máx+1) — espelha o cálculo do btnAddItem do legado.
   const proximoNroItem = () =>
     (fields as NfItemDto[]).reduce((m, it) => Math.max(m, Number(it.nroitem) || 0), 0) + 1;
 
-  /**
-   * "Recalcular impostos" (F2) — REUSO do motor: POST /fiscal/nf/recalcular com o dto atual
-   * (header + itens) → devolve os itens com ICMS próprio + ICMS-ST + IPI calculados; aplica de
-   * volta no field-array (os totais do header são re-somados server-side ao gravar). PURO: não grava.
-   */
   const recalcular = async () => {
-    if (recalculando) return; // guarda de reentrância
+    if (recalculando) return;
     if (!fields.length) {
       mensagem.erro('Adicione itens à nota antes de recalcular os impostos.');
       return;
@@ -691,11 +873,10 @@ function ItensSection({
 
   const rotuloProduto = (codproduto?: number) => {
     if (codproduto == null) return '';
-    const o = produtoOptions.find((op) => op.value === String(codproduto));
+    const o = opts.produtoOptions.find((op) => op.value === String(codproduto));
     return o ? o.label : String(codproduto);
   };
 
-  // Totais (PREVIEW client-side; o servidor é a autoridade via derivar — F1 btnCalcular).
   const itens = fields as Array<NfItemDto & { fieldId: string }>;
   const totalProd = itens.reduce(
     (s, it) => s + (Number(it.quantidade) || 0) * (Number(it.vrvenda) || 0) - (Number(it.desconto) || 0),
@@ -772,16 +953,14 @@ function ItensSection({
         ],
       },
     ],
-    [fields, remove, produtoOptions],
+    [fields, remove, opts.produtoOptions],
   );
 
   return (
-    <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
-      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Itens da nota</legend>
+    <fieldset disabled={!editavel} className="border-0 p-0">
       <div className="flex flex-col gap-gp-sm">
         <div className="flex flex-wrap gap-gp-sm">
           <Button label="Adicionar &item" variant="soft" onClick={() => setEditIdx(-1)} />
-          {/* F2 — recálculo fiscal por item (reusa o motor precificacao); puro, não grava. */}
           <Button label="Recalcular &impostos" variant="soft" onClick={() => void recalcular()} />
         </div>
 
@@ -807,10 +986,10 @@ function ItensSection({
       {editIdx != null && (
         <NfItemModal
           inicial={editIdx >= 0 ? (fields[editIdx] as NfItemDto) : undefined}
-          produtoOptions={produtoOptions}
-          cfopOptions={cfopOptions}
-          aliquotaOptions={aliquotaOptions}
-          unidadeOptions={unidadeOptions}
+          produtoOptions={opts.produtoOptions}
+          cfopOptions={opts.cfopOptions}
+          aliquotaOptions={opts.aliquotaOptions}
+          unidadeOptions={opts.unidadeOptions}
           onFechar={() => setEditIdx(null)}
           onConfirmar={onConfirmar}
         />
@@ -832,8 +1011,7 @@ function TransporteSection({
 }) {
   const err = form.formState.errors;
   return (
-    <fieldset disabled={!editavel} className="rounded-radius-md border border-border p-pad-md">
-      <legend className="px-pad-xs text-fg-muted">Transportadora e volumes</legend>
+    <fieldset disabled={!editavel} className="border-0 p-0">
       <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2 lg:grid-cols-3">
         <div className="sm:col-span-2">
           <Controller
@@ -900,11 +1078,6 @@ function TransporteSection({
 
 // ───────────────────────────── Contábil (F5) ─────────────────────────────
 
-/**
- * Rateio CONTÁBIL (F5 — CODCONTABILNF): distribui o total da NF por situação + centro de custo
- * (PLC) + valor. É config ARMAZENADA (detalhe do agregado, sem efeito). A soma deve fechar o
- * TOTALNF (back valida; aqui mostramos Restante/Excedido). Espelha ReferenciasSection.
- */
 function ContabilSection({
   form,
   editavel,
@@ -930,9 +1103,9 @@ function ContabilSection({
     setEditIdx(null);
   };
 
-  const rotulo = (opts: Opcao[], v?: number) => {
+  const rotulo = (opcoes: Opcao[], v?: number) => {
     if (v == null) return '';
-    const o = opts.find((op) => op.value === String(v));
+    const o = opcoes.find((op) => op.value === String(v));
     return o ? o.label : String(v);
   };
 
@@ -995,8 +1168,7 @@ function ContabilSection({
   );
 
   return (
-    <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
-      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Centro de custo / Contábil</legend>
+    <fieldset disabled={!editavel} className="border-0 p-0">
       <div className="flex flex-col gap-gp-sm">
         <div>
           <Button label="Adicionar &centro de custo" variant="soft" onClick={() => setEditIdx(-1)} />
@@ -1158,8 +1330,7 @@ function ReferenciasSection({
   );
 
   return (
-    <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
-      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">NF's Referência</legend>
+    <fieldset disabled={!editavel} className="border-0 p-0">
       <div className="flex flex-col gap-gp-sm">
         <div>
           <Button label="Adicionar &referência" variant="soft" onClick={() => setEditIdx(-1)} />
@@ -1233,12 +1404,11 @@ function ReferenciaModal({
   );
 }
 
-// ───────────────────────────── Observações ─────────────────────────────
+// ───────────────────────────── Dados Gerais / Observações ─────────────────────────────
 
-function ObsSection({ form, editavel }: { form: UseFormReturn<CriarNfDto>; editavel: boolean }) {
+function DadosGeraisTab({ form, editavel }: { form: UseFormReturn<CriarNfDto>; editavel: boolean }) {
   return (
-    <fieldset disabled={!editavel} className="rounded-radius-md border border-border p-pad-md">
-      <legend className="px-pad-xs text-fg-muted">Dados gerais / Observações</legend>
+    <fieldset disabled={!editavel} className="border-0 p-0">
       <div className="flex flex-col gap-form-gap">
         <TextArea label="&Observações" rows={3} {...form.register('obs')} />
         <TextArea label="Observações &fiscais" rows={2} {...form.register('obsnf')} />

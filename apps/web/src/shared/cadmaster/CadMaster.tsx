@@ -38,9 +38,22 @@ interface Props<T extends FieldValues> {
   pkGerada?: boolean;
   /** ações do menu "Outros" (btnOutros/ppmBotaoOutros do form-base; Alt+O abre) */
   outros?: AcaoOutros[];
+  /**
+   * Largura máxima do container. Default '3xl' (cadastro simples, formulário estreito).
+   * Telas densas/tabuladas (ex.: NOTA FISCAL, fiel ao form largo do legado) usam '6xl'/'full'.
+   */
+  largura?: '3xl' | '5xl' | '6xl' | '7xl' | 'full';
   /** render-prop dos campos da tela (recebe o form e se está editável) */
   campos: (ctx: CamposCtx<T>) => ReactNode;
 }
+
+const LARGURA_CLS: Record<NonNullable<Props<FieldValues>['largura']>, string> = {
+  '3xl': 'max-w-3xl',
+  '5xl': 'max-w-5xl',
+  '6xl': 'max-w-6xl',
+  '7xl': 'max-w-7xl',
+  full: 'max-w-full',
+};
 
 /** uma ação do menu "Outros" (relatório, tela relacionada, rotina). */
 export interface AcaoOutros {
@@ -65,6 +78,7 @@ export function CadMaster<T extends FieldValues>({
   viewPk,
   pkGerada = true,
   outros,
+  largura = '3xl',
   campos,
 }: Props<T>) {
   const api = useMemo(() => createResourceApi(resourcePath), [resourcePath]);
@@ -132,7 +146,7 @@ export function CadMaster<T extends FieldValues>({
   };
 
   return (
-    <div className="flex flex-col gap-form-gap max-w-3xl">
+    <div className={`flex flex-col gap-form-gap ${LARGURA_CLS[largura]}`}>
       <PageHeader title={titulo} description="Cadastro — teclado-first (Enter carrega · setas navegam · F6 filtra · Alt+letra)" />
       <FormScope onSubmit={onGravar}>
         {/* CABEÇALHO: código (editável só no browse; Enter carrega) — FormFieldInput do DS */}
