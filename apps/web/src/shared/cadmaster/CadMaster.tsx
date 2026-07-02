@@ -43,6 +43,13 @@ interface Props<T extends FieldValues> {
    * Telas densas/tabuladas (ex.: NOTA FISCAL, fiel ao form largo do legado) usam '6xl'/'full'.
    */
   largura?: '3xl' | '5xl' | '6xl' | '7xl' | 'full';
+  /**
+   * A tela gerencia o próprio estado de edição (não envolver `campos` num `<fieldset disabled>`).
+   * Default false (cadastro simples: o shell desabilita tudo no browse). Telas com ABAS/AÇÕES que
+   * precisam continuar navegáveis/acionáveis no browse (ex.: NOTA FISCAL — trocar de aba, Processar,
+   * Transmitir) passam `true` e cada seção de CAMPO se autodesabilita via o `editavel` recebido.
+   */
+  gerenciaEdicaoInterna?: boolean;
   /** render-prop dos campos da tela (recebe o form e se está editável) */
   campos: (ctx: CamposCtx<T>) => ReactNode;
 }
@@ -79,6 +86,7 @@ export function CadMaster<T extends FieldValues>({
   pkGerada = true,
   outros,
   largura = '3xl',
+  gerenciaEdicaoInterna = false,
   campos,
 }: Props<T>) {
   const api = useMemo(() => createResourceApi(resourcePath), [resourcePath]);
@@ -198,10 +206,16 @@ export function CadMaster<T extends FieldValues>({
           />
         )}
 
-        {/* CAMPOS DA TELA (read-only fora de insert/edit) */}
-        <fieldset disabled={!cad.editavel} className="border-0 p-0 m-0">
-          {campos({ form, editavel: cad.editavel })}
-        </fieldset>
+        {/* CAMPOS DA TELA (read-only fora de insert/edit). Telas que gerenciam a própria edição
+            (abas/ações navegáveis no browse) recebem só o `editavel` e NÃO são envolvidas no
+            fieldset disabled — senão as abas/ações ficariam mortas na navegação. */}
+        {gerenciaEdicaoInterna ? (
+          campos({ form, editavel: cad.editavel })
+        ) : (
+          <fieldset disabled={!cad.editavel} className="border-0 p-0 m-0">
+            {campos({ form, editavel: cad.editavel })}
+          </fieldset>
+        )}
 
         {/* RODAPÉ: botões padrão por estado (mnemônicos como no legado) */}
         <Rodape

@@ -145,6 +145,7 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
       schema={nfSchema}
       defaultValues={defaultValues}
       largura="6xl"
+      gerenciaEdicaoInterna
       filtroPesquisa={{ campo: 'tipo', operador: 'igual', valor: tipo }}
       colunasPesquisa={[
         { campo: 'codnf', label: 'Código', tipo: 'text', largura: 100 },

@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { type KeyboardEvent, type ReactNode } from 'react';
 
 export type TabDef = {
   id: string;
@@ -12,8 +12,11 @@ export type TabDef = {
  * sub-abas) com o VISUAL do design system (tokens Apollo). Duas variantes:
  *  - `main`  → abas de folder (linha que quebra em 2, como o legado); a ativa "senta" na área de conteúdo.
  *  - `sub`   → sub-abas (Impostos Internos/ICMS ST…/Retenções; Dados da cobrança/Documentos…) em sublinhado.
- * Teclado/ARIA: role=tablist/tab; a aba ativa é `aria-selected`. Abas `disabled` aparecem esmaecidas
- * (fidelidade de layout: o legado mostra a aba mesmo quando o conteúdo é de fase futura).
+ *
+ * NAVEGAÇÃO ≠ FORMULÁRIO: as abas são `<div role="tab">` (não `<button>`) DE PROPÓSITO — assim
+ * continuam clicáveis mesmo quando a tela está em modo navegação e os CAMPOS estão dentro de um
+ * `<fieldset disabled>` (que desabilitaria botões, mas não elementos não-form). Teclado: Enter/Espaço
+ * ativam; ←/→ movem entre abas habilitadas. ARIA: role=tablist/tab + aria-selected/aria-disabled.
  */
 export function Tabs({
   tabs,
@@ -26,59 +29,70 @@ export function Tabs({
   onChange: (id: string) => void;
   variant?: 'main' | 'sub';
 }) {
-  if (variant === 'sub') {
-    return (
-      <div role="tablist" className="flex flex-wrap items-end gap-gp-xs border-b border-border">
-        {tabs.map((t) => {
-          const on = t.id === active;
-          return (
-            <button
-              key={t.id}
-              role="tab"
-              type="button"
-              aria-selected={on}
-              disabled={t.disabled}
-              onClick={() => onChange(t.id)}
-              className={[
-                'cursor-pointer border-0 bg-transparent px-pad-sm py-gp-xs text-body-sm',
-                '-mb-px border-b-2',
-                on
-                  ? 'border-fg-link font-semibold text-fg-default'
-                  : 'border-transparent text-fg-muted hover:text-fg-default',
-                t.disabled ? 'cursor-not-allowed opacity-50 hover:text-fg-muted' : '',
-              ].join(' ')}
-            >
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
-    );
-  }
+  const idxAtivo = tabs.findIndex((t) => t.id === active);
 
-  // variant === 'main' — abas de folder (quebram em 2 linhas como o legado)
+  const irPara = (delta: number) => {
+    const n = tabs.length;
+    for (let i = 1; i <= n; i++) {
+      const t = tabs[(idxAtivo + delta * i + n * i) % n];
+      if (t && !t.disabled) {
+        onChange(t.id);
+        return;
+      }
+    }
+  };
+
+  const onKey = (e: KeyboardEvent<HTMLDivElement>, t: TabDef) => {
+    if ((e.key === 'Enter' || e.key === ' ') && !t.disabled) {
+      e.preventDefault();
+      onChange(t.id);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      irPara(1);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      irPara(-1);
+    }
+  };
+
+  const isSub = variant === 'sub';
+  const listCls = isSub
+    ? 'flex flex-wrap items-end gap-gp-xs border-b border-border'
+    : 'flex flex-wrap gap-gp-xs border-b border-border pb-px';
+
   return (
-    <div role="tablist" className="flex flex-wrap gap-gp-xs border-b border-border pb-px">
+    <div role="tablist" className={listCls}>
       {tabs.map((t) => {
         const on = t.id === active;
-        return (
-          <button
-            key={t.id}
-            role="tab"
-            type="button"
-            aria-selected={on}
-            disabled={t.disabled}
-            onClick={() => onChange(t.id)}
-            className={[
-              'cursor-pointer rounded-t-radius-base border px-pad-sm py-gp-xs text-body-sm',
+        const base = 'cursor-pointer select-none text-body-sm';
+        const cls = isSub
+          ? [
+              base,
+              'px-pad-sm py-gp-xs -mb-px border-b-2',
+              on ? 'border-fg-link font-semibold text-fg-default' : 'border-transparent text-fg-muted hover:text-fg-default',
+              t.disabled ? 'cursor-not-allowed opacity-50 hover:text-fg-muted' : '',
+            ]
+          : [
+              base,
+              'rounded-t-radius-base border px-pad-sm py-gp-xs',
               on
                 ? 'border-border border-b-bg-surface bg-bg-surface font-semibold text-fg-default'
                 : 'border-transparent text-fg-muted hover:bg-bg-subtle hover:text-fg-default',
               t.disabled ? 'cursor-not-allowed opacity-50 hover:bg-transparent hover:text-fg-muted' : '',
-            ].join(' ')}
+            ];
+        return (
+          <div
+            key={t.id}
+            role="tab"
+            aria-selected={on}
+            aria-disabled={t.disabled || undefined}
+            tabIndex={on ? 0 : -1}
+            onClick={() => !t.disabled && onChange(t.id)}
+            onKeyDown={(e) => onKey(e, t)}
+            className={cls.join(' ')}
           >
             {t.label}
-          </button>
+          </div>
         );
       })}
     </div>
