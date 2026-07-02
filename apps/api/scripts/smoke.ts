@@ -1900,6 +1900,40 @@ async function main() {
     const pcRbac = await fetch(`${base}/${PC}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codiexpandido: '1.1.03.01.9099', descricao: 'X', classe: 'A', natureza: 1, codpai: 9008 }) });
     check('PC: POST sem grant RBAC → 403', pcRbac.status === 403, { status: pcRbac.status });
     await pgPc.end();
+
+    // 35) DRE CONTÁBIL (relatório) — motor P/F/E sobre o DIÁRIO. Semeia lançamentos determinísticos.
+    const pgDre = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    // período 2030 ISOLADO (o §29 contabiliza NFs em 2026 → evita poluir 124/127/134):
+    // crédito 124 = receita +1000; débito 127 = dedução −100; débito 134 = CMV −600.
+    await pgDre.query(`INSERT INTO diario (datalan, contadebito, contacredito, valor, codorigem, idorigem, codempresa) VALUES
+      ('2030-03-15', 11141, 124, 1000, 99, 1, 1),
+      ('2030-03-15', 127, 11141, 100, 99, 1, 1),
+      ('2030-03-15', 134, 147, 600, 99, 1, 1),
+      ('2030-03-15', 232, 11141, 200, 99, 1, 1),
+      ('2029-01-01', 11141, 124, 9999, 99, 1, 1)`); // 2029 → fora do período consultado
+    const dreRes = await fetch(`${base}/cadastro/dre?dataInicio=2030-01-01&dataFim=2030-12-31`, { headers: H });
+    const dre = (await dreRes.json().catch(() => ({}))) as any;
+    const linha = (cod: string) => (dre.linhas ?? []).find((l: any) => l.codexpandido === cod);
+    check('DRE: P — Receita Bruta (crédito 124) = 1000', Number(linha('01.001')?.valor) === 1000, { l: linha('01.001') });
+    check('DRE: P — (-) Deduções (débito 127) = -100', Number(linha('01.002')?.valor) === -100, { l: linha('01.002') });
+    check('DRE: F — Receita Líquida (roll-up 01.001+01.002) = 900', Number(linha('01')?.valor) === 900, { l: linha('01') });
+    check('DRE: P — CMV (débito 134) = -600', Number(linha('03.001')?.valor) === -600, { l: linha('03.001') });
+    // ramo de 3 NÍVEIS: aluguel (P, débito 232 = -200) → 04.001 (F) = -200 → 04 (F) = -200 (F-filha-de-F).
+    check('DRE: P — Aluguéis nível 3 (débito 232) = -200', Number(linha('04.001.001')?.valor) === -200, { l: linha('04.001.001') });
+    check('DRE: F — Despesas Adm. nível 2 (roll-up) = -200', Number(linha('04.001')?.valor) === -200, { l: linha('04.001') });
+    check('DRE: F — Despesas Op. nível 1 (roll-up recursivo de F-filha-de-F) = -200', Number(linha('04')?.valor) === -200, { l: linha('04') });
+    check('DRE: E — Lucro Bruto (<01>+<03>+<04> = 900-600-200) = 100', Number(linha('08')?.valor) === 100, { l: linha('08') });
+    // filtro de período: consulta 2029 vê o lançamento de 9999 (fora de 2030) → receita 9999.
+    const dre29 = (await (await fetch(`${base}/cadastro/dre?dataInicio=2029-01-01&dataFim=2029-12-31`, { headers: H })).json()) as any;
+    const l29 = (dre29.linhas ?? []).find((l: any) => l.codexpandido === '01.001');
+    check('DRE: filtro por DATALAN isola o período (2029 → receita 9999)', Number(l29?.valor) === 9999, { l: l29 });
+    // período inválido (início > fim) → 422 DRE_PERIODO_INVALIDO.
+    const drePer = await fetch(`${base}/cadastro/dre?dataInicio=2030-12-31&dataFim=2030-01-01`, { headers: H });
+    check('DRE: início > fim → 422 DRE_PERIODO_INVALIDO', drePer.status === 422 && ((await drePer.json().catch(() => ({}))) as any).code === 'DRE_PERIODO_INVALIDO', { status: drePer.status });
+    // RBAC do relatório.
+    const dreRbac = await fetch(`${base}/cadastro/dre?dataInicio=2026-01-01&dataFim=2026-12-31`, { headers: H_SEM_ACESSO });
+    check('DRE: GET sem grant RBAC → 403', dreRbac.status === 403, { status: dreRbac.status });
+    await pgDre.end();
   } finally {
     await app.close();
     await pg.stop();

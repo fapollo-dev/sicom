@@ -19,6 +19,7 @@ import {
   HandCoins,
   Banknote,
   Network,
+  BarChart3,
 } from 'lucide-react';
 
 /** Telas do menu lateral (rota → rótulo + ícone). Uma TForm = um item. */
@@ -40,6 +41,7 @@ const TELAS = [
   { href: '/cadastro/areceber', name: 'Contas a Receber', icon: HandCoins },
   { href: '/cadastro/apagar', name: 'Contas a Pagar', icon: Banknote },
   { href: '/cadastro/plano-contas', name: 'Plano de Contas', icon: Network },
+  { href: '/contabil/dre', name: 'DRE', icon: BarChart3 },
   { href: '/cadastro/empresas', name: 'Empresas', icon: Building },
 ] as const;
 

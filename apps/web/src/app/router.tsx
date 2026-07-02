@@ -12,6 +12,7 @@ import { LotesCobrancaCadMaster } from '../features/lotes-md/LotesCobrancaCadMas
 import { ContasReceberCadMaster } from '../features/areceber/ContasReceberCadMaster';
 import { ContasPagarCadMaster } from '../features/apagar/ContasPagarCadMaster';
 import { PlanoContasCadMaster } from '../features/plano-contas/PlanoContasCadMaster';
+import { DreRelatorio } from '../features/dre/DreRelatorio';
 import { ParceirosCadMaster } from '../features/parceiros/ParceirosCadMaster';
 import { ProdutoCadMaster } from '../features/produtos/ProdutoCadMaster';
 import { NfCadMaster } from '../features/nf/NfCadMaster';
@@ -41,6 +42,7 @@ export const router = createBrowserRouter([
       { path: '/cadastro/areceber', element: <ContasReceberCadMaster /> }, // contas a receber (cortes 1+2)
       { path: '/cadastro/apagar', element: <ContasPagarCadMaster /> }, // contas a pagar (gêmea)
       { path: '/cadastro/plano-contas', element: <PlanoContasCadMaster /> }, // plano de contas (árvore)
+      { path: '/contabil/dre', element: <DreRelatorio /> }, // relatório DRE (calculado do diário)
       // tela-coroa NF — mesmo componente, tipo diferente (Entrada/Saída), como Parceiros (papel)
       { path: '/fiscal/notas/entrada', element: <NfCadMaster tipo="E" /> },
       { path: '/fiscal/notas/saida', element: <NfCadMaster tipo="S" /> },

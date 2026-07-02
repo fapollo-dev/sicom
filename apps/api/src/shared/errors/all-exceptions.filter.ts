@@ -222,6 +222,9 @@ const CODE_PT: Record<string, string> = {
   CONTA_COM_FILHOS: 'A conta possui contas filhas — remova ou reclassifique as filhas antes.',
   CONTA_COM_MOVIMENTO: 'A conta possui movimento no diário — não é possível excluir. Inative-a.',
   CONTA_EM_USO: 'A conta está em uso (integração/centro de custo/parceiro) — não é possível excluir. Inative-a.',
+  // DRE (relatório)
+  DRE_PERIODO_OBRIGATORIO: 'Informe as datas inicial e final do período.',
+  DRE_PERIODO_INVALIDO: 'A data inicial não pode ser maior que a data final.',
   // NFe / SEFAZ (F6)
   NF_JA_TRANSMITIDA: 'Esta nota fiscal já foi transmitida para a SEFAZ.',
   NF_NAO_AUTORIZADA: 'A nota fiscal não está autorizada pela SEFAZ.',

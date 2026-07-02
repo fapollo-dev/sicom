@@ -20,6 +20,8 @@ import { CfopCrudController } from './cfop.crud';
 import { PlcCrudController } from './plc.crud';
 import { PlanoContasController } from './plano-contas.controller';
 import { PlanoContasService } from './plano-contas.service';
+import { DreController } from './dre.controller';
+import { DreService } from './dre.service';
 import { EmpresasCrudController } from './empresas.crud';
 import { NfFiscalController } from './nf-fiscal.controller';
 import { NfFiscalService } from './nf-fiscal.service';
@@ -64,6 +66,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     CfopCrudController, // engine (lookup da NF: CFOP; chave natural)
     PlcCrudController, // engine (lookup do rateio contábil da NF: centro de custo gerencial; chave natural)
     PlanoContasController, // vertical (PLANO DE CONTAS contábil — árvore/validações/travas)
+    DreController, // vertical read-only (DRE contábil — relatório calculado do DIÁRIO)
     EmpresasCrudController, // engine (cadastro da empresa/tenant: núcleo+fiscal+precificação; pk digitada, não-empresaScoped)
     NfFiscalController, // F2 — recálculo fiscal por item (POST /fiscal/nf/recalcular), reusa precificacao
     NfProcessamentoController, // F3 — processar/reverter (move estoque atômico)
@@ -83,6 +86,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     NfNfeService,
     NfContabilizacaoService,
     PlanoContasService,
+    DreService,
     // Porta SEFAZ (F6): seleção REAL por env SEFAZ_PROVIDER (default 'simulador'). Hoje só existe
     // o SIMULADOR (homologação); o provider real (ACBrLibNFe/lib NFe Node/microserviço) implementa
     // a mesma SefazPort e entra aqui sem tocar no service. Travas: 'simulador' é PROIBIDO em

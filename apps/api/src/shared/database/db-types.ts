@@ -317,6 +317,37 @@ export interface GetPlanoContasView {
   tipo: string | null;
   status: string | null;
 }
+/** DRE_ESTRUTURA (047) — árvore de linhas do DRE (P=contas vinculadas / F=soma filhas / E=expressão). */
+export interface DreEstruturaTable {
+  codestrutura: Generated<number>;
+  codexpandido: string;
+  descricao: string;
+  tipo_calculo: string; // P/F/E
+  classe: string; // A/S
+  expressao: string | null;
+  nivel: number | null;
+  codpai: number | null;
+  ativo: string | null;
+  usultalteracao: number | null;
+  dtultimalteracao: Timestamptz | null;
+  dtcadastro: Timestamptz | null;
+}
+/** DRE_CONTA (047) — mapeamento conta contábil → linha do DRE. */
+export interface DreContaTable {
+  codplanocontas: number;
+  codestrutura: number;
+}
+export interface GetDreEstruturaView {
+  codestrutura: number;
+  codexpandido: string;
+  descricao: string;
+  tipo_calculo: string;
+  classe: string;
+  expressao: string | null;
+  nivel: number | null;
+  codpai: number | null;
+  ativo: string | null;
+}
 /** Detalhe de exibição do lote GET_ITENS_LOTECOB — grid live-joined + juros/total. */
 export interface GetItensLotecobView {
   codilotcob: number;
@@ -421,6 +452,9 @@ export interface TenantDB {
   get_apagar: GetApagarView;
   plano_contas: PlanoContasTable;
   get_plano_contas: GetPlanoContasView;
+  dre_estrutura: DreEstruturaTable;
+  dre_conta: DreContaTable;
+  get_dre_estrutura: GetDreEstruturaView;
   get_itens_lotecob: GetItensLotecobView;
   marcas: MarcasTable;
   get_marcas: GetMarcasView;
