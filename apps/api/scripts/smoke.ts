@@ -2205,6 +2205,40 @@ async function main() {
     check('REAB: caixa com quebra agrupada segue FECHADO (rollback)', rb10Read.status === 'F', { status: rb10Read.status });
     await pgRb.query(`UPDATE areceber SET agrupado='N' WHERE codrcb=$1`, [Number(rb10Fec.codrcbQuebra)]); // restaura p/ não afetar outras seções
     await pgRb.end();
+
+    // 40) OPERADORES (uCadUsuarios "Cadastro de usuários") — engine global, PK digitada, soft-delete INDR.
+    const OP = 'cadastro/operadores';
+    // 40.1) lista traz o seed (op 7/8).
+    const opList = (await (await fetch(`${base}/${OP}`, { headers: H })).json().catch(() => [])) as any[];
+    check('OPER: GET lista inclui operadores semeados (op 7)', Array.isArray(opList) && opList.some((o) => Number(o.codoperador) === 7), { n: opList?.length });
+    // 40.2) cria operador (PK digitada 500), tipo SUP → idgrupo DERIVADO 3 (Supervisor).
+    const opCreate = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 500, nome: 'TESTE OP', login: 'TESTEOP', tipoop: 'SUP' }) });
+    check('OPER: POST cria operador (PK digitada) → 201', opCreate.status === 201, { status: opCreate.status });
+    const op500 = (await (await fetch(`${base}/${OP}/500`, { headers: H })).json().catch(() => ({}))) as any;
+    check('OPER: tipo SUP deriva idgrupo 3', Number(op500.idgrupo) === 3 && op500.tipoop === 'SUP', { op500 });
+    // grupo (nome) é da VIEW get_operadores (list), não do read cru da tabela.
+    const opInList = ((await (await fetch(`${base}/${OP}`, { headers: H })).json().catch(() => [])) as any[]).find((o) => Number(o.codoperador) === 500);
+    check('OPER: view get_operadores expõe grupo=Supervisor', opInList?.grupo === 'Supervisor', { opInList });
+    // 40.3) LOGIN único (case-insensitive) → 409.
+    const opDup = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 501, nome: 'X', login: 'testeop' }) });
+    check('OPER: login duplicado (case-insensitive) → 409 LOGIN_DUPLICADO', opDup.status === 409 && ((await opDup.json().catch(() => ({}))) as any).code === 'LOGIN_DUPLICADO', { status: opDup.status });
+    // 40.4) PUT edita e RE-DERIVA idgrupo (OPE→2).
+    const opPut = await fetch(`${base}/${OP}/500`, { method: 'PUT', headers: H, body: JSON.stringify({ nome: 'TESTE OP EDIT', tipoop: 'OPE' }) });
+    const op500b = (await (await fetch(`${base}/${OP}/500`, { headers: H })).json().catch(() => ({}))) as any;
+    check('OPER: PUT edita e re-deriva idgrupo (OPE→2)', opPut.status === 200 && op500b.nome === 'TESTE OP EDIT' && Number(op500b.idgrupo) === 2, { op500b });
+    // 40.5) soft-delete (INDR=E) → some da lista + LIBERA o login.
+    const opDel = await fetch(`${base}/${OP}/500`, { method: 'DELETE', headers: H });
+    check('OPER: DELETE soft (INDR=E) → 204', opDel.status === 204, { status: opDel.status });
+    const opGone = await fetch(`${base}/${OP}/500`, { headers: H });
+    check('OPER: operador excluído some do GET :id', opGone.status === 404 || ((await opGone.json().catch(() => null)) == null), { status: opGone.status });
+    const opReuse = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 502, nome: 'REUSO', login: 'testeop' }) });
+    check('OPER: login liberado após soft-delete → 201 (reuso)', opReuse.status === 201, { status: opReuse.status });
+    // 40.6) validação: sem nome/login → 400.
+    const opBad = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 503 }) });
+    check('OPER: POST sem nome/login → 400 (schema)', opBad.status === 400, { status: opBad.status });
+    // 40.7) RBAC sem grant → 403.
+    const opRbac = await fetch(`${base}/${OP}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codoperador: 504, nome: 'X', login: 'XRBAC' }) });
+    check('OPER: POST sem grant RBAC → 403', opRbac.status === 403, { status: opRbac.status });
   } finally {
     await app.close();
     await pg.stop();

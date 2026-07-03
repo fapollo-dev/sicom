@@ -86,6 +86,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
         };
 
       case '23505': // unique_violation
+        // índices de EXPRESSÃO não expõem `campo` (err.detail); mapeia por nome de constraint p/ msg PT.
+        if (err.constraint === 'ux_operadores_login') {
+          return { statusCode: HttpStatus.CONFLICT, code: 'LOGIN_DUPLICADO', message: 'Já existe um usuário com este login.' };
+        }
         if (campo) campos.push({ campo, mensagem: 'Já existe um registro com este valor.' });
         return {
           statusCode: HttpStatus.CONFLICT,

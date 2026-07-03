@@ -23,6 +23,7 @@ import { PlanoContasService } from './plano-contas.service';
 import { DreController } from './dre.controller';
 import { DreService } from './dre.service';
 import { EmpresasCrudController } from './empresas.crud';
+import { OperadoresCrudController } from './operadores.crud';
 import { NfFiscalController } from './nf-fiscal.controller';
 import { NfFiscalService } from './nf-fiscal.service';
 import { ConfigService } from './config.service';
@@ -68,6 +69,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     PlanoContasController, // vertical (PLANO DE CONTAS contábil — árvore/validações/travas)
     DreController, // vertical read-only (DRE contábil — relatório calculado do DIÁRIO)
     EmpresasCrudController, // engine (cadastro da empresa/tenant: núcleo+fiscal+precificação; pk digitada, não-empresaScoped)
+    OperadoresCrudController, // engine (cadastro de OPERADORES/usuários; global, pk digitada, soft-delete INDR)
     NfFiscalController, // F2 — recálculo fiscal por item (POST /fiscal/nf/recalcular), reusa precificacao
     NfProcessamentoController, // F3 — processar/reverter (move estoque atômico)
     NfFaturamentoController, // F4 — faturar/estornar (gera títulos ARECEBER/APAGAR atômico)

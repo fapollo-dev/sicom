@@ -14,6 +14,7 @@ import { ContasPagarCadMaster } from '../features/apagar/ContasPagarCadMaster';
 import { PlanoContasCadMaster } from '../features/plano-contas/PlanoContasCadMaster';
 import { DreRelatorio } from '../features/dre/DreRelatorio';
 import { CaixaPage } from '../features/caixa/CaixaPage';
+import { OperadoresCadMaster } from '../features/operadores/OperadoresCadMaster';
 import { ParceirosCadMaster } from '../features/parceiros/ParceirosCadMaster';
 import { ProdutoCadMaster } from '../features/produtos/ProdutoCadMaster';
 import { NfCadMaster } from '../features/nf/NfCadMaster';
@@ -35,6 +36,7 @@ export const router = createBrowserRouter([
       { path: '/cadastro/operacoes-conta', element: <OperacoesContaCadMaster /> },
       { path: '/cadastro/contas-bancarias', element: <ContasBancariasCadMaster /> },
       { path: '/cadastro/empresas', element: <EmpresasCadMaster /> },
+      { path: '/cadastro/operadores', element: <OperadoresCadMaster /> },
       // tela UNIFICADA de parceiros — mesmo componente, papel diferente
       { path: '/cadastro/clientes', element: <ParceirosCadMaster papel="cliente" /> },
       { path: '/cadastro/fornecedores', element: <ParceirosCadMaster papel="fornecedor" /> },

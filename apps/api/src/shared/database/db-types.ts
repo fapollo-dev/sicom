@@ -451,13 +451,55 @@ export interface CaixaSessaoTable {
   dtultimalteracao: Timestamptz | null;
   dtcadastro: Timestamptz | null;
 }
-/** OPERADORES (049) — mapa mínimo operador→parceiro (quebra é cobrada do funcionário). */
+/** OPERADORES (049 stub + 051 cadastro) — usuário do sistema, GLOBAL (codempresa vestigial). */
 export interface OperadoresTable {
-  codoperador: number;
+  codoperador: number; // PK digitada
   codparceiro: number | null;
   nome: string | null;
-  codempresa: number | null;
+  codempresa: number | null; // vestigial (operador é global; empresa via ponte, adiado)
   ativo: string | null;
+  // 051 (cadastro)
+  login: string | null;
+  tipoop: string | null; // USU/OPE/SUP/FOR/PRO/ASU/ANS
+  idgrupo: number | null; // FK grupo_operador (derivado de tipoop)
+  desabilitado: string | null;
+  dtaltdesab: Timestamptz | null;
+  desabilita_operacoes_basicas: string | null;
+  desabilita_desconto_pdv: string | null;
+  solicitar_alteracao_senha: string | null;
+  idsupervisor: number | null;
+  codigoauxiliar: number | null;
+  indr: string | null; // soft-delete I/E
+  indr_data: Timestamptz | null;
+  indr_usuario: number | null;
+  usultalteracao: number | null;
+  dtultimalteracao: Timestamptz | null;
+  dtcadastro: Timestamptz | null;
+}
+/** GRUPO_OPERADOR (051) — perfil/categoria do operador (6 grupos do legado). */
+export interface GrupoOperadorTable {
+  idgrupo: number;
+  descricao: string;
+}
+/** View GET_OPERADORES (051) — núcleo + JOINs de exibição (parceiro/grupo/supervisor). */
+export interface GetOperadoresView {
+  codoperador: number;
+  nome: string | null;
+  login: string | null;
+  tipoop: string | null;
+  idgrupo: number | null;
+  grupo: string | null;
+  codparceiro: number | null;
+  parceiro: string | null;
+  idsupervisor: number | null;
+  supervisor: string | null;
+  desabilitado: string | null;
+  desabilita_operacoes_basicas: string | null;
+  desabilita_desconto_pdv: string | null;
+  solicitar_alteracao_senha: string | null;
+  codigoauxiliar: number | null;
+  ativo: string | null;
+  indr: string | null;
 }
 export interface CaixaMovTable {
   codmov: Generated<number>;
@@ -520,6 +562,8 @@ export interface TenantDB {
   caixa_mov: CaixaMovTable;
   get_caixa_sessao: GetCaixaSessaoView;
   operadores: OperadoresTable;
+  grupo_operador: GrupoOperadorTable;
+  get_operadores: GetOperadoresView;
   get_itens_lotecob: GetItensLotecobView;
   marcas: MarcasTable;
   get_marcas: GetMarcasView;
