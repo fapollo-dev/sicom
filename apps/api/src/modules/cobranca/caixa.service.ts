@@ -273,6 +273,76 @@ export class CaixaService {
     });
   }
 
+  /**
+   * REABERTURA (corte-2c): desfaz um fechamento (status 'F'→'A'), reabrindo a sessão. Espelho do
+   * `fechar` + `btnReabrirClick` do legado: estorna (DELETE, como o legado) o título de quebra gerado
+   * e limpa a conferência (valor_contado/diferenca/codrcb_quebra/saldo_final). Guardas: só o dono
+   * reabre; não reabre se o operador já tiver OUTRO caixa aberto (1-aberto-por-operador; índice parcial
+   * é o backstop → 23505 traduzido); a quebra não pode estar baixada/agrupada/em-lote. Os movimentos
+   * ficam (a sessão volta a aceitar movimento/estorno de baixa — destrava o CAIXA_FECHADO do corte-2a).
+   */
+  async reabrir(codcaixa: number, dto: { obs?: string }): Promise<{ codcaixa: number; status: 'A'; quebraEstornada: number | null }> {
+    const emp = this.emp();
+    const op = this.opReq();
+    try {
+      return await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+        const s = await trx
+          .selectFrom('caixa_sessao').select(['codcaixa', 'status', 'codoperador', 'codrcb_quebra'])
+          .where('codcaixa', '=', codcaixa).where('codempresa', '=', emp)
+          .forUpdate().executeTakeFirst();
+        if (!s) throw new BusinessRuleError('CAIXA_NAO_ENCONTRADO', { codcaixa });
+        if ((s as any).status !== 'F') throw new BusinessRuleError('CAIXA_NAO_FECHADO', { codcaixa });
+        if ((s as any).codoperador !== op) throw new BusinessRuleError('CAIXA_OUTRO_OPERADOR', { codcaixa }); // só o dono reabre
+
+        // não reabrir se o operador já tem outra sessão ABERTA (1-aberto-por-operador+empresa).
+        const outra = await trx
+          .selectFrom('caixa_sessao').select('codcaixa')
+          .where('codempresa', '=', emp).where('codoperador', '=', op).where('status', '=', 'A')
+          .forUpdate().executeTakeFirst();
+        if (outra) throw new BusinessRuleError('CAIXA_JA_ABERTO', { codcaixa: (outra as any).codcaixa });
+
+        // estorna o título de quebra gerado no fechamento (o legado DELETA o ARECEBER na reabertura,
+        // uFechamentoCaixa.pas:967). ENDURECIMENTO consciente: o legado deletava INCONDICIONALMENTE (as
+        // travas quitada/agrupado vinham do lado APAGAR, ExcluiApagarGerado); aqui barramos baixado/
+        // agrupado/em-lote para não desfazer dinheiro/agrupamento por aqui (coerente com o corte-2a).
+        let quebraEstornada: number | null = null;
+        const codrcbQuebra = (s as any).codrcb_quebra as number | null;
+        if (codrcbQuebra != null) {
+          const t = await trx
+            .selectFrom('areceber').select(['codrcb', 'quitada', 'agrupado'])
+            .where('codrcb', '=', codrcbQuebra).where('codempresa', '=', emp)
+            .forUpdate().executeTakeFirst();
+          if (t) {
+            if ((t as any).quitada === 'S') throw new BusinessRuleError('REABERTURA_QUEBRA_BAIXADA', { codrcb: codrcbQuebra });
+            if ((t as any).agrupado === 'S') throw new BusinessRuleError('TITULO_AGRUPADO', { codrcb: codrcbQuebra });
+            const emLote = await trx.selectFrom('itens_lotecob').select('codilotcob').where('codrcb', '=', codrcbQuebra).executeTakeFirst();
+            if (emLote) throw new BusinessRuleError('TITULO_EM_LOTE', { codrcb: codrcbQuebra });
+            await trx.deleteFrom('areceber').where('codrcb', '=', codrcbQuebra).where('codempresa', '=', emp).execute();
+            quebraEstornada = codrcbQuebra;
+          }
+        }
+
+        // CAS 'F'→'A' + limpa a conferência do fechamento.
+        const upd = await trx
+          .updateTable('caixa_sessao')
+          .set({
+            status: 'A', dtfechamento: null, saldo_final: null,
+            valor_contado: null, diferenca: null, codrcb_quebra: null,
+            obs: dto?.obs != null ? dto.obs : sql`obs`,
+            usultalteracao: op, dtultimalteracao: sql`now()`,
+          })
+          .where('codcaixa', '=', codcaixa).where('codempresa', '=', emp).where('status', '=', 'F')
+          .executeTakeFirst();
+        if (Number((upd as any)?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('CAIXA_NAO_FECHADO', { codcaixa });
+        return { codcaixa, status: 'A' as const, quebraEstornada };
+      });
+    } catch (e) {
+      // backstop anti-corrida do índice parcial único (reabrir com outra sessão já aberta).
+      if ((e as { code?: string })?.code === '23505') throw new BusinessRuleError('CAIXA_JA_ABERTO');
+      throw e;
+    }
+  }
+
   // ── Wire da BAIXA de A Receber / A Pagar → CAIXA (corte-2) ──
   // Chamados DENTRO da transação da baixa (recebem o `trx` do serviço de baixa), garantindo
   // atomicidade: se o caixa falhar (fechado/saldo/inexistente), a baixa inteira faz rollback.

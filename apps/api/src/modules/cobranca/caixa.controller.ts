@@ -67,4 +67,12 @@ export class CaixaController {
   ) {
     return this.svc.fechar(id, dto as { valorContado?: number; gerarTituloQuebra?: boolean; obs?: string });
   }
+
+  /** Reabre um caixa fechado (F→A): estorna o título de quebra e limpa a conferência. */
+  @Post(':id/reabrir')
+  @HttpCode(200)
+  @RequerAcesso('FRMCAIXA', 'BTNREABRIR')
+  reabrir(@Param('id', ParseIntPipe) id: number, @Body() body: { obs?: string }) {
+    return this.svc.reabrir(id, { obs: body?.obs });
+  }
 }

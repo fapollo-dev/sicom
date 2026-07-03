@@ -39,6 +39,17 @@ export function caixaAtual(): Promise<CaixaAtual | null> {
   return req(`/cobranca/caixa/atual`);
 }
 
+/** Histórico de sessões (para reabrir um caixa fechado). */
+export function listCaixas(situacao?: 'abertos' | 'fechados'): Promise<CaixaSessao[]> {
+  const qs = situacao ? `?situacao=${situacao}&limite=20` : '?limite=20';
+  return req(`/cobranca/caixa${qs}`);
+}
+
+/** Reabre um caixa fechado (F→A): estorna o título de quebra e limpa a conferência. */
+export function reabrirCaixa(codcaixa: number, obs?: string): Promise<{ codcaixa: number; status: 'A'; quebraEstornada: number | null }> {
+  return req(`/cobranca/caixa/${codcaixa}/reabrir`, { method: 'POST', body: JSON.stringify({ obs }) });
+}
+
 /** Abre o caixa do operador (fundo de caixa opcional). */
 export function abrirCaixa(body: AbrirCaixaDto): Promise<{ codcaixa: number; saldoInicial: number; status: 'A' }> {
   return req(`/cobranca/caixa/abrir`, { method: 'POST', body: JSON.stringify(body) });

@@ -2132,6 +2132,79 @@ async function main() {
     // 38.7) o título de quebra é baixável (operador paga de volta).
     const cf7Bx = await fetch(`${base}/${AR}/${cf4Res.codrcbQuebra}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
     check('CONF: título de quebra é baixável (operador paga) → 200', cf7Bx.status === 200, { status: cf7Bx.status });
+
+    // 39) REABERTURA do caixa (corte-2c). F→A, estorna o título de quebra, destrava estorno de baixa.
+    const fecharCx = (cod: number, body: Record<string, unknown> = {}) => fetch(`${base}/${CX}/${cod}/fechar`, { method: 'POST', headers: H, body: JSON.stringify(body) });
+    // 39.1) reabertura simples (sem quebra): abre → fecha → reabre → status A e vira o caixa atual.
+    const rb1 = await cfFresh(100);
+    await fecharCx(rb1);
+    const rb1Re = await fetch(`${base}/${CX}/${rb1}/reabrir`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    const rb1ReJ = (await rb1Re.json().catch(() => ({}))) as any;
+    check('REAB: reabrir caixa fechado → 200 status A', rb1Re.status === 200 && rb1ReJ.status === 'A', { status: rb1Re.status, rb1ReJ });
+    const rb1Atual = (await (await fetch(`${base}/${CX}/atual`, { headers: H })).json().catch(() => ({}))) as any;
+    check('REAB: caixa reaberto vira o caixa aberto atual', Number(rb1Atual?.sessao?.codcaixa) === rb1 && rb1Atual?.sessao?.status === 'A', { s: rb1Atual?.sessao });
+    // 39.2) reabrir caixa ABERTO → 422 CAIXA_NAO_FECHADO.
+    const rb2 = await fetch(`${base}/${CX}/${rb1}/reabrir`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('REAB: reabrir caixa aberto → 422 CAIXA_NAO_FECHADO', rb2.status === 422 && ((await rb2.json().catch(() => ({}))) as any).code === 'CAIXA_NAO_FECHADO', { status: rb2.status });
+    // 39.3) reabrir inexistente → 422 CAIXA_NAO_ENCONTRADO.
+    const rb3 = await fetch(`${base}/${CX}/999999/reabrir`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('REAB: reabrir caixa inexistente → 422 CAIXA_NAO_ENCONTRADO', rb3.status === 422 && ((await rb3.json().catch(() => ({}))) as any).code === 'CAIXA_NAO_ENCONTRADO', { status: rb3.status });
+    // 39.4) CAIXA_JA_ABERTO: fecha rb1, abre outro, tenta reabrir rb1 com outro aberto.
+    await fecharCx(rb1);
+    const rb4b = Number(((await (await fetch(`${base}/${CX}/abrir`, { method: 'POST', headers: H, body: JSON.stringify({ saldoInicial: 0 }) })).json()) as any).codcaixa);
+    const rb4 = await fetch(`${base}/${CX}/${rb1}/reabrir`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('REAB: reabrir com outro caixa já aberto → 422 CAIXA_JA_ABERTO', rb4.status === 422 && ((await rb4.json().catch(() => ({}))) as any).code === 'CAIXA_JA_ABERTO', { status: rb4.status });
+    await fecharCx(rb4b); // cleanup
+    // 39.5) reabertura ESTORNA (deleta) o título de quebra.
+    const rb5 = await cfFresh(100);
+    const rb5Fec = (await (await fecharCx(rb5, { valorContado: 70 })).json()) as any; // quebra -30
+    const rb5codrcb = Number(rb5Fec.codrcbQuebra);
+    check('REAB: fechamento com quebra gerou título', rb5codrcb > 0, { rb5Fec });
+    const rb5Re = (await (await fetch(`${base}/${CX}/${rb5}/reabrir`, { method: 'POST', headers: H, body: JSON.stringify({}) })).json()) as any;
+    check('REAB: reabrir estorna o título de quebra (quebraEstornada = codrcb)', Number(rb5Re.quebraEstornada) === rb5codrcb, { rb5Re });
+    const rb5TitAfter = await (await fetch(`${base}/${AR}/${rb5codrcb}`, { headers: H })).json().catch(() => null);
+    check('REAB: título de quebra some após reabrir', rb5TitAfter == null || Object.keys(rb5TitAfter).length === 0, { rb5TitAfter });
+    await fecharCx(rb5); // cleanup
+    // 39.6) reabertura BLOQUEADA se a quebra já foi baixada → 422 + caixa segue FECHADO.
+    const rb6 = await cfFresh(100);
+    const rb6Fec = (await (await fecharCx(rb6, { valorContado: 60 })).json()) as any; // quebra -40
+    const rb6codrcb = Number(rb6Fec.codrcbQuebra);
+    await fetch(`${base}/${AR}/${rb6codrcb}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) }); // baixa o título (quitada S)
+    const rb6Re = await fetch(`${base}/${CX}/${rb6}/reabrir`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('REAB: reabrir com quebra baixada → 422 REABERTURA_QUEBRA_BAIXADA', rb6Re.status === 422 && ((await rb6Re.json().catch(() => ({}))) as any).code === 'REABERTURA_QUEBRA_BAIXADA', { status: rb6Re.status });
+    const rb6Read = (await (await fetch(`${base}/${CX}/${rb6}`, { headers: H })).json()) as any;
+    check('REAB: caixa segue FECHADO após bloqueio (rollback)', rb6Read.status === 'F', { status: rb6Read.status });
+    // 39.7) reabertura DESTRAVA o estorno de baixa em caixa fechado (corte-2a §37.7).
+    const rb7 = await cfFresh(0);
+    const rb7ar = await wNovoAR(50);
+    await fetch(`${base}/${AR}/${rb7ar}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO' }) }); // saldo 50
+    await fecharCx(rb7);
+    const rb7EstF = await fetch(`${base}/${AR}/${rb7ar}/estornar-baixa`, { method: 'POST', headers: H });
+    check('REAB: estorno de baixa em caixa FECHADO → 422 CAIXA_FECHADO (antes de reabrir)', rb7EstF.status === 422 && ((await rb7EstF.json().catch(() => ({}))) as any).code === 'CAIXA_FECHADO', { status: rb7EstF.status });
+    await fetch(`${base}/${CX}/${rb7}/reabrir`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    const rb7EstA = await fetch(`${base}/${AR}/${rb7ar}/estornar-baixa`, { method: 'POST', headers: H });
+    check('REAB: após reabrir, estorno da baixa funciona → 200 (destravado)', rb7EstA.status === 200, { status: rb7EstA.status });
+    await fecharCx(rb7); // cleanup
+    // 39.8) RBAC sem grant → 403.
+    const rb8 = await cfFresh(0);
+    await fecharCx(rb8);
+    const rb8Rbac = await fetch(`${base}/${CX}/${rb8}/reabrir`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({}) });
+    check('REAB: reabrir sem grant RBAC → 403', rb8Rbac.status === 403, { status: rb8Rbac.status });
+    const pgRb = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    // 39.9) reabrir caixa FECHADO de OUTRO operador → 422 CAIXA_OUTRO_OPERADOR.
+    const rb9 = Number((await pgRb.query(`INSERT INTO caixa_sessao (codempresa, codoperador, dtabertura, dtfechamento, saldo_inicial, saldo_final, status) VALUES (1, 8, now(), now(), 0, 0, 'F') RETURNING codcaixa`)).rows[0].codcaixa);
+    const rb9Re = await fetch(`${base}/${CX}/${rb9}/reabrir`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('REAB: reabrir caixa de outro operador → 422 CAIXA_OUTRO_OPERADOR', rb9Re.status === 422 && ((await rb9Re.json().catch(() => ({}))) as any).code === 'CAIXA_OUTRO_OPERADOR', { status: rb9Re.status });
+    // 39.10) reabrir com título de quebra AGRUPADO → 422 TITULO_AGRUPADO + caixa segue FECHADO.
+    const rb10 = await cfFresh(100);
+    const rb10Fec = (await (await fecharCx(rb10, { valorContado: 55 })).json()) as any; // quebra -45
+    await pgRb.query(`UPDATE areceber SET agrupado='S' WHERE codrcb=$1`, [Number(rb10Fec.codrcbQuebra)]);
+    const rb10Re = await fetch(`${base}/${CX}/${rb10}/reabrir`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('REAB: reabrir com quebra agrupada → 422 TITULO_AGRUPADO', rb10Re.status === 422 && ((await rb10Re.json().catch(() => ({}))) as any).code === 'TITULO_AGRUPADO', { status: rb10Re.status });
+    const rb10Read = (await (await fetch(`${base}/${CX}/${rb10}`, { headers: H })).json()) as any;
+    check('REAB: caixa com quebra agrupada segue FECHADO (rollback)', rb10Read.status === 'F', { status: rb10Read.status });
+    await pgRb.query(`UPDATE areceber SET agrupado='N' WHERE codrcb=$1`, [Number(rb10Fec.codrcbQuebra)]); // restaura p/ não afetar outras seções
+    await pgRb.end();
   } finally {
     await app.close();
     await pg.stop();

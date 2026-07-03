@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
-import { CAIXA_ESPECIE_OPCOES, type CaixaMov } from '@apollo/shared';
+import { CAIXA_ESPECIE_OPCOES, type CaixaMov, type CaixaSessao } from '@apollo/shared';
 import { Button } from '../../shared/ui/Button';
 import { SelectField } from '../../shared/ui/SelectField';
 import { CurrencyField } from '../../shared/ui/CurrencyField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { useMensagem } from '../../shared/mensagem';
 import {
-  caixaAtual, abrirCaixa, movimentarCaixa, estornarMovimentoCaixa, fecharCaixa, type CaixaAtual,
+  caixaAtual, abrirCaixa, movimentarCaixa, estornarMovimentoCaixa, fecharCaixa,
+  listCaixas, reabrirCaixa, type CaixaAtual,
 } from './caixaApi';
 
 const fmtBRL = (n: unknown) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -29,6 +30,7 @@ const especieOptions = CAIXA_ESPECIE_OPCOES.map((o) => ({ value: o.value, label:
 export function CaixaPage() {
   const mensagem = useMensagem();
   const [dados, setDados] = useState<CaixaAtual | null>(null);
+  const [recentes, setRecentes] = useState<CaixaSessao[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [executando, setExecutando] = useState(false);
 
@@ -45,7 +47,9 @@ export function CaixaPage() {
   const recarregar = useCallback(async () => {
     setCarregando(true);
     try {
-      setDados(await caixaAtual());
+      const [d, fechados] = await Promise.all([caixaAtual(), listCaixas('fechados')]);
+      setDados(d);
+      setRecentes(fechados);
     } catch (e) {
       mensagem.erro(e);
     } finally {
@@ -53,6 +57,21 @@ export function CaixaPage() {
     }
   }, [mensagem]);
   useEffect(() => { void recarregar(); }, [recarregar]);
+
+  const onReabrir = async (codcaixa: number) => {
+    if (executando) return;
+    if (!window.confirm(`Reabrir o caixa nº ${codcaixa}? O título de quebra (se houver) será estornado.`)) return;
+    setExecutando(true);
+    try {
+      const r = await reabrirCaixa(codcaixa);
+      mensagem.sucesso(`Caixa nº ${r.codcaixa} reaberto${r.quebraEstornada ? ` — título de quebra ${r.quebraEstornada} estornado.` : '.'}`);
+      await recarregar();
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
 
   const acao = async (fn: () => Promise<unknown>, ok: string) => {
     if (executando) return;
@@ -131,14 +150,30 @@ export function CaixaPage() {
       {carregando ? (
         <small className="text-fg-muted">Carregando o caixa…</small>
       ) : !sessao ? (
-        // ── SEM caixa aberto: abertura ──
-        <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md max-w-md">
-          <strong className="text-fg-default">Nenhum caixa aberto</strong>
-          <small className="text-fg-muted">Abra o caixa para começar a lançar movimentos.</small>
-          <CurrencyField label="&Fundo de caixa (opcional)" value={fundo} onChange={setFundo} />
-          <TextArea label="&Observação" rows={2} value={obsAbertura} onChange={(e) => setObsAbertura(e.target.value)} />
-          <div><Button label="&Abrir caixa" variant="filled" onClick={onAbrir} /></div>
-        </div>
+        // ── SEM caixa aberto: abertura + reabertura de caixas fechados ──
+        <>
+          <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md max-w-md">
+            <strong className="text-fg-default">Nenhum caixa aberto</strong>
+            <small className="text-fg-muted">Abra o caixa para começar a lançar movimentos.</small>
+            <CurrencyField label="&Fundo de caixa (opcional)" value={fundo} onChange={setFundo} />
+            <TextArea label="&Observação" rows={2} value={obsAbertura} onChange={(e) => setObsAbertura(e.target.value)} />
+            <div><Button label="&Abrir caixa" variant="filled" onClick={onAbrir} /></div>
+          </div>
+          {recentes.length > 0 && (
+            <div className="flex flex-col gap-gp-xs rounded-radius-md border border-border bg-bg-surface p-pad-md max-w-2xl">
+              <strong className="text-fg-default">Caixas fechados recentes</strong>
+              {recentes.slice(0, 8).map((c) => (
+                <div key={c.codcaixa} className="flex items-center justify-between gap-gp-sm border-b border-border py-1 last:border-0">
+                  <span className="text-body-sm text-fg-default">
+                    Nº {c.codcaixa} · fechado {fmtDataHora(c.dtfechamento)} · saldo final R$ {fmtBRL(c.saldo_final)}
+                    {Number(c.diferenca) ? ` · ${Number(c.diferenca) < 0 ? 'quebra' : 'sobra'} R$ ${fmtBRL(Math.abs(Number(c.diferenca)))}` : ''}
+                  </span>
+                  <Button label="Reabrir" variant="ghost" onClick={() => void onReabrir(c.codcaixa)} />
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       ) : (
         // ── COM caixa aberto: painel + movimento + lista ──
         <>
