@@ -13,6 +13,7 @@ import { ContasReceberCadMaster } from '../features/areceber/ContasReceberCadMas
 import { ContasPagarCadMaster } from '../features/apagar/ContasPagarCadMaster';
 import { PlanoContasCadMaster } from '../features/plano-contas/PlanoContasCadMaster';
 import { DreRelatorio } from '../features/dre/DreRelatorio';
+import { CaixaPage } from '../features/caixa/CaixaPage';
 import { ParceirosCadMaster } from '../features/parceiros/ParceirosCadMaster';
 import { ProdutoCadMaster } from '../features/produtos/ProdutoCadMaster';
 import { NfCadMaster } from '../features/nf/NfCadMaster';
@@ -41,6 +42,7 @@ export const router = createBrowserRouter([
       { path: '/cobranca/lotes', element: <LotesCobrancaCadMaster /> }, // mestre-detalhe
       { path: '/cadastro/areceber', element: <ContasReceberCadMaster /> }, // contas a receber (cortes 1+2)
       { path: '/cadastro/apagar', element: <ContasPagarCadMaster /> }, // contas a pagar (gêmea)
+      { path: '/cobranca/caixa', element: <CaixaPage /> }, // caixa (sessão + movimento manual, corte-1)
       { path: '/cadastro/plano-contas', element: <PlanoContasCadMaster /> }, // plano de contas (árvore)
       { path: '/contabil/dre', element: <DreRelatorio /> }, // relatório DRE (calculado do diário)
       // tela-coroa NF — mesmo componente, tipo diferente (Entrada/Saída), como Parceiros (papel)

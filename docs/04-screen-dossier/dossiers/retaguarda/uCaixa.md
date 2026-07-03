@@ -1,0 +1,38 @@
+# Dossiê de Tela — CAIXA / TESOURARIA — `uMovCaixa` / `uFechamentoCaixa` / `Utesouraria`
+
+## 0. Cabeçalho (ADR-012)
+
+| Campo | Valor |
+|---|---|
+| **Status** | corte-1 (sessão + movimento manual) ENTREGUE e verde, 2026-07-03. Recon (tela legada + monorepo; Oracle bateu limite) + auditoria adversarial (2 agentes). Verde: shared build · api tsc 0 · api test 123 · smoke **277/0** (22 CAIXA) · web tsc 0 · web test 25 · web build. |
+| **Autor** | Claude (agente de migração) |
+| **Fontes legadas** | `UabertCaixa.pas` (abertura) · `uMovCaixa.pas`+`udmMovCaixa.pas` (movimento manual) · `uLanCaixa.pas` (a prazo) · `uFechamentoCaixa.pas`+`UfinalizaFechamento.pas` (fechamento/quebra) · `Utesouraria.pas`+`UdmTesouraria.pas` (consolidação) · `UIntegracaoContabilFechamentoCaixa.pas`. ⚠️ `UCaixa.pas` é **relatório**, não a tela. |
+
+## 1. Modelo legado (tela legada recon)
+Muitas tabelas com papéis distintos: **`CAIXA`** (movimento financeiro consolidado, c/ CODPLC/TIPORECURSO/CODGRUPO/CONTABILIZADO) · **`CX_VENDAS/CX_PEDIDOS/CX_OS`** (bruto do PDV/balcão/OS por OPERACAO) · **`CAIXA_PDV`** (sessão do PDV: HORAENTRADA/HORASAIDA/CHAVE) · **`TESOURARIA`** (documentos consolidados) · **`MOV_CONTAS_BANCARIAS`** (extrato bancário) · **`SALDO_OPERADOR`** (quebra/sobra). **Cola = `CODGRUPO`** (amarra CX_*↔CAIXA↔SALDO_OPERADOR↔APAGAR.CODGRUPO_FCX↔DIARIO).
+- **Estados:** `Aberto (STATUS null)` → `Fechado PDV (STATUS='F', CODGRUPO)` → `Tesouraria (TESOURARIA='S')` → `Contabilizado (CAIXA.CONTABILIZADO='S')`. Reabertura desfaz do topo.
+- **Recursos** (`uMovCaixa.dfm:691`/`uLanCaixa.dfm:1034`): DINHEIRO/DOC/TRANSFERÊNCIA/DÉBITO/PERMUTA/CHEQUE/CHEQUE-PRÉ/CARTÃO/A-PRAZO. Dinheiro grava só em CAIXA; cheque/transf/débito também em MOV_CONTAS_BANCARIAS+LOTE.
+- **Sinal:** `TPCONTA=1` → saída (valor negativo); senão entrada (`udmMovCaixa.pas:265-281`).
+- **Abertura** (`UabertCaixa.pas:89-142`): fundo de caixa vira **SUPRIMENTO** em CX_VENDAS; travas **1 caixa/operador/dia** (`:212-230`) e **1/PDV/dia** (`:255-273`).
+- **Movimento→AR:** recurso "A PRAZO" gera conta a receber (`uMovCaixa.pas:357-387`).
+- **Fechamento+quebra** (`UfinalizaFechamento`/`uDmFechamentoCaixa.pas:548`): **`SALDO = REAL(contado) − ABS(VALOR(sistema))`** (negativo=quebra→ARECEBER `SitQuebraCaixa`; positivo=sobra `SitSobraCaixa`); grava em `SALDO_OPERADOR`; exclui DESCONTO/ACRESCIMO/SANGRIA/SUPRIMENTO do cálculo. Integração contábil (`UIntegracaoContabilFechamentoCaixa.pas:321`) → DIÁRIO se `INTEGRACAO='AUTOMATICA'`.
+- **Tesouraria** (`Utesouraria.pas:56-182`): consolida recursos (AR/cheque/cartão) e efetiva no cofre/conta (`MOV_CONTAS_BANCARIAS`, `FORMAS_PGTO.PLCCOFRE`).
+- **Travas:** período contábil fechado bloqueia movimento (`uMovCaixa.pas:300`); editar/excluir só se `CADASTRADO_MANUALMENTE='S'`; reabertura bloqueada se APAGAR gerado já baixado/agrupado.
+
+## 2. Monorepo
+Caixa é **greenfield** (nenhuma tabela). AR/AP e NF já apontam o caixa como dependência de corte-3 (recursos de baixa): `areceber-baixa.service.ts:20`, `apagar-baixa.service.ts:16`, `uCadAReceber.md:78`, `uNF.md:210/399`. `contas_bancarias` (004) existe (alvo da tesouraria). Molde stateful validado (`areceber-baixa`: transação+forUpdate+CAS+tenant+operador). Caixa é **por operador+empresa** (`currentTenant().operadorId`/`.empresaId`). ⚠️ Não há tabela `operadores` migrada — `codoperador` circula como inteiro (header + `permissoes`).
+
+## 3. Plano de cortes
+- **Corte-1 (ESTE) — sessão + movimento manual:** modelo **LIMPO** (simplificação consciente das ~6 tabelas): `caixa_sessao` (codcaixa PK, codempresa, codoperador, dtabertura/dtfechamento, saldo_inicial, saldo_final, status A/F; **1 aberta por operador+empresa** via índice parcial único) + `caixa_mov` (codmov PK, codcaixa FK, tipo E/S, especie SANGRIA/SUPRIMENTO/ENTRADA/SAIDA, recurso, valor, **indr I/E estorno-lógico**, ganchos codrcbbx/codapgbx/codconta p/ corte-2). Serviço stateful `caixa.service` (abrir com CAS anti-2ª-sessão · movimentar só na sessão aberta do próprio operador, **saldo≥0 nas saídas** · fechar com CAS status A→F, **só o dono** · estornarMovimento lógico). View `get_caixa_sessao` (saldo_corrente = saldo_inicial + Σ movs I). Front `CaixaPage` (abrir / painel saldo+movimentos / fechar). RBAC `FRMCAIXA`.
+  - **Divergências CONSCIENTES do legado (hardening do corte-1, não fidelidade):**
+    - **`CAIXA_SALDO_INSUFICIENTE`** (saldo≥0 nas saídas, `caixa.service.ts:146`) é **regra NOVA** — o legado **permite caixa negativo** (não há trava de saldo em `uMovCaixa`; o único `VALOR<0` é a normalização de sinal em `udmMovCaixa.pas:276`). Decisão de segurança; reversível se o legado exigir caixa negativo.
+    - **1 aberto por operador+empresa** (índice `ux_caixa_sessao_aberta`) é **mais estrito** que o legado, que é **1 por operador POR DIA** (`sqqVerifica`, `UabertCaixa.dfm:744` — `TRUNC(DATA)=:DATA AND STATUS IS NULL`). Simplificação coerente com o modelo limpo (sem recorte de dia).
+    - **Fechar só o dono** (`CAIXA_OUTRO_OPERADOR`, `caixa.service.ts:203`) é **mais estrito** que o legado, que permite **terceiro-com-permissão** fechar (`uFechamentoCaixa.pas:1549` seleciona o operador de uma lista, gated por `vbbPermissaoFechar :297`, não pela identidade do dono).
+- **Corte-2 — integração:** **wire da baixa AR/AP → caixa** (recurso na baixa lança `caixa_mov` na sessão aberta — destrava os recursos de AR/AP) + conferência/quebra no fechamento (`SALDO_OPERADOR`, contado×sistema) + integração contábil do fechamento (DIÁRIO, situações SitFechamento/Sobra/Quebra) + tesouraria (movimento de `contas_bancarias`) + recursos completos (cheque/cartão) + período-fechado + reabertura + fidelidade coluna-a-coluna do Oracle (re-rodar recon Oracle).
+  - **Validações de movimento ADIADAS (fiéis ao legado, junto com a contabilização):** **CODPLC (plano de contas) obrigatório no movimento manual** (`uMovCaixa.pas:278` — é a 1ª validação do gravar; hoje `caixa_mov` nem tem coluna `codplc`) · **parceiro obrigatório se recurso≠DINHEIRO** (`uMovCaixa.pas:285`) · **situação do documento** (`:165`). O corte-1 só grava dinheiro manual sem classificação contábil — o campo contábil/parceiro entra com o wire contábil.
+
+## 3b. Auditoria do corte-1 (2026-07-03)
+Dois auditores adversariais (paridade/regras vs. legado; regressão/segurança/multi-tenant). Veredito: **0 ALTA, 0 bug de código**; núcleo fiel ao molde `areceber-baixa` (tenant+operador fail-closed, CAS, estorno lógico, whitelist anti-injeção, isolamento cross-tenant inclusive no innerJoin do estorno, ordem de rota `/atual`>`/:id`, migração só-cria, tipos casam). **1 MÉDIA corrigida (código):** corrida em `abrir()` — `forUpdate` não trava linha inexistente (MVCC), então duas aberturas concorrentes passavam o check e a 2ª violava o índice parcial único → 23505 vazava como **409 DUPLICADO** (msg crua) em vez de 422 `CAIXA_JA_ABERTO`. Corrigido: `abrir()` captura o 23505 e re-lança `CAIXA_JA_ABERTO` (`caixa.service.ts:132`); smoke §36.19 cobre (2 aberturas concorrentes → 1×200 + 1×422, nunca 409). **2 MÉDIA de honestidade do dossiê** (não-código) corrigidas acima (§3): `CAIXA_SALDO_INSUFICIENTE` marcado como regra NOVA; CODPLC/parceiro/situação listados como adiados com procedência. **1 BAIXA** (só-o-dono-fecha mais estrito) documentada em §3.
+
+## 4. Riscos
+Modelo legado tem 6 tabelas + CODGRUPO como cola (corte-1 simplifica p/ sessão+mov; a fidelidade fina é corte-2); quebra por sinal `contado−|sistema|`; reabertura destrutiva (preferir estorno lógico no novo); SQL concatenado no legado (parametrizar); valores mágicos (IDPGTO=1, CODOPERADOR=1); sem tabela `operadores` (codoperador é inteiro solto). Corte-1 é autocontido e não toca AR/AP.

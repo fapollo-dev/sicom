@@ -9,6 +9,8 @@ import { AreceberBaixaService } from './areceber-baixa.service';
 import { ApagarController } from './apagar.controller';
 import { ApagarService } from './apagar.service';
 import { ApagarBaixaService } from './apagar-baixa.service';
+import { CaixaController } from './caixa.controller';
+import { CaixaService } from './caixa.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 
 @Module({
@@ -16,10 +18,12 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
   // mesmo caminho/RBAC e mesmas transações (engine), mas READ enriquecido (master+RAZAO+
   // itens com display columns + juros/total) e validação do "Cobrador" FUN='S'.
   // AreceberController (cadastro/areceber) = CONTAS A RECEBER; ApagarController (cadastro/apagar) = A PAGAR.
-  controllers: [LotesCobrancaController, LotesMdController, AreceberController, ApagarController],
+  // CaixaController (cobranca/caixa) = CAIXA (sessão + movimento manual, corte-1).
+  controllers: [LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController],
   providers: [
     LotesCobrancaService, LoteCobrancaRepository,
     AreceberService, AreceberBaixaService, ApagarService, ApagarBaixaService,
+    CaixaService,
     DatabaseProvider,
   ],
   exports: [LotesCobrancaService],

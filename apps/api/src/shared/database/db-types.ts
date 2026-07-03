@@ -432,6 +432,52 @@ export interface PermissoesTable {
 }
 
 /** Banco de dados de UM tenant. */
+/** CAIXA (048) — sessão do operador (abre/fecha) + movimento manual (estorno lógico via INDR). */
+export interface CaixaSessaoTable {
+  codcaixa: Generated<number>;
+  codempresa: number;
+  codoperador: number | null;
+  dtabertura: Timestamptz | null;
+  dtfechamento: Timestamptz | null;
+  saldo_inicial: number | null;
+  saldo_final: number | null;
+  status: string | null; // 'A' aberta / 'F' fechada
+  obs: string | null;
+  usultalteracao: number | null;
+  dtultimalteracao: Timestamptz | null;
+  dtcadastro: Timestamptz | null;
+}
+export interface CaixaMovTable {
+  codmov: Generated<number>;
+  codcaixa: number;
+  codempresa: number;
+  tipo: string; // 'E' entrada / 'S' saída
+  especie: string; // SUPRIMENTO/SANGRIA/ENTRADA/SAIDA
+  recurso: string | null;
+  valor: number;
+  codrcbbx: number | null; // gancho baixa AR (corte-2)
+  codapgbx: number | null; // gancho baixa AP (corte-2)
+  codconta: number | null; // gancho tesouraria (corte-2)
+  codoperador: number | null;
+  data_operacao: Timestamptz | null;
+  indr: string | null; // 'I' válido / 'E' estornado
+  contabilizado: string | null;
+  obs: string | null;
+}
+/** View GET_CAIXA_SESSAO — sessão + saldo corrente (saldo_inicial + Σ entradas − Σ saídas, INDR='I'). */
+export interface GetCaixaSessaoView {
+  codcaixa: number;
+  codempresa: number;
+  codoperador: number | null;
+  dtabertura: Timestamptz | null;
+  dtfechamento: Timestamptz | null;
+  saldo_inicial: number | null;
+  saldo_final: number | null;
+  status: string | null;
+  obs: string | null;
+  saldo_corrente: number | null;
+}
+
 export interface TenantDB {
   bancos: BancosTable;
   get_bancos: GetBancosView;
@@ -455,6 +501,9 @@ export interface TenantDB {
   dre_estrutura: DreEstruturaTable;
   dre_conta: DreContaTable;
   get_dre_estrutura: GetDreEstruturaView;
+  caixa_sessao: CaixaSessaoTable;
+  caixa_mov: CaixaMovTable;
+  get_caixa_sessao: GetCaixaSessaoView;
   get_itens_lotecob: GetItensLotecobView;
   marcas: MarcasTable;
   get_marcas: GetMarcasView;

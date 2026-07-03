@@ -225,6 +225,18 @@ const CODE_PT: Record<string, string> = {
   // DRE (relatório)
   DRE_PERIODO_OBRIGATORIO: 'Informe as datas inicial e final do período.',
   DRE_PERIODO_INVALIDO: 'A data inicial não pode ser maior que a data final.',
+  // Caixa (uMovCaixa/UabertCaixa/uFechamentoCaixa — sessão + movimento manual)
+  CAIXA_JA_ABERTO: 'Este operador já possui um caixa aberto. Feche o caixa atual antes de abrir outro.',
+  CAIXA_NAO_ABERTO: 'Não há caixa aberto para este operador. Abra o caixa antes de movimentar.',
+  CAIXA_NAO_ENCONTRADO: 'Caixa não encontrado no sistema.',
+  CAIXA_JA_FECHADO: 'Este caixa já está fechado.',
+  CAIXA_FECHADO: 'O caixa está fechado — não é possível estornar movimentos.',
+  CAIXA_OUTRO_OPERADOR: 'Este caixa pertence a outro operador — só o operador dono pode fechá-lo.',
+  CAIXA_ESPECIE_INVALIDA: 'Espécie de movimento inválida.',
+  CAIXA_VALOR_INVALIDO: 'O valor do movimento deve ser maior que zero.',
+  CAIXA_SALDO_INSUFICIENTE: 'Saldo insuficiente no caixa para esta saída.',
+  CAIXA_MOV_NAO_ENCONTRADO: 'Movimento de caixa não encontrado no sistema.',
+  CAIXA_MOV_ESTORNADO: 'Movimento já estornado — não há o que estornar.',
   // NFe / SEFAZ (F6)
   NF_JA_TRANSMITIDA: 'Esta nota fiscal já foi transmitida para a SEFAZ.',
   NF_NAO_AUTORIZADA: 'A nota fiscal não está autorizada pela SEFAZ.',

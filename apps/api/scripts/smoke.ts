@@ -1934,6 +1934,96 @@ async function main() {
     const dreRbac = await fetch(`${base}/cadastro/dre?dataInicio=2026-01-01&dataFim=2026-12-31`, { headers: H_SEM_ACESSO });
     check('DRE: GET sem grant RBAC → 403', dreRbac.status === 403, { status: dreRbac.status });
     await pgDre.end();
+
+    // 36) CAIXA (sessão + movimento manual) — corte-1. Fluxo: abrir → movimentar → estornar → fechar,
+    // com travas (1 aberto/operador, saldo≥0, só o dono fecha) + multi-tenant + RBAC.
+    const CX = 'cobranca/caixa';
+    // (empresa 2 = H_EMP2, já declarado acima) — teste de isolamento multi-tenant.
+    // 36.1) sem caixa aberto → atual = null.
+    const cxAtual0 = await (await fetch(`${base}/${CX}/atual`, { headers: H })).json().catch(() => null);
+    check('CAIXA: atual SEM caixa aberto → null', cxAtual0 === null, { cxAtual0 });
+    // 36.2) abrir (fundo 100) → 200, status A.
+    const cxAbrRes = await fetch(`${base}/${CX}/abrir`, { method: 'POST', headers: H, body: JSON.stringify({ saldoInicial: 100 }) });
+    const cxAbr = (await cxAbrRes.json().catch(() => ({}))) as any;
+    check('CAIXA: abrir → 200 status A saldoInicial 100', cxAbrRes.status === 200 && cxAbr.status === 'A' && Number(cxAbr.saldoInicial) === 100, { status: cxAbrRes.status, cxAbr });
+    const codcaixa = Number(cxAbr.codcaixa);
+    // 36.3) atual → sessão A, saldo corrente 100.
+    const cxAtual1 = (await (await fetch(`${base}/${CX}/atual`, { headers: H })).json().catch(() => ({}))) as any;
+    check('CAIXA: atual COM caixa → status A, saldo corrente 100', cxAtual1?.sessao?.status === 'A' && Number(cxAtual1?.sessao?.saldo_corrente) === 100, { s: cxAtual1?.sessao });
+    // 36.4) abrir de novo → 422 CAIXA_JA_ABERTO (1 caixa por operador+empresa).
+    const cxDup = await fetch(`${base}/${CX}/abrir`, { method: 'POST', headers: H, body: JSON.stringify({ saldoInicial: 50 }) });
+    check('CAIXA: abrir 2ª vez → 422 CAIXA_JA_ABERTO', cxDup.status === 422 && ((await cxDup.json().catch(() => ({}))) as any).code === 'CAIXA_JA_ABERTO', { status: cxDup.status });
+    // 36.5) suprimento 50 → saldo 150 (entrada).
+    const cxSup = await fetch(`${base}/${CX}/movimentar`, { method: 'POST', headers: H, body: JSON.stringify({ especie: 'SUPRIMENTO', valor: 50 }) });
+    const cxSupJ = (await cxSup.json().catch(() => ({}))) as any;
+    check('CAIXA: suprimento 50 → 200 tipo E saldo 150', cxSup.status === 200 && cxSupJ.tipo === 'E' && Number(cxSupJ.saldoCorrente) === 150, { status: cxSup.status, cxSupJ });
+    // 36.6) sangria 30 → saldo 120 (saída).
+    const cxSan = await fetch(`${base}/${CX}/movimentar`, { method: 'POST', headers: H, body: JSON.stringify({ especie: 'SANGRIA', valor: 30 }) });
+    const cxSanJ = (await cxSan.json().catch(() => ({}))) as any;
+    check('CAIXA: sangria 30 → 200 tipo S saldo 120', cxSan.status === 200 && cxSanJ.tipo === 'S' && Number(cxSanJ.saldoCorrente) === 120, { status: cxSan.status, cxSanJ });
+    const codmovSangria = Number(cxSanJ.codmov);
+    // 36.7) sangria além do saldo → 422 CAIXA_SALDO_INSUFICIENTE.
+    const cxIns = await fetch(`${base}/${CX}/movimentar`, { method: 'POST', headers: H, body: JSON.stringify({ especie: 'SANGRIA', valor: 9999 }) });
+    check('CAIXA: sangria > saldo → 422 CAIXA_SALDO_INSUFICIENTE', cxIns.status === 422 && ((await cxIns.json().catch(() => ({}))) as any).code === 'CAIXA_SALDO_INSUFICIENTE', { status: cxIns.status });
+    // 36.8) valor 0 → 400 (schema positivo).
+    const cxZero = await fetch(`${base}/${CX}/movimentar`, { method: 'POST', headers: H, body: JSON.stringify({ especie: 'ENTRADA', valor: 0 }) });
+    check('CAIXA: movimento valor 0 → 400 (schema)', cxZero.status === 400, { status: cxZero.status });
+    // 36.9) estornar a sangria (indr E) → saldo volta a 150.
+    const cxEst = await fetch(`${base}/${CX}/mov/${codmovSangria}/estornar`, { method: 'POST', headers: H });
+    check('CAIXA: estornar sangria → 200 indr E', cxEst.status === 200 && ((await cxEst.json().catch(() => ({}))) as any).indr === 'E', { status: cxEst.status });
+    const cxAtual2 = (await (await fetch(`${base}/${CX}/atual`, { headers: H })).json().catch(() => ({}))) as any;
+    check('CAIXA: após estorno, saldo corrente = 150', Number(cxAtual2?.sessao?.saldo_corrente) === 150, { s: cxAtual2?.sessao });
+    // 36.10) estornar de novo → 422 CAIXA_MOV_ESTORNADO.
+    const cxEst2 = await fetch(`${base}/${CX}/mov/${codmovSangria}/estornar`, { method: 'POST', headers: H });
+    check('CAIXA: estornar 2ª vez → 422 CAIXA_MOV_ESTORNADO', cxEst2.status === 422 && ((await cxEst2.json().catch(() => ({}))) as any).code === 'CAIXA_MOV_ESTORNADO', { status: cxEst2.status });
+    // 36.11) estornar movimento inexistente → 422 CAIXA_MOV_NAO_ENCONTRADO.
+    const cxEstX = await fetch(`${base}/${CX}/mov/999999/estornar`, { method: 'POST', headers: H });
+    check('CAIXA: estornar movimento inexistente → 422 CAIXA_MOV_NAO_ENCONTRADO', cxEstX.status === 422 && ((await cxEstX.json().catch(() => ({}))) as any).code === 'CAIXA_MOV_NAO_ENCONTRADO', { status: cxEstX.status });
+    // 36.12) CAIXA_OUTRO_OPERADOR: semeia caixa aberto do operador 8 (empresa 1) e tenta fechar como op 7.
+    const pgCx = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    const cx8 = await pgCx.query(`INSERT INTO caixa_sessao (codempresa, codoperador, dtabertura, saldo_inicial, status) VALUES (1, 8, now(), 0, 'A') RETURNING codcaixa`);
+    const codcaixa8 = Number(cx8.rows[0].codcaixa);
+    const cxOutro = await fetch(`${base}/${CX}/${codcaixa8}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('CAIXA: fechar caixa de outro operador → 422 CAIXA_OUTRO_OPERADOR', cxOutro.status === 422 && ((await cxOutro.json().catch(() => ({}))) as any).code === 'CAIXA_OUTRO_OPERADOR', { status: cxOutro.status });
+    // 36.13) fechar caixa inexistente → 422 CAIXA_NAO_ENCONTRADO.
+    const cxNF = await fetch(`${base}/${CX}/999999/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('CAIXA: fechar caixa inexistente → 422 CAIXA_NAO_ENCONTRADO', cxNF.status === 422 && ((await cxNF.json().catch(() => ({}))) as any).code === 'CAIXA_NAO_ENCONTRADO', { status: cxNF.status });
+    // 36.14) fechar o caixa do operador → 200, saldo final 150 (= saldo corrente).
+    const cxFec = await fetch(`${base}/${CX}/${codcaixa}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({ obs: 'fechamento smoke' }) });
+    const cxFecJ = (await cxFec.json().catch(() => ({}))) as any;
+    check('CAIXA: fechar → 200 status F saldoFinal 150', cxFec.status === 200 && cxFecJ.status === 'F' && Number(cxFecJ.saldoFinal) === 150, { status: cxFec.status, cxFecJ });
+    // 36.15) fechar de novo → 422 CAIXA_JA_FECHADO.
+    const cxFec2 = await fetch(`${base}/${CX}/${codcaixa}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('CAIXA: fechar 2ª vez → 422 CAIXA_JA_FECHADO', cxFec2.status === 422 && ((await cxFec2.json().catch(() => ({}))) as any).code === 'CAIXA_JA_FECHADO', { status: cxFec2.status });
+    // 36.16) após fechar: atual = null e movimentar → 422 CAIXA_NAO_ABERTO.
+    const cxAtual3 = await (await fetch(`${base}/${CX}/atual`, { headers: H })).json().catch(() => null);
+    check('CAIXA: após fechar, atual → null', cxAtual3 === null, { cxAtual3 });
+    const cxMovFechado = await fetch(`${base}/${CX}/movimentar`, { method: 'POST', headers: H, body: JSON.stringify({ especie: 'ENTRADA', valor: 10 }) });
+    check('CAIXA: movimentar sem caixa aberto → 422 CAIXA_NAO_ABERTO', cxMovFechado.status === 422 && ((await cxMovFechado.json().catch(() => ({}))) as any).code === 'CAIXA_NAO_ABERTO', { status: cxMovFechado.status });
+    // 36.17) multi-tenant: empresa 2 abre caixa independente; empresa 1 (op 7) não vê a de empresa 2.
+    const cxEmp2 = await fetch(`${base}/${CX}/abrir`, { method: 'POST', headers: H_EMP2, body: JSON.stringify({ saldoInicial: 500 }) });
+    check('CAIXA: empresa 2 abre caixa independente → 200', cxEmp2.status === 200, { status: cxEmp2.status });
+    const cxEmp2Atual = (await (await fetch(`${base}/${CX}/atual`, { headers: H_EMP2 })).json().catch(() => ({}))) as any;
+    check('CAIXA: empresa 2 vê seu caixa (saldo 500)', Number(cxEmp2Atual?.sessao?.saldo_corrente) === 500, { s: cxEmp2Atual?.sessao });
+    const cxEmp1Atual = await (await fetch(`${base}/${CX}/atual`, { headers: H })).json().catch(() => null);
+    check('CAIXA: empresa 1 NÃO vê o caixa da empresa 2 (isolamento) → null', cxEmp1Atual === null, { cxEmp1Atual });
+    // 36.18) RBAC sem grant → 403.
+    const cxRbac = await fetch(`${base}/${CX}/abrir`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ saldoInicial: 1 }) });
+    check('CAIXA: abrir sem grant RBAC → 403', cxRbac.status === 403, { status: cxRbac.status });
+    // 36.19) anti-corrida: 2 aberturas concorrentes (op 7 / empresa 1, sem caixa aberto) → exatamente
+    // 1×200 e 1×422 CAIXA_JA_ABERTO. Cobre o caminho do índice parcial único traduzido (nunca 409 DUPLICADO).
+    const [rc1, rc2] = await Promise.all([
+      fetch(`${base}/${CX}/abrir`, { method: 'POST', headers: H, body: JSON.stringify({ saldoInicial: 10 }) }),
+      fetch(`${base}/${CX}/abrir`, { method: 'POST', headers: H, body: JSON.stringify({ saldoInicial: 20 }) }),
+    ]);
+    const rcSt = [rc1.status, rc2.status].sort((a, b) => a - b);
+    const rcBodies = (await Promise.all([rc1.json().catch(() => ({})), rc2.json().catch(() => ({}))])) as any[];
+    check(
+      'CAIXA: 2 aberturas concorrentes → 1×200 + 1×422 CAIXA_JA_ABERTO (anti-corrida, sem 409)',
+      rcSt[0] === 200 && rcSt[1] === 422 && rcBodies.some((b) => b?.code === 'CAIXA_JA_ABERTO'),
+      { rcSt, codes: rcBodies.map((b) => b?.code) },
+    );
+    await pgCx.end();
   } finally {
     await app.close();
     await pg.stop();
