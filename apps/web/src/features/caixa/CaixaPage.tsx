@@ -39,6 +39,8 @@ export function CaixaPage() {
   const [especie, setEspecie] = useState<string>('SUPRIMENTO');
   const [valor, setValor] = useState<number | undefined>(undefined);
   const [obsMov, setObsMov] = useState('');
+  // conferência do fechamento (opcional)
+  const [valorContado, setValorContado] = useState<number | undefined>(undefined);
 
   const recarregar = useCallback(async () => {
     setCarregando(true);
@@ -80,10 +82,24 @@ export function CaixaPage() {
 
   const onEstornar = (codmov: number) => acao(() => estornarMovimentoCaixa(codmov), 'Movimento estornado.');
 
-  const onFechar = () => {
+  const onFechar = async () => {
     const codcaixa = dados?.sessao?.codcaixa;
-    if (codcaixa == null) return;
-    void acao(() => fecharCaixa(codcaixa), 'Caixa fechado com sucesso.');
+    if (codcaixa == null || executando) return;
+    setExecutando(true);
+    try {
+      const r = await fecharCaixa(codcaixa, { valorContado });
+      let msg = `Caixa nº ${r.codcaixa} fechado. Saldo esperado R$ ${fmtBRL(r.saldoFinal)}.`;
+      if (r.classificacao === 'QUEBRA') msg += ` QUEBRA de R$ ${fmtBRL(Math.abs(Number(r.diferenca)))}${r.codrcbQuebra ? ` — título A Receber nº ${r.codrcbQuebra} gerado contra o operador.` : '.'}`;
+      else if (r.classificacao === 'SOBRA') msg += ` SOBRA de R$ ${fmtBRL(Math.abs(Number(r.diferenca)))}.`;
+      else if (r.classificacao === 'OK') msg += ' Conferência OK (sem diferença).';
+      mensagem.sucesso(msg);
+      setValorContado(undefined);
+      await recarregar();
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
   };
 
   const columns = useMemo<DataTableColumnDef<CaixaMov>[]>(
@@ -135,7 +151,10 @@ export function CaixaPage() {
               <small className="text-fg-muted">Saldo corrente</small>
               <strong className="text-2xl text-fg-default">R$ {fmtBRL(sessao.saldo_corrente)}</strong>
             </div>
-            <div><Button label="&Fechar caixa" variant="outline" onClick={onFechar} /></div>
+            <div className="flex items-end gap-gp-sm">
+              <div className="w-40"><CurrencyField label="Valor &contado" value={valorContado} onChange={setValorContado} /></div>
+              <Button label="&Fechar caixa" variant="outline" onClick={() => void onFechar()} />
+            </div>
           </div>
 
           <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">

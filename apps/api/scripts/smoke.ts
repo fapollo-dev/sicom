@@ -2086,6 +2086,52 @@ async function main() {
     const wDtAtual = (await (await fetch(`${base}/${CX}/atual`, { headers: H })).json().catch(() => ({}))) as any;
     const wDtMov = (wDtAtual?.movimentos ?? []).find((m: any) => Number(m.valor) === 20 && m.especie === 'RECEBIMENTO');
     check('WIRE: caixa_mov usa a data da baixa (dtpgto), não now()', String(wDtMov?.data_operacao ?? '').startsWith('2027-05-05'), { data: wDtMov?.data_operacao });
+
+    // 38) CONFERÊNCIA + QUEBRA/SOBRA no fechamento (corte-2b). diferença = contado − esperado(=saldo).
+    const cfFresh = async (fundo: number): Promise<number> => {
+      const a = await (await fetch(`${base}/${CX}/atual`, { headers: H })).json().catch(() => null);
+      if (a?.sessao?.codcaixa) await fetch(`${base}/${CX}/${a.sessao.codcaixa}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+      const o = (await (await fetch(`${base}/${CX}/abrir`, { method: 'POST', headers: H, body: JSON.stringify({ saldoInicial: fundo }) })).json()) as any;
+      return Number(o.codcaixa);
+    };
+    // 38.1) fechar SEM contagem = corte-1 (backward-compat): saldoFinal=100, sem conferência.
+    const cf1 = await cfFresh(100);
+    const cf1Res = (await (await fetch(`${base}/${CX}/${cf1}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) })).json()) as any;
+    check('CONF: fechar sem contagem = corte-1 (saldoFinal 100, sem classificação)', Number(cf1Res.saldoFinal) === 100 && cf1Res.classificacao == null && cf1Res.diferenca == null, { cf1Res });
+    // 38.2) conferência OK (contado = esperado).
+    const cf2 = await cfFresh(100);
+    const cf2Res = (await (await fetch(`${base}/${CX}/${cf2}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({ valorContado: 100 }) })).json()) as any;
+    check('CONF: contado = esperado → OK (diferença 0, sem título)', cf2Res.classificacao === 'OK' && Number(cf2Res.diferenca) === 0 && cf2Res.codrcbQuebra == null, { cf2Res });
+    // 38.3) SOBRA (contado > esperado) — sem título.
+    const cf3 = await cfFresh(100);
+    const cf3Res = (await (await fetch(`${base}/${CX}/${cf3}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({ valorContado: 130 }) })).json()) as any;
+    check('CONF: contado > esperado → SOBRA +30, sem título financeiro', cf3Res.classificacao === 'SOBRA' && Number(cf3Res.diferenca) === 30 && cf3Res.codrcbQuebra == null, { cf3Res });
+    // 38.4) QUEBRA (contado < esperado) → título A Receber contra o parceiro do operador.
+    const cf4 = await cfFresh(100);
+    const cf4Res = (await (await fetch(`${base}/${CX}/${cf4}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({ valorContado: 70 }) })).json()) as any;
+    check('CONF: contado < esperado → QUEBRA -30 + título gerado', cf4Res.classificacao === 'QUEBRA' && Number(cf4Res.diferenca) === -30 && Number(cf4Res.codrcbQuebra) > 0, { cf4Res });
+    const cf4Tit = (await (await fetch(`${base}/${AR}/${cf4Res.codrcbQuebra}`, { headers: H })).json()) as any;
+    check('CONF: título de quebra = ORIGEM Q, valor 30, codparceiro 20 (parceiro do op 7), quitada N, duplicata=codrcb', cf4Tit.origem === 'Q' && Number(cf4Tit.valor) === 30 && Number(cf4Tit.codparceiro) === 20 && cf4Tit.quitada !== 'S' && String(cf4Tit.duplicata) === String(cf4Res.codrcbQuebra), { cf4Tit });
+    // 38.5) QUEBRA sem gerar título (gerarTituloQuebra=false) → só registra a diferença.
+    const cf5 = await cfFresh(100);
+    const cf5Res = (await (await fetch(`${base}/${CX}/${cf5}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({ valorContado: 80, gerarTituloQuebra: false }) })).json()) as any;
+    check('CONF: QUEBRA sem gerarTituloQuebra → diferença -20 registrada, SEM título', cf5Res.classificacao === 'QUEBRA' && Number(cf5Res.diferenca) === -20 && cf5Res.codrcbQuebra == null, { cf5Res });
+    const cf5Read = (await (await fetch(`${base}/${CX}/${cf5}`, { headers: H })).json()) as any;
+    check('CONF: sessão fechada guarda valor_contado 80 e diferenca -20', Number(cf5Read.valor_contado) === 80 && Number(cf5Read.diferenca) === -20, { cf5Read });
+    // 38.6) OPERADOR_SEM_PARCEIRO: quebra sem parceiro do operador → 422 + rollback (caixa segue aberto).
+    const pgCf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    await pgCf.query(`UPDATE operadores SET codparceiro = NULL WHERE codoperador = 7`);
+    const cf6 = await cfFresh(100);
+    const cf6Res = await fetch(`${base}/${CX}/${cf6}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({ valorContado: 90 }) });
+    check('CONF: quebra sem parceiro do operador → 422 OPERADOR_SEM_PARCEIRO', cf6Res.status === 422 && ((await cf6Res.json().catch(() => ({}))) as any).code === 'OPERADOR_SEM_PARCEIRO', { status: cf6Res.status });
+    const cf6Read = (await (await fetch(`${base}/${CX}/${cf6}`, { headers: H })).json()) as any;
+    check('CONF: fechar abortado → caixa segue ABERTO (rollback)', cf6Read.status === 'A', { status: cf6Read.status });
+    await pgCf.query(`UPDATE operadores SET codparceiro = 20 WHERE codoperador = 7`); // restaura
+    await fetch(`${base}/${CX}/${cf6}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({ valorContado: 90 }) }); // cleanup: fecha agora com parceiro
+    await pgCf.end();
+    // 38.7) o título de quebra é baixável (operador paga de volta).
+    const cf7Bx = await fetch(`${base}/${AR}/${cf4Res.codrcbQuebra}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('CONF: título de quebra é baixável (operador paga) → 200', cf7Bx.status === 200, { status: cf7Bx.status });
   } finally {
     await app.close();
     await pg.stop();

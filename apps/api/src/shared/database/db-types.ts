@@ -443,9 +443,21 @@ export interface CaixaSessaoTable {
   saldo_final: number | null;
   status: string | null; // 'A' aberta / 'F' fechada
   obs: string | null;
+  // 049 (conferência/quebra no fechamento)
+  valor_contado: number | null;
+  diferenca: number | null; // contado − esperado; <0 quebra, >0 sobra
+  codrcb_quebra: number | null; // título A Receber gerado na quebra
   usultalteracao: number | null;
   dtultimalteracao: Timestamptz | null;
   dtcadastro: Timestamptz | null;
+}
+/** OPERADORES (049) — mapa mínimo operador→parceiro (quebra é cobrada do funcionário). */
+export interface OperadoresTable {
+  codoperador: number;
+  codparceiro: number | null;
+  nome: string | null;
+  codempresa: number | null;
+  ativo: string | null;
 }
 export interface CaixaMovTable {
   codmov: Generated<number>;
@@ -475,6 +487,9 @@ export interface GetCaixaSessaoView {
   saldo_final: number | null;
   status: string | null;
   obs: string | null;
+  valor_contado: number | null;
+  diferenca: number | null;
+  codrcb_quebra: number | null;
   saldo_corrente: number | null;
 }
 
@@ -504,6 +519,7 @@ export interface TenantDB {
   caixa_sessao: CaixaSessaoTable;
   caixa_mov: CaixaMovTable;
   get_caixa_sessao: GetCaixaSessaoView;
+  operadores: OperadoresTable;
   get_itens_lotecob: GetItensLotecobView;
   marcas: MarcasTable;
   get_marcas: GetMarcasView;

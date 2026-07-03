@@ -81,10 +81,18 @@ export const movimentoCaixaSchema = z.preprocess(
 );
 export type MovimentoCaixaDto = z.infer<typeof movimentoCaixaSchema>;
 
-/** Fechamento de caixa: apenas observação (o saldo final é calculado pelo service). */
+/**
+ * Fechamento de caixa (corte-2b — conferência). SEM `valorContado` = fecha simples (corte-1: saldo
+ * final = saldo corrente). COM `valorContado` = conferência: diferença = contado − esperado; <0 quebra
+ * (gera título A Receber contra o parceiro do operador, se `gerarTituloQuebra`), >0 sobra (só registra).
+ */
 export const fecharCaixaSchema = z.preprocess(
   stripNulls,
-  z.object({ obs: opcional(z.string()) }),
+  z.object({
+    valorContado: dec(z.number().min(0, 'O valor contado não pode ser negativo.')),
+    gerarTituloQuebra: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.boolean().optional()),
+    obs: opcional(z.string()),
+  }),
 );
 export type FecharCaixaDto = z.infer<typeof fecharCaixaSchema>;
 
@@ -100,6 +108,10 @@ export interface CaixaSessao {
   saldo_corrente?: number | string;
   status?: string; // 'A' | 'F'
   obs?: string;
+  // 049 (conferência do fechamento)
+  valor_contado?: number | string;
+  diferenca?: number | string; // contado − esperado; <0 quebra, >0 sobra
+  codrcb_quebra?: number; // título A Receber gerado na quebra
 }
 
 /** Movimento de caixa devolvido pela API (tabela caixa_mov). */

@@ -200,8 +200,17 @@ export class CaixaService {
     });
   }
 
-  /** Fecha o caixa (só o dono; CAS 'A'→'F'); grava saldo_final = saldo corrente. */
-  async fechar(codcaixa: number, dto: { obs?: string }): Promise<{ codcaixa: number; status: 'F'; saldoFinal: number }> {
+  /**
+   * Fecha o caixa (só o dono; CAS 'A'→'F'); grava saldo_final = saldo corrente (o ESPERADO).
+   * CONFERÊNCIA (corte-2b): se `valorContado` vier, calcula a diferença = contado − esperado e a grava
+   * COM SINAL (quebra<0/sobra>0). Quebra (com `gerarTituloQuebra`, default true) gera um título A Receber
+   * `ORIGEM='Q'` contra o PARCEIRO do operador (fiel a UfinalizaFechamento.pas:750-806). Sobra não gera
+   * nada financeiro. Sem `valorContado` = fecha simples (comportamento do corte-1).
+   */
+  async fechar(
+    codcaixa: number,
+    dto: { valorContado?: number; gerarTituloQuebra?: boolean; obs?: string },
+  ): Promise<{ codcaixa: number; status: 'F'; saldoFinal: number; valorContado: number | null; diferenca: number | null; classificacao: 'OK' | 'QUEBRA' | 'SOBRA' | null; codrcbQuebra: number | null }> {
     const emp = this.emp();
     const op = this.opReq();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
@@ -213,18 +222,54 @@ export class CaixaService {
       if ((s as any).status === 'F') throw new BusinessRuleError('CAIXA_JA_FECHADO', { codcaixa });
       if ((s as any).codoperador !== op) throw new BusinessRuleError('CAIXA_OUTRO_OPERADOR', { codcaixa }); // só o dono fecha
 
-      const saldoFinal = await this.saldoCorrente(trx, codcaixa, num((s as any).saldo_inicial));
+      const saldoFinal = await this.saldoCorrente(trx, codcaixa, num((s as any).saldo_inicial)); // esperado
       const setObj: Record<string, unknown> = {
         status: 'F', dtfechamento: sql`now()`, saldo_final: saldoFinal,
         usultalteracao: op, dtultimalteracao: sql`now()`,
       };
       if (dto?.obs != null) setObj.obs = dto.obs;
+
+      // ── conferência (só quando o contado é informado) ──
+      let valorContado: number | null = null;
+      let diferenca: number | null = null;
+      let classificacao: 'OK' | 'QUEBRA' | 'SOBRA' | null = null;
+      let codrcbQuebra: number | null = null;
+      if (dto.valorContado != null) {
+        valorContado = r2(num(dto.valorContado));
+        diferenca = r2(valorContado - saldoFinal); // contado − esperado
+        classificacao = diferenca < 0 ? 'QUEBRA' : diferenca > 0 ? 'SOBRA' : 'OK';
+        setObj.valor_contado = valorContado;
+        setObj.diferenca = diferenca;
+
+        // QUEBRA (falta) → título A Receber contra o parceiro do operador (só se gerarTituloQuebra).
+        if (classificacao === 'QUEBRA' && (dto.gerarTituloQuebra ?? true)) {
+          const oper = await trx.selectFrom('operadores').select('codparceiro').where('codoperador', '=', op).executeTakeFirst();
+          const codparceiro = (oper as any)?.codparceiro ?? null;
+          if (codparceiro == null) throw new BusinessRuleError('OPERADOR_SEM_PARCEIRO', { codoperador: op }); // fiel ao abort do legado (:272)
+          const valorQuebra = r2(Math.abs(diferenca));
+          const arIns = await trx
+            .insertInto('areceber')
+            .values({
+              codempresa: emp, codparceiro, valor: valorQuebra,
+              dtvenda: sql`current_date`, dtvenc: sql`current_date`,
+              origem: 'Q', quitada: 'N', agrupado: 'N', consiliado: 'S', // ORIGEM='Q' (UfinalizaFechamento:1803)
+              obs: `Originado do lançamento de quebra de caixa do operador ${op}, caixa ${codcaixa}.`,
+              usultalteracao: op, dtultimalteracao: sql`now()`, dtcadastro: sql`now()`,
+            })
+            .returning('codrcb').executeTakeFirstOrThrow();
+          codrcbQuebra = Number((arIns as any).codrcb);
+          // duplicata = o próprio CODRCB (UfinalizaFechamento:1793).
+          await trx.updateTable('areceber').set({ duplicata: String(codrcbQuebra) }).where('codrcb', '=', codrcbQuebra).execute();
+          setObj.codrcb_quebra = codrcbQuebra;
+        }
+      }
+
       const upd = await trx
         .updateTable('caixa_sessao').set(setObj)
         .where('codcaixa', '=', codcaixa).where('codempresa', '=', emp).where('status', '=', 'A')
         .executeTakeFirst();
       if (Number((upd as any)?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('CAIXA_JA_FECHADO', { codcaixa });
-      return { codcaixa, status: 'F' as const, saldoFinal };
+      return { codcaixa, status: 'F' as const, saldoFinal, valorContado, diferenca, classificacao, codrcbQuebra };
     });
   }
 

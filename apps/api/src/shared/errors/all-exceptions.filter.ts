@@ -237,6 +237,7 @@ const CODE_PT: Record<string, string> = {
   CAIXA_SALDO_INSUFICIENTE: 'Saldo insuficiente no caixa para esta saída.',
   CAIXA_MOV_NAO_ENCONTRADO: 'Movimento de caixa não encontrado no sistema.',
   CAIXA_MOV_ESTORNADO: 'Movimento já estornado — não há o que estornar.',
+  OPERADOR_SEM_PARCEIRO: 'O operador não tem um parceiro (funcionário) vinculado — não é possível gerar o título de quebra de caixa.',
   // NFe / SEFAZ (F6)
   NF_JA_TRANSMITIDA: 'Esta nota fiscal já foi transmitida para a SEFAZ.',
   NF_NAO_AUTORIZADA: 'A nota fiscal não está autorizada pela SEFAZ.',

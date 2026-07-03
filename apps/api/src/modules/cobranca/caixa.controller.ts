@@ -65,6 +65,6 @@ export class CaixaController {
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(fecharCaixaSchema)) dto: Record<string, unknown>,
   ) {
-    return this.svc.fechar(id, dto);
+    return this.svc.fechar(id, dto as { valorContado?: number; gerarTituloQuebra?: boolean; obs?: string });
   }
 }

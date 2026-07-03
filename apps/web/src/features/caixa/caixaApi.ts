@@ -54,7 +54,10 @@ export function estornarMovimentoCaixa(codmov: number): Promise<{ codmov: number
   return req(`/cobranca/caixa/mov/${codmov}/estornar`, { method: 'POST' });
 }
 
-/** Fecha o caixa (só o dono); grava saldo final. */
-export function fecharCaixa(codcaixa: number, obs?: string): Promise<{ codcaixa: number; status: 'F'; saldoFinal: number }> {
-  return req(`/cobranca/caixa/${codcaixa}/fechar`, { method: 'POST', body: JSON.stringify({ obs }) });
+/** Fecha o caixa (só o dono). Com `valorContado` faz conferência (quebra/sobra + título de quebra). */
+export function fecharCaixa(
+  codcaixa: number,
+  body?: { valorContado?: number; gerarTituloQuebra?: boolean; obs?: string },
+): Promise<{ codcaixa: number; status: 'F'; saldoFinal: number; valorContado: number | null; diferenca: number | null; classificacao: 'OK' | 'QUEBRA' | 'SOBRA' | null; codrcbQuebra: number | null }> {
+  return req(`/cobranca/caixa/${codcaixa}/fechar`, { method: 'POST', body: JSON.stringify(body ?? {}) });
 }
