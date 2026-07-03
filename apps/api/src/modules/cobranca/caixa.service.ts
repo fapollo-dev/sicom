@@ -227,4 +227,74 @@ export class CaixaService {
       return { codcaixa, status: 'F' as const, saldoFinal };
     });
   }
+
+  // ── Wire da BAIXA de A Receber / A Pagar → CAIXA (corte-2) ──
+  // Chamados DENTRO da transação da baixa (recebem o `trx` do serviço de baixa), garantindo
+  // atomicidade: se o caixa falhar (fechado/saldo/inexistente), a baixa inteira faz rollback.
+
+  /**
+   * Lança no caixa ABERTO do operador o valor de uma baixa em DINHEIRO: A Receber → RECEBIMENTO
+   * (entrada); A Pagar → PAGAMENTO (saída, com guarda de saldo≥0). Vincula por codrcbbx/codapgbx.
+   * Exige caixa aberto (CAIXA_NAO_ABERTO) — não se recebe/paga dinheiro sem caixa.
+   */
+  async lancarDaBaixa(
+    trx: AnyDB,
+    p: { origem: 'AR' | 'AP'; valorpg: number; codrcbbx?: number; codapgbx?: number; dtpgto?: string; obs?: string | null },
+  ): Promise<number> {
+    const emp = this.emp();
+    const op = this.opReq();
+    const tipo: 'E' | 'S' = p.origem === 'AR' ? 'E' : 'S';
+    const especie = p.origem === 'AR' ? 'RECEBIMENTO' : 'PAGAMENTO';
+    const valor = r2(num(p.valorpg));
+    if (valor <= 0) throw new BusinessRuleError('CAIXA_VALOR_INVALIDO', { valor });
+
+    const s = await trx
+      .selectFrom('caixa_sessao').select(['codcaixa', 'saldo_inicial'])
+      .where('codempresa', '=', emp).where('codoperador', '=', op).where('status', '=', 'A')
+      .forUpdate().executeTakeFirst();
+    if (!s) throw new BusinessRuleError('CAIXA_NAO_ABERTO');
+
+    if (tipo === 'S') {
+      const saldo = await this.saldoCorrente(trx, (s as any).codcaixa, num((s as any).saldo_inicial));
+      if (r2(saldo - valor) < 0) throw new BusinessRuleError('CAIXA_SALDO_INSUFICIENTE', { saldo, valor });
+    }
+
+    const ins = await trx
+      .insertInto('caixa_mov')
+      .values({
+        codcaixa: (s as any).codcaixa, codempresa: emp, tipo, especie, recurso: 'DINHEIRO', valor,
+        codrcbbx: p.codrcbbx ?? null, codapgbx: p.codapgbx ?? null,
+        // data do movimento = data da baixa (edtDataBaixa no legado, UBaixaAreceber.pas:1266);
+        // fallback now() quando a baixa não informa dtpgto.
+        codoperador: op, data_operacao: p.dtpgto ?? sql`now()`, indr: 'I', obs: p.obs ?? null,
+      })
+      .returning('codmov').executeTakeFirstOrThrow();
+    return Number((ins as any).codmov);
+  }
+
+  /**
+   * Estorna (lógico) o movimento de caixa ligado a uma baixa que está sendo estornada. No-op se a
+   * baixa não gerou movimento (recurso ≠ dinheiro). Se o caixa daquele movimento já foi FECHADO,
+   * bloqueia (CAIXA_FECHADO) — não se desfaz dinheiro de um caixa fechado (reabra-o antes).
+   */
+  async estornarDaBaixa(trx: AnyDB, p: { codrcbbx?: number; codapgbx?: number }): Promise<number | null> {
+    const emp = this.emp();
+    let q = trx
+      .selectFrom('caixa_mov as m')
+      .innerJoin('caixa_sessao as s', 's.codcaixa', 'm.codcaixa')
+      .select(['m.codmov', 's.status'])
+      .where('s.codempresa', '=', emp)
+      .where(sql`coalesce(m.indr,'I')`, '=', 'I');
+    if (p.codrcbbx != null) q = q.where('m.codrcbbx', '=', p.codrcbbx);
+    else if (p.codapgbx != null) q = q.where('m.codapgbx', '=', p.codapgbx);
+    else return null;
+    const m = await q.forUpdate().executeTakeFirst();
+    if (!m) return null; // baixa não gerou movimento de caixa — nada a estornar
+    if ((m as any).status !== 'A') throw new BusinessRuleError('CAIXA_FECHADO', { codmov: (m as any).codmov });
+
+    await trx
+      .updateTable('caixa_mov').set({ indr: 'E', data_operacao: sql`now()` })
+      .where('codmov', '=', (m as any).codmov).where(sql`coalesce(indr,'I')`, '=', 'I').execute();
+    return Number((m as any).codmov);
+  }
 }

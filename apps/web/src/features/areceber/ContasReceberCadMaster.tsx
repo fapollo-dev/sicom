@@ -173,13 +173,14 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarAreceberDto> }) {
   const [dtpgto, setDtpgto] = useState<string | undefined>(hojeISO());
   const [juros, setJuros] = useState<number | undefined>(undefined);
   const [desconto, setDesconto] = useState<number | undefined>(undefined);
+  const [recurso, setRecurso] = useState<string>(''); // '' = sem caixa · 'DINHEIRO' = lança no caixa aberto
   if (codrcb == null) return null;
 
   const baixar = async () => {
     if (executando) return;
     setExecutando(true);
     try {
-      const r = await baixarTitulo(codrcb, { dtpgto, juros, desconto });
+      const r = await baixarTitulo(codrcb, { dtpgto, juros, desconto, recurso: recurso === 'DINHEIRO' ? 'DINHEIRO' : undefined });
       form.setValue('quitada' as any, 'S');
       mensagem.sucesso(`Título baixado: recebido R$ ${fmtBRL(r.valorpg)} (juros R$ ${fmtBRL(r.juros)}).`);
     } catch (e) {
@@ -224,8 +225,16 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarAreceberDto> }) {
           <div className="w-36">
             <NumberField label="&Desconto (R$)" value={desconto} onChange={setDesconto} decimais={2} min={0} />
           </div>
+          <div className="w-44">
+            <SelectField
+              label="&Recurso"
+              options={[{ value: '', label: '— (banco/outro)' }, { value: 'DINHEIRO', label: 'Dinheiro (caixa)' }]}
+              value={recurso}
+              onChange={setRecurso}
+            />
+          </div>
           <Button label="&Baixar título" variant="soft" onClick={() => void baixar()} />
-          <small className="text-fg-muted">Sem juros informado, aplica a fórmula padrão (atraso × taxa).</small>
+          <small className="text-fg-muted">Recurso Dinheiro exige caixa aberto e lança o recebimento nele.</small>
         </div>
       )}
     </fieldset>

@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { CaixaService } from './caixa.service';
 
 type AnyDB = Kysely<any>;
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -17,12 +18,17 @@ const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
  * (default = fórmula legada da view get_areceber) + multa + acréscimo/desconto. Guardas: já quitado,
  * agrupado, e EM LOTE de cobrança (itens_lotecob) — não baixar aqui p/ não dessincronizar o lote.
  * `estornar`: ESTORNO LÓGICO (ARECEBER_BX.INDR='E', não deleta — preserva histórico) + reabre o título.
- * Adiado (corte-3, dossiê §6): baixa PARCIAL (novo título ORIGEM='B'), 10 recursos (caixa/cheque/
+ * Recurso DINHEIRO (corte-2a): lança RECEBIMENTO no caixa aberto do operador (`caixa.lancarDaBaixa`),
+ * na mesma transação; o estorno desfaz o movimento (`caixa.estornarDaBaixa`).
+ * Adiado (corte-3, dossiê §6): baixa PARCIAL (novo título ORIGEM='B'), demais recursos (cheque/
  * cartão/permuta/saldo/troco), contábil da baixa, adiantamento.
  */
 @Injectable()
 export class AreceberBaixaService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly caixa: CaixaService,
+  ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -32,7 +38,7 @@ export class AreceberBaixaService {
 
   async baixar(
     codrcb: number,
-    dto: { dtpgto?: string; juros?: number; multa?: number; desconto?: number; acrescimo?: number; valorpg?: number; obs?: string },
+    dto: { dtpgto?: string; juros?: number; multa?: number; desconto?: number; acrescimo?: number; valorpg?: number; recurso?: string; obs?: string },
   ): Promise<{ codrcb: number; valorpg: number; juros: number; quitada: 'S' }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
@@ -67,13 +73,13 @@ export class AreceberBaixaService {
       if (valorpg <= 0) throw new BusinessRuleError('TITULO_VALOR_INVALIDO', { valorpg });
       const dtpgto = dto.dtpgto ?? sql`current_date`;
 
-      await trx
+      const bxIns = await trx
         .insertInto('areceber_bx')
         .values({
           codrcb, codempresa: emp, valorpg, juros: r2(juros), multa: r2(multa), acre_desc: acre,
           dtpgto, codopbx: op, data_operacao: sql`now()`, indr: 'I', obs: dto.obs ?? null,
         })
-        .execute();
+        .returning('codrcbbx').executeTakeFirstOrThrow();
 
       // quita o título — CAS (quitada='N') p/ idempotência anti-corrida.
       const upd = await trx
@@ -84,6 +90,11 @@ export class AreceberBaixaService {
         .where('quitada', '=', 'N')
         .executeTakeFirst();
       if (Number(upd?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('TITULO_JA_BAIXADO', { codrcb });
+
+      // recurso DINHEIRO → lança RECEBIMENTO (entrada) no caixa aberto do operador (mesma transação).
+      if (String(dto.recurso ?? '').toUpperCase() === 'DINHEIRO') {
+        await this.caixa.lancarDaBaixa(trx, { origem: 'AR', valorpg: r2(valorpg), codrcbbx: Number((bxIns as any).codrcbbx), dtpgto: dto.dtpgto, obs: dto.obs ?? null });
+      }
 
       return { codrcb, valorpg: r2(valorpg), juros: r2(juros), quitada: 'S' };
     });
@@ -123,6 +134,9 @@ export class AreceberBaixaService {
         .set({ indr: 'E', data_operacao: sql`now()` })
         .where('codrcbbx', '=', bx.codrcbbx)
         .execute();
+      // desfaz (lógico) o movimento de caixa dessa baixa, se houve (no-op se recurso ≠ dinheiro;
+      // bloqueia se o caixa já foi fechado). Atômico com o estorno do título.
+      await this.caixa.estornarDaBaixa(trx, { codrcbbx: bx.codrcbbx });
       const upd = await trx
         .updateTable('areceber')
         .set({ quitada: 'N', dtpgto: null, usultalteracao: op, dtultimalteracao: sql`now()` })

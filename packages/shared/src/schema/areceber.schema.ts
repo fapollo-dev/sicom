@@ -91,9 +91,11 @@ export const atualizarAreceberSchema = z
 export type CriarAreceberDto = z.infer<typeof areceberBase>;
 
 /**
- * BAIXA (recebimento) — corte-2 núcleo. Quita o título TOTAL com juros/multa/desconto. Os campos
- * são opcionais: sem valorpg, o service calcula `valor + juros + acréscimo − desconto` e usa a data
- * de hoje. (Baixa parcial / recursos / troco / saldo = corte-3.)
+ * BAIXA (recebimento/pagamento) — corte-2 núcleo. Quita o título TOTAL com juros/multa/desconto. Os
+ * campos são opcionais: sem valorpg, o service calcula `valor + juros + acréscimo − desconto` e usa a
+ * data de hoje. `recurso` (corte-2 do CAIXA): **DINHEIRO** lança o valor no caixa ABERTO do operador
+ * (recebimento=entrada / pagamento=saída), na mesma transação; ausente = baixa sem caixa (dinheiro
+ * foi p/ banco/outro — comportamento do corte-1). Cheque/cartão/permuta/troco/saldo = corte-3.
  */
 export const baixarTituloSchema = z.preprocess(
   stripNulls,
@@ -104,6 +106,7 @@ export const baixarTituloSchema = z.preprocess(
     desconto: dec(z.number().min(0)),
     acrescimo: dec(z.number().min(0)),
     valorpg: dec(z.number().positive('O valor recebido deve ser maior que zero.')),
+    recurso: opcional(z.enum(['DINHEIRO'], { message: 'Recurso de baixa inválido (apenas DINHEIRO no momento).' })),
     obs: opcional(z.string()),
   }),
 );

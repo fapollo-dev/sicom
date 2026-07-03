@@ -151,13 +151,14 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarApagarDto> }) {
   const [dtpgto, setDtpgto] = useState<string | undefined>(hojeISO());
   const [juros, setJuros] = useState<number | undefined>(undefined);
   const [desconto, setDesconto] = useState<number | undefined>(undefined);
+  const [recurso, setRecurso] = useState<string>(''); // '' = sem caixa · 'DINHEIRO' = paga do caixa aberto
   if (codapg == null) return null;
 
   const pagar = async () => {
     if (executando) return;
     setExecutando(true);
     try {
-      const r = await baixarApagar(codapg, { dtpgto, juros, desconto });
+      const r = await baixarApagar(codapg, { dtpgto, juros, desconto, recurso: recurso === 'DINHEIRO' ? 'DINHEIRO' : undefined });
       form.setValue('quitada' as any, 'S');
       mensagem.sucesso(`Título pago: R$ ${fmtBRL(r.valorpg)} (juros R$ ${fmtBRL(r.juros)}).`);
     } catch (e) {
@@ -196,8 +197,16 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarApagarDto> }) {
           <div className="w-44"><DateField label="Data do &pagamento" value={dtpgto} onChange={setDtpgto} /></div>
           <div className="w-36"><NumberField label="&Juros (R$)" value={juros} onChange={setJuros} decimais={2} min={0} /></div>
           <div className="w-36"><NumberField label="&Desconto (R$)" value={desconto} onChange={setDesconto} decimais={2} min={0} /></div>
+          <div className="w-44">
+            <SelectField
+              label="&Recurso"
+              options={[{ value: '', label: '— (banco/outro)' }, { value: 'DINHEIRO', label: 'Dinheiro (caixa)' }]}
+              value={recurso}
+              onChange={setRecurso}
+            />
+          </div>
           <Button label="&Pagar título" variant="soft" onClick={() => void pagar()} />
-          <small className="text-fg-muted">Sem juros informado, aplica a fórmula padrão (atraso × taxa).</small>
+          <small className="text-fg-muted">Recurso Dinheiro exige caixa aberto e paga a partir dele.</small>
         </div>
       )}
     </fieldset>

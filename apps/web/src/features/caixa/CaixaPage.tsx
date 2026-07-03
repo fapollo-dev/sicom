@@ -12,7 +12,12 @@ import {
 
 const fmtBRL = (n: unknown) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDataHora = (s?: string) => (s ? new Date(s).toLocaleString('pt-BR') : '');
-const ESPECIE_LABEL = new Map<string, string>(CAIXA_ESPECIE_OPCOES.map((o) => [o.value, o.label]));
+const ESPECIE_LABEL = new Map<string, string>([
+  ...CAIXA_ESPECIE_OPCOES.map((o) => [o.value, o.label] as [string, string]),
+  // espécies AUTOMÁTICAS (geradas pela baixa de A Receber/A Pagar — corte-2, não selecionáveis à mão)
+  ['RECEBIMENTO', 'Recebimento (A Receber)'],
+  ['PAGAMENTO', 'Pagamento (A Pagar)'],
+]);
 const especieOptions = CAIXA_ESPECIE_OPCOES.map((o) => ({ value: o.value, label: o.label }));
 
 /**

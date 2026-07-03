@@ -2024,6 +2024,68 @@ async function main() {
       { rcSt, codes: rcBodies.map((b) => b?.code) },
     );
     await pgCx.end();
+
+    // 37) WIRE da baixa A Receber / A Pagar → CAIXA (corte-2). Recurso DINHEIRO lança no caixa aberto.
+    const wSaldo = async () => Number(((await (await fetch(`${base}/${CX}/atual`, { headers: H })).json().catch(() => ({}))) as any)?.sessao?.saldo_corrente);
+    const wNovoAR = async (valor: number) =>
+      Number(((await (await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-01-01', dtvenc: '2030-01-01', valor }) })).json()) as any).codrcb);
+    const wNovoAP = async (valor: number) =>
+      Number(((await (await fetch(`${base}/${AP}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-01-01', dtvenc: '2030-01-01', valor }) })).json()) as any).codapg);
+    // 37.0) setup: caixa aberto limpo (fecha o que sobrou do §36.19) com fundo 1000.
+    const wPre = await (await fetch(`${base}/${CX}/atual`, { headers: H })).json().catch(() => null);
+    if (wPre?.sessao?.codcaixa) await fetch(`${base}/${CX}/${wPre.sessao.codcaixa}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    const wAbr = (await (await fetch(`${base}/${CX}/abrir`, { method: 'POST', headers: H, body: JSON.stringify({ saldoInicial: 1000 }) })).json()) as any;
+    const wCaixa = Number(wAbr.codcaixa);
+    check('WIRE: setup caixa aberto fundo 1000', (await wSaldo()) === 1000, { wCaixa });
+    // 37.1) baixa A Receber (100) recurso DINHEIRO → RECEBIMENTO entrada; saldo 1000→1100.
+    const wAr = await wNovoAR(100);
+    const wArBx = await fetch(`${base}/${AR}/${wAr}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO' }) });
+    check('WIRE: baixa AR dinheiro → 200 e caixa +100 (saldo 1100)', wArBx.status === 200 && (await wSaldo()) === 1100, { status: wArBx.status });
+    const wMov = (await (await fetch(`${base}/${CX}/atual`, { headers: H })).json().catch(() => ({}))) as any;
+    check('WIRE: caixa tem movimento RECEBIMENTO ligado ao codrcbbx', (wMov?.movimentos ?? []).some((m: any) => m.especie === 'RECEBIMENTO' && m.tipo === 'E' && Number(m.valor) === 100 && m.codrcbbx != null), { movs: wMov?.movimentos });
+    // 37.2) baixa A Pagar (50) recurso DINHEIRO → PAGAMENTO saída; saldo 1100→1050.
+    const wAp = await wNovoAP(50);
+    const wApBx = await fetch(`${base}/${AP}/${wAp}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO' }) });
+    check('WIRE: baixa AP dinheiro → 200 e caixa −50 (saldo 1050)', wApBx.status === 200 && (await wSaldo()) === 1050, { status: wApBx.status });
+    // 37.3) A Pagar dinheiro ALÉM do saldo → 422 CAIXA_SALDO_INSUFICIENTE + rollback (título aberto).
+    const wApBig = await wNovoAP(9999);
+    const wApIns = await fetch(`${base}/${AP}/${wApBig}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO' }) });
+    const wApBigRead = (await (await fetch(`${base}/${AP}/${wApBig}`, { headers: H })).json()) as any;
+    check('WIRE: AP dinheiro > saldo → 422 CAIXA_SALDO_INSUFICIENTE + título NÃO baixado (rollback)', wApIns.status === 422 && ((await wApIns.json().catch(() => ({}))) as any).code === 'CAIXA_SALDO_INSUFICIENTE' && wApBigRead.quitada !== 'S' && (await wSaldo()) === 1050, { status: wApIns.status });
+    // 37.4) estorno da baixa AR → RECEBIMENTO estornado; saldo 1050→950.
+    const wArEst = await fetch(`${base}/${AR}/${wAr}/estornar-baixa`, { method: 'POST', headers: H });
+    check('WIRE: estorno baixa AR → 200 e caixa −100 (saldo 950)', wArEst.status === 200 && (await wSaldo()) === 950, { status: wArEst.status });
+    // 37.5) estorno da baixa AP → PAGAMENTO estornado; saldo 950→1000.
+    const wApEst = await fetch(`${base}/${AP}/${wAp}/estornar-baixa`, { method: 'POST', headers: H });
+    check('WIRE: estorno baixa AP → 200 e caixa +50 (saldo 1000)', wApEst.status === 200 && (await wSaldo()) === 1000, { status: wApEst.status });
+    // 37.6) backward-compat: baixa SEM recurso não toca o caixa (saldo inalterado).
+    const wArSem = await wNovoAR(30);
+    const wArSemBx = await fetch(`${base}/${AR}/${wArSem}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('WIRE: baixa SEM recurso → 200 e caixa inalterado (saldo 1000)', wArSemBx.status === 200 && (await wSaldo()) === 1000, { status: wArSemBx.status });
+    // 37.7) estorno de baixa-dinheiro com CAIXA FECHADO → 422 CAIXA_FECHADO + título segue quitado (rollback).
+    const wArFec = await wNovoAR(60);
+    await fetch(`${base}/${AR}/${wArFec}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO' }) }); // saldo 1060
+    await fetch(`${base}/${CX}/${wCaixa}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) }); // fecha o caixa
+    const wArFecEst = await fetch(`${base}/${AR}/${wArFec}/estornar-baixa`, { method: 'POST', headers: H });
+    const wArFecRead = (await (await fetch(`${base}/${AR}/${wArFec}`, { headers: H })).json()) as any;
+    check('WIRE: estorno baixa-dinheiro em caixa FECHADO → 422 CAIXA_FECHADO + título segue quitado', wArFecEst.status === 422 && ((await wArFecEst.json().catch(() => ({}))) as any).code === 'CAIXA_FECHADO' && wArFecRead.quitada === 'S', { status: wArFecEst.status });
+    // 37.8) SEM caixa aberto: baixa dinheiro → 422 CAIXA_NAO_ABERTO + título NÃO baixado.
+    const wArNoCx = await wNovoAR(40);
+    const wArNoCxBx = await fetch(`${base}/${AR}/${wArNoCx}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO' }) });
+    const wArNoCxRead = (await (await fetch(`${base}/${AR}/${wArNoCx}`, { headers: H })).json()) as any;
+    check('WIRE: baixa dinheiro sem caixa aberto → 422 CAIXA_NAO_ABERTO + título NÃO baixado', wArNoCxBx.status === 422 && ((await wArNoCxBx.json().catch(() => ({}))) as any).code === 'CAIXA_NAO_ABERTO' && wArNoCxRead.quitada !== 'S', { status: wArNoCxBx.status });
+    // 37.9) recurso inválido (schema) → 400.
+    const wArBad = await wNovoAR(10);
+    const wArBadBx = await fetch(`${base}/${AR}/${wArBad}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'CHEQUE' }) });
+    check('WIRE: recurso inválido (CHEQUE, corte-3) → 400 (schema)', wArBadBx.status === 400, { status: wArBadBx.status });
+    // 37.10) fidelidade da data: caixa aberto novo + baixa dinheiro com dtpgto retroativo → o
+    // caixa_mov usa a DATA DA BAIXA (edtDataBaixa no legado), não now().
+    await fetch(`${base}/${CX}/abrir`, { method: 'POST', headers: H, body: JSON.stringify({ saldoInicial: 0 }) });
+    const wArDt = await wNovoAR(20);
+    await fetch(`${base}/${AR}/${wArDt}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO', dtpgto: '2027-05-05' }) });
+    const wDtAtual = (await (await fetch(`${base}/${CX}/atual`, { headers: H })).json().catch(() => ({}))) as any;
+    const wDtMov = (wDtAtual?.movimentos ?? []).find((m: any) => Number(m.valor) === 20 && m.especie === 'RECEBIMENTO');
+    check('WIRE: caixa_mov usa a data da baixa (dtpgto), não now()', String(wDtMov?.data_operacao ?? '').startsWith('2027-05-05'), { data: wDtMov?.data_operacao });
   } finally {
     await app.close();
     await pg.stop();

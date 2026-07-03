@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { CaixaService } from './caixa.service';
 
 type AnyDB = Kysely<any>;
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -12,12 +13,17 @@ const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
  * BAIXA/PAGAMENTO de CONTAS A PAGAR — corte-2 núcleo. Gêmea de `areceber-baixa.service.ts` (mesmo
  * molde: transação + FOR UPDATE + CAS + tenant codempresa; estorno LÓGICO via APAGAR_BX.INDR='E').
  * Já nasce com as correções auditadas em A Receber: valorpg>0 (`TITULO_VALOR_INVALIDO`) e estorno
- * por PK (codapgbx). NÃO tem a trava "em lote de cobrança" (isso é de recebíveis). Adiado (corte-3):
- * baixa parcial, recursos (caixa/cheque/cartão), contábil do pagamento, período-fechado.
+ * por PK (codapgbx). NÃO tem a trava "em lote de cobrança" (isso é de recebíveis). Recurso DINHEIRO
+ * (corte-2a): lança PAGAMENTO (saída) no caixa aberto do operador (`caixa.lancarDaBaixa`), na mesma
+ * transação; o estorno desfaz o movimento. Adiado (corte-3): baixa parcial, demais recursos (cheque/
+ * cartão), contábil do pagamento, período-fechado.
  */
 @Injectable()
 export class ApagarBaixaService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly caixa: CaixaService,
+  ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -27,7 +33,7 @@ export class ApagarBaixaService {
 
   async baixar(
     codapg: number,
-    dto: { dtpgto?: string; juros?: number; multa?: number; desconto?: number; acrescimo?: number; valorpg?: number; obs?: string },
+    dto: { dtpgto?: string; juros?: number; multa?: number; desconto?: number; acrescimo?: number; valorpg?: number; recurso?: string; obs?: string },
   ): Promise<{ codapg: number; valorpg: number; juros: number; quitada: 'S' }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
@@ -55,13 +61,13 @@ export class ApagarBaixaService {
       if (valorpg <= 0) throw new BusinessRuleError('TITULO_VALOR_INVALIDO', { valorpg });
       const dtpgto = dto.dtpgto ?? sql`current_date`;
 
-      await trx
+      const bxIns = await trx
         .insertInto('apagar_bx')
         .values({
           codapg, codempresa: emp, valorpg, juros: r2(juros), multa: r2(multa), acre_desc: acre,
           dtpgto, codopbx: op, data_operacao: sql`now()`, indr: 'I', obs: dto.obs ?? null,
         })
-        .execute();
+        .returning('codapgbx').executeTakeFirstOrThrow();
 
       const upd = await trx
         .updateTable('apagar')
@@ -71,6 +77,11 @@ export class ApagarBaixaService {
         .where('quitada', '=', 'N')
         .executeTakeFirst();
       if (Number(upd?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('TITULO_JA_BAIXADO', { codapg });
+
+      // recurso DINHEIRO → lança PAGAMENTO (saída, com guarda de saldo≥0) no caixa aberto do operador.
+      if (String(dto.recurso ?? '').toUpperCase() === 'DINHEIRO') {
+        await this.caixa.lancarDaBaixa(trx, { origem: 'AP', valorpg: r2(valorpg), codapgbx: Number((bxIns as any).codapgbx), dtpgto: dto.dtpgto, obs: dto.obs ?? null });
+      }
 
       return { codapg, valorpg: r2(valorpg), juros: r2(juros), quitada: 'S' };
     });
@@ -103,6 +114,8 @@ export class ApagarBaixaService {
 
       // estorno LÓGICO da linha lida (codapgbx) — não deleta, reabre o título.
       await trx.updateTable('apagar_bx').set({ indr: 'E', data_operacao: sql`now()` }).where('codapgbx', '=', bx.codapgbx).execute();
+      // desfaz (lógico) o movimento de caixa dessa baixa, se houve (no-op se ≠ dinheiro; bloqueia se caixa fechado).
+      await this.caixa.estornarDaBaixa(trx, { codapgbx: bx.codapgbx });
       const upd = await trx
         .updateTable('apagar')
         .set({ quitada: 'N', dtpgto: null, usultalteracao: op, dtultimalteracao: sql`now()` })
