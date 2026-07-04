@@ -481,6 +481,46 @@ export interface GrupoOperadorTable {
   idgrupo: number;
   descricao: string;
 }
+/** FORMAS_PGTO (052) — formas de pagamento/modalidades por empresa; 3 vínculos p/ o Caixa corte-2d. */
+export interface FormasPgtoTable {
+  idpgto: Generated<number>;
+  idempresa: number;
+  modalidade: string;
+  atalho: string;
+  destino: string | null;
+  plccofre: number | null;
+  codcontacorrente: number | null;
+  codplanocontas: number | null;
+  recebe_pdv: string | null;
+  permite_sangria_pdv: string | null;
+  lanc_movimento_individual: string | null;
+  tipo: string | null;
+  inativo: string | null;
+  data_inativo: Timestamptz | null;
+  usultalteracao: number | null;
+  dtultimalteracao: Timestamptz | null;
+  dtcadastro: Timestamptz | null;
+}
+/** View GET_FORMAS_PGTO (052) — cadastro + nomes dos vínculos (conta/cofre/plano de contas). */
+export interface GetFormasPgtoView {
+  idpgto: number;
+  idempresa: number;
+  modalidade: string;
+  atalho: string;
+  destino: string | null;
+  plccofre: number | null;
+  cofre: string | null;
+  codcontacorrente: number | null;
+  conta_corrente: string | null;
+  codplanocontas: number | null;
+  conta_contabil: string | null;
+  recebe_pdv: string | null;
+  permite_sangria_pdv: string | null;
+  lanc_movimento_individual: string | null;
+  tipo: string | null;
+  inativo: string | null;
+  data_inativo: Timestamptz | null;
+}
 /** View GET_OPERADORES (051) — núcleo + JOINs de exibição (parceiro/grupo/supervisor). */
 export interface GetOperadoresView {
   codoperador: number;
@@ -564,6 +604,8 @@ export interface TenantDB {
   operadores: OperadoresTable;
   grupo_operador: GrupoOperadorTable;
   get_operadores: GetOperadoresView;
+  formas_pgto: FormasPgtoTable;
+  get_formas_pgto: GetFormasPgtoView;
   get_itens_lotecob: GetItensLotecobView;
   marcas: MarcasTable;
   get_marcas: GetMarcasView;

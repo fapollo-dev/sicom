@@ -2239,6 +2239,48 @@ async function main() {
     // 40.7) RBAC sem grant → 403.
     const opRbac = await fetch(`${base}/${OP}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codoperador: 504, nome: 'X', login: 'XRBAC' }) });
     check('OPER: POST sem grant RBAC → 403', opRbac.status === 403, { status: opRbac.status });
+
+    // 41) FORMAS DE PAGAMENTO (uCadFormaPgto) — engine empresaScoped (IDEMPRESA), PK sequence, únicos/empresa.
+    const FP = 'cadastro/formas-pgto';
+    // 41.1) lista empresa 1 traz o seed (DINHEIRO etc.).
+    const fpList = (await (await fetch(`${base}/${FP}`, { headers: H })).json().catch(() => [])) as any[];
+    check('FP: GET lista empresa 1 inclui DINHEIRO (seed)', Array.isArray(fpList) && fpList.some((f) => f.modalidade === 'DINHEIRO'), { n: fpList?.length });
+    // 41.2) cria modalidade (PK sequence, idempresa carimbado) destino CXA.
+    const fpCreate = await fetch(`${base}/${FP}`, { method: 'POST', headers: H, body: JSON.stringify({ modalidade: 'TESTE FP', atalho: 'Z', destino: 'CXA', recebe_pdv: 'S' }) });
+    const fpNew = (await fpCreate.json().catch(() => ({}))) as any;
+    check('FP: POST cria modalidade → 201 (idempresa carimbado)', fpCreate.status === 201 && Number(fpNew.idpgto) > 0, { status: fpCreate.status });
+    const fpId = Number(fpNew.idpgto);
+    const fpRead = (await (await fetch(`${base}/${FP}/${fpId}`, { headers: H })).json().catch(() => ({}))) as any;
+    check('FP: criada = destino CXA, empresa 1', fpRead.destino === 'CXA' && Number(fpRead.idempresa) === 1, { fpRead });
+    // 41.3) MODALIDADE única por empresa (case-insensitive) → 409.
+    const fpDupMod = await fetch(`${base}/${FP}`, { method: 'POST', headers: H, body: JSON.stringify({ modalidade: 'dinheiro', atalho: 'X', destino: 'CXA' }) });
+    check('FP: modalidade duplicada na empresa → 409', fpDupMod.status === 409, { status: fpDupMod.status });
+    // 41.4) ATALHO único por empresa (case-insensitive) → 409 (D já é do DINHEIRO).
+    const fpDupAt = await fetch(`${base}/${FP}`, { method: 'POST', headers: H, body: JSON.stringify({ modalidade: 'OUTRA X', atalho: 'd', destino: 'CXA' }) });
+    check('FP: atalho duplicado na empresa → 409', fpDupAt.status === 409, { status: fpDupAt.status });
+    // 41.5) DESTINO='QUE' + RECEBE_PDV='S' → 400 (regra QUE≠PDV); com 'N' → 201.
+    const fpQueBad = await fetch(`${base}/${FP}`, { method: 'POST', headers: H, body: JSON.stringify({ modalidade: 'QUEBRA X', atalho: 'W', destino: 'QUE', recebe_pdv: 'S' }) });
+    check('FP: QUE + recebe_pdv S → 400 (regra QUE≠PDV)', fpQueBad.status === 400, { status: fpQueBad.status });
+    const fpQueOk = await fetch(`${base}/${FP}`, { method: 'POST', headers: H, body: JSON.stringify({ modalidade: 'QUEBRA X', atalho: 'W', destino: 'QUE', recebe_pdv: 'N' }) });
+    check('FP: QUE + recebe_pdv N → 201', fpQueOk.status === 201, { status: fpQueOk.status });
+    // 41.5b) DESTINO obrigatório no create (uCadFormaPgto.pas:324) → 400.
+    const fpNoDest = await fetch(`${base}/${FP}`, { method: 'POST', headers: H, body: JSON.stringify({ modalidade: 'SEM DESTINO', atalho: 'Y' }) });
+    check('FP: POST sem destino → 400 (destino obrigatório)', fpNoDest.status === 400, { status: fpNoDest.status });
+    // 41.6) multi-tenant: empresa 2 cria seu conjunto; empresa 1 não vê.
+    const fpE2 = await fetch(`${base}/${FP}`, { method: 'POST', headers: H_EMP2, body: JSON.stringify({ modalidade: 'NOVA E2', atalho: 'N', destino: 'CXA' }) });
+    check('FP: empresa 2 cria modalidade → 201', fpE2.status === 201, { status: fpE2.status });
+    const fpE1List = (await (await fetch(`${base}/${FP}`, { headers: H })).json().catch(() => [])) as any[];
+    check('FP: empresa 1 NÃO vê modalidade da empresa 2 (isolamento)', !fpE1List.some((f) => f.modalidade === 'NOVA E2'), { n: fpE1List?.length });
+    // 41.6b) inativar (inativo='S') carimba data_inativo (soft-delete legado INATIVO+DATA_INATIVO).
+    await fetch(`${base}/${FP}/${fpId}`, { method: 'PUT', headers: H, body: JSON.stringify({ modalidade: 'TESTE FP', atalho: 'Z', destino: 'CXA', inativo: 'S' }) });
+    const fpInat = (await (await fetch(`${base}/${FP}/${fpId}`, { headers: H })).json().catch(() => ({}))) as any;
+    check('FP: inativar carimba data_inativo', fpInat.inativo === 'S' && fpInat.data_inativo != null, { fpInat });
+    // 41.7) DELETE → 204.
+    const fpDel = await fetch(`${base}/${FP}/${fpId}`, { method: 'DELETE', headers: H });
+    check('FP: DELETE → 204', fpDel.status === 204, { status: fpDel.status });
+    // 41.8) RBAC sem grant → 403.
+    const fpRbac = await fetch(`${base}/${FP}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ modalidade: 'X', atalho: 'X', destino: 'CXA' }) });
+    check('FP: POST sem grant RBAC → 403', fpRbac.status === 403, { status: fpRbac.status });
   } finally {
     await app.close();
     await pg.stop();

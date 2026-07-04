@@ -23,6 +23,7 @@ import {
   BarChart3,
   Coins,
   UserCog,
+  CreditCard,
 } from 'lucide-react';
 
 /** Telas do menu lateral (rota → rótulo + ícone). Uma TForm = um item. */
@@ -48,6 +49,7 @@ const TELAS = [
   { href: '/contabil/dre', name: 'DRE', icon: BarChart3 },
   { href: '/cadastro/empresas', name: 'Empresas', icon: Building },
   { href: '/cadastro/operadores', name: 'Operadores', icon: UserCog },
+  { href: '/cadastro/formas-pgto', name: 'Formas de Pagamento', icon: CreditCard },
 ] as const;
 
 /**
