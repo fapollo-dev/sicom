@@ -215,6 +215,8 @@ const CODE_PT: Record<string, string> = {
   TITULO_NAO_BAIXADO: 'Título não está baixado — não há baixa a estornar.',
   BAIXA_CONTABILIZADA: 'A baixa já foi contabilizada — estorne a contabilização antes.',
   TITULO_VALOR_INVALIDO: 'O valor da baixa deve ser maior que zero.',
+  TITULO_VALOR_EXCEDE: 'O valor pago é maior que o total do título — troco/crédito ainda não é suportado.',
+  REVERSAO_PARCIAL_SALDO_BAIXADO: 'O título-saldo gerado nesta baixa parcial já possui movimentação — trate a baixa do saldo antes de estornar esta.',
   // Plano de Contas (uCadPlanoContas — árvore/validações/travas)
   CONTA_NAO_ENCONTRADA: 'Conta contábil não encontrada no sistema.',
   CONTA_CODIGO_DUPLICADO: 'Já existe uma conta com este código.',

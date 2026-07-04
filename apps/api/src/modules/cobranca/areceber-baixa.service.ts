@@ -38,15 +38,15 @@ export class AreceberBaixaService {
 
   async baixar(
     codrcb: number,
-    dto: { dtpgto?: string; juros?: number; multa?: number; desconto?: number; acrescimo?: number; valorpg?: number; recurso?: string; obs?: string },
-  ): Promise<{ codrcb: number; valorpg: number; juros: number; quitada: 'S' }> {
+    dto: { dtpgto?: string; juros?: number; multa?: number; desconto?: number; acrescimo?: number; valorpg?: number; dtvencSaldo?: string; recurso?: string; obs?: string },
+  ): Promise<{ codrcb: number; valorpg: number; juros: number; quitada: 'S'; parcial: boolean; saldoTitulo: number | null }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       // lê e TRAVA o título (escopo empresa).
       const t = await trx
         .selectFrom('areceber')
-        .select(['codrcb', 'valor', 'quitada', 'agrupado'])
+        .select(['codrcb', 'valor', 'quitada', 'agrupado', 'codparceiro', 'dtvenda', 'dtvenc', 'txjuros', 'tipodoc'])
         .where('codrcb', '=', codrcb)
         .where('codempresa', '=', emp)
         .forUpdate()
@@ -67,10 +67,15 @@ export class AreceberBaixaService {
       }
       const multa = num(dto.multa);
       const acre = r2(num(dto.acrescimo) - num(dto.desconto)); // acréscimo (+) / desconto (−)
-      const valorpg = r2(dto.valorpg != null ? num(dto.valorpg) : valor + juros + multa + acre);
+      const total = r2(valor + juros + multa + acre); // total devido (base da baixa/parcial)
+      const valorpg = r2(dto.valorpg != null ? num(dto.valorpg) : total);
       // o valor recebido tem de ser > 0 (uCadAReceber/UBaixaAreceber :1345: "o valor da conta deve ser
       // maior que zero"): impede quitar título sem dinheiro (ex.: desconto ≥ valor+juros).
       if (valorpg <= 0) throw new BusinessRuleError('TITULO_VALOR_INVALIDO', { valorpg });
+      // pagou a MAIS que o total: o legado gera TROCO/crédito (MOSTRAR_TROCO_BAIXA_CR, UBaixaAreceber.pas:1499);
+      // troco é corte-3 — até lá, REJEITA (não grava recebimento fantasma sem gerar o troco).
+      if (valorpg > total) throw new BusinessRuleError('TITULO_VALOR_EXCEDE', { valorpg, total });
+      const parcial = valorpg < total; // pagou menos que o total → gera título-saldo (UBaixaAreceber.pas:1403)
       const dtpgto = dto.dtpgto ?? sql`current_date`;
 
       const bxIns = await trx
@@ -91,12 +96,36 @@ export class AreceberBaixaService {
         .executeTakeFirst();
       if (Number(upd?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('TITULO_JA_BAIXADO', { codrcb });
 
+      // BAIXA PARCIAL: gera um NOVO título com o SALDO (total − pago), ORIGEM='B' (UBaixaAreceber.pas:1449),
+      // e vincula à baixa (codrcb_gerado) p/ o estorno poder removê-lo. Herda cliente/datas/juros do original.
+      let saldoTitulo: number | null = null;
+      if (parcial) {
+        const saldo = r2(total - valorpg);
+        const sIns = await trx
+          .insertInto('areceber')
+          .values({
+            // herda cliente/emissão/juros do original; DTVENC = data renegociada (UBaixaAreceber.pas:1433
+            // prompta nova data — Oracle: saldo nasce com DTVENC = dia da baixa, não o vencimento original),
+            // default = dtpgto. TIPODOC forçado 'DUPLICATA' (:1456; Oracle 135/135). cadastrado_manualmente
+            // fica no DEFAULT 'N' = "não-manual" (convenção do monorepo p/ SISTEMA, 043:45; legado grava NULL —
+            // mesma semântica remapeada). NRODUP/DUPLICATA/IDPGTO/DOCNF = corte boleto.
+            codparceiro: (t as any).codparceiro, codempresa: emp, valor: saldo,
+            dtvenda: (t as any).dtvenda, dtvenc: dto.dtvencSaldo ?? dtpgto, txjuros: (t as any).txjuros, tipodoc: 'DUPLICATA',
+            origem: 'B', gerado: 'SISTEMA', quitada: 'N', agrupado: 'N', consiliado: 'S',
+            obs: `Documento gerado da baixa parcial do título ${codrcb}.`,
+            usultalteracao: op, dtultimalteracao: sql`now()`, dtcadastro: sql`now()`,
+          })
+          .returning('codrcb').executeTakeFirstOrThrow();
+        saldoTitulo = Number((sIns as any).codrcb);
+        await trx.updateTable('areceber_bx').set({ codrcb_gerado: saldoTitulo }).where('codrcbbx', '=', Number((bxIns as any).codrcbbx)).execute();
+      }
+
       // recurso DINHEIRO → lança RECEBIMENTO (entrada) no caixa aberto do operador (mesma transação).
       if (String(dto.recurso ?? '').toUpperCase() === 'DINHEIRO') {
         await this.caixa.lancarDaBaixa(trx, { origem: 'AR', valorpg: r2(valorpg), codrcbbx: Number((bxIns as any).codrcbbx), dtpgto: dto.dtpgto, obs: dto.obs ?? null });
       }
 
-      return { codrcb, valorpg: r2(valorpg), juros: r2(juros), quitada: 'S' };
+      return { codrcb, valorpg: r2(valorpg), juros: r2(juros), quitada: 'S', parcial, saldoTitulo };
     });
   }
 
@@ -117,7 +146,7 @@ export class AreceberBaixaService {
       // baixa ativa (INDR='I'); barra se já contabilizada (estorno contábil = corte-3).
       const bx = await trx
         .selectFrom('areceber_bx')
-        .select(['codrcbbx', 'contabilizado'])
+        .select(['codrcbbx', 'contabilizado', 'codrcb_gerado'])
         .where('codrcb', '=', codrcb)
         .where('codempresa', '=', emp)
         .where(sql`coalesce(indr,'I')`, '=', 'I')
@@ -125,6 +154,25 @@ export class AreceberBaixaService {
         .executeTakeFirst();
       if (!bx) throw new BusinessRuleError('TITULO_NAO_BAIXADO', { codrcb });
       if (bx.contabilizado === 'S') throw new BusinessRuleError('BAIXA_CONTABILIZADA', { codrcb });
+
+      // se a baixa foi PARCIAL, remove o título-saldo gerado (senão reabrir o original duplicaria a
+      // dívida). SÓ deleta um saldo INTOCADO: qualquer baixa no saldo (ativa OU estornada) bloqueia —
+      // deletar deixaria caixa_mov órfão (codrcbbx sem FK) e apagaria histórico. Também barra agrupado/em-lote.
+      if ((bx as any).codrcb_gerado != null) {
+        const codSaldo = Number((bx as any).codrcb_gerado);
+        const saldo = await trx
+          .selectFrom('areceber').select(['codrcb', 'agrupado'])
+          .where('codrcb', '=', codSaldo).where('codempresa', '=', emp)
+          .forUpdate().executeTakeFirst();
+        if (saldo) {
+          const saldoBx = await trx.selectFrom('areceber_bx').select('codrcbbx').where('codrcb', '=', codSaldo).executeTakeFirst();
+          if (saldoBx) throw new BusinessRuleError('REVERSAO_PARCIAL_SALDO_BAIXADO', { codrcb: codSaldo });
+          if ((saldo as any).agrupado === 'S') throw new BusinessRuleError('TITULO_AGRUPADO', { codrcb: codSaldo });
+          const saldoEmLote = await trx.selectFrom('itens_lotecob').select('codilotcob').where('codrcb', '=', codSaldo).executeTakeFirst();
+          if (saldoEmLote) throw new BusinessRuleError('TITULO_EM_LOTE', { codrcb: codSaldo });
+          await trx.deleteFrom('areceber').where('codrcb', '=', codSaldo).where('codempresa', '=', emp).execute();
+        }
+      }
 
       // ESTORNO LÓGICO: marca EXATAMENTE a baixa lida (codrcbbx) como 'E' — não deleta (preserva
       // histórico) e não toca outras baixas ativas do mesmo título (modelo 1:N; a guarda de

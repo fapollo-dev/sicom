@@ -2328,6 +2328,85 @@ async function main() {
     const ct6Rbac = await fetch(`${base}/${CX}/${ct6}/contabilizar`, { method: 'POST', headers: H_SEM_ACESSO });
     check('CX-2d: contabilizar sem grant RBAC → 403', ct6Rbac.status === 403, { status: ct6Rbac.status });
     await pgCx2.end();
+
+    // 43) AR/AP corte-3a — BAIXA/PAGAMENTO PARCIAL (valorpg < total → gera título-saldo ORIGEM='B').
+    const pgPar = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    const ARp = 'cadastro/areceber', APp = 'cadastro/apagar';
+    const crParAR = async () => Number(((await (await fetch(`${base}/${ARp}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100 }) })).json()) as any).codrcb);
+    const crParAP = async () => Number(((await (await fetch(`${base}/${APp}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100 }) })).json()) as any).codapg);
+    const arRow = async (cod: number) => (await pgPar.query(`SELECT valor, origem, gerado, quitada, tipodoc, cadastrado_manualmente, to_char(dtvenc,'YYYY-MM-DD') dtvenc FROM areceber WHERE codrcb=$1 AND codempresa=1`, [cod])).rows[0] as any;
+    const apRow = async (cod: number) => (await pgPar.query(`SELECT valor, origem, gerado, quitada, tipodoc, cadastrado_manualmente, to_char(dtvenc,'YYYY-MM-DD') dtvenc FROM apagar WHERE codapg=$1 AND codempresa=1`, [cod])).rows[0] as any;
+
+    // 43.1) AR baixa PARCIAL: valorpg 60 (a vencer → juro 0, total 100) quita o original e gera saldo 40 (ORIGEM='B').
+    // Saldo herda TIPODOC forçado 'DUPLICATA', cadastrado_manualmente NULL (paridade Oracle), DTVENC = data da baixa
+    // (renegociada, NÃO o vencimento original 2027-01-01 → prova M2).
+    const arPar = await crParAR();
+    const arParRes = await fetch(`${base}/${ARp}/${arPar}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ valorpg: 60, dtpgto: '2026-07-04' }) });
+    const arParBody = (await arParRes.json().catch(() => ({}))) as any;
+    const arSaldo = Number(arParBody.saldoTitulo);
+    const arSaldoRow = arParBody.saldoTitulo ? await arRow(arSaldo) : null;
+    const arBxLink = (await pgPar.query(`SELECT codrcb_gerado FROM areceber_bx WHERE codrcb=$1 AND coalesce(indr,'I')='I'`, [arPar])).rows[0] as any;
+    check('CR-parcial: valorpg<total quita original + gera saldo 40 (ORIGEM=B, GERADO=SISTEMA, quitada=N, bx.codrcb_gerado)',
+      arParRes.status === 200 && arParBody.parcial === true && arSaldo > 0 && (await arRow(arPar)).quitada === 'S'
+      && arSaldoRow && Number(arSaldoRow.valor) === 40 && arSaldoRow.origem === 'B' && arSaldoRow.gerado === 'SISTEMA' && arSaldoRow.quitada === 'N'
+      && Number(arBxLink?.codrcb_gerado) === arSaldo,
+      { status: arParRes.status, body: arParBody, saldo: arSaldoRow, link: arBxLink });
+    // 43.1b) paridade do saldo: TIPODOC='DUPLICATA', cadastrado_manualmente='N' (SISTEMA; convenção monorepo 043:45),
+    // DTVENC = data da baixa (renegociado ≠ vencimento original 2027-01-01).
+    check('CR-parcial: saldo TIPODOC=DUPLICATA + cadastrado_manualmente=N (SISTEMA) + DTVENC renegociado (2026-07-04 ≠ 2027-01-01)',
+      arSaldoRow && arSaldoRow.tipodoc === 'DUPLICATA' && arSaldoRow.cadastrado_manualmente === 'N' && arSaldoRow.dtvenc === '2026-07-04',
+      { saldo: arSaldoRow });
+    // 43.1c) valorpg > total (pagou a mais) → 422 TITULO_VALOR_EXCEDE (troco é corte-3; não grava fantasma).
+    const arExc = await crParAR();
+    const arExcRes = await fetch(`${base}/${ARp}/${arExc}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ valorpg: 150 }) });
+    check('CR-parcial: valorpg > total → 422 TITULO_VALOR_EXCEDE', arExcRes.status === 422 && ((await arExcRes.json().catch(() => ({}))) as any).code === 'TITULO_VALOR_EXCEDE', { status: arExcRes.status });
+    // 43.2) AR baixa TOTAL (sem valorpg): parcial=false, saldoTitulo=null (nenhum título extra).
+    const arFull = await crParAR();
+    const arFullBody = (await (await fetch(`${base}/${ARp}/${arFull}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) })).json().catch(() => ({}))) as any;
+    check('CR-parcial: baixa total (sem valorpg) não gera saldo (parcial=false, saldoTitulo=null)', arFullBody.parcial === false && arFullBody.saldoTitulo == null, { body: arFullBody });
+    // 43.3) AR estorno da parcial: reabre o original E remove o título-saldo (senão duplicaria a dívida).
+    const arEstPar = await fetch(`${base}/${ARp}/${arPar}/estornar-baixa`, { method: 'POST', headers: H });
+    const arSaldoGone = Number((await pgPar.query(`SELECT count(*)::int n FROM areceber WHERE codrcb=$1`, [arSaldo])).rows[0].n);
+    check('CR-parcial: estorno reabre original (quitada=N) + REMOVE título-saldo', arEstPar.status === 200 && (await arRow(arPar)).quitada === 'N' && arSaldoGone === 0, { status: arEstPar.status, saldoGone: arSaldoGone });
+    // 43.4) AR estorno BLOQUEADO se o título-saldo já foi baixado → 422 REVERSAO_PARCIAL_SALDO_BAIXADO.
+    const arPar2 = await crParAR();
+    const arPar2Body = (await (await fetch(`${base}/${ARp}/${arPar2}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ valorpg: 60 }) })).json().catch(() => ({}))) as any;
+    await fetch(`${base}/${ARp}/${Number(arPar2Body.saldoTitulo)}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) }); // baixa o saldo
+    const arEstBlk = await fetch(`${base}/${ARp}/${arPar2}/estornar-baixa`, { method: 'POST', headers: H });
+    check('CR-parcial: estorno bloqueado se saldo já baixado → 422 REVERSAO_PARCIAL_SALDO_BAIXADO', arEstBlk.status === 422 && ((await arEstBlk.json().catch(() => ({}))) as any).code === 'REVERSAO_PARCIAL_SALDO_BAIXADO', { status: arEstBlk.status });
+
+    // 43.5) AP pagamento PARCIAL: gêmeo do AR (valorpg 60 → saldo 40 ORIGEM='B', TIPODOC=DUPLICATA, DTVENC renegociado).
+    const apPar = await crParAP();
+    const apParRes = await fetch(`${base}/${APp}/${apPar}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ valorpg: 60, dtpgto: '2026-07-04' }) });
+    const apParBody = (await apParRes.json().catch(() => ({}))) as any;
+    const apSaldo = Number(apParBody.saldoTitulo);
+    const apSaldoRow = apParBody.saldoTitulo ? await apRow(apSaldo) : null;
+    const apBxLink = (await pgPar.query(`SELECT codapg_gerado FROM apagar_bx WHERE codapg=$1 AND coalesce(indr,'I')='I'`, [apPar])).rows[0] as any;
+    check('CP-parcial: valorpg<total quita original + gera saldo 40 (ORIGEM=B, GERADO=SISTEMA, quitada=N, bx.codapg_gerado, TIPODOC=DUPLICATA, cad_manual NULL, DTVENC renegociado)',
+      apParRes.status === 200 && apParBody.parcial === true && apSaldo > 0 && (await apRow(apPar)).quitada === 'S'
+      && apSaldoRow && Number(apSaldoRow.valor) === 40 && apSaldoRow.origem === 'B' && apSaldoRow.gerado === 'SISTEMA' && apSaldoRow.quitada === 'N'
+      && apSaldoRow.tipodoc === 'DUPLICATA' && apSaldoRow.cadastrado_manualmente === 'N' && apSaldoRow.dtvenc === '2026-07-04'
+      && Number(apBxLink?.codapg_gerado) === apSaldo,
+      { status: apParRes.status, body: apParBody, saldo: apSaldoRow, link: apBxLink });
+    // 43.5b) AP valorpg > total → 422 TITULO_VALOR_EXCEDE.
+    const apExc = await crParAP();
+    const apExcRes = await fetch(`${base}/${APp}/${apExc}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ valorpg: 150 }) });
+    check('CP-parcial: valorpg > total → 422 TITULO_VALOR_EXCEDE', apExcRes.status === 422 && ((await apExcRes.json().catch(() => ({}))) as any).code === 'TITULO_VALOR_EXCEDE', { status: apExcRes.status });
+    // 43.6) AP pagamento TOTAL: parcial=false, saldoTitulo=null.
+    const apFull = await crParAP();
+    const apFullBody = (await (await fetch(`${base}/${APp}/${apFull}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) })).json().catch(() => ({}))) as any;
+    check('CP-parcial: pagamento total não gera saldo (parcial=false, saldoTitulo=null)', apFullBody.parcial === false && apFullBody.saldoTitulo == null, { body: apFullBody });
+    // 43.7) AP estorno da parcial: reabre original + remove título-saldo.
+    const apEstPar = await fetch(`${base}/${APp}/${apPar}/estornar-baixa`, { method: 'POST', headers: H });
+    const apSaldoGone = Number((await pgPar.query(`SELECT count(*)::int n FROM apagar WHERE codapg=$1`, [apSaldo])).rows[0].n);
+    check('CP-parcial: estorno reabre original (quitada=N) + REMOVE título-saldo', apEstPar.status === 200 && (await apRow(apPar)).quitada === 'N' && apSaldoGone === 0, { status: apEstPar.status, saldoGone: apSaldoGone });
+    // 43.8) AP estorno BLOQUEADO se o título-saldo já foi pago → 422 REVERSAO_PARCIAL_SALDO_BAIXADO.
+    const apPar2 = await crParAP();
+    const apPar2Body = (await (await fetch(`${base}/${APp}/${apPar2}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ valorpg: 60 }) })).json().catch(() => ({}))) as any;
+    await fetch(`${base}/${APp}/${Number(apPar2Body.saldoTitulo)}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    const apEstBlk = await fetch(`${base}/${APp}/${apPar2}/estornar-baixa`, { method: 'POST', headers: H });
+    check('CP-parcial: estorno bloqueado se saldo já pago → 422 REVERSAO_PARCIAL_SALDO_BAIXADO', apEstBlk.status === 422 && ((await apEstBlk.json().catch(() => ({}))) as any).code === 'REVERSAO_PARCIAL_SALDO_BAIXADO', { status: apEstBlk.status });
+    await pgPar.end();
   } finally {
     await app.close();
     await pg.stop();

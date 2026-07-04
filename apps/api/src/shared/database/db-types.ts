@@ -180,6 +180,7 @@ export interface AreceberBxTable {
   indr: string | null; // 'I' válida / 'E' estornada
   contabilizado: string | null;
   obs: string | null;
+  codrcb_gerado: number | null; // 054: título-saldo gerado na baixa PARCIAL (origem='B')
 }
 /** Picker GET_ARECEBER — documentos disponíveis p/ adicionar ao lote (live-join + juros/total). */
 export interface GetAreceberView {
@@ -253,6 +254,7 @@ export interface ApagarBxTable {
   indr: string | null;
   contabilizado: string | null;
   obs: string | null;
+  codapg_gerado: number | null; // 054: título-saldo gerado no pagamento PARCIAL (origem='B')
 }
 /** View GET_APAGAR — gestão do título a pagar (juro/total live). */
 export interface GetApagarView {
