@@ -1,5 +1,6 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AppShell } from '@apollosg/design-system';
+import { ShortcutScope } from '../shared/keyboard';
 import {
   Landmark,
   Tags,
@@ -76,7 +77,12 @@ export function AppLayout() {
       breadcrumb={[{ label: 'Apollo ERP' }, { label: atual?.name ?? 'Cadastro' }]}
       user={{ name: 'Operador', email: 'operador@apollosg.com.br', initials: 'OP' }}
     >
-      <Outlet />
+      {/* Scope de atalhos BASE (ADR-010): telas customizadas (DRE, Plano de Contas, Caixa) usam
+          Button/DateField/etc. via useMnemonic, que exige um <ShortcutScope>. O <CadMaster> provê o
+          seu próprio (aninhado); este cobre as telas que não passam pelo shell. */}
+      <ShortcutScope>
+        <Outlet />
+      </ShortcutScope>
     </AppShell>
   );
 }
