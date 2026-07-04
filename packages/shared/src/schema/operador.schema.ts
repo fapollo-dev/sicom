@@ -55,6 +55,12 @@ const operadorBase = z.object({
   desabilita_operacoes_basicas: opcional(z.enum(['S', 'N'])),
   desabilita_desconto_pdv: opcional(z.enum(['S', 'N'])),
   solicitar_alteracao_senha: opcional(z.enum(['S', 'N'])),
+  // EMPRESAS-PERMITIDAS (corte-2): detalhe 1:N RELACAO_OPERADOR_EMPRESA. O legado exige ≥1 empresa
+  // no gravar (uCadUsuarios.pas:444). No update parcial (.partial()) o campo é opcional — só valida se
+  // enviado; omitir mantém as existentes (substitute do engine só ocorre quando a chave vem no dto).
+  empresas: z
+    .array(z.object({ codempresa: z.number({ message: 'Empresa inválida.' }).int().positive() }))
+    .min(1, 'Informe ao menos uma empresa permitida.'),
   // ATIVO e CODIGOAUXILIAR são colunas reais mas NÃO editadas pela tela legada (o bloqueio é
   // DESABILITADO; a situação é INDR; CODIGOAUXILIAR está 0-preenchido no Oracle) → fora do delta.
 });
@@ -83,4 +89,5 @@ export interface Operador {
   codigoauxiliar?: number;
   ativo?: string;
   indr?: string;
+  empresas?: { codrelacao?: number; codoperador?: number; codempresa: number }[];
 }

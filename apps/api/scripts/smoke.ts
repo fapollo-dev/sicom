@@ -2206,39 +2206,69 @@ async function main() {
     await pgRb.query(`UPDATE areceber SET agrupado='N' WHERE codrcb=$1`, [Number(rb10Fec.codrcbQuebra)]); // restaura p/ não afetar outras seções
     await pgRb.end();
 
-    // 40) OPERADORES (uCadUsuarios "Cadastro de usuários") — engine global, PK digitada, soft-delete INDR.
+    // 40) OPERADORES (uCadUsuarios) — corte-2: mestre-detalhe (empresas-permitidas) + supervisor + trava SICOM.
     const OP = 'cadastro/operadores';
+    const pgOp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    const opEmpresas = async (cod: number) => (await pgOp.query(`SELECT codempresa FROM relacao_operador_empresa WHERE codoperador=$1 ORDER BY codempresa`, [cod])).rows.map((r: any) => Number(r.codempresa));
     // 40.1) lista traz o seed (op 7/8).
     const opList = (await (await fetch(`${base}/${OP}`, { headers: H })).json().catch(() => [])) as any[];
     check('OPER: GET lista inclui operadores semeados (op 7)', Array.isArray(opList) && opList.some((o) => Number(o.codoperador) === 7), { n: opList?.length });
-    // 40.2) cria operador (PK digitada 500), tipo SUP → idgrupo DERIVADO 3 (Supervisor).
-    const opCreate = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 500, nome: 'TESTE OP', login: 'TESTEOP', tipoop: 'SUP' }) });
-    check('OPER: POST cria operador (PK digitada) → 201', opCreate.status === 201, { status: opCreate.status });
+    // 40.2) cria operador (PK digitada 500), tipo SUP → idgrupo DERIVADO 3 + empresas-permitidas [1].
+    const opCreate = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 500, nome: 'TESTE OP', login: 'TESTEOP', tipoop: 'SUP', empresas: [{ codempresa: 1 }] }) });
+    check('OPER: POST cria operador (PK digitada + empresas) → 201', opCreate.status === 201, { status: opCreate.status });
     const op500 = (await (await fetch(`${base}/${OP}/500`, { headers: H })).json().catch(() => ({}))) as any;
-    check('OPER: tipo SUP deriva idgrupo 3', Number(op500.idgrupo) === 3 && op500.tipoop === 'SUP', { op500 });
+    check('OPER: tipo SUP deriva idgrupo 3 + empresas [1] no read do agregado', Number(op500.idgrupo) === 3 && op500.tipoop === 'SUP' && Array.isArray(op500.empresas) && op500.empresas.length === 1 && Number(op500.empresas[0].codempresa) === 1, { op500 });
     // grupo (nome) é da VIEW get_operadores (list), não do read cru da tabela.
     const opInList = ((await (await fetch(`${base}/${OP}`, { headers: H })).json().catch(() => [])) as any[]).find((o) => Number(o.codoperador) === 500);
     check('OPER: view get_operadores expõe grupo=Supervisor', opInList?.grupo === 'Supervisor', { opInList });
-    // 40.3) LOGIN único (case-insensitive) → 409.
-    const opDup = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 501, nome: 'X', login: 'testeop' }) });
+    // 40.3) LOGIN único (case-insensitive) → 409 (com empresas p/ passar o schema e chegar no índice).
+    const opDup = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 501, nome: 'X', login: 'testeop', empresas: [{ codempresa: 1 }] }) });
     check('OPER: login duplicado (case-insensitive) → 409 LOGIN_DUPLICADO', opDup.status === 409 && ((await opDup.json().catch(() => ({}))) as any).code === 'LOGIN_DUPLICADO', { status: opDup.status });
-    // 40.4) PUT edita e RE-DERIVA idgrupo (OPE→2).
+    // 40.4) PUT edita e RE-DERIVA idgrupo (OPE→2); SEM empresas no body → mantém as existentes (substitute só quando enviado).
     const opPut = await fetch(`${base}/${OP}/500`, { method: 'PUT', headers: H, body: JSON.stringify({ nome: 'TESTE OP EDIT', tipoop: 'OPE' }) });
     const op500b = (await (await fetch(`${base}/${OP}/500`, { headers: H })).json().catch(() => ({}))) as any;
-    check('OPER: PUT edita e re-deriva idgrupo (OPE→2)', opPut.status === 200 && op500b.nome === 'TESTE OP EDIT' && Number(op500b.idgrupo) === 2, { op500b });
-    // 40.5) soft-delete (INDR=E) → some da lista + LIBERA o login.
+    check('OPER: PUT edita e re-deriva idgrupo (OPE→2); empresas preservadas (não enviadas)', opPut.status === 200 && op500b.nome === 'TESTE OP EDIT' && Number(op500b.idgrupo) === 2 && (await opEmpresas(500)).join(',') === '1', { op500b, emp: await opEmpresas(500) });
+    // 40.5) empresas-permitidas SUBSTITUTE: [1,2] → grava 2; depois [2] → substitui (só empresa 2).
+    const opE12 = await fetch(`${base}/${OP}/500`, { method: 'PUT', headers: H, body: JSON.stringify({ empresas: [{ codempresa: 1 }, { codempresa: 2 }] }) });
+    check('OPER: empresas substitute [1,2] grava 2 vínculos', opE12.status === 200 && (await opEmpresas(500)).join(',') === '1,2', { emp: await opEmpresas(500) });
+    const opE2 = await fetch(`${base}/${OP}/500`, { method: 'PUT', headers: H, body: JSON.stringify({ empresas: [{ codempresa: 2 }] }) });
+    check('OPER: empresas substitute [2] REMOVE a empresa 1 (delete+insert)', opE2.status === 200 && (await opEmpresas(500)).join(',') === '2', { emp: await opEmpresas(500) });
+    // 40.6) ≥1 empresa: POST sem empresas → 400; POST com empresas:[] → 400 (uCadUsuarios.pas:444).
+    const opNoEmp = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 510, nome: 'SEM EMP', login: 'SEMEMP' }) });
+    const opEmptyEmp = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 511, nome: 'EMP VAZIA', login: 'EMPVAZIA', empresas: [] }) });
+    check('OPER: ≥1 empresa obrigatória (sem/vazia → 400)', opNoEmp.status === 400 && opEmptyEmp.status === 400, { sem: opNoEmp.status, vazia: opEmptyEmp.status });
+    // 40.7) supervisor (idsupervisor) — lookup opcional (auto-relação; 0 dados reais, sem regra).
+    const opSup = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 512, nome: 'COM SUP', login: 'COMSUP', idsupervisor: 7, empresas: [{ codempresa: 1 }] }) });
+    const op512 = (await (await fetch(`${base}/${OP}/512`, { headers: H })).json().catch(() => ({}))) as any;
+    check('OPER: idsupervisor gravado (lookup opcional)', opSup.status === 201 && Number(op512.idsupervisor) === 7, { op512 });
+    // 40.8) TRAVA usuário-sistema (op 1 = ADMIN real): PUT e DELETE → 422 OPERADOR_PROTEGIDO.
+    const opSicomPut = await fetch(`${base}/${OP}/1`, { method: 'PUT', headers: H, body: JSON.stringify({ nome: 'HACK' }) });
+    const opSicomDel = await fetch(`${base}/${OP}/1`, { method: 'DELETE', headers: H });
+    check('OPER: usuário-sistema (op 1 ADMIN) não edita nem exclui → 422 OPERADOR_PROTEGIDO',
+      opSicomPut.status === 422 && ((await opSicomPut.json().catch(() => ({}))) as any).code === 'OPERADOR_PROTEGIDO'
+      && opSicomDel.status === 422 && ((await opSicomDel.json().catch(() => ({}))) as any).code === 'OPERADOR_PROTEGIDO',
+      { put: opSicomPut.status, del: opSicomDel.status });
+    // 40.8b) não pode CRIAR nem RENOMEAR para um login protegido (checa dto.login, não só a PK).
+    const opNovoSicom = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 520, nome: 'FAKE', login: 'SICOM', empresas: [{ codempresa: 1 }] }) });
+    const opRenomeia = await fetch(`${base}/${OP}/500`, { method: 'PUT', headers: H, body: JSON.stringify({ login: 'ADMIN' }) });
+    check('OPER: criar/renomear PARA login protegido (SICOM/ADMIN) → 422 OPERADOR_PROTEGIDO',
+      opNovoSicom.status === 422 && ((await opNovoSicom.json().catch(() => ({}))) as any).code === 'OPERADOR_PROTEGIDO'
+      && opRenomeia.status === 422 && ((await opRenomeia.json().catch(() => ({}))) as any).code === 'OPERADOR_PROTEGIDO',
+      { novo: opNovoSicom.status, renomeia: opRenomeia.status });
+    // 40.9) soft-delete (INDR=E) → some da lista + LIBERA o login + APAGA os vínculos de empresa (cascata).
     const opDel = await fetch(`${base}/${OP}/500`, { method: 'DELETE', headers: H });
-    check('OPER: DELETE soft (INDR=E) → 204', opDel.status === 204, { status: opDel.status });
+    check('OPER: DELETE soft (INDR=E) → 204 + vínculos de empresa apagados (cascata)', opDel.status === 204 && (await opEmpresas(500)).length === 0, { status: opDel.status, emp: await opEmpresas(500) });
     const opGone = await fetch(`${base}/${OP}/500`, { headers: H });
     check('OPER: operador excluído some do GET :id', opGone.status === 404 || ((await opGone.json().catch(() => null)) == null), { status: opGone.status });
-    const opReuse = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 502, nome: 'REUSO', login: 'testeop' }) });
+    const opReuse = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 502, nome: 'REUSO', login: 'testeop', empresas: [{ codempresa: 1 }] }) });
     check('OPER: login liberado após soft-delete → 201 (reuso)', opReuse.status === 201, { status: opReuse.status });
-    // 40.6) validação: sem nome/login → 400.
-    const opBad = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 503 }) });
+    // 40.10) validação: sem nome/login → 400.
+    const opBad = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 503, empresas: [{ codempresa: 1 }] }) });
     check('OPER: POST sem nome/login → 400 (schema)', opBad.status === 400, { status: opBad.status });
-    // 40.7) RBAC sem grant → 403.
-    const opRbac = await fetch(`${base}/${OP}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codoperador: 504, nome: 'X', login: 'XRBAC' }) });
+    // 40.11) RBAC sem grant → 403.
+    const opRbac = await fetch(`${base}/${OP}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codoperador: 504, nome: 'X', login: 'XRBAC', empresas: [{ codempresa: 1 }] }) });
     check('OPER: POST sem grant RBAC → 403', opRbac.status === 403, { status: opRbac.status });
+    await pgOp.end();
 
     // 41) FORMAS DE PAGAMENTO (uCadFormaPgto) — engine empresaScoped (IDEMPRESA), PK sequence, únicos/empresa.
     const FP = 'cadastro/formas-pgto';

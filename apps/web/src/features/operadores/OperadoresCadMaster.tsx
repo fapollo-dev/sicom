@@ -1,5 +1,5 @@
 import { Controller } from 'react-hook-form';
-import { CadMaster } from '../../shared/cadmaster/CadMaster';
+import { CadMasterDet } from '../../shared/cadmaster/CadMasterDet';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
@@ -7,11 +7,11 @@ import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { operadorSchema, OPERADOR_TIPO_OPCOES, type CriarOperadorDto } from '@apollo/shared';
 
 /**
- * OPERADORES (uCadUsuarios "Cadastro de usuários") via o pilar <CadMaster> — corte-1 núcleo cadastral.
- * PK DIGITADA (pkGerada={false}); GLOBAL. Campos: nome, login (único), tipo (deriva o grupo no
- * servidor), parceiro/funcionário (lookup FUN='S', fiel a uCadUsuarios.pas:491), desabilitado
- * (bloqueia login), flags PDV, solicitar troca de senha, ativo. Senha, empresas-permitidas, perfis,
- * supervisionados e biometria = cortes seguintes.
+ * OPERADORES (uCadUsuarios "Cadastro de usuários") via o pilar <CadMasterDet> — corte-2.
+ * PK DIGITADA (pkGerada={false}); GLOBAL. Header: nome, login (único), tipo (deriva o grupo no
+ * servidor), parceiro/funcionário (lookup FUN='S', uCadUsuarios.pas:491), supervisor (lookup operadores,
+ * uCadUsuarios.pas), flags. Detalhe: EMPRESAS-PERMITIDAS (ponte 1:N; ≥1 obrigatória — uCadUsuarios.pas:444).
+ * Senha, perfis/RBAC granular, biometria e enforcement das empresas no login = cortes seguintes.
  */
 export function OperadoresCadMaster() {
   const { data: parceiroOptions = [] } = useResourceOptions(
@@ -19,9 +19,17 @@ export function OperadoresCadMaster() {
     (p: any) => ({ value: String(p.codparceiro ?? p.codigo), label: `${p.codparceiro ?? p.codigo} - ${p.razao ?? ''}` }),
     { campo: 'fun', operador: 'igual', valor: 'S' },
   );
+  const { data: empresaOptions = [] } = useResourceOptions(
+    'cadastro/empresas',
+    (e: any) => ({ value: String(e.idempresa ?? e.codigo), label: `${e.idempresa ?? e.codigo} - ${e.razao_social ?? e.fantasia ?? ''}` }),
+  );
+  const { data: supervisorOptions = [] } = useResourceOptions(
+    'cadastro/operadores',
+    (o: any) => ({ value: String(o.codoperador), label: `${o.codoperador} - ${o.nome ?? ''}` }),
+  );
 
   return (
-    <CadMaster<CriarOperadorDto>
+    <CadMasterDet<CriarOperadorDto>
       titulo="Operadores"
       resourcePath="cadastro/operadores"
       pk="codoperador"
@@ -39,6 +47,27 @@ export function OperadoresCadMaster() {
         desabilita_operacoes_basicas: 'N',
         desabilita_desconto_pdv: 'N',
         solicitar_alteracao_senha: 'S',
+        empresas: [],
+      }}
+      detalhe={{
+        chave: 'empresas',
+        titulo: 'Empresas permitidas (ao menos uma)',
+        novoItem: () => ({ codempresa: undefined }),
+        itemCampos: ({ form, index }) => (
+          <Controller
+            control={form.control}
+            name={`empresas.${index}.codempresa` as const}
+            render={({ field }) => (
+              <SelectField
+                label="Empresa"
+                options={empresaOptions}
+                value={field.value != null ? String(field.value) : undefined}
+                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
+                placeholder="Selecione a empresa…"
+              />
+            )}
+          />
+        ),
       }}
       campos={({ form, editavel }) => (
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
@@ -77,6 +106,19 @@ export function OperadoresCadMaster() {
               <SelectField
                 label="&Parceiro (funcionário)"
                 options={parceiroOptions}
+                value={field.value != null ? String(field.value) : undefined}
+                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
+                placeholder="Opcional…"
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="idsupervisor"
+            render={({ field }) => (
+              <SelectField
+                label="Supervi&sor"
+                options={supervisorOptions}
                 value={field.value != null ? String(field.value) : undefined}
                 onChange={(v) => field.onChange(v ? Number(v) : undefined)}
                 placeholder="Opcional…"

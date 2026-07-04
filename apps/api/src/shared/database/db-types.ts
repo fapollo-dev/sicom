@@ -484,6 +484,12 @@ export interface GrupoOperadorTable {
   idgrupo: number;
   descricao: string;
 }
+/** RELACAO_OPERADOR_EMPRESA (056) — empresas-permitidas (ponte N:N; PK surrogate; corte-2). */
+export interface RelacaoOperadorEmpresaTable {
+  codrelacao: Generated<number>;
+  codoperador: number;
+  codempresa: number;
+}
 /** FORMAS_PGTO (052) — formas de pagamento/modalidades por empresa; 3 vínculos p/ o Caixa corte-2d. */
 export interface FormasPgtoTable {
   idpgto: Generated<number>;
@@ -607,6 +613,7 @@ export interface TenantDB {
   get_caixa_sessao: GetCaixaSessaoView;
   operadores: OperadoresTable;
   grupo_operador: GrupoOperadorTable;
+  relacao_operador_empresa: RelacaoOperadorEmpresaTable;
   get_operadores: GetOperadoresView;
   formas_pgto: FormasPgtoTable;
   get_formas_pgto: GetFormasPgtoView;
