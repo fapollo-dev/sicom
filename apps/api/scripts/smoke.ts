@@ -2281,6 +2281,53 @@ async function main() {
     // 41.8) RBAC sem grant → 403.
     const fpRbac = await fetch(`${base}/${FP}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ modalidade: 'X', atalho: 'X', destino: 'CXA' }) });
     check('FP: POST sem grant RBAC → 403', fpRbac.status === 403, { status: fpRbac.status });
+
+    // 42) CAIXA corte-2d — CONTÁBIL da quebra/sobra do fechamento (situações 2019 sobra / 2002 quebra).
+    const pgCx2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    await pgCx2.query(`UPDATE empresas SET integracao='AUTOMATICA' WHERE idempresa=1`); // gate
+    const diarioCaixa = async (cod: number) => (await pgCx2.query(`SELECT contadebito, contacredito, valor, codoperacao FROM diario WHERE codorigem=17 AND idorigem=$1 AND codempresa=1`, [cod])).rows as any[];
+    // 42.1) SOBRA → 2019 (D183 CAIXA CENTRAL / C541 SOBRA).
+    const ct1 = await cfFresh(100);
+    await fecharCx(ct1, { valorContado: 130 }); // sobra +30
+    const ct1Con = await fetch(`${base}/${CX}/${ct1}/contabilizar`, { method: 'POST', headers: H });
+    const ct1J = (await ct1Con.json().catch(() => ({}))) as any;
+    check('CX-2d: SOBRA contabiliza → 200, situação 2019 D183/C541 valor 30', ct1Con.status === 200 && ct1J.situacao === 2019 && Number(ct1J.contadebito) === 183 && Number(ct1J.contacredito) === 541 && Number(ct1J.valor) === 30, { status: ct1Con.status, ct1J });
+    const ct1D = await diarioCaixa(ct1);
+    check('CX-2d: DIÁRIO da sobra gravado (1 linha D183/C541)', ct1D.length === 1 && Number(ct1D[0].contadebito) === 183 && Number(ct1D[0].contacredito) === 541, { ct1D });
+    // 42.2) idempotente.
+    const ct1Con2 = await fetch(`${base}/${CX}/${ct1}/contabilizar`, { method: 'POST', headers: H });
+    check('CX-2d: contabilizar 2x → 422 CAIXA_JA_CONTABILIZADA', ct1Con2.status === 422 && ((await ct1Con2.json().catch(() => ({}))) as any).code === 'CAIXA_JA_CONTABILIZADA', { status: ct1Con2.status });
+    // 42.3) estornar contábil → DIÁRIO removido.
+    const ct1Est = await fetch(`${base}/${CX}/${ct1}/estornar-contabil`, { method: 'POST', headers: H });
+    check('CX-2d: estornar-contábil → 200 e DIÁRIO removido', ct1Est.status === 200 && (await diarioCaixa(ct1)).length === 0, { status: ct1Est.status });
+    // 42.4) QUEBRA-sem-título → 2002 (D148 / C183).
+    const ct2 = await cfFresh(100);
+    await fecharCx(ct2, { valorContado: 70, gerarTituloQuebra: false }); // quebra -30 sem título
+    const ct2J = (await (await fetch(`${base}/${CX}/${ct2}/contabilizar`, { method: 'POST', headers: H })).json().catch(() => ({}))) as any;
+    check('CX-2d: QUEBRA-sem-título → 2002 D148/C183 valor 30', ct2J.situacao === 2002 && Number(ct2J.contadebito) === 148 && Number(ct2J.contacredito) === 183 && Number(ct2J.valor) === 30, { ct2J });
+    // 42.5) QUEBRA-com-título → bloqueado (785→AR contábil adiado).
+    const ct3 = await cfFresh(100);
+    await fecharCx(ct3, { valorContado: 70 }); // quebra -30 COM título (gerarTituloQuebra default)
+    const ct3Con = await fetch(`${base}/${CX}/${ct3}/contabilizar`, { method: 'POST', headers: H });
+    check('CX-2d: QUEBRA-com-título → 422 CAIXA_CONTABIL_QUEBRA_TITULO', ct3Con.status === 422 && ((await ct3Con.json().catch(() => ({}))) as any).code === 'CAIXA_CONTABIL_QUEBRA_TITULO', { status: ct3Con.status });
+    // 42.6) sem diferença → nada a contabilizar.
+    const ct4 = await cfFresh(100);
+    await fecharCx(ct4, {}); // sem contagem
+    const ct4Con = await fetch(`${base}/${CX}/${ct4}/contabilizar`, { method: 'POST', headers: H });
+    check('CX-2d: fechar sem contagem → contabilizar 422 CAIXA_SEM_DIFERENCA', ct4Con.status === 422 && ((await ct4Con.json().catch(() => ({}))) as any).code === 'CAIXA_SEM_DIFERENCA', { status: ct4Con.status });
+    // 42.7) REABRIR estorna o contábil (DIÁRIO removido, caixa volta a A).
+    const ct5 = await cfFresh(100);
+    await fecharCx(ct5, { valorContado: 130 });
+    await fetch(`${base}/${CX}/${ct5}/contabilizar`, { method: 'POST', headers: H });
+    const ct5Reab = await fetch(`${base}/${CX}/${ct5}/reabrir`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('CX-2d: reabrir estorna o contábil (DIÁRIO removido, caixa reaberto)', ct5Reab.status === 200 && (await diarioCaixa(ct5)).length === 0, { status: ct5Reab.status });
+    await fecharCx(ct5, {}); // cleanup
+    // 42.8) RBAC sem grant → 403.
+    const ct6 = await cfFresh(100);
+    await fecharCx(ct6, { valorContado: 130 });
+    const ct6Rbac = await fetch(`${base}/${CX}/${ct6}/contabilizar`, { method: 'POST', headers: H_SEM_ACESSO });
+    check('CX-2d: contabilizar sem grant RBAC → 403', ct6Rbac.status === 403, { status: ct6Rbac.status });
+    await pgCx2.end();
   } finally {
     await app.close();
     await pg.stop();

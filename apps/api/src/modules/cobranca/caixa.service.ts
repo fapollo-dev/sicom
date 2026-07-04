@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { CaixaContabilService } from './caixa-contabil.service';
 
 type AnyDB = Kysely<any>;
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -29,7 +30,10 @@ const ESPECIE_TIPO: Record<string, 'E' | 'S'> = {
  */
 @Injectable()
 export class CaixaService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly contabil: CaixaContabilService,
+  ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -300,6 +304,10 @@ export class CaixaService {
           .where('codempresa', '=', emp).where('codoperador', '=', op).where('status', '=', 'A')
           .forUpdate().executeTakeFirst();
         if (outra) throw new BusinessRuleError('CAIXA_JA_ABERTO', { codcaixa: (outra as any).codcaixa });
+
+        // estorna o CONTÁBIL do fechamento (se contabilizado) — DELETE do DIÁRIO por codorigem=17/idorigem
+        // (uFechamentoCaixa.pas:736 estorna a integração na reabertura). Idempotente (no-op se não houve).
+        await this.contabil.estornarNoTrx(trx, emp, codcaixa, op);
 
         // estorna o título de quebra gerado no fechamento (o legado DELETA o ARECEBER na reabertura,
         // uFechamentoCaixa.pas:967). ENDURECIMENTO consciente: o legado deletava INCONDICIONALMENTE (as

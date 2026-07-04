@@ -447,6 +447,7 @@ export interface CaixaSessaoTable {
   valor_contado: number | null;
   diferenca: number | null; // contado − esperado; <0 quebra, >0 sobra
   codrcb_quebra: number | null; // título A Receber gerado na quebra
+  contabilizado: string | null; // 053: 'S' = fechamento contabilizado no DIÁRIO
   usultalteracao: number | null;
   dtultimalteracao: Timestamptz | null;
   dtcadastro: Timestamptz | null;
@@ -573,6 +574,7 @@ export interface GetCaixaSessaoView {
   diferenca: number | null;
   codrcb_quebra: number | null;
   saldo_corrente: number | null;
+  contabilizado: string | null;
 }
 
 export interface TenantDB {

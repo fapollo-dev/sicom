@@ -3,6 +3,7 @@ import {
 } from '@nestjs/common';
 import { abrirCaixaSchema, movimentoCaixaSchema, fecharCaixaSchema } from '@apollo/shared';
 import { CaixaService } from './caixa.service';
+import { CaixaContabilService } from './caixa-contabil.service';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -16,7 +17,10 @@ import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 @Controller('cobranca/caixa')
 @UseGuards(AcessoGuard)
 export class CaixaController {
-  constructor(private readonly svc: CaixaService) {}
+  constructor(
+    private readonly svc: CaixaService,
+    private readonly contabil: CaixaContabilService,
+  ) {}
 
   /** Sessão aberta do operador logado (+ movimentos), ou null. */
   @Get('atual')
@@ -74,5 +78,20 @@ export class CaixaController {
   @RequerAcesso('FRMCAIXA', 'BTNREABRIR')
   reabrir(@Param('id', ParseIntPipe) id: number, @Body() body: { obs?: string }) {
     return this.svc.reabrir(id, { obs: body?.obs });
+  }
+
+  /** Contabiliza a quebra/sobra do fechamento no DIÁRIO (corte-2d). */
+  @Post(':id/contabilizar')
+  @HttpCode(200)
+  @RequerAcesso('FRMCAIXA', 'BTNCONTABILIZAR')
+  contabilizar(@Param('id', ParseIntPipe) id: number) {
+    return this.contabil.contabilizarFechamento(id);
+  }
+
+  @Post(':id/estornar-contabil')
+  @HttpCode(200)
+  @RequerAcesso('FRMCAIXA', 'BTNESTORNARCONTABIL')
+  estornarContabil(@Param('id', ParseIntPipe) id: number) {
+    return this.contabil.estornarFechamento(id);
   }
 }

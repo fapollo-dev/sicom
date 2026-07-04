@@ -244,6 +244,10 @@ const CODE_PT: Record<string, string> = {
   OPERADOR_SEM_PARCEIRO: 'O operador não tem um parceiro (funcionário) vinculado — não é possível gerar o título de quebra de caixa.',
   CAIXA_NAO_FECHADO: 'O caixa não está fechado — não há o que reabrir.',
   REABERTURA_QUEBRA_BAIXADA: 'O título de quebra deste caixa já foi baixado — estorne a baixa antes de reabrir o caixa.',
+  CAIXA_JA_CONTABILIZADA: 'O fechamento deste caixa já foi contabilizado.',
+  CAIXA_NAO_CONTABILIZADA: 'O fechamento deste caixa não está contabilizado — não há o que estornar.',
+  CAIXA_SEM_DIFERENCA: 'O fechamento não tem quebra nem sobra a contabilizar.',
+  CAIXA_CONTABIL_QUEBRA_TITULO: 'A quebra deste caixa gerou título A Receber — a contabilização depende do contábil de A Receber (corte futuro).',
   // NFe / SEFAZ (F6)
   NF_JA_TRANSMITIDA: 'Esta nota fiscal já foi transmitida para a SEFAZ.',
   NF_NAO_AUTORIZADA: 'A nota fiscal não está autorizada pela SEFAZ.',
