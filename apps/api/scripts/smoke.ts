@@ -2407,6 +2407,77 @@ async function main() {
     const apEstBlk = await fetch(`${base}/${APp}/${apPar2}/estornar-baixa`, { method: 'POST', headers: H });
     check('CP-parcial: estorno bloqueado se saldo já pago → 422 REVERSAO_PARCIAL_SALDO_BAIXADO', apEstBlk.status === 422 && ((await apEstBlk.json().catch(() => ({}))) as any).code === 'REVERSAO_PARCIAL_SALDO_BAIXADO', { status: apEstBlk.status });
     await pgPar.end();
+
+    // 44) AR/AP corte-3b — CONTÁBIL da baixa DINHEIRO (auto-disparo; CODORIGEM 16 AR / 15 AP). Empresa 1 = AUTOMATICA.
+    const pgCtb = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    const ARc = 'cadastro/areceber', APc = 'cadastro/apagar', CXc = 'cobranca/caixa';
+    const diarioBx = async (codorigem: number, codbx: number) => (await pgCtb.query(`SELECT contadebito, contacredito, valor, codoperacao FROM diario WHERE codorigem=$1 AND idorigem=$2 AND codempresa=1`, [codorigem, codbx])).rows as any[];
+    const bxAtivoAR = async (codrcb: number) => Number((await pgCtb.query(`SELECT codrcbbx, contabilizado FROM areceber_bx WHERE codrcb=$1 AND coalesce(indr,'I')='I'`, [codrcb])).rows[0]?.codrcbbx);
+    const ctbFlagAR = async (codrcbbx: number) => (await pgCtb.query(`SELECT contabilizado FROM areceber_bx WHERE codrcbbx=$1`, [codrcbbx])).rows[0]?.contabilizado;
+    const bxAtivoAP = async (codapg: number) => Number((await pgCtb.query(`SELECT codapgbx FROM apagar_bx WHERE codapg=$1 AND coalesce(indr,'I')='I'`, [codapg])).rows[0]?.codapgbx);
+    // setup: caixa aberto limpo (fecha o que sobrou) com fundo 1000.
+    const ctbPre = await (await fetch(`${base}/${CXc}/atual`, { headers: H })).json().catch(() => null);
+    if ((ctbPre as any)?.sessao?.codcaixa) await fetch(`${base}/${CXc}/${(ctbPre as any).sessao.codcaixa}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    await fetch(`${base}/${CXc}/abrir`, { method: 'POST', headers: H, body: JSON.stringify({ saldoInicial: 1000 }) });
+    // precondição do teste: o cliente (parceiro 20) precisa de conta contábil (migração 055 seeda, mas
+    // os testes de NF editam o parceiro 20 antes daqui) — garante explicitamente, como §42 faz p/ integracao.
+    await pgCtb.query(`UPDATE parceiros SET codcontabil='211' WHERE codparceiro=20`);
+    const crCtbAR = async () => Number(((await (await fetch(`${base}/${ARc}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100 }) })).json()) as any).codrcb);
+    const crCtbAP = async () => Number(((await (await fetch(`${base}/${APc}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 50 }) })).json()) as any).codapg);
+
+    // 44.1) AR baixa DINHEIRO → DIÁRIO D183/C211 valor 100 codoperacao 2009 + areceber_bx.contabilizado='S'.
+    const ctbAr = await crCtbAR();
+    await fetch(`${base}/${ARc}/${ctbAr}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO', dtpgto: '2026-07-04' }) });
+    const ctbArBx = await bxAtivoAR(ctbAr);
+    const ctbArDia = await diarioBx(16, ctbArBx);
+    check('CR-contábil: baixa DINHEIRO → DIÁRIO D183/C211 valor 100 (CODORIGEM 16, sit 2009) + contabilizado=S',
+      ctbArDia.length === 1 && Number(ctbArDia[0].contadebito) === 183 && Number(ctbArDia[0].contacredito) === 211 && Number(ctbArDia[0].valor) === 100 && Number(ctbArDia[0].codoperacao) === 2009 && (await ctbFlagAR(ctbArBx)) === 'S',
+      { dia: ctbArDia, flag: await ctbFlagAR(ctbArBx) });
+    // 44.2) estorno da baixa AR → DIÁRIO removido + contabilizado null + título reaberto.
+    const ctbArEst = await fetch(`${base}/${ARc}/${ctbAr}/estornar-baixa`, { method: 'POST', headers: H });
+    check('CR-contábil: estorno reverte o DIÁRIO (removido) + contabilizado null + reabre',
+      ctbArEst.status === 200 && (await diarioBx(16, ctbArBx)).length === 0 && (await ctbFlagAR(ctbArBx)) == null && (await pgCtb.query(`SELECT quitada FROM areceber WHERE codrcb=$1`, [ctbAr])).rows[0]?.quitada === 'N',
+      { status: ctbArEst.status });
+
+    // 44.3) AP pagamento DINHEIRO → DIÁRIO D11141/C183 valor 50 codoperacao 2004.
+    const ctbAp = await crCtbAP();
+    await fetch(`${base}/${APc}/${ctbAp}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO', dtpgto: '2026-07-04' }) });
+    const ctbApBx = await bxAtivoAP(ctbAp);
+    const ctbApDia = await diarioBx(15, ctbApBx);
+    check('CP-contábil: pagamento DINHEIRO → DIÁRIO D11141/C183 valor 50 (CODORIGEM 15, sit 2004)',
+      ctbApDia.length === 1 && Number(ctbApDia[0].contadebito) === 11141 && Number(ctbApDia[0].contacredito) === 183 && Number(ctbApDia[0].valor) === 50 && Number(ctbApDia[0].codoperacao) === 2004,
+      { dia: ctbApDia });
+    // 44.4) estorno da baixa AP → DIÁRIO removido + reaberto.
+    const ctbApEst = await fetch(`${base}/${APc}/${ctbAp}/estornar-baixa`, { method: 'POST', headers: H });
+    check('CP-contábil: estorno reverte o DIÁRIO + reabre', ctbApEst.status === 200 && (await diarioBx(15, ctbApBx)).length === 0, { status: ctbApEst.status });
+
+    // 44.5) PERÍODO FECHADO → baixa DINHEIRO SUCEDE mas NÃO contabiliza (gate assertPeriodoAberto, best-effort).
+    await pgCtb.query(`INSERT INTO periodo_contabil (codempresa, competencia_contabil, data_inicio, data_fim, status, bloq_nf) VALUES (1, '2026-07', '2026-07-01', '2026-07-31', 'S', 'S')`);
+    const ctbArPf = await crCtbAR();
+    const ctbArPfRes = await fetch(`${base}/${ARc}/${ctbArPf}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO', dtpgto: '2026-07-04' }) });
+    const ctbArPfBx = await bxAtivoAR(ctbArPf);
+    check('CR-contábil: período FECHADO → baixa OK (200) mas SEM DIÁRIO (contábil pulado best-effort)',
+      ctbArPfRes.status === 200 && (await diarioBx(16, ctbArPfBx)).length === 0 && (await ctbFlagAR(ctbArPfBx)) == null,
+      { status: ctbArPfRes.status });
+    await pgCtb.query(`DELETE FROM periodo_contabil WHERE codempresa=1 AND competencia_contabil='2026-07'`);
+    await fetch(`${base}/${ARc}/${ctbArPf}/estornar-baixa`, { method: 'POST', headers: H }); // cleanup
+
+    // 44.6) empresa NÃO-AUTOMATICA → baixa DINHEIRO OK mas SEM contábil (gate INTEGRACAO). Restaura AUTOMATICA.
+    await pgCtb.query(`UPDATE empresas SET integracao='MANUAL' WHERE idempresa=1`);
+    const ctbArNa = await crCtbAR();
+    await fetch(`${base}/${ARc}/${ctbArNa}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO', dtpgto: '2026-07-04' }) });
+    const ctbArNaBx = await bxAtivoAR(ctbArNa);
+    check('CR-contábil: empresa não-AUTOMATICA → baixa OK sem DIÁRIO (gate INTEGRACAO)', (await diarioBx(16, ctbArNaBx)).length === 0 && (await ctbFlagAR(ctbArNaBx)) == null, { flag: await ctbFlagAR(ctbArNaBx) });
+    await pgCtb.query(`UPDATE empresas SET integracao='AUTOMATICA' WHERE idempresa=1`);
+    // 44.7) guarda anti-armadilha (achado paridade #2): se a IIC 2009 ficar com as DUAS pernas TIPO='A'
+    // (cenário legado recurso-driven reimportado), o contábil NÃO pode produzir D=cliente/C=cliente → pula.
+    await pgCtb.query(`UPDATE itens_integracao_contabil SET tipo='A', codconta_contabil=NULL WHERE codoperacao=2009 AND natureza='D'`);
+    const ctbArG = await crCtbAR();
+    await fetch(`${base}/${ARc}/${ctbArG}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO', dtpgto: '2026-07-04' }) });
+    const ctbArGBx = await bxAtivoAR(ctbArG);
+    check('CR-contábil: IIC com 2 pernas TIPO=A → guarda pula o lançamento (sem DIÁRIO, não D=cliente/C=cliente)', (await diarioBx(16, ctbArGBx)).length === 0, { dia: await diarioBx(16, ctbArGBx) });
+    await pgCtb.query(`UPDATE itens_integracao_contabil SET tipo='F', codconta_contabil=183 WHERE codoperacao=2009 AND natureza='D'`); // restaura
+    await pgCtb.end();
   } finally {
     await app.close();
     await pg.stop();

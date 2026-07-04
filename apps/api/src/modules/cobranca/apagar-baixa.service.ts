@@ -4,6 +4,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { CaixaService } from './caixa.service';
+import { BaixaContabilService } from './baixa-contabil.service';
 
 type AnyDB = Kysely<any>;
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -15,20 +16,31 @@ const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
  * Já nasce com as correções auditadas em A Receber: valorpg>0 (`TITULO_VALOR_INVALIDO`) e estorno
  * por PK (codapgbx). NÃO tem a trava "em lote de cobrança" (isso é de recebíveis). Recurso DINHEIRO
  * (corte-2a): lança PAGAMENTO (saída) no caixa aberto do operador (`caixa.lancarDaBaixa`), na mesma
- * transação; o estorno desfaz o movimento. Adiado (corte-3): baixa parcial, demais recursos (cheque/
- * cartão), contábil do pagamento, período-fechado.
+ * transação; o estorno desfaz o movimento. Corte-3a: pagamento PARCIAL (título-saldo ORIGEM='B').
+ * Corte-3b: contábil DINHEIRO (auto-disparo `contabil.contabilizarNoTrx`, D fornecedor/C 183, CODORIGEM=15;
+ * estorno reverte). Adiado (corte-3): demais recursos (cheque/cartão), contábil banco + juros/desconto.
  */
 @Injectable()
 export class ApagarBaixaService {
   constructor(
     private readonly dbp: DatabaseProvider,
     private readonly caixa: CaixaService,
+    private readonly contabil: BaixaContabilService,
   ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
     if (e == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
     return e;
+  }
+
+  /** auto-disparo contábil do pagamento (best-effort; espelha AR). */
+  private async tentarContabilizar(trx: AnyDB, emp: number, p: { codbx: number; codparceiro: number | null; valor: number; data: unknown; op: number | null }): Promise<void> {
+    try {
+      await this.contabil.contabilizarNoTrx(trx, emp, { origem: 'AP', ...p });
+    } catch (e) {
+      if (!(e instanceof BusinessRuleError)) throw e;
+    }
   }
 
   async baixar(
@@ -103,9 +115,11 @@ export class ApagarBaixaService {
         await trx.updateTable('apagar_bx').set({ codapg_gerado: saldoTitulo }).where('codapgbx', '=', Number((bxIns as any).codapgbx)).execute();
       }
 
-      // recurso DINHEIRO → lança PAGAMENTO (saída, com guarda de saldo≥0) no caixa aberto do operador.
+      // recurso DINHEIRO → lança PAGAMENTO (saída, com guarda de saldo≥0) no caixa aberto do operador e
+      // contabiliza o pagamento (auto-disparo best-effort, CODORIGEM=15: D fornecedor / C 183 CAIXA).
       if (String(dto.recurso ?? '').toUpperCase() === 'DINHEIRO') {
         await this.caixa.lancarDaBaixa(trx, { origem: 'AP', valorpg: r2(valorpg), codapgbx: Number((bxIns as any).codapgbx), dtpgto: dto.dtpgto, obs: dto.obs ?? null });
+        await this.tentarContabilizar(trx, emp, { codbx: Number((bxIns as any).codapgbx), codparceiro: (t as any).codparceiro ?? null, valor: r2(valorpg), data: dtpgto, op });
       }
 
       return { codapg, valorpg: r2(valorpg), juros: r2(juros), quitada: 'S', parcial, saldoTitulo };
@@ -128,14 +142,16 @@ export class ApagarBaixaService {
 
       const bx = await trx
         .selectFrom('apagar_bx')
-        .select(['codapgbx', 'contabilizado', 'codapg_gerado'])
+        .select(['codapgbx', 'codapg_gerado'])
         .where('codapg', '=', codapg)
         .where('codempresa', '=', emp)
         .where(sql`coalesce(indr,'I')`, '=', 'I')
         .forUpdate()
         .executeTakeFirst();
       if (!bx) throw new BusinessRuleError('TITULO_NAO_BAIXADO', { codapg });
-      if (bx.contabilizado === 'S') throw new BusinessRuleError('BAIXA_CONTABILIZADA', { codapg });
+
+      // estorno contábil do pagamento (corte-3b): reverte o DIÁRIO na mesma transação (no-op se não houve).
+      await this.contabil.estornarNoTrx(trx, emp, 'AP', bx.codapgbx, op);
 
       // se o pagamento foi PARCIAL, remove o título-saldo gerado (senão reabrir o original duplicaria a
       // dívida). SÓ deleta um saldo INTOCADO: qualquer baixa no saldo (ativa OU estornada) bloqueia

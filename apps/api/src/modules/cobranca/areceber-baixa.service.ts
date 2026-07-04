@@ -4,6 +4,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { CaixaService } from './caixa.service';
+import { BaixaContabilService } from './baixa-contabil.service';
 
 type AnyDB = Kysely<any>;
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -20,20 +21,33 @@ const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
  * `estornar`: ESTORNO LÓGICO (ARECEBER_BX.INDR='E', não deleta — preserva histórico) + reabre o título.
  * Recurso DINHEIRO (corte-2a): lança RECEBIMENTO no caixa aberto do operador (`caixa.lancarDaBaixa`),
  * na mesma transação; o estorno desfaz o movimento (`caixa.estornarDaBaixa`).
- * Adiado (corte-3, dossiê §6): baixa PARCIAL (novo título ORIGEM='B'), demais recursos (cheque/
- * cartão/permuta/saldo/troco), contábil da baixa, adiantamento.
+ * Corte-3a (baixa PARCIAL): se valorpg<total, gera título-saldo ORIGEM='B' (o estorno o remove).
+ * Corte-3b (contábil DINHEIRO): auto-disparo best-effort `contabil.contabilizarNoTrx` (D 183/C cliente,
+ * CODORIGEM=16); o estorno reverte o DIÁRIO (`contabil.estornarNoTrx`) — destrava o antigo BAIXA_CONTABILIZADA.
+ * Adiado (corte-3): demais recursos (cheque/cartão/permuta/saldo/troco), contábil banco/cartão + juros/desconto, adiantamento.
  */
 @Injectable()
 export class AreceberBaixaService {
   constructor(
     private readonly dbp: DatabaseProvider,
     private readonly caixa: CaixaService,
+    private readonly contabil: BaixaContabilService,
   ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
     if (e == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
     return e;
+  }
+
+  /** auto-disparo contábil da baixa (best-effort): regra de negócio (inelegível/config/período) NÃO
+   * aborta a baixa — só pula o lançamento (fiel ao legado, que avisa no log de integração). */
+  private async tentarContabilizar(trx: AnyDB, emp: number, p: { codbx: number; codparceiro: number | null; valor: number; data: unknown; op: number | null }): Promise<void> {
+    try {
+      await this.contabil.contabilizarNoTrx(trx, emp, { origem: 'AR', ...p });
+    } catch (e) {
+      if (!(e instanceof BusinessRuleError)) throw e; // erro real (DB) aborta tudo; regra de negócio, não.
+    }
   }
 
   async baixar(
@@ -120,9 +134,11 @@ export class AreceberBaixaService {
         await trx.updateTable('areceber_bx').set({ codrcb_gerado: saldoTitulo }).where('codrcbbx', '=', Number((bxIns as any).codrcbbx)).execute();
       }
 
-      // recurso DINHEIRO → lança RECEBIMENTO (entrada) no caixa aberto do operador (mesma transação).
+      // recurso DINHEIRO → lança RECEBIMENTO (entrada) no caixa aberto do operador (mesma transação) e
+      // contabiliza a baixa (auto-disparo best-effort, CODORIGEM=16: D 183 CAIXA / C cliente).
       if (String(dto.recurso ?? '').toUpperCase() === 'DINHEIRO') {
         await this.caixa.lancarDaBaixa(trx, { origem: 'AR', valorpg: r2(valorpg), codrcbbx: Number((bxIns as any).codrcbbx), dtpgto: dto.dtpgto, obs: dto.obs ?? null });
+        await this.tentarContabilizar(trx, emp, { codbx: Number((bxIns as any).codrcbbx), codparceiro: (t as any).codparceiro ?? null, valor: r2(valorpg), data: dtpgto, op });
       }
 
       return { codrcb, valorpg: r2(valorpg), juros: r2(juros), quitada: 'S', parcial, saldoTitulo };
@@ -146,14 +162,17 @@ export class AreceberBaixaService {
       // baixa ativa (INDR='I'); barra se já contabilizada (estorno contábil = corte-3).
       const bx = await trx
         .selectFrom('areceber_bx')
-        .select(['codrcbbx', 'contabilizado', 'codrcb_gerado'])
+        .select(['codrcbbx', 'codrcb_gerado'])
         .where('codrcb', '=', codrcb)
         .where('codempresa', '=', emp)
         .where(sql`coalesce(indr,'I')`, '=', 'I')
         .forUpdate()
         .executeTakeFirst();
       if (!bx) throw new BusinessRuleError('TITULO_NAO_BAIXADO', { codrcb });
-      if (bx.contabilizado === 'S') throw new BusinessRuleError('BAIXA_CONTABILIZADA', { codrcb });
+
+      // estorno contábil da baixa (corte-3b): se foi contabilizada, reverte o DIÁRIO na mesma transação
+      // (destrava o antigo bloqueio BAIXA_CONTABILIZADA — espelha NF reverter / caixa reabrir). No-op se não houve.
+      await this.contabil.estornarNoTrx(trx, emp, 'AR', bx.codrcbbx, op);
 
       // se a baixa foi PARCIAL, remove o título-saldo gerado (senão reabrir o original duplicaria a
       // dívida). SÓ deleta um saldo INTOCADO: qualquer baixa no saldo (ativa OU estornada) bloqueia —

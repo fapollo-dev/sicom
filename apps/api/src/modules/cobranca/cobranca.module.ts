@@ -12,6 +12,7 @@ import { ApagarBaixaService } from './apagar-baixa.service';
 import { CaixaController } from './caixa.controller';
 import { CaixaService } from './caixa.service';
 import { CaixaContabilService } from './caixa-contabil.service';
+import { BaixaContabilService } from './baixa-contabil.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 
 @Module({
@@ -24,7 +25,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
   providers: [
     LotesCobrancaService, LoteCobrancaRepository,
     AreceberService, AreceberBaixaService, ApagarService, ApagarBaixaService,
-    CaixaService, CaixaContabilService,
+    CaixaService, CaixaContabilService, BaixaContabilService,
     DatabaseProvider,
   ],
   exports: [LotesCobrancaService],
