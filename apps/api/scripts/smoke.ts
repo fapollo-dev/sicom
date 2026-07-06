@@ -2508,6 +2508,76 @@ async function main() {
     check('CR-contábil: IIC com 2 pernas TIPO=A → guarda pula o lançamento (sem DIÁRIO, não D=cliente/C=cliente)', (await diarioBx(16, ctbArGBx)).length === 0, { dia: await diarioBx(16, ctbArGBx) });
     await pgCtb.query(`UPDATE itens_integracao_contabil SET tipo='F', codconta_contabil=183 WHERE codoperacao=2009 AND natureza='D'`); // restaura
     await pgCtb.end();
+
+    // 45) CAIXA corte-2d-b — TESOURARIA do dinheiro (fechamento move o saldo de 183 p/ o cofre; CODORIGEM 19 + MCB).
+    const pgTes = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    const CXt = 'cobranca/caixa', ARt = 'cadastro/areceber', APt = 'cadastro/apagar';
+    await pgTes.query(`UPDATE empresas SET integracao='AUTOMATICA' WHERE idempresa=1`); // §44 deixou MANUAL; reafirma
+    await pgTes.query(`UPDATE parceiros SET codcontabil='211' WHERE codparceiro=20`); // cliente com conta (p/ corte-3b postar 183)
+    const tesDiario = async (cod: number) => (await pgTes.query(`SELECT contadebito, contacredito, valor, codoperacao, codhist FROM diario WHERE codorigem=19 AND idorigem=$1 AND codempresa=1`, [cod])).rows as any[];
+    const divDiario = async (cod: number) => (await pgTes.query(`SELECT contadebito, contacredito, valor, codoperacao FROM diario WHERE codorigem=17 AND idorigem=$1 AND codempresa=1`, [cod])).rows as any[];
+    const tesMcb = async (cod: number) => (await pgTes.query(`SELECT codconta, valor, tipomovimento, codopconta, idpgto, origem, contabilizado, codoperador FROM mov_contas_bancarias WHERE nropdv_fechamento=$1 AND idempresa=1`, [cod])).rows as any[];
+    const abrirCx = async (fundo: number) => {
+      const pre = await (await fetch(`${base}/${CXt}/atual`, { headers: H })).json().catch(() => null);
+      if ((pre as any)?.sessao?.codcaixa) await fetch(`${base}/${CXt}/${(pre as any).sessao.codcaixa}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+      return Number(((await (await fetch(`${base}/${CXt}/abrir`, { method: 'POST', headers: H, body: JSON.stringify({ saldoInicial: fundo }) })).json()) as any).codcaixa);
+    };
+    const crART = async (v: number) => Number(((await (await fetch(`${base}/${ARt}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: v }) })).json()) as any).codrcb);
+    const crAPT = async (v: number) => Number(((await (await fetch(`${base}/${APt}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: v }) })).json()) as any).codapg);
+    const baixarDin = async (path: string, id: number) => fetch(`${base}/${path}/${id}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO', dtpgto: '2026-07-06' }) });
+
+    // 45.1) caixa com baixa AR dinheiro 100 → tesouraria WASH D183/C183 (codoperacao 2020, CODORIGEM 19) + MCB FCP.
+    const tc1 = await abrirCx(0);
+    await baixarDin(ARt, await crART(100));
+    await fetch(`${base}/${CXt}/${tc1}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) }); // sem contagem → dif 0, netDin 100
+    const tc1Con = await fetch(`${base}/${CXt}/${tc1}/contabilizar`, { method: 'POST', headers: H });
+    const tc1J = (await tc1Con.json().catch(() => ({}))) as any;
+    const tc1Dia = await tesDiario(tc1);
+    check('CX-2d-b: tesouraria = transferência WASH D183/C183 (codoperacao 2020, codhist 86, CODORIGEM 19) valor 100',
+      tc1Con.status === 200 && tc1Dia.length === 1 && Number(tc1Dia[0].contadebito) === 183 && Number(tc1Dia[0].contacredito) === 183 && Number(tc1Dia[0].valor) === 100 && Number(tc1Dia[0].codoperacao) === 2020 && Number(tc1Dia[0].codhist) === 86 && tc1J.tesouraria && Number(tc1J.tesouraria.valor) === 100,
+      { status: tc1Con.status, dia: tc1Dia, body: tc1J });
+    const tc1Mcb = await tesMcb(tc1);
+    check('CX-2d-b: razão MOV_CONTAS_BANCARIAS (FCP, tipomov C, valor 100, codopconta 0, codoperador 7, contabilizado NULL)',
+      tc1Mcb.length === 1 && tc1Mcb[0].origem === 'FCP' && tc1Mcb[0].tipomovimento === 'C' && Number(tc1Mcb[0].valor) === 100 && Number(tc1Mcb[0].codopconta) === 0 && Number(tc1Mcb[0].codoperador) === 7 && tc1Mcb[0].contabilizado == null,
+      { mcb: tc1Mcb });
+    // 45.2) estornar-contábil → tesouraria (19) + MCB removidos.
+    const tc1Est = await fetch(`${base}/${CXt}/${tc1}/estornar-contabil`, { method: 'POST', headers: H });
+    check('CX-2d-b: estornar-contábil remove tesouraria (DIÁRIO 19) + MCB', tc1Est.status === 200 && (await tesDiario(tc1)).length === 0 && (await tesMcb(tc1)).length === 0, { status: tc1Est.status });
+
+    // 45.3) divergência (sobra) + tesouraria COEXISTEM: baixa AR 100 (saldo 100), fecha contado 130 (sobra 30).
+    const tc2 = await abrirCx(0);
+    await baixarDin(ARt, await crART(100));
+    await fetch(`${base}/${CXt}/${tc2}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({ valorContado: 130 }) });
+    await fetch(`${base}/${CXt}/${tc2}/contabilizar`, { method: 'POST', headers: H });
+    const tc2Div = await divDiario(tc2); const tc2Tes = await tesDiario(tc2);
+    check('CX-2d-b: divergência (2019 D183/C541 val 30) + tesouraria (19 D183/C183 val 100) coexistem',
+      tc2Div.length === 1 && Number(tc2Div[0].codoperacao) === 2019 && Number(tc2Div[0].valor) === 30
+      && tc2Tes.length === 1 && Number(tc2Tes[0].contadebito) === 183 && Number(tc2Tes[0].contacredito) === 183 && Number(tc2Tes[0].valor) === 100 && Number(tc2Tes[0].codoperacao) === 2020,
+      { div: tc2Div, tes: tc2Tes });
+
+    // 45.4) net-payment (AP dinheiro > AR): netDin ≤ 0 → SEM tesouraria (legado FCP é 100% 'C'); só a divergência.
+    // fundo 200, AR 30, AP 100 (saldo 130), fecha contado 140 (sobra 10). netDin=−70 → nenhuma linha 19/MCB.
+    const tc3 = await abrirCx(200);
+    await baixarDin(ARt, await crART(30));
+    await baixarDin(APt, await crAPT(100));
+    await fetch(`${base}/${CXt}/${tc3}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({ valorContado: 140 }) });
+    await fetch(`${base}/${CXt}/${tc3}/contabilizar`, { method: 'POST', headers: H });
+    const tc3Div = await divDiario(tc3); const tc3Tes = await tesDiario(tc3); const tc3Mcb = await tesMcb(tc3);
+    check('CX-2d-b: net-payment (netDin≤0) → SEM tesouraria (0 linha 19, 0 MCB); só a divergência (2019 val 10)',
+      tc3Div.length === 1 && Number(tc3Div[0].valor) === 10 && tc3Tes.length === 0 && tc3Mcb.length === 0,
+      { div: tc3Div, tes: tc3Tes, mcb: tc3Mcb });
+
+    // 45.5) REABERTURA estorna a tesouraria também (17 + 19 + MCB) e reabre o caixa.
+    const tc4 = await abrirCx(0);
+    await baixarDin(ARt, await crART(50));
+    await fetch(`${base}/${CXt}/${tc4}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    await fetch(`${base}/${CXt}/${tc4}/contabilizar`, { method: 'POST', headers: H });
+    const tc4Reab = await fetch(`${base}/${CXt}/${tc4}/reabrir`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('CX-2d-b: reabertura estorna tesouraria (DIÁRIO 19 + MCB removidos, caixa reaberto)',
+      tc4Reab.status === 200 && (await tesDiario(tc4)).length === 0 && (await tesMcb(tc4)).length === 0,
+      { status: tc4Reab.status });
+    await fetch(`${base}/${CXt}/${tc4}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) }); // cleanup
+    await pgTes.end();
   } finally {
     await app.close();
     await pg.stop();

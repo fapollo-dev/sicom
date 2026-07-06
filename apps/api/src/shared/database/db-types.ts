@@ -490,6 +490,25 @@ export interface RelacaoOperadorEmpresaTable {
   codoperador: number;
   codempresa: number;
 }
+/** MOV_CONTAS_BANCARIAS (057) — razão de tesouraria/contas; núcleo do fechamento de caixa (ORIGEM='FCP'). */
+export interface MovContasBancariasTable {
+  codmovconta: Generated<number>;
+  codconta: number | null;
+  idempresa: number;
+  valor: number;
+  tipomovimento: string | null; // 'C' entra na tesouraria (FCP sempre 'C')
+  codopconta: number | null; // 0 = TRANSFERENCIA
+  historico: string | null;
+  idpgto: number | null;
+  codoperador: number | null; // operador do fechamento
+  nropdv_fechamento: number | null; // = codcaixa
+  data_fechamento: Timestamptz | null;
+  origem: string | null; // 'FCP'
+  idorigem: number | null; // = codcaixa (PK do fechamento)
+  contabilizado: string | null; // NULL no fechamento (concilia depois)
+  indr: string | null;
+  dtcadastro: Timestamptz | null;
+}
 /** FORMAS_PGTO (052) — formas de pagamento/modalidades por empresa; 3 vínculos p/ o Caixa corte-2d. */
 export interface FormasPgtoTable {
   idpgto: Generated<number>;
@@ -614,6 +633,7 @@ export interface TenantDB {
   operadores: OperadoresTable;
   grupo_operador: GrupoOperadorTable;
   relacao_operador_empresa: RelacaoOperadorEmpresaTable;
+  mov_contas_bancarias: MovContasBancariasTable;
   get_operadores: GetOperadoresView;
   formas_pgto: FormasPgtoTable;
   get_formas_pgto: GetFormasPgtoView;
