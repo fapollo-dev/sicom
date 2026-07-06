@@ -2578,6 +2578,46 @@ async function main() {
       { status: tc4Reab.status });
     await fetch(`${base}/${CXt}/${tc4}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) }); // cleanup
     await pgTes.end();
+
+    // 46) AR/AP contábil-2 — baixa por recurso BANCO (money leg = contas_bancarias.codlanccontabil; NÃO toca o caixa).
+    const pgBco = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    const ARb = 'cadastro/areceber', APb = 'cadastro/apagar';
+    await pgBco.query(`UPDATE empresas SET integracao='AUTOMATICA' WHERE idempresa=1`);
+    await pgBco.query(`UPDATE parceiros SET codcontabil='211' WHERE codparceiro=20`);
+    const bcoDiaAR = async (codrcbbx: number) => (await pgBco.query(`SELECT contadebito, contacredito, valor, codoperacao FROM diario WHERE codorigem=16 AND idorigem=$1 AND codempresa=1`, [codrcbbx])).rows as any[];
+    const bcoDiaAP = async (codapgbx: number) => (await pgBco.query(`SELECT contadebito, contacredito, valor, codoperacao FROM diario WHERE codorigem=15 AND idorigem=$1 AND codempresa=1`, [codapgbx])).rows as any[];
+    const bxAR = async (codrcb: number) => Number((await pgBco.query(`SELECT codrcbbx FROM areceber_bx WHERE codrcb=$1 AND coalesce(indr,'I')='I'`, [codrcb])).rows[0]?.codrcbbx);
+    const bxAP = async (codapg: number) => Number((await pgBco.query(`SELECT codapgbx FROM apagar_bx WHERE codapg=$1 AND coalesce(indr,'I')='I'`, [codapg])).rows[0]?.codapgbx);
+    const movDe = async (codrcbbx: number) => Number((await pgBco.query(`SELECT count(*)::int n FROM caixa_mov WHERE codrcbbx=$1`, [codrcbbx])).rows[0].n);
+    const crBcoAR = async () => Number(((await (await fetch(`${base}/${ARb}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100 }) })).json()) as any).codrcb);
+    const crBcoAP = async () => Number(((await (await fetch(`${base}/${APb}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 80 }) })).json()) as any).codapg);
+
+    // 46.1) AR baixa BANCO (conta 1 → codlanccontabil 186) → DIÁRIO D186/C211 valor 100 (CODORIGEM 16, sit 2009); SEM caixa_mov.
+    const bcoAr = await crBcoAR();
+    const bcoArRes = await fetch(`${base}/${ARb}/${bcoAr}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'BANCO', codconta: 1, dtpgto: '2026-07-06' }) });
+    const bcoArBx = await bxAR(bcoAr);
+    const bcoArDia = await bcoDiaAR(bcoArBx);
+    check('AR-banco: baixa BANCO → DIÁRIO D186(banco)/C211(cliente) valor 100 (sit 2009) + SEM caixa_mov',
+      bcoArRes.status === 200 && bcoArDia.length === 1 && Number(bcoArDia[0].contadebito) === 186 && Number(bcoArDia[0].contacredito) === 211 && Number(bcoArDia[0].valor) === 100 && Number(bcoArDia[0].codoperacao) === 2009 && (await movDe(bcoArBx)) === 0,
+      { status: bcoArRes.status, dia: bcoArDia });
+    // 46.2) estorno da baixa BANCO → DIÁRIO removido + título reaberto.
+    const bcoArEst = await fetch(`${base}/${ARb}/${bcoAr}/estornar-baixa`, { method: 'POST', headers: H });
+    check('AR-banco: estorno remove o DIÁRIO + reabre', bcoArEst.status === 200 && (await bcoDiaAR(bcoArBx)).length === 0 && (await pgBco.query(`SELECT quitada FROM areceber WHERE codrcb=$1`, [bcoAr])).rows[0]?.quitada === 'N', { status: bcoArEst.status });
+    // 46.3) recurso BANCO sem codconta → 400 (schema); codconta inexistente → 422 CONTA_BANCARIA_NAO_ENCONTRADA.
+    const bcoNoConta = await fetch(`${base}/${ARb}/${await crBcoAR()}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'BANCO' }) });
+    const bcoBadConta = await fetch(`${base}/${ARb}/${await crBcoAR()}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'BANCO', codconta: 99999 }) });
+    check('AR-banco: BANCO sem codconta → 400; codconta inexistente → 422 CONTA_BANCARIA_NAO_ENCONTRADA',
+      bcoNoConta.status === 400 && bcoBadConta.status === 422 && ((await bcoBadConta.json().catch(() => ({}))) as any).code === 'CONTA_BANCARIA_NAO_ENCONTRADA',
+      { sem: bcoNoConta.status, bad: bcoBadConta.status });
+    // 46.4) AP pagamento BANCO → DIÁRIO D11141(fornecedor)/C186(banco) valor 80 (CODORIGEM 15, sit 2004).
+    const bcoAp = await crBcoAP();
+    const bcoApRes = await fetch(`${base}/${APb}/${bcoAp}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'BANCO', codconta: 1, dtpgto: '2026-07-06' }) });
+    const bcoApBx = await bxAP(bcoAp);
+    const bcoApDia = await bcoDiaAP(bcoApBx);
+    check('AP-banco: pagamento BANCO → DIÁRIO D11141(fornecedor)/C186(banco) valor 80 (sit 2004)',
+      bcoApRes.status === 200 && bcoApDia.length === 1 && Number(bcoApDia[0].contadebito) === 11141 && Number(bcoApDia[0].contacredito) === 186 && Number(bcoApDia[0].valor) === 80 && Number(bcoApDia[0].codoperacao) === 2004,
+      { status: bcoApRes.status, dia: bcoApDia });
+    await pgBco.end();
   } finally {
     await app.close();
     await pg.stop();

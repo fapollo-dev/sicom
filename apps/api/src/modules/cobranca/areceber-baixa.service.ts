@@ -24,7 +24,9 @@ const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
  * Corte-3a (baixa PARCIAL): se valorpg<total, gera título-saldo ORIGEM='B' (o estorno o remove).
  * Corte-3b (contábil DINHEIRO): auto-disparo best-effort `contabil.contabilizarNoTrx` (D 183/C cliente,
  * CODORIGEM=16); o estorno reverte o DIÁRIO (`contabil.estornarNoTrx`) — destrava o antigo BAIXA_CONTABILIZADA.
- * Adiado (corte-3): demais recursos (cheque/cartão/permuta/saldo/troco), contábil banco/cartão + juros/desconto, adiantamento.
+ * Corte-2 (recurso BANCO): depósito direto (NÃO toca o caixa) → contábil D conta-do-banco (contas_bancarias.
+ * codlanccontabil) / C cliente. Adiado: cheque/cartão (tabelas CHEQUE/CARTAO ausentes); juros/desconto separados
+ * (INÓCUO — o cliente é creditado o valorpg cheio); permuta/saldo/troco; adiantamento.
  */
 @Injectable()
 export class AreceberBaixaService {
@@ -42,7 +44,7 @@ export class AreceberBaixaService {
 
   /** auto-disparo contábil da baixa (best-effort): regra de negócio (inelegível/config/período) NÃO
    * aborta a baixa — só pula o lançamento (fiel ao legado, que avisa no log de integração). */
-  private async tentarContabilizar(trx: AnyDB, emp: number, p: { codbx: number; codparceiro: number | null; valor: number; data: unknown; op: number | null }): Promise<void> {
+  private async tentarContabilizar(trx: AnyDB, emp: number, p: { codbx: number; codparceiro: number | null; valor: number; data: unknown; op: number | null; contaMoney?: number | null }): Promise<void> {
     try {
       await this.contabil.contabilizarNoTrx(trx, emp, { origem: 'AR', ...p });
     } catch (e) {
@@ -50,9 +52,21 @@ export class AreceberBaixaService {
     }
   }
 
+  /** conta contábil do banco (contas_bancarias.codlanccontabil) p/ o recurso BANCO. 422 se a CONTA BANCÁRIA
+   * não existe no tenant. Devolve null (→ contábil pulado best-effort) se o banco não tem codlanccontabil, ou
+   * se ele aponta p/ conta ausente no plano_contas — evita que um FK error (config do banco) aborte a baixa. */
+  private async contaBanco(trx: AnyDB, emp: number, codconta: number): Promise<number | null> {
+    const b = await trx.selectFrom('contas_bancarias').select('codlanccontabil').where('codconta', '=', codconta).where('idempresa', '=', emp).executeTakeFirst();
+    if (!b) throw new BusinessRuleError('CONTA_BANCARIA_NAO_ENCONTRADA', { codconta });
+    const n = Number((b as any).codlanccontabil);
+    if ((b as any).codlanccontabil == null || !Number.isFinite(n)) return null; // banco sem conta contábil mapeada
+    const pc = await trx.selectFrom('plano_contas').select('codplanocontas').where('codplanocontas', '=', n).executeTakeFirst();
+    return pc ? n : null; // conta mapeada mas ausente no plano → pula (não corrompe a baixa com FK error)
+  }
+
   async baixar(
     codrcb: number,
-    dto: { dtpgto?: string; juros?: number; multa?: number; desconto?: number; acrescimo?: number; valorpg?: number; dtvencSaldo?: string; recurso?: string; obs?: string },
+    dto: { dtpgto?: string; juros?: number; multa?: number; desconto?: number; acrescimo?: number; valorpg?: number; dtvencSaldo?: string; recurso?: string; codconta?: number; obs?: string },
   ): Promise<{ codrcb: number; valorpg: number; juros: number; quitada: 'S'; parcial: boolean; saldoTitulo: number | null }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
@@ -134,11 +148,15 @@ export class AreceberBaixaService {
         await trx.updateTable('areceber_bx').set({ codrcb_gerado: saldoTitulo }).where('codrcbbx', '=', Number((bxIns as any).codrcbbx)).execute();
       }
 
-      // recurso DINHEIRO → lança RECEBIMENTO (entrada) no caixa aberto do operador (mesma transação) e
-      // contabiliza a baixa (auto-disparo best-effort, CODORIGEM=16: D 183 CAIXA / C cliente).
-      if (String(dto.recurso ?? '').toUpperCase() === 'DINHEIRO') {
+      // recurso DINHEIRO → RECEBIMENTO no caixa aberto (mesma trx) + contábil (CODORIGEM=16: D 183 CAIXA / C cliente).
+      // recurso BANCO → depósito direto (NÃO toca o caixa) + contábil (D conta-do-banco / C cliente).
+      const recurso = String(dto.recurso ?? '').toUpperCase();
+      if (recurso === 'DINHEIRO') {
         await this.caixa.lancarDaBaixa(trx, { origem: 'AR', valorpg: r2(valorpg), codrcbbx: Number((bxIns as any).codrcbbx), dtpgto: dto.dtpgto, obs: dto.obs ?? null });
         await this.tentarContabilizar(trx, emp, { codbx: Number((bxIns as any).codrcbbx), codparceiro: (t as any).codparceiro ?? null, valor: r2(valorpg), data: dtpgto, op });
+      } else if (recurso === 'BANCO') {
+        const contaMoney = await this.contaBanco(trx, emp, num(dto.codconta)); // 422 se conta inexistente
+        if (contaMoney != null) await this.tentarContabilizar(trx, emp, { codbx: Number((bxIns as any).codrcbbx), codparceiro: (t as any).codparceiro ?? null, valor: r2(valorpg), data: dtpgto, op, contaMoney });
       }
 
       return { codrcb, valorpg: r2(valorpg), juros: r2(juros), quitada: 'S', parcial, saldoTitulo };

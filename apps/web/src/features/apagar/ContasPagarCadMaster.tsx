@@ -151,14 +151,23 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarApagarDto> }) {
   const [dtpgto, setDtpgto] = useState<string | undefined>(hojeISO());
   const [juros, setJuros] = useState<number | undefined>(undefined);
   const [desconto, setDesconto] = useState<number | undefined>(undefined);
-  const [recurso, setRecurso] = useState<string>(''); // '' = sem caixa · 'DINHEIRO' = paga do caixa aberto
+  const [recurso, setRecurso] = useState<string>(''); // '' = sem caixa · DINHEIRO = caixa · BANCO = pagto por banco
+  const [codconta, setCodconta] = useState<number | undefined>(undefined);
+  const { data: contasBancarias = [] } = useResourceOptions(
+    'cadastro/contas-bancarias',
+    (c: any) => ({ value: String(c.codconta), label: `${c.codconta} - ${c.titular ?? ''}${c.nroconta ? ' (' + c.nroconta + ')' : ''}` }),
+  );
   if (codapg == null) return null;
 
   const pagar = async () => {
     if (executando) return;
     setExecutando(true);
     try {
-      const r = await baixarApagar(codapg, { dtpgto, juros, desconto, recurso: recurso === 'DINHEIRO' ? 'DINHEIRO' : undefined });
+      const r = await baixarApagar(codapg, {
+        dtpgto, juros, desconto,
+        recurso: recurso === 'DINHEIRO' || recurso === 'BANCO' ? (recurso as 'DINHEIRO' | 'BANCO') : undefined,
+        codconta: recurso === 'BANCO' ? codconta : undefined,
+      });
       form.setValue('quitada' as any, 'S');
       mensagem.sucesso(`Título pago: R$ ${fmtBRL(r.valorpg)} (juros R$ ${fmtBRL(r.juros)}).`);
     } catch (e) {
@@ -200,13 +209,24 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarApagarDto> }) {
           <div className="w-44">
             <SelectField
               label="&Recurso"
-              options={[{ value: '', label: '— (banco/outro)' }, { value: 'DINHEIRO', label: 'Dinheiro (caixa)' }]}
+              options={[{ value: '', label: '— (outro)' }, { value: 'DINHEIRO', label: 'Dinheiro (caixa)' }, { value: 'BANCO', label: 'Banco (depósito)' }]}
               value={recurso}
-              onChange={setRecurso}
+              onChange={(v) => { setRecurso(v); if (v !== 'BANCO') setCodconta(undefined); }}
             />
           </div>
+          {recurso === 'BANCO' && (
+            <div className="w-56">
+              <SelectField
+                label="&Conta bancária"
+                options={contasBancarias}
+                value={codconta != null ? String(codconta) : undefined}
+                onChange={(v) => setCodconta(v ? Number(v) : undefined)}
+                placeholder="Selecione a conta…"
+              />
+            </div>
+          )}
           <Button label="&Pagar título" variant="soft" onClick={() => void pagar()} />
-          <small className="text-fg-muted">Recurso Dinheiro exige caixa aberto e paga a partir dele.</small>
+          <small className="text-fg-muted">Dinheiro exige caixa aberto; Banco paga pela conta contábil do banco.</small>
         </div>
       )}
     </fieldset>

@@ -70,8 +70,10 @@ export interface GetOperacoesContaView {
 export interface ContasBancariasTable {
   codconta: Generated<number>;
   codbco: number;
+  idempresa: number; // empresaScoped (tenant)
   titular: string | null;
   nroconta: string | null;
+  codlanccontabil: string | null; // conta contábil do banco (→ plano_contas); money leg da baixa recurso BANCO
   ativo: string; // 'S' | 'N'
   usultalteracao: number | null;
   dtultimalteracao: Timestamptz | null;

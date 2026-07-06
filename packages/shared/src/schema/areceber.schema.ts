@@ -101,17 +101,25 @@ export type CriarAreceberDto = z.infer<typeof areceberBase>;
  */
 export const baixarTituloSchema = z.preprocess(
   stripNulls,
-  z.object({
-    dtpgto: opcional(z.string()), // ISO; default = hoje no service
-    juros: dec(z.number().min(0)),
-    multa: dec(z.number().min(0)),
-    desconto: dec(z.number().min(0)),
-    acrescimo: dec(z.number().min(0)),
-    valorpg: dec(z.number().positive('O valor recebido deve ser maior que zero.')),
-    dtvencSaldo: opcional(z.string()), // vencimento do título-saldo na baixa PARCIAL (default = dtpgto/hoje)
-    recurso: opcional(z.enum(['DINHEIRO'], { message: 'Recurso de baixa inválido (apenas DINHEIRO no momento).' })),
-    obs: opcional(z.string()),
-  }),
+  z
+    .object({
+      dtpgto: opcional(z.string()), // ISO; default = hoje no service
+      juros: dec(z.number().min(0)),
+      multa: dec(z.number().min(0)),
+      desconto: dec(z.number().min(0)),
+      acrescimo: dec(z.number().min(0)),
+      valorpg: dec(z.number().positive('O valor recebido deve ser maior que zero.')),
+      dtvencSaldo: opcional(z.string()), // vencimento do título-saldo na baixa PARCIAL (default = dtpgto/hoje)
+      // DINHEIRO → lança no caixa (contábil D/C 183); BANCO → depósito direto (contábil D/C = conta contábil do
+      // banco, contas_bancarias.codlanccontabil; NÃO toca o caixa). Cheque/cartão = corte-3 (tabelas ausentes).
+      recurso: opcional(z.enum(['DINHEIRO', 'BANCO'], { message: 'Recurso de baixa inválido (DINHEIRO ou BANCO).' })),
+      codconta: dec(z.number().int().positive()), // conta bancária do depósito (obrigatória se recurso=BANCO)
+      obs: opcional(z.string()),
+    })
+    .superRefine((v, ctx) => {
+      if (v.recurso === 'BANCO' && v.codconta == null)
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['codconta'], message: 'Informe a conta bancária do depósito (recurso BANCO).' });
+    }),
 );
 export type BaixarTituloDto = z.infer<typeof baixarTituloSchema>;
 

@@ -173,14 +173,23 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarAreceberDto> }) {
   const [dtpgto, setDtpgto] = useState<string | undefined>(hojeISO());
   const [juros, setJuros] = useState<number | undefined>(undefined);
   const [desconto, setDesconto] = useState<number | undefined>(undefined);
-  const [recurso, setRecurso] = useState<string>(''); // '' = sem caixa · 'DINHEIRO' = lança no caixa aberto
+  const [recurso, setRecurso] = useState<string>(''); // '' = sem caixa · DINHEIRO = caixa · BANCO = depósito
+  const [codconta, setCodconta] = useState<number | undefined>(undefined);
+  const { data: contasBancarias = [] } = useResourceOptions(
+    'cadastro/contas-bancarias',
+    (c: any) => ({ value: String(c.codconta), label: `${c.codconta} - ${c.titular ?? ''}${c.nroconta ? ' (' + c.nroconta + ')' : ''}` }),
+  );
   if (codrcb == null) return null;
 
   const baixar = async () => {
     if (executando) return;
     setExecutando(true);
     try {
-      const r = await baixarTitulo(codrcb, { dtpgto, juros, desconto, recurso: recurso === 'DINHEIRO' ? 'DINHEIRO' : undefined });
+      const r = await baixarTitulo(codrcb, {
+        dtpgto, juros, desconto,
+        recurso: recurso === 'DINHEIRO' || recurso === 'BANCO' ? (recurso as 'DINHEIRO' | 'BANCO') : undefined,
+        codconta: recurso === 'BANCO' ? codconta : undefined,
+      });
       form.setValue('quitada' as any, 'S');
       mensagem.sucesso(`Título baixado: recebido R$ ${fmtBRL(r.valorpg)} (juros R$ ${fmtBRL(r.juros)}).`);
     } catch (e) {
@@ -228,13 +237,24 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarAreceberDto> }) {
           <div className="w-44">
             <SelectField
               label="&Recurso"
-              options={[{ value: '', label: '— (banco/outro)' }, { value: 'DINHEIRO', label: 'Dinheiro (caixa)' }]}
+              options={[{ value: '', label: '— (outro)' }, { value: 'DINHEIRO', label: 'Dinheiro (caixa)' }, { value: 'BANCO', label: 'Banco (depósito)' }]}
               value={recurso}
-              onChange={setRecurso}
+              onChange={(v) => { setRecurso(v); if (v !== 'BANCO') setCodconta(undefined); }}
             />
           </div>
+          {recurso === 'BANCO' && (
+            <div className="w-56">
+              <SelectField
+                label="&Conta bancária"
+                options={contasBancarias}
+                value={codconta != null ? String(codconta) : undefined}
+                onChange={(v) => setCodconta(v ? Number(v) : undefined)}
+                placeholder="Selecione a conta…"
+              />
+            </div>
+          )}
           <Button label="&Baixar título" variant="soft" onClick={() => void baixar()} />
-          <small className="text-fg-muted">Recurso Dinheiro exige caixa aberto e lança o recebimento nele.</small>
+          <small className="text-fg-muted">Dinheiro exige caixa aberto; Banco lança o depósito na conta contábil do banco.</small>
         </div>
       )}
     </fieldset>

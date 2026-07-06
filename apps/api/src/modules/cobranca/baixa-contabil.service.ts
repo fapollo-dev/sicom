@@ -18,12 +18,14 @@ const SITUACAO: Record<Origem, number> = { AR: 2009, AP: 2004 };
  * idempotente (areceber_bx/apagar_bx.contabilizado) e reversível (DELETE por CODORIGEM/IDORIGEM=codbx).
  *
  * A IIC das situações 2009/2004 tem os DOIS lados TIPO='A' no legado (perna de dinheiro por RECURSO +
- * perna do parceiro). Corte-1 só faz o recurso DINHEIRO → a perna de dinheiro é a conta 183 CAIXA CENTRAL
- * (seedada TIPO='F' na 055); a outra perna resolve pelo parceiro (AR→cliente CODCONTABIL / AP→fornecedor
- * CODCONTABIL_FOR). Divergência CONSCIENTE do legado single-legged-agregado: aqui é partida-por-baixa.
+ * perna do parceiro). A perna "de dinheiro" (TIPO='F' na 055) é a conta 183 CAIXA CENTRAL por padrão
+ * (recurso DINHEIRO); **corte-2 (recurso BANCO)** passa `contaMoney` = conta contábil do banco
+ * (contas_bancarias.codlanccontabil) e ela SUBSTITUI a 183 nessa perna (mesma situação 2009/2004, D banco /
+ * C cliente no AR, D fornecedor / C banco no AP). A outra perna resolve pelo parceiro (AR→cliente CODCONTABIL /
+ * AP→fornecedor CODCONTABIL_FOR). Divergência CONSCIENTE do legado single-legged-agregado: aqui é partida-por-baixa.
  *
- * ADIADO (corte-2): perna de dinheiro por RECURSO (banco/cartão/cheque → contas 186/213/195…), linhas
- * separadas de JUROS/MULTA/DESCONTO (situações 874/875/878/879/1150), baixa por cartão (893). Ver recon.
+ * ADIADO: baixa por CHEQUE/CARTÃO (situações/tabelas CHEQUE/CARTAO/893 ausentes); linhas separadas de
+ * JUROS/DESCONTO (874/878/879… — provado INÓCUO: o legado credita o valorpg cheio ao cliente). Ver recon.
  */
 @Injectable()
 export class BaixaContabilService {
@@ -51,7 +53,7 @@ export class BaixaContabilService {
   async contabilizarNoTrx(
     trx: AnyDB,
     emp: number,
-    p: { origem: Origem; codbx: number; codparceiro: number | null; valor: number; data: unknown; op: number | null },
+    p: { origem: Origem; codbx: number; codparceiro: number | null; valor: number; data: unknown; op: number | null; contaMoney?: number | null },
   ): Promise<void> {
     // gate: só integra quando a empresa é AUTOMATICA (EMPRESAS.INTEGRACAO).
     const empc = await trx.selectFrom('empresas').select('integracao').where('idempresa', '=', emp).executeTakeFirst();
@@ -74,8 +76,10 @@ export class BaixaContabilService {
 
     // conta do parceiro (perna TIPO='A'): AR→cliente CODCONTABIL / AP→fornecedor CODCONTABIL_FOR.
     const contaParceiro = await this.resolverContaParceiro(trx, p.origem, p.codparceiro, situacao);
-    const contadebito = this.resolverLeg(dRow, contaParceiro, situacao);
-    const contacredito = this.resolverLeg(cRow, contaParceiro, situacao);
+    // perna de dinheiro (TIPO='F'): 183 (DINHEIRO) OU a conta do banco (recurso BANCO, contaMoney).
+    const contaMoney = p.contaMoney ?? null;
+    const contadebito = this.resolverLeg(dRow, contaParceiro, contaMoney, situacao);
+    const contacredito = this.resolverLeg(cRow, contaParceiro, contaMoney, situacao);
     const valor = Math.round(Math.abs(p.valor) * 100) / 100;
 
     const lote = await trx
@@ -97,9 +101,11 @@ export class BaixaContabilService {
     await trx.updateTable(bx.tabela).set({ contabilizado: 'S' }).where(bx.pk, '=', p.codbx).execute();
   }
 
-  /** perna: TIPO='F' → conta fixa (perna de dinheiro 183 no corte-1); TIPO='A' → conta do parceiro. */
-  private resolverLeg(row: Record<string, unknown>, contaParceiro: number | null, situacao: number): number {
+  /** perna: TIPO='F' → conta de dinheiro (contaMoney do recurso BANCO, senão a fixa 183 da IIC);
+   * TIPO='A' → conta do parceiro. */
+  private resolverLeg(row: Record<string, unknown>, contaParceiro: number | null, contaMoney: number | null, situacao: number): number {
     if (row.tipo === 'F') {
+      if (contaMoney != null) return contaMoney; // recurso BANCO: substitui a 183 pela conta contábil do banco
       if (row.codconta_contabil == null) throw new BusinessRuleError('CONTAS_NAO_INFORMADAS', { situacao });
       return Number(row.codconta_contabil);
     }
