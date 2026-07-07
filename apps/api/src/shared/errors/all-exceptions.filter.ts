@@ -136,6 +136,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
           message: 'Um dos valores informados está em formato inválido.',
         };
 
+      case '22003': // numeric_value_out_of_range (valor numérico maior que a precisão da coluna)
+        if (campo) campos.push({ campo, mensagem: 'Valor numérico fora da faixa permitida.' });
+        return {
+          statusCode: HttpStatus.BAD_REQUEST,
+          code: 'VALOR_FORA_DA_FAIXA',
+          message: 'Um dos valores numéricos informados está acima do limite permitido.',
+          ...(campos.length ? { campos } : {}),
+        };
+
       default:
         return this.fromUnknown(err);
     }
@@ -272,6 +281,14 @@ const CODE_PT: Record<string, string> = {
   NF_CHAVE_INVALIDA: 'Chave de acesso inválida (formato ou dígito verificador).',
   NF_SEFAZ_ERRO: 'A SEFAZ retornou erro na transmissão.',
   EMPRESA_FISCAL_NAO_CONFIGURADA: 'Configuração fiscal da empresa (CNPJ/UF) não cadastrada.',
+  // Pedido de Compra (FRMPEDIDOCOMPRA)
+  PEDIDO_FORNECEDOR_INVALIDO: 'Fornecedor inválido: o parceiro informado não é um fornecedor (FRN).',
+  PEDIDO_FECHADO: 'Este pedido de compra está fechado — reabra o pedido antes de alterá-lo ou excluí-lo.',
+  PEDIDO_NAO_ENCONTRADO: 'Pedido de compra não encontrado.',
+  PEDIDO_JA_FECHADO: 'Este pedido de compra já está fechado.',
+  PEDIDO_NAO_FECHADO: 'Este pedido de compra não está fechado — não há o que reabrir.',
+  PEDIDO_SEM_ITENS: 'O pedido de compra não tem itens — inclua ao menos um item antes de fechar.',
+  PEDIDO_FATURADO: 'Este pedido já foi faturado (NF de entrada) — não é possível reabri-lo.',
   // autorização
   TENANT_FORBIDDEN: 'Acesso negado: empresa/tenant não autorizado.',
   SEM_PERMISSAO: 'Você não tem permissão para executar esta ação.',

@@ -1,0 +1,20 @@
+import { Module } from '@nestjs/common';
+import { PedidoCompraAggregateController } from './pedido-compra.aggregate';
+import { PedidoCompraController } from './pedido-compra.controller';
+import { PedidoCompraService } from './pedido-compra.service';
+import { DatabaseProvider } from '../../shared/database/database.provider';
+
+/**
+ * COMPRAS — módulo do ciclo de compras. Corte-1: PEDIDO DE COMPRA (a MAIOR tela do legado), agregado
+ * mestre-detalhe (CRUD via AggregateEngineService, path `compras/pedidos`) + vertical de estado
+ * (fechar/reabrir). O AggregateEngineService vem do CrudModule (@Global). Sem efeitos (o pedido é
+ * intenção; o FATO nasce na NF de entrada — corte futuro).
+ */
+@Module({
+  controllers: [
+    PedidoCompraAggregateController, // engine MESTRE-DETALHE (CRUD do pedido: header + itens; sem efeitos)
+    PedidoCompraController, // vertical (fechar/reabrir — workflow FECHADO)
+  ],
+  providers: [PedidoCompraService, DatabaseProvider],
+})
+export class ComprasModule {}

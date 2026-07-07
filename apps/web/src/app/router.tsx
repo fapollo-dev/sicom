@@ -19,6 +19,7 @@ import { FormasPgtoCadMaster } from '../features/formas-pgto/FormasPgtoCadMaster
 import { ParceirosCadMaster } from '../features/parceiros/ParceirosCadMaster';
 import { ProdutoCadMaster } from '../features/produtos/ProdutoCadMaster';
 import { NfCadMaster } from '../features/nf/NfCadMaster';
+import { PedidoCompraCadMaster } from '../features/pedido-compra/PedidoCompraCadMaster';
 import { EmpresasCadMaster } from '../features/empresas/EmpresasCadMaster';
 import { AjusteEstoquePage } from '../features/ajuste-estoque/AjusteEstoquePage';
 import { MotivosOperacaoCadMaster } from '../features/motivos-operacao/MotivosOperacaoCadMaster';
@@ -56,6 +57,8 @@ export const router = createBrowserRouter([
       // tela-coroa NF — mesmo componente, tipo diferente (Entrada/Saída), como Parceiros (papel)
       { path: '/fiscal/notas/entrada', element: <NfCadMaster tipo="E" /> },
       { path: '/fiscal/notas/saida', element: <NfCadMaster tipo="S" /> },
+      // pedido de compra (mestre-detalhe) — documento de intenção; o FATO nasce na NF de entrada
+      { path: '/compras/pedidos', element: <PedidoCompraCadMaster /> },
     ],
   },
 ]);

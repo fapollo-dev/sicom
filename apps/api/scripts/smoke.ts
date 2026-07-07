@@ -2677,6 +2677,109 @@ async function main() {
     const motDel = await fetch(`${base}/${MOT}/${motNovoId}`, { method: 'DELETE', headers: H });
     check('AJUSTE: motivos-operacao lista(seed ≥6)+cria(201)+DELETE soft(204)', motList.length >= 6 && motNovo.status === 201 && motDel.status === 204, { n: motList.length, novo: motNovo.status, del: motDel.status });
     await pgAj.end();
+
+    // 48) PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela: agregado header+itens (sem efeitos) + workflow FECHADO.
+    const pgPed = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    const PED = 'compras/pedidos';
+    const crPed = async (body: Record<string, unknown>, headers = H) => fetch(`${base}/${PED}`, { method: 'POST', headers, body: JSON.stringify(body) });
+    const itensBase = [
+      { idproduto: 1, fatorembalagem: 10, vrcusto: 5 },   // vlrembalagem 50
+      { idproduto: 2, fatorembalagem: 3, vrcusto: 2.5 },  // vlrembalagem 7,5
+    ];
+
+    // 48.1) criar (fornecedor 22 FRN='S', 2 itens) → 201; VLREMBALAGEM derivado (fator×custo); codoperador=7; fechado=N.
+    const p1 = await crPed({ codparceiro: 22, data: '2026-07-07', itens: itensBase });
+    const p1J = (await p1.json().catch(() => ({}))) as any;
+    const ped1 = Number(p1J.codpedcomp);
+    const it1 = (p1J.itens ?? []) as any[];
+    check('PEDIDO: criar (forn 22, 2 itens) → 201 + VLREMBALAGEM derivado (50 / 7,5) + codoperador=7 + fechado=N',
+      p1.status === 201 && Number(it1[0]?.vlrembalagem) === 50 && Number(it1[1]?.vlrembalagem) === 7.5 && Number(p1J.codoperador) === 7 && (p1J.fechado ?? 'N') === 'N',
+      { status: p1.status, itens: it1, op: p1J.codoperador, fechado: p1J.fechado });
+
+    // 48.2) VLREMBALAGEM é server-authoritative: valor forjado no payload é ignorado (fator 4 × custo 3 = 12).
+    const p2 = await crPed({ codparceiro: 22, data: '2026-07-07', itens: [{ idproduto: 1, fatorembalagem: 4, vrcusto: 3, vlrembalagem: 99999 }] });
+    const p2J = (await p2.json().catch(() => ({}))) as any;
+    const ped2 = Number(p2J.codpedcomp);
+    check('PEDIDO: VLREMBALAGEM server-authoritative (forjado 99999 → 12)', p2.status === 201 && Number(p2J.itens?.[0]?.vlrembalagem) === 12, { v: p2J.itens?.[0]?.vlrembalagem });
+
+    // 48.3) total = Σ VLREMBALAGEM na view (o cabeçalho NÃO persiste total) + fornecedor via JOIN.
+    const lista = (await (await fetch(`${base}/${PED}?campo=codpedcomp&operador=igual&valor=${ped1}`, { headers: H })).json().catch(() => [])) as any[];
+    const row1 = lista.find((r) => Number(r.codpedcomp) === ped1);
+    check('PEDIDO: total na view = Σ VLREMBALAGEM (57,5) + fornecedor (JOIN)', Number(row1?.total) === 57.5 && !!row1?.fornecedor, { total: row1?.total, forn: row1?.fornecedor });
+
+    // 48.4) fornecedor não-FRN (parceiro 20) → 422 PEDIDO_FORNECEDOR_INVALIDO.
+    const p4 = await crPed({ codparceiro: 20, data: '2026-07-07', itens: itensBase });
+    check('PEDIDO: fornecedor não-FRN (20) → 422 PEDIDO_FORNECEDOR_INVALIDO', p4.status === 422 && ((await p4.json().catch(() => ({}))) as any).code === 'PEDIDO_FORNECEDOR_INVALIDO', { status: p4.status });
+
+    // 48.5) sem itens → 400; sem fornecedor → 400 (schema).
+    const p5a = await crPed({ codparceiro: 22, data: '2026-07-07', itens: [] });
+    const p5b = await crPed({ data: '2026-07-07', itens: itensBase });
+    check('PEDIDO: sem itens → 400; sem fornecedor → 400', p5a.status === 400 && p5b.status === 400, { semItens: p5a.status, semForn: p5b.status });
+
+    // 48.6) editar rascunho (PUT): substitui itens → VLREMBALAGEM recomputado (fator 2 × custo 8 = 16) + obs.
+    const p6 = await fetch(`${base}/${PED}/${ped1}`, { method: 'PUT', headers: H, body: JSON.stringify({ obs: 'editado', itens: [{ idproduto: 1, fatorembalagem: 2, vrcusto: 8 }] }) });
+    const p6J = (await p6.json().catch(() => ({}))) as any;
+    check('PEDIDO: editar rascunho substitui itens + VLREMBALAGEM recomputado (16) + obs', p6.status === 200 && p6J.itens?.length === 1 && Number(p6J.itens[0].vlrembalagem) === 16 && p6J.obs === 'editado', { status: p6.status, itens: p6J.itens });
+
+    // 48.7) fechar (N→S) → 200 fechado=S.
+    const p7 = await fetch(`${base}/${PED}/${ped1}/fechar`, { method: 'POST', headers: H });
+    check('PEDIDO: fechar (N→S) → 200 fechado=S', p7.status === 200 && ((await p7.json().catch(() => ({}))) as any).fechado === 'S', { status: p7.status });
+
+    // 48.8) editar/excluir pedido FECHADO → 422 PEDIDO_FECHADO.
+    const p8a = await fetch(`${base}/${PED}/${ped1}`, { method: 'PUT', headers: H, body: JSON.stringify({ obs: 'x' }) });
+    const p8b = await fetch(`${base}/${PED}/${ped1}`, { method: 'DELETE', headers: H });
+    check('PEDIDO: editar/excluir FECHADO → 422 PEDIDO_FECHADO', p8a.status === 422 && ((await p8a.json().catch(() => ({}))) as any).code === 'PEDIDO_FECHADO' && p8b.status === 422, { put: p8a.status, del: p8b.status });
+
+    // 48.9) fechar 2x → 422 PEDIDO_JA_FECHADO.
+    const p9 = await fetch(`${base}/${PED}/${ped1}/fechar`, { method: 'POST', headers: H });
+    check('PEDIDO: fechar 2x → 422 PEDIDO_JA_FECHADO', p9.status === 422 && ((await p9.json().catch(() => ({}))) as any).code === 'PEDIDO_JA_FECHADO', { status: p9.status });
+
+    // 48.10) reabrir (S→N) → 200 + editar volta a funcionar.
+    const p10 = await fetch(`${base}/${PED}/${ped1}/reabrir`, { method: 'POST', headers: H });
+    const p10e = await fetch(`${base}/${PED}/${ped1}`, { method: 'PUT', headers: H, body: JSON.stringify({ obs: 'reaberto' }) });
+    check('PEDIDO: reabrir (S→N) → 200 + editar volta a funcionar', p10.status === 200 && p10e.status === 200 && ((await p10e.json().catch(() => ({}))) as any).obs === 'reaberto', { reabrir: p10.status, put: p10e.status });
+
+    // 48.11) reabrir um NÃO-fechado → 422 PEDIDO_NAO_FECHADO.
+    const p11 = await fetch(`${base}/${PED}/${ped1}/reabrir`, { method: 'POST', headers: H });
+    check('PEDIDO: reabrir não-fechado → 422 PEDIDO_NAO_FECHADO', p11.status === 422 && ((await p11.json().catch(() => ({}))) as any).code === 'PEDIDO_NAO_FECHADO', { status: p11.status });
+
+    // 48.12) fechar SEM itens → 422 PEDIDO_SEM_ITENS (esvazia via PUT itens:[] e tenta fechar).
+    const p12v = await fetch(`${base}/${PED}/${ped1}`, { method: 'PUT', headers: H, body: JSON.stringify({ itens: [] }) });
+    const p12 = await fetch(`${base}/${PED}/${ped1}/fechar`, { method: 'POST', headers: H });
+    check('PEDIDO: fechar sem itens → 422 PEDIDO_SEM_ITENS', p12v.status === 200 && p12.status === 422 && ((await p12.json().catch(() => ({}))) as any).code === 'PEDIDO_SEM_ITENS', { esvazia: p12v.status, fechar: p12.status });
+
+    // 48.13) excluir rascunho → 204 (soft-delete INDR='E') + some da lista.
+    const p13 = await fetch(`${base}/${PED}/${ped1}`, { method: 'DELETE', headers: H });
+    const indr13 = (await pgPed.query(`SELECT indr FROM pedidocompra WHERE codpedcomp=$1`, [ped1])).rows[0]?.indr;
+    const listaPos = (await (await fetch(`${base}/${PED}?campo=codpedcomp&operador=igual&valor=${ped1}`, { headers: H })).json().catch(() => [])) as any[];
+    check('PEDIDO: excluir rascunho → 204 soft-delete (INDR=E) + some da lista', p13.status === 204 && indr13 === 'E' && !listaPos.find((r) => Number(r.codpedcomp) === ped1), { del: p13.status, indr: indr13 });
+
+    // 48.13b) editar pedido EXCLUÍDO (soft-delete) → 422 PEDIDO_NAO_ENCONTRADO (anti-ressurreição de estado).
+    const p13b = await fetch(`${base}/${PED}/${ped1}`, { method: 'PUT', headers: H, body: JSON.stringify({ obs: 'zumbi' }) });
+    check('PEDIDO: editar pedido excluído → 422 PEDIDO_NAO_ENCONTRADO', p13b.status === 422 && ((await p13b.json().catch(() => ({}))) as any).code === 'PEDIDO_NAO_ENCONTRADO', { status: p13b.status });
+
+    // 48.14) RBAC: criar sem grant → 403; fechar sem grant → 403.
+    const p14a = await crPed({ codparceiro: 22, data: '2026-07-07', itens: itensBase }, H_SEM_ACESSO);
+    const p14b = await fetch(`${base}/${PED}/${ped2}/fechar`, { method: 'POST', headers: H_SEM_ACESSO });
+    check('PEDIDO: criar/fechar sem grant RBAC → 403', p14a.status === 403 && p14b.status === 403, { criar: p14a.status, fechar: p14b.status });
+
+    // 48.15) multi-tenant: pedido da empresa 1 não é lido pela empresa 2.
+    const p15 = await fetch(`${base}/${PED}/${ped2}`, { headers: { ...H, 'x-empresa-id': '2' } });
+    const p15B = await p15.json().catch(() => null);
+    check('PEDIDO: multi-tenant — pedido da emp 1 não é lido pela emp 2', p15.status === 404 || p15B == null, { status: p15.status, body: p15B });
+
+    // 48.16) teto de quantidade (evita overflow de VLREMBALAGEM): fatorembalagem absurdo → 400.
+    const p16 = await crPed({ codparceiro: 22, data: '2026-07-07', itens: [{ idproduto: 1, fatorembalagem: 99_999_999, vrcusto: 5 }] });
+    check('PEDIDO: quantidade acima do teto → 400 (bound anti-overflow)', p16.status === 400, { status: p16.status });
+
+    // 48.17) guarda de FATURAMENTO (coerente com o reabrir): pedido faturado é read-only na edição E exclusão.
+    // dtfaturamento vem da NF de entrada (corte futuro) — aqui simulado por DML no PG de TESTE (descartável).
+    await pgPed.query(`UPDATE pedidocompra SET dtfaturamento=now() WHERE codpedcomp=$1`, [ped2]);
+    const p17e = await fetch(`${base}/${PED}/${ped2}`, { method: 'PUT', headers: H, body: JSON.stringify({ obs: 'x' }) });
+    const p17d = await fetch(`${base}/${PED}/${ped2}`, { method: 'DELETE', headers: H });
+    check('PEDIDO: faturado (dtfaturamento) → editar/excluir 422 PEDIDO_FATURADO', p17e.status === 422 && ((await p17e.json().catch(() => ({}))) as any).code === 'PEDIDO_FATURADO' && p17d.status === 422, { put: p17e.status, del: p17d.status });
+
+    await pgPed.end();
   } finally {
     await app.close();
     await pg.stop();
