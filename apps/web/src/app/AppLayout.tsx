@@ -45,6 +45,8 @@ const TELAS = [
   { href: '/cadastro/areceber', name: 'Contas a Receber', icon: HandCoins },
   { href: '/cadastro/apagar', name: 'Contas a Pagar', icon: Banknote },
   { href: '/cobranca/caixa', name: 'Caixa', icon: Coins },
+  { href: '/estoque/ajuste', name: 'Ajuste de Estoque', icon: Package },
+  { href: '/cadastro/motivos-operacao', name: 'Motivos de Operação', icon: ListChecks },
   { href: '/cadastro/plano-contas', name: 'Plano de Contas', icon: Network },
   { href: '/contabil/dre', name: 'DRE', icon: BarChart3 },
   { href: '/cadastro/empresas', name: 'Empresas', icon: Building },

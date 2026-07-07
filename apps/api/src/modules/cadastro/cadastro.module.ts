@@ -5,6 +5,9 @@ import { BancoRepository } from './banco.repository';
 import { OperacoesContaCrudController } from './operacoes-conta.crud';
 import { ContasBancariasCrudController } from './contas-bancarias.crud';
 import { MarcasCrudController } from './marcas.crud';
+import { MotivosOperacaoCrudController } from './motivos-operacao.crud';
+import { AjusteEstoqueController } from './ajuste-estoque.controller';
+import { AjusteEstoqueService } from './ajuste-estoque.service';
 import { BairroCrudController } from './bairro.crud';
 import { PrecoCrudController } from './preco.crud';
 import { NcmCrudController } from './ncm.crud';
@@ -77,6 +80,8 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     NfFaturamentoController, // F4 — faturar/estornar (gera títulos ARECEBER/APAGAR atômico)
     NfNfeController, // F6 — NFe mod.55 (transmitir/cancelar/cce) atrás da porta SEFAZ
     NfContabilizacaoController, // F5b — contabilizar/estornar (gera/estorna o DIÁRIO — partida dobrada)
+    MotivosOperacaoCrudController, // engine (lookup do motivo do ajuste; soft-delete)
+    AjusteEstoqueController, // vertical (AJUSTE DE ESTOQUE — move o saldo + kardex; sem contábil)
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
   providers: [
@@ -91,6 +96,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     NfContabilizacaoService,
     PlanoContasService,
     DreService,
+    AjusteEstoqueService,
     // Porta SEFAZ (F6): seleção REAL por env SEFAZ_PROVIDER (default 'simulador'). Hoje só existe
     // o SIMULADOR (homologação); o provider real (ACBrLibNFe/lib NFe Node/microserviço) implementa
     // a mesma SefazPort e entra aqui sem tocar no service. Travas: 'simulador' é PROIBIDO em

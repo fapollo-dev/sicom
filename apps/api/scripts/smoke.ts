@@ -2618,6 +2618,65 @@ async function main() {
       bcoApRes.status === 200 && bcoApDia.length === 1 && Number(bcoApDia[0].contadebito) === 11141 && Number(bcoApDia[0].contacredito) === 186 && Number(bcoApDia[0].valor) === 80 && Number(bcoApDia[0].codoperacao) === 2004,
       { status: bcoApRes.status, dia: bcoApDia });
     await pgBco.end();
+
+    // 47) AJUSTE DE ESTOQUE (FRMAJUSTEESTOQUE) — move o saldo de estoque + kardex; sem contábil.
+    const pgAj = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    const AJ = 'cadastro/ajuste-estoque', MOT = 'cadastro/motivos-operacao';
+    const saldoDe = async (idproduto: number) => Number((await pgAj.query(`SELECT qtde FROM estoque WHERE idproduto=$1 AND idempresa=1`, [idproduto])).rows[0]?.qtde);
+    const kardexAj = async (idproduto: number) => (await pgAj.query(`SELECT tipo, qtde, saldo_anterior, saldo_novo, origem FROM historico_prod WHERE idproduto=$1 AND origem='AJUSTE' ORDER BY codmov DESC`, [idproduto])).rows as any[];
+    const ajustar = async (body: Record<string, unknown>) => fetch(`${base}/${AJ}`, { method: 'POST', headers: H, body: JSON.stringify(body) });
+    const PRD = 1; // produto do seed
+
+    // 47.1) SUBSTITUIR 100 → saldo=100 (baseline) + kardex + ajuste registra qtdeanterior/qtdeatual.
+    const aj1 = await ajustar({ idproduto: PRD, operacao: 'SUBSTITUIR', qtde: 100, codmotivo: 1 });
+    const aj1J = (await aj1.json().catch(() => ({}))) as any;
+    check('AJUSTE: SUBSTITUIR 100 → saldo=100 + qtdeatual=100 + kardex(origem AJUSTE)',
+      aj1.status === 200 && (await saldoDe(PRD)) === 100 && Number(aj1J.qtdeatual) === 100 && (await kardexAj(PRD))[0]?.origem === 'AJUSTE' && Number((await kardexAj(PRD))[0]?.saldo_novo) === 100,
+      { status: aj1.status, body: aj1J, saldo: await saldoDe(PRD) });
+    // 47.2) AUMENTAR 10 → saldo=110.
+    const aj2 = await ajustar({ idproduto: PRD, operacao: 'AUMENTAR', qtde: 10, codmotivo: 1 });
+    const aj2J = (await aj2.json().catch(() => ({}))) as any;
+    check('AJUSTE: AUMENTAR 10 → saldo=110', aj2.status === 200 && (await saldoDe(PRD)) === 110 && Number(aj2J.qtdeanterior) === 100 && Number(aj2J.qtdeatual) === 110, { saldo: await saldoDe(PRD) });
+    // 47.3) DIMINUIR 30 → saldo=80.
+    const aj3 = await ajustar({ idproduto: PRD, operacao: 'DIMINUIR', qtde: 30, codmotivo: 2 });
+    const aj3J = (await aj3.json().catch(() => ({}))) as any;
+    check('AJUSTE: DIMINUIR 30 → saldo=80', aj3.status === 200 && (await saldoDe(PRD)) === 80, { saldo: await saldoDe(PRD) });
+    // 47.4) estornar o DIMINUIR-30 (saldo atual=80=qtdeatual) → saldo volta a 110 + estornado.
+    const aj5 = await fetch(`${base}/${AJ}/${aj3J.codajuste}/estornar`, { method: 'POST', headers: H });
+    check('AJUSTE: estornar reverte o saldo (80→110) + estornado=S', aj5.status === 200 && (await saldoDe(PRD)) === 110 && (await pgAj.query(`SELECT estornado FROM ajuste_estoque WHERE codajuste=$1`, [aj3J.codajuste])).rows[0]?.estornado === 'S', { status: aj5.status, saldo: await saldoDe(PRD) });
+    // 47.5) estornar 2x → 422 AJUSTE_JA_ESTORNADO.
+    const aj6 = await fetch(`${base}/${AJ}/${aj3J.codajuste}/estornar`, { method: 'POST', headers: H });
+    check('AJUSTE: estornar 2x → 422 AJUSTE_JA_ESTORNADO', aj6.status === 422 && ((await aj6.json().catch(() => ({}))) as any).code === 'AJUSTE_JA_ESTORNADO', { status: aj6.status });
+    // 47.6) estornar o SUBSTITUIR-100 (qtdeatual=100 ≠ saldo atual 110) → 422 AJUSTE_ESTORNO_SALDO_MUDOU.
+    const aj7 = await fetch(`${base}/${AJ}/${aj1J.codajuste}/estornar`, { method: 'POST', headers: H });
+    check('AJUSTE: estornar com saldo mudado → 422 AJUSTE_ESTORNO_SALDO_MUDOU', aj7.status === 422 && ((await aj7.json().catch(() => ({}))) as any).code === 'AJUSTE_ESTORNO_SALDO_MUDOU', { status: aj7.status });
+    // 47.7) saldo NEGATIVO é PERMITIDO (fiel ao legado): DIMINUIR 200 (saldo 110 → −90) → 200.
+    const aj8n = await ajustar({ idproduto: PRD, operacao: 'DIMINUIR', qtde: 200, codmotivo: 2 });
+    check('AJUSTE: saldo negativo é PERMITIDO (DIMINUIR 200 → −90, fiel ao legado)', aj8n.status === 200 && (await saldoDe(PRD)) === -90, { status: aj8n.status, saldo: await saldoDe(PRD) });
+    // 47.8) SUBSTITUIR 0 (zerar o saldo) → 200, saldo=0.
+    const aj0 = await ajustar({ idproduto: PRD, operacao: 'SUBSTITUIR', qtde: 0, codmotivo: 1 });
+    check('AJUSTE: SUBSTITUIR 0 zera o saldo (−90 → 0)', aj0.status === 200 && (await saldoDe(PRD)) === 0, { status: aj0.status, saldo: await saldoDe(PRD) });
+    // 47.9) produto inexistente → 422; motivo inexistente → 422.
+    const aj9p = await ajustar({ idproduto: 999999, operacao: 'AUMENTAR', qtde: 1, codmotivo: 1 });
+    const aj9m = await ajustar({ idproduto: PRD, operacao: 'AUMENTAR', qtde: 1, codmotivo: 99999 });
+    check('AJUSTE: produto inexistente → 422 PRODUTO_NAO_ENCONTRADO; motivo inexistente → 422 MOTIVO_NAO_ENCONTRADO',
+      aj9p.status === 422 && ((await aj9p.json().catch(() => ({}))) as any).code === 'PRODUTO_NAO_ENCONTRADO'
+      && aj9m.status === 422 && ((await aj9m.json().catch(() => ({}))) as any).code === 'MOTIVO_NAO_ENCONTRADO',
+      { prod: aj9p.status, mot: aj9m.status });
+    // 47.10) validação: sem motivo → 400; AUMENTAR qtde 0 → 400 (mover 0 é no-op).
+    const aj10a = await ajustar({ idproduto: PRD, operacao: 'AUMENTAR', qtde: 5 });
+    const aj10b = await ajustar({ idproduto: PRD, operacao: 'AUMENTAR', qtde: 0, codmotivo: 1 });
+    check('AJUSTE: sem motivo → 400; AUMENTAR qtde 0 → 400', aj10a.status === 400 && aj10b.status === 400, { semMotivo: aj10a.status, qtdeZero: aj10b.status });
+    // 47.11) RBAC sem grant → 403.
+    const aj11 = await fetch(`${base}/${AJ}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ idproduto: PRD, operacao: 'AUMENTAR', qtde: 1, codmotivo: 1 }) });
+    check('AJUSTE: POST sem grant RBAC → 403', aj11.status === 403, { status: aj11.status });
+    // 47.11) MOTIVOS_OPERACAO (lookup): GET lista traz o seed; POST cria; DELETE soft.
+    const motList = (await (await fetch(`${base}/${MOT}`, { headers: H })).json().catch(() => [])) as any[];
+    const motNovo = await fetch(`${base}/${MOT}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'MOTIVO TESTE', tipo_operacao: 'AJUSTE' }) });
+    const motNovoId = Number(((await motNovo.json().catch(() => ({}))) as any).codmotivoop);
+    const motDel = await fetch(`${base}/${MOT}/${motNovoId}`, { method: 'DELETE', headers: H });
+    check('AJUSTE: motivos-operacao lista(seed ≥6)+cria(201)+DELETE soft(204)', motList.length >= 6 && motNovo.status === 201 && motDel.status === 204, { n: motList.length, novo: motNovo.status, del: motDel.status });
+    await pgAj.end();
   } finally {
     await app.close();
     await pg.stop();

@@ -218,6 +218,12 @@ const CODE_PT: Record<string, string> = {
   TITULO_VALOR_EXCEDE: 'O valor pago é maior que o total do título — troco/crédito ainda não é suportado.',
   REVERSAO_PARCIAL_SALDO_BAIXADO: 'O título-saldo gerado nesta baixa parcial já possui movimentação — trate a baixa do saldo antes de estornar esta.',
   CONTA_BANCARIA_NAO_ENCONTRADA: 'A conta bancária informada para o depósito não existe nesta empresa.',
+  // Ajuste de estoque (FRMAJUSTEESTOQUE)
+  MOTIVO_NAO_ENCONTRADO: 'Motivo de operação não encontrado.',
+  AJUSTE_CONCORRENTE: 'Outro ajuste deste produto está em andamento — tente novamente.',
+  AJUSTE_NAO_ENCONTRADO: 'Ajuste de estoque não encontrado.',
+  AJUSTE_JA_ESTORNADO: 'Este ajuste de estoque já foi estornado.',
+  AJUSTE_ESTORNO_SALDO_MUDOU: 'O saldo do produto mudou desde este ajuste — não é possível estorná-lo com segurança.',
   // Plano de Contas (uCadPlanoContas — árvore/validações/travas)
   CONTA_NAO_ENCONTRADA: 'Conta contábil não encontrada no sistema.',
   CONTA_CODIGO_DUPLICADO: 'Já existe uma conta com este código.',
