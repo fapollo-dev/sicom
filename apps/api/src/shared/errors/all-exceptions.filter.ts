@@ -290,6 +290,12 @@ const CODE_PT: Record<string, string> = {
   PEDIDO_SEM_ITENS: 'O pedido de compra não tem itens — inclua ao menos um item antes de fechar.',
   PEDIDO_FATURADO: 'Este pedido já foi faturado (NF de entrada) — não é possível reabri-lo.',
   PEDIDO_JA_RECEBIDO: 'Este pedido já tem uma NF de entrada gerada — não é possível gerar outra.',
+  // Import do XML da NFe (recebimento corte-2)
+  NFE_XML_INVALIDO: 'O XML informado não é uma NFe válida (estrutura não reconhecida).',
+  NFE_FORNECEDOR_NAO_ENCONTRADO: 'Fornecedor do XML (CNPJ) não encontrado no cadastro desta empresa.',
+  NFE_PRODUTOS_NAO_CASADOS: 'Há itens do XML sem produto correspondente (por código de barras). Cadastre/vincule os produtos e reimporte.',
+  NFE_FORNECEDOR_DIVERGE_PEDIDO: 'O fornecedor do XML é diferente do fornecedor do pedido informado.',
+  NFE_ITENS_EXCESSO: 'O XML tem itens demais (acima do limite de 990 por NFe).',
   // autorização
   TENANT_FORBIDDEN: 'Acesso negado: empresa/tenant não autorizado.',
   SEM_PERMISSAO: 'Você não tem permissão para executar esta ação.',

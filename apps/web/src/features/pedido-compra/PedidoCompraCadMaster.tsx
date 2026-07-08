@@ -20,7 +20,8 @@ import { Button } from '../../shared/ui/Button';
 import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
 import { useMensagem } from '../../shared/mensagem';
 import { PedidoCompraItemModal } from './PedidoCompraItemModal';
-import { fecharPedido, reabrirPedido, gerarNfDoPedido } from './pedidoCompraApi';
+import { ImportarXmlModal } from './ImportarXmlModal';
+import { fecharPedido, reabrirPedido, gerarNfDoPedido, importarXmlNfe } from './pedidoCompraApi';
 
 /** hoje em ISO 'YYYY-MM-DD' (DATA default hoje, como no OnNewRecord do legado). */
 const hojeISO = () => new Date().toISOString().slice(0, 10);
@@ -390,6 +391,7 @@ function AcoesEstadoBar({ form }: { form: UseFormReturn<CriarPedidoCompraDto> })
   const mensagem = useMensagem();
   const navigate = useNavigate();
   const [executando, setExecutando] = useState(false);
+  const [mostrarImport, setMostrarImport] = useState(false);
   const codpedcomp = (form.getValues() as { codpedcomp?: number }).codpedcomp;
   const fechado = (form.watch('fechado' as any) as string | undefined) === 'S';
   const recebido = (form.watch('dtfaturamento' as any) as string | null | undefined) != null;
@@ -440,21 +442,44 @@ function AcoesEstadoBar({ form }: { form: UseFormReturn<CriarPedidoCompraDto> })
     }
   };
 
+  // RECEBIMENTO corte-2: importa o XML da NFe do fornecedor → NF de entrada VALORADA, vinculada a este pedido.
+  const importarXml = async (xml: string) => {
+    if (executando) return;
+    setExecutando(true);
+    try {
+      const r = await importarXmlNfe(xml, codpedcomp);
+      form.setValue('dtfaturamento' as any, new Date().toISOString());
+      setMostrarImport(false);
+      mensagem.sucesso(
+        `NF de entrada ${r.codnf} importada do XML${r.divergencia ? ' (atenção: total da NF diverge do vNF do XML — confira)' : ''}. Processe a NF (estoque/A Pagar) na tela de Notas de Entrada.`,
+      );
+      navigate('/fiscal/notas/entrada');
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
   return (
     <fieldset className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
       <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Estado do pedido</legend>
       <div className="flex flex-wrap items-center gap-gp-sm">
         {!fechado && !recebido && <Button label="&Fechar pedido" variant="soft" onClick={() => void fechar()} />}
         {fechado && !recebido && <Button label="&Gerar NF de entrada" variant="soft" onClick={() => void gerarNf()} />}
+        {fechado && !recebido && <Button label="&Importar XML da NFe" variant="soft" onClick={() => setMostrarImport(true)} />}
         {fechado && !recebido && <Button label="&Reabrir pedido" variant="ghost" onClick={() => void reabrir()} />}
         <small className="text-fg-muted">
           {recebido
             ? 'Pedido recebido (NF de entrada gerada). Confira/processe a NF na tela de Notas de Entrada.'
             : fechado
-              ? 'Pedido fechado. Gere a NF de entrada para receber, ou reabra para editar.'
+              ? 'Pedido fechado. Gere a NF de entrada (rascunho) ou importe o XML da NFe do fornecedor; ou reabra para editar.'
               : 'Pedido em rascunho. Fechar confirma o pedido (exige ao menos um item).'}
         </small>
       </div>
+      {mostrarImport && (
+        <ImportarXmlModal codpedcomp={codpedcomp} ocupado={executando} onFechar={() => setMostrarImport(false)} onConfirmar={importarXml} />
+      )}
     </fieldset>
   );
 }

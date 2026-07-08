@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './shared/errors/all-exceptions.filter';
 
@@ -13,7 +14,10 @@ async function bootstrap() {
     console.log('[api] worker role ainda não implementado nesta fatia');
     return;
   }
-  const app = await NestFactory.create(AppModule, { cors: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { cors: true });
+  // Import de XML da NFe: uma NFe real (dezenas de itens) passa fácil do default 100 KB do body-parser.
+  // Sobe o teto do JSON p/ 5 MB (reconfigura o parser embutido do Nest/Express).
+  app.useBodyParser('json', { limit: '5mb' });
   app.useGlobalFilters(new AllExceptionsFilter());
   app.enableShutdownHooks();
   const port = Number(process.env.PORT ?? 3000);

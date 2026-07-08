@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { Pool } from 'pg';
 import { NestFactory } from '@nestjs/core';
-import { chaveNfeValida } from '@apollo/shared';
+import { chaveNfeValida, montarChaveNfe } from '@apollo/shared';
 import { startEmbeddedPg, PG_CONN } from '../test/embedded-db';
 import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/shared/errors/all-exceptions.filter';
@@ -2835,6 +2835,101 @@ async function main() {
     check('RECEB: processar (F3) a NF gerada move estoque (+10 / +3) — FATO delegado à NF', proc.status === 200 && est1b - est1a === 10 && est2b - est2a === 3, { proc: proc.status, d1: est1b - est1a, d2: est2b - est2a });
 
     await pgRec.end();
+
+    // 50) RECEBIMENTO corte-2 — IMPORT do XML da NFe do fornecedor → NF de entrada VALORADA.
+    const pgImp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    const IMP = 'compras/recebimento/importar-xml';
+    const importar = async (xml: string, codpedcomp?: number, headers = H) =>
+      fetch(`${base}/${IMP}`, { method: 'POST', headers, body: JSON.stringify({ xml, ...(codpedcomp != null ? { codpedcomp } : {}) }) });
+    const CNPJ_F1 = '11222333000181'; // fornecedor 1 (COBRADOR PADRAO LTDA, FRN='S') — seed parceiros_end codend1
+    const mkChave = (nnf: number, cnpj = CNPJ_F1) => montarChaveNfe({ cuf: 31, aamm: '2607', cnpj, modelo: 55, serie: 1, numero: nnf, tpEmis: 1, cnf: 12345678 });
+    // NFe 4.00 mínima: 2 itens casando produtos 2 (EAN 7894900011517) e 3 (2000001000005) por EAN — EANs ÚNICOS
+    // (o 7891000100103 do produto 1 é duplicado pelos testes de Produto → ambíguo de propósito). Valores reais.
+    // Totais: vProd=62, vST=1,44, vNF=63,44 (= derivar: 62 − 0 + 0 + 1,44).
+    const mkXml = (chave: string, nnf: number, cnpj = CNPJ_F1, ean1 = '7894900011517') => `<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc versao="4.00"><NFe><infNFe Id="NFe${chave}" versao="4.00">
+<ide><cUF>31</cUF><nNF>${nnf}</nNF><serie>1</serie><mod>55</mod><dhEmi>2026-07-08T10:00:00-03:00</dhEmi><tpNF>0</tpNF><tpAmb>2</tpAmb></ide>
+<emit><CNPJ>${cnpj}</CNPJ><xNome>FORNECEDOR TESTE</xNome></emit>
+<det nItem="1"><prod><cProd>FA</cProd><cEAN>${ean1}</cEAN><xProd>REFRI</xProd><NCM>22021000</NCM><CFOP>5102</CFOP><uCom>UN</uCom><qCom>10.0000</qCom><vUnCom>5.00</vUnCom><vProd>50.00</vProd></prod><imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><vBC>50.00</vBC><pICMS>18.00</pICMS><vICMS>9.00</vICMS></ICMS00></ICMS></imposto></det>
+<det nItem="2"><prod><cProd>FB</cProd><cEAN>2000001000005</cEAN><xProd>QUEIJO</xProd><NCM>04061010</NCM><CFOP>5403</CFOP><uCom>UN</uCom><qCom>4.0000</qCom><vUnCom>3.00</vUnCom><vProd>12.00</vProd></prod><imposto><ICMS><ICMS10><orig>0</orig><CST>10</CST><vBC>12.00</vBC><pICMS>18.00</pICMS><vICMS>2.16</vICMS><vBCST>20.00</vBCST><vICMSST>1.44</vICMSST></ICMS10></ICMS></imposto></det>
+<total><ICMSTot><vProd>62.00</vProd><vNF>63.44</vNF><vICMS>11.16</vICMS><vBC>62.00</vBC><vST>1.44</vST><vIPI>0.00</vIPI><vDesc>0.00</vDesc><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vOutro>0.00</vOutro><vBCST>20.00</vBCST></ICMSTot></total>
+</infNFe></NFe><protNFe><infProt><nProt>131260000000001</nProt></infProt></protNFe></nfeProc>`;
+
+    // 50.1) import válido standalone → 200 + NF valorada (tipo E, chave, mod 55, terceiros) + reconciliação OK.
+    const nnf1 = 900001;
+    const imp1 = await importar(mkXml(mkChave(nnf1), nnf1));
+    const imp1J = (await imp1.json().catch(() => ({}))) as any;
+    const cnfImp = Number(imp1J.codnf);
+    const nfImp = (await pgImp.query(`SELECT tipo, modelo, tipoemissao, chavenfe, totalnf, codpedcomp, proc FROM nf WHERE codnf=$1`, [cnfImp])).rows[0] as any;
+    check('IMPORT: XML válido → 200 + NF valorada (E, mod 55, terceiros, chave 44) + totalnf 63,44 = vNF (divergência=false)',
+      imp1.status === 200 && cnfImp > 0 && nfImp?.tipo === 'E' && Number(nfImp?.modelo) === 55 && nfImp?.tipoemissao === '1' && (nfImp?.chavenfe || '').length === 44 && Number(nfImp?.totalnf) === 63.44 && imp1J.divergencia === false && Number(imp1J.itens) === 2 && nfImp?.proc === 'N',
+      { status: imp1.status, body: imp1J, nf: nfImp });
+
+    // 50.2) itens valorados com os impostos REAIS do XML + CFOP ajustado saída→entrada (5102→1102, 5403→1403).
+    const itImp = (await pgImp.query(`SELECT codproduto, quantidade, vrvenda, vricm, vricmst, cfop, codprodnota FROM nf_prod WHERE codnf=$1 ORDER BY nroitem`, [cnfImp])).rows as any[];
+    check('IMPORT: itens com ICMS/ST reais do XML (vricm 9,00 / vricmst 1,44) + CFOP entrada (1102/1403) + codprodnota=cProd',
+      itImp.length === 2 && Number(itImp[0].codproduto) === 2 && Number(itImp[0].vricm) === 9 && itImp[0].cfop === '1102' && itImp[0].codprodnota === 'FA' && Number(itImp[1].codproduto) === 3 && Number(itImp[1].vricmst) === 1.44 && itImp[1].cfop === '1403',
+      { itens: itImp });
+
+    // 50.3) XML cru guardado em nfe_xml (vínculo por codnf + chave).
+    const xmlRow = (await pgImp.query(`SELECT chavenfe, length(xml) AS n FROM nfe_xml WHERE codnf=$1`, [cnfImp])).rows[0] as any;
+    check('IMPORT: XML cru guardado em nfe_xml (chave + conteúdo)', (xmlRow?.chavenfe || '').length === 44 && Number(xmlRow?.n) > 100, { xmlRow });
+
+    // 50.4) produto não casado (EAN inexistente) → 422 NFE_PRODUTOS_NAO_CASADOS (bloqueia o import inteiro).
+    const nnf2 = 900002;
+    const imp4 = await importar(mkXml(mkChave(nnf2), nnf2, CNPJ_F1, '0000000000000'));
+    const imp4J = (await imp4.json().catch(() => ({}))) as any;
+    check('IMPORT: produto sem EAN casado → 422 NFE_PRODUTOS_NAO_CASADOS (com lista de pendências)', imp4.status === 422 && imp4J.code === 'NFE_PRODUTOS_NAO_CASADOS', { status: imp4.status, code: imp4J.code });
+
+    // 50.5) fornecedor (CNPJ) desconhecido → 422 NFE_FORNECEDOR_NAO_ENCONTRADO.
+    const nnf3 = 900003;
+    const imp5 = await importar(mkXml(mkChave(nnf3, '99888777000166'), nnf3, '99888777000166'));
+    check('IMPORT: CNPJ desconhecido → 422 NFE_FORNECEDOR_NAO_ENCONTRADO', imp5.status === 422 && ((await imp5.json().catch(() => ({}))) as any).code === 'NFE_FORNECEDOR_NAO_ENCONTRADO', { status: imp5.status });
+
+    // 50.6) chave com DV inválido → 422 NF_CHAVE_INVALIDA; XML lixo → 422 NFE_XML_INVALIDO.
+    const nnf4 = 900004;
+    const chaveRuim = mkChave(nnf4).slice(0, 43) + (((Number(mkChave(nnf4)[43]) + 1) % 10)); // corrompe o DV
+    const imp6 = await importar(mkXml(chaveRuim, nnf4));
+    const imp6b = await importar('<isto não é uma nfe/>');
+    check('IMPORT: chave DV inválido → 422 NF_CHAVE_INVALIDA; XML lixo → 422 NFE_XML_INVALIDO',
+      imp6.status === 422 && ((await imp6.json().catch(() => ({}))) as any).code === 'NF_CHAVE_INVALIDA' && imp6b.status === 422 && ((await imp6b.json().catch(() => ({}))) as any).code === 'NFE_XML_INVALIDO',
+      { chave: imp6.status, lixo: imp6b.status });
+
+    // 50.7) reimport (mesma nronf/fornecedor) → 422 NF_DUPLICADA (dedup natural da NF).
+    const imp7 = await importar(mkXml(mkChave(nnf1), nnf1));
+    check('IMPORT: reimport (mesma NF) → 422 NF_DUPLICADA', imp7.status === 422 && ((await imp7.json().catch(() => ({}))) as any).code === 'NF_DUPLICADA', { status: imp7.status });
+
+    // 50.8) vínculo ao pedido: pedido fechado (fornecedor 1) + import com codpedcomp → NF vinculada + pedido recebido.
+    const ped8 = Number(((await (await crPed({ codparceiro: 1, data: '2026-07-08', itens: [{ idproduto: 1, fatorembalagem: 10, vrcusto: 5 }] })).json().catch(() => ({}))) as any).codpedcomp);
+    await fetch(`${base}/${PED}/${ped8}/fechar`, { method: 'POST', headers: H });
+    const nnf8 = 900008;
+    const imp8 = await importar(mkXml(mkChave(nnf8), nnf8), ped8);
+    const imp8J = (await imp8.json().catch(() => ({}))) as any;
+    const ped8Row = (await pgImp.query(`SELECT dtfaturamento FROM pedidocompra WHERE codpedcomp=$1`, [ped8])).rows[0] as any;
+    const nf8Ped = (await pgImp.query(`SELECT codpedcomp FROM nf WHERE codnf=$1`, [Number(imp8J.codnf)])).rows[0] as any;
+    check('IMPORT: com codpedcomp → NF vinculada + pedido recebido (dtfaturamento)', imp8.status === 200 && Number(nf8Ped?.codpedcomp) === ped8 && ped8Row?.dtfaturamento != null, { status: imp8.status, nfPed: nf8Ped, ped: ped8Row });
+
+    // 50.9) fornecedor do XML diverge do fornecedor do pedido → 422 NFE_FORNECEDOR_DIVERGE_PEDIDO (pedido intacto).
+    const ped9 = Number(((await (await crPed({ codparceiro: 22, data: '2026-07-08', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 1 }] })).json().catch(() => ({}))) as any).codpedcomp);
+    await fetch(`${base}/${PED}/${ped9}/fechar`, { method: 'POST', headers: H });
+    const nnf9 = 900009;
+    const imp9 = await importar(mkXml(mkChave(nnf9), nnf9), ped9); // XML fornecedor 1 ≠ pedido fornecedor 22
+    const ped9Row = (await pgImp.query(`SELECT dtfaturamento FROM pedidocompra WHERE codpedcomp=$1`, [ped9])).rows[0] as any;
+    check('IMPORT: fornecedor XML ≠ pedido → 422 NFE_FORNECEDOR_DIVERGE_PEDIDO (pedido não marcado)', imp9.status === 422 && ((await imp9.json().catch(() => ({}))) as any).code === 'NFE_FORNECEDOR_DIVERGE_PEDIDO' && ped9Row?.dtfaturamento == null, { status: imp9.status, ped: ped9Row });
+
+    // 50.10) RBAC sem grant → 403.
+    const nnf10 = 900010;
+    const imp10 = await importar(mkXml(mkChave(nnf10), nnf10), undefined, H_SEM_ACESSO);
+    check('IMPORT: sem grant RBAC → 403', imp10.status === 403, { status: imp10.status });
+
+    // 50.11) end-to-end: processar (F3) a NF importada move o estoque (produto 2 +10 / produto 3 +4) — FATO delega à NF.
+    const estDe = async (id: number) => Number((await pgImp.query(`SELECT qtde FROM estoque WHERE idproduto=$1 AND idempresa=1`, [id])).rows[0]?.qtde ?? 0);
+    const e1a = await estDe(2); const e2a = await estDe(3);
+    const procImp = await fetch(`${base}/fiscal/nf/${cnfImp}/processar`, { method: 'POST', headers: H });
+    const e1b = await estDe(2); const e2b = await estDe(3);
+    check('IMPORT: processar (F3) a NF importada move estoque (prod 2 +10 / prod 3 +4) — FATO delegado à NF', procImp.status === 200 && e1b - e1a === 10 && e2b - e2a === 4, { proc: procImp.status, d1: e1b - e1a, d2: e2b - e2a });
+
+    await pgImp.end();
   } finally {
     await app.close();
     await pg.stop();

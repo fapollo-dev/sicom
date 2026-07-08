@@ -96,6 +96,16 @@ export const gerarNfPedidoSchema = z.object({
 });
 export type GerarNfPedidoDto = z.infer<typeof gerarNfPedidoSchema>;
 
+/**
+ * RECEBIMENTO corte-2 — importar o XML da NFe do fornecedor → NF de entrada valorada. `xml` = conteúdo do
+ * arquivo (colado ou lido no cliente). `codpedcomp` opcional vincula ao pedido (guardas do corte-1).
+ */
+export const importarXmlNfeSchema = z.object({
+  xml: z.string({ message: 'Informe o XML da NFe.' }).trim().min(1, 'Informe o XML da NFe.'),
+  codpedcomp: opcional(z.coerce.number().int().positive()),
+});
+export type ImportarXmlNfeDto = z.infer<typeof importarXmlNfeSchema>;
+
 /* ── registros devolvidos (lista / agregado) ── */
 export interface PedidoCompra {
   codpedcomp: number;

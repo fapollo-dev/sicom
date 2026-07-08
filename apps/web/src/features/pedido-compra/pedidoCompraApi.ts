@@ -90,3 +90,18 @@ export function gerarNfDoPedido(
 ): Promise<{ codnf: number; codpedcomp: number }> {
   return req(`/compras/pedidos/${id}/gerar-nf`, { method: 'POST', body: JSON.stringify(opts ?? {}) });
 }
+
+/**
+ * POST compras/recebimento/importar-xml — RECEBIMENTO corte-2: importa o XML da NFe do fornecedor e cria a
+ * NF de entrada VALORADA (valores fiscais reais do XML). `codpedcomp` opcional vincula ao pedido. Retorna o
+ * código da NF + a reconciliação (totalnf vs vNF do XML). Itens sem produto casado → 422 (lista de pendências).
+ */
+export function importarXmlNfe(
+  xml: string,
+  codpedcomp?: number,
+): Promise<{ codnf: number; chave: string; codparceiro: number; codpedcomp: number | null; itens: number; totalnf: number; totalXml: number; divergencia: boolean }> {
+  return req(`/compras/recebimento/importar-xml`, {
+    method: 'POST',
+    body: JSON.stringify({ xml, ...(codpedcomp != null ? { codpedcomp } : {}) }),
+  });
+}
