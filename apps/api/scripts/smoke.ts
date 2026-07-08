@@ -2780,6 +2780,61 @@ async function main() {
     check('PEDIDO: faturado (dtfaturamento) → editar/excluir 422 PEDIDO_FATURADO', p17e.status === 422 && ((await p17e.json().catch(() => ({}))) as any).code === 'PEDIDO_FATURADO' && p17d.status === 422, { put: p17e.status, del: p17d.status });
 
     await pgPed.end();
+
+    // 49) RECEBIMENTO — gerar NF de entrada a partir do pedido (delega o FATO ao F3/F4 da NF).
+    const pgRec = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    const gerarNf = async (id: number, body: Record<string, unknown> = {}, headers = H) =>
+      fetch(`${base}/${PED}/${id}/gerar-nf`, { method: 'POST', headers, body: JSON.stringify(body) });
+    const estoqueDe = async (idproduto: number) =>
+      Number((await pgRec.query(`SELECT qtde FROM estoque WHERE idproduto=$1 AND idempresa=1`, [idproduto])).rows[0]?.qtde ?? 0);
+
+    const rp = await crPed({ codparceiro: 22, data: '2026-07-08', itens: [{ idproduto: 1, fatorembalagem: 10, vrcusto: 5 }, { idproduto: 2, fatorembalagem: 3, vrcusto: 2.5 }] });
+    const rpId = Number(((await rp.json().catch(() => ({}))) as any).codpedcomp);
+
+    // 49.1) gerar-nf de pedido RASCUNHO (não fechado) → 422 PEDIDO_NAO_FECHADO.
+    const r1 = await gerarNf(rpId);
+    check('RECEB: gerar-nf de rascunho → 422 PEDIDO_NAO_FECHADO', r1.status === 422 && ((await r1.json().catch(() => ({}))) as any).code === 'PEDIDO_NAO_FECHADO', { status: r1.status });
+
+    await fetch(`${base}/${PED}/${rpId}/fechar`, { method: 'POST', headers: H });
+    // 49.2) gerar-nf do pedido FECHADO → 200 {codnf}; NF tipo=E, vinculada, terceiros modelo 1.
+    const r2 = await gerarNf(rpId);
+    const r2J = (await r2.json().catch(() => ({}))) as any;
+    const codnf = Number(r2J.codnf);
+    const nfRow = (await pgRec.query(`SELECT tipo, modelo, tipoemissao, codpedcomp, codparceiro, proc FROM nf WHERE codnf=$1`, [codnf])).rows[0] as any;
+    check('RECEB: gerar-nf (pedido fechado) → 200 + NF tipo=E, codpedcomp vinculado, terceiros modelo 1, proc=N',
+      r2.status === 200 && codnf > 0 && nfRow?.tipo === 'E' && Number(nfRow?.codpedcomp) === rpId && nfRow?.tipoemissao === '1' && Number(nfRow?.modelo) === 1 && Number(nfRow?.codparceiro) === 22 && nfRow?.proc === 'N',
+      { status: r2.status, nf: nfRow });
+
+    // 49.3) itens mapeados: qtde=fatorembalagem, vrvenda=vrcusto, aliquota/ncm do PRODUTO.
+    const nfItens = (await pgRec.query(`SELECT codproduto, quantidade, vrvenda, aliquota, ncm, cfop FROM nf_prod WHERE codnf=$1 ORDER BY nroitem`, [codnf])).rows as any[];
+    check('RECEB: itens mapeados (qtde=fatorembalagem 10/3, vrvenda=vrcusto 5/2,5, NCM/aliquota DISTINTOS do produto, cfop 1102)',
+      nfItens.length === 2 && Number(nfItens[0].quantidade) === 10 && Number(nfItens[0].vrvenda) === 5 && nfItens[0].aliquota === 'T01' && nfItens[0].ncm === '17019900' && nfItens[0].cfop === '1102' && Number(nfItens[1].quantidade) === 3 && Number(nfItens[1].vrvenda) === 2.5 && nfItens[1].ncm === '22021000',
+      { itens: nfItens });
+
+    // 49.4) pedido marcado RECEBIDO (dtfaturamento) → reabrir/editar bloqueados (PEDIDO_FATURADO).
+    const r4r = await fetch(`${base}/${PED}/${rpId}/reabrir`, { method: 'POST', headers: H });
+    const r4e = await fetch(`${base}/${PED}/${rpId}`, { method: 'PUT', headers: H, body: JSON.stringify({ obs: 'x' }) });
+    check('RECEB: pedido recebido → reabrir/editar 422 PEDIDO_FATURADO', r4r.status === 422 && ((await r4r.json().catch(() => ({}))) as any).code === 'PEDIDO_FATURADO' && r4e.status === 422, { reabrir: r4r.status, put: r4e.status });
+
+    // 49.5) gerar-nf 2x → 422 PEDIDO_JA_RECEBIDO; e SÓ 1 NF vinculada existe (CAS + UNIQUE ux_nf_codpedcomp).
+    const r5 = await gerarNf(rpId);
+    const nCount = Number((await pgRec.query(`SELECT count(*)::int AS n FROM nf WHERE codpedcomp=$1`, [rpId])).rows[0]?.n);
+    check('RECEB: gerar-nf 2x → 422 PEDIDO_JA_RECEBIDO + apenas 1 NF vinculada (anti-duplo-recebimento)', r5.status === 422 && ((await r5.json().catch(() => ({}))) as any).code === 'PEDIDO_JA_RECEBIDO' && nCount === 1, { status: r5.status, nCount });
+
+    // 49.6) RBAC: gerar-nf sem grant → 403.
+    const rp6 = await crPed({ codparceiro: 22, data: '2026-07-08', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 1 }] });
+    const rp6Id = Number(((await rp6.json().catch(() => ({}))) as any).codpedcomp);
+    await fetch(`${base}/${PED}/${rp6Id}/fechar`, { method: 'POST', headers: H });
+    const r6 = await gerarNf(rp6Id, {}, H_SEM_ACESSO);
+    check('RECEB: gerar-nf sem grant RBAC → 403', r6.status === 403, { status: r6.status });
+
+    // 49.7) end-to-end: processar (F3) a NF gerada MOVE o estoque (+10 / +3) — o FATO delega à NF.
+    const est1a = await estoqueDe(1); const est2a = await estoqueDe(2);
+    const proc = await fetch(`${base}/fiscal/nf/${codnf}/processar`, { method: 'POST', headers: H });
+    const est1b = await estoqueDe(1); const est2b = await estoqueDe(2);
+    check('RECEB: processar (F3) a NF gerada move estoque (+10 / +3) — FATO delegado à NF', proc.status === 200 && est1b - est1a === 10 && est2b - est2a === 3, { proc: proc.status, d1: est1b - est1a, d2: est2b - est2a });
+
+    await pgRec.end();
   } finally {
     await app.close();
     await pg.stop();

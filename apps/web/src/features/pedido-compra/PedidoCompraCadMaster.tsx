@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Pencil, Trash2 } from 'lucide-react';
 import { DataTable, type DataTableColumnDef } from '@apollosg/design-system';
@@ -19,7 +20,7 @@ import { Button } from '../../shared/ui/Button';
 import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
 import { useMensagem } from '../../shared/mensagem';
 import { PedidoCompraItemModal } from './PedidoCompraItemModal';
-import { fecharPedido, reabrirPedido } from './pedidoCompraApi';
+import { fecharPedido, reabrirPedido, gerarNfDoPedido } from './pedidoCompraApi';
 
 /** hoje em ISO 'YYYY-MM-DD' (DATA default hoje, como no OnNewRecord do legado). */
 const hojeISO = () => new Date().toISOString().slice(0, 10);
@@ -380,15 +381,18 @@ function ItensSection({
 // ───────────────────────────── Ações de estado (Fechar / Reabrir) ─────────────────────────────
 
 /**
- * Barra de transições de ESTADO (espelha a ProcessamentoSection da NF): "Fechar" quando rascunho
- * (confirma o pedido; exige ≥1 item — reforçado no servidor), "Reabrir" quando fechado (volta a
- * rascunho). Só aparece em pedido GRAVADO (com codpedcomp), como o rodapé habilitado do legado.
+ * Barra de transições de ESTADO + RECEBIMENTO. Fluxo: rascunho → «Fechar» → fechado → «Gerar NF de
+ * entrada» → recebido. Rascunho: só «Fechar» (exige ≥1 item, reforçado no servidor). Fechado (não
+ * recebido): «Reabrir» + «Gerar NF de entrada». Recebido (dtfaturamento): read-only, só aviso. Só
+ * aparece em pedido GRAVADO (com codpedcomp).
  */
 function AcoesEstadoBar({ form }: { form: UseFormReturn<CriarPedidoCompraDto> }) {
   const mensagem = useMensagem();
+  const navigate = useNavigate();
   const [executando, setExecutando] = useState(false);
   const codpedcomp = (form.getValues() as { codpedcomp?: number }).codpedcomp;
   const fechado = (form.watch('fechado' as any) as string | undefined) === 'S';
+  const recebido = (form.watch('dtfaturamento' as any) as string | null | undefined) != null;
   if (codpedcomp == null) return null; // ações só em pedido gravado
 
   const fechar = async () => {
@@ -397,7 +401,7 @@ function AcoesEstadoBar({ form }: { form: UseFormReturn<CriarPedidoCompraDto> })
     try {
       await fecharPedido(codpedcomp);
       form.setValue('fechado' as any, 'S');
-      mensagem.sucesso('Pedido fechado. Edição bloqueada — use «Reabrir» para voltar a rascunho.');
+      mensagem.sucesso('Pedido fechado. Gere a NF de entrada para receber, ou reabra para editar.');
     } catch (e) {
       mensagem.erro(e);
     } finally {
@@ -420,16 +424,35 @@ function AcoesEstadoBar({ form }: { form: UseFormReturn<CriarPedidoCompraDto> })
     }
   };
 
+  const gerarNf = async () => {
+    if (executando) return;
+    if (!window.confirm('Gerar a NF de entrada a partir deste pedido? Os itens vêm do pedido como rascunho editável (ajuste ao documento do fornecedor na tela da NF).')) return;
+    setExecutando(true);
+    try {
+      const { codnf } = await gerarNfDoPedido(codpedcomp);
+      form.setValue('dtfaturamento' as any, new Date().toISOString());
+      mensagem.sucesso(`NF de entrada ${codnf} gerada (rascunho). Confira e processe a NF (estoque/A Pagar) na tela de Notas de Entrada.`);
+      navigate('/fiscal/notas/entrada');
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
   return (
     <fieldset className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
       <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Estado do pedido</legend>
       <div className="flex flex-wrap items-center gap-gp-sm">
-        {!fechado && <Button label="&Fechar pedido" variant="soft" onClick={() => void fechar()} />}
-        {fechado && <Button label="&Reabrir pedido" variant="soft" onClick={() => void reabrir()} />}
+        {!fechado && !recebido && <Button label="&Fechar pedido" variant="soft" onClick={() => void fechar()} />}
+        {fechado && !recebido && <Button label="&Gerar NF de entrada" variant="soft" onClick={() => void gerarNf()} />}
+        {fechado && !recebido && <Button label="&Reabrir pedido" variant="ghost" onClick={() => void reabrir()} />}
         <small className="text-fg-muted">
-          {fechado
-            ? 'Pedido fechado (rascunho confirmado). Reabra para editar ou excluir.'
-            : 'Pedido em rascunho. Fechar confirma o pedido (exige ao menos um item).'}
+          {recebido
+            ? 'Pedido recebido (NF de entrada gerada). Confira/processe a NF na tela de Notas de Entrada.'
+            : fechado
+              ? 'Pedido fechado. Gere a NF de entrada para receber, ou reabra para editar.'
+              : 'Pedido em rascunho. Fechar confirma o pedido (exige ao menos um item).'}
         </small>
       </div>
     </fieldset>

@@ -78,3 +78,15 @@ export function fecharPedido(id: number): Promise<{ codpedcomp: number; fechado:
 export function reabrirPedido(id: number): Promise<{ codpedcomp: number; fechado: 'N' }> {
   return req(`/compras/pedidos/${id}/reabrir`, { method: 'POST' });
 }
+
+/**
+ * POST compras/pedidos/:id/gerar-nf — RECEBIMENTO: gera a NF de entrada (rascunho) a partir do pedido
+ * (exige pedido FECHADO e ainda não recebido). Opções (modelo/série/CFOP) têm defaults no servidor. O
+ * FATO (estoque/A Pagar) é o F3/F4 que o operador roda na tela da NF. Retorna o código da NF gerada.
+ */
+export function gerarNfDoPedido(
+  id: number,
+  opts?: { modelo?: number; serie?: string; cfop?: string },
+): Promise<{ codnf: number; codpedcomp: number }> {
+  return req(`/compras/pedidos/${id}/gerar-nf`, { method: 'POST', body: JSON.stringify(opts ?? {}) });
+}

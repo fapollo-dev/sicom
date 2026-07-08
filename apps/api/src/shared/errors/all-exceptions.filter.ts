@@ -289,6 +289,7 @@ const CODE_PT: Record<string, string> = {
   PEDIDO_NAO_FECHADO: 'Este pedido de compra não está fechado — não há o que reabrir.',
   PEDIDO_SEM_ITENS: 'O pedido de compra não tem itens — inclua ao menos um item antes de fechar.',
   PEDIDO_FATURADO: 'Este pedido já foi faturado (NF de entrada) — não é possível reabri-lo.',
+  PEDIDO_JA_RECEBIDO: 'Este pedido já tem uma NF de entrada gerada — não é possível gerar outra.',
   // autorização
   TENANT_FORBIDDEN: 'Acesso negado: empresa/tenant não autorizado.',
   SEM_PERMISSAO: 'Você não tem permissão para executar esta ação.',

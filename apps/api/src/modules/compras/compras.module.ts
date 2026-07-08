@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PedidoCompraAggregateController } from './pedido-compra.aggregate';
 import { PedidoCompraController } from './pedido-compra.controller';
 import { PedidoCompraService } from './pedido-compra.service';
+import { RecebimentoService } from './recebimento.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 
 /**
@@ -13,8 +14,8 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 @Module({
   controllers: [
     PedidoCompraAggregateController, // engine MESTRE-DETALHE (CRUD do pedido: header + itens; sem efeitos)
-    PedidoCompraController, // vertical (fechar/reabrir — workflow FECHADO)
+    PedidoCompraController, // vertical (fechar/reabrir + gerar NF de entrada — recebimento)
   ],
-  providers: [PedidoCompraService, DatabaseProvider],
+  providers: [PedidoCompraService, RecebimentoService, DatabaseProvider],
 })
 export class ComprasModule {}

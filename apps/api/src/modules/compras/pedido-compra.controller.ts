@@ -1,17 +1,23 @@
-import { Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { gerarNfPedidoSchema } from '@apollo/shared';
 import { PedidoCompraService } from './pedido-compra.service';
+import { RecebimentoService } from './recebimento.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
+import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
 /**
- * PEDIDO DE COMPRA — controller VERTICAL das transições de ESTADO (fechar/reabrir). Convive no mesmo
- * caminho `compras/pedidos` do controller do agregado (CRUD): as rotas são distintas por método+path
- * (POST :id/fechar ≠ POST do create). RBAC FRMPEDIDOCOMPRA (BTNFECHAR/BTNREABRIR).
+ * PEDIDO DE COMPRA — controller VERTICAL das transições de ESTADO (fechar/reabrir) + RECEBIMENTO
+ * (gerar NF de entrada). Convive no mesmo caminho `compras/pedidos` do controller do agregado (CRUD):
+ * as rotas são distintas por método+path. RBAC FRMPEDIDOCOMPRA (BTNFECHAR/BTNREABRIR/BTNGERARNF).
  */
 @Controller('compras/pedidos')
 @UseGuards(AcessoGuard)
 export class PedidoCompraController {
-  constructor(private readonly svc: PedidoCompraService) {}
+  constructor(
+    private readonly svc: PedidoCompraService,
+    private readonly recebimento: RecebimentoService,
+  ) {}
 
   @Post(':id/fechar')
   @HttpCode(200)
@@ -25,5 +31,16 @@ export class PedidoCompraController {
   @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNREABRIR')
   reabrir(@Param('id', ParseIntPipe) id: number) {
     return this.svc.reabrir(id);
+  }
+
+  /** RECEBIMENTO: gera a NF de entrada (rascunho) a partir do pedido. Retorna { codnf, codpedcomp }. */
+  @Post(':id/gerar-nf')
+  @HttpCode(200)
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNGERARNF')
+  gerarNf(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(gerarNfPedidoSchema)) body: { modelo?: number; serie?: string; cfop?: string },
+  ) {
+    return this.recebimento.gerarNf(id, body);
   }
 }

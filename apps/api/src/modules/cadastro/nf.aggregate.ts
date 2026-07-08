@@ -50,6 +50,9 @@ export const nfAggregateConfig: AggregateConfig = {
     'chavenfe', 'protocolo_nfe', 'protocolo_cancelamento', 'xjust', 'sequencia_nfe', 'tpemissao',
     // flags
     'rateio', 'contribuinte_icms', 'aproveitamentocredito', 'alteraestoquereversao', 'codnf_ref',
+    // vínculo com o Pedido de Compra (recebimento) — carimbado pelo RecebimentoService no create; o front
+    // da NF nunca o envia (não editável na tela), então um PUT normal não o altera.
+    'codpedcomp',
     // observações
     'obs', 'obsnf', 'complemento',
   ],

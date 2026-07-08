@@ -85,6 +85,17 @@ export type CriarPedidoCompraDto = z.infer<typeof pedidoCompraSchema>;
 export const atualizarPedidoCompraSchema = pedidoCompraBase.partial();
 export type AtualizarPedidoCompraDto = z.infer<typeof atualizarPedidoCompraSchema>;
 
+/**
+ * RECEBIMENTO — opções para gerar a NF de entrada a partir do pedido (todos opcionais; defaults no serviço:
+ * modelo=1, série='1', CFOP='1102'). São os campos que o pedido não fornece (o real vem da NF do fornecedor).
+ */
+export const gerarNfPedidoSchema = z.object({
+  modelo: opcional(z.coerce.number().int().positive()),
+  serie: opcional(z.string().trim().max(3)),
+  cfop: opcional(z.string().trim().max(4)),
+});
+export type GerarNfPedidoDto = z.infer<typeof gerarNfPedidoSchema>;
+
 /* ── registros devolvidos (lista / agregado) ── */
 export interface PedidoCompra {
   codpedcomp: number;
