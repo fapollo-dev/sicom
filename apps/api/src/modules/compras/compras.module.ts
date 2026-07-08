@@ -4,6 +4,7 @@ import { PedidoCompraController } from './pedido-compra.controller';
 import { ImportacaoNfeController } from './importacao-nfe.controller';
 import { PedidoCompraService } from './pedido-compra.service';
 import { RecebimentoService } from './recebimento.service';
+import { CadastroModule } from '../cadastro/cadastro.module';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 
 /**
@@ -13,6 +14,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
  * intenção; o FATO nasce na NF de entrada — corte futuro).
  */
 @Module({
+  imports: [CadastroModule], // reusa NfFaturamentoService (A Pagar das duplicatas do XML — corte-4). Acíclico.
   controllers: [
     PedidoCompraAggregateController, // engine MESTRE-DETALHE (CRUD do pedido: header + itens; sem efeitos)
     PedidoCompraController, // vertical (fechar/reabrir + gerar NF de entrada — recebimento)

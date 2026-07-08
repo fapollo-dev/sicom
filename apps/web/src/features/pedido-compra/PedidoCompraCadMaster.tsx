@@ -443,11 +443,12 @@ function AcoesEstadoBar({ form }: { form: UseFormReturn<CriarPedidoCompraDto> })
   };
 
   // RECEBIMENTO corte-2/3: sucesso do import de XML (o modal cuida do parse/import/resolução de pendências).
-  const onImportSucesso = (r: { codnf: number; divergencia: boolean }) => {
+  const onImportSucesso = (r: { codnf: number; divergencia: boolean; titulosApagar: number }) => {
     form.setValue('dtfaturamento' as any, new Date().toISOString());
     setMostrarImport(false);
+    const tit = r.titulosApagar ? ` ${r.titulosApagar} título(s) A Pagar gerado(s) das duplicatas.` : '';
     mensagem.sucesso(
-      `NF de entrada ${r.codnf} importada do XML${r.divergencia ? ' (atenção: total da NF diverge do vNF do XML — confira)' : ''}. Processe a NF (estoque/A Pagar) na tela de Notas de Entrada.`,
+      `NF de entrada ${r.codnf} importada do XML${r.divergencia ? ' (atenção: total da NF diverge do vNF do XML — confira)' : ''}.${tit} Processe o estoque (F3) na tela de Notas de Entrada.`,
     );
     navigate('/fiscal/notas/entrada');
   };

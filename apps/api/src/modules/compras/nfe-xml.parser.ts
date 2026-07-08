@@ -39,6 +39,13 @@ export interface NfeItemParsed {
   pCOFINS: number;
 }
 
+/** duplicata do XML (`<cobr><dup>`) → 1 título A Pagar (corte-4). dVenc é 'YYYY-MM-DD' (date-only, sem fuso). */
+export interface NfeDuplicataParsed {
+  nDup: string; // número da duplicata do fornecedor
+  dVenc: string; // 'YYYY-MM-DD'
+  vDup: number; // valor da parcela
+}
+
 export interface NfeParsed {
   chave: string; // 44 dígitos (Id sem 'NFe')
   nNF: string;
@@ -46,6 +53,7 @@ export interface NfeParsed {
   modelo: number;
   dhEmiISO: string; // 'YYYY-MM-DD'
   tpNF: string; // '0' entrada / '1' saída (visão do EMITENTE)
+  finNFe: string; // '1' normal / '2' complementar / '3' ajuste / '4' devolução
   tpAmb: string; // '1' produção / '2' homologação
   emitCnpj: string; // só dígitos
   emitNome?: string;
@@ -55,6 +63,7 @@ export interface NfeParsed {
     vST: number; vDesc: number; vFrete: number; vSeg: number; vOutro: number; vBCST: number;
   };
   itens: NfeItemParsed[];
+  duplicatas: NfeDuplicataParsed[]; // <cobr><dup> — vazio quando à vista (sem <cobr>)
 }
 
 const num = (v: unknown): number => {
@@ -79,7 +88,7 @@ export function parseNfeXml(xml: string): NfeParsed {
     parseTagValue: false,
     trimValues: true,
     processEntities: false, // defesa-em-profundidade: NFe não tem DTD/entidades — desliga qualquer expansão
-    isArray: (name) => name === 'det',
+    isArray: (name) => name === 'det' || name === 'dup', // dup repete em <cobr>; força array mesmo com 1
   });
   let root: any;
   try {
@@ -147,6 +156,14 @@ export function parseNfeXml(xml: string): NfeParsed {
   const serieChave = chave.slice(22, 25);
   const nnfChave = String(Number(chave.slice(25, 34)));
 
+  // <cobr><dup> → duplicatas (1 por parcela). <cobr> é OPCIONAL (à vista omite) → duplicatas=[].
+  const dups: any[] = Array.isArray(inf.cobr?.dup) ? inf.cobr.dup : inf.cobr?.dup ? [inf.cobr.dup] : [];
+  const duplicatas: NfeDuplicataParsed[] = dups.map((d) => ({
+    nDup: str(d.nDup),
+    dVenc: str(d.dVenc).slice(0, 10), // date-only na NFe
+    vDup: num(d.vDup),
+  }));
+
   return {
     chave,
     nNF: nnfChave,
@@ -154,6 +171,7 @@ export function parseNfeXml(xml: string): NfeParsed {
     modelo: Number(str(ide.mod)) || 55,
     dhEmiISO: dh ? dh.slice(0, 10) : '',
     tpNF: str(ide.tpNF),
+    finNFe: str(ide.finNFe) || '1',
     tpAmb: str(ide.tpAmb) || '2',
     emitCnpj: str(emit.CNPJ).replace(/\D/g, ''),
     emitNome: str(emit.xNome) || undefined,
@@ -172,5 +190,6 @@ export function parseNfeXml(xml: string): NfeParsed {
       vBCST: num(tot.vBCST),
     },
     itens,
+    duplicatas,
   };
 }

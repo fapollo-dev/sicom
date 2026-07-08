@@ -2846,13 +2846,13 @@ async function main() {
     // NFe 4.00 mínima: 2 itens casando produtos 2 (EAN 7894900011517) e 3 (2000001000005) por EAN — EANs ÚNICOS
     // (o 7891000100103 do produto 1 é duplicado pelos testes de Produto → ambíguo de propósito). Valores reais.
     // Totais: vProd=62, vST=1,44, vNF=63,44 (= derivar: 62 − 0 + 0 + 1,44).
-    const mkXml = (chave: string, nnf: number, cnpj = CNPJ_F1, ean1 = '7894900011517') => `<?xml version="1.0" encoding="UTF-8"?>
+    const mkXml = (chave: string, nnf: number, cnpj = CNPJ_F1, ean1 = '7894900011517', cobr = '', fin = '1') => `<?xml version="1.0" encoding="UTF-8"?>
 <nfeProc versao="4.00"><NFe><infNFe Id="NFe${chave}" versao="4.00">
-<ide><cUF>31</cUF><nNF>${nnf}</nNF><serie>1</serie><mod>55</mod><dhEmi>2026-07-08T10:00:00-03:00</dhEmi><tpNF>0</tpNF><tpAmb>2</tpAmb></ide>
+<ide><cUF>31</cUF><nNF>${nnf}</nNF><serie>1</serie><mod>55</mod><dhEmi>2026-07-08T10:00:00-03:00</dhEmi><tpNF>0</tpNF><finNFe>${fin}</finNFe><tpAmb>2</tpAmb></ide>
 <emit><CNPJ>${cnpj}</CNPJ><xNome>FORNECEDOR TESTE</xNome></emit>
 <det nItem="1"><prod><cProd>FA</cProd><cEAN>${ean1}</cEAN><xProd>REFRI</xProd><NCM>22021000</NCM><CFOP>5102</CFOP><uCom>UN</uCom><qCom>10.0000</qCom><vUnCom>5.00</vUnCom><vProd>50.00</vProd></prod><imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><vBC>50.00</vBC><pICMS>18.00</pICMS><vICMS>9.00</vICMS></ICMS00></ICMS></imposto></det>
 <det nItem="2"><prod><cProd>FB</cProd><cEAN>2000001000005</cEAN><xProd>QUEIJO</xProd><NCM>04061010</NCM><CFOP>5403</CFOP><uCom>UN</uCom><qCom>4.0000</qCom><vUnCom>3.00</vUnCom><vProd>12.00</vProd></prod><imposto><ICMS><ICMS10><orig>0</orig><CST>10</CST><vBC>12.00</vBC><pICMS>18.00</pICMS><vICMS>2.16</vICMS><vBCST>20.00</vBCST><vICMSST>1.44</vICMSST></ICMS10></ICMS></imposto></det>
-<total><ICMSTot><vProd>62.00</vProd><vNF>63.44</vNF><vICMS>11.16</vICMS><vBC>62.00</vBC><vST>1.44</vST><vIPI>0.00</vIPI><vDesc>0.00</vDesc><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vOutro>0.00</vOutro><vBCST>20.00</vBCST></ICMSTot></total>
+<total><ICMSTot><vProd>62.00</vProd><vNF>63.44</vNF><vICMS>11.16</vICMS><vBC>62.00</vBC><vST>1.44</vST><vIPI>0.00</vIPI><vDesc>0.00</vDesc><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vOutro>0.00</vOutro><vBCST>20.00</vBCST></ICMSTot></total>${cobr}
 </infNFe></NFe><protNFe><infProt><nProt>131260000000001</nProt></infProt></protNFe></nfeProc>`;
 
     // 50.1) import válido standalone → 200 + NF valorada (tipo E, chave, mod 55, terceiros) + reconciliação OK.
@@ -2975,6 +2975,43 @@ async function main() {
     const impGJ = (await impG.json().catch(() => ({}))) as any;
     const gItem = (await pgImp.query(`SELECT codproduto FROM nf_prod WHERE codnf=$1 ORDER BY nroitem LIMIT 1`, [Number(impGJ.codnf)])).rows[0] as any;
     check('IMPORT: GTIN-14 com zero à esquerda casa o GTIN-13 do produto (strip fiel ao legado)', impG.status === 200 && Number(gItem?.codproduto) === 2, { status: impG.status, item: gItem });
+
+    // 52) DUPLICATAS do XML (<cobr><dup>) → A Pagar (corte-4): 1 título por dup, valores/vencimentos reais.
+    const COBR = '<cobr><fat><nFat>F900061</nFat><vOrig>63.44</vOrig><vLiq>63.44</vLiq></fat>'
+      + '<dup><nDup>PARC-A</nDup><dVenc>2026-08-10</dVenc><vDup>30.00</vDup></dup>'
+      + '<dup><nDup>PARC-B</nDup><dVenc>2026-09-10</dVenc><vDup>33.44</vDup></dup></cobr>';
+    const nnfD1 = 900061;
+    const impD1 = await importar(mkXml(mkChave(nnfD1), nnfD1, CNPJ_F1, '7894900011517', COBR));
+    const impD1J = (await impD1.json().catch(() => ({}))) as any;
+    const codnfD1 = Number(impD1J.codnf);
+    const aps = (await pgImp.query(`SELECT valor, to_char(dtvenc,'YYYY-MM-DD') AS dtvenc, duplicata, nrodup, tipodoc, idnf FROM apagar WHERE idnf=$1 ORDER BY dtvenc`, [codnfD1])).rows as any[];
+    const nfD1 = (await pgImp.query(`SELECT faturada FROM nf WHERE codnf=$1`, [codnfD1])).rows[0] as any;
+    check('DUP: import c/ <cobr> gera 2 A Pagar (1 por dup, valor/venc reais, tipodoc BOLETO, idnf, faturada=S)',
+      impD1.status === 200 && Number(impD1J.titulosApagar) === 2 && aps.length === 2
+      && Number(aps[0].valor) === 30 && aps[0].dtvenc === '2026-08-10' && aps[0].duplicata === 'PARC-A' && Number(aps[0].nrodup) === 2 && aps[0].tipodoc === 'BOLETO'
+      && Number(aps[1].valor) === 33.44 && aps[1].dtvenc === '2026-09-10' && aps[1].duplicata === 'PARC-B'
+      && aps.every((a) => Number(a.idnf) === codnfD1) && nfD1?.faturada === 'S',
+      { status: impD1.status, titulos: impD1J.titulosApagar, aps });
+
+    // 52.2) à vista (sem <cobr>) → 0 títulos A Pagar (o legado só gera de <dup>; sem fallback).
+    const nnfD2 = 900062;
+    const impD2 = await importar(mkXml(mkChave(nnfD2), nnfD2)); // sem cobr
+    const impD2J = (await impD2.json().catch(() => ({}))) as any;
+    const apsD2 = Number((await pgImp.query(`SELECT count(*)::int AS n FROM apagar WHERE idnf=$1`, [Number(impD2J.codnf)])).rows[0]?.n);
+    check('DUP: à vista (sem <cobr>) → 0 A Pagar (sem fallback)', impD2.status === 200 && Number(impD2J.titulosApagar) === 0 && apsD2 === 0, { titulos: impD2J.titulosApagar, aps: apsD2 });
+
+    // 52.3) estornar-faturamento (F4) apaga os títulos por idnf + faturada=N (os títulos do XML são idênticos aos do F4).
+    const estD = await fetch(`${base}/fiscal/nf/${codnfD1}/estornar-faturamento`, { method: 'POST', headers: H });
+    const apsAfter = Number((await pgImp.query(`SELECT count(*)::int AS n FROM apagar WHERE idnf=$1`, [codnfD1])).rows[0]?.n);
+    const nfD1b = (await pgImp.query(`SELECT faturada FROM nf WHERE codnf=$1`, [codnfD1])).rows[0] as any;
+    check('DUP: estornar-faturamento apaga os títulos (idnf) + faturada=N', (estD.status === 200 || estD.status === 204) && apsAfter === 0 && nfD1b?.faturada === 'N', { status: estD.status, apsAfter });
+
+    // 52.4) finalidade devolução (finNFe=4) COM <cobr> → NF criada mas 0 A Pagar (gate de finalidade fiel).
+    const nnfD4 = 900064;
+    const impD4 = await importar(mkXml(mkChave(nnfD4), nnfD4, CNPJ_F1, '7894900011517', COBR.replace('900061', '900064'), '4'));
+    const impD4J = (await impD4.json().catch(() => ({}))) as any;
+    const apsD4 = Number((await pgImp.query(`SELECT count(*)::int AS n FROM apagar WHERE idnf=$1`, [Number(impD4J.codnf)])).rows[0]?.n);
+    check('DUP: devolução (finNFe=4) c/ <cobr> → NF criada, 0 A Pagar (gate de finalidade)', impD4.status === 200 && Number(impD4J.titulosApagar) === 0 && apsD4 === 0, { status: impD4.status, titulos: impD4J.titulosApagar, aps: apsD4 });
 
     await pgImp.end();
   } finally {

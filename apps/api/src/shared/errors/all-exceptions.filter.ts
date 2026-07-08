@@ -306,6 +306,7 @@ const CODE_PT: Record<string, string> = {
   NFE_PRODUTOS_NAO_CASADOS: 'Há itens do XML sem produto correspondente (por código de barras). Cadastre/vincule os produtos e reimporte.',
   NFE_FORNECEDOR_DIVERGE_PEDIDO: 'O fornecedor do XML é diferente do fornecedor do pedido informado.',
   NFE_ITENS_EXCESSO: 'O XML tem itens demais (acima do limite de 990 por NFe).',
+  NF_SEM_DUPLICATAS: 'A NF não tem duplicatas para gerar contas a pagar.',
   DEPARA_SEM_CODIGO: 'Informe o EAN ou o código do fornecedor para vincular o produto.',
   // autorização
   TENANT_FORBIDDEN: 'Acesso negado: empresa/tenant não autorizado.',

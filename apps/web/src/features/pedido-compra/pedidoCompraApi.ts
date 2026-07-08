@@ -99,7 +99,7 @@ export function gerarNfDoPedido(
 export function importarXmlNfe(
   xml: string,
   codpedcomp?: number,
-): Promise<{ codnf: number; chave: string; codparceiro: number; codpedcomp: number | null; itens: number; totalnf: number; totalXml: number; divergencia: boolean }> {
+): Promise<{ codnf: number; chave: string; codparceiro: number; codpedcomp: number | null; itens: number; totalnf: number; totalXml: number; divergencia: boolean; titulosApagar: number }> {
   return req(`/compras/recebimento/importar-xml`, {
     method: 'POST',
     body: JSON.stringify({ xml, ...(codpedcomp != null ? { codpedcomp } : {}) }),

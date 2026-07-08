@@ -23,7 +23,7 @@ interface Pendencia {
 interface Props {
   codpedcomp?: number;
   onFechar: () => void;
-  onSucesso: (r: { codnf: number; divergencia: boolean }) => void;
+  onSucesso: (r: { codnf: number; divergencia: boolean; titulosApagar: number }) => void;
 }
 
 export function ImportarXmlModal({ codpedcomp, onFechar, onSucesso }: Props) {

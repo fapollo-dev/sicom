@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { AggregateEngineService } from '../../shared/crud/aggregate-engine.service';
 import { nfAggregateConfig } from '../cadastro/nf.aggregate';
+import { NfFaturamentoService } from '../cadastro/nf-faturamento.service';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { parseNfeXml, type NfeItemParsed } from './nfe-xml.parser';
@@ -31,6 +32,7 @@ export class RecebimentoService {
   constructor(
     private readonly dbp: DatabaseProvider,
     private readonly engine: AggregateEngineService,
+    private readonly fat: NfFaturamentoService,
   ) {}
 
   private emp(): number {
@@ -180,11 +182,13 @@ export class RecebimentoService {
    *
    * Divergências CONSCIENTES do legado: VRVENDA = custo (vUnCom) e não MULTI_PRECO/varejo (assim TOTALPROD do
    * `derivar` = vProd do XML — reconciliação); o CFOP é ajustado saída→entrada (5→1/6→2/7→3); a de-para de
-   * fornecedor (CODREFERENCIA_FOR), a análise Pedido×NF (link automático), SEFAZ e duplicatas→A Pagar são adiados.
+   * fornecedor (CODREFERENCIA_FOR). **Corte-4:** as duplicatas do XML (`<cobr><dup>`) geram os títulos A Pagar
+   * AUTOMATICAMENTE (fiel a NFe.pas:3457) — 1 por `<dup>`, valores/vencimentos reais. Adiados: análise
+   * Pedido×NF (link automático), SEFAZ, retenções/ST, `<pag>`/forma, gate por CFOP.
    */
   async importarXml(dto: { xml: string; codpedcomp?: number }): Promise<{
     codnf: number; chave: string; codparceiro: number; codpedcomp: number | null; itens: number;
-    totalnf: number; totalXml: number; divergencia: boolean;
+    totalnf: number; totalXml: number; divergencia: boolean; titulosApagar: number;
   }> {
     const emp = this.emp();
     const op = this.op();
@@ -203,8 +207,9 @@ export class RecebimentoService {
     if (forn.frn !== 'S') throw new BusinessRuleError('PEDIDO_FORNECEDOR_INVALIDO', { codparceiro: forn.codparceiro });
     const codparceiro = Number(forn.codparceiro);
 
-    // limite anti-DoS (SEFAZ: ≤ 990 itens por NFe) — evita um N+1 gigante num único request.
+    // limites anti-DoS (SEFAZ: ≤ 990 itens; parcelas na prática ≤ ~120) — evita N+1 gigante num request.
     if (nfe.itens.length > 990) throw new BusinessRuleError('NFE_ITENS_EXCESSO', { itens: nfe.itens.length });
+    if (nfe.duplicatas.length > 990) throw new BusinessRuleError('NFE_ITENS_EXCESSO', { duplicatas: nfe.duplicatas.length });
 
     // casa produtos por EAN em LOTE (2 queries: produtos + codauxiliar) — sem N+1. `codbarra` NÃO é único →
     // EAN com >1 produto é AMBÍGUO e cai p/ a de-para (abaixo); 0 match idem. O que a de-para não resolver
@@ -345,8 +350,8 @@ export class RecebimentoService {
     const totalnf = num(nf?.totalnf);
     const divergencia = Math.abs(totalnf - nfe.total.vNF) > 0.02 + 0.01 * nfe.itens.length;
 
-    // guarda o XML cru (nfe_xml) — best-effort: a NF já existe; falha aqui NÃO deve derrubar o import (o
-    // cliente veria erro p/ um import que sucedeu). Loga e segue.
+    // guarda o XML cru (nfe_xml) ANTES de faturar — assim o XML fica preservado mesmo se o faturamento
+    // falhar (a NF fica não-faturada + XML salvo → o operador refatura pelo F4). Best-effort (não derruba).
     try {
       await (this.dbp.forTenant() as AnyDB)
         .insertInto('nfe_xml')
@@ -356,7 +361,20 @@ export class RecebimentoService {
       console.error('[recebimento] falha ao guardar nfe_xml (import prosseguiu)', { codnf, erro: (e as Error)?.message });
     }
 
-    return { codnf, chave: nfe.chave, codparceiro, codpedcomp, itens: nfItens.length, totalnf, totalXml: nfe.total.vNF, divergencia };
+    // CORTE-4: gera o A Pagar das DUPLICATAS do XML. Mapa fiel ao GeraApagar do legado (uAPagar.pas:4843):
+    // 1 título por <dup>, valor/venc reais. DIVERGÊNCIA de fluxo consciente: o legado gera no PROCESSAMENTO
+    // (F3), gated por CFOP.GERA_FINANCEIRO_AUTO; aqui geramos no IMPORT (o XML já traz as parcelas exatas).
+    // GATE de finalidade REPLICADO (udmNF.pas:9107): devolução/ajuste/complementar (2/3/4) NÃO faturam. O
+    // gate por CFOP é adiado (corte-4b — depende da coluna GERA_FINANCEIRO_AUTO, não migrada). Sem <cobr> (à
+    // vista) → nada a gerar. Transação SEPARADA do createAggregate; o CAS de nf.faturada evita duplicar.
+    let titulosApagar = 0;
+    const finFatura = !['2', '3', '4'].includes(nfe.finNFe); // 1=normal fatura; 2/3/4 não
+    if (nfe.duplicatas.length > 0 && finFatura) {
+      const r = await this.fat.faturarComParcelas(codnf, nfe.duplicatas);
+      titulosApagar = r.parcelas;
+    }
+
+    return { codnf, chave: nfe.chave, codparceiro, codpedcomp, itens: nfItens.length, totalnf, totalXml: nfe.total.vNF, divergencia, titulosApagar };
   }
 
   /** dígitos de um EAN, com o zero-à-esquerda de GTIN-14 removido (→ GTIN-13) — fiel ao legado (uNF.pas:12308:
