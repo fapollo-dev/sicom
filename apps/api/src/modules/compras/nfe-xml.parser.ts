@@ -46,6 +46,13 @@ export interface NfeDuplicataParsed {
   vDup: number; // valor da parcela
 }
 
+/** forma de pagamento do XML (`<pag><detPag>`) → NF_FORMA_PAGAMENTO (corte-4b; informativo, não gera título). */
+export interface NfePagamentoParsed {
+  tPag: string; // 01 dinheiro / 02 cheque / 03,04 cartão / 05 crédito loja / 15 boleto / 17 PIX / 90 sem / 99 outros
+  vPag: number; // valor pago
+  cAut?: string; // <card><cAut> — autorização (raro em entrada)
+}
+
 export interface NfeParsed {
   chave: string; // 44 dígitos (Id sem 'NFe')
   nNF: string;
@@ -64,6 +71,7 @@ export interface NfeParsed {
   };
   itens: NfeItemParsed[];
   duplicatas: NfeDuplicataParsed[]; // <cobr><dup> — vazio quando à vista (sem <cobr>)
+  formasPagamento: NfePagamentoParsed[]; // <pag><detPag> — [] quando ausente
 }
 
 const num = (v: unknown): number => {
@@ -88,7 +96,7 @@ export function parseNfeXml(xml: string): NfeParsed {
     parseTagValue: false,
     trimValues: true,
     processEntities: false, // defesa-em-profundidade: NFe não tem DTD/entidades — desliga qualquer expansão
-    isArray: (name) => name === 'det' || name === 'dup', // dup repete em <cobr>; força array mesmo com 1
+    isArray: (name) => name === 'det' || name === 'dup' || name === 'detPag', // repetem; força array mesmo com 1
   });
   let root: any;
   try {
@@ -164,6 +172,14 @@ export function parseNfeXml(xml: string): NfeParsed {
     vDup: num(d.vDup),
   }));
 
+  // <pag><detPag> → formas de pagamento (informativo). <pag> é obrigatório na NFe 4.00 (tolera ausência → []).
+  const pags: any[] = Array.isArray(inf.pag?.detPag) ? inf.pag.detPag : inf.pag?.detPag ? [inf.pag.detPag] : [];
+  const formasPagamento: NfePagamentoParsed[] = pags.map((p) => ({
+    tPag: str(p.tPag),
+    vPag: num(p.vPag),
+    cAut: str(p.card?.cAut) || undefined,
+  }));
+
   return {
     chave,
     nNF: nnfChave,
@@ -191,5 +207,6 @@ export function parseNfeXml(xml: string): NfeParsed {
     },
     itens,
     duplicatas,
+    formasPagamento,
   };
 }

@@ -2846,13 +2846,13 @@ async function main() {
     // NFe 4.00 mínima: 2 itens casando produtos 2 (EAN 7894900011517) e 3 (2000001000005) por EAN — EANs ÚNICOS
     // (o 7891000100103 do produto 1 é duplicado pelos testes de Produto → ambíguo de propósito). Valores reais.
     // Totais: vProd=62, vST=1,44, vNF=63,44 (= derivar: 62 − 0 + 0 + 1,44).
-    const mkXml = (chave: string, nnf: number, cnpj = CNPJ_F1, ean1 = '7894900011517', cobr = '', fin = '1') => `<?xml version="1.0" encoding="UTF-8"?>
+    const mkXml = (chave: string, nnf: number, cnpj = CNPJ_F1, ean1 = '7894900011517', cobr = '', fin = '1', cfop1 = '5102', pag = '<pag><detPag><tPag>01</tPag><vPag>63.44</vPag></detPag></pag>') => `<?xml version="1.0" encoding="UTF-8"?>
 <nfeProc versao="4.00"><NFe><infNFe Id="NFe${chave}" versao="4.00">
 <ide><cUF>31</cUF><nNF>${nnf}</nNF><serie>1</serie><mod>55</mod><dhEmi>2026-07-08T10:00:00-03:00</dhEmi><tpNF>0</tpNF><finNFe>${fin}</finNFe><tpAmb>2</tpAmb></ide>
 <emit><CNPJ>${cnpj}</CNPJ><xNome>FORNECEDOR TESTE</xNome></emit>
-<det nItem="1"><prod><cProd>FA</cProd><cEAN>${ean1}</cEAN><xProd>REFRI</xProd><NCM>22021000</NCM><CFOP>5102</CFOP><uCom>UN</uCom><qCom>10.0000</qCom><vUnCom>5.00</vUnCom><vProd>50.00</vProd></prod><imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><vBC>50.00</vBC><pICMS>18.00</pICMS><vICMS>9.00</vICMS></ICMS00></ICMS></imposto></det>
+<det nItem="1"><prod><cProd>FA</cProd><cEAN>${ean1}</cEAN><xProd>REFRI</xProd><NCM>22021000</NCM><CFOP>${cfop1}</CFOP><uCom>UN</uCom><qCom>10.0000</qCom><vUnCom>5.00</vUnCom><vProd>50.00</vProd></prod><imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><vBC>50.00</vBC><pICMS>18.00</pICMS><vICMS>9.00</vICMS></ICMS00></ICMS></imposto></det>
 <det nItem="2"><prod><cProd>FB</cProd><cEAN>2000001000005</cEAN><xProd>QUEIJO</xProd><NCM>04061010</NCM><CFOP>5403</CFOP><uCom>UN</uCom><qCom>4.0000</qCom><vUnCom>3.00</vUnCom><vProd>12.00</vProd></prod><imposto><ICMS><ICMS10><orig>0</orig><CST>10</CST><vBC>12.00</vBC><pICMS>18.00</pICMS><vICMS>2.16</vICMS><vBCST>20.00</vBCST><vICMSST>1.44</vICMSST></ICMS10></ICMS></imposto></det>
-<total><ICMSTot><vProd>62.00</vProd><vNF>63.44</vNF><vICMS>11.16</vICMS><vBC>62.00</vBC><vST>1.44</vST><vIPI>0.00</vIPI><vDesc>0.00</vDesc><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vOutro>0.00</vOutro><vBCST>20.00</vBCST></ICMSTot></total>${cobr}
+<total><ICMSTot><vProd>62.00</vProd><vNF>63.44</vNF><vICMS>11.16</vICMS><vBC>62.00</vBC><vST>1.44</vST><vIPI>0.00</vIPI><vDesc>0.00</vDesc><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vOutro>0.00</vOutro><vBCST>20.00</vBCST></ICMSTot></total>${cobr}${pag}
 </infNFe></NFe><protNFe><infProt><nProt>131260000000001</nProt></infProt></protNFe></nfeProc>`;
 
     // 50.1) import válido standalone → 200 + NF valorada (tipo E, chave, mod 55, terceiros) + reconciliação OK.
@@ -3012,6 +3012,23 @@ async function main() {
     const impD4J = (await impD4.json().catch(() => ({}))) as any;
     const apsD4 = Number((await pgImp.query(`SELECT count(*)::int AS n FROM apagar WHERE idnf=$1`, [Number(impD4J.codnf)])).rows[0]?.n);
     check('DUP: devolução (finNFe=4) c/ <cobr> → NF criada, 0 A Pagar (gate de finalidade)', impD4.status === 200 && Number(impD4J.titulosApagar) === 0 && apsD4 === 0, { status: impD4.status, titulos: impD4J.titulosApagar, aps: apsD4 });
+
+    // 53) corte-4b — forma de pagamento (<pag>) → NF_FORMA_PAGAMENTO + gate CFOP do A Pagar automático.
+    // 53.1) o <pag> do XML (tPag=01) virou NF_FORMA_PAGAMENTO com idpgto resolvido por DESTINO=CXA.
+    const fp = (await pgImp.query(`SELECT tpag, vrpgto, idpgto FROM nf_forma_pagamento WHERE codnf=$1`, [codnfD1])).rows as any[];
+    check('4b: <pag> do XML → NF_FORMA_PAGAMENTO (tPag=01 → DESTINO CXA → idpgto resolvido)',
+      fp.length === 1 && fp[0].tpag === '01' && Number(fp[0].vrpgto) === 63.44 && Number(fp[0].idpgto) === 1,
+      { fp });
+
+    // 53.2) gate CFOP: header CFOP 1910 (GERA_FINANCEIRO_AUTO='N') COM <cobr> → NF criada, 0 A Pagar.
+    const nnfCf = 900071;
+    const impCf = await importar(mkXml(mkChave(nnfCf), nnfCf, CNPJ_F1, '7894900011517', COBR.replace('900061', '900071'), '1', '5910')); // 5910→1910 ('N')
+    const impCfJ = (await impCf.json().catch(() => ({}))) as any;
+    const apsCf = Number((await pgImp.query(`SELECT count(*)::int AS n FROM apagar WHERE idnf=$1`, [Number(impCfJ.codnf)])).rows[0]?.n);
+    const nfCf = (await pgImp.query(`SELECT cfop FROM nf WHERE codnf=$1`, [Number(impCfJ.codnf)])).rows[0] as any;
+    check('4b: CFOP sem GERA_FINANCEIRO_AUTO (1910) c/ <cobr> → NF criada, 0 A Pagar (gate CFOP)',
+      impCf.status === 200 && nfCf?.cfop === '1910' && Number(impCfJ.titulosApagar) === 0 && apsCf === 0,
+      { status: impCf.status, cfop: nfCf?.cfop, titulos: impCfJ.titulosApagar, aps: apsCf });
 
     await pgImp.end();
   } finally {

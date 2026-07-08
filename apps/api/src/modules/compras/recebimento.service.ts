@@ -210,6 +210,7 @@ export class RecebimentoService {
     // limites anti-DoS (SEFAZ: ≤ 990 itens; parcelas na prática ≤ ~120) — evita N+1 gigante num request.
     if (nfe.itens.length > 990) throw new BusinessRuleError('NFE_ITENS_EXCESSO', { itens: nfe.itens.length });
     if (nfe.duplicatas.length > 990) throw new BusinessRuleError('NFE_ITENS_EXCESSO', { duplicatas: nfe.duplicatas.length });
+    if (nfe.formasPagamento.length > 990) throw new BusinessRuleError('NFE_ITENS_EXCESSO', { formas: nfe.formasPagamento.length });
 
     // casa produtos por EAN em LOTE (2 queries: produtos + codauxiliar) — sem N+1. `codbarra` NÃO é único →
     // EAN com >1 produto é AMBÍGUO e cai p/ a de-para (abaixo); 0 match idem. O que a de-para não resolver
@@ -361,15 +362,28 @@ export class RecebimentoService {
       console.error('[recebimento] falha ao guardar nfe_xml (import prosseguiu)', { codnf, erro: (e as Error)?.message });
     }
 
+    // CORTE-4b: forma de pagamento do XML (<pag>) → NF_FORMA_PAGAMENTO (informativo; NÃO afeta o título A
+    // Pagar). Best-effort (não derruba o import). tPag → DESTINO (fallback CXA) → IDPGTO de FORMAS_PGTO.
+    if (nfe.formasPagamento.length > 0) {
+      try {
+        await this.inserirFormasPagamento(codnf, emp, op, nfe.formasPagamento);
+      } catch (e) {
+        console.error('[recebimento] falha ao guardar nf_forma_pagamento (import prosseguiu)', { codnf, erro: (e as Error)?.message });
+      }
+    }
+
     // CORTE-4: gera o A Pagar das DUPLICATAS do XML. Mapa fiel ao GeraApagar do legado (uAPagar.pas:4843):
     // 1 título por <dup>, valor/venc reais. DIVERGÊNCIA de fluxo consciente: o legado gera no PROCESSAMENTO
-    // (F3), gated por CFOP.GERA_FINANCEIRO_AUTO; aqui geramos no IMPORT (o XML já traz as parcelas exatas).
-    // GATE de finalidade REPLICADO (udmNF.pas:9107): devolução/ajuste/complementar (2/3/4) NÃO faturam. O
-    // gate por CFOP é adiado (corte-4b — depende da coluna GERA_FINANCEIRO_AUTO, não migrada). Sem <cobr> (à
-    // vista) → nada a gerar. Transação SEPARADA do createAggregate; o CAS de nf.faturada evita duplicar.
+    // (F3); aqui geramos no IMPORT (o XML já traz as parcelas exatas). GATES fiéis: (1) finalidade 2/3/4 não
+    // faturam (udmNF.pas:9107); (2) CFOP.GERA_FINANCEIRO_AUTO='S' (corte-4b, CFOPGeraFinanceiroAutomatico,
+    // udmNF.pas:9902 — no golden só o 1102). Sem <cobr> (à vista) → nada. Transação SEPARADA; CAS evita duplicar.
     let titulosApagar = 0;
     const finFatura = !['2', '3', '4'].includes(nfe.finNFe); // 1=normal fatura; 2/3/4 não
-    if (nfe.duplicatas.length > 0 && finFatura) {
+    const cfopHeader = this.cfopEntrada(nfe.itens[0].cfopXml);
+    const cfopRow = (await (this.dbp.forTenantRead() as AnyDB)
+      .selectFrom('cfop').select('gera_financeiro_auto').where('codcfop', '=', cfopHeader).executeTakeFirst()) as { gera_financeiro_auto?: string } | undefined;
+    const cfopGera = cfopRow?.gera_financeiro_auto === 'S'; // só CFOP explicitamente ligado auto-gera
+    if (nfe.duplicatas.length > 0 && finFatura && cfopGera) {
       const r = await this.fat.faturarComParcelas(codnf, nfe.duplicatas);
       titulosApagar = r.parcelas;
     }
@@ -458,6 +472,44 @@ export class RecebimentoService {
         .onConflict((oc: any) => oc.column('codcfop').doNothing())
         .execute();
     }
+  }
+
+  /** tPag do XML → DESTINO de FORMAS_PGTO (single-code, fiel ao GetIdFormaPagamento; fallback CXA).
+   *  As listas do legado ('TEF, CRT'/'CHQ, CHP'/'DEV, QUE') nunca casam a coluna CHAR(3) → usamos single-code. */
+  private tpagDestino(tPag: string): string {
+    const m: Record<string, string> = { '01': 'CXA', '02': 'CHQ', '03': 'TEF', '04': 'TEF', '05': 'RCB', '17': 'PIX' };
+    return m[(tPag ?? '').trim()] ?? 'CXA'; // dinheiro/boleto/sem-pagto/outros → CXA (fallback do legado)
+  }
+
+  /** grava as formas de pagamento do XML em NF_FORMA_PAGAMENTO (informativo). Resolve IDPGTO por DESTINO
+   *  (escopado à empresa; menor idpgto por destino; fallback CXA). Batch: 1 query nas formas da empresa. */
+  private async inserirFormasPagamento(
+    codnf: number,
+    emp: number,
+    op: number,
+    formas: Array<{ tPag: string; vPag: number; cAut?: string }>,
+  ): Promise<number> {
+    const db = this.dbp.forTenant() as AnyDB;
+    const destinos = new Set<string>(formas.map((f) => this.tpagDestino(f.tPag)));
+    destinos.add('CXA'); // fallback sempre disponível
+    const porDestino = new Map<string, number>();
+    for (const r of (await db
+      .selectFrom('formas_pgto').select(['idpgto', 'destino'])
+      .where('idempresa', '=', emp).where('destino', 'in', [...destinos]).where(sql`coalesce(inativo,'N')`, '<>', 'S')
+      .orderBy('idpgto').execute()) as any[]) {
+      if (!porDestino.has(String(r.destino))) porDestino.set(String(r.destino), Number(r.idpgto)); // menor idpgto por destino
+    }
+    const cxa = porDestino.get('CXA') ?? null;
+    let n = 0;
+    for (const f of formas) {
+      const idpgto = porDestino.get(this.tpagDestino(f.tPag)) ?? cxa; // fallback CXA
+      await db
+        .insertInto('nf_forma_pagamento')
+        .values({ codnf, idempresa: emp, idpgto, tpag: (f.tPag || '').slice(0, 2) || null, vrpgto: num(f.vPag), numero_aut: f.cAut ?? null, integrado: 'N', codoperador: op, dtcadastro: sql`now()` })
+        .execute();
+      n++;
+    }
+    return n;
   }
 
   /** cria a NF (standalone ou vinculada ao pedido). Vinculada = CAS-first + guardas do corte-1 + undo na falha. */
