@@ -2929,6 +2929,53 @@ async function main() {
     const e1b = await estDe(2); const e2b = await estDe(3);
     check('IMPORT: processar (F3) a NF importada move estoque (prod 2 +10 / prod 3 +4) — FATO delegado à NF', procImp.status === 200 && e1b - e1a === 10 && e2b - e2a === 4, { proc: procImp.status, d1: e1b - e1a, d2: e2b - e2a });
 
+    // 51) DE-PARA de fornecedor (CODREFERENCIA_FOR) — resolve pendências do import por vínculo (corte-3).
+    const vincular = async (body: Record<string, unknown>, headers = H) =>
+      fetch(`${base}/compras/recebimento/vincular-produto`, { method: 'POST', headers, body: JSON.stringify(body) });
+    const EAN_DESC = '7899999999994'; // EAN que não casa nenhum produto → item bloqueia até vincular
+    const nnfDp = 900051;
+    const xmlDp = mkXml(mkChave(nnfDp), nnfDp, CNPJ_F1, EAN_DESC); // item1 EAN desconhecido (bloqueia); item2 produto 3 (casa)
+
+    // 51.1) import com item não-casado → 422 + o ENVELOPE carrega detalhe.itens (pendências) + detalhe.codparceiro.
+    const dp1 = await importar(xmlDp);
+    const dp1J = (await dp1.json().catch(() => ({}))) as any;
+    check('DE-PARA: import com item não-casado → 422 + detalhe.itens (pendência) + detalhe.codparceiro=1',
+      dp1.status === 422 && dp1J.code === 'NFE_PRODUTOS_NAO_CASADOS' && Array.isArray(dp1J.detalhe?.itens) && dp1J.detalhe.itens.length === 1 && dp1J.detalhe.itens[0].cEAN === EAN_DESC && Number(dp1J.detalhe.codparceiro) === 1,
+      { status: dp1.status, detalhe: dp1J.detalhe });
+
+    // 51.2) vincular (E+P) o código do fornecedor → produto 2; reimporta o MESMO XML → agora casa via de-para.
+    const dp2v = await vincular({ codfor: 1, vinculos: [{ idproduto: 2, cEAN: EAN_DESC, cProd: 'FA' }] });
+    const dp2vJ = (await dp2v.json().catch(() => ({}))) as any;
+    const dp2 = await importar(xmlDp);
+    const dp2J = (await dp2.json().catch(() => ({}))) as any;
+    const dpItem1 = (await pgImp.query(`SELECT codproduto FROM nf_prod WHERE codnf=$1 ORDER BY nroitem LIMIT 1`, [Number(dp2J.codnf)])).rows[0] as any;
+    check('DE-PARA: vincular (2 registros E+P) → reimporta casa via de-para (item1→produto 2)',
+      dp2v.status === 200 && Number(dp2vJ.gravados) === 2 && dp2.status === 200 && Number(dpItem1?.codproduto) === 2,
+      { vinc: dp2v.status, gravados: dp2vJ.gravados, imp: dp2.status, item1: dpItem1 });
+
+    // 51.3) upsert idempotente: vincular de novo (mesma codfor,codref) → 200 (atualiza, não duplica).
+    const dp3 = await vincular({ codfor: 1, vinculos: [{ idproduto: 2, cEAN: EAN_DESC }] });
+    const dp3n = Number((await pgImp.query(`SELECT count(*)::int AS n FROM codreferencia_for WHERE codfor=1 AND codref=$1`, [EAN_DESC])).rows[0]?.n);
+    check('DE-PARA: re-vincular (mesma codfor,codref) → upsert idempotente (200, 1 linha)', dp3.status === 200 && dp3n === 1, { status: dp3.status, n: dp3n });
+
+    // 51.4) RBAC sem grant → 403.
+    const dp4 = await vincular({ codfor: 1, vinculos: [{ idproduto: 2, cEAN: '7899999999987' }] }, H_SEM_ACESSO);
+    check('DE-PARA: vincular sem grant RBAC → 403', dp4.status === 403, { status: dp4.status });
+
+    // 51.5) fornecedor não-FRN (cliente 20) → 422; produto inexistente → 422.
+    const dp5a = await vincular({ codfor: 20, vinculos: [{ idproduto: 2, cEAN: '7899999999970' }] });
+    const dp5b = await vincular({ codfor: 1, vinculos: [{ idproduto: 999999, cEAN: '7899999999963' }] });
+    check('DE-PARA: fornecedor não-FRN → 422 PEDIDO_FORNECEDOR_INVALIDO; produto inexistente → 422 PRODUTO_NAO_ENCONTRADO',
+      dp5a.status === 422 && ((await dp5a.json().catch(() => ({}))) as any).code === 'PEDIDO_FORNECEDOR_INVALIDO' && dp5b.status === 422 && ((await dp5b.json().catch(() => ({}))) as any).code === 'PRODUTO_NAO_ENCONTRADO',
+      { forn: dp5a.status, prod: dp5b.status });
+
+    // 51.6) GTIN-14 com zero à esquerda casa o GTIN-13 do produto (strip fiel ao legado uNF.pas:12308).
+    const nnfG = 900052;
+    const impG = await importar(mkXml(mkChave(nnfG), nnfG, CNPJ_F1, '07894900011517')); // 14 díg → produto 2 (EAN 7894900011517)
+    const impGJ = (await impG.json().catch(() => ({}))) as any;
+    const gItem = (await pgImp.query(`SELECT codproduto FROM nf_prod WHERE codnf=$1 ORDER BY nroitem LIMIT 1`, [Number(impGJ.codnf)])).rows[0] as any;
+    check('IMPORT: GTIN-14 com zero à esquerda casa o GTIN-13 do produto (strip fiel ao legado)', impG.status === 200 && Number(gItem?.codproduto) === 2, { status: impG.status, item: gItem });
+
     await pgImp.end();
   } finally {
     await app.close();

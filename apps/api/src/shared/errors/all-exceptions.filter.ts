@@ -53,6 +53,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
       code: err.code,
       message,
       ...(campos.length ? { campos } : {}),
+      // detalhe estruturado (o `details` do AppError) — SÓ p/ códigos na allowlist (ex.: import de NFe →
+      // detalhe.itens = pendências). Allowlist evita ecoar dados internos de outros erros (saldos, RBAC).
+      ...(err.details && Object.keys(err.details).length && DETALHE_CODES.has(err.code) ? { detalhe: err.details } : {}),
     };
   }
 
@@ -163,9 +166,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
 }
 
 /** Tradução PT de codes conhecidos (quando message === code, sem texto humano). */
+/**
+ * Códigos cujo `details` do AppError PODE ser ecoado ao cliente no envelope (`detalhe`) — allowlist explícita
+ * (evita vazar dados internos de outros erros: saldos, form/opção de RBAC, etc.). Só o que o front consome.
+ */
+const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS']);
+
 const CODE_PT: Record<string, string> = {
   // regra de negócio (BusinessRuleError 422)
   BANCO_OBRIGATORIO: 'O banco é obrigatório.',
+  PRODUTO_NAO_ENCONTRADO: 'Produto não encontrado.',
   CIDADE_OBRIGATORIA: 'A cidade é obrigatória.',
   MARGEM_INVALIDA: 'A margem informada é inválida.',
   ALIQUOTA_NAO_CADASTRADA: 'Alíquota não cadastrada para a UF informada.',
@@ -296,6 +306,7 @@ const CODE_PT: Record<string, string> = {
   NFE_PRODUTOS_NAO_CASADOS: 'Há itens do XML sem produto correspondente (por código de barras). Cadastre/vincule os produtos e reimporte.',
   NFE_FORNECEDOR_DIVERGE_PEDIDO: 'O fornecedor do XML é diferente do fornecedor do pedido informado.',
   NFE_ITENS_EXCESSO: 'O XML tem itens demais (acima do limite de 990 por NFe).',
+  DEPARA_SEM_CODIGO: 'Informe o EAN ou o código do fornecedor para vincular o produto.',
   // autorização
   TENANT_FORBIDDEN: 'Acesso negado: empresa/tenant não autorizado.',
   SEM_PERMISSAO: 'Você não tem permissão para executar esta ação.',

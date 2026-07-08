@@ -207,12 +207,11 @@ export class RecebimentoService {
     if (nfe.itens.length > 990) throw new BusinessRuleError('NFE_ITENS_EXCESSO', { itens: nfe.itens.length });
 
     // casa produtos por EAN em LOTE (2 queries: produtos + codauxiliar) — sem N+1. `codbarra` NÃO é único →
-    // EAN com >1 produto é AMBÍGUO e BLOQUEIA (não escolhe às cegas — receber no produto errado é pior que
-    // barrar); 0 match também bloqueia (lista de pendências, espelha o frmProdNC). de-para por fornecedor
-    // (CODREFERENCIA_FOR) desambiguaria com precisão — adiada.
+    // EAN com >1 produto é AMBÍGUO e cai p/ a de-para (abaixo); 0 match idem. O que a de-para não resolver
+    // BLOQUEIA (lista de pendências → tela de vínculo do operador, espelha o frmProdNC).
     const norm = (e: string) => (e ?? '').trim();
     const eans = Array.from(
-      new Set(nfe.itens.map((it) => norm(it.cEAN)).filter((e) => e && e.toUpperCase() !== 'SEM GTIN').map((e) => e.replace(/\D/g, '')).filter(Boolean)),
+      new Set(nfe.itens.map((it) => norm(it.cEAN)).filter((e) => e && e.toUpperCase() !== 'SEM GTIN').map((e) => this.digEan(e)).filter(Boolean)),
     );
     const porEan = new Map<string, Set<number>>(); // codbarra → idprodutos (produtos ∪ codauxiliar)
     const add = (codbarra: unknown, idproduto: unknown) => {
@@ -222,17 +221,38 @@ export class RecebimentoService {
       for (const r of (await db.selectFrom('produtos').select(['codbarra', 'idproduto']).where('codbarra', 'in', eans).execute()) as any[]) add(r.codbarra, r.idproduto);
       for (const r of (await db.selectFrom('codauxiliar').select(['codbarra', 'idproduto']).where('codbarra', 'in', eans).execute()) as any[]) if (r.codbarra != null) add(r.codbarra, r.idproduto);
     }
-    const naoCasados: Array<{ nItem: number; cProd: string; cEAN: string; xProd: string; ncm?: string; motivo: string }> = [];
+    const naoCasados: Array<{ _idx: number; nItem: number; cProd: string; cEAN: string; xProd: string; ncm?: string; motivo: string }> = [];
     const matchByIdx = new Map<number, number>(); // índice do item → idproduto
     nfe.itens.forEach((it, i) => {
       const e = norm(it.cEAN);
-      const digits = e.replace(/\D/g, '');
+      const digits = this.digEan(e);
       const ids = digits && e.toUpperCase() !== 'SEM GTIN' ? porEan.get(digits) : undefined;
-      if (!ids || ids.size === 0) return void naoCasados.push({ nItem: it.nItem, cProd: it.cProd, cEAN: e || 'SEM GTIN', xProd: it.xProd, ncm: it.ncm, motivo: 'sem produto com este código de barras' });
-      if (ids.size > 1) return void naoCasados.push({ nItem: it.nItem, cProd: it.cProd, cEAN: e, xProd: it.xProd, ncm: it.ncm, motivo: 'código de barras ambíguo (múltiplos produtos)' });
-      matchByIdx.set(i, [...ids][0]);
+      if (ids && ids.size === 1) return void matchByIdx.set(i, [...ids][0]);
+      const motivo = ids && ids.size > 1 ? 'código de barras ambíguo (múltiplos produtos)' : 'sem produto com este código de barras';
+      naoCasados.push({ _idx: i, nItem: it.nItem, cProd: it.cProd, cEAN: e || 'SEM GTIN', xProd: it.xProd, ncm: it.ncm, motivo });
     });
-    if (naoCasados.length) throw new BusinessRuleError('NFE_PRODUTOS_NAO_CASADOS', { itens: naoCasados });
+
+    // DE-PARA de fornecedor (CODREFERENCIA_FOR): resolve os ainda-não-casados por CODREF = cProd OU cEAN,
+    // escopado ao fornecedor (CODFOR = codparceiro). Precedência fiel ao legado (GetProduto): EAN/codbarra
+    // primeiro (acima), de-para depois. TIPOREF é descritivo (não filtra o match). 1 query em lote (sem N+1).
+    if (naoCasados.length) {
+      const refs = Array.from(new Set(naoCasados.flatMap((nc) => [this.normRef(nc.cProd), this.normRef(nc.cEAN)]).filter(Boolean)));
+      const porRef = new Map<string, number>(); // codref → idproduto
+      if (refs.length) {
+        for (const r of (await db.selectFrom('codreferencia_for').select(['codref', 'idproduto']).where('codfor', '=', codparceiro).where('codref', 'in', refs).execute()) as any[]) {
+          porRef.set(String(r.codref), Number(r.idproduto));
+        }
+      }
+      const restam: typeof naoCasados = [];
+      for (const nc of naoCasados) {
+        const hit = porRef.get(this.normRef(nc.cProd)) ?? porRef.get(this.normRef(nc.cEAN));
+        if (hit != null) matchByIdx.set(nc._idx, hit);
+        else restam.push(nc);
+      }
+      if (restam.length) {
+        throw new BusinessRuleError('NFE_PRODUTOS_NAO_CASADOS', { codparceiro, itens: restam.map(({ _idx, ...pub }) => pub) });
+      }
+    }
 
     // atributos dos produtos casados (aliquota/unidade/origem) — 1 query.
     const idsCasados = Array.from(new Set(matchByIdx.values()));
@@ -337,6 +357,67 @@ export class RecebimentoService {
     }
 
     return { codnf, chave: nfe.chave, codparceiro, codpedcomp, itens: nfItens.length, totalnf, totalXml: nfe.total.vNF, divergencia };
+  }
+
+  /** dígitos de um EAN, com o zero-à-esquerda de GTIN-14 removido (→ GTIN-13) — fiel ao legado (uNF.pas:12308:
+   *  cEAN de 14 díg começando com '0' casa contra o CODBARRA de 13). */
+  private digEan(e: string): string {
+    const d = (e ?? '').replace(/\D/g, '');
+    return d.length === 14 && d[0] === '0' ? d.slice(1) : d;
+  }
+
+  /** normaliza um código de referência (cProd/cEAN/codref) p/ casar de-para: trim + tira pontos (como o legado
+   *  faz antes de gravar/casar) + zero-à-esquerda de GTIN-14. 'SEM GTIN' (e vazio) → '' (nunca é chave de match). */
+  private normRef(s: string): string {
+    const t = (s ?? '').trim().replace(/\./g, '');
+    if (!t || t.toUpperCase() === 'SEM GTIN') return '';
+    return /^0\d{13}$/.test(t) ? t.slice(1) : t; // GTIN-14 c/ zero à esquerda → GTIN-13 (consistente com digEan)
+  }
+
+  /**
+   * DE-PARA (corte-3): vincula o(s) código(s) do fornecedor ao nosso produto (resolve as pendências do import).
+   * Por vínculo grava DOIS registros quando presentes — 'E' (cEAN) e 'P' (cProd) — espelhando o legado
+   * (frmProdNC/InsereRefFornecedorXML). Upsert por (codfor, codref): re-resolver é idempotente. Depois o
+   * operador reimporta e o match casa sozinho. Tenant+operador fail-closed; fornecedor tem de ser FRN='S'.
+   */
+  async vincularProdutos(dto: {
+    codfor: number;
+    vinculos: Array<{ idproduto: number; cEAN?: string; cProd?: string; fator?: number }>;
+  }): Promise<{ codfor: number; gravados: number }> {
+    const emp = this.emp();
+    const op = this.op();
+    // TUDO numa transação: ou grava todos os vínculos ou nenhum (sem de-para parcial se um item falhar).
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      // fornecedor tem de existir na empresa e ser fornecedor (FRN='S') — mesma guarda do import.
+      const forn = (await trx
+        .selectFrom('parceiros').select(['codparceiro', 'frn'])
+        .where('codparceiro', '=', dto.codfor).where('idempresa', '=', emp).executeTakeFirst()) as { frn?: string } | undefined;
+      if (!forn || forn.frn !== 'S') throw new BusinessRuleError('PEDIDO_FORNECEDOR_INVALIDO', { codparceiro: dto.codfor });
+
+      let gravados = 0;
+      for (const v of dto.vinculos) {
+        // produto tem de existir (FK + erro claro em vez de 23503 cru).
+        const prod = await trx.selectFrom('produtos').select('idproduto').where('idproduto', '=', v.idproduto).executeTakeFirst();
+        if (!prod) throw new BusinessRuleError('PRODUTO_NAO_ENCONTRADO', { idproduto: v.idproduto });
+        const linhas: Array<{ codref: string; tiporef: 'E' | 'P' }> = [];
+        const ean = this.normRef(v.cEAN ?? '');
+        const cprod = this.normRef(v.cProd ?? '');
+        if (ean) linhas.push({ codref: ean, tiporef: 'E' });
+        if (cprod && cprod !== ean) linhas.push({ codref: cprod, tiporef: 'P' });
+        if (!linhas.length) throw new BusinessRuleError('DEPARA_SEM_CODIGO', { idproduto: v.idproduto });
+        for (const l of linhas) {
+          await trx
+            .insertInto('codreferencia_for')
+            .values({ idproduto: v.idproduto, codfor: dto.codfor, codref: l.codref, tiporef: l.tiporef, fator_embalagem: v.fator ?? null, usucadastro: op, dtcadastro: sql`now()` })
+            .onConflict((oc: any) =>
+              oc.columns(['codfor', 'codref']).doUpdateSet({ idproduto: v.idproduto, tiporef: l.tiporef, usultalteracao: op, dtultimalteracao: sql`now()` }),
+            )
+            .execute();
+          gravados++;
+        }
+      }
+      return { codfor: dto.codfor, gravados };
+    });
   }
 
   /** CFOP da NF de entrada: ajusta o 1º dígito do CFOP do fornecedor (saída) p/ entrada (5→1, 6→2) — fiel ao

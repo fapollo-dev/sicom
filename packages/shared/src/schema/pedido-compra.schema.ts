@@ -106,6 +106,33 @@ export const importarXmlNfeSchema = z.object({
 });
 export type ImportarXmlNfeDto = z.infer<typeof importarXmlNfeSchema>;
 
+/**
+ * RECEBIMENTO corte-3 — vincular produto do fornecedor (de-para CODREFERENCIA_FOR). Resolve as pendências do
+ * import: o operador escolhe o `idproduto` p/ cada item não-casado; grava a de-para (por fornecedor `codfor`)
+ * — para cada vínculo, um registro 'E' (cEAN) e um 'P' (cProd), quando presentes (espelha o legado). Depois
+ * reimporta e o match casa sozinho. Ao menos cEAN OU cProd por vínculo.
+ */
+export const vincularProdutosSchema = z.object({
+  codfor: z.coerce.number({ message: 'Fornecedor inválido.' }).int().positive('Fornecedor inválido.'),
+  vinculos: z
+    .array(
+      z
+        .object({
+          idproduto: z.coerce.number({ message: 'Produto inválido.' }).int().positive('Informe o produto.'),
+          cEAN: opcional(z.string().trim().max(60)),
+          cProd: opcional(z.string().trim().max(60)),
+          fator: dec(z.number().positive()),
+        })
+        .superRefine((v, ctx) => {
+          const ean = v.cEAN && v.cEAN.toUpperCase() !== 'SEM GTIN' ? v.cEAN : '';
+          if (!ean && !v.cProd) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cEAN'], message: 'Informe o EAN ou o código do fornecedor.' });
+        }),
+    )
+    .min(1, 'Informe ao menos um vínculo.')
+    .max(990, 'Vínculos demais (limite de 990).'), // teto anti-DoS (paridade com o cap de itens do import)
+});
+export type VincularProdutosDto = z.infer<typeof vincularProdutosSchema>;
+
 /* ── registros devolvidos (lista / agregado) ── */
 export interface PedidoCompra {
   codpedcomp: number;

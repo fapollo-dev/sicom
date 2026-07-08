@@ -21,7 +21,7 @@ import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResour
 import { useMensagem } from '../../shared/mensagem';
 import { PedidoCompraItemModal } from './PedidoCompraItemModal';
 import { ImportarXmlModal } from './ImportarXmlModal';
-import { fecharPedido, reabrirPedido, gerarNfDoPedido, importarXmlNfe } from './pedidoCompraApi';
+import { fecharPedido, reabrirPedido, gerarNfDoPedido } from './pedidoCompraApi';
 
 /** hoje em ISO 'YYYY-MM-DD' (DATA default hoje, como no OnNewRecord do legado). */
 const hojeISO = () => new Date().toISOString().slice(0, 10);
@@ -442,23 +442,14 @@ function AcoesEstadoBar({ form }: { form: UseFormReturn<CriarPedidoCompraDto> })
     }
   };
 
-  // RECEBIMENTO corte-2: importa o XML da NFe do fornecedor → NF de entrada VALORADA, vinculada a este pedido.
-  const importarXml = async (xml: string) => {
-    if (executando) return;
-    setExecutando(true);
-    try {
-      const r = await importarXmlNfe(xml, codpedcomp);
-      form.setValue('dtfaturamento' as any, new Date().toISOString());
-      setMostrarImport(false);
-      mensagem.sucesso(
-        `NF de entrada ${r.codnf} importada do XML${r.divergencia ? ' (atenção: total da NF diverge do vNF do XML — confira)' : ''}. Processe a NF (estoque/A Pagar) na tela de Notas de Entrada.`,
-      );
-      navigate('/fiscal/notas/entrada');
-    } catch (e) {
-      mensagem.erro(e);
-    } finally {
-      setExecutando(false);
-    }
+  // RECEBIMENTO corte-2/3: sucesso do import de XML (o modal cuida do parse/import/resolução de pendências).
+  const onImportSucesso = (r: { codnf: number; divergencia: boolean }) => {
+    form.setValue('dtfaturamento' as any, new Date().toISOString());
+    setMostrarImport(false);
+    mensagem.sucesso(
+      `NF de entrada ${r.codnf} importada do XML${r.divergencia ? ' (atenção: total da NF diverge do vNF do XML — confira)' : ''}. Processe a NF (estoque/A Pagar) na tela de Notas de Entrada.`,
+    );
+    navigate('/fiscal/notas/entrada');
   };
 
   return (
@@ -478,7 +469,7 @@ function AcoesEstadoBar({ form }: { form: UseFormReturn<CriarPedidoCompraDto> })
         </small>
       </div>
       {mostrarImport && (
-        <ImportarXmlModal codpedcomp={codpedcomp} ocupado={executando} onFechar={() => setMostrarImport(false)} onConfirmar={importarXml} />
+        <ImportarXmlModal codpedcomp={codpedcomp} onFechar={() => setMostrarImport(false)} onSucesso={onImportSucesso} />
       )}
     </fieldset>
   );

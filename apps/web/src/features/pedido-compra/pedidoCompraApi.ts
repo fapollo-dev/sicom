@@ -105,3 +105,19 @@ export function importarXmlNfe(
     body: JSON.stringify({ xml, ...(codpedcomp != null ? { codpedcomp } : {}) }),
   });
 }
+
+/** um vínculo de-para: liga o código do fornecedor (cEAN/cProd) ao nosso produto. */
+export interface VinculoProduto {
+  idproduto: number;
+  cEAN?: string;
+  cProd?: string;
+  fator?: number;
+}
+
+/**
+ * POST compras/recebimento/vincular-produto — DE-PARA (corte-3): grava o vínculo código-do-fornecedor→produto
+ * (por `codfor`), resolvendo as pendências do import. Depois basta reimportar o mesmo XML: o match casa sozinho.
+ */
+export function vincularProdutos(codfor: number, vinculos: VinculoProduto[]): Promise<{ codfor: number; gravados: number }> {
+  return req(`/compras/recebimento/vincular-produto`, { method: 'POST', body: JSON.stringify({ codfor, vinculos }) });
+}

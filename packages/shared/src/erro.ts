@@ -20,6 +20,12 @@ export interface ErroResposta {
   message: string;
   /** erros por campo (validação/obrigatórios) — opcional */
   campos?: CampoErro[];
+  /**
+   * Detalhe estruturado adicional do erro (o `details` do AppError) — opcional. Usado quando o front
+   * precisa de dados além da mensagem/campos (ex.: import de NFe → `detalhe.itens` = pendências de produto
+   * não-casado + `detalhe.codparceiro`). Passa-through do back; o front lê o que conhece.
+   */
+  detalhe?: Record<string, unknown>;
 }
 
 /** type-guard simples para o front decidir se um body é o envelope padrão. */
