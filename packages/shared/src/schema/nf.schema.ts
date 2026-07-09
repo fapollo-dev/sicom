@@ -224,6 +224,16 @@ const nfBase = z.object({
   total_icmst_externo: dec(z.number().nonnegative()),
   icms_st_pago_fonte: dec(z.number().nonnegative()),
   icms_st_apagar: dec(z.number().nonnegative()),
+  // retenção federal (corte-4c-b): computadas por calcularRetencoes (F2) e persistidas p/ o F4 gerar títulos.
+  total_ret_pis: dec(z.number().nonnegative()),
+  total_ret_cofins: dec(z.number().nonnegative()),
+  total_ret_csll: dec(z.number().nonnegative()),
+  total_ret_ir: dec(z.number().nonnegative()),
+  total_ret_inss: dec(z.number().nonnegative()),
+  total_ret_issqn: dec(z.number().nonnegative()),
+  total_ret_funrural: dec(z.number().nonnegative()),
+  base_ret_irrf_piscofins_csll: dec(z.number().nonnegative()),
+  base_retencao_inss: dec(z.number().nonnegative()),
   // estado (eixos A/B) — defaults no create; as travas de edição rodam no servidor (validar)
   proc: sn().optional(),
   statusnfe: opcional(z.string().trim().max(1)),

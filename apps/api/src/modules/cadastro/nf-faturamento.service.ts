@@ -3,10 +3,17 @@ import { sql } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { ConfigService } from './config.service';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
   const n = typeof v === 'string' ? Number(v) : (v as number);
+  return Number.isFinite(n) ? n : 0;
+};
+/** número de config aceitando vírgula/ponto decimal (idem nf-fiscal). */
+const numCfg = (s: string | null | undefined): number => {
+  if (!s) return 0;
+  const n = Number(String(s).replace(',', '.'));
   return Number.isFinite(n) ? n : 0;
 };
 
@@ -30,7 +37,10 @@ const num = (v: unknown): number => {
  */
 @Injectable()
 export class NfFaturamentoService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly config: ConfigService,
+  ) {}
 
   /**
    * Carrega a NF sob lock + valida que pode faturar (mesmas travas p/ o F4 computado e o corte-4 por
@@ -44,7 +54,10 @@ export class NfFaturamentoService {
   ): Promise<{ nf: any; tabela: 'areceber' | 'apagar'; txjuros: number }> {
     const nf = await trx
       .selectFrom('nf')
-      .select(['codnf', 'tipo', 'nronf', 'cancelada', 'faturada', 'contabilizado', 'codparceiro', 'totalnf', 'dtemissao', 'dtcontabil', 'statusnfe', 'icms_st_apagar'])
+      .select([
+        'codnf', 'tipo', 'nronf', 'cancelada', 'faturada', 'contabilizado', 'codparceiro', 'totalnf', 'dtemissao', 'dtcontabil', 'statusnfe', 'icms_st_apagar',
+        'idsituacao_nf', 'total_ret_pis', 'total_ret_cofins', 'total_ret_csll', 'total_ret_ir', 'total_ret_inss', 'total_ret_issqn', 'total_ret_funrural',
+      ])
       .where('codnf', '=', codnf)
       .where('idempresa', '=', emp)
       .forUpdate()
@@ -97,13 +110,8 @@ export class NfFaturamentoService {
     if (ja) return 0;
     const totalnf = num(nf.totalnf);
     const nronf = String(nf.nronf ?? nf.codnf);
-    // OBS verbatim do legado (udmNF.pas:8514-8516) — FormatFloat('0.00') pt-BR ⇒ VÍRGULA decimal (golden byte-a-byte
-    // usa '629,18', não '629.18'). ALIQUOTA 0,00% pois o ST vem por MVA, não por alíquota fixa.
-    const obs =
-      'REF. À RETENÇÕES DE IMPOSTOS. IMPOSTO: ICMSST\n' +
-      `NOTA FISCAL NRO: ${nronf}\n` +
-      `VALOR NOTA FISCAL: ${totalnf.toFixed(2).replace('.', ',')}\n` +
-      'ALIQUOTA ICMSST: 0,00%';
+    // ALIQUOTA 0,00% pois o ST vem por MVA, não por alíquota fixa.
+    const obs = this.obsRetencao('ICMSST', nronf, totalnf, 0);
     await trx
       .insertInto('apagar')
       .values({
@@ -131,6 +139,124 @@ export class NfFaturamentoService {
     return 1;
   }
 
+  /** OBS verbatim do legado (udmNF.pas:8514-8516) — FormatFloat('0.00') pt-BR ⇒ VÍRGULA decimal (golden
+   * byte-a-byte: '629,18', não '629.18'). Usada pelo RESIDUAL ST (ICMSST, alíq 0) e pela retenção federal. */
+  private obsRetencao(imposto: string, nronf: string, totalnf: number, aliquota: number): string {
+    return (
+      `REF. À RETENÇÕES DE IMPOSTOS. IMPOSTO: ${imposto}\n` +
+      `NOTA FISCAL NRO: ${nronf}\n` +
+      `VALOR NOTA FISCAL: ${totalnf.toFixed(2).replace('.', ',')}\n` +
+      `ALIQUOTA ${imposto}: ${aliquota.toFixed(2).replace('.', ',')}%`
+    );
+  }
+
+  /** MontarDataVencimento (udmNF.pas:8550) → 'YYYY-MM-DD'. dia>0 → DIA FIXO DO MÊS SEGUINTE (dez→jan/ano+1);
+   * dia<=0 → data contábil + 30 dias. (O gate de geração exige dia>0, então na prática é sempre dia-fixo.) */
+  private montarDataVencimento(dia: number, dtcontabil: unknown): string {
+    const base = new Date(dtcontabil as string | number | Date);
+    if (dia <= 0) {
+      const d = new Date(base.getTime());
+      d.setUTCDate(d.getUTCDate() + 30);
+      return d.toISOString().slice(0, 10);
+    }
+    let y = base.getUTCFullYear();
+    let m = base.getUTCMonth() + 1; // mês SEGUINTE (getUTCMonth é 0-11)
+    if (m > 11) { m = 0; y += 1; }
+    return new Date(Date.UTC(y, m, dia)).toISOString().slice(0, 10);
+  }
+
+  /**
+   * Corte-4c-b — RETENÇÃO FEDERAL (PIS/COFINS/CSLL/IR/INSS/ISSQN/FUNRURAL) → títulos A Pagar (GerarAPagarDeRetencoes,
+   * udmNF.pas:8473). Só ENTRADA. 1 título por imposto com `nf.total_ret_*>0` (computado pelo motor calcularRetencoes,
+   * só E03) E órgão-parceiro configurado E dia de vencimento>0. **CODPARCEIRO = ÓRGÃO** (config PARCEIRO_RETENCAO_*;
+   * ISSQN = parceiros.codparceiro_ent_issqn do fornecedor) — NÃO o fornecedor. TIPODOC='BOLETO', GERADO='SISTEMA',
+   * ORIGEM='N', DTVENDA=DTCONTABIL, DTVENC=MontarDataVencimento, OBS c/ alíquota real. Retorna a SOMA retida
+   * (o chamador ABATE o título do fornecedor → líquido, uFinanceiroNotaFiscal.pas:552). Idempotente por (idnf,retencao).
+   */
+  private async gerarTitulosRetencao(
+    trx: AnyDB,
+    nf: {
+      codnf: number; tipo: string; nronf?: unknown; codparceiro: number; totalnf: unknown; dtcontabil: unknown; idsituacao_nf?: unknown;
+      total_ret_pis?: unknown; total_ret_cofins?: unknown; total_ret_csll?: unknown; total_ret_ir?: unknown;
+      total_ret_inss?: unknown; total_ret_issqn?: unknown; total_ret_funrural?: unknown;
+    },
+    emp: number,
+  ): Promise<number> {
+    if (nf.tipo !== 'E') return 0; // retenção só na ENTRADA
+
+    // Gate E03 (SituacaoGeraRetencao, udmNF.pas:8601) re-checado no FATURAMENTO — os total_ret_* são um
+    // SNAPSHOT do F2; se a situação foi trocada de E03 p/ outra depois do cálculo, o legado NÃO geraria.
+    // Vale p/ PIS/COFINS/CSLL/IR/INSS/ISSQN. FUNRURAL tem gate PRÓPRIO por CFOP (GerarAPagarDeFunRural,
+    // udmNF:8931 — procedure separada, não gated em E03), já embutido no snapshot total_ret_funrural.
+    const idsit = nf.idsituacao_nf != null ? Number(nf.idsituacao_nf) : 0;
+    let ehE03 = false;
+    if (idsit) {
+      const sit = await trx.selectFrom('situacao_nf').select('tipo_operacao').where('idsituacao_nf', '=', idsit).executeTakeFirst();
+      ehE03 = sit?.tipo_operacao === 'E03';
+    }
+
+    // alíquota/órgão do ISSQN vêm do FORNECEDOR (parceiros); demais órgãos vêm de config.
+    const forn = await trx
+      .selectFrom('parceiros')
+      .select(['codparceiro_ent_issqn', 'perc_aliquota_ir', 'perc_aliquota_issqn'])
+      .where('codparceiro', '=', nf.codparceiro)
+      .executeTakeFirst();
+
+    const cfg = (codigo: string) => this.config.resolver(codigo, { empresaId: emp });
+    const impostos: Array<{ key: string; valor: number; parceiroCfg?: string; diaCfg: string; aliqCfg?: string; aliqParceiro?: number; orgaoParceiro?: number }> = [
+      { key: 'PIS',      valor: num(nf.total_ret_pis),      parceiroCfg: 'PARCEIRO_RETENCAO_PISCOFINS_CSLL', diaCfg: 'DIA_VENCIMENTO_RET_PIS',      aliqCfg: 'ALIQUOTA_RETENCAO_PIS' },
+      { key: 'COFINS',   valor: num(nf.total_ret_cofins),   parceiroCfg: 'PARCEIRO_RETENCAO_PISCOFINS_CSLL', diaCfg: 'DIA_VENCIMENTO_RET_COFINS',   aliqCfg: 'ALIQUOTA_RETENCAO_COFINS' },
+      { key: 'CSLL',     valor: num(nf.total_ret_csll),     parceiroCfg: 'PARCEIRO_RETENCAO_PISCOFINS_CSLL', diaCfg: 'DIA_VENCIMENTO_RET_CSLL',     aliqCfg: 'ALIQUOTA_RETENCAO_CSLL' },
+      { key: 'INSS',     valor: num(nf.total_ret_inss),     parceiroCfg: 'PARCEIRO_RETENCAO_INSS',           diaCfg: 'DIA_VENCIMENTO_RET_INSS',     aliqCfg: 'ALIQUOTA_RETENCAO_INSS' },
+      { key: 'IR',       valor: num(nf.total_ret_ir),       parceiroCfg: 'PARCEIRO_RETENCAO_IR',             diaCfg: 'DIA_VENCIMENTO_RET_IR',       aliqCfg: 'ALIQUOTA_RETENCAO_IR', aliqParceiro: num(forn?.perc_aliquota_ir) },
+      { key: 'FUNRURAL', valor: num(nf.total_ret_funrural), parceiroCfg: 'PARCEIRO_RETENCAO_FUNRURAL',       diaCfg: 'DIA_VENCIMENTO_RET_FUNRURAL', aliqCfg: 'ALIQUOTA_RETENCAO_FUNRURAL' },
+      // ISSQN: órgão + alíquota por FORNECEDOR (não config).
+      { key: 'ISSQN',    valor: num(nf.total_ret_issqn),    diaCfg: 'DIA_VENCIMENTO_RET_ISSQN', aliqParceiro: num(forn?.perc_aliquota_issqn), orgaoParceiro: forn?.codparceiro_ent_issqn != null ? Number(forn.codparceiro_ent_issqn) : 0 },
+    ];
+
+    const totalnf = num(nf.totalnf);
+    const nronf = String(nf.nronf ?? nf.codnf);
+    let somaRetida = 0;
+
+    for (const imp of impostos) {
+      if (imp.valor <= 0) continue; // motor não calculou (não é E03 / flag do parceiro off)
+      if (imp.key !== 'FUNRURAL' && !ehE03) continue; // gate E03 (FUNRURAL é gated por CFOP, não por situação)
+      const dia = numCfg(await cfg(imp.diaCfg));
+      if (dia <= 0) continue; // gate: sem dia de vencimento configurado → não gera (fiel udmNF:8619)
+      // órgão destinatário: ISSQN = do fornecedor; demais = config. Sem órgão → não gera.
+      const orgao = imp.orgaoParceiro != null ? imp.orgaoParceiro : numCfg(await cfg(imp.parceiroCfg as string));
+      if (!orgao || orgao <= 0) continue;
+      // alíquota p/ a OBS: IR/ISSQN preferem o % do parceiro; demais, config.
+      const aliq = imp.aliqParceiro && imp.aliqParceiro > 0 ? imp.aliqParceiro : (imp.aliqCfg ? numCfg(await cfg(imp.aliqCfg)) : 0);
+      // idempotência por (idnf, retencao).
+      const ja = await trx.selectFrom('apagar').select('codapg').where('idnf', '=', nf.codnf).where('codempresa', '=', emp).where('retencao', '=', imp.key).executeTakeFirst();
+      if (ja) { somaRetida += imp.valor; continue; }
+      await trx
+        .insertInto('apagar')
+        .values({
+          codparceiro: orgao, // ÓRGÃO (Receita/INSS/prefeitura), NÃO o fornecedor
+          codempresa: emp,
+          idnf: nf.codnf,
+          dtvenda: nf.dtcontabil,
+          dtvenc: this.montarDataVencimento(dia, nf.dtcontabil),
+          duplicata: nronf.slice(0, 20),
+          nrodup: 1,
+          valor: imp.valor,
+          txjuros: 0,
+          tipodoc: 'BOLETO',
+          retencao: imp.key,
+          origem: 'N',
+          gerado: 'SISTEMA',
+          obs: this.obsRetencao(imp.key, nronf, totalnf, aliq),
+          quitada: 'N',
+          consiliado: 'N',
+        })
+        .execute();
+      somaRetida += imp.valor;
+    }
+    return somaRetida;
+  }
+
   /** flip idempotente nf.faturada 'N'→'S' (CAS) — 0 linhas ⇒ corrida perdida (já faturada). */
   private async marcarFaturada(trx: AnyDB, codnf: number, emp: number, op: number | null): Promise<void> {
     const r = await trx
@@ -154,7 +280,14 @@ export class NfFaturamentoService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const { nf, tabela, txjuros } = await this.carregarNfFaturavel(trx, codnf, emp);
 
-      const totalCents = Math.round(num(nf.totalnf) * 100); // base em CENTAVOS
+      // corte-4c-b: gera os títulos de retenção federal (órgão) ANTES e ABATE a base do fornecedor → o
+      // fornecedor recebe o LÍQUIDO (bruto − retenções). DIVERGÊNCIA CONSCIENTE: o legado abate TOTAL_RETENCOES
+      // = Σ dos 7 total_ret_* COMPUTADOS (uFinanceiroNotaFiscal.pas:552); nós abatemos Σ dos títulos GERADOS
+      // (somaRet). Igual no caso normal (todo imposto computado é configurado p/ gerar); diferente só quando um
+      // imposto é computado mas não gerado (órgão/dia off) — aí o legado DESBALANCEIA (abate sem gerar título,
+      // o valor "some"); nós mantemos Σ(órgão)+Σ(fornecedor)=totalnf. Escolha por livro balanceado.
+      const somaRet = await this.gerarTitulosRetencao(trx, nf, emp);
+      const totalCents = Math.round((num(nf.totalnf) - somaRet) * 100); // base LÍQUIDA em CENTAVOS
       if (totalCents <= 0) throw new BusinessRuleError('NF_SEM_VALOR', { codnf });
 
       // rateio: base por parcela + sobra na ÚLTIMA → Σ == totalCents exatamente.

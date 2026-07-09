@@ -1153,6 +1153,62 @@ async function main() {
       (putParcial.status === 200 || putParcial.status === 204) && Number(nfStrPutRead.icms_st_apagar) === 200,
       { status: putParcial.status, icms_st_apagar: nfStrPutRead.icms_st_apagar });
 
+    // 55) corte-4c-b — RETENÇÃO FEDERAL (PIS/COFINS/CSLL/IR/INSS/ISSQN/FUNRURAL) → títulos A Pagar ao ÓRGÃO,
+    // abatendo o título do fornecedor (líquido). Config default OFF; ligamos PIS+INSS p/ o teste (órgão=parceiro 20).
+    const pgRet = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    await pgRet.query(`UPDATE configuracoes SET valor='20' WHERE codigo='PARCEIRO_RETENCAO_PISCOFINS_CSLL'`);
+    await pgRet.query(`UPDATE configuracoes SET valor='21' WHERE codigo='DIA_VENCIMENTO_RET_PIS'`);
+    await pgRet.query(`UPDATE configuracoes SET valor='20' WHERE codigo='PARCEIRO_RETENCAO_INSS'`);
+    await pgRet.query(`UPDATE configuracoes SET valor='21' WHERE codigo='DIA_VENCIMENTO_RET_INSS'`);
+    const apagarDaNf = async (cod: number): Promise<any[]> =>
+      (await pgRet.query(`SELECT codparceiro, valor, tipodoc, retencao, origem, gerado, duplicata, to_char(dtvenc,'YYYY-MM-DD') AS dtvenc, obs FROM apagar WHERE idnf=$1 ORDER BY retencao NULLS FIRST, valor`, [cod])).rows;
+
+    // NF entrada de serviço E03 (idsituacao_nf 1031, seed da 039) com retenções JÁ calculadas: PIS 10 + INSS 110
+    // = 120 retidos. Item 40×3,50 = 140 (totalnf). Fornecedor=22; órgão=20. Líquido ao fornecedor = 140 − 120 = 20.
+    const nfRet = await novaNf(baseNf({ tipo: 'E', nronf: 'RET001', codparceiro: 22, idsituacao_nf: 1031, dtemissao: '2026-06-10', dtcontabil: '2026-06-15', total_ret_pis: 10, total_ret_inss: 110, total_ret_cofins: 5, itens: [itemP1(40)] }));
+    const fatRet = await fetch(`${base}/fiscal/nf/${nfRet}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const titsRet = await apagarDaNf(nfRet);
+    const retPis = titsRet.find((t) => t.retencao === 'PIS');
+    const retInss = titsRet.find((t) => t.retencao === 'INSS');
+    const retCofins = titsRet.find((t) => t.retencao === 'COFINS');
+    const forn = titsRet.filter((t) => !t.retencao);
+    check('4c-b: retenção federal gera títulos ao ÓRGÃO (PIS 10 + INSS 110, codparceiro=20≠fornecedor 22, BOLETO, GERADO=SISTEMA)',
+      fatRet.status === 200 && !!retPis && !!retInss
+      && Number(retPis.valor) === 10 && Number(retInss.valor) === 110
+      && Number(retPis.codparceiro) === 20 && Number(retInss.codparceiro) === 20
+      && retPis.tipodoc === 'BOLETO' && retPis.gerado === 'SISTEMA' && retPis.origem === 'N',
+      { status: fatRet.status, titsRet });
+    check('4c-b: ABATE o fornecedor — título do fornecedor = líquido (140 − 120 = 20), codparceiro=22',
+      forn.length === 1 && Number(forn[0].valor) === 20 && Number(forn[0].codparceiro) === 22 && !forn[0].retencao,
+      { forn });
+    check('4c-b: vencimento = MontarDataVencimento (dia 21 do MÊS SEGUINTE → 2026-07-21)',
+      !!retPis && retPis.dtvenc === '2026-07-21',
+      { dtvenc: retPis?.dtvenc });
+    check('4c-b: OBS byte-a-byte com alíquota real (PIS 0,65%, vírgula decimal)',
+      !!retPis && retPis.obs === 'REF. À RETENÇÕES DE IMPOSTOS. IMPOSTO: PIS\nNOTA FISCAL NRO: RET001\nVALOR NOTA FISCAL: 140,00\nALIQUOTA PIS: 0,65%',
+      { obs: retPis?.obs });
+    check('4c-b: imposto sem DIA_VENCIMENTO configurado (COFINS) → NÃO gera título (gate fiel)',
+      !retCofins, { retCofins });
+
+    // 55.2) estornar-faturamento remove os títulos de retenção + o do fornecedor (por idnf).
+    await fetch(`${base}/fiscal/nf/${nfRet}/estornar-faturamento`, { method: 'POST', headers: H });
+    const titsRetPos = await apagarDaNf(nfRet);
+    check('4c-b: estornar-faturamento remove retenção + fornecedor (por idnf)', titsRetPos.length === 0, { titsRetPos });
+
+    // 55.3) SAÍDA com total_ret_* → NÃO gera retenção (só entrada de serviço recolhe).
+    const nfRetS = await novaNf(baseNf({ tipo: 'S', nronf: 'RET002', cfop: '5102', codparceiro: 20, total_ret_pis: 10, itens: [{ codproduto: 1, quantidade: 5, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    await fetch(`${base}/fiscal/nf/${nfRetS}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const titsRetS = (await pgRet.query(`SELECT count(*)::int AS n FROM apagar WHERE idnf=$1 AND retencao IS NOT NULL`, [nfRetS])).rows[0]?.n;
+    check('4c-b: SAÍDA com total_ret_* → 0 título de retenção (só entrada)', Number(titsRetS) === 0, { titsRetS });
+
+    // 55.4) gate E03 no FATURAMENTO: total_ret_* órfão numa NF que NÃO é E03 (sem idsituacao_nf) → NÃO gera
+    // (o snapshot pode estar velho; SituacaoGeraRetencao re-checado). FUNRURAL é exceção (gate por CFOP).
+    const nfRetNaoE03 = await novaNf(baseNf({ tipo: 'E', nronf: 'RET003', codparceiro: 22, dtcontabil: '2026-06-15', total_ret_pis: 10, itens: [itemP1(40)] }));
+    await fetch(`${base}/fiscal/nf/${nfRetNaoE03}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const titsN = (await pgRet.query(`SELECT count(*)::int AS n FROM apagar WHERE idnf=$1 AND retencao='PIS'`, [nfRetNaoE03])).rows[0]?.n;
+    check('4c-b: gate E03 — PIS órfão em NF não-E03 → 0 título (SituacaoGeraRetencao re-checado no faturamento)', Number(titsN) === 0, { titsN });
+    await pgRet.end();
+
     // 20.5) totalnf=0 (item com vrvenda 0) → 422 NF_SEM_VALOR.
     const nfZero = await novaNf(baseNf({ tipo: 'S', nronf: 'F4200', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 0, cfop: '5102', aliquota: 'T01' }] }));
     const fatZero = await fetch(`${base}/fiscal/nf/${nfZero}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });

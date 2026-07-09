@@ -47,6 +47,10 @@ export const nfAggregateConfig: AggregateConfig = {
     // ST residual (corte-4c): TOTALICM_STEXTERNO/ICMS_ST_PAGO_FONTE são inputs de cabeçalho (F2/operador);
     // ICMS_ST_APAGAR é derivado (=max(0, externo−pago_fonte)) mas fica no allowlist p/ persistir o derivado.
     'total_icmst_externo', 'icms_st_pago_fonte', 'icms_st_apagar',
+    // retenção federal (corte-4c-b): computadas pelo motor calcularRetencoes (nf-fiscal.recalcular, F2) e
+    // reenviadas no dto → persistidas aqui p/ o F4 gerar os títulos. Mesmo modelo de confiança dos totais fiscais.
+    'total_ret_pis', 'total_ret_cofins', 'total_ret_csll', 'total_ret_ir', 'total_ret_inss', 'total_ret_issqn',
+    'total_ret_funrural', 'base_ret_irrf_piscofins_csll', 'base_retencao_inss',
     // estado (eixos A/B) — defaults; travas no validar
     'proc', 'statusnfe', 'cancelada', 'confirmada', 'contabilizado',
     // contrato NFe (vazio na F1)
