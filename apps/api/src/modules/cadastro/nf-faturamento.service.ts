@@ -44,7 +44,7 @@ export class NfFaturamentoService {
   ): Promise<{ nf: any; tabela: 'areceber' | 'apagar'; txjuros: number }> {
     const nf = await trx
       .selectFrom('nf')
-      .select(['codnf', 'tipo', 'nronf', 'cancelada', 'faturada', 'contabilizado', 'codparceiro', 'totalnf', 'dtemissao', 'dtcontabil', 'statusnfe'])
+      .select(['codnf', 'tipo', 'nronf', 'cancelada', 'faturada', 'contabilizado', 'codparceiro', 'totalnf', 'dtemissao', 'dtcontabil', 'statusnfe', 'icms_st_apagar'])
       .where('codnf', '=', codnf)
       .where('idempresa', '=', emp)
       .forUpdate()
@@ -68,6 +68,67 @@ export class NfFaturamentoService {
     row: { codparceiro: number; codempresa: number; idnf: number; dtvenda: unknown; dtvenc: string; duplicata: string; nrodup: number; valor: number; txjuros: number; tipodoc?: string },
   ): Promise<void> {
     await trx.insertInto(tabela).values({ ...row, quitada: 'N', consiliado: 'N' }).execute();
+  }
+
+  /**
+   * Corte-4c — título 'RESIDUAL ST' (ICMS-ST a recolher pela loja) a partir de `nf.icms_st_apagar`.
+   * Só ENTRADA (APAGAR). 1 título por NF quando icms_st_apagar>0 (gate golden `if TOTALICM_STEXTERNO>0`).
+   * Shape golden-exato (PINHEIRAO, 177 títulos): TIPODOC='RESIDUAL ST', RETENCAO='ICMSST', GERADO='SISTEMA',
+   * ORIGEM='N', À VISTA (DTVENC=DTVENDA=data do documento), IDNF=codnf, mesmo CODPARCEIRO da NF, OBS no formato
+   * do legado (udmNF.pas:8514). Idempotente: não duplica se já existir RESIDUAL ST por (idnf, tipodoc).
+   * Roda DENTRO da trx do faturamento (nasce junto dos títulos do fornecedor; o estorno por idnf já o remove).
+   */
+  private async gerarTituloStResidual(
+    trx: AnyDB,
+    nf: { codnf: number; tipo: string; nronf?: unknown; codparceiro: number; totalnf: unknown; dtcontabil: unknown; icms_st_apagar?: unknown },
+    emp: number,
+  ): Promise<number> {
+    if (nf.tipo !== 'E') return 0; // ST residual só existe na ENTRADA (recolhimento pela loja)
+    const val = num(nf.icms_st_apagar);
+    if (val <= 0) return 0;
+    // idempotência: não regravar se já houver RESIDUAL ST desta NF.
+    const ja = await trx
+      .selectFrom('apagar')
+      .select('codapg')
+      .where('idnf', '=', nf.codnf)
+      .where('codempresa', '=', emp)
+      .where('tipodoc', '=', 'RESIDUAL ST')
+      .executeTakeFirst();
+    if (ja) return 0;
+    const totalnf = num(nf.totalnf);
+    const nronf = String(nf.nronf ?? nf.codnf);
+    // OBS verbatim do legado (udmNF.pas:8514-8516) — FormatFloat('0.00') pt-BR ⇒ VÍRGULA decimal (golden byte-a-byte
+    // usa '629,18', não '629.18'). ALIQUOTA 0,00% pois o ST vem por MVA, não por alíquota fixa.
+    const obs =
+      'REF. À RETENÇÕES DE IMPOSTOS. IMPOSTO: ICMSST\n' +
+      `NOTA FISCAL NRO: ${nronf}\n` +
+      `VALOR NOTA FISCAL: ${totalnf.toFixed(2).replace('.', ',')}\n` +
+      'ALIQUOTA ICMSST: 0,00%';
+    await trx
+      .insertInto('apagar')
+      .values({
+        codparceiro: nf.codparceiro,
+        codempresa: emp,
+        idnf: nf.codnf,
+        // golden: pDataCompra=cdsNotaDTCONTABIL (udmNF.pas:8509) e à vista DTVENC=DTCOMPRA (0 dias). No golden
+        // DTVENC=DTCONTABIL em 98% (não DTEMISSAO — que difere da contábil em ~82% das entradas). dtcontabil
+        // volta do pg como Date → normaliza p/ 'YYYY-MM-DD' no dtvenc.
+        dtvenda: nf.dtcontabil,
+        dtvenc: new Date(nf.dtcontabil as string | number | Date).toISOString().slice(0, 10),
+        duplicata: nronf.slice(0, 20), // golden: DUPLICATA=NRONF (GeraApagar iif(pNroNf<>'',pNroNf,...))
+        nrodup: 1,
+        valor: val,
+        txjuros: 0,
+        tipodoc: 'RESIDUAL ST',
+        retencao: 'ICMSST',
+        origem: 'N',
+        gerado: 'SISTEMA',
+        obs,
+        quitada: 'N',
+        consiliado: 'N',
+      })
+      .execute();
+    return 1;
   }
 
   /** flip idempotente nf.faturada 'N'→'S' (CAS) — 0 linhas ⇒ corrida perdida (já faturada). */
@@ -120,6 +181,9 @@ export class NfFaturamentoService {
         });
       }
 
+      // corte-4c: título RESIDUAL ST (ICMS-ST a recolher) junto do faturamento — só entrada, só se >0.
+      await this.gerarTituloStResidual(trx, nf, emp);
+
       await this.marcarFaturada(trx, codnf, emp, op);
       return { codnf, tabela, parcelas: p.numParcelas };
     });
@@ -171,6 +235,9 @@ export class NfFaturamentoService {
         });
       }
       if (totalCents <= 0) throw new BusinessRuleError('NF_SEM_VALOR', { codnf });
+
+      // corte-4c: título RESIDUAL ST (ICMS-ST a recolher) junto do faturamento — só entrada, só se >0.
+      await this.gerarTituloStResidual(trx, nf, emp);
 
       await this.marcarFaturada(trx, codnf, emp, op);
       return { codnf, tabela, parcelas: N, total: totalCents / 100 };

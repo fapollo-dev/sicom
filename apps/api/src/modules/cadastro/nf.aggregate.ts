@@ -44,6 +44,9 @@ export const nfAggregateConfig: AggregateConfig = {
     // totais (derivados server-side — F1 btnCalcular)
     'totalnf', 'totalprod', 'totaldesc', 'totalfrete', 'totalseguro', 'totalacessorias',
     'totalicm', 'totalbaseicm', 'totalipi', 'totalicm_st', 'totalisento',
+    // ST residual (corte-4c): TOTALICM_STEXTERNO/ICMS_ST_PAGO_FONTE são inputs de cabeçalho (F2/operador);
+    // ICMS_ST_APAGAR é derivado (=max(0, externo−pago_fonte)) mas fica no allowlist p/ persistir o derivado.
+    'total_icmst_externo', 'icms_st_pago_fonte', 'icms_st_apagar',
     // estado (eixos A/B) — defaults; travas no validar
     'proc', 'statusnfe', 'cancelada', 'confirmada', 'contabilizado',
     // contrato NFe (vazio na F1)
@@ -60,8 +63,21 @@ export const nfAggregateConfig: AggregateConfig = {
   // só SOMA valores já presentes no dto (o cálculo do imposto por item é async e vive no
   // NfFiscalService, via POST /fiscal/nf/recalcular). Só recalcula quando o dto traz os itens.
   derivar: (dto) => {
+    // ST residual (corte-4c) — derivado dos campos de cabeçalho (independe dos itens). Fórmula verificada
+    // 1:1 no golden (uNF.pas:4817): só quando TOTALICM_STEXTERNO>0. max(0,...) é DEFENSIVO — o legado subtrai
+    // cru, mas o golden não tem NENHUM caso negativo (observacionalmente idêntico) e a coluna é nonnegative.
+    // SÓ emite quando os inputs ST vierem no dto: um PUT parcial (só `obs`, p.ex.) NÃO deve zerar o
+    // icms_st_apagar persistido (espelha o guard-por-`itens` dos demais totais).
+    const rr2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+    const temStInputs = dto.total_icmst_externo !== undefined || dto.icms_st_pago_fonte !== undefined;
+    const stExterno = num(dto.total_icmst_externo);
+    const stPagoFonte = num(dto.icms_st_pago_fonte);
+    const stOut: Record<string, unknown> = temStInputs
+      ? { icms_st_apagar: stExterno > 0 ? Math.max(0, rr2(stExterno - stPagoFonte)) : 0 }
+      : {};
+
     const itens = dto.itens;
-    if (!Array.isArray(itens)) return {};
+    if (!Array.isArray(itens)) return stOut;
     let totalprod = 0;
     let totaldesc = 0;
     let totalipi = 0;
@@ -98,6 +114,7 @@ export const nfAggregateConfig: AggregateConfig = {
       totalbaseicm: r2(totalbaseicm),
       totalisento: r2(totalisento),
       totalnf,
+      ...stOut,
     };
   },
   // Regras cross-row do btnGravar (consultam o banco antes de gravar).

@@ -220,6 +220,10 @@ const nfBase = z.object({
   totalipi: dec(z.number().nonnegative()),
   totalicm_st: dec(z.number().nonnegative()),
   totalisento: dec(z.number().nonnegative()),
+  // ST residual (corte-4c): externo/pago_fonte são inputs de cabeçalho (F2); icms_st_apagar é derivado.
+  total_icmst_externo: dec(z.number().nonnegative()),
+  icms_st_pago_fonte: dec(z.number().nonnegative()),
+  icms_st_apagar: dec(z.number().nonnegative()),
   // estado (eixos A/B) — defaults no create; as travas de edição rodam no servidor (validar)
   proc: sn().optional(),
   statusnfe: opcional(z.string().trim().max(1)),

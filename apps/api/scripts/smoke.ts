@@ -1085,6 +1085,74 @@ async function main() {
     const fatEBody = (await fatE.json().catch(() => ({}))) as any;
     check('faturar (entrada) gera em APAGAR (2 parcelas)', fatE.status === 200 && fatEBody.tabela === 'apagar' && fatEBody.parcelas === 2, { status: fatE.status, body: fatEBody });
 
+    // 54) corte-4c — ST RESIDUAL (ICMS-ST a recolher pela loja) → título A Pagar 'RESIDUAL ST'.
+    // golden PINHEIRAO: ICMS_ST_APAGAR = TOTALICM_STEXTERNO − ICMS_ST_PAGO_FONTE; título TIPODOC='RESIDUAL ST',
+    // RETENCAO='ICMSST', GERADO='SISTEMA', ORIGEM='N', à vista (DTVENC=DTEMISSAO), 1 por NF.
+    const stResidualDaNf = async (cod: number): Promise<any[]> => {
+      const pg = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const r = await pg.query(`SELECT valor, tipodoc, retencao, origem, gerado, duplicata, to_char(dtvenc,'YYYY-MM-DD') AS dtvenc, obs, idnf FROM apagar WHERE idnf=$1 AND tipodoc='RESIDUAL ST'`, [cod]);
+      await pg.end();
+      return r.rows;
+    };
+
+    // 54.1) derivar computa icms_st_apagar do cabeçalho (externo 316,91 − pago_fonte 0 = 316,91).
+    // dtemissao ≠ dtcontabil DE PROPÓSITO: o golden usa DTCONTABIL no vencimento (não emissão).
+    const nfStr1 = await novaNf(baseNf({ tipo: 'E', nronf: 'STR001', codparceiro: 22, dtemissao: '2026-06-10', dtcontabil: '2026-06-15', total_icmst_externo: 316.91, itens: [itemP1(4)] }));
+    const nfStr1Read = (await (await fetch(`${base}/fiscal/nf/${nfStr1}`, { headers: H })).json()) as any;
+    check('4c: derivar calcula icms_st_apagar = total_icmst_externo − icms_st_pago_fonte (316,91)', Number(nfStr1Read.icms_st_apagar) === 316.91, { icms_st_apagar: nfStr1Read.icms_st_apagar });
+
+    // 54.2) faturar (entrada) gera o título RESIDUAL ST golden-exato (à vista = DTCONTABIL, não DTEMISSAO)
+    // + OBS byte-a-byte com VÍRGULA decimal ('VALOR NOTA FISCAL: 14,00') + duplicata=NRONF.
+    const fatSt = await fetch(`${base}/fiscal/nf/${nfStr1}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-15', intervaloDias: 30 }) });
+    const strTit = await stResidualDaNf(nfStr1);
+    const obsEsperada = 'REF. À RETENÇÕES DE IMPOSTOS. IMPOSTO: ICMSST\n'
+      + 'NOTA FISCAL NRO: STR001\n'
+      + `VALOR NOTA FISCAL: ${Number(nfStr1Read.totalnf).toFixed(2).replace('.', ',')}\n`
+      + 'ALIQUOTA ICMSST: 0,00%';
+    check('4c: faturar (entrada) gera 1 título RESIDUAL ST (valor 316,91, RETENCAO=ICMSST, GERADO=SISTEMA, ORIGEM=N)',
+      fatSt.status === 200 && strTit.length === 1
+      && Number(strTit[0].valor) === 316.91 && strTit[0].tipodoc === 'RESIDUAL ST' && strTit[0].retencao === 'ICMSST'
+      && strTit[0].gerado === 'SISTEMA' && strTit[0].origem === 'N',
+      { status: fatSt.status, strTit });
+    check('4c: RESIDUAL ST à vista usa DTCONTABIL (dtvenc=2026-06-15, não a emissão 2026-06-10) + duplicata=NRONF',
+      strTit.length === 1 && strTit[0].dtvenc === '2026-06-15' && strTit[0].duplicata === 'STR001',
+      { dtvenc: strTit[0]?.dtvenc, duplicata: strTit[0]?.duplicata });
+    check('4c: OBS do RESIDUAL ST byte-a-byte (vírgula decimal, formato do legado)',
+      strTit.length === 1 && strTit[0].obs === obsEsperada,
+      { obs: strTit[0]?.obs, esperada: obsEsperada });
+
+    // 54.3) ICMS_ST_PAGO_FONTE abate o residual (100 − 30 = 70).
+    const nfSt2 = await novaNf(baseNf({ tipo: 'E', nronf: 'STR002', codparceiro: 22, dtemissao: '2026-06-16', dtcontabil: '2026-06-16', total_icmst_externo: 100, icms_st_pago_fonte: 30, itens: [itemP1(4)] }));
+    const nfSt2Read = (await (await fetch(`${base}/fiscal/nf/${nfSt2}`, { headers: H })).json()) as any;
+    await fetch(`${base}/fiscal/nf/${nfSt2}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-16', intervaloDias: 30 }) });
+    const strTit2 = await stResidualDaNf(nfSt2);
+    check('4c: icms_st_pago_fonte abate o residual (externo 100 − pago 30 = 70)', Number(nfSt2Read.icms_st_apagar) === 70 && strTit2.length === 1 && Number(strTit2[0].valor) === 70, { icms_st_apagar: nfSt2Read.icms_st_apagar, strTit2 });
+
+    // 54.4) sem ST externo → 0 títulos RESIDUAL ST (gate `if TOTALICM_STEXTERNO>0`).
+    const nfSt3 = await novaNf(baseNf({ tipo: 'E', nronf: 'STR003', codparceiro: 22, dtemissao: '2026-06-17', dtcontabil: '2026-06-17', itens: [itemP1(4)] }));
+    await fetch(`${base}/fiscal/nf/${nfSt3}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-17', intervaloDias: 30 }) });
+    const strTit3 = await stResidualDaNf(nfSt3);
+    check('4c: NF sem ST externo → 0 título RESIDUAL ST', strTit3.length === 0, { strTit3 });
+
+    // 54.5) estornar-faturamento remove o RESIDUAL ST junto (delete por idnf).
+    await fetch(`${base}/fiscal/nf/${nfStr1}/estornar-faturamento`, { method: 'POST', headers: H });
+    const strTitPos = await stResidualDaNf(nfStr1);
+    check('4c: estornar-faturamento remove o título RESIDUAL ST (por idnf)', strTitPos.length === 0, { strTitPos });
+
+    // 54.6) SAÍDA com total_icmst_externo → NÃO gera RESIDUAL ST (só entrada recolhe).
+    const nfStS = await novaNf(baseNf({ tipo: 'S', nronf: 'STR004', cfop: '5102', codparceiro: 20, total_icmst_externo: 50, itens: [{ codproduto: 1, quantidade: 5, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    await fetch(`${base}/fiscal/nf/${nfStS}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-18', intervaloDias: 30 }) });
+    const strTitS = await stResidualDaNf(nfStS);
+    check('4c: SAÍDA com total_icmst_externo → 0 RESIDUAL ST (só entrada recolhe)', strTitS.length === 0, { strTitS });
+
+    // 54.7) PUT parcial que NÃO reenvia os inputs de ST NÃO pode zerar o icms_st_apagar persistido.
+    const nfStrPut = await novaNf(baseNf({ tipo: 'E', nronf: 'STR005', codparceiro: 22, dtemissao: '2026-06-20', dtcontabil: '2026-06-20', total_icmst_externo: 200, itens: [itemP1(4)] }));
+    const putParcial = await fetch(`${base}/fiscal/nf/${nfStrPut}`, { method: 'PUT', headers: H, body: JSON.stringify({ obs: 'edicao parcial' }) });
+    const nfStrPutRead = (await (await fetch(`${base}/fiscal/nf/${nfStrPut}`, { headers: H })).json()) as any;
+    check('4c: PUT parcial (só obs) preserva icms_st_apagar (200) — não zera o derivado',
+      (putParcial.status === 200 || putParcial.status === 204) && Number(nfStrPutRead.icms_st_apagar) === 200,
+      { status: putParcial.status, icms_st_apagar: nfStrPutRead.icms_st_apagar });
+
     // 20.5) totalnf=0 (item com vrvenda 0) → 422 NF_SEM_VALOR.
     const nfZero = await novaNf(baseNf({ tipo: 'S', nronf: 'F4200', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 0, cfop: '5102', aliquota: 'T01' }] }));
     const fatZero = await fetch(`${base}/fiscal/nf/${nfZero}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
