@@ -12,7 +12,6 @@ import {
 import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
-import { NumberField } from '../../shared/ui/NumberField';
 import { CurrencyField } from '../../shared/ui/CurrencyField';
 import { DateField } from '../../shared/ui/DateField';
 import { TextArea } from '../../shared/ui/TextArea';
@@ -21,7 +20,8 @@ import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResour
 import { useMensagem } from '../../shared/mensagem';
 import { PedidoCompraItemModal } from './PedidoCompraItemModal';
 import { ImportarXmlModal } from './ImportarXmlModal';
-import { fecharPedido, reabrirPedido, gerarNfDoPedido } from './pedidoCompraApi';
+import { fecharPedido, reabrirPedido, gerarNfDoPedido, gerarParcelasPedido, obterPedido } from './pedidoCompraApi';
+import type { PedidoCompraParcelaDto } from '@apollo/shared';
 
 /** hoje em ISO 'YYYY-MM-DD' (DATA default hoje, como no OnNewRecord do legado). */
 const hojeISO = () => new Date().toISOString().slice(0, 10);
@@ -53,6 +53,12 @@ export function PedidoCompraCadMaster() {
     value: String(r.idproduto ?? r.codigo),
     label: `${r.codbarra} - ${r.descricao}`,
   }));
+  // corte-2: condição de pagamento (lookup GLOBAL). Rótulo mostra os prazos (CD1..CD8) em dias.
+  const { data: condicaoOptions = [] } = useResourceOptions('compras/condicoes-pagto', (c: any) => {
+    const dias = ['cd1', 'cd2', 'cd3', 'cd4', 'cd5', 'cd6', 'cd7', 'cd8']
+      .map((k) => c[k]).filter((d: unknown) => d != null).join('/');
+    return { value: String(c.codconpagto), label: `${c.codconpagto} - ${c.descricao ?? ''}${dias ? ` (${dias} dias)` : ''}` };
+  });
 
   const defaultValues = useMemo<Partial<CriarPedidoCompraDto>>(
     () => ({
@@ -80,7 +86,7 @@ export function PedidoCompraCadMaster() {
         { campo: 'fechado', label: 'Fechado', tipo: 'text', largura: 100 },
       ]}
       campos={({ form, editavel }) => (
-        <PedidoForm form={form} editavel={editavel} fornecedorOptions={fornecedorOptions} produtoOptions={produtoOptions} />
+        <PedidoForm form={form} editavel={editavel} fornecedorOptions={fornecedorOptions} produtoOptions={produtoOptions} condicaoOptions={condicaoOptions} />
       )}
     />
   );
@@ -93,11 +99,13 @@ function PedidoForm({
   editavel,
   fornecedorOptions,
   produtoOptions,
+  condicaoOptions,
 }: {
   form: UseFormReturn<CriarPedidoCompraDto>;
   editavel: boolean;
   fornecedorOptions: Opcao[];
   produtoOptions: Opcao[];
+  condicaoOptions: Opcao[];
 }) {
   // TRAVA de estado (espelha o `travado` da NF via watch): pedido FECHADO é read-only. `fechado` não
   // está no schema de escrita (é state-controlled), mas o read do agregado o traz e o reset o mantém.
@@ -112,8 +120,9 @@ function PedidoForm({
         </div>
       )}
 
-      <CabecalhoBand form={form} editavel={liberado} fornecedorOptions={fornecedorOptions} />
+      <CabecalhoBand form={form} editavel={liberado} fornecedorOptions={fornecedorOptions} condicaoOptions={condicaoOptions} />
       <ItensSection form={form} editavel={liberado} produtoOptions={produtoOptions} />
+      <ParcelasSection form={form} editavel={liberado} />
       <AcoesEstadoBar form={form} />
     </div>
   );
@@ -125,10 +134,12 @@ function CabecalhoBand({
   form,
   editavel,
   fornecedorOptions,
+  condicaoOptions,
 }: {
   form: UseFormReturn<CriarPedidoCompraDto>;
   editavel: boolean;
   fornecedorOptions: Opcao[];
+  condicaoOptions: Opcao[];
 }) {
   const err = form.formState.errors;
   const fechado = (form.watch('fechado' as any) as string | undefined) === 'S';
@@ -195,14 +206,26 @@ function CabecalhoBand({
         />
         <Controller
           control={form.control}
+          name="data_faturamento"
+          render={({ field }) => (
+            <DateField
+              label="Data de &faturamento"
+              value={(field.value as string) || undefined}
+              onChange={(v) => field.onChange(v ?? undefined)}
+              error={err.data_faturamento?.message as string | undefined}
+            />
+          )}
+        />
+        <Controller
+          control={form.control}
           name="codconpagto"
           render={({ field }) => (
-            <NumberField
-              label="&Condição de pgto (cód.)"
-              value={field.value as number | undefined}
-              onChange={(v) => field.onChange(v)}
-              decimais={0}
-              min={0}
+            <SelectField
+              label="&Condição de pgto"
+              options={condicaoOptions}
+              value={field.value != null ? String(field.value) : undefined}
+              onChange={(v) => field.onChange(v ? Number(v) : undefined)}
+              placeholder="Selecione a condição…"
               error={err.codconpagto?.message as string | undefined}
             />
           )}
@@ -375,6 +398,76 @@ function ItensSection({
           onConfirmar={onConfirmar}
         />
       )}
+    </fieldset>
+  );
+}
+
+// ───────────────────────────── Parcelas (condição de pagamento) ─────────────────────────────
+
+/**
+ * PARCELAS do pedido (corte-2). O botão «Gerar parcelas» chama o servidor (RatearTotalNasParcelas):
+ * rateia o total do pedido pelos prazos CD1..CD8 (do pedido, senão da condição), venc = data + CDn,
+ * sobra na 1ª. Exige pedido GRAVADO. As parcelas são um 2º detalhe (persistem no agregado).
+ */
+function ParcelasSection({ form, editavel }: { form: UseFormReturn<CriarPedidoCompraDto>; editavel: boolean }) {
+  const mensagem = useMensagem();
+  const [gerando, setGerando] = useState(false);
+  const codpedcomp = (form.getValues() as { codpedcomp?: number }).codpedcomp;
+  const parcelas = (form.watch('parcelas') ?? []) as PedidoCompraParcelaDto[];
+  const total = parcelas.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+
+  const gerar = async () => {
+    if (codpedcomp == null) {
+      mensagem.erro('Grave o pedido antes de gerar as parcelas.');
+      return;
+    }
+    if (gerando) return;
+    setGerando(true);
+    try {
+      const r = await gerarParcelasPedido(codpedcomp);
+      const fresh = await obterPedido(codpedcomp);
+      form.setValue('parcelas' as any, (fresh.parcelas ?? []) as any);
+      mensagem.sucesso(`${r.parcelas} parcela(s) gerada(s) (total R$ ${fmtBRL(r.total)}).`);
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setGerando(false);
+    }
+  };
+
+  const columns = useMemo<DataTableColumnDef<PedidoCompraParcelaDto>[]>(
+    () => [
+      { field: 'parcela', headerName: 'Parcela', type: 'number', width: 100, isPrimary: true },
+      { field: 'data', headerName: 'Vencimento', type: 'text', width: 150, valueGetter: (r) => String(r.data ?? '').slice(0, 10) },
+      { field: 'qtdediasaposfaturamento', headerName: 'Dias', type: 'number', width: 90 },
+      { field: 'valor', headerName: 'Valor', type: 'text', width: 140, valueGetter: (r) => fmtBRL(Number(r.valor) || 0) },
+    ],
+    [],
+  );
+
+  return (
+    <fieldset disabled={!editavel} className="border-0 p-0">
+      <div className="flex flex-col gap-gp-sm">
+        <div className="flex flex-wrap items-center gap-gp-sm">
+          <span className="text-body-sm font-semibold text-fg-default">Parcelas</span>
+          {codpedcomp != null && <Button label="&Gerar parcelas" variant="soft" onClick={() => void gerar()} />}
+          <small className="text-fg-muted">Rateia o total pela condição de pagamento (prazos CD1..CD8). Grave o pedido antes.</small>
+        </div>
+        {parcelas.length === 0 ? (
+          <small className="text-fg-muted">Sem parcelas. Selecione a condição de pagamento e clique «Gerar parcelas».</small>
+        ) : (
+          <>
+            <DataTable
+              rows={parcelas}
+              columns={columns}
+              getRowId={(r) => String(r.parcela)}
+              toolbar={{ enableSearch: false, enableFilters: false }}
+              cardBreakpoint={false}
+            />
+            <small className="text-fg-muted">Total das parcelas: R$ {fmtBRL(total)}.</small>
+          </>
+        )}
+      </div>
     </fieldset>
   );
 }

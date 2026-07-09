@@ -33,6 +33,15 @@ export class PedidoCompraController {
     return this.svc.reabrir(id);
   }
 
+  /** corte-2: gera as parcelas do pedido (ratear pela condição de pagamento). Retorna { codpedcomp, parcelas, total }.
+   *  É uma EDIÇÃO do pedido → gated por BTNGRAVAR (opção real do legado; não há "gerar parcelas" no legado). */
+  @Post(':id/gerar-parcelas')
+  @HttpCode(200)
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNGRAVAR')
+  gerarParcelas(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.gerarParcelas(id);
+  }
+
   /** RECEBIMENTO: gera a NF de entrada (rascunho) a partir do pedido. Retorna { codnf, codpedcomp }. */
   @Post(':id/gerar-nf')
   @HttpCode(200)

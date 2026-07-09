@@ -42,6 +42,9 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
   // CODOPERADOR (server-set via derivarTrx) e FECHADO (state-controlled) NÃO entram nas colunas editáveis.
   colunas: [
     'codparceiro', 'data', 'dt_vencimento', 'codconpagto',
+    // corte-2: DATA_FATURAMENTO = data-base do vencimento das parcelas (legado DTFATURAMENTO input, separado
+    // do marcador "recebido" do recebimento). CD1..CD8 = override local dos prazos (dias) da condição.
+    'data_faturamento', 'cd1', 'cd2', 'cd3', 'cd4', 'cd5', 'cd6', 'cd7', 'cd8',
     'pc_tipo_frete', 'pc_valor_frete', 'pc_nronf_cruzamento', 'obs',
   ],
   colunasPesquisa: ['codpedcomp', 'codparceiro', 'fornecedor', 'data', 'fechado', 'total'],
@@ -55,6 +58,18 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
       // VLREMBALAGEM = FATOREMBALAGEM × VRCUSTO — congelado server-side (o cliente não é fonte da verdade).
       derivarItensTrx: async (itens) =>
         itens.map((it) => ({ ...it, vlrembalagem: r4(num(it.fatorembalagem) * num(it.vrcusto)) })),
+    },
+    {
+      // corte-2: PARCELAS (2º detalhe). Editáveis (o legado permite ajustar); geradas pelo `gerar-parcelas`
+      // (RatearTotalNasParcelas). Substituídas no PUT só quando a chave `parcelas` vier no dto. idempresa
+      // carimbada server-side (single-empresa = a do pedido; split multi-loja adiado).
+      tabela: 'pedidocompra_parcelas',
+      pk: 'codpedcompparcelas',
+      fk: 'codpedcomp',
+      chave: 'parcelas',
+      colunas: ['idempresa', 'parcela', 'data', 'valor', 'qtdediasaposfaturamento'],
+      derivarItensTrx: async (parcelas) =>
+        parcelas.map((p) => ({ ...p, idempresa: currentTenant().empresaId ?? null })),
     },
   ],
   // CODOPERADOR = comprador (operador do contexto). Só no create (derivarTrx não roda no update) → imutável.

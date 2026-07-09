@@ -300,6 +300,8 @@ const CODE_PT: Record<string, string> = {
   PEDIDO_SEM_ITENS: 'O pedido de compra não tem itens — inclua ao menos um item antes de fechar.',
   PEDIDO_FATURADO: 'Este pedido já foi faturado (NF de entrada) — não é possível reabri-lo.',
   PEDIDO_JA_RECEBIDO: 'Este pedido já tem uma NF de entrada gerada — não é possível gerar outra.',
+  PEDIDO_SEM_CONDICAO_PAGTO: 'Informe a condição de pagamento (ou os prazos CD1..CD8) antes de gerar as parcelas.',
+  PEDIDO_SEM_VALOR: 'O pedido não tem valor (total dos itens é zero) — inclua itens antes de gerar as parcelas.',
   // Import do XML da NFe (recebimento corte-2)
   NFE_XML_INVALIDO: 'O XML informado não é uma NFe válida (estrutura não reconhecida).',
   NFE_FORNECEDOR_NAO_ENCONTRADO: 'Fornecedor do XML (CNPJ) não encontrado no cadastro desta empresa.',

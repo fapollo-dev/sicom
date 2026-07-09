@@ -21,6 +21,7 @@ export * from './schema/forma-pgto.schema';
 export * from './schema/motivo-operacao.schema';
 export * from './schema/ajuste-estoque.schema';
 export * from './schema/pedido-compra.schema';
+export * from './schema/condicoes-pagto.schema';
 export * from './erro';
 export * from './validators/br';
 export * from './validators/inscricao-estadual';

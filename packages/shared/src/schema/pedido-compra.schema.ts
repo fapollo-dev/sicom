@@ -58,6 +58,17 @@ export const pedidoCompraItemSchema = z.object({
 });
 export type PedidoCompraItemDto = z.infer<typeof pedidoCompraItemSchema>;
 
+/* ── parcela (corte-2) ── */
+/** Parcela do pedido: número + vencimento + valor + dias-após-faturamento. Gerada por `gerar-parcelas`
+ *  (RatearTotalNasParcelas) mas EDITÁVEL (o legado permite ajustar valores/datas). idempresa = server. */
+export const pedidoCompraParcelaSchema = z.object({
+  parcela: z.coerce.number({ message: 'Parcela inválida.' }).int().positive(),
+  data: opcional(z.string().trim()),
+  valor: dec(z.number().nonnegative('Valor da parcela inválido.')),
+  qtdediasaposfaturamento: opcional(z.coerce.number().int().nonnegative()),
+});
+export type PedidoCompraParcelaDto = z.infer<typeof pedidoCompraParcelaSchema>;
+
 /* ── cabeçalho ── */
 const pedidoCompraBase = z.object({
   // CODOPERADOR (comprador) e FECHADO (workflow) NÃO entram no payload — são server-controlled.
@@ -68,11 +79,24 @@ const pedidoCompraBase = z.object({
   data: z.string({ message: 'Informe a data do pedido.' }).trim().min(1, 'Informe a data do pedido.'),
   dt_vencimento: opcional(z.string().trim()),
   codconpagto: opcional(z.coerce.number().int()),
+  // corte-2: data-base do vencimento das parcelas (legado DTFATURAMENTO input; separada do marcador "recebido").
+  data_faturamento: opcional(z.string().trim()),
+  // corte-2: CD1..CD8 = OVERRIDE local dos prazos (dias) da condição; nº de parcelas = qtd de CDn não-nulos.
+  cd1: opcional(z.coerce.number().int().nonnegative()),
+  cd2: opcional(z.coerce.number().int().nonnegative()),
+  cd3: opcional(z.coerce.number().int().nonnegative()),
+  cd4: opcional(z.coerce.number().int().nonnegative()),
+  cd5: opcional(z.coerce.number().int().nonnegative()),
+  cd6: opcional(z.coerce.number().int().nonnegative()),
+  cd7: opcional(z.coerce.number().int().nonnegative()),
+  cd8: opcional(z.coerce.number().int().nonnegative()),
   pc_tipo_frete: opcional(z.enum(PC_TIPO_FRETE)),
   pc_valor_frete: dec(z.number().nonnegative('Valor de frete inválido.')),
   pc_nronf_cruzamento: opcional(z.string().trim().max(500)),
   obs: opcional(z.string().trim().max(2000)),
   itens: z.array(pedidoCompraItemSchema).optional().default([]),
+  // corte-2: parcelas (2º detalhe). Editáveis; se ausentes num PUT, NÃO são tocadas (chave ausente).
+  parcelas: z.array(pedidoCompraParcelaSchema).optional(),
 });
 
 /** CREATE — exige ao menos 1 item (btnGravar do legado). */
@@ -144,6 +168,15 @@ export interface PedidoCompra {
   codoperador?: number | null;
   dt_vencimento?: string | null;
   codconpagto?: number | null;
+  data_faturamento?: string | null;
+  cd1?: number | null;
+  cd2?: number | null;
+  cd3?: number | null;
+  cd4?: number | null;
+  cd5?: number | null;
+  cd6?: number | null;
+  cd7?: number | null;
+  cd8?: number | null;
   pc_tipo_frete?: string | null;
   pc_valor_frete?: number | string | null;
   pc_nronf_cruzamento?: string | null;
@@ -155,6 +188,17 @@ export interface PedidoCompra {
   total?: number | string | null; // Σ vlrembalagem (view)
   qtde_itens?: number | string | null;
   itens?: PedidoCompraItem[];
+  parcelas?: PedidoCompraParcela[];
+}
+
+export interface PedidoCompraParcela {
+  codpedcompparcelas?: number;
+  codpedcomp?: number;
+  idempresa?: number | null;
+  parcela: number;
+  data?: string | null;
+  valor?: number | string | null;
+  qtdediasaposfaturamento?: number | null;
 }
 
 export interface PedidoCompraItem {

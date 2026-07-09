@@ -2960,6 +2960,77 @@ async function main() {
 
     await pgRec.end();
 
+    // 48P) PEDIDO corte-2 — CONDIÇÃO DE PAGAMENTO + PARCELAS.
+    const COND = 'compras/condicoes-pagto';
+    // 48P.1) CRUD condições: seed (161='30/60/90') existe; criar nova; CD1 obrigatório.
+    const condLista = (await (await fetch(`${base}/${COND}?campo=codconpagto&operador=igual&valor=161`, { headers: H })).json().catch(() => [])) as any[];
+    const cond161 = condLista.find((c) => Number(c.codconpagto) === 161);
+    const condNova = await fetch(`${base}/${COND}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: '15/30', cd1: 15, cd2: 30 }) });
+    const condSemCd1 = await fetch(`${base}/${COND}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'ruim' }) });
+    check('4c-2: condicoes_pagto — seed 161 (30/60/90) + criar (15/30) 201 + CD1 obrigatório (400)',
+      !!cond161 && Number(cond161.cd1) === 30 && Number(cond161.cd2) === 60 && Number(cond161.cd3) === 90
+      && condNova.status === 201 && condSemCd1.status === 400,
+      { cond161, nova: condNova.status, semCd1: condSemCd1.status });
+
+    // 48P.2) gerar-parcelas pela CONDIÇÃO (161=30/60/90): total 100 → 3 parcelas, sobra na 1ª. Sem data_faturamento
+    // → base = data do pedido (fallback), venc=data+CDn.
+    const pcA = await crPed({ codparceiro: 22, data: '2026-07-01', codconpagto: 161, itens: [{ idproduto: 1, fatorembalagem: 10, vrcusto: 10 }] });
+    const pcAId = Number(((await pcA.json().catch(() => ({}))) as any).codpedcomp);
+    const genA = await fetch(`${base}/${PED}/${pcAId}/gerar-parcelas`, { method: 'POST', headers: H });
+    const genAJ = (await genA.json().catch(() => ({}))) as any;
+    const pcARead = (await (await fetch(`${base}/${PED}/${pcAId}`, { headers: H })).json()) as any;
+    const parcA = ((pcARead.parcelas ?? []) as any[]).slice().sort((a, b) => a.parcela - b.parcela);
+    const somaA = parcA.reduce((s, p) => s + Number(p.valor), 0);
+    check('4c-2: gerar-parcelas pela condição 30/60/90 → 3 parcelas, sobra na 1ª (33,34/33,33/33,33), Σ=100',
+      genA.status === 200 && genAJ.parcelas === 3 && parcA.length === 3
+      && Number(parcA[0].valor) === 33.34 && Number(parcA[1].valor) === 33.33 && Number(parcA[2].valor) === 33.33
+      && Math.abs(somaA - 100) < 0.005,
+      { status: genA.status, parcA });
+    check('4c-2: parcela venc = data_pedido + CDn (2026-07-31 / +60 / +90) + qtdedias 30/60/90',
+      parcA.length === 3 && String(parcA[0].data).slice(0, 10) === '2026-07-31' && Number(parcA[0].qtdediasaposfaturamento) === 30
+      && String(parcA[1].data).slice(0, 10) === '2026-08-30' && Number(parcA[2].qtdediasaposfaturamento) === 90,
+      { datas: parcA.map((p) => String(p.data).slice(0, 10)), dias: parcA.map((p) => p.qtdediasaposfaturamento) });
+
+    // 48P.3) CD1..CD8 do PEDIDO (override local) tem prioridade sobre a condição (7/14 → 2 parcelas de 50).
+    const pcB = await crPed({ codparceiro: 22, data: '2026-07-01', codconpagto: 161, cd1: 7, cd2: 14, itens: [{ idproduto: 1, fatorembalagem: 10, vrcusto: 10 }] });
+    const pcBId = Number(((await pcB.json().catch(() => ({}))) as any).codpedcomp);
+    await fetch(`${base}/${PED}/${pcBId}/gerar-parcelas`, { method: 'POST', headers: H });
+    const pcBRead = (await (await fetch(`${base}/${PED}/${pcBId}`, { headers: H })).json()) as any;
+    const parcB = ((pcBRead.parcelas ?? []) as any[]).slice().sort((a, b) => a.parcela - b.parcela);
+    check('4c-2: CD1-8 do pedido (7/14) SOBREPÕE a condição (161) → 2 parcelas de 50, venc +7/+14',
+      parcB.length === 2 && Number(parcB[0].valor) === 50 && Number(parcB[1].valor) === 50
+      && String(parcB[0].data).slice(0, 10) === '2026-07-08' && String(parcB[1].data).slice(0, 10) === '2026-07-15',
+      { parcB });
+
+    // 48P.4) gerar-parcelas sem condição nem CD → 422 PEDIDO_SEM_CONDICAO_PAGTO.
+    const pcC = await crPed({ codparceiro: 22, data: '2026-07-01', itens: [{ idproduto: 1, fatorembalagem: 5, vrcusto: 10 }] });
+    const pcCId = Number(((await pcC.json().catch(() => ({}))) as any).codpedcomp);
+    const genC = await fetch(`${base}/${PED}/${pcCId}/gerar-parcelas`, { method: 'POST', headers: H });
+    check('4c-2: gerar-parcelas sem condição/CD → 422 PEDIDO_SEM_CONDICAO_PAGTO', genC.status === 422 && ((await genC.json().catch(() => ({}))) as any).code === 'PEDIDO_SEM_CONDICAO_PAGTO', { status: genC.status });
+
+    // 48P.5) parcelas EDITÁVEIS via PUT (2º detalhe) — o operador ajusta valores/datas.
+    const putParc = await fetch(`${base}/${PED}/${pcAId}`, { method: 'PUT', headers: H, body: JSON.stringify({ parcelas: [{ parcela: 1, valor: 100, data: '2026-12-01', qtdediasaposfaturamento: 0 }] }) });
+    const pcAread2 = (await (await fetch(`${base}/${PED}/${pcAId}`, { headers: H })).json()) as any;
+    check('4c-2: parcelas editáveis via PUT (2º detalhe) → substitui (1 parcela de 100)',
+      (putParc.status === 200 || putParc.status === 201) && (pcAread2.parcelas ?? []).length === 1 && Number(pcAread2.parcelas[0].valor) === 100,
+      { status: putParc.status, parcelas: pcAread2.parcelas });
+
+    // 48P.6) gerar-parcelas em pedido FECHADO → 422 PEDIDO_FECHADO (é uma edição; reabra antes).
+    await fetch(`${base}/${PED}/${pcBId}/fechar`, { method: 'POST', headers: H });
+    const genFech = await fetch(`${base}/${PED}/${pcBId}/gerar-parcelas`, { method: 'POST', headers: H });
+    check('4c-2: gerar-parcelas em pedido FECHADO → 422 PEDIDO_FECHADO', genFech.status === 422 && ((await genFech.json().catch(() => ({}))) as any).code === 'PEDIDO_FECHADO', { status: genFech.status });
+
+    // 48P.7) DATA_FATURAMENTO é a base do vencimento (legado DTFATURAMENTO, golden 99,2%): data_faturamento
+    // (2026-07-05) ≠ data do pedido (2026-07-01) → venc = data_faturamento + CDn, NÃO data + CDn.
+    const pcD = await crPed({ codparceiro: 22, data: '2026-07-01', data_faturamento: '2026-07-05', codconpagto: 41, itens: [{ idproduto: 1, fatorembalagem: 10, vrcusto: 10 }] });
+    const pcDId = Number(((await pcD.json().catch(() => ({}))) as any).codpedcomp);
+    await fetch(`${base}/${PED}/${pcDId}/gerar-parcelas`, { method: 'POST', headers: H });
+    const pcDRead = (await (await fetch(`${base}/${PED}/${pcDId}`, { headers: H })).json()) as any;
+    const parcD = ((pcDRead.parcelas ?? []) as any[]);
+    check('4c-2: vencimento baseia em DATA_FATURAMENTO (2026-07-05 + 30 = 2026-08-04), não na data do pedido (2026-07-01)',
+      parcD.length === 1 && String(parcD[0].data).slice(0, 10) === '2026-08-04',
+      { data_pedido: '2026-07-01', data_faturamento: pcDRead.data_faturamento, venc: parcD[0]?.data });
+
     // 50) RECEBIMENTO corte-2 — IMPORT do XML da NFe do fornecedor → NF de entrada VALORADA.
     const pgImp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const IMP = 'compras/recebimento/importar-xml';

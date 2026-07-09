@@ -80,6 +80,15 @@ export function reabrirPedido(id: number): Promise<{ codpedcomp: number; fechado
 }
 
 /**
+ * POST compras/pedidos/:id/gerar-parcelas — corte-2: gera as parcelas do pedido (ratear pela condição de
+ * pagamento: prazos CD1..CD8 do pedido, senão da condição; valor rateado c/ sobra na 1ª; venc = data+CDn).
+ * Substitui as parcelas existentes. Bloqueado em pedido fechado/faturado. Retorna { codpedcomp, parcelas, total }.
+ */
+export function gerarParcelasPedido(id: number): Promise<{ codpedcomp: number; parcelas: number; total: number }> {
+  return req(`/compras/pedidos/${id}/gerar-parcelas`, { method: 'POST' });
+}
+
+/**
  * POST compras/pedidos/:id/gerar-nf — RECEBIMENTO: gera a NF de entrada (rascunho) a partir do pedido
  * (exige pedido FECHADO e ainda não recebido). Opções (modelo/série/CFOP) têm defaults no servidor. O
  * FATO (estoque/A Pagar) é o F3/F4 que o operador roda na tela da NF. Retorna o código da NF gerada.
