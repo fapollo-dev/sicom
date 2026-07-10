@@ -55,6 +55,16 @@ export const pedidoCompraItemSchema = z.object({
   desconto: dec(z.number().nonnegative('Desconto inválido.')),
   descontop: dec(z.number().nonnegative('Desconto (%) inválido.').max(100, 'Desconto (%) inválido.')),
   obs: opcional(z.string().trim().max(1000)),
+  // precificação do item (reuso do motor /precificacao/produto; o comprador forma o preço). Analítica
+  // armazenada no item — SEM propagação ao catálogo (MULTI_PRECO fica p/ corte próprio). Nomes fiéis ao
+  // legado: vrvenda (PRATICADO) ≠ vrvendasug (SUGERIDO pelo motor); margeml2 (%) + margeml2v (valor R$).
+  vrcustoliquido: dec(z.number().nonnegative()),
+  markup: dec(z.number()),
+  vrvenda: dec(z.number().nonnegative()),
+  vrvendasug: dec(z.number().nonnegative()),
+  margeml2: dec(z.number()),
+  margeml2v: dec(z.number()),
+  pmz: dec(z.number().nonnegative()),
 });
 export type PedidoCompraItemDto = z.infer<typeof pedidoCompraItemSchema>;
 
@@ -211,4 +221,11 @@ export interface PedidoCompraItem {
   desconto?: number | string | null;
   descontop?: number | string | null;
   obs?: string | null;
+  vrcustoliquido?: number | string | null;
+  markup?: number | string | null;
+  vrvenda?: number | string | null;
+  vrvendasug?: number | string | null;
+  margeml2?: number | string | null;
+  margeml2v?: number | string | null;
+  pmz?: number | string | null;
 }

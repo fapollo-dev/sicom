@@ -53,6 +53,16 @@ export function PedidoCompraCadMaster() {
     value: String(r.idproduto ?? r.codigo),
     label: `${r.codbarra} - ${r.descricao}`,
   }));
+  // mapa idproduto → alíquota-código (para o motor precificar o item). Reusa o MESMO fetch de produtos
+  // (react-query dedupe por queryKey) — só um `select` diferente.
+  const { data: produtoAliqPares = [] } = useResourceOptions('cadastro/produtos', (r: any) => ({
+    value: String(r.idproduto ?? r.codigo),
+    label: String(r.aliquota ?? ''),
+  }));
+  const produtoAliquotas = useMemo(
+    () => Object.fromEntries(produtoAliqPares.map((o) => [o.value, o.label])) as Record<string, string>,
+    [produtoAliqPares],
+  );
   // corte-2: condição de pagamento (lookup GLOBAL). Rótulo mostra os prazos (CD1..CD8) em dias.
   const { data: condicaoOptions = [] } = useResourceOptions('compras/condicoes-pagto', (c: any) => {
     const dias = ['cd1', 'cd2', 'cd3', 'cd4', 'cd5', 'cd6', 'cd7', 'cd8']
@@ -86,7 +96,7 @@ export function PedidoCompraCadMaster() {
         { campo: 'fechado', label: 'Fechado', tipo: 'text', largura: 100 },
       ]}
       campos={({ form, editavel }) => (
-        <PedidoForm form={form} editavel={editavel} fornecedorOptions={fornecedorOptions} produtoOptions={produtoOptions} condicaoOptions={condicaoOptions} />
+        <PedidoForm form={form} editavel={editavel} fornecedorOptions={fornecedorOptions} produtoOptions={produtoOptions} condicaoOptions={condicaoOptions} produtoAliquotas={produtoAliquotas} />
       )}
     />
   );
@@ -100,12 +110,14 @@ function PedidoForm({
   fornecedorOptions,
   produtoOptions,
   condicaoOptions,
+  produtoAliquotas,
 }: {
   form: UseFormReturn<CriarPedidoCompraDto>;
   editavel: boolean;
   fornecedorOptions: Opcao[];
   produtoOptions: Opcao[];
   condicaoOptions: Opcao[];
+  produtoAliquotas: Record<string, string>;
 }) {
   // TRAVA de estado (espelha o `travado` da NF via watch): pedido FECHADO é read-only. `fechado` não
   // está no schema de escrita (é state-controlled), mas o read do agregado o traz e o reset o mantém.
@@ -121,7 +133,7 @@ function PedidoForm({
       )}
 
       <CabecalhoBand form={form} editavel={liberado} fornecedorOptions={fornecedorOptions} condicaoOptions={condicaoOptions} />
-      <ItensSection form={form} editavel={liberado} produtoOptions={produtoOptions} />
+      <ItensSection form={form} editavel={liberado} produtoOptions={produtoOptions} produtoAliquotas={produtoAliquotas} />
       <ParcelasSection form={form} editavel={liberado} />
       <AcoesEstadoBar form={form} />
     </div>
@@ -281,10 +293,12 @@ function ItensSection({
   form,
   editavel,
   produtoOptions,
+  produtoAliquotas,
 }: {
   form: UseFormReturn<CriarPedidoCompraDto>;
   editavel: boolean;
   produtoOptions: Opcao[];
+  produtoAliquotas: Record<string, string>;
 }) {
   const { fields, append, update, remove } = useFieldArray<CriarPedidoCompraDto, 'itens', 'fieldId'>({
     control: form.control,
@@ -394,6 +408,7 @@ function ItensSection({
         <PedidoCompraItemModal
           inicial={editIdx >= 0 ? (fields[editIdx] as PedidoCompraItemDto) : undefined}
           produtoOptions={produtoOptions}
+          produtoAliquotas={produtoAliquotas}
           onFechar={() => setEditIdx(null)}
           onConfirmar={onConfirmar}
         />

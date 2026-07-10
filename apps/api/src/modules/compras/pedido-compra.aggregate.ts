@@ -54,7 +54,13 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
       pk: 'codpedcompi',
       fk: 'codpedcomp',
       chave: 'itens',
-      colunas: ['idproduto', 'fatorembalagem', 'vrcusto', 'vlrembalagem', 'desconto', 'descontop', 'obs'],
+      colunas: [
+        'idproduto', 'fatorembalagem', 'vrcusto', 'vlrembalagem', 'desconto', 'descontop', 'obs',
+        // corte precificação do item: markup→venda + margem líquida (L2) + custo líquido + PMZ (reuso do motor
+        // /precificacao/produto; o comprador forma o preço). vrvenda (praticado) ≠ vrvendasug (sugerido pelo
+        // motor). Nomes fiéis ao legado (MARGEML2/MARGEML2V). Analítica armazenada; sem propagação ao MULTI_PRECO.
+        'vrcustoliquido', 'markup', 'vrvenda', 'vrvendasug', 'margeml2', 'margeml2v', 'pmz',
+      ],
       // VLREMBALAGEM = FATOREMBALAGEM × VRCUSTO — congelado server-side (o cliente não é fonte da verdade).
       derivarItensTrx: async (itens) =>
         itens.map((it) => ({ ...it, vlrembalagem: r4(num(it.fatorembalagem) * num(it.vrcusto)) })),

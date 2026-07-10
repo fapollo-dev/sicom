@@ -3031,6 +3031,23 @@ async function main() {
       parcD.length === 1 && String(parcD[0].data).slice(0, 10) === '2026-08-04',
       { data_pedido: '2026-07-01', data_faturamento: pcDRead.data_faturamento, venc: parcD[0]?.data });
 
+    // 48Q) PRECIFICAÇÃO do ITEM do pedido — o comprador forma o preço (markup/venda/margem/custo-líq/PMZ
+    // armazenados no item; reuso do motor no front). Aqui só o round-trip da persistência (2º detalhe).
+    // vrvenda (PRATICADO=15,90) ≠ vrvendasug (SUGERIDO=16,50) — no legado são campos distintos. margeml2 (%) + margeml2v (R$).
+    const pcPrec = await crPed({ codparceiro: 22, data: '2026-07-01', itens: [
+      { idproduto: 1, fatorembalagem: 10, vrcusto: 10, markup: 30, vrvenda: 15.90, vrvendasug: 16.50, margeml2: 9.68, margeml2v: 1.22, vrcustoliquido: 10, pmz: 12.2 },
+    ] });
+    const pcPrecId = Number(((await pcPrec.json().catch(() => ({}))) as any).codpedcomp);
+    const pcPrecRead = (await (await fetch(`${base}/${PED}/${pcPrecId}`, { headers: H })).json()) as any;
+    const itPrec = (pcPrecRead.itens ?? [])[0] ?? {};
+    check('precificação item: persiste markup/vrvenda≠vrvendasug/margeml2(+v)/vrcustoliquido/pmz (round-trip; vlrembalagem intacto)',
+      pcPrec.status === 201 && Number(itPrec.markup) === 30
+      && Number(itPrec.vrvenda) === 15.9 && Number(itPrec.vrvendasug) === 16.5 // praticado ≠ sugerido
+      && Number(itPrec.margeml2) === 9.68 && Number(itPrec.margeml2v) === 1.22
+      && Number(itPrec.vrcustoliquido) === 10 && Number(itPrec.pmz) === 12.2
+      && Number(itPrec.vlrembalagem) === 100, // vlrembalagem segue derivado (fator×custo), independente da venda
+      { status: pcPrec.status, itPrec });
+
     // 50) RECEBIMENTO corte-2 — IMPORT do XML da NFe do fornecedor → NF de entrada VALORADA.
     const pgImp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const IMP = 'compras/recebimento/importar-xml';
