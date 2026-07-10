@@ -63,6 +63,17 @@ export const precificarProdutoSchema = z.object({
   pis: z.number().default(0),
   cofins: z.number().default(0),
   despOperacional: z.number().default(0),
+  // motor completo: FCP + IR/CSLL (PMZ / margem líquida) + componentes do custo líquido (default 0).
+  fcp: z.number().default(0),
+  irpj: z.number().optional(),
+  csll: z.number().optional(),
+  st: z.number().optional(),
+  ipi: z.number().optional(),
+  frete: z.number().optional(),
+  seguro: z.number().optional(),
+  despac: z.number().optional(),
+  creditoPis: z.number().optional(),
+  creditoIcms: z.number().optional(),
   modoMargem: z
     .enum(['final', 'liquido'], { message: "Modo de margem inválido (informe 'final' ou 'liquido')" })
     .optional(),

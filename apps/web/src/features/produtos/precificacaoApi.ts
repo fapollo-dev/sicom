@@ -23,6 +23,10 @@ export interface PrecificarProdutoBody {
   uf: string;
   pis: number;
   cofins: number;
+  despOperacional?: number;
+  fcp?: number;
+  irpj?: number;
+  csll?: number;
   regime: 'atual' | 'reforma' | 'transicao';
   dataRef?: string;
 }
@@ -35,6 +39,12 @@ export interface PrecificarProdutoResposta {
   icmEfetivo: number;
   baseReduzida: boolean;
   fonte: string; // a LEI do legado e/ou a fonte da Reforma
+  // motor completo: custo líquido + PMZ + cadeia de lucro/margem líquida.
+  custoLiquido: number;
+  pmz: number;
+  lucroBruto: number;
+  lucroLiquido: number;
+  margemLiquida: number; // %
 }
 
 /** Mesma semântica do `req` do resourceApi (envelope ErroResposta — ADR-015). */

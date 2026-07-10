@@ -650,6 +650,11 @@ function PrecosSection({
   // TODO: a UF virá da EMPRESA (idempresa) quando o cadastro for migrado. Default 'SP'.
   const [uf, setUf] = useState('SP');
   const [calculando, setCalculando] = useState(false);
+  // motor completo (corte precificação): resultado da análise (custo líquido / PMZ / margem líquida / lucro).
+  const [analise, setAnalise] = useState<{ custoLiquido: number; pmz: number; margemLiquida: number; lucroBruto: number; lucroLiquido: number } | null>(null);
+  // limpa a análise ao trocar de produto (senão o painel fica "grudado" com o cálculo do registro anterior).
+  const idprodAtual = form.watch('idproduto' as never);
+  useEffect(() => { setAnalise(null); }, [idprodAtual]);
 
   // ── Normalização edit-load: garante que `precos.0` é SEMPRE a linha da empresa F2 ──
   // O `form.reset` do pilar substitui `precos` pelo array carregado (idempresa=1 pode não
@@ -690,7 +695,9 @@ function PrecosSection({
         regime: 'atual',
       });
       form.setValue('precos.0.vrvenda', r.valorVenda, { shouldDirty: true });
-      mensagem.sucesso(`Preço de venda calculado: R$ ${r.valorVenda.toFixed(2)} (CST ${r.cst}).`);
+      form.setValue('precos.0.margeml', r.margemLiquida, { shouldDirty: true }); // margem líquida calculada
+      setAnalise({ custoLiquido: r.custoLiquido, pmz: r.pmz, margemLiquida: r.margemLiquida, lucroBruto: r.lucroBruto, lucroLiquido: r.lucroLiquido });
+      mensagem.sucesso(`Preço de venda calculado: R$ ${r.valorVenda.toFixed(2)} (CST ${r.cst}) · PMZ R$ ${r.pmz.toFixed(2)} · margem líq. ${r.margemLiquida.toFixed(2)}%.`);
     } catch (e) {
       mensagem.erro(e);
     } finally {
@@ -816,6 +823,16 @@ function PrecosSection({
           </div>
           <Button label="&Calcular venda" variant="soft" onClick={() => void calcularVenda()} />
         </div>
+
+        {/* Motor completo (corte precificação): custo líquido / PMZ / margem líquida / lucro. */}
+        {analise && (
+          <div className="grid grid-cols-2 gap-gp-sm rounded-radius-base border border-border bg-bg-subtle p-pad-sm text-body-sm sm:grid-cols-4">
+            <div><span className="text-fg-muted">Custo líquido</span><br /><span className="font-semibold tabular-nums">R$ {analise.custoLiquido.toFixed(2)}</span></div>
+            <div><span className="text-fg-muted">PMZ (ponto de zero)</span><br /><span className="font-semibold tabular-nums">R$ {analise.pmz.toFixed(2)}</span></div>
+            <div><span className="text-fg-muted">Margem líquida</span><br /><span className="font-semibold tabular-nums">{analise.margemLiquida.toFixed(2)}%</span></div>
+            <div><span className="text-fg-muted">Lucro líquido</span><br /><span className="font-semibold tabular-nums">R$ {analise.lucroLiquido.toFixed(2)}</span></div>
+          </div>
+        )}
 
         {/* Flags de controle (char 'S'/'N') — espelham Ativo p/Compra, Ativo p/Venda, Promoção. */}
         <div className="flex flex-wrap items-center gap-gp-lg">

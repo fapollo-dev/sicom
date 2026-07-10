@@ -3226,6 +3226,30 @@ async function main() {
       { status: impCf.status, cfop: nfCf?.cfop, titulos: impCfJ.titulosApagar, aps: apsCf });
 
     await pgImp.end();
+
+    // 56) PRECIFICAÇÃO — motor completo (custo líquido + PMZ + margem líquida) via POST /precificacao/produto.
+    // Produto seed usa aliquota T01 (ICMS efetivo conhecido no det_aliquota). custo 10, markup 30, despop 20.
+    const precar = async (body: any) => {
+      const r = await fetch(`${base}/precificacao/produto`, { method: 'POST', headers: H, body: JSON.stringify(body) });
+      return { status: r.status, json: (await r.json().catch(() => ({}))) as any };
+    };
+    const precBaseBody = { custo: 10, margem: 30, aliquota: 'T01', uf: 'MA', pis: 1.65, cofins: 7.6, despOperacional: 20, irpj: 15, csll: 9, regime: 'atual' };
+    const prec = await precar(precBaseBody);
+    // custo líquido sem componentes = custo (10); PMZ e margem líquida derivam do icmEfetivo do det + saídas.
+    check('precificação: /produto retorna motor completo (valorVenda + custoLiquido=10 + PMZ>custoLiq + margemLiquida + lucro)',
+      (prec.status === 200 || prec.status === 201) && Number(prec.json.custoLiquido) === 10 && Number(prec.json.valorVenda) > 0
+      && Number(prec.json.pmz) > Number(prec.json.custoLiquido) && typeof prec.json.margemLiquida === 'number' && typeof prec.json.lucroLiquido === 'number',
+      { status: prec.status, json: prec.json });
+    // custo LÍQUIDO é a BASE do preço (fold ALTA): ST=5 compõe o custo (10→15) → custoLiquido 15 E valorVenda MAIOR.
+    const precSt = await precar({ ...precBaseBody, st: 5 });
+    check('precificação: custo líquido é a BASE do preço (ST 5 → custoLiquido 15 + valorVenda > sem ST)',
+      Number(precSt.json.custoLiquido) === 15 && Number(precSt.json.valorVenda) > Number(prec.json.valorVenda),
+      { custoLiq: precSt.json.custoLiquido, vendaComSt: precSt.json.valorVenda, vendaSemSt: prec.json.valorVenda });
+    // PMZ TOLERANTE (fold): saídas ≥ 100% → NÃO derruba a resposta (pmz=0, valorVenda ainda vem). Fiel ao legado.
+    const precBad = await precar({ custo: 10, margem: 30, aliquota: 'T01', uf: 'MA', pis: 50, cofins: 50, despOperacional: 20, regime: 'atual' });
+    check('precificação: PMZ saídas ≥ 100% → pmz=0 tolerante (valorVenda preservado, nunca 500/422)',
+      (precBad.status === 200 || precBad.status === 201) && Number(precBad.json.pmz) === 0 && Number(precBad.json.valorVenda) !== 0,
+      { status: precBad.status, pmz: precBad.json.pmz, venda: precBad.json.valorVenda });
   } finally {
     await app.close();
     await pg.stop();

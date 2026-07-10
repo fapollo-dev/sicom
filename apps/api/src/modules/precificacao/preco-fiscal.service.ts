@@ -167,4 +167,62 @@ export class FiscalPricingService {
     const novo = (reforma.ibs + reforma.cbs + (reforma.impostoSeletivo ?? 0)) / 100;
     return this.round2(precoAtual * (1 + novo));
   }
+
+  /**
+   * CUSTO LÍQUIDO (uPrecificacaoProdutos.pas:1307-1314, CalcValorCusto):
+   *   VRCUSTOLIQUIDO = (VRCUSTO + ST + IPI + FRETE + SEGURO + DESPAC) − crédito PIS − crédito ICMS.
+   * Componentes que COMPÕEM o custo (ST/IPI só quando as flags STCompoeCusto/IPICompoeCusto; frete/seguro/
+   * despac só com CUSTO_CHEIO_PC='S') e créditos de imposto na ENTRADA (LR) DEDUZEM. Todos default 0 → custo
+   * líquido = custo (o caller decide o que compõe; a derivação automática dos créditos da NF é adiada).
+   */
+  custoLiquido(
+    custo: number,
+    c: { st?: number; ipi?: number; frete?: number; seguro?: number; despac?: number; creditoPis?: number; creditoIcms?: number } = {},
+  ): number {
+    const bruto = custo + (c.st ?? 0) + (c.ipi ?? 0) + (c.frete ?? 0) + (c.seguro ?? 0) + (c.despac ?? 0);
+    return this.round2(bruto - (c.creditoPis ?? 0) - (c.creditoIcms ?? 0));
+  }
+
+  /**
+   * PMZ — Preço Mínimo (Ponto de Zero) (uPrecificacaoProdutos.pas:1328-1333):
+   *   SaidasCustoFx = PIS_sai + COFINS_sai + ICMS + FCP_sai + DESPOPERACIONAL (todas em %);
+   *   PMZ = custoFinal / (1 − SaidasCustoFx/100).
+   * É o preço em que o lucro é zero (cobre custo + impostos de saída + despesa operacional). saídas ≥ 100%
+   * ⇒ não-precificável (o preço não cobre as saídas) → erro tratado.
+   */
+  pmz(custoFinal: number, s: { pis: number; cofins: number; icms: number; fcp?: number; despOperacional: number }): number {
+    if (custoFinal <= 0) return 0;
+    const saidas = (s.pis + s.cofins + s.icms + (s.fcp ?? 0) + s.despOperacional) / 100;
+    if (saidas >= 1) throw new BusinessRuleError('PMZ_SAIDAS_INVALIDAS', { saidasPct: saidas * 100 });
+    return this.round2(custoFinal / (1 - saidas));
+  }
+
+  /**
+   * MARGEM LÍQUIDA e a cadeia de lucro (uPrecificacaoProdutos.pas:1136-1152), modo LÍQUIDO:
+   *   VENDA_LÍQUIDA = venda − venda·(PIS_sai + COFINS_sai + ICMS + FCP)/100  (impostos sobre a venda, :1136);
+   *   LUCRO_BRUTO   = VENDA_LÍQUIDA − custoFinal (:1136);
+   *   DESPESA       = venda·DESPOPERACIONAL/100 (:1138);
+   *   LUCRO_APÓS_DESPESA (dbtLucroL, :1139) = LUCRO_BRUTO − DESPESA;
+   *   IR/CSLL       = LUCRO_APÓS_DESPESA·(alíquota/100)  (:1143-1144 — sobre o lucro APÓS despesa, não o bruto);
+   *   LUCRO_LÍQUIDO = LUCRO_APÓS_DESPESA − IR − CSLL (:1151);
+   *   MARGEM_LÍQUIDA(%) = LUCRO_LÍQUIDO / venda × 100 (:1152).
+   * FRONTEIRA: cobre só o modo LÍQUIDO. O modo 'final' (MARGEM_PRECO_FINAL_OU_LIQUIDO='F', uMargemPreco.pas:151)
+   * embute IR/CSLL no gross-up do PREÇO — a ANÁLISE de margem no modo final é adiada (o preço já usa modoMargem).
+   */
+  margemLiquida(
+    venda: number,
+    custoFinal: number,
+    p: { pis: number; cofins: number; icms: number; fcp?: number; despOperacional: number; irpj?: number; csll?: number },
+  ): { vendaLiquida: number; lucroBruto: number; despesa: number; irpj: number; csll: number; lucroLiquido: number; margemLiquida: number } {
+    if (venda <= 0) return { vendaLiquida: 0, lucroBruto: 0, despesa: 0, irpj: 0, csll: 0, lucroLiquido: 0, margemLiquida: 0 };
+    const impVenda = (p.pis + p.cofins + p.icms + (p.fcp ?? 0)) / 100;
+    const vendaLiquida = this.round2(venda * (1 - impVenda));
+    const lucroBruto = this.round2(vendaLiquida - custoFinal);
+    const despesa = this.round2(venda * (p.despOperacional / 100));
+    const lucroAposDespesa = this.round2(lucroBruto - despesa); // dbtLucroL (uPrecificacaoProdutos.pas:1139)
+    const irpj = this.round2(lucroAposDespesa > 0 ? lucroAposDespesa * ((p.irpj ?? 0) / 100) : 0);
+    const csll = this.round2(lucroAposDespesa > 0 ? lucroAposDespesa * ((p.csll ?? 0) / 100) : 0);
+    const lucroLiquido = this.round2(lucroAposDespesa - irpj - csll);
+    return { vendaLiquida, lucroBruto, despesa, irpj, csll, lucroLiquido, margemLiquida: this.round2((lucroLiquido / venda) * 100) };
+  }
 }

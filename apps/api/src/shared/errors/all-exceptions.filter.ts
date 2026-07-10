@@ -178,6 +178,7 @@ const CODE_PT: Record<string, string> = {
   PRODUTO_NAO_ENCONTRADO: 'Produto não encontrado.',
   CIDADE_OBRIGATORIA: 'A cidade é obrigatória.',
   MARGEM_INVALIDA: 'A margem informada é inválida.',
+  PMZ_SAIDAS_INVALIDAS: 'Impossível calcular o PMZ: os impostos de saída + despesa operacional somam 100% ou mais (o preço não cobriria as saídas).',
   ALIQUOTA_NAO_CADASTRADA: 'Alíquota não cadastrada para a UF informada.',
   INDEXADOR_NAO_CADASTRADO: 'Indexador tributário não cadastrado para o NCM informado.',
   REFORMA_NAO_CADASTRADA: 'Tributação da Reforma não cadastrada para a UF/data informada.',

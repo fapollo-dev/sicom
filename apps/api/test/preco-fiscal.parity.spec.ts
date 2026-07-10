@@ -66,3 +66,41 @@ describe('FiscalPricingService — regime atual × reforma tributária (EC 132/2
     expect(() => s.precoAtual(10, 72.75, ATUAIS)).toThrow('MARGEM_INVALIDA');
   });
 });
+
+// Motor completo (corte precificação): custo líquido + PMZ + margem líquida (uPrecificacaoProdutos.pas).
+describe('FiscalPricingService — custo líquido / PMZ / margem líquida', () => {
+  it('custoLiquido: (custo + ST + IPI) − créditos (10+2+1 − 1,8 − 0,5 = 10,70)', () => {
+    expect(s.custoLiquido(10)).toBe(10);
+    expect(s.custoLiquido(10, { st: 2, ipi: 1, creditoIcms: 1.8, creditoPis: 0.5 })).toBeCloseTo(10.7, 2);
+  });
+
+  it('PMZ = custoFinal / (1 − saídas%/100): 10 / (1 − (1,65+7,6+18+20)/100) → ~18,96', () => {
+    // saídas = 47,25% → PMZ = 10 / 0,5275 = 18,96
+    expect(s.pmz(10, { pis: 1.65, cofins: 7.6, icms: 18, despOperacional: 20 })).toBeCloseTo(18.96, 2);
+    // só ICMS 18% → 10 / 0,82 = 12,20
+    expect(s.pmz(10, { pis: 0, cofins: 0, icms: 18, despOperacional: 0 })).toBeCloseTo(12.2, 2);
+    expect(s.pmz(0, { pis: 0, cofins: 0, icms: 18, despOperacional: 0 })).toBe(0);
+  });
+
+  it('PMZ: saídas ≥ 100% (não-precificável) → erro tipado', () => {
+    expect(() => s.pmz(10, { pis: 50, cofins: 50, icms: 10, despOperacional: 0 })).toThrow('PMZ_SAIDAS_INVALIDAS');
+  });
+
+  it('margemLiquida: IR/CSLL sobre o lucro APÓS despesa (dbtLucroL) — venda 25, custo líq 10', () => {
+    const m = s.margemLiquida(25, 10, { pis: 1.65, cofins: 7.6, icms: 18, despOperacional: 20, irpj: 15, csll: 9 });
+    // vendaLiq 18,19; lucroBruto 8,19; despesa 5; lucroApósDespesa 3,19; IR=3,19×15%=0,48; CSLL=3,19×9%=0,29;
+    // lucroLíq = 3,19−0,48−0,29 = 2,42; margem = 2,42/25 = 9,68%.
+    expect(m.vendaLiquida).toBeCloseTo(18.19, 2);
+    expect(m.lucroBruto).toBeCloseTo(8.19, 2);
+    expect(m.despesa).toBeCloseTo(5, 2);
+    expect(m.irpj).toBeCloseTo(0.48, 2);
+    expect(m.csll).toBeCloseTo(0.29, 2);
+    expect(m.lucroLiquido).toBeCloseTo(2.42, 2);
+    expect(m.margemLiquida).toBeCloseTo(9.68, 2);
+  });
+
+  it('margemLiquida: venda 0 → tudo zero (guarda)', () => {
+    const m = s.margemLiquida(0, 10, { pis: 1.65, cofins: 7.6, icms: 18, despOperacional: 20 });
+    expect(m).toEqual({ vendaLiquida: 0, lucroBruto: 0, despesa: 0, irpj: 0, csll: 0, lucroLiquido: 0, margemLiquida: 0 });
+  });
+});
