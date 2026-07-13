@@ -42,6 +42,12 @@ export interface CrudConfig {
   /** colunas da view filtráveis/ordenáveis na Pesquisa (whitelist — anti-injection). */
   colunasPesquisa?: string[];
   /**
+   * Colunas da TABELA BASE que NÃO devem sair no read por-id / echo de POST/PUT (o `read()` faz `selectAll`
+   * na base, que pode conter segredos que a allowlist `colunas` de escrita não filtra). Ex.: ['senha_hash']
+   * em `operadores` — material de credencial nunca trafega ao cliente. A view de listagem já não as expõe.
+   */
+  colunasOcultasLeitura?: string[];
+  /**
    * Campos DERIVADOS server-side (espelha derivações do BeforePost/OnValidate do legado,
    * ex.: NCM grava NCMSH = ConcatenaLeft(CODIGO,8,'0')). Recebe o dto (e a PK no update)
    * e retorna os valores a sobrepor ANTES do delta — o usuário nunca os digita.

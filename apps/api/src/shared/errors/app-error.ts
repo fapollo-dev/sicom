@@ -43,3 +43,14 @@ export class ForbiddenActionError extends AppError {
     super(code, details);
   }
 }
+
+/** Falha de AUTENTICAÇÃO (401) — credenciais inválidas, sessão ausente/expirada (OPERADORES corte-3). */
+export class UnauthenticatedError extends AppError {
+  readonly httpStatus = 401;
+  constructor(
+    readonly code: string,
+    details?: Record<string, unknown>,
+  ) {
+    super(code, details);
+  }
+}

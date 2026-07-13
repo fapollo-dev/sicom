@@ -480,6 +480,20 @@ export interface OperadoresTable {
   usultalteracao: number | null;
   dtultimalteracao: Timestamptz | null;
   dtcadastro: Timestamptz | null;
+  // 070 (auth): hash scrypt da senha (substitui a cifra reversível do legado).
+  senha_hash: string | null;
+}
+/** OPERADORES_ACESSOS (070) — auditoria de login (LOGON/LOGOFF), fiel ao legado (sem falhas). */
+export interface OperadoresAcessosTable {
+  id: Generated<number>;
+  codoperador: number;
+  codempresa: number | null;
+  dtacesso: Generated<Timestamptz>;
+  ip: string | null;
+  nomecomputador: string | null;
+  executavel: Generated<string | null>; // DEFAULT 'WEB' — o service pode omitir
+  versao: string | null;
+  tipo: string; // 'LOGON' | 'LOGOFF' | 'LOGON_FAIL'
 }
 /** GRUPO_OPERADOR (051) — perfil/categoria do operador (6 grupos do legado). */
 export interface GrupoOperadorTable {
@@ -633,6 +647,7 @@ export interface TenantDB {
   caixa_mov: CaixaMovTable;
   get_caixa_sessao: GetCaixaSessaoView;
   operadores: OperadoresTable;
+  operadores_acessos: OperadoresAcessosTable;
   grupo_operador: GrupoOperadorTable;
   relacao_operador_empresa: RelacaoOperadorEmpresaTable;
   mov_contas_bancarias: MovContasBancariasTable;

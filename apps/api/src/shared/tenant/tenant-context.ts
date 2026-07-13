@@ -9,6 +9,8 @@ export interface TenantCtx {
   tenantId: string;
   operadorId?: number;
   empresaId?: number;
+  /** true quando o operador precisa TROCAR a senha (claim `chg` do JWT) — bloqueia rotas ≠ /auth (fold M2). */
+  mustChange?: boolean;
 }
 
 export const tenantStore = new AsyncLocalStorage<TenantCtx>();

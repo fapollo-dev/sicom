@@ -316,9 +316,15 @@ const CODE_PT: Record<string, string> = {
   NFE_ITENS_EXCESSO: 'O XML tem itens demais (acima do limite de 990 por NFe).',
   NF_SEM_DUPLICATAS: 'A NF não tem duplicatas para gerar contas a pagar.',
   DEPARA_SEM_CODIGO: 'Informe o EAN ou o código do fornecedor para vincular o produto.',
-  // autorização
+  // autorização / autenticação (OPERADORES corte-3a — auth)
   TENANT_FORBIDDEN: 'Acesso negado: empresa/tenant não autorizado.',
   SEM_PERMISSAO: 'Você não tem permissão para executar esta ação.',
+  NAO_AUTENTICADO: 'Autenticação necessária. Faça login novamente.',
+  CREDENCIAIS_INVALIDAS: 'Usuário ou senha inválidos.',
+  OPERADOR_DESABILITADO: 'Usuário desabilitado — contate o administrador.',
+  OPERADOR_SEM_EMPRESA: 'Usuário sem acesso à empresa selecionada — contate o administrador.',
+  SENHA_ATUAL_INVALIDA: 'A senha atual está incorreta.',
+  SENHA_TROCA_OBRIGATORIA: 'É obrigatório trocar a senha antes de continuar.',
   // validação genérica
   VALIDATION: 'Há campos inválidos.',
   VALIDACAO: 'Há campos inválidos.',

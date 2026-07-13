@@ -29,7 +29,7 @@ export class CrudEngineService {
     return cfg.derivar ? { ...dto, ...cfg.derivar(dto, id) } : dto;
   }
 
-  read(cfg: CrudConfig, id: number) {
+  async read(cfg: CrudConfig, id: number) {
     let q = (this.dbp.forTenantRead() as AnyDB)
       .selectFrom(cfg.tabela)
       .selectAll()
@@ -38,7 +38,13 @@ export class CrudEngineService {
     if (cfg.softDelete) q = q.where(sql`coalesce(indr, 'I')`, '<>', 'E');
     // escopo multi-tenant: só lê registros da empresa do contexto (fail-closed).
     if (cfg.empresaScoped) q = q.where('idempresa', '=', this.emp());
-    return q.executeTakeFirst();
+    const row = (await q.executeTakeFirst()) as Record<string, unknown> | undefined;
+    // segredos que o `selectAll` da base traz mas não podem sair (ex.: senha_hash) — a allowlist de ESCRITA
+    // (`colunas`) não filtra a LEITURA; removidos aqui (cobre o GET/:id e o echo de POST/PUT do agregado).
+    if (row && cfg.colunasOcultasLeitura?.length) {
+      for (const c of cfg.colunasOcultasLeitura) delete row[c];
+    }
+    return row;
   }
 
   /** Listagem da Pesquisa: filtro campo+operador+valor + ordenação, sobre a view GET_*. */

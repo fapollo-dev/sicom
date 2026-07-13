@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './shared/errors/all-exceptions.filter';
+import { assertAuthConfigProducao } from './shared/auth/jwt';
 
 /**
  * Bootstrap: um binário, dois papéis (APP_ROLE=web|worker).
@@ -14,6 +15,7 @@ async function bootstrap() {
     console.log('[api] worker role ainda não implementado nesta fatia');
     return;
   }
+  assertAuthConfigProducao(); // fold A1: aborta em produção sem AUTH_JWT_SECRET forte (fail-closed)
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { cors: true });
   // Import de XML da NFe: uma NFe real (dezenas de itens) passa fácil do default 100 KB do body-parser.
   // Sobe o teto do JSON p/ 5 MB (reconfigura o parser embutido do Nest/Express).

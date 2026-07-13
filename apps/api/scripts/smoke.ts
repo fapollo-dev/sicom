@@ -3413,6 +3413,105 @@ async function main() {
     check('precificação: PMZ saídas ≥ 100% → pmz=0 tolerante (valorVenda preservado, nunca 500/422)',
       (precBad.status === 200 || precBad.status === 201) && Number(precBad.json.pmz) === 0 && Number(precBad.json.valorVenda) !== 0,
       { status: precBad.status, pmz: precBad.json.pmz, venda: precBad.json.valorVenda });
+
+    // ===== §71) OPERADORES corte-3a — AUTH (login/hash-scrypt/JWT/troca-de-senha/auditoria) =====
+    const pgAuth = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    const HT = { 'content-type': 'application/json', 'x-tenant-id': 'pinheirao' }; // sem operador (o login é público)
+    const authPost = async (path: string, body: unknown, extraH: Record<string, string> = {}) => {
+      const r = await fetch(`${base}/auth/${path}`, { method: 'POST', headers: { ...HT, ...extraH }, body: JSON.stringify(body) });
+      return { status: r.status, json: (await r.json().catch(() => ({}))) as any };
+    };
+
+    // 71.1) login com senha errada → 401 CREDENCIAIS_INVALIDAS (não vaza se o usuário existe).
+    const aWrong = await authPost('login', { login: 'SMOKE', senha: 'errada', empresa: 1 });
+    check('AUTH: login senha errada → 401 CREDENCIAIS_INVALIDAS',
+      aWrong.status === 401 && aWrong.json.code === 'CREDENCIAIS_INVALIDAS', aWrong);
+
+    // 71.2) backdoor eliminado: ADMIN/APOLLOSG (dev do legado) NÃO loga (sem hash seedado → 401).
+    const aBackdoor = await authPost('login', { login: 'ADMIN', senha: 'APOLLOSG', empresa: 1 });
+    check('AUTH: backdoor do legado eliminado — ADMIN/APOLLOSG → 401 (não há senha-mestra)',
+      aBackdoor.status === 401 && aBackdoor.json.code === 'CREDENCIAIS_INVALIDAS', aBackdoor);
+
+    // 71.3) login OK (SMOKE/smoke123 + empresa 1) → 200 + token + mustChangePassword=false + auditoria LOGON.
+    const aOk = await authPost('login', { login: 'SMOKE', senha: 'smoke123', empresa: 1 });
+    const token = aOk.json.token as string;
+    const logonRow = (await pgAuth.query(`SELECT tipo, codempresa FROM operadores_acessos WHERE codoperador=7 AND tipo='LOGON' ORDER BY id DESC LIMIT 1`)).rows[0] as any;
+    check('AUTH: login OK → 200 + token JWT + mustChange=false + operador + auditoria LOGON gravada',
+      aOk.status === 200 && typeof token === 'string' && token.split('.').length === 3
+      && aOk.json.mustChangePassword === false && Number(aOk.json.operador?.codoperador) === 7
+      && logonRow?.tipo === 'LOGON' && Number(logonRow?.codempresa) === 1,
+      { status: aOk.status, hasToken: !!token, must: aOk.json.mustChangePassword, logon: logonRow });
+
+    // 71.4) o token (Bearer) É a identidade: GET /auth/me devolve o operador do JWT.
+    const meR = await fetch(`${base}/auth/me`, { headers: { authorization: `Bearer ${token}` } });
+    const meJ = (await meR.json().catch(() => ({}))) as any;
+    check('AUTH: Bearer → /auth/me devolve o operador do JWT (identidade vem do token, não de header)',
+      meR.status === 200 && Number(meJ.operador?.codoperador) === 7 && Number(meJ.empresa) === 1, { status: meR.status, me: meJ });
+
+    // 71.5) o Bearer autoriza rota protegida (op 7 tem grants) — POST cria condição de pagamento via token.
+    const bearerWrite = await fetch(`${base}/compras/condicoes-pagto`, {
+      method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ descricao: 'AUTH VIA TOKEN', cd1: 30 }),
+    });
+    check('AUTH: Bearer autoriza rota protegida (RBAC lê o operador do token) → cria condição', bearerWrite.status === 201, { status: bearerWrite.status });
+
+    // 71.6) SELEÇÃO de empresa: op 90 (AUTHTEST) tem 2 empresas → login sem empresa responde needsEmpresa + lista.
+    const aNeeds = await authPost('login', { login: 'AUTHTEST', senha: 'smoke123' });
+    check('AUTH: operador multi-empresa sem empresa → needsEmpresa + lista (sem token)',
+      aNeeds.status === 200 && aNeeds.json.needsEmpresa === true && !aNeeds.json.token && (aNeeds.json.empresas ?? []).length === 2,
+      { status: aNeeds.status, needs: aNeeds.json.needsEmpresa, empresas: (aNeeds.json.empresas ?? []).length });
+    // escolhendo uma empresa fora das permitidas → 403 OPERADOR_SEM_EMPRESA.
+    const aWrongEmp = await authPost('login', { login: 'AUTHTEST', senha: 'smoke123', empresa: 999 });
+    check('AUTH: empresa fora das permitidas → 403 OPERADOR_SEM_EMPRESA', aWrongEmp.status === 403 && aWrongEmp.json.code === 'OPERADOR_SEM_EMPRESA', aWrongEmp);
+
+    // 71.7) operador DESABILITADO → 403 (fixture temporária via SQL no op 90).
+    await pgAuth.query(`UPDATE operadores SET desabilitado='S' WHERE codoperador=90`);
+    const aDisabled = await authPost('login', { login: 'AUTHTEST', senha: 'smoke123', empresa: 1 });
+    await pgAuth.query(`UPDATE operadores SET desabilitado='N' WHERE codoperador=90`);
+    check('AUTH: operador desabilitado → 403 OPERADOR_DESABILITADO', aDisabled.status === 403 && aDisabled.json.code === 'OPERADOR_DESABILITADO', aDisabled);
+
+    // 71.8) TROCA DE SENHA (fluxo do 1º acesso): força a flag no op 90, loga (mustChange=true, token `chg`),
+    // o token `chg` BARRA rota protegida (fold M2), troca via Bearer, e re-loga (mustChange=false, flag zerada).
+    await pgAuth.query(`UPDATE operadores SET solicitar_alteracao_senha='S' WHERE codoperador=90`);
+    const aMust = await authPost('login', { login: 'AUTHTEST', senha: 'smoke123', empresa: 1 });
+    const tok90 = aMust.json.token as string;
+    // fold M2: o token de troca-obrigatória NÃO opera nada além de /auth/* → GET protegido = 403.
+    const chgBlockedR = await fetch(`${base}/cadastro/operadores`, { headers: { authorization: `Bearer ${tok90}` } });
+    const chgBlockedJ = (await chgBlockedR.json().catch(() => ({}))) as any;
+    const trChangeWrong = await authPost('trocar-senha', { senhaAtual: 'ERRADA', senhaNova: 'novaSenha1', confirmacao: 'novaSenha1' }, { authorization: `Bearer ${tok90}` });
+    const trChange = await authPost('trocar-senha', { senhaAtual: 'smoke123', senhaNova: 'novaSenha1', confirmacao: 'novaSenha1' }, { authorization: `Bearer ${tok90}` });
+    const aReLogin = await authPost('login', { login: 'AUTHTEST', senha: 'novaSenha1', empresa: 1 });
+    const flag90 = (await pgAuth.query(`SELECT solicitar_alteracao_senha FROM operadores WHERE codoperador=90`)).rows[0] as any;
+    check('AUTH: troca 1º acesso — mustChange=true; token chg BARRA rota protegida (M2, 403); atual errada→422; troca OK→re-login + flag zerada',
+      aMust.status === 200 && aMust.json.mustChangePassword === true && typeof tok90 === 'string'
+      && chgBlockedR.status === 403 && chgBlockedJ.code === 'SENHA_TROCA_OBRIGATORIA'
+      && trChangeWrong.status === 422 && trChangeWrong.json.code === 'SENHA_ATUAL_INVALIDA'
+      && trChange.status === 200 && aReLogin.status === 200 && aReLogin.json.mustChangePassword === false
+      && flag90?.solicitar_alteracao_senha === 'N',
+      { must: aMust.json.mustChangePassword, chgBlock: [chgBlockedR.status, chgBlockedJ.code], wrong: [trChangeWrong.status, trChangeWrong.json.code], change: trChange.status, relogin: aReLogin.status, flag: flag90 });
+
+    // 71.9) senha nova fraca (< 6) → 400 VALIDACAO (schema).
+    const aWeak = await authPost('trocar-senha', { senhaAtual: 'novaSenha1', senhaNova: '123', confirmacao: '123' }, { authorization: `Bearer ${tok90}` });
+    check('AUTH: nova senha < 6 caracteres → 400 VALIDACAO (endurecimento do corte)', aWeak.status === 400, { status: aWeak.status, code: aWeak.json.code });
+
+    // 71.10) sem tenant → 403 TENANT_FORBIDDEN (fail-closed, mesmo no login público).
+    const aNoTenant = await fetch(`${base}/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ login: 'SMOKE', senha: 'smoke123' }) });
+    check('AUTH: login sem x-tenant-id → 403 TENANT_FORBIDDEN (fail-closed)', aNoTenant.status === 403, { status: aNoTenant.status });
+
+    // 71.11) fold ALTA (regressão): senha_hash NUNCA sai no read/echo do operador (a 070 adicionou a coluna).
+    const opReadR = await fetch(`${base}/cadastro/operadores/7`, { headers: H });
+    const opReadJ = (await opReadR.json().catch(() => ({}))) as any;
+    check('AUTH: senha_hash NÃO vaza no GET /cadastro/operadores/:id (colunasOcultasLeitura)',
+      opReadR.status === 200 && Number(opReadJ.codoperador) === 7 && !('senha_hash' in opReadJ),
+      { status: opReadR.status, temHash: 'senha_hash' in opReadJ, keys: Object.keys(opReadJ).length });
+
+    // 71.12) fold M1: sem identidade (header-identity segue ON no smoke, mas SEM x-operador-id) → rota
+    // protegida exige operador → 401 NAO_AUTENTICADO (antes a leitura passava só com tenant).
+    const semOpR = await fetch(`${base}/cadastro/operadores`, { headers: { 'content-type': 'application/json', 'x-tenant-id': 'pinheirao' } });
+    check('AUTH: rota protegida sem operador (só tenant) → 401 NAO_AUTENTICADO (fold M1 fecha leitura anônima)',
+      semOpR.status === 401, { status: semOpR.status });
+
+    await pgAuth.end();
   } finally {
     await app.close();
     await pg.stop();

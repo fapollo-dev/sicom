@@ -39,6 +39,8 @@ export const operadoresAggregateConfig: AggregateConfig = {
   ],
   rbacForm: 'FRMCADOPERADOR',
   softDelete: true, // excluir master → INDR='E' (a ponte é apagada na cascata)
+  // senha_hash (070) NUNCA sai no read/echo — a allowlist `colunas` só filtra a escrita; o read faz selectAll.
+  colunasOcultasLeitura: ['senha_hash'],
   empresaScoped: false, // operador é global no schema
   replica: false,
   colunasPesquisa: ['codoperador', 'nome', 'login', 'tipoop'],
