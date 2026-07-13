@@ -120,6 +120,6 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
       },
     },
   ],
-  exports: [BancosService, NfFaturamentoService], // NfFaturamento reusado pelo ComprasModule (recebimento corte-4: A Pagar do XML)
+  exports: [BancosService, NfFaturamentoService, ConfigService], // reusados pelo ComprasModule (recebimento corte-4 / pedido corte-final)
 })
 export class CadastroModule {}

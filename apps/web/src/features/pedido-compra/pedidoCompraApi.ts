@@ -88,6 +88,34 @@ export function gerarParcelasPedido(id: number): Promise<{ codpedcomp: number; p
   return req(`/compras/pedidos/${id}/gerar-parcelas`, { method: 'POST' });
 }
 
+/** POST :id/atualizar-precos — corte-final: PROPAGA o preço de venda dos itens ao catálogo (MULTI_PRECO). */
+export function atualizarPrecosPedido(id: number): Promise<{ codpedcomp: number; atualizados: number; pulados_promocao: number; sem_diferenca: number }> {
+  return req(`/compras/pedidos/${id}/atualizar-precos`, { method: 'POST' });
+}
+
+/** POST :id/duplicar — corte-final: duplica o pedido (novo rascunho com itens; datas de hoje; sem parcelas). */
+export function duplicarPedido(id: number): Promise<{ codpedcomp: number; origem: number; bonificacao: 'S' | 'N' }> {
+  return req(`/compras/pedidos/${id}/duplicar`, { method: 'POST' });
+}
+
+/** POST :id/gerar-bonificado — corte-final: gera o pedido-ESPELHO de bonificação (itens 100% bonificados). */
+export function gerarBonificadoPedido(id: number): Promise<{ codpedcomp: number; origem: number; bonificacao: 'S' | 'N' }> {
+  return req(`/compras/pedidos/${id}/gerar-bonificado`, { method: 'POST' });
+}
+
+/** POST :id/liberar-limite — corte-final: libera o limite de compra excedido (grant LIBERAVALORMAX). */
+export function liberarLimitePedido(id: number): Promise<{ codpedcomp: number; operador: number }> {
+  return req(`/compras/pedidos/${id}/liberar-limite`, { method: 'POST' });
+}
+
+/** POST :id/importar-itens — corte-final: importa itens em massa do fornecedor (associados / já comprados). */
+export function importarItensPedido(
+  id: number,
+  origem: 'associados' | 'comprados',
+): Promise<{ codpedcomp: number; importados: number; ja_no_pedido: number; inativos: number }> {
+  return req(`/compras/pedidos/${id}/importar-itens`, { method: 'POST', body: JSON.stringify({ origem }) });
+}
+
 /**
  * POST compras/pedidos/:id/gerar-nf — RECEBIMENTO: gera a NF de entrada (rascunho) a partir do pedido
  * (exige pedido FECHADO e ainda não recebido). Opções (modelo/série/CFOP) têm defaults no servidor. O

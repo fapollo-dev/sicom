@@ -1,5 +1,5 @@
 import { Body, Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
-import { gerarNfPedidoSchema } from '@apollo/shared';
+import { gerarNfPedidoSchema, importarItensPedidoSchema } from '@apollo/shared';
 import { PedidoCompraService } from './pedido-compra.service';
 import { RecebimentoService } from './recebimento.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -40,6 +40,49 @@ export class PedidoCompraController {
   @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNGRAVAR')
   gerarParcelas(@Param('id', ParseIntPipe) id: number) {
     return this.svc.gerarParcelas(id);
+  }
+
+  /** corte-final: PROPAGA o preço de venda dos itens ao catálogo (MULTI_PRECO) — "Atualizar preço → On-line". */
+  @Post(':id/atualizar-precos')
+  @HttpCode(200)
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNGRAVAR')
+  atualizarPrecos(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.atualizarPrecos(id);
+  }
+
+  /** corte-final: duplica o pedido (novo rascunho com itens; datas de hoje; sem parcelas). */
+  @Post(':id/duplicar')
+  @HttpCode(200)
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNGRAVAR')
+  duplicar(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.duplicar(id, false);
+  }
+
+  /** corte-final: gera o pedido-ESPELHO de bonificação (BONIFICACAO='S', itens 100% bonificados). */
+  @Post(':id/gerar-bonificado')
+  @HttpCode(200)
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNGRAVAR')
+  gerarBonificado(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.duplicar(id, true);
+  }
+
+  /** corte-final: LIBERA o limite de compra excedido (grant próprio — substitui a senha de supervisor). */
+  @Post(':id/liberar-limite')
+  @HttpCode(200)
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'LIBERAVALORMAX')
+  liberarLimite(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.liberarLimite(id);
+  }
+
+  /** corte-final: importa itens em massa do fornecedor (associados por CODFOR / já comprados). */
+  @Post(':id/importar-itens')
+  @HttpCode(200)
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNGRAVAR')
+  importarItens(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(importarItensPedidoSchema)) body: { origem: 'associados' | 'comprados' },
+  ) {
+    return this.svc.importarItens(id, body.origem);
   }
 
   /** RECEBIMENTO: gera a NF de entrada (rascunho) a partir do pedido. Retorna { codnf, codpedcomp }. */

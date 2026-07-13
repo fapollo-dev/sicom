@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Pencil, Trash2 } from 'lucide-react';
-import { DataTable, type DataTableColumnDef } from '@apollosg/design-system';
+import { DataTable, Modal, type DataTableColumnDef } from '@apollosg/design-system';
 import {
   pedidoCompraSchema,
   PC_TIPO_FRETE_OPCOES,
@@ -20,8 +20,12 @@ import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResour
 import { useMensagem } from '../../shared/mensagem';
 import { PedidoCompraItemModal } from './PedidoCompraItemModal';
 import { ImportarXmlModal } from './ImportarXmlModal';
-import { fecharPedido, reabrirPedido, gerarNfDoPedido, gerarParcelasPedido, obterPedido } from './pedidoCompraApi';
+import {
+  fecharPedido, reabrirPedido, gerarNfDoPedido, gerarParcelasPedido, obterPedido,
+  atualizarPrecosPedido, duplicarPedido, gerarBonificadoPedido, liberarLimitePedido, importarItensPedido,
+} from './pedidoCompraApi';
 import type { PedidoCompraParcelaDto } from '@apollo/shared';
+import { NumberField } from '../../shared/ui/NumberField';
 
 /** hoje em ISO 'YYYY-MM-DD' (DATA default hoje, como no OnNewRecord do legado). */
 const hojeISO = () => new Date().toISOString().slice(0, 10);
@@ -69,6 +73,11 @@ export function PedidoCompraCadMaster() {
       .map((k) => c[k]).filter((d: unknown) => d != null).join('/');
     return { value: String(c.codconpagto), label: `${c.codconpagto} - ${c.descricao ?? ''}${dias ? ` (${dias} dias)` : ''}` };
   });
+  // corte-final: situação-NF (classificação do pedido; o gerar-NF a carrega à NF de entrada).
+  const { data: situacaoOptions = [] } = useResourceOptions('cadastro/situacoes-nf', (s: any) => ({
+    value: String(s.idsituacao_nf ?? s.codigo),
+    label: `${s.idsituacao_nf ?? s.codigo} - ${s.descricao ?? ''}`,
+  }));
 
   const defaultValues = useMemo<Partial<CriarPedidoCompraDto>>(
     () => ({
@@ -96,7 +105,7 @@ export function PedidoCompraCadMaster() {
         { campo: 'fechado', label: 'Fechado', tipo: 'text', largura: 100 },
       ]}
       campos={({ form, editavel }) => (
-        <PedidoForm form={form} editavel={editavel} fornecedorOptions={fornecedorOptions} produtoOptions={produtoOptions} condicaoOptions={condicaoOptions} produtoAliquotas={produtoAliquotas} />
+        <PedidoForm form={form} editavel={editavel} fornecedorOptions={fornecedorOptions} produtoOptions={produtoOptions} condicaoOptions={condicaoOptions} situacaoOptions={situacaoOptions} produtoAliquotas={produtoAliquotas} />
       )}
     />
   );
@@ -110,6 +119,7 @@ function PedidoForm({
   fornecedorOptions,
   produtoOptions,
   condicaoOptions,
+  situacaoOptions,
   produtoAliquotas,
 }: {
   form: UseFormReturn<CriarPedidoCompraDto>;
@@ -117,11 +127,13 @@ function PedidoForm({
   fornecedorOptions: Opcao[];
   produtoOptions: Opcao[];
   condicaoOptions: Opcao[];
+  situacaoOptions: Opcao[];
   produtoAliquotas: Record<string, string>;
 }) {
   // TRAVA de estado (espelha o `travado` da NF via watch): pedido FECHADO é read-only. `fechado` não
   // está no schema de escrita (é state-controlled), mas o read do agregado o traz e o reset o mantém.
   const fechado = (form.watch('fechado' as any) as string | undefined) === 'S';
+  const bonificado = (form.watch('bonificacao' as any) as string | undefined) === 'S';
   const liberado = editavel && !fechado;
 
   return (
@@ -131,8 +143,13 @@ function PedidoForm({
           Pedido fechado — edição bloqueada. Use «Reabrir» para voltar a rascunho.
         </div>
       )}
+      {bonificado && (
+        <div className="rounded-radius-base border border-border bg-bg-subtle p-pad-sm font-semibold text-fg-default">
+          Pedido de BONIFICAÇÃO (espelho) — itens 100% bonificados.
+        </div>
+      )}
 
-      <CabecalhoBand form={form} editavel={liberado} fornecedorOptions={fornecedorOptions} condicaoOptions={condicaoOptions} />
+      <CabecalhoBand form={form} editavel={liberado} fornecedorOptions={fornecedorOptions} condicaoOptions={condicaoOptions} situacaoOptions={situacaoOptions} />
       <ItensSection form={form} editavel={liberado} produtoOptions={produtoOptions} produtoAliquotas={produtoAliquotas} />
       <ParcelasSection form={form} editavel={liberado} />
       <AcoesEstadoBar form={form} />
@@ -142,16 +159,20 @@ function PedidoForm({
 
 // ───────────────────────────── Banda de cabeçalho ─────────────────────────────
 
+const CD_KEYS = ['cd1', 'cd2', 'cd3', 'cd4', 'cd5', 'cd6', 'cd7', 'cd8'] as const;
+
 function CabecalhoBand({
   form,
   editavel,
   fornecedorOptions,
   condicaoOptions,
+  situacaoOptions,
 }: {
   form: UseFormReturn<CriarPedidoCompraDto>;
   editavel: boolean;
   fornecedorOptions: Opcao[];
   condicaoOptions: Opcao[];
+  situacaoOptions: Opcao[];
 }) {
   const err = form.formState.errors;
   const fechado = (form.watch('fechado' as any) as string | undefined) === 'S';
@@ -249,8 +270,48 @@ function CabecalhoBand({
         />
       </div>
 
-      {/* linha 3: Tipo de frete / Valor do frete */}
+      {/* linha 2b (corte-final): prazos CD1..CD8 — OVERRIDE local da condição (RatearTotalNasParcelas). */}
+      <details className="mt-form-gap rounded-radius-base border border-border p-pad-sm">
+        <summary className="cursor-pointer text-body-sm text-fg-muted">
+          Prazos das parcelas em dias (CD1..CD8) — sobrepõem a condição de pagamento
+        </summary>
+        <div className="mt-form-gap grid grid-cols-4 gap-form-gap sm:grid-cols-8">
+          {CD_KEYS.map((cd, i) => (
+            <Controller
+              key={cd}
+              control={form.control}
+              name={cd}
+              render={({ field }) => (
+                <NumberField
+                  label={`CD${i + 1}`}
+                  value={field.value as number | undefined}
+                  onChange={(v) => field.onChange(v)}
+                  decimais={0}
+                  min={0}
+                  error={form.formState.errors[cd]?.message as string | undefined}
+                />
+              )}
+            />
+          ))}
+        </div>
+      </details>
+
+      {/* linha 3: Tipo de frete / Valor do frete / Situação-NF */}
       <div className="mt-form-gap grid grid-cols-1 gap-form-gap sm:grid-cols-2 lg:grid-cols-4">
+        <Controller
+          control={form.control}
+          name="idsituacao_nf"
+          render={({ field }) => (
+            <SelectField
+              label="&Situação (NF)"
+              options={situacaoOptions}
+              value={field.value != null ? String(field.value) : undefined}
+              onChange={(v) => field.onChange(v ? Number(v) : undefined)}
+              placeholder="Classificação p/ a NF de entrada…"
+              error={form.formState.errors.idsituacao_nf?.message as string | undefined}
+            />
+          )}
+        />
         <Controller
           control={form.control}
           name="pc_tipo_frete"
@@ -306,6 +367,29 @@ function ItensSection({
     keyName: 'fieldId',
   });
   const [editIdx, setEditIdx] = useState<number | null>(null);
+  const mensagem = useMensagem();
+  const [importando, setImportando] = useState(false);
+  const codpedcomp = (form.getValues() as { codpedcomp?: number }).codpedcomp;
+
+  /** corte-final: importa itens em massa do fornecedor (associados/comprados) e recarrega o pedido. */
+  const importar = async (origem: 'associados' | 'comprados') => {
+    if (importando || codpedcomp == null) return;
+    setImportando(true);
+    try {
+      const r = await importarItensPedido(codpedcomp, origem);
+      const fresh = await obterPedido(codpedcomp);
+      form.setValue('itens' as any, (fresh.itens ?? []) as any);
+      mensagem.sucesso(
+        r.importados > 0
+          ? `${r.importados} item(ns) importado(s) do fornecedor${r.inativos ? ` (${r.inativos} inativo(s) ignorado(s))` : ''}.`
+          : 'Nenhum item novo a importar deste fornecedor.',
+      );
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setImportando(false);
+    }
+  };
 
   const onConfirmar = (item: PedidoCompraItemDto) => {
     if (editIdx == null) return;
@@ -332,20 +416,35 @@ function ItensSection({
         isPrimary: true,
         valueGetter: (row) => rotuloProduto(row.idproduto),
       },
-      { field: 'fatorembalagem', headerName: 'Quantidade', type: 'number', width: 120 },
+      { field: 'fatorembalagem', headerName: 'Quantidade', type: 'number', width: 110 },
       {
         field: 'vrcusto',
         headerName: 'Custo unit.',
         type: 'text',
-        width: 130,
+        width: 120,
         valueGetter: (row) => fmtBRL(Number(row.vrcusto) || 0),
       },
       {
         field: 'vlrembalagem',
         headerName: 'Total',
         type: 'text',
-        width: 130,
+        width: 120,
         valueGetter: (row) => fmtBRL((Number(row.fatorembalagem) || 0) * (Number(row.vrcusto) || 0)),
+      },
+      // corte-final: analítica da precificação visível no grid (venda praticada + margem líquida L2).
+      {
+        field: 'vrvenda',
+        headerName: 'Venda',
+        type: 'text',
+        width: 110,
+        valueGetter: (row) => (row.vrvenda != null && Number(row.vrvenda) > 0 ? fmtBRL(Number(row.vrvenda)) : '—'),
+      },
+      {
+        field: 'margeml2',
+        headerName: 'Margem %',
+        type: 'text',
+        width: 100,
+        valueGetter: (row) => (row.margeml2 != null ? `${Number(row.margeml2).toFixed(2)}%` : '—'),
       },
       {
         field: 'acoes',
@@ -381,8 +480,14 @@ function ItensSection({
   return (
     <fieldset disabled={!editavel} className="border-0 p-0">
       <div className="flex flex-col gap-gp-sm">
-        <div className="flex flex-wrap gap-gp-sm">
+        <div className="flex flex-wrap items-center gap-gp-sm">
           <Button label="Adicionar &item" variant="soft" onClick={() => setEditIdx(-1)} />
+          {codpedcomp != null && (
+            <>
+              <Button label="Importar do fornecedor (&associados)" variant="ghost" onClick={() => void importar('associados')} />
+              <Button label="Importar já &comprados" variant="ghost" onClick={() => void importar('comprados')} />
+            </>
+          )}
         </div>
 
         {fields.length === 0 ? (
@@ -427,9 +532,25 @@ function ItensSection({
 function ParcelasSection({ form, editavel }: { form: UseFormReturn<CriarPedidoCompraDto>; editavel: boolean }) {
   const mensagem = useMensagem();
   const [gerando, setGerando] = useState(false);
+  // corte-final: edição manual de valor/vencimento por parcela (CedValorCdnExit do legado). Persiste no PUT.
+  const [editParc, setEditParc] = useState<{ idx: number; valor?: number; data?: string } | null>(null);
   const codpedcomp = (form.getValues() as { codpedcomp?: number }).codpedcomp;
   const parcelas = (form.watch('parcelas') ?? []) as PedidoCompraParcelaDto[];
   const total = parcelas.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+
+  const salvarParcela = () => {
+    if (editParc == null) return;
+    const novas = parcelas.map((p, i) =>
+      i === editParc.idx ? { ...p, valor: editParc.valor ?? p.valor, data: editParc.data ?? p.data } : p,
+    );
+    form.setValue('parcelas' as any, novas as any, { shouldDirty: true });
+    setEditParc(null);
+  };
+  const removerParcela = (idx: number) => {
+    // renumera após remover (PARCELA 1..n — o legado deleta a parcela zerada e re-rateia; aqui remoção explícita).
+    const novas = parcelas.filter((_, i) => i !== idx).map((p, i) => ({ ...p, parcela: i + 1 }));
+    form.setValue('parcelas' as any, novas as any, { shouldDirty: true });
+  };
 
   const gerar = async () => {
     if (codpedcomp == null) {
@@ -456,8 +577,36 @@ function ParcelasSection({ form, editavel }: { form: UseFormReturn<CriarPedidoCo
       { field: 'data', headerName: 'Vencimento', type: 'text', width: 150, valueGetter: (r) => String(r.data ?? '').slice(0, 10) },
       { field: 'qtdediasaposfaturamento', headerName: 'Dias', type: 'number', width: 90 },
       { field: 'valor', headerName: 'Valor', type: 'text', width: 140, valueGetter: (r) => fmtBRL(Number(r.valor) || 0) },
+      {
+        field: 'acoes',
+        headerName: '',
+        type: 'actions',
+        width: 110,
+        getActions: () => [
+          {
+            id: 'editar',
+            label: 'Editar',
+            icon: <Pencil className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            onClick: (r: PedidoCompraParcelaDto) => {
+              const idx = parcelas.findIndex((p) => p.parcela === r.parcela);
+              if (idx >= 0) setEditParc({ idx, valor: Number(parcelas[idx].valor) || 0, data: String(parcelas[idx].data ?? '').slice(0, 10) });
+            },
+          },
+          {
+            id: 'remover',
+            label: 'Remover',
+            icon: <Trash2 className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            destructive: true,
+            onClick: (r: PedidoCompraParcelaDto) => {
+              const idx = parcelas.findIndex((p) => p.parcela === r.parcela);
+              if (idx >= 0) removerParcela(idx);
+            },
+          },
+        ],
+      },
     ],
-    [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [parcelas],
   );
 
   return (
@@ -479,10 +628,26 @@ function ParcelasSection({ form, editavel }: { form: UseFormReturn<CriarPedidoCo
               toolbar={{ enableSearch: false, enableFilters: false }}
               cardBreakpoint={false}
             />
-            <small className="text-fg-muted">Total das parcelas: R$ {fmtBRL(total)}.</small>
+            <small className="text-fg-muted">Total das parcelas: R$ {fmtBRL(total)}. Ajustes manuais persistem ao gravar o pedido.</small>
           </>
         )}
       </div>
+
+      {editParc != null && (
+        <Modal
+          open
+          onClose={() => setEditParc(null)}
+          size="sm"
+          title={`Editar parcela ${parcelas[editParc.idx]?.parcela ?? ''}`}
+          primaryAction={{ label: 'Aplicar', onClick: salvarParcela }}
+          secondaryAction={{ label: 'Cancelar', onClick: () => setEditParc(null) }}
+        >
+          <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+            <CurrencyField label="&Valor" value={editParc.valor} onChange={(v) => setEditParc((e) => (e ? { ...e, valor: v as number } : e))} />
+            <DateField label="&Vencimento" value={editParc.data || undefined} onChange={(v) => setEditParc((e) => (e ? { ...e, data: v ?? e.data } : e))} />
+          </div>
+        </Modal>
+      )}
     </fieldset>
   );
 }
@@ -512,6 +677,58 @@ function AcoesEstadoBar({ form }: { form: UseFormReturn<CriarPedidoCompraDto> })
       await fecharPedido(codpedcomp);
       form.setValue('fechado' as any, 'S');
       mensagem.sucesso('Pedido fechado. Gere a NF de entrada para receber, ou reabra para editar.');
+    } catch (e) {
+      // corte-final: limite de compra excedido → oferece a LIBERAÇÃO (grant LIBERAVALORMAX) e refecha —
+      // espelha o fluxo do legado (senha de supervisor → libera → continua).
+      const code = (e as { envelope?: { code?: string } })?.envelope?.code;
+      if (code === 'PEDIDO_LIMITE_EXCEDIDO') {
+        if (window.confirm('O pedido excede o limite de compra do período. Liberar o limite (requer permissão) e fechar?')) {
+          try {
+            await liberarLimitePedido(codpedcomp);
+            await fecharPedido(codpedcomp);
+            form.setValue('fechado' as any, 'S');
+            mensagem.sucesso('Limite liberado e pedido fechado.');
+          } catch (e2) {
+            mensagem.erro(e2);
+          }
+        }
+      } else {
+        mensagem.erro(e);
+      }
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  // corte-final: PROPAGA o preço de venda dos itens ao catálogo (MULTI_PRECO) — "Atualizar preço → On-line".
+  const atualizarPrecos = async () => {
+    if (executando) return;
+    if (!window.confirm('Atualizar o preço de venda do CATÁLOGO (multi-preço) com os preços dos itens deste pedido?')) return;
+    setExecutando(true);
+    try {
+      const r = await atualizarPrecosPedido(codpedcomp);
+      mensagem.sucesso(
+        r.atualizados > 0
+          ? `${r.atualizados} preço(s) atualizado(s) no catálogo${r.pulados_promocao ? ` (${r.pulados_promocao} em promoção, não alterado(s))` : ''}.`
+          : 'Nenhum produto teve o valor de venda alterado.',
+      );
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  const duplicar = async (bonificar: boolean) => {
+    if (executando) return;
+    const msg = bonificar
+      ? 'Gerar o pedido-ESPELHO de bonificação (itens 100% bonificados)?'
+      : 'Duplicar este pedido (novo rascunho com os mesmos itens, datas de hoje)?';
+    if (!window.confirm(msg)) return;
+    setExecutando(true);
+    try {
+      const r = bonificar ? await gerarBonificadoPedido(codpedcomp) : await duplicarPedido(codpedcomp);
+      mensagem.sucesso(`${bonificar ? 'Pedido bonificado' : 'Pedido duplicado'}: nº ${r.codpedcomp} (rascunho). Localize-o na Pesquisa.`);
     } catch (e) {
       mensagem.erro(e);
     } finally {
@@ -569,6 +786,9 @@ function AcoesEstadoBar({ form }: { form: UseFormReturn<CriarPedidoCompraDto> })
         {fechado && !recebido && <Button label="&Gerar NF de entrada" variant="soft" onClick={() => void gerarNf()} />}
         {fechado && !recebido && <Button label="&Importar XML da NFe" variant="soft" onClick={() => setMostrarImport(true)} />}
         {fechado && !recebido && <Button label="&Reabrir pedido" variant="ghost" onClick={() => void reabrir()} />}
+        <Button label="Atualizar &preços no catálogo" variant="ghost" onClick={() => void atualizarPrecos()} />
+        <Button label="&Duplicar pedido" variant="ghost" onClick={() => void duplicar(false)} />
+        <Button label="Gerar pedido &bonificado" variant="ghost" onClick={() => void duplicar(true)} />
         <small className="text-fg-muted">
           {recebido
             ? 'Pedido recebido (NF de entrada gerada). Confira/processe a NF na tela de Notas de Entrada.'

@@ -65,6 +65,8 @@ export const pedidoCompraItemSchema = z.object({
   margeml2: dec(z.number()),
   margeml2v: dec(z.number()),
   pmz: dec(z.number().nonnegative()),
+  // % bonificado do item (100 no pedido-espelho de bonificação).
+  bonificacao: dec(z.number().nonnegative().max(100, 'Bonificação (%) inválida.')),
 });
 export type PedidoCompraItemDto = z.infer<typeof pedidoCompraItemSchema>;
 
@@ -91,6 +93,8 @@ const pedidoCompraBase = z.object({
   codconpagto: opcional(z.coerce.number().int()),
   // corte-2: data-base do vencimento das parcelas (legado DTFATURAMENTO input; separada do marcador "recebido").
   data_faturamento: opcional(z.string().trim()),
+  // corte-final: situação-NF do pedido (classificação; o gerar-NF a carrega para a NF de entrada).
+  idsituacao_nf: opcional(z.coerce.number().int()),
   // corte-2: CD1..CD8 = OVERRIDE local dos prazos (dias) da condição; nº de parcelas = qtd de CDn não-nulos.
   cd1: opcional(z.coerce.number().int().nonnegative()),
   cd2: opcional(z.coerce.number().int().nonnegative()),
@@ -109,14 +113,28 @@ const pedidoCompraBase = z.object({
   parcelas: z.array(pedidoCompraParcelaSchema).optional(),
 });
 
+/** ValidaDatas do legado (uPedidoCompra.pas:8216/8232): faturamento e vencimento não podem ANTECEDER a data. */
+const validaDatasPedido = (d: { data?: string; data_faturamento?: string; dt_vencimento?: string }, ctx: z.RefinementCtx) => {
+  const t = (s?: string) => (s && s.trim() ? new Date(s).getTime() : NaN);
+  const dt = t(d.data);
+  if (!Number.isNaN(dt) && !Number.isNaN(t(d.data_faturamento)) && t(d.data_faturamento) < dt) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['data_faturamento'], message: 'A data de faturamento não pode ser anterior à data do pedido.' });
+  }
+  if (!Number.isNaN(dt) && !Number.isNaN(t(d.dt_vencimento)) && t(d.dt_vencimento) < dt) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dt_vencimento'], message: 'O vencimento não pode ser anterior à data do pedido.' });
+  }
+};
+
 /** CREATE — exige ao menos 1 item (btnGravar do legado). */
-export const pedidoCompraSchema = pedidoCompraBase.extend({
-  itens: z.array(pedidoCompraItemSchema).min(1, 'Informe ao menos um item no pedido.'),
-});
+export const pedidoCompraSchema = pedidoCompraBase
+  .extend({
+    itens: z.array(pedidoCompraItemSchema).min(1, 'Informe ao menos um item no pedido.'),
+  })
+  .superRefine(validaDatasPedido);
 export type CriarPedidoCompraDto = z.infer<typeof pedidoCompraSchema>;
 
 /** UPDATE — parcial (o header pode vir só com os campos alterados; itens, se vierem, substituem). */
-export const atualizarPedidoCompraSchema = pedidoCompraBase.partial();
+export const atualizarPedidoCompraSchema = pedidoCompraBase.partial().superRefine(validaDatasPedido);
 export type AtualizarPedidoCompraDto = z.infer<typeof atualizarPedidoCompraSchema>;
 
 /**
@@ -129,6 +147,12 @@ export const gerarNfPedidoSchema = z.object({
   cfop: opcional(z.string().trim().max(4)),
 });
 export type GerarNfPedidoDto = z.infer<typeof gerarNfPedidoSchema>;
+
+/** corte-final — importar itens em massa do fornecedor (ImportaItens): associados (CODFOR) ou já comprados. */
+export const importarItensPedidoSchema = z.object({
+  origem: z.enum(['associados', 'comprados'], { message: "Origem inválida (use 'associados' ou 'comprados')." }),
+});
+export type ImportarItensPedidoDto = z.infer<typeof importarItensPedidoSchema>;
 
 /**
  * RECEBIMENTO corte-2 — importar o XML da NFe do fornecedor → NF de entrada valorada. `xml` = conteúdo do
@@ -191,6 +215,9 @@ export interface PedidoCompra {
   pc_valor_frete?: number | string | null;
   pc_nronf_cruzamento?: string | null;
   fechado?: string | null; // 'S' = fechado
+  bonificacao?: string | null; // 'S' = pedido-espelho de bonificação
+  idsituacao_nf?: number | null;
+  operador_ult_lib_valor_max?: number | null; // liberador do limite de compra
   dtfaturamento?: string | null;
   dtencerramento?: string | null;
   obs?: string | null;
@@ -228,4 +255,5 @@ export interface PedidoCompraItem {
   margeml2?: number | string | null;
   margeml2v?: number | string | null;
   pmz?: number | string | null;
+  bonificacao?: number | string | null; // % bonificado (100 no espelho)
 }

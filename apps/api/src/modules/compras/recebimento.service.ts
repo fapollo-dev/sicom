@@ -65,12 +65,13 @@ export class RecebimentoService {
         sql<string>`to_char(data::date, 'YYYY-MM-DD')`.as('data_iso'),
         'fechado',
         'dtfaturamento',
+        'idsituacao_nf', // corte-final: a situação-NF classificada no pedido é carregada à NF de entrada
       ])
       .where('codpedcomp', '=', codpedcomp)
       .where('idempresa', '=', emp)
       .where(sql`coalesce(indr,'I')`, '<>', 'E')
       .executeTakeFirst()) as
-      | { codpedcomp: number; codparceiro: number; data_iso: string; fechado?: string; dtfaturamento?: unknown }
+      | { codpedcomp: number; codparceiro: number; data_iso: string; fechado?: string; dtfaturamento?: unknown; idsituacao_nf?: number | null }
       | undefined;
     if (!pedido) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
     if (pedido.fechado !== 'S') throw new BusinessRuleError('PEDIDO_NAO_FECHADO', { codpedcomp }); // feche antes de receber
@@ -138,6 +139,7 @@ export class RecebimentoService {
       codpedcomp, // vínculo (nfAggregateConfig.colunas) — gravado atômico com a NF
       itens: nfItens,
     };
+    if (pedido.idsituacao_nf != null) dto.idsituacao_nf = pedido.idsituacao_nf; // situação do pedido → NF
 
     // SERIALIZAÇÃO anti-duplo-recebimento (CAS-first): marca o pedido como recebido ANTES de criar a NF. O
     // legado usa DTFATURAMENTO+IMPORTADO como marcador; o modelo migrado NÃO tem IMPORTADO, então reusa

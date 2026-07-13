@@ -170,7 +170,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
  * Códigos cujo `details` do AppError PODE ser ecoado ao cliente no envelope (`detalhe`) — allowlist explícita
  * (evita vazar dados internos de outros erros: saldos, form/opção de RBAC, etc.). Só o que o front consome.
  */
-const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS']);
+const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO']);
 
 const CODE_PT: Record<string, string> = {
   // regra de negócio (BusinessRuleError 422)
@@ -303,6 +303,11 @@ const CODE_PT: Record<string, string> = {
   PEDIDO_JA_RECEBIDO: 'Este pedido já tem uma NF de entrada gerada — não é possível gerar outra.',
   PEDIDO_SEM_CONDICAO_PAGTO: 'Informe a condição de pagamento (ou os prazos CD1..CD8) antes de gerar as parcelas.',
   PEDIDO_SEM_VALOR: 'O pedido não tem valor (total dos itens é zero) — inclua itens antes de gerar as parcelas.',
+  PEDIDO_SEM_CONDICAO_OBRIGATORIA: 'A condição de pagamento é obrigatória neste pedido (informe a condição ou os prazos CD1..CD8).',
+  PEDIDO_PRAZO_EXCEDE_FORNECEDOR: 'Um dos prazos de pagamento excede o máximo de dias permitido para este fornecedor.',
+  PEDIDO_FORNECEDOR_PENDENCIAS: 'Este fornecedor tem pendências financeiras (A Receber em aberto) — regularize antes de incluir o pedido.',
+  PEDIDO_LIMITE_EXCEDIDO: 'O pedido excede o limite de compra do período (diário/semanal) — solicite a liberação a um operador autorizado.',
+  PEDIDO_IMPORT_EXCESSO: 'Produtos demais para importar de uma vez (limite de 990) — filtre o catálogo do fornecedor.',
   // Import do XML da NFe (recebimento corte-2)
   NFE_XML_INVALIDO: 'O XML informado não é uma NFe válida (estrutura não reconhecida).',
   NFE_FORNECEDOR_NAO_ENCONTRADO: 'Fornecedor do XML (CNPJ) não encontrado no cadastro desta empresa.',

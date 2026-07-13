@@ -32,6 +32,31 @@ const num = (v: unknown): number => {
 };
 const r4 = (n: number) => Math.round((n + Number.EPSILON) * 10000) / 10000; // numeric(14,4)
 
+/** resolve uma config (base + override por Empresa) com o handle de db do validar — espelha ConfigService.
+ *  (o validar do agregado é um objeto declarativo, sem injeção — helper local documentado.) */
+async function cfgValor(db: any, codigo: string, emp: number | null): Promise<string | null> {
+  const c = await db
+    .selectFrom('configuracoes')
+    .select(['id', 'valor', 'config_especificas_permitidas'])
+    .where('codigo', '=', codigo)
+    .executeTakeFirst();
+  if (!c) return null;
+  const permitidos = String(c.config_especificas_permitidas ?? '').split(';').map((s: string) => s.trim());
+  if (emp != null && permitidos.includes('Empresa')) {
+    const ov = await db
+      .selectFrom('configuracoes_especificas')
+      .select('valor')
+      .where('id', '=', c.id)
+      .where('tipo', '=', 'Empresa')
+      .where('chave', '=', String(emp))
+      .executeTakeFirst();
+    if (ov?.valor != null) return String(ov.valor);
+  }
+  return c.valor != null ? String(c.valor) : null;
+}
+
+const CD_COLS = ['cd1', 'cd2', 'cd3', 'cd4', 'cd5', 'cd6', 'cd7', 'cd8'] as const;
+
 export const pedidoCompraAggregateConfig: AggregateConfig = {
   tabela: 'pedidocompra',
   pk: 'codpedcomp',
@@ -45,6 +70,9 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
     // corte-2: DATA_FATURAMENTO = data-base do vencimento das parcelas (legado DTFATURAMENTO input, separado
     // do marcador "recebido" do recebimento). CD1..CD8 = override local dos prazos (dias) da condição.
     'data_faturamento', 'cd1', 'cd2', 'cd3', 'cd4', 'cd5', 'cd6', 'cd7', 'cd8',
+    // corte-final: situação-NF (classificação; gerar-NF a carrega à NF de entrada). BONIFICACAO (header) e
+    // OPERADOR_ULT_LIB_VALOR_MAX são server-controlled (gerar-bonificado / liberar-limite) — fora do allowlist.
+    'idsituacao_nf',
     'pc_tipo_frete', 'pc_valor_frete', 'pc_nronf_cruzamento', 'obs',
   ],
   colunasPesquisa: ['codpedcomp', 'codparceiro', 'fornecedor', 'data', 'fechado', 'total'],
@@ -60,6 +88,8 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
         // /precificacao/produto; o comprador forma o preço). vrvenda (praticado) ≠ vrvendasug (sugerido pelo
         // motor). Nomes fiéis ao legado (MARGEML2/MARGEML2V). Analítica armazenada; sem propagação ao MULTI_PRECO.
         'vrcustoliquido', 'markup', 'vrvenda', 'vrvendasug', 'margeml2', 'margeml2v', 'pmz',
+        // corte-final: % bonificado do item (100 no pedido-espelho gerado por gerar-bonificado).
+        'bonificacao',
       ],
       // VLREMBALAGEM = FATOREMBALAGEM × VRCUSTO — congelado server-side (o cliente não é fonte da verdade).
       derivarItensTrx: async (itens) =>
@@ -88,14 +118,17 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
     // se edita um documento morto. FATURADO (dtfaturamento, via NF de entrada = corte futuro) é read-only
     // — no golden 1.804 pedidos já foram faturados com FECHADO='N', então a trava é por dtfaturamento,
     // não só por FECHADO. FECHADO='S' é read-only (o fechar/reabrir é o vertical).
+    let atual:
+      | ({ fechado?: string; dtfaturamento?: unknown; codparceiro?: number; codconpagto?: number } & Record<string, unknown>)
+      | undefined;
     if (id != null) {
-      const atual = (await db
+      atual = (await db
         .selectFrom('pedidocompra')
-        .select(['fechado', 'dtfaturamento'])
+        .select(['fechado', 'dtfaturamento', 'codparceiro', 'codconpagto', ...CD_COLS])
         .where('codpedcomp', '=', id)
         .where('idempresa', '=', emp)
         .where(sql`coalesce(indr,'I')`, '<>', 'E')
-        .executeTakeFirst()) as { fechado?: string; dtfaturamento?: unknown } | undefined;
+        .executeTakeFirst()) as typeof atual;
       if (!atual) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp: id });
       if (atual.dtfaturamento != null) throw new BusinessRuleError('PEDIDO_FATURADO');
       if (atual.fechado === 'S') throw new BusinessRuleError('PEDIDO_FECHADO');
@@ -114,6 +147,60 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
         .where('idempresa', '=', emp)
         .executeTakeFirst()) as { frn?: string } | undefined;
       if (!forn || forn.frn !== 'S') throw new BusinessRuleError('PEDIDO_FORNECEDOR_INVALIDO', { codparceiro: cod });
+    }
+
+    // ── gates do btnGravar (corte-final; valores EFETIVOS = dto ?? linha atual) ──
+    const efetivo = (campo: string): unknown => (dto[campo] !== undefined ? dto[campo] : atual?.[campo]);
+    const cdsEfetivos = CD_COLS.map((c) => efetivo(c)).filter((v) => v != null && v !== '').map((v) => Number(v));
+    const conpagtoEf = efetivo('codconpagto') != null ? Number(efetivo('codconpagto')) : null;
+    const fornEf = cod ?? (atual?.codparceiro != null ? Number(atual.codparceiro) : null);
+
+    // (1) OBRIGA_INFORMAR_CONDICOES_PAGAMENTO='S' (uPedidoCompra.pas:6831): exige condição (CD ou lookup).
+    if (cdsEfetivos.length === 0 && conpagtoEf == null) {
+      if ((await cfgValor(db, 'OBRIGA_INFORMAR_CONDICOES_PAGAMENTO', emp)) === 'S') {
+        throw new BusinessRuleError('PEDIDO_SEM_CONDICAO_OBRIGATORIA');
+      }
+    }
+
+    // (2) prazo máximo por fornecedor (PARCEIROS.QTDE_DIAS_MAXIMO_FP_PC; VerificaFP, uPedidoCompra.pas:6792):
+    // nenhum CD do pedido (ou da condição, quando o pedido não sobrepõe) pode exceder o máximo do fornecedor.
+    if (fornEf != null) {
+      const fp = (await db
+        .selectFrom('parceiros')
+        .select('qtde_dias_maximo_fp_pc')
+        .where('codparceiro', '=', fornEf)
+        .where('idempresa', '=', emp)
+        .executeTakeFirst()) as { qtde_dias_maximo_fp_pc?: number } | undefined;
+      const max = fp?.qtde_dias_maximo_fp_pc != null ? Number(fp.qtde_dias_maximo_fp_pc) : 0;
+      if (max > 0) {
+        let cds = cdsEfetivos;
+        if (cds.length === 0 && conpagtoEf != null) {
+          const cond = (await db
+            .selectFrom('condicoes_pagto')
+            .select([...CD_COLS])
+            .where('codconpagto', '=', conpagtoEf)
+            .executeTakeFirst()) as Record<string, unknown> | undefined;
+          if (cond) cds = CD_COLS.map((c) => cond[c]).filter((v) => v != null).map((v) => Number(v));
+        }
+        const estourado = cds.find((d) => d > max);
+        if (estourado != null) throw new BusinessRuleError('PEDIDO_PRAZO_EXCEDE_FORNECEDOR', { prazo: estourado, maximo: max });
+      }
+    }
+
+    // (3) pendências financeiras do fornecedor (AVISA_PENDENCIAS_FORNECEDOR='B' bloqueia; 'S' é aviso de UI):
+    // A Receber NÃO QUITADO do fornecedor (VerificaPendencias, uPedidoCompra.pas:4255). Só ao DEFINIR (create)
+    // ou TROCAR o fornecedor — M3: o legado só chama VerificaPendencias na seleção do fornecedor (:6516/6614),
+    // não a cada gravar; um PUT de formulário completo reenvia o mesmo codparceiro e não deve re-travar.
+    const trocouFornecedor = cod != null && (atual == null || cod !== Number(atual.codparceiro));
+    if (trocouFornecedor && (await cfgValor(db, 'AVISA_PENDENCIAS_FORNECEDOR', emp)) === 'B') {
+      const pend = await db
+        .selectFrom('areceber')
+        .select('codrcb')
+        .where('codparceiro', '=', cod)
+        .where('codempresa', '=', emp)
+        .where('quitada', '=', 'N')
+        .executeTakeFirst();
+      if (pend) throw new BusinessRuleError('PEDIDO_FORNECEDOR_PENDENCIAS', { codparceiro: cod });
     }
   },
   // Guarda de EXCLUSÃO (btnExcluir): não apagar pedido com efeitos. FATURADO (dtfaturamento) e FECHADO='S'

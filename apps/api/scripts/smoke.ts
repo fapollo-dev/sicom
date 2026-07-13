@@ -3031,6 +3031,152 @@ async function main() {
       parcD.length === 1 && String(parcD[0].data).slice(0, 10) === '2026-08-04',
       { data_pedido: '2026-07-01', data_faturamento: pcDRead.data_faturamento, venc: parcD[0]?.data });
 
+    // 57) PEDIDO — CORTES FINAIS da tela: propagação de preço ao catálogo, limite de compra + liberação,
+    // duplicar/bonificado, importar itens, gates do gravar, situação-NF.
+    const pgF57 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+
+    // 57.1) PROPAGAÇÃO: item vrvenda=9,99 ≠ catálogo 4,55 → atualiza MULTI_PRECO + histórico + dtultprecoalterado.
+    await pgF57.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, markup, vrvenda, promocao, ativo, ativo_compra)
+      VALUES (1, 1, 3.5, 30, 4.55, 'N', 'S', 'S')
+      ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda=4.55, promocao='N', dtultprecoalterado=NULL`);
+    const f57PF1 = await crPed({ codparceiro: 22, data: '2026-07-01', itens: [{ idproduto: 1, fatorembalagem: 5, vrcusto: 5, vrvenda: 9.99, markup: 30 }] });
+    const f57PF1Id = Number(((await f57PF1.json().catch(() => ({}))) as any).codpedcomp);
+    const f57Ap1 = await fetch(`${base}/${PED}/${f57PF1Id}/atualizar-precos`, { method: 'POST', headers: H });
+    const f57Ap1J = (await f57Ap1.json().catch(() => ({}))) as any;
+    const f57Mp1 = (await pgF57.query(`SELECT vrvenda, dtultprecoalterado FROM multi_preco WHERE idproduto=1 AND idempresa=1`)).rows[0] as any;
+    const f57H1 = (await pgF57.query(`SELECT count(*)::int AS n FROM historico_dinamico WHERE tabela='MULTI_PRECO' AND valor_chave='1' AND historico LIKE '%pedido de compra Nro: ${f57PF1Id}%'`)).rows[0] as any;
+    check('FINAL: atualizar-precos propaga VRVENDA ao catálogo (4,55→9,99) + dtultprecoalterado + histórico',
+      f57Ap1.status === 200 && Number(f57Ap1J.atualizados) === 1 && Number(f57Mp1?.vrvenda) === 9.99 && f57Mp1?.dtultprecoalterado != null && Number(f57H1?.n) >= 1,
+      { status: f57Ap1.status, f57Ap1J, mp: f57Mp1 });
+
+    // 57.2) idempotência (sem diferença) + gate de PROMOÇÃO (promocao='S' não sobrescreve).
+    const f57Ap2 = await fetch(`${base}/${PED}/${f57PF1Id}/atualizar-precos`, { method: 'POST', headers: H });
+    const f57Ap2J = (await f57Ap2.json().catch(() => ({}))) as any;
+    await pgF57.query(`UPDATE multi_preco SET promocao='S' WHERE idproduto=1 AND idempresa=1`);
+    const f57PF2 = await crPed({ codparceiro: 22, data: '2026-07-01', itens: [{ idproduto: 1, fatorembalagem: 2, vrcusto: 5, vrvenda: 11.5 }] });
+    const f57PF2Id = Number(((await f57PF2.json().catch(() => ({}))) as any).codpedcomp);
+    const f57Ap3 = await fetch(`${base}/${PED}/${f57PF2Id}/atualizar-precos`, { method: 'POST', headers: H });
+    const f57Ap3J = (await f57Ap3.json().catch(() => ({}))) as any;
+    const f57Mp2 = (await pgF57.query(`SELECT vrvenda FROM multi_preco WHERE idproduto=1 AND idempresa=1`)).rows[0] as any;
+    await pgF57.query(`UPDATE multi_preco SET promocao='N' WHERE idproduto=1 AND idempresa=1`);
+    check('FINAL: atualizar-precos é idempotente (sem_diferenca) e PULA produto em promoção (gate; preço intacto 9,99)',
+      Number(f57Ap2J.atualizados) === 0 && Number(f57Ap2J.sem_diferenca) === 1
+      && f57Ap3.status === 200 && Number(f57Ap3J.pulados_promocao) === 1 && Number(f57Ap3J.atualizados) === 0 && Number(f57Mp2?.vrvenda) === 9.99,
+      { f57Ap2J, f57Ap3J, mp: f57Mp2 });
+
+    // 57.3) LIMITE SEMANAL + LIBERAÇÃO + REARME (M1): limite 100; A (60, semana out/04-10) fecha; B (60, mesma
+    // semana=120) → 422; liberar-limite (grant LIBERAVALORMAX) → fechar ok + operador gravado. M1: reabrir B
+    // rearma o gate (flag→NULL) → fechar B volta a validar (120>100) → 422 de novo (liberação não é eterna).
+    await pgF57.query(`UPDATE configuracoes SET valor='100' WHERE codigo='VALOR_MAXIMO_SEMANAL_PC'`);
+    const f57MkLim = async (nro: string) => {
+      const r = await crPed({ codparceiro: 22, data: '2026-10-01', data_faturamento: '2026-10-05', cd1: 2, pc_nronf_cruzamento: nro, itens: [{ idproduto: 1, fatorembalagem: 6, vrcusto: 10 }] });
+      const id = Number(((await r.json().catch(() => ({}))) as any).codpedcomp);
+      await fetch(`${base}/${PED}/${id}/gerar-parcelas`, { method: 'POST', headers: H });
+      return id;
+    };
+    const f57LimA = await f57MkLim('LIM-A');
+    const f57FLimA = await fetch(`${base}/${PED}/${f57LimA}/fechar`, { method: 'POST', headers: H });
+    const f57LimB = await f57MkLim('LIM-B');
+    const f57FLimB = await fetch(`${base}/${PED}/${f57LimB}/fechar`, { method: 'POST', headers: H });
+    const f57FLimBJ = (await f57FLimB.json().catch(() => ({}))) as any;
+    const f57Lib = await fetch(`${base}/${PED}/${f57LimB}/liberar-limite`, { method: 'POST', headers: H });
+    const f57FLimB2 = await fetch(`${base}/${PED}/${f57LimB}/fechar`, { method: 'POST', headers: H });
+    const f57LimBRow = (await pgF57.query(`SELECT operador_ult_lib_valor_max, fechado FROM pedidocompra WHERE codpedcomp=$1`, [f57LimB])).rows[0] as any;
+    // M1: reabrir rearma (flag→NULL) → fechar volta a barrar.
+    const f57ReabB = await fetch(`${base}/${PED}/${f57LimB}/reabrir`, { method: 'POST', headers: H });
+    const f57LimBRow2 = (await pgF57.query(`SELECT operador_ult_lib_valor_max FROM pedidocompra WHERE codpedcomp=$1`, [f57LimB])).rows[0] as any;
+    const f57FLimB3 = await fetch(`${base}/${PED}/${f57LimB}/fechar`, { method: 'POST', headers: H });
+    const f57FLimB3J = (await f57FLimB3.json().catch(() => ({}))) as any;
+    check('FINAL: limite semanal (100) — A(60) fecha; B(120) → 422; liberar → fecha; M1: reabrir rearma (flag NULL) → fechar → 422 de novo',
+      f57FLimA.status === 200 && f57FLimB.status === 422 && f57FLimBJ.code === 'PEDIDO_LIMITE_EXCEDIDO'
+      && f57Lib.status === 200 && f57FLimB2.status === 200 && Number(f57LimBRow?.operador_ult_lib_valor_max) === 7 && f57LimBRow?.fechado === 'S'
+      && f57ReabB.status === 200 && f57LimBRow2?.operador_ult_lib_valor_max == null
+      && f57FLimB3.status === 422 && f57FLimB3J.code === 'PEDIDO_LIMITE_EXCEDIDO',
+      { A: f57FLimA.status, B: f57FLimB.status, lib: f57Lib.status, B2: f57FLimB2.status, reab: f57ReabB.status, flag2: f57LimBRow2?.operador_ult_lib_valor_max, B3: [f57FLimB3.status, f57FLimB3J.code] });
+
+    // 57.3b) A1: pedido com CDs mas SEM gerar-parcelas — o fechar PROJETA o fluxo das CDs (não é burlável não
+    // gerando parcelas). Semana ISOLADA (out/11-17), limite 50, total 60 → 422.
+    await pgF57.query(`UPDATE configuracoes SET valor='50' WHERE codigo='VALOR_MAXIMO_SEMANAL_PC'`);
+    const f57ProjR = await crPed({ codparceiro: 22, data: '2026-10-01', data_faturamento: '2026-10-14', cd1: 1, pc_nronf_cruzamento: 'PROJ', itens: [{ idproduto: 1, fatorembalagem: 6, vrcusto: 10 }] });
+    const f57ProjId = Number(((await f57ProjR.json().catch(() => ({}))) as any).codpedcomp);
+    const f57FProj = await fetch(`${base}/${PED}/${f57ProjId}/fechar`, { method: 'POST', headers: H }); // SEM gerar-parcelas
+    const f57FProjJ = (await f57FProj.json().catch(() => ({}))) as any;
+    await pgF57.query(`UPDATE configuracoes SET valor='0' WHERE codigo='VALOR_MAXIMO_SEMANAL_PC'`);
+    check('FINAL A1: pedido com CDs mas SEM parcelas geradas → fechar PROJETA o fluxo → 422 (limite não burlável)',
+      f57FProj.status === 422 && f57FProjJ.code === 'PEDIDO_LIMITE_EXCEDIDO',
+      { status: f57FProj.status, code: f57FProjJ.code });
+
+    // 57.4) DUPLICAR: novo rascunho com itens clonados, sem parcelas, data de hoje.
+    const f57Dup = await fetch(`${base}/${PED}/${f57PF1Id}/duplicar`, { method: 'POST', headers: H });
+    const f57DupJ = (await f57Dup.json().catch(() => ({}))) as any;
+    const f57DupRead = (await (await fetch(`${base}/${PED}/${Number(f57DupJ.codpedcomp)}`, { headers: H })).json()) as any;
+    check('FINAL: duplicar → novo rascunho (fechado=N, bonificacao=N), itens clonados, sem parcelas',
+      f57Dup.status === 200 && Number(f57DupJ.codpedcomp) !== f57PF1Id && f57DupRead.fechado === 'N' && (f57DupRead.bonificacao ?? 'N') === 'N'
+      && (f57DupRead.itens ?? []).length === 1 && Number(f57DupRead.itens[0].idproduto) === 1 && (f57DupRead.parcelas ?? []).length === 0,
+      { status: f57Dup.status, novo: f57DupJ.codpedcomp, itens: (f57DupRead.itens ?? []).length });
+
+    // 57.5) BONIFICADO: espelho com BONIFICACAO='S', OBS de vínculo e itens 100% bonificados (:7033).
+    const f57Bon = await fetch(`${base}/${PED}/${f57PF1Id}/gerar-bonificado`, { method: 'POST', headers: H });
+    const f57BonJ = (await f57Bon.json().catch(() => ({}))) as any;
+    const f57BonRead = (await (await fetch(`${base}/${PED}/${Number(f57BonJ.codpedcomp)}`, { headers: H })).json()) as any;
+    check('FINAL: gerar-bonificado → espelho BONIFICACAO=S + OBS de vínculo + itens bonificacao=100',
+      f57Bon.status === 200 && f57BonRead.bonificacao === 'S' && String(f57BonRead.obs ?? '').startsWith('BONIFICAÇÃO REFERENTE AO PEDIDO')
+      && Number(f57BonRead.itens?.[0]?.bonificacao) === 100,
+      { status: f57Bon.status, obs: f57BonRead.obs, item: f57BonRead.itens?.[0]?.bonificacao });
+
+    // 57.6) IMPORTAR ITENS (associados por CODFOR): produto 3 associado ao forn 22 + custo do catálogo.
+    await pgF57.query(`UPDATE produtos SET codfor=22 WHERE idproduto=3`);
+    await pgF57.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, ativo, ativo_compra)
+      VALUES (3, 1, 18, 24.3, 'S', 'S') ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=18, ativo_compra='S'`);
+    const f57PImp = await crPed({ codparceiro: 22, data: '2026-07-01', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 5 }] });
+    const f57PImpId = Number(((await f57PImp.json().catch(() => ({}))) as any).codpedcomp);
+    const f57Imp1 = await fetch(`${base}/${PED}/${f57PImpId}/importar-itens`, { method: 'POST', headers: H, body: JSON.stringify({ origem: 'associados' }) });
+    const f57Imp1J = (await f57Imp1.json().catch(() => ({}))) as any;
+    const f57PImpRead = (await (await fetch(`${base}/${PED}/${f57PImpId}`, { headers: H })).json()) as any;
+    const f57It3 = (f57PImpRead.itens ?? []).find((i: any) => Number(i.idproduto) === 3);
+    await pgF57.query(`UPDATE produtos SET codfor=2 WHERE idproduto=3`);
+    check('FINAL: importar-itens (associados) traz o produto do fornecedor com custo do catálogo (18) e não duplica os existentes',
+      f57Imp1.status === 200 && Number(f57Imp1J.importados) >= 1 && !!f57It3 && Number(f57It3.vrcusto) === 18 && Number(f57It3.fatorembalagem) >= 1,
+      { status: f57Imp1.status, f57Imp1J, f57It3 });
+
+    // 57.7) GATES do gravar: condição obrigatória (config) / prazo máx do fornecedor / pendências B.
+    await pgF57.query(`UPDATE configuracoes SET valor='S' WHERE codigo='OBRIGA_INFORMAR_CONDICOES_PAGAMENTO'`);
+    const f57GCond = await crPed({ codparceiro: 22, data: '2026-07-01', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 5 }] });
+    const f57GCondJ = (await f57GCond.json().catch(() => ({}))) as any;
+    await pgF57.query(`UPDATE configuracoes SET valor='N' WHERE codigo='OBRIGA_INFORMAR_CONDICOES_PAGAMENTO'`);
+    await pgF57.query(`UPDATE parceiros SET qtde_dias_maximo_fp_pc=30 WHERE codparceiro=22`);
+    const f57GDias = await crPed({ codparceiro: 22, data: '2026-07-01', cd1: 60, itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 5 }] });
+    const f57GDiasJ = (await f57GDias.json().catch(() => ({}))) as any;
+    await pgF57.query(`UPDATE parceiros SET qtde_dias_maximo_fp_pc=NULL WHERE codparceiro=22`);
+    await pgF57.query(`INSERT INTO areceber (codparceiro, codempresa, dtvenda, dtvenc, valor, quitada, consiliado) VALUES (22, 1, now(), now(), 10, 'N', 'N')`);
+    await pgF57.query(`UPDATE configuracoes SET valor='B' WHERE codigo='AVISA_PENDENCIAS_FORNECEDOR'`);
+    const f57GPend = await crPed({ codparceiro: 22, data: '2026-07-01', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 5 }] });
+    const f57GPendJ = (await f57GPend.json().catch(() => ({}))) as any;
+    await pgF57.query(`UPDATE configuracoes SET valor='N' WHERE codigo='AVISA_PENDENCIAS_FORNECEDOR'`);
+    await pgF57.query(`DELETE FROM areceber WHERE codparceiro=22 AND valor=10 AND quitada='N'`);
+    check('FINAL: gates do gravar — condição obrigatória → 422; prazo 60 > máx 30 do fornecedor → 422; pendências (B) → 422',
+      f57GCond.status === 422 && f57GCondJ.code === 'PEDIDO_SEM_CONDICAO_OBRIGATORIA'
+      && f57GDias.status === 422 && f57GDiasJ.code === 'PEDIDO_PRAZO_EXCEDE_FORNECEDOR'
+      && f57GPend.status === 422 && f57GPendJ.code === 'PEDIDO_FORNECEDOR_PENDENCIAS',
+      { cond: [f57GCond.status, f57GCondJ.code], dias: [f57GDias.status, f57GDiasJ.code], pend: [f57GPend.status, f57GPendJ.code] });
+
+    // 57.8) SITUAÇÃO-NF: classificada no pedido (1031) é carregada à NF de entrada no gerar-nf.
+    const f57PSit = await crPed({ codparceiro: 22, data: '2026-07-01', idsituacao_nf: 1031, itens: [{ idproduto: 1, fatorembalagem: 2, vrcusto: 5 }] });
+    const f57PSitId = Number(((await f57PSit.json().catch(() => ({}))) as any).codpedcomp);
+    await fetch(`${base}/${PED}/${f57PSitId}/fechar`, { method: 'POST', headers: H });
+    const f57GnfSit = await fetch(`${base}/${PED}/${f57PSitId}/gerar-nf`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    const f57GnfSitJ = (await f57GnfSit.json().catch(() => ({}))) as any;
+    const f57NfSitRow = (await pgF57.query(`SELECT idsituacao_nf FROM nf WHERE codnf=$1`, [Number(f57GnfSitJ.codnf)])).rows[0] as any;
+    check('FINAL: situação-NF do pedido (1031) é carregada à NF de entrada no gerar-nf',
+      f57GnfSit.status === 200 && Number(f57NfSitRow?.idsituacao_nf) === 1031,
+      { status: f57GnfSit.status, nf: f57GnfSitJ.codnf, sit: f57NfSitRow?.idsituacao_nf });
+
+    // 57.9) DATAS (ValidaDatas): vencimento/faturamento anteriores à data do pedido → 400 (schema).
+    const f57GData = await crPed({ codparceiro: 22, data: '2026-07-10', dt_vencimento: '2026-07-01', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 5 }] });
+    check('FINAL: dt_vencimento < data do pedido → 400 VALIDACAO (ValidaDatas)', f57GData.status === 400, { status: f57GData.status });
+
+    await pgF57.end();
+
     // 48Q) PRECIFICAÇÃO do ITEM do pedido — o comprador forma o preço (markup/venda/margem/custo-líq/PMZ
     // armazenados no item; reuso do motor no front). Aqui só o round-trip da persistência (2º detalhe).
     // vrvenda (PRATICADO=15,90) ≠ vrvendasug (SUGERIDO=16,50) — no legado são campos distintos. margeml2 (%) + margeml2v (R$).
