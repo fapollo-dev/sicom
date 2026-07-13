@@ -10,17 +10,13 @@
  */
 import { isErroResposta, type CepResposta, type ErroResposta } from '@apollo/shared';
 
+import { apiHeaders, handle401 } from '../../shared/auth/session';
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
-const HEADERS = {
-  'content-type': 'application/json',
-  'x-tenant-id': 'pinheirao',
-  'x-operador-id': '7',
-  'x-empresa-id': '1',
-};
 
 /** Mesma semântica do `req` do resourceApi (envelope ErroResposta — ADR-015). */
 async function req<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { headers: HEADERS });
+  const res = await fetch(`${BASE}${path}`, { headers: apiHeaders() });
+  handle401(res);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     const envelope: ErroResposta = isErroResposta(body)

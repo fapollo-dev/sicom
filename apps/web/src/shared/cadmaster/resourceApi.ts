@@ -1,13 +1,8 @@
 /** Cliente CRUD genérico por recurso (substitui os api.ts duplicados por feature). */
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 
+import { apiHeaders, handle401 } from '../auth/session';
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
-const HEADERS = {
-  'content-type': 'application/json',
-  'x-tenant-id': 'pinheirao',
-  'x-operador-id': '7',
-  'x-empresa-id': '1',
-};
 
 /** Error lançado por `req` no !ok, carregando o envelope padrão (ADR-015). */
 export interface ErroRequisicao extends Error {
@@ -20,7 +15,8 @@ export interface ErroRequisicao extends Error {
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { ...init, headers: HEADERS });
+  const res = await fetch(`${BASE}${path}`, { ...init, headers: apiHeaders() });
+  handle401(res);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     // envelope: usa o body se já for o contrato padrão; senão sintetiza um (ADR-015)

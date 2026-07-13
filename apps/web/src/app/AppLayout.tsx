@@ -1,6 +1,7 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AppShell } from '@apollosg/design-system';
 import { ShortcutScope } from '../shared/keyboard';
+import { useAuth } from '../features/auth/AuthContext';
 import {
   Landmark,
   Tags,
@@ -66,7 +67,16 @@ const TELAS = [
 export function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { sessao, sair } = useAuth();
   const atual = TELAS.find((t) => t.href === location.pathname);
+
+  // usuário REAL da sessão (corte-3b) — substitui o "Operador" decorativo.
+  const nome = sessao?.operador?.nome ?? sessao?.operador?.login ?? 'Operador';
+  const iniciais = nome.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? '').join('') || 'OP';
+  const user = { name: nome, email: sessao?.operador?.login ?? '', initials: iniciais };
+  const onLogout = () => {
+    void sair().finally(() => navigate('/login', { replace: true }));
+  };
 
   return (
     <AppShell
@@ -83,7 +93,8 @@ export function AppLayout() {
         if (item.href) navigate(item.href);
       }}
       breadcrumb={[{ label: 'Apollo ERP' }, { label: atual?.name ?? 'Cadastro' }]}
-      user={{ name: 'Operador', email: 'operador@apollosg.com.br', initials: 'OP' }}
+      user={user}
+      onLogout={onLogout}
     >
       {/* Scope de atalhos BASE (ADR-010): telas customizadas (DRE, Plano de Contas, Caixa) usam
           Button/DateField/etc. via useMnemonic, que exige um <ShortcutScope>. O <CadMaster> provê o

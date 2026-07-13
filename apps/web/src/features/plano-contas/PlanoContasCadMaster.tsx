@@ -5,6 +5,7 @@ import {
   PC_CLASSE_OPCOES, PC_NATUREZA_OPCOES, type PlanoConta,
 } from '@apollo/shared';
 import { createResourceApi } from '../../shared/cadmaster/resourceApi';
+import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
@@ -12,12 +13,15 @@ import { useMensagem } from '../../shared/mensagem';
 import type { Opcao } from '../../shared/cadmaster/useResourceOptions';
 
 const api = createResourceApi<PlanoConta>('cadastro/plano-contas');
-const statusApi = (id: number, status: 'A' | 'I') =>
-  fetch(`${import.meta.env.VITE_API_URL ?? 'http://localhost:3000'}/cadastro/plano-contas/${id}/status`, {
+const statusApi = async (id: number, status: 'A' | 'I') => {
+  const res = await fetch(`${import.meta.env.VITE_API_URL ?? 'http://localhost:3000'}/cadastro/plano-contas/${id}/status`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-tenant-id': 'pinheirao', 'x-operador-id': '7', 'x-empresa-id': '1' },
+    headers: apiHeaders(),
     body: JSON.stringify({ status }),
   });
+  handle401(res);
+  return res;
+};
 
 const natLabel = (n?: number) => PC_NATUREZA_OPCOES.find((o) => o.value === n)?.label ?? (n != null ? String(n) : '');
 

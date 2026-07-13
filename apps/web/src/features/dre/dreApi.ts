@@ -1,13 +1,8 @@
 /** Fetcher do relatório DRE (leitura/agregação). Envia os headers de tenant; devolve as linhas calculadas. */
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 
+import { apiHeaders, handle401 } from '../../shared/auth/session';
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
-const HEADERS = {
-  'content-type': 'application/json',
-  'x-tenant-id': 'pinheirao',
-  'x-operador-id': '7',
-  'x-empresa-id': '1',
-};
 
 export interface LinhaDre {
   codestrutura: number;
@@ -24,7 +19,8 @@ export async function calcularDre(dataInicio?: string, dataFim?: string): Promis
   const qs = new URLSearchParams();
   if (dataInicio) qs.set('dataInicio', dataInicio);
   if (dataFim) qs.set('dataFim', dataFim);
-  const res = await fetch(`${BASE}/cadastro/dre${qs.toString() ? `?${qs}` : ''}`, { headers: HEADERS });
+  const res = await fetch(`${BASE}/cadastro/dre${qs.toString() ? `?${qs}` : ''}`, { headers: apiHeaders() });
+  handle401(res);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     const envelope: ErroResposta = isErroResposta(body)

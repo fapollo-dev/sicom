@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { AppLayout } from '../src/app/AppLayout';
+import { AuthProvider } from '../src/features/auth/AuthContext';
 import { useMnemonic } from '../src/shared/keyboard/useMnemonic';
 
 /**
@@ -21,7 +22,18 @@ describe('AppLayout — scope de atalhos base (ADR-010)', () => {
       [{ element: <AppLayout />, children: [{ path: '/', element: <MnemonicProbe /> }] }],
       { initialEntries: ['/'] },
     );
-    expect(() => render(<RouterProvider router={router} />)).not.toThrow();
+    // o AppLayout agora usa useAuth() → precisa do AuthProvider p/ MONTAR de fato. E asserção FORTE (não
+    // `.not.toThrow()`, que o error boundary do RouterProvider tornaria vacuoso): o botão do MnemonicProbe TEM
+    // de estar no DOM — se o ShortcutScope do AppLayout for removido, useMnemonic lança, o boundary mostra o
+    // fallback e o botão SOME → o teste falha (que é o que queremos guardar).
+    const { container } = render(
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>,
+    );
+    // o botão do MnemonicProbe traz o texto "Gerar" (nenhum item de menu tem esse texto). Se o ShortcutScope
+    // sumir, useMnemonic lança, o boundary mostra o fallback e "Gerar" não aparece → o teste falha.
+    expect(container.textContent).toContain('Gerar');
   });
 
   it('sem scope, o mesmo componente lança (garante que o teste acima é significativo)', () => {

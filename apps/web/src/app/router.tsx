@@ -1,5 +1,7 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppLayout } from './AppLayout';
+import { LoginPage } from '../features/auth/LoginPage';
+import { RequireAuth } from '../features/auth/RequireAuth';
 import { BancosCadMaster } from '../features/cadastro-bancos/BancosCadMaster';
 import { MarcasCadMaster } from '../features/marcas/MarcasCadMaster';
 import { BairrosCadMaster } from '../features/bairros/BairrosCadMaster';
@@ -28,8 +30,13 @@ import { MotivosOperacaoCadMaster } from '../features/motivos-operacao/MotivosOp
 // Rotas = telas (uma TForm = uma rota), todas no pilar <CadMaster>/<CadMasterDet>,
 // dentro da casca AppShell (<Outlet>). Consolidado — sem List/Form standalone.
 export const router = createBrowserRouter([
+  { path: '/login', element: <LoginPage /> }, // público (fora da guarda/AppLayout)
   {
-    element: <AppLayout />,
+    element: (
+      <RequireAuth>
+        <AppLayout />
+      </RequireAuth>
+    ),
     children: [
       { path: '/', element: <Navigate to="/cadastro/bancos" replace /> },
       { path: '/cadastro/bancos', element: <BancosCadMaster /> },

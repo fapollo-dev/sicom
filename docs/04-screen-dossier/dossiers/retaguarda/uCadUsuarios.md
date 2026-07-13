@@ -4,7 +4,7 @@
 
 | Campo | Valor |
 |---|---|
-| **Status** | corte-1 (núcleo cadastral, global) ENTREGUE 2026-07-03; **corte-2** (empresas-permitidas + supervisor + trava usuário-sistema, migration 056) ENTREGUE e verde 2026-07-04; **corte-3a** (AUTH backend: login/hash-scrypt/JWT/troca-de-senha/auditoria, migration 070) ENTREGUE e verde 2026-07-13. Recon 3 agentes + auditoria adversarial (2 agentes/corte). Verde corte-3a: shared build · api tsc 0 · api test **136** · smoke **492/0** (11 AUTH) · web tsc 0 · web test 27 · web build. **corte-3b** (front: tela de login/AuthContext/token) = próximo. |
+| **Status** | corte-1 (núcleo cadastral, global) ENTREGUE 2026-07-03; **corte-2** (empresas-permitidas + supervisor + trava usuário-sistema, migration 056) ENTREGUE e verde 2026-07-04; **corte-3a** (AUTH backend: login/hash-scrypt/JWT/troca-de-senha/auditoria, migration 070) ENTREGUE e verde 2026-07-13; **corte-3b** (AUTH front: tela de login/AuthContext/guarda de rota/headers→token) ENTREGUE e verde 2026-07-13. Recon 3 agentes + auditoria adversarial (2 agentes/corte). Verde corte-3b: web tsc 0 · web test **31** · web build ✓ (api/smoke inalterados do 3a: 494/0). |
 | **Autor** | Claude (agente de migração) |
 | **Fontes legadas** | `uCadUsuarios.pas`/`.dfm` (a tela; herda `TfrmCadMasterDetalhe`) · `uRdmCadUsuarios.pas`/`.dfm` (DataModule) · `uCadPerfilOperador.pas` (perfis) · `uCtrlPermissoes.pas` (permissões granulares) · `uTrocarSenhaUsuario.pas` (troca de senha). ⚠️ `UcadOperadoras.pas`→`OPERADORAS` = operadoras de CARTÃO, NÃO usuários. |
 | **Golden** | Oracle PINHEIRAO: OPERADORES 29 col / **157 linhas**; GRUPO_OPERADOR 6 grupos; PERMISSOES 31.877; ponte RELACAO_OPERADOR_EMPRESA (154/157). |
@@ -63,3 +63,49 @@ O núcleo cripto passou LIMPO (JWT sem algorithm-confusion — alg fixo HS256, h
 - **ADIADO (documentado):** rate-limit/throttling + lockout/expiração/histórico de senha (endurecimento além do legado; precisa dep de throttle ou limiter próprio + schema `tentativas/bloqueado`); revogação de token (JWT stateless — TTL 12h; RBAC re-checa a cada request); validação de `x-tenant-id` contra allowlist (evicção/DoS de pool — dívida pré-existente do `DatabaseProvider`); auditoria de falha de login DESCONHECIDO (FK NOT NULL em codoperador).
 
 **Verde pós-fold:** api tsc 0 · api test **138** · smoke **494/0** (13 AUTH) · web tsc 0 · web test 27 · build ✓.
+
+## 6. Corte-3b — AUTENTICAÇÃO (front) — ENTREGUE e verde, 2026-07-13
+Torna o auth VISÍVEL: tela de login + guarda de rota + a identidade real substituindo os headers FIXOS
+(`x-operador-id:7`/`x-empresa-id:1`) que todas as telas mandavam. Front-only (nenhuma mudança no back).
+- **`shared/auth/session.ts`** — singleton NÃO-React da sessão (`{token, operador, empresa, empresas}`) em
+  localStorage (sobrevive a reload) + `apiHeaders()` (Bearer) que os fetchers consomem + `loginHeaders()`
+  (o tenant viaja só no login; depois o JWT o carrega). `subscribeSessao` reativa o React.
+- **`features/auth/`** — `authApi.ts` (login/trocar-senha/me/logout); `AuthContext.tsx` (provider + `useAuth`;
+  só grava sessão no sucesso PLENO — needsEmpresa/mustChange NÃO gravam, a tela conduz); `LoginPage.tsx`
+  (máquina de estados **credenciais → escolher empresa → trocar senha obrigatória → app**; o token `chg`
+  restrito é usado no trocar-senha e a tela re-loga com a senha nova); `RequireAuth.tsx` (sem sessão → `/login`).
+- **Wiring:** `router.tsx` (rota `/login` pública FORA do AppLayout; o AppLayout dentro de `<RequireAuth>`);
+  `providers.tsx` (`<AuthProvider>` envolvendo tudo); `AppLayout.tsx` (user real da sessão + `onLogout` → sair+/login).
+- **Migração dos 15 fetchers** (14 `*Api.ts` + `resourceApi.ts` + o inline do PlanoContas): `headers: HEADERS`
+  (fixos) → `headers: apiHeaders()` (Bearer). Nenhum header fixo restou no app.
+- **Testes** `apps/web/test/auth.spec.ts` (4): apiHeaders vira Bearer após login e limpa no logout; loginHeaders
+  leva o tenant não o Bearer; persistência em localStorage. Web test 27→31.
+
+### Divergências CONSCIENTES / adiados
+- **Tenant fixo por config** (`VITE_TENANT_ID`, default 'pinheirao') — sem seleção de tenant por subdomínio/campo
+  (multi-tenant de login = fase posterior). **JWT em localStorage** — padrão SPA, exposto a XSS (tradeoff aceito;
+  httpOnly cookie = endurecimento futuro). **Sem refresh token** (TTL 12h; ao expirar, re-login).
+- **Dev usa SMOKE/smoke123** (fixture da migration 070) — no cutover real cada operador entra com a senha
+  legada decodificada e troca no 1º acesso.
+
+### Auditoria adversarial (2 agentes: auth-flow/segurança + migração/regressão) — folds aplicados
+Sem bypass de auth nem vazamento de tenant; migração dos 15 fetchers 100% limpa (paths/content-type/sem órfãos,
+build+tsc+testes verdes, grafo de import acíclico). Folds dobrados:
+- **[MÉDIA] 401 / token expirado deixava a app "presa"** — o JWT de 12h vence e nada limpava a sessão stale
+  (`autenticado` seguia true). Fix: `handle401(res)` em TODOS os fetchers (401 c/ sessão → `setSessao(null)` →
+  o `RequireAuth` redireciona ao /login) + revalidação no boot (`apiMe()` no `AuthProvider`; 401 derruba a
+  sessão persistida, erro de rede não desloga).
+- **[MÉDIA] troca-obrigatória travava na falha do re-login** — se o re-login pós-troca falhasse, retentar
+  re-tentava a TROCA com a senha ANTIGA (já inválida) → `SENHA_ATUAL_INVALIDA` eterno. Fix: desacoplado —
+  após a troca OK, volta à etapa credenciais com a senha NOVA; a retentativa vira login normal.
+- **[BAIXA] sessão do localStorage sem validação de shape** → `carregar()` valida token/operador/empresa
+  (formato antigo/corrompido = sem sessão) + `AppLayout` usa `sessao?.operador?.` (evita white-screen).
+- **[BAIXA] deep-link** — o `RequireAuth` guarda `from`; o `LoginPage` agora navega pra lá após o login.
+- **[BAIXA] sync entre abas** — listener de `storage` recarrega a sessão (logout/login numa aba reflete nas outras).
+- **[BAIXA] XSS de JWT-em-localStorage** anotado como tradeoff; **[nit]** save duplicado removido (o `entrar`
+  já grava; `concluirLogin` eliminado).
+- **[MÉDIA, regressão de TESTE] `appLayoutScope.spec.tsx` virou vacuous** (o AppLayout passou a usar `useAuth`;
+  o error boundary do RouterProvider engolia o throw). Fix: render sob `<AuthProvider>` **+ asserção FORTE**
+  (o botão "Gerar" tem de estar no DOM — `.not.toThrow()` seria vacuoso porque o boundary captura throws da rota).
+
+**Verde pós-fold:** web tsc 0 · web test **31** · web build ✓ (api/smoke inalterados: 494/0).

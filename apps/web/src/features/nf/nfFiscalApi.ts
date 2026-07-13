@@ -7,16 +7,12 @@
  */
 import { isErroResposta, type ErroResposta, type CriarNfDto } from '@apollo/shared';
 
+import { apiHeaders, handle401 } from '../../shared/auth/session';
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
-const HEADERS = {
-  'content-type': 'application/json',
-  'x-tenant-id': 'pinheirao',
-  'x-operador-id': '7',
-  'x-empresa-id': '1',
-};
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { ...init, headers: HEADERS });
+  const res = await fetch(`${BASE}${path}`, { ...init, headers: apiHeaders() });
+  handle401(res);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     const envelope: ErroResposta = isErroResposta(body)
