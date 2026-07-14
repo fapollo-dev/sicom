@@ -322,6 +322,7 @@ const CODE_PT: Record<string, string> = {
   NAO_AUTENTICADO: 'Autenticação necessária. Faça login novamente.',
   CREDENCIAIS_INVALIDAS: 'Usuário ou senha inválidos.',
   OPERADOR_DESABILITADO: 'Usuário desabilitado — contate o administrador.',
+  OPERADOR_BLOQUEADO: 'Usuário temporariamente bloqueado por excesso de tentativas. Tente novamente mais tarde.',
   OPERADOR_SEM_EMPRESA: 'Usuário sem acesso à empresa selecionada — contate o administrador.',
   SENHA_ATUAL_INVALIDA: 'A senha atual está incorreta.',
   SENHA_TROCA_OBRIGATORIA: 'É obrigatório trocar a senha antes de continuar.',

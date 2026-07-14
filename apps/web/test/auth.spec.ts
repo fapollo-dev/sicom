@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { apiHeaders, loginHeaders, getToken, getSessao, setSessao, TENANT } from '../src/shared/auth/session';
+import { apiHeaders, loginHeaders, getToken, getSessao, setSessao, tokenExpirado, TENANT } from '../src/shared/auth/session';
+
+/** JWT de teste (só o payload importa p/ tokenExpirado — assinatura irrelevante no cliente). */
+function jwtCom(exp: number): string {
+  const b64 = (o: unknown) => btoa(JSON.stringify(o)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64({ sub: 7, exp })}.sig`;
+}
 
 /** OPERADORES corte-3b — contrato do store de sessão que os fetchers consomem. */
 
@@ -21,6 +27,14 @@ describe('session / apiHeaders', () => {
     expect(apiHeaders({ 'x-foo': 'bar' })['x-foo']).toBe('bar'); // extras preservados
     setSessao(null);
     expect(apiHeaders().authorization).toBeUndefined();
+  });
+
+  it('tokenExpirado (corte-3c): expirado/ilegível → true; futuro → false', () => {
+    expect(tokenExpirado(jwtCom(Math.floor(Date.now() / 1000) + 3600))).toBe(false); // +1h
+    expect(tokenExpirado(jwtCom(Math.floor(Date.now() / 1000) - 10))).toBe(true); // já venceu
+    expect(tokenExpirado('lixo')).toBe(true);
+    expect(tokenExpirado(null)).toBe(true);
+    expect(tokenExpirado('')).toBe(true);
   });
 
   it('loginHeaders leva o tenant (seletor do banco), NÃO o Bearer', () => {

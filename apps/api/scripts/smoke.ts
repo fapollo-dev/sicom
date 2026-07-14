@@ -3511,6 +3511,38 @@ async function main() {
     check('AUTH: rota protegida sem operador (só tenant) → 401 NAO_AUTENTICADO (fold M1 fecha leitura anônima)',
       semOpR.status === 401, { status: semOpR.status });
 
+    // ===== §72) corte-3c — ENDURECIMENTO: lockout por tentativas + auditoria de login DESCONHECIDO =====
+    // 72.1) LOCKOUT (op 92 LOCKTEST): max=3 → 3 falhas bloqueiam; login CORRETO durante o bloqueio → 403.
+    await pgAuth.query(`UPDATE configuracoes SET valor='3' WHERE codigo='AUTH_MAX_TENTATIVAS_LOGIN'`);
+    const l72f1 = await authPost('login', { login: 'LOCKTEST', senha: 'errada', empresa: 1 });
+    const l72f2 = await authPost('login', { login: 'LOCKTEST', senha: 'errada', empresa: 1 });
+    const l72f3 = await authPost('login', { login: 'LOCKTEST', senha: 'errada', empresa: 1 });
+    const l72LockRow = (await pgAuth.query(`SELECT tentativas_login, bloqueado_ate FROM operadores WHERE codoperador=92`)).rows[0] as any;
+    const l72Locked = await authPost('login', { login: 'LOCKTEST', senha: 'smoke123', empresa: 1 }); // senha CERTA, mas bloqueado
+    check('AUTH 3c: 3 falhas bloqueiam o operador; login correto durante o bloqueio → 403 OPERADOR_BLOQUEADO',
+      l72f1.status === 401 && l72f2.status === 401 && l72f3.status === 401
+      && Number(l72LockRow?.tentativas_login) === 3 && l72LockRow?.bloqueado_ate != null
+      && l72Locked.status === 403 && l72Locked.json.code === 'OPERADOR_BLOQUEADO',
+      { fails: [l72f1.status, l72f2.status, l72f3.status], row: l72LockRow, locked: [l72Locked.status, l72Locked.json.code] });
+
+    // 72.2) RESET: desbloqueia; 2 falhas (t=2, sem lock); login correto → 200 + contador ZERADO.
+    await pgAuth.query(`UPDATE operadores SET bloqueado_ate=NULL, tentativas_login=0 WHERE codoperador=92`);
+    await authPost('login', { login: 'LOCKTEST', senha: 'errada', empresa: 1 });
+    await authPost('login', { login: 'LOCKTEST', senha: 'errada', empresa: 1 });
+    const l72Ok = await authPost('login', { login: 'LOCKTEST', senha: 'smoke123', empresa: 1 });
+    const l72ResetRow = (await pgAuth.query(`SELECT tentativas_login, bloqueado_ate FROM operadores WHERE codoperador=92`)).rows[0] as any;
+    await pgAuth.query(`UPDATE configuracoes SET valor='5' WHERE codigo='AUTH_MAX_TENTATIVAS_LOGIN'`);
+    check('AUTH 3c: login correto ZERA o contador de tentativas (t=2 → 0) e não bloqueia',
+      l72Ok.status === 200 && typeof l72Ok.json.token === 'string' && Number(l72ResetRow?.tentativas_login) === 0 && l72ResetRow?.bloqueado_ate == null,
+      { ok: l72Ok.status, row: l72ResetRow });
+
+    // 72.3) AUDITORIA de login DESCONHECIDO (o 3a não auditava): grava LOGON_FAIL com login_tentativa + codoperador NULL.
+    const l72Unk = await authPost('login', { login: 'NAOEXISTE123', senha: 'x', empresa: 1 });
+    const l72UnkRow = (await pgAuth.query(`SELECT codoperador, login_tentativa FROM operadores_acessos WHERE tipo='LOGON_FAIL' AND login_tentativa='NAOEXISTE123'`)).rows[0] as any;
+    check('AUTH 3c: login desconhecido → 401 + auditoria LOGON_FAIL (login_tentativa gravado, codoperador NULL)',
+      l72Unk.status === 401 && l72Unk.json.code === 'CREDENCIAIS_INVALIDAS' && !!l72UnkRow && l72UnkRow.codoperador == null && l72UnkRow.login_tentativa === 'NAOEXISTE123',
+      { status: l72Unk.status, row: l72UnkRow });
+
     await pgAuth.end();
   } finally {
     await app.close();

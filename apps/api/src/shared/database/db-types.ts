@@ -482,17 +482,21 @@ export interface OperadoresTable {
   dtcadastro: Timestamptz | null;
   // 070 (auth): hash scrypt da senha (substitui a cifra reversível do legado).
   senha_hash: string | null;
+  // 071 (hardening): lockout por tentativas (endurecimento além do legado).
+  tentativas_login: Generated<number | null>;
+  bloqueado_ate: Timestamptz | null;
 }
-/** OPERADORES_ACESSOS (070) — auditoria de login (LOGON/LOGOFF), fiel ao legado (sem falhas). */
+/** OPERADORES_ACESSOS (070/071) — auditoria de login (LOGON/LOGOFF/LOGON_FAIL); codoperador NULL = login desconhecido. */
 export interface OperadoresAcessosTable {
   id: Generated<number>;
-  codoperador: number;
+  codoperador: number | null; // NULL em LOGON_FAIL de login inexistente (071)
   codempresa: number | null;
   dtacesso: Generated<Timestamptz>;
   ip: string | null;
   nomecomputador: string | null;
   executavel: Generated<string | null>; // DEFAULT 'WEB' — o service pode omitir
   versao: string | null;
+  login_tentativa: string | null; // o LOGIN digitado quando o operador não existe (071)
   tipo: string; // 'LOGON' | 'LOGOFF' | 'LOGON_FAIL'
 }
 /** GRUPO_OPERADOR (051) — perfil/categoria do operador (6 grupos do legado). */

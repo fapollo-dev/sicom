@@ -57,6 +57,22 @@ export function getSessao(): Sessao | null {
 export function getToken(): string | null {
   return atual?.token ?? null;
 }
+
+/**
+ * corte-3c — checa o `exp` do JWT no CLIENTE (sem verificar assinatura — só o payload) para expirar a sessão
+ * PROATIVAMENTE no boot, em vez de esperar o 1º 401. Token ilegível/sem exp → tratado como expirado.
+ */
+export function tokenExpirado(token: string | null | undefined): boolean {
+  if (!token) return true;
+  try {
+    const [, body] = token.split('.');
+    if (!body) return true;
+    const payload = JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/'))) as { exp?: number };
+    return typeof payload.exp !== 'number' || payload.exp * 1000 <= Date.now();
+  } catch {
+    return true;
+  }
+}
 export function setSessao(s: Sessao | null): void {
   atual = s;
   try {

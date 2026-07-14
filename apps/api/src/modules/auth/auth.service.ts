@@ -36,30 +36,71 @@ export class AuthService {
     return Math.floor(Date.now() / 1000);
   }
 
+  /** lê um número de config GLOBAL (valor-base; o login é pré-empresa, sem override). Fallback no default. */
+  private async cfgNum(db: AnyDB, codigo: string, def: number): Promise<number> {
+    const r = (await db.selectFrom('configuracoes').select('valor').where('codigo', '=', codigo).executeTakeFirst()) as { valor?: unknown } | undefined;
+    const n = r?.valor != null ? Number(String(r.valor).replace(',', '.')) : NaN;
+    return Number.isFinite(n) ? n : def;
+  }
+
   async login(dto: LoginDto, meta: AcessoMeta = {}): Promise<LoginResposta> {
     const tenant = this.tenant();
     const db = this.dbp.forTenant() as AnyDB;
 
     const op = (await db
       .selectFrom('operadores')
-      .select(['codoperador', 'nome', 'login', 'desabilitado', 'senha_hash', 'solicitar_alteracao_senha'])
+      .select(['codoperador', 'nome', 'login', 'desabilitado', 'senha_hash', 'solicitar_alteracao_senha', 'tentativas_login', 'bloqueado_ate'])
       .where(sql`upper(login)`, '=', dto.login.toUpperCase())
       .where(sql`coalesce(indr,'I')`, '<>', 'E')
       .executeTakeFirst()) as
-      | { codoperador: number; nome: string | null; login: string | null; desabilitado: string | null; senha_hash: string | null; solicitar_alteracao_senha: string | null }
+      | { codoperador: number; nome: string | null; login: string | null; desabilitado: string | null; senha_hash: string | null; solicitar_alteracao_senha: string | null; tentativas_login: number | null; bloqueado_ate: unknown }
       | undefined;
+
+    // corte-3c — LOCKOUT (endurecimento além do legado): conta conhecida BLOQUEADA recusa antes da senha. Se a
+    // janela expirou, recomeça do zero. (Enumeração mínima consciente: revela que a conta existe+bloqueou — é
+    // inerente ao lockout; padrão de UX de ERP interno.)
+    if (op?.bloqueado_ate) {
+      const ate = new Date(op.bloqueado_ate as string | number | Date).getTime();
+      if (ate > Date.now()) {
+        throw new ForbiddenActionError('OPERADOR_BLOQUEADO', { minutos: Math.max(1, Math.ceil((ate - Date.now()) / 60000)) });
+      }
+      await db.updateTable('operadores').set({ tentativas_login: 0, bloqueado_ate: null }).where('codoperador', '=', op.codoperador).execute();
+      op.tentativas_login = 0;
+      op.bloqueado_ate = null;
+    }
 
     // fold B1: verifica SEMPRE um scrypt (contra o hash real OU o dummy) → tempo constante, sem oráculo de
     // existência de usuário. Credenciais inválidas (inexistente / senha errada / sem hash) → MESMA resposta.
     const senhaOk = verificarSenha(dto.senha, op?.senha_hash ?? DUMMY_HASH);
     if (!op || !senhaOk) {
-      // fold M3: audita a FALHA de um login CONHECIDO (sinal de brute-force contra a conta; trilha que o
-      // legado não tinha). Login desconhecido não é auditável (codoperador tem FK NOT NULL) — limitação anotada.
       if (op) {
+        // corte-3c: conta a falha e BLOQUEIA ao exceder o limite (config global). Auditoria LOGON_FAIL (conta conhecida).
+        const max = await this.cfgNum(db, 'AUTH_MAX_TENTATIVAS_LOGIN', 5);
+        const upd = (await db
+          .updateTable('operadores')
+          .set({ tentativas_login: sql`coalesce(tentativas_login,0) + 1` })
+          .where('codoperador', '=', op.codoperador)
+          .returning('tentativas_login')
+          .executeTakeFirst()) as { tentativas_login?: number } | undefined;
+        if (max > 0 && Number(upd?.tentativas_login ?? 0) >= max) {
+          const bloqMin = await this.cfgNum(db, 'AUTH_BLOQUEIO_LOGIN_MINUTOS', 15);
+          // secs (double) tolera config fracionária; make_interval(mins=>n) exigiria inteiro (fold #7).
+          await db.updateTable('operadores').set({ bloqueado_ate: sql`now() + make_interval(secs => ${bloqMin * 60})` }).where('codoperador', '=', op.codoperador).execute();
+        }
         await db.insertInto('operadores_acessos').values({ codoperador: op.codoperador, ip: meta.ip ?? null, nomecomputador: meta.nomecomputador ?? null, versao: meta.versao ?? null, tipo: 'LOGON_FAIL' }).execute();
+      } else {
+        // corte-3c: login DESCONHECIDO agora É auditado (codoperador nullable + login_tentativa) — a limitação do 3a.
+        // slice(0,50) defensivo (o schema já limita a 50; belt-and-suspenders contra flood do log — fold #1).
+        await db.insertInto('operadores_acessos').values({ codoperador: null, login_tentativa: dto.login.slice(0, 50), ip: meta.ip ?? null, nomecomputador: meta.nomecomputador ?? null, versao: meta.versao ?? null, tipo: 'LOGON_FAIL' }).execute();
       }
       throw new UnauthenticatedError('CREDENCIAIS_INVALIDAS');
     }
+
+    // senha correta → zera o contador / desbloqueia (corte-3c).
+    if (Number(op.tentativas_login ?? 0) !== 0 || op.bloqueado_ate != null) {
+      await db.updateTable('operadores').set({ tentativas_login: 0, bloqueado_ate: null }).where('codoperador', '=', op.codoperador).execute();
+    }
+
     if (op.desabilitado === 'S') throw new ForbiddenActionError('OPERADOR_DESABILITADO', { codoperador: op.codoperador });
 
     // empresas-permitidas (RELACAO_OPERADOR_EMPRESA + nome da empresa).

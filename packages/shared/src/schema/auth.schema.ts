@@ -10,8 +10,10 @@ import { z } from 'zod';
  */
 
 export const loginSchema = z.object({
-  login: z.string().trim().min(1, 'Informe o usuário.'),
-  senha: z.string().min(1, 'Informe a senha.'),
+  // .max(50) espelha o cadastro (operador.schema) — sem isso um login gigante inflaria o log de auditoria de
+  // falha (login_tentativa) sob body-limit de 5 MB (storage-DoS). Rejeitado no pipe antes de tocar o serviço.
+  login: z.string().trim().min(1, 'Informe o usuário.').max(50, 'Usuário inválido.'),
+  senha: z.string().min(1, 'Informe a senha.').max(200, 'Senha inválida.'),
   empresa: z.coerce.number().int().positive().optional(),
 });
 export type LoginDto = z.infer<typeof loginSchema>;

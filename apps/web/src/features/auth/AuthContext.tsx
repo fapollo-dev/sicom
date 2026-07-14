@@ -5,7 +5,7 @@
  */
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { LoginDto, LoginResposta } from '@apollo/shared';
-import { getSessao, setSessao, subscribeSessao, type Sessao } from '../../shared/auth/session';
+import { getSessao, setSessao, subscribeSessao, tokenExpirado, type Sessao } from '../../shared/auth/session';
 import { apiLogin, apiLogout, apiMe } from './authApi';
 
 interface AuthCtxValue {
@@ -28,13 +28,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [sessao, setSessaoState] = useState<Sessao | null>(getSessao());
   useEffect(() => {
     const unsub = subscribeSessao(() => setSessaoState(getSessao()));
-    // revalida a sessão PERSISTIDA no boot: o token de 12h pode ter expirado (ou o segredo do servidor mudou)
-    // enquanto a aba estava fechada. 401 → derruba a sessão stale (o RequireAuth manda ao /login). Erro de
-    // rede NÃO desloga (sem status 401), pra não expulsar por um blip.
-    if (getSessao()) {
-      apiMe().catch((e: unknown) => {
-        if ((e as { status?: number })?.status === 401) setSessao(null);
-      });
+    // revalida a sessão PERSISTIDA no boot. corte-3c: primeiro o `exp` do JWT no cliente (barato) — expirado →
+    // derruba já, sem bater no servidor. Se ainda válido localmente, o apiMe pega invalidação server-side
+    // (segredo trocado, operador desabilitado): 401 → derruba; erro de rede NÃO desloga (sem status 401).
+    const s = getSessao();
+    if (s) {
+      if (tokenExpirado(s.token)) {
+        setSessao(null);
+      } else {
+        apiMe().catch((e: unknown) => {
+          if ((e as { status?: number })?.status === 401) setSessao(null);
+        });
+      }
     }
     return unsub;
   }, []);

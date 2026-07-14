@@ -4,7 +4,7 @@
 
 | Campo | Valor |
 |---|---|
-| **Status** | corte-1 (núcleo cadastral, global) ENTREGUE 2026-07-03; **corte-2** (empresas-permitidas + supervisor + trava usuário-sistema, migration 056) ENTREGUE e verde 2026-07-04; **corte-3a** (AUTH backend: login/hash-scrypt/JWT/troca-de-senha/auditoria, migration 070) ENTREGUE e verde 2026-07-13; **corte-3b** (AUTH front: tela de login/AuthContext/guarda de rota/headers→token) ENTREGUE e verde 2026-07-13. Recon 3 agentes + auditoria adversarial (2 agentes/corte). Verde corte-3b: web tsc 0 · web test **31** · web build ✓ (api/smoke inalterados do 3a: 494/0). |
+| **Status** | corte-1 (núcleo cadastral, global) ENTREGUE 2026-07-03; **corte-2** (empresas-permitidas + supervisor + trava usuário-sistema, migration 056) ENTREGUE e verde 2026-07-04; **corte-3a** (AUTH backend: login/hash-scrypt/JWT/troca-de-senha/auditoria, migration 070) ENTREGUE e verde 2026-07-13; **corte-3b** (AUTH front: tela de login/AuthContext/guarda de rota/headers→token) ENTREGUE e verde 2026-07-13; **corte-3c** (ENDURECIMENTO: lockout + auditoria de falha desconhecida + expiração no cliente, migration 071) ENTREGUE e verde 2026-07-14. Recon 3 agentes + auditoria adversarial (2 agentes/corte). Verde corte-3c: api tsc 0 · api test **138** · smoke **497/0** (16 AUTH) · web tsc 0 · web test **32** · web build ✓. |
 | **Autor** | Claude (agente de migração) |
 | **Fontes legadas** | `uCadUsuarios.pas`/`.dfm` (a tela; herda `TfrmCadMasterDetalhe`) · `uRdmCadUsuarios.pas`/`.dfm` (DataModule) · `uCadPerfilOperador.pas` (perfis) · `uCtrlPermissoes.pas` (permissões granulares) · `uTrocarSenhaUsuario.pas` (troca de senha). ⚠️ `UcadOperadoras.pas`→`OPERADORAS` = operadoras de CARTÃO, NÃO usuários. |
 | **Golden** | Oracle PINHEIRAO: OPERADORES 29 col / **157 linhas**; GRUPO_OPERADOR 6 grupos; PERMISSOES 31.877; ponte RELACAO_OPERADOR_EMPRESA (154/157). |
@@ -109,3 +109,47 @@ build+tsc+testes verdes, grafo de import acíclico). Folds dobrados:
   (o botão "Gerar" tem de estar no DOM — `.not.toThrow()` seria vacuoso porque o boundary captura throws da rota).
 
 **Verde pós-fold:** web tsc 0 · web test **31** · web build ✓ (api/smoke inalterados: 494/0).
+
+## 7. Corte-3c — ENDURECIMENTO de segurança do login — ENTREGUE e verde, 2026-07-14
+Fecha a lacuna que a auditoria do 3a adiou (M3). **DIVERGÊNCIA CONSCIENTE do legado:** o retaguarda NÃO tem
+lockout, contador de tentativas, expiração nem auditoria de FALHA — isto é HARDENING, não cópia fiel (sem golden).
+- **`operadores.tentativas_login` + `bloqueado_ate`** (migration 071) — LOCKOUT por tentativas no BANCO (cross-
+  instância). Falha conta (incremento atômico `coalesce(tentativas_login,0)+1`); ao exceder `AUTH_MAX_TENTATIVAS_LOGIN`
+  → `bloqueado_ate = now()+AUTH_BLOQUEIO_LOGIN_MINUTOS`; login durante o bloqueio → **403 OPERADOR_BLOQUEADO**
+  (antes da senha); login correto ZERA o contador; janela expirada recomeça do zero. Config GLOBAL (o login é
+  pré-empresa — lida como valor-base, sem override; 0 = desliga).
+- **Auditoria de login DESCONHECIDO** — `operadores_acessos.codoperador` virou NULLABLE + `login_tentativa`;
+  a falha de um login inexistente agora grava LOGON_FAIL (a limitação anotada no 3a). A SENHA tentada NUNCA é gravada.
+- **Expiração no CLIENTE** (`tokenExpirado` em session.ts) — o boot decodifica o `exp` do JWT (sem verificar
+  assinatura, só UX) e derruba a sessão expirada ANTES de bater no servidor; se válido, o `apiMe` ainda pega a
+  invalidação server-side.
+- **Smoke §72** (3): lockout (3 falhas → 403 durante o bloqueio, senha certa não entra) · reset (login correto
+  zera o contador) · auditoria de desconhecido (login_tentativa + codoperador NULL). `auth.spec.ts` +1 (tokenExpirado).
+
+### Tradeoffs CONSCIENTES (lockout)
+- **DoS auto-infligido** — um atacante pode bloquear a conta de uma vítima só errando a senha dela (tradeoff
+  clássico de lockout); a janela curta (15 min) limita o dano. **Enumeração** — a conta bloqueada revela que
+  existe (inerente ao lockout; UX de ERP interno). **Rate-limit por IP** (bloqueia brute-force distribuído/
+  desconhecido) fica adiado (precisa store compartilhado tipo Redis para a frota; o lockout DB é por-operador).
+
+### Auditoria adversarial (lockout) — folds + limitações documentadas
+Lógica central APROVADA (ordem checagem→senha, incremento atômico, reset, migração idempotente, `tokenExpirado`
+correto). Folds dobrados:
+- **[MÉDIA] `login_tentativa` sem limite → storage-DoS** — `loginSchema.login` ganhou `.max(50)` (espelha o
+  cadastro; um login de 5 MB era gravado inteiro no log de falha) + `slice(0,50)` defensivo no insert. `senha` `.max(200)`.
+- **[BAIXA] `make_interval(mins => n)`** exigia inteiro → trocado por `secs => n*60` (tolera config fracionária).
+
+**Limitações CONSCIENTES (remédio real = rate-limiting por IP, fast-follow — precisa de store compartilhado
+tipo Redis para a frota; adiado):**
+- **[MÉDIA] burst concorrente** — o check-then-act do bloqueio (SELECT do topo vs 2º UPDATE) deixa um lote de
+  requests em voo consumir > `max` palpites numa janela (o incremento em si é atômico; o bloqueio eventual
+  dispara). `scryptSync` serializa o event loop (~10/s) e o lockout ainda fecha — amplificação limitada. Fecha
+  de vez com rate-limit ou `SELECT FOR UPDATE` no login.
+- **[MÉDIA] DoS auto-infligido** — errar a senha da vítima trava a conta dela; re-trava ao expirar a janela.
+- **[BAIXA] enumeração** — conta bloqueada responde 403+minutos (rápido) vs 401 lento (inexistente) → oráculo
+  de login válido (timing + status). Aceitável em ERP interno.
+- **[BAIXA] `scryptSync` bloqueia o event loop** em todo login (inclui desconhecido, nunca limitado) — flood de
+  logins degrada a API; fecha com rate-limit. **[BAIXA] `needsEmpresa` (senha certa, sem empresa) não gera LOGON**
+  (o re-login com empresa audita); **[info] `me()` não revoga JWT vivo** ao desabilitar/bloquear (stateless, TTL 12h).
+
+**Verde pós-fold:** api tsc 0 · api test **138** · smoke **497/0** (16 AUTH) · web tsc 0 · web test **32** · web build ✓.
