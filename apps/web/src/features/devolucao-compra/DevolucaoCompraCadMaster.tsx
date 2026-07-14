@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
-import { CheckCircle2, RotateCcw, Ban, Trash2, FileOutput } from 'lucide-react';
+import { CheckCircle2, RotateCcw, Ban, Trash2, FileOutput, HandCoins } from 'lucide-react';
 import type { DevolucaoCompra, ItemDisponivelDevolucao, DevolucaoCompraItemDto } from '@apollo/shared';
 import { Button } from '../../shared/ui/Button';
 import { SelectField } from '../../shared/ui/SelectField';
@@ -8,7 +8,7 @@ import { NumberField } from '../../shared/ui/NumberField';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import {
-  listarDevolucoes, criarDevolucao, itensDisponiveis, finalizarDevolucao, reabrirDevolucao, cancelarDevolucao, removerDevolucao, gerarNfDevolucao,
+  listarDevolucoes, criarDevolucao, itensDisponiveis, finalizarDevolucao, reabrirDevolucao, cancelarDevolucao, removerDevolucao, gerarNfDevolucao, faturarDevolucao,
 } from './devolucaoCompraApi';
 
 const n = (v: unknown) => (Number(v) || 0);
@@ -131,6 +131,9 @@ export function DevolucaoCompraCadMaster() {
         if (st === 'DIGITADO') {
           acts.push({ id: 'gerarnf', label: 'Gerar NF', icon: <FileOutput size={16} />, onClick: () => void acao(() => gerarNfDevolucao(id), 'NF de devolução gerada. Processe/fature na tela da NF de saída.') });
           acts.push({ id: 'reabrir', label: 'Reabrir', icon: <RotateCcw size={16} />, onClick: () => void acao(() => reabrirDevolucao(id), 'Devolução reaberta.') });
+        }
+        if (st === 'NOTA_FISCAL_EMITIDA') {
+          acts.push({ id: 'faturar', label: 'Faturar', icon: <HandCoins size={16} />, onClick: () => void acao(() => faturarDevolucao(id), 'Devolução faturada: A Receber gerado contra o fornecedor.') });
         }
         if (st === 'EM_DIGITACAO' || st === 'DIGITADO') {
           acts.push({ id: 'cancelar', label: 'Cancelar', icon: <Ban size={16} />, destructive: true, onClick: () => void acao(() => cancelarDevolucao(id), 'Devolução cancelada.') });

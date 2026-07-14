@@ -47,4 +47,12 @@ export class DevolucaoCompraController {
   gerarNf(@Param('id', ParseIntPipe) id: number) {
     return this.svc.gerarNf(id);
   }
+
+  /** corte-3: fatura a devolução → A RECEBER contra o fornecedor (venc = emissão + config dias; 1 parcela BOLETO). */
+  @Post(':id/faturar')
+  @HttpCode(200)
+  @RequerAcesso('FRMDEVOLUCAOCOMPRA', 'BTNFATURAR')
+  faturarNf(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.faturarNf(id);
+  }
 }

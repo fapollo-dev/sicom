@@ -331,6 +331,7 @@ const CODE_PT: Record<string, string> = {
   DEVOLUCAO_NAO_FINALIZADA: 'Finalize a digitação da devolução antes de gerar a NF.',
   DEVOLUCAO_NF_JA_EMITIDA: 'Esta devolução já tem uma NF de saída gerada.',
   DEVOLUCAO_ORIGEM_CANCELADA: 'Uma das notas de entrada de origem está cancelada — não é possível devolver.',
+  DEVOLUCAO_SEM_NF: 'Gere a NF de devolução antes de faturar.',
   DEPARA_SEM_CODIGO: 'Informe o EAN ou o código do fornecedor para vincular o produto.',
   // autorização / autenticação (OPERADORES corte-3a — auth)
   TENANT_FORBIDDEN: 'Acesso negado: empresa/tenant não autorizado.',

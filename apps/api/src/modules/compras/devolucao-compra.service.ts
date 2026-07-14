@@ -4,12 +4,19 @@ import type { ItemDisponivelDevolucao } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { AggregateEngineService } from '../../shared/crud/aggregate-engine.service';
 import { nfAggregateConfig } from '../cadastro/nf.aggregate';
+import { NfFaturamentoService } from '../cadastro/nf-faturamento.service';
+import { ConfigService } from '../cadastro/config.service';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown): number => {
   const n = typeof v === 'string' ? Number(v) : (v as number);
+  return Number.isFinite(n) ? n : 0;
+};
+const numCfg = (s: string | null | undefined): number => {
+  if (!s) return 0;
+  const n = Number(String(s).replace(',', '.'));
   return Number.isFinite(n) ? n : 0;
 };
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -25,6 +32,8 @@ export class DevolucaoCompraService {
   constructor(
     private readonly dbp: DatabaseProvider,
     private readonly engine: AggregateEngineService,
+    private readonly fat: NfFaturamentoService,
+    private readonly config: ConfigService,
   ) {}
 
   private emp(): number {
@@ -193,6 +202,16 @@ export class DevolucaoCompraService {
     const empRow = (await db.selectFrom('empresas').select('serie_nfe').where('idempresa', '=', emp).executeTakeFirst()) as { serie_nfe?: string } | undefined;
     const serie = (empRow?.serie_nfe ?? '1').trim() || '1';
 
+    // corte-3 — ParceiroZeraImpostosDeICMSSt (uDMCadPedidoDevolucaoCompra.pas:435): fornecedor com
+    // DEVOLUCAO_ZERA_IMPOSTO_ICMSST='S' → zera ICMS-ST (e ICMS, p/ CFOP de ST-retido) + força CST por CFOP de origem.
+    const zeraRow = (await db
+      .selectFrom('parceiros')
+      .select('devolucao_zera_imposto_icmsst')
+      .where('codparceiro', '=', dev.codparceiro)
+      .where('idempresa', '=', emp)
+      .executeTakeFirst()) as { devolucao_zera_imposto_icmsst?: string } | undefined;
+    const zeraIcmsSt = String(zeraRow?.devolucao_zera_imposto_icmsst ?? 'N') === 'S';
+
     // itens + ESPELHO fiscal da entrada (nf_prod) + chave/estado da NF de origem + fallbacks do produto.
     const itens = (await db
       .selectFrom('pedido_devolucao_compra_i as i')
@@ -204,9 +223,14 @@ export class DevolucaoCompraService {
         'i.valor_custo as valor_custo', 'i.cfop as cfop', 'i.unidade as unidade',
         'n.chavenfe as chave_ref',
         sql<string>`case when coalesce(n.cancelada,'N')='S' or coalesce(n.statusnfe,'')='C' then 'S' else 'N' end`.as('origem_cancelada'),
+        'p.cfop as cfop_origem', 'p.bcr as bcr', // CFOP de ENTRADA (p/ ParceiroZera CST) + base reduzida %
         'p.aliquota as p_aliquota', 'p.cst as cst', 'p.icms as icms', 'p.vrbasecalculo as vrbasecalculo',
         'p.vricm as vricm', 'p.vrbasest as vrbasest', 'p.vricmst as vricmst', 'p.ipi as ipi', 'p.vripi as vripi',
         'p.fcp_valor as fcp_valor', 'p.ncm as ncm', 'p.origem_estoque as origem_estoque',
+        // corte-3 (fold): desconto/frete/seguro/outras despesas da entrada (compõem o TOTALNF → valor do A Receber).
+        'p.desconto as desconto', 'p.frete as frete', 'p.seguro as seguro', 'p.vroutrasdesp as vroutrasdesp',
+        // PIS/COFINS de entrada (espelho — corte-3): alíquotas + CST íntegros.
+        'p.pis as pis', 'p.cstpiscofins as cstpiscofins', 'p.aliqpise as aliqpise', 'p.aliqcofinse as aliqcofinse',
         'pr.aliquota as pr_aliquota', 'pr.ncmsh as ncmsh', 'pr.origemprod as origemprod', 'pr.unidade as pr_unidade',
       ])
       .where('i.codpeddevcompra', '=', codpeddevcompra)
@@ -219,13 +243,16 @@ export class DevolucaoCompraService {
 
     // itens da NF de saída — quantidade = qtd_devolvida; fiscal RATEADO da entrada por qtd_devolvida/qtd_entrada.
     const nfItens: Record<string, unknown>[] = [];
+    let totFrete = 0;
+    let totSeguro = 0;
+    let totAcess = 0; // outras despesas acessórias (compõem o header → totalnf)
     let nro = 1;
     for (const it of itens) {
       const qtdDev = num(it.qtd_devolvida);
       const qtdEnt = num(it.qtd_nota_fiscal) || qtdDev;
       const f = qtdEnt > 0 ? qtdDev / qtdEnt : 1; // fator de rateio (espelho fiscal proporcional do legado)
       const rat = (v: unknown) => r2(num(v) * f);
-      nfItens.push({
+      const item: Record<string, unknown> = {
         nroitem: nro++,
         codproduto: it.idproduto,
         quantidade: qtdDev,
@@ -246,9 +273,41 @@ export class DevolucaoCompraService {
         ipi: it.ipi != null ? num(it.ipi) : undefined, // fold: `ipi` é ALÍQUOTA % → ÍNTEGRA (só o valor `vripi` rateia)
         vripi: rat(it.vripi),
         fcp_valor: rat(it.fcp_valor),
+        // corte-3 (fold): desconto/frete/seguro/despesas RATEADOS (compõem o TOTALNF; raros no golden mas afetam o valor).
+        desconto: rat(it.desconto),
+        frete: rat(it.frete),
+        seguro: rat(it.seguro),
+        vroutrasdesp: rat(it.vroutrasdesp),
+        // corte-3: espelho PIS/COFINS de entrada (alíquotas/CST íntegros; ~41-47% dos itens no golden).
+        pis: (it.pis as string) ?? undefined,
+        cstpiscofins: (it.cstpiscofins as string) ?? undefined,
+        aliqpise: it.aliqpise != null ? num(it.aliqpise) : undefined,
+        aliqcofinse: it.aliqcofinse != null ? num(it.aliqcofinse) : undefined,
         geraestoque: 'S',
         movimenta_estoque: 'S',
-      });
+      };
+      // corte-3 — ParceiroZera: por CFOP de ORIGEM (dígitos 2-4). 401/403/405 (ST retido na fonte) → zera ICMS
+      // E ST, CST 060. 101/102 (tributado normal) → zera só ST, CST 000 (redução 0/100) senão 020.
+      if (zeraIcmsSt) {
+        const d3 = String(it.cfop_origem ?? '').slice(1, 4);
+        if (d3 === '401' || d3 === '403' || d3 === '405') {
+          item.icms = 0;
+          item.vrbasecalculo = 0;
+          item.vricm = 0;
+          item.vrbasest = 0;
+          item.vricmst = 0;
+          item.cst = 60;
+        } else if (d3 === '101' || d3 === '102') {
+          item.vrbasest = 0;
+          item.vricmst = 0;
+          const reducao = 100 - num(it.bcr); // BCR = % da base tributada
+          item.cst = reducao === 0 || reducao === 100 ? 0 : 20;
+        }
+      }
+      totFrete += num(item.frete);
+      totSeguro += num(item.seguro);
+      totAcess += num(item.vroutrasdesp);
+      nfItens.push(item);
     }
 
     // refNFe: 1 referência por NF de ENTRADA distinta (codnf_ref + chave_ref da origem).
@@ -272,6 +331,10 @@ export class DevolucaoCompraService {
       cfop: cfopHeader,
       codparceiro: dev.codparceiro,
       cod_ped_dev_compra: codpeddevcompra, // vínculo IN-ROW (atômico + UNIQUE anti-duplo — fold ALTA)
+      // corte-3 (fold): frete/seguro/despesas entram no TOTALNF pelo header (o `derivar` do NF não os soma dos itens).
+      totalfrete: r2(totFrete),
+      totalseguro: r2(totSeguro),
+      totalacessorias: r2(totAcess),
       itens: nfItens,
       referencias, // exigido por validaDevolucao (finalidade='4' → ≥1 documento referenciado)
     };
@@ -311,5 +374,44 @@ export class DevolucaoCompraService {
       .where('idempresa', '=', emp)
       .execute();
     return { codnf, codpeddevcompra };
+  }
+
+  /**
+   * corte-3 — FATURAR a devolução → A RECEBER contra o FORNECEDOR. Vencimento default = DTEMISSAO da NF +
+   * `QUANTIDADE_DIAS_GERAR_BOLETO_DEVOLUCAO` (golden PINHEIRAO: 15); título ÚNICO (1 parcela), BOLETO. Delega
+   * ao F4 (`nf-faturamento.faturar`; tipo='S'→areceber com codparceiro=fornecedor). O operador pode ajustar o
+   * vencimento na tela da NF (o alinhamento ao vencimento da compra original é comportamento de fluxo — divergência
+   * consciente). Requer a NF já gerada (codnf_emitida).
+   */
+  async faturarNf(codpeddevcompra: number): Promise<{ codnf: number; parcelas: number; vencimento: string }> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const dev = (await db
+      .selectFrom('pedido_devolucao_compra')
+      .select(['codnf_emitida'])
+      .where('codpeddevcompra', '=', codpeddevcompra)
+      .where('idempresa', '=', emp)
+      .where(sql`coalesce(indr,'I')`, '<>', 'E')
+      .executeTakeFirst()) as { codnf_emitida?: number | null } | undefined;
+    if (!dev) throw new BusinessRuleError('DEVOLUCAO_NAO_ENCONTRADA', { codpeddevcompra });
+    if (dev.codnf_emitida == null) throw new BusinessRuleError('DEVOLUCAO_SEM_NF', { codpeddevcompra });
+    const codnf = Number(dev.codnf_emitida);
+
+    const nfRow = (await db
+      .selectFrom('nf')
+      .select([sql<string>`to_char(dtemissao::date, 'YYYY-MM-DD')`.as('emissao')])
+      .where('codnf', '=', codnf)
+      .where('idempresa', '=', emp)
+      .executeTakeFirst()) as { emissao?: string } | undefined;
+    // config ausente → 15 (default do legado); '0' é VÁLIDO (boleto à vista) — não usar `|| 15` (engoliria o 0).
+    const cfgRaw = await this.config.resolver('QUANTIDADE_DIAS_GERAR_BOLETO_DEVOLUCAO', { empresaId: emp });
+    const dias = cfgRaw != null && cfgRaw !== '' ? numCfg(cfgRaw) : 15;
+    const base = new Date(`${nfRow?.emissao ?? new Date().toISOString().slice(0, 10)}T00:00:00Z`);
+    base.setUTCDate(base.getUTCDate() + Math.round(dias));
+    const vencimento = base.toISOString().slice(0, 10);
+
+    // tipodoc='BOLETO' (golden do A Receber da devolução); 1 parcela.
+    const r = await this.fat.faturar(codnf, { numParcelas: 1, primeiroVencimento: vencimento, intervaloDias: 0, tipodoc: 'BOLETO' });
+    return { codnf, parcelas: r.parcelas, vencimento };
   }
 }

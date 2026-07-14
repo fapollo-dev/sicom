@@ -269,7 +269,7 @@ export class NfFaturamentoService {
 
   async faturar(
     codnf: number,
-    p: { numParcelas: number; primeiroVencimento: string; intervaloDias: number },
+    p: { numParcelas: number; primeiroVencimento: string; intervaloDias: number; tipodoc?: string },
   ): Promise<{ codnf: number; tabela: 'areceber' | 'apagar'; parcelas: number }> {
     const t = currentTenant();
     const emp = t.empresaId ?? null;
@@ -311,6 +311,7 @@ export class NfFaturamentoService {
           nrodup: p.numParcelas,
           valor: cents / 100,
           txjuros,
+          ...(p.tipodoc ? { tipodoc: p.tipodoc } : {}), // devolução passa 'BOLETO' (golden); F4 manual mantém NULL
         });
       }
 

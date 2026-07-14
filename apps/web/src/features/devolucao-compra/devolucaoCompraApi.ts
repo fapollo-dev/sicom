@@ -82,3 +82,8 @@ export function cancelarDevolucao(id: number): Promise<{ codpeddevcompra: number
 export function gerarNfDevolucao(id: number): Promise<{ codnf: number; codpeddevcompra: number }> {
   return req(`${DEV}/${id}/gerar-nf`, { method: 'POST' });
 }
+
+/** corte-3: fatura a devolução → A Receber contra o fornecedor (venc = emissão + config dias). */
+export function faturarDevolucao(id: number): Promise<{ codnf: number; parcelas: number; vencimento: string }> {
+  return req(`${DEV}/${id}/faturar`, { method: 'POST' });
+}

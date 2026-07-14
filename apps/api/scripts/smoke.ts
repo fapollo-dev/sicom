@@ -3634,6 +3634,33 @@ async function main() {
       && devLink?.status === 'NOTA_FISCAL_EMITIDA' && Number(devLink?.codnf_emitida) === codnfDev
       && d73GnfAgain.status === 422 && d73GnfAgainJ.code === 'DEVOLUCAO_NF_JA_EMITIDA',
       { gnf: [d73Gnf.status, codnfDev], nf: nfHdr, item: nfItm, ref: nfRef, link: devLink, again: [d73GnfAgain.status, d73GnfAgainJ.code] });
+
+    // 73.7) corte-3 — FATURAR (d73Id1 em NOTA_FISCAL_EMITIDA): A Receber contra o fornecedor 22, venc = emissão + 15.
+    const d73Fat = await fetch(`${base}/${DEV}/${d73Id1}/faturar`, { method: 'POST', headers: H });
+    const d73FatJ = (await d73Fat.json().catch(() => ({}))) as any;
+    const d73Ar = (await pgDev.query(`SELECT codparceiro, valor, tipodoc, to_char(dtvenc,'YYYY-MM-DD') AS dtvenc FROM areceber WHERE idnf=$1`, [codnfDev])).rows[0] as any;
+    const d73NfE = (await pgDev.query(`SELECT to_char(dtemissao,'YYYY-MM-DD') AS e, totalnf FROM nf WHERE codnf=$1`, [codnfDev])).rows[0] as any;
+    const d73Exp = (() => { const b = new Date(`${d73NfE?.e}T00:00:00Z`); b.setUTCDate(b.getUTCDate() + 15); return b.toISOString().slice(0, 10); })();
+    check('DEVOLUÇÃO corte-3: faturar → A Receber contra o fornecedor 22 (valor=totalnf, tipodoc BOLETO), venc = emissão + 15 dias',
+      d73Fat.status === 200 && Number(d73Ar?.codparceiro) === 22 && Number(d73Ar?.valor) === Number(d73NfE?.totalnf) && Number(d73Ar?.valor) > 0
+      && d73Ar?.tipodoc === 'BOLETO' && d73Ar?.dtvenc === d73Exp && d73FatJ.vencimento === d73Exp,
+      { fat: d73Fat.status, ar: d73Ar, exp: d73Exp, fatVenc: d73FatJ.vencimento });
+
+    // 73.8) corte-3 — ParceiroZera: fornecedor com DEVOLUCAO_ZERA_IMPOSTO_ICMSST='S' + NF entrada CFOP 1403 (ST)
+    // → a NF de devolução ZERA ICMS+ST e força CST 060.
+    await pgDev.query(`UPDATE parceiros SET devolucao_zera_imposto_icmsst='S' WHERE codparceiro=22 AND idempresa=1`);
+    const zNf = Number((await pgDev.query(`INSERT INTO nf (idempresa,tipo,modelo,serie,dtemissao,dtcontabil,tipoemissao,finalidade,cfop,codparceiro,proc,totalnf,totalprod) VALUES (1,'E',55,'1',now(),now(),'0','1','1403',22,'N',0,0) RETURNING codnf`)).rows[0].codnf);
+    const zIt = Number((await pgDev.query(`INSERT INTO nf_prod (codnf,nroitem,codproduto,quantidade,fatorembal,unidade,vrcusto,cfop,icms,vrbasecalculo,vricm,vrbasest,vricmst,cst) VALUES ($1,1,1,10,1,'UN',5,'1403',18,100,18,150,27,10) RETURNING codnfprod`, [zNf])).rows[0].codnfprod);
+    const zCJ = (await (await crDev({ codparceiro: 22, itens: [{ codnf: zNf, codnfprod: zIt, idproduto: 1, qtd_nota_fiscal: 10, qtd_devolvida: 10, valor_custo: 5, cfop: '5411' }] })).json().catch(() => ({}))) as any;
+    const zId = Number(zCJ.codpeddevcompra ?? zCJ.codigo);
+    await fetch(`${base}/${DEV}/${zId}/finalizar`, { method: 'POST', headers: H });
+    const zGnf = await fetch(`${base}/${DEV}/${zId}/gerar-nf`, { method: 'POST', headers: H });
+    const zGnfJ = (await zGnf.json().catch(() => ({}))) as any;
+    const zNfItem = (await pgDev.query(`SELECT icms, vricm, vrbasest, vricmst, cst FROM nf_prod WHERE codnf=$1 ORDER BY nroitem LIMIT 1`, [Number(zGnfJ.codnf)])).rows[0] as any;
+    await pgDev.query(`UPDATE parceiros SET devolucao_zera_imposto_icmsst=NULL WHERE codparceiro=22 AND idempresa=1`);
+    check('DEVOLUÇÃO corte-3: ParceiroZera (flag S + CFOP origem 1403) → NF de devolução ZERA ICMS+ST e CST=60',
+      zGnf.status === 200 && Number(zNfItem?.icms) === 0 && Number(zNfItem?.vricm) === 0 && Number(zNfItem?.vrbasest) === 0 && Number(zNfItem?.vricmst) === 0 && Number(zNfItem?.cst) === 60,
+      { gnf: zGnf.status, item: zNfItem });
     } finally {
       await pgDev.end();
     }
