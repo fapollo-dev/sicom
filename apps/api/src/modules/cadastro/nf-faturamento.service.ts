@@ -57,6 +57,7 @@ export class NfFaturamentoService {
       .select([
         'codnf', 'tipo', 'nronf', 'cancelada', 'faturada', 'contabilizado', 'codparceiro', 'totalnf', 'dtemissao', 'dtcontabil', 'statusnfe', 'icms_st_apagar',
         'idsituacao_nf', 'total_ret_pis', 'total_ret_cofins', 'total_ret_csll', 'total_ret_ir', 'total_ret_inss', 'total_ret_issqn', 'total_ret_funrural',
+        'perc_aliquota_ret_pis', 'perc_aliquota_ret_cofins', 'perc_aliquota_ret_csll', 'perc_aliquota_ret_ir', 'perc_aliquota_ret_inss', 'perc_aliquota_ret_issqn', 'perc_aliquota_ret_funrural',
       ])
       .where('codnf', '=', codnf)
       .where('idempresa', '=', emp)
@@ -179,6 +180,8 @@ export class NfFaturamentoService {
       codnf: number; tipo: string; nronf?: unknown; codparceiro: number; totalnf: unknown; dtcontabil: unknown; idsituacao_nf?: unknown;
       total_ret_pis?: unknown; total_ret_cofins?: unknown; total_ret_csll?: unknown; total_ret_ir?: unknown;
       total_ret_inss?: unknown; total_ret_issqn?: unknown; total_ret_funrural?: unknown;
+      perc_aliquota_ret_pis?: unknown; perc_aliquota_ret_cofins?: unknown; perc_aliquota_ret_csll?: unknown; perc_aliquota_ret_ir?: unknown;
+      perc_aliquota_ret_inss?: unknown; perc_aliquota_ret_issqn?: unknown; perc_aliquota_ret_funrural?: unknown;
     },
     emp: number,
   ): Promise<number> {
@@ -203,15 +206,17 @@ export class NfFaturamentoService {
       .executeTakeFirst();
 
     const cfg = (codigo: string) => this.config.resolver(codigo, { empresaId: emp });
-    const impostos: Array<{ key: string; valor: number; parceiroCfg?: string; diaCfg: string; aliqCfg?: string; aliqParceiro?: number; orgaoParceiro?: number }> = [
-      { key: 'PIS',      valor: num(nf.total_ret_pis),      parceiroCfg: 'PARCEIRO_RETENCAO_PISCOFINS_CSLL', diaCfg: 'DIA_VENCIMENTO_RET_PIS',      aliqCfg: 'ALIQUOTA_RETENCAO_PIS' },
-      { key: 'COFINS',   valor: num(nf.total_ret_cofins),   parceiroCfg: 'PARCEIRO_RETENCAO_PISCOFINS_CSLL', diaCfg: 'DIA_VENCIMENTO_RET_COFINS',   aliqCfg: 'ALIQUOTA_RETENCAO_COFINS' },
-      { key: 'CSLL',     valor: num(nf.total_ret_csll),     parceiroCfg: 'PARCEIRO_RETENCAO_PISCOFINS_CSLL', diaCfg: 'DIA_VENCIMENTO_RET_CSLL',     aliqCfg: 'ALIQUOTA_RETENCAO_CSLL' },
-      { key: 'INSS',     valor: num(nf.total_ret_inss),     parceiroCfg: 'PARCEIRO_RETENCAO_INSS',           diaCfg: 'DIA_VENCIMENTO_RET_INSS',     aliqCfg: 'ALIQUOTA_RETENCAO_INSS' },
-      { key: 'IR',       valor: num(nf.total_ret_ir),       parceiroCfg: 'PARCEIRO_RETENCAO_IR',             diaCfg: 'DIA_VENCIMENTO_RET_IR',       aliqCfg: 'ALIQUOTA_RETENCAO_IR', aliqParceiro: num(forn?.perc_aliquota_ir) },
-      { key: 'FUNRURAL', valor: num(nf.total_ret_funrural), parceiroCfg: 'PARCEIRO_RETENCAO_FUNRURAL',       diaCfg: 'DIA_VENCIMENTO_RET_FUNRURAL', aliqCfg: 'ALIQUOTA_RETENCAO_FUNRURAL' },
+    // percSnap = alíquota SNAPSHOT gravada no F2 (nf.perc_aliquota_ret_*, resíduo (e)); preferida na OBS p/ fechar
+    // o drift de config entre F2 e F4. 0 (default / NF antiga) → cai no fallback config/parceiro (sem regressão).
+    const impostos: Array<{ key: string; valor: number; percSnap: number; parceiroCfg?: string; diaCfg: string; aliqCfg?: string; aliqParceiro?: number; orgaoParceiro?: number }> = [
+      { key: 'PIS',      valor: num(nf.total_ret_pis),      percSnap: num(nf.perc_aliquota_ret_pis),      parceiroCfg: 'PARCEIRO_RETENCAO_PISCOFINS_CSLL', diaCfg: 'DIA_VENCIMENTO_RET_PIS',      aliqCfg: 'ALIQUOTA_RETENCAO_PIS' },
+      { key: 'COFINS',   valor: num(nf.total_ret_cofins),   percSnap: num(nf.perc_aliquota_ret_cofins),   parceiroCfg: 'PARCEIRO_RETENCAO_PISCOFINS_CSLL', diaCfg: 'DIA_VENCIMENTO_RET_COFINS',   aliqCfg: 'ALIQUOTA_RETENCAO_COFINS' },
+      { key: 'CSLL',     valor: num(nf.total_ret_csll),     percSnap: num(nf.perc_aliquota_ret_csll),     parceiroCfg: 'PARCEIRO_RETENCAO_PISCOFINS_CSLL', diaCfg: 'DIA_VENCIMENTO_RET_CSLL',     aliqCfg: 'ALIQUOTA_RETENCAO_CSLL' },
+      { key: 'INSS',     valor: num(nf.total_ret_inss),     percSnap: num(nf.perc_aliquota_ret_inss),     parceiroCfg: 'PARCEIRO_RETENCAO_INSS',           diaCfg: 'DIA_VENCIMENTO_RET_INSS',     aliqCfg: 'ALIQUOTA_RETENCAO_INSS' },
+      { key: 'IR',       valor: num(nf.total_ret_ir),       percSnap: num(nf.perc_aliquota_ret_ir),       parceiroCfg: 'PARCEIRO_RETENCAO_IR',             diaCfg: 'DIA_VENCIMENTO_RET_IR',       aliqCfg: 'ALIQUOTA_RETENCAO_IR', aliqParceiro: num(forn?.perc_aliquota_ir) },
+      { key: 'FUNRURAL', valor: num(nf.total_ret_funrural), percSnap: num(nf.perc_aliquota_ret_funrural), parceiroCfg: 'PARCEIRO_RETENCAO_FUNRURAL',       diaCfg: 'DIA_VENCIMENTO_RET_FUNRURAL', aliqCfg: 'ALIQUOTA_RETENCAO_FUNRURAL' },
       // ISSQN: órgão + alíquota por FORNECEDOR (não config).
-      { key: 'ISSQN',    valor: num(nf.total_ret_issqn),    diaCfg: 'DIA_VENCIMENTO_RET_ISSQN', aliqParceiro: num(forn?.perc_aliquota_issqn), orgaoParceiro: forn?.codparceiro_ent_issqn != null ? Number(forn.codparceiro_ent_issqn) : 0 },
+      { key: 'ISSQN',    valor: num(nf.total_ret_issqn),    percSnap: num(nf.perc_aliquota_ret_issqn),    diaCfg: 'DIA_VENCIMENTO_RET_ISSQN', aliqParceiro: num(forn?.perc_aliquota_issqn), orgaoParceiro: forn?.codparceiro_ent_issqn != null ? Number(forn.codparceiro_ent_issqn) : 0 },
     ];
 
     const totalnf = num(nf.totalnf);
@@ -226,8 +231,11 @@ export class NfFaturamentoService {
       // órgão destinatário: ISSQN = do fornecedor; demais = config. Sem órgão → não gera.
       const orgao = imp.orgaoParceiro != null ? imp.orgaoParceiro : numCfg(await cfg(imp.parceiroCfg as string));
       if (!orgao || orgao <= 0) continue;
-      // alíquota p/ a OBS: IR/ISSQN preferem o % do parceiro; demais, config.
-      const aliq = imp.aliqParceiro && imp.aliqParceiro > 0 ? imp.aliqParceiro : (imp.aliqCfg ? numCfg(await cfg(imp.aliqCfg)) : 0);
+      // alíquota p/ a OBS: SNAPSHOT do F2 (resíduo (e), fecha drift) tem precedência; fallback IR/ISSQN=% do
+      // parceiro, demais=config (NF antiga / snapshot 0 → comportamento anterior, sem regressão).
+      const aliq = imp.percSnap > 0
+        ? imp.percSnap
+        : (imp.aliqParceiro && imp.aliqParceiro > 0 ? imp.aliqParceiro : (imp.aliqCfg ? numCfg(await cfg(imp.aliqCfg)) : 0));
       // idempotência por (idnf, retencao).
       const ja = await trx.selectFrom('apagar').select('codapg').where('idnf', '=', nf.codnf).where('codempresa', '=', emp).where('retencao', '=', imp.key).executeTakeFirst();
       if (ja) { somaRetida += imp.valor; continue; }

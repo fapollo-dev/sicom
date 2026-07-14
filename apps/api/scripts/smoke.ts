@@ -1209,6 +1209,16 @@ async function main() {
     await fetch(`${base}/fiscal/nf/${nfRetNaoE03}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
     const titsN = (await pgRet.query(`SELECT count(*)::int AS n FROM apagar WHERE idnf=$1 AND retencao='PIS'`, [nfRetNaoE03])).rows[0]?.n;
     check('4c-b: gate E03 — PIS órfão em NF não-E03 → 0 título (SituacaoGeraRetencao re-checado no faturamento)', Number(titsN) === 0, { titsN });
+
+    // 55.5) resíduo (e) — SNAPSHOT da alíquota (perc_aliquota_ret_*): a OBS usa a % gravada no F2, NÃO a config
+    // relida no F4. Prova o drift: snapshot 0,99% ≠ config ALIQUOTA_RETENCAO_PIS (0,65%). Antes do corte a OBS
+    // mostraria 0,65 (config); agora mostra 0,99 (snapshot congelado). Config PARCEIRO/DIA já ligados no §55.
+    const nfSnap = await novaNf(baseNf({ tipo: 'E', nronf: 'RET004', codparceiro: 22, idsituacao_nf: 1031, dtemissao: '2026-06-10', dtcontabil: '2026-06-15', total_ret_pis: 10, perc_aliquota_ret_pis: 0.99, itens: [itemP1(40)] }));
+    await fetch(`${base}/fiscal/nf/${nfSnap}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const titSnap = (await apagarDaNf(nfSnap)).find((t) => t.retencao === 'PIS');
+    check('4c-b/(e): OBS usa a alíquota SNAPSHOT do F2 (0,99%), não a config relida no F4 (0,65%) — fecha o drift',
+      !!titSnap && titSnap.obs === 'REF. À RETENÇÕES DE IMPOSTOS. IMPOSTO: PIS\nNOTA FISCAL NRO: RET004\nVALOR NOTA FISCAL: 140,00\nALIQUOTA PIS: 0,99%',
+      { obs: titSnap?.obs });
     await pgRet.end();
 
     // 20.5) totalnf=0 (item com vrvenda 0) → 422 NF_SEM_VALOR.

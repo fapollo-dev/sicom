@@ -113,6 +113,10 @@ export class NfFiscalService {
       total_ret_pis: 0, total_ret_cofins: 0, total_ret_csll: 0, total_ret_ir: 0,
       total_ret_inss: 0, total_ret_issqn: 0, total_ret_funrural: 0,
       base_ret_irrf_piscofins_csll: 0, base_retencao_inss: 0,
+      // resíduo (e): SNAPSHOT da alíquota REAL usada por imposto (udmNF.pas:3659-3679) — o F4 lê daqui p/ a OBS,
+      // fechando o drift de config entre F2 e F4. Só a % — o VALOR já é o snapshot nf.total_ret_*.
+      perc_aliquota_ret_pis: 0, perc_aliquota_ret_cofins: 0, perc_aliquota_ret_csll: 0, perc_aliquota_ret_ir: 0,
+      perc_aliquota_ret_inss: 0, perc_aliquota_ret_issqn: 0, perc_aliquota_ret_funrural: 0,
     };
     const codparceiro = dto.codparceiro != null ? Number(dto.codparceiro) : 0;
     const idsit = dto.idsituacao_nf != null ? Number(dto.idsituacao_nf) : 0;
@@ -155,33 +159,33 @@ export class NfFiscalService {
     if (geraRetencao) {
       if (p.habilita_retencao_pis_nf === 'S') {
         const a = this.numCfg(await cfg('ALIQUOTA_RETENCAO_PIS'));
-        if (a > 0) out.total_ret_pis = r2((totalnf * a) / 100);
+        if (a > 0) { out.total_ret_pis = r2((totalnf * a) / 100); out.perc_aliquota_ret_pis = a; }
       }
       if (p.habilita_retencao_cofins_nf === 'S') {
         const a = this.numCfg(await cfg('ALIQUOTA_RETENCAO_COFINS'));
-        if (a > 0) out.total_ret_cofins = r2((totalnf * a) / 100);
+        if (a > 0) { out.total_ret_cofins = r2((totalnf * a) / 100); out.perc_aliquota_ret_cofins = a; }
       }
       if (p.habilita_retencao_csll_nf === 'S') {
         const a = this.numCfg(await cfg('ALIQUOTA_RETENCAO_CSLL'));
-        if (a > 0) out.total_ret_csll = r2((totalnf * a) / 100);
+        if (a > 0) { out.total_ret_csll = r2((totalnf * a) / 100); out.perc_aliquota_ret_csll = a; }
       }
       if (p.habilita_retencao_ir_nf === 'S') {
         const a = num(p.perc_aliquota_ir) > 0 ? num(p.perc_aliquota_ir) : this.numCfg(await cfg('ALIQUOTA_RETENCAO_IR'));
-        if (a > 0) out.total_ret_ir = r2((totalnf * a) / 100);
+        if (a > 0) { out.total_ret_ir = r2((totalnf * a) / 100); out.perc_aliquota_ret_ir = a; }
       }
       if (p.habilita_retencao_inss_nf === 'S') {
         const a = this.numCfg(await cfg('ALIQUOTA_RETENCAO_INSS'));
-        if (a > 0) out.total_ret_inss = r2((totalnf * a) / 100);
+        if (a > 0) { out.total_ret_inss = r2((totalnf * a) / 100); out.perc_aliquota_ret_inss = a; }
       }
       if (p.habilita_retencao_issqn_nf === 'S') {
         const a = num(p.perc_aliquota_issqn); // ISSQN vem SEMPRE do parceiro (udmNF:3710)
-        if (a > 0) out.total_ret_issqn = r2((totalnf * a) / 100);
+        if (a > 0) { out.total_ret_issqn = r2((totalnf * a) / 100); out.perc_aliquota_ret_issqn = a; }
       }
     }
     // FUNRURAL — gate próprio por CFOP (udmNF:3728), independe de E03.
     if (funruralCfop && p.habilita_retencao_funrural_nf === 'S') {
       const a = this.numCfg(await cfg('ALIQUOTA_RETENCAO_FUNRURAL'));
-      if (a > 0) out.total_ret_funrural = r2((totalnf * a) / 100);
+      if (a > 0) { out.total_ret_funrural = r2((totalnf * a) / 100); out.perc_aliquota_ret_funrural = a; }
     }
     return out;
   }

@@ -234,6 +234,14 @@ const nfBase = z.object({
   total_ret_funrural: dec(z.number().nonnegative()),
   base_ret_irrf_piscofins_csll: dec(z.number().nonnegative()),
   base_retencao_inss: dec(z.number().nonnegative()),
+  // resíduo (e): snapshot da alíquota de retenção por imposto (F2 grava, F4 lê p/ a OBS estável sob drift).
+  perc_aliquota_ret_pis: dec(z.number().nonnegative()),
+  perc_aliquota_ret_cofins: dec(z.number().nonnegative()),
+  perc_aliquota_ret_csll: dec(z.number().nonnegative()),
+  perc_aliquota_ret_ir: dec(z.number().nonnegative()),
+  perc_aliquota_ret_inss: dec(z.number().nonnegative()),
+  perc_aliquota_ret_issqn: dec(z.number().nonnegative()),
+  perc_aliquota_ret_funrural: dec(z.number().nonnegative()),
   // estado (eixos A/B) — defaults no create; as travas de edição rodam no servidor (validar)
   proc: sn().optional(),
   statusnfe: opcional(z.string().trim().max(1)),

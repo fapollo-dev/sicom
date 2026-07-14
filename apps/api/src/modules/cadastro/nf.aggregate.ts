@@ -51,6 +51,9 @@ export const nfAggregateConfig: AggregateConfig = {
     // reenviadas no dto → persistidas aqui p/ o F4 gerar os títulos. Mesmo modelo de confiança dos totais fiscais.
     'total_ret_pis', 'total_ret_cofins', 'total_ret_csll', 'total_ret_ir', 'total_ret_inss', 'total_ret_issqn',
     'total_ret_funrural', 'base_ret_irrf_piscofins_csll', 'base_retencao_inss',
+    // resíduo (e): snapshot da alíquota de retenção por imposto (F2 grava, F4 lê p/ a OBS estável sob drift).
+    'perc_aliquota_ret_pis', 'perc_aliquota_ret_cofins', 'perc_aliquota_ret_csll', 'perc_aliquota_ret_ir',
+    'perc_aliquota_ret_inss', 'perc_aliquota_ret_issqn', 'perc_aliquota_ret_funrural',
     // estado (eixos A/B) — defaults; travas no validar
     'proc', 'statusnfe', 'cancelada', 'confirmada', 'contabilizado',
     // contrato NFe (vazio na F1)
