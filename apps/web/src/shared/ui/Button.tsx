@@ -6,17 +6,20 @@ type Props = {
   onClick?: () => void;
   variant?: 'filled' | 'outline' | 'soft' | 'ghost'; // variantes do Apollo DS
   type?: 'button' | 'submit';
+  disabled?: boolean;
 };
 
 /**
  * Botão do app: usa o `Button` do Apollo DS + a camada de teclado por cima
  * (mnemônico `&` via Alt+letra). A fronteira ADR-014 é respeitada — o visual
- * vem do DS; o comportamento de teclado é do app.
+ * vem do DS; o comportamento de teclado é do app. `disabled` bloqueia o clique E o mnemônico.
  */
-export function Button({ label, onClick, variant = 'filled', type = 'button' }: Props) {
-  const { text } = useMnemonic(label, () => onClick?.());
+export function Button({ label, onClick, variant = 'filled', type = 'button', disabled = false }: Props) {
+  const { text } = useMnemonic(label, () => {
+    if (!disabled) onClick?.();
+  });
   return (
-    <DSButton variant={variant} type={type} onClick={onClick}>
+    <DSButton variant={variant} type={type} onClick={onClick} disabled={disabled}>
       {text}
     </DSButton>
   );

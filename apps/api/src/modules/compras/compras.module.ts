@@ -5,6 +5,9 @@ import { CondicoesPagtoCrudController } from './condicoes-pagto.crud';
 import { ImportacaoNfeController } from './importacao-nfe.controller';
 import { PedidoCompraService } from './pedido-compra.service';
 import { RecebimentoService } from './recebimento.service';
+import { DevolucaoCompraAggregateController } from './devolucao-compra.aggregate';
+import { DevolucaoCompraController } from './devolucao-compra.controller';
+import { DevolucaoCompraService } from './devolucao-compra.service';
 import { CadastroModule } from '../cadastro/cadastro.module';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 
@@ -21,7 +24,11 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     PedidoCompraController, // vertical (fechar/reabrir + gerar parcelas + gerar NF de entrada — recebimento)
     CondicoesPagtoCrudController, // corte-2: cadastral GLOBAL de condições de pagamento (lookup do pedido)
     ImportacaoNfeController, // recebimento corte-2 (import do XML da NFe → NF de entrada valorada)
+    // VERTICAL antes do agregado: a rota estática GET `itens-disponiveis` tem de ser registrada ANTES do
+    // GET `:id` do agregado (senão o :id captura 'itens-disponiveis'). Ordem de registro = precedência (Express).
+    DevolucaoCompraController, // vertical: picker de saldo + finalizar/reabrir/cancelar (sem efeitos)
+    DevolucaoCompraAggregateController, // devolução de compra corte-1: CRUD do documento (header + itens)
   ],
-  providers: [PedidoCompraService, RecebimentoService, DatabaseProvider],
+  providers: [PedidoCompraService, RecebimentoService, DevolucaoCompraService, DatabaseProvider],
 })
 export class ComprasModule {}

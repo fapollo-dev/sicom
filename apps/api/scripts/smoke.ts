@@ -3544,6 +3544,79 @@ async function main() {
       { status: l72Unk.status, row: l72UnkRow });
 
     await pgAuth.end();
+
+    // ===== §73) DEVOLUÇÃO DE COMPRA corte-1 — NÚCLEO do documento (picker de saldo + agregado, SEM efeitos) =====
+    const DEV = 'compras/devolucao-compra';
+    const pgDev = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    try {
+    // NF de ENTRADA fresca do fornecedor 22 (CFOP 1102→5202), item produto 1 qtd 10, custo 5. Item extra cfop '1949' (sem CFOP_DEVOLUCAO).
+    const d73Nf = Number((await pgDev.query(`INSERT INTO nf (idempresa,tipo,modelo,serie,dtemissao,dtcontabil,tipoemissao,finalidade,cfop,codparceiro,proc,totalnf,totalprod) VALUES (1,'E',55,'1',now(),now(),'0','1','1102',22,'N',0,0) RETURNING codnf`)).rows[0].codnf);
+    const d73It = Number((await pgDev.query(`INSERT INTO nf_prod (codnf,nroitem,codproduto,quantidade,fatorembal,unidade,vrcusto,cfop) VALUES ($1,1,1,10,1,'UN',5,'1102') RETURNING codnfprod`, [d73Nf])).rows[0].codnfprod);
+    await pgDev.query(`INSERT INTO cfop (codcfop,descricao) VALUES ('1949','OUTRAS ENTRADAS (SEM DEVOLUCAO)') ON CONFLICT (codcfop) DO NOTHING`);
+    const d73ItSemCfop = Number((await pgDev.query(`INSERT INTO nf_prod (codnf,nroitem,codproduto,quantidade,fatorembal,unidade,vrcusto,cfop) VALUES ($1,3,1,5,1,'UN',5,'1949') RETURNING codnfprod`, [d73Nf])).rows[0].codnfprod);
+    const d73ItCfopNull = Number((await pgDev.query(`INSERT INTO nf_prod (codnf,nroitem,codproduto,quantidade,fatorembal,unidade,vrcusto,cfop) VALUES ($1,4,1,5,1,'UN',5,NULL) RETURNING codnfprod`, [d73Nf])).rows[0].codnfprod);
+
+    const crDev = (dto: any) => fetch(`${base}/${DEV}`, { method: 'POST', headers: H, body: JSON.stringify(dto) });
+    const itemDto = (qtd: number, over: any = {}) => ({ codnf: d73Nf, codnfprod: d73It, idproduto: 1, qtd_nota_fiscal: 10, qtd_devolvida: qtd, valor_custo: 5, cfop: '5202', ...over });
+
+    // 73.1) PICKER: itens de entrada do fornecedor 22 com saldo. O item novo tem saldo 10 + CFOP devolução 5202.
+    const d73Pick = await (await fetch(`${base}/${DEV}/itens-disponiveis?codparceiro=22&codnf=${d73Nf}`, { headers: H })).json() as any[];
+    const d73Row = (d73Pick ?? []).find((r) => Number(r.codnfprod) === d73It);
+    check('DEVOLUÇÃO: picker traz item da NF de entrada com saldo=10 + cfop_devolucao=5202 + custo=5',
+      Array.isArray(d73Pick) && !!d73Row && Number(d73Row.saldo) === 10 && d73Row.cfop_devolucao === '5202' && Number(d73Row.valor_custo) === 5,
+      { n: d73Pick?.length, row: d73Row });
+
+    // 73.2) CRIAR devolução PARCIAL (qtd 4) → 201 + total_produto_devolvido = 20 (custo×qtd).
+    const d73C1 = await crDev({ codparceiro: 22, itens: [itemDto(4)] });
+    const d73C1J = (await d73C1.json().catch(() => ({}))) as any;
+    const d73Id1 = Number(d73C1J.codpeddevcompra ?? d73C1J.codigo);
+    const d73Read1 = await (await fetch(`${base}/${DEV}/${d73Id1}`, { headers: H })).json() as any;
+    check('DEVOLUÇÃO: cria parcial (qtd 4) → 201, status EM_DIGITACAO, total_produto_devolvido=20 (custo×qtd)',
+      d73C1.status === 201 && d73Read1.status === 'EM_DIGITACAO' && (d73Read1.itens ?? []).length === 1 && Number(d73Read1.itens[0].total_produto_devolvido) === 20,
+      { status: d73C1.status, read: { status: d73Read1.status, tot: d73Read1.itens?.[0]?.total_produto_devolvido } });
+
+    // 73.3) SALDO decresce: picker agora mostra saldo 6; devolver 7 → 422 QTDE_EXCEDE; devolver 6 (exato) → 201.
+    const d73Pick2 = await (await fetch(`${base}/${DEV}/itens-disponiveis?codparceiro=22&codnf=${d73Nf}`, { headers: H })).json() as any[];
+    const d73Saldo2 = Number((d73Pick2 ?? []).find((r) => Number(r.codnfprod) === d73It)?.saldo);
+    const d73Excede = await crDev({ codparceiro: 22, itens: [itemDto(7)] });
+    const d73ExcedeJ = (await d73Excede.json().catch(() => ({}))) as any;
+    const d73C2 = await crDev({ codparceiro: 22, itens: [itemDto(6)] });
+    const d73C2J = (await d73C2.json().catch(() => ({}))) as any;
+    const d73Id2 = Number(d73C2J.codpeddevcompra ?? d73C2J.codigo);
+    check('DEVOLUÇÃO: saldo decresce (10→6); qtd 7 > saldo → 422 DEVOLUCAO_QTDE_EXCEDE; qtd 6 (exato) → 201',
+      d73Saldo2 === 6 && d73Excede.status === 422 && d73ExcedeJ.code === 'DEVOLUCAO_QTDE_EXCEDE' && d73C2.status === 201,
+      { saldo: d73Saldo2, excede: [d73Excede.status, d73ExcedeJ.code], exato: d73C2.status });
+
+    // 73.4) WORKFLOW: finalizar id1 (→DIGITADO); editar (PUT) finalizado → 422 NAO_EDITAVEL; cancelar id2 → saldo volta a 6.
+    const d73Fin = await fetch(`${base}/${DEV}/${d73Id1}/finalizar`, { method: 'POST', headers: H });
+    const d73FinJ = (await d73Fin.json().catch(() => ({}))) as any;
+    const d73PutFin = await fetch(`${base}/${DEV}/${d73Id1}`, { method: 'PUT', headers: H, body: JSON.stringify({ obs: 'X' }) });
+    const d73PutFinJ = (await d73PutFin.json().catch(() => ({}))) as any;
+    const d73Canc = await fetch(`${base}/${DEV}/${d73Id2}/cancelar`, { method: 'POST', headers: H });
+    const d73Pick3 = await (await fetch(`${base}/${DEV}/itens-disponiveis?codparceiro=22&codnf=${d73Nf}`, { headers: H })).json() as any[];
+    const d73Saldo3 = Number((d73Pick3 ?? []).find((r) => Number(r.codnfprod) === d73It)?.saldo);
+    check('DEVOLUÇÃO: finalizar→DIGITADO; PUT em finalizado → 422 DEVOLUCAO_NAO_EDITAVEL; cancelar libera o saldo (→6)',
+      d73Fin.status === 200 && d73FinJ.status === 'DIGITADO' && d73PutFin.status === 422 && d73PutFinJ.code === 'DEVOLUCAO_NAO_EDITAVEL'
+      && d73Canc.status === 200 && d73Saldo3 === 6,
+      { fin: [d73Fin.status, d73FinJ.status], put: [d73PutFin.status, d73PutFinJ.code], canc: d73Canc.status, saldo: d73Saldo3 });
+
+    // 73.5) GATES: CFOP de origem sem CFOP_DEVOLUCAO → 422; CFOP de origem VAZIO → 422 (M4); fornecedor não-FRN → 422; RBAC → 403.
+    const d73Cfop = await crDev({ codparceiro: 22, itens: [itemDto(1, { codnfprod: d73ItSemCfop, cfop: null, qtd_nota_fiscal: 5 })] });
+    const d73CfopJ = (await d73Cfop.json().catch(() => ({}))) as any;
+    const d73CfopNull = await crDev({ codparceiro: 22, itens: [itemDto(1, { codnfprod: d73ItCfopNull, cfop: null, qtd_nota_fiscal: 5 })] });
+    const d73CfopNullJ = (await d73CfopNull.json().catch(() => ({}))) as any;
+    const d73Forn = await crDev({ codparceiro: 20, itens: [itemDto(1)] }); // 20 é CLIENTE (não FRN)
+    const d73FornJ = (await d73Forn.json().catch(() => ({}))) as any;
+    const d73Rbac = await fetch(`${base}/${DEV}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codparceiro: 22, itens: [itemDto(1)] }) });
+    check('DEVOLUÇÃO: gates — CFOP sem devolução → 422; CFOP origem VAZIO → 422 (M4); não-FRN → 422; sem grant → 403',
+      d73Cfop.status === 422 && d73CfopJ.code === 'DEVOLUCAO_CFOP_NAO_CONFIGURADO'
+      && d73CfopNull.status === 422 && d73CfopNullJ.code === 'DEVOLUCAO_CFOP_ORIGEM_AUSENTE'
+      && d73Forn.status === 422 && d73FornJ.code === 'DEVOLUCAO_FORNECEDOR_INVALIDO'
+      && d73Rbac.status === 403,
+      { cfop: [d73Cfop.status, d73CfopJ.code], cfopNull: [d73CfopNull.status, d73CfopNullJ.code], forn: [d73Forn.status, d73FornJ.code], rbac: d73Rbac.status });
+    } finally {
+      await pgDev.end();
+    }
   } finally {
     await app.close();
     await pg.stop();
