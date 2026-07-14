@@ -5,6 +5,8 @@ import { chaveNfeValida, montarChaveNfe } from '@apollo/shared';
 import { startEmbeddedPg, PG_CONN } from '../test/embedded-db';
 import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/shared/errors/all-exceptions.filter';
+import { dedupCodref, type RawCodref } from './cutover/dedup-codref';
+import { loadCodref } from './cutover/load-codref';
 
 
 /**
@@ -3663,6 +3665,37 @@ async function main() {
       { gnf: zGnf.status, item: zNfItem });
     } finally {
       await pgDev.end();
+    }
+
+    // ===== §74) CUTOVER do de-para (CODREFERENCIA_FOR) — motor de de-dup + loader idempotente (verificação) =====
+    const pgCut = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    try {
+      // fixture cru (produtos 1/2 e fornecedor 22 existem no seed): singleton + colisão auto-resolve + suja + SEM GTIN.
+      const raw: RawCodref[] = [
+        { codreferencia_for: 1, idproduto: 1, codref: 'ABC.123', codfor: 22, tiporef: null, fator_embalagem: null, produto_existe: true, produto_ativo: true, produto_codbarra_norm: null, fornecedor_valido: true },
+        { codreferencia_for: 2, idproduto: 1, codref: '7896029021798', codfor: 22, tiporef: 'E', fator_embalagem: null, produto_existe: true, produto_ativo: true, produto_codbarra_norm: '7896029021781', fornecedor_valido: true },
+        { codreferencia_for: 3, idproduto: 2, codref: '7896029021798', codfor: 22, tiporef: 'E', fator_embalagem: null, produto_existe: true, produto_ativo: true, produto_codbarra_norm: '7896029021798', fornecedor_valido: true }, // dono (codbarra) → vence
+        { codreferencia_for: 4, idproduto: 1, codref: 'SEM GTIN', codfor: 22, tiporef: 'E', fator_embalagem: null, produto_existe: true, produto_ativo: true, produto_codbarra_norm: null, fornecedor_valido: true },
+        { codreferencia_for: 5, idproduto: 1, codref: 'XYZ', codfor: null, tiporef: 'E', fator_embalagem: null, produto_existe: true, produto_ativo: true, produto_codbarra_norm: null, fornecedor_valido: false },
+      ];
+      const { keep, report } = dedupCodref(raw);
+      const cutMotor = keep.length === 2 && report.descartadas.sujas === 1 && report.descartadas.semGtin === 1
+        && report.colisoes.autoResolvidas === 1 && report.descartadas.colisaoExcedente === 1
+        && keep.some((k) => k.codref === 'ABC123' && k.idproduto === 1 && k.tiporef === 'E' && k.fator_embalagem === 1)
+        && keep.some((k) => k.codref === '7896029021798' && k.idproduto === 2); // o dono do codbarra venceu
+      check('CUTOVER de-para: motor de-dup — singleton normalizado + colisão auto-resolve (codbarra) + suja/SEM GTIN fora', cutMotor,
+        { keep: keep.map((k) => [k.codref, k.idproduto]), report });
+
+      // loader idempotente: 1ª carga insere; 2ª carga atualiza (não duplica).
+      const l1 = await loadCodref(pgCut, keep, 7);
+      const cnt1 = Number((await pgCut.query(`SELECT count(*)::int AS n FROM codreferencia_for WHERE codfor=22`)).rows[0].n);
+      const l2 = await loadCodref(pgCut, keep, 7);
+      const cnt2 = Number((await pgCut.query(`SELECT count(*)::int AS n FROM codreferencia_for WHERE codfor=22`)).rows[0].n);
+      check('CUTOVER de-para: loader idempotente — 1ª carga insere 2; 2ª atualiza 2 (0 inseridos); tabela estável em 2',
+        l1.inseridos === 2 && l1.atualizados === 0 && cnt1 === 2 && l2.inseridos === 0 && l2.atualizados === 2 && cnt2 === 2,
+        { l1, l2, cnt1, cnt2 });
+    } finally {
+      await pgCut.end();
     }
   } finally {
     await app.close();

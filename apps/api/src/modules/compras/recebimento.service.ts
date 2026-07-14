@@ -7,6 +7,7 @@ import { NfFaturamentoService } from '../cadastro/nf-faturamento.service';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { parseNfeXml, type NfeItemParsed } from './nfe-xml.parser';
+import { normRef, digEan } from './codref-normalize';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -219,7 +220,7 @@ export class RecebimentoService {
     // BLOQUEIA (lista de pendências → tela de vínculo do operador, espelha o frmProdNC).
     const norm = (e: string) => (e ?? '').trim();
     const eans = Array.from(
-      new Set(nfe.itens.map((it) => norm(it.cEAN)).filter((e) => e && e.toUpperCase() !== 'SEM GTIN').map((e) => this.digEan(e)).filter(Boolean)),
+      new Set(nfe.itens.map((it) => norm(it.cEAN)).filter((e) => e && e.toUpperCase() !== 'SEM GTIN').map((e) => digEan(e)).filter(Boolean)),
     );
     const porEan = new Map<string, Set<number>>(); // codbarra → idprodutos (produtos ∪ codauxiliar)
     const add = (codbarra: unknown, idproduto: unknown) => {
@@ -233,7 +234,7 @@ export class RecebimentoService {
     const matchByIdx = new Map<number, number>(); // índice do item → idproduto
     nfe.itens.forEach((it, i) => {
       const e = norm(it.cEAN);
-      const digits = this.digEan(e);
+      const digits = digEan(e);
       const ids = digits && e.toUpperCase() !== 'SEM GTIN' ? porEan.get(digits) : undefined;
       if (ids && ids.size === 1) return void matchByIdx.set(i, [...ids][0]);
       const motivo = ids && ids.size > 1 ? 'código de barras ambíguo (múltiplos produtos)' : 'sem produto com este código de barras';
@@ -244,7 +245,7 @@ export class RecebimentoService {
     // escopado ao fornecedor (CODFOR = codparceiro). Precedência fiel ao legado (GetProduto): EAN/codbarra
     // primeiro (acima), de-para depois. TIPOREF é descritivo (não filtra o match). 1 query em lote (sem N+1).
     if (naoCasados.length) {
-      const refs = Array.from(new Set(naoCasados.flatMap((nc) => [this.normRef(nc.cProd), this.normRef(nc.cEAN)]).filter(Boolean)));
+      const refs = Array.from(new Set(naoCasados.flatMap((nc) => [normRef(nc.cProd), normRef(nc.cEAN)]).filter(Boolean)));
       const porRef = new Map<string, number>(); // codref → idproduto
       if (refs.length) {
         for (const r of (await db.selectFrom('codreferencia_for').select(['codref', 'idproduto']).where('codfor', '=', codparceiro).where('codref', 'in', refs).execute()) as any[]) {
@@ -253,7 +254,7 @@ export class RecebimentoService {
       }
       const restam: typeof naoCasados = [];
       for (const nc of naoCasados) {
-        const hit = porRef.get(this.normRef(nc.cProd)) ?? porRef.get(this.normRef(nc.cEAN));
+        const hit = porRef.get(normRef(nc.cProd)) ?? porRef.get(normRef(nc.cEAN));
         if (hit != null) matchByIdx.set(nc._idx, hit);
         else restam.push(nc);
       }
@@ -393,21 +394,6 @@ export class RecebimentoService {
     return { codnf, chave: nfe.chave, codparceiro, codpedcomp, itens: nfItens.length, totalnf, totalXml: nfe.total.vNF, divergencia, titulosApagar };
   }
 
-  /** dígitos de um EAN, com o zero-à-esquerda de GTIN-14 removido (→ GTIN-13) — fiel ao legado (uNF.pas:12308:
-   *  cEAN de 14 díg começando com '0' casa contra o CODBARRA de 13). */
-  private digEan(e: string): string {
-    const d = (e ?? '').replace(/\D/g, '');
-    return d.length === 14 && d[0] === '0' ? d.slice(1) : d;
-  }
-
-  /** normaliza um código de referência (cProd/cEAN/codref) p/ casar de-para: trim + tira pontos (como o legado
-   *  faz antes de gravar/casar) + zero-à-esquerda de GTIN-14. 'SEM GTIN' (e vazio) → '' (nunca é chave de match). */
-  private normRef(s: string): string {
-    const t = (s ?? '').trim().replace(/\./g, '');
-    if (!t || t.toUpperCase() === 'SEM GTIN') return '';
-    return /^0\d{13}$/.test(t) ? t.slice(1) : t; // GTIN-14 c/ zero à esquerda → GTIN-13 (consistente com digEan)
-  }
-
   /**
    * DE-PARA (corte-3): vincula o(s) código(s) do fornecedor ao nosso produto (resolve as pendências do import).
    * Por vínculo grava DOIS registros quando presentes — 'E' (cEAN) e 'P' (cProd) — espelhando o legado
@@ -434,8 +420,8 @@ export class RecebimentoService {
         const prod = await trx.selectFrom('produtos').select('idproduto').where('idproduto', '=', v.idproduto).executeTakeFirst();
         if (!prod) throw new BusinessRuleError('PRODUTO_NAO_ENCONTRADO', { idproduto: v.idproduto });
         const linhas: Array<{ codref: string; tiporef: 'E' | 'P' }> = [];
-        const ean = this.normRef(v.cEAN ?? '');
-        const cprod = this.normRef(v.cProd ?? '');
+        const ean = normRef(v.cEAN ?? '');
+        const cprod = normRef(v.cProd ?? '');
         if (ean) linhas.push({ codref: ean, tiporef: 'E' });
         if (cprod && cprod !== ean) linhas.push({ codref: cprod, tiporef: 'P' });
         if (!linhas.length) throw new BusinessRuleError('DEPARA_SEM_CODIGO', { idproduto: v.idproduto });
