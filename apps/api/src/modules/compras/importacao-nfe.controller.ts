@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
 import { importarXmlNfeSchema, vincularProdutosSchema } from '@apollo/shared';
 import { RecebimentoService } from './recebimento.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -32,5 +32,14 @@ export class ImportacaoNfeController {
     body: { codfor: number; vinculos: Array<{ idproduto: number; cEAN?: string; cProd?: string; fator?: number }> },
   ) {
     return this.recebimento.vincularProdutos(body);
+  }
+
+  /** RECEBIMENTO resíduo (b): REFATURAR do XML — regenera os títulos A Pagar exatos do `<cobr><dup>` a partir
+   * do XML armazenado (quando o auto-faturamento do import não rodou). Reusa as travas do F4 (bloqueia se já faturada). */
+  @Post(':codnf/refaturar-xml')
+  @HttpCode(200)
+  @RequerAcesso('FRMNF', 'BTNFATURAR') // refaturar = faturamento manual da NF → mesmo grant do F4 (nf-faturamento)
+  refaturarXml(@Param('codnf', ParseIntPipe) codnf: number) {
+    return this.recebimento.refaturarXml(codnf);
   }
 }

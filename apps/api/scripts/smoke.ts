@@ -3383,6 +3383,29 @@ async function main() {
     const apsD4 = Number((await pgImp.query(`SELECT count(*)::int AS n FROM apagar WHERE idnf=$1`, [Number(impD4J.codnf)])).rows[0]?.n);
     check('DUP: devolução (finNFe=4) c/ <cobr> → NF criada, 0 A Pagar (gate de finalidade)', impD4.status === 200 && Number(impD4J.titulosApagar) === 0 && apsD4 === 0, { status: impD4.status, titulos: impD4J.titulosApagar, aps: apsD4 });
 
+    // 52.5) resíduo (b) — REFATURAR do XML: import com auto-gate OFF (CFOP 5910→1910) + <cobr> → NF criada,
+    // 0 A Pagar, XML guardado. O operador refatura (ação manual, RBAC BTNFATURAR) → regenera os títulos EXATOS
+    // do <dup>. 2ª refatura → NF_JA_FATURADA (trava do F4). Refaturar à-vista (sem <cobr>) → NF_SEM_DUPLICATAS.
+    const nnfR = 900065;
+    const impR = await importar(mkXml(mkChave(nnfR), nnfR, CNPJ_F1, '7894900011517', COBR.replace('900061', '900065'), '1', '5910')); // 1910 não auto-gera
+    const codnfR = Number(((await impR.json().catch(() => ({}))) as any).codnf);
+    const apsRpre = Number((await pgImp.query(`SELECT count(*)::int AS n FROM apagar WHERE idnf=$1`, [codnfR])).rows[0]?.n);
+    const refat1 = await fetch(`${base}/compras/recebimento/${codnfR}/refaturar-xml`, { method: 'POST', headers: H });
+    const refat1J = (await refat1.json().catch(() => ({}))) as any;
+    const apsR = (await pgImp.query(`SELECT valor, to_char(dtvenc,'YYYY-MM-DD') AS dtvenc, duplicata, tipodoc FROM apagar WHERE idnf=$1 ORDER BY dtvenc`, [codnfR])).rows as any[];
+    const nfR = (await pgImp.query(`SELECT faturada FROM nf WHERE codnf=$1`, [codnfR])).rows[0] as any;
+    check('DUP/(b): refaturar-xml regenera os títulos EXATOS do <dup> (0→2, valor 30+33,44, BOLETO, faturada=S)',
+      apsRpre === 0 && refat1.status === 200 && Number(refat1J.parcelas) === 2 && apsR.length === 2
+      && Number(apsR[0].valor) === 30 && apsR[0].duplicata === 'PARC-A' && Number(apsR[1].valor) === 33.44 && apsR[1].tipodoc === 'BOLETO'
+      && nfR?.faturada === 'S',
+      { pre: apsRpre, status: refat1.status, body: refat1J, aps: apsR });
+    const refat2 = await fetch(`${base}/compras/recebimento/${codnfR}/refaturar-xml`, { method: 'POST', headers: H });
+    check('DUP/(b): 2ª refatura → NF_JA_FATURADA (trava do F4 reusada)',
+      refat2.status !== 200 && ((await refat2.json().catch(() => ({}))) as any).code === 'NF_JA_FATURADA', { status: refat2.status });
+    const refatAv = await fetch(`${base}/compras/recebimento/${Number(impD2J.codnf)}/refaturar-xml`, { method: 'POST', headers: H });
+    check('DUP/(b): refaturar à-vista (sem <cobr>) → NF_SEM_DUPLICATAS',
+      refatAv.status !== 200 && ((await refatAv.json().catch(() => ({}))) as any).code === 'NF_SEM_DUPLICATAS', { status: refatAv.status });
+
     // 53) corte-4b — forma de pagamento (<pag>) → NF_FORMA_PAGAMENTO + gate CFOP do A Pagar automático.
     // 53.1) o <pag> do XML (tPag=01) virou NF_FORMA_PAGAMENTO com idpgto resolvido por DESTINO=CXA.
     const fp = (await pgImp.query(`SELECT tpag, vrpgto, idpgto FROM nf_forma_pagamento WHERE codnf=$1`, [codnfD1])).rows as any[];

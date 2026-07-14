@@ -395,6 +395,24 @@ export class RecebimentoService {
   }
 
   /**
+   * RECEBIMENTO resíduo (b) — REFATURAR do XML: regenera os títulos A Pagar EXATOS das duplicatas do `<cobr><dup>`
+   * a partir do XML já armazenado (`nfe_xml`), para quando o faturamento do import não rodou (auto-gate off, ou
+   * falhou) — cenário anotado no importarXml. Reusa `faturarComParcelas` (mesmos títulos/travas/estorno do F4);
+   * a trava `carregarNfFaturavel` (dentro de faturarComParcelas) bloqueia se a NF já está faturada. Sem `<cobr>`
+   * (à vista) → NF_SEM_DUPLICATAS. Fiel a: o legado gera o financeiro no F3 a partir do documento; aqui a fonte
+   * é o XML preservado (a verdade das parcelas do fornecedor).
+   */
+  async refaturarXml(codnf: number): Promise<{ codnf: number; tabela: 'areceber' | 'apagar'; parcelas: number; total: number }> {
+    const emp = this.emp();
+    const linha = (await (this.dbp.forTenantRead() as AnyDB)
+      .selectFrom('nfe_xml').select('xml').where('codnf', '=', codnf).where('idempresa', '=', emp).executeTakeFirst()) as { xml?: string } | undefined;
+    if (!linha?.xml) throw new BusinessRuleError('NFE_XML_NAO_ENCONTRADO', { codnf }); // sem XML armazenado → nada a refaturar
+    const nfe = parseNfeXml(linha.xml);
+    if (nfe.duplicatas.length === 0) throw new BusinessRuleError('NF_SEM_DUPLICATAS', { codnf }); // à vista (sem <cobr>)
+    return this.fat.faturarComParcelas(codnf, nfe.duplicatas);
+  }
+
+  /**
    * DE-PARA (corte-3): vincula o(s) código(s) do fornecedor ao nosso produto (resolve as pendências do import).
    * Por vínculo grava DOIS registros quando presentes — 'E' (cEAN) e 'P' (cProd) — espelhando o legado
    * (frmProdNC/InsereRefFornecedorXML). Upsert por (codfor, codref): re-resolver é idempotente. Depois o

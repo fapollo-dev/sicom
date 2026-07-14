@@ -315,6 +315,7 @@ const CODE_PT: Record<string, string> = {
   NFE_FORNECEDOR_DIVERGE_PEDIDO: 'O fornecedor do XML é diferente do fornecedor do pedido informado.',
   NFE_ITENS_EXCESSO: 'O XML tem itens demais (acima do limite de 990 por NFe).',
   NF_SEM_DUPLICATAS: 'A NF não tem duplicatas para gerar contas a pagar.',
+  NFE_XML_NAO_ENCONTRADO: 'Não há XML armazenado para esta nota fiscal — não é possível refaturar.',
   // Devolução de compra (FRMDEVOLUCAOCOMPRA)
   DEVOLUCAO_NAO_ENCONTRADA: 'Devolução de compra não encontrada.',
   DEVOLUCAO_NAO_EDITAVEL: 'Esta devolução não está em digitação — não pode ser alterada nem excluída.',
