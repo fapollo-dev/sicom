@@ -77,3 +77,8 @@ export function reabrirDevolucao(id: number): Promise<{ codpeddevcompra: number;
 export function cancelarDevolucao(id: number): Promise<{ codpeddevcompra: number; status: string }> {
   return req(`${DEV}/${id}/cancelar`, { method: 'POST' });
 }
+
+/** corte-2: gera a NF de saída de devolução (finalidade=4) do documento DIGITADO. */
+export function gerarNfDevolucao(id: number): Promise<{ codnf: number; codpeddevcompra: number }> {
+  return req(`${DEV}/${id}/gerar-nf`, { method: 'POST' });
+}

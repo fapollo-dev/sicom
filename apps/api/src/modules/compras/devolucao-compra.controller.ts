@@ -39,4 +39,12 @@ export class DevolucaoCompraController {
   cancelar(@Param('id', ParseIntPipe) id: number) {
     return this.svc.cancelar(id);
   }
+
+  /** corte-2: gera a NF de SAÍDA de devolução (finalidade=4) do documento DIGITADO. O operador roda F3/F4 na NF. */
+  @Post(':id/gerar-nf')
+  @HttpCode(200)
+  @RequerAcesso('FRMDEVOLUCAOCOMPRA', 'BTNGERARNF')
+  gerarNf(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.gerarNf(id);
+  }
 }

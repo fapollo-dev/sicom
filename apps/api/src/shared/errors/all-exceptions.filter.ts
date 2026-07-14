@@ -328,6 +328,9 @@ const CODE_PT: Record<string, string> = {
   DEVOLUCAO_ESTADO_INVALIDO: 'A devolução não está em digitação para ser finalizada.',
   DEVOLUCAO_NAO_DIGITADA: 'A devolução não está finalizada (digitada) — não há o que reabrir.',
   DEVOLUCAO_NAO_CANCELAVEL: 'Esta devolução não pode ser cancelada no estado atual.',
+  DEVOLUCAO_NAO_FINALIZADA: 'Finalize a digitação da devolução antes de gerar a NF.',
+  DEVOLUCAO_NF_JA_EMITIDA: 'Esta devolução já tem uma NF de saída gerada.',
+  DEVOLUCAO_ORIGEM_CANCELADA: 'Uma das notas de entrada de origem está cancelada — não é possível devolver.',
   DEPARA_SEM_CODIGO: 'Informe o EAN ou o código do fornecedor para vincular o produto.',
   // autorização / autenticação (OPERADORES corte-3a — auth)
   TENANT_FORBIDDEN: 'Acesso negado: empresa/tenant não autorizado.',

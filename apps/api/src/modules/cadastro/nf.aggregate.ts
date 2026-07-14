@@ -60,6 +60,9 @@ export const nfAggregateConfig: AggregateConfig = {
     // vínculo com o Pedido de Compra (recebimento) — carimbado pelo RecebimentoService no create; o front
     // da NF nunca o envia (não editável na tela), então um PUT normal não o altera.
     'codpedcomp',
+    // vínculo com a DEVOLUÇÃO DE COMPRA (corte-2) — carimbado IN-ROW pelo DevolucaoCompraService no create;
+    // UNIQUE parcial ux_nf_cod_ped_dev_compra é o backstop anti-duplo (23505 → DEVOLUCAO_NF_JA_EMITIDA).
+    'cod_ped_dev_compra',
     // observações
     'obs', 'obsnf', 'complemento',
   ],

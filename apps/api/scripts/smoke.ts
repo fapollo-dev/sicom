@@ -3614,6 +3614,26 @@ async function main() {
       && d73Forn.status === 422 && d73FornJ.code === 'DEVOLUCAO_FORNECEDOR_INVALIDO'
       && d73Rbac.status === 403,
       { cfop: [d73Cfop.status, d73CfopJ.code], cfopNull: [d73CfopNull.status, d73CfopNullJ.code], forn: [d73Forn.status, d73FornJ.code], rbac: d73Rbac.status });
+
+    // 73.6) corte-2 — GERAR NF de devolução (d73Id1 está DIGITADO, 1 item qtd 4): NF saída finalidade=4 CFOP 5202
+    // + refNFe (codnf_ref) + vínculo + status; re-gerar → 422.
+    const d73Gnf = await fetch(`${base}/${DEV}/${d73Id1}/gerar-nf`, { method: 'POST', headers: H });
+    const d73GnfJ = (await d73Gnf.json().catch(() => ({}))) as any;
+    const codnfDev = Number(d73GnfJ.codnf);
+    const nfHdr = (await pgDev.query(`SELECT tipo, finalidade, cfop, codparceiro, cod_ped_dev_compra, serie FROM nf WHERE codnf=$1`, [codnfDev])).rows[0] as any;
+    const nfItm = (await pgDev.query(`SELECT quantidade, cfop FROM nf_prod WHERE codnf=$1 ORDER BY nroitem LIMIT 1`, [codnfDev])).rows[0] as any;
+    const nfRef = (await pgDev.query(`SELECT codnf_ref FROM nf_referencia WHERE codnf=$1 LIMIT 1`, [codnfDev])).rows[0] as any;
+    const devLink = (await pgDev.query(`SELECT status, codnf_emitida FROM pedido_devolucao_compra WHERE codpeddevcompra=$1`, [d73Id1])).rows[0] as any;
+    const d73GnfAgain = await fetch(`${base}/${DEV}/${d73Id1}/gerar-nf`, { method: 'POST', headers: H });
+    const d73GnfAgainJ = (await d73GnfAgain.json().catch(() => ({}))) as any;
+    check('DEVOLUÇÃO corte-2: gerar-NF → NF saída finalidade=4 CFOP 5202 + refNFe + item(qtd 4) + vínculo IN-ROW + status; re-gerar → 422',
+      d73Gnf.status === 200 && codnfDev > 0
+      && nfHdr?.tipo === 'S' && nfHdr?.finalidade === '4' && nfHdr?.cfop === '5202' && Number(nfHdr?.codparceiro) === 22
+      && Number(nfHdr?.cod_ped_dev_compra) === d73Id1 // vínculo IN-ROW (fold anti-duplo)
+      && Number(nfItm?.quantidade) === 4 && nfItm?.cfop === '5202' && Number(nfRef?.codnf_ref) === d73Nf
+      && devLink?.status === 'NOTA_FISCAL_EMITIDA' && Number(devLink?.codnf_emitida) === codnfDev
+      && d73GnfAgain.status === 422 && d73GnfAgainJ.code === 'DEVOLUCAO_NF_JA_EMITIDA',
+      { gnf: [d73Gnf.status, codnfDev], nf: nfHdr, item: nfItm, ref: nfRef, link: devLink, again: [d73GnfAgain.status, d73GnfAgainJ.code] });
     } finally {
       await pgDev.end();
     }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
-import { CheckCircle2, RotateCcw, Ban, Trash2 } from 'lucide-react';
+import { CheckCircle2, RotateCcw, Ban, Trash2, FileOutput } from 'lucide-react';
 import type { DevolucaoCompra, ItemDisponivelDevolucao, DevolucaoCompraItemDto } from '@apollo/shared';
 import { Button } from '../../shared/ui/Button';
 import { SelectField } from '../../shared/ui/SelectField';
@@ -8,7 +8,7 @@ import { NumberField } from '../../shared/ui/NumberField';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import {
-  listarDevolucoes, criarDevolucao, itensDisponiveis, finalizarDevolucao, reabrirDevolucao, cancelarDevolucao, removerDevolucao,
+  listarDevolucoes, criarDevolucao, itensDisponiveis, finalizarDevolucao, reabrirDevolucao, cancelarDevolucao, removerDevolucao, gerarNfDevolucao,
 } from './devolucaoCompraApi';
 
 const n = (v: unknown) => (Number(v) || 0);
@@ -129,6 +129,7 @@ export function DevolucaoCompraCadMaster() {
           acts.push({ id: 'excluir', label: 'Excluir', icon: <Trash2 size={16} />, destructive: true, onClick: () => void acao(() => removerDevolucao(id), 'Devolução excluída.') });
         }
         if (st === 'DIGITADO') {
+          acts.push({ id: 'gerarnf', label: 'Gerar NF', icon: <FileOutput size={16} />, onClick: () => void acao(() => gerarNfDevolucao(id), 'NF de devolução gerada. Processe/fature na tela da NF de saída.') });
           acts.push({ id: 'reabrir', label: 'Reabrir', icon: <RotateCcw size={16} />, onClick: () => void acao(() => reabrirDevolucao(id), 'Devolução reaberta.') });
         }
         if (st === 'EM_DIGITACAO' || st === 'DIGITADO') {

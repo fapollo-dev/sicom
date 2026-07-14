@@ -4,7 +4,7 @@
 
 | Campo | Valor |
 |---|---|
-| **Status** | **corte-1** (NÚCLEO do documento — agregado header+itens + picker de saldo + workflow + tela, SEM efeitos; migration 072) ENTREGUE e verde 2026-07-14. Recon 3 agentes (Oracle READ-ONLY + Delphi + monorepo) + auditoria adversarial (2 agentes). Verde: api tsc 0 · api test 138 · smoke **502/0** (5 DEVOLUÇÃO) · web tsc 0 · web test 32 · web build ✓. |
+| **Status** | **corte-1** (NÚCLEO do documento — agregado header+itens + picker de saldo + workflow + tela, SEM efeitos; migration 072) ENTREGUE e verde 2026-07-14; **corte-2** (Gerar NF de Devolução — materializa a NF de saída finalidade=4 + refNFe + vínculo; migration 073) ENTREGUE e verde 2026-07-14. Recon 3 agentes + auditoria adversarial (2 agentes/corte). Verde corte-2: api tsc 0 · api test 138 · smoke **503/0** (6 DEVOLUÇÃO) · web tsc 0 · web test 32 · web build ✓. |
 | **Autor** | Claude (agente de migração) |
 | **Fontes legadas** | `uCadPedidoDevolucaoCompras.pas`/`.dfm` (tela mestre-detalhe) · `uDMCadPedidoDevolucaoCompra.pas` (DataModule/queries: `GetQtdDevolvida`, `CarregaItens`) · `uPedidoDevolucaoCompra.pas` (domínio + validações fiscais) · `uItensDevolucaoCompra.pas` (edição de item) · `uNF.pas:11994` `ImportaPedidoDevolucaoCompra` (geração da NF de saída — corte futuro). |
 | **Golden** | Oracle PINHEIRAO: `PEDIDO_DEVOLUCAO_COMPRA` 545 / `_ITENS` 3.809; NFs de saída emitidas 480; A Receber 391; kardex 1.093; `NFE_REF_DEV_ENT_VINCULO` 168. Feature viva porém DECLINANTE (pico 190 em 2021, 13 em 2025). |
@@ -23,7 +23,7 @@ Quase tudo já existe: estoque de saída (o F3 `nf-processamento` baixa por `tip
 
 ## 3. Plano de cortes
 - **Corte-1 (ESTE) — núcleo do documento, SEM efeitos** (migration 072): agregado `pedido_devolucao_compra` + `_i`; picker `GET compras/devolucao-compra/itens-disponiveis` (saldo = qtd entrada − Σ devolvido); `validar` (fornecedor FRN; item de NF de ENTRADA do próprio fornecedor; CFOP_DEVOLUCAO configurado; saldo por origem; edição só EM_DIGITACAO); `derivarItensTrx` TOTAL_PRODUTO_DEVOLVIDO = custo×qtd; verticais finalizar/reabrir/cancelar (CAS); coluna `cfop.cfop_devolucao` + CFOPs de devolução; view + RBAC `FRMDEVOLUCAOCOMPRA`; tela (fornecedor→picker→qtde→gravar + lista/workflow).
-- **Corte-2 (próximo) — Gerar NF de Devolução**: materializa a NF `tipo='S' finalidade='4'` (CFOP mapeado, `nf_referencia`/refNFe por NF-origem, codparceiro=fornecedor, situação saída), vincula `COD_NOTA_FISCAL_EMITIDA`, status→NOTA_FISCAL_EMITIDA. Espelho fiscal completo do item. Reusa a máquina de NF (F3 estoque− / F4 A Receber). Molde `RecebimentoService.gerarNf`.
+- **Corte-2 (ENTREGUE, migration 073) — Gerar NF de Devolução**: ver §5. Materializa a NF `tipo='S' finalidade='4'` + refNFe + vínculo; os efeitos (estoque−/A Receber) o operador roda na NF (F3/F4).
 - **Corte-3 — efeito financeiro/fiscal fiel**: A Receber contra o fornecedor no faturamento da devolução (venc = faturamento-entrada + `QUANTIDADE_DIAS_GERAR_BOLETO_DEVOLUCAO`), situações 825/826/827.
 - **ADIADO**: troca de produto (`PRODUTO_TROCA`/`COD_TROCA` — 0 headers/21 itens no golden); refNFe SEFAZ real (F6 externo adiado).
 
@@ -53,3 +53,40 @@ Ambos: **safe to commit (corte-1)** — núcleo FIEL (saldo `GetQtdDevolvida` = 
 - **[BAIXA] fornecedor inativo/bloqueado** não barrado (só FRN); **status enum** com underscore vs strings legadas (cutover corte-5); descrição do CFOP 5411 herdada do seed 041 (mapeamento 1403→5411 correto); config de `cfop_devolucao` dos demais CFOPs sem UI.
 
 **Verde pós-fold:** api tsc 0 · api test 138 · smoke **502/0** (5 DEVOLUÇÃO, com M1/M4) · web tsc 0 · web test 32 · web build ✓.
+
+## 5. Corte-2 — GERAR NF DE DEVOLUÇÃO — ENTREGUE e verde, 2026-07-14
+`POST compras/devolucao-compra/:id/gerar-nf` (RBAC BTNGERARNF, migration 073). Materializa a NF de SAÍDA a
+partir do documento **DIGITADO** (molde `RecebimentoService.gerarNf`, `ImportaPedidoDevolucaoCompra` do legado):
+- **NF `tipo='S' finalidade='4'`**, tipoemissao='0' (própria), modelo 55, dtemissao/dtcontabil=hoje, codparceiro=fornecedor;
+  **CFOP header** = o CFOP de devolução do 1º item.
+- **Itens**: quantidade = `qtd_devolvida`; vrcusto/vrvenda = custo da entrada; **ESPELHO FISCAL RATEADO** da
+  entrada por `qtd_devolvida/qtd_nota_fiscal` (ICMS base/valor, ST base/valor, IPI, FCP) + aliquota/ncm/origem do
+  produto; geraestoque/movimenta_estoque='S'.
+- **refNFe**: `nf_referencia` — 1 linha por NF de ENTRADA distinta (codnf_ref + chave_ref da origem) — exigido
+  por `validaDevolucao`.
+- **Vínculo/estado**: `codnf_emitida` = a NF gerada; status → NOTA_FISCAL_EMITIDA.
+- **Anti-duplo (fecha M2)**: CAS-first `status DIGITADO + codnf_emitida NULL → NOTA_FISCAL_EMITIDA` antes de
+  criar a NF; falha na criação → reverte a DIGITADO (try/catch).
+- **Guarda (fecha M3)**: nenhuma NF de entrada de origem pode estar CANCELADA (`nf.cancelada`).
+- **Efeitos** (estoque−, A RECEBER contra o fornecedor) = a máquina de NF existente (F3 processar / F4 faturar,
+  tipo='S'→areceber com codparceiro=fornecedor). Front: ação «Gerar NF» no status DIGITADO.
+- **Smoke §73.6**: gerar-NF → NF saída finalidade=4 CFOP 5202 + refNFe(codnf_ref) + item(qtd 4) + vínculo/status
+  NOTA_FISCAL_EMITIDA; re-gerar → 422 DEVOLUCAO_NF_JA_EMITIDA.
+
+### Divergências CONSCIENTES / adiados (corte-3)
+- **Situação-NF de saída + contábil** (825/826/827 DEBITO ICMS/PIS/COFINS SAIDA - DEVOLUCAO COMPRAS) — não setada; corte-3.
+- **Espelho fiscal PARCIAL** (ICMS/ST/IPI/FCP rateados; PIS/COFINS/seguro/frete/`_NOTA`/`ParceiroZeraImpostosDeICMSSt` adiados) — o F2 (recalcular) da NF pode complementar; corte-3.
+- **NF de saída single-UF-class** — o CFOP header = 1º item; devolução com itens 5xxx+6xxx misturados não é suportada num único documento (o operador separa). Documentado.
+- **Numeração/transmissão SEFAZ (refNFe real, NRONF)** — F6 externo adiado; a NF nasce rascunho (proc='N').
+- **Vencimento do A Receber** (faturamento-entrada + `QUANTIDADE_DIAS_GERAR_BOLETO_DEVOLUCAO`) — corte-3.
+
+### Auditoria adversarial (2 agentes: paridade/fiscal + regressão/concorrência) — folds
+Núcleo FIEL (rateio ≡ `GetValorCalculado`; refNFe 1-por-NF via codnf_ref; vrcusto/vrvenda=custo; gate DIGITADO; CFOP header=1º item). Folds dobrados:
+- **[ALTA, concorrência] catch revertia status após a NF commitada → 2ª NF (duplo estoque−/A Receber)** — refeito no padrão do RECEBIMENTO: vínculo **IN-ROW `nf.cod_ped_dev_compra`** (atômico com a criação) + **UNIQUE parcial** `ux_nf_cod_ped_dev_compra` (backstop 23505→já-emitida) + **catch ESTREITO** (só reverte se a criação falhar) + **reconciliação** (jaNf: se a NF já existe mas o reverse-link não gravou, reconcilia o codnf_emitida e reporta já-emitida — nunca duplica nem trava). Fecha a ALTA e a MÉDIA (NF órfã / documento travado por crash).
+- **[MÉDIA, paridade] `ipi: rat(it.ipi)` rateava a ALÍQUOTA %** → íntegra (`num(it.ipi)`, como o ICMS); só o valor `vripi` rateia.
+- **[MÉDIA, paridade] série '1' fixa** (a NF de saída própria É numerada pelo agregado) → usa `empresas.serie_nfe` (o legado usa EmpresaSERIE); doc corrigida (a NF nasce NUMERADA, não "rascunho sem número").
+- **[BAIXA] read do espelho fiscal sem filtro de tenant** → `.where('n.idempresa','=',emp)`; **M3** também cobre `statusnfe='C'` (não só `cancelada='S'`).
+
+**ADIADO (documentado — corte-3 fiscal / F6):** `ParceiroZeraImpostosDeICMSSt` (`parceiros.devolucao_zera_imposto_icmsst`='S' → zera ICMS/ST + CST 060/000/020: **incorreção fiscal real p/ esses fornecedores** até o corte-3); espelho de PIS/COFINS/seguro/frete/`_NOTA`; situação-NF + contábil 825/826/827; `codparceiro_end`/`obs`/informações-adicionais (DANFE); `nf_referencia.modelo`/chave_ref real + numeração/transmissão SEFAZ (F6); vencimento do A Receber (`QUANTIDADE_DIAS_GERAR_BOLETO_DEVOLUCAO`); mixed-UF (5xxx+6xxx) num só documento.
+
+**Verde pós-fold:** api tsc 0 · api test 138 · smoke **503/0** (6 DEVOLUÇÃO, com o IN-ROW) · web tsc 0 · web test 32 · web build ✓.
