@@ -2841,7 +2841,18 @@ async function main() {
     // 48.3) total = Σ VLREMBALAGEM na view (o cabeçalho NÃO persiste total) + fornecedor via JOIN.
     const lista = (await (await fetch(`${base}/${PED}?campo=codpedcomp&operador=igual&valor=${ped1}`, { headers: H })).json().catch(() => [])) as any[];
     const row1 = lista.find((r) => Number(r.codpedcomp) === ped1);
-    check('PEDIDO: total na view = Σ VLREMBALAGEM (57,5) + fornecedor (JOIN)', Number(row1?.total) === 57.5 && !!row1?.fornecedor, { total: row1?.total, forn: row1?.fornecedor });
+    check('PEDIDO: total na view = Σ TOTALCUSTO (57,5, QTDE=1 default) + fornecedor (JOIN)', Number(row1?.total) === 57.5 && !!row1?.fornecedor, { total: row1?.total, forn: row1?.fornecedor });
+
+    // 48.3b) 078 FLIP — QTDE>1: item qtde 3, fator 10, custo 5 → vlrembalagem=50 (custo/caixa), qtdtotal=30
+    // (unidades), totalcusto=150 (=3×50). Total do pedido = 150 (Σ TOTALCUSTO), NÃO 50 (Σ VLREMBALAGEM). É o bug do golden.
+    const pQt = await crPed({ codparceiro: 22, data: '2026-07-07', itens: [{ idproduto: 1, qtde: 3, fatorembalagem: 10, vrcusto: 5 }] });
+    const pQtJ = (await pQt.json().catch(() => ({}))) as any;
+    const pQtId = Number(pQtJ.codpedcomp);
+    const pQtIt = (pQtJ.itens ?? [])[0] as any;
+    const pQtRow = ((await (await fetch(`${base}/${PED}?campo=codpedcomp&operador=igual&valor=${pQtId}`, { headers: H })).json().catch(() => [])) as any[]).find((r) => Number(r.codpedcomp) === pQtId);
+    check('PEDIDO 078 FLIP: QTDE=3 → vlrembalagem 50 + qtdtotal 30 + totalcusto 150; total do pedido = 150 (Σ TOTALCUSTO, não 50)',
+      pQt.status === 201 && Number(pQtIt?.vlrembalagem) === 50 && Number(pQtIt?.qtde) === 3 && Number(pQtIt?.qtdtotal) === 30 && Number(pQtIt?.totalcusto) === 150 && Number(pQtRow?.total) === 150,
+      { item: pQtIt, total: pQtRow?.total });
 
     // 48.4) fornecedor não-FRN (parceiro 20) → 422 PEDIDO_FORNECEDOR_INVALIDO.
     const p4 = await crPed({ codparceiro: 20, data: '2026-07-07', itens: itensBase });
@@ -2946,6 +2957,16 @@ async function main() {
     check('RECEB: itens mapeados (qtde=fatorembalagem 10/3, vrvenda=vrcusto 5/2,5, NCM/aliquota DISTINTOS do produto, cfop 1102)',
       nfItens.length === 2 && Number(nfItens[0].quantidade) === 10 && Number(nfItens[0].vrvenda) === 5 && nfItens[0].aliquota === 'T01' && nfItens[0].ncm === '17019900' && nfItens[0].cfop === '1102' && Number(nfItens[1].quantidade) === 3 && Number(nfItens[1].vrvenda) === 2.5 && nfItens[1].ncm === '22021000',
       { itens: nfItens });
+
+    // 49.3b) 078 FLIP: pedido com QTDE>1 → gerar-nf mapeia quantidade = QTDTOTAL (qtde×fator), não o fator.
+    // qtde 4 × fator 6 = 24 unidades. (Antes do flip a NF traria 6, subcontando as unidades a receber.)
+    const rpQ = await crPed({ codparceiro: 22, data: '2026-07-08', itens: [{ idproduto: 1, qtde: 4, fatorembalagem: 6, vrcusto: 5 }] });
+    const rpQId = Number(((await rpQ.json().catch(() => ({}))) as any).codpedcomp);
+    await fetch(`${base}/${PED}/${rpQId}/fechar`, { method: 'POST', headers: H });
+    const rpQNf = Number(((await (await gerarNf(rpQId)).json().catch(() => ({}))) as any).codnf);
+    const rpQItem = (await pgRec.query(`SELECT quantidade FROM nf_prod WHERE codnf=$1 ORDER BY nroitem LIMIT 1`, [rpQNf])).rows[0] as any;
+    check('RECEB 078 FLIP: gerar-nf com QTDE>1 → quantidade da NF = QTDTOTAL (4×6=24 unidades), não o fator (6)',
+      Number(rpQItem?.quantidade) === 24, { quantidade: rpQItem?.quantidade });
 
     // 49.4) pedido marcado RECEBIDO (dtfaturamento) → reabrir/editar bloqueados (PEDIDO_FATURADO).
     const r4r = await fetch(`${base}/${PED}/${rpId}/reabrir`, { method: 'POST', headers: H });

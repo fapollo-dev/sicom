@@ -177,7 +177,8 @@ function CabecalhoBand({
   const err = form.formState.errors;
   const fechado = (form.watch('fechado' as any) as string | undefined) === 'S';
   const itens = (form.watch('itens') ?? []) as PedidoCompraItemDto[];
-  const total = itens.reduce((s, it) => s + (Number(it.fatorembalagem) || 0) * (Number(it.vrcusto) || 0), 0);
+  // 078 FLIP: total = Σ TOTALCUSTO = Σ (qtde × fator × custo). QTDE default 1.
+  const total = itens.reduce((s, it) => s + (Number(it.qtde ?? 1) || 1) * (Number(it.fatorembalagem) || 0) * (Number(it.vrcusto) || 0), 0);
 
   return (
     <fieldset disabled={!editavel} className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
@@ -405,7 +406,10 @@ function ItensSection({
   };
 
   const itens = fields as Array<PedidoCompraItemDto & { fieldId: string }>;
-  const total = itens.reduce((s, it) => s + (Number(it.fatorembalagem) || 0) * (Number(it.vrcusto) || 0), 0);
+  // 078 FLIP: total = Σ TOTALCUSTO = Σ (qtde × fator × custo). QTDE default 1 (linha legada = fator × custo).
+  const linhaTotal = (it: Partial<PedidoCompraItemDto>) =>
+    (Number(it.qtde ?? 1) || 1) * (Number(it.fatorembalagem) || 0) * (Number(it.vrcusto) || 0);
+  const total = itens.reduce((s, it) => s + linhaTotal(it), 0);
 
   const columns = useMemo<DataTableColumnDef<PedidoCompraItemDto & { fieldId: string }>[]>(
     () => [
@@ -416,7 +420,8 @@ function ItensSection({
         isPrimary: true,
         valueGetter: (row) => rotuloProduto(row.idproduto),
       },
-      { field: 'fatorembalagem', headerName: 'Quantidade', type: 'number', width: 110 },
+      { field: 'qtde', headerName: 'Qtde', type: 'number', width: 90, valueGetter: (row) => Number(row.qtde ?? 1) || 1 },
+      { field: 'fatorembalagem', headerName: 'Fator/emb.', type: 'number', width: 100 },
       {
         field: 'vrcusto',
         headerName: 'Custo unit.',
@@ -425,11 +430,11 @@ function ItensSection({
         valueGetter: (row) => fmtBRL(Number(row.vrcusto) || 0),
       },
       {
-        field: 'vlrembalagem',
+        field: 'totalcusto',
         headerName: 'Total',
         type: 'text',
         width: 120,
-        valueGetter: (row) => fmtBRL((Number(row.fatorembalagem) || 0) * (Number(row.vrcusto) || 0)),
+        valueGetter: (row) => fmtBRL(linhaTotal(row)),
       },
       // corte-final: analítica da precificação visível no grid (venda praticada + margem líquida L2).
       {
@@ -503,7 +508,7 @@ function ItensSection({
               cardBreakpoint={false}
             />
             <small className="text-fg-muted">
-              Total do pedido: R$ {fmtBRL(total)} — Σ (quantidade × custo). O servidor recalcula ao gravar.
+              Total do pedido: R$ {fmtBRL(total)} — Σ (qtde × fator × custo). O servidor recalcula ao gravar.
             </small>
           </>
         )}

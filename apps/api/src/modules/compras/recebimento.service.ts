@@ -88,10 +88,10 @@ export class RecebimentoService {
 
     const itens = (await db
       .selectFrom('pedidocompra_i')
-      .select(['codpedcompi', 'idproduto', 'fatorembalagem', 'vrcusto', 'desconto'])
+      .select(['codpedcompi', 'idproduto', 'qtde', 'fatorembalagem', 'qtdtotal', 'vrcusto', 'desconto'])
       .where('codpedcomp', '=', codpedcomp)
       .orderBy('codpedcompi')
-      .execute()) as Array<{ idproduto: number; fatorembalagem: unknown; vrcusto: unknown; desconto: unknown }>;
+      .execute()) as Array<{ idproduto: number; qtde: unknown; fatorembalagem: unknown; qtdtotal: unknown; vrcusto: unknown; desconto: unknown }>;
     if (!itens.length) throw new BusinessRuleError('PEDIDO_SEM_ITENS', { codpedcomp });
 
     // pré-preenche cada item da NF a partir do item do pedido + config fiscal DO PRODUTO (aliquota/ncm/unidade/
@@ -111,8 +111,10 @@ export class RecebimentoService {
       nfItens.push({
         nroitem: nro++,
         codproduto: it.idproduto,
-        quantidade: num(it.fatorembalagem), // FATOREMBALAGEM do pedido = quantidade pedida
-        fatorembal: 1, // pedido já traz a qtde direta; base de estoque = quantidade × fatorembal (não duplicar)
+        // 078 FLIP: quantidade = QTDTOTAL (= QTDE×FATOREMBALAGEM, unidades totais pedidas); fallback fatorembalagem
+        // p/ linhas legadas sem qtdtotal materializado (QTDE=1 → qtdtotal=fatorembalagem, mesmo valor).
+        quantidade: num(it.qtdtotal) > 0 ? num(it.qtdtotal) : num(it.fatorembalagem),
+        fatorembal: 1, // qtdtotal já é a qtde em unidades; base de estoque = quantidade × fatorembal (não duplicar)
         unidade: prod?.unidade ?? undefined,
         // SEED do rascunho: usamos o CUSTO como valor unitário da entrada (base do TOTALPROD = custo). No legado
         // VRVENDA carrega o PREÇO DE VENDA (difere do custo em ~100% dos casos) — o real vem da NF; ajuste na NF.

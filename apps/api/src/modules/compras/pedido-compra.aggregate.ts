@@ -83,7 +83,8 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
       fk: 'codpedcomp',
       chave: 'itens',
       colunas: [
-        'idproduto', 'fatorembalagem', 'vrcusto', 'vlrembalagem', 'desconto', 'descontop', 'obs',
+        // FLIP do modelo (078): QTDE = nº de embalagens (comprador digita CAIXAS); FATOREMBALAGEM = fator (FATORCX).
+        'idproduto', 'qtde', 'fatorembalagem', 'vrcusto', 'vlrembalagem', 'qtdtotal', 'totalcusto', 'desconto', 'descontop', 'obs',
         // corte precificação do item: markup→venda + margem líquida (L2) + custo líquido + PMZ (reuso do motor
         // /precificacao/produto; o comprador forma o preço). vrvenda (praticado) ≠ vrvendasug (sugerido pelo
         // motor). Nomes fiéis ao legado (MARGEML2/MARGEML2V). Analítica armazenada; sem propagação ao MULTI_PRECO.
@@ -91,9 +92,21 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
         // corte-final: % bonificado do item (100 no pedido-espelho gerado por gerar-bonificado).
         'bonificacao',
       ],
-      // VLREMBALAGEM = FATOREMBALAGEM × VRCUSTO — congelado server-side (o cliente não é fonte da verdade).
+      // Derivação server-authoritative (078, uPedidoCompra.pas:1971-1972): VLREMBALAGEM = FATOREMBALAGEM×VRCUSTO
+      // (custo por caixa); QTDTOTAL = QTDE×FATOREMBALAGEM (unidades); TOTALCUSTO = QTDE×VLREMBALAGEM (total da linha).
+      // QTDE default 1 (behavior-preserving: TOTALCUSTO≡VLREMBALAGEM). O cliente não é fonte da verdade dos derivados.
       derivarItensTrx: async (itens) =>
-        itens.map((it) => ({ ...it, vlrembalagem: r4(num(it.fatorembalagem) * num(it.vrcusto)) })),
+        itens.map((it) => {
+          const qtde = num(it.qtde) > 0 ? num(it.qtde) : 1;
+          const vlrembalagem = r4(num(it.fatorembalagem) * num(it.vrcusto));
+          return {
+            ...it,
+            qtde,
+            vlrembalagem,
+            qtdtotal: r4(qtde * num(it.fatorembalagem)),
+            totalcusto: Math.round((qtde * vlrembalagem + Number.EPSILON) * 100) / 100,
+          };
+        }),
     },
     {
       // corte-2: PARCELAS (2º detalhe). Editáveis (o legado permite ajustar); geradas pelo `gerar-parcelas`

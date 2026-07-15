@@ -36,22 +36,31 @@ export const PC_TIPO_FRETE_OPCOES = [
 ] as const;
 
 /* ── item ── */
-/** Item do pedido: produto + quantidade (fatorembalagem) + custo negociado. VLREMBALAGEM é derivado. */
+/** Item do pedido: produto + QTDE (nº de embalagens) + FATOREMBALAGEM (fator) + custo. Derivados server-side:
+ *  VLREMBALAGEM=fator×custo (custo/caixa), QTDTOTAL=qtde×fator (unidades), TOTALCUSTO=qtde×vlrembalagem (linha). */
 export const pedidoCompraItemSchema = z.object({
   idproduto: z.coerce.number({ message: 'Produto inválido.' }).int().positive('Informe o produto do item.'),
-  // FATOREMBALAGEM = quantidade pedida (legado). > 0 (pedir 0 é no-op). Teto coerente com a coluna
-  // (numeric(13,2)) + garante que fator×custo caiba em VLREMBALAGEM numeric(18,4) sem overflow.
-  fatorembalagem: z.coerce
+  // QTDE = nº de embalagens pedidas (078 FLIP; o comprador digita CAIXAS). > 0; default 1. Base do TOTALCUSTO.
+  qtde: z.coerce
     .number({ message: 'Quantidade inválida.' })
     .positive('A quantidade deve ser maior que zero.')
-    .max(9_999_999, 'Quantidade acima do limite permitido.'),
+    .max(9_999_999, 'Quantidade acima do limite permitido.')
+    .optional()
+    .default(1),
+  // FATOREMBALAGEM = fator de embalagem (FATORCX, unidades/caixa). > 0. Teto coerente com a coluna numeric(13,2).
+  fatorembalagem: z.coerce
+    .number({ message: 'Fator de embalagem inválido.' })
+    .positive('O fator de embalagem deve ser maior que zero.')
+    .max(9_999_999, 'Fator de embalagem acima do limite permitido.'),
   // custo unitário negociado com o fornecedor (âncora do item). Teto coerente com numeric(12,4).
   vrcusto: z.coerce
     .number({ message: 'Custo inválido.' })
     .nonnegative('Custo inválido.')
     .max(9_999_999, 'Custo acima do limite permitido.'),
-  // custo estendido (= fatorembalagem × vrcusto) — server-authoritative; aceito no payload p/ round-trip.
+  // derivados server-authoritative (aceitos no payload p/ round-trip): custo/caixa, unidades totais, total da linha.
   vlrembalagem: dec(z.number().nonnegative()),
+  qtdtotal: dec(z.number().nonnegative()),
+  totalcusto: dec(z.number().nonnegative()),
   desconto: dec(z.number().nonnegative('Desconto inválido.')),
   descontop: dec(z.number().nonnegative('Desconto (%) inválido.').max(100, 'Desconto (%) inválido.')),
   obs: opcional(z.string().trim().max(1000)),

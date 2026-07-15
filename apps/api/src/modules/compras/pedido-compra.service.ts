@@ -126,12 +126,11 @@ export class PedidoCompraService {
       }
       if (prazos.length === 0) throw new BusinessRuleError('PEDIDO_SEM_CONDICAO_PAGTO', { codpedcomp });
 
-      // total = Σ VLREMBALAGEM dos itens. NOTA (single-empresa): o legado usa TOTALCUSTO = Σ(QTDE×VLREMBALAGEM)
-      // agrupado por loja (PEDIDO_COMPRA_QTDE, o split multi-loja/cross-docking = ADIADO). No modelo reduzido do
-      // corte-1 (qtd=FATOREMBALAGEM, VLREMBALAGEM=fator×custo) Σ vlrembalagem é a base consistente.
+      // total = Σ TOTALCUSTO dos itens (078, FLIP: TOTALCUSTO = QTDE×VLREMBALAGEM, fiel ao sqqTotalPedido). Single-empresa
+      // = 1 grupo; o split multi-loja por empresa (PEDIDO_COMPRA_QTDE grandchild = cross-docking) segue ADIADO.
       const tot = await trx
         .selectFrom('pedidocompra_i')
-        .select(({ fn }: any) => [fn.sum('vlrembalagem').as('s')])
+        .select(({ fn }: any) => [fn.sum('totalcusto').as('s')])
         .where('codpedcomp', '=', codpedcomp)
         .executeTakeFirst();
       const totalCents = Math.round(Number((tot as any)?.s ?? 0) * 100);
@@ -199,7 +198,7 @@ export class PedidoCompraService {
     if (!pc) return [];
     const tot = (await trx
       .selectFrom('pedidocompra_i')
-      .select(({ fn }: any) => [fn.sum('vlrembalagem').as('s')])
+      .select(({ fn }: any) => [fn.sum('totalcusto').as('s')]) // 078 FLIP: total = Σ TOTALCUSTO (QTDE×VLREMBALAGEM)
       .where('codpedcomp', '=', codpedcomp)
       .executeTakeFirst()) as { s?: unknown } | undefined;
     const totalCents = Math.round(num(tot?.s) * 100);
@@ -438,7 +437,7 @@ export class PedidoCompraService {
 
       const itens = (await trx
         .selectFrom('pedidocompra_i')
-        .select(['idproduto', 'fatorembalagem', 'vrcusto', 'desconto', 'descontop', 'obs', 'vrcustoliquido', 'markup', 'vrvenda', 'vrvendasug', 'margeml2', 'margeml2v', 'pmz', 'bonificacao'])
+        .select(['idproduto', 'qtde', 'fatorembalagem', 'vrcusto', 'desconto', 'descontop', 'obs', 'vrcustoliquido', 'markup', 'vrvenda', 'vrvendasug', 'margeml2', 'margeml2v', 'pmz', 'bonificacao'])
         .where('codpedcomp', '=', codpedcomp)
         .orderBy('codpedcompi')
         .execute()) as Array<Record<string, unknown>>;
@@ -497,7 +496,9 @@ export class PedidoCompraService {
       for (const it of itens) {
         const fator = num(it.fatorembalagem);
         const custo = num(it.vrcusto);
-        const base = { codpedcomp: novo, idproduto: it.idproduto as number, fatorembalagem: fator, vrcusto: custo, vlrembalagem: r4(fator * custo) };
+        const qtde = num(it.qtde) > 0 ? num(it.qtde) : 1; // 078 FLIP: nº de embalagens (preserva no duplicar/espelho)
+        const vlrembalagem = r4(fator * custo);
+        const base = { codpedcomp: novo, idproduto: it.idproduto as number, qtde, fatorembalagem: fator, vrcusto: custo, vlrembalagem, qtdtotal: r4(qtde * fator), totalcusto: Math.round((qtde * vlrembalagem + Number.EPSILON) * 100) / 100 };
         const item: Record<string, unknown> = bonificar
           ? { ...base, bonificacao: 100 } // espelho = 100% (:7033); sem precificação (mercadoria gratuita)
           : {
@@ -621,9 +622,11 @@ export class PedidoCompraService {
         }
         const custo = useRep ? (mp.vrcustorep || mp.vrcusto || 0) : (mp.vrcusto ?? 0);
         const fator = (useRefFator && fatores.get(idp)) || (num(c.fatorcx) > 0 ? num(c.fatorcx) : 1);
+        // 078 FLIP: QTDE=1 default (o comprador ajusta depois); TOTALCUSTO obrigatório (SUM ignora NULL → item some do total).
+        const vlrembalagem = r4(fator * custo);
         await trx
           .insertInto('pedidocompra_i')
-          .values({ codpedcomp, idproduto: idp, fatorembalagem: fator, vrcusto: custo, vlrembalagem: r4(fator * custo) })
+          .values({ codpedcomp, idproduto: idp, qtde: 1, fatorembalagem: fator, vrcusto: custo, vlrembalagem, qtdtotal: r4(fator), totalcusto: Math.round((vlrembalagem + Number.EPSILON) * 100) / 100 })
           .execute();
         importados++;
       }

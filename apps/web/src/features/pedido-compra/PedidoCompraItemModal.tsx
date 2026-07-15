@@ -21,6 +21,7 @@ const fmtBRL = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits:
 
 const ITEM_VAZIO: PedidoCompraItemDto = {
   idproduto: undefined as unknown as number,
+  qtde: 1, // nº de embalagens (078 FLIP; default 1)
   fatorembalagem: undefined as unknown as number,
   vrcusto: undefined as unknown as number,
 };
@@ -44,8 +45,10 @@ export function PedidoCompraItemModal({ inicial, produtoOptions, produtoAliquota
   const set = <K extends keyof PedidoCompraItemDto>(k: K, v: PedidoCompraItemDto[K]) =>
     setItem((i) => ({ ...i, [k]: v }));
 
-  // VLREMBALAGEM (custo estendido) = quantidade × custo — só exibição; o servidor recomputa.
+  // Derivados (078 FLIP) — só exibição; o servidor recomputa. VLREMBALAGEM = fator×custo (custo por caixa);
+  // TOTALCUSTO = qtde × vlrembalagem (total da linha); QTDTOTAL = qtde × fator (unidades).
   const vlrembalagem = (Number(item.fatorembalagem) || 0) * (Number(item.vrcusto) || 0);
+  const totalcusto = (Number(item.qtde) || 0) * vlrembalagem;
 
   /** o comprador FORMA o preço: reusa o motor (POST /precificacao/produto) — custo + markup → venda/margem/PMZ. */
   const precificar = async () => {
@@ -86,9 +89,10 @@ export function PedidoCompraItemModal({ inicial, produtoOptions, produtoAliquota
 
   const salvar = () => {
     if (item.idproduto == null) return setErro('Informe o produto do item.');
-    if (!(Number(item.fatorembalagem) > 0)) return setErro('A quantidade deve ser maior que zero.');
+    if (!(Number(item.qtde) > 0)) return setErro('A quantidade (embalagens) deve ser maior que zero.');
+    if (!(Number(item.fatorembalagem) > 0)) return setErro('O fator de embalagem deve ser maior que zero.');
     if (!(Number(item.vrcusto) >= 0)) return setErro('Custo inválido.');
-    onConfirmar(item);
+    onConfirmar({ ...item, qtde: Number(item.qtde) || 1 });
   };
 
   return (
@@ -113,7 +117,14 @@ export function PedidoCompraItemModal({ inicial, produtoOptions, produtoAliquota
             />
           </div>
           <NumberField
-            label="&Quantidade"
+            label="&Qtde (embalagens)"
+            value={item.qtde as number | undefined}
+            onChange={(v) => set('qtde', v as number)}
+            decimais={3}
+            min={0}
+          />
+          <NumberField
+            label="&Fator/emb."
             value={item.fatorembalagem as number | undefined}
             onChange={(v) => set('fatorembalagem', v as number)}
             decimais={3}
@@ -165,9 +176,9 @@ export function PedidoCompraItemModal({ inicial, produtoOptions, produtoAliquota
           </div>
         </fieldset>
         <div className="flex items-center justify-end gap-gp-sm border-t border-border pt-pad-sm">
-          <span className="text-body-sm text-fg-muted">Total do item (qtd × custo)</span>
+          <span className="text-body-sm text-fg-muted">Custo/emb. R$ {fmtBRL(vlrembalagem)} · Total do item (qtde × custo/emb.)</span>
           <span className="rounded-radius-base bg-bg-subtle px-pad-sm py-pad-xs text-body-sm font-semibold text-fg-default tabular-nums">
-            R$ {fmtBRL(vlrembalagem)}
+            R$ {fmtBRL(totalcusto)}
           </span>
         </div>
       </div>

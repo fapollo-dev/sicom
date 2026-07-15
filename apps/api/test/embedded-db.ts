@@ -120,6 +120,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('075_nf_perc_aliquota_ret.sql'));
   await pool.query(sql('076_devolucao_situacao_nf.sql'));
   await pool.query(sql('077_pedido_tipo_fluxo_caixa.sql'));
+  await pool.query(sql('078_pedido_qtde.sql'));
   await pool.end();
   return pg;
 }
