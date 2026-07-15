@@ -17,6 +17,6 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // Tenant resolvido nas rotas de domínio + 'auth' (o login precisa do tenantId do header p/ achar o banco;
     // as demais rotas de auth extraem o operador do JWT). /healthz fica livre (infra).
-    consumer.apply(TenantMiddleware).forRoutes('auth', 'cadastro', 'cobranca', 'compras', 'precificacao', 'fiscal');
+    consumer.apply(TenantMiddleware).forRoutes('auth', 'cadastro', 'cobranca', 'compras', 'precificacao', 'fiscal', 'operadores');
   }
 }

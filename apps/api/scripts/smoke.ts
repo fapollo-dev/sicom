@@ -3817,6 +3817,29 @@ async function main() {
     } finally {
       await pgCut.end();
     }
+
+    // ===== §75) OPERADORES — LIBERAÇÃO por supervisor (LOG_LIBERACOES) corte-1 (consulta) =====
+    const pgLib = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    try {
+      // seed 2 eventos (grant + negação) — o registrar interno é exercitado no corte-3; aqui a CONSULTA.
+      await pgLib.query(`INSERT INTO log_liberacoes (usuario_sistema, usuario_liberou, liberacao, computador, data_liberacao) VALUES
+        (7, '3462', 'LIBERACAO DE VALOR MAXIMO DO PEDIDO DE COMPRA', 'PDV01', '2026-07-10 09:00:00-03'),
+        (7, '0',    'NEGADO: DESCONTO MAXIMO', 'PDV01', '2026-07-11 10:00:00-03')`);
+      const libAll = await fetch(`${base}/operadores/liberacoes`, { headers: H });
+      const libAllJ = (await libAll.json().catch(() => [])) as any[];
+      check('LIBERAÇÃO §75: GET /operadores/liberacoes lista os eventos (mais recente primeiro; usuario_liberou = código string)',
+        libAll.status === 200 && libAllJ.length >= 2 && libAllJ[0].liberacao?.includes('DESCONTO') && libAllJ.some((r) => r.usuario_liberou === '3462'),
+        { status: libAll.status, n: libAllJ.length });
+      const libFiltro = await fetch(`${base}/operadores/liberacoes?liberacao=VALOR%20MAXIMO`, { headers: H });
+      const libFiltroJ = (await libFiltro.json().catch(() => [])) as any[];
+      check('LIBERAÇÃO §75: filtro por ação (ilike) retorna só o evento de VALOR MAXIMO',
+        libFiltro.status === 200 && libFiltroJ.length === 1 && libFiltroJ[0].usuario_liberou === '3462',
+        { n: libFiltroJ.length });
+      const libSem = await fetch(`${base}/operadores/liberacoes`, { headers: H_SEM_ACESSO });
+      check('LIBERAÇÃO §75: sem grant RBAC → 403', libSem.status === 403, { status: libSem.status });
+    } finally {
+      await pgLib.end();
+    }
   } finally {
     await app.close();
     await pg.stop();
