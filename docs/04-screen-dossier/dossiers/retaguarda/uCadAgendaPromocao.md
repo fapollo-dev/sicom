@@ -4,7 +4,7 @@
 
 | Campo | Valor |
 |---|---|
-| **Status** | **corte-1 NÚCLEO ENTREGUE e verde** (2026-07-15): cadastro header+itens + período (data+hora) + validações (dtfim>dtini, preço>0, produto ativo, **anti-sobreposição** OVERLAPS) + workflow encerrar/reabrir + front. **SEM efeito** (a aplicação ao `multi_preco` é o corte-2). |
+| **Status** | **corte-1 + corte-2 ENTREGUES e verdes** (2026-07-15). corte-1 NÚCLEO: cadastro header+itens + período (data+hora) + validações + workflow encerrar/reabrir + front. **corte-2 APLICAÇÃO**: ativar→`multi_preco.promocao='S'/vrpromo/codagenda`; encerrar reverte por codagenda. Auditoria adversarial (6 achados: 1 ALTA + 3 MÉDIA + 2 BAIXA) folded (mig 082). Verde: api tsc 0 · api test 145 · **smoke 533/0** (§76.1-9) · web tsc 0 · test 32 · build. Efeito-PDV adiado. |
 | **Autor** | Claude (agente de migração) |
 | **Fontes legadas** | `uCadAgendaPromocao.pas` (2.621 linhas) + `udmCadAgendaPromocao.pas`/`.dfm`. Lido no disco (`/Users/apollosistemas/Downloads/retaguarda-master/fonte/Units/`). |
 | **Golden** | Oracle PINHEIRAO (READ-ONLY, verificado 2026-07-15): `AGENDA_PROMOCAO` (2.027; 2.012 não-encerradas), `AGENDA_PROMOCAO_ITENS` (23.666; ATIVO S=22.505/N=660), `AGENDA_PROMOCAO_EMPRESA` (790). |
@@ -34,9 +34,13 @@ Há **dois sistemas de promoção** no legado; a tela nomeada pelo usuário (`UC
 ### Verificação
 shared build · api tsc 0 · api test 145 · **smoke 527/0** (§76: criar+itens · período inválido→400 · preço≤0→400 · anti-sobreposição→422 · período não-sobreposto→201 · produto inativo→422 · encerrar→editar-encerrada 422→reabrir · RBAC 403) · web tsc 0 · test 32 · build. Auditoria adversarial 2 lentes (paridade+regressão) — achados dobrados.
 
+## 3b. Corte-2 (ENTREGUE) — APLICAÇÃO do preço + folds da auditoria
+
+- **APLICAÇÃO** (`aplicar`, mig 081): ativar a agenda → p/ cada item ATIVO com preço na empresa, `UPDATE MULTI_PRECO SET PROMOCAO='S', VRPROMO=VLRPROMOCAO, CODAGENDA=<agenda>` + histórico (`uCadAgendaPromocao:247`). `encerrar` REVERTE só as linhas `codagenda=esta` (`PROMOCAO='N'`, `vrpromo`/`codagenda` null — `:750`). `multi_preco.codagenda` = link da campanha (reversão precisa). `POST :id/aplicar` (RBAC BTNAPLICARPRECO); front ganha ação «Aplicar preços». Agenda encerrada não aplica.
+- **Folds da auditoria (mig 082):** [ALTA] anti-sobreposição era burlável por PUT parcial → `validar` faz FALLBACK ao período+itens PERSISTIDOS. [MÉDIA] bloqueio duro → GATE `PERMITE_PRODUTO_MAIS_UMA_AGENDA` (default 'S' permissivo, fiel; bloqueia só ='N'). [MÉDIA] `vlrpromocao>0` estrito → "não-ambos-zero" (aceita promo só-clube, `:651`). [MÉDIA] `datetime-local` sem fuso → o front converte p/ ISO com offset. [BAIXA] produto repetido na agenda → `PROMOCAO_PRODUTO_DUPLICADO` (`:951`).
+
 ## 4. Adiado (com procedência — nada perdido)
 
-- **corte-2: APLICAÇÃO do preço** — ativar a agenda → `UPDATE MULTI_PRECO SET PROMOCAO='S', VRPROMO=VLRPROMOCAO` dos itens no período; reverte no encerrar/fim (`uCadAgendaPromocao:247/746-750`). `multi_preco` já tem `vrpromo`+`promocao`; falta o link `codagenda` + o job de vigência. **Este é o próximo corte.**
 - **Efeito-PDV** (depende do PDV): seleção do preço promocional no caixa (`uVendas`), `VRCLUBE_FIDELIDADE`/`MAXIMO` na venda, fila de etiquetas `LOTEPRECO`/`LTPRECO_PROCESSADO`, flags de mídia (publicação).
 - **Multi-empresa** (`AGENDA_PROMOCAO_EMPRESA` + item.`EMPRESAS` CSV): consistente com a decisão de adiar leitura cross-empresa (cross-docking). corte-1 é single-empresa.
 - **Atualização por grupo de preço** (`ATUALIZACAO_GRUPO`/`CODGRUPO`): aplica o preço promo a todos os produtos de um grupo. Adiado.
