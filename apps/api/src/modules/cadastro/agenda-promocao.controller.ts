@@ -25,4 +25,12 @@ export class AgendaPromocaoController {
   reabrir(@Param('id', ParseIntPipe) id: number) {
     return this.svc.reabrir(id);
   }
+
+  /** corte-2: aplica o preço promocional dos itens ativos ao multi_preco (PROMOCAO='S'/VRPROMO). */
+  @Post(':id/aplicar')
+  @HttpCode(200)
+  @RequerAcesso('FRMAGENDAPROMOCAO', 'BTNAPLICARPRECO')
+  aplicar(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.aplicar(id);
+  }
 }

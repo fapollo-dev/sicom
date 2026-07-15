@@ -63,3 +63,7 @@ export function encerrarAgenda(id: number): Promise<{ codagenda: number; situaca
 export function reabrirAgenda(id: number): Promise<{ codagenda: number; situacao: string }> {
   return req(`${AP}/${id}/reabrir`, { method: 'POST' });
 }
+/** corte-2: aplica o preço promocional dos itens ativos ao multi_preco (PROMOCAO='S'/VRPROMO). */
+export function aplicarAgenda(id: number): Promise<{ codagenda: number; aplicados: number }> {
+  return req(`${AP}/${id}/aplicar`, { method: 'POST' });
+}

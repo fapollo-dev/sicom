@@ -3894,6 +3894,26 @@ async function main() {
       // 76.6) RBAC: criar sem grant → 403.
       const p6 = await crPromo({ nomepromo: 'X', dtiniciopromocao: '2027-01-01T00:00', dtfimpromocao: '2027-01-02T00:00', itens: [{ idproduto: 1, vlrpromocao: 1 }] }, H_SEM_ACESSO);
       check('PROMO 76.6: criar sem grant RBAC → 403', p6.status === 403, { status: p6.status });
+
+      // 76.7) corte-2 — APLICAR: cria agenda (produto 1, período 2028 p/ não sobrepor) → aplicar grava
+      // multi_preco.promocao='S'+vrpromo+codagenda; encerrar REVERTE (promocao='N', vrpromo null, codagenda null).
+      await pgPromo.query(`UPDATE multi_preco SET promocao='N', vrpromo=NULL, codagenda=NULL WHERE idproduto=1 AND idempresa=1`);
+      const pa = await crPromo({ nomepromo: 'APLICAR 2028', dtiniciopromocao: '2028-01-01T00:00', dtfimpromocao: '2028-01-31T23:59', itens: [{ idproduto: 1, vlrpromocao: 4.44 }] });
+      const paId = Number(((await pa.json().catch(() => ({}))) as any).codagenda);
+      const apl = await fetch(`${base}/${AP}/${paId}/aplicar`, { method: 'POST', headers: H });
+      const aplJ = (await apl.json().catch(() => ({}))) as any;
+      const mpApos = (await pgPromo.query(`SELECT promocao, vrpromo, codagenda FROM multi_preco WHERE idproduto=1 AND idempresa=1`)).rows[0] as any;
+      check('PROMO 76.7a: aplicar → multi_preco.promocao=S + vrpromo 4,44 + codagenda vinculado (1 aplicado)',
+        apl.status === 200 && Number(aplJ.aplicados) === 1 && mpApos?.promocao === 'S' && Number(mpApos?.vrpromo) === 4.44 && Number(mpApos?.codagenda) === paId,
+        { status: apl.status, aplicados: aplJ.aplicados, mp: mpApos });
+      const enc2 = await fetch(`${base}/${AP}/${paId}/encerrar`, { method: 'POST', headers: H });
+      const mpRev = (await pgPromo.query(`SELECT promocao, vrpromo, codagenda FROM multi_preco WHERE idproduto=1 AND idempresa=1`)).rows[0] as any;
+      check('PROMO 76.7b: encerrar REVERTE o multi_preco (promocao=N, vrpromo null, codagenda null) — só as linhas desta agenda',
+        enc2.status === 200 && mpRev?.promocao === 'N' && mpRev?.vrpromo == null && mpRev?.codagenda == null,
+        { status: enc2.status, mp: mpRev });
+      // 76.7c: aplicar em agenda encerrada → 422 PROMOCAO_ENCERRADA.
+      const aplEnc = await fetch(`${base}/${AP}/${paId}/aplicar`, { method: 'POST', headers: H });
+      check('PROMO 76.7c: aplicar em agenda encerrada → 422 PROMOCAO_ENCERRADA', aplEnc.status === 422 && ((await aplEnc.json().catch(() => ({}))) as any).code === 'PROMOCAO_ENCERRADA', { status: aplEnc.status });
     } finally {
       await pgPromo.end();
     }

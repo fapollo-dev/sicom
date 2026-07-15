@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
-import { CheckCircle2, RotateCcw, Trash2, X } from 'lucide-react';
+import { CheckCircle2, RotateCcw, Trash2, X, Tag } from 'lucide-react';
 import type { AgendaPromocao, AgendaPromocaoItemDto } from '@apollo/shared';
 import { Button } from '../../shared/ui/Button';
 import { Field } from '../../shared/ui/Field';
@@ -9,7 +9,7 @@ import { NumberField } from '../../shared/ui/NumberField';
 import { CurrencyField } from '../../shared/ui/CurrencyField';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
-import { listarAgendas, criarAgenda, encerrarAgenda, reabrirAgenda, removerAgenda } from './agendaPromocaoApi';
+import { listarAgendas, criarAgenda, encerrarAgenda, reabrirAgenda, removerAgenda, aplicarAgenda } from './agendaPromocaoApi';
 
 const n = (v: unknown) => Number(v) || 0;
 const fmtMoeda = (v: unknown) => n(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -101,9 +101,12 @@ export function AgendaPromocaoCadMaster() {
         const id = Number(r.codagenda);
         const encerrada = String(r.situacao) === 'ENCERRADA';
         return [
-          encerrada
-            ? { id: 'reabrir', label: 'Reabrir', icon: <RotateCcw size={16} />, onClick: () => void acao(() => reabrirAgenda(id), 'Promoção reaberta.') }
-            : { id: 'encerrar', label: 'Encerrar', icon: <CheckCircle2 size={16} />, onClick: () => void acao(() => encerrarAgenda(id), 'Promoção encerrada.') },
+          ...(encerrada
+            ? [{ id: 'reabrir', label: 'Reabrir', icon: <RotateCcw size={16} />, onClick: () => void acao(() => reabrirAgenda(id), 'Promoção reaberta.') }]
+            : [
+                { id: 'aplicar', label: 'Aplicar preços', icon: <Tag size={16} />, onClick: () => void acao(async () => { const r = await aplicarAgenda(id); return r; }, 'Preços promocionais aplicados ao catálogo.') },
+                { id: 'encerrar', label: 'Encerrar', icon: <CheckCircle2 size={16} />, onClick: () => void acao(() => encerrarAgenda(id), 'Promoção encerrada (preços revertidos).') },
+              ]),
           { id: 'excluir', label: 'Excluir', icon: <Trash2 size={16} />, destructive: true, onClick: () => void acao(() => removerAgenda(id), 'Promoção excluída.') },
         ];
       },
