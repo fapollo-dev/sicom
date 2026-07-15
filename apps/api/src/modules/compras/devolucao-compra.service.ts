@@ -431,6 +431,10 @@ export class DevolucaoCompraService {
         .select([sql<string>`to_char(min(dtvenc)::date, 'YYYY-MM-DD')`.as('dtvenc')])
         .where('idnf', '=', Number(refs[0].codnf_ref))
         .where('codempresa', '=', emp)
+        // fold auditoria: SÓ as duplicatas do fornecedor (FATURAMENTO no legado). Exclui RESIDUAL ST (venc=DTCONTABIL,
+        // à vista) e retenção federal (venc dia-fixo) — gravados no mesmo apagar/idnf com retencao<>NULL — que
+        // ancorariam o boleto na data ERRADA (o RESIDUAL ST vence antes das duplicatas).
+        .where('retencao', 'is', null)
         .executeTakeFirst()) as { dtvenc?: string | null } | undefined;
       // hoje > menor → hoje; senão a data da entrada (fallback hoje se a entrada não tem A Pagar).
       if (menor?.dtvenc && menor.dtvenc > hojeIso) baseIso = menor.dtvenc;

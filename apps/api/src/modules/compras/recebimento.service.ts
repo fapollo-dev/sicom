@@ -408,6 +408,10 @@ export class RecebimentoService {
       .selectFrom('nfe_xml').select('xml').where('codnf', '=', codnf).where('idempresa', '=', emp).executeTakeFirst()) as { xml?: string } | undefined;
     if (!linha?.xml) throw new BusinessRuleError('NFE_XML_NAO_ENCONTRADO', { codnf }); // sem XML armazenado → nada a refaturar
     const nfe = parseNfeXml(linha.xml);
+    // GATE DE FINALIDADE (fold auditoria): finalidade 2/3/4 (complementar/ajuste/devolução) NÃO gera financeiro
+    // do fornecedor — o import já suprime (finFatura) e o legado sai cedo (udmNF.pas:9107 `if FINALIDADE=4 then Exit`).
+    // O refaturar dispensa o gate de CFOP (é seu propósito) mas NÃO o de finalidade.
+    if (['2', '3', '4'].includes(nfe.finNFe)) throw new BusinessRuleError('NF_FINALIDADE_SEM_FINANCEIRO', { codnf, finalidade: nfe.finNFe });
     if (nfe.duplicatas.length === 0) throw new BusinessRuleError('NF_SEM_DUPLICATAS', { codnf }); // à vista (sem <cobr>)
     return this.fat.faturarComParcelas(codnf, nfe.duplicatas);
   }

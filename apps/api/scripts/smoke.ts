@@ -3435,6 +3435,13 @@ async function main() {
     const refatAv = await fetch(`${base}/compras/recebimento/${Number(impD2J.codnf)}/refaturar-xml`, { method: 'POST', headers: H });
     check('DUP/(b): refaturar à-vista (sem <cobr>) → NF_SEM_DUPLICATAS',
       refatAv.status !== 200 && ((await refatAv.json().catch(() => ({}))) as any).code === 'NF_SEM_DUPLICATAS', { status: refatAv.status });
+    // 52.6) FOLD auditoria — refaturar uma NF finNFe=4 (devolução) c/ <cobr> → NF_FINALIDADE_SEM_FINANCEIRO + 0 A Pagar
+    // (o gate de finalidade que o import aplica NÃO pode ser furado pelo refaturar). impD4 = finNFe=4 c/ <cobr>.
+    const refatFin = await fetch(`${base}/compras/recebimento/${Number(impD4J.codnf)}/refaturar-xml`, { method: 'POST', headers: H });
+    const apsFin = Number((await pgImp.query(`SELECT count(*)::int AS n FROM apagar WHERE idnf=$1`, [Number(impD4J.codnf)])).rows[0]?.n);
+    check('DUP/(b) FOLD: refaturar NF finNFe=4 (devolução) → NF_FINALIDADE_SEM_FINANCEIRO + 0 A Pagar (gate de finalidade não furável)',
+      refatFin.status !== 200 && ((await refatFin.json().catch(() => ({}))) as any).code === 'NF_FINALIDADE_SEM_FINANCEIRO' && apsFin === 0,
+      { status: refatFin.status, aps: apsFin });
 
     // 53) corte-4b — forma de pagamento (<pag>) → NF_FORMA_PAGAMENTO + gate CFOP do A Pagar automático.
     // 53.1) o <pag> do XML (tPag=01) virou NF_FORMA_PAGAMENTO com idpgto resolvido por DESTINO=CXA.
@@ -3745,12 +3752,15 @@ async function main() {
     const ancNf = Number((await pgDev.query(`INSERT INTO nf (idempresa,tipo,modelo,serie,dtemissao,dtcontabil,tipoemissao,finalidade,cfop,codparceiro,proc,totalnf,totalprod) VALUES (1,'E',55,'1',now(),now(),'0','1','1102',22,'N',0,0) RETURNING codnf`)).rows[0].codnf);
     const ancIt = Number((await pgDev.query(`INSERT INTO nf_prod (codnf,nroitem,codproduto,quantidade,fatorembal,unidade,vrcusto,cfop) VALUES ($1,1,1,10,1,'UN',5,'1102') RETURNING codnfprod`, [ancNf])).rows[0].codnfprod);
     await pgDev.query(`INSERT INTO apagar (codparceiro,codempresa,idnf,dtvenda,dtvenc,duplicata,nrodup,valor) VALUES (22,1,$1,now(),'2027-01-01','ANC001',1,50)`, [ancNf]);
+    // fold auditoria: um RESIDUAL ST (retencao='ICMSST') com venc ANTERIOR (2026-08-01) NÃO pode ancorar o boleto
+    // (a âncora usa só as duplicatas do fornecedor, retencao IS NULL) — o venc deve seguir a duplicata (2027-01-01).
+    await pgDev.query(`INSERT INTO apagar (codparceiro,codempresa,idnf,dtvenda,dtvenc,duplicata,nrodup,valor,tipodoc,retencao) VALUES (22,1,$1,now(),'2026-08-01','ANCST',1,10,'RESIDUAL ST','ICMSST')`, [ancNf]);
     const ancCJ = (await (await crDev({ codparceiro: 22, itens: [{ codnf: ancNf, codnfprod: ancIt, idproduto: 1, qtd_nota_fiscal: 10, qtd_devolvida: 3, valor_custo: 5, cfop: '5202' }] })).json().catch(() => ({}))) as any;
     const ancId = Number(ancCJ.codpeddevcompra ?? ancCJ.codigo);
     await fetch(`${base}/${DEV}/${ancId}/finalizar`, { method: 'POST', headers: H });
     await fetch(`${base}/${DEV}/${ancId}/gerar-nf`, { method: 'POST', headers: H });
     const ancFat = (await (await fetch(`${base}/${DEV}/${ancId}/faturar`, { method: 'POST', headers: H })).json().catch(() => ({}))) as any;
-    check('DEVOLUÇÃO SPED c4: venc ancorado na entrada (A Pagar da entrada venc 2027-01-01 + 15 dias = 2027-01-16), não hoje+15',
+    check('DEVOLUÇÃO SPED c4: venc ancorado na DUPLICATA da entrada (2027-01-01 + 15 = 2027-01-16); RESIDUAL ST (venc 2026-08-01) NÃO ancora (fold auditoria)',
       ancFat.vencimento === '2027-01-16', { venc: ancFat.vencimento });
     } finally {
       await pgDev.end();
