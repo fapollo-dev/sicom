@@ -5,9 +5,10 @@ import { z } from 'zod';
  * agregado mestre-detalhe (cabeçalho PEDIDOCOMPRA + itens PEDIDOCOMPRA_I). É o documento de
  * INTENÇÃO de compra (previsão); o FATO (fiscal/estoque/financeiro) nasce na NF de entrada.
  *
- * Achados do recon Oracle refletidos aqui:
- *  - QUANTIDADE do item = FATOREMBALAGEM (o legado não tem coluna "qtd").
- *  - VLREMBALAGEM = FATOREMBALAGEM × VRCUSTO (derivado server-side; total do pedido = Σ VLREMBALAGEM).
+ * Achados do recon Oracle refletidos aqui (078 FLIP):
+ *  - QTDE = nº de embalagens pedidas (PEDIDO_COMPRA_QTDE.QTDE, uPedidoCompra.pas:1971-1972); FATOREMBALAGEM = fator (FATORCX).
+ *  - Derivados server-side: VLREMBALAGEM = FATOREMBALAGEM×VRCUSTO (custo/caixa); QTDTOTAL = QTDE×FATOREMBALAGEM (unidades);
+ *    TOTALCUSTO = QTDE×VLREMBALAGEM (total da linha). Total do pedido = Σ TOTALCUSTO (era Σ VLREMBALAGEM, subcontava ~2,5×).
  *  - Fornecedor (CODPARCEIRO) obrigatório; ao menos 1 item.
  *  - Impostos/markup/preço-venda do item = simulação/analítica → ADIADO (imposto definitivo é da NF).
  * Mensagens em PT (ADR-015). O pedido é empresaScoped (IDEMPRESA carimbado pelo engine).
@@ -231,7 +232,7 @@ export interface PedidoCompra {
   dtencerramento?: string | null;
   obs?: string | null;
   indr?: string | null;
-  total?: number | string | null; // Σ vlrembalagem (view)
+  total?: number | string | null; // Σ TOTALCUSTO (view; 078 FLIP)
   qtde_itens?: number | string | null;
   itens?: PedidoCompraItem[];
   parcelas?: PedidoCompraParcela[];
@@ -251,9 +252,14 @@ export interface PedidoCompraItem {
   codpedcompi?: number;
   codpedcomp?: number;
   idproduto: number;
-  fatorembalagem: number | string;
+  // 078 FLIP: QTDE (nº de embalagens) + derivados. EXPOSTOS no read-type (fold auditoria): um consumidor
+  // tipado que remonta o item no PUT precisa VER qtde — senão o omite → default(1) → reintroduz o undercount.
+  qtde: number | string;
+  fatorembalagem: number | string; // fator de embalagem (FATORCX, unidades/caixa)
   vrcusto: number | string;
-  vlrembalagem?: number | string | null;
+  qtdtotal?: number | string | null; // = qtde × fatorembalagem (unidades)
+  totalcusto?: number | string | null; // = qtde × vlrembalagem (total da linha)
+  vlrembalagem?: number | string | null; // = fatorembalagem × vrcusto (custo por caixa)
   desconto?: number | string | null;
   descontop?: number | string | null;
   obs?: string | null;
