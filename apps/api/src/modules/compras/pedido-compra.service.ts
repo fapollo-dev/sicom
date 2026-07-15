@@ -235,8 +235,12 @@ export class PedidoCompraService {
    * semanal = a semana civil dom-sáb. Limites vêm de config (0 = desligado).
    */
   private async validarLimites(trx: AnyDB, codpedcomp: number, emp: number): Promise<void> {
-    const dia = numCfg(await this.config.resolver('VALOR_MAXIMO_DIARIO_PC', { empresaId: emp }));
-    const sem = numCfg(await this.config.resolver('VALOR_MAXIMO_SEMANAL_PC', { empresaId: emp }));
+    // M8 (migration 077): o modo é EXCLUSIVO — TIPO_FLUXO_CAIXA_PC='D' valida SÓ o diário, 'S' SÓ o semanal,
+    // outro/vazio → NENHUM (fiel a ValidaValorMaximoDia/Semana XOR, uPedidoCompra.pas:7966/8021). O curto-circuito
+    // por-limite (limite=0 = desligado) é preservado zerando o limite do modo NÃO selecionado.
+    const modo = String((await this.config.resolver('TIPO_FLUXO_CAIXA_PC', { empresaId: emp })) ?? '').trim().toUpperCase();
+    const dia = modo === 'D' ? numCfg(await this.config.resolver('VALOR_MAXIMO_DIARIO_PC', { empresaId: emp })) : 0;
+    const sem = modo === 'S' ? numCfg(await this.config.resolver('VALOR_MAXIMO_SEMANAL_PC', { empresaId: emp })) : 0;
     if (dia <= 0 && sem <= 0) return;
 
     const meu = await this.fluxoDoPedido(trx, codpedcomp, emp);

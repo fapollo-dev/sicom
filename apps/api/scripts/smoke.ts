@@ -3118,6 +3118,36 @@ async function main() {
       f57FProj.status === 422 && f57FProjJ.code === 'PEDIDO_LIMITE_EXCEDIDO',
       { status: f57FProj.status, code: f57FProjJ.code });
 
+    // 57.3c) M8 (migration 077) — TIPO_FLUXO_CAIXA_PC EXCLUSIVO (diário xor semanal). Semanas isoladas (nov),
+    // pedido total 60. Prova: modo='D' IGNORA o semanal (mesmo tripwire=1); modo='S' IGNORA o diário; modo='D'
+    // com diário=1 DISPARA (o modo selecionado vale). Reseta os configs ao fim.
+    const f57Xor = async (data: string, nro: string) => {
+      const r = await crPed({ codparceiro: 22, data: '2026-11-01', data_faturamento: data, cd1: 1, pc_nronf_cruzamento: nro, itens: [{ idproduto: 1, fatorembalagem: 6, vrcusto: 10 }] });
+      const id = Number(((await r.json().catch(() => ({}))) as any).codpedcomp);
+      await fetch(`${base}/${PED}/${id}/gerar-parcelas`, { method: 'POST', headers: H });
+      return fetch(`${base}/${PED}/${id}/fechar`, { method: 'POST', headers: H });
+    };
+    // A) modo='D', SEMANAL=1 (tripwire), DIÁRIO=0 → o semanal é ignorado → fecha OK.
+    await pgF57.query(`UPDATE configuracoes SET valor='D' WHERE codigo='TIPO_FLUXO_CAIXA_PC'`);
+    await pgF57.query(`UPDATE configuracoes SET valor='1' WHERE codigo='VALOR_MAXIMO_SEMANAL_PC'`);
+    await pgF57.query(`UPDATE configuracoes SET valor='0' WHERE codigo='VALOR_MAXIMO_DIARIO_PC'`);
+    const xorA = await f57Xor('2026-11-02', 'XOR-A');
+    // B) modo='S', DIÁRIO=1 (tripwire), SEMANAL=0 → o diário é ignorado → fecha OK.
+    await pgF57.query(`UPDATE configuracoes SET valor='S' WHERE codigo='TIPO_FLUXO_CAIXA_PC'`);
+    await pgF57.query(`UPDATE configuracoes SET valor='1' WHERE codigo='VALOR_MAXIMO_DIARIO_PC'`);
+    await pgF57.query(`UPDATE configuracoes SET valor='0' WHERE codigo='VALOR_MAXIMO_SEMANAL_PC'`);
+    const xorB = await f57Xor('2026-11-09', 'XOR-B');
+    // C) modo='D', DIÁRIO=1 (tripwire) → o modo selecionado DISPARA → 422.
+    await pgF57.query(`UPDATE configuracoes SET valor='D' WHERE codigo='TIPO_FLUXO_CAIXA_PC'`);
+    const xorC = await f57Xor('2026-11-16', 'XOR-C');
+    const xorCJ = (await xorC.json().catch(() => ({}))) as any;
+    // reset (modo default 'S', limites 0).
+    await pgF57.query(`UPDATE configuracoes SET valor='S' WHERE codigo='TIPO_FLUXO_CAIXA_PC'`);
+    await pgF57.query(`UPDATE configuracoes SET valor='0' WHERE codigo IN ('VALOR_MAXIMO_DIARIO_PC','VALOR_MAXIMO_SEMANAL_PC')`);
+    check('FINAL M8: TIPO_FLUXO_CAIXA_PC exclusivo — modo D ignora o semanal (OK); modo S ignora o diário (OK); modo D c/ diário=1 dispara (422)',
+      xorA.status === 200 && xorB.status === 200 && xorC.status === 422 && xorCJ.code === 'PEDIDO_LIMITE_EXCEDIDO',
+      { A: xorA.status, B: xorB.status, C: [xorC.status, xorCJ.code] });
+
     // 57.4) DUPLICAR: novo rascunho com itens clonados, sem parcelas, data de hoje.
     const f57Dup = await fetch(`${base}/${PED}/${f57PF1Id}/duplicar`, { method: 'POST', headers: H });
     const f57DupJ = (await f57Dup.json().catch(() => ({}))) as any;
