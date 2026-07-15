@@ -3655,7 +3655,7 @@ async function main() {
     const d73Gnf = await fetch(`${base}/${DEV}/${d73Id1}/gerar-nf`, { method: 'POST', headers: H });
     const d73GnfJ = (await d73Gnf.json().catch(() => ({}))) as any;
     const codnfDev = Number(d73GnfJ.codnf);
-    const nfHdr = (await pgDev.query(`SELECT tipo, finalidade, cfop, codparceiro, cod_ped_dev_compra, serie FROM nf WHERE codnf=$1`, [codnfDev])).rows[0] as any;
+    const nfHdr = (await pgDev.query(`SELECT tipo, finalidade, cfop, codparceiro, cod_ped_dev_compra, serie, idsituacao_nf FROM nf WHERE codnf=$1`, [codnfDev])).rows[0] as any;
     const nfItm = (await pgDev.query(`SELECT quantidade, cfop FROM nf_prod WHERE codnf=$1 ORDER BY nroitem LIMIT 1`, [codnfDev])).rows[0] as any;
     const nfRef = (await pgDev.query(`SELECT codnf_ref FROM nf_referencia WHERE codnf=$1 LIMIT 1`, [codnfDev])).rows[0] as any;
     const devLink = (await pgDev.query(`SELECT status, codnf_emitida FROM pedido_devolucao_compra WHERE codpeddevcompra=$1`, [d73Id1])).rows[0] as any;
@@ -3666,6 +3666,7 @@ async function main() {
       && nfHdr?.tipo === 'S' && nfHdr?.finalidade === '4' && nfHdr?.cfop === '5202' && Number(nfHdr?.codparceiro) === 22
       && Number(nfHdr?.cod_ped_dev_compra) === d73Id1 // vínculo IN-ROW (fold anti-duplo)
       && Number(nfItm?.quantidade) === 4 && nfItm?.cfop === '5202' && Number(nfRef?.codnf_ref) === d73Nf
+      && Number(nfHdr?.idsituacao_nf) === 17 // corte SPED c1: situação operacional do CFOP de saída (golden 17)
       && devLink?.status === 'NOTA_FISCAL_EMITIDA' && Number(devLink?.codnf_emitida) === codnfDev
       && d73GnfAgain.status === 422 && d73GnfAgainJ.code === 'DEVOLUCAO_NF_JA_EMITIDA',
       { gnf: [d73Gnf.status, codnfDev], nf: nfHdr, item: nfItm, ref: nfRef, link: devLink, again: [d73GnfAgain.status, d73GnfAgainJ.code] });
@@ -3696,6 +3697,31 @@ async function main() {
     check('DEVOLUÇÃO corte-3: ParceiroZera (flag S + CFOP origem 1403) → NF de devolução ZERA ICMS+ST e CST=60',
       zGnf.status === 200 && Number(zNfItem?.icms) === 0 && Number(zNfItem?.vricm) === 0 && Number(zNfItem?.vrbasest) === 0 && Number(zNfItem?.vricmst) === 0 && Number(zNfItem?.cst) === 60,
       { gnf: zGnf.status, item: zNfItem });
+
+    // 73.9) corte SPED c2 — IPI% RECOMPUTADO: entrada item qtd 10, custo 5, vripi 20. Devolver 5 → vripi rateado
+    // = 10; VRTOTALPRODUTOS = 5×5 = 25; ipi% = 10×100/25 = 40 (não a % copiada da entrada).
+    const ipiNf = Number((await pgDev.query(`INSERT INTO nf (idempresa,tipo,modelo,serie,dtemissao,dtcontabil,tipoemissao,finalidade,cfop,codparceiro,proc,totalnf,totalprod) VALUES (1,'E',55,'1',now(),now(),'0','1','1102',22,'N',0,0) RETURNING codnf`)).rows[0].codnf);
+    const ipiIt = Number((await pgDev.query(`INSERT INTO nf_prod (codnf,nroitem,codproduto,quantidade,fatorembal,unidade,vrcusto,cfop,ipi,vripi) VALUES ($1,1,1,10,1,'UN',5,'1102',7,20) RETURNING codnfprod`, [ipiNf])).rows[0].codnfprod);
+    const ipiCJ = (await (await crDev({ codparceiro: 22, itens: [{ codnf: ipiNf, codnfprod: ipiIt, idproduto: 1, qtd_nota_fiscal: 10, qtd_devolvida: 5, valor_custo: 5, cfop: '5202' }] })).json().catch(() => ({}))) as any;
+    const ipiId = Number(ipiCJ.codpeddevcompra ?? ipiCJ.codigo);
+    await fetch(`${base}/${DEV}/${ipiId}/finalizar`, { method: 'POST', headers: H });
+    const ipiGnf = (await (await fetch(`${base}/${DEV}/${ipiId}/gerar-nf`, { method: 'POST', headers: H })).json().catch(() => ({}))) as any;
+    const ipiOut = (await pgDev.query(`SELECT ipi, vripi FROM nf_prod WHERE codnf=$1 ORDER BY nroitem LIMIT 1`, [Number(ipiGnf.codnf)])).rows[0] as any;
+    check('DEVOLUÇÃO SPED c2: IPI% recomputado da saída (vripi 20→10 rateado; ipi% = 10×100/25 = 40, não copia a % da entrada)',
+      Number(ipiOut?.vripi) === 10 && Number(ipiOut?.ipi) === 40, { ipiOut });
+
+    // 73.10) corte SPED c4 — VENCIMENTO ANCORADO na entrada: entrada com A Pagar de venc FUTURO (2027-01-01).
+    // Devolução de 1 única entrada → boleto venc = 2027-01-01 + 15 = 2027-01-16 (ancorado), não hoje+15.
+    const ancNf = Number((await pgDev.query(`INSERT INTO nf (idempresa,tipo,modelo,serie,dtemissao,dtcontabil,tipoemissao,finalidade,cfop,codparceiro,proc,totalnf,totalprod) VALUES (1,'E',55,'1',now(),now(),'0','1','1102',22,'N',0,0) RETURNING codnf`)).rows[0].codnf);
+    const ancIt = Number((await pgDev.query(`INSERT INTO nf_prod (codnf,nroitem,codproduto,quantidade,fatorembal,unidade,vrcusto,cfop) VALUES ($1,1,1,10,1,'UN',5,'1102') RETURNING codnfprod`, [ancNf])).rows[0].codnfprod);
+    await pgDev.query(`INSERT INTO apagar (codparceiro,codempresa,idnf,dtvenda,dtvenc,duplicata,nrodup,valor) VALUES (22,1,$1,now(),'2027-01-01','ANC001',1,50)`, [ancNf]);
+    const ancCJ = (await (await crDev({ codparceiro: 22, itens: [{ codnf: ancNf, codnfprod: ancIt, idproduto: 1, qtd_nota_fiscal: 10, qtd_devolvida: 3, valor_custo: 5, cfop: '5202' }] })).json().catch(() => ({}))) as any;
+    const ancId = Number(ancCJ.codpeddevcompra ?? ancCJ.codigo);
+    await fetch(`${base}/${DEV}/${ancId}/finalizar`, { method: 'POST', headers: H });
+    await fetch(`${base}/${DEV}/${ancId}/gerar-nf`, { method: 'POST', headers: H });
+    const ancFat = (await (await fetch(`${base}/${DEV}/${ancId}/faturar`, { method: 'POST', headers: H })).json().catch(() => ({}))) as any;
+    check('DEVOLUÇÃO SPED c4: venc ancorado na entrada (A Pagar da entrada venc 2027-01-01 + 15 dias = 2027-01-16), não hoje+15',
+      ancFat.vencimento === '2027-01-16', { venc: ancFat.vencimento });
     } finally {
       await pgDev.end();
     }

@@ -252,6 +252,11 @@ export class DevolucaoCompraService {
       const qtdEnt = num(it.qtd_nota_fiscal) || qtdDev;
       const f = qtdEnt > 0 ? qtdDev / qtdEnt : 1; // fator de rateio (espelho fiscal proporcional do legado)
       const rat = (v: unknown) => r2(num(v) * f);
+      // corte SPED c2: alíquota de IPI RECOMPUTADA da NF de saída (não copia a % da entrada). O VrIPI já é
+      // rateado; ipi% = VrIPI×100 / VRTOTALPRODUTOS (= qtd_devolvida × custo). uNF ImportaPedidoDevolucaoCompra
+      // ramo VrIPI>0: cdsItensNotaIPI := TruncarArredondar((VrIPI*100)/VRTOTALPRODUTOS,'A',2). VrIPI=0 → mantém a %.
+      const vripiRat = rat(it.vripi);
+      const vrProdItem = qtdDev * num(it.valor_custo); // = quantidade × vrvenda (base do ipi%)
       const item: Record<string, unknown> = {
         nroitem: nro++,
         codproduto: it.idproduto,
@@ -270,8 +275,8 @@ export class DevolucaoCompraService {
         vricm: rat(it.vricm),
         vrbasest: rat(it.vrbasest),
         vricmst: rat(it.vricmst),
-        ipi: it.ipi != null ? num(it.ipi) : undefined, // fold: `ipi` é ALÍQUOTA % → ÍNTEGRA (só o valor `vripi` rateia)
-        vripi: rat(it.vripi),
+        ipi: vripiRat > 0 && vrProdItem > 0 ? r2((vripiRat * 100) / vrProdItem) : (it.ipi != null ? num(it.ipi) : undefined), // % recomputada (c2)
+        vripi: vripiRat,
         fcp_valor: rat(it.fcp_valor),
         // corte-3 (fold): desconto/frete/seguro/despesas RATEADOS (compõem o TOTALNF; raros no golden mas afetam o valor).
         desconto: rat(it.desconto),
@@ -320,12 +325,18 @@ export class DevolucaoCompraService {
 
     // CFOP do header = o CFOP de devolução do 1º item (todos compartilham o 1º dígito 5/6 — devolução single-UF-class).
     const cfopHeader = String(nfItens[0]?.cfop ?? '5202');
+    // corte SPED c1: SITUAÇÃO OPERACIONAL do header = de-para do CFOP de saída (ISITUACAO_NF; golden 17='VENDAS PDV'
+    // p/ 5202/6202/5411/6411). uPedidoDevolucaoCompra.pas:362-368/541-552. INERTE p/ contábil (nf_contabil não é populado).
+    const sitRow = (await db
+      .selectFrom('cfop').select('idsituacao_nf_saida').where('codcfop', '=', cfopHeader).executeTakeFirst()) as { idsituacao_nf_saida?: number | null } | undefined;
+    const idsituacaoNf = sitRow?.idsituacao_nf_saida != null ? Number(sitRow.idsituacao_nf_saida) : undefined;
     const dto: Record<string, unknown> = {
       tipo: 'S',
       modelo: 55, // NFe própria de saída (NUMERADA pelo agregado; a transmissão SEFAZ é F6 — adiado)
       serie, // série da empresa (fold)
       tipoemissao: '0', // própria (a NF de devolução é NOSSA saída, não de terceiros)
       finalidade: '4', // devolução
+      ...(idsituacaoNf != null ? { idsituacao_nf: idsituacaoNf } : {}),
       dtemissao: dev.hoje_iso,
       dtcontabil: dev.hoje_iso,
       cfop: cfopHeader,
@@ -406,7 +417,25 @@ export class DevolucaoCompraService {
     // config ausente → 15 (default do legado); '0' é VÁLIDO (boleto à vista) — não usar `|| 15` (engoliria o 0).
     const cfgRaw = await this.config.resolver('QUANTIDADE_DIAS_GERAR_BOLETO_DEVOLUCAO', { empresaId: emp });
     const dias = cfgRaw != null && cfgRaw !== '' ? numCfg(cfgRaw) : 15;
-    const base = new Date(`${nfRow?.emissao ?? new Date().toISOString().slice(0, 10)}T00:00:00Z`);
+    const hojeIso = nfRow?.emissao ?? new Date().toISOString().slice(0, 10); // emissão da devolução = hoje
+
+    // corte SPED c4: VENCIMENTO ANCORADO na NF de ENTRADA (DataPrimeiraParcelaNotaDevolucao, udmNF.pas:6334).
+    // Quando a devolução vem de UMA ÚNICA NF de entrada (178/545 no golden), a base do vencimento é a MENOR
+    // dtvenc do A Pagar dessa entrada (se hoje > essa data → hoje). >1 NF de entrada (ou entrada sem A Pagar)
+    // → base = hoje. Depois soma os dias do boleto de devolução. O operador ainda pode editar na tela.
+    const refs = (await db.selectFrom('nf_referencia').select('codnf_ref').where('codnf', '=', codnf).execute()) as Array<{ codnf_ref?: number }>;
+    let baseIso = hojeIso;
+    if (refs.length === 1 && refs[0].codnf_ref != null) {
+      const menor = (await db
+        .selectFrom('apagar')
+        .select([sql<string>`to_char(min(dtvenc)::date, 'YYYY-MM-DD')`.as('dtvenc')])
+        .where('idnf', '=', Number(refs[0].codnf_ref))
+        .where('codempresa', '=', emp)
+        .executeTakeFirst()) as { dtvenc?: string | null } | undefined;
+      // hoje > menor → hoje; senão a data da entrada (fallback hoje se a entrada não tem A Pagar).
+      if (menor?.dtvenc && menor.dtvenc > hojeIso) baseIso = menor.dtvenc;
+    }
+    const base = new Date(`${baseIso}T00:00:00Z`);
     base.setUTCDate(base.getUTCDate() + Math.round(dias));
     const vencimento = base.toISOString().slice(0, 10);
 
