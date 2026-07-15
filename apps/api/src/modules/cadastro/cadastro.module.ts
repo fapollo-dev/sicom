@@ -8,6 +8,9 @@ import { MarcasCrudController } from './marcas.crud';
 import { MotivosOperacaoCrudController } from './motivos-operacao.crud';
 import { AjusteEstoqueController } from './ajuste-estoque.controller';
 import { AjusteEstoqueService } from './ajuste-estoque.service';
+import { AgendaPromocaoAggregateController } from './agenda-promocao.aggregate';
+import { AgendaPromocaoController } from './agenda-promocao.controller';
+import { AgendaPromocaoService } from './agenda-promocao.service';
 import { BairroCrudController } from './bairro.crud';
 import { PrecoCrudController } from './preco.crud';
 import { NcmCrudController } from './ncm.crud';
@@ -82,6 +85,8 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     NfContabilizacaoController, // F5b — contabilizar/estornar (gera/estorna o DIÁRIO — partida dobrada)
     MotivosOperacaoCrudController, // engine (lookup do motivo do ajuste; soft-delete)
     AjusteEstoqueController, // vertical (AJUSTE DE ESTOQUE — move o saldo + kardex; sem contábil)
+    AgendaPromocaoAggregateController, // AGENDA DE PROMOÇÃO (cadastro header+itens; corte-1 sem efeito)
+    AgendaPromocaoController, // vertical (encerrar/reabrir a agenda)
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
   providers: [
@@ -97,6 +102,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     PlanoContasService,
     DreService,
     AjusteEstoqueService,
+    AgendaPromocaoService,
     // Porta SEFAZ (F6): seleção REAL por env SEFAZ_PROVIDER (default 'simulador'). Hoje só existe
     // o SIMULADOR (homologação); o provider real (ACBrLibNFe/lib NFe Node/microserviço) implementa
     // a mesma SefazPort e entra aqui sem tocar no service. Travas: 'simulador' é PROIBIDO em

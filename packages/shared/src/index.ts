@@ -23,6 +23,7 @@ export * from './schema/ajuste-estoque.schema';
 export * from './schema/pedido-compra.schema';
 export * from './schema/condicoes-pagto.schema';
 export * from './schema/devolucao-compra.schema';
+export * from './schema/agenda-promocao.schema';
 export * from './schema/auth.schema';
 export * from './erro';
 export * from './validators/br';

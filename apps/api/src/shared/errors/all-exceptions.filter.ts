@@ -317,6 +317,14 @@ const CODE_PT: Record<string, string> = {
   NF_SEM_DUPLICATAS: 'A NF não tem duplicatas para gerar contas a pagar.',
   NFE_XML_NAO_ENCONTRADO: 'Não há XML armazenado para esta nota fiscal — não é possível refaturar.',
   NF_FINALIDADE_SEM_FINANCEIRO: 'Notas de devolução, complementar ou ajuste não geram contas a pagar do fornecedor.',
+  // Agenda de promoção (FRMAGENDAPROMOCAO)
+  PROMOCAO_NAO_ENCONTRADA: 'Promoção não encontrada.',
+  PROMOCAO_ENCERRADA: 'Esta promoção está encerrada — reabra antes de alterar.',
+  PROMOCAO_JA_ENCERRADA: 'Esta promoção já está encerrada.',
+  PROMOCAO_NAO_ENCERRADA: 'Esta promoção não está encerrada.',
+  PROMOCAO_PRODUTO_INVALIDO: 'Produto inválido em um item da promoção.',
+  PROMOCAO_PRODUTO_INATIVO: 'Um produto da promoção está inativo.',
+  PROMOCAO_PRODUTO_SOBREPOSTO: 'Um produto já está em outra promoção no mesmo período.',
   // Devolução de compra (FRMDEVOLUCAOCOMPRA)
   DEVOLUCAO_NAO_ENCONTRADA: 'Devolução de compra não encontrada.',
   DEVOLUCAO_NAO_EDITAVEL: 'Esta devolução não está em digitação — não pode ser alterada nem excluída.',

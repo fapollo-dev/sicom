@@ -3840,6 +3840,63 @@ async function main() {
     } finally {
       await pgLib.end();
     }
+
+    // ===== §76) AGENDA DE PROMOÇÃO (uCadAgendaPromocao) corte-1 — cadastro + validações + workflow =====
+    const pgPromo = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    try {
+      const AP = 'cadastro/agenda-promocao';
+      const crPromo = (body: Record<string, unknown>, headers = H) => fetch(`${base}/${AP}`, { method: 'POST', headers, body: JSON.stringify(body) });
+      // produto inativo dedicado p/ o teste de gate.
+      await pgPromo.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES (990001,'7000000000019','PROD INATIVO PROMO','UN',1,'T01','N') ON CONFLICT (idproduto) DO UPDATE SET ativo='N'`);
+
+      // 76.1) criar agenda (nome + período data+hora + 2 itens) → 201; view traz situacao + qtde_itens.
+      const p1 = await crPromo({ nomepromo: 'FDS SEVEN BOYS', dtiniciopromocao: '2026-09-01T08:00', dtfimpromocao: '2026-09-03T22:00', itens: [
+        { idproduto: 1, vlrpromocao: 1.29, vrvenda: 2.89 },
+        { idproduto: 2, vlrpromocao: 3.5, vrvenda: 5.0, vrclube_fidelidade: 3.2, maximo: 6 },
+      ] });
+      const p1J = (await p1.json().catch(() => ({}))) as any;
+      const codag = Number(p1J.codagenda);
+      const itAg = (await pgPromo.query(`SELECT idproduto, vlrpromocao, ativo, nroitem, dtativo FROM agenda_promocao_itens WHERE codagenda=$1 ORDER BY nroitem`, [codag])).rows as any[];
+      const viewRow = ((await (await fetch(`${base}/${AP}?campo=codagenda&operador=igual&valor=${codag}`, { headers: H })).json().catch(() => [])) as any[])[0];
+      check('PROMO 76.1: criar agenda + 2 itens → 201; itens ATIVO=S default + nroitem 1/2 + dtativo; view situacao VIGENTE-ish + qtde_itens 2',
+        p1.status === 201 && codag > 0 && itAg.length === 2 && itAg[0].ativo === 'S' && Number(itAg[0].nroitem) === 1 && itAg[0].dtativo != null
+        && Number(viewRow?.qtde_itens) === 2 && ['AGENDADA', 'VIGENTE', 'EXPIRADA'].includes(viewRow?.situacao),
+        { status: p1.status, itens: itAg.length, situacao: viewRow?.situacao, qtde: viewRow?.qtde_itens });
+
+      // 76.2) período inválido (fim <= início) → 400; preço promocional <= 0 → 400 (schema).
+      const p2a = await crPromo({ nomepromo: 'X', dtiniciopromocao: '2026-09-05T10:00', dtfimpromocao: '2026-09-05T09:00', itens: [{ idproduto: 1, vlrpromocao: 1 }] });
+      const p2b = await crPromo({ nomepromo: 'X', dtiniciopromocao: '2026-09-05T10:00', dtfimpromocao: '2026-09-06T10:00', itens: [{ idproduto: 1, vlrpromocao: 0 }] });
+      check('PROMO 76.2: período fim<=início → 400; preço promo <=0 → 400 (schema)', p2a.status === 400 && p2b.status === 400, { periodo: p2a.status, preco: p2b.status });
+
+      // 76.3) ANTI-SOBREPOSIÇÃO: outra agenda com o produto 1 em período sobreposto → 422 PROMOCAO_PRODUTO_SOBREPOSTO.
+      const p3 = await crPromo({ nomepromo: 'CONFLITO', dtiniciopromocao: '2026-09-02T00:00', dtfimpromocao: '2026-09-04T00:00', itens: [{ idproduto: 1, vlrpromocao: 1.5 }] });
+      const p3J = (await p3.json().catch(() => ({}))) as any;
+      check('PROMO 76.3: produto já em promoção no período sobreposto → 422 PROMOCAO_PRODUTO_SOBREPOSTO', p3.status === 422 && p3J.code === 'PROMOCAO_PRODUTO_SOBREPOSTO', { status: p3.status, code: p3J.code });
+      // 76.3b) período NÃO sobreposto (mesmo produto) → OK.
+      const p3c = await crPromo({ nomepromo: 'OUTRO PERIODO', dtiniciopromocao: '2026-10-01T00:00', dtfimpromocao: '2026-10-02T00:00', itens: [{ idproduto: 1, vlrpromocao: 1.5 }] });
+      check('PROMO 76.3b: mesmo produto em período NÃO sobreposto → 201', p3c.status === 201, { status: p3c.status });
+
+      // 76.4) produto INATIVO → 422 PROMOCAO_PRODUTO_INATIVO.
+      const p4 = await crPromo({ nomepromo: 'INATIVO', dtiniciopromocao: '2026-11-01T00:00', dtfimpromocao: '2026-11-02T00:00', itens: [{ idproduto: 990001, vlrpromocao: 1 }] });
+      const p4J = (await p4.json().catch(() => ({}))) as any;
+      check('PROMO 76.4: produto inativo → 422 PROMOCAO_PRODUTO_INATIVO', p4.status === 422 && p4J.code === 'PROMOCAO_PRODUTO_INATIVO', { status: p4.status, code: p4J.code });
+
+      // 76.5) workflow: encerrar → situacao ENCERRADA; editar encerrada → 422; reabrir → ABERTA.
+      const enc = await fetch(`${base}/${AP}/${codag}/encerrar`, { method: 'POST', headers: H });
+      const encSit = (await pgPromo.query(`SELECT dtencerramento FROM agenda_promocao WHERE codagenda=$1`, [codag])).rows[0] as any;
+      const putEnc = await fetch(`${base}/${AP}/${codag}`, { method: 'PUT', headers: H, body: JSON.stringify({ nomepromo: 'EDIT', dtiniciopromocao: '2026-09-01T08:00', dtfimpromocao: '2026-09-03T22:00', itens: [{ idproduto: 1, vlrpromocao: 1.29 }] }) });
+      const putEncJ = (await putEnc.json().catch(() => ({}))) as any;
+      const reab = await fetch(`${base}/${AP}/${codag}/reabrir`, { method: 'POST', headers: H });
+      check('PROMO 76.5: encerrar → dtencerramento; editar encerrada → 422 PROMOCAO_ENCERRADA; reabrir → 200',
+        enc.status === 200 && encSit?.dtencerramento != null && putEnc.status === 422 && putEncJ.code === 'PROMOCAO_ENCERRADA' && reab.status === 200,
+        { enc: enc.status, put: [putEnc.status, putEncJ.code], reab: reab.status });
+
+      // 76.6) RBAC: criar sem grant → 403.
+      const p6 = await crPromo({ nomepromo: 'X', dtiniciopromocao: '2027-01-01T00:00', dtfimpromocao: '2027-01-02T00:00', itens: [{ idproduto: 1, vlrpromocao: 1 }] }, H_SEM_ACESSO);
+      check('PROMO 76.6: criar sem grant RBAC → 403', p6.status === 403, { status: p6.status });
+    } finally {
+      await pgPromo.end();
+    }
   } finally {
     await app.close();
     await pg.stop();

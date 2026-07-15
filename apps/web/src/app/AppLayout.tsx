@@ -35,6 +35,7 @@ const TELAS = [
   { href: '/cadastro/clientes', name: 'Clientes', icon: Users },
   { href: '/cadastro/fornecedores', name: 'Fornecedores', icon: Truck },
   { href: '/cadastro/produtos', name: 'Produtos', icon: Package },
+  { href: '/cadastro/promocoes', name: 'Promoções', icon: Tags },
   { href: '/compras/pedidos', name: 'Pedido de Compra', icon: ShoppingCart },
   { href: '/compras/condicoes-pagto', name: 'Condições de Pagamento', icon: CalendarClock },
   { href: '/compras/devolucao', name: 'Devolução de Compra', icon: Undo2 },
