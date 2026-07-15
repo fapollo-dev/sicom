@@ -3866,15 +3866,21 @@ async function main() {
       // 76.2) período inválido (fim <= início) → 400; preço promocional <= 0 → 400 (schema).
       const p2a = await crPromo({ nomepromo: 'X', dtiniciopromocao: '2026-09-05T10:00', dtfimpromocao: '2026-09-05T09:00', itens: [{ idproduto: 1, vlrpromocao: 1 }] });
       const p2b = await crPromo({ nomepromo: 'X', dtiniciopromocao: '2026-09-05T10:00', dtfimpromocao: '2026-09-06T10:00', itens: [{ idproduto: 1, vlrpromocao: 0 }] });
-      check('PROMO 76.2: período fim<=início → 400; preço promo <=0 → 400 (schema)', p2a.status === 400 && p2b.status === 400, { periodo: p2a.status, preco: p2b.status });
+      check('PROMO 76.2: período fim<=início → 400; ambos preços zero → 400 (schema)', p2a.status === 400 && p2b.status === 400, { periodo: p2a.status, preco: p2b.status });
+      // 76.2b) FOLD: preço promo=0 COM preço clube>0 → 201 (fiel ao legado: rejeita só quando AMBOS zero).
+      const p2c = await crPromo({ nomepromo: 'CLUBE', dtiniciopromocao: '2029-03-01T00:00', dtfimpromocao: '2029-03-02T00:00', itens: [{ idproduto: 2, vlrpromocao: 0, vrclube_fidelidade: 5 }] });
+      check('PROMO 76.2b FOLD: preço promo=0 + preço clube>0 → 201 (não-ambos-zero, uCadAgendaPromocao:651)', p2c.status === 201, { status: p2c.status });
 
-      // 76.3) ANTI-SOBREPOSIÇÃO: outra agenda com o produto 1 em período sobreposto → 422 PROMOCAO_PRODUTO_SOBREPOSTO.
-      const p3 = await crPromo({ nomepromo: 'CONFLITO', dtiniciopromocao: '2026-09-02T00:00', dtfimpromocao: '2026-09-04T00:00', itens: [{ idproduto: 1, vlrpromocao: 1.5 }] });
-      const p3J = (await p3.json().catch(() => ({}))) as any;
-      check('PROMO 76.3: produto já em promoção no período sobreposto → 422 PROMOCAO_PRODUTO_SOBREPOSTO', p3.status === 422 && p3J.code === 'PROMOCAO_PRODUTO_SOBREPOSTO', { status: p3.status, code: p3J.code });
-      // 76.3b) período NÃO sobreposto (mesmo produto) → OK.
-      const p3c = await crPromo({ nomepromo: 'OUTRO PERIODO', dtiniciopromocao: '2026-10-01T00:00', dtfimpromocao: '2026-10-02T00:00', itens: [{ idproduto: 1, vlrpromocao: 1.5 }] });
-      check('PROMO 76.3b: mesmo produto em período NÃO sobreposto → 201', p3c.status === 201, { status: p3c.status });
+      // 76.3) ANTI-SOBREPOSIÇÃO gated por PERMITE_PRODUTO_MAIS_UMA_AGENDA (FOLD MÉDIA). Default 'S' = permissivo (fiel legado).
+      await crPromo({ nomepromo: 'BASE 2029', dtiniciopromocao: '2029-01-01T00:00', dtfimpromocao: '2029-01-31T00:00', itens: [{ idproduto: 2, vlrpromocao: 1.5 }] });
+      const p3perm = await crPromo({ nomepromo: 'SOBRE OK', dtiniciopromocao: '2029-01-15T00:00', dtfimpromocao: '2029-02-15T00:00', itens: [{ idproduto: 2, vlrpromocao: 1.6 }] });
+      check('PROMO 76.3 FOLD: default (config S) → sobreposição PERMITIDA (201, fiel ao legado permissivo)', p3perm.status === 201, { status: p3perm.status });
+      // 76.3b) com config='N' → sobreposição BLOQUEADA (422). Depois reseta p/ 'S'.
+      await pgPromo.query(`UPDATE configuracoes SET valor='N' WHERE codigo='PERMITE_PRODUTO_MAIS_UMA_AGENDA'`);
+      const p3block = await crPromo({ nomepromo: 'SOBRE NAO', dtiniciopromocao: '2029-01-20T00:00', dtfimpromocao: '2029-02-20T00:00', itens: [{ idproduto: 2, vlrpromocao: 1.7 }] });
+      const p3blockJ = (await p3block.json().catch(() => ({}))) as any;
+      await pgPromo.query(`UPDATE configuracoes SET valor='S' WHERE codigo='PERMITE_PRODUTO_MAIS_UMA_AGENDA'`);
+      check('PROMO 76.3b FOLD: config N → sobreposição BLOQUEADA (422 PROMOCAO_PRODUTO_SOBREPOSTO)', p3block.status === 422 && p3blockJ.code === 'PROMOCAO_PRODUTO_SOBREPOSTO', { status: p3block.status, code: p3blockJ.code });
 
       // 76.4) produto INATIVO → 422 PROMOCAO_PRODUTO_INATIVO.
       const p4 = await crPromo({ nomepromo: 'INATIVO', dtiniciopromocao: '2026-11-01T00:00', dtfimpromocao: '2026-11-02T00:00', itens: [{ idproduto: 990001, vlrpromocao: 1 }] });
@@ -3914,6 +3920,25 @@ async function main() {
       // 76.7c: aplicar em agenda encerrada → 422 PROMOCAO_ENCERRADA.
       const aplEnc = await fetch(`${base}/${AP}/${paId}/aplicar`, { method: 'POST', headers: H });
       check('PROMO 76.7c: aplicar em agenda encerrada → 422 PROMOCAO_ENCERRADA', aplEnc.status === 422 && ((await aplEnc.json().catch(() => ({}))) as any).code === 'PROMOCAO_ENCERRADA', { status: aplEnc.status });
+
+      // 76.8) FOLD BAIXA: produto REPETIDO na mesma agenda → 422 PROMOCAO_PRODUTO_DUPLICADO (dedup, uCadAgendaPromocao:951).
+      const p8 = await crPromo({ nomepromo: 'DUP', dtiniciopromocao: '2030-01-01T00:00', dtfimpromocao: '2030-01-02T00:00', itens: [{ idproduto: 1, vlrpromocao: 1 }, { idproduto: 1, vlrpromocao: 2 }] });
+      const p8J = (await p8.json().catch(() => ({}))) as any;
+      check('PROMO 76.8 FOLD: produto repetido na mesma agenda → 422 PROMOCAO_PRODUTO_DUPLICADO', p8.status === 422 && p8J.code === 'PROMOCAO_PRODUTO_DUPLICADO', { status: p8.status, code: p8J.code });
+
+      // 76.9) FOLD ALTA: anti-sobreposição NÃO burlável por PUT parcial. Com config N: A(prod 3, 2031-01) + B(prod 3,
+      // 2031-06 não sobrepõe) criadas OK; PUT em B mudando SÓ o período p/ sobrepor A (sem enviar itens) → validar faz
+      // fallback aos itens PERSISTIDOS de B (prod 3) + novo período → detecta a sobreposição com A → 422.
+      await pgPromo.query(`UPDATE configuracoes SET valor='N' WHERE codigo='PERMITE_PRODUTO_MAIS_UMA_AGENDA'`);
+      const p9a = await crPromo({ nomepromo: 'A31', dtiniciopromocao: '2031-01-01T00:00', dtfimpromocao: '2031-01-31T00:00', itens: [{ idproduto: 3, vlrpromocao: 1 }] });
+      const p9b = await crPromo({ nomepromo: 'B31', dtiniciopromocao: '2031-06-01T00:00', dtfimpromocao: '2031-06-30T00:00', itens: [{ idproduto: 3, vlrpromocao: 1 }] });
+      const p9bId = Number(((await p9b.json().catch(() => ({}))) as any).codagenda);
+      const p9put = await fetch(`${base}/${AP}/${p9bId}`, { method: 'PUT', headers: H, body: JSON.stringify({ dtiniciopromocao: '2031-01-10T00:00', dtfimpromocao: '2031-01-20T00:00' }) });
+      const p9putJ = (await p9put.json().catch(() => ({}))) as any;
+      await pgPromo.query(`UPDATE configuracoes SET valor='S' WHERE codigo='PERMITE_PRODUTO_MAIS_UMA_AGENDA'`);
+      check('PROMO 76.9 FOLD ALTA: PUT parcial (só período) NÃO burla a anti-sobreposição (fallback aos itens persistidos) → 422',
+        p9a.status === 201 && p9b.status === 201 && p9put.status === 422 && p9putJ.code === 'PROMOCAO_PRODUTO_SOBREPOSTO',
+        { a: p9a.status, b: p9b.status, put: [p9put.status, p9putJ.code] });
     } finally {
       await pgPromo.end();
     }

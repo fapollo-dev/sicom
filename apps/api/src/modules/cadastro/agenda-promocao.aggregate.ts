@@ -17,6 +17,18 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
  * - validarRemocao: agenda ENCERRADA não pode ser excluída (reabra antes).
  */
 
+/** resolve config (base + override por Empresa) com o handle do validar — espelha ConfigService (helper local). */
+async function cfgValor(db: any, codigo: string, emp: number | null): Promise<string | null> {
+  const c = await db.selectFrom('configuracoes').select(['id', 'valor', 'config_especificas_permitidas']).where('codigo', '=', codigo).executeTakeFirst();
+  if (!c) return null;
+  const permitidos = String(c.config_especificas_permitidas ?? '').split(';').map((s: string) => s.trim());
+  if (emp != null && permitidos.includes('Empresa')) {
+    const ov = await db.selectFrom('configuracoes_especificas').select('valor').where('id', '=', c.id).where('tipo', '=', 'Empresa').where('chave', '=', String(emp)).executeTakeFirst();
+    if (ov?.valor != null) return String(ov.valor);
+  }
+  return c.valor != null ? String(c.valor) : null;
+}
+
 export const agendaPromocaoAggregateConfig: AggregateConfig = {
   tabela: 'agenda_promocao',
   pk: 'codagenda',
@@ -53,21 +65,39 @@ export const agendaPromocaoAggregateConfig: AggregateConfig = {
   validar: async ({ dto, id, db }) => {
     const emp = currentTenant().empresaId ?? null;
 
-    // trava de estado: agenda ENCERRADA é read-only (o efeito já foi aplicado; reabra antes de editar).
+    // trava de estado + fallback do PUT parcial (fold ALTA): carrega o PERÍODO persistido p/ o OVERLAPS quando
+    // o PUT omite dtinicio/dtfim (senão a anti-sobreposição fica burlável mudando só o período OU só os itens).
+    let atual: { dtencerramento?: unknown; dtiniciopromocao?: unknown; dtfimpromocao?: unknown } | undefined;
     if (id != null) {
-      const atual = (await db
+      atual = (await db
         .selectFrom('agenda_promocao')
-        .select(['dtencerramento'])
+        .select(['dtencerramento', 'dtiniciopromocao', 'dtfimpromocao'])
         .where('codagenda', '=', id)
         .where('idempresa', '=', emp)
         .where(sql`coalesce(indr,'I')`, '<>', 'E')
-        .executeTakeFirst()) as { dtencerramento?: unknown } | undefined;
+        .executeTakeFirst()) as typeof atual;
       if (!atual) throw new BusinessRuleError('PROMOCAO_NAO_ENCONTRADA', { codagenda: id });
       if (atual.dtencerramento != null) throw new BusinessRuleError('PROMOCAO_ENCERRADA');
     }
 
-    const itens = Array.isArray(dto.itens) ? (dto.itens as Record<string, unknown>[]) : [];
-    const idsAtivos = [...new Set(itens.filter((it) => it.ativo !== 'N').map((it) => Number(it.idproduto)))].filter((n) => n > 0);
+    // itens EFETIVOS: se o dto traz `itens` (substituição), valida esses; senão (PUT que não mexe em itens)
+    // valida os PERSISTIDOS contra o (possivelmente novo) período — fecha o bypass do fold ALTA.
+    let itens: Record<string, unknown>[];
+    if (Array.isArray(dto.itens)) {
+      itens = dto.itens as Record<string, unknown>[];
+      // dedup dentro da MESMA agenda (fold BAIXA; o legado dedup por CODBARRA no CarregarItens): produto repetido → erro.
+      const vistos = new Set<number>();
+      for (const it of itens) {
+        const idp = Number(it.idproduto);
+        if (idp > 0 && vistos.has(idp)) throw new BusinessRuleError('PROMOCAO_PRODUTO_DUPLICADO', { idproduto: idp });
+        vistos.add(idp);
+      }
+    } else if (id != null) {
+      itens = (await db.selectFrom('agenda_promocao_itens').select(['idproduto', 'ativo']).where('codagenda', '=', id).execute()) as Record<string, unknown>[];
+    } else {
+      itens = [];
+    }
+    const idsAtivos = [...new Set(itens.filter((it) => it.ativo !== 'N').map((it) => Number(it.idproduto)))].filter((x) => x > 0);
 
     // cada produto tem de existir e estar ATIVO (SegProduto do legado). FK garante existência no insert;
     // aqui checamos o ATIVO='S' (produto morto não entra em promoção).
@@ -84,11 +114,13 @@ export const agendaPromocaoAggregateConfig: AggregateConfig = {
       }
     }
 
-    // ANTI-SOBREPOSIÇÃO (uCadAgendaPromocao:1616): nenhum produto ativo pode participar de OUTRA agenda
-    // não-encerrada, da mesma empresa, com período sobreposto. Usa o operador OVERLAPS do Postgres.
-    const ini = dto.dtiniciopromocao as string | undefined;
-    const fim = dto.dtfimpromocao as string | undefined;
-    if (idsAtivos.length && ini && fim) {
+    // ANTI-SOBREPOSIÇÃO (uCadAgendaPromocao:1616), GATE por config (fold MÉDIA): o legado só (semi)bloqueia com
+    // PERMITE_PRODUTO_MAIS_UMA_AGENDA='N' (default permissivo = confirm-and-continue, que no web = permitir). Período
+    // efetivo = dto ?? persistido (fold ALTA: PUT só-itens ainda valida contra o período gravado).
+    const ini = (dto.dtiniciopromocao ?? atual?.dtiniciopromocao) as string | Date | undefined;
+    const fim = (dto.dtfimpromocao ?? atual?.dtfimpromocao) as string | Date | undefined;
+    const bloqueiaSobreposicao = (await cfgValor(db, 'PERMITE_PRODUTO_MAIS_UMA_AGENDA', emp)) === 'N';
+    if (bloqueiaSobreposicao && idsAtivos.length && ini && fim) {
       const conflito = (await db
         .selectFrom('agenda_promocao_itens as i')
         .innerJoin('agenda_promocao as a', 'a.codagenda', 'i.codagenda')

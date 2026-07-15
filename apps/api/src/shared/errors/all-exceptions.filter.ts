@@ -325,6 +325,7 @@ const CODE_PT: Record<string, string> = {
   PROMOCAO_PRODUTO_INVALIDO: 'Produto inválido em um item da promoção.',
   PROMOCAO_PRODUTO_INATIVO: 'Um produto da promoção está inativo.',
   PROMOCAO_PRODUTO_SOBREPOSTO: 'Um produto já está em outra promoção no mesmo período.',
+  PROMOCAO_PRODUTO_DUPLICADO: 'Produto repetido na mesma promoção.',
   // Devolução de compra (FRMDEVOLUCAOCOMPRA)
   DEVOLUCAO_NAO_ENCONTRADA: 'Devolução de compra não encontrada.',
   DEVOLUCAO_NAO_EDITAVEL: 'Esta devolução não está em digitação — não pode ser alterada nem excluída.',

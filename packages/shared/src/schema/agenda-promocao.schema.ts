@@ -21,24 +21,32 @@ const dec = (inner: z.ZodNumber = z.number()) =>
 
 const sn = () => z.enum(['S', 'N']);
 
-/** Item da agenda: produto + preço promocional (>0). VRVENDA (snapshot) e derivados aceitos p/ round-trip. */
-export const agendaPromocaoItemSchema = z.object({
-  idproduto: z.coerce.number({ message: 'Produto inválido.' }).int().positive('Informe o produto do item.'),
-  vlrpromocao: z.coerce
-    .number({ message: 'Preço promocional inválido.' })
-    .positive('O preço promocional deve ser maior que zero.')
-    .max(9_999_999, 'Preço promocional acima do limite.'),
-  vrvenda: dec(z.number().nonnegative()), // snapshot do preço normal (referência)
-  ativo: opcional(sn()), // default 'S' no servidor
-  vrclube_fidelidade: dec(z.number().nonnegative()),
-  maximo: dec(z.number().nonnegative()),
-  vlr_min_compra: dec(z.number().nonnegative()),
-  tv: opcional(sn()),
-  radio: opcional(sn()),
-  tabloide: opcional(sn()),
-  interno: opcional(sn()),
-  nroitem: dec(z.number().int().nonnegative()),
-});
+/** Item da agenda: produto + preço promocional. Regra do legado (uCadAgendaPromocao:651, Locate [0,0]): NÃO
+ *  ambos zero — aceita vlrpromocao=0 se vrclube_fidelidade>0 (promoção só no clube). VRVENDA/derivados p/ round-trip. */
+export const agendaPromocaoItemSchema = z
+  .object({
+    idproduto: z.coerce.number({ message: 'Produto inválido.' }).int().positive('Informe o produto do item.'),
+    vlrpromocao: z.coerce
+      .number({ message: 'Preço promocional inválido.' })
+      .nonnegative('Preço promocional inválido.')
+      .max(9_999_999, 'Preço promocional acima do limite.'),
+    vrvenda: dec(z.number().nonnegative()), // snapshot do preço normal (referência)
+    ativo: opcional(sn()), // default 'S' no servidor
+    vrclube_fidelidade: dec(z.number().nonnegative()),
+    maximo: dec(z.number().nonnegative()),
+    vlr_min_compra: dec(z.number().nonnegative()),
+    tv: opcional(sn()),
+    radio: opcional(sn()),
+    tabloide: opcional(sn()),
+    interno: opcional(sn()),
+    nroitem: dec(z.number().int().nonnegative()),
+  })
+  .superRefine((it, ctx) => {
+    // fiel ao legado: rejeita só quando preço promo E preço clube são ambos zero.
+    if (!(Number(it.vlrpromocao) > 0) && !(Number(it.vrclube_fidelidade) > 0)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['vlrpromocao'], message: 'Informe o preço promocional ou o preço do clube (maior que zero).' });
+    }
+  });
 export type AgendaPromocaoItemDto = z.infer<typeof agendaPromocaoItemSchema>;
 
 const base = z.object({

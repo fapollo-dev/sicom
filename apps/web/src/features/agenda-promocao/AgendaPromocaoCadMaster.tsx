@@ -60,7 +60,8 @@ export function AgendaPromocaoCadMaster() {
 
   const adicionarItem = () => {
     if (idproduto == null) return mensagem.erro('Selecione o produto.');
-    if (!(n(vlrpromocao) > 0)) return mensagem.erro('Informe o preço promocional (> 0).');
+    // regra fiel ao legado: aceita preço promo=0 se houver preço de clube (>0); rejeita só quando ambos zero.
+    if (!(n(vlrpromocao) > 0) && !(n(vrclube) > 0)) return mensagem.erro('Informe o preço promocional ou o preço do clube (> 0).');
     if (itens.some((it) => it.idproduto === idproduto)) return mensagem.erro('Produto já está na lista.');
     setItens((xs) => [...xs, { idproduto, vlrpromocao: n(vlrpromocao), vrclube_fidelidade: vrclube, maximo }]);
     setIdproduto(undefined); setVlrpromocao(undefined); setVrclube(undefined); setMaximo(undefined);
@@ -73,7 +74,10 @@ export function AgendaPromocaoCadMaster() {
     if (!itens.length) return mensagem.erro('Adicione ao menos um item.');
     setSalvando(true);
     try {
-      await criarAgenda({ nomepromo: nome.trim(), dtiniciopromocao: dtini, dtfimpromocao: dtfim, itens });
+      // fold auditoria (timezone): o datetime-local é wall-clock SEM fuso; converte p/ ISO com offset do navegador
+      // → o timestamptz grava o instante certo e reexibe na TZ do operador (senão o servidor interpreta na TZ dele).
+      const iso = (s: string) => new Date(s).toISOString();
+      await criarAgenda({ nomepromo: nome.trim(), dtiniciopromocao: iso(dtini), dtfimpromocao: iso(dtfim), itens });
       mensagem.sucesso('Promoção gravada.');
       setNome(''); setDtini(''); setDtfim(''); setItens([]);
       await recarregar();
