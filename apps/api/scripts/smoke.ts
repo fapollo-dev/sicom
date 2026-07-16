@@ -4049,6 +4049,31 @@ async function main() {
       const pfSem = await fetch(`${base}/cadastro/perfil`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ perfil: 'X' }) });
       check('PERFIL §77.4: relação c/ perfil inexistente → 422 PERFIL_NAO_ENCONTRADO; criar sem grant → 403',
         relBad.status === 422 && ((await relBad.json().catch(() => ({}))) as any).code === 'PERFIL_NAO_ENCONTRADO' && pfSem.status === 403, { bad: relBad.status, sem: pfSem.status });
+
+      // ===== corte-2: MATRIZ de grants (UCtrlPermissoes) + acesso perfil-aware =====
+      // 77.5) catálogo (distinct form×opcao) não-vazio; conceder FRMLIBERACOES/BTNCONSULTAR ao perfil → grant gravado.
+      const cat = (await (await fetch(`${base}/cadastro/permissoes/catalogo`, { headers: H })).json().catch(() => [])) as any[];
+      const gOn = await fetch(`${base}/cadastro/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codperfil, form: 'FRMLIBERACOES', opcao: 'BTNCONSULTAR', concedido: true }) });
+      const grants = (await (await fetch(`${base}/cadastro/permissoes/perfil/${codperfil}`, { headers: H })).json().catch(() => ({}))) as any;
+      const temGrant = (grants.grants ?? []).some((g: any) => g.form === 'FRMLIBERACOES' && g.opcao === 'BTNCONSULTAR');
+      check('PERFIL §77.5: catálogo não-vazio + conceder grant ao perfil (FRMLIBERACOES/BTNCONSULTAR) → gravado',
+        Array.isArray(cat) && cat.length > 0 && gOn.status === 200 && temGrant, { cat: cat.length, grant: temGrant });
+
+      // 77.6) ACESSO perfil-aware: op 8 SEM grant direto de FRMLIBERACOES; atribui o perfil ao op 8.
+      await fetch(`${base}/cadastro/perfil-operador`, { method: 'PUT', headers: H, body: JSON.stringify({ codoperador: 8, codperfil, atribuido: true }) });
+      const H8 = { ...H, 'x-operador-id': '8' };
+      // modo 'usuario' (default): op 8 → 403 (sem grant direto).
+      const acUsuario = await fetch(`${base}/operadores/liberacoes`, { headers: H8 });
+      // modo 'ambos': o grant do PERFIL passa a valer → 200.
+      process.env.APP_PERMISSAO_MODO = 'ambos';
+      const acAmbos = await fetch(`${base}/operadores/liberacoes`, { headers: H8 });
+      // revoga o grant do perfil → volta a 403 mesmo em 'ambos'.
+      await fetch(`${base}/cadastro/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codperfil, form: 'FRMLIBERACOES', opcao: 'BTNCONSULTAR', concedido: false }) });
+      const acRevog = await fetch(`${base}/operadores/liberacoes`, { headers: H8 });
+      process.env.APP_PERMISSAO_MODO = 'usuario'; // reset
+      check('PERFIL §77.6: acesso perfil-aware — modo usuario op8→403; modo ambos (grant via perfil)→200; revogado→403',
+        acUsuario.status === 403 && acAmbos.status === 200 && acRevog.status === 403,
+        { usuario: acUsuario.status, ambos: acAmbos.status, revog: acRevog.status });
     } finally {
       await pgPf.end();
     }

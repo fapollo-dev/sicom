@@ -28,3 +28,12 @@ export const relacaoOperadorPerfilSchema = z.object({
   atribuido: z.boolean(),
 });
 export type RelacaoOperadorPerfilDto = z.infer<typeof relacaoOperadorPerfilSchema>;
+
+/** Conceder/revogar um grant FORM×OPCAO a um perfil (UCtrlPermissoes, corte-2). */
+export const permissaoGrantSchema = z.object({
+  codperfil: z.coerce.number({ message: 'Perfil inválido.' }).int().positive(),
+  form: z.string().trim().min(1, 'Informe a tela (form).').max(60),
+  opcao: z.string().trim().min(1, 'Informe a opção.').max(60),
+  concedido: z.boolean(),
+});
+export type PermissaoGrantDto = z.infer<typeof permissaoGrantSchema>;

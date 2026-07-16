@@ -14,6 +14,8 @@ import { AgendaPromocaoService } from './agenda-promocao.service';
 import { PerfilCrudController } from './perfil.crud';
 import { PerfilRelacaoController } from './perfil-relacao.controller';
 import { PerfilRelacaoService } from './perfil-relacao.service';
+import { PermissoesController } from './permissoes.controller';
+import { PermissoesService } from './permissoes.service';
 import { BairroCrudController } from './bairro.crud';
 import { PrecoCrudController } from './preco.crud';
 import { NcmCrudController } from './ncm.crud';
@@ -92,6 +94,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     AgendaPromocaoController, // vertical (encerrar/reabrir a agenda)
     PerfilCrudController, // PERFIS & PERMISSÕES corte-1: CRUD de perfis (RBAC)
     PerfilRelacaoController, // vertical: atribuir perfis a operadores (relacao_operador_perfil)
+    PermissoesController, // corte-2: matriz de grants FORM×OPCAO por perfil (UCtrlPermissoes)
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
   providers: [
@@ -109,6 +112,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     AjusteEstoqueService,
     AgendaPromocaoService,
     PerfilRelacaoService,
+    PermissoesService,
     // Porta SEFAZ (F6): seleção REAL por env SEFAZ_PROVIDER (default 'simulador'). Hoje só existe
     // o SIMULADOR (homologação); o provider real (ACBrLibNFe/lib NFe Node/microserviço) implementa
     // a mesma SefazPort e entra aqui sem tocar no service. Travas: 'simulador' é PROIBIDO em

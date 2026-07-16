@@ -25,8 +25,8 @@ export class AcessoService {
     // fail-closed: sem operador/empresa, nega.
     if (operadorId == null || empresaId == null) return false;
 
-    let q = this.dbp
-      .forTenantRead()
+    const db = this.dbp.forTenantRead();
+    let q = db
       .selectFrom('permissoes')
       .select(sql`1`.as('ok'))
       .where(sql`upper(form)`, '=', form.toUpperCase())
@@ -34,13 +34,32 @@ export class AcessoService {
       .where('codempresa', '=', empresaId);
 
     if (this.modo === 'usuario') {
-      q = q.where('codoperador', '=', operadorId);
+      q = q.where('codoperador', '=', operadorId); // grants DIRETOS (default do legado, PINHEIRAO)
     } else {
-      // perfil/ambos: extensão futura (precisa dos perfis do operador). Por ora, nega.
-      return false;
+      // perfil/ambos (corte-2): acesso via PERFIS do operador (RELACAO_OPERADOR_PERFIL). 'ambos' = próprios ∪ perfis.
+      const perfis = (
+        (await (db as AnyDB)
+          .selectFrom('relacao_operador_perfil')
+          .select('codperfil')
+          .where('codoperador', '=', operadorId)
+          .where(sql`coalesce(indr,'I')`, '<>', 'E')
+          .execute()) as Array<{ codperfil: number }>
+      ).map((r) => Number(r.codperfil));
+
+      if (this.modo === 'perfil') {
+        if (!perfis.length) return false; // sem perfis → sem acesso no modo perfil-puro
+        q = q.where('codperfil', 'in', perfis);
+      } else {
+        // 'ambos': casa o operador OU um de seus perfis (se tiver algum).
+        q = q.where((eb: AnyDB) =>
+          eb.or([eb('codoperador', '=', operadorId), ...(perfis.length ? [eb('codperfil', 'in', perfis)] : [])]),
+        );
+      }
     }
 
     const row = await q.executeTakeFirst();
     return !!row;
   }
 }
+
+type AnyDB = any;
