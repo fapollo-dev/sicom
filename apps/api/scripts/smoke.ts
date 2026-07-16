@@ -4152,6 +4152,26 @@ async function main() {
     } finally {
       await pgDp.end();
     }
+
+    // ===== §79) SENHA DE OPERAÇÃO por empresa (E7) — definir (hash) + verificar (gate) =====
+    {
+      const SO = 'cadastro/senha-operacao';
+      // 79.1) verificar antes de configurar → {ok:false} (não vira oráculo; sem hash → false).
+      const v0 = (await (await fetch(`${base}/${SO}/verificar`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'desc', senha: 'qualquer' }) })).json().catch(() => ({}))) as any;
+      // 79.2) admin define a senha de DESCONTO; verificar correta → ok:true, errada → ok:false.
+      const set = await fetch(`${base}/${SO}`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'desc', senha: 'segredo123' }) });
+      const vOk = (await (await fetch(`${base}/${SO}/verificar`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'desc', senha: 'segredo123' }) })).json().catch(() => ({}))) as any;
+      const vBad = (await (await fetch(`${base}/${SO}/verificar`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'desc', senha: 'errada' }) })).json().catch(() => ({}))) as any;
+      check('SENHA-OP §79: verificar não-configurada→ok:false; definir→200; senha correta→ok:true; errada→ok:false',
+        v0.ok === false && set.status === 200 && vOk.ok === true && vBad.ok === false, { v0: v0.ok, set: set.status, ok: vOk.ok, bad: vBad.ok });
+      // 79.3) tipos independentes: 'cancel' não foi definido → verificar com a senha do desc → ok:false.
+      const vCross = (await (await fetch(`${base}/${SO}/verificar`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'cancel', senha: 'segredo123' }) })).json().catch(() => ({}))) as any;
+      // 79.4) definir sem grant RBAC → 403; tipo inválido → 400 (schema).
+      const setSem = await fetch(`${base}/${SO}`, { method: 'PUT', headers: H_SEM_ACESSO, body: JSON.stringify({ tipo: 'desc', senha: 'x' }) });
+      const setBad = await fetch(`${base}/${SO}`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'xpto', senha: 'x' }) });
+      check('SENHA-OP §79: tipos independentes (cancel não-def→ok:false); definir sem grant→403; tipo inválido→400',
+        vCross.ok === false && setSem.status === 403 && setBad.status === 400, { cross: vCross.ok, sem: setSem.status, bad: setBad.status });
+    }
   } finally {
     await app.close();
     await pg.stop();
