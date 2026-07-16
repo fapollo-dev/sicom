@@ -153,3 +153,63 @@ tipo Redis para a frota; adiado):**
   (o re-login com empresa audita); **[info] `me()` não revoga JWT vivo** ao desabilitar/bloquear (stateless, TTL 12h).
 
 **Verde pós-fold:** api tsc 0 · api test **138** · smoke **497/0** (16 AUTH) · web tsc 0 · web test **32** · web build ✓.
+
+## 8. E7 — SENHA DE OPERAÇÃO por empresa — ENTREGUE e verde, 2026-07-16
+
+Escopo: `EMPRESAS.SENHAADMIN/DESC/CANCEL/GAVETA` (César +13 no legado; verificada por `uSenhaAdmin.pas` via
+`dmPrincipal.encSenha`, mesmo componente/key-engodo → shift 13). É uma senha **da empresa** (não do operador) que
+autoriza ações sensíveis. Os backdoors mestres do legado (`SYSAPOLLO<dia><mês>`, `OPERADORES.SENHARETAGUARDA`) NÃO
+foram reimplementados (são vulnerabilidades — já eliminadas no corte-3a).
+
+**Corte-1 (base, migration 086):** `empresas.senha_{admin,desc,cancel,gaveta}_hash` (scrypt, NÃO a cifra César).
+`SenhaOperacaoService.definir` (RBAC `FRMCADEMPRESA/BTNSENHAOPERACAO`) e `verificar` (qualquer operador
+autenticado). `verificar` é **timing-safe** (sempre roda scrypt com `DUMMY_HASH`) e **não vira oráculo** (senha
+errada e senha-não-configurada colapsam em `ok:false` — `!!row?.hash && ok`). Base `cadastro/senha-operacao`.
+
+**Corte-2a — WIRE do gate 'DESC' na baixa de A Receber:** fiel a `UBaixaAreceber.edtDesc_AcreExit →
+SenhaAdministrativa('DESC')` — **qualquer desconto/acréscimo líquido ≠ 0** na baixa exige a senha 'desc' da empresa.
+Verificação ANTES da transação (fail-fast, sem locks). `baixarTituloSchema` ganhou `senhaOperacao` (opcional, ≤30,
+nunca persistida). Wiring: `CadastroModule` exporta `SenhaOperacaoService`; `CobrancaModule` o importa (aresta
+acíclica). Front: campo de senha condicional no diálogo de baixa (aparece só quando há desconto; botão travado sem
+a senha). **Paridade:** A PAGAR NÃO gateia (fiel a `UBaixaApagar`); o estorno de baixa NÃO gateia (fiel — `UconsRCBbx`
+só gateia editar OBS com 'ADM'). Os gates 'ADM' do legado são em *enable de campo* do cadastro (edtVlrDoc/OBS), não
+uma ação distinta no monorepo → não migrados (nota).
+
+**Corte-2b — CUTOVER César→scrypt das senhas da EMPRESA** (`scripts/cutover/senha-empresa.ts` engine +
+`load-senha-empresa.ts` loader + `extract-senha-empresa.py` READ-ONLY + `report-senha-empresa.ts` + spec):
+- **ACHADO (recon READ-ONLY PINHEIRAO, 4 empresas):** os bytes cifrados têm DIFERENÇAS idênticas entre empresas →
+  mesmo plaintext ("081223" em homolog), mas SHIFTS distintos, todos MÚLTIPLOS DE 13 (emp50=13×1, emp51=13×5,
+  emp1=13×9, emp2=13×10). É a assinatura de um **RE-ENCODE CUMULATIVO** (`udmCadEmpresa` GetText/SetText re-encoda
+  +13 a cada gravação). Como o app decoda com shift **FIXO 13**, só a senha salva 1× (emp50) é verificável — as
+  outras 3 já estavam QUEBRADAS no próprio legado (só os backdoors, agora eliminados, as liberavam). **Isto afeta o
+  cutover das 157 senhas de OPERADOR (Wave 5): checar se OPERADORES.SENHA sofre o mesmo acúmulo.**
+- **Engine:** decoda com shift 13 (fiel ao app) e classifica: `limpa` (decode-13 todo ASCII 32–126 → migra),
+  `controle` (byte 0–31/127–159) ou `latin1` (byte ≥160) → SUSPEITA (não migra; admin redefine). A senha em claro
+  nunca sai do motor (hash imediato). Números reais: 4 empresas → 12 migradas (mas emp51/emp2 são lixo-imprimível
+  do bug — só emp50 é a senha real; ver limitação) → após o fold só ASCII migra.
+- **Postura (como o codref):** ferramenta + engine VERIFICADO (spec 6 testes + smoke §80 contra Postgres real),
+  NÃO a carga viva (falta o banco do tenant + a corrupção do homolog torna a redefinição pelo admin o caminho real).
+
+### Auditoria adversarial (2 agentes: paridade/segurança + regressão/correctness) — folds aplicados
+- **[ALTA] regressão no FRONT** — o diálogo de baixa AR tinha campo "Desconto" mas nenhum campo de senha → baixa
+  com desconto travava na UI (422 sem input p/ digitar). Fix: campo `type=password` condicional + botão travado.
+- **[ALTA] classificação migrava lixo em silêncio** — `temControle` (só 0–31/127–159) deixava passar emp2 (latin-1
+  ≥160) e emp51 (ASCII residual) como `limpa`. Fix: `classificar` → só ASCII imprimível migra; latin-1 e controle
+  viram SUSPEITA com motivo. (emp51 ASCII segue indetectável — é exatamente o que o app decoda; doc honesta.)
+- **[MÉDIA] §80.3 vacuous + doc do loader errada** ("re-hasheia" — o loader NÃO hasheia). Fix: doc corrigida +
+  §80.3 re-roda o MOTOR (salt novo) e testa não-clobber; §80.3b testa `sobrescrever=true`.
+- **[BAIXA] loader clobberava senha redefinida** ao re-rodar. Fix: `sobrescrever=false` (padrão) só preenche coluna
+  vazia (`AND col IS NULL`) — não sobrescreve redefinição do admin.
+- **[BAIXA] fidelidade de bytes/charset** no extrator (NLS do oracledb podia remapear byte alto). Fix:
+  `RAWTOHEX(UTL_RAW.CAST_TO_RAW(...))` → bytes exatos → latin-1 no Python.
+- **[BAIXA] artefato bruto = segredo** (César reversível). Fix: aviso `[SEGREDO]` no extrator (apagar após uso).
+- **[BAIXA] cobertura** "empresa sem senha na baixa" — smoke §32.5.0.
+
+**Limitação CONSCIENTE deferida (como o corte-3c):** o gate 'DESC' é chamável por operador autenticado sem lockout
+→ um insider com `BTNBAIXAR` mas sem a senha pode fazer brute-force online de um segredo curto (homolog: 6 dígitos).
+scrypt (N=16384,p=3) atrasa mas não impede. Remédio = lockout por-empresa / rate-limit por IP (precisa store
+compartilhado tipo Redis p/ a frota) → **fast-follow**. O legado tinha proteção estritamente PIOR (sem lockout +
+backdoors mestres). Não é oráculo do segredo (config-vs-errada colapsam).
+
+**Verde pós-fold:** api tsc 0 · api test **151** (145 + 6 cutover) · smoke **567/0** (§32.5 gate + §80 cutover) ·
+web tsc 0 · web test **32**.

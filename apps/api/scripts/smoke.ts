@@ -7,6 +7,9 @@ import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/shared/errors/all-exceptions.filter';
 import { dedupCodref, type RawCodref } from './cutover/dedup-codref';
 import { loadCodref } from './cutover/load-codref';
+import { cutoverSenhasEmpresa } from './cutover/senha-empresa';
+import { loadSenhasEmpresa } from './cutover/load-senha-empresa';
+import { encodeSenhaLegado } from '../src/shared/auth/crypto';
 
 
 /**
@@ -1882,7 +1885,13 @@ async function main() {
     const est2 = await fetch(`${base}/${AR}/${bxId}/estornar-baixa`, { method: 'POST', headers: H });
     check('CR-baixa: estornar sem baixa → 422 TITULO_NAO_BAIXADO', est2.status === 422 && ((await est2.json().catch(() => ({}))) as any).code === 'TITULO_NAO_BAIXADO', { status: est2.status });
     // 32.5) GATE de senha de operação (E7 — UBaixaAreceber.edtDesc_AcreExit): desconto/acréscimo ≠ 0 exige a
-    // senha de DESCONTO da empresa. Admin define a senha (op 7 tem grant BTNSENHAOPERACAO via migration 086).
+    // senha de DESCONTO da empresa.
+    // 32.5.0) ANTES de configurar: baixa com desconto + senha qualquer → 422 INVALIDA (empresa sem senha_desc →
+    // verificar ok:false; cobre o ramo "não-configurada" no PRÓPRIO endpoint da baixa — fold de cobertura).
+    const bxId2z = await crNovo();
+    const bxNaoConf = await fetch(`${base}/${AR}/${bxId2z}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ desconto: 5, senhaOperacao: 'qualquer' }) });
+    check('CR-baixa: desconto c/ empresa SEM senha configurada → 422 SENHA_OPERACAO_INVALIDA', bxNaoConf.status === 422 && ((await bxNaoConf.json().catch(() => ({}))) as any).code === 'SENHA_OPERACAO_INVALIDA', { status: bxNaoConf.status });
+    // Admin define a senha (op 7 tem grant BTNSENHAOPERACAO via migration 086).
     await fetch(`${base}/cadastro/senha-operacao`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'desc', senha: 'segredo123' }) });
     const bxId2 = await crNovo();
     // 32.5a) desconto SEM senha → 422 SENHA_OPERACAO_REQUERIDA (gate antes da trx → título intacto).
@@ -4184,6 +4193,50 @@ async function main() {
       const setBad = await fetch(`${base}/${SO}`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'xpto', senha: 'x' }) });
       check('SENHA-OP §79: tipos independentes (cancel não-def→ok:false); definir sem grant→403; tipo inválido→400',
         vCross.ok === false && setSem.status === 403 && setBad.status === 400, { cross: vCross.ok, sem: setSem.status, bad: setBad.status });
+    }
+
+    // ===== §80) CUTOVER das senhas de operação da EMPRESA (E7 corte-2b) — engine + loader + verify end-to-end =====
+    {
+      const SO = 'cadastro/senha-operacao';
+      // 80.1) engine: César +13 "081223" (shift 13, salva 1×) → migra; corrupção real de emp1 (bytes de controle
+      // via re-encode cumulativo) → suspeita; branco/null → vazia.
+      const cifradaLimpa = encodeSenhaLegado('081223');
+      const cifradaCorrupta = String.fromCharCode(165, 173, 166, 167, 167, 168); // padrão REAL emp1 (shift 13×9)
+      const { migrar, report } = cutoverSenhasEmpresa([
+        { codempresa: 1, senhaadmin: cifradaLimpa, senhadesc: null, senhacancel: cifradaCorrupta, senhagaveta: '' },
+      ]);
+      check('CUTOVER-SENHA §80.1: engine migra a limpa (admin), flag a corrupta (cancel, controle), branco→vazia',
+        migrar.length === 1 && migrar[0].tipo === 'admin' && report.suspeitas.length === 1 && report.suspeitas[0].tipo === 'cancel' && report.vazias === 2, { report });
+
+      // 80.2) loader aplica o hash em empresas.senha_admin_hash (empresa 1); verify (API c1) confirma a senha REAL.
+      const pgSo = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const load1 = await loadSenhasEmpresa(pgSo, migrar, 7);
+        const vOk = (await (await fetch(`${base}/${SO}/verificar`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'admin', senha: '081223' }) })).json().catch(() => ({}))) as any;
+        const vBad = (await (await fetch(`${base}/${SO}/verificar`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'admin', senha: 'errada' }) })).json().catch(() => ({}))) as any;
+        check('CUTOVER-SENHA §80.2: loader grava hash; verify (c1) da senha real→ok:true, errada→ok:false',
+          load1.aplicadas === 1 && load1.empresasAfetadas === 1 && vOk.ok === true && vBad.ok === false, { load: load1, ok: vOk.ok, bad: vBad.ok });
+
+        // 80.3) NÃO CLOBBERA (fold auditoria): re-rodar o MOTOR (hash com salt NOVO) + loader default → 0 aplicadas
+        // (coluna já preenchida, guarda IS NULL); a senha antiga persiste e continua verificando (idempotência semântica).
+        const { migrar: migrar2 } = cutoverSenhasEmpresa([{ codempresa: 1, senhaadmin: cifradaLimpa, senhadesc: null, senhacancel: null, senhagaveta: null }]);
+        const load2 = await loadSenhasEmpresa(pgSo, migrar2, 7); // default sobrescrever=false
+        const vOk2 = (await (await fetch(`${base}/${SO}/verificar`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'admin', senha: '081223' }) })).json().catch(() => ({}))) as any;
+        check('CUTOVER-SENHA §80.3: re-rodar (salt novo) NÃO clobbera (0 aplicadas, 1 ignorada) + verify segue ok:true',
+          load2.aplicadas === 0 && load2.ignoradas === 1 && vOk2.ok === true, { load2, ok: vOk2.ok });
+
+        // 80.3b) sobrescrever=true regrava com o hash de salt novo; verify continua válido (a senha real ainda casa).
+        const load2b = await loadSenhasEmpresa(pgSo, migrar2, 7, true);
+        const vOk2b = (await (await fetch(`${base}/${SO}/verificar`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'admin', senha: '081223' }) })).json().catch(() => ({}))) as any;
+        check('CUTOVER-SENHA §80.3b: sobrescrever=true regrava (1 aplicada, salt novo) + verify segue ok:true',
+          load2b.aplicadas === 1 && vOk2b.ok === true, { load2b, ok: vOk2b.ok });
+
+        // 80.4) empresa inexistente no destino → ignorada (não quebra, 0 aplicadas).
+        const load3 = await loadSenhasEmpresa(pgSo, [{ idempresa: 999999, tipo: 'admin', hash: migrar[0].hash }], 7, true);
+        check('CUTOVER-SENHA §80.4: empresa inexistente no destino → ignorada (0 aplicadas, 1 ignorada)', load3.aplicadas === 0 && load3.ignoradas === 1, { load3 });
+      } finally {
+        await pgSo.end();
+      }
     }
   } finally {
     await app.close();

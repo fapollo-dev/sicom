@@ -175,6 +175,8 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarAreceberDto> }) {
   const [desconto, setDesconto] = useState<number | undefined>(undefined);
   const [recurso, setRecurso] = useState<string>(''); // '' = sem caixa · DINHEIRO = caixa · BANCO = depósito
   const [codconta, setCodconta] = useState<number | undefined>(undefined);
+  const [senhaOperacao, setSenhaOperacao] = useState<string>(''); // senha de operação 'DESC' (E7) — exigida se há desconto
+  const exigeSenha = !!desconto && Number(desconto) !== 0; // gate fiel a UBaixaAreceber.edtDesc_AcreExit (desconto ≠ 0)
   const { data: contasBancarias = [] } = useResourceOptions(
     'cadastro/contas-bancarias',
     (c: any) => ({ value: String(c.codconta), label: `${c.codconta} - ${c.titular ?? ''}${c.nroconta ? ' (' + c.nroconta + ')' : ''}` }),
@@ -189,7 +191,9 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarAreceberDto> }) {
         dtpgto, juros, desconto,
         recurso: recurso === 'DINHEIRO' || recurso === 'BANCO' ? (recurso as 'DINHEIRO' | 'BANCO') : undefined,
         codconta: recurso === 'BANCO' ? codconta : undefined,
+        senhaOperacao: exigeSenha ? senhaOperacao : undefined, // só envia a senha quando há desconto (E7)
       });
+      setSenhaOperacao('');
       form.setValue('quitada' as any, 'S');
       mensagem.sucesso(`Título baixado: recebido R$ ${fmtBRL(r.valorpg)} (juros R$ ${fmtBRL(r.juros)}).`);
     } catch (e) {
@@ -253,8 +257,20 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarAreceberDto> }) {
               />
             </div>
           )}
-          <Button label="&Baixar título" variant="soft" onClick={() => void baixar()} />
-          <small className="text-fg-muted">Dinheiro exige caixa aberto; Banco lança o depósito na conta contábil do banco.</small>
+          {exigeSenha && (
+            <div className="w-48">
+              <Field
+                label="Senha de &operação"
+                type="password"
+                autoComplete="off"
+                value={senhaOperacao}
+                onChange={(e) => setSenhaOperacao(e.target.value)}
+                placeholder="Senha de desconto"
+              />
+            </div>
+          )}
+          <Button label="&Baixar título" variant="soft" disabled={exigeSenha && !senhaOperacao} onClick={() => void baixar()} />
+          <small className="text-fg-muted">{exigeSenha ? 'Desconto exige a senha de operação da empresa. ' : ''}Dinheiro exige caixa aberto; Banco lança o depósito na conta contábil do banco.</small>
         </div>
       )}
     </fieldset>
