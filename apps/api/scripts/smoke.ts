@@ -4077,6 +4077,51 @@ async function main() {
     } finally {
       await pgPf.end();
     }
+
+    // ===== §78) DE-PARA de fornecedor (CODREFERENCIA_FOR) — manutenção standalone (recebimento corte-5) =====
+    const pgDp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    try {
+      const DP = 'compras/de-para';
+      // 78.1) criar → 201; codref NORMALIZADO (tira pontos: '789.123'→'789123'); listar traz razao + tiporefd EAN.
+      const d1 = await fetch(`${base}/${DP}`, { method: 'POST', headers: H, body: JSON.stringify({ idproduto: 1, codfor: 22, codref: '789.123', tiporef: 'E' }) });
+      const d1J = (await d1.json().catch(() => ({}))) as any;
+      const codRef1 = Number(d1J.codreferencia_for);
+      const lista1 = (await (await fetch(`${base}/${DP}?idproduto=1`, { headers: H })).json().catch(() => [])) as any[];
+      const item1 = lista1.find((r) => Number(r.codreferencia_for) === codRef1);
+      check('DE-PARA §78.1: criar → 201 + codref normalizado (789123) + listar c/ razao + tiporefd EAN',
+        d1.status === 201 && codRef1 > 0 && item1?.codref === '789123' && !!item1?.razao && item1?.tiporefd === 'EAN', { status: d1.status, item: item1 });
+
+      // 78.2) duplicado (mesmo codfor+codref) → 422; fornecedor não-FRN (20) → 422.
+      const d2 = await fetch(`${base}/${DP}`, { method: 'POST', headers: H, body: JSON.stringify({ idproduto: 1, codfor: 22, codref: '789123' }) });
+      const d3 = await fetch(`${base}/${DP}`, { method: 'POST', headers: H, body: JSON.stringify({ idproduto: 1, codfor: 20, codref: 'ABC' }) });
+      check('DE-PARA §78.2: duplicado (codfor,codref) → 422 DEPARA_DUPLICADO; fornecedor não-FRN → 422 DEPARA_FORNECEDOR_INVALIDO',
+        d2.status === 422 && ((await d2.json().catch(() => ({}))) as any).code === 'DEPARA_DUPLICADO' && d3.status === 422 && ((await d3.json().catch(() => ({}))) as any).code === 'DEPARA_FORNECEDOR_INVALIDO',
+        { dup: d2.status, forn: d3.status });
+
+      // 78.3) atualizar tiporef E→P (tiporefd vira PLU); remover → 204 + some da lista.
+      const d4 = await fetch(`${base}/${DP}/${codRef1}`, { method: 'PUT', headers: H, body: JSON.stringify({ tiporef: 'P' }) });
+      const item1b = ((await (await fetch(`${base}/${DP}?idproduto=1`, { headers: H })).json().catch(() => [])) as any[]).find((r) => Number(r.codreferencia_for) === codRef1);
+      const d5 = await fetch(`${base}/${DP}/${codRef1}`, { method: 'DELETE', headers: H });
+      const nApos = ((await (await fetch(`${base}/${DP}?idproduto=1`, { headers: H })).json().catch(() => [])) as any[]).filter((r) => Number(r.codreferencia_for) === codRef1).length;
+      check('DE-PARA §78.3: atualizar tiporef→P (PLU); remover → 204 + some da lista',
+        d4.status === 200 && item1b?.tiporefd === 'PLU' && d5.status === 204 && nApos === 0, { put: d4.status, tiporefd: item1b?.tiporefd, del: d5.status, apos: nApos });
+
+      // 78.4) ESCOPO cross-tenant (decisão de tenant): de-para de um fornecedor de OUTRA empresa NÃO é vista nem
+      // editável pela empresa 1. Insere parceiro 990002 (empresa 2, FRN) + uma de-para dele via pg.
+      await pgDp.query(`INSERT INTO parceiros (codparceiro, idempresa, razao, frn) VALUES (990002, 2, 'FORN EMP2', 'S') ON CONFLICT (codparceiro) DO UPDATE SET idempresa=2, frn='S'`);
+      const alheia = Number((await pgDp.query(`INSERT INTO codreferencia_for (idproduto, codfor, codref, tiporef) VALUES (1, 990002, 'EMP2REF', 'E') RETURNING codreferencia_for`)).rows[0].codreferencia_for);
+      const listaEmp1 = (await (await fetch(`${base}/${DP}?idproduto=1`, { headers: H })).json().catch(() => [])) as any[];
+      const vazouEmp2 = listaEmp1.some((r) => Number(r.codfor) === 990002);
+      const delAlheia = await fetch(`${base}/${DP}/${alheia}`, { method: 'DELETE', headers: H });
+      check('DE-PARA §78.4: ESCOPO fornecedor→empresa — de-para de fornecedor da emp 2 NÃO aparece na emp 1 nem é excluível (404)',
+        !vazouEmp2 && delAlheia.status !== 204 && ((await delAlheia.json().catch(() => ({}))) as any).code === 'DEPARA_NAO_ENCONTRADO', { vazou: vazouEmp2, del: delAlheia.status });
+
+      // 78.5) RBAC: criar sem grant → 403.
+      const d6 = await fetch(`${base}/${DP}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ idproduto: 1, codfor: 22, codref: 'X' }) });
+      check('DE-PARA §78.5: criar sem grant RBAC → 403', d6.status === 403, { status: d6.status });
+    } finally {
+      await pgDp.end();
+    }
   } finally {
     await app.close();
     await pg.stop();

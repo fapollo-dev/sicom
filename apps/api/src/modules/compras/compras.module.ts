@@ -8,6 +8,8 @@ import { RecebimentoService } from './recebimento.service';
 import { DevolucaoCompraAggregateController } from './devolucao-compra.aggregate';
 import { DevolucaoCompraController } from './devolucao-compra.controller';
 import { DevolucaoCompraService } from './devolucao-compra.service';
+import { DeParaController } from './de-para.controller';
+import { DeParaService } from './de-para.service';
 import { CadastroModule } from '../cadastro/cadastro.module';
 import { AuthModule } from '../auth/auth.module';
 import { DatabaseProvider } from '../../shared/database/database.provider';
@@ -29,7 +31,8 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     // GET `:id` do agregado (senão o :id captura 'itens-disponiveis'). Ordem de registro = precedência (Express).
     DevolucaoCompraController, // vertical: picker de saldo + finalizar/reabrir/cancelar (sem efeitos)
     DevolucaoCompraAggregateController, // devolução de compra corte-1: CRUD do documento (header + itens)
+    DeParaController, // de-para de fornecedor (CODREFERENCIA_FOR) — manutenção standalone (recebimento corte-5)
   ],
-  providers: [PedidoCompraService, RecebimentoService, DevolucaoCompraService, DatabaseProvider],
+  providers: [PedidoCompraService, RecebimentoService, DevolucaoCompraService, DeParaService, DatabaseProvider],
 })
 export class ComprasModule {}

@@ -332,6 +332,12 @@ const CODE_PT: Record<string, string> = {
   LIBERACAO_NAO_AUTORIZADA: 'Supervisor não autorizado ou credenciais inválidas.',
   // Perfis & Permissões (FRMCADPERFILOPERADOR)
   PERFIL_NAO_ENCONTRADO: 'Perfil não encontrado.',
+  // De-para de fornecedor (CODREFERENCIA_FOR)
+  DEPARA_NAO_ENCONTRADO: 'Referência de fornecedor não encontrada.',
+  DEPARA_FORNECEDOR_INVALIDO: 'Fornecedor inválido (não é fornecedor desta empresa).',
+  DEPARA_CODREF_INVALIDO: 'Código do fornecedor inválido.',
+  DEPARA_DUPLICADO: 'Este código já está referenciado para o mesmo fornecedor.',
+  DEPARA_PRODUTO_INVALIDO: 'Produto inválido.',
   // Devolução de compra (FRMDEVOLUCAOCOMPRA)
   DEVOLUCAO_NAO_ENCONTRADA: 'Devolução de compra não encontrada.',
   DEVOLUCAO_NAO_EDITAVEL: 'Esta devolução não está em digitação — não pode ser alterada nem excluída.',
