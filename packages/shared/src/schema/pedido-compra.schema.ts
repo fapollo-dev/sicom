@@ -272,3 +272,10 @@ export interface PedidoCompraItem {
   pmz?: number | string | null;
   bonificacao?: number | string | null; // % bonificado (100 no espelho)
 }
+
+/** Override de SUPERVISOR p/ liberar o limite (E8 c3): login+senha do supervisor autorizado. */
+export const liberarLimiteSupervisorSchema = z.object({
+  login: z.string().trim().min(1, 'Informe o login do supervisor.').max(50),
+  senha: z.string().min(1, 'Informe a senha do supervisor.').max(200),
+});
+export type LiberarLimiteSupervisorDto = z.infer<typeof liberarLimiteSupervisorSchema>;

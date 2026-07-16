@@ -3175,11 +3175,11 @@ async function main() {
     await pgF57.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) VALUES (104,'Usuario','8','S') ON CONFLICT (id,tipo,chave) DO UPDATE SET valor='S'`);
     const f57SupR = await crPed({ codparceiro: 22, data: '2026-12-01', data_faturamento: '2026-12-05', cd1: 1, pc_nronf_cruzamento: 'SUP-LIB', itens: [{ idproduto: 1, fatorembalagem: 6, vrcusto: 10 }] });
     const f57SupId = Number(((await f57SupR.json().catch(() => ({}))) as any).codpedcomp);
-    const f57SupLib = await fetch(`${base}/${PED}/${f57SupId}/liberar-limite`, { method: 'POST', headers: H, body: JSON.stringify({ login: 'OP8', senha: 'smoke123' }) });
+    const f57SupLib = await fetch(`${base}/${PED}/${f57SupId}/liberar-limite-supervisor`, { method: 'POST', headers: H, body: JSON.stringify({ login: 'OP8', senha: 'smoke123' }) });
     const f57SupRow = (await pgF57.query(`SELECT operador_ult_lib_valor_max FROM pedidocompra WHERE codpedcomp=$1`, [f57SupId])).rows[0] as any;
     // credencial errada → 422 LIBERACAO_NAO_AUTORIZADA
-    const f57SupBad = await fetch(`${base}/${PED}/${f57SupId}/liberar-limite`, { method: 'POST', headers: H, body: JSON.stringify({ login: 'OP8', senha: 'errada' }) });
-    check('FINAL E8-c3 WIRE: liberar-limite c/ login+senha do supervisor (op 8) → operador_ult_lib_valor_max=8 (não a sessão 7); senha errada → 422',
+    const f57SupBad = await fetch(`${base}/${PED}/${f57SupId}/liberar-limite-supervisor`, { method: 'POST', headers: H, body: JSON.stringify({ login: 'OP8', senha: 'errada' }) });
+    check('FINAL E8-c3 WIRE: liberar-limite-supervisor c/ login+senha do supervisor (op 8) → operador_ult_lib_valor_max=8 (não a sessão 7); senha errada → 422',
       f57SupLib.status === 200 && Number(f57SupRow?.operador_ult_lib_valor_max) === 8 && f57SupBad.status === 422 && ((await f57SupBad.json().catch(() => ({}))) as any).code === 'LIBERACAO_NAO_AUTORIZADA',
       { lib: f57SupLib.status, operador: f57SupRow?.operador_ult_lib_valor_max, bad: f57SupBad.status });
 
@@ -3898,6 +3898,19 @@ async function main() {
       await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: CHAVE, codoperador: 8, concedido: false }) });
       const valNoGrant = await fetch(`${base}/operadores/liberacoes/validar`, { method: 'POST', headers: H, body: JSON.stringify({ codigo: CHAVE, login: 'OP8', senha: 'smoke123', liberacao: 'SEM GRANT' }) });
       check('LIBERAÇÃO §75.3: supervisor sem grant → {liberado:false}', valNoGrant.status === 200 && ((await valNoGrant.json().catch(() => ({}))) as any).liberado === false, { status: valNoGrant.status });
+
+      // 75.4) FOLD ALTA: o validar reusa o LOCKOUT do corte-3c (não é canal de força-bruta). Re-grant op 8 +
+      // zera; 5 tentativas de senha errada → bloqueia; senha CORRETA depois → ainda {liberado:false} (bloqueado).
+      await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: CHAVE, codoperador: 8, concedido: true }) });
+      await pgLib.query(`UPDATE operadores SET tentativas_login=0, bloqueado_ate=NULL WHERE codoperador=8`);
+      for (let i = 0; i < 5; i++) await fetch(`${base}/operadores/liberacoes/validar`, { method: 'POST', headers: H, body: JSON.stringify({ codigo: CHAVE, login: 'OP8', senha: 'errada', liberacao: 'BRUTE' }) });
+      const bloq = (await pgLib.query(`SELECT bloqueado_ate FROM operadores WHERE codoperador=8`)).rows[0] as any;
+      const valPosBloq = await fetch(`${base}/operadores/liberacoes/validar`, { method: 'POST', headers: H, body: JSON.stringify({ codigo: CHAVE, login: 'OP8', senha: 'smoke123', liberacao: 'APOS BLOQUEIO' }) });
+      const valPosBloqJ = (await valPosBloq.json().catch(() => ({}))) as any;
+      await pgLib.query(`UPDATE operadores SET tentativas_login=0, bloqueado_ate=NULL WHERE codoperador=8`); // limpa
+      check('LIBERAÇÃO §75.4 FOLD ALTA: 5 senhas erradas BLOQUEIAM a conta; senha correta depois → {liberado:false} (lockout reusado, sem força-bruta)',
+        bloq?.bloqueado_ate != null && valPosBloq.status === 200 && valPosBloqJ.liberado === false,
+        { bloqueado: bloq?.bloqueado_ate, posBloq: valPosBloqJ.liberado });
     } finally {
       await pgLib.end();
     }

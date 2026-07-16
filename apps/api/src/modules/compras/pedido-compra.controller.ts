@@ -1,5 +1,5 @@
 import { Body, Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
-import { gerarNfPedidoSchema, importarItensPedidoSchema } from '@apollo/shared';
+import { gerarNfPedidoSchema, importarItensPedidoSchema, liberarLimiteSupervisorSchema, type LiberarLimiteSupervisorDto } from '@apollo/shared';
 import { PedidoCompraService } from './pedido-compra.service';
 import { RecebimentoService } from './recebimento.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -66,12 +66,23 @@ export class PedidoCompraController {
     return this.svc.duplicar(id, true);
   }
 
-  /** LIBERA o limite de compra excedido. Com {login,senha} = override de SUPERVISOR (E8 c3, valida contra
-   *  USUARIOS_LIBERAM_VALOR_MAX_EXCEDIDO + LOG_LIBERACOES); sem body = caminho RBAC LIBERAVALORMAX do §13. */
+  /** LIBERA o limite (caminho do PRÓPRIO operador): exige o grant LIBERAVALORMAX da SESSÃO (§13). */
   @Post(':id/liberar-limite')
   @HttpCode(200)
   @RequerAcesso('FRMPEDIDOCOMPRA', 'LIBERAVALORMAX')
-  liberarLimite(@Param('id', ParseIntPipe) id: number, @Body() body?: { login?: string; senha?: string }) {
+  liberarLimite(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.liberarLimite(id);
+  }
+
+  /** LIBERA o limite via OVERRIDE de SUPERVISOR (E8 c3, ChamaLiberacaoLogin). SEM @RequerAcesso: o operador
+   *  da sessão NÃO precisa do grant — é o SUPERVISOR (login+senha) que precisa estar em USUARIOS_LIBERAM_VALOR_MAX_EXCEDIDO
+   *  (fold da auditoria: o RBAC na sessão tornava este caminho inalcançável para quem mais precisa dele). */
+  @Post(':id/liberar-limite-supervisor')
+  @HttpCode(200)
+  liberarLimiteSupervisor(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(liberarLimiteSupervisorSchema)) body: LiberarLimiteSupervisorDto,
+  ) {
     return this.svc.liberarLimite(id, body);
   }
 

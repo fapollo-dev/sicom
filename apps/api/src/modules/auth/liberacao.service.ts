@@ -69,27 +69,51 @@ export class LiberacaoService {
    */
   async validar(dados: { codigo: string; login: string; senha: string; liberacao: string; computador?: string | null }): Promise<{ liberado: boolean; codOperador?: number }> {
     if (!CHAVES_LIBERACAO.has(dados.codigo)) throw new BusinessRuleError('LIBERACAO_CHAVE_INVALIDA', { codigo: dados.codigo });
-    const db = this.dbp.forTenantRead() as AnyDB;
+    const db = this.dbp.forTenant() as AnyDB; // precisa gravar (lockout + log)
     const sup = (await db
       .selectFrom('operadores')
-      .select(['codoperador', 'desabilitado', 'senha_hash'])
+      .select(['codoperador', 'desabilitado', 'senha_hash', 'tentativas_login', 'bloqueado_ate'])
       .where(sql`upper(login)`, '=', String(dados.login).toUpperCase())
       .where(sql`coalesce(indr,'I')`, '<>', 'E')
-      .executeTakeFirst()) as { codoperador: number; desabilitado?: string | null; senha_hash?: string | null } | undefined;
+      .executeTakeFirst()) as { codoperador: number; desabilitado?: string | null; senha_hash?: string | null; tentativas_login?: number | null; bloqueado_ate?: unknown } | undefined;
+
+    const registrarNegacao = () =>
+      this.registrar(db, { usuarioSistema: currentTenant().operadorId ?? null, usuarioLiberou: String(dados.login).slice(0, 200), liberacao: 'NEGADO: ' + dados.liberacao, computador: dados.computador ?? null });
+
+    // corte-3c LOCKOUT reusado (fold ALTA da auditoria): o validar NÃO pode ser um canal de força-bruta que
+    // burla o bloqueio por-conta do login. Conta bloqueada recusa antes da senha; janela expirada recomeça.
+    if (sup?.bloqueado_ate) {
+      const ate = new Date(sup.bloqueado_ate as string | number | Date).getTime();
+      if (ate > Date.now()) { await registrarNegacao(); return { liberado: false }; }
+      await db.updateTable('operadores').set({ tentativas_login: 0, bloqueado_ate: null }).where('codoperador', '=', sup.codoperador).execute();
+      sup.tentativas_login = 0;
+    }
+
     const senhaOk = verificarSenha(dados.senha, sup?.senha_hash ?? DUMMY_HASH); // sempre roda (anti-timing)
     const permitidos = new Set(await this.usuariosPermitidosLocal(dados.codigo));
     const liberado = !!sup && sup.desabilitado !== 'S' && senhaOk && permitidos.has(Number(sup.codoperador));
 
-    // auditoria (grant OU negação). usuario_liberou = supervisor (se liberou) senão o login tentado.
-    await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      await this.registrar(trx, {
-        usuarioSistema: currentTenant().operadorId ?? null,
-        usuarioLiberou: liberado ? String(sup!.codoperador) : String(dados.login).slice(0, 200),
-        liberacao: (liberado ? '' : 'NEGADO: ') + dados.liberacao,
-        computador: dados.computador ?? null,
-      });
-    });
-    return liberado ? { liberado: true, codOperador: Number(sup!.codoperador) } : { liberado: false };
+    if (!liberado) {
+      // conta SENHA errada como tentativa e BLOQUEIA ao exceder (mesmo backstop do login endurecido). Só quando
+      // a senha falha (não penaliza senha-certa-sem-grant, que não é força-bruta).
+      if (sup && !senhaOk) {
+        const max = Number(await this.config.resolver('AUTH_MAX_TENTATIVAS_LOGIN')) || 5;
+        const upd = (await db.updateTable('operadores').set({ tentativas_login: sql`coalesce(tentativas_login,0) + 1` }).where('codoperador', '=', sup.codoperador).returning('tentativas_login').executeTakeFirst()) as { tentativas_login?: number } | undefined;
+        if (max > 0 && Number(upd?.tentativas_login ?? 0) >= max) {
+          const bloqMin = Number(await this.config.resolver('AUTH_BLOQUEIO_LOGIN_MINUTOS')) || 15;
+          await db.updateTable('operadores').set({ bloqueado_ate: sql`now() + make_interval(secs => ${bloqMin * 60})` }).where('codoperador', '=', sup.codoperador).execute();
+        }
+      }
+      await registrarNegacao();
+      return { liberado: false };
+    }
+
+    // sucesso → zera o contador/desbloqueia + registra o grant (usuario_liberou = supervisor).
+    if (Number(sup!.tentativas_login ?? 0) !== 0 || sup!.bloqueado_ate != null) {
+      await db.updateTable('operadores').set({ tentativas_login: 0, bloqueado_ate: null }).where('codoperador', '=', sup!.codoperador).execute();
+    }
+    await this.registrar(db, { usuarioSistema: currentTenant().operadorId ?? null, usuarioLiberou: String(sup!.codoperador), liberacao: dados.liberacao, computador: dados.computador ?? null });
+    return { liberado: true, codOperador: Number(sup!.codoperador) };
   }
 
   /** usa o ConfigService injetado (mesma query dedicada); helper p/ manter o validar coeso. */
