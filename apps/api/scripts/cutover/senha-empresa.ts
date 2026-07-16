@@ -70,7 +70,7 @@ const COL: Record<TipoSenhaEmpresa, keyof RawEmpresaSenha> = {
  * possível: senha legítima com acento (rara em senha de operação) → flag conservador, admin redefine (fold da
  * auditoria — antes migrava esse lixo em silêncio). Só emp50-style (salva 1×, shift 13) resulta em ASCII limpo.
  */
-function classificar(s: string): 'limpa' | 'controle' | 'latin1' {
+export function classificar(s: string): 'limpa' | 'controle' | 'latin1' {
   let latin1 = false;
   for (const ch of s) {
     const c = ch.charCodeAt(0);

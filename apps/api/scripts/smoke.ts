@@ -9,7 +9,9 @@ import { dedupCodref, type RawCodref } from './cutover/dedup-codref';
 import { loadCodref } from './cutover/load-codref';
 import { cutoverSenhasEmpresa } from './cutover/senha-empresa';
 import { loadSenhasEmpresa } from './cutover/load-senha-empresa';
-import { encodeSenhaLegado } from '../src/shared/auth/crypto';
+import { cutoverSenhasOperador } from './cutover/senha-operador';
+import { loadSenhasOperador } from './cutover/load-senha-operador';
+import { encodeSenhaLegado, verificarSenha } from '../src/shared/auth/crypto';
 
 
 /**
@@ -4323,6 +4325,40 @@ async function main() {
           divSem.status === 403 && (!libSemPed || (libSemPed.status === 422 && ((await libSemPed.json().catch(() => ({}))) as any).code === 'NF_SEM_PEDIDO')), { div: divSem.status, semPed: libSemPed?.status });
       } finally {
         await pgA2.end();
+      }
+    }
+
+    // ===== §82) CUTOVER das 157 senhas de OPERADOR (César→scrypt + solicitar_alteracao_senha) — engine + loader =====
+    {
+      const pgOp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // op 8 sem senha (limpa o hash do §81) — o loader default só preenche coluna vazia.
+        await pgOp.query(`UPDATE operadores SET senha_hash=NULL, solicitar_alteracao_senha='N' WHERE codoperador=8`);
+        // 82.1) engine: senha César +13 'op8cut' (shift 13, como as 155 reais) → migra; round-trip real.
+        const { migrar, report } = cutoverSenhasOperador([
+          { codoperador: 8, senha: encodeSenhaLegado('op8cut') },
+          { codoperador: 999, senha: null }, // sem senha → vazia
+        ]);
+        check('CUTOVER-OP §82.1: engine migra a limpa (round-trip verificarSenha), branco→vazia',
+          migrar.length === 1 && migrar[0].codoperador === 8 && verificarSenha('op8cut', migrar[0].hash) === true && report.vazias === 1 && report.suspeitas.length === 0, { report });
+
+        // 82.2) loader grava senha_hash + solicitar_alteracao_senha='S' (troca obrigatória no 1º acesso).
+        const load1 = await loadSenhasOperador(pgOp, migrar);
+        const opRow = (await pgOp.query(`SELECT senha_hash, solicitar_alteracao_senha FROM operadores WHERE codoperador=8`)).rows[0] as any;
+        check('CUTOVER-OP §82.2: loader grava hash + solicitar_alteracao_senha=S; senha real verifica',
+          load1.aplicadas === 1 && opRow?.senha_hash != null && opRow?.solicitar_alteracao_senha === 'S' && verificarSenha('op8cut', opRow.senha_hash) === true, { load: load1, flag: opRow?.solicitar_alteracao_senha });
+
+        // 82.3) NÃO clobbera: re-rodar default → 0 aplicadas (senha_hash já definido); sobrescrever=true → 1.
+        const load2 = await loadSenhasOperador(pgOp, migrar);
+        const load2b = await loadSenhasOperador(pgOp, migrar, true);
+        check('CUTOVER-OP §82.3: re-rodar default NÃO clobbera (0); sobrescrever=true regrava (1)',
+          load2.aplicadas === 0 && load2.ignoradas === 1 && load2b.aplicadas === 1, { load2, load2b });
+
+        // 82.4) operador inexistente → ignorado.
+        const load3 = await loadSenhasOperador(pgOp, [{ codoperador: 999999, hash: migrar[0].hash }], true);
+        check('CUTOVER-OP §82.4: operador inexistente → ignorado (0 aplicadas, 1 ignorada)', load3.aplicadas === 0 && load3.ignoradas === 1, { load3 });
+      } finally {
+        await pgOp.end();
       }
     }
   } finally {

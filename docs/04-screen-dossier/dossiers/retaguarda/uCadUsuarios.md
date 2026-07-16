@@ -213,3 +213,29 @@ backdoors mestres). Não é oráculo do segredo (config-vs-errada colapsam).
 
 **Verde pós-fold:** api tsc 0 · api test **151** (145 + 6 cutover) · smoke **567/0** (§32.5 gate + §80 cutover) ·
 web tsc 0 · web test **32**.
+
+## 9. CUTOVER das 157 senhas de OPERADOR (César→scrypt) — ENTREGUE e verde, 2026-07-16
+
+Fecha o "cutover real" adiado no §5: decodificar `OPERADORES.SENHA` (César +13) → `hashSenha` (scrypt) +
+`solicitar_alteracao_senha='S'` (a senha atual entra 1× e a troca é obrigatória no 1º acesso). Reusa o motor do
+E7-c2b (senha-empresa) — `classificar` exportado + os mesmos folds (fill-only-empty, RAWTOHEX, aviso-de-segredo).
+
+**ACHADO (recon READ-ONLY PINHEIRAO):** 157 operadores, 155 senhas não-vazias, **100% decodam com shift FIXO 13 →
+ASCII imprimível** (0 suspeitas). OPERADORES.SENHA **NÃO** sofre o re-encode cumulativo que corrompeu a EMPRESA
+(aquele era específico do `udmCadEmpresa` GetText/SetText, §8). Confirma a premissa original do épico de auth (shift
+13 p/ operadores) — o achado do re-encode ficou isolado à EMPRESA. **Cutover LIMPO: 155 migram, 2 em branco.**
+
+- `scripts/cutover/senha-operador.ts` (motor): decode-13 + classifica + hash (senha em claro nunca sai). Espelha
+  cutoverSenhasEmpresa; reusa `classificar` de senha-empresa (limpa/controle/latin1).
+- `load-senha-operador.ts` (loader): UPDATE senha_hash + `solicitar_alteracao_senha='S'` + `dtultimalteracao`;
+  fill-only-empty por padrão (não clobbera senha já trocada), `sobrescrever=true` p/ a carga inicial. Idempotente.
+- `extract-senha-operador.py` (READ-ONLY, RAWTOHEX byte-fiel) + `report-senha-operador.ts` (só hashes, sem claro).
+- Verificado: `cutover-senha-operador.spec.ts` (5) + smoke §82 (engine round-trip + loader grava hash+flag + não-
+  clobbera + sobrescrever + operador inexistente) + rodado READ-ONLY contra os 155 reais (155/2/0/0). Postura como o
+  codref/EMPRESA: ferramenta + motor VERIFICADO, não a carga viva (falta o banco do tenant).
+
+**Divergência CONSCIENTE:** os 2 operadores com senha em branco no legado ficam sem `senha_hash` → não logam até um
+admin definir a senha (empty legado ≈ sem senha usável; fiel). Auto-revisão (reuso de código já auditado + delta
+pequeno; sem auditor dedicado): sem SQL-injection (coluna literal), sem vazamento de claro, non-clobber testado.
+
+**Verde:** api tsc 0 · api test **156** (151 + 5) · smoke **581/0** (§82) · web inalterado.
