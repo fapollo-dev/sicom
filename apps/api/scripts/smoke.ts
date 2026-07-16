@@ -3169,6 +3169,20 @@ async function main() {
       xorA.status === 200 && xorB.status === 200 && xorC.status === 422 && xorCJ.code === 'PEDIDO_LIMITE_EXCEDIDO',
       { A: xorA.status, B: xorB.status, C: [xorC.status, xorCJ.code] });
 
+    // 57.3d) E8 c3 WIRE: liberar-limite com OVERRIDE de SUPERVISOR (login+senha) → grava o CÓDIGO DO SUPERVISOR
+    // (op 8) em operador_ult_lib_valor_max, não o da sessão (op 7). Setup: op 8 c/ senha 'smoke123' + grant.
+    await pgF57.query(`UPDATE operadores SET senha_hash=(SELECT senha_hash FROM operadores WHERE codoperador=7), desabilitado=NULL WHERE codoperador=8`);
+    await pgF57.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) VALUES (104,'Usuario','8','S') ON CONFLICT (id,tipo,chave) DO UPDATE SET valor='S'`);
+    const f57SupR = await crPed({ codparceiro: 22, data: '2026-12-01', data_faturamento: '2026-12-05', cd1: 1, pc_nronf_cruzamento: 'SUP-LIB', itens: [{ idproduto: 1, fatorembalagem: 6, vrcusto: 10 }] });
+    const f57SupId = Number(((await f57SupR.json().catch(() => ({}))) as any).codpedcomp);
+    const f57SupLib = await fetch(`${base}/${PED}/${f57SupId}/liberar-limite`, { method: 'POST', headers: H, body: JSON.stringify({ login: 'OP8', senha: 'smoke123' }) });
+    const f57SupRow = (await pgF57.query(`SELECT operador_ult_lib_valor_max FROM pedidocompra WHERE codpedcomp=$1`, [f57SupId])).rows[0] as any;
+    // credencial errada → 422 LIBERACAO_NAO_AUTORIZADA
+    const f57SupBad = await fetch(`${base}/${PED}/${f57SupId}/liberar-limite`, { method: 'POST', headers: H, body: JSON.stringify({ login: 'OP8', senha: 'errada' }) });
+    check('FINAL E8-c3 WIRE: liberar-limite c/ login+senha do supervisor (op 8) → operador_ult_lib_valor_max=8 (não a sessão 7); senha errada → 422',
+      f57SupLib.status === 200 && Number(f57SupRow?.operador_ult_lib_valor_max) === 8 && f57SupBad.status === 422 && ((await f57SupBad.json().catch(() => ({}))) as any).code === 'LIBERACAO_NAO_AUTORIZADA',
+      { lib: f57SupLib.status, operador: f57SupRow?.operador_ult_lib_valor_max, bad: f57SupBad.status });
+
     // 57.4) DUPLICAR: novo rascunho com itens clonados, sem parcelas, data de hoje.
     const f57Dup = await fetch(`${base}/${PED}/${f57PF1Id}/duplicar`, { method: 'POST', headers: H });
     const f57DupJ = (await f57Dup.json().catch(() => ({}))) as any;
@@ -3821,18 +3835,19 @@ async function main() {
     // ===== §75) OPERADORES — LIBERAÇÃO por supervisor (LOG_LIBERACOES) corte-1 (consulta) =====
     const pgLib = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     try {
-      // seed 2 eventos (grant + negação) — o registrar interno é exercitado no corte-3; aqui a CONSULTA.
+      // seed 2 eventos com MARCADOR único (SMOKE75) — o corte-3 (wire do limite) também loga; o marcador isola
+      // estes eventos da poluição de outros testes. O registrar interno é exercitado no §75.3/§57.3d.
       await pgLib.query(`INSERT INTO log_liberacoes (usuario_sistema, usuario_liberou, liberacao, computador, data_liberacao) VALUES
-        (7, '3462', 'LIBERACAO DE VALOR MAXIMO DO PEDIDO DE COMPRA', 'PDV01', '2026-07-10 09:00:00-03'),
-        (7, '0',    'NEGADO: DESCONTO MAXIMO', 'PDV01', '2026-07-11 10:00:00-03')`);
+        (7, '3462', 'SMOKE75 VALOR MAXIMO', 'PDV01', '2026-07-10 09:00:00-03'),
+        (7, '0',    'NEGADO: SMOKE75 DESCONTO', 'PDV01', '2026-07-11 10:00:00-03')`);
       const libAll = await fetch(`${base}/operadores/liberacoes`, { headers: H });
       const libAllJ = (await libAll.json().catch(() => [])) as any[];
-      check('LIBERAÇÃO §75: GET /operadores/liberacoes lista os eventos (mais recente primeiro; usuario_liberou = código string)',
-        libAll.status === 200 && libAllJ.length >= 2 && libAllJ[0].liberacao?.includes('DESCONTO') && libAllJ.some((r) => r.usuario_liberou === '3462'),
+      check('LIBERAÇÃO §75: GET /operadores/liberacoes lista os eventos (usuario_liberou = código string)',
+        libAll.status === 200 && libAllJ.some((r) => r.liberacao?.includes('SMOKE75 DESCONTO')) && libAllJ.some((r) => r.usuario_liberou === '3462'),
         { status: libAll.status, n: libAllJ.length });
-      const libFiltro = await fetch(`${base}/operadores/liberacoes?liberacao=VALOR%20MAXIMO`, { headers: H });
+      const libFiltro = await fetch(`${base}/operadores/liberacoes?liberacao=SMOKE75%20VALOR`, { headers: H });
       const libFiltroJ = (await libFiltro.json().catch(() => [])) as any[];
-      check('LIBERAÇÃO §75: filtro por ação (ilike) retorna só o evento de VALOR MAXIMO',
+      check('LIBERAÇÃO §75: filtro por ação (ilike) retorna só o evento marcado',
         libFiltro.status === 200 && libFiltroJ.length === 1 && libFiltroJ[0].usuario_liberou === '3462',
         { n: libFiltroJ.length });
       const libSem = await fetch(`${base}/operadores/liberacoes`, { headers: H_SEM_ACESSO });
@@ -3864,6 +3879,25 @@ async function main() {
       check('LIBERAÇÃO §75.2: chave inválida → 422 LIBERACAO_CHAVE_INVALIDA; sem grant → 403',
         setBad.status === 422 && ((await setBad.json().catch(() => ({}))) as any).code === 'LIBERACAO_CHAVE_INVALIDA' && setSem.status === 403,
         { bad: setBad.status, sem: setSem.status });
+
+      // 75.3) corte-3 — VALIDAR (ChamaLiberacaoLogin): supervisor op 8 (senha = a do op 7 'smoke123') COM grant.
+      await pgLib.query(`UPDATE operadores SET senha_hash=(SELECT senha_hash FROM operadores WHERE codoperador=7), desabilitado=NULL WHERE codoperador=8`);
+      await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: CHAVE, codoperador: 8, concedido: true }) });
+      const valOk = await fetch(`${base}/operadores/liberacoes/validar`, { method: 'POST', headers: H, body: JSON.stringify({ codigo: CHAVE, login: 'OP8', senha: 'smoke123', liberacao: 'TESTE LIBERACAO' }) });
+      const valOkJ = (await valOk.json().catch(() => ({}))) as any;
+      const logSup = (await pgLib.query(`SELECT usuario_sistema, usuario_liberou FROM log_liberacoes WHERE liberacao='TESTE LIBERACAO' ORDER BY id DESC LIMIT 1`)).rows[0] as any;
+      check('LIBERAÇÃO §75.3: validar supervisor (login+senha OK + grant) → {liberado:true,codOperador:8} + LOG (usuario_sistema=7, usuario_liberou=8)',
+        valOk.status === 200 && valOkJ.liberado === true && Number(valOkJ.codOperador) === 8 && Number(logSup?.usuario_sistema) === 7 && logSup?.usuario_liberou === '8',
+        { body: valOkJ, log: logSup });
+      // senha errada → liberado:false + log NEGADO
+      const valBad = await fetch(`${base}/operadores/liberacoes/validar`, { method: 'POST', headers: H, body: JSON.stringify({ codigo: CHAVE, login: 'OP8', senha: 'errada', liberacao: 'TENTATIVA X' }) });
+      const valBadJ = (await valBad.json().catch(() => ({}))) as any;
+      const logNeg = (await pgLib.query(`SELECT liberacao FROM log_liberacoes WHERE liberacao LIKE 'NEGADO:%TENTATIVA X' ORDER BY id DESC LIMIT 1`)).rows[0] as any;
+      check('LIBERAÇÃO §75.3: senha errada → {liberado:false} + LOG de negação (NEGADO:)', valBad.status === 200 && valBadJ.liberado === false && !!logNeg, { body: valBadJ, neg: logNeg?.liberacao });
+      // supervisor SEM grant (revoga op 8) → liberado:false
+      await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: CHAVE, codoperador: 8, concedido: false }) });
+      const valNoGrant = await fetch(`${base}/operadores/liberacoes/validar`, { method: 'POST', headers: H, body: JSON.stringify({ codigo: CHAVE, login: 'OP8', senha: 'smoke123', liberacao: 'SEM GRANT' }) });
+      check('LIBERAÇÃO §75.3: supervisor sem grant → {liberado:false}', valNoGrant.status === 200 && ((await valNoGrant.json().catch(() => ({}))) as any).liberado === false, { status: valNoGrant.status });
     } finally {
       await pgLib.end();
     }

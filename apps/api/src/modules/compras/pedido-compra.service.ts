@@ -5,6 +5,7 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { gravarHistorico, gravarHistoricoMarca } from '../../shared/crud/historico';
 import { ConfigService } from '../cadastro/config.service';
+import { LiberacaoService } from '../auth/liberacao.service';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown): number => {
@@ -34,6 +35,7 @@ export class PedidoCompraService {
   constructor(
     private readonly dbp: DatabaseProvider,
     private readonly config: ConfigService,
+    private readonly liberacao: LiberacaoService,
   ) {}
 
   private emp(): number {
@@ -295,9 +297,23 @@ export class PedidoCompraService {
    * de supervisor é cifra proprietária e espera o corte de auth). Grava OPERADOR_ULT_LIB_VALOR_MAX (:3752);
    * o fechar passa a aceitar. Só em pedido ABERTO (é uma pré-autorização do fechar).
    */
-  async liberarLimite(codpedcomp: number): Promise<{ codpedcomp: number; operador: number }> {
+  async liberarLimite(codpedcomp: number, override?: { login?: string; senha?: string }): Promise<{ codpedcomp: number; operador: number }> {
     const emp = this.emp();
     const op = this.op();
+    // E8 corte-3 (ChamaLiberacaoLogin, uPedidoCompra.pas:3735): se vier login+senha, VALIDA um SUPERVISOR contra
+    // USUARIOS_LIBERAM_VALOR_MAX_EXCEDIDO (+ registra LOG_LIBERACOES) e grava o CÓDIGO DO SUPERVISOR como liberador.
+    // Sem login+senha → mantém o caminho RBAC do §13 (o próprio operador, grant LIBERAVALORMAX). Backward-compatible.
+    let liberador = op;
+    if (override?.login && override?.senha) {
+      const r = await this.liberacao.validar({
+        codigo: 'USUARIOS_LIBERAM_VALOR_MAX_EXCEDIDO',
+        login: override.login,
+        senha: override.senha,
+        liberacao: `LIBERACAO DE VALOR MAXIMO DO PEDIDO DE COMPRA ${codpedcomp}`,
+      });
+      if (!r.liberado || r.codOperador == null) throw new BusinessRuleError('LIBERACAO_NAO_AUTORIZADA', { codpedcomp });
+      liberador = r.codOperador;
+    }
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const pc = await trx
         .selectFrom('pedidocompra')
@@ -312,11 +328,11 @@ export class PedidoCompraService {
       if ((pc as any).fechado === 'S') throw new BusinessRuleError('PEDIDO_JA_FECHADO', { codpedcomp });
       await trx
         .updateTable('pedidocompra')
-        .set({ operador_ult_lib_valor_max: op, usultalteracao: op, dtultimalteracao: sql`now()` })
+        .set({ operador_ult_lib_valor_max: liberador, usultalteracao: op, dtultimalteracao: sql`now()` })
         .where('codpedcomp', '=', codpedcomp)
         .where('idempresa', '=', emp)
         .execute();
-      return { codpedcomp, operador: op };
+      return { codpedcomp, operador: liberador };
     });
   }
 

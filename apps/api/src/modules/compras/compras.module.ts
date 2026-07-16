@@ -9,6 +9,7 @@ import { DevolucaoCompraAggregateController } from './devolucao-compra.aggregate
 import { DevolucaoCompraController } from './devolucao-compra.controller';
 import { DevolucaoCompraService } from './devolucao-compra.service';
 import { CadastroModule } from '../cadastro/cadastro.module';
+import { AuthModule } from '../auth/auth.module';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 
 /**
@@ -18,7 +19,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
  * intenção; o FATO nasce na NF de entrada — corte futuro).
  */
 @Module({
-  imports: [CadastroModule], // reusa NfFaturamentoService (A Pagar das duplicatas do XML — corte-4). Acíclico.
+  imports: [CadastroModule, AuthModule], // Cadastro=NfFaturamento/Config; Auth=LiberacaoService (wire do limite E8 c3). Acíclico.
   controllers: [
     PedidoCompraAggregateController, // engine MESTRE-DETALHE (CRUD do pedido: header + itens; sem efeitos)
     PedidoCompraController, // vertical (fechar/reabrir + gerar parcelas + gerar NF de entrada — recebimento)

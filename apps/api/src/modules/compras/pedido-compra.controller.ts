@@ -66,12 +66,13 @@ export class PedidoCompraController {
     return this.svc.duplicar(id, true);
   }
 
-  /** corte-final: LIBERA o limite de compra excedido (grant próprio — substitui a senha de supervisor). */
+  /** LIBERA o limite de compra excedido. Com {login,senha} = override de SUPERVISOR (E8 c3, valida contra
+   *  USUARIOS_LIBERAM_VALOR_MAX_EXCEDIDO + LOG_LIBERACOES); sem body = caminho RBAC LIBERAVALORMAX do §13. */
   @Post(':id/liberar-limite')
   @HttpCode(200)
   @RequerAcesso('FRMPEDIDOCOMPRA', 'LIBERAVALORMAX')
-  liberarLimite(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.liberarLimite(id);
+  liberarLimite(@Param('id', ParseIntPipe) id: number, @Body() body?: { login?: string; senha?: string }) {
+    return this.svc.liberarLimite(id, body);
   }
 
   /** corte-final: importa itens em massa do fornecedor (associados por CODFOR / já comprados). */

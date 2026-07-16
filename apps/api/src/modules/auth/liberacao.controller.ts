@@ -1,5 +1,5 @@
-import { Body, Controller, Get, HttpCode, Put, Query, UseGuards } from '@nestjs/common';
-import { liberacaoPermissaoSchema, type LiberacaoPermissaoDto } from '@apollo/shared';
+import { Body, Controller, Get, HttpCode, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { liberacaoPermissaoSchema, liberacaoValidarSchema, type LiberacaoPermissaoDto, type LiberacaoValidarDto } from '@apollo/shared';
 import { LiberacaoService } from './liberacao.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -40,5 +40,13 @@ export class LiberacaoController {
   @RequerAcesso('FRMLIBERACOES', 'BTNPERMISSOES')
   setPermissao(@Body(new ZodValidationPipe(liberacaoPermissaoSchema)) dto: LiberacaoPermissaoDto) {
     return this.svc.setPermissao(dto.codigo, dto.codoperador, dto.concedido);
+  }
+
+  /** corte-3: valida login+senha de um SUPERVISOR p/ liberar uma ação (ChamaLiberacaoLogin). Sem @RequerAcesso:
+   *  qualquer operador AUTENTICADO pode invocar (é o supervisor que digita as credenciais). */
+  @Post('validar')
+  @HttpCode(200)
+  validar(@Body(new ZodValidationPipe(liberacaoValidarSchema)) dto: LiberacaoValidarDto) {
+    return this.svc.validar(dto);
   }
 }

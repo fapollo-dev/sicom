@@ -60,3 +60,14 @@ export const liberacaoPermissaoSchema = z.object({
   concedido: z.boolean(),
 });
 export type LiberacaoPermissaoDto = z.infer<typeof liberacaoPermissaoSchema>;
+
+/** Liberação por supervisor — validar login+senha do supervisor (ChamaLiberacaoLogin, corte-3). */
+export const liberacaoValidarSchema = z.object({
+  codigo: z.string().trim().min(1, 'Informe a chave de liberação.').max(100),
+  login: z.string().trim().min(1, 'Informe o login do supervisor.').max(50),
+  senha: z.string().min(1, 'Informe a senha do supervisor.').max(200),
+  liberacao: z.string().trim().min(1).max(1000),
+  computador: z.string().trim().max(200).optional(),
+});
+export type LiberacaoValidarDto = z.infer<typeof liberacaoValidarSchema>;
+export interface RetornoLiberacao { liberado: boolean; codOperador?: number }

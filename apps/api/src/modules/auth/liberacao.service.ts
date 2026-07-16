@@ -3,6 +3,8 @@ import { sql } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { ConfigService } from '../cadastro/config.service';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { currentTenant } from '../../shared/tenant/tenant-context';
+import { verificarSenha, DUMMY_HASH } from '../../shared/auth/crypto';
 
 type AnyDB = any;
 
@@ -56,6 +58,43 @@ export class LiberacaoService {
     if (filtro.dataFinal) q = q.where(sql`data_liberacao::date`, '<=', filtro.dataFinal);
     if (filtro.liberacao) q = q.where('liberacao', 'ilike', `%${filtro.liberacao}%`);
     return q.orderBy('data_liberacao', 'desc').limit(500).execute();
+  }
+
+  /**
+   * ChamaLiberacaoLogin (uCadUsuarios §29 / UFrmLiberacaoLogin): re-autentica um SUPERVISOR (login+senha) e
+   * confere que ele ∈ GetUsuariosPermitidos(codigo). Sucesso → registra LOG_LIBERACOES (usuario_sistema = quem
+   * PEDIU = operador da sessão; usuario_liberou = código do supervisor) e devolve {liberado, codOperador}.
+   * Falha (login/senha/permissão) → {liberado:false} SEM distinguir o motivo (não vira oráculo de senha);
+   * verificarSenha SEMPRE roda (timing-safe, DUMMY_HASH). Registra também a NEGAÇÃO (auditoria).
+   */
+  async validar(dados: { codigo: string; login: string; senha: string; liberacao: string; computador?: string | null }): Promise<{ liberado: boolean; codOperador?: number }> {
+    if (!CHAVES_LIBERACAO.has(dados.codigo)) throw new BusinessRuleError('LIBERACAO_CHAVE_INVALIDA', { codigo: dados.codigo });
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const sup = (await db
+      .selectFrom('operadores')
+      .select(['codoperador', 'desabilitado', 'senha_hash'])
+      .where(sql`upper(login)`, '=', String(dados.login).toUpperCase())
+      .where(sql`coalesce(indr,'I')`, '<>', 'E')
+      .executeTakeFirst()) as { codoperador: number; desabilitado?: string | null; senha_hash?: string | null } | undefined;
+    const senhaOk = verificarSenha(dados.senha, sup?.senha_hash ?? DUMMY_HASH); // sempre roda (anti-timing)
+    const permitidos = new Set(await this.usuariosPermitidosLocal(dados.codigo));
+    const liberado = !!sup && sup.desabilitado !== 'S' && senhaOk && permitidos.has(Number(sup.codoperador));
+
+    // auditoria (grant OU negação). usuario_liberou = supervisor (se liberou) senão o login tentado.
+    await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      await this.registrar(trx, {
+        usuarioSistema: currentTenant().operadorId ?? null,
+        usuarioLiberou: liberado ? String(sup!.codoperador) : String(dados.login).slice(0, 200),
+        liberacao: (liberado ? '' : 'NEGADO: ') + dados.liberacao,
+        computador: dados.computador ?? null,
+      });
+    });
+    return liberado ? { liberado: true, codOperador: Number(sup!.codoperador) } : { liberado: false };
+  }
+
+  /** usa o ConfigService injetado (mesma query dedicada); helper p/ manter o validar coeso. */
+  private usuariosPermitidosLocal(codigo: string): Promise<number[]> {
+    return this.config.usuariosPermitidos(codigo);
   }
 
   /** as chaves de liberação gerenciáveis (com a descrição da config) — alimenta o seletor da tela de grants. */
