@@ -3,7 +3,8 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
-import { normRef } from './codref-normalize';
+import { normRef, digEan } from './codref-normalize';
+import { parseNfeXml } from './nfe-xml.parser';
 
 type AnyDB = Kysely<any>;
 
@@ -111,5 +112,70 @@ export class DeParaService {
       await this.carregarNoEscopo(trx, id);
       await trx.deleteFrom('codreferencia_for').where('codreferencia_for', '=', id).execute(); // hard-delete (fiel ao legado)
     });
+  }
+
+  /**
+   * BACKFILL (uAtualizaTipoCodReferenciaFor) — re-escaneia os XMLs de NF de ENTRADA já armazenados (nfe_xml) e
+   * APRENDE a de-para: p/ cada item que CASA um produto por EAN, grava CODREFERENCIA_FOR do fornecedor da NF —
+   * 'E'(cEAN→produto) e 'P'(cProd→produto). Assim futuros imports resolvem também por cProd. Upsert por
+   * (codfor, codref) — idempotente. MODO PREVIEW (aplicar=false) conta sem gravar. Escopado à empresa corrente
+   * (nf.idempresa). Fiel ao legado (que exige NFE_XML). Só XMLs de NF tipo='E' com fornecedor (codparceiro).
+   */
+  async backfill(opts: { idproduto?: number; aplicar?: boolean } = {}): Promise<{ notas: number; itensCasados: number; deParaGravadas: number; aplicado: boolean }> {
+    const emp = this.emp();
+    const op = currentTenant().operadorId ?? null;
+    const db = this.dbp.forTenant() as AnyDB;
+
+    // XMLs de NF de entrada da empresa (tipo='E' + fornecedor). Limite defensivo (rotina de manutenção).
+    const notas = (await db
+      .selectFrom('nfe_xml as x')
+      .innerJoin('nf as n', 'n.codnf', 'x.codnf')
+      .select(['x.xml as xml', 'n.codparceiro as codparceiro'])
+      .where('x.idempresa', '=', emp)
+      .where('n.tipo', '=', 'E')
+      .where('n.codparceiro', 'is not', null)
+      .limit(5000)
+      .execute()) as Array<{ xml: string; codparceiro: number }>;
+
+    let itensCasados = 0;
+    // acumula os pares (codfor, codref, tiporef, idproduto) a gravar — dedup por (codfor,codref) no fim.
+    const pares = new Map<string, { codfor: number; codref: string; tiporef: 'E' | 'P'; idproduto: number }>();
+
+    for (const nota of notas) {
+      const codfor = Number(nota.codparceiro);
+      let nfe: ReturnType<typeof parseNfeXml>;
+      try { nfe = parseNfeXml(nota.xml); } catch { continue; } // XML corrompido → pula (best-effort)
+      // casa por EAN em lote (produtos ∪ codauxiliar) — só produtos da empresa corrente NÃO se aplica (produto é global).
+      const eans = Array.from(new Set(nfe.itens.map((it) => digEan((it.cEAN ?? '').trim())).filter((e) => e && e.length > 0)));
+      const porEan = new Map<string, Set<number>>();
+      const add = (cb: unknown, idp: unknown) => { const k = String(cb); const s = porEan.get(k) ?? new Set<number>(); s.add(Number(idp)); porEan.set(k, s); };
+      if (eans.length) {
+        for (const r of (await db.selectFrom('produtos').select(['codbarra', 'idproduto']).where('codbarra', 'in', eans).execute()) as any[]) add(r.codbarra, r.idproduto);
+        for (const r of (await db.selectFrom('codauxiliar').select(['codbarra', 'idproduto']).where('codbarra', 'in', eans).execute()) as any[]) if (r.codbarra != null) add(r.codbarra, r.idproduto);
+      }
+      for (const it of nfe.itens) {
+        const ids = porEan.get(digEan((it.cEAN ?? '').trim()));
+        if (!ids || ids.size !== 1) continue; // só casa 1:1 (ambíguo/sem-match não aprende)
+        const idproduto = [...ids][0];
+        if (opts.idproduto != null && idproduto !== opts.idproduto) continue; // filtro opcional por produto
+        itensCasados++;
+        const ean = normRef(it.cEAN); const prod = normRef(it.cProd);
+        if (ean) pares.set(`${codfor} ${ean}`, { codfor, codref: ean, tiporef: 'E', idproduto });
+        if (prod) pares.set(`${codfor} ${prod}`, { codfor, codref: prod, tiporef: 'P', idproduto });
+      }
+    }
+
+    if (!opts.aplicar) return { notas: notas.length, itensCasados, deParaGravadas: pares.size, aplicado: false };
+
+    let gravadas = 0;
+    for (const p of pares.values()) {
+      await db
+        .insertInto('codreferencia_for')
+        .values({ idproduto: p.idproduto, codfor: p.codfor, codref: p.codref, tiporef: p.tiporef, usucadastro: op, usultalteracao: op })
+        .onConflict((oc: any) => oc.columns(['codfor', 'codref']).doUpdateSet({ idproduto: p.idproduto, tiporef: p.tiporef, usultalteracao: op, dtultimalteracao: sql`now()` }))
+        .execute();
+      gravadas++;
+    }
+    return { notas: notas.length, itensCasados, deParaGravadas: gravadas, aplicado: true };
   }
 }

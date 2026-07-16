@@ -40,4 +40,13 @@ export class DeParaController {
   remover(@Param('id', ParseIntPipe) id: number) {
     return this.svc.remover(id);
   }
+
+  /** corte-2 BACKFILL (uAtualizaTipoCodReferenciaFor): re-escaneia os XMLs de entrada e aprende a de-para
+   *  'E'(cEAN)/'P'(cProd). ?aplicar=1 grava; sem → preview (conta sem gravar). ?idproduto filtra. */
+  @Post('backfill')
+  @HttpCode(200)
+  @RequerAcesso('FRMCADPRODUTO', 'BTNGRAVAR')
+  backfill(@Query('aplicar') aplicar?: string, @Query('idproduto') idproduto?: string) {
+    return this.svc.backfill({ aplicar: aplicar === '1' || aplicar === 'true', idproduto: idproduto ? Number(idproduto) : undefined });
+  }
 }

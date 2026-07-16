@@ -4130,6 +4130,21 @@ async function main() {
       // 78.5) RBAC: criar sem grant → 403.
       const d6 = await fetch(`${base}/${DP}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ idproduto: 1, codfor: 22, codref: 'X' }) });
       check('DE-PARA §78.5: criar sem grant RBAC → 403', d6.status === 403, { status: d6.status });
+
+      // 78.6) corte-2 BACKFILL: re-escaneia os nfe_xml de entrada (§50, fornecedor 1) e APRENDE a de-para
+      // 'E'(cEAN)/'P'(cProd). Preview (sem gravar) conta; aplicar grava; a de-para do cProd 'FA'→produto 2 aparece.
+      await pgDp.query(`DELETE FROM codreferencia_for WHERE codfor=1`); // limpa p/ medir o efeito do backfill
+      const bfPrev = (await (await fetch(`${base}/${DP}/backfill`, { method: 'POST', headers: H })).json().catch(() => ({}))) as any;
+      const nAntes = Number((await pgDp.query(`SELECT count(*)::int AS n FROM codreferencia_for WHERE codfor=1`)).rows[0]?.n);
+      const bfApply = (await (await fetch(`${base}/${DP}/backfill?aplicar=1`, { method: 'POST', headers: H })).json().catch(() => ({}))) as any;
+      const cProdFA = (await pgDp.query(`SELECT idproduto, tiporef FROM codreferencia_for WHERE codfor=1 AND codref='FA'`)).rows[0] as any;
+      check('DE-PARA §78.6 BACKFILL: preview conta sem gravar (0 antes); aplicar grava; aprende cProd FA→produto 2 (tiporef P)',
+        bfPrev.aplicado === false && Number(bfPrev.deParaGravadas) > 0 && nAntes === 0 && bfApply.aplicado === true && Number(bfApply.deParaGravadas) > 0 && Number(cProdFA?.idproduto) === 2 && cProdFA?.tiporef === 'P',
+        { prev: bfPrev, antes: nAntes, apply: bfApply, fa: cProdFA });
+      // idempotência: re-aplicar não duplica (onConflict).
+      const bfAgain = (await (await fetch(`${base}/${DP}/backfill?aplicar=1`, { method: 'POST', headers: H })).json().catch(() => ({}))) as any;
+      const nDepois = Number((await pgDp.query(`SELECT count(*)::int AS n FROM codreferencia_for WHERE codfor=1`)).rows[0]?.n);
+      check('DE-PARA §78.6b BACKFILL idempotente: re-aplicar não duplica (contagem estável)', bfAgain.aplicado === true && nDepois === Number(bfApply.deParaGravadas), { depois: nDepois, gravadas: bfApply.deParaGravadas });
     } finally {
       await pgDp.end();
     }
