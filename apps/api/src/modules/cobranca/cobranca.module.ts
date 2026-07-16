@@ -14,8 +14,11 @@ import { CaixaService } from './caixa.service';
 import { CaixaContabilService } from './caixa-contabil.service';
 import { BaixaContabilService } from './baixa-contabil.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
+import { CadastroModule } from '../cadastro/cadastro.module';
 
 @Module({
+  // E7: reusa SenhaOperacaoService (exportado por CadastroModule) para o gate de senha de DESCONTO na baixa AR.
+  imports: [CadastroModule],
   // LotesMdController (cobranca/lotes-md) substitui o controller genérico da fábrica:
   // mesmo caminho/RBAC e mesmas transações (engine), mas READ enriquecido (master+RAZAO+
   // itens com display columns + juros/total) e validação do "Cobrador" FUN='S'.

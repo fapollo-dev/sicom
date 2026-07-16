@@ -236,6 +236,9 @@ const CODE_PT: Record<string, string> = {
   BAIXA_CONTABILIZADA: 'A baixa já foi contabilizada — estorne a contabilização antes.',
   TITULO_VALOR_INVALIDO: 'O valor da baixa deve ser maior que zero.',
   TITULO_VALOR_EXCEDE: 'O valor pago é maior que o total do título — troco/crédito ainda não é suportado.',
+  // Senha de operação (E7 — UBaixaAreceber.edtDesc_AcreExit): desconto/acréscimo exige a senha de DESCONTO da empresa.
+  SENHA_OPERACAO_REQUERIDA: 'Informe a senha de operação para autorizar o desconto/acréscimo.',
+  SENHA_OPERACAO_INVALIDA: 'Senha de operação incorreta — desconto/acréscimo não autorizado.',
   REVERSAO_PARCIAL_SALDO_BAIXADO: 'O título-saldo gerado nesta baixa parcial já possui movimentação — trate a baixa do saldo antes de estornar esta.',
   CONTA_BANCARIA_NAO_ENCONTRADA: 'A conta bancária informada para o depósito não existe nesta empresa.',
   // Ajuste de estoque (FRMAJUSTEESTOQUE)

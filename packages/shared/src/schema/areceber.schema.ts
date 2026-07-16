@@ -114,6 +114,9 @@ export const baixarTituloSchema = z.preprocess(
       // banco, contas_bancarias.codlanccontabil; NÃO toca o caixa). Cheque/cartão = corte-3 (tabelas ausentes).
       recurso: opcional(z.enum(['DINHEIRO', 'BANCO'], { message: 'Recurso de baixa inválido (DINHEIRO ou BANCO).' })),
       codconta: dec(z.number().int().positive()), // conta bancária do depósito (obrigatória se recurso=BANCO)
+      // senha de operação de DESCONTO da empresa (E7). Exigida quando há desconto/acréscimo ≠ 0
+      // (UBaixaAreceber.edtDesc_AcreExit → SenhaAdministrativa('DESC')). Verificada no service; nunca persistida.
+      senhaOperacao: opcional(z.string().max(30)),
       obs: opcional(z.string()),
     })
     .superRefine((v, ctx) => {

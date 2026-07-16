@@ -140,6 +140,6 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
       },
     },
   ],
-  exports: [BancosService, NfFaturamentoService, ConfigService], // reusados pelo ComprasModule (recebimento corte-4 / pedido corte-final)
+  exports: [BancosService, NfFaturamentoService, ConfigService, SenhaOperacaoService], // reusados por ComprasModule (recebimento corte-4/pedido corte-final) e CobrancaModule (E7: gate de senha na baixa AR)
 })
 export class CadastroModule {}

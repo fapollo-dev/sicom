@@ -1881,11 +1881,24 @@ async function main() {
     // 32.4) estornar sem baixa ativa → 422 TITULO_NAO_BAIXADO.
     const est2 = await fetch(`${base}/${AR}/${bxId}/estornar-baixa`, { method: 'POST', headers: H });
     check('CR-baixa: estornar sem baixa → 422 TITULO_NAO_BAIXADO', est2.status === 422 && ((await est2.json().catch(() => ({}))) as any).code === 'TITULO_NAO_BAIXADO', { status: est2.status });
-    // 32.5) juros/desconto compõem o valor pago: 100 + 10 − 5 = 105.
+    // 32.5) GATE de senha de operação (E7 — UBaixaAreceber.edtDesc_AcreExit): desconto/acréscimo ≠ 0 exige a
+    // senha de DESCONTO da empresa. Admin define a senha (op 7 tem grant BTNSENHAOPERACAO via migration 086).
+    await fetch(`${base}/cadastro/senha-operacao`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'desc', senha: 'segredo123' }) });
     const bxId2 = await crNovo();
-    const bxJ = await fetch(`${base}/${AR}/${bxId2}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ juros: 10, desconto: 5 }) });
+    // 32.5a) desconto SEM senha → 422 SENHA_OPERACAO_REQUERIDA (gate antes da trx → título intacto).
+    const bxSemSenha = await fetch(`${base}/${AR}/${bxId2}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ juros: 10, desconto: 5 }) });
+    check('CR-baixa: desconto SEM senha de operação → 422 SENHA_OPERACAO_REQUERIDA', bxSemSenha.status === 422 && ((await bxSemSenha.json().catch(() => ({}))) as any).code === 'SENHA_OPERACAO_REQUERIDA', { status: bxSemSenha.status });
+    // 32.5b) desconto + senha ERRADA → 422 SENHA_OPERACAO_INVALIDA (título intacto).
+    const bxSenhaBad = await fetch(`${base}/${AR}/${bxId2}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ juros: 10, desconto: 5, senhaOperacao: 'errada' }) });
+    check('CR-baixa: desconto + senha errada → 422 SENHA_OPERACAO_INVALIDA', bxSenhaBad.status === 422 && ((await bxSenhaBad.json().catch(() => ({}))) as any).code === 'SENHA_OPERACAO_INVALIDA', { status: bxSenhaBad.status });
+    // 32.5c) desconto + senha CORRETA → 200; juros/desconto compõem o valor pago: 100 + 10 − 5 = 105.
+    const bxJ = await fetch(`${base}/${AR}/${bxId2}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ juros: 10, desconto: 5, senhaOperacao: 'segredo123' }) });
     const bxJBody = (await bxJ.json().catch(() => ({}))) as any;
-    check('CR-baixa: juros/desconto compõem valorpg (100+10−5=105)', bxJ.status === 200 && Number(bxJBody.valorpg) === 105, { body: bxJBody });
+    check('CR-baixa: desconto + senha correta → 200, valorpg (100+10−5=105)', bxJ.status === 200 && Number(bxJBody.valorpg) === 105, { body: bxJBody });
+    // 32.5d) baixa SEM desconto/acréscimo NÃO exige senha (recebe 100 cheio → 100).
+    const bxId2b = await crNovo();
+    const bxSemDesc = await fetch(`${base}/${AR}/${bxId2b}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+    check('CR-baixa: sem desconto NÃO exige senha (200, valorpg=100)', bxSemDesc.status === 200 && Number(((await bxSemDesc.json().catch(() => ({}))) as any).valorpg) === 100, { status: bxSemDesc.status });
     // 32.6) guarda: baixar AGRUPADO (400) → 422 TITULO_AGRUPADO.
     const bxAgr = await fetch(`${base}/${AR}/400/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
     check('CR-baixa: baixar agrupado → 422 TITULO_AGRUPADO', bxAgr.status === 422 && ((await bxAgr.json().catch(() => ({}))) as any).code === 'TITULO_AGRUPADO', { status: bxAgr.status });
@@ -1900,7 +1913,7 @@ async function main() {
     check('CR-baixa: baixar cross-tenant → 422 TITULO_NAO_ENCONTRADO', bxIdor.status === 422 && ((await bxIdor.json().catch(() => ({}))) as any).code === 'TITULO_NAO_ENCONTRADO', { status: bxIdor.status });
     // 32.9) valorpg ≤ 0 barrado (ação de dinheiro): desconto ≥ valor → 422; valorpg 0 explícito → 400.
     const bxId4 = await crNovo();
-    const bxNeg = await fetch(`${base}/${AR}/${bxId4}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ desconto: 200 }) });
+    const bxNeg = await fetch(`${base}/${AR}/${bxId4}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ desconto: 200, senhaOperacao: 'segredo123' }) });
     check('CR-baixa: valorpg ≤ 0 (desconto ≥ valor) → 422 TITULO_VALOR_INVALIDO', bxNeg.status === 422 && ((await bxNeg.json().catch(() => ({}))) as any).code === 'TITULO_VALOR_INVALIDO', { status: bxNeg.status });
     const bxZero = await fetch(`${base}/${AR}/${bxId4}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ valorpg: 0 }) });
     check('CR-baixa: valorpg 0 explícito → 400 VALIDACAO', bxZero.status === 400 && ((await bxZero.json().catch(() => ({}))) as any).code === 'VALIDACAO', { status: bxZero.status });

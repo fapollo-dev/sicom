@@ -5,6 +5,7 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { CaixaService } from './caixa.service';
 import { BaixaContabilService } from './baixa-contabil.service';
+import { SenhaOperacaoService } from '../cadastro/senha-operacao.service';
 
 type AnyDB = Kysely<any>;
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -34,12 +35,27 @@ export class AreceberBaixaService {
     private readonly dbp: DatabaseProvider,
     private readonly caixa: CaixaService,
     private readonly contabil: BaixaContabilService,
+    private readonly senhaOp: SenhaOperacaoService,
   ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
     if (e == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
     return e;
+  }
+
+  /**
+   * GATE de senha de operação de DESCONTO (E7, UBaixaAreceber.edtDesc_AcreExit → SenhaAdministrativa('DESC')):
+   * QUALQUER acréscimo/desconto líquido ≠ 0 exige a senha de DESCONTO da empresa. Verificado ANTES da
+   * transação (fail-fast, sem segurar locks). Fiel ao legado, MENOS os backdoors mestres (SYSAPOLLO<data>/
+   * SENHARETAGUARDA), já eliminados no épico de auth. Sem senha configurada → verificar retorna ok:false
+   * (o legado também bloqueia o desconto quando SENHADESC está vazia).
+   */
+  private async exigirSenhaDesconto(acreDesc: number, senha?: string): Promise<void> {
+    if (acreDesc === 0) return; // sem desconto/acréscimo → não pede senha
+    if (!senha) throw new BusinessRuleError('SENHA_OPERACAO_REQUERIDA', { tipo: 'desc' });
+    const { ok } = await this.senhaOp.verificar('desc', senha);
+    if (!ok) throw new BusinessRuleError('SENHA_OPERACAO_INVALIDA', { tipo: 'desc' });
   }
 
   /** auto-disparo contábil da baixa (best-effort): regra de negócio (inelegível/config/período) NÃO
@@ -66,10 +82,12 @@ export class AreceberBaixaService {
 
   async baixar(
     codrcb: number,
-    dto: { dtpgto?: string; juros?: number; multa?: number; desconto?: number; acrescimo?: number; valorpg?: number; dtvencSaldo?: string; recurso?: string; codconta?: number; obs?: string },
+    dto: { dtpgto?: string; juros?: number; multa?: number; desconto?: number; acrescimo?: number; valorpg?: number; dtvencSaldo?: string; recurso?: string; codconta?: number; obs?: string; senhaOperacao?: string },
   ): Promise<{ codrcb: number; valorpg: number; juros: number; quitada: 'S'; parcial: boolean; saldoTitulo: number | null }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
+    // GATE de senha (E7): acréscimo/desconto líquido ≠ 0 exige a senha de DESCONTO da empresa (fora da trx).
+    await this.exigirSenhaDesconto(r2(num(dto.acrescimo) - num(dto.desconto)), dto.senhaOperacao);
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       // lê e TRAVA o título (escopo empresa).
       const t = await trx
