@@ -4016,6 +4016,42 @@ async function main() {
     } finally {
       await pgPromo.end();
     }
+
+    // ===== §77) PERFIS & PERMISSÕES (UCadPerfilOperador) corte-1 — PERFIL CRUD + relação operador↔perfil =====
+    const pgPf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    try {
+      // 77.1) criar perfil → 201; view get_perfil traz qtde_operadores 0.
+      const pf1 = await fetch(`${base}/cadastro/perfil`, { method: 'POST', headers: H, body: JSON.stringify({ perfil: 'GERENTE LOJA', ativo: 'S' }) });
+      const pf1J = (await pf1.json().catch(() => ({}))) as any;
+      const codperfil = Number(pf1J.codperfil ?? pf1J.codigo);
+      const pfRow = ((await (await fetch(`${base}/cadastro/perfil?campo=codperfil&operador=igual&valor=${codperfil}`, { headers: H })).json().catch(() => [])) as any[])[0];
+      check('PERFIL §77.1: criar perfil → 201 + view (qtde_operadores 0)', pf1.status === 201 && codperfil > 0 && pfRow?.perfil === 'GERENTE LOJA' && Number(pfRow?.qtde_operadores) === 0, { status: pf1.status, row: pfRow });
+
+      // 77.2) matriz operador→perfis: atribuir o perfil ao op 7 → relacao gravada + reflexo na matriz + qtde_operadores 1.
+      const relAntes = (await (await fetch(`${base}/cadastro/perfil-operador/7`, { headers: H })).json().catch(() => ({}))) as any;
+      const p7Antes = (relAntes.perfis ?? []).find((p: any) => Number(p.codperfil) === codperfil);
+      const setOn = await fetch(`${base}/cadastro/perfil-operador`, { method: 'PUT', headers: H, body: JSON.stringify({ codoperador: 7, codperfil, atribuido: true }) });
+      const relDepois = (await (await fetch(`${base}/cadastro/perfil-operador/7`, { headers: H })).json().catch(() => ({}))) as any;
+      const p7Depois = (relDepois.perfis ?? []).find((p: any) => Number(p.codperfil) === codperfil);
+      const ce = (await pgPf.query(`SELECT count(*)::int AS n FROM relacao_operador_perfil WHERE codoperador=7 AND codperfil=$1 AND coalesce(indr,'I')<>'E'`, [codperfil])).rows[0] as any;
+      check('PERFIL §77.2: atribuir perfil ao op 7 → matriz reflete atribuido=true + relacao_operador_perfil (1 ativo)',
+        setOn.status === 200 && p7Antes?.atribuido === false && p7Depois?.atribuido === true && Number(ce?.n) === 1, { antes: p7Antes?.atribuido, depois: p7Depois?.atribuido, n: ce?.n });
+
+      // 77.3) idempotência: re-atribuir → continua 1 (UNIQUE parcial); remover → soft-delete (0 ativo).
+      await fetch(`${base}/cadastro/perfil-operador`, { method: 'PUT', headers: H, body: JSON.stringify({ codoperador: 7, codperfil, atribuido: true }) });
+      const nDup = (await pgPf.query(`SELECT count(*)::int AS n FROM relacao_operador_perfil WHERE codoperador=7 AND codperfil=$1 AND coalesce(indr,'I')<>'E'`, [codperfil])).rows[0] as any;
+      const setOff = await fetch(`${base}/cadastro/perfil-operador`, { method: 'PUT', headers: H, body: JSON.stringify({ codoperador: 7, codperfil, atribuido: false }) });
+      const nOff = (await pgPf.query(`SELECT count(*)::int AS n FROM relacao_operador_perfil WHERE codoperador=7 AND codperfil=$1 AND coalesce(indr,'I')<>'E'`, [codperfil])).rows[0] as any;
+      check('PERFIL §77.3: re-atribuir idempotente (1); remover → soft-delete (0 ativo)', Number(nDup?.n) === 1 && setOff.status === 200 && Number(nOff?.n) === 0, { dup: nDup?.n, off: nOff?.n });
+
+      // 77.4) gates: perfil inexistente na relação → 422; criar perfil sem grant RBAC → 403.
+      const relBad = await fetch(`${base}/cadastro/perfil-operador`, { method: 'PUT', headers: H, body: JSON.stringify({ codoperador: 7, codperfil: 999999, atribuido: true }) });
+      const pfSem = await fetch(`${base}/cadastro/perfil`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ perfil: 'X' }) });
+      check('PERFIL §77.4: relação c/ perfil inexistente → 422 PERFIL_NAO_ENCONTRADO; criar sem grant → 403',
+        relBad.status === 422 && ((await relBad.json().catch(() => ({}))) as any).code === 'PERFIL_NAO_ENCONTRADO' && pfSem.status === 403, { bad: relBad.status, sem: pfSem.status });
+    } finally {
+      await pgPf.end();
+    }
   } finally {
     await app.close();
     await pg.stop();

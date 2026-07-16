@@ -11,6 +11,9 @@ import { AjusteEstoqueService } from './ajuste-estoque.service';
 import { AgendaPromocaoAggregateController } from './agenda-promocao.aggregate';
 import { AgendaPromocaoController } from './agenda-promocao.controller';
 import { AgendaPromocaoService } from './agenda-promocao.service';
+import { PerfilCrudController } from './perfil.crud';
+import { PerfilRelacaoController } from './perfil-relacao.controller';
+import { PerfilRelacaoService } from './perfil-relacao.service';
 import { BairroCrudController } from './bairro.crud';
 import { PrecoCrudController } from './preco.crud';
 import { NcmCrudController } from './ncm.crud';
@@ -87,6 +90,8 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     AjusteEstoqueController, // vertical (AJUSTE DE ESTOQUE — move o saldo + kardex; sem contábil)
     AgendaPromocaoAggregateController, // AGENDA DE PROMOÇÃO (cadastro header+itens; corte-1 sem efeito)
     AgendaPromocaoController, // vertical (encerrar/reabrir a agenda)
+    PerfilCrudController, // PERFIS & PERMISSÕES corte-1: CRUD de perfis (RBAC)
+    PerfilRelacaoController, // vertical: atribuir perfis a operadores (relacao_operador_perfil)
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
   providers: [
@@ -103,6 +108,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     DreService,
     AjusteEstoqueService,
     AgendaPromocaoService,
+    PerfilRelacaoService,
     // Porta SEFAZ (F6): seleção REAL por env SEFAZ_PROVIDER (default 'simulador'). Hoje só existe
     // o SIMULADOR (homologação); o provider real (ACBrLibNFe/lib NFe Node/microserviço) implementa
     // a mesma SefazPort e entra aqui sem tocar no service. Travas: 'simulador' é PROIBIDO em

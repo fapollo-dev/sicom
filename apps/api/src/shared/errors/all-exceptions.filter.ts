@@ -330,6 +330,8 @@ const CODE_PT: Record<string, string> = {
   LIBERACAO_CHAVE_INVALIDA: 'Chave de liberação inválida.',
   OPERADOR_NAO_ENCONTRADO: 'Operador não encontrado.',
   LIBERACAO_NAO_AUTORIZADA: 'Supervisor não autorizado ou credenciais inválidas.',
+  // Perfis & Permissões (FRMCADPERFILOPERADOR)
+  PERFIL_NAO_ENCONTRADO: 'Perfil não encontrado.',
   // Devolução de compra (FRMDEVOLUCAOCOMPRA)
   DEVOLUCAO_NAO_ENCONTRADA: 'Devolução de compra não encontrada.',
   DEVOLUCAO_NAO_EDITAVEL: 'Esta devolução não está em digitação — não pode ser alterada nem excluída.',
