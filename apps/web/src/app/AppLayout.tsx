@@ -24,6 +24,7 @@ import {
   BarChart3,
   Coins,
   UserCog,
+  ShieldCheck,
   CreditCard,
   ShoppingCart,
   CalendarClock,
@@ -59,6 +60,7 @@ const TELAS = [
   { href: '/contabil/dre', name: 'DRE', icon: BarChart3 },
   { href: '/cadastro/empresas', name: 'Empresas', icon: Building },
   { href: '/cadastro/operadores', name: 'Operadores', icon: UserCog },
+  { href: '/cadastro/perfis', name: 'Perfis & Permissões', icon: ShieldCheck },
   { href: '/cadastro/formas-pgto', name: 'Formas de Pagamento', icon: CreditCard },
 ] as const;
 
