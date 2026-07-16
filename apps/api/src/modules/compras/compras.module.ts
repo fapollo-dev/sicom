@@ -11,6 +11,7 @@ import { DevolucaoCompraService } from './devolucao-compra.service';
 import { DeParaController } from './de-para.controller';
 import { DeParaService } from './de-para.service';
 import { AnalisePedidoNfService } from './analise-pedido-nf.service';
+import { AnalisePedidoNfController } from './analise-pedido-nf.controller';
 import { CadastroModule } from '../cadastro/cadastro.module';
 import { AuthModule } from '../auth/auth.module';
 import { DatabaseProvider } from '../../shared/database/database.provider';
@@ -33,6 +34,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     DevolucaoCompraController, // vertical: picker de saldo + finalizar/reabrir/cancelar (sem efeitos)
     DevolucaoCompraAggregateController, // devolução de compra corte-1: CRUD do documento (header + itens)
     DeParaController, // de-para de fornecedor (CODREFERENCIA_FOR) — manutenção standalone (recebimento corte-5)
+    AnalisePedidoNfController, // Wave 4 corte-2: Análise Pedido×NF (divergências + liberação por supervisor)
   ],
   providers: [PedidoCompraService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, DatabaseProvider],
 })

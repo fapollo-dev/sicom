@@ -284,3 +284,11 @@ export const liberarLimiteSupervisorSchema = z.object({
   senha: z.string().min(1, 'Informe a senha do supervisor.').max(200),
 });
 export type LiberarLimiteSupervisorDto = z.infer<typeof liberarLimiteSupervisorSchema>;
+
+/** ANÁLISE PEDIDO×NF (Wave 4 corte-2) — liberar a conferência. login/senha do SUPERVISOR opcionais (só exigidos
+ *  quando há divergência; sem divergência libera direto). */
+export const liberarConferenciaSchema = z.object({
+  login: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().trim().max(50).optional()),
+  senha: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().max(200).optional()),
+});
+export type LiberarConferenciaDto = z.infer<typeof liberarConferenciaSchema>;

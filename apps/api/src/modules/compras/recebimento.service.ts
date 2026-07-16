@@ -377,6 +377,18 @@ export class RecebimentoService {
     const codpedcomp = dto.codpedcomp ?? null;
     const codnf = await this.persistirComVinculo(dtoNf, codpedcomp, emp, op, codparceiro);
 
+    // marca Total/Parcial na NF importada vinculada (fold auditoria: o gerarNf setava, o import não). Best-effort:
+    // após esta NF, o saldo do pedido zerou? → 'Total', senão 'Parcial'. Metadado informativo (não derruba o import).
+    if (codpedcomp != null) {
+      try {
+        const { totalmenteRecebido } = await this.analise.saldo(codpedcomp);
+        await (this.dbp.forTenant() as AnyDB)
+          .updateTable('nf').set({ status_qtd_pedcomp: totalmenteRecebido ? 'Total' : 'Parcial' }).where('codnf', '=', codnf).where('idempresa', '=', emp).execute();
+      } catch (e) {
+        console.error('[recebimento] falha ao marcar status_qtd_pedcomp no import (prosseguiu)', { codnf, erro: (e as Error)?.message });
+      }
+    }
+
     // reconciliação: o derivar computou TOTALNF; compara com vNF do XML (a verdade legal) — avisa se diverge.
     // Tolerância = 0,02 + 0,01×nItens: absorve o arredondamento por-item (Σ(qCom×vUnCom) desvia do vProd em
     // centavos que acumulam); assim o flag só dispara em divergência REAL (ex.: vICMSDeson/vII não mapeados),

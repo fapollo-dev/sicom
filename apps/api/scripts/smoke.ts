@@ -4268,6 +4268,63 @@ async function main() {
         await pgSo.end();
       }
     }
+
+    // ===== §81) ANÁLISE PEDIDO×NF (Wave 4 corte-2) — divergências (preço/INE) + liberação por supervisor =====
+    {
+      const A2 = 'compras/analise-pedido-nf';
+      const pgA2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // 81.1) NF sem divergência (gerar-nf copia o custo do pedido) → temDivergencia:false → liberar direto.
+        const pA = await crPed({ codparceiro: 22, data: '2026-07-08', itens: [{ idproduto: 1, qtde: 1, fatorembalagem: 10, vrcusto: 5 }] });
+        const pAId = Number(((await pA.json().catch(() => ({}))) as any).codpedcomp);
+        await fetch(`${base}/${PED}/${pAId}/fechar`, { method: 'POST', headers: H });
+        const nfA = Number(((await (await gerarNf(pAId)).json().catch(() => ({}))) as any).codnf);
+        const divA = (await (await fetch(`${base}/${A2}/${nfA}/divergencias`, { headers: H })).json().catch(() => ({}))) as any;
+        const libA = await fetch(`${base}/${A2}/${nfA}/liberar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+        const libAJ = (await libA.json().catch(() => ({}))) as any;
+        const nfARow = (await pgA2.query(`SELECT status_pedcomp, codoperador_liberacao FROM nf WHERE codnf=$1`, [nfA])).rows[0] as any;
+        check('ANÁLISE §81.1: NF sem divergência → temDivergencia:false; liberar → LIBERADO SEM DIVERGENCIA (operador da sessão 7)',
+          divA.temDivergencia === false && libA.status === 200 && libAJ.status === 'LIBERADO SEM DIVERGENCIA' && nfARow?.status_pedcomp === 'LIBERADO SEM DIVERGENCIA' && Number(nfARow?.codoperador_liberacao) === 7, { div: divA, lib: libAJ, row: nfARow });
+
+        // 81.2) NF com divergência de PREÇO (custo NF 8 ≠ custo pedido 5) → temDivergencia:true.
+        const pB = await crPed({ codparceiro: 22, data: '2026-07-08', itens: [{ idproduto: 1, qtde: 1, fatorembalagem: 10, vrcusto: 5 }] });
+        const pBId = Number(((await pB.json().catch(() => ({}))) as any).codpedcomp);
+        await fetch(`${base}/${PED}/${pBId}/fechar`, { method: 'POST', headers: H });
+        const nfB = Number(((await (await gerarNf(pBId)).json().catch(() => ({}))) as any).codnf);
+        await pgA2.query(`UPDATE nf_prod SET vrcusto=8 WHERE codnf=$1`, [nfB]); // cria divergência de custo (5→8)
+        const divB = (await (await fetch(`${base}/${A2}/${nfB}/divergencias`, { headers: H })).json().catch(() => ({}))) as any;
+        check('ANÁLISE §81.2: NF com custo divergente (8≠5) → temDivergencia:true, tipo PRECO (custoPedido 5, custoNf 8)',
+          divB.temDivergencia === true && divB.divergencias?.[0]?.tipo === 'PRECO' && Number(divB.divergencias?.[0]?.custoPedido) === 5 && Number(divB.divergencias?.[0]?.custoNf) === 8, { div: divB });
+
+        // 81.3) liberar COM divergência SEM supervisor → 422 LIBERACAO_SUPERVISOR_REQUERIDA.
+        const libSem = await fetch(`${base}/${A2}/${nfB}/liberar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+        check('ANÁLISE §81.3: liberar com divergência SEM supervisor → 422 LIBERACAO_SUPERVISOR_REQUERIDA', libSem.status === 422 && ((await libSem.json().catch(() => ({}))) as any).code === 'LIBERACAO_SUPERVISOR_REQUERIDA', { status: libSem.status });
+
+        // 81.4) supervisor NÃO autorizado (op 7/SMOKE tem senha certa mas NÃO está em USUARIOS_PERMITIDOS_LIBERAR_
+        // PEDIDO_COMPRA) → 422 LIBERACAO_NEGADA (senha certa → sem lockout).
+        const libNeg = await fetch(`${base}/${A2}/${nfB}/liberar`, { method: 'POST', headers: H, body: JSON.stringify({ login: 'SMOKE', senha: 'smoke123' }) });
+        check('ANÁLISE §81.4: supervisor sem grant (SMOKE) → 422 LIBERACAO_NEGADA', libNeg.status === 422 && ((await libNeg.json().catch(() => ({}))) as any).code === 'LIBERACAO_NEGADA', { status: libNeg.status });
+
+        // 81.5) supervisor AUTORIZADO (op 8/OP8, senha do op 7, grant em config 26) → LIBERADO COM DIVERGENCIA,
+        // codoperador_liberacao = 8 (o SUPERVISOR, não a sessão 7).
+        await pgA2.query(`UPDATE operadores SET senha_hash=(SELECT senha_hash FROM operadores WHERE codoperador=7), desabilitado=NULL WHERE codoperador=8`);
+        await pgA2.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) VALUES (26,'Usuario','8','S') ON CONFLICT (id,tipo,chave) DO UPDATE SET valor='S'`);
+        const libSup = await fetch(`${base}/${A2}/${nfB}/liberar`, { method: 'POST', headers: H, body: JSON.stringify({ login: 'OP8', senha: 'smoke123' }) });
+        const libSupJ = (await libSup.json().catch(() => ({}))) as any;
+        const nfBRow = (await pgA2.query(`SELECT status_pedcomp, codoperador_liberacao FROM nf WHERE codnf=$1`, [nfB])).rows[0] as any;
+        check('ANÁLISE §81.5: supervisor autorizado (op 8) → LIBERADO COM DIVERGENCIA, codoperador_liberacao=8',
+          libSup.status === 200 && libSupJ.status === 'LIBERADO COM DIVERGENCIA' && nfBRow?.status_pedcomp === 'LIBERADO COM DIVERGENCIA' && Number(nfBRow?.codoperador_liberacao) === 8, { lib: libSupJ, row: nfBRow });
+
+        // 81.6) RBAC: divergências sem grant → 403; NF sem pedido → 422 NF_SEM_PEDIDO.
+        const divSem = await fetch(`${base}/${A2}/${nfA}/divergencias`, { headers: H_SEM_ACESSO });
+        const semPed = (await pgA2.query(`SELECT codnf FROM nf WHERE codpedcomp IS NULL AND idempresa=1 LIMIT 1`)).rows[0] as any;
+        const libSemPed = semPed ? await fetch(`${base}/${A2}/${Number(semPed.codnf)}/liberar`, { method: 'POST', headers: H, body: JSON.stringify({}) }) : null;
+        check('ANÁLISE §81.6: divergências sem grant → 403; NF sem pedido → 422 NF_SEM_PEDIDO',
+          divSem.status === 403 && (!libSemPed || (libSemPed.status === 422 && ((await libSemPed.json().catch(() => ({}))) as any).code === 'NF_SEM_PEDIDO')), { div: divSem.status, semPed: libSemPed?.status });
+      } finally {
+        await pgA2.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

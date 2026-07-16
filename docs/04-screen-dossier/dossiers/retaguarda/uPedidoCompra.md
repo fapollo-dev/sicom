@@ -273,3 +273,40 @@ DIF_PEDCOMPRA_AUTO`, fechar pedido) e o **front** são o corte-2/3. Saldo conta 
 
 **Verde pós-fold:** api tsc 0 · api test 151 · smoke **571/0** (§49.5 saldo-zerado→TOTALMENTE_RECEBIDO; §49.5b: saldo
 inicial, 1ª remessa parcial 6/10→Parcial, over-receipt→EXCEDE_SALDO, 2ª remessa 4→Total+totalmenteRecebido, 3ª→422, 2 NFs).
+
+## 16. RECEBIMENTO PARCIAL 1:N (Wave 4) — corte-2 (ANÁLISE PEDIDO×NF) — ENTREGUE e verde, 2026-07-16
+
+O cruzamento NF×pedido do legado (`UanalisaPedComp_NF.pas`): detecta DIVERGÊNCIAS e LIBERA a conferência (com
+supervisor quando há divergência). Reusa o **E8** (ChamaLiberacaoLogin + LOG_LIBERACOES + lockout).
+
+**Backend (`AnalisePedidoNfService` estendido):**
+- `divergencias(codnf)`: carrega a NF vinculada (codpedcomp obrigatório; tenant fail-closed), compara o CUSTO
+  UNITÁRIO de cada item da NF (`nf_prod.vrcusto`) com o do pedido (`pedidocompra_i.vrcusto`), correlação por PRODUTO.
+  Divergência **PRECO** se `|custoNf−custoPedido|/custoPedido > VARIACAO_CUSTO_PEDIDO_NF/100` (config, default **0** =
+  qualquer diferença); item da NF fora do pedido → **INE_PEDIDO**. `GET compras/analise-pedido-nf/:codnf/divergencias`.
+- `liberar(codnf, {login?,senha?})`: sem divergência → `'LIBERADO SEM DIVERGENCIA'` (operador da sessão). Com
+  divergência → exige SUPERVISOR (`login+senha` ∈ `USUARIOS_PERMITIDOS_LIBERAR_PEDIDO_COMPRA`, id 26 da 083) via
+  `LiberacaoService.validar` → `'LIBERADO COM DIVERGENCIA'` + `codoperador_liberacao=supervisor`; sem override → 422
+  `LIBERACAO_SUPERVISOR_REQUERIDA`; validar falhou → 422 `LIBERACAO_NEGADA`. Grava `nf.status_pedcomp`. RBAC
+  `FRMPEDIDOCOMPRA/BTNLIBERARCONFERENCIA`. `POST .../:codnf/liberar`.
+- migration 088: seed configs `VARIACAO_CUSTO_PEDIDO_NF`(id 2,'0')/`VERIFICA_VR_UN_OU_EMBALAGEM`(id 39,'E') + RBAC.
+
+**Divergências CONSCIENTES / adiado:** comparação **sempre por UNIDADE** (a NF de entrada é unit-based, fatorembal=1
+→ o caminho `VERIFICA_VR_UN_OU_EMBALAGEM='E'` por embalagem equivale ao unitário; a config é lida mas não altera).
+**Adiado (com procedência):** divergência de QTD (`PedcompQTDTOTAL<>ItensNotaQTDETOTAL` — coberta pelo SALDO do
+corte-1 no 1:N); `'LIBERADO COM DIVERGENCIA FINANCEIRA SEM EXIGIR SENHA'` (`EXIGE_SENHA_DIVERGENCIAS_PARCELAS_NF_PC`)
++ divergência de PARCELAS + `INE_NF`; **fechar pedido** (`IMPORTADO/FECHADO='S'` — no 1:N o "fechado" é implícito:
+saldo=0); **gerar A Receber da diferença** (`GERA_ARECEBER_DIF_PEDCOMPRA_AUTO`, id 315, default 'N').
+
+**Auditoria adversarial — folds aplicados:**
+- **[MÉDIA]** `divergencias` ignorava QUANTIDADE → over-receipt via import liberava sem supervisor (o corte-1 delegou
+  o over-receipt a este corte). Fix: saldo < 0 em algum produto → divergência **QUANTIDADE** (exige supervisor).
+- **[MÉDIA]** tolerância com denominador INVERTIDO — o legado monta a faixa em torno do valor da NF
+  (`|custoPed−NF|/NF > var`), não do pedido. Fix: denominador = custoNf (idêntico só sob VARIACAO=0). 
+- **[MÉDIA]** produto repetido no pedido: 1ª linha sem `ORDER BY` (não-determinístico) + comentário "média" falso +
+  divergência duplicada. Fix: `ORDER BY codpedcompi`/`nroitem` (determinístico) + dedup por produto (fiel ao cdsDiv.Locate).
+- **[BAIXA]** sem guarda de NF cancelada → `carregarNfVinculada` recusa `cancelada='S'`/`statusnfe='C'` (NF_CANCELADA).
+  **[BAIXA]** `status_qtd_pedcomp` não setado no import → import marca Total/Parcial best-effort.
+
+**Verde pós-fold:** api tsc 0 · api test 151 · smoke **577/0** (§81: sem divergência→libera direto op7; custo 8≠5→PRECO;
+sem supervisor→422; supervisor sem grant→NEGADA; op8 autorizado→LIBERADO COM DIVERGENCIA cod=8; RBAC 403; NF sem pedido 422).

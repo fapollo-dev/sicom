@@ -307,6 +307,10 @@ const CODE_PT: Record<string, string> = {
   // Recebimento parcial 1:N (Wave 4)
   PEDIDO_TOTALMENTE_RECEBIDO: 'Este pedido já foi totalmente recebido — não há saldo para gerar outra NF de entrada.',
   RECEBIMENTO_EXCEDE_SALDO: 'A quantidade a receber excede o saldo do produto no pedido.',
+  // Análise Pedido×NF (Wave 4 corte-2)
+  NF_SEM_PEDIDO: 'Esta nota fiscal não está vinculada a um pedido de compra — nada a conferir.',
+  LIBERACAO_SUPERVISOR_REQUERIDA: 'Há divergências entre o pedido e a nota — informe o login e a senha de um supervisor autorizado a liberar.',
+  LIBERACAO_NEGADA: 'Supervisor não autorizado a liberar a conferência (login/senha inválidos ou sem permissão).',
   PEDIDO_SEM_CONDICAO_PAGTO: 'Informe a condição de pagamento (ou os prazos CD1..CD8) antes de gerar as parcelas.',
   PEDIDO_SEM_VALOR: 'O pedido não tem valor (total dos itens é zero) — inclua itens antes de gerar as parcelas.',
   PEDIDO_SEM_CONDICAO_OBRIGATORIA: 'A condição de pagamento é obrigatória neste pedido (informe a condição ou os prazos CD1..CD8).',
