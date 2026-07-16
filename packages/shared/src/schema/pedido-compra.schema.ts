@@ -155,6 +155,11 @@ export const gerarNfPedidoSchema = z.object({
   modelo: opcional(z.coerce.number().int().positive()),
   serie: opcional(z.string().trim().max(3)),
   cfop: opcional(z.string().trim().max(4)),
+  // RECEBIMENTO PARCIAL 1:N (Wave 4): quantidades explícitas a receber por produto (≤ saldo). Omitido → recebe
+  // o SALDO restante de todos os produtos. Cada item ≤ saldo do produto (senão RECEBIMENTO_EXCEDE_SALDO).
+  quantidades: opcional(
+    z.array(z.object({ idproduto: z.coerce.number().int().positive(), quantidade: z.coerce.number().positive() })).max(990),
+  ),
 });
 export type GerarNfPedidoDto = z.infer<typeof gerarNfPedidoSchema>;
 

@@ -8,6 +8,7 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { parseNfeXml, type NfeItemParsed } from './nfe-xml.parser';
 import { normRef, digEan } from './codref-normalize';
+import { AnalisePedidoNfService } from './analise-pedido-nf.service';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -34,6 +35,7 @@ export class RecebimentoService {
     private readonly dbp: DatabaseProvider,
     private readonly engine: AggregateEngineService,
     private readonly fat: NfFaturamentoService,
+    private readonly analise: AnalisePedidoNfService,
   ) {}
 
   private emp(): number {
@@ -47,17 +49,20 @@ export class RecebimentoService {
     return o;
   }
 
-  /** gera a NF de entrada rascunho do pedido; retorna { codnf, codpedcomp }. */
+  /**
+   * gera uma NF de entrada rascunho do pedido; retorna { codnf, codpedcomp }. RECEBIMENTO PARCIAL 1:N (Wave 4):
+   * pode ser chamado VÁRIAS vezes — cada chamada recebe o SALDO restante (ou as `quantidades` explícitas ≤ saldo).
+   * Quando o saldo zera, a NF é marcada 'Total' (senão 'Parcial'). Bloqueia quando não há mais saldo.
+   */
   async gerarNf(
     codpedcomp: number,
-    opts: { modelo?: number; serie?: string; cfop?: string } = {},
-  ): Promise<{ codnf: number; codpedcomp: number }> {
+    opts: { modelo?: number; serie?: string; cfop?: string; quantidades?: Array<{ idproduto: number; quantidade: number }> } = {},
+  ): Promise<{ codnf: number; codpedcomp: number; statusQtd: 'Total' | 'Parcial' }> {
     const emp = this.emp();
     const op = this.op();
     const db = this.dbp.forTenantRead() as AnyDB;
 
-    // guarda: pedido existe, está FECHADO e ainda não foi recebido (erros claros no caso comum).
-    // `data::date` (não JS Date) → evita o shift de fuso ao derivar dtemissao/dtcontabil da NF.
+    // guarda: pedido existe e está FECHADO (feche antes de receber). `data::date` (não JS Date) → sem shift de fuso.
     const pedido = (await db
       .selectFrom('pedidocompra')
       .select([
@@ -76,15 +81,25 @@ export class RecebimentoService {
       | undefined;
     if (!pedido) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
     if (pedido.fechado !== 'S') throw new BusinessRuleError('PEDIDO_NAO_FECHADO', { codpedcomp }); // feche antes de receber
-    if (pedido.dtfaturamento != null) throw new BusinessRuleError('PEDIDO_JA_RECEBIDO', { codpedcomp });
-    // guarda robusta de duplo-recebimento: já existe NF vinculada? (UNIQUE ux_nf_codpedcomp é o backstop de DB)
-    const jaTem = await db
-      .selectFrom('nf')
-      .select('codnf')
-      .where('codpedcomp', '=', codpedcomp)
-      .where('idempresa', '=', emp)
-      .executeTakeFirst();
-    if (jaTem) throw new BusinessRuleError('PEDIDO_JA_RECEBIDO', { codpedcomp });
+
+    // SALDO por produto (1:N): qtd pedida − Σ recebida nas NFs já vinculadas. Se nada resta → totalmente recebido.
+    const { itens: saldoItens, totalmenteRecebido } = await this.analise.saldo(codpedcomp);
+    if (totalmenteRecebido) throw new BusinessRuleError('PEDIDO_TOTALMENTE_RECEBIDO', { codpedcomp });
+    const saldoPorProduto = new Map<number, number>(saldoItens.map((s) => [s.idproduto, s.saldo]));
+    // quantidades explícitas (parcial dirigido pelo operador) — clamp a >0. Duplicatas do MESMO produto são SOMADAS
+    // (fold auditoria [BAIXA]: antes era last-wins silencioso, perdendo a intenção do operador); o TOTAL por produto
+    // é validado ≤ saldo (senão RECEBIMENTO_EXCEDE_SALDO).
+    const explicito = new Map<number, number>();
+    for (const q of opts.quantidades ?? []) {
+      const qn = num(q.quantidade);
+      if (qn <= 0) continue;
+      const pid = Number(q.idproduto);
+      explicito.set(pid, (explicito.get(pid) ?? 0) + qn);
+    }
+    for (const [pid, total] of explicito) {
+      const saldoProd = saldoPorProduto.get(pid) ?? 0;
+      if (total > saldoProd + 1e-6) throw new BusinessRuleError('RECEBIMENTO_EXCEDE_SALDO', { idproduto: pid, quantidade: total, saldo: saldoProd });
+    }
 
     const itens = (await db
       .selectFrom('pedidocompra_i')
@@ -94,61 +109,71 @@ export class RecebimentoService {
       .execute()) as Array<{ idproduto: number; qtde: unknown; fatorembalagem: unknown; qtdtotal: unknown; vrcusto: unknown; desconto: unknown }>;
     if (!itens.length) throw new BusinessRuleError('PEDIDO_SEM_ITENS', { codpedcomp });
 
-    // pré-preenche cada item da NF a partir do item do pedido + config fiscal DO PRODUTO (aliquota/ncm/unidade/
-    // origem). Os valores fiscais em R$ (icms/base/ipi/...) ficam para o F2 (recalcular) — não aqui.
-    // CFOP: '1102' (compra p/ comercialização, NÃO-ST) é um default NEUTRO — o CFOP real da entrada depende do
-    // regime do item (no golden 1403/ST é o mais frequente) e vem da NF do fornecedor; o operador AJUSTA na NF.
+    // pré-preenche a NF com o SALDO por produto (alocação greedy quando o mesmo produto tem >1 linha no pedido).
+    // Se `quantidades` foi informado, recebe só esses produtos, no valor pedido (≤ saldo). Itens sem saldo (ou
+    // fora da seleção explícita) são PULADOS. Config fiscal do PRODUTO (aliquota/ncm/unidade/origem); R$ fiscais no F2.
     const cfop = (opts.cfop ?? '1102').trim();
+    const restante = new Map<number, number>(saldoPorProduto); // saldo alocável por produto (decrementa por linha)
+    const usarExplicito = explicito.size > 0;
     const nfItens: Record<string, unknown>[] = [];
     let nro = 1;
     for (const it of itens) {
+      const pid = Number(it.idproduto);
+      if (usarExplicito && !explicito.has(pid)) continue; // seleção explícita: só os produtos escolhidos
+      const disponivel = restante.get(pid) ?? 0;
+      if (disponivel <= 0) continue; // produto já totalmente recebido → pula
+      const alvo = usarExplicito ? Math.min(explicito.get(pid) ?? 0, disponivel) : disponivel;
+      const quantidade = Math.round((alvo + Number.EPSILON) * 1000) / 1000;
+      if (quantidade <= 0) continue;
+      restante.set(pid, disponivel - quantidade);
+      if (usarExplicito) explicito.set(pid, (explicito.get(pid) ?? 0) - quantidade);
       const prod = (await db
         .selectFrom('produtos')
         .select(['aliquota', 'ncmsh', 'unidade', 'origemprod'])
-        .where('idproduto', '=', it.idproduto)
+        .where('idproduto', '=', pid)
         .executeTakeFirst()) as { aliquota?: string; ncmsh?: string; unidade?: string; origemprod?: string } | undefined;
       const custo = num(it.vrcusto);
       nfItens.push({
         nroitem: nro++,
-        codproduto: it.idproduto,
-        // 078 FLIP: quantidade = QTDTOTAL (= QTDE×FATOREMBALAGEM, unidades totais pedidas); fallback fatorembalagem
-        // p/ linhas legadas sem qtdtotal materializado (QTDE=1 → qtdtotal=fatorembalagem, mesmo valor).
-        quantidade: num(it.qtdtotal) > 0 ? num(it.qtdtotal) : num(it.fatorembalagem),
-        fatorembal: 1, // qtdtotal já é a qtde em unidades; base de estoque = quantidade × fatorembal (não duplicar)
+        codproduto: pid,
+        quantidade, // SALDO (unidades) — 1:N; fatorembal=1 pois quantidade já é a qtde em unidades
+        fatorembal: 1,
         unidade: prod?.unidade ?? undefined,
-        // SEED do rascunho: usamos o CUSTO como valor unitário da entrada (base do TOTALPROD = custo). No legado
-        // VRVENDA carrega o PREÇO DE VENDA (difere do custo em ~100% dos casos) — o real vem da NF; ajuste na NF.
-        vrvenda: custo,
+        vrvenda: custo, // SEED: custo como unitário (TOTALPROD=custo); o real vem da NF do fornecedor (ajuste na NF)
         vrcusto: custo,
         desconto: it.desconto != null ? num(it.desconto) : undefined,
         cfop,
-        aliquota: prod?.aliquota ?? undefined, // código (F2 resolve a alíquota real por UF)
+        aliquota: prod?.aliquota ?? undefined,
         ncm: prod?.ncmsh ?? undefined,
         origem_estoque: prod?.origemprod ?? undefined,
         geraestoque: 'S',
         movimenta_estoque: 'S',
       });
     }
+    if (!nfItens.length) throw new BusinessRuleError('PEDIDO_TOTALMENTE_RECEBIDO', { codpedcomp }); // nada a receber nesta remessa
+
+    // esta remessa fecha o saldo? (todo produto do saldo foi zerado por esta NF) → 'Total', senão 'Parcial'.
+    const statusQtd: 'Total' | 'Parcial' = saldoItens.every((s) => (restante.get(s.idproduto) ?? 0) <= 1e-6) ? 'Total' : 'Parcial';
 
     const dataISO = pedido.data_iso; // 'YYYY-MM-DD' (data::date, sem shift de fuso). dtemissao=dtcontabil ⇒ válido.
     const dto: Record<string, unknown> = {
       tipo: 'E',
-      modelo: opts.modelo ?? 1, // rascunho manual: mod.1 (o real via XML = mod.55, terceiros — adiado/bloqueado manualmente)
+      modelo: opts.modelo ?? 1,
       serie: (opts.serie ?? '1').trim(),
-      tipoemissao: '1', // terceiros: a NF é do fornecedor (não auto-numera NRONF)
+      tipoemissao: '1',
       dtemissao: dataISO,
       dtcontabil: dataISO,
       codparceiro: pedido.codparceiro,
-      codpedcomp, // vínculo (nfAggregateConfig.colunas) — gravado atômico com a NF
+      codpedcomp, // vínculo (nfAggregateConfig.colunas) — gravado atômico com a NF; 1:N (sem UNIQUE desde a 087)
       itens: nfItens,
     };
-    if (pedido.idsituacao_nf != null) dto.idsituacao_nf = pedido.idsituacao_nf; // situação do pedido → NF
+    if (pedido.idsituacao_nf != null) dto.idsituacao_nf = pedido.idsituacao_nf;
 
-    // SERIALIZAÇÃO anti-duplo-recebimento (CAS-first): marca o pedido como recebido ANTES de criar a NF. O
-    // legado usa DTFATURAMENTO+IMPORTADO como marcador; o modelo migrado NÃO tem IMPORTADO, então reusa
-    // `dtfaturamento` como o marcador "recebido/tem-NF" (carimbado na GERAÇÃO — o legado carimba no faturamento;
-    // divergência consciente). O CAS `dtfaturamento IS NULL` garante que só UMA chamada concorrente prossegue
-    // (as guardas do pedido passam a bloquear edição/exclusão/reabertura). Se a criação da NF falhar, DESFAZ.
+    // TRAVA de edição do pedido: carimba dtfaturamento na PRIMEIRA remessa (CAS IS NULL). Em remessas seguintes o
+    // dtfaturamento já está setado → o CAS não atualiza (0 linhas), o que é ESPERADO no 1:N (não bloqueia). Só
+    // DESFAZEMOS a marca no erro se fomos NÓS que a setamos (esta remessa). O anti-over-receipt é o SALDO (acima);
+    // a janela concorrente (2 remessas simultâneas) pode gerar over-receipt → tratado como divergência na Análise
+    // (corte-2), fiel ao legado (que não trava qtd, só avisa). Documentado (§ dossiê).
     const marca = await (this.dbp.forTenant() as AnyDB)
       .updateTable('pedidocompra')
       .set({ dtfaturamento: sql`now()`, usultalteracao: op, dtultimalteracao: sql`now()` })
@@ -157,24 +182,29 @@ export class RecebimentoService {
       .where('fechado', '=', 'S')
       .where('dtfaturamento', 'is', null)
       .executeTakeFirst();
-    if (Number((marca as any)?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('PEDIDO_JA_RECEBIDO', { codpedcomp });
+    const nosSetamos = Number((marca as any)?.numUpdatedRows ?? 0) > 0; // true só na 1ª remessa
 
+    let codnf: number;
     try {
-      // cria a NF (rascunho, PROC='N') numa transação — engine carimba idempresa, deriva totais, grava itens.
-      // O UNIQUE parcial ux_nf_codpedcomp é o backstop de DB (23505 → PEDIDO_JA_RECEBIDO).
-      const codnf = await this.engine.createAggregate(nfAggregateConfig, dto);
-      return { codnf, codpedcomp };
+      codnf = await this.engine.createAggregate(nfAggregateConfig, dto);
     } catch (e) {
-      // DESFAZ a marca (pedido volta a fechado, re-tentável) — não deixa pedido "recebido" sem NF.
-      await (this.dbp.forTenant() as AnyDB)
-        .updateTable('pedidocompra')
-        .set({ dtfaturamento: null })
-        .where('codpedcomp', '=', codpedcomp)
-        .where('idempresa', '=', emp)
-        .execute();
-      if ((e as { code?: string })?.code === '23505') throw new BusinessRuleError('PEDIDO_JA_RECEBIDO', { codpedcomp });
+      // a NF NÃO foi criada → desfaz a marca só se fomos nós (1ª remessa); em remessa seguinte o marcador é de outra NF.
+      if (nosSetamos) {
+        await (this.dbp.forTenant() as AnyDB)
+          .updateTable('pedidocompra').set({ dtfaturamento: null })
+          .where('codpedcomp', '=', codpedcomp).where('idempresa', '=', emp).execute();
+      }
       throw e;
     }
+    // NF criada (committed). Marcar Total/Parcial é metadado da Análise → best-effort FORA do catch de undo (fold
+    // auditoria [MÉDIA]: se falhasse DENTRO do try, o undo do dtfaturamento reabriria o pedido com a NF já vinculada).
+    try {
+      await (this.dbp.forTenant() as AnyDB)
+        .updateTable('nf').set({ status_qtd_pedcomp: statusQtd }).where('codnf', '=', codnf).where('idempresa', '=', emp).execute();
+    } catch (e) {
+      console.error('[recebimento] falha ao marcar status_qtd_pedcomp (gerar-nf prosseguiu)', { codnf, erro: (e as Error)?.message });
+    }
+    return { codnf, codpedcomp, statusQtd };
   }
 
   /**
@@ -551,9 +581,15 @@ export class RecebimentoService {
       .executeTakeFirst()) as { codparceiro?: number; fechado?: string; dtfaturamento?: unknown } | undefined;
     if (!pedido) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
     if (pedido.fechado !== 'S') throw new BusinessRuleError('PEDIDO_NAO_FECHADO', { codpedcomp });
-    if (pedido.dtfaturamento != null) throw new BusinessRuleError('PEDIDO_JA_RECEBIDO', { codpedcomp });
     if (Number(pedido.codparceiro) !== codparceiro) throw new BusinessRuleError('NFE_FORNECEDOR_DIVERGE_PEDIDO', { codpedcomp });
+    // RECEBIMENTO 1:N (Wave 4): o import pode vincular VÁRIAS NFs ao mesmo pedido (o fornecedor entrega em remessas).
+    // Bloqueia só quando não há mais saldo (todos os produtos já recebidos). Over-receipt (XML > saldo) NÃO bloqueia
+    // aqui — é divergência tratada na Análise (corte-2), fiel ao legado.
+    const { totalmenteRecebido } = await this.analise.saldo(codpedcomp);
+    if (totalmenteRecebido) throw new BusinessRuleError('PEDIDO_TOTALMENTE_RECEBIDO', { codpedcomp });
 
+    // TRAVA de edição do pedido: carimba dtfaturamento na 1ª remessa (CAS IS NULL); nas seguintes já está setado
+    // (0 linhas, esperado no 1:N). Só desfaz no erro se fomos nós que setamos.
     const marca = await (this.dbp.forTenant() as AnyDB)
       .updateTable('pedidocompra')
       .set({ dtfaturamento: sql`now()`, usultalteracao: op, dtultimalteracao: sql`now()` })
@@ -562,14 +598,17 @@ export class RecebimentoService {
       .where('fechado', '=', 'S')
       .where('dtfaturamento', 'is', null)
       .executeTakeFirst();
-    if (Number((marca as any)?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('PEDIDO_JA_RECEBIDO', { codpedcomp });
+    const nosSetamos = Number((marca as any)?.numUpdatedRows ?? 0) > 0;
     try {
       return await this.engine.createAggregate(nfAggregateConfig, dto);
     } catch (e) {
-      await (this.dbp.forTenant() as AnyDB)
-        .updateTable('pedidocompra').set({ dtfaturamento: null })
-        .where('codpedcomp', '=', codpedcomp).where('idempresa', '=', emp).execute();
-      if ((e as { code?: string })?.code === '23505') throw new BusinessRuleError('PEDIDO_JA_RECEBIDO', { codpedcomp });
+      if (nosSetamos) {
+        await (this.dbp.forTenant() as AnyDB)
+          .updateTable('pedidocompra').set({ dtfaturamento: null })
+          .where('codpedcomp', '=', codpedcomp).where('idempresa', '=', emp).execute();
+      }
+      // fold auditoria [BAIXA]: re-import do mesmo documento (ux_nf_natural) → erro específico, não 409 genérico.
+      if ((e as { code?: string })?.code === '23505') throw new BusinessRuleError('NF_DUPLICADA');
       throw e;
     }
   }

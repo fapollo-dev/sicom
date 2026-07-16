@@ -304,6 +304,9 @@ const CODE_PT: Record<string, string> = {
   PEDIDO_SEM_ITENS: 'O pedido de compra não tem itens — inclua ao menos um item antes de fechar.',
   PEDIDO_FATURADO: 'Este pedido já foi faturado (NF de entrada) — não é possível reabri-lo.',
   PEDIDO_JA_RECEBIDO: 'Este pedido já tem uma NF de entrada gerada — não é possível gerar outra.',
+  // Recebimento parcial 1:N (Wave 4)
+  PEDIDO_TOTALMENTE_RECEBIDO: 'Este pedido já foi totalmente recebido — não há saldo para gerar outra NF de entrada.',
+  RECEBIMENTO_EXCEDE_SALDO: 'A quantidade a receber excede o saldo do produto no pedido.',
   PEDIDO_SEM_CONDICAO_PAGTO: 'Informe a condição de pagamento (ou os prazos CD1..CD8) antes de gerar as parcelas.',
   PEDIDO_SEM_VALOR: 'O pedido não tem valor (total dos itens é zero) — inclua itens antes de gerar as parcelas.',
   PEDIDO_SEM_CONDICAO_OBRIGATORIA: 'A condição de pagamento é obrigatória neste pedido (informe a condição ou os prazos CD1..CD8).',

@@ -2995,10 +2995,40 @@ async function main() {
     const r4e = await fetch(`${base}/${PED}/${rpId}`, { method: 'PUT', headers: H, body: JSON.stringify({ obs: 'x' }) });
     check('RECEB: pedido recebido → reabrir/editar 422 PEDIDO_FATURADO', r4r.status === 422 && ((await r4r.json().catch(() => ({}))) as any).code === 'PEDIDO_FATURADO' && r4e.status === 422, { reabrir: r4r.status, put: r4e.status });
 
-    // 49.5) gerar-nf 2x → 422 PEDIDO_JA_RECEBIDO; e SÓ 1 NF vinculada existe (CAS + UNIQUE ux_nf_codpedcomp).
+    // 49.5) Wave 4 (1:N): a 1ª NF (§49.2) pegou o SALDO cheio (10/3) → saldo zerou; gerar-nf de novo → 422
+    // PEDIDO_TOTALMENTE_RECEBIDO; segue com 1 NF vinculada (anti-over-receipt pelo SALDO).
     const r5 = await gerarNf(rpId);
     const nCount = Number((await pgRec.query(`SELECT count(*)::int AS n FROM nf WHERE codpedcomp=$1`, [rpId])).rows[0]?.n);
-    check('RECEB: gerar-nf 2x → 422 PEDIDO_JA_RECEBIDO + apenas 1 NF vinculada (anti-duplo-recebimento)', r5.status === 422 && ((await r5.json().catch(() => ({}))) as any).code === 'PEDIDO_JA_RECEBIDO' && nCount === 1, { status: r5.status, nCount });
+    check('RECEB 1:N: gerar-nf após saldo zerado → 422 PEDIDO_TOTALMENTE_RECEBIDO + 1 NF vinculada', r5.status === 422 && ((await r5.json().catch(() => ({}))) as any).code === 'PEDIDO_TOTALMENTE_RECEBIDO' && nCount === 1, { status: r5.status, nCount });
+
+    // 49.5b) RECEBIMENTO PARCIAL 1:N (Wave 4 corte-1): pedido de 10 un. recebido em 2 NFs (6 + 4). saldo por
+    // produto, quantidades explícitas ≤ saldo, status Total/Parcial, over-receipt bloqueado.
+    const w4Ped = await crPed({ codparceiro: 22, data: '2026-07-08', itens: [{ idproduto: 1, qtde: 1, fatorembalagem: 10, vrcusto: 5 }] });
+    const w4Id = Number(((await w4Ped.json().catch(() => ({}))) as any).codpedcomp);
+    await fetch(`${base}/${PED}/${w4Id}/fechar`, { method: 'POST', headers: H });
+    // saldo inicial: pedido 10, recebido 0, saldo 10.
+    const w4Sal0 = (await (await fetch(`${base}/${PED}/${w4Id}/saldo`, { headers: H })).json().catch(() => ({}))) as any;
+    check('RECEB 1:N: saldo inicial (pedido 10, recebido 0, saldo 10, não totalmente recebido)',
+      w4Sal0.itens?.[0]?.qtdPedido === 10 && w4Sal0.itens?.[0]?.qtdRecebida === 0 && w4Sal0.itens?.[0]?.saldo === 10 && w4Sal0.totalmenteRecebido === false, { saldo: w4Sal0 });
+    // 1ª remessa PARCIAL (6 de 10) → NF Parcial; saldo cai p/ 4.
+    const w4Nf1 = await gerarNf(w4Id, { quantidades: [{ idproduto: 1, quantidade: 6 }] });
+    const w4Nf1J = (await w4Nf1.json().catch(() => ({}))) as any;
+    const w4Q1 = Number((await pgRec.query(`SELECT quantidade FROM nf_prod WHERE codnf=$1`, [Number(w4Nf1J.codnf)])).rows[0]?.quantidade);
+    const w4Sal1 = (await (await fetch(`${base}/${PED}/${w4Id}/saldo`, { headers: H })).json().catch(() => ({}))) as any;
+    check('RECEB 1:N: 1ª remessa parcial (6/10) → NF Parcial (qtde 6), saldo 4',
+      w4Nf1.status === 200 && w4Nf1J.statusQtd === 'Parcial' && w4Q1 === 6 && w4Sal1.itens?.[0]?.saldo === 4 && w4Sal1.itens?.[0]?.qtdRecebida === 6, { nf: w4Nf1J, saldo: w4Sal1 });
+    // over-receipt: pedir 6 quando só restam 4 → 422 RECEBIMENTO_EXCEDE_SALDO.
+    const w4Exc = await gerarNf(w4Id, { quantidades: [{ idproduto: 1, quantidade: 6 }] });
+    check('RECEB 1:N: remessa > saldo (6 > 4) → 422 RECEBIMENTO_EXCEDE_SALDO', w4Exc.status === 422 && ((await w4Exc.json().catch(() => ({}))) as any).code === 'RECEBIMENTO_EXCEDE_SALDO', { status: w4Exc.status });
+    // 2ª remessa = saldo restante (sem quantidades → 4) → NF Total; saldo zera; 3ª → 422 TOTALMENTE_RECEBIDO.
+    const w4Nf2 = await gerarNf(w4Id);
+    const w4Nf2J = (await w4Nf2.json().catch(() => ({}))) as any;
+    const w4Q2 = Number((await pgRec.query(`SELECT quantidade FROM nf_prod WHERE codnf=$1`, [Number(w4Nf2J.codnf)])).rows[0]?.quantidade);
+    const w4Sal2 = (await (await fetch(`${base}/${PED}/${w4Id}/saldo`, { headers: H })).json().catch(() => ({}))) as any;
+    const w4Nf3 = await gerarNf(w4Id);
+    const w4NNfs = Number((await pgRec.query(`SELECT count(*)::int AS n FROM nf WHERE codpedcomp=$1`, [w4Id])).rows[0]?.n);
+    check('RECEB 1:N: 2ª remessa (saldo 4) → NF Total (qtde 4), saldo 0, totalmenteRecebido, 3ª→422; 2 NFs no pedido',
+      w4Nf2.status === 200 && w4Nf2J.statusQtd === 'Total' && w4Q2 === 4 && w4Sal2.itens?.[0]?.saldo === 0 && w4Sal2.totalmenteRecebido === true && w4Nf3.status === 422 && ((await w4Nf3.json().catch(() => ({}))) as any).code === 'PEDIDO_TOTALMENTE_RECEBIDO' && w4NNfs === 2, { nf2: w4Nf2J, saldo: w4Sal2, nNfs: w4NNfs });
 
     // 49.6) RBAC: gerar-nf sem grant → 403.
     const rp6 = await crPed({ codparceiro: 22, data: '2026-07-08', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 1 }] });

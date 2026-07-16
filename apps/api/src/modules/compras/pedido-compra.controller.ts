@@ -1,7 +1,8 @@
-import { Body, Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
-import { gerarNfPedidoSchema, importarItensPedidoSchema, liberarLimiteSupervisorSchema, type LiberarLimiteSupervisorDto } from '@apollo/shared';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { gerarNfPedidoSchema, importarItensPedidoSchema, liberarLimiteSupervisorSchema, type GerarNfPedidoDto, type LiberarLimiteSupervisorDto } from '@apollo/shared';
 import { PedidoCompraService } from './pedido-compra.service';
 import { RecebimentoService } from './recebimento.service';
+import { AnalisePedidoNfService } from './analise-pedido-nf.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
@@ -17,6 +18,7 @@ export class PedidoCompraController {
   constructor(
     private readonly svc: PedidoCompraService,
     private readonly recebimento: RecebimentoService,
+    private readonly analise: AnalisePedidoNfService,
   ) {}
 
   @Post(':id/fechar')
@@ -97,14 +99,22 @@ export class PedidoCompraController {
     return this.svc.importarItens(id, body.origem);
   }
 
-  /** RECEBIMENTO: gera a NF de entrada (rascunho) a partir do pedido. Retorna { codnf, codpedcomp }. */
+  /** RECEBIMENTO PARCIAL 1:N: gera a NF de entrada (rascunho) do SALDO do pedido (ou das `quantidades` explícitas).
+   *  Chamável VÁRIAS vezes até o saldo zerar. Retorna { codnf, codpedcomp, statusQtd }. */
   @Post(':id/gerar-nf')
   @HttpCode(200)
   @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNGERARNF')
   gerarNf(
     @Param('id', ParseIntPipe) id: number,
-    @Body(new ZodValidationPipe(gerarNfPedidoSchema)) body: { modelo?: number; serie?: string; cfop?: string },
+    @Body(new ZodValidationPipe(gerarNfPedidoSchema)) body: GerarNfPedidoDto,
   ) {
     return this.recebimento.gerarNf(id, body);
+  }
+
+  /** ANÁLISE PEDIDO×NF (corte-1): saldo por produto do pedido (qtd pedida − Σ recebida nas NFs vinculadas). */
+  @Get(':id/saldo')
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNGERARNF')
+  saldo(@Param('id', ParseIntPipe) id: number) {
+    return this.analise.saldo(id);
   }
 }

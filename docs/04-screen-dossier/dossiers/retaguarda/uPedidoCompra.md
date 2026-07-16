@@ -228,3 +228,48 @@ O corte-3 (§7) forçou uma UNIQUE **determinística** `(codfor, codref)` — ma
 - ~~**limite** (`OPERADOR_ULT_LIB_VALOR_MAX`)~~ + ~~**bonificação** (`BONIFICACAO`)~~ + ~~**propagação de preço** ("importação"/on-line)~~ — **ENTREGUES no corte FINAL (§13)**. Resta: **análise/aprovação** (`OPERADOR_ULTIMA_ANALISE`, fluxo de aprovação de pedido), **fila de etiquetas `LOTEPRECO`/`LTPRECO_PROCESSADO`** (efeito PDV da propagação — depende do PDV) + cascade pai/filho na propagação, **`TIPO_FLUXO_CAIXA_PC`** exclusivo (M8), **1-para-N-lojas** (`EMPRESAS` CSV). MORTOS: `NOVO_LIMITE`+senha, `CODPEDCOMP_BONIFICADO`, `IMPORTADO`.
 - **Colunas mortas/lixo** (`NRONF`/`IDSITUACAO_NF`/`IDTF`/`SINCRONIZADO` 100% NULL; `VLRUNITARIO`/`VRVENDAITEM` do item; `CD2..CD8`) — descartadas. (`CD1` movida p/ adiado — tem carga real, ver §1.)
 - **Satélites 0 linhas** (`PEDIDOCOMPRA_ANALISE`/`_COLETOR`/`_QTDE_TRANSF`/`_CARRINHO`/`_CARRINHO_ITEM`/`PEDIDOCOMPRACEREAL`) — ignoradas.
+
+## 15. RECEBIMENTO PARCIAL 1:N (Wave 4) — corte-1 (fundação: 1:N + saldo) — ENTREGUE e verde, 2026-07-16
+
+Destrava o recebimento de UM pedido em VÁRIAS NFs de entrada (o fornecedor entrega em remessas). Recon 3 frentes
+(Oracle READ-ONLY + `UanalisaPedComp_NF.pas` 3283 linhas + monorepo) + decisões do usuário via AskUserQuestion:
+**(1) vínculo item-NF↔item-pedido POR PRODUTO** (fiel ao legado — NF_PROD não tem CODPEDCOMPI; o usuário aceitou o
+risco de produto repetido no pedido); **(2) escopo = núcleo 1:N + Análise juntos** (este corte-1 entrega a fundação;
+a Análise/divergências/liberação é o corte-2).
+
+**Modelo (antes → depois):** antes a NF ligava ao pedido 1:1 (índice UNIQUE `ux_nf_codpedcomp`, recebimento
+all-or-nothing). Agora (migration 087): DROP do UNIQUE + `nf.status_qtd_pedcomp`/`status_pedcomp`/
+`codoperador_liberacao`. Saldo é **COMPUTADO** (não há coluna de saldo — confirmado no Oracle): fiel a
+`udmNF.dfm:17495` (FDqSaldoPedidoCompra), adaptado ao single-empresa da 078:
+`saldo(produto) = Σ pedidocompra_i.qtdtotal − Σ (nf_prod.quantidade × nf_prod.fatorembal)` das NFs vinculadas
+(`nf.codpedcomp`, não-canceladas), correlacionadas por PRODUTO (`nf_prod.codproduto = pedidocompra_i.idproduto`).
+
+**Backend:**
+- `AnalisePedidoNfService.saldo(codpedcomp)` (novo): saldo por produto (qtdPedido/qtdRecebida/saldo) + saldoTotal +
+  totalmenteRecebido. READ-ONLY, tenant fail-closed. `GET compras/pedidos/:id/saldo`.
+- `RecebimentoService.gerarNf` reescrito **saldo-driven**: chamável N vezes; recebe o SALDO restante (ou
+  `quantidades` explícitas por produto, ≤ saldo → senão `RECEBIMENTO_EXCEDE_SALDO`); saldo=0 →
+  `PEDIDO_TOTALMENTE_RECEBIDO`; marca a NF `'Total'` (fecha o saldo) / `'Parcial'`. `dtfaturamento` carimbado na
+  1ª remessa (trava edição/reabertura do pedido — PEDIDO_FATURADO intacto) mas NÃO bloqueia remessas seguintes; só
+  desfaz no erro se fomos nós que setamos.
+- `persistirComVinculo` (import XML) idem: permite N NFs; bloqueia só se totalmenteRecebido.
+
+**Divergências CONSCIENTES / adiado (corte-2):** over-receipt (receber > pedido) NÃO é bloqueio — é **divergência**
+(fiel: o legado avisa + exige liberação de supervisor, não trava). A janela concorrente (2 gerar-nf simultâneos) pode
+gerar over-receipt (o saldo é lido antes de criar a NF, sem lock forte) → tratada como divergência. A **Análise
+Pedido×NF** (cruzamento preço `VARIACAO_CUSTO_PEDIDO_NF%` / qtd, liberação por supervisor reusando E8, `GERA_ARECEBER_
+DIF_PEDCOMPRA_AUTO`, fechar pedido) e o **front** são o corte-2/3. Saldo conta NF rascunho (proc='N') como recebida
+(fiel: link = conta); NF cancelada (`cancelada='S'`) é excluída.
+
+**Auditoria adversarial (paridade+regressão) — folds aplicados:**
+- **[MÉDIA]** o UPDATE de `status_qtd_pedcomp` estava DENTRO do try que faz o undo do `dtfaturamento` → se falhasse
+  APÓS a NF criada, o catch reabria o pedido com a NF já vinculada. Fix: mover pra FORA do try + best-effort.
+- **[BAIXA]** saldo excluía só `cancelada='S'` → agora exclui também `statusnfe='C'` (consistente com nf.aggregate/
+  nf-faturamento/devolucao). **[BAIXA]** import vinculado perdeu o mapping `23505→NF_DUPLICADA` → restaurado.
+  **[BAIXA]** `quantidades` com produto duplicado era last-wins silencioso → agora SOMA e valida o total ≤ saldo.
+- **[BAIXA] LIMITAÇÃO deferida:** `dtfaturamento` (trava de edição) NÃO é limpo quando as NFs vinculadas são
+  deletadas → o pedido fica travado PEDIDO_FATURADO mesmo com saldo recuperado (parcialmente pré-existente do modelo
+  1:1). Remédio: hook de exclusão de NF que reavalia/limpa a marca — fast-follow.
+
+**Verde pós-fold:** api tsc 0 · api test 151 · smoke **571/0** (§49.5 saldo-zerado→TOTALMENTE_RECEBIDO; §49.5b: saldo
+inicial, 1ª remessa parcial 6/10→Parcial, over-receipt→EXCEDE_SALDO, 2ª remessa 4→Total+totalmenteRecebido, 3ª→422, 2 NFs).
