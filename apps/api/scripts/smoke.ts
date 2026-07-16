@@ -4074,6 +4074,17 @@ async function main() {
       check('PERFIL §77.6: acesso perfil-aware — modo usuario op8→403; modo ambos (grant via perfil)→200; revogado→403',
         acUsuario.status === 403 && acAmbos.status === 200 && acRevog.status === 403,
         { usuario: acUsuario.status, ambos: acAmbos.status, revog: acRevog.status });
+
+      // 77.7) FOLD auditoria (fail-open): APP_PERMISSAO_MODO não-canônico degrada p/ 'usuario' (SEGURO), não 'ambos'.
+      // Re-concede o grant ao perfil do op 8. Vazio '' → op8 403 (default seguro); 'AMBOS' (maiúsculo) → 200 (canoniza).
+      await fetch(`${base}/cadastro/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codperfil, form: 'FRMLIBERACOES', opcao: 'BTNCONSULTAR', concedido: true }) });
+      process.env.APP_PERMISSAO_MODO = ''; // vazio (misconfiguração): antes caía em 'ambos'
+      const acVazio = await fetch(`${base}/operadores/liberacoes`, { headers: H8 });
+      process.env.APP_PERMISSAO_MODO = 'AMBOS'; // maiúsculo: canoniza p/ 'ambos'
+      const acUpper = await fetch(`${base}/operadores/liberacoes`, { headers: H8 });
+      process.env.APP_PERMISSAO_MODO = 'usuario'; // reset
+      check('PERFIL §77.7 FOLD: modo inválido/vazio → fail-SAFE (op8 403, como usuario); "AMBOS" maiúsculo canoniza → 200',
+        acVazio.status === 403 && acUpper.status === 200, { vazio: acVazio.status, upper: acUpper.status });
     } finally {
       await pgPf.end();
     }

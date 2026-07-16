@@ -17,7 +17,11 @@ export class AcessoService {
   constructor(private readonly dbp: DatabaseProvider) {}
 
   private get modo(): ModoPermissao {
-    return (process.env.APP_PERMISSAO_MODO as ModoPermissao) ?? 'usuario';
+    // fold auditoria (fail-open): o `?? 'usuario'` só cobria undefined; um valor SETADO não-canônico (vazio, typo,
+    // 'USUARIO') caía no else → 'ambos' (o MAIS permissivo). Agora canonicaliza (trim/lower) + whitelist; qualquer
+    // valor fora de {usuario,perfil,ambos} degrada p/ o default SEGURO 'usuario' (fail-safe, não fail-open).
+    const raw = String(process.env.APP_PERMISSAO_MODO ?? '').trim().toLowerCase();
+    return raw === 'perfil' || raw === 'ambos' ? raw : 'usuario';
   }
 
   async possuiAcesso(form: string, opcao: string): Promise<boolean> {

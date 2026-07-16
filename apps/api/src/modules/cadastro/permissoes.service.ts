@@ -22,12 +22,16 @@ export class PermissoesService {
     return e;
   }
 
-  /** catálogo de ações (form×opção) conhecidas — DISTINCT das permissões existentes na empresa. */
+  /**
+   * catálogo de ações (form×opção) conhecidas — DISTINCT sobre TODAS as empresas (universo app-wide), NÃO só a
+   * corrente (fold auditoria): o universo de form×opção é do APP, não da empresa; filtrar por empresa criava um
+   * chicken-and-egg (não dava p/ conceder a uma empresa uma ação sem linha prévia lá — ex. FRMCADBANCOS na emp 2).
+   * O grant continua escopado à empresa corrente no setGrant. (Ideal = um registro de menu/forms dedicado, adiado.)
+   */
   async catalogo(): Promise<Array<Record<string, unknown>>> {
     return (this.dbp.forTenantRead() as AnyDB)
       .selectFrom('permissoes')
       .select(({ fn }: AnyDB) => ['form', 'opcao', fn.max('caption').as('caption'), fn.max('form_caption').as('form_caption')])
-      .where('codempresa', '=', this.emp())
       .groupBy(['form', 'opcao'])
       .orderBy('form')
       .orderBy('opcao')
