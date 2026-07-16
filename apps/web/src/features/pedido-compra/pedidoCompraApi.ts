@@ -120,8 +120,45 @@ export function importarItensPedido(
 export function gerarNfDoPedido(
   id: number,
   opts?: { modelo?: number; serie?: string; cfop?: string },
-): Promise<{ codnf: number; codpedcomp: number }> {
+): Promise<{ codnf: number; codpedcomp: number; statusQtd: 'Total' | 'Parcial' }> {
   return req(`/compras/pedidos/${id}/gerar-nf`, { method: 'POST', body: JSON.stringify(opts ?? {}) });
+}
+
+/** um item do saldo do pedido (Wave 4: qtd pedida − Σ recebida nas NFs vinculadas). */
+export interface SaldoItem {
+  idproduto: number;
+  descricao: string | null;
+  qtdPedido: number;
+  qtdRecebida: number;
+  saldo: number;
+}
+
+/** GET compras/pedidos/:id/saldo — RECEBIMENTO PARCIAL 1:N: saldo por produto do pedido. */
+export function saldoPedido(id: number): Promise<{ codpedcomp: number; itens: SaldoItem[]; saldoTotal: number; totalmenteRecebido: boolean }> {
+  return req(`/compras/pedidos/${id}/saldo`, { method: 'GET' });
+}
+
+/** divergência do cruzamento NF×pedido. */
+export interface Divergencia {
+  idproduto: number;
+  descricao: string | null;
+  tipo: 'PRECO' | 'INE_PEDIDO' | 'QUANTIDADE';
+  custoPedido: number;
+  custoNf: number;
+  saldo?: number;
+}
+
+/** GET compras/analise-pedido-nf/:codnf/divergencias — divergências (preço/INE/quantidade) da NF vs o pedido. */
+export function divergenciasNf(codnf: number): Promise<{ codnf: number; codpedcomp: number; divergencias: Divergencia[]; temDivergencia: boolean }> {
+  return req(`/compras/analise-pedido-nf/${codnf}/divergencias`, { method: 'GET' });
+}
+
+/** POST compras/analise-pedido-nf/:codnf/liberar — libera a conferência; com divergência exige supervisor (login+senha). */
+export function liberarConferencia(
+  codnf: number,
+  override?: { login?: string; senha?: string },
+): Promise<{ codnf: number; status: string; temDivergencia: boolean; divergencias: Divergencia[] }> {
+  return req(`/compras/analise-pedido-nf/${codnf}/liberar`, { method: 'POST', body: JSON.stringify(override ?? {}) });
 }
 
 /**

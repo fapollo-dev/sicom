@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Pencil, Trash2 } from 'lucide-react';
 import { DataTable, Modal, type DataTableColumnDef } from '@apollosg/design-system';
@@ -20,6 +19,7 @@ import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResour
 import { useMensagem } from '../../shared/mensagem';
 import { PedidoCompraItemModal } from './PedidoCompraItemModal';
 import { ImportarXmlModal } from './ImportarXmlModal';
+import { AnalisePedidoNfPanel } from './AnalisePedidoNfPanel';
 import {
   fecharPedido, reabrirPedido, gerarNfDoPedido, gerarParcelasPedido, obterPedido,
   atualizarPrecosPedido, duplicarPedido, gerarBonificadoPedido, liberarLimitePedido, importarItensPedido,
@@ -152,8 +152,34 @@ function PedidoForm({
       <CabecalhoBand form={form} editavel={liberado} fornecedorOptions={fornecedorOptions} condicaoOptions={condicaoOptions} situacaoOptions={situacaoOptions} />
       <ItensSection form={form} editavel={liberado} produtoOptions={produtoOptions} produtoAliquotas={produtoAliquotas} />
       <ParcelasSection form={form} editavel={liberado} />
-      <AcoesEstadoBar form={form} />
+      <RecebimentoSection form={form} />
     </div>
+  );
+}
+
+/**
+ * Wave 4 corte-3: agrupa a barra de estado (fechar/gerar-nf/importar/reabrir) com o painel de saldo & conferência
+ * (Pedido×NF). Ao gerar/importar uma NF, a barra chama `onRecebeu(codnf)` → re-busca o saldo (refreshKey) e
+ * pré-preenche a conferência da NF recém-recebida. O painel só aparece em pedido FECHADO (recebimento iniciado).
+ */
+function RecebimentoSection({ form }: { form: UseFormReturn<CriarPedidoCompraDto> }) {
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [ultimoCodnf, setUltimoCodnf] = useState<number | undefined>(undefined);
+  const codpedcomp = (form.getValues() as { codpedcomp?: number }).codpedcomp;
+  const fechado = (form.watch('fechado' as any) as string | undefined) === 'S';
+  return (
+    <>
+      <AcoesEstadoBar
+        form={form}
+        onRecebeu={(codnf) => {
+          setUltimoCodnf(codnf);
+          setRefreshKey((k) => k + 1);
+        }}
+      />
+      {codpedcomp != null && fechado && (
+        <AnalisePedidoNfPanel codpedcomp={codpedcomp} refreshKey={refreshKey} ultimoCodnf={ultimoCodnf} />
+      )}
+    </>
   );
 }
 
@@ -665,9 +691,8 @@ function ParcelasSection({ form, editavel }: { form: UseFormReturn<CriarPedidoCo
  * recebido): «Reabrir» + «Gerar NF de entrada». Recebido (dtfaturamento): read-only, só aviso. Só
  * aparece em pedido GRAVADO (com codpedcomp).
  */
-function AcoesEstadoBar({ form }: { form: UseFormReturn<CriarPedidoCompraDto> }) {
+function AcoesEstadoBar({ form, onRecebeu }: { form: UseFormReturn<CriarPedidoCompraDto>; onRecebeu?: (codnf: number) => void }) {
   const mensagem = useMensagem();
-  const navigate = useNavigate();
   const [executando, setExecutando] = useState(false);
   const [mostrarImport, setMostrarImport] = useState(false);
   const codpedcomp = (form.getValues() as { codpedcomp?: number }).codpedcomp;
@@ -761,10 +786,10 @@ function AcoesEstadoBar({ form }: { form: UseFormReturn<CriarPedidoCompraDto> })
     if (!window.confirm('Gerar a NF de entrada a partir deste pedido? Os itens vêm do pedido como rascunho editável (ajuste ao documento do fornecedor na tela da NF).')) return;
     setExecutando(true);
     try {
-      const { codnf } = await gerarNfDoPedido(codpedcomp);
+      const { codnf, statusQtd } = await gerarNfDoPedido(codpedcomp);
       form.setValue('dtfaturamento' as any, new Date().toISOString());
-      mensagem.sucesso(`NF de entrada ${codnf} gerada (rascunho). Confira e processe a NF (estoque/A Pagar) na tela de Notas de Entrada.`);
-      navigate('/fiscal/notas/entrada');
+      mensagem.sucesso(`NF de entrada ${codnf} gerada (rascunho, ${statusQtd}). Confira o saldo/divergências abaixo e processe a NF (estoque/A Pagar) em Notas de Entrada.`);
+      onRecebeu?.(codnf); // Wave 4 1:N: atualiza o painel de saldo + pré-preenche a conferência (fica no pedido)
     } catch (e) {
       mensagem.erro(e);
     } finally {
@@ -778,9 +803,9 @@ function AcoesEstadoBar({ form }: { form: UseFormReturn<CriarPedidoCompraDto> })
     setMostrarImport(false);
     const tit = r.titulosApagar ? ` ${r.titulosApagar} título(s) A Pagar gerado(s) das duplicatas.` : '';
     mensagem.sucesso(
-      `NF de entrada ${r.codnf} importada do XML${r.divergencia ? ' (atenção: total da NF diverge do vNF do XML — confira)' : ''}.${tit} Processe o estoque (F3) na tela de Notas de Entrada.`,
+      `NF de entrada ${r.codnf} importada do XML${r.divergencia ? ' (atenção: total da NF diverge do vNF do XML — confira)' : ''}.${tit} Confira o saldo/divergências abaixo; processe o estoque (F3) em Notas de Entrada.`,
     );
-    navigate('/fiscal/notas/entrada');
+    onRecebeu?.(r.codnf); // Wave 4 1:N: atualiza o painel + pré-preenche a conferência
   };
 
   return (
@@ -788,15 +813,17 @@ function AcoesEstadoBar({ form }: { form: UseFormReturn<CriarPedidoCompraDto> })
       <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Estado do pedido</legend>
       <div className="flex flex-wrap items-center gap-gp-sm">
         {!fechado && !recebido && <Button label="&Fechar pedido" variant="soft" onClick={() => void fechar()} />}
-        {fechado && !recebido && <Button label="&Gerar NF de entrada" variant="soft" onClick={() => void gerarNf()} />}
-        {fechado && !recebido && <Button label="&Importar XML da NFe" variant="soft" onClick={() => setMostrarImport(true)} />}
+        {/* Wave 4 1:N: gerar/importar disponíveis enquanto FECHADO (o servidor barra quando o saldo zera —
+            PEDIDO_TOTALMENTE_RECEBIDO); recebimento em VÁRIAS remessas. Reabrir só ANTES da 1ª remessa. */}
+        {fechado && <Button label="&Gerar NF de entrada" variant="soft" onClick={() => void gerarNf()} />}
+        {fechado && <Button label="&Importar XML da NFe" variant="soft" onClick={() => setMostrarImport(true)} />}
         {fechado && !recebido && <Button label="&Reabrir pedido" variant="ghost" onClick={() => void reabrir()} />}
         <Button label="Atualizar &preços no catálogo" variant="ghost" onClick={() => void atualizarPrecos()} />
         <Button label="&Duplicar pedido" variant="ghost" onClick={() => void duplicar(false)} />
         <Button label="Gerar pedido &bonificado" variant="ghost" onClick={() => void duplicar(true)} />
         <small className="text-fg-muted">
           {recebido
-            ? 'Pedido recebido (NF de entrada gerada). Confira/processe a NF na tela de Notas de Entrada.'
+            ? 'Recebimento em andamento (1:N): gere/importe mais NFs enquanto houver saldo; confira/libere no painel abaixo.'
             : fechado
               ? 'Pedido fechado. Gere a NF de entrada (rascunho) ou importe o XML da NFe do fornecedor; ou reabra para editar.'
               : 'Pedido em rascunho. Fechar confirma o pedido (exige ao menos um item).'}

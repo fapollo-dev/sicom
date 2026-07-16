@@ -310,3 +310,20 @@ saldo=0); **gerar A Receber da diferença** (`GERA_ARECEBER_DIF_PEDCOMPRA_AUTO`,
 
 **Verde pós-fold:** api tsc 0 · api test 151 · smoke **577/0** (§81: sem divergência→libera direto op7; custo 8≠5→PRECO;
 sem supervisor→422; supervisor sem grant→NEGADA; op8 autorizado→LIBERADO COM DIVERGENCIA cod=8; RBAC 403; NF sem pedido 422).
+
+## 17. RECEBIMENTO PARCIAL 1:N (Wave 4) — corte-3 (FRONT) — ENTREGUE e verde, 2026-07-16
+
+Fecha o épico Wave 4 no front (tela do Pedido de Compra, `PedidoCompraCadMaster`):
+- **`AnalisePedidoNfPanel`** (novo): painel de RECEBIMENTO no pedido FECHADO — tabela de SALDO por produto
+  (pedido/recebido/saldo, badge Totalmente recebido/Saldo em aberto) + CONFERÊNCIA de uma NF (input do nº da NF →
+  divergências PRECO/QUANTIDADE/INE_PEDIDO → «Liberar»; com divergência mostra os campos login/senha do SUPERVISOR).
+- **`RecebimentoSection`** (wrapper): coordena a barra de estado com o painel — ao gerar/importar uma NF a barra
+  chama `onRecebeu(codnf)` → re-busca o saldo (`refreshKey`) e pré-preenche a conferência da NF recém-recebida.
+- **`AcoesEstadoBar` (1:N):** «Gerar NF»/«Importar XML» agora disponíveis enquanto FECHADO (o servidor barra quando
+  o saldo zera — antes travava na 1ª NF por `dtfaturamento`); «Reabrir» só ANTES da 1ª remessa; sem auto-navigate
+  (fica no pedido p/ conferir). Fetchers `saldoPedido`/`divergenciasNf`/`liberarConferencia`.
+
+Self-review (sem auditor dedicado — camada fina de UI sobre o backend já auditado): `useMensagem` é estável
+(useMemo+useCallback) → sem loop de fetch no `useEffect([carregarSaldo, refreshKey])`; supervisor login/senha só
+enviados quando há divergência. **RECEBIMENTO PARCIAL 1:N = ÉPICO COMPLETO** (corte-1 saldo/1:N + corte-2 Análise +
+corte-3 front). **Verde:** web tsc 0 · web test 32 · web build ✓ (api/smoke inalterados 577/0).
