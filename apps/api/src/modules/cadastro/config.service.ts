@@ -55,4 +55,24 @@ export class ConfigService {
   async ligado(codigo: string, ctx: { empresaId?: number | null; operadorId?: number | null; modulo?: string } = {}): Promise<boolean> {
     return (await this.resolver(codigo, ctx)) === 'S';
   }
+
+  /**
+   * GetUsuariosPermitidos (liberação por supervisor): lista os operadores com GRANT EXPLÍCITO por-usuário
+   * numa chave USUARIOS_LIBERAM_ / USUARIOS_PERMITIDOS_ — i.e. configuracoes_especificas TIPO='Usuario' VALOR='S'.
+   * Query DEDICADA (NÃO o resolver, que faz fallback ao VALOR global — aqui o global 'S' NÃO significa "todos";
+   * a lista é só os grants explícitos, fiel ao golden). Retorna [] se a chave não existe / sem grants.
+   */
+  async usuariosPermitidos(codigo: string): Promise<number[]> {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const cfg = await db.selectFrom('configuracoes').select('id').where('codigo', '=', codigo).executeTakeFirst();
+    if (!cfg) return [];
+    const rows = await db
+      .selectFrom('configuracoes_especificas')
+      .select('chave')
+      .where('id', '=', cfg.id)
+      .where('tipo', '=', 'Usuario')
+      .where('valor', '=', 'S')
+      .execute();
+    return rows.map((r: { chave: unknown }) => Number(r.chave)).filter((n: number) => Number.isFinite(n));
+  }
 }

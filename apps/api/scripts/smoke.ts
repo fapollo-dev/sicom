@@ -3837,6 +3837,33 @@ async function main() {
         { n: libFiltroJ.length });
       const libSem = await fetch(`${base}/operadores/liberacoes`, { headers: H_SEM_ACESSO });
       check('LIBERAÇÃO §75: sem grant RBAC → 403', libSem.status === 403, { status: libSem.status });
+
+      // 75.2) corte-2 — GRANTS por-usuário (quem-libera-o-quê). chaves + matriz + set + reflexo em usuariosPermitidos.
+      const CHAVE = 'USUARIOS_LIBERAM_VALOR_MAX_EXCEDIDO';
+      const chaves = (await (await fetch(`${base}/operadores/liberacoes/chaves`, { headers: H })).json().catch(() => [])) as any[];
+      check('LIBERAÇÃO §75.2: GET chaves → lista as chaves de liberação seedadas (inclui VALOR_MAX_EXCEDIDO)',
+        Array.isArray(chaves) && chaves.some((c) => c.codigo === CHAVE), { n: chaves.length });
+      const permAntes = (await (await fetch(`${base}/operadores/liberacoes/permissoes?codigo=${CHAVE}`, { headers: H })).json().catch(() => ({}))) as any;
+      const op7Antes = (permAntes.operadores ?? []).find((o: any) => Number(o.codoperador) === 7);
+      // concede ao operador 7
+      const setOn = await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: CHAVE, codoperador: 7, concedido: true }) });
+      const permDepois = (await (await fetch(`${base}/operadores/liberacoes/permissoes?codigo=${CHAVE}`, { headers: H })).json().catch(() => ({}))) as any;
+      const op7Depois = (permDepois.operadores ?? []).find((o: any) => Number(o.codoperador) === 7);
+      // grava na configuracoes_especificas (tipo Usuario, chave 7, valor S)?
+      const ce = (await pgLib.query(`SELECT ce.valor FROM configuracoes_especificas ce JOIN configuracoes c ON c.id=ce.id WHERE c.codigo=$1 AND ce.tipo='Usuario' AND ce.chave='7'`, [CHAVE])).rows[0] as any;
+      check('LIBERAÇÃO §75.2: PUT concede grant → matriz reflete concedido=true + grava configuracoes_especificas(Usuario,7,S)',
+        setOn.status === 200 && op7Antes?.concedido === false && op7Depois?.concedido === true && ce?.valor === 'S',
+        { antes: op7Antes?.concedido, depois: op7Depois?.concedido, ce: ce?.valor });
+      // revoga
+      const setOff = await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: CHAVE, codoperador: 7, concedido: false }) });
+      const ceOff = (await pgLib.query(`SELECT count(*)::int AS n FROM configuracoes_especificas ce JOIN configuracoes c ON c.id=ce.id WHERE c.codigo=$1 AND ce.tipo='Usuario' AND ce.chave='7'`, [CHAVE])).rows[0] as any;
+      check('LIBERAÇÃO §75.2: PUT revoga grant → apaga a linha (0)', setOff.status === 200 && Number(ceOff?.n) === 0, { n: ceOff?.n });
+      // chave inválida → 422; PUT sem grant → 403
+      const setBad = await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: 'CHAVE_QUE_NAO_EXISTE', codoperador: 7, concedido: true }) });
+      const setSem = await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H_SEM_ACESSO, body: JSON.stringify({ codigo: CHAVE, codoperador: 7, concedido: true }) });
+      check('LIBERAÇÃO §75.2: chave inválida → 422 LIBERACAO_CHAVE_INVALIDA; sem grant → 403',
+        setBad.status === 422 && ((await setBad.json().catch(() => ({}))) as any).code === 'LIBERACAO_CHAVE_INVALIDA' && setSem.status === 403,
+        { bad: setBad.status, sem: setSem.status });
     } finally {
       await pgLib.end();
     }

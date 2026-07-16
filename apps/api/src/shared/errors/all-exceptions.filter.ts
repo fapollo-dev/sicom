@@ -326,6 +326,9 @@ const CODE_PT: Record<string, string> = {
   PROMOCAO_PRODUTO_INATIVO: 'Um produto da promoção está inativo.',
   PROMOCAO_PRODUTO_SOBREPOSTO: 'Um produto já está em outra promoção no mesmo período.',
   PROMOCAO_PRODUTO_DUPLICADO: 'Produto repetido na mesma promoção.',
+  // Liberação por supervisor (FRMLIBERACOES)
+  LIBERACAO_CHAVE_INVALIDA: 'Chave de liberação inválida.',
+  OPERADOR_NAO_ENCONTRADO: 'Operador não encontrado.',
   // Devolução de compra (FRMDEVOLUCAOCOMPRA)
   DEVOLUCAO_NAO_ENCONTRADA: 'Devolução de compra não encontrada.',
   DEVOLUCAO_NAO_EDITAVEL: 'Esta devolução não está em digitação — não pode ser alterada nem excluída.',

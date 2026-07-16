@@ -52,3 +52,11 @@ export interface LoginResposta {
   empresa?: number;
   mustChangePassword?: boolean;
 }
+
+/** Liberação por supervisor — set de grant por-usuário (corte-2). */
+export const liberacaoPermissaoSchema = z.object({
+  codigo: z.string().trim().min(1, 'Informe a chave de liberação.').max(100),
+  codoperador: z.coerce.number({ message: 'Operador inválido.' }).int().positive('Operador inválido.'),
+  concedido: z.boolean(),
+});
+export type LiberacaoPermissaoDto = z.infer<typeof liberacaoPermissaoSchema>;
