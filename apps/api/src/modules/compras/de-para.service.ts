@@ -85,11 +85,13 @@ export class DeParaService {
     }
   }
 
-  async atualizar(id: number, dto: { codref?: string; tiporef?: string; fator_embalagem?: number }): Promise<{ codreferencia_for: number }> {
+  async atualizar(id: number, dto: { idproduto?: number; codref?: string; tiporef?: string; fator_embalagem?: number }): Promise<{ codreferencia_for: number }> {
     const op = currentTenant().operadorId ?? null;
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       await this.carregarNoEscopo(trx, id);
       const set: Record<string, unknown> = { usultalteracao: op, dtultimalteracao: sql`now()` };
+      // fold auditoria: idproduto É aplicável (re-apontar a de-para p/ o produto certo — antes era um no-op silencioso).
+      if (dto.idproduto !== undefined) set.idproduto = dto.idproduto;
       if (dto.codref !== undefined) {
         const codref = normRef(dto.codref);
         if (!codref) throw new BusinessRuleError('DEPARA_CODREF_INVALIDO', { codref: dto.codref });
@@ -101,6 +103,7 @@ export class DeParaService {
         await trx.updateTable('codreferencia_for').set(set).where('codreferencia_for', '=', id).execute();
       } catch (e) {
         if ((e as { code?: string })?.code === '23505') throw new BusinessRuleError('DEPARA_DUPLICADO', { codreferencia_for: id });
+        if ((e as { code?: string })?.code === '23503') throw new BusinessRuleError('DEPARA_PRODUTO_INVALIDO', { idproduto: dto.idproduto });
         throw e;
       }
       return { codreferencia_for: id };

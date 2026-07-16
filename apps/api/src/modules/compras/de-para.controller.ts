@@ -17,7 +17,9 @@ export class DeParaController {
   @Get()
   @RequerAcesso('FRMCADPRODUTO', 'BTNEDITAR')
   listar(@Query('idproduto') idproduto?: string, @Query('codfor') codfor?: string) {
-    return this.svc.listar({ idproduto: idproduto ? Number(idproduto) : undefined, codfor: codfor ? Number(codfor) : undefined });
+    // guarda NaN (fold auditoria BAIXA): query não-numérico → undefined (lista tudo), nunca WHERE = NaN.
+    const n = (v?: string) => (v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined);
+    return this.svc.listar({ idproduto: n(idproduto), codfor: n(codfor) });
   }
 
   @Post()

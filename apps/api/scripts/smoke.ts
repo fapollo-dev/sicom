@@ -4109,13 +4109,17 @@ async function main() {
         d2.status === 422 && ((await d2.json().catch(() => ({}))) as any).code === 'DEPARA_DUPLICADO' && d3.status === 422 && ((await d3.json().catch(() => ({}))) as any).code === 'DEPARA_FORNECEDOR_INVALIDO',
         { dup: d2.status, forn: d3.status });
 
-      // 78.3) atualizar tiporef E→P (tiporefd vira PLU); remover → 204 + some da lista.
+      // 78.3) atualizar tiporef E→P (tiporefd vira PLU); RE-APONTAR idproduto (fold auditoria: era no-op); remover.
       const d4 = await fetch(`${base}/${DP}/${codRef1}`, { method: 'PUT', headers: H, body: JSON.stringify({ tiporef: 'P' }) });
       const item1b = ((await (await fetch(`${base}/${DP}?idproduto=1`, { headers: H })).json().catch(() => [])) as any[]).find((r) => Number(r.codreferencia_for) === codRef1);
+      // fold: PUT {idproduto:2} re-aponta a de-para (antes era descartado silenciosamente → 200 no-op).
+      const d4b = await fetch(`${base}/${DP}/${codRef1}`, { method: 'PUT', headers: H, body: JSON.stringify({ idproduto: 2 }) });
+      const idpApos = (await pgDp.query(`SELECT idproduto FROM codreferencia_for WHERE codreferencia_for=$1`, [codRef1])).rows[0] as any;
       const d5 = await fetch(`${base}/${DP}/${codRef1}`, { method: 'DELETE', headers: H });
-      const nApos = ((await (await fetch(`${base}/${DP}?idproduto=1`, { headers: H })).json().catch(() => [])) as any[]).filter((r) => Number(r.codreferencia_for) === codRef1).length;
-      check('DE-PARA §78.3: atualizar tiporef→P (PLU); remover → 204 + some da lista',
-        d4.status === 200 && item1b?.tiporefd === 'PLU' && d5.status === 204 && nApos === 0, { put: d4.status, tiporefd: item1b?.tiporefd, del: d5.status, apos: nApos });
+      const nApos = ((await (await fetch(`${base}/${DP}?codfor=22`, { headers: H })).json().catch(() => [])) as any[]).filter((r) => Number(r.codreferencia_for) === codRef1).length;
+      check('DE-PARA §78.3: atualizar tiporef→P (PLU); re-apontar idproduto→2 (fold, não no-op); remover → 204',
+        d4.status === 200 && item1b?.tiporefd === 'PLU' && d4b.status === 200 && Number(idpApos?.idproduto) === 2 && d5.status === 204 && nApos === 0,
+        { put: d4.status, tiporefd: item1b?.tiporefd, repoint: [d4b.status, idpApos?.idproduto], del: d5.status });
 
       // 78.4) ESCOPO cross-tenant (decisão de tenant): de-para de um fornecedor de OUTRA empresa NÃO é vista nem
       // editável pela empresa 1. Insere parceiro 990002 (empresa 2, FRN) + uma de-para dele via pg.

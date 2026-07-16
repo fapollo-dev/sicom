@@ -15,7 +15,10 @@ export const deParaSchema = z.object({
     .preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().nonnegative().optional()),
 });
 export type CriarDeParaDto = z.infer<typeof deParaSchema>;
-export const atualizarDeParaSchema = deParaSchema.partial();
+// UPDATE: idproduto (re-apontar p/ o produto certo), codref, tiporef, fator são editáveis; CODFOR é fixo
+// (é parte da chave + o escopo do fornecedor — trocar = excluir e recriar). Omitir codfor evita o no-op
+// silencioso do audit-fold (o cliente não manda um campo que o servidor ignoraria).
+export const atualizarDeParaSchema = deParaSchema.omit({ codfor: true }).partial();
 export type AtualizarDeParaDto = z.infer<typeof atualizarDeParaSchema>;
 
 export interface DePara {
