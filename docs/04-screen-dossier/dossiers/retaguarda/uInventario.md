@@ -4,7 +4,7 @@
 
 | Campo | Valor |
 |---|---|
-| **Status** | **corte-1 (núcleo + importar-produtos) ENTREGUE e verde 2026-07-16** (migration 090). Recon 3 frentes (Oracle READ-ONLY + uInventario.pas 2859 linhas + monorepo) + AskUserQuestion + auditoria adversarial. |
+| **Status** | **corte-1 (núcleo + importar-produtos) ENTREGUE e verde 2026-07-16** (migration 090) + **corte-2 FRONT ENTREGUE 2026-07-17** (InventarioPage: lista → criar → importar → contar → diferenças → aplicar). Recon 3 frentes (Oracle READ-ONLY + uInventario.pas 2859 linhas + monorepo) + AskUserQuestion + auditoria adversarial. |
 | **Fontes legadas** | `uInventario.pas`/`.dfm` (a tela; herda `TfrmMaster`) · `udmInventario.pas`/`.dfm` (DataModule) · `UCongelaEstoque.pas` (congelamento) · `uRelatorioInventarioRotativo.pas` (inventário ROTATIVO — outro modelo). |
 | **Golden** | Oracle PINHEIRAO: `INVENTARIO` 79.190 linhas (~11 inventários reais: 7 emp 1, 4 emp 2 — contagem geral, milhares de produtos cada); `INVENTARIO_ROTATIVO` 1.334; `INVENTARIO_LIVRO` 20. |
 
@@ -65,3 +65,12 @@ O inventário **GERAL** do legado **NÃO tem máquina de estado nem gera kardex*
   (dfm:1179) → adicionado.
 
 **Verde pós-fold:** api tsc 0 · api test 156 · smoke **589/0** (§83, 7 checks) · web tsc 0.
+
+## 6. Corte-2 FRONT (ENTREGUE 2026-07-17)
+`features/inventario/InventarioPage.tsx` + `inventarioApi.ts`; rota `/estoque/inventario` + menu "Inventário".
+Fluxo (fiel à planilha): **lista** de inventários → **Novo** (descrição) → **Importar produtos** (checkboxes
+apenasAtivos/apenasComSaldo; contado nasce = saldo) → **grade de contagem** (contado editável por produto) →
+**Salvar contagem** (PUT livro+itens) → **Ver diferenças** (contado × sistema × diferença, colorido) → **Aplicar
+ao estoque** (campo senha ADM + confirmação; sobrescreve). Camada fina sobre o backend auditado (corte-1). Validado
+end-to-end via dev-embedded (criar→importar[contado=saldo]→read c/ itens→diferenças→aplicar, todos 200). Adiado:
+paginação da grade (inventário real tem milhares de itens). **Verde:** web tsc 0 · web test 32 · web build ✓.
