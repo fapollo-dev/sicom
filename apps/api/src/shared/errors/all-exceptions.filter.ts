@@ -133,6 +133,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
         };
 
       case '22P02': // invalid_text_representation (número/texto inválido)
+      case '22007': // invalid_datetime_format (data/hora malformada)
+      case '22008': // datetime_field_overflow
         return {
           statusCode: HttpStatus.BAD_REQUEST,
           code: 'VALOR_INVALIDO',
@@ -241,6 +243,14 @@ const CODE_PT: Record<string, string> = {
   SENHA_OPERACAO_INVALIDA: 'Senha de operação incorreta — desconto/acréscimo não autorizado.',
   REVERSAO_PARCIAL_SALDO_BAIXADO: 'O título-saldo gerado nesta baixa parcial já possui movimentação — trate a baixa do saldo antes de estornar esta.',
   CONTA_BANCARIA_NAO_ENCONTRADA: 'A conta bancária informada para o depósito não existe nesta empresa.',
+  // Cotação de compra (FRMCADCOTACAO)
+  COTACAO_NAO_ENCONTRADA: 'Cotação não encontrada.',
+  COTACAO_FECHADA: 'Esta cotação está fechada — reabra para editar.',
+  COTACAO_JA_FECHADA: 'Esta cotação já está fechada.',
+  COTACAO_NAO_FECHADA: 'Esta cotação não está fechada — não há o que reabrir.',
+  COTACAO_FORNECEDOR_INVALIDO: 'O parceiro informado não é um fornecedor válido.',
+  COTACAO_FORNECEDOR_NAO_CONVIDADO: 'Este fornecedor não foi convidado para a cotação.',
+  COTACAO_PRODUTO_NAO_COTADO: 'Este produto não faz parte da cotação.',
   // Inventário (FRMINVENTARIO)
   INVENTARIO_NAO_ENCONTRADO: 'Inventário não encontrado.',
   INVENTARIO_SEM_ITENS: 'O inventário não tem itens — importe/inclua produtos antes de aplicar ao estoque.',

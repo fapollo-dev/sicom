@@ -12,6 +12,8 @@ import { DeParaController } from './de-para.controller';
 import { DeParaService } from './de-para.service';
 import { AnalisePedidoNfService } from './analise-pedido-nf.service';
 import { AnalisePedidoNfController } from './analise-pedido-nf.controller';
+import { CotacaoService } from './cotacao.service';
+import { CotacaoController } from './cotacao.controller';
 import { CadastroModule } from '../cadastro/cadastro.module';
 import { AuthModule } from '../auth/auth.module';
 import { DatabaseProvider } from '../../shared/database/database.provider';
@@ -35,7 +37,8 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     DevolucaoCompraAggregateController, // devolução de compra corte-1: CRUD do documento (header + itens)
     DeParaController, // de-para de fornecedor (CODREFERENCIA_FOR) — manutenção standalone (recebimento corte-5)
     AnalisePedidoNfController, // Wave 4 corte-2: Análise Pedido×NF (divergências + liberação por supervisor)
+    CotacaoController, // COTAÇÃO DE COMPRA (RFQ) corte-1: estrutura + preços (árvore vertical)
   ],
-  providers: [PedidoCompraService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, DatabaseProvider],
+  providers: [PedidoCompraService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, DatabaseProvider],
 })
 export class ComprasModule {}

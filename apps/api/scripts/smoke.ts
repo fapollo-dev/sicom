@@ -4427,6 +4427,61 @@ async function main() {
         await pgInv.end();
       }
     }
+
+    // ===== §84) COTAÇÃO DE COMPRA (FRMCADCOTACAO) — corte-1: estrutura + preços =====
+    {
+      const CT = 'compras/cotacao';
+      // 84.1) criar cotação (2 produtos + 2 fornecedores FRN 22/1) → obter a árvore.
+      const ctCreate = await fetch(`${base}/${CT}`, {
+        method: 'POST', headers: H,
+        body: JSON.stringify({ descricao: 'COTACAO SMOKE', produtos: [{ idproduto: 1, quantidade: 100 }, { idproduto: 2, quantidade: 50 }], fornecedores: [{ codparceiro: 22 }, { codparceiro: 1 }] }),
+      });
+      const ctId = Number(((await ctCreate.json().catch(() => ({}))) as any).codctc);
+      const ctGet = (await (await fetch(`${base}/${CT}/${ctId}`, { headers: H })).json().catch(() => ({}))) as any;
+      check('COTAÇÃO §84.1: criar (2 produtos + 2 fornecedores) → obter árvore (situacao A)',
+        ctCreate.status === 201 && ctId > 0 && ctGet.situacao === 'A' && (ctGet.produtos ?? []).length === 2 && (ctGet.fornecedores ?? []).length === 2, { status: ctCreate.status, prods: ctGet.produtos?.length, forns: ctGet.fornecedores?.length });
+
+      // 84.2) lançar preços de 2 fornecedores (matriz) → obter tem 3 preços (22: prod 1&2; 1: prod 1).
+      const lp22 = await fetch(`${base}/${CT}/${ctId}/lancar-precos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, itens: [{ idproduto: 1, valor: 5.0, icms: 12 }, { idproduto: 2, valor: 3.0 }] }) });
+      const lp1 = await fetch(`${base}/${CT}/${ctId}/lancar-precos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 1, itens: [{ idproduto: 1, valor: 4.8 }] }) });
+      const ctGet2 = (await (await fetch(`${base}/${CT}/${ctId}`, { headers: H })).json().catch(() => ({}))) as any;
+      check('COTAÇÃO §84.2: lançar preços (forn 22: 2 itens; forn 1: 1 item) → matriz com 3 preços',
+        lp22.status === 200 && Number(((await lp22.json().catch(() => ({}))) as any).itens) === 2 && lp1.status === 200 && (ctGet2.precos ?? []).length === 3, { precos: ctGet2.precos?.length });
+
+      // 84.3) guardas: fornecedor NÃO convidado → 422; produto NÃO cotado → 422.
+      const lpNaoConv = await fetch(`${base}/${CT}/${ctId}/lancar-precos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 999, itens: [{ idproduto: 1, valor: 1 }] }) });
+      const lpNaoCot = await fetch(`${base}/${CT}/${ctId}/lancar-precos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, itens: [{ idproduto: 999, valor: 1 }] }) });
+      check('COTAÇÃO §84.3: preço de fornecedor não-convidado→422; produto não-cotado→422',
+        lpNaoConv.status === 422 && ((await lpNaoConv.json().catch(() => ({}))) as any).code === 'COTACAO_FORNECEDOR_NAO_CONVIDADO' && lpNaoCot.status === 422 && ((await lpNaoCot.json().catch(() => ({}))) as any).code === 'COTACAO_PRODUTO_NAO_COTADO', { conv: lpNaoConv.status, cot: lpNaoCot.status });
+
+      // 84.4) criar com fornecedor NÃO-FRN (cliente 20) → 422 COTACAO_FORNECEDOR_INVALIDO.
+      const ctFrn = await fetch(`${base}/${CT}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'X', produtos: [{ idproduto: 1, quantidade: 1 }], fornecedores: [{ codparceiro: 20 }] }) });
+      check('COTAÇÃO §84.4: criar com fornecedor não-FRN (cliente 20) → 422 COTACAO_FORNECEDOR_INVALIDO', ctFrn.status === 422 && ((await ctFrn.json().catch(() => ({}))) as any).code === 'COTACAO_FORNECEDOR_INVALIDO', { status: ctFrn.status });
+
+      // 84.5) fechar → F; lançar preço na fechada → 422 COTACAO_FECHADA; reabrir → A.
+      const ctFechar = await fetch(`${base}/${CT}/${ctId}/fechar`, { method: 'POST', headers: H });
+      const lpFechada = await fetch(`${base}/${CT}/${ctId}/lancar-precos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, itens: [{ idproduto: 1, valor: 9 }] }) });
+      const ctReabrir = await fetch(`${base}/${CT}/${ctId}/reabrir`, { method: 'POST', headers: H });
+      check('COTAÇÃO §84.5: fechar→F; lançar preço na fechada→422 COTACAO_FECHADA; reabrir→A',
+        ctFechar.status === 200 && ((await ctFechar.json().catch(() => ({}))) as any).situacao === 'F' && lpFechada.status === 422 && ((await lpFechada.json().catch(() => ({}))) as any).code === 'COTACAO_FECHADA' && ctReabrir.status === 200 && ((await ctReabrir.json().catch(() => ({}))) as any).situacao === 'A', { fechar: ctFechar.status, lp: lpFechada.status, reabrir: ctReabrir.status });
+
+      // 84.6) RBAC: criar sem grant → 403.
+      const ctRbac = await fetch(`${base}/${CT}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ descricao: 'X', produtos: [{ idproduto: 1, quantidade: 1 }], fornecedores: [{ codparceiro: 22 }] }) });
+      check('COTAÇÃO §84.6: criar sem grant RBAC → 403', ctRbac.status === 403, { status: ctRbac.status });
+
+      // 84.7) fold ALTA: atualizar (delta) adicionando produto 3 → os PREÇOS já lançados (prod 1&2) SOBREVIVEM.
+      const ctUpd = await fetch(`${base}/${CT}/${ctId}`, { method: 'PUT', headers: H, body: JSON.stringify({ produtos: [{ idproduto: 1, quantidade: 100 }, { idproduto: 2, quantidade: 50 }, { idproduto: 3, quantidade: 10 }] }) });
+      const ctGet3 = (await (await fetch(`${base}/${CT}/${ctId}`, { headers: H })).json().catch(() => ({}))) as any;
+      check('COTAÇÃO §84.7: atualizar (delta) adiciona produto 3 e PRESERVA os 3 preços já lançados (não apaga a matriz)',
+        ctUpd.status === 200 && (ctGet3.produtos ?? []).length === 3 && (ctGet3.precos ?? []).length === 3 && ctGet3.descricao === 'COTACAO SMOKE', { prods: ctGet3.produtos?.length, precos: ctGet3.precos?.length, desc: ctGet3.descricao });
+
+      // 84.8) excluir (soft-delete) → obter 422 NAO_ENCONTRADA; sem grant → 403.
+      const ctDelSem = await fetch(`${base}/${CT}/${ctId}`, { method: 'DELETE', headers: H_SEM_ACESSO });
+      const ctDel = await fetch(`${base}/${CT}/${ctId}`, { method: 'DELETE', headers: H });
+      const ctGetDel = await fetch(`${base}/${CT}/${ctId}`, { headers: H });
+      check('COTAÇÃO §84.8: excluir sem grant→403; excluir→200; depois obter→422 NAO_ENCONTRADA (soft-delete)',
+        ctDelSem.status === 403 && ctDel.status === 200 && ctGetDel.status === 422 && ((await ctGetDel.json().catch(() => ({}))) as any).code === 'COTACAO_NAO_ENCONTRADA', { sem: ctDelSem.status, del: ctDel.status, get: ctGetDel.status });
+    }
   } finally {
     await app.close();
     await pg.stop();
