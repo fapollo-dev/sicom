@@ -241,6 +241,9 @@ const CODE_PT: Record<string, string> = {
   SENHA_OPERACAO_INVALIDA: 'Senha de operação incorreta — desconto/acréscimo não autorizado.',
   REVERSAO_PARCIAL_SALDO_BAIXADO: 'O título-saldo gerado nesta baixa parcial já possui movimentação — trate a baixa do saldo antes de estornar esta.',
   CONTA_BANCARIA_NAO_ENCONTRADA: 'A conta bancária informada para o depósito não existe nesta empresa.',
+  // Inventário (FRMINVENTARIO)
+  INVENTARIO_NAO_ENCONTRADO: 'Inventário não encontrado.',
+  INVENTARIO_SEM_ITENS: 'O inventário não tem itens — importe/inclua produtos antes de aplicar ao estoque.',
   // Ajuste de estoque (FRMAJUSTEESTOQUE)
   MOTIVO_NAO_ENCONTRADO: 'Motivo de operação não encontrado.',
   AJUSTE_CONCORRENTE: 'Outro ajuste deste produto está em andamento — tente novamente.',

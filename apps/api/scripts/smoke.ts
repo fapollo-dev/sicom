@@ -4367,6 +4367,66 @@ async function main() {
         await pgOp.end();
       }
     }
+
+    // ===== §83) INVENTÁRIO (FRMINVENTARIO — contagem física) — corte-1: doc + importar + diferença + aplicar =====
+    {
+      const INV = 'cadastro/inventario';
+      const pgInv = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // senha ADM da empresa 1 (gate do aplicar, fiel a SenhaAdministrativa('ADM')).
+        await fetch(`${base}/cadastro/senha-operacao`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'admin', senha: 'admin123' }) });
+        // 83.1) cria o livro + 2 itens CONTADOS (produto 1=50, 2=3); snapshot (descricao) derivado do produto.
+        const invCreate = await fetch(`${base}/${INV}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'INV SMOKE', itens: [{ idproduto: 1, qtde: 50 }, { idproduto: 2, qtde: 3 }] }) });
+        const invId = Number(((await invCreate.json().catch(() => ({}))) as any).codinvent);
+        const invItens = (await pgInv.query(`SELECT idproduto, qtde, descricao FROM inventario WHERE codinvent=$1 ORDER BY idproduto`, [invId])).rows as any[];
+        check('INVENTÁRIO §83.1: cria livro+itens (contado 50/3) + snapshot descricao do produto',
+          invCreate.status === 201 && invId > 0 && invItens.length === 2 && Number(invItens[0].qtde) === 50 && invItens[0].descricao != null, { status: invCreate.status, itens: invItens });
+
+        // 83.2) diferenças (calculada): contado 50 vs sistema (saldo atual) → diferenca = sistema − contado.
+        const dif = (await (await fetch(`${base}/${INV}/${invId}/diferencas`, { headers: H })).json().catch(() => ({}))) as any;
+        const d1 = (dif.itens ?? []).find((x: any) => x.idproduto === 1);
+        check('INVENTÁRIO §83.2: diferença calculada (contado 50; diferenca = sistema − contado)',
+          !!d1 && Number(d1.contado) === 50 && Math.abs(Number(d1.diferenca) - (Number(d1.sistema) - 50)) < 0.001, { d1 });
+
+        // 83.3) aplicar SEM senha → 422 REQUERIDA; senha ERRADA → 422 INVALIDA (gate ADM).
+        const apSem = await fetch(`${base}/${INV}/${invId}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+        const apBad = await fetch(`${base}/${INV}/${invId}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({ senhaOperacao: 'errada' }) });
+        check('INVENTÁRIO §83.3: aplicar sem senha→422 REQUERIDA; errada→422 INVALIDA',
+          apSem.status === 422 && ((await apSem.json().catch(() => ({}))) as any).code === 'SENHA_OPERACAO_REQUERIDA' && apBad.status === 422 && ((await apBad.json().catch(() => ({}))) as any).code === 'SENHA_OPERACAO_INVALIDA', { sem: apSem.status, bad: apBad.status });
+
+        // 83.4) aplicar com senha ADM correta → estoque.qtde SOBRESCRITO = contado (1→50, 2→3). Fiel/rerodável.
+        const ap = await fetch(`${base}/${INV}/${invId}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({ senhaOperacao: 'admin123' }) });
+        const apJ = (await ap.json().catch(() => ({}))) as any;
+        const est1 = Number((await pgInv.query(`SELECT qtde FROM estoque WHERE idproduto=1 AND idempresa=1`)).rows[0]?.qtde);
+        const est2 = Number((await pgInv.query(`SELECT qtde FROM estoque WHERE idproduto=2 AND idempresa=1`)).rows[0]?.qtde);
+        check('INVENTÁRIO §83.4: aplicar (senha ADM) → estoque.qtde = contado (1→50, 2→3), 2 aplicados',
+          ap.status === 200 && Number(apJ.aplicados) === 2 && est1 === 50 && est2 === 3, { ap: apJ, est1, est2 });
+
+        // 83.5) importar-produtos: novo livro, popula a folha (apenasComSaldo). fold ALTA: CONTADO nasce = SALDO
+        // de sistema (não 0) — produto 1 tem saldo 50 (§83.4) → item importado com qtde 50.
+        const inv2 = await fetch(`${base}/${INV}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'INV IMPORT' }) });
+        const inv2Id = Number(((await inv2.json().catch(() => ({}))) as any).codinvent);
+        const imp = await fetch(`${base}/${INV}/${inv2Id}/importar-produtos`, { method: 'POST', headers: H, body: JSON.stringify({ apenasComSaldo: true }) });
+        const impJ = (await imp.json().catch(() => ({}))) as any;
+        const nImp = Number((await pgInv.query(`SELECT count(*)::int AS n FROM inventario WHERE codinvent=$1`, [inv2Id])).rows[0]?.n);
+        const impProd1 = Number((await pgInv.query(`SELECT qtde FROM inventario WHERE codinvent=$1 AND idproduto=1`, [inv2Id])).rows[0]?.qtde);
+        check('INVENTÁRIO §83.5: importar-produtos popula (>0); CONTADO nasce = saldo de sistema (produto 1 → 50, NÃO 0)',
+          imp.status === 200 && Number(impJ.itens) > 0 && nImp === Number(impJ.itens) && impProd1 === 50, { itens: impJ.itens, nImp, prod1: impProd1 });
+
+        // 83.5b) import→aplicar SEM recontar = NO-OP (fold ALTA): o estoque NÃO é zerado (contado=saldo → sobrescreve
+        // com o próprio valor). Antes do fold, isto zeraria todo o estoque não-recontado.
+        const apImp = await fetch(`${base}/${INV}/${inv2Id}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({ senhaOperacao: 'admin123' }) });
+        const est1NoOp = Number((await pgInv.query(`SELECT qtde FROM estoque WHERE idproduto=1 AND idempresa=1`)).rows[0]?.qtde);
+        check('INVENTÁRIO §83.5b: import→aplicar sem recontar = NO-OP (estoque 1 segue 50, não zerou)',
+          apImp.status === 200 && est1NoOp === 50, { status: apImp.status, est1: est1NoOp });
+
+        // 83.6) RBAC: aplicar sem grant → 403.
+        const apRbac = await fetch(`${base}/${INV}/${invId}/aplicar`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ senhaOperacao: 'admin123' }) });
+        check('INVENTÁRIO §83.6: aplicar sem grant RBAC → 403', apRbac.status === 403, { status: apRbac.status });
+      } finally {
+        await pgInv.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

@@ -8,6 +8,9 @@ import { MarcasCrudController } from './marcas.crud';
 import { MotivosOperacaoCrudController } from './motivos-operacao.crud';
 import { AjusteEstoqueController } from './ajuste-estoque.controller';
 import { AjusteEstoqueService } from './ajuste-estoque.service';
+import { InventarioAggregateController } from './inventario.aggregate';
+import { InventarioController } from './inventario.controller';
+import { InventarioService } from './inventario.service';
 import { AgendaPromocaoAggregateController } from './agenda-promocao.aggregate';
 import { AgendaPromocaoController } from './agenda-promocao.controller';
 import { AgendaPromocaoService } from './agenda-promocao.service';
@@ -92,6 +95,8 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     NfContabilizacaoController, // F5b — contabilizar/estornar (gera/estorna o DIÁRIO — partida dobrada)
     MotivosOperacaoCrudController, // engine (lookup do motivo do ajuste; soft-delete)
     AjusteEstoqueController, // vertical (AJUSTE DE ESTOQUE — move o saldo + kardex; sem contábil)
+    InventarioAggregateController, // INVENTÁRIO (livro+itens; contagem física — planilha fiel, sem estado)
+    InventarioController, // vertical: importar-produtos + diferenças + aplicar (sobrescreve estoque, gated senha ADM)
     AgendaPromocaoAggregateController, // AGENDA DE PROMOÇÃO (cadastro header+itens; corte-1 sem efeito)
     AgendaPromocaoController, // vertical (encerrar/reabrir a agenda)
     PerfilCrudController, // PERFIS & PERMISSÕES corte-1: CRUD de perfis (RBAC)
@@ -113,6 +118,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     PlanoContasService,
     DreService,
     AjusteEstoqueService,
+    InventarioService,
     AgendaPromocaoService,
     PerfilRelacaoService,
     PermissoesService,
