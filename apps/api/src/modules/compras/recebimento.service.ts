@@ -345,6 +345,10 @@ export class RecebimentoService {
         cstpiscofins: it.cstPisCofins ?? undefined,
         aliqpise: it.pPIS || undefined,
         aliqcofinse: it.pCOFINS || undefined,
+        // VALOR do crédito PIS/COFINS da entrada (Wave 5) — XML verbatim (vBC/vPIS/vCOFINS), como ICMS/ST.
+        bcpiscofinse: it.vBcPisCofins || undefined,
+        vrpise: it.vPIS || undefined,
+        vrcofinse: it.vCOFINS || undefined,
         geraestoque: 'S',
         movimenta_estoque: 'S',
       };

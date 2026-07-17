@@ -401,7 +401,7 @@ Captura de golden no Oracle real (PINHEIRAO, read-only, **V$SQL acessível**) + 
 - **F2b fiscal (refino):** MVA **ajustado** interestadual (`GetMVAAjustado:276`); redução de BC-ST (REDCOM) e BC própria encadeada; ST a recolher **SN-vs-LR + crédito + Lei 3166**; **rateio fino** (`RateioNota`); **figura fiscal completa** (CFOP derivado/CSOSN); **modo-truncar** (flag `ARREDONDA` por item — hoje `round2` half-up, divergência ≤1 centavo); gate `APROVEITAMENTO_CREDITO_ICMSST_NF` (config por tenant); `DEPSACESS` separado de `vroutrasdesp`; colunas `MARKUP` (precificação) e NF_PROD_LOTE; serviço/ISS.
 - **F4 financeiro / F5 contábil:** FATURAMENTO→ARECEBER/APAGAR (IDNF), `DELETE FROM DIARIO` no estorno — no legado nem são atômicos com o estoque.
 - **DIFAL/partilha + FCP/FCP-ST** (lib externa `TICMSUFDest`) → F2b/F3+.
-- **PIS/COFINS valor** fiscal → SPED (fase própria).
+- **PIS/COFINS valor** fiscal → SPED. **ENTRADA (crédito): ENTREGUE** (Wave 5, mig 089): `nf_prod.bcpiscofinse/vrpise/vrcofinse` persistidos VERBATIM do XML no import (parser extrai vBC/vPIS/vCOFINS dos grupos PIS/COFINS; golden VRPISE=BC×1,65% / VRCOFINSE=BC×7,6%; VRPIS-saída é 100% NULL no golden → saída apura no SPED, não por-item). Resta: recompute no F2 (gerar-nf manual sem XML) + total de cabeçalho.
 - **F3 estoque:** flip PROC→estoque (trigger `ESTOQUE_NOTAS` fiel: sentido/origem/decomposição/composição/reversão) — liga ao Produto F5.
 - **F4 financeiro:** FATURAMENTO → ARECEBER/APAGAR (parcelas/condição pgto/retenções/funrural/acordo), NF_FORMA_PAGAMENTO, exclusão/trava de baixa.
 - **F5 contábil:** CODCONTABILNF + DIARIO (depende de plano de contas/integração).

@@ -3339,7 +3339,7 @@ async function main() {
 <nfeProc versao="4.00"><NFe><infNFe Id="NFe${chave}" versao="4.00">
 <ide><cUF>31</cUF><nNF>${nnf}</nNF><serie>1</serie><mod>55</mod><dhEmi>2026-07-08T10:00:00-03:00</dhEmi><tpNF>0</tpNF><finNFe>${fin}</finNFe><tpAmb>2</tpAmb></ide>
 <emit><CNPJ>${cnpj}</CNPJ><xNome>FORNECEDOR TESTE</xNome></emit>
-<det nItem="1"><prod><cProd>FA</cProd><cEAN>${ean1}</cEAN><xProd>REFRI</xProd><NCM>22021000</NCM><CFOP>${cfop1}</CFOP><uCom>UN</uCom><qCom>10.0000</qCom><vUnCom>5.00</vUnCom><vProd>50.00</vProd></prod><imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><vBC>50.00</vBC><pICMS>18.00</pICMS><vICMS>9.00</vICMS></ICMS00></ICMS></imposto></det>
+<det nItem="1"><prod><cProd>FA</cProd><cEAN>${ean1}</cEAN><xProd>REFRI</xProd><NCM>22021000</NCM><CFOP>${cfop1}</CFOP><uCom>UN</uCom><qCom>10.0000</qCom><vUnCom>5.00</vUnCom><vProd>50.00</vProd></prod><imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><vBC>50.00</vBC><pICMS>18.00</pICMS><vICMS>9.00</vICMS></ICMS00></ICMS><PIS><PISAliq><CST>01</CST><vBC>50.00</vBC><pPIS>1.6500</pPIS><vPIS>0.83</vPIS></PISAliq></PIS><COFINS><COFINSAliq><CST>01</CST><vBC>50.00</vBC><pCOFINS>7.6000</pCOFINS><vCOFINS>3.80</vCOFINS></COFINSAliq></COFINS></imposto></det>
 <det nItem="2"><prod><cProd>FB</cProd><cEAN>2000001000005</cEAN><xProd>QUEIJO</xProd><NCM>04061010</NCM><CFOP>5403</CFOP><uCom>UN</uCom><qCom>4.0000</qCom><vUnCom>3.00</vUnCom><vProd>12.00</vProd></prod><imposto><ICMS><ICMS10><orig>0</orig><CST>10</CST><vBC>12.00</vBC><pICMS>18.00</pICMS><vICMS>2.16</vICMS><vBCST>20.00</vBCST><vICMSST>1.44</vICMSST></ICMS10></ICMS></imposto></det>
 <total><ICMSTot><vProd>62.00</vProd><vNF>63.44</vNF><vICMS>11.16</vICMS><vBC>62.00</vBC><vST>1.44</vST><vIPI>0.00</vIPI><vDesc>0.00</vDesc><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vOutro>0.00</vOutro><vBCST>20.00</vBCST></ICMSTot></total>${cobr}${pag}
 </infNFe></NFe><protNFe><infProt><nProt>131260000000001</nProt></infProt></protNFe></nfeProc>`;
@@ -3355,10 +3355,16 @@ async function main() {
       { status: imp1.status, body: imp1J, nf: nfImp });
 
     // 50.2) itens valorados com os impostos REAIS do XML + CFOP ajustado saída→entrada (5102→1102, 5403→1403).
-    const itImp = (await pgImp.query(`SELECT codproduto, quantidade, vrvenda, vricm, vricmst, cfop, codprodnota FROM nf_prod WHERE codnf=$1 ORDER BY nroitem`, [cnfImp])).rows as any[];
+    const itImp = (await pgImp.query(`SELECT codproduto, quantidade, vrvenda, vricm, vricmst, cfop, codprodnota, bcpiscofinse, vrpise, vrcofinse, aliqpise, aliqcofinse FROM nf_prod WHERE codnf=$1 ORDER BY nroitem`, [cnfImp])).rows as any[];
     check('IMPORT: itens com ICMS/ST reais do XML (vricm 9,00 / vricmst 1,44) + CFOP entrada (1102/1403) + codprodnota=cProd',
       itImp.length === 2 && Number(itImp[0].codproduto) === 2 && Number(itImp[0].vricm) === 9 && itImp[0].cfop === '1102' && itImp[0].codprodnota === 'FA' && Number(itImp[1].codproduto) === 3 && Number(itImp[1].vricmst) === 1.44 && itImp[1].cfop === '1403',
       { itens: itImp });
+
+    // 50.2b) PIS/COFINS VALOR do crédito de entrada (Wave 5): item 1 traz vBC 50,00 / vPIS 0,83 / vCOFINS 3,80 do
+    // XML → persistidos VERBATIM (bcpiscofinse/vrpise/vrcofinse) + alíquotas 1,65/7,60. Item 2 (sem grupo PIS) → 0.
+    check('IMPORT PIS/COFINS-valor: item 1 vrpise=0,83 vrcofinse=3,80 bc=50,00 (aliq 1,65/7,60); item 2 sem PIS → 0',
+      Number(itImp[0].vrpise) === 0.83 && Number(itImp[0].vrcofinse) === 3.8 && Number(itImp[0].bcpiscofinse) === 50 && Number(itImp[0].aliqpise) === 1.65 && Number(itImp[0].aliqcofinse) === 7.6 && Number(itImp[1].vrpise) === 0 && Number(itImp[1].vrcofinse) === 0,
+      { it1: { vrpise: itImp[0].vrpise, vrcofinse: itImp[0].vrcofinse, bc: itImp[0].bcpiscofinse }, it2: { vrpise: itImp[1].vrpise } });
 
     // 50.3) XML cru guardado em nfe_xml (vínculo por codnf + chave).
     const xmlRow = (await pgImp.query(`SELECT chavenfe, length(xml) AS n FROM nfe_xml WHERE codnf=$1`, [cnfImp])).rows[0] as any;

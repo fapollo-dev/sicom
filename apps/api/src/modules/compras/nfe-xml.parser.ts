@@ -37,6 +37,9 @@ export interface NfeItemParsed {
   cstPisCofins?: string;
   pPIS: number;
   pCOFINS: number;
+  vBcPisCofins: number; // base do PIS/COFINS (grupo PIS.vBC — mesma base p/ COFINS)
+  vPIS: number; // valor do PIS (crédito de entrada) — XML verbatim
+  vCOFINS: number; // valor do COFINS (crédito de entrada) — XML verbatim
 }
 
 /** duplicata do XML (`<cobr><dup>`) → 1 título A Pagar (corte-4). dVenc é 'YYYY-MM-DD' (date-only, sem fuso). */
@@ -155,6 +158,11 @@ export function parseNfeXml(xml: string): NfeParsed {
       cstPisCofins: str(pis.CST) || undefined,
       pPIS: num(pis.pPIS),
       pCOFINS: num(cof.pCOFINS),
+      // VALORES do PIS/COFINS (crédito de entrada) — grupos PISAliq/COFINSAliq (ou PISOutr): vBC/vPIS/vCOFINS.
+      // Grupos não-tributados (PISNT) não têm vPIS → num()→0. O XML é a verdade legal (persistido verbatim).
+      vBcPisCofins: num(pis.vBC),
+      vPIS: num(pis.vPIS),
+      vCOFINS: num(cof.vCOFINS),
     };
   });
 

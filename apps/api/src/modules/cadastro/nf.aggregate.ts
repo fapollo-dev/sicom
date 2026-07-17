@@ -230,6 +230,7 @@ export const nfAggregateConfig: AggregateConfig = {
         'ipi', 'vripi', 'geraicm_ipi', 'geraicm_frete', 'geraicm_acess',
         'fcp_aliquota', 'fcp_valor', 'pis', 'cstpiscofins',
         'aliqpise', 'aliqpiss', 'aliqcofinse', 'aliqcofinss',
+        'bcpiscofinse', 'vrpise', 'vrcofinse', // valor do crédito PIS/COFINS da entrada (Wave 5, XML verbatim)
         'frete', 'seguro', 'vroutrasdesp', 'depsacess', 'arredonda', 'vl_custo',
       ],
       // congela o CUSTO do item = MULTI_PRECO.VRCUSTO corrente por (produto, empresa) no lançamento
