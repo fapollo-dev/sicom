@@ -41,6 +41,7 @@ const TELAS = [
   { href: '/compras/pedidos', name: 'Pedido de Compra', icon: ShoppingCart },
   { href: '/compras/condicoes-pagto', name: 'Condições de Pagamento', icon: CalendarClock },
   { href: '/compras/devolucao', name: 'Devolução de Compra', icon: Undo2 },
+  { href: '/compras/cotacao', name: 'Cotação de Compra', icon: ListChecks },
   { href: '/fiscal/notas/entrada', name: 'NF de Entrada', icon: FileInput },
   { href: '/fiscal/notas/saida', name: 'NF de Saída', icon: FileOutput },
   { href: '/cadastro/bancos', name: 'Bancos', icon: Landmark },

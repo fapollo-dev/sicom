@@ -24,6 +24,7 @@ import { NfCadMaster } from '../features/nf/NfCadMaster';
 import { PedidoCompraCadMaster } from '../features/pedido-compra/PedidoCompraCadMaster';
 import { CondicoesPagtoCadMaster } from '../features/condicoes-pagto/CondicoesPagtoCadMaster';
 import { DevolucaoCompraCadMaster } from '../features/devolucao-compra/DevolucaoCompraCadMaster';
+import { CotacaoPage } from '../features/cotacao/CotacaoPage';
 import { AgendaPromocaoCadMaster } from '../features/agenda-promocao/AgendaPromocaoCadMaster';
 import { PerfilCadMaster } from '../features/perfil/PerfilCadMaster';
 import { EmpresasCadMaster } from '../features/empresas/EmpresasCadMaster';
@@ -74,6 +75,7 @@ export const router = createBrowserRouter([
       { path: '/compras/pedidos', element: <PedidoCompraCadMaster /> },
       { path: '/compras/condicoes-pagto', element: <CondicoesPagtoCadMaster /> }, // lookup do pedido (corte-2)
       { path: '/compras/devolucao', element: <DevolucaoCompraCadMaster /> }, // devolução de compra (documento, corte-1)
+      { path: '/compras/cotacao', element: <CotacaoPage /> }, // cotação de compra (RFQ): preços → apuração → gerar pedidos
       { path: '/cadastro/promocoes', element: <AgendaPromocaoCadMaster /> }, // agenda de promoção (corte-1, sem efeito)
       { path: '/cadastro/perfis', element: <PerfilCadMaster /> }, // perfis & permissões (RBAC editor)
     ],
