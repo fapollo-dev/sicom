@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { sql, type Kysely } from 'kysely';
 import type { CriarCotacaoDto, LancarPrecosCotacaoDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
+import { AggregateEngineService } from '../../shared/crud/aggregate-engine.service';
+import { pedidoCompraAggregateConfig } from './pedido-compra.aggregate';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 
@@ -17,7 +19,10 @@ const r4 = (n: number) => Math.round((n + Number.EPSILON) * 10000) / 10000;
  */
 @Injectable()
 export class CotacaoService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly engine: AggregateEngineService,
+  ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -206,19 +211,28 @@ export class CotacaoService {
     return { codctc, situacao: 'F' };
   }
 
-  /** reabre a cotação (Fechada → Aberta). No corte-2 reabrir também zera a apuração (GANHADOR). */
+  /**
+   * reabre a cotação (Fechada → Aberta) e ZERA a apuração automática (fold auditoria [MÉDIA]: honra o docstring e
+   * elimina vencedor OBSOLETO sobrevivendo à reabertura). Zera GANHADOR/VERIFICADO de todos os itens → o gerar-pedido
+   * volta a exigir reapuração. MANTÉM a escolha manual (DEFINIDO) e o log PEDIDOS (a anti-regeração continua a proteger
+   * contra pedidos duplicados quando a cotação já os gerou).
+   */
   async reabrir(codctc: number): Promise<{ codctc: number; situacao: 'A' }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
-    const upd = await (this.dbp.forTenant() as AnyDB)
-      .updateTable('cotacao').set({ situacao: 'A', usultalteracao: op, dtultimalteracao: sql`now()` })
-      .where('codctc', '=', codctc).where('idempresa', '=', emp).where('situacao', '=', 'F').where(sql`coalesce(indr,'I')`, '<>', 'E')
-      .executeTakeFirst();
-    if (Number((upd as any)?.numUpdatedRows ?? 0) === 0) {
-      await this.carregar(this.dbp.forTenantRead() as AnyDB, codctc, emp);
-      throw new BusinessRuleError('COTACAO_NAO_FECHADA', { codctc });
-    }
-    return { codctc, situacao: 'A' };
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const upd = await trx
+        .updateTable('cotacao').set({ situacao: 'A', usultalteracao: op, dtultimalteracao: sql`now()` })
+        .where('codctc', '=', codctc).where('idempresa', '=', emp).where('situacao', '=', 'F').where(sql`coalesce(indr,'I')`, '<>', 'E')
+        .executeTakeFirst();
+      if (Number((upd as any)?.numUpdatedRows ?? 0) === 0) {
+        await this.carregar(trx, codctc, emp);
+        throw new BusinessRuleError('COTACAO_NAO_FECHADA', { codctc });
+      }
+      const cprs = ((await trx.selectFrom('cotacao_prod').select('codcpr').where('codctc', '=', codctc).execute()) as Array<{ codcpr: number }>).map((r) => Number(r.codcpr));
+      if (cprs.length) await trx.updateTable('cotacao_forn_itens').set({ ganhador: 'I', verificado: 'N' }).where('codcpr', 'in', cprs).execute();
+      return { codctc, situacao: 'A' as const };
+    });
   }
 
   /** lista as cotações do tenant (view get_cotacao). */
@@ -247,5 +261,153 @@ export class CotacaoService {
       fornecedores,
       precos,
     };
+  }
+
+  // ─────────────────────────── corte-2: APURAÇÃO + GERAR-PEDIDO ───────────────────────────
+
+  /**
+   * APURA o vencedor por PRODUTO (fiel a SetaFornecedorGanhador, uCadCotacao:3005): entre os fornecedores que
+   * PARTICIPA_APURACAO='S' e cotaram (valor>0), o vencedor tem o menor VALOR_LIQ = valor − valor×icms/100. A
+   * escolha manual (DEFINIDO='S') SOBREVIVE à reapuração. Empate → o primeiro por codctcforn (determinístico; o
+   * legado abre diálogo manual — divergência CONSCIENTE). Grava GANHADOR='A'/'I' + VERIFICADO='S'. Só Aberta.
+   */
+  async apurar(codctc: number): Promise<{ codctc: number; produtos: number; vencedores: number }> {
+    const emp = this.emp();
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      await this.carregar(trx, codctc, emp, true);
+      const prods = (await trx.selectFrom('cotacao_prod').select('codcpr').where('codctc', '=', codctc).execute()) as Array<{ codcpr: number }>;
+      let venc = 0;
+      for (const p of prods) {
+        const codcpr = Number(p.codcpr);
+        // candidatos: participa da apuração + cotou (valor>0), ordenados por VALOR_LIQ (menor primeiro), tiebreak codctcforn.
+        const itens = (await trx
+          .selectFrom('cotacao_forn_itens as fi')
+          .innerJoin('cotacao_forn as f', 'f.codctcforn', 'fi.codctcforn')
+          .select(['fi.codctcfit as codctcfit'])
+          .where('fi.codcpr', '=', codcpr)
+          .where('f.codctc', '=', codctc)
+          .where(sql`coalesce(f.participa_apuracao,'S')`, '=', 'S')
+          .where('fi.valor', '>', 0)
+          .orderBy(sql`fi.valor - fi.valor * coalesce(fi.icms,0)/100`, 'asc')
+          .orderBy('fi.codctcforn', 'asc')
+          .execute()) as Array<{ codctcfit: number }>;
+        // reset da apuração do produto (mantém DEFINIDO — manual sobrevive); marca verificado.
+        await trx.updateTable('cotacao_forn_itens').set({ ganhador: 'I', verificado: 'S' }).where('codcpr', '=', codcpr).execute();
+        // fold auditoria [MÉDIA]: a escolha MANUAL (definido='S') sobrevive à reapuração INDEPENDENTE de
+        // PARTICIPA_APURACAO — o comprador pode travar um fornecedor que fica FORA da apuração automática (participa='N').
+        // Por isso o manual é buscado em TODOS os itens do produto, não só na lista de candidatos participantes.
+        const manual = (await trx.selectFrom('cotacao_forn_itens').select('codctcfit').where('codcpr', '=', codcpr).where('definido', '=', 'S').where('valor', '>', 0).executeTakeFirst()) as { codctcfit: number } | undefined;
+        const winner = manual ?? itens[0];
+        if (winner) {
+          await trx.updateTable('cotacao_forn_itens').set({ ganhador: 'A' }).where('codctcfit', '=', Number(winner.codctcfit)).execute();
+          venc++;
+        }
+      }
+      return { codctc, produtos: prods.length, vencedores: venc };
+    });
+  }
+
+  /** define MANUALMENTE o vencedor de um produto (F5, DEFINIDO='S' — sobrevive à reapuração). Só Aberta. */
+  async definirGanhador(codctc: number, dto: { idproduto: number; codparceiro: number }): Promise<{ codctc: number; idproduto: number; codparceiro: number }> {
+    const emp = this.emp();
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      await this.carregar(trx, codctc, emp, true);
+      const cpr = (await trx.selectFrom('cotacao_prod').select('codcpr').where('codctc', '=', codctc).where('idproduto', '=', dto.idproduto).executeTakeFirst()) as { codcpr: number } | undefined;
+      if (!cpr) throw new BusinessRuleError('COTACAO_PRODUTO_NAO_COTADO', { idproduto: dto.idproduto });
+      const forn = (await trx.selectFrom('cotacao_forn').select('codctcforn').where('codctc', '=', codctc).where('codparceiro', '=', dto.codparceiro).executeTakeFirst()) as { codctcforn: number } | undefined;
+      if (!forn) throw new BusinessRuleError('COTACAO_FORNECEDOR_NAO_CONVIDADO', { codparceiro: dto.codparceiro });
+      const item = (await trx.selectFrom('cotacao_forn_itens').select('codctcfit').where('codctcforn', '=', Number(forn.codctcforn)).where('codcpr', '=', Number(cpr.codcpr)).where('valor', '>', 0).executeTakeFirst()) as { codctcfit: number } | undefined;
+      if (!item) throw new BusinessRuleError('COTACAO_SEM_PRECO', { idproduto: dto.idproduto, codparceiro: dto.codparceiro });
+      await trx.updateTable('cotacao_forn_itens').set({ ganhador: 'I', definido: 'N' }).where('codcpr', '=', Number(cpr.codcpr)).execute();
+      await trx.updateTable('cotacao_forn_itens').set({ ganhador: 'A', definido: 'S', verificado: 'S' }).where('codctcfit', '=', Number(item.codctcfit)).execute();
+      return { codctc, idproduto: dto.idproduto, codparceiro: dto.codparceiro };
+    });
+  }
+
+  /**
+   * GERA os PEDIDOS de compra da apuração (fiel a GerarPedido, uCadCotacao:1663): 1 PEDIDOCOMPRA por FORNECEDOR
+   * VENCEDOR (agrupa os itens ganhos por ele), reusando o agregado do pedido-compra (createAggregate). Fluxo:
+   *  1) CLAIM atômico (CAS `situacao 'A'→'F'` só com PEDIDOS vazio) — fold auditoria [ALTA]: fecha a corrida
+   *     duplo-clique/retry (duas chamadas concorrentes: só uma flipa; a outra cai em JA_GERADOS/FECHADA). Já
+   *     reservada (F), nenhuma apuração/edição concorrente roda (todas exigem Aberta) → as leituras abaixo são estáveis.
+   *  2) apuração completa (todo produto com cotação válida tem vencedor) + itens vencedores → sem vencedor/incompleto
+   *     faz ROLLBACK do claim ('F'→'A') e reabre para o comprador corrigir.
+   *  3) gera os pedidos (flag `_sistema` → o GerarPedido do legado insere DIRETO, sem os gates interativos do
+   *     btnGravar do pedido: condição-obrigatória / pendências-fornecedor / prazo). O FATOR de embalagem e o custo
+   *     vêm da PROPOSTA VENCEDORA (cotacao_forn_itens), não do snapshot do produto — fold auditoria [MÉDIA].
+   *  4) grava COTACAO.PEDIDOS (log). A cotação já está 'F' (claim).
+   * Residual documentado: cada createAggregate é sua própria trx (como o recebimento) → falha parcial no meio do
+   * loop deixa pedidos órfãos com a cotação 'F' sem PEDIDOS (re-run bloqueia em FECHADA — SEM duplicar); recuperar
+   * exige reabrir manual. Split multi-loja (COTACAO_PRODQTDE → PEDIDO_COMPRA_QTDE) ADIADO (alinha com o cross-docking).
+   */
+  async gerarPedido(codctc: number): Promise<{ codctc: number; pedidos: number[] }> {
+    const emp = this.emp();
+    const op = currentTenant().operadorId ?? null;
+    const dbw = this.dbp.forTenant() as AnyDB;
+
+    // (1) CLAIM atômico: só UMA chamada flipa A→F com PEDIDOS vazio (anti-corrida / anti-dupla-geração).
+    const claim = await dbw
+      .updateTable('cotacao').set({ situacao: 'F', usultalteracao: op, dtultimalteracao: sql`now()` })
+      .where('codctc', '=', codctc).where('idempresa', '=', emp).where('situacao', '=', 'A').where(sql`coalesce(pedidos,'')`, '=', '').where(sql`coalesce(indr,'I')`, '<>', 'E')
+      .returning('codctc').executeTakeFirst();
+    if (!claim) {
+      const c = (await (this.dbp.forTenantRead() as AnyDB).selectFrom('cotacao').select(['pedidos', 'situacao', 'indr']).where('codctc', '=', codctc).where('idempresa', '=', emp).executeTakeFirst()) as { pedidos?: string; situacao?: string; indr?: string } | undefined;
+      if (!c || c.indr === 'E') throw new BusinessRuleError('COTACAO_NAO_ENCONTRADA', { codctc });
+      if ((c.pedidos ?? '').trim()) throw new BusinessRuleError('COTACAO_PEDIDOS_JA_GERADOS', { codctc }); // anti-regeração
+      throw new BusinessRuleError('COTACAO_FECHADA', { codctc }); // fechada manualmente sem pedidos → reabra p/ gerar
+    }
+    const rollback = () =>
+      dbw.updateTable('cotacao').set({ situacao: 'A' }).where('codctc', '=', codctc).where('idempresa', '=', emp).where(sql`coalesce(pedidos,'')`, '=', '').execute();
+
+    // guardas pré-geração fazem rollback do claim; falha DENTRO do loop de geração mantém 'F' de propósito
+    // (re-run cai em FECHADA — impede duplicar os pedidos já commitados; recuperação = reabrir manual).
+    {
+      const db = this.dbp.forTenantRead() as AnyDB;
+      // (2) apuração completa: nenhum produto COM cotação válida (participa+valor>0) pode estar SEM vencedor.
+      const semVencedor = Number(((await db
+        .selectFrom('cotacao_prod as p')
+        .select((eb) => eb.fn.countAll().as('n'))
+        .where('p.codctc', '=', codctc)
+        .where((eb) => eb.exists(eb.selectFrom('cotacao_forn_itens as fi').innerJoin('cotacao_forn as f', 'f.codctcforn', 'fi.codctcforn').select(sql`1`.as('x')).whereRef('fi.codcpr', '=', 'p.codcpr').where(sql`coalesce(f.participa_apuracao,'S')`, '=', 'S').where('fi.valor', '>', 0)))
+        .where((eb) => eb.not(eb.exists(eb.selectFrom('cotacao_forn_itens as fi2').select(sql`1`.as('x')).whereRef('fi2.codcpr', '=', 'p.codcpr').where('fi2.ganhador', '=', 'A'))))
+        .executeTakeFirst()) as { n?: unknown } | undefined)?.n ?? 0);
+      if (semVencedor > 0) {
+        await rollback();
+        throw new BusinessRuleError('COTACAO_APURACAO_INCOMPLETA', { produtos_sem_vencedor: semVencedor });
+      }
+
+      // itens vencedores (GANHADOR='A'): FATOR + valor da PROPOSTA vencedora (fi), quantidade do produto (p).
+      const ganhos = (await db
+        .selectFrom('cotacao_forn_itens as fi')
+        .innerJoin('cotacao_forn as f', 'f.codctcforn', 'fi.codctcforn')
+        .innerJoin('cotacao_prod as p', 'p.codcpr', 'fi.codcpr')
+        .select(['f.codparceiro as codparceiro', 'p.idproduto as idproduto', 'p.quantidade as quantidade', 'fi.fatorembalagem as fatorembalagem', 'fi.valor as valor'])
+        .where('f.codctc', '=', codctc)
+        .where('fi.ganhador', '=', 'A')
+        .orderBy('f.codparceiro')
+        .execute()) as Array<{ codparceiro: number; idproduto: number; quantidade: unknown; fatorembalagem: unknown; valor: unknown }>;
+      if (!ganhos.length) {
+        await rollback();
+        throw new BusinessRuleError('COTACAO_SEM_VENCEDOR', { codctc }); // apure antes
+      }
+
+      // agrupa por fornecedor → 1 pedido cada (reusa o agregado; deriva vlrembalagem/qtdtotal/totalcusto).
+      const porForn = new Map<number, Array<{ idproduto: number; qtde: number; fatorembalagem: number; vrcusto: number }>>();
+      for (const g of ganhos) {
+        const arr = porForn.get(Number(g.codparceiro)) ?? [];
+        arr.push({ idproduto: Number(g.idproduto), qtde: num(g.quantidade) > 0 ? num(g.quantidade) : 1, fatorembalagem: num(g.fatorembalagem) > 0 ? num(g.fatorembalagem) : 1, vrcusto: num(g.valor) });
+        porForn.set(Number(g.codparceiro), arr);
+      }
+      // (3) gera — `_sistema:true` faz o agregado PULAR os gates interativos do btnGravar (o GerarPedido insere direto).
+      const hoje = new Date().toISOString().slice(0, 10);
+      const pedidos: number[] = [];
+      for (const [codparceiro, itens] of porForn) {
+        const codpedcomp = await this.engine.createAggregate(pedidoCompraAggregateConfig, { codparceiro, data: hoje, itens, _sistema: true });
+        pedidos.push(Number(codpedcomp));
+      }
+      // (4) grava o log dos pedidos (a cotação já está 'F' pelo claim).
+      await dbw.updateTable('cotacao').set({ pedidos: `Pedidos: ${pedidos.join(', ')}` }).where('codctc', '=', codctc).where('idempresa', '=', emp).execute();
+      return { codctc, pedidos };
+    }
   }
 }

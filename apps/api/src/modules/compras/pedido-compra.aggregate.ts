@@ -126,6 +126,10 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
   // Regras cross-row do btnGravar (consultam o banco antes de gravar).
   validar: async ({ dto, id, db }) => {
     const emp = currentTenant().empresaId ?? null;
+    // `_sistema`: geração PROGRAMÁTICA (ex.: GerarPedido da COTAÇÃO) insere o pedido DIRETO, sem os gates
+    // INTERATIVOS do btnGravar (condição-obrigatória / prazo-máximo / pendências-fornecedor) — fiel ao legado,
+    // que grava o pedido em lote fora do formulário. As travas de integridade (FRN, estado FECHADO/FATURADO) FICAM.
+    const interativo = (dto as Record<string, unknown>)._sistema !== true;
 
     // travas de edição por estado (update). Pedido excluído (soft-delete INDR='E') é INEXISTENTE — não
     // se edita um documento morto. FATURADO (dtfaturamento, via NF de entrada = corte futuro) é read-only
@@ -169,7 +173,7 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
     const fornEf = cod ?? (atual?.codparceiro != null ? Number(atual.codparceiro) : null);
 
     // (1) OBRIGA_INFORMAR_CONDICOES_PAGAMENTO='S' (uPedidoCompra.pas:6831): exige condição (CD ou lookup).
-    if (cdsEfetivos.length === 0 && conpagtoEf == null) {
+    if (interativo && cdsEfetivos.length === 0 && conpagtoEf == null) {
       if ((await cfgValor(db, 'OBRIGA_INFORMAR_CONDICOES_PAGAMENTO', emp)) === 'S') {
         throw new BusinessRuleError('PEDIDO_SEM_CONDICAO_OBRIGATORIA');
       }
@@ -177,7 +181,7 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
 
     // (2) prazo máximo por fornecedor (PARCEIROS.QTDE_DIAS_MAXIMO_FP_PC; VerificaFP, uPedidoCompra.pas:6792):
     // nenhum CD do pedido (ou da condição, quando o pedido não sobrepõe) pode exceder o máximo do fornecedor.
-    if (fornEf != null) {
+    if (interativo && fornEf != null) {
       const fp = (await db
         .selectFrom('parceiros')
         .select('qtde_dias_maximo_fp_pc')
@@ -205,7 +209,7 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
     // ou TROCAR o fornecedor — M3: o legado só chama VerificaPendencias na seleção do fornecedor (:6516/6614),
     // não a cada gravar; um PUT de formulário completo reenvia o mesmo codparceiro e não deve re-travar.
     const trocouFornecedor = cod != null && (atual == null || cod !== Number(atual.codparceiro));
-    if (trocouFornecedor && (await cfgValor(db, 'AVISA_PENDENCIAS_FORNECEDOR', emp)) === 'B') {
+    if (interativo && trocouFornecedor && (await cfgValor(db, 'AVISA_PENDENCIAS_FORNECEDOR', emp)) === 'B') {
       const pend = await db
         .selectFrom('areceber')
         .select('codrcb')

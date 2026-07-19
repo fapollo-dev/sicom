@@ -251,6 +251,10 @@ const CODE_PT: Record<string, string> = {
   COTACAO_FORNECEDOR_INVALIDO: 'O parceiro informado não é um fornecedor válido.',
   COTACAO_FORNECEDOR_NAO_CONVIDADO: 'Este fornecedor não foi convidado para a cotação.',
   COTACAO_PRODUTO_NAO_COTADO: 'Este produto não faz parte da cotação.',
+  COTACAO_SEM_PRECO: 'Este fornecedor não cotou preço para este produto.',
+  COTACAO_PEDIDOS_JA_GERADOS: 'Os pedidos desta cotação já foram gerados.',
+  COTACAO_APURACAO_INCOMPLETA: 'Há produtos cotados sem vencedor definido — apure a cotação antes de gerar os pedidos.',
+  COTACAO_SEM_VENCEDOR: 'Nenhum vencedor apurado — apure a cotação antes de gerar os pedidos.',
   // Inventário (FRMINVENTARIO)
   INVENTARIO_NAO_ENCONTRADO: 'Inventário não encontrado.',
   INVENTARIO_SEM_ITENS: 'O inventário não tem itens — importe/inclua produtos antes de aplicar ao estoque.',

@@ -4481,6 +4481,93 @@ async function main() {
       const ctGetDel = await fetch(`${base}/${CT}/${ctId}`, { headers: H });
       check('COTAÇÃO §84.8: excluir sem grant→403; excluir→200; depois obter→422 NAO_ENCONTRADA (soft-delete)',
         ctDelSem.status === 403 && ctDel.status === 200 && ctGetDel.status === 422 && ((await ctGetDel.json().catch(() => ({}))) as any).code === 'COTACAO_NAO_ENCONTRADA', { sem: ctDelSem.status, del: ctDel.status, get: ctGetDel.status });
+
+      // ===== corte-2: APURAÇÃO + GERAR-PEDIDO =====
+      const pgCt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // cotação Y: 2 produtos, 2 fornecedores; forn 22 cota prod 1(5)+2(3); forn 1 cota prod 1(4,80).
+        const yId = Number(((await (await fetch(`${base}/${CT}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'COT APURA', produtos: [{ idproduto: 1, quantidade: 100 }, { idproduto: 2, quantidade: 50 }], fornecedores: [{ codparceiro: 22 }, { codparceiro: 1 }] }) })).json().catch(() => ({}))) as any).codctc);
+        await fetch(`${base}/${CT}/${yId}/lancar-precos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, itens: [{ idproduto: 1, valor: 5.0 }, { idproduto: 2, valor: 3.0 }] }) });
+        await fetch(`${base}/${CT}/${yId}/lancar-precos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 1, itens: [{ idproduto: 1, valor: 4.8 }] }) });
+
+        // 85.1) gerar-pedido SEM apurar → 422 COTACAO_APURACAO_INCOMPLETA.
+        const g0 = await fetch(`${base}/${CT}/${yId}/gerar-pedido`, { method: 'POST', headers: H });
+        check('COTAÇÃO §85.1: gerar-pedido sem apurar → 422 COTACAO_APURACAO_INCOMPLETA', g0.status === 422 && ((await g0.json().catch(() => ({}))) as any).code === 'COTACAO_APURACAO_INCOMPLETA', { status: g0.status });
+
+        // 85.2) apurar → vencedor por menor preço líq-ICMS: prod 1 → forn 1 (4,80 < 5,00); prod 2 → forn 22 (único).
+        const ap = await fetch(`${base}/${CT}/${yId}/apurar`, { method: 'POST', headers: H });
+        const apJ = (await ap.json().catch(() => ({}))) as any;
+        const venc = (await pgCt.query(`SELECT p.idproduto, f.codparceiro FROM cotacao_forn_itens fi JOIN cotacao_forn f ON f.codctcforn=fi.codctcforn JOIN cotacao_prod p ON p.codcpr=fi.codcpr WHERE f.codctc=$1 AND fi.ganhador='A' ORDER BY p.idproduto`, [yId])).rows as any[];
+        check('COTAÇÃO §85.2: apurar → 2 vencedores (prod 1→forn 1 [4,80<5]; prod 2→forn 22)',
+          ap.status === 200 && Number(apJ.vencedores) === 2 && venc.length === 2 && Number(venc[0].idproduto) === 1 && Number(venc[0].codparceiro) === 1 && Number(venc[1].idproduto) === 2 && Number(venc[1].codparceiro) === 22, { ap: apJ, venc });
+
+        // 85.3) gerar-pedido → 2 pedidos (1 por fornecedor vencedor) + situacao F + anti-regeração.
+        const g = await fetch(`${base}/${CT}/${yId}/gerar-pedido`, { method: 'POST', headers: H });
+        const gJ = (await g.json().catch(() => ({}))) as any;
+        const peds = (await pgCt.query(`SELECT codpedcomp, codparceiro FROM pedidocompra WHERE codpedcomp = ANY($1) ORDER BY codparceiro`, [gJ.pedidos ?? []])).rows as any[];
+        const yAfter = (await pgCt.query(`SELECT situacao, pedidos FROM cotacao WHERE codctc=$1`, [yId])).rows[0] as any;
+        const g2 = await fetch(`${base}/${CT}/${yId}/gerar-pedido`, { method: 'POST', headers: H });
+        check('COTAÇÃO §85.3: gerar-pedido → 2 pedidos (forn 1 e 22) + cotação Fechada + PEDIDOS log; regerar→422',
+          g.status === 200 && (gJ.pedidos ?? []).length === 2 && peds.length === 2 && Number(peds[0].codparceiro) === 1 && Number(peds[1].codparceiro) === 22 && yAfter?.situacao === 'F' && (yAfter?.pedidos || '').includes('Pedidos:') && g2.status === 422 && ((await g2.json().catch(() => ({}))) as any).code === 'COTACAO_PEDIDOS_JA_GERADOS', { pedidos: gJ.pedidos, peds, sit: yAfter?.situacao });
+
+        // 85.4) escolha MANUAL sobrevive à reapuração: cotação Z, prod 1 (forn 22=4 mais barato que forn 1=5) →
+        // apurar dá forn 22; definir-ganhador força forn 1; re-apurar MANTÉM forn 1 (DEFINIDO='S').
+        const zId = Number(((await (await fetch(`${base}/${CT}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'COT MANUAL', produtos: [{ idproduto: 1, quantidade: 10 }], fornecedores: [{ codparceiro: 22 }, { codparceiro: 1 }] }) })).json().catch(() => ({}))) as any).codctc);
+        await fetch(`${base}/${CT}/${zId}/lancar-precos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, itens: [{ idproduto: 1, valor: 4.0 }] }) });
+        await fetch(`${base}/${CT}/${zId}/lancar-precos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 1, itens: [{ idproduto: 1, valor: 5.0 }] }) });
+        await fetch(`${base}/${CT}/${zId}/apurar`, { method: 'POST', headers: H });
+        await fetch(`${base}/${CT}/${zId}/definir-ganhador`, { method: 'POST', headers: H, body: JSON.stringify({ idproduto: 1, codparceiro: 1 }) });
+        await fetch(`${base}/${CT}/${zId}/apurar`, { method: 'POST', headers: H }); // re-apurar
+        const zVenc = (await pgCt.query(`SELECT f.codparceiro FROM cotacao_forn_itens fi JOIN cotacao_forn f ON f.codctcforn=fi.codctcforn WHERE f.codctc=$1 AND fi.ganhador='A'`, [zId])).rows as any[];
+        check('COTAÇÃO §85.4: escolha manual (forn 1) sobrevive à reapuração (não volta p/ forn 22 mais barato)',
+          zVenc.length === 1 && Number(zVenc[0].codparceiro) === 1, { zVenc });
+
+        // 85.5) RBAC: apurar sem grant → 403.
+        const apRbac = await fetch(`${base}/${CT}/${zId}/apurar`, { method: 'POST', headers: H_SEM_ACESSO });
+        check('COTAÇÃO §85.5: apurar sem grant RBAC → 403', apRbac.status === 403, { status: apRbac.status });
+
+        // 85.6) FOLD [ALTA]: o gate INTERATIVO do pedido (OBRIGA_INFORMAR_CONDICOES_PAGAMENTO='S') bloqueia um POST
+        // /compras/pedidos sem condição (422), mas o GerarPedido da cotação insere DIRETO (_sistema) e usa o FATOR
+        // de embalagem do FORNECEDOR VENCEDOR (fi=6), não o snapshot do produto (=1) — fold [MÉDIA].
+        await pgCt.query(`UPDATE configuracoes SET valor='S' WHERE codigo='OBRIGA_INFORMAR_CONDICOES_PAGAMENTO'`);
+        const pedInter = await fetch(`${base}/compras/pedidos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, data: '2026-01-10', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 5 }] }) });
+        const pedInterJ = (await pedInter.json().catch(() => ({}))) as any;
+        const wId = Number(((await (await fetch(`${base}/${CT}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'COT GATE', produtos: [{ idproduto: 1, quantidade: 10 }], fornecedores: [{ codparceiro: 22 }] }) })).json().catch(() => ({}))) as any).codctc);
+        await fetch(`${base}/${CT}/${wId}/lancar-precos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, itens: [{ idproduto: 1, valor: 4.0, fatorembalagem: 6 }] }) });
+        await fetch(`${base}/${CT}/${wId}/apurar`, { method: 'POST', headers: H });
+        const wGer = await fetch(`${base}/${CT}/${wId}/gerar-pedido`, { method: 'POST', headers: H });
+        const wGerJ = (await wGer.json().catch(() => ({}))) as any;
+        await pgCt.query(`UPDATE configuracoes SET valor='N' WHERE codigo='OBRIGA_INFORMAR_CONDICOES_PAGAMENTO'`);
+        const wFator = (await pgCt.query(`SELECT fatorembalagem FROM pedidocompra_i WHERE codpedcomp = ANY($1)`, [wGerJ.pedidos ?? []])).rows as any[];
+        check('COTAÇÃO §85.6: gate condição-obrigatória bloqueia pedido interativo (422) mas GerarPedido gera (200, _sistema) com o fator do vencedor (6)',
+          pedInter.status === 422 && pedInterJ.code === 'PEDIDO_SEM_CONDICAO_OBRIGATORIA' && wGer.status === 200 && (wGerJ.pedidos ?? []).length === 1 && wFator.length === 1 && Number(wFator[0].fatorembalagem) === 6,
+          { pedInter: pedInter.status, ped: pedInterJ.code, ger: wGer.status, fator: wFator.map((r) => r.fatorembalagem) });
+
+        // 85.7) FOLD [MÉDIA]: reabrir ZERA a apuração automática → gerar-pedido volta a exigir reapuração (não usa vencedor obsoleto).
+        const rId = Number(((await (await fetch(`${base}/${CT}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'COT REABRE', produtos: [{ idproduto: 1, quantidade: 10 }], fornecedores: [{ codparceiro: 22 }] }) })).json().catch(() => ({}))) as any).codctc);
+        await fetch(`${base}/${CT}/${rId}/lancar-precos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, itens: [{ idproduto: 1, valor: 4.0 }] }) });
+        await fetch(`${base}/${CT}/${rId}/apurar`, { method: 'POST', headers: H });
+        await fetch(`${base}/${CT}/${rId}/fechar`, { method: 'POST', headers: H });
+        await fetch(`${base}/${CT}/${rId}/reabrir`, { method: 'POST', headers: H });
+        const rGer = await fetch(`${base}/${CT}/${rId}/gerar-pedido`, { method: 'POST', headers: H });
+        const rGerJ = (await rGer.json().catch(() => ({}))) as any;
+        check('COTAÇÃO §85.7: reabrir zera a apuração (GANHADOR) → gerar-pedido exige reapurar (422 COTACAO_APURACAO_INCOMPLETA)',
+          rGer.status === 422 && rGerJ.code === 'COTACAO_APURACAO_INCOMPLETA', { status: rGer.status, code: rGerJ.code });
+
+        // 85.8) FOLD [MÉDIA]: escolha MANUAL de um fornecedor FORA da apuração automática (participa='N') sobrevive à
+        // reapuração (o comprador trava um fornecedor não-participante e ele não é descartado ao reapurar).
+        const nId = Number(((await (await fetch(`${base}/${CT}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'COT PART-N', produtos: [{ idproduto: 1, quantidade: 10 }], fornecedores: [{ codparceiro: 22, participa_apuracao: 'N' }, { codparceiro: 1, participa_apuracao: 'S' }] }) })).json().catch(() => ({}))) as any).codctc);
+        await fetch(`${base}/${CT}/${nId}/lancar-precos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, itens: [{ idproduto: 1, valor: 3.0 }] }) }); // mais barato, mas NÃO participa
+        await fetch(`${base}/${CT}/${nId}/lancar-precos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 1, itens: [{ idproduto: 1, valor: 9.0 }] }) });
+        await fetch(`${base}/${CT}/${nId}/apurar`, { method: 'POST', headers: H }); // só forn 1 participa → vencedor forn 1
+        await fetch(`${base}/${CT}/${nId}/definir-ganhador`, { method: 'POST', headers: H, body: JSON.stringify({ idproduto: 1, codparceiro: 22 }) }); // manual: forn 22 (não-participante)
+        await fetch(`${base}/${CT}/${nId}/apurar`, { method: 'POST', headers: H }); // reapurar
+        const nVenc = (await pgCt.query(`SELECT f.codparceiro FROM cotacao_forn_itens fi JOIN cotacao_forn f ON f.codctcforn=fi.codctcforn WHERE f.codctc=$1 AND fi.ganhador='A'`, [nId])).rows as any[];
+        check('COTAÇÃO §85.8: manual de fornecedor não-participante (participa=N) sobrevive à reapuração (não volta p/ forn 1 participante)',
+          nVenc.length === 1 && Number(nVenc[0].codparceiro) === 22, { nVenc });
+      } finally {
+        await pgCt.end();
+      }
     }
   } finally {
     await app.close();

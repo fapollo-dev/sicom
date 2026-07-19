@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put, UseGuards } from '@nestjs/common';
-import { criarCotacaoSchema, atualizarCotacaoSchema, lancarPrecosCotacaoSchema, type CriarCotacaoDto, type AtualizarCotacaoDto, type LancarPrecosCotacaoDto } from '@apollo/shared';
+import { criarCotacaoSchema, atualizarCotacaoSchema, lancarPrecosCotacaoSchema, definirGanhadorCotacaoSchema, type CriarCotacaoDto, type AtualizarCotacaoDto, type LancarPrecosCotacaoDto, type DefinirGanhadorCotacaoDto } from '@apollo/shared';
 import { CotacaoService } from './cotacao.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -64,5 +64,31 @@ export class CotacaoController {
   @RequerAcesso('FRMCADCOTACAO', 'BTNEXCLUIR')
   excluir(@Param('id', ParseIntPipe) id: number) {
     return this.svc.excluir(id);
+  }
+
+  // ── corte-2: apuração + gerar-pedido ──
+
+  /** apura o vencedor por produto (menor preço líq-ICMS entre os que participam). */
+  @Post(':id/apurar')
+  @HttpCode(200)
+  @RequerAcesso('FRMCADCOTACAO', 'BTNPROCESSAR')
+  apurar(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.apurar(id);
+  }
+
+  /** define manualmente o vencedor de um produto (F5). */
+  @Post(':id/definir-ganhador')
+  @HttpCode(200)
+  @RequerAcesso('FRMCADCOTACAO', 'BTNPROCESSAR')
+  definirGanhador(@Param('id', ParseIntPipe) id: number, @Body(new ZodValidationPipe(definirGanhadorCotacaoSchema)) body: DefinirGanhadorCotacaoDto) {
+    return this.svc.definirGanhador(id, body);
+  }
+
+  /** gera os pedidos de compra da apuração (1 por fornecedor vencedor) + fecha a cotação. */
+  @Post(':id/gerar-pedido')
+  @HttpCode(200)
+  @RequerAcesso('FRMCADCOTACAO', 'BTNPROCESSAR')
+  gerarPedido(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.gerarPedido(id);
   }
 }

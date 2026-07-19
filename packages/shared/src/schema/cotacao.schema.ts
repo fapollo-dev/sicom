@@ -81,5 +81,12 @@ export const lancarPrecosCotacaoSchema = z.object({
 });
 export type LancarPrecosCotacaoDto = z.infer<typeof lancarPrecosCotacaoSchema>;
 
+/** define manualmente o vencedor de um produto (corte-2, F5). */
+export const definirGanhadorCotacaoSchema = z.object({
+  idproduto: z.coerce.number().int().positive(),
+  codparceiro: z.coerce.number().int().positive(),
+});
+export type DefinirGanhadorCotacaoDto = z.infer<typeof definirGanhadorCotacaoSchema>;
+
 export const COTACAO_SITUACAO = ['A', 'F'] as const;
 export type CotacaoSituacao = (typeof COTACAO_SITUACAO)[number];
