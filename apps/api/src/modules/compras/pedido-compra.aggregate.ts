@@ -4,6 +4,7 @@ import { createAggregateController } from '../../shared/crud/aggregate.controlle
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { currentTenant } from '../../shared/tenant/tenant-context';
+import { derivarPisCofinsRentabPedido } from '../shared/piscofins-rentab';
 
 /**
  * PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela do legado. Corte-1: NÚCLEO cadastro, agregado
@@ -89,14 +90,19 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
         // /precificacao/produto; o comprador forma o preço). vrvenda (praticado) ≠ vrvendasug (sugerido pelo
         // motor). Nomes fiéis ao legado (MARGEML2/MARGEML2V). Analítica armazenada; sem propagação ao MULTI_PRECO.
         'vrcustoliquido', 'markup', 'vrvenda', 'vrvendasug', 'margeml2', 'margeml2v', 'pmz',
+        // Wave 5: PIS/COFINS de RENTABILIDADE (débito projetado de saída + crédito de entrada) — server-authoritative
+        // via catálogo (produto.idpiscofins) + regime da empresa. Snapshot de margem (fiel PEDIDOCOMPRA_I).
+        'debitopiscofins', 'creditopiscofins',
         // corte-final: % bonificado do item (100 no pedido-espelho gerado por gerar-bonificado).
         'bonificacao',
       ],
       // Derivação server-authoritative (078, uPedidoCompra.pas:1971-1972): VLREMBALAGEM = FATOREMBALAGEM×VRCUSTO
       // (custo por caixa); QTDTOTAL = QTDE×FATOREMBALAGEM (unidades); TOTALCUSTO = QTDE×VLREMBALAGEM (total da linha).
       // QTDE default 1 (behavior-preserving: TOTALCUSTO≡VLREMBALAGEM). O cliente não é fonte da verdade dos derivados.
-      derivarItensTrx: async (itens) =>
-        itens.map((it) => {
+      derivarItensTrx: async (itens, trx, emp) => {
+        // Wave 5: PIS/COFINS de rentabilidade resolvido do catálogo (produto.idpiscofins) + regime da empresa.
+        const rentab = await derivarPisCofinsRentabPedido(trx, emp, itens);
+        return itens.map((it, idx) => {
           const qtde = num(it.qtde) > 0 ? num(it.qtde) : 1;
           const vlrembalagem = r4(num(it.fatorembalagem) * num(it.vrcusto));
           return {
@@ -105,8 +111,11 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
             vlrembalagem,
             qtdtotal: r4(qtde * num(it.fatorembalagem)),
             totalcusto: Math.round((qtde * vlrembalagem + Number.EPSILON) * 100) / 100,
+            debitopiscofins: rentab[idx].debitopiscofins,
+            creditopiscofins: rentab[idx].creditopiscofins,
           };
-        }),
+        });
+      },
     },
     {
       // corte-2: PARCELAS (2º detalhe). Editáveis (o legado permite ajustar); geradas pelo `gerar-parcelas`

@@ -275,6 +275,8 @@ export interface PedidoCompraItem {
   margeml2?: number | string | null;
   margeml2v?: number | string | null;
   pmz?: number | string | null;
+  debitopiscofins?: number | string | null; // débito PIS/COFINS projetado de saída (rentabilidade, Wave 5)
+  creditopiscofins?: number | string | null; // crédito PIS/COFINS de entrada (só LR, Wave 5)
   bonificacao?: number | string | null; // % bonificado (100 no espelho)
 }
 

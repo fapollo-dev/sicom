@@ -4,6 +4,7 @@ import { createAggregateController } from '../../shared/crud/aggregate.controlle
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { currentTenant } from '../../shared/tenant/tenant-context';
+import { debitoPisCofins } from '../shared/piscofins-rentab';
 
 /**
  * NOTA FISCAL (tela-coroa) — Fase 1: NÚCLEO CADASTRO, agregado mestre-detalhe via
@@ -231,6 +232,7 @@ export const nfAggregateConfig: AggregateConfig = {
         'fcp_aliquota', 'fcp_valor', 'pis', 'cstpiscofins',
         'aliqpise', 'aliqpiss', 'aliqcofinse', 'aliqcofinss',
         'bcpiscofinse', 'vrpise', 'vrcofinse', // valor do crédito PIS/COFINS da entrada (Wave 5, XML verbatim)
+        'debitopiscofins', // Wave 5: débito projetado de saída = round((aliqpiss+aliqcofinss)×vrvenda/100,2) — rentabilidade
         'frete', 'seguro', 'vroutrasdesp', 'depsacess', 'arredonda', 'vl_custo',
       ],
       // congela o CUSTO do item = MULTI_PRECO.VRCUSTO corrente por (produto, empresa) no lançamento
@@ -249,7 +251,8 @@ export const nfAggregateConfig: AggregateConfig = {
               .executeTakeFirst();
             vl = mp?.vrcusto != null ? Number(mp.vrcusto) : 0;
           }
-          out.push({ ...it, vl_custo: vl });
+          // Wave 5: PIS/COFINS débito projetado de saída (rentabilidade) das alíquotas de saída do próprio item.
+          out.push({ ...it, vl_custo: vl, debitopiscofins: debitoPisCofins(it.vrvenda, it.aliqpiss, it.aliqcofinss) });
         }
         return out;
       },

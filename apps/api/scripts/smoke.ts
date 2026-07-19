@@ -4569,6 +4569,47 @@ async function main() {
         await pgCt.end();
       }
     }
+
+    // ===== §86: PIS/COFINS de RENTABILIDADE por item (Wave 5) — débito projetado de saída + crédito de entrada =====
+    {
+      const pgPc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // catálogo idpiscofins=1: saída 1,65+7,6=9,25% ; entrada 0,66+3,04=3,7%. Empresa 1 = LR (crédito habilitado).
+        const prodOrig = (await pgPc.query(`SELECT idpiscofins FROM produtos WHERE idproduto=1`)).rows[0]?.idpiscofins ?? null;
+        const setIdpc = (v: number | null) => pgPc.query(`UPDATE produtos SET idpiscofins=${v === null ? 'NULL' : Number(v)} WHERE idproduto=1`);
+        await setIdpc(1);
+
+        // 86.1) PEDIDO: débito = round(9,25% × vrvenda 100) = 9,25 ; crédito = round(3,7% × vrcusto 50) = 1,85 (LR), via catálogo.
+        const pcPost = await fetch(`${base}/compras/pedidos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, data: '2026-07-07', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 50, vrvenda: 100 }] }) });
+        const pcIt = (((await pcPost.json().catch(() => ({}))) as any).itens ?? [])[0] ?? {};
+        check('PIS/COFINS §86.1 PEDIDO: débito=9,25 (9,25%×100) + crédito=1,85 (3,7%×50, LR) via catálogo',
+          pcPost.status === 201 && Number(pcIt.debitopiscofins) === 9.25 && Number(pcIt.creditopiscofins) === 1.85, { st: pcPost.status, deb: pcIt.debitopiscofins, cred: pcIt.creditopiscofins });
+
+        // 86.4) fold auditoria [MÉDIA]: ROUND half-away-from-zero em meio-centavo. 9,25%×90 = 8,325 → 8,33 (não 8,32);
+        // 3,7%×225 = 8,325 → 8,33. Trava a correção do round2 (Number.EPSILON era no-op p/ valores ≳2).
+        const pcRnd = await fetch(`${base}/compras/pedidos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, data: '2026-07-07', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 225, vrvenda: 90 }] }) });
+        const pcRndIt = (((await pcRnd.json().catch(() => ({}))) as any).itens ?? [])[0] ?? {};
+        check('PIS/COFINS §86.4 ROUND meio-centavo: 8,325 → 8,33 (débito 9,25%×90 e crédito 3,7%×225)',
+          pcRnd.status === 201 && Number(pcRndIt.debitopiscofins) === 8.33 && Number(pcRndIt.creditopiscofins) === 8.33, { deb: pcRndIt.debitopiscofins, cred: pcRndIt.creditopiscofins });
+
+        // 86.2) NF: débito server-authoritative das alíquotas de saída do PRÓPRIO item ((1,65+7,6)×vrvenda 100 = 9,25).
+        const nfPc = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'S', modelo: 55, nronf: '9911', serie: '1', dtemissao: '2026-07-07', dtcontabil: '2026-07-07', tipoemissao: '0', finalidade: '1', cfop: '5102', idsituacao_nf: 8, codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 100, aliqpiss: 1.65, aliqcofinss: 7.6, cfop: '5102', aliquota: 'T01', icms: 18 }] }) });
+        const nfPcIt = (((await nfPc.json().catch(() => ({}))) as any).itens ?? [])[0] ?? {};
+        check('PIS/COFINS §86.2 NF: débito server-authoritative=9,25 ((aliqpiss 1,65+aliqcofinss 7,6)×vrvenda 100)',
+          nfPc.status === 201 && Number(nfPcIt.debitopiscofins) === 9.25, { st: nfPc.status, deb: nfPcIt.debitopiscofins });
+
+        // 86.3) crédito só em LR (fiel uDMPrecificacaoProd.pas:215): empresa 1 → SN → crédito 0, débito mantém 9,25.
+        await pgPc.query(`UPDATE empresas SET classfiscal='SN' WHERE idempresa=1`);
+        const pcSn = await fetch(`${base}/compras/pedidos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, data: '2026-07-07', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 50, vrvenda: 100 }] }) });
+        const pcSnIt = (((await pcSn.json().catch(() => ({}))) as any).itens ?? [])[0] ?? {};
+        await pgPc.query(`UPDATE empresas SET classfiscal='LR' WHERE idempresa=1`);
+        await setIdpc(prodOrig === null ? null : Number(prodOrig));
+        check('PIS/COFINS §86.3 PEDIDO em empresa SN: crédito=0 (só LR), débito mantém 9,25',
+          pcSn.status === 201 && Number(pcSnIt.creditopiscofins) === 0 && Number(pcSnIt.debitopiscofins) === 9.25, { cred: pcSnIt.creditopiscofins, deb: pcSnIt.debitopiscofins });
+      } finally {
+        await pgPc.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
