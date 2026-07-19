@@ -4,8 +4,9 @@ import type { LoginDto, LoginResposta, TrocarSenhaDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError, ForbiddenActionError, UnauthenticatedError } from '../../shared/errors/app-error';
-import { hashSenha, verificarSenha, DUMMY_HASH } from '../../shared/auth/crypto';
+import { hashSenha, verificarSenha, DUMMY_HASH, gerarRefreshToken, hashRefreshToken } from '../../shared/auth/crypto';
 import { signJwt } from '../../shared/auth/jwt';
+import { randomUUID } from 'node:crypto';
 
 type AnyDB = Kysely<any>;
 
@@ -34,6 +35,26 @@ export class AuthService {
   }
   private nowSeg(): number {
     return Math.floor(Date.now() / 1000);
+  }
+  /** TTL do ACCESS token (env AUTH_ACCESS_TTL_MIN; default 12h — sem mudança de comportamento no corte-1). */
+  private accessTtlSeg(): number {
+    const min = Number(process.env.AUTH_ACCESS_TTL_MIN);
+    return Number.isFinite(min) && min > 0 ? Math.floor(min * 60) : 12 * 60 * 60;
+  }
+  /** TTL do REFRESH token (env AUTH_REFRESH_TTL_DIAS; default 7 dias). */
+  private refreshTtlSeg(): number {
+    const dias = Number(process.env.AUTH_REFRESH_TTL_DIAS);
+    return Number.isFinite(dias) && dias > 0 ? Math.floor(dias * 86400) : 7 * 86400;
+  }
+
+  /** emite um REFRESH token novo (nova FAMÍLIA) e persiste só o hash. Retorna o texto claro (vai 1x ao cliente). */
+  private async emitirRefresh(db: AnyDB, codoperador: number, codempresa: number, ip: string | null): Promise<string> {
+    const token = gerarRefreshToken();
+    await db
+      .insertInto('operadores_refresh_tokens')
+      .values({ codoperador, codempresa, familia: randomUUID(), token_hash: hashRefreshToken(token), expira_em: sql`now() + make_interval(secs => ${this.refreshTtlSeg()})`, ip })
+      .execute();
+    return token;
   }
 
   /** lê um número de config GLOBAL (valor-base; o login é pré-empresa, sem override). Fallback no default. */
@@ -138,9 +159,12 @@ export class AuthService {
     const mustChange = op.solicitar_alteracao_senha === 'S';
     const token = mustChange
       ? signJwt({ tenant, sub: op.codoperador, emp: empresa, chg: true }, this.nowSeg(), TTL_TROCA_OBRIGATORIA_SEG)
-      : signJwt({ tenant, sub: op.codoperador, emp: empresa }, this.nowSeg());
+      : signJwt({ tenant, sub: op.codoperador, emp: empresa }, this.nowSeg(), this.accessTtlSeg());
+    // refresh só para sessão PLENA — o token `chg` (troca obrigatória) é restrito a /auth/* e não renova sozinho.
+    const refresh = mustChange ? undefined : await this.emitirRefresh(db, op.codoperador, empresa, meta.ip ?? null);
     return {
       token,
+      refresh,
       empresa,
       empresas,
       operador: { codoperador: op.codoperador, nome: op.nome, login: op.login },
@@ -203,8 +227,93 @@ export class AuthService {
     };
   }
 
-  /** LOGOFF (auditoria; JWT é stateless, então é só o registro — o cliente descarta o token). */
-  async logout(meta: AcessoMeta = {}): Promise<{ ok: true }> {
+  /**
+   * RENOVA o access token a partir de um REFRESH válido (rota PÚBLICA — o access pode já ter expirado; o tenant vem
+   * do header). ROTAÇÃO: revoga o refresh apresentado e emite um novo na MESMA família. DETECÇÃO DE REUSO: um refresh
+   * já revogado apresentado = roubo → revoga a FAMÍLIA inteira e recusa (força re-login de todos os elos). Qualquer
+   * falha retorna o MESMO 401 SESSAO_EXPIRADA (não-oráculo). Concorrência: o front deve serializar o refresh (um
+   * único in-flight) — dois refreshes simultâneos do mesmo token disparam a detecção de reuso (limitação consciente).
+   */
+  async renovar(refreshPlain: string, meta: AcessoMeta = {}): Promise<LoginResposta> {
+    const tenant = this.tenant();
+    const db = this.dbp.forTenant() as AnyDB;
+    const hash = hashRefreshToken(refreshPlain);
+    const row = (await db
+      .selectFrom('operadores_refresh_tokens')
+      .select(['id', 'codoperador', 'codempresa', 'familia', 'expira_em', 'revogado_em'])
+      .where('token_hash', '=', hash)
+      .executeTakeFirst()) as { id: number; codoperador: number; codempresa: number | null; familia: string; expira_em: unknown; revogado_em: unknown } | undefined;
+    if (!row) throw new UnauthenticatedError('SESSAO_EXPIRADA');
+
+    // REUSO: refresh já revogado sendo reapresentado → possível roubo → revoga a FAMÍLIA inteira.
+    if (row.revogado_em != null) {
+      await db.updateTable('operadores_refresh_tokens').set({ revogado_em: sql`now()` }).where('familia', '=', row.familia).where('revogado_em', 'is', null).execute();
+      throw new UnauthenticatedError('SESSAO_EXPIRADA');
+    }
+    if (new Date(row.expira_em as string | number | Date).getTime() <= Date.now()) throw new UnauthenticatedError('SESSAO_EXPIRADA');
+
+    const revogarFamilia = () => db.updateTable('operadores_refresh_tokens').set({ revogado_em: sql`now()` }).where('familia', '=', row.familia).where('revogado_em', 'is', null).execute();
+
+    const op = (await db
+      .selectFrom('operadores')
+      .select(['codoperador', 'nome', 'login', 'desabilitado', 'solicitar_alteracao_senha', 'bloqueado_ate'])
+      .where('codoperador', '=', row.codoperador)
+      .where(sql`coalesce(indr,'I')`, '<>', 'E')
+      .executeTakeFirst()) as { codoperador: number; nome: string | null; login: string | null; desabilitado: string | null; solicitar_alteracao_senha: string | null; bloqueado_ate: unknown } | undefined;
+    if (!op || op.desabilitado === 'S') {
+      await revogarFamilia();
+      throw new UnauthenticatedError('SESSAO_EXPIRADA');
+    }
+    // fold auditoria [BAIXA]: conta BLOQUEADA (corte-3c) não renova — força re-login (que devolve OPERADOR_BLOQUEADO).
+    // Bloqueio é temporário → NÃO revoga a família (some ao expirar a janela). Sem cap absoluto de sessão (adiado).
+    if (op.bloqueado_ate && new Date(op.bloqueado_ate as string | number | Date).getTime() > Date.now()) {
+      throw new UnauthenticatedError('SESSAO_EXPIRADA');
+    }
+    // fold auditoria [MÉDIA]: troca obrigatória (fold M2 do login) NÃO pode ser burlada pelo refresh — recusa e força
+    // re-login, que emite o token `chg` restrito a /auth/*. (Não revoga: o refresh só volta a valer após a troca+re-login.)
+    if (op.solicitar_alteracao_senha === 'S') throw new UnauthenticatedError('SESSAO_EXPIRADA');
+
+    // fold auditoria [ALTA]: a EMPRESA da sessão pode ter sido revogada (RELACAO_OPERADOR_EMPRESA) após o login —
+    // o login recusaria (OPERADOR_SEM_EMPRESA); o refresh tem de recusar também, senão renova acesso à empresa perdida.
+    const empresas = (await db
+      .selectFrom('relacao_operador_empresa as r')
+      .leftJoin('empresas as e', 'e.idempresa', 'r.codempresa')
+      .select(['r.codempresa as idempresa', 'e.razao_social as nome'])
+      .where('r.codoperador', '=', op.codoperador)
+      .orderBy('r.codempresa')
+      .execute()) as Array<{ idempresa: number; nome: string | null }>;
+    const empresa = Number(row.codempresa);
+    if (!empresas.some((x) => Number(x.idempresa) === empresa)) {
+      await revogarFamilia();
+      throw new UnauthenticatedError('SESSAO_EXPIRADA');
+    }
+
+    // fold auditoria [MÉDIA]: ROTAÇÃO ATÔMICA por CAS — revoga o atual só se AINDA ativo (WHERE revogado_em IS NULL).
+    // Se 0 linhas, outra chamada já rotacionou este token (corrida/reuso) → detecta e revoga a família (sem dois elos).
+    const upd = await db.updateTable('operadores_refresh_tokens').set({ revogado_em: sql`now()` }).where('id', '=', row.id).where('revogado_em', 'is', null).executeTakeFirst();
+    if (Number((upd as { numUpdatedRows?: unknown })?.numUpdatedRows ?? 0) !== 1) {
+      await revogarFamilia();
+      throw new UnauthenticatedError('SESSAO_EXPIRADA');
+    }
+    const novoRefresh = gerarRefreshToken();
+    await db
+      .insertInto('operadores_refresh_tokens')
+      .values({ codoperador: op.codoperador, codempresa: empresa, familia: row.familia, token_hash: hashRefreshToken(novoRefresh), expira_em: sql`now() + make_interval(secs => ${this.refreshTtlSeg()})`, ip: meta.ip ?? null })
+      .execute();
+
+    const token = signJwt({ tenant, sub: op.codoperador, emp: empresa }, this.nowSeg(), this.accessTtlSeg());
+    return {
+      token,
+      refresh: novoRefresh,
+      empresa,
+      empresas,
+      operador: { codoperador: op.codoperador, nome: op.nome, login: op.login },
+      mustChangePassword: false, // troca obrigatória já foi barrada acima
+    };
+  }
+
+  /** LOGOFF (auditoria) + REVOGA a família do refresh apresentado (mata a sessão de fato — o access stateless só some ao expirar). */
+  async logout(meta: AcessoMeta = {}, refreshPlain?: string | null): Promise<{ ok: true }> {
     const ctx = currentTenant();
     const op = ctx.operadorId ?? null;
     if (op == null) throw new UnauthenticatedError('NAO_AUTENTICADO');
@@ -213,6 +322,14 @@ export class AuthService {
       .insertInto('operadores_acessos')
       .values({ codoperador: op, codempresa: ctx.empresaId ?? null, ip: meta.ip ?? null, nomecomputador: meta.nomecomputador ?? null, versao: meta.versao ?? null, tipo: 'LOGOFF' })
       .execute();
+    if (refreshPlain) {
+      // revoga a FAMÍLIA do refresh apresentado (o access stateless expira sozinho; sem refresh não há renovação).
+      // fold auditoria [BAIXA]: só revoga se a família for do PRÓPRIO operador da sessão (não deixa A matar sessão de B).
+      const fam = (await db.selectFrom('operadores_refresh_tokens').select(['familia', 'codoperador']).where('token_hash', '=', hashRefreshToken(refreshPlain)).executeTakeFirst()) as { familia?: string; codoperador?: number } | undefined;
+      if (fam?.familia && Number(fam.codoperador) === op) {
+        await db.updateTable('operadores_refresh_tokens').set({ revogado_em: sql`now()` }).where('familia', '=', fam.familia).where('revogado_em', 'is', null).execute();
+      }
+    }
     return { ok: true };
   }
 }

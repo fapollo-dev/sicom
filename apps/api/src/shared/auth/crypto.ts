@@ -1,4 +1,4 @@
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
 
 /**
  * HASH de senha — scrypt do `node:crypto` (zero dependência nativa; decisão do corte OPERADORES corte-3).
@@ -45,6 +45,18 @@ export function verificarSenha(senha: string, hashArmazenado: string | null | un
     return false;
   }
   return calc.length === esperado.length && timingSafeEqual(calc, esperado);
+}
+
+/**
+ * REFRESH TOKEN — segredo OPACO de alta entropia (256 bits). Diferente da senha (baixa entropia → scrypt lento):
+ * como já é aleatório, um hash RÁPIDO (sha256) basta e é o certo (lookup por índice; sem brute-force viável).
+ * Guarda-se só o HASH; o texto claro vai uma vez ao cliente e nunca é persistido.
+ */
+export function gerarRefreshToken(): string {
+  return randomBytes(32).toString('base64url');
+}
+export function hashRefreshToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
 }
 
 /**

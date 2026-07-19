@@ -3678,6 +3678,58 @@ async function main() {
     check('AUTH: rota protegida sem operador (só tenant) → 401 NAO_AUTENTICADO (fold M1 fecha leitura anônima)',
       semOpR.status === 401, { status: semOpR.status });
 
+    // ===== §71.R) REFRESH TOKEN (rotação + reuse-detection + revogação no logout) =====
+    // R.1) login de sessão plena retorna um refresh token opaco.
+    const rLogin = await authPost('login', { login: 'SMOKE', senha: 'smoke123', empresa: 1 });
+    const refresh1 = rLogin.json.refresh as string;
+    check('AUTH refresh R.1: login (sessão plena) retorna refresh token opaco', rLogin.status === 200 && typeof refresh1 === 'string' && refresh1.length > 20, { hasRefresh: typeof refresh1 === 'string', len: refresh1?.length });
+
+    // R.2) /auth/refresh emite NOVO access + refresh ROTACIONADO (≠ anterior); o novo access autentica.
+    const ren1 = await authPost('refresh', { refresh: refresh1 });
+    const token2 = ren1.json.token as string; const refresh2 = ren1.json.refresh as string;
+    const me2 = await fetch(`${base}/auth/me`, { headers: { authorization: `Bearer ${token2}` } });
+    check('AUTH refresh R.2: /auth/refresh → novo access (autentica) + refresh rotacionado (≠ anterior)',
+      ren1.status === 200 && token2?.split('.').length === 3 && typeof refresh2 === 'string' && refresh2 !== refresh1 && me2.status === 200, { st: ren1.status, rotacionou: refresh2 !== refresh1, me: me2.status });
+
+    // R.3) REUSO do refresh JÁ rotacionado (refresh1) → 401 + revoga a FAMÍLIA inteira (o refresh2 atual também morre).
+    const reuse = await authPost('refresh', { refresh: refresh1 });
+    const afterReuse = await authPost('refresh', { refresh: refresh2 });
+    check('AUTH refresh R.3: reuso do refresh antigo → 401 SESSAO_EXPIRADA + revoga a família (o refresh atual também para de renovar)',
+      reuse.status === 401 && reuse.json.code === 'SESSAO_EXPIRADA' && afterReuse.status === 401, { reuse: reuse.status, afterReuse: afterReuse.status });
+
+    // R.4) logout REVOGA a família → o refresh não renova mais.
+    const rLogin3 = await authPost('login', { login: 'SMOKE', senha: 'smoke123', empresa: 1 });
+    const refresh3 = rLogin3.json.refresh as string; const token3 = rLogin3.json.token as string;
+    const lo3 = await fetch(`${base}/auth/logout`, { method: 'POST', headers: { ...HT, authorization: `Bearer ${token3}` }, body: JSON.stringify({ refresh: refresh3 }) });
+    const afterLogout = await authPost('refresh', { refresh: refresh3 });
+    check('AUTH refresh R.4: logout revoga a família → o refresh não renova mais (401)',
+      lo3.status === 200 && afterLogout.status === 401 && afterLogout.json.code === 'SESSAO_EXPIRADA', { logout: lo3.status, after: afterLogout.status });
+
+    // R.5) refresh inexistente → 401 SESSAO_EXPIRADA (não-oráculo).
+    const rBad = await authPost('refresh', { refresh: 'nao-existe-este-refresh-xyz' });
+    check('AUTH refresh R.5: refresh inexistente → 401 SESSAO_EXPIRADA', rBad.status === 401 && rBad.json.code === 'SESSAO_EXPIRADA', rBad);
+
+    // R.6) fold auditoria [ALTA]: empresa da sessão revogada (membership) → refresh recusa (não renova acesso perdido).
+    // Simula forjando o codempresa do refresh de op 7 para uma empresa NÃO-permitida (999). (op 7 = SMOKE, senha estável.)
+    await pgAuth.query(`UPDATE operadores_refresh_tokens SET revogado_em=now() WHERE codoperador=7 AND revogado_em IS NULL`);
+    const r7 = await authPost('login', { login: 'SMOKE', senha: 'smoke123', empresa: 1 });
+    const ref7 = r7.json.refresh as string;
+    await pgAuth.query(`UPDATE operadores_refresh_tokens SET codempresa=999 WHERE codoperador=7 AND revogado_em IS NULL`);
+    const ren7 = await authPost('refresh', { refresh: ref7 });
+    await pgAuth.query(`UPDATE operadores_refresh_tokens SET revogado_em=now() WHERE codoperador=7 AND revogado_em IS NULL`);
+    check('AUTH refresh R.6: empresa não-permitida (membership revogada) → 401 SESSAO_EXPIRADA (não renova acesso perdido)',
+      ren7.status === 401 && ren7.json.code === 'SESSAO_EXPIRADA', ren7);
+
+    // R.7) fold auditoria [MÉDIA]: troca-obrigatória NÃO é burlável pelo refresh (força re-login → token chg restrito).
+    const r7b = await authPost('login', { login: 'SMOKE', senha: 'smoke123', empresa: 1 });
+    const ref7b = r7b.json.refresh as string;
+    await pgAuth.query(`UPDATE operadores SET solicitar_alteracao_senha='S' WHERE codoperador=7`);
+    const ren7b = await authPost('refresh', { refresh: ref7b });
+    await pgAuth.query(`UPDATE operadores SET solicitar_alteracao_senha='N' WHERE codoperador=7`);
+    await pgAuth.query(`UPDATE operadores_refresh_tokens SET revogado_em=now() WHERE codoperador=7 AND revogado_em IS NULL`);
+    check('AUTH refresh R.7: troca-obrigatória não burlável pelo refresh → 401 SESSAO_EXPIRADA',
+      ren7b.status === 401 && ren7b.json.code === 'SESSAO_EXPIRADA', ren7b);
+
     // ===== §72) corte-3c — ENDURECIMENTO: lockout por tentativas + auditoria de login DESCONHECIDO =====
     // 72.1) LOCKOUT (op 92 LOCKTEST): max=3 → 3 falhas bloqueiam; login CORRETO durante o bloqueio → 403.
     await pgAuth.query(`UPDATE configuracoes SET valor='3' WHERE codigo='AUTH_MAX_TENTATIVAS_LOGIN'`);

@@ -46,12 +46,25 @@ export interface EmpresaDisponivel {
 /** Resposta do login: token + identidade, OU needsEmpresa quando há várias empresas a escolher. */
 export interface LoginResposta {
   token?: string;
+  refresh?: string; // refresh token OPACO (sessão plena); ausente em needsEmpresa e no token de troca-obrigatória
   needsEmpresa?: boolean;
   empresas: EmpresaDisponivel[];
   operador?: { codoperador: number; nome: string | null; login: string | null };
   empresa?: number;
   mustChangePassword?: boolean;
 }
+
+/** Renovação do access token a partir do refresh (rota pública /auth/refresh). */
+export const refreshSchema = z.object({
+  refresh: z.string().min(1, 'Refresh token ausente.').max(500),
+});
+export type RefreshDto = z.infer<typeof refreshSchema>;
+
+/** Logout: revoga a família do refresh apresentado (opcional — sem ele, é só auditoria). */
+export const logoutSchema = z.object({
+  refresh: z.string().max(500).optional(),
+});
+export type LogoutDto = z.infer<typeof logoutSchema>;
 
 /** Liberação por supervisor — set de grant por-usuário (corte-2). */
 export const liberacaoPermissaoSchema = z.object({

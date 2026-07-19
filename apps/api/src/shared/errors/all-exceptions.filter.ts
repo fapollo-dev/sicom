@@ -388,6 +388,7 @@ const CODE_PT: Record<string, string> = {
   SEM_PERMISSAO: 'Você não tem permissão para executar esta ação.',
   NAO_AUTENTICADO: 'Autenticação necessária. Faça login novamente.',
   CREDENCIAIS_INVALIDAS: 'Usuário ou senha inválidos.',
+  SESSAO_EXPIRADA: 'Sua sessão expirou. Faça login novamente.',
   OPERADOR_DESABILITADO: 'Usuário desabilitado — contate o administrador.',
   OPERADOR_BLOQUEADO: 'Usuário temporariamente bloqueado por excesso de tentativas. Tente novamente mais tarde.',
   OPERADOR_SEM_EMPRESA: 'Usuário sem acesso à empresa selecionada — contate o administrador.',

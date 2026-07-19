@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
-import { loginSchema, trocarSenhaSchema, type LoginDto, type TrocarSenhaDto } from '@apollo/shared';
+import { loginSchema, trocarSenhaSchema, refreshSchema, type LoginDto, type TrocarSenhaDto, type RefreshDto } from '@apollo/shared';
 import { AuthService, type AcessoMeta } from './auth.service';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
@@ -28,6 +28,13 @@ export class AuthController {
     return this.svc.login(dto, this.meta(req));
   }
 
+  /** renova o access token a partir do refresh (público — o access pode ter expirado; tenant vem do header). */
+  @Post('refresh')
+  @HttpCode(200)
+  refresh(@Body(new ZodValidationPipe(refreshSchema)) dto: RefreshDto, @Req() req: Request) {
+    return this.svc.renovar(dto.refresh, this.meta(req));
+  }
+
   @Post('trocar-senha')
   @HttpCode(200)
   trocarSenha(@Body(new ZodValidationPipe(trocarSenhaSchema)) dto: TrocarSenhaDto) {
@@ -42,6 +49,8 @@ export class AuthController {
   @Post('logout')
   @HttpCode(200)
   logout(@Req() req: Request) {
-    return this.svc.logout(this.meta(req));
+    // tolerante a chamadas SEM corpo (só auditoria); com { refresh } revoga a família da sessão.
+    const refresh = typeof (req.body as { refresh?: unknown })?.refresh === 'string' ? (req.body as { refresh: string }).refresh : undefined;
+    return this.svc.logout(this.meta(req), refresh);
   }
 }
