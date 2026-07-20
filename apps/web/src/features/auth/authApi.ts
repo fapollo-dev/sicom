@@ -10,7 +10,7 @@ import {
   type LoginResposta,
   type TrocarSenhaDto,
 } from '@apollo/shared';
-import { apiHeaders, loginHeaders } from '../../shared/auth/session';
+import { apiHeaders, loginHeaders, getSessao } from '../../shared/auth/session';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -45,7 +45,8 @@ export function apiMe(): Promise<LoginResposta> {
   return req('/auth/me', {}, apiHeaders());
 }
 
-/** POST /auth/logout — auditoria LOGOFF (o token é stateless; o cliente descarta a sessão). */
+/** POST /auth/logout — auditoria LOGOFF + REVOGA a família do refresh (corte-2), matando a sessão no servidor. */
 export function apiLogout(): Promise<void> {
-  return req('/auth/logout', { method: 'POST' }, apiHeaders());
+  const refresh = getSessao()?.refresh;
+  return req('/auth/logout', { method: 'POST', body: JSON.stringify({ refresh }) }, apiHeaders());
 }

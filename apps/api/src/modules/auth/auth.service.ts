@@ -36,10 +36,10 @@ export class AuthService {
   private nowSeg(): number {
     return Math.floor(Date.now() / 1000);
   }
-  /** TTL do ACCESS token (env AUTH_ACCESS_TTL_MIN; default 12h — sem mudança de comportamento no corte-1). */
+  /** TTL do ACCESS token (env AUTH_ACCESS_TTL_MIN; default 60 min — corte-2: access CURTO, renovado pelo refresh do front). */
   private accessTtlSeg(): number {
     const min = Number(process.env.AUTH_ACCESS_TTL_MIN);
-    return Number.isFinite(min) && min > 0 ? Math.floor(min * 60) : 12 * 60 * 60;
+    return Number.isFinite(min) && min > 0 ? Math.floor(min * 60) : 60 * 60;
   }
   /** TTL do REFRESH token (env AUTH_REFRESH_TTL_DIAS; default 7 dias). */
   private refreshTtlSeg(): number {
