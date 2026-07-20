@@ -31,6 +31,7 @@ export * from './schema/senha-operacao.schema';
 export * from './schema/inventario.schema';
 export * from './schema/cotacao.schema';
 export * from './schema/auth.schema';
+export * from './schema/configuracao.schema';
 export * from './erro';
 export * from './validators/br';
 export * from './validators/inscricao-estadual';

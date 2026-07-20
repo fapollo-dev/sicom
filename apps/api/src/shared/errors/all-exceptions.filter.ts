@@ -217,6 +217,11 @@ const CODE_PT: Record<string, string> = {
   CONTA_AUTOMATICA_NAO_SUPORTADA: 'Conta contábil automática de débito exige centro de custo (CODCC).',
   ICMS_SEM_SITUACAO: 'CFOP sem situação contábil de ICMS configurada, mas há ICMS a lançar. Verifique!',
   PERIODO_FECHADO: 'O período contábil desta data está fechado. Entre em contato com o contador responsável.',
+  // configurações (UConfigura)
+  CONFIG_NAO_ENCONTRADA: 'Configuração não encontrada.',
+  CONFIG_VALOR_INVALIDO: 'Valor não permitido para esta configuração.',
+  CONFIG_ESCOPO_NAO_PERMITIDO: 'Escopo não permitido para esta configuração (esta tela gerencia apenas a empresa atual).',
+  CONFIG_EMPRESA_INVALIDA: 'Só é possível configurar a empresa em que você está autenticado.',
   // faturamento / financeiro (F4)
   NF_JA_FATURADA: 'Esta nota fiscal já está faturada.',
   NF_NAO_FATURADA: 'Esta nota fiscal não está faturada.',

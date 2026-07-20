@@ -30,6 +30,7 @@ import {
   CalendarClock,
   Undo2,
   ClipboardList,
+  Settings,
 } from 'lucide-react';
 
 /** Telas do menu lateral (rota → rótulo + ícone). Uma TForm = um item. */
@@ -65,6 +66,7 @@ const TELAS = [
   { href: '/cadastro/operadores', name: 'Operadores', icon: UserCog },
   { href: '/cadastro/perfis', name: 'Perfis & Permissões', icon: ShieldCheck },
   { href: '/cadastro/formas-pgto', name: 'Formas de Pagamento', icon: CreditCard },
+  { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 
 /**

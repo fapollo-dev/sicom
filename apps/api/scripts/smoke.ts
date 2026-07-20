@@ -4887,6 +4887,62 @@ async function main() {
         await pgSp.end();
       }
     }
+
+    // 89) CONFIGURAÇÕES (gestão da camada chave-valor — tela UConfigura). Catálogo + valor EFETIVO (resolver)
+    // + overrides por escopo (Empresa/Usuario/Modulo) + default global. RBAC FRMCONFIGURA/BTNGRAVAR nas escritas.
+    const CFG = 'cadastro/configuracoes';
+    const cfgList = async (h = H): Promise<any[]> => (await (await fetch(`${base}/${CFG}`, { headers: h })).json()) as any[];
+    const cfgFind = (arr: any[], cod: string) => arr.find((c) => c.codigo === cod);
+    const cfgCode = async (r: any) => ((await r.json().catch(() => ({}))) as any).code;
+    // 89.1) lista: 6 chaves catalogadas, metadados fiéis (categoria/opções/escopos) e AMBIENTE_NF já com override
+    // de Empresa (emp 1 → 'H') aplicado no valor EFETIVO enquanto o default global segue 'P'.
+    const cfg0 = await cfgList();
+    const permite = cfgFind(cfg0, 'PERMITE_PROC_NF_ESTOQUE_NEG');
+    const ambiente = cfgFind(cfg0, 'AMBIENTE_NF');
+    check('CFG: lista traz catálogo com metadado (categoria/opções S-N/escopos) + valor efetivo',
+      cfg0.length >= 6 && permite?.categorias === 'Nota Fiscal' && Array.isArray(permite?.opcoes) && permite.opcoes.length === 2
+      && permite.opcoes[0].valor === 'S' && permite.opcoes[0].label === 'Sim' && permite.escoposPermitidos.includes('Empresa')
+      && permite.valorEfetivo === 'S' && permite.overrideEmpresa === null,
+      { n: cfg0.length, permite: { cat: permite?.categorias, ef: permite?.valorEfetivo, ov: permite?.overrideEmpresa } });
+    check('CFG: AMBIENTE_NF — override de Empresa (emp1→H) vence o default global (P)',
+      ambiente?.valor === 'P' && ambiente?.valorEfetivo === 'H' && ambiente?.overrideEmpresa === 'H', { ambiente });
+    // 89.2) grava override de Empresa (emp1) PERMITE='N' → valor efetivo vira 'N' (mesmo resolver que a NF vê).
+    const cfgSet = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'Empresa', chave: 1, valor: 'N' }) });
+    const permiteAp = cfgFind(await cfgList(), 'PERMITE_PROC_NF_ESTOQUE_NEG');
+    check('CFG: PUT override Empresa (PERMITE=N) → 200 + valor efetivo=N', cfgSet.status === 200 && permiteAp?.valorEfetivo === 'N' && permiteAp?.overrideEmpresa === 'N', { status: cfgSet.status, ef: permiteAp?.valorEfetivo });
+    // 89.3) isolamento por empresa: override na emp 2 (via H2, que tem grant) NÃO muda o efetivo da emp 1.
+    const cfgSet2 = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: H2, body: JSON.stringify({ tipo: 'Empresa', chave: 2, valor: 'N' }) });
+    const permiteEmp2 = cfgFind(await cfgList(H2), 'PERMITE_PROC_NF_ESTOQUE_NEG');
+    const permiteEmp1 = cfgFind(await cfgList(H), 'PERMITE_PROC_NF_ESTOQUE_NEG');
+    check('CFG: override por empresa é isolado (emp2 vê N; emp1 mantém seu próprio override)', cfgSet2.status === 200 && permiteEmp2?.valorEfetivo === 'N' && permiteEmp2?.overrideEmpresa === 'N' && permiteEmp1?.overrideEmpresa === 'N', { emp2: permiteEmp2?.valorEfetivo });
+    // 89.4) validações: valor fora de VALORESPOSSIVEIS → 422; escopo ≠ Empresa (esta tela só Empresa) → 422; chave inexistente → 422.
+    const cfgBad = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'Empresa', chave: 1, valor: 'X' }) });
+    const cfgEsc = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'Usuario', chave: 7, valor: 'S' }) });
+    const cfgNao = await fetch(`${base}/${CFG}/NAO_EXISTE/override`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'Empresa', chave: 1, valor: 'S' }) });
+    check('CFG: validações (valor inválido→422; escopo Usuario mesmo permitido na chave→422; chave inexistente→422)',
+      cfgBad.status === 422 && (await cfgCode(cfgBad)) === 'CONFIG_VALOR_INVALIDO'
+      && cfgEsc.status === 422 && (await cfgCode(cfgEsc)) === 'CONFIG_ESCOPO_NAO_PERMITIDO'
+      && cfgNao.status === 422 && (await cfgCode(cfgNao)) === 'CONFIG_NAO_ENCONTRADA',
+      { bad: cfgBad.status, esc: cfgEsc.status, nao: cfgNao.status });
+    // 89.4b) FOLD [MÉDIA] cross-empresa: op da emp 1 NÃO grava override de OUTRA empresa (chave≠empresa da sessão) → 422.
+    const cfgCross = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'Empresa', chave: 2, valor: 'N' }) });
+    check('CFG: cross-empresa (emp1 grava chave=2) → 422 CONFIG_EMPRESA_INVALIDA', cfgCross.status === 422 && (await cfgCode(cfgCross)) === 'CONFIG_EMPRESA_INVALIDA', { status: cfgCross.status });
+    // 89.5) RBAC: sem grant (op 999) → 403.
+    const cfgRbac = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override`, { method: 'PUT', headers: H_SEM_ACESSO, body: JSON.stringify({ tipo: 'Empresa', chave: 1, valor: 'S' }) });
+    check('CFG: PUT override sem grant RBAC → 403', cfgRbac.status === 403, { status: cfgRbac.status });
+    // 89.6) overrides (detalhe) lista os grants da chave (Empresa/1/N + Empresa/2/N).
+    const cfgOv = (await (await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/overrides`, { headers: H })).json()) as any[];
+    check('CFG: GET overrides lista os grants por escopo', cfgOv.length === 2 && cfgOv.every((o) => o.tipo === 'Empresa' && o.valor === 'N'), { ov: cfgOv });
+    // 89.7) default global: PUT altera CONFIGURACOES.VALOR; restaura em seguida (ESTORNA_FINANCEIRO_NF é lido no cancelamento).
+    const cfgDef = await fetch(`${base}/${CFG}/ESTORNA_FINANCEIRO_NF`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 'S' }) });
+    const estornaAp = cfgFind(await cfgList(), 'ESTORNA_FINANCEIRO_NF');
+    check('CFG: PUT default global → 200 + valor default atualizado', cfgDef.status === 200 && estornaAp?.valor === 'S', { status: cfgDef.status, valor: estornaAp?.valor });
+    await fetch(`${base}/${CFG}/ESTORNA_FINANCEIRO_NF`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 'N' }) }); // restaura
+    // 89.8) remover override → volta ao default; limpa os overrides de teste.
+    const cfgDel = await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override?tipo=Empresa&chave=1`, { method: 'DELETE', headers: H });
+    const permiteDef = cfgFind(await cfgList(), 'PERMITE_PROC_NF_ESTOQUE_NEG');
+    check('CFG: DELETE override → 204 + valor efetivo volta ao default (S)', cfgDel.status === 204 && permiteDef?.valorEfetivo === 'S' && permiteDef?.overrideEmpresa === null, { status: cfgDel.status, ef: permiteDef?.valorEfetivo });
+    await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override?tipo=Empresa&chave=2`, { method: 'DELETE', headers: H2 }); // limpa o override da emp 2
   } finally {
     await app.close();
     await pg.stop();

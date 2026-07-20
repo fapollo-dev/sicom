@@ -44,6 +44,8 @@ import { FormasPgtoCrudController } from './formas-pgto.crud';
 import { NfFiscalController } from './nf-fiscal.controller';
 import { NfFiscalService } from './nf-fiscal.service';
 import { ConfigService } from './config.service';
+import { ConfiguracoesAdminController } from './configuracoes-admin.controller';
+import { ConfiguracoesAdminService } from './configuracoes-admin.service';
 import { NfProcessamentoController } from './nf-processamento.controller';
 import { NfProcessamentoService } from './nf-processamento.service';
 import { NfFaturamentoController } from './nf-faturamento.controller';
@@ -103,6 +105,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     PerfilRelacaoController, // vertical: atribuir perfis a operadores (relacao_operador_perfil)
     PermissoesController, // corte-2: matriz de grants FORM×OPCAO por perfil (UCtrlPermissoes)
     SenhaOperacaoController, // E7: senha de operação por empresa (definir/verificar)
+    ConfiguracoesAdminController, // CONFIGURAÇÕES (UConfigura): catálogo chave-valor + overrides por escopo
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
   providers: [
@@ -110,6 +113,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     BancoRepository,
     DatabaseProvider,
     ConfigService,
+    ConfiguracoesAdminService,
     NfFiscalService,
     NfProcessamentoService,
     NfFaturamentoService,
