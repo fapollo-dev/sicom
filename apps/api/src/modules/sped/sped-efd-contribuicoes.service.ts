@@ -3,7 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
-import { SpedArquivo, fmtData, soDigitos } from './sped-writer';
+import { SpedArquivo, fmtData, fmtNum, soDigitos } from './sped-writer';
 
 type AnyDB = Kysely<any>;
 
@@ -69,13 +69,75 @@ export class SpedEfdContribuicoesService {
     }
     arq.fecharBloco('0990', '0');
 
+    // BLOCO M (corte-2a): apuração do CRÉDITO de entrada (M100/M105 PIS + M500/M505 COFINS). A consolidação
+    // M200/M600 (valor a recolher) depende do DÉBITO de saída (cupons/ReduçãoZ do PDV) → ADIADA.
+    const credito = await this.gerarBlocoM(arq, db, emp, dtini, dtfim);
+
     const arquivo = arq.gerar();
     return {
       arquivo,
       linhas: arquivo.trimEnd().split('\r\n').length,
       estabelecimentos: estabs.length,
       parcial: true,
-      aviso: 'PARCIAL: só bloco 0 (cadastros) + bloco 9 (totalizador). Blocos C (documentos) e M (apuração) = corte-2; a saída de varejo (cupons/ReduçãoZ do PDV) ainda não foi migrada.',
+      aviso: `PARCIAL: bloco 0 (cadastros) + bloco M (crédito de entrada${credito ? '' : ' — SEM apuração no período; rode POST /fiscal/sped/apuracao-pc'}) + bloco 9. Falta o bloco C (documentos) e o DÉBITO de saída (cupons/ReduçãoZ do PDV, não migrado) → consolidação M200/M600.`,
     };
+  }
+
+  /**
+   * BLOCO M — apuração do CRÉDITO de PIS/COFINS de entrada, lido de apuracao_pc/_det (rode a apuração antes).
+   * M001 (abertura) → por alíquota: M100 (PIS: COD_CRED, BC, alíq, crédito) + M105 (detalhe por CST) ; M500/M505
+   * (COFINS, espelho) → M990. Sem apuração no período → M001 IND_MOV=1 (bloco vazio). Retorna true se houve crédito.
+   */
+  private async gerarBlocoM(arq: SpedArquivo, db: AnyDB, emp: number, dtini: string, dtfim: string): Promise<boolean> {
+    const cab = (await db.selectFrom('apuracao_pc').select('codapuracao_pc').where('idempresa', '=', emp).where('dataini', '=', dtini).where('datafim', '=', dtfim).executeTakeFirst()) as { codapuracao_pc?: number } | undefined;
+    const det = cab
+      ? ((await db.selectFrom('apuracao_pc_det').selectAll().where('codapuracao_pc', '=', Number(cab.codapuracao_pc)).where('tipo', '=', 'C').orderBy('codapuracao_pc_det').execute()) as Array<Record<string, unknown>>)
+      : [];
+
+    arq.add('M001', [det.length ? '0' : '1']); // IND_MOV: 0=com dados / 1=sem
+    if (!det.length) {
+      arq.fecharBloco('M990', 'M');
+      return false;
+    }
+
+    const n2 = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
+    const cst2 = (v: unknown) => (v == null ? '' : String(v).padStart(2, '0'));
+
+    // ── PIS: M100 por alíquota (COD_CRED fixo '101' neste corte), M105 detalhe por CST ──
+    const grupar = (chaveAliq: 'aliqpis' | 'aliqcofins') => {
+      const m = new Map<string, Record<string, unknown>[]>();
+      for (const d of det) {
+        const k = `${d.id_tipocredito}|${Number(n2(d[chaveAliq])).toFixed(4)}`;
+        (m.get(k) ?? m.set(k, []).get(k)!).push(d);
+      }
+      return m;
+    };
+    for (const linhas of grupar('aliqpis').values()) {
+      const codCred = String(linhas[0].id_tipocredito ?? '101');
+      const aliq = n2(linhas[0].aliqpis);
+      const base = linhas.reduce((s, d) => s + n2(d.basecalculo), 0);
+      const cred = linhas.reduce((s, d) => s + n2(d.valorpis), 0);
+      // M100: COD_CRED|IND_CRED_ORI|VL_BC_PIS|ALIQ_PIS|QUANT_BC_PIS|ALIQ_PIS_QUANT|VL_CRED|VL_AJUS_ACRES|VL_AJUS_REDUC|VL_CRED_DIF|VL_CRED_DISP|IND_DESC_CRED|VL_CRED_DESC|SLD_CRED
+      // fold auditoria [MÉDIA]: sem débito no período (M200 adiado — depende do PDV), o crédito NÃO é descontado →
+      // VL_CRED_DESC=0 e SLD_CRED=VL_CRED_DISP (saldo credor a transportar). (Quando o débito entrar, o offset é recalculado.)
+      arq.add('M100', [codCred, '01', fmtNum(base), fmtNum(aliq, 4), '', '', fmtNum(cred), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(cred), '0', fmtNum(0), fmtNum(cred)]);
+      for (const d of linhas) {
+        // M105: NAT_BC_CRED|CST_PIS|VL_BC_PIS_TOT|VL_BC_PIS_CUM|VL_BC_PIS_NC|VL_BC_PIS|QUANT_BC_PIS_TOT|QUANT_BC_PIS|DESC_CRED
+        arq.add('M105', [cst2(d.id_basecredito), cst2(d.cst_pis), fmtNum(n2(d.basecalculo)), fmtNum(0), fmtNum(n2(d.basecalculo)), fmtNum(n2(d.basecalculo)), '', '', '']);
+      }
+    }
+    // ── COFINS: M500/M505 (espelho) ──
+    for (const linhas of grupar('aliqcofins').values()) {
+      const codCred = String(linhas[0].id_tipocredito ?? '101');
+      const aliq = n2(linhas[0].aliqcofins);
+      const base = linhas.reduce((s, d) => s + n2(d.basecalculo), 0);
+      const cred = linhas.reduce((s, d) => s + n2(d.valorcofins), 0);
+      arq.add('M500', [codCred, '01', fmtNum(base), fmtNum(aliq, 4), '', '', fmtNum(cred), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(cred), '0', fmtNum(0), fmtNum(cred)]);
+      for (const d of linhas) {
+        arq.add('M505', [cst2(d.id_basecredito), cst2(d.cst_pis), fmtNum(n2(d.basecalculo)), fmtNum(0), fmtNum(n2(d.basecalculo)), fmtNum(n2(d.basecalculo)), '', '', '']);
+      }
+    }
+    arq.fecharBloco('M990', 'M');
+    return true;
   }
 }

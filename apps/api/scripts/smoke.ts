@@ -4747,6 +4747,40 @@ async function main() {
       const spedBad = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-01-31', dtfim: '2026-01-01' }) });
       check('SPED §87.4: período invertido (dtfim<dtini) → 400', spedBad.status === 400, { status: spedBad.status });
     }
+
+    // ===== §88: SPED corte-2a — APURAÇÃO do crédito de entrada + BLOCO M (M100/M105 PIS, M500/M505 COFINS) =====
+    {
+      const pgSp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // NF de entrada no período 2026-02 + crédito PIS/COFINS no item (via pg — como o import do XML valoraria).
+        const nfCred = await novaNf(baseNf({ tipo: 'E', nronf: 'SPEDM01', codparceiro: 22, dtemissao: '2026-02-10', dtcontabil: '2026-02-10', itens: [{ codproduto: 1, quantidade: 1, vrvenda: 100, vrcusto: 100, cfop: '1102', aliquota: 'T01', cstpiscofins: '50' }] }));
+        await pgSp.query(`UPDATE nf_prod SET bcpiscofinse=100, vrpise=1.65, vrcofinse=7.60, aliqpise=1.65, aliqcofinse=7.60, cstpiscofins='50' WHERE codnf=$1`, [nfCred]);
+        await pgSp.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfCred]);
+
+        // 88.1) apuração: 1 grupo (CST 50, alíq 1,65/7,6), base 100, crédito PIS 1,65 / COFINS 7,60.
+        const apur = await fetch(`${base}/fiscal/sped/apuracao-pc`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-02-01', dtfim: '2026-02-28' }) });
+        const apurJ = (await apur.json().catch(() => ({}))) as any;
+        const det = (await pgSp.query(`SELECT d.cst_pis, d.basecalculo, d.valorpis, d.valorcofins FROM apuracao_pc_det d JOIN apuracao_pc c ON c.codapuracao_pc=d.codapuracao_pc WHERE c.idempresa=1 AND c.dataini='2026-02-01' AND d.tipo='C'`)).rows as any[];
+        check('SPED §88.1 apuração: 1 grupo crédito de entrada (CST 50, base 100, PIS 1,65, COFINS 7,60)',
+          apur.status === 200 && Number(apurJ.grupos) === 1 && Number(apurJ.total_credito_pis) === 1.65 && Number(apurJ.total_credito_cofins) === 7.6
+          && det.length === 1 && Number(det[0].cst_pis) === 50 && Number(det[0].basecalculo) === 100 && Number(det[0].valorpis) === 1.65,
+          { apur: apurJ, det });
+
+        // 88.2) EFD com BLOCO M: M100 (PIS crédito 1,65) + M105 (CST 50) + M500 (COFINS 7,60) + M505 + M990.
+        const efd = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-02-01', dtfim: '2026-02-28' }) });
+        const efdJ = (await efd.json().catch(() => ({}))) as any;
+        const lin = String(efdJ.arquivo ?? '').split('\r\n');
+        const m100 = lin.find((l) => l.startsWith('|M100|')) ?? '';
+        const m105 = lin.find((l) => l.startsWith('|M105|')) ?? '';
+        const m500 = lin.find((l) => l.startsWith('|M500|')) ?? '';
+        const temM990 = lin.some((l) => l.startsWith('|M990|'));
+        check('SPED §88.2 bloco M: M100 (crédito PIS 1,65, SLD_CRED carrega 1,65 sem débito) + M105 (CST 50) + M500 (COFINS 7,60) + M990',
+          efd.status === 200 && m100.startsWith('|M100|101|01|100,00|1,6500|') && m100.endsWith('|1,65|0|0,00|1,65|') && m105.startsWith('|M105|01|50|100,00|') && m500.endsWith('|7,60|0|0,00|7,60|') && temM990,
+          { m100, m105, m500: m500.slice(0, 70) });
+      } finally {
+        await pgSp.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
