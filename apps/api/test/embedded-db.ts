@@ -138,6 +138,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('093_piscofins_rentabilidade.sql'));
   await pool.query(sql('094_refresh_tokens.sql'));
   await pool.query(sql('095_piscofins_sit_792.sql'));
+  await pool.query(sql('096_senha_operacao_lockout.sql'));
   await pool.end();
   return pg;
 }

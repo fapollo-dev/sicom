@@ -1917,6 +1917,24 @@ async function main() {
     const bxJ = await fetch(`${base}/${AR}/${bxId2}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ juros: 10, desconto: 5, senhaOperacao: 'segredo123' }) });
     const bxJBody = (await bxJ.json().catch(() => ({}))) as any;
     check('CR-baixa: desconto + senha correta → 200, valorpg (100+10−5=105)', bxJ.status === 200 && Number(bxJBody.valorpg) === 105, { body: bxJBody });
+
+    // 32.5-lockout) E7 FAST-FOLLOW: lockout da senha de operação por (empresa, tipo). Config max=2 → 2 erradas
+    // bloqueiam; senha CORRETA durante o bloqueio → 422 SENHA_OPERACAO_BLOQUEADA (recusa ANTES de verificar).
+    // A senha errada lança no gate ANTES da trx → o título sobrevive p/ reuso. Reseta ao final (limpa + restaura).
+    await pgBx.query(`UPDATE configuracoes SET valor='2' WHERE codigo='AUTH_MAX_TENTATIVAS_SENHA_OPERACAO'`);
+    await pgBx.query(`DELETE FROM empresas_senha_lockout WHERE idempresa=1 AND tipo='desc'`);
+    const lkAlvo = await crNovo();
+    const lkW1 = await fetch(`${base}/${AR}/${lkAlvo}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ desconto: 5, senhaOperacao: 'errada-a' }) });
+    const lkW2 = await fetch(`${base}/${AR}/${lkAlvo}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ desconto: 5, senhaOperacao: 'errada-b' }) });
+    const lkBlk = await fetch(`${base}/${AR}/${lkAlvo}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ desconto: 5, senhaOperacao: 'segredo123' }) });
+    const lkBlkJ = (await lkBlk.json().catch(() => ({}))) as any;
+    check('CR-baixa E7-lockout: 2 senhas erradas (max=2) bloqueiam; correta no bloqueio → 422 SENHA_OPERACAO_BLOQUEADA',
+      lkW1.status === 422 && lkW2.status === 422 && lkBlk.status === 422 && lkBlkJ.code === 'SENHA_OPERACAO_BLOQUEADA', { w1: lkW1.status, w2: lkW2.status, blk: lkBlk.status, code: lkBlkJ.code });
+    await pgBx.query(`DELETE FROM empresas_senha_lockout WHERE idempresa=1 AND tipo='desc'`);
+    await pgBx.query(`UPDATE configuracoes SET valor='5' WHERE codigo='AUTH_MAX_TENTATIVAS_SENHA_OPERACAO'`);
+    const lkOk = await fetch(`${base}/${AR}/${lkAlvo}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ desconto: 5, senhaOperacao: 'segredo123' }) });
+    check('CR-baixa E7-lockout: após limpar o lockout, senha correta volta a autorizar (200)', lkOk.status === 200, { status: lkOk.status });
+
     // 32.5d) baixa SEM desconto/acréscimo NÃO exige senha (recebe 100 cheio → 100).
     const bxId2b = await crNovo();
     const bxSemDesc = await fetch(`${base}/${AR}/${bxId2b}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
