@@ -31,6 +31,7 @@ import {
   Undo2,
   ClipboardList,
   Settings,
+  BookOpen,
 } from 'lucide-react';
 
 /** Telas do menu lateral (rota → rótulo + ícone). Uma TForm = um item. */
@@ -62,6 +63,7 @@ const TELAS = [
   { href: '/cadastro/motivos-operacao', name: 'Motivos de Operação', icon: ListChecks },
   { href: '/cadastro/plano-contas', name: 'Plano de Contas', icon: Network },
   { href: '/contabil/dre', name: 'DRE', icon: BarChart3 },
+  { href: '/contabil/razao', name: 'Livro Razão', icon: BookOpen },
   { href: '/cadastro/empresas', name: 'Empresas', icon: Building },
   { href: '/cadastro/operadores', name: 'Operadores', icon: UserCog },
   { href: '/cadastro/perfis', name: 'Perfis & Permissões', icon: ShieldCheck },

@@ -286,6 +286,8 @@ const CODE_PT: Record<string, string> = {
   // DRE (relatório)
   DRE_PERIODO_OBRIGATORIO: 'Informe as datas inicial e final do período.',
   DRE_PERIODO_INVALIDO: 'A data inicial não pode ser maior que a data final.',
+  RAZAO_PERIODO_OBRIGATORIO: 'Informe as datas inicial e final do período.',
+  RAZAO_PERIODO_INVALIDO: 'A data inicial não pode ser maior que a data final.',
   // Caixa (uMovCaixa/UabertCaixa/uFechamentoCaixa — sessão + movimento manual)
   CAIXA_JA_ABERTO: 'Este operador já possui um caixa aberto. Feche o caixa atual antes de abrir outro.',
   CAIXA_NAO_ABERTO: 'Não há caixa aberto para este operador. Abra o caixa antes de movimentar.',

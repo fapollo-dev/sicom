@@ -4943,6 +4943,48 @@ async function main() {
     const permiteDef = cfgFind(await cfgList(), 'PERMITE_PROC_NF_ESTOQUE_NEG');
     check('CFG: DELETE override → 204 + valor efetivo volta ao default (S)', cfgDel.status === 204 && permiteDef?.valorEfetivo === 'S' && permiteDef?.overrideEmpresa === null, { status: cfgDel.status, ef: permiteDef?.valorEfetivo });
     await fetch(`${base}/${CFG}/PERMITE_PROC_NF_ESTOQUE_NEG/override?tipo=Empresa&chave=2`, { method: 'DELETE', headers: H2 }); // limpa o override da emp 2
+
+    // 90) LIVRO RAZÃO contábil (uRelRazaoContabil) — relatório read-only do DIÁRIO por conta/período.
+    // Conta de teste DEDICADA (99001, classe='A') p/ determinismo total — nenhuma outra seção a toca.
+    const RAZ = 'cadastro/razao';
+    const pgRz = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    await pgRz.query(`INSERT INTO plano_contas (codplanocontas, descricao, classe, codiexpandido, tipo, status) VALUES (99001,'CONTA TESTE RAZAO','A','9.9.99.01.0001','E','A') ON CONFLICT (codplanocontas) DO NOTHING`);
+    // saldo anterior (2025-12 D=99001 1000) + 2 movimentos jan (D 300, C 100 via contrapartida 11141). codorigem=9099 p/ cleanup.
+    await pgRz.query(`INSERT INTO diario (datalan, contadebito, contacredito, valor, codorigem, idorigem, codempresa, complemento) VALUES
+      ('2025-12-15', 99001, 11141, 1000, 9099, 90001, 1, 'COMPRA ANTERIOR'),
+      ('2026-01-10', 99001, 11141,  300, 9099, 90002, 1, 'COMPRA JAN'),
+      ('2026-01-20', 11141, 99001,  100, 9099, 90003, 1, 'DEVOLUCAO JAN')`);
+    const razCode = async (r: any) => ((await r.json().catch(() => ({}))) as any).code;
+    // 90.1) razão da conta 99001 no período jan: saldo anterior 1000, 2 movimentos, saldo corrente 1300→1200.
+    const razR = await fetch(`${base}/${RAZ}?dataInicio=2026-01-01&dataFim=2026-01-31&codconta=99001`, { headers: H });
+    const razB = (await razR.json().catch(() => ({}))) as any;
+    const c99 = (razB.contas ?? []).find((c: any) => c.codplanocontas === 99001);
+    const m0 = c99?.movimentos?.[0], m1 = c99?.movimentos?.[1];
+    check('RAZÃO: saldo anterior + movimentos + saldo corrente (débito-positivo, fiel ao legado)',
+      razR.status === 200 && (razB.contas ?? []).length === 1 && Number(c99?.saldoAnterior) === 1000
+      && c99.movimentos.length === 2
+      && Number(m0.debito) === 300 && Number(m0.credito) === 0 && Number(m0.saldo) === 1300 && m0.historico === 'COMPRA JAN' && Number(m0.documento) === 90002 && Number(m0.contrapartida) === 11141
+      && Number(m1.debito) === 0 && Number(m1.credito) === 100 && Number(m1.saldo) === 1200
+      && Number(c99.totalDebito) === 300 && Number(c99.totalCredito) === 100 && Number(c99.saldoFinal) === 1200,
+      { status: razR.status, c99: { sa: c99?.saldoAnterior, sf: c99?.saldoFinal, movs: c99?.movimentos?.length } });
+    // 90.2) sem filtro de conta: 99001 presente com os mesmos números (contrapartida 11141 também aparece, não asserida).
+    const razAll = await fetch(`${base}/${RAZ}?dataInicio=2026-01-01&dataFim=2026-01-31`, { headers: H });
+    const razAllB = (await razAll.json().catch(() => ({}))) as any;
+    const c99b = (razAllB.contas ?? []).find((c: any) => c.codplanocontas === 99001);
+    check('RAZÃO: sem filtro lista a conta com o mesmo saldo (partida dobrada expande nas 2 contas)', razAll.status === 200 && Number(c99b?.saldoFinal) === 1200 && (razAllB.contas ?? []).some((c: any) => c.codplanocontas === 11141), { n: razAllB.contas?.length });
+    // 90.3) período SEM movimento (2027) mas com saldo anterior → conta aparece só com saldo (1000+300−100=1200), 0 movimentos.
+    const razSo = await fetch(`${base}/${RAZ}?dataInicio=2027-01-01&dataFim=2027-01-31&codconta=99001`, { headers: H });
+    const razSoB = (await razSo.json().catch(() => ({}))) as any;
+    const c99c = (razSoB.contas ?? []).find((c: any) => c.codplanocontas === 99001);
+    check('RAZÃO: só saldo anterior (sem movimento no período) → conta com saldoFinal=saldoAnterior, 0 movimentos', Number(c99c?.saldoAnterior) === 1200 && c99c?.movimentos?.length === 0 && Number(c99c?.saldoFinal) === 1200, { c99c: { sa: c99c?.saldoAnterior, movs: c99c?.movimentos?.length } });
+    // 90.4) validação de período + RBAC.
+    const razInv = await fetch(`${base}/${RAZ}?dataInicio=2026-02-01&dataFim=2026-01-01`, { headers: H });
+    const razRbac = await fetch(`${base}/${RAZ}?dataInicio=2026-01-01&dataFim=2026-01-31`, { headers: H_SEM_ACESSO });
+    check('RAZÃO: início>fim → 422 RAZAO_PERIODO_INVALIDO; sem grant → 403', razInv.status === 422 && (await razCode(razInv)) === 'RAZAO_PERIODO_INVALIDO' && razRbac.status === 403, { inv: razInv.status, rbac: razRbac.status });
+    // cleanup: remove os lançamentos e a conta de teste.
+    await pgRz.query(`DELETE FROM diario WHERE codorigem=9099`);
+    await pgRz.query(`DELETE FROM plano_contas WHERE codplanocontas=99001`);
+    await pgRz.end();
   } finally {
     await app.close();
     await pg.stop();

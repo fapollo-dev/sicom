@@ -15,6 +15,7 @@ import { ContasReceberCadMaster } from '../features/areceber/ContasReceberCadMas
 import { ContasPagarCadMaster } from '../features/apagar/ContasPagarCadMaster';
 import { PlanoContasCadMaster } from '../features/plano-contas/PlanoContasCadMaster';
 import { DreRelatorio } from '../features/dre/DreRelatorio';
+import { RazaoRelatorio } from '../features/razao/RazaoRelatorio';
 import { CaixaPage } from '../features/caixa/CaixaPage';
 import { OperadoresCadMaster } from '../features/operadores/OperadoresCadMaster';
 import { FormasPgtoCadMaster } from '../features/formas-pgto/FormasPgtoCadMaster';
@@ -69,6 +70,7 @@ export const router = createBrowserRouter([
       { path: '/cadastro/motivos-operacao', element: <MotivosOperacaoCadMaster /> }, // lookup do motivo do ajuste
       { path: '/cadastro/plano-contas', element: <PlanoContasCadMaster /> }, // plano de contas (árvore)
       { path: '/contabil/dre', element: <DreRelatorio /> }, // relatório DRE (calculado do diário)
+      { path: '/contabil/razao', element: <RazaoRelatorio /> }, // livro razão (movimentos do diário por conta)
       // tela-coroa NF — mesmo componente, tipo diferente (Entrada/Saída), como Parceiros (papel)
       { path: '/fiscal/notas/entrada', element: <NfCadMaster tipo="E" /> },
       { path: '/fiscal/notas/saida', element: <NfCadMaster tipo="S" /> },

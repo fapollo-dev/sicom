@@ -46,6 +46,8 @@ import { NfFiscalService } from './nf-fiscal.service';
 import { ConfigService } from './config.service';
 import { ConfiguracoesAdminController } from './configuracoes-admin.controller';
 import { ConfiguracoesAdminService } from './configuracoes-admin.service';
+import { RazaoController } from './razao.controller';
+import { RazaoService } from './razao.service';
 import { NfProcessamentoController } from './nf-processamento.controller';
 import { NfProcessamentoService } from './nf-processamento.service';
 import { NfFaturamentoController } from './nf-faturamento.controller';
@@ -87,6 +89,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     PlcCrudController, // engine (lookup do rateio contábil da NF: centro de custo gerencial; chave natural)
     PlanoContasController, // vertical (PLANO DE CONTAS contábil — árvore/validações/travas)
     DreController, // vertical read-only (DRE contábil — relatório calculado do DIÁRIO)
+    RazaoController, // vertical read-only (LIVRO RAZÃO contábil — movimentos do DIÁRIO por conta/período)
     EmpresasCrudController, // engine (cadastro da empresa/tenant: núcleo+fiscal+precificação; pk digitada, não-empresaScoped)
     OperadoresAggregateController, // mestre-detalhe (OPERADORES + empresas-permitidas; global, pk digitada, soft-delete INDR)
     FormasPgtoCrudController, // engine (FORMAS DE PAGAMENTO; empresaScoped, 3 vínculos p/ Caixa corte-2d)
@@ -121,6 +124,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     NfContabilizacaoService,
     PlanoContasService,
     DreService,
+    RazaoService,
     AjusteEstoqueService,
     InventarioService,
     AgendaPromocaoService,
