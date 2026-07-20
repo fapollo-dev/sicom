@@ -49,3 +49,19 @@ export function grantsDoPerfil(codperfil: number): Promise<{ codperfil: number; 
 export function setGrantPerfil(codperfil: number, form: string, opcao: string, concedido: boolean): Promise<unknown> {
   return req('/cadastro/permissoes', { method: 'PUT', body: JSON.stringify({ codperfil, form, opcao, concedido }) });
 }
+
+/** trilha de auditoria (AUDIT_PERMISSOES) — mudanças de grant de um perfil (corte-2). */
+export interface AuditoriaPermissao {
+  codaudit: number;
+  form: string;
+  opcao: string;
+  codperfil: number | null;
+  perfil_nome: string | null;
+  data: string;
+  tipo: string; // 'INSERT' | 'DELETE'
+  codoperador_acao: number | null;
+  ator_nome: string | null;
+}
+export function auditoriaPermissoes(codperfil: number): Promise<AuditoriaPermissao[]> {
+  return req(`/cadastro/permissoes/auditoria?codperfil=${codperfil}`);
+}

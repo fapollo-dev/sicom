@@ -4377,6 +4377,22 @@ async function main() {
       process.env.APP_PERMISSAO_MODO = 'usuario'; // reset
       check('PERFIL §77.7 FOLD: modo inválido/vazio → fail-SAFE (op8 403, como usuario); "AMBOS" maiúsculo canoniza → 200',
         acVazio.status === 403 && acUpper.status === 200, { vazio: acVazio.status, upper: acUpper.status });
+
+      // 77.8) TRILHA AUDIT_PERMISSOES (corte-2): concede(§77.5)+revoga(§77.6)+concede(§77.7) → ≥3 registros.
+      const aud1 = (await (await fetch(`${base}/cadastro/permissoes/auditoria?codperfil=${codperfil}`, { headers: H })).json().catch(() => [])) as any[];
+      const tipos = aud1.map((a) => a.tipo);
+      check('PERFIL §77.8: trilha registra concede/revoga (≥3; recente INSERT; contém DELETE; perfil+ator nomeado)',
+        aud1.length >= 3 && tipos[0] === 'INSERT' && tipos.includes('DELETE')
+        && aud1[0].form === 'FRMLIBERACOES' && aud1[0].opcao === 'BTNCONSULTAR' && Number(aud1[0].codperfil) === codperfil
+        && Number(aud1[0].codoperador_acao) === 7 && !!aud1[0].ator_nome,
+        { n: aud1.length, tipos: tipos.slice(0, 4), ator: aud1[0]?.ator_nome });
+      // 77.8b) no-op (conceder o já-concedido) NÃO audita; revogar de fato audita 1 DELETE.
+      const nAntes = aud1.length;
+      await fetch(`${base}/cadastro/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codperfil, form: 'FRMLIBERACOES', opcao: 'BTNCONSULTAR', concedido: true }) }); // já concedido → no-op
+      const audNoop = (await (await fetch(`${base}/cadastro/permissoes/auditoria?codperfil=${codperfil}`, { headers: H })).json().catch(() => [])) as any[];
+      await fetch(`${base}/cadastro/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codperfil, form: 'FRMLIBERACOES', opcao: 'BTNCONSULTAR', concedido: false }) }); // muda → DELETE
+      const audDel = (await (await fetch(`${base}/cadastro/permissoes/auditoria?codperfil=${codperfil}`, { headers: H })).json().catch(() => [])) as any[];
+      check('PERFIL §77.8b: no-op não audita; mudança real audita (DELETE no topo)', audNoop.length === nAntes && audDel.length === nAntes + 1 && audDel[0].tipo === 'DELETE', { antes: nAntes, noop: audNoop.length, del: audDel.length });
     } finally {
       await pgPf.end();
     }

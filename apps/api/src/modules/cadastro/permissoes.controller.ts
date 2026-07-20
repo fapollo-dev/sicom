@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Put, Query, UseGuards } from '@nestjs/common';
 import { permissaoGrantSchema, type PermissaoGrantDto } from '@apollo/shared';
 import { PermissoesService } from './permissoes.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -24,6 +24,14 @@ export class PermissoesController {
   @RequerAcesso('FRMCADPERFILOPERADOR', 'BTNPERMISSOES')
   listarPorPerfil(@Param('codperfil', ParseIntPipe) codperfil: number) {
     return this.svc.listarPorPerfil(codperfil);
+  }
+
+  /** trilha de auditoria (AUDIT_PERMISSOES) — mudanças de grant; filtro opcional por perfil. */
+  @Get('auditoria')
+  @RequerAcesso('FRMCADPERFILOPERADOR', 'BTNPERMISSOES')
+  auditoria(@Query('codperfil') codperfil?: string, @Query('limite') limite?: string) {
+    const cp = codperfil != null && codperfil !== '' ? Number(codperfil) : undefined;
+    return this.svc.auditoria(cp, limite != null && limite !== '' ? Number(limite) : 100);
   }
 
   @Put()
