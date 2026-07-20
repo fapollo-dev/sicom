@@ -33,4 +33,12 @@ export class AgendaPromocaoController {
   aplicar(@Param('id', ParseIntPipe) id: number) {
     return this.svc.aplicar(id);
   }
+
+  /** efeito-PDV: SCHEDULER de vigência — liga/desliga o preço promocional conforme [dtinicio, dtfim) (cron/tenant). */
+  @Post('processar-vigencia')
+  @HttpCode(200)
+  @RequerAcesso('FRMAGENDAPROMOCAO', 'BTNAPLICARPRECO')
+  processarVigencia() {
+    return this.svc.processarVigencia();
+  }
 }

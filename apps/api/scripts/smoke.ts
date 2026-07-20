@@ -4136,6 +4136,30 @@ async function main() {
       check('PROMO 76.9 FOLD ALTA: PUT parcial (só período) NÃO burla a anti-sobreposição (fallback aos itens persistidos) → 422',
         p9a.status === 201 && p9b.status === 201 && p9put.status === 422 && p9putJ.code === 'PROMOCAO_PRODUTO_SOBREPOSTO',
         { a: p9a.status, b: p9b.status, put: [p9put.status, p9putJ.code] });
+
+      // 76.10) efeito-PDV — SCHEDULER de vigência (processar-vigencia): LIGA a agenda que entrou na janela
+      // [dtinicio, dtfim) e DESLIGA a que saiu (sem encerrar). Idempotente (multi_preco.codagenda = marcador).
+      await pgPromo.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto) VALUES (2,1,5) ON CONFLICT (idproduto, idempresa) DO NOTHING`);
+      await pgPromo.query(`UPDATE multi_preco SET promocao='N', vrpromo=NULL, codagenda=NULL WHERE idproduto IN (1,2) AND idempresa=1`);
+      const ontem = new Date(Date.now() - 86400000).toISOString();
+      const amanha = new Date(Date.now() + 86400000).toISOString();
+      const doisAtras = new Date(Date.now() - 2 * 86400000).toISOString();
+      const agA = Number(((await (await crPromo({ nomepromo: 'VIG DENTRO', dtiniciopromocao: ontem, dtfimpromocao: amanha, itens: [{ idproduto: 1, vlrpromocao: 7.77 }] })).json().catch(() => ({}))) as any).codagenda);
+      const agB = Number(((await (await crPromo({ nomepromo: 'VIG FORA', dtiniciopromocao: doisAtras, dtfimpromocao: ontem, itens: [{ idproduto: 2, vlrpromocao: 8.88 }] })).json().catch(() => ({}))) as any).codagenda);
+      await fetch(`${base}/${AP}/${agB}/aplicar`, { method: 'POST', headers: H }); // aplica B manualmente (janela já passada)
+      const vig = await fetch(`${base}/${AP}/processar-vigencia`, { method: 'POST', headers: H });
+      const vigJ = (await vig.json().catch(() => ({}))) as any;
+      const mpA = (await pgPromo.query(`SELECT promocao, vrpromo, codagenda FROM multi_preco WHERE idproduto=1 AND idempresa=1`)).rows[0] as any;
+      const mpB = (await pgPromo.query(`SELECT promocao, vrpromo, codagenda FROM multi_preco WHERE idproduto=2 AND idempresa=1`)).rows[0] as any;
+      check('PROMO 76.10 efeito-PDV: processar-vigencia LIGA a vigente (prod1 promocao=S vrpromo 7,77) e DESLIGA a expirada (prod2 promocao=N)',
+        vig.status === 200 && Number(vigJ.aplicadas) >= 1 && Number(vigJ.desaplicadas) >= 1
+        && mpA?.promocao === 'S' && Number(mpA?.vrpromo) === 7.77 && Number(mpA?.codagenda) === agA
+        && mpB?.promocao === 'N' && mpB?.codagenda == null, { vig: vigJ, mpA, mpB });
+      const vig2 = await fetch(`${base}/${AP}/processar-vigencia`, { method: 'POST', headers: H });
+      const vig2J = (await vig2.json().catch(() => ({}))) as any;
+      check('PROMO 76.10b: processar-vigencia IDEMPOTENTE (2ª chamada: 0 aplicadas, 0 desaplicadas)',
+        vig2.status === 200 && Number(vig2J.aplicadas) === 0 && Number(vig2J.desaplicadas) === 0, vig2J);
+      await pgPromo.query(`UPDATE multi_preco SET promocao='N', vrpromo=NULL, codagenda=NULL WHERE idproduto IN (1,2) AND idempresa=1`);
     } finally {
       await pgPromo.end();
     }

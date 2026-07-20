@@ -148,4 +148,54 @@ export class AgendaPromocaoService {
       return { codagenda, aplicados };
     });
   }
+
+  /** desliga o preço promocional que ESTA agenda ligou (revert do multi_preco) SEM encerrá-la (dtencerramento
+   *  intacto) — a agenda só saiu da vigência (dtfim passou), não foi cancelada. Fiel à reversão do encerrar. */
+  private async desaplicar(codagenda: number): Promise<void> {
+    const emp = this.emp();
+    await (this.dbp.forTenant() as AnyDB)
+      .updateTable('multi_preco')
+      .set({ promocao: 'N', vrpromo: null, codagenda: null, dtultprecoalterado: sql`now()` })
+      .where('codagenda', '=', codagenda)
+      .where('idempresa', '=', emp)
+      .execute();
+  }
+
+  /**
+   * SCHEDULER de VIGÊNCIA (efeito automático da agenda) — liga/desliga o preço promocional conforme a JANELA
+   * [dtinicio, dtfim) de cada agenda ABERTA da empresa, sem intervenção manual. Idempotente: usa o próprio
+   * MULTI_PRECO.CODAGENDA como marcador de "aplicada" (nenhuma coluna nova) → só APLICA quando entra na janela e
+   * ainda não está aplicada, e só DESAPLICA quando saiu da janela e ainda está aplicada. Pensado p/ um cron chamar
+   * periodicamente (por tenant/empresa). O efeito no PDV (LOTEPRECO/etiqueta) segue adiado (depende do PDV).
+   */
+  async processarVigencia(): Promise<{ aplicadas: number; desaplicadas: number }> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const agendas = (await db
+      .selectFrom('agenda_promocao as a')
+      .select([
+        'a.codagenda as codagenda',
+        sql<boolean>`(a.dtiniciopromocao <= now() and now() < a.dtfimpromocao)`.as('dentro_janela'),
+        sql<boolean>`exists (select 1 from multi_preco m where m.codagenda = a.codagenda and m.idempresa = ${emp})`.as('aplicada'),
+      ])
+      .where('a.idempresa', '=', emp)
+      .where('a.dtencerramento', 'is', null)
+      .where(sql`coalesce(a.indr,'I')`, '<>', 'E')
+      .execute()) as Array<{ codagenda: number; dentro_janela: boolean; aplicada: boolean }>;
+
+    let aplicadas = 0;
+    let desaplicadas = 0;
+    for (const a of agendas) {
+      const dentro = a.dentro_janela === true;
+      const aplicada = a.aplicada === true;
+      if (dentro && !aplicada) {
+        await this.aplicar(Number(a.codagenda)); // entrou na vigência → liga
+        aplicadas++;
+      } else if (!dentro && aplicada) {
+        await this.desaplicar(Number(a.codagenda)); // saiu da vigência → desliga (sem encerrar)
+        desaplicadas++;
+      }
+    }
+    return { aplicadas, desaplicadas };
+  }
 }
