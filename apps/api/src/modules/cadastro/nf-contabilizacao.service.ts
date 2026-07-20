@@ -342,7 +342,8 @@ export class NfContabilizacaoService {
       // allow-list de CFOP do item (+ blacklist de entrada, GetSQLPisCofins:586).
       const itemCfopOk = entrada
         ? sql`np.cfop in (select cfop from pc_config) and np.cfop not in ('1407','1556','1653','1908','1910','2556','2910','1949')`
-        : sql`np.cfop in ('5202','6202','5411','6411','5102','6102','5403','6403')`;
+        // saída: venda-ST (826/827) + saída geral (792/793: 5102/6102/5403/6403/5405/5949 — golden, mig 095).
+        : sql`np.cfop in ('5202','6202','5411','6411','5102','6102','5403','6403','5405','5949')`;
 
       // legado: CAST(SUM(base×rate) AS NUMERIC(15,2)) POR (CODNF, CFOP), depois o loop soma as parcelas
       // JÁ ARREDONDADAS por situação. Replicamos: round por (situação, cfop) no SQL, soma por situação no JS.

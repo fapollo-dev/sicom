@@ -1722,6 +1722,17 @@ async function main() {
     const cofinsLine = (linPC as any[]).find((l) => Number(l.contadebito) === 236 && Number(l.contacredito) === 153);
     // base = VRCUSTO×QTD = 100 (NÃO totalnf=200): PIS 100×1,65%=1,65; COFINS 100×7,6%=7,60 — prova a fórmula por-item.
     check('F5b-4b: PIS/COFINS FIEL por-item (base=custo 100 ≠ totalnf 200 → PIS 1,65 / COFINS 7,60, sit 826/827)', conPC.status === 200 && Number(pisLine?.valor) === 1.65 && Number(cofinsLine?.valor) === 7.6, { status: conPC.status, pis: pisLine?.valor, cofins: cofinsLine?.valor });
+    // 29c-2) GAP contábil sit.792 (mig 095): saída GERAL CFOP 5102 (fora venda-ST) → situação PIS 792 (D128/C235) /
+    // COFINS 793 (D129/C236). Antes da mig 095 o iicDC(792) lançava CONTAS_NAO_INFORMADAS → a NF não contabilizava.
+    const nf792 = await novaNf(baseNf({ tipo: 'S', nronf: 'E9004B', cfop: '5102', codparceiro: 20, modelo: 55, statusnfe: 'P', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 200, vrcusto: 100, cfop: '5102', aliquota: 'T01' }] }));
+    await fetch(`${base}/fiscal/nf/${nf792}/processar`, { method: 'POST', headers: H });
+    await pgCon.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,8,1,200)`, [nf792]);
+    const con792 = await fetch(`${base}/fiscal/nf/${nf792}/contabilizar`, { method: 'POST', headers: H });
+    const lin792 = await diarioDe(nf792);
+    const pis792 = (lin792 as any[]).find((l) => Number(l.contadebito) === 128 && Number(l.contacredito) === 235);
+    const cof792 = (lin792 as any[]).find((l) => Number(l.contadebito) === 129 && Number(l.contacredito) === 236);
+    check('F5b GAP sit.792: saída geral 5102 → PIS 1,65 (D128/C235) + COFINS 7,60 (D129/C236) [antes: CONTAS_NAO_INFORMADAS]',
+      con792.status === 200 && Number(pis792?.valor) === 1.65 && Number(cof792?.valor) === 7.6, { status: con792.status, pis: pis792?.valor, cofins: cof792?.valor });
     await pgCon.query(`UPDATE produtos SET idpiscofins=NULL WHERE idproduto=1`);
     // 29g) F5b-fase4b: CMV — vl_custo CONGELADO de multi_preco no lançamento (snapshot não acompanha o MP).
     await pgCon.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto) VALUES (1,1,5.57) ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=5.57`);
