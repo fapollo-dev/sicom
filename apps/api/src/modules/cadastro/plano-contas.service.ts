@@ -51,6 +51,56 @@ export class PlanoContasService {
     return String(cod).split('.').filter((s) => s !== '').length;
   }
 
+  /** larguras por nível da máscara (config_plano_contas.mascara CSV → [1,1,2,2,4]); [] se não configurada. */
+  private async segmentos(tipo = 'E'): Promise<number[]> {
+    const row = (await (this.dbp.forTenantRead() as AnyDB)
+      .selectFrom('config_plano_contas').select('mascara').where('tipo', '=', tipo).executeTakeFirst()) as { mascara?: string } | undefined;
+    if (!row?.mascara) return [];
+    return String(row.mascara).split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isFinite(n) && n > 0);
+  }
+
+  /** máscara do plano (larguras por nível + padrão de exibição '9.9.99.99.9999') — corte-2 (uCadConfPlanoContas). */
+  async mascara(tipo = 'E'): Promise<{ tipo: string; segmentos: number[]; mascara: string }> {
+    const segs = await this.segmentos(tipo);
+    return { tipo, segmentos: segs, mascara: segs.map((w) => '9'.repeat(w)).join('.') };
+  }
+
+  /**
+   * PRÓXIMO CÓDIGO sugerido (uDMCadPlanoContas.CodigoMaximoDeConta / BuscaProximoCodigoContaRaiz): o próximo
+   * IRMÃO (max do último segmento + 1, zero-preenchido à largura do nível pela máscara). Sob um pai sintético;
+   * sem pai → próxima conta RAIZ. Sugestão (o código fica editável); não filtra por TIPO (o tenant é 1 plano).
+   *
+   * FOLD consciente (não-paridade byte-a-byte, melhor que o legado): o legado só considera os irmãos cuja
+   * ÚLTIMA casa cai em 0000–0009 (o SUBSTR do prefixo casa só (NDIG-1) zeros), então após 10 filhos ele
+   * repete 0010 e sugere um código DUPLICADO (que o UNIQUE rejeita). Aqui é o MAX de TODOS os irmãos + 1 →
+   * nunca sugere duplicado. O nível vem do CÓDIGO do pai (nivelDe), não da coluna `nivel` (evita drift).
+   */
+  async proximoCodigo(codpai?: number | null, tipo = 'E'): Promise<{ codiexpandido: string; nivel: number; codpai: number | null }> {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const segs = await this.segmentos(tipo);
+    if (codpai == null) {
+      const roots = await db.selectFrom('plano_contas').select('codiexpandido').where('codpai', 'is', null).execute();
+      let max = 0;
+      for (const r of roots as any[]) { const n = parseInt(String(r.codiexpandido), 10); if (Number.isFinite(n)) max = Math.max(max, n); }
+      const width = segs[0] ?? 0;
+      return { codiexpandido: String(max + 1).padStart(width, '0'), nivel: 1, codpai: null };
+    }
+    const pai = (await db.selectFrom('plano_contas').select(['codiexpandido', 'classe', 'nivel']).where('codplanocontas', '=', codpai).executeTakeFirst()) as any;
+    if (!pai) throw new BusinessRuleError('CONTA_PAI_INEXISTENTE', { codpai });
+    if (pai.classe !== 'T') throw new BusinessRuleError('CONTA_PAI_ANALITICA', { codpai });
+    const childNivel = this.nivelDe(String(pai.codiexpandido)) + 1; // largura vem do CÓDIGO do pai (não do `nivel` gravado)
+    const width = segs[childNivel - 1] ?? 0; // fora da máscara → sem preenchimento (só o número)
+    const filhos = await db.selectFrom('plano_contas').select('codiexpandido').where('codpai', '=', codpai).execute();
+    let maxSeg = 0;
+    for (const f of filhos as any[]) {
+      const last = String(f.codiexpandido).split('.').pop() ?? '';
+      const n = parseInt(last, 10);
+      if (Number.isFinite(n)) maxSeg = Math.max(maxSeg, n);
+    }
+    const seg = String(maxSeg + 1).padStart(width, '0');
+    return { codiexpandido: `${pai.codiexpandido}.${seg}`, nivel: childNivel, codpai };
+  }
+
   /** valida pai (deve existir, ser sintética, e o código ter o prefixo do pai) — uCadContaContabil:511/262. */
   private async validarPai(trx: AnyDB, codiexpandido: string, codpai: number | null | undefined) {
     if (codpai == null) return; // conta raiz

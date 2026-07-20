@@ -2183,6 +2183,38 @@ async function main() {
     // 34.7) RBAC sem grant → 403.
     const pcRbac = await fetch(`${base}/${PC}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codiexpandido: '1.1.03.01.9099', descricao: 'X', classe: 'A', natureza: 1, codpai: 9008 }) });
     check('PC: POST sem grant RBAC → 403', pcRbac.status === 403, { status: pcRbac.status });
+    // 34.8) MÁSCARA + AUTO-CÓDIGO (corte-2). máscara [1,1,2,2,4]; próximo código = irmão max+1 zero-preenchido.
+    const pcMask = (await (await fetch(`${base}/${PC}/mascara`, { headers: H })).json()) as any;
+    check('PC: máscara [1,1,2,2,4] + padrão 9.9.99.99.9999', Array.isArray(pcMask.segmentos) && pcMask.segmentos.join(',') === '1,1,2,2,4' && pcMask.mascara === '9.9.99.99.9999', { mask: pcMask });
+    // próximo sob 9008 (nível 4; filhos nível 5, largura 4) = max(último segmento dos filhos) + 1, computado do pg.
+    const filhos9008 = (await pgPc.query(`SELECT codiexpandido FROM plano_contas WHERE codpai=9008`)).rows as any[];
+    const maxSeg = Math.max(0, ...filhos9008.map((r) => parseInt(String(r.codiexpandido).split('.').pop(), 10)).filter((n) => Number.isFinite(n)));
+    const esperado = `1.1.03.01.${String(maxSeg + 1).padStart(4, '0')}`;
+    const pcProx = (await (await fetch(`${base}/${PC}/proximo-codigo?codpai=9008`, { headers: H })).json()) as any;
+    check('PC: próximo código sob sintética = irmão max+1 (largura da máscara), nível 5', pcProx.codiexpandido === esperado && pcProx.nivel === 5, { esperado, got: pcProx.codiexpandido });
+    // próxima conta RAIZ = max raiz + 1 (largura 1).
+    const roots = (await pgPc.query(`SELECT codiexpandido FROM plano_contas WHERE codpai IS NULL`)).rows as any[];
+    const maxRoot = Math.max(0, ...roots.map((r) => parseInt(String(r.codiexpandido), 10)).filter((n) => Number.isFinite(n)));
+    const pcRoot = (await (await fetch(`${base}/${PC}/proximo-codigo`, { headers: H })).json()) as any;
+    check('PC: próxima conta RAIZ = max raiz + 1, nível 1', pcRoot.codiexpandido === String(maxRoot + 1) && pcRoot.nivel === 1, { esperado: String(maxRoot + 1), got: pcRoot.codiexpandido });
+    // pai ANALÍTICO (148) não recebe filho → 422.
+    const pcProxA = await fetch(`${base}/${PC}/proximo-codigo?codpai=148`, { headers: H });
+    check('PC: próximo código sob conta ANALÍTICA → 422 CONTA_PAI_ANALITICA', pcProxA.status === 422 && ((await pcProxA.json().catch(() => ({}))) as any).code === 'CONTA_PAI_ANALITICA', { status: pcProxA.status });
+    // aplicar a sugestão → 201; o próximo código então incrementa.
+    const pcAplica = await fetch(`${base}/${PC}`, { method: 'POST', headers: H, body: JSON.stringify({ codiexpandido: esperado, descricao: 'AUTO-CODE TESTE', classe: 'A', natureza: 1, codpai: 9008 }) });
+    const pcCriadaId = Number(((await pcAplica.json().catch(() => ({}))) as any).codplanocontas);
+    const pcProx2 = (await (await fetch(`${base}/${PC}/proximo-codigo?codpai=9008`, { headers: H })).json()) as any;
+    check('PC: após criar a sugerida, o próximo código incrementa', pcAplica.status === 201 && pcProx2.codiexpandido === `1.1.03.01.${String(maxSeg + 2).padStart(4, '0')}`, { got: pcProx2.codiexpandido });
+    if (Number.isFinite(pcCriadaId)) await pgPc.query(`DELETE FROM plano_contas WHERE codplanocontas=$1`, [pcCriadaId]); // cleanup
+    // 34.9) LOCK não-tautológico (fold [MÉDIA]): pai dedicado com filhos em LACUNA e ACIMA de 0009 → próximo =
+    // MAX(todos)+1 = 0013 (o legado, que só vê a janela 0000-0009, sugeriria 0002 e repetiria após 10 filhos).
+    await pgPc.query(`INSERT INTO plano_contas (codplanocontas, codiexpandido, descricao, classe, natureza, nivel, codpai, tipo, status) VALUES
+      (95001,'1.1.03.09','PAI TESTE AUTOCODE','T',1,4,9007,'E','A'),
+      (95002,'1.1.03.09.0001','F1','A',1,5,95001,'E','A'),
+      (95003,'1.1.03.09.0012','F2','A',1,5,95001,'E','A') ON CONFLICT DO NOTHING`);
+    const pcGap = (await (await fetch(`${base}/${PC}/proximo-codigo?codpai=95001`, { headers: H })).json()) as any;
+    check('PC: próximo código = MAX(todos)+1 (ignora lacuna, conta > janela 0000-0009) → 0013', pcGap.codiexpandido === '1.1.03.09.0013', { got: pcGap.codiexpandido });
+    await pgPc.query(`DELETE FROM plano_contas WHERE codplanocontas IN (95002,95003,95001)`); // cleanup
     await pgPc.end();
 
     // 35) DRE CONTÁBIL (relatório) — motor P/F/E sobre o DIÁRIO. Semeia lançamentos determinísticos.

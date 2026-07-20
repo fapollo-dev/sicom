@@ -21,6 +21,17 @@ export class PlanoContasController {
     return this.svc.list(query);
   }
 
+  // rotas estáticas ANTES de ':id' (senão o param captura 'mascara'/'proximo-codigo').
+  @Get('mascara')
+  mascara(@Query('tipo') tipo?: string) {
+    return this.svc.mascara(tipo || 'E');
+  }
+
+  @Get('proximo-codigo')
+  proximoCodigo(@Query('codpai') codpai?: string, @Query('tipo') tipo?: string) {
+    return this.svc.proximoCodigo(codpai != null && codpai !== '' ? Number(codpai) : null, tipo || 'E');
+  }
+
   @Get(':id')
   read(@Param('id', ParseIntPipe) id: number) {
     return this.svc.read(id);

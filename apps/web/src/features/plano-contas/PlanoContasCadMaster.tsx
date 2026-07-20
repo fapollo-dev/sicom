@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DataTable, type DataTableColumnDef, Modal, PageHeader } from '@apollosg/design-system';
 import { Pencil, Trash2, Ban, RotateCcw } from 'lucide-react';
 import {
@@ -22,6 +22,21 @@ const statusApi = async (id: number, status: 'A' | 'I') => {
   handle401(res);
   return res;
 };
+
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+/** corte-2: máscara do plano (larguras por nível + padrão de exibição). */
+async function fetchMascara(): Promise<{ mascara: string; segmentos: number[] }> {
+  const res = await fetch(`${API_URL}/cadastro/plano-contas/mascara`, { headers: apiHeaders() });
+  handle401(res);
+  return res.ok ? ((await res.json()) as { mascara: string; segmentos: number[] }) : { mascara: '', segmentos: [] };
+}
+/** corte-2: próximo código sugerido (irmão max+1 sob o pai; sem pai → próxima raiz). */
+async function fetchProximoCodigo(codpai?: number): Promise<string> {
+  const qs = codpai != null ? `?codpai=${codpai}` : '';
+  const res = await fetch(`${API_URL}/cadastro/plano-contas/proximo-codigo${qs}`, { headers: apiHeaders() });
+  handle401(res);
+  return res.ok ? String(((await res.json()) as { codiexpandido: string }).codiexpandido ?? '') : '';
+}
 
 const natLabel = (n?: number) => PC_NATUREZA_OPCOES.find((o) => o.value === n)?.label ?? (n != null ? String(n) : '');
 
@@ -187,6 +202,22 @@ function ContaModal({
   );
   const [codpai, setCodpai] = useState<string | undefined>(paiInicial != null ? String(paiInicial) : undefined);
   const [salvando, setSalvando] = useState(false);
+  const [mascaraHint, setMascaraHint] = useState('');
+  const sugestaoSeq = useRef(0); // "última requisição vence" (evita resposta antiga sobrescrever a nova ao trocar o pai)
+
+  // máscara p/ o hint do campo (corte-2).
+  useEffect(() => { void fetchMascara().then((m) => setMascaraHint(m.mascara)); }, []);
+
+  // AUTO-CÓDIGO (corte-2): ao CRIAR, sugere o próximo código quando o pai muda (o operador ainda pode editar).
+  const sugerir = useCallback(async () => {
+    const seq = ++sugestaoSeq.current;
+    const cod = await fetchProximoCodigo(codpai != null ? Number(codpai) : undefined);
+    if (cod && seq === sugestaoSeq.current) setCodiexpandido(cod); // só aplica se ainda for a requisição mais recente
+  }, [codpai]);
+  useEffect(() => {
+    if (editando) return; // editar NÃO mexe no código já gravado
+    void sugerir();
+  }, [codpai, editando, sugerir]);
 
   const salvar = async () => {
     if (salvando) return;
@@ -227,12 +258,17 @@ function ContaModal({
           onChange={setCodpai}
           placeholder="— raiz (sem pai) —"
         />
-        <Field
-          label="&Código (máscara, ex.: 1.1.03.01.0002)"
-          inputMode="numeric"
-          value={codiexpandido}
-          onChange={(e) => setCodiexpandido(e.target.value)}
-        />
+        <div className="flex items-end gap-gp-sm">
+          <div className="flex-1">
+            <Field
+              label={`&Código${mascaraHint ? ` (máscara ${mascaraHint})` : ''}`}
+              inputMode="numeric"
+              value={codiexpandido}
+              onChange={(e) => setCodiexpandido(e.target.value)}
+            />
+          </div>
+          {!editando && <Button label="&Sugerir" variant="ghost" onClick={() => void sugerir()} />}
+        </div>
         <Field label="&Descrição" value={descricao} onChange={(e) => setDescricao(e.target.value)} maxLength={120} />
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
           <SelectField label="C&lasse" options={PC_CLASSE_OPCOES as unknown as Opcao[]} value={classe} onChange={setClasse} placeholder="Selecione…" />
