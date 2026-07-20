@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 
 type AnyDB = Kysely<any>;
 
@@ -76,6 +77,7 @@ export class ApagarService {
     const op = currentTenant().operadorId ?? null;
     const id = await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const d = this.delta(dto);
+      await assertPeriodoNaoFechado(trx, emp, d.dtvenda, 'bloq_apg'); // período fechado (DTVENDA × BLOQ_APG)
       if (d.txjuros == null) {
         const e = await trx.selectFrom('empresas').select('txjuropadrao').where('idempresa', '=', emp).executeTakeFirst();
         d.txjuros = e?.txjuropadrao ?? null;
@@ -100,7 +102,7 @@ export class ApagarService {
   private async travarEditavel(trx: AnyDB, id: number, emp: number) {
     const t = await trx
       .selectFrom('apagar')
-      .select(['codapg', 'quitada', 'agrupado', 'contabilizado', 'idnf', 'origem', 'consiliado', 'cadastrado_manualmente'])
+      .select(['codapg', 'quitada', 'agrupado', 'contabilizado', 'idnf', 'origem', 'consiliado', 'cadastrado_manualmente', 'dtvenda'])
       .where('codapg', '=', id)
       .where('codempresa', '=', emp)
       .forUpdate()
@@ -121,7 +123,10 @@ export class ApagarService {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      await this.travarEditavel(trx, id, emp);
+      const t = await this.travarEditavel(trx, id, emp);
+      // período fechado × BLOQ_APG — trava pela DTVENDA (=DTCOMPRA) atual (uAPagar:1018) E pela nova (:1703).
+      await assertPeriodoNaoFechado(trx, emp, t.dtvenda, 'bloq_apg');
+      if (dto.dtvenda != null) await assertPeriodoNaoFechado(trx, emp, dto.dtvenda, 'bloq_apg');
       const d = this.delta(dto);
       if (Object.keys(d).length) {
         await trx
@@ -138,7 +143,8 @@ export class ApagarService {
   async excluir(id: number): Promise<void> {
     const emp = this.emp();
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      await this.travarEditavel(trx, id, emp);
+      const t = await this.travarEditavel(trx, id, emp);
+      await assertPeriodoNaoFechado(trx, emp, t.dtvenda, 'bloq_apg');
       await trx.deleteFrom('apagar').where('codapg', '=', id).where('codempresa', '=', emp).execute();
     });
   }

@@ -2075,6 +2075,60 @@ async function main() {
       { agr: apDelAgr.status, nf: apDelNf.status });
     await pgAp.end();
 
+    // 33b) TRAVA DE PERÍODO CONTÁBIL FECHADO na A Receber/Pagar (ValidaPeriodoFechado, uCadAReceber:965).
+    // Flags POR ÁREA: BLOQ_RCB (gravar/editar/excluir AR, na DTVENDA), BLOQ_BAIXA_RCB (baixa AR, na DTPGTO),
+    // BLOQ_APG / BLOQ_BAIXA_APG (AP). NÃO confundir com o gate CONTÁBIL (best-effort, usa BLOQ_NF) do §44.5.
+    // Fecha 2026-03 (status='S' + as 4 flags) e confere o hard-422 PERIODO_FECHADO. crAp continua no escopo.
+    const pgPer = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    await pgPer.query(`INSERT INTO periodo_contabil (codempresa, competencia_contabil, data_inicio, data_fim, status, bloq_nf, bloq_rcb, bloq_baixa_rcb, bloq_apg, bloq_baixa_apg) VALUES (1, '2026-03', '2026-03-01', '2026-03-31', 'S', 'N', 'S', 'S', 'S', 'S')`);
+    const codePer = async (r: any) => ((await r.json().catch(() => ({}))) as any).code;
+    // 33b.1) AR criar: DTVENDA no período fechado → 422; DTVENDA fora (aberto) → 201.
+    const arPfIn = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-03-15', dtvenc: '2026-08-01', valor: 50 }) });
+    const arPfOut = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-15', dtvenc: '2026-08-01', valor: 50 }) });
+    check('AR-período: criar em período FECHADO → 422 PERIODO_FECHADO; aberto → 201',
+      arPfIn.status === 422 && (await codePer(arPfIn)) === 'PERIODO_FECHADO' && arPfOut.status === 201, { in: arPfIn.status, out: arPfOut.status });
+    const arPfAbertoId = Number(((await arPfOut.json().catch(() => ({}))) as any).codrcb);
+    // 33b.2) AR baixa: DTPGTO no período fechado → 422 BLOQ_BAIXA_RCB (título aberto criado acima).
+    const arPfBx = await fetch(`${base}/${AR}/${arPfAbertoId}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ dtpgto: '2026-03-10' }) });
+    check('AR-período: baixar com DTPGTO em período FECHADO → 422 PERIODO_FECHADO', arPfBx.status === 422 && (await codePer(arPfBx)) === 'PERIODO_FECHADO', { status: arPfBx.status });
+    // 33b.3) AR editar: mover DTVENDA para dentro do período fechado → 422 (efetivo = nova DTVENDA).
+    const arPfEdit = await fetch(`${base}/${AR}/${arPfAbertoId}`, { method: 'PUT', headers: H, body: JSON.stringify({ dtvenda: '2026-03-20' }) });
+    check('AR-período: PUT movendo DTVENDA p/ período FECHADO → 422 PERIODO_FECHADO', arPfEdit.status === 422 && (await codePer(arPfEdit)) === 'PERIODO_FECHADO', { status: arPfEdit.status });
+    // 33b.4) AR editar título ANCORADO no período fechado (fold [MÉDIA]): mesmo movendo a DTVENDA p/ FORA,
+    // a data ANTIGA (mar/05) tranca a edição (uCadAReceber:3470) — senão dá p/ "resgatar" um título congelado.
+    const arPfDelId = Number((await pgPer.query(`INSERT INTO areceber (codempresa, codparceiro, dtvenda, dtvenc, valor, quitada, agrupado, cadastrado_manualmente, consiliado, gerado) VALUES (1, 20, '2026-03-05', '2026-08-01', 30, 'N', 'N', 'S', 'N', 'OPERADOR') RETURNING codrcb`)).rows[0].codrcb);
+    const arPfMoveOut = await fetch(`${base}/${AR}/${arPfDelId}`, { method: 'PUT', headers: H, body: JSON.stringify({ dtvenda: '2026-07-01', valor: 9999 }) });
+    check('AR-período: PUT movendo p/ FORA título ANCORADO no fechado → 422 (data antiga tranca)', arPfMoveOut.status === 422 && (await codePer(arPfMoveOut)) === 'PERIODO_FECHADO', { status: arPfMoveOut.status });
+    // 33b.4b) AR excluir: título com DTVENDA já no período fechado → 422.
+    const arPfDel = await fetch(`${base}/${AR}/${arPfDelId}`, { method: 'DELETE', headers: H });
+    check('AR-período: excluir título de período FECHADO → 422 PERIODO_FECHADO', arPfDel.status === 422 && (await codePer(arPfDel)) === 'PERIODO_FECHADO', { status: arPfDel.status });
+    // 33b.4c) BORDA do ÚLTIMO dia (fold [ALTA]): título com DTVENDA no ÚLTIMO dia do período E COM HORA (15:30).
+    // Sem o cast ::date no helper, data_fim seria promovida p/ meia-noite e o título escaparia da trava.
+    const arPfBorda = Number((await pgPer.query(`INSERT INTO areceber (codempresa, codparceiro, dtvenda, dtvenc, valor, quitada, agrupado, cadastrado_manualmente, consiliado, gerado) VALUES (1, 20, '2026-03-31 15:30:00-03', '2026-08-01', 30, 'N', 'N', 'S', 'N', 'OPERADOR') RETURNING codrcb`)).rows[0].codrcb);
+    const arPfBordaDel = await fetch(`${base}/${AR}/${arPfBorda}`, { method: 'DELETE', headers: H });
+    check('AR-período: BORDA — excluir título do ÚLTIMO dia c/ hora (15:30) → 422 (cast ::date)', arPfBordaDel.status === 422 && (await codePer(arPfBordaDel)) === 'PERIODO_FECHADO', { status: arPfBordaDel.status });
+    // 33b.4d) ESTORNO de baixa em período fechado (fold [MÉDIA], UReversaoBaixa:119): baixa direta c/ DTPGTO em
+    // mar/10 (driblando o gate de baixar) → estornar deve dar 422 (não reverter movimento de período fechado).
+    const arPfEstId = Number((await pgPer.query(`INSERT INTO areceber (codempresa, codparceiro, dtvenda, dtvenc, valor, quitada, agrupado, cadastrado_manualmente, consiliado, gerado) VALUES (1, 20, '2026-07-15', '2026-08-01', 100, 'S', 'N', 'S', 'N', 'OPERADOR') RETURNING codrcb`)).rows[0].codrcb);
+    await pgPer.query(`INSERT INTO areceber_bx (codrcb, codempresa, valorpg, dtpgto, indr) VALUES ($1, 1, 100, '2026-03-10', 'I')`, [arPfEstId]);
+    const arPfEst = await fetch(`${base}/${AR}/${arPfEstId}/estornar-baixa`, { method: 'POST', headers: H });
+    check('AR-período: estornar baixa com DTPGTO em período FECHADO → 422 PERIODO_FECHADO', arPfEst.status === 422 && (await codePer(arPfEst)) === 'PERIODO_FECHADO', { status: arPfEst.status });
+    // 33b.5) AP criar: DTVENDA no período fechado → 422 BLOQ_APG.
+    const apPfIn = await fetch(`${base}/${AP}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-03-15', dtvenc: '2026-08-01', valor: 50 }) });
+    check('AP-período: criar em período FECHADO → 422 PERIODO_FECHADO', apPfIn.status === 422 && (await codePer(apPfIn)) === 'PERIODO_FECHADO', { status: apPfIn.status });
+    // 33b.6) AP baixa: DTPGTO no período fechado → 422 BLOQ_BAIXA_APG (título aberto via crAp, ainda no escopo).
+    const apPfOpenId = await crAp({ dtvenda: '2026-07-15' });
+    const apPfBx = await fetch(`${base}/${AP}/${apPfOpenId}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ dtpgto: '2026-03-10' }) });
+    check('AP-período: baixar com DTPGTO em período FECHADO → 422 PERIODO_FECHADO', apPfBx.status === 422 && (await codePer(apPfBx)) === 'PERIODO_FECHADO', { status: apPfBx.status });
+    // 33b.7) período ABERTO (fora do range fechado) NÃO trava a baixa — sanidade contra falso-positivo.
+    const apPfBxOk = await fetch(`${base}/${AP}/${apPfOpenId}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ dtpgto: '2026-07-20' }) });
+    check('AP-período: baixar em período ABERTO → 200 (sem falso PERIODO_FECHADO)', apPfBxOk.status === 200, { status: apPfBxOk.status });
+    // cleanup: remove o período fechado + os títulos de teste (higiene; não poluir seções posteriores).
+    await pgPer.query(`DELETE FROM periodo_contabil WHERE codempresa=1 AND competencia_contabil='2026-03'`);
+    await pgPer.query(`DELETE FROM areceber WHERE codrcb = ANY($1::int[])`, [[arPfAbertoId, arPfDelId, arPfBorda, arPfEstId]]);
+    await pgPer.query(`DELETE FROM apagar WHERE codapg = $1`, [apPfOpenId]);
+    await pgPer.end();
+
     // 34) PLANO DE CONTAS (contábil) — cadastro em árvore + validações + travas de exclusão.
     const PC = 'cadastro/plano-contas';
     const pgPc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });

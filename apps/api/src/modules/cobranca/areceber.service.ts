@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 
 type AnyDB = Kysely<any>;
 
@@ -97,6 +98,8 @@ export class AreceberService {
     const op = currentTenant().operadorId ?? null;
     const id = await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const d = this.delta(dto);
+      // trava de período contábil fechado (ValidaPeriodoFechado, DTVENDA × BLOQ_RCB).
+      await assertPeriodoNaoFechado(trx, emp, d.dtvenda, 'bloq_rcb');
       // txjuros default = snapshot da EMPRESAS.TXJUROPADRAO (uCadAReceber: default do padrão da empresa).
       if (d.txjuros == null) {
         const e = await trx.selectFrom('empresas').select('txjuropadrao').where('idempresa', '=', emp).executeTakeFirst();
@@ -137,7 +140,7 @@ export class AreceberService {
   private async travarEditavel(trx: AnyDB, id: number, emp: number) {
     const t = await trx
       .selectFrom('areceber')
-      .select(['codrcb', 'quitada', 'agrupado', 'contabilizado', 'idnf', 'origem', 'consiliado', 'cadastrado_manualmente'])
+      .select(['codrcb', 'quitada', 'agrupado', 'contabilizado', 'idnf', 'origem', 'consiliado', 'cadastrado_manualmente', 'dtvenda'])
       .where('codrcb', '=', id)
       .where('codempresa', '=', emp)
       .forUpdate()
@@ -158,7 +161,12 @@ export class AreceberService {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      await this.travarEditavel(trx, id, emp);
+      const t = await this.travarEditavel(trx, id, emp);
+      // período fechado × BLOQ_RCB — o legado trava a ABERTURA da edição pela data ATUAL (uCadAReceber:3470)
+      // E o SALVAR pela data nova (:965). Barrar se a DTVENDA gravada OU a nova cair em período fechado
+      // (senão dá para "resgatar"/mover um título ancorado num período já fechado).
+      await assertPeriodoNaoFechado(trx, emp, t.dtvenda, 'bloq_rcb');
+      if (dto.dtvenda != null) await assertPeriodoNaoFechado(trx, emp, dto.dtvenda, 'bloq_rcb');
       const d = this.delta(dto);
       if (Object.keys(d).length) {
         await trx
@@ -175,7 +183,8 @@ export class AreceberService {
   async excluir(id: number): Promise<void> {
     const emp = this.emp();
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      await this.travarEditavel(trx, id, emp);
+      const t = await this.travarEditavel(trx, id, emp);
+      await assertPeriodoNaoFechado(trx, emp, t.dtvenda, 'bloq_rcb'); // não excluir título de período fechado
       await trx.deleteFrom('areceber').where('codrcb', '=', id).where('codempresa', '=', emp).execute();
     });
   }

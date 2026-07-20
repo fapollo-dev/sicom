@@ -6,6 +6,7 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 import { CaixaService } from './caixa.service';
 import { BaixaContabilService } from './baixa-contabil.service';
 import { SenhaOperacaoService } from '../cadastro/senha-operacao.service';
+import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 
 type AnyDB = Kysely<any>;
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -86,6 +87,8 @@ export class AreceberBaixaService {
   ): Promise<{ codrcb: number; valorpg: number; juros: number; quitada: 'S'; parcial: boolean; saldoTitulo: number | null }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
+    // trava de período fechado (UBaixaAreceber:1319 ValidaPeriodoFechado; DTPGTO × BLOQ_BAIXA_RCB) — fora da trx.
+    await assertPeriodoNaoFechado(this.dbp.forTenantRead() as AnyDB, emp, dto.dtpgto ?? new Date().toISOString().slice(0, 10), 'bloq_baixa_rcb');
     // GATE de senha (E7): acréscimo/desconto líquido ≠ 0 exige a senha de DESCONTO da empresa (fora da trx).
     await this.exigirSenhaDesconto(r2(num(dto.acrescimo) - num(dto.desconto)), dto.senhaOperacao);
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
@@ -198,13 +201,17 @@ export class AreceberBaixaService {
       // baixa ativa (INDR='I'); barra se já contabilizada (estorno contábil = corte-3).
       const bx = await trx
         .selectFrom('areceber_bx')
-        .select(['codrcbbx', 'codrcb_gerado'])
+        .select(['codrcbbx', 'codrcb_gerado', 'dtpgto'])
         .where('codrcb', '=', codrcb)
         .where('codempresa', '=', emp)
         .where(sql`coalesce(indr,'I')`, '=', 'I')
         .forUpdate()
         .executeTakeFirst();
       if (!bx) throw new BusinessRuleError('TITULO_NAO_BAIXADO', { codrcb });
+
+      // período fechado × BLOQ_BAIXA_RCB — o legado barra a REVERSÃO da baixa em período fechado
+      // (UReversaoBaixa.pas:119/137, por DtEmissao do movimento). Gate na DTPGTO da baixa revertida.
+      await assertPeriodoNaoFechado(trx, emp, bx.dtpgto, 'bloq_baixa_rcb');
 
       // estorno contábil da baixa (corte-3b): se foi contabilizada, reverte o DIÁRIO na mesma transação
       // (destrava o antigo bloqueio BAIXA_CONTABILIZADA — espelha NF reverter / caixa reabrir). No-op se não houve.

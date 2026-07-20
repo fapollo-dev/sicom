@@ -5,6 +5,7 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { CaixaService } from './caixa.service';
 import { BaixaContabilService } from './baixa-contabil.service';
+import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 
 type AnyDB = Kysely<any>;
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -62,6 +63,8 @@ export class ApagarBaixaService {
   ): Promise<{ codapg: number; valorpg: number; juros: number; quitada: 'S'; parcial: boolean; saldoTitulo: number | null }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
+    // trava de período fechado (DTPGTO × BLOQ_BAIXA_APG) — antes da transação.
+    await assertPeriodoNaoFechado(this.dbp.forTenantRead() as AnyDB, emp, dto.dtpgto ?? new Date().toISOString().slice(0, 10), 'bloq_baixa_apg');
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const t = await trx
         .selectFrom('apagar')
@@ -159,13 +162,17 @@ export class ApagarBaixaService {
 
       const bx = await trx
         .selectFrom('apagar_bx')
-        .select(['codapgbx', 'codapg_gerado'])
+        .select(['codapgbx', 'codapg_gerado', 'dtpgto'])
         .where('codapg', '=', codapg)
         .where('codempresa', '=', emp)
         .where(sql`coalesce(indr,'I')`, '=', 'I')
         .forUpdate()
         .executeTakeFirst();
       if (!bx) throw new BusinessRuleError('TITULO_NAO_BAIXADO', { codapg });
+
+      // período fechado × BLOQ_BAIXA_APG — reversão do pagamento em período fechado é barrada
+      // (UReversaoBaixa.pas:119/137). Gate na DTPGTO do pagamento revertido.
+      await assertPeriodoNaoFechado(trx, emp, bx.dtpgto, 'bloq_baixa_apg');
 
       // estorno contábil do pagamento (corte-3b): reverte o DIÁRIO na mesma transação (no-op se não houve).
       await this.contabil.estornarNoTrx(trx, emp, 'AP', bx.codapgbx, op);
