@@ -60,6 +60,15 @@ const convenio = z
     message: 'Convênio deve ter apenas 6 ou 7 posições. Verifique.',
   });
 
+/** Item da aba "Liberação de operadores" (CONTAS_BANCARIAS_OP): quem pode baixar CR/CP por esta conta.
+ *  Defaults 'S' (fiel ao OnNewRecord do legado, uRDmCadContaBancaria.pas:98-103). */
+export const contaBancariaOperadorSchema = z.object({
+  codoperador: z.coerce.number({ message: 'Operador inválido' }).int().positive('Operador inválido'),
+  cbo_baixa_cr: z.enum(['S', 'N'], { message: "Informe 'S' ou 'N'" }).default('S'),
+  cbo_baixa_cp: z.enum(['S', 'N'], { message: "Informe 'S' ou 'N'" }).default('S'),
+});
+export type ContaBancariaOperadorDto = z.infer<typeof contaBancariaOperadorSchema>;
+
 export const contaBancariaSchema = z.object({
   // FK → BANCOS (obrigatório — edtCODBCOExit). IDEMPRESA NÃO é entrada do usuário.
   codbco: z.number({ message: 'Banco é obrigatório' }).int('Banco inválido'),
@@ -69,7 +78,7 @@ export const contaBancariaSchema = z.object({
   dtabertura: z.string().optional(), // ISO date 'YYYY-MM-DD'
   fone1: z.string().trim().max(15).optional(),
   obs,
-  // FK → PLANO_CONTAS no legado; lookup DEFERIDO → texto livre por ora.
+  // FK → PLANO_CONTAS (lookup GET_PLANO_CONTAS, filtro CLASSE='ANALITICA' AND TIPO='EMPRESA'). Validado no servidor.
   codlanccontabil: z.string().trim().max(30).optional(),
   // Grupo "Boleto" — INTEIROS (não moeda).
   convenio,
@@ -83,6 +92,8 @@ export const contaBancariaSchema = z.object({
   conta_propria: z.enum(['S', 'N'], { message: "Informe 'S' ou 'N'" }).default('N'),
   exibe_rel_apuracao_caixa: z.enum(['S', 'N'], { message: "Informe 'S' ou 'N'" }).optional(),
   ativo: z.enum(['S', 'N'], { message: "Informe 'S' ou 'N'" }).default('S'),
+  // aba "Liberação de operadores" (mestre-detalhe CONTAS_BANCARIAS_OP) — substituída no PUT quando vier.
+  operadores: z.array(contaBancariaOperadorSchema).max(500).optional(),
 });
 
 export type CriarContaBancariaDto = z.infer<typeof contaBancariaSchema>;

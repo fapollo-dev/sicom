@@ -242,6 +242,8 @@ const CODE_PT: Record<string, string> = {
   SENHA_OPERACAO_REQUERIDA: 'Informe a senha de operação para autorizar o desconto/acréscimo.',
   SENHA_OPERACAO_INVALIDA: 'Senha de operação incorreta — desconto/acréscimo não autorizado.',
   SENHA_OPERACAO_BLOQUEADA: 'Senha de operação bloqueada por excesso de tentativas. Tente novamente mais tarde.',
+  CONTA_CONTABIL_INVALIDA: 'Conta de lançamento contábil inválida — informe uma conta analítica de empresa.',
+  CONTA_OPERADOR_DUPLICADO: 'Operador repetido na liberação da conta.',
   REVERSAO_PARCIAL_SALDO_BAIXADO: 'O título-saldo gerado nesta baixa parcial já possui movimentação — trate a baixa do saldo antes de estornar esta.',
   CONTA_BANCARIA_NAO_ENCONTRADA: 'A conta bancária informada para o depósito não existe nesta empresa.',
   // Cotação de compra (FRMCADCOTACAO)

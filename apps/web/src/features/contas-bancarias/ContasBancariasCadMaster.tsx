@@ -1,5 +1,5 @@
 import { Controller } from 'react-hook-form';
-import { CadMaster } from '../../shared/cadmaster/CadMaster';
+import { CadMasterDet } from '../../shared/cadmaster/CadMasterDet';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { NumberField } from '../../shared/ui/NumberField';
@@ -30,10 +30,9 @@ import {
  * defaultValues espelham OnNewRecord (uRDmCadContaBancaria): ATIVO='S', CONTA_PROPRIA='N'.
  * IDEMPRESA é carimbado no servidor (empresaScoped) — não é campo da tela.
  *
- * DEFERIDO (TODO Fase X): no legado há o LOOKUP de Plano de Contas (CODLANCCONTABIL →
- * GET_PLANO_CONTAS) e a aba mestre-detalhe "Liberação de operadores". Enquanto
- * PLANO_CONTAS/OPERADORES não migram, NÃO renderizamos nenhum dos dois (CODLANCCONTABIL
- * fica como campo texto livre, sem botão de busca; sem aba de operadores).
+ * COMPLETADO (resíduo): as duas partes antes deferidas, agora que PLANO_CONTAS/OPERADORES migraram —
+ *  - LOOKUP de Plano de Contas (CODLANCCONTABIL → analíticas; o servidor valida CLASSE='A' e TIPO='E');
+ *  - aba mestre-detalhe "Liberação de operadores" (detalhe `operadores`, quem baixa CR/CP por essa conta).
  */
 export function ContasBancariasCadMaster() {
   // LOOKUP/FK: opções de Banco vêm do recurso cadastro/bancos (outra entidade)
@@ -41,8 +40,19 @@ export function ContasBancariasCadMaster() {
     value: String(b.codbco),
     label: `${b.codbco} - ${b.banco}`,
   }));
+  // LOOKUP Plano de Contas: só analíticas (classe='A'); o servidor reforça TIPO='E' (empresa) no gravar.
+  const { data: planoContasOptions = [] } = useResourceOptions(
+    'cadastro/plano-contas',
+    (c: any) => ({ value: String(c.codplanocontas ?? c.codigo), label: `${c.codplanocontas ?? c.codigo} - ${c.descricao ?? ''}` }),
+    { campo: 'classe', operador: 'igual', valor: 'A' },
+  );
+  // LOOKUP de operadores (aba "Liberação de operadores").
+  const { data: operadorOptions = [] } = useResourceOptions('cadastro/operadores', (o: any) => ({
+    value: String(o.codoperador),
+    label: `${o.codoperador} - ${o.nome ?? ''}`,
+  }));
   return (
-    <CadMaster<CriarContaBancariaDto>
+    <CadMasterDet<CriarContaBancariaDto>
       titulo="Contas Bancárias"
       resourcePath="cadastro/contas-bancarias"
       pk="codconta"
@@ -73,6 +83,39 @@ export function ContasBancariasCadMaster() {
         conta_propria: 'N', // OnNewRecord / DEFAULT
         exibe_rel_apuracao_caixa: 'N',
         ativo: 'S', // OnNewRecord
+        operadores: [],
+      }}
+      detalhe={{
+        chave: 'operadores',
+        titulo: 'Liberação de operadores (baixa CR/CP por esta conta)',
+        novoItem: () => ({ codoperador: undefined as unknown as number, cbo_baixa_cr: 'S', cbo_baixa_cp: 'S' }),
+        itemCampos: ({ form, index }) => (
+          <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
+            <Controller
+              control={form.control}
+              name={`operadores.${index}.codoperador` as const}
+              render={({ field }) => (
+                <SelectField
+                  label="Operador"
+                  options={operadorOptions}
+                  value={field.value != null ? String(field.value) : undefined}
+                  onChange={(v) => field.onChange(v ? Number(v) : undefined)}
+                  placeholder="Selecione o operador…"
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name={`operadores.${index}.cbo_baixa_cr` as const}
+              render={({ field }) => <CheckboxField label="Baixa a &receber" value={field.value ?? 'S'} onChange={field.onChange} />}
+            />
+            <Controller
+              control={form.control}
+              name={`operadores.${index}.cbo_baixa_cp` as const}
+              render={({ field }) => <CheckboxField label="Baixa a &pagar" value={field.value ?? 'S'} onChange={field.onChange} />}
+            />
+          </div>
+        ),
       }}
       campos={({ form, editavel }) => (
         <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
@@ -133,16 +176,20 @@ export function ContasBancariasCadMaster() {
             error={form.formState.errors.fone1?.message as string | undefined}
             {...form.register('fone1')}
           />
-          {/*
-            DEFERIDO (TODO Fase X): aqui o legado tem o LOOKUP de Plano de Contas
-            (CODLANCCONTABIL → GET_PLANO_CONTAS, com botão de busca e descrição). Enquanto
-            PLANO_CONTAS não migrar, fica como campo texto livre, sem lookup.
-          */}
-          <Field
-            label="Plano de contas (cód.)"
-            disabled={!editavel}
-            error={form.formState.errors.codlanccontabil?.message as string | undefined}
-            {...form.register('codlanccontabil')}
+          {/* LOOKUP Plano de Contas (CODLANCCONTABIL → analíticas; o servidor valida CLASSE='A' AND TIPO='E'). */}
+          <Controller
+            control={form.control}
+            name="codlanccontabil"
+            render={({ field }) => (
+              <SelectField
+                label="&Plano de contas"
+                options={planoContasOptions}
+                value={field.value != null && field.value !== '' ? String(field.value) : undefined}
+                onChange={(v) => field.onChange(v ?? '')}
+                placeholder="Selecione a conta contábil…"
+                error={form.formState.errors.codlanccontabil?.message as string | undefined}
+              />
+            )}
           />
 
           <div className="sm:col-span-2">
@@ -281,10 +328,6 @@ export function ContasBancariasCadMaster() {
             />
           </fieldset>
 
-          {/*
-            DEFERIDO (TODO Fase X): aba mestre-detalhe "Liberação de operadores"
-            (GrdOperadores sobre OPERADORES) quando a tabela OPERADORES migrar.
-          */}
         </div>
       )}
     />

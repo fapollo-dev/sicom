@@ -1605,6 +1605,47 @@ async function main() {
     const delDona = await fetch(`${base}/cadastro/contas-bancarias/${contaId}`, { method: 'DELETE', headers: H2 });
     check('MT: a empresa DONA (2) exclui a própria conta (cleanup)', delDona.status === 204, { status: delDona.status });
 
+    // 26b) Contas Bancárias COMPLETADA (resíduo): lookup Plano de Contas (validar codlanccontabil) + aba
+    // "Liberação de operadores" (mestre-detalhe contas_bancarias_op).
+    {
+      const pgCb = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const plcOk = Number((await pgCb.query(`SELECT codplanocontas FROM plano_contas WHERE classe='A' AND tipo='E' ORDER BY codplanocontas LIMIT 1`)).rows[0]?.codplanocontas);
+        // cria conta (empresa 1) com codlanccontabil válido (analítica/empresa) + 2 operadores liberados (op8→CP='N').
+        const cbPost = await fetch(`${base}/cadastro/contas-bancarias`, { method: 'POST', headers: H, body: JSON.stringify({ codbco: codbcoMt, titular: 'CONTA COMPLETA', nroconta: '900', codlanccontabil: String(plcOk), operadores: [{ codoperador: 7 }, { codoperador: 90, cbo_baixa_cp: 'N' }] }) });
+        const cbId = Number(((await cbPost.json().catch(() => ({}))) as any).codconta);
+        const cbRead = (await (await fetch(`${base}/cadastro/contas-bancarias/${cbId}`, { headers: H })).json().catch(() => ({}))) as any;
+        const ops = (cbRead.operadores ?? []) as any[];
+        check('CB completar 26b.1: cria conta c/ codlanccontabil válido + 2 operadores (default CBO_BAIXA=S; op90 CP=N)',
+          cbPost.status === 201 && cbId > 0 && ops.length === 2 && ops.some((o) => Number(o.codoperador) === 7 && o.cbo_baixa_cr === 'S' && o.cbo_baixa_cp === 'S') && ops.some((o) => Number(o.codoperador) === 90 && o.cbo_baixa_cp === 'N'),
+          { status: cbPost.status, ops });
+
+        // codlanccontabil que não é analítica/empresa → 422 CONTA_CONTABIL_INVALIDA (lookup validado no servidor).
+        const cbBad = await fetch(`${base}/cadastro/contas-bancarias`, { method: 'POST', headers: H, body: JSON.stringify({ codbco: codbcoMt, titular: 'X', codlanccontabil: '99999999' }) });
+        check('CB completar 26b.2: codlanccontabil inexistente/não-analítico → 422 CONTA_CONTABIL_INVALIDA', cbBad.status === 422 && ((await cbBad.json().catch(() => ({}))) as any).code === 'CONTA_CONTABIL_INVALIDA', { status: cbBad.status });
+
+        // operador repetido na liberação → 422 CONTA_OPERADOR_DUPLICADO.
+        const cbDup = await fetch(`${base}/cadastro/contas-bancarias`, { method: 'POST', headers: H, body: JSON.stringify({ codbco: codbcoMt, titular: 'X', operadores: [{ codoperador: 7 }, { codoperador: 7 }] }) });
+        check('CB completar 26b.3: operador repetido → 422 CONTA_OPERADOR_DUPLICADO', cbDup.status === 422 && ((await cbDup.json().catch(() => ({}))) as any).code === 'CONTA_OPERADOR_DUPLICADO', { status: cbDup.status });
+
+        // PUT SUBSTITUI os operadores (troca p/ só op 7, com CBO_BAIXA_CR='N').
+        await fetch(`${base}/cadastro/contas-bancarias/${cbId}`, { method: 'PUT', headers: H, body: JSON.stringify({ codbco: codbcoMt, titular: 'CONTA COMPLETA', operadores: [{ codoperador: 7, cbo_baixa_cr: 'N' }] }) });
+        const ops2 = (((await (await fetch(`${base}/cadastro/contas-bancarias/${cbId}`, { headers: H })).json().catch(() => ({}))) as any).operadores ?? []) as any[];
+        check('CB completar 26b.4: PUT substitui os operadores (só op7, CBO_BAIXA_CR=N)', ops2.length === 1 && Number(ops2[0].codoperador) === 7 && ops2[0].cbo_baixa_cr === 'N', { ops2 });
+        await fetch(`${base}/cadastro/contas-bancarias/${cbId}`, { method: 'DELETE', headers: H });
+
+        // 26b.5) fold auditoria [ALTA]: editar conta EXISTENTE reenviando o codlanccontabil já gravado NÃO re-bloqueia
+        // (validar só quando muda + backfill classe='A' nas contas de banco pós-046). Conta 1 (seed) tem codlanccontabil 186.
+        const c1 = (await (await fetch(`${base}/cadastro/contas-bancarias/1`, { headers: H })).json().catch(() => ({}))) as any;
+        if (c1?.codconta && String(c1.codlanccontabil ?? '') !== '') {
+          const put1 = await fetch(`${base}/cadastro/contas-bancarias/1`, { method: 'PUT', headers: H, body: JSON.stringify({ codbco: c1.codbco, titular: c1.titular, codlanccontabil: c1.codlanccontabil, ativo: c1.ativo ?? 'S' }) });
+          check('CB completar 26b.5: editar conta existente reenviando o codlanccontabil gravado → 200 (não re-bloqueia)', put1.status === 200, { status: put1.status, codlanc: c1.codlanccontabil });
+        }
+      } finally {
+        await pgCb.end();
+      }
+    }
+
     // 27) F4b — estorno do FINANCEIRO no CANCELAMENTO (ESTORNA_FINANCEIRO_NF; CancelaFaturamento uNF:6668).
     const pgFin = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     // prepara uma NF de saída cancelável: processa (proc='S') → fatura (2 títulos ARECEBER) → transmite (statusnfe='P').
