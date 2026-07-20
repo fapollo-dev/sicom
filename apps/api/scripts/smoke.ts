@@ -4777,6 +4777,17 @@ async function main() {
         check('SPED §88.2 bloco M: M100 (crédito PIS 1,65, SLD_CRED carrega 1,65 sem débito) + M105 (CST 50) + M500 (COFINS 7,60) + M990',
           efd.status === 200 && m100.startsWith('|M100|101|01|100,00|1,6500|') && m100.endsWith('|1,65|0|0,00|1,65|') && m105.startsWith('|M105|01|50|100,00|') && m500.endsWith('|7,60|0|0,00|7,60|') && temM990,
           { m100, m105, m500: m500.slice(0, 70) });
+
+        // 88.3) bloco C (corte-2b): cadastros (0150 participante / 0200 item) + C100 (entrada IND_OPER=0, mod 55) +
+        // C170 (item 1, VL_PIS 1,65) + C990.
+        const tem0150 = lin.some((l) => l.startsWith('|0150|'));
+        const tem0200 = lin.some((l) => l.startsWith('|0200|'));
+        const c100 = lin.find((l) => l.startsWith('|C100|')) ?? '';
+        const c170 = lin.find((l) => l.startsWith('|C170|')) ?? '';
+        const temC990 = lin.some((l) => l.startsWith('|C990|'));
+        check('SPED §88.3 bloco C: cadastros (0150/0200) + C100 (entrada IND_OPER=0, mod 55) + C170 (item 1, PIS 1,65) + C990',
+          tem0150 && tem0200 && c100.startsWith('|C100|0|') && c100.includes('|55|') && c170.startsWith('|C170|1|1|') && c170.includes('|1,65|') && temC990,
+          { c100: c100.slice(0, 70), c170: c170.slice(0, 90) });
       } finally {
         await pgSp.end();
       }
