@@ -4715,6 +4715,38 @@ async function main() {
         await pgPc.end();
       }
     }
+
+    // ===== §87: SPED EFD-Contribuições SCAFFOLD (motor escritor + bloco 0 + bloco 9) =====
+    {
+      const sped = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-01-01', dtfim: '2026-01-31' }) });
+      const spedJ = (await sped.json().catch(() => ({}))) as any;
+      const arquivo = String(spedJ.arquivo ?? '');
+      const linhas = arquivo.trimEnd().split('\r\n');
+      const l0000 = linhas[0] ?? '';
+      const ultima = linhas[linhas.length - 1] ?? '';
+      const tem0140 = linhas.some((l) => l.startsWith('|0140|'));
+      const tem0990 = linhas.some((l) => l.startsWith('|0990|'));
+      const tem9900 = linhas.some((l) => l.startsWith('|9900|'));
+      const m9999 = /^\|9999\|(\d+)\|$/.exec(ultima);
+      const totalOk = !!m9999 && Number(m9999[1]) === linhas.length; // 9999 = total de linhas do arquivo (auto-referente)
+      check('SPED §87.1: EFD-Contribuições gera envelope — |0000| (COD_VER 006, MG, período) + 0140 + 0990 + 9999 auto-referente',
+        sped.status === 200 && l0000.startsWith('|0000|006|0|||01012026|31012026|') && l0000.includes('|MG|') && tem0140 && tem0990 && tem9900 && totalOk && spedJ.parcial === true,
+        { status: sped.status, l0000: l0000.slice(0, 80), total9999: m9999?.[1], linhas: linhas.length });
+
+      // 87.2) totalizador do bloco 9: 9990 = nº de linhas do bloco 9 (9001 + 9900s + 9990).
+      const l9990 = linhas.find((l) => l.startsWith('|9990|')) ?? '';
+      const qtdBloco9 = linhas.filter((l) => l.startsWith('|9001|') || l.startsWith('|9900|') || l.startsWith('|9990|')).length;
+      const m9990 = /^\|9990\|(\d+)\|$/.exec(l9990);
+      check('SPED §87.2: totalizador 9990 = linhas do bloco 9 (9001+9900s+9990)', !!m9990 && Number(m9990[1]) === qtdBloco9, { l9990, qtdBloco9 });
+
+      // 87.3) RBAC: gerar sem grant → 403.
+      const spedRbac = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dtini: '2026-01-01', dtfim: '2026-01-31' }) });
+      check('SPED §87.3: gerar sem grant RBAC → 403', spedRbac.status === 403, { status: spedRbac.status });
+
+      // 87.4) período invertido → 400 (dtfim < dtini).
+      const spedBad = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-01-31', dtfim: '2026-01-01' }) });
+      check('SPED §87.4: período invertido (dtfim<dtini) → 400', spedBad.status === 400, { status: spedBad.status });
+    }
   } finally {
     await app.close();
     await pg.stop();

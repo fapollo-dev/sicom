@@ -4,13 +4,14 @@ import { CobrancaModule } from './modules/cobranca/cobranca.module';
 import { ComprasModule } from './modules/compras/compras.module';
 import { PrecificacaoModule } from './modules/precificacao/precificacao.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { SpedModule } from './modules/sped/sped.module';
 import { HealthController } from './health.controller';
 import { TenantMiddleware } from './shared/tenant/tenant.middleware';
 import { AcessoModule } from './shared/acesso/acesso.module';
 import { CrudModule } from './shared/crud/crud.module';
 
 @Module({
-  imports: [AcessoModule, CrudModule, AuthModule, CadastroModule, CobrancaModule, ComprasModule, PrecificacaoModule],
+  imports: [AcessoModule, CrudModule, AuthModule, CadastroModule, CobrancaModule, ComprasModule, PrecificacaoModule, SpedModule],
   controllers: [HealthController],
 })
 export class AppModule implements NestModule {

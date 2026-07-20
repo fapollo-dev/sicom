@@ -1,4 +1,5 @@
 export * from './schema/banco.schema';
+export * from './schema/sped.schema';
 export * from './schema/operacao-conta.schema';
 export * from './schema/conta-bancaria.schema';
 export * from './schema/lote-cobranca.schema';
