@@ -242,7 +242,7 @@ const CODE_PT: Record<string, string> = {
   TITULO_NAO_BAIXADO: 'Título não está baixado — não há baixa a estornar.',
   BAIXA_CONTABILIZADA: 'A baixa já foi contabilizada — estorne a contabilização antes.',
   TITULO_VALOR_INVALIDO: 'O valor da baixa deve ser maior que zero.',
-  TITULO_VALOR_EXCEDE: 'O valor pago é maior que o total do título — troco/crédito ainda não é suportado.',
+  TITULO_VALOR_EXCEDE: 'O valor excede o total do título. Só em dinheiro o excesso vira troco; em banco/outro recurso não é permitido.',
   // Senha de operação (E7 — UBaixaAreceber.edtDesc_AcreExit): desconto/acréscimo exige a senha de DESCONTO da empresa.
   SENHA_OPERACAO_REQUERIDA: 'Informe a senha de operação para autorizar o desconto/acréscimo.',
   SENHA_OPERACAO_INVALIDA: 'Senha de operação incorreta — desconto/acréscimo não autorizado.',

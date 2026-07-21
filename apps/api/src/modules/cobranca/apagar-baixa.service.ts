@@ -60,7 +60,7 @@ export class ApagarBaixaService {
   async baixar(
     codapg: number,
     dto: { dtpgto?: string; juros?: number; multa?: number; desconto?: number; acrescimo?: number; valorpg?: number; dtvencSaldo?: string; recurso?: string; codconta?: number; obs?: string },
-  ): Promise<{ codapg: number; valorpg: number; juros: number; quitada: 'S'; parcial: boolean; saldoTitulo: number | null }> {
+  ): Promise<{ codapg: number; valorpg: number; troco: number; juros: number; quitada: 'S'; parcial: boolean; saldoTitulo: number | null }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     // trava de período fechado (DTPGTO × BLOQ_BAIXA_APG) — antes da transação.
@@ -86,10 +86,14 @@ export class ApagarBaixaService {
       const multa = num(dto.multa);
       const acre = r2(num(dto.acrescimo) - num(dto.desconto));
       const total = r2(valor + juros + multa + acre); // total devido (base do pagamento/parcial)
-      const valorpg = r2(dto.valorpg != null ? num(dto.valorpg) : total);
-      if (valorpg <= 0) throw new BusinessRuleError('TITULO_VALOR_INVALIDO', { valorpg });
-      // pagou a MAIS que o total: troco/crédito é corte-3 — até lá, REJEITA (espelha AR; não grava pagamento fantasma).
-      if (valorpg > total) throw new BusinessRuleError('TITULO_VALOR_EXCEDE', { valorpg, total });
+      const valorInformado = r2(dto.valorpg != null ? num(dto.valorpg) : total);
+      if (valorInformado <= 0) throw new BusinessRuleError('TITULO_VALOR_INVALIDO', { valorpg: valorInformado });
+      const recurso = String(dto.recurso ?? '').toUpperCase();
+      // TROCO (espelha AR): SÓ em DINHEIRO — pagou a MAIS → o excesso é troco (devolvido), o título quita pelo
+      // TOTAL e o caixa desembolsa o líquido. Em BANCO/outro o excesso é dinheiro real → rejeita (adiantamento adiado).
+      if (valorInformado > total && recurso !== 'DINHEIRO') throw new BusinessRuleError('TITULO_VALOR_EXCEDE', { valorpg: valorInformado, total });
+      const troco = valorInformado > total ? r2(valorInformado - total) : 0;
+      const valorpg = troco > 0 ? total : valorInformado; // efetivamente aplicado ao título
       const parcial = valorpg < total; // pagou menos que o total → gera título-saldo (espelha UBaixaAreceber.pas:1403)
       const dtpgto = dto.dtpgto ?? sql`current_date`;
 
@@ -133,7 +137,6 @@ export class ApagarBaixaService {
 
       // recurso DINHEIRO → PAGAMENTO (saída, guarda saldo≥0) no caixa aberto + contábil (CODORIGEM=15: D fornecedor / C 183).
       // recurso BANCO → pagamento por banco (NÃO toca o caixa) + contábil (D fornecedor / C conta-do-banco).
-      const recurso = String(dto.recurso ?? '').toUpperCase();
       if (recurso === 'DINHEIRO') {
         await this.caixa.lancarDaBaixa(trx, { origem: 'AP', valorpg: r2(valorpg), codapgbx: Number((bxIns as any).codapgbx), dtpgto: dto.dtpgto, obs: dto.obs ?? null });
         await this.tentarContabilizar(trx, emp, { codbx: Number((bxIns as any).codapgbx), codparceiro: (t as any).codparceiro ?? null, valor: r2(valorpg), data: dtpgto, op });
@@ -142,7 +145,7 @@ export class ApagarBaixaService {
         if (contaMoney != null) await this.tentarContabilizar(trx, emp, { codbx: Number((bxIns as any).codapgbx), codparceiro: (t as any).codparceiro ?? null, valor: r2(valorpg), data: dtpgto, op, contaMoney });
       }
 
-      return { codapg, valorpg: r2(valorpg), juros: r2(juros), quitada: 'S', parcial, saldoTitulo };
+      return { codapg, valorpg: r2(valorpg), troco, juros: r2(juros), quitada: 'S', parcial, saldoTitulo };
     });
   }
 

@@ -2702,10 +2702,18 @@ async function main() {
     check('CR-parcial: saldo TIPODOC=DUPLICATA + cadastrado_manualmente=N (SISTEMA) + DTVENC renegociado (2026-07-04 ≠ 2027-01-01)',
       arSaldoRow && arSaldoRow.tipodoc === 'DUPLICATA' && arSaldoRow.cadastrado_manualmente === 'N' && arSaldoRow.dtvenc === '2026-07-04',
       { saldo: arSaldoRow });
-    // 43.1c) valorpg > total (pagou a mais) → 422 TITULO_VALOR_EXCEDE (troco é corte-3; não grava fantasma).
+    // 43.1c) valorpg > total em DINHEIRO → TROCO (MOSTRAR_TROCO_BAIXA_CR): quita pelo total 100, troco=50, sem saldo.
+    // (o caixa recebe o LÍQUIDO 100 = valorpg aplicado, não os 150). Garante um caixa aberto (ignora se já há).
+    await fetch(`${base}/cobranca/caixa/abrir`, { method: 'POST', headers: H, body: JSON.stringify({ saldoInicial: 0 }) }).catch(() => undefined);
     const arExc = await crParAR();
-    const arExcRes = await fetch(`${base}/${ARp}/${arExc}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ valorpg: 150 }) });
-    check('CR-parcial: valorpg > total → 422 TITULO_VALOR_EXCEDE', arExcRes.status === 422 && ((await arExcRes.json().catch(() => ({}))) as any).code === 'TITULO_VALOR_EXCEDE', { status: arExcRes.status });
+    const arExcRes = await fetch(`${base}/${ARp}/${arExc}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ valorpg: 150, recurso: 'DINHEIRO' }) });
+    const arExcJ = (await arExcRes.json().catch(() => ({}))) as any;
+    check('CR-troco: valorpg>total (DINHEIRO) → quita pelo total (100) + troco=50, sem saldo (parcial=false)',
+      arExcRes.status === 200 && Number(arExcJ.valorpg) === 100 && Number(arExcJ.troco) === 50 && arExcJ.parcial === false && arExcJ.saldoTitulo === null, { body: arExcJ });
+    // 43.1d) valorpg > total em BANCO → 422 TITULO_VALOR_EXCEDE (excesso só vira troco em DINHEIRO; banco não devolve).
+    const arExcB = await crParAR();
+    const arExcBRes = await fetch(`${base}/${ARp}/${arExcB}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ valorpg: 150, recurso: 'BANCO', codconta: 1 }) });
+    check('CR-troco: valorpg>total em BANCO → 422 TITULO_VALOR_EXCEDE', arExcBRes.status === 422 && ((await arExcBRes.json().catch(() => ({}))) as any).code === 'TITULO_VALOR_EXCEDE', { status: arExcBRes.status });
     // 43.2) AR baixa TOTAL (sem valorpg): parcial=false, saldoTitulo=null (nenhum título extra).
     const arFull = await crParAR();
     const arFullBody = (await (await fetch(`${base}/${ARp}/${arFull}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) })).json().catch(() => ({}))) as any;
@@ -2734,10 +2742,12 @@ async function main() {
       && apSaldoRow.tipodoc === 'DUPLICATA' && apSaldoRow.cadastrado_manualmente === 'N' && apSaldoRow.dtvenc === '2026-07-04'
       && Number(apBxLink?.codapg_gerado) === apSaldo,
       { status: apParRes.status, body: apParBody, saldo: apSaldoRow, link: apBxLink });
-    // 43.5b) AP valorpg > total → 422 TITULO_VALOR_EXCEDE.
+    // 43.5b) AP valorpg > total em DINHEIRO → TROCO (espelha AR): quita pelo total 100, troco=50, sem saldo.
     const apExc = await crParAP();
-    const apExcRes = await fetch(`${base}/${APp}/${apExc}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ valorpg: 150 }) });
-    check('CP-parcial: valorpg > total → 422 TITULO_VALOR_EXCEDE', apExcRes.status === 422 && ((await apExcRes.json().catch(() => ({}))) as any).code === 'TITULO_VALOR_EXCEDE', { status: apExcRes.status });
+    const apExcRes = await fetch(`${base}/${APp}/${apExc}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ valorpg: 150, recurso: 'DINHEIRO' }) });
+    const apExcJ = (await apExcRes.json().catch(() => ({}))) as any;
+    check('CP-troco: valorpg>total (DINHEIRO) → quita pelo total (100) + troco=50, sem saldo (parcial=false)',
+      apExcRes.status === 200 && Number(apExcJ.valorpg) === 100 && Number(apExcJ.troco) === 50 && apExcJ.parcial === false && apExcJ.saldoTitulo === null, { body: apExcJ });
     // 43.6) AP pagamento TOTAL: parcial=false, saldoTitulo=null.
     const apFull = await crParAP();
     const apFullBody = (await (await fetch(`${base}/${APp}/${apFull}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) })).json().catch(() => ({}))) as any;

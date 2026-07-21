@@ -84,7 +84,7 @@ export class AreceberBaixaService {
   async baixar(
     codrcb: number,
     dto: { dtpgto?: string; juros?: number; multa?: number; desconto?: number; acrescimo?: number; valorpg?: number; dtvencSaldo?: string; recurso?: string; codconta?: number; obs?: string; senhaOperacao?: string },
-  ): Promise<{ codrcb: number; valorpg: number; juros: number; quitada: 'S'; parcial: boolean; saldoTitulo: number | null }> {
+  ): Promise<{ codrcb: number; valorpg: number; troco: number; juros: number; quitada: 'S'; parcial: boolean; saldoTitulo: number | null }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     // trava de período fechado (UBaixaAreceber:1319 ValidaPeriodoFechado; DTPGTO × BLOQ_BAIXA_RCB) — fora da trx.
@@ -117,13 +117,18 @@ export class AreceberBaixaService {
       const multa = num(dto.multa);
       const acre = r2(num(dto.acrescimo) - num(dto.desconto)); // acréscimo (+) / desconto (−)
       const total = r2(valor + juros + multa + acre); // total devido (base da baixa/parcial)
-      const valorpg = r2(dto.valorpg != null ? num(dto.valorpg) : total);
+      const valorInformado = r2(dto.valorpg != null ? num(dto.valorpg) : total);
       // o valor recebido tem de ser > 0 (uCadAReceber/UBaixaAreceber :1345: "o valor da conta deve ser
       // maior que zero"): impede quitar título sem dinheiro (ex.: desconto ≥ valor+juros).
-      if (valorpg <= 0) throw new BusinessRuleError('TITULO_VALOR_INVALIDO', { valorpg });
-      // pagou a MAIS que o total: o legado gera TROCO/crédito (MOSTRAR_TROCO_BAIXA_CR, UBaixaAreceber.pas:1499);
-      // troco é corte-3 — até lá, REJEITA (não grava recebimento fantasma sem gerar o troco).
-      if (valorpg > total) throw new BusinessRuleError('TITULO_VALOR_EXCEDE', { valorpg, total });
+      if (valorInformado <= 0) throw new BusinessRuleError('TITULO_VALOR_INVALIDO', { valorpg: valorInformado });
+      const recurso = String(dto.recurso ?? '').toUpperCase();
+      // TROCO (MOSTRAR_TROCO_BAIXA_CR, UBaixaAreceber.pas:1499/LancaTroco): SÓ na forma DINHEIRO — recebeu a MAIS →
+      // o excesso é troco (devolvido) e o título quita pelo TOTAL. Em BANCO/outro recurso o excesso é dinheiro REAL
+      // (não há gaveta p/ troco) → rejeita (não sub-registra; excesso-vira-crédito/adiantamento = adiado). Config
+      // MOSTRAR_TROCO_BAIXA_CR não é respeitada (troco sempre p/ DINHEIRO) — simplificação consciente.
+      if (valorInformado > total && recurso !== 'DINHEIRO') throw new BusinessRuleError('TITULO_VALOR_EXCEDE', { valorpg: valorInformado, total });
+      const troco = valorInformado > total ? r2(valorInformado - total) : 0;
+      const valorpg = troco > 0 ? total : valorInformado; // efetivamente aplicado ao título
       const parcial = valorpg < total; // pagou menos que o total → gera título-saldo (UBaixaAreceber.pas:1403)
       const dtpgto = dto.dtpgto ?? sql`current_date`;
 
@@ -171,7 +176,6 @@ export class AreceberBaixaService {
 
       // recurso DINHEIRO → RECEBIMENTO no caixa aberto (mesma trx) + contábil (CODORIGEM=16: D 183 CAIXA / C cliente).
       // recurso BANCO → depósito direto (NÃO toca o caixa) + contábil (D conta-do-banco / C cliente).
-      const recurso = String(dto.recurso ?? '').toUpperCase();
       if (recurso === 'DINHEIRO') {
         await this.caixa.lancarDaBaixa(trx, { origem: 'AR', valorpg: r2(valorpg), codrcbbx: Number((bxIns as any).codrcbbx), dtpgto: dto.dtpgto, obs: dto.obs ?? null });
         await this.tentarContabilizar(trx, emp, { codbx: Number((bxIns as any).codrcbbx), codparceiro: (t as any).codparceiro ?? null, valor: r2(valorpg), data: dtpgto, op });
@@ -180,7 +184,7 @@ export class AreceberBaixaService {
         if (contaMoney != null) await this.tentarContabilizar(trx, emp, { codbx: Number((bxIns as any).codrcbbx), codparceiro: (t as any).codparceiro ?? null, valor: r2(valorpg), data: dtpgto, op, contaMoney });
       }
 
-      return { codrcb, valorpg: r2(valorpg), juros: r2(juros), quitada: 'S', parcial, saldoTitulo };
+      return { codrcb, valorpg: r2(valorpg), troco, juros: r2(juros), quitada: 'S', parcial, saldoTitulo };
     });
   }
 
