@@ -65,6 +65,69 @@ export class PlanoContasService {
     return { tipo, segmentos: segs, mascara: segs.map((w) => '9'.repeat(w)).join('.') };
   }
 
+  /** as 8 colunas de conta-default (For/Cli/Cxa/Bco × sintética/analítica) do config_plano_contas. */
+  private static readonly CONTAS_DEFAULT = [
+    'codcontasintetica_for', 'codcontaanalitica_for', 'codcontasintetica_cli', 'codcontaanalitica_cli',
+    'codcontasintetica_cxa', 'codcontaanalitica_cxa', 'codcontasintetica_bco', 'codcontaanalitica_bco',
+  ] as const;
+
+  /**
+   * CONTAS DEFAULT (uCadConfPlanoContas, T1.4): as contas contábeis padrão For/Cli/Cxa/Bco que o parceiro SEM
+   * conta própria herda no lançamento (via resolverContaContabilParceiro). Devolve os apontadores + `detalhes`
+   * (codiexpandido/descrição/classe de cada conta referenciada, p/ exibição).
+   */
+  async configContasDefault(tipo = 'E'): Promise<{ tipo: string; contas: Record<string, unknown>; detalhes: Record<string, unknown> }> {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const row = (await db
+      .selectFrom('config_plano_contas')
+      .select([...PlanoContasService.CONTAS_DEFAULT])
+      .where('tipo', '=', tipo)
+      .executeTakeFirst()) as Record<string, unknown> | undefined;
+    const contas: Record<string, unknown> = {};
+    for (const c of PlanoContasService.CONTAS_DEFAULT) contas[c] = row?.[c] ?? null;
+    const ids = [...new Set(Object.values(contas).filter((v): v is number => v != null).map(Number))];
+    const detalhes: Record<string, unknown> = {};
+    if (ids.length) {
+      const rows = (await db
+        .selectFrom('plano_contas').select(['codplanocontas', 'codiexpandido', 'descricao', 'classe'])
+        .where('codplanocontas', 'in', ids).execute()) as Array<Record<string, unknown>>;
+      for (const r of rows) detalhes[String(r.codplanocontas)] = { codiexpandido: r.codiexpandido, descricao: r.descricao, classe: r.classe };
+    }
+    return { tipo, contas, detalhes };
+  }
+
+  /**
+   * Grava as contas-default (parcial: só os campos presentes; null limpa). Valida que cada conta informada
+   * EXISTE e tem a classe certa — ANALÍTICA ('A', recebe lançamento) p/ codcontaanalitica_*, SINTÉTICA ('T')
+   * p/ codcontasintetica_*. Fiel ao uCadConfPlanoContas (valida a conta antes de salvar).
+   */
+  async atualizarContasDefault(dto: Record<string, number | null | undefined>, tipo = 'E'): Promise<{ tipo: string; contas: Record<string, unknown>; detalhes: Record<string, unknown> }> {
+    const db = this.dbp.forTenant() as AnyDB;
+    await db.transaction().execute(async (trx: AnyDB) => {
+      const set: Record<string, unknown> = {};
+      for (const campo of PlanoContasService.CONTAS_DEFAULT) {
+        if (!(campo in dto)) continue; // ausente → não toca
+        const id = dto[campo];
+        if (id == null) { set[campo] = null; continue; } // null → limpa (permitido em qualquer coluna)
+        // DIVERGÊNCIA CONSCIENTE: a conta SINTÉTICA default (uTron "mode b": cria conta-filha individualizada
+        // por parceiro sob a sintética, e vence a analítica) NÃO é suportada — o resolver-fallback usa só a
+        // ANALÍTICA catch-all. Rejeita setar sintética p/ não gravar um config que o lançamento ignoraria
+        // silenciosamente (auditoria [MÉDIA]). Isto também torna o both-set (XOR do legado) impossível.
+        if (campo.startsWith('codcontasintetica')) {
+          throw new BusinessRuleError('CONTA_SINTETICA_DEFAULT_NAO_SUPORTADA', { campo, id });
+        }
+        const conta = (await trx
+          .selectFrom('plano_contas').select(['codplanocontas', 'classe'])
+          .where('codplanocontas', '=', id).executeTakeFirst()) as { classe?: string } | undefined;
+        if (!conta) throw new BusinessRuleError('CONTA_NAO_ENCONTRADA', { campo, id });
+        if ((conta.classe ?? '') !== 'A') throw new BusinessRuleError('CONTA_DEFAULT_NAO_ANALITICA', { campo, id, classe: conta.classe });
+        set[campo] = id;
+      }
+      if (Object.keys(set).length) await trx.updateTable('config_plano_contas').set(set).where('tipo', '=', tipo).execute();
+    });
+    return this.configContasDefault(tipo);
+  }
+
   /**
    * PRÓXIMO CÓDIGO sugerido (uDMCadPlanoContas.CodigoMaximoDeConta / BuscaProximoCodigoContaRaiz): o próximo
    * IRMÃO (max do último segmento + 1, zero-preenchido à largura do nível pela máscara). Sob um pai sintético;
@@ -238,6 +301,17 @@ export class PlanoContasService {
       const parc = await trx.selectFrom('parceiros').select('codparceiro')
         .where((eb: any) => eb.or([eb('codcontabil', '=', String(id)), eb('codcontabil_for', '=', String(id))])).executeTakeFirst();
       if (parc) throw new BusinessRuleError('CONTA_EM_USO');
+      // trava ValidaExclusao #4 (uDMCadPlanoContas): conta usada como DEFAULT no CONFIG_PLANO_CONTAS. No modelo
+      // LAZY (T1.4) a única referência da conta catch-all vive aqui — sem esta trava, excluí-la deixaria o
+      // config apontando p/ conta inexistente e o próximo lançamento-fallback estouraria a FK do diário.
+      const cfg = await trx.selectFrom('config_plano_contas').select('tipo')
+        .where((eb: any) => eb.or([
+          eb('codcontaanalitica_for', '=', id), eb('codcontasintetica_for', '=', id),
+          eb('codcontaanalitica_cli', '=', id), eb('codcontasintetica_cli', '=', id),
+          eb('codcontaanalitica_cxa', '=', id), eb('codcontasintetica_cxa', '=', id),
+          eb('codcontaanalitica_bco', '=', id), eb('codcontasintetica_bco', '=', id),
+        ])).executeTakeFirst();
+      if (cfg) throw new BusinessRuleError('CONTA_EM_USO');
       await trx.deleteFrom('plano_contas').where('codplanocontas', '=', id).execute();
     });
   }

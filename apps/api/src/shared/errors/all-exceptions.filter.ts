@@ -281,6 +281,8 @@ const CODE_PT: Record<string, string> = {
   CONTA_REDUZIDO_DUPLICADO: 'Já existe uma conta com este código reduzido.',
   CONTA_PAI_INEXISTENTE: 'A conta-pai informada não existe.',
   CONTA_PAI_ANALITICA: 'Não é possível criar contas filhas em uma conta analítica. A conta-pai deve ser sintética.',
+  CONTA_DEFAULT_NAO_ANALITICA: 'A conta-default informada deve ser ANALÍTICA (recebe lançamento).',
+  CONTA_SINTETICA_DEFAULT_NAO_SUPORTADA: 'Conta-default SINTÉTICA não é suportada. Informe uma conta ANALÍTICA (a que recebe o lançamento).',
   CONTA_PAI_INVALIDO: 'A conta não pode ser pai de si mesma.',
   CONTA_PREFIXO_INVALIDO: 'O código é incompatível com a estrutura da conta-pai (deve conter o prefixo do pai).',
   CONTA_COM_FILHOS: 'A conta possui contas filhas — remova ou reclassifique as filhas antes.',

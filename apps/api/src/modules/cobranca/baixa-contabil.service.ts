@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { resolverContaContabilParceiro } from '../shared/conta-parceiro';
 
 type AnyDB = Kysely<any>;
 type Origem = 'AR' | 'AP';
@@ -113,13 +114,10 @@ export class BaixaContabilService {
     return contaParceiro;
   }
 
-  private async resolverContaParceiro(trx: AnyDB, origem: Origem, codparceiro: number | null, situacao: number): Promise<number | null> {
-    if (codparceiro == null) return null;
-    const pc = await trx.selectFrom('parceiros').select(['codcontabil', 'codcontabil_for']).where('codparceiro', '=', codparceiro).executeTakeFirst();
-    const conta = origem === 'AR' ? (pc as any)?.codcontabil : (pc as any)?.codcontabil_for; // AR=cliente / AP=fornecedor
-    const n = Number(conta);
-    if (!conta || !Number.isFinite(n)) throw new BusinessRuleError('CONTA_PARCEIRO_NAO_DEFINIDA', { situacao, codparceiro });
-    return n;
+  private async resolverContaParceiro(trx: AnyDB, origem: Origem, codparceiro: number | null, _situacao: number): Promise<number | null> {
+    // T1.4: conta própria do parceiro OU a analítica DEFAULT do CONFIG_PLANO_CONTAS (fallback). null → resolverLeg
+    // lança CONTA_PARCEIRO_NAO_DEFINIDA (só quando NEM própria NEM default existem). AR=cliente(CLI) / AP=fornecedor(FOR).
+    return resolverContaContabilParceiro(trx, codparceiro, origem === 'AR' ? 'CLI' : 'FOR');
   }
 
   /**

@@ -3,6 +3,7 @@ import { sql } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { resolverContaContabilParceiro } from '../shared/conta-parceiro';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -261,10 +262,10 @@ export class NfContabilizacaoService {
       return Number(iic.codconta_contabil);
     }
     if (natureza === 'C') {
-      const p = await trx.selectFrom('parceiros').select(['codcontabil', 'codcontabil_for']).where('codparceiro', '=', ctx.codparceiro).executeTakeFirst();
-      const conta = ctx.tipo === 'E' ? p?.codcontabil_for : p?.codcontabil; // entrada→fornecedor / saída→cliente
-      const n = Number(conta);
-      if (!conta || !Number.isFinite(n)) throw new BusinessRuleError('CONTA_PARCEIRO_NAO_DEFINIDA', { situacao, codparceiro: ctx.codparceiro });
+      // T1.4: conta própria do parceiro OU a analítica DEFAULT do CONFIG_PLANO_CONTAS (fallback).
+      // entrada(E)→fornecedor(FOR) / saída(S)→cliente(CLI). null (nem própria nem default) → 422.
+      const n = await resolverContaContabilParceiro(trx, ctx.codparceiro, ctx.tipo === 'E' ? 'FOR' : 'CLI');
+      if (n == null) throw new BusinessRuleError('CONTA_PARCEIRO_NAO_DEFINIDA', { situacao, codparceiro: ctx.codparceiro });
       return n;
     }
     // débito automático → ponte PLC (CODCC → PLC.CODCONTABIL).

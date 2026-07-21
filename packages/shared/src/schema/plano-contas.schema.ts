@@ -45,6 +45,27 @@ const planoContasBase = z.object({
 export const planoContasSchema = planoContasBase;
 export const atualizarPlanoContasSchema = planoContasBase.partial();
 
+/**
+ * CONTAS DEFAULT do plano (uCadConfPlanoContas, T1.4): apontadores For/Cli/Cxa/Bco × sintética/analítica.
+ * Cada campo é opcional (parcial: só os presentes mudam) e nullable (null limpa). O service valida
+ * existência + classe (analítica='A', sintética='T'). Aceita número ou string numérica; '' → null.
+ */
+const contaOpt = z.preprocess(
+  (v) => (v === '' || v == null ? null : typeof v === 'string' ? Number(v) : v),
+  z.number({ message: 'Conta inválida.' }).int().positive('Conta inválida.').nullable(),
+);
+export const configContasDefaultSchema = z.object({
+  codcontasintetica_for: contaOpt.optional(),
+  codcontaanalitica_for: contaOpt.optional(),
+  codcontasintetica_cli: contaOpt.optional(),
+  codcontaanalitica_cli: contaOpt.optional(),
+  codcontasintetica_cxa: contaOpt.optional(),
+  codcontaanalitica_cxa: contaOpt.optional(),
+  codcontasintetica_bco: contaOpt.optional(),
+  codcontaanalitica_bco: contaOpt.optional(),
+});
+export type ConfigContasDefaultDto = z.infer<typeof configContasDefaultSchema>;
+
 export type CriarPlanoContasDto = z.infer<typeof planoContasBase>;
 
 export interface PlanoConta {

@@ -2913,6 +2913,71 @@ async function main() {
     const ctbArGBx = await bxAtivoAR(ctbArG);
     check('CR-contábil: IIC com 2 pernas TIPO=A → guarda pula o lançamento (sem DIÁRIO, não D=cliente/C=cliente)', (await diarioBx(16, ctbArGBx)).length === 0, { dia: await diarioBx(16, ctbArGBx) });
     await pgCtb.query(`UPDATE itens_integracao_contabil SET tipo='F', codconta_contabil=183 WHERE codoperacao=2009 AND natureza='D'`); // restaura
+
+    // 44.8) T1.4 — CONTA-DEFAULT (CONFIG_PLANO_CONTAS) como FALLBACK quando o parceiro não tem conta própria.
+    const CONF = 'cadastro/plano-contas/config-contas';
+    // 44.8a) parceiro 20 SEM conta própria (codcontabil NULL) → baixa AR DINHEIRO posta C = 211 (analítica DEFAULT
+    // do CONFIG), em vez de PULAR por CONTA_PARCEIRO_NAO_DEFINIDA. own=NULL ⇒ C=211 só pode vir do fallback.
+    await pgCtb.query(`UPDATE parceiros SET codcontabil=NULL WHERE codparceiro=20`);
+    const fbAr = await crCtbAR();
+    const fbArR = await fetch(`${base}/${ARc}/${fbAr}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO', dtpgto: '2026-07-04' }) });
+    const fbArDia = await diarioBx(16, await bxAtivoAR(fbAr));
+    check('AR T1.4: parceiro SEM conta própria → contábil usa a analítica DEFAULT (C=211), não pula',
+      fbArR.status === 200 && fbArDia.length === 1 && Number(fbArDia[0].contacredito) === 211, { status: fbArR.status, dia: fbArDia });
+
+    // 44.8b) config-driven: GET expõe CLI=211; PUT muda p/ 11141 (analítico, distinto) → nova baixa posta C=11141.
+    const cfgGet = (await (await fetch(`${base}/${CONF}`, { headers: H })).json().catch(() => ({}))) as any;
+    const cfgPut = await fetch(`${base}/${CONF}`, { method: 'PUT', headers: H, body: JSON.stringify({ codcontaanalitica_cli: 11141 }) });
+    const fbAr2 = await crCtbAR();
+    await fetch(`${base}/${ARc}/${fbAr2}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO', dtpgto: '2026-07-04' }) });
+    const fbAr2Dia = await diarioBx(16, await bxAtivoAR(fbAr2));
+    check('AR T1.4: GET config CLI=211; PUT→11141 e a baixa passa a postar C=11141 (fallback é config-driven)',
+      Number(cfgGet?.contas?.codcontaanalitica_cli) === 211 && cfgPut.status === 200 && fbAr2Dia.length === 1 && Number(fbAr2Dia[0].contacredito) === 11141,
+      { get: cfgGet?.contas?.codcontaanalitica_cli, put: cfgPut.status, dia: fbAr2Dia });
+    // restore config + parceiro
+    await fetch(`${base}/${CONF}`, { method: 'PUT', headers: H, body: JSON.stringify({ codcontaanalitica_cli: 211 }) });
+    await pgCtb.query(`UPDATE parceiros SET codcontabil='211' WHERE codparceiro=20`);
+
+    // 44.8c) validações do PUT: conta inexistente → 422 CONTA_NAO_ENCONTRADA; conta SINTÉTICA (9012 'T') como
+    // analítica → 422 CONTA_DEFAULT_NAO_ANALITICA (falha na trx → config permanece intacto).
+    const putMiss = await fetch(`${base}/${CONF}`, { method: 'PUT', headers: H, body: JSON.stringify({ codcontaanalitica_cli: 999999 }) });
+    const putSint = await fetch(`${base}/${CONF}`, { method: 'PUT', headers: H, body: JSON.stringify({ codcontaanalitica_cli: 9012 }) });
+    const cfgAfter = (await (await fetch(`${base}/${CONF}`, { headers: H })).json().catch(() => ({}))) as any;
+    check('AR T1.4: PUT valida (inexistente→422 CONTA_NAO_ENCONTRADA; sintética→422 CONTA_DEFAULT_NAO_ANALITICA; config intacto=211)',
+      putMiss.status === 422 && ((await putMiss.json().catch(() => ({}))) as any).code === 'CONTA_NAO_ENCONTRADA'
+      && putSint.status === 422 && ((await putSint.json().catch(() => ({}))) as any).code === 'CONTA_DEFAULT_NAO_ANALITICA'
+      && Number(cfgAfter?.contas?.codcontaanalitica_cli) === 211,
+      { miss: putMiss.status, sint: putSint.status, cli: cfgAfter?.contas?.codcontaanalitica_cli });
+
+    // 44.8d) AP simétrico: fornecedor 22 SEM codcontabil_for → pagamento DINHEIRO posta D = 11141 (FOR default). Restaura.
+    await pgCtb.query(`UPDATE parceiros SET codcontabil_for=NULL WHERE codparceiro=22`);
+    const fbAp = await crCtbAP();
+    await fetch(`${base}/${APc}/${fbAp}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO', dtpgto: '2026-07-04' }) });
+    const fbApDia = await diarioBx(15, await bxAtivoAP(fbAp));
+    check('AP T1.4: fornecedor SEM conta própria → contábil usa a analítica DEFAULT FOR (D=11141)',
+      fbApDia.length === 1 && Number(fbApDia[0].contadebito) === 11141, { dia: fbApDia });
+    await pgCtb.query(`UPDATE parceiros SET codcontabil_for='11141' WHERE codparceiro=22`);
+
+    // 44.8e) folds da auditoria: (i) PUT de conta SINTÉTICA default → 422 (mode-b não suportado);
+    // (ii) delete-guard — conta 124 (analítica, não usada por parceiro/IIC/PLC) apontada como DEFAULT no CONFIG
+    // não pode ser excluída → 422 CONTA_EM_USO (trava ValidaExclusao #4; sem ela ficaria dangling → FK do diário).
+    const putSyn = await fetch(`${base}/${CONF}`, { method: 'PUT', headers: H, body: JSON.stringify({ codcontasintetica_cli: 9012 }) });
+    const putSynJ = (await putSyn.json().catch(() => ({}))) as any;
+    // conta FRESCA (sem movimento/filhos/IIC/PLC/parceiro) → a ÚNICA referência será o CONFIG → isola a trava nova.
+    const novaConta = await fetch(`${base}/cadastro/plano-contas`, { method: 'POST', headers: H, body: JSON.stringify({ codiexpandido: '3.1.01.01.9099', descricao: 'TESTE T1.4 GUARD', classe: 'A', natureza: 4, codpai: 9016, codireduzido: '90991' }) });
+    const novaId = Number(((await novaConta.json().catch(() => ({}))) as any).codplanocontas);
+    await fetch(`${base}/${CONF}`, { method: 'PUT', headers: H, body: JSON.stringify({ codcontaanalitica_cli: novaId }) }); // aponta o default p/ a conta fresca
+    const delGuard = await fetch(`${base}/cadastro/plano-contas/${novaId}`, { method: 'DELETE', headers: H });
+    const delGuardJ = (await delGuard.json().catch(() => ({}))) as any;
+    await fetch(`${base}/${CONF}`, { method: 'PUT', headers: H, body: JSON.stringify({ codcontaanalitica_cli: 211 }) }); // solta o config (restaura 211)
+    const delT14Ok = await fetch(`${base}/cadastro/plano-contas/${novaId}`, { method: 'DELETE', headers: H }); // agora sem ref → 204
+    check('AR T1.4: PUT sintética→422; conta-default do CONFIG NÃO excluível→422 CONTA_EM_USO; ao soltar do config→exclui(204)',
+      putSyn.status === 422 && putSynJ.code === 'CONTA_SINTETICA_DEFAULT_NAO_SUPORTADA'
+      && novaConta.status === 201 && Number.isFinite(novaId)
+      && delGuard.status === 422 && delGuardJ.code === 'CONTA_EM_USO'
+      && delT14Ok.status === 204,
+      { syn: [putSyn.status, putSynJ.code], nova: novaConta.status, del: [delGuard.status, delGuardJ.code], delOk: delT14Ok.status });
+
     await pgCtb.end();
 
     // 45) CAIXA corte-2d-b — TESOURARIA do dinheiro (fechamento move o saldo de 183 p/ o cofre; CODORIGEM 19 + MCB).

@@ -1,7 +1,7 @@
 import {
   Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put, Query, UseGuards,
 } from '@nestjs/common';
-import { planoContasSchema, atualizarPlanoContasSchema } from '@apollo/shared';
+import { planoContasSchema, atualizarPlanoContasSchema, configContasDefaultSchema } from '@apollo/shared';
 import { PlanoContasService } from './plano-contas.service';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -30,6 +30,18 @@ export class PlanoContasController {
   @Get('proximo-codigo')
   proximoCodigo(@Query('codpai') codpai?: string, @Query('tipo') tipo?: string) {
     return this.svc.proximoCodigo(codpai != null && codpai !== '' ? Number(codpai) : null, tipo || 'E');
+  }
+
+  /** contas-default For/Cli/Cxa/Bco (T1.4). Leitura livre; gravação exige RBAC de gravação. */
+  @Get('config-contas')
+  configContas(@Query('tipo') tipo?: string) {
+    return this.svc.configContasDefault(tipo || 'E');
+  }
+
+  @Put('config-contas')
+  @RequerAcesso('FRMCADPLANOCONTAS', 'BTNGRAVAR')
+  atualizarConfigContas(@Body(new ZodValidationPipe(configContasDefaultSchema)) dto: Record<string, number | null>, @Query('tipo') tipo?: string) {
+    return this.svc.atualizarContasDefault(dto, tipo || 'E');
   }
 
   @Get(':id')
