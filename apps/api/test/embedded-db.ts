@@ -147,6 +147,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('102_razao_rbac.sql'));
   await pool.query(sql('103_config_plano_contas.sql'));
   await pool.query(sql('104_audit_permissoes.sql'));
+  await pool.query(sql('105_vendas.sql'));
   await pool.end();
   return pg;
 }

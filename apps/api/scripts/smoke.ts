@@ -4931,6 +4931,44 @@ async function main() {
         check('SPED §88.3 bloco C: cadastros (0150/0200) + C100 (entrada IND_OPER=0, mod 55) + C170 (item 1, PIS 1,65) + C990',
           tem0150 && tem0200 && c100.startsWith('|C100|0|') && c100.includes('|55|') && c170.startsWith('|C170|1|1|') && c170.includes('|1,65|') && temC990,
           { c100: c100.slice(0, 70), c170: c170.slice(0, 90) });
+
+        // 88.4) SAÍDA do PDV (corte-1 VENDAS): débito de PIS/COFINS. Período 2026-09 ISOLADO. Vendas NFC-e (base
+        // Σ1500) + 1 crédito de entrada (base 200). Débito PIS=round(1500×1,65/100)=24,75; COFINS=114,00. Crédito
+        // PIS 3,30 / COFINS 15,20 → a recolher PIS 21,45 / COFINS 98,80; crédito 100% descontado (deb>cred).
+        await pgSp.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, venda_nfc, cancelado, statusnfe, chavenfe, pis_cst, pis_bcalculo, pis_aliquota, pis_valor, cofins_cst, cofins_bcalculo, cofins_aliquota, cofins_valor) VALUES
+          (1,'2026-09-05 10:00:00-03','V1','001',101,1,1,1,1000,'S','N','P','35260900000000000000000000000000000000000101','01',1000,1.65,16.50,'01',1000,7.60,76.00),
+          (1,'2026-09-06 11:00:00-03','V2','001',102,1,1,1, 500,'S','N','P','35260900000000000000000000000000000000000102','01', 500,1.65, 8.25,'01', 500,7.60,38.00),
+          (1,'2026-09-07 12:00:00-03','V3','001',103,1,1,1, 999,'S','S','P','35260900000000000000000000000000000000000103','01', 999,1.65,16.48,'01', 999,7.60,75.92)`); // V3 CANCELADO → excluído
+        const nfCredS = await novaNf(baseNf({ tipo: 'E', nronf: 'SPEDS01', codparceiro: 22, dtemissao: '2026-09-02', dtcontabil: '2026-09-02', itens: [{ codproduto: 1, quantidade: 1, vrvenda: 200, vrcusto: 200, cfop: '1102', aliquota: 'T01', cstpiscofins: '50' }] }));
+        await pgSp.query(`UPDATE nf_prod SET bcpiscofinse=200, vrpise=3.30, vrcofinse=15.20, aliqpise=1.65, aliqcofinse=7.60, cstpiscofins='50' WHERE codnf=$1`, [nfCredS]);
+        await pgSp.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfCredS]);
+
+        const apurS = await fetch(`${base}/fiscal/sped/apuracao-pc`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-01', dtfim: '2026-09-30' }) });
+        const apurSJ = (await apurS.json().catch(() => ({}))) as any;
+        check('SPED §88.4 apuração DÉBITO de VENDAS: 1 grupo (base 1500, cancelado excluído), débito PIS 24,75 / COFINS 114,00',
+          apurS.status === 200 && Number(apurSJ.grupos_debito) === 1 && Number(apurSJ.total_debito_pis) === 24.75 && Number(apurSJ.total_debito_cofins) === 114
+          && Number(apurSJ.total_credito_pis) === 3.3,
+          { apur: apurSJ });
+
+        const efdS = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-01', dtfim: '2026-09-30' }) });
+        const linS = String(((await efdS.json().catch(() => ({}))) as any).arquivo ?? '').split('\r\n');
+        const m100S = linS.find((l) => l.startsWith('|M100|')) ?? '';
+        const m200 = linS.find((l) => l.startsWith('|M200|')) ?? '';
+        const m205 = linS.find((l) => l.startsWith('|M205|')) ?? '';
+        const m210 = linS.find((l) => l.startsWith('|M210|')) ?? '';
+        const m600 = linS.find((l) => l.startsWith('|M600|')) ?? '';
+        const m605 = linS.find((l) => l.startsWith('|M605|')) ?? '';
+        const m610 = linS.find((l) => l.startsWith('|M610|')) ?? '';
+        check('SPED §88.4 bloco M DÉBITO: M200 (PIS 24,75; NC_DEV 21,45; crédito 3,30; a recolher 21,45) + M205 (COD_REC 810902) + M210 (base 1500 alíq 1,65 apur 24,75) + M600/M605/M610 (COFINS 98,80) + M100 crédito 100% descontado',
+          efdS.status === 200
+          && m200 === '|M200|24,75|3,30|0,00|21,45|0,00|0,00|21,45|0,00|0,00|0,00|0,00|21,45|'
+          && m205 === '|M205|08|810902|21,45|'
+          && m210.startsWith('|M210|01|1500,00|1500,00|0,00|0,00|1500,00|1,6500|||24,75|') && m210.endsWith('|24,75|')
+          && m600 === '|M600|114,00|15,20|0,00|98,80|0,00|0,00|98,80|0,00|0,00|0,00|0,00|98,80|'
+          && m605 === '|M605|08|217201|98,80|'
+          && m610.includes('|7,6000|||114,00|') && m100S.endsWith('|3,30|1|3,30|0,00|'),
+          { m200, m205, m610: m610.slice(0, 60), m100: m100S.slice(-40) });
+        await pgSp.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-01' AND dtvenda < '2026-10-01'`); // cleanup
       } finally {
         await pgSp.end();
       }

@@ -19,10 +19,10 @@ function codVersao(dtini: string): string {
 }
 
 /**
- * SPED EFD-Contribuições (PIS/COFINS) — SCAFFOLD corte-1: motor escritor + BLOCO 0 (identificação/estabelecimentos)
- * + BLOCO 9 (totalizador). O legado escreve via ACBr; aqui construímos ao padrão SPED público. O BLOCO C (documentos)
- * e o BLOCO M (apuração) são o corte-2; a SAÍDA de VAREJO (cupons/ReduçãoZ do PDV) é PDV-DEPENDENTE e ainda não
- * migrada — por isso o arquivo é PARCIAL/não-transmissível (só o envelope + cadastros). Escopo por empresa (tenant).
+ * SPED EFD-Contribuições (PIS/COFINS). Motor escritor + BLOCO 0 (identificação/estabelecimentos) + BLOCO C
+ * (documentos de ENTRADA C100/C170) + BLOCO M (apuração: crédito de entrada + DÉBITO de saída do PDV / VENDAS,
+ * corte-1) + BLOCO 9 (totalizador). O legado escreve via ACBr; aqui ao padrão SPED público. PARCIAL enquanto faltam
+ * os DOCUMENTOS de saída no bloco C (C100 mod 65 + C175 da NFC-e = corte-2 do PDV). Escopo por empresa (tenant).
  */
 @Injectable()
 export class SpedEfdContribuicoesService {
@@ -76,9 +76,9 @@ export class SpedEfdContribuicoesService {
     // varejo (cupons/ReduçãoZ do PDV) não está migrada.
     this.emitirBlocoC(arq, docs, cnpj);
 
-    // BLOCO M (corte-2a): apuração do CRÉDITO de entrada (M100/M105 PIS + M500/M505 COFINS). A consolidação
-    // M200/M600 (valor a recolher) depende do DÉBITO de saída (cupons/ReduçãoZ do PDV) → ADIADA.
-    const credito = await this.gerarBlocoM(arq, db, emp, dtini, dtfim);
+    // BLOCO M: apuração de PIS/COFINS — CRÉDITO de entrada (M100/M105/M500/M505) + DÉBITO de saída do PDV
+    // (M200/M210/M600/M610, corte-1 VENDAS), com o crédito descontado e o valor a recolher (débito − crédito).
+    const temM = await this.gerarBlocoM(arq, db, emp, dtini, dtfim);
 
     const arquivo = arq.gerar();
     return {
@@ -87,20 +87,23 @@ export class SpedEfdContribuicoesService {
       estabelecimentos: estabs.length,
       documentos: docs.nfs.length,
       parcial: true,
-      aviso: `PARCIAL: bloco 0 (cadastros) + bloco C (${docs.nfs.length} documentos de ENTRADA) + bloco M (crédito${credito ? '' : ' — rode POST /fiscal/sped/apuracao-pc'}) + bloco 9. Falta a SAÍDA de varejo (cupons/ReduçãoZ do PDV, não migrado) → docs de saída + DÉBITO/consolidação M200/M600.`,
+      aviso: `PARCIAL: bloco 0 (cadastros) + bloco C (${docs.nfs.length} documentos de ENTRADA) + bloco M (crédito+débito${temM ? '' : ' — rode POST /fiscal/sped/apuracao-pc'}) + bloco 9. Falta os DOCUMENTOS de saída no bloco C (C100 mod 65 + C175 da NFC-e) → corte-2 do PDV.`,
     };
   }
 
   /**
-   * BLOCO M — apuração do CRÉDITO de PIS/COFINS de entrada, lido de apuracao_pc/_det (rode a apuração antes).
-   * M001 (abertura) → por alíquota: M100 (PIS: COD_CRED, BC, alíq, crédito) + M105 (detalhe por CST) ; M500/M505
-   * (COFINS, espelho) → M990. Sem apuração no período → M001 IND_MOV=1 (bloco vazio). Retorna true se houve crédito.
+   * BLOCO M — apuração de PIS/COFINS (não-cumulativo, LR), lida de apuracao_pc/_det. CRÉDITO de entrada (TIPO='C')
+   * e DÉBITO de saída do PDV (TIPO='D', corte-1 VENDAS). Por imposto: M100/M105 (crédito, com o crédito DESCONTADO
+   * contra o débito — fill-first) + M200 (consolidação: contribuição − crédito descontado = a recolher) + M210
+   * (débito por alíquota). COFINS espelha (M500/M505/M600/M610). Sem apuração → M001 IND_MOV=1. Retorna true se houve dado.
    */
   private async gerarBlocoM(arq: SpedArquivo, db: AnyDB, emp: number, dtini: string, dtfim: string): Promise<boolean> {
     const cab = (await db.selectFrom('apuracao_pc').select('codapuracao_pc').where('idempresa', '=', emp).where('dataini', '=', dtini).where('datafim', '=', dtfim).executeTakeFirst()) as { codapuracao_pc?: number } | undefined;
     const det = cab
-      ? ((await db.selectFrom('apuracao_pc_det').selectAll().where('codapuracao_pc', '=', Number(cab.codapuracao_pc)).where('tipo', '=', 'C').orderBy('codapuracao_pc_det').execute()) as Array<Record<string, unknown>>)
+      ? ((await db.selectFrom('apuracao_pc_det').selectAll().where('codapuracao_pc', '=', Number(cab.codapuracao_pc)).orderBy('codapuracao_pc_det').execute()) as Array<Record<string, unknown>>)
       : [];
+    const detC = det.filter((d) => d.tipo === 'C');
+    const detD = det.filter((d) => d.tipo === 'D');
 
     arq.add('M001', [det.length ? '0' : '1']); // IND_MOV: 0=com dados / 1=sem
     if (!det.length) {
@@ -108,45 +111,72 @@ export class SpedEfdContribuicoesService {
       return false;
     }
 
-    const n2 = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
-    const cst2 = (v: unknown) => (v == null ? '' : String(v).padStart(2, '0'));
-
-    // ── PIS: M100 por alíquota (COD_CRED fixo '101' neste corte), M105 detalhe por CST ──
-    const grupar = (chaveAliq: 'aliqpis' | 'aliqcofins') => {
-      const m = new Map<string, Record<string, unknown>[]>();
-      for (const d of det) {
-        const k = `${d.id_tipocredito}|${Number(n2(d[chaveAliq])).toFixed(4)}`;
-        (m.get(k) ?? m.set(k, []).get(k)!).push(d);
-      }
-      return m;
-    };
-    for (const linhas of grupar('aliqpis').values()) {
-      const codCred = String(linhas[0].id_tipocredito ?? '101');
-      const aliq = n2(linhas[0].aliqpis);
-      const base = linhas.reduce((s, d) => s + n2(d.basecalculo), 0);
-      const cred = linhas.reduce((s, d) => s + n2(d.valorpis), 0);
-      // M100: COD_CRED|IND_CRED_ORI|VL_BC_PIS|ALIQ_PIS|QUANT_BC_PIS|ALIQ_PIS_QUANT|VL_CRED|VL_AJUS_ACRES|VL_AJUS_REDUC|VL_CRED_DIF|VL_CRED_DISP|IND_DESC_CRED|VL_CRED_DESC|SLD_CRED
-      // fold auditoria [MÉDIA]: sem débito no período (M200 adiado — depende do PDV), o crédito NÃO é descontado →
-      // VL_CRED_DESC=0 e SLD_CRED=VL_CRED_DISP (saldo credor a transportar). (Quando o débito entrar, o offset é recalculado.)
-      arq.add('M100', [codCred, '01', fmtNum(base), fmtNum(aliq, 4), '', '', fmtNum(cred), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(cred), '0', fmtNum(0), fmtNum(cred)]);
-      for (const d of linhas) {
-        // M105: NAT_BC_CRED|CST_PIS|VL_BC_PIS_TOT|VL_BC_PIS_CUM|VL_BC_PIS_NC|VL_BC_PIS|QUANT_BC_PIS_TOT|QUANT_BC_PIS|DESC_CRED
-        arq.add('M105', [cst2(d.id_basecredito), cst2(d.cst_pis), fmtNum(n2(d.basecalculo)), fmtNum(0), fmtNum(n2(d.basecalculo)), fmtNum(n2(d.basecalculo)), '', '', '']);
-      }
-    }
-    // ── COFINS: M500/M505 (espelho) ──
-    for (const linhas of grupar('aliqcofins').values()) {
-      const codCred = String(linhas[0].id_tipocredito ?? '101');
-      const aliq = n2(linhas[0].aliqcofins);
-      const base = linhas.reduce((s, d) => s + n2(d.basecalculo), 0);
-      const cred = linhas.reduce((s, d) => s + n2(d.valorcofins), 0);
-      arq.add('M500', [codCred, '01', fmtNum(base), fmtNum(aliq, 4), '', '', fmtNum(cred), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(cred), '0', fmtNum(0), fmtNum(cred)]);
-      for (const d of linhas) {
-        arq.add('M505', [cst2(d.id_basecredito), cst2(d.cst_pis), fmtNum(n2(d.basecalculo)), fmtNum(0), fmtNum(n2(d.basecalculo)), fmtNum(n2(d.basecalculo)), '', '', '']);
-      }
-    }
+    // PIS (M100/M105/M200/M205/M210) e COFINS (M500/M505/M600/M605/M610) — mesma mecânica, colunas de valor
+    // distintas. COD_REC do M205/M605 = código de receita do legado (UspedPisCofins.pas:1620/1799).
+    this.emitirImpostoM(arq, detC, detD, 'aliqpis', 'valorpis', { m100: 'M100', m105: 'M105', m200: 'M200', m205: 'M205', m210: 'M210', codRec: '810902' });
+    this.emitirImpostoM(arq, detC, detD, 'aliqcofins', 'valorcofins', { m100: 'M500', m105: 'M505', m200: 'M600', m205: 'M605', m210: 'M610', codRec: '217201' });
     arq.fecharBloco('M990', 'M');
     return true;
+  }
+
+  /**
+   * Emite o par crédito+débito de UM imposto (PIS ou COFINS). Crédito: M100 por (COD_CRED, alíq) + M105 por CST,
+   * com VL_CRED_DESC = crédito usado p/ abater o débito (fill-first) e SLD_CRED = sobra. M200: contribuição do
+   * período (débito) − crédito descontado = valor a recolher (não-cumulativo). M210: débito por alíquota.
+   */
+  private emitirImpostoM(
+    arq: SpedArquivo,
+    detC: Array<Record<string, unknown>>,
+    detD: Array<Record<string, unknown>>,
+    aliqCol: 'aliqpis' | 'aliqcofins',
+    valCol: 'valorpis' | 'valorcofins',
+    reg: { m100: string; m105: string; m200: string; m205: string; m210: string; codRec: string },
+  ): void {
+    const n2 = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
+    const cst2 = (v: unknown) => (v == null ? '' : String(v).padStart(2, '0'));
+    const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+    const agrupar = (rows: Array<Record<string, unknown>>, chave: (d: Record<string, unknown>) => string) => {
+      const m = new Map<string, Record<string, unknown>[]>();
+      for (const d of rows) { const k = chave(d); (m.get(k) ?? m.set(k, []).get(k)!).push(d); }
+      return m;
+    };
+
+    const credTotal = r2(detC.reduce((s, d) => s + n2(d[valCol]), 0));
+    const debTotal = r2(detD.reduce((s, d) => s + n2(d[valCol]), 0));
+    const descTotal = r2(Math.min(credTotal, debTotal)); // crédito descontado no período (abate o débito)
+
+    // ── CRÉDITO: M100/M105 (fill-first do desconto contra o débito) ──
+    let rem = descTotal;
+    for (const linhas of agrupar(detC, (d) => `${d.id_tipocredito}|${n2(d[aliqCol]).toFixed(4)}`).values()) {
+      const codCred = String(linhas[0].id_tipocredito ?? '101');
+      const aliq = n2(linhas[0][aliqCol]);
+      const base = r2(linhas.reduce((s, d) => s + n2(d.basecalculo), 0));
+      const cred = r2(linhas.reduce((s, d) => s + n2(d[valCol]), 0));
+      const desc = r2(Math.min(cred, rem));
+      rem = r2(rem - desc);
+      const sld = r2(cred - desc);
+      // M100: COD_CRED|IND_CRED_ORI|VL_BC|ALIQ|QUANT_BC|ALIQ_QUANT|VL_CRED|VL_AJUS_ACRES|VL_AJUS_REDUC|VL_CRED_DIF|VL_CRED_DISP|IND_DESC_CRED|VL_CRED_DESC|SLD_CRED
+      arq.add(reg.m100, [codCred, '01', fmtNum(base), fmtNum(aliq, 4), '', '', fmtNum(cred), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(cred), desc > 0 ? '1' : '0', fmtNum(desc), fmtNum(sld)]);
+      for (const d of linhas) {
+        // M105: NAT_BC_CRED|CST|VL_BC_TOT|VL_BC_CUM|VL_BC_NC|VL_BC|QUANT_BC_TOT|QUANT_BC|DESC_CRED
+        arq.add(reg.m105, [cst2(d.id_basecredito), cst2(d.cst_pis), fmtNum(n2(d.basecalculo)), fmtNum(0), fmtNum(n2(d.basecalculo)), fmtNum(n2(d.basecalculo)), '', '', '']);
+      }
+    }
+
+    // ── DÉBITO: M200 (consolidação) + M205 (detalhe por COD_REC) + M210 (por alíquota) ──
+    const aRecolher = r2(Math.max(0, debTotal - descTotal));
+    // M200: VL_TOT_CONT_NC_PER|VL_TOT_CRED_DESC|VL_TOT_CRED_DESC_ANT|VL_TOT_CONT_NC_DEV(=01−02−03)|VL_RET_NC|VL_OUT_DED_NC|VL_CONT_NC_REC(=04−05−06)|VL_TOT_CONT_CUM_PER|VL_RET_CUM|VL_OUT_DED_CUM|VL_CONT_CUM_REC|VL_TOT_CONT_REC
+    arq.add(reg.m200, [fmtNum(debTotal), fmtNum(descTotal), fmtNum(0), fmtNum(aRecolher), fmtNum(0), fmtNum(0), fmtNum(aRecolher), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(aRecolher)]);
+    // M205/M605: detalhamento da contribuição a recolher por código de receita (PVA exige quando a-recolher>0).
+    // NUM_CAMPO='08' (LR/não-cumulativo, UspedPisCofins.pas:1619) | COD_REC | VL_DEBITO.
+    if (aRecolher > 0) arq.add(reg.m205, ['08', reg.codRec, fmtNum(aRecolher)]);
+    for (const linhas of agrupar(detD, (d) => n2(d[aliqCol]).toFixed(4)).values()) {
+      const aliq = n2(linhas[0][aliqCol]);
+      const base = r2(linhas.reduce((s, d) => s + n2(d.basecalculo), 0));
+      const val = r2(linhas.reduce((s, d) => s + n2(d[valCol]), 0));
+      // M210: COD_CONT|VL_REC_BRT|VL_BC_CONT|VL_AJUS_ACRES_BC|VL_AJUS_REDUC_BC|VL_BC_CONT_AJUS|ALIQ|QUANT_BC|ALIQ_QUANT|VL_CONT_APUR|VL_AJUS_ACRES|VL_AJUS_REDUC|VL_CONT_DIFER|VL_CONT_DIFER_ANT|VL_CONT_PER
+      arq.add(reg.m210, ['01', fmtNum(base), fmtNum(base), fmtNum(0), fmtNum(0), fmtNum(base), fmtNum(aliq, 4), '', '', fmtNum(val), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(val)]);
+    }
   }
 
   /** coleta os NFs de ENTRADA do período (+ itens) e os cadastros que o bloco C referencia (participantes/itens/unidades). */
