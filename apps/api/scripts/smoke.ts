@@ -4935,10 +4935,10 @@ async function main() {
         // 88.4) SAÍDA do PDV (corte-1 VENDAS): débito de PIS/COFINS. Período 2026-09 ISOLADO. Vendas NFC-e (base
         // Σ1500) + 1 crédito de entrada (base 200). Débito PIS=round(1500×1,65/100)=24,75; COFINS=114,00. Crédito
         // PIS 3,30 / COFINS 15,20 → a recolher PIS 21,45 / COFINS 98,80; crédito 100% descontado (deb>cred).
-        await pgSp.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, venda_nfc, cancelado, statusnfe, chavenfe, pis_cst, pis_bcalculo, pis_aliquota, pis_valor, cofins_cst, cofins_bcalculo, cofins_aliquota, cofins_valor) VALUES
-          (1,'2026-09-05 10:00:00-03','V1','001',101,1,1,1,1000,'S','N','P','35260900000000000000000000000000000000000101','01',1000,1.65,16.50,'01',1000,7.60,76.00),
-          (1,'2026-09-06 11:00:00-03','V2','001',102,1,1,1, 500,'S','N','P','35260900000000000000000000000000000000000102','01', 500,1.65, 8.25,'01', 500,7.60,38.00),
-          (1,'2026-09-07 12:00:00-03','V3','001',103,1,1,1, 999,'S','S','P','35260900000000000000000000000000000000000103','01', 999,1.65,16.48,'01', 999,7.60,75.92)`); // V3 CANCELADO → excluído
+        await pgSp.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, cfop, venda_nfc, cancelado, statusnfe, chavenfe, pis_cst, pis_bcalculo, pis_aliquota, pis_valor, cofins_cst, cofins_bcalculo, cofins_aliquota, cofins_valor) VALUES
+          (1,'2026-09-05 10:00:00-03','V1','001',101,1,1,1,1000,5102,'S','N','P','35260900000000000000000000000000000000000101','01',1000,1.65,16.50,'01',1000,7.60,76.00),
+          (1,'2026-09-06 11:00:00-03','V2','001',102,1,1,1, 500,5102,'S','N','P','35260900000000000000000000000000000000000102','01', 500,1.65, 8.25,'01', 500,7.60,38.00),
+          (1,'2026-09-07 12:00:00-03','V3','001',103,1,1,1, 999,5102,'S','N','C','35260900000000000000000000000000000000000103','01', 999,1.65,16.48,'01', 999,7.60,75.92)`); // V3 NFC-e CANCELADA no SEFAZ (statusnfe='C') → fora do débito; C100 COD_SIT=02
         const nfCredS = await novaNf(baseNf({ tipo: 'E', nronf: 'SPEDS01', codparceiro: 22, dtemissao: '2026-09-02', dtcontabil: '2026-09-02', itens: [{ codproduto: 1, quantidade: 1, vrvenda: 200, vrcusto: 200, cfop: '1102', aliquota: 'T01', cstpiscofins: '50' }] }));
         await pgSp.query(`UPDATE nf_prod SET bcpiscofinse=200, vrpise=3.30, vrcofinse=15.20, aliqpise=1.65, aliqcofinse=7.60, cstpiscofins='50' WHERE codnf=$1`, [nfCredS]);
         await pgSp.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfCredS]);
@@ -4968,6 +4968,18 @@ async function main() {
           && m605 === '|M605|08|217201|98,80|'
           && m610.includes('|7,6000|||114,00|') && m100S.endsWith('|3,30|1|3,30|0,00|'),
           { m200, m205, m610: m610.slice(0, 60), m100: m100S.slice(-40) });
+
+        // 88.5) DOCUMENTOS de SAÍDA (corte-2): NFC-e mod 65 → C100 IND_OPER=1 por cupom + C175 consolidado por CFOP/CST.
+        const c100Saidas = linS.filter((l) => l.startsWith('|C100|1|'));
+        const c100_101 = c100Saidas.find((l) => l.includes('|65|00|001|101|')) ?? '';
+        const c100_103 = c100Saidas.find((l) => l.includes('|65|02|001|103|')) ?? ''; // cancelada
+        const c175_101 = linS.find((l) => l.startsWith('|C175|5102|1000,00|')) ?? '';
+        check('SPED §88.5 docs SAÍDA: 3 C100 mod 65 (IND_OPER=1); cupom 101 (VL 1000, PIS 16,50, COFINS 76,00) + C175 consolidado (CFOP 5102) ; cupom 103 cancelado COD_SIT=02 sem C175',
+          c100Saidas.length === 3
+          && c100_101.includes('|1000,00|') && c100_101.includes('|16,50|') && c100_101.includes('|76,00|')
+          && c175_101 === '|C175|5102|1000,00|0,00|01|1000,00|1,6500|||16,50|01|1000,00|7,6000|||76,00|||'
+          && c100_103.startsWith('|C100|1|0||65|02|001|103|') && c100_103.includes('|0,00|'),
+          { n: c100Saidas.length, c175: c175_101, c103: c100_103.slice(0, 45) });
         await pgSp.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-01' AND dtvenda < '2026-10-01'`); // cleanup
       } finally {
         await pgSp.end();

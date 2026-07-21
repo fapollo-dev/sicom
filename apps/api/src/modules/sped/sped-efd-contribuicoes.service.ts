@@ -69,12 +69,13 @@ export class SpedEfdContribuicoesService {
     }
     // corte-2b: cadastros (0150 participantes / 0190 unidades / 0200 itens) referenciados pelo bloco C — ANTES do 0990.
     const docs = await this.coletarDocumentosEntrada(db, emp, dtini, dtfim);
+    const saida = await this.coletarVendasSaida(db, emp, dtini, dtfim); // corte-2: NFC-e de saída (C100 mod 65 + C175)
+    const cupons = saida.cupons;
     this.emitirCadastros(arq, docs);
     arq.fecharBloco('0990', '0');
 
-    // BLOCO C (corte-2b): documentos fiscais de ENTRADA (C001/C010/C100/C170/C990). Só entrada — a saída de
-    // varejo (cupons/ReduçãoZ do PDV) não está migrada.
-    this.emitirBlocoC(arq, docs, cnpj);
+    // BLOCO C: documentos fiscais de ENTRADA (C100/C170) + SAÍDA NFC-e mod 65 (C100/C175 — corte-2 do PDV).
+    this.emitirBlocoC(arq, docs, cupons, cnpj);
 
     // BLOCO M: apuração de PIS/COFINS — CRÉDITO de entrada (M100/M105/M500/M505) + DÉBITO de saída do PDV
     // (M200/M210/M600/M610, corte-1 VENDAS), com o crédito descontado e o valor a recolher (débito − crédito).
@@ -85,9 +86,9 @@ export class SpedEfdContribuicoesService {
       arquivo,
       linhas: arquivo.trimEnd().split('\r\n').length,
       estabelecimentos: estabs.length,
-      documentos: docs.nfs.length,
+      documentos: docs.nfs.length + cupons.length,
       parcial: true,
-      aviso: `PARCIAL: bloco 0 (cadastros) + bloco C (${docs.nfs.length} documentos de ENTRADA) + bloco M (crédito+débito${temM ? '' : ' — rode POST /fiscal/sped/apuracao-pc'}) + bloco 9. Falta os DOCUMENTOS de saída no bloco C (C100 mod 65 + C175 da NFC-e) → corte-2 do PDV.`,
+      aviso: `PARCIAL: bloco 0 (cadastros) + bloco C (${docs.nfs.length} entrada + ${cupons.length} NFC-e de saída${saida.truncado ? ' ⚠ TRUNCADO no limite de itens — gere por período menor' : ''}) + bloco M (crédito+débito${temM ? '' : ' — rode POST /fiscal/sped/apuracao-pc'}) + bloco 9. Falta o CAIXA contábil do PDV (CX_VENDAS→DIARIO) → corte-3.`,
     };
   }
 
@@ -234,6 +235,44 @@ export class SpedEfdContribuicoesService {
     return { nfs: nfs.map((n) => ({ ...n, itens: itensPorNf.get(Number(n.codnf)) ?? [] })), parceiros, produtos, unidades };
   }
 
+  /**
+   * coleta as NFC-e de SAÍDA do período (corte-2), agrupando os itens de VENDAS por cupom (série+cupom+chave).
+   * Elegível: venda_nfc='S', chavenfe não-nulo, statusnfe ∈ {P autorizada, C cancelada→COD_SIT 02}. Intervalo
+   * SEMIABERTO por data. Cada cupom vira 1 C100 (mod 65); os itens não-cancelados consolidam em C175 por CFOP/CST/alíq.
+   */
+  private async coletarVendasSaida(db: AnyDB, emp: number, dtini: string, dtfim: string): Promise<{ cupons: Array<{ nroserie: string; nrocupom: string; chavenfe: string; statusnfe: string; dtemissao: string; itens: Array<Record<string, unknown>> }>; truncado: boolean }> {
+    const LIMITE_ITENS = 100000; // backstop de memória; se atingido, o retorno sinaliza truncado (sem corte silencioso).
+    const d0 = String(dtini).slice(0, 10);
+    const dfimNext = new Date(`${String(dtfim).slice(0, 10)}T00:00:00Z`);
+    dfimNext.setUTCDate(dfimNext.getUTCDate() + 1);
+    const d1 = dfimNext.toISOString().slice(0, 10);
+    const rows = (await db
+      .selectFrom('vendas')
+      .select(['nroserie', 'nrocupom', 'chavenfe', 'statusnfe', sql`to_char(dtvenda,'YYYY-MM-DD')`.as('dtemissao'), 'nroitem', 'cfop', 'codproduto', 'qtde', 'vrvenda', 'cancelado', 'pis_cst', 'pis_bcalculo', 'pis_aliquota', 'pis_valor', 'cofins_cst', 'cofins_bcalculo', 'cofins_aliquota', 'cofins_valor'])
+      .where('idempresa', '=', emp)
+      .where(sql`coalesce(venda_nfc,'N')`, '=', 'S')
+      .where('chavenfe', 'is not', null)
+      .where('statusnfe', 'in', ['P', 'C'])
+      .where(sql`dtvenda`, '>=', d0)
+      .where(sql`dtvenda`, '<', d1)
+      .orderBy('nroserie')
+      .orderBy('nrocupom')
+      .orderBy('nroitem')
+      .limit(LIMITE_ITENS)
+      .execute()) as Array<Record<string, unknown>>;
+    const cupons = new Map<string, { nroserie: string; nrocupom: string; chavenfe: string; statusnfe: string; dtemissao: string; itens: Array<Record<string, unknown>> }>();
+    for (const r of rows) {
+      const k = `${r.nroserie}|${r.nrocupom}|${r.chavenfe}`;
+      let c = cupons.get(k);
+      if (!c) {
+        c = { nroserie: String(r.nroserie ?? ''), nrocupom: String(r.nrocupom ?? ''), chavenfe: String(r.chavenfe ?? ''), statusnfe: String(r.statusnfe ?? ''), dtemissao: String(r.dtemissao ?? ''), itens: [] };
+        cupons.set(k, c);
+      }
+      c.itens.push(r);
+    }
+    return { cupons: [...cupons.values()], truncado: rows.length >= LIMITE_ITENS };
+  }
+
   /** emite os cadastros do bloco 0 referenciados pelo bloco C: 0150 (participantes) / 0190 (unidades) / 0200 (itens). */
   private emitirCadastros(arq: SpedArquivo, docs: { parceiros: Map<number, Record<string, unknown>>; produtos: Map<number, Record<string, unknown>>; unidades: Set<string> }): void {
     for (const p of docs.parceiros.values()) {
@@ -248,12 +287,20 @@ export class SpedEfdContribuicoesService {
     }
   }
 
-  /** emite o BLOCO C: C001/C010 (por estab — aqui a empresa do tenant) + C100/C170 por NF de entrada + C990. */
-  private emitirBlocoC(arq: SpedArquivo, docs: { nfs: Array<Record<string, unknown> & { itens: Array<Record<string, unknown>> }>; produtos: Map<number, Record<string, unknown>> }, cnpjEstab: string): void {
+  /** emite o BLOCO C: C001/C010 + C100/C170 por NF de ENTRADA + C100/C175 por NFC-e de SAÍDA (corte-2) + C990. */
+  private emitirBlocoC(
+    arq: SpedArquivo,
+    docs: { nfs: Array<Record<string, unknown> & { itens: Array<Record<string, unknown>> }>; produtos: Map<number, Record<string, unknown>> },
+    cupons: Array<{ nroserie: string; nrocupom: string; chavenfe: string; statusnfe: string; dtemissao: string; itens: Array<Record<string, unknown>> }>,
+    cnpjEstab: string,
+  ): void {
     const nn = (v: unknown) => (v == null || v === '' ? 0 : Number(v) || 0);
+    const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+    const cst2 = (v: unknown) => (v == null || String(v).trim() === '' ? '' : String(v).replace(/\D/g, '').padStart(2, '0'));
+    const temDocs = docs.nfs.length > 0 || cupons.length > 0;
     // fold auditoria [MÉDIA]: C001 (abertura) é SEMPRE emitido (IND_MOV=1 quando vazio), como o M001; C990 sempre fecha.
-    arq.add('C001', [docs.nfs.length ? '0' : '1']);
-    if (!docs.nfs.length) {
+    arq.add('C001', [temDocs ? '0' : '1']);
+    if (!temDocs) {
       arq.fecharBloco('C990', 'C');
       return;
     }
@@ -283,6 +330,44 @@ export class SpedEfdContribuicoesService {
         const cstIpi = String(it.cfop ?? '').charAt(0) < '5' ? '49' : '99'; // entrada (1/2/3xxx) → 49
         // C170 (37 campos): NUM_ITEM|COD_ITEM|DESCR_COMPL|QTD|UNID|VL_ITEM|VL_DESC|IND_MOV|CST_ICMS|CFOP|COD_NAT|VL_BC_ICMS|ALIQ_ICMS|VL_ICMS|VL_BC_ICMS_ST|ALIQ_ST|VL_ICMS_ST|IND_APUR|CST_IPI|COD_ENQ|VL_BC_IPI|ALIQ_IPI|VL_IPI|CST_PIS|VL_BC_PIS|ALIQ_PIS|QUANT_BC_PIS|ALIQ_PIS_QUANT|VL_PIS|CST_COFINS|VL_BC_COFINS|ALIQ_COFINS|QUANT_BC_COFINS|ALIQ_COFINS_QUANT|VL_COFINS|COD_CTA|VL_ABAT_NT
         arq.add('C170', [String(++nro), String(it.codproduto ?? ''), String(prod?.descricao ?? ''), fmtNum(nn(it.quantidade), 3), String(prod?.unidade ?? '').trim(), fmtNum(nn(it.vrcusto) * nn(it.quantidade)), fmtNum(nn(it.desconto)), '0', cstIcms, String(it.cfop ?? ''), '', fmtNum(nn(it.vrbasecalculo)), fmtNum(nn(it.icms)), fmtNum(nn(it.vricm)), fmtNum(0), fmtNum(0), fmtNum(0), '0', cstIpi, '', fmtNum(0), fmtNum(0), fmtNum(0), cstPc, fmtNum(base), fmtNum(nn(it.aliqpise), 4), '', '', fmtNum(nn(it.vrpise)), cstPc, fmtNum(base), fmtNum(nn(it.aliqcofinse), 4), '', '', fmtNum(nn(it.vrcofinse)), '', '']);
+      }
+    }
+
+    // ── SAÍDA: NFC-e mod 65 (corte-2). 1 C100 por cupom (IND_OPER=1, IND_EMIT=0, consumidor final s/ COD_PART);
+    // itens não-cancelados consolidam em C175 por (CFOP, CST_PIS, alíq PIS, CST_COFINS, alíq COFINS). Cupom
+    // cancelado no SEFAZ (statusnfe='C') → C100 COD_SIT=02 sem C175 (fiel ao GeraRegistroC100Modelo65 do legado).
+    for (const cup of cupons) {
+      const cancelada = cup.statusnfe === 'C';
+      const validos = cup.itens.filter((it) => String(it.cancelado ?? 'N') !== 'S');
+      // grupos C175 por (CFOP, CST_PIS, ALIQ_PIS, CST_COFINS, ALIQ_COFINS) — CST NORMALIZADO na chave (evita
+      // duplicar '1'/'01'). VL_PIS/COFINS = round(VL_BC × alíq/100) por grupo (fiel ao GeraRegistroC175 do legado,
+      // que agrega base×alíq — NÃO soma valores por item), o que também alinha o bloco C com o M210 do débito.
+      const grupos = new Map<string, Array<Record<string, unknown>>>();
+      for (const it of validos) {
+        const k = `${nn(it.cfop)}|${cst2(it.pis_cst)}|${nn(it.pis_aliquota).toFixed(4)}|${cst2(it.cofins_cst)}|${nn(it.cofins_aliquota).toFixed(4)}`;
+        (grupos.get(k) ?? grupos.set(k, []).get(k)!).push(it);
+      }
+      const c175 = [...grupos.values()].map((g) => {
+        const bcPis = r2(g.reduce((s, it) => s + nn(it.pis_bcalculo), 0));
+        const bcCof = r2(g.reduce((s, it) => s + nn(it.cofins_bcalculo), 0));
+        const pisAliq = nn(g[0].pis_aliquota);
+        const cofAliq = nn(g[0].cofins_aliquota);
+        return {
+          cfop: nn(g[0].cfop), pisCst: cst2(g[0].pis_cst), cofCst: cst2(g[0].cofins_cst),
+          vlOpr: r2(g.reduce((s, it) => s + nn(it.qtde) * nn(it.vrvenda), 0)),
+          bcPis, bcCof, pisAliq, cofAliq, vPis: r2((bcPis * pisAliq) / 100), vCof: r2((bcCof * cofAliq) / 100),
+        };
+      });
+      const vlMerc = r2(c175.reduce((s, g) => s + g.vlOpr, 0));
+      const vlPis = r2(c175.reduce((s, g) => s + g.vPis, 0)); // C100 = Σ dos C175 (coerência C100↔C175 que o PVA cobra)
+      const vlCofins = r2(c175.reduce((s, g) => s + g.vCof, 0));
+      const dt = fmtData(cup.dtemissao);
+      // C100 (28 campos): IND_OPER(1=saída)|IND_EMIT(0=própria)|COD_PART|COD_MOD(65)|COD_SIT|SER|NUM_DOC|CHV|DT_DOC|DT_E_S|VL_DOC|IND_PGTO|VL_DESC|VL_ABAT_NT|VL_MERC|IND_FRT(9)|VL_FRT|VL_SEG|VL_OUT_DA|VL_BC_ICMS|VL_ICMS|VL_BC_ICMS_ST|VL_ICMS_ST|VL_IPI|VL_PIS|VL_COFINS|VL_PIS_ST|VL_COFINS_ST
+      arq.add('C100', ['1', '0', '', '65', cancelada ? '02' : '00', cup.nroserie, cup.nrocupom, cup.chavenfe, dt, dt, fmtNum(cancelada ? 0 : vlMerc), '0', fmtNum(0), fmtNum(0), fmtNum(cancelada ? 0 : vlMerc), '9', fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(cancelada ? 0 : vlPis), fmtNum(cancelada ? 0 : vlCofins), fmtNum(0), fmtNum(0)]);
+      if (cancelada) continue; // documento cancelado: só o header, sem C175
+      for (const g of c175) {
+        // C175: CFOP|VL_OPR|VL_DESC|CST_PIS|VL_BC_PIS|ALIQ_PIS|QUANT_BC_PIS|ALIQ_PIS_QUANT|VL_PIS|CST_COFINS|VL_BC_COFINS|ALIQ_COFINS|QUANT_BC_COFINS|ALIQ_COFINS_QUANT|VL_COFINS|COD_CTA|INFO_COMPL
+        arq.add('C175', [String(g.cfop), fmtNum(g.vlOpr), fmtNum(0), g.pisCst, fmtNum(g.bcPis), fmtNum(g.pisAliq, 4), '', '', fmtNum(g.vPis), g.cofCst, fmtNum(g.bcCof), fmtNum(g.cofAliq, 4), '', '', fmtNum(g.vCof), '', '']);
       }
     }
     arq.fecharBloco('C990', 'C');
