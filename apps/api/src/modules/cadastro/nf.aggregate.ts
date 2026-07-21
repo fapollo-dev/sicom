@@ -5,6 +5,7 @@ import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { debitoPisCofins } from '../shared/piscofins-rentab';
+import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 
 /**
  * NOTA FISCAL (tela-coroa) — Fase 1: NÚCLEO CADASTRO, agregado mestre-detalhe via
@@ -136,12 +137,12 @@ export const nfAggregateConfig: AggregateConfig = {
     // Espelha NotaEletronica/btnEditar do legado: NF processada/contabilizada/faturada/enviada/
     // cancelada é read-only (editar deixaria efeitos dessincronizados).
     let atual:
-      | { proc?: string; statusnfe?: string; contabilizado?: string; cancelada?: string; faturada?: string; nronf?: string; serie?: string; modelo?: number; tipoemissao?: string; codparceiro?: number }
+      | { proc?: string; statusnfe?: string; contabilizado?: string; cancelada?: string; faturada?: string; nronf?: string; serie?: string; modelo?: number; tipoemissao?: string; codparceiro?: number; dtcontabil?: unknown }
       | undefined;
     if (id != null) {
       atual = (await db
         .selectFrom('nf')
-        .select(['proc', 'statusnfe', 'contabilizado', 'cancelada', 'faturada', 'nronf', 'serie', 'modelo', 'tipoemissao', 'codparceiro'])
+        .select(['proc', 'statusnfe', 'contabilizado', 'cancelada', 'faturada', 'nronf', 'serie', 'modelo', 'tipoemissao', 'codparceiro', 'dtcontabil'])
         .where('codnf', '=', id)
         .where('idempresa', '=', emp)
         .executeTakeFirst()) as typeof atual;
@@ -152,6 +153,13 @@ export const nfAggregateConfig: AggregateConfig = {
         if (atual.cancelada === 'S' || atual.statusnfe === 'C') throw new BusinessRuleError('NF_CANCELADA');
         if (atual.statusnfe === 'P' || atual.statusnfe === 'D') throw new BusinessRuleError('NF_ENVIADA');
       }
+    }
+
+    // período contábil FECHADO (BLOQ_NF, uNF.pas:4565 ValidaPeriodoFechado) barra gravar/editar a NF na DTCONTABIL —
+    // reusa o gate do bucket-A. Barra pela data GRAVADA (abrir a edição) E pela nova (salvar), como AR/AP.
+    if (emp != null) {
+      if (atual?.dtcontabil != null) await assertPeriodoNaoFechado(db, emp, atual.dtcontabil, 'bloq_nf');
+      if (dto.dtcontabil != null) await assertPeriodoNaoFechado(db, emp, dto.dtcontabil, 'bloq_nf');
     }
 
     // duplicidade da chave fiscal — tupla de identidade confirmada no golden (V$SQL real):
@@ -192,11 +200,11 @@ export const nfAggregateConfig: AggregateConfig = {
     const emp = currentTenant().empresaId ?? null;
     const nf = (await db
       .selectFrom('nf')
-      .select(['proc', 'faturada', 'contabilizado', 'statusnfe', 'cancelada'])
+      .select(['proc', 'faturada', 'contabilizado', 'statusnfe', 'cancelada', 'dtcontabil'])
       .where('codnf', '=', id)
       .where('idempresa', '=', emp)
       .executeTakeFirst()) as
-      | { proc?: string; faturada?: string; contabilizado?: string; statusnfe?: string; cancelada?: string }
+      | { proc?: string; faturada?: string; contabilizado?: string; statusnfe?: string; cancelada?: string; dtcontabil?: unknown }
       | undefined;
     if (!nf) return; // not-found é tratado pelo fluxo normal
     if (nf.proc === 'S') throw new BusinessRuleError('NF_PROCESSADA'); // reverter o processamento antes
@@ -204,6 +212,7 @@ export const nfAggregateConfig: AggregateConfig = {
     if (nf.contabilizado === 'S') throw new BusinessRuleError('NF_CONTABILIZADA');
     if (nf.cancelada === 'S' || nf.statusnfe === 'C') throw new BusinessRuleError('NF_CANCELADA');
     if (nf.statusnfe === 'P' || nf.statusnfe === 'D') throw new BusinessRuleError('NF_ENVIADA');
+    if (emp != null && nf.dtcontabil != null) await assertPeriodoNaoFechado(db, emp, nf.dtcontabil, 'bloq_nf'); // não excluir NF de período fechado
     // referenciada por OUTRA NF via nf_referencia.codnf_ref (uNF.pas:4145: EXISTS NF_REFERENCIA CODNF_REF=:nf
     // com a nota-origem MODELO<>65). Apagar romperia a cadeia devolução/complemento (ponteiro órfão).
     const ref = await db

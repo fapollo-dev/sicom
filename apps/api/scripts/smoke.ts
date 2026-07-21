@@ -820,6 +820,12 @@ async function main() {
       modelo: 55, serie: '1', dtemissao: '2026-06-12', dtcontabil: '2026-06-12', tipoemissao: '0', cfop: '1102', ...extra,
     });
 
+    // 18.0) período contábil FECHADO (012024, BLOQ_NF='S' do seed 038) barra GRAVAR NF na DTCONTABIL (T1.2, reusa
+    // o gate assertPeriodoNaoFechado do bucket-A). Data aberta grava normal (as demais NFs do smoke são 2026).
+    const nfPerFec = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify(baseNf({ tipo: 'E', nronf: 'PERFEC1', codparceiro: 22, dtemissao: '2024-01-15', dtcontabil: '2024-01-15', itens: [itemP1(1)] })) });
+    check('NF-período: gravar NF com DTCONTABIL em período FECHADO (jan/2024) → 422 PERIODO_FECHADO',
+      nfPerFec.status === 422 && ((await nfPerFec.json().catch(() => ({}))) as any).code === 'PERIODO_FECHADO', { status: nfPerFec.status });
+
     // 18.1) ENTRADA processada SOMA o saldo (120 -> +10) e trava a nota (proc='S').
     const s0 = await saldoProd1();
     const nfEnt = await novaNf(baseNf({ tipo: 'E', nronf: 'P3001', codparceiro: 22, itens: [itemP1(10)] }));
