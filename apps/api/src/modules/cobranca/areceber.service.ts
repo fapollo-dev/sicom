@@ -7,6 +7,29 @@ import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 
 type AnyDB = Kysely<any>;
 
+const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+/** soma `days` dias a uma data ISO 'YYYY-MM-DD' (aritmética em UTC → sem drift de fuso). */
+function addDays(iso: string, days: number): string {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+/** soma `months` meses a uma data ISO, fixando o dia-do-mês (`fixedDay` ?? dia de `iso`) e clampando ao
+ *  último dia do mês-alvo (fiel ao IncMonth do Delphi: 31/jan +1 mês → 28/29 fev). */
+function addMonthsClamped(iso: string, months: number, fixedDay?: number): string {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  const dia = fixedDay ?? d;
+  const idx = (m - 1) + months;
+  const ty = y + Math.floor(idx / 12);
+  const tm = ((idx % 12) + 12) % 12; // 0..11
+  const ultimoDia = new Date(Date.UTC(ty, tm + 1, 0)).getUTCDate();
+  const diaClamp = Math.min(dia, ultimoDia);
+  return `${ty}-${String(tm + 1).padStart(2, '0')}-${String(diaClamp).padStart(2, '0')}`;
+}
+
 /**
  * CONTAS A RECEBER — corte-1 (cadastro/gestão do título). Módulo VERTICAL (não o engine
  * declarativo) porque ARECEBER usa CODEMPRESA (≠ IDEMPRESA que o engine assume) e tem travas
@@ -124,6 +147,91 @@ export class AreceberService {
       return Number((ins as Record<string, unknown>).codrcb);
     });
     return this.read(id);
+  }
+
+  /**
+   * T1.6 — GERA N parcelas manuais a partir de um TOTAL (uCadAReceber.btnGeraParcelasClick:700 + BuildParcelas).
+   * Uma única transação: 1 trava de período (na dtvenda) + 1 default de txjuros, depois N inserts. Cada título
+   * = valor da parcela (rateio round(total/N), sobra na 1ª — mesmo motor do pedido), dtvenc calculada (modo
+   * intervalo-dias OU dia-fixo-mensal), duplicata "i/N". Σ parcelas == total. Devolve os títulos criados.
+   */
+  async gerarParcelas(dto: Record<string, unknown>): Promise<{ parcelas: number; total: number; codrcbs: number[]; titulos: Array<Record<string, unknown> | undefined> }> {
+    const emp = this.emp();
+    const op = currentTenant().operadorId ?? null;
+
+    const numparc = Number(dto.numparc);
+    const total = Number(dto.total);
+    const venc1 = String(dto.venc1);
+    const dtvenda = String(dto.dtvenda);
+    const intervalo = dto.intervalo != null ? Number(dto.intervalo) : 0;
+    const diafixo = dto.diafixo != null ? Number(dto.diafixo) : undefined;
+    const prefixo = dto.prefixoDuplicata != null ? String(dto.prefixoDuplicata).trim() : '';
+
+    // datas: intervalo>0 → soma dias (diafixo é ignorado); senão → mensal no dia-do-mês de venc1 (ou diafixo),
+    // clampando fim-de-mês. `vencimentos[0]` é sempre o MAIS CEDO (ambos os modos crescem).
+    const vencimentos: string[] = [];
+    for (let i = 0; i < numparc; i++) {
+      vencimentos.push(intervalo > 0 ? addDays(venc1, i * intervalo) : addMonthsClamped(venc1, i, diafixo));
+    }
+    // venc≥venda (uCadAReceber:958): no modo dia-fixo, um `diafixo` menor que o dia de venc1 pode jogar a 1ª
+    // parcela para ANTES da dtvenda — o schema só valida venc1, então reforça aqui sobre a data efetiva.
+    if (vencimentos[0] < dtvenda.slice(0, 10)) throw new BusinessRuleError('PARCELA_VENC_ANTERIOR_VENDA', { venc: vencimentos[0], dtvenda });
+    // rateio: floor(total/N) por parcela + a SOBRA (sempre ≥ 0) na PRIMEIRA (RatearTotalNasParcelas:8941).
+    // floor (não round) garante que a 1ª é a MAIOR e nenhuma parcela fica ≤ 0 — round poderia deixar resíduo
+    // negativo e zerar/negativar a 1ª, furando a invariante valor>0 da AR (o insert em lote burla o schema).
+    // Guarda: cada parcela precisa de ≥ 1 centavo (senão AR title com valor 0). Σ == total.
+    const totalCents = Math.round(total * 100);
+    if (totalCents < numparc) throw new BusinessRuleError('PARCELA_VALOR_INSUFICIENTE', { total: r2(total), numparc });
+    const porCents = Math.floor(totalCents / numparc);
+    const residuo = totalCents - porCents * numparc; // ∈ [0, numparc-1]
+    const valores: number[] = [];
+    for (let i = 0; i < numparc; i++) valores.push((porCents + (i === 0 ? residuo : 0)) / 100);
+
+    // campos de cabeçalho compartilhados (só os presentes).
+    const cab: Record<string, unknown> = {};
+    for (const c of ['codparceiro', 'tipodoc', 'txjuros', 'txmulta', 'desconto_boleto', 'codvendedor', 'codcobrador', 'idpgto', 'codbco', 'codplc', 'nroped', 'obs'] as const) {
+      if (dto[c] !== undefined) cab[c] = dto[c];
+    }
+
+    const codrcbs = await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      // trava de período contábil fechado (uma vez, na dtvenda × BLOQ_RCB).
+      await assertPeriodoNaoFechado(trx, emp, dtvenda, 'bloq_rcb');
+      // txjuros default = snapshot da EMPRESAS.TXJUROPADRAO (uma vez).
+      if (cab.txjuros == null) {
+        const e = await trx.selectFrom('empresas').select('txjuropadrao').where('idempresa', '=', emp).executeTakeFirst();
+        cab.txjuros = (e as { txjuropadrao?: unknown } | undefined)?.txjuropadrao ?? null;
+      }
+      const ids: number[] = [];
+      for (let i = 0; i < numparc; i++) {
+        const dup = `${prefixo ? prefixo + ' - ' : ''}${String(i + 1).padStart(3, '0')}/${String(numparc).padStart(3, '0')}`.slice(0, 20);
+        const ins = await trx
+          .insertInto('areceber')
+          .values({
+            ...cab,
+            dtvenda,
+            dtvenc: vencimentos[i],
+            valor: valores[i],
+            nrodup: i + 1,
+            duplicata: dup,
+            codempresa: emp,
+            quitada: 'N',
+            agrupado: 'N',
+            consiliado: 'S',
+            cadastrado_manualmente: 'S',
+            gerado: 'OPERADOR',
+            usultalteracao: op,
+            dtultimalteracao: sql`now()`,
+            dtcadastro: sql`now()`,
+          })
+          .returning('codrcb')
+          .executeTakeFirstOrThrow();
+        ids.push(Number((ins as Record<string, unknown>).codrcb));
+      }
+      return ids;
+    });
+
+    const titulos = await Promise.all(codrcbs.map((id) => this.read(id)));
+    return { parcelas: numparc, total: r2(total), codrcbs, titulos };
   }
 
   // origens geradas por OUTRO processo (getter ORIGEM legado) — não editáveis pela tela

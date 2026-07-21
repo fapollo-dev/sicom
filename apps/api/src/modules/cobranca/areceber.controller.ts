@@ -1,7 +1,7 @@
 import {
   Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put, Query, UseGuards,
 } from '@nestjs/common';
-import { areceberSchema, atualizarAreceberSchema, baixarTituloSchema } from '@apollo/shared';
+import { areceberSchema, atualizarAreceberSchema, baixarTituloSchema, gerarParcelasAreceberSchema } from '@apollo/shared';
 import { AreceberService } from './areceber.service';
 import { AreceberBaixaService } from './areceber-baixa.service';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
@@ -36,6 +36,13 @@ export class AreceberController {
   @RequerAcesso('FRMCADARECEBER', 'BTNGRAVAR')
   criar(@Body(new ZodValidationPipe(areceberSchema)) dto: Record<string, unknown>) {
     return this.svc.criar(dto);
+  }
+
+  /** T1.6 — gera N parcelas manuais a partir de um total (segmento literal → não colide com `:id`). */
+  @Post('gerar-parcelas')
+  @RequerAcesso('FRMCADARECEBER', 'BTNGRAVAR')
+  gerarParcelas(@Body(new ZodValidationPipe(gerarParcelasAreceberSchema)) dto: Record<string, unknown>) {
+    return this.svc.gerarParcelas(dto);
   }
 
   @Put(':id')

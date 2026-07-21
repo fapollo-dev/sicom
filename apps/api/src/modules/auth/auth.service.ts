@@ -64,6 +64,50 @@ export class AuthService {
     return Number.isFinite(n) ? n : def;
   }
 
+  /** lê um texto de config GLOBAL (fallback no default). */
+  private async cfgTexto(db: AnyDB, codigo: string, def: string): Promise<string> {
+    const r = (await db.selectFrom('configuracoes').select('valor').where('codigo', '=', codigo).executeTakeFirst()) as { valor?: unknown } | undefined;
+    const v = r?.valor != null ? String(r.valor).trim() : '';
+    return v.length > 0 ? v : def;
+  }
+
+  /**
+   * T1.5 — PREDICADO da janela de horário (OPERADORES_RESTRICAO_ACESSO). Sem janela ativa → true (livre).
+   * Com janelas → o (dia-da-semana, HH:MM) atual precisa cair em ALGUMA janela do dia. O "agora" vem do
+   * RELÓGIO DO BANCO (`now() AT TIME ZONE <fuso>`), não do processo Node — assim decisão e auditoria usam o
+   * MESMO relógio e um deploy fora do fuso da loja (container/UTC) não quebra a janela (fold [ALTA]). O fuso é
+   * config global FUSO_HORARIO_ACESSO (default America/Sao_Paulo). Postgres `to_char(x,'D')` = 1=domingo..
+   * 7=sábado, que É a convenção Delphi DayOfWeek. Comparação 'HH:MM' lexicográfica (zero-padded, fixo).
+   */
+  private async horarioPermitido(db: AnyDB, codoperador: number): Promise<boolean> {
+    const janelas = (await db
+      .selectFrom('operadores_restricao_acesso')
+      .select(['diasemana', 'hora_inicial', 'hora_final'])
+      .where('codoperador', '=', codoperador)
+      .where(sql`coalesce(indr,'I')`, '<>', 'E')
+      .execute()) as Array<{ diasemana: number; hora_inicial: string | null; hora_final: string | null }>;
+    if (janelas.length === 0) return true; // sem restrição cadastrada → acesso livre (fiel à semântica da tabela)
+
+    const tz = await this.cfgTexto(db, 'FUSO_HORARIO_ACESSO', 'America/Sao_Paulo');
+    const nowRow = (await sql<{ dia: string; hhmm: string }>`
+      select to_char(now() at time zone ${tz}, 'D') as dia, to_char(now() at time zone ${tz}, 'HH24:MI') as hhmm
+    `.execute(db)).rows[0] as { dia: string; hhmm: string };
+    const dia = Number(nowRow.dia); // 1=domingo..7=sábado (Postgres 'D' == Delphi DayOfWeek)
+    const hhmm = nowRow.hhmm;
+    return janelas.some((j) => Number(j.diasemana) === dia && (j.hora_inicial ?? '') <= hhmm && hhmm <= (j.hora_final ?? ''));
+  }
+
+  /** GATE de login: fora da janela → audita LOGON_FAIL + 403 ACESSO_FORA_HORARIO. Roda APÓS a senha correta,
+   *  então não é um oráculo de força-bruta (mesma postura pós-senha de OPERADOR_DESABILITADO/SEM_EMPRESA). */
+  private async assertHorarioPermitido(db: AnyDB, codoperador: number, meta: AcessoMeta): Promise<void> {
+    if (await this.horarioPermitido(db, codoperador)) return;
+    await db
+      .insertInto('operadores_acessos')
+      .values({ codoperador, ip: meta.ip ?? null, nomecomputador: meta.nomecomputador ?? null, versao: meta.versao ?? null, tipo: 'LOGON_FAIL' })
+      .execute();
+    throw new ForbiddenActionError('ACESSO_FORA_HORARIO', { codoperador });
+  }
+
   async login(dto: LoginDto, meta: AcessoMeta = {}): Promise<LoginResposta> {
     const tenant = this.tenant();
     const db = this.dbp.forTenant() as AnyDB;
@@ -123,6 +167,11 @@ export class AuthService {
     }
 
     if (op.desabilitado === 'S') throw new ForbiddenActionError('OPERADOR_DESABILITADO', { codoperador: op.codoperador });
+
+    // T1.5 — JANELA DE HORÁRIO de acesso (OPERADORES_RESTRICAO_ACESSO). Roda APÓS a senha correta e ANTES da
+    // resolução de empresa (independe de empresa; barra também o re-envio needsEmpresa). Não conta p/ o lockout
+    // (tentativas_login só incrementa em senha errada) — usuário legítimo fora da janela não é bloqueado.
+    await this.assertHorarioPermitido(db, op.codoperador, meta);
 
     // empresas-permitidas (RELACAO_OPERADOR_EMPRESA + nome da empresa).
     const empresas = (await db
@@ -272,6 +321,11 @@ export class AuthService {
     // fold auditoria [MÉDIA]: troca obrigatória (fold M2 do login) NÃO pode ser burlada pelo refresh — recusa e força
     // re-login, que emite o token `chg` restrito a /auth/*. (Não revoga: o refresh só volta a valer após a troca+re-login.)
     if (op.solicitar_alteracao_senha === 'S') throw new UnauthenticatedError('SESSAO_EXPIRADA');
+
+    // fold [T1.5/audit]: a JANELA DE HORÁRIO vale também na renovação — senão a sessão aberta dentro da janela se
+    // perpetua pelo refresh (7d) fora dela, tornando a janela inócua. Fora da janela → SESSAO_EXPIRADA (força
+    // re-login, que recusa com ACESSO_FORA_HORARIO). NÃO revoga a família — a janela é temporária (como bloqueado_ate).
+    if (!(await this.horarioPermitido(db, op.codoperador))) throw new UnauthenticatedError('SESSAO_EXPIRADA');
 
     // fold auditoria [ALTA]: a EMPRESA da sessão pode ter sido revogada (RELACAO_OPERADOR_EMPRESA) após o login —
     // o login recusaria (OPERADOR_SEM_EMPRESA); o refresh tem de recusar também, senão renova acesso à empresa perdida.

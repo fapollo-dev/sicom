@@ -84,3 +84,27 @@ export const liberacaoValidarSchema = z.object({
 });
 export type LiberacaoValidarDto = z.infer<typeof liberacaoValidarSchema>;
 export interface RetornoLiberacao { liberado: boolean; codOperador?: number }
+
+/** 'HH:MM' 24h (00:00–23:59). */
+const zHoraHHMM = z
+  .string()
+  .trim()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Hora inválida (use HH:MM entre 00:00 e 23:59).');
+
+/**
+ * OPERADORES_RESTRICAO_ACESSO — janela de horário PERMITIDO por operador (login gate, T1.5).
+ * `diasemana` 1=domingo..7=sábado (convenção Delphi DayOfWeek, fiel à tabela homolog).
+ * A janela é inclusiva e NÃO cruza a meia-noite: hora_inicial < hora_final (uma janela 22h→02h = duas linhas).
+ */
+export const restricaoAcessoSchema = z
+  .object({
+    diasemana: z.coerce.number({ message: 'Dia da semana inválido.' }).int().min(1, 'Dia da semana inválido (1=dom..7=sáb).').max(7, 'Dia da semana inválido (1=dom..7=sáb).'),
+    hora_inicial: zHoraHHMM,
+    hora_final: zHoraHHMM,
+  })
+  .superRefine((v, ctx) => {
+    if (v.hora_inicial >= v.hora_final) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['hora_final'], message: 'A hora final deve ser maior que a inicial (a janela não cruza a meia-noite; use duas linhas).' });
+    }
+  });
+export type RestricaoAcessoDto = z.infer<typeof restricaoAcessoSchema>;

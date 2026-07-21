@@ -126,6 +126,48 @@ export const baixarTituloSchema = z.preprocess(
 );
 export type BaixarTituloDto = z.infer<typeof baixarTituloSchema>;
 
+/**
+ * GERAR MULTI-PARCELA na tela (T1.6, uCadAReceber.btnGeraParcelasClick:700 + BuildParcelas). Divide um
+ * TOTAL em N títulos ARECEBER manuais (cadastrado_manualmente='S', gerado='OPERADOR', quitada='N'),
+ * compartilhando os campos de cabeçalho e numerados na DUPLICATA "i/N". Dois modos de vencimento:
+ *  - `intervalo` > 0  → tcIntervalo: venc[i] = venc1 + i·intervalo dias;
+ *  - `intervalo` = 0/omitido → tcDiaFixo: mensal no dia-do-mês de venc1 (ou `diafixo`), clampando fim-de-mês.
+ * Rateio: round(total/N) por parcela, SOBRA na 1ª (RatearTotalNasParcelas:8941, mesmo motor do pedido);
+ * Σ parcelas == total. Divergência CONSCIENTE: o prompt "venc<hoje → próximo mês" do legado (interativo)
+ * NÃO é replicado — venc1 é usado como informado.
+ */
+const gerarParcelasBase = z.object({
+  codparceiro: z.number({ message: 'Informe o cliente do documento.' }).int('Cliente inválido.'),
+  dtvenda: z.string().min(1, 'Informe a data de venda/emissão.'),
+  total: z.preprocess(
+    (v) => (typeof v === 'string' ? Number(v) : v),
+    z.number({ message: 'Informe o valor total das parcelas.' }).positive('O valor total das parcelas deve ser maior que zero.'),
+  ),
+  numparc: z.coerce.number({ message: 'Informe o número de parcelas.' }).int().min(1, 'Mínimo 1 parcela.').max(200, 'Máximo de 200 parcelas.'),
+  venc1: z.string().min(1, 'Informe o vencimento da 1ª parcela.'),
+  intervalo: opcional(z.coerce.number().int().min(0, 'Intervalo inválido.').max(365, 'Intervalo máximo de 365 dias.')),
+  diafixo: opcional(z.coerce.number().int().min(1).max(31)),
+  // campos de cabeçalho compartilhados por todas as parcelas
+  tipodoc: opcional(z.string().max(25)),
+  txjuros: dec(z.number().min(0)),
+  txmulta: dec(z.number().min(0)),
+  desconto_boleto: dec(z.number().min(0)),
+  codvendedor: opcional(z.number().int()),
+  codcobrador: opcional(z.number().int()),
+  idpgto: opcional(z.number().int()),
+  codbco: opcional(z.number().int()),
+  codplc: opcional(z.number().int()),
+  nroped: opcional(z.string().max(20)),
+  prefixoDuplicata: opcional(z.string().max(10)),
+  obs: opcional(z.string()),
+});
+export const gerarParcelasAreceberSchema = z.preprocess(stripNulls, gerarParcelasBase).superRefine((d: any, ctx: z.RefinementCtx) => {
+  if (d?.venc1 && d?.dtvenda && d.venc1 < d.dtvenda) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['venc1'], message: 'O vencimento da 1ª parcela não pode ser anterior à data de venda.' });
+  }
+});
+export type GerarParcelasAreceberDto = z.infer<typeof gerarParcelasBase>;
+
 /** registro devolvido pela API (view get_areceber) — colunas cruas + calculadas + display. */
 export interface Areceber {
   codrcb: number;

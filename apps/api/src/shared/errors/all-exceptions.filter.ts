@@ -242,6 +242,8 @@ const CODE_PT: Record<string, string> = {
   TITULO_NAO_BAIXADO: 'Título não está baixado — não há baixa a estornar.',
   BAIXA_CONTABILIZADA: 'A baixa já foi contabilizada — estorne a contabilização antes.',
   TITULO_VALOR_INVALIDO: 'O valor da baixa deve ser maior que zero.',
+  PARCELA_VALOR_INSUFICIENTE: 'O valor total é insuficiente para o número de parcelas (cada parcela precisa de ao menos R$ 0,01).',
+  PARCELA_VENC_ANTERIOR_VENDA: 'O vencimento da 1ª parcela não pode ser anterior à data de venda.',
   TITULO_VALOR_EXCEDE: 'O valor excede o total do título. Só em dinheiro o excesso vira troco; em banco/outro recurso não é permitido.',
   NF_CFOP_INVALIDO: 'CFOP de destino inválido ou não cadastrado.',
   // Senha de operação (E7 — UBaixaAreceber.edtDesc_AcreExit): desconto/acréscimo exige a senha de DESCONTO da empresa.
@@ -406,6 +408,7 @@ const CODE_PT: Record<string, string> = {
   OPERADOR_DESABILITADO: 'Usuário desabilitado — contate o administrador.',
   OPERADOR_BLOQUEADO: 'Usuário temporariamente bloqueado por excesso de tentativas. Tente novamente mais tarde.',
   OPERADOR_SEM_EMPRESA: 'Usuário sem acesso à empresa selecionada — contate o administrador.',
+  ACESSO_FORA_HORARIO: 'Acesso fora do horário permitido para este usuário.',
   SENHA_ATUAL_INVALIDA: 'A senha atual está incorreta.',
   SENHA_TROCA_OBRIGATORIA: 'É obrigatório trocar a senha antes de continuar.',
   // validação genérica

@@ -1927,6 +1927,54 @@ async function main() {
     const tK = await putTrava(500);
     check('CR: PUT título conciliado não-manual → 422 TITULO_CONCILIADO', tK.status === 422 && tK.code === 'TITULO_CONCILIADO', tK);
 
+    // 31.6) GERAR MULTI-PARCELA na tela (T1.6, btnGeraParcelasClick + BuildParcelas).
+    // (a) modo INTERVALO: 3 parcelas de 100 (+30d) → rateio round(total/N) sobra na 1ª [33.34,33.33,33.33] Σ=100;
+    //     venc = venc1, +30d, +60d; duplicata "i/N"; cadastrado_manualmente='S'.
+    const gp1 = await fetch(`${base}/${AR}/gerar-parcelas`, {
+      method: 'POST', headers: H,
+      body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', total: 100, numparc: 3, venc1: '2026-07-10', intervalo: 30, tipodoc: 'DUPLICATA' }),
+    });
+    const gp1b = (await gp1.json().catch(() => ({}))) as any;
+    const gp1v = (gp1b.titulos ?? []).map((t: any) => Number(t.valor));
+    const gp1soma = gp1v.reduce((a: number, b: number) => a + b, 0);
+    const gp1venc = (gp1b.titulos ?? []).map((t: any) => String(t.dtvenc).slice(0, 10));
+    const gp1dup = (gp1b.titulos ?? []).map((t: any) => t.duplicata);
+    check('AR T1.6: gerar 3× de 100 (intervalo 30d) → [33.34,33.33,33.33] Σ=100; venc +30d; duplicata i/N; manual=S',
+      gp1.status === 201 && gp1b.parcelas === 3 && Math.abs(gp1soma - 100) < 0.001
+      && gp1v[0] === 33.34 && gp1v[1] === 33.33 && gp1v[2] === 33.33
+      && gp1venc[0] === '2026-07-10' && gp1venc[1] === '2026-08-09' && gp1venc[2] === '2026-09-08'
+      && gp1dup[0] === '001/003' && gp1dup[2] === '003/003'
+      && (gp1b.titulos ?? []).every((t: any) => t.cadastrado_manualmente === 'S' && t.quitada === 'N'),
+      { status: gp1.status, v: gp1v, soma: gp1soma, venc: gp1venc, dup: gp1dup });
+
+    // (b) modo DIA-FIXO (intervalo omitido → mensal): venc1=31/jan/2026 → 31/01, 28/02 (clamp fim-de-mês), 31/03.
+    const gp2 = await fetch(`${base}/${AR}/gerar-parcelas`, {
+      method: 'POST', headers: H,
+      body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-01-15', total: 90, numparc: 3, venc1: '2026-01-31' }),
+    });
+    const gp2b = (await gp2.json().catch(() => ({}))) as any;
+    const gp2venc = (gp2b.titulos ?? []).map((t: any) => String(t.dtvenc).slice(0, 10));
+    check('AR T1.6: modo dia-fixo (mensal) venc1=31/01 → 31/01, 28/02 (clamp), 31/03; Σ=90 [30×3]',
+      gp2.status === 201 && gp2venc[0] === '2026-01-31' && gp2venc[1] === '2026-02-28' && gp2venc[2] === '2026-03-31'
+      && Math.abs((gp2b.titulos ?? []).reduce((a: number, t: any) => a + Number(t.valor), 0) - 90) < 0.001,
+      { status: gp2.status, venc: gp2venc });
+
+    // (c) validações: total≤0 → 400; numparc>200 → 400; venc1<dtvenda → 400.
+    const gpBadT = await fetch(`${base}/${AR}/gerar-parcelas`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', total: 0, numparc: 2, venc1: '2026-07-10' }) });
+    const gpBadN = await fetch(`${base}/${AR}/gerar-parcelas`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', total: 100, numparc: 201, venc1: '2026-07-10' }) });
+    const gpBadV = await fetch(`${base}/${AR}/gerar-parcelas`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', total: 100, numparc: 2, venc1: '2026-06-01' }) });
+    check('AR T1.6: validações (total≤0→400; numparc>200→400; venc1<dtvenda→400)',
+      gpBadT.status === 400 && gpBadN.status === 400 && gpBadV.status === 400,
+      { t: gpBadT.status, n: gpBadN.status, v: gpBadV.status });
+    // (d) guarda de rateio: total < N centavos (cada parcela < R$0,01) → 422 PARCELA_VALOR_INSUFICIENTE (evita parcela 0).
+    const gpBadR = await fetch(`${base}/${AR}/gerar-parcelas`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', total: 0.02, numparc: 3, venc1: '2026-07-10' }) });
+    check('AR T1.6: total 0,02 em 3 parcelas (< 1 centavo/parcela) → 422 PARCELA_VALOR_INSUFICIENTE (sem parcela zero)',
+      gpBadR.status === 422 && ((await gpBadR.json().catch(() => ({}))) as any).code === 'PARCELA_VALOR_INSUFICIENTE', { status: gpBadR.status });
+    // (e) fold [MÉDIA]: dia-fixo com diafixo ANTES do dia de venc1 joga a 1ª parcela p/ antes da dtvenda → 422.
+    const gpBadDia = await fetch(`${base}/${AR}/gerar-parcelas`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-01-18', venc1: '2026-01-20', numparc: 3, total: 300, diafixo: 15 }) });
+    check('AR T1.6: dia-fixo com diafixo(15) < dia de venc1 → 1ª venc antes da venda → 422 PARCELA_VENC_ANTERIOR_VENDA',
+      gpBadDia.status === 422 && ((await gpBadDia.json().catch(() => ({}))) as any).code === 'PARCELA_VENC_ANTERIOR_VENDA', { status: gpBadDia.status });
+
     // 31.6) excluir: manual → 204; quitado(999) → 422 (mesma trava simétrica).
     const arDel = await fetch(`${base}/${AR}/${novoId}`, { method: 'DELETE', headers: H });
     check('CR: DELETE título manual → 204', arDel.status === 204, { status: arDel.status });
@@ -4006,6 +4054,75 @@ async function main() {
     check('AUTH 3c: login desconhecido → 401 + auditoria LOGON_FAIL (login_tentativa gravado, codoperador NULL)',
       l72Unk.status === 401 && l72Unk.json.code === 'CREDENCIAIS_INVALIDAS' && !!l72UnkRow && l72UnkRow.codoperador == null && l72UnkRow.login_tentativa === 'NAOEXISTE123',
       { status: l72Unk.status, row: l72UnkRow });
+
+    // ===== §72.H) T1.5 — JANELA DE HORÁRIO DE ACESSO (OPERADORES_RESTRICAO_ACESSO) — login gate =====
+    // op 93 (HORTEST, senha smoke123, empresa 1). "agora" vem do RELÓGIO DO BANCO no MESMO fuso do serviço
+    // (FUSO_HORARIO_ACESSO=America/Sao_Paulo) → determinístico e à prova de fuso do processo.
+    const nowH = (await pgAuth.query(`SELECT to_char(now() at time zone 'America/Sao_Paulo','D') AS dia FROM (VALUES(1)) v`)).rows[0] as any;
+    const diaHoje = Number(nowH.dia);         // 1=domingo..7=sábado (Postgres 'D' == Delphi DayOfWeek)
+    const diaOutro = (diaHoje % 7) + 1;       // outro dia qualquer (sempre ≠ hoje)
+
+    // 72.H.0) sem janela cadastrada → login LIVRE.
+    await pgAuth.query(`DELETE FROM operadores_restricao_acesso WHERE codoperador=93`);
+    const hLivre = await authPost('login', { login: 'HORTEST', senha: 'smoke123', empresa: 1 });
+    check('AUTH T1.5: operador SEM janela de horário → login livre (200)', hLivre.status === 200 && typeof hLivre.json.token === 'string', { status: hLivre.status });
+
+    // 72.H.1) janela só em OUTRO dia → hoje fora de toda janela → 403 ACESSO_FORA_HORARIO + audita LOGON_FAIL (não conta lockout).
+    await pgAuth.query(`INSERT INTO operadores_restricao_acesso (codoperador, diasemana, hora_inicial, hora_final, indr) VALUES (93, ${diaOutro}, '00:00', '23:59', 'I')`);
+    const hFora = await authPost('login', { login: 'HORTEST', senha: 'smoke123', empresa: 1 });
+    const hForaAud = (await pgAuth.query(`SELECT tipo FROM operadores_acessos WHERE codoperador=93 AND tipo='LOGON_FAIL' ORDER BY id DESC LIMIT 1`)).rows[0] as any;
+    const hForaTent = (await pgAuth.query(`SELECT tentativas_login FROM operadores WHERE codoperador=93`)).rows[0] as any;
+    check('AUTH T1.5: janela só em OUTRO dia → login hoje FORA → 403 ACESSO_FORA_HORARIO + LOGON_FAIL; NÃO incrementa lockout',
+      hFora.status === 403 && hFora.json.code === 'ACESSO_FORA_HORARIO' && hForaAud?.tipo === 'LOGON_FAIL' && Number(hForaTent?.tentativas_login ?? 0) === 0,
+      { status: hFora.status, code: hFora.json.code, aud: hForaAud, tent: hForaTent });
+
+    // 72.H.2) adiciona janela de HOJE cobrindo o dia inteiro → dentro da janela → login OK (some() acha a janela boa).
+    await pgAuth.query(`INSERT INTO operadores_restricao_acesso (codoperador, diasemana, hora_inicial, hora_final, indr) VALUES (93, ${diaHoje}, '00:00', '23:59', 'I')`);
+    const hDentro = await authPost('login', { login: 'HORTEST', senha: 'smoke123', empresa: 1 });
+    check('AUTH T1.5: janela de HOJE [00:00–23:59] cobre agora → login OK (200)', hDentro.status === 200 && typeof hDentro.json.token === 'string', { status: hDentro.status });
+
+    // 72.H.3) senha ERRADA + fora do horário → 401 CREDENCIAIS_INVALIDAS (senha é checada ANTES do horário → não vira oráculo).
+    await pgAuth.query(`DELETE FROM operadores_restricao_acesso WHERE codoperador=93`);
+    await pgAuth.query(`INSERT INTO operadores_restricao_acesso (codoperador, diasemana, hora_inicial, hora_final, indr) VALUES (93, ${diaOutro}, '00:00', '23:59', 'I')`);
+    const hSenhaErr = await authPost('login', { login: 'HORTEST', senha: 'errada', empresa: 1 });
+    check('AUTH T1.5: senha errada + fora do horário → 401 CREDENCIAIS_INVALIDAS (senha antes do horário; sem oráculo)',
+      hSenhaErr.status === 401 && hSenhaErr.json.code === 'CREDENCIAIS_INVALIDAS', { status: hSenhaErr.status, code: hSenhaErr.json.code });
+
+    // 72.H.4) CRUD das janelas via API (RBAC FRMCADOPERADOR, op 7): validação → adicionar → gate vale → remover → livre.
+    await pgAuth.query(`DELETE FROM operadores_restricao_acesso WHERE codoperador=93`);
+    await pgAuth.query(`UPDATE operadores SET tentativas_login=0, bloqueado_ate=NULL WHERE codoperador=93`);
+    const RA = `${base}/cadastro/operadores/93/restricao-acesso`;
+    const raBad = await fetch(RA, { method: 'POST', headers: H, body: JSON.stringify({ diasemana: diaHoje, hora_inicial: '10:00', hora_final: '09:00' }) });
+    const raAdd = await fetch(RA, { method: 'POST', headers: H, body: JSON.stringify({ diasemana: diaOutro, hora_inicial: '08:00', hora_final: '18:00' }) });
+    const raAddJ = (await raAdd.json().catch(() => ({}))) as any;
+    const raListJ = (await (await fetch(RA, { headers: H })).json().catch(() => [])) as any[];
+    const hForaApi = await authPost('login', { login: 'HORTEST', senha: 'smoke123', empresa: 1 });
+    const raDel = await fetch(`${RA}/${raAddJ.codrestricao_acesso}`, { method: 'DELETE', headers: H });
+    const raList2J = (await (await fetch(RA, { headers: H })).json().catch(() => [])) as any[];
+    const hLivreApi = await authPost('login', { login: 'HORTEST', senha: 'smoke123', empresa: 1 });
+    check('AUTH T1.5 CRUD: POST inválido(final≤inicial)→400; válido→201+listar(1); gate 403; DELETE→listar(0)+login livre',
+      raBad.status === 400 && raAdd.status === 201 && Number(raAddJ.codrestricao_acesso) > 0
+      && raListJ.length === 1 && hForaApi.status === 403 && hForaApi.json.code === 'ACESSO_FORA_HORARIO'
+      && raDel.status === 200 && raList2J.length === 0 && hLivreApi.status === 200,
+      { bad: raBad.status, add: raAdd.status, list: raListJ.length, fora: [hForaApi.status, hForaApi.json.code], del: raDel.status, list2: raList2J.length, livre: hLivreApi.status });
+
+    // 72.H.5) a janela vale também no REFRESH (fold): renova DENTRO da janela → OK; fora dela → 401 SESSAO_EXPIRADA
+    // (senão a sessão aberta na janela se perpetuaria pelo refresh 7d, tornando a janela inócua).
+    await pgAuth.query(`DELETE FROM operadores_restricao_acesso WHERE codoperador=93`);
+    await pgAuth.query(`INSERT INTO operadores_restricao_acesso (codoperador, diasemana, hora_inicial, hora_final, indr) VALUES (93, ${diaHoje}, '00:00', '23:59', 'I')`);
+    const rH = await authPost('login', { login: 'HORTEST', senha: 'smoke123', empresa: 1 });
+    const renIn = await authPost('refresh', { refresh: rH.json.refresh });
+    await pgAuth.query(`DELETE FROM operadores_restricao_acesso WHERE codoperador=93`);
+    await pgAuth.query(`INSERT INTO operadores_restricao_acesso (codoperador, diasemana, hora_inicial, hora_final, indr) VALUES (93, ${diaOutro}, '00:00', '23:59', 'I')`);
+    const renOut = await authPost('refresh', { refresh: renIn.json.refresh });
+    check('AUTH T1.5 refresh: renova DENTRO da janela (200); FORA → 401 SESSAO_EXPIRADA (janela não burlável pelo refresh)',
+      rH.status === 200 && renIn.status === 200 && renOut.status === 401 && renOut.json.code === 'SESSAO_EXPIRADA',
+      { login: rH.status, renIn: renIn.status, renOut: [renOut.status, renOut.json.code] });
+
+    // cleanup: op 93 sem janelas + contadores/refresh zerados (não vaza p/ seções seguintes).
+    await pgAuth.query(`DELETE FROM operadores_restricao_acesso WHERE codoperador=93`);
+    await pgAuth.query(`UPDATE operadores SET tentativas_login=0, bloqueado_ate=NULL WHERE codoperador=93`);
+    await pgAuth.query(`UPDATE operadores_refresh_tokens SET revogado_em=now() WHERE codoperador=93 AND revogado_em IS NULL`);
 
     await pgAuth.end();
 
