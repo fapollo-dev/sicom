@@ -4,6 +4,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { SpedArquivo, fmtData, fmtNum, soDigitos } from './sped-writer';
+import { validarSped, type ResultadoValidacao } from './sped-validator';
 
 type AnyDB = Kysely<any>;
 
@@ -34,7 +35,7 @@ export class SpedEfdContribuicoesService {
     return e;
   }
 
-  async gerar(dtini: string, dtfim: string): Promise<{ arquivo: string; linhas: number; estabelecimentos: number; documentos: number; parcial: true; aviso: string }> {
+  async gerar(dtini: string, dtfim: string): Promise<{ arquivo: string; linhas: number; estabelecimentos: number; documentos: number; parcial: true; aviso: string; validacao: ResultadoValidacao }> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
 
@@ -88,6 +89,7 @@ export class SpedEfdContribuicoesService {
       estabelecimentos: estabs.length,
       documentos: docs.nfs.length + cupons.length,
       parcial: true,
+      validacao: validarSped(arquivo), // validação estrutural PVA-style (erros=[] ⇒ estruturalmente válido)
       aviso: `PARCIAL: bloco 0 (cadastros) + bloco C (${docs.nfs.length} entrada + ${cupons.length} NFC-e de saída${saida.truncado ? ' ⚠ TRUNCADO no limite de itens — gere por período menor' : ''}) + bloco M (crédito+débito${temM ? '' : ' — rode POST /fiscal/sped/apuracao-pc'}) + bloco 9. Falta o CAIXA contábil do PDV (CX_VENDAS→DIARIO) → corte-3.`,
     };
   }

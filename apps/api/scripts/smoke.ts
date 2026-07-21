@@ -4980,6 +4980,13 @@ async function main() {
           && c175_101 === '|C175|5102|1000,00|0,00|01|1000,00|1,6500|||16,50|01|1000,00|7,6000|||76,00|||'
           && c100_103.startsWith('|C100|1|0||65|02|001|103|') && c100_103.includes('|0,00|'),
           { n: c100Saidas.length, c175: c175_101, c103: c100_103.slice(0, 45) });
+
+        // 88.6) VALIDAÇÃO estrutural PVA-style do arquivo gerado (totalizador 9900/9990/9999 + derivações
+        // M100/M200/M205 + coerência C100↔C175 + contagem de campos). erros=[] ⇒ estruturalmente válido.
+        const efdSJ = (await (await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-01', dtfim: '2026-09-30' }) })).json().catch(() => ({}))) as any;
+        check('SPED §88.6: validação estrutural do arquivo (bloco 9 + derivações M + C100↔C175) → SEM erros',
+          efdSJ.validacao && efdSJ.validacao.ok === true && Array.isArray(efdSJ.validacao.erros) && efdSJ.validacao.erros.length === 0 && efdSJ.validacao.registros > 0,
+          { validacao: efdSJ.validacao });
         await pgSp.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-01' AND dtvenda < '2026-10-01'`); // cleanup
       } finally {
         await pgSp.end();
