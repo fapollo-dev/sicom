@@ -243,6 +243,7 @@ const CODE_PT: Record<string, string> = {
   BAIXA_CONTABILIZADA: 'A baixa já foi contabilizada — estorne a contabilização antes.',
   TITULO_VALOR_INVALIDO: 'O valor da baixa deve ser maior que zero.',
   TITULO_VALOR_EXCEDE: 'O valor excede o total do título. Só em dinheiro o excesso vira troco; em banco/outro recurso não é permitido.',
+  NF_CFOP_INVALIDO: 'CFOP de destino inválido ou não cadastrado.',
   // Senha de operação (E7 — UBaixaAreceber.edtDesc_AcreExit): desconto/acréscimo exige a senha de DESCONTO da empresa.
   SENHA_OPERACAO_REQUERIDA: 'Informe a senha de operação para autorizar o desconto/acréscimo.',
   SENHA_OPERACAO_INVALIDA: 'Senha de operação incorreta — desconto/acréscimo não autorizado.',

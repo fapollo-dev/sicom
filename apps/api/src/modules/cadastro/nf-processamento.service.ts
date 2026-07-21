@@ -5,6 +5,7 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ConfigService } from './config.service';
 import { NfContabilizacaoService } from './nf-contabilizacao.service';
+import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -53,6 +54,55 @@ export class NfProcessamentoService {
   }
   reverter(codnf: number): Promise<void> {
     return this.mover(codnf, 'reverter');
+  }
+
+  /**
+   * SINCRONIZAR CFOP dos itens — DE-PARA (ação de menu uNF.pas:16401 → uSincronizaCFOPNotaFiscal): o operador
+   * mapeia CFOP-atual→CFOP-novo por linha (`mapa`); cada item cujo CFOP == `de` recebe `para`. NÃO é "copiar o
+   * cabeçalho p/ todos" (isso corromperia uma NF com CFOPs heterogêneos — tributado/ST/isento). Só numa NF
+   * EDITÁVEL (trava do cadastro + período fechado, espelha nf.aggregate.validar) e os `para` têm de existir no
+   * catálogo CFOP (CFOPValido do legado). NÃO recalcula imposto (o operador usa "Recalcular" depois, como no
+   * legado). ADIADO (mesmo form no legado): sincronizar ALIQUOTA e CST. Retorna quantos itens foram ajustados.
+   */
+  async sincronizarCfop(codnf: number, mapa: Array<{ de?: string; para?: string }>): Promise<{ codnf: number; itens: number }> {
+    const t = currentTenant();
+    const emp = t.empresaId ?? null;
+    const op = t.operadorId ?? null;
+    if (emp == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
+    const pares = (Array.isArray(mapa) ? mapa : [])
+      .map((m) => ({ de: String(m?.de ?? '').trim(), para: String(m?.para ?? '').trim() }))
+      .filter((m) => m.de !== '' && m.para !== '');
+    if (!pares.length) throw new BusinessRuleError('VALIDACAO', { campo: 'mapa' });
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const nf = await trx
+        .selectFrom('nf')
+        .select(['codnf', 'proc', 'faturada', 'contabilizado', 'statusnfe', 'cancelada', 'dtcontabil'])
+        .where('codnf', '=', codnf)
+        .where('idempresa', '=', emp)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!nf) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf });
+      // trava de edição (espelha nf.aggregate.validar): NF com efeito é read-only.
+      if (nf.proc === 'S') throw new BusinessRuleError('NF_PROCESSADA', { codnf });
+      if (nf.faturada === 'S') throw new BusinessRuleError('NF_TEM_FATURAMENTO', { codnf });
+      if (nf.contabilizado === 'S') throw new BusinessRuleError('NF_CONTABILIZADA', { codnf });
+      if (nf.cancelada === 'S' || nf.statusnfe === 'C') throw new BusinessRuleError('NF_CANCELADA', { codnf });
+      if (nf.statusnfe === 'P' || nf.statusnfe === 'D') throw new BusinessRuleError('NF_ENVIADA', { codnf });
+      if (nf.dtcontabil != null) await assertPeriodoNaoFechado(trx, emp, nf.dtcontabil, 'bloq_nf'); // período fechado
+      // valida os CFOP-alvo contra o catálogo (CFOPValido, uSincronizaCFOPNotaFiscal.pas:325).
+      const alvos = [...new Set(pares.map((p) => p.para))];
+      const existentes = ((await trx.selectFrom('cfop').select('codcfop').where('codcfop', 'in', alvos).execute()) as Array<{ codcfop: string }>).map((r) => String(r.codcfop));
+      const invalido = alvos.find((a) => !existentes.includes(a));
+      if (invalido) throw new BusinessRuleError('NF_CFOP_INVALIDO', { cfop: invalido });
+      // aplica o de-para item-a-item (CFOPAtual→CFOPNovo); preserva os itens fora do mapa.
+      let itens = 0;
+      for (const p of pares) {
+        const r = await trx.updateTable('nf_prod').set({ cfop: p.para }).where('codnf', '=', codnf).where('cfop', '=', p.de).executeTakeFirst();
+        itens += Number((r as any)?.numUpdatedRows ?? 0);
+      }
+      await trx.updateTable('nf').set({ usultalteracao: op, dtultimalteracao: sql`now()` }).where('codnf', '=', codnf).where('idempresa', '=', emp).execute();
+      return { codnf, itens };
+    });
   }
 
   private async mover(codnf: number, modo: 'processar' | 'reverter'): Promise<void> {

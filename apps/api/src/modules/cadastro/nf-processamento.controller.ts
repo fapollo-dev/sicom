@@ -1,4 +1,4 @@
-import { Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
 import { NfProcessamentoService } from './nf-processamento.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -27,5 +27,13 @@ export class NfProcessamentoController {
   async reverter(@Param('id', ParseIntPipe) id: number) {
     await this.proc.reverter(id);
     return { codnf: id, proc: 'N' };
+  }
+
+  /** sincroniza o CFOP dos itens por DE-PARA (mapa CFOP-atual→CFOP-novo). Edição → RBAC de gravação. */
+  @Post(':id/sincronizar-cfop')
+  @HttpCode(200)
+  @RequerAcesso('FRMNF', 'BTNGRAVAR')
+  sincronizarCfop(@Param('id', ParseIntPipe) id: number, @Body() body: { mapa?: Array<{ de?: string; para?: string }> }) {
+    return this.proc.sincronizarCfop(id, body?.mapa ?? []);
   }
 }

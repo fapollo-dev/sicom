@@ -826,6 +826,29 @@ async function main() {
     check('NF-período: gravar NF com DTCONTABIL em período FECHADO (jan/2024) → 422 PERIODO_FECHADO',
       nfPerFec.status === 422 && ((await nfPerFec.json().catch(() => ({}))) as any).code === 'PERIODO_FECHADO', { status: nfPerFec.status });
 
+    // 18.0b) SINCRONIZAR CFOP por DE-PARA (T1.3): NF c/ itens heterogêneos [1202, 1411]; mapa {1202→1102} muda
+    // só o item 1202 e PRESERVA o 1411 (o de-para NÃO sobrescreve tudo com o cabeçalho — evita corromper ST/isento).
+    const nfSync = await novaNf(baseNf({ tipo: 'E', nronf: 'SYNCFOP', codparceiro: 22, cfop: '1102', itens: [
+      { codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '1202', aliquota: 'T01' },
+      { codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '1411', aliquota: 'T01' },
+    ] }));
+    const syncRes = await fetch(`${base}/fiscal/nf/${nfSync}/sincronizar-cfop`, { method: 'POST', headers: H, body: JSON.stringify({ mapa: [{ de: '1202', para: '1102' }] }) });
+    const syncJ = (await syncRes.json().catch(() => ({}))) as any;
+    const itDepois = ((await (await fetch(`${base}/fiscal/nf/${nfSync}`, { headers: H })).json()) as any).itens ?? [];
+    const cfopsSync = itDepois.map((i: any) => String(i.cfop)).sort();
+    check('NF sync-CFOP de-para: {1202→1102} ajusta só o 1202 (→1102) e PRESERVA o 1411 (1 item; não corrompe heterogêneo)',
+      syncRes.status === 200 && Number(syncJ.itens) === 1 && cfopsSync.join(',') === '1102,1411', { body: syncJ, cfops: cfopsSync });
+    // 18.0c) CFOP-alvo inexistente no catálogo → 422 NF_CFOP_INVALIDO.
+    const syncInv = await fetch(`${base}/fiscal/nf/${nfSync}/sincronizar-cfop`, { method: 'POST', headers: H, body: JSON.stringify({ mapa: [{ de: '1411', para: '9999' }] }) });
+    check('NF sync-CFOP: CFOP-alvo fora do catálogo → 422 NF_CFOP_INVALIDO', syncInv.status === 422 && ((await syncInv.json().catch(() => ({}))) as any).code === 'NF_CFOP_INVALIDO', { status: syncInv.status });
+    // 18.0d) NF PROCESSADA → 422 NF_PROCESSADA; sem grant → 403.
+    await fetch(`${base}/fiscal/nf/${nfSync}/processar`, { method: 'POST', headers: H });
+    const syncProc = await fetch(`${base}/fiscal/nf/${nfSync}/sincronizar-cfop`, { method: 'POST', headers: H, body: JSON.stringify({ mapa: [{ de: '1102', para: '1202' }] }) });
+    const syncRbac = await fetch(`${base}/fiscal/nf/${nfSync}/sincronizar-cfop`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ mapa: [{ de: '1102', para: '1202' }] }) });
+    check('NF sync-CFOP: NF processada → 422 NF_PROCESSADA; sem grant → 403',
+      syncProc.status === 422 && ((await syncProc.json().catch(() => ({}))) as any).code === 'NF_PROCESSADA' && syncRbac.status === 403, { proc: syncProc.status, rbac: syncRbac.status });
+    await fetch(`${base}/fiscal/nf/${nfSync}/reverter`, { method: 'POST', headers: H }); // destrava (cleanup)
+
     // 18.1) ENTRADA processada SOMA o saldo (120 -> +10) e trava a nota (proc='S').
     const s0 = await saldoProd1();
     const nfEnt = await novaNf(baseNf({ tipo: 'E', nronf: 'P3001', codparceiro: 22, itens: [itemP1(10)] }));
