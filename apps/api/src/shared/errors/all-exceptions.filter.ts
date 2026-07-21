@@ -288,6 +288,9 @@ const CODE_PT: Record<string, string> = {
   DRE_PERIODO_INVALIDO: 'A data inicial não pode ser maior que a data final.',
   RAZAO_PERIODO_OBRIGATORIO: 'Informe as datas inicial e final do período.',
   RAZAO_PERIODO_INVALIDO: 'A data inicial não pode ser maior que a data final.',
+  // fechamento de caixa do PDV (Caixa 2d-c)
+  CONTA_FORMA_NAO_INFORMADA: 'Há forma de pagamento sem conta contábil no fechamento do PDV. Configure a conta da forma antes de contabilizar.',
+  IIC_FECHAMENTO_NAO_CONFIGURADA: 'A integração contábil do fechamento de caixa (situação 2010) não está configurada.',
   // Caixa (uMovCaixa/UabertCaixa/uFechamentoCaixa — sessão + movimento manual)
   CAIXA_JA_ABERTO: 'Este operador já possui um caixa aberto. Feche o caixa atual antes de abrir outro.',
   CAIXA_NAO_ABERTO: 'Não há caixa aberto para este operador. Abra o caixa antes de movimentar.',

@@ -2895,6 +2895,53 @@ async function main() {
     await fetch(`${base}/${CXt}/${tc4}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) }); // cleanup
     await pgTes.end();
 
+    // 45b) CAIXA 2d-c — CONTÁBIL do FECHAMENTO do PDV por forma de pagamento (CX_VENDAS → DIÁRIO, situação 2010).
+    const pgCv = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    // grupo 91001 (codoperadora=OPERADOR 7; forma casa por OPERACAO=MODALIDADE): DINHEIRO(→forma 1, conta 183)
+    // líq 100 + (60−10)=50 → 150 ; CARTOES(→forma 3, conta 213) 200 ; QUEBRA DE CAIXA(→forma 6, destino QUE) 30 → IGNORADO.
+    await pgCv.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, valor, troco, codgrupo, status, contabilizado) VALUES
+      (1,'2026-11-05 10:00:00-03',1,7,'DINHEIRO',100, 0,91001,'F','N'),
+      (1,'2026-11-05 10:05:00-03',1,7,'DINHEIRO', 60,10,91001,'F','N'),
+      (1,'2026-11-05 10:10:00-03',1,7,'CARTOES', 200, 0,91001,'F','N'),
+      (1,'2026-11-05 10:15:00-03',1,7,'QUEBRA DE CAIXA', 30, 0,91001,'F','N')`);
+    const cvDiario = async () => (await pgCv.query(`SELECT contadebito, contacredito, valor, codorigem, idorigem, codoperacao FROM diario WHERE codorigem=17 AND idorigem=91001 AND codempresa=1 ORDER BY contadebito`)).rows as any[];
+    // 45b.1) contabilizar → 2 lançamentos (dinheiro D183/C200 150 ; cartão D213/C200 200), quebra ignorada; total 350.
+    const cvCtb = await fetch(`${base}/cobranca/caixa/contabilizar-pdv?dtini=2026-11-01&dtfim=2026-11-30`, { method: 'POST', headers: H });
+    const cvCtbJ = (await cvCtb.json().catch(() => ({}))) as any;
+    const dia1 = await cvDiario();
+    const dDin = dia1.find((d) => Number(d.contadebito) === 183);
+    const dCar = dia1.find((d) => Number(d.contadebito) === 213);
+    check('CAIXA-PDV 45b.1: contabiliza por forma (D183/C200 150 dinheiro + D213/C200 200 cartão; quebra QUE ignorada; sit 2010)',
+      cvCtb.status === 200 && Number(cvCtbJ.grupos) === 1 && Number(cvCtbJ.lancamentos) === 2 && Number(cvCtbJ.total) === 350
+      && dia1.length === 2 && dDin && Number(dDin.contacredito) === 200 && Number(dDin.valor) === 150 && Number(dDin.codoperacao) === 2010
+      && dCar && Number(dCar.contacredito) === 200 && Number(dCar.valor) === 200,
+      { body: cvCtbJ, dia: dia1 });
+    // 45b.2) idempotente: 2ª chamada não gera nada (grupo já contabilizado).
+    const cvCtb2 = await fetch(`${base}/cobranca/caixa/contabilizar-pdv?dtini=2026-11-01&dtfim=2026-11-30`, { method: 'POST', headers: H });
+    const cvCtb2J = (await cvCtb2.json().catch(() => ({}))) as any;
+    const contab = (await pgCv.query(`SELECT count(*)::int n FROM cx_vendas WHERE codgrupo=91001 AND coalesce(contabilizado,'N')='S'`)).rows[0]?.n;
+    check('CAIXA-PDV 45b.2: idempotente (2ª vez grupos=0, sem novo DIÁRIO) + grupo inteiro marcado contabilizado (4 linhas)',
+      Number(cvCtb2J.grupos) === 0 && (await cvDiario()).length === 2 && Number(contab) === 4, { body: cvCtb2J, contab });
+    // 45b.3) reverter (por grupo) remove o DIÁRIO e reabre o grupo.
+    const cvRev = await fetch(`${base}/cobranca/caixa/91001/reverter-pdv`, { method: 'POST', headers: H });
+    const contabPos = (await pgCv.query(`SELECT count(*)::int n FROM cx_vendas WHERE codgrupo=91001 AND coalesce(contabilizado,'N')='S'`)).rows[0]?.n;
+    check('CAIXA-PDV 45b.3: reverter remove o DIÁRIO (0) + reabre o grupo (0 contabilizado)',
+      cvRev.status === 200 && (await cvDiario()).length === 0 && Number(contabPos) === 0, { status: cvRev.status, contabPos });
+    // 45b.4) RBAC sem grant → 403.
+    const cvRbac = await fetch(`${base}/cobranca/caixa/contabilizar-pdv?dtini=2026-11-01&dtfim=2026-11-30`, { method: 'POST', headers: H_SEM_ACESSO });
+    check('CAIXA-PDV 45b.4: contabilizar sem grant RBAC → 403', cvRbac.status === 403, { status: cvRbac.status });
+    // 45b.5) FAIL-LOUD (fold [ALTA]): forma não resolvível (OPERACAO 'VALE' sem forma cadastrada) → 422 e NADA lançado.
+    await pgCv.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, valor, troco, codgrupo, status, contabilizado) VALUES
+      (1,'2026-12-03 10:00:00-03',1,7,'VALE', 90, 0,91002,'F','N')`);
+    const cvFail = await fetch(`${base}/cobranca/caixa/contabilizar-pdv?dtini=2026-12-01&dtfim=2026-12-31`, { method: 'POST', headers: H });
+    const naoLancou = (await pgCv.query(`SELECT count(*)::int n FROM diario WHERE codorigem=17 AND idorigem=91002`)).rows[0]?.n;
+    const naoMarcou = (await pgCv.query(`SELECT count(*)::int n FROM cx_vendas WHERE codgrupo=91002 AND coalesce(contabilizado,'N')='S'`)).rows[0]?.n;
+    check('CAIXA-PDV 45b.5: forma sem conta → 422 CONTA_FORMA_NAO_INFORMADA (nada lançado/marcado — fail-loud)',
+      cvFail.status === 422 && ((await cvFail.json().catch(() => ({}))) as any).code === 'CONTA_FORMA_NAO_INFORMADA' && Number(naoLancou) === 0 && Number(naoMarcou) === 0,
+      { status: cvFail.status, lancou: naoLancou, marcou: naoMarcou });
+    await pgCv.query(`DELETE FROM cx_vendas WHERE codgrupo IN (91001,91002)`); // cleanup
+    await pgCv.end();
+
     // 46) AR/AP contábil-2 — baixa por recurso BANCO (money leg = contas_bancarias.codlanccontabil; NÃO toca o caixa).
     const pgBco = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const ARb = 'cadastro/areceber', APb = 'cadastro/apagar';

@@ -4,6 +4,7 @@ import {
 import { abrirCaixaSchema, movimentoCaixaSchema, fecharCaixaSchema } from '@apollo/shared';
 import { CaixaService } from './caixa.service';
 import { CaixaContabilService } from './caixa-contabil.service';
+import { CaixaPdvContabilService } from './caixa-pdv-contabil.service';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -20,6 +21,7 @@ export class CaixaController {
   constructor(
     private readonly svc: CaixaService,
     private readonly contabil: CaixaContabilService,
+    private readonly pdvContabil: CaixaPdvContabilService,
   ) {}
 
   /** Sessão aberta do operador logado (+ movimentos), ou null. */
@@ -93,5 +95,21 @@ export class CaixaController {
   @RequerAcesso('FRMCAIXA', 'BTNESTORNARCONTABIL')
   estornarContabil(@Param('id', ParseIntPipe) id: number) {
     return this.contabil.estornarFechamento(id);
+  }
+
+  /** Caixa 2d-c: contabiliza os fechamentos do PDV (CX_VENDAS) por forma de pagamento no DIÁRIO (situação 2010). */
+  @Post('contabilizar-pdv')
+  @HttpCode(200)
+  @RequerAcesso('FRMCAIXA', 'BTNCONTABILIZARPDV')
+  contabilizarPdv(@Query() q: Record<string, string>) {
+    return this.pdvContabil.contabilizar(q.dtini, q.dtfim);
+  }
+
+  /** estorna a contabilização de um fechamento do PDV (por CODGRUPO). */
+  @Post(':codgrupo/reverter-pdv')
+  @HttpCode(200)
+  @RequerAcesso('FRMCAIXA', 'BTNCONTABILIZARPDV')
+  reverterPdv(@Param('codgrupo', ParseIntPipe) codgrupo: number) {
+    return this.pdvContabil.reverter(codgrupo);
   }
 }

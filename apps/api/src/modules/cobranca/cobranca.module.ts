@@ -12,6 +12,7 @@ import { ApagarBaixaService } from './apagar-baixa.service';
 import { CaixaController } from './caixa.controller';
 import { CaixaService } from './caixa.service';
 import { CaixaContabilService } from './caixa-contabil.service';
+import { CaixaPdvContabilService } from './caixa-pdv-contabil.service';
 import { BaixaContabilService } from './baixa-contabil.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { CadastroModule } from '../cadastro/cadastro.module';
@@ -28,7 +29,7 @@ import { CadastroModule } from '../cadastro/cadastro.module';
   providers: [
     LotesCobrancaService, LoteCobrancaRepository,
     AreceberService, AreceberBaixaService, ApagarService, ApagarBaixaService,
-    CaixaService, CaixaContabilService, BaixaContabilService,
+    CaixaService, CaixaContabilService, CaixaPdvContabilService, BaixaContabilService,
     DatabaseProvider,
   ],
   exports: [LotesCobrancaService],

@@ -214,12 +214,14 @@ export class CaixaContabilService {
    * Idempotente (no-op se não houver lançamento).
    */
   async estornarNoTrx(trx: AnyDB, emp: number, codcaixa: number, op: number | null): Promise<void> {
-    // apaga AS DUAS pernas do fechamento: divergência (CODORIGEM 17) E tesouraria (CODORIGEM 19).
+    // apaga AS DUAS pernas do fechamento: divergência (CODORIGEM 17) E tesouraria (CODORIGEM 19). EXCLUI a
+    // situação 2010 (fechamento do PDV por modalidade, caixa-pdv-contabil): compartilha o CODORIGEM 17 mas tem
+    // idorigem de outro espaço (codgrupo) — sem esse filtro, um codcaixa==codgrupo apagaria o DIÁRIO do PDV.
     const lotes = await trx
       .selectFrom('diario').select('codlote').distinct()
-      .where('codorigem', 'in', [CODORIGEM_CAIXA, CODORIGEM_TESOURARIA]).where('idorigem', '=', codcaixa).where('codempresa', '=', emp)
+      .where('codorigem', 'in', [CODORIGEM_CAIXA, CODORIGEM_TESOURARIA]).where('idorigem', '=', codcaixa).where('codempresa', '=', emp).where(sql`coalesce(codoperacao,0)`, '<>', 2010)
       .execute();
-    await trx.deleteFrom('diario').where('codorigem', 'in', [CODORIGEM_CAIXA, CODORIGEM_TESOURARIA]).where('idorigem', '=', codcaixa).where('codempresa', '=', emp).execute();
+    await trx.deleteFrom('diario').where('codorigem', 'in', [CODORIGEM_CAIXA, CODORIGEM_TESOURARIA]).where('idorigem', '=', codcaixa).where('codempresa', '=', emp).where(sql`coalesce(codoperacao,0)`, '<>', 2010).execute();
     const ids = (lotes as Record<string, unknown>[]).map((l) => Number(l.codlote)).filter((n) => Number.isFinite(n));
     if (ids.length) await trx.deleteFrom('lote_contabil').where('codlotecontabil', 'in', ids).execute();
     // razão de tesouraria (MOV_CONTAS_BANCARIAS) do fechamento — remove junto (fechamento não aconteceu).
