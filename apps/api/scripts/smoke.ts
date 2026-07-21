@@ -1827,9 +1827,12 @@ async function main() {
     const linIcms = await diarioDe(nfIcms);
     const icmsLine = (linIcms as any[]).find((l) => Number(l.contadebito) === 127 && Number(l.contacredito) === 232);
     check('F5b-3: linha de ICMS (valor = Σ VRICM dos itens tributados 52,25, sit791 D127/C232)', conIcms.status === 200 && Number(icmsLine?.valor) === 52.25, { status: conIcms.status, icms: icmsLine?.valor, n: linIcms.length });
-    // 29f) F5b-fase4: PERÍODO CONTÁBIL FECHADO (competência 01/2024, BLOQ_NF='S') barra a contabilização.
-    const nfPer = await novaNf(baseNf({ tipo: 'E', nronf: 'E9007', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, dtemissao: '2024-01-10', dtcontabil: '2024-01-15', itens: [{ codproduto: 1, quantidade: 2, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));
+    // 29f) F5b-fase4: PERÍODO CONTÁBIL FECHADO (competência 01/2024, BLOQ_NF='S') barra a CONTABILIZAÇÃO.
+    // (T1.2 agora barra o CADASTRO na data fechada também → cria em data ABERTA e move a DTCONTABIL via pg
+    //  p/ 2024-01-15, driblando o gate de cadastro e isolando o gate de CONTABILIZAR.)
+    const nfPer = await novaNf(baseNf({ tipo: 'E', nronf: 'E9007', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 2, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));
     await fetch(`${base}/fiscal/nf/${nfPer}/processar`, { method: 'POST', headers: H });
+    await pgCon.query(`UPDATE nf SET dtcontabil='2024-01-15' WHERE codnf=$1`, [nfPer]); // move p/ período fechado
     await pgCon.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,6,1,20)`, [nfPer]);
     const perRes = await fetch(`${base}/fiscal/nf/${nfPer}/contabilizar`, { method: 'POST', headers: H });
     check('F5b-4: período contábil FECHADO → 422 PERIODO_FECHADO', perRes.status === 422 && ((await perRes.json().catch(() => ({}))) as any).code === 'PERIODO_FECHADO', { status: perRes.status });
