@@ -114,6 +114,21 @@ export interface CaixaSessao {
   codrcb_quebra?: number; // título A Receber gerado na quebra
 }
 
+/**
+ * CONFERÊNCIA do FECHAMENTO do PDV (CAIXA × CX_VENDAS, SALDO_OPERADOR). `valorReal` = contado na gaveta
+ * (obrigatório, ≥ 0); `devolucao` = dinheiro devolvido (opcional, ≥ 0); `gerarTitulo` cobra a quebra do
+ * operador via A Receber (default false). O esperado vem do CX_VENDAS do grupo (server-side).
+ */
+export const conferirPdvSchema = z.object({
+  valorReal: z.preprocess(
+    (v) => (typeof v === 'string' ? Number(v) : v),
+    z.number({ message: 'Informe o valor contado na gaveta.' }).min(0, 'O valor contado não pode ser negativo.'),
+  ),
+  devolucao: dec(z.number().min(0, 'A devolução não pode ser negativa.')),
+  gerarTitulo: z.boolean().optional(),
+});
+export type ConferirPdvDto = z.infer<typeof conferirPdvSchema>;
+
 /** Movimento de caixa devolvido pela API (tabela caixa_mov). */
 export interface CaixaMov {
   codmov: number;

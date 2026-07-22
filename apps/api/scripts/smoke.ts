@@ -3095,6 +3095,80 @@ async function main() {
       cvFail.status === 422 && ((await cvFail.json().catch(() => ({}))) as any).code === 'CONTA_FORMA_NAO_INFORMADA' && Number(naoLancou) === 0 && Number(naoMarcou) === 0,
       { status: cvFail.status, lancou: naoLancou, marcou: naoMarcou });
     await pgCv.query(`DELETE FROM cx_vendas WHERE codgrupo IN (91001,91002)`); // cleanup
+
+    // 45c) CAIXA × CX_VENDAS — CONFERÊNCIA do fechamento do PDV (SALDO_OPERADOR): gaveta contada vs DINHEIRO esperado.
+    await pgCv.query(`UPDATE operadores SET codparceiro=20 WHERE codoperador=7 AND codparceiro IS NULL`); // defensivo p/ título-quebra
+    await pgCv.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, valor, troco, codgrupo, status, contabilizado) VALUES
+      (1,'2026-11-06 10:00:00-03',1,7,'DINHEIRO',100, 0,91003,'F','N'),
+      (1,'2026-11-06 10:05:00-03',1,7,'DINHEIRO', 60,10,91003,'F','N'),
+      (1,'2026-11-06 10:10:00-03',1,7,'CARTOES', 200, 0,91003,'F','N'),
+      (1,'2026-11-06 11:00:00-03',1,7,'DINHEIRO',100, 0,91004,'F','N'),
+      (1,'2026-11-06 12:00:00-03',1,7,'DINHEIRO',100, 0,91005,'F','N'),
+      (1,'2026-11-06 13:00:00-03',1,7,'DINHEIRO',100, 0,91006,'F','N')`);
+    // grupo com sangria/suprimento/venda_balcao (fold [ALTA]): esperado = 200 − 5(vb) − 50(sang) + 10(supr) = 155.
+    await pgCv.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, valor, troco, venda_balcao, sangrias, suprimentos, codgrupo, status, contabilizado) VALUES
+      (1,'2026-11-06 14:00:00-03',1,7,'DINHEIRO',200,0,5,50,10,91007,'F','N')`);
+    const confDiario = async (idsaldoop: number) => (await pgCv.query(`SELECT contadebito, contacredito, valor, codorigem, codoperacao, codhist FROM diario WHERE codorigem=18 AND idorigem=$1 AND codempresa=1`, [idsaldoop])).rows as any[];
+    const CONFPDV = (g: number) => `${base}/cobranca/caixa/pdv-conferencia/${g}`;
+    // 45c.1) SOBRA: esperado 150 (DINHEIRO 100 + (60−10 troco); CARTOES fora da gaveta); real 155 → dif +5 → 2019 D183/C541 (codorigem 18).
+    const c1 = await fetch(CONFPDV(91003), { method: 'POST', headers: H, body: JSON.stringify({ valorReal: 155 }) });
+    const c1J = (await c1.json().catch(() => ({}))) as any;
+    const c1Dia = await confDiario(c1J.idsaldoop);
+    check('CAIXA-PDV 45c.1: SOBRA — esperado 150, real 155 → dif +5, SOBRA, contábil 2019 D183/C541 valor 5 (codorigem 18 distinto)',
+      c1.status === 200 && Number(c1J.esperado) === 150 && Number(c1J.diferenca) === 5 && c1J.classificacao === 'SOBRA' && c1J.contabilizado === 'S'
+      && c1Dia.length === 1 && Number(c1Dia[0].contadebito) === 183 && Number(c1Dia[0].contacredito) === 541 && Number(c1Dia[0].valor) === 5 && Number(c1Dia[0].codoperacao) === 2019 && Number(c1Dia[0].codorigem) === 18 && Number(c1Dia[0].codhist) === 84,
+      { body: c1J, dia: c1Dia });
+    // 45c.2) QUEBRA-sem-título: esperado 100, real 90 → dif −10 → 2018 D541/C200 valor 10.
+    const c2 = await fetch(CONFPDV(91004), { method: 'POST', headers: H, body: JSON.stringify({ valorReal: 90 }) });
+    const c2J = (await c2.json().catch(() => ({}))) as any;
+    const c2Dia = await confDiario(c2J.idsaldoop);
+    check('CAIXA-PDV 45c.2: QUEBRA-sem-título — real 90 vs 100 → dif −10, contábil 2018 D541/C200 valor 10',
+      c2.status === 200 && Number(c2J.diferenca) === -10 && c2J.classificacao === 'QUEBRA' && c2J.codrcb === null
+      && c2Dia.length === 1 && Number(c2Dia[0].contadebito) === 541 && Number(c2Dia[0].contacredito) === 200 && Number(c2Dia[0].valor) === 10 && Number(c2Dia[0].codoperacao) === 2018 && Number(c2Dia[0].codhist) === 85,
+      { body: c2J, dia: c2Dia });
+    // 45c.3) QUEBRA-com-título: gerarTitulo → A Receber (parceiro 20, valor 5, origem Q); SEM contábil de divergência.
+    const c3 = await fetch(CONFPDV(91005), { method: 'POST', headers: H, body: JSON.stringify({ valorReal: 95, gerarTitulo: true }) });
+    const c3J = (await c3.json().catch(() => ({}))) as any;
+    const c3Ar = c3J.codrcb ? (await pgCv.query(`SELECT codparceiro, valor, origem, quitada FROM areceber WHERE codrcb=$1`, [c3J.codrcb])).rows[0] as any : null;
+    check('CAIXA-PDV 45c.3: QUEBRA-com-título — gera A Receber (parceiro 20, valor 5, origem Q), SEM contábil de divergência',
+      c3.status === 200 && c3J.classificacao === 'QUEBRA' && Number(c3J.codrcb) > 0 && c3J.contabilizado === null
+      && c3Ar && Number(c3Ar.codparceiro) === 20 && Number(c3Ar.valor) === 5 && c3Ar.origem === 'Q' && c3Ar.quitada === 'N'
+      && (await confDiario(c3J.idsaldoop)).length === 0,
+      { body: c3J, ar: c3Ar });
+    // 45c.4) idempotente (re-conferir 91003 → 422) + devolução na fórmula (91006: real 100 + dev 10 − esp 100 = +10 SOBRA).
+    const c4dup = await fetch(CONFPDV(91003), { method: 'POST', headers: H, body: JSON.stringify({ valorReal: 150 }) });
+    const c4dev = await fetch(CONFPDV(91006), { method: 'POST', headers: H, body: JSON.stringify({ valorReal: 100, devolucao: 10 }) });
+    const c4devJ = (await c4dev.json().catch(() => ({}))) as any;
+    check('CAIXA-PDV 45c.4: re-conferir grupo já conferido → 422 CONFERENCIA_JA_REALIZADA; devolução entra na fórmula (+10 SOBRA)',
+      c4dup.status === 422 && ((await c4dup.json().catch(() => ({}))) as any).code === 'CONFERENCIA_JA_REALIZADA'
+      && c4dev.status === 200 && Number(c4devJ.diferenca) === 10 && c4devJ.classificacao === 'SOBRA',
+      { dup: c4dup.status, dev: c4devJ });
+    // 45c.5) estornar: sobra (91003) reverte diário (codorigem 18) + excluido='S'; com-título (91005) apaga o A Receber.
+    const e1 = await fetch(`${CONFPDV(91003)}/estornar`, { method: 'POST', headers: H });
+    const e1saldo = (await pgCv.query(`SELECT excluido FROM saldo_operador WHERE codgrupo=91003 AND idempresa=1 ORDER BY idsaldoop DESC LIMIT 1`)).rows[0] as any;
+    const e1dia = await confDiario(c1J.idsaldoop);
+    const e2 = await fetch(`${CONFPDV(91005)}/estornar`, { method: 'POST', headers: H });
+    const e2ar = (await pgCv.query(`SELECT count(*)::int n FROM areceber WHERE codrcb=$1`, [c3J.codrcb])).rows[0]?.n;
+    check('CAIXA-PDV 45c.5: estornar — sobra reverte diário (0) + excluido=S; com-título apaga o A Receber (0)',
+      e1.status === 200 && e1saldo?.excluido === 'S' && e1dia.length === 0 && e2.status === 200 && Number(e2ar) === 0,
+      { e1: e1.status, exc: e1saldo, dia: e1dia.length, e2: e2.status, ar: e2ar });
+    // 45c.6) RBAC sem grant → 403; grupo sem movimento → 422 GRUPO_SEM_MOVIMENTO.
+    const c6rbac = await fetch(CONFPDV(91004), { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ valorReal: 1 }) });
+    const c6vazio = await fetch(CONFPDV(99999), { method: 'POST', headers: H, body: JSON.stringify({ valorReal: 1 }) });
+    check('CAIXA-PDV 45c.6: RBAC sem grant → 403; grupo sem movimento → 422 GRUPO_SEM_MOVIMENTO',
+      c6rbac.status === 403 && c6vazio.status === 422 && ((await c6vazio.json().catch(() => ({}))) as any).code === 'GRUPO_SEM_MOVIMENTO',
+      { rbac: c6rbac.status, vazio: c6vazio.status });
+    // 45c.7) fold [ALTA]: netagem sangria/suprimento/venda_balcao no esperado. DINHEIRO 200, vb 5, sangria 50,
+    // supr 10 → esperado = 200 − 5 − 50 + 10 = 155; real 155 → dif 0 (OK). SEM a netagem daria esperado 200 → quebra-fantasma −45.
+    const c7 = await fetch(CONFPDV(91007), { method: 'POST', headers: H, body: JSON.stringify({ valorReal: 155 }) });
+    const c7J = (await c7.json().catch(() => ({}))) as any;
+    check('CAIXA-PDV 45c.7: esperado NETA sangria/suprimento/venda_balcao (200−5−50+10=155); real 155 → dif 0 OK (sem quebra-fantasma)',
+      c7.status === 200 && Number(c7J.esperado) === 155 && Number(c7J.diferenca) === 0 && c7J.classificacao === 'OK' && c7J.contabilizado === null,
+      { body: c7J });
+    // cleanup §45c
+    await pgCv.query(`DELETE FROM diario WHERE codorigem=18 AND codempresa=1`);
+    await pgCv.query(`DELETE FROM saldo_operador WHERE codgrupo IN (91003,91004,91005,91006,91007)`);
+    await pgCv.query(`DELETE FROM cx_vendas WHERE codgrupo IN (91003,91004,91005,91006,91007)`);
     await pgCv.end();
 
     // 46) AR/AP contábil-2 — baixa por recurso BANCO (money leg = contas_bancarias.codlanccontabil; NÃO toca o caixa).

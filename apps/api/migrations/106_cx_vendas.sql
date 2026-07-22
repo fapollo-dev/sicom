@@ -1,6 +1,7 @@
 -- 106 — CX_VENDAS (pagamentos do PDV) + contábil do FECHAMENTO DE CAIXA por forma de pagamento (Caixa 2d-c).
 -- Corte-3 do épico PDV/VENDAS. CX_VENDAS = 1 linha por PAGAMENTO do cupom (Oracle 1,5M linhas): forma =
--- CODOPERADORA (→ FORMAS_PGTO.IDPGTO), OPERACAO (rótulo), VALOR/TROCO, CODGRUPO (o fechamento do turno).
+-- CODOPERADORA = o OPERADOR do PDV (→ OPERADORES.CODOPERADOR; golden: 97/101 casam operadores, só 5 casam
+-- FORMAS_PGTO.IDPGTO). OPERACAO = rótulo da forma (casa FORMAS_PGTO.MODALIDADE). VALOR/TROCO, CODGRUPO (turno).
 -- O contábil (situação 2010, fiel a UIntegracaoContabilFechamentoCaixa): por forma → D <conta da forma
 -- (FORMAS_PGTO.CODPLANOCONTAS)> / C 200 VENDAS TRANSITORIAS (fixa). Ignora forma DESTINO='QUE' (quebra).
 CREATE SEQUENCE IF NOT EXISTS seq_cx_vendas;

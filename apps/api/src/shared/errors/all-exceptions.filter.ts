@@ -316,6 +316,10 @@ const CODE_PT: Record<string, string> = {
   CAIXA_NAO_CONTABILIZADA: 'O fechamento deste caixa não está contabilizado — não há o que estornar.',
   CAIXA_SEM_DIFERENCA: 'O fechamento não tem quebra/sobra nem dinheiro a contabilizar.',
   CAIXA_CONTABIL_QUEBRA_TITULO: 'A quebra deste caixa gerou título A Receber — a contabilização depende do contábil de A Receber (corte futuro).',
+  CONFERENCIA_JA_REALIZADA: 'Este fechamento de PDV já foi conferido — estorne a conferência antes de refazê-la.',
+  CONFERENCIA_NAO_ENCONTRADA: 'Não há conferência ativa para este fechamento de PDV.',
+  CONFERENCIA_TITULO_BAIXADO: 'O título de quebra já foi baixado/agrupado — não é possível estornar a conferência.',
+  GRUPO_SEM_MOVIMENTO: 'Fechamento de PDV sem movimento no CX_VENDAS.',
   CAIXA_TESOURARIA_SEM_CONTA: 'A forma DINHEIRO da empresa não tem conta contábil (codplanocontas) definida para a tesouraria.',
   // NFe / SEFAZ (F6)
   NF_JA_TRANSMITIDA: 'Esta nota fiscal já foi transmitida para a SEFAZ.',
