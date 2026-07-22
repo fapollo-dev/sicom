@@ -168,6 +168,17 @@ export const gerarParcelasAreceberSchema = z.preprocess(stripNulls, gerarParcela
 });
 export type GerarParcelasAreceberDto = z.infer<typeof gerarParcelasBase>;
 
+/**
+ * AGRUPAMENTO (uAgrupaContasAReceber): consolida ≥2 títulos ABERTOS do MESMO cliente num único título
+ * (valor = Σ). `dtvenc` opcional = vencimento do consolidado (default: o maior vencimento dos membros).
+ */
+export const agruparAreceberSchema = z.object({
+  codrcbs: z.array(z.coerce.number().int().positive()).min(2, 'Selecione ao menos 2 títulos para agrupar.').max(500, 'Máximo de 500 títulos por agrupamento.'),
+  dtvenc: opcional(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data de vencimento inválida (use AAAA-MM-DD).')),
+  obs: opcional(z.string().max(300)),
+});
+export type AgruparAreceberDto = z.infer<typeof agruparAreceberSchema>;
+
 /** registro devolvido pela API (view get_areceber) — colunas cruas + calculadas + display. */
 export interface Areceber {
   codrcb: number;

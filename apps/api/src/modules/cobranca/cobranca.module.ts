@@ -6,6 +6,7 @@ import { LoteCobrancaRepository } from './lote-cobranca.repository';
 import { AreceberController } from './areceber.controller';
 import { AreceberService } from './areceber.service';
 import { AreceberBaixaService } from './areceber-baixa.service';
+import { AreceberAgrupamentoService } from './areceber-agrupamento.service';
 import { ApagarController } from './apagar.controller';
 import { ApagarService } from './apagar.service';
 import { ApagarBaixaService } from './apagar-baixa.service';
@@ -29,7 +30,7 @@ import { CadastroModule } from '../cadastro/cadastro.module';
   controllers: [LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController],
   providers: [
     LotesCobrancaService, LoteCobrancaRepository,
-    AreceberService, AreceberBaixaService, ApagarService, ApagarBaixaService,
+    AreceberService, AreceberBaixaService, AreceberAgrupamentoService, ApagarService, ApagarBaixaService,
     CaixaService, CaixaContabilService, CaixaPdvContabilService, CaixaConferenciaService, BaixaContabilService,
     DatabaseProvider,
   ],

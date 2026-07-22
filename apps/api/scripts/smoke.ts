@@ -1992,6 +1992,85 @@ async function main() {
     const idorPut = await fetch(`${base}/${AR}/999`, { method: 'PUT', headers: H_EMP2, body: JSON.stringify({ valor: 1 }) });
     check('CR: PUT cross-tenant → 422 TITULO_NAO_ENCONTRADO (não edita título de outra empresa)', idorPut.status === 422 && ((await idorPut.json().catch(() => ({}))) as any).code === 'TITULO_NAO_ENCONTRADO', { status: idorPut.status });
 
+    // 31.9) AGRUPAMENTO (uAgrupaContasAReceber): consolida N títulos abertos de 1 cliente; reverter/remover.
+    const pgAgr = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    const crAR = async (valor: number, parc = 20) => Number(((await (await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: parc, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor }) })).json()) as any).codrcb);
+    const agrRow = async (id: number) => (await pgAgr.query(`SELECT agrupado, origem, valor, codgrupo_agrupamento_rcb FROM areceber WHERE codrcb=$1`, [id])).rows[0] as any;
+    // (a) agrupar 2 títulos (100+50) → consolidado valor 150 (origem 'A'), membros AGRUPADO='S'+link; abertos exclui membros/inclui consolidado.
+    const a1 = await crAR(100), a2 = await crAR(50);
+    const agr = await fetch(`${base}/${AR}/agrupar`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: [a1, a2] }) });
+    const agrJ = (await agr.json().catch(() => ({}))) as any;
+    const cons = Number(agrJ.consolidado);
+    const rA1 = await agrRow(a1), rCons = await agrRow(cons);
+    const abertos = (await (await fetch(`${base}/${AR}?situacao=abertos`, { headers: H })).json()) as any[];
+    check('AR-agrup: agrupar 2 (100+50) → consolidado valor 150 origem A; membros AGRUPADO=S + link; abertos exclui membros/inclui consolidado',
+      agr.status === 200 && Number(agrJ.total) === 150 && cons > 0
+      && rA1.agrupado === 'S' && Number(rA1.codgrupo_agrupamento_rcb) === cons && rCons.origem === 'A' && Number(rCons.valor) === 150
+      && abertos.some((t) => t.codrcb === cons) && !abertos.some((t) => t.codrcb === a1 || t.codrcb === a2),
+      { status: agr.status, body: agrJ, a1: rA1, cons: rCons });
+    // (b) validações: schema <2 → 400; cliente diverso → 422; título quitado → 422.
+    const agrMin = await fetch(`${base}/${AR}/agrupar`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: [a1] }) });
+    const bOutro = await crAR(20, 22); const b20 = await crAR(20, 20);
+    const agrDiv = await fetch(`${base}/${AR}/agrupar`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: [b20, bOutro] }) });
+    const agrQuit = await fetch(`${base}/${AR}/agrupar`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: [b20, 999] }) });
+    check('AR-agrup: validações (schema <2→400; clientes diversos→422 AGRUPAMENTO_PARCEIROS_DIVERSOS; quitado→422 TITULO_JA_BAIXADO)',
+      agrMin.status === 400 && agrDiv.status === 422 && ((await agrDiv.json().catch(() => ({}))) as any).code === 'AGRUPAMENTO_PARCEIROS_DIVERSOS'
+      && agrQuit.status === 422 && ((await agrQuit.json().catch(() => ({}))) as any).code === 'TITULO_JA_BAIXADO',
+      { min: agrMin.status, div: agrDiv.status, quit: agrQuit.status });
+    // (c) o consolidado NÃO pode ser editado/excluído direto → 422 TITULO_AGRUPAMENTO (use reverter).
+    const consPut = await fetch(`${base}/${AR}/${cons}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 1 }) });
+    const consDel = await fetch(`${base}/${AR}/${cons}`, { method: 'DELETE', headers: H });
+    check('AR-agrup: consolidado não editável/excluível direto → 422 TITULO_AGRUPAMENTO',
+      consPut.status === 422 && ((await consPut.json().catch(() => ({}))) as any).code === 'TITULO_AGRUPAMENTO'
+      && consDel.status === 422 && ((await consDel.json().catch(() => ({}))) as any).code === 'TITULO_AGRUPAMENTO',
+      { put: consPut.status, del: consDel.status });
+    // (d) remover título: consolidado de 3 (100+50+30=180); remove o de 30 → valor 150, membro liberado; remover até o último → 422.
+    const d1 = await crAR(100), d2 = await crAR(50), d3 = await crAR(30);
+    const dAgr = (await (await fetch(`${base}/${AR}/agrupar`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: [d1, d2, d3] }) })).json()) as any;
+    const dCons = Number(dAgr.consolidado);
+    const rem = await fetch(`${base}/${AR}/${dCons}/remover-do-agrupamento/${d3}`, { method: 'POST', headers: H });
+    const remJ = (await rem.json().catch(() => ({}))) as any;
+    const rD3 = await agrRow(d3);
+    await fetch(`${base}/${AR}/${dCons}/remover-do-agrupamento/${d2}`, { method: 'POST', headers: H }); // resta 1 (d1)
+    const remLast = await fetch(`${base}/${AR}/${dCons}/remover-do-agrupamento/${d1}`, { method: 'POST', headers: H });
+    check('AR-agrup: remover título abate o consolidado (180→150) + libera o membro (AGRUPADO=N); remover o último → 422 AGRUPAMENTO_REMOVER_ULTIMO',
+      rem.status === 200 && Number(remJ.novoValor) === 150 && rD3.agrupado === 'N' && rD3.codgrupo_agrupamento_rcb == null
+      && remLast.status === 422 && ((await remLast.json().catch(() => ({}))) as any).code === 'AGRUPAMENTO_REMOVER_ULTIMO',
+      { rem: rem.status, novoValor: remJ.novoValor, d3: rD3, remLast: remLast.status });
+    // (e) reverter: membros voltam AGRUPADO='N' e o consolidado é apagado.
+    const rev = await fetch(`${base}/${AR}/${cons}/reverter-agrupamento`, { method: 'POST', headers: H });
+    const rA1Pos = await agrRow(a1); const consGone = Number((await pgAgr.query(`SELECT count(*)::int n FROM areceber WHERE codrcb=$1`, [cons])).rows[0].n);
+    check('AR-agrup: reverter → membros voltam AGRUPADO=N (link nulo) + consolidado apagado',
+      rev.status === 200 && rA1Pos.agrupado === 'N' && rA1Pos.codgrupo_agrupamento_rcb == null && consGone === 0,
+      { rev: rev.status, a1: rA1Pos, consGone });
+    // (f) reverter BLOQUEADO se o consolidado foi baixado; RBAC sem grant → 403.
+    const fa1 = await crAR(100), fa2 = await crAR(50);
+    const faCons = Number(((await (await fetch(`${base}/${AR}/agrupar`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: [fa1, fa2] }) })).json()) as any).consolidado);
+    await fetch(`${base}/${AR}/${faCons}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) }); // quita o consolidado
+    const revBx = await fetch(`${base}/${AR}/${faCons}/reverter-agrupamento`, { method: 'POST', headers: H });
+    const agrRbac = await fetch(`${base}/${AR}/agrupar`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codrcbs: [fa1, fa2] }) });
+    check('AR-agrup: reverter com consolidado BAIXADO → 422 AGRUPAMENTO_BAIXADO/TITULO_JA_BAIXADO; agrupar sem grant → 403',
+      revBx.status === 422 && ['AGRUPAMENTO_BAIXADO', 'TITULO_JA_BAIXADO'].includes(((await revBx.json().catch(() => ({}))) as any).code) && agrRbac.status === 403,
+      { revBx: revBx.status, rbac: agrRbac.status });
+    // (g) fold [MÉDIA]: consolidado NASCE com venc=hoje (não o maior venc dos membros) → sem juros-fantasma.
+    // Membros VENCIDOS (venc 2026-06-15 < hoje): com a fórmula antiga o consolidado venceria no passado e a view
+    // acumularia juros sobre 150; com o fix (venc=hoje) total==valor==150.
+    const gv1 = Number(((await (await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-06-01', dtvenc: '2026-06-15', valor: 100 }) })).json()) as any).codrcb);
+    const gv2 = Number(((await (await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-06-01', dtvenc: '2026-06-15', valor: 50 }) })).json()) as any).codrcb);
+    const gCons = Number(((await (await fetch(`${base}/${AR}/agrupar`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: [gv1, gv2] }) })).json()) as any).consolidado);
+    const gConsView = (await (await fetch(`${base}/${AR}/${gCons}`, { headers: H })).json()) as any;
+    check('AR-agrup fold: consolidado de títulos VENCIDOS nasce com venc=hoje → total==valor==150 (sem juros-fantasma)',
+      Number(gConsView.valor) === 150 && Number(gConsView.total) === 150 && Number(gConsView.juro ?? 0) === 0,
+      { view: { valor: gConsView.valor, total: gConsView.total, juro: gConsView.juro, dtvenc: gConsView.dtvenc } });
+    // (h) fold [BAIXA]: após baixa+ESTORNO, reverter volta a funcionar (o filtro indr='I' ignora a baixa estornada).
+    const he = await fetch(`${base}/${AR}/${faCons}/estornar-baixa`, { method: 'POST', headers: H });
+    const hRev = await fetch(`${base}/${AR}/${faCons}/reverter-agrupamento`, { method: 'POST', headers: H });
+    const hA1 = await agrRow(fa1);
+    check('AR-agrup fold: baixa→estorno→reverter volta a funcionar (200); membros liberados (indr=E não bloqueia)',
+      he.status === 200 && hRev.status === 200 && hA1.agrupado === 'N' && hA1.codgrupo_agrupamento_rcb == null,
+      { estorno: he.status, rev: hRev.status, fa1: hA1 });
+    await pgAgr.end();
+
     // 32) CONTAS A RECEBER — corte-2 (BAIXA/recebimento): areceber_bx (INDR estorno lógico) + guardas.
     const pgBx = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const bxDe = async (id: number) => (await pgBx.query(`SELECT indr, valorpg FROM areceber_bx WHERE codrcb=$1 ORDER BY codrcbbx`, [id])).rows as any[];
