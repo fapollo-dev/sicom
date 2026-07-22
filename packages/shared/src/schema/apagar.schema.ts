@@ -59,6 +59,15 @@ const refineDatas = (d: { dtvenda?: string; dtvenc?: string }, ctx: z.Refinement
 };
 
 export const apagarSchema = z.preprocess(stripNulls, apagarBase).superRefine(refineDatas as any);
+
+/** AGRUPAMENTO A PAGAR (uAgrupaContasAPagar) — consolida ≥2 títulos ABERTOS do MESMO fornecedor. `dtvenc`
+ *  opcional = vencimento do consolidado (default HOJE). Gêmeo do agruparAreceberSchema. */
+export const agruparApagarSchema = z.object({
+  codapgs: z.array(z.coerce.number().int().positive()).min(2, 'Selecione ao menos 2 títulos para agrupar.').max(500, 'Máximo de 500 títulos por agrupamento.'),
+  dtvenc: opcional(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data de vencimento inválida (use AAAA-MM-DD).')),
+  obs: opcional(z.string().max(300)),
+});
+export type AgruparApagarDto = z.infer<typeof agruparApagarSchema>;
 export const atualizarApagarSchema = z
   .preprocess(stripNulls, apagarBase.partial())
   .superRefine(refineDatas as any);

@@ -112,6 +112,7 @@ export class ApagarService {
     if (t.agrupado === 'S') throw new BusinessRuleError('TITULO_AGRUPADO');
     if (t.contabilizado === 'S') throw new BusinessRuleError('TITULO_CONTABILIZADO');
     if (t.idnf != null) throw new BusinessRuleError('TITULO_DE_NF', { idnf: t.idnf });
+    if (String(t.origem ?? '') === 'A') throw new BusinessRuleError('TITULO_AGRUPAMENTO'); // consolidado — use reverter
     if (t.origem != null && ApagarService.ORIGEM_AUTO.has(String(t.origem)))
       throw new BusinessRuleError('TITULO_ORIGEM_AUTO', { origem: t.origem });
     if (t.consiliado === 'S' && t.cadastrado_manualmente !== 'S')

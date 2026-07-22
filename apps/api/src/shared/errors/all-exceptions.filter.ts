@@ -230,12 +230,12 @@ const CODE_PT: Record<string, string> = {
   TITULO_QUITADO:
     'Existem documentos financeiros que já foram baixados, agrupados ou contabilizados relacionados à essa nota. Não é possível excluir o financeiro. Verifique!',
   // Contas a Receber (uCadAReceber — travas de estado do título)
-  TITULO_NAO_ENCONTRADO: 'Título a receber não encontrado no sistema.',
+  TITULO_NAO_ENCONTRADO: 'Título não encontrado no sistema.',
   TITULO_JA_BAIXADO: 'Título já quitado (baixado) — estorne a baixa antes de alterar ou excluir.',
   TITULO_AGRUPADO: 'Título agrupado não pode ser modificado nem excluído. Remova do agrupamento antes.',
   TITULO_AGRUPAMENTO: 'Este título é um agrupamento consolidado — use "reverter agrupamento" para desfazê-lo.',
   AGRUPAMENTO_MINIMO_2: 'Selecione ao menos 2 títulos para agrupar.',
-  AGRUPAMENTO_PARCEIROS_DIVERSOS: 'Só é possível agrupar títulos do MESMO cliente.',
+  AGRUPAMENTO_PARCEIROS_DIVERSOS: 'Só é possível agrupar títulos do MESMO cliente/fornecedor.',
   NAO_E_AGRUPAMENTO: 'O título informado não é um agrupamento consolidado.',
   AGRUPAMENTO_BAIXADO: 'O agrupamento já foi baixado — estorne a baixa antes de reverter.',
   AGRUPAMENTO_SEM_MEMBROS: 'Agrupamento sem membros vinculados.',

@@ -1,9 +1,10 @@
 import {
   Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put, Query, UseGuards,
 } from '@nestjs/common';
-import { apagarSchema, atualizarApagarSchema, baixarTituloSchema } from '@apollo/shared';
+import { apagarSchema, atualizarApagarSchema, baixarTituloSchema, agruparApagarSchema } from '@apollo/shared';
 import { ApagarService } from './apagar.service';
 import { ApagarBaixaService } from './apagar-baixa.service';
+import { ApagarAgrupamentoService } from './apagar-agrupamento.service';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -18,6 +19,7 @@ export class ApagarController {
   constructor(
     private readonly svc: ApagarService,
     private readonly baixa: ApagarBaixaService,
+    private readonly agrupamento: ApagarAgrupamentoService,
   ) {}
 
   @Get()
@@ -68,5 +70,36 @@ export class ApagarController {
   @RequerAcesso('FRMCADAPAGAR', 'BTNESTORNARBAIXA')
   estornarBaixa(@Param('id', ParseIntPipe) id: number) {
     return this.baixa.estornar(id);
+  }
+
+  // ── AGRUPAMENTO (uAgrupaContasAPagar) ──
+  /** agrupa ≥2 títulos abertos do mesmo fornecedor num consolidado. `agrupar` = segmento literal (≠ `:id`). */
+  @Post('agrupar')
+  @HttpCode(200)
+  @RequerAcesso('FRMAGRUPAPAGAR', 'BTNAGRUPAR')
+  agrupar(@Body(new ZodValidationPipe(agruparApagarSchema)) dto: { codapgs: number[]; dtvenc?: string; obs?: string }) {
+    return this.agrupamento.agrupar(dto);
+  }
+
+  /** reverte o agrupamento inteiro (o :id é o título CONSOLIDADO). */
+  @Post(':id/reverter-agrupamento')
+  @HttpCode(200)
+  @RequerAcesso('FRMAGRUPAPAGAR', 'BTNREVERTER')
+  reverterAgrupamento(@Param('id', ParseIntPipe) id: number) {
+    return this.agrupamento.reverter(id);
+  }
+
+  /** remove UM membro (:membro) do agrupamento consolidado (:id), abatendo o valor. */
+  @Post(':id/remover-do-agrupamento/:membro')
+  @HttpCode(200)
+  @RequerAcesso('FRMAGRUPAPAGAR', 'BTNREVERTER')
+  removerDoAgrupamento(@Param('id', ParseIntPipe) id: number, @Param('membro', ParseIntPipe) membro: number) {
+    return this.agrupamento.removerTitulo(id, membro);
+  }
+
+  /** membros de um agrupamento consolidado (consulta). */
+  @Get(':id/membros-agrupamento')
+  membrosAgrupamento(@Param('id', ParseIntPipe) id: number) {
+    return this.agrupamento.membros(id);
   }
 }
