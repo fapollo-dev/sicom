@@ -25,8 +25,10 @@ export function LoginPage() {
   const destino = (location.state as { from?: string } | null)?.from ?? '/';
 
   const [etapa, setEtapa] = useState<Etapa>('credenciais');
-  const [login, setLogin] = useState('');
-  const [senha, setSenha] = useState('');
+  // DEV: pré-preenche o login de desenvolvimento (ADMIN/apollosg, seedado no dev-embedded). Em produção
+  // (import.meta.env.DEV=false no build) os campos vêm VAZIOS — nunca pré-preencher credencial na tela real.
+  const [login, setLogin] = useState(import.meta.env.DEV ? 'ADMIN' : '');
+  const [senha, setSenha] = useState(import.meta.env.DEV ? 'apollosg' : '');
   const [empresa, setEmpresa] = useState<number | undefined>(undefined);
   const [empresas, setEmpresas] = useState<EmpresaDisponivel[]>([]);
   const [chgToken, setChgToken] = useState<string | undefined>(undefined);
