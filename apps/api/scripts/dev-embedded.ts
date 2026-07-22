@@ -51,18 +51,33 @@ async function provisionarLoginDev(): Promise<void> {
 
   const pool = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
   try {
-    // vínculo op 7 → empresa 1 (login empresa-scoped; a empresa 1 vem das migrations).
+    // login ADMIN de DESENVOLVIMENTO (senha apollosg). O ADMIN é o op 1 ('ACESSO DE PROGRAMADOR', LOGIN='ADMIN',
+    // mig 056) — o usuário-sistema do tenant, seedado SEM hash (por isso não logava). Aqui, SÓ no dev-embedded
+    // (NÃO numa migration → não vaza login conhecido p/ produção), damos a ele o hash scrypt real de 'apollosg'
+    // (mesmo formato do app, gerado offline com node:crypto) + habilitamos. solicitar_alteracao_senha='N' → entra
+    // direto; empresa única → sem passo de seleção.
     await pool.query(
-      `INSERT INTO relacao_operador_empresa (codoperador, codempresa)
-       SELECT 7, 1 WHERE NOT EXISTS (SELECT 1 FROM relacao_operador_empresa WHERE codoperador=7 AND codempresa=1)`,
+      `UPDATE operadores SET desabilitado='N', ativo='S', indr='I', solicitar_alteracao_senha='N',
+              senha_hash='scrypt$16384$8$3$1bb0a7c3887660f9030b2abd8d792c56$ab7ec09340f2a7d7c7e08caa3f5bc2fda773878ea255d8f13dd8c35b7a15c596acb6393008aacee6a504929801b5ea24d046c25d387f7db660e48a36ad128425'
+        WHERE codoperador=1 AND upper(login)='ADMIN'`,
     );
-    // TODOS os grants p/ op 7 @ empresa 1 (idempotente).
-    for (const g of grants) {
-      const [form, opcao] = g.split('|');
+    // vínculo op 7 (SMOKE) e op 1 (ADMIN) → empresa 1 (login empresa-scoped; a empresa 1 vem das migrations).
+    for (const op of [7, 1]) {
       await pool.query(
-        `INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ($1,$2,7,1) ON CONFLICT DO NOTHING`,
-        [form, opcao],
+        `INSERT INTO relacao_operador_empresa (codoperador, codempresa)
+         SELECT $1, 1 WHERE NOT EXISTS (SELECT 1 FROM relacao_operador_empresa WHERE codoperador=$1 AND codempresa=1)`,
+        [op],
       );
+    }
+    // TODOS os grants p/ op 7 e ADMIN (op 1) @ empresa 1 (idempotente).
+    for (const op of [7, 1]) {
+      for (const g of grants) {
+        const [form, opcao] = g.split('|');
+        await pool.query(
+          `INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ($1,$2,$3,1) ON CONFLICT DO NOTHING`,
+          [form, opcao, op],
+        );
+      }
     }
   } finally {
     await pool.end();
