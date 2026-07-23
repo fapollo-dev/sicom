@@ -6,18 +6,21 @@ import { Button } from '../../shared/ui/Button';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { CurrencyField } from '../../shared/ui/CurrencyField';
+import { NumberField } from '../../shared/ui/NumberField';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { listarPromocoes, criarPromocao, removerPromocao } from './promocaoApi';
 
 const n = (v: unknown) => Number(v) || 0;
 const fmtMoeda = (v: unknown) => n(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const fmtPct = (v: unknown) => `${n(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
 const fmtDt = (v: unknown) => (v ? new Date(String(v)).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 
 /**
  * MECÂNICA (PROMOCAO.TIPO) → aba do PageControl do legado (UCadPromocao.dfm: Tbs*). O seletor "Tipo" escolhe a
- * aba; cada aba tem os campos daquela mecânica. corte-1 entrega a aba PREÇO FIXO ('P', ORIGEM='P'): produto +
- * preço fixo. As demais abas ficam para os próximos cortes (mostram um aviso, sem travar o cadastro do header).
+ * aba; cada aba tem os campos daquela mecânica. corte-1 entregou Preço Fixo ('P'); corte-2 acrescenta Desconto
+ * Fixo ('F', R$) e Desconto Variável ('V', %). As demais abas ficam para os próximos cortes (mostram um aviso,
+ * sem travar o cadastro do header). Para P/F/V a ORIGEM do item = a letra do TIPO (OPERACAO/TIPO são server-auth).
  */
 const TIPOS = [
   { value: 'C', label: 'Categoria' },
@@ -42,8 +45,17 @@ const DESTINOS = [
   { value: 'P', label: 'Perfil' },
   { value: 'I', label: 'Izio' },
 ];
-/** cortes já implementados (aba funcional). Fora daqui: aviso "próximo corte". */
-const ABAS_PRONTAS = new Set(['P']);
+
+/**
+ * UI de cada mecânica produto-alvo já implementada: rótulo do campo VALOR + se é moeda (R$) ou percentual (%).
+ * A ORIGEM do item = a chave (P/F/V). Fora deste mapa: aviso "próximo corte".
+ */
+// rótulo com mnemônico em 'S' (De&sconto) — evita colidir com &Descrição (Alt+D) do cabeçalho.
+const MECANICA_UI: Record<string, { rotulo: string; unidade: 'moeda' | 'percent' }> = {
+  P: { rotulo: 'Preço &Fixo', unidade: 'moeda' },
+  F: { rotulo: 'De&sconto (R$)', unidade: 'moeda' },
+  V: { rotulo: 'De&sconto (%)', unidade: 'percent' },
+};
 
 export function PromocaoCadMaster() {
   const mensagem = useMensagem();
@@ -53,16 +65,18 @@ export function PromocaoCadMaster() {
 
   // cabeçalho
   const [descricao, setDescricao] = useState('');
-  const [tipo, setTipo] = useState<string>('P'); // aba ativa (default Preço Fixo — a do corte-1)
+  const [tipo, setTipo] = useState<string>('P'); // aba ativa (default Preço Fixo)
   const [destino, setDestino] = useState<string | undefined>('T');
   const [empresas, setEmpresas] = useState('');
   const [dtini, setDtini] = useState('');
   const [dtfim, setDtfim] = useState('');
   const [itens, setItens] = useState<PromocaoItemDto[]>([]);
 
-  // adder da aba Preço Fixo
+  // adder da aba (produto + valor da mecânica)
   const [idproduto, setIdproduto] = useState<number | undefined>(undefined);
-  const [preco, setPreco] = useState<number | undefined>(undefined);
+  const [valorItem, setValorItem] = useState<number | undefined>(undefined);
+
+  const mec = MECANICA_UI[tipo]; // config da aba ativa (undefined = aba não-pronta)
 
   const { data: produtoOptions = [] } = useResourceOptions(
     'cadastro/produtos',
@@ -86,15 +100,16 @@ export function PromocaoCadMaster() {
   }, [mensagem]);
   useEffect(() => void recarregar(), [recarregar]);
 
-  const adicionarPrecoFixo = () => {
+  const adicionarItem = () => {
+    if (!mec) return;
     if (idproduto == null) return mensagem.erro('Selecione o produto.');
-    if (!(n(preco) > 0)) return mensagem.erro('Informe o preço fixo (> 0).');
-    if (itens.some((it) => it.origem === 'P' && Number(it.idorigempromocao) === idproduto))
+    if (!(n(valorItem) > 0)) return mensagem.erro(mec.unidade === 'percent' ? 'Informe o desconto (%) (> 0).' : 'Informe o valor (> 0).');
+    if (itens.some((it) => it.origem === tipo && Number(it.idorigempromocao) === idproduto))
       return mensagem.erro('Produto já está na lista.');
-    // TIPO fica NULL p/ Preço Fixo (golden origem='P' tem TIPO NULL — o $/% é da mecânica de desconto, não daqui).
-    setItens((xs) => [...xs, { origem: 'P', idorigempromocao: idproduto, valor: n(preco), ativo: 'S' } as PromocaoItemDto]);
+    // ORIGEM = a letra do TIPO (P/F/V). OPERACAO/TIPO são carimbados no servidor por mecânica.
+    setItens((xs) => [...xs, { origem: tipo, idorigempromocao: idproduto, valor: n(valorItem), ativo: 'S' } as PromocaoItemDto]);
     setIdproduto(undefined);
-    setPreco(undefined);
+    setValorItem(undefined);
   };
   const removerItem = (i: number) => setItens((xs) => xs.filter((_, idx) => idx !== i));
 
@@ -104,12 +119,12 @@ export function PromocaoCadMaster() {
     setTipo(v || 'P');
     setItens([]);
     setIdproduto(undefined);
-    setPreco(undefined);
+    setValorItem(undefined);
   };
 
   const gravar = async () => {
     if (!descricao.trim()) return mensagem.erro('Informe a descrição da promoção.');
-    if (tipo === 'P' && !itens.length) return mensagem.erro('Adicione ao menos um item (produto + preço fixo).');
+    if (mec && !itens.length) return mensagem.erro('Adicione ao menos um item (produto + valor).');
     setSalvando(true);
     try {
       // datetime-local é wall-clock sem fuso → ISO com o offset do navegador (fold de timezone da Agenda).
@@ -122,7 +137,7 @@ export function PromocaoCadMaster() {
         destino: destino as any,
         empresas: empresas.trim() || undefined,
         // só envia itens da aba PRONTA — abas não-convertidas gravam apenas o cabeçalho (nunca itens órfãos).
-        itens: ABAS_PRONTAS.has(tipo) ? itens : [],
+        itens: mec ? itens : [],
       } as any);
       mensagem.sucesso('Promoção gravada.');
       setDescricao(''); setDestino('T'); setEmpresas(''); setDtini(''); setDtfim(''); setItens([]);
@@ -153,18 +168,20 @@ export function PromocaoCadMaster() {
     },
   ], []);
 
+  const valorHeader = mec?.unidade === 'percent' ? 'Desconto (%)' : mec?.rotulo?.replace('&', '') ?? 'Valor';
+  const fmtValor = mec?.unidade === 'percent' ? fmtPct : fmtMoeda;
   const itensColunas = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
     { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
-    { field: 'valor', headerName: 'Preço Fixo', type: 'text', width: 140, valueGetter: (r) => fmtMoeda(r.valor) },
+    { field: 'valor', headerName: valorHeader, type: 'text', width: 150, valueGetter: (r) => fmtValor(r.valor) },
     {
       field: 'rem', headerName: '', type: 'actions', width: 60,
       getActions: ({ row: r }: { row: PromocaoItemDto & { _i: number } }) => [
         { id: 'rem', label: 'Remover', icon: <X size={16} />, destructive: true, onClick: () => removerItem(r._i) },
       ],
     },
-  ], [rotuloProduto]);
+  ], [rotuloProduto, valorHeader, fmtValor]);
 
-  const itensPrecoFixo = itens.map((it, _i) => ({ ...it, _i })).filter((it) => it.origem === 'P');
+  const itensDaAba = itens.map((it, _i) => ({ ...it, _i })).filter((it) => it.origem === tipo);
 
   return (
     <div className="flex flex-col gap-gp-md">
@@ -187,20 +204,24 @@ export function PromocaoCadMaster() {
           <div className="sm:col-span-2"><Field label="E&mpresas (CSV)" value={empresas} maxLength={50} placeholder="ex.: 1,50" onChange={(e) => setEmpresas(e.target.value)} /></div>
         </div>
 
-        {/* Aba da mecânica (PageControl do legado) — corte-1: Preço Fixo funcional; demais avisam */}
+        {/* Aba da mecânica (PageControl do legado) — P/F/V funcionais; demais avisam */}
         <div className="mt-form-gap rounded-radius-base border border-border-subtle bg-bg-subtle p-pad-sm">
           <div className="mb-form-gap text-body-sm font-semibold text-fg-default">Aba: {TIPO_LABEL[tipo]}</div>
 
-          {ABAS_PRONTAS.has(tipo) ? (
+          {mec ? (
             <>
               <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
                 <div className="sm:col-span-3"><SelectField label="&Produto" options={produtoOptions} value={idproduto != null ? String(idproduto) : undefined} onChange={(v) => setIdproduto(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
-                <div className="sm:col-span-2"><CurrencyField label="Preço &Fixo" value={preco} onChange={setPreco} /></div>
-                <div className="flex items-end justify-end sm:col-span-1"><Button label="&Adicionar" variant="soft" onClick={adicionarPrecoFixo} /></div>
+                <div className="sm:col-span-2">
+                  {mec.unidade === 'percent'
+                    ? <NumberField label={mec.rotulo} value={valorItem} onChange={setValorItem} decimais={2} min={0} max={100} />
+                    : <CurrencyField label={mec.rotulo} value={valorItem} onChange={setValorItem} />}
+                </div>
+                <div className="flex items-end justify-end sm:col-span-1"><Button label="&Adicionar" variant="soft" onClick={adicionarItem} /></div>
               </div>
-              {itensPrecoFixo.length > 0 && (
+              {itensDaAba.length > 0 && (
                 <div className="mt-form-gap overflow-x-auto">
-                  <DataTable rows={itensPrecoFixo} columns={itensColunas} getRowId={(r) => String(r._i)} />
+                  <DataTable rows={itensDaAba} columns={itensColunas} getRowId={(r) => String(r._i)} />
                 </div>
               )}
             </>

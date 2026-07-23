@@ -278,9 +278,11 @@ const CODE_PT: Record<string, string> = {
   INVENTARIO_NAO_ENCONTRADO: 'Inventário não encontrado.',
   INVENTARIO_SEM_ITENS: 'O inventário não tem itens — importe/inclua produtos antes de aplicar ao estoque.',
   // Gestão de Promoções (FRMCADPROMOCAO)
-  PROMOCAO_PRECO_INVALIDO: 'Preço fixo inválido — informe um valor maior que zero para o item.',
+  PROMOCAO_PRECO_INVALIDO: 'Valor inválido — informe um valor maior que zero para o item (preço/desconto).',
   PROMOCAO_PRODUTO_INEXISTENTE: 'Produto do item de promoção não encontrado.',
-  PROMOCAO_ORIGEM_NAO_SUPORTADA: 'Esta mecânica de promoção ainda não foi implementada — use a aba Preço Fixo.',
+  PROMOCAO_ORIGEM_NAO_SUPORTADA: 'Esta mecânica de promoção ainda não foi implementada — use Preço Fixo, Desconto Fixo ou Desconto Variável.',
+  PROMOCAO_ORIGEM_DIVERGE_TIPO: 'Os itens não correspondem à mecânica (Tipo) da promoção.',
+  PROMOCAO_GRUPO_PRECO_NAO_SUPORTADO: 'Promoção por grupo de preço ainda não está disponível nesta tela.',
   // (PROMOCAO_PRODUTO_INATIVO já definido abaixo — reusado pela Gestão de Promoções)
   // Ajuste de estoque (FRMAJUSTEESTOQUE)
   MOTIVO_NAO_ENCONTRADO: 'Motivo de operação não encontrado.',
