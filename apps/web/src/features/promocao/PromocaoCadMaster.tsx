@@ -47,17 +47,30 @@ const DESTINOS = [
   { value: 'I', label: 'Izio' },
 ];
 
+/** item TIPO $/% (Combo / — combobox 'Valor'/'Porcentagem'). */
+const TIPO_ITEM_OPCOES = [
+  { value: '$', label: 'Valor (R$)' },
+  { value: '%', label: 'Porcentagem (%)' },
+];
+/** TIPOCOMBO do header (CmbTipoCombo): 'C' a cada / 'M' maior que. */
+const TIPOCOMBO_OPCOES = [
+  { value: 'C', label: 'A cada' },
+  { value: 'M', label: 'Maior que' },
+];
+
 /**
  * UI de cada mecânica já implementada. `shape` decide o adder:
  *  - 'produto' (P/F/V): produto + VALOR (moeda ou %). rótulo com mnemônico em 'S' (De&sconto) p/ não colidir com &Descrição.
  *  - 'codigo' (R): SEM produto — Código + Vr. Desconto ($ ou % via checkbox) + Quantidade.
+ *  - 'combo' (O): produto + Quantidade + Vr. Promoção + TIPO ($/%); o header carrega Valor/Tipo do combo.
  * Fora deste mapa: aviso "próximo corte".
  */
-const MECANICA_UI: Record<string, { shape: 'produto' | 'codigo'; rotulo?: string; unidade?: 'moeda' | 'percent' }> = {
+const MECANICA_UI: Record<string, { shape: 'produto' | 'codigo' | 'combo'; rotulo?: string; unidade?: 'moeda' | 'percent' }> = {
   P: { shape: 'produto', rotulo: 'Preço &Fixo', unidade: 'moeda' },
   F: { shape: 'produto', rotulo: 'De&sconto (R$)', unidade: 'moeda' },
   V: { shape: 'produto', rotulo: 'De&sconto (%)', unidade: 'percent' },
   R: { shape: 'codigo' },
+  O: { shape: 'combo' },
 };
 
 export function PromocaoCadMaster() {
@@ -83,6 +96,11 @@ export function PromocaoCadMaster() {
   const [valorR, setValorR] = useState<number | undefined>(undefined);
   const [percR, setPercR] = useState<'S' | 'N'>('N'); // checkbox '%' → tipo '%' quando 'S'
   const [qtdeR, setQtdeR] = useState<number | undefined>(undefined);
+  // Combo (O): header VALORCOMBO/TIPOCOMBO + item produto/qtde/valor/tipo
+  const [valorComboHdr, setValorComboHdr] = useState<number | undefined>(undefined);
+  const [tipoComboHdr, setTipoComboHdr] = useState<string>('C');
+  const [qtdeCombo, setQtdeCombo] = useState<number | undefined>(undefined);
+  const [tipoItemCombo, setTipoItemCombo] = useState<string>('$');
 
   const mec = MECANICA_UI[tipo]; // config da aba ativa (undefined = aba não-pronta)
 
@@ -111,6 +129,7 @@ export function PromocaoCadMaster() {
   const limparAdder = () => {
     setIdproduto(undefined); setValorItem(undefined);
     setCodigoR(''); setValorR(undefined); setPercR('N'); setQtdeR(undefined);
+    setQtdeCombo(undefined); setTipoItemCombo('$');
   };
 
   // P/F/V: produto + valor
@@ -138,6 +157,20 @@ export function PromocaoCadMaster() {
     limparAdder();
   };
 
+  // O (Combo): produto + quantidade + valor (promoção) + tipo ($/%). VALORCOMBO/TIPOCOMBO ficam no header.
+  const adicionarCombo = () => {
+    if (idproduto == null) return mensagem.erro('Selecione o produto.');
+    if (!(n(qtdeCombo) > 0)) return mensagem.erro('Informe a quantidade (> 0).');
+    if (!(n(valorItem) > 0)) return mensagem.erro('Informe o valor da promoção (> 0).');
+    if (itens.some((it) => it.origem === 'O' && Number(it.idorigempromocao) === idproduto))
+      return mensagem.erro('Produto já está na lista.');
+    setItens((xs) => [...xs, {
+      origem: 'O', idorigempromocao: idproduto, quantidade: n(qtdeCombo), valor: n(valorItem),
+      tipo: tipoItemCombo === '%' ? '%' : '$', ativo: 'S',
+    } as PromocaoItemDto]);
+    limparAdder();
+  };
+
   const removerItem = (i: number) => setItens((xs) => xs.filter((_, idx) => idx !== i));
 
   // trocar a mecânica (aba) LIMPA os itens — senão itens de uma aba ficariam pendurados e seriam gravados
@@ -146,11 +179,13 @@ export function PromocaoCadMaster() {
     setTipo(v || 'P');
     setItens([]);
     limparAdder();
+    setValorComboHdr(undefined); setTipoComboHdr('C'); // header do combo: limpa na troca de aba (não a cada Adicionar)
   };
 
   const gravar = async () => {
     if (!descricao.trim()) return mensagem.erro('Informe a descrição da promoção.');
     if (mec && !itens.length) return mensagem.erro('Adicione ao menos um item.');
+    if (mec?.shape === 'combo' && !(n(valorComboHdr) > 0)) return mensagem.erro('Informe o valor do combo (> 0).');
     setSalvando(true);
     try {
       // datetime-local é wall-clock sem fuso → ISO com o offset do navegador (fold de timezone da Agenda).
@@ -162,11 +197,14 @@ export function PromocaoCadMaster() {
         datafim: iso(dtfim),
         destino: destino as any,
         empresas: empresas.trim() || undefined,
+        // Combo: VALORCOMBO/TIPOCOMBO no header (server copia em cada item).
+        ...(mec?.shape === 'combo' ? { valorcombo: n(valorComboHdr), tipocombo: tipoComboHdr } : {}),
         // só envia itens da aba PRONTA — abas não-convertidas gravam apenas o cabeçalho (nunca itens órfãos).
         itens: mec ? itens : [],
       } as any);
       mensagem.sucesso('Promoção gravada.');
       setDescricao(''); setDestino('T'); setEmpresas(''); setDtini(''); setDtfim(''); setItens([]);
+      setValorComboHdr(undefined); setTipoComboHdr('C');
       await recarregar();
     } catch (e) {
       mensagem.erro(e);
@@ -218,6 +256,17 @@ export function PromocaoCadMaster() {
       ],
     },
   ], []);
+  const itensColsCombo = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
+    { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
+    { field: 'quantidade', headerName: 'Qtde.', type: 'number', width: 90, valueGetter: (r) => n(r.quantidade) },
+    { field: 'valor', headerName: 'Vr. Promoção', type: 'text', width: 140, valueGetter: (r) => fmtValorPorTipo(r.valor, r.tipo) },
+    {
+      field: 'rem', headerName: '', type: 'actions', width: 60,
+      getActions: ({ row: r }: { row: PromocaoItemDto & { _i: number } }) => [
+        { id: 'rem', label: 'Remover', icon: <X size={16} />, destructive: true, onClick: () => removerItem(r._i) },
+      ],
+    },
+  ], [rotuloProduto]);
 
   const itensDaAba = itens.map((it, _i) => ({ ...it, _i })).filter((it) => it.origem === tipo);
 
@@ -240,9 +289,16 @@ export function PromocaoCadMaster() {
             <input type="datetime-local" className="rounded-radius-base border border-border bg-bg-default px-pad-sm py-pad-xs" value={dtfim} onChange={(e) => setDtfim(e.target.value)} />
           </label>
           <div className="sm:col-span-2"><Field label="E&mpresas (CSV)" value={empresas} maxLength={50} placeholder="ex.: 1,50" onChange={(e) => setEmpresas(e.target.value)} /></div>
+          {/* Operação do Combo (GpbOperacao do legado): VALORCOMBO + TIPOCOMBO no header, copiados em cada item */}
+          {mec?.shape === 'combo' && (
+            <>
+              <div className="sm:col-span-2"><CurrencyField label="Valor do &combo" value={valorComboHdr} onChange={setValorComboHdr} /></div>
+              <div className="sm:col-span-2"><SelectField label="Tipo do com&bo" options={TIPOCOMBO_OPCOES} value={tipoComboHdr} onChange={(v) => setTipoComboHdr(v || 'C')} /></div>
+            </>
+          )}
         </div>
 
-        {/* Aba da mecânica (PageControl do legado) — P/F/V/R funcionais; demais avisam */}
+        {/* Aba da mecânica (PageControl do legado) — P/F/V/R/O funcionais; demais avisam */}
         <div className="mt-form-gap rounded-radius-base border border-border-subtle bg-bg-subtle p-pad-sm">
           <div className="mb-form-gap text-body-sm font-semibold text-fg-default">Aba: {TIPO_LABEL[tipo]}</div>
 
@@ -283,6 +339,23 @@ export function PromocaoCadMaster() {
               {itensDaAba.length > 0 && (
                 <div className="mt-form-gap overflow-x-auto">
                   <DataTable rows={itensDaAba} columns={itensColsCodigo} getRowId={(r) => String(r._i)} />
+                </div>
+              )}
+            </>
+          )}
+
+          {mec?.shape === 'combo' && (
+            <>
+              <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
+                <div className="sm:col-span-2"><SelectField label="&Produto" options={produtoOptions} value={idproduto != null ? String(idproduto) : undefined} onChange={(v) => setIdproduto(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
+                <NumberField label="&Quantidade" value={qtdeCombo} onChange={setQtdeCombo} decimais={0} min={0} />
+                <CurrencyField label="V&r. Promoção" value={valorItem} onChange={setValorItem} />
+                <div className="sm:col-span-1"><SelectField label="Cá&lculo" options={TIPO_ITEM_OPCOES} value={tipoItemCombo} onChange={(v) => setTipoItemCombo(v || '$')} /></div>
+                <div className="flex items-end justify-end sm:col-span-1"><Button label="A&dicionar" variant="soft" onClick={adicionarCombo} /></div>
+              </div>
+              {itensDaAba.length > 0 && (
+                <div className="mt-form-gap overflow-x-auto">
+                  <DataTable rows={itensDaAba} columns={itensColsCombo} getRowId={(r) => String(r._i)} />
                 </div>
               )}
             </>

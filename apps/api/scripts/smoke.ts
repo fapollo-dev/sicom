@@ -5742,9 +5742,58 @@ async function main() {
       const g20J = (await g20.json().catch(() => ({}))) as any;
       check('GP 91.20 FOLD: PUT sem TIPO carrega o tipo gravado → origem≠tipo 422 PROMOCAO_ORIGEM_DIVERGE_TIPO', g20.status === 422 && g20J.code === 'PROMOCAO_ORIGEM_DIVERGE_TIPO', { status: g20.status, code: g20J.code });
 
+      // 91.21) corte-4 COMBO (tipo 'O') → header VALORCOMBO=30/TIPOCOMBO='C' COPIADOS em cada item; item ORIGEM='O',
+      // OPERACAO='COMBO', TIPO='$' (do cliente), produto/qtde/valor.
+      const g21 = await crGp({ descricao: 'PROMO COMBO', tipo: 'O', destino: 'T', valorcombo: 30, tipocombo: 'C', datainicio: '2028-09-01T00:00', datafim: '2028-09-10T00:00',
+        itens: [{ origem: 'O', idorigempromocao: 1, quantidade: 3, valor: 9.9, tipo: '$' }, { origem: 'O', idorigempromocao: 2, quantidade: 1, valor: 15, tipo: '$' }] });
+      const idpO = Number(((await g21.json().catch(() => ({}))) as any).idpromocao);
+      const cdO = (await pgGp.query(`SELECT origem, operacao, tipo, valor, quantidade, valorcombo, tipocombo FROM clube_desconto WHERE idpromocao=$1 ORDER BY idclubedesconto`, [idpO])).rows as any[];
+      check('GP 91.21 corte-4: Combo → 2 itens ORIGEM=O/OPERACAO=COMBO/TIPO=$ + VALORCOMBO=30/TIPOCOMBO=C copiados do header + qtde/valor',
+        g21.status === 201 && cdO.length === 2 && cdO[0].origem === 'O' && cdO[0].operacao === 'COMBO' && cdO[0].tipo === '$'
+        && Number(cdO[0].valorcombo) === 30 && cdO[0].tipocombo === 'C' && Number(cdO[0].quantidade) === 3 && Number(cdO[0].valor) === 9.9
+        && Number(cdO[1].valorcombo) === 30 && cdO[1].tipocombo === 'C',
+        { status: g21.status, cd0: { o: cdO[0]?.origem, op: cdO[0]?.operacao, vc: cdO[0]?.valorcombo, tc: cdO[0]?.tipocombo, q: cdO[0]?.quantidade } });
+
+      // 91.22) Combo com header inválido (valorcombo=0) → 422 PROMOCAO_COMBO_INVALIDO.
+      const g22 = await crGp({ descricao: 'X', tipo: 'O', valorcombo: 0, tipocombo: 'C', itens: [{ origem: 'O', idorigempromocao: 1, quantidade: 1, valor: 5, tipo: '$' }] });
+      const g22J = (await g22.json().catch(() => ({}))) as any;
+      const g22b = await crGp({ descricao: 'X', tipo: 'O', valorcombo: 10, tipocombo: 'Z', itens: [{ origem: 'O', idorigempromocao: 1, quantidade: 1, valor: 5, tipo: '$' }] });
+      check('GP 91.22 corte-4: Combo valorcombo≤0 OU tipocombo inválido → 422 PROMOCAO_COMBO_INVALIDO', g22.status === 422 && g22J.code === 'PROMOCAO_COMBO_INVALIDO' && g22b.status === 422, { vc0: g22.status, code: g22J.code, tcInv: g22b.status });
+
+      // 91.23) Combo item SEM quantidade → 422 PROMOCAO_QUANTIDADE_INVALIDA (ProdutoComboValidado exige quantidade).
+      const g23 = await crGp({ descricao: 'X', tipo: 'O', valorcombo: 10, tipocombo: 'C', itens: [{ origem: 'O', idorigempromocao: 1, quantidade: 0, valor: 5, tipo: '$' }] });
+      const g23J = (await g23.json().catch(() => ({}))) as any;
+      check('GP 91.23 corte-4: Combo item quantidade≤0 → 422 PROMOCAO_QUANTIDADE_INVALIDA', g23.status === 422 && g23J.code === 'PROMOCAO_QUANTIDADE_INVALIDA', { status: g23.status, code: g23J.code });
+
+      // 91.24) FOLD: produto duplicado na MESMA promoção (RegistroDuplicadoMesmaPromocao pas:3170) → 422 PROMOCAO_PRODUTO_DUPLICADO.
+      const g24 = await crGp({ descricao: 'X', tipo: 'O', valorcombo: 10, tipocombo: 'C', itens: [{ origem: 'O', idorigempromocao: 1, quantidade: 1, valor: 5, tipo: '$' }, { origem: 'O', idorigempromocao: 1, quantidade: 2, valor: 6, tipo: '$' }] });
+      const g24J = (await g24.json().catch(() => ({}))) as any;
+      const g24p = await crGp({ descricao: 'X', tipo: 'P', itens: [{ origem: 'P', idorigempromocao: 1, valor: 3 }, { origem: 'P', idorigempromocao: 1, valor: 4 }] });
+      check('GP 91.24 FOLD: produto duplicado na mesma promoção (Combo e Preço Fixo) → 422 PROMOCAO_PRODUTO_DUPLICADO',
+        g24.status === 422 && g24J.code === 'PROMOCAO_PRODUTO_DUPLICADO' && g24p.status === 422, { combo: [g24.status, g24J.code], pf: g24p.status });
+
+      // 91.25) FOLD: combo header validado SEMPRE (fiel ao Validado) — tipo 'O' sem valorcombo e SEM itens → 422 PROMOCAO_COMBO_INVALIDO.
+      const g25 = await crGp({ descricao: 'X', tipo: 'O' });
+      const g25J = (await g25.json().catch(() => ({}))) as any;
+      check('GP 91.25 FOLD: Combo sem valorcombo (mesmo sem itens) → 422 PROMOCAO_COMBO_INVALIDO (Validado sempre valida o header)', g25.status === 422 && g25J.code === 'PROMOCAO_COMBO_INVALIDO', { status: g25.status, code: g25J.code });
+
+      // 91.26) FOLD MÉDIA: PUT parcial de Combo (só itens, sem reenviar header) PRESERVA valorcombo/tipocombo/destino
+      // gravados (backfill do dto a partir da linha gravada) — NÃO 422 e NÃO NULL-out. idpO (91.21) = combo valorcombo 30/C/destino T.
+      const g26 = await fetch(`${base}/${GP}/${idpO}`, { method: 'PUT', headers: H, body: JSON.stringify({ itens: [{ origem: 'O', idorigempromocao: 1, quantidade: 5, valor: 7.5, tipo: '$' }] }) });
+      const cd26 = (await pgGp.query(`SELECT valorcombo, tipocombo, destino, valor FROM clube_desconto WHERE idpromocao=$1 ORDER BY idclubedesconto`, [idpO])).rows[0] as any;
+      check('GP 91.26 FOLD MÉDIA: PUT parcial de combo preserva VALORCOMBO/TIPOCOMBO/DESTINO gravados (backfill, sem NULL-out)',
+        g26.status === 200 && Number(cd26?.valorcombo) === 30 && cd26?.tipocombo === 'C' && cd26?.destino === 'T' && Number(cd26?.valor) === 7.5,
+        { status: g26.status, cd: { vc: cd26?.valorcombo, tc: cd26?.tipocombo, d: cd26?.destino } });
+
+      // 91.27) FOLD: mecânica NÃO-combo (Preço Fixo) IGNORA valorcombo/tipocombo do cliente → grava NULL (não confia no cliente).
+      const g27 = await crGp({ descricao: 'PROMO PF SEMCOMBO', tipo: 'P', itens: [{ origem: 'P', idorigempromocao: 1, valor: 3, valorcombo: 999, tipocombo: 'X' }] });
+      const idpPF = Number(((await g27.json().catch(() => ({}))) as any).idpromocao);
+      const cd27 = (await pgGp.query(`SELECT valorcombo, tipocombo FROM clube_desconto WHERE idpromocao=$1`, [idpPF])).rows[0] as any;
+      check('GP 91.27 FOLD: não-combo ignora valorcombo/tipocombo do cliente → NULL', g27.status === 201 && cd27?.valorcombo == null && cd27?.tipocombo == null, { vc: cd27?.valorcombo, tc: cd27?.tipocombo });
+
       // cleanup: remove as promoções de teste (hard) + o produto inativo dedicado.
-      await pgGp.query(`DELETE FROM clube_desconto WHERE idpromocao IN (SELECT idpromocao FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST'))`);
-      await pgGp.query(`DELETE FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST')`);
+      await pgGp.query(`DELETE FROM clube_desconto WHERE idpromocao IN (SELECT idpromocao FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO'))`);
+      await pgGp.query(`DELETE FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO')`);
       await pgGp.query(`DELETE FROM produtos WHERE idproduto=990010`);
     } finally {
       await pgGp.end();

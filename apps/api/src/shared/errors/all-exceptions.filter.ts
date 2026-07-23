@@ -280,11 +280,14 @@ const CODE_PT: Record<string, string> = {
   // Gestão de Promoções (FRMCADPROMOCAO)
   PROMOCAO_PRECO_INVALIDO: 'Valor inválido — informe um valor maior que zero para o item (preço/desconto).',
   PROMOCAO_PRODUTO_INEXISTENTE: 'Produto do item de promoção não encontrado.',
-  PROMOCAO_ORIGEM_NAO_SUPORTADA: 'Esta mecânica de promoção ainda não foi implementada — use Preço Fixo, Desconto Fixo, Desconto Variável ou Código Promocional.',
+  PROMOCAO_ORIGEM_NAO_SUPORTADA: 'Esta mecânica de promoção ainda não foi implementada — use Preço Fixo, Desconto Fixo, Desconto Variável, Código Promocional ou Combo.',
   PROMOCAO_ORIGEM_DIVERGE_TIPO: 'Os itens não correspondem à mecânica (Tipo) da promoção.',
   PROMOCAO_GRUPO_PRECO_NAO_SUPORTADO: 'Promoção por grupo de preço ainda não está disponível nesta tela.',
   PROMOCAO_CODIGO_OBRIGATORIO: 'Informe o código promocional do item.',
   PROMOCAO_CODIGO_DUPLICADO: 'Há dois itens com o mesmo código promocional — cada código deve ser único.',
+  PROMOCAO_COMBO_INVALIDO: 'Informe o valor do combo (> 0) e o tipo (A cada / Maior que).',
+  PROMOCAO_QUANTIDADE_INVALIDA: 'Informe a quantidade do item (> 0).',
+  // (PROMOCAO_PRODUTO_DUPLICADO já definido abaixo — reusado pela Gestão de Promoções)
   // (PROMOCAO_PRODUTO_INATIVO já definido abaixo — reusado pela Gestão de Promoções)
   // Ajuste de estoque (FRMAJUSTEESTOQUE)
   MOTIVO_NAO_ENCONTRADO: 'Motivo de operação não encontrado.',
