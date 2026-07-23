@@ -7,6 +7,7 @@ import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { CurrencyField } from '../../shared/ui/CurrencyField';
 import { NumberField } from '../../shared/ui/NumberField';
+import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { useMensagem } from '../../shared/mensagem';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { listarPromocoes, criarPromocao, removerPromocao } from './promocaoApi';
@@ -14,13 +15,13 @@ import { listarPromocoes, criarPromocao, removerPromocao } from './promocaoApi';
 const n = (v: unknown) => Number(v) || 0;
 const fmtMoeda = (v: unknown) => n(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const fmtPct = (v: unknown) => `${n(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+const fmtValorPorTipo = (v: unknown, tipo: unknown) => (String(tipo) === '%' ? fmtPct(v) : fmtMoeda(v));
 const fmtDt = (v: unknown) => (v ? new Date(String(v)).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 
 /**
  * MECÂNICA (PROMOCAO.TIPO) → aba do PageControl do legado (UCadPromocao.dfm: Tbs*). O seletor "Tipo" escolhe a
- * aba; cada aba tem os campos daquela mecânica. corte-1 entregou Preço Fixo ('P'); corte-2 acrescenta Desconto
- * Fixo ('F', R$) e Desconto Variável ('V', %). As demais abas ficam para os próximos cortes (mostram um aviso,
- * sem travar o cadastro do header). Para P/F/V a ORIGEM do item = a letra do TIPO (OPERACAO/TIPO são server-auth).
+ * aba; cada aba tem os campos daquela mecânica. Prontas: Preço Fixo (c1), Desconto Fixo/Variável (c2), Código
+ * Promocional (c3). As demais avisam "próximo corte" sem travar o cadastro do header.
  */
 const TIPOS = [
   { value: 'C', label: 'Categoria' },
@@ -47,14 +48,16 @@ const DESTINOS = [
 ];
 
 /**
- * UI de cada mecânica produto-alvo já implementada: rótulo do campo VALOR + se é moeda (R$) ou percentual (%).
- * A ORIGEM do item = a chave (P/F/V). Fora deste mapa: aviso "próximo corte".
+ * UI de cada mecânica já implementada. `shape` decide o adder:
+ *  - 'produto' (P/F/V): produto + VALOR (moeda ou %). rótulo com mnemônico em 'S' (De&sconto) p/ não colidir com &Descrição.
+ *  - 'codigo' (R): SEM produto — Código + Vr. Desconto ($ ou % via checkbox) + Quantidade.
+ * Fora deste mapa: aviso "próximo corte".
  */
-// rótulo com mnemônico em 'S' (De&sconto) — evita colidir com &Descrição (Alt+D) do cabeçalho.
-const MECANICA_UI: Record<string, { rotulo: string; unidade: 'moeda' | 'percent' }> = {
-  P: { rotulo: 'Preço &Fixo', unidade: 'moeda' },
-  F: { rotulo: 'De&sconto (R$)', unidade: 'moeda' },
-  V: { rotulo: 'De&sconto (%)', unidade: 'percent' },
+const MECANICA_UI: Record<string, { shape: 'produto' | 'codigo'; rotulo?: string; unidade?: 'moeda' | 'percent' }> = {
+  P: { shape: 'produto', rotulo: 'Preço &Fixo', unidade: 'moeda' },
+  F: { shape: 'produto', rotulo: 'De&sconto (R$)', unidade: 'moeda' },
+  V: { shape: 'produto', rotulo: 'De&sconto (%)', unidade: 'percent' },
+  R: { shape: 'codigo' },
 };
 
 export function PromocaoCadMaster() {
@@ -72,9 +75,14 @@ export function PromocaoCadMaster() {
   const [dtfim, setDtfim] = useState('');
   const [itens, setItens] = useState<PromocaoItemDto[]>([]);
 
-  // adder da aba (produto + valor da mecânica)
+  // adder produto-alvo (P/F/V)
   const [idproduto, setIdproduto] = useState<number | undefined>(undefined);
   const [valorItem, setValorItem] = useState<number | undefined>(undefined);
+  // adder Código Promocional (R)
+  const [codigoR, setCodigoR] = useState('');
+  const [valorR, setValorR] = useState<number | undefined>(undefined);
+  const [percR, setPercR] = useState<'S' | 'N'>('N'); // checkbox '%' → tipo '%' quando 'S'
+  const [qtdeR, setQtdeR] = useState<number | undefined>(undefined);
 
   const mec = MECANICA_UI[tipo]; // config da aba ativa (undefined = aba não-pronta)
 
@@ -100,17 +108,36 @@ export function PromocaoCadMaster() {
   }, [mensagem]);
   useEffect(() => void recarregar(), [recarregar]);
 
-  const adicionarItem = () => {
-    if (!mec) return;
+  const limparAdder = () => {
+    setIdproduto(undefined); setValorItem(undefined);
+    setCodigoR(''); setValorR(undefined); setPercR('N'); setQtdeR(undefined);
+  };
+
+  // P/F/V: produto + valor
+  const adicionarProduto = () => {
+    if (!mec || mec.shape !== 'produto') return;
     if (idproduto == null) return mensagem.erro('Selecione o produto.');
     if (!(n(valorItem) > 0)) return mensagem.erro(mec.unidade === 'percent' ? 'Informe o desconto (%) (> 0).' : 'Informe o valor (> 0).');
     if (itens.some((it) => it.origem === tipo && Number(it.idorigempromocao) === idproduto))
       return mensagem.erro('Produto já está na lista.');
     // ORIGEM = a letra do TIPO (P/F/V). OPERACAO/TIPO são carimbados no servidor por mecânica.
     setItens((xs) => [...xs, { origem: tipo, idorigempromocao: idproduto, valor: n(valorItem), ativo: 'S' } as PromocaoItemDto]);
-    setIdproduto(undefined);
-    setValorItem(undefined);
+    limparAdder();
   };
+
+  // R: código + Vr. Desconto ($/%) + quantidade (SEM produto)
+  const adicionarCodigo = () => {
+    if (!codigoR.trim()) return mensagem.erro('Informe o código promocional.');
+    if (!(n(valorR) > 0)) return mensagem.erro('Informe o valor do desconto (> 0).');
+    if (itens.some((it) => it.origem === 'R' && String(it.codigo_promocional).toUpperCase() === codigoR.trim().toUpperCase()))
+      return mensagem.erro('Este código já está na lista.');
+    setItens((xs) => [...xs, {
+      origem: 'R', codigo_promocional: codigoR.trim(), valor: n(valorR),
+      tipo: percR === 'S' ? '%' : '$', quantidade: qtdeR, ativo: 'S',
+    } as PromocaoItemDto]);
+    limparAdder();
+  };
+
   const removerItem = (i: number) => setItens((xs) => xs.filter((_, idx) => idx !== i));
 
   // trocar a mecânica (aba) LIMPA os itens — senão itens de uma aba ficariam pendurados e seriam gravados
@@ -118,13 +145,12 @@ export function PromocaoCadMaster() {
   const trocarTipo = (v: string) => {
     setTipo(v || 'P');
     setItens([]);
-    setIdproduto(undefined);
-    setValorItem(undefined);
+    limparAdder();
   };
 
   const gravar = async () => {
     if (!descricao.trim()) return mensagem.erro('Informe a descrição da promoção.');
-    if (mec && !itens.length) return mensagem.erro('Adicione ao menos um item (produto + valor).');
+    if (mec && !itens.length) return mensagem.erro('Adicione ao menos um item.');
     setSalvando(true);
     try {
       // datetime-local é wall-clock sem fuso → ISO com o offset do navegador (fold de timezone da Agenda).
@@ -168,18 +194,30 @@ export function PromocaoCadMaster() {
     },
   ], []);
 
-  const valorHeader = mec?.unidade === 'percent' ? 'Desconto (%)' : mec?.rotulo?.replace('&', '') ?? 'Valor';
-  const fmtValor = mec?.unidade === 'percent' ? fmtPct : fmtMoeda;
-  const itensColunas = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
+  // colunas do grid de itens por shape
+  const valorHeaderProd = mec?.unidade === 'percent' ? 'Desconto (%)' : mec?.rotulo?.replace('&', '') ?? 'Valor';
+  const fmtValorProd = mec?.unidade === 'percent' ? fmtPct : fmtMoeda;
+  const itensColsProduto = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
     { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
-    { field: 'valor', headerName: valorHeader, type: 'text', width: 150, valueGetter: (r) => fmtValor(r.valor) },
+    { field: 'valor', headerName: valorHeaderProd, type: 'text', width: 150, valueGetter: (r) => fmtValorProd(r.valor) },
     {
       field: 'rem', headerName: '', type: 'actions', width: 60,
       getActions: ({ row: r }: { row: PromocaoItemDto & { _i: number } }) => [
         { id: 'rem', label: 'Remover', icon: <X size={16} />, destructive: true, onClick: () => removerItem(r._i) },
       ],
     },
-  ], [rotuloProduto, valorHeader, fmtValor]);
+  ], [rotuloProduto, valorHeaderProd, fmtValorProd]);
+  const itensColsCodigo = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
+    { field: 'codigo_promocional', headerName: 'Código', type: 'text', isPrimary: true, valueGetter: (r) => String(r.codigo_promocional ?? '') },
+    { field: 'valor', headerName: 'Vr. Desconto', type: 'text', width: 140, valueGetter: (r) => fmtValorPorTipo(r.valor, r.tipo) },
+    { field: 'quantidade', headerName: 'Qtde.', type: 'number', width: 90, valueGetter: (r) => (n(r.quantidade) > 0 ? n(r.quantidade) : 1) },
+    {
+      field: 'rem', headerName: '', type: 'actions', width: 60,
+      getActions: ({ row: r }: { row: PromocaoItemDto & { _i: number } }) => [
+        { id: 'rem', label: 'Remover', icon: <X size={16} />, destructive: true, onClick: () => removerItem(r._i) },
+      ],
+    },
+  ], []);
 
   const itensDaAba = itens.map((it, _i) => ({ ...it, _i })).filter((it) => it.origem === tipo);
 
@@ -204,28 +242,53 @@ export function PromocaoCadMaster() {
           <div className="sm:col-span-2"><Field label="E&mpresas (CSV)" value={empresas} maxLength={50} placeholder="ex.: 1,50" onChange={(e) => setEmpresas(e.target.value)} /></div>
         </div>
 
-        {/* Aba da mecânica (PageControl do legado) — P/F/V funcionais; demais avisam */}
+        {/* Aba da mecânica (PageControl do legado) — P/F/V/R funcionais; demais avisam */}
         <div className="mt-form-gap rounded-radius-base border border-border-subtle bg-bg-subtle p-pad-sm">
           <div className="mb-form-gap text-body-sm font-semibold text-fg-default">Aba: {TIPO_LABEL[tipo]}</div>
 
-          {mec ? (
+          {mec?.shape === 'produto' && (
             <>
               <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
                 <div className="sm:col-span-3"><SelectField label="&Produto" options={produtoOptions} value={idproduto != null ? String(idproduto) : undefined} onChange={(v) => setIdproduto(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
                 <div className="sm:col-span-2">
                   {mec.unidade === 'percent'
-                    ? <NumberField label={mec.rotulo} value={valorItem} onChange={setValorItem} decimais={2} min={0} max={100} />
-                    : <CurrencyField label={mec.rotulo} value={valorItem} onChange={setValorItem} />}
+                    ? <NumberField label={mec.rotulo!} value={valorItem} onChange={setValorItem} decimais={2} min={0} max={100} />
+                    : <CurrencyField label={mec.rotulo!} value={valorItem} onChange={setValorItem} />}
                 </div>
-                <div className="flex items-end justify-end sm:col-span-1"><Button label="&Adicionar" variant="soft" onClick={adicionarItem} /></div>
+                <div className="flex items-end justify-end sm:col-span-1"><Button label="&Adicionar" variant="soft" onClick={adicionarProduto} /></div>
               </div>
               {itensDaAba.length > 0 && (
                 <div className="mt-form-gap overflow-x-auto">
-                  <DataTable rows={itensDaAba} columns={itensColunas} getRowId={(r) => String(r._i)} />
+                  <DataTable rows={itensDaAba} columns={itensColsProduto} getRowId={(r) => String(r._i)} />
                 </div>
               )}
             </>
-          ) : (
+          )}
+
+          {mec?.shape === 'codigo' && (
+            <>
+              <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
+                <div className="sm:col-span-2"><Field label="&Código promocional" value={codigoR} maxLength={30} onChange={(e) => setCodigoR(e.target.value)} /></div>
+                <div className="sm:col-span-2">
+                  {percR === 'S'
+                    ? <NumberField label="Vr. &Desconto (%)" value={valorR} onChange={setValorR} decimais={2} min={0} max={100} />
+                    : <CurrencyField label="Vr. &Desconto (R$)" value={valorR} onChange={setValorR} />}
+                </div>
+                <NumberField label="&Quantidade" value={qtdeR} onChange={setQtdeR} decimais={0} min={0} />
+                <div className="flex items-center gap-gp-md sm:col-span-1">
+                  <CheckboxField label="&%" value={percR} onChange={setPercR} />
+                  <Button label="A&dicionar" variant="soft" onClick={adicionarCodigo} />
+                </div>
+              </div>
+              {itensDaAba.length > 0 && (
+                <div className="mt-form-gap overflow-x-auto">
+                  <DataTable rows={itensDaAba} columns={itensColsCodigo} getRowId={(r) => String(r._i)} />
+                </div>
+              )}
+            </>
+          )}
+
+          {!mec && (
             <p className="text-body-sm text-fg-muted">
               A mecânica <strong>{TIPO_LABEL[tipo]}</strong> entra em um próximo corte. O cabeçalho da promoção já pode ser
               gravado; os itens desta aba serão habilitados quando ela for convertida.

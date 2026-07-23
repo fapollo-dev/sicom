@@ -5702,9 +5702,49 @@ async function main() {
       const cdQ = (await pgGp.query(`SELECT quantidade FROM clube_desconto WHERE idpromocao=$1`, [idpQ])).rows[0] as any;
       check('GP 91.14 FOLD: quantidade=0 do cliente → coagida a 1 (fiel ao PREÇO FIXO)', g14.status === 201 && Number(cdQ?.quantidade) === 1, { status: g14.status, qtde: cdQ?.quantidade });
 
+      // 91.15) corte-3 CÓDIGO PROMOCIONAL (tipo 'R', SEM produto) → ORIGEM='R', OPERACAO='CODIGO_PROMOCIONAL', TIPO='$' (default),
+      // CODIGO_PROMOCIONAL gravado, IDORIGEMPROMOCAO NULL (não é produto), QTDE preservada.
+      const g15 = await crGp({ descricao: 'PROMO CODIGO', tipo: 'R', datainicio: '2028-08-01T00:00', datafim: '2028-08-10T00:00',
+        itens: [{ origem: 'R', codigo_promocional: 'SEVEN10', valor: 10, quantidade: 25 }] });
+      const idpR = Number(((await g15.json().catch(() => ({}))) as any).idpromocao);
+      const cdR = (await pgGp.query(`SELECT origem, operacao, tipo, valor, codigo_promocional, idorigempromocao, quantidade FROM clube_desconto WHERE idpromocao=$1`, [idpR])).rows[0] as any;
+      check('GP 91.15 corte-3: Código Promocional → ORIGEM=R/OPERACAO=CODIGO_PROMOCIONAL/TIPO=$ + CÓDIGO=SEVEN10 + SEM produto (idorigempromocao NULL) + QTDE=25',
+        g15.status === 201 && cdR?.origem === 'R' && cdR?.operacao === 'CODIGO_PROMOCIONAL' && cdR?.tipo === '$' && Number(cdR?.valor) === 10
+        && cdR?.codigo_promocional === 'SEVEN10' && cdR?.idorigempromocao == null && Number(cdR?.quantidade) === 25,
+        { status: g15.status, cd: { o: cdR?.origem, op: cdR?.operacao, t: cdR?.tipo, cod: cdR?.codigo_promocional, prod: cdR?.idorigempromocao } });
+
+      // 91.16) Código Promocional com % (checkbox '%') → TIPO='%' (tipo do cliente respeitado p/ esta mecânica).
+      const g16 = await crGp({ descricao: 'PROMO CODIGO PCT', tipo: 'R', itens: [{ origem: 'R', codigo_promocional: 'PCT20', valor: 20, tipo: '%' }] });
+      const idpRp = Number(((await g16.json().catch(() => ({}))) as any).idpromocao);
+      const cdRp = (await pgGp.query(`SELECT tipo, valor FROM clube_desconto WHERE idpromocao=$1`, [idpRp])).rows[0] as any;
+      check('GP 91.16 corte-3: Código Promocional % → TIPO=% (cliente escolhe $/% nesta mecânica)', g16.status === 201 && cdRp?.tipo === '%' && Number(cdRp?.valor) === 20, { tipo: cdRp?.tipo });
+
+      // 91.17) Código Promocional SEM código → 422 PROMOCAO_CODIGO_OBRIGATORIO (CodigoPromocionalValidada ';VALOR;CODIGO_PROMOCIONAL;').
+      const g17 = await crGp({ descricao: 'X', tipo: 'R', itens: [{ origem: 'R', codigo_promocional: '   ', valor: 5 }] });
+      const g17J = (await g17.json().catch(() => ({}))) as any;
+      check('GP 91.17 corte-3: código vazio → 422 PROMOCAO_CODIGO_OBRIGATORIO', g17.status === 422 && g17J.code === 'PROMOCAO_CODIGO_OBRIGATORIO', { status: g17.status, code: g17J.code });
+
+      // 91.18) FOLD: R ignora idorigempromocao do cliente (força NULL); DESTINO do header é copiado em cada filho.
+      const g18 = await crGp({ descricao: 'PROMO CODIGO DEST', tipo: 'R', destino: 'C', itens: [{ origem: 'R', codigo_promocional: 'DEST1', valor: 3, idorigempromocao: 999999 }] });
+      const idpD = Number(((await g18.json().catch(() => ({}))) as any).idpromocao);
+      const cdD = (await pgGp.query(`SELECT idorigempromocao, destino FROM clube_desconto WHERE idpromocao=$1`, [idpD])).rows[0] as any;
+      check('GP 91.18 FOLD: R força idorigempromocao NULL (ignora cliente) + DESTINO do header copiado (=C)',
+        g18.status === 201 && cdD?.idorigempromocao == null && cdD?.destino === 'C', { idorig: cdD?.idorigempromocao, dest: cdD?.destino });
+
+      // 91.19) FOLD: dois itens com o MESMO código no payload → 422 PROMOCAO_CODIGO_DUPLICADO (busca por código no PDV seria ambígua).
+      const g19 = await crGp({ descricao: 'X', tipo: 'R', itens: [{ origem: 'R', codigo_promocional: 'DUP', valor: 5 }, { origem: 'R', codigo_promocional: 'dup', valor: 9 }] });
+      const g19J = (await g19.json().catch(() => ({}))) as any;
+      check('GP 91.19 FOLD: código duplicado no payload (case-insensitive) → 422 PROMOCAO_CODIGO_DUPLICADO', g19.status === 422 && g19J.code === 'PROMOCAO_CODIGO_DUPLICADO', { status: g19.status, code: g19J.code });
+
+      // 91.20) FOLD: PUT parcial (só itens, sem TIPO) NÃO burla a guarda origem≠tipo — carrega o TIPO gravado.
+      // idpR (91.15) é tipo 'R'; um PUT trocando p/ um item origem 'P' (sem reenviar tipo) deve 422 DIVERGE_TIPO.
+      const g20 = await fetch(`${base}/${GP}/${idpR}`, { method: 'PUT', headers: H, body: JSON.stringify({ itens: [{ origem: 'P', idorigempromocao: 1, valor: 2 }] }) });
+      const g20J = (await g20.json().catch(() => ({}))) as any;
+      check('GP 91.20 FOLD: PUT sem TIPO carrega o tipo gravado → origem≠tipo 422 PROMOCAO_ORIGEM_DIVERGE_TIPO', g20.status === 422 && g20J.code === 'PROMOCAO_ORIGEM_DIVERGE_TIPO', { status: g20.status, code: g20J.code });
+
       // cleanup: remove as promoções de teste (hard) + o produto inativo dedicado.
-      await pgGp.query(`DELETE FROM clube_desconto WHERE idpromocao IN (SELECT idpromocao FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO'))`);
-      await pgGp.query(`DELETE FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO')`);
+      await pgGp.query(`DELETE FROM clube_desconto WHERE idpromocao IN (SELECT idpromocao FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST'))`);
+      await pgGp.query(`DELETE FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST')`);
       await pgGp.query(`DELETE FROM produtos WHERE idproduto=990010`);
     } finally {
       await pgGp.end();
