@@ -25,6 +25,7 @@ export * from './schema/pedido-compra.schema';
 export * from './schema/condicoes-pagto.schema';
 export * from './schema/devolucao-compra.schema';
 export * from './schema/agenda-promocao.schema';
+export * from './schema/promocao.schema';
 export * from './schema/perfil.schema';
 export * from './schema/de-para.schema';
 export * from './schema/senha-operacao.schema';

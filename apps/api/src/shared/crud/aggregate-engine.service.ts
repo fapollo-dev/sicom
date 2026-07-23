@@ -53,7 +53,7 @@ export class AggregateEngineService extends CrudEngineService {
       await this.stamp(trx, cfg, id, op, true);
       if (cfg.historico !== false) await gravarHistorico(trx, this.alvo(cfg), id, op, this.emp(), {}, d, 'INSERT');
       if (cfg.replica) await this.outbox(trx, cfg, 'INSERT', id);
-      for (const det of cfg.detalhes) await this.inserirItens(trx, det, id, this.itens(dto, det));
+      for (const det of cfg.detalhes) await this.inserirItens(trx, det, id, this.itens(dto, det), dto);
       return id;
     });
   }
@@ -86,7 +86,7 @@ export class AggregateEngineService extends CrudEngineService {
           itens = await this.preservarColunas(trx, det, id, itens);
         }
         await trx.deleteFrom(det.tabela).where(det.fk, '=', id).execute();
-        await this.inserirItens(trx, det, id, itens);
+        await this.inserirItens(trx, det, id, itens, dto);
       }
     });
   }
@@ -153,10 +153,18 @@ export class AggregateEngineService extends CrudEngineService {
     return Array.isArray(arr) ? (arr as Record<string, unknown>[]) : [];
   }
 
-  private async inserirItens(trx: AnyDB, det: DetalheConfig, masterId: number, itens: Record<string, unknown>[]) {
+  private async inserirItens(
+    trx: AnyDB,
+    det: DetalheConfig,
+    masterId: number,
+    itens: Record<string, unknown>[],
+    header?: Record<string, unknown>,
+  ) {
     if (!itens.length) return;
-    // enriquecimento transacional por item (ex.: congelar nf_prod.vl_custo de multi_preco).
-    if (det.derivarItensTrx) itens = await det.derivarItensTrx(itens, trx, this.emp());
+    // enriquecimento transacional por item (ex.: congelar nf_prod.vl_custo de multi_preco; copiar o período
+    // do header p/ cada filho como o AtualizaDadosFilho do legado). Recebe o `header` (dto do master) p/ derivações
+    // que dependem do cabeçalho — retrocompatível: impls com 3 params ignoram o 4º.
+    if (det.derivarItensTrx) itens = await det.derivarItensTrx(itens, trx, this.emp(), header);
     const linhas = itens.map((i) => {
       const row: Record<string, unknown> = { [det.fk]: masterId };
       for (const c of det.colunas) if (i[c] !== undefined) row[c] = i[c];

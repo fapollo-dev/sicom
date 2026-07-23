@@ -30,6 +30,7 @@ import { ProdutoAggregateController } from './produto.aggregate';
 import { NfAggregateController } from './nf.aggregate';
 import { UnidadeCrudController } from './unidade.crud';
 import { FamiliasCrudController } from './familias.crud';
+import { PromocaoAggregateController } from './promocao.aggregate';
 import { AliquotaCrudController } from './aliquota.crud';
 import { SituacaoNfCrudController } from './situacao-nf.crud';
 import { CfopCrudController } from './cfop.crud';
@@ -104,6 +105,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     InventarioController, // vertical: importar-produtos + diferenças + aplicar (sobrescreve estoque, gated senha ADM)
     AgendaPromocaoAggregateController, // AGENDA DE PROMOÇÃO (cadastro header+itens; corte-1 sem efeito)
     AgendaPromocaoController, // vertical (encerrar/reabrir a agenda)
+    PromocaoAggregateController, // GESTÃO DE PROMOÇÕES (UCadPromocao): header PROMOCAO + detalhe CLUBE_DESCONTO por ORIGEM
     PerfilCrudController, // PERFIS & PERMISSÕES corte-1: CRUD de perfis (RBAC)
     PerfilRelacaoController, // vertical: atribuir perfis a operadores (relacao_operador_perfil)
     PermissoesController, // corte-2: matriz de grants FORM×OPCAO por perfil (UCtrlPermissoes)

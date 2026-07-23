@@ -277,6 +277,11 @@ const CODE_PT: Record<string, string> = {
   // Inventário (FRMINVENTARIO)
   INVENTARIO_NAO_ENCONTRADO: 'Inventário não encontrado.',
   INVENTARIO_SEM_ITENS: 'O inventário não tem itens — importe/inclua produtos antes de aplicar ao estoque.',
+  // Gestão de Promoções (FRMCADPROMOCAO)
+  PROMOCAO_PRECO_INVALIDO: 'Preço fixo inválido — informe um valor maior que zero para o item.',
+  PROMOCAO_PRODUTO_INEXISTENTE: 'Produto do item de promoção não encontrado.',
+  PROMOCAO_ORIGEM_NAO_SUPORTADA: 'Esta mecânica de promoção ainda não foi implementada — use a aba Preço Fixo.',
+  // (PROMOCAO_PRODUTO_INATIVO já definido abaixo — reusado pela Gestão de Promoções)
   // Ajuste de estoque (FRMAJUSTEESTOQUE)
   MOTIVO_NAO_ENCONTRADO: 'Motivo de operação não encontrado.',
   AJUSTE_CONCORRENTE: 'Outro ajuste deste produto está em andamento — tente novamente.',

@@ -86,9 +86,15 @@ export interface DetalheConfig {
    * `derivarTrx` do master). Recebe os itens, a `trx` e a empresa; devolve os itens com colunas
    * derivadas do banco. Uso: CONGELAR o custo do item (nf_prod.vl_custo = snapshot de
    * MULTI_PRECO.VRCUSTO por idproduto/idempresa — GetCustoProduto, udmNF.pas:12057), base do CMV.
-   * A coluna derivada deve estar em `colunas` para ser gravada.
+   * A coluna derivada deve estar em `colunas` para ser gravada. Recebe também o `header` (dto do master) p/
+   * derivações que dependem do cabeçalho (ex.: copiar DATAINICIO/DATAFIM do header em cada filho — AtualizaDadosFilho).
    */
-  derivarItensTrx?: (itens: Record<string, unknown>[], trx: any, emp: number | null) => Promise<Record<string, unknown>[]>;
+  derivarItensTrx?: (
+    itens: Record<string, unknown>[],
+    trx: any,
+    emp: number | null,
+    header?: Record<string, unknown>,
+  ) => Promise<Record<string, unknown>[]>;
 }
 
 /**

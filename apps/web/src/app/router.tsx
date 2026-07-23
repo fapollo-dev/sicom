@@ -27,6 +27,7 @@ import { CondicoesPagtoCadMaster } from '../features/condicoes-pagto/CondicoesPa
 import { DevolucaoCompraCadMaster } from '../features/devolucao-compra/DevolucaoCompraCadMaster';
 import { CotacaoPage } from '../features/cotacao/CotacaoPage';
 import { AgendaPromocaoCadMaster } from '../features/agenda-promocao/AgendaPromocaoCadMaster';
+import { PromocaoCadMaster } from '../features/promocao/PromocaoCadMaster';
 import { PerfilCadMaster } from '../features/perfil/PerfilCadMaster';
 import { EmpresasCadMaster } from '../features/empresas/EmpresasCadMaster';
 import { AjusteEstoquePage } from '../features/ajuste-estoque/AjusteEstoquePage';
@@ -80,6 +81,7 @@ export const router = createBrowserRouter([
       { path: '/compras/devolucao', element: <DevolucaoCompraCadMaster /> }, // devolução de compra (documento, corte-1)
       { path: '/compras/cotacao', element: <CotacaoPage /> }, // cotação de compra (RFQ): preços → apuração → gerar pedidos
       { path: '/cadastro/promocoes', element: <AgendaPromocaoCadMaster /> }, // agenda de promoção (corte-1, sem efeito)
+      { path: '/cadastro/gestao-promocoes', element: <PromocaoCadMaster /> }, // Gestão de Promoções (UCadPromocao): corte-1 Preço Fixo
       { path: '/cadastro/perfis', element: <PerfilCadMaster /> }, // perfis & permissões (RBAC editor)
       { path: '/cadastro/configuracoes', element: <ConfiguracoesPage /> }, // configurações (UConfigura): chave-valor por empresa
     ],
