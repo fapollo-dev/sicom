@@ -5791,9 +5791,29 @@ async function main() {
       const cd27 = (await pgGp.query(`SELECT valorcombo, tipocombo FROM clube_desconto WHERE idpromocao=$1`, [idpPF])).rows[0] as any;
       check('GP 91.27 FOLD: não-combo ignora valorcombo/tipocombo do cliente → NULL', g27.status === 201 && cd27?.valorcombo == null && cd27?.tipocombo == null, { vc: cd27?.valorcombo, tc: cd27?.tipocombo });
 
+      // 91.28) corte-5 LEVE PAGUE (tipo 'L') → ORIGEM='L', OPERACAO='LEVE_PAGUE', TIPO NULL, VALOR=0 (golden 34/34, não usa),
+      // QUANTIDADE (leve)=3 + QUANTIDADE_PAGA (pague)=2. Cliente manda valor=99 → ignorado (carimba 0).
+      const g28 = await crGp({ descricao: 'PROMO LEVE PAGUE', tipo: 'L', datainicio: '2028-10-01T00:00', datafim: '2028-10-10T00:00',
+        itens: [{ origem: 'L', idorigempromocao: 1, quantidade: 3, quantidade_paga: 2, valor: 99 }] });
+      const idpL = Number(((await g28.json().catch(() => ({}))) as any).idpromocao);
+      const cdL = (await pgGp.query(`SELECT origem, operacao, tipo, valor, quantidade, quantidade_paga FROM clube_desconto WHERE idpromocao=$1`, [idpL])).rows[0] as any;
+      check('GP 91.28 corte-5: Leve Pague → ORIGEM=L/OPERACAO=LEVE_PAGUE/TIPO NULL/VALOR=0 (golden) + QTDE=3/QTDE_PAGA=2 (valor do cliente ignorado)',
+        g28.status === 201 && cdL?.origem === 'L' && cdL?.operacao === 'LEVE_PAGUE' && cdL?.tipo == null && Number(cdL?.valor) === 0
+        && Number(cdL?.quantidade) === 3 && Number(cdL?.quantidade_paga) === 2,
+        { status: g28.status, cd: { o: cdL?.origem, op: cdL?.operacao, t: cdL?.tipo, v: cdL?.valor, q: cdL?.quantidade, qp: cdL?.quantidade_paga } });
+
+      // 91.29) Leve Pague sem QUANTIDADE_PAGA → 422 PROMOCAO_QUANTIDADE_PAGA_INVALIDA; sem QUANTIDADE → 422 PROMOCAO_QUANTIDADE_INVALIDA.
+      const g29a = await crGp({ descricao: 'X', tipo: 'L', itens: [{ origem: 'L', idorigempromocao: 1, quantidade: 3, quantidade_paga: 0 }] });
+      const g29aJ = (await g29a.json().catch(() => ({}))) as any;
+      const g29b = await crGp({ descricao: 'X', tipo: 'L', itens: [{ origem: 'L', idorigempromocao: 1, quantidade: 0, quantidade_paga: 2 }] });
+      const g29bJ = (await g29b.json().catch(() => ({}))) as any;
+      check('GP 91.29 corte-5: Leve Pague qtde_paga≤0 → 422 QUANTIDADE_PAGA_INVALIDA; qtde≤0 → 422 QUANTIDADE_INVALIDA',
+        g29a.status === 422 && g29aJ.code === 'PROMOCAO_QUANTIDADE_PAGA_INVALIDA' && g29b.status === 422 && g29bJ.code === 'PROMOCAO_QUANTIDADE_INVALIDA',
+        { paga: [g29a.status, g29aJ.code], leve: [g29b.status, g29bJ.code] });
+
       // cleanup: remove as promoções de teste (hard) + o produto inativo dedicado.
-      await pgGp.query(`DELETE FROM clube_desconto WHERE idpromocao IN (SELECT idpromocao FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO'))`);
-      await pgGp.query(`DELETE FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO')`);
+      await pgGp.query(`DELETE FROM clube_desconto WHERE idpromocao IN (SELECT idpromocao FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO','PROMO LEVE PAGUE'))`);
+      await pgGp.query(`DELETE FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO','PROMO LEVE PAGUE')`);
       await pgGp.query(`DELETE FROM produtos WHERE idproduto=990010`);
     } finally {
       await pgGp.end();

@@ -63,14 +63,16 @@ const TIPOCOMBO_OPCOES = [
  *  - 'produto' (P/F/V): produto + VALOR (moeda ou %). rótulo com mnemônico em 'S' (De&sconto) p/ não colidir com &Descrição.
  *  - 'codigo' (R): SEM produto — Código + Vr. Desconto ($ ou % via checkbox) + Quantidade.
  *  - 'combo' (O): produto + Quantidade + Vr. Promoção + TIPO ($/%); o header carrega Valor/Tipo do combo.
+ *  - 'levepague' (L): produto + Qtde. Leve + Qtde. Pague (SEM valor — desconto derivado de leve/pague).
  * Fora deste mapa: aviso "próximo corte".
  */
-const MECANICA_UI: Record<string, { shape: 'produto' | 'codigo' | 'combo'; rotulo?: string; unidade?: 'moeda' | 'percent' }> = {
+const MECANICA_UI: Record<string, { shape: 'produto' | 'codigo' | 'combo' | 'levepague'; rotulo?: string; unidade?: 'moeda' | 'percent' }> = {
   P: { shape: 'produto', rotulo: 'Preço &Fixo', unidade: 'moeda' },
   F: { shape: 'produto', rotulo: 'De&sconto (R$)', unidade: 'moeda' },
   V: { shape: 'produto', rotulo: 'De&sconto (%)', unidade: 'percent' },
   R: { shape: 'codigo' },
   O: { shape: 'combo' },
+  L: { shape: 'levepague' },
 };
 
 export function PromocaoCadMaster() {
@@ -101,6 +103,9 @@ export function PromocaoCadMaster() {
   const [tipoComboHdr, setTipoComboHdr] = useState<string>('C');
   const [qtdeCombo, setQtdeCombo] = useState<number | undefined>(undefined);
   const [tipoItemCombo, setTipoItemCombo] = useState<string>('$');
+  // Leve Pague (L): produto + qtde leve + qtde pague (sem valor)
+  const [qtdeLeve, setQtdeLeve] = useState<number | undefined>(undefined);
+  const [qtdePague, setQtdePague] = useState<number | undefined>(undefined);
 
   const mec = MECANICA_UI[tipo]; // config da aba ativa (undefined = aba não-pronta)
 
@@ -130,6 +135,7 @@ export function PromocaoCadMaster() {
     setIdproduto(undefined); setValorItem(undefined);
     setCodigoR(''); setValorR(undefined); setPercR('N'); setQtdeR(undefined);
     setQtdeCombo(undefined); setTipoItemCombo('$');
+    setQtdeLeve(undefined); setQtdePague(undefined);
   };
 
   // P/F/V: produto + valor
@@ -167,6 +173,20 @@ export function PromocaoCadMaster() {
     setItens((xs) => [...xs, {
       origem: 'O', idorigempromocao: idproduto, quantidade: n(qtdeCombo), valor: n(valorItem),
       tipo: tipoItemCombo === '%' ? '%' : '$', ativo: 'S',
+    } as PromocaoItemDto]);
+    limparAdder();
+  };
+
+  // L (Leve Pague): produto + Qtde. Leve (quantidade) + Qtde. Pague (quantidade_paga). SEM valor (desconto derivado).
+  const adicionarLevePague = () => {
+    if (idproduto == null) return mensagem.erro('Selecione o produto.');
+    if (!(n(qtdeLeve) > 0)) return mensagem.erro('Informe a Qtde. Leve (> 0).');
+    if (!(n(qtdePague) > 0)) return mensagem.erro('Informe a Qtde. Pague (> 0).');
+    // (sem exigir pague<leve: o legado só valida ambas>0 — LevePagueValidada; golden tem linhas pague≥leve.)
+    if (itens.some((it) => it.origem === 'L' && Number(it.idorigempromocao) === idproduto))
+      return mensagem.erro('Produto já está na lista.');
+    setItens((xs) => [...xs, {
+      origem: 'L', idorigempromocao: idproduto, quantidade: n(qtdeLeve), quantidade_paga: n(qtdePague), ativo: 'S',
     } as PromocaoItemDto]);
     limparAdder();
   };
@@ -267,6 +287,17 @@ export function PromocaoCadMaster() {
       ],
     },
   ], [rotuloProduto]);
+  const itensColsLevePague = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
+    { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
+    { field: 'quantidade', headerName: 'Qtde. Leve', type: 'number', width: 110, valueGetter: (r) => n(r.quantidade) },
+    { field: 'quantidade_paga', headerName: 'Qtde. Pague', type: 'number', width: 110, valueGetter: (r) => n(r.quantidade_paga) },
+    {
+      field: 'rem', headerName: '', type: 'actions', width: 60,
+      getActions: ({ row: r }: { row: PromocaoItemDto & { _i: number } }) => [
+        { id: 'rem', label: 'Remover', icon: <X size={16} />, destructive: true, onClick: () => removerItem(r._i) },
+      ],
+    },
+  ], [rotuloProduto]);
 
   const itensDaAba = itens.map((it, _i) => ({ ...it, _i })).filter((it) => it.origem === tipo);
 
@@ -356,6 +387,22 @@ export function PromocaoCadMaster() {
               {itensDaAba.length > 0 && (
                 <div className="mt-form-gap overflow-x-auto">
                   <DataTable rows={itensDaAba} columns={itensColsCombo} getRowId={(r) => String(r._i)} />
+                </div>
+              )}
+            </>
+          )}
+
+          {mec?.shape === 'levepague' && (
+            <>
+              <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
+                <div className="sm:col-span-3"><SelectField label="&Produto" options={produtoOptions} value={idproduto != null ? String(idproduto) : undefined} onChange={(v) => setIdproduto(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
+                <NumberField label="Qtde. &Leve" value={qtdeLeve} onChange={setQtdeLeve} decimais={3} min={0} />
+                <NumberField label="Qtde. &Pague" value={qtdePague} onChange={setQtdePague} decimais={2} min={0} />
+                <div className="flex items-end justify-end sm:col-span-1"><Button label="A&dicionar" variant="soft" onClick={adicionarLevePague} /></div>
+              </div>
+              {itensDaAba.length > 0 && (
+                <div className="mt-form-gap overflow-x-auto">
+                  <DataTable rows={itensDaAba} columns={itensColsLevePague} getRowId={(r) => String(r._i)} />
                 </div>
               )}
             </>

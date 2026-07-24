@@ -17,8 +17,11 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
  *   - corte-4 O Combo (OPERACAO='COMBO', TIPO $/% do cliente, produto) — VALOR = valor da promoção do produto;
  *              o header carrega VALORCOMBO + TIPOCOMBO ('C' a cada / 'M' maior que), COPIADOS em cada item
  *              (AtualizaDadosFilho pas:1517); item exige produto + TIPO + QUANTIDADE + VALOR (ProdutoComboValidado).
- * Produto-alvo (P/F/V/O): produto EXISTENTE+ATIVO. Todas: VALOR>0, período do header em cada filho (pas:1534).
- * QUANTIDADE: ≤0/vazio→1 (default), EXCETO Combo que a EXIGE (>0). As demais mecânicas entram em cortes seguintes.
+ *   - corte-5 L Leve Pague (OPERACAO='LEVE_PAGUE', TIPO NULL, produto) — QUANTIDADE (leve) + QUANTIDADE_PAGA (pague),
+ *              ambas >0 (LevePagueValidada ';QUANTIDADE;QUANTIDADE_PAGA;'); o desconto é DERIVADO na leitura
+ *              ((leve−pague)×VRVENDA/leve, QryLevePague). NÃO usa VALOR, mas o golden grava VALOR=0 (34/34) → default 0.
+ * Produto-alvo (P/F/V/O/L): produto EXISTENTE+ATIVO. VALOR>0 nas que o usam (Leve Pague não). Período+DESTINO do
+ * header em cada filho (pas:1265/1534). QUANTIDADE: ≤0/vazio→1 (default), EXCETO Combo/Leve Pague que a EXIGEM (>0).
  *
  * - derivarItensTrx: carimba idempresa/LOJA (tenant), OPERACAO por ORIGEM + TIPO (fixo por mecânica, OU do cliente
  *   $/% quando tipoCliente=Código Promocional), período do header, ENCERRADA='F', QUANTIDADE (≤0/vazio→1), ATIVO='S'.
@@ -52,15 +55,18 @@ type MecanicaCfg = {
   produto?: boolean; // exige idorigempromocao = produto EXISTENTE+ATIVO
   codigo?: boolean; // exige CODIGO_PROMOCIONAL não-vazio
   tipoCliente?: boolean; // TIPO vem do cliente ($/%), não fixo (Código Promocional / Combo)
-  quantidade?: boolean; // exige QUANTIDADE>0 (não coage; Combo: ProdutoComboValidado)
+  valor?: boolean; // exige VALOR>0 (a maioria; Leve Pague NÃO usa VALOR → force NULL)
+  quantidade?: boolean; // exige QUANTIDADE>0 (não coage; Combo/Leve Pague)
+  quantidadePaga?: boolean; // exige QUANTIDADE_PAGA>0 (Leve Pague)
   combo?: boolean; // header carrega VALORCOMBO+TIPOCOMBO, copiados em cada item (Combo)
 };
 const MECANICAS: Record<string, MecanicaCfg> = {
-  P: { operacao: 'PRECO', tipo: null, produto: true }, // corte-1
-  F: { operacao: 'FIXO', tipo: '$', produto: true }, // corte-2
-  V: { operacao: 'VARIAVEL', tipo: '%', produto: true }, // corte-2
-  R: { operacao: 'CODIGO_PROMOCIONAL', tipo: '$', tipoCliente: true, codigo: true }, // corte-3 (sem produto)
-  O: { operacao: 'COMBO', tipo: '$', produto: true, tipoCliente: true, quantidade: true, combo: true }, // corte-4
+  P: { operacao: 'PRECO', tipo: null, produto: true, valor: true }, // corte-1
+  F: { operacao: 'FIXO', tipo: '$', produto: true, valor: true }, // corte-2
+  V: { operacao: 'VARIAVEL', tipo: '%', produto: true, valor: true }, // corte-2
+  R: { operacao: 'CODIGO_PROMOCIONAL', tipo: '$', tipoCliente: true, codigo: true, valor: true }, // corte-3 (sem produto)
+  O: { operacao: 'COMBO', tipo: '$', produto: true, tipoCliente: true, quantidade: true, combo: true, valor: true }, // corte-4
+  L: { operacao: 'LEVE_PAGUE', tipo: null, produto: true, quantidade: true, quantidadePaga: true }, // corte-5 (SEM valor: leve X pague Y)
 };
 const TIPOCOMBO_VALIDOS = new Set(['C', 'M']); // 'C' a cada / 'M' maior que (CmbTipoCombo)
 // lookup por chave PRÓPRIA (Object.hasOwn) — nunca casa '__proto__'/'constructor' (fail-closed defensivo).
@@ -108,6 +114,9 @@ export const promocaoAggregateConfig: AggregateConfig = {
             tipo: mec?.tipoCliente ? (it.tipo === '%' ? '%' : '$') : mec ? mec.tipo : null,
             // produto só nas mecânicas produto-alvo; nas demais (Código Promocional) força NULL (não confia no cliente).
             idorigempromocao: mec?.produto ? it.idorigempromocao : null,
+            // VALOR só nas mecânicas que o usam; Leve Pague NÃO usa (desconto derivado de QTDE/QTDE_PAGA), mas o
+            // golden grava VALOR=0 (34/34, nunca NULL — SetDadosIniciaisPadrao/import zeram) → default 0, não null.
+            valor: mec?.valor ? it.valor : 0,
             destino: it.destino ?? dest, // DESTINO do header copiado em cada filho (SetDadosIniciaisPadrao pas:1265; golden 'T')
             // Combo: VALORCOMBO/TIPOCOMBO do header copiados em cada item (AtualizaDadosFilho pas:1517).
             // Nas demais mecânicas força NULL (não confia no cliente; igual ao idorigempromocao do R) — só o Combo os usa.
@@ -157,10 +166,12 @@ export const promocaoAggregateConfig: AggregateConfig = {
       // (b) a ORIGEM do item tem de casar com o TIPO do header (as mecânicas atuais são self-origem: P/F/V/R);
       //     sem isso um payload de API gravaria header 'X' com itens de mecânica 'Y' (header↔detalhe divergente).
       if (tipoHeader && origem !== tipoHeader) throw new BusinessRuleError('PROMOCAO_ORIGEM_DIVERGE_TIPO', { origem: it.origem, tipo: tipoHeader });
-      // (c) VALOR>0 (PadraoValidada ';VALOR;'). QUANTIDADE é coagida ≤0→1 no derivarItensTrx (fiel ao PREÇO FIXO),
-      //     EXCETO Combo, que EXIGE QUANTIDADE>0 (ProdutoComboValidado "Informe a quantidade").
-      if (!(Number(it.valor) > 0)) throw new BusinessRuleError('PROMOCAO_PRECO_INVALIDO', { idproduto: it.idorigempromocao });
+      // (c) VALOR>0 (PadraoValidada ';VALOR;') — só nas mecânicas que usam VALOR (Leve Pague NÃO usa). QUANTIDADE é
+      //     coagida ≤0→1 no derivarItensTrx (fiel ao PREÇO FIXO), EXCETO Combo/Leve Pague que a EXIGEM (>0).
+      if (mec.valor && !(Number(it.valor) > 0)) throw new BusinessRuleError('PROMOCAO_PRECO_INVALIDO', { idproduto: it.idorigempromocao });
       if (mec.quantidade && !(Number(it.quantidade) > 0)) throw new BusinessRuleError('PROMOCAO_QUANTIDADE_INVALIDA', { idproduto: it.idorigempromocao });
+      // Leve Pague (LevePagueValidada ';QUANTIDADE;QUANTIDADE_PAGA;'): Qtde. Pague obrigatória (>0).
+      if (mec.quantidadePaga && !(Number(it.quantidade_paga) > 0)) throw new BusinessRuleError('PROMOCAO_QUANTIDADE_PAGA_INVALIDA', { idproduto: it.idorigempromocao });
       // produto único por promoção (mecânicas produto-alvo) — RegistroDuplicadoMesmaPromocao (pas:3170); espelha o dedup da UI.
       if (mec.produto) {
         const pid = Number(it.idorigempromocao);
