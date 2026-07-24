@@ -5623,10 +5623,10 @@ async function main() {
       const g2cJ = (await g2c.json().catch(() => ({}))) as any;
       check('GP 91.2b FOLD: produto inativo → 422 PROMOCAO_PRODUTO_INATIVO', g2c.status === 422 && g2cJ.code === 'PROMOCAO_PRODUTO_INATIVO', { status: g2c.status, code: g2cJ.code });
 
-      // 91.2c) FOLD correção: item de mecânica AINDA não implementada (Bonificação 'B') → 422 PROMOCAO_ORIGEM_NAO_SUPORTADA (fail-closed anti-lixo).
-      const g2d = await crGp({ descricao: 'X', tipo: 'B', itens: [{ origem: 'B', idorigempromocao: 1, valor: 2 }] });
+      // 91.2c) FOLD correção: item de mecânica AINDA não implementada (Produto Grátis 'G') → 422 PROMOCAO_ORIGEM_NAO_SUPORTADA (fail-closed anti-lixo).
+      const g2d = await crGp({ descricao: 'X', tipo: 'G', itens: [{ origem: 'G', idorigempromocao: 1, valor: 2 }] });
       const g2dJ = (await g2d.json().catch(() => ({}))) as any;
-      check('GP 91.2c FOLD: item de mecânica não-implementada (B) → 422 PROMOCAO_ORIGEM_NAO_SUPORTADA (anti-lixo latente)', g2d.status === 422 && g2dJ.code === 'PROMOCAO_ORIGEM_NAO_SUPORTADA', { status: g2d.status, code: g2dJ.code });
+      check('GP 91.2c FOLD: item de mecânica não-implementada (G) → 422 PROMOCAO_ORIGEM_NAO_SUPORTADA (anti-lixo latente)', g2d.status === 422 && g2dJ.code === 'PROMOCAO_ORIGEM_NAO_SUPORTADA', { status: g2d.status, code: g2dJ.code });
 
       // 91.3) período fim<início → 400; fim==início → 400 (legado: <= é inválido); descrição vazia → 400.
       const g3a = await crGp({ descricao: 'X', tipo: 'P', datainicio: '2028-05-10T10:00', datafim: '2028-05-01T10:00', itens: [{ origem: 'P', idorigempromocao: 1, valor: 2 }] });
@@ -5884,9 +5884,22 @@ async function main() {
         g37a.status === 422 && g37aJ.code === 'PROMOCAO_PRODUTO_OBRIGATORIO' && g37b.status === 422 && g37bJ.code === 'PROMOCAO_PRODUTO_OBRIGATORIO',
         { p: [g37a.status, g37aJ.code], a: [g37b.status, g37bJ.code] });
 
+      // 91.38) corte-8 BONIFICAÇÃO (tipo 'B') → ORIGEM='B', OPERACAO='BONIFICAÇÃO', TIPO NULL, VALOR=0; "compre QUANTIDADE, ganhe QUANTIDADE_PAGA".
+      const g38 = await crGp({ descricao: 'PROMO BONIFICACAO', tipo: 'B', datainicio: '2029-01-01T00:00', datafim: '2029-01-10T00:00',
+        itens: [{ origem: 'B', idorigempromocao: 1, quantidade: 10, quantidade_paga: 1 }] });
+      const idpB = Number(((await g38.json().catch(() => ({}))) as any).idpromocao);
+      const cdB = (await pgGp.query(`SELECT origem, operacao, tipo, valor, quantidade, quantidade_paga FROM clube_desconto WHERE idpromocao=$1`, [idpB])).rows[0] as any;
+      const g38b = await crGp({ descricao: 'X', tipo: 'B', itens: [{ origem: 'B', idorigempromocao: 1, quantidade: 10, quantidade_paga: 0 }] });
+      const g38bJ = (await g38b.json().catch(() => ({}))) as any;
+      check('GP 91.38 corte-8: Bonificação → ORIGEM=B/OPERACAO=BONIFICAÇÃO/TIPO NULL/VALOR=0 + QTDE=10/bonificada=1; sem bonificada → 422 QUANTIDADE_PAGA_INVALIDA',
+        g38.status === 201 && cdB?.origem === 'B' && cdB?.operacao === 'BONIFICAÇÃO' && cdB?.tipo == null && Number(cdB?.valor) === 0
+        && Number(cdB?.quantidade) === 10 && Number(cdB?.quantidade_paga) === 1
+        && g38b.status === 422 && g38bJ.code === 'PROMOCAO_QUANTIDADE_PAGA_INVALIDA',
+        { status: g38.status, cd: { o: cdB?.origem, op: cdB?.operacao, v: cdB?.valor, q: cdB?.quantidade, qp: cdB?.quantidade_paga }, semBonif: [g38b.status, g38bJ.code] });
+
       // cleanup: remove as promoções de teste (hard) + o produto inativo dedicado.
-      await pgGp.query(`DELETE FROM clube_desconto WHERE idpromocao IN (SELECT idpromocao FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO','PROMO LEVE PAGUE','PROMO CATEGORIA','PROMO ATACAREJO'))`);
-      await pgGp.query(`DELETE FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO','PROMO LEVE PAGUE','PROMO CATEGORIA','PROMO ATACAREJO')`);
+      await pgGp.query(`DELETE FROM clube_desconto WHERE idpromocao IN (SELECT idpromocao FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO','PROMO LEVE PAGUE','PROMO CATEGORIA','PROMO ATACAREJO','PROMO BONIFICACAO'))`);
+      await pgGp.query(`DELETE FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO','PROMO LEVE PAGUE','PROMO CATEGORIA','PROMO ATACAREJO','PROMO BONIFICACAO')`);
       await pgGp.query(`DELETE FROM produtos WHERE idproduto=990010`);
     } finally {
       await pgGp.end();

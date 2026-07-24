@@ -78,9 +78,10 @@ const SUBTIPO_FAMILIA = new Set(['O', 'D', 'G', 'S']);
  *  - 'levepague' (L): produto + Qtde. Leve + Qtde. Pague (SEM valor — desconto derivado de leve/pague).
  *  - 'categoria' (C): SUBTIPO (dimensão) + alvo (família/produto/fornecedor/marca por SUBTIPO) + Promoção (%).
  *  - 'atacarejo' (A): produto + Qtde. (tier) + Vr. Atacarejo + Cálculo ($/%); N tiers por produto (dedup produto+qtde).
+ *  - 'bonificacao' (B): produto + Quantidade + Quantidade bonificada (SEM valor).
  * Fora deste mapa: aviso "próximo corte".
  */
-const MECANICA_UI: Record<string, { shape: 'produto' | 'codigo' | 'combo' | 'levepague' | 'categoria' | 'atacarejo'; rotulo?: string; unidade?: 'moeda' | 'percent' }> = {
+const MECANICA_UI: Record<string, { shape: 'produto' | 'codigo' | 'combo' | 'levepague' | 'categoria' | 'atacarejo' | 'bonificacao'; rotulo?: string; unidade?: 'moeda' | 'percent' }> = {
   P: { shape: 'produto', rotulo: 'Preço &Fixo', unidade: 'moeda' },
   F: { shape: 'produto', rotulo: 'De&sconto (R$)', unidade: 'moeda' },
   V: { shape: 'produto', rotulo: 'De&sconto (%)', unidade: 'percent' },
@@ -89,6 +90,7 @@ const MECANICA_UI: Record<string, { shape: 'produto' | 'codigo' | 'combo' | 'lev
   L: { shape: 'levepague' },
   C: { shape: 'categoria' },
   A: { shape: 'atacarejo' },
+  B: { shape: 'bonificacao' },
 };
 
 export function PromocaoCadMaster() {
@@ -129,6 +131,9 @@ export function PromocaoCadMaster() {
   // Atacarejo (A): produto + Qtde. (tier) + Vr. Atacarejo + Cálculo ($/%)
   const [qtdeAtac, setQtdeAtac] = useState<number | undefined>(undefined);
   const [tipoAtac, setTipoAtac] = useState<string>('$');
+  // Bonificação (B): produto + Quantidade (compre) + Quantidade bonificada (ganhe)
+  const [qtdeCompraB, setQtdeCompraB] = useState<number | undefined>(undefined);
+  const [qtdeBonifB, setQtdeBonifB] = useState<number | undefined>(undefined);
 
   const mec = MECANICA_UI[tipo]; // config da aba ativa (undefined = aba não-pronta)
 
@@ -182,6 +187,7 @@ export function PromocaoCadMaster() {
     setQtdeLeve(undefined); setQtdePague(undefined);
     setAlvoCat(undefined); setValorCat(undefined);
     setQtdeAtac(undefined); setTipoAtac('$');
+    setQtdeCompraB(undefined); setQtdeBonifB(undefined);
   };
 
   // P/F/V: produto + valor
@@ -259,6 +265,19 @@ export function PromocaoCadMaster() {
     setItens((xs) => [...xs, {
       origem: 'A', idorigempromocao: idproduto, quantidade: n(qtdeAtac), valor: n(valorItem),
       tipo: tipoAtac === '%' ? '%' : '$', ativo: 'S',
+    } as PromocaoItemDto]);
+    limparAdder();
+  };
+
+  // B (Bonificação): produto + Quantidade (compre) + Quantidade bonificada (ganhe). SEM valor.
+  const adicionarBonificacao = () => {
+    if (idproduto == null) return mensagem.erro('Selecione o produto.');
+    if (!(n(qtdeCompraB) > 0)) return mensagem.erro('Informe a quantidade (> 0).');
+    if (!(n(qtdeBonifB) > 0)) return mensagem.erro('Informe a quantidade bonificada (> 0).');
+    if (itens.some((it) => it.origem === 'B' && Number(it.idorigempromocao) === idproduto))
+      return mensagem.erro('Produto já está na lista.');
+    setItens((xs) => [...xs, {
+      origem: 'B', idorigempromocao: idproduto, quantidade: n(qtdeCompraB), quantidade_paga: n(qtdeBonifB), ativo: 'S',
     } as PromocaoItemDto]);
     limparAdder();
   };
@@ -385,6 +404,17 @@ export function PromocaoCadMaster() {
     { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
     { field: 'quantidade', headerName: 'A partir de (qtde.)', type: 'number', width: 150, valueGetter: (r) => n(r.quantidade) },
     { field: 'valor', headerName: 'Vr. Atacarejo', type: 'text', width: 140, valueGetter: (r) => fmtValorPorTipo(r.valor, r.tipo) },
+    {
+      field: 'rem', headerName: '', type: 'actions', width: 60,
+      getActions: ({ row: r }: { row: PromocaoItemDto & { _i: number } }) => [
+        { id: 'rem', label: 'Remover', icon: <X size={16} />, destructive: true, onClick: () => removerItem(r._i) },
+      ],
+    },
+  ], [rotuloProduto]);
+  const itensColsBonificacao = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
+    { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
+    { field: 'quantidade', headerName: 'Quantidade', type: 'number', width: 120, valueGetter: (r) => n(r.quantidade) },
+    { field: 'quantidade_paga', headerName: 'Qtde. bonificada', type: 'number', width: 140, valueGetter: (r) => n(r.quantidade_paga) },
     {
       field: 'rem', headerName: '', type: 'actions', width: 60,
       getActions: ({ row: r }: { row: PromocaoItemDto & { _i: number } }) => [
@@ -530,6 +560,22 @@ export function PromocaoCadMaster() {
               {itensDaAba.length > 0 && (
                 <div className="mt-form-gap overflow-x-auto">
                   <DataTable rows={itensDaAba} columns={itensColsAtacarejo} getRowId={(r) => String(r._i)} />
+                </div>
+              )}
+            </>
+          )}
+
+          {mec?.shape === 'bonificacao' && (
+            <>
+              <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
+                <div className="sm:col-span-3"><SelectField label="&Produto" options={produtoOptions} value={idproduto != null ? String(idproduto) : undefined} onChange={(v) => setIdproduto(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
+                <NumberField label="&Quantidade" value={qtdeCompraB} onChange={setQtdeCompraB} decimais={2} min={0} />
+                <NumberField label="Qtde. &bonificada" value={qtdeBonifB} onChange={setQtdeBonifB} decimais={2} min={0} />
+                <div className="flex items-end justify-end sm:col-span-1"><Button label="A&dicionar" variant="soft" onClick={adicionarBonificacao} /></div>
+              </div>
+              {itensDaAba.length > 0 && (
+                <div className="mt-form-gap overflow-x-auto">
+                  <DataTable rows={itensDaAba} columns={itensColsBonificacao} getRowId={(r) => String(r._i)} />
                 </div>
               )}
             </>

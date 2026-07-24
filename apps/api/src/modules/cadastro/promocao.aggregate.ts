@@ -31,6 +31,9 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
  *   - corte-7 A Atacarejo (OPERACAO='ATACAREJO', TIPO $/% do cliente [golden 100% '$'], produto) — tiers "compre
  *              QUANTIDADE+ → preço VALOR"; N tiers por produto → dedup por (produto+QUANTIDADE) (AtacarejoValidado
  *              pas:724 + RegistroDuplicadoMesmaPromocao CampoAuxiliar='QUANTIDADE'); exige produto+QUANTIDADE>0+VALOR>0.
+ *   - corte-8 B Bonificação (OPERACAO='BONIFICAÇÃO', TIPO NULL, produto, SEM VALOR) — "compre QUANTIDADE, ganhe
+ *              QUANTIDADE_PAGA bonificada" (BonificacaoValidado pas:1104: produto + QUANTIDADE>0 + QUANTIDADE_PAGA>0
+ *              + dedup produto). Estrutura irmã do Leve Pague (QUANTIDADE_PAGA reusada como "bonificada").
  * Produto-alvo (P/F/V/O/L): produto EXISTENTE+ATIVO. VALOR>0 nas que o usam (Leve Pague não). Período+DESTINO do
  * header em cada filho (pas:1265/1534). QUANTIDADE: ≤0/vazio→1 (default), EXCETO Combo/Leve Pague que a EXIGEM (>0).
  *
@@ -82,6 +85,7 @@ const MECANICAS: Record<string, MecanicaCfg> = {
   L: { operacao: 'LEVE_PAGUE', tipo: null, produto: true, quantidade: true, quantidadePaga: true }, // corte-5 (SEM valor: leve X pague Y)
   C: { operacao: 'CATEGORIA', tipo: null, valor: true, categoria: true }, // corte-6 (alvo por SUBTIPO; VALOR = Promoção %)
   A: { operacao: 'ATACAREJO', tipo: '$', produto: true, tipoCliente: true, valor: true, quantidade: true, dedupPorQtde: true }, // corte-7 (N tiers qtde→preço)
+  B: { operacao: 'BONIFICAÇÃO', tipo: null, produto: true, quantidade: true, quantidadePaga: true }, // corte-8 (compre QUANTIDADE, ganhe QUANTIDADE_PAGA bonificada; sem valor)
 };
 const TIPOCOMBO_VALIDOS = new Set(['C', 'M']); // 'C' a cada / 'M' maior que (CmbTipoCombo)
 // Categoria (CbbCategoria): SUBTIPO → dimensão do alvo. O/D/G/S=família (FAMILIAS_PROD.tipo), P=produto, F=fornecedor, M=marca.
