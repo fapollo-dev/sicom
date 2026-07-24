@@ -1,7 +1,9 @@
+import { sql } from 'kysely';
 import { promocaoSchema, atualizarPromocaoSchema } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { currentTenant } from '../../shared/tenant/tenant-context';
 
 /**
  * GESTÃO DE PROMOÇÕES (UCadPromocao) — agregado mestre-detalhe: `promocao` (header, empresaScoped, soft-delete)
@@ -20,6 +22,12 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
  *   - corte-5 L Leve Pague (OPERACAO='LEVE_PAGUE', TIPO NULL, produto) — QUANTIDADE (leve) + QUANTIDADE_PAGA (pague),
  *              ambas >0 (LevePagueValidada ';QUANTIDADE;QUANTIDADE_PAGA;'); o desconto é DERIVADO na leitura
  *              ((leve−pague)×VRVENDA/leve, QryLevePague). NÃO usa VALOR, mas o golden grava VALOR=0 (34/34) → default 0.
+ *   - corte-6 C Categoria (OPERACAO='CATEGORIA', TIPO NULL) — alvo POLIMÓRFICO por SUBTIPO (CbbCategoria): O=Seção /
+ *              D=Departamento / G=Grupo / S=Subgrupo (FAMILIAS_PROD.tipo) · P=Produto (ATIVO) · F=Fornecedor (FRN='S',
+ *              escopo empresa) · M=Marca (não-excluída). VALOR = Promoção (%); exige SUBTIPO + alvo + VALOR>0 + alvo
+ *              EXISTENTE + único por (SUBTIPO+alvo). Fornecedor e Marca são MUTUAMENTE EXCLUSIVOS na mesma promoção
+ *              (CategoriaValidada pas:1728). ADIADO: ValidacaoOutraPromocao (sobreposição cross-promoção temporal,
+ *              pas:1738) — módulo-wide, nenhuma mecânica a implementa. UI sugere Promoção max=100 (sem teto no servidor).
  * Produto-alvo (P/F/V/O/L): produto EXISTENTE+ATIVO. VALOR>0 nas que o usam (Leve Pague não). Período+DESTINO do
  * header em cada filho (pas:1265/1534). QUANTIDADE: ≤0/vazio→1 (default), EXCETO Combo/Leve Pague que a EXIGEM (>0).
  *
@@ -59,6 +67,7 @@ type MecanicaCfg = {
   quantidade?: boolean; // exige QUANTIDADE>0 (não coage; Combo/Leve Pague)
   quantidadePaga?: boolean; // exige QUANTIDADE_PAGA>0 (Leve Pague)
   combo?: boolean; // header carrega VALORCOMBO+TIPOCOMBO, copiados em cada item (Combo)
+  categoria?: boolean; // alvo POLIMÓRFICO por SUBTIPO (Categoria: família/produto/fornecedor/marca) em idorigempromocao
 };
 const MECANICAS: Record<string, MecanicaCfg> = {
   P: { operacao: 'PRECO', tipo: null, produto: true, valor: true }, // corte-1
@@ -67,8 +76,25 @@ const MECANICAS: Record<string, MecanicaCfg> = {
   R: { operacao: 'CODIGO_PROMOCIONAL', tipo: '$', tipoCliente: true, codigo: true, valor: true }, // corte-3 (sem produto)
   O: { operacao: 'COMBO', tipo: '$', produto: true, tipoCliente: true, quantidade: true, combo: true, valor: true }, // corte-4
   L: { operacao: 'LEVE_PAGUE', tipo: null, produto: true, quantidade: true, quantidadePaga: true }, // corte-5 (SEM valor: leve X pague Y)
+  C: { operacao: 'CATEGORIA', tipo: null, valor: true, categoria: true }, // corte-6 (alvo por SUBTIPO; VALOR = Promoção %)
 };
 const TIPOCOMBO_VALIDOS = new Set(['C', 'M']); // 'C' a cada / 'M' maior que (CmbTipoCombo)
+// Categoria (CbbCategoria): SUBTIPO → dimensão do alvo. O/D/G/S=família (FAMILIAS_PROD.tipo), P=produto, F=fornecedor, M=marca.
+const SUBTIPO_VALIDOS = new Set(['O', 'D', 'G', 'S', 'P', 'F', 'M']);
+const SUBTIPO_FAMILIA = new Set(['O', 'D', 'G', 'S']);
+// existência do alvo da Categoria por SUBTIPO (fail-closed; o legado confia no picker, mas a API pode mandar lixo).
+// Espelha os pickers do legado (pas:1228-1234): família por TIPO, produto ATIVO, fornecedor FRN='S' + empresa, marca não-excluída.
+async function alvoCategoriaExiste(db: any, emp: number | null, subtipo: string, id: number): Promise<boolean> {
+  if (SUBTIPO_FAMILIA.has(subtipo)) // O/D/G/S → família global (FAMILIAS_PROD.tipo)
+    return !!(await db.selectFrom('familias_prod').select('codfamilia').where('codfamilia', '=', id).where('tipo', '=', subtipo).executeTakeFirst());
+  if (subtipo === 'P') // produto GLOBAL, ATIVO='S' (mesmo filtro do GET_PRODUTOS que P/F/V exigem)
+    return !!(await db.selectFrom('produtos').select('idproduto').where('idproduto', '=', id).where('ativo', '=', 'S').executeTakeFirst());
+  if (subtipo === 'F') // fornecedor: FRN='S' + escopo de EMPRESA (parceiros é multi-empresa; convenção uniforme do repo)
+    return !!(await db.selectFrom('parceiros').select('codparceiro').where('codparceiro', '=', id).where('frn', '=', 'S').where('idempresa', '=', emp).executeTakeFirst());
+  if (subtipo === 'M') // marca GLOBAL, não soft-deletada (INDR<>'E')
+    return !!(await db.selectFrom('marcas').select('idmarca').where('idmarca', '=', id).where(sql<boolean>`coalesce(indr,'I') <> 'E'`).executeTakeFirst());
+  return false;
+}
 // lookup por chave PRÓPRIA (Object.hasOwn) — nunca casa '__proto__'/'constructor' (fail-closed defensivo).
 const mecOf = (origem: unknown): MecanicaCfg | undefined => {
   const k = String(origem);
@@ -112,8 +138,10 @@ export const promocaoAggregateConfig: AggregateConfig = {
             operacao: mec?.operacao, // OPERACAO por mecânica (server-auth): PRECO/FIXO/VARIAVEL/CODIGO_PROMOCIONAL/COMBO
             // TIPO: fixo da mecânica (NULL/$/%), OU do cliente ($/%, default '$') quando tipoCliente (Código Promocional/Combo).
             tipo: mec?.tipoCliente ? (it.tipo === '%' ? '%' : '$') : mec ? mec.tipo : null,
-            // produto só nas mecânicas produto-alvo; nas demais (Código Promocional) força NULL (não confia no cliente).
-            idorigempromocao: mec?.produto ? it.idorigempromocao : null,
+            // idorigempromocao = ALVO: produto (P/F/V/O) OU categoria/família/fornecedor/marca (C). Sem alvo → NULL.
+            idorigempromocao: mec?.produto || mec?.categoria ? it.idorigempromocao : null,
+            // SUBTIPO só na Categoria (dimensão do alvo); nas demais força NULL (não confia no cliente).
+            subtipo: mec?.categoria ? it.subtipo : null,
             // VALOR só nas mecânicas que o usam; Leve Pague NÃO usa (desconto derivado de QTDE/QTDE_PAGA), mas o
             // golden grava VALOR=0 (34/34, nunca NULL — SetDadosIniciaisPadrao/import zeram) → default 0, não null.
             valor: mec?.valor ? it.valor : 0,
@@ -158,6 +186,8 @@ export const promocaoAggregateConfig: AggregateConfig = {
     }
     const codigosVistos = new Set<string>(); // dedup de CODIGO_PROMOCIONAL no mesmo payload (case-insensitive, como a UI)
     const produtosVistos = new Set<number>(); // dedup de produto por promoção (RegistroDuplicadoMesmaPromocao pas:3170)
+    const categoriasVistas = new Set<string>(); // dedup Categoria por (SUBTIPO+alvo) (RegistroDuplicadoMesmaPromocao(True))
+    const alvosCategoria: Array<{ subtipo: string; id: number }> = []; // alvos p/ checar existência após o loop
     for (const it of itens) {
       const origem = String(it.origem);
       const mec = mecOf(origem);
@@ -192,6 +222,27 @@ export const promocaoAggregateConfig: AggregateConfig = {
         if (codigosVistos.has(chave)) throw new BusinessRuleError('PROMOCAO_CODIGO_DUPLICADO', { codigo: cod });
         codigosVistos.add(chave);
       }
+      // (f) Categoria (CategoriaValidada pas:2xxx): SUBTIPO válido + alvo (idorigempromocao) informado + único por (SUBTIPO+alvo).
+      if (mec.categoria) {
+        const subtipo = String(it.subtipo ?? '');
+        if (!SUBTIPO_VALIDOS.has(subtipo)) throw new BusinessRuleError('PROMOCAO_CATEGORIA_SUBTIPO_INVALIDO', { subtipo: it.subtipo });
+        const aid = Number(it.idorigempromocao);
+        if (!(Number.isFinite(aid) && aid > 0)) throw new BusinessRuleError('PROMOCAO_CATEGORIA_ALVO_OBRIGATORIO', { subtipo });
+        const chave = `${subtipo}|${aid}`;
+        if (categoriasVistas.has(chave)) throw new BusinessRuleError('PROMOCAO_CATEGORIA_DUPLICADA', { subtipo, id: aid });
+        categoriasVistas.add(chave);
+        alvosCategoria.push({ subtipo, id: aid });
+      }
+    }
+    // Fornecedor(F) e Marca(M) são MUTUAMENTE EXCLUSIVOS na mesma promoção (CategoriaValidada pas:1728: "apenas um do
+    // tipo Fornecedor OU Marca por promoção" — vários F ou vários M ok, mas não F+M juntos).
+    if (alvosCategoria.some((a) => a.subtipo === 'F') && alvosCategoria.some((a) => a.subtipo === 'M'))
+      throw new BusinessRuleError('PROMOCAO_CATEGORIA_FORN_MARCA_EXCLUSIVOS');
+    // alvo da Categoria EXISTE (por SUBTIPO: família O/D/G/S / produto P / fornecedor F / marca M) — fail-closed.
+    const emp = currentTenant().empresaId ?? null;
+    for (const a of alvosCategoria) {
+      if (!(await alvoCategoriaExiste(db, emp, a.subtipo, a.id)))
+        throw new BusinessRuleError('PROMOCAO_CATEGORIA_ALVO_INEXISTENTE', { subtipo: a.subtipo, id: a.id });
     }
     // produto EXISTENTE+ATIVO — só para as mecânicas produto-alvo (P/F/V). R (código) não tem produto.
     const ids = [

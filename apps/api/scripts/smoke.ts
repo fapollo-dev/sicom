@@ -5623,10 +5623,10 @@ async function main() {
       const g2cJ = (await g2c.json().catch(() => ({}))) as any;
       check('GP 91.2b FOLD: produto inativo → 422 PROMOCAO_PRODUTO_INATIVO', g2c.status === 422 && g2cJ.code === 'PROMOCAO_PRODUTO_INATIVO', { status: g2c.status, code: g2cJ.code });
 
-      // 91.2c) FOLD correção: item de origem NÃO-suportada (corte-1 só Preço Fixo) → 422 PROMOCAO_ORIGEM_NAO_SUPORTADA (fail-closed).
-      const g2d = await crGp({ descricao: 'X', tipo: 'C', itens: [{ origem: 'C', idorigempromocao: 1, valor: 2 }] });
+      // 91.2c) FOLD correção: item de mecânica AINDA não implementada (Atacarejo 'A') → 422 PROMOCAO_ORIGEM_NAO_SUPORTADA (fail-closed anti-lixo).
+      const g2d = await crGp({ descricao: 'X', tipo: 'A', itens: [{ origem: 'A', idorigempromocao: 1, valor: 2 }] });
       const g2dJ = (await g2d.json().catch(() => ({}))) as any;
-      check('GP 91.2c FOLD: item origem≠P → 422 PROMOCAO_ORIGEM_NAO_SUPORTADA (anti-lixo latente)', g2d.status === 422 && g2dJ.code === 'PROMOCAO_ORIGEM_NAO_SUPORTADA', { status: g2d.status, code: g2dJ.code });
+      check('GP 91.2c FOLD: item de mecânica não-implementada (A) → 422 PROMOCAO_ORIGEM_NAO_SUPORTADA (anti-lixo latente)', g2d.status === 422 && g2dJ.code === 'PROMOCAO_ORIGEM_NAO_SUPORTADA', { status: g2d.status, code: g2dJ.code });
 
       // 91.3) período fim<início → 400; fim==início → 400 (legado: <= é inválido); descrição vazia → 400.
       const g3a = await crGp({ descricao: 'X', tipo: 'P', datainicio: '2028-05-10T10:00', datafim: '2028-05-01T10:00', itens: [{ origem: 'P', idorigempromocao: 1, valor: 2 }] });
@@ -5811,9 +5811,49 @@ async function main() {
         g29a.status === 422 && g29aJ.code === 'PROMOCAO_QUANTIDADE_PAGA_INVALIDA' && g29b.status === 422 && g29bJ.code === 'PROMOCAO_QUANTIDADE_INVALIDA',
         { paga: [g29a.status, g29aJ.code], leve: [g29b.status, g29bJ.code] });
 
+      // 91.30) corte-6 CATEGORIA (tipo 'C') → alvo polimórfico por SUBTIPO. 2 itens: família Departamento (D, codfamilia 10)
+      // + produto (P, idproduto 2). ORIGEM='C', OPERACAO='CATEGORIA', TIPO NULL, VALOR=Promoção %, SUBTIPO + alvo gravados.
+      const g30 = await crGp({ descricao: 'PROMO CATEGORIA', tipo: 'C', datainicio: '2028-11-01T00:00', datafim: '2028-11-10T00:00',
+        itens: [{ origem: 'C', subtipo: 'D', idorigempromocao: 10, valor: 15 }, { origem: 'C', subtipo: 'P', idorigempromocao: 2, valor: 8 }] });
+      const idpC = Number(((await g30.json().catch(() => ({}))) as any).idpromocao);
+      const cdC = (await pgGp.query(`SELECT origem, operacao, tipo, subtipo, idorigempromocao, valor FROM clube_desconto WHERE idpromocao=$1 ORDER BY idclubedesconto`, [idpC])).rows as any[];
+      check('GP 91.30 corte-6: Categoria → 2 itens ORIGEM=C/OPERACAO=CATEGORIA/TIPO NULL; SUBTIPO=D(família 10) + P(produto 2) + VALOR%',
+        g30.status === 201 && cdC.length === 2 && cdC[0].origem === 'C' && cdC[0].operacao === 'CATEGORIA' && cdC[0].tipo == null
+        && cdC[0].subtipo === 'D' && Number(cdC[0].idorigempromocao) === 10 && Number(cdC[0].valor) === 15
+        && cdC[1].subtipo === 'P' && Number(cdC[1].idorigempromocao) === 2,
+        { status: g30.status, cd0: { o: cdC[0]?.origem, op: cdC[0]?.operacao, st: cdC[0]?.subtipo, alvo: cdC[0]?.idorigempromocao, v: cdC[0]?.valor } });
+
+      // 91.31) SUBTIPO inválido → 422; alvo inexistente → 422; família com TIPO divergente (G no codfamilia 10 que é D) → 422 ALVO_INEXISTENTE.
+      const g31a = await crGp({ descricao: 'X', tipo: 'C', itens: [{ origem: 'C', subtipo: 'Z', idorigempromocao: 10, valor: 5 }] });
+      const g31aJ = (await g31a.json().catch(() => ({}))) as any;
+      const g31b = await crGp({ descricao: 'X', tipo: 'C', itens: [{ origem: 'C', subtipo: 'D', idorigempromocao: 999999, valor: 5 }] });
+      const g31bJ = (await g31b.json().catch(() => ({}))) as any;
+      const g31c = await crGp({ descricao: 'X', tipo: 'C', itens: [{ origem: 'C', subtipo: 'G', idorigempromocao: 10, valor: 5 }] }); // 10 é tipo 'D', não 'G'
+      const g31cJ = (await g31c.json().catch(() => ({}))) as any;
+      check('GP 91.31 corte-6: SUBTIPO inválido → 422 SUBTIPO_INVALIDO; alvo inexistente → 422 ALVO_INEXISTENTE; família tipo-divergente → 422 ALVO_INEXISTENTE',
+        g31a.status === 422 && g31aJ.code === 'PROMOCAO_CATEGORIA_SUBTIPO_INVALIDO'
+        && g31b.status === 422 && g31bJ.code === 'PROMOCAO_CATEGORIA_ALVO_INEXISTENTE'
+        && g31c.status === 422 && g31cJ.code === 'PROMOCAO_CATEGORIA_ALVO_INEXISTENTE',
+        { subt: [g31a.status, g31aJ.code], inex: [g31b.status, g31bJ.code], tipoDiv: [g31c.status, g31cJ.code] });
+
+      // 91.32) Categoria: alvo duplicado (mesmo SUBTIPO+alvo) → 422 PROMOCAO_CATEGORIA_DUPLICADA; SUBTIPO diferente p/ o mesmo id é OK.
+      const g32 = await crGp({ descricao: 'X', tipo: 'C', itens: [{ origem: 'C', subtipo: 'D', idorigempromocao: 10, valor: 5 }, { origem: 'C', subtipo: 'D', idorigempromocao: 10, valor: 9 }] });
+      const g32J = (await g32.json().catch(() => ({}))) as any;
+      check('GP 91.32 corte-6: Categoria alvo (SUBTIPO+id) duplicado → 422 PROMOCAO_CATEGORIA_DUPLICADA', g32.status === 422 && g32J.code === 'PROMOCAO_CATEGORIA_DUPLICADA', { status: g32.status, code: g32J.code });
+
+      // 91.33) FOLD: Fornecedor(F) + Marca(M) na mesma promoção → 422 PROMOCAO_CATEGORIA_FORN_MARCA_EXCLUSIVOS (CategoriaValidada pas:1728).
+      const g33 = await crGp({ descricao: 'X', tipo: 'C', itens: [{ origem: 'C', subtipo: 'F', idorigempromocao: 1, valor: 5 }, { origem: 'C', subtipo: 'M', idorigempromocao: 1, valor: 6 }] });
+      const g33J = (await g33.json().catch(() => ({}))) as any;
+      check('GP 91.33 FOLD: Categoria F+M na mesma promoção → 422 PROMOCAO_CATEGORIA_FORN_MARCA_EXCLUSIVOS', g33.status === 422 && g33J.code === 'PROMOCAO_CATEGORIA_FORN_MARCA_EXCLUSIVOS', { status: g33.status, code: g33J.code });
+
+      // 91.34) FOLD: Categoria SUBTIPO='P' com produto INATIVO (990010) → 422 PROMOCAO_CATEGORIA_ALVO_INEXISTENTE (P exige ATIVO='S', igual a P/F/V).
+      const g34 = await crGp({ descricao: 'X', tipo: 'C', itens: [{ origem: 'C', subtipo: 'P', idorigempromocao: 990010, valor: 5 }] });
+      const g34J = (await g34.json().catch(() => ({}))) as any;
+      check('GP 91.34 FOLD: Categoria-P produto inativo → 422 PROMOCAO_CATEGORIA_ALVO_INEXISTENTE (ATIVO=S)', g34.status === 422 && g34J.code === 'PROMOCAO_CATEGORIA_ALVO_INEXISTENTE', { status: g34.status, code: g34J.code });
+
       // cleanup: remove as promoções de teste (hard) + o produto inativo dedicado.
-      await pgGp.query(`DELETE FROM clube_desconto WHERE idpromocao IN (SELECT idpromocao FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO','PROMO LEVE PAGUE'))`);
-      await pgGp.query(`DELETE FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO','PROMO LEVE PAGUE')`);
+      await pgGp.query(`DELETE FROM clube_desconto WHERE idpromocao IN (SELECT idpromocao FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO','PROMO LEVE PAGUE','PROMO CATEGORIA'))`);
+      await pgGp.query(`DELETE FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO','PROMO LEVE PAGUE','PROMO CATEGORIA')`);
       await pgGp.query(`DELETE FROM produtos WHERE idproduto=990010`);
     } finally {
       await pgGp.end();

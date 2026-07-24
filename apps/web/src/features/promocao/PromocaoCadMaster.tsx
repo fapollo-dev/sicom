@@ -57,6 +57,18 @@ const TIPOCOMBO_OPCOES = [
   { value: 'C', label: 'A cada' },
   { value: 'M', label: 'Maior que' },
 ];
+/** SUBTIPO da Categoria (CbbCategoria) → dimensão do alvo. O/D/G/S = família (FAMILIAS_PROD.tipo), P/F/M = produto/fornecedor/marca. */
+const SUBTIPO_OPCOES = [
+  { value: 'O', label: 'Seção' },
+  { value: 'D', label: 'Departamento' },
+  { value: 'G', label: 'Grupo' },
+  { value: 'S', label: 'Subgrupo' },
+  { value: 'P', label: 'Produto' },
+  { value: 'F', label: 'Fornecedor' },
+  { value: 'M', label: 'Marca' },
+];
+const SUBTIPO_LABEL: Record<string, string> = Object.fromEntries(SUBTIPO_OPCOES.map((s) => [s.value, s.label]));
+const SUBTIPO_FAMILIA = new Set(['O', 'D', 'G', 'S']);
 
 /**
  * UI de cada mecânica já implementada. `shape` decide o adder:
@@ -64,15 +76,17 @@ const TIPOCOMBO_OPCOES = [
  *  - 'codigo' (R): SEM produto — Código + Vr. Desconto ($ ou % via checkbox) + Quantidade.
  *  - 'combo' (O): produto + Quantidade + Vr. Promoção + TIPO ($/%); o header carrega Valor/Tipo do combo.
  *  - 'levepague' (L): produto + Qtde. Leve + Qtde. Pague (SEM valor — desconto derivado de leve/pague).
+ *  - 'categoria' (C): SUBTIPO (dimensão) + alvo (família/produto/fornecedor/marca por SUBTIPO) + Promoção (%).
  * Fora deste mapa: aviso "próximo corte".
  */
-const MECANICA_UI: Record<string, { shape: 'produto' | 'codigo' | 'combo' | 'levepague'; rotulo?: string; unidade?: 'moeda' | 'percent' }> = {
+const MECANICA_UI: Record<string, { shape: 'produto' | 'codigo' | 'combo' | 'levepague' | 'categoria'; rotulo?: string; unidade?: 'moeda' | 'percent' }> = {
   P: { shape: 'produto', rotulo: 'Preço &Fixo', unidade: 'moeda' },
   F: { shape: 'produto', rotulo: 'De&sconto (R$)', unidade: 'moeda' },
   V: { shape: 'produto', rotulo: 'De&sconto (%)', unidade: 'percent' },
   R: { shape: 'codigo' },
   O: { shape: 'combo' },
   L: { shape: 'levepague' },
+  C: { shape: 'categoria' },
 };
 
 export function PromocaoCadMaster() {
@@ -106,6 +120,10 @@ export function PromocaoCadMaster() {
   // Leve Pague (L): produto + qtde leve + qtde pague (sem valor)
   const [qtdeLeve, setQtdeLeve] = useState<number | undefined>(undefined);
   const [qtdePague, setQtdePague] = useState<number | undefined>(undefined);
+  // Categoria (C): SUBTIPO (dimensão) + alvo (por SUBTIPO) + Promoção (%)
+  const [subtipoCat, setSubtipoCat] = useState<string>('P');
+  const [alvoCat, setAlvoCat] = useState<number | undefined>(undefined);
+  const [valorCat, setValorCat] = useState<number | undefined>(undefined);
 
   const mec = MECANICA_UI[tipo]; // config da aba ativa (undefined = aba não-pronta)
 
@@ -117,6 +135,27 @@ export function PromocaoCadMaster() {
   const rotuloProduto = useCallback(
     (id: unknown) => produtoOptions.find((o) => String(o.value) === String(id))?.label ?? String(id ?? ''),
     [produtoOptions],
+  );
+  // recursos do alvo da Categoria (por SUBTIPO): famílias (O/D/G/S), fornecedores (F), marcas (M); produtos (P) reusa acima.
+  const { data: familiaOptions = [] } = useResourceOptions('cadastro/familias', (f: any) => ({ value: String(f.codfamilia), label: `${f.codfamilia} - ${f.descricao ?? ''}`, tipo: String(f.tipo ?? '') }));
+  const { data: fornecedorOptions = [] } = useResourceOptions('cadastro/parceiros', (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao ?? p.fantasia ?? ''}` }), { campo: 'frn', operador: 'igual', valor: 'S' });
+  // get_marcas expõe a PK ora como idmarca, ora como codigo (igual ao ProdutoCadMaster) → fallback obrigatório.
+  const { data: marcaOptions = [] } = useResourceOptions('cadastro/marcas', (m: any) => ({ value: String(m.idmarca ?? m.codigo), label: `${m.idmarca ?? m.codigo} - ${m.descricao ?? ''}` }));
+  // opções do alvo conforme o SUBTIPO ativo (O/D/G/S filtram famílias por tipo).
+  const alvoOptions = useMemo(() => {
+    if (SUBTIPO_FAMILIA.has(subtipoCat)) return (familiaOptions as any[]).filter((o) => o.tipo === subtipoCat);
+    if (subtipoCat === 'P') return produtoOptions;
+    if (subtipoCat === 'F') return fornecedorOptions;
+    if (subtipoCat === 'M') return marcaOptions;
+    return [];
+  }, [subtipoCat, familiaOptions, produtoOptions, fornecedorOptions, marcaOptions]);
+  const rotuloAlvo = useCallback(
+    (subtipo: unknown, id: unknown) => {
+      const st = String(subtipo ?? '');
+      const src = SUBTIPO_FAMILIA.has(st) ? (familiaOptions as any[]) : st === 'P' ? produtoOptions : st === 'F' ? fornecedorOptions : st === 'M' ? marcaOptions : [];
+      return (src as any[]).find((o) => String(o.value) === String(id))?.label ?? String(id ?? '');
+    },
+    [familiaOptions, produtoOptions, fornecedorOptions, marcaOptions],
   );
 
   const recarregar = useCallback(async () => {
@@ -136,6 +175,7 @@ export function PromocaoCadMaster() {
     setCodigoR(''); setValorR(undefined); setPercR('N'); setQtdeR(undefined);
     setQtdeCombo(undefined); setTipoItemCombo('$');
     setQtdeLeve(undefined); setQtdePague(undefined);
+    setAlvoCat(undefined); setValorCat(undefined);
   };
 
   // P/F/V: produto + valor
@@ -187,6 +227,18 @@ export function PromocaoCadMaster() {
       return mensagem.erro('Produto já está na lista.');
     setItens((xs) => [...xs, {
       origem: 'L', idorigempromocao: idproduto, quantidade: n(qtdeLeve), quantidade_paga: n(qtdePague), ativo: 'S',
+    } as PromocaoItemDto]);
+    limparAdder();
+  };
+
+  // C (Categoria): SUBTIPO (dimensão) + alvo (por SUBTIPO) + Promoção (%). idorigempromocao = o alvo.
+  const adicionarCategoria = () => {
+    if (alvoCat == null) return mensagem.erro(`Selecione ${SUBTIPO_LABEL[subtipoCat]?.toLowerCase() ?? 'o alvo'}.`);
+    if (!(n(valorCat) > 0)) return mensagem.erro('Informe a promoção (%) (> 0).');
+    if (itens.some((it) => it.origem === 'C' && String(it.subtipo) === subtipoCat && Number(it.idorigempromocao) === alvoCat))
+      return mensagem.erro('Este alvo já está na lista.');
+    setItens((xs) => [...xs, {
+      origem: 'C', subtipo: subtipoCat, idorigempromocao: alvoCat, valor: n(valorCat), ativo: 'S',
     } as PromocaoItemDto]);
     limparAdder();
   };
@@ -298,6 +350,17 @@ export function PromocaoCadMaster() {
       ],
     },
   ], [rotuloProduto]);
+  const itensColsCategoria = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
+    { field: 'subtipo', headerName: 'Categoria', type: 'text', width: 130, valueGetter: (r) => SUBTIPO_LABEL[String(r.subtipo)] ?? String(r.subtipo ?? '') },
+    { field: 'idorigempromocao', headerName: 'Alvo', type: 'text', isPrimary: true, valueGetter: (r) => rotuloAlvo(r.subtipo, r.idorigempromocao) },
+    { field: 'valor', headerName: 'Promoção (%)', type: 'text', width: 130, valueGetter: (r) => fmtPct(r.valor) },
+    {
+      field: 'rem', headerName: '', type: 'actions', width: 60,
+      getActions: ({ row: r }: { row: PromocaoItemDto & { _i: number } }) => [
+        { id: 'rem', label: 'Remover', icon: <X size={16} />, destructive: true, onClick: () => removerItem(r._i) },
+      ],
+    },
+  ], [rotuloAlvo]);
 
   const itensDaAba = itens.map((it, _i) => ({ ...it, _i })).filter((it) => it.origem === tipo);
 
@@ -403,6 +466,22 @@ export function PromocaoCadMaster() {
               {itensDaAba.length > 0 && (
                 <div className="mt-form-gap overflow-x-auto">
                   <DataTable rows={itensDaAba} columns={itensColsLevePague} getRowId={(r) => String(r._i)} />
+                </div>
+              )}
+            </>
+          )}
+
+          {mec?.shape === 'categoria' && (
+            <>
+              <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
+                <div className="sm:col-span-2"><SelectField label="&Categoria" options={SUBTIPO_OPCOES} value={subtipoCat} onChange={(v) => { setSubtipoCat(v || 'P'); setAlvoCat(undefined); }} /></div>
+                <div className="sm:col-span-2"><SelectField label={`&${SUBTIPO_LABEL[subtipoCat] ?? 'Alvo'}`} options={alvoOptions} value={alvoCat != null ? String(alvoCat) : undefined} onChange={(v) => setAlvoCat(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
+                <NumberField label="&Promoção (%)" value={valorCat} onChange={setValorCat} decimais={2} min={0} max={100} />
+                <div className="flex items-end justify-end sm:col-span-1"><Button label="A&dicionar" variant="soft" onClick={adicionarCategoria} /></div>
+              </div>
+              {itensDaAba.length > 0 && (
+                <div className="mt-form-gap overflow-x-auto">
+                  <DataTable rows={itensDaAba} columns={itensColsCategoria} getRowId={(r) => String(r._i)} />
                 </div>
               )}
             </>
