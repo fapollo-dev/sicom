@@ -280,7 +280,7 @@ const CODE_PT: Record<string, string> = {
   // Gestão de Promoções (FRMCADPROMOCAO)
   PROMOCAO_PRECO_INVALIDO: 'Valor inválido — informe um valor maior que zero para o item (preço/desconto).',
   PROMOCAO_PRODUTO_INEXISTENTE: 'Produto do item de promoção não encontrado.',
-  PROMOCAO_ORIGEM_NAO_SUPORTADA: 'Esta mecânica de promoção ainda não foi implementada — use Preço Fixo, Desconto Fixo, Desconto Variável, Código Promocional, Combo, Leve Pague ou Categoria.',
+  PROMOCAO_ORIGEM_NAO_SUPORTADA: 'Esta mecânica de promoção ainda não foi implementada — use Preço Fixo, Desconto Fixo, Desconto Variável, Código Promocional, Combo, Leve Pague, Categoria ou Atacarejo.',
   PROMOCAO_ORIGEM_DIVERGE_TIPO: 'Os itens não correspondem à mecânica (Tipo) da promoção.',
   PROMOCAO_GRUPO_PRECO_NAO_SUPORTADO: 'Promoção por grupo de preço ainda não está disponível nesta tela.',
   PROMOCAO_CODIGO_OBRIGATORIO: 'Informe o código promocional do item.',
@@ -293,6 +293,7 @@ const CODE_PT: Record<string, string> = {
   PROMOCAO_CATEGORIA_ALVO_INEXISTENTE: 'O alvo informado (categoria/produto/fornecedor/marca) não existe.',
   PROMOCAO_CATEGORIA_DUPLICADA: 'Este alvo já foi informado nesta promoção.',
   PROMOCAO_CATEGORIA_FORN_MARCA_EXCLUSIVOS: 'Uma promoção por categoria não pode misturar Fornecedor e Marca — use apenas um dos dois.',
+  PROMOCAO_PRODUTO_OBRIGATORIO: 'Informe o produto do item.',
   // (PROMOCAO_PRODUTO_DUPLICADO já definido abaixo — reusado pela Gestão de Promoções)
   // (PROMOCAO_PRODUTO_INATIVO já definido abaixo — reusado pela Gestão de Promoções)
   // Ajuste de estoque (FRMAJUSTEESTOQUE)

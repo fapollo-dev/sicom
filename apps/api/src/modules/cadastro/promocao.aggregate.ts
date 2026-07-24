@@ -28,6 +28,9 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
  *              EXISTENTE + único por (SUBTIPO+alvo). Fornecedor e Marca são MUTUAMENTE EXCLUSIVOS na mesma promoção
  *              (CategoriaValidada pas:1728). ADIADO: ValidacaoOutraPromocao (sobreposição cross-promoção temporal,
  *              pas:1738) — módulo-wide, nenhuma mecânica a implementa. UI sugere Promoção max=100 (sem teto no servidor).
+ *   - corte-7 A Atacarejo (OPERACAO='ATACAREJO', TIPO $/% do cliente [golden 100% '$'], produto) — tiers "compre
+ *              QUANTIDADE+ → preço VALOR"; N tiers por produto → dedup por (produto+QUANTIDADE) (AtacarejoValidado
+ *              pas:724 + RegistroDuplicadoMesmaPromocao CampoAuxiliar='QUANTIDADE'); exige produto+QUANTIDADE>0+VALOR>0.
  * Produto-alvo (P/F/V/O/L): produto EXISTENTE+ATIVO. VALOR>0 nas que o usam (Leve Pague não). Período+DESTINO do
  * header em cada filho (pas:1265/1534). QUANTIDADE: ≤0/vazio→1 (default), EXCETO Combo/Leve Pague que a EXIGEM (>0).
  *
@@ -64,10 +67,11 @@ type MecanicaCfg = {
   codigo?: boolean; // exige CODIGO_PROMOCIONAL não-vazio
   tipoCliente?: boolean; // TIPO vem do cliente ($/%), não fixo (Código Promocional / Combo)
   valor?: boolean; // exige VALOR>0 (a maioria; Leve Pague NÃO usa VALOR → force NULL)
-  quantidade?: boolean; // exige QUANTIDADE>0 (não coage; Combo/Leve Pague)
+  quantidade?: boolean; // exige QUANTIDADE>0 (não coage; Combo/Leve Pague/Atacarejo)
   quantidadePaga?: boolean; // exige QUANTIDADE_PAGA>0 (Leve Pague)
   combo?: boolean; // header carrega VALORCOMBO+TIPOCOMBO, copiados em cada item (Combo)
   categoria?: boolean; // alvo POLIMÓRFICO por SUBTIPO (Categoria: família/produto/fornecedor/marca) em idorigempromocao
+  dedupPorQtde?: boolean; // dedup por (produto+QUANTIDADE) em vez de só produto (Atacarejo: N tiers por produto)
 };
 const MECANICAS: Record<string, MecanicaCfg> = {
   P: { operacao: 'PRECO', tipo: null, produto: true, valor: true }, // corte-1
@@ -77,6 +81,7 @@ const MECANICAS: Record<string, MecanicaCfg> = {
   O: { operacao: 'COMBO', tipo: '$', produto: true, tipoCliente: true, quantidade: true, combo: true, valor: true }, // corte-4
   L: { operacao: 'LEVE_PAGUE', tipo: null, produto: true, quantidade: true, quantidadePaga: true }, // corte-5 (SEM valor: leve X pague Y)
   C: { operacao: 'CATEGORIA', tipo: null, valor: true, categoria: true }, // corte-6 (alvo por SUBTIPO; VALOR = Promoção %)
+  A: { operacao: 'ATACAREJO', tipo: '$', produto: true, tipoCliente: true, valor: true, quantidade: true, dedupPorQtde: true }, // corte-7 (N tiers qtde→preço)
 };
 const TIPOCOMBO_VALIDOS = new Set(['C', 'M']); // 'C' a cada / 'M' maior que (CmbTipoCombo)
 // Categoria (CbbCategoria): SUBTIPO → dimensão do alvo. O/D/G/S=família (FAMILIAS_PROD.tipo), P=produto, F=fornecedor, M=marca.
@@ -185,13 +190,13 @@ export const promocaoAggregateConfig: AggregateConfig = {
         throw new BusinessRuleError('PROMOCAO_COMBO_INVALIDO', { valorcombo: dto.valorcombo, tipocombo: dto.tipocombo });
     }
     const codigosVistos = new Set<string>(); // dedup de CODIGO_PROMOCIONAL no mesmo payload (case-insensitive, como a UI)
-    const produtosVistos = new Set<number>(); // dedup de produto por promoção (RegistroDuplicadoMesmaPromocao pas:3170)
+    const produtosVistos = new Set<string>(); // dedup de produto (ou produto+QUANTIDADE p/ Atacarejo) por promoção
     const categoriasVistas = new Set<string>(); // dedup Categoria por (SUBTIPO+alvo) (RegistroDuplicadoMesmaPromocao(True))
     const alvosCategoria: Array<{ subtipo: string; id: number }> = []; // alvos p/ checar existência após o loop
     for (const it of itens) {
       const origem = String(it.origem);
       const mec = mecOf(origem);
-      // (a) só as mecânicas implementadas (P/F/V/R/O) são aceitas → outra ORIGEM = REJEITADA (fail-closed anti-lixo).
+      // (a) só as mecânicas implementadas (P/F/V/R/O/L/C/A) são aceitas → outra ORIGEM = REJEITADA (fail-closed anti-lixo).
       if (!mec) throw new BusinessRuleError('PROMOCAO_ORIGEM_NAO_SUPORTADA', { origem: it.origem });
       // (b) a ORIGEM do item tem de casar com o TIPO do header (as mecânicas atuais são self-origem: P/F/V/R);
       //     sem isso um payload de API gravaria header 'X' com itens de mecânica 'Y' (header↔detalhe divergente).
@@ -202,13 +207,15 @@ export const promocaoAggregateConfig: AggregateConfig = {
       if (mec.quantidade && !(Number(it.quantidade) > 0)) throw new BusinessRuleError('PROMOCAO_QUANTIDADE_INVALIDA', { idproduto: it.idorigempromocao });
       // Leve Pague (LevePagueValidada ';QUANTIDADE;QUANTIDADE_PAGA;'): Qtde. Pague obrigatória (>0).
       if (mec.quantidadePaga && !(Number(it.quantidade_paga) > 0)) throw new BusinessRuleError('PROMOCAO_QUANTIDADE_PAGA_INVALIDA', { idproduto: it.idorigempromocao });
-      // produto único por promoção (mecânicas produto-alvo) — RegistroDuplicadoMesmaPromocao (pas:3170); espelha o dedup da UI.
+      // produto OBRIGATÓRIO nas mecânicas produto-alvo (P/F/V/O/L/A) — o legado exige ("Informe o produto"); sem isso
+      // um payload de API gravaria idorigempromocao NULL = linha órfã (invisível ao JOIN PRODUTOS). Depois, produto ÚNICO
+      // por promoção (RegistroDuplicadoMesmaPromocao pas:3170); Atacarejo permite N tiers → dedup por (produto+QUANTIDADE).
       if (mec.produto) {
         const pid = Number(it.idorigempromocao);
-        if (Number.isFinite(pid) && pid > 0) {
-          if (produtosVistos.has(pid)) throw new BusinessRuleError('PROMOCAO_PRODUTO_DUPLICADO', { idproduto: pid });
-          produtosVistos.add(pid);
-        }
+        if (!(Number.isFinite(pid) && pid > 0)) throw new BusinessRuleError('PROMOCAO_PRODUTO_OBRIGATORIO');
+        const chave = mec.dedupPorQtde ? `${pid}|${Number(it.quantidade)}` : String(pid);
+        if (produtosVistos.has(chave)) throw new BusinessRuleError('PROMOCAO_PRODUTO_DUPLICADO', { idproduto: pid });
+        produtosVistos.add(chave);
       }
       // (d) grupo de preço (PRECO_GRUPO='S') exige o GrupoPrecoValidada cross-item do legado (pas:2669), ainda NÃO
       //     implementado (feature "promoção por grupo de preço", adiada) → rejeita p/ não gravar grupo meio-configurado.
@@ -244,7 +251,7 @@ export const promocaoAggregateConfig: AggregateConfig = {
       if (!(await alvoCategoriaExiste(db, emp, a.subtipo, a.id)))
         throw new BusinessRuleError('PROMOCAO_CATEGORIA_ALVO_INEXISTENTE', { subtipo: a.subtipo, id: a.id });
     }
-    // produto EXISTENTE+ATIVO — só para as mecânicas produto-alvo (P/F/V). R (código) não tem produto.
+    // produto EXISTENTE+ATIVO — só para as mecânicas produto-alvo (P/F/V/O/L/A). R (código) e C (categoria) não usam produto aqui.
     const ids = [
       ...new Set(
         itens

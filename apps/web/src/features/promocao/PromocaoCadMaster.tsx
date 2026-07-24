@@ -77,9 +77,10 @@ const SUBTIPO_FAMILIA = new Set(['O', 'D', 'G', 'S']);
  *  - 'combo' (O): produto + Quantidade + Vr. Promoção + TIPO ($/%); o header carrega Valor/Tipo do combo.
  *  - 'levepague' (L): produto + Qtde. Leve + Qtde. Pague (SEM valor — desconto derivado de leve/pague).
  *  - 'categoria' (C): SUBTIPO (dimensão) + alvo (família/produto/fornecedor/marca por SUBTIPO) + Promoção (%).
+ *  - 'atacarejo' (A): produto + Qtde. (tier) + Vr. Atacarejo + Cálculo ($/%); N tiers por produto (dedup produto+qtde).
  * Fora deste mapa: aviso "próximo corte".
  */
-const MECANICA_UI: Record<string, { shape: 'produto' | 'codigo' | 'combo' | 'levepague' | 'categoria'; rotulo?: string; unidade?: 'moeda' | 'percent' }> = {
+const MECANICA_UI: Record<string, { shape: 'produto' | 'codigo' | 'combo' | 'levepague' | 'categoria' | 'atacarejo'; rotulo?: string; unidade?: 'moeda' | 'percent' }> = {
   P: { shape: 'produto', rotulo: 'Preço &Fixo', unidade: 'moeda' },
   F: { shape: 'produto', rotulo: 'De&sconto (R$)', unidade: 'moeda' },
   V: { shape: 'produto', rotulo: 'De&sconto (%)', unidade: 'percent' },
@@ -87,6 +88,7 @@ const MECANICA_UI: Record<string, { shape: 'produto' | 'codigo' | 'combo' | 'lev
   O: { shape: 'combo' },
   L: { shape: 'levepague' },
   C: { shape: 'categoria' },
+  A: { shape: 'atacarejo' },
 };
 
 export function PromocaoCadMaster() {
@@ -124,6 +126,9 @@ export function PromocaoCadMaster() {
   const [subtipoCat, setSubtipoCat] = useState<string>('P');
   const [alvoCat, setAlvoCat] = useState<number | undefined>(undefined);
   const [valorCat, setValorCat] = useState<number | undefined>(undefined);
+  // Atacarejo (A): produto + Qtde. (tier) + Vr. Atacarejo + Cálculo ($/%)
+  const [qtdeAtac, setQtdeAtac] = useState<number | undefined>(undefined);
+  const [tipoAtac, setTipoAtac] = useState<string>('$');
 
   const mec = MECANICA_UI[tipo]; // config da aba ativa (undefined = aba não-pronta)
 
@@ -176,6 +181,7 @@ export function PromocaoCadMaster() {
     setQtdeCombo(undefined); setTipoItemCombo('$');
     setQtdeLeve(undefined); setQtdePague(undefined);
     setAlvoCat(undefined); setValorCat(undefined);
+    setQtdeAtac(undefined); setTipoAtac('$');
   };
 
   // P/F/V: produto + valor
@@ -239,6 +245,20 @@ export function PromocaoCadMaster() {
       return mensagem.erro('Este alvo já está na lista.');
     setItens((xs) => [...xs, {
       origem: 'C', subtipo: subtipoCat, idorigempromocao: alvoCat, valor: n(valorCat), ativo: 'S',
+    } as PromocaoItemDto]);
+    limparAdder();
+  };
+
+  // A (Atacarejo): produto + Qtde. (tier mín.) + Vr. Atacarejo (preço) + Cálculo ($/%). N tiers por produto (dedup produto+qtde).
+  const adicionarAtacarejo = () => {
+    if (idproduto == null) return mensagem.erro('Selecione o produto.');
+    if (!(n(qtdeAtac) > 0)) return mensagem.erro('Informe a quantidade (> 0).');
+    if (!(n(valorItem) > 0)) return mensagem.erro('Informe o valor do atacarejo (> 0).');
+    if (itens.some((it) => it.origem === 'A' && Number(it.idorigempromocao) === idproduto && Number(it.quantidade) === n(qtdeAtac)))
+      return mensagem.erro('Já existe um tier deste produto com essa quantidade.');
+    setItens((xs) => [...xs, {
+      origem: 'A', idorigempromocao: idproduto, quantidade: n(qtdeAtac), valor: n(valorItem),
+      tipo: tipoAtac === '%' ? '%' : '$', ativo: 'S',
     } as PromocaoItemDto]);
     limparAdder();
   };
@@ -361,6 +381,17 @@ export function PromocaoCadMaster() {
       ],
     },
   ], [rotuloAlvo]);
+  const itensColsAtacarejo = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
+    { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
+    { field: 'quantidade', headerName: 'A partir de (qtde.)', type: 'number', width: 150, valueGetter: (r) => n(r.quantidade) },
+    { field: 'valor', headerName: 'Vr. Atacarejo', type: 'text', width: 140, valueGetter: (r) => fmtValorPorTipo(r.valor, r.tipo) },
+    {
+      field: 'rem', headerName: '', type: 'actions', width: 60,
+      getActions: ({ row: r }: { row: PromocaoItemDto & { _i: number } }) => [
+        { id: 'rem', label: 'Remover', icon: <X size={16} />, destructive: true, onClick: () => removerItem(r._i) },
+      ],
+    },
+  ], [rotuloProduto]);
 
   const itensDaAba = itens.map((it, _i) => ({ ...it, _i })).filter((it) => it.origem === tipo);
 
@@ -482,6 +513,23 @@ export function PromocaoCadMaster() {
               {itensDaAba.length > 0 && (
                 <div className="mt-form-gap overflow-x-auto">
                   <DataTable rows={itensDaAba} columns={itensColsCategoria} getRowId={(r) => String(r._i)} />
+                </div>
+              )}
+            </>
+          )}
+
+          {mec?.shape === 'atacarejo' && (
+            <>
+              <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
+                <div className="sm:col-span-2"><SelectField label="&Produto" options={produtoOptions} value={idproduto != null ? String(idproduto) : undefined} onChange={(v) => setIdproduto(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
+                <NumberField label="A partir de (&qtde.)" value={qtdeAtac} onChange={setQtdeAtac} decimais={2} min={0} />
+                <CurrencyField label="V&r. Atacarejo" value={valorItem} onChange={setValorItem} />
+                <div className="sm:col-span-1"><SelectField label="Cá&lculo" options={TIPO_ITEM_OPCOES} value={tipoAtac} onChange={(v) => setTipoAtac(v || '$')} /></div>
+                <div className="flex items-end justify-end sm:col-span-1"><Button label="A&dicionar" variant="soft" onClick={adicionarAtacarejo} /></div>
+              </div>
+              {itensDaAba.length > 0 && (
+                <div className="mt-form-gap overflow-x-auto">
+                  <DataTable rows={itensDaAba} columns={itensColsAtacarejo} getRowId={(r) => String(r._i)} />
                 </div>
               )}
             </>

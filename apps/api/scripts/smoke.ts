@@ -5623,10 +5623,10 @@ async function main() {
       const g2cJ = (await g2c.json().catch(() => ({}))) as any;
       check('GP 91.2b FOLD: produto inativo → 422 PROMOCAO_PRODUTO_INATIVO', g2c.status === 422 && g2cJ.code === 'PROMOCAO_PRODUTO_INATIVO', { status: g2c.status, code: g2cJ.code });
 
-      // 91.2c) FOLD correção: item de mecânica AINDA não implementada (Atacarejo 'A') → 422 PROMOCAO_ORIGEM_NAO_SUPORTADA (fail-closed anti-lixo).
-      const g2d = await crGp({ descricao: 'X', tipo: 'A', itens: [{ origem: 'A', idorigempromocao: 1, valor: 2 }] });
+      // 91.2c) FOLD correção: item de mecânica AINDA não implementada (Bonificação 'B') → 422 PROMOCAO_ORIGEM_NAO_SUPORTADA (fail-closed anti-lixo).
+      const g2d = await crGp({ descricao: 'X', tipo: 'B', itens: [{ origem: 'B', idorigempromocao: 1, valor: 2 }] });
       const g2dJ = (await g2d.json().catch(() => ({}))) as any;
-      check('GP 91.2c FOLD: item de mecânica não-implementada (A) → 422 PROMOCAO_ORIGEM_NAO_SUPORTADA (anti-lixo latente)', g2d.status === 422 && g2dJ.code === 'PROMOCAO_ORIGEM_NAO_SUPORTADA', { status: g2d.status, code: g2dJ.code });
+      check('GP 91.2c FOLD: item de mecânica não-implementada (B) → 422 PROMOCAO_ORIGEM_NAO_SUPORTADA (anti-lixo latente)', g2d.status === 422 && g2dJ.code === 'PROMOCAO_ORIGEM_NAO_SUPORTADA', { status: g2d.status, code: g2dJ.code });
 
       // 91.3) período fim<início → 400; fim==início → 400 (legado: <= é inválido); descrição vazia → 400.
       const g3a = await crGp({ descricao: 'X', tipo: 'P', datainicio: '2028-05-10T10:00', datafim: '2028-05-01T10:00', itens: [{ origem: 'P', idorigempromocao: 1, valor: 2 }] });
@@ -5634,10 +5634,10 @@ async function main() {
       const g3c = await crGp({ descricao: 'X', tipo: 'P', datainicio: '2028-05-05T10:00', datafim: '2028-05-05T10:00', itens: [{ origem: 'P', idorigempromocao: 1, valor: 2 }] });
       check('GP 91.3: fim<início → 400; fim==início → 400 (legado <=); descrição vazia → 400', g3a.status === 400 && g3b.status === 400 && g3c.status === 400, { menor: g3a.status, igual: g3c.status, desc: g3b.status });
 
-      // 91.4) aba NÃO-pronta (tipo 'A' Atacarejo) → header grava SEM itens (201, qtde_itens=0). Cadastro do cabeçalho não trava.
-      const g4 = await crGp({ descricao: 'SO CABECALHO', tipo: 'A' });
+      // 91.4) aba NÃO-pronta (tipo 'D' Desconto Adicional) → header grava SEM itens (201, qtde_itens=0). Cadastro do cabeçalho não trava.
+      const g4 = await crGp({ descricao: 'SO CABECALHO', tipo: 'D' });
       const g4J = (await g4.json().catch(() => ({}))) as any;
-      check('GP 91.4: tipo não-pronto (A) sem itens → 201; header grava, qtde_itens=0', g4.status === 201 && (g4J.itens ?? []).length === 0, { status: g4.status, itens: (g4J.itens ?? []).length });
+      check('GP 91.4: tipo não-pronto (D) sem itens → 201; header grava, qtde_itens=0', g4.status === 201 && (g4J.itens ?? []).length === 0, { status: g4.status, itens: (g4J.itens ?? []).length });
 
       // 91.5) tipo fora do enum → 400 (CHECK/schema).
       const g5 = await crGp({ descricao: 'X', tipo: 'Z', itens: [] });
@@ -5851,9 +5851,42 @@ async function main() {
       const g34J = (await g34.json().catch(() => ({}))) as any;
       check('GP 91.34 FOLD: Categoria-P produto inativo → 422 PROMOCAO_CATEGORIA_ALVO_INEXISTENTE (ATIVO=S)', g34.status === 422 && g34J.code === 'PROMOCAO_CATEGORIA_ALVO_INEXISTENTE', { status: g34.status, code: g34J.code });
 
+      // 91.35) corte-7 ATACAREJO (tipo 'A') → N tiers "compre QTDE+ → preço VALOR". 2 tiers do MESMO produto (qtde 6→5,00 e 12→4,50).
+      // ORIGEM='A', OPERACAO='ATACAREJO', TIPO='$'. Multi-tier permitido (dedup por produto+QUANTIDADE).
+      const g35 = await crGp({ descricao: 'PROMO ATACAREJO', tipo: 'A', datainicio: '2028-12-01T00:00', datafim: '2028-12-10T00:00',
+        itens: [{ origem: 'A', idorigempromocao: 1, quantidade: 6, valor: 5.0, tipo: '$' }, { origem: 'A', idorigempromocao: 1, quantidade: 12, valor: 4.5, tipo: '$' }] });
+      const idpA = Number(((await g35.json().catch(() => ({}))) as any).idpromocao);
+      const cdA = (await pgGp.query(`SELECT origem, operacao, tipo, idorigempromocao, quantidade, valor FROM clube_desconto WHERE idpromocao=$1 ORDER BY quantidade`, [idpA])).rows as any[];
+      check('GP 91.35 corte-7: Atacarejo 2 tiers do mesmo produto (6→5,00 / 12→4,50) ORIGEM=A/OPERACAO=ATACAREJO/TIPO=$',
+        g35.status === 201 && cdA.length === 2 && cdA[0].origem === 'A' && cdA[0].operacao === 'ATACAREJO' && cdA[0].tipo === '$'
+        && Number(cdA[0].idorigempromocao) === 1 && Number(cdA[0].quantidade) === 6 && Number(cdA[0].valor) === 5.0
+        && Number(cdA[1].quantidade) === 12 && Number(cdA[1].valor) === 4.5,
+        { status: g35.status, n: cdA.length, t0: { q: cdA[0]?.quantidade, v: cdA[0]?.valor }, t1: { q: cdA[1]?.quantidade, v: cdA[1]?.valor } });
+
+      // 91.36) Atacarejo: produto+QUANTIDADE duplicado → 422 PROMOCAO_PRODUTO_DUPLICADO; qtde≤0 → 422 QUANTIDADE_INVALIDA; valor≤0 → 422 PRECO_INVALIDO.
+      const g36a = await crGp({ descricao: 'X', tipo: 'A', itens: [{ origem: 'A', idorigempromocao: 1, quantidade: 6, valor: 5, tipo: '$' }, { origem: 'A', idorigempromocao: 1, quantidade: 6, valor: 4, tipo: '$' }] });
+      const g36aJ = (await g36a.json().catch(() => ({}))) as any;
+      const g36b = await crGp({ descricao: 'X', tipo: 'A', itens: [{ origem: 'A', idorigempromocao: 1, quantidade: 0, valor: 5, tipo: '$' }] });
+      const g36bJ = (await g36b.json().catch(() => ({}))) as any;
+      const g36c = await crGp({ descricao: 'X', tipo: 'A', itens: [{ origem: 'A', idorigempromocao: 1, quantidade: 6, valor: 0, tipo: '$' }] });
+      const g36cJ = (await g36c.json().catch(() => ({}))) as any;
+      check('GP 91.36 corte-7: Atacarejo produto+qtde dup → 422 PRODUTO_DUPLICADO; qtde≤0 → 422 QUANTIDADE_INVALIDA; valor≤0 → 422 PRECO_INVALIDO',
+        g36a.status === 422 && g36aJ.code === 'PROMOCAO_PRODUTO_DUPLICADO' && g36b.status === 422 && g36bJ.code === 'PROMOCAO_QUANTIDADE_INVALIDA' && g36c.status === 422 && g36cJ.code === 'PROMOCAO_PRECO_INVALIDO',
+        { dup: [g36a.status, g36aJ.code], qtde: [g36b.status, g36bJ.code], valor: [g36c.status, g36cJ.code] });
+
+      // 91.37) FOLD: mecânica produto-alvo SEM produto (idorigempromocao ausente) → 422 PROMOCAO_PRODUTO_OBRIGATORIO
+      // (anti-órfão; o legado exige "Informe o produto"). Vale p/ P/F/V/O/L/A.
+      const g37a = await crGp({ descricao: 'X', tipo: 'P', itens: [{ origem: 'P', valor: 5 }] });
+      const g37aJ = (await g37a.json().catch(() => ({}))) as any;
+      const g37b = await crGp({ descricao: 'X', tipo: 'A', itens: [{ origem: 'A', quantidade: 6, valor: 5, tipo: '$' }] });
+      const g37bJ = (await g37b.json().catch(() => ({}))) as any;
+      check('GP 91.37 FOLD: produto-alvo sem produto (P e A) → 422 PROMOCAO_PRODUTO_OBRIGATORIO (anti-órfão)',
+        g37a.status === 422 && g37aJ.code === 'PROMOCAO_PRODUTO_OBRIGATORIO' && g37b.status === 422 && g37bJ.code === 'PROMOCAO_PRODUTO_OBRIGATORIO',
+        { p: [g37a.status, g37aJ.code], a: [g37b.status, g37bJ.code] });
+
       // cleanup: remove as promoções de teste (hard) + o produto inativo dedicado.
-      await pgGp.query(`DELETE FROM clube_desconto WHERE idpromocao IN (SELECT idpromocao FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO','PROMO LEVE PAGUE','PROMO CATEGORIA'))`);
-      await pgGp.query(`DELETE FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO','PROMO LEVE PAGUE','PROMO CATEGORIA')`);
+      await pgGp.query(`DELETE FROM clube_desconto WHERE idpromocao IN (SELECT idpromocao FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO','PROMO LEVE PAGUE','PROMO CATEGORIA','PROMO ATACAREJO'))`);
+      await pgGp.query(`DELETE FROM promocao WHERE descricao IN ('PROMO PRECO FIXO','SO CABECALHO','PROMO DESC FIXO','PROMO DESC VAR','PROMO SPOOF','QTDE ZERO','PROMO CODIGO','PROMO CODIGO PCT','PROMO CODIGO DEST','PROMO COMBO','PROMO PF SEMCOMBO','PROMO LEVE PAGUE','PROMO CATEGORIA','PROMO ATACAREJO')`);
       await pgGp.query(`DELETE FROM produtos WHERE idproduto=990010`);
     } finally {
       await pgGp.end();
