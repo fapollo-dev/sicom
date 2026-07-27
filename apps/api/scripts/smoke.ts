@@ -400,14 +400,32 @@ async function main() {
         codunidade: 1,
         codfor: 2,
         aliquota: 'T01',
+        // aba "Outros" (14 flags da mig 113): S/N round-trip, incl. as 3 do achado de paridade.
+        servico: 'S', atacado: 'S', vende_site: 'S', retirapromo: 'N',
+        prod_sem_gtin: 'S', vasilhame: 'N', cotacao: 'S',
         codauxiliares: [{ codauxiliar: '7891000100103', codbarra: '7896000000017', fatoremb: 12, codunidade: 3 }],
       }),
     });
     const prod = (await prodPost.json()) as any;
     check(
-      'POST /cadastro/produtos cria agregado (master + 1 codauxiliar)',
-      prodPost.status === 201 && Number.isFinite(Number(prod.idproduto)) && prod.codauxiliares?.length === 1,
-      prod,
+      'POST /cadastro/produtos cria agregado (master + 1 codauxiliar) + flags "Outros" (servico/atacado/vende_site/prod_sem_gtin/cotacao=S, retirapromo/vasilhame=N) round-trip',
+      prodPost.status === 201 && Number.isFinite(Number(prod.idproduto)) && prod.codauxiliares?.length === 1
+      && prod.servico === 'S' && prod.atacado === 'S' && prod.vende_site === 'S' && prod.retirapromo === 'N'
+      && prod.prod_sem_gtin === 'S' && prod.vasilhame === 'N' && prod.cotacao === 'S',
+      { id: prod.idproduto, aux: prod.codauxiliares?.length, flags: { servico: prod.servico, atacado: prod.atacado, vende_site: prod.vende_site, retirapromo: prod.retirapromo, prod_sem_gtin: prod.prod_sem_gtin, vasilhame: prod.vasilhame, cotacao: prod.cotacao } },
+    );
+    // 15a2) flag S/N TOLERANTE — reabrir+gravar produto legado com SERVICO='0' (valor sujo dominante do
+    // golden) NÃO pode reprovar (400): snFlag coage não-'S' → 'N'. Envia '0' num PUT e espera 'N'.
+    const prodDirtyPut = await fetch(`${base}/cadastro/produtos/${prod.idproduto}`, {
+      method: 'PUT',
+      headers: H,
+      body: JSON.stringify({ servico: '0', atacado: 'S' }),
+    });
+    const prodDirty = (await prodDirtyPut.json()) as any;
+    check(
+      'PUT /cadastro/produtos coage flag suja SERVICO="0" → "N" (não reprova; golden legado)',
+      prodDirtyPut.status === 200 && prodDirty.servico === 'N' && prodDirty.atacado === 'S',
+      { status: prodDirtyPut.status, servico: prodDirty.servico, atacado: prodDirty.atacado },
     );
 
     // 15b) PRODUTO F2 — MULTI_PRECO (preço/custo POR EMPRESA na mesma form), via HTTP

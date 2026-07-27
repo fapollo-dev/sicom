@@ -190,6 +190,7 @@ export function ProdutoCadMaster() {
           {/* F4b — campos-mestre de armazenamento puro (sem cálculo), INLINE na MESMA form. */}
           <NutricionalSection form={form} editavel={editavel} />
           <LogisticaSection form={form} editavel={editavel} />
+          <OutrosSection form={form} editavel={editavel} />
           {/* Referência Fornecedor (CODREFERENCIA_FOR / DE-PARA) — visto por idproduto; só p/ produto gravado. */}
           <fieldset className="rounded-radius-md border border-border p-pad-md">
             <legend className="px-pad-xs text-fg-muted">Referência Fornecedor</legend>
@@ -1930,6 +1931,49 @@ function NutricionalSection({
  * Layout: sub-grid de DIMENSÕES (Comprimento/Largura/Altura × Produto/Caixa/Pallet) →
  * PESOS (Peso líq./Peso bruto × Produto/Caixa/Pallet) → PALETIZAÇÃO (inteiros) + fator caixa.
  */
+/**
+ * Aba "Outros" (tshOutros do UCadProduto) — 14 flags S/N de comportamento do produto (consumidos por PDV/site/
+ * cotação/balança). Armazenamento puro na master (todas da mig 113 — `servico` é produto-nível, distinto de
+ * receita_prod.servico da mig 023; snFlag tolera o '0' sujo do golden). ADIADO: FCP_SAIDA/DESC_FCP (lookup FCP
+ * inexistente; CODFCP já vive na aba Fiscal), Tara (lookup de balança inexistente), IPPT (sem coluna no golden).
+ */
+// Rótulos fiéis ao tshOutros do UCadProduto (acceleradores Delphi `&` removidos — sem convenção web).
+const OUTROS_FLAGS: { name: keyof CriarProdutoDto; label: string }[] = [
+  { name: 'servico', label: 'Item de serviço' },
+  { name: 'atacado', label: 'Atacado' },
+  { name: 'realizatroca', label: 'Troca' },
+  { name: 'retirapromo', label: 'Ignorar na promoção' },
+  { name: 'imobilizado', label: 'Imobilizado' },
+  { name: 'vende_site', label: 'Vende no site' },
+  { name: 'altera_descricao_cotacao', label: 'Altera descrição na cotação' },
+  { name: 'servicoatende', label: 'Serviço Integração Atende' },
+  { name: 'item_cozinha', label: 'Item produzido na cozinha' },
+  { name: 'impressora_terminal', label: 'Imprime próximo do terminal' },
+  { name: 'exibesicomanda', label: 'Exibe no SICOMANDA' },
+  { name: 'prod_sem_gtin', label: 'Não possui GTIN' },
+  { name: 'vasilhame', label: 'Vasilhame' },
+  { name: 'cotacao', label: 'Cotação' },
+];
+function OutrosSection({ form, editavel }: { form: UseFormReturn<CriarProdutoDto>; editavel: boolean }) {
+  return (
+    <fieldset disabled={!editavel} className="rounded-radius-md border border-border p-pad-md">
+      <legend className="px-pad-xs text-fg-muted">Outros</legend>
+      <div className="flex flex-wrap items-center gap-gp-lg">
+        {OUTROS_FLAGS.map((f) => (
+          <Controller
+            key={f.name}
+            control={form.control}
+            name={f.name}
+            render={({ field }) => (
+              <CheckboxField label={f.label} value={(field.value as string | undefined) ?? 'N'} onChange={field.onChange} disabled={!editavel} />
+            )}
+          />
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 function LogisticaSection({
   form,
   editavel,

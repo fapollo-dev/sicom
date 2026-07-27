@@ -33,6 +33,11 @@ export const produtoAggregateConfig: AggregateConfig = {
     'ativo', 'ativo_compra', 'idproduto_pai', 'fator_filho', 'geraqtde',
     // F4 — flags de kit/BOM (derivadas por derivar() conforme presença de itens)
     'composicao', 'decomposicao', 'receita',
+    // aba "Outros" (tshOutros) — 14 flags S/N de comportamento (todas da mig 113; servico é produto-nível,
+    // distinto de receita_prod.servico). prod_sem_gtin/vasilhame/cotacao foram achado de paridade.
+    'servico', 'servicoatende', 'item_cozinha', 'impressora_terminal', 'retirapromo', 'realizatroca',
+    'imobilizado', 'atacado', 'exibesicomanda', 'vende_site', 'altera_descricao_cotacao',
+    'prod_sem_gtin', 'vasilhame', 'cotacao',
     // F4b — nutricional (rotulagem)
     'valorenergetico', 'carboidrato', 'proteina', 'gorduratotal', 'gordurasaturada', 'gorduratrans',
     'fibra', 'sodio', 'acucares_totais', 'acucares_adicionados',

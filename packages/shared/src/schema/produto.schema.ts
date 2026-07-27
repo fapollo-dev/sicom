@@ -39,6 +39,17 @@ const opcional = <T extends z.ZodTypeAny>(s: T) =>
 const sn = (msg = "Informe 'S' ou 'N'") => z.enum(['S', 'N'], { message: msg });
 
 /**
+ * Flag S/N TOLERANTE a dados sujos do legado. O golden de várias flags de comportamento
+ * traz valores fora de {'S','N'} — ex.: PRODUTOS.SERVICO tem '0' como valor DOMINANTE
+ * (33.936 linhas) além de 'N'/'S'/NULL. O TDBCheckBox do legado (ValueChecked='S') trata
+ * QUALQUER valor ≠ 'S' como DESMARCADO, então coagimos não-'S' → 'N' (semanticamente idêntico)
+ * e preservamos NULL → ausente (o delta não regrava; mantém "sem default" do golden). Sem isto,
+ * reabrir+gravar um produto legado com SERVICO='0' reprovaria (400) no enum estrito.
+ */
+const snFlag = () =>
+  z.preprocess((v) => (v == null ? undefined : v === 'S' ? 'S' : 'N'), z.enum(['S', 'N']).optional());
+
+/**
  * Campo DECIMAL tolerante: a API retorna colunas `numeric` do Postgres como STRING
  * (ex.: '4.5500'); ao reabrir o registro p/ edição, o form carrega a string. Este helper
  * aceita número OU string numérica e normaliza ('' / null → ausente) ANTES de validar —
@@ -209,6 +220,23 @@ const produtoBase = z.object({
   composicao: sn().optional(),
   decomposicao: sn().optional(),
   receita: sn().optional(),
+  // aba "Outros" (tshOutros) — flags S/N de comportamento do produto (PDV/site/cotação/balança).
+  // Todas nullable no golden e TOLERANTES a valor sujo (snFlag: '0'/etc → 'N'; NULL preservado).
+  servico: snFlag(),
+  servicoatende: snFlag(),
+  item_cozinha: snFlag(),
+  impressora_terminal: snFlag(),
+  retirapromo: snFlag(),
+  realizatroca: snFlag(),
+  imobilizado: snFlag(),
+  atacado: snFlag(),
+  exibesicomanda: snFlag(),
+  vende_site: snFlag(),
+  altera_descricao_cotacao: snFlag(),
+  // Achado paridade (ALTA): 3 checkboxes do tshOutros com DADO real no golden, antes dropados.
+  prod_sem_gtin: snFlag(), // "Este produto não possui GTIN" — golden 'S'=12.869
+  vasilhame: snFlag(), // "Vasilhame" — golden 'N'=13.162
+  cotacao: snFlag(), // "Cotação" (participa de cotação; NÃO confundir c/ tabela RFQ cotacao) — golden 'S'=2.852
   // F4b — NUTRICIONAL (rotulagem; armazenamento puro, VD% digitados)
   valorenergetico: dec(z.number().nonnegative()),
   carboidrato: dec(z.number().nonnegative()),
