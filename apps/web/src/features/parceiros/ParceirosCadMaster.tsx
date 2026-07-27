@@ -32,6 +32,7 @@ import {
   RelacionamentosSection,
   VendedoresSection,
 } from './ParceirosDetalhes';
+import { RefFornecedorSection } from '../de-para/RefFornecedorSection';
 
 /**
  * Papel da tela (parametrização). A MESMA tela serve Cliente/Fornecedor/etc. — só muda
@@ -522,6 +523,14 @@ function CamposCondicionais({
               {...form.register('codcontabil_for')}
             />
           </div>
+        </fieldset>
+      )}
+
+      {/* ===== Cód. ref. fornecedor (CODREFERENCIA_FOR / DE-PARA) — só p/ fornecedor gravado ===== */}
+      {ehFornecedor && (
+        <fieldset className="rounded-radius-md border border-border p-pad-md">
+          <legend className="px-pad-xs text-fg-muted">Cód. ref. fornecedor</legend>
+          <RefFornecedorSection codfor={Number(form.watch('codparceiro' as never)) || undefined} editavel={editavel} />
         </fieldset>
       )}
 

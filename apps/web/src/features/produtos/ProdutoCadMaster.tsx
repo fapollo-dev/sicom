@@ -28,6 +28,7 @@ import { CodAuxiliarModal } from './CodAuxiliarModal';
 import { ComposicaoModal } from './ComposicaoModal';
 import { DecomposicaoModal } from './DecomposicaoModal';
 import { ReceitaModal } from './ReceitaModal';
+import { RefFornecedorSection } from '../de-para/RefFornecedorSection';
 import { precificarProduto } from './precificacaoApi';
 
 /**
@@ -189,6 +190,11 @@ export function ProdutoCadMaster() {
           {/* F4b — campos-mestre de armazenamento puro (sem cálculo), INLINE na MESMA form. */}
           <NutricionalSection form={form} editavel={editavel} />
           <LogisticaSection form={form} editavel={editavel} />
+          {/* Referência Fornecedor (CODREFERENCIA_FOR / DE-PARA) — visto por idproduto; só p/ produto gravado. */}
+          <fieldset className="rounded-radius-md border border-border p-pad-md">
+            <legend className="px-pad-xs text-fg-muted">Referência Fornecedor</legend>
+            <RefFornecedorSection idproduto={Number(form.watch('idproduto' as never)) || undefined} editavel={editavel} />
+          </fieldset>
         </div>
       )}
     />
