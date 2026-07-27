@@ -79,9 +79,11 @@ const SUBTIPO_FAMILIA = new Set(['O', 'D', 'G', 'S']);
  *  - 'categoria' (C): SUBTIPO (dimensão) + alvo (família/produto/fornecedor/marca por SUBTIPO) + Promoção (%).
  *  - 'atacarejo' (A): produto + Qtde. (tier) + Vr. Atacarejo + Cálculo ($/%); N tiers por produto (dedup produto+qtde).
  *  - 'bonificacao' (B): produto + Quantidade + Quantidade bonificada (SEM valor).
+ *  - 'doisgrids' (G/D): 2 GRIDS pai+filho — Grupo A "leve" (origem=tipo) + Grupo B "ganhe" (origem=tipo+'F').
+ *    Produto Grátis (G): ambos produto+qtde. Desconto Adicional (D): Grupo B tem % adicional (filhoValor).
  * Fora deste mapa: aviso "próximo corte".
  */
-const MECANICA_UI: Record<string, { shape: 'produto' | 'codigo' | 'combo' | 'levepague' | 'categoria' | 'atacarejo' | 'bonificacao'; rotulo?: string; unidade?: 'moeda' | 'percent' }> = {
+const MECANICA_UI: Record<string, { shape: 'produto' | 'codigo' | 'combo' | 'levepague' | 'categoria' | 'atacarejo' | 'bonificacao' | 'doisgrids'; rotulo?: string; unidade?: 'moeda' | 'percent'; grupoA?: string; grupoB?: string; filhoValor?: boolean }> = {
   P: { shape: 'produto', rotulo: 'Preço &Fixo', unidade: 'moeda' },
   F: { shape: 'produto', rotulo: 'De&sconto (R$)', unidade: 'moeda' },
   V: { shape: 'produto', rotulo: 'De&sconto (%)', unidade: 'percent' },
@@ -91,6 +93,8 @@ const MECANICA_UI: Record<string, { shape: 'produto' | 'codigo' | 'combo' | 'lev
   C: { shape: 'categoria' },
   A: { shape: 'atacarejo' },
   B: { shape: 'bonificacao' },
+  G: { shape: 'doisgrids', grupoA: 'Grupo A — leve', grupoB: 'Grupo B — ganhe grátis' },
+  D: { shape: 'doisgrids', grupoA: 'Grupo A — leve', grupoB: 'Grupo B — desconto adicional', filhoValor: true },
 };
 
 export function PromocaoCadMaster() {
@@ -134,6 +138,12 @@ export function PromocaoCadMaster() {
   // Bonificação (B): produto + Quantidade (compre) + Quantidade bonificada (ganhe)
   const [qtdeCompraB, setQtdeCompraB] = useState<number | undefined>(undefined);
   const [qtdeBonifB, setQtdeBonifB] = useState<number | undefined>(undefined);
+  // 2 grids (G/D): Grupo A (leve) = produto + qtde; Grupo B (ganhe) = produto + qtde (+ % adicional no Desconto Adicional)
+  const [idProdA, setIdProdA] = useState<number | undefined>(undefined);
+  const [qtdeGA, setQtdeGA] = useState<number | undefined>(undefined);
+  const [idProdB, setIdProdB] = useState<number | undefined>(undefined);
+  const [qtdeGB, setQtdeGB] = useState<number | undefined>(undefined);
+  const [valorGB, setValorGB] = useState<number | undefined>(undefined);
 
   const mec = MECANICA_UI[tipo]; // config da aba ativa (undefined = aba não-pronta)
 
@@ -188,6 +198,7 @@ export function PromocaoCadMaster() {
     setAlvoCat(undefined); setValorCat(undefined);
     setQtdeAtac(undefined); setTipoAtac('$');
     setQtdeCompraB(undefined); setQtdeBonifB(undefined);
+    setIdProdA(undefined); setQtdeGA(undefined); setIdProdB(undefined); setQtdeGB(undefined); setValorGB(undefined);
   };
 
   // P/F/V: produto + valor
@@ -280,6 +291,31 @@ export function PromocaoCadMaster() {
       origem: 'B', idorigempromocao: idproduto, quantidade: n(qtdeCompraB), quantidade_paga: n(qtdeBonifB), ativo: 'S',
     } as PromocaoItemDto]);
     limparAdder();
+  };
+
+  // G/D 2 grids — Grupo A (leve): origem = TIPO; produto + quantidade.
+  const adicionarGrupoA = () => {
+    if (idProdA == null) return mensagem.erro('Selecione o produto do Grupo A.');
+    if (!(n(qtdeGA) > 0)) return mensagem.erro('Informe a quantidade do Grupo A (> 0).');
+    if (itens.some((it) => it.origem === tipo && Number(it.idorigempromocao) === idProdA))
+      return mensagem.erro('Produto já está no Grupo A.');
+    setItens((xs) => [...xs, { origem: tipo, idorigempromocao: idProdA, quantidade: n(qtdeGA), ativo: 'S' } as PromocaoItemDto]);
+    setIdProdA(undefined); setQtdeGA(undefined);
+  };
+  // G/D 2 grids — Grupo B (ganhe): origem = TIPO+'F' (GF/DF); produto + quantidade (+ % adicional se filhoValor).
+  const adicionarGrupoB = () => {
+    if (!mec || mec.shape !== 'doisgrids') return;
+    const origemB = `${tipo}F`;
+    if (idProdB == null) return mensagem.erro('Selecione o produto do Grupo B.');
+    if (!(n(qtdeGB) > 0)) return mensagem.erro('Informe a quantidade do Grupo B (> 0).');
+    if (mec.filhoValor && !(n(valorGB) > 0)) return mensagem.erro('Informe o desconto adicional (%) (> 0).');
+    if (itens.some((it) => it.origem === origemB && Number(it.idorigempromocao) === idProdB))
+      return mensagem.erro('Produto já está no Grupo B.');
+    setItens((xs) => [...xs, {
+      origem: origemB, idorigempromocao: idProdB, quantidade: n(qtdeGB),
+      ...(mec.filhoValor ? { valor: n(valorGB) } : {}), ativo: 'S',
+    } as PromocaoItemDto]);
+    setIdProdB(undefined); setQtdeGB(undefined); setValorGB(undefined);
   };
 
   const removerItem = (i: number) => setItens((xs) => xs.filter((_, idx) => idx !== i));
@@ -422,8 +458,27 @@ export function PromocaoCadMaster() {
       ],
     },
   ], [rotuloProduto]);
+  const remCol: DataTableColumnDef<PromocaoItemDto & { _i: number }> = {
+    field: 'rem', headerName: '', type: 'actions', width: 60,
+    getActions: ({ row: r }: { row: PromocaoItemDto & { _i: number } }) => [
+      { id: 'rem', label: 'Remover', icon: <X size={16} />, destructive: true, onClick: () => removerItem(r._i) },
+    ],
+  };
+  const itensColsGrupoA = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
+    { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
+    { field: 'quantidade', headerName: 'Quantidade', type: 'number', width: 120, valueGetter: (r) => n(r.quantidade) },
+    remCol,
+  ], [rotuloProduto]);
+  const itensColsGrupoB = useMemo<DataTableColumnDef<PromocaoItemDto & { _i: number }>[]>(() => [
+    { field: 'idorigempromocao', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idorigempromocao) },
+    { field: 'quantidade', headerName: 'Quantidade', type: 'number', width: 120, valueGetter: (r) => n(r.quantidade) },
+    ...(mec?.filhoValor ? [{ field: 'valor', headerName: 'Desconto (%)', type: 'text' as const, width: 120, valueGetter: (r: any) => fmtPct(r.valor) }] : []),
+    remCol,
+  ], [rotuloProduto, mec?.filhoValor]);
 
-  const itensDaAba = itens.map((it, _i) => ({ ...it, _i })).filter((it) => it.origem === tipo);
+  const itensComIdx = itens.map((it, _i) => ({ ...it, _i }));
+  const itensDaAba = itensComIdx.filter((it) => it.origem === tipo); // Grupo A (nas de 2 grids) / única aba nas demais
+  const itensGrupoB = itensComIdx.filter((it) => it.origem === `${tipo}F`); // Grupo B (GF/DF), só nas de 2 grids
 
   return (
     <div className="flex flex-col gap-gp-md">
@@ -579,6 +634,37 @@ export function PromocaoCadMaster() {
                 </div>
               )}
             </>
+          )}
+
+          {mec?.shape === 'doisgrids' && (
+            <div className="flex flex-col gap-form-gap">
+              {/* Grupo A — leve (origem = TIPO) */}
+              <div>
+                <div className="mb-gp-2xs text-body-sm font-semibold text-fg-default">{mec.grupoA}</div>
+                <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
+                  <div className="sm:col-span-3"><SelectField label="Produto (&A)" options={produtoOptions} value={idProdA != null ? String(idProdA) : undefined} onChange={(v) => setIdProdA(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
+                  <NumberField label="&Quantidade" value={qtdeGA} onChange={setQtdeGA} decimais={0} min={0} />
+                  <div className="flex items-end justify-end sm:col-span-2"><Button label="Adicionar ao Grupo &A" variant="ghost" onClick={adicionarGrupoA} /></div>
+                </div>
+                {itensDaAba.length > 0 && (
+                  <div className="mt-gp-2xs overflow-x-auto"><DataTable rows={itensDaAba} columns={itensColsGrupoA} getRowId={(r) => String(r._i)} /></div>
+                )}
+              </div>
+              {/* Grupo B — ganhe (origem = TIPO+'F') */}
+              <div className="border-t border-border-subtle pt-form-gap">
+                <div className="mb-gp-2xs text-body-sm font-semibold text-fg-default">{mec.grupoB}</div>
+                <div className="grid grid-cols-1 items-end gap-form-gap sm:grid-cols-6">
+                  <div className="sm:col-span-3"><SelectField label="Produto (&B)" options={produtoOptions} value={idProdB != null ? String(idProdB) : undefined} onChange={(v) => setIdProdB(v ? Number(v) : undefined)} placeholder="Selecione…" /></div>
+                  <NumberField label="Q&uantidade" value={qtdeGB} onChange={setQtdeGB} decimais={0} min={0} />
+                  {/* % adicional SEM teto (golden DF vai até 279%; servidor uncapped, fiel) */}
+                  {mec.filhoValor && <NumberField label="&Desconto (%)" value={valorGB} onChange={setValorGB} decimais={2} min={0} />}
+                  <div className={`flex items-end justify-end ${mec.filhoValor ? 'sm:col-span-1' : 'sm:col-span-2'}`}><Button label="Adicionar ao Grupo &B" variant="ghost" onClick={adicionarGrupoB} /></div>
+                </div>
+                {itensGrupoB.length > 0 && (
+                  <div className="mt-gp-2xs overflow-x-auto"><DataTable rows={itensGrupoB} columns={itensColsGrupoB} getRowId={(r) => String(r._i)} /></div>
+                )}
+              </div>
+            </div>
           )}
 
           {!mec && (

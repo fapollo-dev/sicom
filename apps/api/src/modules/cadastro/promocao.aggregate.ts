@@ -34,6 +34,18 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
  *   - corte-8 B Bonificação (OPERACAO='BONIFICAÇÃO', TIPO NULL, produto, SEM VALOR) — "compre QUANTIDADE, ganhe
  *              QUANTIDADE_PAGA bonificada" (BonificacaoValidado pas:1104: produto + QUANTIDADE>0 + QUANTIDADE_PAGA>0
  *              + dedup produto). Estrutura irmã do Leve Pague (QUANTIDADE_PAGA reusada como "bonificada").
+ *   - corte-9 G/D 2 GRIDS (pai+filho) — a promoção carrega DUAS origens: Grupo A (leve) + Grupo B (ganhe):
+ *              · Produto Grátis (TIPO='G'): G (OPERACAO='GRATIS') + GF ('GRATIS_FILHO'); ambos produto+QUANTIDADE>0,
+ *                sem VALOR (ProdutoGratisValidada pas:3200: QUANTIDADE nos 2 grids).
+ *              · Desconto Adicional (TIPO='D'): D ('ADICIONAL', produto+QUANTIDADE) + DF ('ADICIONAL_FILHO', TIPO='%',
+ *                produto+QUANTIDADE+VALOR=% adicional) — AdicionalValidada pas:705.
+ *              A guarda origem===tipo é relaxada via origensDoTipo(): tipo 'G'→{G,GF}, 'D'→{D,DF}. Dedup por ORIGEM+produto
+ *              (mesmo produto pode estar no Grupo A e no Grupo B; golden: 247 promos com ambos os grids).
+ * DIVERGÊNCIAS CONSCIENTES das de 2 grids: (a) NÃO exigimos os 2 grids preenchidos — fiel (ProdutoGratis/AdicionalValidada
+ *   só rodam PadraoValidada por grid, que passa vazio; golden tem promos só-A/só-B). (b) dedup por-grid (produto único
+ *   por grupo) é mais ESTRITA que ProdutoGratis/AdicionalValidada (que NÃO deduplicam) porém fiel ao add-time
+ *   CarregarItens (locate por BARRAS, pas:1651); a UI web escolhe por id, então nunca há multi-barcode-mesmo-produto.
+ *   (c) % do Desconto Adicional (DF) SEM teto no servidor (golden vai até 279%); a UI não limita.
  * Produto-alvo (P/F/V/O/L): produto EXISTENTE+ATIVO. VALOR>0 nas que o usam (Leve Pague não). Período+DESTINO do
  * header em cada filho (pas:1265/1534). QUANTIDADE: ≤0/vazio→1 (default), EXCETO Combo/Leve Pague que a EXIGEM (>0).
  *
@@ -86,8 +98,17 @@ const MECANICAS: Record<string, MecanicaCfg> = {
   C: { operacao: 'CATEGORIA', tipo: null, valor: true, categoria: true }, // corte-6 (alvo por SUBTIPO; VALOR = Promoção %)
   A: { operacao: 'ATACAREJO', tipo: '$', produto: true, tipoCliente: true, valor: true, quantidade: true, dedupPorQtde: true }, // corte-7 (N tiers qtde→preço)
   B: { operacao: 'BONIFICAÇÃO', tipo: null, produto: true, quantidade: true, quantidadePaga: true }, // corte-8 (compre QUANTIDADE, ganhe QUANTIDADE_PAGA bonificada; sem valor)
+  // corte-9 — mecânicas de 2 GRIDS (pai + filho): a promoção tem itens de DUAS origens (Grupo A "leve" + Grupo B "ganhe").
+  G: { operacao: 'GRATIS', tipo: null, produto: true, quantidade: true }, // Produto Grátis Grupo A ("leve")
+  GF: { operacao: 'GRATIS_FILHO', tipo: null, produto: true, quantidade: true }, // Grupo B ("ganhe grátis")
+  D: { operacao: 'ADICIONAL', tipo: null, produto: true, quantidade: true }, // Desconto Adicional Grupo A ("leve")
+  DF: { operacao: 'ADICIONAL_FILHO', tipo: '%', produto: true, quantidade: true, valor: true }, // Grupo B ("ganhe % adicional")
 };
 const TIPOCOMBO_VALIDOS = new Set(['C', 'M']); // 'C' a cada / 'M' maior que (CmbTipoCombo)
+// Mecânicas de 2 grids: TIPO do header → origem-FILHO permitida no mesmo detalhe. A promoção 'G' carrega itens origem
+// 'G' (Grupo A) E 'GF' (Grupo B); idem 'D'/'DF'. As demais são self-origem (só a própria letra).
+const FILHOS: Record<string, string> = { G: 'GF', D: 'DF' };
+const origensDoTipo = (tipo: string): string[] => (Object.hasOwn(FILHOS, tipo) ? [tipo, FILHOS[tipo]] : [tipo]);
 // Categoria (CbbCategoria): SUBTIPO → dimensão do alvo. O/D/G/S=família (FAMILIAS_PROD.tipo), P=produto, F=fornecedor, M=marca.
 const SUBTIPO_VALIDOS = new Set(['O', 'D', 'G', 'S', 'P', 'F', 'M']);
 const SUBTIPO_FAMILIA = new Set(['O', 'D', 'G', 'S']);
@@ -202,9 +223,9 @@ export const promocaoAggregateConfig: AggregateConfig = {
       const mec = mecOf(origem);
       // (a) só as mecânicas implementadas (P/F/V/R/O/L/C/A) são aceitas → outra ORIGEM = REJEITADA (fail-closed anti-lixo).
       if (!mec) throw new BusinessRuleError('PROMOCAO_ORIGEM_NAO_SUPORTADA', { origem: it.origem });
-      // (b) a ORIGEM do item tem de casar com o TIPO do header (as mecânicas atuais são self-origem: P/F/V/R);
-      //     sem isso um payload de API gravaria header 'X' com itens de mecânica 'Y' (header↔detalhe divergente).
-      if (tipoHeader && origem !== tipoHeader) throw new BusinessRuleError('PROMOCAO_ORIGEM_DIVERGE_TIPO', { origem: it.origem, tipo: tipoHeader });
+      // (b) a ORIGEM do item tem de casar com o TIPO do header. Self-origem na maioria; nas de 2 grids (G/D) o header
+      //     aceita a própria letra (Grupo A) E a origem-filho (GF/DF, Grupo B). Sem isso, header 'X' gravaria itens 'Y'.
+      if (tipoHeader && !origensDoTipo(tipoHeader).includes(origem)) throw new BusinessRuleError('PROMOCAO_ORIGEM_DIVERGE_TIPO', { origem: it.origem, tipo: tipoHeader });
       // (c) VALOR>0 (PadraoValidada ';VALOR;') — só nas mecânicas que usam VALOR (Leve Pague NÃO usa). QUANTIDADE é
       //     coagida ≤0→1 no derivarItensTrx (fiel ao PREÇO FIXO), EXCETO Combo/Leve Pague que a EXIGEM (>0).
       if (mec.valor && !(Number(it.valor) > 0)) throw new BusinessRuleError('PROMOCAO_PRECO_INVALIDO', { idproduto: it.idorigempromocao });
@@ -217,7 +238,9 @@ export const promocaoAggregateConfig: AggregateConfig = {
       if (mec.produto) {
         const pid = Number(it.idorigempromocao);
         if (!(Number.isFinite(pid) && pid > 0)) throw new BusinessRuleError('PROMOCAO_PRODUTO_OBRIGATORIO');
-        const chave = mec.dedupPorQtde ? `${pid}|${Number(it.quantidade)}` : String(pid);
+        // chave por ORIGEM+produto (+QUANTIDADE no Atacarejo): nas de 2 grids o MESMO produto pode estar no Grupo A
+        // (G/D) e no Grupo B (GF/DF) — origens distintas ⇒ chaves distintas. Em promo single-origem é idêntico ao dedup por produto.
+        const chave = `${origem}|` + (mec.dedupPorQtde ? `${pid}|${Number(it.quantidade)}` : String(pid));
         if (produtosVistos.has(chave)) throw new BusinessRuleError('PROMOCAO_PRODUTO_DUPLICADO', { idproduto: pid });
         produtosVistos.add(chave);
       }
@@ -255,7 +278,7 @@ export const promocaoAggregateConfig: AggregateConfig = {
       if (!(await alvoCategoriaExiste(db, emp, a.subtipo, a.id)))
         throw new BusinessRuleError('PROMOCAO_CATEGORIA_ALVO_INEXISTENTE', { subtipo: a.subtipo, id: a.id });
     }
-    // produto EXISTENTE+ATIVO — só para as mecânicas produto-alvo (P/F/V/O/L/A). R (código) e C (categoria) não usam produto aqui.
+    // produto EXISTENTE+ATIVO — só para as mecânicas produto-alvo (P/F/V/O/L/A/B/G/GF/D/DF). R (código) e C (categoria) não usam produto aqui.
     const ids = [
       ...new Set(
         itens
