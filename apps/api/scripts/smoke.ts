@@ -300,6 +300,36 @@ async function main() {
       { status: fornReput.status, desc: fornRe.desconto_pedidos, diretor: fornRe.diretor_comercial },
     );
 
+    // 14a4) HISTÓRICO FINANCEIRO (aba tsSaldoParceiros) — extrato read-only AR(+)/AP(−) do parceiro.
+    // Cria um parceiro com crédito 30 + 1 AR (100, a vencer → sem juros) + 1 AP (40) e confere linhas,
+    // saldo corrente e somatórios (Receber/Pagar/Restante). Vencimentos FUTUROS ⇒ atraso 0, juros 0.
+    const histParResp = await fetch(`${base}/cadastro/parceiros`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({ razao: 'HIST FIN SMOKE LTDA', tipofj: 'J', cli: 'S', frn: 'S', credito: 30, enderecos: [] }),
+    });
+    const histPar = (await histParResp.json()) as any;
+    const histCod = Number(histPar.codparceiro);
+    await fetch(`${base}/cadastro/areceber`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: histCod, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 100 }) });
+    await fetch(`${base}/cadastro/apagar`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: histCod, dtvenda: '2026-07-01', dtvenc: '2027-01-01', valor: 40 }) });
+    const histTodos = (await (await fetch(`${base}/cadastro/parceiros/${histCod}/historico-financeiro?status=todos`, { headers: H })).json()) as any;
+    const ultimo = histTodos.linhas?.[histTodos.linhas.length - 1];
+    check(
+      'GET /cadastro/parceiros/:cod/historico-financeiro: extrato AR(+100)/AP(-40), saldo corrente e resumo',
+      Array.isArray(histTodos.linhas) && histTodos.linhas.length === 2
+      && Number(histTodos.resumo.receber) === 100 && Number(histTodos.resumo.pagar) === -40
+      && Number(histTodos.resumo.receber_com_juros) === 100 && Number(histTodos.resumo.credito) === 30
+      && Number(histTodos.resumo.restante) === -110 && Number(ultimo?.saldo) === 60,
+      { n: histTodos.linhas?.length, resumo: histTodos.resumo, saldoFinal: ultimo?.saldo },
+    );
+    // filtro Liquidados: nenhum título quitado → 0 linhas (prova a substituição /*QUITADO*/).
+    const histLiq = (await (await fetch(`${base}/cadastro/parceiros/${histCod}/historico-financeiro?status=liquidados`, { headers: H })).json()) as any;
+    check(
+      'GET historico-financeiro?status=liquidados: nenhum título liquidado → 0 linhas',
+      Array.isArray(histLiq.linhas) && histLiq.linhas.length === 0,
+      { n: histLiq.linhas?.length },
+    );
+
     // 14b) "ao menos um papel" obrigatório (todas as flags 'N') → 400 VALIDACAO PT (não 500)
     const semPapel = await fetch(`${base}/cadastro/parceiros`, {
       method: 'POST',

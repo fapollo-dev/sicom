@@ -33,6 +33,7 @@ import {
   VendedoresSection,
 } from './ParceirosDetalhes';
 import { RefFornecedorSection } from '../de-para/RefFornecedorSection';
+import { HistoricoFinanceiroSection } from './HistoricoFinanceiroSection';
 
 /**
  * Papel da tela (parametrização). A MESMA tela serve Cliente/Fornecedor/etc. — só muda
@@ -698,6 +699,12 @@ function CamposCondicionais({
           </div>
         </fieldset>
       )}
+
+      {/* ===== Histórico financeiro (tsSaldoParceiros) — extrato AR/AP read-only; qualquer parceiro gravado ===== */}
+      <fieldset className="rounded-radius-md border border-border p-pad-md">
+        <legend className="px-pad-xs text-fg-muted">Histórico financeiro</legend>
+        <HistoricoFinanceiroSection codparceiro={Number(form.watch('codparceiro' as never)) || undefined} />
+      </fieldset>
     </>
   );
 }

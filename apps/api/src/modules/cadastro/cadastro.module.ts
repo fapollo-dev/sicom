@@ -26,6 +26,8 @@ import { PrecoCrudController } from './preco.crud';
 import { NcmCrudController } from './ncm.crud';
 import { CidadeCrudController } from './cidade.crud';
 import { ParceiroAggregateController } from './parceiro.aggregate';
+import { ParceiroHistoricoController } from './parceiro-historico.controller';
+import { ParceiroHistoricoService } from './parceiro-historico.service';
 import { ProdutoAggregateController } from './produto.aggregate';
 import { NfAggregateController } from './nf.aggregate';
 import { UnidadeCrudController } from './unidade.crud';
@@ -80,6 +82,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     NcmCrudController, // engine (CHAVE NATURAL + data + memo)
     CidadeCrudController, // engine (chave natural; alvo do lookup de Bairros)
     ParceiroAggregateController, // engine MESTRE-DETALHE (Parceiros unificado: master + endereços)
+    ParceiroHistoricoController, // extrato financeiro read-only (aba tsSaldoParceiros)
     ProdutoAggregateController, // engine MESTRE-DETALHE (Produto núcleo: master + codauxiliar)
     NfAggregateController, // engine MESTRE-DETALHE (NF núcleo: header + itens + referências; SEM efeitos)
     UnidadeCrudController, // engine (lookup de apoio do Produto)
@@ -116,6 +119,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
   providers: [
     BancosService,
     BancoRepository,
+    ParceiroHistoricoService,
     DatabaseProvider,
     ConfigService,
     ConfiguracoesAdminService,
