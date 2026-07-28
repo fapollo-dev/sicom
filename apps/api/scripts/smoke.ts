@@ -5698,6 +5698,22 @@ async function main() {
       }
     }
 
+    // ===== §90b: POSIÇÃO DE ESTOQUE (UPosicaoProduto) — saldo/empresa + Ficha de movimentação (Kardex) read-only =====
+    {
+      // processa 1 entrada de +7 no produto 1 (grava historico_prod) e confere a posição consolidada + o Kardex.
+      const nfPos = await novaNf(baseNf({ tipo: 'E', nronf: 'POSEST1', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 7, vrvenda: 3.5, cfop: '1102', aliquota: 'T01' }] }));
+      await fetch(`${base}/fiscal/nf/${nfPos}/processar`, { method: 'POST', headers: H });
+      const pos = (await (await fetch(`${base}/cadastro/produtos/1/posicao-estoque`, { headers: H })).json().catch(() => ({}))) as any;
+      const movNf = (pos.movimentos ?? []).find((m: any) => m.origem === 'NF' && Number(m.qtde) > 0);
+      check(
+        'GET /cadastro/produtos/:id/posicao-estoque: saldo/empresa + total + Kardex (historico_prod) com a entrada NF (saldo_anterior→saldo_novo)',
+        Array.isArray(pos.saldos) && pos.saldos.length >= 1 && Number(pos.total) >= 7
+        && Array.isArray(pos.movimentos) && pos.movimentos.length >= 1
+        && movNf != null && movNf.saldo_novo != null && Number(movNf.saldo_novo) === Number(movNf.saldo_anterior) + Number(movNf.qtde),
+        { total: pos.total, nSaldos: pos.saldos?.length, nMov: pos.movimentos?.length, movNf },
+      );
+    }
+
     // 89) CONFIGURAÇÕES (gestão da camada chave-valor — tela UConfigura). Catálogo + valor EFETIVO (resolver)
     // + overrides por escopo (Empresa/Usuario/Modulo) + default global. RBAC FRMCONFIGURA/BTNGRAVAR nas escritas.
     const CFG = 'cadastro/configuracoes';

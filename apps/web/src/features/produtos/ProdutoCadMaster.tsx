@@ -31,6 +31,7 @@ import { DecomposicaoModal } from './DecomposicaoModal';
 import { ReceitaModal } from './ReceitaModal';
 import { FatorConversaoModal } from './FatorConversaoModal';
 import { getProdutosFilhos, type ProdutoFilho } from './produtoFilhosApi';
+import { getPosicaoEstoque, type EstoqueSaldo, type EstoqueMovimento } from './produtoEstoqueApi';
 import { RefFornecedorSection } from '../de-para/RefFornecedorSection';
 import { precificarProduto } from './precificacaoApi';
 
@@ -204,6 +205,8 @@ export function ProdutoCadMaster() {
           />
           {/* Produtos filhos (aba TsFilhos) — vínculo pai/fator + grid read-only das variações filhas. */}
           <ProdutosFilhosSection form={form} editavel={editavel} produtoOptions={produtoOptions} />
+          {/* Posição de estoque (UPosicaoProduto) — saldo/empresa + Ficha de movimentação (Kardex), read-only. */}
+          <PosicaoEstoqueSection form={form} />
           {/* F4b — campos-mestre de armazenamento puro (sem cálculo), INLINE na MESMA form. */}
           <NutricionalSection form={form} editavel={editavel} />
           <LogisticaSection form={form} editavel={editavel} />
@@ -1780,6 +1783,135 @@ function ProdutosFilhosSection({
           />
         )}
       </div>
+    </fieldset>
+  );
+}
+
+// ───────────────────────── Posição de estoque (UPosicaoProduto) ─────────────────────────
+
+/**
+ * Consulta READ-ONLY da posição de estoque (UPosicaoProduto): SALDO por empresa (total consolidado) +
+ * FICHA DE MOVIMENTAÇÃO (Kardex — `historico_prod`, que os movers NF/ajuste/inventário já gravam), com o
+ * saldo corrente (anterior→novo) por linha. Só p/ produto gravado. Não edita — o saldo é movido por transação.
+ */
+const fmtQtde = (n: number | string | null | undefined) =>
+  Number(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+const fmtDataHora = (iso: string | null) => {
+  if (!iso) return '';
+  const [d, h] = iso.split('T');
+  const [y, m, dia] = (d ?? '').split('-');
+  return dia && m && y ? `${dia}/${m}/${y}${h ? ' ' + h.slice(0, 5) : ''}` : iso;
+};
+
+function PosicaoEstoqueSection({ form }: { form: UseFormReturn<CriarProdutoDto> }) {
+  const idproduto = Number(form.watch('idproduto' as never)) || undefined;
+  const [saldos, setSaldos] = useState<EstoqueSaldo[]>([]);
+  const [total, setTotal] = useState(0);
+  const [movs, setMovs] = useState<EstoqueMovimento[]>([]);
+  const [carregando, setCarregando] = useState(false);
+
+  useEffect(() => {
+    if (idproduto == null) {
+      setSaldos([]);
+      setMovs([]);
+      setTotal(0);
+      return;
+    }
+    let vivo = true;
+    setCarregando(true);
+    getPosicaoEstoque(idproduto)
+      .then((r) => {
+        if (!vivo) return;
+        setSaldos(r.saldos);
+        setTotal(r.total);
+        setMovs(r.movimentos);
+      })
+      .catch(() => {
+        if (!vivo) return;
+        setSaldos([]);
+        setMovs([]);
+        setTotal(0);
+      })
+      .finally(() => vivo && setCarregando(false));
+    return () => {
+      vivo = false;
+    };
+  }, [idproduto]);
+
+  const colsSaldo = useMemo<DataTableColumnDef<EstoqueSaldo & { _id: number }>[]>(
+    () => [
+      { field: 'idempresa', headerName: 'Empresa', type: 'text', width: 110, isPrimary: true },
+      { field: 'qtde', headerName: 'Saldo', type: 'text', width: 130, valueGetter: (r) => fmtQtde(r.qtde) },
+      { field: 'minimo', headerName: 'Mínimo', type: 'text', width: 120, valueGetter: (r) => fmtQtde(r.minimo) },
+      { field: 'maximo', headerName: 'Máximo', type: 'text', width: 120, valueGetter: (r) => fmtQtde(r.maximo) },
+      { field: 'local', headerName: 'Local', type: 'text', width: 160 },
+    ],
+    [],
+  );
+  const colsMov = useMemo<DataTableColumnDef<EstoqueMovimento & { _id: string }>[]>(
+    () => [
+      { field: 'data', headerName: 'Data', type: 'text', width: 150, isPrimary: true, valueGetter: (r) => fmtDataHora(r.data) },
+      // Empresa explícita: o Kardex consolida as empresas do tenant e o saldo corrente é POR empresa — sem a
+      // coluna, o "saldo ant.→novo" pareceria não-monotônico ao intercalar lojas (fold auditoria MÉDIA).
+      { field: 'idempresa', headerName: 'Empresa', type: 'text', width: 90 },
+      { field: 'tipo', headerName: 'E/S', type: 'text', width: 70 },
+      { field: 'origem', headerName: 'Origem', type: 'text', width: 110 },
+      { field: 'codnf', headerName: 'Doc.', type: 'text', width: 90, valueGetter: (r) => (r.codnf != null ? String(r.codnf) : '') },
+      { field: 'qtde', headerName: 'Qtde', type: 'text', width: 120, valueGetter: (r) => fmtQtde(r.qtde) },
+      { field: 'saldo_anterior', headerName: 'Saldo ant.', type: 'text', width: 120, valueGetter: (r) => fmtQtde(r.saldo_anterior) },
+      { field: 'saldo_novo', headerName: 'Saldo novo', type: 'text', width: 120, valueGetter: (r) => fmtQtde(r.saldo_novo) },
+      { field: 'historico', headerName: 'Histórico', type: 'text', width: 240 },
+    ],
+    [],
+  );
+  const rowsSaldo = useMemo(() => saldos.map((s, i) => ({ ...s, _id: i })), [saldos]);
+  const rowsMov = useMemo(() => movs.map((m) => ({ ...m, _id: String(m.codmov) })), [movs]);
+
+  return (
+    <fieldset className="rounded-radius-base border border-border p-pad-md">
+      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Posição de estoque</legend>
+      {idproduto == null ? (
+        <small className="text-fg-muted">Grave o produto para ver a posição de estoque.</small>
+      ) : carregando ? (
+        <small className="text-fg-muted">Carregando…</small>
+      ) : (
+        <div className="flex flex-col gap-gp-md">
+          <div className="flex items-baseline gap-gp-sm">
+            <span className="text-body-sm text-fg-muted">Saldo total (todas as empresas):</span>
+            <span className="text-body-md font-semibold tabular-nums">{fmtQtde(total)}</span>
+          </div>
+          {rowsSaldo.length > 0 && (
+            <DataTable
+              rows={rowsSaldo}
+              columns={colsSaldo}
+              getRowId={(r) => r._id}
+              toolbar={{ enableSearch: false, enableFilters: false }}
+              paginationConfig={{ enabled: false }}
+              cardBreakpoint={false}
+            />
+          )}
+          <div>
+            <div className="mb-gp-xs text-body-sm font-semibold text-fg-default">Ficha de movimentação</div>
+            {rowsMov.length === 0 ? (
+              <small className="text-fg-muted">Sem movimentações registradas.</small>
+            ) : (
+              <>
+                <DataTable
+                  rows={rowsMov}
+                  columns={colsMov}
+                  getRowId={(r) => r._id}
+                  toolbar={{ enableSearch: false, enableFilters: false }}
+                  paginationConfig={{ enabled: true, initialPageSize: 15 }}
+                  cardBreakpoint={false}
+                />
+                {rowsMov.length >= 500 && (
+                  <small className="text-fg-muted">Mostrando os 500 movimentos mais recentes.</small>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </fieldset>
   );
 }
