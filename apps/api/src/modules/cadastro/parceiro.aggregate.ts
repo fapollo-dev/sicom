@@ -35,6 +35,15 @@ export const parceiroAggregateConfig: AggregateConfig = {
     'habilita_retencao_pis_nf', 'habilita_retencao_cofins_nf', 'habilita_retencao_csll_nf',
     'habilita_retencao_ir_nf', 'habilita_retencao_inss_nf', 'habilita_retencao_issqn_nf',
     'habilita_retencao_funrural_nf', 'perc_aliquota_ir', 'perc_aliquota_issqn', 'codparceiro_ent_issqn',
+    // Aba "Dados Fornecedor" (tbsDadosFornecedor) — 28 campos FLAT (contatos de papel fixo + config comercial).
+    'codcomprador', 'diretor_comercial', 'email_diretor_comercial', 'fone_diretor_comercial',
+    'gerente_comercial', 'email_gerente_comercial', 'fone_gerente_comercial',
+    'vendedor_representante', 'email_vendedor_representante', 'fone_vendedor_representante',
+    'responsavel_financeiro', 'email_responsavel_financeiro', 'fone_responsavel_financeiro',
+    'responsavel_logistico', 'email_responsavel_logistico', 'fone_responsavel_logistico',
+    'caracteristica_tributaria', 'pronta_entrega', 'desconto_pedidos', 'valor_acres_fin', 'numero_contrato',
+    'regras_tabela_fornecedor', 'prazo_entrega', 'prazo_recebimento', 'prazo_reposicao', 'tipo_fornecedor',
+    'retira_fornindex', 'realiza_troca',
   ],
   detalhes: [
     {

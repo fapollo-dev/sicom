@@ -88,6 +88,41 @@ const opcional = <T extends z.ZodTypeAny>(s: T) =>
 
 const sn = (msg = "Informe 'S' ou 'N'") => z.enum(['S', 'N'], { message: msg });
 
+/**
+ * Campo DECIMAL tolerante (mesmo helper do produto.schema): a API devolve colunas `numeric` do pg
+ * como STRING ('5.50'); ao reabrir p/ editar, o form carrega a string. Aceita número OU string numérica
+ * e normaliza (''/null → ausente). Sem ele, `z.number()` reprovaria a gravação na edição (campo string).
+ */
+const dec = (inner: z.ZodNumber = z.number()) =>
+  z.preprocess((v) => {
+    if (v === '' || v == null) return undefined;
+    if (typeof v === 'string') {
+      const n = Number(v);
+      return Number.isNaN(n) ? v : n;
+    }
+    return v;
+  }, inner.optional());
+
+/**
+ * Remove `null` recursivamente (→ ausente), tornando o schema IDEMPOTENTE com a própria saída: ao
+ * reabrir um parceiro, colunas vazias voltam como `null` e `z.optional()` só aceita `undefined`. Sem isto,
+ * reabrir+gravar QUALQUER parceiro com campo opcional nulo (fantasia/obs/credito/… e os 28 de fornecedor)
+ * reprovaria 400 — bug MODULE-WIDE pré-existente que este preprocess corrige (espelha o produto.schema).
+ * A coerção numeric-string fica no `dec()` por campo.
+ */
+const stripNulls = (v: unknown): unknown => {
+  if (Array.isArray(v)) return v.map(stripNulls);
+  if (v && typeof v === 'object') {
+    const o: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      const x = stripNulls(val);
+      if (x !== undefined) o[k] = x;
+    }
+    return o;
+  }
+  return v === null ? undefined : v;
+};
+
 /** Endereço do parceiro (PARCEIROS_END) — documento fiscal mora AQUI. */
 export const enderecoParceiroSchema = z.object({
   endereco: z.string().trim().max(150).optional(),
@@ -168,10 +203,11 @@ const parceiroBase = z.object({
     .pipe(z.string().max(800))
     .optional(),
   // financeiro essencial
-  credito: z.number().nonnegative('Crédito inválido').optional(),
-  txjuro: z.number().nonnegative('Juros inválido').optional(),
+  // numeric(x,y) → dec() tolerante (pg devolve string na reabertura). ints ficam z.number().int() (pg → number).
+  credito: dec(z.number().nonnegative('Crédito inválido')),
+  txjuro: dec(z.number().nonnegative('Juros inválido')),
   tolerancia: z.number().int().nonnegative('Tolerância inválida').optional(),
-  descpadrao: z.number().nonnegative('Desconto inválido').optional(),
+  descpadrao: dec(z.number().nonnegative('Desconto inválido')),
   diasprazo: z.number().int().nonnegative('Dias inválido').optional(),
   codvendedor: z.number().int().optional(), // → parceiros (FUN='S')
   codconvenio: z.number().int().optional(), // → parceiros (CON='S')
@@ -182,9 +218,9 @@ const parceiroBase = z.object({
   classfornecedor: z.number().int().optional(), // Fornecedor
   codref: z.string().trim().max(16).optional(), // Fornecedor
   codcontabil_for: z.string().trim().max(30).optional(), // Fornecedor
-  limite_especial: z.number().nonnegative().optional(), // Cliente
+  limite_especial: dec(z.number().nonnegative()), // Cliente
   codcontabil: z.string().trim().max(30).optional(), // Cliente
-  renda: z.number().nonnegative().optional(), // Funcionário
+  renda: dec(z.number().nonnegative()), // Funcionário
   cargo: z.string().trim().max(60).optional(), // Funcionário
   empresatrabalha: z.string().trim().max(100).optional(), // Funcionário
   // F3 — CONFIGURAÇÃO fiscal (a tela ARMAZENA; cálculo vive a jusante em NF/financeiro).
@@ -204,9 +240,40 @@ const parceiroBase = z.object({
   habilita_retencao_inss_nf: sn().optional(),
   habilita_retencao_issqn_nf: sn().optional(),
   habilita_retencao_funrural_nf: sn().optional(),
-  perc_aliquota_ir: z.number().nonnegative('Alíquota IR inválida').optional(),
-  perc_aliquota_issqn: z.number().nonnegative('Alíquota ISSQN inválida').optional(),
+  perc_aliquota_ir: dec(z.number().nonnegative('Alíquota IR inválida')),
+  perc_aliquota_issqn: dec(z.number().nonnegative('Alíquota ISSQN inválida')),
   codparceiro_ent_issqn: z.number().int().optional(), // FK → parceiros (TIPOFJ='E')
+  // Aba "Dados Fornecedor" (tbsDadosFornecedor) — 28 campos FLAT (contatos de papel fixo + config comercial
+  // do fornecedor). Captura pura (sem validação no legado); e-mails são texto livre (o legado não valida
+  // formato). Flags char(1) limpas no golden (só NULL/S/N). Só editáveis com FRN='S' (gating no front).
+  codcomprador: z.number().int().optional(),
+  diretor_comercial: z.string().trim().max(150).optional(),
+  email_diretor_comercial: z.string().trim().max(150).optional(),
+  fone_diretor_comercial: z.string().trim().max(20).optional(),
+  gerente_comercial: z.string().trim().max(150).optional(),
+  email_gerente_comercial: z.string().trim().max(150).optional(),
+  fone_gerente_comercial: z.string().trim().max(20).optional(),
+  vendedor_representante: z.string().trim().max(150).optional(),
+  email_vendedor_representante: z.string().trim().max(150).optional(),
+  fone_vendedor_representante: z.string().trim().max(20).optional(),
+  responsavel_financeiro: z.string().trim().max(150).optional(),
+  email_responsavel_financeiro: z.string().trim().max(150).optional(),
+  fone_responsavel_financeiro: z.string().trim().max(20).optional(),
+  responsavel_logistico: z.string().trim().max(150).optional(),
+  email_responsavel_logistico: z.string().trim().max(150).optional(),
+  fone_responsavel_logistico: z.string().trim().max(150).optional(), // 150 no Oracle (não 20)
+  caracteristica_tributaria: z.string().trim().max(150).optional(),
+  pronta_entrega: sn().optional(),
+  desconto_pedidos: dec(z.number().nonnegative('Desconto inválido')),
+  valor_acres_fin: dec(z.number().nonnegative('Valor inválido')),
+  numero_contrato: z.number().int().optional(),
+  regras_tabela_fornecedor: z.string().trim().max(150).optional(),
+  prazo_entrega: z.number().int().nonnegative('Prazo inválido').optional(),
+  prazo_recebimento: z.number().int().nonnegative('Prazo inválido').optional(),
+  prazo_reposicao: z.number().int().nonnegative('Prazo inválido').optional(),
+  tipo_fornecedor: z.string().trim().max(150).optional(),
+  retira_fornindex: sn().optional(),
+  realiza_troca: sn().optional(),
   // detalhes 1:N (engine de agregado grava todos numa transação)
   enderecos: z.array(enderecoParceiroSchema).optional().default([]),
   bancos: z.array(bancoParceiroSchema).optional().default([]),
@@ -219,7 +286,7 @@ const parceiroBase = z.object({
 const aoMenosUmPapel = (d: { cli?: string; frn?: string; fun?: string; tra?: string; con?: string }) =>
   d.cli === 'S' || d.frn === 'S' || d.fun === 'S' || d.tra === 'S' || d.con === 'S';
 
-export const parceiroSchema = parceiroBase.superRefine((d, ctx) => {
+export const parceiroSchema = z.preprocess(stripNulls, parceiroBase).superRefine((d, ctx) => {
   if (!aoMenosUmPapel(d)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -243,7 +310,7 @@ export const parceiroSchema = parceiroBase.superRefine((d, ctx) => {
 });
 export type CriarParceiroDto = z.infer<typeof parceiroSchema>;
 
-export const atualizarParceiroSchema = parceiroBase.partial();
+export const atualizarParceiroSchema = z.preprocess(stripNulls, parceiroBase.partial());
 export type AtualizarParceiroDto = z.infer<typeof atualizarParceiroSchema>;
 
 export interface Parceiro extends CriarParceiroDto {

@@ -256,6 +256,50 @@ async function main() {
       parc,
     );
 
+    // 14a2) Aba "Dados Fornecedor" (tbsDadosFornecedor) — 28 campos flat no master; round-trip de amostra.
+    const fornPost = await fetch(`${base}/cadastro/parceiros`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        razao: 'FORNECEDOR DADOS SMOKE LTDA',
+        tipofj: 'J',
+        frn: 'S',
+        diretor_comercial: 'JOAO DIRETOR',
+        email_diretor_comercial: 'joao@forn.com',
+        fone_diretor_comercial: '11999990000',
+        codcomprador: 3,
+        tipo_fornecedor: 'DISTRIBUIDOR',
+        desconto_pedidos: 5.5,
+        prazo_entrega: 7,
+        pronta_entrega: 'S',
+        realiza_troca: 'S',
+        retira_fornindex: 'N',
+        enderecos: [{ endereco: 'RUA FORN', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', cnpj_cpf: '11444777000242', endereco_padrao: 'S' }],
+      }),
+    });
+    const fornDados = (await fornPost.json()) as any;
+    check(
+      'POST /cadastro/parceiros grava "Dados Fornecedor" (contato de papel + config comercial + flags) round-trip',
+      fornPost.status === 201 && fornDados.diretor_comercial === 'JOAO DIRETOR' && fornDados.email_diretor_comercial === 'joao@forn.com'
+      && Number(fornDados.codcomprador) === 3 && fornDados.tipo_fornecedor === 'DISTRIBUIDOR' && Number(fornDados.desconto_pedidos) === 5.5
+      && Number(fornDados.prazo_entrega) === 7 && fornDados.pronta_entrega === 'S' && fornDados.realiza_troca === 'S' && fornDados.retira_fornindex === 'N',
+      { cod: fornDados.codparceiro, diretor: fornDados.diretor_comercial, comprador: fornDados.codcomprador, tipo: fornDados.tipo_fornecedor, desc: fornDados.desconto_pedidos, prazo: fornDados.prazo_entrega, flags: { pronta: fornDados.pronta_entrega, troca: fornDados.realiza_troca, fornindex: fornDados.retira_fornindex } },
+    );
+    // 14a3) REABRIR+GRAVAR: devolve o AGREGADO ecoado (colunas vazias voltam NULL; numeric volta STRING '5.50')
+    // via PUT → passa pelo Zod (atualizarParceiroSchema). Antes do fold reprovava 400 (bug MODULE-WIDE:
+    // z.optional() não aceita null + z.number() não aceita string) — stripNulls + dec() corrigem.
+    const fornReput = await fetch(`${base}/cadastro/parceiros/${fornDados.codparceiro}`, {
+      method: 'PUT',
+      headers: H,
+      body: JSON.stringify(fornDados), // ecoa a linha reaberta (nulls + '5.50' string) tal e qual
+    });
+    const fornRe = (await fornReput.json()) as any;
+    check(
+      'PUT /cadastro/parceiros reabre+grava agregado ecoado (null→ausente + numeric-string) sem 400 — fold module-wide',
+      fornReput.status === 200 && fornRe.diretor_comercial === 'JOAO DIRETOR' && Number(fornRe.desconto_pedidos) === 5.5 && fornRe.realiza_troca === 'S',
+      { status: fornReput.status, desc: fornRe.desconto_pedidos, diretor: fornRe.diretor_comercial },
+    );
+
     // 14b) "ao menos um papel" obrigatório (todas as flags 'N') → 400 VALIDACAO PT (não 500)
     const semPapel = await fetch(`${base}/cadastro/parceiros`, {
       method: 'POST',

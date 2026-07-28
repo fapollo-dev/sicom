@@ -442,6 +442,106 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
   );
 }
 
+// ───────────────────────── Dados do fornecedor (tbsDadosFornecedor) ─────────────────────────
+
+/** Contatos de PAPEL FIXO do fornecedor (nome/e-mail/fone) — 5 responsáveis, cada um 3 campos flat. */
+const CONTATOS_FORN: {
+  nome: keyof CriarParceiroDto;
+  email: keyof CriarParceiroDto;
+  fone: keyof CriarParceiroDto;
+  rotulo: string;
+}[] = [
+  { rotulo: 'Diretor comercial', nome: 'diretor_comercial', email: 'email_diretor_comercial', fone: 'fone_diretor_comercial' },
+  { rotulo: 'Gerente comercial', nome: 'gerente_comercial', email: 'email_gerente_comercial', fone: 'fone_gerente_comercial' },
+  { rotulo: 'Vendedor / representante', nome: 'vendedor_representante', email: 'email_vendedor_representante', fone: 'fone_vendedor_representante' },
+  { rotulo: 'Responsável financeiro', nome: 'responsavel_financeiro', email: 'email_responsavel_financeiro', fone: 'fone_responsavel_financeiro' },
+  { rotulo: 'Responsável logístico', nome: 'responsavel_logistico', email: 'email_responsavel_logistico', fone: 'fone_responsavel_logistico' },
+];
+
+/**
+ * Aba "Dados Fornecedor" (tbsDadosFornecedor do uCadClientes) — 28 campos FLAT do próprio parceiro
+ * (data-bound de dtsPrincipal, NÃO grid): contatos de papel fixo (diretor/gerente/vendedor/financeiro/
+ * logístico) + config comercial (comprador, prazos, descontos, contrato, flags). Captura pura — o legado
+ * não valida (só máscaras de UI). Renderizada só quando FRN='S'. E-mails são texto livre (fiel ao legado).
+ */
+function DadosFornecedorSection({
+  form,
+  editavel,
+}: {
+  form: UseFormReturn<CriarParceiroDto>;
+  editavel: boolean;
+}) {
+  const numField = (name: keyof CriarParceiroDto, label: string, decimais: number) => (
+    <Controller
+      control={form.control}
+      name={name as never}
+      render={({ field }) => (
+        <NumberField
+          label={label}
+          value={field.value as number | undefined}
+          onChange={field.onChange}
+          decimais={decimais}
+          min={0}
+          disabled={!editavel}
+        />
+      )}
+    />
+  );
+
+  return (
+    <fieldset className="rounded-radius-md border border-border p-pad-md">
+      <legend className="px-pad-xs text-fg-muted">Dados do fornecedor</legend>
+      <div className="flex flex-col gap-form-gap">
+        {/* Contatos de papel fixo (nome / e-mail / fone) */}
+        {CONTATOS_FORN.map((c) => (
+          <div key={c.nome} className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
+            <Field label={c.rotulo} disabled={!editavel} {...form.register(c.nome)} />
+            <Field label="E-mail" disabled={!editavel} {...form.register(c.email)} />
+            <Field label="Fone" disabled={!editavel} {...form.register(c.fone)} />
+          </div>
+        ))}
+        {/* Configuração comercial */}
+        <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+          {numField('codcomprador', 'Cód. comprador', 0)}
+          <Field label="Tipo de fornecedor" disabled={!editavel} {...form.register('tipo_fornecedor')} />
+          <Field label="Característica tributária" disabled={!editavel} {...form.register('caracteristica_tributaria')} />
+          <Field label="Regras da tabela do fornecedor" disabled={!editavel} {...form.register('regras_tabela_fornecedor')} />
+          {numField('numero_contrato', 'Número do contrato', 0)}
+          {numField('desconto_pedidos', 'Desconto em pedidos', 2)}
+          {numField('valor_acres_fin', 'Valor acréscimo financeiro', 2)}
+          {numField('prazo_entrega', 'Prazo de entrega (dias)', 0)}
+          {numField('prazo_recebimento', 'Prazo de recebimento (dias)', 0)}
+          {numField('prazo_reposicao', 'Prazo de reposição (dias)', 0)}
+        </div>
+        {/* Flags S/N */}
+        <div className="flex flex-wrap items-center gap-gp-lg">
+          {(
+            [
+              ['pronta_entrega', 'Pronta entrega'],
+              ['retira_fornindex', 'Fornecedor livre de indexador'],
+              ['realiza_troca', 'Realiza troca'],
+            ] as const
+          ).map(([name, label]) => (
+            <Controller
+              key={name}
+              control={form.control}
+              name={name}
+              render={({ field }) => (
+                <CheckboxField
+                  label={label}
+                  value={(field.value as string | undefined) ?? 'N'}
+                  onChange={field.onChange}
+                  disabled={!editavel}
+                />
+              )}
+            />
+          ))}
+        </div>
+      </div>
+    </fieldset>
+  );
+}
+
 /**
  * Campos CONDICIONAIS por papel (F2). As seções aparecem/somem conforme as flags do
  * master (frn/cli/fun), observadas via `form.watch`. Os campos vivem no master (mesmo
@@ -525,6 +625,9 @@ function CamposCondicionais({
           </div>
         </fieldset>
       )}
+
+      {/* ===== Dados do fornecedor (tbsDadosFornecedor) — 28 campos flat; só fornecedor ===== */}
+      {ehFornecedor && <DadosFornecedorSection form={form} editavel={editavel} />}
 
       {/* ===== Cód. ref. fornecedor (CODREFERENCIA_FOR / DE-PARA) — só p/ fornecedor gravado ===== */}
       {ehFornecedor && (
