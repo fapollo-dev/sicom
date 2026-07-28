@@ -5667,6 +5667,37 @@ async function main() {
       }
     }
 
+    // ===== §90: SPED FISCAL (EFD ICMS/IPI) corte-1 — bloco 0/C+C190/E110 apuração ICMS =====
+    {
+      const pgFi = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // entrada com ICMS no período 2026-11 (crédito de ICMS = Σ VL_ICMS das entradas).
+        const nfIcms = await novaNf(baseNf({ tipo: 'E', nronf: 'SPEDF01', codparceiro: 22, dtemissao: '2026-11-05', dtcontabil: '2026-11-05', itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, vrcusto: 10, cfop: '1102', aliquota: 'T01', icms: 18 }] }));
+        await pgFi.query(`UPDATE nf_prod SET vrbasecalculo=100, vricm=18, icms=18, vripi=0, cst=0, origem_estoque='0' WHERE codnf=$1`, [nfIcms]);
+        await pgFi.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfIcms]);
+        const efdF = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-01', dtfim: '2026-11-30' }) });
+        const efdFJ = (await efdF.json().catch(() => ({}))) as any;
+        const linF = String(efdFJ.arquivo ?? '').split('\r\n');
+        const r0000F = linF.find((l) => l.startsWith('|0000|')) ?? '';
+        const c100F = linF.find((l) => l.startsWith('|C100|0|')) ?? '';
+        const c190F = linF.find((l) => l.startsWith('|C190|')) ?? '';
+        const e110F = linF.find((l) => l.startsWith('|E110|')) ?? '';
+        check(
+          'SPED §90 EFD ICMS/IPI corte-1: 0000 layout fiscal (COD_VER 014 · IND_PERFIL A · IND_ATIV 1) + C100 entrada + C190 (CST 000/CFOP 1102/alíq 18/ICMS 18) + E110 saldo credor 18 + validação ok',
+          efdF.status === 200
+          && r0000F.startsWith('|0000|014|0|') && r0000F.endsWith('|A|1|')
+          && c100F.startsWith('|C100|0|')
+          && c190F.startsWith('|C190|000|1102|18,00|100,00|100,00|18,00|')
+          && e110F.startsWith('|E110|0,00|0,00|0,00|0,00|18,00|') && e110F.endsWith('|18,00|0,00|')
+          && efdFJ.validacao?.ok === true && Array.isArray(efdFJ.validacao?.erros) && efdFJ.validacao.erros.length === 0,
+          { r0000: r0000F.slice(0, 36), c190: c190F, e110: e110F, val: efdFJ.validacao },
+        );
+        await pgFi.query(`DELETE FROM nf WHERE codnf=$1`, [nfIcms]); // cleanup
+      } finally {
+        await pgFi.end();
+      }
+    }
+
     // 89) CONFIGURAÇÕES (gestão da camada chave-valor — tela UConfigura). Catálogo + valor EFETIVO (resolver)
     // + overrides por escopo (Empresa/Usuario/Modulo) + default global. RBAC FRMCONFIGURA/BTNGRAVAR nas escritas.
     const CFG = 'cadastro/configuracoes';

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { SpedArquivo } from '../src/modules/sped/sped-writer';
 import { validarSped } from '../src/modules/sped/sped-validator';
+import { validarSpedFiscal } from '../src/modules/sped/sped-fiscal-validator';
 
 /** monta um arquivo mínimo VÁLIDO (bloco 0 + bloco M) via o motor escritor; `m200` permite injetar um M200 ruim. */
 function arquivoBase(m200: string[]): string {
@@ -124,5 +125,66 @@ describe('validarSped (validador estrutural PVA-style)', () => {
     const r = validarSped(a.gerar());
     expect(r.ok).toBe(false);
     expect(r.erros.some((e) => e.includes('C100 saída') && e.includes('VL_PIS'))).toBe(true);
+  });
+});
+
+describe('validarSpedFiscal (EFD ICMS/IPI — validador estrutural próprio)', () => {
+  /** arquivo fiscal mínimo VÁLIDO (0000 layout ICMS/IPI 14 campos + E110 injetável). */
+  function fiscalBase(e110: string[]): string {
+    const a = new SpedArquivo();
+    a.add('0000', ['020', '0', '01112026', '30112026', 'EMPRESA X', '11111111000191', '', 'MG', '123', '3106200', '', '', 'A', '1']); // 14 campos
+    a.add('0001', ['0']);
+    a.fecharBloco('0990', '0');
+    a.add('E001', ['0']);
+    a.add('E100', ['01112026', '30112026']);
+    a.add('E110', e110);
+    a.fecharBloco('E990', 'E');
+    return a.gerar();
+  }
+  // débito 0 / crédito 18 → saldo apurado 0, credor a transportar 18.
+  const E110_OK = ['0,00', '0,00', '0,00', '0,00', '18,00', '0,00', '0,00', '0,00', '0,00', '0,00', '0,00', '0,00', '18,00', '0,00'];
+
+  it('arquivo fiscal bem-formado (0000 14 campos + E110 coerente) → ok', () => {
+    const r = validarSpedFiscal(fiscalBase(E110_OK));
+    expect(r.ok).toBe(true);
+    expect(r.erros).toEqual([]);
+  });
+
+  it('0000 IND_ATIV fora do domínio {0,1} → erro', () => {
+    const a = new SpedArquivo();
+    a.add('0000', ['020', '0', '01112026', '30112026', 'EMPRESA X', '11111111000191', '', 'MG', '123', '3106200', '', '', 'A', '9']); // IND_ATIV=9 inválido no fiscal
+    a.add('0001', ['0']);
+    a.fecharBloco('0990', '0');
+    const r = validarSpedFiscal(a.gerar());
+    expect(r.ok).toBe(false);
+    expect(r.erros.some((e) => e.includes('IND_ATIV'))).toBe(true);
+  });
+
+  it('E110 VL_SLD_CREDOR_TRANSPORTAR errado (≠ saldo credor) → erro', () => {
+    const bad = ['0,00', '0,00', '0,00', '0,00', '18,00', '0,00', '0,00', '0,00', '0,00', '0,00', '0,00', '0,00', '99,99', '0,00'];
+    const r = validarSpedFiscal(fiscalBase(bad));
+    expect(r.ok).toBe(false);
+    expect(r.erros.some((e) => e.includes('VL_SLD_CREDOR_TRANSPORTAR'))).toBe(true);
+  });
+
+  it('E110 VL_SLD_APURADO errado (≠ max(0, débitos−créditos)) → erro', () => {
+    // débito 50, crédito 18 → apurado esperado 32; injeta 99,99.
+    const bad = ['50,00', '0,00', '0,00', '0,00', '18,00', '0,00', '0,00', '0,00', '0,00', '99,99', '0,00', '99,99', '0,00', '0,00'];
+    const r = validarSpedFiscal(fiscalBase(bad));
+    expect(r.ok).toBe(false);
+    expect(r.erros.some((e) => e.includes('VL_SLD_APURADO'))).toBe(true);
+  });
+
+  it('C190 sem CST_ICMS → erro (obrigatório)', () => {
+    const a = new SpedArquivo();
+    a.add('0000', ['020', '0', '01112026', '30112026', 'EMPRESA X', '11111111000191', '', 'MG', '123', '3106200', '', '', 'A', '1']);
+    a.add('0001', ['0']);
+    a.fecharBloco('0990', '0');
+    a.add('C001', ['0']);
+    a.add('C190', ['', '1102', '18,00', '100,00', '100,00', '18,00', '0,00', '0,00', '0,00', '0,00', '']); // CST_ICMS vazio
+    a.fecharBloco('C990', 'C');
+    const r = validarSpedFiscal(a.gerar());
+    expect(r.ok).toBe(false);
+    expect(r.erros.some((e) => e.includes('CST_ICMS'))).toBe(true);
   });
 });
