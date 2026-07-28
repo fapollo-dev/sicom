@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { Pool } from 'pg';
 import { NestFactory } from '@nestjs/core';
-import { chaveNfeValida, montarChaveNfe } from '@apollo/shared';
+import { chaveNfeValida, montarChaveNfe, gerarCodigoInternoEan13 } from '@apollo/shared';
 import { startEmbeddedPg, PG_CONN } from '../test/embedded-db';
 import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/shared/errors/all-exceptions.filter';
@@ -553,6 +553,35 @@ async function main() {
       'PUT /cadastro/produtos tolera fator sujo do golden (DE=unidade, FATOR=0) — não reprova',
       fcTol.status === 200 && (fcTolBody.fatoresConversao ?? []).length === 1,
       { status: fcTol.status, n: (fcTolBody.fatoresConversao ?? []).length },
+    );
+
+    // 15a5) PRODUTOS FILHOS (aba TsFilhos) — vínculo pai/filho + grid read-only + regra pai≠filho.
+    const crProd = async (seq: number, extra: Record<string, unknown> = {}) =>
+      (await (await fetch(`${base}/cadastro/produtos`, {
+        method: 'POST',
+        headers: H,
+        body: JSON.stringify({ codbarra: gerarCodigoInternoEan13(seq), descricao: `PROD FILHO SMOKE ${seq}`, unidade: 'UN', codunidade: 1, codfor: 2, aliquota: 'T01', ...extra }),
+      })).json()) as any;
+    const paiProd = await crProd(900001);
+    const paiId = Number(paiProd.idproduto);
+    const filhoProd = await crProd(900002, { idproduto_pai: paiId, fator_filho: 12 });
+    const filhosResp = await fetch(`${base}/cadastro/produtos/${paiId}/filhos`, { headers: H });
+    const filhosList = (await filhosResp.json()) as any[];
+    check(
+      'GET /cadastro/produtos/:id/filhos: lista a variação filha (idproduto_pai + fator_filho round-trip)',
+      filhosResp.status === 200 && Array.isArray(filhosList) && filhosList.length === 1
+      && Number(filhosList[0].idproduto) === Number(filhoProd.idproduto) && Number(filhosList[0].fator_filho) === 12,
+      { status: filhosResp.status, n: filhosList.length, filho: filhosList[0] },
+    );
+    // regra pai≠filho (EdtProdutoPaiExit): apontar o pai para si mesmo → 422 PRODUTO_PAI_IGUAL_FILHO.
+    const paiSelf = await fetch(`${base}/cadastro/produtos/${Number(filhoProd.idproduto)}`, {
+      method: 'PUT', headers: H, body: JSON.stringify({ idproduto_pai: Number(filhoProd.idproduto) }),
+    });
+    const paiSelfBody = (await paiSelf.json().catch(() => ({}))) as any;
+    check(
+      'PUT /cadastro/produtos rejeita produto pai = próprio produto — PRODUTO_PAI_IGUAL_FILHO',
+      paiSelf.status === 422 && paiSelfBody.code === 'PRODUTO_PAI_IGUAL_FILHO',
+      { status: paiSelf.status, code: paiSelfBody.code },
     );
 
     // 15b) PRODUTO F2 — MULTI_PRECO (preço/custo POR EMPRESA na mesma form), via HTTP

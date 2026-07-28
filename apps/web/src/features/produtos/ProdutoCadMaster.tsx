@@ -30,6 +30,7 @@ import { ComposicaoModal } from './ComposicaoModal';
 import { DecomposicaoModal } from './DecomposicaoModal';
 import { ReceitaModal } from './ReceitaModal';
 import { FatorConversaoModal } from './FatorConversaoModal';
+import { getProdutosFilhos, type ProdutoFilho } from './produtoFilhosApi';
 import { RefFornecedorSection } from '../de-para/RefFornecedorSection';
 import { precificarProduto } from './precificacaoApi';
 
@@ -201,6 +202,8 @@ export function ProdutoCadMaster() {
             editavel={editavel}
             unidadeSiglaOptions={unidadeSiglaOptions}
           />
+          {/* Produtos filhos (aba TsFilhos) — vínculo pai/fator + grid read-only das variações filhas. */}
+          <ProdutosFilhosSection form={form} editavel={editavel} produtoOptions={produtoOptions} />
           {/* F4b — campos-mestre de armazenamento puro (sem cálculo), INLINE na MESMA form. */}
           <NutricionalSection form={form} editavel={editavel} />
           <LogisticaSection form={form} editavel={editavel} />
@@ -1660,6 +1663,123 @@ function FatorConversaoSection({
           onConfirmar={onConfirmar}
         />
       )}
+    </fieldset>
+  );
+}
+
+// ───────────────────────── Produtos filhos (variação pai/filho) ─────────────────────────
+
+/**
+ * Aba "Produtos Filhos" (TsFilhos do UCadProduto) — sub-corte (a): VÍNCULO pai/filho + grid READ-ONLY das
+ * variações filhas. O "Produto Pai" (idproduto_pai) e o "Fator do filho" (fator_filho) são colunas do master;
+ * o grid lista os produtos cujo idproduto_pai = este produto (QryProdutosFilhos), buscado por HTTP.
+ * ADIADO (sub-corte b, com procedência): motor de propagação de preço (DIF_PRECO/TPDIF + AtualizaPrecoFilho
+ * sobre multi_preco/historico_dinamico — golden vazio p/ a config de propagação), copy-on-link (PreencheDadosPai)
+ * e lock de campos (DesabilitaControlesProdutoFilho). Regra pai≠filho é validada no servidor.
+ */
+function ProdutosFilhosSection({
+  form,
+  editavel,
+  produtoOptions,
+}: {
+  form: UseFormReturn<CriarProdutoDto>;
+  editavel: boolean;
+  produtoOptions: Opcao[];
+}) {
+  const idproduto = Number(form.watch('idproduto' as never)) || undefined;
+  const [filhos, setFilhos] = useState<ProdutoFilho[]>([]);
+  const [carregando, setCarregando] = useState(false);
+
+  useEffect(() => {
+    if (idproduto == null) {
+      setFilhos([]);
+      return;
+    }
+    let vivo = true;
+    setCarregando(true);
+    getProdutosFilhos(idproduto)
+      .then((r) => vivo && setFilhos(r))
+      .catch(() => vivo && setFilhos([]))
+      .finally(() => vivo && setCarregando(false));
+    return () => {
+      vivo = false;
+    };
+  }, [idproduto]);
+
+  // O pai não pode ser o próprio produto (validado no servidor) — filtra o self do picker.
+  const paiOptions = useMemo(
+    () => produtoOptions.filter((o) => o.value !== String(idproduto ?? '')),
+    [produtoOptions, idproduto],
+  );
+
+  const columns = useMemo<DataTableColumnDef<ProdutoFilho & { _id: number }>[]>(
+    () => [
+      { field: 'idproduto', headerName: 'Código', type: 'text', width: 100, isPrimary: true },
+      { field: 'codbarra', headerName: 'Cód. barras', type: 'text', width: 150 },
+      { field: 'descricao', headerName: 'Descrição', type: 'text', width: 280 },
+      { field: 'unidade', headerName: 'Un.', type: 'text', width: 80 },
+      { field: 'fator_filho', headerName: 'Fator', type: 'text', width: 110, valueGetter: (r) => (r.fator_filho != null ? String(r.fator_filho) : '') },
+      { field: 'ativo', headerName: 'Ativo', type: 'text', width: 80 },
+    ],
+    [],
+  );
+  const rows = useMemo(() => filhos.map((f, i) => ({ ...f, _id: i })), [filhos]);
+
+  return (
+    <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
+      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">
+        Produtos filhos (variação pai/filho)
+      </legend>
+      <div className="flex flex-col gap-gp-md">
+        <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+          <Controller
+            control={form.control}
+            name="idproduto_pai"
+            render={({ field }) => (
+              <SelectField
+                label="&Produto pai"
+                options={paiOptions}
+                value={field.value != null ? String(field.value) : undefined}
+                onChange={(v) => field.onChange(v ? Number(v) : undefined)}
+                placeholder="Selecione o produto pai…"
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="fator_filho"
+            render={({ field }) => (
+              <NumberField
+                label="&Fator do filho"
+                value={field.value as number | undefined}
+                onChange={field.onChange}
+                decimais={4}
+                min={0}
+                disabled={!editavel}
+                error={form.formState.errors.fator_filho?.message as string | undefined}
+              />
+            )}
+          />
+        </div>
+
+        {/* Grid read-only das variações filhas (QryProdutosFilhos). Só p/ produto gravado. */}
+        {idproduto == null ? (
+          <small className="text-fg-muted">Grave o produto para ver as variações filhas.</small>
+        ) : carregando ? (
+          <small className="text-fg-muted">Carregando…</small>
+        ) : rows.length === 0 ? (
+          <small className="text-fg-muted">Este produto não tem filhos.</small>
+        ) : (
+          <DataTable
+            rows={rows}
+            columns={columns}
+            getRowId={(r) => r._id}
+            toolbar={{ enableSearch: false, enableFilters: false }}
+            paginationConfig={{ enabled: true, initialPageSize: 10 }}
+            cardBreakpoint={false}
+          />
+        )}
+      </div>
     </fieldset>
   );
 }

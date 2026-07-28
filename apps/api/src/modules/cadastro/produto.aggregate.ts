@@ -86,6 +86,10 @@ export const produtoAggregateConfig: AggregateConfig = {
   },
   // F4 — regra do legado (chbATIVOClick): não desativar produto que é COMPONENTE de algum kit.
   validar: async ({ dto, id, db }) => {
+    // Produtos filhos (EdtProdutoPaiExit, pas:2843): o produto pai deve ser DIFERENTE do próprio produto.
+    if (id != null && dto.idproduto_pai != null && Number(dto.idproduto_pai) === id) {
+      throw new BusinessRuleError('PRODUTO_PAI_IGUAL_FILHO', { idproduto: id });
+    }
     if (id != null && dto.ativo === 'N') {
       const comp = await db
         .selectFrom('composicao')
