@@ -14,6 +14,7 @@ import {
   type ComposicaoItemDto,
   type DecomposicaoItemDto,
   type ReceitaItemDto,
+  type FatorConversaoItemDto,
 } from '@apollo/shared';
 import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
@@ -28,6 +29,7 @@ import { CodAuxiliarModal } from './CodAuxiliarModal';
 import { ComposicaoModal } from './ComposicaoModal';
 import { DecomposicaoModal } from './DecomposicaoModal';
 import { ReceitaModal } from './ReceitaModal';
+import { FatorConversaoModal } from './FatorConversaoModal';
 import { RefFornecedorSection } from '../de-para/RefFornecedorSection';
 import { precificarProduto } from './precificacaoApi';
 
@@ -55,6 +57,11 @@ export function ProdutoCadMaster() {
   const { data: unidadeOptions = [] } = useResourceOptions(
     'cadastro/unidades',
     (r: any) => ({ value: String(r.codunidade), label: `${r.sigla} - ${r.descricao}` }),
+  );
+  // Fator de conversão: o DE é a SIGLA da unidade (varchar 'KG'/'UN'…), não o código → value = sigla.
+  const { data: unidadeSiglaOptions = [] } = useResourceOptions(
+    'cadastro/unidades',
+    (r: any) => ({ value: String(r.sigla), label: `${r.sigla} - ${r.descricao}` }),
   );
   // Fornecedor: parceiro FRN='S' → "cod - razão".
   const { data: fornecedorOptions = [] } = useResourceOptions(
@@ -141,6 +148,7 @@ export function ProdutoCadMaster() {
       composicoes: [],
       decomposicoes: [],
       receitas: [],
+      fatoresConversao: [],
     }),
     [],
   );
@@ -187,6 +195,12 @@ export function ProdutoCadMaster() {
           <ComposicaoSection form={form} editavel={editavel} produtoOptions={produtoOptions} />
           <DecomposicaoSection form={form} editavel={editavel} produtoOptions={produtoOptions} />
           <ReceitaSection form={form} editavel={editavel} produtoOptions={produtoOptions} />
+          {/* Fator de conversão de unidades (tabFatorConversao) — grid na MESMA form; PARA = unidade do produto. */}
+          <FatorConversaoSection
+            form={form}
+            editavel={editavel}
+            unidadeSiglaOptions={unidadeSiglaOptions}
+          />
           {/* F4b — campos-mestre de armazenamento puro (sem cálculo), INLINE na MESMA form. */}
           <NutricionalSection form={form} editavel={editavel} />
           <LogisticaSection form={form} editavel={editavel} />
@@ -1514,6 +1528,134 @@ function ReceitaSection({
         <ReceitaModal
           inicial={editIdx >= 0 ? (fields[editIdx] as ReceitaItemDto) : undefined}
           produtoOptions={produtoOptions}
+          onFechar={() => setEditIdx(null)}
+          onConfirmar={onConfirmar}
+        />
+      )}
+    </fieldset>
+  );
+}
+
+// ───────────────────────── Fator de conversão de unidades ─────────────────────────
+
+/**
+ * Detalhe 1:N de FATOR DE CONVERSÃO (tabFatorConversao) — GRID + adicionar/editar/remover via
+ * `useFieldArray('fatoresConversao')`. Espelha o padrão dos códigos auxiliares. Leitura por linha:
+ * "1 <PARA=unidade do produto> contém <FATOR> <DE>". PARA é a unidade do produto (read-only, mostrada
+ * na coluna) — derivada no servidor no save. O usuário informa só DE (unidade convertida) e FATOR.
+ * A unicidade (DE,PARA) é validada no back (envelope PT via CadMaster/useMensagem); as guardas DE≠unidade
+ * e FATOR>0 são de ENTRADA no modal (fiéis a edtUnDeExit/btnSaveFatorConv).
+ */
+function FatorConversaoSection({
+  form,
+  editavel,
+  unidadeSiglaOptions,
+}: {
+  form: UseFormReturn<CriarProdutoDto>;
+  editavel: boolean;
+  unidadeSiglaOptions: Opcao[];
+}) {
+  const { fields, append, update, remove } = useFieldArray<
+    CriarProdutoDto,
+    'fatoresConversao',
+    'fieldId'
+  >({ control: form.control, name: 'fatoresConversao', keyName: 'fieldId' });
+  const [editIdx, setEditIdx] = useState<number | null>(null);
+  const unidadeProduto = (form.watch('unidade') ?? '').trim().toUpperCase();
+
+  const onConfirmar = (item: FatorConversaoItemDto) => {
+    if (editIdx == null) return;
+    if (editIdx < 0) append(item);
+    else update(editIdx, item);
+    setEditIdx(null);
+  };
+
+  const columns = useMemo<DataTableColumnDef<FatorConversaoItemDto & { fieldId: string }>[]>(
+    () => [
+      {
+        field: 'para',
+        headerName: 'Un. produto',
+        type: 'text',
+        width: 130,
+        isPrimary: true,
+        // PARA = unidade ATUAL do produto (o servidor re-deriva no save); a unidade viva ganha do `para` gravado.
+        valueGetter: (row) => unidadeProduto || row.para || '—',
+      },
+      { field: 'fator', headerName: 'Fator (contém)', type: 'number', width: 160 },
+      { field: 'de', headerName: 'Un. convertida', type: 'text', width: 150 },
+      {
+        field: 'acoes',
+        headerName: '',
+        type: 'actions',
+        width: 110,
+        getActions: () => [
+          {
+            id: 'editar',
+            label: 'Editar',
+            icon: <Pencil className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            onClick: (r: FatorConversaoItemDto & { fieldId: string }) => {
+              const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
+              if (idx >= 0) setEditIdx(idx);
+            },
+          },
+          {
+            id: 'remover',
+            label: 'Remover',
+            icon: <Trash2 className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            destructive: true,
+            onClick: (r: FatorConversaoItemDto & { fieldId: string }) => {
+              const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
+              if (idx >= 0) remove(idx);
+            },
+          },
+        ],
+      },
+    ],
+    [fields, remove, unidadeProduto],
+  );
+
+  return (
+    <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
+      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">
+        Fator de conversão de unidades
+      </legend>
+      <div className="flex flex-col gap-gp-sm">
+        <div>
+          <Button
+            label="Adicionar &conversão"
+            variant="soft"
+            disabled={!unidadeProduto}
+            onClick={() => setEditIdx(-1)}
+          />
+          {!unidadeProduto && (
+            <small className="ml-gp-sm text-fg-muted">Informe a unidade do produto primeiro.</small>
+          )}
+        </div>
+
+        {fields.length === 0 ? (
+          <small className="text-fg-muted">Sem fatores de conversão.</small>
+        ) : (
+          <DataTable
+            rows={fields as Array<FatorConversaoItemDto & { fieldId: string }>}
+            columns={columns}
+            getRowId={(r) => r.fieldId}
+            toolbar={{ enableSearch: false, enableFilters: false }}
+            paginationConfig={{ enabled: true, initialPageSize: 10 }}
+            cardBreakpoint={false}
+          />
+        )}
+      </div>
+
+      {editIdx != null && (
+        <FatorConversaoModal
+          inicial={editIdx >= 0 ? (fields[editIdx] as FatorConversaoItemDto) : undefined}
+          unidadeProduto={unidadeProduto}
+          unidadeOptions={unidadeSiglaOptions}
+          // DEs já usados (exceto a linha em edição) → o modal barra o duplicado no add-time (fiel ao
+          // "Registro já existe com essas configurações!"), antes do 422 do servidor no save do agregado.
+          desUsados={fields
+            .filter((_, i) => i !== editIdx)
+            .map((f) => (f.de ?? '').trim().toUpperCase())}
           onFechar={() => setEditIdx(null)}
           onConfirmar={onConfirmar}
         />

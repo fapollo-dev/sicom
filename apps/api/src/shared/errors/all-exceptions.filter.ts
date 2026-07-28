@@ -294,6 +294,8 @@ const CODE_PT: Record<string, string> = {
   PROMOCAO_CATEGORIA_DUPLICADA: 'Este alvo já foi informado nesta promoção.',
   PROMOCAO_CATEGORIA_FORN_MARCA_EXCLUSIVOS: 'Uma promoção por categoria não pode misturar Fornecedor e Marca — use apenas um dos dois.',
   PROMOCAO_PRODUTO_OBRIGATORIO: 'Informe o produto do item.',
+  // Produto — Fator de Conversão de Unidades (tabFatorConversao)
+  FATOR_CONVERSAO_DUPLICADO: 'Já existe um fator de conversão com essa unidade para o produto.',
   // (PROMOCAO_PRODUTO_DUPLICADO já definido abaixo — reusado pela Gestão de Promoções)
   // (PROMOCAO_PRODUTO_INATIVO já definido abaixo — reusado pela Gestão de Promoções)
   // Ajuste de estoque (FRMAJUSTEESTOQUE)

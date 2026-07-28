@@ -162,6 +162,20 @@ export const receitaItemSchema = z.object({
 });
 export type ReceitaItemDto = z.infer<typeof receitaItemSchema>;
 
+/**
+ * Item de FATOR DE CONVERSÃO (tabFatorConversao) — "1 <para> contém <fator> <de>".
+ * PARA = unidade do produto (read-only no legado; golden PARA=unidade 100%) → derivada no servidor;
+ * o cliente informa só DE (unidade convertida) + FATOR (quantidade). `fator` TOLERANTE (`nonnegative`
+ * aceita o 0 sujo de 1 linha golden). DE≠unidade e FATOR>0 são guardas de ENTRADA na web (o golden tem
+ * 21 linhas com DE=PARA), NÃO travas de servidor — para não regredir reabrir+gravar produto legado.
+ */
+export const fatorConversaoItemSchema = z.object({
+  de: z.string().trim().min(1, 'Informe a unidade convertida.').max(6),
+  para: z.string().trim().max(6).optional(), // derivado da unidade do produto (servidor)
+  fator: dec(z.number().nonnegative('Fator inválido')),
+});
+export type FatorConversaoItemDto = z.infer<typeof fatorConversaoItemSchema>;
+
 /** Base do master (sem o superRefine) — reusada p/ o schema de atualização (partial). */
 const produtoBase = z.object({
   // identidade
@@ -295,6 +309,8 @@ const produtoBase = z.object({
   composicoes: z.array(composicaoItemSchema).optional().default([]),
   decomposicoes: z.array(decomposicaoItemSchema).optional().default([]),
   receitas: z.array(receitaItemSchema).optional().default([]),
+  // Fator de conversão de unidades (tabFatorConversao) — 1 grid na mesma form; PARA derivado no servidor.
+  fatoresConversao: z.array(fatorConversaoItemSchema).optional().default([]),
 });
 
 /**

@@ -164,7 +164,7 @@ export class AggregateEngineService extends CrudEngineService {
     // enriquecimento transacional por item (ex.: congelar nf_prod.vl_custo de multi_preco; copiar o período
     // do header p/ cada filho como o AtualizaDadosFilho do legado). Recebe o `header` (dto do master) p/ derivações
     // que dependem do cabeçalho — retrocompatível: impls com 3 params ignoram o 4º.
-    if (det.derivarItensTrx) itens = await det.derivarItensTrx(itens, trx, this.emp(), header);
+    if (det.derivarItensTrx) itens = await det.derivarItensTrx(itens, trx, this.emp(), header, masterId);
     const linhas = itens.map((i) => {
       const row: Record<string, unknown> = { [det.fk]: masterId };
       for (const c of det.colunas) if (i[c] !== undefined) row[c] = i[c];

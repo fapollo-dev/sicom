@@ -428,6 +428,59 @@ async function main() {
       { status: prodDirtyPut.status, servico: prodDirty.servico, atacado: prodDirty.atacado },
     );
 
+    // 15a3) FATOR DE CONVERSÃO (tabFatorConversao) — detalhe 1:N; PARA é DERIVADO da unidade do produto
+    // (read-only no legado; golden PARA=unidade 100%). Round-trip de 2 linhas + PARA='UN' derivado.
+    const fcPut = await fetch(`${base}/cadastro/produtos/${prod.idproduto}`, {
+      method: 'PUT',
+      headers: H,
+      body: JSON.stringify({ unidade: 'UN', fatoresConversao: [{ de: 'KG', fator: 5 }, { de: 'LT', fator: 2 }] }),
+    });
+    const fc = (await fcPut.json()) as any;
+    const fcList = (fc.fatoresConversao ?? []) as any[];
+    check(
+      'PUT /cadastro/produtos grava fator de conversão (PARA derivado da unidade; 2 linhas round-trip)',
+      fcPut.status === 200 && fcList.length === 2 && fcList.every((r) => r.para === 'UN')
+      && Number(fcList.find((r) => r.de === 'KG')?.fator) === 5,
+      { status: fcPut.status, n: fcList.length, sample: fcList },
+    );
+    // dedup por (DE,PARA) dentro do produto (fiel ao RetornarValores) → 422
+    const fcDup = await fetch(`${base}/cadastro/produtos/${prod.idproduto}`, {
+      method: 'PUT',
+      headers: H,
+      body: JSON.stringify({ unidade: 'UN', fatoresConversao: [{ de: 'KG', fator: 1 }, { de: 'KG', fator: 2 }] }),
+    });
+    const fcDupBody = (await fcDup.json()) as any;
+    check(
+      'PUT /cadastro/produtos rejeita fator de conversão duplicado (DE,PARA) — FATOR_CONVERSAO_DUPLICADO',
+      fcDup.status === 422 && fcDupBody.code === 'FATOR_CONVERSAO_DUPLICADO',
+      { status: fcDup.status, code: fcDupBody.code },
+    );
+    // dedup SÓLIDO: cliente da API mandando `para` bogus não escapa — o servidor deriva PARA da unidade
+    // (mesma chave gravada), então DE='KG' com paras diferentes ainda colide (achado MÉDIO da auditoria).
+    const fcBogus = await fetch(`${base}/cadastro/produtos/${prod.idproduto}`, {
+      method: 'PUT',
+      headers: H,
+      body: JSON.stringify({ unidade: 'UN', fatoresConversao: [{ de: 'KG', para: 'X', fator: 1 }, { de: 'KG', fator: 2 }] }),
+    });
+    const fcBogusBody = (await fcBogus.json()) as any;
+    check(
+      'PUT /cadastro/produtos: dedup ignora `para` do cliente e usa a unidade derivada (não escapa duplicado)',
+      fcBogus.status === 422 && fcBogusBody.code === 'FATOR_CONVERSAO_DUPLICADO',
+      { status: fcBogus.status, code: fcBogusBody.code },
+    );
+    // tolerância a golden sujo: DE=unidade e FATOR=0 são guardas de ENTRADA (web) — servidor NÃO barra
+    const fcTol = await fetch(`${base}/cadastro/produtos/${prod.idproduto}`, {
+      method: 'PUT',
+      headers: H,
+      body: JSON.stringify({ unidade: 'UN', fatoresConversao: [{ de: 'UN', fator: 0 }] }),
+    });
+    const fcTolBody = (await fcTol.json()) as any;
+    check(
+      'PUT /cadastro/produtos tolera fator sujo do golden (DE=unidade, FATOR=0) — não reprova',
+      fcTol.status === 200 && (fcTolBody.fatoresConversao ?? []).length === 1,
+      { status: fcTol.status, n: (fcTolBody.fatoresConversao ?? []).length },
+    );
+
     // 15b) PRODUTO F2 — MULTI_PRECO (preço/custo POR EMPRESA na mesma form), via HTTP
     const prodPrecoPost = await fetch(`${base}/cadastro/produtos`, {
       method: 'POST',

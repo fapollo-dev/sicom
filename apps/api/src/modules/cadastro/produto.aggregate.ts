@@ -4,6 +4,26 @@ import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 
 /**
+ * Unidade do produto (= PARA do fator de conversão, read-only no legado). Prioriza a unidade do dto
+ * (novo valor sendo gravado); se o PUT parcial não a traz, busca a persistida por PK. Usado pelo dedup
+ * (validar) E pela derivação do detalhe (derivarItensTrx) — MESMA precedência p/ a chave casar com o gravado.
+ */
+async function unidadeDoProduto(
+  dto: { unidade?: unknown },
+  id: number | null,
+  db: any,
+): Promise<string | undefined> {
+  if (dto.unidade != null) return String(dto.unidade);
+  if (id == null) return undefined;
+  const p = await db
+    .selectFrom('produtos')
+    .select('unidade')
+    .where('idproduto', '=', id)
+    .executeTakeFirst();
+  return (p?.unidade as string | undefined) ?? undefined;
+}
+
+/**
  * PRODUTO (hub do ERP) — tela de NÚCLEO, mestre-detalhe via AggregateEngineService:
  * master `produtos` (GLOBAL — sem IDEMPRESA) + detalhe `codauxiliar` (códigos de barras
  * auxiliares / embalagens, 1:N). Fase 1 = núcleo fiel: a tela ARMAZENA config; o cálculo
@@ -74,6 +94,23 @@ export const produtoAggregateConfig: AggregateConfig = {
         .executeTakeFirst();
       if (comp) throw new BusinessRuleError('PRODUTO_EM_COMPOSICAO', { idproduto: id });
     }
+    // Fator de conversão: unicidade por (DE,PARA) dentro do produto (fiel ao RetornarValores do legado;
+    // golden tem 0 duplicados). PARA = unidade do produto; DE≠unidade e FATOR>0 são guardas de ENTRADA
+    // na web (golden tem 21 linhas com DE=PARA e 1 com FATOR=0) — o servidor só barra o duplicado real.
+    const fatores = dto.fatoresConversao as Array<{ de?: string; para?: string }> | undefined;
+    if (Array.isArray(fatores) && fatores.length) {
+      // dedup pela MESMA chave que será GRAVADA: PARA é derivado da unidade do produto (unidade do dto,
+      // ou a persistida quando o PUT não a traz) — precedência `unidade ?? item.para` idêntica ao derivarItensTrx.
+      const unidade = await unidadeDoProduto(dto, id ?? null, db);
+      const vistos = new Set<string>();
+      for (const f of fatores) {
+        const de = (f.de ?? '').trim().toUpperCase();
+        const para = ((unidade ?? f.para) ?? '').trim().toUpperCase();
+        const chave = `${de}|${para}`;
+        if (vistos.has(chave)) throw new BusinessRuleError('FATOR_CONVERSAO_DUPLICADO', { de, para });
+        vistos.add(chave);
+      }
+    }
   },
   detalhes: [
     {
@@ -133,6 +170,22 @@ export const produtoAggregateConfig: AggregateConfig = {
       fk: 'idproduto',
       chave: 'receitas',
       colunas: ['idproduto_receita', 'qtde', 'valor', 'unidade', 'servico', 'fatorcxprod'],
+    },
+    // Fator de conversão de unidades (tabFatorConversao) — FK é `codproduto` (nome fiel ao legado).
+    // PARA é DERIVADO da unidade do produto (read-only no legado; golden PARA=unidade 100%): copiada do
+    // header (dto master, sempre enviado pela form) em cada linha; fallback = o `para` que a linha trouxe.
+    {
+      tabela: 'fator_conversao',
+      pk: 'codfatorconv',
+      fk: 'codproduto',
+      chave: 'fatoresConversao',
+      colunas: ['de', 'para', 'fator'],
+      // PARA autoritativo = unidade do produto (header.unidade ou, se o PUT não a trouxer, a persistida via
+      // masterId). Garante PARA nunca nulo (coluna NOT NULL, espelha Oracle) e casa com a chave do dedup.
+      derivarItensTrx: async (itens, trx, _emp, header, masterId) => {
+        const unidade = await unidadeDoProduto(header ?? {}, masterId ?? null, trx);
+        return itens.map((it) => ({ ...it, para: unidade ?? it.para }));
+      },
     },
   ],
   colunasPesquisa: ['idproduto', 'codbarra', 'descricao', 'ncmsh', 'marca', 'aliquota', 'ativo'],
