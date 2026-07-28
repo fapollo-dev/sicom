@@ -54,6 +54,62 @@ describe('validarSped (validador estrutural PVA-style)', () => {
     expect(r.erros.some((e) => e.includes('M200') && e.includes('campos'))).toBe(true);
   });
 
+  // ── DOMÍNIO DE CAMPOS (cutover golden): regras do PVA que a contagem não pega ──
+  /** arquivo mínimo com um 0110 injetável (para exercitar os domínios do regime). */
+  function arquivoCom0110(campos0110: string[]): string {
+    const a = new SpedArquivo();
+    a.add('0000', ['006', '0', '', '', '01092026', '30092026', 'EMPRESA X', '11111111000191', 'MG', '3106200', '', '00', '2']);
+    a.add('0001', ['0']);
+    a.add('0110', campos0110);
+    a.fecharBloco('0990', '0');
+    return a.gerar();
+  }
+
+  it('0110 COD_TIPO_CONT="0" (fora do domínio {1,2}) → erro (bug ALTA que a contagem deixava passar)', () => {
+    const r = validarSped(arquivoCom0110(['1', '1', '0', ''])); // o valor inválido antigo
+    expect(r.ok).toBe(false);
+    expect(r.erros.some((e) => e.includes('COD_TIPO_CONT'))).toBe(true);
+  });
+
+  it('0110 LR correto ["1","1","1",""] → sem erro de domínio', () => {
+    const r = validarSped(arquivoCom0110(['1', '1', '1', '']));
+    expect(r.erros.some((e) => e.includes('0110'))).toBe(false);
+  });
+
+  it('0110 cumulativo (COD_INC_TRIB=2) sem IND_REG_CUM → erro (obrigatório)', () => {
+    const r = validarSped(arquivoCom0110(['2', '', '', '']));
+    expect(r.ok).toBe(false);
+    expect(r.erros.some((e) => e.includes('IND_REG_CUM'))).toBe(true);
+  });
+
+  it('M100 IND_CRED_ORI="01" (fora do domínio {0,1}) → erro (bug ALTA)', () => {
+    const a = new SpedArquivo();
+    a.add('0000', ['006', '0', '', '', '01092026', '30092026', 'EMPRESA X', '11111111000191', 'MG', '3106200', '', '00', '2']);
+    a.add('0001', ['0']);
+    a.fecharBloco('0990', '0');
+    a.add('M001', ['0']);
+    a.add('M100', ['101', '01', '1000,00', '1,6500', '', '', '16,50', '0,00', '0,00', '0,00', '16,50', '0', '0,00', '16,50']); // IND_CRED_ORI inválido
+    a.add('M105', ['01', '50', '1000,00', '0,00', '1000,00', '1000,00', '', '', '']);
+    a.fecharBloco('M990', 'M');
+    const r = validarSped(a.gerar());
+    expect(r.ok).toBe(false);
+    expect(r.erros.some((e) => e.includes('IND_CRED_ORI'))).toBe(true);
+  });
+
+  it('M105 CST vazio → erro (obrigatório no detalhe de crédito)', () => {
+    const a = new SpedArquivo();
+    a.add('0000', ['006', '0', '', '', '01092026', '30092026', 'EMPRESA X', '11111111000191', 'MG', '3106200', '', '00', '2']);
+    a.add('0001', ['0']);
+    a.fecharBloco('0990', '0');
+    a.add('M001', ['0']);
+    a.add('M100', ['101', '0', '1000,00', '1,6500', '', '', '16,50', '0,00', '0,00', '0,00', '16,50', '0', '0,00', '16,50']);
+    a.add('M105', ['01', '', '1000,00', '0,00', '1000,00', '1000,00', '', '', '']); // CST vazio
+    a.fecharBloco('M990', 'M');
+    const r = validarSped(a.gerar());
+    expect(r.ok).toBe(false);
+    expect(r.erros.some((e) => e.includes('CST'))).toBe(true);
+  });
+
   it('coerência C100↔C175: VL_PIS do C100 de saída ≠ Σ dos C175 → erro', () => {
     const a = new SpedArquivo();
     a.add('0000', ['006', '0', '', '', '01092026', '30092026', 'EMPRESA X', '11111111000191', 'MG', '3106200', '', '00', '1']);

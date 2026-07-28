@@ -50,13 +50,17 @@ export class SpedEfdContribuicoesService {
     const raiz = cnpj.slice(0, 8);
     const arq = new SpedArquivo();
 
-    // 0000 — identificação: COD_VER|TIPO_ESCRIT(0=original)|IND_SIT_ESP|NUM_REC_ANTERIOR|DT_INI|DT_FIN|NOME|CNPJ|UF|COD_MUN|SUFRAMA|IND_NAT_PJ(00)|IND_ATIV(1)
-    arq.add('0000', [codVersao(dtini), '0', '', '', fmtData(dtini), fmtData(dtfim), empresa.razao_social ?? '', cnpj, empresa.uf ?? '', empresa.idcidade != null ? String(empresa.idcidade) : '', '', '00', '1']);
+    // 0000 — identificação: COD_VER|TIPO_ESCRIT(0=original)|IND_SIT_ESP|NUM_REC_ANTERIOR|DT_INI|DT_FIN|NOME|CNPJ|UF|COD_MUN|SUFRAMA|IND_NAT_PJ(00)|IND_ATIV
+    // IND_ATIV='2' (Atividade de comércio) — fiel ao indAtivComercio do legado (supermercado = comércio; fold cutover ALTA).
+    arq.add('0000', [codVersao(dtini), '0', '', '', fmtData(dtini), fmtData(dtfim), empresa.razao_social ?? '', cnpj, empresa.uf ?? '', empresa.idcidade != null ? String(empresa.idcidade) : '', '', '00', '2']);
     // 0001 — abertura do bloco 0 (0=com dados).
     arq.add('0001', ['0']);
-    // 0110 — regime de apuração: LR → não-cumulativo (COD_INC_TRIB=1); senão cumulativo (2). (Refinável por config.)
+    // 0110 — regime: LR → não-cumulativo (COD_INC_TRIB=1, apropriação direta, COD_TIPO_CONT=1 alíquota básica);
+    // senão cumulativo (COD_INC_TRIB=2 + IND_REG_CUM=1 caixa). fold cutover ALTA: COD_TIPO_CONT era '0' (fora do
+    // domínio {1,2} → PVA rejeita) e IND_REG_CUM era vazio no cumulativo (obrigatório p/ COD_INC_TRIB=2).
+    // 0110: COD_INC_TRIB|IND_APRO_CRED|COD_TIPO_CONT|IND_REG_CUM (APRO_CRED/TIPO_CONT exigidos só p/ COD_INC_TRIB∈{1,3}).
     const naoCumulativo = String(empresa.classfiscal ?? '') === 'LR';
-    arq.add('0110', [naoCumulativo ? '1' : '2', naoCumulativo ? '1' : '', naoCumulativo ? '0' : '', '']);
+    arq.add('0110', naoCumulativo ? ['1', '1', '1', ''] : ['2', '', '', '1']);
     // 0140 — estabelecimentos que compartilham a RAIZ do CNPJ (fiel ao loop por SubStr(CNPJ,1,x) do legado).
     const estabs = (await db
       .selectFrom('empresas')
@@ -159,10 +163,14 @@ export class SpedEfdContribuicoesService {
       rem = r2(rem - desc);
       const sld = r2(cred - desc);
       // M100: COD_CRED|IND_CRED_ORI|VL_BC|ALIQ|QUANT_BC|ALIQ_QUANT|VL_CRED|VL_AJUS_ACRES|VL_AJUS_REDUC|VL_CRED_DIF|VL_CRED_DISP|IND_DESC_CRED|VL_CRED_DESC|SLD_CRED
-      arq.add(reg.m100, [codCred, '01', fmtNum(base), fmtNum(aliq, 4), '', '', fmtNum(cred), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(cred), desc > 0 ? '1' : '0', fmtNum(desc), fmtNum(sld)]);
+      // fold cutover ALTA: IND_CRED_ORI é domínio {0,1} (0=operações próprias) — era '01' (fora do domínio → PVA rejeita).
+      arq.add(reg.m100, [codCred, '0', fmtNum(base), fmtNum(aliq, 4), '', '', fmtNum(cred), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(cred), desc > 0 ? '1' : '0', fmtNum(desc), fmtNum(sld)]);
       for (const d of linhas) {
         // M105: NAT_BC_CRED|CST|VL_BC_TOT|VL_BC_CUM|VL_BC_NC|VL_BC|QUANT_BC_TOT|QUANT_BC|DESC_CRED
-        arq.add(reg.m105, [cst2(d.id_basecredito), cst2(d.cst_pis), fmtNum(n2(d.basecalculo)), fmtNum(0), fmtNum(n2(d.basecalculo)), fmtNum(n2(d.basecalculo)), '', '', '']);
+        // fold cutover MÉDIA: CST é OBRIGATÓRIO no M105/M505; cst_pis nulo (apuracao_pc_det não tem cst_cofins)
+        // → default '50' (crédito vinculado a receita tributada MI) em vez de vazio (que o PVA rejeita).
+        const cstCred = cst2(d.cst_pis) || '50';
+        arq.add(reg.m105, [cst2(d.id_basecredito), cstCred, fmtNum(n2(d.basecalculo)), fmtNum(0), fmtNum(n2(d.basecalculo)), fmtNum(n2(d.basecalculo)), '', '', '']);
       }
     }
 
@@ -309,7 +317,8 @@ export class SpedEfdContribuicoesService {
     arq.add('C010', [cnpjEstab, '1']); // IND_ESCRI=1 (individualizada)
     for (const nf of docs.nfs) {
       const indEmit = String(nf.tipoemissao ?? '0') === '0' ? '0' : '1';
-      const codMod = String(nf.modelo ?? '').padStart(2, '0');
+      // COD_MOD: modelo 90 → '1B' (fiel ao legado; '90' não é COD_MOD da tabela 4.1.1). fold cutover MÉDIA.
+      const codMod = String(nf.modelo ?? '') === '90' ? '1B' : String(nf.modelo ?? '').padStart(2, '0');
       const ser = String(nf.serie ?? '').trim();
       const cancelada = String(nf.cancelada) === 'S' || String(nf.statusnfe) === 'C';
       if (cancelada) {

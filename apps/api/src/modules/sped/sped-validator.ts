@@ -126,5 +126,33 @@ export function validarSped(arquivo: string): ResultadoValidacao {
     if (Math.abs(sCof - vCof) > EPS) erros.push(`C100 saída (linha ${r.linha}): VL_COFINS ${vCof} ≠ Σ C175 ${sCof}`);
   }
 
+  // 6) DOMÍNIO DE CAMPOS (regras do PVA que a contagem NÃO pega — cutover golden). Codifica os domínios oficiais
+  //    dos campos de maior risco: valores fora do domínio fazem o PVA rejeitar o arquivo mesmo com a contagem certa.
+  const emDominio = (v: string | undefined, dom: string[]) => v != null && dom.includes(v);
+  for (const r of regs.filter((x) => x.reg === '0000')) {
+    // IND_NAT_PJ obrigatório; IND_ATIV ∈ {0=indústria,1=serviços,2=comércio,3=§§ Lei 9718,4=imobiliária,9=outros}.
+    if ((r.campos[11] ?? '') === '') erros.push(`0000 (linha ${r.linha}): IND_NAT_PJ vazio (obrigatório)`);
+    if (!emDominio(r.campos[12], ['0', '1', '2', '3', '4', '9'])) erros.push(`0000 (linha ${r.linha}): IND_ATIV '${r.campos[12]}' fora do domínio {0,1,2,3,4,9}`);
+  }
+  for (const r of regs.filter((x) => x.reg === '0110')) {
+    const inc = r.campos[0]; // COD_INC_TRIB ∈ {1,2,3}
+    if (!emDominio(inc, ['1', '2', '3'])) erros.push(`0110 (linha ${r.linha}): COD_INC_TRIB '${inc}' fora do domínio {1,2,3}`);
+    // APRO_CRED e TIPO_CONT são exigidos (domínio {1,2}) quando COD_INC_TRIB ∈ {1,3}.
+    if (inc === '1' || inc === '3') {
+      if (!emDominio(r.campos[1], ['1', '2'])) erros.push(`0110 (linha ${r.linha}): IND_APRO_CRED '${r.campos[1]}' fora do domínio {1,2} (exigido p/ COD_INC_TRIB ${inc})`);
+      if (!emDominio(r.campos[2], ['1', '2'])) erros.push(`0110 (linha ${r.linha}): COD_TIPO_CONT '${r.campos[2]}' fora do domínio {1,2} (exigido p/ COD_INC_TRIB ${inc})`);
+    }
+    // IND_REG_CUM exigido (domínio {1,2,3}) quando COD_INC_TRIB=2 (cumulativo).
+    if (inc === '2' && !emDominio(r.campos[3], ['1', '2', '3'])) erros.push(`0110 (linha ${r.linha}): IND_REG_CUM '${r.campos[3]}' fora do domínio {1,2,3} (exigido p/ COD_INC_TRIB=2)`);
+  }
+  for (const r of regs.filter((x) => x.reg === 'M100' || x.reg === 'M500')) {
+    // IND_CRED_ORI ∈ {0=operações próprias, 1=incorporação/cisão/fusão}.
+    if (!emDominio(r.campos[1], ['0', '1'])) erros.push(`${r.reg} (linha ${r.linha}): IND_CRED_ORI '${r.campos[1]}' fora do domínio {0,1}`);
+  }
+  for (const r of regs.filter((x) => x.reg === 'M105' || x.reg === 'M505')) {
+    // CST_PIS/CST_COFINS é OBRIGATÓRIO no detalhe de crédito.
+    if ((r.campos[1] ?? '') === '') erros.push(`${r.reg} (linha ${r.linha}): CST vazio (obrigatório no detalhe de crédito)`);
+  }
+
   return { ok: erros.length === 0, erros, registros: regs.length };
 }

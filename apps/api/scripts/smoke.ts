@@ -5585,7 +5585,7 @@ async function main() {
         const m500 = lin.find((l) => l.startsWith('|M500|')) ?? '';
         const temM990 = lin.some((l) => l.startsWith('|M990|'));
         check('SPED §88.2 bloco M: M100 (crédito PIS 1,65, SLD_CRED carrega 1,65 sem débito) + M105 (CST 50) + M500 (COFINS 7,60) + M990',
-          efd.status === 200 && m100.startsWith('|M100|101|01|100,00|1,6500|') && m100.endsWith('|1,65|0|0,00|1,65|') && m105.startsWith('|M105|01|50|100,00|') && m500.endsWith('|7,60|0|0,00|7,60|') && temM990,
+          efd.status === 200 && m100.startsWith('|M100|101|0|100,00|1,6500|') && m100.endsWith('|1,65|0|0,00|1,65|') && m105.startsWith('|M105|01|50|100,00|') && m500.endsWith('|7,60|0|0,00|7,60|') && temM990,
           { m100, m105, m500: m500.slice(0, 70) });
 
         // 88.3) bloco C (corte-2b): cadastros (0150 participante / 0200 item) + C100 (entrada IND_OPER=0, mod 55) +
@@ -5651,9 +5651,16 @@ async function main() {
         // 88.6) VALIDAÇÃO estrutural PVA-style do arquivo gerado (totalizador 9900/9990/9999 + derivações
         // M100/M200/M205 + coerência C100↔C175 + contagem de campos). erros=[] ⇒ estruturalmente válido.
         const efdSJ = (await (await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-01', dtfim: '2026-09-30' }) })).json().catch(() => ({}))) as any;
-        check('SPED §88.6: validação estrutural do arquivo (bloco 9 + derivações M + C100↔C175) → SEM erros',
+        check('SPED §88.6: validação estrutural do arquivo (bloco 9 + derivações M + C100↔C175 + DOMÍNIOS PVA) → SEM erros',
           efdSJ.validacao && efdSJ.validacao.ok === true && Array.isArray(efdSJ.validacao.erros) && efdSJ.validacao.erros.length === 0 && efdSJ.validacao.registros > 0,
           { validacao: efdSJ.validacao });
+        // 88.7) CUTOVER GOLDEN: campos de domínio corrigidos (o validador de contagem não pegava) — 0000 IND_ATIV=2
+        // (comércio), 0110 LR [1|1|1|] (COD_TIPO_CONT=1, era '0' inválido), M100 IND_CRED_ORI=0 (era '01' inválido).
+        const r0000 = linS.find((l) => l.startsWith('|0000|')) ?? '';
+        const r0110 = linS.find((l) => l.startsWith('|0110|')) ?? '';
+        check('SPED §88.7 cutover golden: 0000 IND_ATIV=2 + 0110 LR |1|1|1| (COD_TIPO_CONT=1) + M100 IND_CRED_ORI=0 (domínios PVA)',
+          r0000.endsWith('|00|2|') && r0110 === '|0110|1|1|1||' && /^\|M100\|[^|]*\|0\|/.test(m100S),
+          { r0000: r0000.slice(-16), r0110, m100: m100S.slice(0, 18) });
         await pgSp.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-01' AND dtvenda < '2026-10-01'`); // cleanup
       } finally {
         await pgSp.end();
