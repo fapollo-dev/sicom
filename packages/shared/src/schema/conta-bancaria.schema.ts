@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { stripNulls } from './strip-nulls';
 
 /**
  * Cadastro de Contas Bancárias (legado `UCadContasBancarias`, tabela CONTAS_BANCARIAS).
@@ -69,7 +70,7 @@ export const contaBancariaOperadorSchema = z.object({
 });
 export type ContaBancariaOperadorDto = z.infer<typeof contaBancariaOperadorSchema>;
 
-export const contaBancariaSchema = z.object({
+const contaBancariaBase = z.object({
   // FK → BANCOS (obrigatório — edtCODBCOExit). IDEMPRESA NÃO é entrada do usuário.
   codbco: z.number({ message: 'Banco é obrigatório' }).int('Banco inválido'),
   titular: z.string().trim().max(50).optional(),
@@ -96,9 +97,10 @@ export const contaBancariaSchema = z.object({
   operadores: z.array(contaBancariaOperadorSchema).max(500).optional(),
 });
 
+export const contaBancariaSchema = z.preprocess(stripNulls, contaBancariaBase); // fold varredura null→ausente
 export type CriarContaBancariaDto = z.infer<typeof contaBancariaSchema>;
 
-export const atualizarContaBancariaSchema = contaBancariaSchema.partial();
+export const atualizarContaBancariaSchema = z.preprocess(stripNulls, contaBancariaBase.partial());
 export type AtualizarContaBancariaDto = z.infer<typeof atualizarContaBancariaSchema>;
 
 export interface ContaBancaria extends CriarContaBancariaDto {

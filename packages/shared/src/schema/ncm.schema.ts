@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { stripNulls } from './strip-nulls';
 
 /**
  * Cadastro de NCM (legado `NCM`) — completa o PALETTE (data + memo) e prova a
@@ -29,7 +30,7 @@ export const UN_TRIBUTADA = [
 
 const UN_TRIBUTADA_VALUES = UN_TRIBUTADA.map((u) => u.value) as [string, ...string[]];
 
-export const ncmSchema = z
+export const ncmSchema = z.preprocess(stripNulls, z
   .object({
     // chave natural: obrigatória no insert (o usuário digita o código NCM)
     codigo: z.number().int('Código NCM inválido').positive('Código NCM inválido'),
@@ -51,13 +52,13 @@ export const ncmSchema = z
   .refine((d) => !d.vigencia_fim || !d.vigencia_inicio || d.vigencia_inicio <= d.vigencia_fim, {
     message: 'A data fim da vigência não pode ser menor que a data de início da vigência!',
     path: ['vigencia_fim'],
-  });
+  }));
 
 export type CriarNcmDto = z.infer<typeof ncmSchema>;
 
 // no update a PK não muda → parcial e sem exigir codigo. O refine de vigência é
 // reaplicado (z.partial não preserva refines de objeto refinado).
-export const atualizarNcmSchema = z
+export const atualizarNcmSchema = z.preprocess(stripNulls, z
   .object({
     codigo: z.number().int('Código NCM inválido').positive('Código NCM inválido').optional(),
     ncmsh: z.string().trim().max(20).optional(),
@@ -73,7 +74,7 @@ export const atualizarNcmSchema = z
   .refine((d) => !d.vigencia_fim || !d.vigencia_inicio || d.vigencia_inicio <= d.vigencia_fim, {
     message: 'A data fim da vigência não pode ser menor que a data de início da vigência!',
     path: ['vigencia_fim'],
-  });
+  }));
 export type AtualizarNcmDto = z.infer<typeof atualizarNcmSchema>;
 
 export interface Ncm extends CriarNcmDto {

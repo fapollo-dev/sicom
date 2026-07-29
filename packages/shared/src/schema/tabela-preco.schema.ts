@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { stripNulls } from './strip-nulls';
 
 /**
  * Cadastro de PRECO (Tabela de Reajuste, legado `PRECO`) — completa o PALETTE de campos:
@@ -12,7 +13,7 @@ import { z } from 'zod';
  *    MaxValue=100, ShowButton=False) — NÃO é moeda.
  *  - Se REAJUSTE='S', VALOR_REAJUSTE deve ser > 0 (ValidaCadastro).
  */
-export const tabelaPrecoSchema = z
+export const tabelaPrecoSchema = z.preprocess(stripNulls, z
   .object({
     descricao: z
       .string()
@@ -37,11 +38,11 @@ export const tabelaPrecoSchema = z
         path: ['valor_reajuste'],
       });
     }
-  });
+  }));
 
 export type CriarTabelaPrecoDto = z.infer<typeof tabelaPrecoSchema>;
 
-export const atualizarTabelaPrecoSchema = z
+export const atualizarTabelaPrecoSchema = z.preprocess(stripNulls, z
   .object({
     descricao: z.string().trim().min(1, 'Informe a descrição da tabela de preço.').max(60),
     valor_reajuste: z
@@ -52,7 +53,7 @@ export const atualizarTabelaPrecoSchema = z
     reajuste: z.enum(['S', 'N'], { message: "Informe 'S' ou 'N'" }).optional(),
     ativo: z.enum(['S', 'N'], { message: "Informe 'S' ou 'N'" }).optional(),
   })
-  .partial();
+  .partial());
 export type AtualizarTabelaPrecoDto = z.infer<typeof atualizarTabelaPrecoSchema>;
 
 export interface TabelaPreco extends CriarTabelaPrecoDto {

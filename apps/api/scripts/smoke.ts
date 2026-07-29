@@ -81,6 +81,12 @@ async function main() {
     check('POST cria banco (codbco gerado = 16)', post.status === 201 && novo.codbco === 16, novo);
     check('BR-04 uppercase aplicado (BANCO em maiúsculas)', novo.banco === 'TESTE CLAUDE', novo.banco);
     check('carimbo de operador (usultalteracao=7)', novo.usultalteracao === 7, novo.usultalteracao);
+    // 4b) REABRIR+GRAVAR (varredura stripNulls): o banco 16 tem uf/agenciaCedente/convenio/… NULL; ecoar o GET
+    // de volta via PUT deve ser 200. Antes do fold, atualizarBancoSchema (=partial) reprovava null (`.optional()`
+    // só aceita undefined). Trava a classe "reopen+save 400" p/ os cadastros folded (banco/ncm/conta/bairro/…).
+    const banco16 = (await (await fetch(`${base}/cadastro/bancos/16`, { headers: H })).json().catch(() => ({}))) as any;
+    const bancoReput = await fetch(`${base}/cadastro/bancos/16`, { method: 'PUT', headers: H, body: JSON.stringify(banco16) });
+    check('PUT /cadastro/bancos reabre+grava banco com opcionais NULL (echo do GET) sem 400 — fold stripNulls', bancoReput.status === 200, { status: bancoReput.status });
 
     // 5) edita (delta)
     const put = await fetch(`${base}/cadastro/bancos/16`, {

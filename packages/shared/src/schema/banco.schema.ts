@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { stripNulls } from './strip-nulls';
 
 /**
  * Schema do Cadastro de Bancos — fonte ÚNICA de validação (back ↔ front).
@@ -18,7 +19,7 @@ import { z } from 'zod';
 const upper = (max: number) =>
   z.string().trim().transform((s) => s.toUpperCase()).pipe(z.string().max(max));
 
-export const bancoSchema = z.object({
+const bancoBase = z.object({
   // BR-02: obrigatórios
   banco: z.string().trim().min(1, 'Banco é obrigatório').pipe(upper(50)),
   cidade: z.string().trim().min(1, 'Cidade é obrigatória').pipe(upper(50)),
@@ -32,11 +33,14 @@ export const bancoSchema = z.object({
   variacaoCarteira: z.number().int('Variação da carteira inválida').optional(),
 });
 
+// stripNulls: reabrir+gravar um banco com colunas opcionais NULL (agência/uf/convênio/… — todas nullable no
+// seed) reprovaria no `.optional()` cru; o preprocess torna o schema idempotente com o read (fold varredura).
+export const bancoSchema = z.preprocess(stripNulls, bancoBase);
 /** Entrada de criação (sem CODBCO — gerado por sequence). */
 export type CriarBancoDto = z.infer<typeof bancoSchema>;
 
 /** Entrada de edição: mesmos campos, todos opcionais (atualização parcial / delta). */
-export const atualizarBancoSchema = bancoSchema.partial();
+export const atualizarBancoSchema = z.preprocess(stripNulls, bancoBase.partial());
 export type AtualizarBancoDto = z.infer<typeof atualizarBancoSchema>;
 
 /** Registro completo como retornado pela API (inclui PK e auditoria). */

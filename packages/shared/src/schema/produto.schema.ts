@@ -379,12 +379,13 @@ export interface Produto extends CriarProdutoDto {
 /* ─────────────────────────  Lookups de apoio (catálogos)  ───────────────────────── */
 
 /** UNIDADE (catálogo). SIGLA obrigatória (máx. 6). */
-export const unidadeSchema = z.object({
+const unidadeBase = z.object({
   sigla: z.string().trim().min(1, 'Informe a sigla.').max(6, 'Sigla deve ter no máximo 6 caracteres.'),
   descricao: z.string().trim().max(60).optional(),
 });
+export const unidadeSchema = z.preprocess(stripNulls, unidadeBase); // fold varredura null→ausente
 export type CriarUnidadeDto = z.infer<typeof unidadeSchema>;
-export const atualizarUnidadeSchema = unidadeSchema.partial();
+export const atualizarUnidadeSchema = z.preprocess(stripNulls, unidadeBase.partial());
 export type AtualizarUnidadeDto = z.infer<typeof atualizarUnidadeSchema>;
 export interface Unidade extends CriarUnidadeDto {
   codunidade: number;
@@ -399,23 +400,25 @@ export const FAMILIA_TIPO_OPCOES = [
   { value: 'R', label: 'Grupo de preço' },
 ] as const;
 
-export const familiaSchema = z.object({
+const familiaBase = z.object({
   tipo: z.enum(['G', 'S', 'D', 'O', 'R'], { message: 'Tipo de família inválido.' }),
   descricao: z.string().trim().max(60).optional(),
 });
+export const familiaSchema = z.preprocess(stripNulls, familiaBase); // fold varredura null→ausente
 export type CriarFamiliaDto = z.infer<typeof familiaSchema>;
-export const atualizarFamiliaSchema = familiaSchema.partial();
+export const atualizarFamiliaSchema = z.preprocess(stripNulls, familiaBase.partial());
 export type AtualizarFamiliaDto = z.infer<typeof atualizarFamiliaSchema>;
 export interface Familia extends CriarFamiliaDto {
   codfamilia: number;
 }
 
 /** ALIQUOTA (catálogo dos códigos fiscais; CHAVE NATURAL CODIGO char(3)). */
-export const aliquotaSchema = z.object({
+const aliquotaBase = z.object({
   codigo: z.string().trim().min(1, 'Informe o código da alíquota.').max(3, 'Código deve ter no máximo 3 caracteres.'),
   descricao: z.string().trim().max(60).optional(),
 });
+export const aliquotaSchema = z.preprocess(stripNulls, aliquotaBase); // fold varredura null→ausente
 export type CriarAliquotaDto = z.infer<typeof aliquotaSchema>;
-export const atualizarAliquotaSchema = aliquotaSchema.partial();
+export const atualizarAliquotaSchema = z.preprocess(stripNulls, aliquotaBase.partial());
 export type AtualizarAliquotaDto = z.infer<typeof atualizarAliquotaSchema>;
 export interface Aliquota extends CriarAliquotaDto {}

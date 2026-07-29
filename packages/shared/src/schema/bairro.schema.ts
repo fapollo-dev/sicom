@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { stripNulls } from './strip-nulls';
 
 /**
  * Cadastro de Bairros — tabela REAL `BAIRRO` do schema legado (existe no Oracle, porém
@@ -24,7 +25,7 @@ export const ATIVO_SN = [
   { value: 'N', label: 'Não' },
 ] as const;
 
-export const bairroSchema = z.object({
+const bairroBase = z.object({
   // DESCRICAO nullable no legado; mantemos só o limite de tamanho (sem "obrigatório").
   descricao: z.string().trim().max(100).optional(),
   regiao: z
@@ -35,9 +36,10 @@ export const bairroSchema = z.object({
   idcidade: z.number().int('Cidade inválida').positive('Cidade inválida').optional(),
 });
 
+export const bairroSchema = z.preprocess(stripNulls, bairroBase); // fold varredura null→ausente
 export type CriarBairroDto = z.infer<typeof bairroSchema>;
 
-export const atualizarBairroSchema = bairroSchema.partial();
+export const atualizarBairroSchema = z.preprocess(stripNulls, bairroBase.partial());
 export type AtualizarBairroDto = z.infer<typeof atualizarBairroSchema>;
 
 export interface Bairro extends CriarBairroDto {
