@@ -52,13 +52,15 @@ function codVersaoFiscal(dtini: string): string {
  * item (COD_ITEM=idproduto gateado pelo 0200). Fonte: nossas tabelas do épico INVENTÁRIO (mig 090).
  *
  * ESTRUTURA DE BLOCOS COMPLETA: 0/C/D/E/G/H/K/1/9 — todos com opener obrigatório. D/G/K/1 saem só com o opener
- * (IND_MOV=1 sem-dados; conteúdo não migrado). Bloco B (ISS) é OMITIDO (só p/ informante obrigado ao EFD-ISS
- * municipal; N/A p/ este informante de ICMS/IPI).
+ * (IND_MOV=1 sem-dados). Bloco B (ISS) é OMITIDO (só p/ informante obrigado ao EFD-ISS municipal; N/A p/ este
+ * informante de ICMS/IPI). BLOCO D (serviços comunicação/telecom mod 21/22): CÓPIA-FIEL-NEGATIVA — o legado NÃO
+ * emite bloco D (query sqqNFtelecomunicacao é órfã, sem RegistroD*New; as queries principais excluem 21/22) → as
+ * NFs mod 21/22 são DESCARTADAS do SPED (fiel); só o D001 sem-dados.
  *
  * ADIADO (corte-5+, com procedência): VL_SLD_CREDOR_ANT (carry do saldo credor do período anterior — precisa
  * persistir a apuração/APURACAO_ICMS; hoje 0, superestima a-recolher se houver credor acumulado) · CONTEÚDO dos
- * blocos D (serviços) / G (CIAP) / K (produção/estoque — config-gated OPTANTE_BLOCOK + APURACAO_ESTOQUE_ESCRITURADO
- * vazio no golden; K230+ = produção, ROI~0) / 1 (outras info) ·
+ * blocos G (CIAP) / K (produção/estoque — config-gated OPTANTE_BLOCOK + APURACAO_ESTOQUE_ESCRITURADO vazio no
+ * golden; K230+ = produção, ROI~0) / 1 (outras info) ·
  * H020 (só MOT_INV≥02 mudança-de-tributação — lookup DET_ALIQUOTA→CST/ICM) · E111/E113 (ajustes) · E200/E210 (ST)
  * · E300/E310 (DIFAL/FCP) · E500 (IPI) · redução de base (VL_RED_BC do C190 = 0) · multi-estab (C010) · COD_REC das
  * demais UFs · C500 TP_LIGACAO/COD_GRUPO_TENSAO (EMPRESAS.TP_LIGACAO/GRUPOTENSAO ausentes → ''). NOTA: o C170 de
@@ -307,10 +309,14 @@ export class SpedEfdIcmsIpiService {
     let debitoIcms = 0;
     if (!temDocs) { arq.fecharBloco('C990', 'C'); return { creditoIcms: 0, debitoIcms: 0 }; }
     const ENERGIA = new Set([6, 28, 29]); // mod 06 energia / 28 gás / 29 água → C500/C590 (não C100)
-    const BLOCO_D = new Set([21, 22]); // mod 21/22 (comunicação/telecom) → bloco D (D500) — ADIADO; inválidos em C100
+    // mod 21/22 (comunicação/telecom): o legado NÃO emite bloco D — a query sqqNFtelecomunicacao existe no .dfm mas
+    // é ÓRFÃ (cdsNFtelecomunicacao nunca é consumido; sem RegistroD*New/GeraBlocoD) e as queries principais EXCLUEM
+    // 21/22 (MODELO NOT IN (22,21,...)). Logo, cópia-fiel = DESCARTAR 21/22 do SPED (fora de C e de D), sai só o D001
+    // sem-dados. NÃO é "adiado": é morto no legado (recon f4485f0+; [[parity-certificacao]] Bloco D).
+    const BLOCO_D = new Set([21, 22]);
     for (const nf of docs.nfs) {
       if (ENERGIA.has(Number(nf.modelo))) continue; // energia/gás/água emitidos no laço C500 abaixo
-      if (BLOCO_D.has(Number(nf.modelo))) continue; // fold auditoria [BAIXA]: telecom não vai em C100 (bloco D adiado)
+      if (BLOCO_D.has(Number(nf.modelo))) continue; // telecom mod 21/22: descartado (fiel — legado não emite bloco D)
       const saida = String(nf.tipo) === 'S';
       const indOper = saida ? '1' : '0'; // IND_OPER: 0=entrada / 1=saída
       const indEmit = String(nf.tipoemissao ?? '0') === '0' ? '0' : '1';
