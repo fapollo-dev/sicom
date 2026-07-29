@@ -144,12 +144,51 @@ export class SpedApuracaoPcService {
         totDebCofins += vCof;
       }
 
+      // DÉBITO de SAÍDA por NF-e mod-55 (SAÍDA-NF-mod55): itens das NFs tipo='S' processadas do período. A saída
+      // não grava base/valor de PIS/COFINS (só as alíquotas aliqpiss/aliqcofinss) → base = Σ(qtd×vrvenda − desconto)
+      // e valor = round(base×alíq/100,2), mesma mecânica do débito de VENDAS. Agrupa por (CST, alíq PIS, alíq COFINS)
+      // e alimenta o M200/M600 JUNTO com o PDV. ADIADO (fiel-conservador): abatimento de ICMS na base (GET_CONFIG_
+      // ABATER_ICMS_PC) e descontos rateados — o corte usa a base bruta de venda.
+      const gruposDebNf = (await trx
+        .selectFrom('nf_prod as np')
+        .innerJoin('nf as n', 'n.codnf', 'np.codnf')
+        .select([
+          sql`coalesce(nullif(trim(np.cstpiscofins),''),'01')`.as('cst'),
+          sql`coalesce(np.aliqpiss,0)`.as('aliqpis'),
+          sql`coalesce(np.aliqcofinss,0)`.as('aliqcofins'),
+          sql`round(coalesce(sum(np.quantidade*np.vrvenda - coalesce(np.desconto,0)),0),2)`.as('basecalculo'),
+        ])
+        .where('n.idempresa', '=', emp)
+        .where('n.tipo', '=', 'S')
+        .where('n.modelo', '=', 55) // só mod-55; NFC-e mod-65 (PDV) já vem de `vendas` (evita double-count)
+        .where(sql`coalesce(n.proc,'N')`, '=', 'S')
+        .where(sql`coalesce(n.cancelada,'N')`, '<>', 'S')
+        .where(sql`coalesce(n.statusnfe,'')`, '<>', 'C')
+        .where(sql`n.dtcontabil`, '>=', dtini)
+        .where(sql`n.dtcontabil`, '<=', dtfim)
+        .where((eb) => eb.or([eb('np.aliqpiss', '>', 0), eb('np.aliqcofinss', '>', 0)]))
+        .groupBy([sql`coalesce(nullif(trim(np.cstpiscofins),''),'01')`, sql`coalesce(np.aliqpiss,0)`, sql`coalesce(np.aliqcofinss,0)`])
+        .execute()) as Array<{ cst: unknown; aliqpis: unknown; aliqcofins: unknown; basecalculo: unknown }>;
+      for (const g of gruposDebNf) {
+        const base = Number(g.basecalculo) || 0;
+        const aPis = Number(g.aliqpis) || 0;
+        const aCof = Number(g.aliqcofins) || 0;
+        const vPis = r2((base * aPis) / 100);
+        const vCof = r2((base * aCof) / 100);
+        await trx
+          .insertInto('apuracao_pc_det')
+          .values({ codapuracao_pc, tipo: 'D', id_tipocredito: null, id_basecredito: null, idpiscofins: null, cst_pis: g.cst != null ? Number(g.cst) : null, basecalculo: base, aliqpis: aPis, valorpis: vPis, aliqcofins: aCof, valorcofins: vCof })
+          .execute();
+        totDebPis += vPis;
+        totDebCofins += vCof;
+      }
+
       return {
         codapuracao_pc,
         grupos: grupos.length,
         total_credito_pis: r2(totPis),
         total_credito_cofins: r2(totCofins),
-        grupos_debito: gruposDeb.length,
+        grupos_debito: gruposDeb.length + gruposDebNf.length,
         total_debito_pis: r2(totDebPis),
         total_debito_cofins: r2(totDebCofins),
       };

@@ -5743,6 +5743,46 @@ async function main() {
       }
     }
 
+    // ===== §90c: EFD-Contribuições SAÍDA-NF-mod55 — débito PIS/COFINS de NF de saída mod-55 no bloco C + apuração M =====
+    {
+      const pgSc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // período 2026-12: entrada (crédito PIS 0,66 / COFINS 3,04) + saída mod-55 (débito PIS 1,65 / COFINS 7,60).
+        const nfEnt = await novaNf(baseNf({ tipo: 'E', nronf: 'SCENT01', codparceiro: 22, dtemissao: '2026-12-03', dtcontabil: '2026-12-03', itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, vrcusto: 10, cfop: '1102', aliquota: 'T01' }] }));
+        await pgSc.query(`UPDATE nf_prod SET bcpiscofinse=100, vrpise=0.66, vrcofinse=3.04, aliqpise=0.66, aliqcofinse=3.04, cstpiscofins='50' WHERE codnf=$1`, [nfEnt]);
+        await pgSc.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfEnt]);
+        const nfSai = await novaNf(baseNf({ tipo: 'S', nronf: 'SCSAI01', modelo: 55, cfop: '5102', codparceiro: 20, dtemissao: '2026-12-04', dtcontabil: '2026-12-04', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+        await pgSc.query(`UPDATE nf_prod SET vrvenda=10, desconto=0, aliqpiss=1.65, aliqcofinss=7.60, cstpiscofins='01' WHERE codnf=$1`, [nfSai]);
+        await pgSc.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfSai]);
+        // apuração: débito da saída mod-55 (1,65 / 7,60) além do crédito de entrada (0,66 / 3,04).
+        const apurSc = await fetch(`${base}/fiscal/sped/apuracao-pc`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-12-01', dtfim: '2026-12-31' }) });
+        const apurScJ = (await apurSc.json().catch(() => ({}))) as any;
+        check(
+          'SPED §90c apuração SAÍDA-NF-mod55: débito PIS 1,65 / COFINS 7,60 (base venda 100 × alíq) + crédito entrada PIS 0,66',
+          apurSc.status === 200 && Number(apurScJ.total_debito_pis) === 1.65 && Number(apurScJ.total_debito_cofins) === 7.6 && Number(apurScJ.total_credito_pis) === 0.66,
+          { apur: apurScJ },
+        );
+        const efdSc = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-12-01', dtfim: '2026-12-31' }) });
+        const efdScJ = (await efdSc.json().catch(() => ({}))) as any;
+        const linSc = String(efdScJ.arquivo ?? '').split('\r\n');
+        const c100SaiSc = linSc.find((l) => l.startsWith('|C100|1|') && l.includes('|55|')) ?? '';
+        const m200Sc = linSc.find((l) => l.startsWith('|M200|')) ?? '';
+        const m600Sc = linSc.find((l) => l.startsWith('|M600|')) ?? '';
+        check(
+          'SPED §90c bloco C+M: C100 saída mod-55 (IND_OPER=1) + M200 PIS (déb 1,65 − créd 0,66 = 0,99 a recolher) + M600 COFINS (7,60 − 3,04 = 4,56) + validação ok',
+          efdSc.status === 200
+          && c100SaiSc.startsWith('|C100|1|')
+          && m200Sc === '|M200|1,65|0,66|0,00|0,99|0,00|0,00|0,99|0,00|0,00|0,00|0,00|0,99|'
+          && m600Sc === '|M600|7,60|3,04|0,00|4,56|0,00|0,00|4,56|0,00|0,00|0,00|0,00|4,56|'
+          && efdScJ.validacao?.ok === true && efdScJ.validacao.erros.length === 0,
+          { c100Sai: c100SaiSc.slice(0, 30), m200: m200Sc, m600: m600Sc, val: efdScJ.validacao },
+        );
+        await pgSc.query(`DELETE FROM nf WHERE codnf IN ($1,$2)`, [nfEnt, nfSai]); // cleanup
+      } finally {
+        await pgSc.end();
+      }
+    }
+
     // ===== §90b: POSIÇÃO DE ESTOQUE (UPosicaoProduto) — saldo/empresa + Ficha de movimentação (Kardex) read-only =====
     {
       // processa 1 entrada de +7 no produto 1 (grava historico_prod) e confere a posição consolidada + o Kardex.

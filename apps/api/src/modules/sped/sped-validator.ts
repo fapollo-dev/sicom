@@ -109,10 +109,11 @@ export function validarSped(arquivo: string): ResultadoValidacao {
     if (rec > EPS && Math.abs(somaM205 - rec) > EPS) erros.push(`${m205reg}: Σ VL_DEBITO ${somaM205} ≠ ${m200reg}.VL_CONT_NC_REC ${rec}`);
   }
 
-  // 5) COERÊNCIA C100↔C175 (saída NFC-e): por documento, Σ dos C175 = VL_PIS/VL_COFINS do C100.
+  // 5) COERÊNCIA C100↔C175 (saída NFC-e mod-65): por documento, Σ dos C175 = VL_PIS/VL_COFINS do C100.
+  // Só mod-65 (NFC-e do PDV) tem C175; a saída mod-55 (SAÍDA-NF-mod55) detalha em C170, não entra aqui.
   for (let i = 0; i < regs.length; i++) {
     const r = regs[i];
-    if (r.reg !== 'C100' || r.campos[0] !== '1') continue; // só C100 de SAÍDA (IND_OPER=1)
+    if (r.reg !== 'C100' || r.campos[0] !== '1' || r.campos[3] !== '65') continue; // só C100 SAÍDA mod-65 (com C175)
     if (r.campos[4] === '02') continue; // cancelado: sem C175
     let sPis = 0;
     let sCof = 0;
