@@ -479,12 +479,28 @@ export type AtualizarSituacaoNfDto = z.infer<typeof atualizarSituacaoNfSchema>;
 export interface SituacaoNf extends CriarSituacaoNfDto {}
 
 /** CFOP — catálogo (chave natural codcfop char(4)). */
-export const cfopSchema = z.object({
+const cfopBase = z.object({
   codcfop: z.string().trim().min(4, 'O CFOP deve ter 4 dígitos.').max(4, 'O CFOP deve ter 4 dígitos.'),
   descricao: z.string().trim().min(1, 'Informe a descrição.').max(120),
+  // CFOP × SITUAÇÃO (aba "Situação do documento" do UCadCFOP) — a SITUACAO_NF "refina" o CFOP por imposto e
+  // sentido; cada FK → situacao_nf. Alimenta a derivação fiscal/contábil da NF (diário/SPED). Opcionais.
+  situacao_icms_entradas_nf: z.number().int().optional(),
+  situacao_icms_saidas_nf: z.number().int().optional(),
+  situacao_pis_entradas_nf: z.number().int().optional(),
+  situacao_pis_saidas_nf: z.number().int().optional(),
+  situacao_cofins_entradas_nf: z.number().int().optional(),
+  situacao_cofins_saidas_nf: z.number().int().optional(),
+  idsituacao_nf_saida: z.number().int().optional(),
+  cfop_devolucao: z.string().trim().max(4).optional(), // CFOP de saída p/ devolver este CFOP de entrada
+  proc_cupom: sn().optional(), // "Zerar ICMS Cupom/Sintegra/Sped"
+  gera_financeiro_auto: sn().optional(), // gera título financeiro automaticamente ao processar
 });
+// stripNulls (como nfSchema): a MAIORIA dos CFOP tem as colunas de situação NULL → ao reabrir+gravar, o form
+// ecoa null e `z.number/string().optional()` (só aceita undefined) reprovaria (400/no-op). O preprocess
+// normaliza null→ausente, tornando o schema idempotente com a saída do read. (Mesma classe do fold de parceiro.)
+export const cfopSchema = z.preprocess(stripNulls, cfopBase);
 export type CriarCfopDto = z.infer<typeof cfopSchema>;
-export const atualizarCfopSchema = cfopSchema.partial();
+export const atualizarCfopSchema = z.preprocess(stripNulls, cfopBase.partial());
 export type AtualizarCfopDto = z.infer<typeof atualizarCfopSchema>;
 export interface Cfop extends CriarCfopDto {}
 

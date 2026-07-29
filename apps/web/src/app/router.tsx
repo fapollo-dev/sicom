@@ -8,6 +8,7 @@ import { BairrosCadMaster } from '../features/bairros/BairrosCadMaster';
 import { CidadesCadMaster } from '../features/cidades/CidadesCadMaster';
 import { PrecosCadMaster } from '../features/precos/PrecosCadMaster';
 import { NcmCadMaster } from '../features/ncm/NcmCadMaster';
+import { CfopCadMaster } from '../features/cfop/CfopCadMaster';
 import { OperacoesContaCadMaster } from '../features/operacoes-conta/OperacoesContaCadMaster';
 import { ContasBancariasCadMaster } from '../features/contas-bancarias/ContasBancariasCadMaster';
 import { LotesCobrancaCadMaster } from '../features/lotes-md/LotesCobrancaCadMaster';
@@ -53,6 +54,7 @@ export const router = createBrowserRouter([
       { path: '/cadastro/cidades', element: <CidadesCadMaster /> },
       { path: '/cadastro/precos', element: <PrecosCadMaster /> },
       { path: '/cadastro/ncm', element: <NcmCadMaster /> },
+      { path: '/cadastro/cfop', element: <CfopCadMaster /> },
       { path: '/cadastro/operacoes-conta', element: <OperacoesContaCadMaster /> },
       { path: '/cadastro/contas-bancarias', element: <ContasBancariasCadMaster /> },
       { path: '/cadastro/empresas', element: <EmpresasCadMaster /> },

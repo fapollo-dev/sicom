@@ -11,7 +11,14 @@ export const cfopCrudConfig: CrudConfig = {
   pk: 'codcfop',
   pkGerada: false,
   view: 'get_cfop',
-  colunas: ['descricao'],
+  colunas: [
+    'descricao',
+    // CFOP × SITUAÇÃO (aba "Situação do documento") + devolução + flags — colunas já existentes na tabela.
+    'situacao_icms_entradas_nf', 'situacao_icms_saidas_nf',
+    'situacao_pis_entradas_nf', 'situacao_pis_saidas_nf',
+    'situacao_cofins_entradas_nf', 'situacao_cofins_saidas_nf',
+    'idsituacao_nf_saida', 'cfop_devolucao', 'proc_cupom', 'gera_financeiro_auto',
+  ],
   rbacForm: 'FRMCADCFOP',
   audit: false,
   replica: false,

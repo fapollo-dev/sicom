@@ -976,6 +976,37 @@ async function main() {
     const cfops = (await (await fetch(`${base}/cadastro/cfops`, { headers: H })).json()) as any[];
     check('GET /cadastro/cfops lista o catálogo (tem 5102)', Array.isArray(cfops) && cfops.some((c) => c.codcfop === '5102'), cfops?.length);
 
+    // 16.12b) CFOP × SITUAÇÃO (UCadCFOP aba "Situação do documento"): grava/lê o mapa situação-por-imposto +
+    // CFOP de devolução + flags. idsituacao_nf_saida é FK → situacao_nf (900 seedado); demais são integer livre.
+    const sitId = Number((sits.find((s) => Number(s.idsituacao_nf) === 900) ?? sits[0])?.idsituacao_nf);
+    const cfopXPost = await fetch(`${base}/cadastro/cfops`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({
+        codcfop: '9199', descricao: 'CFOP SMOKE × SITUAÇÃO',
+        situacao_icms_saidas_nf: sitId, situacao_pis_saidas_nf: sitId, situacao_cofins_saidas_nf: sitId,
+        idsituacao_nf_saida: sitId, cfop_devolucao: '5202', proc_cupom: 'S', gera_financeiro_auto: 'N',
+      }),
+    });
+    const cfopX = (await (await fetch(`${base}/cadastro/cfops/9199`, { headers: H })).json().catch(() => ({}))) as any;
+    check(
+      'POST/GET /cadastro/cfops: CFOP × SITUAÇÃO round-trip (situação ICMS/PIS/COFINS saída + idsituacao_nf_saida + cfop_devolucao + flags)',
+      cfopXPost.status === 201
+      && Number(cfopX.situacao_icms_saidas_nf) === sitId && Number(cfopX.idsituacao_nf_saida) === sitId
+      && cfopX.cfop_devolucao === '5202' && cfopX.proc_cupom === 'S' && cfopX.gera_financeiro_auto === 'N',
+      { st: cfopXPost.status, sit: cfopX.situacao_icms_saidas_nf, saida: cfopX.idsituacao_nf_saida, dev: cfopX.cfop_devolucao, flags: [cfopX.proc_cupom, cfopX.gera_financeiro_auto] },
+    );
+    await fetch(`${base}/cadastro/cfops/9199`, { method: 'DELETE', headers: H }).catch(() => undefined); // cleanup
+    // 16.12c) REABRIR+GRAVAR um CFOP seedado (5102) cujas situações de ENTRADA são NULL: ecoa o body do GET
+    // (com nulls) via PUT → deve ser 200 (antes do fold reprovava — z.optional() não aceita null; stripNulls corrige).
+    const cfop5102 = (await (await fetch(`${base}/cadastro/cfops/5102`, { headers: H })).json().catch(() => ({}))) as any;
+    const cfopReput = await fetch(`${base}/cadastro/cfops/5102`, { method: 'PUT', headers: H, body: JSON.stringify(cfop5102) });
+    check(
+      'PUT /cadastro/cfops reabre+grava CFOP com situações NULL (echo do GET) sem 400 — fold stripNulls',
+      cfopReput.status === 200,
+      { status: cfopReput.status },
+    );
+
     // 16.13) DELETE em cascata (header + itens + referências)
     const nfDel = await fetch(`${base}/fiscal/nf/${nfId}`, { method: 'DELETE', headers: H });
     check('DELETE /fiscal/nf remove em cascata (204)', nfDel.status === 204, nfDel.status);
