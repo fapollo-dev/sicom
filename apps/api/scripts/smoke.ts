@@ -5790,6 +5790,64 @@ async function main() {
       }
     }
 
+    // ===== §90e: EFD ICMS/IPI Bloco H (Inventário) — H001/H005/H010 do inventário do período + produto no 0200 =====
+    {
+      const pgInv = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // inventário no período 2027-02: 1 livro + 1 item (produto 1, qtde 10 × custo 5,00 → VL_ITEM 50,00).
+        const livRow = await pgInv.query(`INSERT INTO inventario_livro (idempresa,dtinventario,tipoinventario,descricao,indr) VALUES (1,'2027-02-28',1,'Inventário smoke','I') RETURNING codinvent`);
+        const codinvent = Number(livRow.rows[0].codinvent);
+        await pgInv.query(`INSERT INTO inventario (codinvent,idempresa,idproduto,unidade,qtde,vrcusto,vrvenda,tipo) VALUES ($1,1,1,'UN',10,5,8,'P')`, [codinvent]);
+        const efdInv = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2027-02-01', dtfim: '2027-02-28' }) });
+        const efdInvJ = (await efdInv.json().catch(() => ({}))) as any;
+        const linInv = String(efdInvJ.arquivo ?? '').split('\r\n');
+        const h001 = linInv.find((l) => l.startsWith('|H001|')) ?? '';
+        const h005 = linInv.find((l) => l.startsWith('|H005|')) ?? '';
+        const h010 = linInv.find((l) => l.startsWith('|H010|')) ?? '';
+        const o200 = linInv.find((l) => l.startsWith('|0200|1|')) ?? ''; // produto do inventário mesclado no cadastro
+        check(
+          'SPED §90e Bloco H (Inventário): H001 IND_MOV=0 + H005 (DT 28022027 / VL 50,00 / MOT 01) + H010 (COD_ITEM 1 / QTD 10 / VL_UNIT 5,00 / VL_ITEM 50,00 / IND_PROP 0) + produto no 0200, validação ok',
+          efdInv.status === 200
+          && h001 === '|H001|0|'
+          && h005 === '|H005|28022027|50,00|01|'
+          && h010.startsWith('|H010|1|UN|10,000|5,00|50,00|0|')
+          && o200 !== ''
+          && efdInvJ.validacao?.ok === true && Array.isArray(efdInvJ.validacao?.erros) && efdInvJ.validacao.erros.length === 0,
+          { h001, h005, h010: h010.slice(0, 60), o200: o200.slice(0, 30), val: efdInvJ.validacao },
+        );
+        // fold auditoria [ALTA]: inventário salvo em DUPLICATA (mesma data/tipo, codinvent distinto) → 1 único H005
+        // (mantém o MAX codinvent), NÃO triplica o bloco H.
+        const livDup = await pgInv.query(`INSERT INTO inventario_livro (idempresa,dtinventario,tipoinventario,descricao,indr) VALUES (1,'2027-02-28',1,'Inventário smoke DUP','I') RETURNING codinvent`);
+        const codinventDup = Number(livDup.rows[0].codinvent);
+        await pgInv.query(`INSERT INTO inventario (codinvent,idempresa,idproduto,unidade,qtde,vrcusto,vrvenda,tipo) VALUES ($1,1,1,'UN',10,5,8,'P')`, [codinventDup]);
+        const efdDup = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2027-02-01', dtfim: '2027-02-28' }) });
+        const efdDupJ = (await efdDup.json().catch(() => ({}))) as any;
+        const linDup = String(efdDupJ.arquivo ?? '').split('\r\n');
+        const nH005 = linDup.filter((l) => l.startsWith('|H005|')).length;
+        const nH010dup = linDup.filter((l) => l.startsWith('|H010|')).length;
+        const h005dup = linDup.find((l) => l.startsWith('|H005|')) ?? '';
+        check(
+          'SPED §90e dedup [ALTA]: inventário duplicado (mesma data/tipo) → 1 único H005 + 1 H010 (mantém MAX codinvent, VL 50,00), não triplica + validação ok',
+          efdDup.status === 200 && nH005 === 1 && nH010dup === 1 && h005dup === '|H005|28022027|50,00|01|' && efdDupJ.validacao?.ok === true && efdDupJ.validacao.erros.length === 0,
+          { nH005, nH010dup, h005dup, val: efdDupJ.validacao },
+        );
+        await pgInv.query(`DELETE FROM inventario_livro WHERE codinvent=$1`, [codinventDup]); // cleanup (cascade)
+
+        // sem-dados: período sem inventário → H001 IND_MOV=1 (bloco H sempre presente).
+        const efdNo = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2027-03-01', dtfim: '2027-03-31' }) });
+        const efdNoJ = (await efdNo.json().catch(() => ({}))) as any;
+        const h001no = (String(efdNoJ.arquivo ?? '').split('\r\n').find((l) => l.startsWith('|H001|')) ?? '');
+        check(
+          'SPED §90e Bloco H sem-dados: período sem inventário → H001 IND_MOV=1 (bloco H sempre presente) + validação ok',
+          efdNo.status === 200 && h001no === '|H001|1|' && efdNoJ.validacao?.ok === true && Array.isArray(efdNoJ.validacao?.erros) && efdNoJ.validacao.erros.length === 0,
+          { h001no, val: efdNoJ.validacao },
+        );
+        await pgInv.query(`DELETE FROM inventario_livro WHERE codinvent=$1`, [codinvent]); // cascade deleta itens
+      } finally {
+        await pgInv.end();
+      }
+    }
+
     // ===== §90c: EFD-Contribuições SAÍDA-NF-mod55 — débito PIS/COFINS de NF de saída mod-55 no bloco C + apuração M =====
     {
       const pgSc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });

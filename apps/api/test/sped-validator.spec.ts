@@ -139,6 +139,8 @@ describe('validarSpedFiscal (EFD ICMS/IPI — validador estrutural próprio)', (
     a.add('E100', ['01112026', '30112026']);
     a.add('E110', e110);
     a.fecharBloco('E990', 'E');
+    a.add('H001', ['1']); // bloco H sempre presente (IND_MOV=1 sem inventário) — espelha o gerador
+    a.fecharBloco('H990', 'H');
     return a.gerar();
   }
   // débito 0 / crédito 18 → saldo apurado 0, credor a transportar 18.

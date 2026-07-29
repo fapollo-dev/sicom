@@ -47,12 +47,18 @@ function codVersaoFiscal(dtini: string): string {
  * mento), C195/C197 (entrada-only, gated por EMPRESAS.COD_AJUS_*>0; NF_AJUSTES/CODIGO_AJUSTE = 0 linhas no golden),
  * C800/C850/C860 (SAT-CF-e mod 59 — sem código no legado; MG não usa SAT).
  *
- * ADIADO (corte-3+, com procedência): VL_SLD_CREDOR_ANT (carry do saldo credor do período anterior — precisa
- * persistir a apuração/APURACAO_ICMS; hoje 0, superestima a-recolher se houver credor acumulado) · blocos D/G/H/K/1
- * · E111/E113 (ajustes) · E200/E210 (ST) · E300/E310 (DIFAL/FCP) · E500 (IPI) · redução de base (VL_RED_BC do C190
- * = 0) · multi-estab (C010) · COD_REC das demais UFs · C500 TP_LIGACAO/COD_GRUPO_TENSAO (EMPRESAS.TP_LIGACAO/
- * GRUPOTENSAO ausentes no monorepo → ''). NOTA: o C170 de saída própria mod-55 é FACULTATIVO no legado (default
- * suprime, ckbC170Saidas); aqui é sempre emitido (reconcilia C100↔C170↔C190) — equivale ao modo "checkbox ligado".
+ * BLOCO H (Inventário, fiel a GeraBlocoH Uspedfiscal.pas:1074-1168): H001 sempre (IND_MOV toggle) + por evento de
+ * inventário no período (inventario_livro/inventario) H005 (DT_INV|VL_INV=Σ máx(0,qtde×vrcusto)|MOT_INV) + H010 por
+ * item (COD_ITEM=idproduto gateado pelo 0200). Fonte: nossas tabelas do épico INVENTÁRIO (mig 090).
+ *
+ * ADIADO (corte-5+, com procedência): VL_SLD_CREDOR_ANT (carry do saldo credor do período anterior — precisa
+ * persistir a apuração/APURACAO_ICMS; hoje 0, superestima a-recolher se houver credor acumulado) · blocos D/G/K/1
+ * (K = config-gated OPTANTE_BLOCOK + APURACAO_ESTOQUE_ESCRITURADO vazio no golden; K230+ = produção, ROI~0) ·
+ * H020 (só MOT_INV≥02 mudança-de-tributação — lookup DET_ALIQUOTA→CST/ICM) · E111/E113 (ajustes) · E200/E210 (ST)
+ * · E300/E310 (DIFAL/FCP) · E500 (IPI) · redução de base (VL_RED_BC do C190 = 0) · multi-estab (C010) · COD_REC das
+ * demais UFs · C500 TP_LIGACAO/COD_GRUPO_TENSAO (EMPRESAS.TP_LIGACAO/GRUPOTENSAO ausentes → ''). NOTA: o C170 de
+ * saída própria mod-55 é FACULTATIVO no legado (default suprime, ckbC170Saidas); aqui é sempre emitido (reconcilia
+ * C100↔C170↔C190) — equivale ao modo "checkbox ligado".
  */
 @Injectable()
 export class SpedEfdIcmsIpiService {
@@ -88,6 +94,15 @@ export class SpedEfdIcmsIpiService {
     arq.add('0005', [empresa.fantasia ?? empresa.razao_social ?? '', soDigitos(empresa.cep), empresa.endereco ?? '', empresa.numero ?? 'S/N', '', empresa.bairro ?? '', soDigitos(empresa.fone1), '', '']);
 
     const docs = await this.coletarEntrada(db, emp, dtini, dtfim);
+    const inventario = await this.coletarInventario(db, emp, dtini, dtfim);
+    // Bloco H (inventário) referencia COD_ITEM no 0200 → mescla os produtos do inventário no cadastro (fiel: o
+    // legado gateia o H010 pela pertinência ao 0200; aqui garantimos que o 0200 cobre o inventário — reporta a
+    // contagem COMPLETA e mantém integridade referencial, em vez de dropar itens sem movimento do período).
+    const invProdIds = [...new Set(inventario.itens.map((i) => Number(i.idproduto)).filter(Boolean))].filter((id) => !docs.produtos.has(id));
+    if (invProdIds.length) {
+      const rows = (await db.selectFrom('produtos').select(['idproduto', 'descricao', 'codbarra', 'unidade', 'ncmsh', 'cest', 'aliquota']).where('idproduto', 'in', invProdIds).execute()) as Array<Record<string, any>>;
+      for (const r of rows) { docs.produtos.set(Number(r.idproduto), r); const u = String(r.unidade ?? '').trim(); if (u) docs.unidades.add(u); }
+    }
     this.emitirCadastros(arq, docs);
     arq.fecharBloco('0990', '0');
 
@@ -122,6 +137,10 @@ export class SpedEfdIcmsIpiService {
     }
     arq.fecharBloco('E990', 'E');
 
+    // BLOCO H — Inventário (ordem 0→C→D→E→G→H→K→1→9; D/G/K/1 ausentes = adiado). H001 sempre (IND_MOV toggle);
+    // H005/H010 por evento de inventário com data no período.
+    this.emitirBlocoH(arq, inventario, docs);
+
     const arquivo = arq.gerar();
     return {
       arquivo,
@@ -129,7 +148,7 @@ export class SpedEfdIcmsIpiService {
       documentos: docs.nfs.length,
       parcial: true,
       validacao: validarSpedFiscal(arquivo),
-      aviso: `PARCIAL (corte-3): bloco 0 + bloco C (${docs.nfs.length} docs; C100/C170/C190 mod-55 por IND_OPER + C500/C590 energia/gás/água mod 06/28/29) + bloco E (E110 apuração ICMS: débito ${fmtNum(debitoIcms)} − crédito ${fmtNum(creditoIcms)}; E116 quando há a recolher) + bloco 9. Sem blocos D/G/H/K/1, sem ST/DIFAL/IPI. C176/C195/C197/C800 confirmados mortos (cópia fiel).`,
+      aviso: `PARCIAL (corte-4): bloco 0 + bloco C (${docs.nfs.length} docs; C100/C170/C190 mod-55 por IND_OPER + C500/C590 energia/gás/água mod 06/28/29) + bloco E (E110 apuração ICMS: débito ${fmtNum(debitoIcms)} − crédito ${fmtNum(creditoIcms)}; E116 quando há a recolher) + bloco H (${inventario.livros.length} inventário(s); H005/H010) + bloco 9. Sem blocos D/G/K/1, sem ST/DIFAL/IPI. C176/C195/C197/C800 confirmados mortos (cópia fiel).`,
     };
   }
 
@@ -174,6 +193,71 @@ export class SpedEfdIcmsIpiService {
     const unidades = new Set<string>();
     for (const p of produtos.values()) { const u = String(p.unidade ?? '').trim(); if (u) unidades.add(u); }
     return { nfs: nfs.map((n) => ({ ...n, itens: porNf.get(Number(n.codnf)) ?? [] })), parceiros, produtos, unidades };
+  }
+
+  /** Inventário do período (bloco H): cabeçalhos inventario_livro (DTINVENTARIO no período, não soft-deletado) +
+   *  itens inventario. Fonte fiel: INVENTARIO/INVENTARIO_LIVRO (sqqInventarioCons, UdmSpedFiscal.dfm). */
+  private async coletarInventario(db: AnyDB, emp: number, dtini: string, dtfim: string) {
+    const todos = (await db
+      .selectFrom('inventario_livro')
+      .select(['codinvent', 'dtinventario', 'tipoinventario', 'descricao'])
+      .where('idempresa', '=', emp)
+      .where(sql`coalesce(indr,'I')`, '<>', 'E') // soft-delete
+      .where('dtinventario', '>=', dtini)
+      .where('dtinventario', '<=', dtfim)
+      .orderBy('codinvent')
+      .execute()) as Array<Record<string, any>>;
+    // fold auditoria [ALTA]: o ETL pode ter salvo o MESMO inventário N vezes (mesma DATA+TIPO, codinvent distinto —
+    // visto no golden: 3 cópias idênticas do inventário 2026-05-07). Sem dedup, o bloco H triplica (H005/H010 e
+    // VL_INV inflados). Mantém só o MAIS RECENTE (MAX codinvent) por (data, tipo) — o `indr` não salva (dups vêm 'I').
+    const porChave = new Map<string, Record<string, any>>();
+    for (const l of todos) porChave.set(`${String(l.dtinventario)}|${l.tipoinventario ?? ''}`, l); // asc → último = maior codinvent
+    const livros = [...porChave.values()];
+    const ids = livros.map((l) => Number(l.codinvent));
+    const itens = ids.length
+      ? ((await db.selectFrom('inventario').select(['codinvent', 'idproduto', 'codbarra', 'descricao', 'unidade', 'qtde', 'vrcusto', 'vrvenda', 'tipo', 'aliquota'])
+          .where('codinvent', 'in', ids).where('idempresa', '=', emp)
+          .where('qtde', '>', 0) // fold auditoria [BAIXA]: só itens COM saldo (dropa dump-de-catálogo qtde=0; item sem estoque não tem valor no inventário)
+          .orderBy('codinvent').orderBy('idproduto').execute()) as Array<Record<string, any>>)
+      : [];
+    const porLivro = new Map<number, Array<Record<string, any>>>();
+    for (const it of itens) (porLivro.get(Number(it.codinvent)) ?? porLivro.set(Number(it.codinvent), []).get(Number(it.codinvent))!).push(it);
+    return { livros, itens, porLivro };
+  }
+
+  /** BLOCO H — Inventário (fiel a GeraBlocoH, Uspedfiscal.pas:1074-1168). H001 sempre (IND_MOV 0=com dados / 1=sem);
+   *  por evento: H005 (DT_INV|VL_INV=Σ máx(0,qtde×vrcusto)|MOT_INV) + H010 por item. Gateado pela pertinência ao
+   *  0200 (COD_ITEM tem de existir no cadastro — integridade referencial do PVA). IND_PROP='0' (próprio, tipo='P').
+   *  VL_INV = Σ VL_ITEM do MESMO conjunto filtrado (reconcilia com o PVA). VL_UNIT em 2 casas (0/79190 linhas do
+   *  golden têm vrcusto >2 casas → sem perda; emitir na precisão de vrcusto é refino de cutover se surgir dado).
+   *  ADIADO: H020 (só p/ MOT_INV≥02 mudança-de-tributação — precisa o lookup DET_ALIQUOTA→CST/ICM; golden é MOT_INV=01);
+   *  TXT_COMPL (cdsOperacoesICMS TIPO='H1', config ausente) e COD_CTA (plano_contas via produto) → ''; certificação
+   *  campo-a-campo do H005/H010 depende do .txt real do PVA (caveat de cutover, comum a todo o SPED). */
+  private emitirBlocoH(arq: SpedArquivo, inventario: { livros: Array<Record<string, any>>; itens: Array<Record<string, any>>; porLivro: Map<number, Array<Record<string, any>>> }, docs: { produtos: Map<number, Record<string, any>> }): void {
+    const has = (id: unknown) => docs.produtos.has(Number(id));
+    const temInv = inventario.itens.some((i) => has(i.idproduto));
+    arq.add('H001', [temInv ? '0' : '1']); // IND_MOV
+    for (const livro of inventario.livros) {
+      const itens = (inventario.porLivro.get(Number(livro.codinvent)) ?? []).filter((it) => has(it.idproduto));
+      if (!itens.length) continue;
+      // MOT_INV: tipoinventario (1..5) → 01..05; default '01' (final do período).
+      const mot = Number(livro.tipoinventario);
+      const motInv = String(mot >= 1 && mot <= 5 ? mot : 1).padStart(2, '0');
+      const linhas = itens.map((it) => {
+        const q = nn(it.qtde);
+        const vu = nn(it.vrcusto);
+        const total = r2(Math.max(0, q * vu)); // VL_ITEM = qtde×vrcusto, piso 0 (fiel: CASE WHEN <0 THEN 0)
+        return { it, q, vu, total };
+      });
+      const vlInv = r2(linhas.reduce((s, l) => s + l.total, 0));
+      // H005 (3): DT_INV|VL_INV|MOT_INV
+      arq.add('H005', [fmtData(livro.dtinventario as string), fmtNum(vlInv), motInv]);
+      for (const { it, q, vu, total } of linhas) {
+        // H010 (10): COD_ITEM|UNID|QTD|VL_UNIT|VL_ITEM|IND_PROP|COD_PART|TXT_COMPL|COD_CTA|VL_ITEM_IR
+        arq.add('H010', [String(it.idproduto), String(it.unidade ?? '').trim(), fmtNum(q, 3), fmtNum(vu, 2), fmtNum(total), '0', '', '', '', fmtNum(total)]);
+      }
+    }
+    arq.fecharBloco('H990', 'H');
   }
 
   /** 0150 (participantes) / 0190 (unidades) / 0200 (itens) — COD_PART=codparceiro / COD_ITEM=idproduto (consistente com o bloco C). */

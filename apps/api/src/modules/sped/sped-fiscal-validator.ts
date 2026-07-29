@@ -23,6 +23,7 @@ const CAMPOS_ESPERADOS: Record<string, number> = {
   '0000': 14, '0001': 1, '0005': 9, '0150': 12, '0190': 2, '0200': 12, '0990': 1,
   C001: 1, C100: 28, C170: 37, C190: 11, C500: 26, C590: 10, C990: 1,
   E001: 1, E100: 2, E110: 14, E116: 9, E990: 1,
+  H001: 1, H005: 3, H010: 10, H020: 3, H990: 1,
   '9001': 1, '9900': 2, '9990': 1, '9999': 1,
 };
 
@@ -58,9 +59,9 @@ export function validarSpedFiscal(arquivo: string): ResultadoValidacao {
   if (r9999 && Number(r9999.campos[0]) !== regs.length) erros.push(`9999 declara ${r9999.campos[0]}, arquivo tem ${regs.length} linhas`);
 
   // 3) abertura/fechamento por bloco (0/C/E/9)
-  for (const [b, ab, fe] of [['0', '0001', '0990'], ['C', 'C001', 'C990'], ['E', 'E001', 'E990'], ['9', '9001', '9990']] as const) {
+  for (const [b, ab, fe] of [['0', '0001', '0990'], ['C', 'C001', 'C990'], ['E', 'E001', 'E990'], ['H', 'H001', 'H990'], ['9', '9001', '9990']] as const) {
     const temBloco = regs.some((x) => x.reg.startsWith(b) && x.reg !== ab && x.reg !== fe);
-    if (temBloco || b === '0' || b === '9' || b === 'E') {
+    if (temBloco || b === '0' || b === '9' || b === 'E' || b === 'H') {
       if ((contagem.get(ab) ?? 0) !== 1) erros.push(`bloco ${b}: abertura ${ab} deveria aparecer 1x (achou ${contagem.get(ab) ?? 0})`);
       if ((contagem.get(fe) ?? 0) !== 1) erros.push(`bloco ${b}: fechamento ${fe} deveria aparecer 1x (achou ${contagem.get(fe) ?? 0})`);
     }
@@ -90,6 +91,16 @@ export function validarSpedFiscal(arquivo: string): ResultadoValidacao {
   for (const r of regs.filter((x) => x.reg === 'C590')) {
     if ((r.campos[0] ?? '') === '') erros.push(`C590 (linha ${r.linha}): CST_ICMS vazio (obrigatório)`);
     if ((r.campos[1] ?? '') === '') erros.push(`C590 (linha ${r.linha}): CFOP vazio (obrigatório)`);
+  }
+  for (const r of regs.filter((x) => x.reg === 'H001')) {
+    if (!emDom(r.campos[0], ['0', '1'])) erros.push(`H001 (linha ${r.linha}): IND_MOV '${r.campos[0]}' fora do domínio {0,1}`);
+  }
+  for (const r of regs.filter((x) => x.reg === 'H005')) {
+    if (!emDom(r.campos[2], ['01', '02', '03', '04', '05'])) erros.push(`H005 (linha ${r.linha}): MOT_INV '${r.campos[2]}' fora do domínio {01..05}`);
+  }
+  for (const r of regs.filter((x) => x.reg === 'H010')) {
+    if ((r.campos[0] ?? '') === '') erros.push(`H010 (linha ${r.linha}): COD_ITEM vazio (obrigatório)`);
+    if (!emDom(r.campos[5], ['0', '1', '2'])) erros.push(`H010 (linha ${r.linha}): IND_PROP '${r.campos[5]}' fora do domínio {0,1,2}`);
   }
 
   // 5) ARITMÉTICA do E110: VL_SLD_APURADO = (DEB + AJ_DEB + ESTORNO_CRED) − (CRED + AJ_CRED + ESTORNO_DEB + SLD_CREDOR_ANT),
