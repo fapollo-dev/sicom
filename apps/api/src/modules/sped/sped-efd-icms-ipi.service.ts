@@ -51,9 +51,14 @@ function codVersaoFiscal(dtini: string): string {
  * inventário no período (inventario_livro/inventario) H005 (DT_INV|VL_INV=Σ máx(0,qtde×vrcusto)|MOT_INV) + H010 por
  * item (COD_ITEM=idproduto gateado pelo 0200). Fonte: nossas tabelas do épico INVENTÁRIO (mig 090).
  *
+ * ESTRUTURA DE BLOCOS COMPLETA: 0/C/D/E/G/H/K/1/9 — todos com opener obrigatório. D/G/K/1 saem só com o opener
+ * (IND_MOV=1 sem-dados; conteúdo não migrado). Bloco B (ISS) é OMITIDO (só p/ informante obrigado ao EFD-ISS
+ * municipal; N/A p/ este informante de ICMS/IPI).
+ *
  * ADIADO (corte-5+, com procedência): VL_SLD_CREDOR_ANT (carry do saldo credor do período anterior — precisa
- * persistir a apuração/APURACAO_ICMS; hoje 0, superestima a-recolher se houver credor acumulado) · blocos D/G/K/1
- * (K = config-gated OPTANTE_BLOCOK + APURACAO_ESTOQUE_ESCRITURADO vazio no golden; K230+ = produção, ROI~0) ·
+ * persistir a apuração/APURACAO_ICMS; hoje 0, superestima a-recolher se houver credor acumulado) · CONTEÚDO dos
+ * blocos D (serviços) / G (CIAP) / K (produção/estoque — config-gated OPTANTE_BLOCOK + APURACAO_ESTOQUE_ESCRITURADO
+ * vazio no golden; K230+ = produção, ROI~0) / 1 (outras info) ·
  * H020 (só MOT_INV≥02 mudança-de-tributação — lookup DET_ALIQUOTA→CST/ICM) · E111/E113 (ajustes) · E200/E210 (ST)
  * · E300/E310 (DIFAL/FCP) · E500 (IPI) · redução de base (VL_RED_BC do C190 = 0) · multi-estab (C010) · COD_REC das
  * demais UFs · C500 TP_LIGACAO/COD_GRUPO_TENSAO (EMPRESAS.TP_LIGACAO/GRUPOTENSAO ausentes → ''). NOTA: o C170 de
@@ -109,6 +114,11 @@ export class SpedEfdIcmsIpiService {
     // BLOCO C — documentos de ENTRADA (crédito) + SAÍDA (débito)
     const { creditoIcms, debitoIcms } = this.emitirBlocoC(arq, docs);
 
+    // BLOCO D — documentos fiscais de SERVIÇOS (transporte/comunicação): sem dados (não migrado) — o opener é de
+    // ocorrência OBRIGATÓRIA no EFD ICMS/IPI (IND_MOV=1 sem-dados), o PVA espera todos os blocos.
+    arq.add('D001', ['1']);
+    arq.fecharBloco('D990', 'D');
+
     // BLOCO E — apuração ICMS (corte-2): débito de SAÍDA − crédito de ENTRADA. Se débito>crédito → ICMS a
     // recolher; senão → saldo credor a transportar. E110 emitido sempre que há documento no bloco C.
     const temApuracao = docs.nfs.length > 0;
@@ -137,9 +147,22 @@ export class SpedEfdIcmsIpiService {
     }
     arq.fecharBloco('E990', 'E');
 
-    // BLOCO H — Inventário (ordem 0→C→D→E→G→H→K→1→9; D/G/K/1 ausentes = adiado). H001 sempre (IND_MOV toggle);
-    // H005/H010 por evento de inventário com data no período.
+    // BLOCO G — CIAP (crédito de ICMS do ativo permanente): sem dados — opener obrigatório.
+    arq.add('G001', ['1']);
+    arq.fecharBloco('G990', 'G');
+
+    // BLOCO H — Inventário (ordem 0→C→D→E→G→H→K→1→9). H001 sempre (IND_MOV toggle); H005/H010 por evento de
+    // inventário com data no período.
     this.emitirBlocoH(arq, inventario, docs);
+
+    // BLOCO K — controle da produção e do estoque: sem dados (ADIADO — config-gated OPTANTE_BLOCOK + fonte vazia) —
+    // opener obrigatório.
+    arq.add('K001', ['1']);
+    arq.fecharBloco('K990', 'K');
+
+    // BLOCO 1 — outras informações: sem dados — opener obrigatório.
+    arq.add('1001', ['1']);
+    arq.fecharBloco('1990', '1');
 
     const arquivo = arq.gerar();
     return {
@@ -148,7 +171,7 @@ export class SpedEfdIcmsIpiService {
       documentos: docs.nfs.length,
       parcial: true,
       validacao: validarSpedFiscal(arquivo),
-      aviso: `PARCIAL (corte-4): bloco 0 + bloco C (${docs.nfs.length} docs; C100/C170/C190 mod-55 por IND_OPER + C500/C590 energia/gás/água mod 06/28/29) + bloco E (E110 apuração ICMS: débito ${fmtNum(debitoIcms)} − crédito ${fmtNum(creditoIcms)}; E116 quando há a recolher) + bloco H (${inventario.livros.length} inventário(s); H005/H010) + bloco 9. Sem blocos D/G/K/1, sem ST/DIFAL/IPI. C176/C195/C197/C800 confirmados mortos (cópia fiel).`,
+      aviso: `PARCIAL (corte-4): bloco 0 + bloco C (${docs.nfs.length} docs; C100/C170/C190 mod-55 por IND_OPER + C500/C590 energia/gás/água mod 06/28/29) + bloco E (E110 apuração ICMS: débito ${fmtNum(debitoIcms)} − crédito ${fmtNum(creditoIcms)}; E116 quando há a recolher) + bloco H (${inventario.livros.length} inventário(s); H005/H010) + blocos D/G/K/1 (só opener, sem dados) + bloco 9. Estrutura de blocos completa. Sem ST/DIFAL/IPI; conteúdo de D/G/K/1 não migrado. C176/C195/C197/C800 confirmados mortos (cópia fiel).`,
     };
   }
 

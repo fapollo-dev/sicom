@@ -5848,6 +5848,26 @@ async function main() {
       }
     }
 
+    // ===== §90f: EFD ICMS/IPI estrutura de blocos completa — openers obrigatórios D/G/K/1 (sem-dados) + ordem =====
+    {
+      const efdSt = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2027-04-01', dtfim: '2027-04-30' }) });
+      const efdStJ = (await efdSt.json().catch(() => ({}))) as any;
+      const lin = String(efdStJ.arquivo ?? '').split('\r\n');
+      const has = (r: string) => lin.some((l) => l.startsWith(r));
+      const idx = (reg: string) => lin.findIndex((l) => l.startsWith(`|${reg}|`));
+      // ordem exigida pelo leiaute: 0→C→D→E→G→H→K→1→9
+      const ordemOk = idx('C001') < idx('D001') && idx('D001') < idx('E001') && idx('E001') < idx('G001') && idx('G001') < idx('H001') && idx('H001') < idx('K001') && idx('K001') < idx('1001') && idx('1001') < idx('9001');
+      check(
+        'SPED §90f estrutura: openers obrigatórios D001/G001/K001/1001 (IND_MOV=1 sem-dados) + closers + ordem 0→C→D→E→G→H→K→1→9 + validação ok',
+        efdSt.status === 200
+        && has('|D001|1|') && has('|G001|1|') && has('|K001|1|') && has('|1001|1|')
+        && has('|D990|') && has('|G990|') && has('|K990|') && has('|1990|')
+        && ordemOk
+        && efdStJ.validacao?.ok === true && Array.isArray(efdStJ.validacao?.erros) && efdStJ.validacao.erros.length === 0,
+        { d: has('|D001|1|'), g: has('|G001|1|'), k: has('|K001|1|'), b1: has('|1001|1|'), ordemOk, val: efdStJ.validacao },
+      );
+    }
+
     // ===== §90c: EFD-Contribuições SAÍDA-NF-mod55 — débito PIS/COFINS de NF de saída mod-55 no bloco C + apuração M =====
     {
       const pgSc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });

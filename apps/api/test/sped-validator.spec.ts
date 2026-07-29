@@ -135,12 +135,20 @@ describe('validarSpedFiscal (EFD ICMS/IPI — validador estrutural próprio)', (
     a.add('0000', ['020', '0', '01112026', '30112026', 'EMPRESA X', '11111111000191', '', 'MG', '123', '3106200', '', '', 'A', '1']); // 14 campos
     a.add('0001', ['0']);
     a.fecharBloco('0990', '0');
+    a.add('D001', ['1']); // openers obrigatórios (sem-dados) — espelha o gerador
+    a.fecharBloco('D990', 'D');
     a.add('E001', ['0']);
     a.add('E100', ['01112026', '30112026']);
     a.add('E110', e110);
     a.fecharBloco('E990', 'E');
+    a.add('G001', ['1']);
+    a.fecharBloco('G990', 'G');
     a.add('H001', ['1']); // bloco H sempre presente (IND_MOV=1 sem inventário) — espelha o gerador
     a.fecharBloco('H990', 'H');
+    a.add('K001', ['1']);
+    a.fecharBloco('K990', 'K');
+    a.add('1001', ['1']);
+    a.fecharBloco('1990', '1');
     return a.gerar();
   }
   // débito 0 / crédito 18 → saldo apurado 0, credor a transportar 18.
