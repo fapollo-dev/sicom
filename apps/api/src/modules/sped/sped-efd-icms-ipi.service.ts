@@ -25,19 +25,23 @@ function codVersaoFiscal(dtini: string): string {
 }
 
 /**
- * SPED FISCAL (EFD ICMS/IPI) — obrigação mensal DISTINTA do EFD-Contribuições. CORTE-1: bloco 0 (0000 layout
- * ICMS/IPI + 0005 + cadastros 0150/0190/0200) + bloco C (documentos de ENTRADA C100/C170 + C190 analítico por
- * CST/CFOP/alíquota) + bloco E (E100/E110 apuração ICMS) + bloco 9. Reusa o motor SpedArquivo. Escopo por empresa.
+ * SPED FISCAL (EFD ICMS/IPI) — obrigação mensal DISTINTA do EFD-Contribuições. CORTE-2 (saída fiscal): bloco 0
+ * (0000 layout ICMS/IPI + 0005 + cadastros 0150/0190/0200) + bloco C (documentos de ENTRADA E SAÍDA mod-55,
+ * C100/C170/C190 por IND_OPER) + bloco E (E100/E110 apuração ICMS: débito de saída − crédito de entrada) + 9.
  *
  * DECISÃO ARQUITETURAL (procedência): o legado LÊ o E110 de uma tabela pré-calculada APURACAO_ICMS (processo de
- * apuração separado). O monorepo NÃO tem esse processo/tabela → o corte-1 DERIVA a apuração das somas do C190
- * (crédito = Σ VL_ICMS das entradas; débito = 0 enquanto não há SAÍDA — PDV off / sem NF-e de saída), gerando
- * SALDO CREDOR a transportar. Fiel à estrutura; a apuração com débito de saída + ajustes = corte-2 (quando a
- * saída existir) OU o port do processo APURACAO_ICMS.
+ * apuração separado). O monorepo NÃO tem esse processo/tabela → DERIVA a apuração das somas do C190: crédito =
+ * Σ VL_ICMS das ENTRADAS, débito = Σ VL_ICMS das SAÍDAS. saldoApurado = max(0, débito − crédito) (a recolher);
+ * saldoCredor = max(0, crédito − débito) (a transportar). Fiel à estrutura; o port do processo APURACAO_ICMS
+ * (com ajustes E111/estornos) seria o refino.
  *
- * ADIADO (corte-2+, com procedência): SAÍDA (C190 débito + E110 VL_TOT_DEBITOS) · blocos D/G/H/K/1 · E111/E113
- * (ajustes) · E116 (a recolher — só quando há débito) · E200/E210 (ST) · E300/E310 (DIFAL/FCP) · E500 (IPI) ·
- * C176/C195/C197 (SN) · redução de base (VL_RED_BC do C190 = 0 no corte-1) · multi-estab (C010).
+ * E116 (obrigação a recolher) emitido quando há ICMS a recolher — COD_REC por UF (MG/GO; demais UFs precisam
+ * da tabela completa Ato COTEPE). ADIADO (corte-3+, com procedência): VL_SLD_CREDOR_ANT (carry do saldo credor
+ * do período anterior — precisa persistir a apuração/APURACAO_ICMS; hoje 0, superestima a-recolher se houver
+ * credor acumulado) · blocos D/G/H/K/1 · E111/E113 (ajustes) · E200/E210 (ST) · E300/E310 (DIFAL/FCP) · E500
+ * (IPI) · C176/C195/C197 (SN) · redução de base (VL_RED_BC do C190 = 0) · multi-estab (C010) · COD_REC das
+ * demais UFs. NOTA: o C170 de saída própria mod-55 é FACULTATIVO no legado (default suprime, ckbC170Saidas);
+ * aqui é sempre emitido (reconcilia C100↔C170↔C190) — equivale ao modo "checkbox ligado".
  */
 @Injectable()
 export class SpedEfdIcmsIpiService {
@@ -76,23 +80,34 @@ export class SpedEfdIcmsIpiService {
     this.emitirCadastros(arq, docs);
     arq.fecharBloco('0990', '0');
 
-    // BLOCO C — documentos de ENTRADA
-    const creditoIcms = this.emitirBlocoC(arq, docs);
+    // BLOCO C — documentos de ENTRADA (crédito) + SAÍDA (débito)
+    const { creditoIcms, debitoIcms } = this.emitirBlocoC(arq, docs);
 
-    // BLOCO E — apuração ICMS (corte-1: crédito das entradas; débito 0 → saldo credor a transportar).
-    // fold [BAIXA]: emite E110 sempre que HÁ documentos no bloco C (mesmo crédito 0) — evita "movimento no C,
-    // bloco E sem dados" que o PVA sinaliza. IND_MOV=1 (sem dados) só quando não há nenhuma entrada.
+    // BLOCO E — apuração ICMS (corte-2): débito de SAÍDA − crédito de ENTRADA. Se débito>crédito → ICMS a
+    // recolher; senão → saldo credor a transportar. E110 emitido sempre que há documento no bloco C.
     const temApuracao = docs.nfs.length > 0;
     arq.add('E001', [temApuracao ? '0' : '1']);
     if (temApuracao) {
       arq.add('E100', [fmtData(dtini), fmtData(dtfim)]);
-      const debito = 0; // sem SAÍDA no corte-1
-      const saldoApurado = r2(Math.max(0, debito - creditoIcms)); // ICMS a recolher (0 aqui)
-      const saldoCredor = r2(Math.max(0, creditoIcms - debito)); // saldo credor a transportar
+      const saldoApurado = r2(Math.max(0, debitoIcms - creditoIcms)); // ICMS a recolher
+      const saldoCredor = r2(Math.max(0, creditoIcms - debitoIcms)); // saldo credor a transportar
       // E110 (14): VL_TOT_DEBITOS|VL_AJ_DEBITOS|VL_TOT_AJ_DEBITOS|VL_ESTORNOS_CRED|VL_TOT_CREDITOS|VL_AJ_CREDITOS|
       //            VL_TOT_AJ_CREDITOS|VL_ESTORNOS_DEB|VL_SLD_CREDOR_ANT|VL_SLD_APURADO|VL_TOT_DED|VL_ICMS_RECOLHER|
       //            VL_SLD_CREDOR_TRANSPORTAR|DEB_ESP
-      arq.add('E110', [fmtNum(debito), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(creditoIcms), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(saldoApurado), fmtNum(0), fmtNum(saldoApurado), fmtNum(saldoCredor), fmtNum(0)]);
+      arq.add('E110', [fmtNum(debitoIcms), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(creditoIcms), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(saldoApurado), fmtNum(0), fmtNum(saldoApurado), fmtNum(saldoCredor), fmtNum(0)]);
+      // E116 — obrigação do ICMS a recolher (fold auditoria ALTA: o PVA rejeita E110 com VL_ICMS_RECOLHER>0 sem
+      // E116; supermercado tem débito>crédito quase todo mês → sem isto o arquivo não é entregável). COD_REC por
+      // UF (MG='1206'/GO='108', fiel a Uspedfiscal.pas:797-807; demais UFs = '' até termos a tabela completa).
+      // DT_VCTO = DT_INI + 45 dias (fiel ao legado); MES_REF = mmYYYY do período.
+      if (saldoApurado > 0) {
+        const codRecUf: Record<string, string> = { MG: '1206', GO: '108' };
+        const codRec = codRecUf[String(empresa.uf ?? '')] ?? '';
+        const dv = new Date(`${String(dtini).slice(0, 10)}T00:00:00Z`);
+        dv.setUTCDate(dv.getUTCDate() + 45);
+        const mesRef = `${String(dtini).slice(5, 7)}${String(dtini).slice(0, 4)}`;
+        // E116 (9): COD_OR|VL_OR|DT_VCTO|COD_REC|NUM_PROC|IND_PROC|PROC|TXT_COMPL|MES_REF
+        arq.add('E116', ['000', fmtNum(saldoApurado), fmtData(dv.toISOString().slice(0, 10)), codRec, '', '', '', '', mesRef]);
+      }
     }
     arq.fecharBloco('E990', 'E');
 
@@ -103,17 +118,17 @@ export class SpedEfdIcmsIpiService {
       documentos: docs.nfs.length,
       parcial: true,
       validacao: validarSpedFiscal(arquivo),
-      aviso: `PARCIAL (corte-1): bloco 0 + bloco C (${docs.nfs.length} entrada, C100/C170/C190) + bloco E (E110 apuração ICMS — crédito ${fmtNum(creditoIcms)}; DÉBITO de saída = corte-2) + bloco 9. Sem blocos D/G/H/K/1, sem ST/DIFAL/IPI.`,
+      aviso: `PARCIAL (corte-2): bloco 0 + bloco C (${docs.nfs.length} docs entrada+saída mod-55, C100/C170/C190 por IND_OPER) + bloco E (E110 apuração ICMS: débito ${fmtNum(debitoIcms)} − crédito ${fmtNum(creditoIcms)}) + bloco 9. Sem blocos D/G/H/K/1, sem ST/DIFAL/IPI, sem E116 (obrigação a recolher — precisa tabela UF→COD_REC).`,
     };
   }
 
-  /** entradas do período (nf tipo='E', proc='S') + itens + cadastros (parceiros/produtos/unidades). */
+  /** documentos do período (nf tipo IN E/S, proc='S') + itens + cadastros (parceiros/produtos/unidades). */
   private async coletarEntrada(db: AnyDB, emp: number, dtini: string, dtfim: string) {
     const nfs = (await db
       .selectFrom('nf')
-      .select(['codnf', 'modelo', 'nronf', 'serie', 'chavenfe', 'dtemissao', 'dtcontabil', 'tipoemissao', 'codparceiro', 'totalnf', 'totaldesc', 'totalprod', 'totalfrete', 'totalseguro', 'totalacessorias', 'tipofrete', sql`coalesce(cancelada,'N')`.as('cancelada'), sql`coalesce(statusnfe,'')`.as('statusnfe')])
+      .select(['codnf', 'tipo', 'modelo', 'nronf', 'serie', 'chavenfe', 'dtemissao', 'dtcontabil', 'tipoemissao', 'codparceiro', 'totalnf', 'totaldesc', 'totalprod', 'totalfrete', 'totalseguro', 'totalacessorias', 'tipofrete', sql`coalesce(cancelada,'N')`.as('cancelada'), sql`coalesce(statusnfe,'')`.as('statusnfe')])
       .where('idempresa', '=', emp)
-      .where('tipo', '=', 'E')
+      .where('tipo', 'in', ['E', 'S']) // corte-2: ENTRADA (crédito) + SAÍDA (débito) — destrava a apuração ICMS
       .where('proc', '=', 'S')
       .where('dtcontabil', '>=', dtini)
       .where('dtcontabil', '<=', dtfim)
@@ -165,29 +180,34 @@ export class SpedEfdIcmsIpiService {
     }
   }
 
-  /** BLOCO C: C001 + por NF de ENTRADA C100/C170 + C190 (analítico por CST_ICMS+CFOP+ALIQ_ICMS) + C990.
-   *  Retorna o crédito de ICMS acumulado (Σ VL_ICMS dos C190) p/ alimentar o E110. */
-  private emitirBlocoC(arq: SpedArquivo, docs: { nfs: Array<Record<string, any> & { itens: Array<Record<string, any>> }>; produtos: Map<number, Record<string, any>> }): number {
+  /** BLOCO C: C001 + por NF de ENTRADA/SAÍDA C100/C170 + C190 (analítico por CST_ICMS+CFOP+ALIQ_ICMS) + C990.
+   *  IND_OPER por sentido (0=entrada/1=saída). Retorna o ICMS de ENTRADA (crédito) e de SAÍDA (débito) p/ o E110. */
+  private emitirBlocoC(arq: SpedArquivo, docs: { nfs: Array<Record<string, any> & { itens: Array<Record<string, any>> }>; produtos: Map<number, Record<string, any>> }): { creditoIcms: number; debitoIcms: number } {
     const temDocs = docs.nfs.length > 0;
     arq.add('C001', [temDocs ? '0' : '1']);
     let creditoIcms = 0;
-    if (!temDocs) { arq.fecharBloco('C990', 'C'); return 0; }
+    let debitoIcms = 0;
+    if (!temDocs) { arq.fecharBloco('C990', 'C'); return { creditoIcms: 0, debitoIcms: 0 }; }
     for (const nf of docs.nfs) {
+      const saida = String(nf.tipo) === 'S';
+      const indOper = saida ? '1' : '0'; // IND_OPER: 0=entrada / 1=saída
       const indEmit = String(nf.tipoemissao ?? '0') === '0' ? '0' : '1';
       const codMod = String(nf.modelo ?? '') === '90' ? '1B' : String(nf.modelo ?? '').padStart(2, '0');
       const ser = String(nf.serie ?? '').trim();
       const st = String(nf.statusnfe ?? '');
       // fold auditoria [ALTA]: doc cancelado(02)/denegado(04)/inutilizado(05) → só o header identificador, SEM
-      // C170/C190 e SEM crédito de ICMS (fiel ao legado; evita crédito fantasma no E110).
+      // C170/C190 e SEM ICMS (fiel ao legado; evita crédito/débito fantasma no E110).
       const codSit = String(nf.cancelada) === 'S' || st === 'C' ? '02' : st === 'D' ? '04' : st === 'I' ? '05' : '00';
       if (codSit !== '00') {
-        arq.add('C100', ['0', indEmit, '', codMod, codSit, ser, String(nf.nronf ?? ''), (nf.chavenfe as string) ?? '', fmtData(nf.dtemissao as string), ...Array(19).fill('')]);
+        // inutilizada (05) não tem chave (fiel a Uspedfiscal.pas:2354); cancelada/denegada mantêm CHV_NFE.
+        const chv = codSit === '05' ? '' : ((nf.chavenfe as string) ?? '');
+        arq.add('C100', [indOper, indEmit, '', codMod, codSit, ser, String(nf.nronf ?? ''), chv, fmtData(nf.dtemissao as string), ...Array(19).fill('')]);
         continue;
       }
       const itens = nf.itens;
       const soma = (c: string) => itens.reduce((s, it) => s + nn(it[c]), 0);
       // C100 (28): IND_OPER(0=entrada)|IND_EMIT|COD_PART|COD_MOD|COD_SIT(00)|SER|NUM_DOC|CHV_NFE|DT_DOC|DT_E_S|VL_DOC|IND_PGTO|VL_DESC|VL_ABAT_NT|VL_MERC|IND_FRT|VL_FRT|VL_SEG|VL_OUT_DA|VL_BC_ICMS|VL_ICMS|VL_BC_ICMS_ST|VL_ICMS_ST|VL_IPI|VL_PIS|VL_COFINS|VL_PIS_ST|VL_COFINS_ST
-      arq.add('C100', ['0', indEmit, String(nf.codparceiro ?? ''), codMod, '00', ser, String(nf.nronf ?? ''), (nf.chavenfe as string) ?? '', fmtData(nf.dtemissao as string), fmtData(nf.dtcontabil as string), fmtNum(nn(nf.totalnf)), '1', fmtNum(nn(nf.totaldesc)), fmtNum(0), fmtNum(nn(nf.totalprod)), String(nf.tipofrete ?? '9'), fmtNum(nn(nf.totalfrete)), fmtNum(nn(nf.totalseguro)), fmtNum(nn(nf.totalacessorias)), fmtNum(soma('vrbasecalculo')), fmtNum(soma('vricm')), fmtNum(0), fmtNum(0), fmtNum(soma('vripi')), fmtNum(soma('vrpise')), fmtNum(soma('vrcofinse')), fmtNum(0), fmtNum(0)]);
+      arq.add('C100', [indOper, indEmit, String(nf.codparceiro ?? ''), codMod, '00', ser, String(nf.nronf ?? ''), (nf.chavenfe as string) ?? '', fmtData(nf.dtemissao as string), fmtData(nf.dtcontabil as string), fmtNum(nn(nf.totalnf)), '1', fmtNum(nn(nf.totaldesc)), fmtNum(0), fmtNum(nn(nf.totalprod)), String(nf.tipofrete ?? '9'), fmtNum(nn(nf.totalfrete)), fmtNum(nn(nf.totalseguro)), fmtNum(nn(nf.totalacessorias)), fmtNum(soma('vrbasecalculo')), fmtNum(soma('vricm')), fmtNum(0), fmtNum(0), fmtNum(soma('vripi')), fmtNum(soma('vrpise')), fmtNum(soma('vrcofinse')), fmtNum(0), fmtNum(0)]);
       let nro = 0;
       // grupos C190 por (CST_ICMS, CFOP, ALIQ_ICMS)
       const grupos = new Map<string, { cstIcms: string; cfop: string; aliq: number; vlOpr: number; bcIcms: number; vlIcms: number; vlIpi: number }>();
@@ -219,10 +239,11 @@ export class SpedEfdIcmsIpiService {
       for (const g of grupos.values()) {
         // C190 (11): CST_ICMS|CFOP|ALIQ_ICMS|VL_OPR|VL_BC_ICMS|VL_ICMS|VL_BC_ICMS_ST|VL_ICMS_ST|VL_RED_BC|VL_IPI|COD_OBS
         arq.add('C190', [g.cstIcms, g.cfop, fmtNum(g.aliq, 2), fmtNum(g.vlOpr), fmtNum(g.bcIcms), fmtNum(g.vlIcms), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(g.vlIpi), '']);
-        creditoIcms = r2(creditoIcms + g.vlIcms); // ENTRADA → crédito de ICMS
+        if (saida) debitoIcms = r2(debitoIcms + g.vlIcms); // SAÍDA → débito de ICMS
+        else creditoIcms = r2(creditoIcms + g.vlIcms); // ENTRADA → crédito de ICMS
       }
     }
     arq.fecharBloco('C990', 'C');
-    return creditoIcms;
+    return { creditoIcms, debitoIcms };
   }
 }

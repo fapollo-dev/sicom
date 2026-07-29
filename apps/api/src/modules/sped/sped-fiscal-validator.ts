@@ -22,7 +22,7 @@ export interface ResultadoValidacao {
 const CAMPOS_ESPERADOS: Record<string, number> = {
   '0000': 14, '0001': 1, '0005': 9, '0150': 12, '0190': 2, '0200': 12, '0990': 1,
   C001: 1, C100: 28, C170: 37, C190: 11, C990: 1,
-  E001: 1, E100: 2, E110: 14, E990: 1,
+  E001: 1, E100: 2, E110: 14, E116: 9, E990: 1,
   '9001': 1, '9900': 2, '9990': 1, '9999': 1,
 };
 
@@ -86,11 +86,15 @@ export function validarSpedFiscal(arquivo: string): ResultadoValidacao {
   //    clampado a ≥0; o excedente credor vai p/ VL_SLD_CREDOR_TRANSPORTAR. VL_ICMS_RECOLHER = SLD_APURADO − DED.
   for (const r of regs.filter((x) => x.reg === 'E110')) {
     const f = r.campos.map(num);
-    const devedor = f[0] + f[1] + f[3] - (f[4] + f[5] + f[7] + f[8]);
+    // devedor = (DEB + AJ_DEB + TOT_AJ_DEB + ESTORNO_CRED) − (CRED + AJ_CRED + TOT_AJ_CRED + ESTORNO_DEB + SLD_CREDOR_ANT)
+    const devedor = f[0] + f[1] + f[2] + f[3] - (f[4] + f[5] + f[6] + f[7] + f[8]);
     const apurado = Math.max(0, devedor);
     const credor = Math.max(0, -devedor);
     if (Math.abs(f[9] - apurado) > EPS) erros.push(`E110 (linha ${r.linha}): VL_SLD_APURADO ${f[9]} ≠ max(0, débitos−créditos) ${apurado}`);
     if (Math.abs(f[12] - credor) > EPS) erros.push(`E110 (linha ${r.linha}): VL_SLD_CREDOR_TRANSPORTAR ${f[12]} ≠ saldo credor ${credor}`);
+    // coerência com E116: Σ VL_OR dos E116 = VL_ICMS_RECOLHER do E110 (o PVA rejeita se não bater).
+    const somaE116 = regs.filter((x) => x.reg === 'E116').reduce((s, x) => s + num(x.campos[1]), 0);
+    if (f[11] > EPS && Math.abs(somaE116 - f[11]) > EPS) erros.push(`E116: Σ VL_OR ${somaE116} ≠ E110.VL_ICMS_RECOLHER ${f[11]}`);
   }
 
   return { ok: erros.length === 0, erros, registros: regs.length };

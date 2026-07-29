@@ -5708,28 +5708,36 @@ async function main() {
     {
       const pgFi = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       try {
-        // entrada com ICMS no período 2026-11 (crédito de ICMS = Σ VL_ICMS das entradas).
+        // ENTRADA com ICMS (crédito 18) + SAÍDA mod-55 com ICMS (débito 30) no período 2026-11 → apuração ICMS.
         const nfIcms = await novaNf(baseNf({ tipo: 'E', nronf: 'SPEDF01', codparceiro: 22, dtemissao: '2026-11-05', dtcontabil: '2026-11-05', itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, vrcusto: 10, cfop: '1102', aliquota: 'T01', icms: 18 }] }));
         await pgFi.query(`UPDATE nf_prod SET vrbasecalculo=100, vricm=18, icms=18, vripi=0, cst=0, origem_estoque='0' WHERE codnf=$1`, [nfIcms]);
         await pgFi.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfIcms]);
+        const nfSaiF = await novaNf(baseNf({ tipo: 'S', nronf: 'SPEDF02', modelo: 55, cfop: '5102', codparceiro: 20, dtemissao: '2026-11-06', dtcontabil: '2026-11-06', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, cfop: '5102', aliquota: 'T01', icms: 30 }] }));
+        await pgFi.query(`UPDATE nf_prod SET vrbasecalculo=100, vricm=30, icms=30, vrcusto=10, vripi=0, cst=0, origem_estoque='0' WHERE codnf=$1`, [nfSaiF]);
+        await pgFi.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfSaiF]);
         const efdF = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-01', dtfim: '2026-11-30' }) });
         const efdFJ = (await efdF.json().catch(() => ({}))) as any;
         const linF = String(efdFJ.arquivo ?? '').split('\r\n');
         const r0000F = linF.find((l) => l.startsWith('|0000|')) ?? '';
-        const c100F = linF.find((l) => l.startsWith('|C100|0|')) ?? '';
-        const c190F = linF.find((l) => l.startsWith('|C190|')) ?? '';
+        const c100Ent = linF.find((l) => l.startsWith('|C100|0|')) ?? '';
+        const c100Sai = linF.find((l) => l.startsWith('|C100|1|')) ?? '';
+        const c190Ent = linF.find((l) => l.startsWith('|C190|000|1102|')) ?? '';
+        const c190Sai = linF.find((l) => l.startsWith('|C190|000|5102|')) ?? '';
         const e110F = linF.find((l) => l.startsWith('|E110|')) ?? '';
+        const e116F = linF.find((l) => l.startsWith('|E116|')) ?? '';
         check(
-          'SPED §90 EFD ICMS/IPI corte-1: 0000 layout fiscal (COD_VER 014 · IND_PERFIL A · IND_ATIV 1) + C100 entrada + C190 (CST 000/CFOP 1102/alíq 18/ICMS 18) + E110 saldo credor 18 + validação ok',
+          'SPED §90 EFD ICMS/IPI corte-2 (SAÍDA): C100 entrada(0)+saída(1) + C190 crédito(1102/18) & débito(5102/30) + E110 (déb 30 − créd 18 = 12 a recolher) + E116 (VL_OR 12) + validação ok',
           efdF.status === 200
           && r0000F.startsWith('|0000|014|0|') && r0000F.endsWith('|A|1|')
-          && c100F.startsWith('|C100|0|')
-          && c190F.startsWith('|C190|000|1102|18,00|100,00|100,00|18,00|')
-          && e110F.startsWith('|E110|0,00|0,00|0,00|0,00|18,00|') && e110F.endsWith('|18,00|0,00|')
+          && c100Ent.startsWith('|C100|0|') && c100Sai.startsWith('|C100|1|')
+          && c190Ent.startsWith('|C190|000|1102|18,00|100,00|100,00|18,00|')
+          && c190Sai.startsWith('|C190|000|5102|30,00|100,00|100,00|30,00|')
+          && e110F === '|E110|30,00|0,00|0,00|0,00|18,00|0,00|0,00|0,00|0,00|12,00|0,00|12,00|0,00|0,00|'
+          && e116F.startsWith('|E116|000|12,00|')
           && efdFJ.validacao?.ok === true && Array.isArray(efdFJ.validacao?.erros) && efdFJ.validacao.erros.length === 0,
-          { r0000: r0000F.slice(0, 36), c190: c190F, e110: e110F, val: efdFJ.validacao },
+          { c100Sai: c100Sai.slice(0, 30), c190Sai, e110: e110F, e116: e116F, val: efdFJ.validacao },
         );
-        await pgFi.query(`DELETE FROM nf WHERE codnf=$1`, [nfIcms]); // cleanup
+        await pgFi.query(`DELETE FROM nf WHERE codnf IN ($1,$2)`, [nfIcms, nfSaiF]); // cleanup
       } finally {
         await pgFi.end();
       }
