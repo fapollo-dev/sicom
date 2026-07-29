@@ -21,7 +21,7 @@ export interface ResultadoValidacao {
 /** contagem esperada de campos (após o REG) dos registros do EFD ICMS/IPI que emitimos. */
 const CAMPOS_ESPERADOS: Record<string, number> = {
   '0000': 14, '0001': 1, '0005': 9, '0150': 12, '0190': 2, '0200': 12, '0990': 1,
-  C001: 1, C100: 28, C170: 37, C190: 11, C990: 1,
+  C001: 1, C100: 28, C170: 37, C190: 11, C500: 26, C590: 10, C990: 1,
   E001: 1, E100: 2, E110: 14, E116: 9, E990: 1,
   '9001': 1, '9900': 2, '9990': 1, '9999': 1,
 };
@@ -80,6 +80,16 @@ export function validarSpedFiscal(arquivo: string): ResultadoValidacao {
   for (const r of regs.filter((x) => x.reg === 'C190')) {
     if ((r.campos[0] ?? '') === '') erros.push(`C190 (linha ${r.linha}): CST_ICMS vazio (obrigatório)`);
     if ((r.campos[1] ?? '') === '') erros.push(`C190 (linha ${r.linha}): CFOP vazio (obrigatório)`);
+  }
+  for (const r of regs.filter((x) => x.reg === 'C500')) {
+    if (!emDom(r.campos[0], ['0', '1'])) erros.push(`C500 (linha ${r.linha}): IND_OPER '${r.campos[0]}' fora do domínio {0,1}`);
+    if (!emDom(r.campos[1], ['0', '1'])) erros.push(`C500 (linha ${r.linha}): IND_EMIT '${r.campos[1]}' fora do domínio {0,1}`);
+    if ((r.campos[3] ?? '') === '') erros.push(`C500 (linha ${r.linha}): COD_MOD vazio`);
+    if ((r.campos[4] ?? '') === '') erros.push(`C500 (linha ${r.linha}): COD_SIT vazio`);
+  }
+  for (const r of regs.filter((x) => x.reg === 'C590')) {
+    if ((r.campos[0] ?? '') === '') erros.push(`C590 (linha ${r.linha}): CST_ICMS vazio (obrigatório)`);
+    if ((r.campos[1] ?? '') === '') erros.push(`C590 (linha ${r.linha}): CFOP vazio (obrigatório)`);
   }
 
   // 5) ARITMÉTICA do E110: VL_SLD_APURADO = (DEB + AJ_DEB + ESTORNO_CRED) − (CRED + AJ_CRED + ESTORNO_DEB + SLD_CREDOR_ANT),

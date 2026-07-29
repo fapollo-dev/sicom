@@ -36,12 +36,23 @@ function codVersaoFiscal(dtini: string): string {
  * (com ajustes E111/estornos) seria o refino.
  *
  * E116 (obrigação a recolher) emitido quando há ICMS a recolher — COD_REC por UF (MG/GO; demais UFs precisam
- * da tabela completa Ato COTEPE). ADIADO (corte-3+, com procedência): VL_SLD_CREDOR_ANT (carry do saldo credor
- * do período anterior — precisa persistir a apuração/APURACAO_ICMS; hoje 0, superestima a-recolher se houver
- * credor acumulado) · blocos D/G/H/K/1 · E111/E113 (ajustes) · E200/E210 (ST) · E300/E310 (DIFAL/FCP) · E500
- * (IPI) · C176/C195/C197 (SN) · redução de base (VL_RED_BC do C190 = 0) · multi-estab (C010) · COD_REC das
- * demais UFs. NOTA: o C170 de saída própria mod-55 é FACULTATIVO no legado (default suprime, ckbC170Saidas);
- * aqui é sempre emitido (reconcilia C100↔C170↔C190) — equivale ao modo "checkbox ligado".
+ * da tabela completa Ato COTEPE).
+ *
+ * BLOCO C RESÍDUOS (fiel a GeraNFEnergia, Uspedfiscal.pas:4040): documentos de ENERGIA elétrica (mod 06), GÁS
+ * canalizado (28) e ÁGUA (29) vão em C500 (header) + C590 (analítico ICMS por CST/CFOP/ALIQ) — NÃO em C100/C170
+ * (mod 06/28/29 são inválidos no C100). O ICMS de energia NÃO é folded no E110 (a apuração é derivada do C190 dos
+ * docs regulares; no varejo o crédito de energia é restrito e o legado lê de APURACAO_ICMS à parte). Os demais
+ * registros C residuais foram CONFIRMADOS mortos neste ERP e NÃO são emitidos (cópia fiel): C176 (código presente
+ * mas o handler do chkGerarC176 desabilita permanentemente — Uspedfiscal.pas:4189-4196; +sem coluna de ressarci-
+ * mento), C195/C197 (entrada-only, gated por EMPRESAS.COD_AJUS_*>0; NF_AJUSTES/CODIGO_AJUSTE = 0 linhas no golden),
+ * C800/C850/C860 (SAT-CF-e mod 59 — sem código no legado; MG não usa SAT).
+ *
+ * ADIADO (corte-3+, com procedência): VL_SLD_CREDOR_ANT (carry do saldo credor do período anterior — precisa
+ * persistir a apuração/APURACAO_ICMS; hoje 0, superestima a-recolher se houver credor acumulado) · blocos D/G/H/K/1
+ * · E111/E113 (ajustes) · E200/E210 (ST) · E300/E310 (DIFAL/FCP) · E500 (IPI) · redução de base (VL_RED_BC do C190
+ * = 0) · multi-estab (C010) · COD_REC das demais UFs · C500 TP_LIGACAO/COD_GRUPO_TENSAO (EMPRESAS.TP_LIGACAO/
+ * GRUPOTENSAO ausentes no monorepo → ''). NOTA: o C170 de saída própria mod-55 é FACULTATIVO no legado (default
+ * suprime, ckbC170Saidas); aqui é sempre emitido (reconcilia C100↔C170↔C190) — equivale ao modo "checkbox ligado".
  */
 @Injectable()
 export class SpedEfdIcmsIpiService {
@@ -118,7 +129,7 @@ export class SpedEfdIcmsIpiService {
       documentos: docs.nfs.length,
       parcial: true,
       validacao: validarSpedFiscal(arquivo),
-      aviso: `PARCIAL (corte-2): bloco 0 + bloco C (${docs.nfs.length} docs entrada+saída mod-55, C100/C170/C190 por IND_OPER) + bloco E (E110 apuração ICMS: débito ${fmtNum(debitoIcms)} − crédito ${fmtNum(creditoIcms)}) + bloco 9. Sem blocos D/G/H/K/1, sem ST/DIFAL/IPI, sem E116 (obrigação a recolher — precisa tabela UF→COD_REC).`,
+      aviso: `PARCIAL (corte-3): bloco 0 + bloco C (${docs.nfs.length} docs; C100/C170/C190 mod-55 por IND_OPER + C500/C590 energia/gás/água mod 06/28/29) + bloco E (E110 apuração ICMS: débito ${fmtNum(debitoIcms)} − crédito ${fmtNum(creditoIcms)}; E116 quando há a recolher) + bloco 9. Sem blocos D/G/H/K/1, sem ST/DIFAL/IPI. C176/C195/C197/C800 confirmados mortos (cópia fiel).`,
     };
   }
 
@@ -126,7 +137,7 @@ export class SpedEfdIcmsIpiService {
   private async coletarEntrada(db: AnyDB, emp: number, dtini: string, dtfim: string) {
     const nfs = (await db
       .selectFrom('nf')
-      .select(['codnf', 'tipo', 'modelo', 'nronf', 'serie', 'chavenfe', 'dtemissao', 'dtcontabil', 'tipoemissao', 'codparceiro', 'totalnf', 'totaldesc', 'totalprod', 'totalfrete', 'totalseguro', 'totalacessorias', 'tipofrete', sql`coalesce(cancelada,'N')`.as('cancelada'), sql`coalesce(statusnfe,'')`.as('statusnfe')])
+      .select(['codnf', 'tipo', 'modelo', 'nronf', 'serie', 'chavenfe', 'dtemissao', 'dtcontabil', 'tipoemissao', 'codparceiro', 'cfop', 'totalnf', 'totaldesc', 'totalprod', 'totalfrete', 'totalseguro', 'totalacessorias', 'tipofrete', sql`coalesce(cancelada,'N')`.as('cancelada'), sql`coalesce(statusnfe,'')`.as('statusnfe')])
       .where('idempresa', '=', emp)
       .where('tipo', 'in', ['E', 'S']) // corte-2: ENTRADA (crédito) + SAÍDA (débito) — destrava a apuração ICMS
       .where('proc', '=', 'S')
@@ -188,7 +199,11 @@ export class SpedEfdIcmsIpiService {
     let creditoIcms = 0;
     let debitoIcms = 0;
     if (!temDocs) { arq.fecharBloco('C990', 'C'); return { creditoIcms: 0, debitoIcms: 0 }; }
+    const ENERGIA = new Set([6, 28, 29]); // mod 06 energia / 28 gás / 29 água → C500/C590 (não C100)
+    const BLOCO_D = new Set([21, 22]); // mod 21/22 (comunicação/telecom) → bloco D (D500) — ADIADO; inválidos em C100
     for (const nf of docs.nfs) {
+      if (ENERGIA.has(Number(nf.modelo))) continue; // energia/gás/água emitidos no laço C500 abaixo
+      if (BLOCO_D.has(Number(nf.modelo))) continue; // fold auditoria [BAIXA]: telecom não vai em C100 (bloco D adiado)
       const saida = String(nf.tipo) === 'S';
       const indOper = saida ? '1' : '0'; // IND_OPER: 0=entrada / 1=saída
       const indEmit = String(nf.tipoemissao ?? '0') === '0' ? '0' : '1';
@@ -241,6 +256,50 @@ export class SpedEfdIcmsIpiService {
         arq.add('C190', [g.cstIcms, g.cfop, fmtNum(g.aliq, 2), fmtNum(g.vlOpr), fmtNum(g.bcIcms), fmtNum(g.vlIcms), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(g.vlIpi), '']);
         if (saida) debitoIcms = r2(debitoIcms + g.vlIcms); // SAÍDA → débito de ICMS
         else creditoIcms = r2(creditoIcms + g.vlIcms); // ENTRADA → crédito de ICMS
+      }
+    }
+    // C500/C590 — energia elétrica (06) / gás (28) / água (29): documento de utility em registro próprio (fiel a
+    // GeraNFEnergia, Uspedfiscal.pas:4040). IND_EMIT sempre terceiros ('1', edTerceiros); COD_CONS='01' só p/ energia
+    // elétrica (mod 06 — classe de consumo é conceito de energia; gás/água → ''); TP_LIGACAO/COD_GRUPO_TENSAO ''
+    // (config ausente). O ICMS NÃO entra no E110 (apuração derivada do C190 dos docs regulares — ver docstring).
+    for (const nf of docs.nfs) {
+      if (!ENERGIA.has(Number(nf.modelo))) continue;
+      const codMod = String(nf.modelo).padStart(2, '0'); // 06/28/29
+      const ser = String(nf.serie ?? '').trim();
+      const st = String(nf.statusnfe ?? '');
+      // DESVIO consciente do legado (que hardcoda regular): computamos COD_SIT p/ NÃO emitir doc cancelado/denegado
+      // como regular com ICMS cheio (fantasma) — espelha o header-only do C100 neste mesmo arquivo. ('I'/inutilizada
+      // N/A: energia é doc de TERCEIROS, não numeração própria.)
+      const codSit = String(nf.cancelada) === 'S' || st === 'C' ? '02' : st === 'D' ? '04' : '00';
+      const codCons = codMod === '06' ? '01' : ''; // classe de consumo só p/ energia elétrica
+      const regular = codSit === '00';
+      const itens = nf.itens;
+      const soma = (c: string) => itens.reduce((s, it) => s + nn(it[c]), 0);
+      const bcIcms = regular ? soma('vrbasecalculo') : 0;
+      const vlIcms = regular ? soma('vricm') : 0;
+      // C500 (26): IND_OPER|IND_EMIT|COD_PART|COD_MOD|COD_SIT|SER|SUB|COD_CONS|NUM_DOC|DT_DOC|DT_E_S|VL_DOC|VL_DESC|
+      //            VL_FORN|VL_SERV_NT|VL_TERC|VL_DA|VL_BC_ICMS|VL_ICMS|VL_BC_ICMS_ST|VL_ICMS_ST|COD_INF|VL_PIS|
+      //            VL_COFINS|TP_LIGACAO|COD_GRUPO_TENSAO
+      arq.add('C500', ['0', '1', String(nf.codparceiro ?? ''), codMod, codSit, ser, '', codCons, String(nf.nronf ?? ''), fmtData(nf.dtemissao as string), fmtData(nf.dtcontabil as string), fmtNum(nn(nf.totalnf)), fmtNum(nn(nf.totaldesc)), fmtNum(nn(nf.totalprod)), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(bcIcms), fmtNum(vlIcms), fmtNum(0), fmtNum(0), '', fmtNum(regular ? soma('vrpise') : 0), fmtNum(regular ? soma('vrcofinse') : 0), '', '']);
+      if (!regular) continue; // cancelado/denegado → só o header C500, sem C590 (evita ICMS fantasma)
+      const grupos = new Map<string, { cstIcms: string; cfop: string; aliq: number; vlOpr: number; bcIcms: number; vlIcms: number }>();
+      for (const it of itens) {
+        const cstIcms = String(it.origem_estoque || '0').slice(0, 1) + String(nn(it.cst)).padStart(2, '0');
+        const aliqIt = nn(it.icms);
+        const vlItem = r2(nn(it.vrcusto) * nn(it.quantidade));
+        const k = `${cstIcms}|${it.cfop}|${aliqIt.toFixed(2)}`;
+        const g = grupos.get(k) ?? { cstIcms, cfop: String(it.cfop ?? ''), aliq: aliqIt, vlOpr: 0, bcIcms: 0, vlIcms: 0 };
+        g.vlOpr = r2(g.vlOpr + vlItem);
+        g.bcIcms = r2(g.bcIcms + nn(it.vrbasecalculo));
+        g.vlIcms = r2(g.vlIcms + nn(it.vricm));
+        grupos.set(k, g);
+      }
+      // fold auditoria [MÉDIA]: um C500 regular EXIGE ≥1 C590 (o PVA rejeita C500 órfão). Se o doc de energia veio
+      // sem itens (ETL header-only), sintetiza um C590 do cabeçalho (CFOP da NF + ICMS somado, que será 0).
+      if (grupos.size === 0) grupos.set('hdr', { cstIcms: '000', cfop: String(nf.cfop ?? ''), aliq: 0, vlOpr: r2(nn(nf.totalprod)), bcIcms, vlIcms });
+      for (const g of grupos.values()) {
+        // C590 (10): CST_ICMS|CFOP|ALIQ_ICMS|VL_OPR|VL_BC_ICMS|VL_ICMS|VL_BC_ICMS_ST|VL_ICMS_ST|VL_RED_BC|COD_OBS
+        arq.add('C590', [g.cstIcms, g.cfop, fmtNum(g.aliq, 2), fmtNum(g.vlOpr), fmtNum(g.bcIcms), fmtNum(g.vlIcms), fmtNum(0), fmtNum(0), fmtNum(0), '']);
       }
     }
     arq.fecharBloco('C990', 'C');

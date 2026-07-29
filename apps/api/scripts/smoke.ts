@@ -5743,6 +5743,53 @@ async function main() {
       }
     }
 
+    // ===== §90d: EFD ICMS/IPI bloco C resíduos — C500/C590 (energia elétrica mod 06) + roteamento p/ fora de C100 =====
+    {
+      const pgEn = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // período 2027-01 isolado: SÓ uma NF de ENERGIA (modelo 06) → deve ir p/ C500/C590 e NÃO p/ C100/C170/C190.
+        const nfEn = await novaNf(baseNf({ tipo: 'E', modelo: 6, nronf: 'ENERG01', codparceiro: 22, cfop: '1102', dtemissao: '2027-01-05', dtcontabil: '2027-01-05', itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1000, vrcusto: 1000, cfop: '1102', aliquota: 'T01', icms: 17 }] }));
+        await pgEn.query(`UPDATE nf_prod SET vrbasecalculo=1000, vricm=170, icms=17, vrcusto=1000, vripi=0, cst=0, origem_estoque='0' WHERE codnf=$1`, [nfEn]);
+        await pgEn.query(`UPDATE nf SET proc='S', totalnf=1000, totalprod=1000, totaldesc=0 WHERE codnf=$1`, [nfEn]);
+        const efdEn = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2027-01-01', dtfim: '2027-01-31' }) });
+        const efdEnJ = (await efdEn.json().catch(() => ({}))) as any;
+        const linEn = String(efdEnJ.arquivo ?? '').split('\r\n');
+        const c500 = linEn.find((l) => l.startsWith('|C500|')) ?? '';
+        const c590 = linEn.find((l) => l.startsWith('|C590|')) ?? '';
+        const c100any = linEn.find((l) => l.startsWith('|C100|')) ?? '';
+        const c500p = c500.split('|'); // ['','C500',IND_OPER,IND_EMIT,COD_PART,COD_MOD,COD_SIT,SER,SUB,COD_CONS,NUM_DOC,...]
+        check(
+          'SPED §90d bloco C resíduos: energia mod-06 → C500 (IND_OPER=0/IND_EMIT=1/COD_MOD=06/COD_CONS=01/NUM_DOC=ENERG01) + C590 analítico, roteada p/ FORA de C100, validação ok',
+          efdEn.status === 200
+          && c500.startsWith('|C500|0|1|')
+          && c500p[5] === '06' && c500p[6] === '00' && c500p[9] === '01' && c500p[10] === 'ENERG01'
+          && c590.startsWith('|C590|') && c590.includes('|1102|')
+          && c100any === '' // a NF de energia NÃO virou C100 (fix do roteamento)
+          && efdEnJ.validacao?.ok === true && Array.isArray(efdEnJ.validacao?.erros) && efdEnJ.validacao.erros.length === 0,
+          { c500: c500.slice(0, 60), c590: c590.slice(0, 50), c100any: c100any.slice(0, 30), val: efdEnJ.validacao },
+        );
+        await pgEn.query(`DELETE FROM nf WHERE codnf=$1`, [nfEn]); // cleanup
+
+        // fold auditoria [MÉDIA]: C500 regular SEM itens (ETL header-only) deve sintetizar 1 C590 do cabeçalho
+        // (CST '000' + CFOP da NF) — nunca ficar órfão (o PVA rejeita C500 sem C590).
+        const hdrRow = await pgEn.query(`INSERT INTO nf (idempresa,tipo,modelo,serie,nronf,dtemissao,dtcontabil,tipoemissao,finalidade,cfop,codparceiro,proc,totalnf,totalprod,totaldesc) VALUES (1,'E',6,'1','ENERG02','2027-01-07','2027-01-07','0','1','1252',22,'S',500,500,0) RETURNING codnf`);
+        const nfHdr = Number(hdrRow.rows[0].codnf);
+        const efdHdr = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2027-01-01', dtfim: '2027-01-31' }) });
+        const efdHdrJ = (await efdHdr.json().catch(() => ({}))) as any;
+        const linHdr = String(efdHdrJ.arquivo ?? '').split('\r\n');
+        const c500h = linHdr.find((l) => l.startsWith('|C500|')) ?? '';
+        const c590h = linHdr.find((l) => l.startsWith('|C590|')) ?? '';
+        check(
+          'SPED §90d fold: C500 de energia header-only (sem itens) sintetiza 1 C590 do cabeçalho (CST 000 / CFOP 1252) — não fica órfão, validação ok',
+          efdHdr.status === 200 && c500h.startsWith('|C500|0|1|') && c590h.startsWith('|C590|000|1252|') && efdHdrJ.validacao?.ok === true && Array.isArray(efdHdrJ.validacao?.erros) && efdHdrJ.validacao.erros.length === 0,
+          { c500h: c500h.slice(0, 50), c590h: c590h.slice(0, 40), val: efdHdrJ.validacao },
+        );
+        await pgEn.query(`DELETE FROM nf WHERE codnf=$1`, [nfHdr]); // cleanup
+      } finally {
+        await pgEn.end();
+      }
+    }
+
     // ===== §90c: EFD-Contribuições SAÍDA-NF-mod55 — débito PIS/COFINS de NF de saída mod-55 no bloco C + apuração M =====
     {
       const pgSc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
