@@ -63,6 +63,7 @@ const TELAS = [
   { href: '/cadastro/apagar', name: 'Contas a Pagar', icon: Banknote },
   { href: '/cobranca/caixa', name: 'Caixa', icon: Coins },
   { href: '/financeiro/cartoes', name: 'Cartões / Recebíveis', icon: CreditCard },
+  { href: '/financeiro/conciliacao', name: 'Conciliação Bancária', icon: Landmark },
   { href: '/cadastro/operadoras', name: 'Operadoras de Cartão', icon: CreditCard },
   { href: '/estoque/ajuste', name: 'Ajuste de Estoque', icon: Package },
   { href: '/estoque/inventario', name: 'Inventário', icon: ClipboardList },

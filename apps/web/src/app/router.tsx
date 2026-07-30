@@ -37,6 +37,7 @@ import { ScrapPage } from '../features/scrap/ScrapPage';
 import { CartaoPage } from '../features/cartao/CartaoPage';
 import { OperadorasPage } from '../features/cartao/OperadorasPage';
 import { TrocaPage } from '../features/troca/TrocaPage';
+import { ConciliacaoBancariaPage } from '../features/conciliacao/ConciliacaoBancariaPage';
 import { MotivosOperacaoCadMaster } from '../features/motivos-operacao/MotivosOperacaoCadMaster';
 import { ConfiguracoesPage } from '../features/configuracoes/ConfiguracoesPage';
 
@@ -78,6 +79,7 @@ export const router = createBrowserRouter([
       { path: '/estoque/troca', element: <TrocaPage /> }, // troca c/ fornecedor (avariados saem; baixa do saldo + kardex)
       { path: '/financeiro/cartoes', element: <CartaoPage /> }, // recebíveis de cartão (consulta + cadastro; líquido/venc computados)
       { path: '/cadastro/operadoras', element: <OperadorasPage /> }, // administradora/adquirente + taxa por-empresa
+      { path: '/financeiro/conciliacao', element: <ConciliacaoBancariaPage /> }, // conciliação bancária OFX × razão interno
       { path: '/cadastro/motivos-operacao', element: <MotivosOperacaoCadMaster /> }, // lookup do motivo do ajuste
       { path: '/cadastro/plano-contas', element: <PlanoContasCadMaster /> }, // plano de contas (árvore)
       { path: '/contabil/dre', element: <DreRelatorio /> }, // relatório DRE (calculado do diário)

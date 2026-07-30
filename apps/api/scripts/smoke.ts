@@ -3869,6 +3869,76 @@ async function main() {
       }
     }
 
+    // 47e) CONCILIAÇÃO BANCÁRIA (OFX) — importar extrato + sugerir (data+valor) + conciliar (marca os 2 lados + evento CB).
+    {
+      const pgCo = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const CO = 'cadastro/conciliacao-bancaria';
+        let codconta = Number((await pgCo.query(`SELECT codconta FROM contas_bancarias WHERE idempresa=1 ORDER BY codconta LIMIT 1`)).rows[0]?.codconta);
+        if (!codconta) {
+          const codbco = Number((await pgCo.query(`SELECT codbco FROM bancos ORDER BY codbco LIMIT 1`)).rows[0]?.codbco);
+          codconta = Number((await pgCo.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES ($1,1,'CONTA CONC') RETURNING codconta`, [codbco])).rows[0].codconta);
+        }
+        // razão interno: 3 lançamentos MCB da conta (100@06-01, 50@06-02, 999@06-03), não-conciliados.
+        const mv = async (valor: number, data: string) => Number((await pgCo.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, data_fechamento, dtcadastro) VALUES ($1,1,$2,'C','CONC',$3,now()) RETURNING codmovconta`, [codconta, valor, data])).rows[0].codmovconta);
+        const m100 = await mv(100, '2026-06-01'), m50 = await mv(50, '2026-06-02'), m999 = await mv(999, '2026-06-03');
+        // lançamento de DÉBITO de mesmo valor/data que o crédito OFX 50 — NÃO pode casar (direção diferente).
+        const mD50 = Number((await pgCo.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, data_fechamento, dtcadastro) VALUES ($1,1,50,'D','CONC','2026-06-02',now()) RETURNING codmovconta`, [codconta])).rows[0].codmovconta);
+
+        // 47e.1) importar 2 linhas do extrato (FITID) → inseridas 2; reimportar → duplicadas 2 (dedup por FITID).
+        const linhas = [{ data: '2026-06-01', valor: 100, credito_debito: 'C', descricao: 'PIX 100', transacao_id: 'FIT100' }, { data: '2026-06-02', valor: 50, credito_debito: 'C', descricao: 'PIX 50', transacao_id: 'FIT50' }];
+        const imp1 = await fetch(`${base}/${CO}/importar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, nomeArquivo: 'extrato.ofx', linhas }) });
+        const imp1J = (await imp1.json().catch(() => ({}))) as any;
+        const imp2 = await fetch(`${base}/${CO}/importar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, linhas }) });
+        const imp2J = (await imp2.json().catch(() => ({}))) as any;
+        check('CONCILIAÇÃO: importar 2 linhas OFX → inseridas 2; reimportar → duplicadas 2 (dedup por FITID)',
+          imp1.status === 200 && Number(imp1J.inseridas) === 2 && Number(imp1J.duplicadas) === 0 && imp2.status === 200 && Number(imp2J.duplicadas) === 2 && Number(imp2J.inseridas) === 0,
+          { imp1: imp1J, imp2: imp2J });
+        const mbo100 = Number((await pgCo.query(`SELECT mbo_id FROM movimentacao_bancaria_ofx WHERE codconta=$1 AND mbo_transacao_id='FIT100'`, [codconta])).rows[0].mbo_id);
+        const mbo50 = Number((await pgCo.query(`SELECT mbo_id FROM movimentacao_bancaria_ofx WHERE codconta=$1 AND mbo_transacao_id='FIT50'`, [codconta])).rows[0].mbo_id);
+
+        // 47e.2) sugestões automáticas (data+valor) → 2 pares (100↔m100, 50↔m50).
+        const sug = (await (await fetch(`${base}/${CO}/sugestoes?codconta=${codconta}`, { headers: H })).json().catch(() => ({}))) as any;
+        const par100 = (sug.pares ?? []).find((p: any) => Number(p.mbo_id) === mbo100);
+        check('CONCILIAÇÃO: sugestões automáticas por data+valor → casa 100↔razão e 50↔razão',
+          (sug.pares ?? []).length >= 2 && par100 && Number(par100.codmovconta) === m100 && (sug.pares ?? []).some((p: any) => Number(p.mbo_id) === mbo50 && Number(p.codmovconta) === m50),
+          { pares: sug.pares });
+
+        // 47e.3) conciliar (mbo100 ↔ m100, Σ 100=100) → evento CB + marca os 2 lados conciliados.
+        const con = await fetch(`${base}/${CO}/conciliar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, mboIds: [mbo100], codmovcontas: [m100] }) });
+        const conJ = (await con.json().catch(() => ({}))) as any;
+        const mboC = (await pgCo.query(`SELECT mbo_conciliado FROM movimentacao_bancaria_ofx WHERE mbo_id=$1`, [mbo100])).rows[0] as any;
+        const movC = (await pgCo.query(`SELECT mov_conciliado FROM mov_contas_bancarias WHERE codmovconta=$1`, [m100])).rows[0] as any;
+        const jun = Number((await pgCo.query(`SELECT count(*)::int n FROM conciliacao_bancaria_ofx WHERE cb_id=$1`, [Number(conJ.cb_id)])).rows[0].n);
+        check('CONCILIAÇÃO: conciliar (Σ 100=100) → evento CB + junções + MBO/MCB conciliado=S',
+          con.status === 200 && Number(conJ.cb_id) > 0 && Number(conJ.total) === 100 && mboC?.mbo_conciliado === 'S' && movC?.mov_conciliado === 'S' && jun === 1,
+          { con: conJ, mboC, movC, jun });
+
+        // 47e.4) conciliar com totais divergentes (mbo50=50 × m999=999) → 422; já-conciliado (mbo100) → 422.
+        const conDiv = await fetch(`${base}/${CO}/conciliar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, mboIds: [mbo50], codmovcontas: [m999] }) });
+        const conJa = await fetch(`${base}/${CO}/conciliar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, mboIds: [mbo100], codmovcontas: [m50] }) });
+        check('CONCILIAÇÃO: totais divergentes → 422 CONCILIACAO_TOTAIS_DIVERGENTES; linha já conciliada → 422 OFX_LINHA_INDISPONIVEL',
+          conDiv.status === 422 && ((await conDiv.json().catch(() => ({}))) as any).code === 'CONCILIACAO_TOTAIS_DIVERGENTES'
+          && conJa.status === 422 && ((await conJa.json().catch(() => ({}))) as any).code === 'OFX_LINHA_INDISPONIVEL',
+          { div: conDiv.status, ja: conJa.status });
+
+        // 47e.4b) DIREÇÃO importa: crédito OFX 50 × débito razão 50 (mesma data/valor) → 422 (Σ com sinal +50 ≠ −50);
+        // e a sugestão automática NÃO propõe esse par.
+        const conDir = await fetch(`${base}/${CO}/conciliar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, mboIds: [mbo50], codmovcontas: [mD50] }) });
+        const sug2 = (await (await fetch(`${base}/${CO}/sugestoes?codconta=${codconta}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('CONCILIAÇÃO: direção importa → crédito extrato × débito razão (mesmo valor) → 422; sugestão não casa direções opostas',
+          conDir.status === 422 && ((await conDir.json().catch(() => ({}))) as any).code === 'CONCILIACAO_TOTAIS_DIVERGENTES'
+          && !(sug2.pares ?? []).some((p: any) => Number(p.codmovconta) === mD50),
+          { dir: conDir.status, pares: sug2.pares });
+
+        // 47e.5) RBAC sem grant → 403.
+        const rb = await fetch(`${base}/${CO}/importar`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codconta, linhas }) });
+        check('CONCILIAÇÃO: importar sem grant RBAC → 403', rb.status === 403, { status: rb.status });
+      } finally {
+        await pgCo.end();
+      }
+    }
+
     // 48) PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela: agregado header+itens (sem efeitos) + workflow FECHADO.
     const pgPed = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const PED = 'compras/pedidos';
