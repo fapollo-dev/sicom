@@ -14,6 +14,8 @@ import { InventarioService } from './inventario.service';
 import { ScrapAggregateController } from './scrap.aggregate';
 import { ScrapController } from './scrap.controller';
 import { ScrapService } from './scrap.service';
+import { OperadorasAggregateController } from './operadoras.aggregate';
+import { CartaoCrudController } from './cartao.crud';
 import { AgendaPromocaoAggregateController } from './agenda-promocao.aggregate';
 import { AgendaPromocaoController } from './agenda-promocao.controller';
 import { AgendaPromocaoService } from './agenda-promocao.service';
@@ -117,6 +119,8 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     InventarioController, // vertical: importar-produtos + diferenças + aplicar (sobrescreve estoque, gated senha ADM)
     ScrapAggregateController, // SCRAP/PERDAS (scrap+scrap_item; documento de perda — valoração MULTI_PRECO)
     ScrapController, // vertical: aplicar/estornar baixa de estoque (kardex origem='SCRAP')
+    OperadorasAggregateController, // CARTÕES: administradora/adquirente + taxa por-empresa (operadoras+operadoras_taxa)
+    CartaoCrudController, // CARTÕES: recebível (consulta/cadastro; líquido+vencimento computados na view get_cartao)
     AgendaPromocaoAggregateController, // AGENDA DE PROMOÇÃO (cadastro header+itens; corte-1 sem efeito)
     AgendaPromocaoController, // vertical (encerrar/reabrir a agenda)
     PromocaoAggregateController, // GESTÃO DE PROMOÇÕES (UCadPromocao): header PROMOCAO + detalhe CLUBE_DESCONTO por ORIGEM

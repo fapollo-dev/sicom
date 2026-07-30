@@ -3714,6 +3714,49 @@ async function main() {
       }
     }
 
+    // 47c) CARTÕES / RECEBÍVEIS (FRMCADOPERADORAS + FRMCADCARTAO) — operadoras (taxa por-empresa) + recebível com
+    // líquido/vencimento COMPUTADOS na view get_cartao (base txadm; override por-empresa tem precedência).
+    {
+      const OPER = 'cadastro/operadoras', CART = 'cadastro/cartao';
+      // 47c.1) criar operadora (base txadm 2,59 / diascomp 30) → 201.
+      const opCr = await fetch(`${base}/${OPER}`, { method: 'POST', headers: H, body: JSON.stringify({ operadora: 'MASTERCARD CREDITO', txadm: 2.59, diascomp: 30, tipo: 'C', tipocartao: 2 }) });
+      const opJ = (await opCr.json().catch(() => ({}))) as any;
+      const codoper = Number(opJ.codoperadoras);
+      check('CARTÃO: criar operadora (txadm 2,59 / diascomp 30 / tipo C) → 201', opCr.status === 201 && codoper > 0, { status: opCr.status, op: opJ });
+
+      // 47c.2) criar recebível (bruto 100) → 201 + nasce LIBERADO='N'.
+      const cCr = await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 100, codoperadora: codoper, dtvenda: '2026-06-01', nrocupom: '55', nroparcela: 1 }) });
+      const cJ = (await cCr.json().catch(() => ({}))) as any;
+      const codvc = Number(cJ.codvendcartao);
+      const lista1 = (await (await fetch(`${base}/${CART}`, { headers: H })).json().catch(() => [])) as any[];
+      const row1 = lista1.find((r) => Number(r.codvendcartao) === codvc) ?? {};
+      check('CARTÃO: criar recebível (bruto 100) → 201 + LIBERADO=N + líquido BASE 97,41 (100 − 2,59%) + vencimento presente',
+        cCr.status === 201 && codvc > 0 && row1.liberado === 'N' && Number(row1.valor_com_taxa) === 97.41 && !!row1.previsao_compensacao,
+        { status: cCr.status, row: row1 });
+
+      // 47c.3) override POR EMPRESA (PUT operadora com itens: empresa 1 txadm 2,0) → o líquido do MESMO recebível
+      // passa a 98,00 (override tem precedência sobre a base).
+      const opUp = await fetch(`${base}/${OPER}/${codoper}`, { method: 'PUT', headers: H, body: JSON.stringify({ operadora: 'MASTERCARD CREDITO', txadm: 2.59, diascomp: 30, tipo: 'C', tipocartao: 2, itens: [{ idempresa: 1, txadm: 2.0, diafechamento: 31 }] }) });
+      const lista2 = (await (await fetch(`${base}/${CART}`, { headers: H })).json().catch(() => [])) as any[];
+      const row2 = lista2.find((r) => Number(r.codvendcartao) === codvc) ?? {};
+      check('CARTÃO: override de taxa por-empresa (2,0%) tem PRECEDÊNCIA → líquido do recebível vira 98,00',
+        opUp.status === 200 && Number(row2.valor_com_taxa) === 98 && Number(row2.txadm_efetiva) === 2,
+        { status: opUp.status, row: row2 });
+
+      // 47c.4) validações: bruto ≤ 0 → 400; operadora inexistente → 409/422 (FK).
+      const vVal = await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 0, codoperadora: codoper }) });
+      const vOp = await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 10, codoperadora: 999999 }) });
+      check('CARTÃO: bruto 0 → 400; operadora inexistente → 4xx (FK)', vVal.status === 400 && vOp.status >= 400 && vOp.status < 500, { val: vVal.status, op: vOp.status });
+
+      // 47c.5) override duplicado p/ a mesma empresa → 422 OPERADORA_TAXA_EMPRESA_DUPLICADA (fold auditoria inline).
+      const opDup = await fetch(`${base}/${OPER}/${codoper}`, { method: 'PUT', headers: H, body: JSON.stringify({ operadora: 'MASTERCARD CREDITO', txadm: 2.59, diascomp: 30, tipo: 'C', itens: [{ idempresa: 1, txadm: 2.0 }, { idempresa: 1, txadm: 1.5 }] }) });
+      check('CARTÃO: 2 overrides p/ a mesma empresa → 422 OPERADORA_TAXA_EMPRESA_DUPLICADA', opDup.status === 422 && ((await opDup.json().catch(() => ({}))) as any).code === 'OPERADORA_TAXA_EMPRESA_DUPLICADA', { status: opDup.status });
+
+      // 47c.6) RBAC sem grant → 403.
+      const cRb = await fetch(`${base}/${CART}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ valor: 10, codoperadora: codoper }) });
+      check('CARTÃO: POST sem grant RBAC → 403', cRb.status === 403, { status: cRb.status });
+    }
+
     // 48) PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela: agregado header+itens (sem efeitos) + workflow FECHADO.
     const pgPed = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const PED = 'compras/pedidos';
