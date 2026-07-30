@@ -16,6 +16,9 @@ import { ScrapController } from './scrap.controller';
 import { ScrapService } from './scrap.service';
 import { OperadorasAggregateController } from './operadoras.aggregate';
 import { CartaoCrudController } from './cartao.crud';
+import { TrocaAggregateController } from './troca.aggregate';
+import { TrocaController } from './troca.controller';
+import { TrocaService } from './troca.service';
 import { AgendaPromocaoAggregateController } from './agenda-promocao.aggregate';
 import { AgendaPromocaoController } from './agenda-promocao.controller';
 import { AgendaPromocaoService } from './agenda-promocao.service';
@@ -121,6 +124,8 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     ScrapController, // vertical: aplicar/estornar baixa de estoque (kardex origem='SCRAP')
     OperadorasAggregateController, // CARTÕES: administradora/adquirente + taxa por-empresa (operadoras+operadoras_taxa)
     CartaoCrudController, // CARTÕES: recebível (consulta/cadastro; líquido+vencimento computados na view get_cartao)
+    TrocaAggregateController, // TROCA c/ fornecedor (troca+itens_troca; documento mestre-detalhe, valoração MULTI_PRECO)
+    TrocaController, // vertical: fechar/reabrir baixa de estoque (kardex origem='TROCA')
     AgendaPromocaoAggregateController, // AGENDA DE PROMOÇÃO (cadastro header+itens; corte-1 sem efeito)
     AgendaPromocaoController, // vertical (encerrar/reabrir a agenda)
     PromocaoAggregateController, // GESTÃO DE PROMOÇÕES (UCadPromocao): header PROMOCAO + detalhe CLUBE_DESCONTO por ORIGEM
@@ -151,6 +156,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     AjusteEstoqueService,
     InventarioService,
     ScrapService,
+    TrocaService,
     AgendaPromocaoService,
     PerfilRelacaoService,
     PermissoesService,

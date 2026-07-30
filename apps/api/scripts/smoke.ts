@@ -3757,6 +3757,71 @@ async function main() {
       check('CARTÃO: POST sem grant RBAC → 403', cRb.status === 403, { status: cRb.status });
     }
 
+    // 47d) TROCA DE MERCADORIA COM FORNECEDOR (FRMTROCAMERCADORIAFOR) — documento mestre-detalhe + baixa de estoque
+    // (fechar/reabrir; kardex origem='TROCA'). Supplier-side (não-PDV). Valoração MULTI_PRECO.
+    {
+      const pgTr = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const TR = 'cadastro/troca', PRD = 1, FORN = 22;
+        await pgTr.query(`UPDATE parceiros SET realiza_troca='S' WHERE codparceiro=$1`, [FORN]);
+        await pgTr.query(`UPDATE produtos SET realizatroca='S' WHERE idproduto=$1`, [PRD]);
+        await pgTr.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto) VALUES (1,1,10) ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=10`);
+        await pgTr.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES (1,1,50) ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde=50`);
+        const saldoTr = async () => Number((await pgTr.query(`SELECT qtde FROM estoque WHERE idproduto=$1 AND idempresa=1`, [PRD])).rows[0]?.qtde);
+        const kardexTr = async () => (await pgTr.query(`SELECT tipo, qtde, saldo_novo, origem FROM historico_prod WHERE idproduto=$1 AND origem='TROCA' ORDER BY codmov DESC`, [PRD])).rows as any[];
+        const statusTr = async (id: number) => ((await (await fetch(`${base}/${TR}`, { headers: H })).json().catch(() => [])) as any[]).find((r) => Number(r.codtroca) === id)?.status;
+
+        // 47d.1) criar troca (fornecedor 22, 1 item produto 1 qtde 5) → 201 + vrcusto derivado 10 + status ABERTA.
+        const cr = await fetch(`${base}/${TR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: FORN, descricao: 'AVARIADOS', itens: [{ idproduto: PRD, qtde: 5 }] }) });
+        const crJ = (await cr.json().catch(() => ({}))) as any;
+        const codtroca = Number(crJ.codtroca);
+        const det = (await (await fetch(`${base}/${TR}/${codtroca}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('TROCA: criar (fornecedor realiza-troca, 1 item qtde 5) → 201 + vrcusto MULTI_PRECO 10 + status ABERTA',
+          cr.status === 201 && codtroca > 0 && Number((det.itens ?? [])[0]?.vrcusto) === 10 && (det.itens ?? [])[0]?.fechado === 'N' && (await statusTr(codtroca)) === 'ABERTA',
+          { status: cr.status, item: (det.itens ?? [])[0], st: await statusTr(codtroca) });
+
+        // 47d.2) fechar → baixa estoque (50→45) + kardex(TROCA,S,5) + status FECHADA.
+        const fc = await fetch(`${base}/${TR}/${codtroca}/fechar`, { method: 'POST', headers: H });
+        const k = await kardexTr();
+        const detFc = (await (await fetch(`${base}/${TR}/${codtroca}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('TROCA: fechar → baixa de estoque (50→45) + kardex(origem TROCA, S, 5) + status FECHADA + item fechado=S (base da derivação do front)',
+          fc.status === 200 && (await saldoTr()) === 45 && k[0]?.origem === 'TROCA' && k[0]?.tipo === 'S' && Number(k[0]?.qtde) === 5 && (await statusTr(codtroca)) === 'FECHADA' && (detFc.itens ?? [])[0]?.fechado === 'S',
+          { status: fc.status, saldo: await saldoTr(), kardex: k[0], itFechado: (detFc.itens ?? [])[0]?.fechado });
+
+        // 47d.3) fechar 2x → 422 TROCA_SEM_ITENS_ABERTOS; 47d.4) excluir com item fechado → 422 TROCA_ITEM_FECHADO.
+        const fc2 = await fetch(`${base}/${TR}/${codtroca}/fechar`, { method: 'POST', headers: H });
+        const del1 = await fetch(`${base}/${TR}/${codtroca}`, { method: 'DELETE', headers: H });
+        check('TROCA: fechar 2x → 422 TROCA_SEM_ITENS_ABERTOS; excluir fechada → 422 TROCA_ITEM_FECHADO',
+          fc2.status === 422 && ((await fc2.json().catch(() => ({}))) as any).code === 'TROCA_SEM_ITENS_ABERTOS'
+          && del1.status === 422 && ((await del1.json().catch(() => ({}))) as any).code === 'TROCA_ITEM_FECHADO',
+          { fc2: fc2.status, del1: del1.status });
+
+        // 47d.5) reabrir → estorno (45→50) + kardex(E,5); 47d.6) excluir após reabrir → 204.
+        const rb = await fetch(`${base}/${TR}/${codtroca}/reabrir`, { method: 'POST', headers: H });
+        const k2 = await kardexTr();
+        const del2 = await fetch(`${base}/${TR}/${codtroca}`, { method: 'DELETE', headers: H });
+        check('TROCA: reabrir → devolve ao estoque (45→50) + kardex(E,5); excluir após reabrir → 204',
+          rb.status === 200 && k2[0]?.tipo === 'E' && Number(k2[0]?.qtde) === 5 && del2.status === 204 && (await saldoTr()) === 50,
+          { rb: rb.status, saldo: await saldoTr(), del2: del2.status });
+
+        // 47d.7) fornecedor que NÃO realiza troca → 422; 47d.8) produto que NÃO realiza troca → 422.
+        const vF = await fetch(`${base}/${TR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, itens: [{ idproduto: PRD, qtde: 1 }] }) });
+        await pgTr.query(`UPDATE produtos SET realizatroca='N' WHERE idproduto=$1`, [PRD]);
+        const vP = await fetch(`${base}/${TR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: FORN, itens: [{ idproduto: PRD, qtde: 1 }] }) });
+        await pgTr.query(`UPDATE produtos SET realizatroca='S' WHERE idproduto=$1`, [PRD]);
+        check('TROCA: fornecedor não-realiza → 422 FORNECEDOR_NAO_REALIZA_TROCA; produto não-realiza → 422 PRODUTO_NAO_REALIZA_TROCA',
+          vF.status === 422 && ((await vF.json().catch(() => ({}))) as any).code === 'FORNECEDOR_NAO_REALIZA_TROCA'
+          && vP.status === 422 && ((await vP.json().catch(() => ({}))) as any).code === 'PRODUTO_NAO_REALIZA_TROCA',
+          { forn: vF.status, prod: vP.status });
+
+        // 47d.9) RBAC sem grant → 403.
+        const rbac = await fetch(`${base}/${TR}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codparceiro: FORN, itens: [{ idproduto: PRD, qtde: 1 }] }) });
+        check('TROCA: POST sem grant RBAC → 403', rbac.status === 403, { status: rbac.status });
+      } finally {
+        await pgTr.end();
+      }
+    }
+
     // 48) PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela: agregado header+itens (sem efeitos) + workflow FECHADO.
     const pgPed = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const PED = 'compras/pedidos';

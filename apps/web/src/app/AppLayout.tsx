@@ -67,6 +67,7 @@ const TELAS = [
   { href: '/estoque/ajuste', name: 'Ajuste de Estoque', icon: Package },
   { href: '/estoque/inventario', name: 'Inventário', icon: ClipboardList },
   { href: '/estoque/scrap', name: 'Scrap / Perdas', icon: Trash2 },
+  { href: '/estoque/troca', name: 'Troca com Fornecedor', icon: Undo2 },
   { href: '/cadastro/motivos-operacao', name: 'Motivos de Operação', icon: ListChecks },
   { href: '/cadastro/plano-contas', name: 'Plano de Contas', icon: Network },
   { href: '/contabil/dre', name: 'DRE', icon: BarChart3 },
