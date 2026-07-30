@@ -3629,6 +3629,91 @@ async function main() {
     check('AJUSTE: motivos-operacao lista(seed ≥6)+cria(201)+DELETE soft(204)', motList.length >= 6 && motNovo.status === 201 && motDel.status === 204, { n: motList.length, novo: motNovo.status, del: motDel.status });
     await pgAj.end();
 
+    // 47b) SCRAP / PERDAS (FRMCADSCRAP) — documento mestre-detalhe (scrap+scrap_item); valoração MULTI_PRECO;
+    // aplicar/estornar dá baixa/estorno no estoque (kardex origem='SCRAP').
+    {
+      const pgSc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const SC = 'cadastro/scrap', PRD = 1;
+        // baseline: custo 10 (valoração) + saldo 50.
+        await pgSc.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto) VALUES (1,1,10) ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=10`);
+        await pgSc.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES (1,1,50) ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde=50`);
+        const saldoSc = async () => Number((await pgSc.query(`SELECT qtde FROM estoque WHERE idproduto=$1 AND idempresa=1`, [PRD])).rows[0]?.qtde);
+        const kardexSc = async () => (await pgSc.query(`SELECT tipo, qtde, saldo_anterior, saldo_novo, origem FROM historico_prod WHERE idproduto=$1 AND origem='SCRAP' ORDER BY codmov DESC`, [PRD])).rows as any[];
+
+        // 47b.1) criar perda (1 item, qtde 8, motivo 261-PERDA IDENTIFICADA) → 201; vr_custo derivado=10; valor=80.
+        const cr = await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idproduto: PRD, qtde: 8, codmotivoop: 261 }] }) });
+        const crJ = (await cr.json().catch(() => ({}))) as any;
+        const codscrap = Number(crJ.codscrap);
+        const det = (await (await fetch(`${base}/${SC}/${codscrap}`, { headers: H })).json().catch(() => ({}))) as any;
+        const it0 = (det.itens ?? [])[0] ?? {};
+        check('SCRAP: criar documento (1 item qtde 8, motivo PERDA 261) → 201 + vr_custo derivado de MULTI_PRECO (10) + valor 80',
+          cr.status === 201 && codscrap > 0 && Number(it0.vr_custo) === 10 && Number(it0.qtde) === 8 && Number(it0.codmotivoop) === 261,
+          { status: cr.status, codscrap, item: it0 });
+
+        // 47b.2) aplicar → baixa estoque (50→42) + kardex origem='SCRAP' (S, 8) + mov_estoque='S'.
+        const ap = await fetch(`${base}/${SC}/${codscrap}/aplicar`, { method: 'POST', headers: H });
+        const k = await kardexSc();
+        check('SCRAP: aplicar → baixa de estoque (50→42) + kardex(origem SCRAP, tipo S, qtde 8) + mov_estoque=S',
+          ap.status === 200 && (await saldoSc()) === 42 && k[0]?.origem === 'SCRAP' && k[0]?.tipo === 'S' && Number(k[0]?.qtde) === 8 && Number(k[0]?.saldo_novo) === 42
+          && (await pgSc.query(`SELECT mov_estoque FROM scrap WHERE codscrap=$1`, [codscrap])).rows[0]?.mov_estoque === 'S',
+          { status: ap.status, saldo: await saldoSc(), kardex: k[0] });
+
+        // 47b.2b) EDITAR (PUT) um scrap com baixa aplicada → 422 SCRAP_ESTOQUE_APLICADO (fold auditoria ALTA:
+        // senão o estornar usaria os itens novos e corromperia o saldo). O saldo NÃO muda.
+        const putAp = await fetch(`${base}/${SC}/${codscrap}`, { method: 'PUT', headers: H, body: JSON.stringify({ itens: [{ idproduto: PRD, qtde: 999 }] }) });
+        check('SCRAP: PUT em doc aplicado → 422 SCRAP_ESTOQUE_APLICADO (saldo intacto 42)',
+          putAp.status === 422 && ((await putAp.json().catch(() => ({}))) as any).code === 'SCRAP_ESTOQUE_APLICADO' && (await saldoSc()) === 42,
+          { status: putAp.status, saldo: await saldoSc() });
+
+        // 47b.3) aplicar 2x → 422 SCRAP_ESTOQUE_JA_APLICADO.
+        const ap2 = await fetch(`${base}/${SC}/${codscrap}/aplicar`, { method: 'POST', headers: H });
+        check('SCRAP: aplicar 2x → 422 SCRAP_ESTOQUE_JA_APLICADO', ap2.status === 422 && ((await ap2.json().catch(() => ({}))) as any).code === 'SCRAP_ESTOQUE_JA_APLICADO', { status: ap2.status });
+
+        // 47b.4) excluir com baixa aplicada → 422 SCRAP_ESTOQUE_APLICADO (tem de estornar antes).
+        const del1 = await fetch(`${base}/${SC}/${codscrap}`, { method: 'DELETE', headers: H });
+        check('SCRAP: excluir doc aplicado → 422 SCRAP_ESTOQUE_APLICADO (estorne antes)', del1.status === 422 && ((await del1.json().catch(() => ({}))) as any).code === 'SCRAP_ESTOQUE_APLICADO', { status: del1.status });
+
+        // 47b.5) estornar → estoque volta (42→50) + kardex reverso (E,8) + mov_estoque=null.
+        const es = await fetch(`${base}/${SC}/${codscrap}/estornar`, { method: 'POST', headers: H });
+        const k2 = await kardexSc();
+        check('SCRAP: estornar → devolve ao estoque (42→50) + kardex(E,8) + mov_estoque=null',
+          es.status === 200 && (await saldoSc()) === 50 && k2[0]?.tipo === 'E' && Number(k2[0]?.qtde) === 8 && Number(k2[0]?.saldo_novo) === 50
+          && (await pgSc.query(`SELECT mov_estoque FROM scrap WHERE codscrap=$1`, [codscrap])).rows[0]?.mov_estoque == null,
+          { status: es.status, saldo: await saldoSc(), kardex: k2[0] });
+
+        // 47b.6) estornar 2x → 422 SCRAP_ESTOQUE_NAO_APLICADO; excluir após estorno → 204.
+        const es2 = await fetch(`${base}/${SC}/${codscrap}/estornar`, { method: 'POST', headers: H });
+        const del2 = await fetch(`${base}/${SC}/${codscrap}`, { method: 'DELETE', headers: H });
+        check('SCRAP: estornar 2x → 422 SCRAP_ESTOQUE_NAO_APLICADO; excluir após estorno → 204',
+          es2.status === 422 && ((await es2.json().catch(() => ({}))) as any).code === 'SCRAP_ESTOQUE_NAO_APLICADO' && del2.status === 204,
+          { es2: es2.status, del2: del2.status });
+
+        // 47b.7) validação: produto inexistente → 422 PRODUTO_NAO_ENCONTRADO; motivo fora de PERDA → 422 MOTIVO_NAO_ENCONTRADO.
+        const vP = await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idproduto: 999999, qtde: 1 }] }) });
+        const vM = await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idproduto: PRD, qtde: 1, codmotivoop: 1 }] }) }); // motivo 1 é AJUSTE, não PERDA
+        check('SCRAP: produto inexistente → 422 PRODUTO_NAO_ENCONTRADO; motivo não-PERDA → 422 MOTIVO_NAO_ENCONTRADO',
+          vP.status === 422 && ((await vP.json().catch(() => ({}))) as any).code === 'PRODUTO_NAO_ENCONTRADO'
+          && vM.status === 422 && ((await vM.json().catch(() => ({}))) as any).code === 'MOTIVO_NAO_ENCONTRADO',
+          { prod: vP.status, mot: vM.status });
+
+        // 47b.8) vr_custo do CLIENTE é IGNORADO (server-authoritative de MULTI_PRECO=10, não o forjado 999).
+        const cf = await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idproduto: PRD, qtde: 2, vr_custo: 999 }] }) });
+        const cfId = Number(((await cf.json().catch(() => ({}))) as any).codscrap);
+        const cfDet = (await (await fetch(`${base}/${SC}/${cfId}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('SCRAP: vr_custo do cliente ignorado → custo do servidor (MULTI_PRECO 10), valor da perda não forjável',
+          cf.status === 201 && Number((cfDet.itens ?? [])[0]?.vr_custo) === 10,
+          { item: (cfDet.itens ?? [])[0] });
+        await pgSc.query(`DELETE FROM scrap WHERE codscrap=$1`, [cfId]);
+
+        // 47b.9) RBAC sem grant → 403.
+        const rb = await fetch(`${base}/${SC}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ itens: [{ idproduto: PRD, qtde: 1 }] }) });
+        check('SCRAP: POST sem grant RBAC → 403', rb.status === 403, { status: rb.status });
+      } finally {
+        await pgSc.end();
+      }
+    }
+
     // 48) PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela: agregado header+itens (sem efeitos) + workflow FECHADO.
     const pgPed = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const PED = 'compras/pedidos';

@@ -30,6 +30,7 @@ export * from './schema/perfil.schema';
 export * from './schema/de-para.schema';
 export * from './schema/senha-operacao.schema';
 export * from './schema/inventario.schema';
+export * from './schema/scrap.schema';
 export * from './schema/cotacao.schema';
 export * from './schema/auth.schema';
 export * from './schema/configuracao.schema';

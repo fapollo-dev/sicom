@@ -33,6 +33,7 @@ import { PerfilCadMaster } from '../features/perfil/PerfilCadMaster';
 import { EmpresasCadMaster } from '../features/empresas/EmpresasCadMaster';
 import { AjusteEstoquePage } from '../features/ajuste-estoque/AjusteEstoquePage';
 import { InventarioPage } from '../features/inventario/InventarioPage';
+import { ScrapPage } from '../features/scrap/ScrapPage';
 import { MotivosOperacaoCadMaster } from '../features/motivos-operacao/MotivosOperacaoCadMaster';
 import { ConfiguracoesPage } from '../features/configuracoes/ConfiguracoesPage';
 
@@ -70,6 +71,7 @@ export const router = createBrowserRouter([
       { path: '/cobranca/caixa', element: <CaixaPage /> }, // caixa (sessão + movimento manual, corte-1)
       { path: '/estoque/ajuste', element: <AjusteEstoquePage /> }, // ajuste de estoque (move o saldo + kardex)
       { path: '/estoque/inventario', element: <InventarioPage /> }, // inventário (contagem física; sobrescreve o saldo)
+      { path: '/estoque/scrap', element: <ScrapPage /> }, // scrap/perdas (documento de perda; baixa do saldo + kardex)
       { path: '/cadastro/motivos-operacao', element: <MotivosOperacaoCadMaster /> }, // lookup do motivo do ajuste
       { path: '/cadastro/plano-contas', element: <PlanoContasCadMaster /> }, // plano de contas (árvore)
       { path: '/contabil/dre', element: <DreRelatorio /> }, // relatório DRE (calculado do diário)

@@ -11,6 +11,9 @@ import { AjusteEstoqueService } from './ajuste-estoque.service';
 import { InventarioAggregateController } from './inventario.aggregate';
 import { InventarioController } from './inventario.controller';
 import { InventarioService } from './inventario.service';
+import { ScrapAggregateController } from './scrap.aggregate';
+import { ScrapController } from './scrap.controller';
+import { ScrapService } from './scrap.service';
 import { AgendaPromocaoAggregateController } from './agenda-promocao.aggregate';
 import { AgendaPromocaoController } from './agenda-promocao.controller';
 import { AgendaPromocaoService } from './agenda-promocao.service';
@@ -112,6 +115,8 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     AjusteEstoqueController, // vertical (AJUSTE DE ESTOQUE — move o saldo + kardex; sem contábil)
     InventarioAggregateController, // INVENTÁRIO (livro+itens; contagem física — planilha fiel, sem estado)
     InventarioController, // vertical: importar-produtos + diferenças + aplicar (sobrescreve estoque, gated senha ADM)
+    ScrapAggregateController, // SCRAP/PERDAS (scrap+scrap_item; documento de perda — valoração MULTI_PRECO)
+    ScrapController, // vertical: aplicar/estornar baixa de estoque (kardex origem='SCRAP')
     AgendaPromocaoAggregateController, // AGENDA DE PROMOÇÃO (cadastro header+itens; corte-1 sem efeito)
     AgendaPromocaoController, // vertical (encerrar/reabrir a agenda)
     PromocaoAggregateController, // GESTÃO DE PROMOÇÕES (UCadPromocao): header PROMOCAO + detalhe CLUBE_DESCONTO por ORIGEM
@@ -141,6 +146,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     RazaoService,
     AjusteEstoqueService,
     InventarioService,
+    ScrapService,
     AgendaPromocaoService,
     PerfilRelacaoService,
     PermissoesService,
