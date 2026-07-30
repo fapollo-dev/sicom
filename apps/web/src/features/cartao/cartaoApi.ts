@@ -40,9 +40,11 @@ export interface CartaoRecebivel {
   txadm_efetiva?: number;
   previsao_compensacao?: string | null;
   liberado?: string | null; // N aberto / S baixado
+  idlote?: number | null;
   nrocupom?: string | null;
   nroparcela?: number | null;
 }
+export interface ContaBancaria { codconta: number; banco?: string | null; titular?: string | null }
 
 // ── operadoras
 export function listarOperadoras(): Promise<Operadora[]> { return req('/cadastro/operadoras', { method: 'GET' }); }
@@ -55,3 +57,11 @@ export function excluirOperadora(id: number): Promise<void> { return req(`/cadas
 export function listarCartoes(): Promise<CartaoRecebivel[]> { return req('/cadastro/cartao', { method: 'GET' }); }
 export function criarCartao(body: { valor: number; codoperadora: number; dtvenda?: string; nrocupom?: string; nroparcela?: number }): Promise<CartaoRecebivel> { return req('/cadastro/cartao', { method: 'POST', body: JSON.stringify(body) }); }
 export function excluirCartao(id: number): Promise<void> { return req(`/cadastro/cartao/${id}`, { method: 'DELETE' }); }
+// baixa (corte-2)
+export function listarContas(): Promise<ContaBancaria[]> { return req('/cadastro/contas-bancarias', { method: 'GET' }); }
+export function baixarCartoes(codconta: number, codvendcartaos: number[]): Promise<{ idlote: number; itens: number; total_liquido: number; total_taxa: number }> {
+  return req('/cadastro/cartao/baixar', { method: 'POST', body: JSON.stringify({ codconta, codvendcartaos }) });
+}
+export function estornarLoteCartao(idlote: number): Promise<{ idlote: number; itens: number }> {
+  return req(`/cadastro/cartao/estornar-lote/${idlote}`, { method: 'POST' });
+}

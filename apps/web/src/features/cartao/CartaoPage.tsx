@@ -6,7 +6,7 @@ import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
-import { listarCartoes, criarCartao, excluirCartao, listarOperadoras, type CartaoRecebivel, type Operadora } from './cartaoApi';
+import { listarCartoes, criarCartao, excluirCartao, listarOperadoras, listarContas, baixarCartoes, estornarLoteCartao, type CartaoRecebivel, type Operadora, type ContaBancaria } from './cartaoApi';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—');
@@ -20,6 +20,8 @@ export function CartaoPage() {
   const mensagem = useMensagem();
   const [lista, setLista] = useState<CartaoRecebivel[]>([]);
   const [operadoras, setOperadoras] = useState<Operadora[]>([]);
+  const [contas, setContas] = useState<ContaBancaria[]>([]);
+  const [contaBaixa, setContaBaixa] = useState('');
   const [carregando, setCarregando] = useState(true);
   const [filtro, setFiltro] = useState<'N' | 'S' | ''>('N'); // aberto / baixado / todos
   const [valor, setValor] = useState<number | undefined>();
@@ -37,6 +39,7 @@ export function CartaoPage() {
   useEffect(() => {
     void carregar();
     void listarOperadoras().then(setOperadoras).catch(() => setOperadoras([]));
+    void listarContas().then(setContas).catch(() => setContas([]));
   }, [carregar]);
 
   const criar = async () => {
@@ -57,6 +60,24 @@ export function CartaoPage() {
     try { await excluirCartao(id); mensagem.sucesso('Recebível excluído.'); await carregar(); } catch (e) { mensagem.erro(e); }
   };
 
+  const baixarAbertos = async () => {
+    if (busy) return;
+    if (!contaBaixa) { window.alert('Selecione a conta bancária de destino.'); return; }
+    const ids = linhas.filter((r) => String(r.liberado ?? 'N') !== 'S').map((r) => Number(r.codvendcartao));
+    if (!ids.length) { window.alert('Não há recebíveis abertos na lista.'); return; }
+    if (!window.confirm(`Baixar ${ids.length} recebível(is) abertos → creditar o líquido na conta selecionada?`)) return;
+    setBusy(true);
+    try {
+      const r = await baixarCartoes(Number(contaBaixa), ids);
+      mensagem.sucesso(`Lote ${r.idlote} baixado — ${r.itens} recebível(is); líquido ${brl(r.total_liquido)} creditado (taxa ${brl(r.total_taxa)}).`);
+      await carregar();
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+  const estornarLote = async (idlote: number) => {
+    if (!window.confirm(`Estornar o lote ${idlote}? Os recebíveis voltam a ABERTO e o crédito é desfeito.`)) return;
+    try { const r = await estornarLoteCartao(idlote); mensagem.sucesso(`Lote ${idlote} estornado — ${r.itens} recebível(is) reaberto(s).`); await carregar(); } catch (e) { mensagem.erro(e); }
+  };
+
   const linhas = lista.filter((r) => (filtro ? String(r.liberado ?? 'N') === filtro : true));
   const totalBruto = linhas.reduce((s, r) => s + Number(r.valor ?? 0), 0);
   const totalLiq = linhas.reduce((s, r) => s + Number(r.valor_com_taxa ?? 0), 0);
@@ -69,7 +90,7 @@ export function CartaoPage() {
     { field: 'valor_com_taxa', headerName: 'Líquido', type: 'number', width: 120, valueFormatter: brl },
     { field: 'previsao_compensacao', headerName: 'Vencimento', type: 'text', width: 120, valueFormatter: dia },
     { field: 'liberado', headerName: 'Situação', type: 'text', width: 110, valueFormatter: (v: unknown) => (v === 'S' ? 'Baixado' : 'Aberto') },
-    { field: 'acoes', headerName: '', type: 'actions', width: 110, getActions: ({ row }: { row: CartaoRecebivel }) => (row.liberado === 'S' ? [] : [{ id: 'del', label: 'Excluir', onClick: (r: CartaoRecebivel) => void excluir(Number(r.codvendcartao)) }]) },
+    { field: 'acoes', headerName: '', type: 'actions', width: 130, getActions: ({ row }: { row: CartaoRecebivel }) => (row.liberado === 'S' ? (row.idlote ? [{ id: 'est', label: `Estornar lote ${row.idlote}`, onClick: (r: CartaoRecebivel) => void estornarLote(Number(r.idlote)) }] : []) : [{ id: 'del', label: 'Excluir', onClick: (r: CartaoRecebivel) => void excluir(Number(r.codvendcartao)) }]) },
   ];
 
   return (
@@ -86,6 +107,12 @@ export function CartaoPage() {
 
       <div className="flex flex-wrap items-end gap-gp-sm">
         <div className="w-44"><SelectField label="&Situação" value={filtro} onChange={(v) => setFiltro(v as 'N' | 'S' | '')} options={[{ value: 'N', label: 'Abertos' }, { value: 'S', label: 'Baixados' }, { value: '', label: 'Todos' }]} /></div>
+        {filtro === 'N' && (
+          <>
+            <div className="w-64"><SelectField label="Conta p/ &baixa" value={contaBaixa} onChange={setContaBaixa} options={contas.map((c) => ({ value: String(c.codconta), label: `${c.banco ?? ''} ${c.titular ?? ''}`.trim() || String(c.codconta) }))} placeholder="(conta de destino)" /></div>
+            <Button label="&Baixar abertos" variant="soft" disabled={busy || !linhas.length} onClick={() => void baixarAbertos()} />
+          </>
+        )}
         <div className="flex-1 text-right text-body-sm text-fg-muted">Bruto <b className="text-fg">{brl(totalBruto)}</b> · Líquido <b className="text-fg">{brl(totalLiq)}</b> · {linhas.length} recebível(is)</div>
       </div>
       <DataTable columns={colunas} rows={linhas} loading={carregando} />

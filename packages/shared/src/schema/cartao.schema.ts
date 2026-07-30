@@ -68,3 +68,10 @@ export const cartaoSchema = z.object({
 export type CartaoDto = z.infer<typeof cartaoSchema>;
 export const atualizarCartaoSchema = cartaoSchema.partial();
 export type AtualizarCartaoDto = z.infer<typeof atualizarCartaoSchema>;
+
+/** BAIXA / liquidação em lote (corte-2): recebíveis abertos → 1 lote, marca baixados e credita o líquido na conta. */
+export const baixarCartaoSchema = z.object({
+  codconta: z.coerce.number().int().positive({ message: 'Informe a conta bancária de destino.' }),
+  codvendcartaos: z.array(z.coerce.number().int().positive()).min(1, 'Selecione ao menos um recebível.'),
+});
+export type BaixarCartaoDto = z.infer<typeof baixarCartaoSchema>;

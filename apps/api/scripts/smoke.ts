@@ -3757,6 +3757,53 @@ async function main() {
       check('CARTÃO: POST sem grant RBAC → 403', cRb.status === 403, { status: cRb.status });
     }
 
+    // 47c-baixa) CARTÕES corte-2 — BAIXA / LIQUIDAÇÃO em lote (credita mov_contas_bancarias) + estorno do lote.
+    {
+      const pgCa = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const OPER = 'cadastro/operadoras', CART = 'cadastro/cartao';
+        // conta bancária destino (usa uma existente ou cria com um banco do seed).
+        let codconta = Number((await pgCa.query(`SELECT codconta FROM contas_bancarias WHERE idempresa=1 ORDER BY codconta LIMIT 1`)).rows[0]?.codconta);
+        if (!codconta) {
+          const codbco = Number((await pgCa.query(`SELECT codbco FROM bancos ORDER BY codbco LIMIT 1`)).rows[0]?.codbco);
+          codconta = Number((await pgCa.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES ($1,1,'CONTA SMOKE') RETURNING codconta`, [codbco])).rows[0].codconta);
+        }
+        // operadora base 2% + 2 recebíveis abertos (100→líq 98 / 50→líq 49).
+        const opJ = (await (await fetch(`${base}/${OPER}`, { method: 'POST', headers: H, body: JSON.stringify({ operadora: 'REDE DEBITO', txadm: 2, diascomp: 1, tipo: 'D' }) })).json().catch(() => ({}))) as any;
+        const codoper = Number(opJ.codoperadoras);
+        const c1 = Number(((await (await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 100, codoperadora: codoper, dtvenda: '2026-06-01' }) })).json().catch(() => ({}))) as any).codvendcartao);
+        const c2 = Number(((await (await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 50, codoperadora: codoper, dtvenda: '2026-06-01' }) })).json().catch(() => ({}))) as any).codvendcartao);
+
+        // baixar os 2 → líquido total 147 creditado na conta (MCB), liberado=S/idlote/valor_taxa_paga.
+        const bx = await fetch(`${base}/${CART}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, codvendcartaos: [c1, c2] }) });
+        const bxJ = (await bx.json().catch(() => ({}))) as any;
+        const idlote = Number(bxJ.idlote);
+        const mcb = (await pgCa.query(`SELECT valor, tipomovimento, origem FROM mov_contas_bancarias WHERE origem='BXCARTAO' AND idorigem=$1`, [idlote])).rows[0] as any;
+        const lib = (await pgCa.query(`SELECT liberado, idlote, valor_taxa_paga FROM cartao WHERE codvendcartao=$1`, [c1])).rows[0] as any;
+        check('CARTÃO baixa: baixar 2 recebíveis → lote + liberado=S/idlote/valor_taxa_paga(2) + MCB crédito 147,00 (líquido) tipomov C',
+          bx.status === 200 && Number(bxJ.itens) === 2 && Number(bxJ.total_liquido) === 147 && Number(bxJ.total_taxa) === 3
+          && lib?.liberado === 'S' && Number(lib?.idlote) === idlote && Number(lib?.valor_taxa_paga) === 2
+          && Number(mcb?.valor) === 147 && mcb?.tipomovimento === 'C',
+          { bx: bxJ, mcb, lib });
+
+        // estornar lote → recebíveis voltam a ABERTO + crédito MCB apagado.
+        const es = await fetch(`${base}/${CART}/estornar-lote/${idlote}`, { method: 'POST', headers: H });
+        const libE = (await pgCa.query(`SELECT liberado, idlote FROM cartao WHERE codvendcartao=$1`, [c1])).rows[0] as any;
+        const mcbE = Number((await pgCa.query(`SELECT count(*)::int n FROM mov_contas_bancarias WHERE origem='BXCARTAO' AND idorigem=$1`, [idlote])).rows[0].n);
+        check('CARTÃO baixa: estornar lote → recebíveis ABERTOS (liberado=N, idlote null) + crédito MCB apagado',
+          es.status === 200 && libE?.liberado === 'N' && libE?.idlote == null && mcbE === 0, { es: es.status, libE, mcbE });
+
+        // recebível inexistente/não-aberto → 422; RBAC sem grant → 403.
+        const bxEmpty = await fetch(`${base}/${CART}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, codvendcartaos: [999999999] }) });
+        const bxRb = await fetch(`${base}/${CART}/baixar`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codconta, codvendcartaos: [c1] }) });
+        check('CARTÃO baixa: recebível não-aberto → 422 CARTAO_BAIXA_NENHUM_ABERTO; sem grant RBAC → 403',
+          bxEmpty.status === 422 && ((await bxEmpty.json().catch(() => ({}))) as any).code === 'CARTAO_BAIXA_NENHUM_ABERTO' && bxRb.status === 403,
+          { empty: bxEmpty.status, rbac: bxRb.status });
+      } finally {
+        await pgCa.end();
+      }
+    }
+
     // 47d) TROCA DE MERCADORIA COM FORNECEDOR (FRMTROCAMERCADORIAFOR) — documento mestre-detalhe + baixa de estoque
     // (fechar/reabrir; kardex origem='TROCA'). Supplier-side (não-PDV). Valoração MULTI_PRECO.
     {
