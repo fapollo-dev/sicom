@@ -1,17 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PageHeader } from '@apollosg/design-system';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
-import { listarContas, pendentes, sugestoes, conciliar, type ContaBancaria, type OfxLinha, type MovLinha } from './conciliacaoApi';
+import { listarContas, pendentes, sugestoes, conciliar, importarOfx, type ContaBancaria, type OfxLinha, type MovLinha } from './conciliacaoApi';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—');
 
 /**
- * CONCILIAÇÃO BANCÁRIA (OFX) (FRMCONCILIACAOBANCARIA) — corte-1. Escolhe a conta → vê o extrato pendente × o razão
- * interno pendente (mov_contas_bancarias) → «Sugerir» casa automático por data+valor → seleciona os dois lados →
- * «Conciliar» (Σ iguais). Importação das linhas do extrato é via API/ETL (o parser do arquivo .ofx é corte futuro).
+ * CONCILIAÇÃO BANCÁRIA (OFX) (FRMCONCILIACAOBANCARIA). Escolhe a conta → «Importar .ofx» sobe o extrato do banco
+ * (parser no servidor, dedup por FITID) → vê o extrato pendente × o razão interno pendente (mov_contas_bancarias) →
+ * «Sugerir» casa automático por data+valor+direção → seleciona os dois lados → «Conciliar» (Σ iguais).
  */
 export function ConciliacaoBancariaPage() {
   const mensagem = useMensagem();
@@ -22,6 +22,7 @@ export function ConciliacaoBancariaPage() {
   const [selOfx, setSelOfx] = useState<Set<number>>(new Set());
   const [selMov, setSelMov] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { void listarContas().then(setContas).catch(() => setContas([])); }, []);
 
@@ -32,6 +33,18 @@ export function ConciliacaoBancariaPage() {
     } catch (e) { mensagem.erro(e); }
   };
   const escolherConta = (v: string) => { setConta(v); if (v) void carregar(Number(v)); else { setOfx([]); setMov([]); } };
+
+  const importarArquivo = async (file: File) => {
+    if (busy) return;
+    if (!conta) { window.alert('Selecione a conta bancária antes de importar o extrato.'); return; }
+    setBusy(true);
+    try {
+      const conteudo = await file.text();
+      const r = await importarOfx(Number(conta), file.name, conteudo);
+      mensagem.sucesso(`${file.name}: ${r.lidas} linha(s) lida(s) — ${r.inseridas} importada(s), ${r.duplicadas} duplicada(s).`);
+      await carregar(Number(conta));
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
+  };
 
   const toggle = (set: Set<number>, setter: (s: Set<number>) => void, id: number) => {
     const n = new Set(set); n.has(id) ? n.delete(id) : n.add(id); setter(n);
@@ -69,10 +82,12 @@ export function ConciliacaoBancariaPage() {
       <PageHeader title="Conciliação Bancária (OFX)" />
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="w-72"><SelectField label="&Conta bancária" value={conta} onChange={escolherConta} options={contas.map((c) => ({ value: String(c.codconta), label: `${c.banco ?? ''} ${c.titular ?? ''}`.trim() || String(c.codconta) }))} placeholder="(selecione a conta)" /></div>
+        <input ref={fileRef} type="file" accept=".ofx,text/plain" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void importarArquivo(f); }} />
+        <Button label="&Importar .ofx" variant="ghost" disabled={busy || !conta} onClick={() => fileRef.current?.click()} />
         <Button label="&Sugerir automática" variant="ghost" disabled={!conta || !ofx.length} onClick={() => void sugerir()} />
         <Button label="&Conciliar selecionados" variant="soft" disabled={busy || !iguais || !selOfx.size || !selMov.size} onClick={() => void conciliarSel()} />
         <div className="flex-1 text-right text-body-sm">Selecionado — extrato <b className={iguais ? 'text-fg' : 'text-danger'}>{brl(totOfx)}</b> · razão <b className={iguais ? 'text-fg' : 'text-danger'}>{brl(totMov)}</b> {selOfx.size + selMov.size > 0 && (iguais ? '✓' : '≠')}</div>
-        <small className="w-full text-fg-muted">Casa o extrato (OFX) com o razão de contas-correntes por data + valor. A importação das linhas é via ETL/API (o parser do arquivo .ofx e os ramos A-Pagar/A-Receber por lote são cortes futuros).</small>
+        <small className="w-full text-fg-muted">Importe o extrato do banco (arquivo .ofx) e case com o razão de contas-correntes por data + valor + direção. Os ramos A-Pagar/A-Receber por lote são cortes futuros.</small>
       </div>
 
       <div className="grid grid-cols-1 gap-gp-md md:grid-cols-2">
@@ -89,7 +104,7 @@ export function ConciliacaoBancariaPage() {
                   <td className="p-pad-xs text-right tabular-nums">{o.mbo_credito_debito === 'D' ? '−' : ''}{brl(o.mbo_valor)}</td>
                 </tr>
               ))}
-              {!ofx.length && <tr><td colSpan={4} className="p-pad-md text-fg-muted">Sem extrato pendente. Importe o extrato (via ETL/API).</td></tr>}
+              {!ofx.length && <tr><td colSpan={4} className="p-pad-md text-fg-muted">Sem extrato pendente. Use «Importar .ofx» para subir o extrato do banco.</td></tr>}
             </tbody>
           </table>
         </div>

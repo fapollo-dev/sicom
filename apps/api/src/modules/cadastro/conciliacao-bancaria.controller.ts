@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
-import { importarOfxSchema, conciliarSchema, type ImportarOfxDto, type ConciliarDto } from '@apollo/shared';
+import { importarOfxSchema, importarOfxArquivoSchema, conciliarSchema, type ImportarOfxDto, type ImportarOfxArquivoDto, type ConciliarDto } from '@apollo/shared';
 import { ConciliacaoBancariaService } from './conciliacao-bancaria.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -20,6 +20,14 @@ export class ConciliacaoBancariaController {
   @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNIMPORTAR')
   importar(@Body(new ZodValidationPipe(importarOfxSchema)) body: ImportarOfxDto) {
     return this.svc.importar({ codconta: body.codconta, nomeArquivo: body.nomeArquivo, linhas: body.linhas });
+  }
+
+  /** corte-2: importa o arquivo .ofx cru (texto) — o servidor parseia e dedup por FITID. */
+  @Post('importar-ofx')
+  @HttpCode(200)
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNIMPORTAR')
+  importarOfx(@Body(new ZodValidationPipe(importarOfxArquivoSchema)) body: ImportarOfxArquivoDto) {
+    return this.svc.importarArquivo({ codconta: body.codconta, nomeArquivo: body.nomeArquivo, conteudo: body.conteudo });
   }
 
   /** pendentes: extrato não-conciliado × razão não-conciliado da conta. */

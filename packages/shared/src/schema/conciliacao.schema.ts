@@ -11,7 +11,7 @@ export const ofxLinhaSchema = z.object({
   valor: z.coerce.number().positive({ message: 'O valor deve ser maior que zero.' }),
   credito_debito: z.enum(['C', 'D']),
   descricao: z.string().max(250).optional(),
-  transacao_id: z.string().max(20).optional(), // FITID
+  transacao_id: z.string().max(255).optional(), // FITID (spec OFX A-255; alargado na mig 121)
   check_num: z.string().max(20).optional(),
 });
 export type OfxLinhaDto = z.infer<typeof ofxLinhaSchema>;
@@ -22,6 +22,15 @@ export const importarOfxSchema = z.object({
   linhas: z.array(ofxLinhaSchema).min(1, 'Informe ao menos uma linha do extrato.').max(10000),
 });
 export type ImportarOfxDto = z.infer<typeof importarOfxSchema>;
+
+/** importar direto de um arquivo .ofx (corte-2): o cliente lê o arquivo como TEXTO e envia o conteúdo — o servidor
+ *  parseia (OFX 1.x SGML / 2.x XML) e reusa a ingestão do corte-1 (dedup por FITID). */
+export const importarOfxArquivoSchema = z.object({
+  codconta: z.coerce.number().int().positive({ message: 'Informe a conta bancária.' }),
+  nomeArquivo: z.string().max(250).optional(),
+  conteudo: z.string().min(1, 'Arquivo OFX vazio.').max(5_000_000),
+});
+export type ImportarOfxArquivoDto = z.infer<typeof importarOfxArquivoSchema>;
 
 /** conciliar: N linhas do extrato ↔ N lançamentos do razão (Σ valores iguais) → 1 evento CB. */
 export const conciliarSchema = z.object({

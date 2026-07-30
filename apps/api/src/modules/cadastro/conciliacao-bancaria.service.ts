@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { parseOfx } from './ofx-parser';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -15,7 +16,8 @@ const dia = (v: unknown) => String(v ?? '').slice(0, 10); // 'YYYY-MM-DD'
  * razão interno (mov_contas_bancarias) não-conciliado da conta. `sugerir`: casamento automático por DATA(dia)+VALOR
  * (greedy 1:1, fiel ao ConciliacaoAutomatica). `conciliar`: dado N linhas OFX + N lançamentos do razão com Σ valores
  * IGUAIS, cria 1 evento CB + as 2 junções e marca os DOIS lados conciliados. Tenant fail-closed. Estorno NÃO existe
- * no legado (cópia-fiel-negativa). Ramos A-PAGAR/A-RECEBER por IDLOTE e o parser do .ofx = adiados.
+ * no legado (cópia-fiel-negativa). `importarArquivo` (corte-2) parseia o .ofx cru (ver ofx-parser). Ramos
+ * A-PAGAR/A-RECEBER por IDLOTE = adiados.
  */
 @Injectable()
 export class ConciliacaoBancariaService {
@@ -63,6 +65,15 @@ export class ConciliacaoBancariaService {
       }
       return { codconta: dto.codconta, inseridas, duplicadas };
     });
+  }
+
+  /** corte-2: recebe o TEXTO do arquivo .ofx, parseia (OFX 1.x SGML / 2.x XML) e reusa `importar` (dedup por FITID).
+   *  Retorna também quantas linhas o parser extraiu, para o cliente distinguir "arquivo sem transações" de "tudo duplicado". */
+  async importarArquivo(dto: { codconta: number; nomeArquivo?: string; conteudo: string }): Promise<{ codconta: number; lidas: number; inseridas: number; duplicadas: number }> {
+    const linhas = parseOfx(dto.conteudo);
+    if (linhas.length === 0) throw new BusinessRuleError('OFX_SEM_TRANSACOES');
+    const r = await this.importar({ codconta: dto.codconta, nomeArquivo: dto.nomeArquivo, linhas });
+    return { ...r, lidas: linhas.length };
   }
 
   /** pendentes: linhas do extrato não-conciliadas × lançamentos do razão não-conciliados da conta. */

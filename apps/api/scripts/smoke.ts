@@ -3931,9 +3931,60 @@ async function main() {
           && !(sug2.pares ?? []).some((p: any) => Number(p.codmovconta) === mD50),
           { dir: conDir.status, pares: sug2.pares });
 
+        // 47e.6) corte-2: importar o ARQUIVO .ofx cru (OFX 1.x SGML) — parser no servidor. Crédito 123,45 (C) + débito
+        // 67,89 (TRNAMT -67.89 → D); DTPOSTED com TZ '[-3:GMT]' → só a data. Reimport → duplicadas (dedup FITID). Vazio → 422.
+        const ofxTxt = [
+          'OFXHEADER:100', 'DATA:OFXSGML', 'VERSION:102', 'SECURITY:NONE', 'ENCODING:USASCII', '',
+          '<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKTRANLIST>',
+          '<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20260610120000[-3:GMT]<TRNAMT>123.45<FITID>OFXFILE1<MEMO>PIX FILE CREDITO</STMTTRN>',
+          '<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20260611<TRNAMT>-67.89<FITID>OFXFILE2<CHECKNUM>555<MEMO>TARIFA FILE</STMTTRN>',
+          '</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>',
+        ].join('\n');
+        const of1 = await fetch(`${base}/${CO}/importar-ofx`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, nomeArquivo: 'extrato-real.ofx', conteudo: ofxTxt }) });
+        const of1J = (await of1.json().catch(() => ({}))) as any;
+        const cCred = (await pgCo.query(`SELECT mbo_credito_debito, mbo_valor, to_char(mbo_data,'YYYY-MM-DD') d FROM movimentacao_bancaria_ofx WHERE codconta=$1 AND mbo_transacao_id='OFXFILE1'`, [codconta])).rows[0] as any;
+        const cDeb = (await pgCo.query(`SELECT mbo_credito_debito, mbo_valor, mbo_check_num FROM movimentacao_bancaria_ofx WHERE codconta=$1 AND mbo_transacao_id='OFXFILE2'`, [codconta])).rows[0] as any;
+        const of2 = await fetch(`${base}/${CO}/importar-ofx`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, nomeArquivo: 'extrato-real.ofx', conteudo: ofxTxt }) });
+        const of2J = (await of2.json().catch(() => ({}))) as any;
+        const ofVazio = await fetch(`${base}/${CO}/importar-ofx`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, conteudo: 'OFXHEADER:100\n<OFX></OFX>' }) });
+        check('CONCILIAÇÃO: parser .ofx (SGML) → 2 lidas/inseridas; débito TRNAMT<0→D; DTPOSTED c/ TZ→data; reimport dup; vazio→422',
+          of1.status === 200 && Number(of1J.lidas) === 2 && Number(of1J.inseridas) === 2 && Number(of1J.duplicadas) === 0
+          && cCred?.mbo_credito_debito === 'C' && Math.round(Number(cCred?.mbo_valor) * 100) === 12345 && cCred?.d === '2026-06-10'
+          && cDeb?.mbo_credito_debito === 'D' && Math.round(Number(cDeb?.mbo_valor) * 100) === 6789 && cDeb?.mbo_check_num === '555'
+          && of2.status === 200 && Number(of2J.duplicadas) === 2 && Number(of2J.inseridas) === 0
+          && ofVazio.status === 422 && ((await ofVazio.json().catch(() => ({}))) as any).code === 'OFX_SEM_TRANSACOES',
+          { of1: of1J, cCred, cDeb, of2: of2J, vazio: ofVazio.status });
+
+        // 47e.7) folds da auditoria do parser: (a) valor BR fora do padrão `2.345,67`→2345.67; (b) FITID longo (>20) —
+        // dois que só diferem depois do 20º char NÃO podem colidir no dedup (mig 121 alargou p/ 255); (c) TRNAMT 0.00
+        // é pulado (informativo); (d) data fora de faixa `20261301` é pulada (não derruba o lote); (e) `&amp;` no MEMO
+        // é decodificado. lidas=3 (BR + 2 longos — o do &amp; É o long1), pulados 2 (zero + data ruim).
+        const long1 = 'LONGFITIDAAAAAAAAAAA0101', long2 = 'LONGFITIDAAAAAAAAAAA0102'; // 24 chars; iguais nos 1os 20
+        const ofxTxt2 = [
+          '<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKTRANLIST>',
+          '<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20260612<TRNAMT>2.345,67<FITID>OFXBR1<MEMO>PIX BR</STMTTRN>',
+          `<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20260612<TRNAMT>10.00<FITID>${long1}<MEMO>PAGTO A &amp; B</STMTTRN>`,
+          `<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20260612<TRNAMT>20.00<FITID>${long2}<MEMO>OUTRO</STMTTRN>`,
+          '<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20260612<TRNAMT>0.00<FITID>OFXZERO<MEMO>SALDO INFORMATIVO</STMTTRN>',
+          '<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20261301<TRNAMT>5.00<FITID>OFXBADDATE<MEMO>DATA RUIM</STMTTRN>',
+          '</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>',
+        ].join('\n');
+        const of3 = await fetch(`${base}/${CO}/importar-ofx`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, conteudo: ofxTxt2 }) });
+        const of3J = (await of3.json().catch(() => ({}))) as any;
+        const brRow = (await pgCo.query(`SELECT mbo_valor FROM movimentacao_bancaria_ofx WHERE codconta=$1 AND mbo_transacao_id='OFXBR1'`, [codconta])).rows[0] as any;
+        const longN = Number((await pgCo.query(`SELECT count(*)::int n FROM movimentacao_bancaria_ofx WHERE codconta=$1 AND mbo_transacao_id IN ($2,$3)`, [codconta, long1, long2])).rows[0].n);
+        const memoRow = (await pgCo.query(`SELECT mbo_descricao FROM movimentacao_bancaria_ofx WHERE codconta=$1 AND mbo_transacao_id=$2`, [codconta, long1])).rows[0] as any;
+        const zeroN = Number((await pgCo.query(`SELECT count(*)::int n FROM movimentacao_bancaria_ofx WHERE codconta=$1 AND mbo_transacao_id IN ('OFXZERO','OFXBADDATE')`, [codconta])).rows[0].n);
+        check('CONCILIAÇÃO: folds parser → BR 2.345,67→2345.67; FITID>20 não colide (2 linhas); 0.00 e data-ruim pulados; &amp; decodificado',
+          of3.status === 200 && Number(of3J.lidas) === 3 && Number(of3J.inseridas) === 3
+          && Math.round(Number(brRow?.mbo_valor) * 100) === 234567 && longN === 2 && memoRow?.mbo_descricao === 'PAGTO A & B' && zeroN === 0,
+          { of3: of3J, brRow, longN, memo: memoRow?.mbo_descricao, zeroN });
+
         // 47e.5) RBAC sem grant → 403.
         const rb = await fetch(`${base}/${CO}/importar`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codconta, linhas }) });
         check('CONCILIAÇÃO: importar sem grant RBAC → 403', rb.status === 403, { status: rb.status });
+        const rb2 = await fetch(`${base}/${CO}/importar-ofx`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codconta, conteudo: ofxTxt }) });
+        check('CONCILIAÇÃO: importar-ofx sem grant RBAC → 403', rb2.status === 403, { status: rb2.status });
       } finally {
         await pgCo.end();
       }
