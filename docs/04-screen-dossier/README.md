@@ -41,6 +41,54 @@
 | [UCadEmpresa.md](dossiers/retaguarda/UCadEmpresa.md) | **Empresas** (empresa/tenant) | **corte-1 verde** | Tabela legada de **265 colunas** (kitchen-sink). Corte-1: núcleo cadastrais + endereço + **config fiscal** (CLASSFISCAL 'LR'/'SN', FIGURAFISCAL, IE, série) + **precificação/financeiro** (DESPOPERACIONAL, margens, **TXJUROPADRAO**). Dá identidade real ao `idempresa` (era só nº do header) e **consolida o stub `empresa_fiscal`** (F6 → migrado p/ `empresas`, stub dropado, 4 reads da NFe repontados). CRUD `pkGerada:false`+`empresaScoped:false` (a tabela É a empresa). **Destrava a NF:** F4b `txjuros` agora vem de `empresas.txjuropadrao` (era proxy em `parceiros.txjuro`). Validações: CNPJ válido, ALQSIMPLESNAC se SN, margem_contribuição≥0. Golden: empresa 1 real (LR/MG/IBGE 3170206/DESPOPER 20/TXJURO 5). 2 auditores. Verde: shared 75, API 123, web 25, **smoke 143/0**. **Entregue depois (caminho natural):** a **camada de config chave-valor** ([uConfiguracoes.md](dossiers/retaguarda/uConfiguracoes.md)) e a **NF F2c** (gate SN — ver linha da NF). **Adiado:** certificado/NFC-e/CTe/MDFe, integrações/tokens, e-mail, contingência, contábil/centros-de-custo, master-details, figura fiscal por catálogo. Doc c/ procedência |
 | [uConfiguracoes.md](dossiers/retaguarda/uConfiguracoes.md) | **Camada de config** (`ValorConfiguracao`) | **corte-1 verde** | Subsistema genérico de parametrização — onde vivem os **gates fiscais** que a NF consulta. `CONFIGURACOES` (catálogo global, 843 linhas) + `CONFIGURACOES_ESPECIFICAS` (overrides por escopo Empresa/Usuario/Modulo, 330). Corte-1: `ConfigService.resolver` (precedência **Usuario > Empresa > Modulo > default**, whitelist `CONFIGESPECIFICASPERMITIDAS`) + seed das chaves com procedência forte + **1 wire real**: `APROVEITAMENTO_CREDITO_ICMSST_NF` (gate do zeramento de crédito de ST na F2 — default 'N' preserva; override Empresa='S' aproveita). **Achado:** `AMBIENTE_NF` é **órfão** no retaguarda (ambiente vem de `NFE.TIPONFE`) → seedado como catálogo, **não-wired**. Precedência **reconstruída** (corpo do resolver em `sicom/util` não clonado). 2 auditores (paridade OK; zero-regressão). **Adiado:** UI de gestão + demais wires (F3b/F4b/F5b) — o resolver já os suporta, falta o seed verificado |
 
+### Índice completo (32 dossiês)
+
+> A tabela acima guarda o histórico detalhado das telas dos primeiros ciclos. Esta lista é o **índice completo** — toda tela com dossiê no repositório, por área.
+
+| Dossiê | Tela | Estado |
+|---|---|---|
+| **Fiscal** | | |
+| [uNF.md](dossiers/retaguarda/uNF.md) | Nota Fiscal (tela-coroa) | concluída in-repo · paridade certificada por golden |
+| [uNF-F5b-contabil-diario.md](dossiers/retaguarda/uNF-F5b-contabil-diario.md) | *spec* do contábil DIÁRIO da NF | spec + status |
+| **Financeiro** | | |
+| [uCadAReceber.md](dossiers/retaguarda/uCadAReceber.md) | Contas a Receber | épico completo (cortes 1–3c + agrupamento + período) |
+| [uCadAPagar.md](dossiers/retaguarda/uCadAPagar.md) | Contas a Pagar | gêmea de AR · épico completo |
+| [uCaixa.md](dossiers/retaguarda/uCaixa.md) | Caixa | cortes 1–2d-b + conferência do PDV · restantes bloqueados pelo PDV (prova no §3 corte-2d-c) |
+| [uCadCartao.md](dossiers/retaguarda/uCadCartao.md) | **Cartões / Recebíveis** | corte-1 verde (operadoras + recebível; baixa = corte-2) |
+| [UCadContasBancarias.md](dossiers/retaguarda/UCadContasBancarias.md) | Contas Bancárias | completa (lookup plano de contas + liberação de operadores) |
+| [UCadLoteCobranca.md](dossiers/retaguarda/UCadLoteCobranca.md) | Lote de Cobrança | completa · sem coluna de empresa (fiel) |
+| [uCadFormaPgto.md](dossiers/retaguarda/uCadFormaPgto.md) | Formas de Pagamento | corte-1 verde · pré-requisito do contábil do caixa |
+| **Contábil** | | |
+| [uCadPlanoContas.md](dossiers/retaguarda/uCadPlanoContas.md) | Plano de Contas | cortes 1–2 (árvore + máscara configurável + auto-código) |
+| [UFrmRelDREContabil.md](dossiers/retaguarda/UFrmRelDREContabil.md) | DRE Contábil | corte-1 verde (relatório calculado do Diário) |
+| **Compras** | | |
+| [uPedidoCompra.md](dossiers/retaguarda/uPedidoCompra.md) | Pedido de Compra + Recebimento | épico completo: pedido, import de XML, de-para, duplicatas→A Pagar, ST residual, retenção federal, 1:N (§5–§10) |
+| [uCadPedidoDevolucaoCompras.md](dossiers/retaguarda/uCadPedidoDevolucaoCompras.md) | Devolução de Compra | cortes 1–3 (documento + NF de devolução + fidelidade fiscal) |
+| [uCadCotacao.md](dossiers/retaguarda/uCadCotacao.md) | Cotação de Compra (RFQ) | épico completo (tela nova) |
+| **Estoque** | | |
+| [uAjusteEstoque.md](dossiers/retaguarda/uAjusteEstoque.md) | Ajuste de Estoque | corte-1 verde · molde do movimento manual de saldo |
+| [uInventario.md](dossiers/retaguarda/uInventario.md) | Inventário (contagem física) | tela completa (tela nova) · fonte do Bloco H do SPED |
+| [uCadSCRAP.md](dossiers/retaguarda/uCadSCRAP.md) | **Scrap / Perdas** | corte-1 verde (registro + baixa) |
+| [uTrocaMercadoriaFor.md](dossiers/retaguarda/uTrocaMercadoriaFor.md) | **Troca com Fornecedor** | corte-1 verde (documento + baixa) |
+| **Preço & Promoção** | | |
+| [UCadTabelaPreco.md](dossiers/retaguarda/UCadTabelaPreco.md) | Tabela de Preço | em-revisão · `VALOR_REAJUSTE` é percentual |
+| [uCadAgendaPromocao.md](dossiers/retaguarda/uCadAgendaPromocao.md) | Agenda de Promoção | cortes 1–2 + scheduler de vigência |
+| **Cadastros & Plataforma** | | |
+| [uCadClientes.md](dossiers/retaguarda/uCadClientes.md) | Parceiros (multi-papel) | F1–F3 verdes + abas Ref./Dados Fornecedor/Hist. Financeiro |
+| [UCadProduto.md](dossiers/retaguarda/UCadProduto.md) | Produto (hub do ERP) | F1–F4b verdes + abas (Outros/FCP, Fator de Conversão, Filhos-a, Posição de Estoque) |
+| [UCadEmpresa.md](dossiers/retaguarda/UCadEmpresa.md) | Empresas (empresa/tenant) | corte-1 verde · a peça-mãe do `empresaScoped` |
+| [uConfiguracoes.md](dossiers/retaguarda/uConfiguracoes.md) | Camada de config chave-valor | corte-1 verde + tela de gestão |
+| [uCadUsuarios.md](dossiers/retaguarda/uCadUsuarios.md) | Operadores + Autenticação | cortes 1–3 · auth/scrypt/JWT/refresh + cutover de 157 senhas |
+| [uCadPerfilOperador.md](dossiers/retaguarda/uCadPerfilOperador.md) | Perfis & Permissões | cortes 1–2 + matriz FORM×OPÇÃO + auditoria de grants |
+| [uCadBancos.md](dossiers/retaguarda/uCadBancos.md) | Bancos (piloto) | implementado + revisado · golden capturado |
+| [uCadCidades.md](dossiers/retaguarda/uCadCidades.md) | Cidades | em-revisão · `IDUF` = IBGE |
+| [uCadBairros.md](dossiers/retaguarda/uCadBairros.md) | Bairros | em-revisão · tela nova sobre tabela real |
+| [uCadMarcas.md](dossiers/retaguarda/uCadMarcas.md) | Marcas | em-revisão · achou o bug sistêmico do soft-delete no engine |
+| [uCadNCM.md](dossiers/retaguarda/uCadNCM.md) | NCM | em-revisão · `NCMSH` derivado |
+| [uCadOperacoesConta.md](dossiers/retaguarda/uCadOperacoesConta.md) | Operações de Conta | em-revisão · paridade OK |
+
+> **Telas sem dossiê próprio** (documentadas dentro do dossiê do épico que as entregou): CFOP × Situação e De-Para de Fornecedor (em [uPedidoCompra.md](dossiers/retaguarda/uPedidoCompra.md) §7), Gestão de Promoções (11 mecânicas, no histórico de certificação), Condições de Pagamento, Motivos de Operação, Livro Razão.
+
 ## O que esta seção exige (resumo)
 
 - **Toda** SQL reconstruída — estática e dinâmica, com **todos** os caminhos condicionais, confirmada em **runtime**.
