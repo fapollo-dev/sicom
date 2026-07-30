@@ -3990,6 +3990,138 @@ async function main() {
       }
     }
 
+    // 47f) PRODUÇÃO (FRMCADPRODUCAO) — documento mestre-detalhe (producao+itens_producao); ficha técnica (receita_prod)
+    // explodida no PROCESSAR → baixa ingredientes + entra acabado (kardex origem='PRODUCAO'); reverter estorna simétrico.
+    {
+      const pgPr = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const PR = 'cadastro/producao';
+        const ACAB = 990100, ING_A = 990101, ING_B = 990102, SERV = 990103; // acabado + 2 ingredientes + 1 serviço
+        // produtos (acabado + ingredientes + serviço 990103 com produtos.servico='S'); receitafator (rendimento) = 10.
+        await pgPr.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, servico, receitafator) VALUES
+          (${ACAB},'7000000990100','PAO FRANCES (ACABADO)','KG',2,'T01','S','N',10),
+          (${ING_A},'7000000990101','FARINHA DE TRIGO','KG',2,'T01','S','N',NULL),
+          (${ING_B},'7000000990102','FERMENTO','KG',2,'T01','S','N',NULL),
+          (${SERV},'7000000990103','MAO DE OBRA (SERVICO)','UN',2,'T01','S','S',NULL)
+          ON CONFLICT (idproduto) DO UPDATE SET receitafator=EXCLUDED.receitafator, servico=EXCLUDED.servico`);
+        // custos/venda (snapshot): acabado custo 7 / venda 12; ingredientes custo 1,5 e 3.
+        await pgPr.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda) VALUES
+          (${ACAB},1,7,12),(${ING_A},1,1.5,0),(${ING_B},1,3,0)
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=EXCLUDED.vrcusto, vrvenda=EXCLUDED.vrvenda`);
+        // acabado KG-CONV (990105) c/ ingrediente 990104 em UN, mas receita em KG → precisa conversão (caso morto no
+        // dado real; o service deve FALHAR ALTO em vez de baixar errado).
+        const ACAB_CONV = 990105, ING_CONV = 990104;
+        await pgPr.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, servico, receitafator) VALUES
+          (${ACAB_CONV},'7000000990105','ACABADO KG-CONV','KG',2,'T01','S','N',1),
+          (${ING_CONV},'7000000990104','INGREDIENTE EM UN','UN',2,'T01','S','N',NULL)
+          ON CONFLICT (idproduto) DO UPDATE SET receitafator=EXCLUDED.receitafator, unidade=EXCLUDED.unidade`);
+        await pgPr.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda) VALUES (${ACAB_CONV},1,1,1),(${ING_CONV},1,1,0) ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=EXCLUDED.vrcusto`);
+        await pgPr.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES (${ING_CONV},1,100) ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde=100`);
+        // ficha técnica: 1 acabado ← 5 FARINHA + 2 FERMENTO + 1 MAO-DE-OBRA (esta é SERVIÇO no PRODUTO → não move estoque,
+        // embora a LINHA da receita marque servico='N' — a fidelidade manda ler o SERVICO do produto).
+        await pgPr.query(`DELETE FROM receita_prod WHERE idproduto IN (${ACAB},${ACAB_CONV})`);
+        await pgPr.query(`INSERT INTO receita_prod (idproduto, idproduto_receita, qtde, unidade, servico) VALUES
+          (${ACAB},${ING_A},5,'KG','N'),(${ACAB},${ING_B},2,'KG','N'),(${ACAB},${SERV},1,'UN','N'),
+          (${ACAB_CONV},${ING_CONV},1,'KG','N')`); // receita KG × produto UN → conversão necessária
+        // saldos iniciais: FARINHA 100, FERMENTO 50, acabado 0.
+        await pgPr.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES (${ACAB},1,0),(${ING_A},1,100),(${ING_B},1,50)
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde=EXCLUDED.qtde`);
+        const saldo = async (id: number) => Number((await pgPr.query(`SELECT qtde FROM estoque WHERE idproduto=$1 AND idempresa=1`, [id])).rows[0]?.qtde);
+        const kardex = async (id: number) => (await pgPr.query(`SELECT tipo, qtde, saldo_novo, origem FROM historico_prod WHERE idproduto=$1 AND origem='PRODUCAO' ORDER BY codmov DESC`, [id])).rows as any[];
+
+        // 47f.1) criar requisição (1 acabado, qtde 20) → 201; vrcusto/vrvenda snapshot de MULTI_PRECO (7/12).
+        const cr = await fetch(`${base}/${PR}`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idprodutos: ACAB, qtde: 20 }] }) });
+        const crJ = (await cr.json().catch(() => ({}))) as any;
+        const cod = Number(crJ.codproducao);
+        const det = (await (await fetch(`${base}/${PR}/${cod}`, { headers: H })).json().catch(() => ({}))) as any;
+        const it0 = (det.itens ?? [])[0] ?? {};
+        check('PRODUÇÃO: criar requisição (1 acabado qtde 20) → 201 + vrcusto/vrvenda snapshot de MULTI_PRECO (7/12)',
+          cr.status === 201 && cod > 0 && Number(it0.qtde) === 20 && Number(it0.vrcusto) === 7 && Number(it0.vrvenda) === 12,
+          { status: cr.status, cod, item: it0 });
+
+        // 47f.1b) fold auditoria [CRÍTICO]: o cliente NÃO pode escolher a empresa produtora. Manda codempresa_producao=2
+        // no body → é IGNORADO (gravado = 1, a empresa do tenant); ao processar, o estoque da empresa 2 fica INTACTO.
+        await pgPr.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES (${ING_A},2,777) ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde=777`);
+        const crX = await fetch(`${base}/${PR}`, { method: 'POST', headers: H, body: JSON.stringify({ codempresa_producao: 2, itens: [{ idprodutos: ACAB, qtde: 5 }] }) });
+        const codX = Number(((await crX.json().catch(() => ({}))) as any).codproducao);
+        const cepGravado = Number((await pgPr.query(`SELECT codempresa_producao FROM producao WHERE codproducao=$1`, [codX])).rows[0]?.codempresa_producao);
+        await fetch(`${base}/${PR}/${codX}/processar`, { method: 'POST', headers: H });
+        const saldoEmp2 = Number((await pgPr.query(`SELECT qtde FROM estoque WHERE idproduto=${ING_A} AND idempresa=2`)).rows[0]?.qtde);
+        check('PRODUÇÃO: cliente não escolhe empresa produtora → codempresa_producao=2 IGNORADO (grava 1); estoque emp 2 intacto (777)',
+          crX.status === 201 && cepGravado === 1 && saldoEmp2 === 777, { cep: cepGravado, saldoEmp2 });
+        await fetch(`${base}/${PR}/${codX}/reverter`, { method: 'POST', headers: H });
+        await fetch(`${base}/${PR}/${codX}`, { method: 'DELETE', headers: H });
+
+        // 47f.2) criar com acabado SEM receita (ingrediente puro) → 422 PRODUTO_SEM_RECEITA.
+        const semRec = await fetch(`${base}/${PR}`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idprodutos: ING_A, qtde: 1 }] }) });
+        check('PRODUÇÃO: criar acabado sem ficha técnica → 422 PRODUTO_SEM_RECEITA',
+          semRec.status === 422 && ((await semRec.json().catch(() => ({}))) as any).code === 'PRODUTO_SEM_RECEITA', { status: semRec.status });
+
+        // 47f.3) PROCESSAR → explode 20×5/10=10 FARINHA + 20×2/10=4 FERMENTO (baixa) + 20 acabado (entrada); kardex; status='P'.
+        const pr = await fetch(`${base}/${PR}/${cod}/processar`, { method: 'POST', headers: H });
+        const prJ = (await pr.json().catch(() => ({}))) as any;
+        const kA = await kardex(ING_A), kB = await kardex(ING_B), kAc = await kardex(ACAB);
+        const snap = Number((await pgPr.query(`SELECT count(*)::int n FROM itens_producao_receita ipr JOIN itens_producao ip ON ip.coditenprod=ipr.coditenprod WHERE ip.codproducao=$1`, [cod])).rows[0].n);
+        const stP = (await pgPr.query(`SELECT status, dtprocessamento FROM producao WHERE codproducao=$1`, [cod])).rows[0] as any;
+        // a linha de SERVIÇO (990103, produtos.servico='S') NÃO move estoque nem gera kardex: ingredientes=2 (não 3).
+        const kServ = Number((await pgPr.query(`SELECT count(*)::int n FROM historico_prod WHERE idproduto=${SERV} AND origem='PRODUCAO'`)).rows[0].n);
+        check('PRODUÇÃO: processar → baixa FARINHA(100→90) + FERMENTO(50→46) + entra ACABADO(0→20) + kardex PRODUCAO + status=P + snapshot 2 + serviço pulado',
+          pr.status === 200 && Number(prJ.acabados) === 1 && Number(prJ.ingredientes) === 2
+          && (await saldo(ING_A)) === 90 && (await saldo(ING_B)) === 46 && (await saldo(ACAB)) === 20
+          && kA[0]?.tipo === 'S' && Number(kA[0]?.qtde) === 10 && kB[0]?.tipo === 'S' && Number(kB[0]?.qtde) === 4
+          && kAc[0]?.tipo === 'E' && Number(kAc[0]?.qtde) === 20 && kAc[0]?.origem === 'PRODUCAO'
+          && stP?.status === 'P' && stP?.dtprocessamento != null && snap === 2 && kServ === 0,
+          { status: pr.status, r: prJ, sA: await saldo(ING_A), sB: await saldo(ING_B), sAc: await saldo(ACAB), kA: kA[0], kB: kB[0], kAc: kAc[0], snap, kServ, st: stP });
+
+        // 47f.4) editar (PUT) processada → 422 PRODUCAO_PROCESSADA; processar 2x → 422 PRODUCAO_JA_PROCESSADA; excluir → 422.
+        const putP = await fetch(`${base}/${PR}/${cod}`, { method: 'PUT', headers: H, body: JSON.stringify({ itens: [{ idprodutos: ACAB, qtde: 999 }] }) });
+        const pr2 = await fetch(`${base}/${PR}/${cod}/processar`, { method: 'POST', headers: H });
+        const delP = await fetch(`${base}/${PR}/${cod}`, { method: 'DELETE', headers: H });
+        check('PRODUÇÃO: doc processado → PUT 422 PRODUCAO_PROCESSADA + processar 2x 422 PRODUCAO_JA_PROCESSADA + DELETE 422',
+          putP.status === 422 && ((await putP.json().catch(() => ({}))) as any).code === 'PRODUCAO_PROCESSADA'
+          && pr2.status === 422 && ((await pr2.json().catch(() => ({}))) as any).code === 'PRODUCAO_JA_PROCESSADA'
+          && delP.status === 422 && (await saldo(ING_A)) === 90,
+          { put: putP.status, pr2: pr2.status, del: delP.status });
+
+        // 47f.5) REVERTER → saldos voltam exatos (90→100, 46→50, 20→0) + kardex reverso + status='A' + snapshot apagado.
+        const rv = await fetch(`${base}/${PR}/${cod}/reverter`, { method: 'POST', headers: H });
+        const kA2 = await kardex(ING_A), kAc2 = await kardex(ACAB);
+        const snap2 = Number((await pgPr.query(`SELECT count(*)::int n FROM itens_producao_receita ipr JOIN itens_producao ip ON ip.coditenprod=ipr.coditenprod WHERE ip.codproducao=$1`, [cod])).rows[0].n);
+        const stA = (await pgPr.query(`SELECT status, dtprocessamento FROM producao WHERE codproducao=$1`, [cod])).rows[0] as any;
+        check('PRODUÇÃO: reverter → saldos exatos (FARINHA 100, FERMENTO 50, ACABADO 0) + kardex reverso + status=A + snapshot apagado',
+          rv.status === 200 && (await saldo(ING_A)) === 100 && (await saldo(ING_B)) === 50 && (await saldo(ACAB)) === 0
+          && kA2[0]?.tipo === 'E' && Number(kA2[0]?.qtde) === 10 && kAc2[0]?.tipo === 'S' && Number(kAc2[0]?.qtde) === 20
+          && stA?.status === 'A' && stA?.dtprocessamento == null && snap2 === 0,
+          { status: rv.status, sA: await saldo(ING_A), sB: await saldo(ING_B), sAc: await saldo(ACAB), st: stA, snap2 });
+
+        // 47f.6) reverter 2x → 422 PRODUCAO_NAO_PROCESSADA; excluir após reverter → 204.
+        const rv2 = await fetch(`${base}/${PR}/${cod}/reverter`, { method: 'POST', headers: H });
+        const del2 = await fetch(`${base}/${PR}/${cod}`, { method: 'DELETE', headers: H });
+        check('PRODUÇÃO: reverter 2x → 422 PRODUCAO_NAO_PROCESSADA; excluir após reverter → 204',
+          rv2.status === 422 && ((await rv2.json().catch(() => ({}))) as any).code === 'PRODUCAO_NAO_PROCESSADA' && del2.status === 204,
+          { rv2: rv2.status, del2: del2.status });
+
+        // 47f.6b) fold paridade [#2]: receita KG × produto UN (conversão de unidade) → processar FALHA ALTO
+        // (PRODUCAO_CONVERSAO_NAO_SUPORTADA) em vez de baixar a qtde errada; o estoque do ingrediente fica INTACTO (100).
+        const crConv = await fetch(`${base}/${PR}`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idprodutos: ACAB_CONV, qtde: 1 }] }) });
+        const codConv = Number(((await crConv.json().catch(() => ({}))) as any).codproducao);
+        const prConv = await fetch(`${base}/${PR}/${codConv}/processar`, { method: 'POST', headers: H });
+        check('PRODUÇÃO: receita KG × produto UN → processar 422 PRODUCAO_CONVERSAO_NAO_SUPORTADA (não baixa errado; ingrediente intacto 100)',
+          prConv.status === 422 && ((await prConv.json().catch(() => ({}))) as any).code === 'PRODUCAO_CONVERSAO_NAO_SUPORTADA'
+          && (await saldo(ING_CONV)) === 100,
+          { status: prConv.status, saldoIng: await saldo(ING_CONV) });
+        await fetch(`${base}/${PR}/${codConv}`, { method: 'DELETE', headers: H });
+
+        // 47f.7) RBAC sem grant → 403.
+        const cr2 = await fetch(`${base}/${PR}`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idprodutos: ACAB, qtde: 1 }] }) });
+        const cod2 = Number(((await cr2.json().catch(() => ({}))) as any).codproducao);
+        const rb = await fetch(`${base}/${PR}/${cod2}/processar`, { method: 'POST', headers: H_SEM_ACESSO });
+        check('PRODUÇÃO: processar sem grant RBAC → 403', rb.status === 403, { status: rb.status });
+      } finally {
+        await pgPr.end();
+      }
+    }
+
     // 48) PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela: agregado header+itens (sem efeitos) + workflow FECHADO.
     const pgPed = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const PED = 'compras/pedidos';

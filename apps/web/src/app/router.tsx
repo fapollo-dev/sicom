@@ -34,6 +34,7 @@ import { EmpresasCadMaster } from '../features/empresas/EmpresasCadMaster';
 import { AjusteEstoquePage } from '../features/ajuste-estoque/AjusteEstoquePage';
 import { InventarioPage } from '../features/inventario/InventarioPage';
 import { ScrapPage } from '../features/scrap/ScrapPage';
+import { ProducaoPage } from '../features/producao/ProducaoPage';
 import { CartaoPage } from '../features/cartao/CartaoPage';
 import { OperadorasPage } from '../features/cartao/OperadorasPage';
 import { TrocaPage } from '../features/troca/TrocaPage';
@@ -77,6 +78,7 @@ export const router = createBrowserRouter([
       { path: '/estoque/inventario', element: <InventarioPage /> }, // inventário (contagem física; sobrescreve o saldo)
       { path: '/estoque/scrap', element: <ScrapPage /> }, // scrap/perdas (documento de perda; baixa do saldo + kardex)
       { path: '/estoque/troca', element: <TrocaPage /> }, // troca c/ fornecedor (avariados saem; baixa do saldo + kardex)
+      { path: '/estoque/producao', element: <ProducaoPage /> }, // produção/manufatura (explode receita → baixa ingredientes + entra acabado)
       { path: '/financeiro/cartoes', element: <CartaoPage /> }, // recebíveis de cartão (consulta + cadastro; líquido/venc computados)
       { path: '/cadastro/operadoras', element: <OperadorasPage /> }, // administradora/adquirente + taxa por-empresa
       { path: '/financeiro/conciliacao', element: <ConciliacaoBancariaPage /> }, // conciliação bancária OFX × razão interno

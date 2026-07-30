@@ -14,6 +14,9 @@ import { InventarioService } from './inventario.service';
 import { ScrapAggregateController } from './scrap.aggregate';
 import { ScrapController } from './scrap.controller';
 import { ScrapService } from './scrap.service';
+import { ProducaoAggregateController } from './producao.aggregate';
+import { ProducaoController } from './producao.controller';
+import { ProducaoService } from './producao.service';
 import { OperadorasAggregateController } from './operadoras.aggregate';
 import { CartaoCrudController } from './cartao.crud';
 import { CartaoBaixaController } from './cartao-baixa.controller';
@@ -126,6 +129,8 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     InventarioController, // vertical: importar-produtos + diferenças + aplicar (sobrescreve estoque, gated senha ADM)
     ScrapAggregateController, // SCRAP/PERDAS (scrap+scrap_item; documento de perda — valoração MULTI_PRECO)
     ScrapController, // vertical: aplicar/estornar baixa de estoque (kardex origem='SCRAP')
+    ProducaoAggregateController, // PRODUÇÃO (producao+itens_producao; requisição de manufatura — valoração MULTI_PRECO)
+    ProducaoController, // vertical: processar/reverter (explode receita → baixa ingredientes + entra acabado, kardex origem='PRODUCAO')
     OperadorasAggregateController, // CARTÕES: administradora/adquirente + taxa por-empresa (operadoras+operadoras_taxa)
     CartaoCrudController, // CARTÕES: recebível (consulta/cadastro; líquido+vencimento computados na view get_cartao)
     CartaoBaixaController, // CARTÕES corte-2: baixa/liquidação em lote (credita mov_contas_bancarias) + estorno
@@ -162,6 +167,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     AjusteEstoqueService,
     InventarioService,
     ScrapService,
+    ProducaoService,
     TrocaService,
     CartaoBaixaService,
     ConciliacaoBancariaService,
