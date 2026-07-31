@@ -36,6 +36,7 @@ import {
   Trash2,
   ChefHat,
   Tag,
+  ArrowRightLeft,
 } from 'lucide-react';
 
 /** Telas do menu lateral (rota → rótulo + ícone). Uma TForm = um item. */
@@ -66,6 +67,7 @@ const TELAS = [
   { href: '/cobranca/caixa', name: 'Caixa', icon: Coins },
   { href: '/financeiro/cartoes', name: 'Cartões / Recebíveis', icon: CreditCard },
   { href: '/financeiro/conciliacao', name: 'Conciliação Bancária', icon: Landmark },
+  { href: '/financeiro/contas-correntes', name: 'Controle de Contas Correntes', icon: ArrowRightLeft },
   { href: '/cadastro/operadoras', name: 'Operadoras de Cartão', icon: CreditCard },
   { href: '/estoque/ajuste', name: 'Ajuste de Estoque', icon: Package },
   { href: '/estoque/inventario', name: 'Inventário', icon: ClipboardList },

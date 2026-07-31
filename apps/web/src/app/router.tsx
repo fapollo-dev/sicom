@@ -36,6 +36,7 @@ import { InventarioPage } from '../features/inventario/InventarioPage';
 import { ScrapPage } from '../features/scrap/ScrapPage';
 import { ProducaoPage } from '../features/producao/ProducaoPage';
 import { EtiquetaPage } from '../features/etiqueta/EtiquetaPage';
+import { ControleContasPage } from '../features/controle-contas/ControleContasPage';
 import { CartaoPage } from '../features/cartao/CartaoPage';
 import { OperadorasPage } from '../features/cartao/OperadorasPage';
 import { TrocaPage } from '../features/troca/TrocaPage';
@@ -84,6 +85,7 @@ export const router = createBrowserRouter([
       { path: '/financeiro/cartoes', element: <CartaoPage /> }, // recebíveis de cartão (consulta + cadastro; líquido/venc computados)
       { path: '/cadastro/operadoras', element: <OperadorasPage /> }, // administradora/adquirente + taxa por-empresa
       { path: '/financeiro/conciliacao', element: <ConciliacaoBancariaPage /> }, // conciliação bancária OFX × razão interno
+      { path: '/financeiro/contas-correntes', element: <ControleContasPage /> }, // controle de contas correntes (lançamento manual + transferência + estorno)
       { path: '/cadastro/motivos-operacao', element: <MotivosOperacaoCadMaster /> }, // lookup do motivo do ajuste
       { path: '/cadastro/plano-contas', element: <PlanoContasCadMaster /> }, // plano de contas (árvore)
       { path: '/contabil/dre', element: <DreRelatorio /> }, // relatório DRE (calculado do diário)

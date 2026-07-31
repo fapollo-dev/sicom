@@ -4223,6 +4223,83 @@ async function main() {
       }
     }
 
+    // 47h) CONTROLE DE CONTAS CORRENTES (FRMCONTROLECONTASBANCARIAS) — lançamento manual + transferência 2-legged + estorno.
+    {
+      const pgCc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const CC = 'cadastro/controle-contas';
+        // operações manuais (user-defined; a tela real usa o cadastro operacoes_conta). Semeia p/ o teste: 901 C / 902 D.
+        await pgCc.query(`INSERT INTO operacoes_conta (codopconta, descricao, tipo) VALUES (901,'DEPÓSITO','C'),(902,'SAQUE','D') ON CONFLICT (codopconta) DO NOTHING`);
+        // banco CAIXA (codbco 0) + um banco real; conta CAIXA (codbco 0 → trava saldo negativo) + conta BANCO (codbco>0).
+        await pgCc.query(`INSERT INTO bancos (codbco, banco, cidade) VALUES (0,'CAIXA','LOCAL') ON CONFLICT (codbco) DO NOTHING`);
+        const bancoReal = Number((await pgCc.query(`SELECT codbco FROM bancos WHERE codbco>0 ORDER BY codbco LIMIT 1`)).rows[0]?.codbco ?? 1);
+        const cxa = Number((await pgCc.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES (0,1,'CAIXA CC') RETURNING codconta`)).rows[0].codconta);
+        const bco = Number((await pgCc.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES ($1,1,'BANCO CC') RETURNING codconta`, [bancoReal])).rows[0].codconta);
+        const saldo = async (c: number) => Number(((await (await fetch(`${base}/${CC}/saldo?codconta=${c}`, { headers: H })).json().catch(() => ({}))) as any).saldo);
+
+        // 47h.1) lançar DEPÓSITO (op 901 C, 100) → saldo 100; SAQUE (op 902 D, 30) → saldo 70.
+        const dep = await fetch(`${base}/${CC}/lancar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: cxa, codopconta: 901, valor: 100, historico: 'deposito' }) });
+        const saq = await fetch(`${base}/${CC}/lancar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: cxa, codopconta: 902, valor: 30 }) });
+        check('CONTA-CC: lançar depósito (op C 100) + saque (op D 30) → saldo 70 (Σ com sinal)',
+          dep.status === 200 && saq.status === 200 && Number(((await saq.json().catch(() => ({}))) as any).saldo) === 70 && (await saldo(cxa)) === 70,
+          { saldo: await saldo(cxa) });
+
+        // 47h.2) saldo detalhado: entradas 100, saidas 30, saldo 70.
+        const sal = (await (await fetch(`${base}/${CC}/saldo?codconta=${cxa}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('CONTA-CC: saldo → entradas 100, saídas 30, saldo 70', Number(sal.entradas) === 100 && Number(sal.saidas) === 30 && Number(sal.saldo) === 70, { sal });
+
+        // 47h.2b) extrato: header saldo = Σ ALL (70, fold auditoria) + saldo corrente por linha (saque→70, depósito→100).
+        const ext = (await (await fetch(`${base}/${CC}/extrato?codconta=${cxa}`, { headers: H })).json().catch(() => ({}))) as any;
+        const mvSaque = (ext.movimentos ?? []).find((m: any) => m.tipomovimento === 'D');
+        const mvDep = (ext.movimentos ?? []).find((m: any) => m.tipomovimento === 'C');
+        check('CONTA-CC: extrato → header saldo 70 (Σ ALL) + saldo corrente (saque=70 após, depósito=100 após) + mais recente no topo',
+          Number(ext.saldo) === 70 && Number(mvSaque?.saldo_corrente) === 70 && Number(mvDep?.saldo_corrente) === 100
+          && (ext.movimentos ?? [])[0]?.tipomovimento === 'D',
+          { saldo: ext.saldo, saque: mvSaque?.saldo_corrente, dep: mvDep?.saldo_corrente });
+
+        // 47h.3) TRANSFERÊNCIA 50 do CAIXA → BANCO: 2 pernas atômicas (débito caixa + crédito banco), 1 lote.
+        const tr = await fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H, body: JSON.stringify({ codorigem: cxa, coddestino: bco, valor: 50, historico: 'transf teste' }) });
+        const trJ = (await tr.json().catch(() => ({}))) as any;
+        const pernas = Number((await pgCc.query(`SELECT count(*)::int n FROM mov_contas_bancarias WHERE origem='TRANSF' AND idorigem=$1`, [Number(trJ.idlote)])).rows[0].n);
+        check('CONTA-CC: transferir 50 caixa→banco → 2 pernas (lote) + caixa 20 + banco 50',
+          tr.status === 200 && Number(trJ.idlote) > 0 && pernas === 2 && (await saldo(cxa)) === 20 && (await saldo(bco)) === 50,
+          { trJ, pernas, cxa: await saldo(cxa), bco: await saldo(bco) });
+
+        // 47h.4) ESTORNAR a transferência (pela perna débito) → apaga as 2 pernas; caixa volta 70, banco 0.
+        const perna = Number((await pgCc.query(`SELECT codmovconta FROM mov_contas_bancarias WHERE origem='TRANSF' AND idorigem=$1 AND tipomovimento='D'`, [Number(trJ.idlote)])).rows[0].codmovconta);
+        const es = await fetch(`${base}/${CC}/${perna}`, { method: 'DELETE', headers: H });
+        const esJ = (await es.json().catch(() => ({}))) as any;
+        check('CONTA-CC: estornar transferência → apaga as 2 pernas + caixa 70 + banco 0',
+          es.status === 200 && Number(esJ.removidos) === 2 && (await saldo(cxa)) === 70 && (await saldo(bco)) === 0,
+          { esJ, cxa: await saldo(cxa), bco: await saldo(bco) });
+
+        // 47h.5) SALDO NEGATIVO travado só p/ CAIXA (codbco 0): saque 999 → 422 SALDO_INSUFICIENTE; banco pode negativar.
+        const neg = await fetch(`${base}/${CC}/lancar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: cxa, codopconta: 902, valor: 999 }) });
+        const negBco = await fetch(`${base}/${CC}/lancar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: bco, codopconta: 902, valor: 500 }) });
+        check('CONTA-CC: saldo negativo → CAIXA(codbco 0) 422 SALDO_INSUFICIENTE; BANCO pode negativar (200, saldo −500)',
+          neg.status === 422 && ((await neg.json().catch(() => ({}))) as any).code === 'SALDO_INSUFICIENTE'
+          && negBco.status === 200 && (await saldo(bco)) === -500,
+          { neg: neg.status, bco: await saldo(bco) });
+
+        // 47h.6) estornar linha de OUTRO módulo (origem='FCP') → 422 MOVIMENTO_NAO_MANUAL; conciliada → 422 MOVIMENTO_CONCILIADO.
+        const fcp = Number((await pgCc.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, historico, data_fechamento) VALUES ($1,1,10,'C','FCP','fechamento',now()) RETURNING codmovconta`, [cxa])).rows[0].codmovconta);
+        const conc = Number((await pgCc.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, historico, data_fechamento, mov_conciliado) VALUES ($1,1,5,'C','MANUAL','conciliada',now(),'S') RETURNING codmovconta`, [cxa])).rows[0].codmovconta);
+        const esFcp = await fetch(`${base}/${CC}/${fcp}`, { method: 'DELETE', headers: H });
+        const esConc = await fetch(`${base}/${CC}/${conc}`, { method: 'DELETE', headers: H });
+        check('CONTA-CC: estornar linha de outro módulo (FCP) → 422 MOVIMENTO_NAO_MANUAL; conciliada → 422 MOVIMENTO_CONCILIADO',
+          esFcp.status === 422 && ((await esFcp.json().catch(() => ({}))) as any).code === 'MOVIMENTO_NAO_MANUAL'
+          && esConc.status === 422 && ((await esConc.json().catch(() => ({}))) as any).code === 'MOVIMENTO_CONCILIADO',
+          { esFcp: esFcp.status, esConc: esConc.status });
+
+        // 47h.7) transferência p/ a mesma conta → 400 (schema); RBAC sem grant → 403.
+        const mesma = await fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H, body: JSON.stringify({ codorigem: cxa, coddestino: cxa, valor: 10 }) });
+        const rb = await fetch(`${base}/${CC}/lancar`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codconta: cxa, codopconta: 901, valor: 1 }) });
+        check('CONTA-CC: transferir p/ mesma conta → 400; lançar sem grant RBAC → 403', mesma.status === 400 && rb.status === 403, { mesma: mesma.status, rb: rb.status });
+      } finally {
+        await pgCc.end();
+      }
+    }
+
     // 48) PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela: agregado header+itens (sem efeitos) + workflow FECHADO.
     const pgPed = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const PED = 'compras/pedidos';

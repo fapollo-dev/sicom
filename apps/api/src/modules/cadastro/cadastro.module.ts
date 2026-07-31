@@ -19,6 +19,8 @@ import { ProducaoController } from './producao.controller';
 import { ProducaoService } from './producao.service';
 import { EtiquetaController } from './etiqueta.controller';
 import { EtiquetaService } from './etiqueta.service';
+import { ControleContasController } from './controle-contas.controller';
+import { ControleContasService } from './controle-contas.service';
 import { OperadorasAggregateController } from './operadoras.aggregate';
 import { CartaoCrudController } from './cartao.crud';
 import { CartaoBaixaController } from './cartao-baixa.controller';
@@ -134,6 +136,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     ProducaoAggregateController, // PRODUÇÃO (producao+itens_producao; requisição de manufatura — valoração MULTI_PRECO)
     ProducaoController, // vertical: processar/reverter (explode receita → baixa ingredientes + entra acabado, kardex origem='PRODUCAO')
     EtiquetaController, // ETIQUETAS DE PREÇO (fila do coletor + preço/promo server-auth de MULTI_PRECO + imprimir)
+    ControleContasController, // CONTROLE DE CONTAS CORRENTES (lançamento manual + transferência 2-legged + estorno; razão mov_contas_bancarias)
     OperadorasAggregateController, // CARTÕES: administradora/adquirente + taxa por-empresa (operadoras+operadoras_taxa)
     CartaoCrudController, // CARTÕES: recebível (consulta/cadastro; líquido+vencimento computados na view get_cartao)
     CartaoBaixaController, // CARTÕES corte-2: baixa/liquidação em lote (credita mov_contas_bancarias) + estorno
@@ -172,6 +175,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     ScrapService,
     ProducaoService,
     EtiquetaService,
+    ControleContasService,
     TrocaService,
     CartaoBaixaService,
     ConciliacaoBancariaService,
