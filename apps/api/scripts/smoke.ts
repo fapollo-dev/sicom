@@ -4148,6 +4148,81 @@ async function main() {
       }
     }
 
+    // 47g) ETIQUETAS DE PREÇO (FRMETIQUETA) — fila do coletor + preço/promo server-auth de MULTI_PRECO × fator + imprimir.
+    {
+      const pgEt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const ET = 'cadastro/etiqueta';
+        // produto PROMO (990200): vrvenda 10, vrpromo 7,99, promocao='S', fator_filho 2 → venda 20 / impresso 15,98.
+        // produto SEM promo (990201): vrvenda 5, promocao='N', fator 1 → impresso 5.
+        await pgEt.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, fator_filho, prod_qtde_etiquetas) VALUES
+          (990200,'7899000990200','ARROZ TIPO1 5KG (PROMO)','FD',2,'T01','S',2,3),
+          (990201,'7899000990201','SAL REFINADO 1KG','UN',2,'T01','S',NULL,NULL)
+          ON CONFLICT (idproduto) DO UPDATE SET fator_filho=EXCLUDED.fator_filho, prod_qtde_etiquetas=EXCLUDED.prod_qtde_etiquetas, codbarra=EXCLUDED.codbarra`);
+        // 990202: flag promo='S' mas vrpromo=0 (anomalia) → deve ser tratado como SEM promo (fold [MÉDIA]).
+        await pgEt.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES (990202,'7899000990202','FEIJAO 1KG (PROMO SEM PREÇO)','UN',2,'T01','S') ON CONFLICT (idproduto) DO UPDATE SET codbarra=EXCLUDED.codbarra`);
+        await pgEt.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrpromo, promocao) VALUES
+          (990200,1,10,7.99,'S'),(990201,1,5,0,'N'),(990202,1,8,0,'S')
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda=EXCLUDED.vrvenda, vrpromo=EXCLUDED.vrpromo, promocao=EXCLUDED.promocao, etq_impressa=NULL`);
+        // código auxiliar (CAIXA de 12) do SAL 990201: fator de embalagem 12 → preço da caixa (fold [MÉDIA]).
+        await pgEt.query(`INSERT INTO codauxiliar (idproduto, codbarra, codauxiliar, fatoremb, codunidade) VALUES (990201,'CX990201','CX12',12,3) ON CONFLICT DO NOTHING`);
+        // fila do coletor: 990200 pendente (idempresa 1).
+        const idetq = Number((await pgEt.query(`INSERT INTO etiqueta_cons_prod (idproduto, idempresa, operador, impressa) VALUES (990200,1,7,'N') RETURNING idetiqueta`)).rows[0].idetiqueta);
+        // fila de OUTRA empresa (idempresa 2) — NÃO pode aparecer.
+        await pgEt.query(`INSERT INTO etiqueta_cons_prod (idproduto, idempresa, operador, impressa) VALUES (990201,2,7,'N')`);
+
+        // 47g.1) fila: 990200 pendente; preço venda = 10×2 = 20; impresso (promo) = 7,99×2 = 15,98; qtde default 3.
+        const fila = (await (await fetch(`${base}/${ET}/fila`, { headers: H })).json().catch(() => [])) as any[];
+        const f200 = fila.find((e) => Number(e.idproduto) === 990200);
+        check('ETIQUETA: fila do coletor (empresa 1) → preço venda 20 (10×fator 2), impresso PROMO 15,98 (7,99×2), qtde default 3; empresa 2 não vaza',
+          Array.isArray(fila) && f200 && Number(f200.valor_venda) === 20 && Number(f200.valor_venda_promocao) === 15.98 && f200.promocao === 'S' && Number(f200.qtde) === 3
+          && !fila.some((e) => Number(e.idproduto) === 990201),
+          { f200, n: fila.length });
+
+        // 47g.2) buscar produto por codbarra (sem promo) → impresso = venda = 5 (fator 1).
+        const busca = (await (await fetch(`${base}/${ET}/produto?codbarra=7899000990201`, { headers: H })).json().catch(() => ({}))) as any;
+        check('ETIQUETA: buscar por codbarra (sem promo) → valor_venda_promocao = venda 5,00 (fator 1, promo N)',
+          Number(busca.valor_venda) === 5 && Number(busca.valor_venda_promocao) === 5 && busca.promocao === 'N', { busca });
+
+        // 47g.2b) folds auditoria: (a) código de CAIXA (aux fatoremb 12) → preço da caixa 60 (não o unitário 5);
+        // (b) promo='S' com vrpromo 0 → tratado como SEM promo (impresso = venda 8, promocao='N', não R$0,00).
+        const cx = (await (await fetch(`${base}/${ET}/produto?codbarra=CX990201`, { headers: H })).json().catch(() => ({}))) as any;
+        const pz = (await (await fetch(`${base}/${ET}/produto?codbarra=7899000990202`, { headers: H })).json().catch(() => ({}))) as any;
+        check('ETIQUETA folds: código de caixa (aux fatoremb 12) → preço 60 (não unitário 5); promo sem vrpromo → sem promo (impresso 8, não R$0)',
+          Number(cx.valor_venda) === 60 && Number(cx.valor_venda_promocao) === 60 && Number(cx.fator) === 12
+          && pz.promocao === 'N' && Number(pz.valor_venda_promocao) === 8,
+          { cx: { v: cx.valor_venda, f: cx.fator }, pz: { p: pz.promocao, imp: pz.valor_venda_promocao } });
+
+        // 47g.3) adicionar 990201 à fila por codbarra → nova linha pendente da empresa 1.
+        const add = await fetch(`${base}/${ET}/adicionar`, { method: 'POST', headers: H, body: JSON.stringify({ codbarra: '7899000990201' }) });
+        const addJ = (await add.json().catch(() => ({}))) as any;
+        check('ETIQUETA: adicionar por codbarra → 200 + enfileirado (idetiqueta) na empresa 1',
+          add.status === 200 && Number(addJ.idetiqueta) > 0 && Number(addJ.etiqueta?.idproduto) === 990201, { addJ: addJ.idetiqueta });
+
+        // 47g.4) imprimir: 990200 (da fila, qtde 4) → log gravado (valor_venda_promocao 15,98) + IMPRESSA='S' + etq_impressa='S'.
+        const imp = await fetch(`${base}/${ET}/imprimir`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idetiqueta: idetq, idproduto: 990200, qtde: 4 }] }) });
+        const impJ = (await imp.json().catch(() => ({}))) as any;
+        const logRow = (await pgEt.query(`SELECT valor_venda, valor_venda_promocao, qtde_impressa FROM log_impressao_etiqueta WHERE idempresa=1 AND codbarra='7899000990200' ORDER BY codlog DESC LIMIT 1`)).rows[0] as any;
+        const impressaFlag = (await pgEt.query(`SELECT impressa FROM etiqueta_cons_prod WHERE idetiqueta=$1`, [idetq])).rows[0]?.impressa;
+        const etqFlag = (await pgEt.query(`SELECT etq_impressa FROM multi_preco WHERE idproduto=990200 AND idempresa=1`)).rows[0]?.etq_impressa;
+        check('ETIQUETA: imprimir → total 4 etiquetas + log (venda 20 / impresso 15,98) + fila IMPRESSA=S + MULTI_PRECO.etq_impressa=S',
+          imp.status === 200 && Number(impJ.total_etiquetas) === 4 && Number(impJ.etiquetas?.[0]?.valor_venda_promocao) === 15.98
+          && Number(logRow?.valor_venda) === 20 && Number(logRow?.valor_venda_promocao) === 15.98 && Number(logRow?.qtde_impressa) === 4
+          && impressaFlag === 'S' && etqFlag === 'S',
+          { impJ: impJ.total_etiquetas, logRow, impressaFlag, etqFlag });
+
+        // 47g.5) o item impresso saiu da fila (IMPRESSA='S' → fora de get_etiqueta_fila).
+        const fila2 = (await (await fetch(`${base}/${ET}/fila`, { headers: H })).json().catch(() => [])) as any[];
+        check('ETIQUETA: item impresso sai da fila (IMPRESSA=S filtrada)', !fila2.some((e) => Number(e.idetiqueta) === idetq), { n: fila2.length });
+
+        // 47g.6) RBAC sem grant → 403.
+        const rb = await fetch(`${base}/${ET}/fila`, { headers: H_SEM_ACESSO });
+        check('ETIQUETA: fila sem grant RBAC → 403', rb.status === 403, { status: rb.status });
+      } finally {
+        await pgEt.end();
+      }
+    }
+
     // 48) PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela: agregado header+itens (sem efeitos) + workflow FECHADO.
     const pgPed = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const PED = 'compras/pedidos';

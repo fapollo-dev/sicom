@@ -35,6 +35,7 @@ export * from './schema/cartao.schema';
 export * from './schema/troca.schema';
 export * from './schema/conciliacao.schema';
 export * from './schema/producao.schema';
+export * from './schema/etiqueta.schema';
 export * from './schema/cotacao.schema';
 export * from './schema/auth.schema';
 export * from './schema/configuracao.schema';
