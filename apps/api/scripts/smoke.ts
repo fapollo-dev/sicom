@@ -4300,6 +4300,87 @@ async function main() {
       }
     }
 
+    // 47i) EXPORTAR P/ BALANÇA (FRMEXPORTABALANCA) — arquivos PLU Toledo posicionais (TXITENS/CADASTRO/ITENSMGV).
+    {
+      const pgBa = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const BA = 'cadastro/exporta-balanca';
+        // produtos de balança: 990300 KG PROMO (codbarra 20101, val 5) · 990301 UN (20102) · 990302 codbarra 13-díg
+        // (EXCLUÍDO pelo ≤6) · 990303 sem preço (EXCLUÍDO pelo vrvenda>0).
+        // codunidade dirige a FLAG (fold: no Oracle a flag vem da SIGLA da unidade, não de p.unidade): 2=KG, 1=UN.
+        // 990304 = p.unidade 'UN' mas codunidade 2 (sigla KG) → flag '0' (a sigla VENCE, fiel ao Oracle).
+        // 990305 = multi_preco.ativo='N' → EXCLUÍDO (config ATIVO_PELA_MULTIPRECO='S', fold [ALTA]).
+        await pgBa.query(`INSERT INTO produtos (idproduto, codbarra, descricao, descricao_balanca, unidade, codunidade, codfor, aliquota, ativo, balanca, codbalanca, validade) VALUES
+          (990300,'20101','QUEIJO PRATO INTERNO','QUEIJO PRATO FATIADO KG','KG',2,2,'T01','S','S',1,5),
+          (990301,'20102','BOLO DE FUBA',NULL,'UN',1,2,'T01','S','S',1,0),
+          (990302,'7891234990302','MORTADELA BALANCA 13DIG',NULL,'KG',2,2,'T01','S','S',1,3),
+          (990303,'20103','SEM PRECO BALANCA',NULL,'KG',2,2,'T01','S','S',1,0),
+          (990304,'20104','SIGLA DIVERGE','SIGLA DIVERGE KG','UN',2,2,'T01','S','S',1,0),
+          (990305,'20105','PRECO DESATIVADO',NULL,'KG',2,2,'T01','S','S',1,0)
+          ON CONFLICT (idproduto) DO UPDATE SET codbarra=EXCLUDED.codbarra, balanca=EXCLUDED.balanca, codbalanca=EXCLUDED.codbalanca, validade=EXCLUDED.validade, descricao_balanca=EXCLUDED.descricao_balanca, unidade=EXCLUDED.unidade, codunidade=EXCLUDED.codunidade`);
+        await pgBa.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrpromo, promocao, ativo) VALUES
+          (990300,1,45.90,39.90,'S','S'),(990301,1,12.00,0,'N','S'),(990304,1,7.50,0,'N','S'),(990305,1,9.99,0,'N','N')
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda=EXCLUDED.vrvenda, vrpromo=EXCLUDED.vrpromo, promocao=EXCLUDED.promocao, ativo=EXCLUDED.ativo`);
+
+        // 47i.1) configs semeadas (321 PRIX5-N + 341 PRIX4-N, TOLEDO).
+        const cfgs = (await (await fetch(`${base}/${BA}/configs`, { headers: H })).json().catch(() => [])) as any[];
+        check('BALANÇA: 2 configs TOLEDO semeadas (321 PRIX5-N V2 [rótulo real Oracle] / 341 PRIX4-N)',
+          Array.isArray(cfgs) && cfgs.some((c) => Number(c.id) === 321 && c.mod_bal === 'PRIX5-N V2') && cfgs.some((c) => Number(c.id) === 341 && c.mod_bal === 'PRIX4-N'),
+          { n: cfgs.length });
+
+        // 47i.2) gerar PRIX5-N → linhas POSICIONAIS exatas. KG-PROMO: setor 01, flag 0, PLU 020101, preço PROMO
+        // 003990 (centavos), validade 005, desc 25. UN: flag 1, preço 001200. Excluídos: 13-díg e sem-preço.
+        const g5 = await fetch(`${base}/${BA}/gerar/321`, { method: 'POST', headers: H });
+        const g5J = (await g5.json().catch(() => ({}))) as any;
+        const arq = (nome: string) => String((g5J.arquivos ?? []).find((a: any) => a.nome === nome)?.conteudo ?? '');
+        const tx = arq('TXITENS.TXT').split('\r\n');
+        const lTx300 = tx.find((l) => l.includes('020101')) ?? '';
+        const lTx301 = tx.find((l) => l.includes('020102')) ?? '';
+        const cad = arq('CADASTRO.TXT').split('\r\n');
+        const lCad300 = cad.find((l) => l.includes('020101')) ?? '';
+        const mgv = arq('ITENSMGV.TXT').split('\r\n');
+        const lMgv300 = mgv.find((l) => l.includes('020101')) ?? '';
+        const descEsp = 'QUEIJO PRATO FATIADO KG'.padEnd(25, ' ');
+        const lTx304 = tx.find((l) => l.includes('020104')) ?? '';
+        check('BALANÇA PRIX5-N: TXITENS posicional (01+01+0+020101+003990[PROMO]+005+desc25, len 320) + UN flag 1 (001200) + sigla VENCE p.unidade (020104 flag 0) + excluídos (13-díg, sem-preço, m.ativo=N)',
+          g5.status === 200 && Number(g5J.produtos) === 3
+          && lTx300 === '01' + '01' + '0' + '020101' + '003990' + '005' + descEsp + ' '.repeat(25) + ' '.repeat(250)
+          && lTx300.length === 320
+          && lTx301.startsWith('0101' + '1' + '020102' + '001200' + '000')
+          && lTx304.startsWith('0101' + '0' + '020104' + '000750') // p.unidade='UN' mas sigla KG → flag '0' (fold)
+          && !arq('TXITENS.TXT').includes('990302') && !arq('TXITENS.TXT').includes('020103') && !arq('TXITENS.TXT').includes('020105'),
+          { lTx300: lTx300.slice(0, 50), len: lTx300.length, lTx301: lTx301.slice(0, 25), lTx304: lTx304.slice(0, 25), n: g5J.produtos });
+
+        // 47i.3) CADASTRO (tail literal 000000000001001, len 83) + ITENSMGV PRIX5-N (CODREC 000000 + codbarra4 2010 + 63 zeros, len 150).
+        check('BALANÇA PRIX5-N: CADASTRO (head + tail 000000000001001, len 83) + ITENSMGV (…+000000+000+2010+1+1+0000+63×0, len 150)',
+          lCad300 === '01' + '0' + '020101' + '003990' + '005' + descEsp + ' '.repeat(25) + '000000' + '000' + '0' + '01' + '0' + '01'
+          && lCad300.length === 83
+          && lMgv300 === '01' + '0' + '020101' + '003990' + '005' + descEsp + ' '.repeat(25) + '000000' + '000' + '2010' + '1' + '1' + '0000' + '0'.repeat(63)
+          && lMgv300.length === 150,
+          { cad: lCad300.slice(-20), lenC: lCad300.length, mgv: lMgv300.slice(-70, -60), lenM: lMgv300.length });
+
+        // 47i.4) gerar PRIX4-N (config 341) → ITENSMGV tail 26 espaços (len 113).
+        const g4J = (await (await fetch(`${base}/${BA}/gerar/341`, { method: 'POST', headers: H })).json().catch(() => ({}))) as any;
+        const mgv4 = String((g4J.arquivos ?? []).find((a: any) => a.nome === 'ITENSMGV.TXT')?.conteudo ?? '').split('\r\n');
+        const lMgv4 = mgv4.find((l) => l.includes('020101')) ?? '';
+        check('BALANÇA PRIX4-N: ITENSMGV tail 26 espaços (len 113)',
+          lMgv4.length === 113 && lMgv4.endsWith('0000' + ' '.repeat(26)) && lMgv4.includes('2010' + '1' + '1' + '0000'),
+          { len: lMgv4.length, tail: JSON.stringify(lMgv4.slice(-30)) });
+
+        // 47i.5) config inexistente → 422; RBAC sem grant → 403.
+        const g404 = await fetch(`${base}/${BA}/gerar/999`, { method: 'POST', headers: H });
+        const rb = await fetch(`${base}/${BA}/configs`, { headers: H_SEM_ACESSO });
+        check('BALANÇA: config inexistente → 422; configs sem grant RBAC → 403',
+          g404.status === 422 && ((await g404.json().catch(() => ({}))) as any).code === 'CONFIG_BALANCA_NAO_ENCONTRADA' && rb.status === 403,
+          { g404: g404.status, rb: rb.status });
+
+        // cleanup: tira os produtos da balança p/ não interferir noutras seções.
+        await pgBa.query(`UPDATE produtos SET balanca='N' WHERE idproduto IN (990300,990301,990302,990303,990304,990305)`);
+      } finally {
+        await pgBa.end();
+      }
+    }
+
     // 48) PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela: agregado header+itens (sem efeitos) + workflow FECHADO.
     const pgPed = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const PED = 'compras/pedidos';
