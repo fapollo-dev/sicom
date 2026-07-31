@@ -4117,6 +4117,32 @@ async function main() {
         const cod2 = Number(((await cr2.json().catch(() => ({}))) as any).codproducao);
         const rb = await fetch(`${base}/${PR}/${cod2}/processar`, { method: 'POST', headers: H_SEM_ACESSO });
         check('PRODUÇÃO: processar sem grant RBAC → 403', rb.status === 403, { status: rb.status });
+
+        // 47f.8) HARDENING TOCTOU (fix do motor): um PUT que corre com o processamento não pode substituir os itens de
+        // um doc que virou 'P' na janela. Simula o processar segurando o lock do master + status='P' (txn crua não
+        // commitada), dispara o PUT (que trava no FOR UPDATE de pertenceAEmpresa), commita a crua e confere: o PUT
+        // desbloqueia, revalida DENTRO da txn e vê 'P' → 422 PRODUCAO_PROCESSADA (sem o fix, o PUT gravaria 200).
+        const crRace = await fetch(`${base}/${PR}`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idprodutos: ACAB, qtde: 2 }] }) });
+        const codRace = Number(((await crRace.json().catch(() => ({}))) as any).codproducao);
+        const cliA = await pgPr.connect();
+        let putRace: Response;
+        try {
+          await cliA.query('BEGIN');
+          await cliA.query('SELECT codproducao FROM producao WHERE codproducao=$1 FOR UPDATE', [codRace]);
+          await cliA.query(`UPDATE producao SET status='P' WHERE codproducao=$1`, [codRace]); // "processado" na janela
+          const putP = fetch(`${base}/${PR}/${codRace}`, { method: 'PUT', headers: H, body: JSON.stringify({ itens: [{ idprodutos: ACAB, qtde: 999 }] }) });
+          await new Promise((r) => setTimeout(r, 400)); // deixa o PUT chegar ao FOR UPDATE e BLOQUEAR
+          await cliA.query('COMMIT'); // libera o lock com status='P' commitado
+          putRace = await putP; // o PUT desbloqueia, revalida dentro da txn
+        } finally {
+          cliA.release();
+        }
+        const nItensRace = Number((await pgPr.query(`SELECT count(*)::int n FROM itens_producao WHERE codproducao=$1`, [codRace])).rows[0].n);
+        const it0Race = (await pgPr.query(`SELECT qtde FROM itens_producao WHERE codproducao=$1 ORDER BY coditenprod LIMIT 1`, [codRace])).rows[0] as any;
+        check('PRODUÇÃO: TOCTOU fechado → PUT correndo c/ processamento (doc virou P na janela) → 422 PRODUCAO_PROCESSADA; itens NÃO substituídos (qtde 2, não 999)',
+          putRace.status === 422 && ((await putRace.json().catch(() => ({}))) as any).code === 'PRODUCAO_PROCESSADA'
+          && nItensRace === 1 && Number(it0Race?.qtde) === 2,
+          { status: putRace.status, nItens: nItensRace, qtde: it0Race?.qtde });
       } finally {
         await pgPr.end();
       }

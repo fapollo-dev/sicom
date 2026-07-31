@@ -61,10 +61,14 @@ export class AggregateEngineService extends CrudEngineService {
   /** atualiza o master (delta+stamp+histórico+outbox) e SUBSTITUI os itens, numa transação. */
   async updateAggregate(cfg: AggregateConfig, id: number, dto: Record<string, unknown>): Promise<void> {
     const op = currentTenant().operadorId ?? null;
-    if (cfg.validar) await cfg.validar({ dto, id, db: this.dbp.forTenantRead() }); // regra cross-row antes de gravar
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      // escopo multi-tenant (fail-closed): guarda master E cascata de detalhes (que deletam por fk).
-      if (!(await this.pertenceAEmpresa(trx, cfg, id))) return;
+      // trava o master FOR UPDATE + guarda de posse multi-tenant. O lock SERIALIZA este update contra os passos
+      // verticais (processar/aplicar/fechar/baixar) que também travam o master → fecha a janela TOCTOU em que um doc
+      // que virou 'P'/aplicado NA JANELA teria seus itens substituídos aqui (e o snapshot cascateado por ON DELETE).
+      if (!(await this.pertenceAEmpresa(trx, cfg, id, true))) return;
+      // `validar` roda AQUI — DENTRO da txn e APÓS o lock (não mais antes) — lendo via `trx`: um doc que virou
+      // processado/aplicado enquanto esperávamos o lock é visto por esta leitura, então o guard de status barra a edição.
+      if (cfg.validar) await cfg.validar({ dto, id, db: trx });
       const d = this.delta(cfg, this.derivados(cfg, dto, id)); // derivar (ex.: flags COMPOSICAO/DECOMPOSICAO) também no update
       const antes =
         cfg.historico === false || !Object.keys(d).length
@@ -127,11 +131,12 @@ export class AggregateEngineService extends CrudEngineService {
 
   /** exclui o agregado em CASCATA (itens primeiro, depois master), numa transação. */
   async removeAggregate(cfg: AggregateConfig, id: number): Promise<void> {
-    if (cfg.validarRemocao) await cfg.validarRemocao({ id, db: this.dbp.forTenantRead() }); // guarda de exclusão (cross-row)
     const op = currentTenant().operadorId ?? null;
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      // escopo multi-tenant (fail-closed): guarda master E cascata de detalhes (que deletam por fk).
-      if (!(await this.pertenceAEmpresa(trx, cfg, id))) return;
+      // trava o master + posse (ver updateAggregate): fecha a mesma janela p/ a EXCLUSÃO vs passo vertical —
+      // `validarRemocao` roda dentro da txn após o lock, então excluir um doc aplicado/processado na janela é barrado.
+      if (!(await this.pertenceAEmpresa(trx, cfg, id, true))) return;
+      if (cfg.validarRemocao) await cfg.validarRemocao({ id, db: trx });
       // cascata em código (como TfrmCadMasterDet) — não depende do ON DELETE CASCADE
       for (const det of cfg.detalhes) await trx.deleteFrom(det.tabela).where(det.fk, '=', id).execute();
       if (cfg.softDelete) {

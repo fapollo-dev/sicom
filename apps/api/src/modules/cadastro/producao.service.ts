@@ -19,10 +19,9 @@ const r3 = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000; // num
  * posterior de outra origem). Balde ÚNICO `estoque.qtde` (o ESTOQUE_PROD + Transferência do legado netam a zero no
  * balde real — colapsados). Linhas de SERVIÇO da receita (servico='S') não movem estoque. Tenant fail-closed: o
  * estoque move SEMPRE na empresa do operador (emp), nunca numa empresa vinda do dado (fold auditoria [CRÍTICO]).
- * TOCTOU aceito (minimal, como o Scrap): o `validar` do agregado lê o status fora da txn de escrita — um PUT que
- * corra EXATAMENTE com um processar poderia, no instante da janela, apagar o snapshot (cascata). Blast-radius só via
- * chamadas de API concorrentes no MESMO doc (o front bloqueia editar processado); a correção estrutural é um FOR
- * UPDATE no updateAggregate do motor (cross-cutting, adiado).
+ * TOCTOU FECHADO no motor: o `updateAggregate`/`removeAggregate` agora travam o master FOR UPDATE e rodam o
+ * `validar`/`validarRemocao` DENTRO da txn (após o lock), serializando contra este `processar` (que também trava o
+ * master) — um PUT que corra com o processamento vê o status='P' e é barrado, sem apagar o snapshot por cascata.
  */
 @Injectable()
 export class ProducaoService {

@@ -195,14 +195,22 @@ export class CrudEngineService {
     trx: AnyDB,
     cfg: { tabela: string; pk: string; empresaScoped?: boolean },
     id: number,
+    lock = false, // FOR UPDATE no master: serializa update/remove contra os passos verticais (processar/aplicar/
+    //                fechar/baixar) que também travam o master → fecha a janela TOCTOU do agregado.
   ): Promise<boolean> {
-    if (!cfg.empresaScoped) return true;
-    const r = await trx
+    if (!cfg.empresaScoped) {
+      if (!lock) return true;
+      // não-scoped mas com lock pedido: trava a linha mesmo assim p/ serializar escritores concorrentes.
+      const r0 = await trx.selectFrom(cfg.tabela).select(cfg.pk).where(cfg.pk, '=', id).forUpdate().executeTakeFirst();
+      return !!r0;
+    }
+    let qb = trx
       .selectFrom(cfg.tabela)
       .select(cfg.pk)
       .where(cfg.pk, '=', id)
-      .where('idempresa', '=', this.emp())
-      .executeTakeFirst();
+      .where('idempresa', '=', this.emp());
+    if (lock) qb = qb.forUpdate();
+    const r = await qb.executeTakeFirst();
     return !!r;
   }
 
