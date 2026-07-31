@@ -23,6 +23,8 @@ import { ControleContasController } from './controle-contas.controller';
 import { ControleContasService } from './controle-contas.service';
 import { ExportaBalancaController } from './exporta-balanca.controller';
 import { ExportaBalancaService } from './exporta-balanca.service';
+import { AjustePrecosController } from './ajuste-precos.controller';
+import { AjustePrecosService } from './ajuste-precos.service';
 import { OperadorasAggregateController } from './operadoras.aggregate';
 import { CartaoCrudController } from './cartao.crud';
 import { CartaoBaixaController } from './cartao-baixa.controller';
@@ -140,6 +142,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     EtiquetaController, // ETIQUETAS DE PREÇO (fila do coletor + preço/promo server-auth de MULTI_PRECO + imprimir)
     ControleContasController, // CONTROLE DE CONTAS CORRENTES (lançamento manual + transferência 2-legged + estorno; razão mov_contas_bancarias)
     ExportaBalancaController, // EXPORTAR P/ BALANÇA (arquivos PLU Toledo TXITENS/CADASTRO/ITENSMGV p/ download)
+    AjustePrecosController, // AJUSTE DE PREÇOS - LOTE (processa a fila lote_preco → multi_preco + grupo de preço + histórico)
     OperadorasAggregateController, // CARTÕES: administradora/adquirente + taxa por-empresa (operadoras+operadoras_taxa)
     CartaoCrudController, // CARTÕES: recebível (consulta/cadastro; líquido+vencimento computados na view get_cartao)
     CartaoBaixaController, // CARTÕES corte-2: baixa/liquidação em lote (credita mov_contas_bancarias) + estorno
@@ -180,6 +183,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     EtiquetaService,
     ControleContasService,
     ExportaBalancaService,
+    AjustePrecosService,
     TrocaService,
     CartaoBaixaService,
     ConciliacaoBancariaService,

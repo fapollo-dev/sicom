@@ -4381,6 +4381,97 @@ async function main() {
       }
     }
 
+    // 47j) AJUSTE DE PREÇOS - LOTE (FRMAJUSTEPRECOS) — processa a fila lote_preco → multi_preco (+ grupo de preço,
+    // histórico, reset de etiqueta via trigger).
+    {
+      const pgAp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const AP = 'cadastro/ajuste-precos';
+        // 990400 (grupo de preço 77) + 990401 (MESMO grupo → recebe o preço por propagação) + 990402 (sem grupo).
+        await pgAp.query(`INSERT INTO familias_prod (codfamilia, tipo, descricao) VALUES (77,'R','GRUPO PRECO TESTE') ON CONFLICT (codfamilia) DO NOTHING`);
+        await pgAp.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, codgrupopreco) VALUES
+          (990400,'7899000990400','LEITE INTEGRAL 1L','UN',2,'T01','S',77),
+          (990401,'7899000990401','LEITE INTEGRAL 1L (IRMAO)','UN',2,'T01','S',77),
+          (990402,'7899000990402','ACHOCOLATADO 400G','UN',2,'T01','S',NULL)
+          ON CONFLICT (idproduto) DO UPDATE SET codgrupopreco=EXCLUDED.codgrupopreco`);
+        await pgAp.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrcusto, promocao, etq_impressa) VALUES
+          (990400,1,5.00,3.00,'N','S'),(990401,1,5.00,3.00,'N','S'),(990402,1,9.00,6.00,'N','S')
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda=EXCLUDED.vrvenda, vrcusto=EXCLUDED.vrcusto, promocao='N', vrpromo=NULL, etq_impressa='S'`);
+        // lotes: A=990400 novo preço 6,49 + markup 40 (propaga ao 990401); B=990402 promo 7,20 (alteroupromocao='S');
+        // C=990402 vrvenda 0 (marca processado mas NÃO aplica — fiel); D fica pendente p/ o teste de exclusão.
+        const lote = async (pid: number, vr: number, extra = '') => Number((await pgAp.query(
+          `INSERT INTO lote_preco (idproduto, codempresa, vrvenda, obs, datalote ${extra ? ', ' + extra.split('=')[0] : ''}) VALUES ($1,1,$2,'REFERENTE AO AJUSTE NO CADASTRO DO PRODUTO REALIZADO PELO OPERADOR: SMOKE', now() ${extra ? ', ' + extra.split('=')[1] : ''}) RETURNING codlotepreco`,
+          [pid, vr])).rows[0].codlotepreco);
+        const loteA = Number((await pgAp.query(`INSERT INTO lote_preco (idproduto, codempresa, vrvenda, markup, obs, datalote) VALUES (990400,1,6.49,40,'REFERENTE AO AJUSTE NO CADASTRO DO PRODUTO REALIZADO PELO OPERADOR: SMOKE',now()) RETURNING codlotepreco`)).rows[0].codlotepreco);
+        const loteB = Number((await pgAp.query(`INSERT INTO lote_preco (idproduto, codempresa, vrvenda, promocao, vrpromo, alteroupromocao, obs, datalote) VALUES (990402,1,9.90,'S',7.20,'S','REFERENTE AO PEDIDO DE NRO. 123',now()) RETURNING codlotepreco`)).rows[0].codlotepreco);
+        const loteC = await lote(990402, 0);
+        const loteD = await lote(990400, 8.88);
+
+        // 47j.1) fila: os 4 lotes pendentes, com preço ATUAL ao lado + filtro por origem (PEDIDO → só o loteB).
+        const fila = (await (await fetch(`${base}/${AP}/fila`, { headers: H })).json().catch(() => [])) as any[];
+        const fA = fila.find((l) => Number(l.codlotepreco) === loteA);
+        const filaPed = (await (await fetch(`${base}/${AP}/fila?origem=PEDIDO`, { headers: H })).json().catch(() => [])) as any[];
+        check('AJUSTE-PREÇO: fila lista pendentes com preço ATUAL (990400: novo 6,49 × atual 5,00; grupo 77) + filtro origem PEDIDO isola o lote do pedido',
+          Array.isArray(fila) && fila.length >= 4 && fA && Number(fA.vrvenda) === 6.49 && Number(fA.preco_atual) === 5 && Number(fA.codgrupopreco) === 77
+          && filaPed.length === 1 && Number(filaPed[0].codlotepreco) === loteB,
+          { n: fila.length, fA: { novo: fA?.vrvenda, atual: fA?.preco_atual }, ped: filaPed.length });
+
+        // 47j.2) processar A+B+C: A aplica 6,49 no 990400 + markup 40 + PROPAGA ao 990401 (mesmo grupo); B aplica
+        // 9,90 + promo 7,20 (alteroupromocao='S'); C marca processado mas NÃO aplica (vrvenda 0).
+        const pr = await fetch(`${base}/${AP}/processar`, { method: 'POST', headers: H, body: JSON.stringify({ ids: [loteA, loteB, loteC] }) });
+        const prJ = (await pr.json().catch(() => ({}))) as any;
+        const mp = async (id: number) => (await pgAp.query(`SELECT vrvenda, markup, promocao, vrpromo, etq_impressa, dtultprecoalterado FROM multi_preco WHERE idproduto=$1 AND idempresa=1`, [id])).rows[0] as any;
+        const m400 = await mp(990400), m401 = await mp(990401), m402 = await mp(990402);
+        const stC = (await pgAp.query(`SELECT processado, processado_manual FROM lote_preco WHERE codlotepreco=$1`, [loteC])).rows[0] as any;
+        check('AJUSTE-PREÇO: processar → 990400 vrvenda 6,49 + markup 40; PROPAGAÇÃO grupo 77 → 990401 também 6,49; 990402 9,90 + promo S/7,20; lote sem preço marcado mas NÃO aplicado',
+          pr.status === 200 && Number(prJ.processados) === 3 && Number(prJ.aplicados) === 2 && Number(prJ.propagados) === 1 && Number(prJ.pulados_sem_preco) === 1
+          && Number(m400.vrvenda) === 6.49 && Number(m400.markup) === 40
+          && Number(m401.vrvenda) === 6.49
+          && Number(m402.vrvenda) === 9.9 && m402.promocao === 'S' && Number(m402.vrpromo) === 7.2
+          && stC?.processado === 'S' && stC?.processado_manual === 'S',
+          { prJ, m400: { v: m400.vrvenda, mk: m400.markup }, m401: m401.vrvenda, m402: { v: m402.vrvenda, p: m402.promocao, vp: m402.vrpromo } });
+
+        // 47j.3) TRIGGER fiel ao ATUALIZAPROD: preço mudou → etq_impressa resetada p/ 'N' + dtultprecoalterado
+        // carimbada (nos 3 produtos, incl. o propagado). E o histórico_dinamico ganhou o log VRVENDA anterior→atual.
+        const hist = (await pgAp.query(`SELECT campo, valor_anterior, valor_atual, valor_chave, historico FROM historico_dinamico WHERE tabela='MULTI_PRECO' AND valor_chave='990401' ORDER BY codhistorico DESC LIMIT 1`)).rows[0] as any;
+        // fold auditoria: o histórico é UMA linha por LOTE, do produto DO LOTE (o propagado 990401 NÃO gera linha —
+        // golden: 31.108/31.112 lotes têm exatamente 1), no formato do legado (vírgula 2dp) e com ORIGEM NULL.
+        const histA = (await pgAp.query(`SELECT campo, valor_anterior, valor_atual, valor_chave, historico, origem FROM historico_dinamico WHERE tabela='MULTI_PRECO' AND historico LIKE $1 ORDER BY codhistorico DESC`, [`%lote de preço Nro: ${loteA}%`])).rows as any[];
+        const histProp = Number((await pgAp.query(`SELECT count(*)::int n FROM historico_dinamico WHERE tabela='MULTI_PRECO' AND valor_chave='990401'`)).rows[0].n);
+        check('AJUSTE-PREÇO trigger+log: etq_impressa resetada N nos 3 (incl. propagado) + dtultprecoalterado carimbada + histórico 1 linha/lote (5,00→6,49 vírgula-2dp, origem NULL) e NADA p/ o propagado',
+          m400.etq_impressa === 'N' && m401.etq_impressa === 'N' && m402.etq_impressa === 'N'
+          && m400.dtultprecoalterado != null && m401.dtultprecoalterado != null
+          && histA.length === 1 && histA[0].campo === 'VRVENDA' && histA[0].valor_anterior === '5,00' && histA[0].valor_atual === '6,49'
+          && histA[0].valor_chave === '990400' && histA[0].origem == null && histProp === 0,
+          { etq: [m400.etq_impressa, m401.etq_impressa, m402.etq_impressa], histA: histA[0], nHistA: histA.length, histProp });
+
+        // 47j.3b) LAST-WINS: 2 lotes pendentes do MESMO produto com preços diferentes → o de MAIOR codlotepreco vence
+        // (golden: 134 pares pendentes divergem — o resultado é order-sensitive). Envia fora de ordem de propósito.
+        const lw1 = Number((await pgAp.query(`INSERT INTO lote_preco (idproduto, codempresa, vrvenda, obs, datalote) VALUES (990402,1,11.11,'LW1',now()) RETURNING codlotepreco`)).rows[0].codlotepreco);
+        const lw2 = Number((await pgAp.query(`INSERT INTO lote_preco (idproduto, codempresa, vrvenda, obs, datalote) VALUES (990402,1,22.22,'LW2',now()) RETURNING codlotepreco`)).rows[0].codlotepreco);
+        await fetch(`${base}/${AP}/processar`, { method: 'POST', headers: H, body: JSON.stringify({ ids: [lw2, lw1] }) }); // ordem invertida
+        const m402lw = await mp(990402);
+        check('AJUSTE-PREÇO: 2 lotes do mesmo produto (ids fora de ordem) → vence o de MAIOR codlotepreco (22,22)',
+          Number(m402lw.vrvenda) === 22.22 && lw2 > lw1, { vr: m402lw.vrvenda, lw1, lw2 });
+
+        // 47j.4) reprocessar → 422 LOTE_JA_PROCESSADO; excluir (soft) o pendente D → sai da fila (indr='E').
+        const re = await fetch(`${base}/${AP}/processar`, { method: 'POST', headers: H, body: JSON.stringify({ ids: [loteA] }) });
+        const ex = await fetch(`${base}/${AP}/excluir`, { method: 'POST', headers: H, body: JSON.stringify({ ids: [loteD] }) });
+        const filaFim = (await (await fetch(`${base}/${AP}/fila`, { headers: H })).json().catch(() => [])) as any[];
+        check('AJUSTE-PREÇO: reprocessar → 422 LOTE_JA_PROCESSADO; excluir (soft indr=E) tira o lote da fila',
+          re.status === 422 && ((await re.json().catch(() => ({}))) as any).code === 'LOTE_JA_PROCESSADO'
+          && ex.status === 200 && Number(((await ex.json().catch(() => ({}))) as any).excluidos) === 1
+          && !filaFim.some((l) => Number(l.codlotepreco) === loteD),
+          { re: re.status, filaFim: filaFim.length });
+
+        // 47j.5) RBAC: processar sem grant → 403.
+        const rb = await fetch(`${base}/${AP}/processar`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ ids: [loteD] }) });
+        check('AJUSTE-PREÇO: processar sem grant RBAC → 403', rb.status === 403, { status: rb.status });
+      } finally {
+        await pgAp.end();
+      }
+    }
+
     // 48) PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela: agregado header+itens (sem efeitos) + workflow FECHADO.
     const pgPed = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const PED = 'compras/pedidos';

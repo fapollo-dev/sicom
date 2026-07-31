@@ -38,6 +38,7 @@ import { ProducaoPage } from '../features/producao/ProducaoPage';
 import { EtiquetaPage } from '../features/etiqueta/EtiquetaPage';
 import { ControleContasPage } from '../features/controle-contas/ControleContasPage';
 import { ExportaBalancaPage } from '../features/exporta-balanca/ExportaBalancaPage';
+import { AjustePrecosPage } from '../features/ajuste-precos/AjustePrecosPage';
 import { CartaoPage } from '../features/cartao/CartaoPage';
 import { OperadorasPage } from '../features/cartao/OperadorasPage';
 import { TrocaPage } from '../features/troca/TrocaPage';
@@ -84,6 +85,7 @@ export const router = createBrowserRouter([
       { path: '/estoque/producao', element: <ProducaoPage /> }, // produção/manufatura (explode receita → baixa ingredientes + entra acabado)
       { path: '/estoque/etiquetas', element: <EtiquetaPage /> }, // etiquetas de preço (fila do coletor + preço/promo MULTI_PRECO + imprimir Code-128)
       { path: '/estoque/balanca', element: <ExportaBalancaPage /> }, // exporta PLUs p/ balança Toledo (TXITENS/CADASTRO/ITENSMGV download)
+      { path: '/estoque/ajuste-precos', element: <AjustePrecosPage /> }, // ajuste de preços - lote (processa a fila lote_preco → multi_preco)
       { path: '/financeiro/cartoes', element: <CartaoPage /> }, // recebíveis de cartão (consulta + cadastro; líquido/venc computados)
       { path: '/cadastro/operadoras', element: <OperadorasPage /> }, // administradora/adquirente + taxa por-empresa
       { path: '/financeiro/conciliacao', element: <ConciliacaoBancariaPage /> }, // conciliação bancária OFX × razão interno

@@ -135,7 +135,14 @@ export const produtoAggregateConfig: AggregateConfig = {
       colunas: [
         'idempresa', 'vrcusto', 'vrcustorep', 'markup', 'vrvenda', 'vrpromo',
         'promocao', 'margeml', 'aliquotasaida', 'ativo', 'ativo_compra',
+        // OWNED pelo banco/outros módulos — entram em `colunas` APENAS p/ serem PRESERVADAS no substitute
+        // (delete+insert), como o `qtde` do estoque. Fold auditoria: sem isso, todo save do produto ZERAVA
+        // etq_impressa (a etiqueta perdia o "precisa reimprimir"), dtultprecoalterado e codagenda (quebrando o
+        // reverter da agenda de promoção, que casa por codagenda).
+        'etq_impressa', 'dtultprecoalterado', 'codagenda',
       ],
+      chaveNatural: ['idempresa'],
+      preservar: ['etq_impressa', 'dtultprecoalterado', 'codagenda'],
     },
     // F3 — ESTOQUE: saldo por empresa, na MESMA form. REGRA: qtde (saldo) é movido por
     // transação (NF/vendas/ajuste) — read-only no cadastro; só minimo/maximo/local editáveis.
