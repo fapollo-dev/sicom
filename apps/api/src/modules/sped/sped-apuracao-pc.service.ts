@@ -23,7 +23,7 @@ export class SpedApuracaoPcService {
     return e;
   }
 
-  async apurar(dtini: string, dtfim: string): Promise<{ codapuracao_pc: number; grupos: number; total_credito_pis: number; total_credito_cofins: number; grupos_debito: number; total_debito_pis: number; total_debito_cofins: number }> {
+  async apurar(dtini: string, dtfim: string): Promise<{ codapuracao_pc: number; grupos: number; total_credito_pis: number; total_credito_cofins: number; grupos_debito: number; total_debito_pis: number; total_debito_cofins: number; grupos_isento: number; total_receita_nao_tributada: number }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
@@ -183,6 +183,65 @@ export class SpedApuracaoPcService {
         totDebCofins += vCof;
       }
 
+      // RECEITA NÃO-TRIBUTADA (isenta/alíquota-zero/monofásica → M400/M410 PIS + M800/M810). Fiel a sqqBaseIsenta:
+      // a receita de SAÍDA SEM débito de PIS E de COFINS (complemento do filtro do débito), agrupada por (CST_PIS,
+      // CST_COFINS). Base = VL_OPR ≈ qtd×vrvenda − descontos (corte-1b fiel: falta o IAT/acréscimo e o abatimento de
+      // ICMS por GET_CONFIG_ABATER_ICMS_PC — mesmo diferimento do débito). Fonte VENDAS/NFC-e (mod-55 não-tributada
+      // = corte-1b, como a BaseIsenta do legado é NFC-e). Grava tipo='I' (o generator emite M400 por CST_PIS, M800
+      // por CST_COFINS). Materialmente relevante p/ supermercado (cesta básica CST 06, monofásico CST 04).
+      const gruposIsentos = (await trx
+        .selectFrom('vendas')
+        .select([
+          sql`coalesce(nullif(trim(pis_cst),''),'06')`.as('cstpis'),
+          sql`coalesce(nullif(trim(cofins_cst),''),'06')`.as('cstcofins'),
+          sql`round(coalesce(sum(qtde * vrvenda - coalesce(desc_promocao,0) - coalesce(desc_departamento,0)),0),2)`.as('base'),
+        ])
+        .where('idempresa', '=', emp)
+        .where(sql`coalesce(venda_nfc,'N')`, '=', 'S')
+        .where(sql`coalesce(cancelado,'N')`, '<>', 'S')
+        .where(sql`coalesce(statusnfe,'')`, '=', 'P')
+        .where('chavenfe', 'is not', null)
+        .where(sql`dtvenda`, '>=', d0)
+        .where(sql`dtvenda`, '<', d1)
+        .where(sql`coalesce(pis_aliquota,0)`, '=', 0) // sem débito de PIS
+        .where(sql`coalesce(cofins_aliquota,0)`, '=', 0) // e sem débito de COFINS
+        // ao menos um CST no domínio da receita não-tributada {04..09} (fold auditoria [ALTA]): descarta linha "suja"
+        // (CST tributado 01/49/50 rungado com alíq 0) que não é receita isenta e faria o PVA rejeitar o M400/M800.
+        .where((eb) =>
+          eb.or([
+            eb(sql`coalesce(nullif(trim(pis_cst),''),'06')`, 'in', ['04', '05', '06', '07', '08', '09']),
+            eb(sql`coalesce(nullif(trim(cofins_cst),''),'06')`, 'in', ['04', '05', '06', '07', '08', '09']),
+          ]),
+        )
+        .groupBy([sql`coalesce(nullif(trim(pis_cst),''),'06')`, sql`coalesce(nullif(trim(cofins_cst),''),'06')`])
+        .execute()) as Array<{ cstpis: string; cstcofins: string; base: unknown }>;
+
+      let totIsento = 0;
+      for (const g of gruposIsentos) {
+        const base = Number(g.base) || 0;
+        if (base <= 0) continue; // só receita positiva (fiel: GeraRegistroM400 sai se pTotalCST=0)
+        await trx
+          .insertInto('apuracao_pc_det')
+          .values({
+            codapuracao_pc,
+            tipo: 'I',
+            id_tipocredito: null,
+            id_basecredito: null,
+            idpiscofins: null,
+            // fold auditoria [BAIXA]: CST não-numérico ('AA') → null (senão Number()=NaN estoura o INSERT no integer);
+            // o generator filtra o domínio {04..09}, então CST-null é inócuo (nunca vira M400/M800).
+            cst_pis: Number.isFinite(Number(g.cstpis)) ? Number(g.cstpis) : null,
+            cst_cofins: Number.isFinite(Number(g.cstcofins)) ? Number(g.cstcofins) : null,
+            basecalculo: base,
+            aliqpis: 0,
+            valorpis: 0,
+            aliqcofins: 0,
+            valorcofins: 0,
+          })
+          .execute();
+        totIsento += base;
+      }
+
       return {
         codapuracao_pc,
         grupos: grupos.length,
@@ -191,6 +250,8 @@ export class SpedApuracaoPcService {
         grupos_debito: gruposDeb.length + gruposDebNf.length,
         total_debito_pis: r2(totDebPis),
         total_debito_cofins: r2(totDebCofins),
+        grupos_isento: gruposIsentos.filter((g) => (Number(g.base) || 0) > 0).length,
+        total_receita_nao_tributada: r2(totIsento),
       };
     });
   }

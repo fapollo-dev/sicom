@@ -31,7 +31,7 @@ export interface ResultadoValidacao {
 const CAMPOS_ESPERADOS: Record<string, number> = {
   '0000': 13, '0001': 1, '0110': 4, '0140': 8, '0150': 12, '0190': 2, '0200': 12, '0990': 1,
   C001: 1, C010: 2, C100: 28, C170: 37, C175: 17, C990: 1,
-  M001: 1, M100: 14, M105: 9, M200: 12, M205: 3, M210: 15, M500: 14, M505: 9, M600: 12, M605: 3, M610: 15, M990: 1,
+  M001: 1, M100: 14, M105: 9, M200: 12, M205: 3, M210: 15, M400: 4, M410: 4, M500: 14, M505: 9, M600: 12, M605: 3, M610: 15, M800: 4, M810: 4, M990: 1,
   '9001': 1, '9900': 2, '9990': 1, '9999': 1,
 };
 
@@ -153,6 +153,11 @@ export function validarSped(arquivo: string): ResultadoValidacao {
   for (const r of regs.filter((x) => x.reg === 'M105' || x.reg === 'M505')) {
     // CST_PIS/CST_COFINS é OBRIGATÓRIO no detalhe de crédito.
     if ((r.campos[1] ?? '') === '') erros.push(`${r.reg} (linha ${r.linha}): CST vazio (obrigatório no detalhe de crédito)`);
+  }
+  // M400/M800: CST_PIS/CST_COFINS da receita NÃO-tributada ∈ {04,05,06,07,08,09} (fold auditoria [ALTA]: CST fora
+  // do domínio — ex. 01/49/50 rungado com alíq 0 — faz o PVA rejeitar; a contagem de campos NÃO pega).
+  for (const r of regs.filter((x) => x.reg === 'M400' || x.reg === 'M800')) {
+    if (!emDominio(r.campos[0], ['04', '05', '06', '07', '08', '09'])) erros.push(`${r.reg} (linha ${r.linha}): CST '${r.campos[0]}' fora do domínio da receita não-tributada {04,05,06,07,08,09}`);
   }
 
   return { ok: erros.length === 0, erros, registros: regs.length };

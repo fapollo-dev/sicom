@@ -6217,7 +6217,34 @@ async function main() {
         check('SPED §88.7 cutover golden: 0000 IND_ATIV=2 + 0110 LR |1|1|1| (COD_TIPO_CONT=1) + M100 IND_CRED_ORI=0 (domínios PVA)',
           r0000.endsWith('|00|2|') && r0110 === '|0110|1|1|1||' && /^\|M100\|[^|]*\|0\|/.test(m100S),
           { r0000: r0000.slice(-16), r0110, m100: m100S.slice(0, 18) });
-        await pgSp.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-01' AND dtvenda < '2026-10-01'`); // cleanup
+        // 88.8) RECEITA NÃO-TRIBUTADA (M400/M410 PIS + M800/M810 COFINS) — supermercado: cesta básica (CST 06 alíq 0)
+        // + monofásico (CST 04). Período 2026-10 ISOLADO. CST 06: 10×5=50 + (4×25 − desc 10)=90 → 140; CST 04: 2×30=60.
+        // + 1 venda TRIBUTADA (CST 01, base 100) p/ o período ter débito também. total não-tributado = 200.
+        await pgSp.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, cfop, venda_nfc, cancelado, statusnfe, chavenfe, pis_cst, pis_aliquota, cofins_cst, cofins_aliquota, desc_promocao) VALUES
+          (1,'2026-10-05 10:00:00-03','001',201,1,1,10, 5,5102,'S','N','P','35261000000000000000000000000000000000000201','06',0,'06',0,0),
+          (1,'2026-10-05 10:00:00-03','001',201,2,1, 4,25,5102,'S','N','P','35261000000000000000000000000000000000000201','06',0,'06',0,10),
+          (1,'2026-10-06 11:00:00-03','001',202,1,1, 2,30,5405,'S','N','P','35261000000000000000000000000000000000000202','04',0,'04',0,0),
+          (1,'2026-10-07 12:00:00-03','001',203,1,1, 1,100,5102,'S','N','P','35261000000000000000000000000000000000000203','01',1.65,'01',7.60,0),
+          (1,'2026-10-08 09:00:00-03','001',204,1,1, 1, 33,5102,'S','N','P','35261000000000000000000000000000000000000204','50',0,'50',0,0)`); // linha SUJA: CST 50 tributado c/ alíq 0 → NÃO pode virar M400 (fold [ALTA])
+        const apurI = await fetch(`${base}/fiscal/sped/apuracao-pc`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-10-01', dtfim: '2026-10-31' }) });
+        const apurIJ = (await apurI.json().catch(() => ({}))) as any;
+        const efdI = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-10-01', dtfim: '2026-10-31' }) });
+        const efdIJ = (await efdI.json().catch(() => ({}))) as any;
+        const linI = String(efdIJ.arquivo ?? '').split('\r\n');
+        const m400_06 = linI.find((l) => l.startsWith('|M400|06|')) ?? '';
+        const m400_04 = linI.find((l) => l.startsWith('|M400|04|')) ?? '';
+        const m800_06 = linI.find((l) => l.startsWith('|M800|06|')) ?? '';
+        const m410 = linI.filter((l) => l.startsWith('|M410|'));
+        const m810 = linI.filter((l) => l.startsWith('|M810|'));
+        const m400Sujo = linI.some((l) => l.startsWith('|M400|50|') || l.startsWith('|M800|50|')); // fold [ALTA]: CST 50 NÃO pode emitir
+        check('SPED §88.8 receita NÃO-tributada: 2 grupos isentos (Σ200, CST 50-suja descartada); M400 CST 06=140,00 + CST 04=60,00 + M410 NAT_REC 999; M800/M810 espelham; CST fora do domínio NÃO emite; validação sem erros',
+          apurI.status === 200 && Number(apurIJ.grupos_isento) === 2 && Number(apurIJ.total_receita_nao_tributada) === 200
+          && m400_06.startsWith('|M400|06|140,00|') && m400_04.startsWith('|M400|04|60,00|')
+          && m800_06.startsWith('|M800|06|140,00|') && m410.length === 2 && m410[0].startsWith('|M410|999|') && m810.length === 2
+          && !m400Sujo && efdIJ.validacao?.ok === true && (efdIJ.validacao?.erros?.length ?? -1) === 0,
+          { apur: { gi: apurIJ.grupos_isento, tot: apurIJ.total_receita_nao_tributada }, m400_06, m400_04, m800_06, m410: m410.length, m400Sujo, val: efdIJ.validacao?.erros });
+
+        await pgSp.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-01' AND dtvenda < '2026-11-01'`); // cleanup 09+10
       } finally {
         await pgSp.end();
       }
