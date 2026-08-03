@@ -4685,6 +4685,131 @@ async function main() {
       }
     }
 
+    // 47m) RELATÓRIO DE VENDAS (FRMRELVENDAS rel 01) — 1º relatório migrado. Certifica as fórmulas do legado.
+    {
+      const pgRv = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const RV = 'relatorios/vendas/produtos-vendidos';
+        await pgRv.query(`INSERT INTO familias_prod (codfamilia, tipo, descricao) VALUES (91,'D','MERCEARIA RV') ON CONFLICT (codfamilia) DO NOTHING`);
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto) VALUES
+          (990700,'7899000990700','ARROZ RV 5KG','FD',2,'T01','S',91),
+          (990701,'7899000990701','FEIJAO RV 1KG','UN',2,'T01','S',91)
+          ON CONFLICT (idproduto) DO UPDATE SET coddpto=91`);
+        // cenário FECHADO (empresa 1, 2026-08-01..02), IAT='A' (100% do golden):
+        //  L1 990700: qtde 10 × 5,00 = 50,00 bruto · desc_acre_medio −3,00 (NEGATIVO → vira DESCONTO 3,00)
+        //  L2 990700: qtde  2 × 5,00 = 10,00 bruto · desc_acre_medio +1,50 (POSITIVO → vira ACRÉSCIMO 1,50)
+        //             + desc_promocao 2,00 · desc_departamento 0,50 → desconto 2,50
+        //  → 990700: bruto 60,00 · acréscimo 1,50 · desconto 5,50 · LÍQUIDO 56,00 · custo 12×3,00 = 36,00
+        //            lucro 20,00 · margem (56/36−1)×100 = 55,56 · rentab (20/56)×100 = 35,71
+        //  L3 990701: qtde 4 × 8,00 = 32,00 · custo 4×6,00 = 24,00 · líquido 32,00 · lucro 8,00
+        //  L4 990701 CANCELADA (qtde 99) → EXCLUÍDA por default
+        //  TOTAIS: venda 88,00 · custo 60,00 · lucro 28,00 · margem (88/60−1)×100 = 46,67 · rentab 31,82
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-08-01' AND dtvenda < '2026-08-03'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, vrcustorep, iat, cfop, cancelado, venda_nfc, statusnfe, desc_acre_medio, desc_promocao, desc_departamento, promocao) VALUES
+          (1,'2026-08-01 10:00:00-03','001',701,1,990700,10,5.00,3.00,3.30,'A',5102,'N','S','P',-3.00,0,0,'N'),
+          (1,'2026-08-01 11:00:00-03','001',702,1,990700, 2,5.00,3.00,3.30,'A',5102,'N','S','P', 1.50,2.00,0.50,'S'),
+          (1,'2026-08-02 09:00:00-03','001',703,1,990701, 4,8.00,6.00,6.60,'A',5102,'N','S','P',    0,   0,   0,'N'),
+          (1,'2026-08-02 09:30:00-03','001',704,1,990701,99,8.00,6.00,6.60,'A',5102,'S','S','P',    0,   0,   0,'N')`);
+
+        const rel = await fetch(`${base}/${RV}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-01', dtfim: '2026-08-02' }) });
+        const relJ = (await rel.json().catch(() => ({}))) as any;
+        const l700 = (relJ.linhas ?? []).find((l: any) => Number(l.idproduto) === 990700);
+        const l701 = (relJ.linhas ?? []).find((l: any) => Number(l.idproduto) === 990701);
+        check('REL-VENDAS: roteamento por SINAL de desc_acre_medio (−3 → desconto, +1,5 → acréscimo) + líquido = bruto+acré−desc (56,00) + custo snapshot 36,00 + lucro 20,00 + margem 55,56 + rentab 35,71',
+          rel.status === 200 && l700
+          && Number(l700.bruto) === 60 && Number(l700.acrescimo) === 1.5 && Number(l700.desc_promocao) === 5.5
+          && Number(l700.total_venda) === 56 && Number(l700.total_custo) === 36 && Number(l700.lucro) === 20
+          && Number(l700.margem) === 55.56 && Number(l700.rentabilidade) === 35.71,
+          { l700 });
+
+        // 47m.2) cancelada EXCLUÍDA por default; unitário de VENDA usa o BRUTO (fiel: VR.VENDA ≠ qtde×unit);
+        // e o GRAND TOTAL recalcula as razões (não soma margens).
+        check('REL-VENDAS: cancelada excluída por default (990701 qtde 4, não 103); unitário pelo BRUTO (60/12=5,00); TOTAIS recalculados (venda 88, custo 60, lucro 28, margem 46,67, rentab 31,82)',
+          l701 && Number(l701.qtde) === 4 && Number(l701.total_venda) === 32
+          && Number(l700.vrvenda_uni) === 5 && Number(l700.vrcusto_uni) === 3
+          && Number(relJ.totais?.total_venda) === 88 && Number(relJ.totais?.total_custo) === 60
+          && Number(relJ.totais?.lucro_bruto) === 28 && Number(relJ.totais?.margem) === 46.67
+          && Number(relJ.totais?.rentabilidade) === 31.82 && Number(relJ.totais?.linhas) === 2,
+          { l701q: l701?.qtde, uni: l700?.vrvenda_uni, totais: relJ.totais });
+
+        // 47m.3) filtros: só canceladas (1 linha, qtde 99) · custo de REPOSIÇÃO (36,00 → 39,60) · promoção 'S'
+        // (só o cupom 702) · departamento 91 traz os 2 · departamento inexistente traz 0.
+        const soCanc = (await (await fetch(`${base}/${RV}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-01', dtfim: '2026-08-02', canceladas: 'S' }) })).json().catch(() => ({}))) as any;
+        const rep = (await (await fetch(`${base}/${RV}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-01', dtfim: '2026-08-02', custoReposicao: true }) })).json().catch(() => ({}))) as any;
+        const prom = (await (await fetch(`${base}/${RV}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-01', dtfim: '2026-08-02', promocao: 'S' }) })).json().catch(() => ({}))) as any;
+        const dpto = (await (await fetch(`${base}/${RV}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-01', dtfim: '2026-08-02', departamentos: [91] }) })).json().catch(() => ({}))) as any;
+        const dptoVazio = (await (await fetch(`${base}/${RV}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-01', dtfim: '2026-08-02', departamentos: [999999] }) })).json().catch(() => ({}))) as any;
+        const rep700 = (rep.linhas ?? []).find((l: any) => Number(l.idproduto) === 990700);
+        check('REL-VENDAS filtros: só-canceladas (1 linha qtde 99) · custo REPOSIÇÃO (36→39,60) · promoção S (só o cupom 702: qtde 2) · departamento 91 (2 linhas) · dpto inexistente (0)',
+          Number(soCanc.totais?.linhas) === 1 && Number(soCanc.linhas?.[0]?.qtde) === 99
+          && Number(rep700?.total_custo) === 39.6
+          && Number(prom.totais?.linhas) === 1 && Number(prom.linhas?.[0]?.qtde) === 2
+          && Number(dpto.totais?.linhas) === 2 && Number(dptoVazio.totais?.linhas) === 0,
+          { canc: soCanc.totais?.linhas, rep: rep700?.total_custo, prom: prom.totais?.linhas, dpto: dpto.totais?.linhas, vazio: dptoVazio.totais?.linhas });
+
+        // 47m.4) período: dia 2 isolado traz só o 990701; período INVERTIDO → 422; sem período → 400 (schema).
+        const dia2 = (await (await fetch(`${base}/${RV}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-02', dtfim: '2026-08-02' }) })).json().catch(() => ({}))) as any;
+        const inv = await fetch(`${base}/${RV}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-02', dtfim: '2026-08-01' }) });
+        const semP = await fetch(`${base}/${RV}`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+        const rb = await fetch(`${base}/${RV}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dtini: '2026-08-01', dtfim: '2026-08-02' }) });
+        check('REL-VENDAS: período por DIA (dia 2 → só 990701) · invertido → 422 PERIODO_INVERTIDO · sem período → 400 · sem grant RBAC → 403',
+          Number(dia2.totais?.linhas) === 1 && Number(dia2.linhas?.[0]?.idproduto) === 990701
+          && inv.status === 422 && ((await inv.json().catch(() => ({}))) as any).code === 'PERIODO_INVERTIDO'
+          && semP.status === 400 && rb.status === 403,
+          { dia2: dia2.totais?.linhas, inv: inv.status, semP: semP.status, rb: rb.status });
+
+        // 47m.5) filtro de HORA (CkHora) = UMA JANELA CONTÍNUA dtini+horaIni → dtfim+horaFim, NÃO uma faixa por dia
+        // (a legenda do legado diz "diariamente", o SQL dele não — uVendas.pas:1805-1806 + :422-423). O 2º caso é o
+        // discriminador: 01/08 10:30 → 02/08 10:00 pega o 702 (dia 1, 11:00) E o 703 (dia 2, 09:00); a faixa-por-dia
+        // (hora >= 10:30 AND hora <= 10:00) seria impossível e traria 0 linhas.
+        const hora = (await (await fetch(`${base}/${RV}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-01', dtfim: '2026-08-01', filtrarHora: true, horaIni: '10:30', horaFim: '12:00' }) })).json().catch(() => ({}))) as any;
+        const janela = (await (await fetch(`${base}/${RV}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-01', dtfim: '2026-08-02', filtrarHora: true, horaIni: '10:30', horaFim: '10:00' }) })).json().catch(() => ({}))) as any;
+        check('REL-VENDAS: hora = janela CONTÍNUA (dia 1 10:30-12:00 → só o 702) e 01/08 10:30→02/08 10:00 atravessa a virada do dia (702 + 703 = 2 linhas; faixa-por-dia daria 0)',
+          Number(hora.totais?.linhas) === 1 && Number(hora.linhas?.[0]?.qtde) === 2
+          && Number(janela.totais?.linhas) === 2 && Number(janela.totais?.total_venda) === 41,
+          { hora: hora.totais, janela: janela.totais });
+
+        // 47m.6) filtro COM/SEM DESCONTO: no legado ele vive no WHERE EXTERNO, logo testa o desconto TOTAL agregado
+        // (DivideFiltros só desce PROMOCAO/IDPROMOCAO — uVendas.pas:3907-3921). A L1 só tem desconto via
+        // desc_acre_medio NEGATIVO: testar a coluna crua desc_promocao a perderia → 990700 sairia com líquido 9,00.
+        const comD = (await (await fetch(`${base}/${RV}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-01', dtfim: '2026-08-02', descontos: 'COM' }) })).json().catch(() => ({}))) as any;
+        const semD = (await (await fetch(`${base}/${RV}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-01', dtfim: '2026-08-02', descontos: 'SEM' }) })).json().catch(() => ({}))) as any;
+        check('REL-VENDAS: COM desconto usa o TOTAL agregado (990700 com as 2 linhas → líquido 56,00, não 9,00) e SEM desconto sobra só o 990701',
+          Number(comD.totais?.linhas) === 1 && Number(comD.linhas?.[0]?.idproduto) === 990700 && Number(comD.linhas?.[0]?.total_venda) === 56
+          && Number(semD.totais?.linhas) === 1 && Number(semD.linhas?.[0]?.idproduto) === 990701,
+          { com: comD.linhas?.[0], sem: semD.totais });
+
+        // 47m.7) nrocupom 0 é IGNORADO (fiel ao `AsInteger > 0`) · data fora do ISO → 400 (não um período errado
+        // silencioso) · hora 99:99 → 400 · resultado não truncado sinaliza truncado=false.
+        const cup0 = (await (await fetch(`${base}/${RV}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-01', dtfim: '2026-08-02', nrocupom: 0 }) })).json().catch(() => ({}))) as any;
+        const dtBr = await fetch(`${base}/${RV}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '01/08/2026', dtfim: '05/08/2026' }) });
+        const horaMa = await fetch(`${base}/${RV}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-01', dtfim: '2026-08-02', filtrarHora: true, horaIni: '99:99', horaFim: '12:00' }) });
+        check('REL-VENDAS: nrocupom 0 ignorado (2 linhas, não 0) · data dd/mm/aaaa → 400 (o PG leria 2026-01-08 e sairia um período de 4 meses) · hora 99:99 → 400 · truncado=false',
+          Number(cup0.totais?.linhas) === 2 && dtBr.status === 400 && horaMa.status === 400 && relJ.filtro?.truncado === false,
+          { cup0: cup0.totais?.linhas, dtBr: dtBr.status, horaMa: horaMa.status, trunc: relJ.filtro?.truncado });
+
+        // 47m.8) IAT ≠ 'A' → TRUNCA (o ramo nunca exercitado: 100% do golden é 'A'); e venda SEM custo → margem e
+        // rentabilidade NULAS (o legado divide por NULLIF → célula em branco), nunca "margem 0,00%".
+        //   o 3º decimal tem de vir da QTDE (vrvenda é numeric(15,2)): 0,5 × 1,11 = 0,555 → trunc 0,55 (round
+        //   daria 0,56) · custo NULL → total_custo 0 → margem null
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto) VALUES
+          (990702,'7899000990702','ACUCAR RV TRUNC','KG',2,'T01','S',91) ON CONFLICT (idproduto) DO UPDATE SET coddpto=91`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-08-03 08:00:00-03','001',705,1,990702,0.5,1.11,NULL,'C',5102,'N','S','P')`);
+        const trunc = (await (await fetch(`${base}/${RV}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-03', dtfim: '2026-08-03' }) })).json().catch(() => ({}))) as any;
+        const l702 = (trunc.linhas ?? []).find((l: any) => Number(l.idproduto) === 990702);
+        check('REL-VENDAS: IAT≠A TRUNCA o bruto (0,5×1,11 = 0,555 → 0,55, não 0,56) · venda sem custo → margem/rentab NULAS + sem_custo sinalizado (o legado divide por NULLIF; 0,00% mentiria "vendido a preço de custo")',
+          Number(l702?.bruto) === 0.55 && Number(l702?.total_venda) === 0.55
+          && l702?.margem === null && trunc.totais?.margem === null && l702?.sem_custo === true
+          && Number(trunc.totais?.sem_custo) === 1,
+          { l702, totais: trunc.totais });
+
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-08-01' AND dtvenda < '2026-08-04'`);
+      } finally {
+        await pgRv.end();
+      }
+    }
+
     // 48) PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela: agregado header+itens (sem efeitos) + workflow FECHADO.
     const pgPed = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const PED = 'compras/pedidos';

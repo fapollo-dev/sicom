@@ -40,6 +40,7 @@ import {
   Scale,
   TrendingUp,
   Calculator,
+  LineChart,
 } from 'lucide-react';
 
 /** Telas do menu lateral (rota → rótulo + ícone). Uma TForm = um item. */
@@ -81,6 +82,7 @@ const TELAS = [
   { href: '/estoque/balanca', name: 'Exportar p/ Balança', icon: Scale },
   { href: '/estoque/ajuste-precos', name: 'Ajuste de Preços', icon: TrendingUp },
   { href: '/estoque/precificacao', name: 'Precificação de Mercadorias', icon: Calculator },
+  { href: '/relatorios/vendas', name: 'Relatório de Vendas', icon: LineChart },
   { href: '/cadastro/motivos-operacao', name: 'Motivos de Operação', icon: ListChecks },
   { href: '/cadastro/plano-contas', name: 'Plano de Contas', icon: Network },
   { href: '/contabil/dre', name: 'DRE', icon: BarChart3 },
