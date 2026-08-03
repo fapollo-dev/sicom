@@ -1,3 +1,5 @@
+import { sql } from 'kysely';
+import { currentTenant } from '../../shared/tenant/tenant-context';
 import { produtoSchema, atualizarProdutoSchema } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
@@ -33,6 +35,86 @@ async function unidadeDoProduto(
  * - `colunas`: todas as editáveis do master (NÃO idproduto/PK, NÃO as colunas de auditoria).
  * - O detalhe `codauxiliares` é substituído (delete+insert) a cada gravação do agregado.
  */
+
+/**
+ * MODO "GERAR LOTE" do preço no form do produto (UCadProduto.pas:3097-3251 + NovoLotePreco:7993). Quando a config
+ * HABILITA_GERACAO_LOTE_PRODUTO='S': para cada linha de preço do dto cujo vrvenda/promocao/vrpromo DIFERE do banco,
+ * (a) ENFILEIRA um lote_preco (ORIGEM='P', OBS com cod-nome do operador, MARKUP só se>0, ALTEROUPROMOCAO='S' quando
+ * a flag de promo mudou, PROCESSADO='N') e (b) **REVERTE** os campos de preço do dto p/ o valor do banco — fiel à
+ * reversão do legado, que grava o multi_preco com o valor ANTIGO e deixa o preço novo pendente na fila.
+ * Expande por GRUPO DE PREÇO (um lote por produto do grupo × empresa, :3218-3224) — redundante com a propagação do
+ * consumidor, mas idempotente (mesmo valor), exatamente como o legado. Com a config 'N' (valor do golden) nada muda.
+ * REVISÃO INLINE (o subagente auditor caiu em API-529; checklist verificado à mão):
+ *  - reversão: o engine lê `dto[det.chave]` DEPOIS do validar → o array mutado é o que grava (provado no smoke).
+ *  - reverte só vrvenda/vrpromo/promocao (idem legado :3105-3115); vrcusto/markup/margeml/ativo seguem sendo salvos.
+ *  - CREATE: o engine chama validar SEM `id` (e com db read-only) → o guard `id != null` impede a emissão no insert
+ *    (fiel a `State <> usInserted`).
+ *  - linha de preço NOVA (sem linha no banco) → `continue`: é inclusão, não "alteração de preço" → grava direto.
+ *  - salvar 2× o mesmo preço novo gera 2 lotes (o banco segue com o preço velho, então "mudou" de novo) — idêntico
+ *    ao legado (OldValue é o valor do banco); o consumidor resolve por last-wins.
+ *  - grupo de N produtos → N lotes e o consumidor propaga cada um pelo grupo (N×N updates do MESMO valor): custo
+ *    aceito por FIDELIDADE (o legado faz igual); o estado final é o mesmo processando 1 ou todos os lotes.
+ */
+async function emitirLotesDePreco(dto: Record<string, unknown>, idproduto: number, trx: any): Promise<void> {
+  const precos = Array.isArray(dto.precos) ? (dto.precos as Array<Record<string, unknown>>) : null;
+  if (!precos || !precos.length) return;
+  // resolução da config com PRECEDÊNCIA de escopo (o AggregateConfig é um objeto puro, sem DI p/ o ConfigService —
+  // então a precedência é replicada aqui): override Empresa > valor global. 'Usuario' não está no whitelist desta
+  // chave e 'Modulo' não tem contexto de módulo aqui (mesma limitação dos demais call-sites do resolver).
+  const cfg = (await trx.selectFrom('configuracoes').select(['id', 'valor']).where('codigo', '=', 'HABILITA_GERACAO_LOTE_PRODUTO').executeTakeFirst()) as { id?: number; valor?: string } | undefined;
+  if (!cfg) return;
+  const empTenant = currentTenant().empresaId ?? null;
+  let valor = String(cfg.valor ?? 'N');
+  if (empTenant != null) {
+    const ov = (await trx.selectFrom('configuracoes_especificas').select('valor')
+      .where('id', '=', cfg.id).where('tipo', '=', 'Empresa').where('chave', '=', String(empTenant)).executeTakeFirst()) as { valor?: string } | undefined;
+    if (ov?.valor != null) valor = String(ov.valor);
+  }
+  if (valor !== 'S') return; // modo On-line (default/golden): aplica direto, nada a enfileirar
+  const op = currentTenant().operadorId ?? null;
+  const nomeOp = (await trx.selectFrom('operadores').select('nome').where('codoperador', '=', op).executeTakeFirst()) as { nome?: string } | undefined;
+  const obs = `REFERENTE AO AJUSTE NO CADASTRO DO PRODUTO REALIZADO PELO OPERADOR: ${op ?? ''}-${(nomeOp?.nome ?? '').trim()}`.slice(0, 300);
+  const grupo = (await trx.selectFrom('produtos').select('codgrupopreco').where('idproduto', '=', idproduto).executeTakeFirst()) as { codgrupopreco?: number } | undefined;
+
+  for (const linha of precos) {
+    const empresa = Number(linha.idempresa);
+    if (!Number.isFinite(empresa)) continue;
+    const atual = (await trx.selectFrom('multi_preco').select(['vrvenda', 'vrpromo', 'promocao'])
+      .where('idproduto', '=', idproduto).where('idempresa', '=', empresa).executeTakeFirst()) as Record<string, unknown> | undefined;
+    if (!atual) continue; // linha NOVA de preço (insert) → não é "alteração"; segue o caminho normal
+    const n = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
+    const novoVenda = n(linha.vrvenda);
+    const novoPromo = n(linha.vrpromo);
+    const novaFlag = String(linha.promocao ?? 'N') === 'S' ? 'S' : 'N';
+    const flagAtual = String(atual.promocao ?? 'N') === 'S' ? 'S' : 'N';
+    const vendaMudou = novoVenda !== n(atual.vrvenda);
+    const flagMudou = novaFlag !== flagAtual;
+    if (!vendaMudou && !flagMudou && novoPromo === n(atual.vrpromo)) continue; // nada mudou nesta empresa
+
+    // alvos: o produto + (se houver) todos os do mesmo grupo de preço COM linha de preço nessa empresa.
+    let alvos: number[] = [idproduto];
+    if (grupo?.codgrupopreco != null && Number(grupo.codgrupopreco) > 0) {
+      const doGrupo = (await trx.selectFrom('produtos as p')
+        .innerJoin('multi_preco as m', (j: any) => j.onRef('m.idproduto', '=', 'p.idproduto').on('m.idempresa', '=', empresa))
+        .select('p.idproduto').where('p.codgrupopreco', '=', Number(grupo.codgrupopreco)).execute()) as Array<{ idproduto: number }>;
+      alvos = Array.from(new Set([idproduto, ...doGrupo.map((r) => Number(r.idproduto))]));
+    }
+    const markup = n(linha.markup);
+    for (const alvo of alvos) {
+      await trx.insertInto('lote_preco').values({
+        idproduto: alvo, codempresa: empresa, vrvenda: novoVenda,
+        ...(markup > 0 ? { markup } : {}), // fiel: coluna omitida quando <= 0
+        promocao: novaFlag, vrpromo: novoPromo, alteroupromocao: flagMudou ? 'S' : 'N',
+        datalote: sql`now()`, obs, origem: 'P', codoperador: op, processado: 'N',
+      }).execute();
+    }
+    // (b) REVERSÃO fiel: o multi_preco fica com o preço ANTIGO; o novo só vale quando o lote for processado.
+    linha.vrvenda = atual.vrvenda;
+    linha.vrpromo = atual.vrpromo;
+    linha.promocao = atual.promocao;
+  }
+}
+
 export const produtoAggregateConfig: AggregateConfig = {
   tabela: 'produtos',
   pk: 'idproduto',
@@ -85,7 +167,14 @@ export const produtoAggregateConfig: AggregateConfig = {
     return out;
   },
   // F4 — regra do legado (chbATIVOClick): não desativar produto que é COMPONENTE de algum kit.
+  // + MODO "GERAR LOTE" do preço (corte-2 do Ajuste de Preços): ver emitirLotesDePreco.
   validar: async ({ dto, id, db }) => {
+    // MODO DO PREÇO (config HABILITA_GERACAO_LOTE_PRODUTO, fiel a UCadProduto.pas:6424): com 'S', a alteração de
+    // preço/promo NÃO vai ao multi_preco — vai p/ a fila lote_preco (a tela de Ajuste de Preços aplica depois).
+    // Roda aqui porque no UPDATE o `validar` recebe a TRANSAÇÃO e executa ANTES do delete+insert do detalhe — o
+    // mesmo ponto em que o legado REVERTE o valor no dataset antes do post (UCadProduto.pas:3097-3115). Só em
+    // UPDATE (fiel: `State <> usInserted`).
+    if (id != null) await emitirLotesDePreco(dto, id, db);
     // Produtos filhos (EdtProdutoPaiExit, pas:2843): o produto pai deve ser DIFERENTE do próprio produto.
     if (id != null && dto.idproduto_pai != null && Number(dto.idproduto_pai) === id) {
       throw new BusinessRuleError('PRODUTO_PAI_IGUAL_FILHO', { idproduto: id });

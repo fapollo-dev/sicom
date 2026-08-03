@@ -52,6 +52,15 @@ export class PedidoCompraController {
     return this.svc.atualizarPrecos(id);
   }
 
+  /** "Gerar Lote": em vez de aplicar o preço agora, ENFILEIRA lote_preco p/ a tela de Ajuste de Preços (fiel ao
+   *  modo alternativo do legado; carimba LTPRECO_PROCESSADO e recusa o 2º gerar-lote do mesmo pedido). */
+  @Post(':id/gerar-lote-preco')
+  @HttpCode(200)
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNGRAVAR')
+  gerarLotePreco(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.gerarLotePreco(id);
+  }
+
   /** corte-final: duplica o pedido (novo rascunho com itens; datas de hoje; sem parcelas). */
   @Post(':id/duplicar')
   @HttpCode(200)

@@ -4472,6 +4472,89 @@ async function main() {
       }
     }
 
+    // 47k) AJUSTE DE PREÇOS corte-2 — EMISSÃO de lote nas origens (fecha o ciclo: origem → fila → processar).
+    {
+      const pgEm = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const AP = 'cadastro/ajuste-precos';
+        // produto 990500 (preço atual 10) + 990501 EM PROMOÇÃO (deve ser PULADO na emissão do pedido).
+        await pgEm.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+          (990500,'7899000990500','BISCOITO RECHEADO','UN',2,'T01','S'),
+          (990501,'7899000990501','MACARRAO 500G','UN',2,'T01','S')
+          ON CONFLICT (idproduto) DO NOTHING`);
+        await pgEm.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrcusto, promocao) VALUES
+          (990500,1,10.00,6.00,'N'),(990501,1,8.00,5.00,'S')
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda=EXCLUDED.vrvenda, promocao=EXCLUDED.promocao, vrpromo=NULL`);
+
+        // 47k.1) PEDIDO: gerar-lote-preco → enfileira o item com preço divergente (12,50), PULA o em promoção,
+        // carimba LTPRECO_PROCESSADO e recusa a 2ª geração (fiel a uPedidoCompra.pas:1373).
+        const pedEm = Number(((await (await fetch(`${base}/compras/pedidos`, { method: 'POST', headers: H, body: JSON.stringify({
+          codparceiro: 22, data: '2026-08-03', itens: [{ idproduto: 990500, fatorembalagem: 1, vrcusto: 6, vrvenda: 12.5 }, { idproduto: 990501, fatorembalagem: 1, vrcusto: 5, vrvenda: 9.9 }],
+        }) })).json().catch(() => ({}))) as any).codpedcomp);
+        const gl = await fetch(`${base}/compras/pedidos/${pedEm}/gerar-lote-preco`, { method: 'POST', headers: H });
+        const glJ = (await gl.json().catch(() => ({}))) as any;
+        const gl2 = await fetch(`${base}/compras/pedidos/${pedEm}/gerar-lote-preco`, { method: 'POST', headers: H });
+        const loteDoPed = (await pgEm.query(`SELECT codlotepreco, idproduto, vrvenda, obs, origem, codoperador, markup FROM lote_preco WHERE obs LIKE $1 ORDER BY codlotepreco`, [`REFERENTE AO PEDIDO DE NRO. ${pedEm} %`])).rows as any[];
+        const stamp = (await pgEm.query(`SELECT ltpreco_processado FROM pedidocompra WHERE codpedcomp=$1`, [pedEm])).rows[0]?.ltpreco_processado;
+        check('EMISSÃO-PEDIDO: gerar-lote → 1 lote (990500 12,50; o EM PROMOÇÃO pulado) + OBS "…NRO. <cod> " (espaço final) + sem origem/markup + LTPRECO_PROCESSADO=S + 2ª geração 422',
+          gl.status === 200 && Number(glJ.lotes) === 1 && Number(glJ.pulados_promocao) === 1
+          && loteDoPed.length === 1 && Number(loteDoPed[0].idproduto) === 990500 && Number(loteDoPed[0].vrvenda) === 12.5
+          && loteDoPed[0].obs === `REFERENTE AO PEDIDO DE NRO. ${pedEm} ` && loteDoPed[0].origem == null && loteDoPed[0].markup == null
+          && stamp === 'S'
+          && gl2.status === 422 && ((await gl2.json().catch(() => ({}))) as any).code === 'PEDIDO_LOTE_PRECO_JA_GERADO',
+          { glJ, lote: loteDoPed[0], stamp, gl2: gl2.status });
+
+        // 47k.2) CICLO COMPLETO: processar o lote emitido → o preço do 990500 passa a 12,50 (10 → 12,50).
+        const prCiclo = await fetch(`${base}/${AP}/processar`, { method: 'POST', headers: H, body: JSON.stringify({ ids: [Number(loteDoPed[0].codlotepreco)] }) });
+        const vr500 = Number((await pgEm.query(`SELECT vrvenda FROM multi_preco WHERE idproduto=990500 AND idempresa=1`)).rows[0].vrvenda);
+        check('EMISSÃO→FILA→PROCESSAR (ciclo fechado): o lote emitido pelo pedido, ao ser processado, aplica 12,50 no preço (era 10,00)',
+          prCiclo.status === 200 && vr500 === 12.5, { status: prCiclo.status, vr500 });
+
+        // 47k.3) FORM DO PRODUTO em modo LOTE (config HABILITA_GERACAO_LOTE_PRODUTO='S'): salvar preço 19,90 NÃO
+        // grava no multi_preco (REVERSÃO fiel) e ENFILEIRA lote ORIGEM='P' c/ operador e alteroupromocao.
+        await pgEm.query(`UPDATE configuracoes SET valor='S' WHERE codigo='HABILITA_GERACAO_LOTE_PRODUTO'`);
+        const putProd = await fetch(`${base}/cadastro/produtos/990500`, { method: 'PUT', headers: H, body: JSON.stringify({
+          descricao: 'BISCOITO RECHEADO', precos: [{ idempresa: 1, vrvenda: 19.9, vrcusto: 6, markup: 25, promocao: 'S', vrpromo: 17.5 }],
+        }) });
+        const vrDepois = Number((await pgEm.query(`SELECT vrvenda FROM multi_preco WHERE idproduto=990500 AND idempresa=1`)).rows[0].vrvenda);
+        const loteP = (await pgEm.query(`SELECT vrvenda, markup, promocao, vrpromo, alteroupromocao, origem, codoperador, obs FROM lote_preco WHERE idproduto=990500 AND origem='P' ORDER BY codlotepreco DESC LIMIT 1`)).rows[0] as any;
+        check('EMISSÃO-PRODUTO (modo lote): salvar 19,90 NÃO altera o preço (reversão fiel: segue 12,50) + enfileira ORIGEM=P (markup 25, promo S/17,50, alteroupromocao=S, operador+OBS)',
+          putProd.ok && vrDepois === 12.5
+          && loteP && Number(loteP.vrvenda) === 19.9 && Number(loteP.markup) === 25 && loteP.promocao === 'S'
+          && Number(loteP.vrpromo) === 17.5 && loteP.alteroupromocao === 'S' && loteP.origem === 'P'
+          && Number(loteP.codoperador) === 7 && String(loteP.obs).startsWith('REFERENTE AO AJUSTE NO CADASTRO DO PRODUTO REALIZADO PELO OPERADOR: 7-'),
+          { put: putProd.status, vrDepois, loteP });
+
+        // 47k.3b) fold da revisão inline: a config respeita OVERRIDE POR EMPRESA (o global segue 'N', mas o override
+        // da empresa 1 = 'S' liga o modo lote) — precedência do ValorConfiguracao replicada no aggregate.
+        await pgEm.query(`UPDATE configuracoes SET valor='N' WHERE codigo='HABILITA_GERACAO_LOTE_PRODUTO'`);
+        const cfgId = Number((await pgEm.query(`SELECT id FROM configuracoes WHERE codigo='HABILITA_GERACAO_LOTE_PRODUTO'`)).rows[0].id);
+        await pgEm.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) VALUES ($1,'Empresa','1','S') ON CONFLICT DO NOTHING`, [cfgId]);
+        const vrAntesOv = Number((await pgEm.query(`SELECT vrvenda FROM multi_preco WHERE idproduto=990500 AND idempresa=1`)).rows[0].vrvenda);
+        await fetch(`${base}/cadastro/produtos/990500`, { method: 'PUT', headers: H, body: JSON.stringify({
+          descricao: 'BISCOITO RECHEADO', precos: [{ idempresa: 1, vrvenda: 31.9, vrcusto: 6 }],
+        }) });
+        const vrDepoisOv = Number((await pgEm.query(`SELECT vrvenda FROM multi_preco WHERE idproduto=990500 AND idempresa=1`)).rows[0].vrvenda);
+        const loteOv = (await pgEm.query(`SELECT vrvenda FROM lote_preco WHERE idproduto=990500 AND origem='P' ORDER BY codlotepreco DESC LIMIT 1`)).rows[0] as any;
+        check('EMISSÃO-PRODUTO: override por EMPRESA na config (global N + Empresa=S) liga o modo lote → preço NÃO muda e enfileira 31,90',
+          vrDepoisOv === vrAntesOv && Number(loteOv?.vrvenda) === 31.9, { vrAntesOv, vrDepoisOv, loteOv });
+        await pgEm.query(`DELETE FROM configuracoes_especificas WHERE id=$1 AND tipo='Empresa' AND chave='1'`, [cfgId]);
+
+        // 47k.4) com a config 'N' (default/golden) o form volta a APLICAR direto (nada de lote).
+        await pgEm.query(`UPDATE configuracoes SET valor='N' WHERE codigo='HABILITA_GERACAO_LOTE_PRODUTO'`);
+        const nLotesAntes = Number((await pgEm.query(`SELECT count(*)::int n FROM lote_preco WHERE idproduto=990500 AND origem='P'`)).rows[0].n);
+        await fetch(`${base}/cadastro/produtos/990500`, { method: 'PUT', headers: H, body: JSON.stringify({
+          descricao: 'BISCOITO RECHEADO', precos: [{ idempresa: 1, vrvenda: 14.4, vrcusto: 6 }],
+        }) });
+        const vrOnline = Number((await pgEm.query(`SELECT vrvenda FROM multi_preco WHERE idproduto=990500 AND idempresa=1`)).rows[0].vrvenda);
+        const nLotesDepois = Number((await pgEm.query(`SELECT count(*)::int n FROM lote_preco WHERE idproduto=990500 AND origem='P'`)).rows[0].n);
+        check('EMISSÃO-PRODUTO (modo on-line, config N = golden): salvar 14,40 APLICA direto no preço e NÃO enfileira lote',
+          vrOnline === 14.4 && nLotesDepois === nLotesAntes, { vrOnline, nLotesAntes, nLotesDepois });
+      } finally {
+        await pgEm.end();
+      }
+    }
+
     // 48) PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela: agregado header+itens (sem efeitos) + workflow FECHADO.
     const pgPed = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const PED = 'compras/pedidos';

@@ -346,6 +346,74 @@ export class PedidoCompraService {
    * produto em promoção; divergência documentada). Config ATUALIZA_PRECO_OUTRAS_EMPRESAS='S' propaga a todas
    * as empresas. LOTEPRECO (fila de etiquetas) + cascade pai/filho = ADIADOS (dossiê).
    */
+  /**
+   * "Atualizar preço → **Gerar Lote**" (uPedidoCompra.pas:1353/1443) — o MODO ALTERNATIVO ao on-line
+   * (`atualizarPrecos`): em vez de gravar MULTI_PRECO agora, ENFILEIRA um lote_preco por (item × empresa) p/ a tela
+   * de Ajuste de Preços aplicar depois. Fiel: pré-checagem `LTPRECO_PROCESSADO='S'` → recusa o 2º gerar-lote do
+   * MESMO pedido; só itens cujo VRVENDA difere do preço atual; pula produto em promoção (proxy conservador
+   * multi_preco.promocao='S', o mesmo de atualizarPrecos, no lugar do PromocaoAcumulativa não-migrado); OBS
+   * 'REFERENTE AO PEDIDO DE NRO. <cod> ' (COM o espaço final do legado); SEM origem/codoperador/markup/promo
+   * (o legado não os escreve nesta origem); vrvenda com 4 casas. No fim carimba LTPRECO_PROCESSADO='S'.
+   */
+  async gerarLotePreco(codpedcomp: number): Promise<{ codpedcomp: number; lotes: number; pulados_promocao: number; sem_diferenca: number }> {
+    const emp = this.emp();
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const pc = (await trx
+        .selectFrom('pedidocompra')
+        .select(['codpedcomp', 'ltpreco_processado'])
+        .where('codpedcomp', '=', codpedcomp)
+        .where('idempresa', '=', emp)
+        .where(sql`coalesce(indr,'I')`, '<>', 'E')
+        .forUpdate()
+        .executeTakeFirst()) as { ltpreco_processado?: string } | undefined;
+      if (!pc) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
+      if (String(pc.ltpreco_processado ?? 'N') === 'S') throw new BusinessRuleError('PEDIDO_LOTE_PRECO_JA_GERADO', { codpedcomp });
+
+      const itens = (await trx
+        .selectFrom('pedidocompra_i')
+        .select(['idproduto', 'vrvenda'])
+        .where('codpedcomp', '=', codpedcomp)
+        .where('vrvenda', '>', 0)
+        .orderBy('codpedcompi')
+        .execute()) as Array<{ idproduto: number; vrvenda: unknown }>;
+
+      // mesmo conjunto de empresas do ramo on-line (ver a nota de paridade em atualizarPrecos).
+      const todas = (await this.config.resolver('ATUALIZA_PRECO_OUTRAS_EMPRESAS', { empresaId: emp })) === 'S';
+      let empresas: number[] = [emp];
+      if (todas) {
+        const rows = (await trx.selectFrom('empresas').select('idempresa').execute()) as Array<{ idempresa: number }>;
+        empresas = rows.map((r) => Number(r.idempresa));
+      }
+
+      let lotes = 0;
+      let pulados = 0;
+      let semDif = 0;
+      for (const it of itens) {
+        const venda = r4(num(it.vrvenda));
+        for (const e of empresas) {
+          const mp = (await trx
+            .selectFrom('multi_preco')
+            .select(['vrvenda', 'promocao'])
+            .where('idproduto', '=', it.idproduto)
+            .where('idempresa', '=', e)
+            .executeTakeFirst()) as { vrvenda?: unknown; promocao?: string } | undefined;
+          if (!mp) continue; // sem preço nessa empresa → o join do legado (PI×MP) não casa
+          if (mp.promocao === 'S') { pulados++; continue; } // proxy do PromocaoAcumulativa (idem atualizarPrecos)
+          if (r4(num(mp.vrvenda)) === venda) { semDif++; continue; } // fiel: só itens com VRVENDA <> MP.VRVENDA
+          await trx.insertInto('lote_preco').values({
+            idproduto: it.idproduto, codempresa: e, vrvenda: venda, processado: 'N', datalote: sql`now()`,
+            obs: `REFERENTE AO PEDIDO DE NRO. ${codpedcomp} `, // espaço final = fiel ao literal do legado
+          }).execute();
+          lotes++;
+        }
+      }
+      if (lotes > 0) {
+        await trx.updateTable('pedidocompra').set({ ltpreco_processado: 'S' }).where('codpedcomp', '=', codpedcomp).execute();
+      }
+      return { codpedcomp, lotes, pulados_promocao: pulados, sem_diferenca: semDif };
+    });
+  }
+
   async atualizarPrecos(codpedcomp: number): Promise<{ codpedcomp: number; atualizados: number; pulados_promocao: number; sem_diferenca: number }> {
     const emp = this.emp();
     const op = this.op();
@@ -368,6 +436,11 @@ export class PedidoCompraService {
         .orderBy('codpedcompi')
         .execute()) as Array<{ idproduto: number; vrvenda: unknown }>;
 
+      // conjunto de empresas: config 'S' → TODAS; senão as empresas DO PEDIDO. NOTA DE PARIDADE (não-bug): o legado
+      // lê as empresas do pedido em PEDIDO_COMPRA_QTDE (grandchild por-empresa) — que NÃO foi migrado (mig 078
+      // projetou o pedido como SINGLE-empresa; N-por-empresa = corte-3 cross-docking, adiado por decisão de tenant).
+      // Logo {empresas do pedido} ≡ {emp} é a projeção FIEL hoje; quando o corte-3 migrar o grandchild, o conjunto
+      // passa a vir dele (aqui e em gerarLotePreco).
       const todas = (await this.config.resolver('ATUALIZA_PRECO_OUTRAS_EMPRESAS', { empresaId: emp })) === 'S';
       let empresas: number[] = [emp];
       if (todas) {
