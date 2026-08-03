@@ -4957,6 +4957,46 @@ async function main() {
           && ((await dt30.json().catch(() => ({}))) as any).code === 'DATA_ANALISE_INVALIDA',
           { modosQueVazaram: semMp, dt30: dt30.status });
 
+        // 47n.9) as outras 6 PERIODIZAÇÕES (corte-2). Mesma célula, outras faixas — o que se certifica é a FAIXA.
+        // Âncora 2026-08-15 (sábado; getUTCDay()=6, logo o domingo da semana é 09/08):
+        //   5D    → 11..15/08, dias isolados
+        //   30D   → 5 blocos de 6 dias: 16/07-21/07 · 22/07-27/07 · 28/07-02/08 · 03/08-08/08 · 09/08-15/08
+        //   5S    → semanas domingo→sábado terminando na de 09/08-15/08 (a 1ª começa 12/07)
+        //   5M    → 04/2026..08/2026, meses civis inteiros
+        //   5A    → 2022..2026, anos civis inteiros
+        //   ANUAL → 12 meses de 2026 (01/01..31/12)
+        // A venda de 03/08 (5 un.) cai: no 5D FORA (só 11..15/08) · no 30D no bloco 4 · no 5S na semana 4
+        // (02/08-08/08) · no 5M/ANUAL em agosto · no 5A em 2026.
+        const modo = async (periodizacao: string) => (await (await fetch(`${base}/${PF}`, { method: 'POST', headers: H, body: JSON.stringify({ dataAnalise: '2026-08-15', codfor: 990002, periodizacao }) })).json().catch(() => ({}))) as any;
+        const m5d = await modo('5D'); const m30 = await modo('30D'); const m5s = await modo('5S');
+        const m5m = await modo('5M'); const m5a = await modo('5A'); const man = await modo('ANUAL');
+        const lin = (r: any, id = 990700) => (r.linhas ?? []).find((l: any) => Number(l.idproduto) === id);
+        check('PRÉVIA-FORN periodizações: 5D = 5 dias isolados 11..15/08 (a venda de 03/08 fica FORA: total 0) · 30D = 5 blocos de 6 dias (16/07..15/08) · 5S = semanas DOMINGO→sábado (última 09..15/08) · faixas casam com o legado',
+          m5d.periodos?.length === 5 && m5d.periodos[0].dia === '2026-08-11' && m5d.periodos[4].dia === '2026-08-15'
+          && Number(lin(m5d)?.total_qtde) === 0 && Number(m5d.filtro?.dias_cobertos) === 5
+          && m30.periodos?.length === 5 && m30.periodos[0].ini === '2026-07-16' && m30.periodos[0].fimIncl === '2026-07-21'
+          && m30.periodos[4].ini === '2026-08-09' && m30.periodos[4].fimIncl === '2026-08-15'
+          && m5s.periodos?.length === 5 && m5s.periodos[4].ini === '2026-08-09' && m5s.periodos[4].fimIncl === '2026-08-15'
+          && m5s.periodos[0].ini === '2026-07-12' && m5s.periodos[3].ini === '2026-08-02',
+          { d5: m5d.periodos?.map((p: any) => p.dia), b30: [m30.periodos?.[0], m30.periodos?.[4]], s5: [m5s.periodos?.[0], m5s.periodos?.[4]] });
+
+        // o total do produto tem de ser o MESMO em toda periodização que cobre a janela toda (24 = 12 vendas + 12 NF)
+        check('PRÉVIA-FORN periodizações: 5M = meses civis 04..08/2026 · 5A = anos civis 2022..2026 · ANUAL = 12 meses de 2026 · o total (24) é IDÊNTICO nos 3 (a faixa muda, a célula não) e o movimento cai no slot certo (ago = slot 5 / 8; 2026 = slot 5)',
+          m5m.periodos?.length === 5 && m5m.periodos[0].ini === '2026-04-01' && m5m.periodos[4].ini === '2026-08-01'
+          && m5m.periodos[4].fimIncl === '2026-08-31' && Number(lin(m5m)?.celulas?.[4]?.qtde) === 24
+          && m5a.periodos?.length === 5 && m5a.periodos[0].ini === '2022-01-01' && m5a.periodos[4].fimIncl === '2026-12-31'
+          && Number(lin(m5a)?.celulas?.[4]?.qtde) === 24
+          && man.periodos?.length === 12 && man.periodos[7].ini === '2026-08-01' && man.periodos[11].fimIncl === '2026-12-31'
+          && Number(lin(man)?.celulas?.[7]?.qtde) === 24
+          && Number(lin(m5m)?.total_qtde) === 24 && Number(lin(m5a)?.total_qtde) === 24 && Number(lin(man)?.total_qtde) === 24,
+          { m5m: [m5m.periodos?.[0], m5m.periodos?.[4]], c5m: lin(m5m)?.celulas?.[4], c5a: lin(m5a)?.celulas?.[4], can: lin(man)?.celulas?.[7] });
+
+        // 47n.10) média/dia divide pelos DIAS COBERTOS, não pelo nº de slots (em 5M seriam 5 e o número mentiria)
+        check('PRÉVIA-FORN: «Méd/dia» divide pelos DIAS cobertos — 5M cobre 153 dias (abr+mai+jun+jul+ago/2026) → 24/153 = 0,157, não 24/5 = 4,8 (dividir por slots daria "média diária" com valor de média MENSAL)',
+          Number(m5m.filtro?.dias_cobertos) === 153 && Number(lin(m5m)?.media_dia) === 0.157
+          && Number(m5a.filtro?.dias_cobertos) === 1826 && Number(man.filtro?.dias_cobertos) === 365,
+          { dias5m: m5m.filtro?.dias_cobertos, med: lin(m5m)?.media_dia, dias5a: m5a.filtro?.dias_cobertos, diasAn: man.filtro?.dias_cobertos });
+
         await pgRv.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2,$3,$4,$5)`, [nfS.rows[0].codnf, nfE.rows[0].codnf, nfN.rows[0].codnf, nfC.rows[0].codnf, nfX.rows[0].codnf]);
         await pgRv.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3)`, [nfN.rows[0].codnf, nfC.rows[0].codnf, nfX.rows[0].codnf]);
         await pgRv.query(`DELETE FROM nf WHERE codnf IN ($1,$2)`, [nfS.rows[0].codnf, nfE.rows[0].codnf]);

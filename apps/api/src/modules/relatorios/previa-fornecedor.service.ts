@@ -10,11 +10,80 @@ const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 const r3 = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000;
 const r4 = (n: number) => Math.round((n + Number.EPSILON) * 10000) / 10000;
 
-/** 15 slots: FDataAnalise−14 .. FDataAnalise, rotulados '1 DIA'..'15 DIA' (fiel a uRelListaPrecosFornecedor:1842-1858). */
-const SLOTS = 15;
+const addDias = (iso: string, n: number) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+const iniMes = (y: number, m: number) => `${y}-${String(m).padStart(2, '0')}-01`;
+/** último dia do mês m (1-based) de y — `Date.UTC(y, m, 0)` é o dia 0 do mês seguinte. */
+const fimMes = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+
+export interface Periodo { slot: number; rotulo: string; ini: string; fimIncl: string; dia?: string }
+
+/**
+ * As 7 periodizações do `rdgPeriodo` (uRelListaPrecosFornecedor.pas:1830-1900). Todas ancoram em `FDataAnalise`
+ * e produzem SLOTS de faixa — a query da célula é a MESMA, só muda a faixa de cada coluna:
+ *  · `15D` (default do .dfm) 15 dias isolados ancora−14..ancora · `5D` 5 dias isolados ancora−4..ancora
+ *  · `30D` 5 blocos de 6 dias: −30..−25, −24..−19, −18..−13, −12..−7, −6..0
+ *  · `5S` 5 semanas DOMINGO→SÁBADO: o legado usa `FDataAnalise − (DiaSemanaHoje−1)` como domingo-base e
+ *    `DayOfWeek` do Delphi é 1=domingo, logo domingo-base = ancora − getUTCDay()
+ *  · `5M` 5 meses M−4..M com virada de ano (`GetFiltroDataMes`: Mes<=0 → ano−1, mês 12+Mes)
+ *  · `5A` 5 anos Y−4..Y (ano civil inteiro) · `ANUAL` os 12 meses do ano da âncora
+ * DIVERGÊNCIA DELIBERADA no rótulo do `30D`: o legado monta o texto com **SYSDATE** (`GetDescPeriodo30Dias`)
+ * enquanto FILTRA por `FDataAnalise` — iguais quando a âncora é hoje, mas como aqui a âncora é parâmetro, copiar
+ * o bug rotularia as colunas com datas que não são as consultadas. O rótulo sai da âncora.
+ */
+function montarPeriodos(modo: string, ancora: string, diaDe: (n: number) => string): Periodo[] {
+  const [y, m] = ancora.split('-').map(Number);
+  const dd = (iso: string) => iso.slice(8, 10);
+  const dias = (offsets: number[], rot: (i: number) => string): Periodo[] =>
+    offsets.map((off, i) => {
+      const d = diaDe(off);
+      return { slot: i + 1, rotulo: rot(i), ini: d, fimIncl: d, dia: d };
+    });
+  const faixas = (pares: [number, number][], rot: (i: number, a: string, b: string) => string): Periodo[] =>
+    pares.map(([a, b], i) => {
+      const ia = diaDe(a); const fb = diaDe(b);
+      return { slot: i + 1, rotulo: rot(i, ia, fb), ini: ia, fimIncl: fb };
+    });
+
+  switch (modo) {
+    case '5D':
+      return dias([-4, -3, -2, -1, 0], (i) => `${i + 1} DIA`);
+    case '30D':
+      return faixas([[-30, -25], [-24, -19], [-18, -13], [-12, -7], [-6, 0]], (_i, a, b) => `${dd(a)}/${dd(b)}`);
+    case '5S': {
+      const domingo = -new Date(`${ancora}T00:00:00Z`).getUTCDay(); // offset até o domingo da semana da âncora
+      return faixas(
+        [[domingo - 28, domingo - 22], [domingo - 21, domingo - 15], [domingo - 14, domingo - 8],
+          [domingo - 7, domingo - 1], [domingo, domingo + 6]],
+        (i) => `${i + 1} SEMANA`,
+      );
+    }
+    case '5M':
+      return [4, 3, 2, 1, 0].map((atras, i) => {
+        const mm = m - atras;
+        const [yy, mes] = mm <= 0 ? [y - 1, 12 + mm] : [y, mm];
+        return { slot: i + 1, rotulo: `${i + 1} MES`, ini: iniMes(yy, mes), fimIncl: fimMes(yy, mes) };
+      });
+    case '5A':
+      return [4, 3, 2, 1, 0].map((atras, i) => ({
+        slot: i + 1, rotulo: `${i + 1} ANO`, ini: `${y - atras}-01-01`, fimIncl: `${y - atras}-12-31`,
+      }));
+    case 'ANUAL':
+      return Array.from({ length: 12 }, (_, i) => ({
+        slot: i + 1, rotulo: `${i + 1} MES`, ini: iniMes(y, i + 1), fimIncl: fimMes(y, i + 1),
+      }));
+    case '15D':
+    default:
+      return dias([-14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0], (i) => `${i + 1} DIA`);
+  }
+}
 
 export interface FiltroPrevia {
   dataAnalise?: string;
+  periodizacao?: string;
   visualizar?: 'VENDAS' | 'ENTRADAS_SAIDAS';
   empresas?: number[];
   codfor?: number; idproduto?: number;
@@ -37,8 +106,9 @@ function mediaDeCelulas(celulas: (Celula | null)[], campo: keyof Celula): number
 }
 
 /**
- * PRÉVIA DO FORNECEDOR / ANÁLISE DE GIRO (FRMRELLISTAPRECOSFORNECEDOR) — corte-1: "15 Dias" × Vendas /
- * Entradas-e-Saídas. Matriz produto × 15 dias: o comprador vê o giro de cada item do fornecedor por dia e decide
+ * PRÉVIA DO FORNECEDOR / ANÁLISE DE GIRO (FRMRELLISTAPRECOSFORNECEDOR) — corte-2: as **7 periodizações** do
+ * `rdgPeriodo` (15/5 Dias, 30 Dias, 5 Semanas, 5 Meses, 5 Anos, Anual — ver `montarPeriodos`) × Vendas /
+ * Entradas-e-Saídas. Matriz produto × períodos: o comprador vê o giro de cada item do fornecedor e decide
  * a compra. Procedência: `uRelListaPrecosFornecedor.pas` — `GetSQL`/`Get` :1765-1830 (a célula), o dispatch de
  * período :1830-1900, e `udmRelListaPrecosFornecedor.pas:261` `GetSQLListaProdutos` (o CONJUNTO DE LINHAS).
  *
@@ -46,10 +116,10 @@ function mediaDeCelulas(celulas: (Celula | null)[], campo: keyof Celula): number
  *  (a) LINHAS = PRODUTOS ⋈ ESTOQUE(empresa) + LEFT parceiros/marcas [+ INNER multi_preco quando há filtro ATIVO].
  *      O legado casa lista×períodos no cliente, então **produto SEM VENDA APARECE COM ZERO** — é o ponto do
  *      relatório (o comprador precisa ver o que NÃO girou). Mantido.
- *  (b) MATRIZ = uma passada agrupando pelo DIA, em vez de 15 queries com `TRUNC(DTVENDA) BETWEEN dia AND dia`.
- *      É EQUIVALENTE: cada slot do legado é um dia isolado e as agregações (SUM/AVG) são por grupo, logo agrupar
- *      por dia sobre a faixa devolve exatamente os mesmos grupos e os mesmos valores. (O mesmo raciocínio que a
- *      auditoria da rel-vendas provou em PG para as duas agregações de lá.)
+ *  (b) MATRIZ = uma passada com o SLOT resolvido por um CASE de faixas, em vez de N queries com
+ *      `TRUNC(DTVENDA) BETWEEN ini AND fim`. É EQUIVALENTE: as faixas do legado são disjuntas e o CASE atribui
+ *      cada linha à mesma faixa que a query dela; as agregações (SUM/AVG) são por grupo, logo os grupos e os
+ *      valores são idênticos. (Mesmo raciocínio que a auditoria provou em PG para as 2 agregações da rel-vendas.)
  *
  * CÉLULA (fiel): SAÍDAS = `vendas` (cancelado='N') UNION ALL NF de saída (proc='S', tipo='S', CFOP em
  * 5102/6102/5402/6402/5403/6403/5405/6405), com `SUM(qtde)`, `AVG(vrcusto)`, `AVG(vrvenda)`, `AVG(vrcustorep)`.
@@ -68,8 +138,8 @@ function mediaDeCelulas(celulas: (Celula | null)[], campo: keyof Celula): number
  *     empresa única — o caso real do tenant — as duas formas coincidem.
  *  3) `dataAnalise` é parametrizável (default HOJE = fiel a `FDataAnalise := DateOf(Now())`), ver o schema.
  *
- * ADIADO: as outras 7 periodizações (5/30 Dias, 5 Semanas, 5 Meses, 5 Anos, Anual, Por Período — são só outras
- * faixas de data sobre ESTA query) · `tvPedidos` (o `Get` do legado gera SQL idêntico ao de Vendas; a diferença
+ * ADIADO: `tpPorPeriodo` ("Habilita Período" — é a OUTRA geração do cálculo, `MontaSqlPorPeriodo` +
+ * `qryPeriodoDias*` guardadas no .dfm do data module, com faixa livre e quantidade de períodos) · `tvPedidos` (o `Get` do legado gera SQL idêntico ao de Vendas; a diferença
  * real vive em `MontaSqlPorPeriodo`/`qryPeriodoDiasPedidos`) · o modelo "analítico" (`fdMesesAnalitico`).
  */
 @Injectable()
@@ -86,7 +156,7 @@ export class PreviaFornecedorService {
   }
 
   async matriz(f: FiltroPrevia): Promise<{
-    periodos: { slot: number; rotulo: string; dia: string }[];
+    periodos: Periodo[];
     linhas: Record<string, unknown>[];
     totais: Record<string, number | null>;
     filtro: Record<string, unknown>;
@@ -114,11 +184,13 @@ export class PreviaFornecedorService {
     };
     // data que passa no regex mas não existe ('2026-02-30') rolaria 2 dias e deslocaria a matriz em silêncio.
     if (diaDe(0) !== ancora) throw new BusinessRuleError('DATA_ANALISE_INVALIDA', { dataAnalise: ancora });
-    const periodos = Array.from({ length: SLOTS }, (_, i) => ({
-      slot: i + 1, rotulo: `${i + 1} DIA`, dia: diaDe(i - (SLOTS - 1)),
-    }));
-    const ini = periodos[0].dia;
-    const fimExcl = diaDe(1); // faixa [ini, ancora+1) — predicado na coluna CRUA, p/ usar o índice (lição 12c)
+    const periodos = montarPeriodos(f.periodizacao ?? '15D', ancora, diaDe);
+    const ini = periodos[0].ini;
+    const fimIncl = periodos[periodos.length - 1].fimIncl;
+    // faixa [ini, fim+1) — predicado na coluna CRUA, p/ usar o índice (lição 12c)
+    const fimExcl = addDias(fimIncl, 1);
+    // dias cobertos pela periodização inteira — denominador honesto da média/dia (nº de SLOTS só serve p/ "15 Dias").
+    const diasCobertos = Math.round((Date.parse(`${fimExcl}T00:00:00Z`) - Date.parse(`${ini}T00:00:00Z`)) / 86400000);
     const comEntradas = (f.visualizar ?? 'VENDAS') === 'ENTRADAS_SAIDAS';
 
     // ---- (a) LINHAS: produtos ⋈ estoque, com os filtros de valor ÚNICO do legado ----
@@ -231,25 +303,40 @@ export class PreviaFornecedorService {
       uniao = uniao.unionAll(entradas);
     }
 
-    const mat = (await db
+    // SLOT em SQL: um CASE de faixas. Agrupar pelo DIA só serve p/ as periodizações diárias — em "5 Anos" daria
+    // 1.825 grupos por produto trafegando p/ o Node. As faixas vêm de `montarPeriodos`, e a comparação é entre
+    // textos 'YYYY-MM-DD' (ISO ordena cronologicamente).
+    const slotExpr = sql`${periodos.reduce(
+      (acc, p) => sql`${acc} when mov.dia >= ${p.ini} and mov.dia <= ${p.fimIncl} then ${p.slot}`,
+      sql`case`,
+    )} else null end`;
+    // o CASE vai numa DERIVADA e o GROUP BY agrupa pela COLUNA. Repetir a expressão no select e no group by
+    // falha: o PG casa as duas estruturalmente e os placeholders ($1.. vs $71..) não batem, então ele reclama que
+    // "mov.dia" não está no GROUP BY.
+    const comSlot = db
       .selectFrom(uniao.as('mov'))
       .select([
-        'mov.dia', 'mov.codproduto', 'mov.tipo',
-        sql`sum(mov.qtde)`.as('qtde'),
-        sql`avg(mov.vrcusto)`.as('vrcusto'),
-        sql`avg(mov.vrvenda)`.as('vrvenda'),
-        sql`avg(mov.vrcustorep)`.as('vrcustorep'),
+        slotExpr.as('slot'), 'mov.codproduto', 'mov.tipo',
+        'mov.qtde', 'mov.vrcusto', 'mov.vrvenda', 'mov.vrcustorep',
+      ]);
+    const mat = (await db
+      .selectFrom(comSlot.as('s'))
+      .select([
+        's.slot', 's.codproduto', 's.tipo',
+        sql`sum(s.qtde)`.as('qtde'),
+        sql`avg(s.vrcusto)`.as('vrcusto'),
+        sql`avg(s.vrvenda)`.as('vrvenda'),
+        sql`avg(s.vrcustorep)`.as('vrcustorep'),
       ])
-      .groupBy(['mov.dia', 'mov.codproduto', 'mov.tipo'])
+      .where('s.slot', 'is not', null)   // linha fora de toda faixa (periodização com buraco) não vira grupo
+      .groupBy(['s.slot', 's.codproduto', 's.tipo'])
       .execute()) as Record<string, unknown>[];
 
     // ---- pivot: célula por (produto, slot) ----
-    const diaSlot = new Map(periodos.map((p) => [p.dia, p.slot]));
     const porProduto = new Map<number, Map<number, Celula>>();
     for (const m of mat) {
-      const dia = String(m.dia).slice(0, 10);
-      const slot = diaSlot.get(dia);
-      if (slot == null) continue;
+      const slot = m.slot == null ? null : Number(m.slot);
+      if (slot == null || !Number.isFinite(slot)) continue; // fora de toda faixa (periodização com buraco)
       const id = Number(m.codproduto);
       if (!porProduto.has(id)) porProduto.set(id, new Map());
       const cels = porProduto.get(id)!;
@@ -284,8 +371,9 @@ export class PreviaFornecedorService {
         total_qtde_entrada: comEntradas ? totalEnt : undefined,
         dias_com_movimento: comMov,
         dias_com_entrada: comEntradas ? comEnt : undefined,
-        // média/dia sobre os 15 slots — é a leitura de giro que o comprador faz
-        media_dia: r3(totalQtde / SLOTS),
+        // média/DIA sobre os dias realmente cobertos pela periodização — dividir pelo nº de slots só coincidiria
+        // em "15 Dias"; em "5 Meses" daria média por MÊS com nome de média por dia.
+        media_dia: r3(totalQtde / diasCobertos),
         // CAIXAS de giro: null quando fatorcx <= 1. `1` é o DEFAULT que o legado grava quando o campo fica em
         // branco (uCadProduto.pas:7335) e vale p/ 28.407 dos 43.115 produtos — dividir por 1 devolveria a
         // quantidade em UNIDADES rotulada como "caixas", justo na tela que decide quantas caixas pedir.
@@ -319,7 +407,11 @@ export class PreviaFornecedorService {
     };
     return {
       periodos, linhas: visiveis, totais,
-      filtro: { ...f, empresas, dataAnalise: ancora, visualizar: comEntradas ? 'ENTRADAS_SAIDAS' : 'VENDAS', truncado, max_linhas: MAX_LINHAS },
+      filtro: {
+        ...f, empresas, dataAnalise: ancora, periodizacao: f.periodizacao ?? '15D',
+        visualizar: comEntradas ? 'ENTRADAS_SAIDAS' : 'VENDAS',
+        de: ini, ate: fimIncl, dias_cobertos: diasCobertos, truncado, max_linhas: MAX_LINHAS,
+      },
     };
   }
 }

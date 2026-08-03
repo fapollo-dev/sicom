@@ -13,6 +13,11 @@ export const previaFornecedorSchema = z.object({
    * o golden tem movimento até 2024 e todo modo relativo a hoje volta vazio.
    */
   dataAnalise: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data de análise inválida (AAAA-MM-DD).').optional(),
+  /**
+   * rdgPeriodo — as 7 periodizações de slots do legado. Default '15D' (ItemIndex=3 no .dfm). A 8ª opção do
+   * legado ("Habilita Período") é outra geração de cálculo (`MontaSqlPorPeriodo`) e segue adiada.
+   */
+  periodizacao: z.enum(['15D', '5D', '30D', '5S', '5M', '5A', 'ANUAL']).optional(),
   visualizar: z.enum(['VENDAS', 'ENTRADAS_SAIDAS']).optional(), // rdgVisualizar (tvPedidos = corte-3)
   empresas: z.array(z.coerce.number().int().positive()).max(50).optional(),
   codfor: z.coerce.number().int().positive().optional(),        // PA.CODPARCEIRO

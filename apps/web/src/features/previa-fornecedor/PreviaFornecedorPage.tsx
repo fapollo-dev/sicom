@@ -34,9 +34,9 @@ interface Linha {
   total_qtde: number; total_qtde_entrada?: number; dias_com_movimento: number; dias_com_entrada?: number;
   media_dia: number; caixas_giro: number | null; vrcusto_medio: number | null; vrvenda_media: number | null; vrcusto_ent_medio?: number | null;
 }
-interface Periodo { slot: number; rotulo: string; dia: string }
+interface Periodo { slot: number; rotulo: string; ini: string; fimIncl: string; dia?: string }
 interface Totais { produtos: number; com_giro: number; sem_giro: number; total_qtde: number; total_qtde_entrada: number | null; recebeu_sem_vender: number | null; estoque: number; sem_ultima_entrada: number }
-interface Filtro { truncado?: boolean; max_linhas?: number; dataAnalise?: string }
+interface Filtro { truncado?: boolean; max_linhas?: number; dataAnalise?: string; periodizacao?: string; de?: string; ate?: string; dias_cobertos?: number }
 
 /**
  * PRÉVIA DO FORNECEDOR / ANÁLISE DE GIRO (FRMRELLISTAPRECOSFORNECEDOR) — corte-1 "15 Dias".
@@ -48,6 +48,7 @@ export function PreviaFornecedorPage() {
   const mensagem = useMensagem();
   const [dataAnalise, setDataAnalise] = useState(hoje());
   const [codfor, setCodfor] = useState('');
+  const [periodizacao, setPeriodizacao] = useState('15D');
   const [visualizar, setVisualizar] = useState('VENDAS');
   const [ativo, setAtivo] = useState('');
   const [somenteComGiro, setSomenteComGiro] = useState(false);
@@ -64,7 +65,7 @@ export function PreviaFornecedorPage() {
       const r = await req<{ periodos: Periodo[]; linhas: Linha[]; totais: Totais; filtro: Filtro }>(
         '/relatorios/previa-fornecedor/matriz',
         {
-          dataAnalise, visualizar, somenteComGiro,
+          dataAnalise, periodizacao, visualizar, somenteComGiro,
           codfor: codfor ? Number(codfor) : undefined,
           ativo: ativo ? Number(ativo) : undefined,
         },
@@ -77,7 +78,7 @@ export function PreviaFornecedorPage() {
   const exportar = () => {
     if (!linhas.length) return;
     const cab = ['codbarra', 'descricao', 'unidade', 'estoque', 'minimo', 'maximo', 'ult_entrada', 'qtde_ult_entrada',
-      ...periodos.map((p) => p.dia), 'total', 'media_dia', 'caixas', 'custo_medio', 'venda_media'];
+      ...periodos.map((p) => (p.ini === p.fimIncl ? p.ini : `${p.ini}_${p.fimIncl}`)), 'total', 'media_dia', 'caixas', 'custo_medio', 'venda_media'];
     // número → vírgula decimal; TEXTO → entre aspas (antes, o replace('.', ',') global virava "LEITE COND, MOÇA"
     // e um ';' na descrição deslocava as colunas do arquivo inteiro).
     const cel = (v: unknown) => (typeof v === 'number' ? String(v).replace('.', ',')
@@ -99,11 +100,16 @@ export function PreviaFornecedorPage() {
 
   return (
     <div className="flex flex-col gap-gp-md p-pad-md">
-      <PageHeader title="Prévia do Fornecedor — giro por dia (15 dias)" />
+      <PageHeader title="Prévia do Fornecedor — giro por período" />
 
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="w-44"><Field label="Data de &análise" type="date" value={dataAnalise} onChange={(e) => setDataAnalise(e.target.value)} /></div>
         <div className="w-40"><Field label="&Fornecedor (cód.)" value={codfor} onChange={(e) => setCodfor(e.target.value)} placeholder="todos" /></div>
+        <div className="w-44"><SelectField label="Perío&do" value={periodizacao} onChange={setPeriodizacao} options={[
+          { value: '15D', label: '15 Dias' }, { value: '5D', label: '5 Dias' }, { value: '30D', label: '30 Dias' },
+          { value: '5S', label: '5 Semanas' }, { value: '5M', label: '5 Meses' }, { value: '5A', label: '5 Anos' },
+          { value: 'ANUAL', label: 'Anual (12 meses)' },
+        ]} /></div>
         <div className="w-52"><SelectField label="&Visualizar" value={visualizar} onChange={setVisualizar} options={[{ value: 'VENDAS', label: 'Vendas' }, { value: 'ENTRADAS_SAIDAS', label: 'Entradas e saídas' }]} /></div>
         <div className="w-56"><SelectField label="Situa&ção" value={ativo} onChange={setAtivo} placeholder="(sem filtro)" options={[
           { value: '1', label: 'Ativo p/ compra = S' }, { value: '2', label: 'Ativo = S' },
@@ -114,8 +120,10 @@ export function PreviaFornecedorPage() {
         <Button label="&Gerar" variant="soft" disabled={busy} onClick={() => void gerar()} />
         <Button label="&Exportar CSV" variant="ghost" disabled={!linhas.length} onClick={exportar} />
         <small className="w-full text-fg-muted">
-          Os 15 dias terminam na data de análise. A lista sai de <b>produtos com estoque na empresa</b> — item sem
+          Os períodos terminam na data de análise. A lista sai de <b>produtos com estoque na empresa</b> — item sem
           venda aparece com zero, de propósito: é como se enxerga o que encalhou.
+          {filtro?.de && <> Faixa consultada: <b>{dia(filtro.de)}</b> a <b>{dia(filtro.ate)}</b> ({filtro.dias_cobertos} dias);
+          a coluna «Méd/dia» divide pelos dias cobertos.</>}
         </small>
       </div>
 
@@ -157,7 +165,11 @@ export function PreviaFornecedorPage() {
               <th className="p-pad-xs text-right">Estoque</th>
               <th className="p-pad-xs text-right">Mín/Máx</th>
               <th className="p-pad-xs text-right">Últ. entrada</th>
-              {periodos.map((p) => <th key={p.slot} className="p-pad-xs text-right whitespace-nowrap" title={p.rotulo}>{dia(p.dia)}</th>)}
+              {periodos.map((p) => (
+                <th key={p.slot} className="p-pad-xs text-right whitespace-nowrap" title={`${p.rotulo} · ${p.ini} a ${p.fimIncl}`}>
+                  {p.ini === p.fimIncl ? dia(p.ini) : `${dia(p.ini)}–${dia(p.fimIncl)}`}
+                </th>
+              ))}
               <th className="p-pad-xs text-right">Total</th>
               <th className="p-pad-xs text-right">Méd/dia</th>
               <th className="p-pad-xs text-right">Caixas</th>
