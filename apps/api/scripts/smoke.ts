@@ -4555,6 +4555,136 @@ async function main() {
       }
     }
 
+    // 47l) PRECIFICAÇÃO DE MERCADORIAS (FRMPRIFICACAOCUSTO) — painel de derivação por produto × empresa.
+    {
+      const pgPc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const PC = 'precificacao/custo';
+        // cenário FECHADO p/ conferir número a número (LR, alíquota tributada T01):
+        // custo 100 · ICME 18% (crédito) · PIS/COFINS ent 9,25% (crédito) · IPI 10% · FRETE 5% · ICMST 12 (valor)
+        // · DESPAC 3 (valor) · BONIFICAÇÃO 7 (valor, só deduz do REP)
+        //   crédito ICMS = 18,00 · crédito PIS/COFINS = 9,25 · IPI = 10 · FRETE = 5
+        //   VRCUSTOREAL = 100 − 9,25 − 18 + 12 + 0 + 10 + 5 + 0 + 3 + 0 + 0 = 102,75
+        //   VRCUSTOREP  = 100 + (10+5+0+3+12+0+0+0) − 7 = 123,00
+        //   VRCUSTOCSI  = 123 − 18 − 9,25 = 95,75
+        //   PMZ = CSI / (1 − (PIS_sai+COFINS_sai+ICMS_ef+DESPOP)/100) = 95,75 / (1 − (9,25+18+20)/100) = 95,75/0,5275
+        await pgPc.query(`INSERT INTO piscofins (idpiscofins, descricao, aliq_pis_ent, aliq_cofins_ent, aliq_pis_sai, aliq_cofins_sai) VALUES (990,'SMOKE PC 9,25',1.65,7.60,1.65,7.60) ON CONFLICT (idpiscofins) DO UPDATE SET aliq_pis_ent=1.65, aliq_cofins_ent=7.60, aliq_pis_sai=1.65, aliq_cofins_sai=7.60`);
+        await pgPc.query(`INSERT INTO det_aliquota (aliquota, uf, icm, icm_efetivo, base, cst) VALUES ('T01','MG',18,18,100,0) ON CONFLICT DO NOTHING`);
+        await pgPc.query(`UPDATE empresas SET classfiscal='LR', uf='MG', despoperacional=20, imprenda=15, contsocial=9, preconf='O' WHERE idempresa=1`);
+        await pgPc.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, idpiscofins) VALUES
+          (990600,'7899000990600','PRECIFICACAO SMOKE','UN',2,'T01','S',990) ON CONFLICT (idproduto) DO UPDATE SET aliquota='T01', idpiscofins=990`);
+        await pgPc.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, promocao) VALUES (990600,1,100,200,'N')
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=100, vrvenda=200, promocao='N', vrpromo=NULL`);
+        await pgPc.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMPRIFICACAOCUSTO','BTNGRAVAR',7,1) ON CONFLICT DO NOTHING`);
+
+        const comp = { idproduto: 990600, idempresa: 1, vrcusto: 100, icme: 18, ipi: 10, frete: 5, icmst: 12, despacessorio: 3, bonificacao: 7 };
+        // 47l.1) as 3 BASES de custo + créditos, número a número.
+        const c1 = (await (await fetch(`${base}/${PC}/calcular`, { method: 'POST', headers: H, body: JSON.stringify({ ...comp, markup: 30, vrvenda: 250 }) })).json().catch(() => ({}))) as any;
+        const pmzEsp = Math.round((95.75 / (1 - (9.25 + 18 + 20) / 100)) * 100) / 100;
+        check('PRECIFICAÇÃO: 3 bases de custo fiéis (REAL 102,75 = custo−créditos+valores+%; REP 123,00 = custo+encargos−bonificação; CSI 95,75 = REP−créditos) + créditos 18,00/9,25 + PMZ',
+          Number(c1.vrcustoreal) === 102.75 && Number(c1.vrcustorep) === 123 && Number(c1.vrcustocsi) === 95.75
+          && Number(c1.creditoicm) === 18 && Number(c1.creditopiscofins) === 9.25 && Number(c1.pmz) === pmzEsp,
+          { c1: { real: c1.vrcustoreal, rep: c1.vrcustorep, csi: c1.vrcustocsi, cicm: c1.creditoicm, cpc: c1.creditopiscofins, pmz: c1.pmz, pmzEsp } });
+
+        // 47l.2) ESCADA de margem sobre venda 250 (CSI 95,75) com a ORDEM DE ARREDONDAMENTO DO LEGADO (fold
+        // auditoria [MÉDIA]): venda líq = venda − ICM − PIS (cada um já arredondado) = 250 − 45,00 − 23,13 = 181,87
+        // (e NÃO 250×(1−27,25%) = 181,88 — o painel tem de FECHAR na casa do centavo). Lucro bruto 181,87 − 95,75 =
+        // 86,12; despesa 50; lucro após despesa 36,12; IR 15% = 5,42; CSLL 9% = 3,25; líquido 27,45.
+        check('PRECIFICAÇÃO: escada com a ordem de arredondamento do LEGADO (débitos 45,00/23,13 → venda líq 181,87 = venda−débitos; bruto 86,12; após-despesa 36,12; IR 5,42; CSLL 3,25; líquido 27,45) — o painel FECHA',
+          Number(c1.debitoicm) === 45 && Number(c1.debitopiscofins) === 23.13
+          && Number(c1.vendaliq) === 181.87 && Number(c1.vendaliq) === Math.round((250 - 45 - 23.13) * 100) / 100
+          && Number(c1.lucrobrutov) === 86.12 && Number(c1.despopv) === 50 && Number(c1.lucroliqv) === 36.12
+          && Number(c1.imprend) === 5.42 && Number(c1.contsocial) === 3.25 && Number(c1.margeml2v) === 27.45,
+          { esc: { dicm: c1.debitoicm, dpc: c1.debitopiscofins, vliq: c1.vendaliq, lb: c1.lucrobrutov, desp: c1.despopv, ll: c1.lucroliqv, ir: c1.imprend, csll: c1.contsocial, liq: c1.margeml2v } });
+
+        // 47l.2b) fold [MÉDIA/LOW]: o preço SUGERIDO é calculado mesmo com markup 0 (o legado chama sempre; 9.585
+        // linhas do golden têm markup 0 E sugerido > 0) — antes eu gravava 0 e a tela oferecia "usar sugerido" = R$ 0.
+        const cSug0 = (await (await fetch(`${base}/${PC}/calcular`, { method: 'POST', headers: H, body: JSON.stringify({ ...comp, markup: 0, vrvenda: 250 }) })).json().catch(() => ({}))) as any;
+        check('PRECIFICAÇÃO: preço sugerido existe com markup 0 (não zera) — gross-up fiscal do CSI',
+          Number(cSug0.vrvendasug) > 0, { sug: cSug0.vrvendasug });
+
+        // 47l.3) mudar o CUSTO **não** move o preço de venda (fiel :1996-2001: só o SUGERIDO/PMZ mudam).
+        const c2 = (await (await fetch(`${base}/${PC}/calcular`, { method: 'POST', headers: H, body: JSON.stringify({ ...comp, vrcusto: 150, markup: 30, vrvenda: 250 }) })).json().catch(() => ({}))) as any;
+        check('PRECIFICAÇÃO: alterar o CUSTO move PMZ/sugerido mas NÃO o preço de venda (fiel: sugestão não aplica)',
+          Number(c2.vrvenda) === 250 && Number(c2.pmz) !== Number(c1.pmz) && Number(c2.vrcustocsi) !== Number(c1.vrcustocsi),
+          { pmz1: c1.pmz, pmz2: c2.pmz, venda: c2.vrvenda });
+
+        // 47l.4) SALVAR (modo on-line): grava o painel + audita em HISTORICO_DINAMICO ('Precificação do Custo',
+        // vírgula-2dp) e o preço passa a 250.
+        const sv = await fetch(`${base}/${PC}/salvar`, { method: 'POST', headers: H, body: JSON.stringify({ ...comp, empresas: [1], markup: 30, vrvenda: 250 }) });
+        const svJ = (await sv.json().catch(() => ({}))) as any;
+        const mpDep = (await pgPc.query(`SELECT vrvenda, vrcustoreal, vrcustorep, vrcustocsi, pmz, vrvendasug, margeml2 FROM multi_preco WHERE idproduto=990600 AND idempresa=1`)).rows[0] as any;
+        const hist = (await pgPc.query(`SELECT campo, valor_anterior, valor_atual FROM historico_dinamico WHERE tabela='MULTI_PRECO' AND valor_chave='990600' AND historico='Precificação do Custo' ORDER BY campo`)).rows as any[];
+        const hVenda = hist.find((h) => h.campo === 'VRVENDA');
+        check('PRECIFICAÇÃO: salvar grava o painel (venda 250 + bases + PMZ) e audita HISTORICO_DINAMICO "Precificação do Custo" (VRVENDA 200,00→250,00 vírgula-2dp)',
+          sv.status === 200 && Number(svJ.historico) > 0
+          && Number(mpDep.vrvenda) === 250 && Number(mpDep.vrcustoreal) === 102.75 && Number(mpDep.vrcustocsi) === 95.75
+          && hVenda && hVenda.valor_anterior === '200,00' && hVenda.valor_atual === '250,00',
+          { svJ, mpDep: { v: mpDep.vrvenda, real: mpDep.vrcustoreal, csi: mpDep.vrcustocsi }, hVenda, nHist: hist.length });
+
+        // 47l.5) MODO LOTE: salvar 333,00 NÃO altera o preço (reverte só o vrvenda) mas GRAVA o resto do painel
+        // (custo novo 150) e enfileira lote_preco (markup>0 → coluna presente; origem NULL — fiel a esta tela).
+        const svL = await fetch(`${base}/${PC}/salvar`, { method: 'POST', headers: H, body: JSON.stringify({ ...comp, vrcusto: 150, empresas: [1], markup: 40, vrvenda: 333, modoLote: true }) });
+        const svLJ = (await svL.json().catch(() => ({}))) as any;
+        const mpLote = (await pgPc.query(`SELECT vrvenda, vrcusto FROM multi_preco WHERE idproduto=990600 AND idempresa=1`)).rows[0] as any;
+        const loteL = (await pgPc.query(`SELECT vrvenda, markup, origem, codoperador, obs FROM lote_preco WHERE idproduto=990600 ORDER BY codlotepreco DESC LIMIT 1`)).rows[0] as any;
+        check('PRECIFICAÇÃO modo LOTE: reverte SÓ o preço (segue 250) mas grava o custo novo 150 + enfileira lote 333,00 c/ markup 40, origem NULL e OBS do operador',
+          svL.status === 200 && Number(svLJ.lotes) === 1
+          && Number(mpLote.vrvenda) === 250 && Number(mpLote.vrcusto) === 150
+          && Number(loteL.vrvenda) === 333 && Number(loteL.markup) === 40 && loteL.origem == null
+          && Number(loteL.codoperador) === 7 && String(loteL.obs).startsWith('REFERENTE AO AJUSTE NO CADASTRO DO PRODUTO REALIZADO PELO OPERADOR: 7-'),
+          { svLJ, mpLote, loteL });
+
+        // 47l.6) produto EM PROMOÇÃO → preço congelado (422); RBAC sem grant → 403.
+        await pgPc.query(`UPDATE multi_preco SET promocao='S', vrpromo=199 WHERE idproduto=990600 AND idempresa=1`);
+        const vrAntesProm = Number((await pgPc.query(`SELECT vrvenda FROM multi_preco WHERE idproduto=990600 AND idempresa=1`)).rows[0].vrvenda);
+        const svProm = await fetch(`${base}/${PC}/salvar`, { method: 'POST', headers: H, body: JSON.stringify({ ...comp, vrcusto: 177, empresas: [1], vrvenda: 260 }) });
+        const promDep = (await pgPc.query(`SELECT vrvenda, vrcusto FROM multi_preco WHERE idproduto=990600 AND idempresa=1`)).rows[0] as any;
+        await pgPc.query(`UPDATE multi_preco SET promocao='N', vrpromo=NULL WHERE idproduto=990600 AND idempresa=1`);
+        const rb = await fetch(`${base}/${PC}/990600`, { headers: H_SEM_ACESSO });
+        check('PRECIFICAÇÃO: produto em promoção → CONGELA só o preço (fold: não aborta o save; grava o custo 177) ; abrir sem grant RBAC → 403',
+          svProm.status === 200 && Number(promDep.vrvenda) === vrAntesProm && Number(promDep.vrcusto) === 177 && rb.status === 403,
+          { prom: svProm.status, promDep, vrAntesProm, rb: rb.status });
+
+        // 47l.6b) FOLD [ALTA] SN: no Simples Nacional a escada ZERA o PIS/COFINS (:2315) — antes eu deduzia 9,25%
+        // e reportava margem ~9pp MENOR do que a real (6.913 linhas na empresa SN do tenant).
+        await pgPc.query(`INSERT INTO empresas (idempresa, razao_social, cnpj, uf, classfiscal, despoperacional, imprenda, contsocial, alqsimplesnac, preconf) VALUES (50,'LOJA SN','11222333000199','MG','SN',20,15,9,0,'O') ON CONFLICT (idempresa) DO UPDATE SET classfiscal='SN', alqsimplesnac=0, despoperacional=20`);
+        await pgPc.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, promocao) VALUES (990600,50,100,100,'N') ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=100, vrvenda=100, promocao='N'`);
+        await pgPc.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMPRIFICACAOCUSTO','BTNGRAVAR',7,50) ON CONFLICT DO NOTHING`);
+        const cSN = (await (await fetch(`${base}/${PC}/calcular`, { method: 'POST', headers: H, body: JSON.stringify({ idproduto: 990600, idempresa: 50, vrcusto: 100, vrvenda: 100 }) })).json().catch(() => ({}))) as any;
+        check('PRECIFICAÇÃO SN: escada zera o débito de PIS/COFINS (ICMS pela ALQSIMPLESNAC) → venda líq = 100, não 90,75',
+          Number(cSN.debitopiscofins) === 0 && Number(cSN.vendaliq) === 100 && Number(cSN.creditoicm) === 0 && Number(cSN.creditopiscofins) === 0,
+          { cSN: { dpc: cSN.debitopiscofins, vliq: cSN.vendaliq, cicm: cSN.creditoicm } });
+
+        // 47l.6c) FOLD [ALTA] modo LOTE não propaga preço aos peers do grupo (o legado guarda a propagação por
+        // rdbOnLine) + FOLD [MÉDIA] grant EDTVRVENDA + promo por-empresa não aborta o save.
+        await pgPc.query(`INSERT INTO familias_prod (codfamilia, tipo, descricao) VALUES (88,'R','GRUPO PC') ON CONFLICT (codfamilia) DO NOTHING`);
+        await pgPc.query(`UPDATE produtos SET codgrupopreco=88 WHERE idproduto=990600`);
+        await pgPc.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, idpiscofins, codgrupopreco) VALUES (990601,'7899000990601','PEER DO GRUPO','UN',2,'T01','S',990,88) ON CONFLICT (idproduto) DO UPDATE SET codgrupopreco=88`);
+        await pgPc.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, promocao) VALUES (990601,1,50,12.90,'N') ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda=12.90, promocao='N'`);
+        const svLote2 = await fetch(`${base}/${PC}/salvar`, { method: 'POST', headers: H, body: JSON.stringify({ ...comp, empresas: [1], markup: 40, vrvenda: 999, modoLote: true }) });
+        const peer = Number((await pgPc.query(`SELECT vrvenda FROM multi_preco WHERE idproduto=990601 AND idempresa=1`)).rows[0].vrvenda);
+        // on-line: agora SIM propaga E recalcula o painel do peer (pmz do peer deixa de ser nulo/velho).
+        const svOn = await fetch(`${base}/${PC}/salvar`, { method: 'POST', headers: H, body: JSON.stringify({ ...comp, empresas: [1], markup: 40, vrvenda: 260 }) });
+        const peerOn = (await pgPc.query(`SELECT vrvenda, pmz, vrcustocsi FROM multi_preco WHERE idproduto=990601 AND idempresa=1`)).rows[0] as any;
+        check('PRECIFICAÇÃO: modo LOTE NÃO repreça os peers do grupo (peer segue 12,90); modo ON-LINE propaga 260 E RECALCULA o painel do peer (pmz do peer preenchido)',
+          svLote2.status === 200 && peer === 12.9
+          && svOn.status === 200 && Number(peerOn.vrvenda) === 260 && Number(peerOn.pmz) > 0 && Number(peerOn.vrcustocsi) > 0,
+          { peerLote: peer, peerOn: { v: peerOn.vrvenda, pmz: peerOn.pmz, csi: peerOn.vrcustocsi } });
+        await pgPc.query(`UPDATE produtos SET codgrupopreco=NULL WHERE idproduto IN (990600,990601)`);
+
+        // 47l.7) abrir o painel: produto + preço + empresas do operador + painel calculado + default do modo.
+        const ab = (await (await fetch(`${base}/${PC}/990600`, { headers: H })).json().catch(() => ({}))) as any;
+        check('PRECIFICAÇÃO: abrir → produto + preço (260, o último aplicado on-line) + empresas do operador + painel + modo_lote_default (PRECONF=O → false)',
+          Number(ab.produto?.idproduto) === 990600 && Number(ab.preco?.vrvenda) === 260
+          && Array.isArray(ab.empresas) && ab.empresas.length >= 1 && ab.painel && Number(ab.painel.vrcustocsi) > 0
+          && ab.modo_lote_default === false,
+          { prod: ab.produto?.idproduto, venda: ab.preco?.vrvenda, nEmp: ab.empresas?.length, csi: ab.painel?.vrcustocsi, lote: ab.modo_lote_default });
+      } finally {
+        await pgPc.end();
+      }
+    }
+
     // 48) PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela: agregado header+itens (sem efeitos) + workflow FECHADO.
     const pgPed = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const PED = 'compras/pedidos';

@@ -229,9 +229,22 @@ export const produtoAggregateConfig: AggregateConfig = {
         // etq_impressa (a etiqueta perdia o "precisa reimprimir"), dtultprecoalterado e codagenda (quebrando o
         // reverter da agenda de promoção, que casa por codagenda).
         'etq_impressa', 'dtultprecoalterado', 'codagenda',
+        // ... e o PAINEL de precificação (mig 129), owned pela tela Precificação de Mercadorias. Fold auditoria
+        // [ALTA]: sem preservar, um save do produto ZERAVA os 29 campos (componentes de custo E derivados) —
+        // no golden 35k linhas têm ICME, 33k ICMST, 100k MARKUPFIXO. Mesma classe do fold do etq_impressa.
+        'vrcustoreal', 'vrcustocsi', 'vrvendasug', 'pmz', 'markupfixo', 'icme', 'ipi', 'frete', 'frete2', 'seguro',
+        'icmst', 'vrfcpst', 'despacessorio', 'vrcustoajuste', 'bonificacao', 'fcp_saida', 'creditoicm',
+        'creditopiscofins', 'debitoicm', 'debitopiscofins', 'vendaliq', 'lucrobrutov', 'lucrobrutop', 'despopv',
+        'lucroliqv', 'lucroliqp', 'imprend', 'contsocial', 'margeml2', 'margeml2v',
       ],
       chaveNatural: ['idempresa'],
-      preservar: ['etq_impressa', 'dtultprecoalterado', 'codagenda'],
+      preservar: [
+        'etq_impressa', 'dtultprecoalterado', 'codagenda',
+        'vrcustoreal', 'vrcustocsi', 'vrvendasug', 'pmz', 'markupfixo', 'icme', 'ipi', 'frete', 'frete2', 'seguro',
+        'icmst', 'vrfcpst', 'despacessorio', 'vrcustoajuste', 'bonificacao', 'fcp_saida', 'creditoicm',
+        'creditopiscofins', 'debitoicm', 'debitopiscofins', 'vendaliq', 'lucrobrutov', 'lucrobrutop', 'despopv',
+        'lucroliqv', 'lucroliqp', 'imprend', 'contsocial', 'margeml2', 'margeml2v',
+      ],
     },
     // F3 — ESTOQUE: saldo por empresa, na MESMA form. REGRA: qtde (saldo) é movido por
     // transação (NF/vendas/ajuste) — read-only no cadastro; só minimo/maximo/local editáveis.
