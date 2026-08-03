@@ -81,6 +81,40 @@ function montarPeriodos(modo: string, ancora: string, diaDe: (n: number) => stri
   }
 }
 
+/**
+ * Faixa do modo "Habilita Período" (`tpPorPeriodo`), fiel a `MontaSqlPorPeriodo`:
+ *  · DIAS    → fim = âncora, ini = âncora − qtd
+ *  · SEMANAS → fim = SÁBADO da semana da âncora (`EndOfTheWeek(date) - 1`; o `StartOfTheWeek` do Delphi é
+ *              ISO/SEGUNDA nesta geração — atenção, difere do `tp5Semanas`, que ancora no DOMINGO),
+ *              ini = SEGUNDA da semana de (fim − (qtd−1) semanas)
+ *  · MESES   → fim = último dia do mês da âncora, ini = 1º dia do mês de (fim − (qtd−1) meses)
+ *  · ANOS    → ini = 01/01 de (ano − qtd), fim = 31/12 do ano da âncora
+ * ⚠️ O CONTADOR do legado é INCONSISTENTE e isto é cópia fiel: DIAS e ANOS usam `− qtd` (qtd=5 → SEIS anos
+ * civis, 01/01/ano−5 a 31/12/ano), SEMANAS e MESES usam `− (qtd−1)` (qtd períodos exatos). A faixa efetiva volta
+ * em `de`/`ate` para o operador ver a janela real.
+ */
+function faixaPorPeriodo(unidade: string, qtd: number, ancora: string): { ini: string; fimIncl: string } {
+  const [y, m] = ancora.split('-').map(Number);
+  switch (unidade) {
+    case 'SEMANAS': {
+      const dow = new Date(`${ancora}T00:00:00Z`).getUTCDay(); // 0=domingo
+      const segunda = addDias(ancora, dow === 0 ? -6 : 1 - dow); // segunda da semana da âncora (ISO)
+      const fimIncl = addDias(segunda, 5);                       // sábado (EndOfTheWeek − 1)
+      return { ini: addDias(segunda, -7 * (qtd - 1)), fimIncl };
+    }
+    case 'MESES': {
+      const totalMeses = (y * 12 + (m - 1)) - (qtd - 1);
+      const yi = Math.floor(totalMeses / 12); const mi = (totalMeses % 12) + 1;
+      return { ini: iniMes(yi, mi), fimIncl: fimMes(y, m) };
+    }
+    case 'ANOS':
+      return { ini: `${y - qtd}-01-01`, fimIncl: `${y}-12-31` };
+    case 'DIAS':
+    default:
+      return { ini: addDias(ancora, -qtd), fimIncl: ancora };
+  }
+}
+
 export interface FiltroPrevia {
   dataAnalise?: string;
   periodizacao?: string;
@@ -90,6 +124,11 @@ export interface FiltroPrevia {
   departamento?: number; grupo?: number; subgrupo?: number; secao?: number; marca?: number;
   ativo?: number;
   somenteComGiro?: boolean;
+}
+
+export interface FiltroPrevPeriodo extends Omit<FiltroPrevia, 'periodizacao' | 'somenteComGiro'> {
+  unidade?: 'DIAS' | 'SEMANAS' | 'MESES' | 'ANOS';
+  quantidade?: number;
 }
 
 interface Celula { qtde: number; vrcusto: number; vrvenda: number; vrcustorep: number; qtde_ent?: number; vrcusto_ent?: number }
@@ -414,4 +453,143 @@ export class PreviaFornecedorService {
       },
     };
   }
+
+  /**
+   * "Habilita Período" (`tpPorPeriodo`) — a 2ª geração do cálculo (`MontaSqlPorPeriodo` + `qryPeriodoDias`):
+   * UMA faixa livre (unidade × quantidade) e UMA linha de totais por produto, em vez da matriz de slots.
+   *
+   * FIEL: mesma união `vendas` ∪ NF-saída (CFOP dos 8), `SUM(qtde)` + `AVG(custo/venda/custorep)`, o join com
+   * PRODUTOS/ESTOQUE **DENTRO** do agregado — logo este modo lista **só quem teve movimento** (na matriz de slots
+   * o produto sem giro aparece com zero, porque lá a lista é uma query separada). `GROUP BY codproduto, descricao,
+   * unidade, fatorcx, codbarra` + `ORDER BY descricao`, como no .dfm.
+   *
+   * DIVERGÊNCIA DELIBERADA (1): o legado seleciona `p.qtde as estoque` no interno e `sum(estoque)` no externo —
+   * ou seja soma o saldo do produto UMA VEZ POR LINHA DE MOVIMENTO, devolvendo `saldo × nº de linhas`. Um item com
+   * 45 em estoque e 100 movimentos exibiria 4.500. Além de errado, `produtos.qtde` não existe no schema novo (o
+   * saldo vive em `estoque`, por empresa). Aqui o estoque sai de `estoque` na empresa do escopo, uma vez.
+   */
+  async porPeriodo(f: FiltroPrevPeriodo): Promise<{
+    linhas: Record<string, unknown>[]; totais: Record<string, number | null>; filtro: Record<string, unknown>;
+  }> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const empresas = (f.empresas?.length ? f.empresas.map(Number) : [emp]).filter((e) => e === emp);
+    if (!empresas.length) throw new BusinessRuleError('EMPRESA_FORA_DO_ESCOPO', { empresas: f.empresas });
+
+    const tz = String((await this.config.resolver('FUSO_HORARIO_ACESSO', { empresaId: emp })) ?? 'America/Sao_Paulo');
+    const hojeLocal = (await sql<{ d: string }>`select to_char(now() at time zone ${tz}, 'YYYY-MM-DD') as d`
+      .execute(db)).rows[0].d;
+    const ancora = f.dataAnalise ?? hojeLocal;
+    if (Number.isNaN(Date.parse(`${ancora}T00:00:00Z`)) || addDias(ancora, 0) !== ancora) {
+      throw new BusinessRuleError('DATA_ANALISE_INVALIDA', { dataAnalise: ancora });
+    }
+    const unidade = f.unidade ?? 'DIAS';
+    const quantidade = Number(f.quantidade ?? 15);
+    const { ini, fimIncl } = faixaPorPeriodo(unidade, quantidade, ancora);
+    const fimExcl = addDias(fimIncl, 1);
+    const diasCobertos = Math.round((Date.parse(`${fimExcl}T00:00:00Z`) - Date.parse(`${ini}T00:00:00Z`)) / 86400000);
+
+    const CFOP_SAIDA = [5102, 6102, 5402, 6402, 5403, 6403, 5405, 6405];
+    const qtdeNf = sql`coalesce(np.quantidade * (case when (np.fatorembal is null or np.fatorembal = 0) then 1 else np.fatorembal end), 0)`;
+
+    const movVendas = db.selectFrom('vendas as v')
+      .select([
+        sql`v.codproduto`.as('codproduto'), sql`coalesce(v.qtde,0)`.as('qtde'),
+        sql`coalesce(v.vrcusto,0)`.as('vrcusto'), sql`coalesce(v.vrvenda,0)`.as('vrvenda'),
+        sql`coalesce(v.vrcustorep,0)`.as('vrcustorep'),
+      ])
+      .where(sql`coalesce(v.cancelado,'N')`, '=', 'N')
+      .where('v.idempresa', 'in', empresas)
+      // limites no fuso do negócio (o balde de dia não existe aqui, mas a BORDA da faixa sim)
+      .where('v.dtvenda', '>=', sql`(${ini}::timestamp at time zone ${tz})`)
+      .where('v.dtvenda', '<', sql`(${fimExcl}::timestamp at time zone ${tz})`);
+
+    const movNf = db.selectFrom('nf as n')
+      .innerJoin('nf_prod as np', 'np.codnf', 'n.codnf')
+      .select([
+        sql`np.codproduto`.as('codproduto'), qtdeNf.as('qtde'),
+        sql`coalesce(np.vl_custo,0)`.as('vrcusto'),
+        sql`coalesce(case when coalesce(np.vrvenda,0) = 0 then np.vrcusto else np.vrvenda end, 0)`.as('vrvenda'),
+        sql`coalesce(np.vrcustorep,0)`.as('vrcustorep'),
+      ])
+      .where(sql`coalesce(n.cancelada,'N')`, '=', 'N')
+      .where(sql`n.proc`, '=', 'S').where(sql`n.tipo`, '=', 'S')
+      .where('n.idempresa', 'in', empresas)
+      .where('n.dtcontabil', '>=', sql`${ini}::date`)
+      .where('n.dtcontabil', '<', sql`${fimExcl}::date`)
+      .where('n.cfop', 'in', CFOP_SAIDA);
+
+    let q = db
+      .selectFrom(movVendas.unionAll(movNf).as('mov'))
+      .innerJoin('produtos as p', 'p.idproduto', 'mov.codproduto')
+      // ESTOQUE é INNER como no legado (é ele que ancora a empresa na lista de produtos)
+      .innerJoin('estoque as e', (j) => j.onRef('e.idproduto', '=', 'p.idproduto').on('e.idempresa', 'in', empresas))
+      .leftJoin('parceiros as pa', 'pa.codparceiro', 'p.codfor')
+      .leftJoin('marcas as ma', 'ma.idmarca', 'p.idmarca')
+      .leftJoin('multi_preco as m', (j) => j.onRef('m.idproduto', '=', 'e.idproduto').onRef('m.idempresa', '=', 'e.idempresa'))
+      .select([
+        'p.idproduto', 'p.codbarra', sql`p.descricao`.as('descricao'), 'p.unidade', 'p.fatorcx', 'p.codfor',
+        sql`pa.fantasia`.as('fornecedor'),
+        sql`sum(mov.qtde)`.as('qtde'),
+        sql`avg(mov.vrcusto)`.as('vrcusto'),
+        sql`avg(mov.vrvenda)`.as('vrvenda'),
+        sql`avg(mov.vrcustorep)`.as('vrcustorep'),
+        // estoque UMA vez (ver a divergência no docblock): max() sobre a linha única de estoque da empresa
+        sql`max(e.qtde)`.as('estoque'), sql`max(e.minimo)`.as('est_minimo'), sql`max(e.maximo)`.as('est_maximo'),
+        sql`to_char(max(e.dtent) at time zone ${tz},'YYYY-MM-DD')`.as('dtultent'),
+        sql`max(e.qtde_ent)`.as('qtdeultent'),
+      ])
+      .groupBy(['p.idproduto', 'p.codbarra', 'p.descricao', 'p.unidade', 'p.fatorcx', 'p.codfor', 'pa.fantasia']);
+
+    // filtros de valor ÚNICO, iguais aos da matriz (MontaFiltroSQL é compartilhado pelos dois caminhos)
+    if (f.codfor != null) q = q.where('pa.codparceiro', '=', Number(f.codfor));
+    if (f.idproduto != null) q = q.where('p.idproduto', '=', Number(f.idproduto));
+    if (f.secao != null) q = q.where('p.codsecao', '=', Number(f.secao));
+    if (f.departamento != null) q = q.where('p.coddpto', '=', Number(f.departamento));
+    if (f.marca != null) q = q.where('ma.idmarca', '=', Number(f.marca));
+    if (f.grupo != null) q = q.where('p.codgrupo', '=', Number(f.grupo));
+    if (f.subgrupo != null) q = q.where('p.codsubgrupo', '=', Number(f.subgrupo));
+    const at = (c: string, v: string) => sql<boolean>`coalesce(m.${sql.raw(c)},'S') = ${v}`;
+    if (f.ativo === 1) q = q.where(at('ativo_compra', 'S'));
+    if (f.ativo === 2) q = q.where(at('ativo', 'S'));
+    if (f.ativo === 3) q = q.where(at('ativo_compra', 'N'));
+    if (f.ativo === 4) q = q.where(at('ativo', 'N'));
+    if (f.ativo === 5) q = q.where(at('ativo_compra', 'S')).where(at('ativo', 'S'));
+    if (f.ativo === 6) q = q.where(at('ativo_compra', 'N')).where(at('ativo', 'N'));
+    if (f.ativo != null) q = q.where('m.idproduto', 'is not', null);
+
+    const MAX_LINHAS = 20000;
+    const brutas = (await q.orderBy(sql`p.descricao`).limit(MAX_LINHAS + 1).execute()) as Record<string, unknown>[];
+    const truncado = brutas.length > MAX_LINHAS;
+    const linhas = (truncado ? brutas.slice(0, MAX_LINHAS) : brutas).map((r) => {
+      const qt = r3(num(r.qtde));
+      return {
+        ...r,
+        qtde: qt,
+        vrcusto: r4(num(r.vrcusto)), vrvenda: r4(num(r.vrvenda)),
+        vrcustorep: r.vrcustorep == null ? null : r4(num(r.vrcustorep)),
+        estoque: r3(num(r.estoque)), est_minimo: r3(num(r.est_minimo)), est_maximo: r3(num(r.est_maximo)),
+        dtultent: r.dtultent ?? null,
+        qtdeultent: r.qtdeultent == null ? null : r3(num(r.qtdeultent)),
+        media_dia: r3(qt / diasCobertos),
+        caixas_giro: num(r.fatorcx) > 1 ? r3(qt / num(r.fatorcx)) : null,
+      };
+    });
+    const totais = {
+      produtos: linhas.length,
+      total_qtde: r3(linhas.reduce((s, l) => s + num(l.qtde), 0)),
+      estoque: r3(linhas.reduce((s, l) => s + num(l.estoque), 0)),
+      sem_ultima_entrada: linhas.filter((l) => l.dtultent == null).length,
+    };
+    return {
+      linhas, totais,
+      filtro: {
+        ...f, empresas, dataAnalise: ancora, unidade, quantidade,
+        de: ini, ate: fimIncl, dias_cobertos: diasCobertos, truncado, max_linhas: MAX_LINHAS,
+        // este modo lista SÓ quem teve movimento (join dentro do agregado) — a tela avisa, p/ não parecer filtro sumido
+        somente_com_movimento: true,
+      },
+    };
+  }
+
 }

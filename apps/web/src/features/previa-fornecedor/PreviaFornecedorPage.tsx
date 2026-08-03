@@ -36,7 +36,14 @@ interface Linha {
 }
 interface Periodo { slot: number; rotulo: string; ini: string; fimIncl: string; dia?: string }
 interface Totais { produtos: number; com_giro: number; sem_giro: number; total_qtde: number; total_qtde_entrada: number | null; recebeu_sem_vender: number | null; estoque: number; sem_ultima_entrada: number }
-interface Filtro { truncado?: boolean; max_linhas?: number; dataAnalise?: string; periodizacao?: string; de?: string; ate?: string; dias_cobertos?: number }
+interface Filtro { truncado?: boolean; max_linhas?: number; dataAnalise?: string; periodizacao?: string; de?: string; ate?: string; dias_cobertos?: number; somente_com_movimento?: boolean; unidade?: string; quantidade?: number }
+/** linha do modo "Habilita Período": uma faixa só, sem matriz de slots. */
+interface LinhaPeriodo {
+  idproduto: number; codbarra?: string; descricao?: string; unidade?: string; fatorcx?: number; fornecedor?: string;
+  qtde: number; vrcusto: number; vrvenda: number; vrcustorep: number | null;
+  estoque: number; est_minimo: number; est_maximo: number; dtultent: string | null; qtdeultent: number | null;
+  media_dia: number; caixas_giro: number | null;
+}
 
 /**
  * PRÉVIA DO FORNECEDOR / ANÁLISE DE GIRO (FRMRELLISTAPRECOSFORNECEDOR) — corte-1 "15 Dias".
@@ -52,6 +59,9 @@ export function PreviaFornecedorPage() {
   const [visualizar, setVisualizar] = useState('VENDAS');
   const [ativo, setAtivo] = useState('');
   const [somenteComGiro, setSomenteComGiro] = useState(false);
+  const [unidade, setUnidade] = useState('DIAS');
+  const [quantidade, setQuantidade] = useState('15');
+  const [porPeriodo, setPorPeriodo] = useState<LinhaPeriodo[] | null>(null);
   const [periodos, setPeriodos] = useState<Periodo[]>([]);
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [totais, setTotais] = useState<Totais | null>(null);
@@ -62,15 +72,26 @@ export function PreviaFornecedorPage() {
     if (busy) return;
     setBusy(true);
     try {
+      const comum = {
+        dataAnalise,
+        codfor: codfor ? Number(codfor) : undefined,
+        ativo: ativo ? Number(ativo) : undefined,
+      };
+      if (periodizacao === 'PERIODO') {
+        // "Habilita Período": faixa livre, uma linha por produto, só quem teve movimento
+        const r = await req<{ linhas: LinhaPeriodo[]; totais: Totais; filtro: Filtro }>(
+          '/relatorios/previa-fornecedor/periodo',
+          { ...comum, unidade, quantidade: Number(quantidade) || 1 },
+        );
+        setPorPeriodo(r.linhas); setLinhas([]); setPeriodos([]); setTotais(r.totais); setFiltro(r.filtro);
+        if (!r.linhas.length) mensagem.sucesso('Nenhum produto com movimento na faixa.');
+        return;
+      }
       const r = await req<{ periodos: Periodo[]; linhas: Linha[]; totais: Totais; filtro: Filtro }>(
         '/relatorios/previa-fornecedor/matriz',
-        {
-          dataAnalise, periodizacao, visualizar, somenteComGiro,
-          codfor: codfor ? Number(codfor) : undefined,
-          ativo: ativo ? Number(ativo) : undefined,
-        },
+        { ...comum, periodizacao, visualizar, somenteComGiro },
       );
-      setPeriodos(r.periodos); setLinhas(r.linhas); setTotais(r.totais); setFiltro(r.filtro);
+      setPorPeriodo(null); setPeriodos(r.periodos); setLinhas(r.linhas); setTotais(r.totais); setFiltro(r.filtro);
       if (!r.linhas.length) mensagem.sucesso('Nenhum produto no filtro (a lista vem de produtos com estoque na empresa).');
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
@@ -108,8 +129,17 @@ export function PreviaFornecedorPage() {
         <div className="w-44"><SelectField label="Perío&do" value={periodizacao} onChange={setPeriodizacao} options={[
           { value: '15D', label: '15 Dias' }, { value: '5D', label: '5 Dias' }, { value: '30D', label: '30 Dias' },
           { value: '5S', label: '5 Semanas' }, { value: '5M', label: '5 Meses' }, { value: '5A', label: '5 Anos' },
-          { value: 'ANUAL', label: 'Anual (12 meses)' },
+          { value: 'ANUAL', label: 'Anual (12 meses)' }, { value: 'PERIODO', label: 'Habilita Período…' },
         ]} /></div>
+        {periodizacao === 'PERIODO' && (
+          <>
+            <div className="w-36"><SelectField label="&Unidade" value={unidade} onChange={setUnidade} options={[
+              { value: 'DIAS', label: 'Dias' }, { value: 'SEMANAS', label: 'Semanas' },
+              { value: 'MESES', label: 'Meses' }, { value: 'ANOS', label: 'Anos' },
+            ]} /></div>
+            <div className="w-28"><Field label="&Qtde" type="number" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} /></div>
+          </>
+        )}
         <div className="w-52"><SelectField label="&Visualizar" value={visualizar} onChange={setVisualizar} options={[{ value: 'VENDAS', label: 'Vendas' }, { value: 'ENTRADAS_SAIDAS', label: 'Entradas e saídas' }]} /></div>
         <div className="w-56"><SelectField label="Situa&ção" value={ativo} onChange={setAtivo} placeholder="(sem filtro)" options={[
           { value: '1', label: 'Ativo p/ compra = S' }, { value: '2', label: 'Ativo = S' },
@@ -134,6 +164,12 @@ export function PreviaFornecedorPage() {
         </div>
       )}
 
+      {filtro?.somente_com_movimento && (
+        <div className="rounded-radius-md border border-border bg-bg-subtle p-pad-sm text-body-sm text-fg-muted">
+          Neste modo o legado só lista <b>quem teve movimento</b> na faixa (o join com o cadastro está dentro da
+          soma) — produto sem giro <b>não aparece</b>, ao contrário dos modos de matriz.
+        </div>
+      )}
       {totais && (
         <div className="flex flex-wrap gap-gp-sm">
           {[
@@ -157,6 +193,38 @@ export function PreviaFornecedorPage() {
         </div>
       )}
 
+      {porPeriodo && (
+        <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
+          <table className="w-full text-body-sm">
+            <thead><tr className="text-left text-fg-muted">
+              <th className="p-pad-xs">Produto</th><th className="p-pad-xs text-right">Qtde</th>
+              <th className="p-pad-xs text-right">Méd/dia</th><th className="p-pad-xs text-right">Caixas</th>
+              <th className="p-pad-xs text-right">Custo méd.</th><th className="p-pad-xs text-right">Venda méd.</th>
+              <th className="p-pad-xs text-right">Custo rep.</th><th className="p-pad-xs text-right">Estoque</th>
+              <th className="p-pad-xs text-right">Mín/Máx</th><th className="p-pad-xs text-right">Últ. entrada</th>
+            </tr></thead>
+            <tbody>
+              {porPeriodo.map((l) => (
+                <tr key={l.idproduto} className="border-t border-border">
+                  <td className="p-pad-xs">{l.descricao}<br /><span className="text-fg-muted">{l.codbarra} · {l.unidade}{l.fatorcx ? ` · cx ${l.fatorcx}` : ''}</span></td>
+                  <td className="p-pad-xs text-right tabular-nums font-semibold">{q3(l.qtde)}</td>
+                  <td className="p-pad-xs text-right tabular-nums text-fg-muted">{q3(l.media_dia)}</td>
+                  <td className="p-pad-xs text-right tabular-nums">{l.caixas_giro == null ? '—' : q3(l.caixas_giro)}</td>
+                  <td className="p-pad-xs text-right tabular-nums">{brl(l.vrcusto)}</td>
+                  <td className="p-pad-xs text-right tabular-nums text-fg-muted">{brl(l.vrvenda)}</td>
+                  <td className="p-pad-xs text-right tabular-nums text-fg-muted">{brl(l.vrcustorep)}</td>
+                  <td className={`p-pad-xs text-right tabular-nums ${Number(l.estoque) <= Number(l.est_minimo) ? 'font-semibold text-danger' : ''}`}>{q3(l.estoque)}</td>
+                  <td className="p-pad-xs text-right tabular-nums text-fg-muted">{q3(l.est_minimo)}/{q3(l.est_maximo)}</td>
+                  <td className="p-pad-xs text-right tabular-nums text-fg-muted whitespace-nowrap">{l.dtultent ? `${dia(l.dtultent)} · ${q3(l.qtdeultent)}` : '—'}</td>
+                </tr>
+              ))}
+              {!porPeriodo.length && <tr><td colSpan={10} className="p-pad-md text-fg-muted">Nenhum produto com movimento na faixa.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!porPeriodo && (
       <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
         <table className="w-full text-body-sm">
           <thead>
@@ -232,6 +300,7 @@ export function PreviaFornecedorPage() {
           )}
         </table>
       </div>
+      )}
     </div>
   );
 }

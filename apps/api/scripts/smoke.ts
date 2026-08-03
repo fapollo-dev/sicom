@@ -4997,6 +4997,43 @@ async function main() {
           && Number(m5a.filtro?.dias_cobertos) === 1826 && Number(man.filtro?.dias_cobertos) === 365,
           { dias5m: m5m.filtro?.dias_cobertos, med: lin(m5m)?.media_dia, dias5a: m5a.filtro?.dias_cobertos, diasAn: man.filtro?.dias_cobertos });
 
+        // 47n.11) "HABILITA PERÍODO" (tpPorPeriodo) — a 2ª geração: UMA faixa livre, uma linha por produto, e
+        // **só quem teve movimento** (o join com produtos/estoque está DENTRO do agregado, ao contrário da matriz).
+        // Faixas fiéis a MontaSqlPorPeriodo, âncora 2026-08-15 (sábado):
+        //   DIAS qtd=15    → 31/07..15/08 (o legado usa `− qtd`, logo 16 dias — cópia fiel da inconsistência)
+        //   SEMANAS qtd=2  → segunda 03/08 .. sábado 15/08 (esta geração ancora na SEGUNDA, ISO; o tp5Semanas
+        //                    ancora no DOMINGO — as duas convenções coexistem no legado)
+        //   MESES qtd=3    → 01/06..31/08 · ANOS qtd=1 → 01/01/2025..31/12/2026 (`− qtd` de novo: 2 anos civis)
+        const PP = 'relatorios/previa-fornecedor/periodo';
+        const per = async (body: Record<string, unknown>) => (await (await fetch(`${base}/${PP}`, { method: 'POST', headers: H, body: JSON.stringify({ dataAnalise: '2026-08-15', codfor: 990002, ...body }) })).json().catch(() => ({}))) as any;
+        const pD = await per({ unidade: 'DIAS', quantidade: 15 });
+        const pS = await per({ unidade: 'SEMANAS', quantidade: 2 });
+        const pM = await per({ unidade: 'MESES', quantidade: 3 });
+        const pA = await per({ unidade: 'ANOS', quantidade: 1 });
+        const pl = (r: any, id = 990700) => (r.linhas ?? []).find((l: any) => Number(l.idproduto) === id);
+        check('PRÉVIA-FORN período livre: faixas fiéis a MontaSqlPorPeriodo — DIAS 15 → 31/07..15/08 (o legado usa −qtd = 16 dias) · SEMANAS 2 → SEGUNDA 03/08..SÁBADO 15/08 (esta geração é ISO, o tp5Semanas é domingo) · MESES 3 → 01/06..31/08 · ANOS 1 → 2025..2026',
+          pD.filtro?.de === '2026-07-31' && pD.filtro?.ate === '2026-08-15'
+          && pS.filtro?.de === '2026-08-03' && pS.filtro?.ate === '2026-08-15'
+          && pM.filtro?.de === '2026-06-01' && pM.filtro?.ate === '2026-08-31'
+          && pA.filtro?.de === '2025-01-01' && pA.filtro?.ate === '2026-12-31',
+          { d: [pD.filtro?.de, pD.filtro?.ate], s: [pS.filtro?.de, pS.filtro?.ate], m: [pM.filtro?.de, pM.filtro?.ate], a: [pA.filtro?.de, pA.filtro?.ate] });
+
+        // o 990701 vendeu 4 (23:30 de 15/08) e o 990700 tem 24; o 990702 é de outro fornecedor.
+        // A faixa de DIAS começa em 31/07 e ali existe a venda-borda de 111 un. (31/07 22:00) → ela ENTRA aqui
+        // (a borda do modo matriz era outra: ini era 01/08). É o teste de que a faixa manda, não o modo.
+        // 990701 tem 3 vendas: 111 (31/07 22:00) · 4 (15/08 23:30) · 222 (16/08 01:00).
+        //   MESES 3 (01/06..31/08) pega as três → 337 · DIAS 15 (31/07..15/08) pega só as duas primeiras → 115.
+        //   É a prova de que a FAIXA manda (e de que a de 16/08, fora da matriz, entra aqui quando a faixa alcança).
+        // média/dia de MESES 3 = 24 / 92 dias (jun 30 + jul 31 + ago 31) = 0,261.
+        check('PRÉVIA-FORN período livre: agrega a faixa inteira numa linha (990700 = 24) · a FAIXA manda (990701 = 337 em MESES-3 vs 115 em DIAS-15) · só quem teve MOVIMENTO aparece (nenhuma linha zerada) · estoque sai de ESTOQUE UMA vez (100, não 100×nº de movimentos, que é o que o legado faz)',
+          Number(pM.totais?.produtos) === 2 && Number(pl(pM)?.qtde) === 24
+          && Number(pl(pM)?.estoque) === 100
+          && Number(pl(pM, 990701)?.qtde) === 337 && Number(pl(pD, 990701)?.qtde) === 115
+          && !(pM.linhas ?? []).some((l: any) => Number(l.qtde) === 0)
+          && pM.filtro?.somente_com_movimento === true
+          && Number(pM.filtro?.dias_cobertos) === 92 && Number(pl(pM)?.media_dia) === 0.261,
+          { prods: pM.totais?.produtos, l700: pl(pM), m701: pl(pM, 990701)?.qtde, d701: pl(pD, 990701)?.qtde });
+
         await pgRv.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2,$3,$4,$5)`, [nfS.rows[0].codnf, nfE.rows[0].codnf, nfN.rows[0].codnf, nfC.rows[0].codnf, nfX.rows[0].codnf]);
         await pgRv.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3)`, [nfN.rows[0].codnf, nfC.rows[0].codnf, nfX.rows[0].codnf]);
         await pgRv.query(`DELETE FROM nf WHERE codnf IN ($1,$2)`, [nfS.rows[0].codnf, nfE.rows[0].codnf]);

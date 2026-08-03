@@ -36,3 +36,18 @@ export const previaFornecedorSchema = z.object({
   somenteComGiro: z.boolean().optional(),
 });
 export type PreviaFornecedorDto = z.infer<typeof previaFornecedorSchema>;
+
+/**
+ * 8ª opção do `rdgPeriodo` — "Habilita Período" (`tpPorPeriodo`). É a OUTRA geração do cálculo
+ * (`udmRelListaPrecosFornecedor.MontaSqlPorPeriodo` + a SQL `qryPeriodoDias` guardada no .dfm do data module):
+ * em vez da matriz de slots, **uma faixa livre** = unidade × quantidade, com UMA coluna de totais por produto.
+ * Diferença semântica importante e fiel: ali o join com PRODUTOS/ESTOQUE está DENTRO do agregado, então este
+ * modo mostra **só o que teve movimento** (na matriz de slots o produto sem giro aparece com zero).
+ */
+export const previaPeriodoSchema = previaFornecedorSchema
+  .omit({ periodizacao: true, somenteComGiro: true })
+  .extend({
+    unidade: z.enum(['DIAS', 'SEMANAS', 'MESES', 'ANOS']).optional(), // cbPeriodo (default 'Dias' no .dfm)
+    quantidade: z.coerce.number().int().min(1).max(120).optional(),   // edtQtdPeriodo
+  });
+export type PreviaPeriodoDto = z.infer<typeof previaPeriodoSchema>;

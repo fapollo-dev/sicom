@@ -1,5 +1,8 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
-import { previaFornecedorSchema, type PreviaFornecedorDto } from '@apollo/shared';
+import {
+  previaFornecedorSchema, previaPeriodoSchema,
+  type PreviaFornecedorDto, type PreviaPeriodoDto,
+} from '@apollo/shared';
 import { PreviaFornecedorService } from './previa-fornecedor.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -20,5 +23,17 @@ export class PreviaFornecedorController {
   @RequerAcesso('FRMRELLISTAPRECOSFORNECEDOR', 'FRMRELLISTAPRECOSFORNECEDOR')
   matriz(@Body(new ZodValidationPipe(previaFornecedorSchema)) dto: PreviaFornecedorDto) {
     return this.svc.matriz(dto);
+  }
+
+  /**
+   * "Habilita Período" (`tpPorPeriodo`) — a 2ª geração do cálculo: UMA faixa livre (unidade × quantidade) com uma
+   * linha de totais por produto, e só de quem teve movimento. Endpoint próprio porque a FORMA do resultado é
+   * outra (sem matriz de slots), não uma variação de parâmetro.
+   */
+  @Post('periodo')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELLISTAPRECOSFORNECEDOR', 'FRMRELLISTAPRECOSFORNECEDOR')
+  porPeriodo(@Body(new ZodValidationPipe(previaPeriodoSchema)) dto: PreviaPeriodoDto) {
+    return this.svc.porPeriodo(dto);
   }
 }
