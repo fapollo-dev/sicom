@@ -40,6 +40,7 @@ export * from './schema/controle-contas.schema';
 export * from './schema/ajuste-precos.schema';
 export * from './schema/precificacao-custo.schema';
 export * from './schema/rel-vendas.schema';
+export * from './schema/previa-fornecedor.schema';
 export * from './schema/cotacao.schema';
 export * from './schema/auth.schema';
 export * from './schema/configuracao.schema';

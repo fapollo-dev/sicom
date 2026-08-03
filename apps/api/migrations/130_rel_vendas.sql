@@ -1,5 +1,7 @@
 -- 130 — RELATÓRIO DE VENDAS (FRMRELVENDAS) — 1º relatório migrado (a categoria "relatórios" não existia no app novo).
--- É o relatório MAIS USADO do sistema (MENUEXPRESS 11.103 acessos; o 2º tem 334). A tela é um HUB de ~50 variantes
+-- É a 10ª tela mais usada do sistema (MENUEXPRESS: SUM(ACESSOS) = 14.286 / 25 operadores no hub inteiro; NÃO existe
+-- audit por variante no Oracle, então não há medição por variante — a rel 01 é o default do rdgPesquisa, ItemIndex 0).
+-- A tela é um HUB de ~50 variantes
 -- × 4 trilhas (Vendas/Pedidos/Vendas+NF/NF); o corte-1 migra a variante DOMINANTE: **rel 01 "Produtos vendidos no
 -- período", trilha Vendas** — default duplo no .dfm, a única com filtro de Lucro/agrupar-empresas/atacarejo, a de
 -- grade mais rica (26 colunas + 5 KPIs) e o molde dos rel 34/46.

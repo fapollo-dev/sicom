@@ -4805,6 +4805,162 @@ async function main() {
           { l702, totais: trunc.totais });
 
         await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-08-01' AND dtvenda < '2026-08-04'`);
+
+        // 47n) PRÉVIA DO FORNECEDOR / ANÁLISE DE GIRO (FRMRELLISTAPRECOSFORNECEDOR) — 2º relatório.
+        // Matriz produto × 15 dias ancorada em dataAnalise. Cenário fechado, âncora 2026-08-15 → slots 01..15/08:
+        //   990700 (fornecedor 2, ESTOQUE 100/min 10/max 200, fatorcx 12, última entrada 05/08 qtde 60):
+        //     dia 03/08 (slot 3): vendas 2 linhas → qtde 3+2=5, AVG custo (3+5)/2=4, AVG venda (10+20)/2=15
+        //     dia 10/08 (slot 10): 1 linha → qtde 7, custo 3, venda 10
+        //     → total 12, média/dia 12/15=0,8, caixas 12/12=1, 2 dias com movimento
+        //   990701 (mesmo fornecedor, estoque 5, SEM venda no período) → aparece com ZERO (essência da prévia)
+        //   990702 (fornecedor 3) → fora do filtro de fornecedor
+        const PF = 'relatorios/previa-fornecedor/matriz';
+        await pgRv.query(`INSERT INTO parceiros (codparceiro, razao, fantasia, frn) VALUES
+          (990002,'FORN PREVIA LTDA','FORN PREVIA','S'), (990003,'OUTRO FORN LTDA','OUTRO FORN','S')
+          ON CONFLICT (codparceiro) DO NOTHING`);
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto, fatorcx) VALUES
+          (990700,'7899000990700','ARROZ RV 5KG','FD',990002,'T01','S',91,12),
+          (990701,'7899000990701','FEIJAO RV 1KG','UN',990002,'T01','S',91,20),
+          (990702,'7899000990702','ACUCAR RV TRUNC','KG',990003,'T01','S',91,0)
+          ON CONFLICT (idproduto) DO UPDATE SET codfor=EXCLUDED.codfor, fatorcx=EXCLUDED.fatorcx`);
+        await pgRv.query(`DELETE FROM estoque WHERE idproduto IN (990700,990701,990702) AND idempresa=1`);
+        await pgRv.query(`INSERT INTO estoque (idproduto, idempresa, qtde, minimo, maximo, dtent, qtde_ent) VALUES
+          (990700,1,100,10,200,'2026-08-05 08:00:00-03',60),
+          (990701,1,5,1,20,NULL,NULL),
+          (990702,1,7,0,0,NULL,NULL)`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-08-01' AND dtvenda < '2026-08-16'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, vrcustorep, iat, cfop, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-08-03 09:00:00-03','001',801,1,990700,3,10.00,3.00,3.30,'A',5102,'N','S','P'),
+          (1,'2026-08-03 10:00:00-03','001',802,1,990700,2,20.00,5.00,5.50,'A',5102,'N','S','P'),
+          (1,'2026-08-10 09:00:00-03','001',803,1,990700,7,10.00,3.00,3.30,'A',5102,'N','S','P'),
+          (1,'2026-08-03 11:00:00-03','001',804,1,990700,9,99.00,9.00,9.90,'A',5102,'S','S','P')`);
+
+        const pf = await fetch(`${base}/${PF}`, { method: 'POST', headers: H, body: JSON.stringify({ dataAnalise: '2026-08-15', codfor: 990002 }) });
+        const pfJ = (await pf.json().catch(() => ({}))) as any;
+        const p700 = (pfJ.linhas ?? []).find((l: any) => Number(l.idproduto) === 990700);
+        const p701 = (pfJ.linhas ?? []).find((l: any) => Number(l.idproduto) === 990701);
+        const c3 = p700?.celulas?.[2], c10 = p700?.celulas?.[9];
+        check('PRÉVIA-FORN: matriz 15 dias (slots 01..15/08) · célula do dia 3 agrega SUM(qtde)=5 e AVG(custo)=4 / AVG(venda)=15 · dia 10 = 7 · total 12 · média/dia 0,8 · caixas 12/12=1 · cancelada FORA',
+          pf.status === 200 && Array.isArray(pfJ.periodos) && pfJ.periodos.length === 15
+          && pfJ.periodos[0].dia === '2026-08-01' && pfJ.periodos[14].dia === '2026-08-15'
+          && pfJ.periodos[2].rotulo === '3 DIA'
+          && c3 && Number(c3.qtde) === 5 && Number(c3.vrcusto) === 4 && Number(c3.vrvenda) === 15
+          && c10 && Number(c10.qtde) === 7
+          && Number(p700.total_qtde) === 12 && Number(p700.media_dia) === 0.8
+          && Number(p700.caixas_giro) === 1 && Number(p700.dias_com_movimento) === 2,
+          { periodos: pfJ.periodos?.length, c3, c10, p700: { t: p700?.total_qtde, m: p700?.media_dia, cx: p700?.caixas_giro } });
+
+        check('PRÉVIA-FORN: produto SEM venda APARECE com zero (essência da prévia: o comprador vê o que não girou) · estoque/mín/máx do ESTOQUE · última entrada esparsa vem NULL, não 0 · fornecedor filtra fora o 990702',
+          p701 && Number(p701.total_qtde) === 0 && Number(p701.dias_com_movimento) === 0
+          && p701.celulas.every((c: unknown) => c === null)
+          && Number(p700.estoque) === 100 && Number(p700.est_minimo) === 10 && Number(p700.est_maximo) === 200
+          && Number(p700.qtdeultent) === 60 && p701.dtultent === null && p701.qtdeultent === null
+          && Number(pfJ.totais?.produtos) === 2 && Number(pfJ.totais?.com_giro) === 1
+          && Number(pfJ.totais?.sem_giro) === 1 && Number(pfJ.totais?.sem_ultima_entrada) === 1
+          && !(pfJ.linhas ?? []).some((l: any) => Number(l.idproduto) === 990702),
+          { p701: { t: p701?.total_qtde, dt: p701?.dtultent }, totais: pfJ.totais });
+
+        // 47n.3) NF de SAÍDA entra na UNION (CFOP da lista) e a NF de ENTRADA só na visualização Entradas-e-Saídas.
+        //   NF saída 03/08: quantidade 2 × fatorembal 6 = 12 · vrvenda 0 → cai p/ VRCUSTO 8 (fiel, 17,8% do golden)
+        //   → célula do dia 3 passa a SUM 5+12=17 e AVG venda (10+20+8)/3 = 12,6667
+        //   NF entrada 04/08: quantidade 3 × fatorembal 10 = 30 · vl_custo 0 → cai p/ vrcusto 7
+        const nfS = await pgRv.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop)
+          VALUES (1,990002,'900001',55,'1','S','S','N','2026-08-03','2026-08-03',5102) RETURNING codnf`);
+        const nfE = await pgRv.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop)
+          VALUES (1,990002,'900002',55,'1','E','S','N','2026-08-04','2026-08-04',1102) RETURNING codnf`);
+        await pgRv.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, fatorembal, vrvenda, vrcusto, vl_custo, vrcustorep)
+          VALUES ($1,990700,2,6,0,8.00,8.00,8.80)`, [nfS.rows[0].codnf]);
+        await pgRv.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, fatorembal, vrvenda, vrcusto, vl_custo, vrcustorep)
+          VALUES ($1,990700,3,10,0,7.00,0,7.70)`, [nfE.rows[0].codnf]);
+
+        const pfNf = (await (await fetch(`${base}/${PF}`, { method: 'POST', headers: H, body: JSON.stringify({ dataAnalise: '2026-08-15', codfor: 990002 }) })).json().catch(() => ({}))) as any;
+        const pfEs = (await (await fetch(`${base}/${PF}`, { method: 'POST', headers: H, body: JSON.stringify({ dataAnalise: '2026-08-15', codfor: 990002, visualizar: 'ENTRADAS_SAIDAS' }) })).json().catch(() => ({}))) as any;
+        const n700 = (pfNf.linhas ?? []).find((l: any) => Number(l.idproduto) === 990700);
+        const e700 = (pfEs.linhas ?? []).find((l: any) => Number(l.idproduto) === 990700);
+        check('PRÉVIA-FORN: NF de saída entra na UNION com qtde × fatorembal (2×6=12 → dia 3 = 17) e VRVENDA=0 cai p/ VRCUSTO (AVG (10+20+8)/3 = 12,6667) · a NF de ENTRADA só aparece em Entradas-e-Saídas (30, custo 7 pelo CASE vl_custo=0)',
+          Number(n700?.celulas?.[2]?.qtde) === 17 && Number(n700?.celulas?.[2]?.vrvenda) === 12.6667
+          && n700?.celulas?.[3] == null   // 04/08 não tem SAÍDA — a entrada não pode vazar p/ a visão Vendas
+          && Number(e700?.celulas?.[3]?.qtde_ent) === 30 && Number(e700?.celulas?.[3]?.vrcusto_ent) === 7
+          && Number(e700?.total_qtde_entrada) === 30 && Number(pfEs.totais?.total_qtde_entrada) === 30
+          && pfNf.totais?.total_qtde_entrada === null,
+          { s: n700?.celulas?.[2], e: e700?.celulas?.[3], totais: pfEs.totais });
+
+        // 47n.4) filtro ATIVO (6 modos de GetFiltroIdxAtivo) · somenteComGiro · RBAC · data inválida → 400.
+        await pgRv.query(`DELETE FROM multi_preco WHERE idproduto IN (990700,990701) AND idempresa=1`);
+        await pgRv.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, ativo, ativo_compra) VALUES
+          (990700,1,10,'S','S'), (990701,1,20,'N','N')`);
+        const at2 = (await (await fetch(`${base}/${PF}`, { method: 'POST', headers: H, body: JSON.stringify({ dataAnalise: '2026-08-15', codfor: 990002, ativo: 2 }) })).json().catch(() => ({}))) as any;
+        const at4 = (await (await fetch(`${base}/${PF}`, { method: 'POST', headers: H, body: JSON.stringify({ dataAnalise: '2026-08-15', codfor: 990002, ativo: 4 }) })).json().catch(() => ({}))) as any;
+        const giro = (await (await fetch(`${base}/${PF}`, { method: 'POST', headers: H, body: JSON.stringify({ dataAnalise: '2026-08-15', codfor: 990002, somenteComGiro: true }) })).json().catch(() => ({}))) as any;
+        const dtBad = await fetch(`${base}/${PF}`, { method: 'POST', headers: H, body: JSON.stringify({ dataAnalise: '15/08/2026' }) });
+        const rbPf = await fetch(`${base}/${PF}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dataAnalise: '2026-08-15' }) });
+        check('PRÉVIA-FORN filtros: ATIVO=2 (ativo=S) traz só o 990700 · ATIVO=4 (ativo=N) traz só o 990701 · somenteComGiro descarta o sem-giro · data dd/mm/aaaa → 400 · sem grant → 403',
+          Number(at2.totais?.produtos) === 1 && Number(at2.linhas?.[0]?.idproduto) === 990700
+          && Number(at4.totais?.produtos) === 1 && Number(at4.linhas?.[0]?.idproduto) === 990701
+          && Number(giro.totais?.produtos) === 1 && Number(giro.totais?.sem_giro) === 0
+          && dtBad.status === 400 && rbPf.status === 403,
+          { at2: at2.totais?.produtos, at4: at4.totais?.produtos, giro: giro.totais, dt: dtBad.status, rb: rbPf.status });
+
+        // 47n.5) FUSO — a venda de 23:30 (hora local) TEM de cair no dia dela. Com o balde em UTC ela iria p/ o dia
+        // seguinte (4,02% das 11,9M linhas do golden; 41% das vendas do tenant são após 17h) e, no último dia da
+        // janela, o produto sairia como "sem giro" — o comprador deixaria de repor. Este check roda com o pg em
+        // UTC (é o default do embarcado), então reprova o código anterior.
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, vrcustorep, iat, cfop, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-08-15 23:30:00-03','001',805,1,990701,4,7.00,4.00,4.40,'A',5102,'N','S','P')`);
+        // BORDAS: um dia ANTES do início e um dia DEPOIS da âncora — nenhum dos dois pode entrar (off-by-one).
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, vrcustorep, iat, cfop, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-07-31 22:00:00-03','001',806,1,990701,111,7.00,4.00,4.40,'A',5102,'N','S','P'),
+          (1,'2026-08-16 01:00:00-03','001',807,1,990701,222,7.00,4.00,4.40,'A',5102,'N','S','P')`);
+        const pfTz = (await (await fetch(`${base}/${PF}`, { method: 'POST', headers: H, body: JSON.stringify({ dataAnalise: '2026-08-15', codfor: 990002 }) })).json().catch(() => ({}))) as any;
+        const t701 = (pfTz.linhas ?? []).find((l: any) => Number(l.idproduto) === 990701);
+        check('PRÉVIA-FORN fuso+bordas: venda 23:30 local cai no PRÓPRIO dia (slot 15, não o 16) · véspera (31/07 22:00) e dia seguinte (16/08) ficam FORA · o produto deixa de ser "sem giro"',
+          Number(t701?.celulas?.[14]?.qtde) === 4 && Number(t701?.total_qtde) === 4
+          && Number(t701?.dias_com_movimento) === 1 && Number(pfTz.totais?.sem_giro) === 0,
+          { c15: t701?.celulas?.[14], total: t701?.total_qtde, totais: pfTz.totais });
+
+        // 47n.6) filtros da perna de NF que ninguém testava: proc='N', cancelada='S' e CFOP fora da lista dos 8
+        // (no golden, 2.577 das 2.633 NFs de saída caem fora desse CFOP — se o filtro vazasse, o número inflaria).
+        const nfN = await pgRv.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop)
+          VALUES (1,990002,'900003',55,'1','S','N','N','2026-08-06','2026-08-06',5102) RETURNING codnf`);
+        const nfC = await pgRv.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop)
+          VALUES (1,990002,'900004',55,'1','S','S','S','2026-08-06','2026-08-06',5102) RETURNING codnf`);
+        const nfX = await pgRv.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop)
+          VALUES (1,990002,'900005',55,'1','S','S','N','2026-08-06','2026-08-06',5927) RETURNING codnf`);
+        for (const r of [nfN, nfC, nfX]) {
+          await pgRv.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, fatorembal, vrvenda, vrcusto, vl_custo, vrcustorep)
+            VALUES ($1,990700,50,1,9.00,9.00,9.00,9.90)`, [r.rows[0].codnf]);
+        }
+        // 47n.7) fatorcx = 0/1 → caixas null (1 é o DEFAULT de campo em branco: 28.407 dos 43.115 produtos).
+        await pgRv.query(`UPDATE produtos SET fatorcx=1 WHERE idproduto=990701`);
+        const pfNfx = (await (await fetch(`${base}/${PF}`, { method: 'POST', headers: H, body: JSON.stringify({ dataAnalise: '2026-08-15', codfor: 990002 }) })).json().catch(() => ({}))) as any;
+        const x700 = (pfNfx.linhas ?? []).find((l: any) => Number(l.idproduto) === 990700);
+        const x701 = (pfNfx.linhas ?? []).find((l: any) => Number(l.idproduto) === 990701);
+        // total do 990700 = 12 de VENDAS (5 no dia 3 + 7 no dia 10) + 12 da NF de saída (2×6, dia 3) = 24.
+        // vrcustorep médio do dia 3 = AVG(3,30 · 5,50 · 8,80) = 5,8667 — a NF entra na média, como no legado.
+        check('PRÉVIA-FORN: NF com proc=N, NF cancelada e NF com CFOP fora dos 8 da lista NÃO entram (dia 06/08 vazio; 50 un. cada uma ficariam visíveis) · fatorcx 1 → caixas NULL (1 é campo em branco; dividir por 1 rotularia unidade como caixa) · vrcustorep médio do dia 3 = 5,8667 (vendas + NF)',
+          x700?.celulas?.[5] == null && Number(x700?.total_qtde) === 24
+          && x701?.caixas_giro === null && Number(x700?.celulas?.[2]?.vrcustorep) === 5.8667,
+          { d6: x700?.celulas?.[5], t: x700?.total_qtde, cx701: x701?.caixas_giro, crep: x700?.celulas?.[2]?.vrcustorep });
+
+        // 47n.8) filtro ATIVO em produto SEM linha em multi_preco → o gate `is not null` (efeito do INNER do
+        // legado) tem de excluí-lo nos 6 modos, inclusive nos que testam 'N' (o coalesce leria 'S' por engano).
+        await pgRv.query(`DELETE FROM multi_preco WHERE idproduto=990701 AND idempresa=1`);
+        const semMp: number[] = [];
+        for (const modo of [1, 2, 3, 4, 5, 6]) {
+          const r = (await (await fetch(`${base}/${PF}`, { method: 'POST', headers: H, body: JSON.stringify({ dataAnalise: '2026-08-15', codfor: 990002, ativo: modo }) })).json().catch(() => ({}))) as any;
+          if ((r.linhas ?? []).some((l: any) => Number(l.idproduto) === 990701)) semMp.push(modo);
+        }
+        // data que existe no regex mas não no calendário: 2026-02-30 rolaria 2 dias e deslocaria a matriz calada.
+        const dt30 = await fetch(`${base}/${PF}`, { method: 'POST', headers: H, body: JSON.stringify({ dataAnalise: '2026-02-30' }) });
+        check('PRÉVIA-FORN: produto SEM multi_preco sai de TODOS os 6 modos do filtro ATIVO (o coalesce sozinho o leria como ativo=S) · data inexistente 2026-02-30 → 422, não uma matriz 2 dias deslocada em silêncio',
+          semMp.length === 0 && dt30.status === 422
+          && ((await dt30.json().catch(() => ({}))) as any).code === 'DATA_ANALISE_INVALIDA',
+          { modosQueVazaram: semMp, dt30: dt30.status });
+
+        await pgRv.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2,$3,$4,$5)`, [nfS.rows[0].codnf, nfE.rows[0].codnf, nfN.rows[0].codnf, nfC.rows[0].codnf, nfX.rows[0].codnf]);
+        await pgRv.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3)`, [nfN.rows[0].codnf, nfC.rows[0].codnf, nfX.rows[0].codnf]);
+        await pgRv.query(`DELETE FROM nf WHERE codnf IN ($1,$2)`, [nfS.rows[0].codnf, nfE.rows[0].codnf]);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-08-01' AND dtvenda < '2026-08-16'`);
       } finally {
         await pgRv.end();
       }

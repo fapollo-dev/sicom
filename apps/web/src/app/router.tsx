@@ -41,6 +41,7 @@ import { ExportaBalancaPage } from '../features/exporta-balanca/ExportaBalancaPa
 import { AjustePrecosPage } from '../features/ajuste-precos/AjustePrecosPage';
 import { PrecificacaoCustoPage } from '../features/precificacao-custo/PrecificacaoCustoPage';
 import { RelVendasPage } from '../features/rel-vendas/RelVendasPage';
+import { PreviaFornecedorPage } from '../features/previa-fornecedor/PreviaFornecedorPage';
 import { CartaoPage } from '../features/cartao/CartaoPage';
 import { OperadorasPage } from '../features/cartao/OperadorasPage';
 import { TrocaPage } from '../features/troca/TrocaPage';
@@ -89,7 +90,8 @@ export const router = createBrowserRouter([
       { path: '/estoque/balanca', element: <ExportaBalancaPage /> }, // exporta PLUs p/ balança Toledo (TXITENS/CADASTRO/ITENSMGV download)
       { path: '/estoque/ajuste-precos', element: <AjustePrecosPage /> },
       { path: '/estoque/precificacao', element: <PrecificacaoCustoPage /> },
-      { path: '/relatorios/vendas', element: <RelVendasPage /> }, // 1º relatório: produtos vendidos no período // precificação de mercadorias (painel custo→PMZ→preço por produto×empresa) // ajuste de preços - lote (processa a fila lote_preco → multi_preco)
+      { path: '/relatorios/vendas', element: <RelVendasPage /> },
+      { path: '/relatorios/previa-fornecedor', element: <PreviaFornecedorPage /> }, // 2º relatório: giro produto × 15 dias // 1º relatório: produtos vendidos no período // precificação de mercadorias (painel custo→PMZ→preço por produto×empresa) // ajuste de preços - lote (processa a fila lote_preco → multi_preco)
       { path: '/financeiro/cartoes', element: <CartaoPage /> }, // recebíveis de cartão (consulta + cadastro; líquido/venc computados)
       { path: '/cadastro/operadoras', element: <OperadorasPage /> }, // administradora/adquirente + taxa por-empresa
       { path: '/financeiro/conciliacao', element: <ConciliacaoBancariaPage /> }, // conciliação bancária OFX × razão interno
