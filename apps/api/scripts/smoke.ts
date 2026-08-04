@@ -5290,6 +5290,73 @@ async function main() {
         // + uma venda CANCELADA (não entra) e uma venda às 22:30 (pega o balde do dia no fuso, não o dia seguinte).
         const TM = 'relatorios/ticket-medio/consultar';
         await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-08-25' AND dtvenda < '2026-08-27'`);
+
+        // 47s) ESTRUTURA do CAIXA D.R.E. (etapa 1 de 2) — as 4 tabelas que faltavam existem, aceitam o dado do
+        // legado e sustentam os JOINS que a DRE vai fazer. Não há tela nesta etapa: o que se certifica é que a
+        // estrutura está correta e que os caminhos de leitura da DRE funcionam.
+        await pgRv.query(`INSERT INTO plc (codplc, desccodplc, descricao, codpai, nivelconta) VALUES
+            (9180,'1.','RECEITAS',NULL,1), (9186,'1.01.','VENDA DE MERCADORIAS',9180,2),
+            (9188,'1.01.001','VENDAS DINHEIRO',9186,3), (9400,'4.','DESPESAS',NULL,1),
+            (9407,'4.07.','DESPESAS OPERACIONAIS',9400,2), (9410,'4.07.003','ENERGIA',9407,3)
+          ON CONFLICT (codplc) DO NOTHING`);
+        await pgRv.query(`INSERT INTO pdv (codpdv, nropdv, descricao, codempresa) VALUES (901,1,'PDV SMOKE',1)
+          ON CONFLICT (codpdv) DO NOTHING`);
+        await pgRv.query(`INSERT INTO formas_pgto (idempresa, modalidade, atalho, destino) VALUES (1,'DINHEIRO DRE','Z8','CXA')
+          ON CONFLICT DO NOTHING`);
+        const fpDre = (await pgRv.query(`SELECT idpgto FROM formas_pgto WHERE idempresa=1 AND modalidade='DINHEIRO DRE'`)).rows[0] as any;
+        await pgRv.query(`INSERT INTO contacorrente (codcontacorrente, codpdv, idpgto, codplc) VALUES (9001,901,$1,9188)
+          ON CONFLICT (codcontacorrente) DO NOTHING`, [fpDre.idpgto]);
+        // livro-caixa: uma venda à vista (receita) e uma despesa paga
+        await pgRv.query(`DELETE FROM caixa WHERE codcx IN (990001,990002)`);
+        await pgRv.query(`INSERT INTO caixa (codcx, data, valor, codplc, idempresa, tiporecurso, codpdv, obs, origem) VALUES
+          (990001,'2026-09-01 10:00:00-03', 250.00,9188,1,'D',901,'VENDA DINHEIRO','PDV'),
+          (990002,'2026-09-01 15:00:00-03',-180.00,9410,1,'D',NULL,'CONTA DE LUZ','APG')`);
+        // rateio de um título a pagar por centro de custo
+        const apgDre = await pgRv.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, valor, quitada, tipodoc)
+          VALUES (1,2,'DRE-1','2026-09-05',300.00,'N','DP') RETURNING codapg`);
+        await pgRv.query(`INSERT INTO cx_apagar (codcxapagar, codapg, codcc, valor, codgrupo, tipo) VALUES
+          (9001,$1,9410,180.00,7001,'V'), (9002,$1,9188,120.00,7001,'V')
+          ON CONFLICT (codcxapagar) DO NOTHING`, [apgDre.rows[0].codapg]);
+
+        // o caminho de leitura da DRE: caixa ⋈ plc (hierarquia) e o rateio somando o título
+        const dreCx = await pgRv.query(`
+          SELECT p.desccodplc, p.descricao, substr(p.desccodplc,1,1) || '.' AS pai_principal,
+                 sum(abs(c.valor)) valor
+            FROM caixa c JOIN plc p ON p.codplc = c.codplc
+           WHERE c.idempresa=1 AND c.data >= '2026-09-01' AND c.data < '2026-09-02'
+           GROUP BY p.desccodplc, p.descricao ORDER BY 1`);
+        const rateio = await pgRv.query(`
+          SELECT sum(x.valor) total, count(*) linhas,
+                 (SELECT sum(w.valor) FROM apagar w WHERE w.codapg=$1) titulo
+            FROM cx_apagar x WHERE x.codapg=$1`, [apgDre.rows[0].codapg]);
+        const viaCc = await pgRv.query(`
+          SELECT cc.codplc, f.destino FROM contacorrente cc
+            JOIN formas_pgto f ON f.idpgto = cc.idpgto
+            JOIN pdv d ON d.codpdv = cc.codpdv
+           WHERE cc.codcontacorrente=9001`);
+        check('CAIXA D.R.E. etapa 1: as 4 estruturas aceitam o dado do legado e sustentam os joins da DRE — livro-caixa ⋈ plc dá a hierarquia (1.01.001 receita 250,00 / 4.07.003 despesa 180,00 e o pai principal "1."/"4.") · o rateio por centro de custo fecha com o título (180+120 = 300) · o mapa PDV × forma → conta resolve com destino CXA',
+          dreCx.rows.length === 2
+          && dreCx.rows.find((r: any) => r.desccodplc === '1.01.001' && Number(r.valor) === 250 && r.pai_principal === '1.')
+          && dreCx.rows.find((r: any) => r.desccodplc === '4.07.003' && Number(r.valor) === 180 && r.pai_principal === '4.')
+          && Number(rateio.rows[0]?.total) === 300 && Number(rateio.rows[0]?.titulo) === 300
+          && Number(rateio.rows[0]?.linhas) === 2
+          && Number(viaCc.rows[0]?.codplc) === 9188 && String(viaCc.rows[0]?.destino).trim() === 'CXA',
+          { dre: dreCx.rows, rateio: rateio.rows[0], cc: viaCc.rows[0] });
+
+        // FK protege o essencial: conta gerencial inexistente no livro-caixa é rejeitada
+        let fkCaixa = 'passou';
+        try {
+          await pgRv.query(`INSERT INTO caixa (codcx, data, valor, codplc, idempresa) VALUES (990003,'2026-09-01',1,999999,1)`);
+        } catch { fkCaixa = 'rejeitou'; }
+        check('CAIXA D.R.E. etapa 1: FK de conta gerencial (codplc → plc) rejeita lançamento com conta inexistente — é a dimensão da DRE, não pode entrar lixo',
+          fkCaixa === 'rejeitou', { fk: fkCaixa });
+
+        await pgRv.query(`DELETE FROM cx_apagar WHERE codcxapagar IN (9001,9002)`);
+        await pgRv.query(`DELETE FROM apagar WHERE codapg=$1`, [apgDre.rows[0].codapg]);
+        await pgRv.query(`DELETE FROM caixa WHERE codcx IN (990001,990002,990003)`);
+        await pgRv.query(`DELETE FROM contacorrente WHERE codcontacorrente=9001`);
+        await pgRv.query(`DELETE FROM formas_pgto WHERE idempresa=1 AND modalidade='DINHEIRO DRE'`);
+        await pgRv.query(`DELETE FROM pdv WHERE codpdv=901`);
         await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nropedido, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, cancelado, venda_nfc, statusnfe, desc_acre_medio) VALUES
           (1,'2026-08-25 09:00:00-03','001',1000,'0001',1,1,10,5.00,3.00,'A',5102,'N','S','P',-5.00),
           (1,'2026-08-25 09:05:00-03','001',1000,'0001',2,2, 1,20.00,9.00,'A',5102,'N','S','P',0),
