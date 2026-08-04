@@ -43,6 +43,7 @@ export * from './schema/rel-vendas.schema';
 export * from './schema/previa-fornecedor.schema';
 export * from './schema/conferencia-nota.schema';
 export * from './schema/rel-finalizadoras.schema';
+export * from './schema/rel-ticket-medio.schema';
 export * from './schema/cotacao.schema';
 export * from './schema/auth.schema';
 export * from './schema/configuracao.schema';

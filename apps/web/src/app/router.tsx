@@ -44,6 +44,7 @@ import { RelVendasPage } from '../features/rel-vendas/RelVendasPage';
 import { PreviaFornecedorPage } from '../features/previa-fornecedor/PreviaFornecedorPage';
 import { ConferenciaNotaPage } from '../features/conferencia-nota/ConferenciaNotaPage';
 import { RelFinalizadorasPage } from '../features/rel-finalizadoras/RelFinalizadorasPage';
+import { RelTicketMedioPage } from '../features/rel-ticket-medio/RelTicketMedioPage';
 import { CartaoPage } from '../features/cartao/CartaoPage';
 import { OperadorasPage } from '../features/cartao/OperadorasPage';
 import { TrocaPage } from '../features/troca/TrocaPage';
@@ -95,7 +96,8 @@ export const router = createBrowserRouter([
       { path: '/relatorios/vendas', element: <RelVendasPage /> },
       { path: '/relatorios/previa-fornecedor', element: <PreviaFornecedorPage /> },
       { path: '/compras/conferencia-nota', element: <ConferenciaNotaPage /> },
-      { path: '/relatorios/finalizadoras', element: <RelFinalizadorasPage /> }, // 3º relatório: vendas × formas de pagamento // aprovar/cancelar a conferência do coletor // 2º relatório: giro produto × 15 dias // 1º relatório: produtos vendidos no período // precificação de mercadorias (painel custo→PMZ→preço por produto×empresa) // ajuste de preços - lote (processa a fila lote_preco → multi_preco)
+      { path: '/relatorios/finalizadoras', element: <RelFinalizadorasPage /> },
+      { path: '/relatorios/ticket-medio', element: <RelTicketMedioPage /> }, // 4º relatório: cupons × média por dia // 3º relatório: vendas × formas de pagamento // aprovar/cancelar a conferência do coletor // 2º relatório: giro produto × 15 dias // 1º relatório: produtos vendidos no período // precificação de mercadorias (painel custo→PMZ→preço por produto×empresa) // ajuste de preços - lote (processa a fila lote_preco → multi_preco)
       { path: '/financeiro/cartoes', element: <CartaoPage /> }, // recebíveis de cartão (consulta + cadastro; líquido/venc computados)
       { path: '/cadastro/operadoras', element: <OperadorasPage /> }, // administradora/adquirente + taxa por-empresa
       { path: '/financeiro/conciliacao', element: <ConciliacaoBancariaPage /> }, // conciliação bancária OFX × razão interno

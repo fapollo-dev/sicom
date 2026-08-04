@@ -5283,6 +5283,44 @@ async function main() {
         await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2026-08-20' AND data < '2026-08-22'`);
         await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-08-20' AND dtvenda < '2026-08-22'`);
         await pgRv.query(`DELETE FROM formas_pgto WHERE idempresa=1 AND modalidade IN ('DINHEIRO SMOKE','CARTAO SMOKE')`);
+
+        // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
+        // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
+        // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.
+        // + uma venda CANCELADA (não entra) e uma venda às 22:30 (pega o balde do dia no fuso, não o dia seguinte).
+        const TM = 'relatorios/ticket-medio/consultar';
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-08-25' AND dtvenda < '2026-08-27'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nropedido, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, cancelado, venda_nfc, statusnfe, desc_acre_medio) VALUES
+          (1,'2026-08-25 09:00:00-03','001',1000,'0001',1,1,10,5.00,3.00,'A',5102,'N','S','P',-5.00),
+          (1,'2026-08-25 09:05:00-03','001',1000,'0001',2,2, 1,20.00,9.00,'A',5102,'N','S','P',0),
+          (1,'2026-08-25 10:00:00-03','001',1001,'0002',1,1, 2,10.00,6.00,'A',5102,'N','S','P',0),
+          (1,'2026-08-25 11:00:00-03','001',1002,'0003',1,1, 9,99.00,9.00,'A',5102,'S','S','P',0),
+          (1,'2026-08-25 22:30:00-03','001',1003,'0004',1,1, 1,7.00,3.00,'A',5102,'N','S','P',0)`);
+
+        const tm = (await (await fetch(`${base}/${TM}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-25', dtfim: '2026-08-25' }) })).json().catch(() => ({}))) as any;
+        const t25 = (tm.linhas ?? []).find((l: any) => l.dia === '2026-08-25');
+        check('TICKET MÉDIO: o divisor é a CONTAGEM DE CUPONS do nível interno (3 cupons, não 4 itens) · líquido do dia 92,00 (85,00 + a venda das 22:30) · média = total ÷ cupons = 30,67 · venda CANCELADA fora · a venda das 22:30 fica no PRÓPRIO dia (fuso do negócio, não UTC)',
+          t25 && Number(t25.cupons) === 3 && Number(t25.total_venda) === 92
+          && Number(t25.media) === 30.67 && Number(tm.totais?.cupons) === 3
+          && Number(tm.totais?.media) === 30.67 && tm.filtro?.modo_hora === 'DIA_INTEIRO',
+          { t25, totais: tm.totais });
+
+        // os 3 modos de hora: contínua (default do legado) × por-dia (checkbox próprio) × dia inteiro.
+        // faixa 09:00→10:30 contínua no dia 25 pega os cupons 1000 (50+20−5 = 65) e 1001 (20) e não o das
+        // 22:30 → 2 cupons, 85,00 (e 85 + 7 = 92 fecha com o total do dia inteiro, conferido acima).
+        const tmCont = (await (await fetch(`${base}/${TM}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-25', dtfim: '2026-08-25', filtrarHora: true, horaIni: '09:00', horaFim: '10:30' }) })).json().catch(() => ({}))) as any;
+        const tmDia = (await (await fetch(`${base}/${TM}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-25', dtfim: '2026-08-25', filtrarHora: true, horaPorDia: true, horaIni: '22:00', horaFim: '23:00' }) })).json().catch(() => ({}))) as any;
+        const tmInv = await fetch(`${base}/${TM}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-26', dtfim: '2026-08-25' }) });
+        const tmRb = await fetch(`${base}/${TM}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dtini: '2026-08-25', dtfim: '2026-08-25' }) });
+        check('TICKET MÉDIO: os 3 modos de hora do legado — contínua 09:00-10:30 (2 cupons, 85,00) · POR DIA 22:00-23:00 (só o cupom das 22:30: 1 cupom, 7,00) · sem hora = dia inteiro · invertido → 422 · sem grant → 403',
+          Number(tmCont.linhas?.[0]?.cupons) === 2 && Number(tmCont.linhas?.[0]?.total_venda) === 85
+          && tmCont.filtro?.modo_hora === 'CONTINUA'
+          && Number(tmDia.linhas?.[0]?.cupons) === 1 && Number(tmDia.linhas?.[0]?.total_venda) === 7
+          && tmDia.filtro?.modo_hora === 'POR_DIA'
+          && tmInv.status === 422 && tmRb.status === 403,
+          { cont: tmCont.linhas?.[0], porDia: tmDia.linhas?.[0], inv: tmInv.status, rb: tmRb.status });
+
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-08-25' AND dtvenda < '2026-08-27'`);
       } finally {
         await pgRv.end();
       }
