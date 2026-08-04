@@ -5225,6 +5225,64 @@ async function main() {
         await pgRv.query(`UPDATE operadores SET tentativas_login=0, bloqueado_ate=NULL WHERE codoperador=8`);
         await pgRv.query(`DELETE FROM nf_prod WHERE codnf=$1`, [codnfCf]);
         await pgRv.query(`DELETE FROM nf WHERE codnf=$1`, [codnfCf]);
+
+        // 47q) VENDAS E FINALIZADORAS (FRMRELFINALIZADORAS) — 3º relatório. Uma linha por DIA; colunas = 4 medidas
+        // de venda + uma por modalidade de formas_pgto. Cenário fechado em 2026-08-20/21:
+        //   20/08: venda 10×5,00 = 50,00 bruto · desc_acre_medio −4,00 → desconto 4,00 · líquido 46,00
+        //          finalizadoras: DINHEIRO 60,00 com TROCO 14,00 → 46,00 (o troco SUBTRAI) · fecha exato
+        //          + uma linha valor 0 / troco 9,00 que o legado DESCARTA (`AND V.VALOR > 0`): sem esse filtro
+        //          o dinheiro cairia p/ 37,00 e apareceria um furo de 9,00 que não existe
+        //   21/08: venda 2×10,00 = 20,00 + acréscimo 1,00 → líquido 21,00 · uma venda CANCELADA de 99,00
+        //          finalizadoras: CARTAO SMOKE 15,00 + SANGRIA 6,00 (NÃO é forma de pagamento cadastrada)
+        //          → total finalizadoras 15,00 (a sangria FICA FORA), sem_cadastro 6,00
+        const RF = 'relatorios/finalizadoras/consultar';
+        await pgRv.query(`INSERT INTO formas_pgto (idempresa, modalidade, atalho, destino) VALUES
+            (1,'DINHEIRO SMOKE','Z1','CXA'), (1,'CARTAO SMOKE','Z2','CRT')
+          ON CONFLICT DO NOTHING`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-08-20' AND dtvenda < '2026-08-22'`);
+        await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2026-08-20' AND data < '2026-08-22'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, cancelado, venda_nfc, statusnfe, desc_acre_medio) VALUES
+          (1,'2026-08-20 10:00:00-03','001',900,1,1,10,5.00,3.00,'A',5102,'N','S','P',-4.00),
+          (1,'2026-08-21 10:00:00-03','001',901,1,1, 2,10.00,6.00,'A',5102,'N','S','P', 1.00),
+          (1,'2026-08-21 11:00:00-03','001',902,1,1, 9,11.00,6.00,'A',5102,'S','S','P',    0)`);
+        await pgRv.query(`INSERT INTO cx_vendas (idempresa, data, operacao, valor, troco) VALUES
+          (1,'2026-08-20 10:00:00-03','DINHEIRO SMOKE',60.00,14.00),
+          (1,'2026-08-20 10:30:00-03','DINHEIRO SMOKE',0,9.00),
+          (1,'2026-08-21 10:00:00-03','CARTAO SMOKE',15.00,0),
+          (1,'2026-08-21 10:05:00-03','SANGRIA',6.00,0)`);
+
+        const rf = await fetch(`${base}/${RF}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-20', dtfim: '2026-08-21' }) });
+        const rfJ = (await rf.json().catch(() => ({}))) as any;
+        const d20 = (rfJ.linhas ?? []).find((l: any) => l.dia === '2026-08-20');
+        const d21 = (rfJ.linhas ?? []).find((l: any) => l.dia === '2026-08-21');
+        check('REL-FINALIZADORAS: líquido do dia com a MESMA fórmula da rel-vendas (50,00 − 4,00 = 46,00) · o TROCO SUBTRAI na finalizadora (60,00 − 14,00 = 46,00) · linha com valor 0 é DESCARTADA (o `AND VALOR > 0` do legado; sem ele o troco de 9,00 viraria furo) · pivot cria uma coluna por modalidade · diferença 0,00 quando o dia fecha',
+          rf.status === 200 && d20 && Number(d20.total_venda) === 46 && Number(d20.desconto) === 4
+          && Number(d20.fin_DINHEIRO_SMOKE) === 46 && Number(d20.total_finalizadoras) === 46
+          && Number(d20.diferenca) === 0
+          && (rfJ.modalidades ?? []).some((m: any) => m.campo === 'DINHEIRO_SMOKE' && m.modalidade === 'DINHEIRO SMOKE'),
+          { d20, modalidades: (rfJ.modalidades ?? []).length });
+
+        check('REL-FINALIZADORAS: ACRÉSCIMO entra no líquido (20,00 + 1,00 = 21,00) · venda CANCELADA vai só p/ a medida CANCELAMENTO (99,00), não para o total · SANGRIA NÃO é pagamento: fica FORA do total de finalizadoras (15,00, não 21,00) e vai p/ o balde "sem cadastro" (6,00) — somá-la fazia a conferência acusar R$11.063/dia de furo falso no golden · participação % da modalidade sobre o vendido (15/67 = 22,39%)',
+          d21 && Number(d21.total_venda) === 21 && Number(d21.acrescimo) === 1
+          && Number(d21.cancelamento) === 99 && Number(d21.fin_CARTAO_SMOKE) === 15
+          && Number(d21.total_finalizadoras) === 15 && Number(rfJ.totais?.sem_cadastro) === 6
+          && Number(rfJ.totais?.total_venda) === 67 && Number(rfJ.totais?.cancelamento) === 99
+          && Number(rfJ.participacao?.fin_CARTAO_SMOKE) === 22.39,
+          { d21, semCadastro: rfJ.totais?.sem_cadastro, totais: rfJ.totais });
+
+        // GetForma: espaço e hífen viram '_' na chave da coluna (fiel a :1020) · período invertido → 422 ·
+        // data dd/mm/aaaa → 400 · sem o grant de BTNCONSULTA → 403
+        const rfInv = await fetch(`${base}/${RF}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-21', dtfim: '2026-08-20' }) });
+        const rfBr = await fetch(`${base}/${RF}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '20/08/2026', dtfim: '21/08/2026' }) });
+        const rfRb = await fetch(`${base}/${RF}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dtini: '2026-08-20', dtfim: '2026-08-21' }) });
+        check('REL-FINALIZADORAS: nome da coluna troca espaço/hífen por "_" (GetForma) · período invertido → 422 · data dd/mm/aaaa → 400 · sem grant BTNCONSULTA → 403',
+          (rfJ.modalidades ?? []).every((m: any) => !/[ -]/.test(String(m.campo)))
+          && rfInv.status === 422 && rfBr.status === 400 && rfRb.status === 403,
+          { inv: rfInv.status, br: rfBr.status, rb: rfRb.status });
+
+        await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2026-08-20' AND data < '2026-08-22'`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-08-20' AND dtvenda < '2026-08-22'`);
+        await pgRv.query(`DELETE FROM formas_pgto WHERE idempresa=1 AND modalidade IN ('DINHEIRO SMOKE','CARTAO SMOKE')`);
       } finally {
         await pgRv.end();
       }

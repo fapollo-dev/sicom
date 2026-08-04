@@ -3,6 +3,8 @@ import { RelVendasController } from './rel-vendas.controller';
 import { RelVendasService } from './rel-vendas.service';
 import { PreviaFornecedorController } from './previa-fornecedor.controller';
 import { PreviaFornecedorService } from './previa-fornecedor.service';
+import { RelFinalizadorasController } from './rel-finalizadoras.controller';
+import { RelFinalizadorasService } from './rel-finalizadoras.service';
 import { ConfigService } from '../cadastro/config.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 
@@ -11,7 +13,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
  * Prévia do Fornecedor / Análise de Giro (15 dias).
  */
 @Module({
-  controllers: [RelVendasController, PreviaFornecedorController],
-  providers: [RelVendasService, PreviaFornecedorService, ConfigService, DatabaseProvider],
+  controllers: [RelVendasController, PreviaFornecedorController, RelFinalizadorasController],
+  providers: [RelVendasService, PreviaFornecedorService, RelFinalizadorasService, ConfigService, DatabaseProvider],
 })
 export class RelatoriosModule {}
