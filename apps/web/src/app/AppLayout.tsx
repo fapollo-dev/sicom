@@ -82,6 +82,7 @@ const TELAS = [
   { href: '/estoque/balanca', name: 'Exportar p/ Balança', icon: Scale },
   { href: '/estoque/ajuste-precos', name: 'Ajuste de Preços', icon: TrendingUp },
   { href: '/estoque/precificacao', name: 'Precificação de Mercadorias', icon: Calculator },
+  { href: '/compras/conferencia-nota', name: 'Conferência de Nota', icon: LineChart },
   { href: '/relatorios/vendas', name: 'Relatório de Vendas', icon: LineChart },
   { href: '/relatorios/previa-fornecedor', name: 'Prévia do Fornecedor', icon: LineChart },
   { href: '/cadastro/motivos-operacao', name: 'Motivos de Operação', icon: ListChecks },

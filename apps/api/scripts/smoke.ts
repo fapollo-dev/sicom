@@ -5126,6 +5126,105 @@ async function main() {
           { filhoD: fD.rows[0] });
 
         await pgRv.query(`DELETE FROM produtos WHERE idproduto IN (991001,991002,991003,991004,991000)`);
+
+        // 47p) CONFERÊNCIA DE NOTA (FRMCONFERENCIANOTA) — aprovar/cancelar o que o COLETOR conferiu.
+        // Cenário: NF de entrada com 2 itens, um já conferido pelo coletor (data_coleta) e outro não.
+        const CN = 'compras/conferencia-nota';
+        const nfCf = await pgRv.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop, chavenfe)
+          VALUES (1,990002,'900900',55,'1','E','N','N','2026-08-04','2026-08-04',1102,'35260800000000000000000000000000000000009009') RETURNING codnf`);
+        const codnfCf = Number(nfCf.rows[0].codnf);
+        // item 1: contado BATENDO com a nota (qtde 4 × fator 12 = 48 na nota, 48 contados)
+        // item 2: contado DIVERGENTE (nota 5, contados 1) → é o vermelho que diz "não aprove"
+        // item 3: NUNCA contado (quantidade_coleta NULL) — e aprovar isso é PERMITIDO no legado (16.152 dos
+        //         18.077 'APROVADO' do golden não têm data_coleta); a tela mostra, não bloqueia.
+        const i1 = await pgRv.query(`INSERT INTO nf_prod (codnf, codproduto, descricao, quantidade, fatorembal, vrvenda, vrcusto, vl_custo,
+                                       produc_status, quantidade_coleta, usuario_coleta, tentativas_coleta, data_coleta, fatorembal_coleta)
+          VALUES ($1,1,'ACUCAR CRISTAL FARDO 30KG - DESC DA NOTA',4,12,0,5.00,5.00,'CONFERENCIA OK',48,7,1,'2026-08-04 08:00:00-03',12) RETURNING codnfprod`, [codnfCf]);
+        const i2 = await pgRv.query(`INSERT INTO nf_prod (codnf, codproduto, descricao, quantidade, fatorembal, vrvenda, vrcusto, vl_custo,
+                                       produc_status, quantidade_coleta, usuario_coleta, data_coleta)
+          VALUES ($1,2,'FEIJAO DA NOTA',5,1,0,3.00,3.00,'CONFERENCIA OK',1,7,'2026-08-04 08:10:00-03') RETURNING codnfprod`, [codnfCf]);
+        const i3 = await pgRv.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, fatorembal, vrvenda, vrcusto, vl_custo)
+          VALUES ($1,3,2,1,0,7.00,7.00) RETURNING codnfprod`, [codnfCf]);
+        const it1 = Number(i1.rows[0].codnfprod); const it2 = Number(i2.rows[0].codnfprod); const it3 = Number(i3.rows[0].codnfprod);
+
+        const lst = (await (await fetch(`${base}/${CN}/${codnfCf}`, { headers: H })).json().catch(() => ({}))) as any;
+        const l1 = (lst.itens ?? []).find((i: any) => Number(i.codnfprod) === it1);
+        const l2 = (lst.itens ?? []).find((i: any) => Number(i.codnfprod) === it2);
+        const l3 = (lst.itens ?? []).find((i: any) => Number(i.codnfprod) === it3);
+        check('CONFERÊNCIA lista: «Qtd. nota» é quantidade × fatorembal (4×12 = 48, não 4) · «Qtd. contada» é a do COLETOR · DIVERGENTE marcado onde contado ≠ nota (item 2: 1 vs 5) e NÃO onde bate (item 1) · descrição vem da NOTA, não do cadastro · ordem por codnfprod (a do papel), não alfabética · "conferido" é ter quantidade contada, não ter data',
+          Number(lst.nf?.codnf) === codnfCf && Number(lst.totais?.itens) === 3
+          && Number(l1?.qtde_nota) === 48 && Number(l1?.qtde_coletada) === 48 && l1?.divergente === false
+          && Number(l2?.qtde_nota) === 5 && Number(l2?.qtde_coletada) === 1 && l2?.divergente === true
+          && l3?.qtde_coletada === null && l3?.divergente === false
+          && String(l1?.descricao) === 'ACUCAR CRISTAL FARDO 30KG - DESC DA NOTA'
+          && Number(lst.itens?.[0]?.codnfprod) === it1
+          && Number(lst.totais?.conferidos) === 2 && Number(lst.totais?.divergentes) === 1
+          && Number(lst.totais?.aprovados) === 0 && Number(lst.totais?.pendentes) === 3,
+          { totais: lst.totais, l1: { n: l1?.qtde_nota, c: l1?.qtde_coletada }, l2div: l2?.divergente });
+
+        // GATE: no golden a config USUARIOS_APROVAM_CONFERENCIA_NOTA vale 'N' (ninguém cadastrado) e o legado
+        // NÃO aprova — exibe "Nenhum usuário foi definido para executar aprovações". Fiel: recusa.
+        // o autorizador é o op 8 (login OP8), mesmo fixture do §75: hash copiado do op 7 e grant pela API
+        await pgRv.query(`UPDATE operadores SET senha_hash=(SELECT senha_hash FROM operadores WHERE codoperador=7), desabilitado=NULL WHERE codoperador=8`);
+        const semLib = await fetch(`${base}/${CN}/aprovar`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: codnfCf, itens: [it1], login: 'OP8', senha: 'smoke123' }) });
+        await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: 'USUARIOS_APROVAM_CONFERENCIA_NOTA', codoperador: 8, concedido: true }) });
+        const senhaErrada = await fetch(`${base}/${CN}/aprovar`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: codnfCf, itens: [it1], login: 'OP8', senha: 'errada' }) });
+        const okAprov = await fetch(`${base}/${CN}/aprovar`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: codnfCf, itens: [it1], login: 'OP8', senha: 'smoke123' }) });
+        const okJ = (await okAprov.json().catch(() => ({}))) as any;
+        const ap = await pgRv.query(`SELECT produc_status, codoperador_aprova_coleta, data_aprovacao_conf FROM nf_prod WHERE codnfprod=$1`, [it1]);
+        check('CONFERÊNCIA aprovar: sem grant → 422 · senha errada do autorizador → 422 · com o autorizador certo grava APROVADO + data + o código do AUTORIZADOR (8), NÃO o da sessão (7). No golden a aprovação é VIVA (18.077 aprovações, 3 autorizadores) — a lista são os grants por-usuário, NÃO o valor "N" da config',
+          semLib.status === 422 && senhaErrada.status === 422 && okAprov.status === 200
+          && Number(okJ.aprovados) === 1 && ap.rows[0]?.produc_status === 'APROVADO'
+          && Number(ap.rows[0]?.codoperador_aprova_coleta) === 8 && ap.rows[0]?.data_aprovacao_conf != null,
+          { semLib: semLib.status, senhaErrada: senhaErrada.status, ok: okAprov.status, item: ap.rows[0] });
+
+        // CANCELAR: o legado grava status VAZIO e operador ZERO (não NULL) — copiado assim de propósito
+        const canc = await fetch(`${base}/${CN}/cancelar`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: codnfCf, itens: [it1] }) });
+        const cn = await pgRv.query(`SELECT produc_status, codoperador_aprova_coleta FROM nf_prod WHERE codnfprod=$1`, [it1]);
+        // escopo: NF de OUTRA empresa não pode ser aprovada nem lida
+        await pgRv.query(`UPDATE nf SET idempresa=2 WHERE codnf=$1`, [codnfCf]);
+        const outraEmp = await fetch(`${base}/${CN}/aprovar`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: codnfCf, itens: [it2], login: 'OP8', senha: 'smoke123' }) });
+        const lstOutra = (await (await fetch(`${base}/${CN}/${codnfCf}`, { headers: H })).json().catch(() => ({}))) as any;
+        await pgRv.query(`UPDATE nf SET idempresa=1 WHERE codnf=$1`, [codnfCf]);
+        const semItens = await fetch(`${base}/${CN}/cancelar`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: codnfCf, itens: [] }) });
+        check('CONFERÊNCIA cancelar volta ao pendente com status NULL e operador ZERO (o legado grava \'\', mas no Oracle string vazia É NULL — e o golden tem NULL) · NF de OUTRA empresa não aprova (422) nem lista (nf null) · lista de itens vazia → 400',
+          canc.status === 200 && cn.rows[0]?.produc_status === null && Number(cn.rows[0]?.codoperador_aprova_coleta) === 0
+          && outraEmp.status === 422 && lstOutra.nf === null && semItens.status === 400,
+          { canc: cn.rows[0], outraEmp: outraEmp.status, listaOutra: lstOutra.nf, semItens: semItens.status });
+
+        // aprovar item NUNCA contado é PERMITIDO — fiel: 16.152 dos 18.077 'APROVADO' do golden não têm data_coleta
+        const semColeta = await fetch(`${base}/${CN}/aprovar`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: codnfCf, itens: [it3], login: 'OP8', senha: 'smoke123' }) });
+        // codnfprod de OUTRA NF não pode ser atualizado pelo codnf desta (predicado composto)
+        const nfOutra = await pgRv.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop)
+          VALUES (1,990002,'900901',55,'1','E','N','N','2026-08-04','2026-08-04',1102) RETURNING codnf`);
+        const iOutra = await pgRv.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, fatorembal, vrvenda, vrcusto, vl_custo)
+          VALUES ($1,1,1,1,0,1,1) RETURNING codnfprod`, [nfOutra.rows[0].codnf]);
+        const smuggle = await fetch(`${base}/${CN}/aprovar`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: codnfCf, itens: [Number(iOutra.rows[0].codnfprod)], login: 'OP8', senha: 'smoke123' }) });
+        const smJ = (await smuggle.json().catch(() => ({}))) as any;
+        const smRow = await pgRv.query(`SELECT produc_status FROM nf_prod WHERE codnfprod=$1`, [Number(iOutra.rows[0].codnfprod)]);
+        // NF de SAÍDA não é conferível (100% do golden é entrada) · NF CANCELADA também não
+        await pgRv.query(`UPDATE nf SET tipo='S' WHERE codnf=$1`, [nfOutra.rows[0].codnf]);
+        const saida = await fetch(`${base}/${CN}/aprovar`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: Number(nfOutra.rows[0].codnf), itens: [Number(iOutra.rows[0].codnfprod)], login: 'OP8', senha: 'smoke123' }) });
+        await pgRv.query(`UPDATE nf SET tipo='E', cancelada='S' WHERE codnf=$1`, [nfOutra.rows[0].codnf]);
+        const cancelada = await fetch(`${base}/${CN}/aprovar`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: Number(nfOutra.rows[0].codnf), itens: [Number(iOutra.rows[0].codnfprod)], login: 'OP8', senha: 'smoke123' }) });
+        check('CONFERÊNCIA: item NUNCA contado APROVA (fiel — o legado não bloqueia e 89% das aprovações do golden são assim) · codnfprod de OUTRA NF não é tocado (0 aprovados, linha intacta) · NF de SAÍDA → 422 NF_NAO_ENTRADA · NF CANCELADA → 422 NF_CANCELADA',
+          semColeta.status === 200 && smuggle.status === 200 && Number(smJ.aprovados) === 0
+          && smRow.rows[0]?.produc_status === null
+          && saida.status === 422 && cancelada.status === 422,
+          { semColeta: semColeta.status, smuggle: smJ.aprovados, saida: saida.status, cancelada: cancelada.status });
+
+        // grant de OUTRA chave não serve para aprovar conferência (escopo do grant por chave)
+        await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: 'USUARIOS_APROVAM_CONFERENCIA_NOTA', codoperador: 8, concedido: false }) });
+        await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: 'USUARIOS_ZERAM_INVENTARIO_ROTATIVO', codoperador: 8, concedido: true }) });
+        const outraChave = await fetch(`${base}/${CN}/aprovar`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: codnfCf, itens: [it2], login: 'OP8', senha: 'smoke123' }) });
+        check('CONFERÊNCIA: grant de OUTRA chave de liberação não autoriza aprovar conferência → 422 (o grant é por-chave, não um passe geral)',
+          outraChave.status === 422, { status: outraChave.status });
+        await fetch(`${base}/operadores/liberacoes/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codigo: 'USUARIOS_ZERAM_INVENTARIO_ROTATIVO', codoperador: 8, concedido: false }) });
+        await pgRv.query(`DELETE FROM nf_prod WHERE codnf=$1`, [nfOutra.rows[0].codnf]);
+        await pgRv.query(`DELETE FROM nf WHERE codnf=$1`, [nfOutra.rows[0].codnf]);
+        await pgRv.query(`UPDATE operadores SET tentativas_login=0, bloqueado_ate=NULL WHERE codoperador=8`);
+        await pgRv.query(`DELETE FROM nf_prod WHERE codnf=$1`, [codnfCf]);
+        await pgRv.query(`DELETE FROM nf WHERE codnf=$1`, [codnfCf]);
       } finally {
         await pgRv.end();
       }
