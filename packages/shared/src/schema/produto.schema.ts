@@ -215,6 +215,14 @@ const produtoBase = z.object({
   codfigurafiscal: z.number().int().optional(),
   codfcp: z.number().int().optional(),
   mva: dec(z.number().nonnegative('MVA inválido')),
+  // mig 132 — campos da PROPAGAÇÃO pai→filho que faltavam. Só os VIVOS no golden: aliqope_interna 89%,
+  // coberturamaxima 98%, idtabela 77%. (codpromotor/codigo_anp/registro_agrodefesa/precopadraorebaixa: mortos.)
+  aliqope_interna: dec(z.number().nonnegative('Alíquota interna inválida')),
+  coberturamaxima: z.number().int().nonnegative().optional(),
+  idtabela: z.number().int().optional(),
+  codireduzido: z.number().int().optional(),
+  // discriminador dos 2 ramos da propagação: filho com diferença de preço PRÓPRIA preserva o seu codgrupopreco.
+  dif_preco_prod_filho_x_pai: dec(z.number()),
   origemprod: opcional(z.enum(ORIGEM_VALUES, { message: 'Origem inválida.' })),
   // unidade/balança/validade
   balanca: sn().default('N'),

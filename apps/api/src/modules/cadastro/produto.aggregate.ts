@@ -129,6 +129,8 @@ export const produtoAggregateConfig: AggregateConfig = {
     // config fiscal (armazenada; cálculo vive em precificacao)
     'ncmsh', 'cest', 'cest_obrigatorio', 'aliquota',
     'idpiscofins', 'codfigurafiscal', 'codfcp', 'mva', 'origemprod',
+    // mig 132 — entram na PROPAGAÇÃO pai→filho (trigger trg_produtos_propaga_filhos)
+    'aliqope_interna', 'coberturamaxima', 'idtabela', 'codireduzido', 'dif_preco_prod_filho_x_pai',
     // unidade/balança/validade
     'balanca', 'codbalanca', 'fatorkg', 'peso', 'fatorcx', 'validade', 'controle_validade',
     // controle / auto-relacionamento
@@ -164,6 +166,16 @@ export const produtoAggregateConfig: AggregateConfig = {
     if (dto.composicoes !== undefined) out.composicao = tem(dto.composicoes);
     if (dto.decomposicoes !== undefined) out.decomposicao = tem(dto.decomposicoes);
     if (dto.receitas !== undefined) out.receita = tem(dto.receitas);
+    // A OUTRA METADE da regra dos 2 ramos da propagação (fold da auditoria): o trigger não sobrescreve o
+    // CODGRUPOPRECO do filho quando ele tem diferença de preço própria — porque no legado esse filho **não tem
+    // grupo de preço nenhum**: `cdsPrincipalBeforePost` (UCadProduto.pas:8630-8633) faz
+    // `if DIF_PRECO_PROD_FILHO_X_PAI <> 0 then CODGRUPOPRECO.Clear`. Confere no golden: 188 dos 189 filhos têm
+    // codgrupopreco NULL. Sem isto, era possível gravar dif<>0 COM grupo de preço, o ramo A preservaria esse grupo
+    // para sempre, e a propagação por grupo (mig 127/128) arrastaria o filho justo para o preço de que ele deveria
+    // estar isento.
+    if (dto.dif_preco_prod_filho_x_pai !== undefined && Number(dto.dif_preco_prod_filho_x_pai) !== 0) {
+      out.codgrupopreco = null;
+    }
     return out;
   },
   // F4 — regra do legado (chbATIVOClick): não desativar produto que é COMPONENTE de algum kit.

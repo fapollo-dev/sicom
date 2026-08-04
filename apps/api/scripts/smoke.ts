@@ -5038,6 +5038,94 @@ async function main() {
         await pgRv.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3)`, [nfN.rows[0].codnf, nfC.rows[0].codnf, nfX.rows[0].codnf]);
         await pgRv.query(`DELETE FROM nf WHERE codnf IN ($1,$2)`, [nfS.rows[0].codnf, nfE.rows[0].codnf]);
         await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-08-01' AND dtvenda < '2026-08-16'`);
+
+        // 47o) PRODUTO — PROPAGAÇÃO PAI → FILHOS (port do trigger Oracle UPDATE_PRODUTOS_FILHOS).
+        // Alterar o PAI reescreve a classificação FISCAL nos filhos. Sem isso o filho fica com NCM/CEST/alíquota/
+        // PIS-COFINS velhos e emite imposto errado — divergência silenciosa. 189 filhos / 85 pais no golden.
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto,
+                            ncmsh, cest, codgrupopreco, mva, idpiscofins, aliqope_interna, coberturamaxima, idtabela)
+          VALUES (991000,'7899000991004','PAI - QUEIJO PECA','KG',2,'T01','S',91,'04061010','1701100',7,10.50,1,18.00,30,5)
+          ON CONFLICT (idproduto) DO UPDATE SET ncmsh='04061010', cest='1701100', codgrupopreco=7, mva=10.50,
+            aliquota='T01', aliqope_interna=18.00, coberturamaxima=30, idtabela=5, dif_preco_prod_filho_x_pai=NULL`);
+        // filho A: SEM diferença de preço própria → herda TUDO, inclusive o grupo de preço (o ramo vivo)
+        // filho B: COM diferença própria (1,50) → herda tudo MENOS o grupo de preço (o ramo morto no golden: 0/189)
+        // filho C: NÃO é filho deste pai → não pode ser tocado (prova que o WHERE está certo)
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto,
+                            ncmsh, cest, codgrupopreco, mva, idpiscofins, aliqope_interna, coberturamaxima, idtabela,
+                            idproduto_pai, dif_preco_prod_filho_x_pai)
+          VALUES
+            (991001,'7899000991011','FILHO A - QUEIJO FATIADO','KG',990003,'IST','S',91,'99999999','9999999',1,0,NULL,0,1,1,991000,0),
+            (991002,'7899000991028','FILHO B - QUEIJO RALADO','KG',990003,'IST','S',91,'99999999','9999999',2,0,NULL,0,1,1,991000,1.50),
+            (991003,'7899000991035','SEM PAI - QUEIJO PRATO','KG',990003,'IST','S',91,'99999999','9999999',3,0,NULL,0,1,1,NULL,0)
+          ON CONFLICT (idproduto) DO UPDATE SET ncmsh='99999999', cest='9999999', aliquota='IST', codfor=990003,
+            codgrupopreco=EXCLUDED.codgrupopreco, mva=0, idpiscofins=NULL, aliqope_interna=0, coberturamaxima=1,
+            idtabela=1, idproduto_pai=EXCLUDED.idproduto_pai, dif_preco_prod_filho_x_pai=EXCLUDED.dif_preco_prod_filho_x_pai`);
+
+        // dispara a propagação alterando UM campo da guarda no pai (o NCM)
+        await pgRv.query(`UPDATE produtos SET ncmsh='04061090' WHERE idproduto=991000`);
+        const fp = await pgRv.query(`SELECT idproduto, ncmsh, cest, aliquota, codfor, codgrupopreco, mva, idpiscofins,
+                                            aliqope_interna, coberturamaxima, idtabela
+                                       FROM produtos WHERE idproduto IN (991001,991002,991003) ORDER BY idproduto`);
+        const [fA, fB, fC] = fp.rows;
+        check('PRODUTO propagação pai→filho: alterar o NCM do pai reescreve nos filhos a classificação FISCAL (ncm 04061090, cest, aliquota T01, fornecedor 2, mva 10,50, PIS/COFINS 1, alíq. interna 18, cobertura 30, tabela 5) — sem isso o filho emitiria imposto com o dado velho',
+          fA && fA.ncmsh === '04061090' && fA.cest === '1701100' && fA.aliquota === 'T01'
+          && Number(fA.codfor) === 2 && Number(fA.mva) === 10.5 && Number(fA.idpiscofins) === 1
+          && Number(fA.aliqope_interna) === 18 && Number(fA.coberturamaxima) === 30 && Number(fA.idtabela) === 5,
+          { filhoA: fA });
+
+        check('PRODUTO propagação — os DOIS ramos do legado: filho SEM diferença de preço herda o CODGRUPOPRECO do pai (1 → 7); filho COM diferença própria (1,50) PRESERVA o seu (2) — é a única diferença entre os 2 UPDATEs do trigger',
+          Number(fA?.codgrupopreco) === 7 && Number(fB?.codgrupopreco) === 2
+          && fB?.ncmsh === '04061090' && fB?.aliquota === 'T01',   // o resto o filho B herda igual
+          { grupoA: fA?.codgrupopreco, grupoB: fB?.codgrupopreco, ncmB: fB?.ncmsh });
+
+        check('PRODUTO propagação: produto SEM pai fica INTACTO (ncm 99999999, grupo 3, alíquota IST) — o WHERE é por idproduto_pai, não uma varredura',
+          fC?.ncmsh === '99999999' && Number(fC?.codgrupopreco) === 3 && fC?.aliquota === 'IST',
+          { semPai: fC });
+
+        // GUARDA: alterar um campo FORA da lista dos 25 (a descrição) NÃO pode propagar nada
+        await pgRv.query(`UPDATE produtos SET ncmsh='11111111', cest='1111111' WHERE idproduto=991001`); // sujeira no filho
+        await pgRv.query(`UPDATE produtos SET descricao='PAI - QUEIJO PECA (RENOMEADO)' WHERE idproduto=991000`);
+        const g1 = await pgRv.query(`SELECT ncmsh FROM produtos WHERE idproduto=991001`);
+        // e NULL → valor num campo da guarda TEM de propagar (o Oracle usa `<>`, que é falso com NULL; aqui é
+        // IS DISTINCT FROM — mesma escolha do port de ATUALIZAPROD na mig 127, porque é campo fiscal)
+        await pgRv.query(`UPDATE produtos SET codfcp=NULL WHERE idproduto IN (991000,991001)`);
+        await pgRv.query(`UPDATE produtos SET codfcp=3 WHERE idproduto=991000`);
+        const g2 = await pgRv.query(`SELECT codfcp FROM produtos WHERE idproduto=991001`);
+        check('PRODUTO propagação — GUARDA: mudar campo FORA dos 25 (descrição) não propaga (o NCM sujo do filho continua 11111111) · e NULL→valor num campo da guarda PROPAGA (codfcp 3), divergência deliberada do `<>` do Oracle, que não propagaria',
+          g1.rows[0]?.ncmsh === '11111111' && Number(g2.rows[0]?.codfcp) === 3,
+          { ncmAposDescricao: g1.rows[0]?.ncmsh, fcpFilho: g2.rows[0]?.codfcp });
+
+        // 47o.5) o caminho REAL do motor (PUT), não só SQL cru. É o teste que pega o achado mais grave da
+        // auditoria: `PRODUTOS.SERVICO` é '0' em 33.936 das 43.116 linhas do golden e o snFlag do schema coage
+        // '0'→'N' na gravação — então um save que só corrige a DESCRIÇÃO do pai reescrevia servico, a guarda crua
+        // via "mudança" e propagava a classificação fiscal inteira. 50 dos 85 pais do golden têm SERVICO='0'.
+        await pgRv.query(`UPDATE produtos SET servico='0' WHERE idproduto=991000`);          // o estado real do golden
+        await pgRv.query(`UPDATE produtos SET ncmsh='11111111', aliquota='IST' WHERE idproduto=991001`); // sujeira no filho
+        const pPai = (await (await fetch(`${base}/cadastro/produtos/991000`, { headers: H })).json().catch(() => ({}))) as any;
+        const putPai = await fetch(`${base}/cadastro/produtos/991000`, {
+          method: 'PUT', headers: H,
+          body: JSON.stringify({ ...pPai, descricao: 'PAI - QUEIJO PECA (SO A DESCRICAO MUDOU)' }),
+        });
+        const apos = await pgRv.query(`SELECT ncmsh, aliquota FROM produtos WHERE idproduto=991001`);
+        check('PRODUTO propagação — save pelo MOTOR que muda só a DESCRIÇÃO não propaga nada: a flag SERVICO="0" (33.936 dos 43.116 no golden) é coagida p/ "N" na gravação, e a guarda normaliza as 5 flags S/N para não ler isso como alteração fiscal (senão 9 filhos seriam reclassificados, um de T03 tributada p/ IST isenta)',
+          putPai.status === 200 && apos.rows[0]?.ncmsh === '11111111' && apos.rows[0]?.aliquota === 'IST',
+          { put: putPai.status, filhoApos: apos.rows[0] });
+
+        // 47o.6) filho com dif NULL — que é 100% da produção (dif_preco_prod_filho_x_pai é NULL nas 43.116 linhas
+        // do golden, nem 0). Tem de cair no ramo B (herda o grupo de preço), igual ao ELSE do Oracle, onde
+        // `NULL <> 0` é UNKNOWN. Sem os COALESCE do trigger o filho cairia FORA dos dois ramos e nunca herdaria.
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto,
+                            ncmsh, codgrupopreco, idproduto_pai, dif_preco_prod_filho_x_pai)
+          VALUES (991004,'7899000991042','FILHO D - DIF NULL','KG',990003,'IST','S',91,'88888888',4,991000,NULL)
+          ON CONFLICT (idproduto) DO UPDATE SET ncmsh='88888888', codgrupopreco=4, dif_preco_prod_filho_x_pai=NULL`);
+        // valor → NULL também tem de propagar (uma sobra de COALESCE nas SET lists passaria batido)
+        await pgRv.query(`UPDATE produtos SET cest=NULL, codgrupopreco=7 WHERE idproduto=991000`);
+        const fD = await pgRv.query(`SELECT ncmsh, cest, codgrupopreco FROM produtos WHERE idproduto=991004`);
+        check('PRODUTO propagação — filho com dif NULL (100% do golden: NULL nas 43.116 linhas, nem 0) cai no ramo B e HERDA o grupo de preço (4 → 7), como o ELSE do Oracle onde NULL<>0 é UNKNOWN · e valor→NULL propaga (cest do pai zerado zera o do filho)',
+          fD.rows[0]?.ncmsh === '04061090' && fD.rows[0]?.cest === null && Number(fD.rows[0]?.codgrupopreco) === 7,
+          { filhoD: fD.rows[0] });
+
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto IN (991001,991002,991003,991004,991000)`);
       } finally {
         await pgRv.end();
       }
