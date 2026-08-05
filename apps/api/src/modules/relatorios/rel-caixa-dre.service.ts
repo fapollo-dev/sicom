@@ -53,8 +53,9 @@ export interface Conta {
  * perna usa o placeholder de empresa). Copiar isso faria a empresa 2 nunca ver essas despesas. Usamos a empresa
  * do escopo — é bug evidente, não regra.
  *
- * ADIADO (corte-3, com procedência): `aqqCredito` (crédito de ICMS de `nf_prod`, com a regra "substituição →
- * zero") e `sqqResultado` (resultado por conta com rateio análogo) · impressão frx.
+ * CORTE-3 (fecha a tela): `aqqCredito` — crédito de ICMS das entradas, só quando o CFOP não é de cupom e a
+ * alíquota começa com 'T' — e `sqqResultado` — resultado por conta com rateio DIFERENTE (divisor = valor do
+ * próprio título, sem descontar juros/acre_desc), por isso em campo separado. ADIADO: impressão frx.
  */
 @Injectable()
 export class RelCaixaDreService {
@@ -70,7 +71,8 @@ export class RelCaixaDreService {
   }
 
   async consultar(f: FiltroCaixaDre): Promise<{
-    receitas: Conta[]; despesas: Conta[]; totais: Record<string, number>; filtro: Record<string, unknown>;
+    receitas: Conta[]; despesas: Conta[]; resultado_contas: Conta[];
+    totais: Record<string, number>; filtro: Record<string, unknown>;
   }> {
     const emp = this.emp();
     if (!f.dtini || !f.dtfim) throw new BusinessRuleError('PERIODO_OBRIGATORIO');
@@ -197,6 +199,62 @@ export class RelCaixaDreService {
          and v.idempresa in (${sql.join(empresas)})
     `.compile(db)));
 
+    // ---- CRÉDITO DE ICMS das entradas (aqqCredito) ----
+    // Fiel: só credita quando o CFOP **não** é de processamento de cupom (`proc_cupom <> 'S'`; NULL credita,
+    // porque o CASE do legado compara com 'S' e NULL cai no ELSE) E a alíquota começa com 'T' (tributada).
+    // O legado agrupa por um punhado de colunas e soma por fora — como `proc_cupom` e a 1ª letra da alíquota
+    // estão no GROUP BY, cada grupo é homogêneo neles e a soma dos grupos ≡ soma direta das linhas.
+    // ⚠️ O legado tem `N.IDEMPRESA = 1` FIXO aqui também — usamos a empresa do escopo (mesmo motivo da 2ª perna
+    // das despesas: é bug, não regra).
+    const creditoIcms = (await db.executeQuery(sql<{ valor: string }>`
+      select round(coalesce(sum(np.vricm), 0)::numeric, 2) as valor
+        from nf_prod np
+        join nf n on n.codnf = np.codnf
+        left join cfop c on c.codcfop = np.cfop
+       where n.dtcontabil >= ${f.dtini}::date and n.dtcontabil <= ${f.dtfim}::date
+         and coalesce(n.proc,'N') = 'S' and coalesce(n.cancelada,'N') = 'N'
+         and upper(coalesce(n.tipo,'')) = 'E'
+         and n.nronf is not null and n.nronf <> '0'
+         and n.idempresa in (${sql.join(empresas)})
+         and coalesce(c.proc_cupom,'') <> 'S'
+         and substr(coalesce(np.aliquota,''), 1, 1) = 'T'
+    `.compile(db)));
+
+    // ---- RESULTADO por conta (sqqResultado) ----
+    // Rateio DIFERENTE do das despesas, e a diferença importa: o divisor aqui é o **valor do próprio título**
+    // (`apagar.valor`), não o total da NF nem a soma do grupo, e **não** desconta juros nem acréscimo/desconto.
+    // Por isso vive em campo próprio e não substitui `despesas`.
+    // A 2ª perna casa 2 padrões (minúsculos, mesmo typo 'Referenta') sobre `caixa.dtvenc` — no legado o OR/AND
+    // está sem parênteses, então o 1º padrão ESCAPA do filtro de data e somaria a série histórica inteira. Aqui
+    // o período vale para os dois: é acidente de precedência, não regra (e ambos casam ZERO no golden).
+    const resultadoRateio = (await db.executeQuery(sql<Conta & { valor: string }>`
+      select p.desccodplc, p.descricao, ${hier},
+             round(sum((coalesce(b.valorpg,0) * ((c.valor * 100) / nullif(g.valor, 0))) / 100)::numeric, 2) as valor
+        from apagar_bx b
+        join apagar g    on g.codapg = b.codapg
+        join cx_apagar c on c.codapg = b.codapg
+        join plc p       on p.codplc = c.codcc
+       where coalesce(b.indr,'I') = 'I'
+         and b.dtpgto >= ${de} and b.dtpgto < ${ateTs}
+         and p.desccodplc is not null
+         and g.codempresa in (${sql.join(empresas)})
+       group by p.desccodplc, p.descricao, p.codpai
+       order by 1
+    `.compile(db)));
+
+    const resultadoCaixa = (await db.executeQuery(sql<Conta & { valor: string }>`
+      select p.desccodplc, p.descricao, ${hier},
+             round(coalesce(sum(abs(i.valor)), 0)::numeric, 2) as valor
+        from caixa i
+        join plc p on p.codplc = i.codplc
+       where (i.obs like 'Referenta a baixa a pagar do lote%' or i.obs like 'Referenta a baixa de cartao do lote%')
+         and i.dtvenc >= ${f.dtini}::date and i.dtvenc <= ${f.dtfim}::date
+         and p.desccodplc is not null
+         and i.idempresa in (${sql.join(empresas)})
+       group by p.desccodplc, p.descricao, p.codpai
+       order by 1
+    `.compile(db)));
+
     // ---- consolidação: soma por conta, mantendo a hierarquia ----
     const juntar = (grupos: Conta[][]): Conta[] => {
       const m = new Map<string, Conta>();
@@ -212,6 +270,7 @@ export class RelCaixaDreService {
     };
 
     const receitas = juntar([recPorConta.rows as Conta[], aVista.rows as Conta[]]);
+    const resultado_contas = juntar([resultadoRateio.rows as Conta[], resultadoCaixa.rows as Conta[]]);
     const despesas = juntar([despRateio.rows as Conta[], despCaixa.rows as Conta[]]);
     const semConta = r2(num(recSemConta.rows[0]?.valor));
     const totalCartoes = r2(num(cartoes.rows[0]?.valor));
@@ -227,7 +286,10 @@ export class RelCaixaDreService {
       despesas: somaDespesas,
       resultado: r2(somaReceitas - somaDespesas),
       custo_mercadoria: totalCusto,
+      credito_icms: r2(num(creditoIcms.rows[0]?.valor)),
+      // total do rateio "resultado" (divisor = valor do título, sem juros) — NÃO é o mesmo que `despesas`
+      total_resultado_contas: r2(resultado_contas.reduce((s2, l) => s2 + num(l.valor), 0)),
     };
-    return { receitas, despesas, totais, filtro: { ...f, empresas, fuso: tz } };
+    return { receitas, despesas, resultado_contas, totais, filtro: { ...f, empresas, fuso: tz } };
   }
 }

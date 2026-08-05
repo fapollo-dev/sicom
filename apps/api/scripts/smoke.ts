@@ -5409,6 +5409,28 @@ async function main() {
           && dreInv.status === 422 && dreRb.status === 403,
           { despesas: dreJuros.totais?.despesas, resultado: dreJuros.totais?.resultado, receitas: dreJuros.totais?.receitas });
 
+        // 47t.4) corte-3: CRÉDITO DE ICMS e o RESULTADO por conta (rateio com divisor DIFERENTE).
+        // NF de entrada processada com 2 itens: alíquota 'T01' (tributada, credita 19,00) e 'IST' (isenta, NÃO
+        // credita). O CFOP 1102 não é de cupom; o 1403 é marcado como cupom e por isso o item dele não credita.
+        await pgRv.query(`INSERT INTO cfop (codcfop, descricao, proc_cupom) VALUES (1102,'COMPRA','N'), (1403,'CUPOM','S')
+          ON CONFLICT (codcfop) DO UPDATE SET proc_cupom=EXCLUDED.proc_cupom`);
+        const nfCred = await pgRv.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop)
+          VALUES (1,2,'950001',55,'1','E','S','N','2026-09-01','2026-09-01',1102) RETURNING codnf`);
+        await pgRv.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, fatorembal, vrvenda, vrcusto, aliquota, cfop, vricm) VALUES
+          ($1,1,10,1,0,5.00,'T01','1102',19.00),
+          ($1,2, 5,1,0,3.00,'IST','1102', 7.00),
+          ($1,3, 1,1,0,9.00,'T01','1403',11.00)`, [nfCred.rows[0].codnf]);
+        const dre3 = (await (await fetch(`${base}/${DRE}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-01', dtfim: '2026-09-01' }) })).json().catch(() => ({}))) as any;
+        const res07 = (dre3.resultado_contas ?? []).find((c: any) => c.desccodplc === '4.07.003');
+        check('CAIXA D.R.E. corte-3: CRÉDITO DE ICMS só do item TRIBUTADO em CFOP que não é de cupom (19,00 — a alíquota IST não credita e o CFOP marcado como cupom também não) · e o RESULTADO por conta usa outro divisor (o valor do TÍTULO, sem tirar juros): pagou 330 sobre título de 300 → 4.07.003 fica 198,00, diferente dos 180,00 da despesa',
+          Number(dre3.totais?.credito_icms) === 19
+          && res07 && Number(res07.valor) === 198
+          && Number(dre3.totais?.despesas) === 300
+          && Number(dre3.totais?.total_resultado_contas) === 330,
+          { credito: dre3.totais?.credito_icms, res07, despesas: dre3.totais?.despesas, totalRes: dre3.totais?.total_resultado_contas });
+
+        await pgRv.query(`DELETE FROM nf_prod WHERE codnf=$1`, [nfCred.rows[0].codnf]);
+        await pgRv.query(`DELETE FROM nf WHERE codnf=$1`, [nfCred.rows[0].codnf]);
         await pgRv.query(`DELETE FROM apagar_bx WHERE codapg=$1`, [apgD.rows[0].codapg]);
         await pgRv.query(`DELETE FROM cx_apagar WHERE codcxapagar IN (9101,9102)`);
         await pgRv.query(`DELETE FROM apagar WHERE codapg=$1`, [apgD.rows[0].codapg]);
