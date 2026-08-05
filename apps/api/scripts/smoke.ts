@@ -32,6 +32,9 @@ const H_SEM_ACESSO = { ...H, 'x-operador-id': '999' };
 
 let ok = 0;
 let fail = 0;
+/** arredonda a 2 casas — usado nos checks que conferem uma soma derivada. */
+const r2ck = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
 function check(name: string, cond: boolean, extra?: unknown) {
   if (cond) {
     ok++;
@@ -5350,6 +5353,69 @@ async function main() {
         } catch { fkCaixa = 'rejeitou'; }
         check('CAIXA D.R.E. etapa 1: FK de conta gerencial (codplc → plc) rejeita lançamento com conta inexistente — é a dimensão da DRE, não pode entrar lixo',
           fkCaixa === 'rejeitou', { fk: fkCaixa });
+
+        // 47t) CAIXA D.R.E. (etapa 2) — a DRE de caixa: receitas, despesas RATEADAS por centro de custo,
+        // vendas à vista e custo. Cenário fechado em 2026-09-01 (as estruturas do §47s ainda estão de pé):
+        //  RECEITAS: recebimento de 400,00 num título COM conta 1.01.001 · 150,00 num título SEM conta (bucket
+        //            fixo) · cartão liberado 90,00 · venda à vista 250,00 na conta 1.01.001 (roteada por CXA)
+        //  DESPESAS: título de 300,00 pago integralmente, rateado 180 (4.07.003) + 120 (1.01.001) por centro de
+        //            custo; base = soma do grupo (300) → 60% e 40% ⇒ 180,00 e 120,00
+        const DRE = 'relatorios/caixa-dre/consultar';
+        const rcbCom = await pgRv.query(`INSERT INTO areceber (codempresa, codparceiro, nrocupom, dtvenc, valor, quitada, codplc)
+          VALUES (1,2,'DRE-R1','2026-09-01',400.00,'N',9188) RETURNING codrcb`);
+        const rcbSem = await pgRv.query(`INSERT INTO areceber (codempresa, codparceiro, nrocupom, dtvenc, valor, quitada, codplc)
+          VALUES (1,2,'DRE-R2','2026-09-01',150.00,'N',NULL) RETURNING codrcb`);
+        await pgRv.query(`INSERT INTO areceber_bx (codrcb, codempresa, dtpgto, valorpg, indr) VALUES
+          ($1,1,'2026-09-01 09:00:00-03',400.00,'I'), ($2,1,'2026-09-01 09:30:00-03',150.00,'I')`,
+          [rcbCom.rows[0].codrcb, rcbSem.rows[0].codrcb]);
+        await pgRv.query(`INSERT INTO operadoras (codoperadoras, operadora, txadm, diascomp) VALUES (9091,'OPER DRE',0,30)
+          ON CONFLICT (codoperadoras) DO NOTHING`);
+        await pgRv.query(`INSERT INTO cartao (idempresa, codoperadora, dtvenda, valor, nroparcela, liberado, dtbaixa)
+          VALUES (1,9091,'2026-08-25',90.00,1,'S','2026-09-01 10:00:00-03')`);
+        const apgD = await pgRv.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, valor, vendor, quitada, tipodoc, codgrupo_agrupamento_apg)
+          VALUES (1,2,'DRE-D1','2026-09-01',300.00,0,'N','DP',77001) RETURNING codapg`);
+        await pgRv.query(`INSERT INTO cx_apagar (codcxapagar, codapg, codcc, valor, codgrupo, tipo) VALUES
+          (9101,$1,9410,180.00,77001,'V'), (9102,$1,9188,120.00,77001,'V')`, [apgD.rows[0].codapg]);
+        await pgRv.query(`INSERT INTO apagar_bx (codapg, codempresa, dtpgto, valorpg, juros, acre_desc, indr)
+          VALUES ($1,1,'2026-09-01 14:00:00-03',300.00,0,0,'I')`, [apgD.rows[0].codapg]);
+
+        const dre = await fetch(`${base}/${DRE}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-01', dtfim: '2026-09-01' }) });
+        const dreJ = (await dre.json().catch(() => ({}))) as any;
+        const rec01 = (dreJ.receitas ?? []).find((c: any) => c.desccodplc === '1.01.001');
+        const des07 = (dreJ.despesas ?? []).find((c: any) => c.desccodplc === '4.07.003');
+        const des01 = (dreJ.despesas ?? []).find((c: any) => c.desccodplc === '1.01.001');
+        check('CAIXA D.R.E.: receita da conta 1.01.001 soma recebimento (400) + venda à vista roteada por CXA (250) = 650,00 · título SEM conta gerencial vai p/ o bucket fixo (150,00) · cartão liberado no período (90,00) · hierarquia com pai "1.01." e pai principal "1."',
+          dre.status === 200 && rec01 && Number(rec01.valor) === 650
+          && rec01.pai === '1.01.' && rec01.pai_principal === '1.'
+          && Number(dreJ.totais?.contas_recebidas_sem_conta) === 150
+          && Number(dreJ.totais?.cartoes_recebidos) === 90
+          && Number(dreJ.totais?.cheques_recebidos) === 0,
+          { rec01, totais: dreJ.totais });
+
+        check('CAIXA D.R.E.: o RATEIO por centro de custo divide o pagamento na proporção do cx_apagar sobre a base do grupo — 300,00 pagos viram 180,00 em 4.07.003 e 120,00 em 1.01.001 (60/40), e o total de despesas fecha em 300,00',
+          des07 && Number(des07.valor) === 180 && des07.pai_principal === '4.'
+          && des01 && Number(des01.valor) === 120
+          && Number(dreJ.totais?.despesas) === 300,
+          { des07, des01, despesas: dreJ.totais?.despesas });
+
+        // juros e acréscimo/desconto saem do rateio: pagando 330 com 30 de juros, a despesa apropriada segue 300
+        await pgRv.query(`UPDATE apagar_bx SET valorpg=330.00, juros=30.00 WHERE codapg=$1`, [apgD.rows[0].codapg]);
+        const dreJuros = (await (await fetch(`${base}/${DRE}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-01', dtfim: '2026-09-01' }) })).json().catch(() => ({}))) as any;
+        const dreInv = await fetch(`${base}/${DRE}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-02', dtfim: '2026-09-01' }) });
+        const dreRb = await fetch(`${base}/${DRE}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dtini: '2026-09-01', dtfim: '2026-09-01' }) });
+        check('CAIXA D.R.E.: JUROS saem do rateio (pagou 330 com 30 de juros → a despesa apropriada continua 300,00, porque as 3 parcelas usam o mesmo divisor) · resultado = receitas − despesas · período invertido → 422 · sem grant → 403',
+          Number(dreJuros.totais?.despesas) === 300
+          && Number(dreJuros.totais?.resultado) === r2ck(Number(dreJuros.totais?.receitas) - 300)
+          && dreInv.status === 422 && dreRb.status === 403,
+          { despesas: dreJuros.totais?.despesas, resultado: dreJuros.totais?.resultado, receitas: dreJuros.totais?.receitas });
+
+        await pgRv.query(`DELETE FROM apagar_bx WHERE codapg=$1`, [apgD.rows[0].codapg]);
+        await pgRv.query(`DELETE FROM cx_apagar WHERE codcxapagar IN (9101,9102)`);
+        await pgRv.query(`DELETE FROM apagar WHERE codapg=$1`, [apgD.rows[0].codapg]);
+        await pgRv.query(`DELETE FROM cartao WHERE idempresa=1 AND dtbaixa >= '2026-09-01' AND dtbaixa < '2026-09-02'`);
+        await pgRv.query(`DELETE FROM operadoras WHERE codoperadoras=9091`);
+        await pgRv.query(`DELETE FROM areceber_bx WHERE codrcb IN ($1,$2)`, [rcbCom.rows[0].codrcb, rcbSem.rows[0].codrcb]);
+        await pgRv.query(`DELETE FROM areceber WHERE codrcb IN ($1,$2)`, [rcbCom.rows[0].codrcb, rcbSem.rows[0].codrcb]);
 
         await pgRv.query(`DELETE FROM cx_apagar WHERE codcxapagar IN (9001,9002)`);
         await pgRv.query(`DELETE FROM apagar WHERE codapg=$1`, [apgDre.rows[0].codapg]);

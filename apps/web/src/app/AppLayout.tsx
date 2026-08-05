@@ -87,6 +87,7 @@ const TELAS = [
   { href: '/relatorios/previa-fornecedor', name: 'Prévia do Fornecedor', icon: LineChart },
   { href: '/relatorios/finalizadoras', name: 'Vendas e Finalizadoras', icon: LineChart },
   { href: '/relatorios/ticket-medio', name: 'Ticket Médio', icon: LineChart },
+  { href: '/relatorios/caixa-dre', name: 'Caixa — D.R.E.', icon: LineChart },
   { href: '/cadastro/motivos-operacao', name: 'Motivos de Operação', icon: ListChecks },
   { href: '/cadastro/plano-contas', name: 'Plano de Contas', icon: Network },
   { href: '/contabil/dre', name: 'DRE', icon: BarChart3 },
