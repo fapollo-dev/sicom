@@ -45,6 +45,7 @@ export * from './schema/conferencia-nota.schema';
 export * from './schema/rel-finalizadoras.schema';
 export * from './schema/rel-ticket-medio.schema';
 export * from './schema/rel-caixa-dre.schema';
+export * from './schema/rel-sem-movimento.schema';
 export * from './schema/cotacao.schema';
 export * from './schema/auth.schema';
 export * from './schema/configuracao.schema';

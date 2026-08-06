@@ -5287,6 +5287,68 @@ async function main() {
         await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-08-20' AND dtvenda < '2026-08-22'`);
         await pgRv.query(`DELETE FROM formas_pgto WHERE idempresa=1 AND modalidade IN ('DINHEIRO SMOKE','CARTAO SMOKE')`);
 
+        // 47u) PRODUTOS SEM MOVIMENTO (rel 13 do hub) — o complemento da rel 01: o que NÃO girou.
+        // Cenário 2026-09-10..11, empresa 1: 4 produtos ativos com estoque
+        //   A (992001) vendeu e teve entrada   → não aparece em nenhum modo
+        //   B (992002) só teve ENTRADA (NF E)  → aparece em "sem venda"
+        //   C (992003) só teve VENDA           → aparece em "sem compra"
+        //   D (992004) não teve nada           → aparece nos três
+        const SM = 'relatorios/sem-movimento/consultar';
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto) VALUES
+          (992001,'7899000992001','SM VENDEU E COMPROU','UN',2,'T01','S',91),
+          (992002,'7899000992002','SM SO ENTRADA','UN',2,'T01','S',91),
+          (992003,'7899000992003','SM SO VENDA','UN',2,'T01','S',91),
+          (992004,'7899000992004','SM PARADO','UN',2,'T01','S',91)
+          ON CONFLICT (idproduto) DO UPDATE SET ativo='S', coddpto=91`);
+        await pgRv.query(`DELETE FROM multi_preco WHERE idproduto IN (992001,992002,992003,992004) AND idempresa=1`);
+        await pgRv.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrcusto, ativo) VALUES
+          (992001,1,10,5,'S'), (992002,1,10,5,'S'), (992003,1,10,5,'S'), (992004,1,10,5,'S')`);
+        await pgRv.query(`DELETE FROM estoque WHERE idproduto IN (992001,992002,992003,992004) AND idempresa=1`);
+        await pgRv.query(`INSERT INTO estoque (idproduto, idempresa, qtde, minimo, maximo) VALUES
+          (992001,1,10,1,50), (992002,1,20,1,50), (992003,1,0,1,50), (992004,1,33,1,50)`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-10' AND dtvenda < '2026-09-12'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-09-10 10:00:00-03','001',1200,1,992001,1,10,5,'A',5102,'N','S','P'),
+          (1,'2026-09-10 10:05:00-03','001',1201,1,992003,1,10,5,'A',5102,'N','S','P')`);
+        const nfSm = await pgRv.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop)
+          VALUES (1,2,'960001',55,'1','E','S','N','2026-09-10','2026-09-10',1102) RETURNING codnf`);
+        await pgRv.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, fatorembal, vrvenda, vrcusto) VALUES
+          ($1,992001,5,1,0,5), ($1,992002,5,1,0,5)`, [nfSm.rows[0].codnf]);
+
+        const modoSm = async (m: string) => (await (await fetch(`${base}/${SM}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-10', dtfim: '2026-09-11', modo: m, departamento: 91 }) })).json().catch(() => ({}))) as any;
+        const semVenda = await modoSm('SEM_VENDA');
+        const semCompra = await modoSm('SEM_COMPRA');
+        const semNada = await modoSm('SEM_NENHUMA');
+        // só os 4 produtos deste cenário: o departamento 91 tem sobras de seções anteriores que também estão
+        // legitimamente sem movimento nesta janela — comparar a lista inteira testaria o fixture, não a regra.
+        const ids = (r: any) => (r.linhas ?? []).map((l: any) => Number(l.idproduto)).filter((i: number) => i >= 992001 && i <= 992004).sort();
+        check('SEM MOVIMENTO (rel 13): "sem venda" pega quem só teve ENTRADA e quem não teve nada (992002, 992004) · "sem compra" pega quem só VENDEU e quem não teve nada (992003, 992004) · "sem nenhuma" só o parado (992004) · quem vendeu E comprou não aparece em nenhum',
+          JSON.stringify(ids(semVenda)) === JSON.stringify([992002, 992004])
+          && JSON.stringify(ids(semCompra)) === JSON.stringify([992003, 992004])
+          && JSON.stringify(ids(semNada)) === JSON.stringify([992004])
+          && !ids(semVenda).includes(992001) && !ids(semCompra).includes(992001),
+          { semVenda: ids(semVenda), semCompra: ids(semCompra), semNada: ids(semNada) });
+
+        // produto INATIVO some do modo restrito (0/1) e o "parado com estoque" é sinalizado
+        await pgRv.query(`UPDATE multi_preco SET ativo='N' WHERE idproduto=992004 AND idempresa=1`);
+        const semVenda2 = await modoSm('SEM_VENDA');
+        const semNada2 = await modoSm('SEM_NENHUMA');
+        const par = (semNada.linhas ?? []).find((l: any) => Number(l.idproduto) === 992004);
+        const smInv = await fetch(`${base}/${SM}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-11', dtfim: '2026-09-10' }) });
+        check('SEM MOVIMENTO: o filtro de ativo segue a config ATIVO_PELA_MULTIPRECO (marcando inativo no multi_preco o produto sai dos DOIS modos) · "parado com estoque" sinaliza dinheiro na prateleira (33 un.) · período invertido → 422',
+          !ids(semVenda2).includes(992004) && !ids(semNada2).includes(992004)
+          && par?.parado_com_estoque === true && Number(par?.estoque) === 33
+          && Number(semNada.totais?.com_estoque) >= 1   // o total conta o departamento inteiro; a regra é provada na linha
+          && smInv.status === 422,
+          { semVenda2: ids(semVenda2), semNada2: ids(semNada2), parado: par?.parado_com_estoque, inv: smInv.status });
+
+        await pgRv.query(`DELETE FROM nf_prod WHERE codnf=$1`, [nfSm.rows[0].codnf]);
+        await pgRv.query(`DELETE FROM nf WHERE codnf=$1`, [nfSm.rows[0].codnf]);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-10' AND dtvenda < '2026-09-12'`);
+        await pgRv.query(`DELETE FROM estoque WHERE idproduto IN (992001,992002,992003,992004) AND idempresa=1`);
+        await pgRv.query(`DELETE FROM multi_preco WHERE idproduto IN (992001,992002,992003,992004) AND idempresa=1`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto IN (992001,992002,992003,992004)`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.
