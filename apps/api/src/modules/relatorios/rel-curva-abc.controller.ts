@@ -17,4 +17,12 @@ export class RelCurvaAbcController {
   consultar(@Body(new ZodValidationPipe(relCurvaAbcSchema)) dto: RelCurvaAbcDto) {
     return this.svc.consultar(dto);
   }
+
+  /** rel 18 — ranking por quantidade (o .fr3 não classifica nada; ver o serviço). */
+  @Post('quantidade')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')
+  quantidade(@Body(new ZodValidationPipe(relCurvaAbcSchema)) dto: RelCurvaAbcDto) {
+    return this.svc.quantidade(dto);
+  }
 }

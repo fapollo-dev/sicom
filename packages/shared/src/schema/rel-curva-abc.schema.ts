@@ -23,5 +23,7 @@ export const relCurvaAbcSchema = z.object({
   aliquota: z.string().max(3).optional(),
   /** CkbExibirProdutosFilhos: agrupa pelo produto FILHO da venda em vez do pai. */
   exibirFilhos: z.boolean().optional(),
+  /** rel 09 (PRODUTO, default) · rel 10 (CLIENTE) · rel 11 (FORNECEDOR) — mudam a chave E o arredondamento. */
+  dimensao: z.enum(['PRODUTO', 'CLIENTE', 'FORNECEDOR']).optional(),
 });
 export type RelCurvaAbcDto = z.infer<typeof relCurvaAbcSchema>;

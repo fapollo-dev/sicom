@@ -5439,6 +5439,60 @@ async function main() {
         await pgRv.query(`DELETE FROM produtos WHERE idproduto IN (992101,992102,992103,992104,992105,992106)`);
         await pgRv.query(`UPDATE empresas SET pc_curva_abc_a=NULL, pc_curva_abc_b=NULL, pc_curva_abc_c=NULL WHERE idempresa=1`);
 
+        // 47w) CURVA ABC por CLIENTE (rel 10) e por FORNECEDOR (rel 11) + ranking por QUANTIDADE (rel 18).
+        // O cenário existe p/ provar A FRONTEIRA DE ARREDONDAMENTO, que é o que diferencia as três variantes:
+        // um ÚNICO cupom com 3 linhas de 0,125 (qtde) e custo unitário 1,1150 produz TRÊS qtdes diferentes —
+        //   produto    round(0,125,2)=0,13 × 3      = 0,39   (CAST por LINHA)
+        //   cliente    round(0,375,2)                = 0,38   (CAST por CUPOM)
+        //   fornecedor 0,125 × 3                     = 0,375  (SEM cast — o legado não casta a qtde aqui)
+        // e DUAS somas de custo unitário: 1,12×3 = 3,36 (linha) × round(3,345,2) = 3,35 (cupom).
+        await pgRv.query(`UPDATE empresas SET pc_curva_abc_a=70, pc_curva_abc_b=15, pc_curva_abc_c=10 WHERE idempresa=1`);
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto) VALUES
+          (992201,'7899000992201','ABC DIM PESADO','KG',2,'T01','S',91),
+          (992202,'7899000992202','ABC DIM SECO','UN',1,'T01','S',91)
+          ON CONFLICT (idproduto) DO UPDATE SET ativo='S', coddpto=91`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-22' AND dtvenda < '2026-09-23'`);
+        // cupom 1400 → cliente 0 (SEM cadastro em parceiros): o nome tem de vir do CUPOM (V.RAZAO).
+        // cupom 1401 → cliente 20 com V.RAZAO nulo: o nome cai p/ o CADASTRO (COALESCE(V.RAZAO, C.RAZAO)).
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, codparceiro, razao, qtde, vrvenda, vrcusto, unidade, iat, cfop, aliquota, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-09-22 10:00:00-03','001',1400,1,992201,0,'AO CONSUMIDOR SM',0.125,10,1.1150,'KG','A',5102,'T01','N','S','P'),
+          (1,'2026-09-22 10:00:01-03','001',1400,2,992201,0,'AO CONSUMIDOR SM',0.125,10,1.1150,'KG','A',5102,'T01','N','S','P'),
+          (1,'2026-09-22 10:00:02-03','001',1400,3,992201,0,'AO CONSUMIDOR SM',0.125,10,1.1150,'KG','A',5102,'T01','N','S','P'),
+          (1,'2026-09-22 11:00:00-03','001',1401,1,992202,20,NULL,             1,   100,50,    'UN','A',5102,'T01','N','S','P')`);
+
+        const dimQ = async (dimensao: string) => (await (await fetch(`${base}/${CA}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-22', dtfim: '2026-09-22', departamentos: [91], dimensao }) })).json().catch(() => ({}))) as any;
+        const dProd = await dimQ('PRODUTO'), dCli = await dimQ('CLIENTE'), dForn = await dimQ('FORNECEDOR');
+        const acha = (r: any, txt: string) => (r.linhas ?? []).find((l: any) => String(l.descricao ?? '').includes(txt));
+        const pPesado = acha(dProd, 'ABC DIM PESADO');
+        const cCons = acha(dCli, 'AO CONSUMIDOR SM');
+        const fDois = acha(dForn, 'COBRADOR DOIS');
+        check('CURVA ABC dimensões (rel 09/10/11): a MESMA venda dá 3 qtdes diferentes porque a fronteira do arredondamento muda — produto 0,39 (CAST por linha) · cliente 0,38 (CAST por cupom) · fornecedor 0,375 (sem cast) — e 2 somas de custo unitário: 3,36 (linha) × 3,35 (cupom)',
+          Number(pPesado?.qtde) === 0.39 && Number(cCons?.qtde) === 0.38 && Number(fDois?.qtde) === 0.375
+          && Number(pPesado?.soma_vrcusto_uni) === 3.36 && Number(cCons?.soma_vrcusto_uni) === 3.35
+          && Number(fDois?.soma_vrcusto_uni) === 3.35,
+          { prod: pPesado?.qtde, cli: cCons?.qtde, forn: fDois?.qtde, custoProd: pPesado?.soma_vrcusto_uni, custoCli: cCons?.soma_vrcusto_uni });
+
+        const cAlfa = acha(dCli, 'CLIENTE ALFA');
+        const fUm = acha(dForn, 'COBRADOR PADRAO');
+        check('rel 10 (CLIENTE): o nome sai de COALESCE(V.RAZAO, C.RAZAO) — cliente sem cadastro exibe o nome do CUPOM e cliente 20 com razão nula cai p/ o CADASTRO · rel 11 (FORNECEDOR) agrupa pelo CODFOR do produto (2 fornecedores, 103,75 no total) · a classificação roda igual nas 3 (a 1ª linha é A)',
+          !!cCons && !!cAlfa && Number(cAlfa?.total_venda) === 100
+          && !!fUm && Number(fUm?.total_venda) === 100 && Number(fDois?.total_venda) === 3.75
+          && r2ck(Number(dForn.totais?.total_geral)) === 103.75
+          && (dForn.linhas ?? [])[0]?.abc === 'A' && (dCli.linhas ?? [])[0]?.abc === 'A',
+          { cli: [cCons?.descricao, cAlfa?.descricao], forn: [fUm?.descricao, fDois?.descricao], geral: dForn.totais?.total_geral });
+
+        const qtd = (await (await fetch(`${base}/relatorios/curva-abc/quantidade`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-22', dtfim: '2026-09-22', departamentos: [91] }) })).json().catch(() => ({}))) as any;
+        const qLin = (qtd.linhas ?? []).filter((l: any) => Number(l.idproduto) >= 992201 && Number(l.idproduto) <= 992202);
+        check('rel 18 «Curva ABC por Quantidade»: o NOME MENTE — o .fr3 tem ScriptText VAZIO, não classifica nada. É ranking por qtde desc com CAST no TOTAL (0,375 → 0,38, não 0,39 como no por-linha da rel 09)',
+          qLin.length === 2 && Number(qLin[0]?.idproduto) === 992202 && Number(qLin[0]?.qtde) === 1
+          && Number(qLin[1]?.idproduto) === 992201 && Number(qLin[1]?.qtde) === 0.38
+          && !('abc' in (qLin[0] ?? {})),
+          { linhas: qLin.map((l: any) => [l.idproduto, l.qtde]) });
+
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-22' AND dtvenda < '2026-09-23'`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto IN (992201,992202)`);
+        await pgRv.query(`UPDATE empresas SET pc_curva_abc_a=NULL, pc_curva_abc_b=NULL, pc_curva_abc_c=NULL WHERE idempresa=1`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.
