@@ -19,6 +19,8 @@ export const relVendasSchema = z.object({
   promocao: z.enum(['S', 'N', 'T']).optional(),
   descontos: z.enum(['COM', 'SEM', 'T']).optional(),
   agruparEmpresas: z.boolean().optional(),
+  /** CkbExibirProdutosFilhos: agrupa pelo produto FILHO da venda (COALESCE(idproduto_filho, codproduto)). */
+  exibirFilhos: z.boolean().optional(),
   custoReposicao: z.boolean().optional(),
   produto: z.string().trim().max(60).optional(),
   fornecedor: z.string().trim().max(60).optional(),

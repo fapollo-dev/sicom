@@ -23,6 +23,9 @@ export interface FiltroRelVendas {
   produto?: string; fornecedor?: string;
   departamentos?: number[]; grupos?: number[]; subgrupos?: number[]; secoes?: number[];
   nrocupom?: number; nropedido?: string; aliquota?: string; nropdv?: number;
+  // CkbExibirProdutosFilhos: troca a CHAVE de agrupamento do relatório para o produto FILHO
+  // (`COALESCE(A.IDPRODUTO_FILHO, A.CODPRODUTO)`, uVendas.pas:1867 no SELECT e :1986 no GROUP BY).
+  exibirFilhos?: boolean;
 }
 
 /**
@@ -84,9 +87,13 @@ export class RelVendasService {
       + abs(least(coalesce(v.desc_acre_medio,0),0)) + abs(least(coalesce(v.desc_acre_item,0),0))`;
     const custoItem = sql`round((coalesce(v.qtde,0) * ${colCusto})::numeric, 2)`;
 
+    // chave do relatório: o PAI (default) ou o FILHO, quando «Exibir produtos filhos» está marcado. No legado a
+    // troca é feita no SELECT e no GROUP BY do nível item; aqui basta rotear o join, que é o mesmo efeito —
+    // `p` passa a ser a linha do filho e o GROUP BY já é por `p.idproduto`.
+    const chaveProduto = f.exibirFilhos ? sql`coalesce(v.idproduto_filho, v.codproduto)` : sql`v.codproduto`;
     let q = db
       .selectFrom('vendas as v')
-      .leftJoin('produtos as p', 'p.idproduto', 'v.codproduto')
+      .leftJoin('produtos as p', (j) => j.on(sql<boolean>`p.idproduto = ${chaveProduto}`))
       .leftJoin('familias_prod as d', 'd.codfamilia', 'p.coddpto')
       .leftJoin('familias_prod as g', 'g.codfamilia', 'p.codgrupo')
       .leftJoin('familias_prod as sg', 'sg.codfamilia', 'p.codsubgrupo')
@@ -107,7 +114,7 @@ export class RelVendasService {
         sql`round(sum(coalesce(v.desc_acre_medio,0) + coalesce(v.desc_acre_item,0))::numeric, 2)`.as('desc_operador'),
       ])
       .where('v.idempresa', 'in', empresas)
-      .where(sql`v.codproduto`, 'is not', null);
+      .where(sql<boolean>`${chaveProduto} is not null`);
 
     // período: SEMPRE predicado de FAIXA na coluna crua (`dtvenda::date` invalidava ix_vendas_empresa_data e
     // varria a tabela inteira — 11,9M linhas na tela mais usada do ERP). Com CkHora é UMA JANELA CONTÍNUA

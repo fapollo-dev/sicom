@@ -5349,6 +5349,96 @@ async function main() {
         await pgRv.query(`DELETE FROM multi_preco WHERE idproduto IN (992001,992002,992003,992004) AND idempresa=1`);
         await pgRv.query(`DELETE FROM produtos WHERE idproduto IN (992001,992002,992003,992004)`);
 
+        // 47v) CURVA ABC DE PRODUTOS VENDIDOS (rel 09 do hub) — a classificação, que no legado NÃO está no SQL
+        // e sim no PascalScript do .fr3. Cenário 2026-09-20, empresa 1, cortes 70/15/10 (= os do golden), com
+        // 4 produtos escolhidos p/ cair um em cada faixa e o último NA FAIXA SEM LETRA:
+        //   P1 700,00 → 70,00% → acum  70,00 → 1ª linha       → 'A'
+        //   P2 150,00 → 15,00% → acum  85,00 → (70,85]        → 'B'
+        //   P3 100,00 → 10,00% → acum  95,00 → (85,95]        → 'C'
+        //   P4  50,00 →  5,00% → acum 100,00 → (95,100] → NENHUM ramo casa → HERDA 'C' da linha de cima
+        const CA = 'relatorios/curva-abc/consultar';
+        await pgRv.query(`UPDATE empresas SET pc_curva_abc_a=70, pc_curva_abc_b=15, pc_curva_abc_c=10 WHERE idempresa=1`);
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto) VALUES
+          (992101,'7899000992101','ABC CAMPEAO','UN',2,'T01','S',91),
+          (992102,'7899000992102','ABC SEGUNDO','UN',2,'T01','S',91),
+          (992103,'7899000992103','ABC TERCEIRO','UN',2,'T01','S',91),
+          (992104,'7899000992104','ABC CAUDA','UN',2,'T01','S',91),
+          (992105,'7899000992105','ABC FILHO','UN',2,'T01','S',91)
+          ON CONFLICT (idproduto) DO UPDATE SET ativo='S', coddpto=91, unidade='UN'`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-20' AND dtvenda < '2026-09-22'`);
+        // a unidade da VENDA é 'KG' e a do PRODUTO é 'UN': a rel 09 tem de exibir a da venda (V.UNIDADE).
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, idproduto_filho, qtde, vrvenda, vrcusto, unidade, desc_acre, iat, cfop, aliquota, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-09-20 10:00:00-03','001',1300,1,992101,NULL,    1,700,400,'KG', 3,'A',5102,'T01','N','S','P'),
+          (1,'2026-09-20 10:01:00-03','001',1301,1,992102,NULL,    1,150, 90,'KG', 0,'A',5102,'T01','N','S','P'),
+          (1,'2026-09-20 10:02:00-03','001',1302,1,992103,NULL,    1,100, 60,'KG', 0,'A',5102,'T01','N','S','P'),
+          (1,'2026-09-20 10:03:00-03','001',1303,1,992104,992105,  1, 50, 30,'KG', 0,'A',5102,'T01','N','S','P')`);
+
+        const abcQ = async (body: Record<string, unknown>) => (await (await fetch(`${base}/${CA}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-20', dtfim: '2026-09-20', departamentos: [91], ...body }) })).json().catch(() => ({}))) as any;
+        const abc1 = await abcQ({});
+        const linhaDe = (r: any, id: number) => (r.linhas ?? []).find((l: any) => Number(l.idproduto) === id);
+        const ca1 = linhaDe(abc1, 992101), ca2 = linhaDe(abc1, 992102), ca3 = linhaDe(abc1, 992103), ca4 = linhaDe(abc1, 992104);
+        check('CURVA ABC (rel 09): cortes CUMULATIVOS 70/15/10 classificam A(70%)/B(85%)/C(95%) e a cauda em (95,100] NÃO recebe letra — HERDA a de cima ("C", abc_herdado) · % e acumulado com 4 casas · a unidade exibida é a da VENDA (KG), não a do produto (UN) · desc_acre somado',
+          ca1?.abc === 'A' && ca2?.abc === 'B' && ca3?.abc === 'C' && ca4?.abc === 'C' && ca4?.abc_herdado === true
+          && !ca1?.abc_herdado && !ca2?.abc_herdado && !ca3?.abc_herdado
+          && r2ck(Number(ca1?.perc)) === 70 && r2ck(Number(ca2?.perc_acumulado)) === 85 && r2ck(Number(ca4?.perc_acumulado)) === 100
+          && ca1?.unidade === 'KG' && Number(ca1?.desc_acre) === 3 && r2ck(Number(abc1.totais?.total_geral)) === 1000,
+          { abc: [ca1?.abc, ca2?.abc, ca3?.abc, ca4?.abc], herdado: ca4?.abc_herdado, un: ca1?.unidade, geral: abc1.totais?.total_geral });
+
+        // a HERANÇA não é "sempre C": com 50/15/10 (percA=50, percB=65, percC=75) as linhas 2-4 caem em
+        // (75,100] e herdam o 'A' da primeira — que por sua vez é 'A' pelo `ContaPass = 1`, apesar de 70% > 50%.
+        await pgRv.query(`UPDATE empresas SET pc_curva_abc_a=50 WHERE idempresa=1`);
+        const abc2 = await abcQ({});
+        const a2 = (id: number) => linhaDe(abc2, id)?.abc;
+        check('CURVA ABC: a 1ª linha é "A" mesmo estourando o corte (ContaPass=1, 70% > 50%) e a faixa sem letra HERDA — com 50/15/10 as linhas seguintes viram "A", não "C" (quem codifica else→C acerta por acidente no 70/15/10 e erra aqui)',
+          a2(992101) === 'A' && a2(992102) === 'A' && a2(992103) === 'A' && a2(992104) === 'A'
+          && linhaDe(abc2, 992102)?.abc_herdado === true,
+          { abc: [a2(992101), a2(992102), a2(992103), a2(992104)] });
+
+        // «Exibir produtos filhos»: a venda 992104 carrega idproduto_filho=992105 → a chave do relatório troca.
+        await pgRv.query(`UPDATE empresas SET pc_curva_abc_a=70 WHERE idempresa=1`);
+        const abcF = await abcQ({ exibirFilhos: true });
+        const rv1 = async (filhos: boolean) => (await (await fetch(`${base}/relatorios/vendas/produtos-vendidos`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-20', dtfim: '2026-09-20', departamentos: [91], exibirFilhos: filhos }) })).json().catch(() => ({}))) as any;
+        const rvPai = await rv1(false), rvFilho = await rv1(true);
+        const temRv = (r: any, id: number) => (r.linhas ?? []).some((l: any) => Number(l.idproduto) === id);
+        check('EXIBIR PRODUTOS FILHOS (fold: o modo existia no legado nas DUAS telas e faltava no app) — a curva ABC e a rel 01 trocam a chave p/ COALESCE(idproduto_filho, codproduto): com o flag a linha sai no filho 992105 e some do pai 992104; sem o flag, o contrário',
+          !!linhaDe(abcF, 992105) && !linhaDe(abcF, 992104)
+          && !!linhaDe(abc1, 992104) && !linhaDe(abc1, 992105)
+          && temRv(rvFilho, 992105) && !temRv(rvFilho, 992104)
+          && temRv(rvPai, 992104) && !temRv(rvPai, 992105),
+          { abcComFlag: !!linhaDe(abcF, 992105), rvComFlag: temRv(rvFilho, 992105), rvSemFlag: temRv(rvPai, 992104) });
+
+        // empresa sem curva cadastrada: o frx classificaria tudo 'A' por herança da 1ª linha — a tela precisa
+        // do aviso em vez de exibir uma curva inventada. + período invertido → 422 · sem grant → 403.
+        await pgRv.query(`UPDATE empresas SET pc_curva_abc_a=NULL, pc_curva_abc_b=NULL, pc_curva_abc_c=NULL WHERE idempresa=1`);
+        const abcSem = await abcQ({});
+        const caInv = await fetch(`${base}/${CA}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-21', dtfim: '2026-09-20' }) });
+        const caRb = await fetch(`${base}/${CA}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dtini: '2026-09-20', dtfim: '2026-09-20' }) });
+        check('CURVA ABC: empresa sem os cortes cadastrados → sem_curva_configurada (a herança jogaria TUDO em "A" sem aviso) · período invertido → 422 · sem grant do hub → 403',
+          abcSem.filtro?.sem_curva_configurada === true
+          && (abcSem.linhas ?? []).every((l: any) => l.abc === 'A')
+          && caInv.status === 422 && caRb.status === 403,
+          { sem: abcSem.filtro?.sem_curva_configurada, inv: caInv.status, rb: caRb.status });
+
+        // o CAST(x AS NUMERIC(18,2)) POR LINHA do legado (não é o mesmo que somar cru e arredondar no fim):
+        // 2 vendas de 0,125 kg → 0,13 + 0,13 = 0,26 (somando cru daria 0,25); custo unitário 1,2345 →
+        // 1,23 + 1,23 = 2,46 (cru daria 2,47). É a cauda de hortifrúti/açougue, onde a curva é consultada.
+        await pgRv.query(`UPDATE empresas SET pc_curva_abc_a=70, pc_curva_abc_b=15, pc_curva_abc_c=10 WHERE idempresa=1`);
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto)
+          VALUES (992106,'7899000992106','ABC PESADO','KG',2,'T01','S',91) ON CONFLICT (idproduto) DO UPDATE SET ativo='S'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, unidade, iat, cfop, aliquota, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-09-21 09:00:00-03','001',1310,1,992106,0.125,10,1.2345,'KG','A',5102,'T01','N','S','P'),
+          (1,'2026-09-21 09:05:00-03','001',1311,1,992106,0.125,10,1.2345,'KG','A',5102,'T01','N','S','P')`);
+        const abcKg = await abcQ({ dtini: '2026-09-21', dtfim: '2026-09-21' });
+        const lKg = linhaDe(abcKg, 992106);
+        check('CURVA ABC: o legado arredonda CADA LINHA para 2 casas antes de somar (CAST AS NUMERIC(18,2)) — 0,125+0,125 kg = 0,26 (não 0,25) e custo unit. 1,2345×2 = 2,46 (não 2,47)',
+          Number(lKg?.qtde) === 0.26 && Number(lKg?.soma_vrcusto_uni) === 2.46
+          && r2ck(Number(lKg?.total_venda)) === 2.5 && r2ck(Number(lKg?.total_custo)) === 0.3,
+          { qtde: lKg?.qtde, custoUni: lKg?.soma_vrcusto_uni, venda: lKg?.total_venda, custo: lKg?.total_custo });
+
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-20' AND dtvenda < '2026-09-22'`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto IN (992101,992102,992103,992104,992105,992106)`);
+        await pgRv.query(`UPDATE empresas SET pc_curva_abc_a=NULL, pc_curva_abc_b=NULL, pc_curva_abc_c=NULL WHERE idempresa=1`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.

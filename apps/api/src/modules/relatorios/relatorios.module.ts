@@ -11,6 +11,8 @@ import { RelCaixaDreController } from './rel-caixa-dre.controller';
 import { RelCaixaDreService } from './rel-caixa-dre.service';
 import { RelSemMovimentoController } from './rel-sem-movimento.controller';
 import { RelSemMovimentoService } from './rel-sem-movimento.service';
+import { RelCurvaAbcController } from './rel-curva-abc.controller';
+import { RelCurvaAbcService } from './rel-curva-abc.service';
 import { ConfigService } from '../cadastro/config.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 
@@ -19,7 +21,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
  * Prévia do Fornecedor / Análise de Giro (15 dias).
  */
 @Module({
-  controllers: [RelVendasController, PreviaFornecedorController, RelFinalizadorasController, RelTicketMedioController, RelCaixaDreController, RelSemMovimentoController],
-  providers: [RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, ConfigService, DatabaseProvider],
+  controllers: [RelVendasController, PreviaFornecedorController, RelFinalizadorasController, RelTicketMedioController, RelCaixaDreController, RelSemMovimentoController, RelCurvaAbcController],
+  providers: [RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, ConfigService, DatabaseProvider],
 })
 export class RelatoriosModule {}
