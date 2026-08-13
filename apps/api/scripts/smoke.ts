@@ -5709,6 +5709,66 @@ async function main() {
 
         await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2026-10-10' AND data < '2026-10-11'`);
 
+        // 47ab) FAMÍLIA OPERADOR/VENDEDOR (rel 06/19/25/36/46). Cenário 2026-10-15, empresa 1:
+        //   operador 7: cupom 1800 com 2 itens no MESMO timestamp (100+50) e cupom 1801 com 2 itens em
+        //     timestamps DIFERENTES (30 às 10:00:00 e 20 às 10:00:05) — separa o COUNT DISTINTO (cupons)
+        //     do NÃO-distinto do ticket da rel 19 (grupos internos cupom×timestamp)
+        //   operador 8: cupom 1802 (40) no dia 16
+        //   venda CANCELADA de 999 no dia 15 — a rel 06 exclui SEMPRE (hardcode), mesmo pedindo 'S'
+        //   vendedores: 1800→20 (ALFA), 1801/1802→21 (BETA), 1803→99999 SEM CADASTRO (a rel 25 INNER
+        //     descarta; a rel 36 LEFT mantém como nome nulo)
+        const VO = 'relatorios/vendas-operador';
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto, codgrupo, codsubgrupo)
+          VALUES (992601,'7899000992601','VO PROD','UN',2,'T01','S',91,92,93) ON CONFLICT (idproduto) DO UPDATE SET ativo='S', coddpto=91, codgrupo=92, codsubgrupo=93`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-10-15' AND dtvenda < '2026-10-17'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, operador, codvendedor, qtde, vrvenda, vrcusto, iat, cfop, aliquota, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-10-15 09:00:00-03','001','01',1800,1,992601,7,20,   1,100,60,'A',5102,'T01','N','S','P'),
+          (1,'2026-10-15 09:00:00-03','001','01',1800,2,992601,7,20,   1, 50,30,'A',5102,'T01','N','S','P'),
+          (1,'2026-10-15 10:00:00-03','001','01',1801,1,992601,7,21,   1, 30,10,'A',5102,'T01','N','S','P'),
+          (1,'2026-10-15 10:00:05-03','001','01',1801,2,992601,7,21,   1, 20, 5,'A',5102,'T01','N','S','P'),
+          (1,'2026-10-16 11:00:00-03','001','01',1802,1,992601,8,21,   1, 40,20,'A',5102,'T01','N','S','P'),
+          (1,'2026-10-15 12:00:00-03','001','01',1803,1,992601,7,99999,1, 15, 5,'A',5102,'T01','N','S','P'),
+          (1,'2026-10-15 13:00:00-03','001','01',1804,1,992601,7,20,   1,999,10,'A',5102,'T01','S','S','P')`);
+
+        const voQ = async (rota: string, extra: Record<string, unknown> = {}) => (await (await fetch(`${base}/${VO}/${rota}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-10-15', dtfim: '2026-10-16', ...extra }) })).json().catch(() => ({}))) as any;
+        const vo06 = await voQ('data-operador');
+        const vo06s = await voQ('data-operador', { canceladas: 'S' });
+        const l06 = (vo06.linhas ?? []).find((l: any) => l.dia === '2026-10-15' && String(l.nome).includes('SMOKE'));
+        check('rel 06 (dia × operador): 15/10 op SMOKE = 3 cupons distintos, 215,00 · a CANCELADA de 999 fica fora SEMPRE — pedir canceladas:S soma com o hardcode (N∧S) e devolve vazio, fiel',
+          Number(l06?.nrocupons) === 3 && r2ck(Number(l06?.total_venda)) === 215
+          && (vo06.linhas ?? []).length === 2 && (vo06s.linhas ?? []).length === 0,
+          { cupons: l06?.nrocupons, total: l06?.total_venda, linhas: (vo06.linhas ?? []).length, comS: (vo06s.linhas ?? []).length });
+
+        const vo19 = await voQ('resumo-operador');
+        const l19 = (vo19.linhas ?? []).find((l: any) => String(l.nome).includes('SMOKE'));
+        check('rel 19 (resumo por operador): NROCUPONS é DISTINTO (3) mas o TICKET divide pelos GRUPOS INTERNOS cupom×timestamp (4, porque o cupom 1801 tem 2 timestamps) → ticket 53,75 ≠ total/cupons 71,67 · média = total/dias = 215,00 · a coluna "DESC_PROMOCAO" do legado é o ajuste líquido (0,00)',
+          Number(l19?.nrocupons) === 3 && Number(l19?.grupos_internos) === 4
+          && r2ck(Number(l19?.total_venda)) === 215 && r2ck(Number(l19?.ticket_medio)) === 53.75
+          && Number(l19?.dias_trabalhados) === 1 && r2ck(Number(l19?.media)) === 215
+          && r2ck(Number(l19?.ajuste_liquido)) === 0,
+          { cupons: l19?.nrocupons, grupos: l19?.grupos_internos, ticket: l19?.ticket_medio, media: l19?.media });
+
+        const vo25 = await voQ('detalhe-vendedor');
+        const vends25 = new Set((vo25.linhas ?? []).map((l: any) => Number(l.codvendedor)));
+        const vo36 = await voQ('data-vendedor');
+        const semCad36 = (vo36.linhas ?? []).find((l: any) => l.nome == null);
+        check('rel 25 (o NOME MENTE: agrupa por VENDEDOR, com INNER join) — vendedor sem cadastro (99999) SAI e sobram 20 e 21 · soma_vrvenda_uni do vendedor 20 = 150 (unitários) · rel 36 (LEFT) MANTÉM o sem-cadastro como linha de nome nulo com 15,00',
+          vends25.size === 2 && vends25.has(20) && vends25.has(21) && !vends25.has(99999)
+          && r2ck((vo25.linhas ?? []).filter((l: any) => Number(l.codvendedor) === 20).reduce((s: number, l: any) => s + Number(l.soma_vrvenda_uni), 0)) === 150
+          && !!semCad36 && r2ck(Number(semCad36.total_venda)) === 15,
+          { vends: [...vends25], semCad: semCad36?.total_venda });
+
+        const vo46 = await voQ('produtos-operador');
+        const l46 = (vo46.linhas ?? []).find((l: any) => Number(l.codoperador) === 7 && Number(l.idproduto) === 992601);
+        check('rel 46 (produtos × operador): op 7 × produto = 215,00 venda / 110,00 custo · MARGEM aqui é PARTICIPAÇÃO do custo (51,16%), não markup · desc_acre = só desc_acre_medio cru (0,00) · 2 operadores no total',
+          r2ck(Number(l46?.total_venda)) === 215 && r2ck(Number(l46?.total_custo)) === 110
+          && r2ck(Number(l46?.margem)) === 51.16 && r2ck(Number(l46?.desc_acre)) === 0
+          && Number(vo46.totais?.operadores) === 2,
+          { venda: l46?.total_venda, custo: l46?.total_custo, margem: l46?.margem, ops: vo46.totais?.operadores });
+
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-10-15' AND dtvenda < '2026-10-17'`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992601`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.
