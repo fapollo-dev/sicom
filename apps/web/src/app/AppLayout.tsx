@@ -89,6 +89,7 @@ const TELAS = [
   { href: '/relatorios/ticket-medio', name: 'Ticket Médio', icon: LineChart },
   { href: '/relatorios/caixa-dre', name: 'Caixa — D.R.E.', icon: LineChart },
   { href: '/relatorios/sem-movimento', name: 'Produtos sem Movimento', icon: LineChart },
+  { href: '/relatorios/vendas-data', name: 'Vendas por Data', icon: LineChart },
   { href: '/relatorios/curva-abc', name: 'Curva ABC de Vendas', icon: LineChart },
   { href: '/cadastro/motivos-operacao', name: 'Motivos de Operação', icon: ListChecks },
   { href: '/cadastro/plano-contas', name: 'Plano de Contas', icon: Network },

@@ -47,6 +47,7 @@ export * from './schema/rel-ticket-medio.schema';
 export * from './schema/rel-caixa-dre.schema';
 export * from './schema/rel-sem-movimento.schema';
 export * from './schema/rel-curva-abc.schema';
+export * from './schema/rel-vendas-data.schema';
 export * from './schema/cotacao.schema';
 export * from './schema/auth.schema';
 export * from './schema/configuracao.schema';

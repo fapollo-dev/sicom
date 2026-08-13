@@ -5493,6 +5493,52 @@ async function main() {
         await pgRv.query(`DELETE FROM produtos WHERE idproduto IN (992201,992202)`);
         await pgRv.query(`UPDATE empresas SET pc_curva_abc_a=NULL, pc_curva_abc_b=NULL, pc_curva_abc_c=NULL WHERE idempresa=1`);
 
+        // 47x) VENDAS DATA (rel 02 do hub) — o fechamento DIÁRIO. Três níveis no legado, e o do meio (o CUPOM)
+        // não colapsa porque o de cima CONTA grupos. Cenário 2026-09-25, empresa 1:
+        //   cupom 1500 → 2 itens (100,00 c/ custo 60,00 + 50,00 c/ custo 30,00) = venda 150,00 / custo 90,00
+        //   cupom 1501 → 1 item  ( 50,00 c/ custo 20,00)                        = venda  50,00 / custo 20,00
+        //   cupom 1502 → 1 item  ( 20,00 c/ custo 10,00) às 22:30 LOCAL         = venda  20,00 / custo 10,00
+        // Dia: venda 220,00 · custo 120,00 · lucro 100,00 · **3 CUPONS (não 4 itens)** · ticket 73,33.
+        const VD = 'relatorios/vendas-data/consultar';
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto)
+          VALUES (992301,'7899000992301','VD DIA','UN',2,'T01','S',91) ON CONFLICT (idproduto) DO UPDATE SET ativo='S', coddpto=91`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-25' AND dtvenda < '2026-09-27'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, aliquota, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-09-25 10:00:00-03','001','01',1500,1,992301,1,100,60,'A',5102,'T01','N','S','P'),
+          (1,'2026-09-25 10:00:01-03','001','01',1500,2,992301,1, 50,30,'A',5102,'T01','N','S','P'),
+          (1,'2026-09-25 11:00:00-03','001','01',1501,1,992301,1, 50,20,'A',5102,'T01','N','S','P'),
+          (1,'2026-09-25 22:30:00-03','001','01',1502,1,992301,1, 20,10,'A',5102,'T01','N','S','P')`);
+        const vdJ = (await (await fetch(`${base}/${VD}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-25', dtfim: '2026-09-25', departamentos: [91] }) })).json().catch(() => ({}))) as any;
+        const vdDia = (vdJ.linhas ?? [])[0];
+        check('VENDAS DATA (rel 02): o nível do CUPOM não colapsa — "cupons" conta CUPONS (3), não itens (4) · ticket médio = total do dia ÷ cupons = 73,33 · venda 220 / custo 120 / lucro 100 · a venda das 22:30 fica NO DIA (fuso), não gera 2026-09-26',
+          (vdJ.linhas ?? []).length === 1 && vdDia?.dia === '2026-09-25'
+          && Number(vdDia?.cupons) === 3 && r2ck(Number(vdDia?.vr_ticket_medio)) === 73.33
+          && r2ck(Number(vdDia?.total_venda)) === 220 && r2ck(Number(vdDia?.total_custo)) === 120
+          && r2ck(Number(vdDia?.total_lucro)) === 100 && Number(vdDia?.total_qtde) === 4,
+          { dias: (vdJ.linhas ?? []).length, dia: vdDia?.dia, cupons: vdDia?.cupons, ticket: vdDia?.vr_ticket_medio, venda: vdDia?.total_venda });
+
+        check('VENDAS DATA: a coluna «RENT/MARKDOWN» da grade é a fórmula QUEBRADA do legado — divide por (venda − 1): −(120/219)×100 = −54,79 · a rentabilidade correta é 45,45 e é a que o RODAPÉ do legado usa (linha e rodapé não fecham entre si na tela original) · margem/markup 83,33',
+          r2ck(Number(vdDia?.lucro_b_percent)) === -54.79
+          && r2ck(Number(vdDia?.rentabilidade)) === 45.45 && r2ck(Number(vdDia?.margem)) === 83.33
+          && r2ck(Number(vdJ.totais?.rentabilidade)) === 45.45 && r2ck(Number(vdJ.totais?.ticket_medio)) === 73.33,
+          { quebrada: vdDia?.lucro_b_percent, correta: vdDia?.rentabilidade, margem: vdDia?.margem, rodape: vdJ.totais?.rentabilidade });
+
+        // dia só com venda ZERO: nesta variante o legado escreve CASE WHEN SUM(x)=0 THEN 0 → as razões vão a
+        // ZERO, não a branco (ao contrário da rel 01, cuja grade divide por NULLIF). Fidelidade é por relatório.
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, aliquota, cancelado, venda_nfc, statusnfe)
+          VALUES (1,'2026-09-26 09:00:00-03','001','01',1503,1,992301,1,0,0,'A',5102,'T01','N','S','P')`);
+        const vdZero = (await (await fetch(`${base}/${VD}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-26', dtfim: '2026-09-26', departamentos: [91] }) })).json().catch(() => ({}))) as any;
+        const vdInv = await fetch(`${base}/${VD}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-26', dtfim: '2026-09-25' }) });
+        const vdRb = await fetch(`${base}/${VD}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dtini: '2026-09-25', dtfim: '2026-09-25' }) });
+        check('VENDAS DATA: dia sem faturamento → rentabilidade e margem = 0 (o legado tem CASE ... THEN 0 explícito nesta variante, não NULLIF como a rel 01) · período invertido → 422 · sem grant do hub → 403',
+          Number((vdZero.linhas ?? [])[0]?.rentabilidade) === 0 && Number((vdZero.linhas ?? [])[0]?.margem) === 0
+          && Number((vdZero.linhas ?? [])[0]?.cupons) === 1
+          && vdInv.status === 422 && vdRb.status === 403,
+          { rent: (vdZero.linhas ?? [])[0]?.rentabilidade, margem: (vdZero.linhas ?? [])[0]?.margem, inv: vdInv.status, rb: vdRb.status });
+
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-25' AND dtvenda < '2026-09-27'`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992301`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.
