@@ -23,6 +23,8 @@ import { RelFormasPgtoController } from './rel-formas-pgto.controller';
 import { RelFormasPgtoService } from './rel-formas-pgto.service';
 import { RelVendasOperadorController } from './rel-vendas-operador.controller';
 import { RelVendasOperadorService } from './rel-vendas-operador.service';
+import { RelCaixaOpsController } from './rel-caixa-ops.controller';
+import { RelCaixaOpsService } from './rel-caixa-ops.service';
 import { ConfigService } from '../cadastro/config.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 
@@ -31,7 +33,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
  * Prévia do Fornecedor / Análise de Giro (15 dias).
  */
 @Module({
-  controllers: [RelVendasController, PreviaFornecedorController, RelFinalizadorasController, RelTicketMedioController, RelCaixaDreController, RelSemMovimentoController, RelCurvaAbcController, RelVendasDataController, RelVendasDepartamentoController, RelVendasHoraController, RelFormasPgtoController, RelVendasOperadorController],
-  providers: [RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, ConfigService, DatabaseProvider],
+  controllers: [RelVendasController, PreviaFornecedorController, RelFinalizadorasController, RelTicketMedioController, RelCaixaDreController, RelSemMovimentoController, RelCurvaAbcController, RelVendasDataController, RelVendasDepartamentoController, RelVendasHoraController, RelFormasPgtoController, RelVendasOperadorController, RelCaixaOpsController],
+  providers: [RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, ConfigService, DatabaseProvider],
 })
 export class RelatoriosModule {}

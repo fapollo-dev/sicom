@@ -5769,6 +5769,39 @@ async function main() {
         await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-10-15' AND dtvenda < '2026-10-17'`);
         await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992601`);
 
+        // 47ac) OPERAÇÕES DE CAIXA — rel 04 (sangrias/suprimentos) e rel 05 (liberações do PDV).
+        //   sangrias: SAN 200 + SAN 200 IDÊNTICA no MESMO segundo (dedup do MIN+GROUP BY → 1 linha) +
+        //   SUP 500 + SAN de valor 0 (fica fora: VALOR > 0) + tipo 'DEV' (fora do par SAN/SUP).
+        //   liberações: 2 eventos, um SEM responsável (usa o USUARIO no COALESCE).
+        const CO = 'relatorios/caixa-ops';
+        await pgRv.query(`DELETE FROM hist_sangria_suprimento WHERE idempresa=1`);
+        await pgRv.query(`DELETE FROM historico_pdv WHERE idempresa=1`);
+        await pgRv.query(`DELETE FROM pdv WHERE codpdv = 9911`);
+        await pgRv.query(`INSERT INTO pdv (codpdv, nropdv, descricao, codempresa) VALUES (9911,11,'PDV CO',1)`);
+        await pgRv.query(`INSERT INTO hist_sangria_suprimento (codhistsangria, idempresa, data, codpdv, descricao, valor, codoperador, tipo) VALUES
+          (98001,1,'2026-10-20 10:00:00-03',9911,'SANGRIA ALMOCO',200,7,'SAN'),
+          (98002,1,'2026-10-20 10:00:00-03',9911,'SANGRIA ALMOCO',200,7,'SAN'),
+          (98003,1,'2026-10-20 11:00:00-03',9911,'TROCO INICIAL',500,7,'SUP'),
+          (98004,1,'2026-10-20 12:00:00-03',9911,'ZERADA',0,7,'SAN'),
+          (98005,1,'2026-10-20 13:00:00-03',9911,'OUTRO TIPO',50,7,'DEV')`);
+        await pgRv.query(`INSERT INTO historico_pdv (idhistorico, idempresa, codpdv, historico, responsavel, usuario, codparceiro, data, nrocupom, motivo) VALUES
+          (97001,1,9911,'LIBERACAO DE VENDA','SUPERVISOR X','CAIXA 1',20,'2026-10-20 10:30:00-03',1900,'CLIENTE ESPECIAL'),
+          (97002,1,9911,'CANCELAMENTO ITEM',NULL,'CAIXA 2',NULL,'2026-10-20 11:30:00-03',1901,NULL)`);
+        const coS = (await (await fetch(`${base}/${CO}/sangrias`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-10-20', dtfim: '2026-10-20' }) })).json().catch(() => ({}))) as any;
+        const coL = (await (await fetch(`${base}/${CO}/liberacoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-10-20', dtfim: '2026-10-20' }) })).json().catch(() => ({}))) as any;
+        const lSem = (coL.linhas ?? []).find((l: any) => Number(l.sequencial) === 97002);
+        check('rel 04 (sangrias/suprimentos): as 2 SAN idênticas no mesmo segundo viram 1 linha (dedup MIN+GROUP BY do legado) → 2 linhas no total · Σ sangrias 200 / Σ suprimentos 500 · VALOR>0 exclui a zerada e o tipo DEV fica fora do par · rel 05: responsável nulo cai p/ o USUARIO (COALESCE)',
+          (coS.linhas ?? []).length === 2
+          && r2ck(Number(coS.totais?.sangrias)) === 200 && r2ck(Number(coS.totais?.suprimentos)) === 500
+          && (coS.linhas ?? []).every((l: any) => ['SANGRIA','SUPRIMENTO'].includes(String(l.operacao)))
+          && (coL.linhas ?? []).length === 2 && lSem?.responsavel === 'CAIXA 2'
+          && (coL.linhas ?? [])[0]?.sequencial === 97001,
+          { linhas: (coS.linhas ?? []).length, san: coS.totais?.sangrias, sup: coS.totais?.suprimentos, resp: lSem?.responsavel });
+
+        await pgRv.query(`DELETE FROM hist_sangria_suprimento WHERE idempresa=1`);
+        await pgRv.query(`DELETE FROM historico_pdv WHERE idempresa=1`);
+        await pgRv.query(`DELETE FROM pdv WHERE codpdv = 9911`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.
