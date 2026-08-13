@@ -40,7 +40,7 @@ import { ControleContasPage } from '../features/controle-contas/ControleContasPa
 import { ExportaBalancaPage } from '../features/exporta-balanca/ExportaBalancaPage';
 import { AjustePrecosPage } from '../features/ajuste-precos/AjustePrecosPage';
 import { PrecificacaoCustoPage } from '../features/precificacao-custo/PrecificacaoCustoPage';
-import { RelVendasPage } from '../features/rel-vendas/RelVendasPage';
+import { RelVendasHubPage } from '../features/rel-vendas-hub/RelVendasHubPage';
 import { PreviaFornecedorPage } from '../features/previa-fornecedor/PreviaFornecedorPage';
 import { ConferenciaNotaPage } from '../features/conferencia-nota/ConferenciaNotaPage';
 import { RelFinalizadorasPage } from '../features/rel-finalizadoras/RelFinalizadorasPage';
@@ -103,7 +103,7 @@ export const router = createBrowserRouter([
       { path: '/estoque/balanca', element: <ExportaBalancaPage /> }, // exporta PLUs p/ balança Toledo (TXITENS/CADASTRO/ITENSMGV download)
       { path: '/estoque/ajuste-precos', element: <AjustePrecosPage /> },
       { path: '/estoque/precificacao', element: <PrecificacaoCustoPage /> },
-      { path: '/relatorios/vendas', element: <RelVendasPage /> },
+      { path: '/relatorios/vendas', element: <RelVendasHubPage /> }, // HUB FRMRELVENDAS: combo de modelo → variante embutida
       { path: '/relatorios/previa-fornecedor', element: <PreviaFornecedorPage /> },
       { path: '/compras/conferencia-nota', element: <ConferenciaNotaPage /> },
       { path: '/relatorios/finalizadoras', element: <RelFinalizadorasPage /> },
