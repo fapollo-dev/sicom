@@ -50,6 +50,7 @@ import { RelSemMovimentoPage } from '../features/rel-sem-movimento/RelSemMovimen
 import { RelCurvaAbcPage } from '../features/rel-curva-abc/RelCurvaAbcPage';
 import { RelVendasDataPage } from '../features/rel-vendas-data/RelVendasDataPage';
 import { RelVendasDepartamentoPage } from '../features/rel-vendas-departamento/RelVendasDepartamentoPage';
+import { RelVendasHoraPage } from '../features/rel-vendas-hora/RelVendasHoraPage';
 import { CartaoPage } from '../features/cartao/CartaoPage';
 import { OperadorasPage } from '../features/cartao/OperadorasPage';
 import { TrocaPage } from '../features/troca/TrocaPage';
@@ -107,6 +108,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/sem-movimento', element: <RelSemMovimentoPage /> },
       { path: '/relatorios/vendas-data', element: <RelVendasDataPage /> }, // rel 02: fechamento diário
       { path: '/relatorios/vendas-departamento', element: <RelVendasDepartamentoPage /> }, // rel 38: dia × departamento
+      { path: '/relatorios/vendas-hora', element: <RelVendasHoraPage /> }, // rel 07: perfil por hora × caixas abertos
       { path: '/relatorios/curva-abc', element: <RelCurvaAbcPage /> }, // rel 09: classificação A/B/C por faturamento acumulado // rel 13: o que não girou // DRE de caixa por conta gerencial // 4º relatório: cupons × média por dia // 3º relatório: vendas × formas de pagamento // aprovar/cancelar a conferência do coletor // 2º relatório: giro produto × 15 dias // 1º relatório: produtos vendidos no período // precificação de mercadorias (painel custo→PMZ→preço por produto×empresa) // ajuste de preços - lote (processa a fila lote_preco → multi_preco)
       { path: '/financeiro/cartoes', element: <CartaoPage /> }, // recebíveis de cartão (consulta + cadastro; líquido/venc computados)
       { path: '/cadastro/operadoras', element: <OperadorasPage /> }, // administradora/adquirente + taxa por-empresa

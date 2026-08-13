@@ -5601,6 +5601,85 @@ async function main() {
         await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-28' AND dtvenda < '2026-09-30'`);
         await pgRv.query(`DELETE FROM produtos WHERE idproduto IN (992401,992402,992404)`);
 
+        // 47z) VENDAS POR HORA (rel 07) — faturamento por hora × CAIXAS ABERTOS por hora. A 2ª metade não é SQL:
+        // é o laço do Delphi que expande cada SESSÃO de caixa nas horas que ela cobre. Sessões do cenário:
+        //   A 05/10 pdv 1  08:00→12:00            → horas 8..12
+        //   B 05/10 pdv 2  14:00→15:00            → horas 14,15
+        //   B2 05/10 pdv 3 14:00→14:30            → hora 14 de novo (mesmo dia) ⇒ média 2 caixas na hora 14
+        //   C 06/10 pdv 1  20:00→(sem saída)      → horas 20..23 (data passada ⇒ fecha em 23)
+        //   D 06/10 pdv 2  (sem entrada)→10:00    → hora vem da CHAVE (posições 9-10 = '09') ⇒ horas 9,10
+        //   E 07/10 pdv 1  22:00→02:00            → fim MENOR que início ⇒ o laço não roda, não conta em nada
+        //   F 05/10 pdv 99 03:00→04:00            → PDV não cadastrado ⇒ o JOIN interno com PDV descarta
+        const VH = 'relatorios/vendas-hora/consultar';
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto)
+          VALUES (992501,'7899000992501','VH HORA','UN',2,'T01','S',91) ON CONFLICT (idproduto) DO UPDATE SET ativo='S', coddpto=91`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-10-05' AND dtvenda < '2026-10-08'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, aliquota, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-10-05 09:30:00-03','001','01',1700,1,992501,1,100,50,'A',5102,'T01','N','S','P'),
+          (1,'2026-10-05 14:10:00-03','001','01',1701,1,992501,1,300,150,'A',5102,'T01','N','S','P'),
+          (1,'2026-10-05 14:50:00-03','001','01',1702,1,992501,1,200,100,'A',5102,'T01','N','S','P'),
+          (1,'2026-10-06 09:30:00-03','001','01',1703,1,992501,1, 25, 10,'A',5102,'T01','N','S','P'),
+          (1,'2026-10-06 20:15:00-03','001','01',1704,1,992501,1, 50, 20,'A',5102,'T01','N','S','P')`);
+        await pgRv.query(`DELETE FROM caixa_pdv WHERE idempresa=1 AND codcaixa BETWEEN 99001 AND 99099`);
+        await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2026-10-05' AND data < '2026-10-08'`);
+        await pgRv.query(`DELETE FROM pdv WHERE codpdv IN (9901,9902,9903)`);
+        await pgRv.query(`INSERT INTO pdv (codpdv, nropdv, descricao, codempresa) VALUES
+          (9901,1,'PDV VH 1',1), (9902,2,'PDV VH 2',1), (9903,3,'PDV VH 3',1)`);
+        await pgRv.query(`INSERT INTO caixa_pdv (codcaixa, codpdv, codoperadora, data, horaentrada, horasaida, chave, idempresa) VALUES
+          (99001,1,7,'2026-10-05','2026-10-05 08:00:00-03','2026-10-05 12:00:00-03','01261005080000',1),
+          (99002,2,1,'2026-10-05','2026-10-05 14:00:00-03','2026-10-05 15:00:00-03','02261005140000',1),
+          (99003,3,8,'2026-10-05','2026-10-05 14:00:00-03','2026-10-05 14:30:00-03','03261005140000',1),
+          (99004,1,7,'2026-10-06','2026-10-06 20:00:00-03',NULL,                    '01261006200000',1),
+          (99005,2,1,'2026-10-06',NULL,                    '2026-10-06 10:00:00-03','02261006090000',1),
+          (99006,1,7,'2026-10-07','2026-10-07 22:00:00-03','2026-10-08 02:00:00-03','01261007220000',1),
+          (99007,99,7,'2026-10-05','2026-10-05 03:00:00-03','2026-10-05 04:00:00-03','99261005030000',1)`);
+        await pgRv.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, valor, chave) VALUES
+          (1,'2026-10-05 09:00:00-03',1, 7,'DINHEIRO',100,'01261005080000'),
+          (1,'2026-10-05 14:20:00-03',2, 1,'DINHEIRO',300,'02261005140000'),
+          (1,'2026-10-05 14:25:00-03',3, 8,'DINHEIRO',200,'03261005140000'),
+          (1,'2026-10-06 21:00:00-03',1, 7,'DINHEIRO', 50,'01261006200000'),
+          (1,'2026-10-06 09:40:00-03',2, 1,'DINHEIRO', 25,'02261006090000'),
+          (1,'2026-10-07 23:00:00-03',1, 7,'DINHEIRO', 10,'01261007220000'),
+          (1,'2026-10-05 03:30:00-03',99,7,'DINHEIRO', 10,'99261005030000')`);
+
+        const vhJ = (await (await fetch(`${base}/${VH}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-10-05', dtfim: '2026-10-07', departamentos: [91], detalhe: true }) })).json().catch(() => ({}))) as any;
+        const hr = (h: number) => (vhJ.horas ?? []).find((x: any) => Number(x.hora) === h);
+        check('VENDAS POR HORA (rel 07): faturamento por hora — 9h = 125,00 (a venda de 09:30 dos DOIS dias soma na mesma hora), 14h = 500,00, 20h = 50,00 · pico na hora 14 com 500,00 e 2 caixas abertos nela',
+          r2ck(Number(hr(9)?.total_venda)) === 125 && r2ck(Number(hr(14)?.total_venda)) === 500
+          && r2ck(Number(hr(20)?.total_venda)) === 50
+          && Number(vhJ.totais?.pico_hora) === 14 && r2ck(Number(vhJ.totais?.pico_valor)) === 500
+          && Number(vhJ.totais?.caixas_no_pico) === 2 && r2ck(Number(vhJ.totais?.total_venda)) === 675,
+          { h9: hr(9)?.total_venda, h14: hr(14)?.total_venda, pico: vhJ.totais?.pico_hora, caixas: vhJ.totais?.caixas_no_pico, total: vhJ.totais?.total_venda });
+
+        const op = (h: number) => (vhJ.operadoras ?? []).find((x: any) => Number(x.hora) === h);
+        check('VENDAS POR HORA: o laço que expande a SESSÃO em horas — 2 caixas na hora 14 do MESMO dia → média 2,00 (quantidade 2 ÷ dias 1) · hora 9 tem 2 caixas em 2 dias → média 1,00 · sessão SEM hora de entrada tira a abertura da CHAVE (posições 9-10 = "09"), o que é o que faz dias[9] = 2',
+          Number(op(14)?.quantidade) === 2 && Number(op(14)?.dias) === 1 && r2ck(Number(op(14)?.media_quantidade)) === 2
+          && Number(op(9)?.quantidade) === 2 && Number(op(9)?.dias) === 2 && r2ck(Number(op(9)?.media_quantidade)) === 1
+          && Number(op(10)?.quantidade) === 2,
+          { h14: op(14), h9: op(9) });
+
+        check('VENDAS POR HORA: sessão sem HORASAIDA em data passada fecha em 23 (horas 20..23 presentes) · sessão que atravessa a meia-noite tem fim MENOR que o início e o laço do legado NÃO roda (hora 22 fica com 1 caixa, não 2) · sessão de PDV não cadastrado é descartada pelo JOIN interno (nada na hora 3) · horas sem caixa nenhum são removidas',
+          Number(op(23)?.quantidade) === 1 && Number(op(20)?.quantidade) === 1
+          && Number(op(22)?.quantidade) === 1 && !op(3)
+          && !(vhJ.operadoras ?? []).some((x: any) => Number(x.quantidade) === 0 && Number(x.dias) === 0),
+          { h23: op(23)?.quantidade, h22: op(22)?.quantidade, h3: op(3) ?? null });
+
+        const det = (t: string) => (vhJ.detalhe ?? []).find((x: any) => x.horario === t);
+        const vhInv = await fetch(`${base}/${VH}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-10-07', dtfim: '2026-10-05' }) });
+        const vhRb = await fetch(`${base}/${VH}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dtini: '2026-10-05', dtfim: '2026-10-05' }) });
+        check('VENDAS POR HORA: o detalhe da subconsulta agrupa pelo TEXTO HH24:MI:SS sem a data — 09:30:00 dos dois dias vira UMA linha de 125,00 (é perfil de horário, não série temporal) · período invertido → 422 · sem grant do hub → 403',
+          r2ck(Number(det('09:30:00')?.total_venda)) === 125
+          && r2ck(Number(det('14:10:00')?.total_venda)) === 300
+          && (vhJ.detalhe ?? []).length === 4 && Number(vhJ.totais?.dias_no_periodo) === 3
+          && vhInv.status === 422 && vhRb.status === 403,
+          { d0930: det('09:30:00')?.total_venda, linhas: (vhJ.detalhe ?? []).length, dias: vhJ.totais?.dias_no_periodo, inv: vhInv.status, rb: vhRb.status });
+
+        await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2026-10-05' AND data < '2026-10-08'`);
+        await pgRv.query(`DELETE FROM caixa_pdv WHERE idempresa=1 AND codcaixa BETWEEN 99001 AND 99099`);
+        await pgRv.query(`DELETE FROM pdv WHERE codpdv IN (9901,9902,9903)`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-10-05' AND dtvenda < '2026-10-08'`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992501`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.

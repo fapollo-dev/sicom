@@ -91,6 +91,7 @@ const TELAS = [
   { href: '/relatorios/sem-movimento', name: 'Produtos sem Movimento', icon: LineChart },
   { href: '/relatorios/vendas-data', name: 'Vendas por Data', icon: LineChart },
   { href: '/relatorios/vendas-departamento', name: 'Vendas por Departamento', icon: LineChart },
+  { href: '/relatorios/vendas-hora', name: 'Vendas por Hora', icon: LineChart },
   { href: '/relatorios/curva-abc', name: 'Curva ABC de Vendas', icon: LineChart },
   { href: '/cadastro/motivos-operacao', name: 'Motivos de Operação', icon: ListChecks },
   { href: '/cadastro/plano-contas', name: 'Plano de Contas', icon: Network },

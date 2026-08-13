@@ -10,8 +10,12 @@ CREATE TABLE IF NOT EXISTS cx_vendas (
   idempresa      integer NOT NULL,
   data           timestamptz,
   nropdv         integer,
-  codoperadora   integer,               -- forma de pagamento (→ formas_pgto.idpgto)
-  operacao       varchar(30),           -- rótulo da forma (DINHEIRO/CARTOES/…)
+  -- o comentário desta coluna dizia "forma de pagamento", contradizendo o cabeçalho acima — corrigido na mig
+  -- 140, quando a rel 07 passou a JUNTAR por ela (`JOIN OPERADORES O ON O.CODOPERADOR = C.CODOPERADORA`,
+  -- URelVendasPorHora.pas). Reconferido no golden de jun/23: as 36.847 linhas casam 36.847 com OPERADORES,
+  -- contra 2.820 que casariam com formas_pgto por coincidência de id pequeno.
+  codoperadora   integer,               -- OPERADOR do caixa (→ operadores.codoperador)
+  operacao       varchar(30),           -- a FORMA/operação (DINHEIRO/CARTOES/SANGRIA/…) — casa com formas_pgto.modalidade
   debito_credito char(1),
   valor          numeric(15,2) DEFAULT 0,
   troco          numeric(15,2) DEFAULT 0,
