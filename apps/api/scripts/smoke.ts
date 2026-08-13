@@ -5539,6 +5539,68 @@ async function main() {
         await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-25' AND dtvenda < '2026-09-27'`);
         await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992301`);
 
+        // 47y) VENDAS DATA / DEPARTAMENTO (rel 38) — três queries: a grade (dia × depto), a banda de resumo do
+        // impresso (depto no período) e o ticket médio auxiliar. Cenário 2026-09-28, empresa 1:
+        //   depto 91: cupom 1600 do pedido '01' (itens 10,00 e 30,00) + cupom 1600 do pedido '02' (20,00) →
+        //             MERGEM, porque o nível do cupom aqui NÃO tem NROPEDIDO (ao contrário da rel 02)
+        //             + cupom 1601 (100,00) → 2 cupons, venda 160,00; ticket = média das médias = 60,00
+        //             (faturamento÷cupons daria 80,00)
+        //   depto 92: cupom 1602 SOZINHO, 0,125 × 10,05 = 1,25625 com IAT='A' → a venda ARREDONDA (1,26) e o
+        //             ticket TRUNCA (1,25): o mesmo valor por dois caminhos, na mesma linha
+        //   depto NULL (produto sem departamento) → 'GRUPO NAO DEFINIDO', venda 50,00 / custo 20,00
+        const VDP = 'relatorios/vendas-departamento/consultar';
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto) VALUES
+          (992401,'7899000992401','VDP COM DPTO','UN',2,'T01','S',91),
+          (992402,'7899000992402','VDP IAT','KG',2,'T01','S',92),
+          (992404,'7899000992404','VDP SEM DPTO','UN',2,'T01','S',NULL)
+          ON CONFLICT (idproduto) DO UPDATE SET ativo='S', coddpto=EXCLUDED.coddpto`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-28' AND dtvenda < '2026-09-30'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, aliquota, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-09-28 09:00:00-03','001','01',1600,1,992401,1,10,   6,'A',5102,'T01','N','S','P'),
+          (1,'2026-09-28 09:00:01-03','001','01',1600,2,992401,1,30,  18,'A',5102,'T01','N','S','P'),
+          (1,'2026-09-28 09:10:00-03','001','02',1600,1,992401,1,20,   6,'A',5102,'T01','N','S','P'),
+          (1,'2026-09-28 10:00:00-03','001','01',1601,1,992401,1,100, 40,'A',5102,'T01','N','S','P'),
+          (1,'2026-09-28 11:00:00-03','001','01',1602,1,992402,0.125,10.05,2,'A',5102,'T01','N','S','P'),
+          (1,'2026-09-28 12:00:00-03','001','01',1603,1,992404,1,50,  20,'A',5102,'T01','N','S','P'),
+          (1,'2026-09-29 09:00:00-03','001','01',1604,1,992401,1,0,    0,'A',5102,'T01','N','S','P')`);
+        const vdpJ = (await (await fetch(`${base}/${VDP}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-28', dtfim: '2026-09-28' }) })).json().catch(() => ({}))) as any;
+        const d91 = (vdpJ.linhas ?? []).find((l: any) => Number(l.coddpto) === 91);
+        const d92 = (vdpJ.linhas ?? []).find((l: any) => Number(l.coddpto) === 92);
+        const dNulo = (vdpJ.linhas ?? []).find((l: any) => l.coddpto == null);
+        check('VENDAS DEPARTAMENTO (rel 38): o cupom 1600 dos pedidos 01 e 02 MERGE — o nível do cupom aqui não tem NROPEDIDO (a rel 02 tem) → 2 cupons, venda 160,00 · «VR. TICKET MEDIO» é MÉDIA DE MÉDIAS: 60,00, e não faturamento÷cupons (80,00)',
+          Number(d91?.cupons) === 2 && r2ck(Number(d91?.total_venda)) === 160
+          && r2ck(Number(d91?.vr_ticket_medio)) === 60 && r2ck(Number(d91?.total_custo)) === 70,
+          { cupons: d91?.cupons, venda: d91?.total_venda, ticket: d91?.vr_ticket_medio, custo: d91?.total_custo });
+
+        check('VENDAS DEPARTAMENTO: na MESMA linha o legado calcula o valor por dois caminhos — a venda respeita o IAT e ARREDONDA (0,125 × 10,05 = 1,25625 → 1,26) e o CALCVLRMEDIO do ticket IGNORA o IAT e TRUNCA (1,25)',
+          r2ck(Number(d92?.total_venda)) === 1.26 && r2ck(Number(d92?.vr_ticket_medio)) === 1.25
+          && Number(d92?.cupons) === 1,
+          { venda: d92?.total_venda, ticket: d92?.vr_ticket_medio });
+
+        check('VENDAS DEPARTAMENTO: departamento nulo vira «GRUPO NAO DEFINIDO» · «MARGEM» nesta variante é custo÷venda×100 = 40,00 (participação do CUSTO), NÃO o markup das rel 01/02 (que daria 150,00) · rentabilidade 60,00',
+          dNulo?.departamento === 'GRUPO NAO DEFINIDO'
+          && r2ck(Number(dNulo?.margem)) === 40 && r2ck(Number(dNulo?.rentabilidade)) === 60
+          && r2ck(Number(dNulo?.total_venda)) === 50,
+          { dpto: dNulo?.departamento, margem: dNulo?.margem, rent: dNulo?.rentabilidade });
+
+        check('VENDAS DEPARTAMENTO: a query AUXILIAR do ticket médio agrupa o cupom COM nropedido e a da grade sem → 5 cupons contra 4, e a média do período (211,26÷5 = 42,25) não fecha com as colunas da grade. Divergência do legado, preservada e sinalizada · a banda de resumo por departamento traz os 3 departamentos',
+          Number(vdpJ.totais?.cupons_ticket) === 5 && Number(vdpJ.totais?.cupons) === 4
+          && r2ck(Number(vdpJ.totais?.ticket_medio_periodo)) === 42.25
+          && (vdpJ.departamentos ?? []).length === 3
+          && (vdpJ.departamentos ?? []).every((d: any) => d.total_custo_estoque === 0 && d.cobertura === 0),
+          { tk: vdpJ.totais?.cupons_ticket, grade: vdpJ.totais?.cupons, media: vdpJ.totais?.ticket_medio_periodo, dptos: (vdpJ.departamentos ?? []).length });
+
+        const vdpZero = (await (await fetch(`${base}/${VDP}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-29', dtfim: '2026-09-29' }) })).json().catch(() => ({}))) as any;
+        const vdpInv = await fetch(`${base}/${VDP}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-29', dtfim: '2026-09-28' }) });
+        const vdpRb = await fetch(`${base}/${VDP}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dtini: '2026-09-28', dtfim: '2026-09-28' }) });
+        check('VENDAS DEPARTAMENTO: venda 0 → rentabilidade em BRANCO (o legado divide por NULLIF aqui, ao contrário da rel 02 que tem CASE ... THEN 0) e margem 0 · período invertido → 422 · sem grant do hub → 403',
+          (vdpZero.linhas ?? [])[0]?.rentabilidade === null && Number((vdpZero.linhas ?? [])[0]?.margem) === 0
+          && vdpInv.status === 422 && vdpRb.status === 403,
+          { rent: (vdpZero.linhas ?? [])[0]?.rentabilidade, margem: (vdpZero.linhas ?? [])[0]?.margem, inv: vdpInv.status, rb: vdpRb.status });
+
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-28' AND dtvenda < '2026-09-30'`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto IN (992401,992402,992404)`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.
