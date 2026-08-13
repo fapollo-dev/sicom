@@ -5680,6 +5680,35 @@ async function main() {
         await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-10-05' AND dtvenda < '2026-10-08'`);
         await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992501`);
 
+        // 47aa) GRÁFICO DE FORMAS DE PAGAMENTO (rel 08) — total por OPERACAO de cx_vendas, líquido de troco,
+        // com a LISTA FIXA de exclusão do legado (≠ da tela Finalizadoras, que só soma o que casa com
+        // formas_pgto). Cenário 2026-10-10: DINHEIRO 100−10=90 · CARTOES 50 · CONVENIO 20 (não é modalidade
+        // cadastrada — AQUI entra como fatia própria) · SANGRIA 500 e DESCONTO 5 (excluídas) · uma linha de
+        // DINHEIRO às 22:30 local (30) que tem de cair NO dia.
+        const FP = 'relatorios/formas-pgto/consultar';
+        await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2026-10-10' AND data < '2026-10-11'`);
+        await pgRv.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, valor, troco) VALUES
+          (1,'2026-10-10 09:00:00-03',1,7,'DINHEIRO',100,10),
+          (1,'2026-10-10 22:30:00-03',1,7,'DINHEIRO', 30, 0),
+          (1,'2026-10-10 10:00:00-03',1,7,'CARTOES',  50, 0),
+          (1,'2026-10-10 11:00:00-03',1,7,'CONVENIO', 20, 0),
+          (1,'2026-10-10 12:00:00-03',1,7,'SANGRIA', 500, 0),
+          (1,'2026-10-10 13:00:00-03',1,7,'DESCONTO',  5, 0)`);
+        const fpJ = (await (await fetch(`${base}/${FP}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-10-10', dtfim: '2026-10-10' }) })).json().catch(() => ({}))) as any;
+        const fpg = (m: string) => (fpJ.linhas ?? []).find((l: any) => l.modalidade === m);
+        const fpInv = await fetch(`${base}/${FP}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-10-11', dtfim: '2026-10-10' }) });
+        const fpRb = await fetch(`${base}/${FP}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dtini: '2026-10-10', dtfim: '2026-10-10' }) });
+        check('FORMAS PGTO (rel 08): DINHEIRO líquido de troco e com a venda das 22:30 no dia (90+30=120) · CONVENIO sem forma cadastrada entra como fatia própria (a lista de exclusão é FIXA, ≠ da tela Finalizadoras) · SANGRIA/DESCONTO fora · total 190 · participação 63,16/26,32/10,53 · invertido → 422 · sem grant → 403',
+          r2ck(Number(fpg('DINHEIRO')?.total_venda)) === 120 && r2ck(Number(fpg('CARTOES')?.total_venda)) === 50
+          && r2ck(Number(fpg('CONVENIO')?.total_venda)) === 20
+          && !fpg('SANGRIA') && !fpg('DESCONTO')
+          && r2ck(Number(fpJ.totais?.total_venda)) === 190 && Number(fpJ.totais?.modalidades) === 3
+          && r2ck(Number(fpg('DINHEIRO')?.participacao)) === 63.16 && r2ck(Number(fpg('CONVENIO')?.participacao)) === 10.53
+          && fpInv.status === 422 && fpRb.status === 403,
+          { din: fpg('DINHEIRO')?.total_venda, conv: fpg('CONVENIO')?.total_venda, total: fpJ.totais?.total_venda, part: fpg('DINHEIRO')?.participacao, inv: fpInv.status, rb: fpRb.status });
+
+        await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2026-10-10' AND data < '2026-10-11'`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.

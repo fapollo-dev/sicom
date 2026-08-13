@@ -50,6 +50,7 @@ export * from './schema/rel-curva-abc.schema';
 export * from './schema/rel-vendas-data.schema';
 export * from './schema/rel-vendas-departamento.schema';
 export * from './schema/rel-vendas-hora.schema';
+export * from './schema/rel-formas-pgto.schema';
 export * from './schema/cotacao.schema';
 export * from './schema/auth.schema';
 export * from './schema/configuracao.schema';
