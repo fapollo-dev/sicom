@@ -5802,6 +5802,68 @@ async function main() {
         await pgRv.query(`DELETE FROM historico_pdv WHERE idempresa=1`);
         await pgRv.query(`DELETE FROM pdv WHERE codpdv = 9911`);
 
+        // 47ad) CANCELADOS (rel 28-0/28-1/30) + DESCONTOS DE OPERADOR (rel 32-0). Cenário 2026-10-25:
+        //   cupom 2000 (op 7, pedido '01', vendedor 1): CANCELADO='S' tipocanc='C', itens 100+50; evento
+        //     'CANCELAMENTO DE CUPOM' resp FISCAL A → 28-0 e 30 atribuem a FISCAL A
+        //   cupom 2001 (op 8, pedido '02'): CANCELADO='S' tipocanc='I'; o único evento contém 'ABERTA:' →
+        //     é IGNORADO → responsável cai p/ o nome do OPERADOR; rel 30 exclui (tipocanc≠'C')
+        //   cupom 2002 (op 7, N): desc_acre_medio −5 → elegível rel 32; ÚLTIMO evento é 'DESCONTO...' resp
+        //     SUP D → atribui a SUP D
+        //   cupom 2003 (op 7, N): desc_acre_item −3 → elegível; tem evento de DESCONTO mas o ÚLTIMO evento
+        //     do cupom é 'TROCA DE CLIENTE' → o quirk do legado (filtro em H, não H2) descarta e cai no
+        //     OPERADOR
+        //   cupom 2004: só desc_promocao (sem desconto de operador) → FORA da rel 32
+        const CC = 'relatorios/cancelados';
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto)
+          VALUES (992701,'7899000992701','CC PROD','UN',2,'T01','S',91) ON CONFLICT (idproduto) DO UPDATE SET ativo='S'`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-10-25' AND dtvenda < '2026-10-26'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, operador, codvendedor, qtde, vrvenda, vrcusto, desc_acre_medio, desc_acre_item, desc_promocao, iat, cfop, aliquota, cancelado, tipocanc, venda_nfc, statusnfe) VALUES
+          (1,'2026-10-25 09:00:00-03','001','01',2000,1,992701,7,1,1,100,60,0, 0,0,'A',5102,'T01','S','C','S','P'),
+          (1,'2026-10-25 09:00:01-03','001','01',2000,2,992701,7,1,1, 50,30,0, 0,0,'A',5102,'T01','S','C','S','P'),
+          (1,'2026-10-25 10:00:00-03','001','02',2001,1,992701,8,20,1, 80,40,0, 0,0,'A',5102,'T01','S','I','S','P'),
+          (1,'2026-10-25 11:00:00-03','001','01',2002,1,992701,7,20,1, 60,30,-5, 0,2,'A',5102,'T01','N',NULL,'S','P'),
+          (1,'2026-10-25 12:00:00-03','001','01',2003,1,992701,7,20,1, 40,20,0,-3,0,'A',5102,'T01','N',NULL,'S','P'),
+          (1,'2026-10-25 13:00:00-03','001','01',2004,1,992701,7,20,1, 30,15,0, 0,10,'A',5102,'T01','N',NULL,'S','P')`);
+        await pgRv.query(`DELETE FROM historico_pdv WHERE idempresa=1`);
+        await pgRv.query(`INSERT INTO historico_pdv (idhistorico, idempresa, codpdv, historico, responsavel, usuario, data, nrocupom, nropedido) VALUES
+          (96001,1,1,'CANCELAMENTO DE CUPOM','FISCAL A','CAIXA 1','2026-10-25 09:05:00-03',2000,'01'),
+          (96002,1,2,'VENDA ABERTA: CANCELAMENTO','FISCAL B','CAIXA 2','2026-10-25 10:05:00-03',2001,'02'),
+          (96003,1,1,'DESCONTO LIBERADO','SUP D','CAIXA 1','2026-10-25 11:05:00-03',2002,'01'),
+          (96004,1,1,'DESCONTO PEDIDO','SUP E','CAIXA 1','2026-10-25 12:05:00-03',2003,'01'),
+          (96005,1,1,'TROCA DE CLIENTE','SUP F','CAIXA 1','2026-10-25 12:06:00-03',2003,'01')`);
+
+        const ccQ = async (rota: string) => (await (await fetch(`${base}/${CC}/${rota}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-10-25', dtfim: '2026-10-25' }) })).json().catch(() => ({}))) as any;
+        const cc0 = await ccQ('resumo');
+        const lFa = (cc0.linhas ?? []).find((l: any) => l.responsavel === 'FISCAL A');
+        const lOp8 = (cc0.linhas ?? []).find((l: any) => String(l.nome ?? '').includes('SEM PARCEIRO'));
+        check('rel 28-0 (cancelados resumo): o cupom 2000 vai p/ FISCAL A (último evento CANCELAMENTO do pedido) com 150,00 · o evento com "ABERTA:" é IGNORADO e o cupom 2001 cai no nome do OPERADOR · COUNT = cupons',
+          r2ck(Number(lFa?.total_venda)) === 150 && Number(lFa?.nrocupons) === 1
+          && !!lOp8 && r2ck(Number(lOp8?.total_venda)) === 80
+          && lOp8?.responsavel === lOp8?.nome,
+          { fa: lFa?.total_venda, op8resp: lOp8?.responsavel, op8nome: lOp8?.nome });
+
+        const cc1 = await ccQ('por-operador');
+        const i2000 = (cc1.linhas ?? []).filter((l: any) => Number(l.nrocupom) === 2000);
+        const cc30 = await ccQ('por-fiscal');
+        check('rel 28-1 (com itens): vendedor 1 (consumidor-padrão) vira codvendedor 0 e o nome vira o do OPERADOR · rel 30 (fiscal): só o tipocanc=C entra — 1 responsável (FISCAL A), 1 cupom, 150,00; o 2001 (tipocanc=I) fica fora',
+          i2000.length === 1 && Number(i2000[0]?.codvendedor) === 0 && String(i2000[0]?.razao ?? '').includes('SMOKE')
+          && (cc30.linhas ?? []).length === 1 && cc30.linhas[0]?.responsavel === 'FISCAL A'
+          && r2ck(Number(cc30.linhas[0]?.total_venda)) === 150 && Number(cc30.linhas[0]?.nrocupons) === 1,
+          { vend: i2000[0]?.codvendedor, razao: i2000[0]?.razao, fiscais: (cc30.linhas ?? []).length, tot30: cc30.linhas?.[0]?.total_venda });
+
+        const cc32 = await ccQ('descontos-resumo');
+        const dSupD = (cc32.linhas ?? []).find((l: any) => l.responsavel === 'SUP D');
+        const dOper = (cc32.linhas ?? []).find((l: any) => String(l.responsavel ?? '').includes('SMOKE'));
+        check('rel 32-0 (descontos): cupom 2002 vai p/ SUP D (último evento É desconto) com desc_total 7,00 (2 prom + 5 medio) · cupom 2003 TEM evento de desconto mas o ÚLTIMO evento é TROCA → quirk do legado descarta e cai no OPERADOR (3,00) · cupom 2004 (só promoção) fica FORA',
+          r2ck(Number(dSupD?.total_desconto_venda)) === 7
+          && !!dOper && r2ck(Number(dOper?.total_desconto_venda)) === 3
+          && (cc32.linhas ?? []).length === 2,
+          { supd: dSupD?.total_desconto_venda, oper: dOper?.total_desconto_venda, linhas: (cc32.linhas ?? []).length });
+
+        await pgRv.query(`DELETE FROM historico_pdv WHERE idempresa=1`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-10-25' AND dtvenda < '2026-10-26'`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992701`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.

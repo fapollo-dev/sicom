@@ -95,6 +95,7 @@ const TELAS = [
   { href: '/relatorios/formas-pgto', name: 'Formas de Pagamento', icon: LineChart },
   { href: '/relatorios/vendas-operador', name: 'Vendas por Operador', icon: LineChart },
   { href: '/relatorios/caixa-ops', name: 'Operações de Caixa', icon: LineChart },
+  { href: '/relatorios/cancelados', name: 'Cancelamentos e Descontos', icon: LineChart },
   { href: '/relatorios/curva-abc', name: 'Curva ABC de Vendas', icon: LineChart },
   { href: '/cadastro/motivos-operacao', name: 'Motivos de Operação', icon: ListChecks },
   { href: '/cadastro/plano-contas', name: 'Plano de Contas', icon: Network },
