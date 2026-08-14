@@ -617,4 +617,72 @@ export class RelVendasExtrasService {
     };
   }
 
+  /**
+   * rel 37 `VendasDataCadastroProduto` — vendas de PRODUTOS NOVOS: só entram produtos cujo DTCADASTRO cai
+   * NO MESMO período do relatório (o `filtroM` do legado é a própria faixa dtini+hora→dtfim+hora; a função
+   * tem uma geração antiga morta antes do `Result :=` vivo — lição 30). Peculiaridades da geração viva:
+   *  · TOTAL_CUSTO é COMPOSTO com os encargos do multi_preco: custo + qtde×ICMST + custo×FRETE% +
+   *    custo×DESPACESSORIO%/100 + custo×IPI%/100 — ⚠️ o SQL divide DESPACESSORIO por 100 como se fosse %,
+   *    mas a precificação (mig 129) o trata como VALOR: divergência interna do legado, copiada como a
+   *    variante faz;
+   *  · o bruto é o placeholder VALOR (truncado SEM IAT);
+   *  · PERC_MARGEM divide pelo BRUTO (não o ajustado) e SEM NULLIF no fonte (protegido aqui ⇒ null);
+   *  · RENTABILIDADE divide pelo BRUTO com NULLIF; MARGEM = custo/ajustado com NULLIF;
+   *  · agrupa por produto × empresa (com FANTASIA) e famílias por V.COD* (snapshot).
+   */
+  async dataCadastro(f: FiltroExtras) {
+    const { emp, tz, ate, db } = await this.ctx(f);
+    const { brutoTrunc, acresc, desc } = this.forms();
+    const custoComposto = sql`sum(round((coalesce(v.qtde,0) * coalesce(v.vrcusto,0))::numeric, 2))
+      + sum(coalesce(v.qtde,0) * coalesce(m.icmst,0))
+      + (sum(coalesce(v.qtde,0) * coalesce(v.vrcusto,0) * coalesce(m.frete,0)) / 100)
+      + round((sum(coalesce(v.qtde,0) * coalesce(v.vrcusto,0) * coalesce(m.despacessorio,0)) / 100)::numeric, 2)
+      + round((sum(coalesce(v.qtde,0) * coalesce(v.vrcusto,0) * coalesce(m.ipi,0)) / 100)::numeric, 2)`;
+    let q = db.selectFrom('vendas as v')
+      .innerJoin('empresas as e', 'e.idempresa', 'v.idempresa')
+      .leftJoin('produtos as p', 'p.idproduto', 'v.codproduto')
+      .leftJoin('familias_prod as d', 'd.codfamilia', 'v.coddpto')
+      .leftJoin('familias_prod as g', 'g.codfamilia', 'v.codgrupo')
+      .leftJoin('familias_prod as sg', 'sg.codfamilia', 'v.codsubgrupo')
+      .leftJoin('multi_preco as m', (j) => j.on(sql<boolean>`m.idproduto = v.codproduto and m.idempresa = v.idempresa`))
+      .select([
+        'p.idproduto', 'p.codbarra', sql`p.descricao`.as('descricao'), sql`v.unidade`.as('unidade'),
+        sql`e.fantasia`.as('fantasia'),
+        sql`d.descricao`.as('depto'), sql`g.descricao`.as('grupo'), sql`sg.descricao`.as('subgrupo'),
+        sql`round(sum(coalesce(v.qtde,0))::numeric, 3)`.as('qtde'),
+        sql`round(sum(${brutoTrunc})::numeric, 2)`.as('bruto'),
+        sql`round((${custoComposto})::numeric, 2)`.as('total_custo'),
+        sql`round(sum(${acresc})::numeric, 2)`.as('acrescimo'),
+        sql`round(sum(${desc})::numeric, 2)`.as('desc_promocao'),
+        sql`round(sum(coalesce(v.desc_acre,0))::numeric, 2)`.as('desc_acre'),
+      ])
+      // o EXISTS do legado: produto CADASTRADO dentro do período do relatório
+      .where(sql<boolean>`exists (select 1 from produtos px where px.idproduto = v.codproduto
+        and px.dtcadastro >= (${f.dtini}::timestamp at time zone ${tz})
+        and px.dtcadastro < (${ate}::timestamp at time zone ${tz}))`);
+    q = this.aplicar(q, f, emp, tz, ate);
+    const rows = (await q.groupBy(['p.idproduto', 'p.codbarra', 'p.descricao', sql`v.unidade`, sql`e.fantasia`,
+      sql`d.descricao`, sql`g.descricao`, sql`sg.descricao`])
+      .orderBy(sql`e.fantasia`).orderBy(sql`p.descricao`).limit(20001).execute()) as Record<string, unknown>[];
+    const truncado = rows.length > 20000;
+    const linhas: Record<string, unknown>[] = (truncado ? rows.slice(0, 20000) : rows).map((r) => {
+      const brutoV = r2(num(r.bruto)); const custo = r2(num(r.total_custo));
+      const ajustado = r2(brutoV + num(r.acrescimo) - num(r.desc_promocao));
+      return { ...r, qtde: num(r.qtde), total_venda: ajustado, total_custo: custo,
+        lucro: r2(ajustado - custo),
+        perc_margem: brutoV !== 0 ? r2(((brutoV - custo) / brutoV) * 100) : null,
+        rentabilidade: brutoV !== 0 ? r2(((ajustado - custo) / brutoV) * 100) : null,
+        margem: ajustado !== 0 ? r2((custo / ajustado) * 100) : null };
+    });
+    return {
+      linhas,
+      totais: {
+        linhas: linhas.length,
+        total_venda: r2(linhas.reduce((s2, l) => s2 + num(l.total_venda), 0)),
+        total_custo: r2(linhas.reduce((s2, l) => s2 + num(l.total_custo), 0)),
+      },
+      filtro: { ...f, empresa: emp, fuso: tz, truncado, max_linhas: 20000 },
+    };
+  }
+
 }

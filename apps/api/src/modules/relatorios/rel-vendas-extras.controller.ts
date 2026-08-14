@@ -88,6 +88,13 @@ export class RelVendasExtrasController {
     return this.svc.icms(dto);
   }
 
+  @Post('data-cadastro')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')
+  dataCadastro(@Body(new ZodValidationPipe(relVendasExtrasSchema)) dto: RelVendasExtrasDto) {
+    return this.svc.dataCadastro(dto);
+  }
+
   @Post('data-hora')
   @HttpCode(200)
   @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')

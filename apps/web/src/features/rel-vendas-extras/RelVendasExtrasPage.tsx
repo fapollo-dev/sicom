@@ -40,6 +40,7 @@ const MODOS = [
   { value: 'piscofins-tipo', label: 'PIS/COFINS por tipo (rel 16)' },
   { value: 'cliente-compra', label: 'Compras por cliente (rel 03)' },
   { value: 'icms', label: 'Vendas × ICMS (rel 40)' },
+  { value: 'data-cadastro', label: 'Vendas de produtos novos (rel 37)' },
 ];
 
 const COLS: Record<string, [string, string, (v: unknown) => string, boolean?][]> = {
@@ -93,6 +94,12 @@ const COLS: Record<string, [string, string, (v: unknown) => string, boolean?][]>
     ['nropedido', 'Pedido', String], ['descricao', 'Produto', String],
     ['vendedor', 'Vendedor', (v) => String(v ?? '—')],
     ['qtde', 'Qtde', q3, true], ['total_venda', 'Venda', brl, true], ['lucro', 'Lucro', brl, true],
+  ],
+  'data-cadastro': [
+    ['descricao', 'Produto', String], ['fantasia', 'Loja', (v) => String(v ?? '—')],
+    ['depto', 'Depto', (v) => String(v ?? '—')],
+    ['qtde', 'Qtde', q3, true], ['total_venda', 'Venda', brl, true],
+    ['total_custo', 'Custo c/ encargos', brl, true], ['lucro', 'Lucro', brl, true],
   ],
   'icms': [
     ['aliquota', 'Alíq.', String], ['descricao', 'Produto', String],

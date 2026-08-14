@@ -6013,6 +6013,31 @@ async function main() {
         await pgRv.query(`DELETE FROM det_aliquota WHERE aliquota IN ('T19','STB')`);
         await pgRv.query(`UPDATE empresas SET uf='MG' WHERE idempresa=1`); // restaura a UF do seed (o SPED §87 depende)
 
+        // 47aj) rel 37 — vendas de PRODUTOS NOVOS (cadastrados no MESMO período) com custo COMPOSTO.
+        // Produto novo (dtcadastro dentro) com encargos: icmst 1,00/un + frete 10% + ipi 5% sobre o custo.
+        // Produto VELHO (cadastro fora do período) vende junto e NÃO aparece.
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto, dtcadastro) VALUES
+          (992981,'7899000992981','NOVO PROD','UN',2,'T01','S',91,'2026-11-18 09:00:00-03'),
+          (992982,'7899000992982','VELHO PROD','UN',2,'T01','S',91,'2020-01-01 09:00:00-03')
+          ON CONFLICT (idproduto) DO UPDATE SET ativo='S', dtcadastro=EXCLUDED.dtcadastro`);
+        await pgRv.query(`DELETE FROM multi_preco WHERE idproduto IN (992981,992982) AND idempresa=1`);
+        await pgRv.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrcusto, ativo, icmst, frete, ipi) VALUES
+          (992981,1,100,60,'S',1,10,5)`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-18' AND dtvenda < '2026-11-19'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, aliquota, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-11-18 10:00:00-03','001','01',2600,1,992981,2,100,60,'A',5102,'T01','N','S','P'),
+          (1,'2026-11-18 11:00:00-03','001','01',2601,1,992982,1, 50,30,'A',5102,'T01','N','S','P')`);
+        const e37 = (await (await fetch(`${base}/${VE2}/data-cadastro`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-18', dtfim: '2026-11-18' }) })).json().catch(() => ({}))) as any;
+        const l37 = (e37.linhas ?? []).find((l: any) => Number(l.idproduto) === 992981);
+        check('rel 37 (produtos novos): só o produto cadastrado NO período entra (o velho vende e some) · custo COMPOSTO = 120 + icmst 2×1 + frete 10% (12) + ipi 5% (6) = 140,00 · venda 200,00',
+          (e37.linhas ?? []).length === 1 && !!l37
+          && r2ck(Number(l37.total_custo)) === 140 && r2ck(Number(l37.total_venda)) === 200,
+          { linhas: (e37.linhas ?? []).length, custo: l37?.total_custo, venda: l37?.total_venda });
+
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-18' AND dtvenda < '2026-11-19'`);
+        await pgRv.query(`DELETE FROM multi_preco WHERE idproduto IN (992981,992982) AND idempresa=1`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto IN (992981,992982)`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.
