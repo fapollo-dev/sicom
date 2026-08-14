@@ -576,4 +576,45 @@ export class RelVendasExtrasService {
     };
   }
 
+  /**
+   * rel 40 `VendasICMS` — venda por produto × alíquota com o ICMS calculado. O percentual vem de
+   * DET_ALIQUOTA pela **UF DA EMPRESA** (`DA.ALIQUOTA = A.ALIQUOTA AND DA.UF = E.UF`); as alíquotas
+   * 'STB','IST','NTB' são ZERADAS pelo CASE (substituição/isenção não geram débito na venda).
+   * VALOR_ICMS = venda líquida × percentual/100. O interno agrupa por pedido+item ⇒ colapsa.
+   */
+  async icms(f: FiltroExtras) {
+    const { emp, tz, ate, db } = await this.ctx(f);
+    const { bruto, acresc, desc } = this.forms();
+    const valorAliquota = sql`case when v.aliquota in ('STB','IST','NTB') then 0 else coalesce(da.icm_efetivo,0) end`;
+    const rows = (await this.aplicar(
+      db.selectFrom('vendas as v')
+        .leftJoin('produtos as p', 'p.idproduto', 'v.codproduto')
+        .leftJoin('empresas as e', 'e.idempresa', 'v.idempresa')
+        .leftJoin('det_aliquota as da', (j) => j.on(sql<boolean>`da.aliquota = v.aliquota and da.uf = e.uf`))
+        .select([
+          'p.idproduto', 'p.codbarra', sql`p.descricao`.as('descricao'),
+          'v.aliquota',
+          sql`${valorAliquota}`.as('valor_aliquota'),
+          sql`round(sum(coalesce(v.qtde,0))::numeric, 3)`.as('qtde'),
+          sql`round((sum(${bruto}) + sum(${acresc}) - sum(${desc}))::numeric, 2)`.as('total_venda'),
+          sql`round(((sum(${bruto}) + sum(${acresc}) - sum(${desc})) * ${valorAliquota} / 100)::numeric, 2)`.as('valor_icms'),
+        ]),
+      f, emp, tz, ate,
+    ).groupBy(['p.idproduto', 'p.codbarra', 'p.descricao', 'v.aliquota', sql`5`])
+      .orderBy('v.aliquota').orderBy(sql`p.descricao`).limit(20001).execute()) as Record<string, unknown>[];
+    const truncado = rows.length > 20000;
+    const linhas: Record<string, unknown>[] = (truncado ? rows.slice(0, 20000) : rows).map((r) => ({
+      ...r, qtde: num(r.qtde), total_venda: r2(num(r.total_venda)), valor_icms: r2(num(r.valor_icms)),
+    }));
+    return {
+      linhas,
+      totais: {
+        linhas: linhas.length,
+        total_venda: r2(linhas.reduce((s2, l) => s2 + num(l.total_venda), 0)),
+        valor_icms: r2(linhas.reduce((s2, l) => s2 + num(l.valor_icms), 0)),
+      },
+      filtro: { ...f, empresa: emp, fuso: tz, truncado, max_linhas: 20000 },
+    };
+  }
+
 }

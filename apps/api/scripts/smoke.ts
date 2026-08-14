@@ -5989,6 +5989,30 @@ async function main() {
         await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-12' AND dtvenda < '2026-11-13'`);
         await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992961`);
 
+        // 47ai) rel 40 — vendas × ICMS: percentual da DET_ALIQUOTA pela UF DA EMPRESA; STB/IST/NTB zeram.
+        await pgRv.query(`UPDATE empresas SET uf='GO' WHERE idempresa=1`);
+        await pgRv.query(`INSERT INTO det_aliquota (aliquota, uf, icm, icm_efetivo) VALUES
+          ('T19','GO',19,19), ('T19','SP',18,18), ('STB','GO',19,19) ON CONFLICT DO NOTHING`);
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto)
+          VALUES (992971,'7899000992971','ICMS PROD','UN',2,'T01','S',91) ON CONFLICT (idproduto) DO UPDATE SET ativo='S'`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-15' AND dtvenda < '2026-11-16'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, aliquota, iat, cfop, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-11-15 10:00:00-03','001','01',2500,1,992971,1,100,60,'T19','A',5102,'N','S','P'),
+          (1,'2026-11-15 11:00:00-03','001','01',2501,1,992971,1, 50,30,'STB','A',5102,'N','S','P')`);
+        const e40 = (await (await fetch(`${base}/${VE2}/icms`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-15', dtfim: '2026-11-15' }) })).json().catch(() => ({}))) as any;
+        const lT = (e40.linhas ?? []).find((l: any) => l.aliquota === 'T19');
+        const lS = (e40.linhas ?? []).find((l: any) => l.aliquota === 'STB');
+        check('rel 40 (ICMS): T19 usa o ICM_EFETIVO da UF DA EMPRESA (GO=19%, não SP=18%) → 100×19% = 19,00 · STB zera pelo CASE mesmo tendo linha na DET_ALIQUOTA → 0,00 · total ICMS 19,00',
+          r2ck(Number(lT?.valor_icms)) === 19 && r2ck(Number(lT?.valor_aliquota)) === 19
+          && r2ck(Number(lS?.valor_icms)) === 0 && r2ck(Number(lS?.valor_aliquota)) === 0
+          && r2ck(Number(e40.totais?.valor_icms)) === 19,
+          { t19: lT?.valor_icms, aliq: lT?.valor_aliquota, stb: lS?.valor_icms });
+
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-15' AND dtvenda < '2026-11-16'`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992971`);
+        await pgRv.query(`DELETE FROM det_aliquota WHERE aliquota IN ('T19','STB')`);
+        await pgRv.query(`UPDATE empresas SET uf='MG' WHERE idempresa=1`); // restaura a UF do seed (o SPED §87 depende)
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.
