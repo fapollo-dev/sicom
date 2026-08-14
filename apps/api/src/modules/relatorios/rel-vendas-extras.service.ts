@@ -979,4 +979,129 @@ export class RelVendasExtrasService {
     };
   }
 
+  /**
+   * rel 35 `VendasData` («Vendas Data Unificado — Participação dos Setores») — dia × seção/depto/grupo/
+   * subgrupo. O SQL vivo devolve ITEM-level (o GROUP BY inclui NROCUPOM e CODVENDAS) e é a GRADE que agrega;
+   * aqui agregamos direto por (dia, fantasia, seção, depto, grupo, subgrupo) — SUM é linear sobre a partição
+   * por item, então o número é o mesmo (o colapso da rel 01). A view Oracle GET_REL_VENDAS é exatamente as
+   * fórmulas do hub (T_ACRESCIMO/T_DESCONTO/T_TOTAL_VENDA-IAT/T_TOTAL_CUSTO) — inlined. CANCELADO='N' fixo.
+   * A participação (%) de cada setor no dia é a leitura da grade — calculada sobre o total do dia.
+   */
+  async participacaoSetores(f: FiltroExtras) {
+    const { emp, tz, ate, db } = await this.ctx(f);
+    const { bruto, acresc, desc } = this.forms();
+    let q = db.selectFrom('vendas as v')
+      .leftJoin('produtos as p', 'p.idproduto', 'v.codproduto')
+      .leftJoin('empresas as e', 'e.idempresa', 'v.idempresa')
+      .leftJoin('familias_prod as s', 's.codfamilia', 'p.codsecao')
+      .leftJoin('familias_prod as d', 'd.codfamilia', 'p.coddpto')
+      .leftJoin('familias_prod as g', 'g.codfamilia', 'p.codgrupo')
+      .leftJoin('familias_prod as sg', 'sg.codfamilia', 'p.codsubgrupo')
+      .select([
+        sql`to_char(v.dtvenda at time zone ${tz}, 'YYYY-MM-DD')`.as('data'),
+        sql`e.fantasia`.as('empresa'),
+        sql`s.descricao`.as('sessao'), sql`d.descricao`.as('depto'),
+        sql`g.descricao`.as('grupo'), sql`sg.descricao`.as('subgrupo'),
+        sql`round((sum(${bruto}) + sum(${acresc}) - sum(${desc}))::numeric, 2)`.as('total_venda'),
+        sql`round(sum(round((coalesce(v.qtde,0) * coalesce(v.vrcusto,0))::numeric, 2))::numeric, 2)`.as('total_custo'),
+      ])
+      .where(sql<boolean>`coalesce(v.cancelado,'N') = 'N'`);
+    q = this.aplicar(q, f, emp, tz, ate, { diasInteiros: !f.filtrarHora });
+    const rows = (await q.groupBy([sql`1`, sql`e.fantasia`, sql`s.descricao`, sql`d.descricao`, sql`g.descricao`, sql`sg.descricao`])
+      .orderBy(sql`1`).orderBy(sql`s.descricao`).orderBy(sql`d.descricao`).limit(20001).execute()) as Record<string, unknown>[];
+    const truncado = rows.length > 20000;
+    const base = truncado ? rows.slice(0, 20000) : rows;
+    const totalPorDia = new Map<string, number>();
+    for (const r of base) {
+      const k = String(r.data);
+      totalPorDia.set(k, r2((totalPorDia.get(k) ?? 0) + num(r.total_venda)));
+    }
+    const linhas: Record<string, unknown>[] = base.map((r) => {
+      const venda = r2(num(r.total_venda)); const custo = r2(num(r.total_custo));
+      const totDia = totalPorDia.get(String(r.data)) ?? 0;
+      return { ...r, total_venda: venda, total_custo: custo,
+        lucro: r2(venda - custo),
+        margem: custo !== 0 ? r2((venda / custo - 1) * 100) : null,
+        participacao_dia: totDia !== 0 ? r2((venda / totDia) * 100) : null };
+    });
+    return {
+      linhas,
+      totais: {
+        linhas: linhas.length, dias: totalPorDia.size,
+        total_venda: r2(linhas.reduce((s2, l) => s2 + num(l.total_venda), 0)),
+      },
+      filtro: { ...f, empresa: emp, fuso: tz, truncado, max_linhas: 20000 },
+    };
+  }
+
+  /**
+   * rel 50 `ImpostosProdutosVendidosPorPeriodo` — a rentabilidade FISCAL por produto: sobre os UNITÁRIOS
+   * médios do período calcula crédito/débito de ICMS e de PIS/COFINS, o custo real e a despesa operacional,
+   * chegando ao LUCRO LÍQUIDO unitário — o mesmo motor da Precificação (mig 129), visto pelas vendas.
+   *  · débito ICMS = venda_uni × (ICM_EFETIVO da UF + FCP_SAIDA)% · crédito ICMS = custo_uni × ICME%
+   *  · débito PIS/COFINS = venda_uni × (aliq_pis_sai+aliq_cofins_sai)% quando a de PIS > 0 (o CASE é no PIS
+   *    só — fiel); crédito idem com entrada sobre o custo
+   *  · VRCUSTOREAL do multi_preco; VLR_DESPOPERACIONAL = venda_uni × EMPRESAS.DESPOPERACIONAL%
+   *  · LUCRO_LIQUIDO = venda_uni − débitos − custo real − desp.operacional; % sobre a venda_uni
+   *  · situação PIS/COFINS = COALESCE(V.IDPISCOFINS, P.IDPISCOFINS); custo C/REP pela config
+   *  · a seção de COMPOSIÇÃO (kits, VENDAS.CHAVECOMPOSICAO — 452 linhas no golden) e os joins de
+   *    CLUBE_DESCONTO (vínculos = 0) ficam de fora, documentados.
+   */
+  async impostos(f: FiltroExtras) {
+    const { emp, tz, ate, db } = await this.ctx(f);
+    const { bruto, acresc, desc } = this.forms();
+    const custoRep = String((await this.config.resolver('VENDAS_FILTRO_CUSTO', { empresaId: emp })) ?? 'C').toUpperCase() === 'R';
+    const colCusto = custoRep ? sql`coalesce(v.vrcustorep,0)` : sql`coalesce(v.vrcusto,0)`;
+    let temp = db.selectFrom('vendas as v')
+      .leftJoin('produtos as p', 'p.idproduto', 'v.codproduto')
+      .select([
+        'p.idproduto', 'p.codbarra', sql`p.descricao`.as('descricao'),
+        'v.aliquota',
+        sql`coalesce(v.idpiscofins, p.idpiscofins)`.as('idpiscofins'),
+        sql`round(sum(coalesce(v.qtde,0))::numeric, 3)`.as('qtde'),
+        sql`round((sum(${bruto}) + sum(${acresc}) - sum(${desc}))::numeric, 2)`.as('total_venda'),
+        sql`round(sum(round((coalesce(v.qtde,0) * ${colCusto})::numeric, 2))::numeric, 2)`.as('total_custo'),
+      ]);
+    temp = this.aplicar(temp, f, emp, tz, ate)
+      .groupBy(['p.idproduto', 'p.codbarra', 'p.descricao', 'v.aliquota', sql`5`]);
+
+    const rows = (await db.selectFrom(temp.as('t'))
+      .leftJoin('multi_preco as m', (j) => j.on(sql<boolean>`m.idproduto = t.idproduto and m.idempresa = ${emp}`))
+      .leftJoin('empresas as e', (j) => j.on(sql<boolean>`e.idempresa = ${emp}`))
+      .leftJoin('det_aliquota as d', (j) => j.on(sql<boolean>`d.aliquota = t.aliquota and d.uf = e.uf`))
+      .leftJoin('piscofins as pc', 'pc.idpiscofins', 't.idpiscofins')
+      .select([
+        't.idproduto', 't.codbarra', 't.descricao', 't.aliquota', 't.qtde', 't.total_venda', 't.total_custo',
+        sql`round((t.total_venda / nullif(t.qtde,0))::numeric, 2)`.as('vrvenda_uni'),
+        sql`round((t.total_custo / nullif(t.qtde,0))::numeric, 2)`.as('vrcusto_uni'),
+        sql`m.icme`.as('aliq_icms_entrada'),
+        sql`round(((t.total_custo / nullif(t.qtde,0)) * coalesce(m.icme,0) / 100)::numeric, 2)`.as('credito_icms'),
+        sql`d.icm_efetivo`.as('aliq_icms_saida'),
+        sql`round(((t.total_venda / nullif(t.qtde,0)) * (coalesce(d.icm_efetivo,0) + coalesce(m.fcp_saida,0)) / 100)::numeric, 2)`.as('debito_icms'),
+        sql`case when coalesce(pc.aliq_pis_ent,0) > 0
+          then round(((coalesce(pc.aliq_pis_ent,0) + coalesce(pc.aliq_cofins_ent,0)) * (t.total_custo / nullif(t.qtde,0)) / 100)::numeric, 2)
+          else 0 end`.as('credito_pis_cofins'),
+        sql`case when coalesce(pc.aliq_pis_sai,0) > 0
+          then round(((coalesce(pc.aliq_pis_sai,0) + coalesce(pc.aliq_cofins_sai,0)) * (t.total_venda / nullif(t.qtde,0)) / 100)::numeric, 2)
+          else 0 end`.as('debito_pis_cofins'),
+        sql`m.vrcustoreal`.as('vrcustoreal'),
+        sql`round(((t.total_venda / nullif(t.qtde,0)) * coalesce(e.despoperacional,0) / 100)::numeric, 2)`.as('vlr_despoperacional'),
+      ])
+      .orderBy('t.descricao').limit(20001).execute()) as Record<string, unknown>[];
+    const truncado = rows.length > 20000;
+    const linhas: Record<string, unknown>[] = (truncado ? rows.slice(0, 20000) : rows).map((r) => {
+      const vu = num(r.vrvenda_uni);
+      const liquido = r2(vu - num(r.debito_icms) - num(r.debito_pis_cofins) - num(r.vrcustoreal) - num(r.vlr_despoperacional));
+      return { ...r, qtde: num(r.qtde),
+        lucro_liquido: liquido,
+        lucro_liquido_porcent: vu !== 0 ? r2((liquido / vu) * 100) : null };
+    });
+    return {
+      linhas,
+      totais: { linhas: linhas.length },
+      filtro: { ...f, empresa: emp, fuso: tz, custo: custoRep ? 'REPOSICAO' : 'CUSTO', truncado, max_linhas: 20000,
+        nao_portado: 'seção composição (452 linhas no golden) e joins de clube (vínculos = 0)' },
+    };
+  }
+
 }

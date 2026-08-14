@@ -46,6 +46,8 @@ const MODOS = [
   { value: 'espelho-z', label: 'Espelho da Redução Z (rel 43)' },
   { value: 'com-desconto', label: 'Vendas com desconto (rel 42)' },
   { value: 'por-promocao', label: 'Vendas por promoção (rel 49)' },
+  { value: 'participacao-setores', label: 'Participação dos setores (rel 35)' },
+  { value: 'impostos', label: 'Impostos dos produtos vendidos (rel 50)' },
 ];
 
 const COLS: Record<string, [string, string, (v: unknown) => string, boolean?][]> = {
@@ -99,6 +101,19 @@ const COLS: Record<string, [string, string, (v: unknown) => string, boolean?][]>
     ['nropedido', 'Pedido', String], ['descricao', 'Produto', String],
     ['vendedor', 'Vendedor', (v) => String(v ?? '—')],
     ['qtde', 'Qtde', q3, true], ['total_venda', 'Venda', brl, true], ['lucro', 'Lucro', brl, true],
+  ],
+  'impostos': [
+    ['descricao', 'Produto', String], ['aliquota', 'Alíq.', (v) => String(v ?? '—')],
+    ['vrvenda_uni', 'Venda unit.', brl, true], ['debito_icms', 'Déb. ICMS', brl, true],
+    ['debito_pis_cofins', 'Déb. PIS/COFINS', brl, true], ['vrcustoreal', 'Custo real', brl, true],
+    ['vlr_despoperacional', 'Desp. oper.', brl, true], ['lucro_liquido', 'Lucro líq.', brl, true],
+    ['lucro_liquido_porcent', '%', pcf, true],
+  ],
+  'participacao-setores': [
+    ['data', 'Data', dia], ['sessao', 'Seção', (v) => String(v ?? '—')],
+    ['depto', 'Depto', (v) => String(v ?? '—')], ['grupo', 'Grupo', (v) => String(v ?? '—')],
+    ['total_venda', 'Venda', brl, true], ['total_custo', 'Custo', brl, true],
+    ['lucro', 'Lucro', brl, true], ['participacao_dia', '% do dia', pcf, true],
   ],
   'por-promocao': [
     ['nome_promocao', 'Origem', String], ['descricao', 'Produto', String],

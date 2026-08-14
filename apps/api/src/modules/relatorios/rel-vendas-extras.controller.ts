@@ -130,6 +130,20 @@ export class RelVendasExtrasController {
     return this.svc.porPromocao(dto);
   }
 
+  @Post('participacao-setores')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')
+  participacaoSetores(@Body(new ZodValidationPipe(relVendasExtrasSchema)) dto: RelVendasExtrasDto) {
+    return this.svc.participacaoSetores(dto);
+  }
+
+  @Post('impostos')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')
+  impostos(@Body(new ZodValidationPipe(relVendasExtrasSchema)) dto: RelVendasExtrasDto) {
+    return this.svc.impostos(dto);
+  }
+
   @Post('data-hora')
   @HttpCode(200)
   @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')

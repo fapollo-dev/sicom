@@ -6150,6 +6150,39 @@ async function main() {
         await pgRv.query(`DELETE FROM agenda_promocao WHERE codagenda=$1`, [agIns.rows[0].codagenda]);
         await pgRv.query(`DELETE FROM produtos WHERE idproduto IN (993021,993022)`);
 
+        // 47ao) rel 35 (participação dos setores) + rel 50 (impostos/lucro líquido unitário).
+        await pgRv.query(`UPDATE empresas SET uf='GO', despoperacional=10 WHERE idempresa=1`);
+        await pgRv.query(`INSERT INTO det_aliquota (aliquota, uf, icm, icm_efetivo) VALUES ('T19','GO',19,19) ON CONFLICT DO NOTHING`);
+        await pgRv.query(`INSERT INTO piscofins (idpiscofins, descricao, aliq_pis_ent, aliq_pis_sai, aliq_cofins_ent, aliq_cofins_sai) VALUES
+          (903,'TRIB SMK2',1.65,1.65,7.6,7.6) ON CONFLICT (idpiscofins) DO NOTHING`);
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto, idpiscofins)
+          VALUES (993031,'7899000993031','IMP PROD','UN',2,'T01','S',91,903) ON CONFLICT (idproduto) DO UPDATE SET ativo='S', coddpto=91, idpiscofins=903`);
+        await pgRv.query(`DELETE FROM multi_preco WHERE idproduto=993031 AND idempresa=1`);
+        await pgRv.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrcusto, ativo, icme, fcp_saida, vrcustoreal) VALUES
+          (993031,1,100,60,'S',19,2,55)`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-29' AND dtvenda < '2026-11-30'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, aliquota, iat, cfop, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-11-29 10:00:00-03','001','01',3100,1,993031,2,100,60,'T19','A',5102,'N','S','P')`);
+        const e50 = (await (await fetch(`${base}/${VE2}/impostos`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-29', dtfim: '2026-11-29' }) })).json().catch(() => ({}))) as any;
+        const l50 = (e50.linhas ?? []).find((l: any) => Number(l.idproduto) === 993031);
+        // venda_uni 100: déb ICMS = 100×(19+2)% = 21 · déb PIS/COF = 100×9,25% = 9,25 · custo real 55 ·
+        // desp oper = 100×10% = 10 · lucro líq = 100−21−9,25−55−10 = 4,75 (4,75%)
+        const e35 = (await (await fetch(`${base}/${VE2}/participacao-setores`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-29', dtfim: '2026-11-29' }) })).json().catch(() => ({}))) as any;
+        const l35 = (e35.linhas ?? [])[0];
+        check('rel 50 (impostos): déb ICMS 21,00 (ICM_EFETIVO 19 + FCP 2 sobre a venda unit.) · déb PIS/COFINS 9,25 · crédito ICMS 11,40 (custo 60 × ICME 19%) · lucro líquido unit. = 100−21−9,25−55−10 = 4,75 (4,75%) · rel 35: 1 linha do setor com 200,00 e 100% do dia',
+          r2ck(Number(l50?.debito_icms)) === 21 && r2ck(Number(l50?.debito_pis_cofins)) === 9.25
+          && r2ck(Number(l50?.credito_icms)) === 11.4
+          && r2ck(Number(l50?.lucro_liquido)) === 4.75 && r2ck(Number(l50?.lucro_liquido_porcent)) === 4.75
+          && r2ck(Number(l35?.total_venda)) === 200 && r2ck(Number(l35?.participacao_dia)) === 100,
+          { di: l50?.debito_icms, dp: l50?.debito_pis_cofins, ci: l50?.credito_icms, ll: l50?.lucro_liquido, v35: l35?.total_venda });
+
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-29' AND dtvenda < '2026-11-30'`);
+        await pgRv.query(`DELETE FROM multi_preco WHERE idproduto=993031 AND idempresa=1`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto = 993031`);
+        await pgRv.query(`DELETE FROM piscofins WHERE idpiscofins = 903`);
+        await pgRv.query(`DELETE FROM det_aliquota WHERE aliquota = 'T19'`);
+        await pgRv.query(`UPDATE empresas SET uf='MG', despoperacional=NULL WHERE idempresa=1`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.
