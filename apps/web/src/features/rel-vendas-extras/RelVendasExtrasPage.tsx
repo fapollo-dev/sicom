@@ -41,6 +41,8 @@ const MODOS = [
   { value: 'cliente-compra', label: 'Compras por cliente (rel 03)' },
   { value: 'icms', label: 'Vendas × ICMS (rel 40)' },
   { value: 'data-cadastro', label: 'Vendas de produtos novos (rel 37)' },
+  { value: 'por-area', label: 'Vendas por área (rel 45)' },
+  { value: 'por-area-depto', label: 'Vendas × m² por departamento (rel 47)' },
 ];
 
 const COLS: Record<string, [string, string, (v: unknown) => string, boolean?][]> = {
@@ -94,6 +96,17 @@ const COLS: Record<string, [string, string, (v: unknown) => string, boolean?][]>
     ['nropedido', 'Pedido', String], ['descricao', 'Produto', String],
     ['vendedor', 'Vendedor', (v) => String(v ?? '—')],
     ['qtde', 'Qtde', q3, true], ['total_venda', 'Venda', brl, true], ['lucro', 'Lucro', brl, true],
+  ],
+  'por-area': [
+    ['descricao', 'Produto', String], ['secao', 'Seção', (v) => String(v ?? '—')],
+    ['depto', 'Depto', (v) => String(v ?? '—')],
+    ['area_depto', 'Área depto (m²)', q3, true], ['qtde', 'Qtde', q3, true],
+    ['total_venda', 'Venda', brl, true], ['venda_por_m2', 'Venda/m²', brl, true],
+  ],
+  'por-area-depto': [
+    ['descricao', 'Produto', String], ['depto', 'Depto', (v) => String(v ?? '—')],
+    ['area_depto', 'Área (m²)', q3, true], ['total_venda', 'Venda', brl, true],
+    ['perc_total_faturado', '% do faturado', pcf, true], ['venda_por_m2', 'Venda/m²', brl, true],
   ],
   'data-cadastro': [
     ['descricao', 'Produto', String], ['fantasia', 'Loja', (v) => String(v ?? '—')],

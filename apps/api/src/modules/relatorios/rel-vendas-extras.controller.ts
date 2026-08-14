@@ -95,6 +95,20 @@ export class RelVendasExtrasController {
     return this.svc.dataCadastro(dto);
   }
 
+  @Post('por-area')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')
+  porArea(@Body(new ZodValidationPipe(relVendasExtrasSchema)) dto: RelVendasExtrasDto) {
+    return this.svc.porArea(dto, false);
+  }
+
+  @Post('por-area-depto')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')
+  porAreaDepto(@Body(new ZodValidationPipe(relVendasExtrasSchema)) dto: RelVendasExtrasDto) {
+    return this.svc.porArea(dto, true);
+  }
+
   @Post('data-hora')
   @HttpCode(200)
   @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')

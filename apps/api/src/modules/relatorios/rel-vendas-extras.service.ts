@@ -685,4 +685,70 @@ export class RelVendasExtrasService {
     };
   }
 
+  /**
+   * rel 45 `VendasProdutosPorArea` e rel 47 `VendasProdutosPorAreaDepartamento` («Vendas × m²») — a venda
+   * medida contra a ÁREA física (m²) das famílias (FAMILIAS_PROD_AREA, mig 146; 1 linha no golden).
+   * ⚠️ BUG DO LEGADO COPIADO: o join da área de SUBGRUPO usa `ASG.CODFAMILIA = P.CODGRUPO` (o GRUPO de novo)
+   * nas DUAS variantes — a área de subgrupo exibida é a do grupo. E a rel 45 filtra a empresa nos joins de
+   * área; a rel 47 NÃO filtra (copiado como cada uma faz). O interno agrupa por CODVENDAS ⇒ colapsa.
+   * A rel 47 acrescenta PERC_TOTAL_FATURADO = venda da linha ÷ total da EMPRESA ×100 (o TOTALIZADORES CTE).
+   */
+  async porArea(f: FiltroExtras, comParticipacao: boolean) {
+    const { emp, tz, ate, db } = await this.ctx(f);
+    const { bruto, acresc, desc } = this.forms();
+    let q = db.selectFrom('vendas as v')
+      .leftJoin('produtos as p', 'p.idproduto', 'v.codproduto')
+      .leftJoin('familias_prod as d', 'd.codfamilia', 'p.coddpto')
+      .leftJoin('familias_prod as g', 'g.codfamilia', 'p.codgrupo')
+      .leftJoin('familias_prod as sg', 'sg.codfamilia', 'p.codsubgrupo')
+      .leftJoin('familias_prod as sc', 'sc.codfamilia', 'p.codsecao')
+      .leftJoin('familias_prod_area as ad', (j) => comParticipacao
+        ? j.on(sql<boolean>`ad.codfamilia = p.coddpto`)
+        : j.on(sql<boolean>`ad.codfamilia = p.coddpto and ad.idempresa = ${emp}`))
+      .leftJoin('familias_prod_area as ag', (j) => comParticipacao
+        ? j.on(sql<boolean>`ag.codfamilia = p.codgrupo`)
+        : j.on(sql<boolean>`ag.codfamilia = p.codgrupo and ag.idempresa = ${emp}`))
+      // ⚠️ o BUG: área de subgrupo pelo CODGRUPO — fiel às duas variantes
+      .leftJoin('familias_prod_area as asg', (j) => comParticipacao
+        ? j.on(sql<boolean>`asg.codfamilia = p.codgrupo`)
+        : j.on(sql<boolean>`asg.codfamilia = p.codgrupo and asg.idempresa = ${emp}`))
+      .leftJoin('familias_prod_area as asec', (j) => comParticipacao
+        ? j.on(sql<boolean>`asec.codfamilia = p.codsecao`)
+        : j.on(sql<boolean>`asec.codfamilia = p.codsecao and asec.idempresa = ${emp}`))
+      .select([
+        'p.idproduto', 'p.codbarra', sql`p.descricao`.as('descricao'), sql`p.unidade`.as('unidade'),
+        sql`d.descricao`.as('depto'), sql`g.descricao`.as('grupo'), sql`sg.descricao`.as('subgrupo'), sql`sc.descricao`.as('secao'),
+        sql`max(ad.area)`.as('area_depto'), sql`max(ag.area)`.as('area_grupo'),
+        sql`max(asg.area)`.as('area_subgrupo'), sql`max(asec.area)`.as('area_secao'),
+        sql`round(sum(coalesce(v.qtde,0))::numeric, 3)`.as('qtde'),
+        sql`round((sum(${bruto}) + sum(${acresc}) - sum(${desc}))::numeric, 2)`.as('total_venda'),
+        sql`round(sum(round((coalesce(v.qtde,0) * coalesce(v.vrcusto,0))::numeric, 2))::numeric, 2)`.as('total_custo'),
+      ]);
+    q = this.aplicar(q, f, emp, tz, ate);
+    const rows = (await q.groupBy(['p.idproduto', 'p.codbarra', 'p.descricao', 'p.unidade',
+      sql`d.descricao`, sql`g.descricao`, sql`sg.descricao`, sql`sc.descricao`])
+      .orderBy(sql`sc.descricao`).orderBy(sql`d.descricao`).orderBy(sql`p.descricao`)
+      .limit(20001).execute()) as Record<string, unknown>[];
+    const truncado = rows.length > 20000;
+    const base = truncado ? rows.slice(0, 20000) : rows;
+    const totalEmpresa = r2(base.reduce((s2, r) => s2 + num(r.total_venda), 0));
+    const linhas: Record<string, unknown>[] = base.map((r) => {
+      const venda = r2(num(r.total_venda)); const custo = r2(num(r.total_custo));
+      return { ...r, qtde: num(r.qtde), total_venda: venda, total_custo: custo,
+        lucro: r2(venda - custo),
+        // rel 47: participação no faturado da empresa (o TOTALIZADORES do legado)
+        ...(comParticipacao ? { perc_total_faturado: totalEmpresa !== 0 ? r2((venda / totalEmpresa) * 100) : null } : {}),
+        // venda por m² (a leitura do «Vendas × m²»): usa a área mais específica disponível
+        venda_por_m2: (() => {
+          const area = num(r.area_subgrupo) || num(r.area_grupo) || num(r.area_depto) || num(r.area_secao);
+          return area > 0 ? r2(venda / area) : null;
+        })() };
+    });
+    return {
+      linhas,
+      totais: { linhas: linhas.length, total_venda: totalEmpresa },
+      filtro: { ...f, empresa: emp, fuso: tz, truncado, max_linhas: 20000 },
+    };
+  }
+
 }

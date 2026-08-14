@@ -6038,6 +6038,30 @@ async function main() {
         await pgRv.query(`DELETE FROM multi_preco WHERE idproduto IN (992981,992982) AND idempresa=1`);
         await pgRv.query(`DELETE FROM produtos WHERE idproduto IN (992981,992982)`);
 
+        // 47ak) rel 45/47 — vendas por ÁREA (m²). Depto 91 com área 4 m²; venda 200 → 50/m²; e o BUG do
+        // legado: a "área de subgrupo" vem do CODGRUPO (join errado copiado).
+        await pgRv.query(`DELETE FROM familias_prod_area WHERE codfamilias_prod_area IN (95001,95002)`);
+        await pgRv.query(`INSERT INTO familias_prod_area (codfamilias_prod_area, idempresa, area, codfamilia, tipo) VALUES
+          (95001,1,4,91,'D'), (95002,1,7,92,'G')`);
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto, codgrupo)
+          VALUES (992991,'7899000992991','AREA PROD','UN',2,'T01','S',91,92) ON CONFLICT (idproduto) DO UPDATE SET ativo='S', coddpto=91, codgrupo=92`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-20' AND dtvenda < '2026-11-21'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, aliquota, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-11-20 10:00:00-03','001','01',2700,1,992991,2,100,60,'A',5102,'T01','N','S','P')`);
+        const e45 = (await (await fetch(`${base}/${VE2}/por-area`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-20', dtfim: '2026-11-20' }) })).json().catch(() => ({}))) as any;
+        const e47 = (await (await fetch(`${base}/${VE2}/por-area-depto`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-20', dtfim: '2026-11-20' }) })).json().catch(() => ({}))) as any;
+        const l45 = (e45.linhas ?? []).find((l: any) => Number(l.idproduto) === 992991);
+        const l47 = (e47.linhas ?? []).find((l: any) => Number(l.idproduto) === 992991);
+        check('rel 45/47 (área): área do depto 4 m² · o BUG do legado copiado — a "área de subgrupo" vem do GRUPO (7, não nula) · venda/m² usa a mais específica (grupo 7 → 200/7 = 28,57) · rel 47 traz a participação no faturado (100%)',
+          r2ck(Number(l45?.area_depto)) === 4 && r2ck(Number(l45?.area_subgrupo)) === 7
+          && r2ck(Number(l45?.venda_por_m2)) === 28.57
+          && r2ck(Number(l47?.perc_total_faturado)) === 100,
+          { ad: l45?.area_depto, asg: l45?.area_subgrupo, m2: l45?.venda_por_m2, perc: l47?.perc_total_faturado });
+
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-20' AND dtvenda < '2026-11-21'`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992991`);
+        await pgRv.query(`DELETE FROM familias_prod_area WHERE codfamilias_prod_area IN (95001,95002)`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.
