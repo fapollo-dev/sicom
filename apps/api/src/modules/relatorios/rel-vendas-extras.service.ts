@@ -452,4 +452,68 @@ export class RelVendasExtrasService {
     };
   }
 
+  /**
+   * rel 15/16 — PIS/COFINS dos produtos vendidos. As duas variantes compartilham as medidas; mudam a CHAVE e
+   * o JOIN com PISCOFINS:
+   *  · rel 15 (por produto): `JOIN PISCOFINS ON PC.IDPISCOFINS = P.IDPISCOFINS` — a situação do CADASTRO.
+   *    Tem um `LEFT JOIN MULTI_PRECO ... M.IDEMPRESA = 1` FIXO no fonte, e M não é usado no SELECT — no-op
+   *    do vício IDEMPRESA=1 (4ª ocorrência); não portado.
+   *  · rel 16 (por TIPO): `PC.IDPISCOFINS = COALESCE(V.IDPISCOFINS, P.IDPISCOFINS)` — a situação DA VENDA
+   *    tem precedência sobre a do cadastro, e o JOIN é INNER (venda sem situação NENHUMA sai do relatório).
+   * Medidas: PISCOFINS_E/S = MAX(alíquota × unitário) — o MAIOR imposto unitário do grupo, não média;
+   * TOTAL_PISCOFINS_E = Σ qtde×custo×(pis_ent+cofins_ent)/100; _S idem com venda/saída; SALDO = S − E
+   * (o quanto a venda gera de débito além do crédito da entrada). PERC_MARGEM = participação do custo.
+   */
+  async piscofins(f: FiltroExtras, porTipo: boolean) {
+    const { emp, tz, ate, db } = await this.ctx(f);
+    const { bruto, acresc, desc } = this.forms();
+    const aliqE = sql`(coalesce(pc.aliq_pis_ent,0) + coalesce(pc.aliq_cofins_ent,0))`;
+    const aliqS = sql`(coalesce(pc.aliq_pis_sai,0) + coalesce(pc.aliq_cofins_sai,0))`;
+    let q = db.selectFrom('vendas as v')
+      .$if(porTipo, (qb) => qb.innerJoin('produtos as p', 'p.idproduto', 'v.codproduto'))
+      .$if(!porTipo, (qb) => qb.leftJoin('produtos as p', 'p.idproduto', 'v.codproduto'))
+      .innerJoin('piscofins as pc', (j) => porTipo
+        ? j.on(sql<boolean>`pc.idpiscofins = coalesce(v.idpiscofins, p.idpiscofins)`)
+        : j.on(sql<boolean>`pc.idpiscofins = p.idpiscofins`))
+      .select([
+        ...(porTipo
+          ? [sql`pc.descricao`.as('chave')]
+          : [sql`p.descricao`.as('chave'), 'p.idproduto', 'p.codbarra', sql`v.unidade`.as('unidade')]),
+        sql`round(sum(coalesce(v.vrcusto,0))::numeric, 2)`.as('soma_vrcusto_uni'),
+        sql`round(sum(coalesce(v.vrvenda,0))::numeric, 2)`.as('soma_vrvenda_uni'),
+        sql`round(sum(coalesce(v.qtde,0))::numeric, 3)`.as('qtde'),
+        sql`round(sum(round((coalesce(v.qtde,0) * coalesce(v.vrcusto,0))::numeric, 2))::numeric, 2)`.as('total_custo'),
+        sql`round((sum(${bruto}) + sum(${acresc}) - sum(${desc}))::numeric, 2)`.as('total_venda'),
+        sql`round(max(round((${aliqE} * coalesce(v.vrcusto,0) / 100)::numeric, 2))::numeric, 2)`.as('piscofins_e'),
+        sql`round(max(round((${aliqS} * coalesce(v.vrvenda,0) / 100)::numeric, 2))::numeric, 2)`.as('piscofins_s'),
+        sql`round(sum(round((coalesce(v.qtde,0) * coalesce(v.vrcusto,0) * ${aliqE} / 100)::numeric, 2))::numeric, 2)`.as('total_piscofins_e'),
+        sql`round(sum(round((coalesce(v.qtde,0) * coalesce(v.vrvenda,0) * ${aliqS} / 100)::numeric, 2))::numeric, 2)`.as('total_piscofins_s'),
+        sql`round(sum(round(((coalesce(v.qtde,0) * coalesce(v.vrvenda,0) * ${aliqS} / 100)
+          - (coalesce(v.qtde,0) * coalesce(v.vrcusto,0) * ${aliqE} / 100))::numeric, 2))::numeric, 2)`.as('saldo_piscofins'),
+      ]);
+    q = this.aplicar(q, f, emp, tz, ate);
+    q = porTipo
+      ? q.groupBy([sql`pc.descricao`])
+      : q.groupBy([sql`p.descricao`, 'p.idproduto', 'p.codbarra', sql`v.unidade`]);
+    const rows = (await q.orderBy(sql`1`).limit(20001).execute()) as Record<string, unknown>[];
+    const truncado = rows.length > 20000;
+    const linhas: Record<string, unknown>[] = (truncado ? rows.slice(0, 20000) : rows).map((r) => {
+      const venda = r2(num(r.total_venda)); const custo = r2(num(r.total_custo));
+      return { ...r, total_venda: venda, total_custo: custo,
+        lucro_vr: r2(venda - custo),
+        perc_margem: venda !== 0 ? r2((custo / venda) * 100) : null };
+    });
+    return {
+      linhas,
+      totais: {
+        linhas: linhas.length,
+        total_venda: r2(linhas.reduce((s2, l) => s2 + num(l.total_venda), 0)),
+        total_piscofins_s: r2(linhas.reduce((s2, l) => s2 + num(l.total_piscofins_s), 0)),
+        total_piscofins_e: r2(linhas.reduce((s2, l) => s2 + num(l.total_piscofins_e), 0)),
+        saldo_piscofins: r2(linhas.reduce((s2, l) => s2 + num(l.saldo_piscofins), 0)),
+      },
+      filtro: { ...f, empresa: emp, fuso: tz, truncado, max_linhas: 20000 },
+    };
+  }
+
 }

@@ -60,6 +60,20 @@ export class RelVendasExtrasController {
     return this.svc.grid(dto);
   }
 
+  @Post('piscofins-produto')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')
+  piscofinsProduto(@Body(new ZodValidationPipe(relVendasExtrasSchema)) dto: RelVendasExtrasDto) {
+    return this.svc.piscofins(dto, false);
+  }
+
+  @Post('piscofins-tipo')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')
+  piscofinsTipo(@Body(new ZodValidationPipe(relVendasExtrasSchema)) dto: RelVendasExtrasDto) {
+    return this.svc.piscofins(dto, true);
+  }
+
   @Post('data-hora')
   @HttpCode(200)
   @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')

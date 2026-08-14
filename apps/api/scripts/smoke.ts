@@ -5944,6 +5944,33 @@ async function main() {
         await pgRv.query(`DELETE FROM multi_preco WHERE idproduto=992901 AND idempresa=1`);
         await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992901`);
 
+        // 47ag) rel 15/16 — PIS/COFINS dos produtos vendidos. Produto com situação do CADASTRO id 1
+        // (1,65+7,6=9,25% ent/sai) e venda com IDPISCOFINS=2 (isento 0%): a rel 15 usa a do CADASTRO;
+        // a rel 16 dá precedência à DA VENDA (o mesmo produto muda de fatia).
+        await pgRv.query(`INSERT INTO piscofins (idpiscofins, descricao, aliq_pis_ent, aliq_pis_sai, aliq_cofins_ent, aliq_cofins_sai) VALUES
+          (901,'TRIBUTADO SMK',1.65,1.65,7.6,7.6), (902,'ISENTO SMK',0,0,0,0) ON CONFLICT (idpiscofins) DO NOTHING`);
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto, idpiscofins)
+          VALUES (992951,'7899000992951','PC PROD','UN',2,'T01','S',91,901) ON CONFLICT (idproduto) DO UPDATE SET ativo='S', idpiscofins=901`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-10' AND dtvenda < '2026-11-11'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, idpiscofins, qtde, vrvenda, vrcusto, iat, cfop, aliquota, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-11-10 10:00:00-03','001','01',2300,1,992951,902, 2,100,60,'A',5102,'T01','N','S','P'),
+          (1,'2026-11-10 11:00:00-03','001','01',2301,1,992951,NULL,1,100,60,'A',5102,'T01','N','S','P')`);
+        const pc15 = (await (await fetch(`${base}/${VE2}/piscofins-produto`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-10', dtfim: '2026-11-10' }) })).json().catch(() => ({}))) as any;
+        const pc16 = (await (await fetch(`${base}/${VE2}/piscofins-tipo`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-10', dtfim: '2026-11-10' }) })).json().catch(() => ({}))) as any;
+        const l15 = (pc15.linhas ?? []).find((l: any) => Number(l.idproduto) === 992951);
+        const trib = (pc16.linhas ?? []).find((l: any) => String(l.chave).includes('TRIBUTADO'));
+        const isen = (pc16.linhas ?? []).find((l: any) => String(l.chave).includes('ISENTO'));
+        check('rel 15 (por produto, situação do CADASTRO): as 3 un. tributadas a 9,25% → débito saída 27,75, crédito entrada 16,65, saldo 11,10 · rel 16 (por TIPO, a situação DA VENDA precede): a venda com IDPISCOFINS isento muda de fatia — TRIBUTADO fica com 1 un. (9,25) e ISENTO com 2 un. (0,00)',
+          r2ck(Number(l15?.total_piscofins_s)) === 27.75 && r2ck(Number(l15?.total_piscofins_e)) === 16.65
+          && r2ck(Number(l15?.saldo_piscofins)) === 11.1
+          && r2ck(Number(trib?.total_piscofins_s)) === 9.25 && r2ck(Number(isen?.total_piscofins_s)) === 0
+          && r2ck(Number(isen?.qtde)) === 2,
+          { s15: l15?.total_piscofins_s, e15: l15?.total_piscofins_e, trib: trib?.total_piscofins_s, isenQ: isen?.qtde });
+
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-10' AND dtvenda < '2026-11-11'`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992951`);
+        await pgRv.query(`DELETE FROM piscofins WHERE idpiscofins IN (901,902)`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.
