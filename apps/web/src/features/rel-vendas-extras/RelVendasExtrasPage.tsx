@@ -33,6 +33,9 @@ const MODOS = [
   { value: 'por-departamento', label: 'Vendas por departamento — gráfico (rel 26)' },
   { value: 'por-fornecedor', label: 'Giro por fornecedor (rel 33)' },
   { value: 'data-hora', label: 'Vendas por dia e hora (rel 39)' },
+  { value: 'cliente-vendedor', label: 'Vendas por cliente e vendedor (rel 29)' },
+  { value: 'abc2', label: 'Curva ABC 2 — com preço atual (rel 31)' },
+  { value: 'grid', label: 'Grade gerencial por produto (rel 34)' },
 ];
 
 const COLS: Record<string, [string, string, (v: unknown) => string, boolean?][]> = {
@@ -57,6 +60,24 @@ const COLS: Record<string, [string, string, (v: unknown) => string, boolean?][]>
     ['dia', 'Data', dia], ['hora', 'Hora', (v) => `${v}h`],
     ['total_venda', 'Venda', brl, true], ['total_custo', 'Custo', brl, true],
     ['total_lucro', 'Lucro', brl, true], ['rentabilidade', 'Rentab.', pcf, true], ['cupons', 'Itens', String, true],
+  ],
+  'cliente-vendedor': [
+    ['data', 'Data', dia], ['hora', 'Hora', (v) => String(v ?? '—')], ['pdv', 'PDV', String],
+    ['nropedido', 'Pedido', String], ['razao', 'Cliente', (v) => String(v ?? '—')],
+    ['vendedor', 'Vendedor', String], ['operacao', 'Forma', (v) => String(v ?? '—')],
+    ['total_venda', 'Total', brl, true],
+  ],
+  'abc2': [
+    ['abc', 'ABC', (v) => String(v ?? '—')], ['descricao', 'Produto', String],
+    ['qtde', 'Qtde', q3, true], ['total_venda', 'Venda período', brl, true],
+    ['vrvenda_atual', 'Preço atual', brl, true], ['margem_atual', 'Particip. custo atual', pcf, true],
+    ['perc_acumulado', 'Acum. %', pcf, true],
+  ],
+  'grid': [
+    ['descricao', 'Produto', String], ['nomedpto', 'Depto', (v) => String(v ?? '—')],
+    ['qtde', 'Vendida', q3, true], ['total_venda', 'Venda (bruta)', brl, true],
+    ['margem_bruta', 'Particip. custo', pcf, true], ['giros', 'Giro/dia', q3, true],
+    ['saldo', 'Saldo', q3, true], ['valor_estoque', 'Valor estoque', brl, true],
   ],
 };
 

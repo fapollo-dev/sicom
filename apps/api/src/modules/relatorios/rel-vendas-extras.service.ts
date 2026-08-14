@@ -284,4 +284,172 @@ export class RelVendasExtrasService {
       filtro: { ...f, empresa: emp, fuso: tz },
     };
   }
+
+  /** rel 29 — vendas por CLIENTE e VENDEDOR: 1 linha por PEDIDO, com a forma de pagamento do caixa. */
+  async clienteVendedor(f: FiltroExtras) {
+    const { emp, tz, ate, db } = await this.ctx(f);
+    const { bruto, acresc, desc } = this.forms();
+    // OPERACAO = MIN(operacao) dos pagamentos 'C' do pedido em CX_VENDAS (a "forma" que o legado exibe)
+    const cx = db.selectFrom('cx_vendas')
+      .select(['nropedido', sql`min(operacao)`.as('operacao')])
+      .where(sql<boolean>`debito_credito = 'C'`)
+      .groupBy('nropedido');
+    const rows = (await this.aplicar(
+      db.selectFrom('vendas as v')
+        .leftJoin('parceiros as c', 'c.codparceiro', 'v.codparceiro')
+        .leftJoin('parceiros as ve', 've.codparceiro', 'v.codvendedor')
+        .leftJoin('produtos as p', 'p.idproduto', 'v.codproduto')
+        .leftJoin(cx.as('cx'), 'cx.nropedido', 'v.nropedido')
+        .select([
+          sql`cx.operacao`.as('operacao'),
+          'v.nropedido',
+          sql`coalesce(ve.razao, 'SEM VENDEDOR')`.as('vendedor'),
+          sql`v.razao`.as('razao'),
+          sql`to_char(v.dtvenda at time zone ${tz}, 'YYYY-MM-DD')`.as('data'),
+          // PDV = os 2 primeiros chars do nº do pedido (o leiaute PP AAMMDD HHMMSS de novo)
+          sql`substring(coalesce(v.nropedido,'') from 1 for 2)`.as('pdv'),
+          sql`coalesce(v.codvendedor, 0)`.as('codvendedor'),
+          sql`min(v.nrocupom)`.as('nrocupom'),
+          sql`min(to_char(v.dtvenda at time zone ${tz}, 'HH24:MI:SS'))`.as('hora'),
+          // TOTAL_VENDA da rel 29 = bruto + acréscimo − DESCONTO (o legado chama o desconto de DESC_ACRE)
+          sql`round((sum(${bruto}) + sum(${acresc}) - sum(${desc}))::numeric, 2)`.as('total_venda'),
+          sql`round(sum(${acresc})::numeric, 2)`.as('acrescimo'),
+          sql`round(sum(${desc})::numeric, 2)`.as('desc_acre'),
+        ]),
+      f, emp, tz, ate,
+    ).groupBy([sql`cx.operacao`, 'v.nropedido', sql`3`, sql`v.razao`, sql`5`, sql`6`, sql`7`])
+      .orderBy(sql`7`).orderBy(sql`5`).limit(20001).execute()) as Record<string, unknown>[];
+    const truncado = rows.length > 20000;
+    const linhas: Record<string, unknown>[] = (truncado ? rows.slice(0, 20000) : rows).map((r) => ({
+      ...r, total_venda: r2(num(r.total_venda)), acrescimo: r2(num(r.acrescimo)), desc_acre: r2(num(r.desc_acre)),
+    }));
+    return {
+      linhas,
+      totais: {
+        pedidos: linhas.length,
+        total_venda: r2(linhas.reduce((s2, l) => s2 + num(l.total_venda), 0)),
+        vendedores: new Set(linhas.map((l) => l.vendedor)).size,
+      },
+      filtro: { ...f, empresa: emp, fuso: tz, truncado, max_linhas: 20000 },
+    };
+  }
+
+  /** rel 31 — Curva ABC 2: a curva da rel 09 + o preço/custo ATUAL do multi_preco ao lado. */
+  async abc2(f: FiltroExtras) {
+    const { emp, tz, ate, db } = await this.ctx(f);
+    const { bruto, acresc, desc } = this.forms();
+    const rows = (await this.aplicar(
+      db.selectFrom('vendas as v')
+        .leftJoin('produtos as p', 'p.idproduto', 'v.codproduto')
+        .leftJoin('empresas as e', 'e.idempresa', 'v.idempresa')
+        .leftJoin('multi_preco as m', (j) => j.on(sql<boolean>`m.idproduto = v.codproduto and m.idempresa = v.idempresa`))
+        .select([
+          'p.idproduto', 'p.codbarra', sql`p.descricao`.as('descricao'),
+          sql`v.unidade`.as('unidade'), 'v.aliquota',
+          sql`e.pc_curva_abc_a`.as('pc_a'), sql`e.pc_curva_abc_b`.as('pc_b'), sql`e.pc_curva_abc_c`.as('pc_c'),
+          sql`round(sum(coalesce(v.qtde,0))::numeric, 2)`.as('qtde'),
+          sql`round((sum(${bruto}) + sum(${acresc}) - sum(${desc}))::numeric, 2)`.as('total_venda'),
+          sql`round(sum(coalesce(v.qtde,0) * coalesce(v.vrcusto,0))::numeric, 2)`.as('total_custo'),
+          // o preço/custo DE HOJE (multi_preco) e a MARGEM atual = participação do custo no preço (CASE→0)
+          sql`max(m.vrvenda)`.as('vrvenda_atual'),
+          sql`max(m.vrcusto)`.as('vrcusto_atual'),
+          sql`case when max(m.vrvenda) > 0
+            then round(((coalesce(max(m.vrcusto),0) / max(m.vrvenda)) * 100)::numeric, 2) else 0 end`.as('margem_atual'),
+        ]),
+      f, emp, tz, ate,
+    ).groupBy(['p.idproduto', 'p.codbarra', 'p.descricao', 'v.unidade', 'v.aliquota', sql`e.pc_curva_abc_a`, sql`e.pc_curva_abc_b`, sql`e.pc_curva_abc_c`])
+      .orderBy(sql`(sum(${bruto}) + sum(${acresc}) - sum(${desc})) desc`).orderBy('p.idproduto')
+      .limit(20001).execute()) as Record<string, unknown>[];
+    const truncado = rows.length > 20000;
+    const base = truncado ? rows.slice(0, 20000) : rows;
+    // a classificação do .fr3 (a mesma da rel 09: 1ª linha A, cortes cumulativos, faixa sem letra herda)
+    const totalGeral = r2(base.reduce((s2, r) => s2 + num(r.total_venda), 0));
+    let acumulado = 0; let anterior: string | null = null;
+    const linhas: Record<string, unknown>[] = base.map((r, i) => {
+      const pA = num(r.pc_a), pB = num(r.pc_a) + num(r.pc_b), pC = num(r.pc_a) + num(r.pc_b) + num(r.pc_c);
+      const perc = totalGeral !== 0 ? (num(r.total_venda) * 100) / totalGeral : null;
+      acumulado += perc ?? 0;
+      let abc: string | null; let herdado = false;
+      if (i === 0) abc = 'A';
+      else if (acumulado <= pA) abc = 'A';
+      else if (acumulado > pA && acumulado <= pB) abc = 'B';
+      else if ((acumulado > pB && acumulado <= pC) || acumulado > 100) abc = 'C';
+      else { abc = anterior; herdado = true; }
+      anterior = abc;
+      return { ...r, total_venda: r2(num(r.total_venda)), total_custo: r2(num(r.total_custo)),
+        perc: perc == null ? null : r2(perc), perc_acumulado: perc == null ? null : r2(acumulado), abc, abc_herdado: herdado };
+    });
+    return {
+      linhas,
+      totais: { linhas: linhas.length, total_venda: totalGeral },
+      filtro: { ...f, empresa: emp, fuso: tz, truncado, max_linhas: 20000 },
+    };
+  }
+
+  /** rel 34 — a GRADE gerencial por produto: giro, saldo, valor de estoque, margem. */
+  async grid(f: FiltroExtras) {
+    const { emp, tz, ate, db } = await this.ctx(f);
+    const { brutoTrunc, acresc, desc } = this.forms();
+    // FDias do legado = DaysBetween(fim, ini) com mínimo 1 (URelVendas.pas:1360-1362) — NÃO soma 1
+    const dias = Math.max(1, Math.round((new Date(`${f.dtfim}T00:00:00Z`).getTime() - new Date(`${f.dtini}T00:00:00Z`).getTime()) / 86400000));
+    const rows = (await this.aplicar(
+      db.selectFrom('vendas as v')
+        .leftJoin('produtos as p', 'p.idproduto', 'v.codproduto')
+        .leftJoin('parceiros as forn', 'forn.codparceiro', 'p.codfor')
+        .leftJoin('familias_prod as d', 'd.codfamilia', 'p.coddpto')
+        .leftJoin('multi_preco as m', (j) => j.on(sql<boolean>`m.idproduto = v.codproduto and m.idempresa = v.idempresa`))
+        .leftJoin('estoque as e', (j) => j.on(sql<boolean>`e.idproduto = v.codproduto and e.idempresa = ${emp}`))
+        .select([
+          'p.idproduto', 'p.codbarra', sql`p.descricao`.as('descricao'), sql`v.unidade`.as('unidade'),
+          'p.codfor', sql`forn.razao`.as('nomefor'), 'p.coddpto', sql`d.descricao`.as('nomedpto'),
+          sql`m.ativo`.as('ativo'), sql`m.ativo_compra`.as('ativo_compra'),
+          sql`round(avg(coalesce(v.vrcusto,0))::numeric, 4)`.as('t_total_custo'),
+          sql`round(avg(coalesce(v.vrvenda,0))::numeric, 2)`.as('vrvenda_medio'),
+          sql`round(sum(coalesce(v.qtde,0))::numeric, 3)`.as('qtde'),
+          sql`round(sum(coalesce(v.qtde,0) * coalesce(v.vrcusto,0))::numeric, 2)`.as('total_custo'),
+          // ⚠️ o TOTAL_VENDA da grade é o BRUTO TRUNCADO (sem IAT, sem descontos); o ajuste sai em DESC_ACRE
+          sql`round(sum(${brutoTrunc})::numeric, 2)`.as('total_venda'),
+          sql`round((sum(${acresc}) - sum(${desc}))::numeric, 2)`.as('desc_acre'),
+          sql`round(avg(coalesce(e.qtde,0))::numeric, 3)`.as('saldo'),
+          // ⚠️ TICKET_MEDIO da grade = COUNT(NROCUPOM) — é uma CONTAGEM DE ITENS, o nome mente
+          sql`count(v.nrocupom)`.as('ticket_medio'),
+        ]),
+      f, emp, tz, ate, { diasInteiros: !f.filtrarHora },
+    ).groupBy(['p.idproduto', 'p.codbarra', 'p.descricao', 'v.unidade', 'p.codfor', sql`forn.razao`, 'p.coddpto', sql`d.descricao`, sql`m.ativo`, sql`m.ativo_compra`])
+      .orderBy(sql`sum(${brutoTrunc}) desc`).limit(20001).execute()) as Record<string, unknown>[];
+    const truncado = rows.length > 20000;
+    const linhas: Record<string, unknown>[] = (truncado ? rows.slice(0, 20000) : rows).map((r) => {
+      const qt = num(r.qtde);
+      const venda = r2(num(r.total_venda));
+      const custo = r2(num(r.total_custo));
+      const ajuste = r2(num(r.desc_acre));
+      const saldo = num(r.saldo);
+      const giros = r2(qt / dias);
+      const custoUni = qt !== 0 ? custo / qt : num(r.t_total_custo);
+      return {
+        ...r,
+        total_venda: venda, total_custo: custo, desc_acre: ajuste, saldo,
+        vrvenda_uni: qt !== 0 ? r2(venda / qt) : null,
+        total_custo_uni: qt !== 0 ? r2(custo / qt) : null,
+        // participação do custo na venda AJUSTADA (a MARGEM_BRUTA do legado; 0 quando venda 0)
+        margem_bruta: venda + ajuste !== 0 ? r2((custo / (venda + ajuste)) * 100) : 0,
+        giros,
+        valor_estoque: r2(saldo * custoUni),
+        // a fórmula do legado: GIROS ÷ QTDE — copiada como está (o nome promete "dias de estoque")
+        dias_de_estoque: qt !== 0 ? r2(giros / qt) : 0,
+        ticket_medio: Number(r.ticket_medio ?? 0),
+      };
+    });
+    return {
+      linhas,
+      totais: {
+        linhas: linhas.length,
+        total_venda: r2(linhas.reduce((s2, l) => s2 + num(l.total_venda), 0)),
+        valor_estoque: r2(linhas.reduce((s2, l) => s2 + num(l.valor_estoque), 0)),
+        dias_periodo: dias,
+      },
+      filtro: { ...f, empresa: emp, fuso: tz, truncado, max_linhas: 20000 },
+    };
+  }
+
 }

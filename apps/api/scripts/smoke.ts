@@ -5906,6 +5906,44 @@ async function main() {
         await pgRv.query(`DELETE FROM estoque WHERE idproduto=992801 AND idempresa=1`);
         await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992801`);
 
+        // 47af) rel 29 (cliente×vendedor), rel 31 (ABC2 c/ preço atual) e rel 34 (grade gerencial).
+        // Reusa cenário simples 2026-11-05: pedido '05261105100000' com 2 itens (100 c60 + 50 c30) do
+        // vendedor 20, cliente RAZAO 'CLIENTE X', pagamento DINHEIRO em cx_vendas; estoque 20; preço atual
+        // multi_preco 12,00/6,00 (margem atual 50%). Período de 2 dias (05→07 = DaysBetween 2) p/ o giro.
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto)
+          VALUES (992901,'7899000992901','G34 PROD','UN',2,'T01','S',91) ON CONFLICT (idproduto) DO UPDATE SET ativo='S', coddpto=91`);
+        await pgRv.query(`DELETE FROM multi_preco WHERE idproduto=992901 AND idempresa=1`);
+        await pgRv.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrcusto, ativo) VALUES (992901,1,12,6,'S')`);
+        await pgRv.query(`DELETE FROM estoque WHERE idproduto=992901 AND idempresa=1`);
+        await pgRv.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES (992901,1,20)`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-05' AND dtvenda < '2026-11-08'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, codvendedor, razao, qtde, vrvenda, vrcusto, iat, cfop, aliquota, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-11-05 10:00:00-03','001','05261105100000',2200,1,992901,20,'CLIENTE X',1,100,60,'A',5102,'T01','N','S','P'),
+          (1,'2026-11-05 10:00:01-03','001','05261105100000',2200,2,992901,20,'CLIENTE X',1, 50,30,'A',5102,'T01','N','S','P')`);
+        await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2026-11-05' AND data < '2026-11-08'`);
+        await pgRv.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, debito_credito, valor, nropedido) VALUES
+          (1,'2026-11-05 10:01:00-03',5,7,'DINHEIRO','C',150,'05261105100000')`);
+        const ex2 = async (rota: string, extra: Record<string, unknown> = {}) => (await (await fetch(`${base}/${VE2}/${rota}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-05', dtfim: '2026-11-07', ...extra }) })).json().catch(() => ({}))) as any;
+        const e29 = await ex2('cliente-vendedor');
+        const ped = (e29.linhas ?? [])[0];
+        const e31 = await ex2('abc2');
+        const p31 = (e31.linhas ?? []).find((l: any) => Number(l.idproduto) === 992901);
+        const e34 = await ex2('grid');
+        const p34 = (e34.linhas ?? []).find((l: any) => Number(l.idproduto) === 992901);
+        check('rel 29: 1 linha por PEDIDO com a forma do caixa (DINHEIRO), PDV "05" dos 2 primeiros chars, vendedor ALFA, 150,00 · rel 31: ABC com preço ATUAL 12,00 e margem atual 50% (custo/preço de hoje) · rel 34: TOTAL_VENDA da grade é o BRUTO TRUNCADO (150), giro = 2 vendidas ÷ 2 dias = 1,00, valor de estoque = 20 × 45 custo médio = 900, "ticket_medio" é contagem de ITENS (2)',
+          ped?.operacao === 'DINHEIRO' && ped?.pdv === '05' && String(ped?.vendedor).includes('ALFA') && r2ck(Number(ped?.total_venda)) === 150
+          && r2ck(Number(p31?.vrvenda_atual)) === 12 && r2ck(Number(p31?.margem_atual)) === 50 && p31?.abc === 'A'
+          && r2ck(Number(p34?.total_venda)) === 150 && r2ck(Number(p34?.giros)) === 1
+          && r2ck(Number(p34?.valor_estoque)) === 900 && Number(p34?.ticket_medio) === 2
+          && Number(e34.totais?.dias_periodo) === 2,
+          { op: ped?.operacao, pdv: ped?.pdv, tot29: ped?.total_venda, atual: p31?.vrvenda_atual, marg: p31?.margem_atual, g34: p34?.giros, vest: p34?.valor_estoque, tk: p34?.ticket_medio });
+
+        await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2026-11-05' AND data < '2026-11-08'`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-05' AND dtvenda < '2026-11-08'`);
+        await pgRv.query(`DELETE FROM estoque WHERE idproduto=992901 AND idempresa=1`);
+        await pgRv.query(`DELETE FROM multi_preco WHERE idproduto=992901 AND idempresa=1`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992901`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.
