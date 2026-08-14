@@ -11,6 +11,7 @@ import { RelCanceladosPage } from '../rel-cancelados/RelCanceladosPage';
 import { RelVendasDepartamentoPage } from '../rel-vendas-departamento/RelVendasDepartamentoPage';
 import { RelFinalizadorasPage } from '../rel-finalizadoras/RelFinalizadorasPage';
 import { RelTicketMedioPage } from '../rel-ticket-medio/RelTicketMedioPage';
+import { RelVendasExtrasPage } from '../rel-vendas-extras/RelVendasExtrasPage';
 
 /**
  * HUB de relatórios de vendas (FRMRELVENDAS) — fiel ao legado: UMA tela só, com um combo de "modelo"
@@ -30,6 +31,7 @@ const MODELOS: { value: string; label: string; render: () => ReactNode }[] = [
   { value: 'formas-pgto', label: '08 · Formas de pagamento', render: () => <RelFormasPgtoPage /> },
   { value: 'curva-abc', label: '09/10/11/18 · Curva ABC / ranking por quantidade', render: () => <RelCurvaAbcPage /> },
   { value: 'sem-movimento', label: '13 · Produtos sem movimento', render: () => <RelSemMovimentoPage /> },
+  { value: 'vendas-extras', label: '21/22/26/33/39 · Complementares (ticket, promoção, depto, fornecedor, hora)', render: () => <RelVendasExtrasPage /> },
   { value: 'cancelados', label: '28/30/32 · Cancelamentos e descontos do PDV', render: () => <RelCanceladosPage /> },
   { value: 'vendas-departamento', label: '38 · Vendas por data e departamento', render: () => <RelVendasDepartamentoPage /> },
   { value: 'finalizadoras', label: 'Vendas e finalizadoras', render: () => <RelFinalizadorasPage /> },

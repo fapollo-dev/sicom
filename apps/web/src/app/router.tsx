@@ -55,6 +55,7 @@ import { RelFormasPgtoPage } from '../features/rel-formas-pgto/RelFormasPgtoPage
 import { RelVendasOperadorPage } from '../features/rel-vendas-operador/RelVendasOperadorPage';
 import { RelCaixaOpsPage } from '../features/rel-caixa-ops/RelCaixaOpsPage';
 import { RelCanceladosPage } from '../features/rel-cancelados/RelCanceladosPage';
+import { RelVendasExtrasPage } from '../features/rel-vendas-extras/RelVendasExtrasPage';
 import { CartaoPage } from '../features/cartao/CartaoPage';
 import { OperadorasPage } from '../features/cartao/OperadorasPage';
 import { TrocaPage } from '../features/troca/TrocaPage';
@@ -117,6 +118,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/vendas-operador', element: <RelVendasOperadorPage /> }, // rel 06/19/25/36/46: família operador/vendedor
       { path: '/relatorios/caixa-ops', element: <RelCaixaOpsPage /> }, // rel 04/05: sangrias/suprimentos + liberações do PDV
       { path: '/relatorios/cancelados', element: <RelCanceladosPage /> }, // rel 28/30/32: cancelamentos + descontos do PDV
+      { path: '/relatorios/vendas-extras', element: <RelVendasExtrasPage /> }, // rel 21/22/26/33/39: complementares
       { path: '/relatorios/curva-abc', element: <RelCurvaAbcPage /> }, // rel 09: classificação A/B/C por faturamento acumulado // rel 13: o que não girou // DRE de caixa por conta gerencial // 4º relatório: cupons × média por dia // 3º relatório: vendas × formas de pagamento // aprovar/cancelar a conferência do coletor // 2º relatório: giro produto × 15 dias // 1º relatório: produtos vendidos no período // precificação de mercadorias (painel custo→PMZ→preço por produto×empresa) // ajuste de preços - lote (processa a fila lote_preco → multi_preco)
       { path: '/financeiro/cartoes', element: <CartaoPage /> }, // recebíveis de cartão (consulta + cadastro; líquido/venc computados)
       { path: '/cadastro/operadoras', element: <OperadorasPage /> }, // administradora/adquirente + taxa por-empresa

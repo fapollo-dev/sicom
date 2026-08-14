@@ -5864,6 +5864,48 @@ async function main() {
         await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-10-25' AND dtvenda < '2026-10-26'`);
         await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992701`);
 
+        // 47ae) LOTE EXTRAS (rel 21/22/26/33/39). Cenário 2026-11-02, empresa 1, produto 992801 (dpto 91):
+        //   cupom 2100: 2 itens (100 c60 + 50 c30), nropedido '01261102090000' (hora 09 embutida)
+        //   cupom 2101: 1 item (30 c10) EM PROMOÇÃO, nropedido '01261102293000' (hora 29 > 23 → vira '00')
+        const VE2 = 'relatorios/vendas-extras';
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto)
+          VALUES (992801,'7899000992801','EX PROD','UN',2,'T01','S',91) ON CONFLICT (idproduto) DO UPDATE SET ativo='S', coddpto=91`);
+        await pgRv.query(`DELETE FROM estoque WHERE idproduto=992801 AND idempresa=1`);
+        await pgRv.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES (992801,1,44)`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-02' AND dtvenda < '2026-11-03'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, coddpto, qtde, vrvenda, vrcusto, promocao, iat, cfop, aliquota, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-11-02 09:00:00-03','001','01261102090000',2100,1,992801,91,1,100,60,'N','A',5102,'T01','N','S','P'),
+          (1,'2026-11-02 09:00:01-03','001','01261102090000',2100,2,992801,91,1, 50,30,'N','A',5102,'T01','N','S','P'),
+          (1,'2026-11-02 10:00:00-03','001','01261102293000',2101,1,992801,91,1, 30,10,'S','A',5102,'T01','N','S','P')`);
+
+        const veQ = async (rota: string) => (await (await fetch(`${base}/${VE2}/${rota}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-02', dtfim: '2026-11-02' }) })).json().catch(() => ({}))) as any;
+        const e21 = await veQ('ticket-produto');
+        const p21 = (e21.linhas ?? []).find((l: any) => Number(l.idproduto) === 992801);
+        const e22 = await veQ('promocao-loja');
+        const p22 = (e22.linhas ?? []).find((l: any) => Number(l.codproduto) === 992801);
+        check('rel 21 (ticket por produto): 2 cupons distintos, 180,00, soma de unitários 180/100 · rel 22 é "produtos EM PROMOÇÃO por loja" (o nome mente): só o item promo entra — 30,00',
+          Number(p21?.cupons) === 2 && r2ck(Number(p21?.total_venda)) === 180
+          && r2ck(Number(p21?.soma_vrvenda_uni)) === 180 && r2ck(Number(p21?.soma_vrcusto_uni)) === 100
+          && !!p22 && r2ck(Number(p22?.vrvenda)) === 30 && (e22.linhas ?? []).length === 1,
+          { cupons: p21?.cupons, tot: p21?.total_venda, promo: p22?.vrvenda });
+
+        const e26 = await veQ('por-departamento');
+        const e39 = await veQ('data-hora');
+        const h09 = (e39.linhas ?? []).find((l: any) => l.hora === '09');
+        const h00 = (e39.linhas ?? []).find((l: any) => l.hora === '00');
+        const e33 = await veQ('por-fornecedor');
+        const p33 = (e33.linhas ?? []).find((l: any) => String(l.descricao) === 'EX PROD');
+        check('rel 26 ("Finalizadoras" por depto — o nome mente: é o DEPARTAMENTO): 1 linha com 180,00 · rel 39: a HORA vem do NROPEDIDO (posições 9-10) — "09" com 150,00; hora 29 > 23 vira "00" com 30,00; rentabilidade da hora 09 = 40,00 (a fórmula desta variante é a CORRETA) · rel 33: giro por fornecedor com estoque atual 44 e 3 vendidas',
+          (e26.linhas ?? []).length === 1 && r2ck(Number((e26.linhas ?? [])[0]?.total_venda)) === 180
+          && r2ck(Number(h09?.total_venda)) === 150 && r2ck(Number(h00?.total_venda)) === 30
+          && r2ck(Number(h09?.lucro_b_percent)) === 40 && r2ck(Number(h09?.rentabilidade)) === 40
+          && Number(p33?.qtde_estoque) === 44 && Number(p33?.qtde_vnd) === 3,
+          { depto: (e26.linhas ?? [])[0]?.total_venda, h09: h09?.total_venda, h00: h00?.total_venda, rent: h09?.lucro_b_percent, est: p33?.qtde_estoque });
+
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-02' AND dtvenda < '2026-11-03'`);
+        await pgRv.query(`DELETE FROM estoque WHERE idproduto=992801 AND idempresa=1`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992801`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.

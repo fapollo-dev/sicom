@@ -54,6 +54,7 @@ export * from './schema/rel-formas-pgto.schema';
 export * from './schema/rel-vendas-operador.schema';
 export * from './schema/rel-caixa-ops.schema';
 export * from './schema/rel-cancelados.schema';
+export * from './schema/rel-vendas-extras.schema';
 export * from './schema/cotacao.schema';
 export * from './schema/auth.schema';
 export * from './schema/configuracao.schema';
