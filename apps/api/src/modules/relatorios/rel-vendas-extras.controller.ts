@@ -109,6 +109,13 @@ export class RelVendasExtrasController {
     return this.svc.porArea(dto, true);
   }
 
+  @Post('espelho-z')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')
+  espelhoZ(@Body(new ZodValidationPipe(relVendasExtrasSchema)) dto: RelVendasExtrasDto) {
+    return this.svc.espelhoZ(dto);
+  }
+
   @Post('data-hora')
   @HttpCode(200)
   @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')

@@ -6062,6 +6062,37 @@ async function main() {
         await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992991`);
         await pgRv.query(`DELETE FROM familias_prod_area WHERE codfamilias_prod_area IN (95001,95002)`);
 
+        // 47al) rel 43 — Espelho da Redução Z: 3 seções por dia×PDV. Pedido '77...' com 2 alíquotas
+        // (T19 100 + STB 50), 1 item CANCELADO (30, T19) e pagamento DINHEIRO no cx_vendas (dá o PDV 77).
+        await pgRv.query(`UPDATE empresas SET uf='GO' WHERE idempresa=1`);
+        await pgRv.query(`INSERT INTO det_aliquota (aliquota, uf, icm, icm_efetivo) VALUES ('T19','GO',19,19) ON CONFLICT DO NOTHING`);
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto)
+          VALUES (993001,'7899000993001','EZ PROD','UN',2,'T01','S',91) ON CONFLICT (idproduto) DO UPDATE SET ativo='S'`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-22' AND dtvenda < '2026-11-23'`);
+        await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2026-11-22' AND data < '2026-11-23'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, aliquota, iat, cfop, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-11-22 10:00:00-03','001','77261122100000',2800,1,993001,1,100,60,'T19','A',5102,'N','S','P'),
+          (1,'2026-11-22 10:01:00-03','001','77261122100000',2800,2,993001,1, 50,30,'STB','A',5102,'N','S','P'),
+          (1,'2026-11-22 10:02:00-03','001','77261122100000',2800,3,993001,1, 30,20,'T19','A',5102,'S','S','P')`);
+        await pgRv.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, debito_credito, valor, nropedido) VALUES
+          (1,'2026-11-22 10:05:00-03',77,7,'DINHEIRO','C',150,'77261122100000')`);
+        const e43 = (await (await fetch(`${base}/${VE2}/espelho-z`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-22', dtfim: '2026-11-22' }) })).json().catch(() => ({}))) as any;
+        const zT19 = (e43.linhas ?? []).find((l: any) => l.tipo === 'ICMS' && l.aliquota === 'T19');
+        const zTot = (e43.linhas ?? []).find((l: any) => l.tipo === ' TOTAL');
+        const zPag = (e43.linhas ?? []).find((l: any) => l.tipo === 'PAGAMENTO');
+        check('rel 43 (Espelho Z): T19 bruta 130 / cancelado 30 / líquida 100 / ICMS 19,00 · STB líquida 50 com ICMS 0 · TOTAL do PDV líquida 150 · seção PAGAMENTO = DINHEIRO 150 (o PDV 77 vem do CX_VENDAS) · o cancelado APARECE (o espelho não filtra)',
+          r2ck(Number(zT19?.total_venda)) === 130 && r2ck(Number(zT19?.total_cancelado)) === 30
+          && r2ck(Number(zT19?.total_venda_liquida)) === 100 && r2ck(Number(zT19?.valor_icms)) === 19
+          && r2ck(Number(zTot?.total_venda_liquida)) === 150 && String(zTot?.nropdv) === '77'
+          && zPag?.aliquota === 'DINHEIRO' && r2ck(Number(zPag?.total_venda_liquida)) === 150,
+          { t19: zT19, tot: zTot?.total_venda_liquida, pag: zPag?.total_venda_liquida });
+
+        await pgRv.query(`DELETE FROM cx_vendas WHERE idempresa=1 AND data >= '2026-11-22' AND data < '2026-11-23'`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-22' AND dtvenda < '2026-11-23'`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto = 993001`);
+        await pgRv.query(`DELETE FROM det_aliquota WHERE aliquota = 'T19'`);
+        await pgRv.query(`UPDATE empresas SET uf='MG' WHERE idempresa=1`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.

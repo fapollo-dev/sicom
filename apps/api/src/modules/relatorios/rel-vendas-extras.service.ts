@@ -751,4 +751,101 @@ export class RelVendasExtrasService {
     };
   }
 
+  /**
+   * rel 43 `EspelhoReducaoZ` — o espelho da Redução Z reconstruído das VENDAS: três seções por (dia × PDV):
+   *   'ICMS'      → por alíquota: venda bruta, cancelado, desconto, líquida e o ICMS calculado
+   *   ' TOTAL'    → o agregado do PDV no dia
+   *   'PAGAMENTO' → por OPERACAO de CX_VENDAS
+   * O PDV e a operação vêm de **CX_VENDAS via INNER JOIN por NROPEDIDO** — pedido sem pagamento SAI do
+   * espelho, e um pedido com N pagamentos multiplica os itens entre as operações (fiel: o legado agrupa por
+   * CX.OPERACAO/CX.NROPDV no nível do item). VALOR_ALIQUOTA = DET_ALIQUOTA pela UF da empresa (STB/IST/NTB
+   * ⇒ 0, como na rel 40). O cancelado NÃO é filtrado (o espelho MOSTRA o cancelado): TOTAL_CANCELADO usa a
+   * fórmula SIMPLES qtde×vrvenda (sem IAT) e a LÍQUIDA = (bruta − cancelado) + acréscimo − desconto.
+   */
+  async espelhoZ(f: FiltroExtras) {
+    const { emp, tz, ate, db } = await this.ctx(f);
+    const { bruto, acresc, desc } = this.forms();
+    const valorAliquota = sql`case when v.aliquota in ('STB','IST','NTB') then 0 else coalesce(da.icm_efetivo,0) end`;
+    // nível TEMP: (dia, pdv, alíquota, %ICMS, operação) — o espelho não filtra cancelado
+    let temp = db.selectFrom('vendas as v')
+      .innerJoin('cx_vendas as cx', 'cx.nropedido', 'v.nropedido')
+      .leftJoin('empresas as e', 'e.idempresa', 'v.idempresa')
+      .leftJoin('det_aliquota as da', (j) => j.on(sql<boolean>`da.aliquota = v.aliquota and da.uf = e.uf`))
+      .select([
+        sql`to_char(v.dtvenda at time zone ${tz}, 'YYYY-MM-DD')`.as('dia'),
+        sql`cx.nropdv`.as('nropdv'),
+        'v.aliquota',
+        sql`${valorAliquota}`.as('valor_aliquota'),
+        sql`cx.operacao`.as('operacao'),
+        sql`round(sum(coalesce(v.qtde,0))::numeric, 3)`.as('qtde'),
+        sql`round(sum(${bruto})::numeric, 2)`.as('total_venda'),
+        sql`round(sum(case when coalesce(v.cancelado,'N') = 'S'
+          then round((coalesce(v.qtde,0) * coalesce(v.vrvenda,0))::numeric, 2) else 0 end)::numeric, 2)`.as('total_cancelado'),
+        sql`round(sum(${acresc})::numeric, 2)`.as('acrescimo'),
+        sql`round(sum(${desc})::numeric, 2)`.as('desconto'),
+      ])
+      .where('v.idempresa', '=', emp);
+    if (f.filtrarHora && f.horaIni && f.horaFim) {
+      temp = temp.where('v.dtvenda', '>=', sql`(${`${f.dtini} ${f.horaIni}`}::timestamp at time zone ${tz})`)
+        .where('v.dtvenda', '<=', sql`(${`${f.dtfim} ${f.horaFim}`}::timestamp at time zone ${tz})`);
+    } else {
+      temp = temp.where('v.dtvenda', '>=', sql`(${f.dtini}::timestamp at time zone ${tz})`)
+        .where('v.dtvenda', '<', sql`(${ate}::timestamp at time zone ${tz})`);
+    }
+    temp = temp.groupBy([sql`1`, sql`cx.nropdv`, 'v.aliquota', sql`4`, sql`cx.operacao`]);
+
+    const rows = (await temp.execute()) as Record<string, unknown>[];
+    // as 3 seções, na ordem do espelho: dia → pdv → (ICMS por alíquota, TOTAL, PAGAMENTO por operação)
+    type Sec = Record<string, unknown>;
+    const porChave = new Map<string, Sec[]>();
+    for (const r of rows) {
+      const k = `${r.dia}#${r.nropdv ?? ''}`;
+      if (!porChave.has(k)) porChave.set(k, []);
+      porChave.get(k)!.push(r);
+    }
+    const linhas: Sec[] = [];
+    const liq = (r: Sec) => r2(num(r.total_venda) - num(r.total_cancelado) + num(r.acrescimo) - num(r.desconto));
+    for (const k of [...porChave.keys()].sort()) {
+      const grupo = porChave.get(k)!;
+      const [dia, nropdv] = k.split('#');
+      // ICMS por alíquota
+      const porAliq = new Map<string, Sec>();
+      for (const r of grupo) {
+        const ka = String(r.aliquota ?? '');
+        const at = porAliq.get(ka) ?? { tipo: 'ICMS', dia, nropdv, aliquota: ka, valor_aliquota: num(r.valor_aliquota), total_venda: 0, total_cancelado: 0, desconto: 0, total_venda_liquida: 0, valor_icms: 0 };
+        at.total_venda = r2(num(at.total_venda) + num(r.total_venda));
+        at.total_cancelado = r2(num(at.total_cancelado) + num(r.total_cancelado));
+        at.desconto = r2(num(at.desconto) + num(r.desconto));
+        at.total_venda_liquida = r2(num(at.total_venda_liquida) + liq(r));
+        at.valor_icms = r2(num(at.valor_icms) + r2(liq(r) * num(r.valor_aliquota) / 100));
+        porAliq.set(ka, at);
+      }
+      const aliqs = [...porAliq.values()].sort((a, b) => String(a.aliquota).localeCompare(String(b.aliquota)));
+      linhas.push(...aliqs);
+      // TOTAL do PDV no dia
+      linhas.push({
+        tipo: ' TOTAL', dia, nropdv, aliquota: '  TOTAL',
+        total_venda: r2(aliqs.reduce((s2, a) => s2 + num(a.total_venda), 0)),
+        total_cancelado: r2(aliqs.reduce((s2, a) => s2 + num(a.total_cancelado), 0)),
+        desconto: r2(aliqs.reduce((s2, a) => s2 + num(a.desconto), 0)),
+        total_venda_liquida: r2(aliqs.reduce((s2, a) => s2 + num(a.total_venda_liquida), 0)),
+        valor_icms: r2(aliqs.reduce((s2, a) => s2 + num(a.valor_icms), 0)),
+      });
+      // PAGAMENTO por operação
+      const porOp = new Map<string, number>();
+      for (const r of grupo) {
+        const ko = String(r.operacao ?? '');
+        porOp.set(ko, r2((porOp.get(ko) ?? 0) + liq(r)));
+      }
+      for (const [op, v] of [...porOp.entries()].sort()) {
+        linhas.push({ tipo: 'PAGAMENTO', dia, nropdv, aliquota: op, total_venda_liquida: v });
+      }
+    }
+    return {
+      linhas,
+      totais: { dias_pdv: porChave.size, linhas: linhas.length },
+      filtro: { ...f, empresa: emp, fuso: tz },
+    };
+  }
+
 }
