@@ -45,6 +45,7 @@ const MODOS = [
   { value: 'por-area-depto', label: 'Vendas × m² por departamento (rel 47)' },
   { value: 'espelho-z', label: 'Espelho da Redução Z (rel 43)' },
   { value: 'com-desconto', label: 'Vendas com desconto (rel 42)' },
+  { value: 'por-promocao', label: 'Vendas por promoção (rel 49)' },
 ];
 
 const COLS: Record<string, [string, string, (v: unknown) => string, boolean?][]> = {
@@ -98,6 +99,12 @@ const COLS: Record<string, [string, string, (v: unknown) => string, boolean?][]>
     ['nropedido', 'Pedido', String], ['descricao', 'Produto', String],
     ['vendedor', 'Vendedor', (v) => String(v ?? '—')],
     ['qtde', 'Qtde', q3, true], ['total_venda', 'Venda', brl, true], ['lucro', 'Lucro', brl, true],
+  ],
+  'por-promocao': [
+    ['nome_promocao', 'Origem', String], ['descricao', 'Produto', String],
+    ['qtde', 'Qtde', q3, true], ['vrvenda_medio', 'Preço médio', brl, true],
+    ['vlrpromocional', 'Vlr. promocional', brl, true], ['total_venda', 'Venda', brl, true],
+    ['desconto', 'Desconto', brl, true], ['responsavel', 'Responsável', (v) => String(v ?? '—')],
   ],
   'com-desconto': [
     ['dia', 'Data', dia], ['nrocupom', 'Cupom', String, true], ['descricao', 'Produto', String],

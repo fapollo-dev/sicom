@@ -907,4 +907,76 @@ export class RelVendasExtrasService {
     };
   }
 
+  /**
+   * rel 49 `VendasPorPromocao` — UNION de 4 seções por produto; DUAS estão vivas no tenant e duas são
+   * dormentes com prova:
+   *  · 'AGENDA DE PROMOCAO' (VIVA): vendas × AGENDA_PROMOCAO_ITENS/AGENDA_PROMOCAO (migs 080-082), com o
+   *    filtro do legado `VLRPROMOCIONAL < VRVENDA` sobre os agregados (HAVING);
+   *  · 'LIBERACAO DE DESCONTO' (VIVA): vendas com desconto de OPERADOR (médio/item < 0), com
+   *    usuário/responsável do evento em HISTORICO_PDV por NROCUPOM;
+   *  · 'PROMOCAO ACUMULATIVA' — INNER JOIN em PROMOCAO_ACUMULATIVA: 4 promoções e 35 vendas em TODA a
+   *    história ⇒ dormente, seção não portada (documentada);
+   *  · 'GESTAO DE PROMOCAO' — via os 4 vínculos IDCLUBEDESCONTO_*: 0 em toda a história ⇒ morta.
+   */
+  async porPromocao(f: FiltroExtras) {
+    const { emp, tz, ate, db } = await this.ctx(f);
+    const { bruto, acresc, desc } = this.forms();
+    const medidas = [
+      sql`round(avg(coalesce(v.vrvenda,0))::numeric, 2)`.as('vrvenda_medio'),
+      sql`round(sum(coalesce(v.qtde,0))::numeric, 3)`.as('qtde'),
+      sql`round(sum(round((coalesce(v.qtde,0) * coalesce(v.vrcusto,0))::numeric, 2))::numeric, 2)`.as('total_custo'),
+      sql`round((sum(${bruto}) + sum(${acresc}) - sum(${desc}))::numeric, 2)`.as('total_venda'),
+      sql`round(sum(${desc})::numeric, 2)`.as('desconto'),
+      sql`round(sum(${acresc})::numeric, 2)`.as('acrescimo'),
+    ];
+    // seção AGENDA DE PROMOCAO
+    let agenda = db.selectFrom('vendas as v')
+      .innerJoin('produtos as p', 'p.idproduto', 'v.codproduto')
+      .innerJoin('agenda_promocao_itens as i', 'i.idproduto', 'v.codproduto')
+      .innerJoin('agenda_promocao as a', 'a.codagenda', 'i.codagenda')
+      .select([
+        sql`'AGENDA DE PROMOCAO'`.as('nome_promocao'),
+        'p.idproduto', 'p.codbarra', sql`p.descricao`.as('descricao'),
+        sql`null`.as('usuario'), sql`null`.as('responsavel'),
+        sql`round(sum(coalesce(i.vlrpromocao,0))::numeric, 2)`.as('vlrpromocional'),
+        ...medidas,
+      ]);
+    agenda = this.aplicar(agenda, f, emp, tz, ate)
+      .groupBy(['p.idproduto', 'p.codbarra', 'p.descricao'])
+      // o WHERE externo do legado sobre os agregados
+      .having(sql<boolean>`sum(coalesce(i.vlrpromocao,0)) < avg(coalesce(v.vrvenda,0))`);
+    // seção LIBERACAO DE DESCONTO
+    let liber = db.selectFrom('vendas as v')
+      .innerJoin('produtos as p', 'p.idproduto', 'v.codproduto')
+      .leftJoin('historico_pdv as h', (j) => j.on(sql<boolean>`h.nrocupom = v.nrocupom and h.idempresa = v.idempresa`))
+      .select([
+        sql`'LIBERACAO DE DESCONTO'`.as('nome_promocao'),
+        'p.idproduto', 'p.codbarra', sql`p.descricao`.as('descricao'),
+        sql`h.usuario`.as('usuario'), sql`h.responsavel`.as('responsavel'),
+        sql`null::numeric`.as('vlrpromocional'),
+        ...medidas,
+      ])
+      .where(sql<boolean>`(coalesce(v.desc_acre_medio,0) < 0 or coalesce(v.desc_acre_item,0) < 0)`);
+    liber = this.aplicar(liber, f, emp, tz, ate)
+      .groupBy(['p.idproduto', 'p.codbarra', 'p.descricao', sql`h.usuario`, sql`h.responsavel`]);
+
+    const [rA, rL] = await Promise.all([agenda.limit(10001).execute(), liber.limit(10001).execute()]);
+    const mapear = (r: Record<string, unknown>): Record<string, unknown> => ({
+      ...r, qtde: num(r.qtde), total_venda: r2(num(r.total_venda)), total_custo: r2(num(r.total_custo)),
+      desconto: r2(num(r.desconto)),
+    });
+    const linhas = [...(rA as Record<string, unknown>[]).map(mapear), ...(rL as Record<string, unknown>[]).map(mapear)]
+      .sort((a, b) => String(a.nome_promocao).localeCompare(String(b.nome_promocao)) || String(a.descricao).localeCompare(String(b.descricao)));
+    return {
+      linhas,
+      totais: {
+        linhas: linhas.length,
+        total_venda: r2(linhas.reduce((s2, l) => s2 + num(l.total_venda), 0)),
+        // as duas seções dormentes, com a prova — a tela mostra por que não aparecem
+        secoes_dormentes: ['PROMOCAO ACUMULATIVA (35 vendas na história)', 'GESTAO DE PROMOCAO (vínculos de clube = 0)'],
+      },
+      filtro: { ...f, empresa: emp, fuso: tz, max_linhas: 10000 },
+    };
+  }
+
 }

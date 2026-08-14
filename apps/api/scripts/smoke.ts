@@ -6118,6 +6118,38 @@ async function main() {
         await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-25' AND dtvenda < '2026-11-26'`);
         await pgRv.query(`DELETE FROM produtos WHERE idproduto = 993011`);
 
+        // 47an) rel 49 — vendas por promoção: seção AGENDA (item na agenda, vlrpromocao 8 < preço 10) e
+        // seção LIBERACAO (item com desc de operador, com responsável do evento). As seções ACUMULATIVA e
+        // GESTAO são dormentes com prova (35 vendas na história / vínculos = 0).
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto) VALUES
+          (993021,'7899000993021','PR AGENDA','UN',2,'T01','S',91),
+          (993022,'7899000993022','PR LIBER','UN',2,'T01','S',91)
+          ON CONFLICT (idproduto) DO UPDATE SET ativo='S'`);
+        const agIns = await pgRv.query(`INSERT INTO agenda_promocao (idempresa, dtiniciopromocao, dtfimpromocao) VALUES
+          (1,'2026-11-27 00:00:00-03','2026-11-30 23:59:59-03') RETURNING codagenda`);
+        await pgRv.query(`INSERT INTO agenda_promocao_itens (codagenda, idproduto, vlrpromocao) VALUES ($1, 993021, 8)`, [agIns.rows[0].codagenda]);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-27' AND dtvenda < '2026-11-28'`);
+        await pgRv.query(`DELETE FROM historico_pdv WHERE idempresa=1`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, operador, qtde, vrvenda, vrcusto, desc_acre_item, iat, cfop, aliquota, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-11-27 10:00:00-03','001','01',3000,1,993021,7,2,10,6, 0,'A',5102,'T01','N','S','P'),
+          (1,'2026-11-27 11:00:00-03','001','01',3001,1,993022,7,1,50,30,-4,'A',5102,'T01','N','S','P')`);
+        await pgRv.query(`INSERT INTO historico_pdv (idhistorico, idempresa, codpdv, historico, responsavel, usuario, data, nrocupom, nropedido, tipo) VALUES
+          (95201,1,1,'DESCONTO ITEM','SUP L','CAIXA 9','2026-11-27 11:01:00-03',3001,'01','DESC_I')`);
+        const e49 = (await (await fetch(`${base}/${VE2}/por-promocao`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-27', dtfim: '2026-11-27' }) })).json().catch(() => ({}))) as any;
+        const sAg = (e49.linhas ?? []).find((l: any) => l.nome_promocao === 'AGENDA DE PROMOCAO');
+        const sLb = (e49.linhas ?? []).find((l: any) => l.nome_promocao === 'LIBERACAO DE DESCONTO');
+        check('rel 49 (por promoção): seção AGENDA traz o item da agenda (vlrpromocional 8,00 < preço médio 10,00; HAVING do legado) · seção LIBERACAO traz o desconto de operador com responsável do evento (SUP L) · as 2 seções dormentes declaradas com prova',
+          !!sAg && r2ck(Number(sAg.vlrpromocional)) === 8 && r2ck(Number(sAg.vrvenda_medio)) === 10
+          && !!sLb && sLb.responsavel === 'SUP L' && r2ck(Number(sLb.desconto)) === 4
+          && Array.isArray(e49.totais?.secoes_dormentes) && e49.totais.secoes_dormentes.length === 2,
+          { ag: sAg?.vlrpromocional, lb: sLb?.responsavel, desc: sLb?.desconto });
+
+        await pgRv.query(`DELETE FROM historico_pdv WHERE idempresa=1`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-27' AND dtvenda < '2026-11-28'`);
+        await pgRv.query(`DELETE FROM agenda_promocao_itens WHERE codagenda=$1`, [agIns.rows[0].codagenda]);
+        await pgRv.query(`DELETE FROM agenda_promocao WHERE codagenda=$1`, [agIns.rows[0].codagenda]);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto IN (993021,993022)`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.

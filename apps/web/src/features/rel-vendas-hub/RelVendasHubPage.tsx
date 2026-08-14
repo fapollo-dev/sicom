@@ -31,7 +31,7 @@ const MODELOS: { value: string; label: string; render: () => ReactNode }[] = [
   { value: 'formas-pgto', label: '08 · Formas de pagamento', render: () => <RelFormasPgtoPage /> },
   { value: 'curva-abc', label: '09/10/11/18 · Curva ABC / ranking por quantidade', render: () => <RelCurvaAbcPage /> },
   { value: 'sem-movimento', label: '13 · Produtos sem movimento', render: () => <RelSemMovimentoPage /> },
-  { value: 'vendas-extras', label: '03/15/16/21/22/26/29/31/33/34/37/39/40/42/43/45/47 · Complementares (cliente, fiscais, ICMS, grade…)', render: () => <RelVendasExtrasPage /> },
+  { value: 'vendas-extras', label: '03/15/16/21/22/26/29/31/33/34/37/39/40/42/43/45/47/49 · Complementares (cliente, fiscais, ICMS, grade…)', render: () => <RelVendasExtrasPage /> },
   { value: 'cancelados', label: '28/30/32 · Cancelamentos e descontos do PDV', render: () => <RelCanceladosPage /> },
   { value: 'vendas-departamento', label: '38 · Vendas por data e departamento', render: () => <RelVendasDepartamentoPage /> },
   { value: 'finalizadoras', label: 'Vendas e finalizadoras', render: () => <RelFinalizadorasPage /> },
