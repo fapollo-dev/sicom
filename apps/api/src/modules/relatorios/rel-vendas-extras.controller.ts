@@ -116,6 +116,13 @@ export class RelVendasExtrasController {
     return this.svc.espelhoZ(dto);
   }
 
+  @Post('com-desconto')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')
+  comDesconto(@Body(new ZodValidationPipe(relVendasExtrasSchema)) dto: RelVendasExtrasDto) {
+    return this.svc.comDesconto(dto);
+  }
+
   @Post('data-hora')
   @HttpCode(200)
   @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')

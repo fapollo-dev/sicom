@@ -44,6 +44,7 @@ const MODOS = [
   { value: 'por-area', label: 'Vendas por área (rel 45)' },
   { value: 'por-area-depto', label: 'Vendas × m² por departamento (rel 47)' },
   { value: 'espelho-z', label: 'Espelho da Redução Z (rel 43)' },
+  { value: 'com-desconto', label: 'Vendas com desconto (rel 42)' },
 ];
 
 const COLS: Record<string, [string, string, (v: unknown) => string, boolean?][]> = {
@@ -97,6 +98,12 @@ const COLS: Record<string, [string, string, (v: unknown) => string, boolean?][]>
     ['nropedido', 'Pedido', String], ['descricao', 'Produto', String],
     ['vendedor', 'Vendedor', (v) => String(v ?? '—')],
     ['qtde', 'Qtde', q3, true], ['total_venda', 'Venda', brl, true], ['lucro', 'Lucro', brl, true],
+  ],
+  'com-desconto': [
+    ['dia', 'Data', dia], ['nrocupom', 'Cupom', String, true], ['descricao', 'Produto', String],
+    ['qtde', 'Qtde', q3, true], ['bruto', 'Bruto', brl, true], ['desc_total', 'Desconto', brl, true],
+    ['desc_scanntech', 'Scanntech', brl, true], ['desc_departamento', 'Depto', brl, true],
+    ['resp_desc_medio', 'Resp. médio', (v) => String(v ?? '—')], ['resp_desc_item', 'Resp. item', (v) => String(v ?? '—')],
   ],
   'espelho-z': [
     ['dia', 'Data', dia], ['nropdv', 'PDV', (v) => String(v ?? '—')],

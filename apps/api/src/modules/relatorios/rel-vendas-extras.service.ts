@@ -848,4 +848,63 @@ export class RelVendasExtrasService {
     };
   }
 
+  /**
+   * rel 42 `VendasComDesconto` — a listagem POR ITEM de tudo que saiu com desconto, decomposto por origem,
+   * com o RESPONSÁVEL de cada tipo. Elegibilidade: DESC_TOTAL > 0 (promoção + departamento + operador).
+   *  · DESC_SCANNTECH = DESC_PROMOCAO quando IDPROMOCAO não é nulo (mig 147; 10.996 vivas) e
+   *    DESC_ACUMULATIVO idem via IDPROACUMULATIVA — que é 35 linhas na história (quase morto, mas o CASE fica);
+   *  · DESCLIBAMBEV, DESC_ACRE_OPERADOR, DESC_FUNC e os 4 vínculos de CLUBE_DESCONTO são 0 em TODA a
+   *    história ⇒ literais 0, sem os joins (cópia-fiel-negativa provada);
+   *  · o RESPONSÁVEL usa o TIPO do evento em HISTORICO_PDV: desconto MÉDIO procura o último evento
+   *    'DESC_V'/'DESC_C' do pedido; desconto de ITEM procura 'DESC_I' — fallback: o operador do caixa.
+   */
+  async comDesconto(f: FiltroExtras) {
+    const { emp, tz, ate, db } = await this.ctx(f);
+    const descTotal = sql`coalesce(v.desc_promocao,0) + coalesce(v.desc_departamento,0)
+      + abs(least(coalesce(v.desc_acre_medio,0),0)) + abs(least(coalesce(v.desc_acre_item,0),0))`;
+    const respTipo = (tipos: string) => sql.raw(`(select h.responsavel from historico_pdv h
+      where h.nropedido = v.nropedido and h.idempresa = v.idempresa
+        and h.idhistorico in (select max(h2.idhistorico) from historico_pdv h2
+          where h2.nropedido = h.nropedido and h2.idempresa = h.idempresa and h2.tipo in (${tipos})))`);
+    let q = db.selectFrom('vendas as v')
+      .leftJoin('produtos as p', 'p.idproduto', 'v.codproduto')
+      .leftJoin('operadores as o', 'o.codoperador', 'v.operador')
+      .select([
+        'p.idproduto', 'p.codbarra', sql`p.descricao`.as('descricao'),
+        sql`to_char(v.dtvenda at time zone ${tz}, 'YYYY-MM-DD')`.as('dia'),
+        'v.nrocupom',
+        sql`round(coalesce(v.qtde,0)::numeric, 3)`.as('qtde'),
+        sql`round((case when coalesce(v.iat,'') = 'A'
+          then round((coalesce(v.qtde,0) * coalesce(v.vrvenda,0))::numeric, 2)
+          else trunc((coalesce(v.qtde,0) * coalesce(v.vrvenda,0))::numeric * 100) / 100 end)::numeric, 2)`.as('bruto'),
+        sql`round((${descTotal})::numeric, 2)`.as('desc_total'),
+        sql`round((case when v.idpromocao is not null then coalesce(v.desc_promocao,0) else 0 end)::numeric, 2)`.as('desc_scanntech'),
+        sql`round(coalesce(v.desc_departamento,0)::numeric, 2)`.as('desc_departamento'),
+        sql`round(abs(least(coalesce(v.desc_acre_medio,0),0))::numeric, 2)`.as('desc_acre_medio'),
+        sql`round(abs(least(coalesce(v.desc_acre_item,0),0))::numeric, 2)`.as('desc_acre_item'),
+        sql`case when coalesce(v.desc_acre_medio,0) <> 0
+          then coalesce(${respTipo("'DESC_V','DESC_C'")}, o.nome) end`.as('resp_desc_medio'),
+        sql`case when coalesce(v.desc_acre_item,0) <> 0
+          then coalesce(${respTipo("'DESC_I'")}, o.nome) end`.as('resp_desc_item'),
+      ])
+      .where(sql<boolean>`(${descTotal}) > 0`);
+    q = this.aplicar(q, f, emp, tz, ate);
+    const rows = (await q.orderBy(sql`p.descricao`).limit(20001).execute()) as Record<string, unknown>[];
+    const truncado = rows.length > 20000;
+    const linhas: Record<string, unknown>[] = (truncado ? rows.slice(0, 20000) : rows).map((r) => ({
+      ...r, qtde: num(r.qtde), bruto: r2(num(r.bruto)), desc_total: r2(num(r.desc_total)),
+      total_venda: r2(num(r.bruto) - num(r.desc_total)),
+      // mortos em toda a história — literais 0 (cópia-fiel-negativa)
+      desclibambev: 0, desc_func: 0, desc_acre_operador: 0, desc_acumulativo: 0,
+    }));
+    return {
+      linhas,
+      totais: {
+        linhas: linhas.length,
+        desc_total: r2(linhas.reduce((s2, l) => s2 + num(l.desc_total), 0)),
+      },
+      filtro: { ...f, empresa: emp, fuso: tz, truncado, max_linhas: 20000 },
+    };
+  }
+
 }

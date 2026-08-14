@@ -6093,6 +6093,31 @@ async function main() {
         await pgRv.query(`DELETE FROM det_aliquota WHERE aliquota = 'T19'`);
         await pgRv.query(`UPDATE empresas SET uf='MG' WHERE idempresa=1`);
 
+        // 47am) rel 42 — vendas com desconto: item com desc de OPERADOR médio (evento DESC_V → resp SUP M),
+        // item com desconto Scanntech (idpromocao) e item SEM desconto (fora).
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto)
+          VALUES (993011,'7899000993011','DC PROD','UN',2,'T01','S',91) ON CONFLICT (idproduto) DO UPDATE SET ativo='S'`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-25' AND dtvenda < '2026-11-26'`);
+        await pgRv.query(`DELETE FROM historico_pdv WHERE idempresa=1`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, operador, idpromocao, qtde, vrvenda, vrcusto, desc_acre_medio, desc_promocao, iat, cfop, aliquota, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-11-25 10:00:00-03','001','01',2900,1,993011,7,NULL,1,100,60,-8,0,'A',5102,'T01','N','S','P'),
+          (1,'2026-11-25 11:00:00-03','001','02',2901,1,993011,7,555, 1, 80,40, 0,5,'A',5102,'T01','N','S','P'),
+          (1,'2026-11-25 12:00:00-03','001','03',2902,1,993011,7,NULL,1, 50,25, 0,0,'A',5102,'T01','N','S','P')`);
+        await pgRv.query(`INSERT INTO historico_pdv (idhistorico, idempresa, codpdv, historico, responsavel, usuario, data, nrocupom, nropedido, tipo) VALUES
+          (95101,1,1,'DESCONTO VENDA','SUP M','CAIXA 1','2026-11-25 10:01:00-03',2900,'01','DESC_V')`);
+        const e42 = (await (await fetch(`${base}/${VE2}/com-desconto`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-25', dtfim: '2026-11-25' }) })).json().catch(() => ({}))) as any;
+        const dMed = (e42.linhas ?? []).find((l: any) => Number(l.nrocupom) === 2900);
+        const dScn = (e42.linhas ?? []).find((l: any) => Number(l.nrocupom) === 2901);
+        check('rel 42 (com desconto): só itens com desconto entram (2 de 3) · o médio de 8,00 atribui ao SUP M via evento DESC_V · o item com IDPROMOCAO deriva DESC_SCANNTECH = 5,00 · buckets mortos saem 0 literal',
+          (e42.linhas ?? []).length === 2
+          && r2ck(Number(dMed?.desc_acre_medio)) === 8 && dMed?.resp_desc_medio === 'SUP M'
+          && r2ck(Number(dScn?.desc_scanntech)) === 5 && Number(dScn?.desclibambev) === 0,
+          { linhas: (e42.linhas ?? []).length, med: dMed?.desc_acre_medio, resp: dMed?.resp_desc_medio, scn: dScn?.desc_scanntech });
+
+        await pgRv.query(`DELETE FROM historico_pdv WHERE idempresa=1`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-25' AND dtvenda < '2026-11-26'`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto = 993011`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.
