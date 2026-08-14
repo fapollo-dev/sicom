@@ -38,6 +38,7 @@ const MODOS = [
   { value: 'grid', label: 'Grade gerencial por produto (rel 34)' },
   { value: 'piscofins-produto', label: 'PIS/COFINS por produto (rel 15)' },
   { value: 'piscofins-tipo', label: 'PIS/COFINS por tipo (rel 16)' },
+  { value: 'cliente-compra', label: 'Compras por cliente (rel 03)' },
 ];
 
 const COLS: Record<string, [string, string, (v: unknown) => string, boolean?][]> = {
@@ -85,6 +86,12 @@ const COLS: Record<string, [string, string, (v: unknown) => string, boolean?][]>
     ['chave', 'Produto', String], ['qtde', 'Qtde', q3, true],
     ['total_venda', 'Venda', brl, true], ['total_piscofins_s', 'PIS/COFINS saída', brl, true],
     ['total_piscofins_e', 'PIS/COFINS entrada', brl, true], ['saldo_piscofins', 'Saldo', brl, true],
+  ],
+  'cliente-compra': [
+    ['razao', 'Cliente', (v) => String(v ?? '—')], ['data', 'Data', dia],
+    ['nropedido', 'Pedido', String], ['descricao', 'Produto', String],
+    ['vendedor', 'Vendedor', (v) => String(v ?? '—')],
+    ['qtde', 'Qtde', q3, true], ['total_venda', 'Venda', brl, true], ['lucro', 'Lucro', brl, true],
   ],
   'piscofins-tipo': [
     ['chave', 'Tipo PIS/COFINS', String], ['qtde', 'Qtde', q3, true],

@@ -74,6 +74,13 @@ export class RelVendasExtrasController {
     return this.svc.piscofins(dto, true);
   }
 
+  @Post('cliente-compra')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')
+  clienteCompra(@Body(new ZodValidationPipe(relVendasExtrasSchema)) dto: RelVendasExtrasDto) {
+    return this.svc.clienteCompra(dto);
+  }
+
   @Post('data-hora')
   @HttpCode(200)
   @RequerAcesso('FRMRELVENDAS', 'FRMRELVENDAS')

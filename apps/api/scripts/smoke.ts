@@ -5971,6 +5971,24 @@ async function main() {
         await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992951`);
         await pgRv.query(`DELETE FROM piscofins WHERE idpiscofins IN (901,902)`);
 
+        // 47ah) rel 03 — compras por cliente: 1 linha por produto×pedido×cliente; a "DESC_ACRE" desta
+        // variante é desconto+acréscimo SOMADOS; vendedor via OPERADORES habilitado.
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto)
+          VALUES (992961,'7899000992961','CL PROD','UN',2,'T01','S',91) ON CONFLICT (idproduto) DO UPDATE SET ativo='S'`);
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-12' AND dtvenda < '2026-11-13'`);
+        await pgRv.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nropedido, nrocupom, nroitem, codproduto, codvendedor, razao, qtde, vrvenda, vrcusto, desc_acre_medio, desc_acre_item, iat, cfop, aliquota, cancelado, venda_nfc, statusnfe) VALUES
+          (1,'2026-11-12 10:00:00-03','001','01',2400,1,992961,7,'CLIENTE Y',1,100,60,-5, 2,'A',5102,'T01','N','S','P')`);
+        const e03 = (await (await fetch(`${base}/${VE2}/cliente-compra`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-12', dtfim: '2026-11-12' }) })).json().catch(() => ({}))) as any;
+        const l03 = (e03.linhas ?? [])[0];
+        check('rel 03 (compras por cliente): venda líquida 97,00 (100 − 5 medio + 2 item) · a coluna DESC_ACRE desta variante é desconto+acréscimo SOMADOS (7,00, não o saldo −3) · vendedor = OPERADOR habilitado (SMOKE) · comissão literal 0 (morta no golden)',
+          r2ck(Number(l03?.total_venda)) === 97 && r2ck(Number(l03?.desc_acre)) === 7
+          && String(l03?.vendedor ?? '').includes('SMOKE') && Number(l03?.comissao) === 0
+          && l03?.razao === 'CLIENTE Y',
+          { venda: l03?.total_venda, da: l03?.desc_acre, vend: l03?.vendedor });
+
+        await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-11-12' AND dtvenda < '2026-11-13'`);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto = 992961`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.

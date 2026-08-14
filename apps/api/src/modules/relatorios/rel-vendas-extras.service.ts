@@ -516,4 +516,64 @@ export class RelVendasExtrasService {
     };
   }
 
+  /**
+   * rel 03 `VendasClienteCompra` — o que cada CLIENTE comprou: 1 linha por produto × pedido × cliente.
+   * O interno agrupa por CODVENDAS (a PK) ⇒ colapsa (prova da rel 01). Peculiaridades:
+   *  · a coluna `DESC_ACRE` desta variante é DESC_PROMOCAO **+** ACRESCIMO (a soma dos dois ajustes, não o
+   *    desconto — o SUM(DESC_ACRE) verdadeiro está COMENTADO no fonte);
+   *  · o nome do vendedor vem de OPERADORES via um derived (MAX(CODOPERADOR) por parceiro, DESABILITADO='N')
+   *    casado com V.CODVENDEDOR — colapsado aqui no join direto equivalente;
+   *  · `V.COMISSAO` está no SELECT/GROUP do legado e é **0 em toda a história do tenant** (mig 141) — sai
+   *    como literal 0;
+   *  · «Exibir produtos filhos» suportado (o mesmo COALESCE das rel 01/46).
+   */
+  async clienteCompra(f: FiltroExtras & { exibirFilhos?: boolean }) {
+    const { emp, tz, ate, db } = await this.ctx(f);
+    const { bruto, acresc, desc } = this.forms();
+    const chaveProduto = f.exibirFilhos ? sql`coalesce(v.idproduto_filho, v.codproduto)` : sql`v.codproduto`;
+    const rows = (await this.aplicar(
+      db.selectFrom('vendas as v')
+        .leftJoin('produtos as p', (j) => j.on(sql<boolean>`p.idproduto = ${chaveProduto}`))
+        .leftJoin('familias_prod as d', 'd.codfamilia', 'p.coddpto')
+        .leftJoin('parceiros as c', 'c.codparceiro', 'v.codparceiro')
+        .leftJoin('operadores as op', (j) => j.on(sql<boolean>`op.codoperador = v.codvendedor and coalesce(op.desabilitado,'N') = 'N'`))
+        .select([
+          'p.idproduto', 'p.codbarra', sql`p.descricao`.as('descricao'), sql`p.unidade`.as('unidade'),
+          sql`d.descricao`.as('depto'),
+          'v.nropedido', 'v.nrocupom', sql`v.razao`.as('razao'), 'v.promocao', 'v.aliquota',
+          sql`to_char(v.dtvenda at time zone ${tz}, 'YYYY-MM-DD')`.as('data'),
+          sql`op.nome`.as('vendedor'),
+          sql`round(sum(coalesce(v.qtde,0))::numeric, 3)`.as('qtde'),
+          sql`round((sum(${bruto}) + sum(${acresc}) - sum(${desc}))::numeric, 2)`.as('total_venda'),
+          sql`round(sum(round((coalesce(v.qtde,0) * coalesce(v.vrcusto,0))::numeric, 2))::numeric, 2)`.as('total_custo'),
+          // a "DESC_ACRE" da rel 03 = desconto + acréscimo SOMADOS (o verdadeiro está comentado no fonte)
+          sql`round((sum(${desc}) + sum(${acresc}))::numeric, 2)`.as('desc_acre'),
+          sql`round(sum(${acresc})::numeric, 2)`.as('acrescimo'),
+          sql`round(sum(${desc})::numeric, 2)`.as('desc_promocao'),
+        ]),
+      f, emp, tz, ate,
+    ).groupBy(['p.idproduto', 'p.codbarra', 'p.descricao', 'p.unidade', sql`d.descricao`,
+      'v.nropedido', 'v.nrocupom', sql`v.razao`, 'v.promocao', 'v.aliquota', sql`11`, sql`op.nome`])
+      .orderBy(sql`v.razao`).orderBy(sql`11`).orderBy('v.nropedido').orderBy(sql`p.descricao`)
+      .limit(20001).execute()) as Record<string, unknown>[];
+    const truncado = rows.length > 20000;
+    const linhas: Record<string, unknown>[] = (truncado ? rows.slice(0, 20000) : rows).map((r) => {
+      const venda = r2(num(r.total_venda)); const custo = r2(num(r.total_custo));
+      return { ...r, total_venda: venda, total_custo: custo, qtde: num(r.qtde),
+        lucro: r2(venda - custo),
+        rentabilidade: venda !== 0 ? r2(((venda - custo) / venda) * 100) : null,
+        margem: venda !== 0 ? r2((custo / venda) * 100) : null,
+        comissao: 0 };
+    });
+    return {
+      linhas,
+      totais: {
+        linhas: linhas.length,
+        clientes: new Set(linhas.map((l) => l.razao)).size,
+        total_venda: r2(linhas.reduce((s2, l) => s2 + num(l.total_venda), 0)),
+      },
+      filtro: { ...f, empresa: emp, fuso: tz, truncado, max_linhas: 20000 },
+    };
+  }
+
 }
