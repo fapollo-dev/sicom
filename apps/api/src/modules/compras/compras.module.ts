@@ -18,6 +18,8 @@ import { ConferenciaNotaService } from './conferencia-nota.service';
 import { ManifestoDfeController } from './manifesto-dfe.controller';
 import { ManifestoDfeService } from './manifesto-dfe.service';
 import { SefazDfeService } from './sefaz-dfe.service';
+import { PendenciaOperadorController } from './pendencia-operador.controller';
+import { PendenciaOperadorService } from './pendencia-operador.service';
 import { ConfigService } from '../cadastro/config.service';
 import { ConferenciaNotaController } from './conferencia-nota.controller';
 import { CadastroModule } from '../cadastro/cadastro.module';
@@ -46,7 +48,8 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     CotacaoController, // COTAÇÃO DE COMPRA (RFQ) corte-1: estrutura + preços (árvore vertical)
     ConferenciaNotaController, // CONFERÊNCIA DE NOTA corte-1: aprovar/cancelar o que o coletor conferiu
     ManifestoDfeController,
+    PendenciaOperadorController,
   ],
-  providers: [PedidoCompraService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, ManifestoDfeService, SefazDfeService, ConfigService, DatabaseProvider],
+  providers: [PedidoCompraService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, ManifestoDfeService, SefazDfeService, PendenciaOperadorService, ConfigService, DatabaseProvider],
 })
 export class ComprasModule {}

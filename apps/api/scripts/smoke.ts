@@ -6266,6 +6266,28 @@ async function main() {
         await pgRv.query(`DELETE FROM nf WHERE codnf=$1`, [nfMan.rows[0].codnf]);
         await pgRv.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad IN (97011,97012)`);
 
+        // 47as) PENDÊNCIAS DO OPERADOR (FRMPENDENCIASOPERADOR) — a fila de trabalho: criar (APN vinculada
+        // a uma NF resolve o FORNECEDOR), finalizar exige existir e recusa refinalizar, reabrir volta a A.
+        const PO = 'compras/pendencias';
+        const nfPo = await pgRv.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop)
+          VALUES (1,2,'970099',55,'1','E','S','N','2026-12-03','2026-12-03',1102) RETURNING codnf`);
+        const poCriar = (await (await fetch(`${base}/${PO}/criar`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 7, tipo: 'APN', complemento: String(nfPo.rows[0].codnf), observacao: 'divergencia de custo' }) })).json().catch(() => ({}))) as any;
+        const poL = (await (await fetch(`${base}/${PO}/listar`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 7, status: 'A' }) })).json().catch(() => ({}))) as any;
+        const lPo = (poL.linhas ?? []).find((l: any) => Number(l.po_id) === Number(poCriar.po_id));
+        const poFim = await fetch(`${base}/${PO}/status`, { method: 'POST', headers: H, body: JSON.stringify({ po_id: poCriar.po_id, finalizar: true, observacao: 'resolvido' }) });
+        const poFim2 = await fetch(`${base}/${PO}/status`, { method: 'POST', headers: H, body: JSON.stringify({ po_id: poCriar.po_id, finalizar: true }) });
+        const poReab = await fetch(`${base}/${PO}/status`, { method: 'POST', headers: H, body: JSON.stringify({ po_id: poCriar.po_id, finalizar: false }) });
+        const poRb = await fetch(`${base}/${PO}/listar`, { method: 'POST', headers: H_SEM_ACESSO, body: '{}' });
+        check('PENDÊNCIAS: criar APN vinculada à NF resolve o FORNECEDOR (COBRADOR DOIS) e rotula "Análise de pedido x Nota fiscal" · finalizar OK · REfinalizar → 422 · reabrir OK · sem grant → 403 · origem gravada (operador logado)',
+          !!poCriar.po_id && !!lPo && String(lPo.fornecedor ?? '').includes('COBRADOR')
+          && lPo.tipo_str === 'Análise de pedido x Nota fiscal' && lPo.status_str === 'Aberta'
+          && String(lPo.nome_origem ?? '').length > 0
+          && poFim.status === 200 && poFim2.status === 422 && poReab.status === 200 && poRb.status === 403,
+          { id: poCriar.po_id, forn: lPo?.fornecedor, tipo: lPo?.tipo_str, fim: poFim.status, refim: poFim2.status, reab: poReab.status, rb: poRb.status });
+
+        await pgRv.query(`DELETE FROM pendencia_operador WHERE po_id=$1`, [poCriar.po_id]);
+        await pgRv.query(`DELETE FROM nf WHERE codnf=$1`, [nfPo.rows[0].codnf]);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.
