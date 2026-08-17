@@ -75,6 +75,30 @@ export function ManifestoDfePage() {
     } catch (e) { mensagem.erro(e); }
   };
 
+  const sincronizar = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const r = await post<{ lotes: number; resumos: number; completas: number; eventos: number }>('/compras/manifesto-dfe/sincronizar', {});
+      mensagem.sucesso(`SEFAZ consultada: ${r.resumos} resumos, ${r.completas} notas completas, ${r.eventos} eventos.`);
+      void consultar();
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+
+  const manifestar = async (l: Linha, evento: string) => {
+    let justificativa: string | undefined;
+    if (evento === 'OPERACAO_NAO_REALIZADA') {
+      const j = window.prompt('Justificativa da operação não realizada (obrigatória, mín. 15 caracteres):');
+      if (!j?.trim()) return;
+      justificativa = j.trim();
+    }
+    try {
+      const r = await post<{ protocolo: string | null }>('/compras/manifesto-dfe/manifestar', { chave: l.chavenfe, evento, justificativa });
+      mensagem.sucesso(`Manifestação registrada na SEFAZ${r.protocolo ? ` — protocolo ${r.protocolo}` : ''}.`);
+      void consultar();
+    } catch (e) { mensagem.erro(e); }
+  };
+
   const baixarXml = async (chave: string) => {
     try {
       const r = await req<{ xml: string }>(`/compras/manifesto-dfe/xml/${chave}`);
@@ -109,10 +133,11 @@ export function ManifestoDfePage() {
           Só &pendentes
         </label>
         <Button label="&Buscar notas" variant="soft" disabled={busy} onClick={() => void consultar()} />
+        <Button label="&Sincronizar SEFAZ" variant="soft" disabled={busy} onClick={() => void sincronizar()} />
         <small className="w-full text-fg-muted">
           As notas emitidas contra a empresa, captadas da SEFAZ. <b>Vermelho</b> = cancelada pelo emitente.
-          A manifestação (ciência/confirmação) à SEFAZ chega no próximo corte — aqui você acompanha, ignora
-          com motivo e baixa o XML para importar.
+          «Sincronizar SEFAZ» busca as notas novas e «ciência/confirmar» registram a manifestação — exigem o
+          certificado A1 configurado (a tela orienta se faltar).
         </small>
       </div>
 
@@ -157,6 +182,8 @@ export function ManifestoDfePage() {
                   <button className="underline" onClick={() => void verEventos(String(l.chavenfe))}>eventos</button>
                   {l.tem_xml === true && <>{' · '}<button className="underline" onClick={() => void baixarXml(String(l.chavenfe))}>xml</button></>}
                   {l.importada !== 'S' && <>{' · '}<button className="underline" onClick={() => void ignorar(l)}>{l.ignorada === 'S' ? 'reverter' : 'ignorar'}</button></>}
+                  {!Number(l.ciencia) && !Number(l.confirmacao) && <>{' · '}<button className="underline" onClick={() => void manifestar(l, 'CIENCIA')}>ciência</button></>}
+                  {!Number(l.confirmacao) && <>{' · '}<button className="underline" onClick={() => void manifestar(l, 'CONFIRMACAO')}>confirmar</button></>}
                 </td>
               </tr>
             ))}

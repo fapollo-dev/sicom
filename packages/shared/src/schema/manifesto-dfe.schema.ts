@@ -18,3 +18,11 @@ export const manifestoIgnorarSchema = z.object({
   reverter: z.boolean().optional(),
 });
 export type ManifestoIgnorarDto = z.infer<typeof manifestoIgnorarSchema>;
+
+export const manifestarSchema = z.object({
+  chave: z.string().min(44).max(50),
+  evento: z.enum(['CIENCIA', 'CONFIRMACAO', 'DESCONHECIMENTO', 'OPERACAO_NAO_REALIZADA']),
+  /** obrigatória só na operação não realizada (o serviço valida) */
+  justificativa: z.string().max(255).optional(),
+});
+export type ManifestarDto = z.infer<typeof manifestarSchema>;

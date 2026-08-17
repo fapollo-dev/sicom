@@ -6232,6 +6232,16 @@ async function main() {
         await pgRv.query(`DELETE FROM nfe_xml WHERE chavenfe LIKE '5299%'`);
         await pgRv.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad BETWEEN 97001 AND 97010`);
 
+        // 47aq) MANIFESTO corte 2 — SEFAZ. Sem certificado configurado o serviço EXPLICA o que falta
+        // (não falha mudo); manifestar sem justificativa na op. não realizada → 422.
+        const mdSinc = await fetch(`${base}/compras/manifesto-dfe/sincronizar`, { method: 'POST', headers: H, body: '{}' });
+        const mdSincJ = (await mdSinc.json().catch(() => ({}))) as any;
+        const mdMan = await fetch(`${base}/compras/manifesto-dfe/manifestar`, { method: 'POST', headers: H, body: JSON.stringify({ chave: '52991201000000000001550010000010001000010001', evento: 'OPERACAO_NAO_REALIZADA' }) });
+        check('MANIFESTO corte-2 (SEFAZ): sincronizar sem certificado → 422 CERTIFICADO_NAO_CONFIGURADO com a instrução de configuração · op. não realizada sem justificativa → 422 (a validação vem antes do certificado)',
+          mdSinc.status === 422 && String(mdSincJ.code ?? mdSincJ.message ?? JSON.stringify(mdSincJ)).includes('CERTIFICADO')
+          && mdMan.status === 422,
+          { sinc: mdSinc.status, code: mdSincJ.code ?? mdSincJ.message, man: mdMan.status });
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.
