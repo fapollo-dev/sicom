@@ -129,6 +129,7 @@ export interface FiltroPrevia {
 export interface FiltroPrevPeriodo extends Omit<FiltroPrevia, 'periodizacao' | 'somenteComGiro'> {
   unidade?: 'DIAS' | 'SEMANAS' | 'MESES' | 'ANOS';
   quantidade?: number;
+  modelo?: 'SINTETICO' | 'ANALITICO'; // rdgModelo — ANALITICO só vale c/ MESES/ANOS (Dias/Semanas força Sintético)
 }
 
 interface Celula { qtde: number; vrcusto: number; vrvenda: number; vrcustorep: number; qtde_ent?: number; vrcusto_ent?: number }
@@ -177,9 +178,10 @@ function mediaDeCelulas(celulas: (Celula | null)[], campo: keyof Celula): number
  *     empresa única — o caso real do tenant — as duas formas coincidem.
  *  3) `dataAnalise` é parametrizável (default HOJE = fiel a `FDataAnalise := DateOf(Now())`), ver o schema.
  *
- * ADIADO: `tpPorPeriodo` ("Habilita Período" — é a OUTRA geração do cálculo, `MontaSqlPorPeriodo` +
- * `qryPeriodoDias*` guardadas no .dfm do data module, com faixa livre e quantidade de períodos) · `tvPedidos` (o `Get` do legado gera SQL idêntico ao de Vendas; a diferença
- * real vive em `MontaSqlPorPeriodo`/`qryPeriodoDiasPedidos`) · o modelo "analítico" (`fdMesesAnalitico`).
+ * ENTREGUE DEPOIS DO CORTE-1: `tpPorPeriodo` ("Habilita Período") em `porPeriodo()` e o modelo ANALÍTICO
+ * (`fdMesesAnalitico` — uma linha por produto×mês/ano, `modelo:'ANALITICO'` + unidade MESES/ANOS).
+ * ADIADO: `tvPedidos` (a diferença real vive em `qryPeriodoDiasPedidos`/`fdAnaliticoPedidos`, e a tabela
+ * PEDIDOS não está migrada) · a variante Entradas-e-Saídas do período (`qryPeriodoDiasES`/`fdAnaliticoES`).
  */
 @Injectable()
 export class PreviaFornecedorService {
@@ -457,6 +459,10 @@ export class PreviaFornecedorService {
   /**
    * "Habilita Período" (`tpPorPeriodo`) — a 2ª geração do cálculo (`MontaSqlPorPeriodo` + `qryPeriodoDias`):
    * UMA faixa livre (unidade × quantidade) e UMA linha de totais por produto, em vez da matriz de slots.
+   * Com `modelo:'ANALITICO'` (rdgModelo=1, só MESES/ANOS): `fdMesesAnalitico` — a mesma união ganha
+   * `extract(month|year …)` no SELECT/GROUP BY e sai uma linha por (produto, mês/ano), ORDER BY descrição, mês.
+   * A grade do legado COLAPSA para 1 linha/produto (AtualizaListagemAnalitico soma QTD; custo/valor da 1ª linha)
+   * e o FR3 imprime o detalhe mensal — aqui devolvemos o DETALHE (o colapso é apresentação, deriva no front).
    *
    * FIEL: mesma união `vendas` ∪ NF-saída (CFOP dos 8), `SUM(qtde)` + `AVG(custo/venda/custorep)`, o join com
    * PRODUTOS/ESTOQUE **DENTRO** do agregado — logo este modo lista **só quem teve movimento** (na matriz de slots
@@ -467,6 +473,16 @@ export class PreviaFornecedorService {
    * ou seja soma o saldo do produto UMA VEZ POR LINHA DE MOVIMENTO, devolvendo `saldo × nº de linhas`. Um item com
    * 45 em estoque e 100 movimentos exibiria 4.500. Além de errado, `produtos.qtde` não existe no schema novo (o
    * saldo vive em `estoque`, por empresa). Aqui o estoque sai de `estoque` na empresa do escopo, uma vez.
+   *
+   * DIVERGÊNCIA DELIBERADA (2) — auditoria do corte analítico: no `fdMesesAnalitico` o legado agrupa/ordena pela
+   * DESCRIÇÃO DA LINHA de movimento (`V.DESCRICAO`/`NP.DESCRICAO`), não pela do cadastro — produto renomeado no
+   * meio da faixa (ou NF com descrição própria) sai em MAIS de uma linha por (produto, mês). `vendas`/`nf_prod`
+   * não têm descrição no schema novo (não migrada) → aqui é sempre `p.descricao`, 1 linha por (produto, mês).
+   *
+   * DIVERGÊNCIA DELIBERADA (3) — auditoria: o filtro ATIVO (multi_preco) é MORTO no caminho "Habilita Período"
+   * do legado — `MontaSqlPorPeriodo` recebe o `pJoin` do GetFiltroIdxAtivo e NUNCA o injeta (as queries nem têm
+   * o marcador substituído), embora o combo fique habilitado na tela. Aqui o filtro FUNCIONA nos dois modelos
+   * (upgrade consciente: o operador que seleciona "Ativo p/ compra = S" espera o filtro aplicado, não ignorado).
    */
   async porPeriodo(f: FiltroPrevPeriodo): Promise<{
     linhas: Record<string, unknown>[]; totais: Record<string, number | null>; filtro: Record<string, unknown>;
@@ -489,6 +505,16 @@ export class PreviaFornecedorService {
     const fimExcl = addDias(fimIncl, 1);
     const diasCobertos = Math.round((Date.parse(`${fimExcl}T00:00:00Z`) - Date.parse(`${ini}T00:00:00Z`)) / 86400000);
 
+    // MODELO (rdgModelo): ANALÍTICO = fdMesesAnalitico — a MESMA união com `/*campo*/ = extract(month|year …)`
+    // no SELECT/GROUP BY, uma linha por (produto, mês/ano). Só existe p/ MESES/ANOS: em Dias/Semanas o legado
+    // FORÇA Sintético (cbPeriodoChange: rdgModelo.ItemIndex:=0 + Enabled:=False) — downgrade silencioso aqui,
+    // refletido no `filtro.modelo` da resposta. Fuso: dtvenda é timestamptz → extract no fuso do negócio;
+    // dtcontabil é date → extract direto (o legado extrai de DTCONTABIL puro).
+    const analitico = f.modelo === 'ANALITICO' && (unidade === 'MESES' || unidade === 'ANOS');
+    const campoData = unidade === 'ANOS' ? sql.raw('year') : sql.raw('month');
+    const mesVendas = analitico ? sql`extract(${campoData} from v.dtvenda at time zone ${tz})::int` : sql`0`;
+    const mesNf = analitico ? sql`extract(${campoData} from n.dtcontabil)::int` : sql`0`;
+
     const CFOP_SAIDA = [5102, 6102, 5402, 6402, 5403, 6403, 5405, 6405];
     const qtdeNf = sql`coalesce(np.quantidade * (case when (np.fatorembal is null or np.fatorembal = 0) then 1 else np.fatorembal end), 0)`;
 
@@ -497,6 +523,7 @@ export class PreviaFornecedorService {
         sql`v.codproduto`.as('codproduto'), sql`coalesce(v.qtde,0)`.as('qtde'),
         sql`coalesce(v.vrcusto,0)`.as('vrcusto'), sql`coalesce(v.vrvenda,0)`.as('vrvenda'),
         sql`coalesce(v.vrcustorep,0)`.as('vrcustorep'),
+        mesVendas.as('mes'),
       ])
       .where(sql`coalesce(v.cancelado,'N')`, '=', 'N')
       .where('v.idempresa', 'in', empresas)
@@ -511,6 +538,7 @@ export class PreviaFornecedorService {
         sql`coalesce(np.vl_custo,0)`.as('vrcusto'),
         sql`coalesce(case when coalesce(np.vrvenda,0) = 0 then np.vrcusto else np.vrvenda end, 0)`.as('vrvenda'),
         sql`coalesce(np.vrcustorep,0)`.as('vrcustorep'),
+        mesNf.as('mes'),
       ])
       .where(sql`coalesce(n.cancelada,'N')`, '=', 'N')
       .where(sql`n.proc`, '=', 'S').where(sql`n.tipo`, '=', 'S')
@@ -530,6 +558,7 @@ export class PreviaFornecedorService {
       .select([
         'p.idproduto', 'p.codbarra', sql`p.descricao`.as('descricao'), 'p.unidade', 'p.fatorcx', 'p.codfor',
         sql`pa.fantasia`.as('fornecedor'),
+        sql`mov.mes`.as('mes'), // 0 no sintético (grupo único); mês/ano no analítico
         sql`sum(mov.qtde)`.as('qtde'),
         sql`avg(mov.vrcusto)`.as('vrcusto'),
         sql`avg(mov.vrvenda)`.as('vrvenda'),
@@ -539,7 +568,7 @@ export class PreviaFornecedorService {
         sql`to_char(max(e.dtent) at time zone ${tz},'YYYY-MM-DD')`.as('dtultent'),
         sql`max(e.qtde_ent)`.as('qtdeultent'),
       ])
-      .groupBy(['p.idproduto', 'p.codbarra', 'p.descricao', 'p.unidade', 'p.fatorcx', 'p.codfor', 'pa.fantasia']);
+      .groupBy(['p.idproduto', 'p.codbarra', 'p.descricao', 'p.unidade', 'p.fatorcx', 'p.codfor', 'pa.fantasia', sql`mov.mes`]);
 
     // filtros de valor ÚNICO, iguais aos da matriz (MontaFiltroSQL é compartilhado pelos dois caminhos)
     if (f.codfor != null) q = q.where('pa.codparceiro', '=', Number(f.codfor));
@@ -559,32 +588,43 @@ export class PreviaFornecedorService {
     if (f.ativo != null) q = q.where('m.idproduto', 'is not', null);
 
     const MAX_LINHAS = 20000;
-    const brutas = (await q.orderBy(sql`p.descricao`).limit(MAX_LINHAS + 1).execute()) as Record<string, unknown>[];
+    // ordem fiel: ORDER BY DESCRICAO (sintético) / DESCRICAO, mes (analítico — fdMesesAnalitico)
+    const brutas = (await q.orderBy(sql`p.descricao`).orderBy(sql`mov.mes`).limit(MAX_LINHAS + 1).execute()) as Record<string, unknown>[];
     const truncado = brutas.length > MAX_LINHAS;
     const linhas = (truncado ? brutas.slice(0, MAX_LINHAS) : brutas).map((r) => {
       const qt = r3(num(r.qtde));
       return {
         ...r,
+        mes: analitico ? Number(r.mes) : undefined, // só o analítico expõe a dimensão
         qtde: qt,
         vrcusto: r4(num(r.vrcusto)), vrvenda: r4(num(r.vrvenda)),
         vrcustorep: r.vrcustorep == null ? null : r4(num(r.vrcustorep)),
         estoque: r3(num(r.estoque)), est_minimo: r3(num(r.est_minimo)), est_maximo: r3(num(r.est_maximo)),
         dtultent: r.dtultent ?? null,
         qtdeultent: r.qtdeultent == null ? null : r3(num(r.qtdeultent)),
-        media_dia: r3(qt / diasCobertos),
-        caixas_giro: num(r.fatorcx) > 1 ? r3(qt / num(r.fatorcx)) : null,
+        // média/dia e caixas são medidas da FAIXA INTEIRA — numa linha mensal enganariam; só no sintético
+        media_dia: analitico ? null : r3(qt / diasCobertos),
+        caixas_giro: !analitico && num(r.fatorcx) > 1 ? r3(qt / num(r.fatorcx)) : null,
       };
     });
+    // totais: no analítico o MESMO produto tem N linhas (uma por mês) — produtos/estoque contam por produto
+    // DISTINTO (somar estoque por linha repetiria o saldo N×, o bug de sum(estoque) que já evitamos no legado).
+    const porProduto = new Map<number, { estoque: number; semEnt: boolean }>();
+    for (const l of linhas) {
+      const id = Number((l as Record<string, unknown>).idproduto);
+      if (!porProduto.has(id)) porProduto.set(id, { estoque: num(l.estoque), semEnt: l.dtultent == null });
+    }
     const totais = {
-      produtos: linhas.length,
+      produtos: porProduto.size,
       total_qtde: r3(linhas.reduce((s, l) => s + num(l.qtde), 0)),
-      estoque: r3(linhas.reduce((s, l) => s + num(l.estoque), 0)),
-      sem_ultima_entrada: linhas.filter((l) => l.dtultent == null).length,
+      estoque: r3(Array.from(porProduto.values()).reduce((s, v) => s + v.estoque, 0)),
+      sem_ultima_entrada: Array.from(porProduto.values()).filter((v) => v.semEnt).length,
     };
     return {
       linhas, totais,
       filtro: {
         ...f, empresas, dataAnalise: ancora, unidade, quantidade,
+        modelo: analitico ? 'ANALITICO' : 'SINTETICO', // efetivo (Dias/Semanas força Sintético, como cbPeriodoChange)
         de: ini, ate: fimIncl, dias_cobertos: diasCobertos, truncado, max_linhas: MAX_LINHAS,
         // este modo lista SÓ quem teve movimento (join dentro do agregado) — a tela avisa, p/ não parecer filtro sumido
         somente_com_movimento: true,

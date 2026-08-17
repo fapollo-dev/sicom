@@ -5037,6 +5037,28 @@ async function main() {
           && Number(pM.filtro?.dias_cobertos) === 92 && Number(pl(pM)?.media_dia) === 0.261,
           { prods: pM.totais?.produtos, l700: pl(pM), m701: pl(pM, 990701)?.qtde, d701: pl(pD, 990701)?.qtde });
 
+        // 47n.12) modelo ANALÍTICO (fdMesesAnalitico) — a MESMA união com extract(month|year) no GROUP BY:
+        // uma linha por produto×mês/ano, ORDER BY descrição, mês. Com MESES-3 (01/06..31/08): 990700 tem tudo em
+        // agosto → 1 linha (mes 8, 24); 990701 abre em DUAS — julho (111, a venda-borda de 31/07 22:00) e agosto
+        // (4 + 222 = 226). Totais por produto DISTINTO (2 produtos; somar estoque por linha repetiria o saldo).
+        // média/dia e caixas são da FAIXA inteira → null na linha mensal. Em ANOS-1 tudo cai em 2026 (337).
+        // Em DIAS o modelo é IGNORADO (downgrade fiel a cbPeriodoChange, que desabilita e zera o rádio).
+        const pAnM = await per({ unidade: 'MESES', quantidade: 3, modelo: 'ANALITICO' });
+        const pAnA = await per({ unidade: 'ANOS', quantidade: 1, modelo: 'ANALITICO' });
+        const pAnD = await per({ unidade: 'DIAS', quantidade: 15, modelo: 'ANALITICO' });
+        const an701 = ((pAnM.linhas ?? []) as any[]).filter((l) => Number(l.idproduto) === 990701);
+        check('PRÉVIA-FORN modelo ANALÍTICO: MESES-3 → 990700 1 linha (mes 8, qtde 24) e 990701 em DUAS (jul 111 · ago 226, em ordem) · méd/dia null na linha mensal · totais por produto DISTINTO (2) · ANOS-1 → linha única 2026 (337) · DIAS ignora o modelo (downgrade fiel)',
+          pAnM.filtro?.modelo === 'ANALITICO'
+          && ((pAnM.linhas ?? []) as any[]).filter((l) => Number(l.idproduto) === 990700).length === 1
+          && Number(pl(pAnM)?.mes) === 8 && Number(pl(pAnM)?.qtde) === 24 && pl(pAnM)?.media_dia == null
+          && pl(pAnM)?.caixas_giro == null // 990700 tem fatorcx=12>1 — no analítico caixas é null (medida da faixa)
+          && an701.length === 2 && Number(an701[0]?.mes) === 7 && Number(an701[0]?.qtde) === 111
+          && Number(an701[1]?.mes) === 8 && Number(an701[1]?.qtde) === 226
+          && Number(pAnM.totais?.produtos) === 2 && Number(pAnM.totais?.total_qtde) === 361
+          && Number(pl(pAnA, 990701)?.mes) === 2026 && Number(pl(pAnA, 990701)?.qtde) === 337
+          && pAnD.filtro?.modelo === 'SINTETICO' && pl(pAnD)?.mes == null && Number(pl(pAnD, 990701)?.qtde) === 115,
+          { mod: pAnM.filtro?.modelo, l700: pl(pAnM), an701, ano701: pl(pAnA, 990701), dias: [pAnD.filtro?.modelo, pl(pAnD, 990701)?.qtde] });
+
         await pgRv.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2,$3,$4,$5)`, [nfS.rows[0].codnf, nfE.rows[0].codnf, nfN.rows[0].codnf, nfC.rows[0].codnf, nfX.rows[0].codnf]);
         await pgRv.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3)`, [nfN.rows[0].codnf, nfC.rows[0].codnf, nfX.rows[0].codnf]);
         await pgRv.query(`DELETE FROM nf WHERE codnf IN ($1,$2)`, [nfS.rows[0].codnf, nfE.rows[0].codnf]);

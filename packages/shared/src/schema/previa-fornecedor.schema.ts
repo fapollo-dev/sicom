@@ -49,5 +49,12 @@ export const previaPeriodoSchema = previaFornecedorSchema
   .extend({
     unidade: z.enum(['DIAS', 'SEMANAS', 'MESES', 'ANOS']).optional(), // cbPeriodo (default 'Dias' no .dfm)
     quantidade: z.coerce.number().int().min(1).max(120).optional(),   // edtQtdPeriodo
+    /**
+     * rdgModelo (Sintético/Analítico). O ANALÍTICO abre a faixa por MÊS ou ANO (fdMesesAnalitico: a mesma união
+     * com `extract(month|year …)` no SELECT e no GROUP BY) — uma linha por (produto, mês/ano). Só vale com
+     * unidade MESES/ANOS: em Dias/Semanas o legado FORÇA Sintético (cbPeriodoChange desabilita e zera o rádio),
+     * e aqui o service faz o mesmo downgrade silencioso (o `filtro.modelo` da resposta diz o efetivo).
+     */
+    modelo: z.enum(['SINTETICO', 'ANALITICO']).optional(),
   });
 export type PreviaPeriodoDto = z.infer<typeof previaPeriodoSchema>;

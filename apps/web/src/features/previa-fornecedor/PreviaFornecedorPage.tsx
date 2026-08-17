@@ -37,12 +37,13 @@ interface Linha {
 interface Periodo { slot: number; rotulo: string; ini: string; fimIncl: string; dia?: string }
 interface Totais { produtos: number; com_giro: number; sem_giro: number; total_qtde: number; total_qtde_entrada: number | null; recebeu_sem_vender: number | null; estoque: number; sem_ultima_entrada: number }
 interface Filtro { truncado?: boolean; max_linhas?: number; dataAnalise?: string; periodizacao?: string; de?: string; ate?: string; dias_cobertos?: number; somente_com_movimento?: boolean; unidade?: string; quantidade?: number }
-/** linha do modo "Habilita Período": uma faixa só, sem matriz de slots. */
+/** linha do modo "Habilita Período": uma faixa só, sem matriz de slots. No ANALÍTICO vem 1 linha por produto×mês/ano. */
 interface LinhaPeriodo {
   idproduto: number; codbarra?: string; descricao?: string; unidade?: string; fatorcx?: number; fornecedor?: string;
+  mes?: number; // só no modelo ANALÍTICO (nº do mês 1-12 ou o ano, conforme a unidade)
   qtde: number; vrcusto: number; vrvenda: number; vrcustorep: number | null;
   estoque: number; est_minimo: number; est_maximo: number; dtultent: string | null; qtdeultent: number | null;
-  media_dia: number; caixas_giro: number | null;
+  media_dia: number | null; caixas_giro: number | null;
 }
 
 /**
@@ -61,6 +62,7 @@ export function PreviaFornecedorPage() {
   const [somenteComGiro, setSomenteComGiro] = useState(false);
   const [unidade, setUnidade] = useState('DIAS');
   const [quantidade, setQuantidade] = useState('15');
+  const [modelo, setModelo] = useState('SINTETICO');
   const [porPeriodo, setPorPeriodo] = useState<LinhaPeriodo[] | null>(null);
   const [periodos, setPeriodos] = useState<Periodo[]>([]);
   const [linhas, setLinhas] = useState<Linha[]>([]);
@@ -81,7 +83,7 @@ export function PreviaFornecedorPage() {
         // "Habilita Período": faixa livre, uma linha por produto, só quem teve movimento
         const r = await req<{ linhas: LinhaPeriodo[]; totais: Totais; filtro: Filtro }>(
           '/relatorios/previa-fornecedor/periodo',
-          { ...comum, unidade, quantidade: Number(quantidade) || 1 },
+          { ...comum, unidade, quantidade: Number(quantidade) || 1, modelo },
         );
         setPorPeriodo(r.linhas); setLinhas([]); setPeriodos([]); setTotais(r.totais); setFiltro(r.filtro);
         if (!r.linhas.length) mensagem.sucesso('Nenhum produto com movimento na faixa.');
@@ -133,11 +135,20 @@ export function PreviaFornecedorPage() {
         ]} /></div>
         {periodizacao === 'PERIODO' && (
           <>
-            <div className="w-36"><SelectField label="&Unidade" value={unidade} onChange={setUnidade} options={[
+            <div className="w-36"><SelectField label="&Unidade" value={unidade} onChange={(v) => {
+              setUnidade(v);
+              // fiel a cbPeriodoChange: Dias/Semanas força Sintético (o rádio Modelo desabilita e volta a 0)
+              if (v === 'DIAS' || v === 'SEMANAS') setModelo('SINTETICO');
+            }} options={[
               { value: 'DIAS', label: 'Dias' }, { value: 'SEMANAS', label: 'Semanas' },
               { value: 'MESES', label: 'Meses' }, { value: 'ANOS', label: 'Anos' },
             ]} /></div>
             <div className="w-28"><Field label="&Qtde" type="number" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} /></div>
+            {(unidade === 'MESES' || unidade === 'ANOS') && (
+              <div className="w-36"><SelectField label="&Modelo" value={modelo} onChange={setModelo} options={[
+                { value: 'SINTETICO', label: 'Sintético' }, { value: 'ANALITICO', label: 'Analítico' },
+              ]} /></div>
+            )}
           </>
         )}
         <div className="w-52"><SelectField label="&Visualizar" value={visualizar} onChange={setVisualizar} options={[{ value: 'VENDAS', label: 'Vendas' }, { value: 'ENTRADAS_SAIDAS', label: 'Entradas e saídas' }]} /></div>
@@ -193,11 +204,17 @@ export function PreviaFornecedorPage() {
         </div>
       )}
 
-      {porPeriodo && (
+      {porPeriodo && (() => {
+        // modelo ANALÍTICO (fdMesesAnalitico): 1 linha por produto×mês/ano — ganha a coluna da dimensão
+        const analitico = (filtro as any)?.modelo === 'ANALITICO';
+        const rotuloMes = (filtro as any)?.unidade === 'ANOS' ? 'Ano' : 'Mês';
+        return (
         <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
           <table className="w-full text-body-sm">
             <thead><tr className="text-left text-fg-muted">
-              <th className="p-pad-xs">Produto</th><th className="p-pad-xs text-right">Qtde</th>
+              <th className="p-pad-xs">Produto</th>
+              {analitico && <th className="p-pad-xs text-right">{rotuloMes}</th>}
+              <th className="p-pad-xs text-right">Qtde</th>
               <th className="p-pad-xs text-right">Méd/dia</th><th className="p-pad-xs text-right">Caixas</th>
               <th className="p-pad-xs text-right">Custo méd.</th><th className="p-pad-xs text-right">Venda méd.</th>
               <th className="p-pad-xs text-right">Custo rep.</th><th className="p-pad-xs text-right">Estoque</th>
@@ -205,10 +222,11 @@ export function PreviaFornecedorPage() {
             </tr></thead>
             <tbody>
               {porPeriodo.map((l) => (
-                <tr key={l.idproduto} className="border-t border-border">
+                <tr key={`${l.idproduto}-${l.mes ?? 0}`} className="border-t border-border">
                   <td className="p-pad-xs">{l.descricao}<br /><span className="text-fg-muted">{l.codbarra} · {l.unidade}{l.fatorcx ? ` · cx ${l.fatorcx}` : ''}</span></td>
+                  {analitico && <td className="p-pad-xs text-right tabular-nums font-semibold">{l.mes ?? '—'}</td>}
                   <td className="p-pad-xs text-right tabular-nums font-semibold">{q3(l.qtde)}</td>
-                  <td className="p-pad-xs text-right tabular-nums text-fg-muted">{q3(l.media_dia)}</td>
+                  <td className="p-pad-xs text-right tabular-nums text-fg-muted">{l.media_dia == null ? '—' : q3(l.media_dia)}</td>
                   <td className="p-pad-xs text-right tabular-nums">{l.caixas_giro == null ? '—' : q3(l.caixas_giro)}</td>
                   <td className="p-pad-xs text-right tabular-nums">{brl(l.vrcusto)}</td>
                   <td className="p-pad-xs text-right tabular-nums text-fg-muted">{brl(l.vrvenda)}</td>
@@ -218,11 +236,12 @@ export function PreviaFornecedorPage() {
                   <td className="p-pad-xs text-right tabular-nums text-fg-muted whitespace-nowrap">{l.dtultent ? `${dia(l.dtultent)} · ${q3(l.qtdeultent)}` : '—'}</td>
                 </tr>
               ))}
-              {!porPeriodo.length && <tr><td colSpan={10} className="p-pad-md text-fg-muted">Nenhum produto com movimento na faixa.</td></tr>}
+              {!porPeriodo.length && <tr><td colSpan={analitico ? 11 : 10} className="p-pad-md text-fg-muted">Nenhum produto com movimento na faixa.</td></tr>}
             </tbody>
           </table>
         </div>
-      )}
+        );
+      })()}
 
       {!porPeriodo && (
       <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
