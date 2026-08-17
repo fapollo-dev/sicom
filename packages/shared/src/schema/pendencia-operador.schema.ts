@@ -22,3 +22,9 @@ export const pendenciaStatusSchema = z.object({
   observacao: z.string().max(1000).optional(),
 });
 export type PendenciaStatusDto = z.infer<typeof pendenciaStatusSchema>;
+
+/** corte-2a: abrir a análise vinculada (PO_COMPLEMENTO da APN/RPN = APN_ID da análise persistida). */
+export const pendenciaAnaliseSchema = z.object({
+  apn_id: z.coerce.number().int().positive(),
+});
+export type PendenciaAnaliseDto = z.infer<typeof pendenciaAnaliseSchema>;

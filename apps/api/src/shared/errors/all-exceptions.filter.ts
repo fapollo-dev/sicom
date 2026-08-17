@@ -388,6 +388,11 @@ const CODE_PT: Record<string, string> = {
   PEDIDO_FORNECEDOR_PENDENCIAS: 'Este fornecedor tem pendências financeiras (A Receber em aberto) — regularize antes de incluir o pedido.',
   PEDIDO_LIMITE_EXCEDIDO: 'O pedido excede o limite de compra do período (diário/semanal) — solicite a liberação a um operador autorizado.',
   PEDIDO_IMPORT_EXCESSO: 'Produtos demais para importar de uma vez (limite de 990) — filtre o catálogo do fornecedor.',
+  // Pendências do operador (FRMPENDENCIASOPERADOR)
+  PENDENCIA_NAO_ENCONTRADA: 'Esta pendência não existe nesta empresa (ou já foi excluída).',
+  PENDENCIA_JA_FINALIZADA: 'Esta pendência já está finalizada — reabra antes de finalizar de novo.',
+  TIPO_INVALIDO: 'Tipo de pendência inválido (use APN, RPN ou CFN).',
+  ANALISE_NAO_ENCONTRADA: 'Análise de pedido × nota não encontrada, ou você não tem pendência aberta para ela.',
   // Import do XML da NFe (recebimento corte-2)
   NFE_XML_INVALIDO: 'O XML informado não é uma NFe válida (estrutura não reconhecida).',
   NFE_FORNECEDOR_NAO_ENCONTRADO: 'Fornecedor do XML (CNPJ) não encontrado no cadastro desta empresa.',

@@ -1,6 +1,6 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
-import { pendenciaListarSchema, pendenciaCriarSchema, pendenciaStatusSchema,
-  type PendenciaListarDto, type PendenciaCriarDto, type PendenciaStatusDto } from '@apollo/shared';
+import { pendenciaListarSchema, pendenciaCriarSchema, pendenciaStatusSchema, pendenciaAnaliseSchema,
+  type PendenciaListarDto, type PendenciaCriarDto, type PendenciaStatusDto, type PendenciaAnaliseDto } from '@apollo/shared';
 import { PendenciaOperadorService } from './pendencia-operador.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -31,5 +31,12 @@ export class PendenciaOperadorController {
   @RequerAcesso('FRMPENDENCIASOPERADOR', 'FRMPENDENCIASOPERADOR')
   status(@Body(new ZodValidationPipe(pendenciaStatusSchema)) dto: PendenciaStatusDto) {
     return this.svc.status(dto.po_id, dto.finalizar, dto.observacao);
+  }
+
+  @Post('analise')
+  @HttpCode(200)
+  @RequerAcesso('FRMPENDENCIASOPERADOR', 'FRMPENDENCIASOPERADOR')
+  analise(@Body(new ZodValidationPipe(pendenciaAnaliseSchema)) dto: PendenciaAnaliseDto) {
+    return this.svc.analise(dto.apn_id);
   }
 }

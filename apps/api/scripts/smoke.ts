@@ -6300,14 +6300,83 @@ async function main() {
         const poFim2 = await fetch(`${base}/${PO}/status`, { method: 'POST', headers: H, body: JSON.stringify({ po_id: poCriar.po_id, finalizar: true }) });
         const poReab = await fetch(`${base}/${PO}/status`, { method: 'POST', headers: H, body: JSON.stringify({ po_id: poCriar.po_id, finalizar: false }) });
         const poRb = await fetch(`${base}/${PO}/listar`, { method: 'POST', headers: H_SEM_ACESSO, body: '{}' });
-        check('PENDÊNCIAS: criar APN vinculada à NF resolve o FORNECEDOR (COBRADOR DOIS) e rotula "Análise de pedido x Nota fiscal" · finalizar OK · REfinalizar → 422 · reabrir OK · sem grant → 403 · origem gravada (operador logado)',
-          !!poCriar.po_id && !!lPo && String(lPo.fornecedor ?? '').includes('COBRADOR')
+        check('PENDÊNCIAS: criar APN rotula "Análise de pedido x Nota fiscal" · fornecedor VAZIO quando o complemento não é uma análise (corte-2a: a convenção do legado é PO_COMPLEMENTO = APN_ID, não codnf) · finalizar OK · REfinalizar → 422 · reabrir OK · sem grant → 403 · origem gravada (operador logado)',
+          !!poCriar.po_id && !!lPo && lPo.fornecedor == null
           && lPo.tipo_str === 'Análise de pedido x Nota fiscal' && lPo.status_str === 'Aberta'
           && String(lPo.nome_origem ?? '').length > 0
           && poFim.status === 200 && poFim2.status === 422 && poReab.status === 200 && poRb.status === 403,
           { id: poCriar.po_id, forn: lPo?.fornecedor, tipo: lPo?.tipo_str, fim: poFim.status, refim: poFim2.status, reab: poReab.status, rb: poRb.status });
 
+        // 47as.2) CORTE-2a: a ANÁLISE vinculada (PO_COMPLEMENTO = APN_ID) + o FORNECEDOR fiel ao QryPendencias
+        // (análise→pedido→parceiro, MIN(fantasia), só APN/RPN) + a VISIBILIDADE do UNION (APN de OUTRO operador
+        // aparece p/ quem é supervisor do E8 USUARIOS_PERMITIDOS_LIBERAR_PEDIDO_COMPRA) + o GATE do AbreAnalise
+        // (fold auditoria — IDOR: só abre a análise que a SESSÃO vê na fila). Análise 990900: 1 pedido do
+        // parceiro 22 (fantasia GAMA), 1 nota da FILA DO MANIFESTO (nfe_nao_cadastradas — APNN_TABELA
+        // 9597/9597 no golden), 1 divergência de custo, 1 item na NF fora do pedido, 1 item do pedido fora da NF
+        // e 1 divergência de PRODUTO INEXISTENTE (idproduto 990998) que o INNER JOIN do legado ESCONDE.
+        const pcAn = await pgRv.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, codoperador)
+          VALUES (22,1,'2026-12-01',7) RETURNING codpedcomp`);
+        await pgRv.query(`INSERT INTO nfe_nao_cadastradas (codnfe_naocad, chavenfe, cnpj, razao, dtemissao, tipo, totalnf, idempresa, modelo, nronf)
+          VALUES (990901,'35261200000000000000000000000000000000990901','11222333000144','FORNECEDOR UM LTDA','2026-12-02 10:00:00-03','E',1234.56,1,55,'880901')
+          ON CONFLICT (codnfe_naocad) DO NOTHING`);
+        await pgRv.query(`INSERT INTO analise_pedido_nf (apn_id, apn_data_analise, apn_status, codoperador, codempresa, apn_total_parcial, apn_diferenca_valor, apn_status_finalizacao)
+          VALUES (990900,'2026-12-02 11:00:00-03','F',7,1,'T',15.40,'F')`);
+        await pgRv.query(`INSERT INTO analise_pedido_nf_pedido (apn_id, codpedcomp) VALUES (990900,$1)`, [pcAn.rows[0].codpedcomp]);
+        await pgRv.query(`INSERT INTO analise_pedido_nf_nf (apn_id, apnn_ref_nf, apnn_tabela) VALUES (990900,990901,'NFE_NAO_CADASTRADAS')`);
+        await pgRv.query(`INSERT INTO analise_pedido_nf_diverg (apn_id, idproduto, apnd_quantidade_nf, apnd_quantidade_pc, apnd_valor_nf, apnd_valor_pc, nronf, chavenfe) VALUES
+          (990900,1,10,10,12.50,11.00,'880901','35261200000000000000000000000000000000990901'),
+          (990900,990998,7,7,9.90,9.90,'880901','35261200000000000000000000000000000000990901')`); // produto INEXISTENTE → INNER JOIN esconde
+        await pgRv.query(`INSERT INTO analise_pedido_nf_ine_nf (apn_id, idproduto, apnin_quantidade, apnin_valor) VALUES (990900,2,3,7.90)`);
+        await pgRv.query(`INSERT INTO analise_pedido_nf_ine_pc (apn_id, idproduto, apnip_quantidade, apnip_valor) VALUES (990900,3,5,4.20)`);
+        // pendência APN do OPERADOR 8 (não o logado) apontando a análise → só visível p/ supervisor do E8
+        const poOutro = await pgRv.query(`INSERT INTO pendencia_operador (codoperador, po_tipo_pendencia_operador, po_status, po_complemento, codempresa, codoperador_origem, po_data)
+          VALUES (8,'APN','A','990900',1,7,'2026-12-02 11:05:00-03') RETURNING po_id`);
+        // pendência com complemento numérico ENORME (44 dígitos, uma chave NFe): sem o guard de dígitos o
+        // ::int estourava (22003) e derrubava a LISTAGEM INTEIRA — a fila ficava inacessível p/ sempre.
+        const poBig = await pgRv.query(`INSERT INTO pendencia_operador (codoperador, po_tipo_pendencia_operador, po_status, po_complemento, codempresa, codoperador_origem, po_data)
+          VALUES (7,'APN','A','35261200000000000000000000000000000000990901',1,7,'2026-12-02 11:06:00-03') RETURNING po_id`);
+        try {
+          // SEM grant no E8: a fila do 7 não mostra a APN do 8, e o AbreAnalise recusa a análise não-visível
+          const poSemE8 = (await (await fetch(`${base}/${PO}/listar`, { method: 'POST', headers: H, body: '{}' })).json().catch(() => ({}))) as any;
+          const viuSemE8 = (poSemE8.linhas ?? []).some((l: any) => Number(l.po_id) === Number(poOutro.rows[0].po_id));
+          const viuBig = (poSemE8.linhas ?? []).some((l: any) => Number(l.po_id) === Number(poBig.rows[0].po_id));
+          const anSemE8 = await fetch(`${base}/${PO}/analise`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: 990900 }) });
+          // concede o E8 ao operador 7 (id 26 semeado na mig 083) → passa a ver a APN do 8 (c/ fornecedor) e a abrir
+          await pgRv.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) VALUES (26,'Usuario','7','S')
+            ON CONFLICT (id, tipo, chave) DO UPDATE SET valor='S'`);
+          const poComE8 = (await (await fetch(`${base}/${PO}/listar`, { method: 'POST', headers: H, body: '{}' })).json().catch(() => ({}))) as any;
+          const lOutro = (poComE8.linhas ?? []).find((l: any) => Number(l.po_id) === Number(poOutro.rows[0].po_id));
+          const anRes = await fetch(`${base}/${PO}/analise`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: 990900 }) });
+          const anJ = (await anRes.json().catch(() => ({}))) as any;
+          const anInex = await fetch(`${base}/${PO}/analise`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: 990999 }) });
+          check('PENDÊNCIAS corte-2a: GATE do AbreAnalise (análise fora da fila da sessão → 422, igual a inexistente) · com o grant do E8 o supervisor VÊ a APN do operador 8 (fornecedor GAMA da análise) e ABRE: cabeçalho F/T/dif 15,40 + 1 pedido + 1 nota do MANIFESTO (880901, 1.234,56) + 1 divergência (12,50 × 11,00, c/ codbarra+unidade) e a de PRODUTO INEXISTENTE fica FORA (INNER JOIN, como o legado) + 1 item fora do pedido + 1 item fora da NF · complemento de 44 dígitos NÃO derruba a listagem (guard do ::int)',
+            viuSemE8 === false && anSemE8.status === 422 && viuBig === true
+            && !!lOutro && lOutro.fornecedor === 'GAMA' && poComE8.filtro?.supervisor === true
+            && anRes.status === 200 && Number(anJ.cabecalho?.apn_id) === 990900 && anJ.cabecalho?.apn_status === 'F'
+            && anJ.cabecalho?.apn_total_parcial === 'T' && Number(anJ.cabecalho?.apn_diferenca_valor) === 15.4
+            && anJ.pedidos?.length === 1 && anJ.pedidos[0].fornecedor === 'GAMA'
+            && anJ.notas?.length === 1 && String(anJ.notas[0].nronf) === '880901' && Number(anJ.notas[0].totalnf) === 1234.56
+            && anJ.notas[0].apnn_tabela === 'NFE_NAO_CADASTRADAS'
+            && anJ.divergencias?.length === 1 && Number(anJ.divergencias[0].apnd_valor_nf) === 12.5
+            && Number(anJ.divergencias[0].apnd_valor_pc) === 11 && String(anJ.divergencias[0].codbarra ?? '').length > 0
+            && anJ.inexistentes_nf?.length === 1 && Number(anJ.inexistentes_nf[0].apnin_quantidade) === 3
+            && anJ.inexistentes_pc?.length === 1 && Number(anJ.inexistentes_pc[0].apnip_quantidade) === 5
+            && anInex.status === 422,
+            { semE8: viuSemE8, gate: anSemE8.status, big: viuBig, comE8: lOutro?.fornecedor, sup: poComE8.filtro?.supervisor, an: anRes.status, cab: anJ.cabecalho, dv: anJ.divergencias?.length, inex: anInex.status });
+        } finally {
+          // o grant TEM de sair mesmo se o check estourar: o §81.4 afirma que o operador 7 NÃO está no config 26
+          await pgRv.query(`DELETE FROM configuracoes_especificas WHERE id=26 AND tipo='Usuario' AND chave='7'`);
+        }
+        await pgRv.query(`DELETE FROM pendencia_operador WHERE po_id IN ($1,$2)`, [poOutro.rows[0].po_id, poBig.rows[0].po_id]);
         await pgRv.query(`DELETE FROM pendencia_operador WHERE po_id=$1`, [poCriar.po_id]);
+        await pgRv.query(`DELETE FROM analise_pedido_nf_ine_pc WHERE apn_id=990900`);
+        await pgRv.query(`DELETE FROM analise_pedido_nf_ine_nf WHERE apn_id=990900`);
+        await pgRv.query(`DELETE FROM analise_pedido_nf_diverg WHERE apn_id=990900`);
+        await pgRv.query(`DELETE FROM analise_pedido_nf_nf WHERE apn_id=990900`);
+        await pgRv.query(`DELETE FROM analise_pedido_nf_pedido WHERE apn_id=990900`);
+        await pgRv.query(`DELETE FROM analise_pedido_nf WHERE apn_id=990900`);
+        await pgRv.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad=990901`);
+        await pgRv.query(`DELETE FROM pedidocompra WHERE codpedcomp=$1`, [pcAn.rows[0].codpedcomp]);
         await pgRv.query(`DELETE FROM nf WHERE codnf=$1`, [nfPo.rows[0].codnf]);
 
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
