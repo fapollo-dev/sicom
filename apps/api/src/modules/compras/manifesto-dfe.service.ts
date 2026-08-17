@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
+import { RecebimentoService } from './recebimento.service';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 
@@ -35,7 +36,10 @@ export interface FiltroManifesto {
  */
 @Injectable()
 export class ManifestoDfeService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly recebimento: RecebimentoService,
+  ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -45,6 +49,7 @@ export class ManifestoDfeService {
 
   async listar(f: FiltroManifesto) {
     const emp = this.emp();
+    await this.reconciliar(emp);
     const db = this.dbp.forTenantRead() as AnyDB;
     // flags de evento por chave — o EXISTS da view, materializado numa agregação (1 passada em NFE_EVENTOS)
     const ev = db.selectFrom('nfe_eventos')
@@ -132,6 +137,70 @@ export class ManifestoDfeService {
         .execute();
       return { ok: true, codnfe_naocad: cod, ignorada: !reverter };
     });
+  }
+
+  /**
+   * RECONCILIAÇÃO do flag NFE_IMPORTADA_SISTEMA com a existência da NF (os dois UPDATEs do legado,
+   * UManifestoDFe.pas:446-464): 'S' quando existe NF com a chave na empresa, e DE VOLTA a 'N' quando a NF
+   * foi excluída — "voltam para o manifesto", sem apagar a linha da fila. Roda a cada listagem, como lá.
+   */
+  private async reconciliar(emp: number) {
+    const db = this.dbp.forTenant() as AnyDB;
+    await sql`update nfe_nao_cadastradas set nfe_importada_sistema = 'S'
+      where chavenfe in (select nf.chavenfe from nf where nf.idempresa = ${emp} and nf.chavenfe is not null)
+        and idempresa = ${emp} and coalesce(nfe_importada_sistema,'N') = 'N'`.execute(db);
+    await sql`update nfe_nao_cadastradas set nfe_importada_sistema = 'N'
+      where chavenfe not in (select nf.chavenfe from nf where nf.idempresa = ${emp} and nf.chavenfe is not null)
+        and idempresa = ${emp} and coalesce(nfe_importada_sistema,'N') = 'S'`.execute(db);
+  }
+
+  /**
+   * IMPORTAR a NF-e da fila para o sistema — a ponte para o import de XML já existente (mig 062).
+   * Regras do legado (ImportarNFEParaSistema):
+   *  · exige a CONFIRMAÇÃO DA OPERAÇÃO (evento 210200 na chave) antes de importar — "Realize a confirmação
+   *    da operação para importar a NF-e" (o ramo de contingência do legado alerta e permite; a fila da
+   *    distribuição não carrega tipoemissao, então aqui vale a regra principal);
+   *  · sem XML completo → orientar a aguardar a liberação da SEFAZ (ou sincronizar);
+   *  · se JÁ EXISTE NF com a chave na empresa → não duplica: devolve o vínculo (a tela oferece visualizar)
+   *    e reconcilia o flag.
+   */
+  async importar(cod: number) {
+    const emp = this.emp();
+    const db = this.dbp.forTenant() as AnyDB;
+    const fila = await db.selectFrom('nfe_nao_cadastradas').selectAll()
+      .where('codnfe_naocad', '=', cod).where('idempresa', '=', emp).executeTakeFirst();
+    if (!fila) throw new BusinessRuleError('NFE_NAO_ENCONTRADA');
+    const chave = String(fila.chavenfe);
+    // já existe NF com a chave? (o legado oferece visualizar em vez de duplicar)
+    const nfExistente = await db.selectFrom('nf').select(['codnf'])
+      .where('idempresa', '=', emp).where('chavenfe', '=', chave).executeTakeFirst();
+    if (nfExistente) {
+      await db.updateTable('nfe_nao_cadastradas').set({ nfe_importada_sistema: 'S' })
+        .where('codnfe_naocad', '=', cod).execute();
+      return { ja_importada: true, codnf: nfExistente.codnf };
+    }
+    // a regra central: só importa quem CONFIRMOU a operação (210200)
+    const conf = await db.selectFrom('nfe_eventos').select('codnfe_evento')
+      .where('chave_acesso', '=', chave).where('tipo_evento', '=', 210200).executeTakeFirst();
+    if (!conf) {
+      throw new BusinessRuleError('CONFIRMACAO_NECESSARIA', {
+        instrucao: 'Realize a confirmação da operação (manifestação 210200) para importar a NF-e.',
+      });
+    }
+    const x = await db.selectFrom('nfe_xml').select(['xml'])
+      .where('chavenfe', '=', chave).orderBy(sql`codnfexml desc`).executeTakeFirst();
+    if (!x?.xml) {
+      throw new BusinessRuleError('XML_NAO_DISPONIVEL', {
+        instrucao: 'O download desta NF-e ainda não foi liberado pela SEFAZ. Sincronize novamente ou aguarde a liberação.',
+      });
+    }
+    // entrega ao import existente (o mesmo caminho do XML do fornecedor)
+    const r = await this.recebimento.importarXml({ xml: String(x.xml) });
+    // vínculo de volta na fila (o legado reconcilia pelo par de UPDATEs; aqui marcamos direto também)
+    await db.updateTable('nfe_nao_cadastradas')
+      .set({ nfe_importada_sistema: 'S', nronf: String((r as Record<string, unknown>).nronf ?? '').slice(0, 9) || null })
+      .where('codnfe_naocad', '=', cod).execute();
+    return { ja_importada: false, ...r };
   }
 
   /** o XML completo da chave (p/ exportar ou encaminhar à importação de NF-e — mig 062). */

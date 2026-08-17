@@ -6194,6 +6194,9 @@ async function main() {
           (97001,'52991201000000000001550010000010001000010001','11222333000181','FORN MANIF A','2026-12-01 10:00:00-03','E',1000,1,1,55,'N'),
           (97002,'52991201000000000002550010000010002000010002','11222333000181','FORN MANIF B','2026-12-01 11:00:00-03','E',2000,1,1,55,'N'),
           (97003,'52991201000000000003550010000010003000010003','11222333000181','FORN MANIF C','2026-12-01 12:00:00-03','E',3000,1,1,55,'S')`);
+        // a C está IMPORTADA — a reconciliação (fiel ao legado) exige que a NF exista, senão devolve p/ N
+        const nfManC = await pgRv.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop, chavenfe)
+          VALUES (1,2,'970003',55,'1','E','S','N','2026-12-01','2026-12-01',1102,'52991201000000000003550010000010003000010003') RETURNING codnf`);
         await pgRv.query(`INSERT INTO nfe_eventos (chave_acesso, tipo_evento, seq_evento, descricao_evento, data_evento) VALUES
           ('52991201000000000002550010000010002000010002',210210,1,'Ciencia da Operacao','2026-12-01 11:05:00-03'),
           ('52991201000000000002550010000010002000010002',110111,1,'Cancelamento','2026-12-01 15:00:00-03')`);
@@ -6228,6 +6231,7 @@ async function main() {
           && (evs.linhas ?? []).length === 2 && xmlR.status === 200,
           { sem: igSem.status, imp: igImp.status, ok: igOk.status, pend2: (mdPend2.linhas ?? []).length, evs: (evs.linhas ?? []).length, xml: xmlR.status });
 
+        await pgRv.query(`DELETE FROM nf WHERE codnf=$1`, [nfManC.rows[0].codnf]);
         await pgRv.query(`DELETE FROM nfe_eventos WHERE chave_acesso LIKE '5299%'`);
         await pgRv.query(`DELETE FROM nfe_xml WHERE chavenfe LIKE '5299%'`);
         await pgRv.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad BETWEEN 97001 AND 97010`);
@@ -6241,6 +6245,26 @@ async function main() {
           mdSinc.status === 422 && String(mdSincJ.code ?? mdSincJ.message ?? JSON.stringify(mdSincJ)).includes('CERTIFICADO')
           && mdMan.status === 422,
           { sinc: mdSinc.status, code: mdSincJ.code ?? mdSincJ.message, man: mdMan.status });
+
+        // 47ar) MANIFESTO — importar da fila: sem confirmação (210200) → 422; nota cuja chave JÁ é NF do
+        // sistema → devolve o vínculo sem duplicar e a RECONCILIAÇÃO marca o flag na listagem seguinte.
+        await pgRv.query(`INSERT INTO nfe_nao_cadastradas (codnfe_naocad, chavenfe, cnpj, razao, dtemissao, tipo, totalnf, situacao, idempresa, modelo, nfe_importada_sistema) VALUES
+          (97011,'52991201000000000011550010000010011000010011','11222333000181','FORN IMP A','2026-12-02 10:00:00-03','E',500,1,1,55,'N'),
+          (97012,'52991201000000000012550010000010012000010012','11222333000181','FORN IMP B','2026-12-02 11:00:00-03','E',700,1,1,55,'N')`);
+        const nfMan = await pgRv.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop, chavenfe)
+          VALUES (1,2,'970012',55,'1','E','S','N','2026-12-02','2026-12-02',1102,'52991201000000000012550010000010012000010012') RETURNING codnf`);
+        const impSem = await fetch(`${base}/compras/manifesto-dfe/importar/97011`, { method: 'POST', headers: H, body: '{}' });
+        const impJa = (await (await fetch(`${base}/compras/manifesto-dfe/importar/97012`, { method: 'POST', headers: H, body: '{}' })).json().catch(() => ({}))) as any;
+        const lst2 = (await (await fetch(`${base}/compras/manifesto-dfe/listar`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-12-02', dtfim: '2026-12-02' }) })).json().catch(() => ({}))) as any;
+        const l11 = (lst2.linhas ?? []).find((l: any) => Number(l.codnfe_naocad) === 97011);
+        const l12 = (lst2.linhas ?? []).find((l: any) => Number(l.codnfe_naocad) === 97012);
+        check('MANIFESTO importar: sem a confirmação 210200 → 422 (a regra do legado) · chave que JÁ é NF → devolve o vínculo sem duplicar · a RECONCILIAÇÃO (os 2 UPDATEs do legado) marca a importada na listagem e mantém a outra pendente',
+          impSem.status === 422 && impJa.ja_importada === true && Number(impJa.codnf) === Number(nfMan.rows[0].codnf)
+          && l12?.importada === 'S' && l11?.importada === 'N',
+          { sem: impSem.status, ja: impJa.ja_importada, codnf: impJa.codnf, rec12: l12?.importada, rec11: l11?.importada });
+
+        await pgRv.query(`DELETE FROM nf WHERE codnf=$1`, [nfMan.rows[0].codnf]);
+        await pgRv.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad IN (97011,97012)`);
 
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e

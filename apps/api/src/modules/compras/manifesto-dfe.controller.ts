@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
 import { manifestoListarSchema, manifestoIgnorarSchema, type ManifestoListarDto, type ManifestoIgnorarDto } from '@apollo/shared';
 import { ManifestoDfeService } from './manifesto-dfe.service';
 import { SefazDfeService, EVENTOS_MANIFESTO } from './sefaz-dfe.service';
@@ -51,6 +51,14 @@ export class ManifestoDfeController {
   @RequerAcesso('FRMMANIFESTODFE', 'BTNMANIFESTACAO')
   manifestar(@Body(new ZodValidationPipe(manifestarSchema)) dto: ManifestarDto) {
     return this.sefaz.manifestar(dto.chave, dto.evento as keyof typeof EVENTOS_MANIFESTO, dto.justificativa);
+  }
+
+  /** importa a NF-e da fila (exige confirmação 210200; usa o import de XML existente). */
+  @Post('importar/:cod')
+  @HttpCode(200)
+  @RequerAcesso('FRMMANIFESTODFE', 'BTNIMPORTAR')
+  importar(@Param('cod', ParseIntPipe) cod: number) {
+    return this.svc.importar(cod);
   }
 
   @Get('xml/:chave')

@@ -99,6 +99,14 @@ export function ManifestoDfePage() {
     } catch (e) { mensagem.erro(e); }
   };
 
+  const importar = async (l: Linha) => {
+    try {
+      const r = await post<{ ja_importada: boolean; codnf?: number }>(`/compras/manifesto-dfe/importar/${l.codnfe_naocad}`, {});
+      mensagem.sucesso(r.ja_importada ? `Esta NF-e já estava importada (NF ${r.codnf}).` : 'NF-e importada para o sistema.');
+      void consultar();
+    } catch (e) { mensagem.erro(e); }
+  };
+
   const baixarXml = async (chave: string) => {
     try {
       const r = await req<{ xml: string }>(`/compras/manifesto-dfe/xml/${chave}`);
@@ -184,6 +192,7 @@ export function ManifestoDfePage() {
                   {l.importada !== 'S' && <>{' · '}<button className="underline" onClick={() => void ignorar(l)}>{l.ignorada === 'S' ? 'reverter' : 'ignorar'}</button></>}
                   {!Number(l.ciencia) && !Number(l.confirmacao) && <>{' · '}<button className="underline" onClick={() => void manifestar(l, 'CIENCIA')}>ciência</button></>}
                   {!Number(l.confirmacao) && <>{' · '}<button className="underline" onClick={() => void manifestar(l, 'CONFIRMACAO')}>confirmar</button></>}
+                  {l.importada !== 'S' && l.ignorada !== 'S' && <>{' · '}<button className="underline font-semibold" onClick={() => void importar(l)}>importar</button></>}
                 </td>
               </tr>
             ))}
