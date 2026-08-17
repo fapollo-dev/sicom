@@ -119,49 +119,75 @@ export class SpedEfdContribuicoesService {
       return false;
     }
 
+    // COD_CTA do M400/M410/M800/M810 (corte-2): CONFIGURACOES_SPED da empresa aponta PLANO_CONTAS e a emissão usa
+    // o CODIEXPANDIDO (QryConfiguracoesSPED: LEFT JOIN PLANO_CONTAS PM4xx ON PM4xx.CODPLANOCONTAS=C.CODPLC_Mxxx_PC).
+    // Sem config → vazio (o AsString de campo nulo no legado também emite '').
+    const cta = ((await db
+      .selectFrom('configuracoes_sped as cs')
+      .leftJoin('plano_contas as p400', 'p400.codplanocontas', 'cs.codplc_m400_pc')
+      .leftJoin('plano_contas as p410', 'p410.codplanocontas', 'cs.codplc_m410_pc')
+      .leftJoin('plano_contas as p800', 'p800.codplanocontas', 'cs.codplc_m800_pc')
+      .leftJoin('plano_contas as p810', 'p810.codplanocontas', 'cs.codplc_m810_pc')
+      .select(['p400.codiexpandido as m400', 'p410.codiexpandido as m410', 'p800.codiexpandido as m800', 'p810.codiexpandido as m810'])
+      .where('cs.idempresa', '=', emp)
+      .executeTakeFirst()) ?? {}) as { m400?: string | null; m410?: string | null; m800?: string | null; m810?: string | null };
+
     // PIS (M100/M105/M200/M205/M210) e COFINS (M500/M505/M600/M605/M610) — mesma mecânica, colunas de valor
     // distintas. COD_REC do M205/M605 = código de receita do legado (UspedPisCofins.pas:1620/1799). A receita
     // não-tributada sai em M400/M410 (PIS, após a apuração PIS) e M800/M810 (COFINS, após a apuração COFINS), na
     // ordem do leiaute (…M210, M400, M410, M500…M610, M800, M810).
     this.emitirImpostoM(arq, detC, detD, 'aliqpis', 'valorpis', { m100: 'M100', m105: 'M105', m200: 'M200', m205: 'M205', m210: 'M210', codRec: '810902' });
-    this.emitirReceitaNaoTributada(arq, detI, 'cst_pis', { m400: 'M400', m410: 'M410' });
+    this.emitirReceitaNaoTributada(arq, detI, { m400: 'M400', m410: 'M410' }, { m400: cta.m400 ?? '', m410: cta.m410 ?? '' });
     this.emitirImpostoM(arq, detC, detD, 'aliqcofins', 'valorcofins', { m100: 'M500', m105: 'M505', m200: 'M600', m205: 'M605', m210: 'M610', codRec: '217201' });
-    this.emitirReceitaNaoTributada(arq, detI, 'cst_cofins', { m400: 'M800', m410: 'M810' });
+    this.emitirReceitaNaoTributada(arq, detI, { m400: 'M800', m410: 'M810' }, { m400: cta.m800 ?? '', m410: cta.m810 ?? '' });
     arq.fecharBloco('M990', 'M');
     return true;
   }
 
   /**
-   * M400/M410 (PIS) ou M800/M810 (COFINS): receita SEM débito (isenta/alíq-zero/monofásica/suspensa), agrupada por
-   * CST. Fiel a GeraRegistroM400/M800 (UspedPisCofins.pas:1652/1892): 1 registro-pai por CST com VL_TOT_REC = Σ base
-   * + 1 filho de detalhe (M410/M810) por natureza-da-receita. Guardado por total>0 (o legado sai se pTotalCST=0).
-   * Só CST do DOMÍNIO da receita não-tributada {04,05,06,07,08,09} (fold auditoria [ALTA]: uma linha "suja" — CST
-   * tributado 01/49/50 rungado com alíq 0 — geraria um M400 fora do domínio que o PVA REJEITA; o legado também só
-   * bucketiza CST não-tributado). **NAT_REC='999' é cutover-gated**: fiel ao ramo CST 8/9 do legado (:1679), mas p/
-   * CST 4/6 (monofásico/alíq-zero, ex. cesta básica) o PVA valida NAT_REC contra a Tabela 4.3.x — a natureza real
-   * (via IDBASECREDITOISENTO/PC_TIPOCREDITOISENTO, infra NÃO migrada) é corte-2 e DEVE ser certificada no golden do
-   * PVA antes do cutover. COD_CTA vazio (config CODPLC_M400_PC = corte-2).
+   * M400/M410 (PIS) ou M800/M810 (COFINS): receita SEM débito (isenta/alíq-zero/monofásica/suspensa). Fiel a
+   * GeraRegistroM400/M800 (UspedPisCofins.pas:1626/1892): SÓ os CSTs 04/06/08/09 são emitidos — o 05 está
+   * COMENTADO no fonte (:1646) e o 07 nunca entrou; a apuração ainda captura {04..09} (camada de dado), mas a
+   * emissão copia o legado. O COFINS é ESPELHO do PIS: GeraRegistroM800 recebe os MESMOS totais FValorCSTxRegM400
+   * e o dataset é filtrado por CST_PIS_SAI (:1636-1639) — por isso os dois lados agrupam por CST_PIS.
+   * Detalhe (corte-2, GeraRegistroM410:1667 / GeraRegistroM810:1909): CST 08/09 → UM filho NAT_REC='999' com o
+   * total do CST; CST 04/06 → um filho POR NATUREZA (id_basecreditoisento resolvido na apuração via
+   * PC_TIPOCREDITOISENTO), NAT_REC = pad-esquerda 3 dígitos (ConcatenaLeft). Natureza nula em CST 04/06 vira
+   * '000' como o AsString do legado — o validador ACUSA (o PVA rejeitaria; é misconfig de PC_TIPOCREDITOISENTO).
+   * Guardado por total>0 (o legado sai se pTotalCST=0). COD_CTA = CODIEXPANDIDO das contas de CONFIGURACOES_SPED.
    */
   private emitirReceitaNaoTributada(
     arq: SpedArquivo,
     detI: Array<Record<string, unknown>>,
-    cstCol: 'cst_pis' | 'cst_cofins',
     reg: { m400: string; m410: string },
+    codCta: { m400: string; m410: string },
   ): void {
     const n2 = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
     const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
-    const CST_NAO_TRIB = new Set([4, 5, 6, 7, 8, 9]); // domínio PVA do CST_PIS/CST_COFINS em M400/M800
-    const porCst = new Map<number, number>();
-    for (const d of detI) {
-      const cst = d[cstCol] != null ? Number(d[cstCol]) : null;
-      if (cst == null || !Number.isFinite(cst) || !CST_NAO_TRIB.has(cst)) continue; // fora do domínio → não emite (evita reject)
-      porCst.set(cst, r2((porCst.get(cst) ?? 0) + n2(d.basecalculo)));
-    }
-    for (const [cst, total] of Array.from(porCst.entries()).sort((a, b) => a[0] - b[0])) {
-      if (total <= 0) continue; // pTotalCST>0
+    for (const cst of [4, 6, 8, 9]) {
+      // total do CST (GetTotaisCSTM400:2309 soma TOTAL por CST_PIS_SAI) e detalhe por natureza no mesmo passo.
+      const porNatureza = new Map<string, number>();
+      let total = 0;
+      for (const d of detI) {
+        if ((d.cst_pis != null ? Number(d.cst_pis) : null) !== cst) continue;
+        const v = n2(d.basecalculo);
+        total = r2(total + v);
+        const nat = d.id_basecreditoisento;
+        const chave = nat == null ? '' : String(nat);
+        porNatureza.set(chave, r2((porNatureza.get(chave) ?? 0) + v));
+      }
+      if (total === 0) continue; // fiel: if pTotalCST = 0 then exit (zero EXATO — total negativo EMITE, fold auditoria)
       const cst2 = String(cst).padStart(2, '0'); // GetCSTPis/GetCSTCofins: 2 dígitos
-      arq.add(reg.m400, [cst2, fmtNum(total), '', '']); // M400/M800: CST | VL_TOT_REC | COD_CTA | DESC_COMPL
-      arq.add(reg.m410, ['999', fmtNum(total), '', '']); // M410/M810: NAT_REC | VL_REC | COD_CTA | DESC_COMPL
+      arq.add(reg.m400, [cst2, fmtNum(total), codCta.m400, '']); // M400/M800: CST | VL_TOT_REC | COD_CTA | DESC_COMPL
+      if (cst === 8 || cst === 9) {
+        arq.add(reg.m410, ['999', fmtNum(total), codCta.m410, '']); // ramo 8/9: um único filho 999 com o total
+      } else {
+        // ramo 4/6: um filho por natureza, na ordem da chave (o GROUP BY do legado não ordena; determinizamos).
+        // TODA linha do dataset vira M410, inclusive grupo 0/negativo (o while do legado não filtra — fold auditoria).
+        for (const [nat, vl] of Array.from(porNatureza.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
+          arq.add(reg.m410, [nat.padStart(3, '0'), fmtNum(vl), codCta.m410, '']); // M410/M810: NAT_REC | VL_REC | COD_CTA | DESC_COMPL
+        }
+      }
     }
   }
 

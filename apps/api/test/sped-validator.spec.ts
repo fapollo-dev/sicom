@@ -111,6 +111,25 @@ describe('validarSped (validador estrutural PVA-style)', () => {
     expect(r.erros.some((e) => e.includes('CST'))).toBe(true);
   });
 
+  it('M410 NAT_REC="000" (natureza não resolvida) ou não-3-dígitos → erro; 101/999 → ok (corte-2)', () => {
+    const monta = (nat: string) => {
+      const a = new SpedArquivo();
+      a.add('0000', ['006', '0', '', '', '01092026', '30092026', 'EMPRESA X', '11111111000191', 'MG', '3106200', '', '00', '2']);
+      a.add('0001', ['0']);
+      a.fecharBloco('0990', '0');
+      a.add('M001', ['0']);
+      a.add('M400', ['06', '140,00', '', '']);
+      a.add('M410', [nat, '140,00', '', '']);
+      a.fecharBloco('M990', 'M');
+      return validarSped(a.gerar());
+    };
+    expect(monta('000').ok).toBe(false); // ConcatenaLeft de natureza NULA — o PVA rejeita, tem de acusar
+    expect(monta('000').erros.some((e) => e.includes('NAT_REC'))).toBe(true);
+    expect(monta('1').ok).toBe(false); // sem o pad-3 do legado
+    expect(monta('101').ok).toBe(true); // natureza real da Tabela 4.3.x
+    expect(monta('999').ok).toBe(true); // ramo CST 08/09 sem detalhamento
+  });
+
   it('coerência C100↔C175: VL_PIS do C100 de saída ≠ Σ dos C175 → erro', () => {
     const a = new SpedArquivo();
     a.add('0000', ['006', '0', '', '', '01092026', '30092026', 'EMPRESA X', '11111111000191', 'MG', '3106200', '', '00', '1']);

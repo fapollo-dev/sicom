@@ -159,6 +159,13 @@ export function validarSped(arquivo: string): ResultadoValidacao {
   for (const r of regs.filter((x) => x.reg === 'M400' || x.reg === 'M800')) {
     if (!emDominio(r.campos[0], ['04', '05', '06', '07', '08', '09'])) erros.push(`${r.reg} (linha ${r.linha}): CST '${r.campos[0]}' fora do domínio da receita não-tributada {04,05,06,07,08,09}`);
   }
+  // M410/M810 (corte-2): NAT_REC = 3 dígitos da Tabela 4.3.x (999 = sem detalhamento, ramo CST 08/09). '000' é o
+  // que o legado produz quando a natureza é NULA em CST 04/06 (ConcatenaLeft de '' → '000') — o PVA REJEITA: é
+  // misconfig de PC_TIPOCREDITOISENTO/PRODUTOS.IDTABELA e tem de ACUSAR aqui, não passar mudo.
+  for (const r of regs.filter((x) => x.reg === 'M410' || x.reg === 'M810')) {
+    const nat = r.campos[0] ?? '';
+    if (!/^\d{3}$/.test(nat) || nat === '000') erros.push(`${r.reg} (linha ${r.linha}): NAT_REC '${nat}' inválido (3 dígitos da Tabela 4.3.x; '000' = natureza não resolvida — configure PC_TIPOCREDITOISENTO/produto.idtabela)`);
+  }
 
   return { ok: erros.length === 0, erros, registros: regs.length };
 }

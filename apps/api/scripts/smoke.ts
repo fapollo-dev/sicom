@@ -8552,14 +8552,39 @@ async function main() {
           r0000.endsWith('|00|2|') && r0110 === '|0110|1|1|1||' && /^\|M100\|[^|]*\|0\|/.test(m100S),
           { r0000: r0000.slice(-16), r0110, m100: m100S.slice(0, 18) });
         // 88.8) RECEITA NÃO-TRIBUTADA (M400/M410 PIS + M800/M810 COFINS) — supermercado: cesta básica (CST 06 alíq 0)
-        // + monofásico (CST 04). Período 2026-10 ISOLADO. CST 06: 10×5=50 + (4×25 − desc 10)=90 → 140; CST 04: 2×30=60.
-        // + 1 venda TRIBUTADA (CST 01, base 100) p/ o período ter débito também. total não-tributado = 200.
-        await pgSp.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, cfop, venda_nfc, cancelado, statusnfe, chavenfe, pis_cst, pis_aliquota, cofins_cst, cofins_aliquota, desc_promocao) VALUES
-          (1,'2026-10-05 10:00:00-03','001',201,1,1,10, 5,5102,'S','N','P','35261000000000000000000000000000000000000201','06',0,'06',0,0),
-          (1,'2026-10-05 10:00:00-03','001',201,2,1, 4,25,5102,'S','N','P','35261000000000000000000000000000000000000201','06',0,'06',0,10),
-          (1,'2026-10-06 11:00:00-03','001',202,1,1, 2,30,5405,'S','N','P','35261000000000000000000000000000000000000202','04',0,'04',0,0),
-          (1,'2026-10-07 12:00:00-03','001',203,1,1, 1,100,5102,'S','N','P','35261000000000000000000000000000000000000203','01',1.65,'01',7.60,0),
-          (1,'2026-10-08 09:00:00-03','001',204,1,1, 1, 33,5102,'S','N','P','35261000000000000000000000000000000000000204','50',0,'50',0,0)`); // linha SUJA: CST 50 tributado c/ alíq 0 → NÃO pode virar M400 (fold [ALTA])
+        // + monofásico (CST 04) + CST 08 sem natureza. Período 2026-10 ISOLADO. CST 06: 10×5=50 + (4×25 − desc 10)=90
+        // → 140; CST 04: 2×30=60; CST 08: 1×25=25. + 1 venda TRIBUTADA (CST 01, base 100) p/ o período ter débito.
+        // CORTE-2 (natureza real, sqqBaseIsenta): catálogo PC_TIPOCREDITOISENTO com sit 10={101,102} e sit 20={201};
+        // produto 1 (CST 06) idtabela=9101→natureza DIRETA 101 (válida p/ sit 10); a venda CST 04 (produto 2, sem
+        // idtabela) resolve por FALLBACK via vendas.idpiscofins=20 → 1ª natureza da sit 20 = 201; a CST 08 (produto 3,
+        // sem idtabela nem situação) fica NULA → 999 carimbado na apuração. COD_CTA = CODIEXPANDIDO das contas de
+        // CONFIGURACOES_SPED (M400→9004 '1.1.01.08' | M410→9003 '1.1.01' | M800→9006 '1.1.02.09' | M810→9005 '1.1.02').
+        await pgSp.query(`INSERT INTO pc_tipocreditoisento (idtabela, idpiscofins, idbasecreditoisento, descricao) VALUES
+          (9101, 10, 101, 'SMOKE CESTA BASICA'), (9102, 10, 102, 'SMOKE OUTRA NAT SIT 10'), (9103, 20, 201, 'SMOKE MONOFASICO'),
+          (9104, 12, 105, 'SMOKE ALIQ ZERO SIT 12')`);
+        await pgSp.query(`INSERT INTO configuracoes_sped (idempresa, codplc_m400_pc, codplc_m410_pc, codplc_m800_pc, codplc_m810_pc) VALUES (1, 9004, 9003, 9006, 9005)`);
+        await pgSp.query(`UPDATE produtos SET idtabela=9101, idpiscofins=10 WHERE idproduto=1`);
+        await pgSp.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, cfop, venda_nfc, cancelado, statusnfe, chavenfe, pis_cst, pis_aliquota, cofins_cst, cofins_aliquota, desc_promocao, idpiscofins) VALUES
+          (1,'2026-10-05 10:00:00-03','001',201,1,1,10, 5,5102,'S','N','P','35261000000000000000000000000000000000000201','06',0,'06',0,0,NULL),
+          (1,'2026-10-05 10:00:00-03','001',201,2,1, 4,25,5102,'S','N','P','35261000000000000000000000000000000000000201','06',0,'06',0,10,NULL),
+          (1,'2026-10-05 13:00:00-03','001',206,1,1, 1,10,5102,'S','N','P','35261000000000000000000000000000000000000206','6 ',0,'6 ',0,0,NULL),
+          (1,'2026-10-06 11:00:00-03','001',202,1,2, 2,30,5405,'S','N','P','35261000000000000000000000000000000000000202','04',0,'04',0,0,20),
+          (1,'2026-10-06 12:00:00-03','001',205,1,3, 1,25,5102,'S','N','P','35261000000000000000000000000000000000000205','08',0,'08',0,0,NULL),
+          (1,'2026-10-07 12:00:00-03','001',203,1,1, 1,100,5102,'S','N','P','35261000000000000000000000000000000000000203','01',1.65,'01',7.60,0,NULL),
+          (1,'2026-10-08 09:00:00-03','001',204,1,1, 1, 33,5102,'S','N','P','35261000000000000000000000000000000000000204','50',0,'50',0,0,NULL)`); // cupom 206: CST no FORMATO DO ORACLE ('6 ' = 1 dígito blank-padded) → lpad normaliza p/ '06' (fold [ALTA]); linha SUJA CST 50 c/ alíq 0 → NÃO pode virar M400
+        // perna NF mod-55 da sqqBaseIsenta (fold [MÉDIA]): NF de SAÍDA outubro com 3 derivações de CST por CFOP —
+        // 5949 fora do rol → CST 8 forçado, sem situação → natureza NULA → 999 (2×7,50=15); 5102 no rol c/
+        // idpiscofins=12 (ALIQ ZERO, catálogo mig 041) → CST 6, natureza por fallback da sit 12 → 105 (5×4=20);
+        // 5102 no rol c/ idpiscofins=13 (TRIBUTADOS) → CST 1 do catálogo → fica FORA da bucketização 04/06/08/09.
+        await pgSp.query(`INSERT INTO cfop (codcfop, descricao) VALUES ('5949','SMOKE OUTRA SAIDA') ON CONFLICT (codcfop) DO NOTHING`);
+        const nfIsenta = await novaNf(baseNf({ tipo: 'S', modelo: 55, nronf: 'SPEDI01', codparceiro: 20, cfop: '5102', dtemissao: '2026-10-10', dtcontabil: '2026-10-10', itens: [
+          { codproduto: 2, quantidade: 2, vrvenda: 7.5, vrcusto: 7.5, cfop: '5949', aliquota: 'T01' },
+          { codproduto: 2, quantidade: 5, vrvenda: 4, vrcusto: 4, cfop: '5102', aliquota: 'T01' },
+          { codproduto: 1, quantidade: 1, vrvenda: 100, vrcusto: 100, cfop: '5102', aliquota: 'T01' },
+        ] }));
+        await pgSp.query(`UPDATE nf_prod SET idpiscofins=12 WHERE codnf=$1 AND cfop='5102' AND codproduto=2`, [nfIsenta]);
+        await pgSp.query(`UPDATE nf_prod SET idpiscofins=13 WHERE codnf=$1 AND cfop='5102' AND codproduto=1`, [nfIsenta]);
+        await pgSp.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfIsenta]);
         const apurI = await fetch(`${base}/fiscal/sped/apuracao-pc`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-10-01', dtfim: '2026-10-31' }) });
         const apurIJ = (await apurI.json().catch(() => ({}))) as any;
         const efdI = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-10-01', dtfim: '2026-10-31' }) });
@@ -8567,18 +8592,27 @@ async function main() {
         const linI = String(efdIJ.arquivo ?? '').split('\r\n');
         const m400_06 = linI.find((l) => l.startsWith('|M400|06|')) ?? '';
         const m400_04 = linI.find((l) => l.startsWith('|M400|04|')) ?? '';
+        const m400_08 = linI.find((l) => l.startsWith('|M400|08|')) ?? '';
         const m800_06 = linI.find((l) => l.startsWith('|M800|06|')) ?? '';
         const m410 = linI.filter((l) => l.startsWith('|M410|'));
         const m810 = linI.filter((l) => l.startsWith('|M810|'));
         const m400Sujo = linI.some((l) => l.startsWith('|M400|50|') || l.startsWith('|M800|50|')); // fold [ALTA]: CST 50 NÃO pode emitir
-        check('SPED §88.8 receita NÃO-tributada: 2 grupos isentos (Σ200, CST 50-suja descartada); M400 CST 06=140,00 + CST 04=60,00 + M410 NAT_REC 999; M800/M810 espelham; CST fora do domínio NÃO emite; validação sem erros',
-          apurI.status === 200 && Number(apurIJ.grupos_isento) === 2 && Number(apurIJ.total_receita_nao_tributada) === 200
-          && m400_06.startsWith('|M400|06|140,00|') && m400_04.startsWith('|M400|04|60,00|')
-          && m800_06.startsWith('|M800|06|140,00|') && m410.length === 2 && m410[0].startsWith('|M410|999|') && m810.length === 2
-          && !m400Sujo && efdIJ.validacao?.ok === true && (efdIJ.validacao?.erros?.length ?? -1) === 0,
-          { apur: { gi: apurIJ.grupos_isento, tot: apurIJ.total_receita_nao_tributada }, m400_06, m400_04, m800_06, m410: m410.length, m400Sujo, val: efdIJ.validacao?.erros });
+        check('SPED §88.8 receita NÃO-tributada corte-2: 6 grupos detI (3 VENDAS + 3 NF), Σ M400 = 270 (CST 1 da NF fora da métrica); lpad normaliza CST Oracle "6 "; M400 06=170/04=60/08=40 c/ COD_CTA 1.1.01.08; M410 |201|60 (fallback vendas.idpiscofins) + |101|150 (direta) + |105|20 (NF sit 12) + |999|40 (25 vendas + 15 NF CFOP-fora-do-rol) c/ COD_CTA 1.1.01; M800/M810 espelham o PIS; CST 50 e CST 1 fora; validação sem erros',
+          apurI.status === 200 && Number(apurIJ.grupos_isento) === 6 && Number(apurIJ.total_receita_nao_tributada) === 270
+          && m400_06 === '|M400|06|170,00|1.1.01.08||' && m400_04 === '|M400|04|60,00|1.1.01.08||' && m400_08 === '|M400|08|40,00|1.1.01.08||'
+          && m410.length === 4 && m410[0] === '|M410|201|60,00|1.1.01||' && m410[1] === '|M410|101|150,00|1.1.01||' && m410[2] === '|M410|105|20,00|1.1.01||' && m410[3] === '|M410|999|40,00|1.1.01||'
+          && m800_06 === '|M800|06|170,00|1.1.02.09||'
+          && m810.length === 4 && m810[0] === '|M810|201|60,00|1.1.02||' && m810[1] === '|M810|101|150,00|1.1.02||' && m810[2] === '|M810|105|20,00|1.1.02||' && m810[3] === '|M810|999|40,00|1.1.02||'
+          && !m400Sujo && !linI.some((l) => l.startsWith('|M400|01|') || l.startsWith('|M800|01|'))
+          && efdIJ.validacao?.ok === true && (efdIJ.validacao?.erros?.length ?? -1) === 0,
+          { apur: { gi: apurIJ.grupos_isento, tot: apurIJ.total_receita_nao_tributada }, m400_06, m400_04, m400_08, m410, m810, m400Sujo, val: efdIJ.validacao?.erros });
 
-        await pgSp.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-01' AND dtvenda < '2026-11-01'`); // cleanup 09+10
+        // cleanup (fixture restaura o que mudou — lição 62): vendas 09+10, catálogo, config SPED, produto 1.
+        await pgSp.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-01' AND dtvenda < '2026-11-01'`);
+        await pgSp.query(`DELETE FROM pc_tipocreditoisento WHERE idtabela IN (9101,9102,9103,9104)`);
+        await pgSp.query(`DELETE FROM configuracoes_sped WHERE idempresa=1`);
+        await pgSp.query(`UPDATE produtos SET idtabela=NULL, idpiscofins=NULL WHERE idproduto=1`);
+        await pgSp.query(`UPDATE nf_prod SET idpiscofins=NULL WHERE codnf=$1`, [nfIsenta]);
       } finally {
         await pgSp.end();
       }
