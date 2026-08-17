@@ -1,4 +1,7 @@
+import { useRef } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Printer } from 'lucide-react';
+import { imprimirPagina } from '../shared/print/imprimirPagina';
 import { AppShell } from '@apollosg/design-system';
 import { ShortcutScope } from '../shared/keyboard';
 import { useAuth } from '../features/auth/AuthContext';
@@ -112,6 +115,16 @@ export function AppLayout() {
   const navigate = useNavigate();
   const { sessao, sair } = useAuth();
   const atual = TELAS.find((t) => t.href === location.pathname);
+  const conteudoRef = useRef<HTMLDivElement>(null);
+
+  // IMPRIMIR (substituto do FastReport): fotografa o conteúdo da tela atual — janela aberta SÍNCRONA
+  // no clique (popup-blocker) e o clone/print no helper compartilhado.
+  const imprimir = () => {
+    if (!conteudoRef.current) return;
+    const win = window.open('', '_blank', 'width=1024,height=768');
+    if (!win) return;
+    imprimirPagina(win, conteudoRef.current, atual?.name ?? 'Apollo ERP', sessao?.operador?.nome ?? undefined);
+  };
 
   // usuário REAL da sessão (corte-3b) — substitui o "Operador" decorativo.
   const nome = sessao?.operador?.nome ?? sessao?.operador?.login ?? 'Operador';
@@ -143,7 +156,18 @@ export function AppLayout() {
           Button/DateField/etc. via useMnemonic, que exige um <ShortcutScope>. O <CadMaster> provê o
           seu próprio (aninhado); este cobre as telas que não passam pelo shell. */}
       <ShortcutScope>
-        <Outlet />
+        {/* botão flutuante de impressão — vale para QUALQUER tela (relatórios, grades, consultas) */}
+        <button
+          type="button"
+          onClick={imprimir}
+          title="Imprimir esta tela (Ctrl/Cmd+P do diálogo permite salvar em PDF)"
+          className="fixed bottom-4 right-4 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-border bg-bg-surface shadow-md hover:bg-bg-subtle print:hidden"
+        >
+          <Printer className="h-5 w-5" />
+        </button>
+        <div ref={conteudoRef}>
+          <Outlet />
+        </div>
       </ShortcutScope>
     </AppShell>
   );
