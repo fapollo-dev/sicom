@@ -6183,6 +6183,55 @@ async function main() {
         await pgRv.query(`DELETE FROM det_aliquota WHERE aliquota = 'T19'`);
         await pgRv.query(`UPDATE empresas SET uf='MG', despoperacional=NULL WHERE idempresa=1`);
 
+        // 47ap) MANIFESTO DO DFe — corte 1 local (FRMMANIFESTODFE, 2ª tela mais usada). Fila com 3 notas:
+        //   A pendente (sem evento) · B com CIÊNCIA (210210) e CANCELADA pelo emitente (110111) ·
+        //   C já importada. Ignorar exige MOTIVO, recusa nota importada e é reversível.
+        const MD = 'compras/manifesto-dfe';
+        await pgRv.query(`DELETE FROM nfe_eventos WHERE chave_acesso LIKE '5299%'`);
+        await pgRv.query(`DELETE FROM nfe_xml WHERE chavenfe LIKE '5299%'`);
+        await pgRv.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad BETWEEN 97001 AND 97010`);
+        await pgRv.query(`INSERT INTO nfe_nao_cadastradas (codnfe_naocad, chavenfe, cnpj, razao, dtemissao, tipo, totalnf, situacao, idempresa, modelo, nfe_importada_sistema) VALUES
+          (97001,'52991201000000000001550010000010001000010001','11222333000181','FORN MANIF A','2026-12-01 10:00:00-03','E',1000,1,1,55,'N'),
+          (97002,'52991201000000000002550010000010002000010002','11222333000181','FORN MANIF B','2026-12-01 11:00:00-03','E',2000,1,1,55,'N'),
+          (97003,'52991201000000000003550010000010003000010003','11222333000181','FORN MANIF C','2026-12-01 12:00:00-03','E',3000,1,1,55,'S')`);
+        await pgRv.query(`INSERT INTO nfe_eventos (chave_acesso, tipo_evento, seq_evento, descricao_evento, data_evento) VALUES
+          ('52991201000000000002550010000010002000010002',210210,1,'Ciencia da Operacao','2026-12-01 11:05:00-03'),
+          ('52991201000000000002550010000010002000010002',110111,1,'Cancelamento','2026-12-01 15:00:00-03')`);
+        await pgRv.query(`INSERT INTO nfe_xml (chavenfe, xml, modelo) VALUES
+          ('52991201000000000001550010000010001000010001','<nfeProc>A</nfeProc>',55)`);
+
+        const mdQ = async (body: Record<string, unknown>) => (await (await fetch(`${base}/${MD}/listar`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-12-01', dtfim: '2026-12-01', ...body }) })).json().catch(() => ({}))) as any;
+        const md = await mdQ({});
+        const mA = (md.linhas ?? []).find((l: any) => Number(l.codnfe_naocad) === 97001);
+        const mB = (md.linhas ?? []).find((l: any) => Number(l.codnfe_naocad) === 97002);
+        const mdCanc = await mdQ({ canceladas: 'CANCELADAS' });
+        const mdPend = await mdQ({ pendentes: true });
+        check('MANIFESTO corte-1: fila com flags por chave — B tem ciência=1 e CANCELADA=1 (evento 110111 do EMITENTE, a cor vermelha da tela) · A tem_xml=true · filtro CANCELADAS devolve só B · PENDENTES exclui a importada C (2 linhas)',
+          Number(mB?.ciencia) === 1 && Number(mB?.cancelada) === 1 && Number(mB?.confirmacao) === 0
+          && mA?.tem_xml === true && Number(mA?.cancelada) === 0
+          && (mdCanc.linhas ?? []).length === 1 && Number(mdCanc.linhas[0]?.codnfe_naocad) === 97002
+          && (mdPend.linhas ?? []).length === 2,
+          { b: [mB?.ciencia, mB?.cancelada], aXml: mA?.tem_xml, canc: (mdCanc.linhas ?? []).length, pend: (mdPend.linhas ?? []).length });
+
+        const ig = async (body: Record<string, unknown>) => await fetch(`${base}/${MD}/ignorar`, { method: 'POST', headers: H, body: JSON.stringify(body) });
+        const igSem = await ig({ codnfe_naocad: 97001 });
+        const igImp = await ig({ codnfe_naocad: 97003, motivo: 'teste' });
+        const igOk = await ig({ codnfe_naocad: 97001, motivo: 'NOTA DE OUTRA FILIAL' });
+        const mdPend2 = await mdQ({ pendentes: true });
+        const igRev = await ig({ codnfe_naocad: 97001, reverter: true });
+        const evs = (await (await fetch(`${base}/${MD}/eventos/52991201000000000002550010000010002000010002`, { headers: H })).json().catch(() => ({}))) as any;
+        const xmlR = await fetch(`${base}/${MD}/xml/52991201000000000001550010000010001000010001`, { headers: H });
+        check('MANIFESTO: ignorar SEM motivo → 422 · ignorar nota JÁ IMPORTADA → 422 · com motivo OK e sai das pendentes (1) · reverter OK · histórico da chave B = 2 eventos (manifestação + cancelamento) · XML da chave A = 200',
+          igSem.status === 422 && igImp.status === 422 && igOk.status === 200
+          && (mdPend2.linhas ?? []).length === 1
+          && igRev.status === 200
+          && (evs.linhas ?? []).length === 2 && xmlR.status === 200,
+          { sem: igSem.status, imp: igImp.status, ok: igOk.status, pend2: (mdPend2.linhas ?? []).length, evs: (evs.linhas ?? []).length, xml: xmlR.status });
+
+        await pgRv.query(`DELETE FROM nfe_eventos WHERE chave_acesso LIKE '5299%'`);
+        await pgRv.query(`DELETE FROM nfe_xml WHERE chavenfe LIKE '5299%'`);
+        await pgRv.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad BETWEEN 97001 AND 97010`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.

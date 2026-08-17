@@ -15,6 +15,8 @@ import { AnalisePedidoNfController } from './analise-pedido-nf.controller';
 import { CotacaoService } from './cotacao.service';
 import { CotacaoController } from './cotacao.controller';
 import { ConferenciaNotaService } from './conferencia-nota.service';
+import { ManifestoDfeController } from './manifesto-dfe.controller';
+import { ManifestoDfeService } from './manifesto-dfe.service';
 import { ConferenciaNotaController } from './conferencia-nota.controller';
 import { CadastroModule } from '../cadastro/cadastro.module';
 import { AuthModule } from '../auth/auth.module';
@@ -41,7 +43,8 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     AnalisePedidoNfController, // Wave 4 corte-2: Análise Pedido×NF (divergências + liberação por supervisor)
     CotacaoController, // COTAÇÃO DE COMPRA (RFQ) corte-1: estrutura + preços (árvore vertical)
     ConferenciaNotaController, // CONFERÊNCIA DE NOTA corte-1: aprovar/cancelar o que o coletor conferiu
+    ManifestoDfeController,
   ],
-  providers: [PedidoCompraService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, DatabaseProvider],
+  providers: [PedidoCompraService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, ManifestoDfeService, DatabaseProvider],
 })
 export class ComprasModule {}

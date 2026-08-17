@@ -83,6 +83,7 @@ const TELAS = [
   { href: '/estoque/ajuste-precos', name: 'Ajuste de Preços', icon: TrendingUp },
   { href: '/estoque/precificacao', name: 'Precificação de Mercadorias', icon: Calculator },
   { href: '/compras/conferencia-nota', name: 'Conferência de Nota', icon: LineChart },
+  { href: '/compras/manifesto-dfe', name: 'Manifesto DF-e', icon: LineChart },
   // HUB FRMRELVENDAS — uma tela só com combo de modelo (rel 01/02/06/07/08/09-11/13/18/28/30/32/36/38/46).
   // As variantes seguem deep-linkáveis pelas rotas antigas; aqui o menu aponta só pro hub.
   { href: '/relatorios/vendas', name: 'Relatórios de Vendas', icon: LineChart },

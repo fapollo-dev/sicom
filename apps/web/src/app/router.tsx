@@ -56,6 +56,7 @@ import { RelVendasOperadorPage } from '../features/rel-vendas-operador/RelVendas
 import { RelCaixaOpsPage } from '../features/rel-caixa-ops/RelCaixaOpsPage';
 import { RelCanceladosPage } from '../features/rel-cancelados/RelCanceladosPage';
 import { RelVendasExtrasPage } from '../features/rel-vendas-extras/RelVendasExtrasPage';
+import { ManifestoDfePage } from '../features/manifesto-dfe/ManifestoDfePage';
 import { CartaoPage } from '../features/cartao/CartaoPage';
 import { OperadorasPage } from '../features/cartao/OperadorasPage';
 import { TrocaPage } from '../features/troca/TrocaPage';
@@ -107,6 +108,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/vendas', element: <RelVendasHubPage /> }, // HUB FRMRELVENDAS: combo de modelo → variante embutida
       { path: '/relatorios/previa-fornecedor', element: <PreviaFornecedorPage /> },
       { path: '/compras/conferencia-nota', element: <ConferenciaNotaPage /> },
+      { path: '/compras/manifesto-dfe', element: <ManifestoDfePage /> }, // manifesto do destinatário — corte 1 local
       { path: '/relatorios/finalizadoras', element: <RelFinalizadorasPage /> },
       { path: '/relatorios/ticket-medio', element: <RelTicketMedioPage /> },
       { path: '/relatorios/caixa-dre', element: <RelCaixaDrePage /> },
