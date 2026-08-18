@@ -51,7 +51,8 @@ const ddmmaa6 = (v: unknown) => {
 };
 
 /**
- * CNAB de COBRANÇA — corte-1: a REMESSA de ENVIO no layout **ITAÚ 400** (`uConfBoleto` / FRMCONFBOLETO).
+ * CNAB de COBRANÇA — a REMESSA de ENVIO nos layouts **ITAÚ 400** (corte-1) e **BANCO DO BRASIL 400**
+ * (corte-2a: registro `7` + complemento `5`), da tela `uConfBoleto` / FRMCONFBOLETO.
  *
  * PROCEDÊNCIA: o legado monta o arquivo pela lib ACBrBoleto, então o layout foi reconstruído **byte a byte
  * contra o golden**: `ARQUIVO_REMESSA_ARECEBER.ARQUIVO` guarda os 306 arquivos reais em Base64 e decodifica no
@@ -78,8 +79,10 @@ const ddmmaa6 = (v: unknown) => {
  *  4) emissão (151-156) com DTVENDA nula usa o VENCIMENTO; o legado emite a data-zero do Delphi ('301299').
  *  5) ordem dos detalhes: o legado ordena por SETOR/CODAUX (nulos no golden ⇒ indefinida); aqui é
  *     CODPARCEIRO, CODRCB — o que o golden de fato mostra em 112 dos 124 arquivos testáveis.
+ *  6) a AGÊNCIA sai de CONF_INTEG_BANCARIA; o legado lê BANCOS.AGENCIA (coincidem no golden).
+ *  7) o CNAB 240 do Santander (15 arquivos de 240 chars no golden, conf 102) é corte-3.
  *
- * CORTE-2 (declarado): BB 400 (detalhe `7` + complemento `5`, 1.343+1.343 linhas no golden) · CNAB 240 (a 4ª
+ * CORTE-3 (declarado): CNAB 240 (a 4ª
  * config) · os outros bancos que a tela atende (237/33/104/756/707, incl. o nome 'OMU' do Daycoval que é o
  * único uso real de SEQUENCIAREMESSA) · remessa de CANCELAMENTO (`status_boleto='C'`) e de ALTERAÇÃO DE
  * VENCIMENTO (`TIPOREMESSA='AV'`, que lê REMESSAS_BOLETOS_CONTAS) · o RETORNO (baixa automática — sem golden
@@ -163,7 +166,15 @@ export class CnabRemessaService {
       if (String(conf.layoutremessa ?? '') !== 'C400') {
         throw new BusinessRuleError('LAYOUT_NAO_SUPORTADO', { layout: conf.layoutremessa });
       }
-      if (dig(conf.codfornbco) !== '341') throw new BusinessRuleError('BANCO_NAO_SUPORTADO', { banco: conf.codfornbco });
+      // o BANCO do layout vem de BANCOS.CODBCOBLT (o número FEBRABAN), como no legado (`cdsReceberCODBCOBLT`,
+      // :2420). **CODFORNBCO não é o banco** — é o código do CEDENTE (a conf Santander do golden tem '0542455').
+      // Fallback p/ o CODFORNBCO quando o cadastro do banco não tem CODBCOBLT (dado legado incompleto).
+      const bancoRow = (await trx.selectFrom('bancos').select(['codbcoblt'])
+        .where('codbco', '=', Number(conf.codbco)).executeTakeFirst()) as { codbcoblt?: number | null } | undefined;
+      // CODBCOBLT é NUMBER no Oracle (1 = BB, 341 = Itaú, 33 = Santander) → normaliza p/ 3 dígitos
+      const febraban = (dig(bancoRow?.codbcoblt ?? '') || dig(conf.codfornbco)).padStart(3, '0');
+      if (!['341', '001'].includes(febraban)) throw new BusinessRuleError('BANCO_NAO_SUPORTADO', { banco: febraban || conf.codfornbco });
+      const bb = febraban === '001';
 
       // 2) conta bancária (carteira/variação) + empresa (nome do cedente)
       const conta = (await trx.selectFrom('contas_bancarias')
@@ -233,18 +244,36 @@ export class CnabRemessaService {
       const hoje = (await sql<{ d: string }>`select to_char(now() at time zone 'America/Sao_Paulo','YYYY-MM-DD') as d`
         .execute(trx)).rows[0].d;
       const [aa, mm, dd] = hoje.split('-');
-      const nomeBanco = 'BANCO ITAU SA';
-      const ext = String(conf.arqteste ?? 'N') !== 'N' ? 'TST' : 'TXT'; // Itaú (341) usa .TXT
+      // nome do banco (o contador do dia é por NOMEBANCO + ano) e extensão: '.TST' em teste, '.TXT' p/ 341/707
+      // e '.REM' p/ os demais (:1409-1425). O golden confirma: 236 .TXT do Itaú e 70 .REM.
+      const nomeBanco = bb ? 'Banco do Brasil' : 'BANCO ITAU SA';
+      const ext = String(conf.arqteste ?? 'N') !== 'N' ? 'TST' : (bb ? 'REM' : 'TXT');
+
+      // sequencial GLOBAL da remessa por banco (o GetID('NRSEQREMESSAITAU') do legado). O BB o imprime no
+      // header (101-107): o golden CB010302.REM traz '0000704' e o log tem codremessabanco=704.
+      const seqBanco = (await (bb
+        ? sql<{ n: number }>`select nextval('seq_remessa_banco_bb')::int as n`
+        : sql<{ n: number }>`select nextval('seq_remessa_banco_itau')::int as n`).execute(trx)).rows[0].n;
       const usados = new Set(((await trx.selectFrom('remessas_boletos').select('nomearquivoremessa')
         .where('nomebanco', '=', nomeBanco)
         .where(sql`extract(year from dtgeracao at time zone 'America/Sao_Paulo')`, '=', Number(aa))
         .execute()) as Array<{ nomearquivoremessa: string | null }>).map((r) => String(r.nomearquivoremessa ?? '')));
+      // o contador do legado é por banco, mas o NOME não carrega o banco: em modo teste ('.TST') dois bancos
+      // colidiriam no unique da tabela — então os nomes já gravados na empresa também entram no conjunto.
+      for (const r of (await trx.selectFrom('arquivo_remessa_areceber').select('nomearquivo')
+        .where('codempresa', '=', emp).execute()) as Array<{ nomearquivo: string }>) usados.add(r.nomearquivo);
       let nomearquivo = '';
       for (let cont = 1; cont <= 99 && !nomearquivo; cont++) {
         const cand = `CB${dd}${mm}${String(cont).padStart(2, '0')}.${ext}`;
         if (!usados.has(cand)) nomearquivo = cand;
       }
       if (!nomearquivo) throw new BusinessRuleError('REMESSAS_DO_DIA_ESGOTADAS', { dia: `${dd}/${mm}` });
+
+      // mensagem do boleto (352-391 no BB): o VALOR bate 563/563 com OBS_BOLETO[0..40] da config, mas o
+      // OBS_BOLETO não aparece em nenhum fonte legado (o texto do legado sai de GerarInstrucao por título) —
+      // procedência por VALOR, não por regra. Os placeholders `$(Multa)`/`$(Juros)` NÃO são expandidos pelo
+      // legado, então são removidos aqui: sem isso o literal '$(MULTA)' poderia ir ao banco.
+      const mensagemBoleto = String(conf.obs_boleto ?? '').replace(/\$\([^)]*\)/g, '').replace(/[\r\n]+/g, ' ').trim();
 
       // 5) o arquivo. Itaú 400: agência 4 dígitos, conta 5 + DAC 1 — validado, NUNCA truncado (o legado tem a
       //    mesma recusa: "Nro. de Conta / Dígito Verificador inválido para o banco Itaú", uConfBoleto.pas:1851).
@@ -257,22 +286,38 @@ export class CnabRemessaService {
       const ctaRaw = String(conta.nroconta ?? '');
       const ctaNumRaw = ctaRaw.slice(0, Math.max(0, ctaRaw.length - 2));
       const ctaDvRaw = ctaRaw.slice(-1);
-      if (!/^\d{1,5}$/.test(ctaNumRaw) || !/^\d$/.test(ctaDvRaw)) {
-        throw new BusinessRuleError('CONTA_INVALIDA_ITAU', { nroconta: conta.nroconta, esperado: 'até 5 dígitos + DAC' });
+      const maxCta = bb ? 8 : 5; // o campo da conta tem 8 posições no BB e 5 no Itaú
+      if (!new RegExp(`^\\d{1,${maxCta}}$`).test(ctaNumRaw) || !/^\d$/.test(ctaDvRaw)) {
+        throw new BusinessRuleError('CONTA_INVALIDA', { nroconta: conta.nroconta, esperado: `até ${maxCta} dígitos + dígito verificador` });
       }
-      const ctaNum = ctaNumRaw.padStart(5, '0');
+      const ctaNum = ctaNumRaw.padStart(maxCta, '0'); // Itaú: 5 · BB: 8 (golden '00059052')
       const ctaDv = ctaDvRaw;
-      const carteira = numExato(conta.carteira_cobranca ?? 109, 3, 'carteira de cobrança da conta');
+      // o BB leva o DV da AGÊNCIA no arquivo (5º dígito do cadastro: '2591-7' → ag '2591' + DV '7')
+      const agDv = dig(conf.agencia).slice(4, 5) || '0';
+      // carteira: no Itaú o golden é 109 em 3.785/3.787 (default seguro); no BB é '17' e um default silencioso
+      // sairia como '09' — então lá é obrigatória, como a variação (fold auditoria [MÉDIA]).
+      const carteira = bb
+        ? numExato(conta.carteira_cobranca, 3, 'carteira de cobrança da conta (obrigatória no BB)')
+        : numExato(conta.carteira_cobranca ?? 109, 3, 'carteira de cobrança da conta');
       const linhas: string[] = [];
-      // HEADER (tipo 0) — posições confirmadas no golden
-      linhas.push(
-        '0' + '1' + 'REMESSA' + '01' + alfa('COBRANCA', 15) +
-        ag + '00' + ctaNum + ctaDv + ' '.repeat(8) +
-        alfa(empresa?.razao, 30) + '341' + alfa('BANCO ITAU SA', 15) + `${dd}${mm}${aa.slice(2)}` +
-        ' '.repeat(294) + '000001',
+      // HEADER (tipo 0) — posições confirmadas no golden de cada banco
+      const dataGer = `${dd}${mm}${aa.slice(2)}`;
+      linhas.push(bb
+        // BB: ag(4)+DV+conta(8)+DV+'000000'+cedente(30)+'001'+nome(15)+data+**sequencial de 7 dígitos**(101-107)
+        ? '0' + '1' + 'REMESSA' + '01' + alfa('COBRANCA', 15) +
+          ag + agDv + ctaNum + ctaDv + '000000' +
+          alfa(empresa?.razao, 30) + '001' + alfa('BANCO DO BRASIL', 15) + dataGer +
+          String(seqBanco).padStart(7, '0') +          // 101-107 sequencial da remessa (= CODREMESSABANCO)
+          ' '.repeat(22) +                             // 108-129
+          numExato(conta.convenio, 7, 'convênio da conta bancária') + // 130-136 (const nos 55 headers do golden)
+          ' '.repeat(258) + '000001'
+        : '0' + '1' + 'REMESSA' + '01' + alfa('COBRANCA', 15) +
+          ag + '00' + ctaNum + ctaDv + ' '.repeat(8) +
+          alfa(empresa?.razao, 30) + '341' + alfa('BANCO ITAU SA', 15) + dataGer +
+          ' '.repeat(294) + '000001',
       );
       // DETALHES (tipo 1)
-      titulos.forEach((t, i) => {
+      titulos.forEach((t) => {
         const docSac = dig(t.cnpj_cpf);
         const tipoSac = docSac.length > 11 ? '02' : '01';
         const docEmp = dig(empresa?.cnpj);
@@ -281,6 +326,42 @@ export class CnabRemessaService {
         // o golden preserva o espaço duplo ('AV CAXAMBU  QUADRA51 LOTE 18'). Diferia em 86% das linhas.
         const nro = Number(t.numero) ? String(t.numero) : (String(t.numero ?? '').trim() && String(t.numero) !== '0' ? String(t.numero) : '');
         const endereco = `${String(t.endereco ?? '')} ${nro} ${String(t.complemento ?? '')}`;
+        // o BB monta o endereço com VÍRGULA e com trim do logradouro (563/563 do golden; a junção é do ACBr e
+        // é por banco — o Itaú usa espaço). O cadastro real tem logradouro com espaço à esquerda.
+        const enderecoBb = `${String(t.endereco ?? '').trim()}, ${nro}, ${String(t.complemento ?? '')}`;
+        if (bb) {
+          // BANCO DO BRASIL 400 — registro 7 (título) + registro 5 (complemento, CONSTANTE no golden).
+          // LIMITE DECLARADO: convênio de 7 dígitos + nosso número de 10 (o layout BB casa os dois tamanhos).
+          // 100% do golden é convênio 3500121; convênio de 4/6 dígitos exige outro par e é corte-3.
+          const conv = numExato(conta.convenio, 7, 'convênio da conta bancária');
+          const variacao = numExato(conta.variacao_carteira, 3, 'variação da carteira (obrigatória no BB)');
+          const nn10 = numExato(t.nosso_numero_boleto ?? t.codrcb, 10, `nosso número do título ${t.codrcb}`);
+          linhas.push(
+            '7' + (docEmp.length > 11 ? '02' : '01') + docEmp.padStart(14, '0') +
+            ag + agDv + ctaNum + ctaDv +               // 18-21 ag · 22 DV · 23-30 conta · 31 DV
+            conv +                                     // 32-38 convênio
+            alfa(seuNumero(t), 25) +                   // 39-63 = SEU NÚMERO completo (:2723; o 111-120 é ele truncado em 10)
+            conv + nn10 +                              // 64-80 nosso número = convênio + 10 dígitos
+            '0000' + ' '.repeat(7) +                   // 81-84 · 85-91
+            variacao + '0'.repeat(7) + ' '.repeat(5) + // 92-94 variação · 95-101 · 102-106
+            carteira.slice(-2) +                       // 107-108 carteira ('17')
+            '01' +                                     // 109-110 ocorrência: remessa
+            alfa(seuNumero(t), 10) +                   // 111-120 seu número
+            ddmmaa6(t.venc_fmt) + cent(t.valor) +      // 121-126 · 127-139
+            '001' + '0000' + ' ' +                     // 140-142 banco · 143-146 · 147
+            '01' + 'N' + ddmmaa6(t.emissao_fmt) +      // 148-149 espécie · 150 aceite · 151-156 emissão
+            '0'.repeat(62) +                           // 157-218 (instruções/mora/desconto/IOF/abatimento)
+            tipoSac + numExato(docSac, 14, `CNPJ/CPF do sacado do título ${t.codrcb}`) +
+            alfa(`${t.codparceiro} - ${String(t.razao ?? '')}`, 37) + ' '.repeat(3) + // 235-271 nome (37) + 272-274 brancos
+            alfa(enderecoBb, 40) + alfa(t.bairro, 12) + num(t.cep, 8) + // CEP ausente vira zeros, como no legado
+            alfa(t.cidade, 15) + alfa(t.uf, 2) +
+            alfa(mensagemBoleto, 40) +                 // 352-391 mensagem
+            ' '.repeat(3) + String(linhas.length + 1).padStart(6, '0'),
+          );
+          // registro 5: constante em 1.343/1.343 do golden ('5' + '999' + 18 zeros + brancos)
+          linhas.push('5' + '999' + '0'.repeat(18) + ' '.repeat(372) + String(linhas.length + 1).padStart(6, '0'));
+          return;
+        }
         linhas.push(
           '1' + (docEmp.length > 11 ? '02' : '01') + docEmp.padStart(14, '0') +
           ag + '00' + ctaNum + ctaDv + ' '.repeat(4) +
@@ -303,7 +384,7 @@ export class CnabRemessaService {
           alfa(`${t.codparceiro} - ${String(t.razao ?? '')}`, 30) + ' '.repeat(10) + // 235-264: CODPARCEIRO - RAZÃO (:2794)
           alfa(endereco, 40) + alfa(t.bairro, 12) + num(t.cep, 8) + alfa(t.cidade, 15) + alfa(t.uf, 2) +
           ' '.repeat(30) + ' '.repeat(4) + '00' + '0'.repeat(6) + ' ' +
-          String(i + 2).padStart(6, '0'),
+          String(linhas.length + 1).padStart(6, '0'),
         );
       });
       // TRAILER (tipo 9): sequencial = total de registros
@@ -322,9 +403,8 @@ export class CnabRemessaService {
         .values(titulos.map((t) => ({ cod_remessa_areceber: codRem, codrcb: Number(t.codrcb) }))).execute();
       // o log da remessa (pai) + 1 linha por título (filho) — é de REMESSAS_BOLETOS_CONTAS que o legado lê a
       // consulta e o cancelamento (corte-2). CODREMESSABANCO é o sequencial GLOBAL do banco (GetID no legado).
-      const seqBanco = (await sql<{ n: number }>`select nextval('seq_remessa_banco_itau')::int as n`.execute(trx)).rows[0].n;
       const log = (await trx.insertInto('remessas_boletos').values({
-        nomearquivoremessa: nomearquivo, tiporemessa: 'E', codbanco: 341, nomebanco: nomeBanco,
+        nomearquivoremessa: nomearquivo, tiporemessa: 'E', codbanco: Number(febraban), nomebanco: nomeBanco,
         nroconta: String(conta.nroconta ?? ''), agencia: String(conf.agencia ?? ''), codremessabanco: seqBanco,
       }).returning('codremessa').executeTakeFirstOrThrow()) as { codremessa: number };
       await trx.insertInto('remessas_boletos_contas')
@@ -390,7 +470,7 @@ export function validarCnab400(arquivo: string): string[] {
   if (!linhas.length) return ['arquivo vazio'];
   linhas.forEach((l, i) => {
     if (l.length !== 400) erros.push(`linha ${i + 1}: ${l.length} chars (o CNAB 400 exige 400)`);
-    if (!['0', '1', '9'].includes(l[0])) erros.push(`linha ${i + 1}: tipo de registro '${l[0]}' desconhecido (0/1/9)`);
+    if (!['0', '1', '5', '7', '9'].includes(l[0])) erros.push(`linha ${i + 1}: tipo de registro '${l[0]}' desconhecido (0/1/5/7/9)`);
     const seq = l.slice(394, 400);
     if (!/^\d{6}$/.test(seq)) erros.push(`linha ${i + 1}: sequencial '${seq}' não numérico`);
     else if (Number(seq) !== i + 1) erros.push(`linha ${i + 1}: sequencial ${Number(seq)} fora de ordem (esperado ${i + 1})`);
@@ -401,7 +481,8 @@ export function validarCnab400(arquivo: string): string[] {
     erros.push(`trailer: sequencial ${Number(linhas[linhas.length - 1].slice(394, 400))} ≠ total de registros ${linhas.length}`);
   }
   for (const [i, l] of linhas.entries()) {
-    if (l[0] !== '1') continue;
+    // os campos de negócio conferidos ficam nas MESMAS posições nos dois layouts (Itaú detalhe '1', BB '7')
+    if (l[0] !== '1' && l[0] !== '7') continue;
     const venc = l.slice(120, 126);
     const dia = Number(venc.slice(0, 2)); const mes = Number(venc.slice(2, 4));
     if (!/^\d{6}$/.test(venc) || dia < 1 || dia > 31 || mes < 1 || mes > 12) {
@@ -409,7 +490,9 @@ export function validarCnab400(arquivo: string): string[] {
     }
     if (!/^\d{13}$/.test(l.slice(126, 139))) erros.push(`linha ${i + 1}: valor '${l.slice(126, 139)}' não numérico`);
     if (Number(l.slice(126, 139)) <= 0) erros.push(`linha ${i + 1}: valor do título zerado`);
-    if (!/^\d{8}$/.test(l.slice(62, 70))) erros.push(`linha ${i + 1}: nosso número '${l.slice(62, 70)}' inválido`);
+    // nosso número: 8 dígitos no Itaú (63-70) e 17 no BB (convênio + 10) — nos dois casos tudo numérico
+    const nnCampo = l[0] === '7' ? l.slice(63, 80) : l.slice(62, 70);
+    if (!/^\d+$/.test(nnCampo)) erros.push(`linha ${i + 1}: nosso número '${nnCampo}' inválido`);
     if (dig(l.slice(220, 234)).replace(/^0+/, '') === '') erros.push(`linha ${i + 1}: sacado sem CNPJ/CPF`);
   }
   return erros;

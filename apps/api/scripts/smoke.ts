@@ -6388,6 +6388,9 @@ async function main() {
         // Cenário: 2 títulos do parceiro 1 (COBRADOR PADRAO LTDA — o único do seed com CNPJ no endereço),
         // 1.603,48 e 250,00, venc. 10/03/2026 (o valor é o do título 65706 do golden, p/ comparar o campo).
         const CNB = 'cobranca/cnab';
+        // o banco do LAYOUT vem de bancos.codbcoblt (o número FEBRABAN) — o seed não preenche
+        await pgRv.query(`UPDATE bancos SET codbcoblt=341 WHERE codbco=1`);
+        await pgRv.query(`UPDATE bancos SET codbcoblt=99  WHERE codbco=2`); // banco NÃO suportado (guard)
         await pgRv.query(`INSERT INTO conf_integ_bancaria (codconf, codempresa, codbco, agencia, nrconta, codfornbco, layoutremessa, tipo_integ_bancaria, sequenciaremessa, arqteste)
           VALUES (9001, 1, 1, '3034', '23055-1', '341', 'C400', 'B', 0, 'N') ON CONFLICT (codconf) DO NOTHING`);
         const contaCnab = (await pgRv.query(`INSERT INTO contas_bancarias (codbco, idempresa, nroconta, carteira_cobranca, variacao_carteira, tipo_cobranca, ativo)
@@ -6454,6 +6457,71 @@ async function main() {
             log: cnLog, tit: tit1 && { r: tit1.registro_arq_remessa, nn: tit1.nosso_numero_boleto }, reemitir: cnReemitir.status,
             guards: { outroBco: cnOutroBco.status, zero: cnZero.status, semVenc: cnSemVenc.status },
             filhos: cnFilhos?.n, login: cnLoginTxt?.login_arq_remessa, seqBanco: cnGerJ.sequencia_banco });
+
+        // 47at.2) CORTE-2a: BANCO DO BRASIL 400 — registro 7 (título) + registro 5 (complemento CONSTANTE).
+        // Golden (1.343 detalhes): convênio 3500121 · nosso número = convênio + CODRCB(10) em 17 posições ·
+        // variação '019' · carteira '17' (107-108) · ocorrência '01' · banco '001' · espécie '01' · aceite 'N' ·
+        // nome do sacado com prefixo CODPARCEIRO em 40 posições · mensagem do OBS_BOLETO em 352-391 ·
+        // sequencial de 7 dígitos no header (101-107) = o codremessabanco · extensão .REM.
+        await pgRv.query(`UPDATE bancos SET codbcoblt=1 WHERE codbco=3`); // o 3 do seed faz o papel do BB
+        await pgRv.query(`INSERT INTO conf_integ_bancaria (codconf, codempresa, codbco, agencia, nrconta, codfornbco, layoutremessa, tipo_integ_bancaria, obs_boleto, arqteste)
+          VALUES (9002, 1, 3, '2591-7', '59052-5', '001', 'C400', 'B', ' APOS O VENCIMENTO COBRAR MULTA DE ...... $(Multa)', 'N') ON CONFLICT (codconf) DO NOTHING`);
+        // parceiro com RAZÃO LONGA e endereço completo: é o que expõe o corte do nome em 37 (o campo 272-274 é
+        // reservado) e a junção do endereço com vírgula. Sem isso os folds ALTA 3 e 4 ficariam invisíveis.
+        await pgRv.query(`INSERT INTO parceiros (codparceiro, idempresa, razao, fantasia, tipofj, codend, cli, frn, fun, con, tolerancia)
+          VALUES (990990, 1, 'AVENIDA PRODUTOS ALIMENTICIOS E SACOLAO LTDA', 'AVENIDA', 'J', 990990, 'S', 'N', 'N', 'N', 0) ON CONFLICT (codparceiro) DO NOTHING`);
+        await pgRv.query(`INSERT INTO parceiros_end (codend, codparceiro, endereco, numero, complemento, bairro, cidade, uf, cep, cnpj_cpf, endereco_padrao, ativado)
+          VALUES (990990, 990990, ' RUA IVETE CORDEIRO DA SILVA', '886', '', 'CENTRO', 'UBERLANDIA', 'MG', '38400454', '11222333000199', 'S', 'S') ON CONFLICT (codend) DO NOTHING`);
+        const contaBb = (await pgRv.query(`INSERT INTO contas_bancarias (codbco, idempresa, nroconta, convenio, carteira_cobranca, variacao_carteira, tipo_cobranca, ativo)
+          VALUES (3, 1, '59052-5', 3500121, 17, 19, 1, 'S') RETURNING codconta`)).rows[0] as any;
+        const rcbBb = (await pgRv.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, 990990, 'IMPO 01 04 004/004', '2026-01-23', '2026-02-20', 907.20, 'N', 'DP') RETURNING codrcb`)).rows[0] as any;
+        await fetch(`${base}/${CNB}/emitir`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: [rcbBb.codrcb] }) });
+        const bbGer = await fetch(`${base}/${CNB}/gerar`, { method: 'POST', headers: H, body: JSON.stringify({ codconf: 9002, codconta: contaBb.codconta, codrcbs: [rcbBb.codrcb] }) });
+        const bbJ = (await bbGer.json().catch(() => ({}))) as any;
+        const bbArq = (await (await fetch(`${base}/${CNB}/arquivo`, { method: 'POST', headers: H, body: JSON.stringify({ cod_remessa_areceber: bbJ.cod_remessa_areceber }) })).json().catch(() => ({}))) as any;
+        const bbL = String(bbArq.arquivo ?? '').replace(/\r\n/g, '\n').split('\n').filter((l: string) => l.length > 0);
+        const bbH = bbL[0] ?? ''; const bb7 = bbL[1] ?? ''; const bb5 = bbL[2] ?? ''; const bbT = bbL[bbL.length - 1] ?? '';
+        const nn17 = `3500121${String(rcbBb.codrcb).padStart(10, '0')}`;
+        check('CNAB BB 400 (corte-2a): 4 registros de 400 chars (header 0 + detalhe 7 + complemento 5 + trailer 9) · header ag 2591-7 + conta 00059052-5 + 001 BANCO DO BRASIL + sequencial de 7 dígitos = codremessabanco · detalhe 7: convênio 3500121, nosso número = convênio+CODRCB (17), variação 019, carteira 17 em 107-108, ocorrência 01, venc 200226, valor 0000000090720, banco 001, espécie 01, aceite N, sacado "1 - COBRADOR..." em 40 posições, mensagem do OBS_BOLETO em 352-391 · registro 5 CONSTANTE ("5"+"999"+18 zeros) · convênio no header 130-136 · seu número completo em 39-63 e truncado em 111-120 · nome em 37 + 3 brancos reservados · endereço com vírgula e trim · mensagem sem o placeholder · nome .REM · validação sem erros',
+          bbGer.status === 200 && bbL.length === 4 && bbL.every((l: string) => l.length === 400)
+          && bbH.startsWith('01REMESSA01COBRANCA') && bbH.slice(26, 31) === '25917' && bbH.slice(31, 40) === '000590525'
+          && bbH.slice(40, 46) === '000000' && bbH.slice(76, 79) === '001' && bbH.slice(79, 94) === 'BANCO DO BRASIL'
+          && bbH.slice(100, 107) === String(bbJ.sequencia_banco).padStart(7, '0')
+          && bbH.slice(107, 129) === ' '.repeat(22) && bbH.slice(129, 136) === '3500121' // 130-136 convênio (fold ALTA)
+          && bbH.slice(394) === '000001'
+          && bb7[0] === '7' && bb7.slice(17, 22) === '25917' && bb7.slice(22, 31) === '000590525'
+          && bb7.slice(31, 38) === '3500121'
+          && bb7.slice(38, 63) === 'IMPO 01 04 004/004'.padEnd(25, ' ') // 39-63 = SEU NÚMERO completo (fold ALTA)
+          && bb7.slice(110, 120) === 'IMPO 01 04'                       // 111-120 = o mesmo, truncado em 10
+          && bb7.slice(63, 80) === nn17 && bb7.slice(91, 94) === '019' && bb7.slice(106, 108) === '17'
+          && bb7.slice(108, 110) === '01' && bb7.slice(120, 126) === '200226' && bb7.slice(126, 139) === '0000000090720'
+          && bb7.slice(139, 142) === '001' && bb7.slice(147, 149) === '01' && bb7[149] === 'N'
+          && bb7.slice(156, 218) === '0'.repeat(62) && bb7.slice(218, 220) === '02'
+          // nome do sacado: 37 posições + 272-274 SEMPRE brancos (a razão longa é cortada em 37)
+          && bb7.slice(234, 271) === '990990 - AVENIDA PRODUTOS ALIMENTICIO' && bb7.slice(271, 274) === '   '
+          // endereço com VÍRGULA e logradouro sem espaço à esquerda (fold ALTA)
+          && bb7.slice(274, 314) === 'RUA IVETE CORDEIRO DA SILVA, 886, '.padEnd(40, ' ')
+          && bb7.slice(326, 334) === '38400454'
+          && bb7.slice(351, 391) === 'APOS O VENCIMENTO COBRAR MULTA DE ......'  // sem o placeholder $(Multa) && bb7.slice(394) === '000002'
+          && bb5 === `5999${'0'.repeat(18)}${' '.repeat(372)}000003`
+          && bbT[0] === '9' && bbT.slice(394) === '000004'
+          && String(bbJ.nomearquivo ?? '').endsWith('.REM') && (bbArq.validacao?.erros?.length ?? -1) === 0,
+          { st: bbGer.status, regs: bbL.length, tam: Array.from(new Set(bbL.map((l: string) => l.length))),
+            nome: bbJ.nomearquivo, h: bbH.slice(0, 50), h101: bbH.slice(100, 107), seq: bbJ.sequencia_banco,
+            d7a: bb7.slice(0, 40), d7b: bb7.slice(60, 160), d7c: bb7.slice(230, 280), d7d: bb7.slice(345, 400),
+            r5: bb5.slice(0, 30), val: bbArq.validacao?.erros });
+
+        const bbLog = (await pgRv.query(`SELECT codremessa FROM remessas_boletos WHERE nomearquivoremessa=$1`, [bbJ.nomearquivo])).rows[0] as any;
+        await pgRv.query(`DELETE FROM remessas_boletos_contas WHERE codremessa=$1`, [bbLog?.codremessa ?? 0]);
+        await pgRv.query(`DELETE FROM remessas_boletos WHERE nomearquivoremessa=$1`, [bbJ.nomearquivo]);
+        await pgRv.query(`DELETE FROM ref_remessa_areceber WHERE cod_remessa_areceber=$1`, [bbJ.cod_remessa_areceber]);
+        await pgRv.query(`DELETE FROM arquivo_remessa_areceber WHERE cod_remessa_areceber=$1`, [bbJ.cod_remessa_areceber]);
+        await pgRv.query(`DELETE FROM areceber WHERE codrcb=$1`, [rcbBb.codrcb]);
+        await pgRv.query(`DELETE FROM contas_bancarias WHERE codconta=$1`, [contaBb.codconta]);
+        await pgRv.query(`DELETE FROM conf_integ_bancaria WHERE codconf=9002`);
+        await pgRv.query(`DELETE FROM parceiros_end WHERE codend=990990`);
+        await pgRv.query(`DELETE FROM parceiros WHERE codparceiro=990990`);
 
         await pgRv.query(`DELETE FROM ref_remessa_areceber WHERE cod_remessa_areceber=$1`, [cnGerJ.cod_remessa_areceber]);
         await pgRv.query(`DELETE FROM remessas_boletos_contas WHERE codremessa=$1`, [cnLog?.codremessa ?? 0]);
