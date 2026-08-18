@@ -38,6 +38,7 @@ export function CnabRemessaPage() {
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [remessas, setRemessas] = useState<Linha[]>([]);
+  const [boletos, setBoletos] = useState<Linha[] | null>(null);
   const [retorno, setRetorno] = useState<{ banco: number; data_baixa: string | null; totais: Record<string, number>; propostas: Linha[] } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -99,6 +100,18 @@ export function CnabRemessaPage() {
     } catch (e) { mensagem.erro(e); }
   };
 
+  /** BOLETO: nosso número com DV, código de barras e linha digitável (para conferir/copiar). */
+  const verBoleto = async () => {
+    if (!sel.size) return mensagem.erro(new Error('Selecione ao menos um título.'));
+    if (!codconf || !codconta) return mensagem.erro(new Error('Informe a configuração e a conta bancária.'));
+    try {
+      const r = await post<{ banco: string; boletos: Linha[] }>('/cobranca/cnab/boleto', {
+        codconf: Number(codconf), codconta: Number(codconta), codrcbs: Array.from(sel),
+      });
+      setBoletos(r.boletos);
+    } catch (e) { mensagem.erro(e); }
+  };
+
   /** RETORNO: lê o arquivo do banco e mostra a PROPOSTA de baixa (como no legado, quem grava é o operador). */
   const importarRetorno = async (file: File) => {
     try {
@@ -128,6 +141,7 @@ export function CnabRemessaPage() {
         <Button label="&Consultar" variant="soft" disabled={busy} onClick={() => void consultar()} />
         <Button label="&Emitir boleto" variant="soft" disabled={busy || !sel.size} onClick={() => void emitir()} />
         <Button label="&Gerar remessa" variant="soft" disabled={busy || !sel.size} onClick={() => void gerar('E')} />
+        <Button label="&Ver boleto" variant="ghost" disabled={busy || !sel.size} onClick={() => void verBoleto()} />
         <Button label="Alterar &vencimento" variant="ghost" disabled={busy || !sel.size} onClick={() => void gerar('AV')} />
         <Button label="&Cancelar no banco" variant="ghost" disabled={busy || !sel.size} onClick={() => void gerar('C')} />
         <Button label="&Remessas geradas" variant="ghost" disabled={busy} onClick={() => void listarRemessas()} />
@@ -176,6 +190,26 @@ export function CnabRemessaPage() {
           </tbody>
         </table>
       </div>
+
+      {boletos && (
+        <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <div className="flex items-center justify-between">
+            <div className="text-title-sm font-semibold">Boleto — linha digitável e código de barras</div>
+            <button className="underline text-body-sm" onClick={() => setBoletos(null)}>fechar</button>
+          </div>
+          {boletos.map((b) => (
+            <div key={String(b.codrcb)} className="flex flex-col gap-1 border-t border-border pt-pad-xs">
+              <div className="text-body-sm">
+                Título {String(b.codrcb)} · {String(b.razao ?? '')} · venc. {dia(b.vencimento)} · {brl(b.valor)}
+                <span className="ml-2 text-fg-muted">nosso nº {String(b.nosso_numero)}{b.nosso_numero_dv != null ? `-${String(b.nosso_numero_dv)}` : ''}</span>
+              </div>
+              <div className="font-mono text-body-sm tabular-nums select-all">{String(b.linha_digitavel)}</div>
+              <div className="font-mono text-body-xs text-fg-muted tabular-nums select-all">{String(b.codigo_barras)}</div>
+            </div>
+          ))}
+          <small className="text-fg-muted">Confira a linha digitável antes de enviar a remessa; a impressão do boleto usa o botão de imprimir da tela.</small>
+        </div>
+      )}
 
       {retorno && (
         <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">

@@ -52,3 +52,11 @@ export const cnabRetornoSchema = z.object({
   arquivo: z.string().min(1, 'Informe o conteúdo do arquivo de retorno.').max(4_000_000),
 });
 export type CnabRetornoDto = z.infer<typeof cnabRetornoSchema>;
+
+/** BOLETO: nosso número com DV, código de barras e linha digitável dos títulos selecionados. */
+export const cnabBoletoSchema = z.object({
+  codconf: z.coerce.number().int().positive(),
+  codconta: z.coerce.number().int().positive(),
+  codrcbs: z.array(z.coerce.number().int().positive()).min(1, 'Selecione ao menos um título.').max(500),
+});
+export type CnabBoletoDto = z.infer<typeof cnabBoletoSchema>;

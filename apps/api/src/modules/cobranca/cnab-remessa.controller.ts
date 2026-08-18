@@ -1,7 +1,7 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
 import {
-  cnabTitulosSchema, cnabEmitirSchema, cnabGerarSchema, cnabRemessasSchema, cnabArquivoSchema, cnabRetornoSchema,
-  type CnabTitulosDto, type CnabEmitirDto, type CnabGerarDto, type CnabRemessasDto, type CnabArquivoDto, type CnabRetornoDto,
+  cnabTitulosSchema, cnabEmitirSchema, cnabGerarSchema, cnabRemessasSchema, cnabArquivoSchema, cnabRetornoSchema, cnabBoletoSchema,
+  type CnabTitulosDto, type CnabEmitirDto, type CnabGerarDto, type CnabRemessasDto, type CnabArquivoDto, type CnabRetornoDto, type CnabBoletoDto,
 } from '@apollo/shared';
 import { CnabRemessaService } from './cnab-remessa.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -40,6 +40,13 @@ export class CnabRemessaController {
   @RequerAcesso('FRMCONFBOLETO', 'FRMCONFBOLETO')
   remessas(@Body(new ZodValidationPipe(cnabRemessasSchema)) dto: CnabRemessasDto) {
     return this.svc.remessas(dto);
+  }
+
+  @Post('boleto')
+  @HttpCode(200)
+  @RequerAcesso('FRMCONFBOLETO', 'BTNBOLETO')
+  boleto(@Body(new ZodValidationPipe(cnabBoletoSchema)) dto: CnabBoletoDto) {
+    return this.svc.boleto(dto);
   }
 
   @Post('retorno')

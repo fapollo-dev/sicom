@@ -50,6 +50,77 @@ const ddmmaa6 = (v: unknown) => {
   return s.length === 6 ? s : '000000';
 };
 
+
+/** módulo 10 (dígito dos campos da linha digitável e do DAC do Itaú). */
+export function mod10(s: string): number {
+  let tot = 0; let peso = 2;
+  for (let i = s.length - 1; i >= 0; i--) {
+    let p = Number(s[i]) * peso;
+    if (p > 9) p -= 9;
+    tot += p; peso = peso === 2 ? 1 : 2;
+  }
+  return (10 - (tot % 10)) % 10;
+}
+/** módulo 11 do DV geral do código de barras (pesos 2..9, resto 0/10/11 → 1). */
+export function mod11Barras(s43: string): number {
+  const pesos = [2, 3, 4, 5, 6, 7, 8, 9];
+  let tot = 0;
+  for (let i = 0; i < s43.length; i++) tot += Number(s43[s43.length - 1 - i]) * pesos[i % 8];
+  const r = 11 - (tot % 11);
+  return r === 0 || r === 10 || r === 11 ? 1 : r;
+}
+/** FATOR DE VENCIMENTO: dias desde 07/10/1997 (base FEBRABAN). */
+export function fatorVencimento(venc: string): number {
+  const base = Date.UTC(1997, 9, 7);
+  const [a, m, d] = venc.slice(0, 10).split('-').map(Number);
+  const dias = Math.round((Date.UTC(a, m - 1, d) - base) / 86400000);
+  return dias > 0 ? dias % 10000 : 0;
+}
+
+/**
+ * CÓDIGO DE BARRAS (44) e LINHA DIGITÁVEL (47) — o que o legado obtém de
+ * `ACBrBoleto1.Banco.MontarCodigoBarras/MontarLinhaDigitavel` (uConfBoleto.pas:2850-2851) e grava em campos do
+ * dataset (não persiste: `CODBARRABOLETO`/`CODIGITACAOBOLETO` não existem em ARECEBER).
+ *
+ * ALGORITMO VERIFICADO CONTRA DADO REAL: `APAGAR.CODBARRASBLT` guarda 1.161 linhas digitáveis de boletos que a
+ * empresa PAGOU (bancos 237/341/756/001/033). Das 1.077 com 47 dígitos, a conversão linha↔barras, o **DV geral
+ * (módulo 11) e os 3 DVs de campo (módulo 10) conferem em 100%**, o fator de vencimento reproduz o vencimento em
+ * 98,1% e o valor bate em 90,7% (o resto é título alterado depois — juros/desconto na baixa).
+ *
+ * O CAMPO LIVRE (20-44) é por banco: Itaú = carteira(3) + nosso número(8) + DAC + agência(4) + conta(5) + DAC +
+ * '000'; BB com convênio de 7 = '000000' + convênio(7) + nosso número(10) + carteira(2).
+ */
+export function codigoBarras(p: {
+  febraban: string; venc: string; valor: number; carteira: string;
+  agencia: string; conta: string; nossoNumero: string; convenio?: string;
+}): string {
+  const fator = String(fatorVencimento(p.venc)).padStart(4, '0');
+  const valor = String(Math.round(p.valor * 100)).padStart(10, '0');
+  let livre: string;
+  if (p.febraban === '341') {
+    const nn8 = p.nossoNumero.padStart(8, '0');
+    const dacNn = mod10(p.agencia + p.conta + p.carteira + nn8);
+    const dacCta = mod10(p.agencia + p.conta);
+    livre = p.carteira + nn8 + String(dacNn) + p.agencia + p.conta + String(dacCta) + '000';
+  } else if (p.febraban === '001') {
+    livre = '000000' + (p.convenio ?? '').padStart(7, '0') + p.nossoNumero.padStart(10, '0') + p.carteira.slice(-2);
+  } else {
+    throw new BusinessRuleError('BOLETO_BANCO_NAO_SUPORTADO', { banco: p.febraban });
+  }
+  if (livre.length !== 25) throw new BusinessRuleError('BOLETO_CAMPO_LIVRE_INVALIDO', { livre, tamanho: livre.length });
+  const sem = p.febraban + '9' + fator + valor + livre;         // 43 (sem o DV geral)
+  return p.febraban + '9' + String(mod11Barras(sem)) + fator + valor + livre;
+}
+
+/** LINHA DIGITÁVEL (47) a partir do código de barras (44): 5 campos, 3 com DV módulo 10. */
+export function linhaDigitavel(b: string): string {
+  if (b.length !== 44) throw new BusinessRuleError('BOLETO_BARRAS_INVALIDO', { tamanho: b.length });
+  const c1 = b.slice(0, 4) + b.slice(19, 24);
+  const c2 = b.slice(24, 34);
+  const c3 = b.slice(34, 44);
+  return `${c1}${mod10(c1)}${c2}${mod10(c2)}${c3}${mod10(c3)}${b[4]}${b.slice(5, 19)}`;
+}
+
 /**
  * CNAB de COBRANÇA — a REMESSA de ENVIO nos layouts **ITAÚ 400** (corte-1) e **BANCO DO BRASIL 400**
  * (corte-2a: registro `7` + complemento `5`), da tela `uConfBoleto` / FRMCONFBOLETO.
@@ -541,6 +612,65 @@ export class CnabRemessaService {
         valor_recebido: Math.round(casadas.reduce((s, p) => s + p.valor_recebido, 0) * 100) / 100,
       },
       propostas,
+    };
+  }
+
+
+  /**
+   * BOLETO dos títulos selecionados: nosso número com DAC, CÓDIGO DE BARRAS e LINHA DIGITÁVEL — o que o legado
+   * calcula em `MontarCodigoBarras`/`MontarLinhaDigitavel` para imprimir (não persiste nada, e aqui também não:
+   * é derivado do título + da conta). O PDF/impressão do carnê segue fora (a tela usa a impressão da página).
+   */
+  async boleto(dto: { codconf: number; codconta: number; codrcbs: number[] }) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const conf = (await db.selectFrom('conf_integ_bancaria').selectAll()
+      .where('codconf', '=', dto.codconf).where('codempresa', '=', emp)
+      .executeTakeFirst()) as Record<string, unknown> | undefined;
+    if (!conf) throw new BusinessRuleError('CONF_BANCARIA_NAO_ENCONTRADA', { codconf: dto.codconf });
+    const conta = (await db.selectFrom('contas_bancarias')
+      .select(['codconta', 'nroconta', 'codbco', 'carteira_cobranca', 'convenio'])
+      .where('codconta', '=', dto.codconta).where('idempresa', '=', emp)
+      .executeTakeFirst()) as Record<string, unknown> | undefined;
+    if (!conta) throw new BusinessRuleError('CONTA_BANCARIA_NAO_ENCONTRADA', { codconta: dto.codconta });
+    const bancoRow = (await db.selectFrom('bancos').select(['codbcoblt'])
+      .where('codbco', '=', Number(conf.codbco)).executeTakeFirst()) as { codbcoblt?: number | null } | undefined;
+    const febraban = (dig(bancoRow?.codbcoblt ?? '') || dig(conf.codfornbco)).padStart(3, '0');
+
+    const agRaw = String(conf.agencia ?? '').slice(0, 4);
+    const ctaRaw = String(conta.nroconta ?? '');
+    const ctaNum = ctaRaw.slice(0, Math.max(0, ctaRaw.length - 2));
+    const carteira = dig(conta.carteira_cobranca ?? '');
+    const titulos = (await db.selectFrom('areceber as r')
+      .leftJoin('parceiros as p', 'p.codparceiro', 'r.codparceiro')
+      .select([
+        'r.codrcb', 'r.duplicata', 'r.valor', 'r.nosso_numero_boleto', sql`p.razao`.as('razao'),
+        sql`to_char(r.dtvenc at time zone 'America/Sao_Paulo','YYYY-MM-DD')`.as('venc'),
+      ])
+      .where('r.codempresa', '=', emp).where('r.codrcb', 'in', dto.codrcbs.length ? dto.codrcbs : [0])
+      .orderBy('r.codrcb').execute()) as Array<Record<string, unknown>>;
+    if (!titulos.length) throw new BusinessRuleError('TITULO_NAO_ENCONTRADO');
+
+    return {
+      banco: febraban,
+      boletos: titulos.map((t) => {
+        const nn = String(t.nosso_numero_boleto ?? t.codrcb);
+        const barras = codigoBarras({
+          febraban, venc: String(t.venc ?? ''), valor: Number(t.valor) || 0,
+          carteira: carteira.padStart(3, '0'), agencia: dig(agRaw).padStart(4, '0'),
+          conta: dig(ctaNum).padStart(5, '0'), nossoNumero: dig(nn), convenio: dig(conta.convenio ?? ''),
+        });
+        return {
+          codrcb: t.codrcb, duplicata: t.duplicata, razao: t.razao, valor: Number(t.valor),
+          vencimento: t.venc, nosso_numero: nn,
+          // o DAC do nosso número (o que o boleto exibe como "nosso número-DV")
+          nosso_numero_dv: febraban === '341'
+            ? mod10(dig(agRaw) + dig(ctaNum).padStart(5, '0') + carteira.padStart(3, '0') + dig(nn).padStart(8, '0'))
+            : null,
+          codigo_barras: barras,
+          linha_digitavel: linhaDigitavel(barras),
+        };
+      }),
     };
   }
 

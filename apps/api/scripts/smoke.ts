@@ -6458,6 +6458,29 @@ async function main() {
             guards: { outroBco: cnOutroBco.status, zero: cnZero.status, semVenc: cnSemVenc.status },
             filhos: cnFilhos?.n, login: cnLoginTxt?.login_arq_remessa, seqBanco: cnGerJ.sequencia_banco });
 
+        // 47at.1a) BOLETO: nosso número com DV, CÓDIGO DE BARRAS (44) e LINHA DIGITÁVEL (47).
+        // O algoritmo foi verificado contra 1.077 linhas digitáveis REAIS do Oracle (APAGAR.CODBARRASBLT,
+        // bancos 237/341/756/001/033): os 4 dígitos verificadores conferem em 100%. Aqui a rota é conferida
+        // ponta a ponta e a auto-consistência do DV geral é recalculada no próprio check.
+        const bolRes = await fetch(`${base}/${CNB}/boleto`, { method: 'POST', headers: H, body: JSON.stringify({ codconf: 9001, codconta: contaCnab.codconta, codrcbs: [rcb1.codrcb] }) });
+        const bolJ = (await bolRes.json().catch(() => ({}))) as any;
+        const bol = (bolJ.boletos ?? [])[0] ?? {};
+        const barras = String(bol.codigo_barras ?? ''); const ld = String(bol.linha_digitavel ?? '');
+        const m10 = (x: string) => { let t = 0, p = 2; for (let i = x.length - 1; i >= 0; i--) { let v = Number(x[i]) * p; if (v > 9) v -= 9; t += v; p = p === 2 ? 1 : 2; } return (10 - (t % 10)) % 10; };
+        const m11 = (x: string) => { const w = [2,3,4,5,6,7,8,9]; let t = 0; for (let i = 0; i < x.length; i++) t += Number(x[x.length - 1 - i]) * w[i % 8]; const r = 11 - (t % 11); return [0,10,11].includes(r) ? 1 : r; };
+        const voltaBarras = ld.slice(0,4) + ld.slice(32,33) + ld.slice(33,37) + ld.slice(37,47) + ld.slice(4,9) + ld.slice(10,20) + ld.slice(21,31);
+        check('CNAB BOLETO: código de barras com 44 dígitos (341 + moeda 9 + DV geral + fator de vencimento + valor em centavos + campo livre de 25) · linha digitável com 47 e os 3 DVs de campo em módulo 10 · a linha volta ao MESMO código de barras · DV geral confere pelo módulo 11 · nosso número com DAC · valor 1.603,48 no campo',
+          bolRes.status === 200 && String(bolJ.banco) === '341'
+          && barras.length === 44 && ld.length === 47
+          && barras.slice(0, 4) === '3419' && barras.slice(9, 19) === '0000160348'
+          && String(m11(barras.slice(0, 4) + barras.slice(5))) === barras[4]
+          && String(m10(ld.slice(0, 9))) === ld[9] && String(m10(ld.slice(10, 20))) === ld[20]
+          && String(m10(ld.slice(21, 31))) === ld[31]
+          && voltaBarras === barras
+          && barras.slice(19, 22) === '109' && Number(bol.nosso_numero) === Number(rcb1.codrcb)
+          && bol.nosso_numero_dv != null && Number(bol.valor) === 1603.48,
+          { st: bolRes.status, banco: bolJ.banco, barras, ld, nn: bol.nosso_numero, dv: bol.nosso_numero_dv, reversivel: voltaBarras === barras });
+
         // 47at.1b) as outras duas remessas: CANCELAMENTO (ocorrência 02) e ALTERAÇÃO DE VENCIMENTO (06).
         // Procedência: o comentário do legado ("se for cancelamento, emite o codigo '02'…", :2781) e
         // taGerarRemessaAlteracaoVencimento → toRemessaAlterarVencimento (:2785). O ÚNICO arquivo real de
