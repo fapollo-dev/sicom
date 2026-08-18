@@ -425,6 +425,100 @@ export class CnabRemessaService {
     });
   }
 
+
+  /**
+   * IMPORTA o arquivo de RETORNO do banco e devolve a PROPOSTA de baixa — fiel a
+   * `ProcessarArquivoRetorno` (UBaixaAreceber.pas:2596-2775): o legado NÃO baixa nada sozinho; ele preenche a
+   * grade da tela de baixa e o operador grava (a baixa em si já está migrada em `areceber-baixa`).
+   *
+   * A REGRA DO CLIENTE (é isto que se migra; o parse do leiaute é da lib ACBr):
+   *  · o BANCO é detectado por literais do header (:2635-2666): Itaú `pos 1='0'` + `80-89='BANCO ITAU'` ·
+   *    BB `pos 8='0'` + `103-117='BANCO DO BRASIL'` (ou `77-94='001BANCODOBRASIL'`) · Bradesco `80-87` ·
+   *    Sicoob `83-89='BANCOOB'` ou `1-3='756'`. Fora desses: erro (o legado lista exatamente esses 4).
+   *  · só entra boleto com **VALOR RECEBIDO > 0** (:2680).
+   *  · **nosso número → CODRCB**: `StrToInt(copy(NossoNumero, len-8, len))` (:2684) — os últimos 9 dígitos sem
+   *    zeros à esquerda; é a chave de casamento com o título.
+   *  · só títulos **NÃO QUITADOS** (:2703 `COALESCE(QUITADA,'N') <> 'S'`); nenhum encontrado → erro
+   *    "os boletos não foram encontrados no sistema ou já foram baixados".
+   *  · **ACREDESC = valor recebido − valor do documento** (:2727) — a diferença vira acréscimo/desconto.
+   *  · a **data da baixa** proposta é a DATA DO ARQUIVO (:2713).
+   *
+   * SEM GOLDEN (declarado): o Oracle guarda os arquivos de REMESSA, não os de retorno — nenhuma tabela de
+   * retorno de cobrança existe. As posições do detalhe do retorno Itaú 400 abaixo vêm do leiaute do banco (o
+   * mesmo que a ACBr implementa) e **precisam de certificação com um arquivo real no gate de cutover**; o que
+   * está coberto por teste aqui é a REGRA (detecção, filtro, casamento, diferença, data).
+   */
+  async importarRetorno(dto: { arquivo: string }) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const linhas = String(dto.arquivo ?? '').replace(/\r\n/g, '\n').split('\n').filter((l) => l.trim().length > 0);
+    if (!linhas.length) throw new BusinessRuleError('RETORNO_VAZIO');
+    const h = linhas[0];
+    const banco =
+      h[0] === '0' && h.slice(79, 89) === 'BANCO ITAU' ? 341
+      : (h[7] === '0' && h.slice(102, 117) === 'BANCO DO BRASIL') || h.slice(76, 94).replace(/\s/g, '') === '001BANCODOBRASIL' ? 1
+      : h[0] === '0' && h.slice(79, 87) === 'BRADESCO' ? 237
+      : (h[0] === '0' && h.slice(82, 89) === 'BANCOOB') || h.slice(0, 3) === '756' ? 756
+      : 0;
+    if (!banco) throw new BusinessRuleError('RETORNO_BANCO_NAO_RECONHECIDO');
+    if (banco !== 341) throw new BusinessRuleError('RETORNO_LAYOUT_NAO_SUPORTADO', { banco });
+
+    // data do arquivo: header do Itaú 400, posições 95-100 (DDMMAA) — a mesma do arquivo de remessa
+    const dArq = dig(h.slice(94, 100));
+    const dataArquivo = dArq.length === 6 ? `20${dArq.slice(4, 6)}-${dArq.slice(2, 4)}-${dArq.slice(0, 2)}` : null;
+
+    // detalhe do retorno Itaú 400 (leiaute do banco): nosso número 63-70 · ocorrência 109-110 ·
+    // data da ocorrência 111-116 · valor do título 153-165 · valor pago 253-265 · juros 266-278.
+    const boletos = linhas
+      .filter((l) => l.length >= 265 && l[0] === '1')
+      .map((l) => ({
+        nosso_numero: dig(l.slice(62, 70)),
+        ocorrencia: l.slice(108, 110),
+        data_ocorrencia: dig(l.slice(110, 116)),
+        valor_documento: Number(dig(l.slice(152, 165)) || 0) / 100,
+        valor_recebido: Number(dig(l.slice(252, 265)) || 0) / 100,
+        juros: l.length >= 278 ? Number(dig(l.slice(265, 278)) || 0) / 100 : 0,
+      }))
+      .filter((b) => b.valor_recebido > 0); // :2680 — só quem foi pago
+    if (!boletos.length) throw new BusinessRuleError('RETORNO_SEM_PAGAMENTO');
+
+    // nosso número → CODRCB (os últimos 9 dígitos, sem zeros à esquerda)
+    const codrcbs = Array.from(new Set(boletos.map((b) => Number(b.nosso_numero.slice(-9)) || 0).filter((n) => n > 0)));
+    const titulos = (await db.selectFrom('areceber as r')
+      .leftJoin('parceiros as p', 'p.codparceiro', 'r.codparceiro')
+      .select(['r.codrcb', 'r.duplicata', 'r.valor', 'r.dtvenc', 'r.nosso_numero_boleto', sql`p.razao`.as('razao')])
+      .where('r.codempresa', '=', emp).where('r.codrcb', 'in', codrcbs.length ? codrcbs : [0])
+      .where(sql`coalesce(r.quitada,'N')`, '<>', 'S') // :2703 — já baixado não volta
+      .execute()) as Array<Record<string, unknown>>;
+    if (!titulos.length) throw new BusinessRuleError('RETORNO_TITULOS_NAO_ENCONTRADOS', { codrcbs });
+
+    const porCod = new Map(titulos.map((t) => [Number(t.codrcb), t]));
+    const propostas = boletos.map((b) => {
+      const cod = Number(b.nosso_numero.slice(-9)) || 0;
+      const t = porCod.get(cod);
+      return {
+        ...b, codrcb: cod, encontrado: !!t,
+        duplicata: t?.duplicata ?? null, razao: t?.razao ?? null,
+        valor_titulo: t == null ? null : Number(t.valor),
+        // :2727 — a diferença entre o recebido e o documento é o acréscimo (positivo) ou desconto (negativo)
+        acredesc: Math.round((b.valor_recebido - b.valor_documento) * 100) / 100,
+      };
+    });
+    const casadas = propostas.filter((p) => p.encontrado);
+    return {
+      banco, data_arquivo: dataArquivo,
+      // a data da baixa proposta é a DO ARQUIVO (:2713)
+      data_baixa: dataArquivo,
+      totais: {
+        boletos_pagos: boletos.length,
+        casados: casadas.length,
+        nao_encontrados: propostas.length - casadas.length,
+        valor_recebido: Math.round(casadas.reduce((s, p) => s + p.valor_recebido, 0) * 100) / 100,
+      },
+      propostas,
+    };
+  }
+
   /** as remessas geradas (a grade de consulta) e o conteúdo de uma delas (o "baixar arquivo"). */
   async remessas(f: { de?: string; ate?: string }) {
     const emp = this.emp();

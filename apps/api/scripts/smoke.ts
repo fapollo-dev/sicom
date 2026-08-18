@@ -6512,6 +6512,42 @@ async function main() {
             d7a: bb7.slice(0, 40), d7b: bb7.slice(60, 160), d7c: bb7.slice(230, 280), d7d: bb7.slice(345, 400),
             r5: bb5.slice(0, 30), val: bbArq.validacao?.erros });
 
+        // 47at.3) RETORNO do banco → PROPOSTA de baixa (ProcessarArquivoRetorno, UBaixaAreceber.pas:2596).
+        // O que se certifica aqui é a REGRA do cliente (o parse do leiaute é da lib no legado e NÃO tem golden
+        // no Oracle — só as remessas são guardadas): detecção do banco pelo header · só boleto com valor
+        // RECEBIDO > 0 · nosso número → CODRCB (últimos 9 dígitos) · só título NÃO QUITADO · acréscimo/desconto
+        // = recebido − documento · data da baixa = data do arquivo.
+        // Arquivo sintético: header Itaú ('0' + ... + 'BANCO ITAU' em 80-89 + data 95-100) e 3 detalhes —
+        // o título do cenário (pago com R$ 10,00 de acréscimo), um pago de título INEXISTENTE e um NÃO pago.
+        const rcbRet = (await pgRv.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, 1, 'RET-001', '2026-02-01', '2026-03-01', 500.00, 'N', 'DP') RETURNING codrcb`)).rows[0] as any;
+        const rcbQuit = (await pgRv.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, 1, 'RET-002', '2026-02-01', '2026-03-01', 250.00, 'S', 'DP') RETURNING codrcb`)).rows[0] as any;
+        const linhaRet = (nn: number, vlrDoc: number, vlrPago: number) =>
+          ('1'.padEnd(62, ' ') + String(nn).padStart(8, '0') + ' '.repeat(38) + '06' + '010326'
+            + ' '.repeat(36) + String(Math.round(vlrDoc * 100)).padStart(13, '0')
+            + ' '.repeat(87) + String(Math.round(vlrPago * 100)).padStart(13, '0')
+            + '0'.repeat(13)).padEnd(400, ' ');
+        const hdrRet = ('0'.padEnd(79, ' ') + 'BANCO ITAU' + ' '.repeat(5) + '010326').padEnd(400, ' ');
+        const arqRet = [hdrRet, linhaRet(rcbRet.codrcb, 500, 510), linhaRet(999999, 100, 100), linhaRet(rcbQuit.codrcb, 250, 0)].join('\r\n');
+        const retRes = await fetch(`${base}/${CNB}/retorno`, { method: 'POST', headers: H, body: JSON.stringify({ arquivo: arqRet }) });
+        const retJ = (await retRes.json().catch(() => ({}))) as any;
+        const pRet = (retJ.propostas ?? []).find((x: any) => Number(x.codrcb) === Number(rcbRet.codrcb));
+        // banco não reconhecido → 422 · arquivo sem pagamento → 422
+        const retBco = await fetch(`${base}/${CNB}/retorno`, { method: 'POST', headers: H, body: JSON.stringify({ arquivo: 'X'.repeat(400) }) });
+        const retSemPg = await fetch(`${base}/${CNB}/retorno`, { method: 'POST', headers: H, body: JSON.stringify({ arquivo: [hdrRet, linhaRet(rcbRet.codrcb, 500, 0)].join('\r\n') }) });
+        check('CNAB RETORNO → proposta de baixa: banco Itaú detectado pelo header (80-89) · data da baixa = data do ARQUIVO (2026-03-01) · só boleto PAGO entra (o de valor 0 fica fora) · nosso número → CODRCB · acréscimo = recebido − documento (510−500 = 10,00) · título de outra empresa/inexistente vem marcado como não encontrado · título QUITADO não volta (o legado exige COALESCE(QUITADA)<>S) · header ilegível → 422 · arquivo sem pagamento → 422',
+          retRes.status === 200 && Number(retJ.banco) === 341 && retJ.data_baixa === '2026-03-01'
+          && Number(retJ.totais?.boletos_pagos) === 2 && Number(retJ.totais?.casados) === 1
+          && Number(retJ.totais?.nao_encontrados) === 1 && Number(retJ.totais?.valor_recebido) === 510
+          && !!pRet && Number(pRet.valor_recebido) === 510 && Number(pRet.valor_documento) === 500
+          && Number(pRet.acredesc) === 10 && pRet.duplicata === 'RET-001' && pRet.encontrado === true
+          && !(retJ.propostas ?? []).some((x: any) => Number(x.codrcb) === Number(rcbQuit.codrcb) && x.encontrado)
+          && retBco.status === 422 && retSemPg.status === 422,
+          { st: retRes.status, banco: retJ.banco, dt: retJ.data_baixa, tot: retJ.totais, p: pRet,
+            bco: retBco.status, semPg: retSemPg.status });
+        await pgRv.query(`DELETE FROM areceber WHERE codrcb IN ($1,$2)`, [rcbRet.codrcb, rcbQuit.codrcb]);
+
         const bbLog = (await pgRv.query(`SELECT codremessa FROM remessas_boletos WHERE nomearquivoremessa=$1`, [bbJ.nomearquivo])).rows[0] as any;
         await pgRv.query(`DELETE FROM remessas_boletos_contas WHERE codremessa=$1`, [bbLog?.codremessa ?? 0]);
         await pgRv.query(`DELETE FROM remessas_boletos WHERE nomearquivoremessa=$1`, [bbJ.nomearquivo]);

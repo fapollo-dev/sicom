@@ -38,3 +38,12 @@ export const cnabArquivoSchema = z.object({
   cod_remessa_areceber: z.coerce.number().int().positive(),
 });
 export type CnabArquivoDto = z.infer<typeof cnabArquivoSchema>;
+
+/**
+ * RETORNO do banco (UBaixaAreceber.ProcessarArquivoRetorno): o arquivo é enviado como TEXTO e a rota devolve a
+ * PROPOSTA de baixa (o legado também não baixa sozinho — preenche a tela e o operador grava).
+ */
+export const cnabRetornoSchema = z.object({
+  arquivo: z.string().min(1, 'Informe o conteúdo do arquivo de retorno.').max(4_000_000),
+});
+export type CnabRetornoDto = z.infer<typeof cnabRetornoSchema>;

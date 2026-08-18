@@ -38,6 +38,7 @@ export function CnabRemessaPage() {
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [remessas, setRemessas] = useState<Linha[]>([]);
+  const [retorno, setRetorno] = useState<{ banco: number; data_baixa: string | null; totais: Record<string, number>; propostas: Linha[] } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const consultar = async () => {
@@ -97,6 +98,18 @@ export function CnabRemessaPage() {
     } catch (e) { mensagem.erro(e); }
   };
 
+  /** RETORNO: lê o arquivo do banco e mostra a PROPOSTA de baixa (como no legado, quem grava é o operador). */
+  const importarRetorno = async (file: File) => {
+    try {
+      const texto = await file.text();
+      const r = await post<{ banco: number; data_baixa: string | null; totais: Record<string, number>; propostas: Linha[] }>(
+        '/cobranca/cnab/retorno', { arquivo: texto },
+      );
+      setRetorno(r);
+      mensagem.sucesso(`Retorno lido: ${r.totais.casados} título(s) casado(s) de ${r.totais.boletos_pagos} pago(s).`);
+    } catch (e) { mensagem.erro(e); }
+  };
+
   const total = linhas.filter((l) => sel.has(Number(l.codrcb))).reduce((s, l) => s + Number(l.valor ?? 0), 0);
 
   return (
@@ -115,6 +128,11 @@ export function CnabRemessaPage() {
         <Button label="&Emitir boleto" variant="soft" disabled={busy || !sel.size} onClick={() => void emitir()} />
         <Button label="&Gerar remessa" variant="soft" disabled={busy || !sel.size} onClick={() => void gerar()} />
         <Button label="&Remessas geradas" variant="ghost" disabled={busy} onClick={() => void listarRemessas()} />
+        <label className="cursor-pointer text-body-sm underline">
+          Importar retorno…
+          <input type="file" accept=".ret,.txt,.crt,.rem" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) void importarRetorno(f); e.target.value = ''; }} />
+        </label>
         <small className="w-full text-fg-muted">
           Selecione os títulos, emita o boleto e gere a remessa — o arquivo fica guardado e pode ser baixado depois.
           {sel.size > 0 && ` Selecionados: ${sel.size} · ${brl(total)}.`}
@@ -154,6 +172,44 @@ export function CnabRemessaPage() {
           </tbody>
         </table>
       </div>
+
+      {retorno && (
+        <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <div className="flex items-center justify-between">
+            <div className="text-title-sm font-semibold">
+              Retorno do banco {retorno.banco} — baixa proposta para {dia(retorno.data_baixa)}
+              <span className="ml-2 text-body-sm text-fg-muted">
+                {retorno.totais.casados} de {retorno.totais.boletos_pagos} pago(s) casado(s) · {brl(retorno.totais.valor_recebido)}
+                {retorno.totais.nao_encontrados > 0 && ` · ${retorno.totais.nao_encontrados} não encontrado(s)`}
+              </span>
+            </div>
+            <button className="underline text-body-sm" onClick={() => setRetorno(null)}>fechar</button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-body-sm">
+              <thead><tr className="text-left text-fg-muted">
+                <th className="p-pad-xs">Título</th><th className="p-pad-xs">Sacado</th><th className="p-pad-xs">Duplicata</th>
+                <th className="p-pad-xs text-right">Documento</th><th className="p-pad-xs text-right">Recebido</th>
+                <th className="p-pad-xs text-right">Acré./Desc.</th><th className="p-pad-xs">Ocorrência</th>
+              </tr></thead>
+              <tbody>
+                {retorno.propostas.map((p, i) => (
+                  <tr key={i} className={`border-t border-border ${p.encontrado ? '' : 'text-fg-muted'}`}>
+                    <td className="p-pad-xs tabular-nums">{String(p.codrcb)}{p.encontrado ? '' : ' (não encontrado)'}</td>
+                    <td className="p-pad-xs">{String(p.razao ?? '—')}</td>
+                    <td className="p-pad-xs">{String(p.duplicata ?? '—')}</td>
+                    <td className="p-pad-xs text-right tabular-nums">{brl(p.valor_documento)}</td>
+                    <td className="p-pad-xs text-right tabular-nums font-semibold">{brl(p.valor_recebido)}</td>
+                    <td className={`p-pad-xs text-right tabular-nums ${Number(p.acredesc) < 0 ? 'text-danger' : ''}`}>{brl(p.acredesc)}</td>
+                    <td className="p-pad-xs text-fg-muted">{String(p.ocorrencia ?? '')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <small className="text-fg-muted">A baixa em si é gravada na tela de baixa de contas a receber — aqui é a conferência, como no sistema atual.</small>
+        </div>
+      )}
 
       {remessas.length > 0 && (
         <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">

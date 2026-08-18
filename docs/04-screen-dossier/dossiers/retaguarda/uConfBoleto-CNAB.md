@@ -104,6 +104,45 @@ DETALHE (tipo `1`):
 
 TRAILER (tipo `9`): `9` + brancos + sequencial (395-400) = total de registros do arquivo.
 
+## 4.2 CNAB 240 (Santander): sem golden útil — é uma sessão de HOMOLOGAÇÃO, não fluxo vivo
+
+Verificado no Oracle antes de investir no 3º layout:
+
+- os 15 arquivos de 240 chars são **todos da conta 461 (Santander) e todos de 16/09/2024** (min = max);
+- eles referenciam **um único título**: `CODRCB 65545`, **valor R$ 1,00**, vencimento 10/09/2024;
+- os 16 registros de detalhe do golden são o **mesmo título repetido** — a única faixa que varia entre eles é
+  o número sequencial do registro (posição 13); segmentos P/Q/R/S são byte-idênticos;
+- `CONF_INTEG_BANCARIA.SEQUENCIAREMESSA` da conf 102 continua **0**, e há **1** título no `ARECEBER` apontando
+  o banco 660.
+
+Conclusão: a integração Santander **nunca operou** — é um teste de homologação de um dia com um boleto de R$ 1,00.
+Portar o CNAB 240 a partir disso seria copiar a especificação do banco sem poder verificar nenhum campo variável
+(valor, vencimento, sacado, nosso número), o oposto do método que validou o Itaú (3.787 títulos) e o BB (1.343).
+**Fica declarado como não-verificável**: só entra com um golden real (arquivo de produção) ou por decisão
+explícita de portar a spec assumindo o risco. A estrutura já está mapeada aqui para quando isso acontecer:
+registro `0` (header de arquivo), `1` (header de lote, com o código de transmissão `316700000542455`),
+`3`+segmentos `P` (título), `Q` (sacado), `R` (multa/desconto/mensagem) e `S` (mensagem), `5` (trailer de lote,
+com a contagem) e `9` (trailer de arquivo, com lotes + registros).
+
+## 4.3 RETORNO (baixa automática) — a regra vive na tela de BAIXA, não nesta
+
+`UBaixaAreceber.ProcessarArquivoRetorno` (:2596-2775) — o retorno **não** é lido pela tela de boleto:
+
+1. **detecção do banco por literais do header** (:2635-2666): Itaú `pos 1='0'` + `80-89='BANCO ITAU'` · BB
+   `pos 8='0'` + `103-117='BANCO DO BRASIL'` (ou `77-94='001BANCODOBRASIL'`) · Bradesco `80-87='BRADESCO'` ·
+   SICOOB `83-89='BANCOOB'` ou `1-3='756'`. Fora desses quatro, erro explícito;
+2. `ACBrBoleto.LerRetorno` parseia o arquivo (é a lib);
+3. só entra boleto com **VALOR RECEBIDO > 0** (:2680);
+4. **nosso número → CODRCB**: `StrToInt(copy(NossoNumero, len-8, len))` (:2684);
+5. busca os títulos com `COALESCE(QUITADA,'N') <> 'S'` (:2703) — já baixado não volta;
+6. **ACREDESC = ValorRecebido − ValorDocumento** (:2727) e **data da baixa = data do arquivo** (:2713);
+7. **o legado NÃO baixa**: preenche a grade e o operador grava pelo fluxo normal de baixa (já migrado).
+
+**Não há golden de retorno**: o Oracle guarda os arquivos de remessa (`ARQUIVO_REMESSA_ARECEBER`) e nenhuma
+tabela de retorno de cobrança existe. Portanto o que se migra com prova é a REGRA (itens 1, 3, 4, 5, 6, 7); as
+posições do detalhe do retorno vêm do leiaute do banco e **precisam de certificação com arquivo real no gate de
+cutover**.
+
 ## 5. Cortes propostos
 
 - **corte-1 — Itaú CNAB 400, envio (`TIPOREMESSA='E'`)**: `conf_integ_bancaria` (cadastro + sequencial),
@@ -113,7 +152,11 @@ TRAILER (tipo `9`): `9` + brancos + sequencial (395-400) = total de registros do
   (`registro_arq_remessa`/`nome_arq_remessa`/`data_arq_remessa`/`login_arq_remessa`/`nosso_numero_boleto`).
   Validador estrutural próprio (400 chars por linha, tipos 0/1/9, sequencial contínuo, trailer = contagem,
   soma dos valores) — o mesmo padrão do validador do SPED, que já pegou reject de PVA.
-- **corte-2 — Banco do Brasil 400** (detalhe `7` + complemento `5`) e **CNAB 240** (a 4ª config).
+- **corte-2a — Banco do Brasil 400** (detalhe `7` + complemento `5`): FEITO (`7766ff0`) — 38/46 arquivos do
+  golden byte-idênticos.
+- **corte-2b — RETORNO (proposta de baixa)**: FEITO — a regra dos 7 passos acima, com o parse do Itaú 400
+  pendente de certificação com arquivo real.
+- **CNAB 240**: sem golden útil (§4.2) — não entra sem arquivo de produção.
 - **corte-3 — retorno** (baixa automática): o legado processa em `UdmBaixaApagar` + `uPreviaRetorno`
   (prévia antes de importar). Precisa de um arquivo de retorno real como golden — **não há tabela de retorno de
   cobrança no Oracle**, então é recon próprio.
