@@ -68,15 +68,16 @@ export function CnabRemessaPage() {
     } catch (e) { mensagem.erro(e); }
   };
 
-  const gerar = async () => {
+  const gerar = async (tipo: 'E' | 'C' | 'AV' = 'E') => {
     if (!sel.size) return mensagem.erro(new Error('Selecione ao menos um título.'));
     if (!codconf) return mensagem.erro(new Error('Informe a configuração bancária da remessa.'));
     if (!codconta) return mensagem.erro(new Error('Informe a conta bancária da cobrança.'));
     try {
-      const r = await post<{ nomearquivo: string; titulos: number; registros: number }>('/cobranca/cnab/gerar', {
-        codconf: Number(codconf), codconta: Number(codconta), codrcbs: Array.from(sel),
+      const r = await post<{ nomearquivo: string; titulos: number; registros: number; tipo: string }>('/cobranca/cnab/gerar', {
+        codconf: Number(codconf), codconta: Number(codconta), codrcbs: Array.from(sel), tipo,
       });
-      mensagem.sucesso(`Remessa ${r.nomearquivo} gerada: ${r.titulos} título(s), ${r.registros} registros.`);
+      const rotulo = tipo === 'C' ? 'de cancelamento' : tipo === 'AV' ? 'de alteração de vencimento' : '';
+      mensagem.sucesso(`Remessa ${rotulo} ${r.nomearquivo} gerada: ${r.titulos} título(s), ${r.registros} registros.`.replace('  ', ' '));
       void consultar(); void listarRemessas();
     } catch (e) { mensagem.erro(e); }
   };
@@ -126,7 +127,9 @@ export function CnabRemessaPage() {
         <div className="w-36"><Field label="Conta &bancária" value={codconta} onChange={(e) => setCodconta(e.target.value)} placeholder="cód." /></div>
         <Button label="&Consultar" variant="soft" disabled={busy} onClick={() => void consultar()} />
         <Button label="&Emitir boleto" variant="soft" disabled={busy || !sel.size} onClick={() => void emitir()} />
-        <Button label="&Gerar remessa" variant="soft" disabled={busy || !sel.size} onClick={() => void gerar()} />
+        <Button label="&Gerar remessa" variant="soft" disabled={busy || !sel.size} onClick={() => void gerar('E')} />
+        <Button label="Alterar &vencimento" variant="ghost" disabled={busy || !sel.size} onClick={() => void gerar('AV')} />
+        <Button label="&Cancelar no banco" variant="ghost" disabled={busy || !sel.size} onClick={() => void gerar('C')} />
         <Button label="&Remessas geradas" variant="ghost" disabled={busy} onClick={() => void listarRemessas()} />
         <label className="cursor-pointer text-body-sm underline">
           Importar retorno…
@@ -135,6 +138,7 @@ export function CnabRemessaPage() {
         </label>
         <small className="w-full text-fg-muted">
           Selecione os títulos, emita o boleto e gere a remessa — o arquivo fica guardado e pode ser baixado depois.
+          Para título já enviado ao banco: <em>Alterar vencimento</em> avisa o novo vencimento; <em>Cancelar no banco</em> pede a baixa.
           {sel.size > 0 && ` Selecionados: ${sel.size} · ${brl(total)}.`}
         </small>
       </div>

@@ -6458,6 +6458,49 @@ async function main() {
             guards: { outroBco: cnOutroBco.status, zero: cnZero.status, semVenc: cnSemVenc.status },
             filhos: cnFilhos?.n, login: cnLoginTxt?.login_arq_remessa, seqBanco: cnGerJ.sequencia_banco });
 
+        // 47at.1b) as outras duas remessas: CANCELAMENTO (ocorrência 02) e ALTERAÇÃO DE VENCIMENTO (06).
+        // Procedência: o comentário do legado ("se for cancelamento, emite o codigo '02'…", :2781) e
+        // taGerarRemessaAlteracaoVencimento → toRemessaAlterarVencimento (:2785). O ÚNICO arquivo real de
+        // alteração do golden (CB050101.TXT, TIPOREMESSA='AV') traz ocorrência 06 com o novo vencimento no
+        // mesmo campo 121-126. O cancelamento é CÓPIA-FIEL-NEGATIVA: 0 linhas 'C' no golden.
+        // O título rcb2 foi enviado no cenário anterior (registro='S', status vazio) ⇒ elegível a AV.
+        const avRes = await fetch(`${base}/${CNB}/gerar`, { method: 'POST', headers: H, body: JSON.stringify({ codconf: 9001, codconta: contaCnab.codconta, codrcbs: [rcb2.codrcb], tipo: 'AV' }) });
+        const avJ = (await avRes.json().catch(() => ({}))) as any;
+        const avArq = (await (await fetch(`${base}/${CNB}/arquivo`, { method: 'POST', headers: H, body: JSON.stringify({ cod_remessa_areceber: avJ.cod_remessa_areceber }) })).json().catch(() => ({}))) as any;
+        const avDet = String(avArq.arquivo ?? '').replace(/\r\n/g, '\n').split('\n').filter((l: string) => l[0] === '1')[0] ?? '';
+        const avLog = (await pgRv.query(`SELECT tiporemessa FROM remessas_boletos WHERE nomearquivoremessa=$1`, [avJ.nomearquivo])).rows[0] as any;
+        // cancelamento: exige STATUS_BOLETO='C' (o legado filtra por isso) — sem marcar, recusa
+        const cSemMarca = await fetch(`${base}/${CNB}/gerar`, { method: 'POST', headers: H, body: JSON.stringify({ codconf: 9001, codconta: contaCnab.codconta, codrcbs: [rcb1.codrcb], tipo: 'C' }) });
+        await pgRv.query(`UPDATE areceber SET status_boleto='C' WHERE codrcb=$1`, [rcb1.codrcb]);
+        const cRes = await fetch(`${base}/${CNB}/gerar`, { method: 'POST', headers: H, body: JSON.stringify({ codconf: 9001, codconta: contaCnab.codconta, codrcbs: [rcb1.codrcb], tipo: 'C' }) });
+        const cJ = (await cRes.json().catch(() => ({}))) as any;
+        const cArq = (await (await fetch(`${base}/${CNB}/arquivo`, { method: 'POST', headers: H, body: JSON.stringify({ cod_remessa_areceber: cJ.cod_remessa_areceber }) })).json().catch(() => ({}))) as any;
+        const cDet = String(cArq.arquivo ?? '').replace(/\r\n/g, '\n').split('\n').filter((l: string) => l[0] === '1')[0] ?? '';
+        const cLog = (await pgRv.query(`SELECT r.tiporemessa, c.dtcancelamento FROM remessas_boletos r LEFT JOIN remessas_boletos_contas c ON c.codremessa=r.codremessa WHERE r.nomearquivoremessa=$1`, [cJ.nomearquivo])).rows[0] as any;
+        const cTit = (await pgRv.query(`SELECT registro_arq_remessa, status_boleto FROM areceber WHERE codrcb=$1`, [rcb1.codrcb])).rows[0] as any;
+        check('CNAB alteração de vencimento e cancelamento: AV → ocorrência 06 no detalhe (como o único arquivo real do golden), TIPOREMESSA "AV" no log e o título segue "S" · cancelamento sem STATUS_BOLETO="C" → 422 · marcado → ocorrência 02, TIPOREMESSA "C", DTCANCELAMENTO gravada no filho e o título carimbado "C" · os dois arquivos passam a validação estrutural',
+          avRes.status === 200 && avJ.tipo === 'AV' && avJ.ocorrencia === '06'
+          && avDet.slice(108, 110) === '06' && String(avLog?.tiporemessa ?? '').trim() === 'AV'
+          && (avArq.validacao?.erros?.length ?? -1) === 0
+          && cSemMarca.status === 422
+          && cRes.status === 200 && cJ.tipo === 'C' && cDet.slice(108, 110) === '02'
+          && String(cLog?.tiporemessa ?? '').trim() === 'C' && !!cLog?.dtcancelamento
+          && cTit?.registro_arq_remessa === 'C' && cTit?.status_boleto === null
+          && (cArq.validacao?.erros?.length ?? -1) === 0,
+          { av: [avRes.status, avJ.tipo, avJ.ocorrencia, avDet.slice(108, 110), avLog?.tiporemessa, avArq.validacao?.erros],
+            cSemMarca: cSemMarca.status,
+            c: [cRes.status, cJ.tipo, cDet.slice(108, 110), cLog?.tiporemessa, !!cLog?.dtcancelamento, cTit, cArq.validacao?.erros] });
+
+        for (const nm of [avJ.nomearquivo, cJ.nomearquivo]) {
+          const lg = (await pgRv.query(`SELECT codremessa FROM remessas_boletos WHERE nomearquivoremessa=$1`, [nm])).rows[0] as any;
+          await pgRv.query(`DELETE FROM remessas_boletos_contas WHERE codremessa=$1`, [lg?.codremessa ?? 0]);
+          await pgRv.query(`DELETE FROM remessas_boletos WHERE nomearquivoremessa=$1`, [nm]);
+        }
+        for (const cd of [avJ.cod_remessa_areceber, cJ.cod_remessa_areceber]) {
+          await pgRv.query(`DELETE FROM ref_remessa_areceber WHERE cod_remessa_areceber=$1`, [cd ?? 0]);
+          await pgRv.query(`DELETE FROM arquivo_remessa_areceber WHERE cod_remessa_areceber=$1`, [cd ?? 0]);
+        }
+
         // 47at.2) CORTE-2a: BANCO DO BRASIL 400 — registro 7 (título) + registro 5 (complemento CONSTANTE).
         // Golden (1.343 detalhes): convênio 3500121 · nosso número = convênio + CODRCB(10) em 17 posições ·
         // variação '019' · carteira '17' (107-108) · ocorrência '01' · banco '001' · espécie '01' · aceite 'N' ·

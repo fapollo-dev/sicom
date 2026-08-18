@@ -395,6 +395,8 @@ const CODE_PT: Record<string, string> = {
   TITULO_SEM_VENCIMENTO: 'Título sem data de vencimento não pode ir na remessa.',
   CONF_BANCARIA_NAO_ENCONTRADA: 'Configuração de integração bancária não encontrada nesta empresa.',
   CONTA_DE_OUTRO_BANCO: 'A conta bancária escolhida é de outro banco, diferente da configuração da remessa.',
+  BOLETO_NAO_MARCADO_CANCELAMENTO: 'Para a remessa de cancelamento o boleto precisa estar marcado para baixa no banco.',
+  BOLETO_NAO_ELEGIVEL_ALTERACAO: 'A alteração de vencimento só vale para título já enviado ao banco e sem boleto pendente de remessa.',
   RETORNO_VAZIO: 'O arquivo de retorno está vazio.',
   RETORNO_BANCO_NAO_RECONHECIDO: 'Não foi possível identificar o banco do arquivo de retorno (o legado aceita Itaú, Bradesco, Banco do Brasil e SICOOB).',
   RETORNO_LAYOUT_NAO_SUPORTADO: 'O retorno deste banco ainda não é lido (neste corte, apenas o Itaú 400).',

@@ -25,6 +25,11 @@ export const cnabGerarSchema = z.object({
   /** a conta bancária (CONTAS_BANCARIAS) — traz a carteira de cobrança (109 no golden do Itaú). */
   codconta: z.coerce.number().int().positive(),
   codrcbs: z.array(z.coerce.number().int().positive()).min(1, 'Selecione ao menos um título.').max(500),
+  /**
+   * a ação do legado: 'E' envio (ocorrência 01) · 'C' cancelamento/pedido de baixa (02) · 'AV' alteração de
+   * vencimento (06). Cada uma tem o seu filtro de elegibilidade e o seu carimbo no título.
+   */
+  tipo: z.enum(['E', 'C', 'AV']).optional(),
 });
 export type CnabGerarDto = z.infer<typeof cnabGerarSchema>;
 

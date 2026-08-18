@@ -152,13 +152,20 @@ export class CnabRemessaService {
    * trailer, grava `arquivo_remessa_areceber` + `ref_remessa_areceber` + `remessas_boletos`, carimba os
    * títulos e INCREMENTA `conf_integ_bancaria.sequenciaremessa` (estado, sob lock).
    */
-  async gerar(dto: { codconf: number; codconta: number; codrcbs: number[] }) {
+  async gerar(dto: { codconf: number; codconta: number; codrcbs: number[]; tipo?: 'E' | 'C' | 'AV' }) {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     if (!dto.codrcbs.length) throw new BusinessRuleError('SEM_TITULOS');
     const db = this.dbp.forTenant() as AnyDB;
     return db.transaction().execute(async (trx: AnyDB) => {
       // 1) config da integração (lock: o sequencial do arquivo é estado compartilhado)
+      // TIPO da remessa (o `sTipoRemessa`/`AAction` do legado):
+      //   'E'  envio      — títulos com STATUS_BOLETO='E'  · ocorrência 01 · carimba REGISTRO_ARQ_REMESSA='S'
+      //   'C'  cancelamento — STATUS_BOLETO='C'            · ocorrência 02 · carimba 'C' + DTCANCELAMENTO no filho
+      //   'AV' alteração de vencimento — STATUS_BOLETO vazio E REGISTRO_ARQ_REMESSA='S' (:2671) · ocorrência 06 ·
+      //        TIPOREMESSA='AV' no log (:3027) e o carimbo continua 'S' (o sTipoRemessa segue 'S' nesse caminho)
+      const tipo = dto.tipo ?? 'E';
+      const ocorrencia = tipo === 'C' ? '02' : tipo === 'AV' ? '06' : '01';
       const conf = (await trx.selectFrom('conf_integ_bancaria')
         .selectAll().where('codconf', '=', dto.codconf).where('codempresa', '=', emp).forUpdate()
         .executeTakeFirst()) as Record<string, unknown> | undefined;
@@ -222,10 +229,21 @@ export class CnabRemessaService {
         .where(sql`coalesce(r.agrupado,'N')`, '=', 'N') // título agrupado NÃO vai ao banco (uConfBoleto.dfm:856)
         .orderBy('r.codparceiro').orderBy('r.codrcb').execute()) as Array<Record<string, unknown>>; // golden: por CODPARCEIRO
       if (titulos.length !== dto.codrcbs.length) throw new BusinessRuleError('TITULO_NAO_ENCONTRADO');
-      const naoEmitidos = titulos.filter((t) => String(t.status_boleto ?? '') !== 'E');
-      if (naoEmitidos.length) throw new BusinessRuleError('BOLETO_NAO_EMITIDO', { codrcb: naoEmitidos.map((t) => t.codrcb) });
-      const jaEnviados = titulos.filter((t) => String(t.registro_arq_remessa ?? '') === 'S');
-      if (jaEnviados.length) throw new BusinessRuleError('BOLETO_JA_ENVIADO', { codrcb: jaEnviados.map((t) => t.codrcb) });
+      // os filtros de elegibilidade do legado, por ação (uConfBoleto.pas:2657-2683)
+      if (tipo === 'E') {
+        const naoEmitidos = titulos.filter((t) => String(t.status_boleto ?? '') !== 'E');
+        if (naoEmitidos.length) throw new BusinessRuleError('BOLETO_NAO_EMITIDO', { codrcb: naoEmitidos.map((t) => t.codrcb) });
+        const jaEnviados = titulos.filter((t) => String(t.registro_arq_remessa ?? '') === 'S');
+        if (jaEnviados.length) throw new BusinessRuleError('BOLETO_JA_ENVIADO', { codrcb: jaEnviados.map((t) => t.codrcb) });
+      } else if (tipo === 'C') {
+        // cancelamento: o legado exige STATUS_BOLETO='C' (o operador marca o boleto p/ baixa no banco)
+        const naoMarcados = titulos.filter((t) => String(t.status_boleto ?? '') !== 'C');
+        if (naoMarcados.length) throw new BusinessRuleError('BOLETO_NAO_MARCADO_CANCELAMENTO', { codrcb: naoMarcados.map((t) => t.codrcb) });
+      } else {
+        // alteração de vencimento: título JÁ enviado ao banco e sem boleto pendente de remessa
+        const invalidos = titulos.filter((t) => String(t.registro_arq_remessa ?? '') !== 'S' || String(t.status_boleto ?? '') !== '');
+        if (invalidos.length) throw new BusinessRuleError('BOLETO_NAO_ELEGIVEL_ALTERACAO', { codrcb: invalidos.map((t) => t.codrcb) });
+      }
       // valor e vencimento são o miolo da cobrança: valor ≤ 0 sairia como cobrança POSITIVA (o campo do CNAB
       // não tem sinal) e vencimento nulo sairia '000000' — os dois passam o validador e o BANCO rejeita.
       const semValor = titulos.filter((t) => !(Number(t.valor) > 0));
@@ -345,7 +363,7 @@ export class CnabRemessaService {
             '0000' + ' '.repeat(7) +                   // 81-84 · 85-91
             variacao + '0'.repeat(7) + ' '.repeat(5) + // 92-94 variação · 95-101 · 102-106
             carteira.slice(-2) +                       // 107-108 carteira ('17')
-            '01' +                                     // 109-110 ocorrência: remessa
+            ocorrencia +                               // 109-110 ocorrência: 01 envio · 02 baixa · 06 alt. venc.
             alfa(seuNumero(t), 10) +                   // 111-120 seu número
             ddmmaa6(t.venc_fmt) + cent(t.valor) +      // 121-126 · 127-139
             '001' + '0000' + ' ' +                     // 140-142 banco · 143-146 · 147
@@ -372,7 +390,7 @@ export class CnabRemessaService {
           carteira +                                // 84-86
           ' '.repeat(21) +                          // 87-107 uso do banco
           'I' +                                     // 108 carteira escritural
-          '01' +                                    // 109-110 ocorrência: remessa
+          ocorrencia +                              // 109-110 ocorrência
           alfa(seuNumero(t), 10) +                  // 111-120 seu número (duplicata ou CODRCB)
           ddmmaa6(t.venc_fmt) + cent(t.valor) +     // 121-126 / 127-139
           '341' + '00000' +                         // 140-142 / 143-147
@@ -404,21 +422,28 @@ export class CnabRemessaService {
       // o log da remessa (pai) + 1 linha por título (filho) — é de REMESSAS_BOLETOS_CONTAS que o legado lê a
       // consulta e o cancelamento (corte-2). CODREMESSABANCO é o sequencial GLOBAL do banco (GetID no legado).
       const log = (await trx.insertInto('remessas_boletos').values({
-        nomearquivoremessa: nomearquivo, tiporemessa: 'E', codbanco: Number(febraban), nomebanco: nomeBanco,
+        nomearquivoremessa: nomearquivo, tiporemessa: tipo, codbanco: Number(febraban), nomebanco: nomeBanco,
         nroconta: String(conta.nroconta ?? ''), agencia: String(conf.agencia ?? ''), codremessabanco: seqBanco,
       }).returning('codremessa').executeTakeFirstOrThrow()) as { codremessa: number };
       await trx.insertInto('remessas_boletos_contas')
-        .values(titulos.map((t) => ({ codremessa: Number(log.codremessa), codrcb: Number(t.codrcb) }))).execute();
+        .values(titulos.map((t) => ({
+          codremessa: Number(log.codremessa), codrcb: Number(t.codrcb),
+          // DTCANCELAMENTO só na remessa de cancelamento (:3072) — nas outras fica nulo
+          dtcancelamento: tipo === 'C' ? sql`now()` : null,
+        }))).execute();
       await trx.updateTable('areceber')
         .set({
-          registro_arq_remessa: 'S', nome_arq_remessa: nomearquivo, data_arq_remessa: sql`now()`, status_boleto: null,
+          // o legado carimba REGISTRO_ARQ_REMESSA = sTipoRemessa: 'S' no envio e na alteração, 'C' no
+          // cancelamento (:3063) — e STATUS_BOLETO sempre volta a vazio
+          registro_arq_remessa: tipo === 'C' ? 'C' : 'S',
+          nome_arq_remessa: nomearquivo, data_arq_remessa: sql`now()`, status_boleto: null,
           // LOGIN (texto), como no Oracle — o legado grava OperadorLOGIN.AsString
           login_arq_remessa: sql`(select o.login from operadores o where o.codoperador = ${op})`,
         })
         .where('codempresa', '=', emp).where('codrcb', 'in', dto.codrcbs).execute();
 
       return {
-        cod_remessa_areceber: codRem, nomearquivo, titulos: titulos.length,
+        cod_remessa_areceber: codRem, nomearquivo, tipo, ocorrencia, titulos: titulos.length,
         registros: linhas.length, sequencia_banco: seqBanco, codremessa: Number(log.codremessa),
         valor_total: titulos.reduce((s, t) => s + (Number(t.valor) || 0), 0),
       };
