@@ -62,6 +62,7 @@ import { CartaoPage } from '../features/cartao/CartaoPage';
 import { OperadorasPage } from '../features/cartao/OperadorasPage';
 import { TrocaPage } from '../features/troca/TrocaPage';
 import { ConciliacaoBancariaPage } from '../features/conciliacao/ConciliacaoBancariaPage';
+import { CnabRemessaPage } from '../features/cnab/CnabRemessaPage';
 import { MotivosOperacaoCadMaster } from '../features/motivos-operacao/MotivosOperacaoCadMaster';
 import { ConfiguracoesPage } from '../features/configuracoes/ConfiguracoesPage';
 
@@ -127,6 +128,7 @@ export const router = createBrowserRouter([
       { path: '/financeiro/cartoes', element: <CartaoPage /> }, // recebíveis de cartão (consulta + cadastro; líquido/venc computados)
       { path: '/cadastro/operadoras', element: <OperadorasPage /> }, // administradora/adquirente + taxa por-empresa
       { path: '/financeiro/conciliacao', element: <ConciliacaoBancariaPage /> }, // conciliação bancária OFX × razão interno
+      { path: '/cobranca/cnab', element: <CnabRemessaPage /> }, // boleto + remessa CNAB (Itaú 400) dos títulos a receber
       { path: '/financeiro/contas-correntes', element: <ControleContasPage /> }, // controle de contas correntes (lançamento manual + transferência + estorno)
       { path: '/cadastro/motivos-operacao', element: <MotivosOperacaoCadMaster /> }, // lookup do motivo do ajuste
       { path: '/cadastro/plano-contas', element: <PlanoContasCadMaster /> }, // plano de contas (árvore)

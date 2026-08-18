@@ -57,6 +57,7 @@ export * from './schema/rel-cancelados.schema';
 export * from './schema/rel-vendas-extras.schema';
 export * from './schema/manifesto-dfe.schema';
 export * from './schema/pendencia-operador.schema';
+export * from './schema/cnab-remessa.schema';
 export * from './schema/cotacao.schema';
 export * from './schema/auth.schema';
 export * from './schema/configuracao.schema';

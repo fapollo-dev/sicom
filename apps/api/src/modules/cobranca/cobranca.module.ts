@@ -17,6 +17,8 @@ import { CaixaContabilService } from './caixa-contabil.service';
 import { CaixaPdvContabilService } from './caixa-pdv-contabil.service';
 import { CaixaConferenciaService } from './caixa-conferencia.service';
 import { BaixaContabilService } from './baixa-contabil.service';
+import { CnabRemessaController } from './cnab-remessa.controller';
+import { CnabRemessaService } from './cnab-remessa.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { CadastroModule } from '../cadastro/cadastro.module';
 
@@ -28,11 +30,12 @@ import { CadastroModule } from '../cadastro/cadastro.module';
   // itens com display columns + juros/total) e validação do "Cobrador" FUN='S'.
   // AreceberController (cadastro/areceber) = CONTAS A RECEBER; ApagarController (cadastro/apagar) = A PAGAR.
   // CaixaController (cobranca/caixa) = CAIXA (sessão + movimento manual, corte-1).
-  controllers: [LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController],
+  controllers: [LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController],
   providers: [
     LotesCobrancaService, LoteCobrancaRepository,
     AreceberService, AreceberBaixaService, AreceberAgrupamentoService, ApagarService, ApagarBaixaService, ApagarAgrupamentoService,
     CaixaService, CaixaContabilService, CaixaPdvContabilService, CaixaConferenciaService, BaixaContabilService,
+    CnabRemessaService,
     DatabaseProvider,
   ],
   exports: [LotesCobrancaService],

@@ -6379,6 +6379,90 @@ async function main() {
         await pgRv.query(`DELETE FROM pedidocompra WHERE codpedcomp=$1`, [pcAn.rows[0].codpedcomp]);
         await pgRv.query(`DELETE FROM nf WHERE codnf=$1`, [nfPo.rows[0].codnf]);
 
+        // ===== 47at) CNAB de COBRANÇA — remessa de ENVIO no layout ITAÚ 400 (FRMCONFBOLETO / uConfBoleto) =====
+        // O layout foi reconstruído byte a byte contra o GOLDEN (os 306 arquivos reais do Oracle, guardados em
+        // Base64 no CLOB): carteira 109 · carteira escritural 'I' · ocorrência '01' · banco cobrador 341 ·
+        // agência cobradora '00000' · espécie '01' · aceite 'N' · **posição 71 = '0'** (o DAC do nosso número
+        // NÃO vai na remessa — é '0' nos 3.787 títulos do golden) · nosso número = CODRCB · seu número (111-120)
+        // = 10 primeiros chars da duplicata · nome do arquivo = CB + DDMM + seq(2) + .TXT.
+        // Cenário: 2 títulos do parceiro 1 (COBRADOR PADRAO LTDA — o único do seed com CNPJ no endereço),
+        // 1.603,48 e 250,00, venc. 10/03/2026 (o valor é o do título 65706 do golden, p/ comparar o campo).
+        const CNB = 'cobranca/cnab';
+        await pgRv.query(`INSERT INTO conf_integ_bancaria (codconf, codempresa, codbco, agencia, nrconta, codfornbco, layoutremessa, tipo_integ_bancaria, sequenciaremessa, arqteste)
+          VALUES (9001, 1, 1, '3034', '23055-1', '341', 'C400', 'B', 0, 'N') ON CONFLICT (codconf) DO NOTHING`);
+        const contaCnab = (await pgRv.query(`INSERT INTO contas_bancarias (codbco, idempresa, nroconta, carteira_cobranca, variacao_carteira, tipo_cobranca, ativo)
+          VALUES (1, 1, '23055-1', 109, 1, 1, 'S') RETURNING codconta`)).rows[0] as any;
+        // conta de OUTRO banco (codbco 2) p/ provar a amarração conta↔configuração (fold auditoria [MÉDIA])
+        const contaOutroBco = (await pgRv.query(`INSERT INTO contas_bancarias (codbco, idempresa, nroconta, carteira_cobranca, ativo)
+          VALUES (2, 1, '98765-4', 9, 'S') RETURNING codconta`)).rows[0] as any;
+        const rcb1 = (await pgRv.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, 1, 'CNAB1 - 001/001', '2026-02-10', '2026-03-10', 1603.48, 'N', 'DP') RETURNING codrcb`)).rows[0] as any;
+        const rcb2 = (await pgRv.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, 1, 'CNAB2 - 001/001', '2026-02-10', '2026-03-10', 250.00, 'N', 'DP') RETURNING codrcb`)).rows[0] as any;
+        // gerar SEM emitir o boleto → 422 (o taGerarRemessa do legado só leva STATUS_BOLETO='E')
+        const cnSemEmitir = await fetch(`${base}/${CNB}/gerar`, { method: 'POST', headers: H, body: JSON.stringify({ codconf: 9001, codconta: contaCnab.codconta, codrcbs: [rcb1.codrcb] }) });
+        const cnEmitir = await fetch(`${base}/${CNB}/emitir`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: [rcb1.codrcb, rcb2.codrcb] }) });
+        const cnGer = await fetch(`${base}/${CNB}/gerar`, { method: 'POST', headers: H, body: JSON.stringify({ codconf: 9001, codconta: contaCnab.codconta, codrcbs: [rcb1.codrcb, rcb2.codrcb] }) });
+        const cnGerJ = (await cnGer.json().catch(() => ({}))) as any;
+        const cnArq = (await (await fetch(`${base}/${CNB}/arquivo`, { method: 'POST', headers: H, body: JSON.stringify({ cod_remessa_areceber: cnGerJ.cod_remessa_areceber }) })).json().catch(() => ({}))) as any;
+        const cnLinhas = String(cnArq.arquivo ?? '').replace(/\r\n/g, '\n').split('\n').filter((l: string) => l.length > 0);
+        const cnH = cnLinhas[0] ?? ''; const cnD1 = cnLinhas[1] ?? ''; const cnT = cnLinhas[cnLinhas.length - 1] ?? '';
+        // reemitir o título já enviado → 422 BOLETO_JA_ENVIADO (a guarda de uConfBoleto.pas:505)
+        const cnReemitir = await fetch(`${base}/${CNB}/emitir`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: [rcb1.codrcb] }) });
+        // guards do fold: conta de outro banco → 422 · título com valor 0 → 422 · título sem vencimento → 422
+        const rcbZero = (await pgRv.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, 1, 'CNAB0', '2026-02-10', '2026-03-10', 0, 'N', 'DP') RETURNING codrcb`)).rows[0] as any;
+        const rcbSemVenc = (await pgRv.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, 1, 'CNABSV', '2026-02-10', NULL, 100, 'N', 'DP') RETURNING codrcb`)).rows[0] as any;
+        await fetch(`${base}/${CNB}/emitir`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: [rcbZero.codrcb, rcbSemVenc.codrcb] }) });
+        const cnOutroBco = await fetch(`${base}/${CNB}/gerar`, { method: 'POST', headers: H, body: JSON.stringify({ codconf: 9001, codconta: contaOutroBco.codconta, codrcbs: [rcbZero.codrcb] }) });
+        const cnZero = await fetch(`${base}/${CNB}/gerar`, { method: 'POST', headers: H, body: JSON.stringify({ codconf: 9001, codconta: contaCnab.codconta, codrcbs: [rcbZero.codrcb] }) });
+        const cnSemVenc = await fetch(`${base}/${CNB}/gerar`, { method: 'POST', headers: H, body: JSON.stringify({ codconf: 9001, codconta: contaCnab.codconta, codrcbs: [rcbSemVenc.codrcb] }) });
+        const cnTit = (await (await fetch(`${base}/${CNB}/titulos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 1 }) })).json().catch(() => ({}))) as any;
+        const tit1 = (cnTit.linhas ?? []).find((l: any) => Number(l.codrcb) === Number(rcb1.codrcb));
+        const cnSeq = (await pgRv.query(`SELECT sequenciaremessa FROM conf_integ_bancaria WHERE codconf=9001`)).rows[0] as any;
+        const cnRef = (await pgRv.query(`SELECT count(*)::int n FROM ref_remessa_areceber WHERE cod_remessa_areceber=$1`, [cnGerJ.cod_remessa_areceber])).rows[0] as any;
+        const cnLog = (await pgRv.query(`SELECT codremessa, tiporemessa, codbanco, nomebanco, nomearquivoremessa, codremessabanco FROM remessas_boletos WHERE nomearquivoremessa=$1`, [cnGerJ.nomearquivo])).rows[0] as any;
+        const cnFilhos = (await pgRv.query(`SELECT count(*)::int n FROM remessas_boletos_contas WHERE codremessa=$1`, [cnLog?.codremessa ?? 0])).rows[0] as any;
+        const cnLoginTxt = (await pgRv.query(`SELECT login_arq_remessa FROM areceber WHERE codrcb=$1`, [rcb1.codrcb])).rows[0] as any;
+        check('CNAB Itaú 400: gerar sem emitir → 422 · emitir carimba nosso número = CODRCB · o arquivo tem 4 registros de 400 chars (header 0 + 2 detalhes + trailer 9) com sequencial 1..4 e trailer = contagem · header |01REMESSA01COBRANCA| + agência 3034 + conta 23055/1 + 341 · detalhe: nosso número = CODRCB, pos.71 = "0" (DAC não vai), carteira 109, "I", ocorrência 01, seu número da duplicata, venc 100326, valor 0000000160348, 341/00000, espécie 01, aceite N, sacado com CNPJ · validação estrutural sem erros · ref/log/sequencial gravados · reemitir enviado → 422 · sacado "1 - COBRADOR PADRAO LTDA" (prefixo do CODPARCEIRO) · nome CB+DDMM+01 (contador do dia, não o sequencial da config) · log com FILHOS em remessas_boletos_contas + sequencial do banco + login em TEXTO · GUARDS: conta de outro banco, valor 0 e sem vencimento → 422',
+          cnSemEmitir.status === 422 && cnEmitir.status === 200 && cnGer.status === 200
+          && cnLinhas.length === 4 && cnLinhas.every((l: string) => l.length === 400)
+          && cnH.startsWith('01REMESSA01COBRANCA') && cnH.slice(26, 30) === '3034' && cnH.slice(32, 38) === '230551'
+          && cnH.slice(76, 79) === '341' && cnH.slice(94, 100).length === 6 && cnH.slice(394) === '000001'
+          && cnD1[0] === '1' && cnD1.slice(62, 70) === String(rcb1.codrcb).padStart(8, '0')
+          && cnD1[70] === '0' && cnD1.slice(83, 86) === '109' && cnD1[107] === 'I' && cnD1.slice(108, 110) === '01'
+          && cnD1.slice(110, 120) === 'CNAB1 - 00'  // seu número = duplicata (10 chars, sem trim) && cnD1.slice(120, 126) === '100326'
+          && cnD1.slice(126, 139) === '0000000160348' && cnD1.slice(139, 142) === '341' && cnD1.slice(142, 147) === '00000'
+          && cnD1.slice(147, 149) === '01' && cnD1[149] === 'N' && cnD1.slice(150, 156) === '100226'
+          && cnD1.slice(218, 220) === '02' && cnD1.slice(220, 234) === '11222333000181'
+          && cnD1.slice(234, 264) === '1 - COBRADOR PADRAO LTDA      ' // 235-264: CODPARCEIRO - RAZÃO (fold [ALTA]) && cnD1.slice(394) === '000002'
+          && cnT[0] === '9' && cnT.slice(394) === '000004'
+          && (cnArq.validacao?.erros?.length ?? -1) === 0
+          && Number(cnGerJ.titulos) === 2 && Number(cnRef.n) === 2 && Number(cnFilhos.n) === 2
+          && Number(cnSeq.sequenciaremessa) === 0 // a config NÃO é o sequencial do arquivo (fold paridade)
+          && cnLog?.tiporemessa === 'E ' && Number(cnLog?.codbanco) === 341
+          && /^CB\d{4}01\.TXT$/.test(String(cnGerJ.nomearquivo ?? '')) // CB + DDMM + contador que começa em 01 TODO dia
+          && Number(cnGerJ.sequencia_banco) > 0 && Number(cnLog?.codremessabanco) === Number(cnGerJ.sequencia_banco)
+          && String(cnLoginTxt?.login_arq_remessa ?? '').length > 0 // o LOGIN (texto), não o id
+          && tit1?.registro_arq_remessa === 'S' && Number(tit1?.nosso_numero_boleto) === Number(rcb1.codrcb)
+          && cnReemitir.status === 422
+          && cnOutroBco.status === 422 && cnZero.status === 422 && cnSemVenc.status === 422,
+          { semEmitir: cnSemEmitir.status, emitir: cnEmitir.status, gerar: cnGer.status, gerErr: cnGerJ, regs: cnLinhas.length,
+            tam: Array.from(new Set(cnLinhas.map((l: string) => l.length))), nome: cnGerJ.nomearquivo,
+            h: cnH.slice(0, 40), d1: cnD1.slice(60, 160), val: cnArq.validacao?.erros, seq: cnSeq?.sequenciaremessa,
+            log: cnLog, tit: tit1 && { r: tit1.registro_arq_remessa, nn: tit1.nosso_numero_boleto }, reemitir: cnReemitir.status,
+            guards: { outroBco: cnOutroBco.status, zero: cnZero.status, semVenc: cnSemVenc.status },
+            filhos: cnFilhos?.n, login: cnLoginTxt?.login_arq_remessa, seqBanco: cnGerJ.sequencia_banco });
+
+        await pgRv.query(`DELETE FROM ref_remessa_areceber WHERE cod_remessa_areceber=$1`, [cnGerJ.cod_remessa_areceber]);
+        await pgRv.query(`DELETE FROM remessas_boletos_contas WHERE codremessa=$1`, [cnLog?.codremessa ?? 0]);
+        await pgRv.query(`DELETE FROM remessas_boletos WHERE nomearquivoremessa=$1`, [cnGerJ.nomearquivo]);
+        await pgRv.query(`DELETE FROM arquivo_remessa_areceber WHERE cod_remessa_areceber=$1`, [cnGerJ.cod_remessa_areceber]);
+        await pgRv.query(`DELETE FROM areceber WHERE codrcb IN ($1,$2,$3,$4)`, [rcb1.codrcb, rcb2.codrcb, rcbZero.codrcb, rcbSemVenc.codrcb]);
+        await pgRv.query(`DELETE FROM contas_bancarias WHERE codconta IN ($1,$2)`, [contaCnab.codconta, contaOutroBco.codconta]);
+        await pgRv.query(`DELETE FROM conf_integ_bancaria WHERE codconf=9001`);
+
         // 47r) VALOR DO TICKET MÉDIO (FRMVALORTICKETMEDIO) — 4º relatório. Cupons × total × média por dia.
         // Cenário 2026-08-25: cupom 1000 com 2 itens (10×5,00 = 50 e 1×20,00 = 20, desc_acre_medio −5,00) e
         // cupom 1001 com 1 item (2×10,00 = 20). Líquido do dia = (50+20−5) + 20 = 85,00 · 2 cupons → média 42,50.
