@@ -6415,6 +6415,54 @@ async function main() {
           { criar: anCriar.status, apn: anCriarJ.apn_id, proc: anProcJ, divs: divProd, ineNf: ineNfP, inePc: inePcP,
             reproc: [anProc2.divergencias, anProc2.inexistentes_nf], semPed: anSemPed.status, semNota: anSemNota.status });
 
+        // 47as.4) CORTE-2c: LIBERAR (com o financeiro obrigatório) e REFAZER (fluxo RPN).
+        // Gates fiéis: só libera quem fez o pedido ou o master do E8 · com divergência EXIGE gerar o financeiro
+        // (o título a receber da diferença contra o fornecedor) · a análise TOTAL fecha o pedido.
+        const libSemFin = await fetch(`${base}/${PO}/analise/liberar`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anCriarJ.apn_id }) });
+        // o pedido foi criado com codoperador=7 (a sessão) ⇒ a sessão PODE liberar sem ser master
+        const libRes = await fetch(`${base}/${PO}/analise/liberar`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anCriarJ.apn_id, gerar_financeiro: true }) });
+        const libJ = (await libRes.json().catch(() => ({}))) as any;
+        const libRepetir = await fetch(`${base}/${PO}/analise/liberar`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anCriarJ.apn_id, gerar_financeiro: true }) });
+        const rcbGerado = (await pgRv.query(`SELECT r.codrcb, r.valor, r.codparceiro, r.obs FROM areceber r JOIN analise_pedido_nf_cr c ON c.codrcb=r.codrcb WHERE c.apn_id=$1`, [anCriarJ.apn_id])).rows[0] as any;
+        const pedFechado = (await pgRv.query(`SELECT importado, fechado, pc_nronf_cruzamento FROM pedidocompra WHERE codpedcomp=$1`, [pedMot.codpedcomp])).rows[0] as any;
+        const itensFechados = (await pgRv.query(`SELECT count(*)::int n FROM pedidocompra_i WHERE codpedcomp=$1 AND fechado='S'`, [pedMot.codpedcomp])).rows[0] as any;
+        const anFinal = (await pgRv.query(`SELECT apn_status, apn_status_finalizacao, codoperador_finalizado FROM analise_pedido_nf WHERE apn_id=$1`, [anCriarJ.apn_id])).rows[0] as any;
+        check('PENDÊNCIAS corte-2c (LIBERAR): sem gerar o financeiro → 422 (o legado exige com divergência) · liberando: título a receber da diferença criado contra o FORNECEDOR do pedido e vinculado em analise_pedido_nf_cr · análise vira F/F com o operador que finalizou · pedido fica IMPORTADO+FECHADO com o nº da NF no cruzamento e os itens fechados · liberar de novo → 422',
+          libSemFin.status === 422 && libRes.status === 200 && libJ.status === 'F'
+          && Number(libJ.codrcb) > 0 && !!rcbGerado && Number(rcbGerado.codparceiro) === 22
+          && Number(rcbGerado.valor) > 0 && String(rcbGerado.obs ?? '').includes(`análise ${anCriarJ.apn_id}`)
+          && pedFechado?.importado === 'S' && pedFechado?.fechado === 'S'
+          && String(pedFechado?.pc_nronf_cruzamento ?? '').includes('880995')
+          && Number(itensFechados.n) === 4
+          && anFinal?.apn_status === 'F' && anFinal?.apn_status_finalizacao === 'F' && Number(anFinal?.codoperador_finalizado) === 7
+          && libRepetir.status === 422,
+          { semFin: libSemFin.status, lib: libRes.status, libJ, rcb: rcbGerado, ped: pedFechado, itens: itensFechados?.n, an: anFinal, repetir: libRepetir.status });
+
+        // REFAZER (RPN): nova análise com os mesmos pedidos/notas, já processada, encerrando a pendência RPN
+        const poRpn = (await pgRv.query(`INSERT INTO pendencia_operador (codoperador, po_tipo_pendencia_operador, po_status, po_complemento, codempresa, codoperador_origem, po_data)
+          VALUES (7,'RPN','A',$1,1,7,'2026-12-07 09:00:00-03') RETURNING po_id`, [String(anCriarJ.apn_id)])).rows[0] as any;
+        const refRes = await fetch(`${base}/${PO}/analise/refazer`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anCriarJ.apn_id }) });
+        const refJ = (await refRes.json().catch(() => ({}))) as any;
+        const poRpnDepois = (await pgRv.query(`SELECT po_status FROM pendencia_operador WHERE po_id=$1`, [poRpn.po_id])).rows[0] as any;
+        check('PENDÊNCIAS corte-2c (REFAZER/RPN): cria uma análise NOVA com os mesmos pedidos e notas, já processada (mesmas 2 divergências e os mesmos itens de cada lado), mantém a antiga no histórico e FINALIZA a pendência RPN que pediu a nova análise',
+          refRes.status === 200 && Number(refJ.apn_id_nova) > 0 && Number(refJ.apn_id_nova) !== Number(anCriarJ.apn_id)
+          && Number(refJ.processamento?.divergencias) === 2 && Number(refJ.processamento?.inexistentes_nf) === 1
+          && Number(refJ.processamento?.inexistentes_pc) === 1
+          && (refJ.pendencias_finalizadas ?? []).includes(Number(poRpn.po_id))
+          && poRpnDepois?.po_status === 'F',
+          { st: refRes.status, nova: refJ.apn_id_nova, antiga: refJ.apn_id_antiga, proc: refJ.processamento, pend: refJ.pendencias_finalizadas, rpn: poRpnDepois?.po_status });
+
+        // cleanup do que o corte-2c criou (a análise nova + o título + a pendência RPN)
+        await pgRv.query(`DELETE FROM analise_pedido_nf_diverg WHERE apn_id=$1`, [refJ.apn_id_nova ?? 0]);
+        await pgRv.query(`DELETE FROM analise_pedido_nf_ine_nf WHERE apn_id=$1`, [refJ.apn_id_nova ?? 0]);
+        await pgRv.query(`DELETE FROM analise_pedido_nf_ine_pc WHERE apn_id=$1`, [refJ.apn_id_nova ?? 0]);
+        await pgRv.query(`DELETE FROM analise_pedido_nf_nf WHERE apn_id=$1`, [refJ.apn_id_nova ?? 0]);
+        await pgRv.query(`DELETE FROM analise_pedido_nf_pedido WHERE apn_id=$1`, [refJ.apn_id_nova ?? 0]);
+        await pgRv.query(`DELETE FROM analise_pedido_nf WHERE apn_id=$1`, [refJ.apn_id_nova ?? 0]);
+        await pgRv.query(`DELETE FROM pendencia_operador WHERE po_id=$1`, [poRpn.po_id]);
+        await pgRv.query(`DELETE FROM analise_pedido_nf_cr WHERE apn_id=$1`, [anCriarJ.apn_id]);
+        await pgRv.query(`DELETE FROM areceber WHERE codrcb=$1`, [rcbGerado?.codrcb ?? 0]);
+
         await pgRv.query(`DELETE FROM analise_pedido_nf_diverg WHERE apn_id=$1`, [anCriarJ.apn_id]);
         await pgRv.query(`DELETE FROM analise_pedido_nf_ine_nf WHERE apn_id=$1`, [anCriarJ.apn_id]);
         await pgRv.query(`DELETE FROM analise_pedido_nf_ine_pc WHERE apn_id=$1`, [anCriarJ.apn_id]);

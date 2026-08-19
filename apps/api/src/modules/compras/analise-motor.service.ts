@@ -227,4 +227,152 @@ export class AnaliseMotorService {
       };
     });
   }
+
+  /**
+   * quem pode LIBERAR (`OperadorLiberaAnalise`): o operador **que criou algum dos pedidos** da análise, ou
+   * quem está na lista de MASTERS (o E8 `USUARIOS_PERMITIDOS_LIBERAR_PEDIDO_COMPRA`, o mesmo grant que dá
+   * visibilidade de fila no corte-2a).
+   */
+  private async podeLiberar(db: AnyDB, apnId: number, op: number | null): Promise<{ pode: boolean; master: boolean; compradores: number[] }> {
+    const peds = (await db.selectFrom('analise_pedido_nf_pedido as ap')
+      .innerJoin('pedidocompra as pc', 'pc.codpedcomp', 'ap.codpedcomp')
+      .select([sql`distinct pc.codoperador`.as('codoperador')])
+      .where('ap.apn_id', '=', apnId).execute()) as Array<{ codoperador?: number | null }>;
+    const compradores = peds.map((p) => Number(p.codoperador)).filter((n) => n > 0);
+    // master = está no E8 (o mesmo grant que dá visibilidade de fila no corte-2a)
+    let master = false;
+    if (op != null) {
+      const r = await sql<{ ok: boolean }>`
+        select exists (select 1 from configuracoes c
+                       join configuracoes_especificas ce on ce.id = c.id
+                       where c.codigo = 'USUARIOS_PERMITIDOS_LIBERAR_PEDIDO_COMPRA'
+                         and ce.tipo = 'Usuario' and ce.valor = 'S'
+                         and ce.chave ~ '^[0-9]{1,9}$' and ce.chave::int = ${op}) as ok
+      `.execute(db);
+      master = Boolean(r.rows[0]?.ok);
+    }
+    return { pode: master || (op != null && compradores.includes(Number(op))), master, compradores };
+  }
+
+  /**
+   * LIBERA a análise — `BtnLiberaAnaliseClick` + `Finaliza` (UFrmAnalisePedidosNF.pas:420-470):
+   *  1. o operador precisa poder liberar (criador de algum pedido ou master);
+   *  2. com **vários compradores** nos pedidos, **só o master** libera ("Apenas o usuário master poderá liberar
+   *     a análise pois existem vários compradores nos pedidos");
+   *  3. **com divergência é obrigatório gerar o financeiro** ("Para liberar a análise com divergência, deverá
+   *     gerar o financeiro") — o legado abre a tela de A RECEBER e grava o título contra o fornecedor pela
+   *     diferença, registrando o vínculo em ANALISE_PEDIDO_NF_CR;
+   *  4. finaliza a análise (status 'F'), finaliza a PENDÊNCIA vinculada e fecha o pedido — a análise **TOTAL**
+   *     fecha sempre; a **PARCIAL** pergunta ao operador (aqui: o parâmetro `fechar_pedido`).
+   */
+  async liberar(apnId: number, dto: { fechar_pedido?: boolean; gerar_financeiro?: boolean } = {}) {
+    const emp = this.emp();
+    const op = currentTenant().operadorId ?? null;
+    const db = this.dbp.forTenant() as AnyDB;
+    return db.transaction().execute(async (trx: AnyDB) => {
+      const cab = (await trx.selectFrom('analise_pedido_nf')
+        .select(['apn_id', 'apn_status', 'apn_total_parcial', 'apn_diferenca_valor'])
+        .where('apn_id', '=', apnId).where('codempresa', '=', emp).forUpdate()
+        .executeTakeFirst()) as Record<string, unknown> | undefined;
+      if (!cab) throw new BusinessRuleError('ANALISE_NAO_ENCONTRADA', { apn_id: apnId });
+      if (String(cab.apn_status ?? '') === 'F') throw new BusinessRuleError('ANALISE_JA_FINALIZADA');
+
+      const { pode, master, compradores } = await this.podeLiberar(trx, apnId, op);
+      if (!pode) throw new BusinessRuleError('ANALISE_SEM_PERMISSAO_LIBERAR');
+      if (compradores.length > 1 && !master) throw new BusinessRuleError('ANALISE_VARIOS_COMPRADORES');
+
+      const divs = Number(((await trx.selectFrom('analise_pedido_nf_diverg')
+        .select(sql`count(*)::int`.as('n')).where('apn_id', '=', apnId).executeTakeFirst()) as { n?: number } | undefined)?.n ?? 0);
+      let codrcb: number | null = null;
+      if (divs > 0) {
+        if (!dto.gerar_financeiro) throw new BusinessRuleError('ANALISE_EXIGE_FINANCEIRO', { divergencias: divs });
+        // o título é contra o FORNECEDOR do pedido, pela diferença apurada
+        const forn = (await trx.selectFrom('analise_pedido_nf_pedido as ap')
+          .innerJoin('pedidocompra as pc', 'pc.codpedcomp', 'ap.codpedcomp')
+          .select(['pc.codparceiro']).where('ap.apn_id', '=', apnId).limit(1)
+          .executeTakeFirst()) as { codparceiro?: number } | undefined;
+        if (!forn?.codparceiro) throw new BusinessRuleError('FORNECEDOR_NAO_ENCONTRADO');
+        const valor = Math.abs(Number(cab.apn_diferenca_valor) || 0);
+        if (!(valor > 0)) throw new BusinessRuleError('ANALISE_DIFERENCA_ZERADA');
+        const rcb = (await trx.insertInto('areceber').values({
+          codempresa: emp, codparceiro: Number(forn.codparceiro), valor,
+          dtvenda: sql`now()`, dtvenc: sql`now()`, tipodoc: 'DP', quitada: 'N',
+          obs: `Contas a receber gerada da análise entre pedidos e notas fiscais (análise ${apnId})`,
+        }).returning('codrcb').executeTakeFirstOrThrow()) as { codrcb: number };
+        codrcb = Number(rcb.codrcb);
+        await trx.insertInto('analise_pedido_nf_cr').values({ apn_id: apnId, codrcb }).execute();
+      }
+
+      // finaliza a análise e a pendência que aponta para ela
+      await trx.updateTable('analise_pedido_nf')
+        .set({ apn_status: 'F', apn_status_finalizacao: 'F', codoperador_finalizado: op })
+        .where('apn_id', '=', apnId).execute();
+      const pend = (await trx.updateTable('pendencia_operador')
+        .set({ po_status: 'F' })
+        .where('codempresa', '=', emp)
+        .where('po_tipo_pendencia_operador', 'in', ['APN', 'RPN'])
+        .where(sql<boolean>`po_complemento ~ '^[0-9]{1,9}$' and po_complemento::int = ${apnId}`)
+        .where('po_status', '=', 'A')
+        .returning('po_id').execute()) as Array<{ po_id: number }>;
+
+      // FECHA O PEDIDO: total sempre; parcial só se o operador pedir
+      const total = String(cab.apn_total_parcial ?? 'T') === 'T';
+      const fechar = dto.fechar_pedido ?? total;
+      let pedidosFechados = 0;
+      if (fechar) {
+        const notas = (await trx.selectFrom('analise_pedido_nf_nf as an')
+          .leftJoin('nfe_nao_cadastradas as nnc', 'nnc.codnfe_naocad', 'an.apnn_ref_nf')
+          .select([sql`nnc.nronf`.as('nronf')]).where('an.apn_id', '=', apnId).execute()) as Array<{ nronf?: string }>;
+        const cruzamento = notas.map((n) => String(n.nronf ?? '')).filter(Boolean).join(', ').slice(0, 500);
+        const peds = (await trx.selectFrom('analise_pedido_nf_pedido').select('codpedcomp')
+          .where('apn_id', '=', apnId).execute()) as Array<{ codpedcomp: number }>;
+        const ids = peds.map((p) => Number(p.codpedcomp));
+        if (ids.length) {
+          await trx.updateTable('pedidocompra')
+            .set({ importado: 'S', fechado: 'S', pc_nronf_cruzamento: cruzamento })
+            .where('codpedcomp', 'in', ids).where('idempresa', '=', emp).execute();
+          await trx.updateTable('pedidocompra_i')
+            .set({ fechado: 'S', data_fechamento: sql`current_date`, codoperador_fechamento: op })
+            .where('codpedcomp', 'in', ids).execute();
+          pedidosFechados = ids.length;
+        }
+      }
+      return {
+        apn_id: apnId, status: 'F', codrcb, divergencias: divs,
+        pendencias_finalizadas: pend.map((p) => Number(p.po_id)),
+        pedido_fechado: fechar, pedidos: pedidosFechados, liberado_como_master: master,
+      };
+    });
+  }
+
+  /**
+   * REFAZER a análise (o fluxo **RPN** — `GeraNovaAnalise`, UFrmPendenciasOperador.pas:167): cria uma análise
+   * NOVA com os mesmos pedidos e notas da antiga, processa, **finaliza a pendência** que pediu a nova análise e
+   * devolve o novo id (o legado então abre a análise nova). A antiga fica como está — o histórico não se apaga.
+   */
+  async refazer(apnId: number) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const antiga = (await db.selectFrom('analise_pedido_nf').select(['apn_id', 'apn_total_parcial'])
+      .where('apn_id', '=', apnId).where('codempresa', '=', emp).executeTakeFirst()) as Record<string, unknown> | undefined;
+    if (!antiga) throw new BusinessRuleError('ANALISE_NAO_ENCONTRADA', { apn_id: apnId });
+    const peds = (await db.selectFrom('analise_pedido_nf_pedido').select('codpedcomp').where('apn_id', '=', apnId).execute()) as Array<{ codpedcomp: number }>;
+    const notas = (await db.selectFrom('analise_pedido_nf_nf').select('apnn_ref_nf').where('apn_id', '=', apnId).execute()) as Array<{ apnn_ref_nf: number }>;
+    if (!peds.length) throw new BusinessRuleError('ANALISE_SEM_PEDIDO');
+    if (!notas.length) throw new BusinessRuleError('ANALISE_SEM_NOTA');
+
+    const nova = await this.criar({
+      codpedcomps: peds.map((p) => Number(p.codpedcomp)),
+      refs_nf: notas.map((n) => Number(n.apnn_ref_nf)),
+      total_parcial: (String(antiga.apn_total_parcial ?? 'T') === 'P' ? 'P' : 'T'),
+    });
+    const proc = await this.processar(nova.apn_id);
+    // a pendência que pediu a nova análise (RPN apontando a ANTIGA) se encerra
+    const trx = this.dbp.forTenant() as AnyDB;
+    const pend = (await trx.updateTable('pendencia_operador').set({ po_status: 'F' })
+      .where('codempresa', '=', emp).where('po_tipo_pendencia_operador', '=', 'RPN')
+      .where(sql<boolean>`po_complemento ~ '^[0-9]{1,9}$' and po_complemento::int = ${apnId}`)
+      .where('po_status', '=', 'A').returning('po_id').execute()) as Array<{ po_id: number }>;
+    return { apn_id_nova: nova.apn_id, apn_id_antiga: apnId, processamento: proc, pendencias_finalizadas: pend.map((p) => Number(p.po_id)) };
+  }
 }

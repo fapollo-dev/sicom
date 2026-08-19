@@ -42,3 +42,19 @@ export type AnaliseCriarDto = z.infer<typeof analiseCriarSchema>;
 
 export const analiseProcessarSchema = z.object({ apn_id: z.coerce.number().int().positive() });
 export type AnaliseProcessarDto = z.infer<typeof analiseProcessarSchema>;
+
+/**
+ * LIBERAR a análise (corte-2c): finaliza, encerra a pendência e fecha o pedido. Com divergência o legado
+ * EXIGE gerar o financeiro (o título a receber da diferença contra o fornecedor).
+ */
+export const analiseLiberarSchema = z.object({
+  apn_id: z.coerce.number().int().positive(),
+  /** análise TOTAL fecha o pedido sempre; na PARCIAL o legado pergunta — aqui o front decide. */
+  fechar_pedido: z.boolean().optional(),
+  gerar_financeiro: z.boolean().optional(),
+});
+export type AnaliseLiberarDto = z.infer<typeof analiseLiberarSchema>;
+
+/** REFAZER (fluxo RPN): nova análise com os mesmos pedidos/notas, processada, encerrando a pendência antiga. */
+export const analiseRefazerSchema = z.object({ apn_id: z.coerce.number().int().positive() });
+export type AnaliseRefazerDto = z.infer<typeof analiseRefazerSchema>;
