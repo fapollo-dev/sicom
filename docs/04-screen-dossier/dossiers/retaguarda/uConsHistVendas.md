@@ -61,9 +61,26 @@ senão    → CAST(TRUNC(qtde × vrvenda × 100) AS NUMERIC(18,2)) / 100
 (qtde × vrvenda) − (DESC_PROMOCAO + DESC_DEPARTAMENTO) + (DESC_ACRE_MEDIO + DESC_ACRE_ITEM)
 ```
 
-`TOTAL_CANC` = a mesma soma, mas só quando `COALESCE(CANCELADO,'N') = 'S'` (senão 0) — e o **rodapé** é
-`subtotal − cancelados`. Os rótulos `CANCITEM` ('CANCELADO') e `CANC` ('CUPOM CANCELADO') saem de
-`CANCELADO='S'` e `TIPOCANC='C'`.
+> ⚠️ **`TOTAL_CANC` NÃO tem o CASE do IAT** (corrigido depois da auditoria — a 1ª versão deste dossiê dizia "a
+> mesma soma", e estava errada): a medida do cancelado é **sempre truncada**,
+> `CAST(SUM(CAST(TRUNC((…)*100) AS NUMERIC(13,2))/100) AS NUMERIC(13,2))`, mesmo quando `IAT='A'`. Não é
+> preciosismo: `IAT='A'` é **100%** do golden e **252 dos 1.482** itens cancelados de jun/2023 diferem em 1 centavo
+> (ex. real: pedido `65010623075100`, cupom 7666, item 3 → 0,364 × 25,90 = 9,4276 → **legado 9,42**, arredondado
+> daria 9,43). Efeito visível: um cupom **inteiramente cancelado** fecha em **R$ 0,01** no legado e fecharia
+> R$ 0,00 com a medida arredondada. O rodapé é `subtotal − cancelados`, e os rótulos `CANCITEM` ('CANCELADO') e
+> `CANC` ('CUPOM CANCELADO') saem de `CANCELADO='S'` e `TIPOCANC='C'`.
+
+**Duas colunas de exibição que separam o SINAL** (`Vlr.Desconto` e `Vlr.Acrescimo`, visíveis na grade —
+`uConsHistVendas.dfm:686-698`): o acréscimo junta as partes **positivas** de `DESC_ACRE_MEDIO`/`DESC_ACRE_ITEM`; o
+desconto junta `DESC_PROMOCAO + DESC_DEPARTAMENTO` mais as partes **negativas positivadas**. É o que o atendente
+olha quando o cliente contesta o preço, e os dois sinais ocorrem no golden (jun/2024: 13 linhas com
+`desc_acre_item < 0` e 1 com `desc_acre_medio > 0`).
+
+**O `GROUP BY` colapsa linhas idênticas.** A query do cupom agrupa por item/qtde/preço/descontos/produto e as
+medidas são `SUM(...)` — dois registros iguais viram **uma** linha com o total somado, e a `QTDE` **não** é somada
+(está na chave; o `SUM(V.QTDE)` está comentado no fonte). Acontece no dado real: 19 grupos / 38 linhas extras em
+2024 (ex.: pedido `06240624210734`, item 1, 4 registros de 9,00 → 1 linha de 36,00 com qtde 1); em jun/2023, zero.
+Os totais do rodapé não mudam — só a contagem de itens e o valor por linha.
 
 **Descrição do item:** `CASE WHEN V.IDPRODUTO_FILHO IS NOT NULL THEN V.DESCRICAO ELSE PR.DESCRICAO END` — produto
 filho (pesado/fracionado) usa o texto gravado na venda.
@@ -88,6 +105,17 @@ O grid mostra `VALOR − TROCO` por `OPERACAO`, **sem filtrar operação**. Em 2
 Lição 27 vale aqui: `SANGRIA`, `DESCONTO`, `ACRESCIMO` e `DEVOLUCAO` **não são forma de pagamento** — o legado
 exibe tudo o que o cupom tem, e a soma do grid não é "o que o cliente pagou". Copiar exibindo, sem somar como
 total pago.
+
+Dois desvios deliberados aqui, os dois de endurecimento: a query do legado **não filtra empresa** nem ordena
+(`WHERE NROPEDIDO = :NROPEDIDO`, só isso); o novo acrescenta `idempresa` e `order by codcxvendas`. Sem impacto no
+dado — das 33.995 linhas de `CX_VENDAS` casadas com pedidos de jun/2023, **zero** têm empresa diferente da venda.
+
+### A segunda porta: entrar pelo NROPEDIDO
+
+`ChamaFrmConsHistVendas` (`:478-511`) + `ExisteVenda` (`:625-648`, `SELECT NROCUPOM FROM VENDAS WHERE NROPEDIDO=%s
+AND ROWNUM<=1`) abrem esta consulta com **só o número do pedido**, derivando o cupom da 1ª linha e o PDV dos dois
+primeiros caracteres. Quem chama: `uCadAReceber.pas:499`, `uCadCheque.pas:308/312`, `UcadCartao.pas:398-426` — três
+épicos **já migrados**, ou seja é um elo real entre telas. O endpoint aceita as duas entradas.
 
 ## 6. Regras da tela (fora das queries)
 
@@ -119,5 +147,6 @@ não existe sem elas. E a tabela **`pedidos`** (a metade "venda sem cupom") não
   "cupom cancelado". Tela + smoke.
 - **corte-2 — a consulta do PEDIDO** (`pedidos`, 11.987 linhas e viva ontem): tabela + a aritmética própria dela.
 - **fora, registrado**: impressão da DANFE (depende do PDF da NFC-e) e do ticket; o ramo não-NFC-e do filtro
-  (0 linhas no golden); e o "vale troca" que a tela seleciona por coluna (não exercitado no golden — conferir
-  quando o épico de troca/devolução do PDV entrar).
+  (0 linhas no golden, mas implementado — é ele que produz a mensagem "cupom cancelado"); e o "vale troca" que a
+  tela seleciona por coluna (não exercitado no golden — conferir quando o épico de troca/devolução do PDV entrar).
+- **agregado morto**: o `DESCONTO = SUM(ACRESCIMO − DESC_PROMOCAO)` do dataset não tem label na tela — não copiado.

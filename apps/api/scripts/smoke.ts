@@ -10001,6 +10001,134 @@ async function main() {
         await pgAd.end();
       }
     }
+
+    // ===== §84) CONSULTA DE HISTÓRICO DE VENDAS (FRMCONSHISTVENDAS) — um cupom: itens com a aritmética do IAT,
+    // rodapé (subtotal − cancelados), finalizadores do caixa e a distinção "não existe" × "cancelado". =====
+    {
+      const HV = 'relatorios/hist-vendas/consultar';
+      const pgHv = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // setup: 2 produtos + um cupom de 3 itens no PDV 07 (nropedido = PDV(2)+DDMMYY(6)+HHMMSS(6)), sendo 1 item
+        // cancelado; um cupom cancelado inteiro no MESMO PDV; e um cupom no PDV 08 (prova o filtro por prefixo).
+        await pgHv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+          (990810,'7890000008101','ARROZ TIPO 1 5KG','PC',2,'T01','S'), (990811,'7890000008118','BANANA PRATA KG','KG',2,'T01','S')
+          ON CONFLICT (idproduto) DO NOTHING`);
+        const hvPed = '07100826101500';
+        await pgHv.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, iat, aliquota, cancelado, tipocanc, venda_nfc,
+                                             desc_promocao, desc_departamento, desc_acre_medio, desc_acre_item, desc_acre, codparceiro, codvendedor, operador, idproduto_filho) VALUES
+          (1,'2026-08-10 10:15:00-03',$1,'001',8101,1,990810,   2, 10.00,'A','T','N',NULL,'S', 1.00, 0.50, 0.00, 0.00, 2.00, 20, 21, 7, NULL),
+          (1,'2026-08-10 10:15:00-03',$1,'001',8101,2,990811,0.435,  7.99,'C','T','N',NULL,'S', 0.00, 0.00, 0.00, 0.00, 2.00, 20, 21, 7, 990811),
+          (1,'2026-08-10 10:15:00-03',$1,'001',8101,3,990810,0.364, 25.90,'A','T','S',NULL,'S', 0.00, 0.00, 0.00, 0.00, 2.00, 20, 21, 7, NULL),
+          (1,'2026-08-10 10:15:00-03',$1,'001',8101,4,990810,   1, 12.00,'A','T','N',NULL,'S', 0.00, 0.00, 1.00,-3.00, 2.00, 20, 21, 7, NULL),
+          (1,'2026-08-10 10:15:00-03',$1,'001',8101,5,990810,   1,  9.00,'A','T','N',NULL,'S', 0.00, 0.00, 0.00, 0.00, 2.00, 20, 21, 7, NULL),
+          (1,'2026-08-10 10:15:00-03',$1,'001',8101,5,990810,   1,  9.00,'A','T','N',NULL,'S', 0.00, 0.00, 0.00, 0.00, 2.00, 20, 21, 7, NULL)`, [hvPed]);
+        await pgHv.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, iat, cancelado, tipocanc, venda_nfc, codparceiro, codvendedor, operador) VALUES
+          (1,'2026-08-10 11:00:00-03','07100826110000','001',8102,1,990810,1,10.00,'A','S','C','S',20,21,7)`);
+        await pgHv.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, iat, cancelado, venda_nfc, codparceiro, codvendedor, operador) VALUES
+          (1,'2026-08-10 12:00:00-03','08100826120000','001',8101,1,990811,1,5.00,'A','N','S',20,21,7)`);
+        // finalizadores: o legado NÃO filtra operação — DINHEIRO com troco + SANGRIA (que não é pagamento).
+        await pgHv.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, nropedido, operacao, valor, troco) VALUES
+          (1,'2026-08-10 10:15:00-03',7,$1,'DINHEIRO', 30.00, 8.00),
+          (1,'2026-08-10 10:16:00-03',7,$1,'SANGRIA',  10.00, 0.00)`, [hvPed]);
+
+        const hvPost = (b: Record<string, unknown>, h = H) => fetch(`${base}/${HV}`, { method: 'POST', headers: h, body: JSON.stringify(b) });
+        const hv1 = await hvPost({ nrocupom: 8101, pdv: 7 });
+        const hv1J = (await hv1.json().catch(() => ({}))) as any;
+        const it = (n: number) => (hv1J.itens ?? []).find((i: any) => Number(i.nroitem) === n);
+        // item 1: IAT 'A' → 2×10 = 20,00 arredondado; total_item = 20 − (1,00+0,50) = 18,50
+        // item 2: IAT 'C' → 0,435×7,99 = 3,47565 → TRUNCA em 3,47 (arredondar daria 3,48)
+        // item 3: cancelado → entra em `cancelados`, não no total
+        // itens: 1) IAT 'A' 2×10=20,00 com descontos 1,00+0,50 → 18,50 · 2) IAT 'C' 0,435×7,99=3,4756 TRUNCA 3,47 ·
+        // 3) CANCELADO com IAT 'A' 0,364×25,90=9,4276 → o legado TRUNCA o cancelado (9,42; arredondar daria 9,43) ·
+        // 4) desc_acre_medio +1 e desc_acre_item −3 → as colunas separam o sinal (acréscimo 1,00 / desconto 3,00) ·
+        // 5) DUAS linhas idênticas → o GROUP BY do legado colapsa numa só com o total SOMADO (18,00) e qtde 1.
+        check('HIST-VENDAS §84.1: 5 linhas de grade (2 registros idênticos COLAPSADOS pelo GROUP BY do legado, com total somado 18,00 e qtde 1) · IAT "A" arredonda (20,00) e IAT≠A TRUNCA (3,47) · total_item aplica os 4 descontos (18,50) · o CANCELADO é SEMPRE truncado, mesmo com IAT="A" (0,364×25,90=9,4276 → 9,42) e vai p/ `cancelados` · as colunas Vlr.Desconto/Vlr.Acréscimo separam o sinal (3,00 / 1,00) · cabeçalho com cliente/vendedor/operador',
+          hv1.status === 200 && hv1J.encontrado === true && (hv1J.itens ?? []).length === 5
+          && Number(it(1)?.total) === 20 && Number(it(1)?.total_item) === 18.5
+          && Number(it(2)?.total) === 3.47 && Number(it(2)?.total_item) === 3.47
+          && it(3)?.cancitem === 'CANCELADO' && Number(it(3)?.total_canc) === 9.42
+          && Number(it(4)?.acrescimo) === 1 && Number(it(4)?.desconto) === 3 && Number(it(4)?.total_item) === 10
+          && Number(it(5)?.total_item) === 18 && Number(it(5)?.qtde) === 1
+          && Number(hv1J.totais?.cancelados) === 9.42 && Number(hv1J.totais?.total) === r2ck(Number(hv1J.totais?.subtotal) - 9.42)
+          && Number(hv1J.totais?.qtd_itens) === 5
+          && hv1J.cabecalho?.cliente != null && hv1J.cabecalho?.vendedor != null && hv1J.cabecalho?.operador != null
+          && hv1J.cabecalho?.nropedido === hvPed && hv1J.cabecalho?.permite_ticket === true,
+          { status: hv1.status, itens: (hv1J.itens ?? []).map((i: any) => [i.nroitem, i.qtde, i.total, i.total_item, i.desconto, i.acrescimo, i.total_canc]), totais: hv1J.totais });
+
+        check('HIST-VENDAS §84.2: finalizadores do cupom vêm de cx_vendas por NROPEDIDO, com VALOR − TROCO (30−8=22) e SEM filtrar operação (a SANGRIA aparece — não é pagamento, lição 27); a soma é rotulada como movimento',
+          (hv1J.finalizadores ?? []).length === 2
+          && Number((hv1J.finalizadores ?? []).find((f: any) => f.operacao === 'DINHEIRO')?.valor) === 22
+          && Number((hv1J.finalizadores ?? []).find((f: any) => f.operacao === 'SANGRIA')?.valor) === 10
+          && Number(hv1J.total_finalizadores) === 32,
+          { fin: hv1J.finalizadores, total: hv1J.total_finalizadores });
+
+        // o MESMO cupom no PDV 08 é outra venda: o filtro é o PREFIXO do nropedido (dossiê §2).
+        const hv2 = await hvPost({ nrocupom: 8101, pdv: 8 });
+        const hv2J = (await hv2.json().catch(() => ({}))) as any;
+        check('HIST-VENDAS §84.3: o PDV é o PREFIXO de 2 dígitos do NROPEDIDO — cupom 8101 no PDV 08 devolve a OUTRA venda (1 item, R$ 5,00), não a do PDV 07',
+          hv2.status === 200 && hv2J.encontrado === true && (hv2J.itens ?? []).length === 1 && Number(hv2J.totais?.total) === 5
+          && hv2J.cabecalho?.nropedido === '08100826120000',
+          { itens: hv2J.itens?.length, total: hv2J.totais?.total, ped: hv2J.cabecalho?.nropedido });
+
+        // cupom com TIPOCANC='C': no golden essas linhas seguem com NROCUPOM e VENDA_NFC='S' (1.156 linhas em
+        // 2024), logo a consulta principal do legado AS ENCONTRA e a tela mostra o rótulo "CUPOM CANCELADO" —
+        // a mensagem "O cupom informado está cancelado." é o caminho do que ficou FORA do filtro (ex.: o ramo
+        // não-NFC-e), quando a 2ª query (VendaEstaCancelada) acha a venda que a principal não achou.
+        const hv3 = await hvPost({ nrocupom: 8102, pdv: 7 });
+        const hv3J = (await hv3.json().catch(() => ({}))) as any;
+        const hv3b = await hvPost({ nrocupom: 8102, pdv: 7, venda_nfc: 'N' });
+        const hv3bJ = (await hv3b.json().catch(() => ({}))) as any;
+        const hv4 = await hvPost({ nrocupom: 9999, pdv: 7 });
+        const hv4J = (await hv4.json().catch(() => ({}))) as any;
+        check('HIST-VENDAS §84.4: cupom cancelado DENTRO do filtro → encontrado:true com rótulo CUPOM CANCELADO e ticket bloqueado; o MESMO cupom fora do filtro (venda_nfc=N) → encontrado:false + cupom_cancelado:true (a 2ª query do legado); cupom inexistente → os dois false',
+          hv3.status === 200 && hv3J.encontrado === true && hv3J.cupom_cancelado === true
+          && (hv3J.itens ?? [])[0]?.canc === 'CUPOM CANCELADO' && hv3J.cabecalho?.permite_ticket === false
+          && hv3b.status === 200 && hv3bJ.encontrado === false && hv3bJ.cupom_cancelado === true
+          && hv4.status === 200 && hv4J.encontrado === false && hv4J.cupom_cancelado === false,
+          { dentro: [hv3J.encontrado, hv3J.cupom_cancelado, (hv3J.itens ?? [])[0]?.canc, hv3J.cabecalho?.permite_ticket], fora: [hv3bJ.encontrado, hv3bJ.cupom_cancelado], inexistente: [hv4J.encontrado, hv4J.cupom_cancelado] });
+
+        // o ramo não-NFC-e do filtro (0 linhas no golden) e os gates de validação/RBAC/tenant.
+        const hv5 = await hvPost({ nrocupom: 8101, pdv: 7, venda_nfc: 'N' });
+        const hv5J = (await hv5.json().catch(() => ({}))) as any;
+        const hv6 = await hvPost({ nrocupom: 8101, pdv: 700 });
+        const hv7 = await hvPost({ pdv: 7 });
+        const hv8 = await hvPost({ nrocupom: 8101, pdv: 7 }, H_SEM_ACESSO);
+        // empresa 2: o RBAC é POR EMPRESA (o grant foi semeado só p/ a empresa 1) → 403 antes de qualquer leitura;
+        // e com grant na empresa 2 o cupom da empresa 1 continua invisível (o filtro é por idempresa).
+        const hv9 = await hvPost({ nrocupom: 8101, pdv: 7 }, { ...H, 'x-empresa-id': '2' });
+        await pgHv.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMCONSHISTVENDAS','FRMCONSHISTVENDAS',7,2)`);
+        const hv10 = await hvPost({ nrocupom: 8101, pdv: 7 }, { ...H, 'x-empresa-id': '2' });
+        const hv10J = (await hv10.json().catch(() => ({}))) as any;
+        await pgHv.query(`DELETE FROM permissoes WHERE form='FRMCONSHISTVENDAS' AND codempresa=2`);
+        check('HIST-VENDAS §84.5: filtro venda_nfc="N" não acha (100% do golden é NFC-e — cópia-fiel-negativa) · PDV com 3 dígitos → 400 · sem cupom → 400 · sem grant → 403 · empresa 2 sem grant → 403 e COM grant não vê o cupom da empresa 1 (tenant)',
+          hv5.status === 200 && hv5J.encontrado === false && hv6.status === 400 && hv7.status === 400
+          && hv8.status === 403 && hv9.status === 403 && hv10.status === 200 && hv10J.encontrado === false,
+          { nfcN: hv5J.encontrado, pdv3: hv6.status, semCupom: hv7.status, rbac: hv8.status, emp2SemGrant: hv9.status, emp2ComGrant: hv10J.encontrado });
+
+        // 84.6) a 2ª porta do legado (A Receber/Cheque/Cartão chamam com SÓ o pedido) e o gate de empresa vindo do
+        // BODY: sem grant na empresa pedida → 422 SEM_PERMISSAO_EMPRESA (o header já dava 403; o corpo não podia
+        // ser um caminho mais frouxo).
+        const hv11 = await hvPost({ nropedido: hvPed });
+        const hv11J = (await hv11.json().catch(() => ({}))) as any;
+        const hv12 = await hvPost({ nrocupom: 8101, pdv: 7, idempresa: 2 });
+        const hv12J = (await hv12.json().catch(() => ({}))) as any;
+        const hv13 = await hvPost({ nropedido: '07999999999999' });
+        const hv13J = (await hv13.json().catch(() => ({}))) as any;
+        check('HIST-VENDAS §84.6: consulta por NROPEDIDO sozinho (a porta que A Receber/Cheque/Cartão usam) deriva cupom e PDV e devolve o mesmo cupom; pedido inexistente → encontrado:false; `idempresa` no BODY sem grant na empresa → 422 SEM_PERMISSAO_EMPRESA',
+          hv11.status === 200 && hv11J.encontrado === true && Number(hv11J.cabecalho?.nrocupom) === 8101
+          && (hv11J.itens ?? []).length === 5
+          && hv13.status === 200 && hv13J.encontrado === false
+          && hv12.status === 422 && hv12J.code === 'SEM_PERMISSAO_EMPRESA',
+          { porPedido: [hv11.status, hv11J.cabecalho?.nrocupom, hv11J.itens?.length], inexistente: hv13J.encontrado, empBody: [hv12.status, hv12J.code] });
+
+        // cleanup
+        await pgHv.query(`DELETE FROM cx_vendas WHERE nropedido IN ($1,'07100826110000','08100826120000')`, [hvPed]);
+        await pgHv.query(`DELETE FROM vendas WHERE nropedido IN ($1,'07100826110000','08100826120000')`, [hvPed]);
+        await pgHv.query(`DELETE FROM produtos WHERE idproduto IN (990810,990811)`);
+      } finally {
+        await pgHv.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
