@@ -16,8 +16,8 @@
 |-------|-------|
 | **Data** | 2026-08-19 |
 | **Commit de referência** | `af37ca9` (`main`, tudo verde) |
-| **Estado de build** | api tsc 0 · api test 183 · **smoke 999/0** · web tsc 0 · web test 37 · build ok |
-| **Migrations aplicadas** | até `163` |
+| **Estado de build** | api tsc 0 · api test 183 · **smoke 1004/0** · web tsc 0 · web test 37 · build ok |
+| **Migrations aplicadas** | até `165` |
 | **Features no `apps/web`** | 43 |
 | **Schemas em `packages/shared`** | 44 |
 | **Dossiês na retaguarda** | 37 |
@@ -59,7 +59,7 @@ nenhuma referência**. Tirando backup/temporária/auditoria (`W_*`, `Z_TEMP_*`, 
 |---|---:|---|---|---|
 | `ANALISE_COMP_DIA_PROD` | 2.850.037 | 2018-01 → **25/11/2025** | `URelAnaliseComportamentoPeriodo.pas` | tabela-**suporte de relatório**; as duas primeiras param no MESMO dia ⇒ job/replicação interrompida. Antes de migrar, checar se é agregado **derivável** de VENDAS |
 | `MOVIMENTACAO_DIARIA` | 2.338.168 | 2019-01 → **25/11/2025** | `uVendas.pas`, `uPedidoCompra.pas`, `uProdutosRel.pas`, `uDDE.pas` | idem — 4 escritores, cara de acumulador diário por produto |
-| `APURACAO_ICMS_DETALHES` | 1.155.893 | (sem coluna de data) | `uRelRegistros_ES.pas` + `uDMRelRegistros_ES.pas` | **melhor candidato**: detalhe da apuração de ICMS, dentro do épico fiscal já migrado, com fonte |
+| ~~`APURACAO_ICMS_DETALHES`~~ | 1.155.893 | — | `uRelRegistros_ES.pas` + `uDMRelRegistros_ES.pas` | ✅ **ENTREGUE** (`2e47bae` mig 164 · folds `612021a` mig 165 · tela `701e4bf`): o processo que produz o E110, com as três pernas (notas de saída, **cupons** e notas de entrada), resumo por CFOP e a tela dos três quadros. A auditoria achou 6 ALTA no detalhe — todos corrigidos |
 | `BALANCOITENS` | 980.574 | (sem data) | — | conferir contra o épico Inventário antes de qualquer coisa |
 | `IMOV_ANALISE_CONCORRENTE` | 227.914 | 2023-07 → **04/02/2026** | **nenhuma** | ⛔ bloqueada (lição 35): pesquisa de concorrência sem fonte no repo clonado |
 | `CARTAO_SELECAO` | 116.415 | 2024-03 → **04/03/2026** | **nenhuma** | ⛔ bloqueada pelo mesmo motivo (satélite do épico Cartões) |
