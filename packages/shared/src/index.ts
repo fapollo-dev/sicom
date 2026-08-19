@@ -39,6 +39,7 @@ export * from './schema/etiqueta.schema';
 export * from './schema/controle-contas.schema';
 export * from './schema/adiantamento-forn.schema';
 export * from './schema/cons-hist-vendas.schema';
+export * from './schema/apuracao-icms.schema';
 export * from './schema/ajuste-precos.schema';
 export * from './schema/precificacao-custo.schema';
 export * from './schema/rel-vendas.schema';
