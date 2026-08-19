@@ -210,5 +210,13 @@ gerou o golden** — nele `BASE`/`VALOR_ICMS` são zerados fora de `ALIQUOTA='T'
 linha STB da NF 93804 tem BASE 189,85 = Σ das bases dos itens STB). Onde os dois discordam, este corte segue o
 **golden**.
 
-**Ainda não entregue deste corte:** a **tela** (os três quadros + o aviso de contingência) — registrada aqui como o
-que falta, não esquecida.
+**A tela** (`/fiscal/apuracao-icms`) entregou os três quadros do legado: o **E110** com os totais de crédito e
+débito calculados na frente do operador (e o crédito de Simples Nacional destacado embaixo do crédito de entrada),
+o **resumo por CFOP** em duas grades (entradas e saídas, com totalizador) e a **contagem de documentos** por
+espécie — cupons, notas de saída, notas de entrada e linhas de detalhe. Os cinco ajustes manuais são campos do
+formulário, e a tela deixa explícito o que o processo joga fora e por quê.
+
+Duas coisas que o legado faz e a tela copia: **reprocessar pede confirmação** ("Já existe apuração nesse período,
+deseja reprocessar?") e o **aviso de contingência** aparece com o número de cupons afetados, porque eles não entram
+na apuração. Também está escrito na tela que o saldo anterior vem do **mês fechado** anterior e que reprocessar um
+mês antigo não recalcula os seguintes — a consequência menos óbvia do encadeamento.

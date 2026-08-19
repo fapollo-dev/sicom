@@ -39,6 +39,7 @@ import { EtiquetaPage } from '../features/etiqueta/EtiquetaPage';
 import { ControleContasPage } from '../features/controle-contas/ControleContasPage';
 import { AdiantamentoFornPage } from '../features/adiantamento-forn/AdiantamentoFornPage';
 import { HistVendasPage } from '../features/hist-vendas/HistVendasPage';
+import { ApuracaoIcmsPage } from '../features/apuracao-icms/ApuracaoIcmsPage';
 import { ExportaBalancaPage } from '../features/exporta-balanca/ExportaBalancaPage';
 import { AjustePrecosPage } from '../features/ajuste-precos/AjustePrecosPage';
 import { PrecificacaoCustoPage } from '../features/precificacao-custo/PrecificacaoCustoPage';
@@ -134,6 +135,7 @@ export const router = createBrowserRouter([
       { path: '/financeiro/contas-correntes', element: <ControleContasPage /> }, // controle de contas correntes (lançamento manual + transferência + estorno)
       { path: '/financeiro/adiantamentos', element: <AdiantamentoFornPage /> }, // adiantamento a fornecedor/parceiro (movimento na conta + título gerado)
       { path: '/vendas/historico', element: <HistVendasPage /> }, // consulta de histórico de vendas (um cupom: itens + finalizadores)
+      { path: '/fiscal/apuracao-icms', element: <ApuracaoIcmsPage /> }, // apuração de ICMS (livro de entradas/saídas + E110)
       { path: '/cadastro/motivos-operacao', element: <MotivosOperacaoCadMaster /> }, // lookup do motivo do ajuste
       { path: '/cadastro/plano-contas', element: <PlanoContasCadMaster /> }, // plano de contas (árvore)
       { path: '/contabil/dre', element: <DreRelatorio /> }, // relatório DRE (calculado do diário)
