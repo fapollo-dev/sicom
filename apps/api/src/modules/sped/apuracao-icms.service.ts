@@ -52,10 +52,23 @@ export class ApuracaoIcmsService {
    * (CST 40/41/50 = isenta/não-tributada/suspensão · o resto sem base = outras), a mesma separação do livro.
    */
   private async detalheNotas(trx: AnyDB, emp: number, tipo: 'E' | 'S', dataini: string, datafin: string, cod: number) {
+    // o VALOR do item é `VRCUSTO` LÍQUIDO do desconto percentual — não `vrvenda` (fold auditoria [ALTA]): no dado
+    // real da NF o `VRVENDA` é **zero** (em 2023-10: Σ qtde×vrvenda 1.255.631,33 contra Σ qtde×vrcusto
+    // 1.564.040,40, com 669 de 4.851 itens com vrvenda zerado), e a fórmula do `.dfm` é
+    // `(NP.VRCUSTO − VRCUSTO*DESCONTO/100) * QUANTIDADE`.
+    const valorItem = sql`((coalesce(i.vrcusto,0) - coalesce(i.vrcusto,0) * coalesce(i.desconto,0) / 100) * coalesce(i.quantidade,0))`;
+    // ISENTAS × OUTRAS não se separam por CST, e sim pela PRIMEIRA LETRA DA ALÍQUOTA (fold auditoria [ALTA]):
+    // 'I'/'N' → isentas/não-tributadas · 'S' (substituída) → outras, somando ST e IPI. Golden: item CST 40 com
+    // `ALIQUOTA='STB'` sai em OUTRAS, não em isentas; e CST 41/60/70/10 aparecem em OUTRAS no golden.
+    const letra = sql`upper(substr(coalesce(i.aliquota,''),1,1))`;
+    // TOTALNF é derivado dos ITENS DO GRUPO (não `max(n.totalnf)`, que repetiria a nota inteira em cada CFOP e
+    // inflava o "valor contábil" do livro em ~30-60% dos documentos com mais de um grupo — fold auditoria [ALTA]).
+    const totalGrupo = sql`(${valorItem} + coalesce(i.vricmst,0) + coalesce(i.ipi,0) + coalesce(i.frete,0)
+                            + coalesce(i.seguro,0) + coalesce(i.vroutrasdesp,0))`;
     return trx
       .insertInto('apuracao_icms_detalhes')
       .columns(['codapuracaoicms', 'tipo', 'especie', 'codigo', 'cfop', 'cst', 'base', 'valor_icms',
-                'isentas_naotrib', 'outras', 'totalnf', 'icms', 'classfiscal'])
+                'isentas_naotrib', 'outras', 'totalnf', 'icms', 'icms_efetivo', 'classfiscal'])
       .expression((eb: any) =>
         eb
           .selectFrom('nf as n')
@@ -68,27 +81,34 @@ export class ApuracaoIcmsService {
             sql`n.codnf::text || 'NF'`.as('codigo'),
             sql`nullif(i.cfop,'')::int`.as('cfop'),
             sql`i.cst`.as('cst'),
-            sql`sum(case when coalesce(i.cst,0) not in (40,41,50) then coalesce(i.vrbasecalculo,0) else 0 end)`.as('base'),
+            sql`sum(coalesce(i.vrbasecalculo,0))`.as('base'),
             sql`sum(coalesce(i.vricm,0))`.as('valor_icms'),
-            sql`sum(case when coalesce(i.cst,0) in (40,41,50) then coalesce(i.vrbasecalculo,0) + coalesce(i.quantidade,0) * coalesce(i.vrvenda,0) - coalesce(i.vrbasecalculo,0) else 0 end)`.as('isentas_naotrib'),
-            sql`sum(case when coalesce(i.cst,0) not in (40,41,50) and coalesce(i.vrbasecalculo,0) = 0 then coalesce(i.quantidade,0) * coalesce(i.vrvenda,0) else 0 end)`.as('outras'),
-            sql`max(coalesce(n.totalnf,0))`.as('totalnf'),
-            sql`max(coalesce(i.icms,0))`.as('icms'),
+            sql`sum(case when ${letra} in ('I','N') then ${valorItem} else 0 end)`.as('isentas_naotrib'),
+            sql`sum(case when ${letra} = 'S' then ${valorItem} + coalesce(i.vricmst,0) + coalesce(i.ipi,0) else 0 end)`.as('outras'),
+            sql`sum(${totalGrupo})`.as('totalnf'),
+            sql`coalesce(i.icms,0)`.as('icms'),
+            // ICMS_EFETIVO = a alíquota aplicada sobre a base REDUZIDA (o golden traz 3 linhas do mesmo
+            // (codigo,cfop,cst) distinguidas só por ele) — aqui: alíquota × base/(qtde×custo) quando há redução.
+            // ICMS_EFETIVO = ICME × BCR/100 (a alíquota sobre a base REDUZIDA) — a coluna `BCR` é a % da base
+            // reduzida (mig 026), e o golden confirma a fórmula (apuração 1485: BCR 63,58/63,57/74,84 → efetivo
+            // 67,33). Sem BCR (nulo/0) o efetivo é a própria alíquota.
+            sql`coalesce(i.icms,0) * coalesce(nullif(i.bcr,0), 100) / 100`.as('icms_efetivo'),
             sql`max(p.classfiscal)`.as('classfiscal'),
           ])
           .where('n.idempresa', '=', emp)
           .where('n.tipo', '=', tipo)
-          // a data é a CONTÁBIL
-          .where(sql`n.dtcontabil`, '>=', dataini)
+          .where(sql`n.dtcontabil`, '>=', dataini) // a data é a CONTÁBIL
           .where(sql`n.dtcontabil`, '<=', datafin)
           .where(sql`coalesce(n.proc,'N')`, '=', 'S')
           .where(sql`coalesce(n.cancelada,'N')`, '=', 'N')
           .where(sql`coalesce(n.nronf,'0')`, '<>', '0')
           .where(sql<boolean>`coalesce(n.statusnfe,'X') <> 'D'`) // denegada fora
-          // NFe (mod 55) só com chave e não inutilizada; outros modelos entram sem essa exigência
           .where(sql<boolean>`(n.modelo <> 55 or (n.chavenfe is not null and coalesce(n.statusnfe,'P') <> 'I'))`)
           .where(this.cfopEntra('i.cfop'))
-          .groupBy(['n.codnf', 'i.cfop', 'i.cst']),
+          // o GRÃO do legado inclui as duas alíquotas (ICMS e ICMS_EFETIVO), não só (documento, cfop, cst)
+          // o GRÃO do legado inclui as DUAS alíquotas: golden 1485 tem três linhas do mesmo (codigo,cfop,cst)
+          // distinguidas só pelo ICMS_EFETIVO (75,97 / 67,33 / 90,92).
+          .groupBy(['n.codnf', 'i.cfop', 'i.cst', 'i.icms', 'i.bcr']),
       )
       .executeTakeFirst();
   }
@@ -99,10 +119,26 @@ export class ApuracaoIcmsService {
    * e cupom cancelado ficam fora (é venda que não existe fiscalmente).
    */
   private async detalheCupons(trx: AnyDB, emp: number, dataini: string, datafin: string, cod: number) {
+    // o legado apura o cupom a partir dos itens da NFC-e (`GetSQLNFC`, uRelRegistros_ES.pas:1798-1812):
+    //   BASE = SUM(ICMS_BASE_CALCULO) · ICMS = ICMS_EFETIVO = ICMS_ALIQUOTA · **ISENTAS = OUTRAS = 0 (literal)**
+    //   CODIGO = CODNFC||'NFC' · filtro: STATUSNFE='P', PROC='S', CHAVENFE não nula, cupom e item não cancelados
+    // (folds auditoria [ALTA]: nós inventávamos isentas/outras no cupom, usávamos `qtde*vrvenda` como base — que
+    // ignora REDUÇÃO (golden: cupom 2022377 base 22,11 contra item 37,90) — e o `nropedido` como identificador,
+    // que casa com 0 de 1.400.580 linhas do golden.)
+    const valorItem = sql`(coalesce(v.qtde,0) * coalesce(v.vrvenda,0))`;
+    // TOTALNF do cupom segue o CASE do IAT e desconta promoção/departamento/parcelas negativas, somando as
+    // positivas — a mesma fórmula da view get_hist_vendas (mig 161) e do legado (:1803-1811).
+    const totalIat = sql`(case when v.iat = 'A' then cast(${valorItem} as numeric(18,2))
+                               else cast(trunc(${valorItem} * 100) as numeric(18,2)) / 100 end
+                          + (case when coalesce(v.desc_acre_medio,0) > 0 then coalesce(v.desc_acre_medio,0) else 0 end)
+                          + (case when coalesce(v.desc_acre_item,0)  > 0 then coalesce(v.desc_acre_item,0)  else 0 end)
+                          - (coalesce(v.desc_promocao,0) + coalesce(v.desc_departamento,0)
+                             + (case when coalesce(v.desc_acre_medio,0) < 0 then coalesce(v.desc_acre_medio,0) * -1 else 0 end)
+                             + (case when coalesce(v.desc_acre_item,0)  < 0 then coalesce(v.desc_acre_item,0)  * -1 else 0 end)))`;
     return trx
       .insertInto('apuracao_icms_detalhes')
       .columns(['codapuracaoicms', 'tipo', 'especie', 'codigo', 'cfop', 'cst', 'base', 'valor_icms',
-                'isentas_naotrib', 'outras', 'totalnf', 'icms'])
+                'isentas_naotrib', 'outras', 'totalnf', 'icms', 'icms_efetivo'])
       .expression((eb: any) =>
         eb
           .selectFrom('vendas as v')
@@ -110,31 +146,31 @@ export class ApuracaoIcmsService {
             sql`${cod}`.as('codapuracaoicms'),
             sql`'S'`.as('tipo'),
             sql`'NFC'`.as('especie'),
-            sql`v.nropedido || 'NFC'`.as('codigo'),
+            // CODNFC quando a carga trouxer; sem ele, o nropedido (documentado na mig 165)
+            sql`coalesce(v.codnfc::text, v.nropedido) || 'NFC'`.as('codigo'),
             sql`v.cfop`.as('cfop'),
             sql`nullif(v.icms_cst,'')::int`.as('cst'),
-            // no cupom a base tributada é o próprio valor do item quando há ICMS destacado
-            sql`sum(case when coalesce(v.icms_valor,0) <> 0 then coalesce(v.qtde,0) * coalesce(v.vrvenda,0) else 0 end)`.as('base'),
+            // base = a do item (pode ser REDUZIDA); fallback só enquanto a carga não preencher
+            sql`sum(coalesce(v.icms_base_calculo, case when coalesce(v.icms_valor,0) <> 0 then ${valorItem} else 0 end))`.as('base'),
             sql`sum(coalesce(v.icms_valor,0))`.as('valor_icms'),
-            sql`sum(case when coalesce(v.icms_valor,0) = 0 and coalesce(v.aliquota,'') in ('IST','ISE','NT') then coalesce(v.qtde,0) * coalesce(v.vrvenda,0) else 0 end)`.as('isentas_naotrib'),
-            sql`sum(case when coalesce(v.icms_valor,0) = 0 and coalesce(v.aliquota,'') not in ('IST','ISE','NT') then coalesce(v.qtde,0) * coalesce(v.vrvenda,0) else 0 end)`.as('outras'),
-            sql`sum(coalesce(v.qtde,0) * coalesce(v.vrvenda,0))`.as('totalnf'),
-            sql`0`.as('icms'),
+            sql`0`.as('isentas_naotrib'), // literal no legado
+            sql`0`.as('outras'),          // literal no legado
+            sql`sum(${totalIat})`.as('totalnf'),
+            sql`coalesce(v.icms_aliquota,0)`.as('icms'),
+            sql`coalesce(v.icms_aliquota,0)`.as('icms_efetivo'),
           ])
           .where('v.idempresa', '=', emp)
           .where(sql`cast(v.dtvenda at time zone 'America/Sao_Paulo' as date)`, '>=', dataini)
           .where(sql`cast(v.dtvenda at time zone 'America/Sao_Paulo' as date)`, '<=', datafin)
           .where(sql`coalesce(v.cancelado,'N')`, '=', 'N')
           .where(sql<boolean>`coalesce(v.tipocanc,'N') <> 'C'`)
-          .where(sql<boolean>`coalesce(v.statusnfe,'P') <> 'C'`) // cupom cancelado na SEFAZ fora
-          // ⚠️ CUPOM EM CONTINGÊNCIA (NFC-e sem chave) **não entra na apuração** — é exatamente o que o aviso do
-          // legado anuncia antes de processar ("Existem NFC-e em contigência no período, estas não entrarão na
-          // apuração"), com o comentário do fonte explicando o risco ("possibilidade de sonegacao, venda
-          // realizada, porem nao inclusa na apuracao de icms"). O smoke pegou: sem este filtro o débito de saída
-          // vinha 1,80 maior que o esperado, incluindo o cupom sem chave.
+          // ⚠️ o legado exige **STATUSNFE='P'** (autorizada). O `<> 'C'` de antes admitia 40.035 NFC-e
+          // **inutilizadas ('I')** com chave, além de 'U'/'G'/'R'/vazio — a perna de NF já excluía a inutilizada.
+          .where(sql`coalesce(v.statusnfe,'')`, '=', 'P')
+          // cupom em CONTINGÊNCIA não entra (é o que o aviso do legado anuncia); sem chave não há documento fiscal
           .where(sql<boolean>`v.chavenfe is not null`)
           .where(this.cfopEntra('v.cfop'))
-          .groupBy(['v.nropedido', 'v.cfop', 'v.icms_cst']),
+          .groupBy(['v.codnfc', 'v.nropedido', 'v.cfop', 'v.icms_cst', 'v.icms_aliquota']),
       )
       .executeTakeFirst();
   }
@@ -169,7 +205,10 @@ export class ApuracaoIcmsService {
       .where('v.idempresa', '=', emp)
       .where(sql`cast(v.dtvenda at time zone 'America/Sao_Paulo' as date)`, '>=', dataini)
       .where(sql`cast(v.dtvenda at time zone 'America/Sao_Paulo' as date)`, '<=', datafin)
-      .where(sql<boolean>`coalesce(v.venda_nfc,'N') = 'S' and v.chavenfe is null`)
+      // `VerificaNfcContigencia` (uRelRegistros_ES.pas:3030-3034): `STATUSNFE='G' AND CHAVENFE IS NOT NULL` — a
+      // NFC-e emitida em contingência (com chave, aguardando transmissão). Eu media o oposto (sem chave), que é
+      // outra coisa (fold auditoria [MÉDIA]).
+      .where(sql<boolean>`coalesce(v.statusnfe,'') = 'G' and v.chavenfe is not null`)
       .executeTakeFirst()) as { n?: number } | undefined;
     return Number(r?.n ?? 0);
   }
@@ -181,6 +220,9 @@ export class ApuracaoIcmsService {
     const aviso_contingencia = await this.contingencia(db, emp, dto.dataini, dto.datafin);
 
     return db.transaction().execute(async (trx: AnyDB) => {
+      // serializa por (empresa, período): o `for update` abaixo não trava nada quando a apuração AINDA NÃO existe,
+      // e duas chamadas simultâneas colidiriam no UNIQUE devolvendo 500 (fold auditoria [MÉDIA]).
+      await sql`select pg_advisory_xact_lock(hashtext(${`apuracao_icms:${emp}:${dto.dataini}:${dto.datafin}`}))`.execute(trx);
       // 1) já existe apuração deste período? (a chave do legado: dataini + datafin + empresa)
       const ja = (await trx
         .selectFrom('apuracao_icms')
@@ -231,6 +273,11 @@ export class ApuracaoIcmsService {
       const totEntrada = r2(num(tot.entrada));
       const totEntradaSn = r2(num(tot.entrada_sn));
 
+      const gravado = ja
+        ? ((await trx.selectFrom('apuracao_icms')
+            .select(['outroscreditos', 'estornodebitos', 'outrosdebitos', 'estornocreditos', 'deducoes', 'saldoant'])
+            .where('codapuracaoicms', '=', cod).executeTakeFirst()) as Record<string, unknown> | undefined)
+        : undefined;
       // 4) SALDOANT = saldo credor da apuração do MÊS ANTERIOR (mês fechado, não o período digitado)
       const ant = (await trx
         .selectFrom('apuracao_icms')
@@ -239,14 +286,19 @@ export class ApuracaoIcmsService {
         .where('dataini', '=', sql`date_trunc('month', ${dto.dataini}::date - interval '1 day')::date`)
         .where('datafin', '=', sql`(date_trunc('month', ${dto.dataini}::date - interval '1 day') + interval '1 month - 1 day')::date`)
         .executeTakeFirst()) as { saldocredorseguinte?: unknown } | undefined;
-      const saldoAnt = r2(num(ant?.saldocredorseguinte));
+      const saldoAnt = ant != null ? r2(num(ant.saldocredorseguinte)) : r2(num(gravado?.saldoant));
 
       // 5) o E110
-      const outrosCreditos = r2(num(dto.outroscreditos));
-      const estornoDebitos = r2(num(dto.estornodebitos));
-      const outrosDebitos = r2(num(dto.outrosdebitos));
-      const estornoCreditos = r2(num(dto.estornocreditos));
-      const deducoes = r2(num(dto.deducoes));
+      // ⚠️ reprocessar **não apaga** os ajustes manuais nem o saldo anterior já gravados: no legado eles vivem em
+      // datasets filhos e o registro é EDITADO, e o `SALDOANT` só é sobrescrito se a apuração do mês anterior
+      // existir (uRelRegistros_ES.pas:2381-2393). Sem isso, reprocessar sem reenviar zeraria o quadro de ajustes
+      // (fold auditoria [MÉDIA]).
+      const ajuste = (doDto: number | undefined, atual: unknown) => r2(doDto != null ? num(doDto) : num(atual));
+      const outrosCreditos = ajuste(dto.outroscreditos, gravado?.outroscreditos);
+      const estornoDebitos = ajuste(dto.estornodebitos, gravado?.estornodebitos);
+      const outrosDebitos = ajuste(dto.outrosdebitos, gravado?.outrosdebitos);
+      const estornoCreditos = ajuste(dto.estornocreditos, gravado?.estornocreditos);
+      const deducoes = ajuste(dto.deducoes, gravado?.deducoes);
       const creditoEntrada = r2(totEntrada + totEntradaSn);
       const totalCredito = r2(saldoAnt + creditoEntrada + outrosCreditos + estornoDebitos);
       const totalDebito = r2(totSaida + outrosDebitos + estornoCreditos);

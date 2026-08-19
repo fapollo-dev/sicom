@@ -172,3 +172,43 @@ caminho de IPI existe no fonte (datasets paralelos) mas nunca produziu dado.
 - **corte-2 — o elo com o SPED**: trocar a leitura do E110 (hoje o `sped-efd-icms-ipi.service` espera a apuração
   pronta) para a apuração **produzida aqui**, e conferir o registro por CFOP contra o que o SPED emite.
 - **fora, registrado**: IPI e as demais irmãs vazias.
+
+---
+
+## §6. O que a auditoria corrigiu no corte-1 (2026-08-19)
+
+A auditoria adversarial achou **6 ALTA**: o cabeçalho (E110) estava fiel, **o detalhe não** — e como o `icms_cfop` é
+Σ do detalhe por CFOP (provado no golden: 5/5 medidas iguais em 7 CFOPs da apuração 1083), cada campo errado do
+detalhe virava erro no livro. O que mudou (`165_apuracao_icms_fix.sql` + serviço):
+
+| # | o que estava errado | o que o legado/golden diz |
+|---|---|---|
+| A1 | `totalnf` = `max(n.totalnf)` (o total da nota repetido em cada grupo) | é **derivado dos itens do grupo**; golden: NF 94200 tem total 229,90 e duas linhas — 29,90 (CFOP 5403) e 200,00 (5102). Inflava o "valor contábil" em ~30-60% dos documentos multi-grupo |
+| A2 | valor do item = `qtde × vrvenda` | é **`(VRCUSTO − VRCUSTO×DESCONTO/100) × QUANTIDADE`** — e no dado real **`VRVENDA` das notas é ZERO** (2023-10: Σ qtde×vrvenda 1.255.631,33 contra Σ qtde×vrcusto 1.564.040,40) ⇒ isentas/outras saíam ≈ 0 |
+| A3 | isentas × outras por **CST** (40/41/50) | é pela **primeira letra da ALÍQUOTA**: 'I'/'N' → isentas · 'S' → outras (+ ST + IPI). Golden: item CST 40 com `ALIQUOTA='STB'` sai em OUTRAS; CST 41/60/70/10 aparecem em OUTRAS |
+| A4 | grão `(documento, cfop, cst)`; `icms_efetivo` sempre 0 | o grão inclui as **duas alíquotas**: golden 1485 tem 3 linhas do mesmo trio distinguidas só por `ICMS_EFETIVO` (75,97/67,33/90,92), que é `ICME × BCR/100` |
+| A5 | cupom: base = `qtde×vrvenda`, isentas/outras inventados | `BASE = SUM(ICMS_BASE_CALCULO)` (pode ser **reduzida**: cupom 2022377 base 22,11 contra item 37,90), `ICMS = ICMS_EFETIVO = ICMS_ALIQUOTA`, e **isentas/outras = 0 LITERAL** (55.274 linhas NFC do golden com os dois zerados) |
+| A6 | cupom: `codigo = nropedido||'NFC'` e filtro `statusnfe <> 'C'` | é **`CODNFC||'NFC'`** (o `nropedido` casa com **0 de 1.400.580** linhas do golden) e o filtro é `STATUSNFE='P'` — o `<> 'C'` admitia **40.035 NFC-e inutilizadas** com chave |
+
+Mais três de nível MÉDIO: o `totalnf` do cupom precisa do **CASE do IAT** e dos descontos/acréscimos (mesma fórmula
+da view `get_hist_vendas`, mig 161); **reprocessar não pode zerar** os ajustes manuais nem o saldo anterior já
+gravados (no legado eles vivem em datasets filhos e o registro é **editado**); e o aviso de contingência conta
+`STATUSNFE='G' AND CHAVENFE IS NOT NULL` (eu media o oposto — sem chave). Também entrou um **advisory lock** por
+(empresa, período), porque o `for update` não trava nada quando a apuração ainda não existe.
+
+**Dívida registrada:** as três colunas novas (`vendas.icms_base_calculo`, `icms_aliquota`, `codnfc`) vêm da
+**carga** — o dado nasce no PDV legado. Enquanto não vierem preenchidas, a perna do cupom usa fallback aproximado
+(valor do item quando há ICMS destacado) e o `codigo` cai no `nropedido`; com elas, é fiel. O smoke exercita o
+caminho com as colunas preenchidas.
+
+**Cópia-fiel-negativa que faltava registrar:** o legado tem uma **4ª perna** (`REDUCAOZ`, `ESPECIE='MR'`, três
+`UNION ALL` em `:1210-1244` e `:1993-2027`) — não implementada porque `REDUCAOZ` tem **0 linhas** e não existe
+nenhuma linha `'MR'` em 1,15M de detalhe do golden.
+
+**Nota de procedência (importante para os próximos cortes fiscais):** o fonte clonado (2020) **não é a versão que
+gerou o golden** — nele `BASE`/`VALOR_ICMS` são zerados fora de `ALIQUOTA='T'`, e o golden mostra o contrário (a
+linha STB da NF 93804 tem BASE 189,85 = Σ das bases dos itens STB). Onde os dois discordam, este corte segue o
+**golden**.
+
+**Ainda não entregue deste corte:** a **tela** (os três quadros + o aviso de contingência) — registrada aqui como o
+que falta, não esquecida.
