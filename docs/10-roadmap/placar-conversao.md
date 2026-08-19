@@ -49,6 +49,27 @@ acessos e nº de operadores), **tamanho do fonte** e **liveness/recência no Ora
 | Devolução de vendas (`FRMDEVOLUCAOVENDAS`) | 2.412 | 26 | 2.286 | — | bloqueado: acoplado ao PDV |
 | `FRMSALDOEMPRESA` | 563 | 6 | — | — | bloqueado com prova (fonte viva inexistente) |
 
+### Varredura por TABELA (2026-08-19): o que tem dado e não tem código
+
+Com os épicos grandes fechados, a fila passou a ser levantada **por dado**, não por tela: das 841 tabelas do
+tenant, 213 têm mais de 500 linhas; cruzando os nomes com todo o `apps/api` (migrations + código), **112 não têm
+nenhuma referência**. Tirando backup/temporária/auditoria (`W_*`, `Z_TEMP_*`, `AUDIT_*`, `LOG_*`…), sobra isto:
+
+| tabela | linhas | período | fonte no legado | veredicto |
+|---|---:|---|---|---|
+| `ANALISE_COMP_DIA_PROD` | 2.850.037 | 2018-01 → **25/11/2025** | `URelAnaliseComportamentoPeriodo.pas` | tabela-**suporte de relatório**; as duas primeiras param no MESMO dia ⇒ job/replicação interrompida. Antes de migrar, checar se é agregado **derivável** de VENDAS |
+| `MOVIMENTACAO_DIARIA` | 2.338.168 | 2019-01 → **25/11/2025** | `uVendas.pas`, `uPedidoCompra.pas`, `uProdutosRel.pas`, `uDDE.pas` | idem — 4 escritores, cara de acumulador diário por produto |
+| `APURACAO_ICMS_DETALHES` | 1.155.893 | (sem coluna de data) | `uRelRegistros_ES.pas` + `uDMRelRegistros_ES.pas` | **melhor candidato**: detalhe da apuração de ICMS, dentro do épico fiscal já migrado, com fonte |
+| `BALANCOITENS` | 980.574 | (sem data) | — | conferir contra o épico Inventário antes de qualquer coisa |
+| `IMOV_ANALISE_CONCORRENTE` | 227.914 | 2023-07 → **04/02/2026** | **nenhuma** | ⛔ bloqueada (lição 35): pesquisa de concorrência sem fonte no repo clonado |
+| `CARTAO_SELECAO` | 116.415 | 2024-03 → **04/03/2026** | **nenhuma** | ⛔ bloqueada pelo mesmo motivo (satélite do épico Cartões) |
+| `NFE_INUTILIZADA` | 44.758 | 2020-08 → **28/05/2026** (a mais recente de todas) | `UNFE_Inutilizada.pas` + `uDMNFE_INUTILIZADA.pas` + `NFe.pas` | ⚠️ **PDV-adjacente**: **44.757 das 44.758** são `TIPONF='NFCE'` (só 1 é NFE) e a faixa é sempre de UM número — é numeração de cupom eletrônico pulada no PDV. A tela é da retaguarda, o dado é do PDV ⇒ fora da regra vigente ("nada do PDV") |
+| `NF_PROD_LOTE` | 56.521 | datas de validade com lixo (0202, 4790) | — | rastreabilidade de lote/validade por item de NF; conferir fonte antes |
+
+Duas coisas que a varredura ensinou e valem para as próximas: **tabela grande sem código pode ser acumulador de
+relatório** (derivável, não migrável) e **tabela viva sem fonte no repo clonado é bloqueio, não pendência** — o
+mesmo veredicto do `FRMSALDOEMPRESA`.
+
 ### O alvo do PDV caiu — e o que entrou no lugar (2026-08-19)
 
 A finalização do fechamento de caixa (o item "próximo" da tabela) **saiu da fila por decisão explícita**: a
