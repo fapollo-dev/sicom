@@ -15,12 +15,12 @@
 | Campo | Valor |
 |-------|-------|
 | **Data** | 2026-08-19 |
-| **Commit de referência** | `5a3238d` (`main`, tudo verde) + o corte do Adiantamento a Fornecedor |
-| **Estado de build** | api tsc 0 · api test 183 · **smoke 986/0** · web tsc 0 · web test 37 · build ok |
-| **Migrations aplicadas** | até `159` |
-| **Features no `apps/web`** | 42 |
-| **Schemas em `packages/shared`** | 43 |
-| **Dossiês na retaguarda** | 35 |
+| **Commit de referência** | `55686d7` (`main`, tudo verde) |
+| **Estado de build** | api tsc 0 · api test 183 · **smoke 994/0** · web tsc 0 · web test 37 · build ok |
+| **Migrations aplicadas** | até `160` |
+| **Features no `apps/web`** | 43 |
+| **Schemas em `packages/shared`** | 44 |
+| **Dossiês na retaguarda** | 37 |
 
 ### O que entrou desde o snapshot anterior (30/07 → 18/08)
 
