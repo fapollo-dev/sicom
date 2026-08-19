@@ -41,7 +41,8 @@ acessos e nº de operadores), **tamanho do fonte** e **liveness/recência no Ora
 | candidato | acessos | operadores | dados no Oracle | recência | veredicto |
 |---|---:|---:|---|---|---|
 | ~~Pedido de Devolução de Compras~~ (`FRMCADPEDIDODEVOLUCAOCOMPRAS`) | 1.753 | 15 | 545 pedidos + 3.809 itens | out/2025 | ⚠️ **JÁ MIGRADO** (migs 072-074 + `devolucao-compra.*`) — o épico "Devolução de Compra" **é** este form, com saldo por item, espelho fiscal rateado e a regra de ICMS-ST do fornecedor. Entrou nesta lista por engano (ver §Erro de leitura abaixo). |
-| **Fechamento diário** (`FRMFECHAMENTODIARIO` + `UfinalizaFechamento`) | 389 | 8 | 3.439 fechamentos · 172.164 lançamentos · **876.927 docs** | **abr/2026** | **próximo** — sem nenhuma referência no código novo (verificado por grep em `apps/api/src`, `migrations` e `apps/web/src`); é o dado mais recente de todos os candidatos |
+| **Finalização do fechamento de caixa** (`UfinalizaFechamento`, aberta pelo `FRMFECHAMENTOCAIXA` de 41.215 acessos) | — | 35 (do form que a chama) | **172.164** linhas + **876.927** documentos | set/2025 | **próximo** — lacuna dentro do 2º form mais usado; ausência provada no código |
+| Fechamento diário (`FRMFECHAMENTODIARIO`) | 389 | 8 | 3.439 (tabela `FECHAMENTO`) | **abr/2026** | corte seguinte — tela pequena (840 linhas): fecha/reabre o dia; decidir a relação com o `periodo_contabil` que já existe |
 | Consulta histórico de vendas (`FRMCONSHISTVENDAS`) | 841 | 25 | leitura | — | não migrado (verificado no código); leve, entra junto de outro corte |
 | Consulta histórico de vendas (`FRMCONSHISTVENDAS`) | 841 | 25 | leitura | — | leve; entra junto de outro corte |
 | Adiantamento a fornecedor (`FRMADIANTAMENTOFORNECEDOR`) | 699 | 11 | 563 adiantamentos | mar/2025 | fila |
@@ -49,7 +50,24 @@ acessos e nº de operadores), **tamanho do fonte** e **liveness/recência no Ora
 | Devolução de vendas (`FRMDEVOLUCAOVENDAS`) | 2.412 | 26 | 2.286 | — | bloqueado: acoplado ao PDV |
 | `FRMSALDOEMPRESA` | 563 | 6 | — | — | bloqueado com prova (fonte viva inexistente) |
 
-### Erro de leitura desta rodada (registrado de propósito)
+### Segundo erro de leitura, e o que ele revelou (2026-08-19)
+
+A tabela acima foi montada a partir de um levantamento do `MENUEXPRESS` cuja saída foi **truncada por um `tail`**:
+as 15 primeiras linhas — os forms MAIS usados — nunca apareceram. Refeito sem truncar, o topo real é
+`FRMETIQUETA` (512.456 acessos), **`FRMFECHAMENTOCAIXA` (41.215, 35 operadores)**, `FRMCADSCRAP` (40.741),
+`FRMNF`, `FRMCADPRODUTO`, `FRMMANIFESTODFE`, `FRMCADAGENDAPROMOCAO`, `FRMPEDIDOCOMPRA`, `FRMAPAGAR`,
+`FRMRELVENDAS`, `FRMRELFINALIZADORAS` — e **todos os 11 estão cobertos no código** (verificado por busca).
+
+Isso confirma a leitura do placar ("o mais pesado veio primeiro") e mudou o próximo alvo: em vez de uma tela
+nova de uso baixo, o melhor retorno está numa **etapa que falta dentro do 2º form mais usado** —
+`FINALIZA_FECHAMENTO` (172.164 linhas) + `DOC_FECHAMENTO` (876.927), a consolidação do fechamento de caixa por
+PDV e operação, que **não tem nenhuma referência no código novo**. Dossiê:
+`docs/04-screen-dossier/dossiers/retaguarda/uFechamentoCaixa-finalizacao.md`.
+
+Lição operacional: **nunca cortar a saída de um levantamento de priorização** — `head` no que interessa, nunca
+`tail` numa lista ordenada por relevância.
+
+### Erro de leitura da rodada anterior (registrado de propósito)
 
 A primeira versão desta tabela elegeu o **Pedido de Devolução de Compras** como próximo épico. Estava errado: o
 form **já estava migrado** desde as migs 072-074 — o épico que o repositório chama de "Devolução de Compra" **é**
