@@ -49,12 +49,35 @@ export type AnaliseProcessarDto = z.infer<typeof analiseProcessarSchema>;
  */
 export const analiseLiberarSchema = z.object({
   apn_id: z.coerce.number().int().positive(),
-  /** análise TOTAL fecha o pedido sempre; na PARCIAL o legado pergunta — aqui o front decide. */
   fechar_pedido: z.boolean().optional(),
   gerar_financeiro: z.boolean().optional(),
+  /** quando a análise tem vários compradores e o operador não pode liberar, o legado abre um picker para escolher
+   *  para QUEM vai a pendência (`SelecionaOperadorComprador`); aqui a escolha vem no DTO. */
+  codoperador_comprador: z.coerce.number().int().positive().optional(),
 });
 export type AnaliseLiberarDto = z.infer<typeof analiseLiberarSchema>;
 
 /** REFAZER (fluxo RPN): nova análise com os mesmos pedidos/notas, processada, encerrando a pendência antiga. */
 export const analiseRefazerSchema = z.object({ apn_id: z.coerce.number().int().positive() });
 export type AnaliseRefazerDto = z.infer<typeof analiseRefazerSchema>;
+
+/** GERAR PENDÊNCIA PARA O ANALISTA (tipo RPN: "Realize uma nova análise…") — `GeraPendenciaAnalista`. */
+export const analisePendenciaAnalistaSchema = z.object({ apn_id: z.coerce.number().int().positive() });
+export type AnalisePendenciaAnalistaDto = z.infer<typeof analisePendenciaAnalistaSchema>;
+
+/** O DOSSIÊ da análise para impressão (`ImprimirAnalise`): cabeçalho + as três listas. */
+export const analiseDossieSchema = z.object({ apn_id: z.coerce.number().int().positive() });
+export type AnaliseDossieDto = z.infer<typeof analiseDossieSchema>;
+
+/**
+ * EXCLUIR A CONFERÊNCIA da nota (`btnExcluirConferenciaClick`): zera o vínculo da NF com o pedido. Exige a **senha
+ * administrativa** e a nota — pela PK (`codnf`) ou pela chave da nota não cadastrada.
+ */
+export const analiseExcluirConferenciaSchema = z
+  .object({
+    codnf: z.coerce.number().int().positive().optional(),
+    chavenfe: z.string().trim().length(44, { message: 'A chave da NFe tem 44 dígitos.' }).optional(),
+    senha: z.string().min(1, { message: 'Informe a senha administrativa.' }),
+  })
+  .refine((v) => v.codnf != null || v.chavenfe != null, { message: 'Informe a nota (código ou chave).', path: ['codnf'] });
+export type AnaliseExcluirConferenciaDto = z.infer<typeof analiseExcluirConferenciaSchema>;

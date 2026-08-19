@@ -6440,6 +6440,75 @@ async function main() {
           && libRepetir.status === 422,
           { semFin: libSemFin.status, lib: libRes.status, libJ, rcb: rcbGerado, ped: pedFechado, itens: itensFechados?.n, an: anFinal, repetir: libRepetir.status });
 
+        // 47as.5) PONTAS SOLTAS (mig 162): a pendência para o COMPRADOR quando quem tenta liberar não pode, a
+        // pendência para o ANALISTA (RPN), o dossiê de impressão e o excluir-conferência com senha administrativa.
+        // Um pedido de OUTRO comprador (USUCADASTRO 8) numa análise nova: a sessão 7 não é o comprador nem master
+        // ⇒ o legado NÃO recusa, ele GERA PENDÊNCIA para o comprador (UFrmAnalisePedidosNF.pas:561-584).
+        // o op 7 não pode estar no E8 aqui (senão libera como master e não gera pendência); tira e devolve depois.
+        const e8Sete = (await pgRv.query(`SELECT valor FROM configuracoes_especificas WHERE id=26 AND tipo='Usuario' AND chave='7'`)).rows[0] as any;
+        await pgRv.query(`DELETE FROM configuracoes_especificas WHERE id=26 AND tipo='Usuario' AND chave='7'`);
+        const pedOutro = (await pgRv.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, codoperador, usucadastro)
+          VALUES (22,1,'2026-12-07',8,8) RETURNING codpedcomp`)).rows[0] as any;
+        await pgRv.query(`INSERT INTO pedidocompra_i (codpedcomp, idproduto, vrcusto, qtde, fatorembalagem, qtdtotal, vlrembalagem, totalcusto)
+          VALUES ($1, 1, 10.00, 10, 1, 10, 10.00, 100.00)`, [pedOutro.codpedcomp]);
+        const anOutro = (await (await fetch(`${base}/${PO}/analise/criar`, { method: 'POST', headers: H, body: JSON.stringify({ codpedcomps: [pedOutro.codpedcomp], refs_nf: [990995] }) })).json().catch(() => ({}))) as any;
+        await fetch(`${base}/${PO}/analise/processar`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anOutro.apn_id }) });
+        const libOutro = await fetch(`${base}/${PO}/analise/liberar`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anOutro.apn_id, gerar_financeiro: true }) });
+        const libOutroJ = (await libOutro.json().catch(() => ({}))) as any;
+        const pendComprador = (await pgRv.query(`SELECT codoperador, po_tipo_pendencia_operador, po_status, po_complemento, po_observacao, codoperador_origem FROM pendencia_operador WHERE po_id=$1`, [libOutroJ.pendencia_gerada?.po_id ?? 0])).rows[0] as any;
+        const anOutroSt = (await pgRv.query(`SELECT apn_status FROM analise_pedido_nf WHERE apn_id=$1`, [anOutro.apn_id])).rows[0] as any;
+        check('PENDÊNCIAS pontas (COMPRADOR): quem não é o comprador (USUCADASTRO) nem master NÃO recebe 422 — o legado gera uma pendência APN para o comprador do pedido, aberta, com o APN_ID no complemento e a mensagem "Verifique as divergências entre pedidos e notas fiscais", e a análise fica EM ABERTO',
+          libOutro.status === 200 && libOutroJ.liberado === false && Number(libOutroJ.codoperador_comprador) === 8
+          && !!pendComprador && Number(pendComprador.codoperador) === 8 && pendComprador.po_tipo_pendencia_operador === 'APN'
+          && pendComprador.po_status === 'A' && pendComprador.po_complemento === String(anOutro.apn_id)
+          && String(pendComprador.po_observacao) === 'Verifique as divergências entre pedidos e notas fiscais'
+          && Number(pendComprador.codoperador_origem) === 7 && anOutroSt?.apn_status !== 'F',
+          { st: libOutro.status, j: libOutroJ, pend: pendComprador, an: anOutroSt });
+
+        // pendência para o ANALISTA (RPN) + o dossiê de impressão
+        const pendAnalista = await fetch(`${base}/${PO}/analise/pendencia-analista`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anOutro.apn_id }) });
+        const pendAnalistaJ = (await pendAnalista.json().catch(() => ({}))) as any;
+        const pendRpnRow = (await pgRv.query(`SELECT codoperador, po_tipo_pendencia_operador, po_status, po_observacao FROM pendencia_operador WHERE po_id=$1`, [pendAnalistaJ.pendencia_gerada?.po_id ?? 0])).rows[0] as any;
+        const dossie = await fetch(`${base}/${PO}/analise/dossie`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anCriarJ.apn_id }) });
+        const dossieJ = (await dossie.json().catch(() => ({}))) as any;
+        check('PENDÊNCIAS pontas (ANALISTA + DOSSIÊ): a pendência do analista é RPN, para o operador DA ANÁLISE, com "Realize uma nova análise entre pedidos e notas fiscais" · o dossiê de impressão traz o cabeçalho com o nome do operador e a lista de notas e pedidos, mais as três listas (divergentes, só-na-NF, só-no-pedido)',
+          pendAnalista.status === 200 && !!pendRpnRow && pendRpnRow.po_tipo_pendencia_operador === 'RPN'
+          && Number(pendRpnRow.codoperador) === 7 && pendRpnRow.po_status === 'A'
+          && String(pendRpnRow.po_observacao) === 'Realize uma nova análise entre pedidos e notas fiscais'
+          && dossie.status === 200 && Number(dossieJ.cabecalho?.apn_id) === Number(anCriarJ.apn_id)
+          && dossieJ.cabecalho?.nome_operador != null
+          && String(dossieJ.cabecalho?.notas_fiscais ?? '').includes('990995')
+          && String(dossieJ.cabecalho?.pedidos ?? '').includes(String(pedMot.codpedcomp))
+          && (dossieJ.divergentes ?? []).length === 2 && (dossieJ.so_na_nf ?? []).length === 1 && (dossieJ.so_no_pedido ?? []).length === 1,
+          { pend: [pendAnalista.status, pendRpnRow], dossie: [dossie.status, dossieJ.cabecalho, (dossieJ.divergentes ?? []).length] });
+
+        // EXCLUIR CONFERÊNCIA: senha administrativa + zerar o vínculo da NF com o pedido. A senha 'admin' é
+        // definida pela rota de senha-operação (mesma do §80) e a NF alvo é a 999 do seed, com a conferência posta.
+        // a senha 'admin' é da EMPRESA: guarda o hash atual e devolve no fim (o §80 verifica a senha real).
+        const hashAdmAntes = (await pgRv.query(`SELECT senha_admin_hash FROM empresas WHERE idempresa=1`)).rows[0] as any;
+        await fetch(`${base}/cadastro/senha-operacao`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'admin', senha: 'adm-analise-1' }) });
+        await pgRv.query(`INSERT INTO nf (codnf, idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, codpedcomp, status_pedcomp, status_qtd_pedcomp, codoperador_liberacao)
+          VALUES (990994, 1, 'E', 55, '1', '990994', DATE '2026-12-07', DATE '2026-12-07', 22, $1, 'LIBERADO COM DIVERGENCIA', 'Total', 7)
+          ON CONFLICT (codnf) DO UPDATE SET codpedcomp=EXCLUDED.codpedcomp, status_pedcomp=EXCLUDED.status_pedcomp,
+            status_qtd_pedcomp=EXCLUDED.status_qtd_pedcomp, codoperador_liberacao=EXCLUDED.codoperador_liberacao`, [pedMot.codpedcomp]);
+        const excSenhaErrada = await fetch(`${base}/${PO}/analise/excluir-conferencia`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: 990994, senha: 'nao-e-essa' }) });
+        const excSenhaErradaJ = (await excSenhaErrada.json().catch(() => ({}))) as any;
+        const excSemNota = await fetch(`${base}/${PO}/analise/excluir-conferencia`, { method: 'POST', headers: H, body: JSON.stringify({ senha: 'adm-analise-1' }) });
+        const excOk = await fetch(`${base}/${PO}/analise/excluir-conferencia`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: 990994, senha: 'adm-analise-1' }) });
+        const nfDepois = (await pgRv.query(`SELECT codpedcomp, status_pedcomp, status_qtd_pedcomp, codoperador_liberacao FROM nf WHERE codnf=990994`)).rows[0] as any;
+        const excInexistente = await fetch(`${base}/${PO}/analise/excluir-conferencia`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: 987654, senha: 'adm-analise-1' }) });
+        check('PENDÊNCIAS pontas (EXCLUIR CONFERÊNCIA): senha administrativa errada → 422 SENHA_ADMINISTRATIVA_INVALIDA · sem informar a nota → 400 · com a senha certa zera CODPEDCOMP/STATUS_PEDCOMP/STATUS_QTD_PEDCOMP/CODOPERADOR_LIBERACAO da NF · nota inexistente → 422',
+          excSenhaErrada.status === 422 && excSenhaErradaJ.code === 'SENHA_ADMINISTRATIVA_INVALIDA'
+          && excSemNota.status === 400 && excOk.status === 200
+          && nfDepois?.codpedcomp == null && nfDepois?.status_pedcomp == null
+          && nfDepois?.status_qtd_pedcomp == null && nfDepois?.codoperador_liberacao == null
+          && excInexistente.status === 422,
+          { senhaErrada: [excSenhaErrada.status, excSenhaErradaJ.code], semNota: excSemNota.status, ok: excOk.status, nf: nfDepois, inexistente: excInexistente.status });
+
+        await pgRv.query(`UPDATE empresas SET senha_admin_hash=$1 WHERE idempresa=1`, [hashAdmAntes?.senha_admin_hash ?? null]);
+        if (e8Sete?.valor != null) await pgRv.query(`INSERT INTO configuracoes_especificas (id,tipo,chave,valor) VALUES (26,'Usuario','7',$1) ON CONFLICT (id,tipo,chave) DO UPDATE SET valor=EXCLUDED.valor`, [e8Sete.valor]);
+        await pgRv.query(`DELETE FROM nf WHERE codnf=990994`);
+
         // REFAZER (RPN): nova análise com os mesmos pedidos/notas, já processada, encerrando a pendência RPN
         const poRpn = (await pgRv.query(`INSERT INTO pendencia_operador (codoperador, po_tipo_pendencia_operador, po_status, po_complemento, codempresa, codoperador_origem, po_data)
           VALUES (7,'RPN','A',$1,1,7,'2026-12-07 09:00:00-03') RETURNING po_id`, [String(anCriarJ.apn_id)])).rows[0] as any;

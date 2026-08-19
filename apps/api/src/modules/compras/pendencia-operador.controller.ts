@@ -2,6 +2,8 @@ import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { pendenciaListarSchema, pendenciaCriarSchema, pendenciaStatusSchema, pendenciaAnaliseSchema,
   analiseCriarSchema, analiseProcessarSchema, type AnaliseCriarDto, type AnaliseProcessarDto,
   analiseLiberarSchema, analiseRefazerSchema, type AnaliseLiberarDto, type AnaliseRefazerDto,
+  analisePendenciaAnalistaSchema, analiseDossieSchema, analiseExcluirConferenciaSchema,
+  type AnalisePendenciaAnalistaDto, type AnaliseDossieDto, type AnaliseExcluirConferenciaDto,
   type PendenciaListarDto, type PendenciaCriarDto, type PendenciaStatusDto, type PendenciaAnaliseDto } from '@apollo/shared';
 import { PendenciaOperadorService } from './pendencia-operador.service';
 import { AnaliseMotorService } from './analise-motor.service';
@@ -60,7 +62,31 @@ export class PendenciaOperadorController {
   @HttpCode(200)
   @RequerAcesso('FRMPENDENCIASOPERADOR', 'FRMPENDENCIASOPERADOR')
   analiseLiberar(@Body(new ZodValidationPipe(analiseLiberarSchema)) dto: AnaliseLiberarDto) {
-    return this.motor.liberar(dto.apn_id, { fechar_pedido: dto.fechar_pedido, gerar_financeiro: dto.gerar_financeiro });
+    return this.motor.liberar(dto.apn_id, { fechar_pedido: dto.fechar_pedido, gerar_financeiro: dto.gerar_financeiro, codoperador_comprador: dto.codoperador_comprador });
+  }
+
+  /** gera a pendência RPN para o ANALISTA da análise ("Realize uma nova análise…"). */
+  @Post('analise/pendencia-analista')
+  @HttpCode(200)
+  @RequerAcesso('FRMPENDENCIASOPERADOR', 'FRMPENDENCIASOPERADOR')
+  analisePendenciaAnalista(@Body(new ZodValidationPipe(analisePendenciaAnalistaSchema)) dto: AnalisePendenciaAnalistaDto) {
+    return this.motor.pendenciaAnalista(dto.apn_id);
+  }
+
+  /** o dossiê da análise para impressão (cabeçalho + divergentes + só-na-NF + só-no-pedido). */
+  @Post('analise/dossie')
+  @HttpCode(200)
+  @RequerAcesso('FRMPENDENCIASOPERADOR', 'FRMPENDENCIASOPERADOR')
+  analiseDossie(@Body(new ZodValidationPipe(analiseDossieSchema)) dto: AnaliseDossieDto) {
+    return this.motor.dossie(dto.apn_id);
+  }
+
+  /** exclui a conferência da nota (zera o vínculo com o pedido) — exige senha administrativa. */
+  @Post('analise/excluir-conferencia')
+  @HttpCode(200)
+  @RequerAcesso('FRMPENDENCIASOPERADOR', 'FRMPENDENCIASOPERADOR')
+  analiseExcluirConferencia(@Body(new ZodValidationPipe(analiseExcluirConferenciaSchema)) dto: AnaliseExcluirConferenciaDto) {
+    return this.motor.excluirConferencia(dto);
   }
 
   /** REFAZER (RPN): nova análise a partir da antiga, já processada. */

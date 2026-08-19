@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { ConfigService } from '../cadastro/config.service';
+import { SenhaOperacaoService } from '../cadastro/senha-operacao.service';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 
@@ -70,6 +71,7 @@ export class AnaliseMotorService {
   constructor(
     private readonly dbp: DatabaseProvider,
     private readonly config: ConfigService,
+    private readonly senha: SenhaOperacaoService, // senha administrativa do excluir-conferência
   ) {}
 
   private emp(): number {
@@ -234,11 +236,15 @@ export class AnaliseMotorService {
    * visibilidade de fila no corte-2a).
    */
   private async podeLiberar(db: AnyDB, apnId: number, op: number | null): Promise<{ pode: boolean; master: boolean; compradores: number[] }> {
+    // ⚠️ o legado compara com **PEDIDOCOMPRA.USUCADASTRO** (quem CADASTROU o pedido), não com CODOPERADOR:
+    // `OperadorLiberaAnalise` (UAnalisePedidosNF.pas:876-905) e `SelecionaOperadorComprador` (:915+) usam os dois
+    // o mesmo campo. No golden as colunas divergem em **234 de 10.392** pedidos (e USUCADASTRO é nulo em 171), ou
+    // seja a permissão de liberar mudava de dono — fold do corte de pontas soltas (mig 162).
     const peds = (await db.selectFrom('analise_pedido_nf_pedido as ap')
       .innerJoin('pedidocompra as pc', 'pc.codpedcomp', 'ap.codpedcomp')
-      .select([sql`distinct pc.codoperador`.as('codoperador')])
-      .where('ap.apn_id', '=', apnId).execute()) as Array<{ codoperador?: number | null }>;
-    const compradores = peds.map((p) => Number(p.codoperador)).filter((n) => n > 0);
+      .select([sql`distinct pc.usucadastro`.as('usucadastro')])
+      .where('ap.apn_id', '=', apnId).execute()) as Array<{ usucadastro?: number | null }>;
+    const compradores = peds.map((p) => Number(p.usucadastro)).filter((n) => n > 0);
     // master = está no E8 (o mesmo grant que dá visibilidade de fila no corte-2a)
     let master = false;
     if (op != null) {
@@ -265,7 +271,7 @@ export class AnaliseMotorService {
    *  4. finaliza a análise (status 'F'), finaliza a PENDÊNCIA vinculada e fecha o pedido — a análise **TOTAL**
    *     fecha sempre; a **PARCIAL** pergunta ao operador (aqui: o parâmetro `fechar_pedido`).
    */
-  async liberar(apnId: number, dto: { fechar_pedido?: boolean; gerar_financeiro?: boolean } = {}) {
+  async liberar(apnId: number, dto: { fechar_pedido?: boolean; gerar_financeiro?: boolean; codoperador_comprador?: number } = {}) {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     const db = this.dbp.forTenant() as AnyDB;
@@ -277,12 +283,29 @@ export class AnaliseMotorService {
       if (!cab) throw new BusinessRuleError('ANALISE_NAO_ENCONTRADA', { apn_id: apnId });
       if (String(cab.apn_status ?? '') === 'F') throw new BusinessRuleError('ANALISE_JA_FINALIZADA');
 
-      const { pode, master, compradores } = await this.podeLiberar(trx, apnId, op);
-      if (!pode) throw new BusinessRuleError('ANALISE_SEM_PERMISSAO_LIBERAR');
-      if (compradores.length > 1 && !master) throw new BusinessRuleError('ANALISE_VARIOS_COMPRADORES');
-
+      // a ORDEM do legado (UFrmAnalisePedidosNF.pas:595-625) importa: **sem divergência qualquer um libera**
+      // ("Se não tiver divergência, qualquer um pode liberar a análise"); o gate de permissão só entra quando há
+      // divergência. Antes deste corte o gate vinha primeiro, negando liberação de análise limpa.
       const divs = Number(((await trx.selectFrom('analise_pedido_nf_diverg')
         .select(sql`count(*)::int`.as('n')).where('apn_id', '=', apnId).executeTakeFirst()) as { n?: number } | undefined)?.n ?? 0);
+      const inexNf = Number(((await trx.selectFrom('analise_pedido_nf_ine_nf')
+        .select(sql`count(*)::int`.as('n')).where('apn_id', '=', apnId).executeTakeFirst()) as { n?: number } | undefined)?.n ?? 0);
+      const inexPc = Number(((await trx.selectFrom('analise_pedido_nf_ine_pc')
+        .select(sql`count(*)::int`.as('n')).where('apn_id', '=', apnId).executeTakeFirst()) as { n?: number } | undefined)?.n ?? 0);
+      const temDivergencia = divs > 0 || inexNf > 0 || inexPc > 0; // as TRÊS grades do legado
+      const { pode, master, compradores } = await this.podeLiberar(trx, apnId, op);
+      if (temDivergencia && !pode) {
+        // ⚠️ NÃO é erro: o legado GERA UMA PENDÊNCIA para o comprador verificar as divergências
+        // (`GeraPendenciaComprador`, UFrmAnalisePedidosNF.pas:561-584 → UAnalisePedidosNF.pas:406) e fecha a tela
+        // com "Pendência gerada para <nome>". Quem recebe vem de `SelecionaOperadorComprador`.
+        const destino = await this.compradorDestino(trx, apnId, compradores, dto.codoperador_comprador);
+        const pend = await this.gerarPendencia(trx, emp, {
+          destino, origem: op, tipo: 'APN', complemento: String(apnId),
+          mensagem: 'Verifique as divergências entre pedidos e notas fiscais',
+        });
+        return { apn_id: apnId, liberado: false, pendencia_gerada: pend, codoperador_comprador: destino };
+      }
+      if (compradores.length > 1 && !master) throw new BusinessRuleError('ANALISE_VARIOS_COMPRADORES');
       let codrcb: number | null = null;
       if (divs > 0) {
         if (!dto.gerar_financeiro) throw new BusinessRuleError('ANALISE_EXIGE_FINANCEIRO', { divergencias: divs });
@@ -374,5 +397,117 @@ export class AnaliseMotorService {
       .where(sql<boolean>`po_complemento ~ '^[0-9]{1,9}$' and po_complemento::int = ${apnId}`)
       .where('po_status', '=', 'A').returning('po_id').execute()) as Array<{ po_id: number }>;
     return { apn_id_nova: nova.apn_id, apn_id_antiga: apnId, processamento: proc, pendencias_finalizadas: pend.map((p) => Number(p.po_id)) };
+  }
+
+  /**
+   * QUEM recebe a pendência do comprador — `SelecionaOperadorComprador` (UAnalisePedidosNF.pas:915+): a lista é o
+   * `USUCADASTRO` dos pedidos da análise. **0** → "Nenhum operador comprador foi encontrado."; **1** → esse; **>1**
+   * → o legado abre um picker de operadores e exige a escolha ("Selecione o comprador.") — aqui a escolha vem no
+   * DTO, e sem ela o erro devolve a lista para a tela escolher.
+   */
+  private async compradorDestino(db: AnyDB, apnId: number, compradores: number[], escolhido?: number): Promise<number> {
+    if (compradores.length === 0) throw new BusinessRuleError('COMPRADOR_NAO_DEFINIDO', { apn_id: apnId });
+    if (compradores.length === 1) return compradores[0];
+    if (escolhido == null) throw new BusinessRuleError('SELECIONE_O_COMPRADOR', { apn_id: apnId, compradores });
+    if (!compradores.includes(Number(escolhido))) throw new BusinessRuleError('COMPRADOR_FORA_DA_ANALISE', { escolhido, compradores });
+    return Number(escolhido);
+  }
+
+  /** `TPendenciaOperadorBO.New` — a pendência nasce ABERTA ('A'), com o complemento = APN_ID e a mensagem do legado. */
+  private async gerarPendencia(db: AnyDB, emp: number, p: { destino: number; origem: number | null; tipo: 'APN' | 'RPN'; complemento: string; mensagem: string }) {
+    const r = (await db.insertInto('pendencia_operador').values({
+      codoperador: p.destino,
+      po_tipo_pendencia_operador: p.tipo,
+      po_status: 'A',
+      po_complemento: p.complemento,
+      po_observacao: p.mensagem,
+      codempresa: emp,
+      codoperador_origem: p.origem,
+    }).returning('po_id').executeTakeFirst()) as { po_id?: number } | undefined;
+    return { po_id: r?.po_id == null ? null : Number(r.po_id), codoperador: p.destino, tipo: p.tipo };
+  }
+
+  /**
+   * GERAR PENDÊNCIA PARA O ANALISTA — `GeraPendenciaAnalista` (UAnalisePedidosNF.pas:383): tipo **RPN** ("Realize
+   * uma nova análise entre pedidos e notas fiscais"), para o operador **da própria análise**
+   * (`DM.QryAnalise.CODOPERADOR`, UFrmAnalisePedidosNF.pas:807) — é o pedido de refazer que sai da conferência.
+   */
+  async pendenciaAnalista(apnId: number) {
+    const emp = this.emp();
+    const op = currentTenant().operadorId ?? null;
+    const db = this.dbp.forTenant() as AnyDB;
+    return db.transaction().execute(async (trx: AnyDB) => {
+      const a = (await trx.selectFrom('analise_pedido_nf').select(['apn_id', 'codoperador'])
+        .where('apn_id', '=', apnId).where('codempresa', '=', emp).executeTakeFirst()) as { codoperador?: number } | undefined;
+      if (!a) throw new BusinessRuleError('ANALISE_NAO_ENCONTRADA', { apn_id: apnId }); // 'Análise não encontrada.'
+      const pend = await this.gerarPendencia(trx, emp, {
+        destino: Number(a.codoperador), origem: op, tipo: 'RPN', complemento: String(apnId),
+        mensagem: 'Realize uma nova análise entre pedidos e notas fiscais',
+      });
+      return { apn_id: apnId, pendencia_gerada: pend };
+    });
+  }
+
+  /**
+   * EXCLUIR A CONFERÊNCIA da NF — `btnExcluirConferenciaClick` (UanalisaPedComp_NF.pas:1120): exige **senha
+   * administrativa** (`dmPrincipal.SenhaAdministrativa('ADM')`) e zera o vínculo com o pedido —
+   * `CODPEDCOMP`, `CODOPERADOR_LIBERACAO`, `STATUS_PEDCOMP`, `STATUS_QTD_PEDCOMP`. Vale para a NF (chave CODNF) e
+   * para a nota não cadastrada (chave + empresa), as duas pontas de onde a conferência nasce.
+   */
+  async excluirConferencia(dto: { codnf?: number; chavenfe?: string; senha: string }) {
+    const emp = this.emp();
+    const { ok } = await this.senha.verificar('admin', dto.senha);
+    if (!ok) throw new BusinessRuleError('SENHA_ADMINISTRATIVA_INVALIDA'); // 'Não foi possível excluir a conferência…'
+    const db = this.dbp.forTenant() as AnyDB;
+    const zerar = { codpedcomp: null, codoperador_liberacao: null, status_pedcomp: null, status_qtd_pedcomp: null };
+    if (dto.codnf != null) {
+      const r = await db.updateTable('nf').set(zerar).where('codnf', '=', dto.codnf).where('idempresa', '=', emp).executeTakeFirst();
+      const n = Number((r as any)?.numUpdatedRows ?? 0);
+      if (n === 0) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf: dto.codnf });
+      return { alvo: 'nf', codnf: dto.codnf, removida: true };
+    }
+    if (dto.chavenfe) {
+      const r = await db.updateTable('nfe_nao_cadastradas').set(zerar)
+        .where('chavenfe', '=', dto.chavenfe).where('idempresa', '=', emp).executeTakeFirst();
+      const n = Number((r as any)?.numUpdatedRows ?? 0);
+      if (n === 0) throw new BusinessRuleError('NFE_NAO_ENCONTRADA', { chavenfe: dto.chavenfe });
+      return { alvo: 'nfe_nao_cadastradas', chavenfe: dto.chavenfe, removida: true };
+    }
+    throw new BusinessRuleError('INFORME_A_NOTA');
+  }
+
+  /**
+   * O DOSSIÊ DA ANÁLISE (impressão) — `ImprimirAnalise` (UAnalisePedidosNF.pas:697): cabeçalho com o operador e o
+   * `LISTAGG` das notas e dos pedidos, mais as três listas (divergentes, só-na-NF, só-no-pedido). A impressão em si
+   * é a camada global do app; aqui vai a projeção.
+   */
+  async dossie(apnId: number) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const cab = (await db.selectFrom('analise_pedido_nf as a')
+      .leftJoin('operadores as op', 'op.codoperador', 'a.codoperador')
+      .select(['a.apn_id', 'a.apn_data_analise', 'a.apn_status', 'a.apn_total_parcial', 'a.apn_diferenca_valor',
+               'a.apn_status_finalizacao', 'a.codoperador', 'a.codempresa', 'op.nome as nome_operador',
+               sql<string>`(select string_agg(distinct n.apnn_ref_nf::text, ', ' order by n.apnn_ref_nf::text)
+                            from analise_pedido_nf_nf n where n.apn_id = a.apn_id)`.as('notas_fiscais'),
+               sql<string>`(select string_agg(distinct p.codpedcomp::text, ', ' order by p.codpedcomp::text)
+                            from analise_pedido_nf_pedido p where p.apn_id = a.apn_id)`.as('pedidos')])
+      .where('a.apn_id', '=', apnId).where('a.codempresa', '=', emp)
+      .executeTakeFirst()) as Record<string, unknown> | undefined;
+    if (!cab) throw new BusinessRuleError('ANALISE_NAO_ENCONTRADA', { apn_id: apnId });
+    const divergentes = await db.selectFrom('analise_pedido_nf_diverg as d')
+      .leftJoin('produtos as p', 'p.idproduto', 'd.idproduto')
+      .select(['d.idproduto', 'p.descricao', 'd.apnd_quantidade_nf', 'd.apnd_quantidade_pc', 'd.apnd_valor_nf',
+               'd.apnd_valor_pc', 'd.status', 'd.nronf', 'd.chavenfe'])
+      .where('d.apn_id', '=', apnId).orderBy('d.idproduto').execute();
+    const soNaNf = await db.selectFrom('analise_pedido_nf_ine_nf as i')
+      .leftJoin('produtos as p', 'p.idproduto', 'i.idproduto')
+      .select(['i.idproduto', 'p.descricao', 'i.apnin_quantidade', 'i.apnin_valor'])
+      .where('i.apn_id', '=', apnId).orderBy('i.idproduto').execute();
+    const soNoPedido = await db.selectFrom('analise_pedido_nf_ine_pc as i')
+      .leftJoin('produtos as p', 'p.idproduto', 'i.idproduto')
+      .select(['i.idproduto', 'p.descricao', 'i.apnip_quantidade', 'i.apnip_valor'])
+      .where('i.apn_id', '=', apnId).orderBy('i.idproduto').execute();
+    return { cabecalho: cab, divergentes, so_na_nf: soNaNf, so_no_pedido: soNoPedido };
   }
 }
