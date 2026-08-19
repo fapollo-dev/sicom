@@ -19,7 +19,9 @@ import { encodeSenhaLegado, verificarSenha } from '../src/shared/auth/crypto';
  * o caminho HTTP: /healthz, roteamento de tenant fail-closed, e o CRUD do piloto.
  * Prova a fundação ponta a ponta (DI do Nest + middleware de tenant + módulo).
  */
-const PORT = 3001;
+// porta do harness: 3001 por default; SMOKE_PORT permite fugir de um processo alheio que já ocupe a 3001
+// (aconteceu com o dev-server de outro projeto — a suíte inteira responde 423 de uma API que não é a nossa).
+const PORT = Number(process.env.SMOKE_PORT ?? 3001);
 const base = `http://127.0.0.1:${PORT}`;
 const H = {
   'content-type': 'application/json',
@@ -9760,6 +9762,244 @@ async function main() {
       await pgGp.query(`DELETE FROM produtos WHERE idproduto=990010`);
     } finally {
       await pgGp.end();
+    }
+
+    // ===== §83) ADIANTAMENTO A FORNECEDOR/PARCEIRO (FRMADIANTAMENTOFORNECEDOR) — os DOIS fatos: movimento na
+    // conta corrente + título gerado (areceber no tipo 'D' · apagar em 'C'/'E'), gates e quitação pela baixa. =====
+    {
+      const AD = 'cobranca/adiantamentos';
+      const pgAd = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // setup: banco CAIXA (codbco 0 = o único que trava saldo) + 2 contas de caixa (uma com fundo, outra zerada)
+        // + vínculo operador×conta (o filtro do picker) + a situação F21, que NÃO existe no golden.
+        await pgAd.query(`INSERT INTO bancos (codbco, banco, cidade) VALUES (0,'CAIXA','LOCAL') ON CONFLICT (codbco) DO NOTHING`);
+        const adCx = Number((await pgAd.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES (0,1,'ADTO CAIXA') RETURNING codconta`)).rows[0].codconta);
+        const adCx0 = Number((await pgAd.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES (0,1,'ADTO CAIXA ZERO') RETURNING codconta`)).rows[0].codconta);
+        const adCxOutra = Number((await pgAd.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES (0,2,'ADTO OUTRA EMPRESA') RETURNING codconta`)).rows[0].codconta);
+        const adCxSemOp = Number((await pgAd.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES (0,1,'ADTO SEM VINCULO') RETURNING codconta`)).rows[0].codconta);
+        await pgAd.query(`INSERT INTO contas_bancarias_op (codconta, codoperador) VALUES ($1,7),($2,7) ON CONFLICT DO NOTHING`, [adCx, adCx0]);
+        await pgAd.query(`INSERT INTO situacao_nf (idsituacao_nf, descricao, tipo, tipo_operacao) VALUES (1013,'ADIANTAMENTO CREDITO FORNECEDOR','E','F21') ON CONFLICT (idsituacao_nf) DO UPDATE SET tipo_operacao='F21'`);
+        // o saldo do GATE é o da modalidade DINHEIRO (INNER JOIN em formas_pgto), como GetSaldoContaCorrente.
+        const adSaldo = async (c: number) => Number((await pgAd.query(
+          `SELECT coalesce(sum(case when m.tipomovimento='D' then -m.valor else m.valor end),0) s
+             FROM mov_contas_bancarias m JOIN formas_pgto f ON f.idpgto = m.idpgto
+            WHERE m.codconta=$1 AND m.idempresa=1 AND upper(f.modalidade)='DINHEIRO'`, [c])).rows[0].s);
+        const adCriar = (b: Record<string, unknown>, h = H) => fetch(`${base}/${AD}/criar`, { method: 'POST', headers: h, body: JSON.stringify(b) });
+
+        // 82.0) a situação define o TIPO (F19→C, F20→D, F21→E) — o combo do "adicionar", com o radio desabilitado.
+        const adSitRes = await fetch(`${base}/${AD}/situacoes`, { headers: H });
+        const adSitBody = (await adSitRes.json().catch(() => ([]))) as any;
+        const adSit: any[] = Array.isArray(adSitBody) ? adSitBody : [];
+        const adPorId = (id: number) => adSit.find((s) => Number(s.idsituacao_nf) === id);
+        check('ADTO §83.0: situações de adiantamento → 1011 (F20) = tipo D · 1012 (F19) = tipo C · 1013 (F21) = tipo E',
+          adPorId(1011)?.tipo === 'D' && adPorId(1012)?.tipo === 'C' && adPorId(1013)?.tipo === 'E' && adSit.length >= 3,
+          { status: adSitRes.status, body: adSitBody, sit: adSit.map((s) => [s.idsituacao_nf, s.tipo_operacao, s.tipo]) });
+
+        // 82.1) tipo 'D' em conta CAIXA SEM saldo → 422 SALDO_INSUFICIENTE (VerifSaldo=true só no débito).
+        const adIns = await adCriar({ idsituacao_nf: 1011, codparceiro: 1, codcontacorrente: adCx, dtadiantamento: '2026-07-01', dtvencimento: '2026-08-01', valor: 100, obs: 'ADIANT P/ TESTE' });
+        const adInsJ = (await adIns.json().catch(() => ({}))) as any;
+        check('ADTO §83.1: tipo D em caixa sem saldo → 422 SALDO_INSUFICIENTE (o legado só valida saldo no débito e só em CODBCO=0)',
+          adIns.status === 422 && adInsJ.code === 'SALDO_INSUFICIENTE', { status: adIns.status, code: adInsJ.code });
+
+        // 82.2) com fundo de 1.000 na conta: tipo 'D' de 100 grava o registro + o MOVIMENTO (magnitude 100 com
+        // tipomovimento 'D', historico = OBS, data = data do adiantamento) + o TÍTULO A RECEBER com os campos fixos.
+        await pgAd.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, idpgto, data_fechamento) VALUES ($1,1,1000,'C','MANUAL',1,'2026-06-01')`, [adCx]);
+        const adD = await adCriar({ idsituacao_nf: 1011, codparceiro: 1, codcontacorrente: adCx, dtadiantamento: '2026-07-01', dtvencimento: '2026-08-01', valor: 100, obs: 'ADIANT P/ TESTE' });
+        const adDJ = (await adD.json().catch(() => ({}))) as any;
+        const adDRow = (await pgAd.query(`SELECT tipo, quitada, codmovconta, valor, idsituacao_nf, obs, usultalteracao FROM adiantamento_forn WHERE codadiantamento=$1`, [adDJ.codadiantamento])).rows[0] as any;
+        const adDMov = (await pgAd.query(`SELECT valor, tipomovimento, origem, idorigem, codadiantamento, historico, codopconta, idpgto, codoperador, to_char(data_fechamento,'YYYY-MM-DD') d FROM mov_contas_bancarias WHERE codmovconta=$1`, [adDRow?.codmovconta])).rows[0] as any;
+        const adDTit = (await pgAd.query(`SELECT codrcb, valor, quitada, nrodup, tipodoc, adfornecedor, consiliado, duplicata, obs, idpgto, codparceiro, idsituacao_nf, to_char(dtvenda,'YYYY-MM-DD') dv, to_char(dtvenc,'YYYY-MM-DD') dc FROM areceber WHERE codadiantamento=$1`, [adDJ.codadiantamento])).rows[0] as any;
+        check('ADTO §83.2: tipo D → registro (quitada N) + MOVIMENTO magnitude 100/tipomovimento D/origem ADTOFORN/codopconta 0/idpgto DINHEIRO/histórico = OBS + TÍTULO A RECEBER (valor 100, quitada N, nrodup 1, TIPODOC "A VISTA", ADFORNECEDOR S, CONSILIADO S, DUPLICATA = código, OBS "Originado do lancamento…", IDPGTO da forma RCB, DTVENDA = data e DTVENC = vencimento, SEM idsituacao_nf) + saldo 900',
+          adD.status === 200 && adDRow?.tipo === 'D' && adDRow?.quitada === 'N' && Number(adDRow?.valor) === 100 && Number(adDRow?.idsituacao_nf) === 1011 && Number(adDRow?.usultalteracao) === 7
+          && Number(adDMov?.valor) === 100 && adDMov?.tipomovimento === 'D' && adDMov?.origem === 'ADTOFORN' && Number(adDMov?.idorigem) === Number(adDJ.codadiantamento)
+          && Number(adDMov?.codadiantamento) === Number(adDJ.codadiantamento) && adDMov?.historico === 'ADIANT P/ TESTE' && Number(adDMov?.codopconta) === 0
+          && Number(adDMov?.idpgto) === 1 && Number(adDMov?.codoperador) === 7 && adDMov?.d === '2026-07-01'
+          && Number(adDTit?.valor) === 100 && adDTit?.quitada === 'N' && Number(adDTit?.nrodup) === 1 && adDTit?.tipodoc === 'A VISTA'
+          && adDTit?.adfornecedor === 'S' && adDTit?.consiliado === 'S' && adDTit?.duplicata === String(adDJ.codadiantamento)
+          && adDTit?.obs === `Originado do lancamento do adiantamento de parceiro n: ${adDJ.codadiantamento}` && Number(adDTit?.idpgto) === 4
+          && Number(adDTit?.codparceiro) === 1 && adDTit?.dv === '2026-07-01' && adDTit?.dc === '2026-08-01'
+          && adDTit?.idsituacao_nf == null // o legado NÃO grava IDSITUACAO_NF no título (golden 0/552)
+          && Number(adDJ.codrcb) === Number(adDTit?.codrcb) && Number(adDJ.saldo) === 900 && (await adSaldo(adCx)) === 900,
+          { status: adD.status, j: adDJ, row: adDRow, mov: adDMov, tit: adDTit });
+
+        // 82.3) tipo 'C' em conta CAIXA ZERADA de 5.000: NÃO valida saldo (VerifSaldo=false) → crédito na conta +
+        // TÍTULO A PAGAR (ADFORNECEDOR='S', ADCREDITO NULL — 'S' é exclusivo do tipo 'E').
+        const adC = await adCriar({ idsituacao_nf: 1012, codparceiro: 1, codcontacorrente: adCx0, dtadiantamento: '2026-07-02', dtvencimento: '2026-07-02', valor: 5000 });
+        const adCJ = (await adC.json().catch(() => ({}))) as any;
+        const adCMov = (await pgAd.query(`SELECT valor, tipomovimento, historico FROM mov_contas_bancarias WHERE codadiantamento=$1`, [adCJ.codadiantamento])).rows[0] as any;
+        const adCTit = (await pgAd.query(`SELECT codapg, valor, quitada, nrodup, tipodoc, adfornecedor, adcredito FROM apagar WHERE codadiantamento=$1`, [adCJ.codadiantamento])).rows[0] as any;
+        const adPar = (await pgAd.query(`SELECT razao FROM parceiros WHERE codparceiro=1`)).rows[0] as any;
+        check('ADTO §83.3: tipo C em caixa ZERADA (5.000) → passa (sem trava de saldo) · MOVIMENTO de CRÉDITO com o histórico default "ADIANTAMENTO DO PARCEIRO <razão>" (OBS vazia) · TÍTULO A PAGAR com ADFORNECEDOR S e ADCREDITO NULL · saldo +5.000',
+          adC.status === 200 && Number(adCMov?.valor) === 5000 && adCMov?.tipomovimento === 'C'
+          && adCMov?.historico === `ADIANTAMENTO DO PARCEIRO ${adPar?.razao}`
+          && Number(adCTit?.valor) === 5000 && adCTit?.quitada === 'N' && Number(adCTit?.nrodup) === 1 && adCTit?.tipodoc === 'A VISTA'
+          && adCTit?.adfornecedor === 'S' && adCTit?.adcredito == null && Number(adCJ.codapg) === Number(adCTit?.codapg)
+          && Number(adCJ.saldo) === 5000 && (await adSaldo(adCx0)) === 5000,
+          { status: adC.status, j: adCJ, mov: adCMov, tit: adCTit });
+
+        // 82.4) tipo 'E' (F21) — CÓPIA-FIEL-NEGATIVA: não há linha no golden nem situação F21 cadastrada, mas o
+        // código do legado existe. Gera A PAGAR com ADCREDITO='S'; e o EXCLUIR do legado só trata 'C'/'D', então o
+        // título do 'E' SOBREVIVE à exclusão (bug do legado, copiado e provado aqui).
+        const adE = await adCriar({ idsituacao_nf: 1013, codparceiro: 1, codcontacorrente: adCx0, dtadiantamento: '2026-07-03', dtvencimento: '2026-07-03', valor: 7 });
+        const adEJ = (await adE.json().catch(() => ({}))) as any;
+        const adETit = (await pgAd.query(`SELECT codapg, adcredito, adfornecedor FROM apagar WHERE codadiantamento=$1`, [adEJ.codadiantamento])).rows[0] as any;
+        const adEDel = await fetch(`${base}/${AD}/excluir`, { method: 'POST', headers: H, body: JSON.stringify({ codadiantamento: adEJ.codadiantamento }) });
+        const adEDelJ = (await adEDel.json().catch(() => ({}))) as any;
+        const adETitDepois = Number((await pgAd.query(`SELECT count(*)::int n FROM apagar WHERE codadiantamento=$1`, [adEJ.codadiantamento])).rows[0].n);
+        const adEMovDepois = Number((await pgAd.query(`SELECT count(*)::int n FROM mov_contas_bancarias WHERE codadiantamento=$1`, [adEJ.codadiantamento])).rows[0].n);
+        check('ADTO §83.4 cópia-fiel-negativa: tipo E (F21) → A PAGAR com ADCREDITO=S; excluir apaga o movimento mas NÃO o título (o legado só trata C/D no delete)',
+          adE.status === 200 && adETit?.adcredito === 'S' && adETit?.adfornecedor === 'S'
+          && adEDel.status === 200 && adEDelJ.movimento_removido === true && adEDelJ.titulo_removido === false
+          && adETitDepois === 1 && adEMovDepois === 0,
+          { status: adE.status, tit: adETit, del: adEDelJ, titDepois: adETitDepois, movDepois: adEMovDepois });
+        await pgAd.query(`DELETE FROM apagar WHERE codadiantamento=$1`, [adEJ.codadiantamento]); // limpa o órfão do teste
+
+        // 82.5) validações do gravar: vencimento < adiantamento e valor 0 são barrados no schema (400); parceiro
+        // inexistente, situação que não é de adiantamento e conta de OUTRA empresa → 422.
+        const adV1 = await adCriar({ idsituacao_nf: 1011, codparceiro: 1, codcontacorrente: adCx, dtadiantamento: '2026-07-10', dtvencimento: '2026-07-09', valor: 10 });
+        const adV2 = await adCriar({ idsituacao_nf: 1011, codparceiro: 1, codcontacorrente: adCx, dtadiantamento: '2026-07-10', dtvencimento: '2026-07-10', valor: 0 });
+        const adV3 = await adCriar({ idsituacao_nf: 1011, codparceiro: 987654, codcontacorrente: adCx, dtadiantamento: '2026-07-10', dtvencimento: '2026-07-10', valor: 10 });
+        const adV3J = (await adV3.json().catch(() => ({}))) as any;
+        const adV4 = await adCriar({ idsituacao_nf: 17, codparceiro: 1, codcontacorrente: adCx, dtadiantamento: '2026-07-10', dtvencimento: '2026-07-10', valor: 10 });
+        const adV4J = (await adV4.json().catch(() => ({}))) as any;
+        const adV5 = await adCriar({ idsituacao_nf: 1011, codparceiro: 1, codcontacorrente: adCxOutra, dtadiantamento: '2026-07-10', dtvencimento: '2026-07-10', valor: 10 });
+        const adV5J = (await adV5.json().catch(() => ({}))) as any;
+        check('ADTO §83.5 validações: vencimento < adiantamento → 400 · valor 0 → 400 · parceiro inexistente → 422 PARCEIRO_NAO_ENCONTRADO · situação que não é F19/F20/F21 → 422 SITUACAO_NAO_ADIANTAMENTO · conta de OUTRA empresa → 422 CONTA_NAO_ENCONTRADA',
+          adV1.status === 400 && adV2.status === 400 && adV3.status === 422 && adV3J.code === 'PARCEIRO_NAO_ENCONTRADO'
+          && adV4.status === 422 && adV4J.code === 'SITUACAO_NAO_ADIANTAMENTO' && adV5.status === 422 && adV5J.code === 'CONTA_NAO_ENCONTRADA',
+          { venc: adV1.status, zero: adV2.status, parc: [adV3.status, adV3J.code], sit: [adV4.status, adV4J.code], conta: [adV5.status, adV5J.code] });
+
+        // 83.5b) o vínculo OPERADOR×CONTA é gate de GRAVAÇÃO no legado (pas:568-575), não só do picker; e o saldo
+        // do gate é o da MODALIDADE DINHEIRO (INNER JOIN em formas_pgto), não a soma geral do razão: um crédito
+        // numa modalidade que não é dinheiro (aqui CARTOES, idpgto 3) NÃO conta como saldo para o débito.
+        const adSemOp = await adCriar({ idsituacao_nf: 1011, codparceiro: 1, codcontacorrente: adCxSemOp, dtadiantamento: '2026-07-10', dtvencimento: '2026-07-10', valor: 10 });
+        const adSemOpJ = (await adSemOp.json().catch(() => ({}))) as any;
+        await pgAd.query(`INSERT INTO contas_bancarias_op (codconta, codoperador) VALUES ($1,7) ON CONFLICT DO NOTHING`, [adCxSemOp]);
+        await pgAd.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, idpgto, data_fechamento) VALUES ($1,1,5000,'C','MANUAL',3,'2026-06-01')`, [adCxSemOp]);
+        const adNaoDinheiro = await adCriar({ idsituacao_nf: 1011, codparceiro: 1, codcontacorrente: adCxSemOp, dtadiantamento: '2026-07-10', dtvencimento: '2026-07-10', valor: 10 });
+        const adNaoDinheiroJ = (await adNaoDinheiro.json().catch(() => ({}))) as any;
+        check('ADTO §83.5b: conta sem vínculo em CONTAS_BANCARIAS_OP → 422 CONTA_SEM_PERMISSAO_OPERADOR; com vínculo mas saldo só em modalidade CARTOES → 422 SALDO_INSUFICIENTE (o saldo do gate é só DINHEIRO, como GetSaldoContaCorrente)',
+          adSemOp.status === 422 && adSemOpJ.code === 'CONTA_SEM_PERMISSAO_OPERADOR'
+          && adNaoDinheiro.status === 422 && adNaoDinheiroJ.code === 'SALDO_INSUFICIENTE' && Number(adNaoDinheiroJ.detalhes?.saldo ?? adNaoDinheiroJ.saldo ?? 0) === 0,
+          { semVinculo: [adSemOp.status, adSemOpJ.code], naoDinheiro: [adNaoDinheiro.status, adNaoDinheiroJ.code, adNaoDinheiroJ.detalhes ?? adNaoDinheiroJ] });
+
+        // 82.6) DTCHAVEAMENTO da conta ("Caixa FECHADO não é permitida alteração dos documentos!"): data <= chaveamento
+        // é barrada, data POSTERIOR passa.
+        await pgAd.query(`UPDATE contas_bancarias SET dtchaveamento = DATE '2026-07-05' WHERE codconta=$1`, [adCx]);
+        const adCh = await adCriar({ idsituacao_nf: 1011, codparceiro: 1, codcontacorrente: adCx, dtadiantamento: '2026-07-05', dtvencimento: '2026-07-05', valor: 10 });
+        const adChJ = (await adCh.json().catch(() => ({}))) as any;
+        const adCh2 = await adCriar({ idsituacao_nf: 1011, codparceiro: 1, codcontacorrente: adCx, dtadiantamento: '2026-07-06', dtvencimento: '2026-07-06', valor: 10 });
+        const adCh2J = (await adCh2.json().catch(() => ({}))) as any;
+        check('ADTO §83.6: DTCHAVEAMENTO 05/07 → adiantamento em 05/07 → 422 CAIXA_FECHADO; em 06/07 → 200',
+          adCh.status === 422 && adChJ.code === 'CAIXA_FECHADO' && adCh2.status === 200,
+          { fechado: [adCh.status, adChJ.code], aberto: adCh2.status });
+        await fetch(`${base}/${AD}/excluir`, { method: 'POST', headers: H, body: JSON.stringify({ codadiantamento: adCh2J.codadiantamento }) });
+        await pgAd.query(`UPDATE contas_bancarias SET dtchaveamento = NULL WHERE codconta=$1`, [adCx]);
+
+        // 82.7) EDITAR propaga para o movimento e para o título (valor/datas/parceiro).
+        const adEd = await fetch(`${base}/${AD}/editar`, { method: 'POST', headers: H, body: JSON.stringify({ codadiantamento: adDJ.codadiantamento, codparceiro: 20, dtadiantamento: '2026-07-04', dtvencimento: '2026-09-01', valor: 250, obs: 'adiant editado' }) });
+        const adEdJ = (await adEd.json().catch(() => ({}))) as any;
+        const adEdMov = (await pgAd.query(`SELECT valor, historico, to_char(data_fechamento,'YYYY-MM-DD') d FROM mov_contas_bancarias WHERE codadiantamento=$1`, [adDJ.codadiantamento])).rows[0] as any;
+        const adEdObs = (await pgAd.query(`SELECT obs FROM adiantamento_forn WHERE codadiantamento=$1`, [adDJ.codadiantamento])).rows[0] as any;
+        const adEdTit = (await pgAd.query(`SELECT valor, codparceiro, to_char(dtvenda,'YYYY-MM-DD') dv, to_char(dtvenc,'YYYY-MM-DD') dc FROM areceber WHERE codadiantamento=$1`, [adDJ.codadiantamento])).rows[0] as any;
+        check('ADTO §83.7: editar (250, parceiro 20, datas novas) → movimento (valor+data) e título A RECEBER atualizados; o HISTÓRICO do movimento NÃO muda (o UPDATE do legado não toca HISTORICO — é a razão dos 6/563 do golden com HISTORICO ≠ OBS); a OBS vira MAIÚSCULA; saldo 750',
+          adEd.status === 200 && adEdJ.titulo_atualizado === true && Number(adEdMov?.valor) === 250 && adEdMov?.historico === 'ADIANT P/ TESTE' && adEdMov?.d === '2026-07-04'
+          && Number(adEdTit?.valor) === 250 && Number(adEdTit?.codparceiro) === 20 && adEdTit?.dv === '2026-07-04' && adEdTit?.dc === '2026-09-01'
+          && adEdObs?.obs === 'ADIANT EDITADO' // UpCase do dbmOBSKeyPress (golden: 563/563 em maiúsculas)
+          && (await adSaldo(adCx)) === 750,
+          { status: adEd.status, j: adEdJ, mov: adEdMov, tit: adEdTit, saldo: await adSaldo(adCx) });
+
+        // 82.8) QUITAÇÃO pela baixa do título gerado (UBaixaAreceber.pas:1233) e reabertura no estorno da baixa
+        // (o legado seta 'S' aqui — bug nunca exercido no golden; ver o dossiê §5). Editar/excluir quitado → 422.
+        const adBx = await fetch(`${base}/cadastro/areceber/${adDTit.codrcb}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ dtpgto: '2026-09-01', recurso: 'BANCO', codconta: adCx0, juros: 0 }) });
+        const adQuit1 = (await pgAd.query(`SELECT quitada FROM adiantamento_forn WHERE codadiantamento=$1`, [adDJ.codadiantamento])).rows[0]?.quitada;
+        const adEdQ = await fetch(`${base}/${AD}/editar`, { method: 'POST', headers: H, body: JSON.stringify({ codadiantamento: adDJ.codadiantamento, codparceiro: 20, dtadiantamento: '2026-07-04', dtvencimento: '2026-09-01', valor: 9 }) });
+        const adEdQJ = (await adEdQ.json().catch(() => ({}))) as any;
+        const adDelQ = await fetch(`${base}/${AD}/excluir`, { method: 'POST', headers: H, body: JSON.stringify({ codadiantamento: adDJ.codadiantamento }) });
+        const adDelQJ = (await adDelQ.json().catch(() => ({}))) as any;
+        const adEst = await fetch(`${base}/cadastro/areceber/${adDTit.codrcb}/estornar-baixa`, { method: 'POST', headers: H });
+        const adQuit2 = (await pgAd.query(`SELECT quitada FROM adiantamento_forn WHERE codadiantamento=$1`, [adDJ.codadiantamento])).rows[0]?.quitada;
+        check('ADTO §83.8: baixa do título gerado → adiantamento QUITADA=S; editar e excluir passam a dar 422 TITULO_JA_BAIXADO (o gate do TÍTULO REAL vem antes do flag-sombra); estorno da baixa reabre (QUITADA=N, simétrico ao A Pagar)',
+          adBx.status === 200 && adQuit1 === 'S' && adEdQ.status === 422 && adEdQJ.code === 'TITULO_JA_BAIXADO'
+          && adDelQ.status === 422 && adDelQJ.code === 'TITULO_JA_BAIXADO' && adEst.status === 200 && adQuit2 === 'N',
+          { bx: adBx.status, q1: adQuit1, ed: [adEdQ.status, adEdQJ.code], del: [adDelQ.status, adDelQJ.code], est: adEst.status, q2: adQuit2 });
+
+        // 83.8b) o gate do LEGADO (a mensagem "documento ja baixado", que olha o flag do adiantamento) continua
+        // valendo para o caso em que o adiantamento está quitado mas o título não — os 9 casos do golden em que a
+        // baixa veio por caminho que não atualizou o flag, aqui simulados no banco.
+        await pgAd.query(`UPDATE adiantamento_forn SET quitada='S' WHERE codadiantamento=$1`, [adDJ.codadiantamento]);
+        const adEdF = await fetch(`${base}/${AD}/editar`, { method: 'POST', headers: H, body: JSON.stringify({ codadiantamento: adDJ.codadiantamento, codparceiro: 20, dtadiantamento: '2026-07-04', dtvencimento: '2026-09-01', valor: 9 }) });
+        const adEdFJ = (await adEdF.json().catch(() => ({}))) as any;
+        await pgAd.query(`UPDATE adiantamento_forn SET quitada='N' WHERE codadiantamento=$1`, [adDJ.codadiantamento]);
+        check('ADTO §83.8b: adiantamento QUITADA=S com título em aberto → 422 ADIANTAMENTO_BAIXADO (a trava do legado)',
+          adEdF.status === 422 && adEdFJ.code === 'ADIANTAMENTO_BAIXADO', { status: adEdF.status, code: adEdFJ.code });
+
+        // 82.9) CONTABILIZADO='S' bloqueia editar e excluir (VerificaContabilizado — o estorno contábil do
+        // adiantamento não está migrado, então é fail-closed).
+        await pgAd.query(`UPDATE adiantamento_forn SET contabilizado='S' WHERE codadiantamento=$1`, [adDJ.codadiantamento]);
+        const adCtb = await fetch(`${base}/${AD}/excluir`, { method: 'POST', headers: H, body: JSON.stringify({ codadiantamento: adDJ.codadiantamento }) });
+        const adCtbJ = (await adCtb.json().catch(() => ({}))) as any;
+        await pgAd.query(`UPDATE adiantamento_forn SET contabilizado=NULL WHERE codadiantamento=$1`, [adDJ.codadiantamento]);
+        check('ADTO §83.9: CONTABILIZADO=S → excluir 422 ADIANTAMENTO_CONTABILIZADO', adCtb.status === 422 && adCtbJ.code === 'ADIANTAMENTO_CONTABILIZADO', { status: adCtb.status, code: adCtbJ.code });
+
+        // 83.10) PERÍODO CONTÁBIL: o flag desta tela é o DEDICADO `BLOQ_ADIANTAMENTO_FORN` (existe no Oracle e vale
+        // 'S' nos 2 períodos fechados do golden), não os de A Receber/A Pagar — um período fechado só com BLOQ_RCB
+        // NÃO barra o adiantamento.
+        await pgAd.query(`INSERT INTO periodo_contabil (codempresa, competencia_contabil, data_inicio, data_fim, status, bloq_adiantamento_forn)
+          VALUES (1,'ADTO-TESTE', DATE '2026-11-01', DATE '2026-11-30','S','S')`);
+        const adPer = await adCriar({ idsituacao_nf: 1011, codparceiro: 1, codcontacorrente: adCx, dtadiantamento: '2026-11-10', dtvencimento: '2026-11-20', valor: 10 });
+        const adPerJ = (await adPer.json().catch(() => ({}))) as any;
+        await pgAd.query(`INSERT INTO periodo_contabil (codempresa, competencia_contabil, data_inicio, data_fim, status, bloq_rcb, bloq_adiantamento_forn)
+          VALUES (1,'ADTO-TST2', DATE '2026-12-01', DATE '2026-12-31','S','S','N')`);
+        const adPer2 = await adCriar({ idsituacao_nf: 1011, codparceiro: 1, codcontacorrente: adCx, dtadiantamento: '2026-12-05', dtvencimento: '2026-12-10', valor: 10 });
+        const adPer2J = (await adPer2.json().catch(() => ({}))) as any;
+        if (adPer2J?.codadiantamento) await fetch(`${base}/${AD}/excluir`, { method: 'POST', headers: H, body: JSON.stringify({ codadiantamento: adPer2J.codadiantamento }) });
+        await pgAd.query(`DELETE FROM periodo_contabil WHERE competencia_contabil IN ('ADTO-TESTE','ADTO-TST2')`);
+        check('ADTO §83.10: período fechado com BLOQ_ADIANTAMENTO_FORN → 422 PERIODO_FECHADO; período fechado só com BLOQ_RCB → 200 (o flag desta tela é o próprio, não o do título)',
+          adPer.status === 422 && adPerJ.code === 'PERIODO_FECHADO' && adPer2.status === 200,
+          { adto: [adPer.status, adPerJ.code], soRcb: [adPer2.status, adPer2J.code] });
+
+        // 82.11) EXCLUIR o tipo 'D' apaga o movimento E o título (o saldo da conta volta ao que era) — e o
+        // contas do operador só lista as contas vinculadas em CONTAS_BANCARIAS_OP (o filtro do picker).
+        const adDel = await fetch(`${base}/${AD}/excluir`, { method: 'POST', headers: H, body: JSON.stringify({ codadiantamento: adDJ.codadiantamento }) });
+        const adDelJ = (await adDel.json().catch(() => ({}))) as any;
+        const adSobra = Number((await pgAd.query(`SELECT (SELECT count(*) FROM areceber WHERE codadiantamento=$1) + (SELECT count(*) FROM mov_contas_bancarias WHERE codadiantamento=$1) + (SELECT count(*) FROM adiantamento_forn WHERE codadiantamento=$1) n`, [adDJ.codadiantamento])).rows[0].n);
+        const adContas = (await (await fetch(`${base}/${AD}/contas`, { headers: H })).json().catch(() => ([]))) as any[];
+        check('ADTO §83.11: excluir tipo D → movimento + título + registro removidos e saldo de volta a 1.000; GET contas devolve só as contas vinculadas ao operador (com saldo)',
+          adDel.status === 200 && adDelJ.movimento_removido === true && adDelJ.titulo_removido === true && adSobra === 0
+          && (await adSaldo(adCx)) === 1000
+          && adContas.some((c) => Number(c.codconta) === adCx && Number(c.saldo) === 1000) && !adContas.some((c) => Number(c.codconta) === adCxOutra),
+          { del: adDelJ, sobra: adSobra, saldo: await adSaldo(adCx), contas: adContas.map((c) => [c.codconta, c.saldo]) });
+
+        // 82.12) LISTAR com filtros + RBAC: excluir sem grant → 403 (BTNEXCLUIR é o privilégio mais restrito no golden).
+        const adLis = (await (await fetch(`${base}/${AD}/listar`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'C', quitada: 'N' }) })).json().catch(() => ([]))) as any[];
+        const adRb = await fetch(`${base}/${AD}/excluir`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codadiantamento: adCJ.codadiantamento }) });
+        check('ADTO §83.12: listar tipo C em aberto → traz o adiantamento de crédito com razão/conta/título a pagar; excluir sem grant → 403',
+          adLis.some((a) => Number(a.codadiantamento) === Number(adCJ.codadiantamento) && a.tipo === 'C' && Number(a.codapg) === Number(adCTit.codapg) && a.razao != null && a.nroconta !== undefined)
+          && !adLis.some((a) => a.tipo === 'D') && adRb.status === 403,
+          { lista: adLis.map((a) => [a.codadiantamento, a.tipo, a.codapg]), rbac: adRb.status });
+
+        // 82.13) baixa do título A PAGAR do tipo 'C' quita o adiantamento (UBaixaApagar.pas:485) e o estorno reabre.
+        const adBxAp = await fetch(`${base}/cadastro/apagar/${adCTit.codapg}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ dtpgto: '2026-07-10', recurso: 'BANCO', codconta: adCx0, juros: 0 }) });
+        const adQuitAp = (await pgAd.query(`SELECT quitada FROM adiantamento_forn WHERE codadiantamento=$1`, [adCJ.codadiantamento])).rows[0]?.quitada;
+        const adEstAp = await fetch(`${base}/cadastro/apagar/${adCTit.codapg}/estornar-baixa`, { method: 'POST', headers: H });
+        const adQuitAp2 = (await pgAd.query(`SELECT quitada FROM adiantamento_forn WHERE codadiantamento=$1`, [adCJ.codadiantamento])).rows[0]?.quitada;
+        check('ADTO §83.13: baixa do título A PAGAR (tipo C) → adiantamento QUITADA=S; estorno da baixa → QUITADA=N',
+          adBxAp.status === 200 && adQuitAp === 'S' && adEstAp.status === 200 && adQuitAp2 === 'N',
+          { bx: adBxAp.status, q1: adQuitAp, est: adEstAp.status, q2: adQuitAp2 });
+
+        // cleanup: remove SÓ o que o teste criou (o cleanup global por `codadiantamento IS NOT NULL` apagaria
+        // títulos de qualquer outra seção/carga — fold auditoria).
+        const adCods = [adDJ.codadiantamento, adCJ.codadiantamento, adEJ.codadiantamento, adCh2J?.codadiantamento].filter((x) => x != null).map(Number);
+        await pgAd.query(`DELETE FROM apagar   WHERE codadiantamento = ANY($1::int[])`, [adCods]);
+        await pgAd.query(`DELETE FROM areceber WHERE codadiantamento = ANY($1::int[])`, [adCods]);
+        await pgAd.query(`DELETE FROM mov_contas_bancarias WHERE codconta = ANY($1::int[])`, [[adCx, adCx0, adCxOutra, adCxSemOp]]);
+        await pgAd.query(`DELETE FROM adiantamento_forn WHERE codcontacorrente = ANY($1::int[])`, [[adCx, adCx0, adCxOutra, adCxSemOp]]);
+        await pgAd.query(`DELETE FROM contas_bancarias_op WHERE codconta = ANY($1::int[])`, [[adCx, adCx0, adCxSemOp]]);
+        await pgAd.query(`DELETE FROM contas_bancarias WHERE codconta = ANY($1::int[])`, [[adCx, adCx0, adCxOutra, adCxSemOp]]);
+      } finally {
+        await pgAd.end();
+      }
     }
   } finally {
     await app.close();

@@ -76,6 +76,7 @@ const TELAS = [
   { href: '/financeiro/cartoes', name: 'Cartões / Recebíveis', icon: CreditCard },
   { href: '/financeiro/conciliacao', name: 'Conciliação Bancária', icon: Landmark },
   { href: '/financeiro/contas-correntes', name: 'Controle de Contas Correntes', icon: ArrowRightLeft },
+  { href: '/financeiro/adiantamentos', name: 'Adiantamento a Fornecedor', icon: HandCoins },
   { href: '/cadastro/operadoras', name: 'Operadoras de Cartão', icon: CreditCard },
   { href: '/estoque/ajuste', name: 'Ajuste de Estoque', icon: Package },
   { href: '/estoque/inventario', name: 'Inventário', icon: ClipboardList },

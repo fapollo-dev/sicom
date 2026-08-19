@@ -19,6 +19,9 @@ import { CaixaConferenciaService } from './caixa-conferencia.service';
 import { BaixaContabilService } from './baixa-contabil.service';
 import { CnabRemessaController } from './cnab-remessa.controller';
 import { CnabRemessaService } from './cnab-remessa.service';
+import { AdiantamentoFornController } from './adiantamento-forn.controller';
+import { AdiantamentoFornService } from './adiantamento-forn.service';
+import { ConfigService } from '../cadastro/config.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { CadastroModule } from '../cadastro/cadastro.module';
 
@@ -30,12 +33,14 @@ import { CadastroModule } from '../cadastro/cadastro.module';
   // itens com display columns + juros/total) e validação do "Cobrador" FUN='S'.
   // AreceberController (cadastro/areceber) = CONTAS A RECEBER; ApagarController (cadastro/apagar) = A PAGAR.
   // CaixaController (cobranca/caixa) = CAIXA (sessão + movimento manual, corte-1).
-  controllers: [LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController],
+  // AdiantamentoFornController (financeiro/adiantamentos) = ADIANTAMENTO A FORNECEDOR/PARCEIRO: movimento na conta
+  // corrente + título gerado (areceber no tipo 'D', apagar em 'C'/'E').
+  controllers: [LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController],
   providers: [
     LotesCobrancaService, LoteCobrancaRepository,
     AreceberService, AreceberBaixaService, AreceberAgrupamentoService, ApagarService, ApagarBaixaService, ApagarAgrupamentoService,
     CaixaService, CaixaContabilService, CaixaPdvContabilService, CaixaConferenciaService, BaixaContabilService,
-    CnabRemessaService,
+    CnabRemessaService, AdiantamentoFornService, ConfigService,
     DatabaseProvider,
   ],
   exports: [LotesCobrancaService],

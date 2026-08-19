@@ -6,6 +6,7 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 import { CaixaService } from './caixa.service';
 import { BaixaContabilService } from './baixa-contabil.service';
 import { SenhaOperacaoService } from '../cadastro/senha-operacao.service';
+import { AdiantamentoFornService } from './adiantamento-forn.service';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 
 type AnyDB = Kysely<any>;
@@ -95,7 +96,7 @@ export class AreceberBaixaService {
       // lê e TRAVA o título (escopo empresa).
       const t = await trx
         .selectFrom('areceber')
-        .select(['codrcb', 'valor', 'quitada', 'agrupado', 'codparceiro', 'dtvenda', 'dtvenc', 'txjuros', 'tipodoc'])
+        .select(['codrcb', 'valor', 'quitada', 'agrupado', 'codparceiro', 'dtvenda', 'dtvenc', 'txjuros', 'tipodoc', 'codadiantamento'])
         .where('codrcb', '=', codrcb)
         .where('codempresa', '=', emp)
         .forUpdate()
@@ -149,6 +150,8 @@ export class AreceberBaixaService {
         .where('quitada', '=', 'N')
         .executeTakeFirst();
       if (Number(upd?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('TITULO_JA_BAIXADO', { codrcb });
+      // título nascido de ADIANTAMENTO a parceiro (tipo 'D') → quita o adiantamento (UBaixaAreceber.pas:1233).
+      await AdiantamentoFornService.marcarQuitada(trx, emp, (t as any).codadiantamento, 'S');
 
       // BAIXA PARCIAL: gera um NOVO título com o SALDO (total − pago), ORIGEM='B' (UBaixaAreceber.pas:1449),
       // e vincula à baixa (codrcb_gerado) p/ o estorno poder removê-lo. Herda cliente/datas/juros do original.
@@ -259,6 +262,10 @@ export class AreceberBaixaService {
         .where('quitada', '=', 'S')
         .executeTakeFirst();
       if (Number(upd?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('TITULO_NAO_BAIXADO', { codrcb });
+      // reabre o adiantamento de origem. O legado seta 'S' aqui (UReversaoBaixaContasReceber.pas:71) — bug nunca
+      // exercido: no golden não existe adiantamento 'S' com título 'N'. Simétrico à reversão de A PAGAR ('N').
+      const adto = await trx.selectFrom('areceber').select('codadiantamento').where('codrcb', '=', codrcb).where('codempresa', '=', emp).executeTakeFirst();
+      await AdiantamentoFornService.marcarQuitada(trx, emp, (adto as any)?.codadiantamento, 'N');
 
       return { codrcb, quitada: 'N' };
     });

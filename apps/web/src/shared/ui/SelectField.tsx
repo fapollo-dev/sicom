@@ -12,13 +12,15 @@ type Props = {
   options: readonly Option[];
   placeholder?: string;
   error?: string;
+  /** trava a escolha (espelha `Enabled := False` do legado: campo que só se define no "adicionar"). */
+  disabled?: boolean;
 };
 
 /**
  * Campo de lista fixa (combo) do app: usa `FormFieldSelect` do Apollo DS + a camada
  * de teclado. Novo tipo de campo introduzido pela 2ª tela (Operações de Conta, TIPO).
  */
-export function SelectField({ label, value, onChange, options, placeholder, error }: Props) {
+export function SelectField({ label, value, onChange, options, placeholder, error, disabled }: Props) {
   const id = useId();
   useMnemonic(label, () =>
     document.getElementById(id)?.querySelector<HTMLElement>('button,[role=combobox]')?.focus(),
@@ -32,6 +34,7 @@ export function SelectField({ label, value, onChange, options, placeholder, erro
         placeholder={placeholder}
         value={value}
         onValueChange={onChange}
+        disabled={disabled}
         state={error ? 'error' : 'default'}
         errorMessage={error}
       />

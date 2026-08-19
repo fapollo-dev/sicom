@@ -75,6 +75,7 @@ export interface ContasBancariasTable {
   nroconta: string | null;
   codlanccontabil: string | null; // conta contábil do banco (→ plano_contas); money leg da baixa recurso BANCO
   ativo: string; // 'S' | 'N'
+  dtchaveamento: string | null; // 159: caixa chaveado — nenhum documento com data <= esta pode ser lançado/alterado
   usultalteracao: number | null;
   dtultimalteracao: Timestamptz | null;
   dtcadastro: Timestamptz | null;
@@ -166,6 +167,9 @@ export interface AreceberTable {
   usultalteracao: number | null;
   dtultimalteracao: Timestamptz | null;
   dtcadastro: Timestamptz | null;
+  // 159 (adiantamento a parceiro): o título nasce do adiantamento tipo 'D'
+  codadiantamento: number | null;
+  adfornecedor: string | null; // 'S' = título gerado por adiantamento a parceiro
 }
 /** ARECEBER_BX (044) — baixas do título (1:N); estorno LÓGICO via INDR ('I'/'E'). */
 export interface AreceberBxTable {
@@ -240,6 +244,10 @@ export interface ApagarTable {
   usultalteracao: number | null;
   dtultimalteracao: Timestamptz | null;
   dtcadastro: Timestamptz | null;
+  // 159 (adiantamento a parceiro): o título nasce do adiantamento tipo 'C'/'E'
+  codadiantamento: number | null;
+  adfornecedor: string | null; // 'S' = título gerado por adiantamento a parceiro
+  adcredito: string | null; // 'S' só no tipo 'E'
 }
 /** APAGAR_BX (045) — baixas/pagamentos (1:N; estorno lógico via INDR). */
 export interface ApagarBxTable {
@@ -528,6 +536,31 @@ export interface MovContasBancariasTable {
   contabilizado: string | null; // NULL no fechamento (concilia depois)
   indr: string | null;
   dtcadastro: Timestamptz | null;
+  codadiantamento: number | null; // 159: o movimento do adiantamento a parceiro (origem='ADTOFORN')
+}
+
+/**
+ * ADIANTAMENTO_FORN (159) — adiantamento a fornecedor/parceiro. Cada linha gera um movimento na conta corrente
+ * (`codmovconta`) e um título: `areceber` no tipo 'D' (dinheiro sai) · `apagar` em 'C'/'E' (dinheiro entra).
+ */
+export interface AdiantamentoFornTable {
+  codadiantamento: Generated<number>;
+  idempresa: number;
+  codparceiro: number;
+  codcontacorrente: number;
+  dtadiantamento: Timestamptz;
+  dtvencimento: Timestamptz;
+  valor: number;
+  tipo: string; // 'C' (F19) | 'D' (F20) | 'E' (F21)
+  quitada: string; // 'S' quando o título gerado é baixado
+  codmovconta: number | null;
+  obs: string | null;
+  idsituacao_nf: number | null;
+  contabilizado: string | null;
+  iddocgerado: number | null;
+  usultalteracao: number | null;
+  dtultimalteracao: Timestamptz | null;
+  dtcadastro: Timestamptz | null;
 }
 /** FORMAS_PGTO (052) — formas de pagamento/modalidades por empresa; 3 vínculos p/ o Caixa corte-2d. */
 export interface FormasPgtoTable {
@@ -655,6 +688,7 @@ export interface TenantDB {
   grupo_operador: GrupoOperadorTable;
   relacao_operador_empresa: RelacaoOperadorEmpresaTable;
   mov_contas_bancarias: MovContasBancariasTable;
+  adiantamento_forn: AdiantamentoFornTable;
   get_operadores: GetOperadoresView;
   formas_pgto: FormasPgtoTable;
   get_formas_pgto: GetFormasPgtoView;

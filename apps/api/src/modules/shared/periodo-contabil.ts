@@ -4,7 +4,7 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 type AnyDB = Kysely<any>;
 
 /** flags de bloqueio do PERIODO_CONTABIL por área (fiel ao Oracle). */
-export type BloqPeriodo = 'bloq_nf' | 'bloq_rcb' | 'bloq_baixa_rcb' | 'bloq_apg' | 'bloq_baixa_apg';
+export type BloqPeriodo = 'bloq_nf' | 'bloq_rcb' | 'bloq_baixa_rcb' | 'bloq_apg' | 'bloq_baixa_apg' | 'bloq_adiantamento_forn';
 
 /**
  * Trava de PERÍODO CONTÁBIL FECHADO (ValidaPeriodoFechado do legado) — fail-CLOSED: lança PERIODO_FECHADO se a

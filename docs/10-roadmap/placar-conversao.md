@@ -14,13 +14,13 @@
 
 | Campo | Valor |
 |-------|-------|
-| **Data** | 2026-08-18 |
-| **Commit de referência** | `9031ec7` (`main`, tudo verde) |
-| **Estado de build** | api tsc 0 · api test 183 · smoke 972/0 · web tsc 0 · web test 37 · build ok |
-| **Migrations aplicadas** | até `158` |
-| **Features no `apps/web`** | 41 |
-| **Schemas em `packages/shared`** | 42 |
-| **Dossiês na retaguarda** | 33 |
+| **Data** | 2026-08-19 |
+| **Commit de referência** | `5a3238d` (`main`, tudo verde) + o corte do Adiantamento a Fornecedor |
+| **Estado de build** | api tsc 0 · api test 183 · **smoke 986/0** · web tsc 0 · web test 37 · build ok |
+| **Migrations aplicadas** | até `159` |
+| **Features no `apps/web`** | 42 |
+| **Schemas em `packages/shared`** | 43 |
+| **Dossiês na retaguarda** | 35 |
 
 ### O que entrou desde o snapshot anterior (30/07 → 18/08)
 
@@ -41,14 +41,32 @@ acessos e nº de operadores), **tamanho do fonte** e **liveness/recência no Ora
 | candidato | acessos | operadores | dados no Oracle | recência | veredicto |
 |---|---:|---:|---|---|---|
 | ~~Pedido de Devolução de Compras~~ (`FRMCADPEDIDODEVOLUCAOCOMPRAS`) | 1.753 | 15 | 545 pedidos + 3.809 itens | out/2025 | ⚠️ **JÁ MIGRADO** (migs 072-074 + `devolucao-compra.*`) — o épico "Devolução de Compra" **é** este form, com saldo por item, espelho fiscal rateado e a regra de ICMS-ST do fornecedor. Entrou nesta lista por engano (ver §Erro de leitura abaixo). |
-| **Finalização do fechamento de caixa** (`UfinalizaFechamento`, aberta pelo `FRMFECHAMENTOCAIXA` de 41.215 acessos) | — | 35 (do form que a chama) | **172.164** linhas + **876.927** documentos | set/2025 | **próximo** — lacuna dentro do 2º form mais usado; ausência provada no código |
+| ~~Finalização do fechamento de caixa~~ (`UfinalizaFechamento`, aberta pelo `FRMFECHAMENTOCAIXA`) | — | 35 (do form que a chama) | **172.164** linhas + **876.927** documentos | set/2025 | ⛔ **DESCARTADO** — a consolidação é **por PDV**, e a orientação vigente é não mexer em nada do PDV. O recon fica no repositório (`uFechamentoCaixa-finalizacao.md`) para quando o PDV entrar. |
 | Fechamento diário (`FRMFECHAMENTODIARIO`) | 389 | 8 | 3.439 (tabela `FECHAMENTO`) | **abr/2026** | corte seguinte — tela pequena (840 linhas): fecha/reabre o dia; decidir a relação com o `periodo_contabil` que já existe |
 | Consulta histórico de vendas (`FRMCONSHISTVENDAS`) | 841 | 25 | leitura | — | não migrado (verificado no código); leve, entra junto de outro corte |
 | Consulta histórico de vendas (`FRMCONSHISTVENDAS`) | 841 | 25 | leitura | — | leve; entra junto de outro corte |
-| Adiantamento a fornecedor (`FRMADIANTAMENTOFORNECEDOR`) | 699 | 11 | 563 adiantamentos | mar/2025 | fila |
+| ~~Adiantamento a fornecedor~~ (`FRMADIANTAMENTOFORNECEDOR`) | 699 | 11 | 563 adiantamentos | mar/2025 | ✅ **ENTREGUE** (mig 159 + `adiantamento-forn.*` + tela): os dois fatos (movimento na conta corrente + título a receber/a pagar), gates de saldo/chaveamento/quitada/contabilizado/período e a quitação pelas baixas |
 | Fechamento/sangria (`FRMFECHAMENTOSANGRIA`) | 3.339 | 20 | — | — | **é do PDV** (não existe fonte na retaguarda) ⇒ bloqueado pela decisão do usuário |
 | Devolução de vendas (`FRMDEVOLUCAOVENDAS`) | 2.412 | 26 | 2.286 | — | bloqueado: acoplado ao PDV |
 | `FRMSALDOEMPRESA` | 563 | 6 | — | — | bloqueado com prova (fonte viva inexistente) |
+
+### O alvo do PDV caiu — e o que entrou no lugar (2026-08-19)
+
+A finalização do fechamento de caixa (o item "próximo" da tabela) **saiu da fila por decisão explícita**: a
+consolidação do `FINALIZA_FECHAMENTO` é **por PDV**, e a orientação vigente é não tocar em nada do PDV enquanto a
+retaguarda não estiver fechada. O dossiê do recon fica no repositório para quando o PDV entrar.
+
+No lugar entrou o melhor candidato de **retaguarda pura**: **Adiantamento a Fornecedor/Parceiro**
+(`FRMADIANTAMENTOFORNECEDOR`, 699 acessos/11 operadores, 563 adiantamentos e R$ 844 mil no golden). A ausência no
+código foi provada antes de eleger (a lição da rodada anterior), e o corte entregou o que a tela realmente faz:
+**dois fatos por registro** — o movimento na conta corrente e o título gerado (a receber quando o dinheiro sai, a
+pagar quando entra) — mais os gates (saldo só no débito e só em conta caixa, chaveamento do caixa, quitado,
+contabilizado, período contábil) e a **quitação pelas baixas** de A Receber/A Pagar, com a reabertura no estorno.
+Dossiê: `docs/04-screen-dossier/dossiers/retaguarda/uCadAdiantamentoFornecedor.md`.
+
+Achado colateral que vale para o cutover: o legado grava `MOV_CONTAS_BANCARIAS.VALOR` **com sinal** (crédito
+positivo em 101.911 linhas, débito negativo em 42.527), enquanto o app novo grava **magnitude** e tira o sinal do
+`tipomovimento`. Na carga, o `VALOR` do legado tem de entrar como `abs(VALOR)` — anotado no dossiê.
 
 ### Segundo erro de leitura, e o que ele revelou (2026-08-19)
 

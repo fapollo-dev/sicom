@@ -5,6 +5,7 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { CaixaService } from './caixa.service';
 import { BaixaContabilService } from './baixa-contabil.service';
+import { AdiantamentoFornService } from './adiantamento-forn.service';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 
 type AnyDB = Kysely<any>;
@@ -68,7 +69,7 @@ export class ApagarBaixaService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const t = await trx
         .selectFrom('apagar')
-        .select(['codapg', 'valor', 'quitada', 'agrupado', 'codparceiro', 'dtvenda', 'dtvenc', 'txjuros', 'tipodoc'])
+        .select(['codapg', 'valor', 'quitada', 'agrupado', 'codparceiro', 'dtvenda', 'dtvenc', 'txjuros', 'tipodoc', 'codadiantamento'])
         .where('codapg', '=', codapg)
         .where('codempresa', '=', emp)
         .forUpdate()
@@ -113,6 +114,8 @@ export class ApagarBaixaService {
         .where('quitada', '=', 'N')
         .executeTakeFirst();
       if (Number(upd?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('TITULO_JA_BAIXADO', { codapg });
+      // título nascido de ADIANTAMENTO a parceiro (tipo 'C'/'E') → quita o adiantamento (UBaixaApagar.pas:485).
+      await AdiantamentoFornService.marcarQuitada(trx, emp, (t as any).codadiantamento, 'S');
 
       // PAGAMENTO PARCIAL: gera um NOVO título com o SALDO (total − pago), ORIGEM='B', e vincula à baixa
       // (codapg_gerado) p/ o estorno poder removê-lo. Herda fornecedor/datas/juros do original.
@@ -209,6 +212,9 @@ export class ApagarBaixaService {
         .where('quitada', '=', 'S')
         .executeTakeFirst();
       if (Number(upd?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('TITULO_NAO_BAIXADO', { codapg });
+      // reabre o adiantamento de origem (UReversaoBaixaContasPagar.pas:65 — 'N').
+      const adto = await trx.selectFrom('apagar').select('codadiantamento').where('codapg', '=', codapg).where('codempresa', '=', emp).executeTakeFirst();
+      await AdiantamentoFornService.marcarQuitada(trx, emp, (adto as any)?.codadiantamento, 'N');
 
       return { codapg, quitada: 'N' };
     });
