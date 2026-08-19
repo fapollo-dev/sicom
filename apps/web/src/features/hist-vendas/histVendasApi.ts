@@ -51,3 +51,22 @@ export interface ConsultaCupom {
 export function consultarCupom(dto: Record<string, unknown>): Promise<ConsultaCupom> {
   return req('/relatorios/hist-vendas/consultar', { method: 'POST', body: JSON.stringify(dto) });
 }
+
+export interface LinhaVenda {
+  nropedido: string | null;
+  cliente: string | null;
+  nro_cupom: number | null;
+  operador: string | null;
+  total: number;
+  vendedor: string | null;
+  codvendas: number;
+  data: string | null;
+  codcliente: number | null;
+  desconto: number;
+  acrescimo: number;
+  importado: string | null;
+  cancelado: string | null;
+}
+export function listarVendas(dto: Record<string, unknown>): Promise<{ linhas: LinhaVenda[]; truncado: boolean; limite: number }> {
+  return req('/relatorios/hist-vendas/listar', { method: 'POST', body: JSON.stringify(dto) });
+}

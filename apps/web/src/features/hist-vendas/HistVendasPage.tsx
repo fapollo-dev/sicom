@@ -4,10 +4,12 @@ import { NumberField } from '../../shared/ui/NumberField';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
-import { consultarCupom, type ConsultaCupom } from './histVendasApi';
+import { DateField } from '../../shared/ui/DateField';
+import { consultarCupom, listarVendas, type ConsultaCupom, type LinhaVenda } from './histVendasApi';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const qtd = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—');
 const dataHora = (s: unknown) => {
   if (!s) return '—';
   const t = String(s);
@@ -27,6 +29,15 @@ export function HistVendasPage() {
   const [pedido, setPedido] = useState('');
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<ConsultaCupom | null>(null);
+  // a LISTA (o botão de pesquisa do legado): recorte de datas obrigatório + filtros opcionais.
+  const hojeIso = new Date().toISOString().slice(0, 10);
+  const [dtini, setDtini] = useState<string | undefined>(hojeIso);
+  const [dtfim, setDtfim] = useState<string | undefined>(hojeIso);
+  const [fCliente, setFCliente] = useState('');
+  const [fCupom, setFCupom] = useState<number | undefined>();
+  const [fPedido, setFPedido] = useState('');
+  const [lista, setLista] = useState<LinhaVenda[] | null>(null);
+  const [truncado, setTruncado] = useState(false);
 
   const consultar = async () => {
     if (busy) return;
@@ -43,6 +54,34 @@ export function HistVendasPage() {
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
+  const pesquisar = async () => {
+    if (busy) return;
+    if (!dtini || !dtfim) { window.alert('Informe o período da pesquisa.'); return; }
+    setBusy(true);
+    try {
+      // filtros PRÓPRIOS do painel de pesquisa: reaproveitar os campos da consulta esconderia por que a lista
+      // voltou vazia (fold auditoria [MÉDIA]).
+      const r = await listarVendas({ dtini, dtfim, cliente: fCliente || undefined, nrocupom: fCupom ?? undefined, nropedido: fPedido || undefined });
+      setLista(r.linhas); setTruncado(r.truncado);
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+
+  /** clicar numa linha da lista abre a venda — é o que o picker do legado faz (cupom + PDV do prefixo do pedido). */
+  const abrirDaLista = async (l: LinhaVenda) => {
+    if (busy || !l.nropedido) return;
+    setBusy(true);
+    try {
+      const r = await consultarCupom({ nropedido: l.nropedido });
+      setRes(r);
+      // o picker do legado preenche cupom, PEDIDO, PDV e empresa — faltava o pedido, e o filtro velho fazia a
+      // próxima consulta falhar (fold auditoria [MÉDIA]).
+      setCupom(l.nro_cupom ?? undefined);
+      setPdv(Number(String(l.nropedido).slice(0, 2)));
+      setPedido(l.nropedido ?? '');
+      if (!r.encontrado) window.alert(r.cupom_cancelado ? 'O cupom informado está cancelado.' : 'Nenhuma venda encontrada.');
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+
   const cab = res?.cabecalho ?? null;
 
   return (
@@ -54,6 +93,49 @@ export function HistVendasPage() {
         <div className="w-28"><NumberField label="&PDV" value={pdv} decimais={0} min={0} max={99} onChange={setPdv} /></div>
         <div className="w-64"><Field label="Nro. &Pedido (opcional)" value={pedido} onChange={(e) => setPedido(e.target.value)} placeholder="ex. 01280526112745" /></div>
         <Button label="&Consultar" variant="soft" disabled={busy} onClick={() => void consultar()} />
+      </div>
+
+      <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+        <div className="text-body-sm font-semibold text-fg-muted">Não tem o cupom? Pesquise a venda pelo período</div>
+        <div className="flex flex-wrap items-end gap-gp-sm">
+          <div className="w-44"><DateField label="&De" value={dtini} onChange={setDtini} /></div>
+          <div className="w-44"><DateField label="&Até" value={dtfim} onChange={setDtfim} /></div>
+          <div className="min-w-48 flex-1"><Field label="C&liente" value={fCliente} onChange={(e) => setFCliente(e.target.value)} placeholder="parte do nome" /></div>
+          <div className="w-36"><NumberField label="Cupo&m" value={fCupom} decimais={0} min={0} onChange={setFCupom} /></div>
+          <div className="w-52"><Field label="Pedi&do" value={fPedido} onChange={(e) => setFPedido(e.target.value)} placeholder="início do número" /></div>
+          <Button label="&Pesquisar" variant="ghost" disabled={busy} onClick={() => void pesquisar()} />
+        </div>
+        {lista && (
+          <div className="overflow-x-auto rounded-radius-md border border-border">
+            <table className="w-full text-body-sm">
+              <thead>
+                <tr className="text-left text-fg-muted">
+                  <th className="p-pad-xs">Data</th><th className="p-pad-xs">Pedido</th><th className="p-pad-xs">Cupom</th>
+                  <th className="p-pad-xs">Cliente</th><th className="p-pad-xs">Operador</th>
+                  <th className="p-pad-xs text-right">Total da venda</th><th className="p-pad-xs" />
+                </tr>
+              </thead>
+              <tbody>
+                {lista.map((l) => (
+                  <tr key={l.codvendas} className="border-t border-border">
+                    <td className="p-pad-xs tabular-nums">{dia(l.data)}</td>
+                    <td className="p-pad-xs tabular-nums">{l.nropedido ?? '—'}</td>
+                    <td className="p-pad-xs tabular-nums">{l.nro_cupom ?? '—'}{l.cancelado === 'C' ? ' (canc.)' : ''}</td>
+                    <td className="p-pad-xs">{l.cliente ?? '—'}</td>
+                    <td className="p-pad-xs">{l.operador ?? '—'}</td>
+                    <td className="p-pad-xs text-right tabular-nums">{brl(l.total)}</td>
+                    <td className="p-pad-xs text-right"><Button label="Abrir" variant="ghost" onClick={() => void abrirDaLista(l)} /></td>
+                  </tr>
+                ))}
+                {!lista.length && <tr><td colSpan={7} className="p-pad-md text-fg-muted">Nenhuma venda no período/filtro.</td></tr>}
+              </tbody>
+            </table>
+            {/* grão da view do legado: uma linha por VENDA (os produtos colapsam no GROUP BY externo). */}
+            <div className="border-t border-border p-pad-xs text-body-xs text-fg-muted">
+              {lista.length} venda(s){truncado ? ' — o resultado foi limitado; refine o período ou o filtro' : ''}.
+            </div>
+          </div>
+        )}
       </div>
 
       {cab && (

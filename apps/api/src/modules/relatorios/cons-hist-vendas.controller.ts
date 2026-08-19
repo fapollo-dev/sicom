@@ -1,5 +1,5 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
-import { consHistVendasSchema, type ConsHistVendasDto } from '@apollo/shared';
+import { consHistVendasSchema, histVendasListarSchema, type ConsHistVendasDto, type HistVendasListarDto } from '@apollo/shared';
 import { ConsHistVendasService } from './cons-hist-vendas.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -19,5 +19,13 @@ export class ConsHistVendasController {
   @RequerAcesso('FRMCONSHISTVENDAS', 'FRMCONSHISTVENDAS')
   consultar(@Body(new ZodValidationPipe(consHistVendasSchema)) dto: ConsHistVendasDto) {
     return this.svc.consultar(dto);
+  }
+
+  /** a LISTA de vendas do período (o botão de pesquisa do legado, sobre GET_HIST_VENDAS). */
+  @Post('listar')
+  @HttpCode(200)
+  @RequerAcesso('FRMCONSHISTVENDAS', 'FRMCONSHISTVENDAS')
+  listar(@Body(new ZodValidationPipe(histVendasListarSchema)) dto: HistVendasListarDto) {
+    return this.svc.listar(dto);
   }
 }

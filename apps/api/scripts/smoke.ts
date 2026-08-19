@@ -10121,9 +10121,50 @@ async function main() {
           && hv12.status === 422 && hv12J.code === 'SEM_PERMISSAO_EMPRESA',
           { porPedido: [hv11.status, hv11J.cabecalho?.nrocupom, hv11J.itens?.length], inexistente: hv13J.encontrado, empBody: [hv12.status, hv12J.code] });
 
+        // 84.7) a LISTA (corte-2, o botão de pesquisa do legado sobre GET_HIST_VENDAS). O grão é o do legado: os
+        // DOIS níveis de GROUP BY colapsam os produtos da venda ⇒ **uma linha por venda × PIS**. O pedido do teste
+        // tem 6 registros de 2 produtos, todos com PIS nulo ⇒ **1 linha**, total = Σ dos líquidos
+        // (18,50 + 3,47 + 9,43 + 10,00 + 9,00 + 9,00 = 59,40) e desconto Σ = 1,50 + 3,00 = 4,50.
+        // (o cancelado entra pelo CASE do IAT = 9,43 aqui, contra 9,42 truncado na consulta do cupom.)
+        const hvLis = await fetch(`${base}/relatorios/hist-vendas/listar`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-10', dtfim: '2026-08-10' }) });
+        const hvLisJ = (await hvLis.json().catch(() => ({}))) as any;
+        const linhasPed = (hvLisJ.linhas ?? []).filter((l: any) => l.nropedido === hvPed);
+        const hvLisFiltro = await fetch(`${base}/relatorios/hist-vendas/listar`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-10', dtfim: '2026-08-10', pdv: 8 }) });
+        const hvLisFiltroJ = (await hvLisFiltro.json().catch(() => ({}))) as any;
+        const hvLisTeto = await fetch(`${base}/relatorios/hist-vendas/listar`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-10', dtfim: '2026-08-10', limite: 1 }) });
+        const hvLisTetoJ = (await hvLisTeto.json().catch(() => ({}))) as any;
+        check('HIST-VENDAS §84.7 (corte-2): a lista tem o grão do legado — os DOIS níveis de GROUP BY colapsam os produtos da venda em UMA linha (6 registros → 1), com total líquido somado (59,40), desconto Σ 4,50 e o cancelado pelo CASE do IAT (9,43, contra 9,42 truncado no cupom); filtro de PDV isola a outra venda; teto devolve truncado',
+          hvLis.status === 200 && linhasPed.length === 1 && Number(linhasPed[0]?.total) === 59.4
+          && Number(linhasPed[0]?.desconto) === 4.5 && Number(linhasPed[0]?.acrescimo) === 1
+          && Number(linhasPed[0]?.nro_cupom) === 8101 && linhasPed[0]?.cliente != null && linhasPed[0]?.operador != null
+          && (hvLisJ.linhas ?? []).some((l: any) => Number(l.nro_cupom) === 8102 && l.cancelado === 'C')
+          && hvLisFiltro.status === 200 && (hvLisFiltroJ.linhas ?? []).length === 1 && (hvLisFiltroJ.linhas ?? [])[0]?.nropedido === '08100826120000'
+          && hvLisTeto.status === 200 && (hvLisTetoJ.linhas ?? []).length === 1 && hvLisTetoJ.truncado === true,
+          { total: hvLisJ.linhas?.length, doPedido: linhasPed, pdv8: hvLisFiltroJ.linhas?.length, teto: [hvLisTetoJ.linhas?.length, hvLisTetoJ.truncado] });
+
+        // 84.8) o legado NÃO exige data (busca por cupom/pedido em todo o histórico) — o schema aceita os dois
+        // caminhos e barra só a busca SEM nenhum filtro; e a venda de ECF (venda_nfc='N') tem de ABRIR pela lista:
+        // entrando pelo PEDIDO, o ramo NFC-e vem da própria venda, não do default 'S'.
+        await pgHv.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, iat, cancelado, venda_nfc, codparceiro, codvendedor, operador) VALUES
+          (1,'2026-08-09 09:00:00-03','07090826090000','001',8103,1,990810,1,4.00,'A','N','N',20,21,7)`);
+        const hvSemData = await fetch(`${base}/relatorios/hist-vendas/listar`, { method: 'POST', headers: H, body: JSON.stringify({ nrocupom: 8103 }) });
+        const hvSemDataJ = (await hvSemData.json().catch(() => ({}))) as any;
+        const hvNada = await fetch(`${base}/relatorios/hist-vendas/listar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+        const hvSoUmaData = await fetch(`${base}/relatorios/hist-vendas/listar`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-08-10' }) });
+        const hvEcf = await hvPost({ nropedido: '07090826090000' });
+        const hvEcfJ = (await hvEcf.json().catch(() => ({}))) as any;
+        const hvEcfCupom = await hvPost({ nrocupom: 8103, pdv: 7 });
+        const hvEcfCupomJ = (await hvEcfCupom.json().catch(() => ({}))) as any;
+        check('HIST-VENDAS §84.8 (corte-2): busca por cupom SEM período funciona (o legado não exige data) · sem nenhum filtro → 400 · só uma das datas → 400 · venda de ECF (venda_nfc=N) ABRE quando se entra pelo PEDIDO (o ramo vem da própria venda) e NÃO abre pelo cupom com o default NFC-e',
+          hvSemData.status === 200 && (hvSemDataJ.linhas ?? []).length === 1 && Number((hvSemDataJ.linhas ?? [])[0]?.total) === 4
+          && hvNada.status === 400 && hvSoUmaData.status === 400
+          && hvEcf.status === 200 && hvEcfJ.encontrado === true && Number(hvEcfJ.totais?.total) === 4
+          && hvEcfCupom.status === 200 && hvEcfCupomJ.encontrado === false,
+          { semData: [hvSemData.status, hvSemDataJ.linhas?.length], nada: hvNada.status, umaData: hvSoUmaData.status, ecfPorPedido: [hvEcf.status, hvEcfJ.encontrado], ecfPorCupom: hvEcfCupomJ.encontrado });
+
         // cleanup
-        await pgHv.query(`DELETE FROM cx_vendas WHERE nropedido IN ($1,'07100826110000','08100826120000')`, [hvPed]);
-        await pgHv.query(`DELETE FROM vendas WHERE nropedido IN ($1,'07100826110000','08100826120000')`, [hvPed]);
+        await pgHv.query(`DELETE FROM cx_vendas WHERE nropedido IN ($1,'07100826110000','08100826120000','07090826090000')`, [hvPed]);
+        await pgHv.query(`DELETE FROM vendas WHERE nropedido IN ($1,'07100826110000','08100826120000','07090826090000')`, [hvPed]);
         await pgHv.query(`DELETE FROM produtos WHERE idproduto IN (990810,990811)`);
       } finally {
         await pgHv.end();

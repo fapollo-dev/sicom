@@ -139,14 +139,68 @@ Faltam, todas em `vendas`: **`codparceiro`** (cliente), **`codvendedor`**, **`op
 cupom) e **`idproduto_filho`** — as três primeiras são 100% preenchidas no golden, ou seja o cabeçalho da consulta
 não existe sem elas. E a tabela **`pedidos`** (a metade "venda sem cupom") não existe no novo.
 
-## 8. Corte proposto
+## 8. Cortes — o que entrou, e a correção de rota do corte-2
 
-- **corte-1 — a consulta do CUPOM** (o caminho de 100% do dado): as 5 colunas em `vendas`, o endpoint
-  `consultar(cupom, pdv, empresa, venda_nfc?)` com o `LIKE` do prefixo do PDV, os itens com a aritmética do IAT e
-  os quatro descontos, o rodapé (subtotal/cancelados/total), a grade de finalizadores de `cx_vendas` e a mensagem
-  "cupom cancelado". Tela + smoke.
-- **corte-2 — a consulta do PEDIDO** (`pedidos`, 11.987 linhas e viva ontem): tabela + a aritmética própria dela.
-- **fora, registrado**: impressão da DANFE (depende do PDF da NFC-e) e do ticket; o ramo não-NFC-e do filtro
-  (0 linhas no golden, mas implementado — é ele que produz a mensagem "cupom cancelado"); e o "vale troca" que a
-  tela seleciona por coluna (não exercitado no golden — conferir quando o épico de troca/devolução do PDV entrar).
-- **agregado morto**: o `DESCONTO = SUM(ACRESCIMO − DESC_PROMOCAO)` do dataset não tem label na tela — não copiado.
+- **corte-1 — a consulta do CUPOM** (`55686d7`, mig 160): as colunas que faltavam em `vendas`, o endpoint
+  `consultar` (cupom+PDV **ou** só o pedido), os itens com a aritmética do IAT e os quatro descontos, o rodapé, a
+  grade de finalizadores de `cx_vendas` e a mensagem "cupom cancelado". Tela + smoke.
+- **corte-2 — a LISTA/PESQUISA de vendas** (mig 161): a view `get_hist_vendas`, cópia da do Oracle, + o endpoint
+  `listar`. **Não** foi a consulta de `PEDIDOS` que o corte-1 tinha proposto — ver a nota abaixo.
+- **fora, registrado**: impressão da DANFE (depende do PDF da NFC-e) e do ticket; o "vale troca" que a tela
+  seleciona por coluna (não exercitado no golden); e o agregado morto `DESCONTO = SUM(ACRESCIMO − DESC_PROMOCAO)`
+  do dataset, que não tem label na tela.
+
+### ⚠️ A consulta de `PEDIDOS` é resíduo MORTO no fonte (o corte-2 mudou por causa disso)
+
+O corte-1 propôs como corte-2 a segunda query da tela (`FROM PEDIDOS`). Ao ir implementar, o fonte provou que ela
+**não é alcançável nesta versão**: o dataset `cdsConsHistVendas` (o dono daquela query) **nunca é aberto** em
+`uConsHistVendas.pas` — só existem a declaração, o `CalcFields` e um `.First` dentro do ramo de impressão
+(`:243`), cujo gate `FlagImpressao = False` só é setado **dentro dele mesmo** (`:253`), enquanto o `True` vem de
+toda pesquisa (`:438`). Ou seja: a tela não pesquisa por pedido, e o ramo de impressão que usaria esse dataset
+imprimiria um dataset fechado. A tabela `PEDIDOS` **é viva** (11.987 linhas, escrita em 18/08/2026) — o que está
+morto é **esta porta para ela**; quando algum épico precisar da venda de balcão, o recon começa da tabela, não
+desta tela.
+
+### A LISTA (`GET_HIST_VENDAS`) — o que está vivo e faltava
+
+`BitBtn1Click` (`:194`) abre `TfrmPesquisa` sobre a view **`GET_HIST_VENDAS`** com `IDEMPRESA in
+(GetMultiEmpresa)`, campos `NRO_CUPOM`/`NROPEDIDO` e `ClonarLinha := True`; ao escolher, preenche cupom, pedido,
+**PDV = `COPY(NROPEDIDO,1,2)`** e empresa, e chama a pesquisa. É como o operador acha a venda sem o cupom na mão.
+
+A view tem **dois níveis de agregação**, e isso define o grão:
+
+| nível | agrupa por | medidas |
+|---|---|---|
+| interno | venda × **produto** × dia × operador/vendedor/cliente × cupom × tipocanc/importado × PIS_* | `TOTAL_VENDA` (CASE do IAT), `ACRESCIMO` (partes positivas), `DESC_PROMOCAO` (promoção+departamento+negativas positivadas) |
+| externo | o mesmo **SEM o produto** | `TOTAL = CAST(SUM(TOTAL_VENDA + ACRESCIMO − DESC_PROMOCAO))`, `SUM(DESC_PROMOCAO)`, `SUM(ACRESCIMO)` |
+
+⇒ **uma linha por venda × PIS**: os produtos colapsam. Medido no golden: 2024-01-15 dá **3.298 linhas** pela view
+contra 5.593 sem o nível externo; o pedido `57150124100420` sai com 16 linhas contra 29. Copiar só o nível interno
+(o erro que a auditoria pegou) mudaria a contagem e o "total da linha".
+
+Duas armadilhas de tradução do grão, as duas registradas na mig 161:
+
+1. **`CODVENDAS` do Oracle é por VENDA, não por item** — a PK lá é `(NROITEM, NROPEDIDO, CODVENDAS)` e em
+   2024-01-15 há 1.406 pedidos para 1.406 codvendas. No nosso schema `vendas.codvendas` é surrogate **por linha**
+   (mig 105), então a chave de venda equivalente é o **`nropedido`**; a view expõe `min(codvendas)` só como chave
+   estável de linha.
+2. **o `LEFT JOIN PRODUTOS` do legado não usa nenhuma coluna** — omitido, e provado inócuo: `PK_PRODUTOS` é único
+   (43.116/43.116) e replicar o legado sem o join devolve exatamente as 3.298 linhas da view.
+
+O mesmo item cancelado sai **9,43** na lista (a view usa o CASE do IAT) e **9,42** na consulta do cupom (que
+trunca o cancelado) — as duas fórmulas do legado são diferentes, e o smoke §84.7 trava as duas.
+
+Divergências deliberadas do endpoint `listar`, todas de proteção:
+
+- **período OU identificador**: o legado não exige data (o `frmPesquisa` busca cupom/pedido em todo o histórico,
+  sem `ROWNUM` e sem `ORDER BY`), mas no Oracle um `select` nesta view **sem filtro estoura 180s** (agrega
+  11,9M linhas). Exigimos período **ou** cupom/pedido — os dois caminhos com índice (expressão do dia local e
+  `nropedido`) — e devolvemos `truncado` no teto em vez de mentir um total parcial (lição 12d).
+- **multi-empresa** (`GetMultiEmpresa`) aceita `idempresas[]`, cada uma passando pelo mesmo gate de grant da
+  consulta.
+- `%`/`_` digitados no filtro de cliente são **escapados** (senão "%" devolveria tudo).
+- `importado` é projetado (fiel), mas é **quase morto**: 32 de 218.197 linhas de jan/2024 não são nulas.
+
+Um bug de integração que a auditoria pegou e vale registrar: entrar pela lista numa venda de **ECF**
+(`VENDA_NFC='N'` — 3.791.058 linhas no golden) não abria, porque a consulta assumia o ramo NFC-e por default. Ao
+entrar **pelo pedido**, o ramo agora vem da própria venda.

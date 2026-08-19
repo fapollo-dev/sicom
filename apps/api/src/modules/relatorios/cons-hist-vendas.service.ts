@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type Kysely } from 'kysely';
-import type { ConsHistVendasDto } from '@apollo/shared';
+import type { ConsHistVendasDto, HistVendasListarDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -10,6 +10,8 @@ const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 /** o PDV é o PREFIXO de 2 dígitos do NROPEDIDO (`PDV(2)+DDMMYY(6)+HHMMSS(6)`) — `FormatFloat('00', pdv) + '%'`. */
 const prefixoPdv = (pdv: number) => `${String(pdv).padStart(2, '0')}%`;
+/** escapa os curingas do LIKE em texto digitado (`%` e `_`), senão "%" no nome do cliente devolve tudo. */
+const escLike = (t: string) => t.replace(/([\\%_])/g, '\\$1');
 
 export interface ItemCupom {
   nropedido: string | null;
@@ -108,17 +110,22 @@ export class ConsHistVendasService {
     // primeiros caracteres do pedido (fold auditoria [BAIXA]).
     let cupom = dto.nrocupom ?? null;
     let pdv = dto.pdv ?? null;
+    let nfcEfetivo = nfc;
     if (dto.nropedido != null && (cupom == null || pdv == null)) {
       const v = (await db
         .selectFrom('vendas')
-        .select('nrocupom')
+        .select(['nrocupom', 'venda_nfc'])
         .where('nropedido', '=', dto.nropedido)
         .where('idempresa', '=', emp)
+        .orderBy('nroitem') // `ExisteVenda` do legado usa ROWNUM<=1; ordenar deixa determinístico (11 pedidos do golden têm >1 cupom)
         .limit(1)
-        .executeTakeFirst()) as { nrocupom?: number } | undefined;
+        .executeTakeFirst()) as { nrocupom?: number; venda_nfc?: string } | undefined;
       if (v == null) return this.vazio(false);
       cupom = cupom ?? (v.nrocupom == null ? 0 : Number(v.nrocupom));
       pdv = pdv ?? Number(dto.nropedido.slice(0, 2));
+      // entrando pelo PEDIDO, o ramo NFC-e vem da PRÓPRIA venda (fold auditoria [ALTA]): o default 'S' esconderia
+      // as 3.791.058 linhas de ECF (`VENDA_NFC='N'`) do golden — a linha apareceria na lista e não abriria.
+      if (dto.venda_nfc == null) nfcEfetivo = String(v.venda_nfc ?? 'N') === 'S' ? 'S' : 'N';
     }
     if (cupom == null || pdv == null) throw new BusinessRuleError('CUPOM_PDV_OBRIGATORIO');
 
@@ -163,7 +170,7 @@ export class ConsHistVendasService {
       .where('v.idempresa', '=', emp)
       .where('v.nrocupom', '=', cupom)
       .where(sql`v.nropedido`, 'like', prefixoPdv(pdv))
-      .where(sql`coalesce(v.venda_nfc,'N')`, '=', nfc)
+      .where(sql`coalesce(v.venda_nfc,'N')`, '=', nfcEfetivo)
       // o GROUP BY do legado (dfm, bloco do cupom): linhas IDÊNTICAS colapsam numa só com as medidas SOMADAS — e
       // a QTDE **não** é somada (está na chave; o `SUM(V.QTDE)` está comentado no fonte). Acontece de verdade: 19
       // grupos / 38 linhas extras em 2024 (ex. pedido 06240624210734 item 1 = 4 registros de 9,00 → 1 linha de
@@ -249,6 +256,56 @@ export class ConsHistVendasService {
       totais: { qtd_itens: itens.length, subtotal, cancelados, total: r2(subtotal - cancelados) },
       finalizadores,
       total_finalizadores: r2(finalizadores.reduce((s, f) => s + f.valor, 0)),
+    };
+  }
+
+  /**
+   * A LISTA de vendas — o `BitBtn1Click` do legado, que abre `TfrmPesquisa` sobre a view `GET_HIST_VENDAS` e, ao
+   * escolher uma linha, preenche cupom, pedido, PDV (`COPY(NROPEDIDO,1,2)`) e empresa. Grão da view = **uma linha
+   * por CODVENDAS** (item), fiel aos dois GROUP BY do legado; qualquer linha da venda serve para abrir o cupom.
+   *
+   * O recorte de datas é OBRIGATÓRIO (a view agrega VENDAS inteira: no Oracle, sem filtro, estoura 180s) e o teto
+   * devolve `truncado` em vez de mentir um total parcial (lição 12d).
+   */
+  async listar(dto: HistVendasListarDto): Promise<{ linhas: Record<string, unknown>[]; truncado: boolean; limite: number }> {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const limite = dto.limite ?? 500;
+    // multi-empresa: o legado filtra `IDEMPRESA in (GetMultiEmpresa)` (as empresas do operador). Cada empresa
+    // pedida passa pelo MESMO gate de grant da consulta (fold auditoria [MÉDIA]).
+    const empresas: number[] = [];
+    if (dto.idempresas?.length) {
+      for (const e of dto.idempresas) empresas.push(await this.empresaFiltro(db, { idempresa: e } as HistVendasListarDto & { idempresa: number }));
+    } else {
+      empresas.push(this.emp());
+    }
+    let q = db
+      .selectFrom('get_hist_vendas as g')
+      .select(['g.nropedido', 'g.cliente', 'g.nro_cupom', 'g.operador', 'g.total', 'g.vendedor', 'g.codvendas',
+               'g.data', 'g.codcliente', 'g.desconto', 'g.acrescimo', 'g.importado', 'g.cancelado', 'g.idempresa'])
+      .where('g.idempresa', 'in', empresas);
+    // o legado NÃO exige data (busca por cupom/pedido em todo o histórico); o schema garante que veio período OU
+    // identificador, e os dois caminhos têm índice (expressão do dia local, e nropedido).
+    if (dto.dtini) q = q.where('g.data', '>=', dto.dtini);
+    if (dto.dtfim) q = q.where('g.data', '<=', dto.dtfim);
+    if (dto.nrocupom != null) q = q.where('g.nro_cupom', '=', dto.nrocupom);
+    if (dto.nropedido) q = q.where(sql`g.nropedido`, 'like', `${escLike(dto.nropedido)}%`);
+    if (dto.pdv != null) q = q.where(sql`g.nropedido`, 'like', prefixoPdv(dto.pdv));
+    // `%`/`_` digitados no nome do cliente são ESCAPADOS (senão '%' devolveria tudo) — fold auditoria [BAIXA].
+    if (dto.cliente) q = q.where(sql`upper(g.cliente)`, 'like', `%${escLike(dto.cliente.toUpperCase())}%`);
+    if (dto.cancelado) q = q.where(sql`coalesce(g.cancelado,'N')`, dto.cancelado === 'C' ? '=' : '<>', 'C');
+    // pede 1 a mais que o teto para saber se truncou (sem contar a tabela inteira). Ordem determinística: a chave
+    // da linha é (venda × pis), então data/pedido/codvendas fecham a ordenação.
+    const rows = (await q
+      .orderBy('g.data', 'desc')
+      .orderBy('g.nropedido')
+      .orderBy('g.codvendas')
+      .limit(limite + 1)
+      .execute()) as Array<Record<string, unknown>>;
+    const truncado = rows.length > limite;
+    return {
+      linhas: rows.slice(0, limite).map((r) => ({ ...r, total: r2(num(r.total)), desconto: r2(num(r.desconto)), acrescimo: r2(num(r.acrescimo)) })),
+      truncado,
+      limite,
     };
   }
 }
