@@ -688,9 +688,14 @@ export class CnabRemessaService {
       .where('codconta', '=', dto.codconta).where('idempresa', '=', emp)
       .executeTakeFirst()) as Record<string, unknown> | undefined;
     if (!conta) throw new BusinessRuleError('CONTA_BANCARIA_NAO_ENCONTRADA', { codconta: dto.codconta });
-    const bancoRow = (await db.selectFrom('bancos').select(['codbcoblt'])
-      .where('codbco', '=', Number(conf.codbco)).executeTakeFirst()) as { codbcoblt?: number | null } | undefined;
+    const bancoRow = (await db.selectFrom('bancos').select(['codbcoblt', 'banco'])
+      .where('codbco', '=', Number(conf.codbco)).executeTakeFirst()) as { codbcoblt?: number | null; banco?: string } | undefined;
     const febraban = (dig(bancoRow?.codbcoblt ?? '') || dig(conf.codfornbco)).padStart(3, '0');
+    // CEDENTE (a ficha de compensação mostra razão + CNPJ + agência/conta) — a empresa da config, como na remessa
+    const empCedente = Number(conf.codempresa_arquivo) > 0 ? Number(conf.codempresa_arquivo) : emp;
+    const cedente = (await db.selectFrom('empresas')
+      .select([sql`razao_social`.as('razao'), 'cnpj']).where('idempresa', '=', empCedente)
+      .executeTakeFirst()) as { razao?: string; cnpj?: string } | undefined;
 
     const agRaw = String(conf.agencia ?? '').slice(0, 4);
     const ctaRaw = String(conta.nroconta ?? '');
@@ -703,9 +708,13 @@ export class CnabRemessaService {
     const titulos = (await db.selectFrom('areceber as r')
       .leftJoin('parceiros as p', 'p.codparceiro', 'r.codparceiro')
       .leftJoin('nf as n', 'n.codnf', 'r.idnf')
+      .leftJoin('parceiros_end as e', (j) => j.on(sql<boolean>`e.codend = p.codend or (p.codend is null and e.codparceiro = p.codparceiro)`))
       .select([
         'r.codrcb', 'r.duplicata', 'r.valor', 'r.nosso_numero_boleto', sql`p.razao`.as('razao'),
         'r.txjuros', 'r.desconto_boleto', sql`r.docnf`.as('docnf'), 'r.idnf', sql`n.nronf`.as('nronf'),
+        sql`e.cnpj_cpf`.as('sacado_doc'), sql`e.endereco`.as('sacado_endereco'), sql`e.numero`.as('sacado_numero'),
+        sql`e.bairro`.as('sacado_bairro'), sql`e.cidade`.as('sacado_cidade'), sql`e.uf`.as('sacado_uf'),
+        sql`e.cep`.as('sacado_cep'),
         sql`to_char(r.dtvenc at time zone 'America/Sao_Paulo','YYYY-MM-DD')`.as('venc'),
       ])
       .where('r.codempresa', '=', emp).where('r.codrcb', 'in', dto.codrcbs.length ? dto.codrcbs : [0])
@@ -714,6 +723,13 @@ export class CnabRemessaService {
 
     return {
       banco: febraban,
+      // a ficha de compensação: banco, cedente e a conta de cobrança
+      cabecalho: {
+        banco: febraban, nome_banco: String(bancoRow?.banco ?? ''),
+        cedente: cedente?.razao ?? null, cedente_cnpj: cedente?.cnpj ?? null,
+        agencia: String(conf.agencia ?? ''), conta: String(conta.nroconta ?? ''),
+        carteira: String(conta.carteira_cobranca ?? ''),
+      },
       boletos: titulos.map((t) => {
         const nn = String(t.nosso_numero_boleto ?? t.codrcb);
         const barras = codigoBarras({
@@ -723,6 +739,12 @@ export class CnabRemessaService {
         });
         return {
           codrcb: t.codrcb, duplicata: t.duplicata, razao: t.razao, valor: Number(t.valor),
+          sacado: {
+            nome: t.razao ?? null, documento: t.sacado_doc ?? null,
+            endereco: [String(t.sacado_endereco ?? '').trim(), String(t.sacado_numero ?? '').trim()].filter(Boolean).join(', '),
+            bairro: t.sacado_bairro ?? null, cidade: t.sacado_cidade ?? null,
+            uf: t.sacado_uf ?? null, cep: t.sacado_cep ?? null,
+          },
           vencimento: t.venc, nosso_numero: nn,
           // o DAC do nosso número (o que o boleto exibe como "nosso número-DV")
           nosso_numero_dv: febraban === '341'
