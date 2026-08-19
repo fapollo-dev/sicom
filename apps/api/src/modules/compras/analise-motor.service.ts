@@ -213,8 +213,15 @@ export class AnaliseMotorService {
         .map((p) => ({ apn_id: apnId, idproduto: Number(p.idproduto), apnip_quantidade: Number(p.qtdtotal) || 0, apnip_valor: Number(p.vrcusto) || 0 }));
       if (inePc.length) await trx.insertInto('analise_pedido_nf_ine_pc').values(inePc).execute();
 
-      // a diferença de valor da análise: o que a NF cobra além do que o pedido previa, nos itens divergentes
-      const difValor = divs.reduce((s, d) => s + (Number(d.apnd_valor_nf) * Number(d.apnd_quantidade_nf) - Number(d.apnd_valor_pc) * Number(d.apnd_quantidade_pc)), 0);
+      // ⚠️ `TotalDivergencia` (UFrmAnalisePedidosNF.pas:1177-1205) é a fórmula do DINHEIRO da análise, e não é uma
+      // soma com sinal: soma `(VALOR_NF − VALOR_PC) × QUANTIDADE_NF` **só** quando a diferença unitária é POSITIVA
+      // e acima de `VARIACAO_POSITIVA_NF` — diferença negativa (a NF cobrou menos) e divergência só de QUANTIDADE
+      // NÃO entram. A soma com sinal (o que estava aqui) dava 17,00 onde o legado gera 25,00 no cenário do smoke,
+      // e geraria título indevido numa análise que divergiu apenas em quantidade (fold auditoria [ALTA]).
+      const difValor = divs.reduce((s, d) => {
+        const dif = Number(d.apnd_valor_nf) - Number(d.apnd_valor_pc);
+        return dif > 0 && dif > tol.positivaValor ? s + dif * Number(d.apnd_quantidade_nf) : s;
+      }, 0);
       await trx.updateTable('analise_pedido_nf')
         .set({ apn_status: divs.length || ineNf.length || inePc.length ? 'E' : 'F', apn_diferenca_valor: Math.round(difValor * 100) / 100 })
         .where('apn_id', '=', apnId).execute();
@@ -235,16 +242,21 @@ export class AnaliseMotorService {
    * quem está na lista de MASTERS (o E8 `USUARIOS_PERMITIDOS_LIBERAR_PEDIDO_COMPRA`, o mesmo grant que dá
    * visibilidade de fila no corte-2a).
    */
-  private async podeLiberar(db: AnyDB, apnId: number, op: number | null): Promise<{ pode: boolean; master: boolean; compradores: number[] }> {
+  private async podeLiberar(db: AnyDB, apnId: number, op: number | null): Promise<{ pode: boolean; master: boolean; compradores: number[]; qtdCompradores: number }> {
     // ⚠️ o legado compara com **PEDIDOCOMPRA.USUCADASTRO** (quem CADASTROU o pedido), não com CODOPERADOR:
     // `OperadorLiberaAnalise` (UAnalisePedidosNF.pas:876-905) e `SelecionaOperadorComprador` (:915+) usam os dois
     // o mesmo campo. No golden as colunas divergem em **234 de 10.392** pedidos (e USUCADASTRO é nulo em 171), ou
     // seja a permissão de liberar mudava de dono — fold do corte de pontas soltas (mig 162).
+    // `coalesce(usucadastro, codoperador)`: o legado compara com USUCADASTRO, mas ele é NULO em 171 dos 10.392
+    // pedidos do golden (e era nulo em tudo o que o app novo criava antes do fold) — nesses casos o único dono
+    // conhecido é o CODOPERADOR. A CONTAGEM de compradores, porém, é sobre o campo CRU: `GetQuantidadeCompradores`
+    // (UFrmAnalisePedidosNF.pas:682) conta o NULO como um comprador.
     const peds = (await db.selectFrom('analise_pedido_nf_pedido as ap')
       .innerJoin('pedidocompra as pc', 'pc.codpedcomp', 'ap.codpedcomp')
-      .select([sql`distinct pc.usucadastro`.as('usucadastro')])
-      .where('ap.apn_id', '=', apnId).execute()) as Array<{ usucadastro?: number | null }>;
+      .select([sql`distinct coalesce(pc.usucadastro, pc.codoperador)`.as('usucadastro'), sql`pc.usucadastro`.as('cru')])
+      .where('ap.apn_id', '=', apnId).execute()) as Array<{ usucadastro?: number | null; cru?: number | null }>;
     const compradores = peds.map((p) => Number(p.usucadastro)).filter((n) => n > 0);
+    const qtdCompradores = new Set(peds.map((p) => (p.cru == null ? 'NULL' : String(Number(p.cru))))).size;
     // master = está no E8 (o mesmo grant que dá visibilidade de fila no corte-2a)
     let master = false;
     if (op != null) {
@@ -257,7 +269,7 @@ export class AnaliseMotorService {
       `.execute(db);
       master = Boolean(r.rows[0]?.ok);
     }
-    return { pode: master || (op != null && compradores.includes(Number(op))), master, compradores };
+    return { pode: master || (op != null && compradores.includes(Number(op))), master, compradores, qtdCompradores };
   }
 
   /**
@@ -286,14 +298,17 @@ export class AnaliseMotorService {
       // a ORDEM do legado (UFrmAnalisePedidosNF.pas:595-625) importa: **sem divergência qualquer um libera**
       // ("Se não tiver divergência, qualquer um pode liberar a análise"); o gate de permissão só entra quando há
       // divergência. Antes deste corte o gate vinha primeiro, negando liberação de análise limpa.
-      const divs = Number(((await trx.selectFrom('analise_pedido_nf_diverg')
-        .select(sql`count(*)::int`.as('n')).where('apn_id', '=', apnId).executeTakeFirst()) as { n?: number } | undefined)?.n ?? 0);
-      const inexNf = Number(((await trx.selectFrom('analise_pedido_nf_ine_nf')
-        .select(sql`count(*)::int`.as('n')).where('apn_id', '=', apnId).executeTakeFirst()) as { n?: number } | undefined)?.n ?? 0);
-      const inexPc = Number(((await trx.selectFrom('analise_pedido_nf_ine_pc')
-        .select(sql`count(*)::int`.as('n')).where('apn_id', '=', apnId).executeTakeFirst()) as { n?: number } | undefined)?.n ?? 0);
-      const temDivergencia = divs > 0 || inexNf > 0 || inexPc > 0; // as TRÊS grades do legado
-      const { pode, master, compradores } = await this.podeLiberar(trx, apnId, op);
+      // as TRÊS grades do legado — e elas usam **INNER JOIN PRODUTOS** (o corte-2a copiou isso e o smoke até
+      // certifica que a linha de produto inexistente fica FORA). Contar `count(*)` cru daria "com divergência" numa
+      // análise que a tela mostra limpa (fold auditoria [MÉDIA]).
+      const contarGrade = async (tabela: string) => Number((((await trx.selectFrom(`${tabela} as g` as any)
+        .innerJoin('produtos as p', 'p.idproduto', 'g.idproduto')
+        .select(sql`count(*)::int`.as('n')).where('g.apn_id', '=', apnId).executeTakeFirst()) as { n?: number } | undefined)?.n) ?? 0);
+      const divs = await contarGrade('analise_pedido_nf_diverg');
+      const inexNf = await contarGrade('analise_pedido_nf_ine_nf');
+      const inexPc = await contarGrade('analise_pedido_nf_ine_pc');
+      const temDivergencia = divs > 0 || inexNf > 0 || inexPc > 0;
+      const { pode, master, compradores, qtdCompradores } = await this.podeLiberar(trx, apnId, op);
       if (temDivergencia && !pode) {
         // ⚠️ NÃO é erro: o legado GERA UMA PENDÊNCIA para o comprador verificar as divergências
         // (`GeraPendenciaComprador`, UFrmAnalisePedidosNF.pas:561-584 → UAnalisePedidosNF.pas:406) e fecha a tela
@@ -305,7 +320,11 @@ export class AnaliseMotorService {
         });
         return { apn_id: apnId, liberado: false, pendencia_gerada: pend, codoperador_comprador: destino };
       }
-      if (compradores.length > 1 && !master) throw new BusinessRuleError('ANALISE_VARIOS_COMPRADORES');
+      // "Apenas o usuário master poderá liberar…": o legado só levanta isso quando há divergência COM VALOR
+      // (`TotalDivergencia <> 0`) e mais de um comprador — análise limpa com 2 compradores ele libera
+      // (UFrmAnalisePedidosNF.pas:617-621). Fold auditoria [MÉDIA].
+      const totalDiverg = Math.abs(Number(cab.apn_diferenca_valor) || 0);
+      if (temDivergencia && totalDiverg > 0 && qtdCompradores > 1 && !master) throw new BusinessRuleError('ANALISE_VARIOS_COMPRADORES');
       let codrcb: number | null = null;
       if (divs > 0) {
         if (!dto.gerar_financeiro) throw new BusinessRuleError('ANALISE_EXIGE_FINANCEIRO', { divergencias: divs });
@@ -423,8 +442,9 @@ export class AnaliseMotorService {
       po_observacao: p.mensagem,
       codempresa: emp,
       codoperador_origem: p.origem,
-    }).returning('po_id').executeTakeFirst()) as { po_id?: number } | undefined;
-    return { po_id: r?.po_id == null ? null : Number(r.po_id), codoperador: p.destino, tipo: p.tipo };
+      // o legado levanta M_ERRO_GERACAO_PENDENCIA quando a pendência não nasce — não devolver "sucesso com id nulo"
+    }).returning('po_id').executeTakeFirstOrThrow()) as { po_id: number };
+    return { po_id: Number(r.po_id), codoperador: p.destino, tipo: p.tipo };
   }
 
   /**
@@ -437,14 +457,29 @@ export class AnaliseMotorService {
     const op = currentTenant().operadorId ?? null;
     const db = this.dbp.forTenant() as AnyDB;
     return db.transaction().execute(async (trx: AnyDB) => {
-      const a = (await trx.selectFrom('analise_pedido_nf').select(['apn_id', 'codoperador'])
-        .where('apn_id', '=', apnId).where('codempresa', '=', emp).executeTakeFirst()) as { codoperador?: number } | undefined;
+      const a = (await trx.selectFrom('analise_pedido_nf').select(['apn_id', 'codoperador', 'apn_status'])
+        .where('apn_id', '=', apnId).where('codempresa', '=', emp).forUpdate()
+        .executeTakeFirst()) as { codoperador?: number; apn_status?: string } | undefined;
       if (!a) throw new BusinessRuleError('ANALISE_NAO_ENCONTRADA', { apn_id: apnId }); // 'Análise não encontrada.'
+      if (String(a.apn_status ?? '') === 'F') throw new BusinessRuleError('ANALISE_JA_FINALIZADA', { apn_id: apnId });
+      if (!(Number(a.codoperador) > 0)) throw new BusinessRuleError('ANALISE_SEM_OPERADOR', { apn_id: apnId });
       const pend = await this.gerarPendencia(trx, emp, {
         destino: Number(a.codoperador), origem: op, tipo: 'RPN', complemento: String(apnId),
         mensagem: 'Realize uma nova análise entre pedidos e notas fiscais',
       });
-      return { apn_id: apnId, pendencia_gerada: pend };
+      // ⚠️ o caller do legado (UFrmAnalisePedidosNF.pas:807-826) NÃO só gera a RPN: **finaliza a análise** e
+      // **finaliza a pendência** que originou a conferência, na mesma transação. O golden confirma — das 777 RPN,
+      // 777 apontam análise com APN_STATUS='F' e 666/666 têm a APN irmã com PO_STATUS='F' (fold auditoria [ALTA]).
+      await trx.updateTable('analise_pedido_nf')
+        .set({ apn_status: 'F', apn_status_finalizacao: 'FEP', codoperador_finalizado: op }) // FEP = finalizada-em-pendência
+        .where('apn_id', '=', apnId).where('codempresa', '=', emp).execute();
+      const antigas = (await trx.updateTable('pendencia_operador').set({ po_status: 'F' })
+        .where('codempresa', '=', emp).where('po_complemento', '=', String(apnId))
+        .where('po_tipo_pendencia_operador', 'in', ['APN', 'RPN'])
+        .where('po_status', '=', 'A')
+        .where('po_id', '<>', pend.po_id) // a que acabou de nascer continua ABERTA
+        .returning('po_id').execute()) as Array<{ po_id: number }>;
+      return { apn_id: apnId, pendencia_gerada: pend, pendencias_finalizadas: antigas.map((x) => Number(x.po_id)) };
     });
   }
 
@@ -495,18 +530,20 @@ export class AnaliseMotorService {
       .where('a.apn_id', '=', apnId).where('a.codempresa', '=', emp)
       .executeTakeFirst()) as Record<string, unknown> | undefined;
     if (!cab) throw new BusinessRuleError('ANALISE_NAO_ENCONTRADA', { apn_id: apnId });
+    // as 3 queries de `ImprimirAnalise` usam INNER JOIN PRODUTOS (linha sem produto não sai no relatório) e
+    // trazem CODBARRA (e UNIDADE nos divergentes) — fold auditoria [MÉDIA].
     const divergentes = await db.selectFrom('analise_pedido_nf_diverg as d')
-      .leftJoin('produtos as p', 'p.idproduto', 'd.idproduto')
-      .select(['d.idproduto', 'p.descricao', 'd.apnd_quantidade_nf', 'd.apnd_quantidade_pc', 'd.apnd_valor_nf',
-               'd.apnd_valor_pc', 'd.status', 'd.nronf', 'd.chavenfe'])
+      .innerJoin('produtos as p', 'p.idproduto', 'd.idproduto')
+      .select(['d.idproduto', 'p.descricao', 'p.codbarra', 'p.unidade', 'd.apnd_quantidade_nf', 'd.apnd_quantidade_pc',
+               'd.apnd_valor_nf', 'd.apnd_valor_pc', 'd.status', 'd.nronf', 'd.chavenfe'])
       .where('d.apn_id', '=', apnId).orderBy('d.idproduto').execute();
     const soNaNf = await db.selectFrom('analise_pedido_nf_ine_nf as i')
-      .leftJoin('produtos as p', 'p.idproduto', 'i.idproduto')
-      .select(['i.idproduto', 'p.descricao', 'i.apnin_quantidade', 'i.apnin_valor'])
+      .innerJoin('produtos as p', 'p.idproduto', 'i.idproduto')
+      .select(['i.idproduto', 'p.descricao', 'p.codbarra', 'i.apnin_quantidade', 'i.apnin_valor'])
       .where('i.apn_id', '=', apnId).orderBy('i.idproduto').execute();
     const soNoPedido = await db.selectFrom('analise_pedido_nf_ine_pc as i')
-      .leftJoin('produtos as p', 'p.idproduto', 'i.idproduto')
-      .select(['i.idproduto', 'p.descricao', 'i.apnip_quantidade', 'i.apnip_valor'])
+      .innerJoin('produtos as p', 'p.idproduto', 'i.idproduto')
+      .select(['i.idproduto', 'p.descricao', 'p.codbarra', 'i.apnip_quantidade', 'i.apnip_valor'])
       .where('i.apn_id', '=', apnId).orderBy('i.idproduto').execute();
     return { cabecalho: cab, divergentes, so_na_nf: soNaNf, so_no_pedido: soNoPedido };
   }

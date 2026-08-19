@@ -6373,8 +6373,8 @@ async function main() {
         //   produto 2 (UN): pedido  5 un a  8,00 · NF  4 un a  8,00 → divergência de QUANTIDADE (não-KG)
         //   produto 3 (KG): pedido 100 kg a 5,00 · NF 100 kg a 5,00 → SEM divergência (bate nos dois lados)
         //   produto 990998 só na NF → inexistente no pedido · produto 4 só no pedido → inexistente na NF
-        const pedMot = (await pgRv.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, codoperador)
-          VALUES (22,1,'2026-12-05',7) RETURNING codpedcomp`)).rows[0] as any;
+        const pedMot = (await pgRv.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, codoperador, usucadastro)
+          VALUES (22,1,'2026-12-05',7,7) RETURNING codpedcomp`)).rows[0] as any;
         await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto)
           VALUES (990996,'7899000990996','PROD KG MOTOR','KG',2,'T01','S',10), (990997,'7899000990997','PROD SO PEDIDO','UN',2,'T01','S',10),
                  (990998,'7899000990998','PROD SO NA NF','UN',2,'T01','S',10) ON CONFLICT (idproduto) DO NOTHING`);
@@ -6420,8 +6420,12 @@ async function main() {
         // 47as.4) CORTE-2c: LIBERAR (com o financeiro obrigatório) e REFAZER (fluxo RPN).
         // Gates fiéis: só libera quem fez o pedido ou o master do E8 · com divergência EXIGE gerar o financeiro
         // (o título a receber da diferença contra o fornecedor) · a análise TOTAL fecha o pedido.
+        // o E8 do op 7 sai aqui: sem ele, quem libera é o COMPRADOR (USUCADASTRO=7), que é o caminho que o
+        // corte de pontas corrigiu — e o check assere `liberado_como_master: false` (fold auditoria [MÉDIA]).
+        const e8SeteLib = (await pgRv.query(`SELECT valor FROM configuracoes_especificas WHERE id=26 AND tipo='Usuario' AND chave='7'`)).rows[0] as any;
+        await pgRv.query(`DELETE FROM configuracoes_especificas WHERE id=26 AND tipo='Usuario' AND chave='7'`);
         const libSemFin = await fetch(`${base}/${PO}/analise/liberar`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anCriarJ.apn_id }) });
-        // o pedido foi criado com codoperador=7 (a sessão) ⇒ a sessão PODE liberar sem ser master
+        // o pedido foi criado com USUCADASTRO=7 (a sessão) ⇒ a sessão PODE liberar sem ser master
         const libRes = await fetch(`${base}/${PO}/analise/liberar`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anCriarJ.apn_id, gerar_financeiro: true }) });
         const libJ = (await libRes.json().catch(() => ({}))) as any;
         const libRepetir = await fetch(`${base}/${PO}/analise/liberar`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anCriarJ.apn_id, gerar_financeiro: true }) });
@@ -6437,8 +6441,12 @@ async function main() {
           && String(pedFechado?.pc_nronf_cruzamento ?? '').includes('880995')
           && Number(itensFechados.n) === 4
           && anFinal?.apn_status === 'F' && anFinal?.apn_status_finalizacao === 'F' && Number(anFinal?.codoperador_finalizado) === 7
+          && libJ.liberado_como_master === false // quem liberou foi o COMPRADOR (usucadastro), não um master
+          && Number(rcbGerado.valor) === 25 // TotalDivergencia do legado: só a diferença unitária POSITIVA (25,00 = (12,50−10,00)×10), sem a de quantidade
           && libRepetir.status === 422,
           { semFin: libSemFin.status, lib: libRes.status, libJ, rcb: rcbGerado, ped: pedFechado, itens: itensFechados?.n, an: anFinal, repetir: libRepetir.status });
+
+        if (e8SeteLib?.valor != null) await pgRv.query(`INSERT INTO configuracoes_especificas (id,tipo,chave,valor) VALUES (26,'Usuario','7',$1) ON CONFLICT (id,tipo,chave) DO UPDATE SET valor=EXCLUDED.valor`, [e8SeteLib.valor]);
 
         // 47as.5) PONTAS SOLTAS (mig 162): a pendência para o COMPRADOR quando quem tenta liberar não pode, a
         // pendência para o ANALISTA (RPN), o dossiê de impressão e o excluir-conferência com senha administrativa.
@@ -6471,10 +6479,16 @@ async function main() {
         const pendRpnRow = (await pgRv.query(`SELECT codoperador, po_tipo_pendencia_operador, po_status, po_observacao FROM pendencia_operador WHERE po_id=$1`, [pendAnalistaJ.pendencia_gerada?.po_id ?? 0])).rows[0] as any;
         const dossie = await fetch(`${base}/${PO}/analise/dossie`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anCriarJ.apn_id }) });
         const dossieJ = (await dossie.json().catch(() => ({}))) as any;
-        check('PENDÊNCIAS pontas (ANALISTA + DOSSIÊ): a pendência do analista é RPN, para o operador DA ANÁLISE, com "Realize uma nova análise entre pedidos e notas fiscais" · o dossiê de impressão traz o cabeçalho com o nome do operador e a lista de notas e pedidos, mais as três listas (divergentes, só-na-NF, só-no-pedido)',
+        const anOutroDepois = (await pgRv.query(`SELECT apn_status, apn_status_finalizacao FROM analise_pedido_nf WHERE apn_id=$1`, [anOutro.apn_id])).rows[0] as any;
+        const apnIrma = (await pgRv.query(`SELECT po_status FROM pendencia_operador WHERE po_id=$1`, [libOutroJ.pendencia_gerada?.po_id ?? 0])).rows[0] as any;
+        check('PENDÊNCIAS pontas (ANALISTA + DOSSIÊ): a pendência do analista é RPN, para o operador DA ANÁLISE, com "Realize uma nova análise entre pedidos e notas fiscais" · e o caminho FINALIZA a análise (F/FEP) e a pendência APN irmã, como o caller do legado (golden: 777/777 RPN com análise F) · o dossiê traz o cabeçalho com o nome do operador, a lista de notas/pedidos, e as três listas com CÓDIGO DE BARRAS',
           pendAnalista.status === 200 && !!pendRpnRow && pendRpnRow.po_tipo_pendencia_operador === 'RPN'
           && Number(pendRpnRow.codoperador) === 7 && pendRpnRow.po_status === 'A'
           && String(pendRpnRow.po_observacao) === 'Realize uma nova análise entre pedidos e notas fiscais'
+          && anOutroDepois?.apn_status === 'F' && anOutroDepois?.apn_status_finalizacao === 'FEP'
+          && apnIrma?.po_status === 'F'
+          && (pendAnalistaJ.pendencias_finalizadas ?? []).includes(Number(libOutroJ.pendencia_gerada?.po_id))
+          && (dossieJ.divergentes ?? [])[0]?.codbarra != null && (dossieJ.divergentes ?? [])[0]?.unidade != null
           && dossie.status === 200 && Number(dossieJ.cabecalho?.apn_id) === Number(anCriarJ.apn_id)
           && dossieJ.cabecalho?.nome_operador != null
           && String(dossieJ.cabecalho?.notas_fiscais ?? '').includes('990995')
@@ -6497,13 +6511,21 @@ async function main() {
         const excOk = await fetch(`${base}/${PO}/analise/excluir-conferencia`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: 990994, senha: 'adm-analise-1' }) });
         const nfDepois = (await pgRv.query(`SELECT codpedcomp, status_pedcomp, status_qtd_pedcomp, codoperador_liberacao FROM nf WHERE codnf=990994`)).rows[0] as any;
         const excInexistente = await fetch(`${base}/${PO}/analise/excluir-conferencia`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: 987654, senha: 'adm-analise-1' }) });
+        // o OUTRO ramo do legado: a NOTA NÃO CADASTRADA (chave de 44 dígitos) — as 4 colunas não existiam nessa
+        // tabela e o ramo era erro 42703 (fold auditoria [ALTA], mig 163).
+        await pgRv.query(`UPDATE nfe_nao_cadastradas SET codpedcomp=$1, status_pedcomp='LIBERADO COM DIVERGENCIA', status_qtd_pedcomp='Total', codoperador_liberacao=7
+          WHERE chavenfe='35261200000000000000000000000000000000990995'`, [pedMot.codpedcomp]);
+        const excChave = await fetch(`${base}/${PO}/analise/excluir-conferencia`, { method: 'POST', headers: H, body: JSON.stringify({ chavenfe: '35261200000000000000000000000000000000990995', senha: 'adm-analise-1' }) });
+        const nfeDepois = (await pgRv.query(`SELECT codpedcomp, status_pedcomp, status_qtd_pedcomp, codoperador_liberacao FROM nfe_nao_cadastradas WHERE chavenfe='35261200000000000000000000000000000000990995'`)).rows[0] as any;
         check('PENDÊNCIAS pontas (EXCLUIR CONFERÊNCIA): senha administrativa errada → 422 SENHA_ADMINISTRATIVA_INVALIDA · sem informar a nota → 400 · com a senha certa zera CODPEDCOMP/STATUS_PEDCOMP/STATUS_QTD_PEDCOMP/CODOPERADOR_LIBERACAO da NF · nota inexistente → 422',
           excSenhaErrada.status === 422 && excSenhaErradaJ.code === 'SENHA_ADMINISTRATIVA_INVALIDA'
           && excSemNota.status === 400 && excOk.status === 200
           && nfDepois?.codpedcomp == null && nfDepois?.status_pedcomp == null
           && nfDepois?.status_qtd_pedcomp == null && nfDepois?.codoperador_liberacao == null
-          && excInexistente.status === 422,
-          { senhaErrada: [excSenhaErrada.status, excSenhaErradaJ.code], semNota: excSemNota.status, ok: excOk.status, nf: nfDepois, inexistente: excInexistente.status });
+          && excInexistente.status === 422
+          && excChave.status === 200 && nfeDepois?.codpedcomp == null && nfeDepois?.status_pedcomp == null
+          && nfeDepois?.status_qtd_pedcomp == null && nfeDepois?.codoperador_liberacao == null,
+          { senhaErrada: [excSenhaErrada.status, excSenhaErradaJ.code], semNota: excSemNota.status, ok: excOk.status, nf: nfDepois, inexistente: excInexistente.status, chave: [excChave.status, nfeDepois] });
 
         await pgRv.query(`UPDATE empresas SET senha_admin_hash=$1 WHERE idempresa=1`, [hashAdmAntes?.senha_admin_hash ?? null]);
         if (e8Sete?.valor != null) await pgRv.query(`INSERT INTO configuracoes_especificas (id,tipo,chave,valor) VALUES (26,'Usuario','7',$1) ON CONFLICT (id,tipo,chave) DO UPDATE SET valor=EXCLUDED.valor`, [e8Sete.valor]);

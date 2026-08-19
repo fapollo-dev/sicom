@@ -17,8 +17,8 @@ CREATE INDEX IF NOT EXISTS ix_pedidocompra_usucadastro ON pedidocompra (usucadas
 -- `btnExcluirConferenciaClick` (UanalisaPedComp_NF.pas:1120) exige **senha administrativa ADM** e zera o vínculo
 -- da NF com o pedido: `UPDATE <tabela> SET CODPEDCOMP=NULL, CODOPERADOR_LIBERACAO=NULL, STATUS_PEDCOMP=NULL,
 -- STATUS_QTD_PEDCOMP=NULL WHERE <chave> [AND IDEMPRESA]`. A tabela é a NF (chave CODNF) ou a NFE_NAO_CADASTRADAS
--- (chave + empresa) — as duas pontas de onde a conferência nasce. As colunas já existem (migs 087/088/157);
--- o que faltava era o VERBO. Nada a criar aqui além do registro.
+-- (chave + empresa) — as duas pontas de onde a conferência nasce. Na `nf` as colunas já existem (mig 087); na
+-- `nfe_nao_cadastradas` **não existiam** — corrigido na mig 163 (a auditoria pegou: aquele ramo era erro 42703).
 
 -- ── (3) o DOSSIÊ de impressão ──────────────────────────────────────────────────────────────────────────
 -- `ImprimirAnalise` (UAnalisePedidosNF.pas:697) monta 3 consultas: o cabeçalho com `LISTAGG` das notas e dos

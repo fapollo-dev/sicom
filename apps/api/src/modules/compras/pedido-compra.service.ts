@@ -554,6 +554,7 @@ export class PedidoCompraService {
             idempresa: emp,
             codparceiro: pc.codparceiro as number,
             codoperador: op,
+            usucadastro: op, // o "comprador" que decide quem libera a análise (USUCADASTRO do legado) — fold auditoria
             data: pc.data_iso as string,
             obs: `BONIFICAÇÃO REFERENTE AO PEDIDO: ${codpedcomp}`,
             fechado: 'N',
@@ -563,6 +564,7 @@ export class PedidoCompraService {
             idempresa: emp,
             codparceiro: pc.codparceiro as number,
             codoperador: op,
+            usucadastro: op, // o "comprador" que decide quem libera a análise (USUCADASTRO do legado) — fold auditoria
             data: sql`now()`,
             data_faturamento: sql`now()`, // DTFATURAMENTO(input)=hoje no duplicar (DM:1657-1660)
             dt_vencimento: novaVenc,
