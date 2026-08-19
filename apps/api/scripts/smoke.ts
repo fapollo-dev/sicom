@@ -6365,7 +6365,69 @@ async function main() {
             { semE8: viuSemE8, gate: anSemE8.status, big: viuBig, comE8: lOutro?.fornecedor, sup: poComE8.filtro?.supervisor, an: anRes.status, cab: anJ.cabecalho, dv: anJ.divergencias?.length, inex: anInex.status });
         } finally {
           // o grant TEM de sair mesmo se o check estourar: o §81.4 afirma que o operador 7 NÃO está no config 26
-          await pgRv.query(`DELETE FROM configuracoes_especificas WHERE id=26 AND tipo='Usuario' AND chave='7'`);
+          // 47as.3) CORTE-2b: o MOTOR da análise (NovaAnalise + ProcessarAnalise). Cenário desenhado p/ exercitar
+        // as TRÊS regras de divergência de uma vez (tolerâncias 0 no golden ⇒ qualquer diferença conta):
+        //   produto 1 (UN): pedido 10 un a 10,00 · NF 10 un a 12,50 → divergência de VALOR (acima, absoluto)
+        //   produto 2 (UN): pedido  5 un a  8,00 · NF  4 un a  8,00 → divergência de QUANTIDADE (não-KG)
+        //   produto 3 (KG): pedido 100 kg a 5,00 · NF 100 kg a 5,00 → SEM divergência (bate nos dois lados)
+        //   produto 990998 só na NF → inexistente no pedido · produto 4 só no pedido → inexistente na NF
+        const pedMot = (await pgRv.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, codoperador)
+          VALUES (22,1,'2026-12-05',7) RETURNING codpedcomp`)).rows[0] as any;
+        await pgRv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto)
+          VALUES (990996,'7899000990996','PROD KG MOTOR','KG',2,'T01','S',10), (990997,'7899000990997','PROD SO PEDIDO','UN',2,'T01','S',10),
+                 (990998,'7899000990998','PROD SO NA NF','UN',2,'T01','S',10) ON CONFLICT (idproduto) DO NOTHING`);
+        await pgRv.query(`INSERT INTO pedidocompra_i (codpedcomp, idproduto, vrcusto, qtde, fatorembalagem, qtdtotal, vlrembalagem, totalcusto) VALUES
+          ($1, 1,      10.00, 10, 1, 10,  10.00, 100.00),
+          ($1, 2,       8.00,  5, 1,  5,   8.00,  40.00),
+          ($1, 990996,  5.00,100, 1,100,   5.00, 500.00),
+          ($1, 990997,  3.00,  7, 1,  7,   3.00,  21.00)`, [pedMot.codpedcomp]);
+        await pgRv.query(`INSERT INTO nfe_nao_cadastradas (codnfe_naocad, chavenfe, cnpj, razao, dtemissao, tipo, totalnf, idempresa, modelo, nronf)
+          VALUES (990995,'35261200000000000000000000000000000000990995','11222333000144','FORN MOTOR','2026-12-06 10:00:00-03','E',700.00,1,55,'880995')`);
+        // itens do XML: sem rateio (frete/seguro/outros/ST/IPI zerados) p/ o custo unitário ser o vrunitariotrib
+        await pgRv.query(`INSERT INTO nfe_nao_cadastradas_itens (chavenfe, idproduto, nroitem, unidade, quantidade, fatorembal, vrunitariotrib, vrtotal) VALUES
+          ('35261200000000000000000000000000000000990995', 1,      1, 'UN', 10, 1, 12.50, 125.00),
+          ('35261200000000000000000000000000000000990995', 2,      2, 'UN',  4, 1,  8.00,  32.00),
+          ('35261200000000000000000000000000000000990995', 990996, 3, 'KG',100, 1,  5.00, 500.00),
+          ('35261200000000000000000000000000000000990995', 990998, 4, 'UN',  3, 1,  9.90,  29.70)`);
+        const anCriar = await fetch(`${base}/${PO}/analise/criar`, { method: 'POST', headers: H, body: JSON.stringify({ codpedcomps: [pedMot.codpedcomp], refs_nf: [990995], total_parcial: 'T' }) });
+        const anCriarJ = (await anCriar.json().catch(() => ({}))) as any;
+        const anProc = await fetch(`${base}/${PO}/analise/processar`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anCriarJ.apn_id }) });
+        const anProcJ = (await anProc.json().catch(() => ({}))) as any;
+        // reprocessar tem de ser idempotente (o legado exclui antes de gravar)
+        const anProc2 = (await (await fetch(`${base}/${PO}/analise/processar`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anCriarJ.apn_id }) })).json().catch(() => ({}))) as any;
+        const divProd = (await pgRv.query(`SELECT idproduto, apnd_valor_nf, apnd_valor_pc, apnd_quantidade_nf, apnd_quantidade_pc FROM analise_pedido_nf_diverg WHERE apn_id=$1 ORDER BY idproduto`, [anCriarJ.apn_id])).rows as any[];
+        const ineNfP = (await pgRv.query(`SELECT idproduto FROM analise_pedido_nf_ine_nf WHERE apn_id=$1`, [anCriarJ.apn_id])).rows as any[];
+        const inePcP = (await pgRv.query(`SELECT idproduto FROM analise_pedido_nf_ine_pc WHERE apn_id=$1`, [anCriarJ.apn_id])).rows as any[];
+        // criar sem pedido / sem nota → 422 (as validações do form)
+        const anSemPed = await fetch(`${base}/${PO}/analise/criar`, { method: 'POST', headers: H, body: JSON.stringify({ codpedcomps: [], refs_nf: [990995] }) });
+        const anSemNota = await fetch(`${base}/${PO}/analise/criar`, { method: 'POST', headers: H, body: JSON.stringify({ codpedcomps: [pedMot.codpedcomp], refs_nf: [] }) });
+        check('PENDÊNCIAS corte-2b (MOTOR): criar+processar acha 2 divergências — produto 1 por VALOR (12,50 × 10,00, tolerância positiva ABSOLUTA) e produto 2 por QUANTIDADE (4 × 5, unidade não-KG sem tolerância) — o de KG que bate nos dois lados NÃO entra · 1 item só na NF (990998) e 1 só no pedido (990997) · status "E" e diferença de valor calculada · REPROCESSAR é idempotente (mesmos números, sem duplicar) · criar sem pedido → 400/422 e sem nota → 400/422',
+          anCriar.status === 200 && Number(anCriarJ.apn_id) > 0
+          && anProc.status === 200 && Number(anProcJ.divergencias) === 2
+          && Number(anProcJ.inexistentes_nf) === 1 && Number(anProcJ.inexistentes_pc) === 1
+          && anProcJ.status === 'E' && Number(anProcJ.produtos_pedido) === 4 && Number(anProcJ.produtos_nf) === 4
+          && divProd.length === 2 && Number(divProd[0].idproduto) === 1 && Number(divProd[0].apnd_valor_nf) === 12.5
+          && Number(divProd[1].idproduto) === 2 && Number(divProd[1].apnd_quantidade_nf) === 4 && Number(divProd[1].apnd_quantidade_pc) === 5
+          && ineNfP.length === 1 && Number(ineNfP[0].idproduto) === 990998
+          && inePcP.length === 1 && Number(inePcP[0].idproduto) === 990997
+          && Number(anProc2.divergencias) === 2 && Number(anProc2.inexistentes_nf) === 1
+          && [400, 422].includes(anSemPed.status) && [400, 422].includes(anSemNota.status),
+          { criar: anCriar.status, apn: anCriarJ.apn_id, proc: anProcJ, divs: divProd, ineNf: ineNfP, inePc: inePcP,
+            reproc: [anProc2.divergencias, anProc2.inexistentes_nf], semPed: anSemPed.status, semNota: anSemNota.status });
+
+        await pgRv.query(`DELETE FROM analise_pedido_nf_diverg WHERE apn_id=$1`, [anCriarJ.apn_id]);
+        await pgRv.query(`DELETE FROM analise_pedido_nf_ine_nf WHERE apn_id=$1`, [anCriarJ.apn_id]);
+        await pgRv.query(`DELETE FROM analise_pedido_nf_ine_pc WHERE apn_id=$1`, [anCriarJ.apn_id]);
+        await pgRv.query(`DELETE FROM analise_pedido_nf_nf WHERE apn_id=$1`, [anCriarJ.apn_id]);
+        await pgRv.query(`DELETE FROM analise_pedido_nf_pedido WHERE apn_id=$1`, [anCriarJ.apn_id]);
+        await pgRv.query(`DELETE FROM analise_pedido_nf WHERE apn_id=$1`, [anCriarJ.apn_id]);
+        await pgRv.query(`DELETE FROM nfe_nao_cadastradas_itens WHERE chavenfe='35261200000000000000000000000000000000990995'`);
+        await pgRv.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad=990995`);
+        await pgRv.query(`DELETE FROM pedidocompra_i WHERE codpedcomp=$1`, [pedMot.codpedcomp]);
+        await pgRv.query(`DELETE FROM pedidocompra WHERE codpedcomp=$1`, [pedMot.codpedcomp]);
+        await pgRv.query(`DELETE FROM produtos WHERE idproduto IN (990996,990997,990998)`);
+
+        await pgRv.query(`DELETE FROM configuracoes_especificas WHERE id=26 AND tipo='Usuario' AND chave='7'`);
         }
         await pgRv.query(`DELETE FROM pendencia_operador WHERE po_id IN ($1,$2)`, [poOutro.rows[0].po_id, poBig.rows[0].po_id]);
         await pgRv.query(`DELETE FROM pendencia_operador WHERE po_id=$1`, [poCriar.po_id]);

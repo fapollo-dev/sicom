@@ -420,6 +420,9 @@ const CODE_PT: Record<string, string> = {
   PENDENCIA_NAO_ENCONTRADA: 'Esta pendência não existe nesta empresa (ou já foi excluída).',
   PENDENCIA_JA_FINALIZADA: 'Esta pendência já está finalizada — reabra antes de finalizar de novo.',
   TIPO_INVALIDO: 'Tipo de pendência inválido (use APN, RPN ou CFN).',
+  ANALISE_SEM_PEDIDO: 'Selecione pelo menos um pedido para a análise.',
+  ANALISE_SEM_NOTA: 'A nota fiscal não foi informada para a análise.',
+  NOTA_NAO_ENCONTRADA: 'Nota fiscal da fila do manifesto não encontrada nesta empresa.',
   ANALISE_NAO_ENCONTRADA: 'Análise de pedido × nota não encontrada, ou você não tem pendência aberta para ela.',
   // Import do XML da NFe (recebimento corte-2)
   NFE_XML_INVALIDO: 'O XML informado não é uma NFe válida (estrutura não reconhecida).',

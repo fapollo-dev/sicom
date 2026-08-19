@@ -28,3 +28,17 @@ export const pendenciaAnaliseSchema = z.object({
   apn_id: z.coerce.number().int().positive(),
 });
 export type PendenciaAnaliseDto = z.infer<typeof pendenciaAnaliseSchema>;
+
+/**
+ * MOTOR da análise (corte-2b): criar a análise a partir dos pedidos + notas escolhidos e processá-la.
+ * `total_parcial` decide se a diferença de QUANTIDADE conta ('T' total) ou não ('P' parcial).
+ */
+export const analiseCriarSchema = z.object({
+  codpedcomps: z.array(z.coerce.number().int().positive()).min(1, 'Selecione pelo menos um pedido.').max(200),
+  refs_nf: z.array(z.coerce.number().int().positive()).min(1, 'A nota fiscal não foi informada.').max(200),
+  total_parcial: z.enum(['T', 'P']).optional(),
+});
+export type AnaliseCriarDto = z.infer<typeof analiseCriarSchema>;
+
+export const analiseProcessarSchema = z.object({ apn_id: z.coerce.number().int().positive() });
+export type AnaliseProcessarDto = z.infer<typeof analiseProcessarSchema>;
