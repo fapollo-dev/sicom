@@ -15,9 +15,9 @@
 | Campo | Valor |
 |-------|-------|
 | **Data** | 2026-08-19 |
-| **Commit de referência** | `55686d7` (`main`, tudo verde) |
-| **Estado de build** | api tsc 0 · api test 183 · **smoke 994/0** · web tsc 0 · web test 37 · build ok |
-| **Migrations aplicadas** | até `160` |
+| **Commit de referência** | `8f860dd` (`main`, tudo verde) |
+| **Estado de build** | api tsc 0 · api test 183 · **smoke 996/0** · web tsc 0 · web test 37 · build ok |
+| **Migrations aplicadas** | até `161` |
 | **Features no `apps/web`** | 43 |
 | **Schemas em `packages/shared`** | 44 |
 | **Dossiês na retaguarda** | 37 |
@@ -43,7 +43,7 @@ acessos e nº de operadores), **tamanho do fonte** e **liveness/recência no Ora
 | ~~Pedido de Devolução de Compras~~ (`FRMCADPEDIDODEVOLUCAOCOMPRAS`) | 1.753 | 15 | 545 pedidos + 3.809 itens | out/2025 | ⚠️ **JÁ MIGRADO** (migs 072-074 + `devolucao-compra.*`) — o épico "Devolução de Compra" **é** este form, com saldo por item, espelho fiscal rateado e a regra de ICMS-ST do fornecedor. Entrou nesta lista por engano (ver §Erro de leitura abaixo). |
 | ~~Finalização do fechamento de caixa~~ (`UfinalizaFechamento`, aberta pelo `FRMFECHAMENTOCAIXA`) | — | 35 (do form que a chama) | **172.164** linhas + **876.927** documentos | set/2025 | ⛔ **DESCARTADO** — a consolidação é **por PDV**, e a orientação vigente é não mexer em nada do PDV. O recon fica no repositório (`uFechamentoCaixa-finalizacao.md`) para quando o PDV entrar. |
 | Fechamento diário (`FRMFECHAMENTODIARIO`) | 389 | 8 | 3.439 (tabela `FECHAMENTO`) | linha até **abr/2026**, mas último **fechamento** em **fev/2024** | **REBAIXADO por recon** (`uFechamentoDiario.md`): a linha aberta é resíduo de navegação (a tela cria os dias do mês ao abrir), o fechamento parou há 2 anos, e o único gate duro (`uTron.PeriodoFechado`) protege uma rotina que lê `REDUCAOZ` — **vazia** neste tenant. Épico barato, dormente: entra quando TRON/Sintegra precisarem do gate |
-| ~~Consulta histórico de vendas~~ (`FRMCONSHISTVENDAS`) | 841 | 25 | leitura | — | ✅ **corte-1 ENTREGUE** (`55686d7`, mig 160): a consulta de um cupom (itens com IAT/descontos, rodapé, finalizadores e as duas portas de entrada). Resta o **corte-2**: a venda sem cupom (`PEDIDOS`, 11.987 linhas, viva 18/08/2026). A linha aparecia duplicada nesta tabela — consolidada aqui |
+| ~~Consulta histórico de vendas~~ (`FRMCONSHISTVENDAS`) | 841 | 25 | leitura | — | ✅ **corte-1 ENTREGUE** (`55686d7`, mig 160): a consulta de um cupom (itens com IAT/descontos, rodapé, finalizadores e as duas portas de entrada). **corte-2 também ENTREGUE** (`8f860dd`, mig 161): a LISTA/pesquisa (view `get_hist_vendas` com os dois níveis de agregação do legado). A "consulta de PEDIDOS" saiu de cena: é **resíduo morto no fonte** (o dataset nunca é aberto) — a tabela é viva, a porta morreu. A linha aparecia duplicada nesta tabela — consolidada aqui |
 | ~~Adiantamento a fornecedor~~ (`FRMADIANTAMENTOFORNECEDOR`) | 699 | 11 | 563 adiantamentos | mar/2025 | ✅ **ENTREGUE** (mig 159 + `adiantamento-forn.*` + tela): os dois fatos (movimento na conta corrente + título a receber/a pagar), gates de saldo/chaveamento/quitada/contabilizado/período e a quitação pelas baixas |
 | Fechamento/sangria (`FRMFECHAMENTOSANGRIA`) | 3.339 | 20 | — | — | **é do PDV** (não existe fonte na retaguarda) ⇒ bloqueado pela decisão do usuário |
 | Devolução de vendas (`FRMDEVOLUCAOVENDAS`) | 2.412 | 26 | 2.286 | — | bloqueado: acoplado ao PDV |
