@@ -9214,6 +9214,37 @@ async function main() {
           && efdFJ.validacao?.ok === true && Array.isArray(efdFJ.validacao?.erros) && efdFJ.validacao.erros.length === 0,
           { c100Sai: c100Sai.slice(0, 30), c190Sai, e110: e110F, e116: e116F, val: efdFJ.validacao },
         );
+
+        // §90b) CORTE-2 do épico da apuração: quando existe apuração GRAVADA do período, o E110 sai DELA — com os
+        // ajustes manuais, os estornos, o saldo credor anterior e as deduções, que a derivação do bloco C nunca
+        // teve (é o que o legado faz: ele LÊ a APURACAO_ICMS, não recalcula do bloco C).
+        // primeiro SEM chave nas notas: as duas são modelo 55, e o legado exige chave (NFe não transmitida não
+        // entra na apuração) ⇒ a apuração fecha em zero. Depois damos a chave e reprocessamos.
+        const apSemChave = (await (await fetch(`${base}/fiscal/apuracao-icms/processar`, { method: 'POST', headers: H, body: JSON.stringify({ dataini: '2026-11-01', datafin: '2026-11-30' }) })).json().catch(() => ({}))) as any;
+        await pgFi.query(`UPDATE nf SET chavenfe='3526110000000000000000000000000000000' || lpad(codnf::text, 7, '0'), statusnfe='P' WHERE codnf IN ($1,$2)`, [nfIcms, nfSaiF]);
+        await fetch(`${base}/fiscal/apuracao-icms/processar`, { method: 'POST', headers: H, body: JSON.stringify({
+          dataini: '2026-11-01', datafin: '2026-11-30', reprocessar: true, outroscreditos: 5, outrosdebitos: 3,
+          estornocreditos: 1, estornodebitos: 2, deducoes: 4 }) });
+        const efdAp = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-01', dtfim: '2026-11-30' }) });
+        const efdApJ = (await efdAp.json().catch(() => ({}))) as any;
+        const linAp = String(efdApJ.arquivo ?? '').split('\r\n');
+        const e110Ap = linAp.find((l: string) => l.startsWith('|E110|')) ?? '';
+        const e116Ap = linAp.find((l: string) => l.startsWith('|E116|')) ?? '';
+        const apGravada = (await pgFi.query(`SELECT debitosaida, creditoentrada, saldodevedor, arecolher, saldocredorseguinte FROM apuracao_icms WHERE idempresa=1 AND dataini='2026-11-01' AND datafin='2026-11-30'`)).rows[0] as any;
+        // a apuração apura débito 30 (a NF de saída) e crédito 18 (a de entrada) das MESMAS notas; com os ajustes:
+        // crédito total = 18 + 5 + 2 = 25 · débito total = 30 + 3 + 1 = 34 ⇒ devedor 9,00 · a recolher 9 − 4 = 5,00
+        check('SPED §90b (corte-2 da apuração): NFe modelo 55 SEM CHAVE não entra na apuração (a primeira passada fecha em zero) · com a chave e a apuração GRAVADA, o E110 sai DELA — os ajustes e estornos aparecem nos campos próprios (VL_AJ_DEBITOS 3, VL_ESTORNOS_CRED 1, VL_AJ_CREDITOS 5, VL_ESTORNOS_DEB 2 — e os VL_TOT_AJ_* em ZERO, senão o ajuste conta duas vezes e o saldo apurado não fecha: foi o nosso validador que pegou), as deduções em VL_TOT_DED (4) e o VL_ICMS_RECOLHER é o da apuração (5,00, não os 12,00 da derivação do bloco C) · o E116 acompanha · o aviso do retorno diz que veio da apuração',
+          Number(apSemChave?.cabecalho?.debitosaida) === 0 && Number(apSemChave?.cabecalho?.creditoentrada) === 0
+          && efdAp.status === 200 && Number(apGravada?.debitosaida) === 30 && Number(apGravada?.creditoentrada) === 18
+          && Number(apGravada?.saldodevedor) === 9 && Number(apGravada?.arecolher) === 5
+          && e110Ap === '|E110|30,00|3,00|0,00|1,00|18,00|5,00|0,00|2,00|0,00|9,00|4,00|5,00|0,00|0,00|'
+          && e116Ap.startsWith('|E116|000|5,00|')
+          && String(efdApJ.aviso ?? '').includes('da APURAÇÃO')
+          && efdApJ.validacao?.ok === true,
+          { e110: e110Ap, e116: e116Ap, ap: apGravada, semChave: apSemChave?.cabecalho,
+            avisoTemApuracao: String(efdApJ.aviso ?? '').includes('da APURAÇÃO'), val: efdApJ.validacao });
+        await pgFi.query(`DELETE FROM apuracao_icms WHERE idempresa=1 AND dataini='2026-11-01' AND datafin='2026-11-30'`);
+
         await pgFi.query(`DELETE FROM nf WHERE codnf IN ($1,$2)`, [nfIcms, nfSaiF]); // cleanup
       } finally {
         await pgFi.end();

@@ -220,3 +220,29 @@ Duas coisas que o legado faz e a tela copia: **reprocessar pede confirmação** 
 deseja reprocessar?") e o **aviso de contingência** aparece com o número de cupons afetados, porque eles não entram
 na apuração. Também está escrito na tela que o saldo anterior vem do **mês fechado** anterior e que reprocessar um
 mês antigo não recalcula os seguintes — a consequência menos óbvia do encadeamento.
+
+---
+
+## §7. Corte-2 ENTREGUE: o SPED lê esta apuração (e não deriva mais do bloco C)
+
+O `sped-efd-icms-ipi.service` passou a **procurar a apuração gravada do período** (`dataini`/`datafin` exatos) e,
+achando, emite o **E110 a partir dela** — com os quatro campos que a derivação do bloco C nunca teve: ajustes a
+débito e a crédito, estornos, **saldo credor anterior** e **deduções**. O `E116` (a obrigação a recolher) passou a
+usar o `ARECOLHER` da apuração, não o saldo apurado. Sem apuração gravada, mantém a derivação — e o `aviso` do
+retorno diz qual dos dois caminhos gerou o arquivo, o que evita entregar um SPED "derivado" pensando que era o
+apurado.
+
+Dois achados do próprio corte, os dois pegos pelo smoke/validador:
+
+1. **NFe modelo 55 sem chave não entra na apuração** — a primeira passada do teste (notas sem `chavenfe`) fecha em
+   **zero**, e só depois de carimbar a chave o débito 30 / crédito 18 aparecem. É o filtro do legado funcionando, e
+   agora está travado no smoke.
+2. **o ajuste não pode ir em dois campos do E110**: eu repetia o valor em `VL_AJ_DEBITOS` (03) e `VL_TOT_AJ_DEBITOS`
+   (04) — e o campo 04 é "ajustes **provenientes de documento fiscal**", que não temos. O nosso próprio validador
+   pegou (`VL_SLD_APURADO 9 ≠ max(0, débitos−créditos) 7`): somava o ajuste duas vezes. Os campos 04/07 vão a
+   **zero**.
+
+Uma consequência da fórmula literal do legado que fica registrada: `ARECOLHER = SALDODEVEDOR − DEDUCOES` **sem
+piso** — com dedução maior que o devedor o valor fica **negativo** (o teste chegou a `-4,00` antes de eu ajustar o
+cenário). O legado é assim; o E110 com `VL_ICMS_RECOLHER` negativo não é entregável, então isso é candidato a
+validação própria (registrado, não implementado).

@@ -121,30 +121,70 @@ export class SpedEfdIcmsIpiService {
     arq.add('D001', ['1']);
     arq.fecharBloco('D990', 'D');
 
-    // BLOCO E — apuração ICMS (corte-2): débito de SAÍDA − crédito de ENTRADA. Se débito>crédito → ICMS a
-    // recolher; senão → saldo credor a transportar. E110 emitido sempre que há documento no bloco C.
-    const temApuracao = docs.nfs.length > 0;
+    // BLOCO E — apuração ICMS. O legado NÃO deriva o E110 do bloco C: ele **lê a APURAÇÃO gravada** do período
+    // (uRelRegistros_ES/uDMRelRegistros_ES — migs 164/165, o processo que produz o livro de Entradas e Saídas).
+    // Corte-2 do épico: quando existe apuração para EXATAMENTE este período, o E110 sai dela — com os ajustes
+    // manuais (outros créditos/débitos, estornos, deduções) e o **saldo credor anterior**, que a derivação do
+    // bloco C nunca teve. Sem apuração gravada, mantém a derivação (débito de saída − crédito de entrada) e o
+    // aviso registra isso.
+    const apur = (await db
+      .selectFrom('apuracao_icms')
+      .select(['codapuracaoicms', 'saldoant', 'creditoentrada', 'outroscreditos', 'estornodebitos', 'debitosaida',
+               'outrosdebitos', 'estornocreditos', 'saldocredorseguinte', 'saldodevedor', 'deducoes', 'arecolher'])
+      .where('idempresa', '=', emp)
+      .where('dataini', '=', String(dtini).slice(0, 10))
+      .where('datafin', '=', String(dtfim).slice(0, 10))
+      .executeTakeFirst()) as Record<string, unknown> | undefined;
+
+    // o aviso do retorno diz DE ONDE veio o E110 — é a diferença entre "apuração de verdade" e derivação do bloco C
+    const origemE110 = apur
+      ? `da APURAÇÃO ${Number(apur.codapuracaoicms)} gravada do período (com ajustes, estornos, saldo credor anterior e deduções)`
+      : `derivado do bloco C (débito ${fmtNum(debitoIcms)} − crédito ${fmtNum(creditoIcms)}) — sem apuração gravada para o período`;
+    const temApuracao = docs.nfs.length > 0 || apur != null;
     arq.add('E001', [temApuracao ? '0' : '1']);
     if (temApuracao) {
       arq.add('E100', [fmtData(dtini), fmtData(dtfim)]);
-      const saldoApurado = r2(Math.max(0, debitoIcms - creditoIcms)); // ICMS a recolher
-      const saldoCredor = r2(Math.max(0, creditoIcms - debitoIcms)); // saldo credor a transportar
+      const n = (v: unknown) => r2(Number(v ?? 0) || 0);
+      // da apuração gravada (fiel ao legado) ou, sem ela, da derivação do bloco C
+      const debTot = apur ? n(apur.debitosaida) : debitoIcms;
+      const creTot = apur ? n(apur.creditoentrada) : creditoIcms;
+      const ajDeb = apur ? n(apur.outrosdebitos) : 0;
+      const estCred = apur ? n(apur.estornocreditos) : 0;
+      const ajCred = apur ? n(apur.outroscreditos) : 0;
+      const estDeb = apur ? n(apur.estornodebitos) : 0;
+      const saldoAnt = apur ? n(apur.saldoant) : 0;
+      const deducoes = apur ? n(apur.deducoes) : 0;
+      const saldoApurado = apur ? n(apur.saldodevedor) : r2(Math.max(0, debitoIcms - creditoIcms));
+      const saldoCredor = apur ? n(apur.saldocredorseguinte) : r2(Math.max(0, creditoIcms - debitoIcms));
+      const aRecolher = apur ? n(apur.arecolher) : saldoApurado;
+      if (apur) {
+        // E110 (14) com os campos que só a apuração tem: ajustes, estornos, saldo credor anterior e deduções.
+        // ⚠️ o ajuste vai em **VL_AJ_DEBITOS/VL_AJ_CREDITOS** (campos 03/06) e os campos 04/07
+        // (`VL_TOT_AJ_*`, "provenientes de documento fiscal") ficam ZERO — nós não temos ajuste vindo de
+        // documento. Repetir o valor nos dois somava o ajuste DUAS VEZES: o nosso próprio validador pegou
+        // (`VL_SLD_APURADO 9 ≠ max(0, débitos−créditos) 7`).
+        arq.add('E110', [fmtNum(debTot), fmtNum(ajDeb), fmtNum(0), fmtNum(estCred), fmtNum(creTot), fmtNum(ajCred),
+                         fmtNum(0), fmtNum(estDeb), fmtNum(saldoAnt), fmtNum(saldoApurado), fmtNum(deducoes),
+                         fmtNum(aRecolher), fmtNum(saldoCredor), fmtNum(0)]);
+      }
+      if (!apur) {
       // E110 (14): VL_TOT_DEBITOS|VL_AJ_DEBITOS|VL_TOT_AJ_DEBITOS|VL_ESTORNOS_CRED|VL_TOT_CREDITOS|VL_AJ_CREDITOS|
       //            VL_TOT_AJ_CREDITOS|VL_ESTORNOS_DEB|VL_SLD_CREDOR_ANT|VL_SLD_APURADO|VL_TOT_DED|VL_ICMS_RECOLHER|
       //            VL_SLD_CREDOR_TRANSPORTAR|DEB_ESP
-      arq.add('E110', [fmtNum(debitoIcms), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(creditoIcms), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(saldoApurado), fmtNum(0), fmtNum(saldoApurado), fmtNum(saldoCredor), fmtNum(0)]);
+        arq.add('E110', [fmtNum(debitoIcms), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(creditoIcms), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(saldoApurado), fmtNum(0), fmtNum(saldoApurado), fmtNum(saldoCredor), fmtNum(0)]);
+      }
       // E116 — obrigação do ICMS a recolher (fold auditoria ALTA: o PVA rejeita E110 com VL_ICMS_RECOLHER>0 sem
       // E116; supermercado tem débito>crédito quase todo mês → sem isto o arquivo não é entregável). COD_REC por
       // UF (MG='1206'/GO='108', fiel a Uspedfiscal.pas:797-807; demais UFs = '' até termos a tabela completa).
       // DT_VCTO = DT_INI + 45 dias (fiel ao legado); MES_REF = mmYYYY do período.
-      if (saldoApurado > 0) {
+      if (aRecolher > 0) {
         const codRecUf: Record<string, string> = { MG: '1206', GO: '108' };
         const codRec = codRecUf[String(empresa.uf ?? '')] ?? '';
         const dv = new Date(`${String(dtini).slice(0, 10)}T00:00:00Z`);
         dv.setUTCDate(dv.getUTCDate() + 45);
         const mesRef = `${String(dtini).slice(5, 7)}${String(dtini).slice(0, 4)}`;
         // E116 (9): COD_OR|VL_OR|DT_VCTO|COD_REC|NUM_PROC|IND_PROC|PROC|TXT_COMPL|MES_REF
-        arq.add('E116', ['000', fmtNum(saldoApurado), fmtData(dv.toISOString().slice(0, 10)), codRec, '', '', '', '', mesRef]);
+        arq.add('E116', ['000', fmtNum(aRecolher), fmtData(dv.toISOString().slice(0, 10)), codRec, '', '', '', '', mesRef]);
       }
     }
     arq.fecharBloco('E990', 'E');
@@ -173,7 +213,7 @@ export class SpedEfdIcmsIpiService {
       documentos: docs.nfs.length,
       parcial: true,
       validacao: validarSpedFiscal(arquivo),
-      aviso: `PARCIAL (corte-4): bloco 0 + bloco C (${docs.nfs.length} docs; C100/C170/C190 mod-55 por IND_OPER + C500/C590 energia/gás/água mod 06/28/29) + bloco E (E110 apuração ICMS: débito ${fmtNum(debitoIcms)} − crédito ${fmtNum(creditoIcms)}; E116 quando há a recolher) + bloco H (${inventario.livros.length} inventário(s); H005/H010) + blocos D/G/K/1 (só opener, sem dados) + bloco 9. Estrutura de blocos completa. Sem ST/DIFAL/IPI; conteúdo de D/G/K/1 não migrado. C176/C195/C197/C800 confirmados mortos (cópia fiel).`,
+      aviso: `PARCIAL (corte-4): bloco 0 + bloco C (${docs.nfs.length} docs; C100/C170/C190 mod-55 por IND_OPER + C500/C590 energia/gás/água mod 06/28/29) + bloco E (E110 ${origemE110}; E116 quando há a recolher) + bloco H (${inventario.livros.length} inventário(s); H005/H010) + blocos D/G/K/1 (só opener, sem dados) + bloco 9. Estrutura de blocos completa. Sem ST/DIFAL/IPI; conteúdo de D/G/K/1 não migrado. C176/C195/C197/C800 confirmados mortos (cópia fiel).`,
     };
   }
 
