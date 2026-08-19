@@ -127,6 +127,25 @@ Cinco filtros que são regra, não detalhe: **data contábil** (não emissão), 
 **denegada fora**, e **NFe sem chave ou inutilizada fora**. A espécie é literal (`'NF'`) e o `CODIGO` é
 `CODNF||'NF'` — o mesmo formato que aparece em `APURACAO_ICMS_DETALHES.CODIGO`.
 
+### ⚠️ O que o detalhe REALMENTE é: 99,8% da saída é CUPOM, não NF
+
+Distribuição do golden por `TIPO` × `ESPECIE` (é o que decide o desenho do corte):
+
+| tipo | espécie | linhas | documentos | Σ `VALOR_ICMS` | Σ `BASE` |
+|---|---|---:|---:|---:|---:|
+| S | **NFC** | **1.139.084** | **664.318** | **443.501,98** | 3.164.520,90 |
+| E | NF | 14.560 | 9.940 | 230.401,27 | 1.690.012,09 |
+| S | NF | 2.249 | 1.179 | 28.604,65 | 195.066,25 |
+
+Ou seja: a apuração de ICMS deste tenant é, **em massa, apuração de NFC-e** — o débito de saída vem dos **cupons**
+(R$ 443,5 mil contra R$ 28,6 mil de NF de saída). O `CODIGO` daquelas linhas termina em `NFC` (o das notas termina
+em `NF`), o que confirma as três consultas do fonte: **NF de saída, NFC-e de saída e NF de entrada**.
+
+Consequência para o corte: **a perna NFC-e não é opcional**. Sem ela o débito de saída sai ~94% menor — a apuração
+não ficaria "parcial", ficaria **errada**. E isso não conflita com a regra "nada do PDV": o dado dos cupons já está
+migrado (`vendas`, 11,9 milhões de linhas) e a apuração é tela de **retaguarda fiscal** — o que fica fora do escopo
+é mexer no aplicativo do PDV, não ler a venda que ele gerou.
+
 ### A trava de contingência (compliance)
 
 Antes de apurar, `VerificaNfcContigencia` (`:1901-1907`) avisa: *"Existem NFC-e em contigência no período, estas
@@ -143,8 +162,10 @@ caminho de IPI existe no fonte (datasets paralelos) mas nunca produziu dado.
 ## 5. Corte proposto
 
 - **corte-1 — o processo da apuração**: as 3 tabelas (`apuracao_icms`, `apuracao_icms_detalhes`, `icms_cfop`) +
-  `cfop.nao_gera_apuracao_icms`; a varredura de entradas e saídas do período com o gate de CFOP; o resumo por CFOP;
-  o cabeçalho E110; o reprocesso idempotente (apaga detalhe/resumo e refaz) e a tela com os três quadros.
+  `cfop.nao_gera_apuracao_icms`; as **três pernas** (NF de saída, **NFC-e de saída** — a que carrega 99,8% do
+  detalhe — e NF de entrada) com o gate de CFOP e os cinco filtros; o resumo por CFOP; o cabeçalho E110 com o
+  encadeamento mensal; o reprocesso idempotente (apaga detalhe/resumo e refaz); o aviso de contingência; e a tela
+  com os três quadros.
   **O recon está completo** (§3): fórmula do cabeçalho, os três totais, os filtros das consultas, o gate de CFOP,
   o reprocesso, os dois quirks e a trava de contingência. O que resta é build + confrontar as 33 apurações do
   golden campo a campo (inclusive o encadeamento do saldo anterior entre meses).
