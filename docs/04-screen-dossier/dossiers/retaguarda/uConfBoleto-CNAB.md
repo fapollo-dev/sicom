@@ -173,3 +173,49 @@ cutover**.
    puro no novo e declarar a divergência — o cutover decodifica na carga.
 4. Carteira/espécie/aceite/banco cobrador são **constantes no golden** (109/01/N/341): entram como default da
    config, não como campo de tela.
+
+---
+
+## §6. O QUE FECHA O ÉPICO: bolecode/PIX e e-mail do boleto **não entram** (recon de 2026-08-19)
+
+Os dois itens que restavam da cobrança bancária foram reconados e o veredicto é **não migrável a partir do que
+existe** — com prova, no mesmo padrão do CNAB 240 (§4.2).
+
+### bolecode / PIX
+
+O que existe no Oracle:
+
+| objeto | conteúdo | leitura |
+|---|---|---|
+| `CONF_INTEG_BANCARIA.HABILITAR_BOLECODE` | `'S'` em **1 de 4** configurações (codconf 21, empresa 50, Itaú, conta 23055-1); nulo nas outras | o flag existe e está ligado numa conta |
+| `PIX_CONFIG` | **4 linhas**; 3 com `ATIVO='N'`; a única ativa (161) chama-se **"ITÁU TESTE"**, foi cadastrada em **26/06/2026** e **não tem certificado** (`ARQUIVO_CERTIFICADO` nulo) | integração em implantação, não em produção |
+| `PIX_TRANSACAO` | **4 linhas**, todas em **10/11/2025**, mesmo cliente, valores 30/30/30/100, **`TXID` e `E2EID` = o texto "LANÇAMENTO M…"** (não são identificadores PIX — são lançamentos MANUAIS), todas da config 121 ("TESTE", inativa) | **nunca operou**: nenhuma transação PIX real |
+
+E o mais decisivo: **não há uma linha de código de bolecode/PIX no fonte clonado da retaguarda** —
+`grep -arln "BOLECODE"` e `grep -arn "HABILITAR_BOLECODE"` em `fonte/Units` devolvem **vazio**. A montagem do
+EMV/QR e a conversa com o PSP vivem fora do que temos (lib de terceiros ou o app do PDV — note que
+`PIX_TRANSACAO` tem `CODPDV` e `NROPEDIDO`, ou seja o recebimento é do **PDV**, área fora de escopo por decisão do
+usuário). Portar seria **adivinhar a spec do PSP** com cara de cópia fiel — a mesma armadilha da lição 77.
+
+Ainda: a única `PIX_CONFIG` ativa é de outra conta (141) que não é a conta com o flag ligado (23055-1) ⇒ nem a
+configuração está coerente para gerar um bolecode hoje.
+
+**Veredicto:** registrado, não implementado. Reabrir quando (a) houver `PIX_CONFIG` ativa **com certificado** na
+conta do boleto, (b) `PIX_TRANSACAO` tiver transação real (TXID/E2EID de PSP) e (c) existir fonte da montagem do
+EMV — sem esses três, não há como verificar nada.
+
+### e-mail do boleto
+
+Mesma classe: **zero call sites** no fonte clonado (`EnviarBoletoEmail`/`EnviaEmailBoleto`/`EMAIL_BOLETO` →
+vazio), nenhuma tabela de envios, e o canal em si (SMTP) já está classificado no repositório como **infra externa,
+não código a migrar** (junto com transmissão SEFAZ e DANFE PDF). O dado de contato existe — `PARCEIROS.EMAIL`
+preenchido em **754 de 18.297** parceiros (4%) — mas isso é o destinatário, não a regra.
+
+**Veredicto:** fora do escopo de conversão (infra), registrado aqui para não voltar à fila como se fosse regra.
+
+### Consequência para o épico
+
+Com a remessa (envio/cancelamento/alteração de vencimento), o retorno→baixa, o código de barras/linha digitável, as
+instruções e a ficha imprimível entregues, e com estes dois itens provados fora de alcance, **a cobrança bancária
+está completa no que é migrável**. O que sobra é ampliação de cobertura, não regra faltando: os demais bancos
+(237/104/756/707), que só entram quando houver arquivo real de cada um para confrontar (lição 77).
