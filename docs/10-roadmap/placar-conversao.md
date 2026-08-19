@@ -15,9 +15,9 @@
 | Campo | Valor |
 |-------|-------|
 | **Data** | 2026-08-19 |
-| **Commit de referência** | `8f860dd` (`main`, tudo verde) |
-| **Estado de build** | api tsc 0 · api test 183 · **smoke 996/0** · web tsc 0 · web test 37 · build ok |
-| **Migrations aplicadas** | até `161` |
+| **Commit de referência** | `a5a075f` (`main`, tudo verde) |
+| **Estado de build** | api tsc 0 · api test 183 · **smoke 999/0** · web tsc 0 · web test 37 · build ok |
+| **Migrations aplicadas** | até `163` |
 | **Features no `apps/web`** | 43 |
 | **Schemas em `packages/shared`** | 44 |
 | **Dossiês na retaguarda** | 37 |
