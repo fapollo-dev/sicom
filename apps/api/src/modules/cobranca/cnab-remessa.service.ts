@@ -77,6 +77,61 @@ export function fatorVencimento(venc: string): number {
   return dias > 0 ? dias % 10000 : 0;
 }
 
+
+/** dd/mm/aaaa — o `DateTimeToStr` do legado nas instruções do boleto. */
+const dataBr = (iso: unknown) => {
+  const s = String(iso ?? '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s.split('-').reverse().join('/') : '';
+};
+const vlr2 = (n: number) => n.toFixed(2);
+
+/**
+ * INSTRUÇÕES do boleto por título — `GerarInstrucao` (uConfBoleto.pas:1100-1195). São o texto que o boleto
+ * IMPRIME (mora, multa, desconto, NF), calculado na hora: o legado joga em campos do dataset
+ * (`cdsReceberOBS`/`MORA`) e **nada disso persiste** — `ARECEBER` não tem MORA nem DIASPROTESTO, e OBS no
+ * golden é 'INCLUSAO AUTOMATICA FINANCEIRO'/NULL, nunca o texto da multa. Aqui também é derivado.
+ *
+ * FÓRMULAS: mora/dia = `(TXJUROS / 30) × VALOR / 100` · multa = `VALOR × EMPRESAS.PERCENT_MULTA / 100`
+ * (5% na empresa 1 do golden) · desconto = `VALOR × DESCONTO_BOLETO / 100` (o campo é PERCENTUAL).
+ *
+ * DUAS VARIANTES, como no legado: **Itaú/Bradesco (341/237)** abre com "APOS VENCIMENTO NAO DISPENSAR JUROS E
+ * MULTA", usa "MORA DIA/COM. PERMANÊNCIA" e cita a NF pelo IDNF (buscando o NRONF quando DOCNF é vazio) —
+ * e ali o PROTESTO está COMENTADO no fonte. **Demais bancos** não têm a linha de abertura, põem o protesto,
+ * a multa e a mora com outro texto, e citam a NF só pelo DOCNF.
+ *
+ * CÓPIA-FIEL-NEGATIVA: `DIASPROTESTO` é `fkInternalCalc` no dataset (campo calculado SEM fonte de dados —
+ * `uConfBoleto.dfm`) e `ARECEBER` não tem a coluna ⇒ o valor é sempre 0 e **a linha de protesto nunca sai**,
+ * em banco nenhum. Mantida no código porque a regra existe; se algum dia a coluna aparecer, ela passa a valer.
+ */
+export function instrucoesBoleto(t: {
+  valor: number; venc: string; txjuros?: number | null; desconto_boleto?: number | null;
+  diasprotesto?: number | null; docnf?: string | null; idnf?: number | null; nronf?: string | null;
+}, febraban: string, percentMulta: number): string[] {
+  const valor = Number(t.valor) || 0;
+  const mora = ((Number(t.txjuros) || 0) / 30) * valor / 100;
+  const multa = (valor * (Number(percentMulta) || 0)) / 100;
+  const desconto = (valor * (Number(t.desconto_boleto) || 0)) / 100;
+  const venc = dataBr(t.venc);
+  const linhas: string[] = [];
+  const itauBradesco = febraban === '341' || febraban === '237';
+  if (itauBradesco) {
+    linhas.push('APOS VENCIMENTO NAO DISPENSAR JUROS E MULTA');
+    if (desconto > 0) linhas.push(`DESCONTO DE R$${vlr2(desconto)} ATE ${venc}`);
+    if (mora > 0) linhas.push(`MORA DIA/COM. PERMANÊNCIA: R$ ${vlr2(mora)}`);
+    if (multa > 0) linhas.push(`APÓS ${venc} MULTA: R$${vlr2(multa)}`);
+    const nf = String(t.docnf ?? '').trim() || String(t.nronf ?? '').trim();
+    if (Number(t.idnf) > 0 && nf) linhas.push(`Referente N.Fiscal numero: ${nf}`);
+  } else {
+    if (desconto > 0) linhas.push(`DESCONTO DE R$${vlr2(desconto)} ATE ${venc}`);
+    if (Number(t.diasprotesto) > 0) linhas.push(`SUJEITO A PROTESTO APOS ${Number(t.diasprotesto)} DIAS DO VENCIMENTO`);
+    if (multa > 0) linhas.push(`APÓS ${venc} MULTA: R$ ${vlr2(multa)}`);
+    if (mora > 0) linhas.push(`APÓS O VENCIMENTO COBRAR: R$ ${vlr2(mora)} POR DIA DE ATRASO`);
+    const nf = String(t.docnf ?? '').trim();
+    if (nf) linhas.push(`Referente N.Fiscal numero: ${nf}`);
+  }
+  return linhas;
+}
+
 /**
  * CÓDIGO DE BARRAS (44) e LINHA DIGITÁVEL (47) — o que o legado obtém de
  * `ACBrBoleto1.Banco.MontarCodigoBarras/MontarLinhaDigitavel` (uConfBoleto.pas:2850-2851) e grava em campos do
@@ -641,10 +696,16 @@ export class CnabRemessaService {
     const ctaRaw = String(conta.nroconta ?? '');
     const ctaNum = ctaRaw.slice(0, Math.max(0, ctaRaw.length - 2));
     const carteira = dig(conta.carteira_cobranca ?? '');
+    // o percentual de multa é da EMPRESA (GerarInstrucao usa EmpresaPERCENT_MULTA)
+    const empr = (await db.selectFrom('empresas').select([sql`percent_multa`.as('percent_multa')])
+      .where('idempresa', '=', emp).executeTakeFirst()) as { percent_multa?: unknown } | undefined;
+    const percentMulta = Number(empr?.percent_multa) || 0;
     const titulos = (await db.selectFrom('areceber as r')
       .leftJoin('parceiros as p', 'p.codparceiro', 'r.codparceiro')
+      .leftJoin('nf as n', 'n.codnf', 'r.idnf')
       .select([
         'r.codrcb', 'r.duplicata', 'r.valor', 'r.nosso_numero_boleto', sql`p.razao`.as('razao'),
+        'r.txjuros', 'r.desconto_boleto', sql`r.docnf`.as('docnf'), 'r.idnf', sql`n.nronf`.as('nronf'),
         sql`to_char(r.dtvenc at time zone 'America/Sao_Paulo','YYYY-MM-DD')`.as('venc'),
       ])
       .where('r.codempresa', '=', emp).where('r.codrcb', 'in', dto.codrcbs.length ? dto.codrcbs : [0])
@@ -669,6 +730,14 @@ export class CnabRemessaService {
             : null,
           codigo_barras: barras,
           linha_digitavel: linhaDigitavel(barras),
+          // as instruções que o boleto imprime (mora/multa/desconto/NF) — derivadas, como no legado
+          mora_dia: Math.round(((Number(t.txjuros) || 0) / 30) * (Number(t.valor) || 0)) / 100,
+          multa: Math.round((Number(t.valor) || 0) * percentMulta) / 100,
+          instrucoes: instrucoesBoleto({
+            valor: Number(t.valor) || 0, venc: String(t.venc ?? ''), txjuros: Number(t.txjuros) || 0,
+            desconto_boleto: Number(t.desconto_boleto) || 0, docnf: String(t.docnf ?? ''),
+            idnf: Number(t.idnf) || 0, nronf: String(t.nronf ?? ''),
+          }, febraban, percentMulta),
         };
       }),
     };

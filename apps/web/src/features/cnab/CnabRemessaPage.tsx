@@ -205,9 +205,17 @@ export function CnabRemessaPage() {
               </div>
               <div className="font-mono text-body-sm tabular-nums select-all">{String(b.linha_digitavel)}</div>
               <div className="font-mono text-body-xs text-fg-muted tabular-nums select-all">{String(b.codigo_barras)}</div>
+              {Array.isArray(b.instrucoes) && (b.instrucoes as string[]).length > 0 && (
+                <ul className="text-body-xs text-fg-muted">
+                  {(b.instrucoes as string[]).map((i, k) => <li key={k}>{i}</li>)}
+                </ul>
+              )}
             </div>
           ))}
-          <small className="text-fg-muted">Confira a linha digitável antes de enviar a remessa; a impressão do boleto usa o botão de imprimir da tela.</small>
+          <small className="text-fg-muted">
+            As instruções (mora, multa, desconto, nota fiscal) são as que o boleto imprime — calculadas do título,
+            como no sistema atual. Confira a linha digitável antes de enviar a remessa; para imprimir, use o botão de imprimir da tela.
+          </small>
         </div>
       )}
 

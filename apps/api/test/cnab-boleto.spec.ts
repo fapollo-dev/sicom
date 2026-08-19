@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { codigoBarras, linhaDigitavel, mod10, mod11Barras, fatorVencimento } from '../src/modules/cobranca/cnab-remessa.service';
+import { codigoBarras, linhaDigitavel, mod10, mod11Barras, fatorVencimento, instrucoesBoleto } from '../src/modules/cobranca/cnab-remessa.service';
 
 /**
  * CÓDIGO DE BARRAS / LINHA DIGITÁVEL do boleto. O algoritmo foi VERIFICADO CONTRA DADO REAL antes de entrar:
@@ -74,5 +74,40 @@ describe('boleto — código de barras e linha digitável', () => {
       febraban: '033', venc: '2026-03-10', valor: 10, carteira: '101',
       agencia: '3167', conta: '13004', nossoNumero: '1',
     })).toThrow();
+  });
+});
+
+/**
+ * INSTRUÇÕES do boleto (GerarInstrucao, uConfBoleto.pas:1100-1195) — texto impresso, derivado do título.
+ * mora/dia = (TXJUROS/30)×VALOR/100 · multa = VALOR×PERCENT_MULTA/100 · desconto = VALOR×DESCONTO_BOLETO/100.
+ */
+describe('boleto — instruções por título', () => {
+  const base = { valor: 1000, venc: '2026-03-10', txjuros: 3, desconto_boleto: 2, docnf: '', idnf: 0 };
+
+  it('Itaú/Bradesco: abre com "NAO DISPENSAR", usa MORA DIA/COM. PERMANÊNCIA e cita a NF pelo IDNF', () => {
+    const l = instrucoesBoleto({ ...base, idnf: 77, nronf: '12345' }, '341', 5);
+    expect(l[0]).toBe('APOS VENCIMENTO NAO DISPENSAR JUROS E MULTA');
+    expect(l).toContain('DESCONTO DE R$20.00 ATE 10/03/2026');   // 1000 × 2%
+    expect(l).toContain('MORA DIA/COM. PERMANÊNCIA: R$ 1.00');   // (3/30) × 1000 / 100
+    expect(l).toContain('APÓS 10/03/2026 MULTA: R$50.00');       // 1000 × 5%
+    expect(l).toContain('Referente N.Fiscal numero: 12345');
+  });
+
+  it('demais bancos: sem a linha de abertura, protesto entra e a NF vem só do DOCNF', () => {
+    const l = instrucoesBoleto({ ...base, diasprotesto: 15, docnf: '999' }, '001', 5);
+    expect(l[0]).not.toContain('NAO DISPENSAR');
+    expect(l).toContain('SUJEITO A PROTESTO APOS 15 DIAS DO VENCIMENTO');
+    expect(l).toContain('APÓS O VENCIMENTO COBRAR: R$ 1.00 POR DIA DE ATRASO');
+    expect(l).toContain('Referente N.Fiscal numero: 999');
+  });
+
+  it('sem juros, sem multa e sem desconto: só a linha de abertura no Itaú, e nada nos demais', () => {
+    expect(instrucoesBoleto({ valor: 100, venc: '2026-03-10' }, '341', 0)).toEqual(['APOS VENCIMENTO NAO DISPENSAR JUROS E MULTA']);
+    expect(instrucoesBoleto({ valor: 100, venc: '2026-03-10' }, '001', 0)).toEqual([]);
+  });
+
+  it('a NF do Itaú exige IDNF > 0 (cópia fiel: com DOCNF mas sem IDNF, não cita a nota)', () => {
+    const l = instrucoesBoleto({ ...base, idnf: 0, docnf: '4321' }, '341', 0);
+    expect(l.some((x) => x.includes('N.Fiscal'))).toBe(false);
   });
 });
