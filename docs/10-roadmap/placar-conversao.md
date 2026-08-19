@@ -15,7 +15,7 @@
 | Campo | Valor |
 |-------|-------|
 | **Data** | 2026-08-19 |
-| **Commit de referência** | `a5a075f` (`main`, tudo verde) |
+| **Commit de referência** | `af37ca9` (`main`, tudo verde) |
 | **Estado de build** | api tsc 0 · api test 183 · **smoke 999/0** · web tsc 0 · web test 37 · build ok |
 | **Migrations aplicadas** | até `163` |
 | **Features no `apps/web`** | 43 |
