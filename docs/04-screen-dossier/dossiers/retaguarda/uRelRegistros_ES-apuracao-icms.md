@@ -45,10 +45,40 @@ vazia, não apuração.
   (`PopulaDadosApuracaoICMS`), **sim** apaga `ICMS_CFOP` e `APURACAO_ICMS_DETALHES` daquele código e refaz.
 - **id app-side**: `CODAPURACAOICMSDETALHES = COALESCE(MAX(...),0) + 1` (`:2313`, `uDMRelRegistros_ES.pas:525`) — o
   mesmo padrão `GetID` do resto do legado (no novo: sequence).
-- o cabeçalho é montado num dataset (`cdsRecolhimento*`, com uma variante **IPI** paralela: `cdsRecolhimentoIPI*`,
-  que zera todos os campos em `uDMRelRegistros_ES.pas:661-688`) ⇒ **a fórmula de cada campo do E110 é o que falta
-  ler** antes de construir, e há um caminho de IPI espelhado (coerente com `APURACAO_IPI`, que está **vazia** no
-  golden ⇒ candidato a cópia-fiel-negativa).
+- o cabeçalho é montado num dataset (`cdsRecolhimento*`), com uma variante **IPI** paralela (`cdsRecolhimentoIPI*`,
+  zerada em `uDMRelRegistros_ES.pas:661-688`) — coerente com `APURACAO_IPI` **vazia** no golden.
+
+### A fórmula do E110, campo a campo (lida no fonte)
+
+Os dois totais são **campos agregados do dataset** (a definição vive no `.dfm`, `uDMRelRegistros_ES.dfm`):
+
+```
+TOTALCREDITO = SUM(SALDOANT + CREDITOENTRADA + OUTROSCREDITOS + ESTORNODEBITOS)
+TOTALDEBITO  = SUM(DEBITOSAIDA + OUTROSDEBITOS + ESTORNOCREDITOS)
+```
+
+E o fechamento (`uDMRelRegistros_ES.pas:782-794`):
+
+```
+se (TOTALDEBITO − TOTALCREDITO) < 0 →  SALDOCREDORSEGUINTE = |diferença| ;  SALDODEVEDOR = 0
+senão                               →  SALDODEVEDOR        = |diferença| ;  SALDOCREDORSEGUINTE = 0
+ARECOLHER = SALDODEVEDOR − DEDUCOES
+```
+
+De onde vem cada parcela:
+
+| campo | origem | procedência |
+|---|---|---|
+| `SALDOANT` | o **`SALDOCREDORSEGUINTE` da apuração do MÊS ANTERIOR** — busca por `DATAINI = StartOfTheMonth(dataInicial−1)`, `DATAFIN = EndOfTheMonth(dataInicial−1)` e a mesma empresa; não achou ⇒ 0 | `uRelRegistros_ES.pas:2380-2392` |
+| `CREDITOENTRADA` | `TotEntrada + **TotEntradaSN**` — o total apurado das entradas **mais um total separado de Simples Nacional** (crédito de entrada de fornecedor SN) | `:2395-2396` |
+| `DEBITOSAIDA` | `TotSaida` (total apurado das saídas) | `:2397` |
+| `OUTROSCREDITOS`, `ESTORNODEBITOS`, `ESTORNOCREDITOS`, `DEDUCOES` | datasets próprios de **ajustes manuais** (`cdsOutrosCreditos`, `cdsEstornoDebito`, `cdsEstornoCredito`, `cdsDeducoes`), com `null → 0` | `uDMRelRegistros_ES.pas:762-778` |
+| `OUTROSDEBITOS` | idem (ajuste manual) | idem |
+
+⇒ **o encadeamento mensal é regra**: o crédito que sobra num mês entra como saldo anterior do mês seguinte, e a
+busca é por **mês fechado** (início e fim do mês anterior), não pelo período arbitrário que o operador digitou.
+Reprocessar um mês antigo, portanto, **não** recalcula os seguintes — fiel ao legado, e é o tipo de coisa que a
+tela precisa deixar claro.
 
 ## 4. Irmãs vazias (cópia-fiel-negativa, registrar e não implementar)
 
@@ -61,9 +91,9 @@ caminho de IPI existe no fonte (datasets paralelos) mas nunca produziu dado.
 - **corte-1 — o processo da apuração**: as 3 tabelas (`apuracao_icms`, `apuracao_icms_detalhes`, `icms_cfop`) +
   `cfop.nao_gera_apuracao_icms`; a varredura de entradas e saídas do período com o gate de CFOP; o resumo por CFOP;
   o cabeçalho E110; o reprocesso idempotente (apaga detalhe/resumo e refaz) e a tela com os três quadros.
-  **Antes de codar falta ler**, no fonte, a fórmula de cada campo do cabeçalho (o que entra em `CREDITOENTRADA` ×
-  `OUTROSCREDITOS`, como nasce `SALDOANT`/`SALDOCREDORSEGUINTE` e o que são `DEDUCOES`) — é o miolo da fidelidade,
-  e o golden dá 33 apurações para confrontar campo a campo.
+  A fórmula do cabeçalho **já está lida** (§3) — o que falta para o corte é a apuração dos totais em si
+  (`TotEntrada`, `TotEntradaSN`, `TotSaida`), ou seja as três consultas de entradas/saídas com o gate de CFOP, e
+  confrontar as 33 apurações do golden campo a campo (inclusive o encadeamento do saldo anterior entre meses).
 - **corte-2 — o elo com o SPED**: trocar a leitura do E110 (hoje o `sped-efd-icms-ipi.service` espera a apuração
   pronta) para a apuração **produzida aqui**, e conferir o registro por CFOP contra o que o SPED emite.
 - **fora, registrado**: IPI e as demais irmãs vazias.
