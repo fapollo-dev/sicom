@@ -40,16 +40,30 @@ acessos e nº de operadores), **tamanho do fonte** e **liveness/recência no Ora
 
 | candidato | acessos | operadores | dados no Oracle | recência | veredicto |
 |---|---:|---:|---|---|---|
-| **Pedido de Devolução de Compras** (`FRMCADPEDIDODEVOLUCAOCOMPRAS`) | 1.753 | 15 | 545 pedidos + **3.809 itens** | **out/2025** | **próximo** — complementa a Devolução de Compra já migrada |
-| Fechamento diário (`FRMFECHAMENTODIARIO` + `UfinalizaFechamento`) | 389 | 8 | 3.439 fechamentos · 172.164 lançamentos · 876.927 docs | abr/2026 | forte candidato seguinte (mas ~3.500 linhas de fonte) |
+| ~~Pedido de Devolução de Compras~~ (`FRMCADPEDIDODEVOLUCAOCOMPRAS`) | 1.753 | 15 | 545 pedidos + 3.809 itens | out/2025 | ⚠️ **JÁ MIGRADO** (migs 072-074 + `devolucao-compra.*`) — o épico "Devolução de Compra" **é** este form, com saldo por item, espelho fiscal rateado e a regra de ICMS-ST do fornecedor. Entrou nesta lista por engano (ver §Erro de leitura abaixo). |
+| **Fechamento diário** (`FRMFECHAMENTODIARIO` + `UfinalizaFechamento`) | 389 | 8 | 3.439 fechamentos · 172.164 lançamentos · **876.927 docs** | **abr/2026** | **próximo** — sem nenhuma referência no código novo (verificado por grep em `apps/api/src`, `migrations` e `apps/web/src`); é o dado mais recente de todos os candidatos |
+| Consulta histórico de vendas (`FRMCONSHISTVENDAS`) | 841 | 25 | leitura | — | não migrado (verificado no código); leve, entra junto de outro corte |
 | Consulta histórico de vendas (`FRMCONSHISTVENDAS`) | 841 | 25 | leitura | — | leve; entra junto de outro corte |
 | Adiantamento a fornecedor (`FRMADIANTAMENTOFORNECEDOR`) | 699 | 11 | 563 adiantamentos | mar/2025 | fila |
 | Fechamento/sangria (`FRMFECHAMENTOSANGRIA`) | 3.339 | 20 | — | — | **é do PDV** (não existe fonte na retaguarda) ⇒ bloqueado pela decisão do usuário |
 | Devolução de vendas (`FRMDEVOLUCAOVENDAS`) | 2.412 | 26 | 2.286 | — | bloqueado: acoplado ao PDV |
 | `FRMSALDOEMPRESA` | 563 | 6 | — | — | bloqueado com prova (fonte viva inexistente) |
 
-Correção que saiu dessa rodada: o plano de carga registrava `PEDIDO_DEVOLUCAO_COMPRA_I` como "conferir se
-existe"; o nome real é **`PEDIDO_DEVOLUCAO_COMPRA_ITENS`** e a tela é viva (corrigido no plano).
+### Erro de leitura desta rodada (registrado de propósito)
+
+A primeira versão desta tabela elegeu o **Pedido de Devolução de Compras** como próximo épico. Estava errado: o
+form **já estava migrado** desde as migs 072-074 — o épico que o repositório chama de "Devolução de Compra" **é**
+essa tela (o pedido que depois emite a NF), incluindo saldo por item, espelho fiscal rateado e a regra de
+ICMS-ST do fornecedor. O erro veio de cruzar o `MENUEXPRESS` com a **memória** do que já foi feito em vez de
+cruzar com o **código**. O trabalho começado foi revertido antes de qualquer commit, e a regra virou permanente:
+
+> **antes de eleger um épico, provar a ausência no código** — `grep` pela tabela, pela rota e pelo nome do form
+> em `apps/api/src`, `apps/api/migrations` e `apps/web/src`. Uso alto no menu diz que a tela importa, não que
+> ela falta.
+
+Os candidatos que sobraram foram verificados assim: Fechamento diário e Consulta de histórico de vendas **não
+têm nenhuma referência** no código novo. Correção paralela: no plano de carga, `pedido_devolucao_compra_i` é
+tabela nossa (mig 072) que carrega de `PEDIDO_DEVOLUCAO_COMPRA_ITENS` — o mapeamento de colunas ficou anotado.
 
 ---
 

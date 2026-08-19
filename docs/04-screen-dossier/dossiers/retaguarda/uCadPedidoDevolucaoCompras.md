@@ -1,8 +1,16 @@
 # PEDIDO DE DEVOLUÇÃO DE COMPRAS — `uCadPedidoDevolucaoCompras` / `FRMCADPEDIDODEVOLUCAOCOMPRAS`
 
-Dossiê de **recon** (2026-08-18). Nenhuma linha migrada ainda — este documento é a base do corte-1.
-Escolhido por dado na reordenação da fila (ver `docs/10-roadmap/placar-conversao.md`): **1.753 acessos por 15
-operadores**, dados até **out/2025**, e complementa a Devolução de Compra que já está migrada.
+> ⚠️ **ESTA TELA JÁ ESTÁ MIGRADA** (migs **072-074** + `devolucao-compra.service.ts` / `.controller.ts` /
+> `devolucao-compra.aggregate.ts` + a tela `Devolução de Compra`). O épico que o repositório chama de
+> "Devolução de Compra" **é** este form: o pedido de devolução ao fornecedor que depois emite a NF. A
+> implementação existente já tem o saldo por item, o espelho fiscal rateado e a regra de ICMS-ST do fornecedor
+> (`parceiros.devolucao_zera_imposto_icmsst`).
+>
+> Este documento nasceu de um recon feito por engano (o form foi eleito "próximo épico" sem conferir a cobertura
+> no código — ver o registro no placar). **Fica no repositório porque o recon do LEGADO tem valor**: as fórmulas
+> abaixo são a referência para auditar a paridade do que já existe, não para reimplementar.
+
+Recon do legado (2026-08-18/19): **1.753 acessos por 15 operadores**, dados até **out/2025**.
 
 ## 1. O que a tela faz
 
