@@ -80,6 +80,60 @@ busca é por **mês fechado** (início e fim do mês anterior), não pelo perío
 Reprocessar um mês antigo, portanto, **não** recalcula os seguintes — fiel ao legado, e é o tipo de coisa que a
 tela precisa deixar claro.
 
+### Os totais: de onde saem `TotSaida`, `TotEntrada` e `TotEntradaSN`
+
+O processo monta dois resumos por CFOP — `cdsCFOP` (saídas) e `cdsCFOPE` (entradas) — e depois acumula
+(`uRelRegistros_ES.pas:2351-2374`):
+
+```
+TotSaida     = Σ VALOR_ICMS de todas as linhas do resumo de SAÍDAS
+TotEntradaSN = Σ VALOR_ICMS das entradas com CLASSFISCAL='SN' e TIPO='E'
+TotEntrada   = Σ VALOR_ICMS das demais entradas
+```
+
+⚠️ **Dois quirks do legado aqui, os dois a copiar com registro:**
+
+1. o filtro das entradas é `if not((CFOP = 1403) and (CFOP = 1556))` — **condição impossível** (um CFOP não pode ser
+   1403 **e** 1556 ao mesmo tempo), então **nunca exclui nada**. O comentário logo acima diz *"Tratativa de CFOPs
+   nao geradores de credito"*, ou seja a **intenção** era excluir 1403 e 1556 (entradas com ST, que não geram
+   crédito) e o `and` no lugar do `or` matou a regra. Copiar o comportamento (nada excluído) e registrar — mudar
+   para `or` mudaria o imposto apurado, e isso é decisão do usuário, não minha.
+2. nas saídas o comentário *"Tratativa de CFOPS nao geradores de debito"* **não tem código nenhum** embaixo: é
+   comentário órfão. Nenhuma saída é excluída além do gate de CFOP da consulta.
+
+E note que o split SN **não altera o E110**: o cabeçalho soma `TotEntrada + TotEntradaSN` de volta
+(`:2395-2396`) — a separação existe para o quadro da tela, não para o imposto.
+
+### A consulta das saídas (o recorte que define o que É documento da apuração)
+
+`uRelRegistros_ES.pas:1915-1935`:
+
+```sql
+FROM NF N
+JOIN CFOP C ON C.CODCFOP = N.CFOP AND COALESCE(C.NAO_GERA_APURACAO_ICMS,'N') = 'N'
+LEFT JOIN PARCEIROS P ON P.CODPARCEIRO = N.CODPARCEIRO
+LEFT JOIN PARCEIROS_END E ON N.CODPARCEIRO_END = E.CODEND
+WHERE N.NRONF <> '0' AND N.NRONF IS NOT NULL
+  AND ((N.STATUSNFE <> 'D') OR (N.STATUSNFE IS NULL))          -- DENEGADA fica fora
+  AND (((N.MODELO = 55) AND (N.CHAVENFE IS NOT NULL)
+        AND (COALESCE(N.STATUSNFE,'P') <> 'I')) OR (MODELO <> 55))  -- NFe só com chave e NÃO inutilizada
+  AND N.TIPO = 'S'
+  AND TRUNC(N.DTCONTABIL) BETWEEN :DI AND :DF                  -- a data é a CONTÁBIL, não a de emissão
+  AND N.IDEMPRESA = :EMP
+  AND PROC = 'S' AND CANCELADA = 'N'                           -- só nota PROCESSADA e não cancelada
+```
+
+Cinco filtros que são regra, não detalhe: **data contábil** (não emissão), **processada**, **não cancelada**,
+**denegada fora**, e **NFe sem chave ou inutilizada fora**. A espécie é literal (`'NF'`) e o `CODIGO` é
+`CODNF||'NF'` — o mesmo formato que aparece em `APURACAO_ICMS_DETALHES.CODIGO`.
+
+### A trava de contingência (compliance)
+
+Antes de apurar, `VerificaNfcContigencia` (`:1901-1907`) avisa: *"Existem NFC-e em contigência no período, estas
+não entrarão na apuração. Deseja continuar?"* — e o comentário do próprio legado explica por que a pergunta
+existe: *"Nao permite passagem devido a possibilidade de sonegacao, venda realizada, porem nao inclusa na apuracao
+de icms"*. É um aviso com consequência fiscal, e tem de aparecer na tela nova.
+
 ## 4. Irmãs vazias (cópia-fiel-negativa, registrar e não implementar)
 
 `APURACAO_IPI`, `APURACAO_ICMS_ST`, `APURACAO_ICMS_ST_AJUSTES`, `APURACAO_CIAP`,
@@ -91,9 +145,9 @@ caminho de IPI existe no fonte (datasets paralelos) mas nunca produziu dado.
 - **corte-1 — o processo da apuração**: as 3 tabelas (`apuracao_icms`, `apuracao_icms_detalhes`, `icms_cfop`) +
   `cfop.nao_gera_apuracao_icms`; a varredura de entradas e saídas do período com o gate de CFOP; o resumo por CFOP;
   o cabeçalho E110; o reprocesso idempotente (apaga detalhe/resumo e refaz) e a tela com os três quadros.
-  A fórmula do cabeçalho **já está lida** (§3) — o que falta para o corte é a apuração dos totais em si
-  (`TotEntrada`, `TotEntradaSN`, `TotSaida`), ou seja as três consultas de entradas/saídas com o gate de CFOP, e
-  confrontar as 33 apurações do golden campo a campo (inclusive o encadeamento do saldo anterior entre meses).
+  **O recon está completo** (§3): fórmula do cabeçalho, os três totais, os filtros das consultas, o gate de CFOP,
+  o reprocesso, os dois quirks e a trava de contingência. O que resta é build + confrontar as 33 apurações do
+  golden campo a campo (inclusive o encadeamento do saldo anterior entre meses).
 - **corte-2 — o elo com o SPED**: trocar a leitura do E110 (hoje o `sped-efd-icms-ipi.service` espera a apuração
   pronta) para a apuração **produzida aqui**, e conferir o registro por CFOP contra o que o SPED emite.
 - **fora, registrado**: IPI e as demais irmãs vazias.
