@@ -87,7 +87,7 @@ Total estimado: **~20,5 M linhas**. Com COPY em lotes, estimativa de carga bruta
 | dre_conta / dre_estrutura / empresa_fiscal / tributacao_reforma | seeds nossos — não carregam do Oracle |
 | empresas_senha_lockout / operadores_refresh_tokens / outbox | operacionais nossas — nascem vazias |
 | nfe_evento (singular) | conferir: alias antigo? provável tabela nossa morta — remover ou ignorar |
-| pedido_devolucao_compra_i | PEDIDO_DEVOLUCAO_COMPRA_I existe? conferir nome no Oracle na spec |
+| pedido_devolucao_compra_i | **RESOLVIDO (2026-08-18)**: o nome no Oracle é `PEDIDO_DEVOLUCAO_COMPRA_ITENS` (não `_I`) — cabeçalho `PEDIDO_DEVOLUCAO_COMPRA` 545 linhas e itens **3.809**, com pedidos até **out/2025**. A tela (FRMCADPEDIDODEVOLUCAOCOMPRAS: 1.753 acessos, 15 operadores) é VIVA. |
 
 ## 7. Riscos e decisões em aberto
 

@@ -14,13 +14,42 @@
 
 | Campo | Valor |
 |-------|-------|
-| **Data** | 2026-07-30 |
-| **Commit de referência** | `54454db` (`main`, tudo verde) |
-| **Estado de build** | api tsc 0 · api test 172 · smoke 808/0 · web tsc 0 · web test 32 · build ok |
-| **Migrations aplicadas** | até `118` |
-| **Features no `apps/web`** | 38 |
-| **Schemas em `packages/shared`** | 39 |
-| **Dossiês na retaguarda** | 32 |
+| **Data** | 2026-08-18 |
+| **Commit de referência** | `9031ec7` (`main`, tudo verde) |
+| **Estado de build** | api tsc 0 · api test 183 · smoke 972/0 · web tsc 0 · web test 37 · build ok |
+| **Migrations aplicadas** | até `158` |
+| **Features no `apps/web`** | 41 |
+| **Schemas em `packages/shared`** | 42 |
+| **Dossiês na retaguarda** | 33 |
+
+### O que entrou desde o snapshot anterior (30/07 → 18/08)
+
+Hub dos relatórios de venda (50 modelos numa tela) · Manifesto DF-e completo (fila + SEFAZ + importação) ·
+Pendências do Operador **inteiro** (fila, análise, motor de divergências, liberar com financeiro, refazer) ·
+SPED EFD-Contribuições corte-2 (natureza real da receita não-tributada) · Prévia do Fornecedor fechada ·
+impressão global (substituto do FastReport) · **cobrança bancária completa**: remessa CNAB (Itaú 400 e BB 400,
+envio/cancelamento/alteração de vencimento), retorno do banco e boleto (código de barras, linha digitável,
+instruções e ficha imprimível) · plano de carga do cutover.
+
+---
+
+## Reordenação da fila por DADO (2026-08-18)
+
+Depois de fechar a cobrança e as pendências, a fila foi reavaliada cruzando **uso real** (`MENUEXPRESS`:
+acessos e nº de operadores), **tamanho do fonte** e **liveness/recência no Oracle** — não por adjacência:
+
+| candidato | acessos | operadores | dados no Oracle | recência | veredicto |
+|---|---:|---:|---|---|---|
+| **Pedido de Devolução de Compras** (`FRMCADPEDIDODEVOLUCAOCOMPRAS`) | 1.753 | 15 | 545 pedidos + **3.809 itens** | **out/2025** | **próximo** — complementa a Devolução de Compra já migrada |
+| Fechamento diário (`FRMFECHAMENTODIARIO` + `UfinalizaFechamento`) | 389 | 8 | 3.439 fechamentos · 172.164 lançamentos · 876.927 docs | abr/2026 | forte candidato seguinte (mas ~3.500 linhas de fonte) |
+| Consulta histórico de vendas (`FRMCONSHISTVENDAS`) | 841 | 25 | leitura | — | leve; entra junto de outro corte |
+| Adiantamento a fornecedor (`FRMADIANTAMENTOFORNECEDOR`) | 699 | 11 | 563 adiantamentos | mar/2025 | fila |
+| Fechamento/sangria (`FRMFECHAMENTOSANGRIA`) | 3.339 | 20 | — | — | **é do PDV** (não existe fonte na retaguarda) ⇒ bloqueado pela decisão do usuário |
+| Devolução de vendas (`FRMDEVOLUCAOVENDAS`) | 2.412 | 26 | 2.286 | — | bloqueado: acoplado ao PDV |
+| `FRMSALDOEMPRESA` | 563 | 6 | — | — | bloqueado com prova (fonte viva inexistente) |
+
+Correção que saiu dessa rodada: o plano de carga registrava `PEDIDO_DEVOLUCAO_COMPRA_I` como "conferir se
+existe"; o nome real é **`PEDIDO_DEVOLUCAO_COMPRA_ITENS`** e a tela é viva (corrigido no plano).
 
 ---
 
