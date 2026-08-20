@@ -212,6 +212,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('167_balanco_sincronismo.sql'));
   await pool.query(sql('168_inventario_diferenca.sql'));
   await pool.query(sql('169_nf_prod_lote.sql'));
+  await pool.query(sql('170_inventario_rotativo.sql'));
   await pool.end();
   return pg;
 }

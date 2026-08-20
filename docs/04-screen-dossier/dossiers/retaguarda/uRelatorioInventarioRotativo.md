@@ -100,10 +100,18 @@ app mais nova que o fonte clonado (2020)**. Consequências para o corte:
 
 ## 7. Proposta de cortes
 
-1. **corte-1 — o lote e seu ciclo**: `inventario_rotativo` (+ `_dpto`), novo lote com os filtros
-   (grupo/subgrupo/seção/fornecedor/departamentos + `exigeconfirmacao`/`almoxarifado`/inativos), lista de lotes
-   com o estado derivado (`ABERTO` sem `FECHADO`), e o **fechar** nos dois caminhos — inclusive o carimbo das
-   coletas órfãs (`LOTE IS NULL`), que aqui vai **dentro** de transação (a divergência fica registrada).
+1. **corte-1 — ENTREGUE** (mig 170): `inventario_rotativo` (+ `_dpto`) com as 29 colunas do golden, abrir lote
+   (nome obrigatório, número de lote em sequência PRÓPRIA, filtros **NULL quando vazios** — no golden nunca são 0,
+   apesar do `StrToIntDef(...,0)` do fonte —, N departamentos e histórico de "Abertura"), alterar **só o
+   cabeçalho** (o legado não recria os departamentos), lista com o estado **derivado** (`ABERTO` sem `FECHADO`) e o
+   **fechar** nos dois caminhos. Sete checks no smoke (§87). Decisões registradas:
+   - o carimbo das coletas órfãs (`LOTE IS NULL AND IDEMPRESA = emp`) vai **dentro** de transação — o legado roda
+     esse ramo sem transação, e uma linha `FECHADO` órfã não interessa a ninguém (divergência consciente);
+   - **fechar duas vezes é permitido** (o legado não checa e cria outra linha `FECHADO`): copiado, mas o retorno
+     traz `ja_fechado: true` para a tela avisar;
+   - o histórico do legado (`SetaHistorico`, que grava na tabela `LOG` do Oracle — inexistente aqui) foi mapeado
+     em `historico_dinamico` com `tabela='INVENTARIO_ROTATIVO'`, `chave='LOTE'` e `origem` do form.
+   Front pendente (declarado): a tela entra junto com o corte-2, que é onde a coleta aparece.
 2. **corte-2 — coleta**: as quantidades (`qtd_anterior`/`qtd_atual`/`qtd_coletada`), `SUBSTITUIR` × `AUMENTAR`,
    `INVENT_GERAL_LEITURA` + importação do arquivo do coletor (com o separador da config) e o zerar-não-coletados
    com a lista de usuários autorizados.
