@@ -57,8 +57,8 @@ nenhuma referência**. Tirando backup/temporária/auditoria (`W_*`, `Z_TEMP_*`, 
 
 | tabela | linhas | período | fonte no legado | veredicto |
 |---|---:|---|---|---|
-| `ANALISE_COMP_DIA_PROD` | 2.850.037 | 2018-01 → **25/11/2025** | `URelAnaliseComportamentoPeriodo.pas` | tabela-**suporte de relatório**; as duas primeiras param no MESMO dia ⇒ job/replicação interrompida. Antes de migrar, checar se é agregado **derivável** de VENDAS |
-| `MOVIMENTACAO_DIARIA` | 2.338.168 | 2019-01 → **25/11/2025** | `uVendas.pas`, `uPedidoCompra.pas`, `uProdutosRel.pas`, `uDDE.pas` | idem — 4 escritores, cara de acumulador diário por produto |
+| ~~`ANALISE_COMP_DIA_PROD`~~ | 2.850.037 | 2018-01 → fev/2024 (depois, ruído) | `URelAnaliseComportamentoPeriodo.pas` | ⛔ **NÃO MIGRA — cache derivável** (dossiê `uAnaliseComportamento-giros.md`): acumulador do batch externo **Giros**, com roll-up redundante em `ANALISE_COMPORTAMENTO_DIARIO` (totais anuais idênticos) e staging de impressão em `REL_ANALISE_COPORTAMENTO(_GRID)` |
+| ~~`MOVIMENTACAO_DIARIA`~~ | 2.338.168 | 2019-01 → fev/2024 (depois, ruído) | `uVendas.pas`, `uPedidoCompra.pas`, `uProdutosRel.pas`, `uDDE.pas` | ⛔ **NÃO MIGRA — derivável, provado pela procedure do banco**: `GERA_MOVIMENTACAO_DIARIA` é `DELETE` do período + `INSERT` de `VENDAS` (não cancelada) ∪ `NF/NF_PROD` (`TIPO='S'`, `PROC='S'`, CFOP de venda). Os 5 consumidores só leem; o Apollo já deriva a mesma regra em `rel-sem-movimento` e `previa-fornecedor` |
 | ~~`APURACAO_ICMS_DETALHES`~~ | 1.155.893 | — | `uRelRegistros_ES.pas` + `uDMRelRegistros_ES.pas` | ✅ **ENTREGUE** (`2e47bae` mig 164 · folds `612021a` mig 165 · tela `701e4bf`): o processo que produz o E110, com as três pernas (notas de saída, **cupons** e notas de entrada), resumo por CFOP e a tela dos três quadros. A auditoria achou 6 ALTA no detalhe — todos corrigidos |
 | `BALANCOITENS` | 980.574 | (sem data) | — | conferir contra o épico Inventário antes de qualquer coisa |
 | `IMOV_ANALISE_CONCORRENTE` | 227.914 | 2023-07 → **04/02/2026** | **nenhuma** | ⛔ bloqueada (lição 35): pesquisa de concorrência sem fonte no repo clonado |
@@ -69,6 +69,18 @@ nenhuma referência**. Tirando backup/temporária/auditoria (`W_*`, `Z_TEMP_*`, 
 Duas coisas que a varredura ensinou e valem para as próximas: **tabela grande sem código pode ser acumulador de
 relatório** (derivável, não migrável) e **tabela viva sem fonte no repo clonado é bloqueio, não pendência** — o
 mesmo veredicto do `FRMSALDOEMPRESA`.
+
+**As duas maiores da fila caíram por prova (2026-08-19).** `MOVIMENTACAO_DIARIA` + `ANALISE_COMP_DIA_PROD` +
+`ANALISE_COMPORTAMENTO_DIARIO` + `REL_ANALISE_COPORTAMENTO(_GRID)` = **5,2 milhões de linhas de cache** escritas
+por um batch externo (o app **Giros**, `uAnaliseComportamento.pas:214-217`; `PROCESSOS.NOMEPROCESSO='GIROS'`,
+última execução 04/12/2025 às 09:55, 22 s, manual) cuja rotina diária **parou em fev/2024** — e sem fonte em
+`/Library/SicomGit`. Nenhuma delas se migra: a regra é derivável de `VENDAS` ∪ `NF/NF_PROD` e o Apollo **já a
+aplica** (`rel-sem-movimento.service.ts` deriva o movimento das duas pernas; `previa-fornecedor.service.ts` tem
+`somenteComGiro`/`dias_com_movimento`). Lição prática: **antes de olhar volume, procure o escritor** — quando ele
+é uma procedure de `DELETE`+`INSERT` ou um app externo, a tabela é cache, e o veredicto vale mais que um corte.
+O que sobrou de real é um **épico de tela sem tabela**: `FRMANALISECOMPORTAMENTO` (BI mensal — 9 indicadores ×
+semanas 1-5 + comparativo mês/ano anterior, permissão 34/15) e `FRMRELANALISECOMPORTAMENTOPERIODO` (período de
+referência × 2 comparações, 34/15). Dossiê: `docs/04-screen-dossier/dossiers/retaguarda/uAnaliseComportamento-giros.md`.
 
 ### O alvo do PDV caiu — e o que entrou no lugar (2026-08-19)
 
