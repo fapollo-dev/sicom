@@ -64,7 +64,7 @@ nenhuma referência**. Tirando backup/temporária/auditoria (`W_*`, `Z_TEMP_*`, 
 | `IMOV_ANALISE_CONCORRENTE` | 227.914 | 2023-07 → **04/02/2026** | **nenhuma** | ⛔ bloqueada (lição 35): pesquisa de concorrência sem fonte no repo clonado |
 | `CARTAO_SELECAO` | 116.415 | 2024-03 → **04/03/2026** | **nenhuma** | ⛔ bloqueada pelo mesmo motivo (satélite do épico Cartões) |
 | `NFE_INUTILIZADA` | 44.758 | 2020-08 → **28/05/2026** (a mais recente de todas) | `UNFE_Inutilizada.pas` + `uDMNFE_INUTILIZADA.pas` + `NFe.pas` | ⚠️ **PDV-adjacente**: **44.757 das 44.758** são `TIPONF='NFCE'` (só 1 é NFE) e a faixa é sempre de UM número — é numeração de cupom eletrônico pulada no PDV. A tela é da retaguarda, o dado é do PDV ⇒ fora da regra vigente ("nada do PDV") |
-| `NF_PROD_LOTE` | 56.521 | datas de validade com lixo (0202, 4790) | — | rastreabilidade de lote/validade por item de NF; conferir fonte antes |
+| ~~`NF_PROD_LOTE`~~ | 56.521 | criação para em **fev/2024** | `NFe.pas`, `uItensNF.pas`, `uNFLoteValidade.pas`, `udmNF` | ✅ **corte-1 ENTREGUE** (mig 169, dossiê `uNFLoteValidade-rastro.md`): é o grupo **`rastro`** do XML da NF-e (regra fiscal, não resíduo) — o parser passou a lê-lo e a importação grava os lotes com o `Locate(CODNFPROD;LOTE)` do legado (índice único de expressão com `coalesce(lote,'')`). `CONTROLE_VALIDADE='S'` em 41.540/43.116 produtos. **Sem validação retroativa**: 38.914 das 56.521 linhas têm LOTE em branco e 5 têm validade no ano 4790. Falta a emissão (`qLote = quantidade ÷ nº de lotes`) e a tela do item |
 
 Duas coisas que a varredura ensinou e valem para as próximas: **tabela grande sem código pode ser acumulador de
 relatório** (derivável, não migrável) e **tabela viva sem fonte no repo clonado é bloqueio, não pendência** — o

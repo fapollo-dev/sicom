@@ -40,6 +40,11 @@ export interface NfeItemParsed {
   vBcPisCofins: number; // base do PIS/COFINS (grupo PIS.vBC — mesma base p/ COFINS)
   vPIS: number; // valor do PIS (crédito de entrada) — XML verbatim
   vCOFINS: number; // valor do COFINS (crédito de entrada) — XML verbatim
+  /**
+   * grupo `rastro` (I80 do layout): lote/validade por item. O legado grava cada um em `NF_PROD_LOTE` decidindo
+   * entre editar e inserir por (CODNFPROD, LOTE) — `NFe.pas:4212-4225`. Repete por item, então força array.
+   */
+  rastro: Array<{ nLote: string; qLote: number; dFab?: string; dVal?: string }>;
 }
 
 /** duplicata do XML (`<cobr><dup>`) → 1 título A Pagar (corte-4). dVenc é 'YYYY-MM-DD' (date-only, sem fuso). */
@@ -131,6 +136,8 @@ export function parseNfeXml(xml: string): NfeParsed {
     const cof = primeiro(imp.COFINS);
     const cst = str(icms.CST) || undefined;
     const csosn = str(icms.CSOSN) || undefined;
+    // `rastro` é 0..500 por item; com um único ocorrência o fast-xml-parser devolveria objeto (o bug clássico)
+    const rastros: any[] = Array.isArray(prod.rastro) ? prod.rastro : prod.rastro ? [prod.rastro] : [];
     return {
       nItem: Number(str(d['@_nItem'])) || i + 1,
       cProd: str(prod.cProd),
@@ -163,6 +170,12 @@ export function parseNfeXml(xml: string): NfeParsed {
       vBcPisCofins: num(pis.vBC),
       vPIS: num(pis.vPIS),
       vCOFINS: num(cof.vCOFINS),
+      rastro: rastros.map((r) => ({
+        nLote: str(r?.nLote),
+        qLote: num(r?.qLote),
+        dFab: str(r?.dFab) || undefined,
+        dVal: str(r?.dVal) || undefined,
+      })),
     };
   });
 

@@ -7762,6 +7762,29 @@ async function main() {
       impCf.status === 200 && nfCf?.cfop === '1910' && Number(impCfJ.titulosApagar) === 0 && apsCf === 0,
       { status: impCf.status, cfop: nfCf?.cfop, titulos: impCfJ.titulosApagar, aps: apsCf });
 
+    // 53.3) RASTREABILIDADE (grupo `rastro` do XML → NF_PROD_LOTE, NFe.pas:4212-4225): o item 1 traz três rastros,
+    // sendo DOIS do mesmo lote (o legado faz Locate por CODNFPROD;LOTE e EDITA o que achou) e um com lote em
+    // BRANCO (69% do golden é assim); o item 2 não traz rastro nenhum.
+    const nnfRa = 900081;
+    const RASTRO =
+      '<rastro><nLote>L-AAA</nLote><qLote>6.0000</qLote><dFab>2026-01-10</dFab><dVal>2027-01-10</dVal></rastro>'
+      + '<rastro><nLote>L-AAA</nLote><qLote>4.0000</qLote><dVal>2028-02-20</dVal></rastro>'
+      + '<rastro><nLote></nLote><qLote>1.0000</qLote><dVal>2029-03-30</dVal></rastro>';
+    const xmlRa = mkXml(mkChave(nnfRa), nnfRa).replace('<vProd>50.00</vProd></prod>', '<vProd>50.00</vProd>' + RASTRO + '</prod>');
+    const impRa = await importar(xmlRa);
+    const impRaJ = (await impRa.json().catch(() => ({}))) as any;
+    const lotes = (await pgImp.query(
+      `SELECT l.lote, to_char(l.dtvalidade,'YYYY-MM-DD') AS dval, to_char(l.dtfabricacao,'YYYY-MM-DD') AS dfab, p.nroitem, l.idproduto
+         FROM nf_prod_lote l JOIN nf_prod p ON p.codnfprod = l.codnfprod
+        WHERE p.codnf = $1 ORDER BY p.nroitem, l.lote NULLS LAST`, [Number(impRaJ.codnf)])).rows as any[];
+    const lAAA = lotes.find((x: any) => x.lote === 'L-AAA');
+    const lBranco = lotes.find((x: any) => x.lote === null || x.lote === '');
+    check('RASTRO 53.3: o grupo `rastro` do XML importado vira NF_PROD_LOTE — 2 linhas no item 1 (o SEGUNDO rastro do mesmo lote EDITA o primeiro, como o Locate(CODNFPROD;LOTE) do legado: validade fica 2028-02-20 e a fabricação some) e uma linha de lote EM BRANCO (69% do golden é assim, então nada de exigir lote); o item 2, sem rastro, não gera nenhuma',
+      impRa.status === 200 && lotes.length === 2 && lotes.every((x: any) => Number(x.nroitem) === 1)
+      && !!lAAA && lAAA.dval === '2028-02-20' && lAAA.dfab === null
+      && !!lBranco && lBranco.dval === '2029-03-30' && Number(lAAA.idproduto) > 0,
+      { status: impRa.status, lotes });
+
     await pgImp.end();
 
     // 56) PRECIFICAÇÃO — motor completo (custo líquido + PMZ + margem líquida) via POST /precificacao/produto.

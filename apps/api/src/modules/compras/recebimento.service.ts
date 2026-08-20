@@ -381,6 +381,41 @@ export class RecebimentoService {
     const codpedcomp = dto.codpedcomp ?? null;
     const codnf = await this.persistirComVinculo(dtoNf, codpedcomp, emp, op, codparceiro);
 
+    // RASTREABILIDADE (grupo `rastro` do XML → NF_PROD_LOTE): fiel a NFe.pas:4212-4225, que percorre os rastros do
+    // item e decide entre EDITAR e INSERIR por (CODNFPROD, LOTE). Aqui o upsert usa a mesma chave. Não valida lote
+    // em branco nem validade absurda: 38.914 das 56.521 linhas do golden têm LOTE vazio e 5 têm validade no ano
+    // 4790. Best-effort — o XML já está gravado e a NF importada não pode cair por causa do rastro.
+    try {
+      const comRastro = resolvidos
+        .map((r, idx) => ({ nroitem: r.it.nItem || idx + 1, idproduto: r.idproduto, rastro: r.it.rastro ?? [] }))
+        .filter((x) => x.rastro.length);
+      if (comRastro.length) {
+        const db2 = this.dbp.forTenant() as AnyDB;
+        const itensGravados = (await db2
+          .selectFrom('nf_prod')
+          .select(['codnfprod', 'nroitem'])
+          .where('codnf', '=', codnf)
+          .execute()) as Array<{ codnfprod: number; nroitem: number }>;
+        const porItem = new Map<number, number>(itensGravados.map((i) => [Number(i.nroitem), Number(i.codnfprod)]));
+        for (const x of comRastro) {
+          const codnfprod = porItem.get(x.nroitem);
+          if (codnfprod == null) continue;
+          for (const l of x.rastro) {
+            // o upsert usa o índice de EXPRESSÃO (codnfprod, coalesce(lote,'')) — daí o SQL cru: o
+            // `onConflict().columns()` do Kysely só aceita nome de coluna. É o Locate→Edit/Insert do legado.
+            await sql`
+              INSERT INTO nf_prod_lote (codnfprod, idempresa, idproduto, lote, dtvalidade, dtfabricacao)
+              VALUES (${codnfprod}, ${emp}, ${x.idproduto}, ${l.nLote || null}, ${l.dVal ?? null}::date, ${l.dFab ?? null}::date)
+              ON CONFLICT (codnfprod, coalesce(lote, ''))
+              DO UPDATE SET dtvalidade = EXCLUDED.dtvalidade, dtfabricacao = EXCLUDED.dtfabricacao
+            `.execute(db2);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[recebimento] falha ao gravar rastreabilidade de lote (prosseguiu)', { codnf, erro: (e as Error)?.message });
+    }
+
     // marca Total/Parcial na NF importada vinculada (fold auditoria: o gerarNf setava, o import não). Best-effort:
     // após esta NF, o saldo do pedido zerou? → 'Total', senão 'Parcial'. Metadado informativo (não derruba o import).
     if (codpedcomp != null) {
