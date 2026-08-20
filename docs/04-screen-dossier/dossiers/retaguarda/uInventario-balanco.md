@@ -223,7 +223,22 @@ o **escritor** de `alterado` é a digitação na grade (lição: coluna nova de 
    recente é de outra empresa (aí o saldo inicial entra zero). Seis checks no smoke (§83c) e os dois comandos na
    tela. Nota de fuso: a perna de `vendas` usa `dtvenda AT TIME ZONE <FUSO_HORARIO_ACESSO>` (lição 17) — o legado
    usa `TRUNC(V.DTVENDA)` porque no Oracle a coluna é `DATE` sem fuso.
-3. **corte-3 — relatório e bordas**: "Relatório Diferença do Balanço para Estoque" (exige `alterado`/`qtde_ist`),
-   "Atualizar Custo a partir do Cadastro", "Zerar Qtde na Grade".
+3. **corte-3 — ENTREGUE** (mig 168), e a medição do golden **derrubou a premissa do próprio dossiê**: a tabela
+   `INVENTARIO` do Oracle **não tem `QTDE_IST`** (nem `STATUS`, `TOTAL_CUSTO`, `TOTAL_VENDA`, `SELECIONAR` — todos
+   campos calculados do ClientDataSet), e `ALTERADO` é `'N'` em **79.119 das 79.190** linhas, NULL em 71, **nunca
+   'T'**. Motivo: o `'T'` só é gravado no Enter da grade (uInventario.pas:2239, em memória) e o save em massa grava
+   `'N'`/`'S'` por cima — o relatório é feito para rodar ANTES de gravar. Consequências no que foi construído:
+   - **nenhuma coluna inventada**: entraram só `alterado` e `diferenca` (que existem no golden); `qtde_ist` NÃO;
+   - o relatório é **read-only** (o legado restaura `QTDE := QTDE_IST` depois de imprimir, linhas 2042-2054) e
+     recebe `alteradas` = o estado da grade; sem isso o retorno é o do golden (tudo com diferença 0 e quantidade
+     impressa 0) e vem com `aviso` dizendo por quê. A cascata de 9 casos fica coberta ramo a ramo no smoke;
+   - **quirk de sinal confirmado no teste**: sistema 8 × contado 0 devolve **+8**, enquanto sistema 10 × contado 4
+     devolve **−6** — o legado não inverte o sinal quando o contado é zero;
+   - "Zerar Qtde na Grade" respeita o filtro de negativas da grade (`somenteNegativos`) e **não** tem gate de
+     config: a `USUARIOS_ZERAM_ESTOQUE_INVENTARIO` é do inventário ROTATIVO (`uInvRotativoGrid.pas`);
+   - "Atualizar Custo a partir do Cadastro" toca só as linhas selecionadas, com a regra FISCAL/fallback; produto
+     sem `multi_preco` na empresa é ignorado (o `Locate` do legado falha e ele segue).
+   Seis checks no smoke (§83d). **Pendência declarada de front**: o "Atualizar Custo" ficou só na API porque a
+   grade do Apollo ainda não tem marcação por linha (o `SELECIONAR` do legado); entra quando a grade ganhar isso.
 4. fora do escopo deste épico: "Restituição de tributação" (fiscal) e o CRUD `FRMCADBALANCO`, se o usuário
    preferir manter a foto só como subproduto do inventário.

@@ -102,3 +102,25 @@ export function importarBalancoSincronizar(id: number, body: { codbalanco: numbe
 export function sincronizarInventario(id: number, body: { dtinicial?: string }): Promise<{ atualizados: number; zerados: number; dtinicial: string; dtfinal: string; dtbalanco: string | null; aviso?: string }> {
   return req(`/cadastro/inventario/${id}/sincronizar`, { method: 'POST', body: JSON.stringify(body) });
 }
+
+/**
+ * POST cadastro/inventario/:id/relatorio-diferenca — o "Relatório Diferença do Balanço para Estoque", READ-ONLY.
+ * `alteradas` é o estado da grade (as linhas que o operador tocou): no legado o 'T' só vive em memória entre o
+ * Enter e o Gravar, e sem ele o relatório sai todo zerado — que é o que o dado do golden mostra.
+ */
+export interface DiferencaBalancoLinha {
+  idproduto: number; descricao: string | null; sistema: number; contado: number;
+  qtde_impressa: number; qtde_ist: number; diferenca: number; alterado: boolean;
+}
+export function relatorioDiferencaBalanco(id: number, body: { alteradas?: Array<{ idproduto: number; qtde?: number }> }): Promise<{ itens: DiferencaBalancoLinha[]; total_diferenca: number; alteradas: number; aviso?: string }> {
+  return req(`/cadastro/inventario/${id}/relatorio-diferenca`, { method: 'POST', body: JSON.stringify(body) });
+}
+/** POST cadastro/inventario/:id/zerar-qtde — zera a QTDE das linhas visíveis (o filtro de negativos da grade). */
+export function zerarQtdeInventario(id: number, body: { somenteNegativos?: boolean }): Promise<{ codinvent: number; zerados: number }> {
+  return req(`/cadastro/inventario/${id}/zerar-qtde`, { method: 'POST', body: JSON.stringify(body) });
+}
+/** POST cadastro/inventario/:id/atualizar-custo — custo do cadastro nas linhas selecionadas (front pendente: a
+ * grade ainda não tem marcação por linha, que é o `SELECIONAR` do legado). */
+export function atualizarCustoInventario(id: number, body: { idprodutos: number[] }): Promise<{ codinvent: number; atualizados: number }> {
+  return req(`/cadastro/inventario/${id}/atualizar-custo`, { method: 'POST', body: JSON.stringify(body) });
+}

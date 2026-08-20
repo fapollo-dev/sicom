@@ -11,6 +11,7 @@ import {
   listarInventarios, obterInventario, criarInventario, atualizarInventario,
   importarProdutosInventario, diferencasInventario, aplicarInventario,
   listarBalancos, gerarBalanco, importarBalanco, importarBalancoSincronizar, sincronizarInventario,
+  relatorioDiferencaBalanco, zerarQtdeInventario, type DiferencaBalancoLinha,
   type InventarioLivro, type InventarioDetalhe, type BalancoLinha,
 } from './inventarioApi';
 
@@ -37,6 +38,8 @@ export function InventarioPage() {
   const [balancos, setBalancos] = useState<BalancoLinha[]>([]);
   const [balancoSel, setBalancoSel] = useState('');
   const [dtSinc, setDtSinc] = useState('');
+  const [soNegativas, setSoNegativas] = useState(false);
+  const [relDif, setRelDif] = useState<{ itens: DiferencaBalancoLinha[]; total: number; aviso?: string } | null>(null);
 
   const carregarLista = useCallback(async () => {
     setCarregando(true);
@@ -223,6 +226,44 @@ export function InventarioPage() {
     }
   };
 
+  /**
+   * RELATÓRIO DE DIFERENÇA (read-only). Manda como `alteradas` as linhas cuja contagem foi editada na tela — é o
+   * equivalente ao 'T' que o Enter da grade do legado põe em memória (e que o Gravar sobrescreve, razão pela qual
+   * no golden ALTERADO nunca é 'T'). Sem nenhuma edição, sai tudo zerado, como no legado.
+   */
+  const verRelatorioDiferenca = async () => {
+    if (!sel || busy) return;
+    const tocadas = (sel.itens ?? [])
+      .filter((i) => (contagem[i.idproduto] ?? Number(i.qtde)) !== Number(i.qtde))
+      .map((i) => ({ idproduto: i.idproduto, qtde: contagem[i.idproduto] ?? Number(i.qtde) }));
+    setBusy(true);
+    try {
+      const r = await relatorioDiferencaBalanco(sel.codinvent, tocadas.length ? { alteradas: tocadas } : {});
+      setRelDif({ itens: r.itens, total: r.total_diferenca, aviso: r.aviso });
+      if (r.aviso) mensagem.sucesso(r.aviso);
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** ZERAR QTDE NA GRADE — com o filtro de negativas, é o check "filtra negativos" do legado. */
+  const zerarQtdes = async () => {
+    if (!sel || busy) return;
+    if (!window.confirm(soNegativas ? 'Zerar a quantidade das linhas NEGATIVAS?' : 'Zerar a quantidade de TODAS as linhas da folha?')) return;
+    setBusy(true);
+    try {
+      const r = await zerarQtdeInventario(sel.codinvent, soNegativas ? { somenteNegativos: true } : {});
+      mensagem.sucesso(`${r.zerados} linha(s) zerada(s).`);
+      await abrir(sel.codinvent);
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // ─────────────────────────── DETALHE (livro aberto) ───────────────────────────
   if (sel) {
     const itens = sel.itens ?? [];
@@ -239,6 +280,9 @@ export function InventarioPage() {
             <Field label="Senha de &operação (ADM)" type="password" autoComplete="off" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="senha ADM" />
           </div>
           <Button label="&Aplicar ao estoque" variant="soft" disabled={busy || !itens.length || !senha} onClick={() => void aplicar()} />
+          <CheckboxField label="Só n&egativas (zerar)" value={soNegativas ? 'S' : 'N'} onChange={(v) => setSoNegativas(v === 'S')} />
+          <Button label="&Zerar qtdes" variant="ghost" disabled={busy || !itens.length} onClick={() => void zerarQtdes()} />
+          <Button label="&Relatório de diferença" variant="ghost" disabled={busy || !itens.length} onClick={() => void verRelatorioDiferenca()} />
           <Button label="&Voltar" variant="ghost" onClick={() => { setSel(null); void carregarLista(); }} />
         </div>
         {/* BALANÇO (a foto de estoque) — os dois comandos do popup do legado que giram nela */}
@@ -298,6 +342,43 @@ export function InventarioPage() {
             </tbody>
           </table>
         </div>
+        {relDif && (
+          /* RELATÓRIO DIFERENÇA DO BALANÇO PARA ESTOQUE — read-only: o legado imprime do dataset em memória e
+             restaura a quantidade depois. A fórmula é a cascata por sinal, diferente da diferença do grid. */
+          <div className="flex flex-col gap-gp-xs rounded-radius-md border border-border bg-bg-surface p-pad-md">
+            <div className="flex items-baseline justify-between">
+              <strong className="text-body-sm">Relatório: diferença do balanço para o estoque</strong>
+              <span className="text-body-sm">Total: {q3(relDif.total)}</span>
+            </div>
+            {relDif.aviso && <span className="text-xs text-fg-muted">{relDif.aviso}</span>}
+            <div className="max-h-80 overflow-auto">
+              <table className="w-full text-body-sm">
+                <thead className="sticky top-0 bg-bg-surface">
+                  <tr className="border-b border-border text-left">
+                    <th className="p-pad-xs">Produto</th>
+                    <th className="p-pad-xs">Descrição</th>
+                    <th className="p-pad-xs text-right">Sistema</th>
+                    <th className="p-pad-xs text-right">Contado</th>
+                    <th className="p-pad-xs text-right">Impresso</th>
+                    <th className="p-pad-xs text-right">Diferença</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {relDif.itens.map((l) => (
+                    <tr key={l.idproduto} className={`border-b border-border-subtle${l.alterado ? '' : ' text-fg-muted'}`}>
+                      <td className="p-pad-xs">{l.idproduto}</td>
+                      <td className="p-pad-xs">{l.descricao ?? ''}</td>
+                      <td className="p-pad-xs text-right">{q3(l.sistema)}</td>
+                      <td className="p-pad-xs text-right">{q3(l.contado)}</td>
+                      <td className="p-pad-xs text-right">{q3(l.qtde_impressa)}</td>
+                      <td className="p-pad-xs text-right">{q3(l.diferenca)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

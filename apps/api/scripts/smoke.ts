@@ -9033,6 +9033,101 @@ async function main() {
       }
     }
 
+    // ===== §83d) BALANÇO corte-3 — "Relatório Diferença do Balanço para Estoque" (a SEGUNDA fórmula de diferença,
+    // read-only) + "Zerar Qtde na Grade" + "Atualizar Custo à partir do Cadastro" ====
+    {
+      const INV = 'cadastro/inventario';
+      const pgD = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // sete produtos, um por ramo da cascata de sinais do legado (uInventario.pas:2000-2022)
+        const P = [990880, 990881, 990882, 990883, 990884, 990885, 990886];
+        for (const [i, id] of P.entries()) {
+          await pgD.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo)
+            VALUES ($1,$2,$3,'UN',2,'T01','S') ON CONFLICT (idproduto) DO NOTHING`, [id, `78990009908${80 + i}`, `PROD DIF ${i + 1}`]);
+        }
+        await pgD.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, vrcustofiscal) VALUES
+          (990880,1,7.00,9,3.33),(990881,1,7.00,9,NULL),(990882,1,7.00,9,NULL),(990883,1,7.00,9,NULL),
+          (990884,1,7.00,9,NULL),(990885,1,7.00,9,NULL)
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=EXCLUDED.vrcusto, vrcustofiscal=EXCLUDED.vrcustofiscal`); // 990886 SEM multi_preco
+        // saldos de sistema por caso
+        for (const [id, q] of [[990880, 10], [990881, 10], [990882, 0], [990883, 8], [990884, -5], [990885, -5], [990886, 6]] as Array<[number, number]>) {
+          await pgD.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES ($1,1,$2) ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde=$2`, [id, q]);
+        }
+        const livD = (await pgD.query(`INSERT INTO inventario_livro (idempresa,dtinventario,tipoinventario,descricao,indr) VALUES (1,'2027-07-31',1,'INV DIFERENCA','I') RETURNING codinvent`)).rows[0] as any;
+        // contagem gravada: os valores de cada caso
+        for (const [id, q] of [[990880, 4], [990881, 15], [990882, 7], [990883, 0], [990884, 3], [990885, -2], [990886, -3]] as Array<[number, number]>) {
+          await pgD.query(`INSERT INTO inventario (codinvent,idempresa,idproduto,unidade,qtde,vrcusto,vrvenda,tipo) VALUES ($1,1,$2,'UN',$3,1,1,'P')`, [livD.codinvent, id, q]);
+        }
+
+        // 83d.1) SEM `alteradas`: é o comportamento do GOLDEN (ALTERADO='N' em 79.119 de 79.190 linhas) — todas as
+        // linhas saem com diferença 0, quantidade impressa 0 e a contagem preservada em qtde_ist, com aviso.
+        const r0 = await fetch(`${base}/${INV}/${livD.codinvent}/relatorio-diferenca`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+        const r0J = (await r0.json().catch(() => ({}))) as any;
+        const semAlt = (r0J.itens ?? []) as any[];
+        check('BALANÇO §83d.1: o relatório de diferença SEM linha alterada reproduz o golden — 7 linhas com diferença 0, quantidade impressa 0 e a contagem preservada em qtde_ist (o ramo `else` de uInventario.pas:2024-2029), com aviso explicando que ALTERADO nunca é "T" no dado real',
+          r0.status === 200 && semAlt.length === 7 && Number(r0J.total_diferenca) === 0 && Number(r0J.alteradas) === 0
+          && semAlt.every((x: any) => Number(x.diferenca) === 0 && Number(x.qtde_impressa) === 0)
+          && Number(semAlt.find((x: any) => x.idproduto === 990880)?.qtde_ist) === 4 && typeof r0J.aviso === 'string',
+          { total: r0J.total_diferenca, alteradas: r0J.alteradas, primeira: semAlt[0] });
+
+        // 83d.2) COM as 7 linhas marcadas: a cascata por sinal, ramo a ramo.
+        const rC = await fetch(`${base}/${INV}/${livD.codinvent}/relatorio-diferenca`, { method: 'POST', headers: H, body: JSON.stringify({ alteradas: P.map((idproduto) => ({ idproduto })) }) });
+        const rCJ = (await rC.json().catch(() => ({}))) as any;
+        const d = (id: number) => Number(((rCJ.itens ?? []) as any[]).find((x: any) => Number(x.idproduto) === id)?.diferenca);
+        check('BALANÇO §83d.2: a SEGUNDA fórmula (a do relatório, ≠ a do grid) ramo a ramo — sistema 10 × contado 4 → **−6** · 10 × 15 → +5 · 0 × 7 → +7 · 8 × 0 → **+8** (o legado NÃO inverte o sinal quando o contado é zero: quirk, o caso análogo com contado 4 dá negativo) · −5 × 3 → +8 · −5 × −2 → −7 · 6 × −3 → +3',
+          rC.status === 200 && Number(rCJ.alteradas) === 7
+          && d(990880) === -6 && d(990881) === 5 && d(990882) === 7 && d(990883) === 8
+          && d(990884) === 8 && d(990885) === -7 && d(990886) === 3,
+          { difs: P.map((id) => [id, d(id)]), total: rCJ.total_diferenca });
+
+        // 83d.3) o relatório NÃO grava (o legado restaura a QTDE depois de imprimir).
+        const naoGravou = (await pgD.query(`SELECT qtde, coalesce(alterado,'N') AS alterado, diferenca FROM inventario WHERE codinvent=$1 AND idproduto=990880`, [livD.codinvent])).rows[0] as any;
+        check('BALANÇO §83d.3: o relatório é READ-ONLY — a folha segue com a contagem 4, alterado "N" e diferenca NULL (o legado mexe no dataset em memória e RESTAURA a quantidade depois de imprimir, uInventario.pas:2042-2054)',
+          Number(naoGravou?.qtde) === 4 && naoGravou?.alterado === 'N' && naoGravou?.diferenca === null, { linha: naoGravou });
+
+        // 83d.4) "Atualizar Custo à partir do Cadastro": só as SELECIONADAS; produto sem multi_preco é ignorado;
+        // com VRCUSTO_INVENTARIO='FISCAL' usa vrcustofiscal com fallback p/ vrcusto.
+        const cfgA = (await pgD.query(`SELECT valor FROM configuracoes WHERE codigo='VRCUSTO_INVENTARIO'`)).rows[0]?.valor ?? null;
+        await pgD.query(`UPDATE configuracoes SET valor='FISCAL' WHERE codigo='VRCUSTO_INVENTARIO'`);
+        const ac = await fetch(`${base}/${INV}/${livD.codinvent}/atualizar-custo`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [990880, 990881, 990886] }) });
+        const acJ = (await ac.json().catch(() => ({}))) as any;
+        const custos = (await pgD.query(`SELECT idproduto, vrcusto FROM inventario WHERE codinvent=$1 AND idproduto IN (990880,990881,990882,990886) ORDER BY idproduto`, [livD.codinvent])).rows as any[];
+        const cst = (id: number) => Number(custos.find((x: any) => Number(x.idproduto) === id)?.vrcusto);
+        await pgD.query(`UPDATE configuracoes SET valor=$1 WHERE codigo='VRCUSTO_INVENTARIO'`, [cfgA]);
+        check('BALANÇO §83d.4: "Atualizar Custo à partir do Cadastro" só toca as SELECIONADAS (2 de 3: o 990886 não tem preço na empresa e o legado o ignora) e, com VRCUSTO_INVENTARIO=FISCAL, grava o vrcustofiscal (3,33) com fallback p/ vrcusto (7,00); a linha NÃO selecionada (990882) segue com 1,00',
+          ac.status === 200 && Number(acJ.atualizados) === 2 && Math.abs(cst(990880) - 3.33) < 0.001
+          && Math.abs(cst(990881) - 7) < 0.001 && Math.abs(cst(990882) - 1) < 0.001 && Math.abs(cst(990886) - 1) < 0.001,
+          { ac: acJ, custos });
+
+        // 83d.5) "Zerar Qtde na Grade": com o filtro de negativos zera só as negativas (2 linhas), depois tudo.
+        const z1 = await fetch(`${base}/${INV}/${livD.codinvent}/zerar-qtde`, { method: 'POST', headers: H, body: JSON.stringify({ somenteNegativos: true }) });
+        const z1J = (await z1.json().catch(() => ({}))) as any;
+        const negs = Number((await pgD.query(`SELECT count(*)::int AS n FROM inventario WHERE codinvent=$1 AND qtde < 0`, [livD.codinvent])).rows[0]?.n);
+        const q15 = Number((await pgD.query(`SELECT qtde FROM inventario WHERE codinvent=$1 AND idproduto=990881`, [livD.codinvent])).rows[0]?.qtde);
+        const z2 = await fetch(`${base}/${INV}/${livD.codinvent}/zerar-qtde`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+        const z2J = (await z2.json().catch(() => ({}))) as any;
+        const somaFinal = Number((await pgD.query(`SELECT coalesce(sum(qtde),0) AS s FROM inventario WHERE codinvent=$1`, [livD.codinvent])).rows[0]?.s);
+        check('BALANÇO §83d.5: "Zerar Qtde na Grade" respeita o filtro da grade — com "somente negativos" zera as 2 linhas negativas e deixa a de 15 intacta; sem filtro zera as 7 (soma final 0)',
+          z1.status === 200 && Number(z1J.zerados) === 2 && negs === 0 && q15 === 15
+          && z2.status === 200 && Number(z2J.zerados) === 7 && somaFinal === 0, { z1: z1J, z2: z2J, q15, somaFinal });
+
+        // 83d.6) RBAC: relatório = BTNIMPRIMIR, atualizar-custo = ATUALIZACUSTODOINVENTRIOCOMOPRODUTO1, zerar = tela.
+        const rb1 = await fetch(`${base}/${INV}/${livD.codinvent}/relatorio-diferenca`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({}) });
+        const rb2 = await fetch(`${base}/${INV}/${livD.codinvent}/atualizar-custo`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ idprodutos: [990880] }) });
+        const rb3 = await fetch(`${base}/${INV}/${livD.codinvent}/zerar-qtde`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({}) });
+        check('BALANÇO §83d.6: sem grant → 403 nos três (BTNIMPRIMIR e ATUALIZACUSTODOINVENTRIOCOMOPRODUTO1 são opções do golden; zerar responde ao gate da tela, que é como o popup do legado o trata)',
+          rb1.status === 403 && rb2.status === 403 && rb3.status === 403, { rb: [rb1.status, rb2.status, rb3.status] });
+
+        // cleanup
+        await pgD.query(`DELETE FROM inventario_livro WHERE codinvent=$1`, [livD.codinvent]);
+        await pgD.query(`DELETE FROM estoque WHERE idproduto = ANY($1::int[])`, [P]);
+        await pgD.query(`DELETE FROM multi_preco WHERE idproduto = ANY($1::int[])`, [P]);
+        await pgD.query(`DELETE FROM produtos WHERE idproduto = ANY($1::int[])`, [P]);
+      } finally {
+        await pgD.end();
+      }
+    }
+
     // ===== §84) COTAÇÃO DE COMPRA (FRMCADCOTACAO) — corte-1: estrutura + preços =====
     {
       const CT = 'compras/cotacao';

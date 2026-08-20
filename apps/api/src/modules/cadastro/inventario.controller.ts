@@ -2,8 +2,10 @@ import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards }
 import {
   importarProdutosInventarioSchema, aplicarInventarioSchema, gerarBalancoSchema, importarBalancoSchema,
   importarBalancoSincronizarSchema, sincronizarInventarioSchema,
+  relatorioDiferencaBalancoSchema, zerarQtdeInventarioSchema, atualizarCustoInventarioSchema,
   type ImportarProdutosInventarioDto, type AplicarInventarioDto, type GerarBalancoDto, type ImportarBalancoDto,
   type ImportarBalancoSincronizarDto, type SincronizarInventarioDto,
+  type RelatorioDiferencaBalancoDto, type ZerarQtdeInventarioDto, type AtualizarCustoInventarioDto,
 } from '@apollo/shared';
 import { InventarioService } from './inventario.service';
 import { BalancoService } from './balanco.service';
@@ -108,6 +110,42 @@ export class InventarioController {
     @Body(new ZodValidationPipe(sincronizarInventarioSchema)) body: SincronizarInventarioDto,
   ) {
     return this.balanco.sincronizarMovimentos(id, body);
+  }
+
+  /**
+   * "Relatório Diferença do Balanço para Estoque" — READ-ONLY (o legado imprime do dataset em memória e restaura
+   * a quantidade depois). Opção RBAC do golden: BTNIMPRIMIR.
+   */
+  @Post(':id/relatorio-diferenca')
+  @HttpCode(200)
+  @RequerAcesso('FRMINVENTARIO', 'BTNIMPRIMIR')
+  relatorioDiferenca(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(relatorioDiferencaBalancoSchema)) body: RelatorioDiferencaBalancoDto,
+  ) {
+    return this.balanco.relatorioDiferenca(id, body);
+  }
+
+  /** "Zerar Qtde na Grade" — sem opção própria no golden ⇒ gate da tela. `somenteNegativos` copia o filtro da grade. */
+  @Post(':id/zerar-qtde')
+  @HttpCode(200)
+  @RequerAcesso('FRMINVENTARIO', 'FRMINVENTARIO')
+  zerarQtde(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(zerarQtdeInventarioSchema)) body: ZerarQtdeInventarioDto,
+  ) {
+    return this.balanco.zerarQtde(id, body);
+  }
+
+  /** "Atualizar Custo do Inventário à partir do Cadastro dos Produtos" — só as linhas selecionadas. */
+  @Post(':id/atualizar-custo')
+  @HttpCode(200)
+  @RequerAcesso('FRMINVENTARIO', 'ATUALIZACUSTODOINVENTRIOCOMOPRODUTO1')
+  atualizarCusto(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(atualizarCustoInventarioSchema)) body: AtualizarCustoInventarioDto,
+  ) {
+    return this.balanco.atualizarCusto(id, body);
   }
 }
 

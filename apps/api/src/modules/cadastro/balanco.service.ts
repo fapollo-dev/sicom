@@ -8,6 +8,7 @@ import { ConfigService } from './config.service';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
+const r3 = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000;
 
 /**
  * BALANÇO do inventário (`BALANCO`/`BALANCOITENS`) — a "foto" de estoque do legado e os dois comandos do popup de
@@ -428,6 +429,126 @@ export class BalancoService {
         await trx.updateTable('inventario').set({ qtde: q, usultalteracao: op, dtultimalteracao: sql`now()` }).where('sequencia', '=', it.sequencia).execute();
       }
       return { codinvent, atualizados, zerados, dtinicial, dtfinal: l.data, dtbalanco, aviso };
+    });
+  }
+
+  /**
+   * "RELATÓRIO DIFERENÇA DO BALANÇO PARA ESTOQUE" (uInventario.pas:1981-2057) — **read-only**: o legado mexe em
+   * QTDE/QTDE_IST/DIFERENCA no dataset em memória (`QTDE_IST` não existe na tabela), imprime e RESTAURA a QTDE
+   * (linhas 2042-2054). Aqui devolvemos as linhas calculadas, sem tocar na folha.
+   *
+   * A fórmula é OUTRA, não a do grid (que já vive em `InventarioService.diferencas`): cascata por sinal com
+   * arredondamento em 3 casas, aplicada **só às linhas `ALTERADO='T'`**; nas demais, `diferenca = 0`,
+   * `qtde_ist = qtde` e a **quantidade impressa vira 0**. Como no golden `ALTERADO` nunca é 'T' (o save grava por
+   * cima), `alteradas` transporta o estado da grade — sem ele, o retorno é o do golden.
+   */
+  async relatorioDiferenca(
+    codinvent: number,
+    dto: { alteradas?: Array<{ idproduto: number; qtde?: number }> },
+  ): Promise<{
+    codinvent: number;
+    itens: Array<{ idproduto: number; descricao: string | null; sistema: number; contado: number; qtde_impressa: number; qtde_ist: number; diferenca: number; alterado: boolean }>;
+    total_diferenca: number;
+    alteradas: number;
+    aviso?: string;
+  }> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    await this.livro(db, codinvent, emp);
+    const rows = (await db
+      .selectFrom('inventario as i')
+      .leftJoin('estoque as e', (j: any) => j.onRef('e.idproduto', '=', 'i.idproduto').on('e.idempresa', '=', emp))
+      .select([
+        'i.idproduto as idproduto', 'i.descricao as descricao', 'i.qtde as qtde',
+        sql<string>`coalesce(i.alterado,'N')`.as('alterado'),
+        sql<number>`coalesce(e.qtde,0)`.as('sistema'),
+      ])
+      .where('i.codinvent', '=', codinvent)
+      .where('i.idempresa', '=', emp)
+      .where(sql`coalesce(i.tipo,'P')`, '<>', 'T')
+      .orderBy('i.sequencia')
+      .execute()) as Array<{ idproduto: number; descricao: string | null; qtde: unknown; alterado: string; sistema: unknown }>;
+
+    const daGrade = new Map<number, number | undefined>((dto.alteradas ?? []).map((a) => [Number(a.idproduto), a.qtde]));
+    let total = 0;
+    let nAlt = 0;
+    const itens = rows.map((r) => {
+      const idproduto = Number(r.idproduto);
+      const tocada = daGrade.has(idproduto) || r.alterado === 'T';
+      const iQtd = r3(num(daGrade.get(idproduto) ?? r.qtde));
+      const iEst = r3(num(r.sistema));
+      if (!tocada) {
+        // ramo `else` do legado: diferença 0, a QTDE vai para QTDE_IST e a impressa vira 0 (linhas 2024-2029)
+        return { idproduto, descricao: r.descricao ?? null, sistema: iEst, contado: iQtd, qtde_impressa: 0, qtde_ist: iQtd, diferenca: 0, alterado: false };
+      }
+      nAlt++;
+      // a cascata por sinal (uInventario.pas:2000-2022) — na ordem exata do legado
+      let dif: number;
+      if (iEst < 0 && iQtd < 0) dif = iEst + iQtd;
+      else if (iEst > 0 && iQtd > 0) dif = iEst > iQtd ? (iEst - iQtd) * -1 : iQtd > iEst ? iQtd - iEst : iEst - iQtd;
+      else if (iEst === 0 && iQtd > 0) dif = iQtd;
+      else if (iEst > 0 && iQtd === 0) dif = iEst;
+      else if (iEst < 0 && iQtd > 0) dif = (iEst - iQtd) * -1;
+      else if (iEst > 0 && iQtd < 0) dif = iQtd + iEst;
+      else if (iQtd === 0) dif = iEst * -1;
+      else dif = 0;
+      dif = r3(dif);
+      total = r3(total + dif);
+      // na linha alterada o legado zera QTDE_IST e mantém a QTDE digitada (linha 1999)
+      return { idproduto, descricao: r.descricao ?? null, sistema: iEst, contado: iQtd, qtde_impressa: iQtd, qtde_ist: 0, diferenca: dif, alterado: true };
+    });
+    return {
+      codinvent, itens, total_diferenca: total, alteradas: nAlt,
+      aviso: nAlt === 0
+        ? 'Nenhuma linha marcada como alterada: o legado imprime tudo com diferença 0 e quantidade 0 (no golden ALTERADO é "N" em 79.119 de 79.190 linhas, porque o save grava por cima do "T" da grade).'
+        : undefined,
+    };
+  }
+
+  /**
+   * "ZERAR QTDE NA GRADE" (uInventario.pas:298-311): zera a QTDE de todas as linhas **visíveis**. A grade pode
+   * estar filtrada em `QTDE < 0` pelo check "filtra negativos" (linhas 334-346) — é o `somenteNegativos`. O legado
+   * não consulta config aqui (a `USUARIOS_ZERAM_ESTOQUE_INVENTARIO` é do inventário ROTATIVO, `uInvRotativoGrid`),
+   * então não inventamos gate: vale a permissão da tela.
+   */
+  async zerarQtde(codinvent: number, dto: { somenteNegativos?: boolean }): Promise<{ codinvent: number; zerados: number }> {
+    const emp = this.emp();
+    const op = currentTenant().operadorId ?? null;
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      await this.livro(trx, codinvent, emp);
+      let q = trx
+        .updateTable('inventario')
+        .set({ qtde: 0, usultalteracao: op, dtultimalteracao: sql`now()` })
+        .where('codinvent', '=', codinvent)
+        .where('idempresa', '=', emp);
+      if (dto.somenteNegativos) q = q.where('qtde', '<', 0);
+      const r = await q.executeTakeFirst();
+      return { codinvent, zerados: Number((r as any)?.numUpdatedRows ?? 0) };
+    });
+  }
+
+  /**
+   * "ATUALIZAR CUSTO DO INVENTÁRIO À PARTIR DO CADASTRO DOS PRODUTOS" (uInventario.pas:410-470): substitui o
+   * `vrcusto` das linhas **SELECIONADAS** pelo custo do cadastro — `vrcustofiscal` (com fallback) quando a config
+   * `VRCUSTO_INVENTARIO` = 'FISCAL', o mesmo teste dos outros pontos da tela. Produto que não está no cadastro da
+   * empresa é ignorado (o `Locate` do legado falha e ele segue em frente).
+   */
+  async atualizarCusto(codinvent: number, dto: { idprodutos: number[] }): Promise<{ codinvent: number; atualizados: number }> {
+    const emp = this.emp();
+    const op = currentTenant().operadorId ?? null;
+    const custoFiscal = (await this.config.resolver('VRCUSTO_INVENTARIO', { empresaId: emp })) === 'FISCAL';
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      await this.livro(trx, codinvent, emp);
+      const upd = await sql`
+        UPDATE inventario i
+           SET vrcusto = ${custoFiscal ? sql`coalesce(mp.vrcustofiscal, mp.vrcusto)` : sql`mp.vrcusto`},
+               usultalteracao = ${op}, dtultimalteracao = now()
+          FROM multi_preco mp
+         WHERE i.codinvent = ${codinvent} AND i.idempresa = ${emp}
+           AND mp.idproduto = i.idproduto AND mp.idempresa = ${emp}
+           AND i.idproduto IN (${sql.join(dto.idprodutos)})
+      `.execute(trx);
+      return { codinvent, atualizados: Number((upd as any)?.numAffectedRows ?? 0) };
     });
   }
 }

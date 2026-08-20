@@ -62,3 +62,34 @@ export const sincronizarInventarioSchema = z.object({
   dtinicial: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inicial inválida (use AAAA-MM-DD).').optional(),
 });
 export type SincronizarInventarioDto = z.infer<typeof sincronizarInventarioSchema>;
+
+/**
+ * "Relatório Diferença do Balanço para Estoque" (`RelatorioDiferencaBalancoClick`, uInventario.pas:1981-2057).
+ * READ-ONLY por desenho: o legado altera QTDE/QTDE_IST/DIFERENCA **no dataset em memória**, imprime e depois
+ * restaura `QTDE := QTDE_IST` — e `QTDE_IST` nem existe na tabela (é campo calculado). Só as linhas com
+ * `ALTERADO='T'` (as que o operador acabou de digitar na grade, antes de gravar) recebem a diferença pela cascata
+ * de sinais; as demais saem com diferença 0 e quantidade 0 na impressão.
+ *
+ * No golden `ALTERADO` é 'N' em 79.119 de 79.190 linhas (nunca 'T'), porque o save grava por cima do 'T' que o
+ * Enter pôs em memória. Para não perder o relatório, `alteradas` transporta o estado da grade: os produtos que o
+ * operador tocou (e, opcionalmente, a quantidade digitada). Sem `alteradas`, o resultado é o do golden.
+ */
+export const relatorioDiferencaBalancoSchema = z.object({
+  alteradas: z
+    .array(z.object({ idproduto: z.coerce.number().int().positive(), qtde: z.coerce.number().finite().optional() }))
+    .max(20000)
+    .optional(),
+});
+export type RelatorioDiferencaBalancoDto = z.infer<typeof relatorioDiferencaBalancoSchema>;
+
+/** "Zerar Qtde na Grade" (uInventario.pas:298-311): zera a QTDE das linhas VISÍVEIS — a grade pode estar filtrada
+ * em `QTDE < 0` pelo check "filtra negativos" (uInventario.pas:334-346), e é isso que `somenteNegativos` copia. */
+export const zerarQtdeInventarioSchema = z.object({ somenteNegativos: z.boolean().optional() });
+export type ZerarQtdeInventarioDto = z.infer<typeof zerarQtdeInventarioSchema>;
+
+/** "Atualizar Custo do Inventário à partir do Cadastro dos Produtos" (uInventario.pas:410-470): só as linhas
+ * SELECIONADAS na grade (`cdsInventarioSELECIONAR`, campo de memória) — daí a lista explícita de produtos. */
+export const atualizarCustoInventarioSchema = z.object({
+  idprodutos: z.array(z.coerce.number().int().positive()).min(1).max(20000),
+});
+export type AtualizarCustoInventarioDto = z.infer<typeof atualizarCustoInventarioSchema>;
