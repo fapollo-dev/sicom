@@ -208,6 +208,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('163_analise_pontas_fix.sql'));
   await pool.query(sql('164_apuracao_icms.sql'));
   await pool.query(sql('165_apuracao_icms_fix.sql'));
+  await pool.query(sql('166_balanco.sql'));
   await pool.end();
   return pg;
 }

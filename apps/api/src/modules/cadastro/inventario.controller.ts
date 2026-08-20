@@ -1,6 +1,10 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
-import { importarProdutosInventarioSchema, aplicarInventarioSchema, type ImportarProdutosInventarioDto, type AplicarInventarioDto } from '@apollo/shared';
+import {
+  importarProdutosInventarioSchema, aplicarInventarioSchema, gerarBalancoSchema, importarBalancoSchema,
+  type ImportarProdutosInventarioDto, type AplicarInventarioDto, type GerarBalancoDto, type ImportarBalancoDto,
+} from '@apollo/shared';
 import { InventarioService } from './inventario.service';
+import { BalancoService } from './balanco.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
@@ -13,12 +17,15 @@ import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 @Controller('cadastro/inventario')
 @UseGuards(AcessoGuard)
 export class InventarioController {
-  constructor(private readonly svc: InventarioService) {}
+  constructor(
+    private readonly svc: InventarioService,
+    private readonly balanco: BalancoService,
+  ) {}
 
   /** popula a folha de contagem a partir de PRODUTOS (filtros ativo/com-saldo). */
   @Post(':id/importar-produtos')
   @HttpCode(200)
-  @RequerAcesso('FRMINVENTARIO', 'BTNIMPORTARPRODUTOS')
+  @RequerAcesso('FRMINVENTARIO', 'IMPORTARPRODUTOS1')
   importarProdutos(
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(importarProdutosInventarioSchema)) body: ImportarProdutosInventarioDto,
@@ -36,11 +43,53 @@ export class InventarioController {
   /** APLICA ao estoque (sobrescreve = contado). Gated por senha de operação ADM da empresa (E7). */
   @Post(':id/aplicar')
   @HttpCode(200)
-  @RequerAcesso('FRMINVENTARIO', 'BTNAPLICARESTOQUE')
+  @RequerAcesso('FRMINVENTARIO', 'ATUALIZAESTOQUE1')
   aplicar(
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(aplicarInventarioSchema)) body: AplicarInventarioDto,
   ) {
     return this.svc.aplicar(id, { senhaOperacao: body.senhaOperacao });
+  }
+
+  /**
+   * GERAR BALANÇO a partir da folha (comando "Gerar Balanco à partir do Inventário", opção RBAC própria no
+   * golden: GERARBALANCO1). Com foto já lançada na data, exige `substituir` — e então o "substituir" é parcial,
+   * como no legado (só atualiza produto que já está na foto).
+   */
+  @Post(':id/gerar-balanco')
+  @HttpCode(200)
+  @RequerAcesso('FRMINVENTARIO', 'GERARBALANCO1')
+  gerarBalanco(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(gerarBalancoSchema)) body: GerarBalancoDto,
+  ) {
+    return this.balanco.gerarDoInventario(id, body);
+  }
+
+  /**
+   * IMPORTAR BALANÇO para a folha (comando "Importar Balanço"). **Não tem opção RBAC própria no golden** — as 12
+   * opções de FRMINVENTARIO não incluem este item do popup, logo responde ao gate da própria tela.
+   */
+  @Post(':id/importar-balanco')
+  @HttpCode(200)
+  @RequerAcesso('FRMINVENTARIO', 'FRMINVENTARIO')
+  importarBalanco(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(importarBalancoSchema)) body: ImportarBalancoDto,
+  ) {
+    return this.balanco.importarBalanco(id, body);
+  }
+}
+
+/** lookup das fotos (a view `GET_BALANCO` do legado, filtrada por empresa). Path próprio p/ não colidir com `:id`. */
+@Controller('cadastro/balanco')
+@UseGuards(AcessoGuard)
+export class BalancoController {
+  constructor(private readonly balanco: BalancoService) {}
+
+  @Get()
+  @RequerAcesso('FRMINVENTARIO', 'FRMINVENTARIO')
+  listar() {
+    return this.balanco.listar();
   }
 }

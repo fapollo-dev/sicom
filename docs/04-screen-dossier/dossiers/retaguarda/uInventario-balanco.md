@@ -202,11 +202,18 @@ o **escritor** de `alterado` é a digitação na grade (lição: coluna nova de 
 - `UDMProdutosRel.dfm`: relatórios de produto também leem `BALANCOITENS` — conferir quais, para não deixar
   relatório migrado com fonte vazia.
 
-## 7. Proposta de corte (para confirmar com o usuário)
+## 7. Cortes
 
-1. **corte-1 — a foto e o que ela alimenta**: tabelas `balanco`/`balancoitens` (com `ativo` NULL = ativo),
-   "Gerar Balanço a partir do Inventário" (com o quirk do substituir parcial), "Importar Balanço" (quantidade do
-   estoque atual + `MULTI_PRECO`/`VRCUSTOFISCAL`), e o lookup de balanços por empresa.
+1. **corte-1 — ENTREGUE** (mig 166): tabelas `balanco`/`balancoitens` (`ativo` NULL = ativo, índice em vez de
+   UNIQUE por (data, empresa) — o golden tem 5 fotos no mesmo dia), `estoque_dep`, `multi_preco.vrcustofiscal`,
+   a config `VRCUSTO_INVENTARIO` (id 468 do golden, valor 'PRODUTO'), a view `get_balanco`, os endpoints
+   `POST :id/gerar-balanco` (RBAC `GERARBALANCO1`) e `POST :id/importar-balanco` + `GET cadastro/balanco` (gate da
+   tela, que é como o golden trata esses dois itens do popup), e os dois comandos na tela do inventário.
+   Sete checks no smoke (§83b). **Dois folds de paridade no épico já migrado**, achados no caminho:
+   (a) as opções de RBAC da mig 090 eram **inventadas** (`BTNIMPORTARPRODUTOS`/`BTNAPLICARESTOQUE`) e agora usam
+   os nomes do golden (`IMPORTARPRODUTOS1`/`ATUALIZAESTOQUE1`) — sem isso, no cutover os grants reais dos 15
+   operadores não casariam com os decorators; (b) `importarProdutos` ignorava a config `VRCUSTO_INVENTARIO`
+   (uInventario.pas:1754 faz o mesmo teste dos outros quatro pontos da tela) — agora honra `FISCAL` com fallback.
 2. **corte-2 — o cálculo**: "Importar Balanço e Atualizar Estoque" (as 4 pernas, os dois sentidos, as listas de
    CFOP) + "Sincronizar Inventário (Entradas − Saídas)".
 3. **corte-3 — relatório e bordas**: "Relatório Diferença do Balanço para Estoque" (exige `alterado`/`qtde_ist`),

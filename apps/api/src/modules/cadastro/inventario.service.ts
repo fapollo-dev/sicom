@@ -56,6 +56,9 @@ export class InventarioService {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     const ativoPelaMp = (await this.config.resolver('ATIVO_PELA_MULTIPRECO', { empresaId: emp })) === 'S';
+    // fold de paridade: o custo da folha respeita `VRCUSTO_INVENTARIO` (uInventario.pas:1754 — o mesmo teste dos
+    // outros quatro pontos da tela): 'FISCAL' → `vrcustofiscal` com fallback p/ `vrcusto`. Golden = 'PRODUTO'.
+    const custoFiscal = (await this.config.resolver('VRCUSTO_INVENTARIO', { empresaId: emp })) === 'FISCAL';
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       await this.carregarLivro(trx, codinvent, emp);
       await trx.deleteFrom('inventario').where('codinvent', '=', codinvent).where('idempresa', '=', emp).execute();
@@ -67,7 +70,8 @@ export class InventarioService {
         .leftJoin('estoque as e', (j: any) => j.onRef('e.idproduto', '=', 'p.idproduto').on('e.idempresa', '=', emp))
         .select([
           'p.idproduto as idproduto', 'p.descricao as descricao', 'p.unidade as unidade', 'p.codbarra as codbarra',
-          'p.aliquota as aliquota', 'mp.vrcusto as vrcusto', 'mp.vrvenda as vrvenda',
+          'p.aliquota as aliquota', 'mp.vrvenda as vrvenda',
+          (custoFiscal ? sql<number>`coalesce(mp.vrcustofiscal, mp.vrcusto)` : sql<number>`mp.vrcusto`).as('vrcusto'),
           sql<number>`coalesce(e.qtde,0)`.as('saldo'),
         ])
         .where('mp.idempresa', '=', emp)

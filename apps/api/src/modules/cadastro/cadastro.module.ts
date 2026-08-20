@@ -9,7 +9,8 @@ import { MotivosOperacaoCrudController } from './motivos-operacao.crud';
 import { AjusteEstoqueController } from './ajuste-estoque.controller';
 import { AjusteEstoqueService } from './ajuste-estoque.service';
 import { InventarioAggregateController } from './inventario.aggregate';
-import { InventarioController } from './inventario.controller';
+import { InventarioController, BalancoController } from './inventario.controller';
+import { BalancoService } from './balanco.service';
 import { InventarioService } from './inventario.service';
 import { ScrapAggregateController } from './scrap.aggregate';
 import { ScrapController } from './scrap.controller';
@@ -135,6 +136,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     AjusteEstoqueController, // vertical (AJUSTE DE ESTOQUE — move o saldo + kardex; sem contábil)
     InventarioAggregateController, // INVENTÁRIO (livro+itens; contagem física — planilha fiel, sem estado)
     InventarioController, // vertical: importar-produtos + diferenças + aplicar (sobrescreve estoque, gated senha ADM)
+    BalancoController, // lookup das fotos de estoque (BALANCO) — a view GET_BALANCO do legado
     ScrapAggregateController, // SCRAP/PERDAS (scrap+scrap_item; documento de perda — valoração MULTI_PRECO)
     ScrapController, // vertical: aplicar/estornar baixa de estoque (kardex origem='SCRAP')
     ProducaoAggregateController, // PRODUÇÃO (producao+itens_producao; requisição de manufatura — valoração MULTI_PRECO)
@@ -178,6 +180,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     RazaoService,
     AjusteEstoqueService,
     InventarioService,
+    BalancoService,
     ScrapService,
     ProducaoService,
     EtiquetaService,

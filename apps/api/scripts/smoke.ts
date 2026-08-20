@@ -8796,6 +8796,123 @@ async function main() {
       }
     }
 
+    // ===== §83b) BALANÇO do inventário (BALANCO/BALANCOITENS) — corte-1: "Gerar Balanço a partir do Inventário"
+    // (chave DATA+EMPRESA, substituir PARCIAL) e "Importar Balanço" (a qtde vem do ESTOQUE de hoje, não da foto) ====
+    {
+      const INV = 'cadastro/inventario';
+      const pgB = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // um livro com data FIXA (a data é a chave do balanço) e 2 itens contados.
+        const livB = await pgB.query(`INSERT INTO inventario_livro (idempresa,dtinventario,tipoinventario,descricao,indr) VALUES (1,'2027-03-31',1,'INV BALANCO','I') RETURNING codinvent`);
+        const invB = Number(livB.rows[0].codinvent);
+        // dois produtos próprios da seção (a UNIQUE do inventário é (codinvent, idproduto) — nada de repetir o 1)
+        await pgB.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+          (990860,'7899000990860','PROD BALANCO T','UN',2,'T01','S'),
+          (990861,'7899000990861','PROD BALANCO NOVO','UN',2,'T01','S') ON CONFLICT (idproduto) DO NOTHING`);
+        await pgB.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda) VALUES (990860,1,3,4),(990861,1,3,4)
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=EXCLUDED.vrcusto`);
+        await pgB.query(`INSERT INTO inventario (codinvent,idempresa,idproduto,unidade,qtde,vrcusto,vrvenda,tipo) VALUES ($1,1,1,'UN',11,5,8,'P'),($1,1,2,'UN',22,5,8,'P')`, [invB]);
+        // um item TIPO='T' (o legado o exclui da grade) — não pode entrar na foto
+        await pgB.query(`INSERT INTO inventario (codinvent,idempresa,idproduto,unidade,qtde,vrcusto,vrvenda,tipo) VALUES ($1,1,990860,'UN',999,5,8,'T')`, [invB]);
+
+        // 83b.1) gerar a foto: cria BALANCO com a descrição do legado e um item por linha da folha (sem o TIPO='T').
+        const g1 = await fetch(`${base}/${INV}/${invB}/gerar-balanco`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+        const g1J = (await g1.json().catch(() => ({}))) as any;
+        const cabB = (await pgB.query(`SELECT codbalanco, descricao, to_char(data,'YYYY-MM-DD') AS data, codoperador, codempresa, ativo FROM balanco WHERE codbalanco=$1`, [g1J.codbalanco])).rows[0] as any;
+        const itensB = (await pgB.query(`SELECT idproduto, qtde FROM balancoitens WHERE codbalanco=$1 ORDER BY idproduto`, [g1J.codbalanco])).rows as any[];
+        check('BALANÇO §83b.1: "Gerar Balanço a partir do Inventário" cria a foto na DATA DO LIVRO com a descrição do legado ("GERACAO DE INVENTARIO DATA: 31/03/2027"), um item por linha da folha (2 — o item TIPO=\'T\' fica fora) e ATIVO NULL (= ativo, como as 24 fotos do golden)',
+          g1.status === 200 && g1J.modo === 'criado' && Number(g1J.itens) === 2 && cabB?.descricao === 'GERACAO DE INVENTARIO DATA: 31/03/2027'
+          && cabB?.data === '2027-03-31' && Number(cabB?.codempresa) === 1 && cabB?.ativo === null
+          && itensB.length === 2 && Number(itensB[0].qtde) === 11 && Number(itensB[1].qtde) === 22,
+          { g1: g1J, cab: cabB, itens: itensB });
+
+        // 83b.2) gerar DE NOVO na mesma data sem o "substituir" → recusa (é a pergunta do legado, default NO).
+        const g2 = await fetch(`${base}/${INV}/${invB}/gerar-balanco`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+        const g2J = (await g2.json().catch(() => ({}))) as any;
+        // 83b.3) COM substituir: atualiza a qtde do que JÁ está na foto e **não insere produto novo** (quirk).
+        const novoProd = 990861;
+        await pgB.query(`UPDATE inventario SET qtde=77 WHERE codinvent=$1 AND idproduto=1 AND coalesce(tipo,'P')<>'T'`, [invB]);
+        await pgB.query(`INSERT INTO inventario (codinvent,idempresa,idproduto,unidade,qtde,vrcusto,vrvenda,tipo) VALUES ($1,1,$2,'UN',33,5,8,'P')`, [invB, novoProd]);
+        const g3 = await fetch(`${base}/${INV}/${invB}/gerar-balanco`, { method: 'POST', headers: H, body: JSON.stringify({ substituir: true }) });
+        const g3J = (await g3.json().catch(() => ({}))) as any;
+        const itensB2 = (await pgB.query(`SELECT idproduto, qtde FROM balancoitens WHERE codbalanco=$1 ORDER BY idproduto`, [g1J.codbalanco])).rows as any[];
+        check('BALANÇO §83b.2/3: sem "substituir" a segunda geração na mesma data é RECUSADA (422 BALANCO_EXISTE_NA_DATA — a pergunta do legado tem default NO); com substituir, a qtde do produto que JÁ está na foto é atualizada (11 → 77) e o produto NOVO da folha **não é inserido** (a foto segue com 2 itens — o "substituir" do legado é parcial)',
+          g2.status === 422 && g2J.code === 'BALANCO_EXISTE_NA_DATA' && g3.status === 200 && g3J.modo === 'atualizado'
+          && itensB2.length === 2 && Number(itensB2.find((x: any) => Number(x.idproduto) === 1)?.qtde) === 77
+          && !itensB2.some((x: any) => Number(x.idproduto) === novoProd),
+          { g2: [g2.status, g2J.code], g3: g3J, itens: itensB2, novoProd });
+
+        // 83b.4) o lookup (view GET_BALANCO) — só a empresa da sessão, com a contagem de itens.
+        const lst = await fetch(`${base}/cadastro/balanco`, { headers: H });
+        const lstJ = (await lst.json().catch(() => ({}))) as any;
+        const daFoto = (lstJ.itens ?? []).find((x: any) => Number(x.codbalanco) === Number(g1J.codbalanco));
+        check('BALANÇO §83b.4: o lookup lista a foto da empresa com data e contagem de itens (2)',
+          lst.status === 200 && !!daFoto && daFoto.data === '2027-03-31' && Number(daFoto.itens) === 2 && Number(daFoto.idempresa) === 1, { daFoto });
+
+        // 83b.5) IMPORTAR BALANÇO: a quantidade **não** é a da foto (77/22) — é ESTOQUE + ESTOQUE_DEP de hoje.
+        const est1B = Number((await pgB.query(`SELECT coalesce(qtde,0) AS q FROM estoque WHERE idproduto=1 AND idempresa=1`)).rows[0]?.q ?? 0);
+        await pgB.query(`INSERT INTO estoque_dep (idproduto, idempresa, qtde) VALUES (1,1,7) ON CONFLICT (idproduto,idempresa) DO UPDATE SET qtde=7`);
+        const liv2 = await pgB.query(`INSERT INTO inventario_livro (idempresa,dtinventario,tipoinventario,descricao,indr) VALUES (1,'2027-04-30',1,'INV IMP BALANCO','I') RETURNING codinvent`);
+        const invB2 = Number(liv2.rows[0].codinvent);
+        const imp1 = await fetch(`${base}/${INV}/${invB2}/importar-balanco`, { method: 'POST', headers: H, body: JSON.stringify({ codbalanco: g1J.codbalanco }) });
+        const imp1J = (await imp1.json().catch(() => ({}))) as any;
+        const fol1 = (await pgB.query(`SELECT idproduto, qtde, vrcusto FROM inventario WHERE codinvent=$1 ORDER BY idproduto`, [invB2])).rows as any[];
+        const linha1 = fol1.find((x: any) => Number(x.idproduto) === 1);
+        check('BALANÇO §83b.5: "Importar Balanço" usa a foto só como LISTA DE PRODUTOS — a quantidade vem de ESTOQUE + ESTOQUE_DEP de hoje (' + String(est1B) + ' + 7), NÃO os 77 gravados na foto',
+          imp1.status === 200 && Number(imp1J.itens) === 2 && fol1.length === 2
+          && Math.abs(Number(linha1?.qtde) - (est1B + 7)) < 0.001 && Number(linha1?.qtde) !== 77,
+          { imp: imp1J, linha1, est1B });
+
+        // 83b.6) a folha já tem linhas → precisa do "confirmar" ("O inventário atual será excluído").
+        const imp2 = await fetch(`${base}/${INV}/${invB2}/importar-balanco`, { method: 'POST', headers: H, body: JSON.stringify({ codbalanco: g1J.codbalanco }) });
+        const imp2J = (await imp2.json().catch(() => ({}))) as any;
+        // 83b.7) com confirmar, refaz a folha (não duplica) e o custo respeita VRCUSTO_INVENTARIO='FISCAL'
+        // (vrcustofiscal com FALLBACK p/ vrcusto quando o fiscal é nulo).
+        const mpAntes = (await pgB.query(`SELECT idproduto, vrcusto, vrcustofiscal FROM multi_preco WHERE idempresa=1 AND idproduto IN (1,2) ORDER BY idproduto`)).rows as any[];
+        await pgB.query(`UPDATE multi_preco SET vrcustofiscal=9.99 WHERE idempresa=1 AND idproduto=1`);
+        await pgB.query(`UPDATE multi_preco SET vrcustofiscal=NULL WHERE idempresa=1 AND idproduto=2`);
+        const cfgAntes = (await pgB.query(`SELECT valor FROM configuracoes WHERE codigo='VRCUSTO_INVENTARIO'`)).rows[0]?.valor ?? null;
+        await pgB.query(`UPDATE configuracoes SET valor='FISCAL' WHERE codigo='VRCUSTO_INVENTARIO'`);
+        const imp3 = await fetch(`${base}/${INV}/${invB2}/importar-balanco`, { method: 'POST', headers: H, body: JSON.stringify({ codbalanco: g1J.codbalanco, confirmar: true }) });
+        const imp3J = (await imp3.json().catch(() => ({}))) as any;
+        const fol3 = (await pgB.query(`SELECT idproduto, qtde, vrcusto FROM inventario WHERE codinvent=$1 ORDER BY idproduto`, [invB2])).rows as any[];
+        const c1 = Number(fol3.find((x: any) => Number(x.idproduto) === 1)?.vrcusto);
+        const c2 = Number(fol3.find((x: any) => Number(x.idproduto) === 2)?.vrcusto);
+        const vrcusto2 = Number(mpAntes.find((x: any) => Number(x.idproduto) === 2)?.vrcusto ?? 0);
+        check('BALANÇO §83b.6/7: importar com folha cheia sem "confirmar" → 422 INVENTARIO_SERA_EXCLUIDO; com confirmar refaz sem duplicar (2 itens) e, com VRCUSTO_INVENTARIO=FISCAL, o custo é o VRCUSTOFISCAL (9,99) **com fallback** p/ VRCUSTO quando o fiscal é nulo',
+          imp2.status === 422 && imp2J.code === 'INVENTARIO_SERA_EXCLUIDO' && imp3.status === 200 && Number(imp3J.itens) === 2
+          && fol3.length === 2 && Math.abs(c1 - 9.99) < 0.001 && Math.abs(c2 - vrcusto2) < 0.001,
+          { imp2: [imp2.status, imp2J.code], imp3: imp3J, c1, c2, vrcusto2 });
+
+        // restaura config e multi_preco (efeito colateral entre seções)
+        await pgB.query(`UPDATE configuracoes SET valor=$1 WHERE codigo='VRCUSTO_INVENTARIO'`, [cfgAntes]);
+        for (const r of mpAntes) await pgB.query(`UPDATE multi_preco SET vrcustofiscal=$1 WHERE idempresa=1 AND idproduto=$2`, [r.vrcustofiscal, r.idproduto]);
+
+        // 83b.8) RBAC: gerar-balanço tem opção PRÓPRIA no golden (GERARBALANCO1) e o importar responde ao gate da tela.
+        const rb1 = await fetch(`${base}/${INV}/${invB}/gerar-balanco`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ substituir: true }) });
+        const rb2 = await fetch(`${base}/${INV}/${invB2}/importar-balanco`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codbalanco: g1J.codbalanco, confirmar: true }) });
+        const rb3 = await fetch(`${base}/cadastro/balanco`, { headers: H_SEM_ACESSO });
+        check('BALANÇO §83b.8: sem grant → 403 nos três (gerar-balanço = opção GERARBALANCO1 do golden; importar e lookup = gate da tela FRMINVENTARIO, que é como o legado trata esses dois itens do popup)',
+          rb1.status === 403 && rb2.status === 403 && rb3.status === 403, { rb: [rb1.status, rb2.status, rb3.status] });
+
+        // 83b.9) balanço de OUTRA empresa não é importável (o lookup do legado filtra por IDEMPRESA).
+        const balOutra = (await pgB.query(`INSERT INTO balanco (descricao, data, codempresa) VALUES ('FOTO EMP 2','2027-03-31',2) RETURNING codbalanco`)).rows[0] as any;
+        const impOutra = await fetch(`${base}/${INV}/${invB2}/importar-balanco`, { method: 'POST', headers: H, body: JSON.stringify({ codbalanco: balOutra.codbalanco, confirmar: true }) });
+        const impOutraJ = (await impOutra.json().catch(() => ({}))) as any;
+        check('BALANÇO §83b.9: foto de outra empresa → 422 BALANCO_NAO_ENCONTRADO (o lookup do legado filtra IDEMPRESA)',
+          impOutra.status === 422 && impOutraJ.code === 'BALANCO_NAO_ENCONTRADO', { status: impOutra.status, code: impOutraJ.code });
+
+        // cleanup
+        await pgB.query(`DELETE FROM balanco WHERE codbalanco IN ($1,$2)`, [g1J.codbalanco, balOutra.codbalanco]);
+        await pgB.query(`DELETE FROM estoque_dep WHERE idproduto=1 AND idempresa=1`);
+        await pgB.query(`DELETE FROM inventario_livro WHERE codinvent IN ($1,$2)`, [invB, invB2]);
+        await pgB.query(`DELETE FROM multi_preco WHERE idproduto IN (990860,990861)`);
+        await pgB.query(`DELETE FROM produtos WHERE idproduto IN (990860,990861)`);
+      } finally {
+        await pgB.end();
+      }
+    }
+
     // ===== §84) COTAÇÃO DE COMPRA (FRMCADCOTACAO) — corte-1: estrutura + preços =====
     {
       const CT = 'compras/cotacao';

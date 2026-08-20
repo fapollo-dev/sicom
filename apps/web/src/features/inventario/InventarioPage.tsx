@@ -3,12 +3,14 @@ import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design
 import { Field } from '../../shared/ui/Field';
 import { NumberField } from '../../shared/ui/NumberField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
+import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import {
   listarInventarios, obterInventario, criarInventario, atualizarInventario,
   importarProdutosInventario, diferencasInventario, aplicarInventario,
-  type InventarioLivro, type InventarioDetalhe,
+  listarBalancos, gerarBalanco, importarBalanco,
+  type InventarioLivro, type InventarioDetalhe, type BalancoLinha,
 } from './inventarioApi';
 
 const q3 = (n: number) => (Number.isFinite(n) ? n : 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
@@ -31,6 +33,8 @@ export function InventarioPage() {
   const [senha, setSenha] = useState('');
   const [novaDesc, setNovaDesc] = useState('');
   const [busy, setBusy] = useState(false);
+  const [balancos, setBalancos] = useState<BalancoLinha[]>([]);
+  const [balancoSel, setBalancoSel] = useState('');
 
   const carregarLista = useCallback(async () => {
     setCarregando(true);
@@ -52,6 +56,8 @@ export function InventarioPage() {
       setSel(d);
       setContagem(Object.fromEntries((d.itens ?? []).map((i) => [i.idproduto, Number(i.qtde)])));
       setDifs(null);
+      // as fotos de estoque da empresa (o lookup GET_BALANCO) — alimentam o "Importar balanço"
+      setBalancos((await listarBalancos().catch(() => ({ itens: [] as BalancoLinha[] }))).itens ?? []);
     } catch (e) {
       mensagem.erro(e);
     }
@@ -128,6 +134,57 @@ export function InventarioPage() {
     }
   };
 
+  /**
+   * GERAR BALANÇO (a contagem vira foto na data do livro). Fiel: com foto já lançada na data, o backend recusa
+   * (BALANCO_EXISTE_NA_DATA) e aqui perguntamos o "substituir" — avisando que ele é PARCIAL, como no legado
+   * (produto que não está na foto não é inserido).
+   */
+  const gerarFoto = async (substituir = false) => {
+    if (!sel || busy) return;
+    setBusy(true);
+    try {
+      const r = await gerarBalanco(sel.codinvent, substituir ? { substituir: true } : {});
+      mensagem.sucesso(
+        r.modo === 'criado'
+          ? `Balanço ${r.codbalanco} gerado com ${r.itens} item(ns).`
+          : `${r.itens} quantidade(s) atualizada(s) em ${r.balancos} balanço(s) da data. Produto que não estava na foto não foi inserido.`,
+      );
+      setBalancos((await listarBalancos().catch(() => ({ itens: [] as BalancoLinha[] }))).itens ?? []);
+    } catch (e) {
+      if ((e as any)?.envelope?.code === 'BALANCO_EXISTE_NA_DATA') {
+        const qtd = Number((e as any)?.body?.detalhes?.balancos ?? (e as any)?.envelope?.detalhes?.balancos ?? 0);
+        setBusy(false);
+        if (window.confirm(`Existe balanço lançado nessa data${qtd ? ` (${qtd})` : ''}. Substituir?\n\nAtenção: o substituir é PARCIAL — só atualiza a quantidade dos produtos que já estão na foto.`)) {
+          await gerarFoto(true);
+        }
+        return;
+      }
+      mensagem.erro(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * IMPORTAR BALANÇO — a foto escolhida entra como LISTA DE PRODUTOS e a quantidade vem do ESTOQUE DE HOJE
+   * (estoque + depósito), não da foto. A folha atual é apagada (a confirmação do legado).
+   */
+  const importarDaFoto = async () => {
+    if (!sel || busy || !balancoSel) return;
+    const temItens = (sel.itens ?? []).length > 0;
+    if (temItens && !window.confirm('O inventário atual será excluído. Deseja continuar?')) return;
+    setBusy(true);
+    try {
+      const r = await importarBalanco(sel.codinvent, { codbalanco: Number(balancoSel), confirmar: temItens || undefined });
+      mensagem.sucesso(`${r.itens} produto(s) importado(s) do balanço ${r.codbalanco} — a quantidade é o SALDO ATUAL (estoque + depósito), não a do balanço.`);
+      await abrir(sel.codinvent);
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // ─────────────────────────── DETALHE (livro aberto) ───────────────────────────
   if (sel) {
     const itens = sel.itens ?? [];
@@ -145,6 +202,24 @@ export function InventarioPage() {
           </div>
           <Button label="&Aplicar ao estoque" variant="soft" disabled={busy || !itens.length || !senha} onClick={() => void aplicar()} />
           <Button label="&Voltar" variant="ghost" onClick={() => { setSel(null); void carregarLista(); }} />
+        </div>
+        {/* BALANÇO (a foto de estoque) — os dois comandos do popup do legado que giram nela */}
+        <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <SelectField
+            label="&Balanço (foto de estoque)"
+            value={balancoSel}
+            onChange={setBalancoSel}
+            placeholder="Selecione…"
+            options={balancos.map((b2) => ({
+              value: String(b2.codbalanco),
+              label: `${b2.codbalanco} — ${b2.data.split('-').reverse().join('/')}${b2.descricao ? ' · ' + b2.descricao : ''} (${b2.itens} itens)`,
+            }))}
+          />
+          <Button label="Importar &balanço" variant="soft" disabled={busy || !balancoSel} onClick={() => void importarDaFoto()} />
+          <Button label="&Gerar balanço da contagem" variant="soft" disabled={busy || !itens.length} onClick={() => void gerarFoto()} />
+          <span className="text-xs text-fg-muted">
+            Importar traz apenas a LISTA de produtos da foto — a quantidade é o saldo atual (estoque + depósito). Gerar cria a foto na data do livro.
+          </span>
           <small className="w-full text-fg-muted">Contado nasce = saldo de sistema; ajuste só as linhas recontadas. Aplicar SOBRESCREVE o estoque (exige senha ADM da empresa).</small>
         </div>
 

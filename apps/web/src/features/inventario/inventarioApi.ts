@@ -65,3 +65,24 @@ export function diferencasInventario(id: number): Promise<{ codinvent: number; i
 export function aplicarInventario(id: number, senhaOperacao?: string): Promise<{ codinvent: number; aplicados: number }> {
   return req(`/cadastro/inventario/${id}/aplicar`, { method: 'POST', body: JSON.stringify({ senhaOperacao }) });
 }
+
+/** GET cadastro/balanco — o lookup das fotos de estoque (a view `GET_BALANCO` do legado, por empresa). */
+export interface BalancoLinha { codbalanco: number; descricao: string | null; data: string; idempresa: number; itens: number }
+export function listarBalancos(): Promise<{ itens: BalancoLinha[] }> {
+  return req('/cadastro/balanco', { method: 'GET' });
+}
+/**
+ * POST cadastro/inventario/:id/gerar-balanco — a contagem vira FOTO na data do livro. Com foto já lançada na
+ * data o backend recusa sem `substituir` (é a pergunta do legado, default NO) e, ao substituir, só atualiza a
+ * quantidade dos produtos que já estão na foto.
+ */
+export function gerarBalanco(id: number, body: { substituir?: boolean; descricao?: string }): Promise<{ codbalanco: number | null; modo: 'criado' | 'atualizado'; itens: number; balancos: number }> {
+  return req(`/cadastro/inventario/${id}/gerar-balanco`, { method: 'POST', body: JSON.stringify(body) });
+}
+/**
+ * POST cadastro/inventario/:id/importar-balanco — a foto entra como LISTA DE PRODUTOS e a quantidade vem do
+ * ESTOQUE DE HOJE (estoque + depósito), não da foto. Apaga a folha atual (daí o `confirmar`).
+ */
+export function importarBalanco(id: number, body: { codbalanco: number; confirmar?: boolean }): Promise<{ codinvent: number; codbalanco: number; itens: number }> {
+  return req(`/cadastro/inventario/${id}/importar-balanco`, { method: 'POST', body: JSON.stringify(body) });
+}
