@@ -86,3 +86,19 @@ export function gerarBalanco(id: number, body: { substituir?: boolean; descricao
 export function importarBalanco(id: number, body: { codbalanco: number; confirmar?: boolean }): Promise<{ codinvent: number; codbalanco: number; itens: number }> {
   return req(`/cadastro/inventario/${id}/importar-balanco`, { method: 'POST', body: JSON.stringify(body) });
 }
+
+/**
+ * POST cadastro/inventario/:id/importar-balanco-sincronizar — "Importar Balanço e Atualizar Estoque": refaz a
+ * folha somando o movimento do intervalo à foto. O sentido sai da comparação das datas (livro × foto) e datas
+ * iguais devolvem folha vazia com `aviso` (é o que o legado faz).
+ */
+export function importarBalancoSincronizar(id: number, body: { codbalanco: number; confirmar?: boolean }): Promise<{ itens: number; sentido: 'frente' | 'tras' | 'nenhum'; dtini: string | null; dtfim: string | null; aviso?: string }> {
+  return req(`/cadastro/inventario/${id}/importar-balanco-sincronizar`, { method: 'POST', body: JSON.stringify(body) });
+}
+/**
+ * POST cadastro/inventario/:id/sincronizar — "Sincronizar Inventário (Entradas − Saídas)": recalcula as linhas
+ * que já estão na folha (não cria linha); movimento negativo e produto sem movimento viram 0.
+ */
+export function sincronizarInventario(id: number, body: { dtinicial?: string }): Promise<{ atualizados: number; zerados: number; dtinicial: string; dtfinal: string; dtbalanco: string | null; aviso?: string }> {
+  return req(`/cadastro/inventario/${id}/sincronizar`, { method: 'POST', body: JSON.stringify(body) });
+}

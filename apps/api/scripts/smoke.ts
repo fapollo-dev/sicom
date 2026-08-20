@@ -8913,6 +8913,126 @@ async function main() {
       }
     }
 
+    // ===== §83c) BALANÇO corte-2 — o SINCRONISMO: "Importar Balanço e Atualizar Estoque" (4 pernas, saldo nos
+    // DOIS sentidos, lista literal de CFOP) e "Sincronizar Inventário (Entradas − Saídas)" (gate cfop.proc_qtde) ====
+    {
+      const INV = 'cadastro/inventario';
+      const pgS = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // produtos próprios + preço na empresa 1
+        await pgS.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+          (990870,'7899000990870','PROD SINC A','UN',2,'T01','S'),
+          (990871,'7899000990871','PROD SINC B','UN',2,'T01','S'),
+          (990872,'7899000990872','PROD SINC C','UN',2,'T01','S') ON CONFLICT (idproduto) DO NOTHING`);
+        await pgS.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda) VALUES (990870,1,2,3),(990871,1,2,3)
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=EXCLUDED.vrcusto`); // 990872 SEM preço (LEFT join: entra)
+        await pgS.query(`INSERT INTO cfop (codcfop, descricao) VALUES ('1102','COMPRA'),('5102','VENDA'),('5929','CUPOM'),('1949','OUTRA ENTRADA'),('1201','DEVOL VENDA')
+          ON CONFLICT (codcfop) DO NOTHING`);
+        // gate do "Sincronizar": proc_qtde='S' entra, 'N'/NULL ficam fora
+        await pgS.query(`UPDATE cfop SET proc_qtde='S' WHERE codcfop IN ('1102','5102')`);
+        await pgS.query(`UPDATE cfop SET proc_qtde='N' WHERE codcfop='1949'`);
+        await pgS.query(`UPDATE cfop SET proc_qtde=NULL WHERE codcfop='1201'`);
+
+        // a FOTO (balanço) em 2027-06-10: A=10, B=100, C=5
+        const balS = (await pgS.query(`INSERT INTO balanco (descricao, data, codempresa) VALUES ('FOTO SINC','2027-06-10',1) RETURNING codbalanco`)).rows[0] as any;
+        await pgS.query(`INSERT INTO balancoitens (codbalanco, codempresa, idproduto, qtde) VALUES ($1,1,990870,10),($1,1,990871,100),($1,1,990872,5)`, [balS.codbalanco]);
+
+        // MOVIMENTO entre 11/06 e 20/06: entrada de 5 (CFOP 1102, na lista literal), saída de 2 (5102), venda de 1
+        const nfEnt = (await pgS.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, cfop)
+          VALUES (1,'E',55,'1','990870','2027-06-12','2027-06-12',20,'S','N',10,1102) RETURNING codnf`)).rows[0] as any;
+        await pgS.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrcusto, vrvenda, cfop) VALUES ($1,1,990870,5,1,'UN',2,3,'1102')`, [nfEnt.codnf]);
+        const nfSai = (await pgS.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, cfop)
+          VALUES (1,'S',55,'1','990871','2027-06-13','2027-06-13',20,'S','N',6,5102) RETURNING codnf`)).rows[0] as any;
+        await pgS.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrcusto, vrvenda, cfop) VALUES ($1,1,990870,2,1,'UN',2,3,'5102')`, [nfSai.codnf]);
+        await pgS.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, iat, cfop, cancelado, venda_nfc) VALUES
+          (1,'2027-06-14 10:00:00-03','01100627140000','001',9101,1,990870,1,3,'A',5929,'N','S'),
+          (1,'2027-06-14 11:00:00-03','01100627140001','001',9102,1,990870,9,3,'A',5929,'S','S')`); // cancelada: fora
+        // entrada com CFOP FORA da lista literal (1201) — não entra no "Importar Balanço e Atualizar Estoque"
+        const nfFora = (await pgS.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, cfop)
+          VALUES (1,'E',55,'1','990872','2027-06-15','2027-06-15',20,'S','N',10,1201) RETURNING codnf`)).rows[0] as any;
+        await pgS.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrcusto, vrvenda, cfop) VALUES ($1,1,990871,50,1,'UN',2,3,'1201')`, [nfFora.codnf]);
+
+        // 83c.1) sentido PARA FRENTE: livro em 20/06 > foto em 10/06 ⇒ [11/06, 20/06], saldo = foto + entradas − saídas
+        const livF = (await pgS.query(`INSERT INTO inventario_livro (idempresa,dtinventario,tipoinventario,descricao,indr) VALUES (1,'2027-06-20',1,'SINC FRENTE','I') RETURNING codinvent`)).rows[0] as any;
+        const sf = await fetch(`${base}/${INV}/${livF.codinvent}/importar-balanco-sincronizar`, { method: 'POST', headers: H, body: JSON.stringify({ codbalanco: balS.codbalanco }) });
+        const sfJ = (await sf.json().catch(() => ({}))) as any;
+        const folF = (await pgS.query(`SELECT idproduto, qtde, vrcusto FROM inventario WHERE codinvent=$1 ORDER BY idproduto`, [livF.codinvent])).rows as any[];
+        const fA = folF.find((x: any) => Number(x.idproduto) === 990870);
+        const fB = folF.find((x: any) => Number(x.idproduto) === 990871);
+        const fC = folF.find((x: any) => Number(x.idproduto) === 990872);
+        check('BALANÇO §83c.1: "Importar Balanço e Atualizar Estoque" PARA FRENTE (livro 20/06 > foto 10/06): saldo = foto + entradas − saídas ⇒ A 10+5−2−1 = 12 · B fica 100 (a entrada de CFOP 1201 está FORA da lista literal de 14 CFOPs do legado) · C entra com 5 mesmo SEM preço na empresa (aqui o multi_preco é LEFT, ao contrário do "Importar Balanço") · a venda CANCELADA não conta',
+          sf.status === 200 && sfJ.sentido === 'frente' && Number(sfJ.itens) === 3
+          && Math.abs(Number(fA?.qtde) - 12) < 0.001 && Math.abs(Number(fB?.qtde) - 100) < 0.001
+          && !!fC && Math.abs(Number(fC?.qtde) - 5) < 0.001 && Number(fC?.vrcusto) === 0,
+          { sinc: sfJ, folha: folF });
+
+        // 83c.2) sentido PARA TRÁS: livro em 05/06 < foto em 10/06 ⇒ [05/06, 09/06] e a fórmula INVERTE.
+        const livT = (await pgS.query(`INSERT INTO inventario_livro (idempresa,dtinventario,tipoinventario,descricao,indr) VALUES (1,'2027-06-05',1,'SINC TRAS','I') RETURNING codinvent`)).rows[0] as any;
+        // movimento DENTRO do intervalo retroativo: entrada de 4 em 07/06 (sai do saldo, porque rebobina)
+        const nfRet = (await pgS.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, cfop)
+          VALUES (1,'E',55,'1','990873','2027-06-07','2027-06-07',20,'S','N',8,1102) RETURNING codnf`)).rows[0] as any;
+        await pgS.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrcusto, vrvenda, cfop) VALUES ($1,1,990870,4,1,'UN',2,3,'1102')`, [nfRet.codnf]);
+        const st = await fetch(`${base}/${INV}/${livT.codinvent}/importar-balanco-sincronizar`, { method: 'POST', headers: H, body: JSON.stringify({ codbalanco: balS.codbalanco }) });
+        const stJ = (await st.json().catch(() => ({}))) as any;
+        const folT = (await pgS.query(`SELECT idproduto, qtde FROM inventario WHERE codinvent=$1 AND idproduto=990870`, [livT.codinvent])).rows[0] as any;
+        check('BALANÇO §83c.2: PARA TRÁS (livro 05/06 < foto 10/06) o legado espelha o intervalo [05/06, 09/06] e INVERTE a fórmula (− entradas + saídas) ⇒ A = 10 − 4 = 6 (a entrada de 07/06 é desfeita; o movimento de 12-14/06 está fora do intervalo)',
+          st.status === 200 && stJ.sentido === 'tras' && Math.abs(Number(folT?.qtde) - 6) < 0.001, { sinc: stJ, A: folT });
+
+        // 83c.3) datas IGUAIS: o legado não abre nenhum dos dois ramos e a folha fica vazia (com aviso).
+        const livI = (await pgS.query(`INSERT INTO inventario_livro (idempresa,dtinventario,tipoinventario,descricao,indr) VALUES (1,'2027-06-10',1,'SINC IGUAL','I') RETURNING codinvent`)).rows[0] as any;
+        const si = await fetch(`${base}/${INV}/${livI.codinvent}/importar-balanco-sincronizar`, { method: 'POST', headers: H, body: JSON.stringify({ codbalanco: balS.codbalanco }) });
+        const siJ = (await si.json().catch(() => ({}))) as any;
+        const nI = Number((await pgS.query(`SELECT count(*)::int AS n FROM inventario WHERE codinvent=$1`, [livI.codinvent])).rows[0]?.n);
+        check('BALANÇO §83c.3: data do inventário IGUAL à do balanço → o legado não executa nenhum dos dois ramos (a folha já foi apagada) ⇒ folha VAZIA + aviso explícito, em vez de fingir um saldo',
+          si.status === 200 && siJ.sentido === 'nenhum' && Number(siJ.itens) === 0 && nI === 0 && typeof siJ.aviso === 'string', { sinc: siJ, n: nI });
+
+        // 83c.4) SINCRONIZAR (Entradas − Saídas): recalcula a folha EXISTENTE, gate cfop.proc_qtde='S',
+        // movimento negativo → 0, produto sem movimento → 0, e NÃO cria linha.
+        const livM = (await pgS.query(`INSERT INTO inventario_livro (idempresa,dtinventario,tipoinventario,descricao,indr) VALUES (1,'2027-06-20',1,'SINC MOV','I') RETURNING codinvent`)).rows[0] as any;
+        await pgS.query(`INSERT INTO inventario (codinvent,idempresa,idproduto,unidade,qtde,vrcusto,vrvenda,tipo) VALUES
+          ($1,1,990870,'UN',999,2,3,'P'),($1,1,990871,'UN',888,2,3,'P'),($1,1,990872,'UN',777,2,3,'P')`, [livM.codinvent]);
+        const mv = await fetch(`${base}/${INV}/${livM.codinvent}/sincronizar`, { method: 'POST', headers: H, body: JSON.stringify({ dtinicial: '2027-06-10' }) });
+        const mvJ = (await mv.json().catch(() => ({}))) as any;
+        const folM = (await pgS.query(`SELECT idproduto, qtde FROM inventario WHERE codinvent=$1 ORDER BY idproduto`, [livM.codinvent])).rows as any[];
+        const mA = Number(folM.find((x: any) => Number(x.idproduto) === 990870)?.qtde);
+        const mB = Number(folM.find((x: any) => Number(x.idproduto) === 990871)?.qtde);
+        const mC = Number(folM.find((x: any) => Number(x.idproduto) === 990872)?.qtde);
+        check('BALANÇO §83c.4: "Sincronizar Inventário (Entradas − Saídas)" recalcula a folha EXISTENTE (3 linhas, sem criar nenhuma): com a janela [10/06, 20/06], A = foto 10 + entrada 5 (12/06) − saída 2 (13/06) − venda 1 (14/06) = 12 — a entrada de 4 em **07/06 fica fora da janela** · B = 100 (a entrada de CFOP 1201 tem proc_qtde NULL e o teste do legado é ESTRITO ="S") · C = 5 (só a foto) — e a folha não ganhou linha nova',
+          mv.status === 200 && folM.length === 3 && Math.abs(mA - 12) < 0.001 && Math.abs(mB - 100) < 0.001 && Math.abs(mC - 5) < 0.001
+          && Number(mvJ.atualizados) + Number(mvJ.zerados) === 3, { mv: mvJ, folha: folM });
+
+        // 83c.5) produto sem movimento e movimento NEGATIVO → 0 (uInventario.pas:2687-2701)
+        const livZ = (await pgS.query(`INSERT INTO inventario_livro (idempresa,dtinventario,tipoinventario,descricao,indr) VALUES (1,'2027-06-20',1,'SINC ZERO','I') RETURNING codinvent`)).rows[0] as any;
+        // produto 1 não tem foto nem entrada no período, mas tem SAÍDA (fica negativo) → 0 · 990872 sem movimento no período → 0
+        const nfNeg = (await pgS.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, cfop)
+          VALUES (1,'S',55,'1','990874','2027-06-16','2027-06-16',20,'S','N',5,5102) RETURNING codnf`)).rows[0] as any;
+        await pgS.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrcusto, vrvenda, cfop) VALUES ($1,1,1,3,1,'UN',2,3,'5102')`, [nfNeg.codnf]);
+        await pgS.query(`INSERT INTO inventario (codinvent,idempresa,idproduto,unidade,qtde,vrcusto,vrvenda,tipo) VALUES ($1,1,1,'UN',555,2,3,'P')`, [livZ.codinvent]);
+        const mz = await fetch(`${base}/${INV}/${livZ.codinvent}/sincronizar`, { method: 'POST', headers: H, body: JSON.stringify({ dtinicial: '2027-06-10' }) });
+        const qz = Number((await pgS.query(`SELECT qtde FROM inventario WHERE codinvent=$1 AND idproduto=1`, [livZ.codinvent])).rows[0]?.qtde);
+        check('BALANÇO §83c.5: no sincronizar, movimento NEGATIVO vira 0 (produto com saída de 3 e sem foto: 555 → 0), como nas linhas 2687-2701 do legado',
+          mz.status === 200 && qz === 0, { status: mz.status, qtde: qz });
+
+        // 83c.6) RBAC: sincronizar tem opção PRÓPRIA (SINCRONIZARINVENTRIO1); o importar-sincronizar usa o gate da tela.
+        const rbS = await fetch(`${base}/${INV}/${livM.codinvent}/sincronizar`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({}) });
+        const rbI = await fetch(`${base}/${INV}/${livF.codinvent}/importar-balanco-sincronizar`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codbalanco: balS.codbalanco, confirmar: true }) });
+        check('BALANÇO §83c.6: sem grant → 403 nos dois (SINCRONIZARINVENTRIO1 é opção do golden; importar-sincronizar responde ao gate da tela)',
+          rbS.status === 403 && rbI.status === 403, { rb: [rbS.status, rbI.status] });
+
+        // cleanup
+        await pgS.query(`DELETE FROM inventario_livro WHERE codinvent IN ($1,$2,$3,$4,$5)`, [livF.codinvent, livT.codinvent, livI.codinvent, livM.codinvent, livZ.codinvent]);
+        await pgS.query(`DELETE FROM balanco WHERE codbalanco=$1`, [balS.codbalanco]);
+        await pgS.query(`DELETE FROM vendas WHERE nropedido LIKE '011006271%'`);
+        await pgS.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2,$3,$4,$5)`, [nfEnt.codnf, nfSai.codnf, nfFora.codnf, nfRet.codnf, nfNeg.codnf]);
+        await pgS.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3,$4,$5)`, [nfEnt.codnf, nfSai.codnf, nfFora.codnf, nfRet.codnf, nfNeg.codnf]);
+        await pgS.query(`UPDATE cfop SET proc_qtde=NULL WHERE codcfop IN ('1102','5102','1949','1201')`);
+        await pgS.query(`DELETE FROM multi_preco WHERE idproduto IN (990870,990871,990872)`);
+        await pgS.query(`DELETE FROM produtos WHERE idproduto IN (990870,990871,990872)`);
+      } finally {
+        await pgS.end();
+      }
+    }
+
     // ===== §84) COTAÇÃO DE COMPRA (FRMCADCOTACAO) — corte-1: estrutura + preços =====
     {
       const CT = 'compras/cotacao';

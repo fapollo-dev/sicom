@@ -1,7 +1,9 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
 import {
   importarProdutosInventarioSchema, aplicarInventarioSchema, gerarBalancoSchema, importarBalancoSchema,
+  importarBalancoSincronizarSchema, sincronizarInventarioSchema,
   type ImportarProdutosInventarioDto, type AplicarInventarioDto, type GerarBalancoDto, type ImportarBalancoDto,
+  type ImportarBalancoSincronizarDto, type SincronizarInventarioDto,
 } from '@apollo/shared';
 import { InventarioService } from './inventario.service';
 import { BalancoService } from './balanco.service';
@@ -78,6 +80,34 @@ export class InventarioController {
     @Body(new ZodValidationPipe(importarBalancoSchema)) body: ImportarBalancoDto,
   ) {
     return this.balanco.importarBalanco(id, body);
+  }
+
+  /**
+   * IMPORTAR BALANÇO E ATUALIZAR ESTOQUE (comando 3 do popup): reconstrói a folha somando o movimento do
+   * intervalo à foto, nos dois sentidos. Sem opção RBAC própria no golden ⇒ gate da tela.
+   */
+  @Post(':id/importar-balanco-sincronizar')
+  @HttpCode(200)
+  @RequerAcesso('FRMINVENTARIO', 'FRMINVENTARIO')
+  importarBalancoSincronizar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(importarBalancoSincronizarSchema)) body: ImportarBalancoSincronizarDto,
+  ) {
+    return this.balanco.importarSincronizando(id, body);
+  }
+
+  /**
+   * SINCRONIZAR INVENTÁRIO (ENTRADAS − SAÍDAS) — recalcula as linhas que já estão na folha. Opção RBAC própria
+   * no golden: SINCRONIZARINVENTRIO1 (34 linhas / 15 operadores).
+   */
+  @Post(':id/sincronizar')
+  @HttpCode(200)
+  @RequerAcesso('FRMINVENTARIO', 'SINCRONIZARINVENTRIO1')
+  sincronizar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(sincronizarInventarioSchema)) body: SincronizarInventarioDto,
+  ) {
+    return this.balanco.sincronizarMovimentos(id, body);
   }
 }
 

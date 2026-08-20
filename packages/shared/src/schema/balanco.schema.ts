@@ -36,3 +36,29 @@ export interface BalancoResumo {
   idempresa: number;
   itens: number;
 }
+
+/**
+ * "Importar Balanço e Atualizar Estoque" (`ImportaBalancoSincronizar`, uInventario.pas:1485-1529): reconstrói a
+ * folha a partir da foto somando o movimento do intervalo. O SENTIDO sai da comparação das datas (a do livro × a
+ * da foto) e o legado espelha o intervalo: para frente `[dataFoto+1, dataLivro]` com `+entradas −saídas`; para
+ * trás `[dataLivro, dataFoto−1]` com `−entradas +saídas`. **Datas iguais: o legado não abre nenhum dos dois
+ * ramos** (a folha já foi apagada) — copiamos, devolvendo `sentido: 'nenhum'` e a folha vazia.
+ */
+export const importarBalancoSincronizarSchema = z.object({
+  codbalanco: z.coerce.number().int().positive(),
+  /** o "sim" de "O inventário atual será excluído" — exigido quando a folha tem linhas. */
+  confirmar: z.boolean().optional(),
+});
+export type ImportarBalancoSincronizarDto = z.infer<typeof importarBalancoSincronizarSchema>;
+
+/**
+ * "Sincronizar Inventário (Entradas - Saídas)" (`SincronizarInventrio1Click`, uInventario.pas:2631-2705):
+ * recalcula a QTDE das linhas que JÁ estão na folha (não cria linha nova) com o movimento do período; movimento
+ * negativo vira **0** e produto sem movimento vira **0**. A data inicial é sugerida pela tela como o `MAX(DATA)`
+ * dos balanços ativos e o operador pode trocá-la (`edtDtInicial`, uInventario.pas:1156-1158 e 2646-2651).
+ */
+export const sincronizarInventarioSchema = z.object({
+  /** default = MAX(data) dos balanços ativos (o que a tela preenche ao abrir). Formato AAAA-MM-DD. */
+  dtinicial: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inicial inválida (use AAAA-MM-DD).').optional(),
+});
+export type SincronizarInventarioDto = z.infer<typeof sincronizarInventarioSchema>;

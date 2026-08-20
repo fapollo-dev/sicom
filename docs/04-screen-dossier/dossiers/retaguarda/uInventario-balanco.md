@@ -214,8 +214,15 @@ o **escritor** de `alterado` é a digitação na grade (lição: coluna nova de 
    os nomes do golden (`IMPORTARPRODUTOS1`/`ATUALIZAESTOQUE1`) — sem isso, no cutover os grants reais dos 15
    operadores não casariam com os decorators; (b) `importarProdutos` ignorava a config `VRCUSTO_INVENTARIO`
    (uInventario.pas:1754 faz o mesmo teste dos outros quatro pontos da tela) — agora honra `FISCAL` com fallback.
-2. **corte-2 — o cálculo**: "Importar Balanço e Atualizar Estoque" (as 4 pernas, os dois sentidos, as listas de
-   CFOP) + "Sincronizar Inventário (Entradas − Saídas)".
+2. **corte-2 — ENTREGUE** (mig 167): "Importar Balanço e Atualizar Estoque" (4 pernas, os dois sentidos com o
+   intervalo espelhado, a lista literal de 14 CFOPs, `multi_preco` em LEFT e **sem piso em zero** — o `HAVING`
+   comentado) e "Sincronizar Inventário (Entradas − Saídas)" (gate `cfop.proc_qtde='S'` **estrito**, recalcula só
+   as linhas existentes, negativo e sem-movimento viram 0). `cfop.proc_qtde` é coluna nova de carga (golden:
+   366 'S' / 17 'N' / 12 NULL). Datas iguais devolvem folha vazia **com aviso**, que é o que o legado faz.
+   O `MAX(DATA)` do balanço é global (sem empresa, `sqqDataBalanco`) — copiado, com aviso quando a data mais
+   recente é de outra empresa (aí o saldo inicial entra zero). Seis checks no smoke (§83c) e os dois comandos na
+   tela. Nota de fuso: a perna de `vendas` usa `dtvenda AT TIME ZONE <FUSO_HORARIO_ACESSO>` (lição 17) — o legado
+   usa `TRUNC(V.DTVENDA)` porque no Oracle a coluna é `DATE` sem fuso.
 3. **corte-3 — relatório e bordas**: "Relatório Diferença do Balanço para Estoque" (exige `alterado`/`qtde_ist`),
    "Atualizar Custo a partir do Cadastro", "Zerar Qtde na Grade".
 4. fora do escopo deste épico: "Restituição de tributação" (fiscal) e o CRUD `FRMCADBALANCO`, se o usuário

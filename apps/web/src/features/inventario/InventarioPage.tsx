@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
 import { NumberField } from '../../shared/ui/NumberField';
+import { DateField } from '../../shared/ui/DateField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
@@ -9,7 +10,7 @@ import { useMensagem } from '../../shared/mensagem';
 import {
   listarInventarios, obterInventario, criarInventario, atualizarInventario,
   importarProdutosInventario, diferencasInventario, aplicarInventario,
-  listarBalancos, gerarBalanco, importarBalanco,
+  listarBalancos, gerarBalanco, importarBalanco, importarBalancoSincronizar, sincronizarInventario,
   type InventarioLivro, type InventarioDetalhe, type BalancoLinha,
 } from './inventarioApi';
 
@@ -35,6 +36,7 @@ export function InventarioPage() {
   const [busy, setBusy] = useState(false);
   const [balancos, setBalancos] = useState<BalancoLinha[]>([]);
   const [balancoSel, setBalancoSel] = useState('');
+  const [dtSinc, setDtSinc] = useState('');
 
   const carregarLista = useCallback(async () => {
     setCarregando(true);
@@ -185,6 +187,42 @@ export function InventarioPage() {
     }
   };
 
+  /**
+   * "Importar Balanço e Atualizar Estoque": refaz a folha somando o movimento do intervalo à foto. O sentido é
+   * decidido pelo backend (datas do livro × da foto) e datas iguais devolvem folha vazia — o aviso vem de lá.
+   */
+  const importarSincronizando = async () => {
+    if (!sel || busy || !balancoSel) return;
+    const temItens = (sel.itens ?? []).length > 0;
+    if (temItens && !window.confirm('O inventário atual será excluído. Deseja continuar?')) return;
+    setBusy(true);
+    try {
+      const r = await importarBalancoSincronizar(sel.codinvent, { codbalanco: Number(balancoSel), confirmar: temItens || undefined });
+      const rumo = r.sentido === 'frente' ? 'para frente' : r.sentido === 'tras' ? 'para trás (rebobinando o movimento)' : 'nenhum';
+      mensagem.sucesso(r.aviso ?? `${r.itens} produto(s) — saldo reconstruído ${rumo}${r.dtini && r.dtfim ? ` no intervalo ${r.dtini} → ${r.dtfim}` : ''}.`);
+      await abrir(sel.codinvent);
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** "Sincronizar Inventário (Entradas − Saídas)": recalcula as linhas que já estão na folha (não cria linha). */
+  const sincronizar = async () => {
+    if (!sel || busy) return;
+    setBusy(true);
+    try {
+      const r = await sincronizarInventario(sel.codinvent, dtSinc ? { dtinicial: dtSinc } : {});
+      mensagem.sucesso(`${r.atualizados} linha(s) recalculada(s) e ${r.zerados} zerada(s) — janela ${r.dtinicial} → ${r.dtfinal}.${r.aviso ? ' ' + r.aviso : ''}`);
+      await abrir(sel.codinvent);
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // ─────────────────────────── DETALHE (livro aberto) ───────────────────────────
   if (sel) {
     const itens = sel.itens ?? [];
@@ -217,8 +255,13 @@ export function InventarioPage() {
           />
           <Button label="Importar &balanço" variant="soft" disabled={busy || !balancoSel} onClick={() => void importarDaFoto()} />
           <Button label="&Gerar balanço da contagem" variant="soft" disabled={busy || !itens.length} onClick={() => void gerarFoto()} />
+          <Button label="Importar balanço e atualizar es&toque" variant="soft" disabled={busy || !balancoSel} onClick={() => void importarSincronizando()} />
+          <DateField label="Data i&nicial (sincronismo)" value={dtSinc} onChange={(v) => setDtSinc(v ?? '')} />
+          <Button label="Sincroni&zar (entradas − saídas)" variant="soft" disabled={busy || !itens.length} onClick={() => void sincronizar()} />
           <span className="text-xs text-fg-muted">
             Importar traz apenas a LISTA de produtos da foto — a quantidade é o saldo atual (estoque + depósito). Gerar cria a foto na data do livro.
+            “Importar e atualizar estoque” refaz a folha somando o movimento do intervalo à foto (para frente ou para trás, conforme as datas);
+            “Sincronizar” só recalcula as linhas que já estão na folha, e movimento negativo vira zero.
           </span>
           <small className="w-full text-fg-muted">Contado nasce = saldo de sistema; ajuste só as linhas recontadas. Aplicar SOBRESCREVE o estoque (exige senha ADM da empresa).</small>
         </div>
