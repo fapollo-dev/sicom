@@ -47,8 +47,13 @@ for arq, nome, tab, cols in alvos:
     if any(x in cols.lower() for x in ('coalesce', 'nullif', '::', 'case')):
         pulados.append((nome, tab, cols)); continue
     expr = cols
+    # ⚠️ semântica do índice único: no Postgres (como no Oracle) **NULL não colide com NULL** — cada NULL é
+    # distinto. Sem este filtro o GROUP BY junta todos os NULLs num "grupo" gigante e o relatório superestima
+    # (a 1ª versão desta varredura reportou 22.946 linhas em `nf(cod_ped_dev_compra)` que eram 22.931 NULLs).
+    where_nn = " AND ".join(f"{c.strip()} IS NOT NULL" for c in expr.split(",") if "(" not in c)
+    filtro = f"WHERE {where_nn}" if where_nn else ""
     try:
-        cur.execute(f"select count(*) g, sum(n) l from (select {expr}, count(*) n from {T} group by {expr} having count(*)>1)")
+        cur.execute(f"select count(*) g, sum(n) l from (select {expr}, count(*) n from {T} {filtro} group by {expr} having count(*)>1)")
         g, l = cur.fetchone()
         if g and g > 0:
             viola.append((nome, tab, cols, g, l or 0))

@@ -113,34 +113,34 @@ Total estimado: **~20,5 M linhas**. Com COPY em lotes, estimativa de carga bruta
 - **Ensaio**: carga completa em banco descartável + validação §5 + rodar TODAS as suites (smoke aponta
   p/ o banco carregado) ANTES de qualquer janela.
 
-## 7b. ⚠️ UNICIDADE: 14 índices nossos que o dado do cliente VIOLA (varredura de 2026-08-26)
+## 7b. ⚠️ UNICIDADE: 14 índices nossos que o dado do cliente viola — com veredicto (2026-08-26)
 
-Antes de qualquer ETL: `tools/cutover/varre-unicidade.py` lê as 32 unicidades declaradas nas migrations e
-confronta cada uma com o Oracle. Resultado — **14 violam o golden**, somando ~62 mil linhas que a carga
-rejeitaria em silêncio:
+`tools/cutover/varre-unicidade.py` lê as 32 unicidades declaradas nas migrations e confronta cada uma com o
+Oracle. **Correção da primeira medição**: `GROUP BY` junta NULLs num grupo só, mas índice único trata cada NULL
+como distinto — a v1 deste relatório contou 22.931 NULLs de `nf.cod_ped_dev_compra` como violação. Com a
+semântica certa são **~18 mil linhas**, das quais 13.804 já foram resolvidas na mig 172.
 
-| índice | tabela (colunas) | grupos | linhas | natureza (a decidir por item) |
-|---|---|---:|---:|---|
-| `ux_nf_cod_ped_dev_compra` | nf (cod_ped_dev_compra) | 8 | **22.946** | 22.9 mil NFs compartilham 8 valores — provável 0/NULL tratado como valor |
-| `ux_nf_codpedcomp` | nf (codpedcomp) | 65 | **20.326** | idem + **recebimento parcial é regra real**: um pedido pode ter várias NFs |
-| ~~`ux_inventario_produto`~~ | inventario (codinvent, idproduto) | 2.818 | 13.804 | ✅ removido na mig 172 |
-| `ux_parceiros_end_doc` | parceiros_end (cnpj_cpf) | 1.049 | 3.017 | mesmo CNPJ/CPF em vários endereços/parceiros |
-| `ux_mbo_fitid` | movimentacao_bancaria_ofx (codconta, mbo_transacao_id, mbo_check_num) | 79 | 1.741 | FITID repetido no extrato — o dedup do OFX presume unicidade |
-| `ux_codref_for` | codreferencia_for (codfor, codref) | 77 | 232 | de-para de fornecedor com código repetido |
-| `ux_nf_natural` (2 variantes) | nf (nronf, serie, modelo, idempresa, tipoemissao/tipo, codparceiro) | 38/41 | 215/214 | a "chave natural" da NF não é única no golden |
-| `ux_cotacao_forn_itens` · `ux_cotacao_prod` · `ux_cotacao_prodqtde` | cotação | 5/7/2 | 25/14/4 | — |
-| `ux_operadores_login` | operadores (upper(login)) | 5 | 15 | logins duplicados por caixa |
-| `ux_relacao_operador_perfil` · `ux_nfe_naocad_chave` | — | 2/2 | 4/4 | — |
+| índice | grupos / linhas | o que as duplicatas SÃO (medido) | veredicto |
+|---|---:|---|---|
+| ~~`ux_inventario_produto`~~ | 2.818 / 13.804 | contagem repetida do mesmo produto no mesmo livro | ✅ **removido** (mig 172) |
+| `ux_parceiros_end_doc` (cnpj_cpf) | 1.048 / 2.784 | **1.042 grupos são parceiros DIFERENTES com o mesmo documento** (só 6 são o mesmo parceiro com 2 endereços) | **índice sai**: a unicidade global do documento é invenção nossa. Duplicidade de cadastro vira **aviso na tela**, não bloqueio de carga |
+| `ux_mbo_fitid` (OFX) | 77 / 693 | FITID reusado pelo banco — **nenhum grupo tem data e valor iguais** | **chave larga**: dedup do OFX passa a `(conta, fitid, data, valor)`; o índice atual sai |
+| `ux_codref_for` | 76 / 230 | mesmo `(codfor, codref)` apontando para **produtos diferentes** em todos os 76 grupos | **índice sai** — o de-para do fornecedor não é 1:1 no legado |
+| `ux_nf_natural` (2 variantes) | 38+41 / 215+214 | **215 linhas, todas `CANCELADA='N'`** e sem status de cancelamento: são notas vivas com a mesma chave natural | **índice vira parcial** (só para NF nova, a partir do cutover) — proibir hoje rejeitaria nota legítima |
+| `ux_nf_codpedcomp` | 64 / 147 | um pedido com **várias NFs** — é o **recebimento parcial**, regra real e já migrada | **índice sai** (é regra do negócio, não anomalia) |
+| `ux_operadores_login` (upper) | 5 / 15 | FLAVIA CARVALHO, LAURA, NATALIA e TESTE(×4) — **nenhum excluído** (`indr<>'E'`) | ⚠️ **decisão do usuário**: são credenciais vivas. Ou a carga renomeia com sufixo e reporta, ou o índice vira parcial por ativo. Não decido sozinho |
+| `ux_cotacao_forn_itens` · `ux_cotacao_prod` · `ux_cotacao_prodqtde` | 5/25 · 7/14 · 2/4 | item repetido na mesma cotação | **dedup na carga** com regra contada (fica com a linha de maior código) |
+| `ux_nf_cod_ped_dev_compra` | 7 / 15 | um pedido de devolução com 2-3 NFs | **índice sai** (mesmo caso do recebimento parcial) |
+| `ux_relacao_operador_perfil` · `ux_nfe_naocad_chave` | 2/4 · 2/4 | grade de perfil repetida · mesma chave importada 2× | **dedup na carga** |
 
-Passam sem violação (13): `multi_preco`, `estoque`, `empresas`, `configuracoes`, `plano_contas`, `formas_pgto`
-(×2), `cotacao_forn`, `apuracao_pc`, `contas_bancarias_op`, `saldo_operador`, `operadoras_taxa`, `apuracao_icms`.
-Sem equivalente no Oracle (nossas): `nfe_evento`, `dre_estrutura`, `caixa_sessao`. Não avaliadas pelo script
-(expressão): `arquivo_remessa_areceber`, `nf_prod_lote` (esta já saiu na mig 172).
+Passam limpas (13): `multi_preco`, `estoque`, `empresas`, `configuracoes`, `plano_contas`, `formas_pgto` (×2),
+`cotacao_forn`, `apuracao_pc`, `contas_bancarias_op`, `saldo_operador`, `operadoras_taxa`, `apuracao_icms`.
+Sem origem no Oracle (nossas): `nfe_evento`, `dre_estrutura`, `caixa_sessao`. Não avaliadas pelo script
+(expressão): `arquivo_remessa_areceber` (a coluna tem outro nome lá), `nf_prod_lote` (já saiu na mig 172).
 
-**Cada violação precisa de veredicto ANTES do ensaio**, e são três os possíveis: (a) o índice é invenção nossa e
-sai; (b) o dado de origem é sujo e a carga **deduplica com regra explícita** (documentada e contada no relatório
-de reconciliação); (c) a unicidade vale só para o dado NOVO e o índice vira parcial (`WHERE` que exclui o
-histórico). O que não pode é descobrir isso com a carga rodando.
+**Resumo do que fazer antes do ensaio:** 5 índices saem, 1 vira parcial, 4 grupos deduplicam na carga com regra
+contada, 1 (login de operador) é decisão do usuário. Nenhum desses é discutível "no meio da carga" — é por isso
+que esta seção existe.
 
 ## 8. Próximos passos de execução (quando aprovado)
 
