@@ -82,6 +82,7 @@ const TELAS = [
   { href: '/cadastro/operadoras', name: 'Operadoras de Cartão', icon: CreditCard },
   { href: '/estoque/ajuste', name: 'Ajuste de Estoque', icon: Package },
   { href: '/estoque/inventario', name: 'Inventário', icon: ClipboardList },
+  { href: '/estoque/inventario-rotativo', name: 'Inventário rotativo', icon: ClipboardList },
   { href: '/estoque/scrap', name: 'Scrap / Perdas', icon: Trash2 },
   { href: '/estoque/troca', name: 'Troca com Fornecedor', icon: Undo2 },
   { href: '/estoque/producao', name: 'Produção', icon: ChefHat },

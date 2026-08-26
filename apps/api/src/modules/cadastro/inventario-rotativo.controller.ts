@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Put, UseGuards } from '@nestjs/common';
 import {
-  criarLoteRotativoSchema, alterarLoteRotativoSchema, fecharLoteRotativoSchema,
-  type CriarLoteRotativoDto, type AlterarLoteRotativoDto, type FecharLoteRotativoDto,
+  criarLoteRotativoSchema, alterarLoteRotativoSchema, fecharLoteRotativoSchema, zerarEstoqueRotativoSchema,
+  type CriarLoteRotativoDto, type AlterarLoteRotativoDto, type FecharLoteRotativoDto, type ZerarEstoqueRotativoDto,
 } from '@apollo/shared';
 import { InventarioRotativoService } from './inventario-rotativo.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -48,5 +48,16 @@ export class InventarioRotativoController {
   @RequerAcesso('FRMRELINVENTARIOROTATIVO', 'BTNFECHARINVENTARIO')
   fechar(@Body(new ZodValidationPipe(fecharLoteRotativoSchema)) body: FecharLoteRotativoDto) {
     return this.svc.fecharLote(body);
+  }
+
+  /**
+   * ZERAR ESTOQUE dos produtos marcados (loja e/ou depósito), com liberação por login. A grade do rotativo
+   * (`uInvRotativoGrid`) não tem opção de RBAC própria no golden — responde ao gate da tela.
+   */
+  @Post('zerar-estoque')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELINVENTARIOROTATIVO', 'FRMRELINVENTARIOROTATIVO')
+  zerarEstoque(@Body(new ZodValidationPipe(zerarEstoqueRotativoSchema)) body: ZerarEstoqueRotativoDto) {
+    return this.svc.zerarEstoque(body);
   }
 }

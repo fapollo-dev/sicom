@@ -11,6 +11,7 @@ import { AjusteEstoqueService } from './ajuste-estoque.service';
 import { InventarioAggregateController } from './inventario.aggregate';
 import { InventarioController, BalancoController } from './inventario.controller';
 import { BalancoService } from './balanco.service';
+import { AuthModule } from '../auth/auth.module';
 import { InventarioRotativoController } from './inventario-rotativo.controller';
 import { InventarioRotativoService } from './inventario-rotativo.service';
 import { InventarioService } from './inventario.service';
@@ -101,7 +102,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
  * cada uma é só uma config; o engine herda auditoria/soft-delete/outbox/RBAC.
  */
 @Module({
-  imports: [PrecificacaoModule], // reuso do motor fiscal (TributacaoRepository/FiscalPricingService) na NF F2
+  imports: [PrecificacaoModule, AuthModule], // motor fiscal na NF F2 + LiberacaoService (zerar estoque do rotativo)
   controllers: [
     BancosController, // hand-written (referência + paridade SQL + golden)
     OperacoesContaCrudController, // engine (combo)

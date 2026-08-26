@@ -4,6 +4,7 @@ import type { LoteRotativoResumo } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { LiberacaoService } from '../auth/liberacao.service';
 
 type AnyDB = Kysely<any>;
 
@@ -19,7 +20,10 @@ type AnyDB = Kysely<any>;
  */
 @Injectable()
 export class InventarioRotativoService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly liberacao: LiberacaoService,
+  ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -219,6 +223,85 @@ export class InventarioRotativoService {
       }
       await this.historico(trx, 'Fechamento', dto.lote, `Fechamento do lote ${dto.lote} realizado pelo operador ${op ?? '?'}.`, emp, op);
       return { lote: dto.lote, codinv_rotativo: Number(cab.codinv_rotativo), coletas_carimbadas: 0, ja_fechado: jaFechado, departamentos: dptos.length };
+    });
+  }
+
+  /**
+   * ZERAR ESTOQUE pela grade (uInvRotativoGrid.pas:146-292 + `ZeraEstoque`:381-446) — a parte de DINHEIRO do
+   * épico. Gates, na ordem do legado: (1) "Informe quais estoques serão zerados." (loja e/ou depósito, validado no
+   * schema); (2) **liberação por login** contra a lista da config `USUARIOS_ZERAM_ESTOQUE_INVENTARIO` — no golden
+   * a lista está VAZIA, então sem grant ninguém zera. Depois, por produto × bucket, os TRÊS fatos do legado:
+   * zera o saldo, grava a coleta (`SUBSTITUIR` + `QTD_ANTERIOR`) e grava o ajuste (`CODMOTIVO=999`, `ORIGEM='I'`,
+   * `IDORIGEM` = a coleta, `OPERACAO` invertida quando o saldo era negativo). Tudo em UMA transação.
+   */
+  async zerarEstoque(dto: {
+    idprodutos: number[]; loja?: boolean; deposito?: boolean; lote?: number; login: string; senha: string;
+  }): Promise<{ zerados: number; ajustes: number; coletas: number; liberado_por: number | null }> {
+    const emp = this.emp();
+    const op = currentTenant().operadorId ?? null;
+    const lib = await this.liberacao.validar({
+      codigo: 'USUARIOS_ZERAM_ESTOQUE_INVENTARIO',
+      login: dto.login,
+      senha: dto.senha,
+      liberacao: 'Zerar estoque pelo inventário rotativo',
+    });
+    if (!lib.liberado) throw new BusinessRuleError('LIBERACAO_NEGADA', { codigo: 'USUARIOS_ZERAM_ESTOQUE_INVENTARIO' });
+
+    const buckets: Array<{ tabela: 'estoque' | 'estoque_dep'; destinoColeta: string; destinoAjuste: string }> = [];
+    if (dto.loja) buckets.push({ tabela: 'estoque', destinoColeta: 'LOJA', destinoAjuste: 'ESTOQUE' });
+    if (dto.deposito) buckets.push({ tabela: 'estoque_dep', destinoColeta: 'DEPOSITO', destinoAjuste: 'DEPOSITO' });
+
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      let zerados = 0;
+      let ajustes = 0;
+      let coletas = 0;
+      for (const idproduto of Array.from(new Set(dto.idprodutos))) {
+        for (const b of buckets) {
+          const saldo = (await trx
+            .selectFrom(b.tabela as any)
+            .select(sql<number>`coalesce(qtde,0)`.as('q'))
+            .where('idproduto', '=', idproduto)
+            .where('idempresa', '=', emp)
+            .forUpdate()
+            .executeTakeFirst()) as { q: unknown } | undefined;
+          // o legado só entra no ZeraEstoque para produto que veio da grade (JOIN ESTOQUE) — sem linha, não há o
+          // que zerar nem que auditar.
+          if (!saldo) continue;
+          const anterior = Number(saldo.q ?? 0);
+
+          await trx.updateTable(b.tabela as any).set({ qtde: 0 }).where('idproduto', '=', idproduto).where('idempresa', '=', emp).execute();
+          zerados++;
+
+          const coleta = (await trx
+            .insertInto('inventario_rotativo')
+            .values({
+              idempresa: emp, idproduto, operacao: 'SUBSTITUIR', destino: b.destinoColeta,
+              qtd_anterior: anterior, qtd_atual: 0, qtd_coletada: 0,
+              data: sql`now()`, operador: op, lote: dto.lote ?? null,
+            })
+            .returning('codinv_rotativo')
+            .executeTakeFirstOrThrow()) as { codinv_rotativo: number };
+          coletas++;
+
+          await trx
+            .insertInto('ajuste_estoque')
+            .values({
+              idproduto, idempresa: emp,
+              // saldo negativo virando zero é AUMENTO de estoque (uInvRotativoGrid.pas:431)
+              operacao: anterior < 0 ? 'AUMENTAR' : 'DIMINUIR',
+              destino: b.destinoAjuste,
+              qtde: Math.abs(anterior),
+              qtdeanterior: anterior, qtdeatual: 0,
+              codmotivo: 999, codoperador: op ?? lib.codOperador ?? 0,
+              origem: 'I', idorigem: Number(coleta.codinv_rotativo),
+              codoperador_liberacao: lib.codOperador ?? null,
+              dtcadastro: sql`now()`,
+            })
+            .execute();
+          ajustes++;
+        }
+      }
+      return { zerados, ajustes, coletas, liberado_por: lib.codOperador ?? null };
     });
   }
 }

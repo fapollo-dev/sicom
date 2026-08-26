@@ -112,9 +112,20 @@ app mais nova que o fonte clonado (2020)**. Consequências para o corte:
    - o histórico do legado (`SetaHistorico`, que grava na tabela `LOG` do Oracle — inexistente aqui) foi mapeado
      em `historico_dinamico` com `tabela='INVENTARIO_ROTATIVO'`, `chave='LOTE'` e `origem` do form.
    Front pendente (declarado): a tela entra junto com o corte-2, que é onde a coleta aparece.
-2. **corte-2 — coleta**: as quantidades (`qtd_anterior`/`qtd_atual`/`qtd_coletada`), `SUBSTITUIR` × `AUMENTAR`,
-   `INVENT_GERAL_LEITURA` + importação do arquivo do coletor (com o separador da config) e o zerar-não-coletados
-   com a lista de usuários autorizados.
+2. **corte-2 — PARCIALMENTE ENTREGUE** (mig 171): o **zerar estoque pela grade** (`BtnZerarEstoqueClick` +
+   `ZeraEstoque`, uInvRotativoGrid.pas:146-446) — a parte de dinheiro. Gate duplo (quais estoques + **liberação
+   por login** contra a lista da config `USUARIOS_ZERAM_ESTOQUE_INVENTARIO`, id 46, que no golden está **vazia**:
+   sem grant, ninguém zera) e os **três fatos** por produto × bucket: zera `estoque`/`estoque_dep`, grava a coleta
+   (`SUBSTITUIR`, `DESTINO` LOJA/DEPOSITO, `QTD_ANTERIOR` = saldo, `QTD_ATUAL`/`QTD_COLETADA` = 0) e grava o rastro
+   em `ajuste_estoque` (`CODMOTIVO` 999, `ORIGEM='I'`, `IDORIGEM` = a coleta, `OPERACAO` = `AUMENTAR` quando o
+   saldo era negativo). Mais a **tela** (`/estoque/inventario-rotativo`): abrir/renomear/fechar nos dois caminhos
+   e o zerar com liberação. Dois checks no smoke (§87.8/87.9).
+   ⚠️ **achado de cutover**: o legado grava `CODMOTIVO = 999` e **o motivo 999 não existe em `MOTIVOS_OPERACAO`**
+   no golden — ainda assim **2.638 ajustes** o usam (1.312 com `ORIGEM='I'`). O Oracle não tem FK que barre; a
+   nossa tem, então a migration cria a linha 999 para a carga não quebrar.
+   **Falta do corte-2**: a coleta propriamente dita (leitura do coletor em `INVENT_GERAL_LEITURA`, importação do
+   arquivo com o separador da config `INVENTARIO_ROTATIVO_DIGITO_SEPARADOR`) e o zerar-não-coletados
+   (`USUARIOS_ZERAM_INVENTARIO_ROTATIVO`, que é config diferente da usada aqui).
 3. **corte-3 — as pontes de NF**: importar perdas/sobras para NF com o gate anti-reimporte e o estorno no
    cancelamento da NF (`udmNF.pas:3418-3457`).
 4. **fora do corte, declarado**: o encadeamento `CODBALANCO_INICIAL`/`_FINAL` (§4 — sem fonte auditável).

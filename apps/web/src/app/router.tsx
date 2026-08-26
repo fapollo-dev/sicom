@@ -33,6 +33,7 @@ import { PerfilCadMaster } from '../features/perfil/PerfilCadMaster';
 import { EmpresasCadMaster } from '../features/empresas/EmpresasCadMaster';
 import { AjusteEstoquePage } from '../features/ajuste-estoque/AjusteEstoquePage';
 import { InventarioPage } from '../features/inventario/InventarioPage';
+import { InventarioRotativoPage } from '../features/inventario-rotativo/InventarioRotativoPage';
 import { ScrapPage } from '../features/scrap/ScrapPage';
 import { ProducaoPage } from '../features/producao/ProducaoPage';
 import { EtiquetaPage } from '../features/etiqueta/EtiquetaPage';
@@ -103,6 +104,7 @@ export const router = createBrowserRouter([
       { path: '/cobranca/caixa', element: <CaixaPage /> }, // caixa (sessão + movimento manual, corte-1)
       { path: '/estoque/ajuste', element: <AjusteEstoquePage /> }, // ajuste de estoque (move o saldo + kardex)
       { path: '/estoque/inventario', element: <InventarioPage /> }, // inventário (contagem física; sobrescreve o saldo)
+      { path: '/estoque/inventario-rotativo', element: <InventarioRotativoPage /> }, // rotativo: lote (abrir/fechar) + zerar estoque
       { path: '/estoque/scrap', element: <ScrapPage /> }, // scrap/perdas (documento de perda; baixa do saldo + kardex)
       { path: '/estoque/troca', element: <TrocaPage /> }, // troca c/ fornecedor (avariados saem; baixa do saldo + kardex)
       { path: '/estoque/producao', element: <ProducaoPage /> }, // produção/manufatura (explode receita → baixa ingredientes + entra acabado)

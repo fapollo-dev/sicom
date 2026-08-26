@@ -9230,7 +9230,44 @@ async function main() {
           feX.status === 422 && feXJ.code === 'LOTE_SEM_ABERTURA' && rb1.status === 403 && rb2.status === 403 && rb3.status === 403,
           { feX: [feX.status, feXJ.code], rb: [rb1.status, rb2.status, rb3.status] });
 
+        // 87.8) ZERAR ESTOQUE (uInvRotativoGrid): gates + os TRÊS fatos (saldo zerado, coleta e ajuste).
+        // limpa as coletas do §87.6 (elas também são SUBSTITUIR/AUMENTAR e poluiriam a contagem deste bloco)
+        await pgR.query(`DELETE FROM inventario_rotativo WHERE idempresa=1 AND operacao IN ('SUBSTITUIR','AUMENTAR')`);
+        await pgR.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES (1,1,40) ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde=40`);
+        await pgR.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES (2,1,-6) ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde=-6`);
+        await pgR.query(`INSERT INTO estoque_dep (idproduto, idempresa, qtde) VALUES (1,1,9) ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde=9`);
+        const zSemBucket = await fetch(`${base}/${IR}/zerar-estoque`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [1], login: 'SMOKE', senha: 'smoke123' }) });
+        const zSemLib = await fetch(`${base}/${IR}/zerar-estoque`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [1], loja: true, login: 'SMOKE', senha: 'errada' }) });
+        const zSemLibJ = (await zSemLib.json().catch(() => ({}))) as any;
+        check('ROTATIVO §87.8: zerar exige dizer QUAIS estoques ("Informe quais estoques serão zerados." → 400) e passa por LIBERAÇÃO por login contra a lista da config 46 — senha errada → 422 LIBERACAO_NEGADA (no golden essa lista está VAZIA, ou seja ninguém pode zerar)',
+          zSemBucket.status === 400 && zSemLib.status === 422 && zSemLibJ.code === 'LIBERACAO_NEGADA',
+          { semBucket: zSemBucket.status, semLib: [zSemLib.status, zSemLibJ.code] });
+
+        const zOk = await fetch(`${base}/${IR}/zerar-estoque`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [1, 2], loja: true, deposito: true, login: 'SMOKE', senha: 'smoke123' }) });
+        const zOkJ = (await zOk.json().catch(() => ({}))) as any;
+        const est1z = Number((await pgR.query(`SELECT qtde FROM estoque WHERE idproduto=1 AND idempresa=1`)).rows[0]?.qtde);
+        const est2z = Number((await pgR.query(`SELECT qtde FROM estoque WHERE idproduto=2 AND idempresa=1`)).rows[0]?.qtde);
+        const dep1z = Number((await pgR.query(`SELECT qtde FROM estoque_dep WHERE idproduto=1 AND idempresa=1`)).rows[0]?.qtde);
+        const cols = (await pgR.query(`SELECT idproduto, destino, qtd_anterior, qtd_atual, qtd_coletada, operacao FROM inventario_rotativo WHERE operacao='SUBSTITUIR' AND idempresa=1 ORDER BY idproduto, destino`)).rows as any[];
+        const ajs = (await pgR.query(`SELECT a.idproduto, a.operacao, a.destino, a.qtde, a.qtdeanterior, a.qtdeatual, a.codmotivo, a.origem, a.codoperador_liberacao,
+                                             (SELECT count(*)::int FROM inventario_rotativo r WHERE r.codinv_rotativo = a.idorigem) AS tem_origem
+                                        FROM ajuste_estoque a WHERE a.origem='I' AND a.idempresa=1 ORDER BY a.idproduto, a.destino`)).rows as any[];
+        const ajP2 = ajs.find((x: any) => Number(x.idproduto) === 2);
+        const okStatus = zOk.status === 200 && Number(zOkJ.zerados) === 3 && Number(zOkJ.coletas) === 3 && Number(zOkJ.ajustes) === 3;
+        const okSaldos = est1z === 0 && est2z === 0 && dep1z === 0;
+        const okColetas = cols.length === 3 && cols.every((c: any) => Number(c.qtd_atual) === 0 && Number(c.qtd_coletada) === 0)
+          && Number(cols.find((c: any) => Number(c.idproduto) === 1 && c.destino === 'LOJA')?.qtd_anterior) === 40
+          && Number(cols.find((c: any) => Number(c.idproduto) === 1 && c.destino === 'DEPOSITO')?.qtd_anterior) === 9;
+        const okAjustes = ajs.length === 3 && ajs.every((a: any) => Number(a.codmotivo) === 999 && a.origem === 'I' && Number(a.tem_origem) === 1);
+        const okNegativo = ajP2?.operacao === 'AUMENTAR' && Math.abs(Number(ajP2?.qtde) - 6) < 0.001 && Number(ajP2?.codoperador_liberacao) > 0;
+        check('ROTATIVO §87.9: com liberação válida, zerar faz os TRÊS fatos por produto×bucket — saldo 0 em estoque e estoque_dep (3 zerados), coleta SUBSTITUIR com QTD_ANTERIOR do saldo e DESTINO LOJA/DEPOSITO, e ajuste com CODMOTIVO=999, ORIGEM=I e IDORIGEM apontando para a coleta; o saldo NEGATIVO (−6) vira ajuste de AUMENTAR com qtde 6 (não DIMINUIR)',
+          okStatus && okSaldos && okColetas && okAjustes && okNegativo,
+          { flags: { okStatus, okSaldos, okColetas, okAjustes, okNegativo }, z: zOkJ, est: [est1z, est2z, dep1z], nCols: cols.length, nAjs: ajs.length });
+
         // cleanup
+        await pgR.query(`DELETE FROM ajuste_estoque WHERE origem='I' AND idempresa=1`);
+        await pgR.query(`DELETE FROM estoque_dep WHERE idproduto=1 AND idempresa=1`);
+        await pgR.query(`UPDATE estoque SET qtde=0 WHERE idproduto IN (1,2) AND idempresa=1`);
         await pgR.query(`DELETE FROM inventario_rotativo WHERE idempresa IN (1,2)`);
         await pgR.query(`DELETE FROM historico_dinamico WHERE tabela='INVENTARIO_ROTATIVO'`);
       } finally {

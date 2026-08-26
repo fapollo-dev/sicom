@@ -56,3 +56,31 @@ export interface LoteRotativoResumo {
   codnf_perdas: number | null;
   codnf_sobras: number | null;
 }
+
+/**
+ * ZERAR ESTOQUE pela grade do rotativo (`BtnZerarEstoqueClick`, uInvRotativoGrid.pas:146-292 + `ZeraEstoque`
+ * :381-446). Gate duplo: **quais estoques** (loja e/ou depósito — "Informe quais estoques serão zerados.") e a
+ * **liberação por login** contra a lista da config `USUARIOS_ZERAM_ESTOQUE_INVENTARIO` (id 46; no golden a lista
+ * está vazia ⇒ ninguém pode, e é assim que respondemos). Para cada produto × bucket marcado o legado faz três
+ * coisas: zera `ESTOQUE`/`ESTOQUE_DEP`, insere a coleta em `INVENTARIO_ROTATIVO` (`OPERACAO='SUBSTITUIR'`,
+ * `DESTINO='LOJA'|'DEPOSITO'`, `QTD_ANTERIOR` = saldo, `QTD_ATUAL` = 0, `QTD_COLETADA` = 0) e grava o rastro em
+ * `AJUSTE_ESTOQUE` (`OPERACAO` = 'AUMENTAR' se o saldo era negativo, senão 'DIMINUIR'; `QTDE` = |saldo|;
+ * `CODMOTIVO` = 999; `ORIGEM='I'`; `IDORIGEM` = a coleta).
+ */
+export const zerarEstoqueRotativoSchema = z
+  .object({
+    idprodutos: z.array(z.coerce.number().int().positive()).min(1).max(5000),
+    /** os dois checks da tela; pelo menos um é obrigatório. */
+    loja: z.boolean().optional(),
+    deposito: z.boolean().optional(),
+    /** lote a carimbar na coleta (o legado grava NULL quando é 0). */
+    lote: z.coerce.number().int().positive().optional(),
+    /** liberação por login: quem autoriza precisa estar na lista da config 46. */
+    login: z.string().trim().min(1),
+    senha: z.string().min(1),
+  })
+  .refine((v) => v.loja === true || v.deposito === true, {
+    message: 'Informe quais estoques serão zerados.',
+    path: ['loja'],
+  });
+export type ZerarEstoqueRotativoDto = z.infer<typeof zerarEstoqueRotativoSchema>;
