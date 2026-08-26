@@ -215,6 +215,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('170_inventario_rotativo.sql'));
   await pool.query(sql('171_inv_rotativo_zerar.sql'));
   await pool.query(sql('172_folds_auditoria.sql'));
+  await pool.query(sql('173_login_unicidade_parcial.sql'));
   await pool.end();
   return pg;
 }

@@ -9284,6 +9284,39 @@ async function main() {
       }
     }
 
+    // ===== §89) LOGIN DUPLICADO (decisão do usuário + mig 173): unicidade PARCIAL e desempate por código ====
+    {
+      const pgL = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // reproduz o padrão real do cliente (LAURA: 503 desabilitado + 509 ativo, mesmo login), marcando as duas
+        // contas como vindas da CARGA — é assim que o ETL tem de gravar (`origem_legado='S'`).
+        await pgL.query(`INSERT INTO operadores (codoperador, nome, login, desabilitado, origem_legado, indr) VALUES
+          (990901,'LAURA ANTIGA','LAURA','S','S','I'),
+          (990902,'LAURA ATUAL','LAURA','N','S','I') ON CONFLICT (codoperador) DO NOTHING`);
+        const daCarga = Number((await pgL.query(`SELECT count(*)::int AS n FROM operadores WHERE upper(login)='LAURA'`)).rows[0]?.n);
+
+        // a MESMA ordenação do login (auth.service): ativo antes de desabilitado, depois o menor código
+        const escolhido = (await pgL.query(
+          `SELECT codoperador FROM operadores WHERE upper(login)='LAURA' AND coalesce(indr,'I')<>'E'
+            ORDER BY case when coalesce(desabilitado,'N')='S' then 1 else 0 end, codoperador LIMIT 1`)).rows[0] as any;
+
+        // entre cadastros NOVOS (os que nascem no Apollo) a unicidade continua valendo
+        await pgL.query(`INSERT INTO operadores (codoperador, nome, login, desabilitado, indr) VALUES (990903,'NOVA','ZELIA','N','I')`);
+        let barrouNovo = false;
+        try {
+          await pgL.query(`INSERT INTO operadores (codoperador, nome, login, desabilitado, indr) VALUES (990904,'NOVA 2','zelia','N','I')`);
+        } catch { barrouNovo = true; }
+
+        check('LOGIN §89: unicidade PARCIAL (mig 173, decisão do usuário) — as 2 contas "LAURA" da CARGA convivem (é o dado real do cliente: 4 logins com 2 a 4 contas), a autenticação desempata por CÓDIGO escolhendo a ATIVA (990902) e não a desabilitada de código menor, e entre cadastros NOVOS a unicidade segue valendo (o segundo "ZELIA" é recusado)',
+          daCarga === 2 && Number(escolhido?.codoperador) === 990902 && barrouNovo,
+          { contasDaCarga: daCarga, escolhido: escolhido?.codoperador, novoDuplicadoBarrado: barrouNovo });
+
+        await pgL.query(`DELETE FROM operadores WHERE codoperador IN (990901,990902,990903,990904)`);
+      } finally {
+        await pgL.end();
+      }
+    }
+
     // ===== §84) COTAÇÃO DE COMPRA (FRMCADCOTACAO) — corte-1: estrutura + preços =====
     {
       const CT = 'compras/cotacao';

@@ -128,7 +128,7 @@ semântica certa são **~18 mil linhas**, das quais 13.804 já foram resolvidas 
 | `ux_codref_for` | 76 / 230 | mesmo `(codfor, codref)` apontando para **produtos diferentes** em todos os 76 grupos | **índice sai** — o de-para do fornecedor não é 1:1 no legado |
 | `ux_nf_natural` (2 variantes) | 38+41 / 215+214 | **215 linhas, todas `CANCELADA='N'`** e sem status de cancelamento: são notas vivas com a mesma chave natural | **índice vira parcial** (só para NF nova, a partir do cutover) — proibir hoje rejeitaria nota legítima |
 | `ux_nf_codpedcomp` | 64 / 147 | um pedido com **várias NFs** — é o **recebimento parcial**, regra real e já migrada | **índice sai** (é regra do negócio, não anomalia) |
-| `ux_operadores_login` (upper) | 5 / 15 | FLAVIA CARVALHO, LAURA, NATALIA e TESTE(×4) — **nenhum excluído** (`indr<>'E'`) | ⚠️ **decisão do usuário**: são credenciais vivas. Ou a carga renomeia com sufixo e reporta, ou o índice vira parcial por ativo. Não decido sozinho |
+| ~~`ux_operadores_login`~~ (upper) | 5 / 15 | FLAVIA CARVALHO(2), LAURA(2), NATALIA(2), TESTE(4). LAURA e NATALIA são **par desativado+ativo**; FLAVIA e TESTE têm ativos colidindo, todos na empresa 1 | ✅ **DECIDIDO pelo usuário (26/08): índice PARCIAL + desempate por código** — mig 173. O legado casa `LOGIN+SENHA+EMPRESA` (`uLogin.dfm`, `segLogin`) e fica com a 1ª linha do cursor **sem ORDER BY**; aqui a unicidade vale só para quem nasce no Apollo (`origem_legado <> 'S'`, ativo) e a autenticação escolhe **ativo antes de desabilitado, depois o menor código** |
 | `ux_cotacao_forn_itens` · `ux_cotacao_prod` · `ux_cotacao_prodqtde` | 5/25 · 7/14 · 2/4 | item repetido na mesma cotação | **dedup na carga** com regra contada (fica com a linha de maior código) |
 | `ux_nf_cod_ped_dev_compra` | 7 / 15 | um pedido de devolução com 2-3 NFs | **índice sai** (mesmo caso do recebimento parcial) |
 | `ux_relacao_operador_perfil` · `ux_nfe_naocad_chave` | 2/4 · 2/4 | grade de perfil repetida · mesma chave importada 2× | **dedup na carga** |
@@ -138,8 +138,16 @@ Passam limpas (13): `multi_preco`, `estoque`, `empresas`, `configuracoes`, `plan
 Sem origem no Oracle (nossas): `nfe_evento`, `dre_estrutura`, `caixa_sessao`. Não avaliadas pelo script
 (expressão): `arquivo_remessa_areceber` (a coluna tem outro nome lá), `nf_prod_lote` (já saiu na mig 172).
 
-**Resumo do que fazer antes do ensaio:** 5 índices saem, 1 vira parcial, 4 grupos deduplicam na carga com regra
-contada, 1 (login de operador) é decisão do usuário. Nenhum desses é discutível "no meio da carga" — é por isso
+⚠️ **limite conhecido do índice parcial** (registrado, não escondido): ele compara **apenas os cadastros novos
+entre si**. Um operador criado no Apollo ainda pode repetir um login que veio da carga — o banco aceita, porque
+as linhas do legado ficam fora do índice. O 409 `LOGIN_DUPLICADO` que a tela mostra vem justamente da violação
+desse índice (`all-exceptions.filter.ts`), então ele **deixa de disparar** nesse caso específico. Fechar exige
+validação de aplicação (recusar login já usado por operador ativo, inclusive do histórico) — entra junto com a
+tela de operadores e está na fila de caudas.
+
+**Resumo do que fazer antes do ensaio:** 5 índices saem, 2 viram parciais (chave natural da NF e login), 4 grupos
+duplicam na carga com regra contada. O login **já foi decidido e implementado** (mig 173); a carga precisa marcar
+`operadores.origem_legado='S'` em tudo que vier do Oracle, senão o índice parcial rejeita os 15 duplicados. Nenhum desses é discutível "no meio da carga" — é por isso
 que esta seção existe.
 
 ## 8. Próximos passos de execução (quando aprovado)

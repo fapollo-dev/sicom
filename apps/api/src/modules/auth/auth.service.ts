@@ -117,6 +117,12 @@ export class AuthService {
       .select(['codoperador', 'nome', 'login', 'desabilitado', 'senha_hash', 'solicitar_alteracao_senha', 'tentativas_login', 'bloqueado_ate'])
       .where(sql`upper(login)`, '=', dto.login.toUpperCase())
       .where(sql`coalesce(indr,'I')`, '<>', 'E')
+      // DESEMPATE POR CÓDIGO (mig 173): o login NÃO é único no dado do cliente — 4 logins têm 2 a 4 contas
+      // (FLAVIA CARVALHO, LAURA, NATALIA, TESTE). O legado casa LOGIN+SENHA+EMPRESA (uLogin.dfm, `segLogin`) e
+      // fica com a primeira linha do cursor, sem ORDER BY. Aqui a escolha é explícita: **ativo antes de
+      // desabilitado** e, entre iguais, o **menor código** (o cadastro mais antigo).
+      .orderBy(sql`case when coalesce(desabilitado,'N') = 'S' then 1 else 0 end`)
+      .orderBy('codoperador')
       .executeTakeFirst()) as
       | { codoperador: number; nome: string | null; login: string | null; desabilitado: string | null; senha_hash: string | null; solicitar_alteracao_senha: string | null; tentativas_login: number | null; bloqueado_ate: unknown }
       | undefined;
