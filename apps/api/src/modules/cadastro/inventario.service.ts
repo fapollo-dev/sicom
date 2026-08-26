@@ -68,8 +68,11 @@ export class InventarioService {
         .selectFrom('multi_preco as mp')
         .innerJoin('produtos as p', 'p.idproduto', 'mp.idproduto')
         .leftJoin('estoque as e', (j: any) => j.onRef('e.idproduto', '=', 'p.idproduto').on('e.idempresa', '=', emp))
+        // FOLD (auditoria): a unidade vem de UNIDADE.SIGLA (o `sqqProdutos` do legado faz o mesmo LEFT JOIN que
+        // o "Importar Balanço"); 108 produtos do golden divergem do campo `produtos.unidade`.
+        .leftJoin('unidade as u', 'u.codunidade', 'p.codunidade')
         .select([
-          'p.idproduto as idproduto', 'p.descricao as descricao', 'p.unidade as unidade', 'p.codbarra as codbarra',
+          'p.idproduto as idproduto', 'p.descricao as descricao', 'u.sigla as unidade', 'p.codbarra as codbarra',
           'p.aliquota as aliquota', 'mp.vrvenda as vrvenda',
           (custoFiscal ? sql<number>`coalesce(mp.vrcustofiscal, mp.vrcusto)` : sql<number>`mp.vrcusto`).as('vrcusto'),
           sql<number>`coalesce(e.qtde,0)`.as('saldo'),

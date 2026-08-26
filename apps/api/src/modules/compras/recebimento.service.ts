@@ -390,9 +390,11 @@ export class RecebimentoService {
         .map((r, idx) => ({ nroitem: r.it.nItem || idx + 1, idproduto: r.idproduto, rastro: r.it.rastro ?? [] }))
         .filter((x) => x.rastro.length);
       if (comRastro.length) {
-        const db2 = this.dbp.forTenant() as AnyDB;
-        // tudo-ou-nada: rastro parcial é pior que rastro nenhum (a NF fica com rastreabilidade fiscal quebrada
-        // e ninguém sabe, porque este bloco é best-effort por desenho — o XML já está salvo).
+        const dbRastro = this.dbp.forTenant() as AnyDB;
+        // FOLD (auditoria): tudo-ou-nada. O bloco é best-effort por desenho (o XML já está salvo e a NF não pode
+        // cair por causa do rastro), mas SEM transação um `dVal` inválido no meio deixava metade dos lotes
+        // gravados e a NF com rastreabilidade fiscal parcial, sem ninguém saber.
+        await dbRastro.transaction().execute(async (db2: AnyDB) => {
         const itensGravados = (await db2
           .selectFrom('nf_prod')
           .select(['codnfprod', 'nroitem'])
@@ -417,6 +419,7 @@ export class RecebimentoService {
             `.execute(db2);
           }
         }
+        });
       }
     } catch (e) {
       console.error('[recebimento] falha ao gravar rastreabilidade de lote (prosseguiu)', { codnf, erro: (e as Error)?.message });

@@ -9151,63 +9151,63 @@ async function main() {
       }
     }
 
-    // ===== §87) INVENTÁRIO ROTATIVO (FRMRELINVENTARIOROTATIVO) corte-1 — o LOTE e seu ciclo: abrir, alterar,
+    // ===== §88) INVENTÁRIO ROTATIVO (FRMRELINVENTARIOROTATIVO) corte-1 — o LOTE e seu ciclo: abrir, alterar,
     // fechar nos DOIS caminhos (com lote copia o cabeçalho; sem lote carimba as coletas órfãs) ====
     {
       const IR = 'cadastro/inventario-rotativo';
       const pgR = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       try {
-        // 86.1) abrir lote: nome obrigatório; filtros vazios gravam NULL (no golden nunca 0); N departamentos.
+        // 88.1) abrir lote: nome obrigatório; filtros vazios gravam NULL (no golden nunca 0); N departamentos.
         const semNome = await fetch(`${base}/${IR}`, { method: 'POST', headers: H, body: JSON.stringify({ nomelote: '   ' }) });
         const nov = await fetch(`${base}/${IR}`, { method: 'POST', headers: H, body: JSON.stringify({ nomelote: 'LOTE SMOKE A', codgrupo: 7, departamentos: [1, 2, 2] }) });
         const novJ = (await nov.json().catch(() => ({}))) as any;
         const cabA = (await pgR.query(`SELECT operacao, tipo, nomelote, codgrupo, codsubgrupo, codsecao, codforn, lote, idempresa FROM inventario_rotativo WHERE codinv_rotativo=$1`, [novJ.codinv_rotativo])).rows[0] as any;
         const dptosA = (await pgR.query(`SELECT coddpto FROM inventario_rotativo_dpto WHERE codinv_rotativo=$1 ORDER BY coddpto`, [novJ.codinv_rotativo])).rows as any[];
         const histA = Number((await pgR.query(`SELECT count(*)::int AS n FROM historico_dinamico WHERE tabela='INVENTARIO_ROTATIVO' AND valor_chave=$1 AND valor_atual='Abertura'`, [String(novJ.lote)])).rows[0]?.n);
-        check('ROTATIVO §87.1: abrir lote — nome em branco → 400 ("Informe o nome do lote."); com nome nasce OPERACAO=ABERTO/TIPO=R com número de lote de sequência PRÓPRIA, os filtros não informados ficam NULL (não 0, como o golden, apesar do StrToIntDef(...,0) do fonte), os departamentos duplicados entram uma vez e o histórico de Abertura é gravado',
+        check('ROTATIVO §88.1: abrir lote — nome em branco → 400 ("Informe o nome do lote."); com nome nasce OPERACAO=ABERTO/TIPO=R com número de lote de sequência PRÓPRIA, os filtros não informados ficam NULL (não 0, como o golden, apesar do StrToIntDef(...,0) do fonte), os departamentos duplicados entram uma vez e o histórico de Abertura é gravado',
           semNome.status === 400 && nov.status === 201 && cabA?.operacao === 'ABERTO' && cabA?.tipo === 'R'
           && cabA?.nomelote === 'LOTE SMOKE A' && Number(cabA?.codgrupo) === 7
           && cabA?.codsubgrupo === null && cabA?.codsecao === null && cabA?.codforn === null
           && Number(cabA?.lote) > 0 && dptosA.length === 2 && histA === 1,
           { semNome: semNome.status, nov: novJ, cab: cabA, dptos: dptosA.length, hist: histA });
 
-        // 86.2) a lista deriva o estado (não há coluna): com só a linha ABERTO o lote sai aberto.
+        // 88.2) a lista deriva o estado (não há coluna): com só a linha ABERTO o lote sai aberto.
         const l1 = (await (await fetch(`${base}/${IR}`, { headers: H })).json().catch(() => ({}))) as any;
         const doLote = (l: number) => ((l1.itens ?? []) as any[]).find((x: any) => Number(x.lote) === l);
-        check('ROTATIVO §87.2: a lista deriva "aberto" da AUSÊNCIA de linha FECHADO (não existe coluna de estado) e traz a abertura + a contagem de coletas',
+        check('ROTATIVO §88.2: a lista deriva "aberto" da AUSÊNCIA de linha FECHADO (não existe coluna de estado) e traz a abertura + a contagem de coletas',
           !!doLote(Number(novJ.lote)) && doLote(Number(novJ.lote)).aberto === true
           && doLote(Number(novJ.lote)).nomelote === 'LOTE SMOKE A' && Number(doLote(Number(novJ.lote)).coletas) === 0,
           { linha: doLote(Number(novJ.lote)) });
 
-        // 86.3) alterar só o cabeçalho do ABERTO (o legado não recria departamentos); alterar um FECHADO → 422.
+        // 88.3) alterar só o cabeçalho do ABERTO (o legado não recria departamentos); alterar um FECHADO → 422.
         const alt = await fetch(`${base}/${IR}/${novJ.codinv_rotativo}`, { method: 'PUT', headers: H, body: JSON.stringify({ nomelote: 'LOTE SMOKE A2', codsecao: 3 }) });
         const cabA2 = (await pgR.query(`SELECT nomelote, codsecao FROM inventario_rotativo WHERE codinv_rotativo=$1`, [novJ.codinv_rotativo])).rows[0] as any;
         const dptosA2 = Number((await pgR.query(`SELECT count(*)::int AS n FROM inventario_rotativo_dpto WHERE codinv_rotativo=$1`, [novJ.codinv_rotativo])).rows[0]?.n);
-        check('ROTATIVO §87.3: alterar regrava só o CABEÇALHO do lote aberto (nome e seção) e NÃO recria os departamentos — o quirk do TDB.Alterar do legado (os 2 dptos seguem intactos)',
+        check('ROTATIVO §88.3: alterar regrava só o CABEÇALHO do lote aberto (nome e seção) e NÃO recria os departamentos — o quirk do TDB.Alterar do legado (os 2 dptos seguem intactos)',
           alt.status === 200 && cabA2?.nomelote === 'LOTE SMOKE A2' && Number(cabA2?.codsecao) === 3 && dptosA2 === 2,
           { status: alt.status, cab: cabA2, dptos: dptosA2 });
 
-        // 86.4) fechar COM lote: nova LINHA FECHADO copiando nome/tipo/filtros e replicando os departamentos.
+        // 88.4) fechar COM lote: nova LINHA FECHADO copiando nome/tipo/filtros e replicando os departamentos.
         const fe = await fetch(`${base}/${IR}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({ lote: Number(novJ.lote) }) });
         const feJ = (await fe.json().catch(() => ({}))) as any;
         const linhas = (await pgR.query(`SELECT operacao, nomelote, tipo, codsecao FROM inventario_rotativo WHERE lote=$1 ORDER BY codinv_rotativo`, [Number(novJ.lote)])).rows as any[];
         const dptosF = Number((await pgR.query(`SELECT count(*)::int AS n FROM inventario_rotativo_dpto WHERE codinv_rotativo=$1`, [feJ.codinv_rotativo])).rows[0]?.n);
         const l2 = (await (await fetch(`${base}/${IR}`, { headers: H })).json().catch(() => ({}))) as any;
         const aberto2 = ((l2.itens ?? []) as any[]).find((x: any) => Number(x.lote) === Number(novJ.lote))?.aberto;
-        check('ROTATIVO §87.4: fechar COM lote INSERE uma segunda linha (FECHADO) ao lado da ABERTO — o estado do legado é linha nova, não UPDATE — copiando nome/tipo/seção do aberto e replicando os 2 departamentos; a lista passa a mostrar o lote como fechado',
+        check('ROTATIVO §88.4: fechar COM lote INSERE uma segunda linha (FECHADO) ao lado da ABERTO — o estado do legado é linha nova, não UPDATE — copiando nome/tipo/seção do aberto e replicando os 2 departamentos; a lista passa a mostrar o lote como fechado',
           fe.status === 200 && linhas.length === 2 && linhas[0].operacao === 'ABERTO' && linhas[1].operacao === 'FECHADO'
           && linhas[1].nomelote === 'LOTE SMOKE A2' && linhas[1].tipo === 'R' && Number(linhas[1].codsecao) === 3
           && dptosF === 2 && Number(feJ.departamentos) === 2 && feJ.ja_fechado === false && aberto2 === false,
           { fe: feJ, linhas, dptosF, aberto: aberto2 });
 
-        // 86.5) fechar de novo o mesmo lote: o legado NÃO impede (cria outra linha FECHADO) — copiamos, avisando.
+        // 88.5) fechar de novo o mesmo lote: o legado NÃO impede (cria outra linha FECHADO) — copiamos, avisando.
         const fe2 = await fetch(`${base}/${IR}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({ lote: Number(novJ.lote) }) });
         const fe2J = (await fe2.json().catch(() => ({}))) as any;
         const nFech = Number((await pgR.query(`SELECT count(*)::int AS n FROM inventario_rotativo WHERE lote=$1 AND operacao='FECHADO'`, [Number(novJ.lote)])).rows[0]?.n);
-        check('ROTATIVO §87.5: fechar duas vezes o mesmo lote é PERMITIDO (o legado não checa) e gera a segunda linha FECHADO — copiado com `ja_fechado: true` no retorno para a tela poder avisar',
+        check('ROTATIVO §88.5: fechar duas vezes o mesmo lote é PERMITIDO (o legado não checa) e gera a segunda linha FECHADO — copiado com `ja_fechado: true` no retorno para a tela poder avisar',
           fe2.status === 200 && fe2J.ja_fechado === true && nFech === 2, { fe2: fe2J, nFech });
 
-        // 86.6) fechar SEM lote: número novo + carimbo das coletas ÓRFÃS (LOTE IS NULL) da empresa.
+        // 88.6) fechar SEM lote: número novo + carimbo das coletas ÓRFÃS (LOTE IS NULL) da empresa.
         await pgR.query(`INSERT INTO inventario_rotativo (idempresa, operacao, destino, idproduto, qtd_anterior, qtd_atual, qtd_coletada, data, operador)
           VALUES (1,'SUBSTITUIR','LOJA',1,10,7,7,now(),7),(1,'AUMENTAR','LOJA',2,5,8,3,now(),7)`);
         await pgR.query(`INSERT INTO inventario_rotativo (idempresa, operacao, destino, idproduto, qtd_coletada, data) VALUES (2,'SUBSTITUIR','LOJA',1,99,now())`); // outra empresa: não pode ser carimbada
@@ -9216,21 +9216,21 @@ async function main() {
         const orfasEmp1 = Number((await pgR.query(`SELECT count(*)::int AS n FROM inventario_rotativo WHERE lote IS NULL AND idempresa=1`)).rows[0]?.n);
         const orfaEmp2 = Number((await pgR.query(`SELECT count(*)::int AS n FROM inventario_rotativo WHERE lote IS NULL AND idempresa=2`)).rows[0]?.n);
         const carimbadas = Number((await pgR.query(`SELECT count(*)::int AS n FROM inventario_rotativo WHERE lote=$1 AND operacao IN ('SUBSTITUIR','AUMENTAR')`, [Number(feSJ.lote)])).rows[0]?.n);
-        check('ROTATIVO §87.6: fechar SEM lote cria um número novo e CARIMBA as coletas órfãs (LOTE IS NULL) da empresa — 2 carimbadas, nenhuma órfã sobra na empresa 1 e a órfã da empresa 2 fica intacta (o UPDATE do legado filtra IDEMPRESA)',
+        check('ROTATIVO §88.6: fechar SEM lote cria um número novo e CARIMBA as coletas órfãs (LOTE IS NULL) da empresa — 2 carimbadas, nenhuma órfã sobra na empresa 1 e a órfã da empresa 2 fica intacta (o UPDATE do legado filtra IDEMPRESA)',
           feS.status === 200 && Number(feSJ.coletas_carimbadas) === 2 && carimbadas === 2 && orfasEmp1 === 0 && orfaEmp2 === 1,
           { feS: feSJ, orfasEmp1, orfaEmp2, carimbadas });
 
-        // 86.7) fechar lote inexistente → 422; RBAC nos três verbos → 403.
+        // 88.7) fechar lote inexistente → 422; RBAC nos três verbos → 403.
         const feX = await fetch(`${base}/${IR}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({ lote: 987654 }) });
         const feXJ = (await feX.json().catch(() => ({}))) as any;
         const rb1 = await fetch(`${base}/${IR}`, { headers: H_SEM_ACESSO });
         const rb2 = await fetch(`${base}/${IR}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ nomelote: 'X' }) });
         const rb3 = await fetch(`${base}/${IR}/fechar`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({}) });
-        check('ROTATIVO §87.7: fechar lote sem abertura → 422 LOTE_SEM_ABERTURA; sem grant → 403 nos três (gate da tela, BTNNOVOLOTE e BTNFECHARINVENTARIO — as três opções do golden)',
+        check('ROTATIVO §88.7: fechar lote sem abertura → 422 LOTE_SEM_ABERTURA; sem grant → 403 nos três (gate da tela, BTNNOVOLOTE e BTNFECHARINVENTARIO — as três opções do golden)',
           feX.status === 422 && feXJ.code === 'LOTE_SEM_ABERTURA' && rb1.status === 403 && rb2.status === 403 && rb3.status === 403,
           { feX: [feX.status, feXJ.code], rb: [rb1.status, rb2.status, rb3.status] });
 
-        // 87.8) ZERAR ESTOQUE (uInvRotativoGrid): gates + os TRÊS fatos (saldo zerado, coleta e ajuste).
+        // 88.8) ZERAR ESTOQUE (uInvRotativoGrid): gates + os TRÊS fatos (saldo zerado, coleta e ajuste).
         // limpa as coletas do §87.6 (elas também são SUBSTITUIR/AUMENTAR e poluiriam a contagem deste bloco)
         await pgR.query(`DELETE FROM inventario_rotativo WHERE idempresa=1 AND operacao IN ('SUBSTITUIR','AUMENTAR')`);
         await pgR.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES (1,1,40) ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde=40`);
@@ -9239,7 +9239,7 @@ async function main() {
         const zSemBucket = await fetch(`${base}/${IR}/zerar-estoque`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [1], login: 'SMOKE', senha: 'smoke123' }) });
         const zSemLib = await fetch(`${base}/${IR}/zerar-estoque`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [1], loja: true, login: 'SMOKE', senha: 'errada' }) });
         const zSemLibJ = (await zSemLib.json().catch(() => ({}))) as any;
-        check('ROTATIVO §87.8: zerar exige dizer QUAIS estoques ("Informe quais estoques serão zerados." → 400) e passa por LIBERAÇÃO por login contra a lista da config 46 — senha errada → 422 LIBERACAO_NEGADA (no golden essa lista está VAZIA, ou seja ninguém pode zerar)',
+        check('ROTATIVO §88.8: zerar exige dizer QUAIS estoques ("Informe quais estoques serão zerados." → 400) e passa por LIBERAÇÃO por login contra a lista da config 46 — senha errada → 422 LIBERACAO_NEGADA (no golden essa lista está VAZIA, ou seja ninguém pode zerar)',
           zSemBucket.status === 400 && zSemLib.status === 422 && zSemLibJ.code === 'LIBERACAO_NEGADA',
           { semBucket: zSemBucket.status, semLib: [zSemLib.status, zSemLibJ.code] });
 
@@ -9260,17 +9260,17 @@ async function main() {
           && Number(cols.find((c: any) => Number(c.idproduto) === 1 && c.destino === 'DEPOSITO')?.qtd_anterior) === 9;
         const okAjustes = ajs.length === 3 && ajs.every((a: any) => Number(a.codmotivo) === 999 && a.origem === 'I' && Number(a.tem_origem) === 1);
         const okNegativo = ajP2?.operacao === 'AUMENTAR' && Math.abs(Number(ajP2?.qtde) - 6) < 0.001 && Number(ajP2?.codoperador_liberacao) > 0;
-        check('ROTATIVO §87.9: com liberação válida, zerar faz os TRÊS fatos por produto×bucket — saldo 0 em estoque e estoque_dep (3 zerados), coleta SUBSTITUIR com QTD_ANTERIOR do saldo e DESTINO LOJA/DEPOSITO, e ajuste com CODMOTIVO=999, ORIGEM=I e IDORIGEM apontando para a coleta; o saldo NEGATIVO (−6) vira ajuste de AUMENTAR com qtde 6 (não DIMINUIR)',
+        check('ROTATIVO §88.9: com liberação válida, zerar faz os TRÊS fatos por produto×bucket — saldo 0 em estoque e estoque_dep (3 zerados), coleta SUBSTITUIR com QTD_ANTERIOR do saldo e DESTINO LOJA/DEPOSITO, e ajuste com CODMOTIVO=999, ORIGEM=I e IDORIGEM apontando para a coleta; o saldo NEGATIVO (−6) vira ajuste de AUMENTAR com qtde 6 (não DIMINUIR)',
           okStatus && okSaldos && okColetas && okAjustes && okNegativo,
           { flags: { okStatus, okSaldos, okColetas, okAjustes, okNegativo }, z: zOkJ, est: [est1z, est2z, dep1z], nCols: cols.length, nAjs: ajs.length });
 
-        // 87.10) FOLD da auditoria (ALTA, dinheiro): estornar o ajuste do DEPÓSITO reverte em `estoque_dep`, não
+        // 88.10) FOLD da auditoria (ALTA, dinheiro): estornar o ajuste do DEPÓSITO reverte em `estoque_dep`, não
         // em `estoque` — antes o estorno era cego ao `destino` e devolvia o saldo do depósito na loja.
         const ajDep = (await pgR.query(`SELECT codajuste FROM ajuste_estoque WHERE origem='I' AND idempresa=1 AND destino='DEPOSITO' ORDER BY codajuste DESC LIMIT 1`)).rows[0] as any;
         const est = await fetch(`${base}/cadastro/ajuste-estoque/${ajDep?.codajuste}/estornar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
         const depPos = Number((await pgR.query(`SELECT qtde FROM estoque_dep WHERE idproduto=1 AND idempresa=1`)).rows[0]?.qtde);
         const lojaPos = Number((await pgR.query(`SELECT qtde FROM estoque WHERE idproduto=1 AND idempresa=1`)).rows[0]?.qtde);
-        check('ROTATIVO §87.10: estornar o ajuste do DEPÓSITO devolve os 9 ao `estoque_dep` e NÃO mexe na loja (que segue 0) — antes do fold o estorno era cego ao `destino` e a loja ganhava 9 fantasmas enquanto o depósito continuava zerado',
+        check('ROTATIVO §88.10: estornar o ajuste do DEPÓSITO devolve os 9 ao `estoque_dep` e NÃO mexe na loja (que segue 0) — antes do fold o estorno era cego ao `destino` e a loja ganhava 9 fantasmas enquanto o depósito continuava zerado',
           est.status === 200 && depPos === 9 && lojaPos === 0, { status: est.status, deposito: depPos, loja: lojaPos });
 
         // cleanup
@@ -9435,26 +9435,26 @@ async function main() {
         const setIdpc = (v: number | null) => pgPc.query(`UPDATE produtos SET idpiscofins=${v === null ? 'NULL' : Number(v)} WHERE idproduto=1`);
         await setIdpc(1);
 
-        // 86.1) PEDIDO: débito = round(9,25% × vrvenda 100) = 9,25 ; crédito = round(3,7% × vrcusto 50) = 1,85 (LR), via catálogo.
+        // 88.1) PEDIDO: débito = round(9,25% × vrvenda 100) = 9,25 ; crédito = round(3,7% × vrcusto 50) = 1,85 (LR), via catálogo.
         const pcPost = await fetch(`${base}/compras/pedidos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, data: '2026-07-07', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 50, vrvenda: 100 }] }) });
         const pcIt = (((await pcPost.json().catch(() => ({}))) as any).itens ?? [])[0] ?? {};
         check('PIS/COFINS §86.1 PEDIDO: débito=9,25 (9,25%×100) + crédito=1,85 (3,7%×50, LR) via catálogo',
           pcPost.status === 201 && Number(pcIt.debitopiscofins) === 9.25 && Number(pcIt.creditopiscofins) === 1.85, { st: pcPost.status, deb: pcIt.debitopiscofins, cred: pcIt.creditopiscofins });
 
-        // 86.4) fold auditoria [MÉDIA]: ROUND half-away-from-zero em meio-centavo. 9,25%×90 = 8,325 → 8,33 (não 8,32);
+        // 88.4) fold auditoria [MÉDIA]: ROUND half-away-from-zero em meio-centavo. 9,25%×90 = 8,325 → 8,33 (não 8,32);
         // 3,7%×225 = 8,325 → 8,33. Trava a correção do round2 (Number.EPSILON era no-op p/ valores ≳2).
         const pcRnd = await fetch(`${base}/compras/pedidos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, data: '2026-07-07', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 225, vrvenda: 90 }] }) });
         const pcRndIt = (((await pcRnd.json().catch(() => ({}))) as any).itens ?? [])[0] ?? {};
         check('PIS/COFINS §86.4 ROUND meio-centavo: 8,325 → 8,33 (débito 9,25%×90 e crédito 3,7%×225)',
           pcRnd.status === 201 && Number(pcRndIt.debitopiscofins) === 8.33 && Number(pcRndIt.creditopiscofins) === 8.33, { deb: pcRndIt.debitopiscofins, cred: pcRndIt.creditopiscofins });
 
-        // 86.2) NF: débito server-authoritative das alíquotas de saída do PRÓPRIO item ((1,65+7,6)×vrvenda 100 = 9,25).
+        // 88.2) NF: débito server-authoritative das alíquotas de saída do PRÓPRIO item ((1,65+7,6)×vrvenda 100 = 9,25).
         const nfPc = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'S', modelo: 55, nronf: '9911', serie: '1', dtemissao: '2026-07-07', dtcontabil: '2026-07-07', tipoemissao: '0', finalidade: '1', cfop: '5102', idsituacao_nf: 8, codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 100, aliqpiss: 1.65, aliqcofinss: 7.6, cfop: '5102', aliquota: 'T01', icms: 18 }] }) });
         const nfPcIt = (((await nfPc.json().catch(() => ({}))) as any).itens ?? [])[0] ?? {};
         check('PIS/COFINS §86.2 NF: débito server-authoritative=9,25 ((aliqpiss 1,65+aliqcofinss 7,6)×vrvenda 100)',
           nfPc.status === 201 && Number(nfPcIt.debitopiscofins) === 9.25, { st: nfPc.status, deb: nfPcIt.debitopiscofins });
 
-        // 86.3) crédito só em LR (fiel uDMPrecificacaoProd.pas:215): empresa 1 → SN → crédito 0, débito mantém 9,25.
+        // 88.3) crédito só em LR (fiel uDMPrecificacaoProd.pas:215): empresa 1 → SN → crédito 0, débito mantém 9,25.
         await pgPc.query(`UPDATE empresas SET classfiscal='SN' WHERE idempresa=1`);
         const pcSn = await fetch(`${base}/compras/pedidos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, data: '2026-07-07', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 50, vrvenda: 100 }] }) });
         const pcSnIt = (((await pcSn.json().catch(() => ({}))) as any).itens ?? [])[0] ?? {};
@@ -9484,17 +9484,17 @@ async function main() {
         sped.status === 200 && l0000.startsWith('|0000|006|0|||01012026|31012026|') && l0000.includes('|MG|') && tem0140 && tem0990 && tem9900 && totalOk && spedJ.parcial === true,
         { status: sped.status, l0000: l0000.slice(0, 80), total9999: m9999?.[1], linhas: linhas.length });
 
-      // 87.2) totalizador do bloco 9: 9990 = nº de linhas do bloco 9 (9001 + 9900s + 9990).
+      // 88.2) totalizador do bloco 9: 9990 = nº de linhas do bloco 9 (9001 + 9900s + 9990).
       const l9990 = linhas.find((l) => l.startsWith('|9990|')) ?? '';
       const qtdBloco9 = linhas.filter((l) => l.startsWith('|9001|') || l.startsWith('|9900|') || l.startsWith('|9990|')).length;
       const m9990 = /^\|9990\|(\d+)\|$/.exec(l9990);
       check('SPED §87.2: totalizador 9990 = linhas do bloco 9 (9001+9900s+9990)', !!m9990 && Number(m9990[1]) === qtdBloco9, { l9990, qtdBloco9 });
 
-      // 87.3) RBAC: gerar sem grant → 403.
+      // 88.3) RBAC: gerar sem grant → 403.
       const spedRbac = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dtini: '2026-01-01', dtfim: '2026-01-31' }) });
       check('SPED §87.3: gerar sem grant RBAC → 403', spedRbac.status === 403, { status: spedRbac.status });
 
-      // 87.4) período invertido → 400 (dtfim < dtini).
+      // 88.4) período invertido → 400 (dtfim < dtini).
       const spedBad = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-01-31', dtfim: '2026-01-01' }) });
       check('SPED §87.4: período invertido (dtfim<dtini) → 400', spedBad.status === 400, { status: spedBad.status });
     }

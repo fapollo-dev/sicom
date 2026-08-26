@@ -311,9 +311,13 @@ export class BalancoService {
              AND np.cfop::int NOT IN (5929,6929)
            GROUP BY np.codproduto
           UNION ALL
+          -- FOLD (auditoria): predicado SARGAVEL. Converter a coluna (v.dtvenda AT TIME ZONE tz) obrigava seq
+          -- scan em 11,9M linhas dentro da transação de escrita; comparamos a coluna CRUA contra os limites
+          -- convertidos, como em rel-sem-movimento.service.ts. O +1 dia no fim substitui o BETWEEN inclusivo.
           SELECT v.codproduto, 0, 0, sum(v.qtde)
             FROM vendas v
-           WHERE (v.dtvenda AT TIME ZONE ${tz})::date BETWEEN ${dtini} AND ${dtfim}
+           WHERE v.dtvenda >= (${dtini}::timestamp AT TIME ZONE ${tz})
+             AND v.dtvenda <  ((${dtfim}::date + 1)::timestamp AT TIME ZONE ${tz})
              AND v.idempresa = ${emp} AND coalesce(v.cancelado,'N') = 'N'
            GROUP BY v.codproduto
         )
@@ -421,7 +425,8 @@ export class BalancoService {
           SELECT v.codproduto, sum(v.qtde) * -1
             FROM vendas v
            WHERE v.idempresa = ${emp} AND coalesce(v.cancelado,'N') = 'N'
-             AND (v.dtvenda AT TIME ZONE ${tz})::date BETWEEN ${dtinicial}::date AND ${l.data}::date
+             AND v.dtvenda >= (${dtinicial}::timestamp AT TIME ZONE ${tz})
+             AND v.dtvenda <  ((${l.data}::date + 1)::timestamp AT TIME ZONE ${tz})
            GROUP BY v.codproduto
         ) x GROUP BY x.codproduto
       `.execute(trx)).rows as Array<{ codproduto: number; qtde: unknown }>;
@@ -435,14 +440,26 @@ export class BalancoService {
         .execute()) as Array<{ sequencia: number; idproduto: number }>;
       // FOLD (auditoria): a rotina reescreve a contagem inteira e não tem volta — exige o "sim" explícito.
       if (folha.length && !dto.confirmar) throw new BusinessRuleError('CONTAGEM_SERA_SOBRESCRITA', { codinvent, linhas: folha.length });
+      // movimento negativo → 0 · produto sem movimento → 0 (uInventario.pas:2687-2701). FOLD (auditoria): era um
+      // UPDATE por linha (até 42.886 round-trips na maior folha do golden); agora é UMA sentença, como no
+      // gerarDoInventario. O mapa `mov` já está em memória, então vai por VALUES.
       let atualizados = 0;
       let zerados = 0;
-      for (const it of folha) {
+      const novos = folha.map((it) => {
         const m = mov.get(Number(it.idproduto));
-        // movimento negativo → 0 · produto sem movimento → 0 (uInventario.pas:2687-2701)
         const q = m == null || m < 0 ? 0 : m;
         if (q === 0) zerados++; else atualizados++;
-        await trx.updateTable('inventario').set({ qtde: q, usultalteracao: op, dtultimalteracao: sql`now()` }).where('sequencia', '=', it.sequencia).execute();
+        return { sequencia: Number(it.sequencia), q };
+      });
+      for (let i = 0; i < novos.length; i += 2000) {
+        const lote = novos.slice(i, i + 2000);
+        if (!lote.length) continue;
+        await sql`
+          UPDATE inventario i
+             SET qtde = v.q, usultalteracao = ${op}, dtultimalteracao = now()
+            FROM (SELECT * FROM unnest(${sql.val(lote.map((x) => x.sequencia))}::bigint[], ${sql.val(lote.map((x) => x.q))}::numeric[]) AS t(sequencia, q)) v
+           WHERE i.sequencia = v.sequencia
+        `.execute(trx);
       }
       return { codinvent, atualizados, zerados, dtinicial, dtfinal: l.data, dtbalanco, aviso };
     });
