@@ -171,6 +171,23 @@ Volumes reais da F0 (do Oracle): ncm 11.215 · figura_fiscal 16.839 · plano_con
 familias_prod 2.392 · bancos 596 · plc 376 · cfop 395 · det_aliquota 240 · condicoes_pagto 37 · aliquota 33 ·
 piscofins 13 · unidade 11 · marcas 1 · operacoes_conta 1 · familias_prod_area 1 · **bairro 0**.
 
+## 7d. PRIMEIRO ENSAIO DE CARGA — F0 rodou (2026-08-26): 15/17 tabelas reconciliadas
+
+`tools/cutover/etl/extrair.py f0` (Oracle → CSV + manifesto com contagem/somas) e
+`apps/api/scripts/carregar-cutover.ts f0` (Postgres descartável com todas as migrations → INSERT em lote →
+reconciliação contra o manifesto). Resultado do primeiro tiro: **37.474 linhas carregadas, 15 das 17 tabelas
+reconciliadas** (contagem e somas idênticas à origem). ncm 11.215 · figura_fiscal 16.839 · cidades 5.564 ·
+familias_prod 2.392 · bancos 596 · plc 376 · cfop 395 · demais menores.
+
+**As 2 falhas são achados, não acidentes** — e nenhuma delas apareceria sem rodar:
+
+1. `det_aliquota` — `duplicate key value violates "det_aliquota_pkey"`: **a PK do destino não é única na
+   origem**. A varredura de unicidade (§7b) olhou `CREATE UNIQUE INDEX` e `UNIQUE(...)`, **não as PRIMARY KEYs** —
+   o script precisa cobri-las (são 207 tabelas com PK declarada no `schema-destino.json`).
+2. `plano_contas` — `violates foreign key constraint "fk_plano_contas_pai"`: FK **auto-referente** (conta pai).
+   Carga de árvore exige ordem topológica ou `SET CONSTRAINTS ALL DEFERRED` na transação; o carregador ainda não
+   faz nenhum dos dois. Vale para toda tabela hierárquica da carga.
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).

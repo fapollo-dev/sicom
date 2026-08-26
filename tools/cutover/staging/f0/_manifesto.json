@@ -1,0 +1,440 @@
+{
+ "bancos": {
+  "linhas": 596,
+  "colunas": [
+   "codbco",
+   "agencia",
+   "banco",
+   "cidade",
+   "uf",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro",
+   "agencia_cedente",
+   "codbcoblt",
+   "convenio",
+   "carteira_cobranca",
+   "variacao_carteira"
+  ],
+  "somas": {},
+  "datas": {
+   "dtultimalteracao": [
+    "2021-01-19T19:37:58",
+    "2025-05-19T08:43:09"
+   ],
+   "dtcadastro": [
+    "2023-07-26T15:40:28",
+    "2025-05-19T08:43:09"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "cidades": {
+  "linhas": 5564,
+  "colunas": [
+   "idcidade",
+   "iduf",
+   "cidade"
+  ],
+  "somas": {},
+  "datas": {},
+  "colunas_origem_descartadas": []
+ },
+ "bairro": {
+  "linhas": 0,
+  "colunas": [
+   "idbairro",
+   "descricao",
+   "ativo",
+   "regiao",
+   "indr",
+   "indr_usuario",
+   "indr_data",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro",
+   "idcidade"
+  ],
+  "somas": {},
+  "datas": {},
+  "colunas_origem_descartadas": []
+ },
+ "cfop": {
+  "linhas": 395,
+  "colunas": [
+   "codcfop",
+   "descricao",
+   "proc_qtde",
+   "proc_cupom",
+   "cfop_devolucao",
+   "situacao_icms_entradas_nf",
+   "situacao_icms_saidas_nf",
+   "situacao_pis_entradas_nf",
+   "situacao_pis_saidas_nf",
+   "situacao_cofins_entradas_nf",
+   "situacao_cofins_saidas_nf",
+   "nao_gera_apuracao_icms",
+   "gera_financeiro_auto"
+  ],
+  "somas": {},
+  "datas": {},
+  "colunas_origem_descartadas": [
+   "abater_cfop",
+   "aliquota",
+   "altera_custo_nf",
+   "atualiza_venda_nf",
+   "cod_bc_credito",
+   "codclass_trib",
+   "codcontabil",
+   "codplanocontas",
+   "compra",
+   "devolucao",
+   "dispensado_coleta",
+   "dispensado_pedido_compra",
+   "dtcadastro",
+   "dtultimalteracao",
+   "filtro_prec_nf",
+   "idpiscofins",
+   "informaiest",
+   "nao_atualiza_forn_prod",
+   "nao_gera_sped",
+   "nao_gera_sped_contribuicao",
+   "naoalimentadre",
+   "preco_custo",
+   "proc_financeiro",
+   "proc_transf",
+   "sintegra",
+   "tipo",
+   "tipo_cfop",
+   "tipoestado",
+   "transferencia",
+   "usultalteracao",
+   "venda"
+  ]
+ },
+ "ncm": {
+  "linhas": 11215,
+  "colunas": [
+   "codigo",
+   "ncmsh",
+   "categoria",
+   "descricao",
+   "ipi",
+   "vigencia_inicio",
+   "vigencia_fim",
+   "un_tributada",
+   "un_tributada_descricao",
+   "observacao",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro"
+  ],
+  "somas": {},
+  "datas": {
+   "vigencia_inicio": [
+    "2000-01-01T00:00:00",
+    "2022-05-17T00:00:00"
+   ],
+   "dtcadastro": [
+    "2018-03-02T17:28:42.926697",
+    "2026-04-02T11:11:58.479202"
+   ],
+   "vigencia_fim": [
+    "2017-03-31T00:00:00",
+    "2030-12-31T00:00:00"
+   ],
+   "dtultimalteracao": [
+    "2020-01-08T11:59:17",
+    "2022-05-17T16:00:32"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "aliquota": {
+  "linhas": 33,
+  "colunas": [
+   "codigo"
+  ],
+  "somas": {},
+  "datas": {},
+  "colunas_origem_descartadas": []
+ },
+ "piscofins": {
+  "linhas": 13,
+  "colunas": [
+   "idpiscofins",
+   "descricao",
+   "aliq_pis_ent",
+   "aliq_pis_sai",
+   "aliq_cofins_ent",
+   "aliq_cofins_sai",
+   "cst_pis_ent",
+   "cst_pis_sai",
+   "cst_cofins_ent",
+   "cst_cofins_sai"
+  ],
+  "somas": {},
+  "datas": {},
+  "colunas_origem_descartadas": [
+   "dtcadastro",
+   "dtultimalteracao",
+   "exigenatureza",
+   "id_tipocredito",
+   "usultalteracao"
+  ]
+ },
+ "det_aliquota": {
+  "linhas": 240,
+  "colunas": [
+   "aliquota",
+   "uf",
+   "icm",
+   "icm_efetivo",
+   "base",
+   "cst",
+   "lei",
+   "csosn"
+  ],
+  "somas": {},
+  "datas": {},
+  "colunas_origem_descartadas": [
+   "codcontabilaprazo",
+   "codcontabilavista",
+   "descricaoaliquota"
+  ]
+ },
+ "figura_fiscal": {
+  "linhas": 16839,
+  "colunas": [
+   "codfigurafiscal",
+   "descfigurafiscal",
+   "indr"
+  ],
+  "somas": {},
+  "datas": {},
+  "colunas_origem_descartadas": [
+   "codreduzido",
+   "destino_tipo",
+   "destino_uf",
+   "dtcadastro",
+   "dtultimalteracao",
+   "indr_data",
+   "indr_usuario",
+   "integracao_data",
+   "integracao_id",
+   "origem_tipo_classificacao",
+   "origem_tipo_tributario",
+   "origem_uf",
+   "usultalteracao"
+  ]
+ },
+ "unidade": {
+  "linhas": 11,
+  "colunas": [
+   "codunidade",
+   "sigla",
+   "descricao"
+  ],
+  "somas": {},
+  "datas": {},
+  "colunas_origem_descartadas": [
+   "ativo",
+   "dtcadastro",
+   "dtultimalteracao",
+   "fracionado",
+   "indr",
+   "indr_data",
+   "indr_usuario",
+   "mixfiscal_dt",
+   "producao",
+   "usualteracao",
+   "usultalteracao"
+  ]
+ },
+ "marcas": {
+  "linhas": 1,
+  "colunas": [
+   "idmarca",
+   "descricao",
+   "indr",
+   "indr_usuario",
+   "indr_data",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro"
+  ],
+  "somas": {},
+  "datas": {
+   "dtultimalteracao": [
+    "2020-09-05T19:30:59",
+    "2020-09-05T19:30:59"
+   ],
+   "dtcadastro": [
+    "2020-09-05T19:30:59",
+    "2020-09-05T19:30:59"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "familias_prod": {
+  "linhas": 2392,
+  "colunas": [
+   "codfamilia",
+   "descricao",
+   "tipo"
+  ],
+  "somas": {},
+  "datas": {},
+  "colunas_origem_descartadas": [
+   "ativo",
+   "checkout",
+   "coberturamaxima",
+   "coddeptosecao",
+   "coddpto",
+   "codgrupo",
+   "codperfil_compra",
+   "codplc",
+   "codsecao",
+   "codsetor",
+   "codsetor_perda_padrao",
+   "comissao",
+   "departamentos_secao",
+   "desconsidera_conferencia_peso",
+   "dtcadastro",
+   "dtultimalteracao",
+   "excluido",
+   "exibesicomanda",
+   "fp_despesa_operacional",
+   "idempresa",
+   "modeloeitqueta",
+   "usultalteracao",
+   "vrmargemfixa",
+   "vrmargemmax",
+   "vrmargemmin"
+  ]
+ },
+ "familias_prod_area": {
+  "linhas": 1,
+  "colunas": [
+   "codfamilias_prod_area",
+   "idempresa",
+   "area",
+   "validade_inventario",
+   "codfamilia",
+   "tipo"
+  ],
+  "somas": {},
+  "datas": {},
+  "colunas_origem_descartadas": []
+ },
+ "plc": {
+  "linhas": 376,
+  "colunas": [
+   "codplc",
+   "codpai",
+   "desccodplc",
+   "descricao",
+   "nivelconta",
+   "codcontabil"
+  ],
+  "somas": {},
+  "datas": {},
+  "colunas_origem_descartadas": [
+   "apenas_proprietario",
+   "descplccontabil",
+   "dtcadastro",
+   "dtultimalteracao",
+   "flg_perda",
+   "flg_uso_setor",
+   "indr",
+   "indr_data",
+   "indr_usuario",
+   "limiteplc",
+   "nao_mostrar_scrap_rel_partset",
+   "plc_obriga_motivo_perda",
+   "tpconta",
+   "usultalteracao"
+  ]
+ },
+ "plano_contas": {
+  "linhas": 11024,
+  "colunas": [
+   "codiexpandido",
+   "descricao",
+   "status",
+   "tipo",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro",
+   "classe",
+   "codpai",
+   "codparceiro",
+   "integrado",
+   "codireduzido",
+   "codplanocontas",
+   "natureza",
+   "nivel"
+  ],
+  "somas": {},
+  "datas": {
+   "dtultimalteracao": [
+    "2020-09-08T14:51:45",
+    "2024-02-03T22:02:30"
+   ],
+   "dtcadastro": [
+    "2020-04-02T21:00:00",
+    "2024-02-03T22:02:30"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "cnpj",
+   "codexpinteiro",
+   "codplanocontas_aux",
+   "codplanoreferencial"
+  ]
+ },
+ "condicoes_pagto": {
+  "linhas": 37,
+  "colunas": [
+   "codconpagto",
+   "descricao",
+   "usultalteracao",
+   "dtultimalteracao",
+   "cd1",
+   "cd2",
+   "cd3",
+   "cd4",
+   "cd5",
+   "cd6",
+   "cd7",
+   "cd8",
+   "dtcadastro"
+  ],
+  "somas": {},
+  "datas": {
+   "dtultimalteracao": [
+    "2023-09-26T18:42:02.900111",
+    "2026-06-03T13:54:44.537107"
+   ],
+   "dtcadastro": [
+    "2023-09-26T18:42:02.900111",
+    "2026-06-03T13:54:44.537107"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "operacoes_conta": {
+  "linhas": 1,
+  "colunas": [
+   "codopconta",
+   "descricao",
+   "tipo",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro"
+  ],
+  "somas": {},
+  "datas": {},
+  "colunas_origem_descartadas": []
+ }
+}
