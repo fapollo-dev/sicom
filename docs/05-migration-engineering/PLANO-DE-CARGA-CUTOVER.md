@@ -188,6 +188,27 @@ familias_prod 2.392 · bancos 596 · plc 376 · cfop 395 · demais menores.
    Carga de árvore exige ordem topológica ou `SET CONSTRAINTS ALL DEFERRED` na transação; o carregador ainda não
    faz nenhum dos dois. Vale para toda tabela hierárquica da carga.
 
+## 7e. ⛔ O MAIOR BLOQUEIO DA CARGA: a PK de `vendas` (achado de 2026-08-26, ao estender a varredura às PKs)
+
+A varredura da §7b só olhava índices/constraints `UNIQUE` — **as PRIMARY KEYs ficaram de fora**. Corrigido (agora
+são 192 unicidades verificadas, não 32), e o resultado muda a prioridade da carga:
+
+| PK do destino | grupos / linhas repetidas na origem | leitura |
+|---|---:|---|
+| **`vendas(codvendas)`** | **1.887.781 / 11.370.238** | `CODVENDAS` no Oracle é **por VENDA (cupom), não por linha** — 11.922.255 linhas para 2.439.798 códigos |
+| `cx_vendas(codcxvendas)` | 89 / 178 | mesma natureza, escala menor |
+| `det_aliquota(aliquota, uf)` | 1 / 5 | foi o que derrubou a tabela no ensaio da F0 |
+| `caixa_pdv(codcaixa)` | 1 / 2 | — |
+
+E **não há chave natural única** para `vendas`: `(nropedido, nroitem)` dá 6.576.214 valores distintos e
+`(idempresa, nropedido, nroitem)` dá 6.576.230 — ambos muito abaixo dos 11,9M de linhas.
+
+⇒ **Providência (a maior da carga, ainda não aplicada):** `vendas.codvendas` deixa de ser a PK carregada do
+legado e passa a ser **surrogate nosso** (a sequence já existe), com o valor do Oracle preservado numa coluna de
+referência (`codvendas_legado`, indexada) — é ela que os relatórios de venda usam para amarrar o cupom. Mesmo
+tratamento para `cx_vendas`, `det_aliquota` e `caixa_pdv`. Sem isso a F4 (movimento pesado) não carrega **uma
+linha sequer** de venda.
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).

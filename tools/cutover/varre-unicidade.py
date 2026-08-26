@@ -20,6 +20,17 @@ import oracledb
 MIG = '/Library/Apollo/apps/api/migrations'
 alvos = []  # (origem, tabela, [colunas], expressao?)
 
+# 0) PRIMARY KEYs do destino (o ensaio da F0 mostrou `det_aliquota` violando a PK — a v1 desta varredura só
+#    olhava índices/constraints UNIQUE e deixava as PKs de fora, que são 207 afirmações a mais sobre o dado)
+import json as _json
+try:
+    _dest = _json.load(open('/Library/Apollo/tools/cutover/schema-destino.json'))['tabelas']
+    for _t, _d in _dest.items():
+        if _d.get('pk'):
+            alvos.append(('schema-destino.json', f'PK_{_t}', _t, ', '.join(_d['pk'])))
+except FileNotFoundError:
+    print('(sem schema-destino.json: rode apps/api/scripts/dump-schema-destino.ts para incluir as PKs)')
+
 # 1) CREATE UNIQUE INDEX ... ON tab (cols)
 for f in sorted(glob.glob(f'{MIG}/*.sql')):
     txt = open(f, encoding='utf-8').read()
