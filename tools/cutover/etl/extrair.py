@@ -22,6 +22,12 @@ RENOMEIA = {
  'vendas': {'codvendas': 'codvendas_legado'},
  'cx_vendas': {'codcxvendas': 'codcxvendas_legado'},
 }
+# transformações de carga declaradas (expressão Oracle aplicada na extração)
+# - empresas.cnpj vem FORMATADO no legado (00.000.000/0000-00, 18 chars) e aqui a coluna guarda só dígitos
+TRANSFORMA = {'empresas': {'cnpj': "regexp_replace({c}, '[^0-9]', '')",
+                           'insc': "regexp_replace({c}, '[^0-9A-Za-z]', '')",
+                           'cep':  "regexp_replace({c}, '[^0-9]', '')"}}
+
 # PKs naturais que a origem repete: a carga fica com a ÚLTIMA linha por chave e CONTA o descarte (§7e)
 DEDUP = {'det_aliquota': ['aliquota', 'uf'], 'caixa_pdv': ['codcaixa']}
 
@@ -49,12 +55,14 @@ for t in FASES[fase]:
     cols = [(c, ren.get(c, c)) for c in ori if ren.get(c, c) in dest[t]['colunas']]
     if not cols:
         manifesto[t] = {'pulada': 'nenhuma coluna casa'}; print(f"  ⛔ {t}: nenhuma coluna casa"); continue
-    sel = ", ".join(c for c, _ in cols)
+    tr = TRANSFORMA.get(t, {})
+    sel = ", ".join((tr[c].format(c=c) + f" as {c}") if c in tr else c for c, _ in cols)
     chave = DEDUP.get(t)
     if chave:
         # ROW_NUMBER pela PK física (ROWID) — determinístico e sem depender de coluna de data
         ordem = ", ".join(chave)
-        cur.execute(f"select {sel} from (select {sel}, row_number() over (partition by {ordem} order by rowid desc) rn from {T}) where rn = 1")
+        cols_alias = ", ".join(c for c, _ in cols)
+        cur.execute(f"select {cols_alias} from (select {sel}, row_number() over (partition by {ordem} order by rowid desc) rn from {T}) where rn = 1")
     else:
         cur.execute(f"select {sel} from {T}")
     linhas, somas, datas = 0, {}, {}

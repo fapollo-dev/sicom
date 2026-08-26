@@ -246,6 +246,27 @@ Volumes da F1: permissoes 31.448 · produtos 43.116 · parceiros 18.297 (+18.261
 estoque 137.524 · codreferencia_for 16.229 · configuracoes 847 (+337 específicas) · operadores 157 · perfil 20 ·
 empresas 4.
 
+## 7h. 1º ensaio da F1 — 6/19 tabelas, e cinco classes de achado (2026-08-26)
+
+352.318 linhas carregadas, **6 de 19 tabelas reconciliadas**. As falhas são todas acionáveis:
+
+**Falhas duras (5):**
+1. `empresas.idempresa` e `parceiros.idempresa` NOT NULL: a origem chama `CODEMPRESA` — falta **renomeação**
+   no extrator (mesmo caso já resolvido para `aliquota` e `vendas`).
+2. `codreferencia_for.codfor` NOT NULL: **a origem permite NULL**. Classe nova de achado — `NOT NULL` nosso
+   que o dado do cliente viola. Precisa de varredura própria, como fizemos com UNIQUE e PK.
+3. `operadores`: violou `ux_operadores_login_novo` — porque o ETL **não está marcando `origem_legado='S'`**,
+   que é exatamente o requisito registrado na §7b. O extrator precisa preencher a coluna.
+4. `parceiros_end`: violou `ux_parceiros_end_doc` — o índice que a §7b **já mandou remover** e ainda não saiu.
+
+**Metodologia (o ensaio se autocorrigindo):** as "órfãs" reportadas (137.524 em `estoque`, 137.526 em
+`multi_preco`, 43.054 em `produtos.codunidade`) são **artefato da ordem alfabética** de carga — `produtos` entra
+depois de `estoque`. O carregador precisa (a) ordenar as tabelas por dependência de FK e (b) conferir
+integridade **no fim da fase**, não tabela a tabela. Sem isso o relatório assusta sem motivo.
+
+Passaram limpas: configuracoes (847), configuracoes_especificas (337), permissoes (31.448), perfil (20),
+formas_pgto (36), receita_prod (117).
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).
