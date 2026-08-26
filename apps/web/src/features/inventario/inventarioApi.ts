@@ -99,7 +99,7 @@ export function importarBalancoSincronizar(id: number, body: { codbalanco: numbe
  * POST cadastro/inventario/:id/sincronizar — "Sincronizar Inventário (Entradas − Saídas)": recalcula as linhas
  * que já estão na folha (não cria linha); movimento negativo e produto sem movimento viram 0.
  */
-export function sincronizarInventario(id: number, body: { dtinicial?: string }): Promise<{ atualizados: number; zerados: number; dtinicial: string; dtfinal: string; dtbalanco: string | null; aviso?: string }> {
+export function sincronizarInventario(id: number, body: { dtinicial?: string; confirmar?: boolean }): Promise<{ atualizados: number; zerados: number; dtinicial: string; dtfinal: string; dtbalanco: string | null; aviso?: string }> {
   return req(`/cadastro/inventario/${id}/sincronizar`, { method: 'POST', body: JSON.stringify(body) });
 }
 

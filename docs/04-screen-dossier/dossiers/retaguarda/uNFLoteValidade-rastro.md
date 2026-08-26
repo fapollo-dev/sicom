@@ -8,8 +8,8 @@ fev/2024). As duas coisas ao mesmo tempo, e as duas com prova.
 
 | procedência | o que diz |
 |---|---|
-| `NFe.pas:1796-1819` | na **emissão**, cada linha vira um `rastro` do item: `nLote` = `LOTE`, **`qLote` = `QUANTIDADE` do item ÷ `QTDLOTE`** (o legado divide a quantidade igualmente entre os lotes do item), `dFab` = `DTFABRICACAO`, `dVal` = `DTVALIDADE` |
-| `NFe.pas:4212-4225` | na **importação de XML** é o inverso: para cada `rastro` faz `Locate('CODNFPROD;LOTE')` → **edita se achou, insere se não** |
+| `NFe.pas:1796-1822` | a **emissão** monta `nLote` = `LOTE`, **`qLote` = `QUANTIDADE` ÷ `QTDLOTE`**, `dFab`, `dVal` — **mas o laço está dentro de `if QryLotesItemNf.IsEmpty then`** (`:1809`), ou seja só roda quando o dataset está VAZIO: no fonte clonado **o grupo `rastro` nunca é emitido**. É cópia-fiel-negativa por bug, não regra viva (achado da auditoria de paridade) |
+| `NFe.pas:4212-4228` | na **importação de XML** é o inverso: para cada `rastro`, `if Locate('CODNFPROD;LOTE') then **Continue**` (`:4217-4218`) → **pula o que já existe e insere só o novo**. Ele NUNCA edita um lote gravado (corrigido na mig 172; a primeira versão fazia `ON CONFLICT DO UPDATE`) |
 | `uItensNF.pas:1908-1923` | grava e limpa os lotes junto com o item da NF |
 | `uNFLoteValidade.pas` | a tela dos lotes de um item (`RetornarValores('NF_PROD_LOTE','LOTE;CODNFPROD',…)`) |
 | `PRODUTOS.CONTROLE_VALIDADE` | **'S' em 41.540 dos 43.116 produtos (96%)** — a operação inteira controla validade |
@@ -32,24 +32,25 @@ tem de vir de `DTFABRICACAO`.
 
 ## 3. Corte-1 entregue (mig 169)
 
-- `nf_prod_lote` `(codnfprodlote, codnfprod → nf_prod, idempresa, idproduto, lote, dtvalidade, dtfabricacao)`,
-  com **índice único de expressão `(codnfprod, coalesce(lote,''))`** — é a chave do `Locate` do legado, e o
-  `coalesce` existe porque lote em branco é a maioria e precisa cair em uma linha só por item.
+- `nf_prod_lote` `(codnfprodlote, codnfprod → nf_prod, idempresa, idproduto, lote, dtvalidade, dtfabricacao)`.
+  ⚠️ **o índice único que o corte-1 criou saiu na mig 172**: no Oracle a única constraint é a PK, e o golden tem
+  **1.833 pares (CODNFPROD, LOTE) repetidos = 11.985 linhas**, 1.818 deles com validades diferentes entre as
+  cópias (ex.: CODNFPROD 395100 / LOTE '0110' com 4.096 linhas e 7 validades). Com o índice, a carga rejeitaria
+  10.152 linhas. O "já existe?" do legado virou `WHERE NOT EXISTS`, não `ON CONFLICT`.
 - o **parser de XML** passou a ler o grupo `rastro` (`NfeItemParsed.rastro`), forçando array quando há uma única
   ocorrência (o bug clássico do fast-xml-parser, que o parser já tratava para `det`/`dup`/`detPag`).
 - a **importação** grava os lotes depois de persistir a NF, resolvendo `codnfprod` por `(codnf, nroitem)` e
-  fazendo `INSERT … ON CONFLICT (codnfprod, coalesce(lote,'')) DO UPDATE` — o Locate→Edit/Insert do legado. É
+  inserindo com `WHERE NOT EXISTS (codnfprod, coalesce(lote,''))` — o `Locate → Continue` do legado. É
   **best-effort**: o XML já está salvo e uma NF importada não pode cair por causa do rastro.
-- smoke 53.3: um XML com três rastros no item 1 — dois do **mesmo lote** (o segundo edita o primeiro: validade
-  2028-02-20 e a fabricação volta a nulo) e um de **lote em branco** — e o item 2 sem rastro, que não gera linha.
-
-Nota de implementação: `onConflict().columns()` do Kysely só aceita nome de coluna, então o upsert com índice de
-expressão foi escrito em SQL cru.
+- smoke 53.3: um XML com três rastros no item 1 — dois do **mesmo lote** (o segundo é IGNORADO: a validade
+  continua 2027-01-10 e a fabricação 2026-01-10) e um de **lote em branco** — e o item 2 sem rastro, sem linha.
 
 ## 4. O que falta (declarado)
 
 1. **Emissão**: quando o Apollo emitir XML de saída, o grupo `rastro` sai daqui, com `qLote = quantidade ÷ nº de
    lotes do item` (a fórmula do legado, `NFe.pas:1817`) e `dFab` do campo certo (não repetir o bug do §1).
+   ⚠️ e note que **o legado nunca chegou a emitir** (o `if IsEmpty` do `:1809`): não há golden de saída para
+   confrontar, então essa perna será construção nova sob a fórmula lida, não cópia verificável.
 2. **Tela dos lotes do item** (`uNFLoteValidade`): CRUD por item de NF — hoje o corte cobre só o caminho do XML.
 3. **`CONTROLE_VALIDADE`/`DIAS_VALIDADE_MINIMO`/`VALIDADE` do produto**: as três colunas existem no golden e
    governam a exigência do lote na entrada; nenhuma foi ligada a validação (e não devem ser, retroativamente —

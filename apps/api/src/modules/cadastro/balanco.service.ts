@@ -103,6 +103,7 @@ export class BalancoService {
         .select('codbalanco')
         .where('data', '=', sql`${l.data}::date`)
         .where('codempresa', '=', emp)
+        .orderBy('codbalanco') // determinístico: no golden há 5 fotos na mesma data (28/01/2026)
         .forUpdate()
         .execute()) as Array<{ codbalanco: number }>;
 
@@ -188,8 +189,12 @@ export class BalancoService {
         .innerJoin('multi_preco as mp', (j: any) => j.onRef('mp.idproduto', '=', 'p.idproduto').on('mp.idempresa', '=', bal.codempresa))
         .leftJoin('estoque as e', (j: any) => j.onRef('e.idproduto', '=', 'mp.idproduto').onRef('e.idempresa', '=', 'mp.idempresa'))
         .leftJoin('estoque_dep as d', (j: any) => j.onRef('d.idproduto', '=', 'mp.idproduto').onRef('d.idempresa', '=', 'mp.idempresa'))
+        // FOLD (auditoria de paridade): a unidade vem da tabela UNIDADE (`U.SIGLA`, uInventario.pas:1348/1354),
+        // não do campo `produtos.unidade` — 108 produtos do golden divergem entre os dois (46 com sigla diferente,
+        // 62 com codunidade órfão, onde o legado grava vazio).
+        .leftJoin('unidade as u', 'u.codunidade', 'p.codunidade')
         .select([
-          'p.idproduto as idproduto', 'p.descricao as descricao', 'p.unidade as unidade', 'p.codbarra as codbarra',
+          'p.idproduto as idproduto', 'p.descricao as descricao', 'u.sigla as unidade', 'p.codbarra as codbarra',
           'p.aliquota as aliquota', 'p.codsubgrupo as codsubgrupo',
           'mp.vrvenda as vrvenda',
           sql<number>`coalesce(coalesce(e.qtde,0) + coalesce(d.qtde,0), 0)`.as('qtde'),
@@ -318,7 +323,10 @@ export class BalancoService {
                mp.vrvenda,
                ${custoFiscal ? sql`coalesce(mp.vrcustofiscal, mp.vrcusto)` : sql`mp.vrcusto`} AS vrcusto
           FROM mov x
-          JOIN produtos p ON p.idproduto = x.idproduto
+          -- FOLD (auditoria): o legado usa LEFT JOIN PRODUTOS e grava X.IDPRODUTO (sqqImportaSincroniza +
+          -- uInventario.pas:1578) — produto órfão ENTRA na folha com descrição vazia em vez de sumir. No golden
+          -- há 48 nf_prod, 6 produtos de vendas e 24 balancoitens apontando para produto inexistente.
+          LEFT JOIN produtos p ON p.idproduto = x.idproduto
           LEFT JOIN multi_preco mp ON mp.idproduto = x.idproduto AND mp.idempresa = ${emp}
          GROUP BY x.idproduto, p.descricao, p.unidade, p.codbarra, p.aliquota, p.codsubgrupo, mp.vrvenda, mp.vrcusto, mp.vrcustofiscal
          ORDER BY x.idproduto
@@ -344,7 +352,13 @@ export class BalancoService {
           .execute();
         n += lote.length;
       }
-      return { codinvent, codbalanco: bal.codbalanco, itens: n, sentido, dtini: sentido === 'frente' ? bal.data : l.data, dtfim: sentido === 'frente' ? l.data : bal.data };
+      // FOLD (auditoria): devolver a janela REAL (o legado espelha +1 / −1), não as datas cruas — a tela imprime isto.
+      const desloca = (iso: string, dias: number) => { const d = new Date(`${iso}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + dias); return d.toISOString().slice(0, 10); };
+      return {
+        codinvent, codbalanco: bal.codbalanco, itens: n, sentido,
+        dtini: sentido === 'frente' ? desloca(bal.data, 1) : l.data,
+        dtfim: sentido === 'frente' ? l.data : desloca(bal.data, -1),
+      };
     });
   }
 
@@ -359,7 +373,7 @@ export class BalancoService {
    */
   async sincronizarMovimentos(
     codinvent: number,
-    dto: { dtinicial?: string },
+    dto: { dtinicial?: string; confirmar?: boolean },
   ): Promise<{ codinvent: number; atualizados: number; zerados: number; dtinicial: string; dtfinal: string; dtbalanco: string | null; aviso?: string }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
@@ -419,6 +433,8 @@ export class BalancoService {
         .where('codinvent', '=', codinvent)
         .where('idempresa', '=', emp)
         .execute()) as Array<{ sequencia: number; idproduto: number }>;
+      // FOLD (auditoria): a rotina reescreve a contagem inteira e não tem volta — exige o "sim" explícito.
+      if (folha.length && !dto.confirmar) throw new BusinessRuleError('CONTAGEM_SERA_SOBRESCRITA', { codinvent, linhas: folha.length });
       let atualizados = 0;
       let zerados = 0;
       for (const it of folha) {

@@ -214,9 +214,12 @@ export function InventarioPage() {
   /** "Sincronizar Inventário (Entradas − Saídas)": recalcula as linhas que já estão na folha (não cria linha). */
   const sincronizar = async () => {
     if (!sel || busy) return;
+    const temItens = (sel.itens ?? []).length > 0;
+    // a rotina reescreve a contagem inteira e zera as linhas sem movimento — sem volta (fold da auditoria).
+    if (temItens && !window.confirm('Sincronizar substitui a QUANTIDADE de todas as linhas da folha (as sem movimento no período vão a zero) e não tem desfazer. Continuar?')) return;
     setBusy(true);
     try {
-      const r = await sincronizarInventario(sel.codinvent, dtSinc ? { dtinicial: dtSinc } : {});
+      const r = await sincronizarInventario(sel.codinvent, { ...(dtSinc ? { dtinicial: dtSinc } : {}), ...(temItens ? { confirmar: true } : {}) });
       mensagem.sucesso(`${r.atualizados} linha(s) recalculada(s) e ${r.zerados} zerada(s) — janela ${r.dtinicial} → ${r.dtfinal}.${r.aviso ? ' ' + r.aviso : ''}`);
       await abrir(sel.codinvent);
     } catch (e) {

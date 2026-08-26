@@ -391,6 +391,8 @@ export class RecebimentoService {
         .filter((x) => x.rastro.length);
       if (comRastro.length) {
         const db2 = this.dbp.forTenant() as AnyDB;
+        // tudo-ou-nada: rastro parcial é pior que rastro nenhum (a NF fica com rastreabilidade fiscal quebrada
+        // e ninguém sabe, porque este bloco é best-effort por desenho — o XML já está salvo).
         const itensGravados = (await db2
           .selectFrom('nf_prod')
           .select(['codnfprod', 'nroitem'])
@@ -401,13 +403,17 @@ export class RecebimentoService {
           const codnfprod = porItem.get(x.nroitem);
           if (codnfprod == null) continue;
           for (const l of x.rastro) {
-            // o upsert usa o índice de EXPRESSÃO (codnfprod, coalesce(lote,'')) — daí o SQL cru: o
-            // `onConflict().columns()` do Kysely só aceita nome de coluna. É o Locate→Edit/Insert do legado.
+            // FOLD (auditoria de paridade): `NFe.pas:4217-4218` é `if Locate('CODNFPROD;LOTE') then **Continue**`
+            // — o legado PULA o rastro que já existe; nunca o edita. O `DO UPDATE` daqui sobrescrevia validade e
+            // fabricação de um lote já gravado. E não há unicidade no banco (o golden tem 1.833 pares repetidos,
+            // 1.818 deles com validades diferentes), então o "já existe?" é um NOT EXISTS, não um ON CONFLICT.
             await sql`
               INSERT INTO nf_prod_lote (codnfprod, idempresa, idproduto, lote, dtvalidade, dtfabricacao)
-              VALUES (${codnfprod}, ${emp}, ${x.idproduto}, ${l.nLote || null}, ${l.dVal ?? null}::date, ${l.dFab ?? null}::date)
-              ON CONFLICT (codnfprod, coalesce(lote, ''))
-              DO UPDATE SET dtvalidade = EXCLUDED.dtvalidade, dtfabricacao = EXCLUDED.dtfabricacao
+              SELECT ${codnfprod}, ${emp}, ${x.idproduto}, ${l.nLote || null}, ${l.dVal ?? null}::date, ${l.dFab ?? null}::date
+              WHERE NOT EXISTS (
+                SELECT 1 FROM nf_prod_lote e
+                 WHERE e.codnfprod = ${codnfprod} AND coalesce(e.lote,'') = coalesce(${l.nLote || null}::varchar,'')
+              )
             `.execute(db2);
           }
         }

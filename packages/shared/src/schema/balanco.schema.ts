@@ -60,6 +60,14 @@ export type ImportarBalancoSincronizarDto = z.infer<typeof importarBalancoSincro
 export const sincronizarInventarioSchema = z.object({
   /** default = MAX(data) dos balanços ativos (o que a tela preenche ao abrir). Formato AAAA-MM-DD. */
   dtinicial: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inicial inválida (use AAAA-MM-DD).').optional(),
+  /**
+   * FOLD (auditoria): a rotina SOBRESCREVE a quantidade de todas as linhas da folha (e zera as sem movimento) —
+   * numa folha grande do golden são 42.886 linhas, sem undo. Pior: no legado ela **não persiste nada**
+   * (`uInventario.pas:2708` tem o `btnGravar.Click` comentado e o `finally` chama `CarregaDadosIniciais`, que
+   * reabre o dataset e descarta o delta). Mantemos a rotina útil — o cálculo é o do legado — mas exigimos o
+   * "sim" explícito, como fazem os outros quatro comandos da mesma tela.
+   */
+  confirmar: z.boolean().optional(),
 });
 export type SincronizarInventarioDto = z.infer<typeof sincronizarInventarioSchema>;
 

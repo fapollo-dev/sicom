@@ -7779,9 +7779,9 @@ async function main() {
         WHERE p.codnf = $1 ORDER BY p.nroitem, l.lote NULLS LAST`, [Number(impRaJ.codnf)])).rows as any[];
     const lAAA = lotes.find((x: any) => x.lote === 'L-AAA');
     const lBranco = lotes.find((x: any) => x.lote === null || x.lote === '');
-    check('RASTRO 53.3: o grupo `rastro` do XML importado vira NF_PROD_LOTE — 2 linhas no item 1 (o SEGUNDO rastro do mesmo lote EDITA o primeiro, como o Locate(CODNFPROD;LOTE) do legado: validade fica 2028-02-20 e a fabricação some) e uma linha de lote EM BRANCO (69% do golden é assim, então nada de exigir lote); o item 2, sem rastro, não gera nenhuma',
+    check('RASTRO 53.3: o grupo `rastro` do XML importado vira NF_PROD_LOTE — 2 linhas no item 1, e o SEGUNDO rastro do mesmo lote é **IGNORADO**, não sobrescreve: `NFe.pas:4217-4218` é `if Locate(CODNFPROD;LOTE) then Continue`, ou seja o legado PRESERVA o que já está gravado (validade segue 2027-01-10 e a fabricação 2026-01-10); a linha de lote EM BRANCO entra (69% do golden é assim); o item 2, sem rastro, não gera nenhuma',
       impRa.status === 200 && lotes.length === 2 && lotes.every((x: any) => Number(x.nroitem) === 1)
-      && !!lAAA && lAAA.dval === '2028-02-20' && lAAA.dfab === null
+      && !!lAAA && lAAA.dval === '2027-01-10' && lAAA.dfab === '2026-01-10'
       && !!lBranco && lBranco.dval === '2029-03-30' && Number(lAAA.idproduto) > 0,
       { status: impRa.status, lotes });
 
@@ -9014,7 +9014,7 @@ async function main() {
         const livM = (await pgS.query(`INSERT INTO inventario_livro (idempresa,dtinventario,tipoinventario,descricao,indr) VALUES (1,'2027-06-20',1,'SINC MOV','I') RETURNING codinvent`)).rows[0] as any;
         await pgS.query(`INSERT INTO inventario (codinvent,idempresa,idproduto,unidade,qtde,vrcusto,vrvenda,tipo) VALUES
           ($1,1,990870,'UN',999,2,3,'P'),($1,1,990871,'UN',888,2,3,'P'),($1,1,990872,'UN',777,2,3,'P')`, [livM.codinvent]);
-        const mv = await fetch(`${base}/${INV}/${livM.codinvent}/sincronizar`, { method: 'POST', headers: H, body: JSON.stringify({ dtinicial: '2027-06-10' }) });
+        const mv = await fetch(`${base}/${INV}/${livM.codinvent}/sincronizar`, { method: 'POST', headers: H, body: JSON.stringify({ dtinicial: '2027-06-10', confirmar: true }) });
         const mvJ = (await mv.json().catch(() => ({}))) as any;
         const folM = (await pgS.query(`SELECT idproduto, qtde FROM inventario WHERE codinvent=$1 ORDER BY idproduto`, [livM.codinvent])).rows as any[];
         const mA = Number(folM.find((x: any) => Number(x.idproduto) === 990870)?.qtde);
@@ -9031,7 +9031,7 @@ async function main() {
           VALUES (1,'S',55,'1','990874','2027-06-16','2027-06-16',20,'S','N',5,5102) RETURNING codnf`)).rows[0] as any;
         await pgS.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrcusto, vrvenda, cfop) VALUES ($1,1,1,3,1,'UN',2,3,'5102')`, [nfNeg.codnf]);
         await pgS.query(`INSERT INTO inventario (codinvent,idempresa,idproduto,unidade,qtde,vrcusto,vrvenda,tipo) VALUES ($1,1,1,'UN',555,2,3,'P')`, [livZ.codinvent]);
-        const mz = await fetch(`${base}/${INV}/${livZ.codinvent}/sincronizar`, { method: 'POST', headers: H, body: JSON.stringify({ dtinicial: '2027-06-10' }) });
+        const mz = await fetch(`${base}/${INV}/${livZ.codinvent}/sincronizar`, { method: 'POST', headers: H, body: JSON.stringify({ dtinicial: '2027-06-10', confirmar: true }) });
         const qz = Number((await pgS.query(`SELECT qtde FROM inventario WHERE codinvent=$1 AND idproduto=1`, [livZ.codinvent])).rows[0]?.qtde);
         check('BALANÇO §83c.5: no sincronizar, movimento NEGATIVO vira 0 (produto com saída de 3 e sem foto: 555 → 0), como nas linhas 2687-2701 do legado',
           mz.status === 200 && qz === 0, { status: mz.status, qtde: qz });
@@ -9263,6 +9263,15 @@ async function main() {
         check('ROTATIVO §87.9: com liberação válida, zerar faz os TRÊS fatos por produto×bucket — saldo 0 em estoque e estoque_dep (3 zerados), coleta SUBSTITUIR com QTD_ANTERIOR do saldo e DESTINO LOJA/DEPOSITO, e ajuste com CODMOTIVO=999, ORIGEM=I e IDORIGEM apontando para a coleta; o saldo NEGATIVO (−6) vira ajuste de AUMENTAR com qtde 6 (não DIMINUIR)',
           okStatus && okSaldos && okColetas && okAjustes && okNegativo,
           { flags: { okStatus, okSaldos, okColetas, okAjustes, okNegativo }, z: zOkJ, est: [est1z, est2z, dep1z], nCols: cols.length, nAjs: ajs.length });
+
+        // 87.10) FOLD da auditoria (ALTA, dinheiro): estornar o ajuste do DEPÓSITO reverte em `estoque_dep`, não
+        // em `estoque` — antes o estorno era cego ao `destino` e devolvia o saldo do depósito na loja.
+        const ajDep = (await pgR.query(`SELECT codajuste FROM ajuste_estoque WHERE origem='I' AND idempresa=1 AND destino='DEPOSITO' ORDER BY codajuste DESC LIMIT 1`)).rows[0] as any;
+        const est = await fetch(`${base}/cadastro/ajuste-estoque/${ajDep?.codajuste}/estornar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+        const depPos = Number((await pgR.query(`SELECT qtde FROM estoque_dep WHERE idproduto=1 AND idempresa=1`)).rows[0]?.qtde);
+        const lojaPos = Number((await pgR.query(`SELECT qtde FROM estoque WHERE idproduto=1 AND idempresa=1`)).rows[0]?.qtde);
+        check('ROTATIVO §87.10: estornar o ajuste do DEPÓSITO devolve os 9 ao `estoque_dep` e NÃO mexe na loja (que segue 0) — antes do fold o estorno era cego ao `destino` e a loja ganhava 9 fantasmas enquanto o depósito continuava zerado',
+          est.status === 200 && depPos === 9 && lojaPos === 0, { status: est.status, deposito: depPos, loja: lojaPos });
 
         // cleanup
         await pgR.query(`DELETE FROM ajuste_estoque WHERE origem='I' AND idempresa=1`);

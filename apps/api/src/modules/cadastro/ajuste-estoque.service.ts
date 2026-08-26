@@ -92,7 +92,7 @@ export class AjusteEstoqueService {
     const op = this.op();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const a = await trx
-        .selectFrom('ajuste_estoque').select(['codajuste', 'idproduto', 'qtdeanterior', 'qtdeatual', 'estornado'])
+        .selectFrom('ajuste_estoque').select(['codajuste', 'idproduto', 'qtdeanterior', 'qtdeatual', 'estornado', 'destino'])
         .where('codajuste', '=', codajuste).where('idempresa', '=', emp)
         .forUpdate().executeTakeFirst();
       if (!a) throw new BusinessRuleError('AJUSTE_NAO_ENCONTRADO', { codajuste });
@@ -102,16 +102,31 @@ export class AjusteEstoqueService {
       const qtdeatualAjuste = r3(num((a as any).qtdeatual));
       const qtdeanterior = r3(num((a as any).qtdeanterior));
 
-      const est = await trx
-        .selectFrom('estoque').select(['id_estoque', 'qtde'])
-        .where('idproduto', '=', idproduto).where('idempresa', '=', emp)
-        .forUpdate().executeTakeFirst();
+      // FOLD (auditoria de correção): o ajuste pode ser do DEPÓSITO — o zeramento do inventário rotativo
+      // (uInvRotativoGrid) grava `destino='DEPOSITO'` mexendo em `estoque_dep`. Estornar sempre em `estoque`
+      // devolvia o saldo no bucket ERRADO (a loja ganhava o saldo do depósito e o depósito continuava zerado).
+      const noDeposito = String((a as any).destino ?? '').toUpperCase() === 'DEPOSITO';
+      const est = noDeposito
+        ? await trx
+            .selectFrom('estoque_dep').select(['idproduto as id_estoque', 'qtde'])
+            .where('idproduto', '=', idproduto).where('idempresa', '=', emp)
+            .forUpdate().executeTakeFirst()
+        : await trx
+            .selectFrom('estoque').select(['id_estoque', 'qtde'])
+            .where('idproduto', '=', idproduto).where('idempresa', '=', emp)
+            .forUpdate().executeTakeFirst();
       const saldoAtual = r3(num((est as any)?.qtde));
       // só estorna se o saldo ainda é o que este ajuste deixou (nenhum movimento posterior) — evita corromper.
       if (!est || saldoAtual !== qtdeatualAjuste) throw new BusinessRuleError('AJUSTE_ESTORNO_SALDO_MUDOU', { codajuste, saldoAtual, esperado: qtdeatualAjuste });
 
-      await trx.updateTable('estoque').set({ qtde: qtdeanterior }).where('id_estoque', '=', (est as any).id_estoque).execute();
-      await this.kardex(trx, emp, idproduto, saldoAtual, qtdeanterior, op, `Estorno do ajuste ${codajuste}`);
+      if (noDeposito) {
+        await trx.updateTable('estoque_dep').set({ qtde: qtdeanterior })
+          .where('idproduto', '=', idproduto).where('idempresa', '=', emp).execute();
+      } else {
+        await trx.updateTable('estoque').set({ qtde: qtdeanterior }).where('id_estoque', '=', (est as any).id_estoque).execute();
+      }
+      // kardex só do estoque de LOJA: o depósito não tem razão própria no legado (historico_prod é do saldo da loja)
+      if (!noDeposito) await this.kardex(trx, emp, idproduto, saldoAtual, qtdeanterior, op, `Estorno do ajuste ${codajuste}`);
       const upd = await trx
         .updateTable('ajuste_estoque')
         .set({ estornado: 'S', codoperador_estorno: op })
