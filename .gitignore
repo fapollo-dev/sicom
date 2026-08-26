@@ -13,3 +13,4 @@ node-v20.20.2-darwin-arm64/
 
 # settings locais do Claude Code
 .claude/settings.local.json
+tools/cutover/staging/

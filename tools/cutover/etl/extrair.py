@@ -15,7 +15,14 @@ FASES = {
  'f0': "bancos cidades bairro cfop ncm aliquota piscofins det_aliquota figura_fiscal unidade marcas familias_prod familias_prod_area plc plano_contas condicoes_pagto operacoes_conta".split(),
 }
 # renomeações origem→destino que o casamento por nome não resolve (achadas pelo mapa-colunas.py)
-RENOMEIA = {'aliquota': {'aliquota': 'codigo'}}
+RENOMEIA = {
+ 'aliquota': {'aliquota': 'codigo'},
+ # §7e: o código do Oracle NÃO entra na PK (lá é por venda/cupom, não por linha) — vira coluna de referência
+ 'vendas': {'codvendas': 'codvendas_legado'},
+ 'cx_vendas': {'codcxvendas': 'codcxvendas_legado'},
+}
+# PKs naturais que a origem repete: a carga fica com a ÚLTIMA linha por chave e CONTA o descarte (§7e)
+DEDUP = {'det_aliquota': ['aliquota', 'uf'], 'caixa_pdv': ['codcaixa']}
 
 fase = (sys.argv[1] if len(sys.argv) > 1 else 'f0').lower()
 saida = sys.argv[2] if len(sys.argv) > 2 else f'{BASE}/staging/{fase}'
@@ -42,7 +49,13 @@ for t in FASES[fase]:
     if not cols:
         manifesto[t] = {'pulada': 'nenhuma coluna casa'}; print(f"  ⛔ {t}: nenhuma coluna casa"); continue
     sel = ", ".join(c for c, _ in cols)
-    cur.execute(f"select {sel} from {T}")
+    chave = DEDUP.get(t)
+    if chave:
+        # ROW_NUMBER pela PK física (ROWID) — determinístico e sem depender de coluna de data
+        ordem = ", ".join(chave)
+        cur.execute(f"select {sel} from (select {sel}, row_number() over (partition by {ordem} order by rowid desc) rn from {T}) where rn = 1")
+    else:
+        cur.execute(f"select {sel} from {T}")
     linhas, somas, datas = 0, {}, {}
     with open(f'{saida}/{t}.csv', 'w', newline='', encoding='utf-8') as fh:
         w = csv.writer(fh)
@@ -59,7 +72,12 @@ for t in FASES[fase]:
                     v = iso
                 out.append('' if v is None else v)
             w.writerow(out); linhas += 1
-    manifesto[t] = {'linhas': linhas, 'colunas': [d for _, d in cols],
+    if chave:
+        cur.execute(f"select count(*) from {T}")
+        bruto = cur.fetchone()[0]
+        if bruto != linhas:
+            print(f"       ↳ dedup por ({', '.join(chave)}): {bruto - linhas} linha(s) descartada(s) de {bruto}")
+    manifesto[t] = {'linhas': linhas, 'dedup': chave, 'colunas': [d for _, d in cols],
                     'somas': {k: str(v) for k, v in somas.items()},
                     'datas': datas,
                     'colunas_origem_descartadas': sorted(set(ori) - {c for c, _ in cols})}

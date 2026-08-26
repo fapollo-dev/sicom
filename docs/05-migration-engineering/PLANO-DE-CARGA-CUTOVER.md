@@ -209,6 +209,21 @@ referência (`codvendas_legado`, indexada) — é ela que os relatórios de vend
 tratamento para `cx_vendas`, `det_aliquota` e `caixa_pdv`. Sem isso a F4 (movimento pesado) não carrega **uma
 linha sequer** de venda.
 
+## 7f. F0 FECHADA — 17/17 tabelas reconciliadas (2º ensaio, 2026-08-26)
+
+Com as três providências abaixo, o ensaio da F0 passou inteiro: **48.734 linhas, 17 de 17 tabelas com contagem e
+somas idênticas à origem**, e nenhuma órfã de FK.
+
+1. **mig 175** — `vendas.codvendas_legado` e `cx_vendas.codcxvendas_legado` (indexados): as duas tabelas já
+   nasciam com PK surrogate, então o conserto não foi de schema-de-aplicação — foi impedir a carga de trazer o
+   código do Oracle para dentro da PK. O extrator renomeia na origem.
+2. **dedup declarado** para PK natural que a origem repete (`det_aliquota` por (aliquota, uf), `caixa_pdv` por
+   codcaixa): fica a última linha por chave (ROWID desc) e o extrator **conta e imprime o descarte** —
+   det_aliquota entrou com 236 de 240, com as 4 descartadas registradas.
+3. **carga com gatilhos suspensos** (`DISABLE TRIGGER ALL` … `ENABLE`) resolve FK auto-referente
+   (`plano_contas.pai`, 11.024 contas) sem depender de ordem topológica; em troca, a reconciliação passou a
+   **conferir órfãos de TODAS as FKs** da tabela depois da carga, em vez de presumir integridade.
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).

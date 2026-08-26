@@ -49,6 +49,10 @@ async function main() {
       try {
         await cli.query('BEGIN');
         await cli.query(`TRUNCATE ${tabela} CASCADE`); // o ensaio parte do vazio (migrations semeiam catálogos)
+        // FK AUTO-REFERENTE (plano_contas.pai) e ordem entre tabelas: a carga suspende os gatilhos de FK da
+        // tabela e os religa ao final, VALIDANDO — é o padrão de ETL. Sem isso a árvore de contas só entraria
+        // em ordem topológica, o que é frágil de manter para cada hierarquia da base.
+        await cli.query(`ALTER TABLE ${tabela} DISABLE TRIGGER ALL`);
         for (let i = 0; i < linhas.length; i += 500) {
           const lote = linhas.slice(i, i + 500).filter((l) => l.length === cols.length);
           if (!lote.length) continue;
@@ -59,6 +63,7 @@ async function main() {
           await cli.query(`INSERT INTO ${tabela} (${cols.join(',')}) VALUES ${values}`, params);
           carregadas += lote.length;
         }
+        await cli.query(`ALTER TABLE ${tabela} ENABLE TRIGGER ALL`);
         await cli.query('COMMIT');
       } catch (e) {
         await cli.query('ROLLBACK').catch(() => {});
@@ -71,6 +76,20 @@ async function main() {
       if (!erro) {
         const n = Number((await pool.query(`SELECT count(*)::int AS n FROM ${tabela}`)).rows[0].n);
         if (n !== Number(esperado?.linhas ?? -1)) divergencias.push(`contagem ${n} × ${esperado?.linhas}`);
+        // como os gatilhos foram suspensos, a integridade referencial é conferida AQUI, não presumida
+        const fks = (await pool.query(
+          `SELECT kcu.column_name AS col, ccu.table_name AS reft, ccu.column_name AS refc
+             FROM information_schema.table_constraints tc
+             JOIN information_schema.key_column_usage kcu ON kcu.constraint_name = tc.constraint_name
+             JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_name = tc.constraint_name
+            WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = $1`, [tabela])).rows;
+        for (const fk of fks) {
+          const orf = Number((await pool.query(
+            `SELECT count(*)::int AS n FROM ${tabela} t
+              WHERE t.${fk.col} IS NOT NULL
+                AND NOT EXISTS (SELECT 1 FROM ${fk.reft} r WHERE r.${fk.refc} = t.${fk.col})`)).rows[0].n);
+          if (orf > 0) divergencias.push(`${orf} órfã(s) em ${fk.col}→${fk.reft}`);
+        }
         for (const [col, soma] of Object.entries((esperado?.somas ?? {}) as Record<string, string>)) {
           const s = (await pool.query(`SELECT coalesce(sum(${col}),0)::text AS s FROM ${tabela}`)).rows[0].s;
           if (Number(s) !== Number(soma)) divergencias.push(`${col} Σ ${s} × ${soma}`);
