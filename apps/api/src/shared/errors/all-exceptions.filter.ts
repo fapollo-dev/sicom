@@ -91,6 +91,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
       case '23505': // unique_violation
         // índices de EXPRESSÃO não expõem `campo` (err.detail); mapeia por nome de constraint p/ msg PT.
         // o índice virou PARCIAL na mig 173 (login repetido do legado convive; a unicidade vale entre os novos)
+        if (err.constraint === 'ux_parceiros_end_doc_novo') {
+          return { statusCode: HttpStatus.CONFLICT, code: 'DUPLICADO', message: 'Já existe um cadastro com este CNPJ/CPF.' };
+        }
         if (err.constraint === 'ux_operadores_login' || err.constraint === 'ux_operadores_login_novo') {
           return { statusCode: HttpStatus.CONFLICT, code: 'LOGIN_DUPLICADO', message: 'Já existe um usuário com este login.' };
         }
