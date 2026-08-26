@@ -150,6 +150,27 @@ duplicam na carga com regra contada. O login **já foi decidido e implementado**
 `operadores.origem_legado='S'` em tudo que vier do Oracle, senão o índice parcial rejeita os 15 duplicados. Nenhum desses é discutível "no meio da carga" — é por isso
 que esta seção existe.
 
+## 7c. Mapa coluna-a-coluna por EVIDÊNCIA — F0 medida (2026-08-26)
+
+Duas ferramentas novas substituem a "spec no papel" da §8.1:
+- `apps/api/scripts/dump-schema-destino.ts` sobe o Postgres embarcado com TODAS as migrations e dumpa o schema
+  real em `tools/cutover/schema-destino.json` (**207 tabelas · 2.786 colunas · 111 FKs**);
+- `tools/cutover/etl/mapa-colunas.py` cruza esse schema com o dicionário do Oracle por fase e aponta o que
+  bloqueia a carga.
+
+**F0 (18 tabelas de catálogo) — resultado:**
+
+| achado | tabelas | providência |
+|---|---|---|
+| **capacidade MENOR no destino** (truncaria) | `det_aliquota` (icm/icm_efetivo/base num(7,2) × NUMBER(13); csosn 4×12; lei 200×500), `familias_prod.descricao` 60×100, `plano_contas.descricao` 120×150 | ✅ **mig 174** alarga |
+| tabela do plano que **não existe** no destino | `tributacao` (o nome real é `tributacao_reforma`, e é seed nosso) | corrigir a lista da §3 |
+| nome de coluna diferente | `aliquota`: destino `(codigo, descricao)` × origem `(aliquota)` | mapear no ETL |
+| colunas da origem não migradas | `cfop` 31 · `familias_prod` 25 · `plc` 14 · `figura_fiscal` 13 · `unidade` 11 · `piscofins` 5 | conferir uma a uma se alguma é REGRA (foi assim que `nao_gera_apuracao_icms` e `proc_qtde` entraram) |
+
+Volumes reais da F0 (do Oracle): ncm 11.215 · figura_fiscal 16.839 · plano_contas 11.024 · cidades 5.564 ·
+familias_prod 2.392 · bancos 596 · plc 376 · cfop 395 · det_aliquota 240 · condicoes_pagto 37 · aliquota 33 ·
+piscofins 13 · unidade 11 · marcas 1 · operacoes_conta 1 · familias_prod_area 1 · **bairro 0**.
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).
