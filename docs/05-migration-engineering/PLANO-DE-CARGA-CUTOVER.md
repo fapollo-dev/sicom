@@ -224,6 +224,28 @@ somas idênticas à origem**, e nenhuma órfã de FK.
    (`plano_contas.pai`, 11.024 contas) sem depender de ordem topológica; em troca, a reconciliação passou a
    **conferir órfãos de TODAS as FKs** da tabela depois da carga, em vez de presumir integridade.
 
+## 7g. F1 mapeada (2026-08-26) — e a lição de medir o DADO, não a declaração
+
+O mapa da F1 (17 tabelas: empresas, configuracoes(+especificas), operadores, perfil/permissoes, parceiros(+end/
+bancos), produtos, composicao/decomposicao/receita_prod, codauxiliar, codreferencia_for, multi_preco, estoque,
+contas_bancarias, formas_pgto) acusou **20 colunas com declaração menor** que a origem. Só que declaração menor
+não é problema: `cnpj varchar(14)` contra `VARCHAR2(30)` nunca estoura. O mapa passou a medir `max(length)` no
+Oracle — e sobraram **quatro**:
+
+| coluna | dado real | destino | providência |
+|---|---:|---:|---|
+| `produtos.descricao` | 126 | 120 | ✅ mig 176 alarga p/ 150 |
+| `produtos.descricao_resumida` | 100 | 60 | ✅ mig 176 alarga p/ 100 |
+| `produtos.descricao_balanca` | 126 | 60 | ✅ mig 176 alarga p/ 150 |
+| `empresas.cnpj` | 18 | 14 | **transformação de carga**, não alargamento: lá o CNPJ vem FORMATADO (`00.000.000/0000-00`); aqui a coluna é de 14 porque o app guarda só dígitos. Alargar aceitaria os pontos e quebraria toda comparação de CNPJ |
+
+Também corrigido: `produto_kit` não existe em **nenhum** dos dois lados — os nomes reais são `composicao`,
+`decomposicao` e `receita_prod` (mig 023). A lista da §3 vinha errada desde o início.
+
+Volumes da F1: permissoes 31.448 · produtos 43.116 · parceiros 18.297 (+18.261 endereços) · multi_preco 137.526 ·
+estoque 137.524 · codreferencia_for 16.229 · configuracoes 847 (+337 específicas) · operadores 157 · perfil 20 ·
+empresas 4.
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).

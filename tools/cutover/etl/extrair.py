@@ -12,6 +12,7 @@ import oracledb
 
 BASE = '/Library/Apollo/tools/cutover'
 FASES = {
+ 'f1': "empresas configuracoes configuracoes_especificas operadores perfil permissoes parceiros parceiros_end parceiros_bancos produtos composicao decomposicao receita_prod codauxiliar codreferencia_for multi_preco estoque contas_bancarias formas_pgto".split(),
  'f0': "bancos cidades bairro cfop ncm aliquota piscofins det_aliquota figura_fiscal unidade marcas familias_prod familias_prod_area plc plano_contas condicoes_pagto operacoes_conta".split(),
 }
 # renomeações origem→destino que o casamento por nome não resolve (achadas pelo mapa-colunas.py)

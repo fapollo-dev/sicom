@@ -13,6 +13,7 @@ Uso:  /Library/Developer/CommandLineTools/usr/bin/python3 tools/cutover/etl/mapa
 import json, sys, oracledb
 
 FASES = {
+ 'f1': "empresas configuracoes configuracoes_especificas operadores perfil permissoes parceiros parceiros_end parceiros_bancos produtos composicao decomposicao receita_prod codauxiliar codreferencia_for multi_preco estoque contas_bancarias formas_pgto".split(),
  'f0': "bancos cidades bairro cfop ncm aliquota tributacao piscofins det_aliquota figura_fiscal unidade marcas familias_prod familias_prod_area plc plano_contas condicoes_pagto operacoes_conta".split(),
 }
 fase = (sys.argv[1] if len(sys.argv) > 1 else 'f0').lower()
@@ -51,9 +52,23 @@ for t in alvos:
                 curtas.append(f"{c} {d['tam']}<{o['len']}")
         if d['tipo'] == 'numeric' and o['tipo'] == 'NUMBER' and d['tam'] and o['prec'] and d['tam'] < o['prec']:
             curtas.append(f"{c} num({d['tam']})<({o['prec']})")
+    # a DECLARAÇÃO menor não é problema por si: o que decide é o dado real (cnpj varchar(14) × VARCHAR2(30) nunca
+    # estoura). Mede-se `max(length)` das candidatas e só sobra o que REALMENTE não cabe.
+    estouram = []
+    for item in curtas:
+        c = item.split()[0]
+        if 'num(' in item:
+            cur.execute(f"select max(length(to_char(abs({c})))) from {T}")
+        else:
+            cur.execute(f"select max(length({c})) from {T}")
+        real = cur.fetchone()[0] or 0
+        cap = dst[c]['tam']
+        if cap and real > cap:
+            estouram.append(f"{c}: dado {real} > destino {cap}")
+    curtas = estouram
     flag = "⚠️ " if (curtas or so_destino) else "✅ "
     print(f"  {flag}{t}: {n} linhas · destino {len(dst)} col × origem {len(ori)}")
-    if curtas:      print(f"       CAPACIDADE MENOR NO DESTINO: {', '.join(curtas[:6])}"); problemas += 1
+    if curtas:      print(f"       NÃO CABE (dado real medido): {', '.join(curtas[:6])}"); problemas += 1
     if so_destino:  print(f"       só no destino ({len(so_destino)}): {', '.join(so_destino[:8])}")
     if so_origem:   print(f"       só na origem ({len(so_origem)}): {', '.join(so_origem[:8])}")
 print(f"\n{problemas} tabela(s) com problema que bloqueia carga.")
