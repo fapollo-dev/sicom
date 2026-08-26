@@ -21,7 +21,13 @@ RENOMEIA = {
  # §7e: o código do Oracle NÃO entra na PK (lá é por venda/cupom, não por linha) — vira coluna de referência
  'vendas': {'codvendas': 'codvendas_legado'},
  'cx_vendas': {'codcxvendas': 'codcxvendas_legado'},
+ # o legado chama a empresa de CODEMPRESA; aqui a coluna é idempresa nessas duas
+ 'empresas': {'codempresa': 'idempresa'},
+ 'parceiros': {'codempresa': 'idempresa'},
 }
+# colunas CONSTANTES que o destino exige e a origem não tem (§7b: sem `origem_legado='S'` o índice parcial de
+# login rejeita os 15 operadores com login repetido do cliente)
+CONSTANTES = {'operadores': {'origem_legado': 'S'}}
 # transformações de carga declaradas (expressão Oracle aplicada na extração)
 # - empresas.cnpj vem FORMATADO no legado (00.000.000/0000-00, 18 chars) e aqui a coluna guarda só dígitos
 TRANSFORMA = {'empresas': {'cnpj': "regexp_replace({c}, '[^0-9]', '')",
@@ -68,7 +74,8 @@ for t in FASES[fase]:
     linhas, somas, datas = 0, {}, {}
     with open(f'{saida}/{t}.csv', 'w', newline='', encoding='utf-8') as fh:
         w = csv.writer(fh)
-        w.writerow([d for _, d in cols])
+        const = CONSTANTES.get(t, {})
+        w.writerow([d for _, d in cols] + list(const))
         for row in cur:
             out = []
             for (oc, dc), v in zip(cols, row):
@@ -80,13 +87,13 @@ for t in FASES[fase]:
                     d[0], d[1] = min(d[0], iso), max(d[1], iso)
                     v = iso
                 out.append('' if v is None else v)
-            w.writerow(out); linhas += 1
+            w.writerow(out + list(const.values())); linhas += 1
     if chave:
         cur.execute(f"select count(*) from {T}")
         bruto = cur.fetchone()[0]
         if bruto != linhas:
             print(f"       ↳ dedup por ({', '.join(chave)}): {bruto - linhas} linha(s) descartada(s) de {bruto}")
-    manifesto[t] = {'linhas': linhas, 'dedup': chave, 'colunas': [d for _, d in cols],
+    manifesto[t] = {'linhas': linhas, 'dedup': chave, 'colunas': [d for _, d in cols] + list(CONSTANTES.get(t, {})),
                     'somas': {k: str(v) for k, v in somas.items()},
                     'datas': datas,
                     'colunas_origem_descartadas': sorted(set(ori) - {c for c, _ in cols})}

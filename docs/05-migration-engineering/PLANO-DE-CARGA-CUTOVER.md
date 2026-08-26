@@ -267,6 +267,22 @@ integridade **no fim da fase**, não tabela a tabela. Sem isso o relatório assu
 Passaram limpas: configuracoes (847), configuracoes_especificas (337), permissoes (31.448), perfil (20),
 formas_pgto (36), receita_prod (117).
 
+## 7i. 2º ensaio da F1 — 12/19 (era 6/19) e o que sobrou é MODELAGEM, não bug
+
+Depois dos folds (mig 177 + extrator): **370.736 linhas, 12 de 19 tabelas reconciliadas**. A ordem topológica
+por FK eliminou as 137 mil "órfãs" falsas de `estoque`/`multi_preco`. O que restou é de outra natureza:
+
+| pendência | o que é |
+|---|---|
+| `parceiros.idempresa` NOT NULL | **no legado o parceiro é GLOBAL** (não tem empresa); no nosso schema é obrigatório. Decisão de modelagem: ou a carga replica o parceiro por empresa, ou a coluna vira nullable/derivada |
+| `empresas.razao_social` NOT NULL | a origem tem outro nome para o campo — falta a renomeação (o mapa já apontava "só no destino") |
+| `codreferencia_for.codref` NOT NULL | mesma classe do `codfor`: a origem permite NULL |
+| `produtos.codunidade → unidade` 43.054 órfãs · `codfor → parceiros` 35.945 | **FKs que o legado não tem**: produto aponta para unidade/fornecedor inexistente. Ou a carga cria os faltantes, ou as FKs viram opcionais |
+| `parceiros_end.codparceiro` 18.255 órfãs · `contas_bancarias.codbco` 30 | consequência de `parceiros` não ter carregado (cai junto quando ela entrar) |
+
+Ou seja: a fase deixou de falhar por **mecânica** e passou a falhar por **modelo** — que é exatamente onde um
+ensaio de carga tem de chegar. As três primeiras são decisões pequenas; a de `parceiros.idempresa` é do usuário.
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).

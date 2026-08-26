@@ -37,8 +37,28 @@ async function main() {
   const pool = new Pool({ ...PG_CONN, database: `${PG_CONN.databasePrefix}pinheirao` });
   const rel: Array<Record<string, unknown>> = [];
   try {
-    for (const arq of readdirSync(dir).filter((f) => f.endsWith('.csv')).sort()) {
-      const tabela = arq.replace(/\.csv$/, '');
+    // ORDEM POR DEPENDÊNCIA (fold do 1º ensaio da F1): carregar em ordem alfabética punha `estoque` antes de
+    // `produtos` e o relatório acusava 137 mil "órfãs" que eram só ordem. Ordena topologicamente pelas FKs reais.
+    const arquivos = readdirSync(dir).filter((f) => f.endsWith('.csv')).map((f) => f.replace(/\.csv$/, ''));
+    const deps = new Map<string, Set<string>>();
+    for (const t of arquivos) {
+      const r = await pool.query(
+        `SELECT DISTINCT ccu.table_name AS ref
+           FROM information_schema.table_constraints tc
+           JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_name = tc.constraint_name
+          WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = $1 AND ccu.table_name <> $1`, [t]);
+      deps.set(t, new Set(r.rows.map((x: any) => x.ref).filter((x: string) => arquivos.includes(x))));
+    }
+    const ordem: string[] = [];
+    const pend = new Set(arquivos);
+    while (pend.size) {
+      const prontos = [...pend].filter((t) => [...(deps.get(t) ?? [])].every((d) => !pend.has(d))).sort();
+      if (!prontos.length) { ordem.push(...[...pend].sort()); break; } // ciclo: mantém o resto (gatilhos suspensos)
+      for (const t of prontos) { ordem.push(t); pend.delete(t); }
+    }
+    for (const tabela0 of ordem) {
+      const arq = `${tabela0}.csv`;
+      const tabela = tabela0;
       const esperado = manifesto[tabela];
       const linhas = parseCsv(readFileSync(resolve(dir, arq), 'utf8'));
       const cols = linhas.shift() ?? [];
@@ -76,7 +96,20 @@ async function main() {
       if (!erro) {
         const n = Number((await pool.query(`SELECT count(*)::int AS n FROM ${tabela}`)).rows[0].n);
         if (n !== Number(esperado?.linhas ?? -1)) divergencias.push(`contagem ${n} × ${esperado?.linhas}`);
-        // como os gatilhos foram suspensos, a integridade referencial é conferida AQUI, não presumida
+        for (const [col, soma] of Object.entries((esperado?.somas ?? {}) as Record<string, string>)) {
+          const sm = (await pool.query(`SELECT coalesce(sum(${col}),0)::text AS s FROM ${tabela}`)).rows[0].s;
+          if (Number(sm) !== Number(soma)) divergencias.push(`${col} Σ ${sm} × ${soma}`);
+        }
+      }
+      rel.push({ tabela, esperado: esperado?.linhas ?? null, carregadas, erro, divergencias: divergencias.join(' · ') || null });
+    }
+
+    // INTEGRIDADE no FIM da fase (gatilhos ficaram suspensos durante a carga): órfã aqui é órfã de verdade.
+    for (const r of rel) {
+      if (r.erro) continue;
+      const tabela = String(r.tabela);
+      const orfas: string[] = [];
+      {
         const fks = (await pool.query(
           `SELECT kcu.column_name AS col, ccu.table_name AS reft, ccu.column_name AS refc
              FROM information_schema.table_constraints tc
@@ -88,14 +121,10 @@ async function main() {
             `SELECT count(*)::int AS n FROM ${tabela} t
               WHERE t.${fk.col} IS NOT NULL
                 AND NOT EXISTS (SELECT 1 FROM ${fk.reft} r WHERE r.${fk.refc} = t.${fk.col})`)).rows[0].n);
-          if (orf > 0) divergencias.push(`${orf} órfã(s) em ${fk.col}→${fk.reft}`);
-        }
-        for (const [col, soma] of Object.entries((esperado?.somas ?? {}) as Record<string, string>)) {
-          const s = (await pool.query(`SELECT coalesce(sum(${col}),0)::text AS s FROM ${tabela}`)).rows[0].s;
-          if (Number(s) !== Number(soma)) divergencias.push(`${col} Σ ${s} × ${soma}`);
+          if (orf > 0) orfas.push(`${orf} órfã(s) em ${fk.col}→${fk.reft}`);
         }
       }
-      rel.push({ tabela, esperado: esperado?.linhas ?? null, carregadas, erro, divergencias: divergencias.join(' · ') || null });
+      if (orfas.length) r.divergencias = [r.divergencias, ...orfas].filter(Boolean).join(' · ');
     }
   } finally {
     await pool.end();
