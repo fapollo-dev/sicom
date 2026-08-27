@@ -22,7 +22,7 @@ RENOMEIA = {
  'vendas': {'codvendas': 'codvendas_legado'},
  'cx_vendas': {'codcxvendas': 'codcxvendas_legado'},
  # o legado chama a empresa de CODEMPRESA; aqui a coluna é idempresa nessas duas
- 'empresas': {'codempresa': 'idempresa'},
+ 'empresas': {'codempresa': 'idempresa', 'razaosocial': 'razao_social'},
  'parceiros': {'codempresa': 'idempresa'},
 }
 # colunas CONSTANTES que o destino exige e a origem não tem (§7b: sem `origem_legado='S'` o índice parcial de
@@ -34,8 +34,15 @@ TRANSFORMA = {'empresas': {'cnpj': "regexp_replace({c}, '[^0-9]', '')",
                            'insc': "regexp_replace({c}, '[^0-9A-Za-z]', '')",
                            'cep':  "regexp_replace({c}, '[^0-9]', '')"}}
 
+# FILTROS de carga declarados: linha que o destino não aceita e que não vale afrouxar o app para receber.
+# `codreferencia_for.codref` tem 4 nulos em 16.229 e o de-para exige o código (o app quebra com nulo).
+FILTROS = {'codreferencia_for': 'codref is not null'}
+
 # PKs naturais que a origem repete: a carga fica com a ÚLTIMA linha por chave e CONTA o descarte (§7e)
-DEDUP = {'det_aliquota': ['aliquota', 'uf'], 'caixa_pdv': ['codcaixa']}
+DEDUP = {'det_aliquota': ['aliquota', 'uf'], 'caixa_pdv': ['codcaixa'],
+         # o de-para do fornecedor NÃO é 1:1 no legado (76 chaves com produtos diferentes), mas o UPSERT do
+         # recebimento depende da unicidade: a carga fica com a última referência de cada (codfor, codref).
+         'codreferencia_for': ['codfor', 'codref']}
 
 fase = (sys.argv[1] if len(sys.argv) > 1 else 'f0').lower()
 saida = sys.argv[2] if len(sys.argv) > 2 else f'{BASE}/staging/{fase}'
@@ -70,7 +77,8 @@ for t in FASES[fase]:
         cols_alias = ", ".join(c for c, _ in cols)
         cur.execute(f"select {cols_alias} from (select {sel}, row_number() over (partition by {ordem} order by rowid desc) rn from {T}) where rn = 1")
     else:
-        cur.execute(f"select {sel} from {T}")
+        onde = FILTROS.get(t)
+        cur.execute(f"select {sel} from {T}" + (f" where {onde}" if onde else ""))
     linhas, somas, datas = 0, {}, {}
     with open(f'{saida}/{t}.csv', 'w', newline='', encoding='utf-8') as fh:
         w = csv.writer(fh)
@@ -88,6 +96,11 @@ for t in FASES[fase]:
                     v = iso
                 out.append('' if v is None else v)
             w.writerow(out + list(const.values())); linhas += 1
+    if FILTROS.get(t):
+        cur.execute(f"select count(*) from {T}")
+        bruto = cur.fetchone()[0]
+        if bruto != linhas:
+            print(f"       ↳ filtro '{FILTROS[t]}': {bruto - linhas} linha(s) descartada(s) de {bruto}")
     if chave:
         cur.execute(f"select count(*) from {T}")
         bruto = cur.fetchone()[0]

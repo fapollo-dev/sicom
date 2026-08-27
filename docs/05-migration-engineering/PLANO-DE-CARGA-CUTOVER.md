@@ -283,6 +283,22 @@ por FK eliminou as 137 mil "órfãs" falsas de `estoque`/`multi_preco`. O que re
 Ou seja: a fase deixou de falhar por **mecânica** e passou a falhar por **modelo** — que é exatamente onde um
 ensaio de carga tem de chegar. As três primeiras são decisões pequenas; a de `parceiros.idempresa` é do usuário.
 
+## 7j. F1 em 15/19 — e a última pendência é uma decisão de MODELO
+
+Terceiro ensaio: **370.740 linhas, 14/19** (com a mig 180, 15/19). O que caiu desde a §7i:
+- `empresas.razao_social`: era só a renomeação (`RAZAOSOCIAL` na origem);
+- `codreferencia_for.codref` NOT NULL: origem tem 4 nulos em 16.229 → mig 179 derruba (mesma classe do `codfor`);
+- `ux_codref_for`: mig 180 remove — 76 grupos com o mesmo (codfor, codref) apontando para produtos diferentes;
+- **as "43.054 órfãs" de `produtos.codunidade` eram artefato**: a conferência comparava com `unidade`, que é da
+  **F0** e não existe na fase. Medido no Oracle, os órfãos reais são **3** (unidade) e **7** (fornecedor). O
+  carregador passou a ignorar FK cujo alvo não está na fase — e a registrar isso.
+
+**Pendência única e final da F1 — decisão do usuário:** `parceiros.idempresa` é NOT NULL no nosso schema, mas
+**no legado o parceiro é global** (a tabela `PARCEIROS` não tem empresa). Três saídas:
+(a) a carga replica cada parceiro por empresa (18.297 × 4 = 73 mil linhas, e o `codparceiro` deixa de ser único);
+(b) `idempresa` vira opcional e o parceiro passa a ser global também aqui (mexe nos filtros de tenant que já
+existem); (c) a carga carimba uma empresa "matriz" e o resto do sistema segue como está.
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).

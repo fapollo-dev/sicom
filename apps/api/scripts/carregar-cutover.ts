@@ -117,6 +117,9 @@ async function main() {
              JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_name = tc.constraint_name
             WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = $1`, [tabela])).rows;
         for (const fk of fks) {
+          // FK cross-fase não é órfã: a tabela-alvo simplesmente não faz parte desta fase (a F1 referencia
+          // `unidade`, que é da F0). No Oracle esses órfãos reais são 3 e 7 — o alarme de 43 mil era artefato.
+          if (!ordem.includes(fk.reft)) continue;
           const orf = Number((await pool.query(
             `SELECT count(*)::int AS n FROM ${tabela} t
               WHERE t.${fk.col} IS NOT NULL
