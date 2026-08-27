@@ -28,7 +28,8 @@ RENOMEIA = {
 }
 # colunas CONSTANTES que o destino exige e a origem não tem (§7b: sem `origem_legado='S'` o índice parcial de
 # login rejeita os 15 operadores com login repetido do cliente)
-CONSTANTES = {'operadores': {'origem_legado': 'S'}, 'parceiros_end': {'origem_legado': 'S'}}
+CONSTANTES = {'operadores': {'origem_legado': 'S'}, 'parceiros_end': {'origem_legado': 'S'},
+              'nf': {'origem_legado': 'S'}}
 # transformações de carga declaradas (expressão Oracle aplicada na extração)
 # - empresas.cnpj vem FORMATADO no legado (00.000.000/0000-00, 18 chars) e aqui a coluna guarda só dígitos
 TRANSFORMA = {
