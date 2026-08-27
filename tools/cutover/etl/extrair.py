@@ -36,13 +36,21 @@ TRANSFORMA = {
  # prática. Aqui a coluna é NOT NULL DEFAULT 1 e nenhum dos 17 pontos que consultam parceiros filtra por
  # empresa: a carga preserva os 575 que a casa amarrou a uma loja e usa o default nos demais.
  'parceiros': {'idempresa': 'nvl({c}, 1)'},
+ # `nf.sequencia_nfe` é integer aqui e VARCHAR2 no legado, com 'S' gravado (flag usada como texto): só entra o
+ # que for número; o resto vira nulo, em vez de derrubar as 23.420 notas.
+ 'nf': {'sequencia_nfe': "case when regexp_like({c}, '^[0-9]+$') then {c} else null end"},
+ # colunas NOT NULL no destino que a origem deixa nula: a carga preenche o neutro (o app conta com o valor)
+ 'nf_prod': {'vl_custo': 'nvl({c}, 0)'},
  'empresas': {'cnpj': "regexp_replace({c}, '[^0-9]', '')",
                            'insc': "regexp_replace({c}, '[^0-9A-Za-z]', '')",
                            'cep':  "regexp_replace({c}, '[^0-9]', '')"}}
 
 # FILTROS de carga declarados: linha que o destino não aceita e que não vale afrouxar o app para receber.
 # `codreferencia_for.codref` tem 4 nulos em 16.229 e o de-para exige o código (o app quebra com nulo).
-FILTROS = {'codreferencia_for': 'codref is not null'}
+FILTROS = {'codreferencia_for': 'codref is not null',
+           # `pedidocompra_i.idproduto` é NOT NULL aqui e a origem deixa nulo: item de pedido sem produto não
+           # tem o que virar — a carga descarta e conta (não dá para inventar o produto).
+           'pedidocompra_i': 'idproduto is not null'}
 
 # PKs naturais que a origem repete: a carga fica com a ÚLTIMA linha por chave e CONTA o descarte (§7e)
 DEDUP = {'det_aliquota': ['aliquota', 'uf'], 'caixa_pdv': ['codcaixa'],
@@ -76,11 +84,16 @@ for t in FASES[fase]:
     # tem essa coluna e tem `codempresa`, a equivalência é essa — sem precisar listar tabela a tabela.
     if 'idempresa' in dest[t]['colunas'] and 'idempresa' not in ori and 'codempresa' in ori:
         ren.setdefault('codempresa', 'idempresa')
+    # e quando a coluna EXISTE nos dois lados mas o legado a deixa nula (parceiros, cotacao, pedidocompra,
+    # inventario…): o destino é NOT NULL DEFAULT 1 — a carga preserva o que veio e usa o default no resto.
+    tr_auto = {}
+    if 'idempresa' in ori and not dest[t]['colunas'].get('idempresa', {}).get('nulo', True):
+        tr_auto['idempresa'] = 'nvl({c}, 1)'
     # colunas a levar: as que casam por nome (ou por renomeação) com o destino
     cols = [(c, ren.get(c, c)) for c in ori if ren.get(c, c) in dest[t]['colunas']]
     if not cols:
         manifesto[t] = {'pulada': 'nenhuma coluna casa'}; print(f"  ⛔ {t}: nenhuma coluna casa"); continue
-    tr = TRANSFORMA.get(t, {})
+    tr = {**tr_auto, **TRANSFORMA.get(t, {})}
     sel = ", ".join((tr[c].format(c=c) + f" as {c}") if c in tr else c for c, _ in cols)
     chave = DEDUP.get(t)
     if chave:
