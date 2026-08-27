@@ -104,6 +104,13 @@ for t in FASES[fase]:
     # mas o valor neutro é o mesmo — empresa 1. Sem isto o ensaio regride (79.190 → 46.500 em inventario).
     if 'idempresa' in ori and not dest[t]['colunas'].get('idempresa', {}).get('nulo', True):
         tr_auto.setdefault('idempresa', 'nvl({c}, 1)')
+    # FLAG NOT NULL sem default: o repo inteiro usa char(1) 'S'/'N' e o legado deixa nulo em parte das linhas
+    # (pedidocompra.fechado foi a que apareceu). O neutro de uma flag é 'N' — declarado aqui, não adivinhado
+    # caso a caso.
+    for _c, _d in dest[t]['colunas'].items():
+        if _c in ori and not _d.get('nulo') and _d.get('default') is None \
+           and _d.get('tipo') == 'character' and _d.get('tam') == 1:
+            tr_auto.setdefault(_c, "nvl({c}, 'N')")
     # colunas a levar: as que casam por nome (ou por renomeação) com o destino
     cols = [(c, ren.get(c, c)) for c in ori if ren.get(c, c) in dest[t]['colunas']]
     const_auto = {}
