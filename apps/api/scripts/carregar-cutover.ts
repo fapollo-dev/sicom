@@ -13,6 +13,34 @@ import { startEmbeddedPg, PG_CONN } from '../test/embedded-db';
 const fase = process.argv[2] ?? 'f0';
 const dir = resolve(__dirname, `../../../tools/cutover/staging/${fase}`);
 
+/**
+ * CSV em STREAMING (fold do ensaio da F2): a versão anterior lia o arquivo inteiro e dava heap out of memory com
+ * os 461 MB da fase — o XML das notas vem embutido. Aqui o arquivo é lido em pedaços e as linhas completas são
+ * entregues por callback; o estado de aspas atravessa os pedaços, então XML com quebra de linha continua íntegro.
+ */
+async function lerCsv(caminho: string, onLinha: (l: string[]) => Promise<void> | void): Promise<string[]> {
+  const { createReadStream } = await import('node:fs');
+  let campo = '', linha: string[] = [], aspas = false, cabecalho: string[] | null = null;
+  const stream = createReadStream(caminho, { encoding: 'utf8', highWaterMark: 1 << 20 });
+  for await (const pedaco of stream as AsyncIterable<string>) {
+    for (let i = 0; i < pedaco.length; i++) {
+      const c = pedaco[i];
+      if (aspas) {
+        if (c === '"') { if (pedaco[i + 1] === '"') { campo += '"'; i++; } else aspas = false; }
+        else campo += c;
+      } else if (c === '"') aspas = true;
+      else if (c === ',') { linha.push(campo); campo = ''; }
+      else if (c === '\n') {
+        linha.push(campo); campo = '';
+        if (!cabecalho) cabecalho = linha; else await onLinha(linha);
+        linha = [];
+      } else if (c !== '\r') campo += c;
+    }
+  }
+  if (campo || linha.length) { linha.push(campo); if (!cabecalho) cabecalho = linha; else await onLinha(linha); }
+  return cabecalho ?? [];
+}
+
 /** CSV simples (o extrator escreve com csv.writer padrão: aspas duplas, sem newline embutido fora de aspas). */
 function parseCsv(txt: string): string[][] {
   const linhas: string[][] = [];
@@ -60,12 +88,10 @@ async function main() {
       const arq = `${tabela0}.csv`;
       const tabela = tabela0;
       const esperado = manifesto[tabela];
-      const linhas = parseCsv(readFileSync(resolve(dir, arq), 'utf8'));
-      const cols = linhas.shift() ?? [];
-      if (!cols.length) continue;
       const cli = await pool.connect();
       let carregadas = 0;
       let erro: string | null = null;
+      let cols: string[] = [];
       try {
         await cli.query('BEGIN');
         await cli.query(`TRUNCATE ${tabela} CASCADE`); // o ensaio parte do vazio (migrations semeiam catálogos)
@@ -73,16 +99,23 @@ async function main() {
         // tabela e os religa ao final, VALIDANDO — é o padrão de ETL. Sem isso a árvore de contas só entraria
         // em ordem topológica, o que é frágil de manter para cada hierarquia da base.
         await cli.query(`ALTER TABLE ${tabela} DISABLE TRIGGER ALL`);
-        for (let i = 0; i < linhas.length; i += 500) {
-          const lote = linhas.slice(i, i + 500).filter((l) => l.length === cols.length);
-          if (!lote.length) continue;
+        let buffer: string[][] = [];
+        const descarrega = async () => {
+          const lote = buffer.filter((l) => l.length === cols.length);
+          buffer = [];
+          if (!lote.length) return;
           const params: unknown[] = [];
           const values = lote
             .map((l) => `(${l.map((v) => { params.push(v === '' ? null : v); return `$${params.length}`; }).join(',')})`)
             .join(',');
           await cli.query(`INSERT INTO ${tabela} (${cols.join(',')}) VALUES ${values}`, params);
           carregadas += lote.length;
-        }
+        };
+        cols = await lerCsv(resolve(dir, arq), async (l) => {
+          buffer.push(l);
+          if (buffer.length >= 500) await descarrega();
+        });
+        await descarrega();
         await cli.query(`ALTER TABLE ${tabela} ENABLE TRIGGER ALL`);
         await cli.query('COMMIT');
       } catch (e) {
