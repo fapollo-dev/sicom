@@ -293,11 +293,24 @@ Terceiro ensaio: **370.740 linhas, 14/19** (com a mig 180, 15/19). O que caiu de
   **F0** e não existe na fase. Medido no Oracle, os órfãos reais são **3** (unidade) e **7** (fornecedor). O
   carregador passou a ignorar FK cujo alvo não está na fase — e a registrar isso.
 
-**Pendência única e final da F1 — decisão do usuário:** `parceiros.idempresa` é NOT NULL no nosso schema, mas
-**no legado o parceiro é global** (a tabela `PARCEIROS` não tem empresa). Três saídas:
-(a) a carga replica cada parceiro por empresa (18.297 × 4 = 73 mil linhas, e o `codparceiro` deixa de ser único);
-(b) `idempresa` vira opcional e o parceiro passa a ser global também aqui (mexe nos filtros de tenant que já
-existem); (c) a carga carimba uma empresa "matriz" e o resto do sistema segue como está.
+**Pendência única e final da F1 — decisão do usuário, agora com os números na mesa.** Corrigindo o que escrevi
+na §7i: a tabela `PARCEIROS` do Oracle **tem sim** a coluna `IDEMPRESA` — ela só está quase sempre vazia:
+
+| | linhas |
+|---|---:|
+| total de parceiros | 18.297 |
+| com `IDEMPRESA` preenchida | **575** (empresa 1: 417 · 50: 149 · 2: 9) |
+| com `IDEMPRESA` NULA | **17.722 (96,9%)** |
+
+Ou seja: o parceiro é global *na prática*, e a coluna existe para os poucos casos em que a casa quis amarrar o
+cadastro a uma loja. Do nosso lado, `parceiros.idempresa` é `NOT NULL DEFAULT 1` (mig 014) — e **nenhum dos 17
+pontos que consultam `parceiros` no código filtra por empresa**.
+
+Com isso, a recomendação fica objetiva: **(c) carimbar o default** — a carga leva o `IDEMPRESA` quando existe e
+usa 1 quando é nulo, que é exatamente o que o `DEFAULT 1` do schema já diz. Custo zero de código, nenhuma
+duplicação de cadastro, e o dado do cliente preservado nos 575 casos em que ele se importou. As opções (a)
+replicar por empresa e (b) tornar opcional só fariam sentido se algum filtro de tenant dependesse da coluna — e
+não depende.
 
 ## 7k. F2 mapeada (2026-08-26) — quase limpa
 
