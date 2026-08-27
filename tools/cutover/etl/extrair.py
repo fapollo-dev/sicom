@@ -51,7 +51,9 @@ TRANSFORMA = {
 FILTROS = {'codreferencia_for': 'codref is not null',
            # `pedidocompra_i.idproduto` é NOT NULL aqui e a origem deixa nulo: item de pedido sem produto não
            # tem o que virar — a carga descarta e conta (não dá para inventar o produto).
-           'pedidocompra_i': 'idproduto is not null'}
+           'pedidocompra_i': 'idproduto is not null',
+           # pedido de compra sem fornecedor não tem o que virar (codparceiro é NOT NULL aqui): descarta e conta
+           'pedidocompra': 'codparceiro is not null'}
 
 # PKs naturais que a origem repete: a carga fica com a ÚLTIMA linha por chave e CONTA o descarte (§7e)
 DEDUP = {'det_aliquota': ['aliquota', 'uf'], 'caixa_pdv': ['codcaixa'],
