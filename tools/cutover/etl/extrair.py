@@ -86,11 +86,33 @@ for t in FASES[fase]:
         ren.setdefault('codempresa', 'idempresa')
     # e quando a coluna EXISTE nos dois lados mas o legado a deixa nula (parceiros, cotacao, pedidocompra,
     # inventario…): o destino é NOT NULL DEFAULT 1 — a carga preserva o que veio e usa o default no resto.
+    # REGRA GERAL: coluna NOT NULL no destino que TEM DEFAULT literal — se o legado manda nulo, a carga usa o
+    # default declarado no nosso próprio schema (é o valor que o app assumiria de qualquer forma). Cobre de
+    # `idempresa` (DEFAULT 1) a percentuais e valores com DEFAULT 0 espalhados pela `nf`.
+    import re as _re
     tr_auto = {}
+    for _c, _d in dest[t]['colunas'].items():
+        if _d.get('nulo') or _c not in ori or _d.get('default') is None:
+            continue
+        m = _re.match(r"^'?([-\d.]+)'?(::[a-z ]+)?$", str(_d['default']).strip())
+        if m:
+            tr_auto[_c] = 'nvl({c}, ' + m.group(1) + ')'
+    # `idempresa` NOT NULL **sem** default declarado (inventario, cotacao, pedidocompra): a regra acima não pega,
+    # mas o valor neutro é o mesmo — empresa 1. Sem isto o ensaio regride (79.190 → 46.500 em inventario).
     if 'idempresa' in ori and not dest[t]['colunas'].get('idempresa', {}).get('nulo', True):
-        tr_auto['idempresa'] = 'nvl({c}, 1)'
+        tr_auto.setdefault('idempresa', 'nvl({c}, 1)')
     # colunas a levar: as que casam por nome (ou por renomeação) com o destino
     cols = [(c, ren.get(c, c)) for c in ori if ren.get(c, c) in dest[t]['colunas']]
+    const_auto = {}
+    for _c, _d in dest[t]['colunas'].items():
+        if _d.get('nulo') or _c in {d for _, d in cols} or _d.get('default') is None:
+            continue
+        m = _re.match(r"^'?([-\w.]+)'?(::[a-z ]+)?$", str(_d['default']).strip())
+        if m and 'nextval' not in str(_d['default']):
+            const_auto[_c] = m.group(1)
+    if 'idempresa' in dest[t]['colunas'] and not dest[t]['colunas']['idempresa'].get('nulo', True) \
+       and 'idempresa' not in {d for _, d in cols}:
+        const_auto.setdefault('idempresa', '1')
     if not cols:
         manifesto[t] = {'pulada': 'nenhuma coluna casa'}; print(f"  ⛔ {t}: nenhuma coluna casa"); continue
     tr = {**tr_auto, **TRANSFORMA.get(t, {})}
@@ -109,7 +131,7 @@ for t in FASES[fase]:
     linhas, somas, datas = 0, {}, {}
     with open(f'{saida}/{t}.csv', 'w', newline='', encoding='utf-8') as fh:
         w = csv.writer(fh)
-        const = CONSTANTES.get(t, {})
+        const = {**const_auto, **CONSTANTES.get(t, {})}
         w.writerow([d for _, d in cols] + list(const))
         for row in cur:
             out = []
