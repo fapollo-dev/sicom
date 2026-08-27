@@ -31,7 +31,12 @@ RENOMEIA = {
 CONSTANTES = {'operadores': {'origem_legado': 'S'}, 'parceiros_end': {'origem_legado': 'S'}}
 # transformações de carga declaradas (expressão Oracle aplicada na extração)
 # - empresas.cnpj vem FORMATADO no legado (00.000.000/0000-00, 18 chars) e aqui a coluna guarda só dígitos
-TRANSFORMA = {'empresas': {'cnpj': "regexp_replace({c}, '[^0-9]', '')",
+TRANSFORMA = {
+ # §7j: PARCEIROS.IDEMPRESA existe no legado mas é NULA em 17.722 de 18.297 (96,9%) — o parceiro é global na
+ # prática. Aqui a coluna é NOT NULL DEFAULT 1 e nenhum dos 17 pontos que consultam parceiros filtra por
+ # empresa: a carga preserva os 575 que a casa amarrou a uma loja e usa o default nos demais.
+ 'parceiros': {'idempresa': 'nvl({c}, 1)'},
+ 'empresas': {'cnpj': "regexp_replace({c}, '[^0-9]', '')",
                            'insc': "regexp_replace({c}, '[^0-9A-Za-z]', '')",
                            'cep':  "regexp_replace({c}, '[^0-9]', '')"}}
 
@@ -76,7 +81,9 @@ for t in FASES[fase]:
         # ROW_NUMBER pela PK física (ROWID) — determinístico e sem depender de coluna de data
         ordem = ", ".join(chave)
         cols_alias = ", ".join(c for c, _ in cols)
-        cur.execute(f"select {cols_alias} from (select {sel}, row_number() over (partition by {ordem} order by rowid desc) rn from {T}) where rn = 1")
+        onde = FILTROS.get(t)  # o FILTRO também vale no caminho do dedup (era o bug que deixava codref nulo passar)
+        cur.execute(f"select {cols_alias} from (select {sel}, row_number() over (partition by {ordem} order by rowid desc) rn from {T}"
+                    + (f" where {onde}" if onde else "") + ") where rn = 1")
     else:
         onde = FILTROS.get(t)
         cur.execute(f"select {sel} from {T}" + (f" where {onde}" if onde else ""))

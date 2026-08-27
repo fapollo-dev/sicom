@@ -325,6 +325,22 @@ Volumes da F2 (o peso real da carga fora da F4): `balancoitens` 980.574 · `pedi
 A F2 depende da F1 (nf → parceiros, produtos), então o ensaio dela só roda depois da decisão de
 `parceiros.idempresa` (§7j).
 
+## 7l. F1 FECHADA — 405.108 linhas, 19/19 carregadas (2026-08-26)
+
+Aplicada a recomendação da §7j (a carga preserva `IDEMPRESA` quando existe e usa o default 1 nos 96,9% nulos),
+mais a correção de um bug meu no extrator (o FILTRO declarado não estava sendo aplicado no caminho do DEDUP, e
+por isso `codref` nulo ainda passava):
+
+- **405.108 linhas carregadas, as 19 tabelas entraram**;
+- **17 reconciliam sem nenhuma divergência** (contagem e somas idênticas à origem);
+- as 2 restantes carregam 100% e só acusam **órfãs REAIS do legado**: `produtos.codfor` (7) e
+  `codreferencia_for.codfor` (11) apontam para parceiros que não existem — os mesmos 7 e 11 medidos direto no
+  Oracle. É dado sujo do cliente, não erro de carga: entra no relatório de reconciliação para o cliente decidir
+  (criar os fornecedores faltantes ou aceitar a referência solta).
+
+Somando as duas fases já ensaiadas: **F0 48.734 + F1 405.108 = 453.842 linhas** carregadas e reconciliadas
+contra a origem, com todas as regras de transformação/dedup/filtro declaradas e contadas.
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).
