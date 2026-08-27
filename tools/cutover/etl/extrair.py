@@ -48,7 +48,8 @@ FILTROS = {'codreferencia_for': 'codref is not null'}
 DEDUP = {'det_aliquota': ['aliquota', 'uf'], 'caixa_pdv': ['codcaixa'],
          # o de-para do fornecedor NÃO é 1:1 no legado (76 chaves com produtos diferentes), mas o UPSERT do
          # recebimento depende da unicidade: a carga fica com a última referência de cada (codfor, codref).
-         'codreferencia_for': ['codfor', 'codref']}
+         'codreferencia_for': ['codfor', 'codref'],
+         'cotacao_prod': ['codctc', 'idproduto']}
 
 fase = (sys.argv[1] if len(sys.argv) > 1 else 'f0').lower()
 saida = sys.argv[2] if len(sys.argv) > 2 else f'{BASE}/staging/{fase}'
@@ -69,7 +70,12 @@ for t in FASES[fase]:
         print(f"  ○ {t}: {manifesto[t]['pulada']}"); continue
     cur.execute("select column_name, data_type from user_tab_columns where table_name=:t", t=T)
     ori = {r[0].lower(): r[1] for r in cur.fetchall()}
-    ren = RENOMEIA.get(t, {})
+    ren = dict(RENOMEIA.get(t, {}))
+    # REGRA GERAL (fold do ensaio da F2, onde 6 tabelas caíram pelo mesmo motivo): o legado chama a empresa de
+    # CODEMPRESA e boa parte do nosso schema chama `idempresa`. Quando o destino exige `idempresa`, a origem não
+    # tem essa coluna e tem `codempresa`, a equivalência é essa — sem precisar listar tabela a tabela.
+    if 'idempresa' in dest[t]['colunas'] and 'idempresa' not in ori and 'codempresa' in ori:
+        ren.setdefault('codempresa', 'idempresa')
     # colunas a levar: as que casam por nome (ou por renomeação) com o destino
     cols = [(c, ren.get(c, c)) for c in ori if ren.get(c, c) in dest[t]['colunas']]
     if not cols:

@@ -18,7 +18,7 @@ const dir = resolve(__dirname, `../../../tools/cutover/staging/${fase}`);
  * os 461 MB da fase — o XML das notas vem embutido. Aqui o arquivo é lido em pedaços e as linhas completas são
  * entregues por callback; o estado de aspas atravessa os pedaços, então XML com quebra de linha continua íntegro.
  */
-async function lerCsv(caminho: string, onLinha: (l: string[]) => Promise<void> | void): Promise<string[]> {
+async function lerCsv(caminho: string, onLinha: (l: string[]) => Promise<void> | void, onCabecalho?: (c: string[]) => void): Promise<string[]> {
   const { createReadStream } = await import('node:fs');
   let campo = '', linha: string[] = [], aspas = false, cabecalho: string[] | null = null;
   const stream = createReadStream(caminho, { encoding: 'utf8', highWaterMark: 1 << 20 });
@@ -32,7 +32,7 @@ async function lerCsv(caminho: string, onLinha: (l: string[]) => Promise<void> |
       else if (c === ',') { linha.push(campo); campo = ''; }
       else if (c === '\n') {
         linha.push(campo); campo = '';
-        if (!cabecalho) cabecalho = linha; else await onLinha(linha);
+        if (!cabecalho) { cabecalho = linha; onCabecalho?.(cabecalho); } else await onLinha(linha);
         linha = [];
       } else if (c !== '\r') campo += c;
     }
@@ -111,10 +111,13 @@ async function main() {
           await cli.query(`INSERT INTO ${tabela} (${cols.join(',')}) VALUES ${values}`, params);
           carregadas += lote.length;
         };
+        // ⚠️ o cabeçalho tem de chegar ANTES do primeiro lote: sem isso `cols` fica vazio durante o stream, o
+        // filtro `l.length === cols.length` descarta tudo e só o resto final entra (foi o que o 1º ensaio da F2
+        // mostrou: 74 de 980.574 em balancoitens — exatamente o resto da divisão por 500).
         cols = await lerCsv(resolve(dir, arq), async (l) => {
           buffer.push(l);
           if (buffer.length >= 500) await descarrega();
-        });
+        }, (c) => { cols = c; });
         await descarrega();
         await cli.query(`ALTER TABLE ${tabela} ENABLE TRIGGER ALL`);
         await cli.query('COMMIT');
