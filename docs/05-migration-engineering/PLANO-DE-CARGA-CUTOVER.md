@@ -299,6 +299,19 @@ Terceiro ensaio: **370.740 linhas, 14/19** (com a mig 180, 15/19). O que caiu de
 (b) `idempresa` vira opcional e o parceiro passa a ser global também aqui (mexe nos filtros de tenant que já
 existem); (c) a carga carimba uma empresa "matriz" e o resto do sistema segue como está.
 
+## 7k. F2 mapeada (2026-08-26) — quase limpa
+
+16 tabelas de documento medidas contra o Oracle: **um único bloqueio de capacidade** —
+`inventario.descricao` (dado 126 > destino 120, em 79.190 linhas), mesma medida que `produtos.descricao` já
+recebeu na mig 176 → **mig 181**. Nenhum outro campo estoura, e nenhuma tabela falta no destino.
+
+Volumes da F2 (o peso real da carga fora da F4): `balancoitens` 980.574 · `pedidocompra_i` 286.869 ·
+`nf_prod` 252.469 · `inventario` 79.190 · `nf` 23.420 · `nfe_xml` 20.355 · `pedidocompra` 10.392 ·
+`cotacao_prod` 4.261 · `scrap` 2.878 · `agenda_promocao` 2.028 · demais abaixo de 150.
+
+A F2 depende da F1 (nf → parceiros, produtos), então o ensaio dela só roda depois da decisão de
+`parceiros.idempresa` (§7j).
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).
