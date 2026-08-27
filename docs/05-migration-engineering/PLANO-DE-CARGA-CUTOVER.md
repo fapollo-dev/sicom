@@ -341,6 +341,33 @@ por isso `codref` nulo ainda passava):
 Somando as duas fases já ensaiadas: **F0 48.734 + F1 405.108 = 453.842 linhas** carregadas e reconciliadas
 contra a origem, com todas as regras de transformação/dedup/filtro declaradas e contadas.
 
+## 7m. F2 FECHADA — 1.662.682 linhas, as 15 tabelas dentro (2026-08-27)
+
+Do 1º ensaio (2/15) até aqui, cada rodada trocou um erro grosso por um mais fino. O que ficou de permanente
+foram **regras gerais no extrator**, não mapas tabela a tabela:
+
+| regra | por que existe |
+|---|---|
+| `CODEMPRESA` → `idempresa` quando o destino exige e a origem não tem | 6 tabelas de documento caíam juntas |
+| `idempresa` nula → **1** (o `DEFAULT 1` do schema) | parceiros, cotacao, pedidocompra, inventario |
+| coluna `NOT NULL` com **default declarado** → usa o default (numérico **ou** texto) | dezenas de flags e percentuais; o regex que só via número deixou `pedidocompra.fechado` passar duas rodadas |
+| coluna `NOT NULL` sem equivalente na origem → entra como constante com o default | idem |
+| `FILTROS` (descarta e conta) | item de pedido sem produto, pedido sem fornecedor, `codref` nulo |
+| `DEDUP` (fica a última, conta o descarte) | PK/único que a origem repete |
+| LOB/`bytes` → texto ou hex | o XML da NF-e derrubava a extração |
+
+Migrations do caminho: **182** (chave natural da NF) e **183** (NF de devolução) passaram a excluir o histórico
+carregado via `origem_legado`, como o login (173) e o CNPJ do endereço (178) — sempre estendendo o predicado,
+nunca removendo a proteção, porque nos dois casos o índice é backstop transacional do app.
+
+**Sobram 2 avisos, ambos dado real do cliente:**
+- `inventario → inventario_livro`: **13.611 órfãs — confirmadas no Oracle** (o legado tem 20 livros e 79.190
+  linhas de contagem apontando para livros que não existem mais). Vai para o relatório do cliente;
+- `pedidocompra_i → pedidocompra`: **3 órfãs**, resto dos 12 pedidos sem fornecedor que a carga descartou.
+
+Somando as três fases ensaiadas: **F0 48.734 + F1 405.108 + F2 1.662.682 = 2.116.524 linhas** carregadas e
+reconciliadas contra a origem.
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).

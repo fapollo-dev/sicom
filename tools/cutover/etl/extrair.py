@@ -97,9 +97,15 @@ for t in FASES[fase]:
     for _c, _d in dest[t]['colunas'].items():
         if _d.get('nulo') or _c not in ori or _d.get('default') is None:
             continue
-        m = _re.match(r"^'?([-\d.]+)'?(::[a-z ]+)?$", str(_d['default']).strip())
-        if m:
-            tr_auto[_c] = 'nvl({c}, ' + m.group(1) + ')'
+        # o default pode ser número (0, 1) OU literal de texto ('N'::bpchar) — o regex antigo só via número,
+        # e por isso `pedidocompra.fechado` (default 'N') continuava caindo.
+        d_raw = str(_d['default']).strip()
+        m_num = _re.match(r"^([-\d.]+)(::[a-z ]+)?$", d_raw)
+        m_txt = _re.match(r"^'([^']*)'(::[a-z ]+)?$", d_raw)
+        if m_num:
+            tr_auto[_c] = 'nvl({c}, ' + m_num.group(1) + ')'
+        elif m_txt:
+            tr_auto[_c] = "nvl({c}, '" + m_txt.group(1) + "')"
     # `idempresa` NOT NULL **sem** default declarado (inventario, cotacao, pedidocompra): a regra acima não pega,
     # mas o valor neutro é o mesmo — empresa 1. Sem isto o ensaio regride (79.190 → 46.500 em inventario).
     if 'idempresa' in ori and not dest[t]['colunas'].get('idempresa', {}).get('nulo', True):
@@ -117,8 +123,9 @@ for t in FASES[fase]:
     for _c, _d in dest[t]['colunas'].items():
         if _d.get('nulo') or _c in {d for _, d in cols} or _d.get('default') is None:
             continue
-        m = _re.match(r"^'?([-\w.]+)'?(::[a-z ]+)?$", str(_d['default']).strip())
-        if m and 'nextval' not in str(_d['default']):
+        d_raw = str(_d['default']).strip()
+        m = _re.match(r"^'?([-\w.]+)'?(::[a-z ]+)?$", d_raw)
+        if m and 'nextval' not in d_raw:
             const_auto[_c] = m.group(1)
     if 'idempresa' in dest[t]['colunas'] and not dest[t]['colunas']['idempresa'].get('nulo', True) \
        and 'idempresa' not in {d for _, d in cols}:
