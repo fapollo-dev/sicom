@@ -95,6 +95,15 @@ for t in FASES[fase]:
         for row in cur:
             out = []
             for (oc, dc), v in zip(cols, row):
+                # LOB/RAW: o oracledb devolve objeto LOB (CLOB do XML da NF-e) ou bytes — o csv.writer não sabe
+                # serializar nenhum dos dois. CLOB vira texto; binário vira hex (a carga decide o que fazer).
+                if hasattr(v, 'read'):
+                    v = v.read()
+                if isinstance(v, bytes):
+                    try:
+                        v = v.decode('utf-8')
+                    except UnicodeDecodeError:
+                        v = v.hex()
                 if isinstance(v, decimal.Decimal):
                     somas[dc] = somas.get(dc, decimal.Decimal(0)) + v
                 elif isinstance(v, (datetime.datetime, datetime.date)):
