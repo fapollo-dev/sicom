@@ -407,6 +407,13 @@ O que isso invalida e o que sobrevive:
 | tudo que foi decidido por **FONTE** (Delphi/dicionário): regras, fórmulas, quirks, nomes de RBAC, capacidades de coluna, unicidades violadas | ✅ **vale** — não depende de volume |
 | veredictos de "morto/dormente" que usaram **ausência de dado recente** como argumento (cluster GIROS, fechamento diário, lote/validade, coleta do rotativo, `REDUCAOZ` vazia) | ⚠️ **precisam de reconferência contra PRODUÇÃO** antes de virar decisão final. O argumento de fonte (procedure de cache, `btnGravar` comentado, `if IsEmpty`) continua de pé; o argumento "ninguém usa mais" não |
 
+**Decisão do usuário (28/08): seguir com o banco de homologação.** O ensaio, as migrations de capacidade e os
+veredictos de unicidade ficam calibrados por ele — o que é suficiente para construir, e é o que temos. Fica
+então **um item de checklist da virada, não um bloqueio do desenvolvimento**: rodar as três ferramentas contra
+produção **antes** da janela (não durante), porque unicidade nova, coluna que estourou e volume real só
+aparecem no dado de lá. Se aparecer violação nova, é migration — e migration na madrugada da virada é o que
+esse checklist existe para evitar.
+
 ⇒ **ação registrada:** antes do cutover, repetir contra o banco de produção (a) a varredura de unicidade
 (`tools/cutover/varre-unicidade.py`), (b) o mapa de capacidades por fase e (c) as medições de liveness que
 sustentaram rebaixamentos. As ferramentas já aceitam outro DSN — é trocar a conexão, não reescrever.
