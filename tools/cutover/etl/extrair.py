@@ -40,6 +40,8 @@ TRANSFORMA = {
  'parceiros': {'idempresa': 'nvl({c}, 1)'},
  # `nf.sequencia_nfe` é integer aqui e VARCHAR2 no legado, com 'S' gravado (flag usada como texto): só entra o
  # que for número; o resto vira nulo, em vez de derrubar as 23.420 notas.
+ # `caixa.nrparcela` é integer aqui e no legado vem como "1/3" (parcela/total): entra só o número da parcela.
+ 'caixa': {'nrparcela': "case when regexp_like({c}, '^[0-9]+$') then {c} else regexp_substr({c}, '^[0-9]+') end"},
  'nf': {'sequencia_nfe': "case when regexp_like({c}, '^[0-9]+$') then {c} else null end"},
  # colunas NOT NULL no destino que a origem deixa nula: a carga preenche o neutro (o app conta com o valor)
  'nf_prod': {'vl_custo': 'nvl({c}, 0)'},
@@ -86,8 +88,11 @@ for t in FASES[fase]:
     # REGRA GERAL (fold do ensaio da F2, onde 6 tabelas caíram pelo mesmo motivo): o legado chama a empresa de
     # CODEMPRESA e boa parte do nosso schema chama `idempresa`. Quando o destino exige `idempresa`, a origem não
     # tem essa coluna e tem `codempresa`, a equivalência é essa — sem precisar listar tabela a tabela.
-    if 'idempresa' in dest[t]['colunas'] and 'idempresa' not in ori and 'codempresa' in ori:
-        ren.setdefault('codempresa', 'idempresa')
+    # a empresa aparece com os DOIS nomes nos dois lados (idempresa aqui, codempresa lá — e vice-versa):
+    # a equivalência vale nas duas direções.
+    for _dst, _ori in (('idempresa', 'codempresa'), ('codempresa', 'idempresa')):
+        if _dst in dest[t]['colunas'] and _dst not in ori and _ori in ori:
+            ren.setdefault(_ori, _dst)
     # e quando a coluna EXISTE nos dois lados mas o legado a deixa nula (parceiros, cotacao, pedidocompra,
     # inventario…): o destino é NOT NULL DEFAULT 1 — a carga preserva o que veio e usa o default no resto.
     # REGRA GERAL: coluna NOT NULL no destino que TEM DEFAULT literal — se o legado manda nulo, a carga usa o
@@ -109,8 +114,9 @@ for t in FASES[fase]:
             tr_auto[_c] = "nvl({c}, '" + m_txt.group(1) + "')"
     # `idempresa` NOT NULL **sem** default declarado (inventario, cotacao, pedidocompra): a regra acima não pega,
     # mas o valor neutro é o mesmo — empresa 1. Sem isto o ensaio regride (79.190 → 46.500 em inventario).
-    if 'idempresa' in ori and not dest[t]['colunas'].get('idempresa', {}).get('nulo', True):
-        tr_auto.setdefault('idempresa', 'nvl({c}, 1)')
+    for _emp in ('idempresa', 'codempresa'):
+        if _emp in ori and not dest[t]['colunas'].get(_emp, {}).get('nulo', True):
+            tr_auto.setdefault(_emp, 'nvl({c}, 1)')
     # FLAG NOT NULL sem default: o repo inteiro usa char(1) 'S'/'N' e o legado deixa nulo em parte das linhas
     # (pedidocompra.fechado foi a que apareceu). O neutro de uma flag é 'N' — declarado aqui, não adivinhado
     # caso a caso.
@@ -128,9 +134,10 @@ for t in FASES[fase]:
         m = _re.match(r"^'?([-\w.]+)'?(::[a-z ]+)?$", d_raw)
         if m and 'nextval' not in d_raw:
             const_auto[_c] = m.group(1)
-    if 'idempresa' in dest[t]['colunas'] and not dest[t]['colunas']['idempresa'].get('nulo', True) \
-       and 'idempresa' not in {d for _, d in cols}:
-        const_auto.setdefault('idempresa', '1')
+    for _emp in ('idempresa', 'codempresa'):
+        if _emp in dest[t]['colunas'] and not dest[t]['colunas'][_emp].get('nulo', True) \
+           and _emp not in {d for _, d in cols}:
+            const_auto.setdefault(_emp, '1')
     if not cols:
         manifesto[t] = {'pulada': 'nenhuma coluna casa'}; print(f"  ⛔ {t}: nenhuma coluna casa"); continue
     tr = {**tr_auto, **TRANSFORMA.get(t, {})}
