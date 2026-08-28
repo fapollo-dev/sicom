@@ -392,6 +392,36 @@ Sobram 2 avisos, **órfãs reais confirmadas no Oracle**: `apagar_bx → apagar`
 Falta a F4 (movimento pesado: vendas 11,9M, cx_vendas, historico_prod…), onde o `codvendas_legado` da mig 175
 será exercido.
 
+## 7o. ⚠️ F4: o movimento também PAROU em fev/2024 — e isso muda a janela de virada
+
+Ao particionar a extração de `vendas` por mês, julho/2026 veio **vazio**. Medindo a série inteira:
+
+| ano | linhas |
+|---|---:|
+| 2018 | 2.346.244 |
+| 2019 | 2.222.959 |
+| 2020 | 1.342.732 |
+| 2021 | 1.979.471 |
+| 2022 | 1.923.457 |
+| 2023 | 1.834.032 |
+| **2024** | **272.980** |
+| 2025 | **302** |
+| 2026 | **78** |
+
+E o mês exato: 2023-12 = 197.552 · 2024-01 = 218.197 · **2024-02 = 54.654** · **2024-03 = 9**. É a mesma
+data-marco do cluster GIROS, do fechamento diário, do lote/validade e da coleta do rotativo — **fev/2024**.
+
+Consequências para o cutover, e são grandes:
+1. **não existe carga incremental de venda a fazer**: a `vendas` é 100% histórico. A decisão "big-bang × delta"
+   da §7, que existia por causa do movimento, perde o objeto — não há movimento novo entrando no Oracle;
+2. a F4 deixa de ser a fase que dimensiona a janela. Ela é grande (11,9M linhas) mas **fria**: pode ser
+   carregada ANTES da virada, em qualquer ritmo, e conferida com calma;
+3. reforça o que o recon já vinha dizendo: a operação no legado esvaziou em fev/2024. Vale confirmar com o
+   usuário **o que o cliente usa hoje** — porque isso decide se o cutover é uma virada ou uma adoção.
+
+(nota de método: as outras tabelas da F4 ignoraram a partição porque não têm `DTVENDA` — cada uma precisa da
+sua própria coluna de data. `cx_vendas` 1.515.042 e `historico_prod` 2.874.283 saíram inteiras no piloto.)
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).
