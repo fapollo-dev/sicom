@@ -226,6 +226,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('181_carga_capacidade_f2.sql'));
   await pool.query(sql('182_nf_natural_carga.sql'));
   await pool.query(sql('183_nf_devolucao_carga.sql'));
+  await pool.query(sql('184_carga_capacidade_f3.sql'));
   await pool.end();
   return pg;
 }
