@@ -448,6 +448,15 @@ Consequências para o cutover, e são grandes:
 (nota de método: as outras tabelas da F4 ignoraram a partição porque não têm `DTVENDA` — cada uma precisa da
 sua própria coluna de data. `cx_vendas` 1.515.042 e `historico_prod` 2.874.283 saíram inteiras no piloto.)
 
+## 7p. F4 extraída — 17.374.630 linhas em 8m43s (medição de referência)
+
+Extração completa do movimento, no banco de homologação: **17.374.630 linhas · 3,0 GB de CSV · 523 s**
+(≈33 mil linhas/s). Detalhe: `vendas` 11.922.255 (50 colunas) · `historico_prod` 2.874.283 · `cx_vendas`
+1.515.042 · `historico_dinamico` 1.029.760 · `nfe_nao_cadastradas` 20.581 · `caixa_pdv` 12.709.
+
+É a primeira medição de **taxa** do projeto, e ela serve para dimensionar a janela — lembrando que o volume de
+produção é maior (§7o), então o número real escala junto.
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).

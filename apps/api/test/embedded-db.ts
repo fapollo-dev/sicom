@@ -230,6 +230,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('185_diario_conta_nula.sql'));
   await pool.query(sql('186_carga_f3_folds.sql'));
   await pool.query(sql('187_vendas_razao.sql'));
+  await pool.query(sql('188_carga_f4_folds.sql'));
   await pool.end();
   return pg;
 }

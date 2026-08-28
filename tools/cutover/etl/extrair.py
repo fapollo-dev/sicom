@@ -32,7 +32,8 @@ RENOMEIA = {
 # login rejeita os 15 operadores com login repetido do cliente)
 CONSTANTES = {'operadores': {'origem_legado': 'S'}, 'parceiros_end': {'origem_legado': 'S'},
               'nf': {'origem_legado': 'S'},
-              'movimentacao_bancaria_ofx': {'origem_legado': 'S'}, 'adiantamento_forn': {'origem_legado': 'S'}}
+              'movimentacao_bancaria_ofx': {'origem_legado': 'S'}, 'adiantamento_forn': {'origem_legado': 'S'},
+              'nfe_nao_cadastradas': {'origem_legado': 'S'}}
 # transformações de carga declaradas (expressão Oracle aplicada na extração)
 # - empresas.cnpj vem FORMATADO no legado (00.000.000/0000-00, 18 chars) e aqui a coluna guarda só dígitos
 TRANSFORMA = {
