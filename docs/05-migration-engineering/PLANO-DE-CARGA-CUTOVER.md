@@ -392,7 +392,26 @@ Sobram 2 avisos, **órfãs reais confirmadas no Oracle**: `apagar_bx → apagar`
 Falta a F4 (movimento pesado: vendas 11,9M, cx_vendas, historico_prod…), onde o `codvendas_legado` da mig 175
 será exercido.
 
-## 7o. ⚠️ F4: o movimento também PAROU em fev/2024 — e isso muda a janela de virada
+## 7o. ⚠️ CORREÇÃO (o usuário, 28/08): o Oracle que medimos é HOMOLOGAÇÃO
+
+A leitura abaixo — "o movimento parou em fev/2024" — está **errada na causa**. O banco `pinheirao@192.168.1.230`
+é de **homologação**: a data-marco de fev/2024 é quando a cópia/replicação parou, não quando o cliente parou de
+operar. Em produção o dado continua.
+
+O que isso invalida e o que sobrevive:
+
+| conclusão | status |
+|---|---|
+| "não há carga incremental de venda" | ❌ **falsa**. A decisão **big-bang × delta volta a valer**, e a F4 volta a dimensionar a janela |
+| volumes usados para dimensionar (11,9M vendas, 3,5M já ensaiados) | ⚠️ **piso, não total** — produção tem mais, e a proporção entre fases pode mudar |
+| tudo que foi decidido por **FONTE** (Delphi/dicionário): regras, fórmulas, quirks, nomes de RBAC, capacidades de coluna, unicidades violadas | ✅ **vale** — não depende de volume |
+| veredictos de "morto/dormente" que usaram **ausência de dado recente** como argumento (cluster GIROS, fechamento diário, lote/validade, coleta do rotativo, `REDUCAOZ` vazia) | ⚠️ **precisam de reconferência contra PRODUÇÃO** antes de virar decisão final. O argumento de fonte (procedure de cache, `btnGravar` comentado, `if IsEmpty`) continua de pé; o argumento "ninguém usa mais" não |
+
+⇒ **ação registrada:** antes do cutover, repetir contra o banco de produção (a) a varredura de unicidade
+(`tools/cutover/varre-unicidade.py`), (b) o mapa de capacidades por fase e (c) as medições de liveness que
+sustentaram rebaixamentos. As ferramentas já aceitam outro DSN — é trocar a conexão, não reescrever.
+
+## 7o-bis. O que a partição por mês mostrou no banco de homologação
 
 Ao particionar a extração de `vendas` por mês, julho/2026 veio **vazio**. Medindo a série inteira:
 
