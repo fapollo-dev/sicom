@@ -13,6 +13,7 @@ Uso:  /Library/Developer/CommandLineTools/usr/bin/python3 tools/cutover/etl/mapa
 import json, sys, oracledb
 
 FASES = {
+ 'f4': "vendas cx_vendas historico_prod historico_dinamico caixa_pdv nfe_nao_cadastradas".split(),
  'f3': "areceber areceber_bx apagar apagar_bx cx_apagar caixa cartao mov_contas_bancarias movimentacao_bancaria_ofx diario apuracao_pc adiantamento_forn".split(),
  'f2': "pedidocompra pedidocompra_i nf nf_prod nfe_xml cotacao cotacao_prod inventario inventario_livro balanco balancoitens producao troca scrap lote_preco agenda_promocao".split(),
  'f1': "empresas configuracoes configuracoes_especificas operadores perfil permissoes parceiros parceiros_end parceiros_bancos produtos composicao decomposicao receita_prod codauxiliar codreferencia_for multi_preco estoque contas_bancarias formas_pgto".split(),

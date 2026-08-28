@@ -12,6 +12,7 @@ import oracledb
 
 BASE = '/Library/Apollo/tools/cutover'
 FASES = {
+ 'f4': "vendas cx_vendas historico_prod historico_dinamico caixa_pdv nfe_nao_cadastradas".split(),
  'f3': "areceber areceber_bx apagar apagar_bx cx_apagar caixa cartao mov_contas_bancarias movimentacao_bancaria_ofx diario apuracao_pc adiantamento_forn".split(),
  'f2': "pedidocompra pedidocompra_i nf nf_prod nfe_xml cotacao cotacao_prod inventario inventario_livro balanco balancoitens producao troca scrap lote_preco agenda_promocao".split(),
  'f1': "empresas configuracoes configuracoes_especificas operadores perfil permissoes parceiros parceiros_end parceiros_bancos produtos composicao decomposicao receita_prod codauxiliar codreferencia_for multi_preco estoque contas_bancarias formas_pgto".split(),
@@ -69,6 +70,14 @@ DEDUP = {'det_aliquota': ['aliquota', 'uf'], 'caixa_pdv': ['codcaixa'],
          'cotacao_prod': ['codctc', 'idproduto']}
 
 fase = (sys.argv[1] if len(sys.argv) > 1 else 'f0').lower()
+# PARTIÇÃO (F4): o movimento pesado não cabe num CSV só — 11,9M linhas de venda. `--particao COL:INI:FIM`
+# recorta a extração por faixa de data, que é como o plano previa a carga do movimento (mês a mês).
+particao = None
+for _a in sys.argv[1:]:
+    if _a.startswith('--particao='):
+        _c, _i, _f = _a.split('=', 1)[1].split(':')
+        particao = (_c, _i, _f)
+        sys.argv = [x for x in sys.argv if x != _a]
 saida = sys.argv[2] if len(sys.argv) > 2 else f'{BASE}/staging/{fase}'
 os.makedirs(saida, exist_ok=True)
 dest = json.load(open(f'{BASE}/schema-destino.json'))['tabelas']
@@ -155,6 +164,9 @@ for t in FASES[fase]:
                     + (f" where {onde}" if onde else "") + ") where rn = 1")
     else:
         onde = FILTROS.get(t)
+        if particao and particao[0].lower() in ori:
+            faixa = f"{particao[0]} >= date '{particao[1]}' and {particao[0]} < date '{particao[2]}'"
+            onde = f"({onde}) and {faixa}" if onde else faixa
         cur.execute(f"select {sel} from {T}" + (f" where {onde}" if onde else ""))
     linhas, somas, datas = 0, {}, {}
     with open(f'{saida}/{t}.csv', 'w', newline='', encoding='utf-8') as fh:
