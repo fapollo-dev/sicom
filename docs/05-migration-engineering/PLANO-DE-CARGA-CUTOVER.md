@@ -368,6 +368,30 @@ nunca removendo a proteção, porque nos dois casos o índice é backstop transa
 Somando as três fases ensaiadas: **F0 48.734 + F1 405.108 + F2 1.662.682 = 2.116.524 linhas** carregadas e
 reconciliadas contra a origem.
 
+## 7n. F3 FECHADA — 1.452.387 linhas, as 12 tabelas dentro (2026-08-28)
+
+Financeiro carregado: **12 de 12 tabelas, 10 reconciliando sem divergência**. `diario` 888.243 ·
+`mov_contas_bancarias` 144.448 · `cartao` 125.240 · `caixa` 121.684 · `areceber` 49.584 ·
+`movimentacao_bancaria_ofx` 37.551 · `apagar` 26.339 · `apagar_bx` 24.809 · `cx_apagar` 24.512 ·
+`areceber_bx` 9.411 · `adiantamento_forn` 563 · `apuracao_pc` 3.
+
+Achados (migs 184-186), todos medidos:
+- **o legado guarda PALAVRA onde assumimos flag**: `caixa.tiporecurso` char(1) × 'DINHEIRO'/'BOLETO'/'CARTOES',
+  `gerado` × 'SISTEMA', `origem` × 'TRIGGER CAIXA_PAGAR'. Alargadas — nenhuma tem lógica no app;
+- **coluna inteira recebendo texto**, duas na mesma tabela: `caixa.nrparcela` vem `"1/3"` (parcela/total) e
+  `caixa.formapgto` vem `'BOLETO'`. Transformação na extração;
+- **razão sem uma das pernas**: 26.946 linhas sem contacredito, 29.475 sem contadebito, 718 sem idorigem — de
+  888.243. `NOT NULL` nosso, removido;
+- **FITID reusado pelo banco** (77 grupos) e **54 adiantamentos com vencimento anterior ao adiantamento** (a
+  regra do legado vive no `btnGravarClick`, valida na tela e nunca impediu o histórico).
+
+Sobram 2 avisos, **órfãs reais confirmadas no Oracle**: `apagar_bx → apagar` (370) e `cx_apagar → apagar` (712)
+— baixas e lançamentos de caixa apontando para títulos que não existem mais.
+
+**Total ensaiado até aqui: F0 48.734 + F1 405.108 + F2 1.662.682 + F3 1.452.387 = 3.568.911 linhas.**
+Falta a F4 (movimento pesado: vendas 11,9M, cx_vendas, historico_prod…), onde o `codvendas_legado` da mig 175
+será exercido.
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).
