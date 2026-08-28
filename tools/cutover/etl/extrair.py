@@ -41,7 +41,9 @@ TRANSFORMA = {
  # `nf.sequencia_nfe` é integer aqui e VARCHAR2 no legado, com 'S' gravado (flag usada como texto): só entra o
  # que for número; o resto vira nulo, em vez de derrubar as 23.420 notas.
  # `caixa.nrparcela` é integer aqui e no legado vem como "1/3" (parcela/total): entra só o número da parcela.
- 'caixa': {'nrparcela': "case when regexp_like({c}, '^[0-9]+$') then {c} else regexp_substr({c}, '^[0-9]+') end"},
+ 'caixa': {'nrparcela': "case when regexp_like({c}, '^[0-9]+$') then {c} else regexp_substr({c}, '^[0-9]+') end",
+           # `formapgto` é integer aqui e no legado guarda o NOME da forma ('BOLETO'…): só entra se for número
+           'formapgto': "case when regexp_like({c}, '^[0-9]+$') then {c} else null end"},
  'nf': {'sequencia_nfe': "case when regexp_like({c}, '^[0-9]+$') then {c} else null end"},
  # colunas NOT NULL no destino que a origem deixa nula: a carga preenche o neutro (o app conta com o valor)
  'nf_prod': {'vl_custo': 'nvl({c}, 0)'},
