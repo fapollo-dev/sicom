@@ -8,6 +8,7 @@ import { NfProcessamentoService } from './nf-processamento.service';
 import { NfFaturamentoService } from './nf-faturamento.service';
 import { NfContabilizacaoService } from './nf-contabilizacao.service';
 import { ConfigService } from './config.service';
+import { InventarioRotativoService } from './inventario-rotativo.service';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -47,6 +48,7 @@ export class NfNfeService {
     private readonly fat: NfFaturamentoService,
     private readonly contab: NfContabilizacaoService,
     private readonly config: ConfigService,
+    private readonly invRotativo: InventarioRotativoService,
   ) {}
 
   /** transmite a NFe (mod.55) à SEFAZ (via porta) e persiste chave/protocolo/status. */
@@ -227,6 +229,11 @@ export class NfNfeService {
         .where('statusnfe', '=', 'P')
         .executeTakeFirst();
       if (Number(r?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('NF_NAO_AUTORIZADA', { codnf });
+
+      // ESTORNO das pontes do inventário rotativo: cancelar a nota devolve o lote para "não importado"
+      // (udmNF.pas:3406-3463 — o legado faz isso no excluir E no cancelar, escolhendo o lado pelo TIPO da
+      // nota). Dentro da transação do cancelamento, senão um rollback deixaria o lote solto.
+      await this.invRotativo.estornarVinculo(trx, codnf, nf.tipo ?? null, emp);
 
       await trx
         .insertInto('nfe_evento')

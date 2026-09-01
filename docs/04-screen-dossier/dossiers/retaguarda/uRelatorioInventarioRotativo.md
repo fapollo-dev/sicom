@@ -129,3 +129,55 @@ app mais nova que o fonte clonado (2020)**. Consequências para o corte:
 3. **corte-3 — as pontes de NF**: importar perdas/sobras para NF com o gate anti-reimporte e o estorno no
    cancelamento da NF (`udmNF.pas:3418-3457`).
 4. **fora do corte, declarado**: o encadeamento `CODBALANCO_INICIAL`/`_FINAL` (§4 — sem fonte auditável).
+
+## 8. CORTE-3 ENTREGUE — as duas pontes de NF (2026-09-01)
+
+O ciclo fecha. O que entrou, com a procedência de cada metade:
+
+**A diferença por produto** (`diferencasDoLote`) é a `sqqInventarioRotativo` do legado (`udmNF.dfm:19003-19086`),
+e ela não é "contado − sistema":
+
+| campo | como sai |
+|---|---|
+| `QTD_ANT` | `qtd_anterior` da coleta de **MENOR** id com operação `'SUBSTITUIR'` |
+| `QTD_ATUAL` | `qtd_atual` da coleta de **MAIOR** id com operação em (`'SUBSTITUIR'`,`'AUMENTAR'`) |
+| `QTD_DIFERENCA` | `QTD_ATUAL − QTD_ANT` — negativo é PERDA, positivo é SOBRA |
+
+**Prévia** (`POST itens-nf`): agrega por produto (produto repetido entre lotes vira UMA linha, com o custo em
+**média ponderada** `total/quantidade`, `uNF.pas:14174`), custo de `MULTI_PRECO.VRCUSTO`, alíquota do produto
+com vazio virando `'0'` (`:14213`), `fatorembal` 1. CFOP da **nota** 5927/6927 (perdas) e 1949/2949 (sobras)
+conforme a UF; **CFOP do ITEM fixo** em 5927 / 1949 (`:14189`, `:14284`) — quirk copiado, mesmo quando a nota é
+interestadual. Observação literal do legado (`:12886`).
+
+**Gate anti-reimporte** (`uNF.pas:12832`): é **por lote e por lado** — o lote já importado é PULADO com aviso e
+os outros seguem; o legado não aborta a importação inteira. Roda na prévia e **de novo dentro da transação** do
+vincular (o legado carimba fora de transação e tem essa corrida em aberto).
+
+**Carimbo** (`POST vincular-nf`, `uNF.pas:5267`/`:5280`): `IMPORTADO_x='S'` + `CODNF_x` **só na linha
+`OPERACAO='FECHADO'`**. Recusa o par errado com `NF_TIPO_INCOMPATIVEL` — perdas exige nota de saída e sobras
+nota de entrada, porque é o TIPO que o estorno usa para escolher o lado.
+
+**Estorno** (`udmNF.pas:3406-3463`): o legado trata `taExcluir` e `taCancelar` na MESMA rotina, então a regra
+vive num módulo só (`inventario-rotativo-nf.ts`) com dois chamadores — o cancelamento da NF-e e o hook
+`aoRemover` do agregado de NF (hook novo no engine, para não gravar dentro de um `validarRemocao`).
+
+### Divergências conscientes
+
+1. **Fold de segurança**: as subconsultas de QTD_ANT/QTD_ATUAL do legado **não filtram `IDEMPRESA`**. Como o
+   `lote` é sequência por empresa, dois tenants com o mesmo número se contaminariam — aqui elas filtram.
+2. **Quirk copiado, com aviso**: o `GROUP BY` do legado inclui `TRUNC(I.DATA)` sem selecioná-la, então um
+   produto coletado em dois dias no mesmo lote rende duas linhas com a MESMA diferença, e a inclusão soma por
+   produto ⇒ quantidade dobrada. É dinheiro, então ficou fiel; a resposta devolve `linhas_duplicadas` para a
+   tela avisar.
+3. **O cálculo fiscal fica no motor da NF**: a prévia devolve os parâmetros (alíquota, ICMS/ICME/CST/BCR de
+   `det_aliquota` pela UF, como o `cdsAliquota` do legado em `:14216-14226`), não o imposto calculado —
+   duplicar o `CalcValorNota` seria criar uma segunda verdade sobre o mesmo número.
+
+Smoke §88.11 a §88.16 (seis checks): prévia de perdas e de sobras, CFOP interno × interestadual, tipo de nota
+incompatível, carimbo só no FECHADO, gate por lote e por lado, estorno no cancelamento e estorno na exclusão.
+
+### O que ainda falta do épico
+
+O **corte-2** segue parcial: a coleta pelo coletor (`INVENT_GERAL_LEITURA` + importação de arquivo com o
+separador da config) e o zerar-não-coletados (config `USUARIOS_ZERAM_INVENTARIO_ROTATIVO`, diferente da do
+zerar-estoque). E o front das pontes: a tela de NF precisa consumir a prévia e chamar o vincular ao gravar.

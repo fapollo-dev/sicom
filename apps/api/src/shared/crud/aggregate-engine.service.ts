@@ -137,6 +137,7 @@ export class AggregateEngineService extends CrudEngineService {
       // `validarRemocao` roda dentro da txn após o lock, então excluir um doc aplicado/processado na janela é barrado.
       if (!(await this.pertenceAEmpresa(trx, cfg, id, true))) return;
       if (cfg.validarRemocao) await cfg.validarRemocao({ id, db: trx });
+      if (cfg.aoRemover) await cfg.aoRemover({ id, db: trx });
       // cascata em código (como TfrmCadMasterDet) — não depende do ON DELETE CASCADE
       for (const det of cfg.detalhes) await trx.deleteFrom(det.tabela).where(det.fk, '=', id).execute();
       if (cfg.softDelete) {

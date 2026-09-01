@@ -84,3 +84,27 @@ export const zerarEstoqueRotativoSchema = z
     path: ['loja'],
   });
 export type ZerarEstoqueRotativoDto = z.infer<typeof zerarEstoqueRotativoSchema>;
+
+/**
+ * CORTE-3 — as duas pontes de NF. O lado é `PERDAS` (diferença negativa, nota de SAÍDA, CFOP 5927/6927) ou
+ * `SOBRAS` (diferença positiva, nota de ENTRADA, CFOP 1949/2949), fiel a `uNF.pas:12804-12807` e `:12958-12961`.
+ * `uf_destino` é a UF do titular já carregado na nota — o legado compara com a UF da empresa para decidir entre
+ * o CFOP interno e o interestadual.
+ */
+export const itensNfRotativoSchema = z.object({
+  lotes: z.array(z.coerce.number().int().positive()).min(1).max(200),
+  tipo: z.enum(['PERDAS', 'SOBRAS']),
+  uf_destino: z.string().trim().length(2).toUpperCase().optional(),
+});
+export type ItensNfRotativoDto = z.infer<typeof itensNfRotativoSchema>;
+
+/**
+ * VINCULAR a NF gravada aos lotes — o carimbo `IMPORTADO_x='S'`/`CODNF_x` que o legado dispara no gravar
+ * (`uNF.pas:5267` perdas · `:5280` sobras), sempre na linha `OPERACAO='FECHADO'` do lote.
+ */
+export const vincularNfRotativoSchema = z.object({
+  codnf: z.coerce.number().int().positive(),
+  lotes: z.array(z.coerce.number().int().positive()).min(1).max(200),
+  tipo: z.enum(['PERDAS', 'SOBRAS']),
+});
+export type VincularNfRotativoDto = z.infer<typeof vincularNfRotativoSchema>;

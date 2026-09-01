@@ -122,6 +122,12 @@ export interface AggregateConfig extends CrudConfig {
    */
   validarRemocao?: (ctx: { id: number; db: any }) => Promise<void> | void;
   /**
+   * EFEITO na remoção, dentro da MESMA transação e depois de `validarRemocao` — para o que o legado desfaz ao
+   * excluir o documento (estornos de carimbo em outras tabelas). Separado da validação de propósito: um hook
+   * chamado "validar" que grava é uma armadilha para quem ler depois.
+   */
+  aoRemover?: (ctx: { id: number; db: any }) => Promise<void> | void;
+  /**
    * Derivação ASSÍNCRONA e TRANSACIONAL antes do INSERT (o que `derivar` é para campos síncronos).
    * Roda DENTRO da transação do create, com a `trx` (pode travar/consultar), e retorna um patch a
    * mesclar no registro do master. Uso: auto-numeração de documento (ex.: NRONF = MAX+1 por

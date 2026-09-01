@@ -3,6 +3,7 @@ import { nfSchema, atualizarNfSchema } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { estornarVinculoRotativo } from './inventario-rotativo-nf';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { debitoPisCofins } from '../shared/piscofins-rentab';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
@@ -224,6 +225,15 @@ export const nfAggregateConfig: AggregateConfig = {
       .where(sql`coalesce(n.modelo, 0)`, '<>', 65)
       .executeTakeFirst();
     if (ref) throw new BusinessRuleError('NF_REFERENCIADA');
+  },
+  // EXCLUIR a nota desfaz o carimbo das pontes do inventário rotativo, como o legado faz sob `taExcluir`
+  // (udmNF.pas:3406-3463) — mesma rotina do cancelamento, para não deixar lote preso a uma nota que sumiu.
+  aoRemover: async ({ id, db }) => {
+    const emp = currentTenant().empresaId ?? null;
+    if (emp == null) return;
+    const nf = (await db.selectFrom('nf').select('tipo').where('codnf', '=', id).where('idempresa', '=', emp).executeTakeFirst()) as { tipo?: string } | undefined;
+    if (!nf) return;
+    await estornarVinculoRotativo(db, id, nf.tipo ?? null, emp);
   },
   detalhes: [
     {

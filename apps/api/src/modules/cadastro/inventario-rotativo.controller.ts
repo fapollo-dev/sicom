@@ -1,7 +1,9 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Put, UseGuards } from '@nestjs/common';
 import {
   criarLoteRotativoSchema, alterarLoteRotativoSchema, fecharLoteRotativoSchema, zerarEstoqueRotativoSchema,
+  itensNfRotativoSchema, vincularNfRotativoSchema,
   type CriarLoteRotativoDto, type AlterarLoteRotativoDto, type FecharLoteRotativoDto, type ZerarEstoqueRotativoDto,
+  type ItensNfRotativoDto, type VincularNfRotativoDto,
 } from '@apollo/shared';
 import { InventarioRotativoService } from './inventario-rotativo.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -59,5 +61,25 @@ export class InventarioRotativoController {
   @RequerAcesso('FRMRELINVENTARIOROTATIVO', 'FRMRELINVENTARIOROTATIVO')
   zerarEstoque(@Body(new ZodValidationPipe(zerarEstoqueRotativoSchema)) body: ZerarEstoqueRotativoDto) {
     return this.svc.zerarEstoque(body);
+  }
+
+  /**
+   * PRÉVIA dos itens para a NF de perdas/sobras: calcula a diferença por produto, aplica o gate anti-reimporte
+   * (por lote, pulando os já importados) e devolve os itens agregados + CFOP + observação. Não grava nada — é o
+   * equivalente ao que o legado monta no dataset em memória antes do gravar.
+   */
+  @Post('itens-nf')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELINVENTARIOROTATIVO', 'FRMRELINVENTARIOROTATIVO')
+  itensNf(@Body(new ZodValidationPipe(itensNfRotativoSchema)) body: ItensNfRotativoDto) {
+    return this.svc.itensParaNf(body);
+  }
+
+  /** carimba a NF já gravada nos lotes (re-checando o gate dentro da transação). */
+  @Post('vincular-nf')
+  @HttpCode(200)
+  @RequerAcesso('FRMRELINVENTARIOROTATIVO', 'FRMRELINVENTARIOROTATIVO')
+  vincularNf(@Body(new ZodValidationPipe(vincularNfRotativoSchema)) body: VincularNfRotativoDto) {
+    return this.svc.vincularNf(body);
   }
 }

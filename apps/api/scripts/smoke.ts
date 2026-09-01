@@ -9284,6 +9284,97 @@ async function main() {
         check('ROTATIVO §88.10: estornar o ajuste do DEPÓSITO devolve os 9 ao `estoque_dep` e NÃO mexe na loja (que segue 0) — antes do fold o estorno era cego ao `destino` e a loja ganhava 9 fantasmas enquanto o depósito continuava zerado',
           est.status === 200 && depPos === 9 && lojaPos === 0, { status: est.status, deposito: depPos, loja: lojaPos });
 
+        // 88.11-88.15) CORTE-3 — as duas PONTES DE NF (perdas e sobras): a diferença por produto, o gate
+        // anti-reimporte, o carimbo no gravar e o estorno no cancelamento.
+        await pgR.query(`DELETE FROM inventario_rotativo WHERE idempresa=1`);
+        await pgR.query(`UPDATE multi_preco SET vrcusto=2.50 WHERE idproduto=1 AND idempresa=1`);
+        await pgR.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto) VALUES (2,1,4.00)
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=4.00`);
+        // lote 900: produto 1 contado a MENOS (10 → 6 = perda de 4) e produto 2 a MAIS (5 → 8 = sobra de 3).
+        await pgR.query(`INSERT INTO inventario_rotativo (idempresa, lote, nomelote, operacao, tipo, data, idproduto, destino, qtd_anterior, qtd_atual) VALUES
+          (1,900,'LOTE PONTE','ABERTO','R',now(),NULL,NULL,NULL,NULL),
+          (1,900,'LOTE PONTE','SUBSTITUIR','R',now(),1,'LOJA',10,6),
+          (1,900,'LOTE PONTE','SUBSTITUIR','R',now(),2,'LOJA',5,8),
+          (1,900,'LOTE PONTE','FECHADO','R',now(),NULL,NULL,NULL,NULL)`);
+
+        const prevP = await fetch(`${base}/${IR}/itens-nf`, { method: 'POST', headers: H, body: JSON.stringify({ lotes: [900], tipo: 'PERDAS' }) });
+        const prevPJ = (await prevP.json().catch(() => ({}))) as any;
+        const itP = (prevPJ.itens ?? [])[0] ?? {};
+        check('ROTATIVO §88.11 (corte-3): a prévia de PERDAS traz só a diferença NEGATIVA — QTD_DIFERENCA = qtd_atual do MAIOR id − qtd_anterior do MENOR id SUBSTITUIR (6 − 10 = −4) ⇒ quantidade 4 pelo módulo, custo do multi_preco (2,50) e total 10,00 · CFOP da NOTA 5927 (mesma UF) e **CFOP do ITEM fixo 5927** · observação literal do legado com os lotes',
+          prevP.status === 200 && (prevPJ.itens ?? []).length === 1 && Number(itP.codproduto) === 1
+          && Number(itP.quantidade) === 4 && Number(itP.vrcusto) === 2.5 && Number(itP.total_prod) === 10
+          && Number(prevPJ.cfop_nota) === 5927 && Number(itP.cfop) === 5927 && Number(itP.fatorembal) === 1
+          && String(prevPJ.observacao) === 'Nota fiscal referente a inventário rotativo (perdas), Lotes: 900'
+          && JSON.stringify(prevPJ.lotes_aceitos) === '[900]',
+          { status: prevP.status, itens: prevPJ.itens, cfop: prevPJ.cfop_nota, obs: prevPJ.observacao });
+
+        const prevS = await fetch(`${base}/${IR}/itens-nf`, { method: 'POST', headers: H, body: JSON.stringify({ lotes: [900], tipo: 'SOBRAS', uf_destino: 'SP' }) });
+        const prevSJ = (await prevS.json().catch(() => ({}))) as any;
+        const itS = (prevSJ.itens ?? [])[0] ?? {};
+        check('ROTATIVO §88.12: a prévia de SOBRAS traz só a diferença POSITIVA (8 − 5 = 3, produto 2, custo 4,00) e o CFOP da NOTA vira o INTERESTADUAL 2949 porque a UF de destino difere da empresa — mas o **CFOP do item continua 1949** (o legado fixa o do item, quirk copiado)',
+          prevS.status === 200 && (prevSJ.itens ?? []).length === 1 && Number(itS.codproduto) === 2
+          && Number(itS.quantidade) === 3 && Number(itS.total_prod) === 12
+          && Number(prevSJ.cfop_nota) === 2949 && Number(itS.cfop) === 1949,
+          { status: prevS.status, itens: prevSJ.itens, cfop: prevSJ.cfop_nota });
+
+        // a NF de perdas é de SAÍDA; uma de ENTRADA é recusada (é o TIPO que o estorno usa para escolher o lado)
+        const nfPerda = Number((await pgR.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, statusnfe, chavenfe, protocolo_nfe, totalnf, cfop)
+          VALUES (1,'S',55,'1','990900','2035-09-20','2035-09-20',20,'S','N','P','35350900000000000000000000000000000000990900','135990900',10.00,5927) RETURNING codnf`)).rows[0].codnf);
+        const nfEntrada = Number((await pgR.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, statusnfe, chavenfe, totalnf, cfop)
+          VALUES (1,'E',55,'1','990901','2035-09-20','2035-09-20',22,'S','N','P','35350900000000000000000000000000000000990901',12.00,1949) RETURNING codnf`)).rows[0].codnf);
+        const vincErr = await fetch(`${base}/${IR}/vincular-nf`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: nfEntrada, lotes: [900], tipo: 'PERDAS' }) });
+        const vincErrJ = (await vincErr.json().catch(() => ({}))) as any;
+        const vinc = await fetch(`${base}/${IR}/vincular-nf`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: nfPerda, lotes: [900], tipo: 'PERDAS' }) });
+        const vincJ = (await vinc.json().catch(() => ({}))) as any;
+        const carimbo = (await pgR.query(`SELECT operacao, importado_perdas, codnf_perdas, importado_sobras FROM inventario_rotativo WHERE lote=900 AND idempresa=1 AND operacao='FECHADO'`)).rows[0] as any;
+        const naColeta = Number((await pgR.query(`SELECT count(*)::int n FROM inventario_rotativo WHERE lote=900 AND idempresa=1 AND operacao<>'FECHADO' AND importado_perdas='S'`)).rows[0].n);
+        check('ROTATIVO §88.13: vincular PERDAS a uma nota de ENTRADA → 422 NF_TIPO_INCOMPATIVEL (é o TIPO que o estorno usa p/ escolher o lado, udmNF.pas:3414) · na nota de SAÍDA o carimbo grava IMPORTADO_PERDAS=S + CODNF_PERDAS **só na linha OPERACAO=FECHADO** (uNF.pas:5267-5268), sem tocar nas coletas nem no lado das sobras',
+          vincErr.status === 422 && vincErrJ.code === 'NF_TIPO_INCOMPATIVEL'
+          && vinc.status === 200 && JSON.stringify(vincJ.carimbados) === '[900]'
+          && carimbo?.importado_perdas === 'S' && Number(carimbo?.codnf_perdas) === nfPerda
+          && (carimbo?.importado_sobras ?? null) === null && naColeta === 0,
+          { erro: [vincErr.status, vincErrJ.code], vinc: vincJ, carimbo, coletasCarimbadas: naColeta });
+
+        const prev2 = await fetch(`${base}/${IR}/itens-nf`, { method: 'POST', headers: H, body: JSON.stringify({ lotes: [900], tipo: 'PERDAS' }) });
+        const prev2J = (await prev2.json().catch(() => ({}))) as any;
+        const vinc2 = await fetch(`${base}/${IR}/vincular-nf`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: nfPerda, lotes: [900], tipo: 'PERDAS' }) });
+        const vinc2J = (await vinc2.json().catch(() => ({}))) as any;
+        const prevSobraOk = await fetch(`${base}/${IR}/itens-nf`, { method: 'POST', headers: H, body: JSON.stringify({ lotes: [900], tipo: 'SOBRAS' }) });
+        const prevSobraOkJ = (await prevSobraOk.json().catch(() => ({}))) as any;
+        check('ROTATIVO §88.14: o gate anti-reimporte (uNF.pas:12832) é POR LOTE e POR LADO — reimportar PERDAS devolve o lote em `lotes_recusados` com JA_IMPORTADO e o código da nota, sem item nenhum (e o vincular recusa igual, agora dentro da transação); as SOBRAS do mesmo lote seguem liberadas',
+          prev2.status === 200 && (prev2J.itens ?? []).length === 0
+          && prev2J.lotes_recusados?.[0]?.motivo === 'JA_IMPORTADO' && Number(prev2J.lotes_recusados?.[0]?.codnf) === nfPerda
+          && vinc2.status === 200 && JSON.stringify(vinc2J.carimbados) === '[]'
+          && vinc2J.recusados?.[0]?.motivo === 'JA_IMPORTADO'
+          && (prevSobraOkJ.itens ?? []).length === 1,
+          { previa: prev2J.lotes_recusados, vincular: vinc2J.recusados, sobras: (prevSobraOkJ.itens ?? []).length });
+
+        const canPonte = await fetch(`${base}/fiscal/nf/${nfPerda}/cancelar`, { method: 'POST', headers: H, body: JSON.stringify({ xjust: 'CANCELAMENTO DA NOTA DE PERDAS DO INVENTARIO ROTATIVO' }) });
+        const carimboPos = (await pgR.query(`SELECT importado_perdas, codnf_perdas FROM inventario_rotativo WHERE lote=900 AND idempresa=1 AND operacao='FECHADO'`)).rows[0] as any;
+        const prev3 = await fetch(`${base}/${IR}/itens-nf`, { method: 'POST', headers: H, body: JSON.stringify({ lotes: [900], tipo: 'PERDAS' }) });
+        const prev3J = (await prev3.json().catch(() => ({}))) as any;
+        check('ROTATIVO §88.15: cancelar a nota ESTORNA o carimbo (udmNF.pas:3406-3463) — IMPORTADO_PERDAS volta a "N", CODNF_PERDAS fica NULL e o lote volta a ser importável (a prévia devolve o item de novo). O estorno roda DENTRO da transação do cancelamento',
+          canPonte.status === 200 && carimboPos?.importado_perdas === 'N' && carimboPos?.codnf_perdas == null
+          && (prev3J.itens ?? []).length === 1 && Number((prev3J.itens ?? [])[0]?.quantidade) === 4,
+          { status: canPonte.status, carimbo: carimboPos, previa: prev3J.itens });
+
+        // 88.16) o outro chamador do estorno: EXCLUIR a nota (o legado trata taExcluir e taCancelar na mesma
+        // rotina). A nota de SOBRAS é de ENTRADA e aqui está em rascunho, que é o único estado em que a NF
+        // aceita exclusão — o resto a `validarRemocao` já barra.
+        const vincS = await fetch(`${base}/${IR}/vincular-nf`, { method: 'POST', headers: H, body: JSON.stringify({ codnf: nfEntrada, lotes: [900], tipo: 'SOBRAS' }) });
+        const carimboS = (await pgR.query(`SELECT importado_sobras, codnf_sobras FROM inventario_rotativo WHERE lote=900 AND idempresa=1 AND operacao='FECHADO'`)).rows[0] as any;
+        await pgR.query(`UPDATE nf SET proc='N', statusnfe=NULL, chavenfe=NULL WHERE codnf=$1`, [nfEntrada]);
+        const delNf = await fetch(`${base}/fiscal/nf/${nfEntrada}`, { method: 'DELETE', headers: H });
+        const carimboSPos = (await pgR.query(`SELECT importado_sobras, codnf_sobras FROM inventario_rotativo WHERE lote=900 AND idempresa=1 AND operacao='FECHADO'`)).rows[0] as any;
+        check('ROTATIVO §88.16: EXCLUIR a nota estorna igual ao cancelar — o legado trata `taExcluir` e `taCancelar` na MESMA rotina (udmNF.pas:3406), então a regra vive num módulo só, chamada pelo cancelamento da NF-e e pelo hook `aoRemover` do agregado. Vinculado IMPORTADO_SOBRAS=S/CODNF_SOBRAS; depois do DELETE volta a N/NULL',
+          vincS.status === 200 && carimboS?.importado_sobras === 'S' && Number(carimboS?.codnf_sobras) === nfEntrada
+          && delNf.status === 204 && carimboSPos?.importado_sobras === 'N' && carimboSPos?.codnf_sobras == null,
+          { vinc: vincS.status, antes: carimboS, del: delNf.status, depois: carimboSPos });
+
+        await pgR.query(`DELETE FROM nf_prod WHERE codnf IN (${nfPerda}, ${nfEntrada})`);
+        await pgR.query(`DELETE FROM nfe_evento WHERE codnf IN (${nfPerda}, ${nfEntrada})`);
+        await pgR.query(`DELETE FROM nf WHERE codnf IN (${nfPerda}, ${nfEntrada})`);
+
         // cleanup
         await pgR.query(`DELETE FROM ajuste_estoque WHERE origem='I' AND idempresa=1`);
         await pgR.query(`DELETE FROM estoque_dep WHERE idproduto=1 AND idempresa=1`);
