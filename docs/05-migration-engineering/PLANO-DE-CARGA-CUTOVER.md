@@ -457,6 +457,63 @@ Extração completa do movimento, no banco de homologação: **17.374.630 linhas
 É a primeira medição de **taxa** do projeto, e ela serve para dimensionar a janela — lembrando que o volume de
 produção é maior (§7o), então o número real escala junto.
 
+## 7q. F4 FECHADA — 17.374.630 linhas carregadas e reconciliadas (2026-09-01)
+
+As seis tabelas do movimento entram inteiras no Postgres novo, contagem batendo com o manifesto:
+
+| tabela | linhas |
+|---|---|
+| `vendas` | 11.922.255 |
+| `historico_prod` (kardex) | 2.874.283 |
+| `cx_vendas` | 1.515.042 |
+| `historico_dinamico` | 1.029.760 |
+| `nfe_nao_cadastradas` | 20.581 |
+| `caixa_pdv` | 12.709 |
+
+Com isso o **ensaio das cinco fases fecha em 20.943.541 linhas** (F0 48.734 · F1 405.108 · F2 1.662.682 ·
+F3 1.452.387 · F4 17.374.630).
+
+### O que segurou o kardex, e o que era de fato
+
+Três diagnósticos errados meus na mesma tabela, todos com a mesma raiz: eu li "a coluna chega vazia" como "o
+legado permite nulo" e derrubei a obrigatoriedade duas vezes (migs 188 e 189) antes de olhar o dicionário. As
+colunas simplesmente **não existem no legado com esses nomes** — lá o kardex é nomeado por *alteração* e
+*atual*:
+
+| destino | origem | como sai |
+|---|---|---|
+| `qtde` | `QTDE_ALTER` | direto (com `nvl(...,0)`) |
+| `saldo_novo` | `QTDE_ATUAL` | direto |
+| `origem` | `ORIGEM_DOCUMENTO` | direto, com o **DEFAULT `'NF'`** do nosso schema |
+| `saldo_anterior` | — | **derivada**: `QTDE_ATUAL − QTDE_ALTER` |
+| `tipo` | — | **derivada**: `'S'` se o delta é negativo, senão `'E'` |
+
+A mig **190** restaura o `NOT NULL` de `tipo` e `qtde` que as 188/189 tinham afrouxado: com o mapa certo elas
+chegam completas nas 2.874.283 linhas, e o kardex é a tabela que sustenta a Ficha de Movimentação — não deve
+aceitar movimento sem tipo nem sem quantidade.
+
+`origem` é o caso oposto, e aqui **quem cede é o destino, não a carga**: o legado deixa `ORIGEM_DOCUMENTO`
+nulo em **779.082 das 2.874.283 linhas (27%)**, e todas elas são movimento de nota (têm `CODNF` e o histórico
+fala de NF). Não é preciso migration nenhuma: a coluna já nasceu `NOT NULL DEFAULT 'NF'` (mig 027), e o
+extrator aplica o default automaticamente. As origens preenchidas são `VENDAS` (2.086.336), `PEDIDOS` (8.809)
+e `SCRAP` (56) — o resto é NF, exatamente como o default assume.
+
+O bug do extrator que escondia isso: a regra de defaults procurava o nome do **destino** entre as colunas da
+origem. Com renomeação (`origem` aqui, `ORIGEM_DOCUMENTO` lá) ela nunca achava e o default não era aplicado.
+Corrigido com o de-para inverso; o extrator também passou a aceitar uma lista de tabelas no lugar da fase,
+para reextrair uma só depois de corrigir o mapa dela.
+
+### ⚠️ Pendência declarada desta seção
+
+O CSV do kardex usado na carga é o da extração de **28/08**, anterior à correção do de-para — a coluna `origem`
+saiu vazia nele. Como o Oracle de homologação caiu no meio do trabalho (`DPY-6005: host is down`, 192.168.1.230),
+a carga foi feita com um CSV **derivado**, preenchendo os 779.082 vazios com o mesmo `'NF'` que o extrator
+corrigido produz. A reconciliação vale (2.874.283/2.874.283), mas **a reextração de `historico_prod` pelo
+extrator corrigido fica pendente** e entra no checklist da virada, junto com a conferência contra produção.
+
+Nota de dado, contra a premissa de fev/2024: o kardex vai de **02/01/2023 a 21/08/2026** — diferente dos
+clusters que param em fevereiro de 2024, este está vivo até a data da cópia.
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).
