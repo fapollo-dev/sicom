@@ -10,6 +10,12 @@ Oracle é SOMENTE LEITURA.
 import csv, json, os, sys, decimal, datetime
 import oracledb
 
+# NUMBER vem como float por padrão no python-oracledb, e float faz duas coisas ruins aqui: escreve
+# ruído de ponto flutuante no CSV de dinheiro e some da reconciliação (o extrator só somava Decimal,
+# e por isso TODOS os 69 manifestos do ensaio saíram com `somas: {}` — 20,9M linhas conferidas só por
+# contagem). Com `fetch_decimals` o valor chega exato e a soma por coluna volta a existir.
+oracledb.defaults.fetch_decimals = True
+
 BASE = '/Library/Apollo/tools/cutover'
 FASES = {
  'f4': "vendas cx_vendas historico_prod historico_dinamico caixa_pdv nfe_nao_cadastradas".split(),

@@ -514,6 +514,49 @@ extrator corrigido fica pendente** e entra no checklist da virada, junto com a c
 Nota de dado, contra a premissa de fev/2024: o kardex vai de **02/01/2023 a 21/08/2026** — diferente dos
 clusters que param em fevereiro de 2024, este está vivo até a data da cópia.
 
+## 7r. O ensaio inteiro estava reconciliando SÓ POR CONTAGEM (2026-09-01)
+
+Achado contra o próprio ensaio, e o pior tipo: o que passa verde. Os **69 manifestos das cinco fases saíram com
+`somas: {}`** — 20.943.541 linhas conferidas apenas por contagem. Contagem igual não prova valor igual: coluna
+deslocada, decimal truncado, separador mal lido, tudo isso passa.
+
+A causa é de uma linha. O `python-oracledb` entrega `NUMBER` como **float**, e o acumulador do extrator só
+somava `Decimal` — nenhuma coluna caía no `if`, e de quebra o CSV de dinheiro saía com ruído de ponto flutuante.
+Corrigido com `oracledb.defaults.fetch_decimals = True`.
+
+Para não depender de uma nova janela do Oracle (que caiu no meio deste trabalho), o
+`tools/cutover/etl/somar-csv.py` recalcula as somas dos CSVs já em disco e as grava no manifesto, marcadas com
+`somas_origem: 'csv'`. ⚠️ **o que isso prova e o que não prova**: a soma sai do CSV, então confere o trecho
+**CSV → Postgres** (parsing, tipo, escala, truncamento). O trecho **Oracle → CSV** só é conferido quando o
+extrator gera o manifesto com o banco de pé — é o que a reextração pendente do §7q fecha.
+
+Antes de acreditar no verde, o detector foi testado contra si mesmo: adulterando uma soma da F0 em +7, o
+carregador acusou (`bancos: codbco Σ 177731 × 177738.0`, 16/17 tabelas). Não é falso-verde.
+
+### O que a reconciliação de valores achou
+
+| fase | resultado |
+|---|---|
+| F0 | 17/17 — valores batem |
+| F1 | 19/19 — valores batem (2 tabelas marcadas por **órfãs de FK**, já confirmadas reais no Oracle) |
+| F2 | **`nf_prod` com 6 somas fora** → causa real, ver abaixo |
+| F3 | 12/12 — valores batem (2 marcadas por órfãs de FK conhecidas) |
+| F4 | valores batem nas 5 tabelas carregadas |
+
+**`nf_prod` era truncamento de escala, não erro de carga** (mig **191**): as colunas são `numeric(13,2)` e o
+legado guarda até **seis** casas — `desconto` 6.418919 · `frete` 81.505672 · `bonificacao` 2.146742 ·
+`mva` 0.0001 · `seguro` 0.0611 · `vrbasecalculo` 440.2748. O Postgres arredondava em silêncio. E não é
+preciosismo: `DESCONTO` é **percentual** e entra no valor do item pela fórmula que a apuração de ICMS já copia
+(`(VRCUSTO − VRCUSTO × DESCONTO/100) × QTDE`) — arredondar 6,418919% para 6,42% muda o item, a base e o
+imposto. Escala nova pelo que o dado exige, precisão preservando os 11 dígitos inteiros que já cabiam:
+`numeric(15,4)` em mva/seguro/vrbasecalculo e `numeric(17,6)` em desconto/frete/bonificacao. Com a migration a
+F2 fecha em `nf_prod: 252469/252469`, sem divergência de soma.
+
+A varredura que produziu isso (`tools/cutover/etl/escala-numerica.py`) passou pelas **cinco fases** e não achou
+nenhuma outra coluna numérica fora de escala, nem nenhuma com dígitos inteiros além da precisão declarada —
+essas seis são o universo do problema. Vale lembrar que precisão insuficiente não arredonda: **rejeita** a
+linha (`numeric field overflow`), então esse lado também estava sem cobertura até agora.
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).
