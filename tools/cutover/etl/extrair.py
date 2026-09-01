@@ -24,12 +24,23 @@ RENOMEIA = {
  # §7e: o código do Oracle NÃO entra na PK (lá é por venda/cupom, não por linha) — vira coluna de referência
  'vendas': {'codvendas': 'codvendas_legado'},
  'cx_vendas': {'codcxvendas': 'codcxvendas_legado'},
+ # KARDEX: o legado nomeia o movimento por "alteração" e "atual"; nós, por "qtde" e "saldo". A equivalência é
+ # direta (qtde_alter = o quanto mexeu; qtde_atual = o saldo depois), e `saldo_anterior` sai da subtração — é a
+ # única coluna DERIVADA da carga inteira, e ela existe porque o nosso kardex guarda os dois lados do salto.
+ 'historico_prod': {'qtde_alter': 'qtde', 'qtde_atual': 'saldo_novo', 'origem_documento': 'origem'},
  # o legado chama a empresa de CODEMPRESA; aqui a coluna é idempresa nessas duas
  'empresas': {'codempresa': 'idempresa', 'razaosocial': 'razao_social'},
  'parceiros': {'codempresa': 'idempresa'},
 }
 # colunas CONSTANTES que o destino exige e a origem não tem (§7b: sem `origem_legado='S'` o índice parcial de
 # login rejeita os 15 operadores com login repetido do cliente)
+# colunas CALCULADAS na extração (expressão Oracle que vira coluna nova no CSV)
+CALCULADAS = {'historico_prod': {
+    # saldo antes do movimento = saldo depois − o que mexeu
+    'saldo_anterior': 'nvl(qtde_atual,0) - nvl(qtde_alter,0)',
+    # `tipo` é E/S conforme o sinal do movimento (o legado guarda só o delta assinado)
+    'tipo': "case when nvl(qtde_alter,0) < 0 then 'S' else 'E' end"}}
+
 CONSTANTES = {'operadores': {'origem_legado': 'S'}, 'parceiros_end': {'origem_legado': 'S'},
               'nf': {'origem_legado': 'S'},
               'movimentacao_bancaria_ofx': {'origem_legado': 'S'}, 'adiantamento_forn': {'origem_legado': 'S'},
@@ -50,6 +61,7 @@ TRANSFORMA = {
  'nf': {'sequencia_nfe': "case when regexp_like({c}, '^[0-9]+$') then {c} else null end"},
  # colunas NOT NULL no destino que a origem deixa nula: a carga preenche o neutro (o app conta com o valor)
  'nf_prod': {'vl_custo': 'nvl({c}, 0)'},
+ 'historico_prod': {'qtde_alter': 'nvl({c}, 0)', 'qtde_atual': 'nvl({c}, 0)'},
  'empresas': {'cnpj': "regexp_replace({c}, '[^0-9]', '')",
                            'insc': "regexp_replace({c}, '[^0-9A-Za-z]', '')",
                            'cep':  "regexp_replace({c}, '[^0-9]', '')"}}
@@ -79,6 +91,10 @@ for _a in sys.argv[1:]:
         _c, _i, _f = _a.split('=', 1)[1].split(':')
         particao = (_c, _i, _f)
         sys.argv = [x for x in sys.argv if x != _a]
+# além das fases, aceita uma LISTA de tabelas separada por vírgula — é como se reextrai uma tabela só
+# depois de corrigir o mapa dela, sem repetir as outras 5 da fase (`historico_prod` custa ~4 min).
+if fase not in FASES:
+    FASES[fase] = [x.strip() for x in fase.split(',') if x.strip()]
 saida = sys.argv[2] if len(sys.argv) > 2 else f'{BASE}/staging/{fase}'
 os.makedirs(saida, exist_ok=True)
 dest = json.load(open(f'{BASE}/schema-destino.json'))['tabelas']
@@ -113,8 +129,12 @@ for t in FASES[fase]:
     # `idempresa` (DEFAULT 1) a percentuais e valores com DEFAULT 0 espalhados pela `nf`.
     import re as _re
     tr_auto = {}
+    # a regra de default precisa enxergar a RENOMEAÇÃO: a coluna se chama `origem` aqui e `origem_documento` lá,
+    # e sem este de-para a regra procurava o nome do destino na origem e não achava (foi o que segurou o kardex).
+    inv = {d: o for o, d in ren.items()}
     for _c, _d in dest[t]['colunas'].items():
-        if _d.get('nulo') or _c not in ori or _d.get('default') is None:
+        _oc = inv.get(_c, _c)
+        if _d.get('nulo') or _oc not in ori or _d.get('default') is None:
             continue
         # o default pode ser número (0, 1) OU literal de texto ('N'::bpchar) — o regex antigo só via número,
         # e por isso `pedidocompra.fechado` (default 'N') continuava caindo.
@@ -122,14 +142,15 @@ for t in FASES[fase]:
         m_num = _re.match(r"^([-\d.]+)(::[a-z ]+)?$", d_raw)
         m_txt = _re.match(r"^'([^']*)'(::[a-z ]+)?$", d_raw)
         if m_num:
-            tr_auto[_c] = 'nvl({c}, ' + m_num.group(1) + ')'
+            tr_auto[_oc] = 'nvl({c}, ' + m_num.group(1) + ')'
         elif m_txt:
-            tr_auto[_c] = "nvl({c}, '" + m_txt.group(1) + "')"
+            tr_auto[_oc] = "nvl({c}, '" + m_txt.group(1) + "')"
     # `idempresa` NOT NULL **sem** default declarado (inventario, cotacao, pedidocompra): a regra acima não pega,
     # mas o valor neutro é o mesmo — empresa 1. Sem isto o ensaio regride (79.190 → 46.500 em inventario).
     for _emp in ('idempresa', 'codempresa'):
         if _emp in ori and not dest[t]['colunas'].get(_emp, {}).get('nulo', True):
             tr_auto.setdefault(_emp, 'nvl({c}, 1)')
+    # e as CALCULADAS não podem ficar nulas quando o destino é NOT NULL: `saldo_anterior` já sai de nvl().
     # FLAG NOT NULL sem default: o repo inteiro usa char(1) 'S'/'N' e o legado deixa nulo em parte das linhas
     # (pedidocompra.fechado foi a que apareceu). O neutro de uma flag é 'N' — declarado aqui, não adivinhado
     # caso a caso.
@@ -155,6 +176,10 @@ for t in FASES[fase]:
         manifesto[t] = {'pulada': 'nenhuma coluna casa'}; print(f"  ⛔ {t}: nenhuma coluna casa"); continue
     tr = {**tr_auto, **TRANSFORMA.get(t, {})}
     sel = ", ".join((tr[c].format(c=c) + f" as {c}") if c in tr else c for c, _ in cols)
+    calc = CALCULADAS.get(t, {})
+    if calc:
+        sel += ", " + ", ".join(f"{expr} as {nome}" for nome, expr in calc.items())
+        cols = cols + [(nome, nome) for nome in calc]
     chave = DEDUP.get(t)
     if chave:
         # ROW_NUMBER pela PK física (ROWID) — determinístico e sem depender de coluna de data

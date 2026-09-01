@@ -1,6 +1,7 @@
 {
  "bancos": {
   "linhas": 596,
+  "dedup": null,
   "colunas": [
    "codbco",
    "agencia",
@@ -31,6 +32,7 @@
  },
  "cidades": {
   "linhas": 5564,
+  "dedup": null,
   "colunas": [
    "idcidade",
    "iduf",
@@ -42,6 +44,7 @@
  },
  "bairro": {
   "linhas": 0,
+  "dedup": null,
   "colunas": [
    "idbairro",
    "descricao",
@@ -61,6 +64,7 @@
  },
  "cfop": {
   "linhas": 395,
+  "dedup": null,
   "colunas": [
    "codcfop",
    "descricao",
@@ -114,6 +118,7 @@
  },
  "ncm": {
   "linhas": 11215,
+  "dedup": null,
   "colunas": [
    "codigo",
    "ncmsh",
@@ -152,6 +157,7 @@
  },
  "aliquota": {
   "linhas": 33,
+  "dedup": null,
   "colunas": [
    "codigo"
   ],
@@ -161,6 +167,7 @@
  },
  "piscofins": {
   "linhas": 13,
+  "dedup": null,
   "colunas": [
    "idpiscofins",
    "descricao",
@@ -184,7 +191,11 @@
   ]
  },
  "det_aliquota": {
-  "linhas": 240,
+  "linhas": 236,
+  "dedup": [
+   "aliquota",
+   "uf"
+  ],
   "colunas": [
    "aliquota",
    "uf",
@@ -205,6 +216,7 @@
  },
  "figura_fiscal": {
   "linhas": 16839,
+  "dedup": null,
   "colunas": [
    "codfigurafiscal",
    "descfigurafiscal",
@@ -230,6 +242,7 @@
  },
  "unidade": {
   "linhas": 11,
+  "dedup": null,
   "colunas": [
    "codunidade",
    "sigla",
@@ -253,6 +266,7 @@
  },
  "marcas": {
   "linhas": 1,
+  "dedup": null,
   "colunas": [
    "idmarca",
    "descricao",
@@ -278,6 +292,7 @@
  },
  "familias_prod": {
   "linhas": 2392,
+  "dedup": null,
   "colunas": [
    "codfamilia",
    "descricao",
@@ -315,6 +330,7 @@
  },
  "familias_prod_area": {
   "linhas": 1,
+  "dedup": null,
   "colunas": [
    "codfamilias_prod_area",
    "idempresa",
@@ -329,6 +345,7 @@
  },
  "plc": {
   "linhas": 376,
+  "dedup": null,
   "colunas": [
    "codplc",
    "codpai",
@@ -358,6 +375,7 @@
  },
  "plano_contas": {
   "linhas": 11024,
+  "dedup": null,
   "colunas": [
    "codiexpandido",
    "descricao",
@@ -395,6 +413,7 @@
  },
  "condicoes_pagto": {
   "linhas": 37,
+  "dedup": null,
   "colunas": [
    "codconpagto",
    "descricao",
@@ -425,6 +444,7 @@
  },
  "operacoes_conta": {
   "linhas": 1,
+  "dedup": null,
   "colunas": [
    "codopconta",
    "descricao",

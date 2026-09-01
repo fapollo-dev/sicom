@@ -1,3 +1,14 @@
+/**
+ * CONVENÇÃO DE DATAS (aprendida na virada de 01/09/2026, quando 7 checks caíram sem nenhuma mudança de código):
+ * seções que fixam um PERÍODO de apuração/relatório não podem usar um mês que o relógio vai alcançar. Enquanto
+ * "hoje" era agosto, o período 2026-09 estava vazio; virado o mês, tudo que outras seções gravam com `now()`
+ * passou a cair dentro dele (a apuração de ICMS viu 3 notas de entrada em vez de 1, a D.R.E. viu 1.010 em vez
+ * de 150, o SPED ganhou um crédito de 4,13 e o `processar-vigencia` ligou uma agenda de promoção de outro teste).
+ * Por isso os cenários com período fixo vivem em anos distantes — 2029 (promoção, D.R.E.) e 2035 (SPED, apuração
+ * de ICMS) — e o cleanup de cada um tem de usar o MESMO ano nos dois lados do intervalo.
+ * ⚠️ dívida declarada: ainda há cenários fixos em 2026-11 e 2026-12; eles quebram do mesmo jeito quando o
+ * relógio chegar lá, e devem ser deslocados junto com os seus `DELETE` de limpeza.
+ */
 import 'reflect-metadata';
 import { Pool } from 'pg';
 import { NestFactory } from '@nestjs/core';
@@ -6876,11 +6887,11 @@ async function main() {
         // livro-caixa: uma venda à vista (receita) e uma despesa paga
         await pgRv.query(`DELETE FROM caixa WHERE codcx IN (990001,990002)`);
         await pgRv.query(`INSERT INTO caixa (codcx, data, valor, codplc, idempresa, tiporecurso, codpdv, obs, origem) VALUES
-          (990001,'2026-09-01 10:00:00-03', 250.00,9188,1,'D',901,'VENDA DINHEIRO','PDV'),
-          (990002,'2026-09-01 15:00:00-03',-180.00,9410,1,'D',NULL,'CONTA DE LUZ','APG')`);
+          (990001,'2029-09-01 10:00:00-03', 250.00,9188,1,'D',901,'VENDA DINHEIRO','PDV'),
+          (990002,'2029-09-01 15:00:00-03',-180.00,9410,1,'D',NULL,'CONTA DE LUZ','APG')`);
         // rateio de um título a pagar por centro de custo
         const apgDre = await pgRv.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, valor, quitada, tipodoc)
-          VALUES (1,2,'DRE-1','2026-09-05',300.00,'N','DP') RETURNING codapg`);
+          VALUES (1,2,'DRE-1','2029-09-05',300.00,'N','DP') RETURNING codapg`);
         await pgRv.query(`INSERT INTO cx_apagar (codcxapagar, codapg, codcc, valor, codgrupo, tipo) VALUES
           (9001,$1,9410,180.00,7001,'V'), (9002,$1,9188,120.00,7001,'V')
           ON CONFLICT (codcxapagar) DO NOTHING`, [apgDre.rows[0].codapg]);
@@ -6890,7 +6901,7 @@ async function main() {
           SELECT p.desccodplc, p.descricao, substr(p.desccodplc,1,1) || '.' AS pai_principal,
                  sum(abs(c.valor)) valor
             FROM caixa c JOIN plc p ON p.codplc = c.codplc
-           WHERE c.idempresa=1 AND c.data >= '2026-09-01' AND c.data < '2026-09-02'
+           WHERE c.idempresa=1 AND c.data >= '2029-09-01' AND c.data < '2029-09-02'
            GROUP BY p.desccodplc, p.descricao ORDER BY 1`);
         const rateio = await pgRv.query(`
           SELECT sum(x.valor) total, count(*) linhas,
@@ -6913,37 +6924,37 @@ async function main() {
         // FK protege o essencial: conta gerencial inexistente no livro-caixa é rejeitada
         let fkCaixa = 'passou';
         try {
-          await pgRv.query(`INSERT INTO caixa (codcx, data, valor, codplc, idempresa) VALUES (990003,'2026-09-01',1,999999,1)`);
+          await pgRv.query(`INSERT INTO caixa (codcx, data, valor, codplc, idempresa) VALUES (990003,'2029-09-01',1,999999,1)`);
         } catch { fkCaixa = 'rejeitou'; }
         check('CAIXA D.R.E. etapa 1: FK de conta gerencial (codplc → plc) rejeita lançamento com conta inexistente — é a dimensão da DRE, não pode entrar lixo',
           fkCaixa === 'rejeitou', { fk: fkCaixa });
 
         // 47t) CAIXA D.R.E. (etapa 2) — a DRE de caixa: receitas, despesas RATEADAS por centro de custo,
-        // vendas à vista e custo. Cenário fechado em 2026-09-01 (as estruturas do §47s ainda estão de pé):
+        // vendas à vista e custo. Cenário fechado em 2029-09-01 (as estruturas do §47s ainda estão de pé):
         //  RECEITAS: recebimento de 400,00 num título COM conta 1.01.001 · 150,00 num título SEM conta (bucket
         //            fixo) · cartão liberado 90,00 · venda à vista 250,00 na conta 1.01.001 (roteada por CXA)
         //  DESPESAS: título de 300,00 pago integralmente, rateado 180 (4.07.003) + 120 (1.01.001) por centro de
         //            custo; base = soma do grupo (300) → 60% e 40% ⇒ 180,00 e 120,00
         const DRE = 'relatorios/caixa-dre/consultar';
         const rcbCom = await pgRv.query(`INSERT INTO areceber (codempresa, codparceiro, nrocupom, dtvenc, valor, quitada, codplc)
-          VALUES (1,2,'DRE-R1','2026-09-01',400.00,'N',9188) RETURNING codrcb`);
+          VALUES (1,2,'DRE-R1','2029-09-01',400.00,'N',9188) RETURNING codrcb`);
         const rcbSem = await pgRv.query(`INSERT INTO areceber (codempresa, codparceiro, nrocupom, dtvenc, valor, quitada, codplc)
-          VALUES (1,2,'DRE-R2','2026-09-01',150.00,'N',NULL) RETURNING codrcb`);
+          VALUES (1,2,'DRE-R2','2029-09-01',150.00,'N',NULL) RETURNING codrcb`);
         await pgRv.query(`INSERT INTO areceber_bx (codrcb, codempresa, dtpgto, valorpg, indr) VALUES
-          ($1,1,'2026-09-01 09:00:00-03',400.00,'I'), ($2,1,'2026-09-01 09:30:00-03',150.00,'I')`,
+          ($1,1,'2029-09-01 09:00:00-03',400.00,'I'), ($2,1,'2029-09-01 09:30:00-03',150.00,'I')`,
           [rcbCom.rows[0].codrcb, rcbSem.rows[0].codrcb]);
         await pgRv.query(`INSERT INTO operadoras (codoperadoras, operadora, txadm, diascomp) VALUES (9091,'OPER DRE',0,30)
           ON CONFLICT (codoperadoras) DO NOTHING`);
         await pgRv.query(`INSERT INTO cartao (idempresa, codoperadora, dtvenda, valor, nroparcela, liberado, dtbaixa)
-          VALUES (1,9091,'2026-08-25',90.00,1,'S','2026-09-01 10:00:00-03')`);
+          VALUES (1,9091,'2026-08-25',90.00,1,'S','2029-09-01 10:00:00-03')`);
         const apgD = await pgRv.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, valor, vendor, quitada, tipodoc, codgrupo_agrupamento_apg)
-          VALUES (1,2,'DRE-D1','2026-09-01',300.00,0,'N','DP',77001) RETURNING codapg`);
+          VALUES (1,2,'DRE-D1','2029-09-01',300.00,0,'N','DP',77001) RETURNING codapg`);
         await pgRv.query(`INSERT INTO cx_apagar (codcxapagar, codapg, codcc, valor, codgrupo, tipo) VALUES
           (9101,$1,9410,180.00,77001,'V'), (9102,$1,9188,120.00,77001,'V')`, [apgD.rows[0].codapg]);
         await pgRv.query(`INSERT INTO apagar_bx (codapg, codempresa, dtpgto, valorpg, juros, acre_desc, indr)
-          VALUES ($1,1,'2026-09-01 14:00:00-03',300.00,0,0,'I')`, [apgD.rows[0].codapg]);
+          VALUES ($1,1,'2029-09-01 14:00:00-03',300.00,0,0,'I')`, [apgD.rows[0].codapg]);
 
-        const dre = await fetch(`${base}/${DRE}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-01', dtfim: '2026-09-01' }) });
+        const dre = await fetch(`${base}/${DRE}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2029-09-01', dtfim: '2029-09-01' }) });
         const dreJ = (await dre.json().catch(() => ({}))) as any;
         const rec01 = (dreJ.receitas ?? []).find((c: any) => c.desccodplc === '1.01.001');
         const des07 = (dreJ.despesas ?? []).find((c: any) => c.desccodplc === '4.07.003');
@@ -6964,9 +6975,9 @@ async function main() {
 
         // juros e acréscimo/desconto saem do rateio: pagando 330 com 30 de juros, a despesa apropriada segue 300
         await pgRv.query(`UPDATE apagar_bx SET valorpg=330.00, juros=30.00 WHERE codapg=$1`, [apgD.rows[0].codapg]);
-        const dreJuros = (await (await fetch(`${base}/${DRE}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-01', dtfim: '2026-09-01' }) })).json().catch(() => ({}))) as any;
-        const dreInv = await fetch(`${base}/${DRE}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-02', dtfim: '2026-09-01' }) });
-        const dreRb = await fetch(`${base}/${DRE}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dtini: '2026-09-01', dtfim: '2026-09-01' }) });
+        const dreJuros = (await (await fetch(`${base}/${DRE}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2029-09-01', dtfim: '2029-09-01' }) })).json().catch(() => ({}))) as any;
+        const dreInv = await fetch(`${base}/${DRE}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2029-09-02', dtfim: '2029-09-01' }) });
+        const dreRb = await fetch(`${base}/${DRE}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ dtini: '2029-09-01', dtfim: '2029-09-01' }) });
         check('CAIXA D.R.E.: JUROS saem do rateio (pagou 330 com 30 de juros → a despesa apropriada continua 300,00, porque as 3 parcelas usam o mesmo divisor) · resultado = receitas − despesas · período invertido → 422 · sem grant → 403',
           Number(dreJuros.totais?.despesas) === 300
           && Number(dreJuros.totais?.resultado) === r2ck(Number(dreJuros.totais?.receitas) - 300)
@@ -6979,12 +6990,12 @@ async function main() {
         await pgRv.query(`INSERT INTO cfop (codcfop, descricao, proc_cupom) VALUES (1102,'COMPRA','N'), (1403,'CUPOM','S')
           ON CONFLICT (codcfop) DO UPDATE SET proc_cupom=EXCLUDED.proc_cupom`);
         const nfCred = await pgRv.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop)
-          VALUES (1,2,'950001',55,'1','E','S','N','2026-09-01','2026-09-01',1102) RETURNING codnf`);
+          VALUES (1,2,'950001',55,'1','E','S','N','2029-09-01','2029-09-01',1102) RETURNING codnf`);
         await pgRv.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, fatorembal, vrvenda, vrcusto, aliquota, cfop, vricm) VALUES
           ($1,1,10,1,0,5.00,'T01','1102',19.00),
           ($1,2, 5,1,0,3.00,'IST','1102', 7.00),
           ($1,3, 1,1,0,9.00,'T01','1403',11.00)`, [nfCred.rows[0].codnf]);
-        const dre3 = (await (await fetch(`${base}/${DRE}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-01', dtfim: '2026-09-01' }) })).json().catch(() => ({}))) as any;
+        const dre3 = (await (await fetch(`${base}/${DRE}`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2029-09-01', dtfim: '2029-09-01' }) })).json().catch(() => ({}))) as any;
         const res07 = (dre3.resultado_contas ?? []).find((c: any) => c.desccodplc === '4.07.003');
         check('CAIXA D.R.E. corte-3: CRÉDITO DE ICMS só do item TRIBUTADO em CFOP que não é de cupom (19,00 — a alíquota IST não credita e o CFOP marcado como cupom também não) · e o RESULTADO por conta usa outro divisor (o valor do TÍTULO, sem tirar juros): pagou 330 sobre título de 300 → 4.07.003 fica 198,00, diferente dos 180,00 da despesa',
           Number(dre3.totais?.credito_icms) === 19
@@ -6998,7 +7009,7 @@ async function main() {
         await pgRv.query(`DELETE FROM apagar_bx WHERE codapg=$1`, [apgD.rows[0].codapg]);
         await pgRv.query(`DELETE FROM cx_apagar WHERE codcxapagar IN (9101,9102)`);
         await pgRv.query(`DELETE FROM apagar WHERE codapg=$1`, [apgD.rows[0].codapg]);
-        await pgRv.query(`DELETE FROM cartao WHERE idempresa=1 AND dtbaixa >= '2026-09-01' AND dtbaixa < '2026-09-02'`);
+        await pgRv.query(`DELETE FROM cartao WHERE idempresa=1 AND dtbaixa >= '2029-09-01' AND dtbaixa < '2029-09-02'`);
         await pgRv.query(`DELETE FROM operadoras WHERE codoperadoras=9091`);
         await pgRv.query(`DELETE FROM areceber_bx WHERE codrcb IN ($1,$2)`, [rcbCom.rows[0].codrcb, rcbSem.rows[0].codrcb]);
         await pgRv.query(`DELETE FROM areceber WHERE codrcb IN ($1,$2)`, [rcbCom.rows[0].codrcb, rcbSem.rows[0].codrcb]);
@@ -8335,7 +8346,7 @@ async function main() {
       await pgPromo.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES (990001,'7000000000019','PROD INATIVO PROMO','UN',1,'T01','N') ON CONFLICT (idproduto) DO UPDATE SET ativo='N'`);
 
       // 76.1) criar agenda (nome + período data+hora + 2 itens) → 201; view traz situacao + qtde_itens.
-      const p1 = await crPromo({ nomepromo: 'FDS SEVEN BOYS', dtiniciopromocao: '2026-09-01T08:00', dtfimpromocao: '2026-09-03T22:00', itens: [
+      const p1 = await crPromo({ nomepromo: 'FDS SEVEN BOYS', dtiniciopromocao: '2029-09-01T08:00', dtfimpromocao: '2029-09-03T22:00', itens: [
         { idproduto: 1, vlrpromocao: 1.29, vrvenda: 2.89 },
         { idproduto: 2, vlrpromocao: 3.5, vrvenda: 5.0, vrclube_fidelidade: 3.2, maximo: 6 },
       ] });
@@ -8349,8 +8360,8 @@ async function main() {
         { status: p1.status, itens: itAg.length, situacao: viewRow?.situacao, qtde: viewRow?.qtde_itens });
 
       // 76.2) período inválido (fim <= início) → 400; preço promocional <= 0 → 400 (schema).
-      const p2a = await crPromo({ nomepromo: 'X', dtiniciopromocao: '2026-09-05T10:00', dtfimpromocao: '2026-09-05T09:00', itens: [{ idproduto: 1, vlrpromocao: 1 }] });
-      const p2b = await crPromo({ nomepromo: 'X', dtiniciopromocao: '2026-09-05T10:00', dtfimpromocao: '2026-09-06T10:00', itens: [{ idproduto: 1, vlrpromocao: 0 }] });
+      const p2a = await crPromo({ nomepromo: 'X', dtiniciopromocao: '2029-09-05T10:00', dtfimpromocao: '2029-09-05T09:00', itens: [{ idproduto: 1, vlrpromocao: 1 }] });
+      const p2b = await crPromo({ nomepromo: 'X', dtiniciopromocao: '2029-09-05T10:00', dtfimpromocao: '2029-09-06T10:00', itens: [{ idproduto: 1, vlrpromocao: 0 }] });
       check('PROMO 76.2: período fim<=início → 400; ambos preços zero → 400 (schema)', p2a.status === 400 && p2b.status === 400, { periodo: p2a.status, preco: p2b.status });
       // 76.2b) FOLD: preço promo=0 COM preço clube>0 → 201 (fiel ao legado: rejeita só quando AMBOS zero).
       const p2c = await crPromo({ nomepromo: 'CLUBE', dtiniciopromocao: '2029-03-01T00:00', dtfimpromocao: '2029-03-02T00:00', itens: [{ idproduto: 2, vlrpromocao: 0, vrclube_fidelidade: 5 }] });
@@ -8368,14 +8379,14 @@ async function main() {
       check('PROMO 76.3b FOLD: config N → sobreposição BLOQUEADA (422 PROMOCAO_PRODUTO_SOBREPOSTO)', p3block.status === 422 && p3blockJ.code === 'PROMOCAO_PRODUTO_SOBREPOSTO', { status: p3block.status, code: p3blockJ.code });
 
       // 76.4) produto INATIVO → 422 PROMOCAO_PRODUTO_INATIVO.
-      const p4 = await crPromo({ nomepromo: 'INATIVO', dtiniciopromocao: '2026-11-01T00:00', dtfimpromocao: '2026-11-02T00:00', itens: [{ idproduto: 990001, vlrpromocao: 1 }] });
+      const p4 = await crPromo({ nomepromo: 'INATIVO', dtiniciopromocao: '2029-11-01T00:00', dtfimpromocao: '2029-11-02T00:00', itens: [{ idproduto: 990001, vlrpromocao: 1 }] });
       const p4J = (await p4.json().catch(() => ({}))) as any;
       check('PROMO 76.4: produto inativo → 422 PROMOCAO_PRODUTO_INATIVO', p4.status === 422 && p4J.code === 'PROMOCAO_PRODUTO_INATIVO', { status: p4.status, code: p4J.code });
 
       // 76.5) workflow: encerrar → situacao ENCERRADA; editar encerrada → 422; reabrir → ABERTA.
       const enc = await fetch(`${base}/${AP}/${codag}/encerrar`, { method: 'POST', headers: H });
       const encSit = (await pgPromo.query(`SELECT dtencerramento FROM agenda_promocao WHERE codagenda=$1`, [codag])).rows[0] as any;
-      const putEnc = await fetch(`${base}/${AP}/${codag}`, { method: 'PUT', headers: H, body: JSON.stringify({ nomepromo: 'EDIT', dtiniciopromocao: '2026-09-01T08:00', dtfimpromocao: '2026-09-03T22:00', itens: [{ idproduto: 1, vlrpromocao: 1.29 }] }) });
+      const putEnc = await fetch(`${base}/${AP}/${codag}`, { method: 'PUT', headers: H, body: JSON.stringify({ nomepromo: 'EDIT', dtiniciopromocao: '2029-09-01T08:00', dtfimpromocao: '2029-09-03T22:00', itens: [{ idproduto: 1, vlrpromocao: 1.29 }] }) });
       const putEncJ = (await putEnc.json().catch(() => ({}))) as any;
       const reab = await fetch(`${base}/${AP}/${codag}/reabrir`, { method: 'POST', headers: H });
       check('PROMO 76.5: encerrar → dtencerramento; editar encerrada → 422 PROMOCAO_ENCERRADA; reabrir → 200',
@@ -9573,25 +9584,25 @@ async function main() {
           tem0150 && tem0200 && c100.startsWith('|C100|0|') && c100.includes('|55|') && c170.startsWith('|C170|1|1|') && c170.includes('|1,65|') && temC990,
           { c100: c100.slice(0, 70), c170: c170.slice(0, 90) });
 
-        // 88.4) SAÍDA do PDV (corte-1 VENDAS): débito de PIS/COFINS. Período 2026-09 ISOLADO. Vendas NFC-e (base
+        // 88.4) SAÍDA do PDV (corte-1 VENDAS): débito de PIS/COFINS. Período 2035-09 ISOLADO. Vendas NFC-e (base
         // Σ1500) + 1 crédito de entrada (base 200). Débito PIS=round(1500×1,65/100)=24,75; COFINS=114,00. Crédito
         // PIS 3,30 / COFINS 15,20 → a recolher PIS 21,45 / COFINS 98,80; crédito 100% descontado (deb>cred).
         await pgSp.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, cfop, venda_nfc, cancelado, statusnfe, chavenfe, pis_cst, pis_bcalculo, pis_aliquota, pis_valor, cofins_cst, cofins_bcalculo, cofins_aliquota, cofins_valor) VALUES
-          (1,'2026-09-05 10:00:00-03','V1','001',101,1,1,1,1000,5102,'S','N','P','35260900000000000000000000000000000000000101','01',1000,1.65,16.50,'01',1000,7.60,76.00),
-          (1,'2026-09-06 11:00:00-03','V2','001',102,1,1,1, 500,5102,'S','N','P','35260900000000000000000000000000000000000102','01', 500,1.65, 8.25,'01', 500,7.60,38.00),
-          (1,'2026-09-07 12:00:00-03','V3','001',103,1,1,1, 999,5102,'S','N','C','35260900000000000000000000000000000000000103','01', 999,1.65,16.48,'01', 999,7.60,75.92)`); // V3 NFC-e CANCELADA no SEFAZ (statusnfe='C') → fora do débito; C100 COD_SIT=02
-        const nfCredS = await novaNf(baseNf({ tipo: 'E', nronf: 'SPEDS01', codparceiro: 22, dtemissao: '2026-09-02', dtcontabil: '2026-09-02', itens: [{ codproduto: 1, quantidade: 1, vrvenda: 200, vrcusto: 200, cfop: '1102', aliquota: 'T01', cstpiscofins: '50' }] }));
+          (1,'2035-09-05 10:00:00-03','V1','001',101,1,1,1,1000,5102,'S','N','P','35260900000000000000000000000000000000000101','01',1000,1.65,16.50,'01',1000,7.60,76.00),
+          (1,'2035-09-06 11:00:00-03','V2','001',102,1,1,1, 500,5102,'S','N','P','35260900000000000000000000000000000000000102','01', 500,1.65, 8.25,'01', 500,7.60,38.00),
+          (1,'2035-09-07 12:00:00-03','V3','001',103,1,1,1, 999,5102,'S','N','C','35260900000000000000000000000000000000000103','01', 999,1.65,16.48,'01', 999,7.60,75.92)`); // V3 NFC-e CANCELADA no SEFAZ (statusnfe='C') → fora do débito; C100 COD_SIT=02
+        const nfCredS = await novaNf(baseNf({ tipo: 'E', nronf: 'SPEDS01', codparceiro: 22, dtemissao: '2035-09-02', dtcontabil: '2035-09-02', itens: [{ codproduto: 1, quantidade: 1, vrvenda: 200, vrcusto: 200, cfop: '1102', aliquota: 'T01', cstpiscofins: '50' }] }));
         await pgSp.query(`UPDATE nf_prod SET bcpiscofinse=200, vrpise=3.30, vrcofinse=15.20, aliqpise=1.65, aliqcofinse=7.60, cstpiscofins='50' WHERE codnf=$1`, [nfCredS]);
         await pgSp.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfCredS]);
 
-        const apurS = await fetch(`${base}/fiscal/sped/apuracao-pc`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-01', dtfim: '2026-09-30' }) });
+        const apurS = await fetch(`${base}/fiscal/sped/apuracao-pc`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2035-09-01', dtfim: '2035-09-30' }) });
         const apurSJ = (await apurS.json().catch(() => ({}))) as any;
         check('SPED §88.4 apuração DÉBITO de VENDAS: 1 grupo (base 1500, cancelado excluído), débito PIS 24,75 / COFINS 114,00',
           apurS.status === 200 && Number(apurSJ.grupos_debito) === 1 && Number(apurSJ.total_debito_pis) === 24.75 && Number(apurSJ.total_debito_cofins) === 114
           && Number(apurSJ.total_credito_pis) === 3.3,
           { apur: apurSJ });
 
-        const efdS = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-01', dtfim: '2026-09-30' }) });
+        const efdS = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2035-09-01', dtfim: '2035-09-30' }) });
         const linS = String(((await efdS.json().catch(() => ({}))) as any).arquivo ?? '').split('\r\n');
         const m100S = linS.find((l) => l.startsWith('|M100|')) ?? '';
         const m200 = linS.find((l) => l.startsWith('|M200|')) ?? '';
@@ -9624,7 +9635,7 @@ async function main() {
 
         // 88.6) VALIDAÇÃO estrutural PVA-style do arquivo gerado (totalizador 9900/9990/9999 + derivações
         // M100/M200/M205 + coerência C100↔C175 + contagem de campos). erros=[] ⇒ estruturalmente válido.
-        const efdSJ = (await (await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-09-01', dtfim: '2026-09-30' }) })).json().catch(() => ({}))) as any;
+        const efdSJ = (await (await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2035-09-01', dtfim: '2035-09-30' }) })).json().catch(() => ({}))) as any;
         check('SPED §88.6: validação estrutural do arquivo (bloco 9 + derivações M + C100↔C175 + DOMÍNIOS PVA) → SEM erros',
           efdSJ.validacao && efdSJ.validacao.ok === true && Array.isArray(efdSJ.validacao.erros) && efdSJ.validacao.erros.length === 0 && efdSJ.validacao.registros > 0,
           { validacao: efdSJ.validacao });
@@ -9636,7 +9647,7 @@ async function main() {
           r0000.endsWith('|00|2|') && r0110 === '|0110|1|1|1||' && /^\|M100\|[^|]*\|0\|/.test(m100S),
           { r0000: r0000.slice(-16), r0110, m100: m100S.slice(0, 18) });
         // 88.8) RECEITA NÃO-TRIBUTADA (M400/M410 PIS + M800/M810 COFINS) — supermercado: cesta básica (CST 06 alíq 0)
-        // + monofásico (CST 04) + CST 08 sem natureza. Período 2026-10 ISOLADO. CST 06: 10×5=50 + (4×25 − desc 10)=90
+        // + monofásico (CST 04) + CST 08 sem natureza. Período 2035-10 ISOLADO. CST 06: 10×5=50 + (4×25 − desc 10)=90
         // → 140; CST 04: 2×30=60; CST 08: 1×25=25. + 1 venda TRIBUTADA (CST 01, base 100) p/ o período ter débito.
         // CORTE-2 (natureza real, sqqBaseIsenta): catálogo PC_TIPOCREDITOISENTO com sit 10={101,102} e sit 20={201};
         // produto 1 (CST 06) idtabela=9101→natureza DIRETA 101 (válida p/ sit 10); a venda CST 04 (produto 2, sem
@@ -9649,19 +9660,19 @@ async function main() {
         await pgSp.query(`INSERT INTO configuracoes_sped (idempresa, codplc_m400_pc, codplc_m410_pc, codplc_m800_pc, codplc_m810_pc) VALUES (1, 9004, 9003, 9006, 9005)`);
         await pgSp.query(`UPDATE produtos SET idtabela=9101, idpiscofins=10 WHERE idproduto=1`);
         await pgSp.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, cfop, venda_nfc, cancelado, statusnfe, chavenfe, pis_cst, pis_aliquota, cofins_cst, cofins_aliquota, desc_promocao, idpiscofins) VALUES
-          (1,'2026-10-05 10:00:00-03','001',201,1,1,10, 5,5102,'S','N','P','35261000000000000000000000000000000000000201','06',0,'06',0,0,NULL),
-          (1,'2026-10-05 10:00:00-03','001',201,2,1, 4,25,5102,'S','N','P','35261000000000000000000000000000000000000201','06',0,'06',0,10,NULL),
-          (1,'2026-10-05 13:00:00-03','001',206,1,1, 1,10,5102,'S','N','P','35261000000000000000000000000000000000000206','6 ',0,'6 ',0,0,NULL),
-          (1,'2026-10-06 11:00:00-03','001',202,1,2, 2,30,5405,'S','N','P','35261000000000000000000000000000000000000202','04',0,'04',0,0,20),
-          (1,'2026-10-06 12:00:00-03','001',205,1,3, 1,25,5102,'S','N','P','35261000000000000000000000000000000000000205','08',0,'08',0,0,NULL),
-          (1,'2026-10-07 12:00:00-03','001',203,1,1, 1,100,5102,'S','N','P','35261000000000000000000000000000000000000203','01',1.65,'01',7.60,0,NULL),
-          (1,'2026-10-08 09:00:00-03','001',204,1,1, 1, 33,5102,'S','N','P','35261000000000000000000000000000000000000204','50',0,'50',0,0,NULL)`); // cupom 206: CST no FORMATO DO ORACLE ('6 ' = 1 dígito blank-padded) → lpad normaliza p/ '06' (fold [ALTA]); linha SUJA CST 50 c/ alíq 0 → NÃO pode virar M400
+          (1,'2035-10-05 10:00:00-03','001',201,1,1,10, 5,5102,'S','N','P','35261000000000000000000000000000000000000201','06',0,'06',0,0,NULL),
+          (1,'2035-10-05 10:00:00-03','001',201,2,1, 4,25,5102,'S','N','P','35261000000000000000000000000000000000000201','06',0,'06',0,10,NULL),
+          (1,'2035-10-05 13:00:00-03','001',206,1,1, 1,10,5102,'S','N','P','35261000000000000000000000000000000000000206','6 ',0,'6 ',0,0,NULL),
+          (1,'2035-10-06 11:00:00-03','001',202,1,2, 2,30,5405,'S','N','P','35261000000000000000000000000000000000000202','04',0,'04',0,0,20),
+          (1,'2035-10-06 12:00:00-03','001',205,1,3, 1,25,5102,'S','N','P','35261000000000000000000000000000000000000205','08',0,'08',0,0,NULL),
+          (1,'2035-10-07 12:00:00-03','001',203,1,1, 1,100,5102,'S','N','P','35261000000000000000000000000000000000000203','01',1.65,'01',7.60,0,NULL),
+          (1,'2035-10-08 09:00:00-03','001',204,1,1, 1, 33,5102,'S','N','P','35261000000000000000000000000000000000000204','50',0,'50',0,0,NULL)`); // cupom 206: CST no FORMATO DO ORACLE ('6 ' = 1 dígito blank-padded) → lpad normaliza p/ '06' (fold [ALTA]); linha SUJA CST 50 c/ alíq 0 → NÃO pode virar M400
         // perna NF mod-55 da sqqBaseIsenta (fold [MÉDIA]): NF de SAÍDA outubro com 3 derivações de CST por CFOP —
         // 5949 fora do rol → CST 8 forçado, sem situação → natureza NULA → 999 (2×7,50=15); 5102 no rol c/
         // idpiscofins=12 (ALIQ ZERO, catálogo mig 041) → CST 6, natureza por fallback da sit 12 → 105 (5×4=20);
         // 5102 no rol c/ idpiscofins=13 (TRIBUTADOS) → CST 1 do catálogo → fica FORA da bucketização 04/06/08/09.
         await pgSp.query(`INSERT INTO cfop (codcfop, descricao) VALUES ('5949','SMOKE OUTRA SAIDA') ON CONFLICT (codcfop) DO NOTHING`);
-        const nfIsenta = await novaNf(baseNf({ tipo: 'S', modelo: 55, nronf: 'SPEDI01', codparceiro: 20, cfop: '5102', dtemissao: '2026-10-10', dtcontabil: '2026-10-10', itens: [
+        const nfIsenta = await novaNf(baseNf({ tipo: 'S', modelo: 55, nronf: 'SPEDI01', codparceiro: 20, cfop: '5102', dtemissao: '2035-10-10', dtcontabil: '2035-10-10', itens: [
           { codproduto: 2, quantidade: 2, vrvenda: 7.5, vrcusto: 7.5, cfop: '5949', aliquota: 'T01' },
           { codproduto: 2, quantidade: 5, vrvenda: 4, vrcusto: 4, cfop: '5102', aliquota: 'T01' },
           { codproduto: 1, quantidade: 1, vrvenda: 100, vrcusto: 100, cfop: '5102', aliquota: 'T01' },
@@ -9669,9 +9680,9 @@ async function main() {
         await pgSp.query(`UPDATE nf_prod SET idpiscofins=12 WHERE codnf=$1 AND cfop='5102' AND codproduto=2`, [nfIsenta]);
         await pgSp.query(`UPDATE nf_prod SET idpiscofins=13 WHERE codnf=$1 AND cfop='5102' AND codproduto=1`, [nfIsenta]);
         await pgSp.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfIsenta]);
-        const apurI = await fetch(`${base}/fiscal/sped/apuracao-pc`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-10-01', dtfim: '2026-10-31' }) });
+        const apurI = await fetch(`${base}/fiscal/sped/apuracao-pc`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2035-10-01', dtfim: '2035-10-31' }) });
         const apurIJ = (await apurI.json().catch(() => ({}))) as any;
-        const efdI = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-10-01', dtfim: '2026-10-31' }) });
+        const efdI = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2035-10-01', dtfim: '2035-10-31' }) });
         const efdIJ = (await efdI.json().catch(() => ({}))) as any;
         const linI = String(efdIJ.arquivo ?? '').split('\r\n');
         const m400_06 = linI.find((l) => l.startsWith('|M400|06|')) ?? '';
@@ -9692,7 +9703,7 @@ async function main() {
           { apur: { gi: apurIJ.grupos_isento, tot: apurIJ.total_receita_nao_tributada }, m400_06, m400_04, m400_08, m410, m810, m400Sujo, val: efdIJ.validacao?.erros });
 
         // cleanup (fixture restaura o que mudou — lição 62): vendas 09+10, catálogo, config SPED, produto 1.
-        await pgSp.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-01' AND dtvenda < '2026-11-01'`);
+        await pgSp.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2035-09-01' AND dtvenda < '2035-11-01'`);
         await pgSp.query(`DELETE FROM pc_tipocreditoisento WHERE idtabela IN (9101,9102,9103,9104)`);
         await pgSp.query(`DELETE FROM configuracoes_sped WHERE idempresa=1`);
         await pgSp.query(`UPDATE produtos SET idtabela=NULL, idpiscofins=NULL WHERE idproduto=1`);
@@ -10831,7 +10842,7 @@ async function main() {
         await pgAp.query(`UPDATE parceiros SET classfiscal='SN' WHERE codparceiro=22`);
         // NF de SAÍDA: 2 itens tributados (CST 0) + 1 isento (CST 40) → 2 linhas de detalhe
         const nfS = (await pgAp.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, statusnfe, chavenfe, totalnf, cfop)
-          VALUES (1,'S',55,'1','990850','2026-09-10','2026-09-10',20,'S','N','P','35260900000000000000000000000000000000990850',300.00,5102) RETURNING codnf`)).rows[0] as any;
+          VALUES (1,'S',55,'1','990850','2035-09-10','2035-09-10',20,'S','N','P','35260900000000000000000000000000000000990850',300.00,5102) RETURNING codnf`)).rows[0] as any;
         // ⚠️ o valor do item vem de VRCUSTO líquido do DESCONTO% (no dado real o VRVENDA das notas é ZERO), e
         // isentas × outras se separam pela PRIMEIRA LETRA da alíquota — não por CST.
         await pgAp.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrcusto, desconto, vrvenda, cfop, aliquota, icms, bcr, cst, vrbasecalculo, vricm, vricmst, ipi) VALUES
@@ -10841,18 +10852,18 @@ async function main() {
           ($1, 4, 990850, 10, 1, 'UN', 20.00,  0, 0, '5102', 'T01', 18, 60.00, 0, 80.00, 14.40, 0, 0)`, [nfS.codnf]);
         // NF de ENTRADA de fornecedor SN (crédito que vai para a coluna SN)
         const nfE = (await pgAp.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, statusnfe, chavenfe, totalnf, cfop)
-          VALUES (1,'E',55,'1','990851','2026-09-05','2026-09-05',22,'S','N','P','35260900000000000000000000000000000000990851',100.00,1102) RETURNING codnf`)).rows[0] as any;
+          VALUES (1,'E',55,'1','990851','2035-09-05','2035-09-05',22,'S','N','P','35260900000000000000000000000000000000990851',100.00,1102) RETURNING codnf`)).rows[0] as any;
         await pgAp.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrcusto, vrvenda, cfop, aliquota, icms, cst, vrbasecalculo, vricm) VALUES
           ($1, 1, 990850, 10, 1, 'UN', 10.00, 0, '1102', 'T01', 12, 0, 100.00, 12.00)`, [nfE.codnf]);
         // NF de saída com CFOP MARCADO (não entra na apuração)
         const nfBonif = (await pgAp.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, statusnfe, chavenfe, totalnf, cfop)
-          VALUES (1,'S',55,'1','990852','2026-09-11','2026-09-11',20,'S','N','P','35260900000000000000000000000000000000990852',50.00,5910) RETURNING codnf`)).rows[0] as any;
+          VALUES (1,'S',55,'1','990852','2035-09-11','2035-09-11',20,'S','N','P','35260900000000000000000000000000000000990852',50.00,5910) RETURNING codnf`)).rows[0] as any;
         await pgAp.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrvenda, cfop, aliquota, icms, cst, vrbasecalculo, vricm) VALUES
           ($1, 1, 990850, 5, 1, 'UN', 10.00, '5910', 'T01', 18, 0, 50.00, 9.00)`, [nfBonif.codnf]);
         // NF de saída NÃO PROCESSADA e NF CANCELADA (as duas ficam fora)
         await pgAp.query(`INSERT INTO nf (codnf, idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, statusnfe, chavenfe, totalnf, cfop) VALUES
-          (990853,1,'S',55,'1','990853','2026-09-12','2026-09-12',20,'N','N','P','35260900000000000000000000000000000000990853',10.00,5102),
-          (990854,1,'S',55,'1','990854','2026-09-13','2026-09-13',20,'S','S','P','35260900000000000000000000000000000000990854',10.00,5102)`);
+          (990853,1,'S',55,'1','990853','2035-09-12','2035-09-12',20,'N','N','P','35260900000000000000000000000000000000990853',10.00,5102),
+          (990854,1,'S',55,'1','990854','2035-09-13','2035-09-13',20,'S','S','P','35260900000000000000000000000000000000990854',10.00,5102)`);
         await pgAp.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrvenda, cfop, aliquota, icms, cst, vrbasecalculo, vricm) VALUES
           (990853, 1, 990850, 1, 1, 'UN', 10.00, '5102', 'T01', 18, 0, 10.00, 1.80),
           (990854, 1, 990850, 1, 1, 'UN', 10.00, '5102', 'T01', 18, 0, 10.00, 1.80)`);
@@ -10860,21 +10871,21 @@ async function main() {
         // o cupom traz BASE (pode ser REDUZIDA), ALÍQUOTA e o CODNFC (o identificador do documento no legado);
         // 9007 é INUTILIZADA ('I') com chave — o legado exige STATUSNFE='P', então fica fora.
         await pgAp.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, iat, cfop, aliquota, cancelado, tipocanc, venda_nfc, statusnfe, chavenfe, icms_cst, icms_valor, icms_base_calculo, icms_aliquota, codnfc, desc_promocao) VALUES
-          (1,'2026-09-10 10:00:00-03','01100926100000','001',9001,1,990850,2,25.00,'A',5929,'T01','N',NULL,'S','P','35260900000000000000000000000000000000009001','00',9.00,50.00,18.0,700001,0),
-          (1,'2026-09-10 11:00:00-03','01100926110000','001',9002,1,990850,1,50.00,'A',5929,'T01','N',NULL,'S','P','35260900000000000000000000000000000000009002','20', 9.00,30.00,12.0,700002,0),
-          (1,'2026-09-10 12:00:00-03','01100926120000','001',9003,1,990850,1,10.00,'A',5929,'T01','S',NULL,'S','P','35260900000000000000000000000000000000009003','00',1.80,10.00,18.0,700003,0),
-          (1,'2026-09-10 13:00:00-03','01100926130000','001',9004,1,990850,1,10.00,'A',5929,'T01','N',NULL,'S','C','35260900000000000000000000000000000000009004','00',1.80,10.00,18.0,700004,0),
-          (1,'2026-09-10 14:00:00-03','01100926140000','001',9005,1,990850,1,10.00,'A',5929,'IST','N',NULL,'S','P','35260900000000000000000000000000000000009005',NULL,0.00,0.00,0.0,700005,2.00),
-          (1,'2026-09-10 16:00:00-03','01100926160000','001',9007,1,990850,1,10.00,'A',5929,'T01','N',NULL,'S','I','35260900000000000000000000000000000000009007','00',1.80,10.00,18.0,700007,0)`);
+          (1,'2035-09-10 10:00:00-03','01100926100000','001',9001,1,990850,2,25.00,'A',5929,'T01','N',NULL,'S','P','35260900000000000000000000000000000000009001','00',9.00,50.00,18.0,700001,0),
+          (1,'2035-09-10 11:00:00-03','01100926110000','001',9002,1,990850,1,50.00,'A',5929,'T01','N',NULL,'S','P','35260900000000000000000000000000000000009002','20', 9.00,30.00,12.0,700002,0),
+          (1,'2035-09-10 12:00:00-03','01100926120000','001',9003,1,990850,1,10.00,'A',5929,'T01','S',NULL,'S','P','35260900000000000000000000000000000000009003','00',1.80,10.00,18.0,700003,0),
+          (1,'2035-09-10 13:00:00-03','01100926130000','001',9004,1,990850,1,10.00,'A',5929,'T01','N',NULL,'S','C','35260900000000000000000000000000000000009004','00',1.80,10.00,18.0,700004,0),
+          (1,'2035-09-10 14:00:00-03','01100926140000','001',9005,1,990850,1,10.00,'A',5929,'IST','N',NULL,'S','P','35260900000000000000000000000000000000009005',NULL,0.00,0.00,0.0,700005,2.00),
+          (1,'2035-09-10 16:00:00-03','01100926160000','001',9007,1,990850,1,10.00,'A',5929,'T01','N',NULL,'S','I','35260900000000000000000000000000000000009007','00',1.80,10.00,18.0,700007,0)`);
         // um cupom em CONTINGÊNCIA (NFC-e sem chave) para o aviso de compliance
         // contingência = STATUSNFE='G' **com** chave (é o que o VerificaNfcContigencia do legado conta)
         await pgAp.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, iat, cfop, cancelado, venda_nfc, statusnfe, chavenfe, icms_valor, icms_base_calculo, icms_aliquota, codnfc) VALUES
-          (1,'2026-09-10 15:00:00-03','01100926150000','001',9006,1,990850,1,10.00,'A',5929,'N','S','G','35260900000000000000000000000000000000009006',1.80,10.00,18.0,700006)`);
+          (1,'2035-09-10 15:00:00-03','01100926150000','001',9006,1,990850,1,10.00,'A',5929,'N','S','G','35260900000000000000000000000000000000009006',1.80,10.00,18.0,700006)`);
         // a apuração do MÊS ANTERIOR, com saldo credor a transportar (prova o encadeamento)
-        await pgAp.query(`INSERT INTO apuracao_icms (idempresa, dataini, datafin, saldocredorseguinte) VALUES (1,'2026-08-01','2026-08-31',7.00)`);
+        await pgAp.query(`INSERT INTO apuracao_icms (idempresa, dataini, datafin, saldocredorseguinte) VALUES (1,'2035-08-01','2035-08-31',7.00)`);
 
         const apPost = (b: Record<string, unknown>, h = H) => fetch(`${base}/${AP}/processar`, { method: 'POST', headers: h, body: JSON.stringify(b) });
-        const ap1 = await apPost({ dataini: '2026-09-01', datafin: '2026-09-30' });
+        const ap1 = await apPost({ dataini: '2035-09-01', datafin: '2035-09-30' });
         const ap1J = (await ap1.json().catch(() => ({}))) as any;
         const cab = ap1J.cabecalho ?? {};
         // débito de saída = NF (36,00) + cupons (9+9 = 18,00) = 54,00 · crédito de entrada = 12,00, TODO na coluna SN
@@ -10925,12 +10936,12 @@ async function main() {
           { saida: cfopsSaida, entrada: cfopEntrada, cfops: ap1J.cfops });
 
         // reprocesso: sem a flag devolve o gravado; com a flag refaz sem duplicar (e os ajustes manuais entram no E110)
-        const ap2 = await apPost({ dataini: '2026-09-01', datafin: '2026-09-30' });
+        const ap2 = await apPost({ dataini: '2035-09-01', datafin: '2035-09-30' });
         const ap2J = (await ap2.json().catch(() => ({}))) as any;
-        const ap3 = await apPost({ dataini: '2026-09-01', datafin: '2026-09-30', reprocessar: true, deducoes: 5, outroscreditos: 10 });
+        const ap3 = await apPost({ dataini: '2035-09-01', datafin: '2035-09-30', reprocessar: true, deducoes: 5, outroscreditos: 10 });
         const ap3J = (await ap3.json().catch(() => ({}))) as any;
         // reprocessar SEM reenviar os ajustes tem de PRESERVAR o que já estava gravado (o legado edita o registro)
-        const ap4 = await apPost({ dataini: '2026-09-01', datafin: '2026-09-30', reprocessar: true });
+        const ap4 = await apPost({ dataini: '2035-09-01', datafin: '2035-09-30', reprocessar: true });
         const ap4J = (await ap4.json().catch(() => ({}))) as any;
         const linhas = Number((await pgAp.query(`SELECT count(*)::int n FROM apuracao_icms_detalhes WHERE codapuracaoicms=$1`, [Number(cab.codapuracaoicms)])).rows[0].n);
         check('APURAÇÃO ICMS §85.3: chamar de novo SEM reprocessar devolve a apuração gravada (reprocessada:false, mesmos números) · COM reprocessar refaz sem duplicar o detalhe (8 linhas) e aplica os ajustes (outros créditos 10 → crédito 29,00, devedor 39,40; deduções 5 → a recolher 34,40) · e reprocessar DE NOVO sem reenviar os ajustes **preserva** os gravados e o saldo anterior — no legado eles vivem em datasets filhos e o registro é editado, não recriado',
@@ -10946,13 +10957,13 @@ async function main() {
             semReenviar: [ap4.status, ap4J.cabecalho?.outroscreditos, ap4J.cabecalho?.deducoes, ap4J.cabecalho?.saldoant, ap4J.code], linhas });
 
         // saldo CREDOR: um período só com entrada ⇒ credor a transportar, devedor e a recolher zerados
-        const apCred = await apPost({ dataini: '2026-09-05', datafin: '2026-09-05' });
+        const apCred = await apPost({ dataini: '2035-09-05', datafin: '2035-09-05' });
         const apCredJ = (await apCred.json().catch(() => ({}))) as any;
-        const obter = await fetch(`${base}/${AP}/obter`, { method: 'POST', headers: H, body: JSON.stringify({ dataini: '2026-09-05', datafin: '2026-09-05', limite_detalhe: 10 }) });
+        const obter = await fetch(`${base}/${AP}/obter`, { method: 'POST', headers: H, body: JSON.stringify({ dataini: '2035-09-05', datafin: '2035-09-05', limite_detalhe: 10 }) });
         const obterJ = (await obter.json().catch(() => ({}))) as any;
         const obterVazio = await fetch(`${base}/${AP}/obter`, { method: 'POST', headers: H, body: JSON.stringify({ dataini: '2020-01-01', datafin: '2020-01-31' }) });
-        const semGrant = await apPost({ dataini: '2026-09-01', datafin: '2026-09-30' }, H_SEM_ACESSO);
-        const invertido = await apPost({ dataini: '2026-09-30', datafin: '2026-09-01' });
+        const semGrant = await apPost({ dataini: '2035-09-01', datafin: '2035-09-30' }, H_SEM_ACESSO);
+        const invertido = await apPost({ dataini: '2035-09-30', datafin: '2035-09-01' });
         check('APURAÇÃO ICMS §85.4: período só com ENTRADA → saldo CREDOR a transportar (12,00), devedor e a recolher zerados (e o saldo anterior do mês anterior não se aplica a período que não é o mês) · obter devolve cabeçalho+CFOPs+detalhe · período sem apuração → 422 · sem grant → 403 · período invertido → 400',
           apCred.status === 200 && Number(apCredJ.cabecalho?.saldocredorseguinte) === 12
           && Number(apCredJ.cabecalho?.saldodevedor) === 0 && Number(apCredJ.cabecalho?.arecolher) === 0
@@ -10961,7 +10972,7 @@ async function main() {
           { credor: apCredJ.cabecalho, obter: [obter.status, obterJ.detalhe?.length], vazio: obterVazio.status, rbac: semGrant.status, invertido: invertido.status });
 
         // cleanup
-        await pgAp.query(`DELETE FROM apuracao_icms WHERE idempresa=1 AND dataini >= '2026-08-01'`);
+        await pgAp.query(`DELETE FROM apuracao_icms WHERE idempresa=1 AND dataini >= '2035-08-01'`);
         await pgAp.query(`DELETE FROM vendas WHERE nropedido LIKE '011009261%'`);
         await pgAp.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2,$3,990853,990854)`, [nfS.codnf, nfE.codnf, nfBonif.codnf]);
         await pgAp.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3,990853,990854)`, [nfS.codnf, nfE.codnf, nfBonif.codnf]);
