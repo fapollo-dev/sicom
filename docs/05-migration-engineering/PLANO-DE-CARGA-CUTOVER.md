@@ -557,6 +557,87 @@ nenhuma outra coluna numérica fora de escala, nem nenhuma com dígitos inteiros
 essas seis são o universo do problema. Vale lembrar que precisão insuficiente não arredonda: **rejeita** a
 linha (`numeric field overflow`), então esse lado também estava sem cobertura até agora.
 
+## 7s. PRODUÇÃO medida pela primeira vez (2026-09-02) — SOMENTE LEITURA
+
+O usuário liberou a base de produção (`hiperpinheirao.ddns.com.br`, SID `apollo`) **só para observação — "NÃO
+ALTERAR NADA"**. Toda sessão abre com `SET TRANSACTION READ ONLY` e os scripts do cutover passaram a aceitar
+`ORACLE_HOST` (padrão continua a homologação). Primeiro retrato, tirado às 14h21 de 02/09 com a loja operando
+(última venda do mesmo minuto):
+
+### Volume: 45.240.749 linhas nas 69 tabelas do plano — **2,16× a homologação**
+
+| fase | homolog | produção | razão |
+|---|---|---|---|
+| F0 | 48.734 | 48.909 | 1,00× |
+| F1 | 405.108 | 575.132 | 1,42× |
+| F2 | 1.662.682 | 1.133.474 | 0,68× (ver abaixo) |
+| F3 | 1.452.387 | 4.657.066 | **3,21×** |
+| F4 | 17.374.630 | 38.830.262 | **2,23×** |
+
+Os saltos que dimensionam a janela: `vendas` 11,9M → **18,9M** · `historico_prod` 2,87M → **14,55M (5×)** ·
+`cx_vendas` 1,5M → 3,3M · `cartao` 125k → **2,04M (16×)** · `diario` 888k → 1,75M · e todo o financeiro da F3
+DOBROU. Pela taxa medida na homologação (~33 mil linhas/s na extração, ~26 mil/s na carga), a F4 sozinha passa
+de 20 min para **~45 min de extração + ~50 min de carga** — e isso pela internet, não na rede local.
+
+### A homologação NÃO é um retrato de produção — tem dado que produção não tem
+
+Várias tabelas são **menores** em produção: `aliquota` 33 → **12** (a homolog tem 21 códigos T10…T66 que não
+existem em produção), `det_aliquota` 236 → 195, `inventario` 79.190 → 15.441, `balancoitens` 980.574 →
+295.056, `pedidocompra_i` 286.853 → 207.401, `composicao` 161 → 61, `receita_prod` 117 → 86, `perfil` 20 → 15.
+Ou seja: a homologação carrega **massa de teste** por cima da cópia. Consequência direta para o que fizemos até
+aqui — todo veredicto tirado "do golden" sobre TABELA DE REFERÊNCIA (alíquotas, det_aliquota, perfis, receitas)
+precisa ser reconferido contra produção antes da virada; os 47.651 produtos de produção referenciam só as 12
+alíquotas reais (0 fora da tabela). O que cresce muito (operadores 157 → 284, permissoes 31k → 57k, empresas
+4 → 5: entrou a 52 "PINHEIRAO SERVIÇOS ADMINISTRATIVOS") é operação de 2024-2026 que a homolog nunca viu.
+
+### Uma tabela ficou FORA do ensaio inteiro: `LOTEPRECO`
+
+Está no plano como `lote_preco` (nosso nome) e o extrator procurava `LOTE_PRECO` no Oracle, que não existe —
+saiu como "pulada: nenhuma coluna casa" nas cinco rodadas, sem ninguém notar. Em produção tem **96.569 linhas**
+(a fila do Ajuste de Preços). 19 das 20 colunas do destino casam; 4 só no Oracle (`codpedcomp`,
+`etiqueta_impressa`, `permitealteracao`, `vrcusto_anterior`) e 1 só nossa (`dtcadastro`). Corrigido com o mapa
+`TABELA_ORIGEM` no extrator e no mapa-colunas; entra na próxima extração.
+
+Produção tem **866 tabelas** (homolog: 841) — as 25 novas ainda não foram listadas (pendente).
+
+### ⛔ O plano de carga tinha um BURACO: 77 tabelas do destino existem no Oracle e não estavam em NENHUMA fase
+
+Cruzando o schema de destino (207 tabelas) com o `user_tables` de produção: **77 tabelas** existem nos dois
+lados e **não estão nas cinco fases** — o plano era uma lista mantida à mão, e ela cobria os 69 "principais" e
+esquecia os FILHOS. Somam **~5,0 milhões de linhas** em produção. As maiores:
+
+| tabela | linhas (prod) | de quem é filha |
+|---|---|---|
+| `apuracao_icms_detalhes` | 2.801.160 | apuração de ICMS (épico fechado em ago/2026 — a tabela que nós mesmos criamos para receber isto) |
+| `historico_pdv` | 675.912 | PDV (fora da regra de funcionalidade, mas o dado histórico existe no destino) |
+| `nfe_nao_cadastradas_itens` | 209.322 | `nfe_nao_cadastradas` (que ESTÁ na F4 — o filho ficou de fora) |
+| `estoque_dep` | 203.311 | estoque de depósito (o balanço e o rotativo dependem dele) |
+| `audit_permissoes` | 141.734 | RBAC |
+| `scrap_item` | 132.644 | `scrap` (na F2; o filho não) |
+| `nf_prod_lote` | 131.403 | `nf_prod` (o rastro — corte-1 entregue e sem carga!) |
+| `nfe_eventos` | 106.720 | eventos da NF-e |
+| `agenda_promocao_itens` | 46.366 | `agenda_promocao` (na F2; o filho não) |
+| `nf_forma_pagamento` | 43.825 | NF |
+| + 67 menores | ≈ 590k | `ajuste_estoque` 14k · `nf_referencia` 11k · `analise_pedido_nf*` 5 tabelas · `inventario_rotativo` 1.329 · `situacao_nf` · `motivos_operacao` · `indexador_tributario` 12k … |
+
+Isso muda a leitura do §7q: o ensaio "das cinco fases" provou a carga de **69 tabelas**, não do destino. A
+correção certa não é alongar a lista à mão de novo — é o extrator **derivar** o universo: toda tabela do destino
+que exista no Oracle (com o mapa de nomes), fase pela **profundidade no grafo de FKs** do destino, e uma lista
+explícita de EXCLUSÕES com motivo. Assim tabela nova aparece sozinha e "pulada" vira exceção declarada.
+
+**Feito** (`tools/cutover/etl/plano-universo.py` → `tools/cutover/plano-tabelas.json`): o universo derivado tem
+**145 tabelas em 5 fases** (f0 73 · f1 42 · f2 23 · f3 6 · f4 1 — a fase agora é a PROFUNDIDADE no grafo de FKs
+do destino, não mais "referência → movimento"; o que importa para a carga é a ordem, e ela sai do grafo). Duas
+exclusões declaradas (`historico_pdv` e `hist_sangria_suprimento`: PDV, por instrução do usuário) e 13 tabelas só
+do destino (nossas). **75 novas em relação ao plano antigo, 4.306.853 linhas em produção** (70 com dado; 5 vazias).
+O extrator e o mapa de colunas passaram a ler o JSON; a lista digitada ficou como fallback e registro.
+
+Outras correções da mesma rodada: o `varre-unicidade.py` passou a honrar o **predicado do índice parcial** (acusava
+`relacao_operador_perfil` por pares soft-delete 'E' + 'I' que o índice `WHERE coalesce(indr,'I') <> 'E'` permite),
+`cotacao_prodqtde` ganhou DEDUP (2 pares idênticos em produção), e o `schema-destino.json` estava **defasado desde
+26/08** (antes das migs 184-191) — os "não cabe" de `caixa`/`mov_contas_bancarias` que o mapa acusou em produção eram
+o retrato velho; re-dumpado, produção cabe inteira (só `empresas.cnpj` com máscara, que a transformação já limpa).
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).

@@ -23,8 +23,15 @@ fase = (sys.argv[1] if len(sys.argv) > 1 else 'f0').lower()
 alvos = FASES[fase]
 
 dest = json.load(open('/Library/Apollo/tools/cutover/schema-destino.json'))['tabelas']
-con = oracledb.connect(user="pinheirao", password="apollo", dsn=oracledb.makedsn("192.168.1.230",1521,sid="apollo"))
+# ORACLE_HOST escolhe a base: 192.168.1.230 (homologação, padrão) ou hiperpinheirao.ddns.com.br (PRODUÇÃO).
+# Produção é SOMENTE OBSERVAÇÃO por instrução do usuário: a sessão abre READ ONLY como guarda — este script só
+# faz SELECT, mas a guarda deixa o Oracle recusar qualquer escrita por acidente.
+import os as _os
+ORACLE_HOST = _os.environ.get("ORACLE_HOST", "192.168.1.230")
+con = oracledb.connect(user="pinheirao", password="apollo", dsn=oracledb.makedsn(ORACLE_HOST,1521,sid="apollo"))
 con.call_timeout = 600000
+con.cursor().execute("SET TRANSACTION READ ONLY")
+print(f"[oracle] {ORACLE_HOST} (read only)")
 cur = con.cursor()
 cur.execute("select table_name from user_tables")
 ora_tabs = {r[0] for r in cur.fetchall()}
@@ -32,7 +39,7 @@ ora_tabs = {r[0] for r in cur.fetchall()}
 print(f"== MAPA {fase.upper()} — {len(alvos)} tabelas ==\n")
 problemas = 0
 for t in alvos:
-    T = t.upper()
+    T = {'lote_preco': 'LOTEPRECO'}.get(t, t.upper())  # mesmo mapa do extrator (LOTEPRECO não é LOTE_PRECO)
     if t not in dest:
         print(f"  ⛔ {t}: NÃO existe no destino"); problemas += 1; continue
     if T not in ora_tabs:

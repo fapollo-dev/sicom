@@ -25,6 +25,8 @@ FASES = {
  'f0': "bancos cidades bairro cfop ncm aliquota piscofins det_aliquota figura_fiscal unidade marcas familias_prod familias_prod_area plc plano_contas condicoes_pagto operacoes_conta".split(),
 }
 # renomeações origem→destino que o casamento por nome não resolve (achadas pelo mapa-colunas.py)
+# tabelas cujo nome no Oracle difere do nosso (o padrão é só maiúsculas)
+TABELA_ORIGEM = {'lote_preco': 'LOTEPRECO'}
 RENOMEIA = {
  'aliquota': {'aliquota': 'codigo'},
  # §7e: o código do Oracle NÃO entra na PK (lá é por venda/cupom, não por linha) — vira coluna de referência
@@ -41,7 +43,11 @@ RENOMEIA = {
 # colunas CONSTANTES que o destino exige e a origem não tem (§7b: sem `origem_legado='S'` o índice parcial de
 # login rejeita os 15 operadores com login repetido do cliente)
 # colunas CALCULADAS na extração (expressão Oracle que vira coluna nova no CSV)
-CALCULADAS = {'historico_prod': {
+CALCULADAS = {
+  # ICMS_CFOP do legado não tem TIPO; o nosso resumo por CFOP separa entradas e saídas por ele. Deriva do
+  # primeiro dígito do CFOP (1/2/3 = entrada, 5/6/7 = saída) — a mesma regra do nosso serviço de apuração.
+  'icms_cfop': {'tipo': "case when substr(to_char(cfop),1,1) in ('1','2','3') then 'E' else 'S' end"},
+  'historico_prod': {
     # saldo antes do movimento = saldo depois − o que mexeu
     'saldo_anterior': 'nvl(qtde_atual,0) - nvl(qtde_alter,0)',
     # `tipo` é E/S conforme o sinal do movimento (o legado guarda só o delta assinado)
@@ -82,7 +88,12 @@ FILTROS = {'codreferencia_for': 'codref is not null',
            'pedidocompra': 'codparceiro is not null'}
 
 # PKs naturais que a origem repete: a carga fica com a ÚLTIMA linha por chave e CONTA o descarte (§7e)
-DEDUP = {'det_aliquota': ['aliquota', 'uf'], 'caixa_pdv': ['codcaixa'],
+DEDUP = {'cotacao_prodqtde': ['codcpr', 'idempresa'],
+         # produção: 5 pares repetidos (25 linhas) na cotação 281/282, cópias com VALORES diferentes. O app faz
+         # ON CONFLICT (codctcforn, codcpr) — índice parcial quebraria o upsert (lição das migs 179/180), então
+         # quem cede é a carga: fica a última por ROWID. Perda: 20 linhas de uma cotação quebrada, registrada.
+         'cotacao_forn_itens': ['codctcforn', 'codcpr'],  # produção: 2 pares idênticos (qtde 0) — o índice único barraria a carga
+         'det_aliquota': ['aliquota', 'uf'], 'caixa_pdv': ['codcaixa'],
          # o de-para do fornecedor NÃO é 1:1 no legado (76 chaves com produtos diferentes), mas o UPSERT do
          # recebimento depende da unicidade: a carga fica com a última referência de cada (codfor, codref).
          'codreferencia_for': ['codfor', 'codref'],
@@ -97,6 +108,15 @@ for _a in sys.argv[1:]:
         _c, _i, _f = _a.split('=', 1)[1].split(':')
         particao = (_c, _i, _f)
         sys.argv = [x for x in sys.argv if x != _a]
+# o UNIVERSO derivado (tools/cutover/etl/plano-universo.py) manda quando existe: fases pela profundidade do grafo
+# de FKs, tabela nova aparece sozinha. A lista digitada acima fica só como fallback e como registro histórico.
+try:
+    _plano = json.load(open(f'{BASE}/plano-tabelas.json'))
+    FASES = dict(_plano['fases'])
+    TABELA_ORIGEM.update(_plano.get('tabela_origem', {}))
+    print(f"[plano] {sum(len(v) for v in FASES.values())} tabelas em {len(FASES)} fases (plano-tabelas.json)")
+except FileNotFoundError:
+    print('[plano] plano-tabelas.json ausente — usando a lista fixa')
 # além das fases, aceita uma LISTA de tabelas separada por vírgula — é como se reextrai uma tabela só
 # depois de corrigir o mapa dela, sem repetir as outras 5 da fase (`historico_prod` custa ~4 min).
 if fase not in FASES:
@@ -105,15 +125,24 @@ saida = sys.argv[2] if len(sys.argv) > 2 else f'{BASE}/staging/{fase}'
 os.makedirs(saida, exist_ok=True)
 dest = json.load(open(f'{BASE}/schema-destino.json'))['tabelas']
 
-con = oracledb.connect(user="pinheirao", password="apollo", dsn=oracledb.makedsn("192.168.1.230",1521,sid="apollo"))
+# ORACLE_HOST escolhe a base: 192.168.1.230 (homologação, padrão) ou hiperpinheirao.ddns.com.br (PRODUÇÃO).
+# Produção é SOMENTE OBSERVAÇÃO por instrução do usuário: a sessão abre READ ONLY como guarda — este script só
+# faz SELECT, mas a guarda deixa o Oracle recusar qualquer escrita por acidente.
+import os as _os
+ORACLE_HOST = _os.environ.get("ORACLE_HOST", "192.168.1.230")
+con = oracledb.connect(user="pinheirao", password="apollo", dsn=oracledb.makedsn(ORACLE_HOST,1521,sid="apollo"))
 con.call_timeout = 900000
+con.cursor().execute("SET TRANSACTION READ ONLY")
+print(f"[oracle] {ORACLE_HOST} (read only)")
 cur = con.cursor()
 cur.execute("select table_name from user_tables")
 ora = {r[0] for r in cur.fetchall()}
 
 manifesto = {}
 for t in FASES[fase]:
-    T = t.upper()
+    # o nome da tabela no Oracle nem sempre é o nosso em maiúsculas: LOTEPRECO (96.569 linhas em produção) passou
+    # o ensaio inteiro como 'pulada: nenhuma coluna casa' porque procurávamos LOTE_PRECO. Mapa explícito.
+    T = TABELA_ORIGEM.get(t, t.upper())
     if t not in dest or T not in ora:
         manifesto[t] = {'pulada': 'sem origem no Oracle' if t in dest else 'sem destino'}
         print(f"  ○ {t}: {manifesto[t]['pulada']}"); continue

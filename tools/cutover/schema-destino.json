@@ -121,6 +121,13 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "origem_legado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -2828,7 +2835,7 @@
     },
     "obs": {
      "tipo": "character varying",
-     "tam": 255,
+     "tam": 300,
      "escala": null,
      "nulo": true,
      "default": null
@@ -2855,8 +2862,8 @@
      "default": null
     },
     "tiporecurso": {
-     "tipo": "character",
-     "tam": 1,
+     "tipo": "character varying",
+     "tam": 20,
      "escala": null,
      "nulo": true,
      "default": null
@@ -2911,8 +2918,8 @@
      "default": null
     },
     "gerado": {
-     "tipo": "character",
-     "tam": 1,
+     "tipo": "character varying",
+     "tam": 20,
      "escala": null,
      "nulo": true,
      "default": null
@@ -3010,7 +3017,7 @@
     },
     "origem": {
      "tipo": "character varying",
-     "tam": 10,
+     "tam": 30,
      "escala": null,
      "nulo": true,
      "default": null
@@ -4152,7 +4159,7 @@
      "tipo": "integer",
      "tam": 32,
      "escala": 0,
-     "nulo": false,
+     "nulo": true,
      "default": null
     },
     "codref": {
@@ -5978,6 +5985,13 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "codcxvendas_legado": {
+     "tipo": "bigint",
+     "tam": 64,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -6067,22 +6081,22 @@
     },
     "icm": {
      "tipo": "numeric",
-     "tam": 7,
-     "escala": 2,
+     "tam": 15,
+     "escala": 4,
      "nulo": false,
      "default": "0"
     },
     "icm_efetivo": {
      "tipo": "numeric",
-     "tam": 7,
-     "escala": 2,
+     "tam": 15,
+     "escala": 4,
      "nulo": false,
      "default": "0"
     },
     "base": {
      "tipo": "numeric",
-     "tam": 7,
-     "escala": 2,
+     "tam": 15,
+     "escala": 4,
      "nulo": false,
      "default": "0"
     },
@@ -6095,7 +6109,7 @@
     },
     "csosn": {
      "tipo": "character varying",
-     "tam": 4,
+     "tam": 12,
      "escala": null,
      "nulo": true,
      "default": null
@@ -6109,7 +6123,7 @@
     },
     "lei": {
      "tipo": "character varying",
-     "tam": 200,
+     "tam": 500,
      "escala": null,
      "nulo": true,
      "default": null
@@ -6147,14 +6161,14 @@
      "tipo": "integer",
      "tam": 32,
      "escala": 0,
-     "nulo": false,
+     "nulo": true,
      "default": null
     },
     "contacredito": {
      "tipo": "integer",
      "tam": 32,
      "escala": 0,
-     "nulo": false,
+     "nulo": true,
      "default": null
     },
     "valor": {
@@ -6175,7 +6189,7 @@
      "tipo": "integer",
      "tam": 32,
      "escala": 0,
-     "nulo": false,
+     "nulo": true,
      "default": null
     },
     "codoperacao": {
@@ -6996,7 +7010,7 @@
     },
     "descricao": {
      "tipo": "character varying",
-     "tam": 60,
+     "tam": 100,
      "escala": null,
      "nulo": true,
      "default": null
@@ -8913,7 +8927,7 @@
     },
     "descricao": {
      "tipo": "character varying",
-     "tam": 120,
+     "tam": 150,
      "escala": null,
      "nulo": true,
      "default": null
@@ -9011,14 +9025,14 @@
     },
     "descricao_produto": {
      "tipo": "character varying",
-     "tam": 120,
+     "tam": 150,
      "escala": null,
      "nulo": true,
      "default": null
     },
     "descricao_grupo": {
      "tipo": "character varying",
-     "tam": 60,
+     "tam": 100,
      "escala": null,
      "nulo": true,
      "default": null
@@ -9095,7 +9109,7 @@
     },
     "descricao": {
      "tipo": "character varying",
-     "tam": 60,
+     "tam": 100,
      "escala": null,
      "nulo": true,
      "default": null
@@ -9179,7 +9193,7 @@
     },
     "conta_contabil": {
      "tipo": "character varying",
-     "tam": 120,
+     "tam": 150,
      "escala": null,
      "nulo": true,
      "default": null
@@ -9248,8 +9262,8 @@
      "default": null
     },
     "nro_cupom": {
-     "tipo": "integer",
-     "tam": 32,
+     "tipo": "bigint",
+     "tam": 64,
      "escala": 0,
      "nulo": true,
      "default": null
@@ -9753,7 +9767,7 @@
     },
     "descricao": {
      "tipo": "character varying",
-     "tam": 120,
+     "tam": 150,
      "escala": null,
      "nulo": true,
      "default": null
@@ -10684,7 +10698,7 @@
     },
     "descricao": {
      "tipo": "character varying",
-     "tam": 120,
+     "tam": 150,
      "escala": null,
      "nulo": true,
      "default": null
@@ -10964,7 +10978,7 @@
     },
     "descricao": {
      "tipo": "character varying",
-     "tam": 120,
+     "tam": 150,
      "escala": null,
      "nulo": true,
      "default": null
@@ -10999,7 +11013,7 @@
     },
     "grupo": {
      "tipo": "character varying",
-     "tam": 60,
+     "tam": 100,
      "escala": null,
      "nulo": true,
      "default": null
@@ -12250,7 +12264,7 @@
     },
     "descricao": {
      "tipo": "character varying",
-     "tam": 120,
+     "tam": 150,
      "escala": null,
      "nulo": true,
      "default": null
@@ -13762,7 +13776,7 @@
     },
     "historico": {
      "tipo": "character varying",
-     "tam": 255,
+     "tam": 300,
      "escala": null,
      "nulo": true,
      "default": null
@@ -13955,6 +13969,13 @@
      "escala": null,
      "nulo": true,
      "default": "now()"
+    },
+    "origem_legado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -13968,7 +13989,7 @@
     },
     {
      "nome": "ux_mbo_fitid",
-     "def": "CREATE UNIQUE INDEX ux_mbo_fitid ON public.movimentacao_bancaria_ofx USING btree (codconta, mbo_transacao_id, mbo_check_num)"
+     "def": "CREATE UNIQUE INDEX ux_mbo_fitid ON public.movimentacao_bancaria_ofx USING btree (codconta, mbo_transacao_id, mbo_check_num) WHERE (COALESCE(origem_legado, 'N'::bpchar) <> 'S'::bpchar)"
     }
    ]
   },
@@ -15053,6 +15074,13 @@
      "escala": 0,
      "nulo": true,
      "default": null
+    },
+    "origem_legado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -15079,11 +15107,11 @@
     },
     {
      "nome": "ux_nf_cod_ped_dev_compra",
-     "def": "CREATE UNIQUE INDEX ux_nf_cod_ped_dev_compra ON public.nf USING btree (cod_ped_dev_compra) WHERE (cod_ped_dev_compra IS NOT NULL)"
+     "def": "CREATE UNIQUE INDEX ux_nf_cod_ped_dev_compra ON public.nf USING btree (cod_ped_dev_compra) WHERE ((cod_ped_dev_compra IS NOT NULL) AND (COALESCE(origem_legado, 'N'::bpchar) <> 'S'::bpchar))"
     },
     {
      "nome": "ux_nf_natural",
-     "def": "CREATE UNIQUE INDEX ux_nf_natural ON public.nf USING btree (nronf, serie, modelo, idempresa, tipoemissao, codparceiro) WHERE ((nronf IS NOT NULL) AND ((nronf)::text <> ''::text))"
+     "def": "CREATE UNIQUE INDEX ux_nf_natural ON public.nf USING btree (nronf, serie, modelo, idempresa, tipoemissao, codparceiro) WHERE ((nronf IS NOT NULL) AND ((nronf)::text <> ''::text) AND (COALESCE(origem_legado, 'N'::bpchar) <> 'S'::bpchar))"
     }
    ]
   },
@@ -15347,8 +15375,8 @@
     },
     "desconto": {
      "tipo": "numeric",
-     "tam": 13,
-     "escala": 2,
+     "tam": 17,
+     "escala": 6,
      "nulo": true,
      "default": "0"
     },
@@ -15361,8 +15389,8 @@
     },
     "bonificacao": {
      "tipo": "numeric",
-     "tam": 13,
-     "escala": 2,
+     "tam": 17,
+     "escala": 6,
      "nulo": true,
      "default": "0"
     },
@@ -15424,8 +15452,8 @@
     },
     "vrbasecalculo": {
      "tipo": "numeric",
-     "tam": 13,
-     "escala": 2,
+     "tam": 15,
+     "escala": 4,
      "nulo": true,
      "default": "0"
     },
@@ -15445,8 +15473,8 @@
     },
     "mva": {
      "tipo": "numeric",
-     "tam": 13,
-     "escala": 2,
+     "tam": 15,
+     "escala": 4,
      "nulo": true,
      "default": "0"
     },
@@ -15536,15 +15564,15 @@
     },
     "frete": {
      "tipo": "numeric",
-     "tam": 13,
-     "escala": 2,
+     "tam": 17,
+     "escala": 6,
      "nulo": true,
      "default": "0"
     },
     "seguro": {
      "tipo": "numeric",
-     "tam": 13,
-     "escala": 2,
+     "tam": 15,
+     "escala": 4,
      "nulo": true,
      "default": "0"
     },
@@ -16341,6 +16369,13 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "origem_legado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -16354,7 +16389,7 @@
     },
     {
      "nome": "ux_nfe_naocad_chave",
-     "def": "CREATE UNIQUE INDEX ux_nfe_naocad_chave ON public.nfe_nao_cadastradas USING btree (chavenfe)"
+     "def": "CREATE UNIQUE INDEX ux_nfe_naocad_chave ON public.nfe_nao_cadastradas USING btree (chavenfe) WHERE ((chavenfe IS NOT NULL) AND (COALESCE(origem_legado, 'N'::bpchar) <> 'S'::bpchar))"
     }
    ]
   },
@@ -18281,6 +18316,13 @@
      "escala": 0,
      "nulo": true,
      "default": null
+    },
+    "origem_legado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -18298,8 +18340,8 @@
      "def": "CREATE UNIQUE INDEX parceiros_end_pkey ON public.parceiros_end USING btree (codend)"
     },
     {
-     "nome": "ux_parceiros_end_doc",
-     "def": "CREATE UNIQUE INDEX ux_parceiros_end_doc ON public.parceiros_end USING btree (cnpj_cpf) WHERE (cnpj_cpf IS NOT NULL)"
+     "nome": "ux_parceiros_end_doc_novo",
+     "def": "CREATE UNIQUE INDEX ux_parceiros_end_doc_novo ON public.parceiros_end USING btree (cnpj_cpf) WHERE ((cnpj_cpf IS NOT NULL) AND (COALESCE(origem_legado, 'N'::bpchar) <> 'S'::bpchar))"
     }
    ]
   },
@@ -19916,7 +19958,7 @@
     },
     "descricao": {
      "tipo": "character varying",
-     "tam": 120,
+     "tam": 150,
      "escala": null,
      "nulo": false,
      "default": null
@@ -20310,14 +20352,14 @@
     },
     "descricao": {
      "tipo": "character varying",
-     "tam": 120,
+     "tam": 150,
      "escala": null,
      "nulo": false,
      "default": null
     },
     "descricao_resumida": {
      "tipo": "character varying",
-     "tam": 60,
+     "tam": 100,
      "escala": null,
      "nulo": true,
      "default": null
@@ -20331,7 +20373,7 @@
     },
     "descricao_balanca": {
      "tipo": "character varying",
-     "tam": 60,
+     "tam": 150,
      "escala": null,
      "nulo": true,
      "default": null
@@ -22374,8 +22416,8 @@
      "default": null
     },
     "nrocupom": {
-     "tipo": "integer",
-     "tam": 32,
+     "tipo": "bigint",
+     "tam": 64,
      "escala": 0,
      "nulo": true,
      "default": null
@@ -22620,7 +22662,7 @@
     },
     "razao": {
      "tipo": "character varying",
-     "tam": 60,
+     "tam": 80,
      "escala": null,
      "nulo": true,
      "default": null
@@ -22712,6 +22754,13 @@
     "codnfc": {
      "tipo": "integer",
      "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codvendas_legado": {
+     "tipo": "bigint",
+     "tam": 64,
      "escala": 0,
      "nulo": true,
      "default": null
