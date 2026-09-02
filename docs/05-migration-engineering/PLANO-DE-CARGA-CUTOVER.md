@@ -687,8 +687,17 @@ em ordem, no MESMO Postgres, com pós-carga/sequências/órfãos rodando uma vez
 `--manter` (não derruba o banco: imprime as variáveis para apontar a API — `PGPORT=5433` etc. — e fica vivo até
 Ctrl+C). É com isso que a próxima etapa sobe o Apollo sobre a base de produção carregada.
 
-## 8. Próximos passos de execução (quando aprovado)
+## 8. Próximos passos (estado em 2026-09-02)
 
-1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).
-2. Esqueleto do ETL (runner com checkpoint/retomada + relatório de reconciliação).
-3. Ensaio F0+F1 → validação → iterar pelas fases.
+Os três itens originais desta seção estão feitos (mapa por tabela, runner com reconciliação, ensaio por fase).
+O que falta para a virada ser real, em ordem:
+
+1. **Ensaio de OPERAÇÃO** — extração completa de PRODUÇÃO (145 tabelas, em andamento), `carregar-cutover.ts
+   todas --manter`, API apontada para o banco carregado, `tools/cutover/ensaio-operacao.sh`: as telas que a loja
+   usa respondendo sobre 18,9M de vendas, com tempo por tela. É o teste que diz se dá para virar.
+2. **Runbook da janela** — congelamento do legado, extração, carga, pós-carga, sequências, reconciliação,
+   go/no-go, volta atrás. Com a taxa medida em produção (não na homolog).
+3. **Reconferência dos veredictos de referência** contra produção (alíquotas, det_aliquota, perfis, receitas — a
+   homolog tinha massa de teste).
+4. Relatório ao cliente dos órfãos e perdas declaradas (clube_desconto 3.022, parceiros 7/11, apagar 370/712,
+   inventario 13.611, clube_desconto.idempresa 4 linhas, cotacao_forn_itens 20 linhas).
