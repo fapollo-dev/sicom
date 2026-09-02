@@ -687,6 +687,39 @@ em ordem, no MESMO Postgres, com pós-carga/sequências/órfãos rodando uma vez
 `--manter` (não derruba o banco: imprime as variáveis para apontar a API — `PGPORT=5433` etc. — e fica vivo até
 Ctrl+C). É com isso que a próxima etapa sobe o Apollo sobre a base de produção carregada.
 
+## 7u. Reconferência dos veredictos de REFERÊNCIA contra produção (2026-09-02)
+
+A homologação carrega massa de teste (§7s), então todo veredicto tirado "do golden" sobre tabela de referência
+precisava ser reconferido. Comecei pelas **configurações**, que são as que viram regra no código. As 30 chaves
+que o app lê, medidas em produção:
+
+**Iguais ao que o código assume** — `VRCUSTO_INVENTARIO` = PRODUTO · `ATIVO_PELA_MULTIPRECO` = N ·
+`ESTORNA_FINANCEIRO_NF` = N · `PERMITE_PROC_NF_ESTOQUE_NEG` = S · `TIPO_PRECIFICACAO` = P ·
+`INVENTARIO_ROTATIVO_DIGITO_SEPARADOR` = / · `INVENTARIO_ROTATIVO_ESTOQUE_DEPOSITO` = N.
+
+**Diferente da homologação, e muda comportamento:** `PERMITE_PRODUTO_MAIS_UMA_AGENDA` é **'N' em produção** e era
+'S' no golden da homologação. O código está certo (lê a config), mas o veredicto que registrei — "default 'S' =
+permissivo, fiel ao legado" — descrevia a homologação: **no cliente a anti-sobreposição de promoção está
+LIGADA**. Como a config vem na carga, o comportamento pós-virada será o de produção; o que muda é a expectativa
+de quem lê o dossiê.
+
+**Não existem em produção** (são nossas, do app): `AUTH_MAX_TENTATIVAS_LOGIN`, `AUTH_BLOQUEIO_LOGIN_MINUTOS`,
+`FUSO_HORARIO_ACESSO`, `VALOR_MAXIMO_DIARIO_PC`. Como o `TRUNCATE` da carga apaga o que as migrations semeiam,
+**elas precisam entrar no `pos-carga.sql`** — senão o app pós-virada fica sem bloqueio de login por tentativa e
+sem fuso (a lição 17 inteira depende de `FUSO_HORARIO_ACESSO`). ⚠️ pendência aberta.
+
+### ⚠️ Uma incerteza que o fonte não resolve
+
+`USUARIOS_ZERAM_ESTOQUE_INVENTARIO` (id 46) e `USUARIOS_ZERAM_INVENTARIO_ROTATIVO` (id 701) são declaradas como
+**S/N** (`valorespossiveis = 'S;N|Sim;Não'`), e em produção valem **N** e **S** — sem nenhuma linha em
+`configuracoes_especificas`. A nossa implementação ignora o valor global e monta a lista só das específicas
+(`tipo='Usuario'`, `valor='S'`), o que dá "ninguém pode" nos dois casos. Para o id 46 (valor N) o resultado
+coincide; para o **id 701 (valor S)** pode ser que o legado entenda "todos podem" — e aí divergimos.
+
+Não dá para decidir pelo fonte: `GetUsuariosPermitidos` vive em `USessao.pas`, que **não está no repositório
+clonado** (lição 35). Fica registrado como pergunta ao cliente / conferência na tela do legado, e não como
+suposição implementada.
+
 ## 8. Próximos passos (estado em 2026-09-02)
 
 Os três itens originais desta seção estão feitos (mapa por tabela, runner com reconciliação, ensaio por fase).
