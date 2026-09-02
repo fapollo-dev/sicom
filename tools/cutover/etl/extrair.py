@@ -107,6 +107,12 @@ FILTROS = {
            'pedidocompra': 'codparceiro is not null'}
 
 # PKs naturais que a origem repete: a carga fica com a ÚLTIMA linha por chave e CONTA o descarte (§7e)
+# LER EM FATIAS (ORA-01555): tabela grande em base VIVA não sobrevive a um SELECT de 20 min — o UNDO é reciclado
+# debaixo da leitura. Estas são lidas ANO A ANO pela coluna indicada, cada faixa num comando curto, escrevendo no
+# MESMO CSV. O resultado é idêntico ao de uma leitura só; o que muda é a duração de cada snapshot.
+FATIAR = {'vendas': 'dtvenda', 'historico_prod': 'data', 'cx_vendas': 'data', 'historico_dinamico': 'data',
+          'apuracao_icms_detalhes': 'dtcadastro', 'cartao': 'dtvenda', 'diario': 'data'}
+
 DEDUP = {'cotacao_prodqtde': ['codcpr', 'idempresa'],
          # produção: 5 pares repetidos (25 linhas) na cotação 281/282, cópias com VALORES diferentes. O app faz
          # ON CONFLICT (codctcforn, codcpr) — índice parcial quebraria o upsert (lição das migs 179/180), então
@@ -151,7 +157,19 @@ import os as _os
 ORACLE_HOST = _os.environ.get("ORACLE_HOST", "192.168.1.230")
 con = oracledb.connect(user="pinheirao", password="apollo", dsn=oracledb.makedsn(ORACLE_HOST,1521,sid="apollo"))
 con.call_timeout = 900000
-con.cursor().execute("SET TRANSACTION READ ONLY")
+# ⚠️ ACHADO EM PRODUÇÃO (02/09): `SET TRANSACTION READ ONLY` numa base VIVA dá **ORA-01555 (snapshot too old)**
+# quando a leitura é longa — a transação read-only fixa o instante da PRIMEIRA instrução e a loja segue reciclando
+# o UNDO. A f0 morreu depois de 78 min, lendo `vendas` (18,9M linhas). A guarda continua valendo (só SELECT, e o
+# Oracle recusa escrita), mas a transação é REABERTA a cada tabela: assim o snapshot é curto e o risco fica só
+# dentro de uma tabela gigante — que é o que `--particao` resolve.
+def abrir_leitura(c):
+    """(re)inicia a transação somente-leitura — chamada antes de CADA tabela."""
+    cu = c.cursor()
+    cu.execute("COMMIT")                       # encerra a read-only anterior (não há o que gravar: só houve SELECT)
+    cu.execute("SET TRANSACTION READ ONLY")
+    cu.close()
+
+abrir_leitura(con)
 print(f"[oracle] {ORACLE_HOST} (read only)")
 cur = con.cursor()
 cur.execute("select table_name from user_tables")
@@ -159,6 +177,7 @@ ora = {r[0] for r in cur.fetchall()}
 
 manifesto = {}
 for t in FASES[fase]:
+    abrir_leitura(con)  # snapshot curto por tabela (ver ORA-01555 acima)
     # o nome da tabela no Oracle nem sempre é o nosso em maiúsculas: LOTEPRECO (96.569 linhas em produção) passou
     # o ensaio inteiro como 'pulada: nenhuma coluna casa' porque procurávamos LOTE_PRECO. Mapa explícito.
     T = TABELA_ORIGEM.get(t, t.upper())
@@ -247,33 +266,52 @@ for t in FASES[fase]:
         if particao and particao[0].lower() in ori:
             faixa = f"{particao[0]} >= date '{particao[1]}' and {particao[0]} < date '{particao[2]}'"
             onde = f"({onde}) and {faixa}" if onde else faixa
-        cur.execute(f"select {sel} from {T}" + (f" where {onde}" if onde else ""))
+
+    # FATIAS: uma consulta por ano (mais a faixa dos nulos/fora do intervalo), cada uma com snapshot próprio.
+    col_fatia = None if chave or particao else FATIAR.get(t)
+    if col_fatia and col_fatia in ori:
+        cur.execute(f"select min({col_fatia}), max({col_fatia}) from {T}")
+        _mn, _mx = cur.fetchone()
+        a0 = _mn.year if _mn else 2000
+        a1 = (_mx.year if _mx else 2000) + 1
+        faixas = [(f"{col_fatia} >= date '{a}-01-01' and {col_fatia} < date '{a+1}-01-01'", str(a)) for a in range(a0, a1)]
+        faixas.append((f"{col_fatia} is null", 'sem data'))
+    else:
+        faixas = [(None, None)]
+
     linhas, somas, datas = 0, {}, {}
     with open(f'{saida}/{t}.csv', 'w', newline='', encoding='utf-8') as fh:
         w = csv.writer(fh)
         const = {**const_auto, **CONSTANTES.get(t, {})}
         w.writerow([d for _, d in cols] + list(const))
-        for row in cur:
-            out = []
-            for (oc, dc), v in zip(cols, row):
-                # LOB/RAW: o oracledb devolve objeto LOB (CLOB do XML da NF-e) ou bytes — o csv.writer não sabe
-                # serializar nenhum dos dois. CLOB vira texto; binário vira hex (a carga decide o que fazer).
-                if hasattr(v, 'read'):
-                    v = v.read()
-                if isinstance(v, bytes):
-                    try:
-                        v = v.decode('utf-8')
-                    except UnicodeDecodeError:
-                        v = v.hex()
-                if isinstance(v, decimal.Decimal):
-                    somas[dc] = somas.get(dc, decimal.Decimal(0)) + v
-                elif isinstance(v, (datetime.datetime, datetime.date)):
-                    iso = v.isoformat()
-                    d = datas.setdefault(dc, [iso, iso])
-                    d[0], d[1] = min(d[0], iso), max(d[1], iso)
-                    v = iso
-                out.append('' if v is None else v)
-            w.writerow(out + list(const.values())); linhas += 1
+        for _cond, _rot in faixas:
+          if not chave:
+            _onde = " and ".join(f"({x})" for x in (onde, _cond) if x)
+            abrir_leitura(con)   # snapshot NOVO por fatia — é isto que evita o ORA-01555
+            cur.execute(f"select {sel} from {T}" + (f" where {_onde}" if _onde else ""))
+          if _rot:
+              print(f"       · {t} {_rot}…", flush=True)
+          for row in cur:
+              out = []
+              for (oc, dc), v in zip(cols, row):
+                  # LOB/RAW: o oracledb devolve objeto LOB (CLOB do XML da NF-e) ou bytes — o csv.writer não sabe
+                  # serializar nenhum dos dois. CLOB vira texto; binário vira hex (a carga decide o que fazer).
+                  if hasattr(v, 'read'):
+                      v = v.read()
+                  if isinstance(v, bytes):
+                      try:
+                          v = v.decode('utf-8')
+                      except UnicodeDecodeError:
+                          v = v.hex()
+                  if isinstance(v, decimal.Decimal):
+                      somas[dc] = somas.get(dc, decimal.Decimal(0)) + v
+                  elif isinstance(v, (datetime.datetime, datetime.date)):
+                      iso = v.isoformat()
+                      d = datas.setdefault(dc, [iso, iso])
+                      d[0], d[1] = min(d[0], iso), max(d[1], iso)
+                      v = iso
+                  out.append('' if v is None else v)
+              w.writerow(out + list(const.values())); linhas += 1
     if FILTROS.get(t):
         cur.execute(f"select count(*) from {T}")
         bruto = cur.fetchone()[0]

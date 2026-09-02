@@ -74,7 +74,12 @@ async function carregarFase(pool: Pool, fase: string, rel: Rel[]): Promise<void>
   const manifesto = JSON.parse(readFileSync(resolve(dir, '_manifesto.json'), 'utf8')) as Record<string, any>;
   // ORDEM POR DEPENDÊNCIA (fold do 1º ensaio da F1): carregar em ordem alfabética punha `estoque` antes de
   // `produtos` e o relatório acusava 137 mil "órfãs" que eram só ordem. Ordena topologicamente pelas FKs reais.
-  const arquivos = readdirSync(dir).filter((f) => f.endsWith('.csv')).map((f) => f.replace(/\.csv$/, ''));
+  // a lista de tabelas vem do MANIFESTO, não do diretório: o staging acumula CSVs de extrações antigas (a f0
+  // tinha 58 arquivos de um plano anterior) e carregá-los misturaria homologação com produção.
+  const arquivos = Object.keys(manifesto)
+    .filter((t) => !(manifesto[t] as any)?.pulada && existsSync(resolve(dir, `${t}.csv`)));
+  const sobrando = readdirSync(dir).filter((f) => f.endsWith('.csv')).map((f) => f.replace(/\.csv$/, '')).filter((t) => !arquivos.includes(t));
+  if (sobrando.length) console.log(`[${fase}] ${sobrando.length} CSV(s) fora do manifesto IGNORADO(s): ${sobrando.slice(0, 6).join(', ')}${sobrando.length > 6 ? '…' : ''}`);
   const deps = new Map<string, Set<string>>();
   for (const t of arquivos) {
     const r = await pool.query(
