@@ -84,6 +84,8 @@ import { RazaoController } from './razao.controller';
 import { RazaoService } from './razao.service';
 import { NfProcessamentoController } from './nf-processamento.controller';
 import { NfProcessamentoService } from './nf-processamento.service';
+import { NfLoteController } from './nf-lote.controller';
+import { NfLoteService } from './nf-lote.service';
 import { NfFaturamentoController } from './nf-faturamento.controller';
 import { NfFaturamentoService } from './nf-faturamento.service';
 import { NfNfeController } from './nf-nfe.controller';
@@ -132,6 +134,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     FormasPgtoCrudController, // engine (FORMAS DE PAGAMENTO; empresaScoped, 3 vínculos p/ Caixa corte-2d)
     NfFiscalController, // F2 — recálculo fiscal por item (POST /fiscal/nf/recalcular), reusa precificacao
     NfProcessamentoController, // F3 — processar/reverter (move estoque atômico)
+    NfLoteController, // lotes/validade do item (uNFLoteValidade)
     NfFaturamentoController, // F4 — faturar/estornar (gera títulos ARECEBER/APAGAR atômico)
     NfNfeController, // F6 — NFe mod.55 (transmitir/cancelar/cce) atrás da porta SEFAZ
     NfContabilizacaoController, // F5b — contabilizar/estornar (gera/estorna o DIÁRIO — partida dobrada)
@@ -176,6 +179,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     ConfiguracoesAdminService,
     NfFiscalService,
     NfProcessamentoService,
+    NfLoteService,
     NfFaturamentoService,
     NfNfeService,
     NfContabilizacaoService,

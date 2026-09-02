@@ -51,7 +51,18 @@ tem de vir de `DTFABRICACAO`.
    lotes do item` (a fórmula do legado, `NFe.pas:1817`) e `dFab` do campo certo (não repetir o bug do §1).
    ⚠️ e note que **o legado nunca chegou a emitir** (o `if IsEmpty` do `:1809`): não há golden de saída para
    confrontar, então essa perna será construção nova sob a fórmula lida, não cópia verificável.
-2. **Tela dos lotes do item** (`uNFLoteValidade`): CRUD por item de NF — hoje o corte cobre só o caminho do XML.
+2. ~~**Tela dos lotes do item** (`uNFLoteValidade`)~~ **ENTREGUE (2026-09-01)** — a segunda porta de `NF_PROD_LOTE`:
+   `fiscal/nf/:id/itens/:codnfprod/lotes` (GET/POST/PUT/DELETE, `nf-lote.service.ts`). Regras copiadas da tela
+   (`btnGravarClick`, `uNFLoteValidade.pas:142-185`): lote e vencimento obrigatórios com as mensagens literais
+   (:151, :158); **unicidade (LOTE, CODNFPROD) é da TELA** (`RetornarValores`, :164 → "Lote já cadastrado para
+   este item de nota fiscal."), não do banco — por isso o que se digita não duplica e o que vem do XML pode;
+   empresa/produto/item carimbados pela nota (:176-178), nunca do usuário; excluir livre (:126-140, a tela não olha
+   PROC). Dataset filtra por `CODNFPROD` (udmNF.dfm:18725). RBAC: sub-tela sem formulário próprio no golden ⇒
+   responde às opções da NF (leitura só com o guard, como o agregado; escrita `BTNGRAVAR`). Smoke 53.4a/b.
+   **Front entregue**: ação "Lotes/validade" na grade de itens da NF (só em item gravado, como o legado abre sobre o
+   item corrente) abrindo o modal `NfLoteModal` (grade + lote/vencimento/fabricação, confirmação de exclusão com as
+   mensagens literais :129/:134). ⚠️ lição 17 bateu aqui: datas do lote trafegam como `'YYYY-MM-DD'` e entram com
+   `::date` — `z.coerce.date` gravava um dia a menos (meia-noite UTC no fuso local).
 3. **`CONTROLE_VALIDADE`/`DIAS_VALIDADE_MINIMO`/`VALIDADE` do produto**: as três colunas existem no golden e
    governam a exigência do lote na entrada; nenhuma foi ligada a validação (e não devem ser, retroativamente —
    ver a sujeira do §2). Entram junto com a tela, quando houver decisão do usuário sobre exigir lote.

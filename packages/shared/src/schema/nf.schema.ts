@@ -514,3 +514,18 @@ export type CriarPlcDto = z.infer<typeof plcSchema>;
 export const atualizarPlcSchema = plcSchema.partial();
 export type AtualizarPlcDto = z.infer<typeof atualizarPlcSchema>;
 export interface Plc extends CriarPlcDto {}
+
+/**
+ * LOTE/VALIDADE de um ITEM da NF (`uNFLoteValidade`, sub-tela do item; tabela NF_PROD_LOTE — o grupo `rastro` da
+ * NF-e). As duas obrigatoriedades são da tela (`btnGravarClick`, uNFLoteValidade.pas:149-160), com as mensagens
+ * literais; a unicidade (LOTE, CODNFPROD) também é da TELA (`RetornarValores`, :164) — o banco não tem índice
+ * (o golden traz 1.833 pares repetidos vindos da importação de XML), então ela vale só para o que se digita.
+ */
+// datas como 'YYYY-MM-DD' (lição 17: `z.coerce.date` vira meia-noite UTC e o driver grava no fuso local ⇒ um dia a menos)
+const zDia = z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida');
+export const nfLoteSchema = z.object({
+  lote: z.string({ message: 'O campo lote é obrigatório' }).trim().min(1, 'O campo lote é obrigatório').max(20),
+  dtvalidade: z.string({ message: 'O campo de data de vencimento do produto é obrigatório' }).trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida'),
+  dtfabricacao: zDia.optional().nullable(),
+});
+export type NfLoteDto = z.infer<typeof nfLoteSchema>;

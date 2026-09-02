@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2, Layers } from 'lucide-react';
 import { DataTable, type DataTableColumnDef, Modal } from '@apollosg/design-system';
 import {
   nfSchema,
@@ -26,6 +26,7 @@ import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResour
 import { useMensagem } from '../../shared/mensagem';
 import { NfItemModal } from './NfItemModal';
 import { NfRotativoModal } from './NfRotativoModal';
+import { NfLoteModal } from './NfLoteModal';
 import { vincularNfRotativo, type LadoRotativoNf } from '../inventario-rotativo/inventarioRotativoApi';
 import { createResourceApi } from '../../shared/cadmaster/resourceApi';
 import { recalcularNf } from './nfFiscalApi';
@@ -850,6 +851,8 @@ function ItensSection({
   // PENDENTES até a nota ser gravada — como no legado, que guarda `fListaImportacaoInventario*` em memória e só
   // carimba no `btnGravar` (uNF.pas:5261-5285). O `codnf` aparecer no form é o nosso "gravou".
   const [rotativoAberto, setRotativoAberto] = useState(false);
+  // LOTES/VALIDADE do item (uNFLoteValidade): só em item já gravado — precisa do codnfprod, como o legado abre sobre o item corrente
+  const [lotesDe, setLotesDe] = useState<{ codnfprod: number; titulo: string } | null>(null);
   const [ufDestino, setUfDestino] = useState<string | undefined>();
   const pendenteRotativo = useRef<{ lotes: number[]; lado: LadoRotativoNf } | null>(null);
   const codnfAtual = form.watch('codnf' as any) as number | undefined;
@@ -982,6 +985,15 @@ function ItensSection({
             },
           },
           {
+            id: 'lotes',
+            label: 'Lotes/validade',
+            icon: <Layers className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            onClick: (r: NfItemDto & { fieldId: string; codnfprod?: number }) => {
+              if (r.codnfprod == null) { mensagem.erro('Grave a nota antes de informar os lotes do item.'); return; }
+              setLotesDe({ codnfprod: Number(r.codnfprod), titulo: `Produto - ${r.codprodnota ?? r.codproduto}: ${rotuloProduto(r.codproduto)}` });
+            },
+          },
+          {
             id: 'remover',
             label: 'Remover',
             icon: <Trash2 className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
@@ -994,6 +1006,7 @@ function ItensSection({
         ],
       },
     ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [fields, remove, opts.produtoOptions],
   );
 
@@ -1005,6 +1018,9 @@ function ItensSection({
           <Button label="Recalcular &impostos" variant="soft" onClick={() => void recalcular()} />
           <Button label="Importar inventário &rotativo" variant="soft" onClick={() => void abrirRotativo()} />
         </div>
+        {lotesDe && codnfAtual != null && (
+          <NfLoteModal codnf={Number(codnfAtual)} codnfprod={lotesDe.codnfprod} titulo={lotesDe.titulo} onFechar={() => setLotesDe(null)} />
+        )}
         {rotativoAberto && (
           <NfRotativoModal
             tipoNota={form.getValues('tipo') as 'E' | 'S' | undefined}

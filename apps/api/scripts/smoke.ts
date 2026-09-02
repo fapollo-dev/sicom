@@ -7796,6 +7796,44 @@ async function main() {
       && !!lBranco && lBranco.dval === '2029-03-30' && Number(lAAA.idproduto) > 0,
       { status: impRa.status, lotes });
 
+    // 53.4) a SEGUNDA porta de NF_PROD_LOTE: a tela de lotes do item (uNFLoteValidade). As regras são da TELA —
+    // lote e vencimento obrigatórios (:149-160), unicidade (LOTE, CODNFPROD) por consulta (:164) — e por isso o
+    // que se digita não duplica enquanto o que veio do XML pode (o banco não tem índice desde a mig 172).
+    const itRa = (await pgImp.query(`SELECT codnfprod, nroitem FROM nf_prod WHERE codnf=$1 ORDER BY nroitem`, [Number(impRaJ.codnf)])).rows as any[];
+    const cnp1 = Number(itRa[0]?.codnfprod), cnp2 = Number(itRa[1]?.codnfprod);
+    const LOTES = (cnp: number) => `${base}/fiscal/nf/${Number(impRaJ.codnf)}/itens/${cnp}/lotes`;
+    const semLote = await fetch(LOTES(cnp1), { method: 'POST', headers: H, body: JSON.stringify({ lote: '  ', dtvalidade: '2030-01-01' }) });
+    const semVal = await fetch(LOTES(cnp1), { method: 'POST', headers: H, body: JSON.stringify({ lote: 'L-X' }) });
+    const dup = await fetch(LOTES(cnp1), { method: 'POST', headers: H, body: JSON.stringify({ lote: 'L-AAA', dtvalidade: '2030-01-01' }) });
+    const dupJ = (await dup.json().catch(() => ({}))) as any;
+    const novoL = await fetch(LOTES(cnp2), { method: 'POST', headers: H, body: JSON.stringify({ lote: 'L-NOVO', dtvalidade: '2030-06-30', dtfabricacao: '2029-06-30' }) });
+    const novoLJ = (await novoL.json().catch(() => ({}))) as any;
+    const prod2 = Number((await pgImp.query(`SELECT codproduto FROM nf_prod WHERE codnfprod=$1`, [cnp2])).rows[0]?.codproduto);
+    check('LOTES 53.4a (uNFLoteValidade): lote em branco → 400 "O campo lote é obrigatório" · sem vencimento → 400 "O campo de data de vencimento do produto é obrigatório" · lote L-AAA já gravado pelo XML no item 1 → 422 NF_LOTE_DUPLICADO (a unicidade é da TELA, :164) · L-NOVO no item 2 → 201 com empresa/produto/item carimbados pela nota (:176-178), fabricação e validade nos campos CERTOS (não o bug de uItensNF:1918)',
+      semLote.status === 400 && semVal.status === 400 && dup.status === 422 && dupJ.code === 'NF_LOTE_DUPLICADO'
+      && novoL.status === 201 && Number(novoLJ.codnfprodlote) > 0 && Number(novoLJ.idempresa) === 1
+      && Number(novoLJ.idproduto) === prod2 && Number(novoLJ.codnfprod) === cnp2
+      && novoLJ.dtvalidade === '2030-06-30' && novoLJ.dtfabricacao === '2029-06-30',
+      { semLote: semLote.status, semVal: semVal.status, dup: [dup.status, dupJ.code], novo: [novoL.status, novoLJ] });
+
+    const altL = await fetch(`${LOTES(cnp2)}/${novoLJ.codnfprodlote}`, { method: 'PUT', headers: H, body: JSON.stringify({ lote: 'L-NOVO-2', dtvalidade: '2031-01-15' }) });
+    const altLJ = (await altL.json().catch(() => ({}))) as any;
+    const segundo = await fetch(LOTES(cnp2), { method: 'POST', headers: H, body: JSON.stringify({ lote: 'L-OUTRO', dtvalidade: '2030-01-01' }) });
+    const segundoJ = (await segundo.json().catch(() => ({}))) as any;
+    const altDup = await fetch(`${LOTES(cnp2)}/${segundoJ.codnfprodlote}`, { method: 'PUT', headers: H, body: JSON.stringify({ lote: 'L-NOVO-2', dtvalidade: '2030-01-01' }) });
+    const lotesIt2R = await fetch(LOTES(cnp2), { headers: H });
+    const lotesIt2 = (await lotesIt2R.json().catch(() => ({}))) as any;
+    const delL = await fetch(`${LOTES(cnp2)}/${segundoJ.codnfprodlote}`, { method: 'DELETE', headers: H });
+    const lotesIt2b = (await (await fetch(LOTES(cnp2), { headers: H })).json().catch(() => ({}))) as any;
+    const outraNf = await fetch(`${base}/fiscal/nf/${Number(impRaJ.codnf) + 100000}/itens/${cnp2}/lotes`, { headers: H });
+    const outraNfJ = (await outraNf.json().catch(() => ({}))) as any;
+    check('LOTES 53.4b: alterar troca lote/validade e limpa a fabricação não enviada · renomear para um lote que já existe no MESMO item → 422 NF_LOTE_DUPLICADO · a lista filtra por CODNFPROD (udmNF.dfm:18725): 2 lotes no item 2, e o item 1 segue com os 2 do XML · excluir → 204 e a lista volta a 1 · item pedido por outra nota → 422 NF_ITEM_NAO_ENCONTRADO (fail-closed)',
+      altL.status === 200 && altLJ.lote === 'L-NOVO-2' && altLJ.dtvalidade === '2031-01-15' && altLJ.dtfabricacao == null
+      && segundo.status === 201 && altDup.status === 422
+      && (lotesIt2.itens ?? []).length === 2 && delL.status === 204 && (lotesIt2b.itens ?? []).length === 1
+      && outraNf.status === 422 && outraNfJ.code === 'NF_ITEM_NAO_ENCONTRADO',
+      { alt: [altL.status, altLJ], dup: altDup.status, lista: [lotesIt2R.status, (lotesIt2.itens ?? []).length, lotesIt2], del: delL.status, lista2: (lotesIt2b.itens ?? []).length, outra: [outraNf.status, outraNfJ.code] });
+
     await pgImp.end();
 
     // 56) PRECIFICAÇÃO — motor completo (custo líquido + PMZ + margem líquida) via POST /precificacao/produto.
