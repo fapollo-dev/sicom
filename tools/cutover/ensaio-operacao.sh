@@ -5,13 +5,17 @@
 # o volume real (18,9M vendas, 14,5M de kardex). Roda contra a API já apontada para o Postgres do `--manter`:
 #
 #   1) pnpm --filter @apollo/api exec ts-node --transpile-only scripts/carregar-cutover.ts todas --manter
-#   2) PGPORT=5433 PGUSER=apollo PGPASSWORD=apollo pnpm --filter @apollo/api dev        (porta 3000)
+#   2) PGHOST=127.0.0.1 PGPORT=5433 PGUSER=apollo PGPASSWORD=apollo \
+#        pnpm --filter @apollo/api exec ts-node --transpile-only src/main.ts               (porta 3000; não há `dev` sem banco embarcado)
 #   3) tools/cutover/ensaio-operacao.sh [http://127.0.0.1:3000]
 #
 # Cada chamada sai com STATUS · TEMPO · TAMANHO. 200 devagar é achado de índice; 4xx/5xx é achado de dado
 # (coluna que a tela espera e a carga não trouxe, valor fora do domínio, etc.). Nada aqui grava.
 API="${1:-http://127.0.0.1:3000}"
-H=(-H 'content-type: application/json' -H 'x-tenant-id: pinheirao' -H 'x-operador-id: 7' -H 'x-empresa-id: 1')
+# operador REAL de produção com grants na empresa 1 (BRUNO SANTANA, cod 4, 1.079 opções; CYARA 3801 tem 1.080).
+# O op 7 do smoke não tem nada aqui — a base é a do cliente, não a do harness.
+OP="${OP:-4}"; EMP="${EMP:-1}"
+H=(-H 'content-type: application/json' -H 'x-tenant-id: pinheirao' -H "x-operador-id: $OP" -H "x-empresa-id: $EMP")
 INI="${INI:-2026-08-01}"; FIM="${FIM:-2026-08-31}"   # um mês fechado de operação real
 
 chamar() { # método rota [body]
