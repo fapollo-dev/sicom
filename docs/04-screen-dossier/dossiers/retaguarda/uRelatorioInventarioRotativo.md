@@ -176,8 +176,29 @@ vive num módulo só (`inventario-rotativo-nf.ts`) com dois chamadores — o can
 Smoke §88.11 a §88.16 (seis checks): prévia de perdas e de sobras, CFOP interno × interestadual, tipo de nota
 incompatível, carimbo só no FECHADO, gate por lote e por lado, estorno no cancelamento e estorno na exclusão.
 
-### O que ainda falta do épico
+### ⛔ O resto do corte-2 NÃO tem fonte — veredicto (2026-09-01)
 
-O **corte-2** segue parcial: a coleta pelo coletor (`INVENT_GERAL_LEITURA` + importação de arquivo com o
-separador da config) e o zerar-não-coletados (config `USUARIOS_ZERAM_INVENTARIO_ROTATIVO`, diferente da do
-zerar-estoque). E o front das pontes: a tela de NF precisa consumir a prévia e chamar o vincular ao gravar.
+A seção 5 deste dossiê listava a coleta pelo coletor e o zerar-não-coletados como "falta do corte-2", presumindo
+que a lógica estivesse no fonte. Fui buscar para implementar e **ela não está**: a varredura de TODO o
+`/Library/SicomGit/` (não só `Units/`, `.pas` e `.dfm`, com `grep -a`) devolve **zero ocorrências** de
+
+- `INVENT_GERAL_LEITURA` (a staging das leituras — existe no golden com 21 linhas),
+- `INVENTARIO_ROTATIVO_DIGITO_SEPARADOR` (a config do separador do arquivo),
+- `USUARIOS_ZERAM_INVENTARIO_ROTATIVO` (a config de quem zera não-coletados),
+- `COLETOR_INVENTARIO_BUSCA_COD_AUXILIAR`.
+
+O único "zerar" em `uInvRotativoGrid.pas` é o **zerar-estoque** já migrado (config
+`USUARIOS_ZERAM_ESTOQUE_INVENTARIO`, `:189`). As configs e a staging são DADO — vivem no Oracle porque outro
+binário (o aplicativo do coletor, que não está no clone) as lê e grava. É o mesmo caso de `PIX_TRANSACAO`,
+`IMOV_ANALISE_CONCORRENTE` e `CARTAO_SELECAO`: tabela viva, fonte ausente ⇒ **bloqueado pela lição 35**, e o
+dossiê estava errado ao prometer esse pedaço.
+
+Com isso o épico do inventário rotativo está **completo no que tem fonte**: lote (abrir/alterar/fechar nos dois
+caminhos), zerar-estoque pela grade com liberação por login, e as duas pontes de NF com gate, carimbo e estorno.
+Se o fonte do coletor aparecer, a staging `INVENT_GERAL_LEITURA` entra pela carga e a rotina entra por recon
+próprio.
+
+### O que ainda falta (com fonte)
+
+O **front das pontes**: a tela de NF precisa consumir a prévia (`itens-nf`) e chamar o `vincular-nf` ao gravar,
+mostrando os lotes recusados e o aviso de `linhas_duplicadas`.
