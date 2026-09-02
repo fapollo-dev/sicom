@@ -54,8 +54,9 @@ chamar POST 'relatorios/curva-abc/consultar'          "{\"dtini\":\"$INI\",\"dtf
 chamar POST 'relatorios/vendas-departamento/consultar' "{\"dtini\":\"$INI\",\"dtfim\":\"$FIM\"}"
 chamar POST 'relatorios/vendas-hora/consultar'        "{\"dtini\":\"$INI\",\"dtfim\":\"$FIM\"}"
 chamar POST 'relatorios/formas-pgto/consultar'        "{\"dtini\":\"$INI\",\"dtfim\":\"$FIM\"}"
-chamar POST 'relatorios/sem-movimento/consultar'      "{\"dtini\":\"$INI\",\"dtfim\":\"$FIM\"}"
-chamar POST 'relatorios/hist-vendas/consultar'        "{\"dtini\":\"$INI\",\"dtfim\":\"$FIM\"}"
+chamar POST 'relatorios/sem-movimento/consultar'      "{\"dtini\":\"$INI\",\"dtfim\":\"$FIM\",\"modo\":\"SEM_VENDA\"}"
+# a CONSULTA do histórico é por cupom+PDV/pedido; quem varre período é o `listar` (com teto, senão são 18,9M linhas)
+chamar POST 'relatorios/hist-vendas/listar'           "{\"dtini\":\"$INI\",\"dtfim\":\"$FIM\",\"limite\":500}"
 chamar POST 'relatorios/caixa-dre/consultar'          "{\"dtini\":\"$INI\",\"dtfim\":\"$FIM\"}"
 echo "-- fiscal"
 chamar POST 'fiscal/apuracao-icms/obter'              "{\"dataini\":\"$INI\",\"datafin\":\"$FIM\"}"
