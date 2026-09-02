@@ -28,6 +28,12 @@ FASES = {
 # tabelas cujo nome no Oracle difere do nosso (o padrão é só maiúsculas)
 TABELA_ORIGEM = {'lote_preco': 'LOTEPRECO'}
 RENOMEIA = {
+ # tabelas que o plano antigo não cobria (§7s): nomes do Oracle → nossos
+ 'pedido_devolucao_compra': {'cod_pedido_dev_compra': 'codpeddevcompra', 'cod_parceiro': 'codparceiro', 'cod_operador': 'codoperador',
+                             'cod_empresa': 'idempresa', 'data_pedido': 'data', 'status_pedido': 'status',
+                             'cod_nota_fiscal_emitida': 'codnf_emitida', 'observacoes': 'obs'},
+ # a mig 008 batizou a alíquota interna de `aliquota_dest`; no legado é ALIQUOTA
+ 'indexador_tributario': {'aliquota': 'aliquota_dest'},
  'aliquota': {'aliquota': 'codigo'},
  # §7e: o código do Oracle NÃO entra na PK (lá é por venda/cupom, não por linha) — vira coluna de referência
  'vendas': {'codvendas': 'codvendas_legado'},
@@ -46,6 +52,8 @@ RENOMEIA = {
 CALCULADAS = {
   # ICMS_CFOP do legado não tem TIPO; o nosso resumo por CFOP separa entradas e saídas por ele. Deriva do
   # primeiro dígito do CFOP (1/2/3 = entrada, 5/6/7 = saída) — a mesma regra do nosso serviço de apuração.
+  # CONFIG_PLANO_CONTAS guarda a máscara como NDIG_1..NDIG_8 (larguras por nível); a nossa é o CSV '1,1,2,2,5'.
+  'config_plano_contas': {'mascara': "rtrim(" + "||".join(f"nvl2(ndig_{i}, to_char(ndig_{i})||',', '')" for i in range(1, 9)) + ", ',')"},
   'icms_cfop': {'tipo': "case when substr(to_char(cfop),1,1) in ('1','2','3') then 'E' else 'S' end"},
   'historico_prod': {
     # saldo antes do movimento = saldo depois − o que mexeu
@@ -53,7 +61,7 @@ CALCULADAS = {
     # `tipo` é E/S conforme o sinal do movimento (o legado guarda só o delta assinado)
     'tipo': "case when nvl(qtde_alter,0) < 0 then 'S' else 'E' end"}}
 
-CONSTANTES = {'operadores': {'origem_legado': 'S'}, 'parceiros_end': {'origem_legado': 'S'},
+CONSTANTES = {'operadores': {'origem_legado': 'S'}, 'arquivo_remessa_areceber': {'origem_legado': 'S'}, 'parceiros_end': {'origem_legado': 'S'},
               'nf': {'origem_legado': 'S'},
               'movimentacao_bancaria_ofx': {'origem_legado': 'S'}, 'adiantamento_forn': {'origem_legado': 'S'},
               'nfe_nao_cadastradas': {'origem_legado': 'S'}}
@@ -73,6 +81,15 @@ TRANSFORMA = {
  'nf': {'sequencia_nfe': "case when regexp_like({c}, '^[0-9]+$') then {c} else null end"},
  # colunas NOT NULL no destino que a origem deixa nula: a carga preenche o neutro (o app conta com o valor)
  'nf_prod': {'vl_custo': 'nvl({c}, 0)'},
+ # APURACAO_PC_DET.TIPO no legado é texto ('ENTRADA' 118 · 'SAIDA NF' 27 · 'NFC-e' 48); o nosso é o papel na
+ # apuração: 'C' crédito (entrada) / 'D' débito (saída, cupom). Mapa semântico, não truncamento.
+ 'apuracao_pc_det': {'tipo': "case when {c} = 'ENTRADA' then 'C' else 'D' end"},
+ # CLUBE_DESCONTO.IDEMPRESA é VARCHAR2 com LISTA ('1,2' em 4 linhas; NULL em 3.019): fica a primeira empresa.
+ # Perda declarada: 4 linhas deixam de valer para a empresa 2.
+ 'clube_desconto': {'idempresa': "nvl(to_number(regexp_substr({c}, '^[0-9]+')), 1)"},
+ # OPERADORAS: 1 linha sem nome em produção (codoperadoras 921, ativa) — a coluna é obrigatória no cadastro
+ # novo; marcador explícito em vez de afrouxar o schema por uma linha.
+ 'operadoras': {'operadora': "nvl({c}, '(SEM NOME NO LEGADO)')"},
  'historico_prod': {'qtde_alter': 'nvl({c}, 0)', 'qtde_atual': 'nvl({c}, 0)'},
  'empresas': {'cnpj': "regexp_replace({c}, '[^0-9]', '')",
                            'insc': "regexp_replace({c}, '[^0-9A-Za-z]', '')",
@@ -80,7 +97,9 @@ TRANSFORMA = {
 
 # FILTROS de carga declarados: linha que o destino não aceita e que não vale afrouxar o app para receber.
 # `codreferencia_for.codref` tem 4 nulos em 16.229 e o de-para exige o código (o app quebra com nulo).
-FILTROS = {'codreferencia_for': 'codref is not null',
+FILTROS = {
+ # linhas sem produto/operador no legado (9 · 7 · 2 em produção): o destino exige e o registro não significa nada sem eles
+ 'agenda_promocao_itens': 'idproduto is not null', 'scrap_item': 'idproduto is not null', 'contas_bancarias_op': 'codoperador is not null','codreferencia_for': 'codref is not null',
            # `pedidocompra_i.idproduto` é NOT NULL aqui e a origem deixa nulo: item de pedido sem produto não
            # tem o que virar — a carga descarta e conta (não dá para inventar o produto).
            'pedidocompra_i': 'idproduto is not null',

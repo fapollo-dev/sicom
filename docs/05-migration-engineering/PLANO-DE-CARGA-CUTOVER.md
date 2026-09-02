@@ -638,6 +638,50 @@ Outras correções da mesma rodada: o `varre-unicidade.py` passou a honrar o **p
 26/08** (antes das migs 184-191) — os "não cabe" de `caixa`/`mov_contas_bancarias` que o mapa acusou em produção eram
 o retrato velho; re-dumpado, produção cabe inteira (só `empresas.cnpj` com máscara, que a transformação já limpa).
 
+Com o universo derivado, o mapa de capacidade rodou nas **145 tabelas contra produção**: 2 casos, os dois já
+tratados por transformação — `empresas.cnpj` (18 com máscara → 14 dígitos) e `apuracao_pc_det.tipo` ('ENTRADA'/
+'SAIDA NF'/'NFC-e' → 'C'/'D'). Nenhuma coluna de texto de produção estoura o destino.
+
+## 7t. As 70 tabelas novas carregadas de PRODUÇÃO (2026-09-02)
+
+Extração das 70 tabelas que o plano antigo não cobria, direto de produção (só SELECT; 4,3M linhas, 729 MB em
+~20 min pela internet), carga no Postgres descartável e reconciliação de contagem **e somas** (agora o manifesto
+traz as somas do Oracle, então este é o primeiro trecho Oracle → CSV → Postgres conferido de ponta a ponta).
+
+**Primeira passada: 54/70.** Os 13 bloqueios eram todos de MAPA ou de SCHEMA nosso — nenhum de carga:
+
+| tabela | o que era | correção |
+|---|---|---|
+| `agenda_promocao_itens` · `scrap_item` · `contas_bancarias_op` | 9 · 7 · 2 linhas sem produto/operador (o legado aceita nulo; item sem produto não significa nada) | FILTRO com contagem do descarte |
+| `apuracao_pc_det.tipo` | legado guarda texto ('ENTRADA' 118 · 'SAIDA NF' 27 · 'NFC-e' 48); o nosso é o papel na apuração ('C'/'D') | mapa semântico: ENTRADA → C, resto → D |
+| `arquivo_remessa_areceber` | 69 nomes de arquivo REUTILIZADOS (até 3×, na mesma conta) e sem `codempresa`; o índice único era invenção nossa | mig 193: índice PARCIAL com `origem_legado` (padrão das migs 173/182/183/186/188) |
+| `config_plano_contas.mascara` | o legado guarda a máscara como `NDIG_1..NDIG_8`; a nossa é o CSV '1,1,2,2,5' | CALCULADA na extração (concatena os níveis) |
+| `indexador_tributario` | 4 NOT NULL da mig 008 (pré-recon) que o legado não tem; e a alíquota lá se chama ALIQUOTA | RENOMEIA + mig 193 derruba os 4 NOT NULL |
+| `log_liberacoes.id` | `GENERATED ALWAYS` recusa o id do legado | mig 193: BY DEFAULT |
+| `operadoras.operadora` | 1 operadora sem nome em produção (cod 921, ativa) | marcador explícito '(SEM NOME NO LEGADO)' em vez de afrouxar o schema por 1 linha |
+| `pedido_devolucao_compra` | nomes com underscore no legado (`cod_parceiro`, `data_pedido`, …) | RENOMEIA (8 colunas) |
+| `clube_desconto.idempresa` | VARCHAR2 com LISTA ('1,2' em 4 linhas; NULL em 3.019) | primeira empresa da lista; perda declarada: 4 linhas deixam de valer para a empresa 2 |
+| `icms_cfop.tipo` | o legado não tem a coluna | CALCULADA pelo 1º dígito do CFOP |
+| `nfe_nao_cadastradas_itens.vrunitario/…trib` · `indexador_tributario.mva` | 9 e 4 casas decimais × numeric(15,6)/(7,2) — as somas não fechavam | mig 192 (numeric(21,10) pelo leiaute da NF-e; (9,4)) |
+
+Dois achados que são de RUNBOOK, não de tabela:
+- **o TRUNCATE leva as sementes das migrations**, e uma delas é PAI de dado legado: o motivo 999 (4.874 ajustes de
+  estoque em produção apontam para ele, e produção também não tem a linha — lá não há FK). Nasceu
+  `tools/cutover/pos-carga.sql`: o que o Apollo exige e o legado não tem, reaplicado no fim da carga, idempotente.
+- **as SEQUÊNCIAS não eram reposicionadas**: a carga grava os ids do legado em colunas serial/identity e o primeiro
+  INSERT do app depois da virada colidiria. O carregador agora faz `setval(max)` em toda coluna com sequência das
+  tabelas carregadas — e conta quantas.
+
+**Resultado final: 70/70 carregadas, 4.306.813 linhas, contagem e somas batendo em 68** — as duas restantes são
+informativas, não erro: `apuracao_pc_det.id_tipocredito` é NUMBER no Oracle e varchar aqui (valores 101/106,
+os mesmos que o SPED grava como texto — soma não comparável por tipo), e `clube_desconto` tem **3.022 de 3.069
+linhas apontando para promoções que não existem** em PROMOCAO nem em AGENDA_PROMOCAO (o Oracle não tem a FK;
+ids como 631532/993095 parecem vir de outro sistema). A FK nossa foi recriada `NOT VALID` — vale para toda
+linha nova e declara que o legado não passa por ela — e o caso vai para o relatório do cliente. Terceiro achado
+de runbook nesta rodada, também genérico no carregador: **órfã legada sob FK nossa entra com gatilhos
+suspensos e o Postgres segue achando a FK validada** — estado latente que um `pg_restore` ou um `VALIDATE`
+denunciariam na pior hora.
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).

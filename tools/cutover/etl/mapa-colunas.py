@@ -19,6 +19,13 @@ FASES = {
  'f1': "empresas configuracoes configuracoes_especificas operadores perfil permissoes parceiros parceiros_end parceiros_bancos produtos composicao decomposicao receita_prod codauxiliar codreferencia_for multi_preco estoque contas_bancarias formas_pgto".split(),
  'f0': "bancos cidades bairro cfop ncm aliquota tributacao piscofins det_aliquota figura_fiscal unidade marcas familias_prod familias_prod_area plc plano_contas condicoes_pagto operacoes_conta".split(),
 }
+# o UNIVERSO derivado manda quando existe (tools/cutover/etl/plano-universo.py → plano-tabelas.json); a lista
+# acima fica como fallback. Sem isto o mapa seguia medindo as 69 antigas (e `tributacao`, que nem existe aqui).
+try:
+    _plano = json.load(open('/Library/Apollo/tools/cutover/plano-tabelas.json'))
+    FASES = dict(_plano['fases'])
+except FileNotFoundError:
+    pass
 fase = (sys.argv[1] if len(sys.argv) > 1 else 'f0').lower()
 alvos = FASES[fase]
 

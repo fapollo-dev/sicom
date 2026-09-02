@@ -132,13 +132,58 @@ async function main() {
       if (!erro) {
         const n = Number((await pool.query(`SELECT count(*)::int AS n FROM ${tabela}`)).rows[0].n);
         if (n !== Number(esperado?.linhas ?? -1)) divergencias.push(`contagem ${n} × ${esperado?.linhas}`);
+        // só soma o que é NUMÉRICO no DESTINO: o manifesto soma o que é NUMBER no Oracle, e há coluna que lá é
+        // número e aqui é texto (a primeira rodada das 70 novas morreu num `sum(character varying)`). Coluna
+        // assim é comparada por CONTAGEM de não-nulos, e o relatório diz.
+        const tiposDest = new Map<string, string>(((await pool.query(
+          `SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1`, [tabela])).rows as Array<{ column_name: string; data_type: string }>)
+          .map((c) => [c.column_name, c.data_type]));
+        const NUM = new Set(['numeric', 'integer', 'bigint', 'smallint', 'double precision', 'real']);
         for (const [col, soma] of Object.entries((esperado?.somas ?? {}) as Record<string, string>)) {
-          const sm = (await pool.query(`SELECT coalesce(sum(${col}),0)::text AS s FROM ${tabela}`)).rows[0].s;
-          if (Number(sm) !== Number(soma)) divergencias.push(`${col} Σ ${sm} × ${soma}`);
+          const tipo = tiposDest.get(col);
+          if (!tipo) continue; // coluna que a carga não levou
+          if (!NUM.has(tipo)) { divergencias.push(`${col}: número no Oracle, ${tipo} aqui — soma não comparável`); continue; }
+          try {
+            const sm = (await pool.query(`SELECT coalesce(sum(${col}),0)::text AS s FROM ${tabela}`)).rows[0].s;
+            if (Number(sm) !== Number(soma)) divergencias.push(`${col} Σ ${sm} × ${soma}`);
+          } catch (e) {
+            divergencias.push(`${col}: soma falhou (${(e as Error).message.split('\n')[0]})`);
+          }
         }
       }
       rel.push({ tabela, esperado: esperado?.linhas ?? null, carregadas, erro, divergencias: divergencias.join(' · ') || null });
     }
+
+    // PÓS-CARGA (tools/cutover/pos-carga.sql): o que o Apollo exige e o legado não tem — o TRUNCATE leva as
+    // sementes das migrations, e algumas delas são PAI de dado legado (motivo 999 de 4.874 ajustes em produção).
+    // Roda ANTES da conferência de órfãos, para o que ele semeia contar como pai.
+    const posCarga = resolve(__dirname, '../../../tools/cutover/pos-carga.sql');
+    try {
+      const sqlPos = readFileSync(posCarga, 'utf8');
+      await pool.query(sqlPos);
+      console.log(`[pós-carga] ${posCarga} aplicado`);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    }
+
+    // SEQUÊNCIAS: a carga grava os ids do legado em colunas serial/identity; sem reposicionar a sequência, o
+    // primeiro INSERT do app depois da virada colide com um id existente. Para cada coluna com sequência das
+    // tabelas carregadas: setval(max). Item de runbook que estava faltando.
+    let seqs = 0;
+    for (const r of rel) {
+      if (r.erro) continue;
+      const tabela = String(r.tabela);
+      const cols = (await pool.query(
+        `SELECT a.attname AS col, pg_get_serial_sequence($1, a.attname) AS seq
+           FROM pg_attribute a
+          WHERE a.attrelid = $1::regclass AND a.attnum > 0 AND NOT a.attisdropped
+            AND pg_get_serial_sequence($1, a.attname) IS NOT NULL`, [tabela])).rows as Array<{ col: string; seq: string }>;
+      for (const c of cols) {
+        await pool.query(`SELECT setval($1, coalesce((SELECT max(${c.col}) FROM ${tabela}), 0) + 1, false)`, [c.seq]);
+        seqs++;
+      }
+    }
+    console.log(`[sequências] ${seqs} reposicionada(s) no max(id) das tabelas carregadas`);
 
     // INTEGRIDADE no FIM da fase (gatilhos ficaram suspensos durante a carga): órfã aqui é órfã de verdade.
     for (const r of rel) {
@@ -147,11 +192,13 @@ async function main() {
       const orfas: string[] = [];
       {
         const fks = (await pool.query(
-          `SELECT kcu.column_name AS col, ccu.table_name AS reft, ccu.column_name AS refc
+          `SELECT tc.constraint_name AS nome, kcu.column_name AS col, ccu.table_name AS reft, ccu.column_name AS refc,
+                  pg_get_constraintdef(pgc.oid) AS def
              FROM information_schema.table_constraints tc
              JOIN information_schema.key_column_usage kcu ON kcu.constraint_name = tc.constraint_name
              JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_name = tc.constraint_name
-            WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = $1`, [tabela])).rows;
+             JOIN pg_constraint pgc ON pgc.conname = tc.constraint_name AND pgc.conrelid = ($1::text)::regclass
+            WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = $1::text`, [tabela])).rows;
         for (const fk of fks) {
           // FK cross-fase não é órfã: a tabela-alvo simplesmente não faz parte desta fase (a F1 referencia
           // `unidade`, que é da F0). No Oracle esses órfãos reais são 3 e 7 — o alarme de 43 mil era artefato.
@@ -160,7 +207,16 @@ async function main() {
             `SELECT count(*)::int AS n FROM ${tabela} t
               WHERE t.${fk.col} IS NOT NULL
                 AND NOT EXISTS (SELECT 1 FROM ${fk.reft} r WHERE r.${fk.refc} = t.${fk.col})`)).rows[0].n);
-          if (orf > 0) orfas.push(`${orf} órfã(s) em ${fk.col}→${fk.reft}`);
+          if (orf > 0) {
+            // ÓRFÃ LEGADA sob FK nossa: o legado não tem a FK (clube_desconto.idpromocao: 3.022 de 3.069 apontam
+            // para ids que não existem em PROMOCAO). Com os gatilhos suspensos a linha entrou e o Postgres segue
+            // achando a FK "validada" — estado latente que um pg_restore ou um VALIDATE denunciaria. O honesto é
+            // recriar a FK como NOT VALID: continua valendo para toda linha NOVA do app, e declara que o legado não
+            // passa por ela. Fica no relatório para o dono do dado decidir se limpa.
+            await pool.query(`ALTER TABLE ${tabela} DROP CONSTRAINT ${fk.nome}`);
+            await pool.query(`ALTER TABLE ${tabela} ADD CONSTRAINT ${fk.nome} ${fk.def} NOT VALID`);
+            orfas.push(`${orf} órfã(s) em ${fk.col}→${fk.reft} (FK ${fk.nome} recriada NOT VALID)`);
+          }
         }
       }
       if (orfas.length) r.divergencias = [r.divergencias, ...orfas].filter(Boolean).join(' · ');
