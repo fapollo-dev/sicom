@@ -682,6 +682,11 @@ de runbook nesta rodada, também genérico no carregador: **órfã legada sob FK
 suspensos e o Postgres segue achando a FK validada** — estado latente que um `pg_restore` ou um `VALIDATE`
 denunciariam na pior hora.
 
+O carregador ganhou dois modos para o **ensaio de operação**: `todas` (carrega as fases do `plano-tabelas.json`,
+em ordem, no MESMO Postgres, com pós-carga/sequências/órfãos rodando uma vez no fim, e o tempo por tabela) e
+`--manter` (não derruba o banco: imprime as variáveis para apontar a API — `PGPORT=5433` etc. — e fica vivo até
+Ctrl+C). É com isso que a próxima etapa sobe o Apollo sobre a base de produção carregada.
+
 ## 8. Próximos passos de execução (quando aprovado)
 
 1. Spec por tabela da F0/F1 (mapa coluna-a-coluna gerado dos dicionários + revisto à mão).
