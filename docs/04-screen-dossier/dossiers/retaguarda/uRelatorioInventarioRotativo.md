@@ -198,7 +198,20 @@ caminhos), zerar-estoque pela grade com liberação por login, e as duas pontes 
 Se o fonte do coletor aparecer, a staging `INVENT_GERAL_LEITURA` entra pela carga e a rotina entra por recon
 próprio.
 
-### O que ainda falta (com fonte)
+### Front das pontes ENTREGUE (2026-09-01)
 
-O **front das pontes**: a tela de NF precisa consumir a prévia (`itens-nf`) e chamar o `vincular-nf` ao gravar,
-mostrando os lotes recusados e o aviso de `linhas_duplicadas`.
+Na tela de NF, aba "Itens da nota", o botão **Importar inventário rotativo** abre o modal
+(`NfRotativoModal.tsx`): escolhe o lado (sugerido pelo tipo da nota — saída → perdas, entrada → sobras), lista
+só os lotes **fechados** com multisseleção e marca os já importados naquele lado com o código da nota (o VERDE
+"Importado" do legado, `uNF.pas:12763`), pede a prévia e mostra itens, CFOP da nota, lotes recusados com o
+motivo e o aviso de `linhas_duplicadas`. "Incluir na nota" joga os itens no grid a **custo** (`vrvenda` =
+`vrcusto`, como o `TOTAL_PROD = VRCUSTO × QTDE` de `:14199`), troca o CFOP da nota e escreve a observação
+literal. Sem cliente, a mensagem é a do legado ("É necessário informar o cliente primeiramente!", `:12800`); a UF
+do titular vem do endereço padrão do parceiro.
+
+O carimbo segue a ordem do legado: os lotes ficam **pendentes em memória** e o `vincular-nf` é chamado quando o
+`codnf` aparece no formulário — o nosso "gravou" (`fListaImportacaoInventario*` + `btnGravar`,
+`uNF.pas:5261-5285`). Lote recusado no vincular (importado por outra sessão no meio) vira aviso, não erro da
+nota.
+
+**O épico do inventário rotativo está fechado no que tem fonte.**

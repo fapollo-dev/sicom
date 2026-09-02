@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Pencil, Trash2 } from 'lucide-react';
 import { DataTable, type DataTableColumnDef, Modal } from '@apollosg/design-system';
@@ -25,6 +25,9 @@ import { Tabs, TabPanel, type TabDef } from '../../shared/ui/Tabs';
 import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
 import { useMensagem } from '../../shared/mensagem';
 import { NfItemModal } from './NfItemModal';
+import { NfRotativoModal } from './NfRotativoModal';
+import { vincularNfRotativo, type LadoRotativoNf } from '../inventario-rotativo/inventarioRotativoApi';
+import { createResourceApi } from '../../shared/cadmaster/resourceApi';
 import { recalcularNf } from './nfFiscalApi';
 import { processarNf, reverterNf } from './nfProcessamentoApi';
 import { faturarNf, estornarFaturamentoNf } from './nfFaturamentoApi';
@@ -843,6 +846,43 @@ function ItensSection({
   const mensagem = useMensagem();
   const [recalculando, setRecalculando] = useState(false);
 
+  // IMPORTAR INVENTÁRIO ROTATIVO (corte-3 das pontes): os itens entram na nota em edição e os lotes ficam
+  // PENDENTES até a nota ser gravada — como no legado, que guarda `fListaImportacaoInventario*` em memória e só
+  // carimba no `btnGravar` (uNF.pas:5261-5285). O `codnf` aparecer no form é o nosso "gravou".
+  const [rotativoAberto, setRotativoAberto] = useState(false);
+  const [ufDestino, setUfDestino] = useState<string | undefined>();
+  const pendenteRotativo = useRef<{ lotes: number[]; lado: LadoRotativoNf } | null>(null);
+  const codnfAtual = form.watch('codnf' as any) as number | undefined;
+  const codparceiroAtual = form.watch('codparceiro');
+  useEffect(() => {
+    const p = pendenteRotativo.current;
+    if (codnfAtual == null || !p) return;
+    pendenteRotativo.current = null;
+    vincularNfRotativo({ codnf: Number(codnfAtual), lotes: p.lotes, tipo: p.lado })
+      .then((r) => {
+        if (r.recusados.length) mensagem.erro(`Lote(s) ${r.recusados.map((x) => x.lote).join(', ')} não vinculado(s): já importado(s) em outra nota.`);
+        else mensagem.sucesso(`Inventário rotativo vinculado à nota ${codnfAtual} (lotes ${r.carimbados.join(', ')}).`);
+      })
+      .catch((e) => mensagem.erro(e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codnfAtual]);
+  const abrirRotativo = async () => {
+    // a UF do titular decide o CFOP interno × interestadual (uNF.pas:12804): vem do endereço padrão do parceiro
+    let uf: string | undefined;
+    if (codparceiroAtual != null) {
+      try {
+        const pz = (await createResourceApi('cadastro/parceiros').ler(Number(codparceiroAtual))) as { enderecos?: Array<{ uf?: string; endereco_padrao?: string }> } | undefined;
+        const ends = pz?.enderecos ?? [];
+        uf = (ends.find((e) => e.endereco_padrao === 'S') ?? ends[0])?.uf ?? undefined;
+      } catch { /* sem UF assume-se a própria (o servidor faz o mesmo) */ }
+    } else {
+      mensagem.erro('É necessário informar o cliente primeiramente!'); // literal do legado (uNF.pas:12800)
+      return;
+    }
+    setUfDestino(uf);
+    setRotativoAberto(true);
+  };
+
   const proximoNroItem = () =>
     (fields as NfItemDto[]).reduce((m, it) => Math.max(m, Number(it.nroitem) || 0), 0) + 1;
 
@@ -963,7 +1003,27 @@ function ItensSection({
         <div className="flex flex-wrap gap-gp-sm">
           <Button label="Adicionar &item" variant="soft" onClick={() => setEditIdx(-1)} />
           <Button label="Recalcular &impostos" variant="soft" onClick={() => void recalcular()} />
+          <Button label="Importar inventário &rotativo" variant="soft" onClick={() => void abrirRotativo()} />
         </div>
+        {rotativoAberto && (
+          <NfRotativoModal
+            tipoNota={form.getValues('tipo') as 'E' | 'S' | undefined}
+            ufDestino={ufDestino}
+            onFechar={() => setRotativoAberto(false)}
+            onConfirmar={({ itens: novos, cfopNota, observacao, lotes, lado }) => {
+              let n = proximoNroItem();
+              for (const it of novos) append({ ...it, nroitem: n++ });
+              // o legado troca o CFOP da nota e escreve a observação (uNF.pas:12805-12807, :12886)
+              form.setValue('cfop' as any, String(cfopNota));
+              const obsAtual = String(form.getValues('obs' as any) ?? '').trim();
+              form.setValue('obs' as any, obsAtual ? `${obsAtual}\n${observacao}` : observacao);
+              const p = pendenteRotativo.current;
+              pendenteRotativo.current = p && p.lado === lado ? { lado, lotes: Array.from(new Set([...p.lotes, ...lotes])) } : { lado, lotes };
+              setRotativoAberto(false);
+              mensagem.sucesso(`${novos.length} item(ns) incluído(s). Os lotes ${lotes.join(', ')} serão vinculados quando a nota for gravada.`);
+            }}
+          />
+        )}
 
         {fields.length === 0 ? (
           <small className="text-fg-muted">Sem itens na nota.</small>
