@@ -45,8 +45,10 @@ done
 - A sessão abre **somente-leitura** e é reaberta a cada tabela; as sete maiores são lidas **ano a ano**
   (`FATIAR` no extrator). Com o legado congelado o ORA-01555 não deve ocorrer; se ocorrer, é sinal de que
   **alguém ainda está escrevendo**.
-- Tempo medido com a loja ABERTA: f1 11 min · f2 1 min · f3 6 min · f4 1 min · f0 `[medir]` (é a fase com
-  `vendas`, `cx_vendas`, `cartao`, `diario`). Volume: ~9 GB de CSV para ~49,5M linhas.
+- Tempo medido com a loja ABERTA: **f0 88 min** (73 tabelas, 40,1M linhas — é a fase com `vendas` 18,9M,
+  `cx_vendas`, `cartao`, `diario`) · f1 11 min (42 tabelas, 7,6M) · f2 1 min · f3 6 min · f4 1 min.
+  **Total ≈ 1h47 para 49.651.289 linhas / 9 GB de CSV**, pela internet. Com o legado congelado deve cair
+  (sem concorrência de escrita), mas planeje a janela com este número.
 - [ ] 2.1 Conferir que **cada fase escreveu o `_manifesto.json`** (a extração só grava o manifesto no fim; se a
       fase morreu no meio, o manifesto é o da rodada anterior — foi assim que a f0 falhou sem alarde).
 - [ ] 2.2 Conferir no manifesto que nenhuma tabela saiu com `"pulada"`.
