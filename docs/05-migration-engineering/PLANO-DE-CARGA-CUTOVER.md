@@ -720,6 +720,14 @@ Não dá para decidir pelo fonte: `GetUsuariosPermitidos` vive em `USessao.pas`,
 clonado** (lição 35). Fica registrado como pergunta ao cliente / conferência na tela do legado, e não como
 suposição implementada.
 
+### Tributação: cobertura completa (a parte boa)
+
+A outra reconferência que importava era a da **tributação por UF**, porque um produto cuja alíquota não tenha
+linha em `det_aliquota` para a UF da empresa faz a precificação e a apuração levantarem `ALIQUOTA_NAO_CADASTRADA`.
+Medido em produção: **zero** produtos nessa situação — os 47.651 têm cobertura em MG (13 linhas para as 12
+alíquotas reais), e as outras 26 UFs têm 7 cada. As 21 alíquotas T10…T66 que existiam na homologação eram massa
+de teste e não são usadas por nenhum produto do cliente.
+
 ## 8. Próximos passos (estado em 2026-09-02)
 
 Os três itens originais desta seção estão feitos (mapa por tabela, runner com reconciliação, ensaio por fase).
