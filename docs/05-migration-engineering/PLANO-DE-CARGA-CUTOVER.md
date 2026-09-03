@@ -728,6 +728,52 @@ Medido em produção: **zero** produtos nessa situação — os 47.651 têm cobe
 alíquotas reais), e as outras 26 UFs têm 7 cada. As 21 alíquotas T10…T66 que existiam na homologação eram massa
 de teste e não são usadas por nenhum produto do cliente.
 
+## 7v. ENSAIO DE OPERAÇÃO — o Apollo rodando sobre PRODUÇÃO (2026-09-03)
+
+O ensaio de carga provava que o dado entra. Este prova que o **sistema funciona em cima dele**.
+
+### Carga completa: 49.651.289 linhas em 28,3 min · 145/145 tabelas, contagem batendo em todas
+
+| tabela | linhas | tempo |
+|---|---|---|
+| `vendas` | 18.883.845 | 1.067,7 s (17,8 min) — 51 colunas, ~17,7 mil linhas/s |
+| `historico_prod` | 14.554.098 | 262,6 s |
+| `apuracao_icms_detalhes` | 2.801.160 | — |
+| `cartao` | 2.043.606 | — |
+| `historico_dinamico` | 1.985.019 | 37,5 s |
+| `diario` | 1.746.160 | — |
+
+Nenhum `⛔`. Os 20 `⚠️` são de dois tipos, ambos esperados: **soma não comparável** (11 casos — coluna que é
+NUMBER no Oracle e texto no destino: `cfop`, `codcontabil`, `numero`, `versaoxml`, `origemprod`…) e **órfã de FK
+nossa** (13 casos, todas recriadas `NOT VALID`). A maior é `diario.codlote` → **1.744.994 órfãs (99,9%)**, porque
+`LOTE_CONTABIL` está vazia em produção; depois `cartao.codoperadora` 36.924 e `clube_desconto.idpromocao` 3.022.
+`[sequências] 99 reposicionadas` e o pós-carga aplicado.
+
+### As telas, com o volume real
+
+`tools/cutover/ensaio-operacao.sh`, operador real do cliente (cod 4, 1.079 grants), agosto/2026:
+
+| | resultado |
+|---|---|
+| cadastros (produtos, parceiros, operadores, bancos) | 200 · **0,00 a 0,09 s** |
+| documentos (NF, AR, AP, pedidos, inventários) | 200 · **0,00 a 0,05 s** |
+| 9 relatórios sobre o movimento | 200 · **0,01 a 0,41 s** (o mais lento é `sem-movimento`, com 7,8 MB de resposta; `curva-abc` 0,18 s / 1,6 MB) |
+
+**Nenhuma falha.** Os dois não-200 são comportamento correto: `apuracao-icms/obter` devolve 422
+`APURACAO_NAO_ENCONTRADA` (não há apuração gravada para agosto — o endpoint é o de *obter*, não o de processar) e
+`sped/apuracao-pc` devolve 403 porque o operador 4 não tem esse grant no RBAC do cliente.
+
+E o dado é o real: `vendas-data` de 01/08 traz **1.016 cupons, R$ 55.346,35**, empresa "HIPER PINHEIRAO -
+MARTINS". Não é resposta vazia.
+
+### Âncoras Oracle × Postgres, e a régua certa
+
+A primeira rodada do `conferir-ancoras` acusou 15 diferenças "sem explicação" — `vendas` +6.802,
+`historico_prod` +7.915, `caixa` +308. Não era perda de carga: **é a loja operando** entre a extração (02/09) e a
+conferência (03/09). A régua certa é o MANIFESTO (o que a extração leu), não o Oracle de agora. Corrigido, o
+resultado é **igual ao extraído nas 16 âncoras**, e a coluna "ORACLE agora" virou a medida de quanto o legado
+andou — que numa virada real, com o legado congelado, **tem de ser zero**. É o §1 do runbook virando teste.
+
 ## 8. Próximos passos (estado em 2026-09-02)
 
 Os três itens originais desta seção estão feitos (mapa por tabela, runner com reconciliação, ensaio por fase).

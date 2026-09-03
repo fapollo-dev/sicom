@@ -4,8 +4,9 @@ Este documento é para ser **executado**, não lido: cada passo tem comando, o q
 Os números vêm das medições contra **produção** (`hiperpinheirao.ddns.com.br`), não da homologação — a diferença
 é grande (2,16× em volume) e está registrada no §7s do `PLANO-DE-CARGA-CUTOVER.md`.
 
-> Estado: **rascunho em construção** (2026-09-02). Os tempos da fase f0 completa e da carga total ainda estão
-> sendo medidos; onde faltar número está marcado `[medir]`. Nada aqui foi executado numa virada real.
+> Estado: **ensaiado de ponta a ponta em 03/09/2026** (extração + carga + operação, contra produção, com a loja
+> aberta). Os tempos são reais. O que ainda não foi feito é a virada em si — e os dois `[definir]` (dono do
+> go/no-go e por quantos dias o Oracle fica de pé) dependem do cliente.
 
 ---
 
@@ -64,7 +65,9 @@ suspende gatilhos, insere em lotes de 500, religa os gatilhos, reconcilia **cont
 `tools/cutover/pos-carga.sql`, reposiciona **todas as sequências** no `max(id)` e confere órfãos (recriando como
 `NOT VALID` a FK que o legado não respeita).
 
-- Taxa medida: **~65 mil linhas/s** (as 70 tabelas novas, 4,3M linhas, em 1,1 min). Para 49,5M: `[medir]`.
+- Tempo medido: **28,3 min para 49.651.289 linhas** (145 tabelas). O gargalo é `vendas` — 18,9M linhas × 51
+  colunas em 17,8 min (~17,7 mil linhas/s); tabelas estreitas fazem ~53 mil/s (`historico_dinamico`, 1,98M em 37 s).
+- [ ] 3.0 Conferir espaço: o banco carregado ficou em **~16 GB** de `.pgdata` para 49,6M linhas.
 - [ ] 3.1 Ler o relatório final: **toda tabela tem de sair `✅`**. `⚠️` só é aceitável para os casos já
       declarados no §5; `⛔` é parada.
 - [ ] 3.2 Conferir a linha `[sequências] N reposicionada(s)` — sem ela, o primeiro INSERT do app colide.
@@ -72,7 +75,9 @@ suspende gatilhos, insere em lotes de 500, religa os gatilhos, reconcilia **cont
 
 ## 4. Verificação e go/no-go
 
-- [ ] 4.1 As contagens-âncora do §1.2 batem com o Postgres.
+- [ ] 4.1 `python3 tools/cutover/conferir-ancoras.py` + `ts-node scripts/conferir-ancoras.ts`: as 16 âncoras têm
+      de sair `igual ao extraído`, e a coluna **"ORACLE agora" tem de ser idêntica à "EXTRAÍDO"** — se o legado
+      andou, ele não estava congelado e a janela recomeça no §1.
 - [ ] 4.2 `tools/cutover/ensaio-operacao.sh` contra a API apontada para o banco novo: nenhum 4xx/5xx, e nenhum
       relatório acima do tempo combinado com o cliente.
 - [ ] 4.3 Conferência dirigida pelo cliente: abrir 5 notas conhecidas, 3 títulos a receber, o estoque de 10
