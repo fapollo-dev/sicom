@@ -822,6 +822,27 @@ Os caminhos, e nenhum deles é técnico o bastante para eu decidir sozinho:
 O (2) sem o (3) é o que ninguém quer descobrir depois. Isto entra como **decisão do usuário** antes da virada, e
 está no runbook como bloqueio.
 
+### Mapa de equivalências: o problema é menor do que os 91 sugerem
+
+`tools/cutover/rbac-equivalencias.py` abre o `.dfm` de cada formulário e lê o **Caption** de cada componente —
+o texto que o operador vê no botão. A equivalência passa a ter prova, não semelhança de string. Resultado
+(`tools/cutover/rbac-equivalencias.md`):
+
+| balde | quantos | o que fazer |
+|---|---|---|
+| **A) renomear a OPÇÃO** | 7 | o cliente já concede o ato com outro nome: `BTNTRANSMITIR`→`ENVIARNFE1` (Enviar NFe) · `BTNCANCELAR`→`CANCELARNFE1` · `BTNCCE`→`BTNCARTACORRECAO` (Carta Correção) · `BTNFATURAR`→`BTNFATURAMENTO` (Faturam.) · `BTNAJUSTAR`→`BTNOK` (Ajustar) · `BTNFECHAR`→`MNIFECHARPEDIDO` (Fechar pedido) |
+| **A2) renomear o FORMULÁRIO** | 12 | não é tela nova, é a mesma com outro nome: `FRMAGENDAPROMOCAO`→`FRMCADAGENDAPROMOCAO` (233 grants) · `FRMCADAPAGAR`→`FRMAPAGAR` (576) · `FRMDEVOLUCAOCOMPRA`→`FRMCADDEVOLUCAO` (222) · `FRMCADFAMILIAS`→`FRMCADFAMILIAPROD` · `FRMCADMOTIVOOPERACAO`→`FRMCADMOTIVOOPERACOES` (plural) … |
+| **B) decisão** | 34 | o formulário existe, o ato não tem grant próprio no legado (processar, contabilizar, estornar) |
+| **C) tela realmente nova** | 7 | `FRMCAIXA` (9 opções), `FRMDRE`, `FRMCADCENTROCUSTO`, `FRMCADCIDADES`, `FRMCADPRECO`, `FRMCADOPERACOESCONTA`, `FRMCONFERENCIANOTA` |
+
+Ou seja: **19 dos 91 são renomeação** (mecânica, e devolvem grants que já existem — o `FRMCADAPAGAR`→`FRMAPAGAR`
+sozinho recupera 576 concessões), 34 precisam de política e 7 são tela que o legado não tinha.
+
+⚠️ Os candidatos de A2 são **sugestão para revisão**, não verdade: o casamento é por radical do nome, e já
+derrubei um falso positivo (`FRMCONFERENCIANOTA` casava com `FRMNF` porque "co**NF**erencianota" contém "NF").
+`FRMPENDENCIASOPERADOR`→`FRMCADOPERADORAS` e `FRMLIBERACOES`→`FRMLIBERACAOPEDIDO` cheiram a falso positivo e
+precisam de olho humano antes de virar código.
+
 ## 8. Próximos passos (estado em 2026-09-02)
 
 Os três itens originais desta seção estão feitos (mapa por tabela, runner com reconciliação, ensaio por fase).

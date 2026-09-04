@@ -1,0 +1,5028 @@
+{
+ "FRMADIANTAMENTOFORNECEDOR": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 42
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 42
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 37
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 42
+  },
+  {
+   "opcao": "FRMADIANTAMENTOFORNECEDOR",
+   "n": 42
+  }
+ ],
+ "FRMAGENDADEPARTAMENTO": [
+  {
+   "opcao": "FRMAGENDADEPARTAMENTO",
+   "n": 9
+  }
+ ],
+ "FRMAGENDADESCARREGAMENTO": [
+  {
+   "opcao": "FRMAGENDADESCARREGAMENTO",
+   "n": 13
+  }
+ ],
+ "FRMAGRUPACARTAO": [
+  {
+   "opcao": "FRMAGRUPACARTAO",
+   "n": 25
+  }
+ ],
+ "FRMAGRUPACONTASAPAGAR": [
+  {
+   "opcao": "BTNEXCLUIRDOC",
+   "n": 9
+  },
+  {
+   "opcao": "FRMAGRUPACONTASAPAGAR",
+   "n": 33
+  }
+ ],
+ "FRMAGRUPACONTASARECEBER": [
+  {
+   "opcao": "BTNEXCLUIRDOC",
+   "n": 9
+  },
+  {
+   "opcao": "FRMAGRUPACONTASARECEBER",
+   "n": 42
+  }
+ ],
+ "FRMAJUSTEESTOQUE": [
+  {
+   "opcao": "BTNOK",
+   "n": 28
+  },
+  {
+   "opcao": "FRMAJUSTEESTOQUE",
+   "n": 28
+  }
+ ],
+ "FRMAJUSTEPRECOS": [
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 23
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 17
+  },
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 10
+  },
+  {
+   "opcao": "FRMAJUSTEPRECOS",
+   "n": 46
+  }
+ ],
+ "FRMALERTAFISCALALINHAMENTO": [
+  {
+   "opcao": "FRMALERTAFISCALALINHAMENTO",
+   "n": 2
+  }
+ ],
+ "FRMALERTAFISCALPRODUTOSREVISADOS": [
+  {
+   "opcao": "FRMALERTAFISCALPRODUTOSREVISADOS",
+   "n": 2
+  }
+ ],
+ "FRMALINHAGENERATOR": [
+  {
+   "opcao": "FRMALINHAGENERATOR",
+   "n": 12
+  }
+ ],
+ "FRMANALISEAPURACAOFCP": [
+  {
+   "opcao": "FRMANALISEAPURACAOFCP",
+   "n": 2
+  }
+ ],
+ "FRMANALISECOMPORTAMENTO": [
+  {
+   "opcao": "FRMANALISECOMPORTAMENTO",
+   "n": 21
+  }
+ ],
+ "FRMANALISEENTRADAXSAIDA": [
+  {
+   "opcao": "FRMANALISEENTRADAXSAIDA",
+   "n": 22
+  }
+ ],
+ "FRMANALISEGERENCIALDEPEDIDOS": [
+  {
+   "opcao": "BTNEXPORTAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMANALISEGERENCIALDEPEDIDOS",
+   "n": 12
+  }
+ ],
+ "FRMAPAGAR": [
+  {
+   "opcao": "ANEXOS1",
+   "n": 45
+  },
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 55
+  },
+  {
+   "opcao": "BTNCLONAR",
+   "n": 2
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 55
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 34
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 55
+  },
+  {
+   "opcao": "BTNREVERTERAGRUPAMENTO",
+   "n": 55
+  },
+  {
+   "opcao": "CBBTIPODOC",
+   "n": 55
+  },
+  {
+   "opcao": "CLETOTALNF",
+   "n": 55
+  },
+  {
+   "opcao": "EDTPAGO",
+   "n": 55
+  },
+  {
+   "opcao": "EDTVALOR",
+   "n": 55
+  },
+  {
+   "opcao": "FRMAPAGAR",
+   "n": 55
+  }
+ ],
+ "FRMAPURACAO": [
+  {
+   "opcao": "FRMAPURACAO",
+   "n": 12
+  }
+ ],
+ "FRMAPURACAOCIAP": [
+  {
+   "opcao": "FRMAPURACAOCIAP",
+   "n": 19
+  }
+ ],
+ "FRMAPURACAOICMSST": [
+  {
+   "opcao": "BTNADICIONAR",
+   "n": 27
+  },
+  {
+   "opcao": "BTNCONSULTA",
+   "n": 27
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 20
+  },
+  {
+   "opcao": "FRMAPURACAOICMSST",
+   "n": 27
+  }
+ ],
+ "FRMAPURACAOPISCOFINS": [
+  {
+   "opcao": "FRMAPURACAOPISCOFINS",
+   "n": 19
+  }
+ ],
+ "FRMATUALIZACAOPRODUTOS": [
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMATUALIZACAOPRODUTOS",
+   "n": 13
+  }
+ ],
+ "FRMATUALIZASTATUSPEDPRODUCAO": [
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMATUALIZASTATUSPEDPRODUCAO",
+   "n": 12
+  }
+ ],
+ "FRMAUTORIZACAOBAIXA": [
+  {
+   "opcao": "BTNCONSULTARDOCUMENTOS",
+   "n": 8
+  },
+  {
+   "opcao": "FRMAUTORIZACAOBAIXA",
+   "n": 8
+  }
+ ],
+ "FRMAUTORIZACAOTRANSFERENCIA": [
+  {
+   "opcao": "BTNCONSULTARDOCUMENTOS",
+   "n": 3
+  },
+  {
+   "opcao": "FRMAUTORIZACAOTRANSFERENCIA",
+   "n": 3
+  }
+ ],
+ "FRMBAIXAAPAGAR": [
+  {
+   "opcao": "BTNADDRECURSO",
+   "n": 43
+  },
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 43
+  },
+  {
+   "opcao": "BTNCONSULTA",
+   "n": 43
+  },
+  {
+   "opcao": "BTNDELRECURSO",
+   "n": 29
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 43
+  },
+  {
+   "opcao": "BTNPOSTRECURSO",
+   "n": 43
+  },
+  {
+   "opcao": "FRMBAIXAAPAGAR",
+   "n": 43
+  }
+ ],
+ "FRMBAIXAARECEBER": [
+  {
+   "opcao": "BTNADDRECURSO",
+   "n": 30
+  },
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 30
+  },
+  {
+   "opcao": "BTNCONSULTA",
+   "n": 30
+  },
+  {
+   "opcao": "BTNDELRECURSO",
+   "n": 29
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 30
+  },
+  {
+   "opcao": "BTNPOSTRECURSO",
+   "n": 30
+  },
+  {
+   "opcao": "FRMBAIXAARECEBER",
+   "n": 30
+  }
+ ],
+ "FRMBAIXACARTAO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 27
+  },
+  {
+   "opcao": "BTNCONSULTA",
+   "n": 27
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 27
+  },
+  {
+   "opcao": "FRMBAIXACARTAO",
+   "n": 27
+  }
+ ],
+ "FRMBAIXACHEQUE": [
+  {
+   "opcao": "BTNADDRECURSO",
+   "n": 25
+  },
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 25
+  },
+  {
+   "opcao": "BTNCONSULTA",
+   "n": 25
+  },
+  {
+   "opcao": "BTNDELRECURSO",
+   "n": 25
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 25
+  },
+  {
+   "opcao": "BTNPOSTRECURSO",
+   "n": 25
+  },
+  {
+   "opcao": "FRMBAIXACHEQUE",
+   "n": 25
+  }
+ ],
+ "FRMCADABASTECIMENTO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 13
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 13
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 13
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 13
+  },
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 7
+  },
+  {
+   "opcao": "FRMCADABASTECIMENTO",
+   "n": 13
+  }
+ ],
+ "FRMCADACORDOCOMERCIAL": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADACORDOCOMERCIAL",
+   "n": 10
+  }
+ ],
+ "FRMCADAGENDALIMITACAOVENDA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADAGENDALIMITACAOVENDA",
+   "n": 18
+  }
+ ],
+ "FRMCADAGENDAPREVPAGTO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADAGENDAPREVPAGTO",
+   "n": 10
+  }
+ ],
+ "FRMCADAGENDAPROMOCAO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 37
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 36
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 20
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 51
+  },
+  {
+   "opcao": "CUSTOREPOSICAO",
+   "n": 18
+  },
+  {
+   "opcao": "ENCERRARPROMOCAO",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADAGENDAPROMOCAO",
+   "n": 53
+  }
+ ],
+ "FRMCADALIQUOTA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 5
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 5
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 5
+  },
+  {
+   "opcao": "FRMCADALIQUOTA",
+   "n": 18
+  }
+ ],
+ "FRMCADANALISECONCORRENTES": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADANALISECONCORRENTES",
+   "n": 21
+  }
+ ],
+ "FRMCADARECEBER": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 51
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 51
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 25
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 51
+  },
+  {
+   "opcao": "EDTMULTA",
+   "n": 42
+  },
+  {
+   "opcao": "FRMCADARECEBER",
+   "n": 51
+  },
+  {
+   "opcao": "LIMPAREMISSAODEBOLETO",
+   "n": 19
+  }
+ ],
+ "FRMCADASTRORELATORIO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 3
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 3
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 3
+  },
+  {
+   "opcao": "FRMCADASTRORELATORIO",
+   "n": 3
+  }
+ ],
+ "FRMCADBAIRRO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADBAIRRO",
+   "n": 18
+  }
+ ],
+ "FRMCADBALANCO": [
+  {
+   "opcao": "BTNADICIONARI",
+   "n": 22
+  },
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 22
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 22
+  },
+  {
+   "opcao": "BTNEXCLUIRI",
+   "n": 15
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 22
+  },
+  {
+   "opcao": "BTNLIMPARI",
+   "n": 22
+  },
+  {
+   "opcao": "FRMCADBALANCO",
+   "n": 22
+  }
+ ],
+ "FRMCADBANCOS": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 24
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 24
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 17
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 24
+  },
+  {
+   "opcao": "FRMCADBANCOS",
+   "n": 24
+  }
+ ],
+ "FRMCADCARTAO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 28
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 28
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 23
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 28
+  },
+  {
+   "opcao": "FRMCADCARTAO",
+   "n": 28
+  }
+ ],
+ "FRMCADCARTAOPROPRIO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADCARTAOPROPRIO",
+   "n": 18
+  }
+ ],
+ "FRMCADCATCORTESIA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 9
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 9
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 9
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 9
+  },
+  {
+   "opcao": "FRMCADCATCORTESIA",
+   "n": 9
+  }
+ ],
+ "FRMCADCEST": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADCEST",
+   "n": 18
+  }
+ ],
+ "FRMCADCFOP": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 24
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 24
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 17
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 24
+  },
+  {
+   "opcao": "CMBALIQUOTA",
+   "n": 24
+  },
+  {
+   "opcao": "FRMCADCFOP",
+   "n": 24
+  }
+ ],
+ "FRMCADCHEQUE": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 25
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 25
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 20
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 25
+  },
+  {
+   "opcao": "FRMCADCHEQUE",
+   "n": 25
+  }
+ ],
+ "FRMCADCHEQUEPROPRIO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 25
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 25
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 20
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 25
+  },
+  {
+   "opcao": "FRMCADCHEQUEPROPRIO",
+   "n": 25
+  }
+ ],
+ "FRMCADCLASSTRIBIBSCBS": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 2
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 2
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 2
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 2
+  },
+  {
+   "opcao": "FRMCADCLASSTRIBIBSCBS",
+   "n": 2
+  }
+ ],
+ "FRMCADCLAVEGOS": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMCADCLAVEGOS",
+   "n": 12
+  }
+ ],
+ "FRMCADCLIENTES": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 62
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 62
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 28
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 62
+  },
+  {
+   "opcao": "BTNSALVARNOVOFLEX",
+   "n": 57
+  },
+  {
+   "opcao": "CCDCREDITO",
+   "n": 57
+  },
+  {
+   "opcao": "CHBCLIENTE",
+   "n": 62
+  },
+  {
+   "opcao": "CHBCONVENIO",
+   "n": 57
+  },
+  {
+   "opcao": "CHBFORNECEDOR",
+   "n": 57
+  },
+  {
+   "opcao": "CHBFUNCIONARIO",
+   "n": 62
+  },
+  {
+   "opcao": "CHBTRANSPORTADORA",
+   "n": 57
+  },
+  {
+   "opcao": "DBLIVREINDEXADOR",
+   "n": 55
+  },
+  {
+   "opcao": "FRMCADCLIENTES",
+   "n": 62
+  },
+  {
+   "opcao": "JVDBCHECKBOX1",
+   "n": 55
+  },
+  {
+   "opcao": "VISUALIZARSENHADADOSFINANCEIROS1",
+   "n": 57
+  },
+  {
+   "opcao": "VISUALIZARSENHARALACIONAMENTOS1",
+   "n": 57
+  }
+ ],
+ "FRMCADCODBENEFICIOFISCAL": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 7
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 7
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 7
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 7
+  },
+  {
+   "opcao": "FRMCADCODBENEFICIOFISCAL",
+   "n": 7
+  }
+ ],
+ "FRMCADCODIGOAJUSTE": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADCODIGOAJUSTE",
+   "n": 18
+  }
+ ],
+ "FRMCADCODIGOCONTABIL": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADCODIGOCONTABIL",
+   "n": 21
+  }
+ ],
+ "FRMCADCODIGORECEITA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADCODIGORECEITA",
+   "n": 18
+  }
+ ],
+ "FRMCADCOMANDASBLOQUEADAS": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 5
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 5
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 5
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 5
+  },
+  {
+   "opcao": "FRMCADCOMANDASBLOQUEADAS",
+   "n": 5
+  }
+ ],
+ "FRMCADCONCORRENTES": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADCONCORRENTES",
+   "n": 18
+  }
+ ],
+ "FRMCADCONDICOESPAGTO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 19
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 19
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 19
+  },
+  {
+   "opcao": "FRMCADCONDICOESPAGTO",
+   "n": 19
+  }
+ ],
+ "FRMCADCONFPLANOCONTAS": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADCONFPLANOCONTAS",
+   "n": 21
+  }
+ ],
+ "FRMCADCONTASBANCARIAS": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 35
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 35
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 16
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 35
+  },
+  {
+   "opcao": "FRMCADCONTASBANCARIAS",
+   "n": 35
+  }
+ ],
+ "FRMCADCOTACAO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNENVIAREMAIL",
+   "n": 21
+  },
+  {
+   "opcao": "BTNENVIARMSGWHATSAPP",
+   "n": 2
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADCOTACAO",
+   "n": 21
+  }
+ ],
+ "FRMCADCOTACAOFORN": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADCOTACAOFORN",
+   "n": 21
+  }
+ ],
+ "FRMCADCSTIBSCBS": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 2
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 2
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 2
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 2
+  },
+  {
+   "opcao": "FRMCADCSTIBSCBS",
+   "n": 2
+  }
+ ],
+ "FRMCADCTE": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNIMPORTAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMCADCTE",
+   "n": 12
+  }
+ ],
+ "FRMCADDEVOLUCAO": [
+  {
+   "opcao": "BTNADICIONARI",
+   "n": 36
+  },
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 29
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 36
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 20
+  },
+  {
+   "opcao": "BTNEXCLUIRI",
+   "n": 29
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 36
+  },
+  {
+   "opcao": "FRMCADDEVOLUCAO",
+   "n": 36
+  }
+ ],
+ "FRMCADDOCA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 9
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 9
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 9
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 9
+  },
+  {
+   "opcao": "CHBATIVO",
+   "n": 9
+  },
+  {
+   "opcao": "FRMCADDOCA",
+   "n": 9
+  }
+ ],
+ "FRMCADDRECONTABIL": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADDRECONTABIL",
+   "n": 21
+  }
+ ],
+ "FRMCADEMPRESA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 19
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 19
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 19
+  },
+  {
+   "opcao": "FRMCADEMPRESA",
+   "n": 19
+  }
+ ],
+ "FRMCADETAPAS": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 5
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 5
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 5
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 5
+  },
+  {
+   "opcao": "FRMCADETAPAS",
+   "n": 5
+  }
+ ],
+ "FRMCADFAMILIAPROD": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADFAMILIAPROD",
+   "n": 18
+  }
+ ],
+ "FRMCADFIGURASFISCAIS": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADFIGURASFISCAIS",
+   "n": 18
+  }
+ ],
+ "FRMCADFORMAPGTO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 19
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 19
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 19
+  },
+  {
+   "opcao": "FRMCADFORMAPGTO",
+   "n": 19
+  }
+ ],
+ "FRMCADGENERONCM": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 20
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 20
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 15
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 20
+  },
+  {
+   "opcao": "FRMCADGENERONCM",
+   "n": 20
+  }
+ ],
+ "FRMCADGRUPOCONTABIL": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADGRUPOCONTABIL",
+   "n": 21
+  }
+ ],
+ "FRMCADGRUPOEMPRESARIAL": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 7
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 7
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 7
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 7
+  },
+  {
+   "opcao": "FRMCADGRUPOEMPRESARIAL",
+   "n": 5
+  }
+ ],
+ "FRMCADHISTORICOCONTABIL": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADHISTORICOCONTABIL",
+   "n": 21
+  }
+ ],
+ "FRMCADINDEXADORTRIBUTARIO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 23
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 23
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 16
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 23
+  },
+  {
+   "opcao": "FRMCADINDEXADORTRIBUTARIO",
+   "n": 23
+  }
+ ],
+ "FRMCADLANCAMENTOCONTABIL": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADLANCAMENTOCONTABIL",
+   "n": 21
+  }
+ ],
+ "FRMCADLANCAMENTODIARIO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADLANCAMENTODIARIO",
+   "n": 21
+  }
+ ],
+ "FRMCADLIMITECOMPRA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 7
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 7
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 7
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 7
+  },
+  {
+   "opcao": "CHBATIVO",
+   "n": 7
+  },
+  {
+   "opcao": "FRMCADLIMITECOMPRA",
+   "n": 7
+  }
+ ],
+ "FRMCADLOCALESTOQUE": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 6
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 6
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 6
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 6
+  },
+  {
+   "opcao": "FRMCADLOCALESTOQUE",
+   "n": 6
+  }
+ ],
+ "FRMCADLOCALIMPRESSAO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 2
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 2
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 2
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 2
+  },
+  {
+   "opcao": "CHBATIVO",
+   "n": 2
+  },
+  {
+   "opcao": "FRMCADLOCALIMPRESSAO",
+   "n": 2
+  }
+ ],
+ "FRMCADLOTECOBRANCA": [
+  {
+   "opcao": "BTNADDITEN",
+   "n": 21
+  },
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNEXCLUIRITEM",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADLOTECOBRANCA",
+   "n": 21
+  }
+ ],
+ "FRMCADMAPACARGAPROD": [
+  {
+   "opcao": "BTNADDITEN",
+   "n": 12
+  },
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIRITEM",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMCADMAPACARGAPROD",
+   "n": 12
+  }
+ ],
+ "FRMCADMAPADECARGA": [
+  {
+   "opcao": "BTNADDITEN",
+   "n": 12
+  },
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIRITEM",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMCADMAPADECARGA",
+   "n": 12
+  }
+ ],
+ "FRMCADMARCAS": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADMARCAS",
+   "n": 18
+  }
+ ],
+ "FRMCADMDFE": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMCADMDFE",
+   "n": 12
+  }
+ ],
+ "FRMCADMENSAGEMNF": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMCADMENSAGEMNF",
+   "n": 12
+  }
+ ],
+ "FRMCADMIDIADEPARTAMENTO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 14
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 14
+  },
+  {
+   "opcao": "FRMCADMIDIADEPARTAMENTO",
+   "n": 14
+  }
+ ],
+ "FRMCADMOEDA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADMOEDA",
+   "n": 18
+  }
+ ],
+ "FRMCADMOTIVOOPERACOES": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADMOTIVOOPERACOES",
+   "n": 18
+  }
+ ],
+ "FRMCADNCM": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 20
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 20
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 15
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 20
+  },
+  {
+   "opcao": "FRMCADNCM",
+   "n": 20
+  }
+ ],
+ "FRMCADNCMLC224": [
+  {
+   "opcao": "FRMCADNCMLC224",
+   "n": 2
+  }
+ ],
+ "FRMCADNFE": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 17
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 17
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 9
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 17
+  },
+  {
+   "opcao": "FRMCADNFE",
+   "n": 17
+  }
+ ],
+ "FRMCADOPERADORAS": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 24
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 24
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 19
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 24
+  },
+  {
+   "opcao": "FRMCADOPERADORAS",
+   "n": 24
+  }
+ ],
+ "FRMCADOPERADORASTELEFONIA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADOPERADORASTELEFONIA",
+   "n": 18
+  }
+ ],
+ "FRMCADORIGEMCONTABIL": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADORIGEMCONTABIL",
+   "n": 21
+  }
+ ],
+ "FRMCADPEDIDODEVOLUCAOCOMPRAS": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 44
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 44
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 30
+  },
+  {
+   "opcao": "BTNEXCLUIRITEM",
+   "n": 37
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 44
+  },
+  {
+   "opcao": "FRMCADPEDIDODEVOLUCAOCOMPRAS",
+   "n": 44
+  }
+ ],
+ "FRMCADPERFILOPERADOR": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADPERFILOPERADOR",
+   "n": 21
+  }
+ ],
+ "FRMCADPERIODOCONTABIL": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADPERIODOCONTABIL",
+   "n": 21
+  }
+ ],
+ "FRMCADPESQUISA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADPESQUISA",
+   "n": 21
+  }
+ ],
+ "FRMCADPISCOFINS": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADPISCOFINS",
+   "n": 18
+  }
+ ],
+ "FRMCADPLANOCONTAS": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADPLANOCONTAS",
+   "n": 21
+  }
+ ],
+ "FRMCADPLC": [
+  {
+   "opcao": "BTNADICIONARMOTOP",
+   "n": 29
+  },
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 29
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 29
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 22
+  },
+  {
+   "opcao": "BTNEXCLUIRMOTOP",
+   "n": 22
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 29
+  },
+  {
+   "opcao": "BTNLIMPARMOTOP",
+   "n": 29
+  },
+  {
+   "opcao": "FRMCADPLC",
+   "n": 29
+  }
+ ],
+ "FRMCADPRODUCAO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADPRODUCAO",
+   "n": 13
+  }
+ ],
+ "FRMCADPRODUTO": [
+  {
+   "opcao": "BITBTN1",
+   "n": 17
+  },
+  {
+   "opcao": "BITBTN2",
+   "n": 52
+  },
+  {
+   "opcao": "BITBTN5",
+   "n": 4
+  },
+  {
+   "opcao": "BTNADDDESCOMP",
+   "n": 56
+  },
+  {
+   "opcao": "BTNADDITEM",
+   "n": 56
+  },
+  {
+   "opcao": "BTNADDSUGESTAOPRODUTOS",
+   "n": 10
+  },
+  {
+   "opcao": "BTNADDSUGESTAOPRODUTOSG1",
+   "n": 3
+  },
+  {
+   "opcao": "BTNADDSUGESTAOPRODUTOSG2",
+   "n": 3
+  },
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 62
+  },
+  {
+   "opcao": "BTNCLRSUGESTAOPRODUTOS",
+   "n": 10
+  },
+  {
+   "opcao": "BTNCLRSUGESTAOPRODUTOSG1",
+   "n": 3
+  },
+  {
+   "opcao": "BTNCLRSUGESTAOPRODUTOSG2",
+   "n": 3
+  },
+  {
+   "opcao": "BTNDELITEM",
+   "n": 56
+  },
+  {
+   "opcao": "BTNDELSUGESTAOPRODUTOS",
+   "n": 3
+  },
+  {
+   "opcao": "BTNDELSUGESTAOPRODUTOSG1",
+   "n": 3
+  },
+  {
+   "opcao": "BTNDELSUGESTAOPRODUTOSG2",
+   "n": 3
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 62
+  },
+  {
+   "opcao": "BTNEXCLUIDECOMP",
+   "n": 56
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 62
+  },
+  {
+   "opcao": "BTNIMPORTARSUGESTOES",
+   "n": 10
+  },
+  {
+   "opcao": "BTNIMPORTARSUGESTOESG1",
+   "n": 3
+  },
+  {
+   "opcao": "BTNIMPORTARSUGESTOESG2",
+   "n": 3
+  },
+  {
+   "opcao": "BTNLIMPADECOMP",
+   "n": 58
+  },
+  {
+   "opcao": "BTNLIMPARCOMPOSICAO",
+   "n": 58
+  },
+  {
+   "opcao": "BTNPERMISSAOEDTCODBARRA",
+   "n": 31
+  },
+  {
+   "opcao": "BTNPRECIFICACAO",
+   "n": 39
+  },
+  {
+   "opcao": "CHBATIVO",
+   "n": 62
+  },
+  {
+   "opcao": "CHBATIVOCOMPRA",
+   "n": 62
+  },
+  {
+   "opcao": "EDTCODFIGFISCAL",
+   "n": 60
+  },
+  {
+   "opcao": "EDTCUSTO",
+   "n": 56
+  },
+  {
+   "opcao": "EDTCUSTOMEDIO",
+   "n": 11
+  },
+  {
+   "opcao": "EDTCUSTOREP",
+   "n": 56
+  },
+  {
+   "opcao": "EDTMARKUPFIXO",
+   "n": 24
+  },
+  {
+   "opcao": "EDTNCMSH",
+   "n": 58
+  },
+  {
+   "opcao": "EDTPRODUTOPAI",
+   "n": 26
+  },
+  {
+   "opcao": "EDTVRVENDA",
+   "n": 59
+  },
+  {
+   "opcao": "FRMCADPRODUTO",
+   "n": 62
+  },
+  {
+   "opcao": "MNIDUPLICARPRODUTO",
+   "n": 58
+  },
+  {
+   "opcao": "PRECIFICAODOCUSTO1",
+   "n": 57
+  }
+ ],
+ "FRMCADPRODUTOVALIDADE": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADPRODUTOVALIDADE",
+   "n": 18
+  }
+ ],
+ "FRMCADPROMOCAO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 25
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 25
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 20
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 25
+  },
+  {
+   "opcao": "FRMCADPROMOCAO",
+   "n": 25
+  }
+ ],
+ "FRMCADPROMOCAOACUMULATIVA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 28
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 28
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 20
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 28
+  },
+  {
+   "opcao": "FRMCADPROMOCAOACUMULATIVA",
+   "n": 28
+  }
+ ],
+ "FRMCADPROMOCAODEPARTAMENTO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 15
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 15
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 15
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 15
+  },
+  {
+   "opcao": "FRMCADPROMOCAODEPARTAMENTO",
+   "n": 12
+  }
+ ],
+ "FRMCADPUBLICIDADE": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMCADPUBLICIDADE",
+   "n": 12
+  }
+ ],
+ "FRMCADREDUCAOZ": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNCANCELARALIQUOTAS",
+   "n": 12
+  },
+  {
+   "opcao": "BTNCANCELARPGTO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITARALIQUOTAS",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITARPGTO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIRALIQUOTAS",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIRPGTO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVARALIQUOTAS",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVARPGTO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNNOVOALIQUOTAS",
+   "n": 12
+  },
+  {
+   "opcao": "BTNNOVOPGTO",
+   "n": 12
+  },
+  {
+   "opcao": "FRMCADREDUCAOZ",
+   "n": 12
+  },
+  {
+   "opcao": "MIPROCESSARMOVIMENTACAOSCANNTECH",
+   "n": 6
+  }
+ ],
+ "FRMCADREGIAO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADREGIAO",
+   "n": 21
+  }
+ ],
+ "FRMCADSCRAP": [
+  {
+   "opcao": "BTNADICIONARITEM",
+   "n": 64
+  },
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 64
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 64
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 30
+  },
+  {
+   "opcao": "BTNEXCLUIRI",
+   "n": 42
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 64
+  },
+  {
+   "opcao": "BTNLIMPARI",
+   "n": 57
+  },
+  {
+   "opcao": "FRMCADSCRAP",
+   "n": 64
+  }
+ ],
+ "FRMCADSITUACAONF": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADSITUACAONF",
+   "n": 18
+  }
+ ],
+ "FRMCADTABELAFORNECEDORES": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNBLOQUEIO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNLIBERACAO",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADTABELAFORNECEDORES",
+   "n": 10
+  }
+ ],
+ "FRMCADTABELAPRECO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 9
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 9
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 9
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 9
+  },
+  {
+   "opcao": "FRMCADTABELAPRECO",
+   "n": 9
+  }
+ ],
+ "FRMCADTARA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADTARA",
+   "n": 21
+  }
+ ],
+ "FRMCADTERMINAIS": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMCADTERMINAIS",
+   "n": 12
+  }
+ ],
+ "FRMCADTERMINALSICOMANDA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 5
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 5
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 5
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 5
+  },
+  {
+   "opcao": "FRMCADTERMINALSICOMANDA",
+   "n": 5
+  }
+ ],
+ "FRMCADTIPOFATURAMENTO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMCADTIPOFATURAMENTO",
+   "n": 12
+  }
+ ],
+ "FRMCADUNIDADE": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "CHBATIVO",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCADUNIDADE",
+   "n": 18
+  }
+ ],
+ "FRMCADUSUARIOS": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 49
+  },
+  {
+   "opcao": "BTNCLONAR",
+   "n": 2
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 49
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 23
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 49
+  },
+  {
+   "opcao": "EDTSENHARETAGUARDA",
+   "n": 28
+  },
+  {
+   "opcao": "FRMCADUSUARIOS",
+   "n": 49
+  }
+ ],
+ "FRMCADVEICULOS": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCADVEICULOS",
+   "n": 21
+  }
+ ],
+ "FRMCENTRALIZADORCONFIGPDV": [
+  {
+   "opcao": "FRMCENTRALIZADORCONFIGPDV",
+   "n": 12
+  }
+ ],
+ "FRMCHQCUSTODIA": [
+  {
+   "opcao": "FRMCHQCUSTODIA",
+   "n": 12
+  }
+ ],
+ "FRMCOLETOR": [
+  {
+   "opcao": "BTNABRIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXECUTAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMCOLETOR",
+   "n": 12
+  }
+ ],
+ "FRMCONCILIACAOBANCARIA": [
+  {
+   "opcao": "BTNPERMISSAOEXCLUIROFX",
+   "n": 24
+  },
+  {
+   "opcao": "FRMCONCILIACAOBANCARIA",
+   "n": 28
+  }
+ ],
+ "FRMCONFBOLETO": [
+  {
+   "opcao": "FRMCONFBOLETO",
+   "n": 25
+  }
+ ],
+ "FRMCONFDEPARTAMENTOIMPRESSORA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 9
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 9
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 9
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 9
+  },
+  {
+   "opcao": "FRMCONFDEPARTAMENTOIMPRESSORA",
+   "n": 9
+  }
+ ],
+ "FRMCONFERENCIANFINDEXADOR": [
+  {
+   "opcao": "FRMCONFERENCIANFINDEXADOR",
+   "n": 12
+  }
+ ],
+ "FRMCONFIGBAL": [
+  {
+   "opcao": "FRMCONFIGBAL",
+   "n": 12
+  }
+ ],
+ "FRMCONFIGDRECONTABIL": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCONFIGDRECONTABIL",
+   "n": 21
+  }
+ ],
+ "FRMCONFIGINTEGRACAOCONTABIL": [
+  {
+   "opcao": "FRMCONFIGINTEGRACAOCONTABIL",
+   "n": 21
+  }
+ ],
+ "FRMCONFIGLEGISLACAONFE": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCONFIGLEGISLACAONFE",
+   "n": 18
+  }
+ ],
+ "FRMCONFIGURAPIX": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 7
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 7
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 7
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 7
+  },
+  {
+   "opcao": "FRMCONFIGURAPIX",
+   "n": 7
+  }
+ ],
+ "FRMCONFINTEGBANCARIA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMCONFINTEGBANCARIA",
+   "n": 18
+  }
+ ],
+ "FRMCONGELAESTOQUE": [
+  {
+   "opcao": "FRMCONGELAESTOQUE",
+   "n": 12
+  }
+ ],
+ "FRMCONSAPGBX": [
+  {
+   "opcao": "BTNREVERTERBAIXA",
+   "n": 28
+  },
+  {
+   "opcao": "FRMCONSAPGBX",
+   "n": 28
+  }
+ ],
+ "FRMCONSCLIRCB": [
+  {
+   "opcao": "EDTDESC",
+   "n": 17
+  },
+  {
+   "opcao": "EDTDIASCARENCIA",
+   "n": 17
+  },
+  {
+   "opcao": "EDTJURO",
+   "n": 26
+  },
+  {
+   "opcao": "FRMCONSCLIRCB",
+   "n": 26
+  }
+ ],
+ "FRMCONSHISTVENDAS": [
+  {
+   "opcao": "FRMCONSHISTVENDAS",
+   "n": 63
+  }
+ ],
+ "FRMCONSOLIDACAOPISCOFINS": [
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCONSOLIDACAOPISCOFINS",
+   "n": 13
+  }
+ ],
+ "FRMCONSPROD": [
+  {
+   "opcao": "BTNCADASTRO",
+   "n": 21
+  },
+  {
+   "opcao": "FRMCONSPROD",
+   "n": 21
+  }
+ ],
+ "FRMCONSRCBBX": [
+  {
+   "opcao": "BTNREVERTERBAIXA",
+   "n": 28
+  },
+  {
+   "opcao": "FRMCONSRCBBX",
+   "n": 28
+  }
+ ],
+ "FRMCONSULTORIAATM": [
+  {
+   "opcao": "EDTFORNECEDOR",
+   "n": 1
+  },
+  {
+   "opcao": "FRMCONSULTORIAATM",
+   "n": 21
+  }
+ ],
+ "FRMCONTROLECONTASBANCARIAS": [
+  {
+   "opcao": "BITBTN2",
+   "n": 42
+  },
+  {
+   "opcao": "BTNFECHA",
+   "n": 42
+  },
+  {
+   "opcao": "BTNLANCSALDO",
+   "n": 42
+  },
+  {
+   "opcao": "BTNLIBERAR",
+   "n": 42
+  },
+  {
+   "opcao": "BTNTROCAVALORES",
+   "n": 42
+  },
+  {
+   "opcao": "FRMCONTROLECONTASBANCARIAS",
+   "n": 42
+  }
+ ],
+ "FRMCONTROLEENTREGAS": [
+  {
+   "opcao": "BTNREVERTERENTRERGA",
+   "n": 5
+  },
+  {
+   "opcao": "FRMCONTROLEENTREGAS",
+   "n": 12
+  }
+ ],
+ "FRMCONTROLEFUN": [
+  {
+   "opcao": "BTNCONSULTA",
+   "n": 12
+  },
+  {
+   "opcao": "FRMCONTROLEFUN",
+   "n": 12
+  }
+ ],
+ "FRMCONTROLEMOBILE": [
+  {
+   "opcao": "FRMCONTROLEMOBILE",
+   "n": 12
+  }
+ ],
+ "FRMCONTROLESICOMANDA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 3
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 3
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 3
+  },
+  {
+   "opcao": "FRMCONTROLESICOMANDA",
+   "n": 3
+  }
+ ],
+ "FRMCOTACAOLISTAFORN": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMCOTACAOLISTAFORN",
+   "n": 12
+  }
+ ],
+ "FRMCTRLPERMISSOES": [
+  {
+   "opcao": "FRMCTRLPERMISSOES",
+   "n": 16
+  }
+ ],
+ "FRMCTRLRECARGASCORRESPONDENTE": [
+  {
+   "opcao": "FRMCTRLRECARGASCORRESPONDENTE",
+   "n": 21
+  }
+ ],
+ "FRMDECLARACAOIMPORTACAONF": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMDECLARACAOIMPORTACAONF",
+   "n": 21
+  }
+ ],
+ "FRMDESCONTOTITULO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 27
+  },
+  {
+   "opcao": "BTNCONSULTA",
+   "n": 27
+  },
+  {
+   "opcao": "FRMDESCONTOTITULO",
+   "n": 27
+  }
+ ],
+ "FRMDEVOLUCAOCH": [
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMDEVOLUCAOCH",
+   "n": 21
+  }
+ ],
+ "FRMDEVOLUCAOVENDAS": [
+  {
+   "opcao": "FRMDEVOLUCAOVENDAS",
+   "n": 49
+  }
+ ],
+ "FRMDEVOLUCAO_NF": [
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 17
+  },
+  {
+   "opcao": "BTNPROCESSAR",
+   "n": 17
+  },
+  {
+   "opcao": "FRMDEVOLUCAO_NF",
+   "n": 17
+  }
+ ],
+ "FRMDIGITACAOPEDIDOS": [
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "CEDFATOR",
+   "n": 21
+  },
+  {
+   "opcao": "EDTACRES",
+   "n": 21
+  },
+  {
+   "opcao": "EDTACRESGERAL",
+   "n": 2
+  },
+  {
+   "opcao": "EDTDESC",
+   "n": 21
+  },
+  {
+   "opcao": "EDTFRETE",
+   "n": 3
+  },
+  {
+   "opcao": "EDTVLRVENDA",
+   "n": 21
+  },
+  {
+   "opcao": "FRMDIGITACAOPEDIDOS",
+   "n": 21
+  }
+ ],
+ "FRMDIGITACAOPEDIDOSPRODUCAO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNCANCELAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMDIGITACAOPEDIDOSPRODUCAO",
+   "n": 12
+  }
+ ],
+ "FRMETIQUETA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 34
+  },
+  {
+   "opcao": "BTNCONSULTAPRECO",
+   "n": 63
+  },
+  {
+   "opcao": "BTNIMPORT",
+   "n": 63
+  },
+  {
+   "opcao": "FRMETIQUETA",
+   "n": 63
+  }
+ ],
+ "FRMEXPORTABALANCA": [
+  {
+   "opcao": "BTNCONFIGURABAL",
+   "n": 52
+  },
+  {
+   "opcao": "BTNEXPORTAR",
+   "n": 55
+  },
+  {
+   "opcao": "BTNREGISTROLOG",
+   "n": 30
+  },
+  {
+   "opcao": "FRMEXPORTABALANCA",
+   "n": 50
+  }
+ ],
+ "FRMEXPORTACAOCOLETOR": [
+  {
+   "opcao": "BITBTN1",
+   "n": 8
+  },
+  {
+   "opcao": "BTNABRIR",
+   "n": 8
+  },
+  {
+   "opcao": "FRMEXPORTACAOCOLETOR",
+   "n": 8
+  }
+ ],
+ "FRMEXPORTANFE": [
+  {
+   "opcao": "CANCELARNFE1",
+   "n": 12
+  },
+  {
+   "opcao": "CANCELARNFEPELOXML1",
+   "n": 12
+  },
+  {
+   "opcao": "ENVIARNFE1",
+   "n": 12
+  },
+  {
+   "opcao": "FRMEXPORTANFE",
+   "n": 12
+  },
+  {
+   "opcao": "GERARNFE1",
+   "n": 12
+  },
+  {
+   "opcao": "IMPRIMIRDANFE1",
+   "n": 12
+  },
+  {
+   "opcao": "STATUSNFE2",
+   "n": 12
+  },
+  {
+   "opcao": "STATUSNFEPELOXML1",
+   "n": 12
+  },
+  {
+   "opcao": "STATUSSERVIO1",
+   "n": 12
+  }
+ ],
+ "FRMEXTRATOCLIENTES": [
+  {
+   "opcao": "FRMEXTRATOCLIENTES",
+   "n": 12
+  }
+ ],
+ "FRMEXTRATOFORNECEDORES": [
+  {
+   "opcao": "FRMEXTRATOFORNECEDORES",
+   "n": 21
+  }
+ ],
+ "FRMFATURAMENTO2": [
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMFATURAMENTO2",
+   "n": 21
+  }
+ ],
+ "FRMFATURAMENTOPEDIDO": [
+  {
+   "opcao": "BTNATUALIZARDATA",
+   "n": 21
+  },
+  {
+   "opcao": "FRMFATURAMENTOPEDIDO",
+   "n": 21
+  }
+ ],
+ "FRMFECHAMENTOCAIXA": [
+  {
+   "opcao": "BTNABRIR",
+   "n": 67
+  },
+  {
+   "opcao": "BTNCXABERTO",
+   "n": 67
+  },
+  {
+   "opcao": "BTNFECHA",
+   "n": 67
+  },
+  {
+   "opcao": "BTNLANCPROV",
+   "n": 41
+  },
+  {
+   "opcao": "BTNREABRIR",
+   "n": 41
+  },
+  {
+   "opcao": "FECHAMENTOCAIXA1",
+   "n": 67
+  },
+  {
+   "opcao": "FRMFECHAMENTOCAIXA",
+   "n": 67
+  }
+ ],
+ "FRMFECHAMENTODIARIO": [
+  {
+   "opcao": "FRMFECHAMENTODIARIO",
+   "n": 29
+  }
+ ],
+ "FRMFECHAMENTOREPOSICAO": [
+  {
+   "opcao": "FRMFECHAMENTOREPOSICAO",
+   "n": 1
+  }
+ ],
+ "FRMFECHAMENTOSANGRIA": [
+  {
+   "opcao": "BTNPROCESSO",
+   "n": 47
+  },
+  {
+   "opcao": "FRMFECHAMENTOSANGRIA",
+   "n": 47
+  }
+ ],
+ "FRMFILTROCENTRALCOBRANCA": [
+  {
+   "opcao": "FRMFILTROCENTRALCOBRANCA",
+   "n": 8
+  }
+ ],
+ "FRMFLUXOCARTOES": [
+  {
+   "opcao": "FRMFLUXOCARTOES",
+   "n": 21
+  }
+ ],
+ "FRMGERARFINANCEIROLOTE": [
+  {
+   "opcao": "FRMGERARFINANCEIROLOTE",
+   "n": 21
+  }
+ ],
+ "FRMGERENCIADORPROMOCAO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 4
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 4
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 3
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 4
+  },
+  {
+   "opcao": "FRMGERENCIADORPROMOCAO",
+   "n": 4
+  }
+ ],
+ "FRMGERENCIARSUGESTAOPROMOCAO": [
+  {
+   "opcao": "FRMGERENCIARSUGESTAOPROMOCAO",
+   "n": 3
+  }
+ ],
+ "FRMGRIDEXCEL": [
+  {
+   "opcao": "FRMGRIDEXCEL",
+   "n": 13
+  }
+ ],
+ "FRMHISTORICOALERTAFISCAL": [
+  {
+   "opcao": "FRMHISTORICOALERTAFISCAL",
+   "n": 2
+  }
+ ],
+ "FRMHISTORICOFGF": [
+  {
+   "opcao": "FRMHISTORICOFGF",
+   "n": 13
+  }
+ ],
+ "FRMIMPORTAHISTORICOCONTABIL": [
+  {
+   "opcao": "FRMIMPORTAHISTORICOCONTABIL",
+   "n": 21
+  }
+ ],
+ "FRMIMPORTAPED": [
+  {
+   "opcao": "FRMIMPORTAPED",
+   "n": 12
+  }
+ ],
+ "FRMIMPORTAPLANOREFERENCIAL": [
+  {
+   "opcao": "FRMIMPORTAPLANOREFERENCIAL",
+   "n": 21
+  }
+ ],
+ "FRMIMPORTAPRODUTOSEXCEL": [
+  {
+   "opcao": "FRMIMPORTAPRODUTOSEXCEL",
+   "n": 2
+  }
+ ],
+ "FRMIMPORTARPRODUTO": [
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 2
+  },
+  {
+   "opcao": "FRMIMPORTARPRODUTO",
+   "n": 2
+  }
+ ],
+ "FRMIMPRIMEETIQUETA": [
+  {
+   "opcao": "FRMIMPRIMEETIQUETA",
+   "n": 12
+  }
+ ],
+ "FRMINCONSISTENCIAREC": [
+  {
+   "opcao": "FRMINCONSISTENCIAREC",
+   "n": 12
+  }
+ ],
+ "FRMINTEGRACAOLOTEALERTAFISCAL": [
+  {
+   "opcao": "FRMINTEGRACAOLOTEALERTAFISCAL",
+   "n": 2
+  }
+ ],
+ "FRMINTEGRACAOLOTEFGF": [
+  {
+   "opcao": "BTNCARREGARXML",
+   "n": 13
+  },
+  {
+   "opcao": "BTNDOWNLOADXML",
+   "n": 13
+  },
+  {
+   "opcao": "FRMINTEGRACAOLOTEFGF",
+   "n": 13
+  }
+ ],
+ "FRMINTEGRACAOLOTEFGFAPI": [
+  {
+   "opcao": "BTNATUALIZA",
+   "n": 21
+  },
+  {
+   "opcao": "FRMINTEGRACAOLOTEFGFAPI",
+   "n": 21
+  }
+ ],
+ "FRMINTEGRACAOLOTEWL": [
+  {
+   "opcao": "BTNATUALIZA",
+   "n": 8
+  },
+  {
+   "opcao": "FRMINTEGRACAOLOTEWL",
+   "n": 8
+  }
+ ],
+ "FRMINTEGRACAO_FISCAL": [
+  {
+   "opcao": "FRMINTEGRACAO_FISCAL",
+   "n": 27
+  }
+ ],
+ "FRMINVENTARIO": [
+  {
+   "opcao": "ATUALIZACUSTODOINVENTRIOCOMOPRODUTO1",
+   "n": 21
+  },
+  {
+   "opcao": "ATUALIZAESTOQUE1",
+   "n": 21
+  },
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 21
+  },
+  {
+   "opcao": "EDTCODDPTO",
+   "n": 21
+  },
+  {
+   "opcao": "EDTCODSUBGRUPO",
+   "n": 21
+  },
+  {
+   "opcao": "FRMINVENTARIO",
+   "n": 21
+  },
+  {
+   "opcao": "GERARBALANCO1",
+   "n": 21
+  },
+  {
+   "opcao": "IMPORTARPRODUTOS1",
+   "n": 21
+  },
+  {
+   "opcao": "SINCRONIZARINVENTRIO1",
+   "n": 21
+  }
+ ],
+ "FRMLANCAPRECO2": [
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 9
+  },
+  {
+   "opcao": "FRMLANCAPRECO2",
+   "n": 9
+  }
+ ],
+ "FRMLANFRETE": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMLANFRETE",
+   "n": 21
+  }
+ ],
+ "FRMLIBERACAOPEDIDO": [
+  {
+   "opcao": "FRMLIBERACAOPEDIDO",
+   "n": 12
+  }
+ ],
+ "FRMLIBERASENHAGERENCIAL": [
+  {
+   "opcao": "FRMLIBERASENHAGERENCIAL",
+   "n": 12
+  }
+ ],
+ "FRMLOTEPRODUCAO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMLOTEPRODUCAO",
+   "n": 12
+  }
+ ],
+ "FRMMANCADCARTAOINTEGRACAO": [
+  {
+   "opcao": "BITBTN1",
+   "n": 2
+  },
+  {
+   "opcao": "BTNADDTRANSCARTAO",
+   "n": 2
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 2
+  },
+  {
+   "opcao": "BTNGRAVARALTERACOES",
+   "n": 2
+  },
+  {
+   "opcao": "BTNLIMPARVINCULO",
+   "n": 2
+  },
+  {
+   "opcao": "BTNPREVIABAIXA",
+   "n": 2
+  },
+  {
+   "opcao": "BTNSALVARCONFIGURACOES",
+   "n": 2
+  },
+  {
+   "opcao": "BTNVINCULARTRANS",
+   "n": 2
+  },
+  {
+   "opcao": "FRMMANCADCARTAOINTEGRACAO",
+   "n": 2
+  }
+ ],
+ "FRMMANIFESTODFE": [
+  {
+   "opcao": "BTNBUSCARNOTAS",
+   "n": 62
+  },
+  {
+   "opcao": "BTNIMPORTAR",
+   "n": 62
+  },
+  {
+   "opcao": "BTNMANIFESTACAO",
+   "n": 62
+  },
+  {
+   "opcao": "BTNPESQUISAAVANCADA",
+   "n": 62
+  },
+  {
+   "opcao": "BTNPESQUISARULTIMAS",
+   "n": 62
+  },
+  {
+   "opcao": "FRMMANIFESTODFE",
+   "n": 62
+  }
+ ],
+ "FRMMANUTENCAOPEDIDOS": [
+  {
+   "opcao": "FRMMANUTENCAOPEDIDOS",
+   "n": 12
+  }
+ ],
+ "FRMMAPADEENTREGAS": [
+  {
+   "opcao": "BTNADDITEN",
+   "n": 12
+  },
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIRITEM",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMMAPADEENTREGAS",
+   "n": 12
+  }
+ ],
+ "FRMMAPARESUMO": [
+  {
+   "opcao": "FRMMAPARESUMO",
+   "n": 12
+  }
+ ],
+ "FRMMERCAFACIL": [
+  {
+   "opcao": "FRMMERCAFACIL",
+   "n": 7
+  }
+ ],
+ "FRMMIXFISCAL": [
+  {
+   "opcao": "FRMMIXFISCAL",
+   "n": 8
+  }
+ ],
+ "FRMMOTIVO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 18
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 11
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 18
+  },
+  {
+   "opcao": "FRMMOTIVO",
+   "n": 18
+  }
+ ],
+ "FRMMOVCAIXA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 51
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 51
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 23
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 51
+  },
+  {
+   "opcao": "FRMMOVCAIXA",
+   "n": 51
+  }
+ ],
+ "FRMMOVCONCORRENTES": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "CHBANALISELIVRE",
+   "n": 2
+  },
+  {
+   "opcao": "FRMMOVCONCORRENTES",
+   "n": 21
+  }
+ ],
+ "FRMMOVIMENTACOESDIA": [
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMMOVIMENTACOESDIA",
+   "n": 21
+  }
+ ],
+ "FRMMOVPEDIDOS": [
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMMOVPEDIDOS",
+   "n": 12
+  }
+ ],
+ "FRMMULTATUALIZACAO": [
+  {
+   "opcao": "BTNATUALIZARPANEL",
+   "n": 9
+  },
+  {
+   "opcao": "BTNDESFAZER",
+   "n": 21
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNPROCESSAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMMULTATUALIZACAO",
+   "n": 13
+  }
+ ],
+ "FRMMULTIPRECO": [
+  {
+   "opcao": "FRMMULTIPRECO",
+   "n": 9
+  }
+ ],
+ "FRMNF": [
+  {
+   "opcao": "AJUSTEDADOSDOSPRODUTOS1",
+   "n": 22
+  },
+  {
+   "opcao": "AJUSTEST1",
+   "n": 8
+  },
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 64
+  },
+  {
+   "opcao": "BTNCARTACORRECAO",
+   "n": 64
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 64
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 37
+  },
+  {
+   "opcao": "BTNFATURAMENTO",
+   "n": 64
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 64
+  },
+  {
+   "opcao": "BTNIMPRIMIRNFE",
+   "n": 64
+  },
+  {
+   "opcao": "BTNINUTILIZARNFE",
+   "n": 64
+  },
+  {
+   "opcao": "CANCELARNFE1",
+   "n": 64
+  },
+  {
+   "opcao": "CANCELARNFEPELOXML1",
+   "n": 64
+  },
+  {
+   "opcao": "DBMOBS",
+   "n": 32
+  },
+  {
+   "opcao": "ENVIARNFE1",
+   "n": 64
+  },
+  {
+   "opcao": "FRMNF",
+   "n": 65
+  },
+  {
+   "opcao": "GERARNFE1",
+   "n": 64
+  },
+  {
+   "opcao": "IMPRIMIRDANFE1",
+   "n": 64
+  },
+  {
+   "opcao": "STATUSNFE2",
+   "n": 64
+  },
+  {
+   "opcao": "STATUSNFEPELOXML1",
+   "n": 64
+  },
+  {
+   "opcao": "STATUSSERVIO1",
+   "n": 64
+  }
+ ],
+ "FRMNFANALISE": [
+  {
+   "opcao": "FRMNFANALISE",
+   "n": 21
+  }
+ ],
+ "FRMNFCE": [
+  {
+   "opcao": "FRMNFCE",
+   "n": 24
+  }
+ ],
+ "FRMNFE_INUTILIZADA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 21
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 14
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMNFE_INUTILIZADA",
+   "n": 21
+  }
+ ],
+ "FRMNFRESSARC_ICMSST": [
+  {
+   "opcao": "BTNEMITIR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMNFRESSARC_ICMSST",
+   "n": 12
+  }
+ ],
+ "FRMORDEMSERVICO": [
+  {
+   "opcao": "BTNNOVAOS",
+   "n": 12
+  },
+  {
+   "opcao": "BTNPERMISSAODEFINIRGANHADOR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNPERMISSAOEDITAROS",
+   "n": 12
+  },
+  {
+   "opcao": "BTNPERMISSAOEXCLUIRCOTACAO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNPERMISSAOFINALIZAROS",
+   "n": 12
+  },
+  {
+   "opcao": "BTNPERMISSAOIMPRIMIROS",
+   "n": 12
+  },
+  {
+   "opcao": "BTNPERMISSAONOVACOTACAO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNPERMISSAOVISUALIZARIMAGEMCOTACAO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNPERMISSAOVISUALIZARIMAGEMOS",
+   "n": 12
+  },
+  {
+   "opcao": "FRMORDEMSERVICO",
+   "n": 12
+  }
+ ],
+ "FRMPEDIDOCOMPRA": [
+  {
+   "opcao": "BTNADDBONI",
+   "n": 27
+  },
+  {
+   "opcao": "BTNADICIONARI",
+   "n": 27
+  },
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 27
+  },
+  {
+   "opcao": "BTNBAIXAR",
+   "n": 27
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 33
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 23
+  },
+  {
+   "opcao": "BTNEXCLUIRBONI",
+   "n": 26
+  },
+  {
+   "opcao": "BTNEXCLUIRI",
+   "n": 26
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 33
+  },
+  {
+   "opcao": "BTNIMPORT",
+   "n": 23
+  },
+  {
+   "opcao": "BTNLIMPARI",
+   "n": 27
+  },
+  {
+   "opcao": "BTNSALVAREDICAOPEDIDO",
+   "n": 7
+  },
+  {
+   "opcao": "FRMPEDIDOCOMPRA",
+   "n": 33
+  },
+  {
+   "opcao": "MNIATUALIZARTABELAFORNECEDOR",
+   "n": 7
+  },
+  {
+   "opcao": "MNIFECHARDIGITAOASSOCIADO",
+   "n": 7
+  },
+  {
+   "opcao": "MNIFECHARPEDIDO",
+   "n": 27
+  },
+  {
+   "opcao": "MNIGERARPEDIDOS",
+   "n": 7
+  },
+  {
+   "opcao": "MNIREABRIRDIGITAO",
+   "n": 7
+  }
+ ],
+ "FRMPEDIDOSCOMPRACERAL": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMPEDIDOSCOMPRACERAL",
+   "n": 12
+  }
+ ],
+ "FRMPEDIDOTRANSFERENCIA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 19
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 19
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 19
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 19
+  },
+  {
+   "opcao": "FRMPEDIDOTRANSFERENCIA",
+   "n": 19
+  },
+  {
+   "opcao": "GERARNOTAFISCAL1",
+   "n": 14
+  }
+ ],
+ "FRMPENDENCIAPRODUCAO": [
+  {
+   "opcao": "FRMPENDENCIAPRODUCAO",
+   "n": 13
+  }
+ ],
+ "FRMPONTOEXPEDICAO2": [
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMPONTOEXPEDICAO2",
+   "n": 12
+  }
+ ],
+ "FRMPONTORECEBIMENTO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMPONTORECEBIMENTO",
+   "n": 12
+  }
+ ],
+ "FRMPONTORECEBIMENTO2": [
+  {
+   "opcao": "BTNEDITA",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMPONTORECEBIMENTO2",
+   "n": 12
+  }
+ ],
+ "FRMPRECIFICACAONF": [
+  {
+   "opcao": "FRMPRECIFICACAONF",
+   "n": 18
+  }
+ ],
+ "FRMPRECIFICACAONFBRUTA": [
+  {
+   "opcao": "FRMPRECIFICACAONFBRUTA",
+   "n": 18
+  }
+ ],
+ "FRMPRECIFICACAOPROD": [
+  {
+   "opcao": "FRMPRECIFICACAOPROD",
+   "n": 7
+  }
+ ],
+ "FRMPRECIFICACAOTABELAPRECO": [
+  {
+   "opcao": "BTNSALVAR",
+   "n": 9
+  },
+  {
+   "opcao": "FRMPRECIFICACAOTABELAPRECO",
+   "n": 9
+  }
+ ],
+ "FRMPRIFICACAOCUSTO": [
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 27
+  },
+  {
+   "opcao": "BTNSINCCUSTONAVENDA",
+   "n": 27
+  },
+  {
+   "opcao": "CHATIVO",
+   "n": 27
+  },
+  {
+   "opcao": "CHATIVOCOMPRA",
+   "n": 27
+  },
+  {
+   "opcao": "EDTMARKUPFIXO",
+   "n": 27
+  },
+  {
+   "opcao": "EDTVRVENDA",
+   "n": 27
+  },
+  {
+   "opcao": "FRMPRIFICACAOCUSTO",
+   "n": 27
+  }
+ ],
+ "FRMPROCESSAAPAGAR": [
+  {
+   "opcao": "BTNCONSULTA",
+   "n": 21
+  },
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMPROCESSAAPAGAR",
+   "n": 21
+  }
+ ],
+ "FRMPRODUTOSREL": [
+  {
+   "opcao": "FRMPRODUTOSREL",
+   "n": 21
+  }
+ ],
+ "FRMRECEBIMENTOAUTENTICATRANSF": [
+  {
+   "opcao": "BTNCONSULTARDOCUMENTOS",
+   "n": 3
+  },
+  {
+   "opcao": "FRMRECEBIMENTOAUTENTICATRANSF",
+   "n": 3
+  }
+ ],
+ "FRMRECEBIMENTOS": [
+  {
+   "opcao": "BTNINICIARBAIXA",
+   "n": 3
+  },
+  {
+   "opcao": "FRMRECEBIMENTOS",
+   "n": 3
+  }
+ ],
+ "FRMRELABASTECIMENTO": [
+  {
+   "opcao": "FRMRELABASTECIMENTO",
+   "n": 9
+  }
+ ],
+ "FRMRELACORDOCOMERCIAL": [
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMRELACORDOCOMERCIAL",
+   "n": 21
+  }
+ ],
+ "FRMRELANALISEPEDIDONF": [
+  {
+   "opcao": "FRMRELANALISEPEDIDONF",
+   "n": 22
+  }
+ ],
+ "FRMRELAPAGAR": [
+  {
+   "opcao": "FRMRELAPAGAR",
+   "n": 2
+  }
+ ],
+ "FRMRELATORIO": [
+  {
+   "opcao": "BTNEXCLUIMODELO",
+   "n": 22
+  },
+  {
+   "opcao": "BTNIMPORTAR",
+   "n": 3
+  },
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 22
+  },
+  {
+   "opcao": "BTNNOVORELATORIO",
+   "n": 22
+  },
+  {
+   "opcao": "FRMRELATORIO",
+   "n": 22
+  }
+ ],
+ "FRMRELATORIOCAIXA": [
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMRELATORIOCAIXA",
+   "n": 21
+  }
+ ],
+ "FRMRELATORIOCAIXADME": [
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMRELATORIOCAIXADME",
+   "n": 21
+  }
+ ],
+ "FRMRELATORIOINDUSTRIA": [
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMRELATORIOINDUSTRIA",
+   "n": 12
+  }
+ ],
+ "FRMRELATORIOVENDASDINAMICO": [
+  {
+   "opcao": "FRMRELATORIOVENDASDINAMICO",
+   "n": 23
+  }
+ ],
+ "FRMRELBALANCETE": [
+  {
+   "opcao": "FRMRELBALANCETE",
+   "n": 21
+  }
+ ],
+ "FRMRELBALANCO": [
+  {
+   "opcao": "FRMRELBALANCO",
+   "n": 21
+  }
+ ],
+ "FRMRELCAIXA": [
+  {
+   "opcao": "FRMRELCAIXA",
+   "n": 24
+  }
+ ],
+ "FRMRELCARTOES": [
+  {
+   "opcao": "FRMRELCARTOES",
+   "n": 21
+  }
+ ],
+ "FRMRELCOMPARATIVOEXCLUSAOPISCOFINS": [
+  {
+   "opcao": "FRMRELCOMPARATIVOEXCLUSAOPISCOFINS",
+   "n": 2
+  }
+ ],
+ "FRMRELCOMPRAS": [
+  {
+   "opcao": "FRMRELCOMPRAS",
+   "n": 21
+  }
+ ],
+ "FRMRELCONFERENCIAEFD": [
+  {
+   "opcao": "FRMRELCONFERENCIAEFD",
+   "n": 10
+  }
+ ],
+ "FRMRELCORTESIAS": [
+  {
+   "opcao": "FRMRELCORTESIAS",
+   "n": 12
+  }
+ ],
+ "FRMRELCURVAABCFORNECEDOR": [
+  {
+   "opcao": "FRMRELCURVAABCFORNECEDOR",
+   "n": 21
+  }
+ ],
+ "FRMRELDDE": [
+  {
+   "opcao": "FRMRELDDE",
+   "n": 21
+  }
+ ],
+ "FRMRELDIARIOCONTABIL": [
+  {
+   "opcao": "FRMRELDIARIOCONTABIL",
+   "n": 21
+  }
+ ],
+ "FRMRELDIVERGENCIAINTEGRACAO": [
+  {
+   "opcao": "FRMRELDIVERGENCIAINTEGRACAO",
+   "n": 2
+  }
+ ],
+ "FRMRELDRECONTABIL": [
+  {
+   "opcao": "FRMRELDRECONTABIL",
+   "n": 21
+  }
+ ],
+ "FRMRELENTRADASSAIDAS": [
+  {
+   "opcao": "FRMRELENTRADASSAIDAS",
+   "n": 22
+  }
+ ],
+ "FRMRELENTRADAS_FINAN": [
+  {
+   "opcao": "FRMRELENTRADAS_FINAN",
+   "n": 12
+  }
+ ],
+ "FRMRELENTREGA": [
+  {
+   "opcao": "FRMRELENTREGA",
+   "n": 7
+  }
+ ],
+ "FRMRELENTSAI": [
+  {
+   "opcao": "FRMRELENTSAI",
+   "n": 21
+  }
+ ],
+ "FRMRELFATURAMENTO": [
+  {
+   "opcao": "FRMRELFATURAMENTO",
+   "n": 25
+  }
+ ],
+ "FRMRELFINALIZADORAS": [
+  {
+   "opcao": "BTNCONSULTA",
+   "n": 12
+  },
+  {
+   "opcao": "FRMRELFINALIZADORAS",
+   "n": 12
+  }
+ ],
+ "FRMRELFINANCEIRO": [
+  {
+   "opcao": "FRMRELFINANCEIRO",
+   "n": 21
+  }
+ ],
+ "FRMRELFUNCIONARIO": [
+  {
+   "opcao": "FRMRELFUNCIONARIO",
+   "n": 12
+  }
+ ],
+ "FRMRELGESTAO": [
+  {
+   "opcao": "FRMRELGESTAO",
+   "n": 12
+  }
+ ],
+ "FRMRELHISTPDV": [
+  {
+   "opcao": "FRMRELHISTPDV",
+   "n": 12
+  }
+ ],
+ "FRMRELINDICADORESFINANCEIROS": [
+  {
+   "opcao": "FRMRELINDICADORESFINANCEIROS",
+   "n": 21
+  }
+ ],
+ "FRMRELINTERSECCAOPRODUTOS": [
+  {
+   "opcao": "FRMRELINTERSECCAOPRODUTOS",
+   "n": 13
+  }
+ ],
+ "FRMRELINVENTARIOROTATIVO": [
+  {
+   "opcao": "BTNFECHARINVENTARIO",
+   "n": 21
+  },
+  {
+   "opcao": "BTNNOVOLOTE",
+   "n": 21
+  },
+  {
+   "opcao": "FRMRELINVENTARIOROTATIVO",
+   "n": 21
+  }
+ ],
+ "FRMRELLANCAMENTOSCONTABEIS": [
+  {
+   "opcao": "FRMRELLANCAMENTOSCONTABEIS",
+   "n": 21
+  }
+ ],
+ "FRMRELLISTAPRECOSFORNECEDOR": [
+  {
+   "opcao": "FRMRELLISTAPRECOSFORNECEDOR",
+   "n": 44
+  }
+ ],
+ "FRMRELOSPLACA": [
+  {
+   "opcao": "FRMRELOSPLACA",
+   "n": 12
+  }
+ ],
+ "FRMRELPEDIDOCOMPRA": [
+  {
+   "opcao": "FRMRELPEDIDOCOMPRA",
+   "n": 12
+  }
+ ],
+ "FRMRELPERDAS": [
+  {
+   "opcao": "FRMRELPERDAS",
+   "n": 12
+  }
+ ],
+ "FRMRELPERMISSAOUSER": [
+  {
+   "opcao": "FRMRELPERMISSAOUSER",
+   "n": 2
+  }
+ ],
+ "FRMRELPRECOSALTERADOS": [
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMRELPRECOSALTERADOS",
+   "n": 21
+  }
+ ],
+ "FRMRELRAZAOCONTABIL": [
+  {
+   "opcao": "FRMRELRAZAOCONTABIL",
+   "n": 21
+  }
+ ],
+ "FRMRELRECOMPOSICAOALIQUOTA": [
+  {
+   "opcao": "FRMRELRECOMPOSICAOALIQUOTA",
+   "n": 13
+  }
+ ],
+ "FRMRELREGISTROS_ES": [
+  {
+   "opcao": "BTNCONSULTA",
+   "n": 27
+  },
+  {
+   "opcao": "FRMRELREGISTROS_ES",
+   "n": 19
+  }
+ ],
+ "FRMRELRUPTURAS": [
+  {
+   "opcao": "FRMRELRUPTURAS",
+   "n": 3
+  }
+ ],
+ "FRMRELTROCAMERCADORIAFOR": [
+  {
+   "opcao": "FRMRELTROCAMERCADORIAFOR",
+   "n": 21
+  }
+ ],
+ "FRMRELTROCOPDV": [
+  {
+   "opcao": "FRMRELTROCOPDV",
+   "n": 10
+  }
+ ],
+ "FRMRELVALORESCFOPALIQUOTA": [
+  {
+   "opcao": "FRMRELVALORESCFOPALIQUOTA",
+   "n": 2
+  }
+ ],
+ "FRMRELVENDAS": [
+  {
+   "opcao": "EDTCFOP",
+   "n": 22
+  },
+  {
+   "opcao": "EDTDPTOEXC",
+   "n": 35
+  },
+  {
+   "opcao": "FRMRELVENDAS",
+   "n": 38
+  }
+ ],
+ "FRMRELVENDEDORES": [
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMRELVENDEDORES",
+   "n": 12
+  }
+ ],
+ "FRMREMESSAVENDAS": [
+  {
+   "opcao": "FRMREMESSAVENDAS",
+   "n": 7
+  }
+ ],
+ "FRMRENTABILIDADECATEGORIAS": [
+  {
+   "opcao": "BTNCONSULTA",
+   "n": 21
+  },
+  {
+   "opcao": "FRMRENTABILIDADECATEGORIAS",
+   "n": 21
+  }
+ ],
+ "FRMREPOSICAODEGONDOLA": [
+  {
+   "opcao": "FRMREPOSICAODEGONDOLA",
+   "n": 7
+  }
+ ],
+ "FRMRESUMOCARGAS": [
+  {
+   "opcao": "FRMRESUMOCARGAS",
+   "n": 12
+  }
+ ],
+ "FRMRETIRARAUTORIZACAOBAIXA": [
+  {
+   "opcao": "BTNCONSULTARDOCUMENTOS",
+   "n": 8
+  },
+  {
+   "opcao": "FRMRETIRARAUTORIZACAOBAIXA",
+   "n": 8
+  }
+ ],
+ "FRMRETIRARAUTORIZACAOPAGAMENTO": [
+  {
+   "opcao": "BTNCONSULTARDOCUMENTOS",
+   "n": 8
+  },
+  {
+   "opcao": "FRMRETIRARAUTORIZACAOPAGAMENTO",
+   "n": 8
+  }
+ ],
+ "FRMSAIDADEPLOJA": [
+  {
+   "opcao": "BTNOK",
+   "n": 2
+  },
+  {
+   "opcao": "FRMSAIDADEPLOJA",
+   "n": 2
+  }
+ ],
+ "FRMSALDOEMPRESA": [
+  {
+   "opcao": "FRMSALDOEMPRESA",
+   "n": 21
+  }
+ ],
+ "FRMSCANNTECH": [
+  {
+   "opcao": "FRMSCANNTECH",
+   "n": 9
+  }
+ ],
+ "FRMSETORARMAZENAMENTO": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMSETORARMAZENAMENTO",
+   "n": 12
+  }
+ ],
+ "FRMSIMULADORVENDA": [
+  {
+   "opcao": "BTNIMPRIMIR",
+   "n": 21
+  },
+  {
+   "opcao": "FRMSIMULADORVENDA",
+   "n": 16
+  }
+ ],
+ "FRMSMARTTEF": [
+  {
+   "opcao": "FRMSMARTTEF",
+   "n": 2
+  }
+ ],
+ "FRMSOLICITACOESPORTALCONVENIO": [
+  {
+   "opcao": "FRMSOLICITACOESPORTALCONVENIO",
+   "n": 9
+  }
+ ],
+ "FRMSOLICITAOFIGURAFISCAL": [
+  {
+   "opcao": "FRMSOLICITAOFIGURAFISCAL",
+   "n": 12
+  }
+ ],
+ "FRMSPEDFISCAL": [
+  {
+   "opcao": "FRMSPEDFISCAL",
+   "n": 27
+  }
+ ],
+ "FRMSPEDPISCOFINS": [
+  {
+   "opcao": "FRMSPEDPISCOFINS",
+   "n": 13
+  }
+ ],
+ "FRMSUGESTAOPEDIDOCOMPRA": [
+  {
+   "opcao": "FRMSUGESTAOPEDIDOCOMPRA",
+   "n": 7
+  }
+ ],
+ "FRMTABELAPRECOPROD": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 12
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMTABELAPRECOPROD",
+   "n": 12
+  }
+ ],
+ "FRMTOTVSPRODUTOS": [
+  {
+   "opcao": "FRMTOTVSPRODUTOS",
+   "n": 2
+  }
+ ],
+ "FRMTROCAMERCADORIAFORPLANILHA": [
+  {
+   "opcao": "BTNADICIONARREGISTRO",
+   "n": 2
+  },
+  {
+   "opcao": "BTNEDITAR",
+   "n": 2
+  },
+  {
+   "opcao": "BTNEXCLUIR",
+   "n": 2
+  },
+  {
+   "opcao": "BTNGRAVAR",
+   "n": 2
+  },
+  {
+   "opcao": "FRMTROCAMERCADORIAFORPLANILHA",
+   "n": 2
+  }
+ ],
+ "FRMTRON": [
+  {
+   "opcao": "FRMTRON",
+   "n": 21
+  }
+ ],
+ "FRMVACINAS": [
+  {
+   "opcao": "BTNCONSULTAR",
+   "n": 12
+  },
+  {
+   "opcao": "FRMVACINAS",
+   "n": 12
+  }
+ ],
+ "FRMVALORTICKETMEDIO": [
+  {
+   "opcao": "FRMVALORTICKETMEDIO",
+   "n": 21
+  }
+ ],
+ "FRMVALORTICKETMEDIOMETAS": [
+  {
+   "opcao": "FRMVALORTICKETMEDIOMETAS",
+   "n": 2
+  }
+ ],
+ "FRMVASILHAME": [
+  {
+   "opcao": "FRMVASILHAME",
+   "n": 13
+  }
+ ],
+ "FRMVERIFICACAOTRIBUTARIABORBAFISCAL": [
+  {
+   "opcao": "FRMVERIFICACAOTRIBUTARIABORBAFISCAL",
+   "n": 14
+  }
+ ],
+ "FRMWITALINHAMENTO": [
+  {
+   "opcao": "FRMWITALINHAMENTO",
+   "n": 2
+  }
+ ],
+ "FRMWLALINHAMENTO": [
+  {
+   "opcao": "FRMWLALINHAMENTO",
+   "n": 8
+  }
+ ],
+ "FRMWLCONSULTAPRODUTOSSANEADOS": [
+  {
+   "opcao": "FRMWLCONSULTAPRODUTOSSANEADOS",
+   "n": 8
+  }
+ ]
+}
