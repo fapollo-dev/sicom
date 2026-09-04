@@ -85,7 +85,7 @@ export class AreceberController {
   /** agrupa ≥2 títulos abertos do mesmo cliente num consolidado. `agrupar` é segmento literal (≠ `:id`). */
   @Post('agrupar')
   @HttpCode(200)
-  @RequerAcesso('FRMAGRUPARECEBER', 'BTNAGRUPAR')
+  @RequerAcesso('FRMAGRUPACONTASARECEBER', 'BTNAGRUPAR')
   agrupar(@Body(new ZodValidationPipe(agruparAreceberSchema)) dto: { codrcbs: number[]; dtvenc?: string; obs?: string }) {
     return this.agrupamento.agrupar(dto);
   }
@@ -93,7 +93,7 @@ export class AreceberController {
   /** reverte o agrupamento inteiro (o :id é o título CONSOLIDADO). */
   @Post(':id/reverter-agrupamento')
   @HttpCode(200)
-  @RequerAcesso('FRMAGRUPARECEBER', 'BTNREVERTER')
+  @RequerAcesso('FRMAGRUPACONTASARECEBER', 'BTNREVERTER')
   reverterAgrupamento(@Param('id', ParseIntPipe) id: number) {
     return this.agrupamento.reverter(id);
   }
@@ -101,7 +101,7 @@ export class AreceberController {
   /** remove UM membro (:membro) do agrupamento consolidado (:id), abatendo o valor. */
   @Post(':id/remover-do-agrupamento/:membro')
   @HttpCode(200)
-  @RequerAcesso('FRMAGRUPARECEBER', 'BTNREVERTER')
+  @RequerAcesso('FRMAGRUPACONTASARECEBER', 'BTNREVERTER')
   removerDoAgrupamento(@Param('id', ParseIntPipe) id: number, @Param('membro', ParseIntPipe) membro: number) {
     return this.agrupamento.removerTitulo(id, membro);
   }

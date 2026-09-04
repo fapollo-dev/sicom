@@ -12,7 +12,7 @@ export const familiasCrudConfig: CrudConfig = {
   pk: 'codfamilia',
   view: 'get_familias_prod',
   colunas: ['tipo', 'descricao'],
-  rbacForm: 'FRMCADFAMILIAS',
+  rbacForm: 'FRMCADFAMILIAPROD',
   audit: false,
   replica: false,
   colunasPesquisa: ['codfamilia', 'tipo', 'descricao'],

@@ -21,7 +21,7 @@ export class AjusteEstoqueController {
 
   @Post()
   @HttpCode(200)
-  @RequerAcesso('FRMAJUSTEESTOQUE', 'BTNAJUSTAR')
+  @RequerAcesso('FRMAJUSTEESTOQUE', 'BTNOK')
   ajustar(@Body(new ZodValidationPipe(ajustarEstoqueSchema)) dto: Record<string, unknown>) {
     return this.svc.ajustar(dto as any);
   }

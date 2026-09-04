@@ -1,0 +1,29 @@
+{
+ "host": "hiperpinheirao.ddns.com.br",
+ "contagens": {
+  "vendas": 18890647,
+  "cx_vendas": 3343594,
+  "nf": 49173,
+  "nf_prod": 493949,
+  "historico_prod": 14562013,
+  "estoque": 203331,
+  "produtos": 47655,
+  "parceiros": 19044,
+  "areceber": 99315,
+  "apagar": 54767,
+  "caixa": 238135,
+  "cartao": 2045114,
+  "diario": 1747696,
+  "operadores": 285,
+  "multi_preco": 203330,
+  "pedidocompra": 13032
+ },
+ "com_filtro": [
+  "agenda_promocao_itens",
+  "codreferencia_for",
+  "contas_bancarias_op",
+  "pedidocompra",
+  "pedidocompra_i",
+  "scrap_item"
+ ]
+}

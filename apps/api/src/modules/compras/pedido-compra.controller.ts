@@ -23,7 +23,7 @@ export class PedidoCompraController {
 
   @Post(':id/fechar')
   @HttpCode(200)
-  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNFECHAR')
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'MNIFECHARPEDIDO')
   fechar(@Param('id', ParseIntPipe) id: number) {
     return this.svc.fechar(id);
   }

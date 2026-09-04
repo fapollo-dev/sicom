@@ -18,14 +18,14 @@ export class NfNfeController {
 
   @Post(':id/transmitir')
   @HttpCode(200)
-  @RequerAcesso('FRMNF', 'BTNTRANSMITIR')
+  @RequerAcesso('FRMNF', 'ENVIARNFE1')
   transmitir(@Param('id', ParseIntPipe) id: number) {
     return this.nfe.transmitir(id);
   }
 
   @Post(':id/cancelar')
   @HttpCode(200)
-  @RequerAcesso('FRMNF', 'BTNCANCELAR')
+  @RequerAcesso('FRMNF', 'CANCELARNFE1')
   cancelar(
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(cancelarNfSchema)) dto: CancelarNfDto,
@@ -35,7 +35,7 @@ export class NfNfeController {
 
   @Post(':id/cce')
   @HttpCode(200)
-  @RequerAcesso('FRMNF', 'BTNCCE')
+  @RequerAcesso('FRMNF', 'BTNCARTACORRECAO')
   cce(
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(cceNfSchema)) dto: CceNfDto,

@@ -33,7 +33,7 @@ export const agendaPromocaoAggregateConfig: AggregateConfig = {
   tabela: 'agenda_promocao',
   pk: 'codagenda',
   view: 'get_agenda_promocao',
-  rbacForm: 'FRMAGENDAPROMOCAO',
+  rbacForm: 'FRMCADAGENDAPROMOCAO',
   empresaScoped: true,
   softDelete: true,
   // DTENCERRAMENTO/CODOPERADORENC são workflow-controlled (vertical encerrar/reabrir) — fora do allowlist.

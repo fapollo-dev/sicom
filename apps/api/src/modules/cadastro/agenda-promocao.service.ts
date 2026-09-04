@@ -10,7 +10,7 @@ const num = (v: unknown): number => {
   const n = typeof v === 'string' ? Number(v) : (v as number);
   return Number.isFinite(n) ? n : 0;
 };
-const ALVO_MP = { tabela: 'multi_preco', pk: 'idproduto', origem: 'FRMAGENDAPROMOCAO' };
+const ALVO_MP = { tabela: 'multi_preco', pk: 'idproduto', origem: 'FRMCADAGENDAPROMOCAO' };
 
 /**
  * AGENDA DE PROMOÇÃO — serviço VERTICAL do workflow (o CRUD é o AggregateEngineService). corte-1: ENCERRAR

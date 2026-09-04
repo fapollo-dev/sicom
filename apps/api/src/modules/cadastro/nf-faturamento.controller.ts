@@ -17,7 +17,7 @@ export class NfFaturamentoController {
 
   @Post(':id/faturar')
   @HttpCode(200)
-  @RequerAcesso('FRMNF', 'BTNFATURAR')
+  @RequerAcesso('FRMNF', 'BTNFATURAMENTO')
   faturar(
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(faturarNfSchema)) dto: FaturarNfDto,

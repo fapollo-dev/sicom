@@ -14,14 +14,14 @@ export class AgendaPromocaoController {
 
   @Post(':id/encerrar')
   @HttpCode(200)
-  @RequerAcesso('FRMAGENDAPROMOCAO', 'BTNENCERRAR')
+  @RequerAcesso('FRMCADAGENDAPROMOCAO', 'BTNENCERRAR')
   encerrar(@Param('id', ParseIntPipe) id: number) {
     return this.svc.encerrar(id);
   }
 
   @Post(':id/reabrir')
   @HttpCode(200)
-  @RequerAcesso('FRMAGENDAPROMOCAO', 'BTNENCERRAR')
+  @RequerAcesso('FRMCADAGENDAPROMOCAO', 'BTNENCERRAR')
   reabrir(@Param('id', ParseIntPipe) id: number) {
     return this.svc.reabrir(id);
   }
@@ -29,7 +29,7 @@ export class AgendaPromocaoController {
   /** corte-2: aplica o preço promocional dos itens ativos ao multi_preco (PROMOCAO='S'/VRPROMO). */
   @Post(':id/aplicar')
   @HttpCode(200)
-  @RequerAcesso('FRMAGENDAPROMOCAO', 'BTNAPLICARPRECO')
+  @RequerAcesso('FRMCADAGENDAPROMOCAO', 'BTNAPLICARPRECO')
   aplicar(@Param('id', ParseIntPipe) id: number) {
     return this.svc.aplicar(id);
   }
@@ -37,7 +37,7 @@ export class AgendaPromocaoController {
   /** efeito-PDV: SCHEDULER de vigência — liga/desliga o preço promocional conforme [dtinicio, dtfim) (cron/tenant). */
   @Post('processar-vigencia')
   @HttpCode(200)
-  @RequerAcesso('FRMAGENDAPROMOCAO', 'BTNAPLICARPRECO')
+  @RequerAcesso('FRMCADAGENDAPROMOCAO', 'BTNAPLICARPRECO')
   processarVigencia() {
     return this.svc.processarVigencia();
   }

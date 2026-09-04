@@ -38,7 +38,7 @@ export class ImportacaoNfeController {
    * do XML armazenado (quando o auto-faturamento do import não rodou). Reusa as travas do F4 (bloqueia se já faturada). */
   @Post(':codnf/refaturar-xml')
   @HttpCode(200)
-  @RequerAcesso('FRMNF', 'BTNFATURAR') // refaturar = faturamento manual da NF → mesmo grant do F4 (nf-faturamento)
+  @RequerAcesso('FRMNF', 'BTNFATURAMENTO') // refaturar = faturamento manual da NF → mesmo grant do F4 (nf-faturamento)
   refaturarXml(@Param('codnf', ParseIntPipe) codnf: number) {
     return this.recebimento.refaturarXml(codnf);
   }

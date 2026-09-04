@@ -33,13 +33,13 @@ export class ApagarController {
   }
 
   @Post()
-  @RequerAcesso('FRMCADAPAGAR', 'BTNGRAVAR')
+  @RequerAcesso('FRMAPAGAR', 'BTNGRAVAR')
   criar(@Body(new ZodValidationPipe(apagarSchema)) dto: Record<string, unknown>) {
     return this.svc.criar(dto);
   }
 
   @Put(':id')
-  @RequerAcesso('FRMCADAPAGAR', 'BTNGRAVAR')
+  @RequerAcesso('FRMAPAGAR', 'BTNGRAVAR')
   atualizar(
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(atualizarApagarSchema)) dto: Record<string, unknown>,
@@ -48,7 +48,7 @@ export class ApagarController {
   }
 
   @Delete(':id')
-  @RequerAcesso('FRMCADAPAGAR', 'BTNEXCLUIR')
+  @RequerAcesso('FRMAPAGAR', 'BTNEXCLUIR')
   @HttpCode(204)
   excluir(@Param('id', ParseIntPipe) id: number) {
     return this.svc.excluir(id);
@@ -57,7 +57,7 @@ export class ApagarController {
   // ── BAIXA / pagamento (corte-2) ──
   @Post(':id/baixar')
   @HttpCode(200)
-  @RequerAcesso('FRMCADAPAGAR', 'BTNBAIXAR')
+  @RequerAcesso('FRMAPAGAR', 'BTNBAIXAR')
   baixar(
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(baixarTituloSchema)) dto: Record<string, unknown>,
@@ -67,7 +67,7 @@ export class ApagarController {
 
   @Post(':id/estornar-baixa')
   @HttpCode(200)
-  @RequerAcesso('FRMCADAPAGAR', 'BTNESTORNARBAIXA')
+  @RequerAcesso('FRMAPAGAR', 'BTNESTORNARBAIXA')
   estornarBaixa(@Param('id', ParseIntPipe) id: number) {
     return this.baixa.estornar(id);
   }
@@ -76,7 +76,7 @@ export class ApagarController {
   /** agrupa ≥2 títulos abertos do mesmo fornecedor num consolidado. `agrupar` = segmento literal (≠ `:id`). */
   @Post('agrupar')
   @HttpCode(200)
-  @RequerAcesso('FRMAGRUPAPAGAR', 'BTNAGRUPAR')
+  @RequerAcesso('FRMAGRUPACONTASAPAGAR', 'BTNAGRUPAR')
   agrupar(@Body(new ZodValidationPipe(agruparApagarSchema)) dto: { codapgs: number[]; dtvenc?: string; obs?: string }) {
     return this.agrupamento.agrupar(dto);
   }
@@ -84,7 +84,7 @@ export class ApagarController {
   /** reverte o agrupamento inteiro (o :id é o título CONSOLIDADO). */
   @Post(':id/reverter-agrupamento')
   @HttpCode(200)
-  @RequerAcesso('FRMAGRUPAPAGAR', 'BTNREVERTER')
+  @RequerAcesso('FRMAGRUPACONTASAPAGAR', 'BTNREVERTER')
   reverterAgrupamento(@Param('id', ParseIntPipe) id: number) {
     return this.agrupamento.reverter(id);
   }
@@ -92,7 +92,7 @@ export class ApagarController {
   /** remove UM membro (:membro) do agrupamento consolidado (:id), abatendo o valor. */
   @Post(':id/remover-do-agrupamento/:membro')
   @HttpCode(200)
-  @RequerAcesso('FRMAGRUPAPAGAR', 'BTNREVERTER')
+  @RequerAcesso('FRMAGRUPACONTASAPAGAR', 'BTNREVERTER')
   removerDoAgrupamento(@Param('id', ParseIntPipe) id: number, @Param('membro', ParseIntPipe) membro: number) {
     return this.agrupamento.removerTitulo(id, membro);
   }

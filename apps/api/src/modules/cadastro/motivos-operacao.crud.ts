@@ -11,7 +11,7 @@ export const motivosOperacaoCrudConfig: CrudConfig = {
   pk: 'codmotivoop',
   view: 'get_motivos_operacao',
   colunas: ['descricao', 'tipo_operacao'],
-  rbacForm: 'FRMCADMOTIVOOPERACAO',
+  rbacForm: 'FRMCADMOTIVOOPERACOES',
   colunasPesquisa: ['codigo', 'descricao', 'tipo_operacao'],
   softDelete: true,
   replica: false,
