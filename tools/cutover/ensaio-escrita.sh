@@ -55,6 +55,24 @@ if [ -n "$NF" ] && [ "$NF" != "None" ]; then
   chamar DELETE "fiscal/nf/$NF"
 fi
 
+# 2b) AÇÕES DA NOTA sob o RBAC REAL — quem passa do guard e quem é barrado.
+# É o teste que provou as renomeações da mig 194: com os nomes do legado (ENVIARNFE1, CANCELARNFE1,
+# BTNFATURAMENTO) as ações passam do guard e falham só por REGRA (422 NF_NAO_PROCESSADA etc.), que é o certo.
+# `processar` e `contabilizar` seguem 403 de propósito: são atos que o legado não tem como permissão própria e
+# dependem de decisão de privilégio (§7w do plano de carga) — se um dia passarem, é porque alguém decidiu.
+echo "-- 2b) ações da NF sob o RBAC do cliente (403 aqui = ato sem grant no legado, não bug)"
+NF2=$(curl -s "${H[@]}" -X POST "$API/fiscal/nf" --data "{\"tipo\":\"E\",\"modelo\":55,\"serie\":\"1\",\"nronf\":\"999011\",\"dtemissao\":\"2026-09-04\",\"dtcontabil\":\"2026-09-04\",\"codparceiro\":3388,\"cfop\":\"1102\",\"finalidade\":\"1\",\"itens\":[{\"codproduto\":${PROD:-2622},\"quantidade\":10,\"fatorembal\":1,\"unidade\":\"UN\",\"vrvenda\":5,\"vrcusto\":5,\"cfop\":\"1102\",\"aliquota\":\"STB\"}]}" | python3 -c "import json,sys;print(json.load(sys.stdin).get('codnf',''))" 2>/dev/null)
+if [ -n "$NF2" ]; then
+  for r in faturar transmitir cancelar processar contabilizar; do
+    corpo='{}'; [ "$r" = cancelar ] && corpo='{"xjust":"CANCELAMENTO DE TESTE DO ENSAIO DE CUTOVER"}'
+    cod=$(curl -s -o $TMP -w '%{http_code}' "${H[@]}" -X POST "$API/fiscal/nf/$NF2/$r" --data "$corpo")
+    code=$(python3 -c "import json;print(json.load(open('$TMP')).get('code',''))" 2>/dev/null)
+    marca='passou do RBAC'; [ "$code" = 'SEM_PERMISSAO' ] && marca='barrado no RBAC (ato sem grant no legado)'
+    printf '  %-14s %s %-26s %s\n' "$r" "$cod" "$code" "$marca"
+  done
+  curl -s -o /dev/null "${H[@]}" -X DELETE "$API/fiscal/nf/$NF2"
+fi
+
 # 3) FINANCEIRO — título a receber, baixa e estorno (sequência de `areceber` com 99 mil linhas do legado)
 echo "-- 3) financeiro: título a receber → baixar → estornar"
 chamar POST 'cadastro/areceber' '{"codparceiro":3388,"numero":"ENSAIO-1","emissao":"2026-09-04","vencimento":"2026-10-04","valor":100.00,"tipodoc":"DP"}'

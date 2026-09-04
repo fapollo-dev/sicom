@@ -843,6 +843,27 @@ derrubei um falso positivo (`FRMCONFERENCIANOTA` casava com `FRMNF` porque "co**
 `FRMPENDENCIASOPERADOR`→`FRMCADOPERADORAS` e `FRMLIBERACOES`→`FRMLIBERACAOPEDIDO` cheiram a falso positivo e
 precisam de olho humano antes de virar código.
 
+### As renomeações APLICADAS, e a prova contra produção (mig 194)
+
+Entraram 13 (6 opções + 7 formulários). Três candidatos do script foram **descartados** depois de conferir o RBAC
+real — `FRMCADOPERADORAS` são operadoras de **cartão**, não operadores do sistema — e dois estavam **errados**:
+os agrupamentos têm formulário próprio no cliente (`FRMAGRUPACONTASAPAGAR` 42 grants,
+`FRMAGRUPACONTASARECEBER` 51), não `FRMAPAGAR`. Sugestão automática é candidato, não verdade.
+
+Recarreguei produção (25,8 min) e repeti as ações da nota com o operador real, sob o RBAC do cliente:
+
+| ação | antes | depois |
+|---|---|---|
+| `faturar` | 403 SEM_PERMISSAO | **passa do RBAC** (400 de validação do payload) |
+| `transmitir` | 403 SEM_PERMISSAO | **passa do RBAC** (422 `NF_NAO_PROCESSADA`) |
+| `cancelar` | 403 SEM_PERMISSAO | **passa do RBAC** (422 `NF_NAO_AUTORIZADA`) |
+| `processar` | 403 | **403** — ato sem grant próprio no legado (balde B) |
+| `contabilizar` | 403 | **403** — idem |
+
+É o fechamento que faltava: as três que renomeei agora falham por **regra de negócio**, que é o comportamento
+certo, e as duas que continuam barradas são exatamente as que declarei como decisão pendente. O teste virou
+seção `2b` do `ensaio-escrita.sh`, para não depender de memória na próxima rodada.
+
 ## 8. Próximos passos (estado em 2026-09-02)
 
 Os três itens originais desta seção estão feitos (mapa por tabela, runner com reconciliação, ensaio por fase).
