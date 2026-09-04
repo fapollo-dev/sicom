@@ -774,6 +774,54 @@ conferência (03/09). A régua certa é o MANIFESTO (o que a extração leu), n�
 resultado é **igual ao extraído nas 16 âncoras**, e a coluna "ORACLE agora" virou a medida de quanto o legado
 andou — que numa virada real, com o legado congelado, **tem de ser zero**. É o §1 do runbook virando teste.
 
+## 7w. ⛔ PARADA DE VIRADA — o RBAC do app não é o RBAC do cliente (2026-09-04)
+
+O ensaio de operação só lia; o de **escrita** (`tools/cutover/ensaio-escrita.sh`) tentou operar, e foi ele que
+achou o problema mais sério até agora.
+
+### O que funcionou
+
+**As sequências.** Criar uma NF nova sobre a base carregada devolveu `codnf 161734` (o máximo do legado é
+161733) e o DELETE em seguida deu 204. Era o teste principal do `setval(max)` — sem ele, o primeiro documento
+do dia seguinte à virada morreria com *duplicate key*. Passou.
+
+### O que NÃO funcionou
+
+Processar a nota: **403 SEM_PERMISSAO** — e não é o operador, é o RBAC. `FRMNF/BTNPROCESSAR` **não existe para
+nenhum operador** no cliente. O que o cliente tem em `FRMNF` é outro vocabulário: `ENVIARNFE1`, `GERARNFE1`,
+`CANCELARNFE1`, `IMPRIMIRDANFE1`, `BTNFATURAMENTO`, `BTNINUTILIZARNFE`, `STATUSNFE2`, `AJUSTEST1`…
+
+Cruzando **tudo** que os controllers exigem (`@RequerAcesso` + o par BTNGRAVAR/BTNEXCLUIR que o factory de CRUD
+impõe) com as permissões reais de produção:
+
+> **176 pares exigidos · 85 existem · 91 FALTAM**, em 36 formulários.
+> Destes, **50 são de formulário que nem existe** no cliente (tela nossa ou renomeada).
+
+O relatório por formulário está em `tools/cutover/rbac-faltante.md`. Exemplos do tamanho do estrago:
+`FRMNF` tem 65 operadores com grants no cliente e nenhum deles conseguiria **processar, reverter, contabilizar
+ou transmitir**; `FRMCAIXA` não existe (abrir/fechar/movimentar/conferir caixa: 9 opções); `FRMCADAPAGAR` não
+existe (baixar e estornar); `FRMAJUSTEESTOQUE` existe com `BTNOK` onde pedimos `BTNAJUSTAR`/`BTNESTORNAR`.
+
+**Efeito prático se a virada acontecesse hoje:** o sistema abre, mostra tudo, e quase nenhuma ação de escrita
+funciona — para todos os 284 operadores. É exatamente a falha que nenhum teste de leitura pega, e que o smoke
+não pega porque ele semeia os próprios grants.
+
+### Não é bug de carga — é decisão de projeto pendente
+
+Já tínhamos visto a ponta disso uma vez (mig 090: opções inventadas renomeadas para `IMPORTARPRODUTOS1`/
+`ATUALIZAESTOQUE1`, "senão o cutover perde os grants dos 15 operadores"). Agora está medido no conjunto todo.
+Os caminhos, e nenhum deles é técnico o bastante para eu decidir sozinho:
+
+1. **Renomear** a opção nossa para a do legado onde existe equivalente (`BTNFATURAR` → `BTNFATURAMENTO` é
+   direto; `BTNPROCESSAR` **não tem** equivalente, porque no legado processar é efeito de outro botão).
+2. **Semear no pós-carga** a opção nova, concedendo a quem já tem uma opção-âncora do mesmo formulário (ex.:
+   quem tem `BTNGRAVAR` em `FRMNF` ganha `BTNPROCESSAR`). Simples, mas **eleva privilégio** — quem só
+   consultava passa a poder mover estoque.
+3. **Mapa explícito** revisado com o cliente, opção a opção, para os 36 formulários.
+
+O (2) sem o (3) é o que ninguém quer descobrir depois. Isto entra como **decisão do usuário** antes da virada, e
+está no runbook como bloqueio.
+
 ## 8. Próximos passos (estado em 2026-09-02)
 
 Os três itens originais desta seção estão feitos (mapa por tabela, runner com reconciliação, ensaio por fase).

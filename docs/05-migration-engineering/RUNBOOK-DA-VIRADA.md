@@ -20,6 +20,7 @@ Os números vêm das medições contra **produção** (`hiperpinheirao.ddns.com.
 | 0.4 | Fechar com o cliente o **relatório de órfãos e perdas declaradas** | são decisões de negócio, não técnicas — ver §5 |
 | 0.5 | Definir o **ponto de não-retorno** e quem decide | ver §4 |
 | 0.6 | Provisionar o Postgres de destino com as migrations aplicadas e conferir `schema-destino.json` re-dumpado | o mapa da carga é feito contra esse retrato |
+| 0.7 | ⛔ **BLOQUEIO: resolver o RBAC** (`tools/cutover/rbac-faltante.md`) | 91 dos 176 pares (formulário, opção) que o app exige não existem no cliente; sem isso o sistema vira read-only para os 284 operadores — ver §7w do plano |
 
 ## 1. Congelamento do legado (início da janela)
 
@@ -78,8 +79,10 @@ suspende gatilhos, insere em lotes de 500, religa os gatilhos, reconcilia **cont
 - [ ] 4.1 `python3 tools/cutover/conferir-ancoras.py` + `ts-node scripts/conferir-ancoras.ts`: as 16 âncoras têm
       de sair `igual ao extraído`, e a coluna **"ORACLE agora" tem de ser idêntica à "EXTRAÍDO"** — se o legado
       andou, ele não estava congelado e a janela recomeça no §1.
-- [ ] 4.2 `tools/cutover/ensaio-operacao.sh` contra a API apontada para o banco novo: nenhum 4xx/5xx, e nenhum
-      relatório acima do tempo combinado com o cliente.
+- [ ] 4.2 `tools/cutover/ensaio-operacao.sh` (leitura) contra a API apontada para o banco novo: nenhum 4xx/5xx, e
+      nenhum relatório acima do tempo combinado com o cliente.
+- [ ] 4.2b `tools/cutover/ensaio-escrita.sh` (**operação**): criar documento, mover estoque, gerar e estornar
+      título. É o que pega colisão de sequência e buraco de RBAC — o de leitura não pega nenhum dos dois.
 - [ ] 4.3 Conferência dirigida pelo cliente: abrir 5 notas conhecidas, 3 títulos a receber, o estoque de 10
       produtos, a apuração do último mês fechado — e comparar com o legado, na tela.
 - [ ] 4.4 **Decisão go/no-go** (quem: `[definir]`). Depois deste ponto, o retorno custa o backup do §1.3.
