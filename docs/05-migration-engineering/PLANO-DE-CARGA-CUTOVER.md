@@ -864,6 +864,31 @@ Recarreguei produção (25,8 min) e repeti as ações da nota com o operador rea
 certo, e as duas que continuam barradas são exatamente as que declarei como decisão pendente. O teste virou
 seção `2b` do `ensaio-escrita.sh`, para não depender de memória na próxima rodada.
 
+### O balde C encolheu de 7 para 3 (2026-09-04)
+
+As "telas que o legado não tinha" foram investigadas **por domínio**, não por nome — que é onde o casamento
+automático falha. Quatro delas existem lá, com outro batismo:
+
+| nossa | no legado | grants |
+|---|---|---|
+| `FRMCADCENTROCUSTO` | `FRMCADPLC` — o nosso "centro de custo" é o Plano de Contas Gerencial | **218** |
+| `FRMCAIXA` | `FRMFECHAMENTOCAIXA` (abrir/fechar/reabrir) + `FRMMOVCAIXA` (movimento) | **644** |
+| `FRMCADPRECO` | `FRMCADTABELAPRECO` — "Tabela de Reajuste"; o `UDmCadTabelaPreco.dfm` lê a tabela `PRECO` | 45 |
+| `FRMDRE` | `FRMRELDRECONTABIL` — a nossa DRE é o relatório contábil | 21 |
+
+O **caixa** é o caso que ensina: a nossa tela única são **duas** no legado, e como a permissão lá é por TELA não
+havia o que renomear — cada AÇÃO passou a responder ao seu formulário (`abrir`/`fechar`/`reabrir` →
+`FRMFECHAMENTOCAIXA`; `movimentar` → `FRMMOVCAIXA/BTNGRAVAR`). Sozinho, recupera 644 concessões.
+
+Sobram três, e por motivo declarado: `FRMCADCIDADES` (o legado não tem cadastro de cidades com permissão — a
+tabela vem do IBGE) e `FRMCADOPERACOESCONTA` / `FRMCONFERENCIANOTA`, que **existem no legado**
+(`uCadOperacoesConta.dfm`, `FrmanalisaPedComp_NF`) mas **não têm grant para ninguém** no cliente — manter sem
+grant é o fiel.
+
+Com isso o placar do §7w vai de **91 faltantes para 74**: 17 resolvidos por renomeação, devolvendo **1.573
+concessões** que o cliente já tinha e o app ignorava. O que resta são os 34 atos sem permissão própria no legado
+(decisão de privilégio) e 3 telas sem grant.
+
 ## 8. Próximos passos (estado em 2026-09-02)
 
 Os três itens originais desta seção estão feitos (mapa por tabela, runner com reconciliação, ensaio por fase).

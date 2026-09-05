@@ -52,3 +52,40 @@ DELETE FROM permissoes p USING permissoes q
 --   · 7 telas que o legado não tinha (FRMCAIXA com 9 opções, FRMDRE, 4 cadastros, conferência de nota).
 --   Pista forte para a conversa sobre o caixa: o cliente tem `FRMFECHAMENTOCAIXA` (417 grants, com BTNABRIR,
 --   BTNREABRIR, BTNFECHA) e `FRMMOVCAIXA` (227) — a nossa tela única junta as duas do legado.
+
+-- ── SEGUNDA RODADA (mesma migration, ver §7w): as "telas novas" que na verdade existem no legado ───────────
+-- O balde C tinha 7 formulários "que o cliente não tem". Investigando por DOMÍNIO (não por nome), quatro deles
+-- são tela conhecida do legado com outro batismo — e um é a nossa tela única que lá são DUAS:
+--   FRMCADCENTROCUSTO → FRMCADPLC          o nosso "centro de custo" é o Plano de Contas Gerencial (218 grants)
+--   FRMDRE            → FRMRELDRECONTABIL  a nossa DRE é o relatório contábil (21)
+--   FRMCADPRECO       → FRMCADTABELAPRECO  "Tabela de Reajuste"; o UDmCadTabelaPreco.dfm lê a tabela PRECO (45)
+--   FRMCAIXA          → FRMFECHAMENTOCAIXA (417: abrir/fechar/reabrir) + FRMMOVCAIXA (227: movimento)
+-- O caixa não vira UPDATE de nome: a permissão do legado é por TELA e a nossa tela junta as duas, então cada
+-- AÇÃO passou a responder à sua (no controller). Aqui só as três renomeações diretas.
+UPDATE permissoes SET form = 'FRMCADPLC'         WHERE form = 'FRMCADCENTROCUSTO';
+UPDATE permissoes SET form = 'FRMRELDRECONTABIL' WHERE form = 'FRMDRE';
+UPDATE permissoes SET form = 'FRMCADTABELAPRECO' WHERE form = 'FRMCADPRECO';
+
+DELETE FROM permissoes p USING permissoes q
+ WHERE p.ctid > q.ctid AND p.form = q.form AND p.opcao = q.opcao
+   AND p.codoperador IS NOT DISTINCT FROM q.codoperador
+   AND p.codempresa IS NOT DISTINCT FROM q.codempresa;
+
+-- CAIXA: as migrations semearam os grants sob `FRMCAIXA` (048 e seguintes). Como cada AÇÃO passou a responder
+-- ao formulário do legado, o seed precisa acompanhar — senão o operador de teste perde abrir/fechar/movimentar.
+-- (No cliente esses grants já existem sob os nomes certos: 417 + 227.)
+UPDATE permissoes SET form = 'FRMFECHAMENTOCAIXA'                     WHERE form = 'FRMCAIXA' AND opcao = 'BTNABRIR';
+UPDATE permissoes SET form = 'FRMFECHAMENTOCAIXA', opcao = 'BTNFECHA' WHERE form = 'FRMCAIXA' AND opcao = 'BTNFECHAR';
+UPDATE permissoes SET form = 'FRMFECHAMENTOCAIXA'                     WHERE form = 'FRMCAIXA' AND opcao = 'BTNREABRIR';
+UPDATE permissoes SET form = 'FRMMOVCAIXA', opcao = 'BTNGRAVAR'       WHERE form = 'FRMCAIXA' AND opcao = 'BTNMOVIMENTAR';
+
+DELETE FROM permissoes p USING permissoes q
+ WHERE p.ctid > q.ctid AND p.form = q.form AND p.opcao = q.opcao
+   AND p.codoperador IS NOT DISTINCT FROM q.codoperador
+   AND p.codempresa IS NOT DISTINCT FROM q.codempresa;
+
+-- Os três que SOBRAM do balde C, e por quê:
+--   · FRMCADCIDADES — o legado não tem cadastro de cidades com permissão (a tabela vem do IBGE);
+--   · FRMCADOPERACOESCONTA — a tela EXISTE no legado (`uCadOperacoesConta.dfm` → frmCadOperacoesConta), mas
+--     **nenhum operador tem grant nela** no cliente. Manter sem grant é o fiel: lá também ninguém tem;
+--   · FRMCONFERENCIANOTA — o form do legado é `FrmanalisaPedComp_NF`, que igualmente não aparece em PERMISSOES.

@@ -12,7 +12,7 @@ export const precoCrudConfig: CrudConfig = {
   pk: 'id_preco',
   view: 'get_preco',
   colunas: ['descricao', 'valor_reajuste', 'reajuste', 'ativo'],
-  rbacForm: 'FRMCADPRECO',
+  rbacForm: 'FRMCADTABELAPRECO',
   softDelete: true,
   replica: false,
   colunasPesquisa: ['id_preco', 'descricao', 'valor_reajuste', 'reajuste', 'ativo'],

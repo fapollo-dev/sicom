@@ -11,6 +11,10 @@ import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 
 /**
+ * ⚠️ RBAC: a nossa tela ÚNICA de caixa é DUAS no legado — `FRMFECHAMENTOCAIXA` (417 grants: abrir, fechar,
+ * reabrir) e `FRMMOVCAIXA` (227: o movimento). Como a permissão lá é por TELA, cada ação aqui responde à sua,
+ * e com isso 644 concessões reais do cliente voltam a valer (§7w do plano de carga). O que ficou em `FRMCAIXA`
+ * — contabilizar, estornar, conferência de PDV — não tem permissão própria no legado e espera decisão.
  * CAIXA — corte-1 (sessão + movimento manual). Controller VERTICAL (o service filtra por
  * codempresa + operador). Path `cobranca/caixa` (coberto pelo TenantMiddleware). Leituras livres
  * (como a fábrica CRUD); as AÇÕES exigem RBAC FRMCAIXA. `GET /atual` é declarado ANTES de `GET /:id`
@@ -47,14 +51,14 @@ export class CaixaController {
   // ── AÇÕES ──
   @Post('abrir')
   @HttpCode(200)
-  @RequerAcesso('FRMCAIXA', 'BTNABRIR')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNABRIR')
   abrir(@Body(new ZodValidationPipe(abrirCaixaSchema)) dto: Record<string, unknown>) {
     return this.svc.abrir(dto);
   }
 
   @Post('movimentar')
   @HttpCode(200)
-  @RequerAcesso('FRMCAIXA', 'BTNMOVIMENTAR')
+  @RequerAcesso('FRMMOVCAIXA', 'BTNGRAVAR')
   movimentar(@Body(new ZodValidationPipe(movimentoCaixaSchema)) dto: Record<string, unknown>) {
     return this.svc.movimentar(dto as { especie: string; valor: number; recurso?: string; obs?: string });
   }
@@ -68,7 +72,7 @@ export class CaixaController {
 
   @Post(':id/fechar')
   @HttpCode(200)
-  @RequerAcesso('FRMCAIXA', 'BTNFECHAR')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNFECHA')
   fechar(
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(fecharCaixaSchema)) dto: Record<string, unknown>,
@@ -79,7 +83,7 @@ export class CaixaController {
   /** Reabre um caixa fechado (F→A): estorna o título de quebra e limpa a conferência. */
   @Post(':id/reabrir')
   @HttpCode(200)
-  @RequerAcesso('FRMCAIXA', 'BTNREABRIR')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNREABRIR')
   reabrir(@Param('id', ParseIntPipe) id: number, @Body() body: { obs?: string }) {
     return this.svc.reabrir(id, { obs: body?.obs });
   }

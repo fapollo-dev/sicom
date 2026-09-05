@@ -13,7 +13,7 @@ export class DreController {
   constructor(private readonly svc: DreService) {}
 
   @Get()
-  @RequerAcesso('FRMDRE', 'BTNVISUALIZAR')
+  @RequerAcesso('FRMRELDRECONTABIL', 'BTNVISUALIZAR')
   calcular(@Query() q: Record<string, string>) {
     return this.svc.calcular(q.dataInicio, q.dataFim);
   }

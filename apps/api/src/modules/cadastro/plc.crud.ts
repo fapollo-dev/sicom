@@ -13,7 +13,7 @@ export const plcCrudConfig: CrudConfig = {
   pkGerada: false,
   view: 'get_plc',
   colunas: ['desccodplc', 'descricao'],
-  rbacForm: 'FRMCADCENTROCUSTO',
+  rbacForm: 'FRMCADPLC',
   audit: false,
   replica: false,
   historico: false,
