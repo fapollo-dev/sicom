@@ -8543,6 +8543,66 @@ async function main() {
       check('PERFIL §77.5: catálogo não-vazio + conceder grant ao perfil (FRMLIBERACOES/BTNCONSULTAR) → gravado',
         Array.isArray(cat) && cat.length > 0 && gOn.status === 200 && temGrant, { cat: cat.length, grant: temGrant });
 
+      // 77.5b-e) CORTE-3 — o caminho por OPERADOR, que é o do cliente (CONTROLE_PERMISSOES='Usuario': 55.251
+      // linhas por operador contra 2.438 por perfil). Sem isto o administrador não dá nem tira acesso de
+      // ninguém depois da virada. Regras do legado exercitadas: exclusividade operador×perfil (uCtrlPermissoes
+      // .pas:314-315), CAPTION/FORM_CAPTION na gravação (:331-332), lote e clonagem destrutiva.
+      const PM = 'cadastro/permissoes';
+      await pgPf.query(`UPDATE permissoes SET caption='Consultar liberações', form_caption='LIBERACOES' WHERE form='FRMLIBERACOES' AND opcao='BTNCONSULTAR'`);
+      const opOn = await fetch(`${base}/${PM}/operador`, { method: 'PUT', headers: H, body: JSON.stringify({ codoperador: 8, form: 'FRMLIBERACOES', opcao: 'BTNCONSULTAR', concedido: true }) });
+      const opLista = (await (await fetch(`${base}/${PM}/operador/8`, { headers: H })).json().catch(() => ({}))) as any;
+      const linhaOp = (await pgPf.query(`SELECT codoperador, codperfil, caption, form_caption FROM permissoes WHERE codoperador=8 AND form='FRMLIBERACOES' AND opcao='BTNCONSULTAR' AND codempresa=1`)).rows[0] as any;
+      const acDireto = await fetch(`${base}/operadores/liberacoes`, { headers: { ...H, 'x-operador-id': '8' } });
+      check('PERFIL §77.5b (corte-3): conceder por OPERADOR grava a linha com CODPERFIL **nulo** (exclusividade do legado, uCtrlPermissoes.pas:314-315) e leva CAPTION/FORM_CAPTION — o rótulo mora no dado, e sem ele a linha aparece sem nome na tela; o acesso passa a valer no modo `usuario`, que é o do cliente',
+        opOn.status === 200 && (opLista.grants ?? []).some((g: any) => g.form === 'FRMLIBERACOES' && g.opcao === 'BTNCONSULTAR')
+        && Number(linhaOp?.codoperador) === 8 && linhaOp?.codperfil == null
+        && linhaOp?.caption === 'Consultar liberações' && linhaOp?.form_caption === 'LIBERACOES'
+        && acDireto.status === 200,
+        { put: opOn.status, grants: (opLista.grants ?? []).length, linha: linhaOp, acesso: acDireto.status });
+
+      const opOff = await fetch(`${base}/${PM}/operador`, { method: 'PUT', headers: H, body: JSON.stringify({ codoperador: 8, form: 'FRMLIBERACOES', opcao: 'BTNCONSULTAR', concedido: false }) });
+      const acPos = await fetch(`${base}/operadores/liberacoes`, { headers: { ...H, 'x-operador-id': '8' } });
+      const trilhaOp = (await pgPf.query(`SELECT tipo FROM audit_permissoes WHERE codoperador=8 AND form='FRMLIBERACOES' ORDER BY codaudit DESC LIMIT 2`)).rows.map((r: any) => r.tipo);
+      const opInexistente = await fetch(`${base}/${PM}/operador`, { method: 'PUT', headers: H, body: JSON.stringify({ codoperador: 999888, form: 'FRMLIBERACOES', opcao: 'BTNCONSULTAR', concedido: true }) });
+      check('PERFIL §77.5c: revogar por operador volta o 403 e a trilha registra as DUAS mudanças (DELETE no topo, INSERT antes); operador inexistente → 422 OPERADOR_NAO_ENCONTRADO (fail-closed)',
+        opOff.status === 200 && acPos.status === 403 && trilhaOp[0] === 'DELETE' && trilhaOp[1] === 'INSERT'
+        && opInexistente.status === 422 && ((await opInexistente.json().catch(() => ({}))) as any).code === 'OPERADOR_NAO_ENCONTRADO',
+        { off: opOff.status, acesso: acPos.status, trilha: trilhaOp, inexistente: opInexistente.status });
+
+      // LOTE: marcar todas as opções de UM formulário (btnMarcarTodosOpcoesClick) e depois desmarcar.
+      const loteOn = await fetch(`${base}/${PM}/lote`, { method: 'PUT', headers: H, body: JSON.stringify({ codoperador: 8, form: 'FRMLIBERACOES', concedido: true }) });
+      const loteOnJ = (await loteOn.json().catch(() => ({}))) as any;
+      const nLote = Number((await pgPf.query(`SELECT count(*)::int n FROM permissoes WHERE codoperador=8 AND form='FRMLIBERACOES' AND codempresa=1`)).rows[0].n);
+      const catFrm = Number((await pgPf.query(`SELECT count(DISTINCT opcao)::int n FROM permissoes WHERE form='FRMLIBERACOES'`)).rows[0].n);
+      const loteOff = await fetch(`${base}/${PM}/lote`, { method: 'PUT', headers: H, body: JSON.stringify({ codoperador: 8, form: 'FRMLIBERACOES', concedido: false }) });
+      const nLote2 = Number((await pgPf.query(`SELECT count(*)::int n FROM permissoes WHERE codoperador=8 AND form='FRMLIBERACOES' AND codempresa=1`)).rows[0].n);
+      const loteAmbos = await fetch(`${base}/${PM}/lote`, { method: 'PUT', headers: H, body: JSON.stringify({ codoperador: 8, codperfil, form: 'FRMLIBERACOES', concedido: true }) });
+      check('PERFIL §77.5d: marcar em LOTE dá ao operador TODAS as opções do formulário (btnMarcarTodosOpcoes) e desmarcar tira todas; pedir operador E perfil juntos → 400 (a exclusividade é regra do legado, não preferência nossa)',
+        loteOn.status === 200 && nLote === catFrm && nLote > 0
+        && loteOff.status === 200 && nLote2 === 0 && loteAmbos.status === 400,
+        { on: [loteOn.status, loteOnJ], noOperador: nLote, noCatalogo: catFrm, off: nLote2, ambos: loteAmbos.status });
+
+      // CLONAR (SP_REPLICA_PERMISSAO): destrutivo no destino, cross-empresa, sem caption.
+      // dois operadores DEDICADOS: clonar é destrutivo, e usar o op 7 (o do smoke) apagaria os grants de que o
+      // resto da corrida depende.
+      await pgPf.query(`INSERT INTO operadores (codoperador, nome, login, tipoop, idgrupo, desabilitado, ativo, indr)
+        VALUES (95,'CLONE ORIGEM','CLONEDE','OPE',2,'N','S','I'), (96,'CLONE DESTINO','CLONEPARA','OPE',2,'N','S','I')
+        ON CONFLICT (codoperador) DO NOTHING`);
+      await pgPf.query(`DELETE FROM permissoes WHERE codoperador IN (95,96) AND codempresa IN (1,2)`);
+      await pgPf.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES
+        ('FRMLIBERACOES','BTNCONSULTAR',95,1), ('FRMLIBERACOES','BTNPERMISSOES',95,1)`);
+      await pgPf.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMCADBANCOS','BTNGRAVAR',96,1)`);
+      const clone = await fetch(`${base}/${PM}/clonar`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'USUARIO', de: 95, de_empresa: 1, para: 96, para_empresa: 1 }) });
+      const cloneJ = (await clone.json().catch(() => ({}))) as any;
+      const dest = (await pgPf.query(`SELECT form, opcao FROM permissoes WHERE codoperador=96 AND codempresa=1 ORDER BY opcao`)).rows.map((r: any) => `${r.form}/${r.opcao}`);
+      const mesmo = await fetch(`${base}/${PM}/clonar`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'USUARIO', de: 95, de_empresa: 1, para: 95, para_empresa: 1 }) });
+      check('PERFIL §77.5e: clonar é CÓPIA, não união — o SP_REPLICA_PERMISSAO do legado APAGA o destino antes (o grant FRMCADBANCOS do op 9 some) e leva os 2 do op 8; clonar para si mesmo → 400',
+        clone.status === 200 && Number(cloneJ.copiados) === 2 && Number(cloneJ.apagados) === 1
+        && JSON.stringify(dest) === JSON.stringify(['FRMLIBERACOES/BTNCONSULTAR', 'FRMLIBERACOES/BTNPERMISSOES'])
+        && mesmo.status === 400,
+        { clone: cloneJ, destino: dest, mesmo: mesmo.status });
+      await pgPf.query(`DELETE FROM permissoes WHERE codoperador IN (95,96) AND codempresa IN (1,2)`);
+
       // 77.6) ACESSO perfil-aware: op 8 SEM grant direto de FRMLIBERACOES; atribui o perfil ao op 8.
       await fetch(`${base}/cadastro/perfil-operador`, { method: 'PUT', headers: H, body: JSON.stringify({ codoperador: 8, codperfil, atribuido: true }) });
       const H8 = { ...H, 'x-operador-id': '8' };

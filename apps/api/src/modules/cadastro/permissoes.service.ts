@@ -7,10 +7,24 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 type AnyDB = any;
 
 /**
- * PERMISSÕES (UCtrlPermissoes) corte-2 — matriz de grants FORM×OPCAO por PERFIL. O catálogo de ações vem do
- * conjunto DISTINCT já existente em PERMISSOES (o universo conhecido de form×opção; não há um registro de forms
- * separado no app). Conceder = inserir a linha (codperfil, form, opcao, codempresa); revogar = apagar.
- * Escopo por empresa (currentTenant). O acesso perfil-aware é ligado no acesso.service (modo 'ambos'/'perfil').
+ * PERMISSÕES (`FRMCTRLPERMISSOES`) — matriz de grants FORM×OPCAO. Dossiê: `uCtrlPermissoes.md`.
+ *
+ * ⚠️ o corte-2 só sabia conceder por PERFIL, e o cliente concede por **OPERADOR**: a config
+ * `CONTROLE_PERMISSOES` vale 'Usuario' em produção, com 55.251 linhas por operador contra 2.438 por perfil (que
+ * nesse modo o legado nem consulta, `udmPrincipal.pas:2698-2714`). Sem o caminho por operador, o administrador
+ * não conseguiria dar nem tirar acesso de ninguém depois da virada. Corte-3 fecha isso.
+ *
+ * Regras do legado que valem para os dois caminhos:
+ *  · a chave é (form, opção, operador|perfil, **empresa**) e a verificação é fail-closed (`:3971-4000`);
+ *  · sem opção, a opção é o próprio nome do formulário — o "gate da tela" (`:3976`);
+ *  · **exclusividade**: `Operador := iif(tipo=Perfil,0,Operador); CodPerfil := iif(Operador=0,CodPerfil,0)`
+ *    (`uCtrlPermissoes.pas:314-315`) — uma linha nunca tem operador E perfil;
+ *  · a gravação leva **CAPTION** (rótulo do botão) e **FORM_CAPTION** (nome da tela), `:331-332`. O rótulo mora
+ *    no dado, e é o que a tela mostra; sem ele a linha aparece sem nome.
+ *
+ * O catálogo de ações vem do DISTINCT já existente em PERMISSOES (o universo conhecido de form×opção; não há um
+ * registro de forms separado no app). Conceder = inserir a linha; revogar = apagar. O acesso perfil-aware é
+ * ligado no acesso.service (modo 'ambos'/'perfil').
  */
 @Injectable()
 export class PermissoesService {
@@ -77,6 +91,157 @@ export class PermissoesService {
         }).execute();
       }
       return { codperfil, form: f, opcao: o, concedido };
+    });
+  }
+
+  // ── CORTE-3: o caminho por OPERADOR, que é o do cliente ───────────────────────────────────────────────────
+
+  /** empresa do pedido: a tela do legado tem seletor (`cbbEmpresaChange`); ausente = a da sessão. */
+  private empDe(codempresa?: number): number {
+    return codempresa != null && Number.isFinite(codempresa) ? Number(codempresa) : this.emp();
+  }
+
+  private async assertOperador(db: AnyDB, codoperador: number): Promise<void> {
+    const op = await db.selectFrom('operadores').select('codoperador').where('codoperador', '=', codoperador)
+      .where(sql`coalesce(indr,'I')`, '<>', 'E').executeTakeFirst();
+    if (!op) throw new BusinessRuleError('OPERADOR_NAO_ENCONTRADO', { codoperador });
+  }
+
+  /** os grants de um OPERADOR numa empresa. */
+  async listarPorOperador(codoperador: number, codempresa?: number): Promise<{ codoperador: number; codempresa: number; grants: Array<Record<string, unknown>> }> {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    await this.assertOperador(db, codoperador);
+    const emp = this.empDe(codempresa);
+    const grants = await db.selectFrom('permissoes').select(['form', 'opcao'])
+      .where('codoperador', '=', codoperador).where('codempresa', '=', emp).execute();
+    return { codoperador, codempresa: emp, grants };
+  }
+
+  /** rótulos conhecidos de um par (o catálogo já os traz; aqui é para gravar junto, como o legado faz). */
+  private async rotulos(db: AnyDB, form: string, opcao: string): Promise<{ caption: string | null; form_caption: string | null }> {
+    const r = await db.selectFrom('permissoes')
+      .select(({ fn }: AnyDB) => [fn.max('caption').as('caption'), fn.max('form_caption').as('form_caption')])
+      .where(sql`upper(form)`, '=', form).where(sql`upper(opcao)`, '=', opcao).executeTakeFirst();
+    return { caption: (r?.caption as string) ?? null, form_caption: (r?.form_caption as string) ?? null };
+  }
+
+  /**
+   * concede/revoga um grant a um OPERADOR (presença = concedido, fiel ao legado). Grava CAPTION/FORM_CAPTION
+   * quando o catálogo os conhece — sem isso a linha aparece sem rótulo na tela (nossa e a do legado).
+   */
+  async setGrantOperador(dto: { codoperador: number; form: string; opcao: string; concedido: boolean; codempresa?: number }): Promise<{ codoperador: number; codempresa: number; form: string; opcao: string; concedido: boolean }> {
+    const emp = this.empDe(dto.codempresa);
+    const ator = currentTenant().operadorId ?? null;
+    const f = dto.form.trim().toUpperCase();
+    const o = dto.opcao.trim().toUpperCase();
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      await this.assertOperador(trx, dto.codoperador);
+      const del = await trx.deleteFrom('permissoes').where('codoperador', '=', dto.codoperador)
+        .where(sql`upper(form)`, '=', f).where(sql`upper(opcao)`, '=', o).where('codempresa', '=', emp).executeTakeFirst();
+      const existia = Number((del as any)?.numDeletedRows ?? 0) > 0;
+      if (dto.concedido) {
+        const { caption, form_caption } = await this.rotulos(trx, f, o);
+        // codperfil FICA NULO: a exclusividade do legado (:314-315) é operador OU perfil, nunca os dois.
+        await trx.insertInto('permissoes').values({ form: f, opcao: o, codoperador: dto.codoperador, codempresa: emp, caption, form_caption }).execute();
+      }
+      if (dto.concedido !== existia) {
+        await trx.insertInto('audit_permissoes').values({
+          form: f, opcao: o, codoperador: dto.codoperador, codperfil: null, codempresa: emp,
+          tipo: dto.concedido ? 'INSERT' : 'DELETE', programa: 'ApolloWeb', maquina: null, codoperador_acao: ator,
+        }).execute();
+      }
+      return { codoperador: dto.codoperador, codempresa: emp, form: f, opcao: o, concedido: dto.concedido };
+    });
+  }
+
+  /**
+   * MARCAR/DESMARCAR EM LOTE (`btnMarcarTodosFormClick` :472 · `btnMarcarTodosOpcoesClick` :516).
+   * `form` presente = todas as opções daquele formulário; ausente = o catálogo inteiro.
+   *
+   * ⚠️ QUIRK COPIADO: ao marcar TODOS, o legado **exclui os formulários do menu INDÚSTRIA** quando a empresa não
+   * é `SEGMENTO='INDUSTRIA'` (`:478-493`) — "marcar todos" nunca dá as telas de indústria a um supermercado.
+   * Aqui o filtro é pelo prefixo/nome do formulário, porque não temos a árvore de menu do legado; está declarado
+   * como aproximação e não como cópia da árvore.
+   */
+  async setLote(dto: { codoperador?: number; codperfil?: number; form?: string; concedido: boolean; codempresa?: number }): Promise<{ alterados: number; ignorados_industria: number }> {
+    const emp = this.empDe(dto.codempresa);
+    const ator = currentTenant().operadorId ?? null;
+    const porOperador = dto.codoperador != null;
+    const alvo = porOperador ? Number(dto.codoperador) : Number(dto.codperfil);
+    const db = this.dbp.forTenantRead() as AnyDB;
+    if (porOperador) await this.assertOperador(db, alvo);
+
+    const segmento = ((await db.selectFrom('empresas').select('segmento').where('idempresa', '=', emp).executeTakeFirst()) as { segmento?: string } | undefined)?.segmento ?? null;
+    const industrial = String(segmento ?? '').toUpperCase() === 'INDUSTRIA';
+
+    let pares = (await this.catalogo()) as Array<{ form: string; opcao: string; caption: string | null; form_caption: string | null }>;
+    if (dto.form) {
+      const f = dto.form.trim().toUpperCase();
+      pares = pares.filter((p) => String(p.form).toUpperCase() === f);
+    }
+    let ignorados = 0;
+    if (!dto.form && !industrial) {
+      const antes = pares.length;
+      pares = pares.filter((p) => !/INDUSTRIA|PRODUCAO_IND/i.test(`${p.form} ${p.form_caption ?? ''}`));
+      ignorados = antes - pares.length;
+    }
+
+    let alterados = 0;
+    await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      for (const p of pares) {
+        const f = String(p.form).toUpperCase();
+        const o = String(p.opcao).toUpperCase();
+        const col = porOperador ? 'codoperador' : 'codperfil';
+        const del = await trx.deleteFrom('permissoes').where(col, '=', alvo)
+          .where(sql`upper(form)`, '=', f).where(sql`upper(opcao)`, '=', o).where('codempresa', '=', emp).executeTakeFirst();
+        const existia = Number((del as any)?.numDeletedRows ?? 0) > 0;
+        if (dto.concedido) {
+          await trx.insertInto('permissoes').values({
+            form: f, opcao: o, [col]: alvo, codempresa: emp, caption: p.caption ?? null, form_caption: p.form_caption ?? null,
+          }).execute();
+        }
+        if (dto.concedido !== existia) {
+          alterados++;
+          await trx.insertInto('audit_permissoes').values({
+            form: f, opcao: o, codoperador: porOperador ? alvo : null, codperfil: porOperador ? null : alvo,
+            codempresa: emp, tipo: dto.concedido ? 'INSERT' : 'DELETE', programa: 'ApolloWeb', maquina: null, codoperador_acao: ator,
+          }).execute();
+        }
+      }
+    });
+    return { alterados, ignorados_industria: ignorados };
+  }
+
+  /**
+   * CLONAR permissões — o `SP_REPLICA_PERMISSAO` que a tela chama em `btnCopiarParaClick` (:389). Lida no
+   * Oracle, a procedure faz exatamente isto:
+   *   DELETE FROM PERMISSOES WHERE <alvo> = :para AND CODEMPRESA = :paraEmp
+   *   INSERT (FORM, OPCAO, <alvo>, CODEMPRESA) ← SELECT FORM, OPCAO ... <alvo> = :de AND CODEMPRESA = :deEmp
+   * Três fidelidades que importam: é **destrutivo** (o destino é apagado antes — cópia, não união), é
+   * **cross-empresa**, e **não leva CAPTION/FORM_CAPTION** (a procedure do legado também não leva).
+   */
+  async clonar(dto: { tipo: 'USUARIO' | 'PERFIL'; de: number; de_empresa: number; para: number; para_empresa: number }): Promise<{ copiados: number; apagados: number }> {
+    const ator = currentTenant().operadorId ?? null;
+    const col = dto.tipo === 'USUARIO' ? 'codoperador' : 'codperfil';
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      if (dto.tipo === 'USUARIO') {
+        await this.assertOperador(trx, dto.de);
+        await this.assertOperador(trx, dto.para);
+      }
+      const del = await trx.deleteFrom('permissoes').where(col, '=', dto.para).where('codempresa', '=', dto.para_empresa).executeTakeFirst();
+      const apagados = Number((del as any)?.numDeletedRows ?? 0);
+      const origem = (await trx.selectFrom('permissoes').select(['form', 'opcao'])
+        .where(col, '=', dto.de).where('codempresa', '=', dto.de_empresa).execute()) as Array<{ form: string; opcao: string }>;
+      for (const g of origem) {
+        await trx.insertInto('permissoes').values({ form: g.form, opcao: g.opcao, [col]: dto.para, codempresa: dto.para_empresa }).execute();
+      }
+      // a tela do legado grava log da clonagem (`GravaLog(doInserir, talClonar)`); aqui vai uma linha de trilha.
+      await trx.insertInto('audit_permissoes').values({
+        form: 'FRMCTRLPERMISSOES', opcao: 'CLONAR', codempresa: dto.para_empresa,
+        codoperador: dto.tipo === 'USUARIO' ? dto.para : null, codperfil: dto.tipo === 'PERFIL' ? dto.para : null,
+        tipo: 'INSERT', programa: 'ApolloWeb', maquina: null, codoperador_acao: ator,
+      }).execute();
+      return { copiados: origem.length, apagados };
     });
   }
 

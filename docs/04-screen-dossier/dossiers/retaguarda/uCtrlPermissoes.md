@@ -110,3 +110,30 @@ tela localiza o menu "INDÚSTRIA" e **filtra fora os formulários filhos dele** 
 
 Nada disto é cauda: é a tela que o administrador usa para consertar acesso no dia seguinte à virada — e, sem o
 item 1, ele não consegue.
+
+## 7. CORTE-3 ENTREGUE (2026-09-04)
+
+Os cinco itens do §6, menos a seleção de empresa na tela (o back já aceita `codempresa`; falta o front):
+
+| entregue | fidelidade |
+|---|---|
+| `GET  cadastro/permissoes/operador/:cod` | grants do operador na empresa (a da sessão quando não vem `codempresa`) |
+| `PUT  cadastro/permissoes/operador` | grava com `codperfil` **NULO** (exclusividade `:314-315`) e leva `CAPTION`/`FORM_CAPTION` (`:331-332`) |
+| `PUT  cadastro/permissoes/lote` | `form` presente = as opções daquele formulário; ausente = o catálogo. Recusa operador **e** perfil juntos |
+| `POST cadastro/permissoes/clonar` | reproduz o `SP_REPLICA_PERMISSAO`: **apaga o destino** antes de copiar, cross-empresa, sem caption |
+
+Duas coisas que o smoke pegou e viraram correção:
+
+1. **`empresas.segmento` não existia** no nosso schema (mig **195**). É a coluna que o legado lê para filtrar as
+   telas de INDÚSTRIA no "marcar todos" (`:478-493`) — sem ela a regra não tinha como ser copiada, e a carga
+   descartaria o valor do cliente. ⚠️ o filtro aqui é pelo NOME do formulário, porque não temos a árvore de menu
+   do legado: está declarado como **aproximação**, não como cópia.
+2. o teste de clonagem usava um operador inexistente — e ao corrigir ficou claro o risco real da função: **clonar
+   sobre o operador do smoke apagaria os grants de que o resto da corrida depende**. É o mesmo risco que o
+   administrador corre na tela, e por isso o teste exercita explicitamente que o destino é apagado.
+
+Smoke §77.5b-e (4 checks): exclusividade operador×perfil, caption gravado, trilha com as duas mudanças, operador
+inexistente fail-closed, lote marcando/desmarcando o formulário inteiro, recusa de operador+perfil juntos, e a
+clonagem destrutiva. Verde em **1048 ok, 0 falhas**.
+
+**Falta**: o front (a tela em si — hoje só há a matriz por perfil) e a seleção de empresa nela.

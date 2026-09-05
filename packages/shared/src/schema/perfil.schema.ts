@@ -37,3 +37,53 @@ export const permissaoGrantSchema = z.object({
   concedido: z.boolean(),
 });
 export type PermissaoGrantDto = z.infer<typeof permissaoGrantSchema>;
+
+/**
+ * PERMISSÃO POR OPERADOR (`FRMCTRLPERMISSOES` no modo `CONTROLE_PERMISSOES='Usuario'`, que é o do cliente:
+ * 55.251 linhas por operador contra 2.438 por perfil). A empresa é explícita porque a tela do legado tem
+ * seletor de empresa (`cbbEmpresaChange`) — a permissão é por (form, opção, operador, EMPRESA).
+ * A exclusividade operador × perfil é do legado (`uCtrlPermissoes.pas:314-315`): uma linha nunca tem os dois.
+ */
+export const permissaoOperadorGrantSchema = z.object({
+  codoperador: z.coerce.number({ message: 'Operador inválido.' }).int().positive(),
+  form: z.string().trim().min(1, 'Informe a tela (form).').max(60),
+  opcao: z.string().trim().min(1, 'Informe a opção.').max(60),
+  concedido: z.boolean(),
+  /** empresa do grant; ausente = a da sessão. */
+  codempresa: z.coerce.number().int().positive().optional(),
+});
+export type PermissaoOperadorGrantDto = z.infer<typeof permissaoOperadorGrantSchema>;
+
+/**
+ * MARCAR/DESMARCAR EM LOTE (`btnMarcarTodosFormClick` / `btnMarcarTodosOpcoesClick`). `form` ausente = todos os
+ * formulários do catálogo; presente = todas as opções daquele formulário.
+ * ⚠️ o legado, ao marcar TODOS, exclui os formulários do menu INDÚSTRIA quando a empresa não é industrial
+ * (`uCtrlPermissoes.pas:478-493`) — o gate vive no serviço, não aqui.
+ */
+export const permissaoLoteSchema = z.object({
+  codoperador: z.coerce.number().int().positive().optional(),
+  codperfil: z.coerce.number().int().positive().optional(),
+  form: z.string().trim().max(60).optional(),
+  concedido: z.boolean(),
+  codempresa: z.coerce.number().int().positive().optional(),
+}).refine((v) => (v.codoperador == null) !== (v.codperfil == null), {
+  message: 'Informe o operador OU o perfil (nunca os dois) — é a regra do legado.',
+  path: ['codoperador'],
+});
+export type PermissaoLoteDto = z.infer<typeof permissaoLoteSchema>;
+
+/**
+ * CLONAR PERMISSÕES (`btnCopiarParaClick` → `SP_REPLICA_PERMISSAO`). Copia de um operador/perfil para outro,
+ * podendo trocar de empresa. ⚠️ é **destrutivo**: o legado APAGA tudo do destino antes de copiar.
+ */
+export const permissaoClonarSchema = z.object({
+  tipo: z.enum(['USUARIO', 'PERFIL']),
+  de: z.coerce.number({ message: 'Informe a origem.' }).int().positive(),
+  de_empresa: z.coerce.number().int().positive(),
+  para: z.coerce.number({ message: 'Informe o destino.' }).int().positive(),
+  para_empresa: z.coerce.number().int().positive(),
+}).refine((v) => !(v.de === v.para && v.de_empresa === v.para_empresa), {
+  message: 'A origem e o destino são o mesmo — nada a clonar.',
+  path: ['para'],
+});
+export type PermissaoClonarDto = z.infer<typeof permissaoClonarSchema>;
