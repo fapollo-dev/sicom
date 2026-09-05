@@ -20,7 +20,7 @@ Os números vêm das medições contra **produção** (`hiperpinheirao.ddns.com.
 | 0.4 | Fechar com o cliente o **relatório de órfãos e perdas declaradas** | são decisões de negócio, não técnicas — ver §5 |
 | 0.5 | Definir o **ponto de não-retorno** e quem decide | ver §4 |
 | 0.6 | Provisionar o Postgres de destino com as migrations aplicadas e conferir `schema-destino.json` re-dumpado | o mapa da carga é feito contra esse retrato |
-| 0.7 | ⛔ **BLOQUEIO: resolver o RBAC** (`tools/cutover/rbac-faltante.md`) | 91 dos 176 pares (formulário, opção) que o app exige não existem no cliente; sem isso o sistema vira read-only para os 284 operadores — ver §7w do plano |
+| 0.7 | **RBAC — distribuir as 34 permissões novas** (`PERMISSOES-A-DISTRIBUIR.md`) | dos 91 pares faltantes, 57 viraram renomeação (mig 194, devolvendo 1.573 concessões que o cliente já tinha) e 34 são ações que o legado não separava. Não foram concedidas por conta própria: quem distribui é o cliente, na tela `/cadastro/permissoes`. Fazer ANTES da virada, senão o primeiro dia tem gente parada |
 
 ## 1. Congelamento do legado (início da janela)
 
