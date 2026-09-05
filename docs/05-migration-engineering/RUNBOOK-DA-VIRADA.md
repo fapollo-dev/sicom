@@ -103,7 +103,7 @@ limpar ou corrigir é do dono do dado.
 
 ## 6. Depois da virada
 
-- [ ] 6.1 Manter o Oracle **de pé e somente-leitura** por N dias (`[definir]`) — é a fonte de conferência.
+- [x] 6.1 **O Oracle fica de pé indefinidamente** (decisão do usuário, 04/09) — some o prazo, e com ele o risco de perder a fonte de conferência. Consequência prática: toda dúvida de dado depois da virada se resolve consultando o legado, e o plano de volta atrás do §7 continua disponível enquanto o backup existir.
 - [ ] 6.2 Backup do Postgres novo antes do primeiro dia de operação.
 - [ ] 6.3 Acompanhar o primeiro fechamento de caixa e a primeira emissão de NF-e de perto.
 
