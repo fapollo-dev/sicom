@@ -16,20 +16,20 @@ export class RestricaoAcessoController {
   constructor(private readonly svc: RestricaoAcessoService) {}
 
   @Get()
-  @RequerAcesso('FRMCADOPERADOR', 'BTNGRAVAR')
+  @RequerAcesso('FRMCADUSUARIOS', 'BTNGRAVAR')
   listar(@Param('cod', ParseIntPipe) cod: number) {
     return this.svc.listar(cod);
   }
 
   @Post()
   @HttpCode(201)
-  @RequerAcesso('FRMCADOPERADOR', 'BTNGRAVAR')
+  @RequerAcesso('FRMCADUSUARIOS', 'BTNGRAVAR')
   adicionar(@Param('cod', ParseIntPipe) cod: number, @Body(new ZodValidationPipe(restricaoAcessoSchema)) dto: RestricaoAcessoDto) {
     return this.svc.adicionar(cod, dto);
   }
 
   @Delete(':id')
-  @RequerAcesso('FRMCADOPERADOR', 'BTNEXCLUIR')
+  @RequerAcesso('FRMCADUSUARIOS', 'BTNEXCLUIR')
   remover(@Param('cod', ParseIntPipe) cod: number, @Param('id', ParseIntPipe) id: number) {
     return this.svc.remover(cod, id);
   }

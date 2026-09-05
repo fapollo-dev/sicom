@@ -21,21 +21,21 @@ export class DevolucaoCompraController {
 
   @Post(':id/finalizar')
   @HttpCode(200)
-  @RequerAcesso('FRMCADDEVOLUCAO', 'BTNFINALIZAR')
+  @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'BTNFINALIZAR')
   finalizar(@Param('id', ParseIntPipe) id: number) {
     return this.svc.finalizar(id);
   }
 
   @Post(':id/reabrir')
   @HttpCode(200)
-  @RequerAcesso('FRMCADDEVOLUCAO', 'BTNREABRIR')
+  @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'BTNREABRIR')
   reabrir(@Param('id', ParseIntPipe) id: number) {
     return this.svc.reabrir(id);
   }
 
   @Post(':id/cancelar')
   @HttpCode(200)
-  @RequerAcesso('FRMCADDEVOLUCAO', 'BTNCANCELAR')
+  @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'BTNCANCELAR')
   cancelar(@Param('id', ParseIntPipe) id: number) {
     return this.svc.cancelar(id);
   }
@@ -43,7 +43,7 @@ export class DevolucaoCompraController {
   /** corte-2: gera a NF de SAÍDA de devolução (finalidade=4) do documento DIGITADO. O operador roda F3/F4 na NF. */
   @Post(':id/gerar-nf')
   @HttpCode(200)
-  @RequerAcesso('FRMCADDEVOLUCAO', 'BTNGERARNF')
+  @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'BTNGERARNF')
   gerarNf(@Param('id', ParseIntPipe) id: number) {
     return this.svc.gerarNf(id);
   }
@@ -51,7 +51,7 @@ export class DevolucaoCompraController {
   /** corte-3: fatura a devolução → A RECEBER contra o fornecedor (venc = emissão + config dias; 1 parcela BOLETO). */
   @Post(':id/faturar')
   @HttpCode(200)
-  @RequerAcesso('FRMCADDEVOLUCAO', 'BTNFATURAR')
+  @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'BTNFATURAR')
   faturarNf(@Param('id', ParseIntPipe) id: number) {
     return this.svc.faturarNf(id);
   }

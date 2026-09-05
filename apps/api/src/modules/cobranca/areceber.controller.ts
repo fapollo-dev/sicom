@@ -66,7 +66,7 @@ export class AreceberController {
   // ── BAIXA / recebimento (corte-2) ──
   @Post(':id/baixar')
   @HttpCode(200)
-  @RequerAcesso('FRMCADARECEBER', 'BTNBAIXAR')
+  @RequerAcesso('FRMBAIXAARECEBER', 'BTNGRAVAR')
   baixar(
     @Param('id', ParseIntPipe) id: number,
     @Body(new ZodValidationPipe(baixarTituloSchema)) dto: Record<string, unknown>,
@@ -76,7 +76,7 @@ export class AreceberController {
 
   @Post(':id/estornar-baixa')
   @HttpCode(200)
-  @RequerAcesso('FRMCADARECEBER', 'BTNESTORNARBAIXA')
+  @RequerAcesso('FRMBAIXAARECEBER', 'BTNGRAVAR')
   estornarBaixa(@Param('id', ParseIntPipe) id: number) {
     return this.baixa.estornar(id);
   }

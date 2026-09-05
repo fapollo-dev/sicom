@@ -37,7 +37,7 @@ export const operadoresAggregateConfig: AggregateConfig = {
     'desabilitado', 'desabilita_operacoes_basicas', 'desabilita_desconto_pdv',
     'solicitar_alteracao_senha',
   ],
-  rbacForm: 'FRMCADOPERADOR',
+  rbacForm: 'FRMCADUSUARIOS',
   softDelete: true, // excluir master → INDR='E' (a ponte é apagada na cascata)
   // senha_hash (070) NUNCA sai no read/echo — a allowlist `colunas` só filtra a escrita; o read faz selectAll.
   colunasOcultasLeitura: ['senha_hash'],

@@ -903,6 +903,31 @@ Com isso o placar do §7w vai de **91 faltantes para 74**: 17 resolvidos por ren
 concessões** que o cliente já tinha e o app ignorava. O que resta são os 34 atos sem permissão própria no legado
 (decisão de privilégio) e 3 telas sem grant.
 
+## 7x. O caminho INVERSO: o que o cliente USA e o app não tem (2026-09-04)
+
+O §7w olhou de um lado só. Cruzando os **313 formulários do cliente** com os **69 do app**: 253 sem
+correspondente, somando **11.170 dos 22.459 grants**. A maior parte é tela fora do escopo (PDV, cheque, ordem de
+serviço, transferência, o bloco contábil), mas o topo da lista revelou tela NOSSA com nome errado.
+
+E aqui o critério mudou: nome é chute, `CAPTION` é indício, **a TABELA que o data module consulta é prova**. Foi
+ela que pegou um erro da rodada anterior.
+
+| tela do cliente | grants | o que era |
+|---|---|---|
+| `FRMCADPEDIDODEVOLUCAOCOMPRAS` | 243 | **correção da mig 194**: eu havia mandado a devolução de compra para `FRMCADDEVOLUCAO` casando por radical, mas aquela tela lê `DEVOLUCAO`/`I_DEVOLUCAO` (devolução de VENDA). A nossa lê `PEDIDO_DEVOLUCAO_COMPRA` + itens |
+| `FRMCADUSUARIOS` | 249 | `FRMCADOPERADOR` **não existe** no cliente; quem cadastra operador lá é o `uCadUsuarios`, que lê `OPERADORES` + `RELACAO_OPERADOR_EMPRESA` |
+| `FRMBAIXAAPAGAR` | 287 | baixar título é **tela própria** no legado, com o botão "Gravar baixa" |
+| `FRMBAIXAARECEBER` | 209 | idem |
+
+As duas baixas **saem do balde de decisão**: não eram atos novos, eram atos no formulário errado — já têm dono
+(287 e 209 pessoas). A lista para o cliente distribuir cai de **34 para 32**.
+
+Somando as três rodadas: **2.561 concessões** recuperadas que o cliente já tinha e o app ignorava.
+
+⚠️ e fica o registro do método, porque errei duas vezes antes de acertar: casar tela por **nome** produz falso
+positivo (`coNFerencianota` casou com `FRMNF`), por **rótulo** é bom indício, e por **tabela** é o que sustenta.
+Quando as três discordarem, a tabela manda.
+
 ## 8. Próximos passos (estado em 2026-09-02)
 
 Os três itens originais desta seção estão feitos (mapa por tabela, runner com reconciliação, ensaio por fase).

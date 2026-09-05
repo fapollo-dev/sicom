@@ -1,4 +1,4 @@
-# Permissões a distribuir — 34 ações que o sistema novo tem e o antigo não separava
+# Permissões a distribuir — 32 ações que o sistema novo tem e o antigo não separava
 
 O sistema antigo não pedia permissão para estas ações: elas aconteciam como efeito de outro botão. No Apollo
 cada uma tem a sua, o que é mais seguro — mas significa que **ninguém as tem hoje**, e alguém precisa
@@ -8,14 +8,16 @@ A coluna **"já mexem nessa tela"** é o número de operadores que hoje têm alg
 é o candidato natural, mas a decisão é de quem conhece a operação. Nada aqui foi concedido automaticamente:
 conceder por conta própria seria dar poder que ninguém tinha.
 
+> **Duas saíram desta lista** depois de uma conferência a mais: *baixar* e *estornar baixa* de título já têm
+> dono no sistema antigo — a baixa é uma tela própria lá (`FRMBAIXAAPAGAR`, 287 pessoas; `FRMBAIXAARECEBER`,
+> 209), e o Apollo passou a respeitar isso. Não era permissão nova, era permissão no lugar errado.
+
 ## DINHEIRO E ESTOQUE
 
 | tela | o que a ação faz | já mexem nessa tela |
 |---|---|---|
 | NOTAS DE SAIDA | Processar a nota: MOVE O ESTOQUE (entrada soma, saída baixa) | 63 |
 | NOTAS DE SAIDA | Reverter o processamento: desfaz o movimento de estoque | 63 |
-| CONTAS A RECEBER | Baixar título a receber (recebe dinheiro) | 48 |
-| CONTAS A RECEBER | Estornar a baixa de um título a receber | 48 |
 | BAIXA DE CARTOES | Estornar a baixa de cartão | 25 |
 | AJUSTE DE ESTOQUE | Estornar um ajuste de estoque | 26 |
 | NOTAS DE SAIDA | Estornar o faturamento: apaga os títulos gerados pela nota | 63 |

@@ -31,7 +31,7 @@ export const devolucaoCompraAggregateConfig: AggregateConfig = {
   tabela: 'pedido_devolucao_compra',
   pk: 'codpeddevcompra',
   view: 'get_pedido_devolucao_compra',
-  rbacForm: 'FRMCADDEVOLUCAO',
+  rbacForm: 'FRMCADPEDIDODEVOLUCAOCOMPRAS',
   empresaScoped: true,
   softDelete: true,
   // STATUS (state-controlled: finalizar/reabrir/cancelar), CODNF_EMITIDA (gerar-NF) e CODOPERADOR (derivarTrx)
