@@ -885,6 +885,20 @@ tabela vem do IBGE) e `FRMCADOPERACOESCONTA` / `FRMCONFERENCIANOTA`, que **exist
 (`uCadOperacoesConta.dfm`, `FrmanalisaPedComp_NF`) mas **não têm grant para ninguém** no cliente — manter sem
 grant é o fiel.
 
+#### E a pergunta que sustentava esse veredicto foi verificada no fonte
+
+"Manter sem grant é o fiel" só vale se o legado **também** negar quando não há linha em `PERMISSOES`. Vale:
+`udmPrincipal.pas:3971-4000` (`VerificaPermissao`) faz `SELECT * FROM PERMISSOES WHERE form/codoperador/
+codempresa/opcao` e retorna `RecordCount > 0` — **fail-closed**, igual ao nosso guard. E `:3976-3977` confirma
+outra coisa que já fazíamos por analogia: quando não há opção, **a opção é o próprio nome do formulário** (o
+gate da tela).
+
+Dois números que fecham o assunto e mudam uma suposição: a config `CONTROLE_PERMISSOES` vale **'Usuario'** em
+produção — o cliente concede **por operador**, não por perfil. São 55.251 linhas por operador contra 2.438 por
+perfil (que no modo 'Usuario' o legado nem consulta), e 42 vínculos operador×perfil ativos que hoje não têm
+efeito. Nosso RBAC perfil-aware está certo em existir, mas o caminho que vai valer na virada é o de usuário —
+e é bom saber disso antes, não depois: se alguém "arrumar" os perfis achando que resolvem acesso, não resolvem.
+
 Com isso o placar do §7w vai de **91 faltantes para 74**: 17 resolvidos por renomeação, devolvendo **1.573
 concessões** que o cliente já tinha e o app ignorava. O que resta são os 34 atos sem permissão própria no legado
 (decisão de privilégio) e 3 telas sem grant.
