@@ -33,9 +33,10 @@ export class PermissoesController {
   /** trilha de auditoria (AUDIT_PERMISSOES) — mudanças de grant; filtro opcional por perfil. */
   @Get('auditoria')
   @RequerAcesso('FRMCADPERFILOPERADOR', 'BTNPERMISSOES')
-  auditoria(@Query('codperfil') codperfil?: string, @Query('limite') limite?: string) {
+  auditoria(@Query('codperfil') codperfil?: string, @Query('limite') limite?: string, @Query('codoperador') codoperador?: string) {
     const cp = codperfil != null && codperfil !== '' ? Number(codperfil) : undefined;
-    return this.svc.auditoria(cp, limite != null && limite !== '' ? Number(limite) : 100);
+    const co = codoperador != null && codoperador !== '' ? Number(codoperador) : undefined;
+    return this.svc.auditoria(cp, limite != null && limite !== '' ? Number(limite) : 100, co);
   }
 
   @Put()

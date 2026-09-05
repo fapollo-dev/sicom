@@ -53,6 +53,7 @@ export function setGrantPerfil(codperfil: number, form: string, opcao: string, c
 /** trilha de auditoria (AUDIT_PERMISSOES) — mudanças de grant de um perfil (corte-2). */
 export interface AuditoriaPermissao {
   codaudit: number;
+  codoperador?: number | null;
   form: string;
   opcao: string;
   codperfil: number | null;
@@ -64,4 +65,27 @@ export interface AuditoriaPermissao {
 }
 export function auditoriaPermissoes(codperfil: number): Promise<AuditoriaPermissao[]> {
   return req(`/cadastro/permissoes/auditoria?codperfil=${codperfil}`);
+}
+/** trilha de um OPERADOR (a tela de controle por usuário mostra o histórico dele, não o de um perfil). */
+export function auditoriaDoOperador(codoperador: number): Promise<AuditoriaPermissao[]> {
+  return req(`/cadastro/permissoes/auditoria?codoperador=${codoperador}`);
+}
+
+// ── CONTROLE DE PERMISSÕES por OPERADOR (FRMCTRLPERMISSOES, corte-3) ─────────────────────────────────────────
+// É o modo que o cliente usa: `CONTROLE_PERMISSOES='Usuario'` (55.251 linhas por operador contra 2.438 por
+// perfil, que nesse modo o legado nem consulta). Ver dossiê `uCtrlPermissoes.md`.
+export function grantsDoOperador(codoperador: number, codempresa?: number): Promise<{ codoperador: number; codempresa: number; grants: Array<{ form: string; opcao: string }> }> {
+  const q = codempresa != null ? `?codempresa=${codempresa}` : '';
+  return req(`/cadastro/permissoes/operador/${codoperador}${q}`);
+}
+export function setGrantOperador(body: { codoperador: number; form: string; opcao: string; concedido: boolean; codempresa?: number }): Promise<unknown> {
+  return req('/cadastro/permissoes/operador', { method: 'PUT', body: JSON.stringify(body) });
+}
+/** marcar/desmarcar em lote: `form` presente = as opções daquele formulário; ausente = o catálogo inteiro. */
+export function setLotePermissoes(body: { codoperador?: number; codperfil?: number; form?: string; concedido: boolean; codempresa?: number }): Promise<{ alterados: number; ignorados_industria: number }> {
+  return req('/cadastro/permissoes/lote', { method: 'PUT', body: JSON.stringify(body) });
+}
+/** ⚠️ DESTRUTIVO: o legado apaga as permissões do destino antes de copiar (SP_REPLICA_PERMISSAO). */
+export function clonarPermissoes(body: { tipo: 'USUARIO' | 'PERFIL'; de: number; de_empresa: number; para: number; para_empresa: number }): Promise<{ copiados: number; apagados: number }> {
+  return req('/cadastro/permissoes/clonar', { method: 'POST', body: JSON.stringify(body) });
 }

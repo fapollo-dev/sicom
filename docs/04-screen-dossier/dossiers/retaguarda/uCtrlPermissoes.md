@@ -136,4 +136,22 @@ Smoke §77.5b-e (4 checks): exclusividade operador×perfil, caption gravado, tri
 inexistente fail-closed, lote marcando/desmarcando o formulário inteiro, recusa de operador+perfil juntos, e a
 clonagem destrutiva. Verde em **1048 ok, 0 falhas**.
 
-**Falta**: o front (a tela em si — hoje só há a matriz por perfil) e a seleção de empresa nela.
+### Front entregue
+
+`/cadastro/permissoes` (`CtrlPermissoesPage.tsx`): seletor de **operador** e de **empresa** (a permissão é por
+empresa, como o `cbbEmpresaChange` do legado), a matriz filtrável por tela, marcar/desmarcar tudo — do
+formulário ou geral — e a cópia entre operadores.
+
+Duas decisões de tela que valem registro:
+
+1. **a matriz mostra o RÓTULO, não o identificador**: a coluna "Tela" traz o `FORM_CAPTION` ("CONTAS A PAGAR") e
+   "Ação" traz o `CAPTION` ("Enviar NFe"), com `FORM · OPCAO` numa coluna técnica à parte. É o que o
+   administrador reconhece — e só é possível porque o rótulo mora no dado (§4);
+2. **a cópia avisa duas vezes**: o texto do modal diz que o destino é apagado, e há confirmação antes de
+   executar. Não é zelo: é a função que, no operador errado, tira o acesso de alguém sem rastro óbvio.
+
+A trilha de auditoria passou a filtrar por **operador** também (antes só por perfil) — senão a tela nova
+mostraria o histórico errado.
+
+**Falta**: nada do §6. O que sobra é o balde B do §7w (34 atos sem permissão própria no legado), que é decisão
+de privilégio e não implementação.

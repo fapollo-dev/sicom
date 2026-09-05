@@ -245,8 +245,11 @@ export class PermissoesService {
     });
   }
 
-  /** trilha de auditoria dos grants de um perfil (mais recentes primeiro) — quem alterou o quê e quando. */
-  async auditoria(codperfil?: number, limite = 100): Promise<Array<Record<string, unknown>>> {
+  /**
+   * trilha de auditoria (mais recentes primeiro) — quem alterou o quê e quando. Filtra por PERFIL ou por
+   * OPERADOR: a tela por operador precisa ver o histórico dele, não o de um perfil.
+   */
+  async auditoria(codperfil?: number, limite = 100, codoperador?: number): Promise<Array<Record<string, unknown>>> {
     const emp = this.emp();
     let q = (this.dbp.forTenantRead() as AnyDB)
       .selectFrom('audit_permissoes as a')
@@ -255,10 +258,11 @@ export class PermissoesService {
       .select([
         'a.codaudit', 'a.form', 'a.opcao', 'a.codperfil', 'p.perfil as perfil_nome',
         sql`to_char(a.data,'YYYY-MM-DD HH24:MI:SS')`.as('data'), 'a.tipo',
-        'a.codoperador_acao', sql`coalesce(o.nome, o.login)`.as('ator_nome'),
+        'a.codoperador', 'a.codoperador_acao', sql`coalesce(o.nome, o.login)`.as('ator_nome'),
       ])
       .where('a.codempresa', '=', emp);
     if (codperfil != null && Number.isFinite(codperfil)) q = q.where('a.codperfil', '=', codperfil);
+    if (codoperador != null && Number.isFinite(codoperador)) q = q.where('a.codoperador', '=', codoperador);
     const lim = Number.isFinite(limite) && limite > 0 ? Math.min(limite, 500) : 100; // sanitiza (NaN/≤0 → 100)
     return q.orderBy('a.data', 'desc').orderBy('a.codaudit', 'desc').limit(lim).execute();
   }
