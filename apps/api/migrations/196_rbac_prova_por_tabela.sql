@@ -37,3 +37,33 @@ DELETE FROM permissoes p USING permissoes q
 --     temos vivem no popup do inventário e respondem a `FRMINVENTARIO`, que é onde o legado os tem;
 --   · os outros 250 formulários do cliente sem correspondente são telas fora do escopo (PDV, cheque, ordem de
 --     serviço, transferência, contábil) — a lista completa e o peso de cada uma estão no plano de carga (§7x).
+
+-- ── TERCEIRA fonte de prova: o USO REAL (`MENUEXPRESS.ACESSOS`) ───────────────────────────────────────────
+-- Cruzando os formulários por uso efetivo (3.024.930 acessos registrados) com o que o app cobre, duas telas
+-- nossas apareceram na lista de "faltando" — porque pediam um grant que o cliente não concede:
+--
+--   · CONTROLE DE ACESSO — o cliente concede `FRMCTRLPERMISSOES` (16 operadores, 968 acessos). Nós exigíamos
+--     `FRMCADPERFILOPERADOR/BTNPERMISSOES`, que não existe lá. Corrigido no controller; isto também tira
+--     BTNPERMISSOES do balde de decisão.
+--   · GERADOR SPED FISCAL — o EFD ICMS/IPI é formulário PRÓPRIO no cliente (`FRMSPEDFISCAL`, 27 operadores,
+--     896 acessos), distinto do SPED PIS/COFINS (`FRMSPEDPISCOFINS`, 13). Estavam os dois sob PIS/COFINS: quem
+--     só tinha o SPED fiscal levava 403 ao gerar o arquivo que é a obrigação dele.
+UPDATE permissoes SET form = 'FRMCTRLPERMISSOES', opcao = 'FRMCTRLPERMISSOES'
+ WHERE form = 'FRMCADPERFILOPERADOR' AND opcao = 'BTNPERMISSOES';
+UPDATE permissoes SET opcao = 'FRMSPEDPISCOFINS' WHERE form = 'FRMSPEDPISCOFINS' AND opcao = 'BTNGERAR';
+
+DELETE FROM permissoes p USING permissoes q
+ WHERE p.ctid > q.ctid AND p.form = q.form AND p.opcao = q.opcao
+   AND p.codoperador IS NOT DISTINCT FROM q.codoperador
+   AND p.codempresa IS NOT DISTINCT FROM q.codempresa;
+
+-- o SEED (migrations anteriores) concedia SPED só sob PIS/COFINS. Com o EFD ICMS/IPI passando a exigir o
+-- formulário próprio, o operador de teste ficaria sem. Semeia `FRMSPEDFISCAL` a quem já tem o SPED — mas SÓ
+-- quando a base ainda não conhece esse formulário: em produção ele já existe com 27 operadores, e ali quem
+-- decide é o dado do cliente, não este arquivo.
+INSERT INTO permissoes (form, opcao, codoperador, codempresa)
+SELECT 'FRMSPEDFISCAL', 'FRMSPEDFISCAL', p.codoperador, p.codempresa
+  FROM permissoes p
+ WHERE p.form = 'FRMSPEDPISCOFINS'
+   AND p.codoperador IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM permissoes x WHERE x.form = 'FRMSPEDFISCAL');

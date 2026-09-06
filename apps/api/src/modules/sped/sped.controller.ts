@@ -22,15 +22,17 @@ export class SpedController {
 
   @Post('efd-contribuicoes')
   @HttpCode(200)
-  @RequerAcesso('FRMSPEDPISCOFINS', 'BTNGERAR')
+  @RequerAcesso('FRMSPEDPISCOFINS', 'FRMSPEDPISCOFINS')
   gerarEfdContribuicoes(@Body(new ZodValidationPipe(gerarSpedSchema)) dto: GerarSpedDto) {
     return this.efd.gerar(dto.dtini, dto.dtfim);
   }
 
   /** EFD ICMS/IPI (SPED Fiscal) — corte-1: bloco 0 + C (entrada + C190) + E (apuração ICMS crédito) + 9. */
+  // ⚠️ o EFD ICMS/IPI é o "GERADOR SPED FISCAL" do cliente — formulário PRÓPRIO (27 operadores, 896 acessos),
+  // distinto do SPED PIS/COFINS (13). Estavam os dois sob PIS/COFINS, e quem só tinha SPED fiscal levava 403.
   @Post('efd-icms-ipi')
   @HttpCode(200)
-  @RequerAcesso('FRMSPEDPISCOFINS', 'BTNGERAR')
+  @RequerAcesso('FRMSPEDFISCAL', 'FRMSPEDFISCAL')
   gerarEfdIcmsIpi(@Body(new ZodValidationPipe(gerarSpedSchema)) dto: GerarSpedDto) {
     return this.efdIcmsIpi.gerar(dto.dtini, dto.dtfim);
   }
@@ -38,7 +40,7 @@ export class SpedController {
   /** apura o CRÉDITO de PIS/COFINS de entrada do período (popula apuracao_pc/_det p/ o bloco M). */
   @Post('apuracao-pc')
   @HttpCode(200)
-  @RequerAcesso('FRMSPEDPISCOFINS', 'BTNGERAR')
+  @RequerAcesso('FRMSPEDPISCOFINS', 'FRMSPEDPISCOFINS')
   apurarPc(@Body(new ZodValidationPipe(gerarSpedSchema)) dto: GerarSpedDto) {
     return this.apuracao.apurar(dto.dtini, dto.dtfim);
   }
