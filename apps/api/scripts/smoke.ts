@@ -3280,14 +3280,21 @@ async function main() {
     const ctbArNaBx = await bxAtivoAR(ctbArNa);
     check('CR-contábil: empresa não-AUTOMATICA → baixa OK sem DIÁRIO (gate INTEGRACAO)', (await diarioBx(16, ctbArNaBx)).length === 0 && (await ctbFlagAR(ctbArNaBx)) == null, { flag: await ctbFlagAR(ctbArNaBx) });
     await pgCtb.query(`UPDATE empresas SET integracao='AUTOMATICA' WHERE idempresa=1`);
-    // 44.7) guarda anti-armadilha (achado paridade #2): se a IIC 2009 ficar com as DUAS pernas TIPO='A'
-    // (cenário legado recurso-driven reimportado), o contábil NÃO pode produzir D=cliente/C=cliente → pula.
-    await pgCtb.query(`UPDATE itens_integracao_contabil SET tipo='A', codconta_contabil=NULL WHERE codoperacao=2009 AND natureza='D'`);
+    // 44.7) a IIC do CLIENTE tem as DUAS pernas TIPO='A' (mig 200 devolveu a semente à forma real; antes a
+    // mig 055 fixava a perna de dinheiro em 183 e o serviço EXIGIA exatamente uma perna fixa, pulando o
+    // lançamento quando as duas eram automáticas). Agora quem decide a perna de dinheiro é a NATUREZA — no
+    // A RECEBER o dinheiro entra, logo é o DÉBITO — e o recurso escolhe a conta: DINHEIRO → 183 CAIXA CENTRAL.
+    // O lançamento passa a ACONTECER com a IIC verdadeira, que é o que importa depois da virada (a carga
+    // TRUNCA a itens_integracao_contabil e traz as 224 linhas do cliente).
+    const iicA = (await pgCtb.query(`SELECT natureza, tipo, codconta_contabil FROM itens_integracao_contabil WHERE codoperacao=2009 ORDER BY natureza`)).rows as any[];
     const ctbArG = await crCtbAR();
     await fetch(`${base}/${ARc}/${ctbArG}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ recurso: 'DINHEIRO', dtpgto: '2026-07-04' }) });
     const ctbArGBx = await bxAtivoAR(ctbArG);
-    check('CR-contábil: IIC com 2 pernas TIPO=A → guarda pula o lançamento (sem DIÁRIO, não D=cliente/C=cliente)', (await diarioBx(16, ctbArGBx)).length === 0, { dia: await diarioBx(16, ctbArGBx) });
-    await pgCtb.query(`UPDATE itens_integracao_contabil SET tipo='F', codconta_contabil=183 WHERE codoperacao=2009 AND natureza='D'`); // restaura
+    const diaG = await diarioBx(16, ctbArGBx);
+    check('CR-contábil: com a IIC REAL do cliente (as duas pernas TIPO=A, mig 200) o lançamento acontece — quem resolve a perna de dinheiro é a NATUREZA (no A RECEBER o dinheiro ENTRA ⇒ débito) e o recurso dá a conta: DINHEIRO → 183 CAIXA CENTRAL, crédito no cliente. Antes o serviço exigia uma perna fixa e PULAVA — divergência que a mig 200 removeu para a semente ficar igual ao que a carga traz',
+      iicA.length === 2 && iicA.every((r: any) => r.tipo === 'A' && r.codconta_contabil == null)
+      && diaG.length === 1 && Number(diaG[0].contadebito) === 183 && Number(diaG[0].contacredito) === 211,
+      { iic: iicA, diario: diaG });
 
     // 44.8) T1.4 — CONTA-DEFAULT (CONFIG_PLANO_CONTAS) como FALLBACK quando o parceiro não tem conta própria.
     const CONF = 'cadastro/plano-contas/config-contas';
@@ -9679,6 +9686,135 @@ async function main() {
         await pgIc.query(`DELETE FROM cartao WHERE idlote IN (88801,88802,88803,88804)`);
       } finally {
         await pgIc.end();
+      }
+    }
+
+    // ===== §93) INTEGRAÇÃO CONTÁBIL (FRMTRON) corte-2 — BAIXAS DE A PAGAR (15) e A RECEBER (16) mais os
+    // acessórios: juros (53/56), acréscimos (54/57) e descontos (55/58). Aqui as DUAS pernas da situação são
+    // automáticas, e é isso que faz o lançamento sair assimétrico — uma linha por baixa de um lado, uma por
+    // movimentação bancária do outro. No razão do cliente: 42.178 só-débito × 5.417 só-crédito na origem 15. ====
+    {
+      const IC = 'contabil/integracao';
+      const pgBt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const ctaBt = Number((await pgBt.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular, codlanccontabil) VALUES (0,1,'CONTA TRON BAIXA',186) RETURNING codconta`)).rows[0].codconta);
+        await pgBt.query(`INSERT INTO plc (codplc, desccodplc, descricao, codpai, nivelconta, codcontabil) VALUES
+            (9711,'4.10.001','ACRESCIMOS/DESCONTOS TRON',NULL,3,453) ON CONFLICT (codplc) DO NOTHING`);
+        // fornecedor com conta contábil de FORNECEDOR e cliente com conta de CLIENTE
+        await pgBt.query(`UPDATE parceiros SET codcontabil_for='11141' WHERE codparceiro=2`);
+        await pgBt.query(`UPDATE parceiros SET codcontabil='211' WHERE codparceiro=22 AND codcontabil IS NULL`);
+
+        const movLote = async (idlote: number, valor: number) =>
+          pgBt.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, idorigem, idlote, historico)
+                      VALUES ($1,1,$2,$3,'BXTRON',$4,$4,'Baixa TRON')`, [ctaBt, valor, valor > 0 ? 'C' : 'D', idlote]);
+
+        // ── A PAGAR: lote 88811 com duas baixas (uma com acréscimo de 2,00, outra com desconto de 1,00) e a
+        // saída do banco de 297,00 (300 + 2 − 1 − ... o que importa é a assimetria das linhas).
+        const apg1 = Number((await pgBt.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, valor, vendor, quitada, tipodoc)
+          VALUES (1,2,'TRON-AP1','2035-05-10',200.00,0,'S','DP') RETURNING codapg`)).rows[0].codapg);
+        const apg2 = Number((await pgBt.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, valor, vendor, quitada, tipodoc)
+          VALUES (1,2,'TRON-AP2','2035-05-10',100.00,0,'S','DP') RETURNING codapg`)).rows[0].codapg);
+        // este NÃO pode entrar: título descontado em banco (COD_DESCONTO_TITULO), `:1633`
+        const apg3 = Number((await pgBt.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, valor, vendor, quitada, tipodoc, cod_desconto_titulo)
+          VALUES (1,2,'TRON-AP3','2035-05-10',50.00,0,'S','DP',7) RETURNING codapg`)).rows[0].codapg);
+        const bxAp = async (codapg: number, valorpg: number, acre: number, indr = 'I') =>
+          Number((await pgBt.query(`INSERT INTO apagar_bx (codapg, codempresa, dtpgto, valorpg, juros, acre_desc, indr, idlote, codplc_acredesc)
+            VALUES ($1,1,'2035-05-10',$2,0,$3,$4,88811,9711) RETURNING codapgbx`, [codapg, valorpg, acre, indr])).rows[0].codapgbx);
+        const b1 = await bxAp(apg1, 200.0, 2.0);
+        const b2 = await bxAp(apg2, 100.0, -1.0);
+        await bxAp(apg3, 50.0, 0);            // excluído pelo COD_DESCONTO_TITULO
+        const bEst = await bxAp(apg1, 33.0, 0, 'E'); // excluído pelo INDR='E' (baixa estornada)
+        await movLote(88811, -301.0);
+
+        const pendAp = (await (await fetch(`${base}/${IC}/baixa/ap/pendentes?dataIni=2035-05-01&dataFim=2035-05-31`, { headers: H })).json().catch(() => ([]))) as any[];
+        const lAp = (pendAp ?? []).find((x: any) => Number(x.idlote) === 88811);
+        check('TRON §93.1 [os filtros, e uma sutileza do legado]: a baixa ESTORNADA (INDR=\'E\') fica de fora, mas a do título com DESCONTO DE DUPLICATA entra — porque `COD_DESCONTO_TITULO IS NULL` filtra o LOTE (`:1633`) e não a baixa: quem escolhe as baixas (`GetSQLApagarBX` :1606) pega todas as do lote qualificado. Das 4 baixas, 3 entram (350,00). A prévia conta pela mesma regra, para não prometer diferente do que grava. No cliente o caso nunca aconteceu: ZERO lotes mistos',
+          Array.isArray(pendAp) && !!lAp && Number(lAp.baixas) === 3 && Math.abs(Number(lAp.total) - 350) < 0.005,
+          { pendentes: pendAp });
+
+        const intAp = await fetch(`${base}/${IC}/baixa/ap`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-05-01', dataFim: '2035-05-31' }) });
+        const intApJ = (await intAp.json().catch(() => ({}))) as any;
+        const d15 = (await pgBt.query(`SELECT contadebito, contacredito, valor::float8 v, codhist, idorigem, documento, complemento, codlote FROM diario WHERE codorigem=15 AND datalan='2035-05-10' ORDER BY coddiario`)).rows as any[];
+        const deb15 = d15.filter((r) => r.contacredito === null);
+        const cre15 = d15.filter((r) => r.contadebito === null);
+        check('TRON §93.2 [a ASSIMETRIA]: as duas pernas da situação 2004 são AUTOMÁTICAS ⇒ o lado do fornecedor sai UMA LINHA POR BAIXA (3 débitos na conta 11141, valor = VALORPG, documento = CODAPG) e o lado do dinheiro UMA POR MOVIMENTAÇÃO (1 crédito na conta contábil do banco, 301,00) — tudo no mesmo lote contábil, com os históricos 91 e 221. É o formato do razão do cliente: 42.178 só-débito contra 5.417 só-crédito',
+          intAp.status === 200 && deb15.length === 3 && cre15.length === 1
+          && deb15.every((r: any) => r.contadebito === 11141 && Number(r.codhist) === 91)
+          && Math.abs(deb15[0].v - 200) < 0.005 && Math.abs(deb15[1].v - 100) < 0.005
+          && cre15[0].contacredito === 186 && Math.abs(cre15[0].v - 301) < 0.005 && Number(cre15[0].codhist) === 221
+          && String(deb15[0].documento) === String(apg1) && String(cre15[0].complemento) === '88811'
+          && new Set(d15.map((r: any) => Number(r.codlote))).size === 1,
+          { debitos: deb15, creditos: cre15 });
+
+        const d54 = (await pgBt.query(`SELECT contadebito, contacredito, valor::float8 v, idorigem FROM diario WHERE codorigem=54 AND datalan='2035-05-10'`)).rows as any[];
+        const d55 = (await pgBt.query(`SELECT contadebito, contacredito, valor::float8 v, idorigem FROM diario WHERE codorigem=55 AND datalan='2035-05-10'`)).rows as any[];
+        check('TRON §93.3 [os ACESSÓRIOS e a INVERSÃO pelo sinal]: `ACRE_DESC` positivo vira ACRÉSCIMO PAGO (origem 54, situação 875: D 453 MULTAS / C fornecedor) e negativo vira DESCONTO OBTIDO (origem 55, situação 876: D fornecedor / C 554 DESCONTOS OBTIDOS) — o legado inverte trocando os datasets de lado (`:1884` × `:1892`). Uma linha balanceada cada, porque as duas pernas têm o mesmo histórico',
+          d54.length === 1 && d54[0].contadebito === 453 && d54[0].contacredito === 11141 && Math.abs(d54[0].v - 2) < 0.005 && Number(d54[0].idorigem) === b1
+          && d55.length === 1 && d55[0].contadebito === 11141 && d55[0].contacredito === 554 && Math.abs(d55[0].v - 1) < 0.005 && Number(d55[0].idorigem) === b2,
+          { acrescimo: d54, desconto: d55 });
+
+        const marcAp = (await pgBt.query(`SELECT (SELECT count(*)::int FROM apagar_bx WHERE idlote=88811 AND contabilizado='S') s,
+                                                 (SELECT count(*)::int FROM apagar_bx WHERE codapgbx=$1 AND contabilizado IS NULL) est,
+                                                 (SELECT count(*)::int FROM mov_contas_bancarias WHERE idlote=88811 AND contabilizado='S') m`, [bEst])).rows[0] as any;
+        check('TRON §93.4 (:1782-1791): só as baixas que ENTRARAM no lançamento viram CONTABILIZADO=S — a estornada (INDR=\'E\') continua nula — e a movimentação do lote também é marcada, o que torna a rodada idempotente',
+          Number(marcAp.s) === 3 && Number(marcAp.est) === 1 && Number(marcAp.m) === 1
+          && Number((await (await fetch(`${base}/${IC}/baixa/ap`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-05-01', dataFim: '2035-05-31' }) })).json() as any).lotes) === 0,
+          { marcado: marcAp, resposta: intApJ });
+
+        // ── A RECEBER: o espelho. Lote 88812, duas baixas do cliente 22 e a entrada de 150,00 no banco.
+        const rcb1 = Number((await pgBt.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenc, valor, quitada, tipodoc)
+          VALUES (1,22,'TRON-AR1','2035-05-12',90.00,'S','DP') RETURNING codrcb`)).rows[0].codrcb);
+        const rcb2 = Number((await pgBt.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenc, valor, quitada, tipodoc)
+          VALUES (1,22,'TRON-AR2','2035-05-12',60.00,'S','DP') RETURNING codrcb`)).rows[0].codrcb);
+        for (const [rcb, vp] of [[rcb1, 90.0], [rcb2, 60.0]] as Array<[number, number]>) {
+          await pgBt.query(`INSERT INTO areceber_bx (codrcb, codempresa, dtpgto, valorpg, juros, acre_desc, indr, idlote, codplc_acredesc)
+                            VALUES ($1,1,'2035-05-12',$2,0,0,'I',88812,9711)`, [rcb, vp]);
+        }
+        await movLote(88812, 150.0);
+        const intAr = await fetch(`${base}/${IC}/baixa/ar`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-05-01', dataFim: '2035-05-31' }) });
+        const d16 = (await pgBt.query(`SELECT contadebito, contacredito, valor::float8 v, codhist, documento, complemento FROM diario WHERE codorigem=16 AND datalan='2035-05-12' ORDER BY coddiario`)).rows as any[];
+        const deb16 = d16.filter((r) => r.contacredito === null);
+        const cre16 = d16.filter((r) => r.contadebito === null);
+        check('TRON §93.5 [o ESPELHO do A RECEBER]: aqui o dinheiro ENTRA, então os lados trocam — o banco fica no DÉBITO (1 linha, 150,00, complemento = o lote) e o cliente no CRÉDITO (1 por baixa, conta 211, documento = CODRCB, histórico 93 contra 92 do débito). A reconciliação contra produção fechou 100% nos dois lados: 18.070/18.070 no crédito e 17.618/17.618 no débito',
+          intAr.status === 200 && deb16.length === 1 && cre16.length === 2
+          && deb16[0].contadebito === 186 && Math.abs(deb16[0].v - 150) < 0.005 && Number(deb16[0].codhist) === 92 && String(deb16[0].complemento) === '88812'
+          && cre16.every((r: any) => r.contacredito === 211 && Number(r.codhist) === 93)
+          && Math.abs(cre16[0].v - 90) < 0.005 && Math.abs(cre16[1].v - 60) < 0.005
+          && String(cre16[0].documento) === String(rcb1),
+          { debitos: deb16, creditos: cre16 });
+
+        // ── gate do centro de custo e estorno
+        const rcb3 = Number((await pgBt.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenc, valor, quitada, tipodoc)
+          VALUES (1,22,'TRON-AR3','2035-05-20',40.00,'S','DP') RETURNING codrcb`)).rows[0].codrcb);
+        await pgBt.query(`INSERT INTO areceber_bx (codrcb, codempresa, dtpgto, valorpg, juros, acre_desc, indr, idlote, codplc_acredesc)
+                          VALUES ($1,1,'2035-05-20',40.00,0,5.00,'I',88813,0)`, [rcb3]);
+        await movLote(88813, 45.0);
+        const errCc = await fetch(`${base}/${IC}/baixa/ar`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-05-20', dataFim: '2035-05-31', idlote: 88813 }) });
+        const errCcJ = (await errCc.json().catch(() => ({}))) as any;
+        const nadaAr = Number((await pgBt.query(`SELECT count(*)::int n FROM areceber_bx WHERE idlote=88813 AND contabilizado='S'`)).rows[0].n);
+        check('TRON §93.6 (:3769): baixa COM acréscimo e SEM centro de custo derruba o lote inteiro — e como é uma transação só, o lançamento principal que já tinha passado também não fica',
+          errCc.status >= 400 && String(errCcJ.code ?? errCcJ.message ?? '').includes('CENTRO_CUSTO_ACREDESC_NAO_INFORMADO') && nadaAr === 0,
+          { status: errCc.status, resp: errCcJ });
+
+        const estAp = await fetch(`${base}/${IC}/baixa/ap/estornar`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-05-01', dataFim: '2035-05-31' }) });
+        const estApJ = (await estAp.json().catch(() => ({}))) as any;
+        const posAp = (await pgBt.query(`SELECT (SELECT count(*)::int FROM diario WHERE codorigem IN (15,53,54,55) AND datalan BETWEEN '2035-05-01' AND '2035-05-31') d,
+                                                (SELECT count(*)::int FROM apagar_bx WHERE idlote=88811 AND contabilizado='S') c,
+                                                (SELECT count(*)::int FROM diario WHERE codorigem=16 AND datalan BETWEEN '2035-05-01' AND '2035-05-31') ar`)).rows[0] as any;
+        check('TRON §93.7 (Estornar :1440): o estorno do A PAGAR apaga as QUATRO origens daquele lado (15 + juros/acréscimo/desconto) no período e devolve as baixas para não-contabilizadas — sem tocar no A RECEBER, que tem as suas próprias quatro',
+          estAp.status === 200 && Number(estApJ.linhas) === 6 && Number(estApJ.baixas) === 3
+          && Number(posAp.d) === 0 && Number(posAp.c) === 0 && Number(posAp.ar) === 3,
+          { resp: estApJ, depois: posAp });
+
+        await pgBt.query(`DELETE FROM diario WHERE codorigem IN (15,16,53,54,55,56,57,58) AND datalan BETWEEN '2035-05-01' AND '2035-05-31'`);
+        await pgBt.query(`DELETE FROM lote_contabil WHERE codorigem IN (15,16,53,54,55,56,57,58) AND datalote BETWEEN '2035-05-01' AND '2035-05-31'`);
+        await pgBt.query(`DELETE FROM apagar_bx WHERE idlote=88811`);
+        await pgBt.query(`DELETE FROM areceber_bx WHERE idlote IN (88812,88813)`);
+        await pgBt.query(`DELETE FROM apagar WHERE codapg IN ($1,$2,$3)`, [apg1, apg2, apg3]);
+        await pgBt.query(`DELETE FROM areceber WHERE codrcb IN ($1,$2,$3)`, [rcb1, rcb2, rcb3]);
+        await pgBt.query(`DELETE FROM mov_contas_bancarias WHERE idlote IN (88811,88812,88813)`);
+      } finally {
+        await pgBt.end();
       }
     }
 

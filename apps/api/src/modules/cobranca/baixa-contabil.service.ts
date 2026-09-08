@@ -33,6 +33,8 @@ export class BaixaContabilService {
   constructor(private readonly dbp: DatabaseProvider) {}
 
   private static readonly BX = { AR: { tabela: 'areceber_bx', pk: 'codrcbbx' }, AP: { tabela: 'apagar_bx', pk: 'codapgbx' } } as const;
+  /** recurso DINHEIRO: 183 CAIXA CENTRAL (era a perna fixa da IIC até a mig 200 devolvê-la à forma do cliente). */
+  private static readonly CONTA_DINHEIRO = 183;
 
   /** período contábil FECHADO barra a contabilização (mesma regra da NF/caixa). Fail-open. */
   private async assertPeriodoAberto(trx: AnyDB, emp: number, data: unknown): Promise<void> {
@@ -70,17 +72,14 @@ export class BaixaContabilService {
     const dRow = (iic as Record<string, unknown>[]).find((x) => x.natureza === 'D');
     const cRow = (iic as Record<string, unknown>[]).find((x) => x.natureza === 'C');
     if (!dRow || !cRow) throw new BusinessRuleError('CONTAS_NAO_INFORMADAS', { situacao });
-    // corte-1 exige EXATAMENTE 1 perna FIXA (a de dinheiro = 183, recurso DINHEIRO); a outra é 'A' (parceiro).
-    // Guarda contra o cenário legado 'A'/'A' recurso-driven (perna de dinheiro por banco/cartão): se a IIC for
-    // reimportada com os dois lados 'A' (o ON CONFLICT do 055 viraria no-op), NÃO produzir D=cliente/C=cliente.
-    if ([dRow, cRow].filter((x) => x.tipo === 'F').length !== 1) throw new BusinessRuleError('CONTA_AUTOMATICA_NAO_SUPORTADA', { situacao });
 
-    // conta do parceiro (perna TIPO='A'): AR→cliente CODCONTABIL / AP→fornecedor CODCONTABIL_FOR.
+    // conta do parceiro: AR→cliente CODCONTABIL / AP→fornecedor CODCONTABIL_FOR.
     const contaParceiro = await this.resolverContaParceiro(trx, p.origem, p.codparceiro, situacao);
-    // perna de dinheiro (TIPO='F'): 183 (DINHEIRO) OU a conta do banco (recurso BANCO, contaMoney).
+    // perna de dinheiro: a conta do banco quando o recurso é BANCO, senão a 183 CAIXA CENTRAL.
     const contaMoney = p.contaMoney ?? null;
-    const contadebito = this.resolverLeg(dRow, contaParceiro, contaMoney, situacao);
-    const contacredito = this.resolverLeg(cRow, contaParceiro, contaMoney, situacao);
+    const moneyNat = p.origem === 'AR' ? 'D' : 'C'; // AR: entra dinheiro (débito) · AP: sai (crédito)
+    const contadebito = this.resolverLeg(dRow, 'D', moneyNat, contaParceiro, contaMoney, situacao);
+    const contacredito = this.resolverLeg(cRow, 'C', moneyNat, contaParceiro, contaMoney, situacao);
     const valor = Math.round(Math.abs(p.valor) * 100) / 100;
 
     const lote = await trx
@@ -102,14 +101,26 @@ export class BaixaContabilService {
     await trx.updateTable(bx.tabela).set({ contabilizado: 'S' }).where(bx.pk, '=', p.codbx).execute();
   }
 
-  /** perna: TIPO='F' → conta de dinheiro (contaMoney do recurso BANCO, senão a fixa 183 da IIC);
-   * TIPO='A' → conta do parceiro. */
-  private resolverLeg(row: Record<string, unknown>, contaParceiro: number | null, contaMoney: number | null, situacao: number): number {
-    if (row.tipo === 'F') {
-      if (contaMoney != null) return contaMoney; // recurso BANCO: substitui a 183 pela conta contábil do banco
-      if (row.codconta_contabil == null) throw new BusinessRuleError('CONTAS_NAO_INFORMADAS', { situacao });
-      return Number(row.codconta_contabil);
+  /**
+   * Qual conta entra em cada perna. **Quem manda é a NATUREZA, não o TIPO da IIC** (mig 200): no legado as duas
+   * pernas de 2004/2009 são automáticas — uma é o dinheiro (resolvido pelo RECURSO da baixa) e a outra é o
+   * parceiro. Antes decidíamos pelo tipo porque a mig 055 semeava a perna de dinheiro como fixa 183; com a IIC
+   * do cliente (as duas 'A') aquilo travava. Uma conta FIXA configurada continua valendo, quando existir.
+   *
+   * · perna de dinheiro → `contaMoney` (recurso BANCO: `contas_bancarias.codlanccontabil`), senão a conta fixa
+   *   da IIC, senão a 183 CAIXA CENTRAL (o recurso DINHEIRO);
+   * · a outra perna → a conta do parceiro (com o fallback da analítica DEFAULT do `CONFIG_PLANO_CONTAS`).
+   */
+  private resolverLeg(
+    row: Record<string, unknown>, natureza: 'D' | 'C', moneyNat: 'D' | 'C',
+    contaParceiro: number | null, contaMoney: number | null, situacao: number,
+  ): number {
+    if (natureza === moneyNat) {
+      if (contaMoney != null) return contaMoney;
+      if (row.codconta_contabil != null) return Number(row.codconta_contabil);
+      return BaixaContabilService.CONTA_DINHEIRO;
     }
+    if (row.tipo === 'F' && row.codconta_contabil != null) return Number(row.codconta_contabil);
     if (contaParceiro == null) throw new BusinessRuleError('CONTA_PARCEIRO_NAO_DEFINIDA', { situacao });
     return contaParceiro;
   }

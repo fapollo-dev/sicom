@@ -126,7 +126,64 @@ do cliente cruzadas com a `ITENS_INTEGRACAO_CONTABIL`. Duas regras, as duas medi
 
 ### 5.4 O que fica para os próximos cortes
 
-Corte-2 (baixas de AP/AR, 15/16 + acessórios 53-58) e corte-3 (cadastros 13/14, transferências 19, movimentação
-de caixa 64, adiantamento 63, convênio 65). O `BaixaContabilService` já cobre o auto-disparo das baixas de
-AR/AP com partida-por-baixa; o corte-2 é o caminho do TRON (agregado, single-legged) sobre o mesmo motor —
-e a nota "ADIADO: baixa por CHEQUE/CARTÃO (situação 893 ausente)" que ele carrega já pode cair.
+Corte-3: cadastros de CP e CR (13/14), transferências (19), movimentação de caixa (64), adiantamento (63) e
+agrupamento de convênio (65).
+
+## 6. Corte-2 ENTREGUE — baixas de A PAGAR e A RECEBER (`mig 200`, smoke §93, 1067/0)
+
+### 6.1 A terceira regra do motor, e a mais importante
+
+O corte-1 deixou uma pergunta em aberto: quantas linhas cada perna gera. O corte-2 respondeu, e a resposta
+estava na assimetria do razão. **Perna `TIPO='F'` gera uma linha; perna `TIPO='A'` gera uma por REGISTRO do
+seu dataset.** Na origem 15 as duas pernas da situação 2004 são automáticas, e o cliente tem **42.178 linhas
+só-débito** (uma por baixa do lote) contra **5.417 só-crédito** (uma por movimentação bancária). Na baixa de
+cartão as duas são fixas, e por isso saía exatamente uma de cada.
+
+E a substituição é **coluna a coluna**: o dataset manda na conta, no valor, no `IDORIGEM`, no `DOCUMENTO` e no
+`COMPLEMENTO`; onde ele não tem a coluna, vale o parâmetro. A prova mais limpa está na perna de dinheiro do
+A PAGAR: `IDORIGEM` e `DOCUMENTO` vêm da movimentação (5.411/5.411), mas o `COMPLEMENTO` é o IDLOTE do
+parâmetro (5.411/5.411) — porque `GetSQLMovimentacaoCP` não seleciona `COMPLEMENTO`.
+
+### 6.2 Reconciliação contra produção
+
+| | linhas | valor | conta | documento | complemento |
+|---|---|---|---|---|---|
+| 16 crédito (cliente) | 18.070 | **100%** | **100%** | **100%** | **100%** |
+| 16 débito (banco) | 17.618 | **100%** | **100%** | — | **100%** |
+| 15 débito (fornecedor) | 42.175 | 99,8% | 34% ⚠️ | **100%** | 99,8% |
+| 15 crédito (banco) | 5.411 | 99,5% | **100%** | **100%** | **100%** |
+
+⚠️ os 34% do débito AP são a conta do fornecedor tendo mudado de cadastro ao longo de seis anos — o `COALESCE`
+lê o valor de HOJE. Não é divergência de regra: o documento bate em 100% e o valor em 99,8%.
+
+### 6.3 O que o corte-2 entregou
+
+- `apagar_bx.idlote` e `areceber_bx.idlote` — **100% preenchidas no cliente** (51.136 e 19.080) e, como
+  aconteceu com `mov_contas_bancarias`, **fora da nossa carga**. É o elo com a movimentação bancária.
+- `codplc_acredesc` / `codplc_juros` nas duas tabelas de baixa (gate dos acessórios).
+- `apagar.codplanocontas_deb_baixa_cp`, `areceber.codplanocontas_cred_baixa_cr` (a conta POR TÍTULO, que vence
+  a do parceiro) e `cod_desconto_titulo` nas duas (exclui do lote o título descontado em banco).
+- As origens **15** e **16** e os acessórios **53/54/55** e **56/57/58**, com o estorno de cada lado.
+- **A IIC de 2004/2009 voltou a ser a do cliente** (as quatro pernas `'A'`). A mig 055 fixava a perna de
+  dinheiro em 183 e o `BaixaContabilService` exigia exatamente uma perna fixa — divergência que atrapalhava
+  duas vezes: a perna de dinheiro do TRON sai da movimentação, e na virada a carga TRUNCA a IIC e traz as 224
+  linhas reais. Agora quem resolve a perna de dinheiro é a **natureza** (AR: entra ⇒ débito; AP: sai ⇒
+  crédito) e o **recurso** dá a conta (BANCO → `codlanccontabil`; DINHEIRO → 183). O auto-disparo continua
+  funcionando e passou a funcionar TAMBÉM sobre a IIC verdadeira.
+
+### 6.4 Achados
+
+- ⚠️ **o filtro do título descontado é do LOTE, não da baixa.** `COD_DESCONTO_TITULO IS NULL` está em
+  `GetSQL*BXLotes`; quem seleciona as baixas pega **todas** as do lote qualificado. Um título descontado que
+  divida lote com um normal entra no lançamento. Copiamos o código; o caso **nunca ocorreu** no cliente (zero
+  lotes mistos, e nenhuma das 18 baixas AP / 25 AR de título descontado chegou ao razão).
+- **JUROS (53 e 56) têm ZERO linhas** no cliente e nem situação configurada. A regra entra igual — é a mesma
+  passagem de código — e o serviço acusa `SITUACAO_NAO_CONFIGURADA` se um dia aparecer juro.
+- **TROCO no A RECEBER** (`:3620-3647`): a movimentação negativa do lote é apensada ao dataset do crédito como
+  uma linha do banco. Regra copiada, **zero ocorrências** (nenhuma movimentação negativa em lote de
+  `ARECEBER_BX`).
+- O sinal de `ACRE_DESC` **troca os datasets de lado** — é assim que o legado inverte a partida entre
+  acréscimo e desconto, e é por isso que a conta do parceiro muda de perna.
+- Convivência com o auto-disparo: sem dupla contagem, os dois filtram `CONTABILIZADO = 'N'`. No legado só
+  existe o caminho do TRON.
+- Pendente no cliente hoje: **2.893 baixas de A PAGAR e 377 de A RECEBER**.

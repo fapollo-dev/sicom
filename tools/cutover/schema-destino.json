@@ -1222,6 +1222,20 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "codplanocontas_deb_baixa_cp": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "cod_desconto_titulo": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -1329,6 +1343,27 @@
      "default": null
     },
     "codapg_gerado": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "idlote": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codplc_acredesc": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codplc_juros": {
      "tipo": "integer",
      "tam": 32,
      "escala": 0,
@@ -2127,6 +2162,20 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "codplanocontas_cred_baixa_cr": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "cod_desconto_titulo": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -2234,6 +2283,27 @@
      "default": null
     },
     "codrcb_gerado": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "idlote": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codplc_acredesc": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codplc_juros": {
      "tipo": "integer",
      "tam": 32,
      "escala": 0,

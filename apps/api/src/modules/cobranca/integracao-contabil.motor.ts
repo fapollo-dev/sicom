@@ -11,22 +11,29 @@ export interface PernaIIC {
   codhistorico: number | null;
 }
 
-/** um registro do dataset que alimenta a perna AUTOMÁTICA (o `DataSetC`/`DataSetD` do legado). */
+/**
+ * um registro do dataset que alimenta a perna AUTOMÁTICA (o `DataSetC`/`DataSetD` do legado). A substituição é
+ * COLUNA A COLUNA: o que o dataset traz vence o parâmetro; o que ele não traz fica com o parâmetro.
+ */
 export interface RegistroDataSet {
   /** conta contábil que a perna 'A' assume (o `CODPLANOCONTAS` do dataset). */
   codplanocontas: number | null;
   valor: number;
-  /** o que entra na mensagem de erro quando a conta não veio ("a conta 12", "o centro de custo X"). */
+  idorigem?: number;
+  documento?: string;
+  complemento?: string;
+  /** entra na mensagem de erro quando a conta não veio ("o parceiro 12", "a conta 3"). */
   descricao?: string;
 }
 
 export interface LancamentoContabil {
   emp: number;
-  /** `CODORIGEM` do razão (51 baixa de cartão, 61 taxa, 62 outras despesas…). */
+  /** `CODORIGEM` do razão (51 baixa de cartão, 15 baixa AP, 16 baixa AR…). */
   codorigem: number;
   /** `CODOPERACAO` = a SITUAÇÃO, a chave da `itens_integracao_contabil`. */
   situacao: number;
   data: string;
+  /** os valores-padrão do lançamento: valem onde o dataset não tiver a coluna. */
   valor: number;
   idorigem: number;
   documento: string;
@@ -43,28 +50,36 @@ const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
  * MOTOR DA INTEGRAÇÃO CONTÁBIL — o `LancaDiarioContabil(..., SubstituiPeloDataSet := True)` do legado.
  *
  * ⚠️ **procedência**: a rotina em si mora num pacote que NÃO veio no fonte clonado (`FuncoesApollo`, ausente).
- * O comportamento abaixo foi reconstruído do RAZÃO REAL do cliente — 1,34 milhão de linhas das origens 51/61/62
- * confrontadas com a `ITENS_INTEGRACAO_CONTABIL` — do mesmo jeito que a F5b reconstruiu o caminho da nota.
+ * O comportamento abaixo foi reconstruído do RAZÃO REAL do cliente — 1,43 milhão de linhas das origens
+ * 51/61/62 (cartões) e 15/16 (baixas de AP e AR) confrontadas com a `ITENS_INTEGRACAO_CONTABIL` — do mesmo
+ * jeito que a F5b reconstruiu o caminho da nota.
  *
- * Duas regras, e as duas saem do dado:
+ * Três regras, e as três saem do dado:
  *
- * 1. **FORMATO** — quando as duas pernas da IIC têm o MESMO `CODHISTORICO`, o lançamento é UMA linha
- *    balanceada (débito e crédito na mesma linha). Quando têm histórico DIFERENTE, são DUAS linhas, cada uma
- *    com um lado só e o seu próprio histórico. Medido: situação 894 (hist 96/96) → 110.053 linhas balanceadas
- *    e zero single; 895 (96/96) → 1.200.524 balanceadas e zero single; 893 (94/95) → 15.700 só-débito +
- *    15.700 só-crédito e zero balanceadas. O mesmo vale nas baixas de AR/AP do cliente (2009 hist 92/93 e
- *    2004 hist 91/221, ambas 100% single-legged) e no agrupamento de convênio (910, hist 104/105).
+ * 1. **QUANTAS LINHAS cada perna gera** — perna `TIPO='F'` (conta fixa) gera UMA linha; perna `TIPO='A'` gera
+ *    UMA POR REGISTRO do seu dataset. É isso que explica a assimetria da baixa de contas a pagar: as duas
+ *    pernas da 2004 são automáticas, e o razão tem **42.178 linhas só-débito** (uma por baixa do lote) contra
+ *    **5.417 só-crédito** (uma por movimentação bancária). Na baixa de cartão as duas pernas são fixas e por
+ *    isso sai exatamente uma de cada.
  *
- * 2. **CONTA** — perna `TIPO='F'` usa a conta fixa da IIC; perna `TIPO='A'` pega a conta do DATASET daquela
- *    natureza. É o "substitui pelo dataset". Prova: na situação 895 a perna de crédito é 'A' e o
- *    `CONTACREDITO` do razão bate com o `CONTAS_BANCARIAS.CODLANCCONTABIL` da forma de pagamento em
- *    **1.200.523 de 1.200.523** linhas (três contas distintas: 213, 557 e 211 — nenhuma delas fixa).
+ * 2. **O FORMATO** — pernas com o MESMO `CODHISTORICO` (e mesma contagem de linhas) casam numa linha
+ *    balanceada; com histórico DIFERENTE saem separadas, cada uma com um lado só e o seu histórico. Medido:
+ *    894 (hist 96/96) → 110.053 balanceadas e zero single; 895 (96/96) → 1.200.524 e zero; 893 (**94/95**) →
+ *    15.700 só-débito + 15.700 só-crédito e ZERO balanceadas; 2009 (92/93) e 2004 (91/221), 100% single.
+ *
+ * 3. **A SUBSTITUIÇÃO é coluna a coluna** — o registro do dataset manda na conta (`CODPLANOCONTAS`), no valor,
+ *    no `IDORIGEM`, no `DOCUMENTO` e no `COMPLEMENTO`; onde o dataset não tem a coluna, vale o parâmetro.
+ *    Prova: nas baixas de AP a perna de crédito sai da movimentação e tem `IDORIGEM` = `CODMOVCONTA`
+ *    (5.411/5.411), `DOCUMENTO` = `CODMOVCONTA` (100%) e conta = `CODLANCCONTABIL` do banco (**100%**) — mas
+ *    `COMPLEMENTO` = o IDLOTE do parâmetro (5.411/5.411), porque a consulta da movimentação não traz essa
+ *    coluna. Na perna de débito, que sai da baixa, o `COMPLEMENTO` é o `CODAPG` do dataset (42.104/42.175).
  *
  * O `LOTE_CONTABIL` é lado nosso: no cliente a tabela está VAZIA e o `DIARIO.CODLOTE` é só um número de
- * sequência por lançamento. Mantemos o cabeçalho porque as contabilizações já migradas (NF, caixa, baixa)
- * gravam-no e a nossa `diario.codlote` tem chave estrangeira para ele.
+ * sequência — um por LANÇAMENTO, compartilhado por todas as linhas dele (no razão há lotes com 105 linhas:
+ * 104 débitos e 1 crédito). Mantemos o cabeçalho porque as contabilizações já migradas gravam-no e a nossa
+ * `diario.codlote` tem chave estrangeira para ele.
  */
-export async function lancarNoDiario(trx: AnyDB, l: LancamentoContabil): Promise<number> {
+export async function lancarNoDiario(trx: AnyDB, l: LancamentoContabil): Promise<{ codlote: number; linhas: number }> {
   const pernas = (await trx
     .selectFrom('itens_integracao_contabil')
     .select(['natureza', 'tipo', 'codconta_contabil', 'codhistorico'])
@@ -75,9 +90,10 @@ export async function lancarNoDiario(trx: AnyDB, l: LancamentoContabil): Promise
   // espelha o `rSemContasCadastradas` / `rQtdeContasIncorretas` do legado.
   if (!d || !c) throw new BusinessRuleError('CONTAS_NAO_INFORMADAS', { situacao: l.situacao });
 
-  const contaD = resolverConta(d, l.dataSetD, l.situacao);
-  const contaC = resolverConta(c, l.dataSetC, l.situacao);
-  const valor = r2(Math.abs(l.valor));
+  // regra 1: a perna fixa é uma linha só; a automática, uma por registro do dataset.
+  const linhasD = d.tipo === 'A' ? l.dataSetD : [null];
+  const linhasC = c.tipo === 'A' ? l.dataSetC : [null];
+  if (!linhasD.length || !linhasC.length) throw new BusinessRuleError('DATASET_VAZIO', { situacao: l.situacao });
 
   const lote = await trx
     .insertInto('lote_contabil')
@@ -86,35 +102,53 @@ export async function lancarNoDiario(trx: AnyDB, l: LancamentoContabil): Promise
     .executeTakeFirstOrThrow();
   const codlote = Number((lote as { codlotecontabil: number | string }).codlotecontabil);
 
-  const base = {
+  const linha = (reg: RegistroDataSet | null) => ({
     datalan: sql`${l.data}::date`,
-    valor,
+    valor: r2(Math.abs(reg?.valor ?? l.valor)),
     codorigem: l.codorigem,
-    idorigem: l.idorigem,
+    idorigem: reg?.idorigem ?? l.idorigem,
     codoperacao: l.situacao,
     codempresa: l.emp,
-    documento: l.documento,
-    complemento: l.complemento,
+    documento: reg?.documento ?? l.documento,
+    complemento: reg?.complemento ?? l.complemento,
     codlote,
-  };
+  });
 
-  if (d.codhistorico === c.codhistorico) {
-    await trx.insertInto('diario').values({ ...base, contadebito: contaD, contacredito: contaC, codhist: d.codhistorico }).execute();
-    return codlote;
+  // regra 2: mesmo histórico e mesma contagem ⇒ as duas pernas casam na mesma linha.
+  if (d.codhistorico === c.codhistorico && linhasD.length === linhasC.length) {
+    for (let i = 0; i < linhasD.length; i += 1) {
+      const regD = linhasD[i];
+      const regC = linhasC[i];
+      await trx.insertInto('diario').values({
+        ...linha(regD ?? regC),
+        contadebito: resolverConta(d, regD, l.situacao),
+        contacredito: resolverConta(c, regC, l.situacao),
+        codhist: d.codhistorico,
+      }).execute();
+    }
+    return { codlote, linhas: linhasD.length };
   }
-  // históricos distintos ⇒ duas linhas de um lado só, na ordem em que o legado as grava (débito primeiro).
-  await trx.insertInto('diario').values({ ...base, contadebito: contaD, contacredito: null, codhist: d.codhistorico }).execute();
-  await trx.insertInto('diario').values({ ...base, contadebito: null, contacredito: contaC, codhist: c.codhistorico }).execute();
-  return codlote;
+
+  // históricos distintos (ou contagens distintas) ⇒ cada perna sai sozinha, débito primeiro.
+  for (const regD of linhasD) {
+    await trx.insertInto('diario').values({
+      ...linha(regD), contadebito: resolverConta(d, regD, l.situacao), contacredito: null, codhist: d.codhistorico,
+    }).execute();
+  }
+  for (const regC of linhasC) {
+    await trx.insertInto('diario').values({
+      ...linha(regC), contadebito: null, contacredito: resolverConta(c, regC, l.situacao), codhist: c.codhistorico,
+    }).execute();
+  }
+  return { codlote, linhas: linhasD.length + linhasC.length };
 }
 
-/** perna FIXA → conta da IIC; perna AUTOMÁTICA → conta do dataset (`rContaAnaliticaNaoInformada` se faltar). */
-function resolverConta(p: PernaIIC, dataset: RegistroDataSet[], situacao: number): number {
+/** perna FIXA → conta da IIC; perna AUTOMÁTICA → conta do registro (`rContaAnaliticaNaoInformada` se faltar). */
+function resolverConta(p: PernaIIC, reg: RegistroDataSet | null, situacao: number): number {
   if (p.tipo === 'F') {
     if (p.codconta_contabil == null) throw new BusinessRuleError('CONTAS_NAO_INFORMADAS', { situacao });
     return Number(p.codconta_contabil);
   }
-  const reg = dataset[0];
   if (!reg || reg.codplanocontas == null) {
     throw new BusinessRuleError('CONTA_ANALITICA_NAO_INFORMADA', { situacao, onde: reg?.descricao ?? null });
   }
