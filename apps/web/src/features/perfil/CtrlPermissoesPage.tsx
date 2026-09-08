@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DataTable, type DataTableColumnDef, PageHeader, Modal } from '@apollosg/design-system';
+import { ShieldCheck, ShieldOff } from 'lucide-react';
 import { Button } from '../../shared/ui/Button';
 import { SelectField } from '../../shared/ui/SelectField';
 import { useMensagem } from '../../shared/mensagem';
@@ -120,7 +121,11 @@ export function CtrlPermissoesPage() {
     {
       field: 'acoes', headerName: '', type: 'actions', width: 130,
       getActions: ({ row: r }: { row: Acao }) => [
-        { id: 't', label: concedidos.has(chave(r.form, r.opcao)) ? 'Revogar' : 'Conceder', onClick: () => void toggle(r) },
+        // ⚠️ a coluna de ações do DataTable só desenha o botão quando há `icon` — sem ele a linha fica vazia
+        // e a tela vira somente-leitura sem avisar. Foi o que aconteceu aqui até 08/09.
+        concedidos.has(chave(r.form, r.opcao))
+          ? { id: 't', label: 'Revogar', icon: <ShieldOff size={16} />, destructive: true, onClick: () => void toggle(r) }
+          : { id: 't', label: 'Conceder', icon: <ShieldCheck size={16} />, onClick: () => void toggle(r) },
       ],
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
+import { Undo2 } from 'lucide-react';
 import { CAIXA_ESPECIE_OPCOES, type CaixaMov, type CaixaSessao } from '@apollo/shared';
 import { Button } from '../../shared/ui/Button';
 import { SelectField } from '../../shared/ui/SelectField';
@@ -133,7 +134,8 @@ export function CaixaPage() {
         getActions: ({ row: r }: { row: CaixaMov }) =>
           String(r.indr ?? 'I') === 'E'
             ? []
-            : [{ id: 'estornar', label: 'Estornar', destructive: true, onClick: (row: CaixaMov) => onEstornar(row.codmov) }],
+            // sem `icon` a coluna de ações não desenha nada — a linha fica sem o botão (achado 08/09).
+            : [{ id: 'estornar', label: 'Estornar', icon: <Undo2 size={16} />, destructive: true, onClick: (row: CaixaMov) => onEstornar(row.codmov) }],
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps

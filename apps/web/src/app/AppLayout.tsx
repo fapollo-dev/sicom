@@ -103,6 +103,11 @@ const TELAS = [
   { href: '/cadastro/plano-contas', name: 'Plano de Contas', icon: Network },
   { href: '/contabil/dre', name: 'DRE', icon: BarChart3 },
   { href: '/contabil/razao', name: 'Livro Razão', icon: BookOpen },
+  // FRMTRON — o exportador contábil: grava as partidas do razão por origem (cartões, baixas, documentos).
+  { href: '/contabil/integracao', name: 'Integração Contábil', icon: ArrowRightLeft },
+  { href: '/cadastro/fechamento-diario', name: 'Fechamento Diário', icon: CalendarClock },
+  // FRMCTRLPERMISSOES — permissão por OPERADOR, que é o modo que o cliente usa (a de Perfis é o outro caminho).
+  { href: '/cadastro/permissoes', name: 'Controle de Permissões', icon: ShieldCheck },
   { href: '/cadastro/empresas', name: 'Empresas', icon: Building },
   { href: '/cadastro/operadores', name: 'Operadores', icon: UserCog },
   { href: '/cadastro/perfis', name: 'Perfis & Permissões', icon: ShieldCheck },
