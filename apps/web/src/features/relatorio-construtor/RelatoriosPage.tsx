@@ -5,6 +5,7 @@ import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
+import { imprimirPagina } from '../../shared/print/imprimirPagina';
 import {
   listarRelatorios, camposDaFonte, executar, baixarCsv,
   type RelatorioSalvo, type CampoFonte, type Execucao, type Condicao,
@@ -79,6 +80,20 @@ export function RelatoriosPage() {
     catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
 
+  /**
+   * IMPRIMIR / PDF — o substituto do FastReport: manda para o diálogo nativo o que a tela já mostra, e o
+   * operador escolhe impressora ou "Salvar como PDF". A orientação vem do relatório (`IMPRIMIR_EM_PAISAGEM`).
+   * ⚠️ a janela abre SÍNCRONA no clique, senão o bloqueador de pop-up a engole (lição das etiquetas).
+   */
+  const imprimir = () => {
+    if (!res) return;
+    const win = window.open('', '_blank', 'width=1024,height=768');
+    if (!win) { mensagem.erro('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.'); return; }
+    const raiz = document.getElementById('rel-impressao');
+    if (!raiz) { win.close(); return; }
+    imprimirPagina(win, raiz, res.titulo, undefined, res.paisagem);
+  };
+
   const setFiltro = (i: number, patch: Partial<Condicao>) =>
     setFiltros((fs) => fs.map((f, k) => (k === i ? { ...f, ...patch } : f)));
 
@@ -137,6 +152,7 @@ export function RelatoriosPage() {
                 onClick={() => setFiltros((fs) => [...fs, { campo: campos[0]?.campo ?? '', operador: '=', valor: '' }])} />
               <Button label="&Gerar" disabled={ocupado || sel == null} onClick={() => void rodar()} />
               <Button label="&Exportar CSV" variant="soft" disabled={ocupado || sel == null} onClick={() => void exportar()} />
+              <Button label="&Imprimir / PDF" variant="soft" disabled={!res} onClick={imprimir} />
               <Button label="Ed&itar" variant="soft" disabled={sel == null} onClick={() => navigate(`/relatorios/construtor/${sel}/editar`)} />
               <Button label="&Novo relatório" variant="soft" onClick={() => navigate('/relatorios/construtor/novo')} />
             </div>
@@ -146,7 +162,7 @@ export function RelatoriosPage() {
       </section>
 
       {res && (
-        <>
+        <div id="rel-impressao" className="flex flex-col gap-gp-md">
           <div className="flex flex-wrap items-baseline justify-between gap-gp-sm">
             <h2 className="text-body-lg">{res.titulo}</h2>
             <span className="text-body-sm text-fg-muted">
@@ -166,7 +182,7 @@ export function RelatoriosPage() {
               </div>
             </section>
           )}
-        </>
+        </div>
       )}
     </div>
   );

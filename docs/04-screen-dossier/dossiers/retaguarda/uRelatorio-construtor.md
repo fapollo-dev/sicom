@@ -132,8 +132,7 @@ Um construtor de consulta é o lugar onde um nome de campo vira SQL. Três trava
 
 ### 7.4 O que fica
 
-*(corte-2 fechado na seção 8.)* Corte-3: importar os 95 XMLs do cliente, portar as quatro views que destravam
-24 relatórios (`GET_RCB` sozinha vale 13) e a saída em PDF.
+*(corte-2 fechado na seção 8, corte-3 na 9.)*
 
 ## 8. Corte-2 ENTREGUE — o construtor pela tela (smoke §95.8, 1082/0)
 
@@ -153,3 +152,50 @@ Três diferenças conscientes:
 
 Rotas: `/relatorios/construtor/novo` e `/relatorios/construtor/:cod/editar`, ambas atrás de
 `FRMCADASTRORELATORIO` — separado de quem só executa.
+
+## 9. Corte-3 ENTREGUE — as fontes que faltavam, o importador e o PDF (`mig 203`, smoke §96, 1086/0)
+
+### 9.1 As quatro fontes (24 relatórios destravados)
+
+`get_rcb` (13 relatórios), `get_apagarbx` (4), `get_areceberbx` (4) e `get_cp_cen` (3), com o rótulo do
+cliente no `COMMENT`, que é o que as põe no catálogo.
+
+⚠️ **não são cópia integral, e é de propósito.** A `GET_RCB` do cliente tem **73 colunas e 5 KB de DDL**, com
+o cálculo de juros e multa embutido três vezes; os relatórios dele usam **25 colunas**. Entram as que os
+relatórios usam, com **os nomes que o legado lhes dá** — é o nome que faz a definição importada funcionar. O
+cálculo de juros/multa fica fora: merece o próprio confronto com produção (a `get_areceber` já tem uma
+versão) e **nenhum dos 13 relatórios usa a coluna JURO**. A `get_cp_cen` é a única com granularidade
+diferente: uma linha por RATEIO (`CX_APAGAR`), não por título.
+
+### 9.2 O importador
+
+Lê `relatorios_customizados` (109 linhas / 95 nomes, que a carga traz em base64) e grava no nosso modelo com
+`origem = 'LEGADO'`. Antes de escrever o conversor, medi os 109 arquivos:
+
+| | |
+|---|---|
+| condições (`cdsWhere`) | **96**, em 6 operações — Igual a 48 · Entre 27 · Em Qualquer Lugar 10 · Maior que 8 · Menor que 2 · Diferente de 1 |
+| colunas calculadas | **3**, as três no formato `A operação B` |
+| colunas por relatório | 2 a 14 (média 5,8) |
+
+As seis operações estão mapeadas e o formato das três fórmulas é exatamente o que o nosso modelo aceita.
+**Não há fórmula livre a interpretar** — e é bom que não haja: aceitar SQL do arquivo reabriria a porta que o
+construtor fecha. A fórmula é **lida**, nunca executada.
+
+O que não dá vira uma linha em `pendentes` com o motivo (fonte que não existe, campo que a fonte não tem,
+fórmula fora do formato) — o relatório não é criado pela metade. É **idempotente**: rodar de novo depois de
+portar mais uma fonte traz só o que passou a ser possível.
+
+### 9.3 A saída em PDF
+
+Pelo caminho já consolidado no Apollo (`imprimirPagina`, o substituto do FastReport): manda para o diálogo
+nativo o que a tela mostra, e o operador escolhe impressora ou "Salvar como PDF". Ganhou a **orientação**, que
+vinha do dado e não era usada — o `IMPRIMIR_EM_PAISAGEM` do legado agora vira `@page { size: landscape }`.
+
+### 9.4 O construtor está completo
+
+Catálogo · executor · construtor · importador · CSV · PDF. Fica em aberto, e é pergunta para o cliente: **dos
+659 layouts, quantos ele usa?** Os nomes sugerem muita duplicata de teste (`dup_Duplicata001_1ddd.fr3`,
+`GET_PRODUTOS_PRODUTOS_WIL`, `..._LETICIA`, `GET_NF_NÃO`). E o de-para das fontes segue aberto para as views
+que ainda não portamos — cada uma que entrar, com o seu `COMMENT`, aparece no catálogo e libera mais
+relatórios na próxima importação, sem código novo.

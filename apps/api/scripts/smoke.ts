@@ -10079,6 +10079,73 @@ async function main() {
       }
     }
 
+    // ===== §96) CONSTRUTOR corte-3 — as QUATRO fontes que faltavam e o IMPORTADOR dos relatórios do legado.
+    // `GET_RCB` sozinha destrava 13 dos 45 relatórios sem fonte; com as outras três são 24. E o importador lê
+    // o XML DATAPACKET do Delphi que a carga traz em `relatorios_customizados`. ====
+    {
+      const RC = 'relatorios/construtor';
+      const pgIm = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const fontes = (await (await fetch(`${base}/${RC}/fontes`, { headers: H })).json().catch(() => ([]))) as any[];
+        const novas = ['get_rcb', 'get_apagarbx', 'get_areceberbx', 'get_cp_cen']
+          .map((f) => (fontes ?? []).find((x: any) => x.fonte === f));
+        check('RELATÓRIO §96.1 [as 4 fontes que destravam 24 relatórios]: `get_rcb` (13 relatórios), `get_apagarbx` (4), `get_areceberbx` (4) e `get_cp_cen` (3) entram no catálogo com o rótulo do cliente. Não são cópia integral — a GET_RCB dele tem 73 colunas e os relatórios usam 25; aqui entram as que os relatórios usam, com os NOMES que o legado lhes dá, que é o que faz a definição importada funcionar',
+          novas.every((f) => !!f) && novas[0]?.rotulo === 'A RECEBER' && novas[1]?.rotulo === 'CONTAS A PAGAR BAIXADAS'
+          && novas[3]?.rotulo === 'CONTAS A PAGAR 2 CENTRO DE CUSTO',
+          { encontradas: novas.map((f) => f && `${f.fonte}=${f.rotulo}`) });
+
+        // o XML do cliente, na forma real (uma configuração, colunas, uma calculada e uma condição "Entre").
+        const xml = [
+          '<?xml version="1.0" standalone="yes"?> <DATAPACKET Version="2.0"><METADATA/><ROWDATA>',
+          '<ROW RowState="4" DATASET="cdsConfiguracoes" TITULO_REL="Pagamentos do periodo" MOSTRA_SOMENTE_AGRUPAMENTO="FALSE" SALTAR_PG_GRUPO="FALSE" IMPRIMIR_EM_PAISAGEM="TRUE"/>',
+          '<ROW RowState="4" CAMPO="FORNECEDOR" TITULO="Fornecedor" TAMANHO="30" POSICAO="1" CAMPOCALC="FALSE" DATASET="cdsCamposAImprimir" TABELA="CONTAS A PAGAR BAIXADAS"/>',
+          '<ROW RowState="4" CAMPO="VALOR_PAGO" TITULO="Pago" TAMANHO="12" POSICAO="2" CAMPOCALC="FALSE" DATASET="cdsCamposAImprimir" TABELA="CONTAS A PAGAR BAIXADAS"/>',
+          '<ROW RowState="4" CAMPO="CALC1" TITULO="Desconto" TAMANHO="10" POSICAO="3" CAMPOCALC="TRUE" DATASET="cdsCamposAImprimir" TABELA="CONTAS A PAGAR BAIXADAS"/>',
+          '<ROW RowState="4" CAMPO="DATA_PAGAMENTO" VALOR_CAMPO="&apos;01/08/2035&apos; and &apos;30/09/2035&apos;" OPERACAO="Entre" VALOR_MOSTRAR="01/08/2035 à 30/09/2035" DATASET="cdsWhere" TABELA="CONTAS A PAGAR BAIXADAS"/>',
+          '<ROW RowState="4" CAMPO="CALC1" TITULO_CALC="Desconto" FORMULA=" coalesce(VALOR_BRUTO_DOCUMENTO,0) - coalesce(VALOR_PAGO,0)" TOTALIZAR="TRUE" CONDICAO="" FORMULALBL=" VALOR_BRUTO_DOCUMENTO - VALOR_PAGO" DATASET="cdsCamposCalculados" TABELA="CONTAS A PAGAR BAIXADAS"/>',
+          '</ROWDATA></DATAPACKET>',
+        ].join('');
+        await pgIm.query(`DELETE FROM relatorios_customizados WHERE codrelatorios_customizados IN (99801,99802)`);
+        await pgIm.query(`INSERT INTO relatorios_customizados (codrelatorios_customizados, idempresa, nome_relatorio, tipo, arquivo) VALUES
+          (99801,1,'GET_APAGARBX_PAGAMENTOS DO PERIODO.XML','NORMAL',$1),
+          (99802,1,'GET_INEXISTENTE_RELATORIO ORFAO.XML','NORMAL',$1)`, [Buffer.from(xml, 'utf8').toString('base64')]);
+
+        const imp = await fetch(`${base}/${RC}/importar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+        const impJ = (await imp.json().catch(() => ({}))) as any;
+        const orfao = (impJ.pendentes ?? []).find((p: any) => String(p.nome).includes('ORFAO'));
+        check('RELATÓRIO §96.2 [o importador]: lê o XML DATAPACKET do Delphi (que vem em base64 na carga), acha a fonte pelo PREFIXO MAIS LONGO do nome do arquivo e grava no nosso modelo. O que não dá NÃO é adivinhado: o arquivo cuja fonte não existe vira uma linha em `pendentes` com o motivo, e o relatório não é criado pela metade',
+          imp.status === 200 && Number(impJ.importados) >= 1 && !!orfao && String(orfao.motivo).includes('fonte'),
+          { resp: { lidos: impJ.lidos, importados: impJ.importados, jaExistiam: impJ.jaExistiam }, orfao });
+
+        const gravado = (await pgIm.query(`SELECT nome, fonte, origem, definicao FROM relatorio_definicao WHERE fonte='get_apagarbx' ORDER BY codrelatoriodef DESC LIMIT 1`)).rows[0] as any;
+        const d = gravado?.definicao ?? {};
+        const calc = (d.colunas ?? []).find((c: any) => c.calculado);
+        const cond = (d.condicoes ?? [])[0];
+        check('RELATÓRIO §96.3 [a conversão, campo a campo]: `IMPRIMIR_EM_PAISAGEM` vira `paisagem`, o `TITULO_REL` vira o título, cada `cdsCamposAImprimir` vira uma coluna na POSIÇÃO dela, o `cdsCamposCalculados` vira a conta (a fórmula `coalesce(A,0) - coalesce(B,0)` é LIDA, não executada — aceitar SQL do arquivo reabriria a porta que o construtor fecha) e o `cdsWhere` "Entre" vira a condição com as duas datas em ISO',
+          gravado?.origem === 'LEGADO' && d.titulo === 'Pagamentos do periodo' && d.paisagem === true
+          && (d.colunas ?? []).length === 3 && d.colunas[0].campo === 'fornecedor'
+          && calc?.calculado?.campo1 === 'valor_bruto_documento' && calc?.calculado?.operacao === '-'
+          && calc?.calculado?.campo2 === 'valor_pago' && calc?.totalizar === true
+          && cond?.campo === 'data_pagamento' && cond?.operador === 'entre'
+          && Array.isArray(cond?.valor) && cond.valor[0] === '2035-08-01' && cond.valor[1] === '2035-09-30',
+          { nome: gravado?.nome, definicao: d });
+
+        const rodou = await fetch(`${base}/${RC}/executar`, { method: 'POST', headers: H, body: JSON.stringify({
+          codrelatoriodef: Number((await pgIm.query(`SELECT codrelatoriodef FROM relatorio_definicao WHERE fonte='get_apagarbx' ORDER BY codrelatoriodef DESC LIMIT 1`)).rows[0].codrelatoriodef) }) });
+        const rodouJ = (await rodou.json().catch(() => ({}))) as any;
+        const imp2 = (await (await fetch(`${base}/${RC}/importar`, { method: 'POST', headers: H, body: JSON.stringify({}) })).json().catch(() => ({}))) as any;
+        check('RELATÓRIO §96.4: o relatório importado RODA — o de-para valeu a pena só se a definição do legado executa sobre a fonte nova. E a importação é idempotente: rodar de novo conta o que já veio em `jaExistiam` e não duplica, o que permite reimportar depois de portar mais uma fonte',
+          rodou.status === 200 && rodouJ.colunas?.length === 3 && rodouJ.colunas[2]?.titulo === 'Desconto'
+          && Number(imp2.jaExistiam) >= 1 && Number(imp2.importados) === 0,
+          { execucao: rodouJ.colunas, segunda: { importados: imp2.importados, jaExistiam: imp2.jaExistiam } });
+
+        await pgIm.query(`DELETE FROM relatorio_definicao WHERE origem='LEGADO'`);
+        await pgIm.query(`DELETE FROM relatorios_customizados WHERE codrelatorios_customizados IN (99801,99802)`);
+      } finally {
+        await pgIm.end();
+      }
+    }
+
     // ===== §89) LOGIN DUPLICADO (decisão do usuário + mig 173): unicidade PARCIAL e desempate por código ====
     {
       const pgL = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });

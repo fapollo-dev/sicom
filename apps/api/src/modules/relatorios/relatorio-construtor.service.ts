@@ -188,7 +188,8 @@ export class RelatorioConstrutorService {
    * `filtros` são os do usuário na hora de rodar (o período, tipicamente) e somam-se às condições salvas.
    */
   async executar(p: { codrelatoriodef?: number | null; fonte?: string; definicao?: Definicao; filtros?: CondicaoDef[]; limite?: number }): Promise<{
-    titulo: string; fonte: string; colunas: Array<{ chave: string; titulo: string; formato: string; largura?: number }>;
+    titulo: string; fonte: string; paisagem: boolean;
+    colunas: Array<{ chave: string; titulo: string; formato: string; largura?: number }>;
     linhas: Array<Record<string, unknown>>; totais: Record<string, number>; truncado: boolean;
   }> {
     const db = this.dbp.forTenantRead() as AnyDB;
@@ -248,6 +249,7 @@ export class RelatorioConstrutorService {
     return {
       titulo: titulo || fonte,
       fonte,
+      paisagem: !!def.paisagem,   // o `IMPRIMIR_EM_PAISAGEM` do legado — a tela usa na hora de imprimir
       colunas: cols.map((c, i) => ({
         chave: `c${i}`,
         titulo: c.titulo || c.campo || 'Calculado',

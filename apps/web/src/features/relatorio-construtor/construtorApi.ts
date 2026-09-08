@@ -20,7 +20,7 @@ export interface RelatorioSalvo { codrelatoriodef: number; nome: string; fonte: 
 export interface CampoFonte { campo: string; tipo: string; formato: string }
 export interface Condicao { campo: string; operador: string; valor?: unknown }
 export interface Execucao {
-  titulo: string; fonte: string;
+  titulo: string; fonte: string; paisagem: boolean;
   colunas: Array<{ chave: string; titulo: string; formato: string; largura?: number }>;
   linhas: Array<Record<string, unknown>>;
   totais: Record<string, number>;

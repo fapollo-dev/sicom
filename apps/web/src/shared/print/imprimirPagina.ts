@@ -8,7 +8,7 @@
  * ⚠️ A janela deve ser aberta SÍNCRONA no handler do clique (lição das etiquetas: o popup-blocker engole
  * janelas abertas fora do gesto do usuário) — por isso recebe `win` pronto.
  */
-export function imprimirPagina(win: Window, raiz: HTMLElement, titulo: string, operador?: string): void {
+export function imprimirPagina(win: Window, raiz: HTMLElement, titulo: string, operador?: string, paisagem = false): void {
   const clone = raiz.cloneNode(true) as HTMLElement;
   // remove interação: botões, campos, selects, checkboxes e os rótulos/painéis de filtro
   clone.querySelectorAll('button, input, select, textarea, label').forEach((el) => el.remove());
@@ -31,7 +31,7 @@ export function imprimirPagina(win: Window, raiz: HTMLElement, titulo: string, o
     h1,h2,h3,.text-title-sm{font-size:12px;margin:8px 0 2px}
     tr{page-break-inside:avoid}
     thead{display:table-header-group}
-    @media print{ @page{ margin:12mm } }
+    @media print{ @page{ margin:12mm; size:${paisagem ? 'landscape' : 'portrait'} } }
   </style></head><body>
     <div class="cab"><h1>${escapeHtml(titulo)}</h1><small>${escapeHtml(operador ?? '')} · ${quando}</small></div>
     ${clone.innerHTML}

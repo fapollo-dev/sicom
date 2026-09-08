@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Que
 import type { Response } from 'express';
 import { salvarRelatorioSchema, executarRelatorioSchema, type SalvarRelatorioDto, type ExecutarRelatorioDto } from '@apollo/shared';
 import { RelatorioConstrutorService } from './relatorio-construtor.service';
+import { RelatorioImportadorService } from './relatorio-importador.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
@@ -15,7 +16,10 @@ import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 @Controller('relatorios/construtor')
 @UseGuards(AcessoGuard)
 export class RelatorioConstrutorController {
-  constructor(private readonly svc: RelatorioConstrutorService) {}
+  constructor(
+    private readonly svc: RelatorioConstrutorService,
+    private readonly importador: RelatorioImportadorService,
+  ) {}
 
   /** o catálogo de fontes — as views que têm rótulo. */
   @Get('fontes')
@@ -72,6 +76,18 @@ export class RelatorioConstrutorController {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(r.nome)}"`);
     res.send(r.conteudo);
+  }
+
+  /**
+   * Importa os relatórios que o cliente montou no legado (`relatorios_customizados`, que a carga traz).
+   * Idempotente: o que já veio é pulado, então rodar de novo depois de portar uma view só traz o que passou
+   * a ser possível. O que não deu é devolvido em `pendentes`, com o motivo.
+   */
+  @Post('importar')
+  @HttpCode(200)
+  @RequerAcesso('FRMCADASTRORELATORIO', 'FRMCADASTRORELATORIO')
+  importar(@Body() body: { substituir?: boolean }) {
+    return this.importador.importar({ substituir: !!body?.substituir });
   }
 
   /** os campos de uma fonte, pela query (usado quando a tela já sabe a fonte do relatório salvo). */
