@@ -529,3 +529,20 @@ export const nfLoteSchema = z.object({
   dtfabricacao: zDia.optional().nullable(),
 });
 export type NfLoteDto = z.infer<typeof nfLoteSchema>;
+
+/**
+ * FECHAMENTO DIÁRIO (`FRMFECHAMENTODIARIO`) — marcação de dia aberto/fechado por empresa. A data vem como
+ * 'YYYY-MM-DD' (lição 17: `z.coerce.date` viraria meia-noite UTC e gravaria o dia anterior no fuso local).
+ */
+export const fecharDiaSchema = z.object({
+  data: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (use AAAA-MM-DD).'),
+});
+export type FecharDiaDto = z.infer<typeof fecharDiaSchema>;
+
+/** fechar ou abrir o mês inteiro (o "total" da tela do legado). */
+export const fecharMesSchema = z.object({
+  ano: z.coerce.number().int().min(2000).max(2100),
+  mes: z.coerce.number().int().min(1).max(12),
+  fechar: z.boolean(),
+});
+export type FecharMesDto = z.infer<typeof fecharMesSchema>;

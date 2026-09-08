@@ -9484,6 +9484,71 @@ async function main() {
       }
     }
 
+    // ===== §91) FECHAMENTO DIÁRIO (FRMFECHAMENTODIARIO) — decisão do usuário (08/09): migrar por completo.
+    // O veredicto anterior ("rebaixado, parou em fev/2024") era artefato da HOMOLOGAÇÃO defasada; em produção
+    // são 3.346 dias fechados, 271 em 2026. O que tem peso é o VerificaNFs: fechar o dia empurra a DTCONTABIL
+    // das notas não processadas — e é aí que mora o bug do legado que NÃO copiamos. ====
+    {
+      const FD = 'cadastro/fechamento-diario';
+      const pgFd = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgFd.query(`DELETE FROM fechamento WHERE idempresa=1`);
+        // duas notas NÃO processadas com data contábil em 2033-03-10 (mês virgem, longe de tudo)
+        await pgFd.query(`INSERT INTO nf (codnf, idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, cfop) VALUES
+          (993301,1,'E',55,'1','993301','2033-03-10','2033-03-10',22,'N','N',10.00,1102),
+          (993302,1,'E',55,'1','993302','2033-03-10','2033-03-10',22,'N','N',20.00,1102),
+          (993303,1,'E',55,'1','993303','2033-03-10','2033-03-10',22,'S','N',30.00,1102)`);
+
+        const mes1 = (await (await fetch(`${base}/${FD}?ano=2033&mes=3`, { headers: H })).json().catch(() => ({}))) as any;
+        const d10 = (mes1.dias ?? []).find((d: any) => d.data === '2033-03-10');
+        check('FECHAMENTO §91.1: a listagem MATERIALIZA o mês (31 dias em março), dia sem linha vem como ABERTO e cada dia traz a contagem de notas PENDENTES — o dia 10 tem 2 (a processada não conta). ⚠️ diferença consciente: o legado GRAVA as linhas ao abrir a tela (produção tem 1.708 linhas que são só resíduo de navegação); aqui a listagem é de leitura e a linha nasce quando alguém fecha',
+          (mes1.dias ?? []).length === 31 && d10?.fechado === false && d10?.status == null && Number(d10?.nfs_pendentes) === 2
+          && Number((await pgFd.query(`SELECT count(*)::int n FROM fechamento WHERE idempresa=1`)).rows[0].n) === 0,
+          { dias: (mes1.dias ?? []).length, dia10: d10 });
+
+        // fechar o dia 10: as 2 notas pendentes vão para o próximo dia ABERTO (11); a processada fica
+        const f10 = await fetch(`${base}/${FD}/fechar-dia`, { method: 'POST', headers: H, body: JSON.stringify({ data: '2033-03-10' }) });
+        const f10J = (await f10.json().catch(() => ({}))) as any;
+        const dts = (await pgFd.query(`SELECT codnf, to_char(dtcontabil,'YYYY-MM-DD') d FROM nf WHERE codnf IN (993301,993302,993303) ORDER BY codnf`)).rows as any[];
+        const linha = (await pgFd.query(`SELECT status FROM fechamento WHERE idempresa=1 AND data='2033-03-10'`)).rows[0] as any;
+        check('FECHAMENTO §91.2 (o VerificaNFs, uFechamentoDiario.pas:770): fechar o dia empurra a DTCONTABIL das notas NÃO processadas para o próximo dia ABERTO (10 → 11) e deixa a processada onde está; a linha do dia fica com STATUS=F (o legado usa NULL/F, não inventa "A")',
+          f10.status === 200 && Number(f10J.movidas) === 2 && f10J.para === '2033-03-11'
+          && dts[0]?.d === '2033-03-11' && dts[1]?.d === '2033-03-11' && dts[2]?.d === '2033-03-10'
+          && linha?.status === 'F',
+          { resp: f10J, datas: dts, linha });
+
+        // ⚠️ o BUG que não copiamos: sem próximo dia aberto, o legado grava 30/12/1899 (há 1 nota assim em
+        // produção). Aqui: não empurra, e devolve quantas ficaram.
+        await pgFd.query(`UPDATE nf SET dtcontabil='2033-03-31' WHERE codnf IN (993301,993302)`);
+        await fetch(`${base}/${FD}/mes`, { method: 'POST', headers: H, body: JSON.stringify({ ano: 2033, mes: 3, fechar: true }) });
+        await fetch(`${base}/${FD}/abrir-dia`, { method: 'POST', headers: H, body: JSON.stringify({ data: '2033-03-31' }) });
+        const f31 = await fetch(`${base}/${FD}/fechar-dia`, { method: 'POST', headers: H, body: JSON.stringify({ data: '2033-03-31' }) });
+        const f31J = (await f31.json().catch(() => ({}))) as any;
+        const dts31 = (await pgFd.query(`SELECT to_char(dtcontabil,'YYYY-MM-DD') d FROM nf WHERE codnf IN (993301,993302)`)).rows.map((r: any) => r.d);
+        const mil899 = Number((await pgFd.query(`SELECT count(*)::int n FROM nf WHERE dtcontabil < '1990-01-01'`)).rows[0].n);
+        check('FECHAMENTO §91.3 [BUG DO LEGADO NÃO COPIADO]: fechar o ÚLTIMO dia aberto do mês sem destino para as notas — o legado usa `DiaProximo` NÃO INICIALIZADO e grava **30/12/1899** (há 1 nota assim em produção, e a situação de risco ocorreu 2.472 vezes). Aqui NADA é empurrado, as notas ficam no dia 31 e a resposta devolve `sem_destino: 2` para quem fecha resolver',
+          f31.status === 200 && Number(f31J.movidas) === 0 && f31J.para == null && Number(f31J.sem_destino) === 2
+          && dts31.every((d: string) => d === '2033-03-31') && mil899 === 0,
+          { resp: f31J, datas: dts31, notas1899: mil899 });
+
+        // fechar/abrir o mês inteiro + o quirk do fecha-total
+        await fetch(`${base}/${FD}/mes`, { method: 'POST', headers: H, body: JSON.stringify({ ano: 2033, mes: 3, fechar: false }) });
+        const abertos = Number((await pgFd.query(`SELECT count(*)::int n FROM fechamento WHERE idempresa=1 AND status IS NULL`)).rows[0].n);
+        await pgFd.query(`UPDATE nf SET dtcontabil='2033-03-15' WHERE codnf IN (993301,993302)`);
+        const mesF = await fetch(`${base}/${FD}/mes`, { method: 'POST', headers: H, body: JSON.stringify({ ano: 2033, mes: 3, fechar: true }) });
+        const fechados = Number((await pgFd.query(`SELECT count(*)::int n FROM fechamento WHERE idempresa=1 AND status='F'`)).rows[0].n);
+        const dtsMes = (await pgFd.query(`SELECT to_char(dtcontabil,'YYYY-MM-DD') d FROM nf WHERE codnf IN (993301,993302)`)).rows.map((r: any) => r.d);
+        check('FECHAMENTO §91.4: abrir o mês inteiro devolve os 31 dias a ABERTO (STATUS nulo, a linha não é apagada — `AbreDia` :122) e fechar o mês marca os 31 · quirk copiado: no FECHA-TOTAL o legado sai antes de empurrar nota (`:794` testa STATUS=F que o próprio FechaDia acabou de gravar), então as notas do dia 15 NÃO se movem',
+          abertos === 31 && mesF.status === 200 && fechados === 31 && dtsMes.every((d: string) => d === '2033-03-15'),
+          { abertos, fechados, datas: dtsMes });
+
+        await pgFd.query(`DELETE FROM nf WHERE codnf IN (993301,993302,993303)`);
+        await pgFd.query(`DELETE FROM fechamento WHERE idempresa=1`);
+      } finally {
+        await pgFd.end();
+      }
+    }
+
     // ===== §89) LOGIN DUPLICADO (decisão do usuário + mig 173): unicidade PARCIAL e desempate por código ====
     {
       const pgL = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
