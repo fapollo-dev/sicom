@@ -2328,6 +2328,13 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "origem_legado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -2341,7 +2348,7 @@
     },
     {
      "nome": "ux_arq_remessa_nome",
-     "def": "CREATE UNIQUE INDEX ux_arq_remessa_nome ON public.arquivo_remessa_areceber USING btree (codempresa, nomearquivo)"
+     "def": "CREATE UNIQUE INDEX ux_arq_remessa_nome ON public.arquivo_remessa_areceber USING btree (codempresa, nomearquivo) WHERE (COALESCE(origem_legado, 'N'::bpchar) <> 'S'::bpchar)"
     }
    ]
   },
@@ -6735,6 +6742,13 @@
      "tipo": "numeric",
      "tam": 13,
      "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "segmento": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
      "nulo": true,
      "default": null
     }
@@ -12063,28 +12077,28 @@
      "tipo": "numeric",
      "tam": 7,
      "escala": 2,
-     "nulo": false,
+     "nulo": true,
      "default": null
     },
     "icm_fonte": {
      "tipo": "numeric",
      "tam": 7,
      "escala": 2,
-     "nulo": false,
+     "nulo": true,
      "default": null
     },
     "mva": {
      "tipo": "numeric",
-     "tam": 7,
-     "escala": 2,
-     "nulo": false,
+     "tam": 9,
+     "escala": 4,
+     "nulo": true,
      "default": null
     },
     "reducao": {
      "tipo": "numeric",
      "tam": 7,
      "escala": 2,
-     "nulo": false,
+     "nulo": true,
      "default": "100"
     },
     "st_externo": {
@@ -16474,8 +16488,8 @@
     },
     "vrunitario": {
      "tipo": "numeric",
-     "tam": 15,
-     "escala": 6,
+     "tam": 21,
+     "escala": 10,
      "nulo": true,
      "default": null
     },
@@ -16509,8 +16523,8 @@
     },
     "vrunitariotrib": {
      "tipo": "numeric",
-     "tam": 15,
-     "escala": 6,
+     "tam": 21,
+     "escala": 10,
      "nulo": true,
      "default": null
     },
@@ -21568,6 +21582,209 @@
     {
      "nome": "ux_relacao_operador_perfil",
      "def": "CREATE UNIQUE INDEX ux_relacao_operador_perfil ON public.relacao_operador_perfil USING btree (codoperador, codperfil) WHERE ((COALESCE(indr, 'I'::character varying))::text <> 'E'::text)"
+    }
+   ]
+  },
+  "relatorios": {
+   "colunas": {
+    "codrelatorio": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "idempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "nome_relatorio": {
+     "tipo": "character varying",
+     "tam": 120,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "descricao": {
+     "tipo": "character varying",
+     "tam": 255,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "tipo": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "md5_arquivo": {
+     "tipo": "character varying",
+     "tam": 40,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "arquivo": {
+     "tipo": "text",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indr": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indr_usuario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr_data": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "codrelatorio"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "relatorios_pkey",
+     "def": "CREATE UNIQUE INDEX relatorios_pkey ON public.relatorios USING btree (codrelatorio)"
+    }
+   ]
+  },
+  "relatorios_customizados": {
+   "colunas": {
+    "codrelatorios_customizados": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "idempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "nome_relatorio": {
+     "tipo": "character varying",
+     "tam": 120,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "tipo": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "md5_arquivo": {
+     "tipo": "character varying",
+     "tam": 40,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "arquivo": {
+     "tipo": "text",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indr": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indr_usuario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr_data": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "codrelatorios_customizados"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "relatorios_customizados_pkey",
+     "def": "CREATE UNIQUE INDEX relatorios_customizados_pkey ON public.relatorios_customizados USING btree (codrelatorios_customizados)"
     }
    ]
   },

@@ -45,25 +45,48 @@ são **PDV**, fora por instrução do usuário, e sozinhas valem 67% do que rest
   investir. `FRMFECHAMENTODIARIO` é o caso oposto e vale como aviso — 740 acessos e último em 01/09, mas o
   DADO de fechamento parou em fev/2024: abrem a tela, ela cria os dias do mês, ninguém fecha.
 
-## `FRMRELATORIO` (1.759 acessos) — veredicto: não é tela de negócio
+## `FRMRELATORIO` (1.759 acessos) — CORREÇÃO: é um construtor de relatórios do CLIENTE, e usa FastReport
 
-Era o maior item da fila fora do PDV, e o recon mostrou que não é o que o nome sugere. `uRelatorio.pas` (3.445
-linhas) é o **gerenciador dos arquivos de layout** do motor de impressão: a tabela `RELATORIOS` guarda **1.227
-linhas / 659 layouts `.fr3` (FastReport)** — 603 `DEFAULT` (os que vêm do produto) e 624 `PERSONALIZADO` (os que
-o cliente ajustou) — e `RELATORIOS_CUSTOMIZADOS` guarda 109 XMLs de dataset. A tela cadastra, edita, importa e
-exporta esses arquivos.
+⚠️ **Meu primeiro veredicto estava errado.** Escrevi que "o Apollo não usa FastReport" e por isso a tela não
+migraria. O usuário corrigiu — e o próprio código já dizia: `rel-curva-abc.service.ts` porta a regra do
+**PascalScript de dentro do `.fr3`** (`MasterData1OnBeforePrint`, quem atribui a letra da curva) e
+`rel-ticket-medio.service.ts:40` registra "ADIADO: impressão frx". O layout não é decoração: é especificação de
+regra, e a impressão é dívida aberta.
 
-O Apollo não usa FastReport: cada relatório foi portado individualmente, com as regras dentro do código e a
-saída renderizada no front. Migrar `FRMRELATORIO` seria portar um **motor de relatórios de terceiros** — e o
-que ele gerencia (os layouts) não teria consumidor do nosso lado.
+O que a tela é, segundo o usuário e confirmado no dado: um **construtor de relatórios self-service** — o próprio
+cliente monta o relatório dele. "Solução simples e prática", nas palavras dele.
 
-⚠️ **O que isto NÃO resolve, e vale ficar registrado:** os 600 layouts personalizados são customizações que o
-cliente fez ao longo do tempo. Cada relatório nosso foi portado a partir da REGRA (a query do legado), não do
-layout — então diferenças de apresentação (colunas escolhidas, ordem, quebras, logotipo) podem aparecer na
-virada, relatório a relatório. Os mais recentes são quase todos de **cupom/NFC-e** (`_DANFeNFCe.fr3`,
-`NFCe_Fechamento.fr3`, `ValeTroco.fr3`, `Voucher.fr3`, alterados em 21/08/2026), ou seja **PDV** — fora do
-escopo. O que sobra de retaguarda com alteração recente é pouco: `Rel_EntradasESaidas.fr3` (fev/2026) e
-`conf - conferencia de preco nf.fr3` (jul/2025).
+### Consequência imediata: os layouts estavam fora da carga
+
+Sem as tabelas no destino, a virada descartaria em silêncio **659 layouts, 624 personalizados pelo cliente**
+(54,5 MB; o maior arquivo tem 6 MB) e 109 XMLs de dataset. Criadas na mig **197**, o universo derivado as pegou
+sozinho (145 → 147 tabelas) e a carga confirmou: `relatorios` **1.227/1.227 em 3,5 s**, `relatorios_customizados`
+**109/109** — CLOB inteiro, sem perda.
+
+### Como o cliente usa de fato (medido nos 109 relatórios dele)
+
+| | |
+|---|---|
+| fontes | `GET_APAGAR` 25 · `GET_RCB` 13 · `GET_NF` 10 · `GET_PRODUTOS` 8 · `GET_CARTAO` 6 — **quase tudo financeiro** |
+| recursos avançados | campo calculado **3** · totalizador **3** · fórmula **3**, em 1.141 linhas de definição |
+| ritmo | 95 títulos distintos, de jun/2025 a jul/2026 — mas só **2 em 2026** |
+| pistas | vários nomes repetidos e "TESTE": montar dá trabalho e se faz por tentativa e erro |
+
+O uso real é **simples**: escolher uma view, escolher colunas, filtrar, agrupar e exportar. O poder de fórmula
+quase não é exercido.
+
+### Proposta (apresentada ao usuário, aguardando decisão)
+
+Construtor de relatórios **no navegador**, com o mesmo modelo mental (as fontes são as views `get_*` que já
+migramos — o cliente já nomeia os arquivos dele de `GET_APAGAR_...`): colunas com título e ordem, filtros,
+agrupamento com subtotal, totalizadores, modelo salvo em JSON com permissão por operador e trilha, exportação
+CSV/Excel/PDF e **pré-visualização** — que é o que cortaria o ciclo de "TESTE".
+
+**Fora da proposta, de propósito:** os layouts FIXOS (DANFE, cupom, boleto, etiqueta) precisam de fidelidade
+milimétrica e regra fiscal; esses continuam no FastReport ou viram layout dedicado, com calma.
+
+Corte-1 sugerido: fonte + colunas + filtros + CSV, sobre as views financeiras — que sozinhas cobrem 43 dos 109
+relatórios do cliente.
 
 ## Cauda longa
 
