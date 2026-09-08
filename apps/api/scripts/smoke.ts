@@ -9549,6 +9549,139 @@ async function main() {
       }
     }
 
+    // ===== §92) INTEGRAÇÃO CONTÁBIL (FRMTRON) corte-1 — BAIXA DE CARTÕES (origens 51 · 61 · 62).
+    // O maior consumidor do razão do cliente: 1,34 milhão de linhas, 77% de tudo. O motor
+    // (`LancaDiarioContabil` com `SubstituiPeloDataSet`) não veio no fonte clonado — foi reconstruído do razão
+    // REAL e é isso que estas checagens fixam: o FORMATO do lançamento sai do CODHISTORICO das duas pernas. ====
+    {
+      const IC = 'contabil/integracao/cartao';
+      const pgIc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // cenário: uma conta bancária com plano de contas 213, uma forma de pagamento apontada para ela, um
+        // centro de custo para a taxa e outro para as outras despesas.
+        const ctaIc = Number((await pgIc.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular, codlanccontabil) VALUES (0,1,'CONTA CARTAO TRON',213) RETURNING codconta`)).rows[0].codconta);
+        await pgIc.query(`INSERT INTO formas_pgto (idempresa, modalidade, atalho, destino, codcontacorrente) VALUES (1,'CARTAO TRON','T1','CXA',$1) ON CONFLICT DO NOTHING`, [ctaIc]);
+        const fpIc = Number((await pgIc.query(`SELECT idpgto FROM formas_pgto WHERE idempresa=1 AND modalidade='CARTAO TRON'`)).rows[0].idpgto);
+        await pgIc.query(`INSERT INTO plc (codplc, desccodplc, descricao, codpai, nivelconta, codcontabil) VALUES
+            (9701,'4.09.001','TAXA DE CARTAO CC',NULL,3,555), (9702,'4.09.002','OUTRAS DESPESAS CC',NULL,3,555)
+          ON CONFLICT (codplc) DO NOTHING`);
+        await pgIc.query(`INSERT INTO operadoras (codoperadoras, operadora, txadm, diascomp) VALUES (9091,'OPER TRON',0,30)
+          ON CONFLICT (codoperadoras) DO NOTHING`);
+
+        const semearLote = async (idlote: number, itens: Array<{ valor: number; taxa: number; od: number; plcTaxa?: number }>, credito: number, extras: number[] = []) => {
+          const ids: number[] = [];
+          for (const it of itens) {
+            const r = await pgIc.query(
+              `INSERT INTO cartao (idempresa, codoperadora, idpgto, dtvenda, dtbaixa, valor, valor_taxa_paga, valor_outras_despesas_paga,
+                                   nroparcela, liberado, idlote, codplc_taxa_cartao, codplc_acredesc)
+               VALUES (1,9091,$1,'2035-04-01','2035-04-10',$2,$3,$4,1,'S',$5,$6,9702) RETURNING codvendcartao`,
+              [fpIc, it.valor, it.taxa, it.od, idlote, it.plcTaxa ?? 9701]);
+            ids.push(Number(r.rows[0].codvendcartao));
+          }
+          await pgIc.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, idorigem, idlote, historico)
+                            VALUES ($1,1,$2,'C','BXCARTAO',$3,$3,'Baixa cartão TRON')`, [ctaIc, credito, idlote]);
+          for (const e of extras) {
+            await pgIc.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, idorigem, idlote, historico)
+                              VALUES ($1,1,$2,'D','BXCARTAO',$3,$3,'Saída do mesmo lote')`, [ctaIc, e, idlote]);
+          }
+          return ids;
+        };
+
+        // LOTE 88801: dois cartões. O primeiro tem taxa (3,00) e outras despesas (1,00); o segundo é limpo.
+        // Líquido = (100−3−1) + 50 = 146,00 — e é exatamente o que entrou na conta.
+        // Duas saídas NEGATIVAS no mesmo lote provam o `AND M.VALOR > 0` (`:301`): elas não somam nada.
+        const l1 = await semearLote(88801, [{ valor: 100, taxa: 3, od: 1 }, { valor: 50, taxa: 0, od: 0 }], 146.0, [-3.0, -1.0]);
+
+        const pend = (await (await fetch(`${base}/${IC}/pendentes?dataIni=2035-04-01&dataFim=2035-04-30`, { headers: H })).json().catch(() => ([]))) as any[];
+        const p1 = (pend ?? []).find((p: any) => Number(p.idlote) === 88801);
+        check('TRON §92.1 (GetSQLCartaoBXLotes :255): a prévia lista os lotes com cartão LIBERADO e ainda não contabilizado, com o LÍQUIDO do lote — `VALOR − VALOR_TAXA_PAGA − VALOR_OUTRAS_DESPESAS_PAGA` (:227), 146,00 nos dois cartões',
+          Array.isArray(pend) && !!p1 && Number(p1.cartoes) === 2 && Math.abs(Number(p1.total_liquido) - 146) < 0.005,
+          { pendentes: pend });
+
+        const int1 = await fetch(`${base}/${IC}`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-04-01', dataFim: '2035-04-30' }) });
+        const int1J = (await int1.json().catch(() => ({}))) as any;
+        const d51 = (await pgIc.query(`SELECT contadebito, contacredito, valor::float8 v, codhist, codlote, idorigem, documento, complemento FROM diario WHERE codorigem=51 AND idorigem = ANY($1) ORDER BY coddiario`, [l1])).rows as any[];
+        check('TRON §92.2 [o FORMATO do lançamento] — situação 893, cujas pernas têm CODHISTORICO DIFERENTE (94 débito / 95 crédito): o legado grava DUAS linhas de UM LADO SÓ, no MESMO lote contábil, cada uma com o seu histórico. Prova no razão do cliente: 15.700 só-débito + 15.700 só-crédito e ZERO balanceadas. Valor = o líquido do lote (146,00), um lançamento por LOTE (não por cartão)',
+          int1.status === 200 && Number(int1J.lotes) === 1 && d51.length === 2
+          && d51[0].contadebito === 542 && d51[0].contacredito === null && Number(d51[0].codhist) === 94
+          && d51[1].contadebito === null && d51[1].contacredito === 213 && Number(d51[1].codhist) === 95
+          && Math.abs(d51[0].v - 146) < 0.005 && Math.abs(d51[1].v - 146) < 0.005
+          && Number(d51[0].codlote) === Number(d51[1].codlote) && String(d51[0].documento) === String(d51[0].idorigem),
+          { resp: int1J, linhas: d51 });
+
+        const d61 = (await pgIc.query(`SELECT contadebito, contacredito, valor::float8 v, codhist, idorigem FROM diario WHERE codorigem=61 AND idorigem = ANY($1)`, [l1])).rows as any[];
+        const d62 = (await pgIc.query(`SELECT contadebito, contacredito, valor::float8 v, codhist, idorigem FROM diario WHERE codorigem=62 AND idorigem = ANY($1)`, [l1])).rows as any[];
+        check('TRON §92.3 [o outro FORMATO + a perna AUTOMÁTICA]: taxa (61/895) e outras despesas (62/894) têm o MESMO histórico nas duas pernas (96) ⇒ UMA linha balanceada cada, por CARTÃO e só quando o valor não é zero (o segundo cartão não gera nenhuma). A conta de crédito da 895 é AUTOMÁTICA: sai do CODLANCCONTABIL (213) da conta bancária da forma de pagamento — no cliente bate em 1.200.523 de 1.200.523 linhas',
+          d61.length === 1 && d62.length === 1
+          && d61[0].contadebito === 555 && d61[0].contacredito === 213 && Math.abs(d61[0].v - 3) < 0.005 && Number(d61[0].codhist) === 96
+          && d62[0].contadebito === 555 && d62[0].contacredito === 213 && Math.abs(d62[0].v - 1) < 0.005
+          && Number(d61[0].idorigem) === l1[0] && Number(d62[0].idorigem) === l1[0],
+          { taxa: d61, outras: d62 });
+
+        const marc = (await pgIc.query(`SELECT (SELECT count(*)::int FROM cartao WHERE idlote=88801 AND contabilizado='S') c,
+                                               (SELECT count(*)::int FROM mov_contas_bancarias WHERE idlote=88801 AND contabilizado='S') m,
+                                               (SELECT count(*)::int FROM mov_contas_bancarias WHERE idlote=88801 AND contabilizado IS NULL) mn`)).rows[0] as any;
+        const int2 = (await (await fetch(`${base}/${IC}`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-04-01', dataFim: '2035-04-30' }) })).json().catch(() => ({}))) as any;
+        check('TRON §92.4 (:377-389): fechado o lançamento, os cartões e a movimentação do lote viram CONTABILIZADO=S — e é isso que torna a integração idempotente: rodar de novo no mesmo período não acha mais nada. As duas saídas negativas ficam de fora (não entraram no lançamento, não são marcadas)',
+          Number(marc.c) === 2 && Number(marc.m) === 1 && Number(marc.mn) === 2 && Number(int2.lotes) === 0 && Number(int2.lancamentos) === 0,
+          { marcados: marc, segunda: int2 });
+
+        // ESTORNO por período: apaga as três origens, devolve tudo para não-contabilizado.
+        const est = await fetch(`${base}/${IC}/estornar`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-04-01', dataFim: '2035-04-30' }) });
+        const estJ = (await est.json().catch(() => ({}))) as any;
+        const pos = (await pgIc.query(`SELECT (SELECT count(*)::int FROM diario WHERE codorigem IN (51,61,62) AND idorigem = ANY($1)) d,
+                                              (SELECT count(*)::int FROM cartao WHERE idlote=88801 AND contabilizado IS NULL) c,
+                                              (SELECT count(*)::int FROM mov_contas_bancarias WHERE idlote=88801 AND contabilizado='S') m,
+                                              (SELECT count(*)::int FROM lote_contabil WHERE codorigem IN (51,61,62) AND codempresa=1) l`, [l1])).rows[0] as any;
+        check('TRON §92.5 (Estornar :95-218): o estorno pela TELA vai por PERÍODO (`Codigo = 0` ⇒ `DELETE FROM DIARIO WHERE CODORIGEM IN (51,61,62) AND TRUNC(DATALAN) BETWEEN...`, :195) e desfaz as três origens de uma vez: 4 linhas apagadas, cartões e movimentação de volta a não-contabilizados, sem cabeçalho de lote órfão',
+          est.status === 200 && Number(estJ.linhas) === 4 && Number(estJ.cartoes) === 2
+          && Number(pos.d) === 0 && Number(pos.c) === 2 && Number(pos.m) === 0 && Number(pos.l) === 0,
+          { resp: estJ, depois: pos });
+
+        // BAIXA PARCIAL — o `AjustaValores` e o quirk do cursor. Três cartões de 10,00 (líquido 30,00) mas só
+        // entraram 20,00: o rateio de 3,33 em cada deixa 20,01, e o resíduo de 1 centavo cai no PRIMEIRO.
+        const l2 = await semearLote(88802, [{ valor: 10, taxa: 0, od: 0 }, { valor: 10, taxa: 0, od: 0 }, { valor: 10, taxa: 0, od: 0 }], 20.0);
+        // e um lote em que a soma FECHA (30,00 baixados de 30,00 líquidos): sem rateio, o cursor fica no último.
+        const l2b = await semearLote(88804, [{ valor: 10, taxa: 0, od: 0 }, { valor: 20, taxa: 0, od: 0 }], 30.0);
+        await fetch(`${base}/${IC}`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-04-01', dataFim: '2035-04-30', idlote: 88802 }) });
+        await fetch(`${base}/${IC}`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-04-01', dataFim: '2035-04-30', idlote: 88804 }) });
+        const d51b = (await pgIc.query(`SELECT valor::float8 v, idorigem FROM diario WHERE codorigem=51 AND idorigem = ANY($1) ORDER BY coddiario`, [l2])).rows as any[];
+        const d51c = (await pgIc.query(`SELECT valor::float8 v, idorigem FROM diario WHERE codorigem=51 AND idorigem = ANY($1) ORDER BY coddiario`, [l2b])).rows as any[];
+        check('TRON §92.6 [AjustaValores :24-93 + o quirk do CURSOR]: baixa PARCIAL (líquido 30,00 × 20,00 baixados) — o rateio mexe no dataset em memória, mas o valor do lançamento é o total de ANTES (`Valor := vValor`, :365), 30,00. E o IDORIGEM sai do registro em que o cursor parou: quando sobra resíduo o laço dá `First` e sai no PRIMEIRO cartão; quando a soma FECHA (o outro lote, 30,00 de 30,00) o rateio nem roda e o cursor fica no ÚLTIMO. No razão do cliente: 6.721 lançamentos com o primeiro, 10.105 com o último',
+          d51b.length === 2 && Math.abs(d51b[0].v - 30) < 0.005 && Number(d51b[0].idorigem) === l2[0] && Number(d51b[1].idorigem) === l2[0]
+          && d51c.length === 2 && Math.abs(d51c[0].v - 30) < 0.005 && Number(d51c[0].idorigem) === l2b[l2b.length - 1],
+          { parcial: d51b, cartoes_parcial: l2, exato: d51c, cartoes_exato: l2b });
+
+        // GATE do centro de custo (:423/:463): cartão com taxa e sem CODPLC ⇒ erro, e NADA é gravado.
+        const l3 = await semearLote(88803, [{ valor: 80, taxa: 5, od: 0, plcTaxa: 0 }], 75.0);
+        const err = await fetch(`${base}/${IC}`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-04-01', dataFim: '2035-04-30', idlote: 88803 }) });
+        const errJ = (await err.json().catch(() => ({}))) as any;
+        const nada = (await pgIc.query(`SELECT (SELECT count(*)::int FROM diario WHERE codorigem IN (51,61,62) AND idorigem = ANY($1)) d,
+                                               (SELECT count(*)::int FROM cartao WHERE idlote=88803 AND contabilizado='S') c`, [l3])).rows[0] as any;
+        check('TRON §92.7 (:463): cartão COM taxa e SEM centro de custo derruba a integração inteira — e derruba mesmo quando nenhuma das pernas é automática (o legado exige o centro de custo antes de olhar as contas). Transação única: o lançamento principal do lote, que já tinha passado, não fica gravado. No cliente há 2 cartões nessa situação',
+          err.status >= 400 && String(errJ.code ?? errJ.message ?? '').includes('CENTRO_CUSTO_TAXA_NAO_INFORMADO')
+          && Number(nada.d) === 0 && Number(nada.c) === 0,
+          { status: err.status, resp: errJ, depois: nada });
+
+        // GATE do período (PeriodoFechado :282): a comparação é `<=` sobre CHAVEAMENTO_PERIODO.
+        await pgIc.query(`UPDATE config_integracao_contabil SET chaveamento_periodo='2035-04-30'`);
+        const bloq = await fetch(`${base}/${IC}`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-04-01', dataFim: '2035-04-30', idlote: 88802 }) });
+        const bloqJ = (await bloq.json().catch(() => ({}))) as any;
+        await pgIc.query(`UPDATE config_integracao_contabil SET chaveamento_periodo=NULL`);
+        const liberado = await fetch(`${base}/${IC}/pendentes?dataIni=2035-04-01&dataFim=2035-04-30`, { headers: H });
+        check('TRON §92.8 (PeriodoFechado :282-294): o gate de período da integração NÃO é o fechamento diário nem `periodo_contabil` — é `CONFIG_INTEGRACAO_CONTABIL.CHAVEAMENTO_PERIODO`, e a comparação é `<=` (data final IGUAL ao chaveamento já bloqueia). No cliente o campo está NULL, e nulo não bloqueia nada — como no legado, onde a data nula vira 30/12/1899',
+          bloq.status >= 400 && String(bloqJ.code ?? bloqJ.message ?? '').includes('PERIODO_CONTABIL_CHAVEADO') && liberado.status === 200,
+          { bloqueado: bloqJ, apos_limpar: liberado.status });
+
+        await pgIc.query(`DELETE FROM diario WHERE codorigem IN (51,61,62) AND codempresa=1`);
+        await pgIc.query(`DELETE FROM lote_contabil WHERE codorigem IN (51,61,62) AND codempresa=1`);
+        await pgIc.query(`DELETE FROM mov_contas_bancarias WHERE idlote IN (88801,88802,88803,88804)`);
+        await pgIc.query(`DELETE FROM cartao WHERE idlote IN (88801,88802,88803,88804)`);
+      } finally {
+        await pgIc.end();
+      }
+    }
+
     // ===== §89) LOGIN DUPLICADO (decisão do usuário + mig 173): unicidade PARCIAL e desempate por código ====
     {
       const pgL = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });

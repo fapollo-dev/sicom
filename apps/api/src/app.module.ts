@@ -23,6 +23,8 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // Tenant resolvido nas rotas de domínio + 'auth' (o login precisa do tenantId do header p/ achar o banco;
     // as demais rotas de auth extraem o operador do JWT). /healthz fica livre (infra).
-    consumer.apply(TenantMiddleware).forRoutes('auth', 'cadastro', 'cobranca', 'compras', 'precificacao', 'fiscal', 'operadores', 'relatorios');
+    // ⚠️ prefixo NOVO exige entrada aqui: sem ela o `currentTenant()` estoura TENANT_CONTEXT_MISSING e a rota
+    // devolve 500 — foi o que aconteceu ao abrir 'contabil' (integração contábil do FRMTRON).
+    consumer.apply(TenantMiddleware).forRoutes('auth', 'cadastro', 'cobranca', 'compras', 'precificacao', 'fiscal', 'contabil', 'operadores', 'relatorios');
   }
 }

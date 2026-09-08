@@ -34,6 +34,7 @@ export * from './schema/balanco.schema';
 export * from './schema/inventario-rotativo.schema';
 export * from './schema/scrap.schema';
 export * from './schema/cartao.schema';
+export * from './schema/integracao-contabil.schema';
 export * from './schema/troca.schema';
 export * from './schema/conciliacao.schema';
 export * from './schema/producao.schema';

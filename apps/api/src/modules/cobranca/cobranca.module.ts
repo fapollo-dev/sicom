@@ -21,6 +21,8 @@ import { CnabRemessaController } from './cnab-remessa.controller';
 import { CnabRemessaService } from './cnab-remessa.service';
 import { AdiantamentoFornController } from './adiantamento-forn.controller';
 import { AdiantamentoFornService } from './adiantamento-forn.service';
+import { IntegracaoContabilController } from './integracao-contabil.controller';
+import { CartaoContabilService } from './cartao-contabil.service';
 import { ConfigService } from '../cadastro/config.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { CadastroModule } from '../cadastro/cadastro.module';
@@ -35,12 +37,14 @@ import { CadastroModule } from '../cadastro/cadastro.module';
   // CaixaController (cobranca/caixa) = CAIXA (sessão + movimento manual, corte-1).
   // AdiantamentoFornController (financeiro/adiantamentos) = ADIANTAMENTO A FORNECEDOR/PARCEIRO: movimento na conta
   // corrente + título gerado (areceber no tipo 'D', apagar em 'C'/'E').
-  controllers: [LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController],
+  controllers: [LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController, IntegracaoContabilController],
   providers: [
     LotesCobrancaService, LoteCobrancaRepository,
     AreceberService, AreceberBaixaService, AreceberAgrupamentoService, ApagarService, ApagarBaixaService, ApagarAgrupamentoService,
     CaixaService, CaixaContabilService, CaixaPdvContabilService, CaixaConferenciaService, BaixaContabilService,
     CnabRemessaService, AdiantamentoFornService, ConfigService,
+    // INTEGRAÇÃO CONTÁBIL (FRMTRON) corte-1: baixa de cartões — origens 51 (baixa), 61 (taxa) e 62 (outras despesas).
+    CartaoContabilService,
     DatabaseProvider,
   ],
   exports: [LotesCobrancaService],

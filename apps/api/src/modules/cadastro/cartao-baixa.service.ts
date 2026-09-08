@@ -68,8 +68,11 @@ export class CartaoBaixaService {
         await trx.updateTable('cartao').set({ liberado: 'S', dtbaixa: sql`now()`, idlote, valor_taxa_paga: taxa, usultalteracao: op, dtultimalteracao: sql`now()` }).where('codvendcartao', '=', r.codvendcartao).where('idempresa', '=', emp).execute();
       }
       // crédito do líquido na conta bancária (razão MCB), 1 linha por lote.
+      // `idlote` é a coluna do LEGADO que amarra o crédito ao lote (é por ela que a integração contábil soma o
+      // total baixado do lote — `GetSQLMovimentacao`, `UIntegracaoContabil.pas:1979`). `origem`/`idorigem`
+      // continuam sendo a chave do nosso estorno.
       await trx.insertInto('mov_contas_bancarias').values({
-        codconta: dto.codconta, idempresa: emp, valor: totalLiq, tipomovimento: 'C', origem: 'BXCARTAO', idorigem: idlote,
+        codconta: dto.codconta, idempresa: emp, valor: totalLiq, tipomovimento: 'C', origem: 'BXCARTAO', idorigem: idlote, idlote,
         historico: `Baixa de cartão — lote ${idlote} (${abertos.length} recebível(is), taxa ${totalTaxa})`,
         codoperador: op, data_fechamento: sql`now()`, dtcadastro: sql`now()`,
       }).execute();
