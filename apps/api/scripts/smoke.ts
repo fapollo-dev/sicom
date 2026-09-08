@@ -9818,6 +9818,155 @@ async function main() {
       }
     }
 
+    // ===== §94) INTEGRAÇÃO CONTÁBIL (FRMTRON) corte-3 — os lançamentos POR DOCUMENTO: cadastro de CP (13) e
+    // CR (14), transferências (19), adiantamento (63), movimentação de caixa (64) e convênio (65). O que muda
+    // aqui é que a SITUAÇÃO vem de cada documento, não da configuração — no razão do cliente a origem 13
+    // aparece com 37 situações distintas e a 64 com 21. ====
+    {
+      const IC = 'contabil/integracao/documento';
+      const pgDc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const ctaA = Number((await pgDc.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular, codlanccontabil) VALUES (0,1,'CC ORIGEM DOC',186) RETURNING codconta`)).rows[0].codconta);
+        const ctaB = Number((await pgDc.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular, codlanccontabil) VALUES (0,1,'CC DESTINO DOC',213) RETURNING codconta`)).rows[0].codconta);
+        await pgDc.query(`INSERT INTO plc (codplc, desccodplc, descricao, codpai, nivelconta, codcontabil) VALUES
+            (9721,'4.11.001','GASTOS COM PESSOAL CC',NULL,3,384) ON CONFLICT (codplc) DO NOTHING`);
+        await pgDc.query(`UPDATE parceiros SET codcontabil_for='11141' WHERE codparceiro=2`);
+        await pgDc.query(`UPDATE parceiros SET codcontabil='211' WHERE codparceiro=22 AND codcontabil IS NULL`);
+
+        // ── CP (13): título com rateio de UM centro de custo → linha balanceada; de DOIS → single-legged.
+        const cpUm = Number((await pgDc.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, dtcompra, valor, vendor, desconto, quitada, tipodoc, idsituacao_nf, codgrupo)
+          VALUES (1,2,'DOC-CP1','2035-06-20','2035-06-01',100.00,0,0,'N','DP',586,77801) RETURNING codapg`)).rows[0].codapg);
+        await pgDc.query(`INSERT INTO cx_apagar (codcxapagar, codapg, codcc, valor, codgrupo, tipo) VALUES (9201,$1,9721,100.00,77801,'V')`, [cpUm]);
+        // situação 566: as DUAS pernas automáticas ⇒ o rateio de dois centros de custo vira DOIS débitos.
+        const cpDois = Number((await pgDc.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, dtcompra, valor, vendor, desconto, quitada, tipodoc, idsituacao_nf, codgrupo)
+          VALUES (1,2,'DOC-CP2','2035-06-20','2035-06-01',200.00,0,0,'N','DP',566,77802) RETURNING codapg`)).rows[0].codapg);
+        await pgDc.query(`INSERT INTO cx_apagar (codcxapagar, codapg, codcc, valor, codgrupo, tipo) VALUES
+          (9202,$1,9721,120.00,77802,'V'), (9203,$1,9721,80.00,77802,'V')`, [cpDois]);
+        // situação 586 (débito FIXO) com dois centros de custo: é a forma da 464 no razão do cliente — o
+        // débito continua sendo uma linha só (a conta é fixa), mas o lançamento SE PARTE mesmo assim.
+        const cpFixo = Number((await pgDc.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, dtcompra, valor, vendor, desconto, quitada, tipodoc, idsituacao_nf, codgrupo)
+          VALUES (1,2,'DOC-CP4','2035-06-20','2035-06-01',300.00,0,0,'N','DP',586,77803) RETURNING codapg`)).rows[0].codapg);
+        await pgDc.query(`INSERT INTO cx_apagar (codcxapagar, codapg, codcc, valor, codgrupo, tipo) VALUES
+          (9204,$1,9721,200.00,77803,'V'), (9205,$1,9721,100.00,77803,'V')`, [cpFixo]);
+        // excluído: título gerado por NOTA (IDNF), que tem o caminho contábil da própria nota
+        await pgDc.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, dtcompra, valor, vendor, desconto, quitada, tipodoc, idsituacao_nf, idnf)
+          VALUES (1,2,'DOC-CP3','2035-06-20','2035-06-01',50.00,0,0,'N','DP',586,999)`);
+
+        const intCp = await fetch(`${base}/${IC}/cp`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-06-01', dataFim: '2035-06-30' }) });
+        const intCpJ = (await intCp.json().catch(() => ({}))) as any;
+        const d13 = (await pgDc.query(`SELECT contadebito, contacredito, valor::float8 v, idorigem, codlote FROM diario WHERE codorigem=13 AND datalan='2035-06-01' ORDER BY coddiario`)).rows as any[];
+        const doUm = d13.filter((r) => Number(r.idorigem) === cpUm);
+        const doDois = d13.filter((r) => Number(r.idorigem) === cpDois);
+        const doFixo = d13.filter((r) => Number(r.idorigem) === cpFixo);
+        check('TRON §94.1 [o RATEIO decide o formato]: no cadastro de contas a pagar o crédito é o fornecedor (1 linha) e o débito é o rateio de CX_APAGAR (N linhas). Um centro de custo só ⇒ UMA linha balanceada; dois, com a perna de débito AUTOMÁTICA ⇒ duas de débito e uma de crédito; dois, com a perna de débito FIXA ⇒ o débito continua sendo uma linha só (a conta é fixa) mas o lançamento se PARTE assim mesmo. Esta última é a forma da situação 464 no razão: os 27 títulos com uma linha de rateio saíram balanceados e os 121 com duas saíram single-legged. O título gerado por NOTA (IDNF) fica fora — tem o contábil da própria nota',
+          intCp.status === 200 && Number(intCpJ.documentos) === 3
+          && doUm.length === 1 && doUm[0].contadebito === 384 && doUm[0].contacredito === 11141 && Math.abs(doUm[0].v - 100) < 0.005
+          && doDois.length === 3
+          && doDois.filter((r: any) => r.contacredito === null).length === 2
+          && doDois.filter((r: any) => r.contadebito === null).length === 1
+          && Math.abs(doDois.find((r: any) => r.contadebito === null).v - 200) < 0.005
+          && new Set(doDois.map((r: any) => Number(r.codlote))).size === 1
+          && doFixo.length === 2 && Math.abs(doFixo[0].v - 300) < 0.005 && doFixo[0].contadebito === 384 && doFixo[0].contacredito === null,
+          { resp: intCpJ, umCC: doUm, doisCC: doDois, fixoComDoisCC: doFixo });
+
+        // ── CR (14): débito no cliente, crédito no centro de custo do recebível
+        const crDoc = Number((await pgDc.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenc, dtvenda, valor, quitada, tipodoc, idsituacao_nf, codplc)
+          VALUES (1,22,'DOC-CR1','2035-06-25','2035-06-02',300.00,'N','DP',3140,9721) RETURNING codrcb`)).rows[0].codrcb);
+        const intCr = await fetch(`${base}/${IC}/cr`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-06-01', dataFim: '2035-06-30' }) });
+        const d14 = (await pgDc.query(`SELECT contadebito, contacredito, valor::float8 v, idorigem, codhist FROM diario WHERE codorigem=14 AND datalan='2035-06-02'`)).rows as any[];
+        check('TRON §94.2: no cadastro de contas a receber o DÉBITO é o cliente (PARCEIROS.CODCONTABIL) e o CRÉDITO é a conta do centro de custo do recebível (ARECEBER.CODPLC → PLC.CODCONTABIL) — uma linha de cada lado, sempre balanceada, como as 6.711 linhas da origem 14 no cliente',
+          intCr.status === 200 && d14.length === 1 && d14[0].contadebito === 211 && d14[0].contacredito === 384
+          && Math.abs(d14[0].v - 300) < 0.005 && Number(d14[0].idorigem) === crDoc && Number(d14[0].codhist) === 89,
+          { linhas: d14 });
+
+        // ── TRANSF (19): o par vem do LOTE — o movimento de crédito é a conta que recebeu
+        await pgDc.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, idorigem, idlote, historico, nrodocumento, dtemissao) VALUES
+          ($1,1, 500.00,'C','TRANSF',88821,88821,'Transferência entrada','TRANSFERENCIA 1','2035-06-05'),
+          ($2,1,-500.00,'D','TRANSF',88821,88821,'Transferência saída','TRANSFERENCIA 1','2035-06-05')`, [ctaB, ctaA]);
+        const intTr = await fetch(`${base}/${IC}/transf`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-06-01', dataFim: '2035-06-30' }) });
+        const d19 = (await pgDc.query(`SELECT contadebito, contacredito, valor::float8 v, complemento, codhist FROM diario WHERE codorigem=19 AND datalan='2035-06-05'`)).rows as any[];
+        const mcbTr = Number((await pgDc.query(`SELECT count(*)::int n FROM mov_contas_bancarias WHERE idlote=88821 AND contabilizado='S'`)).rows[0].n);
+        check('TRON §94.3: a transferência entre contas é reconhecida por NRODOCUMENTO LIKE \'%TRANSFERENCIA%\' (`:4304`, 37.572 linhas no cliente) e o par sai do LOTE — a movimentação de CRÉDITO é a conta que recebeu (débito contábil, 213) e a de DÉBITO do mesmo lote é a que enviou (crédito contábil, 186). Uma linha balanceada, complemento = o lote, e as DUAS pontas ficam contabilizadas (`:4381`). São 17.581 linhas no razão, todas balanceadas',
+          intTr.status === 200 && d19.length === 1 && d19[0].contadebito === 213 && d19[0].contacredito === 186
+          && Math.abs(d19[0].v - 500) < 0.005 && String(d19[0].complemento) === '88821' && Number(d19[0].codhist) === 86 && mcbTr === 2,
+          { linhas: d19, movimentacoes: mcbTr });
+
+        // ── CAIXA (64): o SINAL do valor decide o lado
+        await pgDc.query(`INSERT INTO caixa (codcx, data, valor, codplc, idempresa, tiporecurso, obs, origem, idsituacao_nf, codconta) VALUES
+          (990401,'2035-06-07 10:00:00-03', 250.00,9721,1,'D','ENTRADA DOC','RET',566,$1),
+          (990402,'2035-06-07 11:00:00-03',-150.00,9721,1,'D','SAIDA DOC','RET',566,$1)`, [ctaA]);
+        const intCx = await fetch(`${base}/${IC}/caixa`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-06-01', dataFim: '2035-06-30' }) });
+        const d64 = (await pgDc.query(`SELECT contadebito, contacredito, valor::float8 v, idorigem FROM diario WHERE codorigem=64 AND datalan='2035-06-07' ORDER BY idorigem`)).rows as any[];
+        check('TRON §94.4 [o SINAL escolhe o lado]: na movimentação de caixa um lado é a conta bancária e o outro o centro de custo, e é o sinal do valor que decide (`:2706`) — entrada põe o banco no DÉBITO e o centro de custo no crédito, saída inverte. Usa a situação 566 DESPESAS BANCARIAS, que é do cliente e tem as duas pernas automáticas (com uma perna FIXA a conta da IIC venceria o dataset, e é isso que acontece na 586). O valor lançado é sempre o absoluto (150,00, não −150,00)',
+          intCx.status === 200 && d64.length === 2
+          && d64[0].contadebito === 186 && d64[0].contacredito === 384 && Math.abs(d64[0].v - 250) < 0.005
+          && d64[1].contadebito === 384 && d64[1].contacredito === 186 && Math.abs(d64[1].v - 150) < 0.005,
+          { linhas: d64 });
+
+        // ── ADTO (63): o TIPO escolhe o lado
+        // situação 1012 RECEBIMENTO: as duas pernas automáticas, para o TIPO poder de fato escolher o lado
+        // (na 1011 o débito é FIXO na 230 ADIANTAMENTOS e a conta da IIC venceria o dataset).
+        await pgDc.query(`INSERT INTO adiantamento_forn (codadiantamento, idempresa, codparceiro, valor, dtadiantamento, dtvencimento, tipo, codcontacorrente, idsituacao_nf, codmovconta) VALUES
+          (990411,1,2,400.00,'2035-06-09','2035-06-30','C',$1,1012,0),
+          (990412,1,2,250.00,'2035-06-09','2035-06-30','D',$1,1012,0)`, [ctaA]);
+        const intAd = await fetch(`${base}/${IC}/adto`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-06-01', dataFim: '2035-06-30' }) });
+        const d63 = (await pgDc.query(`SELECT contadebito, contacredito, valor::float8 v, idorigem FROM diario WHERE codorigem=63 AND datalan='2035-06-09' ORDER BY idorigem`)).rows as any[];
+        check('TRON §94.5: no adiantamento o TIPO decide o lado (`:2972`) — o tipo C põe o parceiro no crédito e o banco no débito, e qualquer outro tipo inverte. A conta do parceiro é a de CLIENTE e só na falta dela a de FORNECEDOR (`GetSQLParceiro` :2881); o parceiro 2 não tem conta de cliente, então cai na 11141. A situação usada é a 1012, com as duas pernas automáticas — na 1011 o débito é FIXO na 230 e a conta da IIC venceria o dataset',
+          intAd.status === 200 && d63.length === 2
+          && d63[0].contadebito === 186 && d63[0].contacredito === 11141 && Math.abs(d63[0].v - 400) < 0.005
+          && d63[1].contadebito === 11141 && d63[1].contacredito === 186 && Math.abs(d63[1].v - 250) < 0.005,
+          { linhas: d63 });
+
+        // ── CONVENIO (65): 1 débito + N créditos, o formato mais desigual do razão
+        const apgConv = Number((await pgDc.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, dtcompra, valor, vendor, quitada, tipodoc, codgrupo)
+          VALUES (1,2,'DOC-CONV','2035-06-30','2035-06-10',90.00,0,'N','DP',77810) RETURNING codapg`)).rows[0].codapg);
+        // o título do convênio é AGRUPADO: é assim que o legado o mantém fora do cadastro de CP (`:1240`)
+        await pgDc.query(`UPDATE apagar SET agrupamento='S' WHERE codapg=$1`, [apgConv]);
+        for (const [dup, v] of [['CONV-1', 50.0], ['CONV-2', 40.0]] as Array<[string, number]>) {
+          await pgDc.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenc, dtvenda, valor, quitada, tipodoc, codgrupo_agrupamento_apg, data_agrupamento)
+            VALUES (1,22,$1,'2035-06-30','2035-06-10',$2,'N','DP',77810,'2035-06-10')`, [dup, v]);
+        }
+        const intCv = await fetch(`${base}/${IC}/convenio`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-06-01', dataFim: '2035-06-30' }) });
+        const d65 = (await pgDc.query(`SELECT contadebito, contacredito, valor::float8 v, complemento, codhist, codlote FROM diario WHERE codorigem=65 AND datalan='2035-06-10' ORDER BY coddiario`)).rows as any[];
+        const flags = (await pgDc.query(`SELECT (SELECT count(*)::int FROM areceber WHERE codgrupo_agrupamento_apg=77810 AND contabilizado_agrupamento='S') r,
+                                                (SELECT count(*)::int FROM apagar WHERE codgrupo=77810 AND contabilizado_agrupamento='S') a`)).rows[0] as any;
+        check('TRON §94.6 [o formato mais desigual do razão]: o agrupamento de convênio lança por GRUPO — 1 débito fixo (219 ADIANTAMENTO DE SALÁRIOS, a conta a pagar da conveniada) e UM CRÉDITO POR RECEBÍVEL, porque a situação 910 tem histórico diferente por perna (104/105). No cliente são 15.089 linhas só-crédito contra 30 só-débito, em 30 grupos. O flag é próprio (CONTABILIZADO_AGRUPAMENTO), não o do título',
+          intCv.status === 200 && d65.length === 3
+          && d65.filter((r: any) => r.contacredito === null).length === 1
+          && d65.filter((r: any) => r.contadebito === null).length === 2
+          && d65.find((r: any) => r.contacredito === null).contadebito === 219
+          && d65.filter((r: any) => r.contadebito === null).every((r: any) => r.contacredito === 211 && Number(r.codhist) === 105)
+          && d65.every((r: any) => String(r.complemento) === '77810')
+          && new Set(d65.map((r: any) => Number(r.codlote))).size === 1
+          && Number(flags.r) === 2 && Number(flags.a) === 1,
+          { linhas: d65, flags });
+
+        // ── idempotência e estorno
+        const reCp = (await (await fetch(`${base}/${IC}/cp`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-06-01', dataFim: '2035-06-30' }) })).json().catch(() => ({}))) as any;
+        const estCx = await fetch(`${base}/${IC}/caixa/estornar`, { method: 'POST', headers: H, body: JSON.stringify({ dataIni: '2035-06-01', dataFim: '2035-06-30' }) });
+        const estCxJ = (await estCx.json().catch(() => ({}))) as any;
+        const posCx = (await pgDc.query(`SELECT (SELECT count(*)::int FROM diario WHERE codorigem=64 AND datalan='2035-06-07') d,
+                                                (SELECT count(*)::int FROM caixa WHERE codcx IN (990401,990402) AND contabilizado IS NULL) c,
+                                                (SELECT count(*)::int FROM diario WHERE codorigem=13 AND datalan='2035-06-01') cp`)).rows[0] as any;
+        check('TRON §94.7: cada origem marca o seu documento como contabilizado, o que torna a rodada idempotente (o CP não reprocessa), e o estorno por período apaga só a SUA origem — o caixa some e o cadastro de contas a pagar, que é outra origem no mesmo intervalo, fica intacto',
+          Number(reCp.documentos) === 0 && estCx.status === 200 && Number(estCxJ.documentos) === 2
+          && Number(posCx.d) === 0 && Number(posCx.c) === 2 && Number(posCx.cp) === 6,
+          { reintegrar: reCp, estorno: estCxJ, depois: posCx });
+
+        await pgDc.query(`DELETE FROM diario WHERE codorigem IN (13,14,19,63,64,65) AND datalan BETWEEN '2035-06-01' AND '2035-06-30'`);
+        await pgDc.query(`DELETE FROM lote_contabil WHERE codorigem IN (13,14,19,63,64,65) AND datalote BETWEEN '2035-06-01' AND '2035-06-30'`);
+        await pgDc.query(`DELETE FROM caixa WHERE codcx IN (990401,990402)`);
+        await pgDc.query(`DELETE FROM adiantamento_forn WHERE codadiantamento IN (990411,990412)`);
+        await pgDc.query(`DELETE FROM mov_contas_bancarias WHERE idlote=88821`);
+        await pgDc.query(`DELETE FROM cx_apagar WHERE codcxapagar IN (9201,9202,9203,9204,9205)`);
+        await pgDc.query(`DELETE FROM areceber WHERE codgrupo_agrupamento_apg=77810 OR codrcb=$1`, [crDoc]);
+        await pgDc.query(`DELETE FROM apagar WHERE codgrupo IN (77801,77802,77803,77810) OR codapg=$1`, [apgConv]);
+        await pgDc.query(`DELETE FROM apagar WHERE duplicata='DOC-CP3'`);
+      } finally {
+        await pgDc.end();
+      }
+    }
+
     // ===== §89) LOGIN DUPLICADO (decisão do usuário + mig 173): unicidade PARCIAL e desempate por código ====
     {
       const pgL = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });

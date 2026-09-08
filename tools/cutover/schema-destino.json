@@ -1236,6 +1236,48 @@
      "escala": 0,
      "nulo": true,
      "default": null
+    },
+    "codgrupo": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtcompra": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "desconto": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "agrupamento": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codapg_pai": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "contabilizado_agrupamento": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -2174,6 +2216,27 @@
      "tipo": "integer",
      "tam": 32,
      "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "agrupamento": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codgrupo_agrupamento_apg": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "contabilizado_agrupamento": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
      "nulo": true,
      "default": null
     }
@@ -14440,6 +14503,20 @@
      "tipo": "integer",
      "tam": 32,
      "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtemissao": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "nrodocumento": {
+     "tipo": "character varying",
+     "tam": 30,
+     "escala": null,
      "nulo": true,
      "default": null
     }

@@ -62,10 +62,13 @@ const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
  *    **5.417 só-crédito** (uma por movimentação bancária). Na baixa de cartão as duas pernas são fixas e por
  *    isso sai exatamente uma de cada.
  *
- * 2. **O FORMATO** — pernas com o MESMO `CODHISTORICO` (e mesma contagem de linhas) casam numa linha
- *    balanceada; com histórico DIFERENTE saem separadas, cada uma com um lado só e o seu histórico. Medido:
- *    894 (hist 96/96) → 110.053 balanceadas e zero single; 895 (96/96) → 1.200.524 e zero; 893 (**94/95**) →
- *    15.700 só-débito + 15.700 só-crédito e ZERO balanceadas; 2009 (92/93) e 2004 (91/221), 100% single.
+ * 2. **O FORMATO** — as duas pernas casam numa linha balanceada quando têm o MESMO `CODHISTORICO` **e**
+ *    nenhum dos datasets tem mais de um registro; caso contrário saem separadas, cada uma com um lado só e o
+ *    seu histórico. Medido: 894 (hist 96/96) → 110.053 balanceadas e zero single; 895 (96/96) → 1.200.524 e
+ *    zero; 893 (**94/95**) → 15.700 só-débito + 15.700 só-crédito e ZERO balanceadas; 2009 (92/93) e 2004
+ *    (91/221), 100% single. E a prova de que o dataset importa mesmo com histórico igual está na situação
+ *    **464** (as duas pernas FIXAS, hist 103/103) no cadastro de contas a pagar: os 27 títulos com UMA linha
+ *    de rateio saíram balanceados e os 121 com DUAS saíram como um só-débito mais um só-crédito.
  *
  * 3. **A SUBSTITUIÇÃO é coluna a coluna** — o registro do dataset manda na conta (`CODPLANOCONTAS`), no valor,
  *    no `IDORIGEM`, no `DOCUMENTO` e no `COMPLEMENTO`; onde o dataset não tem a coluna, vale o parâmetro.
@@ -114,8 +117,11 @@ export async function lancarNoDiario(trx: AnyDB, l: LancamentoContabil): Promise
     codlote,
   });
 
-  // regra 2: mesmo histórico e mesma contagem ⇒ as duas pernas casam na mesma linha.
-  if (d.codhistorico === c.codhistorico && linhasD.length === linhasC.length) {
+  // regra 2: as duas pernas casam numa linha só quando têm o mesmo histórico E não há ambiguidade de quem
+  // casa com quem — ou seja, quando nenhum dos dois datasets tem mais de um registro. Basta um deles ter dois
+  // e o lançamento se parte, mesmo que a perna seja FIXA e continue rendendo uma linha só.
+  const semAmbiguidade = l.dataSetD.length <= 1 && l.dataSetC.length <= 1;
+  if (d.codhistorico === c.codhistorico && semAmbiguidade) {
     for (let i = 0; i < linhasD.length; i += 1) {
       const regD = linhasD[i];
       const regC = linhasC[i];

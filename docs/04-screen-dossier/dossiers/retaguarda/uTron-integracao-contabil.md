@@ -126,8 +126,7 @@ do cliente cruzadas com a `ITENS_INTEGRACAO_CONTABIL`. Duas regras, as duas medi
 
 ### 5.4 O que fica para os próximos cortes
 
-Corte-3: cadastros de CP e CR (13/14), transferências (19), movimentação de caixa (64), adiantamento (63) e
-agrupamento de convênio (65).
+*(fechado no corte-3, seção 7.)*
 
 ## 6. Corte-2 ENTREGUE — baixas de A PAGAR e A RECEBER (`mig 200`, smoke §93, 1067/0)
 
@@ -187,3 +186,62 @@ lê o valor de HOJE. Não é divergência de regra: o documento bate em 100% e o
 - Convivência com o auto-disparo: sem dupla contagem, os dois filtram `CONTABILIZADO = 'N'`. No legado só
   existe o caminho do TRON.
 - Pendente no cliente hoje: **2.893 baixas de A PAGAR e 377 de A RECEBER**.
+
+## 7. Corte-3 ENTREGUE — os lançamentos por DOCUMENTO (`mig 201`, smoke §94, 1074/0)
+
+Cadastro de contas a pagar (13) e a receber (14), transferências entre contas (19), adiantamento a parceiros
+(63), movimentação de caixa (64) e agrupamento de convênio (65). **A integração contábil está completa** —
+fora ficam só NFC-e (67, PDV), Redução Z (18, sem dado) e importação (66, que grava sem `CODOPERACAO` e
+precisa de recon próprio).
+
+### 7.1 O que muda em relação aos cortes 1 e 2
+
+**A situação vem de cada documento** (`IDSITUACAO_NF`), não da configuração — por isso a origem 13 aparece no
+razão com 37 situações distintas e a 64 com 21. Só a transferência (2020) e o convênio (910) são fixos na
+config. E o cadastro de CP pode ter a situação TROCADA pela origem do título: recarga, voucher,
+correspondente e troco solidário têm cada um a sua (`:1320-1327`).
+
+### 7.2 A regra do motor que faltava
+
+O corte-3 fechou a última ambiguidade do formato: **o pareamento numa linha balanceada exige que NENHUM dos
+dois datasets tenha mais de um registro**, além do histórico igual. Não basta contar as linhas emitidas — a
+prova está na situação **464** (as duas pernas FIXAS, hist 103/103) no cadastro de contas a pagar: os 27
+títulos com UMA linha de rateio saíram balanceados e os 121 com DUAS saíram como um só-débito mais um
+só-crédito, embora o débito continue sendo uma linha só porque a conta é fixa.
+
+Com isso o motor reproduz as sete formas que o razão do cliente mostra, e todas as exceções que eu havia
+listado como "fora do padrão" no corte-1 (464, 500, 1190, 463, 11) passaram a ser explicadas pela regra.
+
+### 7.3 O que o corte-3 entregou
+
+- **`apagar.codgrupo`, `dtcompra` e `desconto`** — ~100% preenchidas no cliente (54.869 / 54.865 / 54.265 de
+  54.872) e **nenhuma entrava na carga**. `codgrupo` é o que liga o título ao rateio de `CX_APAGAR`, e
+  `dtcompra` é a data do lançamento.
+- **`mov_contas_bancarias.dtemissao` (289.813, 100%) e `nrodocumento` (120.769)** — também fora da carga, e
+  sem elas a origem 19, a terceira maior do razão, não teria como ser encontrada (é `NRODOCUMENTO LIKE
+  '%TRANSFERENCIA%'`, 37.572 linhas).
+- `agrupamento`, `codapg_pai`, `contabilizado_agrupamento` em `apagar`; `agrupamento`,
+  `codgrupo_agrupamento_apg`, `contabilizado_agrupamento` em `areceber`.
+- As seis origens, com estorno por período em cada uma.
+
+### 7.4 As seis formas, uma a uma
+
+| origem | lançamento | quem manda no lado |
+|---|---|---|
+| 13 CP | crédito = fornecedor (1) · débito = rateio de `CX_APAGAR` (N) | o rateio decide o formato; sem centro de custo o débito **tem** de ser conta fixa (`:1393`) |
+| 14 CR | débito = cliente · crédito = centro de custo do recebível | sempre balanceado (6.711 linhas, zero single) |
+| 19 transferência | débito = conta que recebeu · crédito = conta que enviou | o par vem do LOTE; as duas pontas são marcadas juntas |
+| 63 adiantamento | banco × parceiro | o **TIPO** ('C' põe o parceiro no crédito) |
+| 64 caixa | banco × centro de custo | o **SINAL** do valor (o lançado é sempre o absoluto) |
+| 65 convênio | 1 débito fixo + 1 crédito por recebível | o formato mais desigual: 15.089 só-crédito × 30 só-débito em 30 grupos |
+
+### 7.5 Achados
+
+- O **índice de rateio** do CP (`:1357-1377`): quando a soma de `CX_APAGAR` não fecha com o valor do título,
+  cada linha é multiplicada por `valor / soma`. Copiado.
+- Cinco exclusões no cadastro de CP, cada uma com o seu próprio caminho contábil: agrupado, adiantamento a
+  fornecedor, origem 'B' (boleto), título-filho e título gerado por nota (`IDNF`).
+- O convênio usa **flag próprio** (`CONTABILIZADO_AGRUPAMENTO`), que convive com o `CONTABILIZADO` do título —
+  o mesmo recebível pode estar contabilizado por uma origem e não pela outra.
+- **Quando a perna é FIXA, a conta da IIC vence o dataset.** Vale para todas as origens e é o que explica, por
+  exemplo, o débito do caixa cair na conta fixa quando a situação é a 586 em vez de sair da conta bancária.

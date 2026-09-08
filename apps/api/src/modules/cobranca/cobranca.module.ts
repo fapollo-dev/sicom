@@ -24,6 +24,7 @@ import { AdiantamentoFornService } from './adiantamento-forn.service';
 import { IntegracaoContabilController } from './integracao-contabil.controller';
 import { CartaoContabilService } from './cartao-contabil.service';
 import { BaixaTronContabilService } from './baixa-tron-contabil.service';
+import { DocumentosContabilService } from './documentos-contabil.service';
 import { ConfigService } from '../cadastro/config.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { CadastroModule } from '../cadastro/cadastro.module';
@@ -45,7 +46,7 @@ import { CadastroModule } from '../cadastro/cadastro.module';
     CaixaService, CaixaContabilService, CaixaPdvContabilService, CaixaConferenciaService, BaixaContabilService,
     CnabRemessaService, AdiantamentoFornService, ConfigService,
     // INTEGRAÇÃO CONTÁBIL (FRMTRON) corte-1: baixa de cartões — origens 51 (baixa), 61 (taxa) e 62 (outras despesas).
-    CartaoContabilService, BaixaTronContabilService,
+    CartaoContabilService, BaixaTronContabilService, DocumentosContabilService,
     DatabaseProvider,
   ],
   exports: [LotesCobrancaService],
