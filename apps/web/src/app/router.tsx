@@ -33,6 +33,7 @@ import { PerfilCadMaster } from '../features/perfil/PerfilCadMaster';
 import { CtrlPermissoesPage } from '../features/perfil/CtrlPermissoesPage';
 import { FechamentoDiarioPage } from '../features/fechamento-diario/FechamentoDiarioPage';
 import { IntegracaoContabilPage } from '../features/integracao-contabil/IntegracaoContabilPage';
+import { RelatoriosPage } from '../features/relatorio-construtor/RelatoriosPage';
 import { EmpresasCadMaster } from '../features/empresas/EmpresasCadMaster';
 import { AjusteEstoquePage } from '../features/ajuste-estoque/AjusteEstoquePage';
 import { InventarioPage } from '../features/inventario/InventarioPage';
@@ -159,6 +160,7 @@ export const router = createBrowserRouter([
       { path: '/cadastro/permissoes', element: <CtrlPermissoesPage /> }, // FRMCTRLPERMISSOES — por OPERADOR (o modo do cliente)
       { path: '/cadastro/fechamento-diario', element: <FechamentoDiarioPage /> }, // FRMFECHAMENTODIARIO
       { path: '/contabil/integracao', element: <IntegracaoContabilPage /> }, // FRMTRON — integração contábil
+      { path: '/relatorios/construtor', element: <RelatoriosPage /> }, // FRMRELATORIO — relatórios do cliente
       { path: '/cadastro/configuracoes', element: <ConfiguracoesPage /> }, // configurações (UConfigura): chave-valor por empresa
     ],
   },

@@ -34,3 +34,61 @@ export const integracaoDocumentoSchema = z
   })
   .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
 export type IntegracaoDocumentoDto = z.infer<typeof integracaoDocumentoSchema>;
+
+/**
+ * CONSTRUTOR DE RELATÓRIOS (`FRMRELATORIO`) — a definição, campo a campo como no XML do legado.
+ * O que o cliente monta: fonte, colunas (simples ou calculadas) com título/largura/ordem/total, condições e
+ * ordenação. Os NOMES de campo são conferidos no servidor contra a fonte real — aqui só se valida a forma.
+ */
+const campoSql = z.string().min(1).max(63).regex(/^[a-z_][a-z0-9_]*$/i, 'Nome de campo inválido.');
+
+export const colunaRelatorioSchema = z.object({
+  campo: campoSql.optional(),
+  calculado: z.object({
+    campo1: campoSql,
+    operacao: z.enum(['+', '-', '*', '/']),
+    campo2: campoSql,
+  }).optional(),
+  titulo: z.string().max(80).optional(),
+  largura: z.coerce.number().int().min(1).max(200).optional(),
+  posicao: z.coerce.number().int().min(0).max(999).optional(),
+  totalizar: z.boolean().optional(),
+  formato: z.enum(['texto', 'moeda', 'data', 'numero']).optional(),
+}).refine((c) => !!c.campo !== !!c.calculado, { message: 'Informe um campo OU uma coluna calculada.' });
+
+export const condicaoRelatorioSchema = z.object({
+  campo: campoSql,
+  operador: z.enum(['=', '<>', '>', '>=', '<', '<=', 'contem', 'comeca', 'entre', 'vazio', 'preenchido']),
+  valor: z.unknown().optional(),
+});
+
+export const definicaoRelatorioSchema = z.object({
+  titulo: z.string().max(120).optional(),
+  paisagem: z.boolean().optional(),
+  agruparPor: campoSql.optional(),
+  somenteAgrupamento: z.boolean().optional(),
+  quebraPagina: z.boolean().optional(),
+  colunas: z.array(colunaRelatorioSchema).min(1, 'Escolha ao menos uma coluna.').max(60),
+  condicoes: z.array(condicaoRelatorioSchema).max(20).optional(),
+  ordem: z.array(z.object({ campo: campoSql, direcao: z.enum(['asc', 'desc']).optional() })).max(6).optional(),
+});
+export type DefinicaoRelatorioDto = z.infer<typeof definicaoRelatorioSchema>;
+
+export const salvarRelatorioSchema = z.object({
+  codrelatoriodef: z.coerce.number().int().positive().nullish(),
+  nome: z.string().min(1, 'Informe o nome do relatório.').max(120),
+  fonte: campoSql,
+  definicao: definicaoRelatorioSchema,
+});
+export type SalvarRelatorioDto = z.infer<typeof salvarRelatorioSchema>;
+
+export const executarRelatorioSchema = z.object({
+  codrelatoriodef: z.coerce.number().int().positive().nullish(),
+  fonte: campoSql.optional(),
+  definicao: definicaoRelatorioSchema.optional(),
+  filtros: z.array(condicaoRelatorioSchema).max(20).optional(),
+  limite: z.coerce.number().int().min(1).max(20000).optional(),
+}).refine((v) => !!v.codrelatoriodef || (!!v.fonte && !!v.definicao), {
+  message: 'Informe o relatório salvo ou a fonte e a definição.',
+});
+export type ExecutarRelatorioDto = z.infer<typeof executarRelatorioSchema>;

@@ -940,12 +940,12 @@
    ],
    "fks": [
     {
-     "coluna": "apn_id",
-     "ref": "analise_pedido_nf.apn_id"
-    },
-    {
      "coluna": "codpedcomp",
      "ref": "pedidocompra.codpedcomp"
+    },
+    {
+     "coluna": "apn_id",
+     "ref": "analise_pedido_nf.apn_id"
     }
    ],
    "unicos": [
@@ -4364,12 +4364,12 @@
    ],
    "fks": [
     {
-     "coluna": "codfor",
-     "ref": "parceiros.codparceiro"
-    },
-    {
      "coluna": "idproduto",
      "ref": "produtos.idproduto"
+    },
+    {
+     "coluna": "codfor",
+     "ref": "parceiros.codparceiro"
     }
    ],
    "unicos": [
@@ -5669,12 +5669,12 @@
    ],
    "fks": [
     {
-     "coluna": "idpgto",
-     "ref": "formas_pgto.idpgto"
-    },
-    {
      "coluna": "codplc",
      "ref": "plc.codplc"
+    },
+    {
+     "coluna": "idpgto",
+     "ref": "formas_pgto.idpgto"
     },
     {
      "coluna": "codpdv",
@@ -6629,11 +6629,11 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto",
+     "coluna": "idproduto_01",
      "ref": "produtos.idproduto"
     },
     {
-     "coluna": "idproduto_01",
+     "coluna": "idproduto",
      "ref": "produtos.idproduto"
     }
    ],
@@ -6825,12 +6825,12 @@
      "ref": "plano_contas.codplanocontas"
     },
     {
-     "coluna": "codlote",
-     "ref": "lote_contabil.codlotecontabil"
-    },
-    {
      "coluna": "contacredito",
      "ref": "plano_contas.codplanocontas"
+    },
+    {
+     "coluna": "codlote",
+     "ref": "lote_contabil.codlotecontabil"
     }
    ],
    "unicos": [
@@ -15750,12 +15750,12 @@
    ],
    "fks": [
     {
-     "coluna": "idsituacao_nf",
-     "ref": "situacao_nf.idsituacao_nf"
-    },
-    {
      "coluna": "codparceiro",
      "ref": "parceiros.codparceiro"
+    },
+    {
+     "coluna": "idsituacao_nf",
+     "ref": "situacao_nf.idsituacao_nf"
     },
     {
      "coluna": "codpedcomp",
@@ -15845,12 +15845,12 @@
      "ref": "plc.codplc"
     },
     {
-     "coluna": "idsituacao_nf",
-     "ref": "situacao_nf.idsituacao_nf"
-    },
-    {
      "coluna": "codnf",
      "ref": "nf.codnf"
+    },
+    {
+     "coluna": "idsituacao_nf",
+     "ref": "situacao_nf.idsituacao_nf"
     }
    ],
    "unicos": [
@@ -19644,12 +19644,12 @@
    ],
    "fks": [
     {
-     "coluna": "codpeddevcompra",
-     "ref": "pedido_devolucao_compra.codpeddevcompra"
-    },
-    {
      "coluna": "codnf",
      "ref": "nf.codnf"
+    },
+    {
+     "coluna": "codpeddevcompra",
+     "ref": "pedido_devolucao_compra.codpeddevcompra"
     }
    ],
    "unicos": [
@@ -20113,12 +20113,12 @@
    ],
    "fks": [
     {
-     "coluna": "codpedcomp",
-     "ref": "pedidocompra.codpedcomp"
-    },
-    {
      "coluna": "idproduto",
      "ref": "produtos.idproduto"
+    },
+    {
+     "coluna": "codpedcomp",
+     "ref": "pedidocompra.codpedcomp"
     }
    ],
    "unicos": [
@@ -21795,10 +21795,6 @@
    ],
    "fks": [
     {
-     "coluna": "aliquota",
-     "ref": "aliquota.codigo"
-    },
-    {
      "coluna": "idmarca",
      "ref": "marcas.idmarca"
     },
@@ -21809,6 +21805,10 @@
     {
      "coluna": "codunidade",
      "ref": "unidade.codunidade"
+    },
+    {
+     "coluna": "aliquota",
+     "ref": "aliquota.codigo"
     }
    ],
    "unicos": [
@@ -22057,11 +22057,11 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto",
+     "coluna": "idproduto_receita",
      "ref": "produtos.idproduto"
     },
     {
-     "coluna": "idproduto_receita",
+     "coluna": "idproduto",
      "ref": "produtos.idproduto"
     }
    ],
@@ -22135,12 +22135,12 @@
    ],
    "fks": [
     {
-     "coluna": "codoperador",
-     "ref": "operadores.codoperador"
-    },
-    {
      "coluna": "codempresa",
      "ref": "empresas.idempresa"
+    },
+    {
+     "coluna": "codoperador",
+     "ref": "operadores.codoperador"
     }
    ],
    "unicos": [
@@ -22230,6 +22230,148 @@
     {
      "nome": "ux_relacao_operador_perfil",
      "def": "CREATE UNIQUE INDEX ux_relacao_operador_perfil ON public.relacao_operador_perfil USING btree (codoperador, codperfil) WHERE ((COALESCE(indr, 'I'::character varying))::text <> 'E'::text)"
+    }
+   ]
+  },
+  "relatorio_definicao": {
+   "colunas": {
+    "codrelatoriodef": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_relatorio_definicao'::regclass)"
+    },
+    "idempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "nome": {
+     "tipo": "character varying",
+     "tam": 120,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "fonte": {
+     "tipo": "character varying",
+     "tam": 63,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "definicao": {
+     "tipo": "jsonb",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "origem": {
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
+     "nulo": false,
+     "default": "'APOLLO'::character varying"
+    },
+    "usucadastro": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": "now()"
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "codrelatoriodef"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "relatorio_definicao_pkey",
+     "def": "CREATE UNIQUE INDEX relatorio_definicao_pkey ON public.relatorio_definicao USING btree (codrelatoriodef)"
+    },
+    {
+     "nome": "ux_relatorio_def_nome",
+     "def": "CREATE UNIQUE INDEX ux_relatorio_def_nome ON public.relatorio_definicao USING btree (idempresa, upper((nome)::text))"
+    }
+   ]
+  },
+  "relatorio_definicao_hist": {
+   "colunas": {
+    "codhist": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_relatorio_definicao_hist'::regclass)"
+    },
+    "codrelatoriodef": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "definicao": {
+     "tipo": "jsonb",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "codoperador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": "now()"
+    }
+   },
+   "pk": [
+    "codhist"
+   ],
+   "fks": [
+    {
+     "coluna": "codrelatoriodef",
+     "ref": "relatorio_definicao.codrelatoriodef"
+    }
+   ],
+   "unicos": [
+    {
+     "nome": "relatorio_definicao_hist_pkey",
+     "def": "CREATE UNIQUE INDEX relatorio_definicao_hist_pkey ON public.relatorio_definicao_hist USING btree (codhist)"
     }
    ]
   },
@@ -22972,12 +23114,12 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto",
-     "ref": "produtos.idproduto"
-    },
-    {
      "coluna": "codscrap",
      "ref": "scrap.codscrap"
+    },
+    {
+     "coluna": "idproduto",
+     "ref": "produtos.idproduto"
     }
    ],
    "unicos": [

@@ -93,3 +93,44 @@ carga e eles ficam guardados), mas o Apollo desenha a saída a partir da defini�
 Dos 659 layouts, **quantos ele realmente usa?** O nome sugere muita duplicata de teste
 (`dup_Duplicata001_1ddd.fr3`, `GET_PRODUTOS_PRODUTOS_WIL`, `..._LETICIA`, `..._TESTE`). Saber quais são os
 vivos muda o tamanho do corte-3 — e é informação que só ele tem.
+
+## 7. Corte-1 ENTREGUE — o catálogo e o executor (`mig 202`, smoke §95, 1081/0)
+
+### 7.1 O achado que encurtou o trabalho
+
+O usuário disse: *"isso já funciona 100%, só analisar nosso banco de dados"* — e estava literalmente certo.
+**O catálogo do legado não é uma tabela: é o COMENTÁRIO da view.** `GET_CARTAOBX` tem
+`COMMENT = ';CARTOES BAIXADOS'`, e é esse rótulo que a tela mostra no combo de fontes e que fica gravado no
+campo `TABELA` de cada definição. São **198 das 417 views** que têm rótulo — e são exatamente as ofertadas
+(é o filtro do `SetaViews`). Não havia catálogo a escrever: havia catálogo a **ler**.
+
+A mig 202 copiou os rótulos do cliente para as **28 views que já existem no Apollo**, e o serviço lê o
+catálogo do mesmo lugar (`obj_description`). Cada view nova que portarmos entra sozinha, bastando o comentário.
+
+### 7.2 O que entrou
+
+- **Catálogo de fontes** (`/relatorios/construtor/fontes`) e **campos por fonte**, com tipo e formato sugerido
+  (numérico com nome de dinheiro vira moeda; data vira data) — o cliente troca no construtor, como no legado.
+- **`relatorio_definicao`** (JSON, a mesma forma do XML campo a campo) e **`relatorio_definicao_hist`**: cada
+  gravação guarda a versão anterior, com autor e data. É o que o XML de 4 KB do legado não tem.
+- **Executor**: colunas na ordem definida, com o título do cliente, condições salvas + filtros de execução,
+  ordenação e **totais de rodapé** nas colunas marcadas. Coluna **calculada** (`CAMPO1` operação `CAMPO2`)
+  com proteção de divisão por zero.
+- **CSV** com `;` e vírgula decimal — o que o Excel pt-BR abre sem perguntar (o `BtnExportaCSVClick`).
+- Tela de execução em `/relatorios/construtor`, com filtro por campo e exportação.
+- RBAC **separado** como no legado: `FRMRELATORIO` (rodar, 1.251 acessos) × `FRMCADASTRORELATORIO`
+  (cadastrar, 73). Quem executa não precisa poder criar.
+
+### 7.3 A superfície de injeção, e como está fechada
+
+Um construtor de consulta é o lugar onde um nome de campo vira SQL. Três travas, todas com teste no smoke:
+
+1. a **fonte** tem de ser uma view **com rótulo** — `operadores` não é fonte e devolve `FONTE_NAO_CATALOGADA`;
+2. todo **campo** (coluna, calculada, condição, ordenação, agrupamento) é conferido contra o
+   `information_schema` **daquela fonte** antes de qualquer SQL ser montada, e só então vira `sql.ref`;
+3. todo **operador** vem de uma lista fechada e todo **valor** viaja como parâmetro.
+
+### 7.4 O que fica
+
+Corte-2: o construtor (montar e editar pela tela). Corte-3: importar os 95 XMLs do cliente, portar as quatro
+views que destravam 24 relatórios (`GET_RCB` sozinha vale 13) e a saída em PDF.

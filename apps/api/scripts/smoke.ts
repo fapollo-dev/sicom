@@ -9967,6 +9967,107 @@ async function main() {
       }
     }
 
+    // ===== §95) CONSTRUTOR DE RELATÓRIOS (FRMRELATORIO) corte-1 — o CATÁLOGO e o EXECUTOR.
+    // O catálogo do legado não é tabela: é o COMENTÁRIO da view (`GET_CARTAOBX` → ';CARTOES BAIXADOS').
+    // São 198 das 417 views que têm rótulo; a mig 202 copiou os rótulos do cliente para as 28 que já temos. ====
+    {
+      const RC = 'relatorios/construtor';
+      const pgRc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const apgs: number[] = [];
+        for (const [dup, val, venc, quit] of [['REL-1', 100.0, '2035-07-10', 'N'], ['REL-2', 250.5, '2035-07-20', 'N'], ['REL-3', 999.0, '2035-07-25', 'S']] as Array<[string, number, string, string]>) {
+          apgs.push(Number((await pgRc.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, dtcompra, valor, vendor, desconto, quitada, tipodoc)
+            VALUES (1,2,$1,$2,'2035-07-01',$3,0,10.00,$4,'DP') RETURNING codapg`, [dup, venc, val, quit])).rows[0].codapg));
+        }
+
+        const fontes = (await (await fetch(`${base}/${RC}/fontes`, { headers: H })).json().catch(() => ([]))) as any[];
+        const fApagar = (fontes ?? []).find((f: any) => f.fonte === 'get_apagar');
+        check('RELATÓRIO §95.1 [o catálogo sai do BANCO]: as fontes ofertadas são as views que têm COMENTÁRIO — é a regra do `SetaViews` do legado, onde `GET_CARTAOBX` traz `;CARTOES BAIXADOS`. A mig 202 copiou os rótulos do cliente (28 das 198 views rotuladas já existem aqui), então `get_apagar` aparece como "CONTAS A PAGAR"',
+          Array.isArray(fontes) && fontes.length >= 20 && !!fApagar && fApagar.rotulo === 'CONTAS A PAGAR',
+          { total: fontes?.length, apagar: fApagar });
+
+        const campos = (await (await fetch(`${base}/${RC}/fontes/get_apagar/campos`, { headers: H })).json().catch(() => ([]))) as any[];
+        const cValor = (campos ?? []).find((c: any) => c.campo === 'valor');
+        const cVenc = (campos ?? []).find((c: any) => c.campo === 'dtvenc');
+        check('RELATÓRIO §95.2: os campos da fonte vêm do próprio banco com o tipo e um formato sugerido — `valor` numérico vira moeda, `dtvenc` vira data. O cliente troca o formato e o título no construtor, como troca no legado',
+          Array.isArray(campos) && campos.length > 10 && cValor?.tipo === 'numero' && cValor?.formato === 'moeda' && cVenc?.formato === 'data',
+          { qtd: campos?.length, valor: cValor, dtvenc: cVenc });
+
+        const salvos = (await (await fetch(`${base}/${RC}`, { headers: H })).json().catch(() => ([]))) as any[];
+        const exemplo = (salvos ?? []).find((r: any) => r.nome === 'Contas a pagar em aberto');
+        const exec = await fetch(`${base}/${RC}/executar`, { method: 'POST', headers: H, body: JSON.stringify({
+          codrelatoriodef: exemplo?.codrelatoriodef,
+          // filtro de EXECUÇÃO (o que o usuário informa na hora de rodar) somado às condições SALVAS
+          filtros: [{ campo: 'duplicata', operador: 'comeca', valor: 'REL-' }] }) });
+        const execJ = (await exec.json().catch(() => ({}))) as any;
+        check('RELATÓRIO §95.3 [o executor]: rodar o relatório salvo devolve as colunas com o TÍTULO que o cliente deu, as linhas na ordem definida e o TOTAL no rodapé das colunas marcadas — que é o rodapé do relatório impresso. A condição SALVA (`quitada = N`) soma-se ao filtro de EXECUÇÃO (duplicata começa com REL-): das 3 contas do cenário sobram 2',
+          exec.status === 200 && execJ.colunas?.length === 4 && execJ.colunas[3]?.titulo === 'Valor'
+          && execJ.colunas[2]?.formato === 'data' && execJ.linhas?.length === 2
+          && Math.abs(Number(execJ.totais?.c3) - 350.5) < 0.005
+          && execJ.linhas[0]?.c1 === 'REL-1',
+          { colunas: execJ.colunas, linhas: execJ.linhas, totais: execJ.totais });
+
+        // coluna CALCULADA — o `CAMPOCALC` do legado (CAMPO1 operação CAMPO2)
+        const defCalc = {
+          titulo: 'Líquido a pagar',
+          colunas: [
+            { campo: 'duplicata', titulo: 'Duplicata', posicao: 1 },
+            { campo: 'valor', titulo: 'Bruto', posicao: 2, formato: 'moeda' },
+            { calculado: { campo1: 'valor', operacao: '+', campo2: 'juro' }, titulo: 'Com juros', posicao: 3, formato: 'moeda', totalizar: true },
+          ],
+          condicoes: [{ campo: 'quitada', operador: '=', valor: 'N' }, { campo: 'duplicata', operador: 'comeca', valor: 'REL-' }],
+          ordem: [{ campo: 'duplicata', direcao: 'asc' }],
+        };
+        const calc = await fetch(`${base}/${RC}/executar`, { method: 'POST', headers: H, body: JSON.stringify({ fonte: 'get_apagar', definicao: defCalc }) });
+        const calcJ = (await calc.json().catch(() => ({}))) as any;
+        check('RELATÓRIO §95.4 [coluna CALCULADA]: o `CAMPOCALC` do legado (CAMPO1 operação CAMPO2) — valor mais juro sobre a view `get_apagar`, que calcula o juro por atraso — como estes títulos vencem em 2035 o juro é zero e o calculado devolve o próprio valor, 350,50 no rodapé. Prova as duas coisas: a coluna calculada e o cálculo da própria fonte. A definição roda sem estar salva, que é como o cliente testa antes de gravar',
+          calc.status === 200 && calcJ.linhas?.length === 2
+          && Math.abs(Number(calcJ.linhas[0]?.c2) - 100) < 0.005 && Math.abs(Number(calcJ.linhas[1]?.c2) - 250.5) < 0.005
+          && Math.abs(Number(calcJ.totais?.c2) - 350.5) < 0.005,
+          { status: calc.status, resp: calcJ });
+
+        // ⚠️ a superfície de injeção — o teste que mais importa num construtor de consulta
+        const inj1 = await fetch(`${base}/${RC}/executar`, { method: 'POST', headers: H, body: JSON.stringify({
+          fonte: 'get_apagar', definicao: { colunas: [{ campo: 'senha_hash', titulo: 'x', posicao: 1 }] } }) });
+        const inj1J = (await inj1.json().catch(() => ({}))) as any;
+        const inj2 = await fetch(`${base}/${RC}/executar`, { method: 'POST', headers: H, body: JSON.stringify({
+          fonte: 'operadores', definicao: { colunas: [{ campo: 'login', titulo: 'x', posicao: 1 }] } }) });
+        const inj2J = (await inj2.json().catch(() => ({}))) as any;
+        const inj3 = await fetch(`${base}/${RC}/executar`, { method: 'POST', headers: H, body: JSON.stringify({
+          fonte: 'get_apagar', definicao: { colunas: [{ campo: 'valor', posicao: 1 }], condicoes: [{ campo: 'valor', operador: 'DROP', valor: 1 }] } }) });
+        check('RELATÓRIO §95.5 [a superfície de INJEÇÃO, fechada]: um construtor de consulta é o lugar onde um nome de campo vira SQL. Três portas testadas e as três fechadas — campo que não existe NAQUELA fonte (422), tabela que não está no catálogo (a `operadores` não tem rótulo, então não é fonte) e operador fora da lista. Todo nome é conferido contra o `information_schema` da fonte antes de virar SQL; todo valor viaja como parâmetro',
+          inj1.status === 422 && String(inj1J.code).includes('CAMPO_NAO_EXISTE_NA_FONTE')
+          && inj2.status === 422 && String(inj2J.code).includes('FONTE_NAO_CATALOGADA')
+          && inj3.status >= 400,
+          { campo: inj1J, fonte: inj2J, operador: inj3.status });
+
+        // salvar + histórico
+        const novo = await fetch(`${base}/${RC}`, { method: 'POST', headers: H, body: JSON.stringify({ nome: 'Líquido a pagar', fonte: 'get_apagar', definicao: defCalc }) });
+        const novoJ = (await novo.json().catch(() => ({}))) as any;
+        const def2 = { ...defCalc, titulo: 'Líquido a pagar (v2)' };
+        await fetch(`${base}/${RC}`, { method: 'POST', headers: H, body: JSON.stringify({ codrelatoriodef: novoJ.codrelatoriodef, nome: 'Líquido a pagar', fonte: 'get_apagar', definicao: def2 }) });
+        const hist = (await pgRc.query(`SELECT definicao->>'titulo' t FROM relatorio_definicao_hist WHERE codrelatoriodef=$1`, [novoJ.codrelatoriodef])).rows as any[];
+        const atual = (await pgRc.query(`SELECT definicao->>'titulo' t, origem FROM relatorio_definicao WHERE codrelatoriodef=$1`, [novoJ.codrelatoriodef])).rows[0] as any;
+        check('RELATÓRIO §95.6 [o histórico que o XML do legado não tem]: salvar por cima guarda a versão anterior. No legado a definição é um XML de 4 KB sobrescrito — se alguém quebra o relatório do contador não há como saber o que mudou; aqui a versão antiga fica, com quem alterou e quando',
+          novo.status === 200 && hist.length === 1 && hist[0].t === 'Líquido a pagar' && atual?.t === 'Líquido a pagar (v2)' && atual?.origem === 'APOLLO',
+          { historico: hist, atual });
+
+        const csv = await fetch(`${base}/${RC}/csv`, { method: 'POST', headers: H, body: JSON.stringify({ codrelatoriodef: novoJ.codrelatoriodef }) });
+        const texto = await csv.text();
+        const linhasCsv = texto.replace(/^﻿/, '').trim().split('\r\n');
+        check('RELATÓRIO §95.7 (BtnExportaCSVClick): o CSV sai com `;` e vírgula decimal — o que o Excel em pt-BR abre sem perguntar nada — com o cabeçalho pelos títulos do cliente e a linha de totais no fim',
+          csv.status === 200 && (csv.headers.get('content-type') ?? '').includes('text/csv')
+          && linhasCsv[0] === 'Duplicata;Bruto;Com juros' && linhasCsv[1]?.startsWith('REL-1;100')
+          && linhasCsv[linhasCsv.length - 1] === ';;350,5',
+          { linhas: linhasCsv });
+
+        await pgRc.query(`DELETE FROM relatorio_definicao WHERE nome='Líquido a pagar'`);
+        await pgRc.query(`DELETE FROM apagar WHERE codapg = ANY($1)`, [apgs]);
+      } finally {
+        await pgRc.end();
+      }
+    }
+
     // ===== §89) LOGIN DUPLICADO (decisão do usuário + mig 173): unicidade PARCIAL e desempate por código ====
     {
       const pgL = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });

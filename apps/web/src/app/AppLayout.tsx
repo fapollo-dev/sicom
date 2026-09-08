@@ -96,6 +96,8 @@ const TELAS = [
   // HUB FRMRELVENDAS — uma tela só com combo de modelo (rel 01/02/06/07/08/09-11/13/18/28/30/32/36/38/46).
   // As variantes seguem deep-linkáveis pelas rotas antigas; aqui o menu aponta só pro hub.
   { href: '/relatorios/vendas', name: 'Relatórios de Vendas', icon: LineChart },
+  // FRMRELATORIO — os relatórios que o próprio cliente monta (corte-1: executar).
+  { href: '/relatorios/construtor', name: 'Relatórios', icon: ClipboardList },
   { href: '/relatorios/previa-fornecedor', name: 'Prévia do Fornecedor', icon: LineChart },
   { href: '/relatorios/caixa-dre', name: 'Caixa — D.R.E.', icon: LineChart },
   { href: '/relatorios/caixa-ops', name: 'Operações de Caixa', icon: LineChart },

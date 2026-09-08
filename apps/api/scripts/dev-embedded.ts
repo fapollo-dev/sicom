@@ -46,6 +46,8 @@ async function provisionarLoginDev(): Promise<void> {
     ['FRMPEDIDOCOMPRA', 'MNIFECHARPEDIDO'], ['FRMPEDIDOCOMPRA', 'BTNGERARNF'], ['FRMPEDIDOCOMPRA', 'BTNGRAVAR'], ['FRMPEDIDOCOMPRA', 'BTNIMPORTARXML'], ['FRMPEDIDOCOMPRA', 'BTNLIBERARCONFERENCIA'], ['FRMPEDIDOCOMPRA', 'BTNREABRIR'], ['FRMPEDIDOCOMPRA', 'BTNVINCULARPRODUTO'], ['FRMPEDIDOCOMPRA', 'LIBERAVALORMAX'],
     // telas cujo gate é o próprio nome do form (o cliente não concede opção por botão nelas).
     ['FRMFECHAMENTODIARIO', 'FRMFECHAMENTODIARIO'], ['FRMTRON', 'FRMTRON'],
+    // o legado separa RODAR (1.251 acessos) de CADASTRAR (73) relatório — aqui os dois, é ambiente de dev.
+    ['FRMRELATORIO', 'FRMRELATORIO'], ['FRMCADASTRORELATORIO', 'FRMCADASTRORELATORIO'],
   ];
   const grants = new Set<string>();
   for (const f of CRUD_FORMS) for (const o of CRUD_OPCOES) grants.add(`${f}|${o}`);
