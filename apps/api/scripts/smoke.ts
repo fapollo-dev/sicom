@@ -10061,6 +10061,17 @@ async function main() {
           && linhasCsv[linhasCsv.length - 1] === ';;350,5',
           { linhas: linhasCsv });
 
+        // obter + excluir — o que o construtor (corte-2) usa para abrir e apagar um relatório
+        const det = (await (await fetch(`${base}/${RC}/${novoJ.codrelatoriodef}`, { headers: H })).json().catch(() => ({}))) as any;
+        const del = await fetch(`${base}/${RC}/${novoJ.codrelatoriodef}`, { method: 'DELETE', headers: H });
+        const sumiu = await fetch(`${base}/${RC}/${novoJ.codrelatoriodef}`, { headers: H });
+        const histOrfa = Number((await pgRc.query(`SELECT count(*)::int n FROM relatorio_definicao_hist WHERE codrelatoriodef=$1`, [novoJ.codrelatoriodef])).rows[0].n);
+        check('RELATÓRIO §95.8 (o que o construtor usa): abrir devolve a definição inteira para editar — fonte, colunas na ordem, títulos e condições — e excluir leva junto o histórico (ON DELETE CASCADE), sem deixar versão órfã apontando para relatório que não existe mais',
+          det?.fonte === 'get_apagar' && det?.definicao?.colunas?.length === 3
+          && det.definicao.colunas[2]?.calculado?.campo1 === 'valor'
+          && del.status === 204 && sumiu.status === 422 && histOrfa === 0,
+          { detalhe: det?.definicao?.colunas?.length, excluir: del.status, depois: sumiu.status, historicoOrfao: histOrfa });
+
         await pgRc.query(`DELETE FROM relatorio_definicao WHERE nome='Líquido a pagar'`);
         await pgRc.query(`DELETE FROM apagar WHERE codapg = ANY($1)`, [apgs]);
       } finally {

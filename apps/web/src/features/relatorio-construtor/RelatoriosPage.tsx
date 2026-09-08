@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
@@ -39,6 +40,7 @@ const formatar = (v: unknown, f: string) => (f === 'moeda' ? fmtMoeda(v) : f ===
 
 export function RelatoriosPage() {
   const mensagem = useMensagem();
+  const navigate = useNavigate();
   const [salvos, setSalvos] = useState<RelatorioSalvo[]>([]);
   const [sel, setSel] = useState<number | undefined>();
   const [campos, setCampos] = useState<CampoFonte[]>([]);
@@ -135,6 +137,8 @@ export function RelatoriosPage() {
                 onClick={() => setFiltros((fs) => [...fs, { campo: campos[0]?.campo ?? '', operador: '=', valor: '' }])} />
               <Button label="&Gerar" disabled={ocupado || sel == null} onClick={() => void rodar()} />
               <Button label="&Exportar CSV" variant="soft" disabled={ocupado || sel == null} onClick={() => void exportar()} />
+              <Button label="Ed&itar" variant="soft" disabled={sel == null} onClick={() => navigate(`/relatorios/construtor/${sel}/editar`)} />
+              <Button label="&Novo relatório" variant="soft" onClick={() => navigate('/relatorios/construtor/novo')} />
             </div>
             {semFiltro && <p className="text-body-sm text-fg-muted">Sem filtro, o relatório traz tudo o que a definição dele permite — as condições que o próprio relatório já tem continuam valendo.</p>}
           </div>

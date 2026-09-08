@@ -27,7 +27,15 @@ export interface Execucao {
   truncado: boolean;
 }
 
+export interface Fonte { fonte: string; rotulo: string }
+export interface RelatorioDetalhe { codrelatoriodef: number; nome: string; fonte: string; definicao: DefinicaoRelatorioDto }
+
 export const listarRelatorios = (): Promise<RelatorioSalvo[]> => req(P);
+export const listarFontes = (): Promise<Fonte[]> => req(`${P}/fontes`);
+export const obterRelatorio = (cod: number): Promise<RelatorioDetalhe> => req(`${P}/${cod}`);
+export const salvarRelatorio = (body: { codrelatoriodef?: number | null; nome: string; fonte: string; definicao: DefinicaoRelatorioDto }): Promise<{ codrelatoriodef: number }> =>
+  req(P, { method: 'POST', body: JSON.stringify(body) });
+export const removerRelatorio = (cod: number): Promise<void> => req(`${P}/${cod}`, { method: 'DELETE' });
 export const camposDaFonte = (fonte: string): Promise<CampoFonte[]> => req(`${P}/campos/lista?fonte=${encodeURIComponent(fonte)}`);
 export const executar = (body: { codrelatoriodef?: number; definicao?: DefinicaoRelatorioDto; fonte?: string; filtros?: Condicao[] }): Promise<Execucao> =>
   req(`${P}/executar`, { method: 'POST', body: JSON.stringify(body) });

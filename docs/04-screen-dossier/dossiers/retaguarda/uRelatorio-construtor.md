@@ -132,5 +132,24 @@ Um construtor de consulta é o lugar onde um nome de campo vira SQL. Três trava
 
 ### 7.4 O que fica
 
-Corte-2: o construtor (montar e editar pela tela). Corte-3: importar os 95 XMLs do cliente, portar as quatro
-views que destravam 24 relatórios (`GET_RCB` sozinha vale 13) e a saída em PDF.
+*(corte-2 fechado na seção 8.)* Corte-3: importar os 95 XMLs do cliente, portar as quatro views que destravam
+24 relatórios (`GET_RCB` sozinha vale 13) e a saída em PDF.
+
+## 8. Corte-2 ENTREGUE — o construtor pela tela (smoke §95.8, 1082/0)
+
+A tela que dá autonomia ao cliente, e a razão de ele ter 95 relatórios próprios. Faz o que a do legado faz
+(`uRelatorio.pas`): escolher a fonte, adicionar campos, **subir e descer** para ordenar
+(`btnUpClick`/`btnDownClick`), título e largura por coluna, **coluna calculada** (`btnAddCalculadosClick`),
+**condições**, marcar o que **totaliza** e escolher paisagem.
+
+Três diferenças conscientes:
+
+- **a prévia roda sem gravar** — é como se confere antes de salvar; no legado é preciso salvar a estrutura
+  primeiro;
+- **trocar de fonte diz o tamanho do prejuízo**: o legado avisa "ao mudar de tabela a configuração efetuada
+  será perdida" (`cbbTabelaShowCloseUp`); aqui a confirmação diz **quantas colunas** serão perdidas;
+- **a fonte aparece pelo rótulo** ("CONTAS A PAGAR"), não pelo nome da view — e a lista de campos mostra o
+  tipo ao lado, que é o que decide se o campo pode entrar numa conta.
+
+Rotas: `/relatorios/construtor/novo` e `/relatorios/construtor/:cod/editar`, ambas atrás de
+`FRMCADASTRORELATORIO` — separado de quem só executa.
