@@ -122,3 +122,15 @@ export const saldoEmpresaSchema = z
   })
   .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
 export type SaldoEmpresaDto = z.infer<typeof saldoEmpresaSchema>;
+
+/** RELATÓRIOS DE CAIXA (`FRMRELCAIXA`) — os dois modelos do corte-1 e os filtros da tela. */
+export const relCaixaSchema = z
+  .object({
+    modelo: z.enum(['DIVERGENCIAS', 'ABERTOS']),
+    dataIni: dataISO,
+    dataFim: dataISO,
+    codoperador: z.coerce.number().int().positive().nullish(),
+    recurso: z.string().max(30).nullish(),
+  })
+  .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
+export type RelCaixaDto = z.infer<typeof relCaixaSchema>;

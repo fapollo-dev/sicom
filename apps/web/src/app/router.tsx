@@ -37,6 +37,7 @@ import { RelatoriosPage } from '../features/relatorio-construtor/RelatoriosPage'
 import { ConstrutorPage } from '../features/relatorio-construtor/ConstrutorPage';
 import { NfAnalisePage } from '../features/nf-analise/NfAnalisePage';
 import { SaldoEmpresaPage } from '../features/saldo-empresa/SaldoEmpresaPage';
+import { RelCaixaPage } from '../features/rel-caixa/RelCaixaPage';
 import { EmpresasCadMaster } from '../features/empresas/EmpresasCadMaster';
 import { AjusteEstoquePage } from '../features/ajuste-estoque/AjusteEstoquePage';
 import { InventarioPage } from '../features/inventario/InventarioPage';
@@ -168,6 +169,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/construtor/:cod/editar', element: <ConstrutorPage /> },
       { path: '/fiscal/nf-analise', element: <NfAnalisePage /> }, // FRMNFANALISE
       { path: '/cobranca/saldo-empresa', element: <SaldoEmpresaPage /> }, // FRMSALDOEMPRESA
+      { path: '/cobranca/rel-caixa', element: <RelCaixaPage /> }, // FRMRELCAIXA
       { path: '/cadastro/configuracoes', element: <ConfiguracoesPage /> }, // configurações (UConfigura): chave-valor por empresa
     ],
   },

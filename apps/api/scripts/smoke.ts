@@ -10277,6 +10277,70 @@ async function main() {
       }
     }
 
+    // ===== §99) RELATÓRIOS DE CAIXA (FRMRELCAIXA) corte-1 — divergências e caixas abertos. 505 acessos, 11
+    // operadores, o último em 08/09. A conferência clássica: o que o PDV registrou × o que entrou no caixa. ====
+    {
+      const RCX = 'cobranca/rel-caixa';
+      const pgRx = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgRx.query(`INSERT INTO pdv (codpdv, nropdv, descricao, codempresa) VALUES (930,7,'PDV RELCX',1) ON CONFLICT (codpdv) DO NOTHING`);
+        // PLC de caixa (tpconta 0) e PLC que NÃO é de caixa (tpconta 1) — é o filtro que separa os dois
+        await pgRx.query(`INSERT INTO plc (codplc, desccodplc, descricao, codpai, nivelconta, tpconta) VALUES
+            (9801,'1.02.001','DINHEIRO CX',NULL,3,0), (9802,'4.01.001','DESPESA NAO CAIXA',NULL,3,1)
+          ON CONFLICT (codplc) DO UPDATE SET tpconta=EXCLUDED.tpconta`);
+        // o PDV registrou: 500 em DINHEIRO (com 20 de troco → 480) e 300 em CARTAO. Desconto e sangria ficam fora.
+        await pgRx.query(`INSERT INTO cx_vendas (idempresa, nropdv, data, operacao, codoperadora, valor, troco, status, chave, tesouraria) VALUES
+          (1,7,'2039-05-10','DINHEIRO',1,500.00,20.00,'F','CHV-A','N'),
+          (1,7,'2039-05-10','CARTAO',  1,300.00, 0.00,'F','CHV-A','N'),
+          (1,7,'2039-05-10','DESCONTO',1, 99.00, 0.00,'F','CHV-A','N'),
+          (1,7,'2039-05-10','SANGRIA', 1, 50.00, 0.00,'F','CHV-A','N'),
+          (1,8,'2039-05-11','DINHEIRO',1,100.00, 0.00,'F','CHV-B','S')`);
+        // o caixa recebeu: 480 em DINHEIRO (bate) e 250 em CARTAO (falta 50). Mais um lançamento em conta que
+        // NÃO é de caixa, que não pode entrar na conta.
+        await pgRx.query(`INSERT INTO caixa (codcx, data, valor, codplc, idempresa, tiporecurso, codpdv, operador, obs, origem) VALUES
+          (990601,'2039-05-10 10:00:00-03',480.00,9801,1,'DINHEIRO',7,1,'CX DINHEIRO','PDV'),
+          (990602,'2039-05-10 10:05:00-03',250.00,9801,1,'CARTAO',  7,1,'CX CARTAO','PDV'),
+          (990603,'2039-05-10 10:10:00-03',777.00,9802,1,'CARTAO',  7,1,'NAO E CAIXA','PDV')`);
+        await pgRx.query(`INSERT INTO caixa_pdv (codcaixa, idempresa, codpdv, codoperadora, data, chave, horaentrada, horasaida)
+          VALUES (990604,1,7,1,'2039-05-10','CHV-A','2039-05-10 08:00:00-03','2039-05-10 18:00:00-03') ON CONFLICT (codcaixa) DO NOTHING`);
+
+        const div = await fetch(`${base}/${RCX}?modelo=DIVERGENCIAS&dataIni=2039-05-01&dataFim=2039-05-31`, { headers: H });
+        const dj = (await div.json().catch(() => ({}))) as any;
+        // há DUAS linhas de DINHEIRO (PDV 7 e 8) — a chave tem de levar o PDV junto
+        const porRec = Object.fromEntries((dj.linhas ?? []).map((l: any) => [`${l.tiporecurso}-${l.codpdv}`, l]));
+        check('REL. CAIXA §99.1 (TDivergenciasCaixa, UCaixa.pas:96): compara o que o PDV REGISTROU (cx_vendas fechado, `VALOR − TROCO`) com o que ENTROU NO CAIXA, por PDV/operador/dia/recurso. O dinheiro fecha (500−20 = 480 dos dois lados) e o cartão acusa **−50**. Desconto e sangria ficam de FORA das duas somas — não são recebimento (`:165`). O PDV 8 também aparece, e com −100: as divergências NÃO filtram por tesouraria (isso é só do relatório de caixas abertos) — o caixa já recolhido continua tendo de fechar',
+          div.status === 200 && (dj.linhas ?? []).length === 3
+          && Math.abs(Number(porRec['DINHEIRO-7']?.divergencia)) < 0.005
+          && Math.abs(Number(porRec['DINHEIRO-7']?.valor_cx_vendas) - 480) < 0.005
+          && Math.abs(Number(porRec['CARTAO-7']?.divergencia) + 50) < 0.005
+          && Number(dj.totais?.comDivergencia) === 2,
+          { linhas: dj.linhas, totais: dj.totais });
+
+        check('REL. CAIXA §99.2 [o filtro que quase ninguém vê]: só entram os lançamentos de caixa cujo centro de custo é CONTA DE CAIXA (`PLC.TPCONTA = 0`, `:177`) — o lançamento de 777,00 na conta de despesa não soma. Sem essa coluna (que a carga não trazia) a apuração inteira ficaria errada, e para mais',
+          Math.abs(Number(porRec['CARTAO-7']?.valor_caixa) - 250) < 0.005,
+          { cartao: porRec['CARTAO-7'] });
+
+        const ab = await fetch(`${base}/${RCX}?modelo=ABERTOS&dataIni=2039-05-01&dataFim=2039-05-31`, { headers: H });
+        const aj = (await ab.json().catch(() => ({}))) as any;
+        const pdvs = (aj.linhas ?? []).map((l: any) => Number(l.nropdv));
+        check('REL. CAIXA §99.3 (TCaixasAbertos :634): lista as sessões que ainda NÃO foram recolhidas (`TESOURARIA <> S`) com a hora de entrada e saída — o PDV 7 aparece, o 8 não, porque já foi para a tesouraria. É a lista do caixa que ficou em aberto',
+          ab.status === 200 && pdvs.includes(7) && !pdvs.includes(8)
+          && (aj.linhas ?? []).some((l: any) => !!l.horaentrada),
+          { linhas: aj.linhas });
+
+        const filtro = (await (await fetch(`${base}/${RCX}?modelo=DIVERGENCIAS&dataIni=2039-05-01&dataFim=2039-05-31&recurso=CARTAO`, { headers: H })).json().catch(() => ({}))) as any;
+        check('REL. CAIXA §99.4: o filtro por recurso recorta a conferência — pedindo CARTAO sobra só a linha que diverge',
+          (filtro.linhas ?? []).length === 1 && filtro.linhas[0].tiporecurso === 'CARTAO',
+          { linhas: filtro.linhas });
+
+        await pgRx.query(`DELETE FROM caixa WHERE codcx IN (990601,990602,990603)`);
+        await pgRx.query(`DELETE FROM caixa_pdv WHERE codcaixa=990604`);
+        await pgRx.query(`DELETE FROM cx_vendas WHERE chave IN ('CHV-A','CHV-B')`);
+      } finally {
+        await pgRx.end();
+      }
+    }
+
     // ===== §89) LOGIN DUPLICADO (decisão do usuário + mig 173): unicidade PARCIAL e desempate por código ====
     {
       const pgL = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
