@@ -113,6 +113,17 @@ FILTROS = {
 FATIAR = {'vendas': 'dtvenda', 'historico_prod': 'data', 'cx_vendas': 'data', 'historico_dinamico': 'data',
           'apuracao_icms_detalhes': 'dtcadastro', 'cartao': 'dtvenda', 'diario': 'data'}
 
+# DELTA — a coluna de corte de quem não tem `DTULTIMALTERACAO` nem está no `FATIAR`. Só entram aqui colunas
+# que são CARIMBO DE INSERÇÃO, nunca data de negócio que possa ser retroativa: um `apagar_bx` lançado hoje com
+# `DTPGTO` do mês passado escaparia do delta e a baixa se perderia na virada. Por isso `mov_contas_bancarias`,
+# `apagar_bx`/`areceber_bx` e `estoque` NÃO estão aqui — vão de recarga total, e são pequenos.
+# `nfe_eventos` é o caso que motivou o mapa: 102 mil linhas com dois CLOBs (XML), 385 MB — sozinha ela pesava
+# mais que todo o resto da recarga total.
+DELTA_COL = {'nfe_eventos': 'data_evento',
+             'log_impressao_etiqueta': 'datahora_impressao',
+             'operadores_acessos': 'dtacesso',
+             'audit_permissoes': 'data'}
+
 DEDUP = {'cotacao_prodqtde': ['codcpr', 'idempresa'],
          # produção: 5 pares repetidos (25 linhas) na cotação 281/282, cópias com VALORES diferentes. O app faz
          # ON CONFLICT (codctcforn, codcpr) — índice parcial quebraria o upsert (lição das migs 179/180), então
@@ -125,9 +136,25 @@ DEDUP = {'cotacao_prodqtde': ['codcpr', 'idempresa'],
          'cotacao_prod': ['codctc', 'idproduto']}
 
 fase = (sys.argv[1] if len(sys.argv) > 1 else 'f0').lower()
+# DELTA (`--desde=AAAA-MM-DD`): a virada é big-bang FRIO + delta na janela, porque o Oracle é o sistema VIVO —
+# o cliente confirmou em 09/09/2026, e produção tem 18,9M vendas com a última de HOJE (~7 mil/dia). A carga
+# fria roda dias antes, com a loja aberta; na janela só entra o que mudou desde então.
+#
+# Cada tabela sabe sozinha por onde é o seu delta, e a ordem é esta:
+#   1. `DTULTIMALTERACAO` — 62 tabelas do universo: pega alteração, não só inserção;
+#   2. a data de negócio que o `FATIAR` já usa (`dtvenda`, `data`, `dtcadastro`…) — 19 tabelas, 38,8M linhas,
+#      todas append-only;
+#   3. nenhuma das duas — 67 tabelas, 5,0M linhas: **saem inteiras**, e é isso que dimensiona a janela
+#      (5,0M ≈ 7 min de carga no ritmo medido no ensaio).
+# O que sai inteiro é anotado no manifesto como `delta: 'total'`, para a carga saber que ali é substituição.
 # PARTIÇÃO (F4): o movimento pesado não cabe num CSV só — 11,9M linhas de venda. `--particao COL:INI:FIM`
 # recorta a extração por faixa de data, que é como o plano previa a carga do movimento (mês a mês).
 particao = None
+desde = None
+for _a in sys.argv[1:]:
+    if _a.startswith('--desde='):
+        desde = _a.split('=', 1)[1].strip()
+        sys.argv = [x for x in sys.argv if x != _a]
 for _a in sys.argv[1:]:
     if _a.startswith('--particao='):
         _c, _i, _f = _a.split('=', 1)[1].split(':')
@@ -267,8 +294,22 @@ for t in FASES[fase]:
             faixa = f"{particao[0]} >= date '{particao[1]}' and {particao[0]} < date '{particao[2]}'"
             onde = f"({onde}) and {faixa}" if onde else faixa
 
+    # DELTA: escolhe a coluna de corte desta tabela (ver `--desde` no topo). Sem coluna, a tabela sai inteira.
+    modo_delta = None
+    if desde:
+        col_delta = ('dtultimalteracao' if 'dtultimalteracao' in ori
+                     else FATIAR.get(t) if FATIAR.get(t) in ori
+                     else DELTA_COL.get(t) if DELTA_COL.get(t) in ori else None)
+        if col_delta:
+            modo_delta = col_delta
+            corte = f"{col_delta} >= date '{desde}'"
+            onde = f"({onde}) and {corte}" if onde else corte
+        else:
+            modo_delta = 'total'   # sem marca de tempo: substituição integral na janela
+
     # FATIAS: uma consulta por ano (mais a faixa dos nulos/fora do intervalo), cada uma com snapshot próprio.
-    col_fatia = None if chave or particao else FATIAR.get(t)
+    # No delta o volume é pequeno por definição, então o fatiamento anual só atrapalha — uma consulta basta.
+    col_fatia = None if chave or particao or desde else FATIAR.get(t)
     if col_fatia and col_fatia in ori:
         cur.execute(f"select min({col_fatia}), max({col_fatia}) from {T}")
         _mn, _mx = cur.fetchone()
@@ -325,8 +366,12 @@ for t in FASES[fase]:
     manifesto[t] = {'linhas': linhas, 'dedup': chave, 'colunas': [d for _, d in cols] + list(CONSTANTES.get(t, {})),
                     'somas': {k: str(v) for k, v in somas.items()},
                     'datas': datas,
+                    # a carga PRECISA saber: 'total' é substituição integral, uma coluna é acréscimo/atualização
+                    # daquela faixa, ausente é a carga fria normal.
+                    **({'delta': modo_delta, 'desde': desde} if desde else {}),
                     'colunas_origem_descartadas': sorted(set(ori) - {c for c, _ in cols})}
-    print(f"  ✅ {t}: {linhas} linhas · {len(cols)} colunas")
+    _rot_delta = '' if not desde else (' · RECARGA TOTAL' if modo_delta == 'total' else f' · delta por {modo_delta}')
+    print(f"  ✅ {t}: {linhas} linhas · {len(cols)} colunas{_rot_delta}")
 
 json.dump(manifesto, open(f'{saida}/_manifesto.json', 'w'), indent=1, ensure_ascii=False)
 print(f"\nmanifesto → {saida}/_manifesto.json")

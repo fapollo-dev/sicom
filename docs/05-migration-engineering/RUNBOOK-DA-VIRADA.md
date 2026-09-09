@@ -5,8 +5,78 @@ Os números vêm das medições contra **produção** (`hiperpinheirao.ddns.com.
 é grande (2,16× em volume) e está registrada no §7s do `PLANO-DE-CARGA-CUTOVER.md`.
 
 > Estado: **ensaiado de ponta a ponta em 03/09/2026** (extração + carga + operação, contra produção, com a loja
-> aberta). Os tempos são reais. O que ainda não foi feito é a virada em si — e os dois `[definir]` (dono do
-> go/no-go e por quantos dias o Oracle fica de pé) dependem do cliente.
+> aberta). Os tempos são reais. O que ainda não foi feito é a virada em si — falta definir o dono do go/no-go.
+
+## ⚠️ Premissa confirmada pelo cliente em 09/09/2026: **o Oracle é o sistema VIVO**
+
+Isto corrige uma conclusão minha que estava errada e era perigosa. Eu havia registrado que *"não há carga
+incremental de venda — a F4 é grande mas FRIA, carrega antes da virada, sem janela"*, porque as vendas paravam
+em **fev/2024**. Aquilo foi medido na **homologação**, que é uma cópia que parou de ser atualizada. Em
+**produção**:
+
+| | |
+|---|---|
+| linhas em `VENDAS` | **18.928.926** |
+| primeira × última | 02/01/2018 × **09/09/2026 08:06** (hoje, agora) |
+| 2026 até aqui | **1.723.417** linhas |
+| ritmo | ~205 mil linhas/mês · **~7 mil/dia** |
+
+⇒ **Há delta, e a janela existe.** A carga fria sozinha não serve: entre a extração e a virada o cliente
+continua vendendo. A estratégia é **big-bang frio + delta na janela**, e não big-bang puro.
+
+### Como cada tabela entra no delta (as 149 do universo, classificadas pelas colunas REAIS de produção)
+
+| grupo | tabelas | linhas | como o delta é feito |
+|---|---|---|---|
+| tem `DTULTIMALTERACAO` | **62** | — | `WHERE dtultimalteracao >= <corte>` — pega alteração, não só inserção |
+| está no `FATIAR` (o movimento pesado) | **5** | **40,7 M** | `WHERE <data> >= <corte>` — `vendas`, `historico_prod`, `cx_vendas`, `historico_dinamico`, `apuracao_icms_detalhes` |
+| coluna mapeada em `DELTA_COL` | **4** | 417 mil | carimbo de inserção confiável (ver abaixo) |
+| **sem marca utilizável** | **77** | **~2,7 M** | **recarga total dentro da janela** |
+
+**O número que dimensiona a janela são os ~2,7 milhões de recarga total.** No ritmo medido no ensaio
+(20,9 M em 28,3 min) isso é **menos de 4 minutos** de carga.
+
+⚠️ **`DELTA_COL` só aceita carimbo de INSERÇÃO, nunca data de negócio.** Um `apagar_bx` lançado hoje com
+`DTPGTO` do mês passado escaparia de um delta por `dtpgto` — e a baixa se perderia na virada. Por isso
+`mov_contas_bancarias`, `apagar_bx`/`areceber_bx` e `estoque` **não** entram no mapa: vão de recarga total, e
+são pequenos. Entram só quatro, onde a coluna é inequívoca: `nfe_eventos` (`data_evento`),
+`log_impressao_etiqueta`, `operadores_acessos` e `audit_permissoes`.
+
+`nfe_eventos` é o caso que motivou o mapa: **102 mil linhas com dois CLOBs (o XML), 385 MB** — extraída
+inteira passava de 10 minutos e sozinha pesava mais que todo o resto da recarga total. Com a coluna mapeada,
+o mesmo recorte de dois dias sai em **73 linhas**.
+
+### O calendário da virada, então, é este
+
+| quando | o quê | tempo |
+|---|---|---|
+| **D-3** (loja aberta) | carga FRIA completa: extração + carga + reconciliação. Não precisa de janela — é o ensaio de 03/09 repetido | 1h47 + 28min |
+| **D-0, início da janela** | congelar o legado (§1) e anotar as âncoras | 15 min |
+| **D-0** | **delta**: as 62 por `dtultimalteracao`, as 19 por data desde D-3, as 67 por recarga total | **~20-30 min** |
+| **D-0** | reconciliação e go/no-go (§4) | 20 min |
+| **D-0** | subir o Apollo e liberar | 10 min |
+
+**Janela estimada: 1h a 1h30**, com folga. Sem o delta seria a carga inteira: 2h15 e três dias de movimento
+perdidos.
+
+### O modo delta do extrator (`--desde`), testado contra produção em 09/09/2026
+
+```bash
+ORACLE_HOST=hiperpinheirao.ddns.com.br python3 tools/cutover/etl/extrair.py <fase> <saida> --desde=2026-09-06
+```
+
+Cada tabela escolhe sozinha o seu corte, nesta ordem: `DTULTIMALTERACAO` → `FATIAR` → `DELTA_COL` → recarga
+total. O manifesto registra o modo de cada uma (`"delta": "dtvenda"` ou `"delta": "total"`), que é como a
+carga sabe onde é acréscimo e onde é substituição.
+
+Medido com `--desde=2026-09-08` (dois dias) contra produção:
+
+| tabela | resultado |
+|---|---|
+| `vendas` | **6.921 linhas** — bate com os ~7 mil/dia estimados |
+| `bancos`, `formas_pgto` | 0 linhas (nada mudou) |
+| `nfe_eventos` | 73 linhas (era a tabela de 385 MB) |
+| `permissoes`, `balancoitens` | recarga total, como esperado |
 
 ---
 
