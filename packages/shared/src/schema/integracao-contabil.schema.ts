@@ -112,3 +112,13 @@ export const analiseNfSchema = z
   })
   .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
 export type AnaliseNfDto = z.infer<typeof analiseNfSchema>;
+
+/** SALDO DA EMPRESA (`FRMSALDOEMPRESA`) — o período do fluxo projetado e o filtro opcional de parceiro. */
+export const saldoEmpresaSchema = z
+  .object({
+    dataIni: dataISO,
+    dataFim: dataISO,
+    codparceiro: z.coerce.number().int().positive().nullish(),
+  })
+  .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
+export type SaldoEmpresaDto = z.infer<typeof saldoEmpresaSchema>;

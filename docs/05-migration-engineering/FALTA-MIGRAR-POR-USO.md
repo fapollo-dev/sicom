@@ -19,7 +19,7 @@ são **PDV**, fora por instrução do usuário, e sozinhas valem 67% do que rest
 | INTEGRACAO CONTABIL (`FRMTRON`) | 781 | 19 | 2026-08-31 | ✅ **migrada** (3 cortes, mig 199-201) |
 | FECHAMENTO DIARIO (`FRMFECHAMENTODIARIO`) | 740 | 25 | 2026-09-01 | ✅ **migrada** (mig 198 + tela) |
 | ANALISE DE NOTAS FISCAIS (`FRMNFANALISE`) | 704 | 19 | 2026-09-04 | ✅ **corte-1** (mig 204): tributária + conferência; faltam 7 das 9 análises |
-| SALDO DA EMPRESA (`FRMSALDOEMPRESA`) | 611 | 19 | — | fila |
+| SALDO DA EMPRESA (`FRMSALDOEMPRESA`) | 611 | 19 | — | ✅ **corte-1** (mig 205): os 5 ramos do fluxo projetado; faltam contas bancárias e pedidos colocados |
 | FRMMANCADCARTAOBOAVISTA (`FRMMANCADCARTAOBOAVISTA`) | 560 | 0 | 2026-05-20 | fila |
 | RELATORIOS DE CAIXAS (`FRMRELCAIXA`) | 504 | 22 | 2026-09-05 | fila |
 | CONSULTORIA APOLLO (`FRMCONSULTORIAATM`) | 440 | 19 | 2026-09-04 | fila |

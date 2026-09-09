@@ -10216,6 +10216,67 @@ async function main() {
       }
     }
 
+    // ===== §98) SALDO DA EMPRESA (FRMSALDOEMPRESA) — o fluxo de caixa PROJETADO: a união de cinco fontes por
+    // data de vencimento, com o que entra positivo e o que sai negativo. 611 acessos, 19 operadores. ====
+    {
+      const SE = 'cobranca/saldo-empresa';
+      const pgSe = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const cta = Number((await pgSe.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES (0,1,'CC SALDO') RETURNING codconta`)).rows[0].codconta);
+        await pgSe.query(`INSERT INTO operadoras (codoperadoras, operadora, txadm, diascomp) VALUES (9095,'OPER SALDO',2.00,30)
+          ON CONFLICT (codoperadoras) DO UPDATE SET txadm=2.00, diascomp=30`);
+        // a receber 500 no dia 10 · a pagar 200 (+30 vendor −10 desconto) no dia 10 · cheque 100 no dia 12
+        const rcb = Number((await pgSe.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenc, dtvenda, valor, quitada, tipodoc, nrocupom)
+          VALUES (1,22,'SLD-R1','2038-04-10','2038-04-01',500.00,'N','DP','C1') RETURNING codrcb`)).rows[0].codrcb);
+        const apg = Number((await pgSe.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, dtcompra, valor, vendor, desconto, quitada, tipodoc)
+          VALUES (1,2,'SLD-P1','2038-04-10','2038-04-01',200.00,30.00,10.00,'N','DP') RETURNING codapg`)).rows[0].codapg);
+        await pgSe.query(`INSERT INTO cheque (codchq, idempresa, codparceiro, nrocheque, valor, bompara, baixado)
+          VALUES (990501,1,22,'CH-001',100.00,'2038-04-12','N')`);
+        await pgSe.query(`INSERT INTO chq_proprio (codchqproprio, idempresa, codparceiro, codconta, nrocheque, valor, dtvenc, baixado)
+          VALUES (990502,1,2,$1,7788,80.00,'2038-04-12','N')`, [cta]);
+        // cartão vendido em 01/04, operadora com 30 dias e parcela 1 → cai em 01/05; líquido = 300 − 2% = 294
+        await pgSe.query(`INSERT INTO cartao (idempresa, codoperadora, dtvenda, valor, nroparcela, liberado)
+          VALUES (1,9095,'2038-04-01',300.00,1,'N')`);
+
+        const r = await fetch(`${base}/${SE}?dataIni=2038-04-01&dataFim=2038-05-31`, { headers: H });
+        const j = (await r.json().catch(() => ({}))) as any;
+        const porTipo = Object.fromEntries((j.porTipo ?? []).map((t: any) => [t.tipo, Number(t.valor)]));
+        check('SALDO §98.1 (sqqSaldo, udmSaldoEmpresa.dfm:366): o fluxo é a UNIÃO de cinco fontes por data de vencimento, com sinal — a receber (+500) e cheque de terceiros (+100) entram; a pagar e cheque próprio saem. **O a pagar não é o valor da duplicata**: é `(|VALOR| + VENDOR − DESCONTO) × −1` = −(200+30−10) = **−220**, que é a conta do legado e a que quase ninguém lembra',
+          r.status === 200 && Math.abs(porTipo[1] - 500) < 0.005 && Math.abs(porTipo[2] - 100) < 0.005
+          && Math.abs(porTipo[4] + 220) < 0.005 && Math.abs(porTipo[5] + 80) < 0.005,
+          { porTipo: j.porTipo });
+
+        const cart = (j.linhas ?? []).find((l: any) => Number(l.tipo) === 3);
+        check('SALDO §98.2 [o cartão é PROJETADO]: a data não é a da venda — é `dtvenda + diascomp × nroparcela` (01/04 + 30 dias = 01/05) — e o valor é o LÍQUIDO da taxa da operadora: 300 − 2% = **294,00**. Entram só os cartões ainda NÃO liberados, que é o dinheiro que ainda vai cair',
+          !!cart && cart.venc === '2038-05-01' && Math.abs(Number(cart.valor) - 294) < 0.005,
+          { cartao: cart });
+
+        const dia10 = (j.porDia ?? []).find((d: any) => d.venc === '2038-04-10');
+        check('SALDO §98.3: a tela soma por DIA (entradas, saídas e o saldo do dia) e no total — no dia 10 entram 500 e saem 220, saldo 280; no período o saldo é 594,00 (500+100+294 −220−80)',
+          !!dia10 && Math.abs(dia10.entradas - 500) < 0.005 && Math.abs(dia10.saidas + 220) < 0.005 && Math.abs(dia10.saldo - 280) < 0.005
+          && Math.abs(Number(j.total?.saldo) - 594) < 0.005 && Math.abs(Number(j.total?.entradas) - 894) < 0.005,
+          { dia10, total: j.total });
+
+        // quitado e liberado saem do fluxo; e o filtro por parceiro
+        await pgSe.query(`UPDATE areceber SET quitada='S' WHERE codrcb=$1`, [rcb]);
+        const j2 = (await (await fetch(`${base}/${SE}?dataIni=2038-04-01&dataFim=2038-05-31`, { headers: H })).json().catch(() => ({}))) as any;
+        const j3 = (await (await fetch(`${base}/${SE}?dataIni=2038-04-01&dataFim=2038-05-31&codparceiro=2`, { headers: H })).json().catch(() => ({}))) as any;
+        check('SALDO §98.4: o que já foi quitado sai do fluxo (o recebível some assim que `QUITADA=S`), e o filtro por parceiro recorta o que é dele — o fornecedor 2 tem a conta a pagar e o cheque próprio, e o cartão fica de fora porque é "ao consumidor" e não tem parceiro',
+          !(j2.linhas ?? []).some((l: any) => Number(l.tipo) === 1)
+          && (j3.linhas ?? []).every((l: any) => [4, 5].includes(Number(l.tipo)))
+          && (j3.linhas ?? []).length === 2,
+          { semQuitado: (j2.porTipo ?? []).map((t: any) => t.tipo), doParceiro: j3.linhas });
+
+        await pgSe.query(`DELETE FROM cheque WHERE codchq=990501`);
+        await pgSe.query(`DELETE FROM chq_proprio WHERE codchqproprio=990502`);
+        await pgSe.query(`DELETE FROM cartao WHERE codoperadora=9095`);
+        await pgSe.query(`DELETE FROM areceber WHERE codrcb=$1`, [rcb]);
+        await pgSe.query(`DELETE FROM apagar WHERE codapg=$1`, [apg]);
+      } finally {
+        await pgSe.end();
+      }
+    }
+
     // ===== §89) LOGIN DUPLICADO (decisão do usuário + mig 173): unicidade PARCIAL e desempate por código ====
     {
       const pgL = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });

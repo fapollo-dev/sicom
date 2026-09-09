@@ -109,6 +109,8 @@ const TELAS = [
   { href: '/contabil/integracao', name: 'Integração Contábil', icon: ArrowRightLeft },
   // FRMNFANALISE — a análise fiscal das notas (704 acessos no cliente).
   { href: '/fiscal/nf-analise', name: 'Análise de Notas', icon: Calculator },
+  // FRMSALDOEMPRESA — o fluxo de caixa projetado (611 acessos).
+  { href: '/cobranca/saldo-empresa', name: 'Saldo da Empresa', icon: TrendingUp },
   { href: '/cadastro/fechamento-diario', name: 'Fechamento Diário', icon: CalendarClock },
   // FRMCTRLPERMISSOES — permissão por OPERADOR, que é o modo que o cliente usa (a de Perfis é o outro caminho).
   { href: '/cadastro/permissoes', name: 'Controle de Permissões', icon: ShieldCheck },
