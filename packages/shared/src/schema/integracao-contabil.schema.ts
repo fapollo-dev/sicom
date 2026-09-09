@@ -134,3 +134,13 @@ export const relCaixaSchema = z
   })
   .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
 export type RelCaixaDto = z.infer<typeof relCaixaSchema>;
+
+/** CONSULTORIA APOLLO (`FRMCONSULTORIAATM`) — participação e rentabilidade por nível da árvore de famílias. */
+export const consultoriaSchema = z
+  .object({
+    nivel: z.enum(['DEPARTAMENTO', 'GRUPO', 'SECAO']),
+    dataIni: dataISO,
+    dataFim: dataISO,
+  })
+  .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
+export type ConsultoriaDto = z.infer<typeof consultoriaSchema>;

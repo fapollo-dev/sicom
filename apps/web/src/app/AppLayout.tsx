@@ -113,6 +113,8 @@ const TELAS = [
   { href: '/cobranca/saldo-empresa', name: 'Saldo da Empresa', icon: TrendingUp },
   // FRMRELCAIXA — divergências de caixa e caixas abertos (505 acessos).
   { href: '/cobranca/rel-caixa', name: 'Relatórios de Caixa', icon: Coins },
+  // FRMCONSULTORIAATM — participação e rentabilidade por nível da árvore (440 acessos).
+  { href: '/relatorios/consultoria', name: 'Consultoria', icon: BarChart3 },
   { href: '/cadastro/fechamento-diario', name: 'Fechamento Diário', icon: CalendarClock },
   // FRMCTRLPERMISSOES — permissão por OPERADOR, que é o modo que o cliente usa (a de Perfis é o outro caminho).
   { href: '/cadastro/permissoes', name: 'Controle de Permissões', icon: ShieldCheck },

@@ -10341,6 +10341,72 @@ async function main() {
       }
     }
 
+    // ===== §100) CONSULTORIA APOLLO (FRMCONSULTORIAATM) — participação e rentabilidade por nível da árvore.
+    // A tela não tem lista fixa: varre `at&m_*.fr3` e monta o combo. São 15 layouts em produção, todos sobre
+    // o MESMO cálculo em níveis diferentes — por isso o corte porta o cálculo, não os relatórios. ====
+    {
+      const CO = 'relatorios/consultoria';
+      const pgCo = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // a árvore: 1 departamento com 1 grupo e 2 seções
+        await pgCo.query(`INSERT INTO familias_prod (codfamilia, descricao, tipo) VALUES
+          (9901,'MERCEARIA TESTE','D'), (9902,'CEREAIS TESTE','G'), (9903,'ARROZ TESTE','S'), (9904,'FEIJAO TESTE','S')
+          ON CONFLICT (codfamilia) DO NOTHING`);
+        const prods: number[] = [];
+        for (const [cb, sub] of [['7000000000101', 9903], ['7000000000102', 9904]] as Array<[string, number]>) {
+          prods.push(Number((await pgCo.query(`INSERT INTO produtos (codbarra, descricao, coddpto, codgrupo, codsubgrupo, unidade, codfor, aliquota)
+            VALUES ($1,$2,9901,9902,$3,'UN',2,'T01') RETURNING idproduto`, [cb, `PROD CONSULT ${cb}`, sub])).rows[0].idproduto));
+        }
+        // duas vendas no mesmo cupom e uma em outro. A primeira é por PESO (IAT='A' → arredonda),
+        // a segunda é por unidade (trunca no centavo): 3 × 3,333 = 9,999 → 9,99 truncado (e 10,00 se arredondasse).
+        // ⚠️ `vrvenda` é numeric(15,2): o truncamento tem de ser provado pela QUANTIDADE (3 casas), não pelo
+        // preço. 1,333 × 3,00 = 3,999 → por peso arredonda para 4,00; por unidade trunca para 3,99.
+        await pgCo.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, codproduto, qtde, vrvenda, vrcusto, iat, cancelado, desc_acre_medio, desc_acre_item, desc_promocao, desc_departamento) VALUES
+          (1,'2040-06-10','P-1',$1, 1.333, 3.00, 2.00,'A','N', 1.00, 0, 0.50, 0),
+          (1,'2040-06-10','P-1',$2, 1.333, 3.00, 2.00,'U','N',-2.00, 0, 0,    0),
+          (1,'2040-06-11','P-2',$2, 1.000,10.00, 4.00,'U','N', 0,    0, 0,    0),
+          (1,'2040-06-11','P-3',$2, 5.000,99.00,50.00,'U','S', 0,    0, 0,    0)`, [prods[0], prods[1]]);
+
+        const dep = (await (await fetch(`${base}/${CO}?nivel=DEPARTAMENTO&dataIni=2040-06-01&dataFim=2040-06-30`, { headers: H })).json().catch(() => ({}))) as any;
+        const lDep = (dep.linhas ?? []).find((l: any) => l.nivel === 'MERCEARIA TESTE');
+        // venda: peso 1,333×3,00 = 3,999 → 4,00 (arredonda) · unidade idem → 3,99 (trunca) · 1×10 = 10,00
+        // acréscimo: só o +1,00 · desconto: 0,50 de promoção + 2,00 do acre_medio negativo invertido
+        // resultado = 17,99 + 1,00 − 2,50 = 16,49 · custo = 2,67 + 2,67 + 4,00 = 9,34 · lucro = 7,15
+        check('CONSULTORIA §100.1 [as contas do legado, uma a uma]: acréscimo é só a parte POSITIVA de desc_acre_medio/item; desconto é promoção + departamento MAIS a parte negativa daqueles dois invertida; e a venda TRUNCA no centavo quando o item não é por peso (1,333 × 3,00 = 3,999 vira **3,99**) e ARREDONDA quando é (IAT=A: os mesmos números viram **4,00**) — é assim que o PDV fecha. Resultado 16,49, custo 9,34, lucro 7,15. A venda CANCELADA não entra',
+          !!lDep && Math.abs(Number(lDep.venda) - 16.49) < 0.005
+          && Math.abs(Number(lDep.custo) - 9.34) < 0.005
+          && Math.abs(Number(lDep.lucro) - 7.15) < 0.005
+          && Number(lDep.cupons) === 2,
+          { departamento: lDep });
+
+        check('CONSULTORIA §100.2: a rentabilidade é sobre o CUSTO, não sobre a venda (`:522`) — 7,15 / 9,34 = **76,55%**. E a participação de cada linha no total é nossa: o legado a calcula dentro do layout, e sem ela a tela chamada "participação de setores" não mostraria participação nenhuma',
+          Math.abs(Number(lDep.rentabilidade) - 76.55) < 0.05 && Math.abs(Number(lDep.participacao) - 100) < 0.05,
+          { rentabilidade: lDep?.rentabilidade, participacao: lDep?.participacao });
+
+        const sec = (await (await fetch(`${base}/${CO}?nivel=SECAO&dataIni=2040-06-01&dataFim=2040-06-30`, { headers: H })).json().catch(() => ({}))) as any;
+        const arroz = (sec.linhas ?? []).find((l: any) => l.nivel === 'ARROZ TESTE');
+        const feijao = (sec.linhas ?? []).find((l: any) => l.nivel === 'FEIJAO TESTE');
+        const grp = (await (await fetch(`${base}/${CO}?nivel=GRUPO&dataIni=2040-06-01&dataFim=2040-06-30`, { headers: H })).json().catch(() => ({}))) as any;
+        check('CONSULTORIA §100.3 [um cálculo, três níveis]: o mesmo cálculo desce a árvore trocando só o campo do produto — departamento (coddpto), grupo (codgrupo) e seção (codsubgrupo). As duas seções somam o departamento (4,50 + 11,99 = 16,49) e a participação de cada uma sai da divisão pelo total. É isso que cobre a maior parte dos 15 layouts `at&m_*` de uma vez',
+          !!arroz && !!feijao
+          && Math.abs(Number(arroz.venda) + Number(feijao.venda) - 16.49) < 0.02
+          && Math.abs(Number(arroz.participacao) + Number(feijao.participacao) - 100) < 0.1
+          && (grp.linhas ?? []).length === 1 && Math.abs(Number(grp.linhas[0].venda) - 16.49) < 0.005,
+          { arroz, feijao, grupo: grp.linhas });
+
+        check('CONSULTORIA §100.4: a venda cancelada não entra e os totais fecham com a soma das linhas',
+          Math.abs(Number(dep.totais?.venda) - 16.49) < 0.005 && Math.abs(Number(dep.totais?.lucro) - 7.15) < 0.005
+          && Number(dep.totais?.cupons) === 2,
+          { totais: dep.totais });
+
+        await pgCo.query(`DELETE FROM vendas WHERE nropedido IN ('P-1','P-2','P-3')`);
+        await pgCo.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [prods]);
+        await pgCo.query(`DELETE FROM familias_prod WHERE codfamilia IN (9901,9902,9903,9904)`);
+      } finally {
+        await pgCo.end();
+      }
+    }
+
     // ===== §89) LOGIN DUPLICADO (decisão do usuário + mig 173): unicidade PARCIAL e desempate por código ====
     {
       const pgL = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
