@@ -7801,6 +7801,20 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "deschist": {
+     "tipo": "character varying",
+     "tam": 255,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "tipodoc": {
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -20061,6 +20075,62 @@
     {
      "nome": "operadores_restricao_acesso_pkey",
      "def": "CREATE UNIQUE INDEX operadores_restricao_acesso_pkey ON public.operadores_restricao_acesso USING btree (codrestricao_acesso)"
+    }
+   ]
+  },
+  "origem_contabil": {
+   "colunas": {
+    "codorigem": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "descorigem": {
+     "tipo": "character varying",
+     "tam": 120,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "status": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "codorigem"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "origem_contabil_pkey",
+     "def": "CREATE UNIQUE INDEX origem_contabil_pkey ON public.origem_contabil USING btree (codorigem)"
     }
    ]
   },

@@ -10459,6 +10459,69 @@ async function main() {
       }
     }
 
+    // ===== §102) LANÇAMENTOS CONTÁBEIS (FRMRELLANCAMENTOSCONTABEIS) — o razão POR LANÇAMENTO, com a origem
+    // pelo NOME e a ponte para o documento que o gerou. 377 acessos, 19 operadores. ====
+    {
+      const LC = 'contabil/lancamentos';
+      const pgLc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const rcb = Number((await pgLc.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenc, dtvenda, valor, quitada, tipodoc)
+          VALUES (1,22,'LANC-R1','2042-08-10','2042-08-01',900.00,'S','DP') RETURNING codrcb`)).rows[0].codrcb);
+        const rcbbx = Number((await pgLc.query(`INSERT INTO areceber_bx (codrcb, codempresa, dtpgto, valorpg, juros, acre_desc, indr)
+          VALUES ($1,1,'2042-08-10',900.00,0,0,'I') RETURNING codrcbbx`, [rcb])).rows[0].codrcbbx);
+        // três lançamentos: uma partida balanceada (origem 12/NF) e um par single-legged (origem 16/baixa AR)
+        await pgLc.query(`INSERT INTO diario (coddiario, datalan, contadebito, contacredito, valor, codorigem, idorigem, codoperacao, codempresa, codhist, deschist, documento, complemento) VALUES
+          (990701,'2042-08-05',148,11141,1500.00,12,777,6,1,1,'INTEGRACAO NF 777','777','NF 777'),
+          (990702,'2042-08-10',183,NULL,   900.00,16,$1,2009,1,92,'RECEBIMENTO DE TITULO','LANC-R1','L1'),
+          (990703,'2042-08-10',NULL,211,   900.00,16,$1,2009,1,93,'RECEBIMENTO DE TITULO','LANC-R1','L1')`, [rcbbx]);
+
+        const r = await fetch(`${base}/${LC}?dataIni=2042-08-01&dataFim=2042-08-31`, { headers: H });
+        const j = (await r.json().catch(() => ({}))) as any;
+        const nf = (j.linhas ?? []).find((l: any) => Number(l.coddiario) === 990701);
+        check('LANÇAMENTOS §102.1 [a origem pelo NOME]: cada linha do razão vem com as duas contas (reduzida, expandida e descrição do plano), o histórico e — o que a mig 209 trouxe — a **origem por extenso**: `INTEGRAÇÃO DE NOTAS FISCAIS` em vez de `12`. São 35 origens no de-para do cliente, que a carga descartava',
+          r.status === 200 && !!nf && String(nf.origem).includes('NOTAS FISCAIS')
+          && nf.deschist === 'INTEGRACAO NF 777' && Number(nf.contadebito) === 148,
+          { nf });
+
+        check('LANÇAMENTOS §102.2 [débito e crédito somam SEPARADO]: parte das origens grava linha de UM LADO SÓ (a integração contábil: 893, 2004, 2009, 910), então somar tudo junto não diz nada. Aqui o total de débito (1.500 + 900 = 2.400) e o de crédito (1.500 + 900 = 2.400) saem separados, e a diferença entre eles mede quanto está partido',
+          Math.abs(Number(j.totais?.debito) - 2400) < 0.005
+          && Math.abs(Number(j.totais?.credito) - 2400) < 0.005
+          && Number(j.totais?.linhas) === 3,
+          { totais: j.totais });
+
+        const single = (await (await fetch(`${base}/${LC}?dataIni=2042-08-01&dataFim=2042-08-31&somenteSingle=true`, { headers: H })).json().catch(() => ({}))) as any;
+        const porOrigem = Object.fromEntries((j.porOrigem ?? []).map((o: any) => [o.codorigem, o]));
+        check('LANÇAMENTOS §102.3: o filtro "só de um lado" isola as linhas single-legged (as duas da baixa AR) e o resumo por origem agrupa pelo nome — é assim que se enxerga de onde veio o movimento do período',
+          (single.linhas ?? []).length === 2
+          && (single.linhas ?? []).every((l: any) => l.contadebito === null || l.contacredito === null)
+          && Number(porOrigem[16]?.linhas) === 2 && String(porOrigem[12]?.origem).includes('NOTAS FISCAIS'),
+          { single: single.linhas?.length, porOrigem: j.porOrigem });
+
+        const pon = await fetch(`${base}/${LC}/990702/origem`, { headers: H });
+        const pj = (await pon.json().catch(() => ({}))) as any;
+        const pon2 = (await (await fetch(`${base}/${LC}/990701/origem`, { headers: H })).json().catch(() => ({}))) as any;
+        check('LANÇAMENTOS §102.4 [a ponte para o documento — o "Detalhar" do legado, `:422`]: dado um lançamento, achar o papel que o gerou. Na baixa de A RECEBER o IDORIGEM é o CODRCBBX, e é preciso ir na `areceber_bx` buscar o título; na nota o IDORIGEM já É o documento. O que não tem ponte devolve o idorigem cru em vez de apontar para o lugar errado',
+          pon.status === 200 && pj.tipo === 'ARECEBER' && Number(pj.documento) === rcb
+          && String(pj.origem).includes('BAIXA DE CONTAS A RECEBER')
+          && pon2.tipo === 'NF' && Number(pon2.documento) === 777,
+          { baixa: pj, nota: pon2 });
+
+        const ori = (await (await fetch(`${base}/${LC}/origens`, { headers: H })).json().catch(() => ([]))) as any[];
+        check('LANÇAMENTOS §102.5: o combo de origens traz as 35 do cliente com a contagem de lançamentos de cada uma na empresa — inclusive as de STATUS=N, que são de uma geração anterior da integração e não recebem lançamento novo, mas o razão histórico referencia',
+          Array.isArray(ori) && ori.length === 35
+          // ≥ 2 e não == 2: a origem 16 também recebe os lançamentos do auto-disparo da baixa AR (§44)
+          && Number((ori.find((o: any) => Number(o.codorigem) === 16) ?? {}).lancamentos) >= 2
+          && ori.some((o: any) => Number(o.codorigem) === 51 && String(o.descorigem).includes('CARTÕES')),
+          { total: ori.length, amostra: ori.slice(0, 3) });
+
+        await pgLc.query(`DELETE FROM diario WHERE coddiario IN (990701,990702,990703)`);
+        await pgLc.query(`DELETE FROM areceber_bx WHERE codrcbbx=$1`, [rcbbx]);
+        await pgLc.query(`DELETE FROM areceber WHERE codrcb=$1`, [rcb]);
+      } finally {
+        await pgLc.end();
+      }
+    }
+
     // ===== §89) LOGIN DUPLICADO (decisão do usuário + mig 173): unicidade PARCIAL e desempate por código ====
     {
       const pgL = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });

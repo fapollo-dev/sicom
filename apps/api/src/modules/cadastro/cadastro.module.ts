@@ -31,6 +31,8 @@ import { AjustePrecosController } from './ajuste-precos.controller';
 import { AjustePrecosService } from './ajuste-precos.service';
 import { OperadorasAggregateController } from './operadoras.aggregate';
 import { CartaoCrudController } from './cartao.crud';
+import { LancamentosContabeisController } from './lancamentos-contabeis.controller';
+import { LancamentosContabeisService } from './lancamentos-contabeis.service';
 import { NfAnaliseController } from './nf-analise.controller';
 import { NfAnaliseService } from './nf-analise.service';
 import { CartaoBaixaController } from './cartao-baixa.controller';
@@ -159,6 +161,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     AjustePrecosController, // AJUSTE DE PREÇOS - LOTE (processa a fila lote_preco → multi_preco + grupo de preço + histórico)
     OperadorasAggregateController, // CARTÕES: administradora/adquirente + taxa por-empresa (operadoras+operadoras_taxa)
     CartaoCrudController, // CARTÕES: recebível (consulta/cadastro; líquido+vencimento computados na view get_cartao)
+    LancamentosContabeisController, // FRMRELLANCAMENTOSCONTABEIS — o razão por lançamento, com a origem pelo nome
     NfAnaliseController, // FRMNFANALISE — análise de notas (tributária + conferência)
     CartaoBaixaController, // CARTÕES corte-2: baixa/liquidação em lote (credita mov_contas_bancarias) + estorno
     ConciliacaoBancariaController, // CONCILIAÇÃO BANCÁRIA (OFX): importar extrato + conciliar vs mov_contas_bancarias
@@ -204,7 +207,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     ExportaBalancaService,
     AjustePrecosService,
     TrocaService,
-    CartaoBaixaService, NfAnaliseService,
+    CartaoBaixaService, NfAnaliseService, LancamentosContabeisService,
     ConciliacaoBancariaService,
     AgendaPromocaoService,
     PerfilRelacaoService,

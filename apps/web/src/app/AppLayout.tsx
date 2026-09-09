@@ -105,6 +105,8 @@ const TELAS = [
   { href: '/cadastro/plano-contas', name: 'Plano de Contas', icon: Network },
   { href: '/contabil/dre', name: 'DRE', icon: BarChart3 },
   { href: '/contabil/razao', name: 'Livro Razão', icon: BookOpen },
+  // FRMRELLANCAMENTOSCONTABEIS — o razão por lançamento, com a origem pelo nome (377 acessos).
+  { href: '/contabil/lancamentos', name: 'Lançamentos Contábeis', icon: ClipboardList },
   // FRMTRON — o exportador contábil: grava as partidas do razão por origem (cartões, baixas, documentos).
   { href: '/contabil/integracao', name: 'Integração Contábil', icon: ArrowRightLeft },
   // FRMNFANALISE — a análise fiscal das notas (704 acessos no cliente).

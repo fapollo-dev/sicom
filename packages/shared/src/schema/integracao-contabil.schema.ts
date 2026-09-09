@@ -154,3 +154,17 @@ export const relCartoesSchema = z
   })
   .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
 export type RelCartoesDto = z.infer<typeof relCartoesSchema>;
+
+/** LANÇAMENTOS CONTÁBEIS (`FRMRELLANCAMENTOSCONTABEIS`) — os filtros do razão por lançamento. */
+export const lancamentosContabeisSchema = z
+  .object({
+    dataIni: dataISO,
+    dataFim: dataISO,
+    codorigem: z.coerce.number().int().nonnegative().nullish(),
+    conta: z.coerce.number().int().positive().nullish(),
+    codoperacao: z.coerce.number().int().positive().nullish(),
+    documento: z.string().max(60).nullish(),
+    somenteSingle: z.coerce.boolean().optional(),
+  })
+  .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
+export type LancamentosContabeisDto = z.infer<typeof lancamentosContabeisSchema>;
