@@ -115,6 +115,8 @@ const TELAS = [
   { href: '/cobranca/rel-caixa', name: 'Relatórios de Caixa', icon: Coins },
   // FRMCONSULTORIAATM — participação e rentabilidade por nível da árvore (440 acessos).
   { href: '/relatorios/consultoria', name: 'Consultoria', icon: BarChart3 },
+  // FRMRELCARTOES — total por cartão: bruto, líquido e o que fica com a operadora (382 acessos).
+  { href: '/relatorios/cartoes', name: 'Total por Cartão', icon: CreditCard },
   { href: '/cadastro/fechamento-diario', name: 'Fechamento Diário', icon: CalendarClock },
   // FRMCTRLPERMISSOES — permissão por OPERADOR, que é o modo que o cliente usa (a de Perfis é o outro caminho).
   { href: '/cadastro/permissoes', name: 'Controle de Permissões', icon: ShieldCheck },

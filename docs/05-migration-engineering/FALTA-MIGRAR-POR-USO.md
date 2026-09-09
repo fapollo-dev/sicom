@@ -24,7 +24,7 @@ são **PDV**, fora por instrução do usuário, e sozinhas valem 67% do que rest
 | RELATORIOS DE CAIXAS (`FRMRELCAIXA`) | 505 | 11 | 2026-09-08 | ✅ **corte-1** (mig 206): divergências + caixas abertos; faltam voucher, apuração e pedidos |
 | CONSULTORIA APOLLO (`FRMCONSULTORIAATM`) | 440 | 19 | 2026-09-04 | ✅ **corte-1** (mig 207): participação e rentabilidade nos 3 níveis da árvore; faltam o modo com NF, os gráficos e a previsão |
 | INTEGRACAO FISCAL - BORBA FISCAL (`FRMVERIFICACAOTRIBUTARIABORBAFISCAL`) | 388 | 9 | 2026-06-15 | fila |
-| TOTAL POR CARTAO (`FRMRELCARTOES`) | 383 | 19 | 2026-09-02 | fila |
+| TOTAL POR CARTAO (`FRMRELCARTOES`) | 382 | 7 | 2026-09-02 | ✅ **completa** (mig 208) — nada ficou de fora |
 | LANCAMENTOS CONTABEIS (`FRMRELLANCAMENTOSCONTABEIS`) | 377 | 19 | 2026-08-18 | fila |
 | RENTABILIDADE POR CATEGORIAS (`FRMRENTABILIDADECATEGORIAS`) | 275 | 19 | — | fila |
 | PRECIFICACAO NF (`FRMPRECIFICACAONF`) | 236 | 17 | 2026-08-25 | fila |

@@ -10407,6 +10407,58 @@ async function main() {
       }
     }
 
+    // ===== §101) TOTAL POR CARTÃO (FRMRELCARTOES) — bruto, líquido da taxa e a separação por tipo de
+    // operadora. 382 acessos, 7 operadores. ====
+    {
+      const RCT = 'relatorios/cartoes';
+      const pgCt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // três operadoras: crédito (tipo C), débito (D) e uma SEM tipo — a terceira cai em "alimentação"
+        await pgCt.query(`INSERT INTO operadoras (codoperadoras, operadora, txadm, diascomp, tipo, codadm) VALUES
+          (8901,'CRED DEMO',  3.00, 30,'C', 2),
+          (8902,'DEB DEMO',   1.00,  1,'D', 2),
+          (8903,'VALE DEMO',  5.00, 15, NULL, 2)
+          ON CONFLICT (codoperadoras) DO UPDATE SET txadm=EXCLUDED.txadm, tipo=EXCLUDED.tipo, codadm=EXCLUDED.codadm`);
+        await pgCt.query(`INSERT INTO cartao (idempresa, codoperadora, dtvenda, valor, nroparcela, liberado) VALUES
+          (1,8901,'2041-07-10',1000.00,1,'N'),
+          (1,8902,'2041-07-10', 500.00,1,'N'),
+          (1,8903,'2041-07-11', 200.00,1,'N'),
+          (1,8901,'2041-07-11', 300.00,1,'S')`);
+
+        const r = await fetch(`${base}/${RCT}?dataIni=2041-07-01&dataFim=2041-07-31`, { headers: H });
+        const j = (await r.json().catch(() => ({}))) as any;
+        const porOp = Object.fromEntries((j.linhas ?? []).map((l: any) => [l.operadora, l]));
+        check('CARTÃO §101.1 (uRelCartoes.pas:140): soma por operadora o BRUTO e o LÍQUIDO da taxa — crédito 1.300 bruto e 1.261 líquido (3%), débito 500 e 495 (1%). O cartão já liberado TAMBÉM entra: o relatório é da VENDA no período, não do que está em aberto (diferente do saldo da empresa)',
+          r.status === 200
+          && Math.abs(Number(porOp['CRED DEMO']?.valor) - 1300) < 0.005
+          && Math.abs(Number(porOp['CRED DEMO']?.valor_liquido) - 1261) < 0.005
+          && Math.abs(Number(porOp['DEB DEMO']?.valor_liquido) - 495) < 0.005,
+          { linhas: j.linhas });
+
+        check('CARTÃO §101.2 [o "resto vira alimentação"]: o legado separa por `OPERADORAS.TIPO` com `CASE WHEN C … WHEN D … ELSE` — ou seja, qualquer tipo que não seja crédito nem débito (inclusive NULO) cai em ALIMENTAÇÃO. A operadora sem tipo soma 200 bruto e 190 líquido ali, e nada em crédito ou débito',
+          Math.abs(Number(porOp['VALE DEMO']?.alimentacao) - 190) < 0.005
+          && Math.abs(Number(porOp['VALE DEMO']?.alimentacao_bruto) - 200) < 0.005
+          && Number(porOp['VALE DEMO']?.credito) === 0 && Number(porOp['VALE DEMO']?.debito) === 0,
+          { vale: porOp['VALE DEMO'] });
+
+        check('CARTÃO §101.3: o total traz o que a OPERADORA FICA (bruto − líquido), que é o número que o gerente procura: 2.000 de venda, 1.946 líquidos, **54,00 de taxa**. E a administradora vem junto (o parceiro de `CODADM`), que é como o relatório agrupa',
+          Math.abs(Number(j.totais?.valor) - 2000) < 0.005
+          && Math.abs(Number(j.totais?.valor_liquido) - 1946) < 0.005
+          && Math.abs(Number(j.totais?.taxa) - 54) < 0.005
+          && !!porOp['CRED DEMO']?.administradora,
+          { totais: j.totais, adm: porOp['CRED DEMO']?.administradora });
+
+        const filtro = (await (await fetch(`${base}/${RCT}?dataIni=2041-07-01&dataFim=2041-07-31&codoperadora=8902`, { headers: H })).json().catch(() => ({}))) as any;
+        check('CARTÃO §101.4: o filtro por operadora recorta o relatório — só o débito sobra',
+          (filtro.linhas ?? []).length === 1 && filtro.linhas[0].operadora === 'DEB DEMO',
+          { linhas: filtro.linhas });
+
+        await pgCt.query(`DELETE FROM cartao WHERE codoperadora IN (8901,8902,8903)`);
+      } finally {
+        await pgCt.end();
+      }
+    }
+
     // ===== §89) LOGIN DUPLICADO (decisão do usuário + mig 173): unicidade PARCIAL e desempate por código ====
     {
       const pgL = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });

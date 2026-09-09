@@ -34,6 +34,8 @@ import { RelatorioConstrutorService } from './relatorio-construtor.service';
 import { RelatorioImportadorService } from './relatorio-importador.service';
 import { ConsultoriaController } from './consultoria.controller';
 import { ConsultoriaService } from './consultoria.service';
+import { RelCartoesController } from './rel-cartoes.controller';
+import { RelCartoesService } from './rel-cartoes.service';
 import { ConsHistVendasController } from './cons-hist-vendas.controller';
 import { ConsHistVendasService } from './cons-hist-vendas.service';
 import { ConfigService } from '../cadastro/config.service';
@@ -48,7 +50,9 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     // FRMRELATORIO + FRMCADASTRORELATORIO — o construtor: catálogo de fontes, definição salva e execução.
     RelatorioConstrutorController,
     // FRMCONSULTORIAATM — participação e rentabilidade por nível da árvore (440 acessos).
-    ConsultoriaController],
-  providers: [RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService],
+    ConsultoriaController,
+    // FRMRELCARTOES — total por cartão: bruto, líquido e a separação crédito/débito/alimentação (382 acessos).
+    RelCartoesController],
+  providers: [RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService, RelCartoesService],
 })
 export class RelatoriosModule {}

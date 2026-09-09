@@ -144,3 +144,13 @@ export const consultoriaSchema = z
   })
   .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
 export type ConsultoriaDto = z.infer<typeof consultoriaSchema>;
+
+/** TOTAL POR CARTÃO (`FRMRELCARTOES`) — período por data da venda e filtro por operadora. */
+export const relCartoesSchema = z
+  .object({
+    dataIni: dataISO,
+    dataFim: dataISO,
+    codoperadora: z.coerce.number().int().positive().nullish(),
+  })
+  .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
+export type RelCartoesDto = z.infer<typeof relCartoesSchema>;
