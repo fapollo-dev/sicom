@@ -177,11 +177,15 @@ saida = sys.argv[2] if len(sys.argv) > 2 else f'{BASE}/staging/{fase}'
 os.makedirs(saida, exist_ok=True)
 dest = json.load(open(f'{BASE}/schema-destino.json'))['tabelas']
 
-# ORACLE_HOST escolhe a base: 192.168.1.230 (homologação, padrão) ou hiperpinheirao.ddns.com.br (PRODUÇÃO).
+# ORACLE_HOST escolhe a base: 192.168.1.240 (homologação, padrão) ou hiperpinheirao.ddns.com.br (PRODUÇÃO).
+# ⚠️ o IP da homologação MUDOU em 09/09/2026: era 192.168.1.230, que hoje não responde mais.
+# ⚠️ e a homologação NÃO serve para medir volume: a cópia de 09/09 tem **468.745 vendas de 02/05 a 24/08/2026**
+#    (quatro meses) contra **18.933.237 desde 2018** na produção. Já me enganei uma vez confundindo as duas —
+#    foi assim que conclui que 'não há carga incremental de venda'. Medição de volume é SEMPRE em produção.
 # Produção é SOMENTE OBSERVAÇÃO por instrução do usuário: a sessão abre READ ONLY como guarda — este script só
 # faz SELECT, mas a guarda deixa o Oracle recusar qualquer escrita por acidente.
 import os as _os
-ORACLE_HOST = _os.environ.get("ORACLE_HOST", "192.168.1.230")
+ORACLE_HOST = _os.environ.get("ORACLE_HOST", "192.168.1.240")
 con = oracledb.connect(user="pinheirao", password="apollo", dsn=oracledb.makedsn(ORACLE_HOST,1521,sid="apollo"))
 con.call_timeout = 900000
 # ⚠️ ACHADO EM PRODUÇÃO (02/09): `SET TRANSACTION READ ONLY` numa base VIVA dá **ORA-01555 (snapshot too old)**

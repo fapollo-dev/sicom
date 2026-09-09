@@ -4,7 +4,7 @@ SENHAADMIN/DESC/CANCEL/GAVETA de EMPRESAS como JSON (cifradas César +13 — RTR
 (senha-empresa.ts) decoda + classifica + re-hasha. SOMENTE SELECT — nada é escrito no Oracle (replicação ativa).
 
 Credenciais por env (defaults = PINHEIRAO homolog; ver a memória oracle-db-access):
-  ORA_HOST=192.168.1.230 ORA_PORT=1521 ORA_SID=apollo ORA_USER=pinheirao ORA_PASS=apollo
+  ORA_HOST=192.168.1.240 ORA_PORT=1521 ORA_SID=apollo ORA_USER=pinheirao ORA_PASS=apollo
 Requer o pacote `oracledb` (thin). uso: python extract-senha-empresa.py [saida.json]
 """
 import json, os, sys, oracledb
@@ -12,7 +12,7 @@ import json, os, sys, oracledb
 con = oracledb.connect(
     user=os.environ.get("ORA_USER", "pinheirao"),
     password=os.environ.get("ORA_PASS", "apollo"),
-    dsn=oracledb.makedsn(os.environ.get("ORA_HOST", "192.168.1.230"),
+    dsn=oracledb.makedsn(os.environ.get("ORA_HOST", "192.168.1.240"),
                          int(os.environ.get("ORA_PORT", "1521")),
                          sid=os.environ.get("ORA_SID", "apollo")),
 )

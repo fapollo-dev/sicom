@@ -40,7 +40,7 @@ caixa_pdv nfe_nao_cadastradas""".split())
 
 dest = json.load(open(f'{BASE}/schema-destino.json'))['tabelas']
 
-host = os.environ.get('ORACLE_HOST', '192.168.1.230')
+host = os.environ.get('ORACLE_HOST', '192.168.1.240')
 con = oracledb.connect(user='pinheirao', password='apollo', dsn=oracledb.makedsn(host, 1521, sid='apollo'))
 con.call_timeout = 900000
 cur = con.cursor()

@@ -4,7 +4,7 @@
 reconstruídos como latin-1 (charCodeAt == byte), que é o que o motor (decodeSenhaLegado) espera. SOMENTE SELECT.
 
 Credenciais por env (defaults = PINHEIRAO homolog; ver memória oracle-db-access):
-  ORA_HOST=192.168.1.230 ORA_PORT=1521 ORA_SID=apollo ORA_USER=pinheirao ORA_PASS=apollo
+  ORA_HOST=192.168.1.240 ORA_PORT=1521 ORA_SID=apollo ORA_USER=pinheirao ORA_PASS=apollo
 uso: python extract-senha-operador.py [saida.json]
 """
 import json, os, sys, oracledb
@@ -12,7 +12,7 @@ import json, os, sys, oracledb
 con = oracledb.connect(
     user=os.environ.get("ORA_USER", "pinheirao"),
     password=os.environ.get("ORA_PASS", "apollo"),
-    dsn=oracledb.makedsn(os.environ.get("ORA_HOST", "192.168.1.230"),
+    dsn=oracledb.makedsn(os.environ.get("ORA_HOST", "192.168.1.240"),
                          int(os.environ.get("ORA_PORT", "1521")),
                          sid=os.environ.get("ORA_SID", "apollo")),
 )

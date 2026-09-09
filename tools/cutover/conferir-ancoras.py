@@ -19,7 +19,7 @@ ANCORAS = ['vendas', 'cx_vendas', 'nf', 'nf_prod', 'historico_prod', 'estoque', 
            'areceber', 'apagar', 'caixa', 'cartao', 'diario', 'operadores', 'multi_preco', 'pedidocompra']
 TABELA_ORIGEM = {'lote_preco': 'LOTEPRECO'}
 
-host = os.environ.get('ORACLE_HOST', '192.168.1.230')
+host = os.environ.get('ORACLE_HOST', '192.168.1.240')
 con = oracledb.connect(user='pinheirao', password='apollo', dsn=oracledb.makedsn(host, 1521, sid='apollo'))
 con.call_timeout = 900000
 cur = con.cursor()

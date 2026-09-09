@@ -7,6 +7,11 @@ Os números vêm das medições contra **produção** (`hiperpinheirao.ddns.com.
 > Estado: **ensaiado de ponta a ponta em 03/09/2026** (extração + carga + operação, contra produção, com a loja
 > aberta). Os tempos são reais. O que ainda não foi feito é a virada em si — falta definir o dono do go/no-go.
 
+> **Endereços (conferidos em 09/09/2026):** produção `hiperpinheirao.ddns.com.br:1521` · homologação
+> `192.168.1.240:1521` — **o IP da homologação mudou nesse dia**, era `192.168.1.230` e hoje dá timeout.
+> ⚠️ a homologação é um RECORTE (468.745 vendas de maio a agosto/2026 contra 18,9 milhões desde 2018 na
+> produção): serve para estrutura e ensaio de escrita, **nunca para medir volume**.
+
 ## ⚠️ Premissa confirmada pelo cliente em 09/09/2026: **o Oracle é o sistema VIVO**
 
 Isto corrige uma conclusão minha que estava errada e era perigosa. Eu havia registrado que *"não há carga

@@ -50,11 +50,12 @@ for f in sorted(glob.glob(f'{MIG}/*.sql')):
         for mu in re.finditer(r'^\s*UNIQUE\s*\(([^)]*)\)', corpo, re.M | re.I):
             alvos.append((os.path.basename(f), f'inline_{tab}', tab, mu.group(1).strip(), ''))
 
-# ORACLE_HOST escolhe a base: 192.168.1.230 (homologação, padrão) ou hiperpinheirao.ddns.com.br (PRODUÇÃO).
+# ORACLE_HOST escolhe a base: 192.168.1.240 (homologação, padrão — o IP mudou em 09/09/2026, era .230) ou
+# hiperpinheirao.ddns.com.br (PRODUÇÃO). A homologação é um RECORTE: não medir volume nela.
 # Produção é SOMENTE OBSERVAÇÃO por instrução do usuário: a sessão abre READ ONLY como guarda — este script só
 # faz SELECT, mas a guarda deixa o Oracle recusar qualquer escrita por acidente.
 import os as _os
-ORACLE_HOST = _os.environ.get("ORACLE_HOST", "192.168.1.230")
+ORACLE_HOST = _os.environ.get("ORACLE_HOST", "192.168.1.240")
 con = oracledb.connect(user="pinheirao", password="apollo", dsn=oracledb.makedsn(ORACLE_HOST,1521,sid="apollo"))
 con.call_timeout = 600000
 con.cursor().execute("SET TRANSACTION READ ONLY")

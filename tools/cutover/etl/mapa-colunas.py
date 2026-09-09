@@ -30,11 +30,11 @@ fase = (sys.argv[1] if len(sys.argv) > 1 else 'f0').lower()
 alvos = FASES[fase]
 
 dest = json.load(open('/Library/Apollo/tools/cutover/schema-destino.json'))['tabelas']
-# ORACLE_HOST escolhe a base: 192.168.1.230 (homologação, padrão) ou hiperpinheirao.ddns.com.br (PRODUÇÃO).
+# ORACLE_HOST escolhe a base: 192.168.1.240 (homologação, padrão) ou hiperpinheirao.ddns.com.br (PRODUÇÃO).
 # Produção é SOMENTE OBSERVAÇÃO por instrução do usuário: a sessão abre READ ONLY como guarda — este script só
 # faz SELECT, mas a guarda deixa o Oracle recusar qualquer escrita por acidente.
 import os as _os
-ORACLE_HOST = _os.environ.get("ORACLE_HOST", "192.168.1.230")
+ORACLE_HOST = _os.environ.get("ORACLE_HOST", "192.168.1.240")
 con = oracledb.connect(user="pinheirao", password="apollo", dsn=oracledb.makedsn(ORACLE_HOST,1521,sid="apollo"))
 con.call_timeout = 600000
 con.cursor().execute("SET TRANSACTION READ ONLY")

@@ -1,6 +1,542 @@
 {
+ "agenda_promocao": {
+  "linhas": 3720,
+  "dedup": null,
+  "colunas": [
+   "codagenda",
+   "dtiniciopromocao",
+   "dtfimpromocao",
+   "flagpromocao",
+   "nomepromo",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro",
+   "idempresa",
+   "opcoes",
+   "obs",
+   "dtencerramento",
+   "codoperadorenc",
+   "indr",
+   "indr_usuario",
+   "indr_data"
+  ],
+  "somas": {
+   "codagenda": "44841779",
+   "usultalteracao": "450459",
+   "idempresa": "4609",
+   "opcoes": "30439",
+   "codoperadorenc": "16",
+   "indr_usuario": "818"
+  },
+  "datas": {
+   "dtiniciopromocao": [
+    "2020-08-20T00:01:00",
+    "2026-09-03T05:00:00"
+   ],
+   "dtfimpromocao": [
+    "2020-08-20T23:59:00",
+    "2026-11-30T23:59:00"
+   ],
+   "dtultimalteracao": [
+    "2020-08-20T00:53:51",
+    "2026-09-02T14:59:26"
+   ],
+   "dtcadastro": [
+    "2020-08-18T17:39:32",
+    "2026-04-29T08:04:50"
+   ],
+   "dtencerramento": [
+    "2023-05-11T08:53:23",
+    "2025-02-05T14:49:52"
+   ],
+   "indr_data": [
+    "2023-05-09T16:59:15",
+    "2026-06-10T16:44:39"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "codparceiro",
+   "dataexecucao",
+   "idsituacao_nf",
+   "liberar_agenda_app"
+  ]
+ },
+ "aliquota": {
+  "linhas": 12,
+  "dedup": null,
+  "colunas": [
+   "codigo"
+  ],
+  "somas": {},
+  "datas": {},
+  "colunas_origem_descartadas": []
+ },
+ "analise_pedido_nf": {
+  "linhas": 9787,
+  "dedup": null,
+  "colunas": [
+   "apn_id",
+   "apn_data_analise",
+   "apn_status",
+   "codoperador",
+   "codempresa",
+   "apn_total_parcial",
+   "codoperador_finalizado",
+   "apn_diferenca_valor",
+   "apn_status_finalizacao"
+  ],
+  "somas": {
+   "apn_id": "68184220",
+   "codoperador": "3646361",
+   "codempresa": "9873",
+   "codoperador_finalizado": "937823",
+   "apn_diferenca_valor": "543291.83"
+  },
+  "datas": {
+   "apn_data_analise": [
+    "2020-08-11T09:49:34",
+    "2026-09-02T14:06:52"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "apagar": {
+  "linhas": 54729,
+  "dedup": null,
+  "colunas": [
+   "dtcadastro",
+   "idsituacao_nf",
+   "adcredito",
+   "origem",
+   "agrupado",
+   "codgrupo_agrupamento_apg",
+   "codadiantamento",
+   "retencao",
+   "cadastrado_manualmente",
+   "codapg",
+   "duplicata",
+   "obs",
+   "codparceiro",
+   "quitada",
+   "codempresa",
+   "idnf",
+   "gerado",
+   "valor",
+   "txjuros",
+   "dtvenc",
+   "tipodoc",
+   "codbco",
+   "nrodup",
+   "vendor",
+   "usultalteracao",
+   "dtultimalteracao",
+   "adfornecedor",
+   "contabilizado"
+  ],
+  "somas": {
+   "idsituacao_nf": "26745295",
+   "codapg": "1898673705",
+   "codparceiro": "3118846539",
+   "codempresa": "180852",
+   "idnf": "4133698743",
+   "valor": "164597289.15",
+   "txjuros": "40924704.16",
+   "vendor": "2083987.93",
+   "usultalteracao": "12780011",
+   "codgrupo_agrupamento_apg": "47276394",
+   "codbco": "1191929",
+   "nrodup": "11908",
+   "codadiantamento": "32019"
+  },
+  "datas": {
+   "dtcadastro": [
+    "2020-08-14T10:18:53.176000",
+    "2026-09-02T16:02:18"
+   ],
+   "dtvenc": [
+    "2020-02-01T00:00:00",
+    "2202-02-28T00:00:00"
+   ],
+   "dtultimalteracao": [
+    "2020-08-24T19:17:25",
+    "2026-09-02T15:57:18"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "agrupamento",
+   "baixa_autentica_trans",
+   "baixa_auto_paga",
+   "baixa_auto_trans",
+   "baixa_autorizada",
+   "bloqueio",
+   "chavenfe",
+   "cod_agenda_prev_pagto",
+   "cod_desconto_titulo",
+   "codapg_pai",
+   "codapgcartao",
+   "codbarrasblt",
+   "codcentrocusto",
+   "codconvenio",
+   "codcxagrupamentocr",
+   "codgrupo",
+   "codgrupo_desconto_titulo",
+   "codgrupo_fcx",
+   "codoperador",
+   "codoperador_aceite_pendencia",
+   "codoperador_autentica_trans",
+   "codoperador_auto_paga",
+   "codoperador_auto_trans",
+   "codoperador_autorizada",
+   "codparceirocedente",
+   "codplanocontas_deb_baixa_cp",
+   "codplcfuncionarios",
+   "contabilizado_agrupamento",
+   "contabilnf",
+   "convenio",
+   "data_aceite_pendencia",
+   "data_autentica_trans",
+   "data_auto_paga",
+   "data_auto_trans",
+   "data_autorizada",
+   "desconto",
+   "docnf",
+   "dtcompra",
+   "form",
+   "geradocartaoproprio",
+   "gfat",
+   "idlote",
+   "logado",
+   "lote_remessa",
+   "mora",
+   "nrparcela",
+   "obs_autentica_trans",
+   "obs_auto_paga",
+   "obs_auto_trans",
+   "obs_autorizada",
+   "old_codparceiro",
+   "operacao_convenio_funcionario",
+   "percjuros",
+   "remessa_gerada",
+   "retorno_op",
+   "status_pendencia"
+  ]
+ },
+ "apuracao_icms": {
+  "linhas": 89,
+  "dedup": null,
+  "colunas": [
+   "codapuracaoicms",
+   "dataini",
+   "datafin",
+   "saldoant",
+   "creditoentrada",
+   "outroscreditos",
+   "estornodebitos",
+   "saldocredorseguinte",
+   "debitosaida",
+   "outrosdebitos",
+   "estornocreditos",
+   "saldodevedor",
+   "deducoes",
+   "arecolher",
+   "idempresa"
+  ],
+  "somas": {
+   "codapuracaoicms": "119342",
+   "saldoant": "24122.76",
+   "creditoentrada": "793601.04",
+   "outroscreditos": "0",
+   "estornodebitos": "0",
+   "saldocredorseguinte": "26949.33",
+   "debitosaida": "1474372.05",
+   "outrosdebitos": "0",
+   "estornocreditos": "0",
+   "saldodevedor": "683597.58",
+   "deducoes": "0",
+   "arecolher": "683597.58",
+   "idempresa": "413"
+  },
+  "datas": {
+   "dataini": [
+    "2020-09-01T00:00:00",
+    "2026-01-01T00:00:00"
+   ],
+   "datafin": [
+    "2020-09-30T00:00:00",
+    "2026-01-31T00:00:00"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "apuracao_pc": {
+  "linhas": 18,
+  "dedup": null,
+  "colunas": [
+   "idempresa",
+   "codapuracao_pc",
+   "dataini",
+   "datafim"
+  ],
+  "somas": {
+   "idempresa": "18",
+   "codapuracao_pc": "3164"
+  },
+  "datas": {
+   "dataini": [
+    "2022-06-01T00:00:00",
+    "2026-03-09T00:00:00"
+   ],
+   "datafim": [
+    "2022-06-30T00:00:00",
+    "2026-04-09T00:00:00"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "areceber": {
+  "linhas": 99253,
+  "dedup": null,
+  "colunas": [
+   "gerado",
+   "valor",
+   "txjuros",
+   "dtvenc",
+   "tipodoc",
+   "nrodup",
+   "codcobrador",
+   "codparceiro",
+   "codvendedor",
+   "codempresa",
+   "codbco",
+   "idpgto",
+   "consiliado",
+   "registro_arq_remessa",
+   "nome_arq_remessa",
+   "login_arq_remessa",
+   "data_arq_remessa",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro",
+   "codplc",
+   "status_boleto",
+   "adfornecedor",
+   "contabilizado",
+   "desconto_boleto",
+   "desconto_boleto_tipo",
+   "cadastrado_manualmente",
+   "agrupado",
+   "codgrupo_agrupamento_rcb",
+   "idsituacao_nf",
+   "codadiantamento",
+   "origem",
+   "data_agrupamento",
+   "nosso_numero_boleto",
+   "remessa",
+   "txmulta",
+   "dtpgto",
+   "codrcb",
+   "duplicata",
+   "nrocupom",
+   "docnf",
+   "obs",
+   "dtvenda",
+   "quitada",
+   "idnf"
+  ],
+  "somas": {
+   "valor": "26295836.25",
+   "txjuros": "119",
+   "nrodup": "149421",
+   "codcobrador": "498613",
+   "codparceiro": "7751911316",
+   "codvendedor": "121892153",
+   "codempresa": "881083",
+   "codbco": "8177144",
+   "idpgto": "3176740",
+   "usultalteracao": "993967",
+   "idsituacao_nf": "32965940",
+   "codrcb": "6579743149",
+   "codgrupo_agrupamento_rcb": "2789954235",
+   "codplc": "46997619",
+   "idnf": "51473672",
+   "codadiantamento": "702911",
+   "desconto_boleto": "0",
+   "nosso_numero_boleto": "831884860",
+   "txmulta": "3"
+  },
+  "datas": {
+   "dtvenc": [
+    "0202-01-13T00:00:00",
+    "2152-10-28T00:00:00"
+   ],
+   "dtultimalteracao": [
+    "2020-01-29T11:17:52.976000",
+    "2026-09-02T16:39:22"
+   ],
+   "dtcadastro": [
+    "2020-01-30T14:52:02.271000",
+    "2026-09-02T16:39:20.220000"
+   ],
+   "dtvenda": [
+    "1899-12-30T00:00:00",
+    "2026-09-02T16:38:26.979000"
+   ],
+   "data_agrupamento": [
+    "2020-09-25T14:09:38.328028",
+    "2026-09-02T15:38:30.752564"
+   ],
+   "dtpgto": [
+    "2020-08-18T00:00:00",
+    "5022-05-24T00:00:00"
+   ],
+   "data_arq_remessa": [
+    "2020-01-29T13:42:04",
+    "2026-09-01T09:02:14"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "agrupamento",
+   "antecipado",
+   "baixado",
+   "carencia",
+   "chave",
+   "cod_desconto_titulo",
+   "codagenda",
+   "codcfo",
+   "codconta",
+   "codcx",
+   "codgrupo",
+   "codgrupo_agrupamento_apg",
+   "codgrupo_desconto_titulo",
+   "codoperador",
+   "codoperador_aceite_pendencia",
+   "codoperador_liberacao",
+   "codoperadorman",
+   "codparceiropinheirao",
+   "codpdv",
+   "codplanocontas_cred_baixa_cr",
+   "contabilizado_agrupamento",
+   "contabilnf",
+   "data_aceite_pendencia",
+   "datalotcob",
+   "datatransf",
+   "desconto",
+   "desconto_tipo",
+   "diferenca_pedcomp",
+   "dtagendamento",
+   "dtfechamentocx",
+   "idintegracao",
+   "idlote",
+   "idrds",
+   "importado",
+   "logado",
+   "lotecob",
+   "lotetransf",
+   "nfadicmanual",
+   "nrodoc",
+   "nropedido",
+   "old_codparceiro",
+   "parcela",
+   "qrcodepix",
+   "sequencia",
+   "status_pendencia",
+   "total",
+   "total_brt",
+   "txadm",
+   "valor_perc_multa"
+  ]
+ },
+ "arquivo_remessa_areceber": {
+  "linhas": 719,
+  "dedup": null,
+  "colunas": [
+   "indr",
+   "indr_usuario",
+   "indr_data",
+   "cod_remessa_areceber",
+   "arquivo",
+   "nomearquivo",
+   "codcontacorrente",
+   "usucadastro",
+   "dtcadastro",
+   "origem_legado"
+  ],
+  "somas": {
+   "cod_remessa_areceber": "2298874",
+   "codcontacorrente": "154518",
+   "usucadastro": "72227"
+  },
+  "datas": {
+   "dtcadastro": [
+    "2022-02-23T16:26:31",
+    "2026-09-01T09:02:15"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "audit_permissoes": {
+  "linhas": 143013,
+  "dedup": null,
+  "colunas": [
+   "form",
+   "opcao",
+   "codoperador",
+   "codempresa",
+   "data",
+   "tipo",
+   "programa",
+   "maquina"
+  ],
+  "somas": {
+   "codoperador": "118398625",
+   "codempresa": "2458414"
+  },
+  "datas": {
+   "data": [
+    "2020-08-10T08:13:54",
+    "2026-09-02T14:57:27"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "balanco": {
+  "linhas": 8,
+  "dedup": null,
+  "colunas": [
+   "codbalanco",
+   "descricao",
+   "data",
+   "codoperador",
+   "codempresa",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro",
+   "ativo"
+  ],
+  "somas": {
+   "codbalanco": "254",
+   "codoperador": "8",
+   "codempresa": "8",
+   "usultalteracao": "8"
+  },
+  "datas": {
+   "data": [
+    "2020-08-20T00:00:00",
+    "2026-01-13T14:40:49"
+   ],
+   "dtultimalteracao": [
+    "2020-08-20T02:28:14",
+    "2026-01-13T14:40:49"
+   ],
+   "dtcadastro": [
+    "2020-08-20T02:28:14",
+    "2026-01-13T14:40:49"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
  "bancos": {
-  "linhas": 596,
+  "linhas": 594,
   "dedup": null,
   "colunas": [
    "codbco",
@@ -17,18 +553,102 @@
    "carteira_cobranca",
    "variacao_carteira"
   ],
-  "somas": {},
+  "somas": {
+   "codbco": "176391",
+   "usultalteracao": "166",
+   "agencia_cedente": "26258",
+   "codbcoblt": "787",
+   "convenio": "3500121",
+   "carteira_cobranca": "17",
+   "variacao_carteira": "1"
+  },
   "datas": {
    "dtultimalteracao": [
-    "2021-01-19T19:37:58",
-    "2025-05-19T08:43:09"
+    "2021-10-06T16:35:07",
+    "2025-01-31T10:11:44"
    ],
    "dtcadastro": [
     "2023-07-26T15:40:28",
-    "2025-05-19T08:43:09"
+    "2024-01-31T20:28:15"
    ]
   },
   "colunas_origem_descartadas": []
+ },
+ "bandeira": {
+  "linhas": 11,
+  "dedup": null,
+  "colunas": [
+   "idbandeira",
+   "bandeira"
+  ],
+  "somas": {
+   "idbandeira": "10054"
+  },
+  "datas": {},
+  "colunas_origem_descartadas": []
+ },
+ "caixa_pdv": {
+  "linhas": 26803,
+  "dedup": [
+   "codcaixa"
+  ],
+  "colunas": [
+   "codcaixa",
+   "codoperadora",
+   "data",
+   "codpdv",
+   "idempresa",
+   "horaentrada",
+   "horasaida",
+   "chave"
+  ],
+  "somas": {
+   "codcaixa": "639618750",
+   "codoperadora": "36186304",
+   "codpdv": "1462029",
+   "idempresa": "58078"
+  },
+  "datas": {
+   "data": [
+    "2020-08-19T08:21:50",
+    "2026-09-02T09:08:01"
+   ],
+   "horaentrada": [
+    "2020-08-19T08:21:50",
+    "2026-09-02T09:08:01"
+   ],
+   "horasaida": [
+    "2020-08-19T09:16:44",
+    "2026-09-02T16:02:04"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "acrescimos",
+   "areceber_bx",
+   "cancelamentos",
+   "cancelamentos_aberto",
+   "cancelamentos_item",
+   "contravale",
+   "correspondente",
+   "descontos",
+   "fundocaixa",
+   "idrds",
+   "ini_acrescimo",
+   "ini_acrescimo_nf",
+   "ini_cancelamento",
+   "ini_cancelamento_nf",
+   "ini_desconto",
+   "ini_desconto_nf",
+   "ini_sangria",
+   "ini_suprimento",
+   "ini_troco",
+   "recarga",
+   "sangria",
+   "troco",
+   "vendab_final",
+   "vendab_inicial",
+   "voucher"
+  ]
  },
  "cidades": {
   "linhas": 5564,
@@ -38,160 +658,354 @@
    "iduf",
    "cidade"
   ],
-  "somas": {},
+  "somas": {
+   "idcidade": "18101035648",
+   "iduf": "180130"
+  },
   "datas": {},
   "colunas_origem_descartadas": []
  },
- "bairro": {
-  "linhas": 0,
+ "conciliacao_bancaria": {
+  "linhas": 18338,
   "dedup": null,
   "colunas": [
-   "idbairro",
-   "descricao",
-   "ativo",
-   "regiao",
-   "indr",
-   "indr_usuario",
-   "indr_data",
-   "usultalteracao",
-   "dtultimalteracao",
-   "dtcadastro",
-   "idcidade"
+   "cb_id",
+   "cb_data",
+   "cb_operador"
   ],
-  "somas": {},
-  "datas": {},
-  "colunas_origem_descartadas": []
- },
- "cfop": {
-  "linhas": 395,
-  "dedup": null,
-  "colunas": [
-   "codcfop",
-   "descricao",
-   "proc_qtde",
-   "proc_cupom",
-   "cfop_devolucao",
-   "situacao_icms_entradas_nf",
-   "situacao_icms_saidas_nf",
-   "situacao_pis_entradas_nf",
-   "situacao_pis_saidas_nf",
-   "situacao_cofins_entradas_nf",
-   "situacao_cofins_saidas_nf",
-   "nao_gera_apuracao_icms",
-   "gera_financeiro_auto"
-  ],
-  "somas": {},
-  "datas": {},
-  "colunas_origem_descartadas": [
-   "abater_cfop",
-   "aliquota",
-   "altera_custo_nf",
-   "atualiza_venda_nf",
-   "cod_bc_credito",
-   "codclass_trib",
-   "codcontabil",
-   "codplanocontas",
-   "compra",
-   "devolucao",
-   "dispensado_coleta",
-   "dispensado_pedido_compra",
-   "dtcadastro",
-   "dtultimalteracao",
-   "filtro_prec_nf",
-   "idpiscofins",
-   "informaiest",
-   "nao_atualiza_forn_prod",
-   "nao_gera_sped",
-   "nao_gera_sped_contribuicao",
-   "naoalimentadre",
-   "preco_custo",
-   "proc_financeiro",
-   "proc_transf",
-   "sintegra",
-   "tipo",
-   "tipo_cfop",
-   "tipoestado",
-   "transferencia",
-   "usultalteracao",
-   "venda"
-  ]
- },
- "ncm": {
-  "linhas": 11215,
-  "dedup": null,
-  "colunas": [
-   "codigo",
-   "ncmsh",
-   "categoria",
-   "descricao",
-   "ipi",
-   "vigencia_inicio",
-   "vigencia_fim",
-   "un_tributada",
-   "un_tributada_descricao",
-   "observacao",
-   "usultalteracao",
-   "dtultimalteracao",
-   "dtcadastro"
-  ],
-  "somas": {},
+  "somas": {
+   "cb_id": "191798533",
+   "cb_operador": "11269047"
+  },
   "datas": {
-   "vigencia_inicio": [
-    "2000-01-01T00:00:00",
-    "2022-05-17T00:00:00"
-   ],
-   "dtcadastro": [
-    "2018-03-02T17:28:42.926697",
-    "2026-04-02T11:11:58.479202"
-   ],
-   "vigencia_fim": [
-    "2017-03-31T00:00:00",
-    "2030-12-31T00:00:00"
-   ],
-   "dtultimalteracao": [
-    "2020-01-08T11:59:17",
-    "2022-05-17T16:00:32"
+   "cb_data": [
+    "2020-10-01T20:17:40",
+    "2026-09-01T10:27:01"
    ]
   },
   "colunas_origem_descartadas": []
  },
- "aliquota": {
-  "linhas": 33,
+ "condicoes_pagto": {
+  "linhas": 53,
   "dedup": null,
   "colunas": [
-   "codigo"
+   "codconpagto",
+   "descricao",
+   "usultalteracao",
+   "dtultimalteracao",
+   "cd1",
+   "cd2",
+   "cd3",
+   "cd4",
+   "cd5",
+   "cd6",
+   "cd7",
+   "cd8",
+   "dtcadastro"
   ],
-  "somas": {},
-  "datas": {},
+  "somas": {
+   "codconpagto": "21464",
+   "usultalteracao": "919",
+   "cd1": "8587",
+   "cd2": "1119",
+   "cd3": "875",
+   "cd4": "90"
+  },
+  "datas": {
+   "dtultimalteracao": [
+    "2023-09-26T18:42:02.900111",
+    "2026-08-27T14:40:25.256864"
+   ],
+   "dtcadastro": [
+    "2023-09-26T18:42:02.900111",
+    "2026-08-27T14:40:25.256864"
+   ]
+  },
   "colunas_origem_descartadas": []
  },
- "piscofins": {
-  "linhas": 13,
+ "conf_integ_bancaria": {
+  "linhas": 3,
   "dedup": null,
   "colunas": [
-   "idpiscofins",
-   "descricao",
-   "aliq_pis_ent",
-   "aliq_pis_sai",
-   "aliq_cofins_ent",
-   "aliq_cofins_sai",
-   "cst_pis_ent",
-   "cst_pis_sai",
-   "cst_cofins_ent",
-   "cst_cofins_sai"
+   "codconf",
+   "codempresa",
+   "codbco",
+   "agencia",
+   "nrconta",
+   "codfornbco",
+   "arqteste",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro",
+   "layoutremessa",
+   "codempresa_arquivo",
+   "dias_baixa_boleto",
+   "tipo_integ_bancaria",
+   "identempresabco",
+   "sequenciaremessa",
+   "obs_boleto",
+   "iniciais_arquivo",
+   "nosso_numero_inicial",
+   "habilitar_bolecode"
   ],
-  "somas": {},
+  "somas": {
+   "codconf": "104",
+   "codempresa": "101",
+   "codbco": "1673",
+   "usultalteracao": "3",
+   "codempresa_arquivo": "101",
+   "sequenciaremessa": "0",
+   "nosso_numero_inicial": "0"
+  },
+  "datas": {
+   "dtultimalteracao": [
+    "2023-09-14T14:49:13",
+    "2025-07-02T14:22:54"
+   ],
+   "dtcadastro": [
+    "2020-09-17T19:07:20",
+    "2023-07-26T15:43:15"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "config_balanca": {
+  "linhas": 2,
+  "dedup": null,
+  "colunas": [
+   "idempresa",
+   "dir_bal",
+   "tipo_bal",
+   "mod_bal",
+   "export_nutricional",
+   "export_receita",
+   "campo_setor",
+   "id",
+   "exporta_tara"
+  ],
+  "somas": {
+   "idempresa": "3",
+   "id": "525"
+  },
   "datas": {},
   "colunas_origem_descartadas": [
+   "exporta_rdc429"
+  ]
+ },
+ "config_plano_contas": {
+  "linhas": 1,
+  "dedup": null,
+  "colunas": [
+   "codcontasintetica_for",
+   "codcontaanalitica_for",
+   "codcontasintetica_cli",
+   "codcontaanalitica_cli",
+   "tipo",
+   "codcontasintetica_cxa",
+   "codcontaanalitica_cxa",
+   "codcontaanalitica_bco",
+   "codcontasintetica_bco",
+   "mascara"
+  ],
+  "somas": {
+   "codcontaanalitica_for": "11141",
+   "codcontaanalitica_cli": "211"
+  },
+  "datas": {},
+  "colunas_origem_descartadas": [
+   "codconfig",
    "dtcadastro",
    "dtultimalteracao",
-   "exigenatureza",
-   "id_tipocredito",
+   "ndig_1",
+   "ndig_2",
+   "ndig_3",
+   "ndig_4",
+   "ndig_5",
+   "ndig_6",
+   "ndig_7",
+   "ndig_8",
    "usultalteracao"
   ]
  },
+ "configuracoes": {
+  "linhas": 842,
+  "dedup": null,
+  "colunas": [
+   "id",
+   "codigo",
+   "categorias",
+   "descricaopequena",
+   "descricao",
+   "valor",
+   "tipovalor",
+   "valorespossiveis",
+   "obsoleto"
+  ],
+  "somas": {
+   "id": "361444"
+  },
+  "datas": {},
+  "colunas_origem_descartadas": [
+   "configespecificaspermitidas",
+   "mascara",
+   "modulos",
+   "passwordchar",
+   "tamanhovalor"
+  ]
+ },
+ "configuracoes_sped": {
+  "linhas": 1,
+  "dedup": null,
+  "colunas": [
+   "idempresa",
+   "codplc_m400_pc",
+   "codplc_m410_pc",
+   "codplc_m800_pc",
+   "codplc_m810_pc"
+  ],
+  "somas": {
+   "idempresa": "1",
+   "codplc_m400_pc": "183",
+   "codplc_m410_pc": "183",
+   "codplc_m800_pc": "183",
+   "codplc_m810_pc": "183"
+  },
+  "datas": {},
+  "colunas_origem_descartadas": []
+ },
+ "contas_bancarias_op": {
+  "linhas": 221,
+  "dedup": null,
+  "colunas": [
+   "codconta",
+   "codoperador",
+   "cbo_baixa_cr",
+   "cbo_baixa_cp"
+  ],
+  "somas": {
+   "codconta": "56661",
+   "codoperador": "212334"
+  },
+  "datas": {},
+  "colunas_origem_descartadas": [
+   "habilitar_tranfer",
+   "habiltiar_chavear_fec_cxa",
+   "habiltiar_conci_ofx",
+   "habiltiar_detalhar_conta",
+   "habiltiar_lanca_saldo",
+   "habiltiar_libe_moviment",
+   "habiltiar_troca_valores",
+   "visualizar_saldos"
+  ]
+ },
+ "cotacao": {
+  "linhas": 39,
+  "dedup": null,
+  "colunas": [
+   "flg_origem",
+   "codctc",
+   "descricao",
+   "data",
+   "situacao",
+   "codoperador",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro",
+   "pedidos",
+   "liberada"
+  ],
+  "somas": {
+   "codctc": "20313",
+   "usultalteracao": "1465",
+   "codoperador": "9"
+  },
+  "datas": {
+   "data": [
+    "2020-08-14T17:09:39.558000",
+    "2026-03-16T15:41:45.964000"
+   ],
+   "dtultimalteracao": [
+    "2020-08-14T17:21:02",
+    "2026-03-16T15:56:40"
+   ],
+   "dtcadastro": [
+    "2020-08-14T17:09:39.558000",
+    "2026-03-16T15:41:45.964000"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "codctc_listaf",
+   "dtenvioemail",
+   "dtfimpreenchimento",
+   "dtiniciopreenchimento",
+   "empresas"
+  ]
+ },
+ "cx_vendas": {
+  "linhas": 3341394,
+  "dedup": null,
+  "colunas": [
+   "sangrias",
+   "suprimentos",
+   "idempresa",
+   "contabilizado",
+   "chave",
+   "venda_balcao",
+   "idnf",
+   "tipo_venda",
+   "codcxvendas_legado",
+   "data",
+   "nropdv",
+   "codoperadora",
+   "nropedido",
+   "operacao",
+   "debito_credito",
+   "valor",
+   "troco",
+   "coo",
+   "status",
+   "codgrupo"
+  ],
+  "somas": {
+   "idempresa": "6159644",
+   "codcxvendas_legado": "6034565599034",
+   "nropdv": "184407114",
+   "codoperadora": "4826691351",
+   "valor": "178172347.53",
+   "codgrupo": "169029222415",
+   "venda_balcao": "0",
+   "troco": "19012215.68",
+   "coo": "443155560720",
+   "suprimentos": "0",
+   "idnf": "322754"
+  },
+  "datas": {
+   "data": [
+    "2000-06-04T00:00:00",
+    "2026-09-02T16:47:50"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "baixarcb",
+   "codfiscalcaixa",
+   "crescevendas",
+   "gnf",
+   "gt",
+   "hashpaf",
+   "idclubedesconto",
+   "idintegracao",
+   "idlote_baixa",
+   "lanc_provisorio",
+   "lanc_provisorio_data",
+   "lanc_provisorio_usuario",
+   "sequencia",
+   "tesouraria",
+   "troco_solidario",
+   "vale_troco"
+  ]
+ },
  "det_aliquota": {
-  "linhas": 236,
+  "linhas": 195,
   "dedup": [
    "aliquota",
    "uf"
@@ -206,7 +1020,12 @@
    "lei",
    "csosn"
   ],
-  "somas": {},
+  "somas": {
+   "icm": "1181",
+   "icm_efetivo": "1151.4",
+   "base": "19189.43",
+   "cst": "2821"
+  },
   "datas": {},
   "colunas_origem_descartadas": [
    "codcontabilaprazo",
@@ -214,91 +1033,313 @@
    "descricaoaliquota"
   ]
  },
- "figura_fiscal": {
-  "linhas": 16839,
+ "empresas": {
+  "linhas": 5,
   "dedup": null,
   "colunas": [
-   "codfigurafiscal",
-   "descfigurafiscal",
-   "indr"
-  ],
-  "somas": {},
-  "datas": {},
-  "colunas_origem_descartadas": [
-   "codreduzido",
-   "destino_tipo",
-   "destino_uf",
-   "dtcadastro",
-   "dtultimalteracao",
-   "indr_data",
-   "indr_usuario",
-   "integracao_data",
-   "integracao_id",
-   "origem_tipo_classificacao",
-   "origem_tipo_tributario",
-   "origem_uf",
-   "usultalteracao"
-  ]
- },
- "unidade": {
-  "linhas": 11,
-  "dedup": null,
-  "colunas": [
-   "codunidade",
-   "sigla",
-   "descricao"
-  ],
-  "somas": {},
-  "datas": {},
-  "colunas_origem_descartadas": [
-   "ativo",
-   "dtcadastro",
-   "dtultimalteracao",
-   "fracionado",
-   "indr",
-   "indr_data",
-   "indr_usuario",
-   "mixfiscal_dt",
-   "producao",
-   "usualteracao",
-   "usultalteracao"
-  ]
- },
- "marcas": {
-  "linhas": 1,
-  "dedup": null,
-  "colunas": [
-   "idmarca",
-   "descricao",
-   "indr",
-   "indr_usuario",
-   "indr_data",
+   "limite_descmax",
+   "contribuinte_icms",
+   "margem_venda",
+   "numero",
+   "complemento",
+   "ultimo_nsu",
+   "margem_contribuicao",
+   "idempresa",
+   "razao_social",
+   "fantasia",
+   "cnpj",
+   "insc",
+   "endereco",
+   "bairro",
+   "cidade",
+   "uf",
+   "classfiscal",
+   "txjuropadrao",
+   "cep",
+   "fone1",
+   "alqsimplesnac",
+   "despoperacional",
+   "descmax",
+   "imprenda",
+   "contsocial",
+   "figurafiscal",
+   "idcidade",
+   "im",
+   "percent_multa",
    "usultalteracao",
    "dtultimalteracao",
-   "dtcadastro"
+   "pc_curva_abc_a",
+   "pc_curva_abc_b",
+   "pc_curva_abc_c",
+   "preconf",
+   "aliquota_estado",
+   "dtcadastro",
+   "integracao",
+   "tx_juro_apagar",
+   "tiponfe"
   ],
-  "somas": {},
+  "somas": {
+   "numero": "6145",
+   "idempresa": "156",
+   "despoperacional": "80",
+   "imprenda": "60",
+   "contsocial": "36",
+   "idcidade": "12680824",
+   "usultalteracao": "2105",
+   "pc_curva_abc_a": "325",
+   "pc_curva_abc_b": "105",
+   "pc_curva_abc_c": "40",
+   "aliquota_estado": "85"
+  },
   "datas": {
    "dtultimalteracao": [
-    "2020-09-05T19:30:59",
-    "2020-09-05T19:30:59"
+    "2024-10-16T16:56:21",
+    "2026-07-16T10:23:52"
    ],
    "dtcadastro": [
-    "2020-09-05T19:30:59",
-    "2020-09-05T19:30:59"
+    "2013-06-03T14:11:42",
+    "2013-06-03T14:11:42"
    ]
   },
-  "colunas_origem_descartadas": []
+  "colunas_origem_descartadas": [
+   "alertafiscal_ambiente",
+   "alertafiscal_idcliente",
+   "alertafiscal_tempo_envio_prod",
+   "alertafiscal_tempo_receb_prod",
+   "alertafiscal_tempo_retorno_api",
+   "alertafiscal_token",
+   "alertafiscal_ult_envio_prod",
+   "alertafiscal_ult_receb_prod",
+   "alertafiscal_ult_retorno_api",
+   "alertafiscal_url_consulta",
+   "alertafiscal_url_consulta_prod",
+   "alertafiscal_url_webhook",
+   "alertafiscal_url_webhook_prod",
+   "aluguel",
+   "aream2",
+   "aream2_venda",
+   "assunto",
+   "atucomposicao",
+   "atudcomposicao",
+   "autenticacao_mdfe",
+   "auth_fgf_api",
+   "auth_fgf_api_v2",
+   "campocomposicao",
+   "cancelmax",
+   "ccacresjuro",
+   "ccacresjuroobtido",
+   "ccdesconto",
+   "ccdescontoobtido",
+   "ccmultajuros",
+   "cctesouraria",
+   "certificado",
+   "certificado_cte",
+   "certificado_cte_senha",
+   "certificado_mdfe",
+   "certificado_senha",
+   "certificado_senha_mdfe",
+   "chamafila_url",
+   "cnae_principal",
+   "cnae_secundario",
+   "cod_ajus_icms_st",
+   "cod_ajus_ipi",
+   "cod_ajus_sn",
+   "cod_estabelecimento_cielo",
+   "cod_estabelecimento_redecard",
+   "codcentralbalcao",
+   "codconta_baixa_correspondente",
+   "codconta_baixa_recarga",
+   "codconta_pagamento",
+   "codempresa_finan",
+   "codfornecedor_correspondente",
+   "codfornecedor_recarga",
+   "codfornecedor_trocosolidario",
+   "codfornecedor_voucher",
+   "codigoempresawl",
+   "codoperador_autoatendimento",
+   "codparceiro",
+   "codperfil_proprietario",
+   "codplc_acrescimos_pagos",
+   "codplc_acrescimos_recebidos",
+   "codplc_correspondente",
+   "codplc_descontos_concedidos",
+   "codplc_descontos_recebidos",
+   "codplc_juros_pagos",
+   "codplc_juros_recebidos",
+   "codplc_nf_pdv",
+   "codplc_recarga",
+   "codplc_taxa_cartao_paga",
+   "codplc_taxas_cartao",
+   "codplc_trocosolidario",
+   "codplc_voucher",
+   "codplcfechamentoconvenio",
+   "codterminal",
+   "contacmv",
+   "contacofre",
+   "contrapartida",
+   "cpf",
+   "crescevendas_email",
+   "crescevendas_token",
+   "crescevendas_url",
+   "csc",
+   "csc_id",
+   "csc_id_teste",
+   "csc_teste",
+   "cta_caixa",
+   "cte_autenticacao",
+   "data_abertura",
+   "data_remessaativa",
+   "datacongetq",
+   "desabilita_remessa",
+   "despfederativas",
+   "dlm_pedido_compra",
+   "dtautualizacao",
+   "dtcargatcpds",
+   "dtconsulta_webservice_sefaz",
+   "dtcontingencia_fim_nfc",
+   "dtcontingencia_inicio_nfc",
+   "email",
+   "email_aut_ssl",
+   "email_aut_tls",
+   "email_contador",
+   "email_senha",
+   "email_texto_nfc",
+   "fab_escala_nao_relevante",
+   "faturamentopedido",
+   "faturapedidodireto",
+   "fechamento_caixa",
+   "filialempresawl",
+   "filtrapdv",
+   "flagetqcong",
+   "fone2",
+   "grupotensao",
+   "hab_cod_beneficio_fis",
+   "hashpaf",
+   "idcliente_fgf",
+   "idpgto",
+   "idsituacao_nf_pdv",
+   "idsuporteborba",
+   "indice_ativ",
+   "insc_mun",
+   "integrante",
+   "izio_token",
+   "izio_url",
+   "junta_comercial",
+   "lcto_contabil",
+   "lcto_financeiro",
+   "logada",
+   "loja_email",
+   "loja_token",
+   "loja_url",
+   "mascaraplc",
+   "mensagempromocao",
+   "mercafacil_idpgto",
+   "mercafacil_token",
+   "mercafacil_url",
+   "meta_compra",
+   "modelo_duplicata",
+   "motivo_contingencia_nfc",
+   "nfce_autenticacao",
+   "nome",
+   "nome_loja_tricard",
+   "nomeloja",
+   "numeitensnota",
+   "numero_historico",
+   "numeroinicial_mdfe",
+   "pc_curva_abc_a_qtde",
+   "pc_curva_abc_b_qtde",
+   "pc_curva_abc_c_qtde",
+   "pc_curva_abc_d",
+   "pc_curva_abc_d_qtde",
+   "pc_curva_abc_e",
+   "pc_curva_abc_e_qtde",
+   "pc_curva_comp_a",
+   "pc_curva_comp_a_qtde",
+   "pc_curva_comp_b",
+   "pc_curva_comp_b_qtde",
+   "pc_curva_comp_c",
+   "pc_curva_comp_c_qtde",
+   "pc_curva_comp_d",
+   "pc_curva_comp_d_qtde",
+   "pc_curva_comp_e",
+   "pc_curva_comp_e_qtde",
+   "pedcompra",
+   "percent_compra_prop",
+   "percentual_acresc_prod",
+   "perfilsped",
+   "pisconfis",
+   "porta",
+   "preen_ncm",
+   "ramoatividade",
+   "regime_lote",
+   "remessaativa",
+   "responsavel",
+   "saida_operadora",
+   "salario",
+   "scanntech_token",
+   "segmento",
+   "senha_email",
+   "senhaadmin",
+   "senhacancel",
+   "senhadesc",
+   "senhagaveta",
+   "senhareducao",
+   "separador_duplicata",
+   "serie",
+   "serie_mdfe",
+   "serie_nfc",
+   "seriecte",
+   "sincroniza_preco_nf",
+   "smtp",
+   "stef_integrador_cnpj",
+   "stef_integrador_jwt",
+   "stef_integrador_token",
+   "stef_loja_token",
+   "suframa",
+   "tef_administrativo_funcao",
+   "tef_administrativo_restricao",
+   "tef_cartao_funcao",
+   "tef_cartao_restricao",
+   "tef_correspondente_funcao",
+   "tef_correspondente_restricao",
+   "tef_loja",
+   "tef_recarga_funcao",
+   "tef_recarga_restricao",
+   "tef_servidor",
+   "tef_voucher_funcao",
+   "tef_voucher_restricao",
+   "texto",
+   "token_fgf",
+   "tokenwl",
+   "tolerancianf",
+   "tp_ligacao",
+   "tptransp_mdfe",
+   "trigger_estoque",
+   "txadm",
+   "ultimo_nsu_serv",
+   "url_fgf_api",
+   "urlbasewl",
+   "usuario_remessaativa",
+   "usucongetq",
+   "validacaixa",
+   "valor_cbs",
+   "valor_informar_cliente",
+   "valor_maximo_informar_cliente",
+   "valor_perc_multa",
+   "vlr_produto"
+  ]
  },
  "familias_prod": {
-  "linhas": 2392,
+  "linhas": 2470,
   "dedup": null,
   "colunas": [
    "codfamilia",
    "descricao",
    "tipo"
   ],
-  "somas": {},
+  "somas": {
+   "codfamilia": "4595604"
+  },
   "datas": {},
   "colunas_origem_descartadas": [
    "ativo",
@@ -322,6 +1363,7 @@
    "fp_despesa_operacional",
    "idempresa",
    "modeloeitqueta",
+   "referencia",
    "usultalteracao",
    "vrmargemfixa",
    "vrmargemmax",
@@ -329,7 +1371,7 @@
   ]
  },
  "familias_prod_area": {
-  "linhas": 1,
+  "linhas": 0,
   "dedup": null,
   "colunas": [
    "codfamilias_prod_area",
@@ -343,38 +1385,1427 @@
   "datas": {},
   "colunas_origem_descartadas": []
  },
- "plc": {
-  "linhas": 376,
+ "figura_fiscal": {
+  "linhas": 16838,
   "dedup": null,
   "colunas": [
-   "codplc",
-   "codpai",
-   "desccodplc",
-   "descricao",
-   "nivelconta",
-   "codcontabil"
+   "codfigurafiscal",
+   "descfigurafiscal",
+   "indr"
+  ],
+  "somas": {
+   "codfigurafiscal": "141767541"
+  },
+  "datas": {},
+  "colunas_origem_descartadas": [
+   "codreduzido",
+   "destino_tipo",
+   "destino_uf",
+   "dtcadastro",
+   "dtultimalteracao",
+   "indr_data",
+   "indr_usuario",
+   "integracao_data",
+   "integracao_id",
+   "origem_tipo_classificacao",
+   "origem_tipo_tributario",
+   "origem_uf",
+   "usultalteracao"
+  ]
+ },
+ "formas_pgto": {
+  "linhas": 47,
+  "dedup": null,
+  "colunas": [
+   "idpgto",
+   "modalidade",
+   "atalho",
+   "destino",
+   "plccofre",
+   "codcontacorrente",
+   "idempresa",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro",
+   "recebe_pdv",
+   "codplanocontas",
+   "permite_sangria_pdv",
+   "tipo",
+   "inativo",
+   "data_inativo"
+  ],
+  "somas": {
+   "idpgto": "7360",
+   "plccofre": "29508",
+   "codcontacorrente": "3653",
+   "idempresa": "1268",
+   "usultalteracao": "2258",
+   "codplanocontas": "4800"
+  },
+  "datas": {
+   "dtultimalteracao": [
+    "2020-08-22T12:06:39",
+    "2025-09-05T13:33:39"
+   ],
+   "dtcadastro": [
+    "2020-08-20T08:56:16",
+    "2025-08-26T15:56:46"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "acre_desc",
+   "baixa_documento_automatico",
+   "cartao_bin",
+   "cfopdentrodoestado",
+   "cfopforadoestado",
+   "codconpagto",
+   "codcontabil",
+   "codcontabil_cred",
+   "codcontabil_deb",
+   "codparceiro",
+   "comissao",
+   "exige_permissao",
+   "idpgto_pai",
+   "lanc_moviment_individual",
+   "modalidade_pdv",
+   "parcela",
+   "parcela_maxima",
+   "parcelado",
+   "parcelado_despesa",
+   "parcelado_parcelas",
+   "smart_tef",
+   "smart_tef_destino",
+   "tipo_transacao",
+   "troco_limite",
+   "valor_minimo_fv"
+  ]
+ },
+ "grupo_operador": {
+  "linhas": 6,
+  "dedup": null,
+  "colunas": [
+   "idgrupo",
+   "descricao"
+  ],
+  "somas": {
+   "idgrupo": "23"
+  },
+  "datas": {},
+  "colunas_origem_descartadas": []
+ },
+ "historico_dinamico": {
+  "linhas": 1985019,
+  "dedup": null,
+  "colunas": [
+   "valor_chave",
+   "codempresa",
+   "historico",
+   "origem",
+   "codhistorico",
+   "campo",
+   "valor_anterior",
+   "valor_atual",
+   "tabela",
+   "data",
+   "codoperador",
+   "chave"
+  ],
+  "somas": {
+   "codempresa": "3588436",
+   "codhistorico": "1980666116908",
+   "codoperador": "1344929471"
+  },
+  "datas": {
+   "data": [
+    "2020-08-06T16:37:17",
+    "2026-09-02T15:56:52"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "historico_prod": {
+  "linhas": 14554098,
+  "dedup": null,
+  "colunas": [
+   "idproduto",
+   "data",
+   "qtde",
+   "saldo_novo",
+   "historico",
+   "idempresa",
+   "codnf",
+   "origem",
+   "saldo_anterior",
+   "tipo"
+  ],
+  "somas": {
+   "idproduto": "6449950269268",
+   "qtde": "803497902.075",
+   "saldo_novo": "14378918320.194",
+   "idempresa": "20015779",
+   "saldo_anterior": "13575420418.119",
+   "codnf": "46563147498"
+  },
+  "datas": {
+   "data": [
+    "2020-08-11T12:14:49.536296",
+    "2026-09-02T17:09:43.067591"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "codtroca",
+   "id_origem_documento",
+   "valor_alter",
+   "valor_atual"
+  ]
+ },
+ "indexador_tributario": {
+  "linhas": 11997,
+  "dedup": null,
+  "colunas": [
+   "codbarra",
+   "aliquota_fonte_lei_3166",
+   "ncm",
+   "aliquota_reduzida_lei_3166",
+   "cnpj_cpf",
+   "aliquota_fem",
+   "indr",
+   "considerar_desconto_calc_st",
+   "codindexadortributario",
+   "tp_figura",
+   "tp_cadastro",
+   "codparceiro",
+   "origem",
+   "destino",
+   "codcfop",
+   "codfigurafiscal",
+   "operacao",
+   "aliquota_dest",
+   "icm_fonte",
+   "redcom",
+   "mva",
+   "st_externo",
+   "reducao"
+  ],
+  "somas": {
+   "aliquota_reduzida_lei_3166": "567",
+   "codindexadortributario": "662096224",
+   "codparceiro": "688427389",
+   "codcfop": "21284801",
+   "codfigurafiscal": "104562",
+   "aliquota_dest": "109626.21",
+   "icm_fonte": "95318.84",
+   "redcom": "571257.80",
+   "mva": "169649.2028",
+   "reducao": "574592.00",
+   "aliquota_fem": "48"
+  },
+  "datas": {},
+  "colunas_origem_descartadas": [
+   "base_st_com_reducao",
+   "basesemreducao",
+   "dtcadastro",
+   "dtultimalteracao",
+   "indr_data",
+   "indr_usuario",
+   "old_codparceiro",
+   "usultalteracao"
+  ]
+ },
+ "inventario_livro": {
+  "linhas": 5,
+  "dedup": null,
+  "colunas": [
+   "codinvent",
+   "idempresa",
+   "dtinicial",
+   "dtinventario",
+   "tipoinventario",
+   "modeloinventario"
+  ],
+  "somas": {
+   "codinvent": "849",
+   "idempresa": "7",
+   "tipoinventario": "2"
+  },
+  "datas": {
+   "dtinicial": [
+    "2021-05-05T00:00:00",
+    "2026-03-03T00:00:00"
+   ],
+   "dtinventario": [
+    "2021-05-05T00:00:00",
+    "2026-03-03T00:00:00"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "apenasestoque",
+   "atividadecomercial",
+   "atividadeprimaria",
+   "atividadesecundaria",
+   "dtfimlivro",
+   "dtiniciolivro",
+   "nroabertura",
+   "nrofechamento",
+   "nrolivro",
+   "paginas",
+   "produtosativos"
+  ]
+ },
+ "inventario_rotativo": {
+  "linhas": 1329,
+  "dedup": null,
+  "colunas": [
+   "codinv_rotativo",
+   "idproduto",
+   "qtd_anterior",
+   "qtd_atual",
+   "data",
+   "idempresa",
+   "destino",
+   "operador",
+   "operacao",
+   "lote",
+   "qtd_coletada",
+   "nomelote",
+   "importado_perdas",
+   "codnf_perdas",
+   "importado_sobras",
+   "codnf_sobras",
+   "codgrupo",
+   "codsubgrupo",
+   "codsecao",
+   "codforn",
+   "exigeconfirmacao",
+   "tipo",
+   "data_finalizada",
+   "codbalanco_inicial",
+   "codbalanco_final",
+   "almoxarifado_padrao",
+   "produto_inativo",
+   "busca_inativo"
+  ],
+  "somas": {
+   "codinv_rotativo": "1125750",
+   "idproduto": "563702494",
+   "qtd_anterior": "562376.38",
+   "qtd_atual": "209422.040",
+   "idempresa": "1477",
+   "operador": "4675",
+   "lote": "80060",
+   "qtd_coletada": "190727.920",
+   "codnf_perdas": "80122",
+   "codgrupo": "718",
+   "codbalanco_inicial": "61"
+  },
+  "datas": {
+   "data": [
+    "2020-09-09T17:22:16",
+    "2026-05-28T16:49:44.152000"
+   ],
+   "data_finalizada": [
+    "2026-04-28T16:02:09.348566",
+    "2026-04-28T16:02:09.348566"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "itens_integracao_contabil": {
+  "linhas": 224,
+  "dedup": null,
+  "colunas": [
+   "coditemoperacao",
+   "codoperacao",
+   "codconta_contabil",
+   "codhistorico",
+   "natureza",
+   "tipo"
+  ],
+  "somas": {
+   "coditemoperacao": "76926",
+   "codoperacao": "244528",
+   "codconta_contabil": "79961",
+   "codhistorico": "20435"
+  },
+  "datas": {},
+  "colunas_origem_descartadas": [
+   "data",
+   "dtcadastro",
+   "dtultimalteracao",
+   "formula",
+   "modulo",
+   "percentual",
+   "usultalteracao",
+   "valor"
+  ]
+ },
+ "log_impressao_etiqueta": {
+  "linhas": 111060,
+  "dedup": null,
+  "colunas": [
+   "descricao_etiqueta",
+   "qtde_impressa",
+   "valor_venda",
+   "valor_promocao",
+   "valor_venda_promocao",
+   "unidade",
+   "codreduzido",
+   "codoperador",
+   "datahora_impressao",
+   "codbarra",
+   "modelo_etiqueta"
+  ],
+  "somas": {
+   "qtde_impressa": "282",
+   "valor_venda": "2949.53",
+   "valor_promocao": "1666.56",
+   "valor_venda_promocao": "2569.42"
+  },
+  "datas": {
+   "datahora_impressao": [
+    "2025-07-21T14:52:19.048642",
+    "2026-09-02T17:07:16.556852"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "dados_etiqueta",
+   "valor_apresentacao",
+   "valor_impressao"
+  ]
+ },
+ "lote_cobranca": {
+  "linhas": 0,
+  "dedup": null,
+  "colunas": [
+   "codlotecob",
+   "codparceiro",
+   "data",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro"
+  ],
+  "somas": {},
+  "datas": {},
+  "colunas_origem_descartadas": []
+ },
+ "lote_contabil": {
+  "linhas": 0,
+  "dedup": null,
+  "colunas": [
+   "codlotecontabil",
+   "desclote",
+   "datalote",
+   "codorigem",
+   "codempresa",
+   "status"
   ],
   "somas": {},
   "datas": {},
   "colunas_origem_descartadas": [
-   "apenas_proprietario",
-   "descplccontabil",
+   "codperiodo",
    "dtcadastro",
    "dtultimalteracao",
-   "flg_perda",
-   "flg_uso_setor",
+   "qtdecred",
+   "qtdedeb",
+   "usultalteracao"
+  ]
+ },
+ "marcas": {
+  "linhas": 1,
+  "dedup": null,
+  "colunas": [
+   "idmarca",
+   "descricao",
+   "indr",
+   "indr_usuario",
+   "indr_data",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro"
+  ],
+  "somas": {
+   "idmarca": "1",
+   "usultalteracao": "2"
+  },
+  "datas": {
+   "dtultimalteracao": [
+    "2020-09-05T19:30:59",
+    "2020-09-05T19:30:59"
+   ],
+   "dtcadastro": [
+    "2020-09-05T19:30:59",
+    "2020-09-05T19:30:59"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "motivos_operacao": {
+  "linhas": 38,
+  "dedup": null,
+  "colunas": [
+   "codmotivoop",
+   "descricao",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro",
+   "tipo_operacao",
+   "indr",
+   "indr_usuario",
+   "indr_data"
+  ],
+  "somas": {
+   "codmotivoop": "5361",
+   "usultalteracao": "468",
+   "indr_usuario": "12"
+  },
+  "datas": {
+   "dtultimalteracao": [
+    "2020-08-19T09:19:33",
+    "2025-12-12T13:00:34"
+   ],
+   "dtcadastro": [
+    "2020-08-19T09:19:33",
+    "2025-12-12T13:00:34"
+   ],
+   "indr_data": [
+    "2022-08-11T14:27:57",
+    "2022-08-11T14:29:02"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "motivo_operacao_perda_padrao"
+  ]
+ },
+ "mov_contas_bancarias": {
+  "linhas": 289171,
+  "dedup": null,
+  "colunas": [
+   "valor",
+   "tipomovimento",
+   "historico",
+   "codopconta",
+   "idpgto",
+   "codadiantamento",
+   "contabilizado",
+   "nropdv_fechamento",
+   "codoperador",
+   "data_fechamento",
+   "origem",
+   "idorigem",
+   "mov_conciliado",
+   "codmovconta",
+   "codconta"
+  ],
+  "somas": {
+   "valor": "50528183.19",
+   "codopconta": "0",
+   "idpgto": "14978443",
+   "nropdv_fechamento": "4619624",
+   "codoperador": "164753369",
+   "idorigem": "11464986156",
+   "codmovconta": "196883186052",
+   "codconta": "27784729",
+   "codadiantamento": "734430"
+  },
+  "datas": {
+   "data_fechamento": [
+    "2020-08-20T00:00:00",
+    "2026-09-01T00:00:00"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "bkpidpgto",
+   "bkpidpgto2",
+   "chave",
+   "clao_id",
+   "codconta_destino",
+   "codcontagem_cedulas",
+   "coddestino",
+   "dtemissao",
+   "dtliberacao",
+   "dtpgtobx",
+   "dtvenc",
+   "idempresa_fechamento",
+   "identificador",
+   "idlote",
+   "idlote_reversao",
+   "lancamento_saldo",
+   "liberado",
+   "nrodocumento",
+   "recurso",
+   "revertido",
+   "tipo",
+   "usucad_lancamento_saldo"
+  ]
+ },
+ "movimentacao_bancaria_ofx": {
+  "linhas": 65771,
+  "dedup": null,
+  "colunas": [
+   "mbo_id",
+   "mbo_data",
+   "codconta",
+   "mbo_valor",
+   "mbo_credito_debito",
+   "mbo_descricao",
+   "mbo_transacao_id",
+   "mbo_conciliado",
+   "mbo_check_num",
+   "codoperador_importacao",
+   "mbo_data_importacao",
+   "mbo_nome_arquivo",
+   "origem_legado"
+  ],
+  "somas": {
+   "mbo_id": "2915003784",
+   "codconta": "7545585",
+   "mbo_valor": "12820354.53",
+   "codoperador_importacao": "50662912"
+  },
+  "datas": {
+   "mbo_data": [
+    "2020-08-14T10:00:00",
+    "2026-08-19T12:00:00"
+   ],
+   "mbo_data_importacao": [
+    "2021-04-28T11:22:13",
+    "2026-08-21T10:10:21.789000"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "indr",
+   "indr_data",
+   "indr_usuario"
+  ]
+ },
+ "ncm": {
+  "linhas": 11344,
+  "dedup": null,
+  "colunas": [
+   "codigo",
+   "ncmsh",
+   "categoria",
+   "descricao",
+   "ipi",
+   "vigencia_inicio",
+   "vigencia_fim",
+   "un_tributada",
+   "un_tributada_descricao",
+   "observacao",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro"
+  ],
+  "somas": {
+   "codigo": "574073275041",
+   "usultalteracao": "6893"
+  },
+  "datas": {
+   "vigencia_inicio": [
+    "2000-01-01T00:00:00",
+    "2025-10-01T00:00:00"
+   ],
+   "dtcadastro": [
+    "2018-03-02T17:28:42.926697",
+    "2025-10-02T14:54:09"
+   ],
+   "vigencia_fim": [
+    "2017-03-31T00:00:00",
+    "2030-12-31T00:00:00"
+   ],
+   "dtultimalteracao": [
+    "2020-01-08T11:59:17",
+    "2025-10-02T14:54:09"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "gerar_m220_m620"
+  ]
+ },
+ "nfe_eventos": {
+  "linhas": 106728,
+  "dedup": null,
+  "colunas": [
+   "codnfe_evento",
+   "orgao_recepcao",
+   "ambiente",
+   "chave_acesso",
+   "id_evento",
+   "cnpj_cpf_autor_evento",
+   "data_evento",
+   "tipo_evento",
+   "seq_evento",
+   "descricao_evento",
+   "mensagem_autorizacao",
+   "protocolo_autorizacao",
+   "data_autorizacao",
+   "codoperador",
+   "just_op_nao_realizada",
+   "razao",
+   "correcao",
+   "xml"
+  ],
+  "somas": {
+   "codnfe_evento": "6343149430",
+   "tipo_evento": "28304248330",
+   "seq_evento": "111958",
+   "codoperador": "42773280"
+  },
+  "datas": {
+   "data_evento": [
+    "2020-08-10T19:34:49",
+    "2026-09-02T15:53:57"
+   ],
+   "data_autorizacao": [
+    "2020-08-10T19:34:49",
+    "2026-09-02T15:53:57"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "nfe_nao_cadastradas": {
+  "linhas": 43402,
+  "dedup": null,
+  "colunas": [
+   "codnfe_naocad",
+   "chavenfe",
+   "cnpj",
+   "razao",
+   "ie",
+   "dtemissao",
+   "tipo",
+   "totalnf",
+   "dtrecbo",
+   "protocolo",
+   "situacao",
+   "idempresa",
+   "modelo",
+   "arquivo",
+   "dtconsulta",
+   "codoperador",
+   "xml_resumido",
+   "importacao_manual",
+   "ignorar_manifesto",
+   "ignorar_manifesto_motivo",
+   "nronf",
+   "nfe_importada_sistema",
+   "codpedcomp",
+   "codoperador_liberacao",
+   "status_pedcomp",
+   "status_qtd_pedcomp",
+   "origem_legado"
+  ],
+  "somas": {
+   "codnfe_naocad": "1277329821",
+   "totalnf": "118193933.02",
+   "situacao": "44270",
+   "idempresa": "52143",
+   "modelo": "2387110",
+   "codoperador": "2950103"
+  },
+  "datas": {
+   "dtemissao": [
+    "2020-08-07T00:00:00",
+    "2026-09-02T00:00:00"
+   ],
+   "dtrecbo": [
+    "2020-08-07T00:00:00",
+    "2026-09-02T00:00:00"
+   ],
+   "dtconsulta": [
+    "2020-08-10T19:33:19.318000",
+    "2026-09-02T14:07:45.147000"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "cancelada_sefaz",
+   "cnpj_destinatario",
+   "codnfstatuspro",
+   "data_mod_canc_sefaz",
+   "razao_destinatario"
+  ]
+ },
+ "nfe_nao_cadastradas_itens": {
+  "linhas": 209343,
+  "dedup": null,
+  "colunas": [
+   "codnfenaocadit",
+   "chavenfe",
+   "codprod",
+   "ean",
+   "descricao",
+   "nroitem",
+   "ncm",
+   "cfop",
+   "unidade",
+   "quantidade",
+   "fatorembal",
+   "vrunitario",
+   "vrtotal",
+   "eantrib",
+   "unidadetrib",
+   "quantidadetrib",
+   "vrunitariotrib",
+   "vrfrete",
+   "vrseg",
+   "vrdesc",
+   "vroutro",
+   "indtot",
+   "idproduto",
+   "vrbasest",
+   "vricmst",
+   "vrunitario_trib",
+   "ipi_nota",
+   "vrfcpst"
+  ],
+  "somas": {
+   "codnfenaocadit": "22946131310",
+   "nroitem": "5248304",
+   "cfop": "1120580027",
+   "quantidade": "3645804.744",
+   "fatorembal": "11359432.496",
+   "vrunitario": "9191213.780114605",
+   "vrtotal": "54869440.61",
+   "quantidadetrib": "7243243.5160",
+   "vrunitariotrib": "6551496.975221543",
+   "vrfrete": "11427.82",
+   "vrseg": "58.04",
+   "vrdesc": "820738.03",
+   "vroutro": "72180.03",
+   "indtot": "209342",
+   "vrbasest": "22974338.58",
+   "vricmst": "1798267.35",
+   "vrunitario_trib": "9490379.85",
+   "ipi_nota": "198407.65",
+   "vrfcpst": "152438.73",
+   "idproduto": "121171973727"
+  },
+  "datas": {},
+  "colunas_origem_descartadas": []
+ },
+ "operacoes_conta": {
+  "linhas": 1,
+  "dedup": null,
+  "colunas": [
+   "codopconta",
+   "descricao",
+   "tipo",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro"
+  ],
+  "somas": {
+   "codopconta": "0"
+  },
+  "datas": {},
+  "colunas_origem_descartadas": []
+ },
+ "operadoras": {
+  "linhas": 73,
+  "dedup": null,
+  "colunas": [
+   "codoperadoras",
+   "operadora",
+   "diascomp",
+   "txadm",
+   "codadm",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro",
+   "tipo",
+   "codbanco",
+   "ativo",
+   "tipocartao",
+   "codbandeira",
+   "codoperadorabase",
+   "txadmparc"
+  ],
+  "somas": {
+   "codoperadoras": "30580",
+   "diascomp": "954",
+   "txadm": "222.55",
+   "codadm": "4177345",
+   "usultalteracao": "11657",
+   "tipocartao": "693",
+   "codoperadorabase": "1800",
+   "codbandeira": "463448",
+   "codbanco": "1554",
+   "txadmparc": "1.59"
+  },
+  "datas": {
+   "dtultimalteracao": [
+    "2020-09-23T09:17:53",
+    "2026-06-25T17:36:23"
+   ],
+   "dtcadastro": [
+    "2020-09-22T11:10:42",
+    "2025-12-03T09:59:53"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "codrede",
+   "diafechamento",
+   "empresas",
+   "flg_validar_nsu",
+   "idrds",
+   "obs",
+   "operadora_pdv",
+   "pos",
+   "smart_tef",
+   "txanuidade",
+   "txgestao"
+  ]
+ },
+ "operadores": {
+  "linhas": 284,
+  "dedup": null,
+  "colunas": [
+   "codoperador",
+   "nome",
+   "login",
+   "desabilitado",
+   "dtaltdesab",
+   "tipoop",
+   "codparceiro",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro",
+   "codigoauxiliar",
+   "desabilita_operacoes_basicas",
+   "desabilita_desconto_pdv",
+   "idgrupo",
+   "solicitar_alteracao_senha",
+   "idsupervisor",
    "indr",
    "indr_data",
    "indr_usuario",
-   "limiteplc",
-   "nao_mostrar_scrap_rel_partset",
-   "plc_obriga_motivo_perda",
-   "tpconta",
+   "ativo",
+   "origem_legado"
+  ],
+  "somas": {
+   "codoperador": "503271",
+   "codparceiro": "17785353",
+   "usultalteracao": "122939",
+   "idgrupo": "111",
+   "indr_usuario": "81622",
+   "codigoauxiliar": "170710"
+  },
+  "datas": {
+   "dtultimalteracao": [
+    "2020-08-10T17:56:36",
+    "2026-09-02T15:46:59"
+   ],
+   "dtcadastro": [
+    "2020-08-05T10:38:40",
+    "2026-08-27T17:48:43"
+   ],
+   "indr_data": [
+    "2020-08-20T19:13:04",
+    "2026-09-01T09:28:15"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "biometria",
+   "bloquearsuperliberarprop",
+   "cliquex",
+   "login_senha",
+   "menu",
+   "permissaopdv",
+   "senha",
+   "senhapdv",
+   "senharetaguarda"
+  ]
+ },
+ "operadores_restricao_acesso": {
+  "linhas": 0,
+  "dedup": null,
+  "colunas": [
+   "codrestricao_acesso",
+   "codoperador",
+   "diasemana",
+   "hora_inicial",
+   "hora_final",
+   "indr",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro"
+  ],
+  "somas": {},
+  "datas": {},
+  "colunas_origem_descartadas": [
+   "indr_data",
+   "indr_usuario"
+  ]
+ },
+ "parceiros": {
+  "linhas": 19042,
+  "dedup": null,
+  "colunas": [
+   "contribuinte_icms",
+   "realiza_troca",
+   "irrf",
+   "apuracao",
+   "codcomprador",
+   "diretor_comercial",
+   "email_diretor_comercial",
+   "fone_diretor_comercial",
+   "gerente_comercial",
+   "email_gerente_comercial",
+   "fone_gerente_comercial",
+   "vendedor_representante",
+   "email_vendedor_representante",
+   "fone_vendedor_representante",
+   "caracteristica_tributaria",
+   "responsavel_financeiro",
+   "email_responsavel_financeiro",
+   "fone_responsavel_financeiro",
+   "responsavel_logistico",
+   "email_responsavel_logistico",
+   "fone_responsavel_logistico",
+   "pronta_entrega",
+   "desconto_pedidos",
+   "valor_acres_fin",
+   "regras_tabela_fornecedor",
+   "numero_contrato",
+   "prazo_entrega",
+   "prazo_recebimento",
+   "prazo_reposicao",
+   "tipo_fornecedor",
+   "retira_fornindex",
+   "qtde_dias_maximo_fp_pc",
+   "habilita_retencao_pis_nf",
+   "habilita_retencao_cofins_nf",
+   "habilita_retencao_csll_nf",
+   "habilita_retencao_ir_nf",
+   "habilita_retencao_inss_nf",
+   "habilita_retencao_issqn_nf",
+   "codparceiro",
+   "razao",
+   "fantasia",
+   "tipofj",
+   "dtcadastro",
+   "dtnascimento",
+   "email",
+   "credito",
+   "obs",
+   "ativado",
+   "bloqued",
+   "venc_prev",
+   "descpadrao",
+   "tolerancia",
+   "txjuro",
+   "codref",
+   "dtultcompra",
+   "classfornecedor",
+   "idempresa",
+   "ultima_alter",
+   "diasprazo",
+   "estado_civil",
+   "cargo",
+   "codconvenio",
+   "cli",
+   "frn",
+   "con",
+   "fun",
+   "tra",
+   "dtultimalteracao",
+   "usultalteracao",
+   "usucadastro",
+   "limite_especial",
+   "empresatrabalha",
+   "renda",
+   "sexo",
+   "codend",
+   "classificacao",
+   "envianfe",
+   "codvendedor",
+   "classfiscal",
+   "ass",
+   "habilita_retencao_funrural_nf",
+   "codparceiro_ent_issqn",
+   "perc_aliquota_issqn",
+   "perc_aliquota_ir",
+   "devolucao_zera_imposto_icmsst",
+   "estrangeiro",
+   "codcontabil",
+   "codcontabil_for"
+  ],
+  "somas": {
+   "codparceiro": "938800182",
+   "credito": "4260129.02",
+   "venc_prev": "13054",
+   "descpadrao": "711.0",
+   "tolerancia": "50",
+   "txjuro": "0",
+   "idempresa": "35360",
+   "diasprazo": "2209",
+   "limite_especial": "3700",
+   "renda": "103970779.57",
+   "codcontabil": "4017835",
+   "usultalteracao": "23799339",
+   "codend": "812342959",
+   "codconvenio": "128025464",
+   "usucadastro": "6633263",
+   "codvendedor": "87193"
+  },
+  "datas": {
+   "dtcadastro": [
+    "1998-10-17T00:00:00",
+    "2026-09-02T15:22:17"
+   ],
+   "dtnascimento": [
+    "1924-02-11T00:00:00",
+    "2020-11-11T09:00:00"
+   ],
+   "dtultimalteracao": [
+    "2012-03-24T19:39:14",
+    "2026-09-02T17:11:30"
+   ],
+   "dtultcompra": [
+    "2014-04-24T14:22:36",
+    "2026-09-02T17:31:58"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "2017",
+   "2018",
+   "2019",
+   "2020",
+   "2022",
+   "apollo",
+   "base_retencao_inss_dif",
+   "biometria",
+   "campanha_izio",
+   "cargoempresa",
+   "categoria",
+   "clubefidelidade",
+   "cnae",
+   "cod_export",
+   "cod_intermediador_trans",
+   "cod_izio",
+   "codaux",
+   "codconpagto",
+   "codconta",
+   "codigo_bloqueio",
+   "codparceiro_ent_issqn_sai",
+   "codparceiro_matriz",
+   "codparceiroorig",
+   "codperfil_compra",
+   "codperfil_parceiro",
+   "codvendedor_balanca",
+   "comissao",
+   "contrato",
+   "descpadraoboleto",
+   "despesa_fixa",
+   "despreza_bloqueio",
+   "df",
+   "diasfinan",
+   "diasvencepedido",
+   "diavisita",
+   "dispensado_coleta",
+   "dispensado_pedido_compra",
+   "dtcartaofidelidade",
+   "dtprimeiracompraatrasada",
+   "dtultalteracao",
+   "empresas",
+   "fixo",
+   "hab_ret_cofins_nf_sai",
+   "hab_ret_csll_nf_sai",
+   "hab_ret_funrural_nf_sai",
+   "hab_ret_inss_nf_sai",
+   "hab_ret_ir_nf_sai",
+   "hab_ret_issqn_nf_sai",
+   "hab_ret_pis_nf_sai",
+   "hab_ret_senar_nf_sai",
+   "habilita_retencao_senar_nf",
+   "id_preco",
+   "idcategoria",
+   "identificador",
+   "idgrupoemp",
+   "libera_digitar_retencoes",
+   "libera_digitar_retencoes_sai",
+   "mensalidade2501",
+   "obs2",
+   "obs3",
+   "obs_fgf",
+   "obs_troca",
+   "ordemvisita",
+   "par_altera_nome_dig_pedidos",
+   "par_valor_limite_conveniados",
+   "participa_cotacao",
+   "perc_aliquota_funr",
+   "perc_aliquota_funr_sai",
+   "perc_aliquota_ir_sai",
+   "perc_aliquota_issqn_sai",
+   "perc_aliquota_senar",
+   "perc_aliquota_senar_sai",
+   "percsalario",
+   "placa",
+   "possui_servico",
+   "printecf",
+   "publicidade_email",
+   "publicidade_sms",
+   "publicidade_whatsapp",
+   "regiao",
+   "retencao_cooperativa",
+   "retencao_cooperativa_sai",
+   "senha",
+   "senha_autpdv",
+   "setor",
+   "sincronizado",
+   "site",
+   "soma_st_bonificacao",
+   "suframa",
+   "sugpgto",
+   "telefoneempresa",
+   "temposervico",
+   "tipo_saida",
+   "tipoparceiro",
+   "tipotroca",
+   "todospgtos",
+   "ufplaca",
+   "url_integrador",
+   "valorservicofixo",
+   "vencimentos",
+   "vendedor_desc_flexivel",
+   "vendedor_periodo_flexivel",
+   "visualiza_pc_parc",
+   "vrexame",
+   "vroutros",
+   "vrseguro",
+   "vrspc",
+   "vrxerox"
+  ]
+ },
+ "pc_config": {
+  "linhas": 18,
+  "dedup": null,
+  "colunas": [
+   "id_basecredito",
+   "cfop"
+  ],
+  "somas": {
+   "id_basecredito": "86"
+  },
+  "datas": {},
+  "colunas_origem_descartadas": []
+ },
+ "pc_tipocreditoisento": {
+  "linhas": 290,
+  "dedup": null,
+  "colunas": [
+   "idtabela",
+   "idpiscofins",
+   "idbasecreditoisento",
+   "descricao"
+  ],
+  "somas": {
+   "idtabela": "148873",
+   "idpiscofins": "3359",
+   "idbasecreditoisento": "105369"
+  },
+  "datas": {},
+  "colunas_origem_descartadas": []
+ },
+ "pdv": {
+  "linhas": 32,
+  "dedup": null,
+  "colunas": [
+   "codcontabil_deb",
+   "codcontabil_cred",
+   "modelo_ecf",
+   "marca_ecf",
+   "tipo_ecf",
+   "dt_inst_sb",
+   "hr_inst_sb",
+   "versao_sb",
+   "versao_cniee",
+   "hashpaf",
+   "codplanocontas",
+   "codpdv",
+   "nropdv",
+   "descricao",
+   "codempresa",
+   "nroserie",
+   "modelo",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro"
+  ],
+  "somas": {
+   "codpdv": "5256",
+   "nropdv": "1801",
+   "codempresa": "91",
+   "usultalteracao": "21"
+  },
+  "datas": {
+   "dtultimalteracao": [
+    "2021-09-29T11:13:36",
+    "2026-06-01T08:43:38"
+   ],
+   "dtcadastro": [
+    "2020-08-19T13:36:50",
+    "2023-12-23T16:01:50"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "pendencia_operador": {
+  "linhas": 865,
+  "dedup": null,
+  "colunas": [
+   "po_id",
+   "codoperador",
+   "po_tipo_pendencia_operador",
+   "po_status",
+   "po_complemento",
+   "po_observacao",
+   "po_data",
+   "codempresa",
+   "codoperador_origem"
+  ],
+  "somas": {
+   "po_id": "14485541",
+   "codoperador": "499632",
+   "codempresa": "982",
+   "codoperador_origem": "1494025"
+  },
+  "datas": {
+   "po_data": [
+    "2024-03-04T09:08:41.972535",
+    "2026-09-02T14:07:10"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "perfil": {
+  "linhas": 15,
+  "dedup": null,
+  "colunas": [
+   "codperfil",
+   "perfil",
+   "ativo",
+   "indr",
+   "indr_usuario",
+   "indr_data",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro",
+   "tipo"
+  ],
+  "somas": {
+   "codperfil": "997",
+   "usultalteracao": "75"
+  },
+  "datas": {
+   "dtultimalteracao": [
+    "2020-09-15T11:10:57",
+    "2026-07-23T10:53:52"
+   ],
+   "dtcadastro": [
+    "2020-09-15T11:10:57",
+    "2026-01-26T13:29:24"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "periodo_contabil": {
+  "linhas": 3,
+  "dedup": null,
+  "colunas": [
+   "codperiodocontabil",
+   "competencia_contabil",
+   "data_inicio",
+   "data_fim",
+   "status",
+   "bloq_nf",
+   "bloq_apg",
+   "bloq_baixa_apg",
+   "bloq_rcb",
+   "bloq_baixa_rcb",
+   "bloq_adiantamento_forn"
+  ],
+  "somas": {
+   "codperiodocontabil": "63"
+  },
+  "datas": {
+   "data_inicio": [
+    "2024-07-01T11:22:29.442000",
+    "2025-02-01T08:21:08.162000"
+   ],
+   "data_fim": [
+    "2024-07-31T11:22:29.442000",
+    "2025-02-28T08:21:08.162000"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "bloq_baixa_crt",
+   "bloq_chq",
+   "bloq_mov_caixa",
+   "competencia_financeira",
+   "competencia_geracao",
+   "dtcadastro",
+   "dtultimalteracao",
+   "usultalteracao"
+  ]
+ },
+ "permissoes": {
+  "linhas": 57689,
+  "dedup": null,
+  "colunas": [
+   "form",
+   "opcao",
+   "codoperador",
+   "codempresa",
+   "codperfil",
+   "caption",
+   "form_caption"
+  ],
+  "somas": {
+   "codoperador": "49633075",
+   "codempresa": "1300162",
+   "codperfil": "5838"
+  },
+  "datas": {},
+  "colunas_origem_descartadas": []
+ },
+ "piscofins": {
+  "linhas": 12,
+  "dedup": null,
+  "colunas": [
+   "idpiscofins",
+   "descricao",
+   "aliq_pis_ent",
+   "aliq_pis_sai",
+   "aliq_cofins_ent",
+   "aliq_cofins_sai",
+   "cst_pis_ent",
+   "cst_pis_sai",
+   "cst_cofins_ent",
+   "cst_cofins_sai"
+  ],
+  "somas": {
+   "idpiscofins": "155",
+   "aliq_pis_ent": "4.158",
+   "aliq_pis_sai": "6.60",
+   "aliq_cofins_ent": "19.152",
+   "aliq_cofins_sai": "30.4",
+   "cst_pis_ent": "721",
+   "cst_pis_sai": "44",
+   "cst_cofins_ent": "671",
+   "cst_cofins_sai": "43"
+  },
+  "datas": {},
+  "colunas_origem_descartadas": [
+   "dtcadastro",
+   "dtultimalteracao",
+   "exigenatureza",
+   "id_tipocredito",
    "usultalteracao"
   ]
  },
  "plano_contas": {
-  "linhas": 11024,
+  "linhas": 11028,
   "dedup": null,
   "colunas": [
    "codiexpandido",
@@ -393,15 +2824,22 @@
    "natureza",
    "nivel"
   ],
-  "somas": {},
+  "somas": {
+   "usultalteracao": "32342",
+   "codplanocontas": "63051179",
+   "natureza": "22250",
+   "nivel": "1810",
+   "codpai": "143298",
+   "codparceiro": "532626472"
+  },
   "datas": {
    "dtultimalteracao": [
     "2020-09-08T14:51:45",
-    "2024-02-03T22:02:30"
+    "2024-10-10T11:08:00"
    ],
    "dtcadastro": [
     "2020-04-02T21:00:00",
-    "2024-02-03T22:02:30"
+    "2024-10-10T11:07:00"
    ]
   },
   "colunas_origem_descartadas": [
@@ -411,50 +2849,724 @@
    "codplanoreferencial"
   ]
  },
- "condicoes_pagto": {
-  "linhas": 37,
+ "plc": {
+  "linhas": 388,
   "dedup": null,
   "colunas": [
-   "codconpagto",
+   "codplc",
+   "codpai",
+   "desccodplc",
    "descricao",
-   "usultalteracao",
+   "nivelconta",
+   "codcontabil"
+  ],
+  "somas": {
+   "codplc": "508276",
+   "codpai": "215204",
+   "nivelconta": "653",
+   "codcontabil": "8110043250"
+  },
+  "datas": {},
+  "colunas_origem_descartadas": [
+   "apenas_proprietario",
+   "descplccontabil",
+   "dtcadastro",
    "dtultimalteracao",
-   "cd1",
-   "cd2",
-   "cd3",
-   "cd4",
-   "cd5",
-   "cd6",
-   "cd7",
-   "cd8",
-   "dtcadastro"
+   "flg_perda",
+   "flg_uso_setor",
+   "indr",
+   "indr_data",
+   "indr_usuario",
+   "limiteplc",
+   "nao_mostrar_scrap_rel_partset",
+   "plc_obriga_motivo_perda",
+   "tpconta",
+   "usultalteracao"
+  ]
+ },
+ "preco": {
+  "linhas": 0,
+  "dedup": null,
+  "colunas": [
+   "id_preco",
+   "descricao",
+   "valor_reajuste",
+   "reajuste",
+   "ativo",
+   "indr",
+   "indr_usuario",
+   "indr_data",
+   "usucadastro",
+   "dtcadastro",
+   "usultalteracao",
+   "dtultimalteracao"
   ],
   "somas": {},
+  "datas": {},
+  "colunas_origem_descartadas": []
+ },
+ "producao": {
+  "linhas": 43,
+  "dedup": null,
+  "colunas": [
+   "codplc",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro",
+   "status",
+   "codempresa_producao",
+   "dtprocessamento",
+   "codproducao",
+   "codparceiro",
+   "data",
+   "codoperador",
+   "idempresa"
+  ],
+  "somas": {
+   "usultalteracao": "480",
+   "codempresa_producao": "43",
+   "codproducao": "13271",
+   "codoperador": "480",
+   "idempresa": "43"
+  },
   "datas": {
    "dtultimalteracao": [
-    "2023-09-26T18:42:02.900111",
-    "2026-06-03T13:54:44.537107"
+    "2020-10-15T15:00:42.838000",
+    "2024-10-01T09:57:10"
    ],
    "dtcadastro": [
-    "2023-09-26T18:42:02.900111",
-    "2026-06-03T13:54:44.537107"
+    "2020-10-15T14:59:56",
+    "2024-10-01T09:57:10"
+   ],
+   "dtprocessamento": [
+    "2020-10-15T15:00:42.838000",
+    "2023-11-07T10:04:43.171000"
+   ],
+   "data": [
+    "2020-10-15T14:55:38.531000",
+    "2024-10-01T09:55:17.684000"
    ]
   },
   "colunas_origem_descartadas": []
  },
- "operacoes_conta": {
-  "linhas": 1,
+ "promocao": {
+  "linhas": 25,
   "dedup": null,
   "colunas": [
-   "codopconta",
+   "idpromocao",
    "descricao",
+   "datainicio",
+   "datafim",
+   "idempresa",
+   "empresas",
+   "opcao",
    "tipo",
+   "destino",
+   "valorcombo",
+   "tipocombo",
    "usultalteracao",
    "dtultimalteracao",
+   "dtcadastro",
+   "valor_minimo_compra"
+  ],
+  "somas": {
+   "idpromocao": "12006",
+   "idempresa": "26",
+   "usultalteracao": "87"
+  },
+  "datas": {
+   "datainicio": [
+    "2020-07-21T05:00:00",
+    "2024-04-10T05:00:00"
+   ],
+   "datafim": [
+    "2020-07-21T23:59:00",
+    "2024-05-18T23:59:00"
+   ],
+   "dtultimalteracao": [
+    "2020-07-21T18:11:37",
+    "2024-04-10T11:36:54"
+   ],
+   "dtcadastro": [
+    "2020-07-21T18:10:00",
+    "2024-04-10T11:36:54"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "remessas_boletos": {
+  "linhas": 870,
+  "dedup": null,
+  "colunas": [
+   "codremessa",
+   "dtgeracao",
+   "nomearquivoremessa",
+   "tiporemessa",
+   "codbanco",
+   "nomebanco",
+   "nroconta",
+   "agencia",
+   "codremessabanco"
+  ],
+  "somas": {
+   "codremessa": "378885",
+   "codbanco": "238190",
+   "codremessabanco": "2186712"
+  },
+  "datas": {
+   "dtgeracao": [
+    "2020-09-17T18:47:48",
+    "2026-09-01T09:02:14"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "saldo_operador": {
+  "linhas": 25202,
+  "dedup": null,
+  "colunas": [
+   "idsaldoop",
+   "codoperador",
+   "datafechamento",
+   "codpdv",
+   "excluido",
+   "saldo",
+   "codrcb",
+   "gera_saldo",
+   "idempresa",
+   "codgrupo",
+   "contabilizado"
+  ],
+  "somas": {
+   "idsaldoop": "483391228",
+   "codoperador": "35098723",
+   "codpdv": "1401298",
+   "saldo": "28342.01",
+   "idempresa": "34814",
+   "codgrupo": "1276302342",
+   "codrcb": "55868198"
+  },
+  "datas": {
+   "datafechamento": [
+    "2020-08-20T00:00:00",
+    "2026-09-01T00:00:00"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "chave"
+  ]
+ },
+ "scrap": {
+  "linhas": 3794,
+  "dedup": null,
+  "colunas": [
+   "codscrap",
+   "dt_cadastro",
+   "codplc",
+   "obs",
+   "idempresa",
+   "codparceiro",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro",
+   "importado",
+   "idsituacao_nf",
+   "mov_estoque"
+  ],
+  "somas": {
+   "codscrap": "26678281",
+   "codplc": "6068483",
+   "idempresa": "4278",
+   "codparceiro": "330178485",
+   "usultalteracao": "1755107",
+   "idsituacao_nf": "11582125"
+  },
+  "datas": {
+   "dt_cadastro": [
+    "2020-08-31T18:01:14.922000",
+    "2026-09-02T11:35:39.857000"
+   ],
+   "dtultimalteracao": [
+    "2020-08-31T18:18:32",
+    "2026-09-02T17:27:13"
+   ],
+   "dtcadastro": [
+    "2020-08-31T18:18:32",
+    "2026-09-02T11:36:34"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "codpedidos",
+   "old_codparceiro"
+  ]
+ },
+ "situacao_nf": {
+  "linhas": 194,
+  "dedup": null,
+  "colunas": [
+   "tipo_operacao",
+   "nao_realiza_integracao",
+   "idsituacao_nf",
+   "descricao",
+   "tipo"
+  ],
+  "somas": {
+   "idsituacao_nf": "202282"
+  },
+  "datas": {},
+  "colunas_origem_descartadas": [
+   "ativo",
+   "codclass_trib",
+   "codoperadoras_nfe",
+   "codplanocontas_cred_baixa_cr",
+   "codplanocontas_deb_baixa_cp",
+   "dias_prazo",
+   "dtcadastro",
+   "dtultimalteracao",
+   "estoque",
+   "exige_cheque",
+   "exige_mapa_carga",
+   "exige_pedido_compra",
+   "exige_scrap",
+   "gerar_contas_receber",
+   "idpgto_nfe",
+   "idsituacao_nf_financeiro",
+   "importacao_auto_nf",
+   "permite_basecalc_maior100",
+   "transferencia_mercadorias",
+   "usultalteracao",
+   "valida_conteudo_emb",
+   "valida_estoque_disponivel"
+  ]
+ },
+ "troca": {
+  "linhas": 107,
+  "dedup": null,
+  "colunas": [
+   "codtroca",
+   "codparceiro",
+   "data",
+   "idempresa",
+   "usultalteracao",
+   "dtultimalteracao",
+   "descricao",
    "dtcadastro"
   ],
-  "somas": {},
+  "somas": {
+   "codtroca": "21830",
+   "codparceiro": "2762538",
+   "idempresa": "108",
+   "usultalteracao": "15584"
+  },
+  "datas": {
+   "data": [
+    "2020-09-15T00:00:00",
+    "2025-11-24T10:00:59"
+   ],
+   "dtultimalteracao": [
+    "2020-09-15T15:31:25.166000",
+    "2025-07-01T16:46:20"
+   ],
+   "dtcadastro": [
+    "2020-09-15T15:31:25.166000",
+    "2025-07-01T16:46:20"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "status"
+  ]
+ },
+ "unidade": {
+  "linhas": 11,
+  "dedup": null,
+  "colunas": [
+   "codunidade",
+   "sigla",
+   "descricao"
+  ],
+  "somas": {
+   "codunidade": "143"
+  },
   "datas": {},
+  "colunas_origem_descartadas": [
+   "ativo",
+   "dtcadastro",
+   "dtultimalteracao",
+   "fracionado",
+   "indr",
+   "indr_data",
+   "indr_usuario",
+   "mixfiscal_dt",
+   "producao",
+   "usualteracao",
+   "usultalteracao"
+  ]
+ },
+ "vendas": {
+  "linhas": 18883845,
+  "dedup": null,
+  "colunas": [
+   "codvendas_legado",
+   "nropedido",
+   "nroserie",
+   "nrocupom",
+   "codproduto",
+   "vrcusto",
+   "vrvenda",
+   "qtde",
+   "promocao",
+   "descricao",
+   "unidade",
+   "aliquota",
+   "dtvenda",
+   "operador",
+   "nroitem",
+   "coddpto",
+   "codgrupo",
+   "codsubgrupo",
+   "codvendedor",
+   "desc_acre",
+   "codparceiro",
+   "cancelado",
+   "tipocanc",
+   "importado",
+   "devolucao",
+   "idpiscofins",
+   "razao",
+   "idpromocao",
+   "iat",
+   "desc_acre_medio",
+   "desc_promocao",
+   "desc_departamento",
+   "desc_acre_item",
+   "cfop",
+   "pis_cst",
+   "pis_bcalculo",
+   "pis_valor",
+   "pis_aliquota",
+   "debitopiscofins",
+   "idempresa",
+   "cofins_cst",
+   "cofins_bcalculo",
+   "cofins_valor",
+   "cofins_aliquota",
+   "icms_base_calculo",
+   "icms_aliquota",
+   "icms_valor",
+   "icms_cst",
+   "vrcustorep",
+   "venda_nfc",
+   "idproduto_filho"
+  ],
+  "somas": {
+   "codvendas_legado": "547759391664920",
+   "nrocupom": "53463188196241484",
+   "codproduto": "7586742140852",
+   "vrcusto": "126785965.31",
+   "vrvenda": "196957950.21",
+   "qtde": "24477044.651",
+   "operador": "18887147462",
+   "nroitem": "108083149",
+   "coddpto": "4518345296",
+   "codgrupo": "8722106397",
+   "codsubgrupo": "10469648952",
+   "codvendedor": "19060425",
+   "desc_acre": "-14517833.60",
+   "codparceiro": "31994694273",
+   "idpiscofins": "236137918",
+   "desc_acre_medio": "-967935.12",
+   "desc_promocao": "134364.85",
+   "desc_departamento": "0",
+   "desc_acre_item": "0",
+   "idempresa": "22679761",
+   "icms_aliquota": "32932741",
+   "vrcustorep": "129088857.69",
+   "icms_base_calculo": "18228923.95",
+   "icms_valor": "2388304.25",
+   "debitopiscofins": "6103595.44",
+   "cfop": "79947345797",
+   "idproduto_filho": "252004658849",
+   "idpromocao": "16854343740",
+   "pis_bcalculo": "29588399.29",
+   "pis_valor": "488242.36",
+   "pis_aliquota": "5807203.05",
+   "cofins_bcalculo": "29588399.29",
+   "cofins_valor": "2249422.30",
+   "cofins_aliquota": "26748329.2"
+  },
+  "datas": {
+   "dtvenda": [
+    "2018-01-02T06:26:40",
+    "2026-09-02T18:06:36"
+   ]
+  },
+  "colunas_origem_descartadas": [
+   "atendimento_avaliacao",
+   "atendimento_nota",
+   "atendimento_satisfacao",
+   "atualiza_estoque",
+   "bonificacao",
+   "ccf",
+   "cclasstrib",
+   "cest",
+   "chave",
+   "chave_cancelamento",
+   "chavecomposicao",
+   "cnpj_cpf",
+   "codbarra_promocao",
+   "codcclass_trib_ncm_anexos",
+   "codcomposicao",
+   "codfor",
+   "codigo_informado",
+   "codigo_tipo",
+   "codigobenfiscal",
+   "codimportacao",
+   "codnf_devolucao",
+   "codparceirocpfpromocao",
+   "codparceironew",
+   "codproduto_pai",
+   "codscrap",
+   "codsecao",
+   "codvendedor_balanca",
+   "cofins_aliquota_valor",
+   "comissao",
+   "contsocial",
+   "creditoicm",
+   "creditopiscofins",
+   "crescevendas_qtde",
+   "crescevendas_valor",
+   "crescevendas_vrcd",
+   "crescevendas_vrp2",
+   "crescevendas_vrsd",
+   "cro",
+   "crz",
+   "cst",
+   "data_balanca",
+   "debitoicm",
+   "desc_acre_operador",
+   "desc_ajustado_unit",
+   "desc_atacarejo",
+   "desc_categoria",
+   "desc_categoria_mf",
+   "desc_clubedesconto",
+   "desc_combo",
+   "desc_scanntech",
+   "desclibambev",
+   "despacessorio",
+   "despopv",
+   "dtentrega",
+   "end_bairro",
+   "end_cep",
+   "end_cidade",
+   "end_complemento",
+   "end_estado",
+   "end_idcidade",
+   "end_logradouro",
+   "end_numero",
+   "end_referencia",
+   "entra_total",
+   "entrega",
+   "entrega_empacotador",
+   "entrega_entregador",
+   "entrega_obs",
+   "entrega_volume",
+   "estoquecomposicao",
+   "ex_tipi",
+   "fator",
+   "frete",
+   "frete2",
+   "hashpaf",
+   "ibpt_chave",
+   "ibpt_estadual",
+   "ibpt_federal",
+   "ibpt_importado",
+   "ibpt_municipal",
+   "icms_aliquota_credito_sn",
+   "icms_aliquota_st",
+   "icms_bc_operacao_propria_perc",
+   "icms_csosn",
+   "icms_diferimento_percentual",
+   "icms_modalidade_bc",
+   "icms_modalidade_bc_st",
+   "icms_motivo_desoneracao",
+   "icms_mva_st_percentual",
+   "icms_origem_mercadoria",
+   "icms_reducao_bc_st_percentual",
+   "icms_taxa_reducao_bc",
+   "icms_uf_st",
+   "icms_valor_base_calculo_st",
+   "icms_valor_bc_st_destino",
+   "icms_valor_bc_st_retido",
+   "icms_valor_credito_sn",
+   "icms_valor_desonerado",
+   "icms_valor_diferido",
+   "icms_valor_operacao",
+   "icms_valor_st",
+   "icms_valor_st_destino",
+   "icms_valor_st_retido",
+   "icmst",
+   "idclubedesconto",
+   "idclubedesconto_atacarejo",
+   "idclubedesconto_categoria",
+   "idclubedesconto_categoria_mf",
+   "idclubedesconto_combo",
+   "idempresa_bk",
+   "idempresanew",
+   "idintegracao",
+   "idmarca",
+   "idmultiprecoatacarejo",
+   "idproacumulativa",
+   "idproduto_pai",
+   "importado_devolucao",
+   "imprend",
+   "ipi",
+   "ippt",
+   "ipterminal",
+   "issqn_aliquota",
+   "issqn_base_calculo",
+   "issqn_codigo_servico",
+   "issqn_indic_exigibilidade_iss",
+   "issqn_indic_incentivo_fiscal",
+   "issqn_item_lista_servicos",
+   "issqn_municipio",
+   "issqn_municipio_incidencia",
+   "issqn_numero_processo",
+   "issqn_pais_sevico_prestado",
+   "issqn_valor",
+   "issqn_valor_deducao",
+   "issqn_valor_outras_retencoes",
+   "issqn_valor_retencao_iss",
+   "issqn_vr_desc_condicionado",
+   "issqn_vr_desc_incondicionado",
+   "margem_comissao",
+   "mercafacil",
+   "mercafacil_qtde",
+   "mercafacil_valor",
+   "modelo_nf",
+   "mva",
+   "ncmsh",
+   "nrocomanda",
+   "nroitem_nf",
+   "nve",
+   "operadornew",
+   "paliqefet_cbs",
+   "paliqefet_ibsmun",
+   "paliqefet_ibsuf",
+   "pcbs",
+   "pedidoitem",
+   "pedidonro",
+   "pibsmun",
+   "pibsuf",
+   "pis",
+   "pis_aliquota_valor",
+   "predaliq_cbs",
+   "predaliq_ibsmun",
+   "predaliq_ibsuf",
+   "promocao_departamento",
+   "qtde_clubedesconto",
+   "qtde_devolvido",
+   "qtde_promocao",
+   "qtdelibambev",
+   "saida_expedicao",
+   "seguro",
+   "state",
+   "tipo_venda",
+   "total_item_devolvido",
+   "total_tributos",
+   "vbc",
+   "vcbs",
+   "versao",
+   "vibsmun",
+   "vibsuf",
+   "vrajcustodec47530",
+   "vrcusto_medio",
+   "vrcustoajuste",
+   "vrcustocsi",
+   "vrcustoreal",
+   "vrdescpreco2",
+   "vrfcpst",
+   "vrfechamento",
+   "vrproduto",
+   "vrvenda_tipo"
+  ]
+ },
+ "relatorios": {
+  "linhas": 1227,
+  "dedup": null,
+  "colunas": [
+   "codrelatorio",
+   "idempresa",
+   "nome_relatorio",
+   "descricao",
+   "tipo",
+   "md5_arquivo",
+   "arquivo",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro",
+   "indr",
+   "indr_usuario",
+   "indr_data"
+  ],
+  "somas": {
+   "codrelatorio": "779099",
+   "idempresa": "1227",
+   "usultalteracao": "1227",
+   "indr_usuario": "2"
+  },
+  "datas": {
+   "dtultimalteracao": [
+    "2025-06-24T16:40:41.701000",
+    "2026-08-21T13:18:40.261000"
+   ],
+   "dtcadastro": [
+    "2025-06-24T16:40:41.701000",
+    "2026-08-21T13:18:40.261000"
+   ],
+   "indr_data": [
+    "2025-06-24T18:12:46.354000",
+    "2025-07-28T10:16:10.307000"
+   ]
+  },
+  "colunas_origem_descartadas": []
+ },
+ "relatorios_customizados": {
+  "linhas": 109,
+  "dedup": null,
+  "colunas": [
+   "codrelatorios_customizados",
+   "idempresa",
+   "nome_relatorio",
+   "tipo",
+   "md5_arquivo",
+   "arquivo",
+   "usultalteracao",
+   "dtultimalteracao",
+   "dtcadastro",
+   "indr",
+   "indr_usuario",
+   "indr_data"
+  ],
+  "somas": {
+   "codrelatorios_customizados": "9663",
+   "idempresa": "161",
+   "usultalteracao": "5582",
+   "indr_usuario": "8202"
+  },
+  "datas": {
+   "dtultimalteracao": [
+    "2025-06-24T16:37:32.498000",
+    "2026-07-03T10:58:03.320000"
+   ],
+   "dtcadastro": [
+    "2025-06-24T16:37:32.498000",
+    "2026-07-03T10:58:03.320000"
+   ],
+   "indr_data": [
+    "2025-07-21T11:57:34",
+    "2026-01-06T15:54:05"
+   ]
+  },
   "colunas_origem_descartadas": []
  }
 }
