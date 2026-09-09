@@ -10146,6 +10146,76 @@ async function main() {
       }
     }
 
+    // ===== §97) ANÁLISE DE NOTAS FISCAIS (FRMNFANALISE) corte-1 — a tela de maior uso ainda não migrada fora
+    // do PDV (704 acessos, 19 operadores, último em 04/09). Hub de 9 análises; entram as duas que não dependem
+    // de nada além do que já temos: SITUAÇÃO TRIBUTÁRIA e CONFERÊNCIA DE NOTAS. ====
+    {
+      const NA = 'fiscal/nf-analise';
+      const pgNa = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgNa.query(`INSERT INTO cfop (codcfop, descricao, devolucao) VALUES ('1202','DEVOLUCAO DE VENDA','S')
+          ON CONFLICT (codcfop) DO UPDATE SET devolucao='S'`);
+        await pgNa.query(`UPDATE cfop SET devolucao='N' WHERE codcfop='1102'`);
+        // quatro notas em 2037: uma com rateio que FECHA, uma DIVERGENTE, uma de devolução e uma alterada.
+        await pgNa.query(`INSERT INTO nf (codnf, idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, totalprod, totalisento, totaloutrasdesp, cfop) VALUES
+          (994401,1,'E',55,'1','994401','2037-03-01','2037-03-01',22,'S','N',100.00,100.00,0,0,'1102'),
+          (994402,1,'E',55,'1','994402','2037-03-02','2037-03-02',22,'S','N',250.00,250.00,10.00,5.00,'1102'),
+          (994403,1,'E',55,'1','994403','2037-03-03','2037-03-03',22,'N','N', 70.00, 70.00,0,0,'1202'),
+          (994404,1,'S',55,'1','994404','2037-03-04','2037-03-04',22,'S','N', 40.00, 40.00,0,0,'1102')`);
+        // o rateio contábil: a 994401 fecha (100), a 994402 NÃO (200 de 250), a 994404 fecha (40)
+        await pgNa.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, valor, codcc) VALUES
+          (994401,6,100.00,NULL), (994402,6,200.00,NULL), (994404,6,40.00,NULL)`);
+        await pgNa.query(`UPDATE nf SET usultalteracao=1, dtultimalteracao='2037-03-05 10:30' WHERE codnf=994404`);
+
+        const pedir = (body: any) => fetch(`${base}/${NA}`, { method: 'POST', headers: H, body: JSON.stringify(body) });
+        const base37 = { dataIni: '2037-03-01', dataFim: '2037-03-31', modelo: 'TRIBUTARIA' as const };
+
+        const r1 = await pedir(base37);
+        const j1 = (await r1.json().catch(() => ({}))) as any;
+        const nfs = (j1.linhas ?? []).map((l: any) => Number(l.codnf));
+        check('ANÁLISE NF §97.1 (sqqNF, UdmNFAnalise.dfm:352): a análise tributária lista as notas do período por DTCONTABIL com total, isento e outras despesas, e traz o RATEIO CONTÁBIL de cada uma ao lado do total. Sem marcar "incluir devolução", o CFOP marcado como devolução fica de fora (`:734`) — a 994403 some, e o CFOP sem marca conta como não-devolução',
+          r1.status === 200 && nfs.length === 3 && !nfs.includes(994403)
+          && Math.abs(Number(j1.totais?.totalnf) - 390) < 0.005
+          && Math.abs(Number((j1.linhas ?? []).find((l: any) => Number(l.codnf) === 994402)?.rateio_contabil) - 200) < 0.005,
+          { notas: nfs, totais: j1.totais });
+
+        const r2 = await pedir({ ...base37, incluirDevolucao: true });
+        const j2 = (await r2.json().catch(() => ({}))) as any;
+        const r3 = await pedir({ ...base37, somenteDiferencas: true });
+        const j3 = (await r3.json().catch(() => ({}))) as any;
+        check('ANÁLISE NF §97.2 [o filtro que dá valor à tela]: "somente diferenças" mostra a nota cujo RATEIO CONTÁBIL NÃO FECHA com o total (`UNFAnalise.pas:746`) — a 994402 tem 250,00 de total contra 200,00 rateados, e é a única que sobra. Cada uma dessas é um lançamento contábil que vai sair errado; em produção são **3.037 das 49.282 notas (6,2%)**',
+          r2.status === 200 && (j2.linhas ?? []).length === 4
+          && r3.status === 200 && (j3.linhas ?? []).length === 1
+          && Number(j3.linhas[0].codnf) === 994402
+          && Math.abs(Number(j3.linhas[0].diferenca) - 50) < 0.005,
+          { comDevolucao: (j2.linhas ?? []).length, divergentes: j3.linhas });
+
+        const r4 = await pedir({ ...base37, modelo: 'CONFERENCIA', incluirDevolucao: true });
+        const j4 = (await r4.json().catch(() => ({}))) as any;
+        check('ANÁLISE NF §97.3 (GetSqlAnaliseConferencia :1257): a conferência de notas mostra só as que alguém ALTEROU depois de lançadas (`USULTALTERACAO IS NOT NULL`), com o nome de quem alterou e quando. É a trilha de quem mexeu na nota',
+          r4.status === 200 && (j4.linhas ?? []).length === 1 && Number(j4.linhas[0].codnf) === 994404
+          && !!j4.linhas[0].alterado_por && String(j4.linhas[0].alterado_em).startsWith('2037-03-05'),
+          { linhas: j4.linhas });
+
+        const r5 = await pedir({ ...base37, tipo: 'S', incluirDevolucao: true });
+        const j5 = (await r5.json().catch(() => ({}))) as any;
+        const r6 = await pedir({ ...base37, processadas: 'N', incluirDevolucao: true });
+        const j6 = (await r6.json().catch(() => ({}))) as any;
+        const r7 = await pedir({ ...base37, nronf: '4402', incluirDevolucao: true });
+        const j7 = (await r7.json().catch(() => ({}))) as any;
+        check('ANÁLISE NF §97.4: os filtros da tela, um a um — tipo (só a saída 994404), notas processadas (o radio pega `PROC = N` OU NULO, `:729`, trazendo só a 994403) e número da nota, que é LIKE parcial como no legado (`%4402%`)',
+          (j5.linhas ?? []).length === 1 && Number(j5.linhas[0].codnf) === 994404
+          && (j6.linhas ?? []).length === 1 && Number(j6.linhas[0].codnf) === 994403
+          && (j7.linhas ?? []).length === 1 && Number(j7.linhas[0].codnf) === 994402,
+          { saida: j5.linhas?.length, naoProcessadas: j6.linhas?.map((l: any) => l.codnf), porNumero: j7.linhas?.length });
+
+        await pgNa.query(`DELETE FROM nf_contabil WHERE codnf IN (994401,994402,994404)`);
+        await pgNa.query(`DELETE FROM nf WHERE codnf IN (994401,994402,994403,994404)`);
+      } finally {
+        await pgNa.end();
+      }
+    }
+
     // ===== §89) LOGIN DUPLICADO (decisão do usuário + mig 173): unicidade PARCIAL e desempate por código ====
     {
       const pgL = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });

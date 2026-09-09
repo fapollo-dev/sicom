@@ -92,3 +92,23 @@ export const executarRelatorioSchema = z.object({
   message: 'Informe o relatório salvo ou a fonte e a definição.',
 });
 export type ExecutarRelatorioDto = z.infer<typeof executarRelatorioSchema>;
+
+/**
+ * ANÁLISE DE NOTAS FISCAIS (`FRMNFANALISE`) — os filtros da tela, para os dois modelos do corte-1.
+ */
+export const analiseNfSchema = z
+  .object({
+    modelo: z.enum(['TRIBUTARIA', 'CONFERENCIA']),
+    dataIni: dataISO,
+    dataFim: dataISO,
+    tipo: z.enum(['T', 'E', 'S']).optional(),
+    nronf: z.string().max(20).nullish(),
+    codparceiro: z.coerce.number().int().positive().nullish(),
+    razao: z.string().max(80).nullish(),
+    cfop: z.coerce.number().int().positive().nullish(),
+    processadas: z.enum(['S', 'N', 'T']).optional(),
+    incluirDevolucao: z.boolean().optional(),
+    somenteDiferencas: z.boolean().optional(),
+  })
+  .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
+export type AnaliseNfDto = z.infer<typeof analiseNfSchema>;

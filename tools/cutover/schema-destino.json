@@ -3908,6 +3908,13 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "devolucao": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -16714,6 +16721,13 @@
      "tipo": "character",
      "tam": 1,
      "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "totaloutrasdesp": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
      "nulo": true,
      "default": null
     }

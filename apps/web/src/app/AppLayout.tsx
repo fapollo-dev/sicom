@@ -107,6 +107,8 @@ const TELAS = [
   { href: '/contabil/razao', name: 'Livro Razão', icon: BookOpen },
   // FRMTRON — o exportador contábil: grava as partidas do razão por origem (cartões, baixas, documentos).
   { href: '/contabil/integracao', name: 'Integração Contábil', icon: ArrowRightLeft },
+  // FRMNFANALISE — a análise fiscal das notas (704 acessos no cliente).
+  { href: '/fiscal/nf-analise', name: 'Análise de Notas', icon: Calculator },
   { href: '/cadastro/fechamento-diario', name: 'Fechamento Diário', icon: CalendarClock },
   // FRMCTRLPERMISSOES — permissão por OPERADOR, que é o modo que o cliente usa (a de Perfis é o outro caminho).
   { href: '/cadastro/permissoes', name: 'Controle de Permissões', icon: ShieldCheck },

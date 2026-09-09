@@ -13,12 +13,12 @@ são **PDV**, fora por instrução do usuário, e sozinhas valem 67% do que rest
 | FECHAMENTO DE SANGRIA (`FRMFECHAMENTOSANGRIA`) | 13,976 | 43 | 2026-09-05 | PDV — fora de escopo |
 | CONSULTA NFC-E (`FRMNFCE`) | 13,048 | 22 | 2026-09-05 | PDV — fora de escopo |
 | DEVOLUCAO DE VENDAS (`FRMDEVOLUCAOVENDAS`) | 4,050 | 45 | 2026-09-05 | PDV — fora de escopo |
-| RELATORIO GERAL (`FRMRELATORIO`) | 1,759 | 20 | 2026-09-03 | **não migra** — é o gerenciador dos layouts FastReport (ver abaixo) |
+| RELATORIO GERAL (`FRMRELATORIO`) | 1,759 | 20 | 2026-09-03 | ✅ **migrada** (construtor, mig 202-203) — o catálogo era o `COMMENT` da view |
 | CONTROLE DE ACESSO (`FRMCTRLPERMISSOES`) | 968 | 15 | 2026-09-02 | era nossa: grant errado, corrigido (mig 196) |
 | GERADOR SPED FISCAL (`FRMSPEDFISCAL`) | 896 | 25 | 2026-09-04 | era nossa: grant errado, corrigido (mig 196) |
-| INTEGRACAO CONTABIL (`FRMTRON`) | 781 | 19 | 2026-08-31 | fila |
-| FECHAMENTO DIARIO (`FRMFECHAMENTODIARIO`) | 740 | 25 | 2026-09-01 | fila |
-| ANALISE DE NOTAS FISCAIS (`FRMNFANALISE`) | 704 | 19 | 2026-09-04 | fila |
+| INTEGRACAO CONTABIL (`FRMTRON`) | 781 | 19 | 2026-08-31 | ✅ **migrada** (3 cortes, mig 199-201) |
+| FECHAMENTO DIARIO (`FRMFECHAMENTODIARIO`) | 740 | 25 | 2026-09-01 | ✅ **migrada** (mig 198 + tela) |
+| ANALISE DE NOTAS FISCAIS (`FRMNFANALISE`) | 704 | 19 | 2026-09-04 | ✅ **corte-1** (mig 204): tributária + conferência; faltam 7 das 9 análises |
 | SALDO DA EMPRESA (`FRMSALDOEMPRESA`) | 611 | 19 | — | fila |
 | FRMMANCADCARTAOBOAVISTA (`FRMMANCADCARTAOBOAVISTA`) | 560 | 0 | 2026-05-20 | fila |
 | RELATORIOS DE CAIXAS (`FRMRELCAIXA`) | 504 | 22 | 2026-09-05 | fila |
