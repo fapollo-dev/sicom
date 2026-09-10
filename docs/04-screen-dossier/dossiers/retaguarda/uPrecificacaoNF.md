@@ -37,23 +37,61 @@ só então o lote roda. Foi mantida, e a tela **diz isso em voz alta** para quem
 **divide** o custo e **multiplica** a quantidade. Trocar o sentido de um dos dois erra o preço por uma ordem de
 grandeza — e o erro sai direto na etiqueta. Fator zero ou nulo vale **1**.
 
-⚠️ **a coluna MARKUP muda de unidade no meio do caminho — e isso é do legado.** A consulta a traz como
-**razão** (`venda ÷ custo`, `:941`); assim que o operador digita qualquer coisa, `CalcularMargem` sobrescreve
-o **mesmo campo** com **percentual** (`(preço − custo) × 100 / custo`). E é o valor corrente do campo que vai
-para `LOTEPRECO.MARKUP`.
+⚠️ **o markup é SEMPRE PERCENTUAL — e tem TRÊS semânticas, uma por tipo de custo.**
 
-**Prova no dado (produção, 10/09/2026):** dos **2.952** lotes que esta tela gerou (`OBS LIKE 'REFERENTE A
-PRECIFICA%NOTA FISCAL%'`, de 24/08/2020 a 27/11/2024), **1.182** caem na faixa de razão (0,5–5) e **1.358** na
-de percentual (>5). A incoerência está gravada no banco do cliente. Em `MULTI_PRECO.MARKUP`: mediana **30,79**,
-mínimo **−98,93** — ou seja, o que o sistema consome é percentual, e **aceita negativo**.
+A consulta traz `MARKUP = VRVENDA / custo` (razão, `:941`), e por isso eu o descrevi como razão na primeira
+passada. **Está errado**: `btnVisualizar:412` percorre TODAS as linhas assim que a consulta abre e sobrescreve
+a coluna com `CalcularMargem`. A razão do SELECT nunca chega aos olhos do operador — é só o valor inicial de
+um campo que é imediatamente recalculado.
 
-Copiado como está no que **grava**; na tela as duas aparecem **rotuladas** ("Markup NF (razão)", só leitura, e
-"Markup % (grava)", editável) em vez de uma coluna ambígua. Ler 65,56 como razão poria a etiqueta a 65 vezes
-o custo — é exatamente o erro que esta seção existe para impedir.
+O que se vê, e o que vai para o lote:
 
-⚠️ **o ICMS vem da UF do FORNECEDOR** (`PARCEIROS_END.CODEND = NF.CODPARCEIRO_END`), **não** da UF da empresa —
-que é como a Rentabilidade por Categorias resolve a mesma coluna. Duas telas, a mesma `DET_ALIQUOTA`, origens
-opostas, e ambas certas: lá interessa onde se VENDE, aqui de onde a mercadoria VEIO.
+| `rgPreco` | a coluna MARKUP é | fórmula |
+|---|---|---|
+| **Custo bruto** | markup % | `((preço − VRCUSTO) × 100) / VRCUSTO` |
+| **Custo de reposição** | markup % | o mesmo, contra o custo de reposição |
+| **Custo sem imposto** | ⚠️ **margem líquida %** | a escada fiscal inteira (§3.1) |
+
+No modo CSI **não é markup nenhum**. É por isso que a configuração se chama `MARGEM_LIQUIDA_PRECIFICACAO_NF`.
+
+### 3.1 A margem líquida (`CalculaValorMargem:775`)
+
+```
+ICMS de saída = Simples ? ALQSIMPLESNAC × V / 100
+                        : (produto 'T*' ? ICM_EFETIVO(alíquota, UF DA EMPRESA) × V / 100 : 0)
+PIS/COFINS    = Simples ? 0 : (ALIQ_PIS_SAI + ALIQ_COFINS_SAI) × V / 100
+lucro bruto   = (V − ICMS − PIS/COFINS) − custo CSI
+lucro líquido = lucro bruto − V × DESPOPERACIONAL/100
+margem %      = (lucro líquido − IR − CSLL) / V × 100      (IR e CSLL com PISO ZERO)
+```
+
+⚠️ **há DOIS ICMS diferentes na mesma tela.** A coluna `ICMS` mostra o da **UF do fornecedor** (de onde a
+mercadoria veio); a margem líquida usa o da **UF da empresa** (onde ela é vendida). Ambos saem de
+`DET_ALIQUOTA`, e trocá-los é um erro que não aparece em teste com fornecedor do mesmo estado.
+
+### 3.2 As três escadas de custo (`CalculaValorCusto:423`)
+
+```
+custo REAL      = custo − PIS/COFINS − ICMS + ST + FCP-ST + IPI + frete + seguro + acessória + frete2 + ajuste
+custo REPOSIÇÃO = custo + (IPI + frete + seguro + acessória + ST + FCP-ST + frete2 + ajuste) − BONIFICAÇÃO
+custo CSI       = custo de reposição − ICMS − PIS/COFINS
+```
+
+Três regras que não se adivinha:
+- **o de reposição não abate crédito nenhum**, e é o único que desconta bonificação;
+- IPI, frete, frete2 e seguro entram em **percentual** sobre o custo; acessória, ICMS-ST, FCP-ST e ajuste em
+  **valor**. A mesma tabela, duas formas;
+- ⚠️ **o crédito de PIS/COFINS da entrada só existe no LUCRO REAL (`'LR'`)** — o **inverso** da Rentabilidade
+  por Categorias, que zera para `SN`/`ME`/`LP`. Duas telas, dois recortes de regime, ambos no fonte.
+
+E os componentes saem do **`MULTI_PRECO` do produto naquela empresa**, não da nota — a nota traz o custo, o
+cadastro traz os encargos.
+
+### 3.3 O rodapé, que mente se você não olhar o modo
+
+`Produtos Listados`, `Margem Média` (= `AVG(MARKUP)`) e um **`Lucro Bruto` que troca de campo** conforme o
+`rgPreco`: `LUCROCB`, `LUCROREP` ou `LUCROCSI` (`btnVisualizar:420`). **Mesmo rótulo, três contas.** No Apollo
+os três vêm juntos e a tela diz qual está em destaque.
 
 ### O que a tela exclui por padrão
 
@@ -89,72 +127,67 @@ existe. **Achado nº 7 da mesma família** — a carga vinha descartando coluna 
 Duas permissões, não uma: `FRMPRECIFICACAONF` (abrir/consultar) e **`BTNAPLICAR`** (gravar o lote). O legado
 separa, porque ver o preço sugerido e mandar a loja mudar de preço não são o mesmo poder.
 
-## 7. Cobertura (§104 do smoke, 6 checks)
+## 8. O tamanho real da tela, e onde estamos
 
-1. o fator de embalagem dividindo o custo e multiplicando a quantidade;
-2. markup como razão, ICMS pela UF do fornecedor, último custo excluindo a própria nota;
-3. os filtros de transferência e bonificação, ligados e desligados;
-4. a marcação de margem negativa;
-5. o lote gravado com `PROCESSADO='N'` — e o preço do produto **inalterado** depois de aplicar;
-6. as recusas: preço zero e empresa inexistente.
+Medido no fonte em 10/09/2026, depois de o usuário desconfiar duas vezes do "corte-1 completo" — e nas duas
+ele estava certo.
 
-## 8. ⚠️ O tamanho real da tela — e o quanto o corte-1 cobre
-
-O corte-1 é **uma fatia**, e o registro anterior deste dossiê a descrevia como maior do que é. Medido no
-fonte em 10/09/2026:
-
-| | legado | corte-1 |
+| | legado | hoje |
 |---|---|---|
-| colunas na grade | **35** | 13 |
-| tipos de custo | **3** (CSI · bruto · reposição, no `rgPreco`) | 1 (bruto) |
-| telas abertas por atalho | **5** | 0 |
-| modo markdown | sim, por configuração | não |
+| colunas na grade | 35 | **22** |
+| tipos de custo | 3 | **3 ✅** |
+| telas abertas por atalho | 5 | **4** (falta o financeiro da nota ter tela própria) |
+| rodapé (listados/margem média/lucro) | sim | **sim ✅** |
+| modo markdown por configuração | sim | coluna calculada ✅, troca de rótulo ainda não |
 
-### 8.1 Os cinco atalhos (é por isso que a tela é um hub)
+### 8.1 Os cinco atalhos — é por isso que a tela é um hub
 
-| tecla | abre | fonte |
-|---|---|---|
-| **F2** | Cadastro do Produto | `:772` |
-| **F4** | Precificação por Custo | `:790` |
-| **F5** | a Nota Fiscal | `:818` |
-| **F6** | Financeiro da Nota Fiscal | `:838` |
-| botão | Impressão de Etiquetas (`frmEtiqueta`) | `:296` |
+| tecla | abre | fonte | no Apollo |
+|---|---|---|---|
+| **F2** | Cadastro do Produto | `:772` | `/cadastro/produtos` ✅ |
+| **F4** | Precificação por Custo | `:790` | `/estoque/precificacao` ✅ |
+| **F5** | a Nota Fiscal | `:818` | `/fiscal/notas/entrada` ✅ |
+| **F6** | Financeiro da Nota | `:838` | aponta para contas a pagar — a tela própria (`FrmFinanceiroNotaFiscalVisualizacao`) não foi migrada |
+| botão | Etiquetas (`frmEtiqueta`) | `:296` | `/estoque/etiquetas` ✅ |
 
-O operador precifica **sem sair da tela**: vê o item, abre o cadastro, confere a nota, olha o financeiro dela,
-imprime a etiqueta. Tirar os atalhos não tira função — tira o fluxo de trabalho, que é o que a tela é.
+O operador precifica **sem sair da tela**. Tirar os atalhos não tira função — tira o fluxo de trabalho, que é
+o que a tela é.
 
-### 8.2 Os três tipos de custo (`rgPreco`, `uDMPrecificacaoNF:12`)
-
-`tcCustoCSI` (custo sem imposto) · `tcCustoBruto` · `tcCustoReposicao`. **Cada um muda a fórmula da margem e
-a do preço** (`CalcularMargem:370`, `CalcularVenda:400`). O corte-1 implementa só o bruto.
-
-### 8.3 As duas configurações que mudam a tela inteira
+### 8.2 As duas configurações que mudam a tela inteira
 
 | configuração | efeito | **valor vivo no cliente** |
 |---|---|---|
-| `MARGEM_LIQUIDA_PRECIFICACAO_NF` | `'S'` ⇒ custo CSI **e esconde o botão Etiquetas** (`:871`) | **`'B'`** ⇒ custo bruto, etiquetas visíveis |
-| `TIPO_PRECIFICACAO` | `'D'` ⇒ a coluna vira **MARKDOWN** (margem sobre a VENDA) | **`'P'`** ⇒ markup |
+| `MARGEM_LIQUIDA_PRECIFICACAO_NF` | `'S'` ⇒ custo CSI **e esconde o botão Etiquetas** (`:871`) | **`'B'`** ⇒ bruto, etiquetas visíveis |
+| `TIPO_PRECIFICACAO` | `'D'` ⇒ o rótulo da coluna vira **MARKDOWN FIXO** (`:882`) | **`'P'`** ⇒ markup |
 
-Lidas de `CONFIGURACOES` da produção em 10/09/2026. Para **este** cliente o corte-1 acertou o modo — mas por
-coincidência de configuração, não por cobertura.
+Lidas da produção em 10/09/2026. Ambas já são respeitadas na abertura da tela.
 
-### 8.4 O resto do corte-2
+### 8.3 O que ainda falta (corte-3)
 
 - **produtos filhos**: `TAtualizacaoPrecoFilho.GeraLoteFilho` (`:1019`) gera lote para os filhos do produto
-  precificado. Unit inteira (`UAtualizacaoPrecoFilho.pas`) ainda **não portada** — épico à parte;
-- **multi-empresa** de verdade: `dmPrincipal.GetMultiEmpresa` aplica em todas as lojas marcadas (a API já
-  aceita `empresas[]`; a tela ainda não oferece);
-- **coloração e legenda por regra** (`btnAddPLCClick:206`): `CAMPO/OPERACAO/VALOR/COR/LEGENDA` — status da
-  NF-e, nota processada, etc.;
-- as colunas que faltam: `VRCUSTOREP`, `MARKDOWN`, `MARKUPFIXO`, `MARKUP_AUTORIZADO`, `VRPROMO`,
-  `GRUPO_PRECO`, `CODPRODNOTA`, `LJ`;
-- **rodapé** com Margem Média, Lucro Bruto e Produtos Listados;
-- **salvar/carregar o layout da grade** por operador;
-- **Visualizar Bonificação/Verbas**;
-- o **histórico de preço** do item.
+  precificado. Unit inteira (`UAtualizacaoPrecoFilho.pas`) **não portada** — épico à parte, e mexe em preço de
+  produto que não está na nota;
+- **multi-empresa na tela**: a API já aceita `empresas[]` (`GetMultiEmpresa`, `:1041`), a tela ainda não oferece;
+- **relatório impresso**: `Relatorios\PrecificacaoNF.fr3`, agrupado por empresa, com média de margem no rodapé
+  do grupo (`btnImprimir:364`);
+- **etiquetas com o dataset do legado**: hoje o botão leva para a tela de etiquetas; o legado **monta a fila**
+  com os itens marcados (usando `CODPRODNOTA` como código de barras, `PRECO_VENDA` nos quatro campos de valor,
+  quantidade 1) e **desmarca cada item** depois de enfileirar (`:341`);
+- **coloração e legenda por regra** (`btnAddPLCClick:206`): `CAMPO/OPERACAO/VALOR/COR/LEGENDA` — NF-e enviada,
+  cancelada, nota processada;
+- colunas que faltam: `MARKUP_AUTORIZADO`, `VRCUSTOCSI` da nota, `LJ`, `CODPRODUTO`, `CODNFPROD`;
+- **salvar/carregar o layout da grade** por operador (`popgrid`, `:1113`);
+- **aviso de alteração pendente** ao fechar (`TemEdicao`/`FormCloseQuery`, `:676`);
+- **Visualizar Bonificação/Verbas**.
 
-### 8.5 O que o corte-1 grava, e está fiel
+### 8.4 O que grava, e está fiel
 
 `LOTEPRECO` (nosso `lote_preco`) com `PROCESSADO='N'`, `CODEMPRESA`, `CODOPERADOR`, o preço, o markup
-**percentual**, e a `OBS` no texto fixo do legado: `REFERENTE A PRECIFICAÇÃO NOTA FISCAL DE NRO. <nronf>`
+**percentual** e a `OBS` no texto fixo do legado: `REFERENTE A PRECIFICAÇÃO NOTA FISCAL DE NRO. <nronf>`
 (`:1013`).
+
+## 9. Cobertura (§104 do smoke, 12 checks)
+
+Além dos oito do corte-1: as três escadas de custo (§104.9), as três semânticas do markup incluindo a margem
+líquida completa (§104.10), o rodapé com os três lucros e a média por modo (§104.11), e o markdown contra o
+markup de reposição (§104.12).

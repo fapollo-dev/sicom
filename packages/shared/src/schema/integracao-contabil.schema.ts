@@ -193,6 +193,8 @@ export const precificacaoNfFiltroSchema = z.object({
   incluirTransferencias: z.coerce.boolean().optional(),
   incluirBonificacao: z.coerce.boolean().optional(),
   somenteMargemNegativa: z.coerce.boolean().optional(),
+  /** o `rgPreco` do legado: qual custo dirige a margem. Em branco, o que a empresa tiver configurado. */
+  tipoCusto: z.enum(['CSI', 'BRUTO', 'REPOSICAO']).nullish(),
 });
 export type PrecificacaoNfFiltroDto = z.infer<typeof precificacaoNfFiltroSchema>;
 

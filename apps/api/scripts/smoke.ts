@@ -10631,6 +10631,13 @@ async function main() {
             VALUES ($1,$2,1,50.00,1,0,'T01')`, [n, prod]);
         }
 
+        // o regime da empresa decide o crédito, e aqui ele é FIXADO para o teste não depender do que
+        // sobrou de outra seção: LR credita PIS/COFINS de entrada; UF MG define o ICMS de SAÍDA.
+        const empPn = (await pgPn.query(`SELECT classfiscal, uf, despoperacional, imprenda, contsocial FROM empresas WHERE idempresa=1`)).rows[0] as any;
+        await pgPn.query(`UPDATE empresas SET classfiscal='LR', uf='MG', despoperacional=10, imprenda=15, contsocial=9 WHERE idempresa=1`);
+        await pgPn.query(`INSERT INTO det_aliquota (aliquota, uf, descricao, icm, icm_efetivo) VALUES ('T01','MG','ICMS MG',18,18)
+          ON CONFLICT (aliquota, uf) DO UPDATE SET icm_efetivo=18`);
+
         const r = await fetch(`${base}/${PN}?dataIni=2044-10-01&dataFim=2044-10-31`, { headers: H });
         const j = (await r.json().catch(() => ({}))) as any;
         const item = (j.linhas ?? []).find((l: any) => Number(l.codnf) === nfCompra);
@@ -10640,8 +10647,8 @@ async function main() {
           && Math.abs(Number(item.quantidade) - 60) < 0.005,
           { item: item && { vrcusto: item.vrcusto, quantidade: item.quantidade, fatorembal: item.fatorembal } });
 
-        check('PRECIFICAÇÃO NF §104.2 [markup, ICMS e último custo]: o markup da LISTAGEM é RAZÃO (venda ÷ custo = 12,00 ÷ 9,00 = **1,3333**) — e ⚠️ vira PERCENTUAL assim que o operador edita (§104.7). O ICMS de crédito vem da **UF do fornecedor NA NOTA** (SP → 12%) e não da UF da empresa — é o oposto da Rentabilidade por Categorias, de propósito: aqui interessa de onde a mercadoria VEIO. E o "último custo de reposição" (7,50) sai da nota ANTERIOR processada, excluindo a própria',
-          Math.abs(Number(item.markup) - 1.3333) < 0.001
+        check('PRECIFICAÇÃO NF §104.2 [markup, ICMS e último custo]: o markup é PERCENTUAL — 12,00 contra custo 9,00 = **33,33%**. A consulta traz a razão (venda ÷ custo), mas `btnVisualizar:412` percorre TODAS as linhas assim que a consulta abre e sobrescreve a coluna com `CalcularMargem`: a razão nunca chega aos olhos do operador. O ICMS de crédito vem da **UF do fornecedor NA NOTA** (SP → 12%) e não da UF da empresa — é o oposto da Rentabilidade por Categorias, de propósito: aqui interessa de onde a mercadoria VEIO. E o "último custo de reposição" (7,50) sai da nota ANTERIOR processada, excluindo a própria',
+          Math.abs(Number(item.markup) - 33.33) < 0.02
           && Math.abs(Number(item.icms) - 12) < 0.005
           && Math.abs(Number(item.ult_custo_rep) - 7.5) < 0.005
           && Math.abs(Number(item.vrvendasug) - 13.5) < 0.005 && Math.abs(Number(item.pmz) - 9.5) < 0.005,
@@ -10696,6 +10703,63 @@ async function main() {
           semP.status >= 400 && empX.status === 422 && String(empXJ.code).includes('EMPRESA_NAO_ENCONTRADA')
           && Number((await pgPn.query(`SELECT count(*)::int n FROM lote_preco WHERE idproduto=$1`, [prod])).rows[0].n) === 1,
           { precoZero: semP.status, empresaInvalida: empXJ });
+
+        // ── as TRÊS escadas de custo e as TRÊS semânticas do markup (o `rgPreco`) ─────────────────────
+        await pgPn.query(`INSERT INTO piscofins (idpiscofins, descricao, aliq_pis_sai, aliq_cofins_sai, aliq_pis_ent, aliq_cofins_ent)
+          VALUES (9701,'LR NAO CUMULATIVO',1.65,7.60,1.65,7.60) ON CONFLICT (idpiscofins) DO NOTHING`);
+        const prodB = Number((await pgPn.query(`INSERT INTO produtos (codbarra, descricao, codgrupo, unidade, codfor, aliquota, idpiscofins)
+          VALUES ('7009000000333','PROD PREC ESCADA',9701,'UN',2,'T01',9701) RETURNING idproduto`)).rows[0].idproduto);
+        // os componentes do custo vivem no MULTI_PRECO do produto NAQUELA empresa, não na nota
+        await pgPn.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, icme, icmst, vrfcpst, ipi, frete, frete2, seguro, despacessorio, bonificacao, vrcustoajuste)
+          VALUES ($1,1,20.00,12,0.50,0.25,5,2,1,0,0.30,0.40,0.10)`, [prodB]);
+        const nfEsc = await mkNf('994504', '1102', 'S');
+        await pgPn.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, fatorembal, desconto, aliquota)
+          VALUES ($1,$2,5,120.00,12,10,'T01')`, [nfEsc, prodB]);
+
+        const escB = async (tipo: string) => {
+          const rr = await fetch(`${base}/${PN}?nronf=994504&tipoCusto=${tipo}`, { headers: H });
+          const jj = (await rr.json().catch(() => ({}))) as any;
+          return { resp: rr, j: jj, l: (jj.linhas ?? [])[0] };
+        };
+        const eBruto = await escB('BRUTO');
+        const eRep = await escB('REPOSICAO');
+        const eCsi = await escB('CSI');
+
+        // custo unitário 9,00; ICME 12% = 1,08; PIS/COFINS ent (LR) 9,25% = 0,83; IPI 5% = 0,45;
+        // frete 2% = 0,18; frete2 1% = 0,09; acessória 0,30; ST 0,50; FCP-ST 0,25; ajuste 0,10; bonif 0,40
+        check('PRECIFICAÇÃO NF §104.9 [as TRÊS escadas de custo, e elas NÃO são a mesma conta com sinal trocado]: o custo de REPOSIÇÃO soma os encargos e desconta a BONIFICAÇÃO, mas **não** abate crédito nenhum — 9,00 + 1,87 − 0,40 = **10,47**. O custo SEM IMPOSTO parte do de reposição e aí sim abate ICMS (1,08) e PIS/COFINS (0,83) = **8,56**. E os componentes misturam duas formas: IPI, frete, frete2 e seguro são PERCENTUAL sobre o custo; acessória, ICMS-ST, FCP-ST e ajuste são VALOR (`CalculaValorCusto:423`)',
+          eBruto.resp.status === 200 && !!eBruto.l
+          && Math.abs(Number(eBruto.l.vrcusto) - 9) < 0.005
+          && Math.abs(Number(eBruto.l.custo_rep) - 10.47) < 0.005
+          && Math.abs(Number(eBruto.l.custo_csi) - 8.56) < 0.005,
+          { custo: eBruto.l?.vrcusto, rep: eBruto.l?.custo_rep, csi: eBruto.l?.custo_csi });
+
+        check('PRECIFICAÇÃO NF §104.10 [a coluna MARKUP tem TRÊS semânticas, uma por tipo de custo]: com preço 20,00 — sobre o custo BRUTO é markup 122,22%; sobre o de REPOSIÇÃO, 91,02%; e no modo CSI **não é markup nenhum**: é a MARGEM LÍQUIDA, com a escada fiscal inteira (ICMS de saída 18% pela UF DA EMPRESA = 3,60, PIS/COFINS de saída 9,25% = 1,85, custo CSI 8,56, despesa operacional 10% = 2,00, IR 15% e CSLL 9% sobre o que sobrou) = **15,16%**. É daí que vem o nome da configuração MARGEM_LIQUIDA_PRECIFICACAO_NF',
+          Math.abs(Number(eBruto.l.markup) - 122.22) < 0.02
+          && Math.abs(Number(eRep.l.markup) - 91.02) < 0.02
+          && Math.abs(Number(eCsi.l.markup) - 15.16) < 0.02
+          && eBruto.j.tipoCusto === 'BRUTO' && eCsi.j.tipoCusto === 'CSI',
+          { bruto: eBruto.l?.markup, reposicao: eRep.l?.markup, csi: eCsi.l?.markup });
+
+        check('PRECIFICAÇÃO NF §104.11 [o rodapé mente se você não olhar o modo]: o legado mostra UM "Lucro Bruto" que troca de campo conforme o rgPreco — LUCROCB, LUCROREP ou LUCROCSI (`btnVisualizar:420`), mesmo rótulo e três contas. Em 60 unidades: 660,00 contra o custo bruto, 571,80 contra o de reposição e 686,40 contra o sem imposto. Devolvemos os três e a tela diz qual está mostrando, em vez de um número sem unidade. A margem média é `AVG(MARKUP)`, e ela também muda com o modo',
+          Math.abs(Number(eBruto.j.totais.lucroCB) - 660) < 0.05
+          && Math.abs(Number(eBruto.j.totais.lucroRep) - 571.8) < 0.05
+          && Math.abs(Number(eBruto.j.totais.lucroCSI) - 686.4) < 0.05
+          && Math.abs(Number(eBruto.j.totais.mediaMargem) - 122.22) < 0.02
+          && Math.abs(Number(eCsi.j.totais.mediaMargem) - 15.16) < 0.02,
+          { totais: eBruto.j?.totais, mediaCsi: eCsi.j?.totais?.mediaMargem });
+
+        check('PRECIFICAÇÃO NF §104.12 [MARKDOWN, o outro lado da moeda]: campo calculado do dataset (`cdsPrecificacaoNFCalcFields:874`) — margem sobre a VENDA, contra o custo de REPOSIÇÃO: (20,00 − 10,47) / 20,00 = **47,65%**. Não confundir com o markup de reposição (91,02%): mesma diferença, denominador diferente. E a configuração TIPO_PRECIFICACAO=D troca o rótulo da coluna MARKUP FIXO para MARKDOWN FIXO (`:882`) — no cliente vale P',
+          Math.abs(Number(eBruto.l.markdown) - 47.65) < 0.02
+          && eBruto.j.mostrarEtiquetas === true,
+          { markdown: eBruto.l?.markdown, etiquetas: eBruto.j?.mostrarEtiquetas });
+
+        await pgPn.query(`DELETE FROM nf_prod WHERE codnf=$1`, [nfEsc]);
+        await pgPn.query(`DELETE FROM nf WHERE codnf=$1`, [nfEsc]);
+        await pgPn.query(`DELETE FROM multi_preco WHERE idproduto=$1`, [prodB]);
+        await pgPn.query(`DELETE FROM produtos WHERE idproduto=$1`, [prodB]);
+        await pgPn.query(`UPDATE empresas SET classfiscal=$1, uf=$2, despoperacional=$3, imprenda=$4, contsocial=$5 WHERE idempresa=1`,
+          [empPn?.classfiscal ?? null, empPn?.uf ?? null, empPn?.despoperacional ?? null, empPn?.imprenda ?? null, empPn?.contsocial ?? null]);
 
         await pgPn.query(`DELETE FROM lote_preco WHERE idproduto=$1`, [prod]);
         await pgPn.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2,$3,$4)`, [nfCompra, nfTransf, nfBonif, nfAnt]);
