@@ -10594,6 +10594,107 @@ async function main() {
       }
     }
 
+    // ===== §104) PRECIFICAÇÃO DE NF (FRMPRECIFICACAONF) — onde o preço de venda NASCE quando a mercadoria
+    // chega. 236 acessos, 17 operadores; o usuário classificou como "de extrema importância e grande
+    // influência". Ela NÃO altera preço: enfileira lote de preço. ====
+    {
+      const PN = 'precificacao/nf';
+      const pgPn = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgPn.query(`INSERT INTO cfop (codcfop, descricao, proc_transf) VALUES ('1102','COMPRA','N'),('1152','TRANSFERENCIA','S'),('1910','BONIFICACAO','N')
+          ON CONFLICT (codcfop) DO UPDATE SET proc_transf=EXCLUDED.proc_transf`);
+        await pgPn.query(`INSERT INTO det_aliquota (aliquota, uf, descricao, icm, icm_efetivo) VALUES ('T01','SP','ICMS SP',12,12)
+          ON CONFLICT (aliquota, uf) DO UPDATE SET icm_efetivo=12`);
+        // o fornecedor é de SP: é a UF DELE que decide o ICMS de crédito, não a da empresa
+        const cend = Number((await pgPn.query(`INSERT INTO parceiros_end (codparceiro, endereco, bairro, cidade, uf, cnpj_cpf, endereco_padrao)
+          VALUES (2,'RUA SP','CENTRO','SAO PAULO','SP','99888777000166','S') RETURNING codend`)).rows[0].codend);
+        await pgPn.query(`INSERT INTO familias_prod (codfamilia, descricao, tipo) VALUES (9701,'GRUPO PREC','G') ON CONFLICT (codfamilia) DO NOTHING`);
+        const prod = Number((await pgPn.query(`INSERT INTO produtos (codbarra, descricao, codgrupo, unidade, codfor, aliquota)
+          VALUES ('7009000000222','PROD PREC NF',9701,'UN',2,'T01') RETURNING idproduto`)).rows[0].idproduto);
+        await pgPn.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, markupfixo) VALUES ($1,1,12.00,0)`, [prod]);
+
+        const mkNf = async (nro: string, cfop: string, proc: string) => Number((await pgPn.query(
+          `INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, codparceiro_end, proc, cancelada, totalnf, cfop)
+           VALUES (1,'E',55,'1',$1,'2044-10-05','2044-10-05',2,$2,$3,'N',1000.00,$4) RETURNING codnf`, [nro, cend, proc, cfop])).rows[0].codnf);
+        const nfCompra = await mkNf('994501', '1102', 'S');
+        const nfTransf = await mkNf('994502', '1152', 'S');
+        const nfBonif  = await mkNf('994503', '1910', 'S');
+        // uma nota ANTERIOR, processada, para o "último custo de reposição"
+        const nfAnt = await mkNf('994500', '1102', 'S');
+        await pgPn.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, vrcustorep, fatorembal, desconto, aliquota)
+          VALUES ($1,$2,10,7.00,7.50,1,0,'T01')`, [nfAnt, prod]);
+        // o item a precificar: caixa com 12 unidades, custo 120,00 com 10% de desconto → 108/12 = 9,00 a unidade
+        await pgPn.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, vrcustorep, fatorembal, desconto, aliquota, frete, ipi, seguro, vricmst, pmz, vrvendasug, ultcusto)
+          VALUES ($1,$2,5,120.00,9.20,12,10,'T01',0,0,0,0,9.50,13.50,8.80)`, [nfCompra, prod]);
+        for (const n of [nfTransf, nfBonif]) {
+          await pgPn.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, fatorembal, desconto, aliquota)
+            VALUES ($1,$2,1,50.00,1,0,'T01')`, [n, prod]);
+        }
+
+        const r = await fetch(`${base}/${PN}?dataIni=2044-10-01&dataFim=2044-10-31`, { headers: H });
+        const j = (await r.json().catch(() => ({}))) as any;
+        const item = (j.linhas ?? []).find((l: any) => Number(l.codnf) === nfCompra);
+        check('PRECIFICAÇÃO NF §104.1 [o fator de embalagem, que é o coração da tela]: a nota traz a CAIXA e a loja vende a UNIDADE. O custo unitário é `(VRCUSTO − desconto% × VRCUSTO) / FATOREMBAL` — 120,00 com 10% = 108,00, dividido por 12 = **9,00**; e a quantidade vai no sentido contrário, `QUANTIDADE × FATOREMBAL` = 5 caixas × 12 = **60 unidades**. Errar o fator troca o preço por doze vezes ele',
+          r.status === 200 && !!item
+          && Math.abs(Number(item.vrcusto) - 9) < 0.005
+          && Math.abs(Number(item.quantidade) - 60) < 0.005,
+          { item: item && { vrcusto: item.vrcusto, quantidade: item.quantidade, fatorembal: item.fatorembal } });
+
+        check('PRECIFICAÇÃO NF §104.2 [markup, ICMS e último custo]: o markup atual é RAZÃO (venda ÷ custo = 12,00 ÷ 9,00 = **1,3333**), não percentual. O ICMS de crédito vem da **UF do fornecedor NA NOTA** (SP → 12%) e não da UF da empresa — é o oposto da Rentabilidade por Categorias, de propósito: aqui interessa de onde a mercadoria VEIO. E o "último custo de reposição" (7,50) sai da nota ANTERIOR processada, excluindo a própria',
+          Math.abs(Number(item.markup) - 1.3333) < 0.001
+          && Math.abs(Number(item.icms) - 12) < 0.005
+          && Math.abs(Number(item.ult_custo_rep) - 7.5) < 0.005
+          && Math.abs(Number(item.vrvendasug) - 13.5) < 0.005 && Math.abs(Number(item.pmz) - 9.5) < 0.005,
+          { markup: item?.markup, icms: item?.icms, ult: item?.ult_custo_rep, sug: item?.vrvendasug });
+
+        const codnfs = (j.linhas ?? []).map((l: any) => Number(l.codnf));
+        const comT = (await (await fetch(`${base}/${PN}?dataIni=2044-10-01&dataFim=2044-10-31&incluirTransferencias=true&incluirBonificacao=true`, { headers: H })).json().catch(() => ({}))) as any;
+        check('PRECIFICAÇÃO NF §104.3 [o que NÃO forma preço]: por padrão a tela exclui TRANSFERÊNCIA (mercadoria de outra loja não é compra — pelo `CFOP.PROC_TRANSF`) e BONIFICAÇÃO (CFOP 1910/2910: mercadoria de graça). Marcando as duas caixas, as três notas aparecem',
+          !codnfs.includes(nfTransf) && !codnfs.includes(nfBonif)
+          && (comT.linhas ?? []).some((l: any) => Number(l.codnf) === nfTransf)
+          && (comT.linhas ?? []).some((l: any) => Number(l.codnf) === nfBonif),
+          { semFiltro: codnfs.length, comTudo: (comT.linhas ?? []).length });
+
+        // margem negativa: preço de venda abaixo do custo unitário
+        await pgPn.query(`UPDATE multi_preco SET vrvenda = 7.00 WHERE idproduto=$1 AND idempresa=1`, [prod]);
+        const neg = (await (await fetch(`${base}/${PN}?dataIni=2044-10-01&dataFim=2044-10-31&somenteMargemNegativa=true`, { headers: H })).json().catch(() => ({}))) as any;
+        await pgPn.query(`UPDATE multi_preco SET vrvenda = 12.00 WHERE idproduto=$1 AND idempresa=1`, [prod]);
+        check('PRECIFICAÇÃO NF §104.4: o filtro de MARGEM NEGATIVA acha o que está sendo vendido abaixo do que custou — preço 7,00 contra custo unitário 9,00. É o que a tela do legado pinta de vermelho, e a razão de existir do "Produtos com margem negativa"',
+          (neg.linhas ?? []).length === 1 && neg.linhas[0].margem_negativa === true
+          && Number(neg.totais?.margemNegativa) === 1,
+          { negativas: neg.linhas?.length, totais: neg.totais });
+
+        const apl = await fetch(`${base}/${PN}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({
+          itens: [{ idproduto: prod, vrvenda: 14.90, markup: 1.6556 }], obs: 'Teste precificação NF', datalote: '2044-10-06' }) });
+        const aj = (await apl.json().catch(() => ({}))) as any;
+        const lote = (await pgPn.query(`SELECT idproduto, vrvenda::float8 v, markup::float8 m, processado, obs, origem, codempresa FROM lote_preco WHERE idproduto=$1 ORDER BY codlotepreco DESC LIMIT 1`, [prod])).rows[0] as any;
+        const precoAtual = (await pgPn.query(`SELECT vrvenda::float8 v FROM multi_preco WHERE idproduto=$1 AND idempresa=1`, [prod])).rows[0] as any;
+        check('PRECIFICAÇÃO NF §104.5 [ela NÃO muda o preço — enfileira]: "Aplicar valores" grava em `lote_preco` com `PROCESSADO=N` (`uPrecificacaoNF.pas:996`); quem muda o preço de fato é o processamento do lote, que também gera etiqueta e carga de PDV. É essa separação que deixa conferir antes de a loja mudar de preço — o preço vigente continua 12,00 depois de aplicar 14,90',
+          apl.status === 200 && Number(aj.lotes) === 1
+          && Math.abs(lote.v - 14.9) < 0.005 && lote.processado === 'N' && lote.origem === 'PRECIFICACAO_NF'
+          && Math.abs(precoAtual.v - 12) < 0.005,
+          { resp: aj, lote, precoVigente: precoAtual?.v });
+
+        const semP = await fetch(`${base}/${PN}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idproduto: prod, vrvenda: 0 }] }) });
+        const empX = await fetch(`${base}/${PN}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idproduto: prod, vrvenda: 10 }], empresas: [1, 987654] }) });
+        const empXJ = (await empX.json().catch(() => ({}))) as any;
+        check('PRECIFICAÇÃO NF §104.6: preço zero é recusado, e aplicar para uma empresa que não existe falha INTEIRO em vez de gravar só a metade — o legado também abre a lista de empresas e recusa se não achar (`:960`)',
+          semP.status >= 400 && empX.status === 422 && String(empXJ.code).includes('EMPRESA_NAO_ENCONTRADA')
+          && Number((await pgPn.query(`SELECT count(*)::int n FROM lote_preco WHERE idproduto=$1`, [prod])).rows[0].n) === 1,
+          { precoZero: semP.status, empresaInvalida: empXJ });
+
+        await pgPn.query(`DELETE FROM lote_preco WHERE idproduto=$1`, [prod]);
+        await pgPn.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2,$3,$4)`, [nfCompra, nfTransf, nfBonif, nfAnt]);
+        await pgPn.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3,$4)`, [nfCompra, nfTransf, nfBonif, nfAnt]);
+        await pgPn.query(`DELETE FROM multi_preco WHERE idproduto=$1`, [prod]);
+        await pgPn.query(`DELETE FROM produtos WHERE idproduto=$1`, [prod]);
+        await pgPn.query(`DELETE FROM parceiros_end WHERE codend=$1`, [cend]);
+        await pgPn.query(`DELETE FROM familias_prod WHERE codfamilia=9701`);
+      } finally {
+        await pgPn.end();
+      }
+    }
+
     // ===== §89) LOGIN DUPLICADO (decisão do usuário + mig 173): unicidade PARCIAL e desempate por código ====
     {
       const pgL = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });

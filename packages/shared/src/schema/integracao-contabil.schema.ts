@@ -180,3 +180,34 @@ export const rentabilidadeSchema = z
   })
   .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
 export type RentabilidadeDto = z.infer<typeof rentabilidadeSchema>;
+
+/** PRECIFICAÇÃO DE NF (`FRMPRECIFICACAONF`) — os filtros da listagem dos itens a precificar. */
+export const precificacaoNfFiltroSchema = z.object({
+  codnf: z.coerce.number().int().positive().nullish(),
+  nronf: z.string().max(20).nullish(),
+  descricao: z.string().max(80).nullish(),
+  fornecedor: z.string().max(80).nullish(),
+  grupo: z.string().max(80).nullish(),
+  dataIni: dataISO.nullish(),
+  dataFim: dataISO.nullish(),
+  incluirTransferencias: z.coerce.boolean().optional(),
+  incluirBonificacao: z.coerce.boolean().optional(),
+  somenteMargemNegativa: z.coerce.boolean().optional(),
+});
+export type PrecificacaoNfFiltroDto = z.infer<typeof precificacaoNfFiltroSchema>;
+
+/**
+ * APLICAR os preços — enfileira um lote por item e por empresa. Não muda o preço: quem muda é o
+ * processamento do lote.
+ */
+export const aplicarPrecificacaoNfSchema = z.object({
+  itens: z.array(z.object({
+    idproduto: z.coerce.number().int().positive(),
+    vrvenda: z.coerce.number().positive('O preço de venda tem de ser maior que zero.'),
+    markup: z.coerce.number().nonnegative().nullish(),
+  })).min(1, 'Selecione ao menos um item.').max(3000),
+  empresas: z.array(z.coerce.number().int().positive()).max(50).nullish(),
+  obs: z.string().max(120).nullish(),
+  datalote: dataISO.nullish(),
+});
+export type AplicarPrecificacaoNfDto = z.infer<typeof aplicarPrecificacaoNfSchema>;

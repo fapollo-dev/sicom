@@ -121,6 +121,8 @@ const TELAS = [
   { href: '/relatorios/cartoes', name: 'Total por Cartão', icon: CreditCard },
   // FRMRENTABILIDADECATEGORIAS — a rentabilidade depois do imposto e da despesa (275 acessos).
   { href: '/relatorios/rentabilidade', name: 'Rentabilidade', icon: Percent },
+  // FRMPRECIFICACAONF — onde o preço nasce quando a mercadoria chega (236 acessos).
+  { href: '/precificacao/nf', name: 'Precificação de NF', icon: Tag },
   { href: '/cadastro/fechamento-diario', name: 'Fechamento Diário', icon: CalendarClock },
   // FRMCTRLPERMISSOES — permissão por OPERADOR, que é o modo que o cliente usa (a de Perfis é o outro caminho).
   { href: '/cadastro/permissoes', name: 'Controle de Permissões', icon: ShieldCheck },

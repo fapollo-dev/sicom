@@ -4209,6 +4209,13 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "proc_transf": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -18398,6 +18405,48 @@
      "tipo": "timestamp with time zone",
      "tam": null,
      "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "pmz": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "vrvendasug": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "ultcusto": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "vrcustocsi": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "frete2": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "despextra": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
      "nulo": true,
      "default": null
     }
