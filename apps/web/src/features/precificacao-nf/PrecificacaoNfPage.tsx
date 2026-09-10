@@ -31,6 +31,9 @@ interface Resultado { linhas: Item[]; totais: { itens: number; margemNegativa: n
 const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const nfmt = (v: unknown, d = 4) => Number(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
 const dataBr = (v: unknown) => (v == null ? '' : String(v).slice(0, 10).split('-').reverse().join('/'));
+const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+/** markup PERCENTUAL sobre o custo — `CalcularMargem`, modo custo bruto (`uDMPrecificacaoNF:377`). */
+const pctDe = (venda: number, custo: number) => (custo > 0 ? r2(((venda - custo) * 100) / custo) : 0);
 const hoje = () => new Date().toISOString().slice(0, 10);
 const dias = (n: number) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
 
@@ -64,25 +67,37 @@ export function PrecificacaoNfPage() {
       // parte de onde o sistema sugeriu; se não houver sugestão, do preço que está valendo
       setEdit(Object.fromEntries(j.linhas.map((l) => {
         const v = Number(l.vrvendasug) > 0 ? Number(l.vrvendasug) : Number(l.vrvenda);
-        return [l.codnfprod, { vrvenda: v, markup: Number(l.vrcusto) > 0 ? v / Number(l.vrcusto) : 0 }];
+        return [l.codnfprod, { vrvenda: v, markup: pctDe(v, Number(l.vrcusto)) }];
       })));
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
 
-  /** preço e markup são a mesma informação vista de dois lados — mexer num recalcula o outro. */
+  /**
+   * Preço e markup são a mesma informação vista de dois lados — mexer num recalcula o outro, e é assim que
+   * o operador trabalha: ora sabe a margem que quer, ora sabe o preço de prateleira.
+   *
+   * ⚠️ **o markup EDITÁVEL é PERCENTUAL**, e não a razão que a coluna `MARKUP` mostra ao abrir. É uma
+   * incoerência do próprio legado, copiada de propósito: a consulta traz `MARKUP = VRVENDA / custo` (razão,
+   * `uPrecificacaoNF.pas:941`), mas assim que o operador digita, `CalcularMargem` (`uDMPrecificacaoNF:377`)
+   * sobrescreve o mesmo campo com `((preço − custo) × 100) / custo` — percentual. Prova no dado: dos 2.952
+   * lotes que esta tela gerou em produção, 1.182 estão em faixa de razão e 1.358 em faixa de percentual.
+   * Por isso a grade mostra as duas, rotuladas, em vez de esconder a diferença numa coluna só.
+   */
   const mudarPreco = (l: Item, txt: string) => {
     const v = Number(txt.replace(',', '.')) || 0;
-    setEdit((e) => ({ ...e, [l.codnfprod]: { vrvenda: v, markup: l.vrcusto > 0 ? v / l.vrcusto : 0 } }));
+    setEdit((e) => ({ ...e, [l.codnfprod]: { vrvenda: v, markup: pctDe(v, l.vrcusto) } }));
   };
   const mudarMarkup = (l: Item, txt: string) => {
     const m = Number(txt.replace(',', '.')) || 0;
-    setEdit((e) => ({ ...e, [l.codnfprod]: { vrvenda: Math.round(m * l.vrcusto * 100) / 100, markup: m } }));
+    // CalcularVenda, modo custo bruto: venda = custo + custo × markup%/100
+    setEdit((e) => ({ ...e, [l.codnfprod]: { vrvenda: r2(l.vrcusto + (l.vrcusto * m) / 100), markup: m } }));
   };
 
   const aplicar = async () => {
     if (!res || sel.size === 0) { mensagem.erro('Selecione ao menos um item.'); return; }
     const itens = res.linhas.filter((l) => sel.has(l.codnfprod)).map((l) => ({
-      idproduto: l.idproduto, vrvenda: edit[l.codnfprod]?.vrvenda ?? l.vrvenda, markup: edit[l.codnfprod]?.markup ?? null,
+      idproduto: l.idproduto, vrvenda: edit[l.codnfprod]?.vrvenda ?? l.vrvenda,
+      markup: edit[l.codnfprod]?.markup ?? null, nronf: l.nronf,
     }));
     const abaixo = itens.filter((i, k) => i.vrvenda < Number(res.linhas.filter((l) => sel.has(l.codnfprod))[k].vrcusto));
     if (abaixo.length && !window.confirm(`${abaixo.length} item(ns) ficariam com preço ABAIXO do custo. Confirma mesmo assim?`)) return;
@@ -119,6 +134,8 @@ export function PrecificacaoNfPage() {
     { field: 'ult_custo_rep', headerName: 'Últ. custo', type: 'text', width: 110, valueGetter: (l) => (l.ult_custo_rep == null ? '—' : moeda(l.ult_custo_rep)) },
     { field: 'vrvenda', headerName: 'Venda atual', type: 'text', width: 115, valueGetter: (l) => moeda(l.vrvenda) },
     { field: 'vrvendasug', headerName: 'Sugerido', type: 'text', width: 110, valueGetter: (l) => moeda(l.vrvendasug) },
+    // a coluna MARKUP como o legado a traz: RAZÃO (venda ÷ custo). Só de leitura, para conferência.
+    { field: 'markup', headerName: 'Markup NF (razão)', type: 'text', width: 140, valueGetter: (l) => nfmt(l.markup, 4) },
     {
       field: 'novo', headerName: 'Novo preço', type: 'text', width: 130, valueGetter: () => '',
       renderCell: ({ row: l }: { row: Item }) => (
@@ -127,10 +144,10 @@ export function PrecificacaoNfPage() {
       ),
     },
     {
-      field: 'mk', headerName: 'Markup', type: 'text', width: 120, valueGetter: () => '',
+      field: 'mk', headerName: 'Markup % (grava)', type: 'text', width: 140, valueGetter: () => '',
       renderCell: ({ row: l }: { row: Item }) => (
         <input className="w-20 rounded border border-border px-1 text-right tabular-nums"
-          value={nfmt(edit[l.codnfprod]?.markup ?? l.markup, 4)} onChange={(e) => mudarMarkup(l, e.target.value)} />
+          value={String(edit[l.codnfprod]?.markup ?? '')} onChange={(e) => mudarMarkup(l, e.target.value)} />
       ),
     },
     { field: 'pmz', headerName: 'PMZ', type: 'text', width: 100, valueGetter: (l) => moeda(l.pmz) },

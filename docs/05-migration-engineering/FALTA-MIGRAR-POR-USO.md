@@ -27,7 +27,7 @@ são **PDV**, fora por instrução do usuário, e sozinhas valem 67% do que rest
 | TOTAL POR CARTAO (`FRMRELCARTOES`) | 382 | 7 | 2026-09-02 | ✅ **completa** (mig 208) — nada ficou de fora |
 | LANCAMENTOS CONTABEIS (`FRMRELLANCAMENTOSCONTABEIS`) | 377 | 19 | 2026-08-18 | ✅ **corte-1** (mig 209): o razão por lançamento + `ORIGEM_CONTABIL` e `DIARIO.DESCHIST`, que a carga descartava |
 | RENTABILIDADE POR CATEGORIAS (`FRMRENTABILIDADECATEGORIAS`) | 275 | 19 | — | ✅ **corte-1** (mig 210): a fórmula completa nos 3 níveis; faltam o filtro por fornecedor, o modo SCRAP e o modo com NF |
-| PRECIFICACAO NF (`FRMPRECIFICACAONF`) | 236 | 17 | 2026-08-25 | ✅ **corte-1** (mig 211): fator de embalagem, markup-razão, ICMS pela UF do fornecedor, último custo, filtros de transferência/bonificação e o lote que não muda preço; faltam multi-empresa, etiqueta na tela e histórico |
+| PRECIFICACAO NF (`FRMPRECIFICACAONF`) | 236 | 17 | 2026-08-25 | 🟡 **corte-1 = fatia** (mig 211): listar/filtrar, fator de embalagem, ICMS pela UF do fornecedor, último custo, margem negativa e o lote fiel (markup **percentual**, OBS do legado). ⚠️ a tela é um **hub**: 35 colunas (temos 13), **5 atalhos** F2/F4/F5/F6+Etiquetas (0), **3 tipos de custo** (1), markdown por config, produtos filhos e coloração por regra — ver §8 do dossiê |
 | RELATORIOS DE COMPRAS (`FRMRELCOMPRAS`) | 204 | 19 | 2026-08-17 | fila |
 | PROMOCAO ACUMULATIVA (`FRMCADPROMOCAOACUMULATIVA`) | 199 | 26 | 2026-08-24 | fila |
 | CONF. NOTAS FISCAIS X INDEXADOR (`FRMCONFERENCIANFINDEXADOR`) | 165 | 4 | — | fila |

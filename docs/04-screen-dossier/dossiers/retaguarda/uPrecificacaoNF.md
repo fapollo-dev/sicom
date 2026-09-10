@@ -27,7 +27,9 @@ só então o lote roda. Foi mantida, e a tela **diz isso em voz alta** para quem
 |---|---|---|
 | **custo unitário** | `(VRCUSTO − desconto% × VRCUSTO) / FATOREMBAL` | `uDMPrecificacaoNF` |
 | **quantidade** | `QUANTIDADE × FATOREMBAL` | idem |
-| **markup atual** | `VRVENDA / custo unitário` — **é razão, não percentual** | `:812` |
+| **markup na listagem** | `VRVENDA / custo unitário` — **razão** | `:941` |
+| **markup ao EDITAR** | `((PRECO_VENDA − custo) × 100) / custo` — **percentual** | `uDMPrecificacaoNF:377` |
+| **preço ao editar o markup** | `custo + custo × markup/100` | `CalcularVenda:410` |
 | **ICMS** | `DET_ALIQUOTA.ICM_EFETIVO` pela **UF do FORNECEDOR na nota** | `dfm` |
 | **último custo de reposição** | `VRCUSTOREP` da última NF de entrada processada, não cancelada, CFOP na lista, **excluindo a própria** | `dfm:424` |
 
@@ -35,8 +37,19 @@ só então o lote roda. Foi mantida, e a tela **diz isso em voz alta** para quem
 **divide** o custo e **multiplica** a quantidade. Trocar o sentido de um dos dois erra o preço por uma ordem de
 grandeza — e o erro sai direto na etiqueta. Fator zero ou nulo vale **1**.
 
-⚠️ **markup é razão.** `2,5` quer dizer "duas vezes e meia o custo", não "2,5%". Quem lê como percentual põe a
-loja para vender abaixo do custo.
+⚠️ **a coluna MARKUP muda de unidade no meio do caminho — e isso é do legado.** A consulta a traz como
+**razão** (`venda ÷ custo`, `:941`); assim que o operador digita qualquer coisa, `CalcularMargem` sobrescreve
+o **mesmo campo** com **percentual** (`(preço − custo) × 100 / custo`). E é o valor corrente do campo que vai
+para `LOTEPRECO.MARKUP`.
+
+**Prova no dado (produção, 10/09/2026):** dos **2.952** lotes que esta tela gerou (`OBS LIKE 'REFERENTE A
+PRECIFICA%NOTA FISCAL%'`, de 24/08/2020 a 27/11/2024), **1.182** caem na faixa de razão (0,5–5) e **1.358** na
+de percentual (>5). A incoerência está gravada no banco do cliente. Em `MULTI_PRECO.MARKUP`: mediana **30,79**,
+mínimo **−98,93** — ou seja, o que o sistema consome é percentual, e **aceita negativo**.
+
+Copiado como está no que **grava**; na tela as duas aparecem **rotuladas** ("Markup NF (razão)", só leitura, e
+"Markup % (grava)", editável) em vez de uma coluna ambígua. Ler 65,56 como razão poria a etiqueta a 65 vezes
+o custo — é exatamente o erro que esta seção existe para impedir.
 
 ⚠️ **o ICMS vem da UF do FORNECEDOR** (`PARCEIROS_END.CODEND = NF.CODPARCEIRO_END`), **não** da UF da empresa —
 que é como a Rentabilidade por Categorias resolve a mesma coluna. Duas telas, a mesma `DET_ALIQUOTA`, origens
@@ -85,9 +98,63 @@ separa, porque ver o preço sugerido e mandar a loja mudar de preço não são o
 5. o lote gravado com `PROCESSADO='N'` — e o preço do produto **inalterado** depois de aplicar;
 6. as recusas: preço zero e empresa inexistente.
 
-## 8. O que ficou para o corte-2
+## 8. ⚠️ O tamanho real da tela — e o quanto o corte-1 cobre
 
-- o modo **multi-empresa** (precificar a nota para várias lojas de uma vez);
-- a **impressão de etiqueta** direto da tela (hoje sai pelo lote, que é o caminho normal);
-- o **histórico de preço** do item no painel lateral;
-- a coluna de **concorrência**, que o cliente não usa (0 linhas em `PESQUISA_CONCORRENCIA` na produção).
+O corte-1 é **uma fatia**, e o registro anterior deste dossiê a descrevia como maior do que é. Medido no
+fonte em 10/09/2026:
+
+| | legado | corte-1 |
+|---|---|---|
+| colunas na grade | **35** | 13 |
+| tipos de custo | **3** (CSI · bruto · reposição, no `rgPreco`) | 1 (bruto) |
+| telas abertas por atalho | **5** | 0 |
+| modo markdown | sim, por configuração | não |
+
+### 8.1 Os cinco atalhos (é por isso que a tela é um hub)
+
+| tecla | abre | fonte |
+|---|---|---|
+| **F2** | Cadastro do Produto | `:772` |
+| **F4** | Precificação por Custo | `:790` |
+| **F5** | a Nota Fiscal | `:818` |
+| **F6** | Financeiro da Nota Fiscal | `:838` |
+| botão | Impressão de Etiquetas (`frmEtiqueta`) | `:296` |
+
+O operador precifica **sem sair da tela**: vê o item, abre o cadastro, confere a nota, olha o financeiro dela,
+imprime a etiqueta. Tirar os atalhos não tira função — tira o fluxo de trabalho, que é o que a tela é.
+
+### 8.2 Os três tipos de custo (`rgPreco`, `uDMPrecificacaoNF:12`)
+
+`tcCustoCSI` (custo sem imposto) · `tcCustoBruto` · `tcCustoReposicao`. **Cada um muda a fórmula da margem e
+a do preço** (`CalcularMargem:370`, `CalcularVenda:400`). O corte-1 implementa só o bruto.
+
+### 8.3 As duas configurações que mudam a tela inteira
+
+| configuração | efeito | **valor vivo no cliente** |
+|---|---|---|
+| `MARGEM_LIQUIDA_PRECIFICACAO_NF` | `'S'` ⇒ custo CSI **e esconde o botão Etiquetas** (`:871`) | **`'B'`** ⇒ custo bruto, etiquetas visíveis |
+| `TIPO_PRECIFICACAO` | `'D'` ⇒ a coluna vira **MARKDOWN** (margem sobre a VENDA) | **`'P'`** ⇒ markup |
+
+Lidas de `CONFIGURACOES` da produção em 10/09/2026. Para **este** cliente o corte-1 acertou o modo — mas por
+coincidência de configuração, não por cobertura.
+
+### 8.4 O resto do corte-2
+
+- **produtos filhos**: `TAtualizacaoPrecoFilho.GeraLoteFilho` (`:1019`) gera lote para os filhos do produto
+  precificado. Unit inteira (`UAtualizacaoPrecoFilho.pas`) ainda **não portada** — épico à parte;
+- **multi-empresa** de verdade: `dmPrincipal.GetMultiEmpresa` aplica em todas as lojas marcadas (a API já
+  aceita `empresas[]`; a tela ainda não oferece);
+- **coloração e legenda por regra** (`btnAddPLCClick:206`): `CAMPO/OPERACAO/VALOR/COR/LEGENDA` — status da
+  NF-e, nota processada, etc.;
+- as colunas que faltam: `VRCUSTOREP`, `MARKDOWN`, `MARKUPFIXO`, `MARKUP_AUTORIZADO`, `VRPROMO`,
+  `GRUPO_PRECO`, `CODPRODNOTA`, `LJ`;
+- **rodapé** com Margem Média, Lucro Bruto e Produtos Listados;
+- **salvar/carregar o layout da grade** por operador;
+- **Visualizar Bonificação/Verbas**;
+- o **histórico de preço** do item.
+
+### 8.5 O que o corte-1 grava, e está fiel
+
+`LOTEPRECO` (nosso `lote_preco`) com `PROCESSADO='N'`, `CODEMPRESA`, `CODOPERADOR`, o preço, o markup
+**percentual**, e a `OBS` no texto fixo do legado: `REFERENTE A PRECIFICAÇÃO NOTA FISCAL DE NRO. <nronf>`
+(`:1013`).

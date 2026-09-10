@@ -44,7 +44,12 @@ export interface FiltroPrecificacaoNf {
  *  · **custo unitário** = `(VRCUSTO − desconto% × VRCUSTO) / FATOREMBAL` — o fator de embalagem é o que
  *    converte o custo da caixa para o custo da unidade que se vende, e vale **1** quando é zero ou nulo;
  *  · **quantidade** = `QUANTIDADE × FATOREMBAL`, pelo mesmo motivo, ao contrário;
- *  · **markup atual** = `VRVENDA / custo unitário` — é razão, não percentual;
+ *  · **markup na LISTAGEM** = `VRVENDA / custo unitário` — razão (`uPrecificacaoNF.pas:941`);
+ *  · ⚠️ **o markup EDITADO é PERCENTUAL**, `((preço − custo) × 100) / custo` (`CalcularMargem`,
+ *    `uDMPrecificacaoNF:377`), e é ele que vai para o lote. **A mesma coluna muda de unidade quando o
+ *    operador digita** — incoerência do legado, provada no dado: dos 2.952 lotes que esta tela gerou em
+ *    produção, 1.182 estão em faixa de razão (nunca editados) e 1.358 em faixa de percentual. Copiada como
+ *    está, mas com as duas colunas rotuladas na tela em vez de uma só ambígua;
  *  · **ICMS** sai de `DET_ALIQUOTA.ICM_EFETIVO` pela **UF do endereço do FORNECEDOR na nota**
  *    (`PARCEIROS_END.CODEND = NF.CODPARCEIRO_END`) — ⚠️ **não** pela UF da empresa, que é como a
  *    Rentabilidade por Categorias faz. São duas telas com a mesma coluna e origens diferentes, de propósito:
@@ -106,7 +111,8 @@ export class PrecificacaoNfService {
              p.vricmst, p.streal, p.bonificacao, p.arredonda,
              m.vrvenda, m.vrvenda AS preco_venda,
              coalesce(m.markupfixo, 0) AS markupfixo, coalesce(m.vrpromo, 0) AS vrpromo,
-             -- markup atual = preço de venda ÷ custo unitário (razão, não percentual)
+             -- markup da LISTAGEM: preço de venda ÷ custo unitário. É RAZÃO — e vira percentual assim que
+             -- o operador edita (ver o cabeçalho da classe). Fiel ao trecho MARGEM do legado.
              CASE WHEN coalesce(p.vrcusto,0) > 0 AND coalesce(m.vrvenda,0) > 0
                    AND (p.vrcusto - (coalesce(p.desconto,0)/100 * p.vrcusto)) > 0
                   THEN (m.vrvenda / ((p.vrcusto - (coalesce(p.desconto,0)/100 * p.vrcusto))
@@ -202,7 +208,7 @@ export class PrecificacaoNfService {
    * uma ou mais empresas. **Não muda o preço**: `processado = 'N'`, e quem muda é o processamento do lote.
    */
   async aplicar(dto: {
-    itens: Array<{ idproduto: number; vrvenda: number; markup?: number | null }>;
+    itens: Array<{ idproduto: number; vrvenda: number; markup?: number | null; nronf?: string | null }>;
     empresas?: number[] | null;
     obs?: string | null;
     datalote?: string | null;
@@ -228,7 +234,8 @@ export class PrecificacaoNfService {
             markup: it.markup == null ? null : r4(it.markup),
             datalote: dto.datalote ? sql`${dto.datalote}::date` : sql`current_date`,
             processado: 'N',
-            obs: dto.obs ?? 'Precificação de NF',
+            // texto fixo do legado, com o número da nota (`InsereAjustePreco`, `:1013`)
+            obs: dto.obs ?? `REFERENTE A PRECIFICAÇÃO NOTA FISCAL DE NRO. ${it.nronf ?? ''}`.trim(),
             codempresa: e,
             codoperador: op,
             origem: 'PRECIFICACAO_NF',

@@ -10640,7 +10640,7 @@ async function main() {
           && Math.abs(Number(item.quantidade) - 60) < 0.005,
           { item: item && { vrcusto: item.vrcusto, quantidade: item.quantidade, fatorembal: item.fatorembal } });
 
-        check('PRECIFICAÇÃO NF §104.2 [markup, ICMS e último custo]: o markup atual é RAZÃO (venda ÷ custo = 12,00 ÷ 9,00 = **1,3333**), não percentual. O ICMS de crédito vem da **UF do fornecedor NA NOTA** (SP → 12%) e não da UF da empresa — é o oposto da Rentabilidade por Categorias, de propósito: aqui interessa de onde a mercadoria VEIO. E o "último custo de reposição" (7,50) sai da nota ANTERIOR processada, excluindo a própria',
+        check('PRECIFICAÇÃO NF §104.2 [markup, ICMS e último custo]: o markup da LISTAGEM é RAZÃO (venda ÷ custo = 12,00 ÷ 9,00 = **1,3333**) — e ⚠️ vira PERCENTUAL assim que o operador edita (§104.7). O ICMS de crédito vem da **UF do fornecedor NA NOTA** (SP → 12%) e não da UF da empresa — é o oposto da Rentabilidade por Categorias, de propósito: aqui interessa de onde a mercadoria VEIO. E o "último custo de reposição" (7,50) sai da nota ANTERIOR processada, excluindo a própria',
           Math.abs(Number(item.markup) - 1.3333) < 0.001
           && Math.abs(Number(item.icms) - 12) < 0.005
           && Math.abs(Number(item.ult_custo_rep) - 7.5) < 0.005
@@ -10665,15 +10665,29 @@ async function main() {
           { negativas: neg.linhas?.length, totais: neg.totais });
 
         const apl = await fetch(`${base}/${PN}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({
-          itens: [{ idproduto: prod, vrvenda: 14.90, markup: 1.6556 }], obs: 'Teste precificação NF', datalote: '2044-10-06' }) });
+          itens: [{ idproduto: prod, vrvenda: 14.90, markup: 65.56, nronf: '5001' }], datalote: '2044-10-06' }) });
         const aj = (await apl.json().catch(() => ({}))) as any;
         const lote = (await pgPn.query(`SELECT idproduto, vrvenda::float8 v, markup::float8 m, processado, obs, origem, codempresa FROM lote_preco WHERE idproduto=$1 ORDER BY codlotepreco DESC LIMIT 1`, [prod])).rows[0] as any;
         const precoAtual = (await pgPn.query(`SELECT vrvenda::float8 v FROM multi_preco WHERE idproduto=$1 AND idempresa=1`, [prod])).rows[0] as any;
         check('PRECIFICAÇÃO NF §104.5 [ela NÃO muda o preço — enfileira]: "Aplicar valores" grava em `lote_preco` com `PROCESSADO=N` (`uPrecificacaoNF.pas:996`); quem muda o preço de fato é o processamento do lote, que também gera etiqueta e carga de PDV. É essa separação que deixa conferir antes de a loja mudar de preço — o preço vigente continua 12,00 depois de aplicar 14,90',
           apl.status === 200 && Number(aj.lotes) === 1
           && Math.abs(lote.v - 14.9) < 0.005 && lote.processado === 'N' && lote.origem === 'PRECIFICACAO_NF'
+          // a OBS é o texto FIXO do legado, com o número da nota (`InsereAjustePreco`, `:1013`)
+          && String(lote.obs) === 'REFERENTE A PRECIFICAÇÃO NOTA FISCAL DE NRO. 5001'
           && Math.abs(precoAtual.v - 12) < 0.005,
           { resp: aj, lote, precoVigente: precoAtual?.v });
+
+        check('PRECIFICAÇÃO NF §104.7 [a armadilha das DUAS unidades]: a coluna MARKUP abre como RAZÃO (venda ÷ custo, `uPrecificacaoNF.pas:941`) e, assim que o operador digita, `CalcularMargem` (`uDMPrecificacaoNF:377`) sobrescreve o MESMO campo com PERCENTUAL — `((preço − custo) × 100) / custo`. É o legado que é incoerente, e o dado prova: dos 2.952 lotes desta tela em produção, 1.182 estão em faixa de razão e 1.358 de percentual. Ler 65,56 como razão poria a etiqueta a 65 vezes o custo. O que vai ao lote é o percentual, e ele aceita NEGATIVO (mínimo visto em produção: −98,93)',
+          Math.abs(Number(lote.m) - 65.56) < 0.005,
+          { markupGravado: lote.m, esperado: 65.56 });
+
+        const mkNeg = await fetch(`${base}/${PN}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({
+          itens: [{ idproduto: prod, vrvenda: 7.00, markup: -22.22, nronf: '5001' }] }) });
+        const loteNeg = (await pgPn.query(`SELECT markup::float8 m FROM lote_preco WHERE idproduto=$1 ORDER BY codlotepreco DESC LIMIT 1`, [prod])).rows[0] as any;
+        check('PRECIFICAÇÃO NF §104.8: markup NEGATIVO é aceito — vender abaixo do custo é decisão de negócio (encalhe, validade), e recusar aqui inventaria uma trava que o legado não tem',
+          mkNeg.status === 200 && Math.abs(Number(loteNeg.m) + 22.22) < 0.005,
+          { status: mkNeg.status, markup: loteNeg?.m });
+        await pgPn.query(`DELETE FROM lote_preco WHERE idproduto=$1 AND markup < 0`, [prod]);
 
         const semP = await fetch(`${base}/${PN}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idproduto: prod, vrvenda: 0 }] }) });
         const empX = await fetch(`${base}/${PN}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idproduto: prod, vrvenda: 10 }], empresas: [1, 987654] }) });

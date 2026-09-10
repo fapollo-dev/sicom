@@ -204,7 +204,11 @@ export const aplicarPrecificacaoNfSchema = z.object({
   itens: z.array(z.object({
     idproduto: z.coerce.number().int().positive(),
     vrvenda: z.coerce.number().positive('O preço de venda tem de ser maior que zero.'),
-    markup: z.coerce.number().nonnegative().nullish(),
+    // ⚠️ PERCENTUAL sobre o custo (`CalcularMargem`), não a razão que a coluna MARKUP mostra ao abrir.
+    // Aceita negativo: o legado grava markup negativo quando o preço fica abaixo do custo (mínimo visto em
+    // produção: −98,93 em MULTI_PRECO.MARKUP), e recusar aqui inventaria uma trava que o legado não tem.
+    markup: z.coerce.number().nullish(),
+    nronf: z.string().max(20).nullish(),
   })).min(1, 'Selecione ao menos um item.').max(3000),
   empresas: z.array(z.coerce.number().int().positive()).max(50).nullish(),
   obs: z.string().max(120).nullish(),
