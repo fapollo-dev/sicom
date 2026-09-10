@@ -10522,6 +10522,78 @@ async function main() {
       }
     }
 
+    // ===== §103) RENTABILIDADE POR CATEGORIAS (FRMRENTABILIDADECATEGORIAS) — a rentabilidade DEPOIS do
+    // imposto e da despesa. A Consultoria para em venda − custo; esta desce até o lucro líquido. ====
+    {
+      const RB = 'relatorios/rentabilidade';
+      const pgRb = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const empAntes = (await pgRb.query(`SELECT classfiscal, imprenda, contsocial, despoperacional, uf FROM empresas WHERE idempresa=1`)).rows[0] as any;
+        await pgRb.query(`UPDATE empresas SET classfiscal='LR', imprenda=15, contsocial=9, despoperacional=10, uf='MG' WHERE idempresa=1`);
+        await pgRb.query(`INSERT INTO det_aliquota (aliquota, uf, descricao, icm, icm_efetivo) VALUES ('T01','MG','ICMS 18',18,18)
+          ON CONFLICT (aliquota, uf) DO UPDATE SET icm_efetivo=18`);
+        await pgRb.query(`INSERT INTO piscofins (idpiscofins, descricao, aliq_pis_sai, aliq_cofins_sai, aliq_pis_ent, aliq_cofins_ent)
+          VALUES (9501,'LR NAO CUMULATIVO',1.65,7.60,1.65,7.60) ON CONFLICT (idpiscofins) DO NOTHING`);
+        await pgRb.query(`INSERT INTO familias_prod (codfamilia, descricao, tipo) VALUES (9601,'CATEGORIA RENT','D') ON CONFLICT (codfamilia) DO NOTHING`);
+        const prod = Number((await pgRb.query(`INSERT INTO produtos (codbarra, descricao, coddpto, unidade, codfor, aliquota, idpiscofins)
+          VALUES ('7009000000111','PROD RENT',9601,'UN',2,'T01',9501) RETURNING idproduto`)).rows[0].idproduto);
+        // multi_preco com os encargos: ICMS de crédito 18%, ST 1,00/un, frete 2% do custo
+        await pgRb.query(`INSERT INTO multi_preco (idproduto, idempresa, icme, icmst, vrfcpst, despacessorio, bonificacao, frete, frete2, seguro, ipi)
+          VALUES ($1,1,18,1.00,0,0,0,2,0,0,0)`, [prod]);
+        // uma venda: 100 unidades × 10,00 = 1.000 de venda, custo 6,00 = 600
+        await pgRb.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, codproduto, qtde, vrvenda, vrcusto, iat, cancelado)
+          VALUES (1,'2043-09-10','R-1',$1,100,10.00,6.00,'U','N')`, [prod]);
+
+        const r = await fetch(`${base}/${RB}?nivel=DEPARTAMENTO&dataIni=2043-09-01&dataFim=2043-09-30`, { headers: H });
+        const j = (await r.json().catch(() => ({}))) as any;
+        const l = (j.linhas ?? []).find((x: any) => x.categoria === 'CATEGORIA RENT');
+        // venda 1.000 − ICMS 180 − PIS/COFINS 9,25% (92,50) = 727,50 líquida
+        // custo 600 − crédito ICMS 108 − crédito PIS/COFINS 55,50 + ST (100×1) 100 + frete 2% (12) = 548,50
+        // despesa 10% de 1.000 = 100 → bruto = 727,50 − 548,50 − 100 = 79,00
+        check('RENTABILIDADE §103.1 [a venda líquida]: desconta o ICMS EFETIVO (por UF — `DET_ALIQUOTA.UF`, que é join do legado) e o PIS/COFINS de saída. 1.000 − 180 (18%) − 92,50 (1,65+7,60) = **727,50**',
+          r.status === 200 && !!l
+          && Math.abs(Number(l.icms_venda) - 180) < 0.02
+          && Math.abs(Number(l.piscofins_venda) - 92.5) < 0.02
+          && Math.abs(Number(l.venda_liquida) - 727.5) < 0.02,
+          { linha: l });
+
+        check('RENTABILIDADE §103.2 [o custo líquido]: crédito de ICMS (só porque o produto é TRIBUTADO — `SUBSTR(ALIQUOTA,1,1) = T`) e de PIS/COFINS, MAIS os encargos de compra. E os encargos misturam duas formas na mesma tabela: ICMS-ST e acessórias entram POR UNIDADE (100 × 1,00 = 100) e frete/seguro/IPI entram em PERCENTUAL sobre o custo (2% de 600 = 12). Custo 600 − 108 − 55,50 + 112 = **548,50**',
+          Math.abs(Number(l.credito_icms) - 108) < 0.02
+          && Math.abs(Number(l.credito_piscofins) - 55.5) < 0.02
+          && Math.abs(Number(l.encargos) - 112) < 0.02
+          && Math.abs(Number(l.custo_liquido) - 548.5) < 0.02,
+          { credito_icms: l?.credito_icms, encargos: l?.encargos, custo_liquido: l?.custo_liquido });
+
+        check('RENTABILIDADE §103.3 [até o lucro líquido]: despesa operacional 10% da venda (100,00) e depois IR 15% e CSLL 9% sobre o lucro bruto — 727,50 − 548,50 − 100 = **79,00** de bruto, menos 11,85 e 7,11 = **60,04** líquido, margem 8,25% sobre a venda líquida',
+          Math.abs(Number(l.despesa_operacional) - 100) < 0.02
+          && Math.abs(Number(l.lucro_bruto) - 79) < 0.02
+          && Math.abs(Number(l.ir) - 11.85) < 0.02 && Math.abs(Number(l.csll) - 7.11) < 0.02
+          && Math.abs(Number(l.lucro_liquido) - 60.04) < 0.02,
+          { bruto: l?.lucro_bruto, ir: l?.ir, csll: l?.csll, liquido: l?.lucro_liquido, margem: l?.margem });
+
+        // despesa informada na tela SUBSTITUI a da empresa; e o Simples não paga PIS/COFINS na saída
+        const d0 = (await (await fetch(`${base}/${RB}?nivel=DEPARTAMENTO&dataIni=2043-09-01&dataFim=2043-09-30&despesaOperacional=0`, { headers: H })).json().catch(() => ({}))) as any;
+        const l0 = (d0.linhas ?? []).find((x: any) => x.categoria === 'CATEGORIA RENT');
+        await pgRb.query(`UPDATE empresas SET classfiscal='SN' WHERE idempresa=1`);
+        const sn = (await (await fetch(`${base}/${RB}?nivel=DEPARTAMENTO&dataIni=2043-09-01&dataFim=2043-09-30`, { headers: H })).json().catch(() => ({}))) as any;
+        const lsn = (sn.linhas ?? []).find((x: any) => x.categoria === 'CATEGORIA RENT');
+        check('RENTABILIDADE §103.4 [os dois gates de regime]: a despesa operacional digitada na tela SUBSTITUI a da empresa (0% → bruto sobe para 179,00). E no SIMPLES o PIS/COFINS da SAÍDA zera — mas o crédito de entrada zera também, porque `SN`, `ME` e `LP` são três regimes sem crédito, não um',
+          Math.abs(Number(l0?.despesa_operacional)) < 0.02 && Math.abs(Number(l0?.lucro_bruto) - 179) < 0.02
+          && Math.abs(Number(lsn?.piscofins_venda)) < 0.02
+          && Math.abs(Number(lsn?.credito_piscofins)) < 0.02,
+          { semDespesa: l0?.lucro_bruto, simples: { saida: lsn?.piscofins_venda, entrada: lsn?.credito_piscofins } });
+
+        await pgRb.query(`DELETE FROM vendas WHERE nropedido='R-1'`);
+        await pgRb.query(`DELETE FROM multi_preco WHERE idproduto=$1`, [prod]);
+        await pgRb.query(`DELETE FROM produtos WHERE idproduto=$1`, [prod]);
+        await pgRb.query(`DELETE FROM familias_prod WHERE codfamilia=9601`);
+        await pgRb.query(`UPDATE empresas SET classfiscal=$1, imprenda=$2, contsocial=$3, despoperacional=$4, uf=$5 WHERE idempresa=1`,
+          [empAntes?.classfiscal ?? null, empAntes?.imprenda ?? null, empAntes?.contsocial ?? null, empAntes?.despoperacional ?? null, empAntes?.uf ?? null]);
+      } finally {
+        await pgRb.end();
+      }
+    }
+
     // ===== §89) LOGIN DUPLICADO (decisão do usuário + mig 173): unicidade PARCIAL e desempate por código ====
     {
       const pgL = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });

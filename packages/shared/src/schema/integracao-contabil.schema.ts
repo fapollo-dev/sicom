@@ -168,3 +168,15 @@ export const lancamentosContabeisSchema = z
   })
   .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
 export type LancamentosContabeisDto = z.infer<typeof lancamentosContabeisSchema>;
+
+/** RENTABILIDADE POR CATEGORIAS (`FRMRENTABILIDADECATEGORIAS`) — nível, período e a despesa operacional. */
+export const rentabilidadeSchema = z
+  .object({
+    nivel: z.enum(['DEPARTAMENTO', 'GRUPO', 'SUBGRUPO']),
+    dataIni: dataISO,
+    dataFim: dataISO,
+    /** o percentual que o usuário digita; em branco, o serviço usa o da empresa. */
+    despesaOperacional: z.coerce.number().min(0).max(100).nullish(),
+  })
+  .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
+export type RentabilidadeDto = z.infer<typeof rentabilidadeSchema>;

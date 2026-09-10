@@ -41,6 +41,7 @@ import { RelCaixaPage } from '../features/rel-caixa/RelCaixaPage';
 import { ConsultoriaPage } from '../features/consultoria/ConsultoriaPage';
 import { RelCartoesPage } from '../features/rel-cartoes/RelCartoesPage';
 import { LancamentosContabeisPage } from '../features/lancamentos-contabeis/LancamentosContabeisPage';
+import { RentabilidadePage } from '../features/rentabilidade/RentabilidadePage';
 import { EmpresasCadMaster } from '../features/empresas/EmpresasCadMaster';
 import { AjusteEstoquePage } from '../features/ajuste-estoque/AjusteEstoquePage';
 import { InventarioPage } from '../features/inventario/InventarioPage';
@@ -176,6 +177,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/consultoria', element: <ConsultoriaPage /> }, // FRMCONSULTORIAATM
       { path: '/relatorios/cartoes', element: <RelCartoesPage /> }, // FRMRELCARTOES
       { path: '/contabil/lancamentos', element: <LancamentosContabeisPage /> }, // FRMRELLANCAMENTOSCONTABEIS
+      { path: '/relatorios/rentabilidade', element: <RentabilidadePage /> }, // FRMRENTABILIDADECATEGORIAS
       { path: '/cadastro/configuracoes', element: <ConfiguracoesPage /> }, // configurações (UConfigura): chave-valor por empresa
     ],
   },

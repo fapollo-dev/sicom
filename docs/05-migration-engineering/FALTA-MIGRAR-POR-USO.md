@@ -26,7 +26,7 @@ são **PDV**, fora por instrução do usuário, e sozinhas valem 67% do que rest
 | INTEGRACAO FISCAL - BORBA FISCAL (`FRMVERIFICACAOTRIBUTARIABORBAFISCAL`) | 388 | 9 | 2026-06-15 | fila |
 | TOTAL POR CARTAO (`FRMRELCARTOES`) | 382 | 7 | 2026-09-02 | ✅ **completa** (mig 208) — nada ficou de fora |
 | LANCAMENTOS CONTABEIS (`FRMRELLANCAMENTOSCONTABEIS`) | 377 | 19 | 2026-08-18 | ✅ **corte-1** (mig 209): o razão por lançamento + `ORIGEM_CONTABIL` e `DIARIO.DESCHIST`, que a carga descartava |
-| RENTABILIDADE POR CATEGORIAS (`FRMRENTABILIDADECATEGORIAS`) | 275 | 19 | — | fila |
+| RENTABILIDADE POR CATEGORIAS (`FRMRENTABILIDADECATEGORIAS`) | 275 | 19 | — | ✅ **corte-1** (mig 210): a fórmula completa nos 3 níveis; faltam o filtro por fornecedor, o modo SCRAP e o modo com NF |
 | PRECIFICACAO NF (`FRMPRECIFICACAONF`) | 236 | 17 | 2026-08-25 | fila |
 | RELATORIOS DE COMPRAS (`FRMRELCOMPRAS`) | 204 | 19 | 2026-08-17 | fila |
 | PROMOCAO ACUMULATIVA (`FRMCADPROMOCAOACUMULATIVA`) | 199 | 26 | 2026-08-24 | fila |

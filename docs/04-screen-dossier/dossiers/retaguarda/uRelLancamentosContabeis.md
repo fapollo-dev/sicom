@@ -48,3 +48,14 @@ apontar para o lugar errado.
 
 A árvore de datas (ano → mês → dia) que a tela usa para navegar, o "filtro auxiliar" salvo por usuário, a
 importação de arquivo e as exportações TXT/Excel — o CSV já existe pelo construtor de relatórios.
+
+## 6. Achado de dado: 4 lançamentos no FUTURO em produção (medido em 09/09/2026)
+
+| origem | linhas | datas |
+|---|---|---|
+| 13 (cadastro de CP) | 2 | 25/09 e 22/10/2026 |
+| 15 (baixa de CP) | 2 | **02/07/2027** |
+
+São 4 em 1.750.633 — ruído de digitação, não problema sistêmico. Mas **um lançamento datado em 2027 entra na
+apuração de 2027**, então vale o cliente saber. (Para comparação, há 346 contas a pagar vencendo além de 12
+meses, o que é normal.)

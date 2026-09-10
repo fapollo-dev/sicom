@@ -119,6 +119,8 @@ const TELAS = [
   { href: '/relatorios/consultoria', name: 'Consultoria', icon: BarChart3 },
   // FRMRELCARTOES — total por cartão: bruto, líquido e o que fica com a operadora (382 acessos).
   { href: '/relatorios/cartoes', name: 'Total por Cartão', icon: CreditCard },
+  // FRMRENTABILIDADECATEGORIAS — a rentabilidade depois do imposto e da despesa (275 acessos).
+  { href: '/relatorios/rentabilidade', name: 'Rentabilidade', icon: Percent },
   { href: '/cadastro/fechamento-diario', name: 'Fechamento Diário', icon: CalendarClock },
   // FRMCTRLPERMISSOES — permissão por OPERADOR, que é o modo que o cliente usa (a de Perfis é o outro caminho).
   { href: '/cadastro/permissoes', name: 'Controle de Permissões', icon: ShieldCheck },
