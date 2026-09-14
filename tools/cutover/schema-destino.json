@@ -23881,6 +23881,13 @@
      "escala": 2,
      "nulo": true,
      "default": null
+    },
+    "tpdif_preco_prod_filho_x_pai": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [

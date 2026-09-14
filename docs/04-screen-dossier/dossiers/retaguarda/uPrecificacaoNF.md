@@ -162,12 +162,47 @@ o que a tela é.
 
 Lidas da produção em 10/09/2026. Ambas já são respeitadas na abertura da tela.
 
-### 8.3 O que ainda falta (corte-3)
+### 8.3 ✅ Produtos filhos (corte-3, mig 212) — a parte que mexe em preço invisível
 
-- **produtos filhos**: `TAtualizacaoPrecoFilho.GeraLoteFilho` (`:1019`) gera lote para os filhos do produto
-  precificado. Unit inteira (`UAtualizacaoPrecoFilho.pas`) **não portada** — épico à parte, e mexe em preço de
-  produto que não está na nota;
-- **multi-empresa na tela**: a API já aceita `empresas[]` (`GetMultiEmpresa`, `:1041`), a tela ainda não oferece;
+Precificar o pai enfileira lote **para os filhos também**, e o filho pode nem estar na nota: CHUCHU KG sobe,
+CHUCHU PICADO KG vai junto. `CalculaPrecoFilho:187`:
+
+```
+tipo 'D'       → preço do filho = preço do pai + diferença     (valor)
+qualquer outro → preço do filho = preço do pai × (1 + dif/100) (percentual)
+```
+
+A base é o **preço novo** que está sendo aplicado, não o vigente (`:1019` passa `PRECO_VENDA` do grid) — usar
+o vigente prenderia o filho no preço velho. Só enfileira **se o preço mudar**, e o lote do filho não leva
+markup nem operador: não houve decisão humana sobre ele.
+
+**⛔ `FATOR_FILHO` é campo morto.** `CalculaPrecoFilho:192` abre com `pFatorFilho := 1;` e o `iif` original
+está **comentado** no fonte: o campo é lido, passado como parâmetro e descartado na primeira linha. Em
+produção os 200 produtos com pai têm fator 1, então ninguém percebeu. Copiado como está — ligar o fator agora
+mudaria preço sem ninguém ter pedido. O smoke prova (§104.15): fator 3 não multiplica nada.
+
+**⚠️ DIVERGÊNCIA fonte × dado, resolvida pelo dado.** O fonte é de 14/05/2020; a produção roda binário mais
+novo, e aqui os dois discordam:
+
+| | fonte (mai/2020) | produção (medida em 14/09/2026) |
+|---|---|---|
+| filtro dos filhos | `DIF <> 0 AND TPDIF IS NOT NULL` | **200 com pai, ZERO com DIF ou TPDIF** |
+| lotes de filho | impossíveis, pelo filtro | **676**, sendo 670 com pai, último em 10/09/2026 |
+
+O caso que fecha a conta: o produto 795537 (CHUCHU PICADO KG), filho de 5890 (CHUCHU KG), sem DIF e sem
+TPDIF, recebeu lote a **4,49** — exatamente o preço do pai, que é o que a fórmula devolve com diferença nula.
+**A fórmula do fonte está certa; o filtro é que caiu.** Implementada a fórmula sem o filtro, que é o
+comportamento vivo.
+
+A coluna `TPDIF_PRECO_PROD_FILHO_X_PAI` **não vinha na carga** (mig 212) — oitavo achado da mesma família, e
+sem ela o filho sairia com o preço errado.
+
+### 8.4 ✅ Multi-empresa (corte-3)
+
+`GetMultiEmpresa` (`:1041`) aplica o mesmo preço em todas as lojas marcadas. A tela oferece a seleção; em
+branco, só a loja da sessão. Empresa inexistente faz a operação inteira falhar, não a metade.
+
+### 8.5 O que ainda falta
 - **relatório impresso**: `Relatorios\PrecificacaoNF.fr3`, agrupado por empresa, com média de margem no rodapé
   do grupo (`btnImprimir:364`);
 - **etiquetas com o dataset do legado**: hoje o botão leva para a tela de etiquetas; o legado **monta a fila**
@@ -180,14 +215,21 @@ Lidas da produção em 10/09/2026. Ambas já são respeitadas na abertura da tel
 - **aviso de alteração pendente** ao fechar (`TemEdicao`/`FormCloseQuery`, `:676`);
 - **Visualizar Bonificação/Verbas**.
 
-### 8.4 O que grava, e está fiel
+### 8.6 O que grava, e está fiel
 
 `LOTEPRECO` (nosso `lote_preco`) com `PROCESSADO='N'`, `CODEMPRESA`, `CODOPERADOR`, o preço, o markup
 **percentual** e a `OBS` no texto fixo do legado: `REFERENTE A PRECIFICAÇÃO NOTA FISCAL DE NRO. <nronf>`
 (`:1013`).
 
-## 9. Cobertura (§104 do smoke, 12 checks)
+## 9. Cobertura (§104 do smoke, 15 checks)
 
-Além dos oito do corte-1: as três escadas de custo (§104.9), as três semânticas do markup incluindo a margem
-líquida completa (§104.10), o rodapé com os três lucros e a média por modo (§104.11), e o markdown contra o
-markup de reposição (§104.12).
+Corte-1 (8): fator de embalagem · ICMS pela UF do fornecedor e último custo · filtros de transferência e
+bonificação · margem negativa · o lote que não muda preço · as recusas · o markup percentual · o negativo.
+
+Corte-2 (4): as três escadas de custo (§104.9) · as três semânticas do markup, com a margem líquida completa
+(§104.10) · o rodapé com os três lucros e a média por modo (§104.11) · o markdown contra o markup de
+reposição (§104.12).
+
+Corte-3 (3): o preço dos filhos nos três casos, com base no preço NOVO do pai (§104.13) · o filho que já está
+no preço não entra na fila, e o lote do filho não leva markup nem operador (§104.14) · **`FATOR_FILHO` é
+campo morto** — fator 3 não multiplica nada (§104.15).

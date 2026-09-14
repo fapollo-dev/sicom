@@ -254,6 +254,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('209_lancamentos_contabeis.sql'));
   await pool.query(sql('210_rentabilidade_categorias.sql'));
   await pool.query(sql('211_precificacao_nf.sql'));
+  await pool.query(sql('212_preco_produto_filho.sql'));
   await pool.end();
   return pg;
 }

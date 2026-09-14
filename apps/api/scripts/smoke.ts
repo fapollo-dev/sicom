@@ -10761,6 +10761,58 @@ async function main() {
         await pgPn.query(`UPDATE empresas SET classfiscal=$1, uf=$2, despoperacional=$3, imprenda=$4, contsocial=$5 WHERE idempresa=1`,
           [empPn?.classfiscal ?? null, empPn?.uf ?? null, empPn?.despoperacional ?? null, empPn?.imprenda ?? null, empPn?.contsocial ?? null]);
 
+        // ── PRODUTOS FILHOS: precificar o pai mexe em preço de produto que nem está na nota ───────────
+        await pgPn.query(`DELETE FROM lote_preco WHERE idproduto=$1`, [prod]);
+        const mkFilho = async (cod: string, desc: string, dif: number | null, tp: string | null, precoAtual: number) => {
+          const id = Number((await pgPn.query(`INSERT INTO produtos (codbarra, descricao, codgrupo, unidade, codfor, aliquota, idproduto_pai, dif_preco_prod_filho_x_pai, tpdif_preco_prod_filho_x_pai, fator_filho)
+            VALUES ($1,$2,9701,'UN',2,'T01',$3,$4,$5,1) RETURNING idproduto`, [cod, desc, prod, dif, tp])).rows[0].idproduto);
+          await pgPn.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda) VALUES ($1,1,$2)`, [id, precoAtual]);
+          return id;
+        };
+        // sem diferença: o filho fica com o preço do pai (é o caso vivo do cliente — CHUCHU PICADO KG)
+        const fSem = await mkFilho('7009000000444', 'FILHO SEM DIFERENCA', null, null, 1.00);
+        // diferença em VALOR ('D'): preço do pai + 2,00
+        const fVal = await mkFilho('7009000000555', 'FILHO DIF VALOR', 2.00, 'D', 1.00);
+        // diferença em PERCENTUAL: preço do pai + 10%
+        const fPct = await mkFilho('7009000000666', 'FILHO DIF PERCENTUAL', 10, 'P', 1.00);
+        // este já está no preço que sairia: NÃO deve gerar lote
+        const fIgual = await mkFilho('7009000000777', 'FILHO JA NO PRECO', null, null, 30.00);
+
+        const aplF = await fetch(`${base}/${PN}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({
+          itens: [{ idproduto: prod, vrvenda: 30.00, markup: 233.33, nronf: '994501' }] }) });
+        const aplFJ = (await aplF.json().catch(() => ({}))) as any;
+        const lotesF = (await pgPn.query(
+          `SELECT idproduto, vrvenda::float8 v, obs, markup, codoperador FROM lote_preco WHERE idproduto = ANY($1) ORDER BY idproduto`,
+          [[fSem, fVal, fPct, fIgual]])).rows as any[];
+        const byId = (id: number) => lotesF.find((x) => Number(x.idproduto) === id);
+
+        check('PRECIFICAÇÃO NF §104.13 [precificar o pai mexe em preço que o operador não está vendo]: "Aplicar valores" chama `GeraLoteFilho` (`InsereAjustePreco:1019`) e enfileira lote para os FILHOS do produto — que podem nem estar na nota. Pai a 30,00 ⇒ filho sem diferença fica **30,00** (o preço do pai), com diferença em VALOR (tipo D) **32,00**, e em PERCENTUAL **33,00**. A base é o preço NOVO que está sendo aplicado, não o vigente — usar o vigente prenderia o filho no preço velho',
+          aplF.status === 200
+          && Math.abs(Number(byId(fSem)?.v) - 30) < 0.005
+          && Math.abs(Number(byId(fVal)?.v) - 32) < 0.005
+          && Math.abs(Number(byId(fPct)?.v) - 33) < 0.005,
+          { semDif: byId(fSem)?.v, valor: byId(fVal)?.v, pct: byId(fPct)?.v, lotes: aplFJ?.lotes });
+
+        check('PRECIFICAÇÃO NF §104.14 [o filho que já está no preço não entra na fila]: o legado só enfileira quando `VRVENDA <> novo` (`:248`) — senão a fila encheria de lote inócuo a cada precificação. E o lote do filho é diferente do lote do pai: OBS fixa "REFERENTE A ALTERAÇÃO DE PREÇO DO PRODUTO PAI", **sem markup e sem operador** (`InsereLote:310`), porque não houve decisão humana sobre esse preço',
+          byId(fIgual) === undefined
+          && String(byId(fSem)?.obs) === 'REFERENTE A ALTERAÇÃO DE PREÇO DO PRODUTO PAI'
+          && byId(fSem)?.markup == null && byId(fSem)?.codoperador == null,
+          { jaNoPreco: byId(fIgual), loteFilho: byId(fSem) });
+
+        // ⛔ FATOR_FILHO é descartado: `CalculaPrecoFilho:192` abre com `pFatorFilho := 1`
+        await pgPn.query(`UPDATE produtos SET fator_filho = 3 WHERE idproduto=$1`, [fVal]);
+        await pgPn.query(`DELETE FROM lote_preco WHERE idproduto = ANY($1)`, [[fSem, fVal, fPct, fIgual]]);
+        await fetch(`${base}/${PN}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({
+          itens: [{ idproduto: prod, vrvenda: 40.00, nronf: '994501' }] }) });
+        const comFator = (await pgPn.query(`SELECT vrvenda::float8 v FROM lote_preco WHERE idproduto=$1`, [fVal])).rows[0] as any;
+        check('PRECIFICAÇÃO NF §104.15 [FATOR_FILHO é campo morto — e provar isso vale mais que implementá-lo]: `CalculaPrecoFilho:192` abre com `pFatorFilho := 1;` e o `iif` original está COMENTADO no fonte: o campo é lido, passado como parâmetro e descartado na primeira linha. Com fator 3 o filho de diferença 2,00 sobre pai 40,00 sai **42,00**, não 126,00. Em produção os 200 produtos com pai têm fator 1, então ninguém percebeu — e ligar o fator agora mudaria preço sem ninguém ter pedido',
+          Math.abs(Number(comFator?.v) - 42) < 0.005,
+          { comFator3: comFator?.v, seOFatorValesse: 126 });
+
+        await pgPn.query(`DELETE FROM lote_preco WHERE idproduto = ANY($1)`, [[prod, fSem, fVal, fPct, fIgual]]);
+        await pgPn.query(`DELETE FROM multi_preco WHERE idproduto = ANY($1)`, [[fSem, fVal, fPct, fIgual]]);
+        await pgPn.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[fSem, fVal, fPct, fIgual]]);
+
         await pgPn.query(`DELETE FROM lote_preco WHERE idproduto=$1`, [prod]);
         await pgPn.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2,$3,$4)`, [nfCompra, nfTransf, nfBonif, nfAnt]);
         await pgPn.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3,$4)`, [nfCompra, nfTransf, nfBonif, nfAnt]);

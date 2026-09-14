@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
@@ -71,6 +72,14 @@ export function PrecificacaoNfPage() {
   /** o que o operador digitou, por item: preço e markup andam juntos. */
   const [edit, setEdit] = useState<Record<number, { vrvenda: number; markup: number }>>({});
   const [sel, setSel] = useState<Set<number>>(new Set());
+  /**
+   * MULTI-EMPRESA (`GetMultiEmpresa`, `:1041`): o legado aplica o mesmo preço em todas as lojas marcadas, de
+   * uma vez. Em branco = só a loja da sessão, que é o caso comum.
+   */
+  const [empresas, setEmpresas] = useState<number[]>([]);
+  const { data: empresaOptions = [] } = useResourceOptions('cadastro/empresas', (e: any) => ({
+    value: String(e.idempresa ?? e.codempresa), label: `${e.idempresa ?? e.codempresa} - ${e.fantasia ?? e.razao_social ?? ''}`,
+  }));
   const [ocupado, setOcupado] = useState(false);
 
   const buscar = async () => {
@@ -134,7 +143,7 @@ export function PrecificacaoNfPage() {
     setOcupado(true);
     try {
       const r = await fetch(`${BASE}/precificacao/nf/aplicar`, {
-        method: 'POST', headers: apiHeaders(), body: JSON.stringify({ itens, obs: 'Precificação de NF' }),
+        method: 'POST', headers: apiHeaders(), body: JSON.stringify({ itens, empresas: empresas.length ? empresas : null }),
       });
       handle401(r);
       if (!r.ok) {
@@ -143,7 +152,12 @@ export function PrecificacaoNfPage() {
         throw Object.assign(new Error(env.code), { envelope: env });
       }
       const j = await r.json();
-      mensagem.sucesso(`${j.lotes} preço(s) enviados para o lote. O preço na loja só muda quando o lote for processado.`);
+      const lojas = j.empresas?.length ?? 1;
+      mensagem.sucesso(
+        `${j.lotes} preço(s) enviados para o lote${lojas > 1 ? ` em ${lojas} lojas` : ''}. `
+        + 'O total pode ser maior que os itens marcados: produtos FILHOS entram junto. '
+        + 'O preço na loja só muda quando o lote for processado.',
+      );
       setSel(new Set());
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
@@ -268,6 +282,15 @@ export function PrecificacaoNfPage() {
               <div><div className="text-body-sm text-fg-muted">Selecionados</div><div className="text-body-lg tabular-nums">{sel.size}</div></div>
               <Button label="Selecionar &todos" variant="soft" onClick={() => setSel(new Set(res.linhas.map((l) => l.codnfprod)))} />
               <Button label="&Aplicar valores" disabled={ocupado || sel.size === 0} onClick={() => void aplicar()} />
+              <label className="flex items-center gap-gp-sm text-body-sm">
+                Aplicar em
+                <select multiple size={1} className="rounded border border-border px-1 py-0.5"
+                  value={empresas.map(String)}
+                  onChange={(e) => setEmpresas(Array.from(e.target.selectedOptions, (o) => Number(o.value)))}>
+                  {empresaOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <span className="text-fg-muted">{empresas.length === 0 ? '(só esta loja)' : `${empresas.length} loja(s)`}</span>
+              </label>
               {res.mostrarEtiquetas && (
                 <Button label="&Etiquetas" variant="soft" disabled={sel.size === 0}
                   onClick={() => navegar('/estoque/etiquetas')} />
