@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirPagina } from '../../shared/print/imprimirPagina';
+import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -134,6 +135,35 @@ export function ConferenciaNfIndexadorPage() {
             const raiz = document.getElementById('conf-nf-grade');
             if (!raiz) { win.close(); return; }
             imprimirPagina(win, raiz, 'Conferência de NF × Indexador', undefined, true);
+          }} />
+          {/* o "Exportar Grid [F10]" do legado: leva o que está na tela, filtrado, para o Excel */}
+          <Button label="E&xportar [F10]" variant="soft" disabled={!res} onClick={() => {
+            if (!res) return;
+            exportarGradeCsv(res.linhas, [
+              { titulo: 'NF', valor: (l) => l.nronf },
+              { titulo: 'Emissão', valor: (l) => dataBr(l.dtemissao) },
+              { titulo: 'Importação', valor: (l) => dataBr(l.dtimportacao) },
+              { titulo: 'Fornecedor', valor: (l) => l.fornecedor },
+              { titulo: 'Produto', valor: (l) => l.descricao },
+              { titulo: 'Qtde sistema', valor: (l) => l.quantidade },
+              { titulo: 'Qtde nota', valor: (l) => l.qtd_nota },
+              { titulo: 'Total sistema', valor: (l) => l.total_sistema },
+              { titulo: 'Total nota', valor: (l) => l.total_produto_nota },
+              { titulo: 'IPI sistema', valor: (l) => l.ipi },
+              { titulo: 'IPI nota', valor: (l) => l.ipi_nota },
+              { titulo: 'Frete sistema', valor: (l) => l.frete },
+              { titulo: 'Frete nota', valor: (l) => l.frete_nota },
+              { titulo: 'Acessórias sistema', valor: (l) => l.despesas_acessorias },
+              { titulo: 'Acessórias nota', valor: (l) => l.outras_despesas_nota },
+              { titulo: 'Desconto sistema', valor: (l) => l.desconto_total },
+              { titulo: 'Desconto nota', valor: (l) => l.desconto_nota },
+              { titulo: 'CST sistema', valor: (l) => l.cst ?? '' },
+              { titulo: 'CST nota', valor: (l) => l.cst_nota ?? '' },
+              { titulo: 'CFOP nota', valor: (l) => l.cfop_nota ?? '' },
+              { titulo: 'ICMS nota %', valor: (l) => l.icms_aliq_nota },
+              { titulo: 'MVA ajustado', valor: (l) => l.mva_ajustado ?? '' },
+              { titulo: 'Divergências', valor: (l) => (l.divergencias ?? []).join(' + ') },
+            ], 'conferencia-nf-indexador');
           }} />
         </div>
         <div className="mt-form-gap flex flex-wrap items-center gap-gp-md text-body-sm">

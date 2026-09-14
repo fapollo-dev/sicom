@@ -71,5 +71,7 @@ diferença entre "acabou porque vende muito" e "acabou e ninguém sentiu falta".
 
 ## 6. O que falta
 
-Os doze relatórios do §1, mais: exportar a grade, salvar/carregar layout, o `rgDisponivelEm` (disponibilidade
-por loja), o `rgPercas` e as três grades auxiliares.
+Os **doze relatórios** do §1, mais: salvar/carregar layout, o `rgDisponivelEm` (disponibilidade por loja), o
+`rgPercas` e as três grades auxiliares.
+
+✅ **exportar a grade** foi implementado (CSV com `;` e BOM UTF-8, o que está na tela e já filtrado).

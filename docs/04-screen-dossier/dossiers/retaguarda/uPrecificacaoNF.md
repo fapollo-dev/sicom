@@ -202,9 +202,11 @@ sem ela o filho sairia com o preço errado.
 `GetMultiEmpresa` (`:1041`) aplica o mesmo preço em todas as lojas marcadas. A tela oferece a seleção; em
 branco, só a loja da sessão. Empresa inexistente faz a operação inteira falhar, não a metade.
 
-### 8.5 O que ainda falta
-- **relatório impresso**: `Relatorios\PrecificacaoNF.fr3`, agrupado por empresa, com média de margem no rodapé
-  do grupo (`btnImprimir:364`);
+### 8.5 O que ainda falta — separado por tipo
+
+**Ainda falta** (função do legado sem equivalente aqui):
+
+- **etiquetas com o dataset do legado** e o **relatório `.fr3`** agrupado por empresa (abaixo);
 - **etiquetas com o dataset do legado**: hoje o botão leva para a tela de etiquetas; o legado **monta a fila**
   com os itens marcados (usando `CODPRODNOTA` como código de barras, `PRECO_VENDA` nos quatro campos de valor,
   quantidade 1) e **desmarca cada item** depois de enfileirar (`:341`);

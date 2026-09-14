@@ -68,8 +68,17 @@ Aqui as divisões usam `NULLIF`: o item aparece, com o encargo em zero, e o conf
 5. os filtros: "só o que diverge", as caixas de processadas/canceladas (que são de **inclusão**) e a recusa
    de data invertida.
 
-## 7. O que ficou de fora
+## 7. O que ficou de fora, separado por tipo
 
-- **exportar a grade** (`[F10]`) e **salvar/carregar o layout** (`[F8]`/`[F9]`): a grade imprime em paisagem;
-- **"Recolher itens"** — o agrupamento visual por nota, que aqui é ordenação;
-- a coluna com o **XML da nota**, pelo motivo do §2.
+**Resolvido de outro jeito** (a função existe, o caminho é outro):
+
+- **"Recolher itens"** — o agrupamento visual por nota vira ordenação por nota na grade;
+- a **impressão** sai da própria grade, em paisagem, no lugar do relatório do legado.
+
+**Ainda falta** (função do legado sem equivalente aqui):
+
+- **salvar/carregar o layout da grade** por operador (`[F8]`/`[F9]`);
+- a coluna com o **XML da nota** — de propósito, pelo motivo do §2 (716 MB).
+
+✅ **exportar a grade (`[F10]`)** foi implementado: leva o que está na tela, já filtrado, para CSV com `;` e
+BOM UTF-8 — que é o que o Excel em português espera.

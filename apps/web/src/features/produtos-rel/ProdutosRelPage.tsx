@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { imprimirPagina } from '../../shared/print/imprimirPagina';
+import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -168,6 +169,29 @@ export function ProdutosRelPage() {
             const raiz = document.getElementById('prod-rel-grade');
             if (!raiz) { win.close(); return; }
             imprimirPagina(win, raiz, 'Relatórios de produtos', undefined, true);
+          }} />
+          {/* "Exportar Grid" do legado: o que está na tela, filtrado, para o Excel */}
+          <Button label="E&xportar" variant="soft" disabled={!res} onClick={() => {
+            if (!res) return;
+            exportarGradeCsv(res.linhas, [
+              { titulo: 'Código', valor: (l) => l.idproduto },
+              { titulo: 'Cód. barras', valor: (l) => l.codbarra },
+              { titulo: 'Produto', valor: (l) => l.descricao },
+              { titulo: 'Un.', valor: (l) => l.unidade },
+              { titulo: 'Estoque', valor: (l) => l.qtde },
+              { titulo: 'Mínimo', valor: (l) => l.minimo },
+              { titulo: 'Máximo', valor: (l) => l.maximo },
+              { titulo: 'Última venda', valor: (l) => dataBr(l.ultima_venda) },
+              { titulo: 'Dias sem vender', valor: (l) => l.dias_sem_venda ?? '' },
+              { titulo: 'Custo', valor: (l) => l.vrcusto },
+              { titulo: 'Venda', valor: (l) => l.vrvenda },
+              { titulo: 'Margem %', valor: (l) => l.margem ?? '' },
+              { titulo: 'Valor a custo', valor: (l) => l.valor_custo },
+              { titulo: 'Valor a venda', valor: (l) => l.valor_venda },
+              { titulo: 'Departamento', valor: (l) => l.departamento ?? '' },
+              { titulo: 'Fornecedor', valor: (l) => l.fornecedor ?? '' },
+              { titulo: 'Ativo', valor: (l) => (l.ativo === 'S' ? 'Sim' : 'Não') },
+            ], 'relatorio-produtos');
           }} />
         </div>
         <div className="mt-form-gap flex flex-wrap items-end gap-gp-sm">
