@@ -46,6 +46,7 @@ import { PrecificacaoNfPage } from '../features/precificacao-nf/PrecificacaoNfPa
 import { RelComprasPage } from '../features/rel-compras/RelComprasPage';
 import { PromocaoAcumulativaPage } from '../features/promocao-acumulativa/PromocaoAcumulativaPage';
 import { ConferenciaNfIndexadorPage } from '../features/conferencia-nf-indexador/ConferenciaNfIndexadorPage';
+import { ProdutosRelPage } from '../features/produtos-rel/ProdutosRelPage';
 import { EmpresasCadMaster } from '../features/empresas/EmpresasCadMaster';
 import { AjusteEstoquePage } from '../features/ajuste-estoque/AjusteEstoquePage';
 import { InventarioPage } from '../features/inventario/InventarioPage';
@@ -186,6 +187,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/compras', element: <RelComprasPage /> }, // FRMRELCOMPRAS
       { path: '/cadastro/promocao-acumulativa', element: <PromocaoAcumulativaPage /> }, // FRMCADPROMOCAOACUMULATIVA
       { path: '/fiscal/conferencia-nf-indexador', element: <ConferenciaNfIndexadorPage /> }, // FRMCONFERENCIANFINDEXADOR
+      { path: '/relatorios/produtos', element: <ProdutosRelPage /> }, // FRMPRODUTOSREL
       { path: '/cadastro/configuracoes', element: <ConfiguracoesPage /> }, // configurações (UConfigura): chave-valor por empresa
     ],
   },

@@ -258,6 +258,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('213_rel_compras.sql'));
   await pool.query(sql('214_promocao_acumulativa.sql'));
   await pool.query(sql('215_conferencia_nf_indexador.sql'));
+  await pool.query(sql('216_produtos_rel.sql'));
   await pool.end();
   return pg;
 }

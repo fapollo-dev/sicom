@@ -292,3 +292,24 @@ export const conferenciaNfIndexadorSchema = z.object({
   somenteDivergentes: z.coerce.boolean().optional(),
 });
 export type ConferenciaNfIndexadorDto = z.infer<typeof conferenciaNfIndexadorSchema>;
+
+/** RELATÓRIOS DE PRODUTOS (`FRMPRODUTOSREL`), corte-1: os três do núcleo de estoque. */
+export const produtosRelSchema = z.object({
+  tipo: z.enum(['ESTOQUE_ATUAL', 'RUPTURA', 'ANALISE']),
+  /** o `cmbFiltro`: as quinze comparações entre a quantidade e o mínimo/máximo, na ordem do combo. */
+  filtroEstoque: z.enum([
+    'TODOS',
+    'MENOR_IGUAL_MINIMO', 'MENOR_MINIMO', 'MAIOR_IGUAL_MINIMO', 'MAIOR_MINIMO', 'IGUAL_MINIMO',
+    'MENOR_IGUAL_MAXIMO', 'MENOR_MAXIMO', 'MAIOR_IGUAL_MAXIMO', 'MAIOR_MAXIMO', 'IGUAL_MAXIMO',
+    'NEGATIVA', 'ZERADA', 'MAIOR_ZERO', 'NEGATIVA_OU_ZERADA',
+  ]).nullish(),
+  ativo: z.enum(['S', 'N']).nullish(),
+  coddpto: z.coerce.number().int().positive().nullish(),
+  codgrupo: z.coerce.number().int().positive().nullish(),
+  codsubgrupo: z.coerce.number().int().positive().nullish(),
+  codsecao: z.coerce.number().int().positive().nullish(),
+  codfor: z.coerce.number().int().positive().nullish(),
+  produto: z.string().max(150).nullish(),
+  diasSemVenda: z.coerce.number().int().min(0).max(3650).nullish(),
+});
+export type ProdutosRelDto = z.infer<typeof produtosRelSchema>;

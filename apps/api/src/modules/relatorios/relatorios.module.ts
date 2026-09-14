@@ -37,6 +37,8 @@ import { ConsultoriaService } from './consultoria.service';
 import { RelCartoesController } from './rel-cartoes.controller';
 import { RelCartoesService } from './rel-cartoes.service';
 import { RentabilidadeCategoriasController } from './rentabilidade-categorias.controller';
+import { ProdutosRelController } from './produtos-rel.controller';
+import { ProdutosRelService } from './produtos-rel.service';
 import { RelComprasController } from './rel-compras.controller';
 import { RelComprasService } from './rel-compras.service';
 import { RentabilidadeCategoriasService } from './rentabilidade-categorias.service';
@@ -60,7 +62,9 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     // FRMRENTABILIDADECATEGORIAS — a rentabilidade DEPOIS do imposto e da despesa (275 acessos).
     RentabilidadeCategoriasController,
     // FRMRELCOMPRAS — os três relatórios de compra por categoria (204 acessos).
-    RelComprasController],
-  providers: [RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService, RelCartoesService, RentabilidadeCategoriasService, RelComprasService],
+    RelComprasController,
+    // FRMPRODUTOSREL — corte-1: estoque atual, ruptura e análise (162 acessos).
+    ProdutosRelController],
+  providers: [RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService, RelCartoesService, RentabilidadeCategoriasService, RelComprasService, ProdutosRelService],
 })
 export class RelatoriosModule {}

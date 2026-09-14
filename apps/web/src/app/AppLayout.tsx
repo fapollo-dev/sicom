@@ -130,6 +130,8 @@ const TELAS = [
   { href: '/cadastro/promocao-acumulativa', name: 'Promoção acumulativa', icon: Tag },
   // FRMCONFERENCIANFINDEXADOR — sistema × XML da nota, item a item (165 acessos).
   { href: '/fiscal/conferencia-nf-indexador', name: 'Conferência NF × Indexador', icon: FileSearch },
+  // FRMPRODUTOSREL — corte-1: estoque atual, ruptura e análise (162 acessos).
+  { href: '/relatorios/produtos', name: 'Relatórios de produtos', icon: Package },
   { href: '/cadastro/fechamento-diario', name: 'Fechamento Diário', icon: CalendarClock },
   // FRMCTRLPERMISSOES — permissão por OPERADOR, que é o modo que o cliente usa (a de Perfis é o outro caminho).
   { href: '/cadastro/permissoes', name: 'Controle de Permissões', icon: ShieldCheck },

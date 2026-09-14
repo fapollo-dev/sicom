@@ -10916,6 +10916,83 @@ async function main() {
       }
     }
 
+    // ===== §108) RELATÓRIOS DE PRODUTOS (FRMPRODUTOSREL) corte-1 — os três do núcleo de estoque. A tela do
+    // legado tem 15 relatórios em ~10.900 linhas; estes três compartilham a posição de estoque. ====
+    {
+      const PR = 'relatorios/produtos';
+      const pgPr = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgPr.query(`INSERT INTO familias_prod (codfamilia, descricao, tipo) VALUES (9951,'DEPTO EST','D')
+          ON CONFLICT (codfamilia) DO NOTHING`);
+        const mk = async (cod: string, desc: string, qtde: number, minimo: number, maximo: number,
+                          ativo: string, custo: number, venda: number, diasUltVenda: number | null) => {
+          const id = Number((await pgPr.query(`INSERT INTO produtos (codbarra, descricao, coddpto, unidade, codfor, aliquota, ativo)
+            VALUES ($1,$2,9951,'UN',2,'T01',$3) RETURNING idproduto`, [cod, desc, ativo])).rows[0].idproduto);
+          await pgPr.query(`INSERT INTO estoque (idproduto, idempresa, qtde, minimo, maximo, dtvenda)
+            VALUES ($1,1,$2,$3,$4, ${diasUltVenda == null ? 'NULL' : `current_date - ${diasUltVenda}`})`, [id, qtde, minimo, maximo]);
+          await pgPr.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda) VALUES ($1,1,$2,$3)`, [id, custo, venda]);
+          return id;
+        };
+        const pNeg = await mk('7009000006661', 'EST NEGATIVO', -5, 0, 0, 'S', 6.00, 10.00, 3);
+        const pZero = await mk('7009000006662', 'EST ZERADO', 0, 0, 0, 'S', 4.00, 8.00, 200);
+        const pOk = await mk('7009000006663', 'EST POSITIVO', 30, 10, 50, 'S', 5.00, 10.00, 1);
+        const pMin = await mk('7009000006664', 'EST NO MINIMO', 10, 10, 40, 'S', 2.00, 5.00, 10);
+        const pInativo = await mk('7009000006665', 'EST INATIVO', 7, 0, 0, 'N', 1.00, 2.00, null);
+
+        const chamar = async (qs: string) => {
+          const r = await fetch(`${base}/${PR}?${qs}`, { headers: H });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+
+        const neg = await chamar('tipo=ESTOQUE_ATUAL&filtroEstoque=NEGATIVA&ativo=S&coddpto=9951');
+        const zer = await chamar('tipo=ESTOQUE_ATUAL&filtroEstoque=ZERADA&ativo=S&coddpto=9951');
+        const nz = await chamar('tipo=ESTOQUE_ATUAL&filtroEstoque=NEGATIVA_OU_ZERADA&ativo=S&coddpto=9951');
+        const igMin = await chamar('tipo=ESTOQUE_ATUAL&filtroEstoque=IGUAL_MINIMO&ativo=S&coddpto=9951');
+        const maiorMin = await chamar('tipo=ESTOQUE_ATUAL&filtroEstoque=MAIOR_MINIMO&ativo=S&coddpto=9951');
+        check('RELATÓRIO DE PRODUTOS §108.1 [as quinze comparações — e a armadilha do mínimo não cadastrado]: `cmbFiltro` compara a quantidade com o mínimo e o máximo, em quinze formas. As quatro de SINAL são exatas: negativa 1, zerada 1, "negativa ou zerada" 2. Já as dez de mínimo/máximo comparam contra `coalesce(minimo, 0)`, então **num cadastro sem mínimo elas viram comparações contra ZERO**: "igual ao mínimo" traz **2** — o produto que está de fato no seu mínimo (10 de 10) e o que está zerado com mínimo em branco (0 = 0). Não é defeito da consulta, é o cadastro: em produção só **4 produtos têm mínimo** e **2 têm máximo**, em 203.546 linhas de estoque. As dez comparações existem, mas neste cliente elas medem quase nada — e é por isso que a ruptura é o corte que interessa',
+          neg.status === 200
+          && Number(neg.j.totais.itens) === 1 && Number(zer.j.totais.itens) === 1
+          && Number(nz.j.totais.itens) === 2
+          && Number(igMin.j.totais.itens) === 2
+          && Number(maiorMin.j.totais.itens) === 1,
+          { negativa: neg.j.totais?.itens, zerada: zer.j.totais?.itens, ambas: nz.j.totais?.itens,
+            igualMinimo: igMin.j.totais?.itens, maiorMinimo: maiorMin.j.totais?.itens });
+
+        const rup = await chamar('tipo=RUPTURA&coddpto=9951&ativo=S');
+        const rup100 = await chamar('tipo=RUPTURA&coddpto=9951&ativo=S&diasSemVenda=100');
+        const linRup = (rup100.j.linhas ?? [])[0] as any;
+        check('RELATÓRIO DE PRODUTOS §108.2 [ruptura é falta COM tempo]: o que zerou ou ficou negativo já é ruptura (2 itens), mas o número que decide a ação é há quanto tempo não vende — com o corte de 100 dias sobra só o item parado há 200, e o que zerou ontem fica de fora. É a diferença entre "acabou porque vende muito" e "acabou e ninguém sentiu falta"',
+          Number(rup.j.totais.itens) === 2
+          && Number(rup100.j.totais.itens) === 1
+          && String(linRup?.descricao) === 'EST ZERADO'
+          && Number(linRup?.dias_sem_venda) >= 199,
+          { semCorte: rup.j.totais?.itens, com100dias: rup100.j.totais?.itens, item: linRup && { desc: linRup.descricao, dias: linRup.dias_sem_venda } });
+
+        const ana = await chamar('tipo=ANALISE&coddpto=9951&ativo=S&filtroEstoque=MAIOR_ZERO');
+        const anaOk = (ana.j.linhas ?? []).find((l: any) => String(l.descricao) === 'EST POSITIVO');
+        check('RELATÓRIO DE PRODUTOS §108.3 [a análise põe dinheiro na posição]: 30 unidades a 5,00 de custo são **150,00** parados na prateleira, que valem 300,00 a preço de venda, com margem de **50%** sobre a venda. É o que transforma "tenho 30" em "tenho 150 reais imobilizados neste item"',
+          Math.abs(Number(anaOk?.valor_custo) - 150) < 0.005
+          && Math.abs(Number(anaOk?.valor_venda) - 300) < 0.005
+          && Math.abs(Number(anaOk?.margem) - 50) < 0.02,
+          { item: anaOk && { custo: anaOk.valor_custo, venda: anaOk.valor_venda, margem: anaOk.margem } });
+
+        const soInativos = await chamar('tipo=ESTOQUE_ATUAL&coddpto=9951&ativo=N');
+        const todos = await chamar('tipo=ESTOQUE_ATUAL&coddpto=9951');
+        check('RELATÓRIO DE PRODUTOS §108.4 [o "ativo" é do CADASTRO, não do estoque]: o produto inativo tem 7 em estoque e some do relatório padrão — mas ele existe, e o estoque dele também. Pedindo só inativos ele aparece sozinho; sem filtro, os cinco aparecem. Um produto inativo com estoque é justamente o que o operador precisa achar antes do inventário',
+          Number(soInativos.j.totais.itens) === 1
+          && String((soInativos.j.linhas ?? [])[0]?.descricao) === 'EST INATIVO'
+          && Number(todos.j.totais.itens) === 5,
+          { soInativos: soInativos.j.totais?.itens, todos: todos.j.totais?.itens });
+
+        await pgPr.query(`DELETE FROM multi_preco WHERE idproduto = ANY($1)`, [[pNeg, pZero, pOk, pMin, pInativo]]);
+        await pgPr.query(`DELETE FROM estoque WHERE idproduto = ANY($1)`, [[pNeg, pZero, pOk, pMin, pInativo]]);
+        await pgPr.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[pNeg, pZero, pOk, pMin, pInativo]]);
+        await pgPr.query(`DELETE FROM familias_prod WHERE codfamilia=9951`);
+      } finally {
+        await pgPr.end();
+      }
+    }
+
     // ===== §104) PRECIFICAÇÃO DE NF (FRMPRECIFICACAONF) — onde o preço de venda NASCE quando a mercadoria
     // chega. 236 acessos, 17 operadores; o usuário classificou como "de extrema importância e grande
     // influência". Ela NÃO altera preço: enfileira lote de preço. ====
