@@ -44,6 +44,7 @@ import { LancamentosContabeisPage } from '../features/lancamentos-contabeis/Lanc
 import { RentabilidadePage } from '../features/rentabilidade/RentabilidadePage';
 import { PrecificacaoNfPage } from '../features/precificacao-nf/PrecificacaoNfPage';
 import { RelComprasPage } from '../features/rel-compras/RelComprasPage';
+import { PromocaoAcumulativaPage } from '../features/promocao-acumulativa/PromocaoAcumulativaPage';
 import { EmpresasCadMaster } from '../features/empresas/EmpresasCadMaster';
 import { AjusteEstoquePage } from '../features/ajuste-estoque/AjusteEstoquePage';
 import { InventarioPage } from '../features/inventario/InventarioPage';
@@ -182,6 +183,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/rentabilidade', element: <RentabilidadePage /> }, // FRMRENTABILIDADECATEGORIAS
       { path: '/precificacao/nf', element: <PrecificacaoNfPage /> }, // FRMPRECIFICACAONF
       { path: '/relatorios/compras', element: <RelComprasPage /> }, // FRMRELCOMPRAS
+      { path: '/cadastro/promocao-acumulativa', element: <PromocaoAcumulativaPage /> }, // FRMCADPROMOCAOACUMULATIVA
       { path: '/cadastro/configuracoes', element: <ConfiguracoesPage /> }, // configurações (UConfigura): chave-valor por empresa
     ],
   },

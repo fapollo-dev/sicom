@@ -10709,6 +10709,81 @@ async function main() {
       }
     }
 
+    // ===== §106) PROMOÇÃO ACUMULATIVA (FRMCADPROMOCAOACUMULATIVA) — "leve N, pague menos". 199 acessos e
+    // 26 operadores; a tela é muito mais consultada que alimentada (6 promoções em toda a história). ====
+    {
+      const PA = 'cadastro/promocao-acumulativa';
+      const pgPa = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgPa.query(`INSERT INTO familias_prod (codfamilia, descricao, tipo) VALUES (9901,'GRUPO PRECO PA','P')
+          ON CONFLICT (codfamilia) DO NOTHING`);
+        const pr1 = Number((await pgPa.query(`INSERT INTO produtos (codbarra, descricao, unidade, codfor, aliquota, codgrupopreco, ativo)
+          VALUES ('7009000002222','PROMO ACUM A','UN',2,'T01',9901,'S') RETURNING idproduto`)).rows[0].idproduto);
+        const pr2 = Number((await pgPa.query(`INSERT INTO produtos (codbarra, descricao, unidade, codfor, aliquota, codgrupopreco, ativo)
+          VALUES ('7009000003333','PROMO ACUM B (MESMO GRUPO)','UN',2,'T01',9901,'S') RETURNING idproduto`)).rows[0].idproduto);
+        const prI = Number((await pgPa.query(`INSERT INTO produtos (codbarra, descricao, unidade, codfor, aliquota, ativo)
+          VALUES ('7009000004444','PROMO ACUM INATIVO','UN',2,'T01','N') RETURNING idproduto`)).rows[0].idproduto);
+
+        const post = async (b: Record<string, unknown>) => {
+          const r = await fetch(`${base}/${PA}`, { method: 'POST', headers: H, body: JSON.stringify(b) });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const baseProm = { idproduto: pr1, qtde: 3, desconto: 1.29, dtini: '2046-04-10T05:00', dtfim: '2046-04-20T23:59', empresas: [1, 2] };
+
+        const ok1 = await post(baseProm);
+        const lin = (await pgPa.query(`SELECT * FROM promocao_acumulativa WHERE idproacumulativa=$1`, [ok1.j.idproacumulativa])).rows[0] as any;
+        check('PROMOÇÃO ACUMULATIVA §106.1 [a lista de lojas é uma STRING, e o formato importa]: `IDEMPRESA` é `varchar(30)` no legado, gravada como `;1;2;` — com ponto-e-vírgula na frente e atrás (`ValidaEmpresas:485`). Não é enfeite: é o que permite procurar `;1;` dentro da string sem casar com `;12;`. Uma promoção vale para várias lojas ao mesmo tempo',
+          ok1.status === 201 || ok1.status === 200 ? String(lin?.idempresa) === ';1;2;' : false,
+          { status: ok1.status, idempresa: lin?.idempresa, esperado: ';1;2;' });
+
+        const sobrepoe = await post({ ...baseProm, dtini: '2046-04-15T00:00', dtfim: '2046-04-25T23:59' });
+        const envolve = await post({ ...baseProm, dtini: '2046-04-01T00:00', dtfim: '2046-04-30T23:59' });
+        const antes = await post({ ...baseProm, dtini: '2046-03-01T00:00', dtfim: '2046-04-09T23:59' });
+        check('PROMOÇÃO ACUMULATIVA §106.2 [o mesmo produto não pode estar em duas promoções que se cruzam]: o legado testa a sobreposição de TRÊS formas (`:302-312`) — o início do outro dentro da janela, o fim dentro, ou o outro ENVOLVENDO a janela inteira. As duas primeiras tentativas são recusadas; a terceira, que termina 09/04 antes de a nossa começar em 10/04, passa',
+          sobrepoe.status === 422 && String(sobrepoe.j.code) === 'PROMO_PRODUTO_JA_EM_PROMOCAO'
+          && envolve.status === 422
+          && (antes.status === 200 || antes.status === 201),
+          { sobrepoe: sobrepoe.j?.code, envolve: envolve.j?.code, semCruzar: antes.status });
+
+        const outraLoja = await post({ ...baseProm, empresas: [51] });
+        check('PROMOÇÃO ACUMULATIVA §106.3 [a colisão é POR LOJA]: a mesma janela e o mesmo produto passam se não houver loja em comum — a promoção de 10 a 20/04 existe nas lojas 1 e 2, e a nova, idêntica, entra na loja 51',
+          outraLoja.status === 200 || outraLoja.status === 201,
+          { status: outraLoja.status, resp: outraLoja.j });
+
+        const porGrupo = await post({ idproduto: pr2, qtde: 5, desconto: 2, dtini: '2046-04-12T00:00', dtfim: '2046-04-18T23:59', empresas: [1], usarGrupoPreco: true });
+        check('PROMOÇÃO ACUMULATIVA §106.4 [a colisão também vale pelo GRUPO DE PREÇO]: o produto B é outro, mas pertence ao mesmo grupo de preço do A, que já está em promoção no período na loja 1 — e o legado recusa, porque a promoção por grupo alcançaria os dois (`ValidaGrupoPrecoPromocao:276`)',
+          porGrupo.status === 422 && String(porGrupo.j.code) === 'PROMO_GRUPO_PRECO_JA_EM_PROMOCAO',
+          { resp: porGrupo.j });
+
+        const semQtde = await post({ ...baseProm, idproduto: pr2, qtde: 0, dtini: '2047-01-01T00:00', dtfim: '2047-01-05T00:00', empresas: [1] });
+        const semDesc = await post({ ...baseProm, idproduto: pr2, desconto: 0, dtini: '2047-01-01T00:00', dtfim: '2047-01-05T00:00', empresas: [1] });
+        const semLoja = await post({ ...baseProm, idproduto: pr2, dtini: '2047-01-01T00:00', dtfim: '2047-01-05T00:00', empresas: [] });
+        const fimIgual = await post({ ...baseProm, idproduto: pr2, dtini: '2047-01-01T10:00', dtfim: '2047-01-01T10:00', empresas: [1] });
+        const inativo = await post({ ...baseProm, idproduto: prI, dtini: '2047-01-01T00:00', dtfim: '2047-01-05T00:00', empresas: [1] });
+        check('PROMOÇÃO ACUMULATIVA §106.5 [as recusas do legado, uma a uma]: quantidade zero, desconto zero e nenhuma loja são barrados (`ValidaEmpresas:465`); o término IGUAL ao início também, porque o legado exige estritamente maior e compara data COM hora (`ValidaDataHora:445`); e produto inativo não entra em promoção (`VerificarProdutoAtivo:390` filtra `ativo = S`)',
+          semQtde.status >= 400 && semDesc.status >= 400 && semLoja.status >= 400
+          && fimIgual.status === 422 && String(fimIgual.j.code) === 'PROMO_PERIODO_INVALIDO'
+          && inativo.status === 422 && String(inativo.j.code) === 'PRODUTO_INATIVO_OU_INEXISTENTE',
+          { qtde: semQtde.status, desconto: semDesc.status, loja: semLoja.status, periodo: fimIgual.j?.code, inativo: inativo.j?.code });
+
+        const listaR = await fetch(`${base}/${PA}`, { headers: H });
+        const listaJ = (await listaR.json().catch(() => ([]))) as any[];
+        const daLoja51 = listaJ.some((x: any) => String(x.idempresa) === ';51;');
+        const del = await fetch(`${base}/${PA}/${ok1.j.idproacumulativa}`, { method: 'DELETE', headers: H });
+        const sumiu = Number((await pgPa.query(`SELECT count(*)::int n FROM promocao_acumulativa WHERE idproacumulativa=$1`, [ok1.j.idproacumulativa])).rows[0].n);
+        check('PROMOÇÃO ACUMULATIVA §106.6 [a lista é da LOJA da sessão, e a exclusão apaga a promoção]: a listagem procura `;1;` dentro da string, então a promoção que só existe na loja 51 não aparece para quem está na 1 — e o botão de excluir remove a promoção inteira (`btnExcluirPromocaoClick:156`)',
+          listaR.status === 200 && listaJ.length > 0 && !daLoja51
+          && del.status === 200 && sumiu === 0,
+          { naLista: listaJ.length, apareceuA51: daLoja51, delete: del.status });
+
+        await pgPa.query(`DELETE FROM promocao_acumulativa WHERE idproduto = ANY($1)`, [[pr1, pr2, prI]]);
+        await pgPa.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[pr1, pr2, prI]]);
+        await pgPa.query(`DELETE FROM familias_prod WHERE codfamilia=9901`);
+      } finally {
+        await pgPa.end();
+      }
+    }
+
     // ===== §104) PRECIFICAÇÃO DE NF (FRMPRECIFICACAONF) — onde o preço de venda NASCE quando a mercadoria
     // chega. 236 acessos, 17 operadores; o usuário classificou como "de extrema importância e grande
     // influência". Ela NÃO altera preço: enfileira lote de preço. ====

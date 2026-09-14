@@ -125,6 +125,8 @@ const TELAS = [
   { href: '/precificacao/nf', name: 'Precificação de NF', icon: Tag },
   // FRMRELCOMPRAS — os três relatórios de compra por categoria (204 acessos).
   { href: '/relatorios/compras', name: 'Relatórios de compras', icon: ShoppingCart },
+  // FRMCADPROMOCAOACUMULATIVA — leve N, pague menos (199 acessos, 26 operadores).
+  { href: '/cadastro/promocao-acumulativa', name: 'Promoção acumulativa', icon: Tag },
   { href: '/cadastro/fechamento-diario', name: 'Fechamento Diário', icon: CalendarClock },
   // FRMCTRLPERMISSOES — permissão por OPERADOR, que é o modo que o cliente usa (a de Perfis é o outro caminho).
   { href: '/cadastro/permissoes', name: 'Controle de Permissões', icon: ShieldCheck },

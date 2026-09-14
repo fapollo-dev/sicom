@@ -243,3 +243,30 @@ export const relComprasSchema = z.object({
     .pipe(z.array(z.number().int().positive()).max(50)).nullish(),
 });
 export type RelComprasDto = z.infer<typeof relComprasSchema>;
+
+/** PROMOÇÃO ACUMULATIVA (`FRMCADPROMOCAOACUMULATIVA`) — o filtro da lista. */
+export const promocaoAcumulativaFiltroSchema = z.object({
+  descricao: z.string().max(150).nullish(),
+  vigentes: z.coerce.boolean().optional(),
+});
+export type PromocaoAcumulativaFiltroDto = z.infer<typeof promocaoAcumulativaFiltroSchema>;
+
+/**
+ * O cadastro. `dtini`/`dtfim` são data **e hora** — o legado valida com a hora junto
+ * (`ValidaDataHora:445`) e uma promoção pode começar às 17:35 e acabar às 02:00, como há em produção.
+ * `empresas` é a lista de lojas; o serviço a normaliza para o `;1;2;` que o legado grava.
+ */
+export const promocaoAcumulativaSchema = z.object({
+  idproacumulativa: z.coerce.number().int().positive().nullish(),
+  idproduto: z.coerce.number().int().positive(),
+  qtde: z.coerce.number().positive('A quantidade deve ser informada.'),
+  desconto: z.coerce.number().positive('O desconto deve ser informado.'),
+  // 'YYYY-MM-DDTHH:mm' ou 'YYYY-MM-DD HH:mm[:ss]' — nunca z.coerce.date (lição 17)
+  dtini: z.string().regex(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/, 'Informe data e hora de início.'),
+  dtfim: z.string().regex(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/, 'Informe data e hora de término.'),
+  empresas: z.array(z.coerce.number().int().positive()).min(1, 'Deve ser informada a empresa da promoção.').max(9),
+  atacarejo: z.enum(['S', 'N']).nullish(),
+  /** o `chkGrupoPreco`: aplica a promoção ao grupo de preço do produto, não só a ele. */
+  usarGrupoPreco: z.coerce.boolean().optional(),
+});
+export type PromocaoAcumulativaDto = z.infer<typeof promocaoAcumulativaSchema>;
