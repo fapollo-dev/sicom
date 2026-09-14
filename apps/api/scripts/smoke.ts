@@ -11376,6 +11376,28 @@ async function main() {
         await pgPn.query(`DELETE FROM multi_preco WHERE idproduto = ANY($1)`, [[fSem, fVal, fPct, fIgual]]);
         await pgPn.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[fSem, fVal, fPct, fIgual]]);
 
+        // ── o botão ETIQUETAS e a coloração por regra ─────────────────────────────────────────────────
+        const etq1 = await fetch(`${base}/${PN}/etiquetas`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [prod] }) });
+        const etq1J = (await etq1.json().catch(() => ({}))) as any;
+        const etq2 = await fetch(`${base}/${PN}/etiquetas`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [prod] }) });
+        const etq2J = (await etq2.json().catch(() => ({}))) as any;
+        const naFila = Number((await pgPn.query(
+          `SELECT count(*)::int n FROM etiqueta_cons_prod WHERE idproduto=$1 AND coalesce(impressa,'N')='N'`, [prod])).rows[0].n);
+        check('PRECIFICAÇÃO NF §104.16 [o botão Etiquetas enfileira, e não enfileira duas vezes]: `btnEtiquetasClick:296` manda os itens marcados para a fila de impressão e DESMARCA cada um depois (`:341`) — para o operador não mandar a mesma etiqueta de novo ao clicar outra vez. Aqui a tela desmarca e o serviço ainda protege: o segundo clique no mesmo produto não duplica a fila. ⚠️ Uma diferença de propósito: o legado usa `CODPRODNOTA`, o código do produto NA NOTA DO FORNECEDOR, como código de barras da etiqueta. Em 98,3% dos itens é igual ao do cadastro (196.582 de 200.000 medidos), mas nos outros 1,7% a etiqueta sairia com o código do fornecedor — que não é o que o PDV lê na gôndola. A fila do Apollo é por produto, e o código sai do cadastro',
+          (etq1.status === 200 || etq1.status === 201) && Number(etq1J.enfileiradas) === 1
+          && Number(etq2J.enfileiradas) === 0 && naFila === 1,
+          { primeira: etq1J, segunda: etq2J, naFila });
+
+        const corR = await fetch(`${base}/${PN}?nronf=994501`, { headers: H });
+        const corJ = (await corR.json().catch(() => ({}))) as any;
+        const linCor = (corJ.linhas ?? [])[0] as any;
+        check('PRECIFICAÇÃO NF §104.17 [a coloração por regra vira coluna com a mesma legenda]: `btnAddPLCClick:206` monta uma tabela de regras (CAMPO/OPERACAO/VALOR/COR/LEGENDA) que pinta a linha conforme o status da NF-e e se a nota foi processada. A informação agora vem nas colunas — a nota do teste está PROCESSADA — e o `MARKUP_AUTORIZADO`, que no legado é campo calculado sem SQL, é o gate do PMZ: preço 12,00 contra PMZ 9,50 está autorizado',
+          corR.status === 200 && !!linCor
+          && String(linCor.proc) === 'S'
+          && linCor.markup_autorizado === true,
+          { proc: linCor?.proc, statusnfe: linCor?.statusnfe, autorizado: linCor?.markup_autorizado, pmz: linCor?.pmz });
+
+        await pgPn.query(`DELETE FROM etiqueta_cons_prod WHERE idproduto=$1`, [prod]);
         await pgPn.query(`DELETE FROM lote_preco WHERE idproduto=$1`, [prod]);
         await pgPn.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2,$3,$4)`, [nfCompra, nfTransf, nfBonif, nfAnt]);
         await pgPn.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3,$4)`, [nfCompra, nfTransf, nfBonif, nfAnt]);

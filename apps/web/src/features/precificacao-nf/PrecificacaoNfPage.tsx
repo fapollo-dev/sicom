@@ -17,6 +17,7 @@ interface Item {
   ult_custo_rep: number | null; vrvenda: number; preco_venda: number; pmz: number; vrvendasug: number;
   markup: number; markdown: number; markupfixo: number; vrpromo: number; grupo_preco: number | null;
   aliquota: string; icms: number | null; idempresa: number;
+  statusnfe: string | null; proc: string; cancelada: string; markup_autorizado: boolean;
   parceiro_razao: string; margem_negativa: boolean;
 }
 type TipoCusto = 'CSI' | 'BRUTO' | 'REPOSICAO';
@@ -168,6 +169,35 @@ export function PrecificacaoNfPage() {
     [res, sel],
   );
 
+  /**
+   * O botão Etiquetas (`btnEtiquetasClick:296`): manda os marcados para a fila de impressão e **desmarca**
+   * cada um, como o legado faz — para o operador não enfileirar a mesma etiqueta duas vezes ao clicar de novo.
+   */
+  const enfileirarEtiquetas = async () => {
+    if (!res || sel.size === 0) return;
+    const marcados = res.linhas.filter((l) => sel.has(l.codnfprod));
+    setOcupado(true);
+    try {
+      const r = await fetch(`${BASE}/precificacao/nf/etiquetas`, {
+        method: 'POST', headers: apiHeaders(),
+        body: JSON.stringify({ idprodutos: marcados.map((l) => l.idproduto) }),
+      });
+      handle401(r);
+      if (!r.ok) {
+        const b = await r.json().catch(() => ({}));
+        const env: ErroResposta = isErroResposta(b) ? b : { statusCode: r.status, code: 'ERRO', message: r.statusText };
+        throw Object.assign(new Error(env.code), { envelope: env });
+      }
+      const j = (await r.json()) as { enfileiradas: number };
+      const repetidos = marcados.length - j.enfileiradas;
+      mensagem.sucesso(
+        `${j.enfileiradas} etiqueta(s) na fila de impressão`
+        + (repetidos > 0 ? ` — ${repetidos} já estava(m) lá` : '') + '.',
+      );
+      setSel(new Set());
+    } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  };
+
   const cols = useMemo<DataTableColumnDef<Item>[]>(() => [
     {
       field: 'sel', headerName: '', type: 'text', width: 60,
@@ -212,6 +242,27 @@ export function PrecificacaoNfPage() {
     { field: 'codprodnota', headerName: 'Cód. na nota', type: 'text', width: 130 },
     { field: 'codbarra', headerName: 'Cód. barras', type: 'text', width: 130 },
     { field: 'grupo_preco', headerName: 'Grupo preço', type: 'text', width: 110, valueGetter: (l) => (l.grupo_preco ?? '—') },
+    {
+      // COLORAÇÃO POR REGRA (`btnAddPLCClick:206`): NF-e enviada, cancelada e nota processada. No legado é
+      // uma tabela de regras (CAMPO/OPERACAO/VALOR/COR/LEGENDA) que pinta a linha; aqui a situação vira
+      // coluna com a mesma legenda, que diz a mesma coisa sem esconder o motivo atrás de uma cor.
+      field: 'situacao_nf', headerName: 'Situação da nota', type: 'text', width: 165, valueGetter: () => '',
+      renderCell: ({ row: l }: { row: Item }) => {
+        const st = String(l.statusnfe ?? '').toUpperCase();
+        if (l.cancelada === 'S' || st.includes('CANCELADA')) return <span className="text-fg-danger">NF-e cancelada</span>;
+        if (l.proc === 'S') return <span className="text-fg-success">Nota processada</span>;
+        if (st.includes('ENVIADA')) return <span className="text-fg-info">NF-e emitida</span>;
+        return <span className="text-fg-muted">—</span>;
+      },
+    } as DataTableColumnDef<Item>,
+    {
+      field: 'markup_autorizado', headerName: 'Preço ≥ PMZ', type: 'text', width: 120, valueGetter: () => '',
+      renderCell: ({ row: l }: { row: Item }) => (
+        l.markup_autorizado
+          ? <span className="text-fg-success">Sim</span>
+          : <span className="font-semibold text-fg-danger">Abaixo do PMZ</span>
+      ),
+    } as DataTableColumnDef<Item>,
     { field: 'parceiro_razao', headerName: 'Fornecedor', type: 'text', width: 200 },
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [sel, edit, res?.tipoCusto]);
@@ -292,8 +343,8 @@ export function PrecificacaoNfPage() {
                 <span className="text-fg-muted">{empresas.length === 0 ? '(só esta loja)' : `${empresas.length} loja(s)`}</span>
               </label>
               {res.mostrarEtiquetas && (
-                <Button label="&Etiquetas" variant="soft" disabled={sel.size === 0}
-                  onClick={() => navegar('/estoque/etiquetas')} />
+                <Button label="&Etiquetas" variant="soft" disabled={ocupado || sel.size === 0}
+                  onClick={() => void enfileirarEtiquetas()} />
               )}
             </div>
             <p className="mt-form-gap text-body-sm text-fg-muted">

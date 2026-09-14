@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import {
-  precificacaoNfFiltroSchema, aplicarPrecificacaoNfSchema,
-  type PrecificacaoNfFiltroDto, type AplicarPrecificacaoNfDto,
+  precificacaoNfFiltroSchema, aplicarPrecificacaoNfSchema, etiquetasPrecificacaoNfSchema,
+  type PrecificacaoNfFiltroDto, type AplicarPrecificacaoNfDto, type EtiquetasPrecificacaoNfDto,
 } from '@apollo/shared';
 import { PrecificacaoNfService } from './precificacao-nf.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -35,6 +35,13 @@ export class PrecificacaoNfController {
       markup: markup ? Number(markup) : null,
       vrvenda: vrvenda ? Number(vrvenda) : null,
     });
+  }
+
+  /** o botão Etiquetas: enfileira os itens marcados e a tela os desmarca, como o legado. */
+  @Post('etiquetas')
+  @RequerAcesso('FRMPRECIFICACAONF', 'FRMPRECIFICACAONF')
+  etiquetas(@Body(new ZodValidationPipe(etiquetasPrecificacaoNfSchema)) b: EtiquetasPrecificacaoNfDto) {
+    return this.svc.enfileirarEtiquetas(b.idprodutos);
   }
 
   @Post('aplicar')

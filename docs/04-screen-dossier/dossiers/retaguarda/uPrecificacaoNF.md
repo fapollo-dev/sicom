@@ -202,20 +202,35 @@ sem ela o filho sairia com o preço errado.
 `GetMultiEmpresa` (`:1041`) aplica o mesmo preço em todas as lojas marcadas. A tela oferece a seleção; em
 branco, só a loja da sessão. Empresa inexistente faz a operação inteira falhar, não a metade.
 
-### 8.5 O que ainda falta — separado por tipo
+### 8.5 ✅ Etiquetas, coloração e as colunas de gate (14/09/2026)
 
-**Ainda falta** (função do legado sem equivalente aqui):
+**Etiquetas** (`btnEtiquetasClick:296`): o botão agora **enfileira** os itens marcados na fila de impressão e
+**desmarca** cada um, como o legado — para o operador não mandar a mesma etiqueta de novo ao clicar outra vez.
+O serviço ainda protege: o mesmo produto não duplica na fila.
 
-- **etiquetas com o dataset do legado** e o **relatório `.fr3`** agrupado por empresa (abaixo);
-- **etiquetas com o dataset do legado**: hoje o botão leva para a tela de etiquetas; o legado **monta a fila**
-  com os itens marcados (usando `CODPRODNOTA` como código de barras, `PRECO_VENDA` nos quatro campos de valor,
-  quantidade 1) e **desmarca cada item** depois de enfileirar (`:341`);
-- **coloração e legenda por regra** (`btnAddPLCClick:206`): `CAMPO/OPERACAO/VALOR/COR/LEGENDA` — NF-e enviada,
-  cancelada, nota processada;
-- colunas que faltam: `MARKUP_AUTORIZADO`, `VRCUSTOCSI` da nota, `LJ`, `CODPRODUTO`, `CODNFPROD`;
+⚠️ **uma diferença de propósito, com o número medido**: o legado usa `CODPRODNOTA` — o código do produto **na
+nota do fornecedor** — como código de barras da etiqueta (`:340`). Em **98,3%** dos itens isso é igual ao
+`CODBARRA` do cadastro (196.582 de 200.000, medido em 14/09/2026), mas nos outros **1,7%** a etiqueta sairia
+com o código do fornecedor, que **não é o que o PDV lê na gôndola**. A fila do Apollo é por produto e o código
+sai do cadastro.
+
+**Coloração por regra** (`btnAddPLCClick:206`): o legado monta uma tabela de regras
+(`CAMPO/OPERACAO/VALOR/COR/LEGENDA`) que pinta a linha conforme o status da NF-e e se a nota foi processada.
+Aqui a informação vira **coluna com a mesma legenda** — NF-e emitida, NF-e cancelada, nota processada — que
+diz a mesma coisa sem esconder o motivo atrás de uma cor.
+
+**`MARKUP_AUTORIZADO`**: no legado é `TBooleanField` **calculado, sem SQL**. É o gate do PMZ — o preço
+proposto não pode ficar abaixo do preço de margem zero. Virou coluna, e o que está abaixo aparece em
+destaque.
+
+### 8.5.1 O que ainda falta
+
+- o **relatório impresso** `Relatorios\PrecificacaoNF.fr3`, agrupado por empresa com média de margem no
+  rodapé do grupo (`btnImprimir:364`) — aqui a grade imprime em paisagem;
 - **salvar/carregar o layout da grade** por operador (`popgrid`, `:1113`);
-- **aviso de alteração pendente** ao fechar (`TemEdicao`/`FormCloseQuery`, `:676`);
-- **Visualizar Bonificação/Verbas**.
+- **Visualizar Bonificação/Verbas**;
+- as colunas `VRCUSTOCSI` **da nota** (temos a calculada), `LJ` e `CODNFPROD` na grade;
+- o **aviso de alteração pendente** ao fechar (`TemEdicao`/`FormCloseQuery`, `:676`).
 
 ### 8.6 O que grava, e está fiel
 
@@ -223,7 +238,7 @@ branco, só a loja da sessão. Empresa inexistente faz a operação inteira falh
 **percentual** e a `OBS` no texto fixo do legado: `REFERENTE A PRECIFICAÇÃO NOTA FISCAL DE NRO. <nronf>`
 (`:1013`).
 
-## 9. Cobertura (§104 do smoke, 15 checks)
+## 9. Cobertura (§104 do smoke, 17 checks)
 
 Corte-1 (8): fator de embalagem · ICMS pela UF do fornecedor e último custo · filtros de transferência e
 bonificação · margem negativa · o lote que não muda preço · as recusas · o markup percentual · o negativo.
@@ -235,3 +250,6 @@ reposição (§104.12).
 Corte-3 (3): o preço dos filhos nos três casos, com base no preço NOVO do pai (§104.13) · o filho que já está
 no preço não entra na fila, e o lote do filho não leva markup nem operador (§104.14) · **`FATOR_FILHO` é
 campo morto** — fator 3 não multiplica nada (§104.15).
+
+Fechamento (2): o botão de etiquetas enfileirando sem duplicar (§104.16) · a coloração por regra e o gate do
+PMZ como colunas (§104.17).
