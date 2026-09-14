@@ -8340,6 +8340,13 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "idsuporteborba": {
+     "tipo": "character varying",
+     "tam": 30,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [

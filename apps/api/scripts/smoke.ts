@@ -10594,6 +10594,121 @@ async function main() {
       }
     }
 
+    // ===== §105) RELATÓRIOS DE COMPRAS (FRMRELCOMPRAS) — o que a loja comprou, pela árvore de categorias.
+    // Três relatórios num combo; o custo de compra não é custo × quantidade. 204 acessos, 19 operadores. ====
+    {
+      const RC = 'relatorios/compras';
+      const pgRc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgRc.query(`INSERT INTO familias_prod (codfamilia, descricao, tipo) VALUES
+          (9801,'SECAO RC','O'),(9802,'DEPTO RC','D'),(9803,'GRUPO RC','G'),(9804,'SUBGRUPO RC','S')
+          ON CONFLICT (codfamilia) DO NOTHING`);
+        const pA = Number((await pgRc.query(`INSERT INTO produtos (codbarra, descricao, codsecao, coddpto, codgrupo, codsubgrupo, unidade, codfor, aliquota)
+          VALUES ('7009000000888','PROD COMPRA A',9801,9802,9803,9804,'UN',2,'T01') RETURNING idproduto`)).rows[0].idproduto);
+        // um produto SEM categoria nenhuma: tem de cair nos negativos (-1 seção, -2 depto, -3 grupo, -4 subgrupo)
+        const pB = Number((await pgRc.query(`INSERT INTO produtos (codbarra, descricao, unidade, codfor, aliquota)
+          VALUES ('7009000000999','PROD SEM CATEGORIA','UN',2,'T01') RETURNING idproduto`)).rows[0].idproduto);
+
+        const nfRc = Number((await pgRc.query(
+          `INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, dtchegada, codparceiro, proc, cancelada, totalnf, cfop)
+           VALUES (1,'E',55,'1','995001','2045-03-01','2045-03-05','2045-03-02',2,'S','N',1000,'1102') RETURNING codnf`)).rows[0].codnf);
+        // custo 100,00 com 10% de desconto = base 90,00 × 2 = 180,00
+        //  + ICMS-ST 5,00 + acessórias 3,00 + IPI 10% (18,00) + frete 2% (3,60) + seguro 1% (1,80) = 211,40
+        await pgRc.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, desconto, vricmst, depsacess, ipi, frete, seguro, fatorembal, aliquota, cfop)
+          VALUES ($1,$2,2,100.00,10,5.00,3.00,10,2,1,1,'T01','1102')`, [nfRc, pA]);
+        // ⚠️ DESCONTO NULO com frete: no legado o TOTAL_ITEM vira NULL e o item SOME. Base 50×1 = 50 + 2% = 51,00
+        await pgRc.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, desconto, frete, fatorembal, aliquota, cfop)
+          VALUES ($1,$2,1,50.00,NULL,2,1,'T01','1102')`, [nfRc, pB]);
+        // uma nota CANCELADA e uma NÃO PROCESSADA: nenhuma das duas pode entrar
+        for (const [nro, proc, canc] of [['995002','S','S'], ['995003','N','N']] as const) {
+          const x = Number((await pgRc.query(
+            `INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, dtchegada, codparceiro, proc, cancelada, totalnf, cfop)
+             VALUES (1,'E',55,'1',$1,'2045-03-01','2045-03-05','2045-03-02',2,$2,$3,999,'1102') RETURNING codnf`, [nro, proc, canc])).rows[0].codnf);
+          await pgRc.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, desconto, fatorembal, aliquota, cfop)
+            VALUES ($1,$2,1,999.00,0,1,'T01','1102')`, [x, pA]);
+        }
+
+        const rc1 = await fetch(`${base}/${RC}?tipo=CATEGORIA&dataIni=2045-03-01&dataFim=2045-03-31`, { headers: H });
+        const j1 = (await rc1.json().catch(() => ({}))) as any;
+        const lA = (j1.linhas ?? []).find((l: any) => l.desc_grupo === 'GRUPO RC');
+        const lB = (j1.linhas ?? []).find((l: any) => l.desc_grupo === 'SEM GRUPO');
+
+        check('RELATÓRIO DE COMPRAS §105.1 [o custo de compra não é custo × quantidade]: a base é `(VRCUSTO − desconto%) × QUANTIDADE` = 180,00, e sobre ela entram ICMS-ST e acessórias em VALOR (5,00 + 3,00) e IPI, frete e seguro em PERCENTUAL (10% + 2% + 1% = 23,40) — total **211,40**. ⚠️ o `CAST(... AS NUMERIC(13,2))` está DENTRO da conta: o legado arredonda a base antes de aplicar cada percentual, e tirar isso muda centavos em toda linha com frete',
+          rc1.status === 200 && !!lA && Math.abs(Number(lA.total_compra) - 211.4) < 0.005,
+          { linha: lA, esperado: 211.4 });
+
+        check('RELATÓRIO DE COMPRAS §105.2 [o defeito do desconto nulo, corrigido]: no legado o frete e o seguro usam `NP.DESCONTO` SEM `COALESCE` (`:115-116`) enquanto as outras três parcelas protegem o nulo — com desconto nulo a conta inteira vira NULL, o SUM descarta e **o item some do relatório**. Em produção são 23 itens com desconto nulo em 496.455, e 1 deles com frete. Aqui o item aparece, a 50,00 + 2% = **51,00**: perder linha em relatório de compra é pior que divergir num item que ninguém conferiu',
+          !!lB && Math.abs(Number(lB.total_compra) - 51) < 0.005
+          && Number(lB.codsecao) === -1 && Number(lB.coddpto) === -2 && Number(lB.codgrupo) === -3 && Number(lB.codsubgrupo) === -4,
+          { semCategoria: lB });
+
+        check('RELATÓRIO DE COMPRAS §105.3 [só entra o que virou compra de verdade]: `TIPO=E AND PROC=S AND CANCELADA<>S` — a nota cancelada e a não processada, ambas de 999,00, ficam fora. E o total do período é 211,40 + 51,00 = **262,40**',
+          Math.abs(Number(j1.totais?.compra) - 262.4) < 0.005,
+          { total: j1.totais?.compra, linhas: j1.linhas?.length });
+
+        // as três datas: a nota tem emissão 01/03, contábil 05/03 e chegada 02/03
+        const porData = async (campo: string, ini: string, fim: string) => {
+          const rr = await fetch(`${base}/${RC}?tipo=CATEGORIA&campoData=${campo}&dataIni=${ini}&dataFim=${fim}`, { headers: H });
+          return ((await rr.json().catch(() => ({}))) as any);
+        };
+        const soEmissao = await porData('EMISSAO', '2045-03-01', '2045-03-01');
+        const soChegada = await porData('CHEGADA', '2045-03-02', '2045-03-02');
+        const soContabil = await porData('CONTABIL', '2045-03-01', '2045-03-01');
+        check('RELATÓRIO DE COMPRAS §105.4 [o combo de data escolhe o campo, mas a COLUNA exibida é sempre a contábil]: filtrando só 01/03 por EMISSÃO a nota entra; só 02/03 por CHEGADA também; e só 01/03 por CONTÁBIL não entra, porque a contábil dela é 05/03. Em todos os casos a coluna "Data" mostra **05/03** — o legado escreve `DTCONTABIL AS DATA` fixo no SELECT externo (`:166`), e o agrupamento depende disso',
+          Number(soEmissao.totais?.compra) > 0 && Number(soChegada.totais?.compra) > 0
+          && Number(soContabil.totais?.compra ?? 0) === 0
+          && String((soEmissao.linhas ?? [])[0]?.data ?? '').startsWith('2045-03-05'),
+          { emissao: soEmissao.totais?.compra, chegada: soChegada.totais?.compra, contabil: soContabil.totais?.compra,
+            dataExibida: (soEmissao.linhas ?? [])[0]?.data });
+
+        // ── analítico: o rateio da DECOMPOSIÇÃO ────────────────────────────────────────────────────────
+        const pDec = Number((await pgRc.query(`INSERT INTO produtos (codbarra, descricao, codsecao, coddpto, codgrupo, codsubgrupo, unidade, codfor, aliquota)
+          VALUES ('7009000001111','PROD DECOMPOSTO',9801,9802,9803,9804,'UN',2,'T01') RETURNING idproduto`)).rows[0].idproduto);
+        await pgRc.query(`INSERT INTO decomposicao (idproduto, idproduto_01, percentual) VALUES ($1,$2,40)`, [pA, pDec]);
+
+        const rc2 = await fetch(`${base}/${RC}?tipo=CATEGORIA_ANALITICO&dataIni=2045-03-01&dataFim=2045-03-31`, { headers: H });
+        const j2 = (await rc2.json().catch(() => ({}))) as any;
+        const lDec = (j2.linhas ?? []).find((l: any) => Number(l.idproduto) === pDec);
+        check('RELATÓRIO DE COMPRAS §105.5 [o analítico rateia a DECOMPOSIÇÃO]: quando o produto comprado é decomposto (compra a peça, vende os cortes), o custo vai para o produto RESULTANTE na proporção de `DECOMPOSICAO.PERCENTUAL` — 40% de 211,40 = **84,56**, e a linha sai no nome do produto decomposto, não no do comprado. Em produção são 135 vínculos, 13 produtos de origem e 30 de destino, com percentual de 0,7 a 50',
+          rc2.status === 200 && !!lDec && Math.abs(Number(lDec.total_compra) - 84.56) < 0.02
+          && String(lDec.descricao) === 'PROD DECOMPOSTO',
+          { decomposto: lDec });
+
+        // ── relatório 3: compras × vendas, e o WHERE que faltava ───────────────────────────────────────
+        await pgRc.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, codproduto, qtde, vrvenda, vrcusto, iat, cancelado)
+          VALUES (1,'2045-03-10','C-1',$1,10,20.00,9.00,'A','N')`, [pA]);
+        // uma venda MUITO fora do período: no legado ela entraria, porque o filtro estava no LEFT JOIN
+        await pgRc.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, codproduto, qtde, vrvenda, vrcusto, iat, cancelado)
+          VALUES (1,'2040-01-05','C-2',$1,1000,50.00,9.00,'A','N')`, [pA]);
+
+        const rc3 = await fetch(`${base}/${RC}?tipo=COMPRAS_VENDAS&considerar=AMBOS&dataIni=2045-03-01&dataFim=2045-03-31`, { headers: H });
+        const j3 = (await rc3.json().catch(() => ({}))) as any;
+        const dRc = (j3.linhas ?? []).find((l: any) => l.descricao_departamento === 'DEPTO RC');
+        check('RELATÓRIO DE COMPRAS §105.6 [o defeito mais grave do legado, corrigido]: no modo "compras e vendas" a perna de vendas do legado escreve `LEFT JOIN FAMILIAS_PROD D ON ... AND TRUNC(DTVENDA) BETWEEN ... AND IDEMPRESA IN (...)` — **sem WHERE**. Data e loja viram condição do LEFT JOIN, que por definição não elimina linha: entra a base INTEIRA de vendas. Em produção seriam 18.965.108 linhas em vez das 115.078 de um mês numa loja. Aqui a venda de 2040 (50.000,00) fica fora e o departamento mostra os **200,00** do período',
+          rc3.status === 200 && !!dRc
+          && Math.abs(Number(dRc.total_venda) - 200) < 0.005
+          && Math.abs(Number(dRc.total_compra) - 211.4) < 0.005,
+          { depto: dRc, seOBugValesse: 50200 });
+
+        const rc3c = await fetch(`${base}/${RC}?tipo=COMPRAS_VENDAS&considerar=COMPRAS&dataIni=2045-03-01&dataFim=2045-03-31`, { headers: H });
+        const j3c = (await rc3c.json().catch(() => ({}))) as any;
+        const dInv = await fetch(`${base}/${RC}?tipo=CATEGORIA&dataIni=2045-03-31&dataFim=2045-03-01`, { headers: H });
+        check('RELATÓRIO DE COMPRAS §105.7: "apenas compras" não traz coluna de venda (o rádio só existe no relatório 3 — nos outros dois o legado o desabilita, `CmbTipoRelatorioChange:203`), e data inicial maior que a final é recusada com mensagem, não com uma grade vazia',
+          Number(j3c.totais?.venda ?? 0) === 0 && Number(j3c.totais?.compra) > 0
+          && dInv.status >= 400,
+          { apenasCompras: j3c.totais, dataInvertida: dInv.status });
+
+        await pgRc.query(`DELETE FROM vendas WHERE nropedido IN ('C-1','C-2')`);
+        await pgRc.query(`DELETE FROM decomposicao WHERE idproduto=$1`, [pA]);
+        await pgRc.query(`DELETE FROM nf_prod WHERE codproduto = ANY($1)`, [[pA, pB]]);
+        await pgRc.query(`DELETE FROM nf WHERE nronf IN ('995001','995002','995003')`);
+        await pgRc.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[pA, pB, pDec]]);
+        await pgRc.query(`DELETE FROM familias_prod WHERE codfamilia IN (9801,9802,9803,9804)`);
+      } finally {
+        await pgRc.end();
+      }
+    }
+
     // ===== §104) PRECIFICAÇÃO DE NF (FRMPRECIFICACAONF) — onde o preço de venda NASCE quando a mercadoria
     // chega. 236 acessos, 17 operadores; o usuário classificou como "de extrema importância e grande
     // influência". Ela NÃO altera preço: enfileira lote de preço. ====

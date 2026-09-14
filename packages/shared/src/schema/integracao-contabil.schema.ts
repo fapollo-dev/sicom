@@ -217,3 +217,29 @@ export const aplicarPrecificacaoNfSchema = z.object({
   datalote: dataISO.nullish(),
 });
 export type AplicarPrecificacaoNfDto = z.infer<typeof aplicarPrecificacaoNfSchema>;
+
+/**
+ * RELATÓRIOS DE COMPRAS (`FRMRELCOMPRAS`) — os três do combo, com a árvore de categorias inteira como filtro.
+ * `cfops` é lista porque o legado aceita vários (`fListaCFOP`), e é o CFOP do ITEM, não o da nota.
+ */
+export const relComprasSchema = z.object({
+  tipo: z.enum(['CATEGORIA', 'CATEGORIA_ANALITICO', 'COMPRAS_VENDAS']),
+  dataIni: dataISO,
+  dataFim: dataISO,
+  campoData: z.enum(['CONTABIL', 'EMISSAO', 'CHEGADA']).nullish(),
+  /** só o relatório 3 usa; nos outros dois o legado desabilita o rádio (`CmbTipoRelatorioChange:203`). */
+  considerar: z.enum(['COMPRAS', 'VENDAS', 'AMBOS']).nullish(),
+  coddpto: z.coerce.number().int().positive().nullish(),
+  codgrupo: z.coerce.number().int().positive().nullish(),
+  codsubgrupo: z.coerce.number().int().positive().nullish(),
+  codsecao: z.coerce.number().int().positive().nullish(),
+  idproduto: z.coerce.number().int().positive().nullish(),
+  codparceiro: z.coerce.number().int().positive().nullish(),
+  cfops: z.union([z.array(z.string().max(4)), z.string()])
+    .transform((v) => (typeof v === 'string' ? v.split(',').map((x) => x.trim()).filter(Boolean) : v))
+    .pipe(z.array(z.string().max(4)).max(50)).nullish(),
+  empresas: z.union([z.array(z.coerce.number().int().positive()), z.string()])
+    .transform((v) => (typeof v === 'string' ? v.split(',').map((x) => Number(x.trim())).filter(Boolean) : v))
+    .pipe(z.array(z.number().int().positive()).max(50)).nullish(),
+});
+export type RelComprasDto = z.infer<typeof relComprasSchema>;

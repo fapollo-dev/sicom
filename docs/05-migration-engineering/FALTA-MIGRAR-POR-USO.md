@@ -23,12 +23,12 @@ são **PDV**, fora por instrução do usuário, e sozinhas valem 67% do que rest
 | FRMMANCADCARTAOBOAVISTA (`FRMMANCADCARTAOBOAVISTA`) | 560 | 6 | 2026-05-20 | ⛔ **sem fonte no repositório clonado** — nenhuma unit, nenhuma referência. Sem fonte não há cópia fiel; a tela também parou em maio |
 | RELATORIOS DE CAIXAS (`FRMRELCAIXA`) | 505 | 11 | 2026-09-08 | ✅ **corte-1** (mig 206): divergências + caixas abertos; faltam voucher, apuração e pedidos |
 | CONSULTORIA APOLLO (`FRMCONSULTORIAATM`) | 440 | 19 | 2026-09-04 | ✅ **corte-1** (mig 207): participação e rentabilidade nos 3 níveis da árvore; faltam o modo com NF, os gráficos e a previsão |
-| INTEGRACAO FISCAL - BORBA FISCAL (`FRMVERIFICACAOTRIBUTARIABORBAFISCAL`) | 388 | 9 | 2026-06-15 | fila |
+| INTEGRACAO FISCAL - BORBA FISCAL (`FRMVERIFICACAOTRIBUTARIABORBAFISCAL`) | 388 | 9 | 2026-06-15 | ⛔ **sem fonte no repositório clonado** — nenhuma unit, nenhum `.dfm`, nenhuma referência ao nome do form; do mecanismo só resta `EMPRESAS.IDSUPORTEBORBA` (`UCadEmpresa.dfm:703`), trazida na mig 213 para a carga não perder o valor. Sem fonte não há cópia fiel — mesmo caso do Boa Vista |
 | TOTAL POR CARTAO (`FRMRELCARTOES`) | 382 | 7 | 2026-09-02 | ✅ **completa** (mig 208) — nada ficou de fora |
 | LANCAMENTOS CONTABEIS (`FRMRELLANCAMENTOSCONTABEIS`) | 377 | 19 | 2026-08-18 | ✅ **corte-1** (mig 209): o razão por lançamento + `ORIGEM_CONTABIL` e `DIARIO.DESCHIST`, que a carga descartava |
 | RENTABILIDADE POR CATEGORIAS (`FRMRENTABILIDADECATEGORIAS`) | 275 | 19 | — | ✅ **corte-1** (mig 210): a fórmula completa nos 3 níveis; faltam o filtro por fornecedor, o modo SCRAP e o modo com NF |
 | PRECIFICACAO NF (`FRMPRECIFICACAONF`) | 236 | 17 | 2026-08-25 | 🟢 **cortes 1+2+3** (mig 211-212): 22 das 35 colunas, os 3 tipos de custo com as escadas, markup nas 3 semânticas, rodapé com os 3 lucros, 4 dos 5 atalhos, **produtos filhos** e multi-empresa. Falta só o acessório: relatório .fr3, fila de etiquetas, coloração por regra, layout de grade — §8.5 do dossiê |
-| RELATORIOS DE COMPRAS (`FRMRELCOMPRAS`) | 204 | 19 | 2026-08-17 | fila |
+| RELATORIOS DE COMPRAS (`FRMRELCOMPRAS`) | 204 | 19 | 2026-08-17 | ✅ **completa** (mig 213): os 3 relatórios do combo, a árvore inteira como filtro, as 3 datas, multi-empresa, rateio de decomposição no analítico e **dois defeitos do legado corrigidos** (desconto nulo que sumia com o item; e o `WHERE` ausente que somava 18,9M de vendas no modo "ambos") |
 | PROMOCAO ACUMULATIVA (`FRMCADPROMOCAOACUMULATIVA`) | 199 | 26 | 2026-08-24 | fila |
 | CONF. NOTAS FISCAIS X INDEXADOR (`FRMCONFERENCIANFINDEXADOR`) | 165 | 4 | — | fila |
 | PRODUTOS (`FRMPRODUTOSREL`) | 162 | 19 | 2026-09-02 | fila |

@@ -123,6 +123,8 @@ const TELAS = [
   { href: '/relatorios/rentabilidade', name: 'Rentabilidade', icon: Percent },
   // FRMPRECIFICACAONF — onde o preço nasce quando a mercadoria chega (236 acessos).
   { href: '/precificacao/nf', name: 'Precificação de NF', icon: Tag },
+  // FRMRELCOMPRAS — os três relatórios de compra por categoria (204 acessos).
+  { href: '/relatorios/compras', name: 'Relatórios de compras', icon: ShoppingCart },
   { href: '/cadastro/fechamento-diario', name: 'Fechamento Diário', icon: CalendarClock },
   // FRMCTRLPERMISSOES — permissão por OPERADOR, que é o modo que o cliente usa (a de Perfis é o outro caminho).
   { href: '/cadastro/permissoes', name: 'Controle de Permissões', icon: ShieldCheck },
