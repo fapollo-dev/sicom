@@ -31,6 +31,7 @@ import {
   CreditCard,
   ShoppingCart,
   FileSearch,
+  ArrowLeftRight,
   CalendarClock,
   Undo2,
   ClipboardList,
@@ -132,6 +133,8 @@ const TELAS = [
   { href: '/fiscal/conferencia-nf-indexador', name: 'Conferência NF × Indexador', icon: FileSearch },
   // FRMPRODUTOSREL — corte-1: estoque atual, ruptura e análise (162 acessos).
   { href: '/relatorios/produtos', name: 'Relatórios de produtos', icon: Package },
+  // FRMRELENTRADASSAIDAS — listagem e comparativo entrada × saída (148 acessos).
+  { href: '/relatorios/entradas-saidas', name: 'Entradas e saídas', icon: ArrowLeftRight },
   { href: '/cadastro/fechamento-diario', name: 'Fechamento Diário', icon: CalendarClock },
   // FRMCTRLPERMISSOES — permissão por OPERADOR, que é o modo que o cliente usa (a de Perfis é o outro caminho).
   { href: '/cadastro/permissoes', name: 'Controle de Permissões', icon: ShieldCheck },

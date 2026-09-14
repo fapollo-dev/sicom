@@ -10993,6 +10993,78 @@ async function main() {
       }
     }
 
+    // ===== §109) ENTRADAS E SAÍDAS (FRMRELENTRADASSAIDAS) — a listagem e o comparativo por produto.
+    // 148 acessos, 20 operadores. O legado erra o desconto em R$ 178.994,93/ano; aqui é corrigido. ====
+    {
+      const ES = 'relatorios/entradas-saidas';
+      const pgEs = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgEs.query(`INSERT INTO familias_prod (codfamilia, descricao, tipo) VALUES (9961,'GRUPO ES','G')
+          ON CONFLICT (codfamilia) DO NOTHING`);
+        const pEs = Number((await pgEs.query(`INSERT INTO produtos (codbarra, descricao, codgrupo, unidade, codfor, aliquota)
+          VALUES ('7009000007771','PROD ENTRA SAI',9961,'UN',2,'T01') RETURNING idproduto`)).rows[0].idproduto);
+        await pgEs.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrcustorep) VALUES ($1,1,20.00,11.00)`, [pEs]);
+        await pgEs.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES ($1,1,40)`, [pEs]);
+
+        const mkNfEs = async (nro: string, tipo: string, proc: string) => Number((await pgEs.query(
+          `INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, cfop)
+           VALUES (1,$2,55,'1',$1,'2048-06-10','2048-06-10',2,$3,'N',1000,'1102') RETURNING codnf`, [nro, tipo, proc])).rows[0].codnf);
+        // ENTRADA: 100 × 10,00 = 1.000,00 bruto, com 20% de desconto → VRDESCPROD 200,00 → líquido 800,00
+        const nfE = await mkNfEs('997001', 'E', 'S');
+        await pgEs.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, desconto, vrdescprod, fatorembal, aliquota)
+          VALUES ($1,$2,100,10.00,20,200.00,1,'T01')`, [nfE, pEs]);
+        // SAÍDA: 60 × 20,00 = 1.200,00
+        const nfS = await mkNfEs('997002', 'S', 'S');
+        await pgEs.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, vrvenda, fatorembal, aliquota)
+          VALUES ($1,$2,60,10.00,20.00,1,'T01')`, [nfS, pEs]);
+        // uma entrada ainda NÃO PROCESSADA: é o "a entrar" do comparativo, e não entra no período
+        const nfAb = await mkNfEs('997003', 'E', 'N');
+        await pgEs.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, fatorembal, aliquota)
+          VALUES ($1,$2,25,10.00,1,'T01')`, [nfAb, pEs]);
+
+        const lst = await fetch(`${base}/${ES}?tipo=LISTAGEM&dataIni=2048-06-01&dataFim=2048-06-30&codgrupo=9961`, { headers: H });
+        const lj = (await lst.json().catch(() => ({}))) as any;
+        const ent = (lj.linhas ?? []).find((l: any) => l.tipo === 'E' && String(l.nronf) === '997001');
+
+        check('ENTRADAS E SAÍDAS §109.1 [o bug de 179 mil reais por ano]: o legado calcula o valor do item como `(QUANTIDADE × VRCUSTO) − NP.DESCONTO`, mas **`DESCONTO` é PERCENTUAL**, não valor — o dado prova de três formas (máximo exatamente 100, mediana 13,36, e `qtde × custo × desconto/100` batendo casa a casa com `VRDESCPROD`). Com 100 × 10,00 e 20% de desconto o certo é **800,00**; o legado devolve **980,00**, porque subtrai o número 20 como se fossem 20 reais. Somando as entradas de 2026 do cliente, são **R$ 178.994,93** a mais',
+          lst.status === 200 && !!ent
+          && Math.abs(Number(ent.valor) - 800) < 0.005
+          && Math.abs(Number(ent.valor_legado) - 980) < 0.005,
+          { correto: ent?.valor, comoOLegadoFaria: ent?.valor_legado });
+
+        const cmp = await fetch(`${base}/${ES}?tipo=COMPARATIVO&dataIni=2048-06-01&dataFim=2048-06-30&codgrupo=9961`, { headers: H });
+        const cj = (await cmp.json().catch(() => ({}))) as any;
+        const lc = (cj.linhas ?? [])[0] as any;
+        check('ENTRADAS E SAÍDAS §109.2 [o comparativo põe as duas pontas na mesma unidade]: entrou 100 a 800,00 (custo médio **8,00**) e saiu 60 a 1.200,00 (venda média **20,00**); a diferença de quantidade é **−40** e a de valor **+400,00**. A quantidade é `QUANTIDADE × FATOREMBAL` nos dois lados — a nota vem em caixa, e sem isso entrada e saída não se comparam',
+          cmp.status === 200 && !!lc
+          && Math.abs(Number(lc.qtde_entrada) - 100) < 0.005 && Math.abs(Number(lc.valor_entrada) - 800) < 0.005
+          && Math.abs(Number(lc.media_custo) - 8) < 0.005
+          && Math.abs(Number(lc.qtde_saida) - 60) < 0.005 && Math.abs(Number(lc.media_venda) - 20) < 0.005
+          && Math.abs(Number(lc.qtde_dif) + 40) < 0.005 && Math.abs(Number(lc.valor_dif) - 400) < 0.005,
+          { linha: lc && { qe: lc.qtde_entrada, ve: lc.valor_entrada, mc: lc.media_custo, qs: lc.qtde_saida, mv: lc.media_venda, qd: lc.qtde_dif, vd: lc.valor_dif } });
+
+        check('ENTRADAS E SAÍDAS §109.3 [a nota não processada estava contada DUAS VEZES]: o `WHERE` do legado é só `TIPO=E AND DTCONTABIL BETWEEN` — não filtra `PROC` nem `CANCELADA`. Só que o próprio comparativo tem `VABERTO`, que soma justamente as notas com `PROC=N`: a mesma mercadoria aparecia como entrada do período E como "a entrar", e viraria entrada de novo no dia em que a nota fosse processada. Nota não processada não movimentou estoque. Aqui o movimento exige `PROC=S` (entrada fica em 100, não 125) e as 25 aparecem só no "a entrar", ao lado do estoque da loja (40)',
+          Math.abs(Number(lc?.vaberto) - 25) < 0.005
+          && Math.abs(Number(lc?.qtde_estoque_loja) - 40) < 0.005
+          && Math.abs(Number(lc?.qtde_entrada) - 100) < 0.005,
+          { aEntrar: lc?.vaberto, estoqueLoja: lc?.qtde_estoque_loja, entradaNoPeriodo: lc?.qtde_entrada });
+
+        const dInv = await fetch(`${base}/${ES}?tipo=LISTAGEM&dataIni=2048-06-30&dataFim=2048-06-01`, { headers: H });
+        check('ENTRADAS E SAÍDAS §109.4: data invertida é recusada com mensagem, e a nota CANCELADA não entra em nenhum dos dois relatórios',
+          dInv.status >= 400 && Number(lj.totais?.itens) === 2,
+          { dataInvertida: dInv.status, itensListagem: lj.totais?.itens });
+
+        await pgEs.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2,$3)`, [nfE, nfS, nfAb]);
+        await pgEs.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3)`, [nfE, nfS, nfAb]);
+        await pgEs.query(`DELETE FROM estoque WHERE idproduto=$1`, [pEs]);
+        await pgEs.query(`DELETE FROM multi_preco WHERE idproduto=$1`, [pEs]);
+        await pgEs.query(`DELETE FROM produtos WHERE idproduto=$1`, [pEs]);
+        await pgEs.query(`DELETE FROM familias_prod WHERE codfamilia=9961`);
+      } finally {
+        await pgEs.end();
+      }
+    }
+
     // ===== §104) PRECIFICAÇÃO DE NF (FRMPRECIFICACAONF) — onde o preço de venda NASCE quando a mercadoria
     // chega. 236 acessos, 17 operadores; o usuário classificou como "de extrema importância e grande
     // influência". Ela NÃO altera preço: enfileira lote de preço. ====

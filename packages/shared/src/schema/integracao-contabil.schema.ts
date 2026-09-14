@@ -313,3 +313,16 @@ export const produtosRelSchema = z.object({
   diasSemVenda: z.coerce.number().int().min(0).max(3650).nullish(),
 });
 export type ProdutosRelDto = z.infer<typeof produtosRelSchema>;
+
+/** ENTRADAS E SAÍDAS (`FRMRELENTRADASSAIDAS`): a listagem e o comparativo por produto. */
+export const relEntradasSaidasSchema = z.object({
+  tipo: z.enum(['LISTAGEM', 'COMPARATIVO']),
+  dataIni: dataISO,
+  dataFim: dataISO,
+  coddpto: z.coerce.number().int().positive().nullish(),
+  codgrupo: z.coerce.number().int().positive().nullish(),
+  codsubgrupo: z.coerce.number().int().positive().nullish(),
+  codfor: z.coerce.number().int().positive().nullish(),
+  produto: z.string().max(150).nullish(),
+});
+export type RelEntradasSaidasDto = z.infer<typeof relEntradasSaidasSchema>;
