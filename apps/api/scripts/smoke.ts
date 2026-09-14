@@ -11065,6 +11065,98 @@ async function main() {
       }
     }
 
+    // ===== §110) PREENCHER COTAÇÃO (FRMCADCOTACAOFORN) — a única tela em que quem opera pode ser de FORA
+    // da empresa: 85 das 97 cotações do cliente foram preenchidas pelo próprio fornecedor. ====
+    {
+      const CT = 'compras/cotacao-forn';
+      const pgCt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const pCt = Number((await pgCt.query(`INSERT INTO produtos (codbarra, descricao, unidade, codfor, aliquota)
+          VALUES ('7009000008881','PROD COTACAO','UN',2,'T01') RETURNING idproduto`)).rows[0].idproduto);
+        await pgCt.query(`INSERT INTO cotacao (codctc, descricao, data, situacao, codoperador, idempresa, liberada, dtfim_preenchimento)
+          VALUES (99701,'COTACAO SMOKE','2049-02-01','A',7,1,'S','2049-12-31')`);
+        await pgCt.query(`INSERT INTO cotacao_prod (codcpr, codctc, idproduto, descricao, quantidade, valorcusto, valorvenda, fatorembalagem)
+          VALUES (99711,99701,$1,'PROD COTACAO',100,8.00,15.00,12)`, [pCt]);
+        // ⚠️ `cotacao_prod` tem único (codctc, idproduto): a cotação não repete produto
+        const pCt2 = Number((await pgCt.query(`INSERT INTO produtos (codbarra, descricao, unidade, codfor, aliquota)
+          VALUES ('7009000008882','PROD COTACAO 2','UN',2,'T01') RETURNING idproduto`)).rows[0].idproduto);
+        await pgCt.query(`INSERT INTO cotacao_prod (codcpr, codctc, idproduto, descricao, quantidade, valorcusto, valorvenda, fatorembalagem)
+          VALUES (99712,99701,$1,'PROD COTACAO 2',50,4.00,9.00,6)`, [pCt2]);
+        // o fornecedor 2 com senha; o hash é o mesmo scrypt dos operadores (a carga hasheia a do legado)
+        const { hashSenha } = await import('../src/shared/auth/crypto');
+        await pgCt.query(`UPDATE parceiros SET senha_hash=$1 WHERE codparceiro=2`, [await hashSenha('forn#2049')]);
+
+        const criar = await fetch(`${base}/${CT}`, { method: 'POST', headers: H, body: JSON.stringify({ codctc: 99701, codparceiro: 2 }) });
+        const cj = (await criar.json().catch(() => ({}))) as any;
+        const dup = await fetch(`${base}/${CT}`, { method: 'POST', headers: H, body: JSON.stringify({ codctc: 99701, codparceiro: 2 }) });
+        const dj = (await dup.json().catch(() => ({}))) as any;
+        check('PREENCHER COTAÇÃO §110.1 [um fornecedor preenche cada cotação UMA vez]: `VerificarExistenciaFornCotacao:565` procura o par (cotação, parceiro) antes de criar e recusa com "já foi preenchida pelo fornecedor". A segunda tentativa é barrada, e o índice único garante isso mesmo se duas telas tentarem ao mesmo tempo',
+          (criar.status === 200 || criar.status === 201) && Number(cj.codctcforn) > 0
+          && dup.status === 422 && String(dj.code) === 'COTACAO_JA_PREENCHIDA_PELO_FORNECEDOR',
+          { criada: cj.codctcforn, duplicada: dj.code });
+
+        const abrir = await fetch(`${base}/${CT}/${cj.codctcforn}`, { headers: H });
+        const aj = (await abrir.json().catch(() => ({}))) as any;
+        const it1 = (aj.itens ?? []).find((i: any) => Number(i.codcpr) === 99711);
+        check('PREENCHER COTAÇÃO §110.2 [abrir cria os itens ZERADOS a partir da lista do comprador]: `CarregarItensDaCotacao:103` percorre `COTACAO_PROD` — a lista que o comprador montou — e insere em `COTACAO_FORN_ITENS` com valor, ICMS e total em ZERO, esperando preço. ⛔ E o `FATOREMBALAGEM` nasce sempre **1**, com o valor de origem (12) COMENTADO ao lado no fonte: é o mesmo padrão do FATOR_FILHO da precificação — campo lido, passado e descartado. Os 2 produtos da cotação viram 2 itens em branco',
+          abrir.status === 200 && (aj.itens ?? []).length === 2
+          && Math.abs(Number(it1?.valor)) < 0.005
+          && Math.abs(Number(it1?.fatorembalagem) - 1) < 0.005
+          && Math.abs(Number(it1?.quantidade) - 100) < 0.005,
+          { itens: (aj.itens ?? []).length, primeiro: it1 && { valor: it1.valor, fator: it1.fatorembalagem, qtde: it1.quantidade } });
+
+        const loginForn = await fetch(`${base}/${CT}/autenticar`, { method: 'POST', headers: H,
+          body: JSON.stringify({ comoParceiro: true, codparceiro: 2, senha: 'forn#2049' }) });
+        const lfj = (await loginForn.json().catch(() => ({}))) as any;
+        const loginErrado = await fetch(`${base}/${CT}/autenticar`, { method: 'POST', headers: H,
+          body: JSON.stringify({ comoParceiro: true, codparceiro: 2, senha: 'errada' }) });
+        const leJ = (await loginErrado.json().catch(() => ({}))) as any;
+        const loginInexistente = await fetch(`${base}/${CT}/autenticar`, { method: 'POST', headers: H,
+          body: JSON.stringify({ comoParceiro: true, codparceiro: 987654, senha: 'qualquer' }) });
+        const liJ = (await loginInexistente.json().catch(() => ({}))) as any;
+        check('PREENCHER COTAÇÃO §110.3 [dois tipos de gente na mesma porta — e a senha do fornecedor NÃO fica em texto puro]: o legado compara `PARCEIROS.SENHA = :SENHA` direto, sem hash, em 57 parceiros com senha de 3 a 13 caracteres. Aqui é `senha_hash` com o mesmo scrypt dos operadores, e a carga hasheia a senha existente — o fornecedor entra com a mesma senha de sempre e o Apollo nunca guarda o texto. O login certo devolve `validadoPorEmpresa: false` (é a mão do fornecedor); senha errada e parceiro inexistente devolvem o MESMO erro, para a tela não virar oráculo de "este fornecedor existe"',
+          // POST no Nest devolve 201 por padrão
+          (loginForn.status === 200 || loginForn.status === 201)
+          && lfj.validadoPorEmpresa === false && Number(lfj.codparceiro) === 2
+          && loginErrado.status === 422 && loginInexistente.status === 422
+          // o MESMO código nos dois: senha errada e parceiro inexistente são indistinguíveis de fora
+          && String(leJ.code) === 'COTACAO_LOGIN_INVALIDO' && String(liJ.code) === String(leJ.code),
+          { fornecedor: lfj, senhaErrada: leJ?.code, inexistente: liJ?.code });
+
+        const preench = await fetch(`${base}/${CT}/preencher`, { method: 'POST', headers: H, body: JSON.stringify({
+          codctcforn: cj.codctcforn, porEmpresa: false,
+          itens: [{ codctcfit: it1.codctcfit, valor: 7.50, icms: 18, fatorembalagem: 12 }],
+          obs: 'Preenchido pelo fornecedor',
+        }) });
+        const linha = (await pgCt.query(`SELECT valor::float8 v, valortotal::float8 t, fatorembalagem::float8 f, ultimo_valor::float8 u
+          FROM cotacao_forn_itens WHERE codctcfit=$1`, [it1.codctcfit])).rows[0] as any;
+        const cabPos = (await pgCt.query(`SELECT codoperador, datamanpar, datamanope FROM cotacao_forn WHERE codctcforn=$1`, [cj.codctcforn])).rows[0] as any;
+        check('PREENCHER COTAÇÃO §110.4 [quem preencheu fica gravado, e em campo separado]: preenchido pelo FORNECEDOR, o `CODOPERADOR` vai a **ZERO** e a data cai em `DATAMANPAR`; se fosse a loja, iria em `DATAMANOPE` com o código do operador. É por isso que dá para saber, quatro anos depois, que 85 das 97 cotações foram o fornecedor que digitou. O total do item é `valor × fator` (7,50 × 12 = **90,00**) e o valor anterior fica guardado em `ULTIMO_VALOR`',
+          preench.status === 200 || preench.status === 201 ? (
+            Math.abs(Number(linha.v) - 7.5) < 0.005 && Math.abs(Number(linha.t) - 90) < 0.005
+            && Number(cabPos.codoperador) === 0 && cabPos.datamanpar != null && cabPos.datamanope == null
+          ) : false,
+          { item: linha, cabecalho: cabPos });
+
+        await pgCt.query(`UPDATE cotacao SET dtfim_preenchimento='2020-01-01' WHERE codctc=99701`);
+        const fora = await fetch(`${base}/${CT}/preencher`, { method: 'POST', headers: H, body: JSON.stringify({
+          codctcforn: cj.codctcforn, porEmpresa: false, itens: [{ codctcfit: it1.codctcfit, valor: 9.00 }] }) });
+        const foraJ = (await fora.json().catch(() => ({}))) as any;
+        check('PREENCHER COTAÇÃO §110.5 [passou o prazo, ninguém preenche mais]: a cotação-mãe tem janela (`DTFIM_PREENCHIMENTO`), e depois dela o fornecedor não muda mais preço — senão o comprador apura uma cotação que ainda está se mexendo',
+          fora.status === 422 && String(foraJ.code) === 'COTACAO_PRAZO_ENCERRADO',
+          { resp: foraJ });
+
+        await pgCt.query(`DELETE FROM cotacao_forn_itens WHERE codctcforn=$1`, [cj.codctcforn]);
+        await pgCt.query(`DELETE FROM cotacao_forn WHERE codctc=99701`);
+        await pgCt.query(`DELETE FROM cotacao_prod WHERE codctc=99701`);
+        await pgCt.query(`DELETE FROM cotacao WHERE codctc=99701`);
+        await pgCt.query(`UPDATE parceiros SET senha_hash=NULL WHERE codparceiro=2`);
+        await pgCt.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[pCt, pCt2]]);
+      } finally {
+        await pgCt.end();
+      }
+    }
+
     // ===== §104) PRECIFICAÇÃO DE NF (FRMPRECIFICACAONF) — onde o preço de venda NASCE quando a mercadoria
     // chega. 236 acessos, 17 operadores; o usuário classificou como "de extrema importância e grande
     // influência". Ela NÃO altera preço: enfileira lote de preço. ====

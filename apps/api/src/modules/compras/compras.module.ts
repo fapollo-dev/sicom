@@ -1,3 +1,5 @@
+import { CotacaoFornController } from './cotacao-forn.controller';
+import { CotacaoFornService } from './cotacao-forn.service';
 import { Module } from '@nestjs/common';
 import { PedidoCompraAggregateController } from './pedido-compra.aggregate';
 import { PedidoCompraController } from './pedido-compra.controller';
@@ -36,6 +38,8 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 @Module({
   imports: [CadastroModule, AuthModule], // Cadastro=NfFaturamento/Config; Auth=LiberacaoService (wire do limite E8 c3). Acíclico.
   controllers: [
+    // FRMCADCOTACAOFORN — o fornecedor preenche os preços (137 acessos).
+    CotacaoFornController,
     PedidoCompraAggregateController, // engine MESTRE-DETALHE (CRUD do pedido: header + itens; sem efeitos)
     PedidoCompraController, // vertical (fechar/reabrir + gerar parcelas + gerar NF de entrada — recebimento)
     CondicoesPagtoCrudController, // corte-2: cadastral GLOBAL de condições de pagamento (lookup do pedido)
@@ -51,6 +55,6 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     ManifestoDfeController,
     PendenciaOperadorController,
   ],
-  providers: [PedidoCompraService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, ManifestoDfeService, SefazDfeService, PendenciaOperadorService, AnaliseMotorService, ConfigService, DatabaseProvider],
+  providers: [CotacaoFornService, PedidoCompraService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, ManifestoDfeService, SefazDfeService, PendenciaOperadorService, AnaliseMotorService, ConfigService, DatabaseProvider],
 })
 export class ComprasModule {}

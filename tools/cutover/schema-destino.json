@@ -6909,6 +6909,20 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "dtenvioemail": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codctc_listaf": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -6965,6 +6979,62 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "data": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codoperador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "datamanope": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "datamanpar": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "situacao": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
     }
    },
    "pk": [
@@ -6984,6 +7054,10 @@
     {
      "nome": "ux_cotacao_forn",
      "def": "CREATE UNIQUE INDEX ux_cotacao_forn ON public.cotacao_forn USING btree (codctc, codparceiro)"
+    },
+    {
+     "nome": "ux_cotacao_forn_ctc_parceiro",
+     "def": "CREATE UNIQUE INDEX ux_cotacao_forn_ctc_parceiro ON public.cotacao_forn USING btree (codctc, codparceiro)"
     }
    ]
   },
@@ -7070,6 +7144,27 @@
      "tipo": "timestamp with time zone",
      "tam": null,
      "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "marcado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "ultimo_valor": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "valorembal_bk": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
      "nulo": true,
      "default": null
     }
@@ -21056,6 +21151,13 @@
     "realiza_troca": {
      "tipo": "character",
      "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "senha_hash": {
+     "tipo": "text",
+     "tam": null,
      "escala": null,
      "nulo": true,
      "default": null

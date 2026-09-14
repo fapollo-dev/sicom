@@ -326,3 +326,42 @@ export const relEntradasSaidasSchema = z.object({
   produto: z.string().max(150).nullish(),
 });
 export type RelEntradasSaidasDto = z.infer<typeof relEntradasSaidasSchema>;
+
+/**
+ * PREENCHER COTAÇÃO (`FRMCADCOTACAOFORN`) — a porta aceita dois tipos de gente: operador da empresa (login)
+ * ou o próprio fornecedor (código do parceiro). É a única tela em que quem opera pode ser de fora.
+ */
+export const cotacaoFornLoginSchema = z.object({
+  comoParceiro: z.coerce.boolean(),
+  login: z.string().max(60).nullish(),
+  codparceiro: z.coerce.number().int().positive().nullish(),
+  senha: z.string().min(1, 'Informe a senha.').max(200),
+}).refine((v) => (v.comoParceiro ? v.codparceiro != null : !!v.login), {
+  message: 'Informe o login do operador ou o código do fornecedor.',
+});
+export type CotacaoFornLoginDto = z.infer<typeof cotacaoFornLoginSchema>;
+
+/** os preços que o fornecedor informou. `porEmpresa` decide de quem é a mão registrada. */
+export const cotacaoFornPreencherSchema = z.object({
+  codctcforn: z.coerce.number().int().positive(),
+  porEmpresa: z.coerce.boolean(),
+  codoperador: z.coerce.number().int().positive().nullish(),
+  itens: z.array(z.object({
+    codctcfit: z.coerce.number().int().positive(),
+    valor: z.coerce.number().min(0, 'O valor não pode ser negativo.'),
+    icms: z.coerce.number().min(0).max(100).nullish(),
+    fatorembalagem: z.coerce.number().min(0).nullish(),
+    valorembal: z.coerce.number().min(0).nullish(),
+  })).min(1, 'Informe ao menos um item.').max(5000),
+  obs: z.string().max(500).nullish(),
+  datavalidade: dataISO.nullish(),
+});
+export type CotacaoFornPreencherDto = z.infer<typeof cotacaoFornPreencherSchema>;
+
+export const cotacaoFornCriarSchema = z.object({
+  codctc: z.coerce.number().int().positive(),
+  codparceiro: z.coerce.number().int().positive(),
+  datavalidade: dataISO.nullish(),
+  obs: z.string().max(500).nullish(),
+});
+export type CotacaoFornCriarDto = z.infer<typeof cotacaoFornCriarSchema>;
