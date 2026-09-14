@@ -65,10 +65,21 @@ O outro botão percorre a grade de produtos do grupo de preço e, para cada um, 
 DELETE FROM PROMOCAO_ACUMULATIVA WHERE IDPRODUTO = <o produto>
 ```
 
-⚠️ **sem filtro de período e sem filtro de loja.** Apaga **todas** as promoções daquele produto — de
-qualquer data e de qualquer loja, inclusive as já encerradas e as de lojas onde o operador nem trabalha. É um
-botão de estrago largo, e é assim no legado. Mantido igual, com a mesma senha administrativa e devolvendo o
-total apagado, para a tela poder dizer o tamanho do estrago **antes** de confirmar.
+⚠️ **sem filtro de período e sem filtro de loja.** No legado, apaga **todas** as promoções daqueles
+produtos — de qualquer data e de qualquer loja.
+
+### ⚠️ A única divergência deliberada desta tela (14/09/2026)
+
+Este é o único ponto em que **não** copiamos o legado, e por dois motivos concretos:
+
+| o que o legado faz | por que não copiamos | o que fazemos |
+|---|---|---|
+| apaga a linha inteira, mesmo compartilhada | `IDEMPRESA` é uma **lista**: apagar tira o desconto de uma loja que não pediu nada e não vai saber por quê | **removemos só a loja da sessão** da lista; a linha só é apagada quando fica sem nenhuma loja |
+| apaga também as encerradas | promoção com término no passado **não é regra ativa**: apagá-la não muda preço nenhum e destrói a prova de que aquele desconto existiu | **preservadas** |
+
+O que sobra é exatamente o que o operador quis: as promoções **da sua loja** que ainda valem ou vão valer.
+O resultado devolve as três contagens — apagadas, mantidas para outras lojas, preservadas por histórico — e
+a tela diz as três.
 
 ## 6. A grade do grupo de preço (`dbgPromocao`)
 
@@ -111,7 +122,8 @@ muda regra nenhuma. `USULTALTERACAO` e `DTULTIMALTERACAO` na alteração; `DTCAD
 8. com a senha certa a promoção sai **e o log é gravado** (`historico_dinamico`);
 9. a grade do grupo traz uma linha **por promoção**, não por produto;
 10. os três modos de pesquisa, com a promoção futura contando como **aberta**;
-11. o excluir-do-grupo apaga tudo dos produtos do grupo — inclusive a promoção de 2019.
+11. o excluir-do-grupo **escopado**: a promoção só desta loja é apagada, a compartilhada com a loja 2 vira
+    `;2;` e continua valendo lá, e a de 2019 fica no histórico.
 
 ## 10. O que ficou de fora
 

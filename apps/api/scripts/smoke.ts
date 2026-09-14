@@ -10817,13 +10817,23 @@ async function main() {
           && fechadas.some((x: any) => Number(x.idproacumulativa) === 990601),
           { abertas: abertas.length, fechadas: fechadas.length });
 
+        // três promoções para separar os três destinos do botão: só desta loja, compartilhada, e histórica
+        await pgPa.query(`INSERT INTO promocao_acumulativa (idproacumulativa, idproduto, qtde, desconto, idempresa, dtini, dtfim)
+          VALUES (990602,$1,2,1,';1;2;','2046-06-01 00:00','2046-06-30 23:59')`, [pr2]);
         const gDel = await fetch(`${base}/${PA}/grupo/9901?senhaOperacao=promo%232046`, { method: 'DELETE', headers: H });
         const gDelJ = (await gDel.json().catch(() => ({}))) as any;
-        const sobrou = Number((await pgPa.query(
-          `SELECT count(*)::int n FROM promocao_acumulativa WHERE idproduto = ANY($1)`, [[pr1, pr2]])).rows[0].n);
-        check('PROMOÇÃO ACUMULATIVA §106.11 [o OUTRO excluir apaga o grupo inteiro — e é de estrago largo]: `btnExcluirPromocaoClick:156` percorre a grade e roda `DELETE ... WHERE IDPRODUTO = <cada um>` **sem filtro de período e sem filtro de loja**: leva junto as promoções históricas e as de lojas onde o operador nem trabalha. Aqui vai igual, mas com senha administrativa e devolvendo o total, para a tela avisar antes de confirmar. Depois dele não sobra promoção nenhuma dos dois produtos do grupo — nem a de 2019',
-          gDel.status === 200 && Number(gDelJ.excluidas) >= 2 && sobrou === 0,
-          { resp: gDelJ, sobraram: sobrou });
+        const compart = (await pgPa.query(`SELECT idempresa FROM promocao_acumulativa WHERE idproacumulativa=990602`)).rows[0] as any;
+        const historica = Number((await pgPa.query(`SELECT count(*)::int n FROM promocao_acumulativa WHERE idproacumulativa=990601`)).rows[0].n);
+        const daLoja1 = Number((await pgPa.query(
+          `SELECT count(*)::int n FROM promocao_acumulativa WHERE idproduto = ANY($1) AND idempresa = ';1;' AND dtfim >= current_date`,
+          [[pr1, pr2]])).rows[0].n);
+        check('PROMOÇÃO ACUMULATIVA §106.11 [o excluir-do-grupo foi ESCOPADO de propósito — a única divergência da tela]: no legado `btnExcluirPromocaoClick:156` roda `DELETE ... WHERE IDPRODUTO = <cada um>` **sem filtro de período nem de loja**, e leva junto promoção de loja alheia e histórico. Duas coisas erradas: `IDEMPRESA` é uma LISTA, então apagar a linha tira o desconto de uma loja que não pediu nada; e promoção encerrada não é regra ativa, é a prova de que aquele desconto existiu. Aqui: a promoção só desta loja é **apagada**; a compartilhada com a loja 2 perde só o `;1;` e **continua valendo lá** (vira `;2;`); a de 2019 **fica**. O resultado devolve as três contagens para a tela dizer o que fez',
+          gDel.status === 200
+          // duas promoções eram `;1;2;` (esta e a de abril do produto A): as duas perdem só a loja 1
+          && String(compart?.idempresa) === ';2;' && Number(gDelJ.lojaRemovida) === 2
+          && historica === 1 && Number(gDelJ.preservadasHistoricas) >= 1
+          && daLoja1 === 0 && Number(gDelJ.excluidas) >= 1,
+          { resp: gDelJ, compartilhada: compart?.idempresa, historicaFicou: historica, daLoja1Sobraram: daLoja1 });
 
         await pgPa.query(`DELETE FROM historico_dinamico WHERE tabela='PROMOCAO_ACUMULATIVA'`);
         await pgPa.query(`DELETE FROM promocao_acumulativa WHERE idproduto = ANY($1)`, [[pr1, pr2, prI]]);

@@ -243,15 +243,26 @@ export class PromocaoAcumulativaService {
    * EXCLUIR A PROMOÇÃO DE TODO O GRUPO (`btnExcluirPromocaoClick:156`) — o outro botão, que não é o mesmo.
    *
    * O legado percorre a grade de produtos do grupo de preço e, para cada um, roda
-   * `DELETE FROM PROMOCAO_ACUMULATIVA WHERE IDPRODUTO = <o produto>`.
+   * `DELETE FROM PROMOCAO_ACUMULATIVA WHERE IDPRODUTO = <o produto>` — **sem filtro de período e sem filtro
+   * de loja**. Apaga todas as promoções daqueles produtos, de qualquer data e de qualquer loja.
    *
-   * ⚠️ **sem filtro de período e sem filtro de loja**: apaga TODAS as promoções daquele produto, de qualquer
-   * data e de qualquer loja — inclusive as históricas e as de lojas onde o operador nem trabalha. É um botão
-   * de estrago largo, e é assim no legado. Mantido igual, com a mesma senha administrativa do outro excluir
-   * e com o total devolvido, para a tela poder dizer quantas linhas foram embora antes de confirmar.
+   * ── ⚠️ DIVERGÊNCIA DELIBERADA (decidida com o usuário em 14/09/2026) ─────────────────────────────────
+   * Este é o único ponto da tela em que **não** copiamos o legado, e por dois motivos concretos:
+   *
+   *  · **loja alheia** — `IDEMPRESA` é uma lista (`;1;2;`). Uma promoção da loja 1 **e** da 2 sendo apagada
+   *    por quem está operando a loja 1 tira o desconto da loja 2, que não pediu nada e não vai saber por
+   *    quê. Aqui a loja da sessão é **removida da lista**; a linha só é apagada quando fica sem nenhuma
+   *    loja. Quem opera a 1 mexe na 1.
+   *  · **histórico** — promoção com término no passado é registro do que a loja fez, não regra ativa.
+   *    Apagá-la não muda preço nenhum e destrói a única prova de que aquele desconto existiu. Fica.
+   *
+   * O que sobra é exatamente o que o operador quis: as promoções **da sua loja** que ainda valem ou vão
+   * valer. O resultado devolve as três contagens separadas para a tela poder dizer o que fez.
    */
-  async excluirGrupo(codgrupopreco: number, senhaOperacao?: string | null): Promise<{ excluidas: number; produtos: number[] }> {
-    this.emp();
+  async excluirGrupo(codgrupopreco: number, senhaOperacao?: string | null): Promise<{
+    excluidas: number; lojaRemovida: number; preservadasHistoricas: number; produtos: number[];
+  }> {
+    const emp = this.emp();
     if (!(codgrupopreco > 0)) throw new BusinessRuleError('PROMO_GRUPO_INVALIDO', { codgrupopreco });
     if (!senhaOperacao) throw new BusinessRuleError('SENHA_OPERACAO_REQUERIDA', { tipo: 'admin' });
     const { ok } = await this.senhaOp.verificar('admin', senhaOperacao);
@@ -262,12 +273,39 @@ export class PromocaoAcumulativaService {
       const alvos = (await sql<{ idproduto: number }>`
         SELECT idproduto FROM produtos WHERE codgrupopreco = ${codgrupopreco}
       `.execute(trx)).rows.map((x) => Number(x.idproduto));
-      if (alvos.length === 0) return { excluidas: 0, produtos: [] };
-      const apagadas = (await sql<{ idproacumulativa: number }>`
-        DELETE FROM promocao_acumulativa WHERE idproduto = ANY(${alvos}) RETURNING idproacumulativa
+      if (alvos.length === 0) return { excluidas: 0, lojaRemovida: 0, preservadasHistoricas: 0, produtos: [] };
+
+      const linhas = (await sql<{ idproacumulativa: number; idempresa: string; historica: boolean }>`
+        SELECT idproacumulativa, coalesce(idempresa, '') AS idempresa, (dtfim < current_date) AS historica
+          FROM promocao_acumulativa
+         WHERE idproduto = ANY(${alvos})
       `.execute(trx)).rows;
-      for (const a of apagadas) await this.log(trx, Number(a.idproacumulativa));
-      return { excluidas: apagadas.length, produtos: alvos };
+
+      let excluidas = 0;
+      let lojaRemovida = 0;
+      let preservadasHistoricas = 0;
+      for (const l of linhas) {
+        // histórico não se apaga: a promoção já terminou e não muda preço nenhum
+        if (l.historica) { preservadasHistoricas += 1; continue; }
+        // só mexe no que é da loja da sessão
+        if (!String(l.idempresa).includes(`;${emp};`)) continue;
+        const restantes = String(l.idempresa).split(';').map((x) => x.trim())
+          .filter((x) => x !== '' && Number(x) !== emp).map(Number);
+        if (restantes.length === 0) {
+          await sql`DELETE FROM promocao_acumulativa WHERE idproacumulativa = ${l.idproacumulativa}`.execute(trx);
+          await this.log(trx, Number(l.idproacumulativa));
+          excluidas += 1;
+        } else {
+          await sql`
+            UPDATE promocao_acumulativa
+               SET idempresa = ${this.listaEmpresas(restantes)},
+                   usultalteracao = ${currentTenant().operadorId ?? null}, dtultimalteracao = now()
+             WHERE idproacumulativa = ${l.idproacumulativa}
+          `.execute(trx);
+          lojaRemovida += 1;
+        }
+      }
+      return { excluidas, lojaRemovida, preservadasHistoricas, produtos: alvos };
     });
   }
 

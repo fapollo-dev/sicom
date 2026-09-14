@@ -124,24 +124,29 @@ export function PromocaoAcumulativaPage() {
   };
 
   /**
-   * O OUTRO excluir (`btnExcluirPromocaoClick:156`): apaga a promoção de **todos** os produtos do grupo de
-   * preço. O legado faz `DELETE ... WHERE IDPRODUTO = <cada um da grade>` — sem filtro de data nem de loja,
-   * então leva junto promoções históricas e de outras lojas. Aqui o aviso diz isso antes de confirmar.
+   * O OUTRO excluir (`btnExcluirPromocaoClick:156`): encerra a promoção dos produtos do grupo de preço.
+   *
+   * O legado faz `DELETE ... WHERE IDPRODUTO = <cada um da grade>`, sem filtro de data nem de loja. Aqui o
+   * alcance é o que o operador realmente quis: **a loja dele** e o que **ainda vale**. Promoção
+   * compartilhada com outra loja perde só esta loja da lista; promoção já encerrada fica no histórico.
    */
   const excluirGrupo = async () => {
     const cod = Number(doGrupo[0]?.codgrupopreco ?? 0);
     if (!(cod > 0)) return;
     const comPromo = doGrupo.filter((x) => x.idproacumulativa != null).length;
     if (!window.confirm(
-      `Excluir a promoção de TODOS os ${doGrupo.length} produtos do grupo de preço ${cod}?\n\n`
-      + `${comPromo} deles têm promoção hoje. Atenção: isto apaga TODAS as promoções desses produtos — `
-      + 'de qualquer período e de qualquer loja, inclusive as já encerradas.')) return;
+      `Encerrar a promoção dos produtos do grupo de preço ${cod} NESTA LOJA?\n\n`
+      + `${comPromo} promoção(ões) listada(s). Serão retiradas apenas as desta loja e que ainda valem — `
+      + 'as de outras lojas continuam, e as já encerradas ficam no histórico.')) return;
     const senha = window.prompt('Senha administrativa para excluir as promoções do grupo:');
     if (!senha) return;
     setOcupado(true);
     try {
-      const r = await chamar(`cadastro/promocao-acumulativa/grupo/${cod}?senhaOperacao=${encodeURIComponent(senha)}`, { method: 'DELETE' });
-      mensagem.sucesso(`${(r as any).excluidas} promoção(ões) excluída(s).`);
+      const r = (await chamar(`cadastro/promocao-acumulativa/grupo/${cod}?senhaOperacao=${encodeURIComponent(senha)}`, { method: 'DELETE' })) as any;
+      const partes = [`${r.excluidas} promoção(ões) excluída(s)`];
+      if (r.lojaRemovida > 0) partes.push(`${r.lojaRemovida} mantida(s) para as outras lojas`);
+      if (r.preservadasHistoricas > 0) partes.push(`${r.preservadasHistoricas} já encerrada(s), preservada(s) no histórico`);
+      mensagem.sucesso(`${partes.join(' · ')}.`);
       setDoGrupo([]);
       await carregar();
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
