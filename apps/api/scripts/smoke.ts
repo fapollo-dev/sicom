@@ -10844,6 +10844,78 @@ async function main() {
       }
     }
 
+    // ===== §107) CONFERÊNCIA DE NF × INDEXADOR TRIBUTÁRIO (FRMCONFERENCIANFINDEXADOR) — o que o sistema
+    // calculou contra o que veio no XML, item a item. 165 acessos. ====
+    {
+      const CI = 'fiscal/conferencia-nf-indexador';
+      const pgCi = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const prC = Number((await pgCi.query(`INSERT INTO produtos (codbarra, descricao, unidade, codfor, aliquota)
+          VALUES ('7009000005555','PROD CONFERENCIA','UN',2,'T01') RETURNING idproduto`)).rows[0].idproduto);
+        const nfC = Number((await pgCi.query(
+          `INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, dtimportacao, codparceiro, proc, cancelada, totalnf, cfop)
+           VALUES (1,'E',55,'1','996001','2047-05-10','2047-05-10','2047-05-12',2,'N','N',500,'1102') RETURNING codnf`)).rows[0].codnf);
+
+        // item 1 — BATE: qtde 10 × custo 10,00 = 100,00; IPI 10% sobre a base líquida (100 − 20 = 80) = 8,00
+        await pgCi.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, vrdescprod, ipi, fatorembal, aliquota, cst,
+                            total_produto_nota, qtd_nota, ipi_nota, desconto_nota, cst_nota, cfop_original, icms_aliq_nota)
+          VALUES ($1,$2,10,10.00,20.00,10,1,'T01',60, 100.00,10, 8.00, 20.00, 60, 1102, 18)`, [nfC, prC]);
+        // item 2 — DIVERGE no CST e no total: sistema 50,00, nota 55,00; CST 60 contra 00
+        await pgCi.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, vrdescprod, fatorembal, aliquota, cst,
+                            total_produto_nota, qtd_nota, cst_nota, cfop_original)
+          VALUES ($1,$2,5,10.00,0,1,'T01',60, 55.00,5, 0, 1102)`, [nfC, prC]);
+        // item 3 — QUANTIDADE ZERO: no legado a divisão sem proteção faz a linha inteira virar NULL e SUMIR
+        await pgCi.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, vrdescprod, frete, fatorembal, aliquota, cst,
+                            total_produto_nota, qtd_nota, desconto_nota, cst_nota, cfop_original)
+          VALUES ($1,$2,0,10.00,5.00,2,1,'T01',60, 0,0, 5.00, 60, 1102)`, [nfC, prC]);
+
+        const r1 = await fetch(`${base}/${CI}?dataIni=2047-05-01&dataFim=2047-05-31`, { headers: H });
+        const j1 = (await r1.json().catch(() => ({}))) as any;
+        const todos = (j1.linhas ?? []) as any[];
+        const bate = todos.find((l: any) => Math.abs(Number(l.total_sistema) - 100) < 0.01);
+        const diverge = todos.find((l: any) => Math.abs(Number(l.total_sistema) - 50) < 0.01);
+        const qtdZero = todos.find((l: any) => Number(l.quantidade) === 0);
+
+        check('CONFERÊNCIA NF §107.1 [o lado SISTEMA é derivado, não lido]: as colunas de encargo em `nf_prod` são PERCENTUAIS, e o legado as aplica sobre a base LÍQUIDA do item — `QUANTIDADE × (VRCUSTO − VRDESCPROD/QUANTIDADE)`. Com 10 × 10,00 e 20,00 de desconto a base é 80,00, e o IPI de 10% dá **8,00** — que é exatamente o que veio na nota. Aplicar o percentual sobre o bruto (100,00) daria 10,00 e inventaria uma divergência que não existe',
+          r1.status === 200 && !!bate && Math.abs(Number(bate.ipi) - 8) < 0.005
+          && bate.divergente === false,
+          { item: bate && { total: bate.total_sistema, ipi: bate.ipi, ipi_nota: bate.ipi_nota, divergente: bate.divergente } });
+
+        check('CONFERÊNCIA NF §107.2 [as divergências vêm marcadas uma a uma]: o item com total 50,00 no sistema e 55,00 na nota, e CST 60 contra 00, sai com as DUAS marcas — a tela pinta coluna a coluna, não a linha inteira, porque o conferente precisa saber O QUE diverge para saber a quem ligar',
+          !!diverge && diverge.divergente === true
+          && (diverge.divergencias ?? []).includes('total') && (diverge.divergencias ?? []).includes('cst')
+          && Math.abs(Number(diverge.divergencia_valor) - 5) < 0.005,
+          { divergencias: diverge?.divergencias, valor: diverge?.divergencia_valor });
+
+        check('CONFERÊNCIA NF §107.3 [quantidade ZERO não pode fazer o item sumir]: o legado divide `VRDESCPROD / QUANTIDADE` sem proteção — com quantidade zero a expressão inteira vira NULL e a linha **desaparece da conferência**, que é o pior lugar possível para uma linha sumir. Em produção há 4 itens assim. Aqui o item aparece, com o encargo em zero, e o conferente decide o que fazer com ele',
+          !!qtdZero && Number(qtdZero.frete) === 0,
+          { itemQtdeZero: qtdZero && { qtde: qtdZero.quantidade, frete: qtdZero.frete, total: qtdZero.total_sistema } });
+
+        // TOTAL_PRODUTO_NOTA e QTD_NOTA zerados: o legado assume o valor do sistema
+        check('CONFERÊNCIA NF §107.4 [os defaults que evitam falso alarme]: `TOTAL_PRODUTO_NOTA` zerado vale `QUANTIDADE × VRCUSTO` e `QTD_NOTA` zerada vale `QUANTIDADE` (`:70-95`) — nota antiga, importada antes de a coluna existir, apareceria como divergência de 100% se o legado não fizesse isso. O item de quantidade zero, sem total na nota, não é marcado como divergente de valor',
+          !!qtdZero && !(qtdZero.divergencias ?? []).includes('total'),
+          { divergencias: qtdZero?.divergencias });
+
+        const soDiv = (await (await fetch(`${base}/${CI}?dataIni=2047-05-01&dataFim=2047-05-31&somenteDivergentes=true`, { headers: H })).json().catch(() => ({}))) as any;
+        const semProc = (await (await fetch(`${base}/${CI}?dataIni=2047-05-01&dataFim=2047-05-31&incluirProcessadas=true`, { headers: H })).json().catch(() => ({}))) as any;
+        await pgCi.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfC]);
+        const semProc2 = (await (await fetch(`${base}/${CI}?dataIni=2047-05-01&dataFim=2047-05-31`, { headers: H })).json().catch(() => ({}))) as any;
+        const dataInv = await fetch(`${base}/${CI}?dataIni=2047-05-31&dataFim=2047-05-01`, { headers: H });
+        check('CONFERÊNCIA NF §107.5 [os filtros do legado]: "só o que diverge" reduz a 1 item; as caixas "notas processadas" e "notas canceladas" são de INCLUSÃO — desmarcadas, escondem, então depois de a nota virar processada ela some da lista padrão; e data invertida é recusada com mensagem',
+          Number(soDiv.totais?.itens) === 1 && Number(soDiv.totais?.divergentes) === 1
+          && Number(semProc.totais?.itens) === 3
+          && Number(semProc2.totais?.itens ?? 0) === 0
+          && dataInv.status >= 400,
+          { soDivergentes: soDiv.totais, comProcessadas: semProc.totais, semProcessadas: semProc2.totais, dataInvertida: dataInv.status });
+
+        await pgCi.query(`DELETE FROM nf_prod WHERE codnf=$1`, [nfC]);
+        await pgCi.query(`DELETE FROM nf WHERE codnf=$1`, [nfC]);
+        await pgCi.query(`DELETE FROM produtos WHERE idproduto=$1`, [prC]);
+      } finally {
+        await pgCi.end();
+      }
+    }
+
     // ===== §104) PRECIFICAÇÃO DE NF (FRMPRECIFICACAONF) — onde o preço de venda NASCE quando a mercadoria
     // chega. 236 acessos, 17 operadores; o usuário classificou como "de extrema importância e grande
     // influência". Ela NÃO altera preço: enfileira lote de preço. ====

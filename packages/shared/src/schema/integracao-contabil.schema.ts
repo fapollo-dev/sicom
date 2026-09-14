@@ -274,3 +274,21 @@ export const promocaoAcumulativaSchema = z.object({
   usarGrupoPreco: z.coerce.boolean().optional(),
 });
 export type PromocaoAcumulativaDto = z.infer<typeof promocaoAcumulativaSchema>;
+
+/**
+ * CONFERÊNCIA NF × INDEXADOR (`FRMCONFERENCIANFINDEXADOR`). As duas caixas de nota são de INCLUSÃO:
+ * desmarcadas, escondem as processadas e as canceladas.
+ */
+export const conferenciaNfIndexadorSchema = z.object({
+  dataIni: dataISO,
+  dataFim: dataISO,
+  tipo: z.enum(['E', 'S']).nullish(),
+  nronf: z.string().max(20).nullish(),
+  codparceiro: z.coerce.number().int().positive().nullish(),
+  /** o legado aceita descrição OU código de barras no mesmo campo ("Código ou Cód. Barra"). */
+  produto: z.string().max(150).nullish(),
+  incluirProcessadas: z.coerce.boolean().optional(),
+  incluirCanceladas: z.coerce.boolean().optional(),
+  somenteDivergentes: z.coerce.boolean().optional(),
+});
+export type ConferenciaNfIndexadorDto = z.infer<typeof conferenciaNfIndexadorSchema>;

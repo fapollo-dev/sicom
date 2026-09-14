@@ -17738,6 +17738,13 @@
      "escala": 2,
      "nulo": true,
      "default": null
+    },
+    "dtimportacao": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -18454,6 +18461,139 @@
      "tipo": "numeric",
      "tam": 13,
      "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "total_produto_nota": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "qtd_nota": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "ipi_nota": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "ipi_devolucao_nota": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "seguro_nota": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "frete_nota": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "desconto_nota": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "outras_despesas_nota": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "icms_aliq_nota": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "icms_nota_valor": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "icms_nota_bc": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "icms_red_bc_nota": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "icms_st_aliq_nota": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "icms_st_bc_nota": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "icms_st_nota": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "icms_st_red_bc_nota": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "cst_nota": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "cfop_original": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "mva_ajustado": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
      "nulo": true,
      "default": null
     }

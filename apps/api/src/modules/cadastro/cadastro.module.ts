@@ -31,6 +31,8 @@ import { AjustePrecosController } from './ajuste-precos.controller';
 import { AjustePrecosService } from './ajuste-precos.service';
 import { OperadorasAggregateController } from './operadoras.aggregate';
 import { CartaoCrudController } from './cartao.crud';
+import { ConferenciaNfIndexadorController } from './conferencia-nf-indexador.controller';
+import { ConferenciaNfIndexadorService } from './conferencia-nf-indexador.service';
 import { PromocaoAcumulativaController } from './promocao-acumulativa.controller';
 import { PromocaoAcumulativaService } from './promocao-acumulativa.service';
 import { LancamentosContabeisController } from './lancamentos-contabeis.controller';
@@ -165,7 +167,9 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     CartaoCrudController, // CARTÕES: recebível (consulta/cadastro; líquido+vencimento computados na view get_cartao)
     LancamentosContabeisController,
     // FRMCADPROMOCAOACUMULATIVA — leve N, pague menos (199 acessos, 26 operadores).
-    PromocaoAcumulativaController, // FRMRELLANCAMENTOSCONTABEIS — o razão por lançamento, com a origem pelo nome
+    PromocaoAcumulativaController,
+    // FRMCONFERENCIANFINDEXADOR — sistema × XML, item a item (165 acessos).
+    ConferenciaNfIndexadorController, // FRMRELLANCAMENTOSCONTABEIS — o razão por lançamento, com a origem pelo nome
     NfAnaliseController, // FRMNFANALISE — análise de notas (tributária + conferência)
     CartaoBaixaController, // CARTÕES corte-2: baixa/liquidação em lote (credita mov_contas_bancarias) + estorno
     ConciliacaoBancariaController, // CONCILIAÇÃO BANCÁRIA (OFX): importar extrato + conciliar vs mov_contas_bancarias
@@ -211,7 +215,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     ExportaBalancaService,
     AjustePrecosService,
     TrocaService,
-    CartaoBaixaService, NfAnaliseService, LancamentosContabeisService, PromocaoAcumulativaService,
+    CartaoBaixaService, NfAnaliseService, LancamentosContabeisService, PromocaoAcumulativaService, ConferenciaNfIndexadorService,
     ConciliacaoBancariaService,
     AgendaPromocaoService,
     PerfilRelacaoService,
