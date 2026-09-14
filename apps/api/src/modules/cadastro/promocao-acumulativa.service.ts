@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { SenhaOperacaoService } from './senha-operacao.service';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -34,7 +35,10 @@ const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
  */
 @Injectable()
 export class PromocaoAcumulativaService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly senhaOp: SenhaOperacaoService,
+  ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -51,7 +55,12 @@ export class PromocaoAcumulativaService {
     return s;
   }
 
-  async listar(f: { descricao?: string | null; vigentes?: boolean }): Promise<Array<Record<string, unknown>>> {
+  /**
+   * A pesquisa da tela abre um diálogo com **três** opções (`ChamaTelaOpcoes:254`), e o critério não é o que
+   * se imagina: **"aberta" é `DTFIM >= hoje`**, não "vigente agora". Uma promoção que só começa semana que
+   * vem conta como aberta, e é isso que o operador espera ao montar a agenda de promoções.
+   */
+  async listar(f: { descricao?: string | null; situacao?: 'ABERTAS' | 'FECHADAS' | 'TODAS' | null }): Promise<Array<Record<string, unknown>>> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
     const onde = [
@@ -59,7 +68,9 @@ export class PromocaoAcumulativaService {
       sql`coalesce(p.idempresa, '') LIKE ${`%;${emp};%`}`,
     ];
     if (f.descricao) onde.push(sql`pr.descricao ILIKE ${`%${f.descricao}%`}`);
-    if (f.vigentes) onde.push(sql`now() BETWEEN p.dtini AND p.dtfim`);
+    // `FIM >= TRUNC(SYSDATE)` / `FIM < TRUNC(SYSDATE)` — as duas do legado, literais
+    if (f.situacao === 'ABERTAS') onde.push(sql`p.dtfim >= current_date`);
+    else if (f.situacao === 'FECHADAS') onde.push(sql`p.dtfim < current_date`);
     return (await sql<Record<string, unknown>>`
       SELECT p.idproacumulativa, p.idproduto, pr.descricao, pr.codbarra,
              p.qtde, p.desconto, p.idempresa, p.dtini, p.dtfim,
@@ -73,6 +84,30 @@ export class PromocaoAcumulativaService {
         LEFT JOIN familias_prod f  ON f.codfamilia = pr.codgrupopreco AND f.tipo = 'P'
        WHERE ${sql.join(onde, sql` AND `)}
        ORDER BY p.dtini DESC, p.idproacumulativa DESC
+       LIMIT 501
+    `.execute(db)).rows;
+  }
+
+  /**
+   * A GRADE `dbgPromocao` (`dtsProdutosPromocao`): quando o produto tem grupo de preço, a tela lista **todos
+   * os produtos do grupo** com a promoção de cada um. É essa lista que o botão "excluir promoção" varre.
+   *
+   * O `LEFT JOIN` do legado parte de `PRODUTOS` — então aparecem também os irmãos **sem** promoção, com as
+   * colunas de promoção vazias. É o que deixa o operador ver o grupo inteiro antes de decidir.
+   */
+  async produtosDoGrupo(codgrupopreco: number): Promise<Array<Record<string, unknown>>> {
+    this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    if (!(codgrupopreco > 0)) return [];
+    return (await sql<Record<string, unknown>>`
+      SELECT pp.idproduto, pp.descricao, pp.codgrupopreco,
+             p.idproacumulativa, p.dtini, p.dtfim, p.idempresa,
+             f.descricao AS desc_grupo
+        FROM produtos pp
+        LEFT JOIN promocao_acumulativa p ON p.idproduto = pp.idproduto
+        LEFT JOIN familias_prod f ON f.codfamilia = pp.codgrupopreco AND f.tipo = 'P'
+       WHERE pp.codgrupopreco = ${codgrupopreco}
+       ORDER BY pp.descricao
        LIMIT 501
     `.execute(db)).rows;
   }
@@ -179,14 +214,80 @@ export class PromocaoAcumulativaService {
     });
   }
 
-  /** excluir a promoção inteira (`btnExcluirPromocaoClick:156`). */
-  async excluir(id: number): Promise<{ excluida: number }> {
+  /**
+   * EXCLUIR uma promoção (`btnExcluirClick:130`).
+   *
+   * ⚠️ **exige SENHA ADMINISTRATIVA** — o legado abre `dmPrincipal.SenhaAdministrativa('ADM')` **antes** de
+   * qualquer coisa e sai se não passar. É a única operação da tela com essa trava, e faz sentido: apagar a
+   * promoção some com o desconto que a loja está anunciando.
+   *
+   * E grava **log de exclusão** com histórico em texto (`:145`), no formato do legado — quem apagou, quando,
+   * e qual promoção.
+   */
+  async excluir(id: number, senhaOperacao?: string | null): Promise<{ excluida: number }> {
     this.emp();
+    if (!senhaOperacao) throw new BusinessRuleError('SENHA_OPERACAO_REQUERIDA', { tipo: 'admin' });
+    const { ok } = await this.senhaOp.verificar('admin', senhaOperacao);
+    if (!ok) throw new BusinessRuleError('SENHA_OPERACAO_INVALIDA', { tipo: 'admin' });
+
     const db = this.dbp.forTenant() as AnyDB;
     const r = (await sql<{ idproacumulativa: number }>`
       DELETE FROM promocao_acumulativa WHERE idproacumulativa = ${id} RETURNING idproacumulativa
     `.execute(db)).rows[0];
     if (!r) throw new BusinessRuleError('PROMO_NAO_ENCONTRADA', { idproacumulativa: id });
+    await this.log(db, r.idproacumulativa);
     return { excluida: r.idproacumulativa };
+  }
+
+  /**
+   * EXCLUIR A PROMOÇÃO DE TODO O GRUPO (`btnExcluirPromocaoClick:156`) — o outro botão, que não é o mesmo.
+   *
+   * O legado percorre a grade de produtos do grupo de preço e, para cada um, roda
+   * `DELETE FROM PROMOCAO_ACUMULATIVA WHERE IDPRODUTO = <o produto>`.
+   *
+   * ⚠️ **sem filtro de período e sem filtro de loja**: apaga TODAS as promoções daquele produto, de qualquer
+   * data e de qualquer loja — inclusive as históricas e as de lojas onde o operador nem trabalha. É um botão
+   * de estrago largo, e é assim no legado. Mantido igual, com a mesma senha administrativa do outro excluir
+   * e com o total devolvido, para a tela poder dizer quantas linhas foram embora antes de confirmar.
+   */
+  async excluirGrupo(codgrupopreco: number, senhaOperacao?: string | null): Promise<{ excluidas: number; produtos: number[] }> {
+    this.emp();
+    if (!(codgrupopreco > 0)) throw new BusinessRuleError('PROMO_GRUPO_INVALIDO', { codgrupopreco });
+    if (!senhaOperacao) throw new BusinessRuleError('SENHA_OPERACAO_REQUERIDA', { tipo: 'admin' });
+    const { ok } = await this.senhaOp.verificar('admin', senhaOperacao);
+    if (!ok) throw new BusinessRuleError('SENHA_OPERACAO_INVALIDA', { tipo: 'admin' });
+
+    const db = this.dbp.forTenant() as AnyDB;
+    return db.transaction().execute(async (trx: AnyDB) => {
+      const alvos = (await sql<{ idproduto: number }>`
+        SELECT idproduto FROM produtos WHERE codgrupopreco = ${codgrupopreco}
+      `.execute(trx)).rows.map((x) => Number(x.idproduto));
+      if (alvos.length === 0) return { excluidas: 0, produtos: [] };
+      const apagadas = (await sql<{ idproacumulativa: number }>`
+        DELETE FROM promocao_acumulativa WHERE idproduto = ANY(${alvos}) RETURNING idproacumulativa
+      `.execute(trx)).rows;
+      for (const a of apagadas) await this.log(trx, Number(a.idproacumulativa));
+      return { excluidas: apagadas.length, produtos: alvos };
+    });
+  }
+
+  /**
+   * O log de exclusão (`btnExcluirClick:145`). O legado monta um `TRecLog` com ação, formulário, tabela,
+   * chave, operador, data e um histórico em texto; a tabela genérica que já existe no destino com esses
+   * mesmos campos é a `historico_dinamico` — a mesma que o mecanismo de preço pai/filho usa.
+   */
+  private async log(db: AnyDB, id: number): Promise<void> {
+    const op = currentTenant().operadorId ?? null;
+    const emp = currentTenant().empresaId ?? null;
+    await sql`
+      INSERT INTO historico_dinamico
+             (codhistorico, campo, valor_anterior, valor_atual, tabela, data, codoperador, codempresa,
+              chave, valor_chave, historico, origem)
+      VALUES ((SELECT coalesce(max(codhistorico), 0) + 1 FROM historico_dinamico),
+              'IDPROACUMULATIVA', ${String(id)}, NULL, 'PROMOCAO_ACUMULATIVA', now(), ${op}, ${emp},
+              'IDPROACUMULATIVA', ${String(id)},
+              ${`Promoção acumulativa ${id} foi excluída pelo operador ${op ?? ''}.`},
+              'Promoção Acumulativa')
+    `.execute(db);
   }
 }

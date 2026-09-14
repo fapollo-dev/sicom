@@ -10766,16 +10766,66 @@ async function main() {
           && inativo.status === 422 && String(inativo.j.code) === 'PRODUTO_INATIVO_OU_INEXISTENTE',
           { qtde: semQtde.status, desconto: semDesc.status, loja: semLoja.status, periodo: fimIgual.j?.code, inativo: inativo.j?.code });
 
+        // a senha administrativa da empresa, usada pelas duas exclusões daqui para baixo
+        await fetch(`${base}/cadastro/senha-operacao`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'admin', senha: 'promo#2046' }) });
+
         const listaR = await fetch(`${base}/${PA}`, { headers: H });
         const listaJ = (await listaR.json().catch(() => ([]))) as any[];
         const daLoja51 = listaJ.some((x: any) => String(x.idempresa) === ';51;');
-        const del = await fetch(`${base}/${PA}/${ok1.j.idproacumulativa}`, { method: 'DELETE', headers: H });
+        const del = await fetch(`${base}/${PA}/${ok1.j.idproacumulativa}?senhaOperacao=promo%232046`, { method: 'DELETE', headers: H });
         const sumiu = Number((await pgPa.query(`SELECT count(*)::int n FROM promocao_acumulativa WHERE idproacumulativa=$1`, [ok1.j.idproacumulativa])).rows[0].n);
         check('PROMOÇÃO ACUMULATIVA §106.6 [a lista é da LOJA da sessão, e a exclusão apaga a promoção]: a listagem procura `;1;` dentro da string, então a promoção que só existe na loja 51 não aparece para quem está na 1 — e o botão de excluir remove a promoção inteira (`btnExcluirPromocaoClick:156`)',
           listaR.status === 200 && listaJ.length > 0 && !daLoja51
           && del.status === 200 && sumiu === 0,
           { naLista: listaJ.length, apareceuA51: daLoja51, delete: del.status });
 
+        // ── o que faltava na primeira passada: senha administrativa, o grupo, e a pesquisa em 3 modos ──
+        const semSenha = await fetch(`${base}/${PA}/${(await post({ ...baseProm, idproduto: pr2, dtini: '2048-01-01T00:00', dtfim: '2048-01-10T00:00', empresas: [1] })).j.idproacumulativa}`, { method: 'DELETE', headers: H });
+        const semSenhaJ = (await semSenha.json().catch(() => ({}))) as any;
+        check('PROMOÇÃO ACUMULATIVA §106.7 [excluir pede SENHA ADMINISTRATIVA]: o legado abre `dmPrincipal.SenhaAdministrativa(ADM)` ANTES de qualquer coisa e sai se não passar (`btnExcluirClick:130`) — é a única operação da tela com essa trava, e faz sentido: apagar a promoção some com o desconto que a loja está anunciando. Sem a senha, a exclusão é recusada',
+          semSenha.status === 422 && String(semSenhaJ.code) === 'SENHA_OPERACAO_REQUERIDA',
+          { resp: semSenhaJ });
+
+        const promoDel = await post({ ...baseProm, idproduto: pr2, dtini: '2049-01-01T00:00', dtfim: '2049-01-10T00:00', empresas: [1] });
+        const comSenha = await fetch(`${base}/${PA}/${promoDel.j.idproacumulativa}?senhaOperacao=promo%232046`, { method: 'DELETE', headers: H });
+        const logDel = (await pgPa.query(
+          `SELECT historico, tabela, codoperador FROM historico_dinamico WHERE tabela='PROMOCAO_ACUMULATIVA' AND valor_chave=$1`,
+          [String(promoDel.j.idproacumulativa)])).rows[0] as any;
+        check('PROMOÇÃO ACUMULATIVA §106.8 [e grava LOG de exclusão]: com a senha certa a promoção sai, e o legado registra um histórico em texto — quem apagou, o quê e quando (`:145`). No destino isso vai para `historico_dinamico`, a mesma tabela genérica que o mecanismo de preço pai/filho usa',
+          comSenha.status === 200 && !!logDel
+          && String(logDel.historico).includes(`Promoção acumulativa ${promoDel.j.idproacumulativa} foi excluída`)
+          && Number(logDel.codoperador) === 7,
+          { delete: comSenha.status, log: logDel });
+
+        const grupoR = await fetch(`${base}/${PA}/grupo/9901`, { headers: H });
+        const grupoJ = (await grupoR.json().catch(() => ([]))) as any[];
+        check('PROMOÇÃO ACUMULATIVA §106.9 [a grade do grupo é UMA LINHA POR PROMOÇÃO, não por produto]: `dbgPromocao` parte de PRODUTOS com LEFT JOIN na promoção (`sqqProdutosPromocao`), e o join MULTIPLICA — um produto com três promoções aparece três vezes. Não é defeito: é o que deixa o operador ver, antes de apertar o botão de excluir do grupo, todas as promoções que vão embora. Neste ponto o produto A tem 2 promoções (a terceira saiu em §106.6) e aparece 2 vezes; o B tem 1',
+          grupoR.status === 200
+          && grupoJ.filter((x: any) => Number(x.idproduto) === pr1).length === 2
+          && grupoJ.filter((x: any) => Number(x.idproduto) === pr2).length === 1
+          && new Set(grupoJ.map((x: any) => Number(x.idproduto))).size === 2,
+          { linhas: grupoJ.length, produtos: grupoJ.map((x: any) => ({ id: x.idproduto, promo: x.idproacumulativa })) });
+
+        // uma promoção ANTIGA e uma FUTURA, para separar "aberta" de "vigente"
+        await pgPa.query(`INSERT INTO promocao_acumulativa (idproacumulativa, idproduto, qtde, desconto, idempresa, dtini, dtfim)
+          VALUES (990601,$1,2,1,';1;','2019-01-01 00:00','2019-01-31 23:59')`, [pr2]);
+        const abertas = (await (await fetch(`${base}/${PA}?situacao=ABERTAS`, { headers: H })).json().catch(() => ([]))) as any[];
+        const fechadas = (await (await fetch(`${base}/${PA}?situacao=FECHADAS`, { headers: H })).json().catch(() => ([]))) as any[];
+        check('PROMOÇÃO ACUMULATIVA §106.10 [a pesquisa tem TRÊS modos, e "aberta" não é "vigente"]: o diálogo do legado oferece abertas / fechadas / todas (`ChamaTelaOpcoes:254`), e o critério de aberta é `FIM >= TRUNC(SYSDATE)` — a promoção de 2046, que ainda nem começou, conta como ABERTA; a de 2019 é fechada. Chamar isso de "vigente" excluiria a agenda futura, que é justamente o que o operador monta nesta tela',
+          abertas.some((x: any) => String(x.dtini).startsWith('2046'))
+          && !abertas.some((x: any) => Number(x.idproacumulativa) === 990601)
+          && fechadas.some((x: any) => Number(x.idproacumulativa) === 990601),
+          { abertas: abertas.length, fechadas: fechadas.length });
+
+        const gDel = await fetch(`${base}/${PA}/grupo/9901?senhaOperacao=promo%232046`, { method: 'DELETE', headers: H });
+        const gDelJ = (await gDel.json().catch(() => ({}))) as any;
+        const sobrou = Number((await pgPa.query(
+          `SELECT count(*)::int n FROM promocao_acumulativa WHERE idproduto = ANY($1)`, [[pr1, pr2]])).rows[0].n);
+        check('PROMOÇÃO ACUMULATIVA §106.11 [o OUTRO excluir apaga o grupo inteiro — e é de estrago largo]: `btnExcluirPromocaoClick:156` percorre a grade e roda `DELETE ... WHERE IDPRODUTO = <cada um>` **sem filtro de período e sem filtro de loja**: leva junto as promoções históricas e as de lojas onde o operador nem trabalha. Aqui vai igual, mas com senha administrativa e devolvendo o total, para a tela avisar antes de confirmar. Depois dele não sobra promoção nenhuma dos dois produtos do grupo — nem a de 2019',
+          gDel.status === 200 && Number(gDelJ.excluidas) >= 2 && sobrou === 0,
+          { resp: gDelJ, sobraram: sobrou });
+
+        await pgPa.query(`DELETE FROM historico_dinamico WHERE tabela='PROMOCAO_ACUMULATIVA'`);
         await pgPa.query(`DELETE FROM promocao_acumulativa WHERE idproduto = ANY($1)`, [[pr1, pr2, prI]]);
         await pgPa.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[pr1, pr2, prI]]);
         await pgPa.query(`DELETE FROM familias_prod WHERE codfamilia=9901`);

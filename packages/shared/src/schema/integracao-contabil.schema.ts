@@ -247,7 +247,11 @@ export type RelComprasDto = z.infer<typeof relComprasSchema>;
 /** PROMOÇÃO ACUMULATIVA (`FRMCADPROMOCAOACUMULATIVA`) — o filtro da lista. */
 export const promocaoAcumulativaFiltroSchema = z.object({
   descricao: z.string().max(150).nullish(),
-  vigentes: z.coerce.boolean().optional(),
+  /**
+   * As três opções do diálogo de pesquisa (`ChamaTelaOpcoes:254`). ⚠️ "aberta" no legado é `DTFIM >= hoje`
+   * — inclui a que ainda nem começou —, e não "vigente agora".
+   */
+  situacao: z.enum(['ABERTAS', 'FECHADAS', 'TODAS']).nullish(),
 });
 export type PromocaoAcumulativaFiltroDto = z.infer<typeof promocaoAcumulativaFiltroSchema>;
 

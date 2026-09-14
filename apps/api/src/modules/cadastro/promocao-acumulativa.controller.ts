@@ -15,7 +15,7 @@ export class PromocaoAcumulativaController {
   @Get()
   @RequerAcesso('FRMCADPROMOCAOACUMULATIVA', 'FRMCADPROMOCAOACUMULATIVA')
   listar(@Query(new ZodValidationPipe(promocaoAcumulativaFiltroSchema)) q: PromocaoAcumulativaFiltroDto) {
-    return this.svc.listar({ descricao: q.descricao ?? null, vigentes: q.vigentes ?? false });
+    return this.svc.listar({ descricao: q.descricao ?? null, situacao: q.situacao ?? 'TODAS' });
   }
 
   @Post()
@@ -29,9 +29,24 @@ export class PromocaoAcumulativaController {
     });
   }
 
+  /** a grade `dbgPromocao`: os produtos do grupo de preço, com a promoção de cada um. */
+  @Get('grupo/:codgrupopreco')
+  @RequerAcesso('FRMCADPROMOCAOACUMULATIVA', 'FRMCADPROMOCAOACUMULATIVA')
+  produtosDoGrupo(@Param('codgrupopreco', ParseIntPipe) cod: number) {
+    return this.svc.produtosDoGrupo(cod);
+  }
+
+  /** ⚠️ exige senha administrativa, como o legado (`btnExcluirClick:130`). */
   @Delete(':id')
   @RequerAcesso('FRMCADPROMOCAOACUMULATIVA', 'FRMCADPROMOCAOACUMULATIVA')
-  excluir(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.excluir(id);
+  excluir(@Param('id', ParseIntPipe) id: number, @Query('senhaOperacao') senha?: string) {
+    return this.svc.excluir(id, senha ?? null);
+  }
+
+  /** o OUTRO excluir: apaga a promoção de todos os produtos do grupo de preço, sem filtro de data ou loja. */
+  @Delete('grupo/:codgrupopreco')
+  @RequerAcesso('FRMCADPROMOCAOACUMULATIVA', 'FRMCADPROMOCAOACUMULATIVA')
+  excluirGrupo(@Param('codgrupopreco', ParseIntPipe) cod: number, @Query('senhaOperacao') senha?: string) {
+    return this.svc.excluirGrupo(cod, senha ?? null);
   }
 }

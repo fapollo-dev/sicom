@@ -46,7 +46,9 @@ const VAZIO = {
 export function PromocaoAcumulativaPage() {
   const mensagem = useMensagem();
   const [lista, setLista] = useState<Promo[]>([]);
-  const [filtro, setFiltro] = useState({ descricao: '', vigentes: false });
+  const [filtro, setFiltro] = useState({ descricao: '', situacao: 'TODAS' });
+  /** a grade `dbgPromocao`: os produtos do grupo de preço do produto em edição. */
+  const [doGrupo, setDoGrupo] = useState<Array<Record<string, any>>>([]);
   const [form, setForm] = useState({ ...VAZIO });
   const [empresas, setEmpresas] = useState<number[]>([]);
   const [ocupado, setOcupado] = useState(false);
@@ -71,7 +73,7 @@ export function PromocaoAcumulativaPage() {
     try {
       const q = new URLSearchParams();
       if (filtro.descricao) q.set('descricao', filtro.descricao);
-      if (filtro.vigentes) q.set('vigentes', 'true');
+      if (filtro.situacao) q.set('situacao', filtro.situacao);
       setLista((await chamar(`cadastro/promocao-acumulativa?${q}`)) as Promo[]);
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
@@ -104,16 +106,55 @@ export function PromocaoAcumulativaPage() {
       atacarejo: p.atacarejo === 'S', usarGrupoPreco: Number(p.codgrupopreco) > 0,
     });
     setEmpresas(lojasDe(p.idempresa).map(Number));
+    void verGrupo(p.idproduto);
   };
 
   const excluir = async (p: Promo) => {
     if (!window.confirm(`Excluir a promoção ${p.idproacumulativa} de ${p.descricao}?`)) return;
+    // ⚠️ o legado pede SENHA ADMINISTRATIVA antes de excluir (`btnExcluirClick:130`) — apagar a promoção
+    // some com o desconto que a loja está anunciando.
+    const senha = window.prompt('Senha administrativa para excluir a promoção:');
+    if (!senha) return;
     setOcupado(true);
     try {
-      await chamar(`cadastro/promocao-acumulativa/${p.idproacumulativa}`, { method: 'DELETE' });
+      await chamar(`cadastro/promocao-acumulativa/${p.idproacumulativa}?senhaOperacao=${encodeURIComponent(senha)}`, { method: 'DELETE' });
       mensagem.sucesso('Promoção excluída.');
       await carregar();
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  };
+
+  /**
+   * O OUTRO excluir (`btnExcluirPromocaoClick:156`): apaga a promoção de **todos** os produtos do grupo de
+   * preço. O legado faz `DELETE ... WHERE IDPRODUTO = <cada um da grade>` — sem filtro de data nem de loja,
+   * então leva junto promoções históricas e de outras lojas. Aqui o aviso diz isso antes de confirmar.
+   */
+  const excluirGrupo = async () => {
+    const cod = Number(doGrupo[0]?.codgrupopreco ?? 0);
+    if (!(cod > 0)) return;
+    const comPromo = doGrupo.filter((x) => x.idproacumulativa != null).length;
+    if (!window.confirm(
+      `Excluir a promoção de TODOS os ${doGrupo.length} produtos do grupo de preço ${cod}?\n\n`
+      + `${comPromo} deles têm promoção hoje. Atenção: isto apaga TODAS as promoções desses produtos — `
+      + 'de qualquer período e de qualquer loja, inclusive as já encerradas.')) return;
+    const senha = window.prompt('Senha administrativa para excluir as promoções do grupo:');
+    if (!senha) return;
+    setOcupado(true);
+    try {
+      const r = await chamar(`cadastro/promocao-acumulativa/grupo/${cod}?senhaOperacao=${encodeURIComponent(senha)}`, { method: 'DELETE' });
+      mensagem.sucesso(`${(r as any).excluidas} promoção(ões) excluída(s).`);
+      setDoGrupo([]);
+      await carregar();
+    } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  };
+
+  /** ao escolher um produto com grupo de preço, a tela mostra o grupo inteiro — como a grade do legado. */
+  const verGrupo = async (idproduto: number) => {
+    try {
+      const p = lista.find((x) => x.idproduto === idproduto);
+      const cod = Number(p?.codgrupopreco ?? 0);
+      if (!(cod > 0)) { setDoGrupo([]); return; }
+      setDoGrupo((await chamar(`cadastro/promocao-acumulativa/grupo/${cod}`)) as Array<Record<string, any>>);
+    } catch (e) { mensagem.erro(e); }
   };
 
   const cols = useMemo<DataTableColumnDef<Promo>[]>(() => [
@@ -183,15 +224,48 @@ export function PromocaoAcumulativaPage() {
       <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="flex flex-wrap items-end gap-gp-sm">
           <div className="w-64"><Field label="Filtrar por &descrição" value={filtro.descricao} onChange={(e) => setFiltro({ ...filtro, descricao: e.target.value })} /></div>
-          <label className="flex items-center gap-gp-sm text-body-sm">
-            <input type="checkbox" checked={filtro.vigentes} onChange={(e) => setFiltro({ ...filtro, vigentes: e.target.checked })} />
-            Só as vigentes
+          <label className="flex flex-col gap-gp-xs text-body-sm">
+            Situação
+            <select className="rounded border border-border px-1 py-1" value={filtro.situacao}
+              onChange={(e) => setFiltro({ ...filtro, situacao: e.target.value })}>
+              <option value="ABERTAS">Somente abertas</option>
+              <option value="FECHADAS">Somente fechadas</option>
+              <option value="TODAS">Todas</option>
+            </select>
           </label>
+          <span className="text-body-sm text-fg-muted">
+            &quot;Aberta&quot; é término a partir de hoje — inclui a que ainda não começou.
+          </span>
           <Button label="&Buscar" disabled={ocupado} onClick={() => void carregar()} />
         </div>
       </section>
 
       <DataTable rows={lista} columns={cols} getRowId={(p: Promo) => String(p.idproacumulativa)} />
+
+      {doGrupo.length > 0 && (
+        <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <div className="mb-form-gap flex flex-wrap items-center gap-gp-md">
+            <div className="text-body-sm text-fg-muted">
+              Produtos do <strong>grupo de preço {String(doGrupo[0]?.desc_grupo ?? doGrupo[0]?.codgrupopreco)}</strong>
+              {' '}— {doGrupo.length} produto(s), {doGrupo.filter((x) => x.idproacumulativa != null).length} com promoção
+            </div>
+            <Button label="Excluir promoção do &grupo inteiro" variant="soft" disabled={ocupado} onClick={() => void excluirGrupo()} />
+          </div>
+          <DataTable
+            rows={doGrupo}
+            columns={[
+              { field: 'idproduto', headerName: 'Produto', type: 'text', width: 90, isPrimary: true },
+              { field: 'descricao', headerName: 'Descrição', type: 'text' },
+              { field: 'idproacumulativa', headerName: 'Promoção', type: 'text', width: 100,
+                valueGetter: (r: any) => (r.idproacumulativa ?? '—') },
+              { field: 'dtini', headerName: 'Início', type: 'text', width: 145, valueGetter: (r: any) => dataHora(r.dtini) },
+              { field: 'dtfim', headerName: 'Término', type: 'text', width: 145, valueGetter: (r: any) => dataHora(r.dtfim) },
+              { field: 'idempresa', headerName: 'Lojas', type: 'text', width: 110, valueGetter: (r: any) => lojasDe(r.idempresa).join(', ') },
+            ] as DataTableColumnDef<any>[]}
+            getRowId={(r: any) => String(r.idproduto)}
+          />
+        </section>
+      )}
     </div>
   );
 }
