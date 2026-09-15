@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Pencil, Trash2 } from 'lucide-react';
 import { DataTable, Modal, type DataTableColumnDef } from '@apollosg/design-system';
@@ -526,6 +527,8 @@ function ItensSection({
         ) : (
           <>
             <DataTable
+      persistId="pedido-compra"
+      savedViewsService={gradeLayoutService}
               rows={itens}
               columns={columns}
               getRowId={(r) => r.fieldId}
@@ -653,6 +656,8 @@ function ParcelasSection({ form, editavel }: { form: UseFormReturn<CriarPedidoCo
         ) : (
           <>
             <DataTable
+      persistId="pedido-compra-2"
+      savedViewsService={gradeLayoutService}
               rows={parcelas}
               columns={columns}
               getRowId={(r) => String(r.parcela)}

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
+import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
@@ -261,7 +262,7 @@ export function ProdutosRelPage() {
             </div>
           </section>
           <div id="prod-rel-grade">
-            <DataTable rows={res.linhas} columns={cols} getRowId={(l: Linha) => String(l.idproduto)} />
+            <DataTable persistId="produtos-rel" savedViewsService={gradeLayoutService} rows={res.linhas} columns={cols} getRowId={(l: Linha) => String(l.idproduto)} />
           </div>
         </>
       )}

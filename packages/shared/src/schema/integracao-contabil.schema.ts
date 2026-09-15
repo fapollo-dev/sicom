@@ -374,3 +374,15 @@ export const etiquetasPrecificacaoNfSchema = z.object({
   idprodutos: z.array(z.coerce.number().int().positive()).min(1, 'Selecione ao menos um item.').max(3000),
 });
 export type EtiquetasPrecificacaoNfDto = z.infer<typeof etiquetasPrecificacaoNfSchema>;
+
+/** LAYOUT DA GRADE por operador — o [F8] do legado, para qualquer tela. */
+export const gradeLayoutSalvarSchema = z.object({
+  /** o `persistId` da tela, estável entre versões (ex.: 'precificacao-nf'). */
+  tela: z.string().min(1).max(80),
+  /** 'default' é o layout corrente; outros ids são visões nomeadas. */
+  id: z.string().min(1).max(80),
+  name: z.string().max(120).nullish(),
+  isPublic: z.coerce.boolean().optional(),
+  state: z.unknown(),
+});
+export type GradeLayoutSalvarDto = z.infer<typeof gradeLayoutSalvarSchema>;

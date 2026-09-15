@@ -3,6 +3,7 @@ import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design
 import { FileSearch } from 'lucide-react';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
+import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
@@ -156,7 +157,7 @@ export function LancamentosContabeisPage() {
               </div>
             )}
           </section>
-          <DataTable rows={res.linhas} columns={cols} getRowId={(l: Linha) => String(l.coddiario)} />
+          <DataTable persistId="lancamentos-contabeis" savedViewsService={gradeLayoutService} rows={res.linhas} columns={cols} getRowId={(l: Linha) => String(l.coddiario)} />
         </div>
       )}
     </div>

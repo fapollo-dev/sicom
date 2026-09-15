@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { CheckCircle2, RotateCcw, Trash2, X, Tag } from 'lucide-react';
 import type { AgendaPromocao, AgendaPromocaoItemDto } from '@apollo/shared';
@@ -219,7 +220,7 @@ export function AgendaPromocaoCadMaster() {
 
         {itens.length > 0 && (
           <div className="mt-form-gap overflow-x-auto">
-            <DataTable rows={itens} columns={itensColunas} getRowId={(r) => String(r.idproduto)} />
+            <DataTable persistId="agenda-promocao" savedViewsService={gradeLayoutService} rows={itens} columns={itensColunas} getRowId={(r) => String(r.idproduto)} />
           </div>
         )}
 
@@ -229,7 +230,7 @@ export function AgendaPromocaoCadMaster() {
       </section>
 
       {/* Lista de agendas */}
-      <DataTable rows={lista} columns={colunas} loading={carregando} getRowId={(r) => String(r.codagenda)} />
+      <DataTable persistId="agenda-promocao-2" savedViewsService={gradeLayoutService} rows={lista} columns={colunas} loading={carregando} getRowId={(r) => String(r.codagenda)} />
     </div>
   );
 }

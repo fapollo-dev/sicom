@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
@@ -352,7 +353,7 @@ export function PrecificacaoNfPage() {
               processado — e é aí que a etiqueta e a carga do PDV saem. Dá para conferir antes.
             </p>
           </section>
-          <DataTable rows={res.linhas} columns={cols} getRowId={(l: Item) => String(l.codnfprod)} />
+          <DataTable persistId="precificacao-nf" savedViewsService={gradeLayoutService} rows={res.linhas} columns={cols} getRowId={(l: Item) => String(l.codnfprod)} />
 
           {/*
             O PAINEL DE ATALHOS (pnlBotoesAtalho). É o que faz desta tela um hub: o operador precifica sem

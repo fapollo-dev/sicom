@@ -11180,6 +11180,57 @@ async function main() {
       }
     }
 
+    // ===== §111) LAYOUT DA GRADE POR OPERADOR — o [F8]/[F9] do legado, que lá era um .ini no disco da
+    // estação e por isso sumia quando a pessoa trocava de máquina. 16 telas do legado têm o recurso. ====
+    {
+      const GL = 'cadastro/grade-layout';
+      const pgGl = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const estado = { hiddenColumns: ['vrcusto'], columnOrder: ['descricao', 'qtde'], columnWidths: { descricao: 320 }, density: 'compact' };
+        const sv = await fetch(`${base}/${GL}`, { method: 'POST', headers: H, body: JSON.stringify({
+          tela: 'precificacao-nf', id: 'default', state: estado }) });
+        const lst = await fetch(`${base}/${GL}?tela=precificacao-nf`, { headers: H });
+        const lj = (await lst.json().catch(() => ([]))) as any[];
+        const salvo = lj.find((v: any) => v.id === 'default');
+        check('LAYOUT DA GRADE §111.1 [o [F8] deixa de ser um arquivo na estação]: o legado grava `GridPrecificacaoNF_Operador<N>.ini` no disco da máquina (`uPrecificacaoNF.pas:1113`) — funciona até a pessoa sentar noutro caixa. Aqui o layout vai para o banco por operador e empresa, e volta inteiro: colunas escondidas, ordem, larguras e densidade',
+          (sv.status === 200 || sv.status === 201) && lst.status === 200
+          && !!salvo && Array.isArray(salvo.state?.hiddenColumns)
+          && salvo.state.hiddenColumns[0] === 'vrcusto'
+          && salvo.state.columnWidths?.descricao === 320
+          && salvo.state.density === 'compact',
+          { salvo: salvo?.state });
+
+        await fetch(`${base}/${GL}`, { method: 'POST', headers: H, body: JSON.stringify({
+          tela: 'precificacao-nf', id: 'default', state: { ...estado, density: 'comfortable' } }) });
+        const n1 = Number((await pgGl.query(
+          `SELECT count(*)::int n FROM grade_layout WHERE tela='precificacao-nf' AND view_id='default'`)).rows[0].n);
+        const dens = (await pgGl.query(
+          `SELECT estado->>'density' d FROM grade_layout WHERE tela='precificacao-nf' AND view_id='default'`)).rows[0] as any;
+        check('LAYOUT DA GRADE §111.2 [salvar de novo SUBSTITUI, não empilha]: o operador mexe na grade o dia inteiro; cada ajuste grava por cima do anterior, num único registro por (operador, empresa, tela, visão). Sem isso a tabela viraria um log de cada arrastada de coluna',
+          n1 === 1 && String(dens?.d) === 'comfortable',
+          { registros: n1, densidade: dens?.d });
+
+        await fetch(`${base}/${GL}`, { method: 'POST', headers: H, body: JSON.stringify({
+          tela: 'precificacao-nf', id: 'so-margem', name: 'Só margem', isPublic: true, state: estado }) });
+        const lj2 = (await (await fetch(`${base}/${GL}?tela=precificacao-nf`, { headers: H })).json().catch(() => ([]))) as any[];
+        const outraTela = (await (await fetch(`${base}/${GL}?tela=conferencia-nf-indexador`, { headers: H })).json().catch(() => ([]))) as any[];
+        check('LAYOUT DA GRADE §111.3 [visões nomeadas, que o .ini nunca deu]: além do layout corrente ("default"), o operador salva visões com nome — e pode marcá-las como públicas para a equipe. E o escopo é por TELA: o layout da precificação não vaza para a conferência',
+          lj2.length === 2 && lj2.some((v: any) => v.id === 'so-margem' && v.name === 'Só margem' && v.isPublic === true)
+          && outraTela.length === 0,
+          { naTela: lj2.map((v: any) => v.id), naOutra: outraTela.length });
+
+        const del = await fetch(`${base}/${GL}/precificacao-nf/default`, { method: 'DELETE', headers: H });
+        const lj3 = (await (await fetch(`${base}/${GL}?tela=precificacao-nf`, { headers: H })).json().catch(() => ([]))) as any[];
+        check('LAYOUT DA GRADE §111.4 [o [F9] é apagar o "default"]: "Carregar Configurações Originais da Grid" some com o layout salvo e a tela volta a abrir como veio de fábrica. A visão nomeada continua lá — o operador não perde o trabalho dela ao resetar a grade',
+          del.status === 200 && lj3.length === 1 && lj3[0].id === 'so-margem',
+          { sobrou: lj3.map((v: any) => v.id) });
+
+        await pgGl.query(`DELETE FROM grade_layout WHERE tela IN ('precificacao-nf','conferencia-nf-indexador')`);
+      } finally {
+        await pgGl.end();
+      }
+    }
+
     // ===== §104) PRECIFICAÇÃO DE NF (FRMPRECIFICACAONF) — onde o preço de venda NASCE quando a mercadoria
     // chega. 236 acessos, 17 operadores; o usuário classificou como "de extrema importância e grande
     // influência". Ela NÃO altera preço: enfileira lote de preço. ====

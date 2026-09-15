@@ -8,6 +8,13 @@ O placar de conversão conta telas. Esta lista conta **acessos**: o legado regis
 E o topo do que falta é escopo já decidido: as três primeiras (sangria, consulta NFC-e e devolução de vendas)
 são **PDV**, fora por instrução do usuário, e sozinhas valem 67% do que resta.
 
+### Recursos transversais (não são telas)
+
+| recurso | onde o legado tem | situação |
+|---|---|---|
+| **Layout da grade por operador** (`[F8]`/`[F9]`) | **16 units** — o legado grava um `.ini` no disco da estação, que some quando a pessoa troca de máquina | ✅ **mig 219**: vai para o banco por operador e empresa, com cópia local no navegador e **visões nomeadas** que o `.ini` nunca deu. Ligado em 8 telas; as demais é uma linha por grade — `grade-layout.md` |
+| **Exportar a grade** (`[F10]`) | Conferência NF, Produtos | ✅ CSV com `;` e BOM UTF-8, o que está na tela e já filtrado |
+
 **Legenda:** ✅ tudo do legado tem equivalente · 🟢 tudo coberto, com substituições declaradas no dossiê (a grade imprime no lugar do `.fr3`, o log usa o visualizador do Apollo) · 🟡 há função do legado sem equivalente ainda · ⛔ sem fonte para copiar.
 
 | tela | acessos | operadores | último acesso | situação |
