@@ -12,6 +12,24 @@ import { z } from 'zod';
  */
 const dataISO = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Informe a data no formato AAAA-MM-DD.');
 
+/**
+ * Booleano vindo de QUERYSTRING.
+ *
+ * ⚠️ **`boolQuery` não serve aqui**: ele faz `Boolean(valor)`, e em querystring tudo chega como
+ * string — então `?x=false` vira **`true`**, porque `"false"` é uma string não vazia. O filtro faz o
+ * contrário do que o usuário marcou, sem erro nenhum. Foi o que aconteceu no "só os que venderam" do relatório
+ * de dias de estoque, e a falha só apareceu porque o smoke cobria o caso desmarcado.
+ *
+ * Aqui `'false'`, `'0'`, `'n'`, `'não'` e vazio são **falso**; o resto segue a conversão normal.
+ */
+const boolQuery = z.preprocess((v) => {
+  if (typeof v !== 'string') return v;
+  const t = v.trim().toLowerCase();
+  if (t === '' || t === 'false' || t === '0' || t === 'n' || t === 'nao' || t === 'não') return false;
+  if (t === 'true' || t === '1' || t === 's' || t === 'sim' || t === 'y') return true;
+  return v;
+}, z.boolean());
+
 export const integracaoCartaoSchema = z
   .object({
     dataIni: dataISO,
@@ -164,7 +182,7 @@ export const lancamentosContabeisSchema = z
     conta: z.coerce.number().int().positive().nullish(),
     codoperacao: z.coerce.number().int().positive().nullish(),
     documento: z.string().max(60).nullish(),
-    somenteSingle: z.coerce.boolean().optional(),
+    somenteSingle: boolQuery.optional(),
   })
   .refine((v) => v.dataFim >= v.dataIni, { message: 'A data final não pode ser anterior à inicial.', path: ['dataFim'] });
 export type LancamentosContabeisDto = z.infer<typeof lancamentosContabeisSchema>;
@@ -190,9 +208,9 @@ export const precificacaoNfFiltroSchema = z.object({
   grupo: z.string().max(80).nullish(),
   dataIni: dataISO.nullish(),
   dataFim: dataISO.nullish(),
-  incluirTransferencias: z.coerce.boolean().optional(),
-  incluirBonificacao: z.coerce.boolean().optional(),
-  somenteMargemNegativa: z.coerce.boolean().optional(),
+  incluirTransferencias: boolQuery.optional(),
+  incluirBonificacao: boolQuery.optional(),
+  somenteMargemNegativa: boolQuery.optional(),
   /** o `rgPreco` do legado: qual custo dirige a margem. Em branco, o que a empresa tiver configurado. */
   tipoCusto: z.enum(['CSI', 'BRUTO', 'REPOSICAO']).nullish(),
 });
@@ -271,7 +289,7 @@ export const promocaoAcumulativaSchema = z.object({
   empresas: z.array(z.coerce.number().int().positive()).min(1, 'Deve ser informada a empresa da promoção.').max(9),
   atacarejo: z.enum(['S', 'N']).nullish(),
   /** o `chkGrupoPreco`: aplica a promoção ao grupo de preço do produto, não só a ele. */
-  usarGrupoPreco: z.coerce.boolean().optional(),
+  usarGrupoPreco: boolQuery.optional(),
 });
 export type PromocaoAcumulativaDto = z.infer<typeof promocaoAcumulativaSchema>;
 
@@ -287,9 +305,9 @@ export const conferenciaNfIndexadorSchema = z.object({
   codparceiro: z.coerce.number().int().positive().nullish(),
   /** o legado aceita descrição OU código de barras no mesmo campo ("Código ou Cód. Barra"). */
   produto: z.string().max(150).nullish(),
-  incluirProcessadas: z.coerce.boolean().optional(),
-  incluirCanceladas: z.coerce.boolean().optional(),
-  somenteDivergentes: z.coerce.boolean().optional(),
+  incluirProcessadas: boolQuery.optional(),
+  incluirCanceladas: boolQuery.optional(),
+  somenteDivergentes: boolQuery.optional(),
 });
 export type ConferenciaNfIndexadorDto = z.infer<typeof conferenciaNfIndexadorSchema>;
 
@@ -335,7 +353,7 @@ export type RelEntradasSaidasDto = z.infer<typeof relEntradasSaidasSchema>;
  * ou o próprio fornecedor (código do parceiro). É a única tela em que quem opera pode ser de fora.
  */
 export const cotacaoFornLoginSchema = z.object({
-  comoParceiro: z.coerce.boolean(),
+  comoParceiro: boolQuery,
   login: z.string().max(60).nullish(),
   codparceiro: z.coerce.number().int().positive().nullish(),
   senha: z.string().min(1, 'Informe a senha.').max(200),
@@ -347,7 +365,7 @@ export type CotacaoFornLoginDto = z.infer<typeof cotacaoFornLoginSchema>;
 /** os preços que o fornecedor informou. `porEmpresa` decide de quem é a mão registrada. */
 export const cotacaoFornPreencherSchema = z.object({
   codctcforn: z.coerce.number().int().positive(),
-  porEmpresa: z.coerce.boolean(),
+  porEmpresa: boolQuery,
   codoperador: z.coerce.number().int().positive().nullish(),
   itens: z.array(z.object({
     codctcfit: z.coerce.number().int().positive(),
@@ -382,7 +400,23 @@ export const gradeLayoutSalvarSchema = z.object({
   /** 'default' é o layout corrente; outros ids são visões nomeadas. */
   id: z.string().min(1).max(80),
   name: z.string().max(120).nullish(),
-  isPublic: z.coerce.boolean().optional(),
+  isPublic: boolQuery.optional(),
   state: z.unknown(),
 });
 export type GradeLayoutSalvarDto = z.infer<typeof gradeLayoutSalvarSchema>;
+
+/** DIAS DE ESTOQUE / COBERTURA (`FRMRELDDE`): com o que tenho, quantos dias eu aguento. */
+export const relDdeSchema = z.object({
+  /** a janela de venda que dá a média diária. */
+  dias: z.coerce.number().int().min(1).max(365),
+  /** o filtro de ruptura: só o que cobre até N dias. */
+  coberturaAte: z.coerce.number().int().min(0).max(9999).nullish(),
+  /** falso = traz também o que não vendeu no período. */
+  somenteVendidos: boolQuery.optional(),
+  coddpto: z.coerce.number().int().positive().nullish(),
+  codgrupo: z.coerce.number().int().positive().nullish(),
+  codsubgrupo: z.coerce.number().int().positive().nullish(),
+  codsecao: z.coerce.number().int().positive().nullish(),
+  produto: z.string().max(150).nullish(),
+});
+export type RelDdeDto = z.infer<typeof relDdeSchema>;

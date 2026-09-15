@@ -16875,6 +16875,50 @@
     }
    ]
   },
+  "movimentacao_diaria": {
+   "colunas": {
+    "idempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "codproduto": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "data": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "qtde": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 3,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "idempresa",
+    "codproduto",
+    "data"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "pk_movimentacao_diaria",
+     "def": "CREATE UNIQUE INDEX pk_movimentacao_diaria ON public.movimentacao_diaria USING btree (idempresa, codproduto, data)"
+    }
+   ]
+  },
   "multi_preco": {
    "colunas": {
     "id_multi_preco": {

@@ -8,6 +8,26 @@ O placar de conversão conta telas. Esta lista conta **acessos**: o legado regis
 E o topo do que falta é escopo já decidido: as três primeiras (sangria, consulta NFC-e e devolução de vendas)
 são **PDV**, fora por instrução do usuário, e sozinhas valem 67% do que resta.
 
+### ⚠️ A fila não estava zerada — o recorte é que era curto (15/09/2026)
+
+O ranking original desta página cobria as telas mais usadas. Refeito contra `MENUEXPRESS` inteiro, aparecem
+**mais 30 telas com uso** abaixo daquele corte. As que sobram, por uso, fora PDV:
+
+| tela | acessos | op | situação |
+|---|---|---|---|
+| DIAS DE ESTOQUE (`FRMRELDDE`) | 132 | 5 | ✅ **completa** (mig 220) — e trouxe `MOVIMENTACAO_DIARIA`, **4,03 milhões de linhas** que não estavam na carga |
+| INTERSECÇÃO DE PRODUTOS (`FRMRELINTERSECCAOPRODUTOS`) | 117 | 10 | fila |
+| DIGITAÇÃO DE PEDIDOS (`FRMDIGITACAOPEDIDOS`) | 116 | 9 | fila |
+| TRANSFERÊNCIA DE MERCADORIA (`FRMSAIDADEP`) | 104 | 9 | fila |
+| CONTROLE MOBILE (`FRMCONTROLEMOBILE`) | 101 | 5 | fila |
+| FLUXO DE CARTÕES (`FRMFLUXOCARTOES`) | 98 | 7 | fila |
+| MAPA DE ENTREGAS (`FRMMAPADEENTREGAS`) | 98 | 3 | fila |
+| METAS (`FRMCADMETAS`) | 97 | 4 | fila |
+| ANÁLISE COMPRA/VENDA (`FRMRELENTSAI`) | 84 | 10 | fila |
+| BAIXA DE CHEQUES PRÉ (`FRMBAIXACHEQUE`) | 80 | 11 | fila |
+
+…e mais 20 abaixo de 80 acessos.
+
 ### Recursos transversais (não são telas)
 
 | recurso | onde o legado tem | situação |

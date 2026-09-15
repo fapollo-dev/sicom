@@ -11231,6 +11231,81 @@ async function main() {
       }
     }
 
+    // ===== §112) DIAS DE ESTOQUE / COBERTURA (FRMRELDDE) — com o que tenho, quantos dias eu aguento.
+    // A venda vem de MOVIMENTACAO_DIARIA, tabela de 4 milhões de linhas que faltava na carga (mig 220). ====
+    {
+      const DD = 'relatorios/dias-estoque';
+      const pgDd = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgDd.query(`INSERT INTO familias_prod (codfamilia, descricao, tipo) VALUES (9971,'DEPTO DDE','D')
+          ON CONFLICT (codfamilia) DO NOTHING`);
+        const mkP = async (cod: string, desc: string, estoque: number, vendaDia: number | null, custo: number) => {
+          const id = Number((await pgDd.query(`INSERT INTO produtos (codbarra, descricao, coddpto, unidade, codfor, aliquota)
+            VALUES ($1,$2,9971,'UN',2,'T01') RETURNING idproduto`, [cod, desc])).rows[0].idproduto);
+          await pgDd.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES ($1,1,$2)`, [id, estoque]);
+          await pgDd.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda) VALUES ($1,1,$2,$3)`, [id, custo, custo * 2]);
+          if (vendaDia != null) {
+            // 10 dias de venda, para a janela de 10 dar média exata
+            for (let d = 1; d <= 10; d += 1) {
+              await pgDd.query(`INSERT INTO movimentacao_diaria (idempresa, codproduto, data, qtde)
+                VALUES (1,$1,current_date - $2::int,$3)`, [id, d, vendaDia]);
+            }
+          }
+          return id;
+        };
+        // 100 em estoque, 10/dia → média 10, cobertura 10 dias
+        const pA = await mkP('7009000009991', 'DDE COBERTURA 10', 100, 10, 5.00);
+        // 6 em estoque, 3/dia → cobertura 2 dias (ruptura)
+        const pB = await mkP('7009000009992', 'DDE RUPTURA', 6, 3, 4.00);
+        // estoque NEGATIVO: o legado força cobertura ZERO
+        const pC = await mkP('7009000009993', 'DDE NEGATIVO', -5, 2, 3.00);
+        // nunca vendeu: no legado vira -999999
+        const pD = await mkP('7009000009994', 'DDE SEM VENDA', 40, null, 2.00);
+
+        const r = await fetch(`${base}/${DD}?dias=10&coddpto=9971`, { headers: H });
+        const j = (await r.json().catch(() => ({}))) as any;
+        const a = (j.linhas ?? []).find((l: any) => Number(l.idproduto) === pA);
+        const b = (j.linhas ?? []).find((l: any) => Number(l.idproduto) === pB);
+        const c = (j.linhas ?? []).find((l: any) => Number(l.idproduto) === pC);
+
+        check('DIAS DE ESTOQUE §112.1 [a conta que decide a compra]: média diária = vendido na janela ÷ dias; cobertura = estoque ÷ média, truncada para dias inteiros como o `CAST(... AS NUMBER(20))` do legado. 100 em estoque vendendo 10/dia cobrem **10 dias**; 6 vendendo 3/dia cobrem **2** — e é esse o número que o comprador olha antes de emitir o pedido',
+          r.status === 200
+          && Math.abs(Number(a?.media_diaria) - 10) < 0.005 && Number(a?.cobertura) === 10
+          && Math.abs(Number(b?.media_diaria) - 3) < 0.005 && Number(b?.cobertura) === 2,
+          { cobertura10: a && { media: a.media_diaria, cob: a.cobertura },
+            ruptura: b && { media: b.media_diaria, cob: b.cobertura } });
+
+        check('DIAS DE ESTOQUE §112.2 [estoque negativo cobre ZERO dias]: o legado força `CASE WHEN QTDE_ESTOQUE < 0 THEN 0` antes de qualquer divisão — não dá para cobrir dia nenhum com estoque que já está no vermelho, e a conta daria um número negativo sem sentido nenhum na coluna de dias',
+          Number(c?.cobertura) === 0 && Number(c?.qtde_estoque) === -5,
+          { negativo: c && { estoque: c.qtde_estoque, cobertura: c.cobertura } });
+
+        const comParados = await fetch(`${base}/${DD}?dias=10&coddpto=9971&somenteVendidos=false`, { headers: H });
+        const cpJ = (await comParados.json().catch(() => ({}))) as any;
+        const semVenda = (cpJ.linhas ?? []).find((l: any) => Number(l.idproduto) === pD);
+        check('DIAS DE ESTOQUE §112.3 [o sentinela −999999 não chega ao comprador]: quando o produto não vendeu no período o legado grava **−999999** na cobertura — é o jeito do Delphi dizer "não dá para calcular" num campo numérico. Repassar isso poria "−999999 dias" na tela e, ao ordenar por cobertura, jogaria justamente esses itens para o topo como se fossem os mais urgentes. Aqui a cobertura vem **nula** com `sem_venda` ao lado, e a tela escreve "sem venda no período"',
+          comParados.status === 200 && !!semVenda
+          && semVenda.cobertura == null && semVenda.sem_venda === true
+          && Number(semVenda.qtde_estoque) === 40,
+          { semVenda: semVenda && { cob: semVenda.cobertura, flag: semVenda.sem_venda } });
+
+        const soVendidos = (await (await fetch(`${base}/${DD}?dias=10&coddpto=9971&somenteVendidos=true`, { headers: H })).json().catch(() => ({}))) as any;
+        const ate3 = (await (await fetch(`${base}/${DD}?dias=10&coddpto=9971&coberturaAte=3`, { headers: H })).json().catch(() => ({}))) as any;
+        check('DIAS DE ESTOQUE §112.4 [os dois filtros do legado]: "só os que venderam" tira o produto parado da lista (3 em vez de 4); e "cobertura até N dias" é o filtro de ruptura — com N=3 sobram os que cobrem 2 dias e o de estoque negativo (que cobre 0), e some o que cobre 10',
+          Number(soVendidos.totais?.itens) === 3
+          && Number(ate3.totais?.itens) === 2
+          && !(ate3.linhas ?? []).some((l: any) => Number(l.idproduto) === pA),
+          { soVendidos: soVendidos.totais?.itens, ate3dias: ate3.totais?.itens });
+
+        await pgDd.query(`DELETE FROM movimentacao_diaria WHERE codproduto = ANY($1)`, [[pA, pB, pC, pD]]);
+        await pgDd.query(`DELETE FROM multi_preco WHERE idproduto = ANY($1)`, [[pA, pB, pC, pD]]);
+        await pgDd.query(`DELETE FROM estoque WHERE idproduto = ANY($1)`, [[pA, pB, pC, pD]]);
+        await pgDd.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[pA, pB, pC, pD]]);
+        await pgDd.query(`DELETE FROM familias_prod WHERE codfamilia=9971`);
+      } finally {
+        await pgDd.end();
+      }
+    }
+
     // ===== §104) PRECIFICAÇÃO DE NF (FRMPRECIFICACAONF) — onde o preço de venda NASCE quando a mercadoria
     // chega. 236 acessos, 17 operadores; o usuário classificou como "de extrema importância e grande
     // influência". Ela NÃO altera preço: enfileira lote de preço. ====
