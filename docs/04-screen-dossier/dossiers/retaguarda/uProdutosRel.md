@@ -8,26 +8,31 @@
 **Quinze relatórios num combo só** (`cbbTipoRel`), servidos por **21 datasets**. Contados antes de começar,
 para não repetir o erro da Precificação NF:
 
-| # | relatório | substrato medido na produção (14/09/2026) | corte-1 |
+| # | relatório | substrato medido na produção (15/09/2026) | feito |
 |---|---|---|---|
 | 1 | Relatório para análise | `estoque` + `multi_preco` | ✅ |
-| 2 | Lista para conferência | grade própria | |
-| 3 | Receitas | `receita_prod`: **86 linhas** | |
 | 4 | Ruptura na loja | `estoque` | ✅ |
-| 5 | Estoque atual | `estoque`: 203.546 linhas | ✅ |
+| 5 | Estoque atual | `estoque`: 203.546 linhas, **4.121 negativos** | ✅ |
+| 14 | **Alterações de preço** | `historico_dinamico`: **97.977 registros, 15.471 produtos**, o último de hoje | ✅ |
+| 8 | Estoque saldo | `estoque` — variação do nº 5 | |
+| 2 | Lista para conferência | grade própria | |
 | 6 | Relatório para análise pedido | `pedidos` | |
-| 7 | Estoque por data | `historico_prod_dep`: **19 linhas** — praticamente morto | |
-| 8 | Estoque saldo | `estoque` | |
-| 9 | Troca de mercadorias | `estoquetroca` | |
-| 10 | Percas | grade própria | |
 | 11 | Estoques - Venda Externa | | |
-| 12 | Lotes e validades | | |
-| 13 | Produtos que possuem preço 2 | `URelProdutosPreco2` | |
-| 14 | Alterações de preço dos produtos | `historico_dinamico` | |
-| 15 | Produtos inativos em agenda de promoções | `promocao_acumulativa` | |
+| 3 | Receitas | `receita_prod`: **86 linhas** | 🪦 marginal |
+| 13 | Produtos com preço 2 | `multi_preco.vrdescpreco2`: **38 produtos** | 🪦 marginal |
+| 7 | Estoque por data | `historico_prod_dep`: **19 linhas** | 🪦 morto |
+| 12 | Lotes e validades | `lote_produto_validade`: **1 linha** | 🪦 morto |
+| 9 | Troca de mercadorias | `estoquetroca`: **0 linhas** | 🪦 morto |
+| 15 | Inativos em agenda de promoções | **0** produtos inativos com promoção | 🪦 morto |
+| 10 | Percas | grade própria; sem tabela `percas` no banco | 🪦 sem substrato |
 
-O corte-1 entrega os **três que compartilham o mesmo núcleo** — a posição de estoque. Os outros doze estão
-acima com o substrato de cada um, para o próximo corte ser escolhido por valor e não por ordem de combo.
+**O placar importa mais que a contagem.** Dos quinze, quatro estão entregues e **sete estão mortos ou
+marginais neste cliente** — somados, 144 linhas de dado. Os quatro que sobram (estoque saldo, lista para
+conferência, análise de pedido e venda externa) valem um corte-2 quando alguém pedir; os sete mortos não
+valem nenhum, e ter medido isso é o que evita gastar uma sessão inteira com eles.
+
+O corte-1 entregou os três do núcleo de estoque; o corte-2 acrescentou o de **alterações de preço**, que era
+o único vivo entre os doze restantes.
 
 ## 2. ⚠️ Duas tabelas gêmeas de estoque, e escolher a errada zera o relatório
 
@@ -61,17 +66,31 @@ a **ruptura** é o corte que interessa.
 Zerado ou negativo já é falta. O que decide a ação é **há quantos dias não vende** (`estoque.dtvenda`): é a
 diferença entre "acabou porque vende muito" e "acabou e ninguém sentiu falta". O corte em dias é do operador.
 
-## 5. Cobertura (§108 do smoke, 4 checks)
+## 5. Alterações de preço — o relatório que sobrou dos doze
+
+Lê o `historico_dinamico`, onde toda mudança de `VRVENDA` fica registrada: quem mudou, quando, de quanto para
+quanto. **97.977 registros em 15.471 produtos**, de 07/08/2020 a 15/09/2026 — o último no dia desta medição.
+
+É o relatório que responde *"por que este produto está com esse preço"* — e, quando o preço saiu errado, quem
+o colocou lá. A variação vem em reais e em percentual, e a alteração de **custo** não entra: o relatório é de
+preço.
+
+Alteração vinda de rotina (lote de preço, carga) não tem operador, e a coluna mostra isso em vez de inventar
+um nome.
+
+## 6. Cobertura (§108 do smoke, 5 checks)
 
 1. as comparações de sinal exatas, e a armadilha do mínimo em branco explicada com número;
 2. ruptura com e sem corte de dias;
 3. a análise pondo dinheiro na posição (30 × 5,00 = 150,00 parados, margem 50%);
 4. o "ativo" é do **cadastro**, não do estoque — produto inativo com 7 em estoque existe e precisa ser achado
-   antes do inventário.
+   antes do inventário;
+5. as alterações de preço, com variação em reais e em percentual, e a alteração de custo ficando de fora.
 
-## 6. O que falta
+## 7. O que falta
 
-Os **doze relatórios** do §1, mais: salvar/carregar layout, o `rgDisponivelEm` (disponibilidade por loja), o
+Os **quatro relatórios vivos** que sobraram no §1 (estoque saldo, lista para conferência, análise de pedido,
+venda externa) — os sete mortos não entram —, mais: salvar/carregar layout, o `rgDisponivelEm` (disponibilidade por loja), o
 `rgPercas` e as três grades auxiliares.
 
 ✅ **exportar a grade** foi implementado (CSV com `;` e BOM UTF-8, o que está na tela e já filtrado).

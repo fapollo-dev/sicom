@@ -295,7 +295,7 @@ export type ConferenciaNfIndexadorDto = z.infer<typeof conferenciaNfIndexadorSch
 
 /** RELATÓRIOS DE PRODUTOS (`FRMPRODUTOSREL`), corte-1: os três do núcleo de estoque. */
 export const produtosRelSchema = z.object({
-  tipo: z.enum(['ESTOQUE_ATUAL', 'RUPTURA', 'ANALISE']),
+  tipo: z.enum(['ESTOQUE_ATUAL', 'RUPTURA', 'ANALISE', 'ALTERACOES_PRECO']),
   /** o `cmbFiltro`: as quinze comparações entre a quantidade e o mínimo/máximo, na ordem do combo. */
   filtroEstoque: z.enum([
     'TODOS',
@@ -311,6 +311,9 @@ export const produtosRelSchema = z.object({
   codfor: z.coerce.number().int().positive().nullish(),
   produto: z.string().max(150).nullish(),
   diasSemVenda: z.coerce.number().int().min(0).max(3650).nullish(),
+  /** só ALTERACOES_PRECO usa: a janela do histórico. */
+  dataIni: dataISO.nullish(),
+  dataFim: dataISO.nullish(),
 });
 export type ProdutosRelDto = z.infer<typeof produtosRelSchema>;
 

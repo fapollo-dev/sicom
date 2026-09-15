@@ -19,6 +19,7 @@ export class ProdutosRelController {
       coddpto: q.coddpto ?? null, codgrupo: q.codgrupo ?? null, codsubgrupo: q.codsubgrupo ?? null,
       codsecao: q.codsecao ?? null, codfor: q.codfor ?? null, produto: q.produto ?? null,
       diasSemVenda: q.diasSemVenda ?? null,
+      dataIni: q.dataIni ?? null, dataFim: q.dataFim ?? null,
     });
   }
 }

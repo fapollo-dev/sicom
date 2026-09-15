@@ -10984,6 +10984,29 @@ async function main() {
           && Number(todos.j.totais.itens) === 5,
           { soInativos: soInativos.j.totais?.itens, todos: todos.j.totais?.itens });
 
+        // ── ALTERAÇÕES DE PREÇO: o único dos doze relatórios restantes que está vivo ──────────────────
+        await pgPr.query(`INSERT INTO historico_dinamico
+          (codhistorico, campo, valor_anterior, valor_atual, tabela, data, codoperador, codempresa, chave, valor_chave, historico, origem)
+          VALUES (997001,'VRVENDA','10.00','12.50','MULTI_PRECO','2050-03-10 09:00',7,1,'IDPRODUTO',$1::text,'Alteração manual','Cadastro'),
+                 (997002,'VRVENDA','12.50','9.90','MULTI_PRECO','2050-03-12 14:30',7,1,'IDPRODUTO',$1::text,'Ajuste de preço','Lote'),
+                 (997003,'VRCUSTO','5.00','6.00','MULTI_PRECO','2050-03-12 14:31',7,1,'IDPRODUTO',$1::text,'Custo','Cadastro')`,
+          [String(pOk)]);
+
+        const alt = await fetch(`${base}/${PR}?tipo=ALTERACOES_PRECO&dataIni=2050-03-01&dataFim=2050-03-31`, { headers: H });
+        const altJ = (await alt.json().catch(() => ({}))) as any;
+        const subiu = (altJ.linhas ?? []).find((l: any) => Number(l.codhistorico) === 997001);
+        const baixou = (altJ.linhas ?? []).find((l: any) => Number(l.codhistorico) === 997002);
+        check('RELATÓRIO DE PRODUTOS §108.5 [alterações de preço — o ÚNICO dos doze relatórios restantes que está vivo]: lê o `historico_dinamico`, que guarda toda mudança de VRVENDA: quem mudou, quando, e de quanto para quanto. Em produção são **97.977 registros** em **15.471 produtos**, de 07/08/2020 até hoje. É o relatório que responde "por que este produto está com esse preço" — e, quando o preço saiu errado, quem o colocou lá. De 10,00 para 12,50 é +2,50 (+25%); de 12,50 para 9,90 é −2,60 (−20,80%); e a alteração de VRCUSTO **não entra**, porque o relatório é de PREÇO',
+          alt.status === 200
+          && Number(altJ.totais.itens) === 2
+          && Math.abs(Number(subiu?.variacao) - 2.5) < 0.005 && Math.abs(Number(subiu?.variacao_pct) - 25) < 0.02
+          && Math.abs(Number(baixou?.variacao) + 2.6) < 0.005 && Math.abs(Number(baixou?.variacao_pct) + 20.8) < 0.02
+          && Number(altJ.totais.negativos) === 1
+          && String(subiu?.operador ?? '').length > 0,
+          { itens: altJ.totais?.itens, subiu: subiu && { v: subiu.variacao, p: subiu.variacao_pct },
+            baixou: baixou && { v: baixou.variacao, p: baixou.variacao_pct }, baixaram: altJ.totais?.negativos });
+
+        await pgPr.query(`DELETE FROM historico_dinamico WHERE codhistorico IN (997001,997002,997003)`);
         await pgPr.query(`DELETE FROM multi_preco WHERE idproduto = ANY($1)`, [[pNeg, pZero, pOk, pMin, pInativo]]);
         await pgPr.query(`DELETE FROM estoque WHERE idproduto = ANY($1)`, [[pNeg, pZero, pOk, pMin, pInativo]]);
         await pgPr.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[pNeg, pZero, pOk, pMin, pInativo]]);

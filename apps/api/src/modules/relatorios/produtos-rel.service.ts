@@ -9,7 +9,7 @@ const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 /** os três do corte-1 — os que compartilham o núcleo de estoque. */
-export type TipoProdutosRel = 'ESTOQUE_ATUAL' | 'RUPTURA' | 'ANALISE';
+export type TipoProdutosRel = 'ESTOQUE_ATUAL' | 'RUPTURA' | 'ANALISE' | 'ALTERACOES_PRECO';
 
 /**
  * O `cmbFiltro` do legado: quinze comparações entre a quantidade em estoque e o mínimo/máximo do produto.
@@ -33,6 +33,9 @@ export interface FiltroProdutosRel {
   produto?: string | null;
   /** RUPTURA: dias sem venda que caracterizam a falta. O legado usa a data da última venda. */
   diasSemVenda?: number | null;
+  /** ALTERAÇÕES DE PREÇO: a janela do histórico. */
+  dataIni?: string | null;
+  dataFim?: string | null;
 }
 
 /**
@@ -90,6 +93,57 @@ export class ProdutosRelService {
     }
   }
 
+  /**
+   * ALTERAÇÕES DE PREÇO DOS PRODUTOS (relatório 14 do combo) — **o único dos doze restantes que está vivo**.
+   *
+   * Lê o `historico_dinamico`, que é onde toda mudança de `VRVENDA` fica registrada: quem mudou, quando, de
+   * quanto para quanto. Em produção são **97.977 registros** em **15.471 produtos**, de 07/08/2020 a
+   * **15/09/2026** — o último no mesmo dia desta medição.
+   *
+   * É o relatório que responde "por que este produto está com esse preço" — e, quando o preço saiu errado,
+   * quem o colocou lá.
+   */
+  private async alteracoesPreco(f: FiltroProdutosRel): Promise<Array<Record<string, unknown>>> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const onde = [
+      sql`h.tabela = 'MULTI_PRECO'`,
+      sql`upper(h.campo) LIKE '%VRVENDA%'`,
+      sql`coalesce(h.codempresa, ${emp}) = ${emp}`,
+    ];
+    if (f.dataIni && f.dataFim) onde.push(sql`h.data::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date`);
+    if (f.produto) onde.push(sql`(pr.descricao ILIKE ${`%${f.produto}%`} OR pr.codbarra = ${f.produto})`);
+    if (f.coddpto) onde.push(sql`pr.coddpto = ${f.coddpto}`);
+    if (f.codgrupo) onde.push(sql`pr.codgrupo = ${f.codgrupo}`);
+    if (f.codfor) onde.push(sql`pr.codfor = ${f.codfor}`);
+
+    return (await sql<Record<string, unknown>>`
+      SELECT h.codhistorico, h.data, h.campo,
+             h.valor_anterior, h.valor_atual,
+             -- a variação em reais e em percentual: é o que se lê primeiro num relatório de alteração
+             (coalesce(nullif(h.valor_atual, '')::numeric, 0)
+              - coalesce(nullif(h.valor_anterior, '')::numeric, 0)) AS variacao,
+             CASE WHEN coalesce(nullif(h.valor_anterior, '')::numeric, 0) > 0
+                  THEN round((((coalesce(nullif(h.valor_atual, '')::numeric, 0)
+                                - nullif(h.valor_anterior, '')::numeric)
+                               / nullif(h.valor_anterior, '')::numeric) * 100), 2)
+                  END AS variacao_pct,
+             h.historico, h.origem,
+             h.codoperador, o.nome AS operador,
+             pr.idproduto, pr.codbarra, pr.descricao,
+             d.descricao AS departamento, g.descricao AS grupo, pa.razao AS fornecedor
+        FROM historico_dinamico h
+        LEFT JOIN produtos pr      ON pr.idproduto = nullif(h.valor_chave, '')::integer
+        LEFT JOIN operadores o     ON o.codoperador = h.codoperador
+        LEFT JOIN familias_prod d  ON d.codfamilia = pr.coddpto  AND d.tipo = 'D'
+        LEFT JOIN familias_prod g  ON g.codfamilia = pr.codgrupo AND g.tipo = 'G'
+        LEFT JOIN parceiros pa     ON pa.codparceiro = pr.codfor
+       WHERE ${sql.join(onde, sql` AND `)}
+       ORDER BY h.data DESC
+       LIMIT 20001
+    `.execute(db)).rows;
+  }
+
   async gerar(f: FiltroProdutosRel): Promise<{
     tipo: TipoProdutosRel;
     linhas: Array<Record<string, unknown>>;
@@ -97,6 +151,18 @@ export class ProdutosRelService {
   }> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
+
+    if (f.tipo === 'ALTERACOES_PRECO') {
+      const linhas = await this.alteracoesPreco(f);
+      return {
+        tipo: f.tipo, linhas,
+        totais: {
+          itens: linhas.length, qtdeTotal: 0, valorCusto: 0, valorVenda: 0,
+          // aqui "negativos" é quantas alterações BAIXARAM o preço
+          negativos: linhas.filter((l) => num(l.variacao) < 0).length,
+        },
+      };
+    }
 
     const onde = [sql`e.idempresa = ${emp}`];
     // 'ativo' é do CADASTRO do produto, não do estoque

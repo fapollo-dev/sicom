@@ -10,7 +10,7 @@ import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
-type Tipo = 'ESTOQUE_ATUAL' | 'RUPTURA' | 'ANALISE';
+type Tipo = 'ESTOQUE_ATUAL' | 'RUPTURA' | 'ANALISE' | 'ALTERACOES_PRECO';
 interface Linha {
   idproduto: number; codbarra: string; descricao: string; ativo: string; unidade: string;
   departamento: string | null; grupo: string | null; fornecedor: string | null;
@@ -18,6 +18,9 @@ interface Linha {
   reservado_venda: number; pedido_compra: number;
   ultima_venda: string | null; dias_sem_venda: number | null;
   vrcusto: number; vrvenda: number; valor_custo: number; valor_venda: number; margem: number | null;
+  // ALTERACOES_PRECO
+  data?: string; valor_anterior?: string; valor_atual?: string; variacao?: number; variacao_pct?: number | null;
+  operador?: string | null; historico?: string | null; origem?: string | null;
 }
 interface Resultado {
   tipo: Tipo; linhas: Linha[];
@@ -28,6 +31,7 @@ const TIPOS: Array<{ v: Tipo; rotulo: string; ajuda: string }> = [
   { v: 'ESTOQUE_ATUAL', rotulo: 'Estoque atual', ajuda: 'quanto tem, contra mínimo e máximo' },
   { v: 'RUPTURA', rotulo: 'Ruptura na loja', ajuda: 'o que zerou ou ficou negativo, e há quantos dias não vende' },
   { v: 'ANALISE', rotulo: 'Relatório para análise', ajuda: 'estoque com custo, preço e margem' },
+  { v: 'ALTERACOES_PRECO', rotulo: 'Alterações de preço', ajuda: 'quem mudou o preço, quando, e de quanto para quanto' },
 ];
 
 /** o `cmbFiltro` do legado, na ordem do combo. */
@@ -64,6 +68,7 @@ export function ProdutosRelPage() {
   const [f, setF] = useState({
     tipo: 'ESTOQUE_ATUAL' as Tipo, filtroEstoque: 'TODOS', ativo: 'S',
     coddpto: '', codgrupo: '', codfor: '', produto: '', diasSemVenda: '',
+    dataIni: `${new Date().toISOString().slice(0, 7)}-01`, dataFim: new Date().toISOString().slice(0, 10),
   });
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -74,6 +79,8 @@ export function ProdutosRelPage() {
       const q = new URLSearchParams();
       Object.entries(f).forEach(([k, v]) => { if (v !== '') q.set(k, String(v)); });
       if (f.tipo !== 'RUPTURA') q.delete('diasSemVenda');
+      if (f.tipo !== 'ALTERACOES_PRECO') { q.delete('dataIni'); q.delete('dataFim'); q.delete('filtroEstoque'); q.set('filtroEstoque', f.filtroEstoque); }
+      if (f.tipo === 'ALTERACOES_PRECO') { q.delete('filtroEstoque'); q.delete('ativo'); }
       const r = await fetch(`${BASE}/relatorios/produtos?${q}`, { headers: apiHeaders() });
       handle401(r);
       if (!r.ok) {
@@ -86,6 +93,31 @@ export function ProdutosRelPage() {
   };
 
   const cols = useMemo<DataTableColumnDef<Linha>[]>(() => {
+    if (res?.tipo === 'ALTERACOES_PRECO') {
+      return [
+        { field: 'data', headerName: 'Quando', type: 'text', width: 150, isPrimary: true,
+          valueGetter: (l) => String(l.data ?? '').replace('T', ' ').slice(0, 16).split(' ')
+            .map((x, i) => (i === 0 ? x.split('-').reverse().join('/') : x)).join(' ') },
+        { field: 'descricao', headerName: 'Produto', type: 'text' },
+        { field: 'valor_anterior', headerName: 'De', type: 'text', width: 110, valueGetter: (l) => moeda(l.valor_anterior) },
+        { field: 'valor_atual', headerName: 'Para', type: 'text', width: 110, valueGetter: (l) => moeda(l.valor_atual) },
+        {
+          field: 'variacao', headerName: 'Variação', type: 'text', width: 120, valueGetter: () => '',
+          renderCell: ({ row: l }: { row: Linha }) => (
+            <span className={Number(l.variacao) < 0 ? 'text-fg-danger tabular-nums' : 'text-fg-success tabular-nums'}>
+              {moeda(l.variacao)}
+            </span>
+          ),
+        } as DataTableColumnDef<Linha>,
+        { field: 'variacao_pct', headerName: '%', type: 'text', width: 90,
+          valueGetter: (l) => (l.variacao_pct == null ? '—' : `${nfmt(l.variacao_pct, 2)}%`) },
+        { field: 'operador', headerName: 'Quem mudou', type: 'text', width: 170,
+          // alteração vinda de rotina (lote de preço, carga) não tem operador
+          valueGetter: (l) => l.operador ?? '—' },
+        { field: 'origem', headerName: 'Origem', type: 'text', width: 150, valueGetter: (l) => l.origem ?? '—' },
+        { field: 'departamento', headerName: 'Departamento', type: 'text', width: 160 },
+      ];
+    }
     const base: DataTableColumnDef<Linha>[] = [
       { field: 'idproduto', headerName: 'Código', type: 'text', width: 90, isPrimary: true },
       { field: 'descricao', headerName: 'Produto', type: 'text' },
@@ -161,6 +193,12 @@ export function ProdutosRelPage() {
           {f.tipo === 'RUPTURA' && (
             <div className="w-40"><Field label="Sem vender há (dias)" value={f.diasSemVenda} onChange={(e) => setF({ ...f, diasSemVenda: e.target.value })} /></div>
           )}
+          {f.tipo === 'ALTERACOES_PRECO' && (
+            <>
+              <div className="w-40"><Field label="&de" type="date" value={f.dataIni} onChange={(e) => setF({ ...f, dataIni: e.target.value })} /></div>
+              <div className="w-40"><Field label="&até" type="date" value={f.dataFim} onChange={(e) => setF({ ...f, dataFim: e.target.value })} /></div>
+            </>
+          )}
           <Button label="&Gerar" disabled={ocupado} onClick={() => void gerar()} />
           <Button label="&Imprimir" variant="soft" disabled={!res} onClick={() => {
             if (!res) return;
@@ -208,9 +246,18 @@ export function ProdutosRelPage() {
           <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
             <div className="flex flex-wrap items-center gap-gp-lg">
               <div><div className="text-body-sm text-fg-muted">Itens</div><div className="text-body-lg tabular-nums">{res.totais.itens}</div></div>
-              <div><div className="text-body-sm text-fg-muted">Estoque negativo</div><div className="text-body-lg tabular-nums">{res.totais.negativos}</div></div>
-              <div><div className="text-body-sm text-fg-muted">Valor a custo</div><div className="text-body-lg tabular-nums">{moeda(res.totais.valorCusto)}</div></div>
-              <div><div className="text-body-sm text-fg-muted">Valor a venda</div><div className="text-body-lg tabular-nums">{moeda(res.totais.valorVenda)}</div></div>
+              {res.tipo === 'ALTERACOES_PRECO' ? (
+                <div>
+                  <div className="text-body-sm text-fg-muted">Baixaram o preço</div>
+                  <div className="text-body-lg tabular-nums">{res.totais.negativos}</div>
+                </div>
+              ) : (
+                <>
+                  <div><div className="text-body-sm text-fg-muted">Estoque negativo</div><div className="text-body-lg tabular-nums">{res.totais.negativos}</div></div>
+                  <div><div className="text-body-sm text-fg-muted">Valor a custo</div><div className="text-body-lg tabular-nums">{moeda(res.totais.valorCusto)}</div></div>
+                  <div><div className="text-body-sm text-fg-muted">Valor a venda</div><div className="text-body-lg tabular-nums">{moeda(res.totais.valorVenda)}</div></div>
+                </>
+              )}
             </div>
           </section>
           <div id="prod-rel-grade">
