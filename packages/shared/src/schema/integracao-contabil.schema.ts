@@ -420,3 +420,15 @@ export const relDdeSchema = z.object({
   produto: z.string().max(150).nullish(),
 });
 export type RelDdeDto = z.infer<typeof relDdeSchema>;
+
+/** INTERSECÇÃO DE PRODUTOS (`FRMRELINTERSECCAOPRODUTOS`): o que mais o cliente leva junto. */
+export const relInterseccaoSchema = z.object({
+  idproduto: z.coerce.number().int().positive(),
+  dataIni: dataISO,
+  dataFim: dataISO,
+  /** o rádio do legado: ordenar por quantidade vendida ou por número de cupons. */
+  ordenarPor: z.enum(['QTDE', 'CUPOM']).nullish(),
+  /** o "Qtde itens analisados" da tela. */
+  limite: z.coerce.number().int().min(1).max(5000).nullish(),
+});
+export type RelInterseccaoDto = z.infer<typeof relInterseccaoSchema>;

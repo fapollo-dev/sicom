@@ -11306,6 +11306,72 @@ async function main() {
       }
     }
 
+    // ===== §113) INTERSECÇÃO DE PRODUTOS (FRMRELINTERSECCAOPRODUTOS) — o que o cliente leva junto.
+    // No legado a conta passa por uma TABELA DE TRABALHO GLOBAL; aqui é uma consulta só. ====
+    {
+      const IP = 'relatorios/interseccao-produtos';
+      const pgIp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const mkPr = async (cod: string, desc: string) => Number((await pgIp.query(
+          `INSERT INTO produtos (codbarra, descricao, unidade, codfor, aliquota) VALUES ($1,$2,'UN',2,'T01') RETURNING idproduto`,
+          [cod, desc])).rows[0].idproduto);
+        const pAlvo = await mkPr('7009000011101', 'CERVEJA (ALVO)');
+        const pJunto = await mkPr('7009000011102', 'CARVAO');
+        const pRaro = await mkPr('7009000011103', 'GUARDANAPO');
+        const pSozinho = await mkPr('7009000011104', 'DETERGENTE');
+
+        // 4 cupons com a cerveja: em 3 tem carvão, em 1 tem guardanapo. O detergente vende sozinho.
+        // ⚠️ o CUPOM é `codvendas_legado`: no destino `codvendas` é a PK da LINHA, gerada pela sequência
+        const venda = async (cupom: number, prod: number, qtde: number, preco: number) =>
+          pgIp.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nrocupom, codvendas_legado, codproduto, qtde, vrvenda, vrcusto, iat, cancelado)
+            VALUES (1,'2051-02-10','P-'||$1::text,$1::bigint,$1::bigint,$2,$3,$4,1.00,'A','N')`, [cupom, prod, qtde, preco]);
+        for (const c of [810001, 810002, 810003, 810004]) await venda(c, pAlvo, 2, 5.00);
+        for (const c of [810001, 810002, 810003]) await venda(c, pJunto, 1, 12.00);
+        await venda(810004, pRaro, 3, 2.00);
+        await venda(810009, pSozinho, 1, 7.00);
+        // um cupom CANCELADO com a cerveja e o guardanapo: não pode entrar na conta
+        await pgIp.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nrocupom, codvendas_legado, codproduto, qtde, vrvenda, vrcusto, iat, cancelado)
+          VALUES (1,'2051-02-10','P-810005',810005,810005,$1,9,5.00,1.00,'A','S'),
+                 (1,'2051-02-10','P-810005',810005,810005,$2,9,2.00,1.00,'A','S')`, [pAlvo, pRaro]);
+
+        const r = await fetch(`${base}/${IP}?idproduto=${pAlvo}&dataIni=2051-02-01&dataFim=2051-02-28`, { headers: H });
+        const j = (await r.json().catch(() => ({}))) as any;
+        const junto = (j.linhas ?? []).find((l: any) => Number(l.codproduto) === pJunto);
+        const raro = (j.linhas ?? []).find((l: any) => Number(l.codproduto) === pRaro);
+
+        check('INTERSECÇÃO §113.1 [o que o cliente leva junto, e em que proporção]: a conta pega os cupons que contêm o produto e soma o que estava neles. A cerveja saiu em **4 cupons**; o carvão apareceu em 3 deles (**75%**) e o guardanapo em 1 (**25%**). O percentual é a leitura que decide gôndola e combo — "quantidade vendida" sozinha não diz se foi um cliente levando muito ou muitos clientes levando pouco',
+          r.status === 200 && Number(j.totais.cupons) === 4
+          && Number(junto?.qtdecupom) === 3 && Math.abs(Number(junto?.pct_cupons) - 75) < 0.02
+          && Number(raro?.qtdecupom) === 1 && Math.abs(Number(raro?.pct_cupons) - 25) < 0.02,
+          { cupons: j.totais?.cupons, carvao: junto && { cup: junto.qtdecupom, pct: junto.pct_cupons },
+            guardanapo: raro && { cup: raro.qtdecupom, pct: raro.pct_cupons } });
+
+        check('INTERSECÇÃO §113.2 [o valor multiplica pela quantidade, e o cancelado não entra]: o carvão vendeu 3 unidades a 12,00 = **36,00**. ⚠️ o SQL guardado no `.dfm` soma `VRVENDA` SEM a quantidade — mas é o texto montado no `.pas` que roda, e ele multiplica; copiar do `.dfm` erraria todo item vendido em quantidade maior que 1. E o cupom CANCELADO com a cerveja não conta: ele não existiu para o cliente',
+          Math.abs(Number(junto?.vrvenda) - 36) < 0.005
+          && Number(j.totais.cupons) === 4
+          && !(j.linhas ?? []).some((l: any) => Number(l.codproduto) === pSozinho),
+          { valorCarvao: junto?.vrvenda, cupons: j.totais?.cupons });
+
+        check('INTERSECÇÃO §113.3 [o próprio produto sai da lista]: ele está em 100% dos cupons por definição e ocuparia o topo de toda análise sem dizer nada — o legado o filtra depois de consultar (`:196`), e aqui ele sai na própria consulta',
+          !(j.linhas ?? []).some((l: any) => Number(l.codproduto) === pAlvo)
+          && Number(j.totais.itensRelacionados) === 2,
+          { relacionados: j.totais?.itensRelacionados, temOAlvo: (j.linhas ?? []).some((l: any) => Number(l.codproduto) === pAlvo) });
+
+        const porCupom = (await (await fetch(`${base}/${IP}?idproduto=${pAlvo}&dataIni=2051-02-01&dataFim=2051-02-28&ordenarPor=CUPOM&limite=1`, { headers: H })).json().catch(() => ({}))) as any;
+        const semProd = await fetch(`${base}/${IP}?idproduto=99999999&dataIni=2051-02-01&dataFim=2051-02-28`, { headers: H });
+        check('INTERSECÇÃO §113.4: o rádio "Qtde cupom" troca a ordenação e o "Qtde itens analisados" corta a lista — com limite 1 sobra só o carvão, que é o mais frequente. Produto inexistente é recusado com mensagem em vez de devolver lista vazia',
+          Number(porCupom.linhas?.length) === 1
+          && Number(porCupom.linhas[0]?.codproduto) === pJunto
+          && semProd.status === 422,
+          { primeiro: porCupom.linhas?.[0]?.descricao, produtoInexistente: semProd.status });
+
+        await pgIp.query(`DELETE FROM vendas WHERE codvendas_legado IN (810001,810002,810003,810004,810005,810009)`);
+        await pgIp.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[pAlvo, pJunto, pRaro, pSozinho]]);
+      } finally {
+        await pgIp.end();
+      }
+    }
+
     // ===== §104) PRECIFICAÇÃO DE NF (FRMPRECIFICACAONF) — onde o preço de venda NASCE quando a mercadoria
     // chega. 236 acessos, 17 operadores; o usuário classificou como "de extrema importância e grande
     // influência". Ela NÃO altera preço: enfileira lote de preço. ====

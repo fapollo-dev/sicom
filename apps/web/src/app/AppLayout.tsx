@@ -139,6 +139,8 @@ const TELAS = [
   { href: '/compras/cotacao-forn', name: 'Preencher cotação', icon: ClipboardList },
   // FRMRELDDE — com o que tenho, quantos dias eu aguento (132 acessos).
   { href: '/relatorios/dias-estoque', name: 'Dias de estoque', icon: CalendarClock },
+  // FRMRELINTERSECCAOPRODUTOS — o que o cliente leva junto (117 acessos).
+  { href: '/relatorios/interseccao-produtos', name: 'Intersecção de produtos', icon: Network },
   { href: '/cadastro/fechamento-diario', name: 'Fechamento Diário', icon: CalendarClock },
   // FRMCTRLPERMISSOES — permissão por OPERADOR, que é o modo que o cliente usa (a de Perfis é o outro caminho).
   { href: '/cadastro/permissoes', name: 'Controle de Permissões', icon: ShieldCheck },

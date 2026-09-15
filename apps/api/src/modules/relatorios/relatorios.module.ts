@@ -37,6 +37,8 @@ import { ConsultoriaService } from './consultoria.service';
 import { RelCartoesController } from './rel-cartoes.controller';
 import { RelCartoesService } from './rel-cartoes.service';
 import { RentabilidadeCategoriasController } from './rentabilidade-categorias.controller';
+import { RelInterseccaoController } from './rel-interseccao.controller';
+import { RelInterseccaoService } from './rel-interseccao.service';
 import { RelDdeController } from './rel-dde.controller';
 import { RelDdeService } from './rel-dde.service';
 import { RelEntradasSaidasController } from './rel-entradas-saidas.controller';
@@ -72,7 +74,9 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     // FRMRELENTRADASSAIDAS — listagem e comparativo entrada × saída (148 acessos).
     RelEntradasSaidasController,
     // FRMRELDDE — dias de estoque / cobertura (132 acessos).
-    RelDdeController],
-  providers: [RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService, RelCartoesService, RentabilidadeCategoriasService, RelComprasService, ProdutosRelService, RelEntradasSaidasService, RelDdeService],
+    RelDdeController,
+    // FRMRELINTERSECCAOPRODUTOS — o que o cliente leva junto (117 acessos).
+    RelInterseccaoController],
+  providers: [RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService, RelCartoesService, RentabilidadeCategoriasService, RelComprasService, ProdutosRelService, RelEntradasSaidasService, RelDdeService, RelInterseccaoService],
 })
 export class RelatoriosModule {}

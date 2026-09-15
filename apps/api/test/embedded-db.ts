@@ -263,6 +263,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('218_cotacao_forn.sql'));
   await pool.query(sql('219_grade_layout.sql'));
   await pool.query(sql('220_movimentacao_diaria_dde.sql'));
+  await pool.query(sql('221_rel_interseccao.sql'));
   await pool.end();
   return pg;
 }

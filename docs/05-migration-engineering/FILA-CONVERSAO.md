@@ -11,7 +11,7 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | # | tela | acessos | operadores | nota |
 |---|---|---|---|---|
 | 1 | `FRMCADMDFE` | 153 | 12 | ⛔ **não migrar**: a tela nunca foi implementada no legado — 47 linhas com o corpo comentado, `.dfm` com um GroupBox vazio, DataModule vazio, e `MDFE`/`MDFE_DOCUMENTO` com 0 linhas. Migrar seria escrever do zero |
-| 2 | `FRMRELINTERSECCAOPRODUTOS` | 117 | 10 |
+| 2 | `FRMRELINTERSECCAOPRODUTOS` | 117 | 10 | ✅ **completa** (mig 221) — sem a tabela de trabalho global do legado |
 | 3 | `FRMDIGITACAOPEDIDOS` | 116 | 9 |
 | 4 | `FRMSAIDADEP` | 104 | 9 |
 | 5 | `FRMCONTROLEMOBILE` | 101 | 5 |
