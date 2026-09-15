@@ -1,3 +1,5 @@
+import { FluxoCartoesController } from './fluxo-cartoes.controller';
+import { FluxoCartoesService } from './fluxo-cartoes.service';
 import { Module } from '@nestjs/common';
 import { LotesCobrancaController } from './lotes-cobranca.controller';
 import { LotesMdController } from './lotes-md.controller';
@@ -43,12 +45,14 @@ import { CadastroModule } from '../cadastro/cadastro.module';
   // CaixaController (cobranca/caixa) = CAIXA (sessão + movimento manual, corte-1).
   // AdiantamentoFornController (financeiro/adiantamentos) = ADIANTAMENTO A FORNECEDOR/PARCEIRO: movimento na conta
   // corrente + título gerado (areceber no tipo 'D', apagar em 'C'/'E').
-  controllers: [LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController, IntegracaoContabilController,
+  controllers: [
+    // FRMFLUXOCARTOES — o recebível de cartão por dia (98 acessos).
+    FluxoCartoesController,LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController, IntegracaoContabilController,
     // FRMSALDOEMPRESA — o fluxo de caixa projetado (611 acessos).
     SaldoEmpresaController,
     // FRMRELCAIXA — divergências de caixa e caixas abertos (505 acessos).
     RelCaixaController],
-  providers: [
+  providers: [FluxoCartoesService, 
     LotesCobrancaService, LoteCobrancaRepository,
     AreceberService, AreceberBaixaService, AreceberAgrupamentoService, ApagarService, ApagarBaixaService, ApagarAgrupamentoService,
     CaixaService, CaixaContabilService, CaixaPdvContabilService, CaixaConferenciaService, BaixaContabilService,

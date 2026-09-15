@@ -11462,6 +11462,67 @@ async function main() {
       }
     }
 
+    // ===== §115) FLUXO DE CARTÕES (FRMFLUXOCARTOES) — quanto já caiu e quanto ainda vai cair. O legado
+    // duplica 67% dos dias na grade; aqui é uma linha por dia. ====
+    {
+      const FC = 'cobranca/fluxo-cartoes';
+      const pgFc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgFc.query(`INSERT INTO operadoras (codoperadoras, operadora) VALUES (9911,'OPERADORA A'),(9912,'OPERADORA B')
+          ON CONFLICT (codoperadoras) DO NOTHING`);
+        const addC = async (dia: string, oper: number, valor: number, liberado: string) =>
+          pgFc.query(`INSERT INTO cartao (idempresa, dtvenda, codoperadora, valor, liberado)
+            VALUES (1,$1::date,$2,$3,$4)`, [dia, oper, valor, liberado]);
+        // dia 1: metade recebida, metade não — é o dia que o legado DUPLICA
+        await addC('2053-04-10', 9911, 1000.00, 'S');
+        await addC('2053-04-10', 9912, 400.00, 'N');
+        // dia 2: tudo recebido
+        await addC('2053-04-11', 9911, 700.00, 'S');
+        // dia 3: nada recebido
+        await addC('2053-04-12', 9912, 250.00, 'N');
+
+        const r = await fetch(`${base}/${FC}?dataIni=2053-04-01&dataFim=2053-04-30`, { headers: H });
+        const j = (await r.json().catch(() => ({}))) as any;
+        const d10 = (j.linhas ?? []).find((l: any) => String(l.dtvenda).startsWith('2053-04-10'));
+
+        check('FLUXO DE CARTÕES §115.1 [o legado mostra o mesmo dia duas vezes, e chama as duas de "total"]: o SQL original agrupa por `TRUNC(DTVENDA), LIBERADO` e calcula `SUM(VALOR) AS TOTALVENDASMES` dentro do grupo — então todo dia com parte recebida e parte pendente sai em DUAS linhas, e em nenhuma delas o total é o do dia. Medido na produção: **1.485 dos 2.201 dias (67%)** saem duplicados. Aqui o dia 10/04 é **uma linha**: vendido 1.400,00, recebido 1.000,00, a receber 400,00 — e as três fecham',
+          r.status === 200
+          && (j.linhas ?? []).filter((l: any) => String(l.dtvenda).startsWith('2053-04-10')).length === 1
+          && Math.abs(Number(d10?.total_vendas) - 1400) < 0.005
+          && Math.abs(Number(d10?.recebidas) - 1000) < 0.005
+          && Math.abs(Number(d10?.nao_recebidas) - 400) < 0.005,
+          { dia10: d10 });
+
+        check('FLUXO DE CARTÕES §115.2 [o que o extrato não mostra]: o total do período separa o que já caiu do que ainda vai cair — 1.950,00 vendidos, 1.700,00 na conta e **650,00 a receber**. É a leitura que o extrato bancário não dá: o dinheiro existe, mas ainda não está lá',
+          Math.abs(Number(j.totais.total) - 2350) < 0.005
+          && Math.abs(Number(j.totais.recebido) - 1700) < 0.005
+          && Math.abs(Number(j.totais.aReceber) - 650) < 0.005
+          && Number(j.totais.dias) === 3,
+          { totais: j.totais });
+
+        const opR = await fetch(`${base}/${FC}/dia?data=2053-04-10`, { headers: H });
+        const opJ = (await opR.json().catch(() => ([]))) as any[];
+        check('FLUXO DE CARTÕES §115.3 [abrir o dia mostra por operadora]: a segunda consulta da tela quebra o dia por bandeira — a operadora A trouxe 1.000,00 já recebidos e a B tem 400,00 pendentes. É assim que se descobre qual operadora está atrasando o repasse',
+          opR.status === 200 && opJ.length === 2
+          && Math.abs(Number(opJ.find((o: any) => o.codoperadora === 9911)?.recebidas) - 1000) < 0.005
+          && Math.abs(Number(opJ.find((o: any) => o.codoperadora === 9912)?.nao_recebidas) - 400) < 0.005,
+          { operadoras: opJ.map((o: any) => ({ op: o.operadora, rec: o.recebidas, pend: o.nao_recebidas })) });
+
+        const soA = (await (await fetch(`${base}/${FC}?dataIni=2053-04-01&dataFim=2053-04-30&codoperadora=9911`, { headers: H })).json().catch(() => ({}))) as any;
+        const inv = await fetch(`${base}/${FC}?dataIni=2053-04-30&dataFim=2053-04-01`, { headers: H });
+        check('FLUXO DE CARTÕES §115.4: o filtro por operadora reduz ao que é dela (1.700,00, todos recebidos) e a data invertida é recusada com mensagem',
+          Math.abs(Number(soA.totais?.total) - 1700) < 0.005
+          && Math.abs(Number(soA.totais?.aReceber)) < 0.005
+          && inv.status >= 400,
+          { soOperadoraA: soA.totais, dataInvertida: inv.status });
+
+        await pgFc.query(`DELETE FROM cartao WHERE dtvenda::date BETWEEN '2053-04-01' AND '2053-04-30'`);
+        await pgFc.query(`DELETE FROM operadoras WHERE codoperadoras IN (9911,9912)`);
+      } finally {
+        await pgFc.end();
+      }
+    }
+
     // ===== §104) PRECIFICAÇÃO DE NF (FRMPRECIFICACAONF) — onde o preço de venda NASCE quando a mercadoria
     // chega. 236 acessos, 17 operadores; o usuário classificou como "de extrema importância e grande
     // influência". Ela NÃO altera preço: enfileira lote de preço. ====

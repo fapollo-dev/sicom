@@ -143,6 +143,8 @@ const TELAS = [
   { href: '/relatorios/interseccao-produtos', name: 'Intersecção de produtos', icon: Network },
   // FRMDIGITACAOPEDIDOS — o pedido de VENDA (116 acessos).
   { href: '/compras/pedido-venda', name: 'Digitação de pedidos', icon: ClipboardList },
+  // FRMFLUXOCARTOES — o recebível de cartão por dia (98 acessos).
+  { href: '/financeiro/fluxo-cartoes', name: 'Fluxo de cartões', icon: CreditCard },
   { href: '/cadastro/fechamento-diario', name: 'Fechamento Diário', icon: CalendarClock },
   // FRMCTRLPERMISSOES — permissão por OPERADOR, que é o modo que o cliente usa (a de Perfis é o outro caminho).
   { href: '/cadastro/permissoes', name: 'Controle de Permissões', icon: ShieldCheck },

@@ -13,16 +13,16 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 1 | `FRMCADMDFE` | 153 | 12 | ⛔ **não migrar**: a tela nunca foi implementada no legado — 47 linhas com o corpo comentado, `.dfm` com um GroupBox vazio, DataModule vazio, e `MDFE`/`MDFE_DOCUMENTO` com 0 linhas. Migrar seria escrever do zero |
 | 2 | `FRMRELINTERSECCAOPRODUTOS` | 117 | 10 | ✅ **completa** (mig 221) — sem a tabela de trabalho global do legado |
 | 3 | `FRMDIGITACAOPEDIDOS` | 116 | 9 | 🟡 **corte-1** (mig 222): consulta de pedidos + **quem aplica a promoção acumulativa** (o atacarejo dá 5× o desconto normal). As 3 telas auxiliares do legado estão sem substrato — 0 linhas. Falta digitar o pedido e a reserva de estoque |
-| 4 | `FRMSAIDADEP` | 104 | 9 |
-| 5 | `FRMCONTROLEMOBILE` | 101 | 5 |
-| 6 | `FRMFLUXOCARTOES` | 98 | 7 |
-| 7 | `FRMMAPADEENTREGAS` | 98 | 3 |
-| 8 | `FRMCADMETAS` | 97 | 4 |
+| 4 | `FRMSAIDADEP` | 104 | 9 | ⛔ **mecanismo morto no cliente**: `SAIDADEP` tem **16 linhas**, a última de **04/02/2021** — parou há mais de cinco anos. E a transferência é para o depósito, cuja tabela (`ESTOQUE_DEP`) está **inteiramente zerada** (ver `uProdutosRel.md` §2): este cliente não usa estoque por depósito. Os 104 acessos são gente abrindo a tela, não gravando. Reavaliar se algum tenant passar a usar depósito |
+| 5 | `FRMCONTROLEMOBILE` | 101 | 5 | ⛔ **sem fonte no repositório clonado** — nenhuma unit, nenhum `.dfm`. Terceiro caso (com Borba Fiscal e Boa Vista) |
+| 6 | `FRMFLUXOCARTOES` | 98 | 7 | ✅ **completa** (mig 223) — e sem a duplicação de 67% dos dias que o legado faz |
+| 7 | `FRMMAPADEENTREGAS` | 98 | 3 | ⛔ **sem substrato**: `MAPA_DE_ENTREGA` e `MAPA_DE_ENTREGA_ITEM` com **0 linhas** |
+| 8 | `FRMCADMETAS` | 97 | 4 | 🪦 marginal: `METAS` com **21 linhas** |
 | 9 | `FRMRELENTSAI` | 84 | 10 |
 | 10 | `FRMINTEGRACAOLOTEFGFAPI` | 82 | 2 |
 | 11 | `FRMCADCONFIGCONCILIADOR` | 82 | 6 |
 | 12 | `FRMRELFATURAMENTO` | 80 | 7 |
-| 13 | `FRMBAIXACHEQUE` | 80 | 11 |
+| 13 | `FRMBAIXACHEQUE` | 80 | 11 | 🪦 marginal: `CHEQUE` com **11 linhas** e `CHEQUE_DEVOLVIDO` com **0** |
 | 14 | `FRMCONTROLEFUN` | 75 | 4 |
 | 15 | `FRMMOVCONCORRENTES` | 72 | 7 |
 | 16 | `FRMANALISEENTRADAXSAIDA` | 68 | 9 |

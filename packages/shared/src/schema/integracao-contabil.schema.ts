@@ -442,3 +442,11 @@ export const pedidoVendaFiltroSchema = z.object({
   incluirCancelados: boolQuery.optional(),
 });
 export type PedidoVendaFiltroDto = z.infer<typeof pedidoVendaFiltroSchema>;
+
+/** FLUXO DE CARTÕES (`FRMFLUXOCARTOES`): quanto já caiu e quanto ainda vai cair. */
+export const fluxoCartoesSchema = z.object({
+  dataIni: dataISO,
+  dataFim: dataISO,
+  codoperadora: z.coerce.number().int().positive().nullish(),
+});
+export type FluxoCartoesDto = z.infer<typeof fluxoCartoesSchema>;
