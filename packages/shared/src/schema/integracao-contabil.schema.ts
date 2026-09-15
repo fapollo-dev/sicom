@@ -432,3 +432,13 @@ export const relInterseccaoSchema = z.object({
   limite: z.coerce.number().int().min(1).max(5000).nullish(),
 });
 export type RelInterseccaoDto = z.infer<typeof relInterseccaoSchema>;
+
+/** DIGITAÇÃO DE PEDIDOS (`FRMDIGITACAOPEDIDOS`) — o pedido de VENDA. */
+export const pedidoVendaFiltroSchema = z.object({
+  dataIni: dataISO,
+  dataFim: dataISO,
+  nropedido: z.string().max(20).nullish(),
+  codparceiro: z.coerce.number().int().positive().nullish(),
+  incluirCancelados: boolQuery.optional(),
+});
+export type PedidoVendaFiltroDto = z.infer<typeof pedidoVendaFiltroSchema>;

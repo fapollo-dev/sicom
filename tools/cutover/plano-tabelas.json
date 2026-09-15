@@ -151,6 +151,7 @@
       "nf",
       "pedidocompra_i",
       "pedidocompra_parcelas",
+      "pedidos",
       "receita_prod",
       "scrap_item"
     ],

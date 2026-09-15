@@ -22719,6 +22719,419 @@
     }
    ]
   },
+  "pedidos": {
+   "colunas": {
+    "codpedidos": {
+     "tipo": "bigint",
+     "tam": 64,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_pedidos'::regclass)"
+    },
+    "nropedido": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "idempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "nroitem": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codproduto": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codbarra": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "descricao": {
+     "tipo": "character varying",
+     "tam": 150,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "unidade": {
+     "tipo": "character",
+     "tam": 3,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "aliquota": {
+     "tipo": "character",
+     "tam": 3,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "qtde": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 3,
+     "nulo": true,
+     "default": "0"
+    },
+    "fatoremb": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": "1"
+    },
+    "vrvenda": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": true,
+     "default": "0"
+    },
+    "vrcusto": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": true,
+     "default": "0"
+    },
+    "vrcustorep": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": true,
+     "default": "0"
+    },
+    "vrcustocsi": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": "0"
+    },
+    "vrfrete": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": true,
+     "default": "0"
+    },
+    "desc_acre_item": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": true,
+     "default": "0"
+    },
+    "desc_acre": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": true,
+     "default": "0"
+    },
+    "promocao": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "desc_promo_acumulativa": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": true,
+     "default": "0"
+    },
+    "qtde_promocao_acumulativa": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 3,
+     "nulo": true,
+     "default": "0"
+    },
+    "aplica_flex": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "bonificado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "troca": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "coddpto": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codgrupo": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codsubgrupo": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codsecao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codparceiro": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codparceiro_end": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "cliente": {
+     "tipo": "character varying",
+     "tam": 120,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codvendedor": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "comissao": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
+     "nulo": true,
+     "default": "0"
+    },
+    "operador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "entregar": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "obs_entrega": {
+     "tipo": "character varying",
+     "tam": 255,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "proc": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "proc_fin": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "cancelado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "tipocanc": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "tipo": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "processo_liquidado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "cupom_emitido": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "importado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "consultapdv": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "flaggravado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "origem": {
+     "tipo": "character varying",
+     "tam": 30,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "origem_documento": {
+     "tipo": "character varying",
+     "tam": 30,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "id_origem_documento": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "chave": {
+     "tipo": "character varying",
+     "tam": 60,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "pis": {
+     "tipo": "character",
+     "tam": 2,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtvenda": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dt_fatu": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codpedidos_legado": {
+     "tipo": "bigint",
+     "tam": 64,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "codpedidos"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "pedidos_pkey",
+     "def": "CREATE UNIQUE INDEX pedidos_pkey ON public.pedidos USING btree (codpedidos)"
+    }
+   ]
+  },
   "pendencia_operador": {
    "colunas": {
     "po_id": {

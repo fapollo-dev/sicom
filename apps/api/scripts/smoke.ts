@@ -11372,6 +11372,96 @@ async function main() {
       }
     }
 
+    // ===== §114) DIGITAÇÃO DE PEDIDOS (FRMDIGITACAOPEDIDOS) — o pedido de VENDA, e quem APLICA a
+    // promoção acumulativa cujo cadastro migramos em §106. ====
+    {
+      const PV = 'compras/pedido-venda';
+      const pgPv = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgPv.query(`INSERT INTO familias_prod (codfamilia, descricao, tipo) VALUES (9981,'GRUPO PRECO PV','P')
+          ON CONFLICT (codfamilia) DO NOTHING`);
+        const mkPv = async (cod: string, desc: string, grupoPreco: number | null) => Number((await pgPv.query(
+          `INSERT INTO produtos (codbarra, descricao, unidade, codfor, aliquota, codgrupopreco)
+           VALUES ($1,$2,'UN',2,'T01',$3) RETURNING idproduto`, [cod, desc, grupoPreco])).rows[0].idproduto);
+        const prNormal = await mkPv('7009000012201', 'PROD PEDIDO NORMAL', null);
+        const prAtaca  = await mkPv('7009000012202', 'PROD PEDIDO ATACAREJO', null);
+        const prGrupoA = await mkPv('7009000012203', 'PROD GRUPO A', 9981);
+        const prGrupoB = await mkPv('7009000012204', 'PROD GRUPO B', 9981);
+
+        const addItem = async (nro: string, item: number, prod: number, qtde: number, preco: number, troca = 'N') =>
+          pgPv.query(`INSERT INTO pedidos (nropedido, idempresa, nroitem, codproduto, descricao, unidade, qtde, vrvenda, vrcusto, dtvenda, cancelado, bonificado, troca)
+            VALUES ($1,1,$2,$3,'ITEM','UN',$4,$5,1.00,'2052-03-10','N','N',$6)`,
+            [nro, item, prod, qtde, preco, troca]);
+
+        // PEDIDO 1 — promoção NORMAL: leve 3, desconto 3,00 (⇒ 1,00 por unidade, só nos trios completos)
+        await pgPv.query(`INSERT INTO promocao_acumulativa (idproacumulativa, idproduto, qtde, desconto, idempresa, dtini, dtfim, atacarejo)
+          VALUES (998101,$1,3,3.00,';1;',now() - interval '1 day',now() + interval '30 days','N')`, [prNormal]);
+        await addItem('PV-001', 1, prNormal, 5, 10.00);   // 5 unidades → 1 trio completo → 3 com desconto
+
+        // PEDIDO 2 — ATACAREJO: o desconto vale para TODAS as unidades
+        await pgPv.query(`INSERT INTO promocao_acumulativa (idproacumulativa, idproduto, qtde, desconto, idempresa, dtini, dtfim, atacarejo)
+          VALUES (998102,$1,3,3.00,';1;',now() - interval '1 day',now() + interval '30 days','S')`, [prAtaca]);
+        await addItem('PV-002', 1, prAtaca, 5, 10.00);
+
+        // PEDIDO 3 — por GRUPO DE PREÇO, somando dois produtos irmãos; e um item de TROCA que não conta
+        await pgPv.query(`INSERT INTO promocao_acumulativa (idproacumulativa, idproduto, qtde, desconto, idempresa, dtini, dtfim, atacarejo, codgrupopreco)
+          VALUES (998103,$1,4,2.00,';1;',now() - interval '1 day',now() + interval '30 days','N',9981)`, [prGrupoA]);
+        await addItem('PV-003', 1, prGrupoA, 3, 20.00);
+        await addItem('PV-003', 2, prGrupoB, 2, 20.00);
+        await addItem('PV-003', 3, prGrupoA, 9, 20.00, 'S');
+
+        const aplicar = async (nro: string) => {
+          const r = await fetch(`${base}/${PV}/${nro}/promocao-acumulativa`, { method: 'POST', headers: H });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const a1 = await aplicar('PV-001');
+        const l1 = (await pgPv.query(`SELECT desc_promo_acumulativa::float8 d, qtde_promocao_acumulativa::float8 q FROM pedidos WHERE nropedido='PV-001'`)).rows[0] as any;
+        check('PEDIDO DE VENDA §114.1 [a promoção acumulativa NORMAL só paga os pacotes completos]: "leve 3, desconto 3,00" dá **1,00 por unidade** (`DESCONTO ÷ QTDE`) e apenas nas unidades dos trios COMPLETOS (`trunc(total ÷ QTDE) × QTDE`). Com 5 unidades há **1 trio**: desconto de **3,00** sobre **3** unidades, e as outras 2 pagam cheio. É a regra que o cadastro da promoção (§106) só descrevia — aqui é quem a executa',
+          (a1.status === 200 || a1.status === 201)
+          && Math.abs(Number(l1.d) - 3) < 0.005 && Math.abs(Number(l1.q) - 3) < 0.005,
+          { desconto: l1?.d, qtdeComDesconto: l1?.q });
+
+        const a2 = await aplicar('PV-002');
+        const l2 = (await pgPv.query(`SELECT desc_promo_acumulativa::float8 d, qtde_promocao_acumulativa::float8 q FROM pedidos WHERE nropedido='PV-002'`)).rows[0] as any;
+        check('PEDIDO DE VENDA §114.2 [⚠️ ATACAREJO muda a conta inteira]: com `ATACAREJO = S` o desconto é o valor CHEIO por unidade, em TODAS as unidades — não há rateio nem pacote. As mesmas 5 unidades da promoção anterior recebem **15,00** (5 × 3,00) em vez de 3,00: cinco vezes mais. Confundir os dois modos erra o preço na frente do cliente',
+          (a2.status === 200 || a2.status === 201)
+          && Math.abs(Number(l2.d) - 15) < 0.005 && Math.abs(Number(l2.q) - 5) < 0.005,
+          { desconto: l2?.d, qtdeComDesconto: l2?.q });
+
+        const a3 = await aplicar('PV-003');
+        const l3 = (await pgPv.query(
+          `SELECT nroitem, desc_promo_acumulativa::float8 d, qtde_promocao_acumulativa::float8 q, troca
+             FROM pedidos WHERE nropedido='PV-003' ORDER BY nroitem`)).rows as any[];
+        check('PEDIDO DE VENDA §114.3 [pelo GRUPO DE PREÇO, e o que não conta]: a promoção do grupo 9981 soma produtos IRMÃOS — 3 de um mais 2 de outro dão 5, que atinge o mínimo de 4 e forma 1 pacote. O desconto de 2,00 ÷ 4 = 0,50 por unidade cai nas 4 primeiras (3 do item 1 + 1 do item 2). ⚠️ E o item de TROCA, com 9 unidades, fica de fora dos dois lados: não soma para atingir o pacote nem recebe abatimento — mercadoria que voltou não é venda',
+          (a3.status === 200 || a3.status === 201)
+          && Math.abs(Number(l3[0]?.d) - 1.5) < 0.005 && Math.abs(Number(l3[0]?.q) - 3) < 0.005
+          && Math.abs(Number(l3[1]?.d) - 0.5) < 0.005 && Math.abs(Number(l3[1]?.q) - 1) < 0.005
+          && Math.abs(Number(l3[2]?.d)) < 0.005,
+          { item1: l3[0] && { d: l3[0].d, q: l3[0].q }, item2: l3[1] && { d: l3[1].d, q: l3[1].q },
+            itemTroca: l3[2] && { d: l3[2].d, troca: l3[2].troca } });
+
+        // aplicar DE NOVO não pode dobrar o desconto
+        await aplicar('PV-001');
+        const l1b = (await pgPv.query(`SELECT desc_promo_acumulativa::float8 d FROM pedidos WHERE nropedido='PV-001'`)).rows[0] as any;
+        const lista = await fetch(`${base}/${PV}?dataIni=2052-03-01&dataFim=2052-03-31`, { headers: H });
+        const lj = (await lista.json().catch(() => ([]))) as any[];
+        const p1 = lj.find((x: any) => x.nropedido === 'PV-001');
+        check('PEDIDO DE VENDA §114.4 [aplicar duas vezes não dobra, e a lista mostra o pedido com o total certo]: o legado chama `RetiraPromocaoAcumulativa` ANTES de aplicar — sem isso o desconto se acumularia a cada clique. E a listagem agrupa as linhas por `NROPEDIDO` (a tabela é 1 linha por ITEM): 5 × 10,00 menos os 3,00 de promoção = **47,00**',
+          Math.abs(Number(l1b.d) - 3) < 0.005
+          && lista.status === 200 && !!p1
+          && Math.abs(Number(p1.total) - 47) < 0.005
+          && Math.abs(Number(p1.desconto_promocao) - 3) < 0.005,
+          { descontoAposSegundaAplicacao: l1b?.d, pedido: p1 && { total: p1.total, desc: p1.desconto_promocao } });
+
+        await pgPv.query(`DELETE FROM pedidos WHERE nropedido IN ('PV-001','PV-002','PV-003')`);
+        await pgPv.query(`DELETE FROM promocao_acumulativa WHERE idproacumulativa IN (998101,998102,998103)`);
+        await pgPv.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[prNormal, prAtaca, prGrupoA, prGrupoB]]);
+        await pgPv.query(`DELETE FROM familias_prod WHERE codfamilia=9981`);
+      } finally {
+        await pgPv.end();
+      }
+    }
+
     // ===== §104) PRECIFICAÇÃO DE NF (FRMPRECIFICACAONF) — onde o preço de venda NASCE quando a mercadoria
     // chega. 236 acessos, 17 operadores; o usuário classificou como "de extrema importância e grande
     // influência". Ela NÃO altera preço: enfileira lote de preço. ====

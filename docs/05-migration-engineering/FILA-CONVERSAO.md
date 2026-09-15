@@ -12,7 +12,7 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 |---|---|---|---|---|
 | 1 | `FRMCADMDFE` | 153 | 12 | ⛔ **não migrar**: a tela nunca foi implementada no legado — 47 linhas com o corpo comentado, `.dfm` com um GroupBox vazio, DataModule vazio, e `MDFE`/`MDFE_DOCUMENTO` com 0 linhas. Migrar seria escrever do zero |
 | 2 | `FRMRELINTERSECCAOPRODUTOS` | 117 | 10 | ✅ **completa** (mig 221) — sem a tabela de trabalho global do legado |
-| 3 | `FRMDIGITACAOPEDIDOS` | 116 | 9 |
+| 3 | `FRMDIGITACAOPEDIDOS` | 116 | 9 | 🟡 **corte-1** (mig 222): consulta de pedidos + **quem aplica a promoção acumulativa** (o atacarejo dá 5× o desconto normal). As 3 telas auxiliares do legado estão sem substrato — 0 linhas. Falta digitar o pedido e a reserva de estoque |
 | 4 | `FRMSAIDADEP` | 104 | 9 |
 | 5 | `FRMCONTROLEMOBILE` | 101 | 5 |
 | 6 | `FRMFLUXOCARTOES` | 98 | 7 |
