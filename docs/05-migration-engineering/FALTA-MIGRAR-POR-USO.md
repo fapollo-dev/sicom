@@ -3,7 +3,20 @@
 O placar de conversão conta telas. Esta lista conta **acessos**: o legado registra o uso de cada formulário em
 `MENUEXPRESS.ACESSOS`, e são **3.024.930** acessos acumulados. É a medida honesta do que dói faltar.
 
-> **O Apollo cobre 98% do uso real.** As telas ausentes somam 46.159 acessos — 2% do total.
+> ⚠️ **CORRIGIDO em 15/09/2026 — a leitura honesta são DOIS números, não um.**
+>
+> | eixo | número | leitura |
+> |---|---|---|
+> | por **uso** | **98,4%** coberto | 2.996.984 de 3.045.902 acessos |
+> | por **formulário** | **91 de 289** (31%) | só as que têm uso registrado |
+>
+> O primeiro número é verdadeiro e enganoso ao mesmo tempo, porque **o uso é hiperconcentrado**:
+> `FRMETIQUETA` sozinha responde por **2.375.302 acessos — 78% de tudo**. Cobrir 98% do volume não quer dizer
+> que sobrou pouco: **faltam 194 formulários com uso**, que somam 4.145 acessos (0,1%) e continuam sendo 194
+> telas de trabalho. A lista completa está em **`FILA-CONVERSAO.md`**.
+>
+> A versão anterior desta página dizia "98% do uso real, 46.159 acessos ausentes" e listava ~20 telas — o
+> recorte era curto e me levou a afirmar, por duas vezes, que a fila tinha acabado. Não tinha.
 
 E o topo do que falta é escopo já decidido: as três primeiras (sangria, consulta NFC-e e devolução de vendas)
 são **PDV**, fora por instrução do usuário, e sozinhas valem 67% do que resta.
