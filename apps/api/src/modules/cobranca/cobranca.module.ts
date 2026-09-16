@@ -1,3 +1,5 @@
+import { ConsCliRcbController } from './cons-cli-rcb.controller';
+import { ConsCliRcbService } from './cons-cli-rcb.service';
 import { DescontoTituloController } from './desconto-titulo.controller';
 import { DescontoTituloService } from './desconto-titulo.service';
 import { FluxoCartoesController } from './fluxo-cartoes.controller';
@@ -51,12 +53,14 @@ import { CadastroModule } from '../cadastro/cadastro.module';
     // FRMFLUXOCARTOES — o recebível de cartão por dia (98 acessos).
     FluxoCartoesController,
     // FRMDESCONTOTITULO — encontro de contas RCB × APG (68 acessos, 11 operadores).
-    DescontoTituloController,LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController, IntegracaoContabilController,
+    DescontoTituloController,
+    // FRMCONSCLIRCB — quanto o cliente deve, com juro e atraso (64 acessos).
+    ConsCliRcbController,LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController, IntegracaoContabilController,
     // FRMSALDOEMPRESA — o fluxo de caixa projetado (611 acessos).
     SaldoEmpresaController,
     // FRMRELCAIXA — divergências de caixa e caixas abertos (505 acessos).
     RelCaixaController],
-  providers: [FluxoCartoesService, DescontoTituloService, 
+  providers: [FluxoCartoesService, DescontoTituloService, ConsCliRcbService, 
     LotesCobrancaService, LoteCobrancaRepository,
     AreceberService, AreceberBaixaService, AreceberAgrupamentoService, ApagarService, ApagarBaixaService, ApagarAgrupamentoService,
     CaixaService, CaixaContabilService, CaixaPdvContabilService, CaixaConferenciaService, BaixaContabilService,

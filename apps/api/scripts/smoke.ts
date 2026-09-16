@@ -11707,6 +11707,61 @@ async function main() {
       }
     }
 
+    // ===== §119) CONSULTA A RECEBER POR CLIENTE (FRMCONSCLIRCB) — quanto o cliente deve, com juro e
+    // atraso. No legado a coluna JURO e a coluna TOTAL usam taxas diferentes. ====
+    {
+      const CR = 'cobranca/cons-cli-rcb';
+      const pgCr = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // três títulos vencidos há 60 dias, com taxas diferentes, para separar as regras
+        const d60 = `current_date - 60`;
+        await pgCr.query(`INSERT INTO areceber (codrcb, codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, txjuros, quitada)
+          VALUES (996001,1,2,'J-TAXA-3',current_date - 90, ${d60}, 1000.00, 3, 'N'),
+                 (996002,1,2,'J-TAXA-0',current_date - 90, ${d60}, 1000.00, 0, 'N'),
+                 (996003,1,2,'J-TAXA-25',current_date - 90, ${d60}, 1000.00, 25, 'N')`);
+        // um a vencer, para provar que atraso negativo vira zero
+        await pgCr.query(`INSERT INTO areceber (codrcb, codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, txjuros, quitada)
+          VALUES (996004,1,2,'A-VENCER',current_date, current_date + 30, 500.00, 3, 'N')`);
+
+        const r = await fetch(`${base}/${CR}?codparceiro=2&somenteAbertos=true`, { headers: H });
+        const j = (await r.json().catch(() => ({}))) as any;
+        const t3  = (j.titulos ?? []).find((t: any) => t.duplicata === 'J-TAXA-3');
+        const t0  = (j.titulos ?? []).find((t: any) => t.duplicata === 'J-TAXA-0');
+        const t25 = (j.titulos ?? []).find((t: any) => t.duplicata === 'J-TAXA-25');
+        const av  = (j.titulos ?? []).find((t: any) => t.duplicata === 'A-VENCER');
+
+        check('CONSULTA A RECEBER §119.1 [o juro é MENSAL dividido por 30, simples]: taxa 3% ao mês em 60 dias de atraso sobre 1.000,00 dá `(3÷30) × 60 × 1000 ÷ 100` = **60,00** de juro, e total **1.060,00**. E atraso negativo vira zero: o título a vencer não rende nada',
+          r.status === 200 && !!t3
+          && Number(t3.atraso) === 60
+          && Math.abs(Number(t3.juro) - 60) < 0.02
+          && Math.abs(Number(t3.total) - 1060) < 0.02
+          && Number(av?.atraso) === 0 && Math.abs(Number(av?.juro)) < 0.005,
+          { comTaxa3: t3 && { atraso: t3.atraso, juro: t3.juro, total: t3.total }, aVencer: av && { atraso: av.atraso, juro: av.juro } });
+
+        check('CONSULTA A RECEBER §119.2 [o juro fantasma de 11,5 milhões]: no SQL do legado a coluna JURO aplica um default de **9% ao mês** quando `TXJUROS` fica fora da faixa (0, 20), mas a coluna TOTAL usa a taxa crua — então o título com taxa ZERO mostra juro a 9% numa coluna e total sem juro na outra. Isso atinge **99.694 dos 99.734 títulos (99,96%)**: nos 46.792 vencidos com taxa zero, R$ 11.567.551,22 de juro exibido sobre R$ 4.845.428,53 de principal. Aqui a taxa é UMA só: título sem taxa não rende juro, e o total continua igual ao do legado',
+          Math.abs(Number(t0?.juro)) < 0.005
+          && Math.abs(Number(t0?.total) - 1000) < 0.005,
+          { taxaZero: t0 && { juro: t0.juro, total: t0.total } });
+
+        check('CONSULTA A RECEBER §119.3 [taxa fora da faixa não vira 9%]: o legado trocaria a taxa 25 por 9% ao mês na coluna de juro — inventando 180,00 num título cujo total ele mesmo calcularia com 25%. Aqui, fora da faixa é zero nas duas colunas, e a incoerência some',
+          Math.abs(Number(t25?.juro)) < 0.005
+          && Math.abs(Number(t25?.total) - 1000) < 0.005,
+          { taxa25: t25 && { juro: t25.juro, total: t25.total } });
+
+        const comTol = (await (await fetch(`${base}/${CR}?codparceiro=2&somenteAbertos=true&tolerancia=90`, { headers: H })).json().catch(() => ({}))) as any;
+        const t3Tol = (comTol.titulos ?? []).find((t: any) => t.duplicata === 'J-TAXA-3');
+        check('CONSULTA A RECEBER §119.4 [a tolerância zera o juro INTEIRO, não os dias tolerados]: com 90 dias de carência, um atraso de 60 não rende nada. E se passasse — digamos 91 dias —, o juro viria sobre os 91, não sobre 1. É assim no legado e foi mantido: é o combinado com o cliente, não um arredondamento',
+          Math.abs(Number(t3Tol?.juro)) < 0.005
+          && Math.abs(Number(t3Tol?.total) - 1000) < 0.005
+          && Number(t3Tol?.atraso) === 60,
+          { comTolerancia90: t3Tol && { atraso: t3Tol.atraso, juro: t3Tol.juro, total: t3Tol.total } });
+
+        await pgCr.query(`DELETE FROM areceber WHERE codrcb IN (996001,996002,996003,996004)`);
+      } finally {
+        await pgCr.end();
+      }
+    }
+
     // ===== §104) PRECIFICAÇÃO DE NF (FRMPRECIFICACAONF) — onde o preço de venda NASCE quando a mercadoria
     // chega. 236 acessos, 17 operadores; o usuário classificou como "de extrema importância e grande
     // influência". Ela NÃO altera preço: enfileira lote de preço. ====

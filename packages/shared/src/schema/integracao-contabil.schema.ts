@@ -476,3 +476,12 @@ export const descontoTituloSchema = z.object({
   codparceiro: z.coerce.number().int().positive().nullish(),
 });
 export type DescontoTituloDto = z.infer<typeof descontoTituloSchema>;
+
+/** CONSULTA A RECEBER POR CLIENTE (`FRMCONSCLIRCB`): quanto o cliente deve, com juro e atraso. */
+export const consCliRcbSchema = z.object({
+  codparceiro: z.coerce.number().int().positive(),
+  somenteAbertos: boolQuery.optional(),
+  /** dias de carência antes de o juro começar a contar. */
+  tolerancia: z.coerce.number().int().min(0).max(365).nullish(),
+});
+export type ConsCliRcbDto = z.infer<typeof consCliRcbSchema>;

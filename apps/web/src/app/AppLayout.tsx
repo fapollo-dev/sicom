@@ -33,6 +33,7 @@ import {
   FileSearch,
   ArrowLeftRight,
   CalendarClock,
+  UserSearch,
   Undo2,
   ClipboardList,
   Settings,
@@ -151,6 +152,8 @@ const TELAS = [
   { href: '/relatorios/compra-venda', name: 'Análise compra × venda', icon: Scale },
   // FRMDESCONTOTITULO — encontro de contas RCB × APG (68 acessos, 11 operadores).
   { href: '/financeiro/desconto-titulo', name: 'Desconto de títulos', icon: Scale },
+  // FRMCONSCLIRCB — quanto o cliente deve, com juro e atraso (64 acessos).
+  { href: '/financeiro/a-receber-cliente', name: 'A receber por cliente', icon: UserSearch },
   { href: '/cadastro/fechamento-diario', name: 'Fechamento Diário', icon: CalendarClock },
   // FRMCTRLPERMISSOES — permissão por OPERADOR, que é o modo que o cliente usa (a de Perfis é o outro caminho).
   { href: '/cadastro/permissoes', name: 'Controle de Permissões', icon: ShieldCheck },

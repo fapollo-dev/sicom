@@ -23,15 +23,15 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 11 | `FRMCADCONFIGCONCILIADOR` | 82 | 6 |
 | 12 | `FRMRELFATURAMENTO` | 80 | 7 | ✅ **completa** (mig 224) — ⚠️ o legado mostrava **0,04%** do faturamento: faltava a perna **NFC-e**, que é por onde a loja fatura |
 | 13 | `FRMBAIXACHEQUE` | 80 | 11 | 🪦 marginal: `CHEQUE` com **11 linhas** e `CHEQUE_DEVOLVIDO` com **0** |
-| 14 | `FRMCONTROLEFUN` | 75 | 4 |
-| 15 | `FRMMOVCONCORRENTES` | 72 | 7 |
+| 14 | `FRMCONTROLEFUN` | 75 | 4 | ⛔ **sem substrato**: `CONVENIO_FUN` e `FRETEIRO` com **0 linhas** |
+| 15 | `FRMMOVCONCORRENTES` | 72 | 7 | 🪦 marginal: `CONCORRENCIA` **20**, `ANALISE_CONCORRENCIA` **1**, `MOV_ANALISE_CONCORRENTE` **6** linhas |
 | 16 | `FRMANALISEENTRADAXSAIDA` | 68 | 9 |
 | 17 | `FRMDESCONTOTITULO` | 68 | 11 | 🟡 **corte-1** (mig 226): a consulta do **encontro de contas** (o nome engana — não é desconto bancário). 18 operações, mas **R$ 254 mil**, a última há 4 dias. Falta executar e reverter |
-| 18 | `FRMPEDIDOSCOMPRACERAL` | 68 | 5 |
-| 19 | `FRMPRECIFICACAOPROD` | 67 | 7 |
-| 20 | `FRMAGRUPACARTAO` | 64 | 11 |
-| 21 | `FRMCONSCLIRCB` | 64 | 8 |
-| 22 | `FRMRELPEDIDOCOMPRA` | 63 | 6 |
+| 18 | `FRMPEDIDOSCOMPRACERAL` | 68 | 5 | ⛔ **sem substrato**: `PEDIDOCOMPRACEREAL` com **0 linhas** |
+| 19 | `FRMPRECIFICACAOPROD` | 67 | 7 | ⛔ **sem fonte no repositório clonado** |
+| 20 | `FRMAGRUPACARTAO` | 64 | 11 | ⛔ **mecanismo nunca usado**: agrupa lançamentos sob um número de resumo da operadora, gravando `CARTAO.RESUMO` — coluna **nula nas 2.059.893 linhas**. Os 64 acessos são gente abrindo a tela |
+| 21 | `FRMCONSCLIRCB` | 64 | 8 | ✅ **completa** (mig 227) — ⚠️ o legado exibia **R$ 11,5 milhões** de juro fantasma: a coluna JURO usava um default de 9% a.m. que o TOTAL não aplicava, em 99,96% dos títulos |
+| 22 | `FRMRELPEDIDOCOMPRA` | 63 | 6 | ⛔ **sem fonte no repositório clonado** |
 | 23 | `FRMCADHISTORICOCONTABIL` | 62 | 3 |
 | 24 | `FRMMULTATUALIZACAO` | 60 | 6 |
 | 25 | `FRMCADTERMINAIS` | 56 | 2 |
