@@ -26,7 +26,7 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 14 | `FRMCONTROLEFUN` | 75 | 4 |
 | 15 | `FRMMOVCONCORRENTES` | 72 | 7 |
 | 16 | `FRMANALISEENTRADAXSAIDA` | 68 | 9 |
-| 17 | `FRMDESCONTOTITULO` | 68 | 11 |
+| 17 | `FRMDESCONTOTITULO` | 68 | 11 | 🟡 **corte-1** (mig 226): a consulta do **encontro de contas** (o nome engana — não é desconto bancário). 18 operações, mas **R$ 254 mil**, a última há 4 dias. Falta executar e reverter |
 | 18 | `FRMPEDIDOSCOMPRACERAL` | 68 | 5 |
 | 19 | `FRMPRECIFICACAOPROD` | 67 | 7 |
 | 20 | `FRMAGRUPACARTAO` | 64 | 11 |

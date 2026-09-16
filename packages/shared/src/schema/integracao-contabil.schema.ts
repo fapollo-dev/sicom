@@ -468,3 +468,11 @@ export const relEntSaiSchema = z.object({
   agruparProdutos: boolQuery.optional(),
 });
 export type RelEntSaiDto = z.infer<typeof relEntSaiSchema>;
+
+/** DESCONTO DE TÍTULOS (`FRMDESCONTOTITULO`) — encontro de contas entre a receber e a pagar. */
+export const descontoTituloSchema = z.object({
+  dataIni: dataISO.nullish(),
+  dataFim: dataISO.nullish(),
+  codparceiro: z.coerce.number().int().positive().nullish(),
+});
+export type DescontoTituloDto = z.infer<typeof descontoTituloSchema>;

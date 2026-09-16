@@ -1397,6 +1397,13 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "codgrupo_desconto_titulo": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -2356,6 +2363,13 @@
      "tipo": "character",
      "tam": 1,
      "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codgrupo_desconto_titulo": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
      "nulo": true,
      "default": null
     }

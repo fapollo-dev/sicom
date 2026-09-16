@@ -55,6 +55,7 @@ import { PedidoVendaPage } from '../features/pedido-venda/PedidoVendaPage';
 import { FluxoCartoesPage } from '../features/fluxo-cartoes/FluxoCartoesPage';
 import { RelFaturamentoPage } from '../features/rel-faturamento/RelFaturamentoPage';
 import { RelEntSaiPage } from '../features/rel-ent-sai/RelEntSaiPage';
+import { DescontoTituloPage } from '../features/desconto-titulo/DescontoTituloPage';
 import { EmpresasCadMaster } from '../features/empresas/EmpresasCadMaster';
 import { AjusteEstoquePage } from '../features/ajuste-estoque/AjusteEstoquePage';
 import { InventarioPage } from '../features/inventario/InventarioPage';
@@ -204,6 +205,7 @@ export const router = createBrowserRouter([
       { path: '/financeiro/fluxo-cartoes', element: <FluxoCartoesPage /> }, // FRMFLUXOCARTOES
       { path: '/relatorios/faturamento', element: <RelFaturamentoPage /> }, // FRMRELFATURAMENTO
       { path: '/relatorios/compra-venda', element: <RelEntSaiPage /> }, // FRMRELENTSAI
+      { path: '/financeiro/desconto-titulo', element: <DescontoTituloPage /> }, // FRMDESCONTOTITULO
       { path: '/cadastro/configuracoes', element: <ConfiguracoesPage /> }, // configurações (UConfigura): chave-valor por empresa
     ],
   },

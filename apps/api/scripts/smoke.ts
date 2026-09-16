@@ -11651,6 +11651,62 @@ async function main() {
       }
     }
 
+    // ===== §118) DESCONTO DE TÍTULOS (FRMDESCONTOTITULO) — ENCONTRO DE CONTAS entre a receber e a pagar,
+    // não desconto bancário. 18 operações em produção, mas R$ 254 mil. ====
+    {
+      const DT = 'cobranca/desconto-titulo';
+      const pgDt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // o exemplo do próprio autor do legado: RCB 30,00 (valor real 10,00) × APG 12,00.
+        // 12 − 10 = 2,00 de título novo; e o RCB vira 10,00 + outro de 20,00. Todos com o mesmo COD.
+        await pgDt.query(`INSERT INTO areceber (codrcb, codempresa, codparceiro, duplicata, dtvenc, valor, quitada, cod_desconto_titulo)
+          VALUES (995001,1,2,'DUP-A','2056-07-10',10.00,'S',77001)`);
+        await pgDt.query(`INSERT INTO areceber (codrcb, codempresa, codparceiro, duplicata, dtvenc, valor, quitada, cod_desconto_titulo, codgrupo_desconto_titulo)
+          VALUES (995002,1,2,'DUP-A/2','2056-08-10',20.00,'N',77001,77001)`);
+        await pgDt.query(`INSERT INTO apagar (codapg, codempresa, codparceiro, duplicata, dtvenc, valor, quitada, cod_desconto_titulo)
+          VALUES (995003,1,2,'DUP-B','2056-07-10',12.00,'S',77001)`);
+        await pgDt.query(`INSERT INTO apagar (codapg, codempresa, codparceiro, duplicata, dtvenc, valor, quitada, cod_desconto_titulo, codgrupo_desconto_titulo)
+          VALUES (995004,1,2,'DUP-B/2','2056-08-10',2.00,'N',77001,77001)`);
+        // uma operação de outro parceiro, para provar o filtro
+        await pgDt.query(`INSERT INTO areceber (codrcb, codempresa, codparceiro, duplicata, dtvenc, valor, quitada, cod_desconto_titulo)
+          VALUES (995005,1,3,'DUP-C','2056-07-20',500.00,'S',77002)`);
+
+        const r = await fetch(`${base}/${DT}?dataIni=2056-07-01&dataFim=2056-08-31`, { headers: H });
+        const j = (await r.json().catch(() => ({}))) as any;
+        const op = (j.linhas ?? []).find((l: any) => Number(l.operacao) === 77001);
+
+        check('DESCONTO DE TÍTULOS §118.1 [é ENCONTRO DE CONTAS, não desconto bancário]: o autor do legado documentou a mecânica dentro do `Gravar` (`:886`) — o operador escolhe um título a receber e um a pagar, informa quanto quer usar de cada, **o menor é abatido no maior**, e a diferença GERA UM TÍTULO NOVO. No exemplo dele: RCB 30,00 com valor real 10,00 contra APG 12,00 ⇒ novo título de 2,00, e o RCB baixado parcialmente para 10,00 gerando outro de 20,00. A operação 77001 junta os 4 títulos: 30,00 a receber contra 14,00 a pagar',
+          r.status === 200 && !!op
+          && Number(op.titulos) === 4
+          && Math.abs(Number(op.total_receber) - 30) < 0.005
+          && Math.abs(Number(op.total_pagar) - 14) < 0.005,
+          { operacao: op && { titulos: op.titulos, rcb: op.total_receber, apg: op.total_pagar } });
+
+        check('DESCONTO DE TÍTULOS §118.2 [o que a operação GEROU fica marcado, e é o que permite reverter]: `COD_DESCONTO_TITULO` marca todos os títulos da operação; `CODGRUPO_DESCONTO_TITULO` marca só os **nascidos da diferença** — 2 dos 4. Sem essa segunda coluna (que não vinha na carga) não há como saber o que foi criado, e a reversão fica cega. E 2 dos 4 já estão quitados: são os que foram abatidos',
+          Number(op.gerados) === 2 && Number(op.quitados) === 2,
+          { gerados: op?.gerados, quitados: op?.quitados });
+
+        const det = await fetch(`${base}/${DT}/77001`, { headers: H });
+        const dj = (await det.json().catch(() => ([]))) as any[];
+        const gerado = dj.find((t: any) => t.gerado_pela_operacao === true && t.lado === 'APG');
+        check('DESCONTO DE TÍTULOS §118.3 [o detalhe mostra os dois lados e o que nasceu]: abrir a operação traz os quatro títulos, de RCB e APG juntos, com a marca de quais foram gerados — o de 2,00 a pagar é a diferença que sobrou do encontro',
+          det.status === 200 && dj.length === 4
+          && !!gerado && Math.abs(Number(gerado.valor) - 2) < 0.005,
+          { titulos: dj.length, gerado: gerado && { lado: gerado.lado, valor: gerado.valor } });
+
+        const soP3 = (await (await fetch(`${base}/${DT}?codparceiro=3`, { headers: H })).json().catch(() => ({}))) as any;
+        check('DESCONTO DE TÍTULOS §118.4: o filtro por parceiro isola a operação dele — e o total do período soma as duas pontas separadas, porque a diferença entre elas é o que a operação custou ou rendeu',
+          Number(soP3.totais?.operacoes) === 1
+          && Number((soP3.linhas ?? [])[0]?.operacao) === 77002,
+          { doParceiro3: soP3.totais });
+
+        await pgDt.query(`DELETE FROM areceber WHERE codrcb IN (995001,995002,995005)`);
+        await pgDt.query(`DELETE FROM apagar WHERE codapg IN (995003,995004)`);
+      } finally {
+        await pgDt.end();
+      }
+    }
+
     // ===== §104) PRECIFICAÇÃO DE NF (FRMPRECIFICACAONF) — onde o preço de venda NASCE quando a mercadoria
     // chega. 236 acessos, 17 operadores; o usuário classificou como "de extrema importância e grande
     // influência". Ela NÃO altera preço: enfileira lote de preço. ====

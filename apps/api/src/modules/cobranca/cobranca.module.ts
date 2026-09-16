@@ -1,3 +1,5 @@
+import { DescontoTituloController } from './desconto-titulo.controller';
+import { DescontoTituloService } from './desconto-titulo.service';
 import { FluxoCartoesController } from './fluxo-cartoes.controller';
 import { FluxoCartoesService } from './fluxo-cartoes.service';
 import { Module } from '@nestjs/common';
@@ -47,12 +49,14 @@ import { CadastroModule } from '../cadastro/cadastro.module';
   // corrente + título gerado (areceber no tipo 'D', apagar em 'C'/'E').
   controllers: [
     // FRMFLUXOCARTOES — o recebível de cartão por dia (98 acessos).
-    FluxoCartoesController,LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController, IntegracaoContabilController,
+    FluxoCartoesController,
+    // FRMDESCONTOTITULO — encontro de contas RCB × APG (68 acessos, 11 operadores).
+    DescontoTituloController,LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController, IntegracaoContabilController,
     // FRMSALDOEMPRESA — o fluxo de caixa projetado (611 acessos).
     SaldoEmpresaController,
     // FRMRELCAIXA — divergências de caixa e caixas abertos (505 acessos).
     RelCaixaController],
-  providers: [FluxoCartoesService, 
+  providers: [FluxoCartoesService, DescontoTituloService, 
     LotesCobrancaService, LoteCobrancaRepository,
     AreceberService, AreceberBaixaService, AreceberAgrupamentoService, ApagarService, ApagarBaixaService, ApagarAgrupamentoService,
     CaixaService, CaixaContabilService, CaixaPdvContabilService, CaixaConferenciaService, BaixaContabilService,
