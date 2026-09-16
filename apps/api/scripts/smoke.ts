@@ -11523,6 +11523,67 @@ async function main() {
       }
     }
 
+    // ===== §116) FATURAMENTO POR MÊS (FRMRELFATURAMENTO) — o relatório que mostra 0,04% do faturamento
+    // deste cliente, porque olha para um canal que a loja não usa mais. ====
+    {
+      const FT = 'relatorios/faturamento';
+      const pgFt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const pFt = Number((await pgFt.query(`INSERT INTO produtos (codbarra, descricao, unidade, codfor, aliquota)
+          VALUES ('7009000013301','PROD FATURAMENTO','UN',2,'T01') RETURNING idproduto`)).rows[0].idproduto);
+        // perna NF: uma nota de saída no CFOP 5102, processada
+        await pgFt.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, cfop)
+          VALUES (1,'S',55,'1','998001','2054-05-10','2054-05-10',2,'S','N',872.74,'5102')`);
+        // uma nota CANCELADA e uma NÃO processada, ambas no mesmo CFOP: não podem entrar
+        await pgFt.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, cfop)
+          VALUES (1,'S',55,'1','998002','2054-05-11','2054-05-11',2,'S','S',9999.00,'5102'),
+                 (1,'S',55,'1','998003','2054-05-12','2054-05-12',2,'N','N',8888.00,'5102')`);
+        // uma nota num CFOP que NÃO é de venda: fora
+        await pgFt.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, cfop)
+          VALUES (1,'S',55,'1','998004','2054-05-13','2054-05-13',2,'S','N',7777.00,'5152')`);
+        // perna NFC-e: a venda do balcão, que é o que o legado NÃO vê
+        await pgFt.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nrocupom, codvendas_legado, codproduto, qtde, vrvenda, vrcusto, iat, cancelado, venda_nfc)
+          VALUES (1,'2054-05-10','F-1',900001,900001,$1,100,20.00,10.00,'A','N','S'),
+                 (1,'2054-05-15','F-2',900002,900002,$1,50,10.00,5.00,'A','N','S'),
+                 (1,'2054-05-16','F-3',900003,900003,$1,10,10.00,5.00,'A','S','S')`, [pFt]);
+        // perna ECF: uma redução Z, para provar que a perna existe para quem usa
+        await pgFt.query(`INSERT INTO reducaoz (codreducao, idempresa, data, cooz, vendaliq)
+          VALUES (990001,1,'2054-05-10',1,300.00)`);
+
+        const r = await fetch(`${base}/${FT}?dataIni=2054-05-01&dataFim=2054-05-31`, { headers: H });
+        const j = (await r.json().catch(() => ({}))) as any;
+        const m = (j.linhas ?? [])[0] as any;
+
+        check('FATURAMENTO §116.1 [o legado enxerga 0,04% do faturamento, e o motivo é estrutural]: o SQL original soma a Redução Z do ECF e as notas de saída em seis CFOPs — o que era certo na época do cupom de impressora. Este cliente é 100% NFC-e: `REDUCAOZ` tem **0 linhas na tabela inteira** e, em agosto/2026, as notas somaram **R$ 872,74** contra **R$ 2.233.973,50** de venda NFC-e. Aqui há TRÊS pernas, cada uma visível: ECF 300,00 + nota 872,74 + NFC-e 2.500,00 = **3.672,74**',
+          r.status === 200 && !!m
+          && Math.abs(Number(m.reducaoz) - 300) < 0.005
+          && Math.abs(Number(m.nota_fiscal) - 872.74) < 0.005
+          && Math.abs(Number(m.nfce) - 2500) < 0.005
+          && Math.abs(Number(m.venda_liquida) - 3672.74) < 0.005,
+          { mes: m && { ecf: m.reducaoz, nf: m.nota_fiscal, nfce: m.nfce, total: m.venda_liquida } });
+
+        check('FATURAMENTO §116.2 [o que NÃO entra na perna da nota]: cancelada (9.999,00), não processada (8.888,00) e CFOP fora da lista de venda (7.777,00 no 5152, que é transferência) ficam de fora — se qualquer uma entrasse, o faturamento do mês pularia 26 mil. E a venda NFC-e cancelada (100,00) também não conta',
+          Math.abs(Number(m.nota_fiscal) - 872.74) < 0.005
+          && Math.abs(Number(m.nfce) - 2500) < 0.005,
+          { nf: m?.nota_fiscal, nfce: m?.nfce });
+
+        check('FATURAMENTO §116.3 [a competência e os totais]: a linha é o MÊS, com o primeiro e o último dia calculados, e o total do período soma as três pernas separadas — para o contador ver de onde veio cada parte em vez de um número só',
+          String(m.competencia) === '2054-05'
+          && Number(m.mes) === 5 && Number(m.ano) === 2054
+          && String(m.d1).startsWith('2054-05-01') && String(m.d2).startsWith('2054-05-31')
+          && Math.abs(Number(j.totais.total) - 3672.74) < 0.005
+          && Math.abs(Number(j.totais.nfce) - 2500) < 0.005,
+          { competencia: m?.competencia, d1: m?.d1, d2: m?.d2, totais: j.totais });
+
+        await pgFt.query(`DELETE FROM reducaoz WHERE codreducao=990001`);
+        await pgFt.query(`DELETE FROM vendas WHERE codvendas_legado IN (900001,900002,900003)`);
+        await pgFt.query(`DELETE FROM nf WHERE nronf IN ('998001','998002','998003','998004')`);
+        await pgFt.query(`DELETE FROM produtos WHERE idproduto=$1`, [pFt]);
+      } finally {
+        await pgFt.end();
+      }
+    }
+
     // ===== §104) PRECIFICAÇÃO DE NF (FRMPRECIFICACAONF) — onde o preço de venda NASCE quando a mercadoria
     // chega. 236 acessos, 17 operadores; o usuário classificou como "de extrema importância e grande
     // influência". Ela NÃO altera preço: enfileira lote de preço. ====

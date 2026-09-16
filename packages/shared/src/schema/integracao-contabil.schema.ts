@@ -450,3 +450,7 @@ export const fluxoCartoesSchema = z.object({
   codoperadora: z.coerce.number().int().positive().nullish(),
 });
 export type FluxoCartoesDto = z.infer<typeof fluxoCartoesSchema>;
+
+/** FATURAMENTO POR MÊS (`FRMRELFATURAMENTO`). */
+export const relFaturamentoSchema = z.object({ dataIni: dataISO, dataFim: dataISO });
+export type RelFaturamentoDto = z.infer<typeof relFaturamentoSchema>;

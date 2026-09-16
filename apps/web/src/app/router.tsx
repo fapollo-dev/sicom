@@ -53,6 +53,7 @@ import { RelDdePage } from '../features/rel-dde/RelDdePage';
 import { RelInterseccaoPage } from '../features/rel-interseccao/RelInterseccaoPage';
 import { PedidoVendaPage } from '../features/pedido-venda/PedidoVendaPage';
 import { FluxoCartoesPage } from '../features/fluxo-cartoes/FluxoCartoesPage';
+import { RelFaturamentoPage } from '../features/rel-faturamento/RelFaturamentoPage';
 import { EmpresasCadMaster } from '../features/empresas/EmpresasCadMaster';
 import { AjusteEstoquePage } from '../features/ajuste-estoque/AjusteEstoquePage';
 import { InventarioPage } from '../features/inventario/InventarioPage';
@@ -200,6 +201,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/interseccao-produtos', element: <RelInterseccaoPage /> }, // FRMRELINTERSECCAOPRODUTOS
       { path: '/compras/pedido-venda', element: <PedidoVendaPage /> }, // FRMDIGITACAOPEDIDOS
       { path: '/financeiro/fluxo-cartoes', element: <FluxoCartoesPage /> }, // FRMFLUXOCARTOES
+      { path: '/relatorios/faturamento', element: <RelFaturamentoPage /> }, // FRMRELFATURAMENTO
       { path: '/cadastro/configuracoes', element: <ConfiguracoesPage /> }, // configurações (UConfigura): chave-valor por empresa
     ],
   },

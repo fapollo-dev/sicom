@@ -37,6 +37,8 @@ import { ConsultoriaService } from './consultoria.service';
 import { RelCartoesController } from './rel-cartoes.controller';
 import { RelCartoesService } from './rel-cartoes.service';
 import { RentabilidadeCategoriasController } from './rentabilidade-categorias.controller';
+import { RelFaturamentoController } from './rel-faturamento.controller';
+import { RelFaturamentoService } from './rel-faturamento.service';
 import { RelInterseccaoController } from './rel-interseccao.controller';
 import { RelInterseccaoService } from './rel-interseccao.service';
 import { RelDdeController } from './rel-dde.controller';
@@ -76,7 +78,9 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     // FRMRELDDE — dias de estoque / cobertura (132 acessos).
     RelDdeController,
     // FRMRELINTERSECCAOPRODUTOS — o que o cliente leva junto (117 acessos).
-    RelInterseccaoController],
-  providers: [RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService, RelCartoesService, RentabilidadeCategoriasService, RelComprasService, ProdutosRelService, RelEntradasSaidasService, RelDdeService, RelInterseccaoService],
+    RelInterseccaoController,
+    // FRMRELFATURAMENTO — faturamento por mês, com a perna NFC-e que falta no legado (80 acessos).
+    RelFaturamentoController],
+  providers: [RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService, RelCartoesService, RentabilidadeCategoriasService, RelComprasService, ProdutosRelService, RelEntradasSaidasService, RelDdeService, RelInterseccaoService, RelFaturamentoService],
 })
 export class RelatoriosModule {}

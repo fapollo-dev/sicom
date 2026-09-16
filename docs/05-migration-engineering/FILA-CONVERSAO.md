@@ -21,7 +21,7 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 9 | `FRMRELENTSAI` | 84 | 10 |
 | 10 | `FRMINTEGRACAOLOTEFGFAPI` | 82 | 2 |
 | 11 | `FRMCADCONFIGCONCILIADOR` | 82 | 6 |
-| 12 | `FRMRELFATURAMENTO` | 80 | 7 |
+| 12 | `FRMRELFATURAMENTO` | 80 | 7 | ✅ **completa** (mig 224) — ⚠️ o legado mostrava **0,04%** do faturamento: faltava a perna **NFC-e**, que é por onde a loja fatura |
 | 13 | `FRMBAIXACHEQUE` | 80 | 11 | 🪦 marginal: `CHEQUE` com **11 linhas** e `CHEQUE_DEVOLVIDO` com **0** |
 | 14 | `FRMCONTROLEFUN` | 75 | 4 |
 | 15 | `FRMMOVCONCORRENTES` | 72 | 7 |
