@@ -454,3 +454,17 @@ export type FluxoCartoesDto = z.infer<typeof fluxoCartoesSchema>;
 /** FATURAMENTO POR MÊS (`FRMRELFATURAMENTO`). */
 export const relFaturamentoSchema = z.object({ dataIni: dataISO, dataFim: dataISO });
 export type RelFaturamentoDto = z.infer<typeof relFaturamentoSchema>;
+
+/** ANÁLISE DE COMPRA × VENDA (`FRMRELENTSAI`): por produto, o que entrou e o que saiu. */
+export const relEntSaiSchema = z.object({
+  dataIni: dataISO,
+  dataFim: dataISO,
+  coddpto: z.coerce.number().int().positive().nullish(),
+  codgrupo: z.coerce.number().int().positive().nullish(),
+  codsubgrupo: z.coerce.number().int().positive().nullish(),
+  idproduto: z.coerce.number().int().positive().nullish(),
+  codfor: z.coerce.number().int().positive().nullish(),
+  /** o `chkAgruparProdutos`: junta as empresas numa linha só por produto. */
+  agruparProdutos: boolQuery.optional(),
+});
+export type RelEntSaiDto = z.infer<typeof relEntSaiSchema>;

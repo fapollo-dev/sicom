@@ -54,6 +54,7 @@ import { RelInterseccaoPage } from '../features/rel-interseccao/RelInterseccaoPa
 import { PedidoVendaPage } from '../features/pedido-venda/PedidoVendaPage';
 import { FluxoCartoesPage } from '../features/fluxo-cartoes/FluxoCartoesPage';
 import { RelFaturamentoPage } from '../features/rel-faturamento/RelFaturamentoPage';
+import { RelEntSaiPage } from '../features/rel-ent-sai/RelEntSaiPage';
 import { EmpresasCadMaster } from '../features/empresas/EmpresasCadMaster';
 import { AjusteEstoquePage } from '../features/ajuste-estoque/AjusteEstoquePage';
 import { InventarioPage } from '../features/inventario/InventarioPage';
@@ -202,6 +203,7 @@ export const router = createBrowserRouter([
       { path: '/compras/pedido-venda', element: <PedidoVendaPage /> }, // FRMDIGITACAOPEDIDOS
       { path: '/financeiro/fluxo-cartoes', element: <FluxoCartoesPage /> }, // FRMFLUXOCARTOES
       { path: '/relatorios/faturamento', element: <RelFaturamentoPage /> }, // FRMRELFATURAMENTO
+      { path: '/relatorios/compra-venda', element: <RelEntSaiPage /> }, // FRMRELENTSAI
       { path: '/cadastro/configuracoes', element: <ConfiguracoesPage /> }, // configurações (UConfigura): chave-valor por empresa
     ],
   },

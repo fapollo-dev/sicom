@@ -11584,6 +11584,73 @@ async function main() {
       }
     }
 
+    // ===== §117) ANÁLISE DE COMPRA × VENDA (FRMRELENTSAI) — por produto, o que entrou e o que saiu. ====
+    {
+      const ES2 = 'relatorios/compra-venda';
+      const pgE2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgE2.query(`INSERT INTO familias_prod (codfamilia, descricao, tipo) VALUES (9991,'DEPTO CV','D')
+          ON CONFLICT (codfamilia) DO NOTHING`);
+        const pCv = Number((await pgE2.query(`INSERT INTO produtos (codbarra, descricao, coddpto, unidade, codfor, aliquota)
+          VALUES ('7009000014401','PROD COMPRA VENDA',9991,'UN',2,'T01') RETURNING idproduto`)).rows[0].idproduto);
+
+        // ENTRADA: nota com 10 caixas de 12 = 120 unidades; custo 100,00 com 20% ⇒ base 80 × 10 = 800,00
+        const nfCv = Number((await pgE2.query(
+          `INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, cfop)
+           VALUES (1,'E',55,'1','999001','2055-06-10','2055-06-10',2,'S','N',800,'1102') RETURNING codnf`)).rows[0].codnf);
+        await pgE2.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, desconto, fatorembal, aliquota)
+          VALUES ($1,$2,10,100.00,20,12,'T01')`, [nfCv, pCv]);
+
+        // SAÍDA: 90 unidades a 15,00, com 10,00 de desconto de promoção
+        await pgE2.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nrocupom, codvendas_legado, codproduto, qtde, vrvenda, vrcusto, iat, cancelado, desc_promocao)
+          VALUES (1,'2055-06-12','CV-1',910001,910001,$1,90,15.00,8.00,'A','N',10.00)`, [pCv]);
+
+        const r = await fetch(`${base}/${ES2}?dataIni=2055-06-01&dataFim=2055-06-30&coddpto=9991`, { headers: H });
+        const j = (await r.json().catch(() => ({}))) as any;
+        const l = (j.linhas ?? [])[0] as any;
+
+        check('COMPRA × VENDA §117.1 [as duas pontas na mesma unidade]: a entrada é `QUANTIDADE × FATOREMBAL` — 10 caixas de 12 são **120 unidades** —, e a saída são as 90 vendidas. Sem o fator, a nota diria 10 e a comparação não faria sentido. A diferença de **−30** é o que sobrou na prateleira',
+          r.status === 200 && !!l
+          && Math.abs(Number(l.entradas) - 120) < 0.005
+          && Math.abs(Number(l.saidas) - 90) < 0.005
+          && Math.abs(Number(l.dif_qtde) + 30) < 0.005,
+          { entradas: l?.entradas, saidas: l?.saidas, dif: l?.dif_qtde });
+
+        check('COMPRA × VENDA §117.2 [o DESCONTO como PERCENTUAL — e três telas, dois entendimentos]: o custo de entrada é `VRCUSTO − VRCUSTO × DESCONTO/100`: 100,00 com 20% dá 80,00 por caixa, × 10 = **800,00**. Esta tela e o Relatório de Compras (§105) tratam o campo como percentual, que é o que ele é; já o Entradas e Saídas (§109) subtrai o mesmo campo como se fosse reais, e isso lhe custa R$ 178.994,93 por ano. A venda líquida sai 90 × 15,00 − 10,00 de promoção = **1.340,00**, e a diferença é **540,00**',
+          Math.abs(Number(l.total_compras) - 800) < 0.005
+          && Math.abs(Number(l.total_venda) - 1340) < 0.005
+          && Math.abs(Number(l.dif_valor) - 540) < 0.005,
+          { compras: l?.total_compras, venda: l?.total_venda, dif: l?.dif_valor });
+
+        // nota NÃO processada e venda cancelada não podem entrar
+        const nfNp = Number((await pgE2.query(
+          `INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, cfop)
+           VALUES (1,'E',55,'1','999002','2055-06-15','2055-06-15',2,'N','N',9999,'1102') RETURNING codnf`)).rows[0].codnf);
+        await pgE2.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, desconto, fatorembal, aliquota)
+          VALUES ($1,$2,50,100.00,0,12,'T01')`, [nfNp, pCv]);
+        await pgE2.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nrocupom, codvendas_legado, codproduto, qtde, vrvenda, vrcusto, iat, cancelado)
+          VALUES (1,'2055-06-16','CV-2',910002,910002,$1,500,15.00,8.00,'A','S')`, [pCv]);
+        const r2x = await fetch(`${base}/${ES2}?dataIni=2055-06-01&dataFim=2055-06-30&coddpto=9991`, { headers: H });
+        const j2 = (await r2x.json().catch(() => ({}))) as any;
+        const l2 = (j2.linhas ?? [])[0] as any;
+        check('COMPRA × VENDA §117.3 [o que não movimentou não conta]: a nota de entrada NÃO processada (600 unidades) e a venda CANCELADA (500) ficam de fora dos dois lados — os números seguem 120 e 90. Contá-las inverteria o sinal da diferença e mandaria o comprador repor o que já está na prateleira',
+          Math.abs(Number(l2?.entradas) - 120) < 0.005 && Math.abs(Number(l2?.saidas) - 90) < 0.005,
+          { entradas: l2?.entradas, saidas: l2?.saidas });
+
+        const inv = await fetch(`${base}/${ES2}?dataIni=2055-06-30&dataFim=2055-06-01`, { headers: H });
+        check('COMPRA × VENDA §117.4: data invertida é recusada com mensagem',
+          inv.status >= 400, { status: inv.status });
+
+        await pgE2.query(`DELETE FROM vendas WHERE codvendas_legado IN (910001,910002)`);
+        await pgE2.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2)`, [nfCv, nfNp]);
+        await pgE2.query(`DELETE FROM nf WHERE codnf IN ($1,$2)`, [nfCv, nfNp]);
+        await pgE2.query(`DELETE FROM produtos WHERE idproduto=$1`, [pCv]);
+        await pgE2.query(`DELETE FROM familias_prod WHERE codfamilia=9991`);
+      } finally {
+        await pgE2.end();
+      }
+    }
+
     // ===== §104) PRECIFICAÇÃO DE NF (FRMPRECIFICACAONF) — onde o preço de venda NASCE quando a mercadoria
     // chega. 236 acessos, 17 operadores; o usuário classificou como "de extrema importância e grande
     // influência". Ela NÃO altera preço: enfileira lote de preço. ====
