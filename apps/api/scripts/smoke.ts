@@ -9580,8 +9580,8 @@ async function main() {
           for (const it of itens) {
             const r = await pgIc.query(
               `INSERT INTO cartao (idempresa, codoperadora, idpgto, dtvenda, dtbaixa, valor, valor_taxa_paga, valor_outras_despesas_paga,
-                                   nroparcela, liberado, idlote, codplc_taxa_cartao, codplc_acredesc)
-               VALUES (1,9091,$1,'2035-04-01','2035-04-10',$2,$3,$4,1,'S',$5,$6,9702) RETURNING codvendcartao`,
+                                   nroparcela, liberado, idlote, codplc_taxa_cartao, codplc_acredesc, operadora, codrede)
+               VALUES (1,9091,$1,'2035-04-01','2035-04-10',$2,$3,$4,1,'S',$5,$6,9702,'ALELO ALIMENTACA',5) RETURNING codvendcartao`,
               [fpIc, it.valor, it.taxa, it.od, idlote, it.plcTaxa ?? 9701]);
             ids.push(Number(r.rows[0].codvendcartao));
           }
@@ -9624,6 +9624,22 @@ async function main() {
           && d62[0].contadebito === 555 && d62[0].contacredito === 213 && Math.abs(d62[0].v - 1) < 0.005
           && Number(d61[0].idorigem) === l1[0] && Number(d62[0].idorigem) === l1[0],
           { taxa: d61, outras: d62 });
+
+        // ── O TEXTO DO RAZÃO ─────────────────────────────────────────────────────────────────────────────
+        // Os históricos são TEMPLATES com `*` como buraco, e quem substitui mora em `FuncoesApollo`, que não
+        // veio no fonte. A regra saiu do razão do cliente: aqui o texto gerado tem de ser IDÊNTICO ao dele.
+        const dh = (await pgIc.query(`SELECT codorigem, codhist, deschist FROM diario
+                                       WHERE codorigem IN (51,61,62) AND idorigem = ANY($1)
+                                       ORDER BY codorigem, codhist`, [l1])).rows as any[];
+        const h94 = dh.find((r) => Number(r.codhist) === 94);
+        const h95 = dh.find((r) => Number(r.codhist) === 95);
+        const h96 = dh.filter((r) => Number(r.codhist) === 96);
+        check('TRON §92.8 [o TEXTO do razão]: o histórico é um TEMPLATE e cada `*` recebe um argumento na ordem. O 94 (débito da baixa) só imprime o lote; o 95 (crédito da MESMA baixa) imprime lote e operadora; o 96 (taxa e outras despesas, 1,33 milhão de linhas no cliente) imprime os dois. A operadora é `CARTAO.OPERADORA` mais o `CODREDE`, montada como o razão mostra',
+          !!h94 && !!h95 && h96.length === 2
+          && h94.deschist === 'RECEBTO CARTAO LOTE .: 88801'
+          && h95.deschist === 'RECEBTO CARTAO LOTE .: 88801 OPERADORA .: ALELO ALIMENTACA - CODREDE 5'
+          && h96.every((r: any) => r.deschist === 'TAXA DE CARTAO BAIXADOS LOTE .: 88801 OPERADORA .: ALELO ALIMENTACA - CODREDE 5'),
+          { linhas: dh });
 
         const marc = (await pgIc.query(`SELECT (SELECT count(*)::int FROM cartao WHERE idlote=88801 AND contabilizado='S') c,
                                                (SELECT count(*)::int FROM mov_contas_bancarias WHERE idlote=88801 AND contabilizado='S') m,
@@ -9783,6 +9799,25 @@ async function main() {
           && String(cre16[0].documento) === String(rcb1),
           { debitos: deb16, creditos: cre16 });
 
+        // ── O TEXTO DO RAZÃO nas baixas ──────────────────────────────────────────────────────────────────
+        const razao2 = (await pgBt.query(`SELECT razao FROM parceiros WHERE codparceiro=2`)).rows[0]?.razao ?? '';
+        const razaoAr = (await pgBt.query(`SELECT p.razao FROM areceber r JOIN parceiros p ON p.codparceiro=r.codparceiro WHERE r.codrcb=$1`, [rcb1])).rows[0]?.razao ?? '';
+        const tx91s = (await pgBt.query(`SELECT documento, deschist FROM diario WHERE codorigem=15 AND codhist=91 AND datalan='2035-05-10' ORDER BY coddiario`)).rows as any[];
+        const tx91 = tx91s[0]?.deschist;
+        const tx221 = (await pgBt.query(`SELECT deschist FROM diario WHERE codorigem=15 AND codhist=221 AND datalan='2035-05-10' LIMIT 1`)).rows[0]?.deschist;
+        const tx92 = (await pgBt.query(`SELECT deschist FROM diario WHERE codorigem=16 AND codhist=92 AND datalan='2035-05-12' LIMIT 1`)).rows[0]?.deschist;
+        const tx93 = (await pgBt.query(`SELECT deschist FROM diario WHERE codorigem=16 AND codhist=93 AND datalan='2035-05-12' ORDER BY coddiario LIMIT 1`)).rows[0]?.deschist;
+        check('TRON §93.8 [o TEXTO das baixas, e ele varia LINHA A LINHA]: o 91 (débito do A PAGAR) imprime lote, tipo de documento, o número do título CRU, a nota fiscal e o parceiro — e cada uma das três linhas traz o SEU título, não o do cursor: das 1.723 baixas do cliente com mais de uma linha de histórico 91, NENHUMA tem texto único. O 221 (crédito da MESMA baixa) imprime o HISTÓRICO da movimentação bancária e termina no caractere `¦`, constante em 5.169 de 5.169 linhas. Do lado do A RECEBER o 92 é só o histórico da movimentação e o 93 traz lote, cliente e quem baixou',
+          tx91s.length === 3
+          && tx91s.every((r: any) => r.deschist === `PAGTO LOTE .: 88811 DOCTO .: DP - ${r.documento} NOTAFISCAL .:  PARCEIRO .: ${razao2}`)
+          && new Set(tx91s.map((r: any) => r.deschist)).size === 3
+          && tx221 === 'PAGTO Baixa TRON ¦'
+          && tx92 === 'Baixa TRON'
+          && tx93 === `RECEBTO LOTE .: 88812 CLIENTE .: ${razaoAr} BAIXADO POR .: `,
+          { h91: tx91s, h221: tx221, h92: tx92,
+            h93: tx93, e93: `RECEBTO LOTE .: 88812 CLIENTE .: ${razaoAr} BAIXADO POR .: `,
+            parceiro: razao2, cliente: razaoAr });
+
         // ── gate do centro de custo e estorno
         const rcb3 = Number((await pgBt.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenc, valor, quitada, tipodoc)
           VALUES (1,22,'TRON-AR3','2035-05-20',40.00,'S','DP') RETURNING codrcb`)).rows[0].codrcb);
@@ -9878,6 +9913,13 @@ async function main() {
           intCr.status === 200 && d14.length === 1 && d14[0].contadebito === 211 && d14[0].contacredito === 384
           && Math.abs(d14[0].v - 300) < 0.005 && Number(d14[0].idorigem) === crDoc && Number(d14[0].codhist) === 89,
           { linhas: d14 });
+
+        const tx89 = (await pgDc.query(`SELECT deschist FROM diario WHERE codorigem=14 AND datalan='2035-06-02' LIMIT 1`)).rows[0]?.deschist;
+        const vb89 = (await pgDc.query(`SELECT pl.descricao FROM plc pl WHERE pl.codplc=9721`)).rows[0]?.descricao ?? '';
+        const pc89 = (await pgDc.query(`SELECT razao FROM parceiros WHERE codparceiro=22`)).rows[0]?.razao ?? '';
+        check('TRON §94.8 [o PADDING de 9 dígitos]: o histórico 89 imprime o documento como `000130582` — número vira nove dígitos com zeros à esquerda (o `FormatFloat` do Delphi), enquanto lote e parceiro vão crus. Medido em 5.895 de 5.895 linhas da origem 14 no cliente, e em 15.089 de 15.089 da origem 65',
+          tx89 === `A RECEBER DOCTO .: ${String(crDoc).padStart(9, '0')} VERBA .: ${vb89} PARCEIRO .: ${pc89}`,
+          { texto: tx89, codrcb: crDoc, verba: vb89, parceiro: pc89 });
 
         // ── TRANSF (19): o par vem do LOTE — o movimento de crédito é a conta que recebeu
         await pgDc.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, idorigem, idlote, historico, nrodocumento, dtemissao) VALUES

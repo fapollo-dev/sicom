@@ -26,6 +26,10 @@ interface CartaoDoLote {
   /** `CONTAS_BANCARIAS.CODLANCCONTABIL` da conta corrente da forma de pagamento. */
   codplanocontas: number | null;
   codconta: number | null;
+  /** o `OPERADORA .: *` do histórico contábil: `CARTAO.OPERADORA` mais o `CODREDE`. */
+  operadora: string;
+  /** o `LOTE .: *` do histórico contábil. */
+  idlote: number;
 }
 
 export interface ResultadoIntegracao {
@@ -153,9 +157,12 @@ export class CartaoContabilService {
           idorigem: ref.codvendcartao,
           documento: String(ref.codvendcartao),
           complemento: String(ref.codvendcartao),
-          dataSetC: itens.map(regDoCartao),
+          dataSetC: itens.map((i) => ({ ...regDoCartao(i), ctxHist: { lote: String(i.idlote), operadora: i.operadora } })),
           dataSetD: mov.map((m) => ({ codplanocontas: m.codplanocontas, valor: m.valor, descricao: `a conta ${m.codconta}` })),
           desclote: `Baixa de cartão — lote ${idlote}`,
+          // histórico 94 no débito (só o lote) e 95 no crédito (lote + operadora): medido em 15.954 linhas
+          // de cada lado na origem 51, e é por terem códigos diferentes que o lançamento sai partido.
+          ctxHist: { lote: String(idlote), operadora: ref.operadora },
         });
         lancamentos += 1;
         total = r2(total + valorLote);
@@ -232,6 +239,9 @@ export class CartaoContabilService {
       dataSetC: [{ codplanocontas: it.codplanocontas, valor: a.valor, descricao: `a conta ${it.codconta}` }],
       dataSetD: [{ codplanocontas: plc?.codplanocontas ?? null, valor: a.valor, descricao: `o centro de custo ${plc?.descricao ?? a.codplc}` }],
       desclote: a.desclote,
+      // histórico 96 nas duas pernas (`TAXA DE CARTAO BAIXADOS LOTE .: * OPERADORA .: *`) — 1,33 milhão de
+      // linhas balanceadas no razão, a maior população de `DIARIO`.
+      ctxHist: { lote: String(it.idlote), operadora: it.operadora },
     });
     return 1;
   }
@@ -239,13 +249,15 @@ export class CartaoContabilService {
   /** `GetSQLCartaoBX` :220-253. */
   private async cartoesDoLote(trx: AnyDB, emp: number, idlote: number): Promise<CartaoDoLote[]> {
     const rows = (await sql<Record<string, unknown>>`
-      SELECT c.codvendcartao, c.idempresa, to_char(c.dtbaixa, 'YYYY-MM-DD') AS dtbaixa,
+      SELECT c.codvendcartao, c.idempresa, c.idlote, to_char(c.dtbaixa, 'YYYY-MM-DD') AS dtbaixa,
              (c.valor - coalesce(c.valor_taxa_paga,0) - coalesce(c.valor_outras_despesas_paga,0)) AS valor,
              coalesce(c.valor_taxa_paga,0) AS valor_taxa_paga,
              coalesce(c.valor_outras_despesas_paga,0) AS valor_outras_despesas_paga,
              coalesce(c.codplc_taxa_cartao,0) AS codplc_taxa_cartao,
              coalesce(c.codplc_acredesc,0) AS codplc_acredesc,
-             cb.codlanccontabil AS codplanocontas, cb.codconta
+             cb.codlanccontabil AS codplanocontas, cb.codconta,
+             -- o texto do histórico: medido no razão, 'ALELO ALIMENTACA - CODREDE 5' para OPERADORA + CODREDE
+             (coalesce(c.operadora,'') || ' - CODREDE ' || coalesce(c.codrede,0)) AS operadora
         FROM cartao c
         JOIN formas_pgto fp ON fp.idpgto = c.idpgto
         LEFT JOIN contas_bancarias cb ON cb.codconta = fp.codcontacorrente
@@ -266,6 +278,8 @@ export class CartaoContabilService {
       codplc_acredesc: Number(r.codplc_acredesc),
       codplanocontas: r.codplanocontas == null ? null : Number(r.codplanocontas),
       codconta: r.codconta == null ? null : Number(r.codconta),
+      operadora: String(r.operadora ?? ''),
+      idlote: Number(r.idlote),
     }));
   }
 

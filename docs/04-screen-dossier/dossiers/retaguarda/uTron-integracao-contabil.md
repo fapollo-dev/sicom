@@ -245,3 +245,85 @@ listado como "fora do padrão" no corte-1 (464, 500, 1190, 463, 11) passaram a s
   o mesmo recebível pode estar contabilizado por uma origem e não pela outra.
 - **Quando a perna é FIXA, a conta da IIC vence o dataset.** Vale para todas as origens e é o que explica, por
   exemplo, o débito do caixa cair na conta fixa quando a situação é a 586 em vez de sair da conta bancária.
+
+---
+
+## 8. O TEXTO DO RAZÃO — a lacuna que este épico tinha (corte-4, migration 229)
+
+Os cortes 1-3 gravavam `DIARIO.CODHIST` e deixavam **`DIARIO.DESCHIST` nulo**. No cliente, **1,43 milhão de
+linhas do razão têm o texto** — é ele que a tela de lançamentos mostra e o que o contador lê no livro. Os
+lançamentos que o Apollo gerasse sairiam mudos ao lado dos do legado, sem erro nenhum para avisar.
+
+Pior: a tabela **`HISTORICO_CONTABIL` não existia no destino** (54 linhas na produção), embora o motor já
+usasse `CODHISTORICO` para decidir o formato do lançamento.
+
+### 8.1 O histórico é um TEMPLATE, e o `*` é o buraco
+
+Não é um rótulo fixo. O cadastro guarda `TAXA DE CARTAO BAIXADOS LOTE .: * OPERADORA .: *` (código 96) e o
+razão grava `TAXA DE CARTAO BAIXADOS LOTE .: 90886 OPERADORA .: ALELO ALIMENTACA - CODREDE 5`. Cada `*` recebe
+um argumento **na ordem**.
+
+⚠️ **procedência**: quem substitui mora em `FuncoesApollo`, pacote que **não veio no fonte clonado** — o mesmo
+buraco que obrigou a reconstruir o motor. A regra saiu de confrontar os 54 templates com o razão real.
+
+Três regras de formatação, as três medidas:
+
+1. **Número vira 9 dígitos com zeros à esquerda** (`FormatFloat('000000000')`): `A RECEBER DOCTO .: 000130582`
+   para documento `130582` em **5.895 de 5.895** linhas da origem 14, e `AGRUPAMENTO CONVENIO .: 000117847` em
+   **15.089 de 15.089** da origem 65. Texto vai cru — por isso o lote sai `LOTE .: 90790`, não `000090790`.
+2. **Quebra de linha vira espaço**: o `DESCHIST` é de uma linha só. Provado no histórico da movimentação
+   (`TRANSF. CONTA DESTINO: 4914-7\r\n Lote: 89642\r\nRealizada…` → `… 4914-7  Lote: 89642 Realizada…`) e na
+   observação do título (`…31/07/2026\r\n` → termina em espaço).
+3. **`*` sem argumento imprime vazio** — o razão do cliente tem `NOTA FISCAL COMPRA .: 000000000 CNPJ  FORNECEDOR `
+   na origem 64, onde o chamador não passou nada.
+
+### 8.2 ⚠️ O texto varia LINHA A LINHA, não por lançamento
+
+Foi o erro que quase entrou. O primeiro desenho montava um texto por lançamento, do registro em que o cursor
+parou. O razão diz outra coisa: das **1.723** baixas de A PAGAR com mais de uma linha de histórico 91,
+**nenhuma** tem um texto só — cada linha traz o seu título, o seu tipo de documento e o seu parceiro. No
+agrupamento de convênio (105) é igual: 30 grupos, zero com texto único. No A RECEBER (93), 1.673 lotes
+multi-linha e só 347 com texto único — os de cliente único, onde o texto coincide por acaso.
+
+Já no cadastro de contas a pagar (103) as **197** são constantes, e isso confirma a regra em vez de
+contrariá-la: ali as várias linhas são o **rateio de um título só**.
+
+Ou seja: o texto sai do **registro do dataset**, com o contexto do lançamento cobrindo o que o registro não
+tem — exatamente a mesma "substituição coluna a coluna" da regra 3 do motor (§ 5). É assim que a baixa de
+A PAGAR escreve `PAGTO LOTE .: … PARCEIRO .: …` em cada débito e o histórico da movimentação bancária no
+crédito, tudo de uma chamada só.
+
+### 8.3 O mapa de argumentos (`historico-contabil.args.ts`)
+
+O mapa é **por histórico, não por origem** — é o histórico que define o texto: o 96 imprime a mesma coisa
+vindo da origem 61 ou da 62, e o 88 aparece nas origens 13 e 64 com a mesma ordem. Vinte e sete históricos
+estão mapeados, cada um com o texto real medido no comentário. Histórico sem regra provada imprime o template
+com os buracos vazios — que é o que o legado faz quando o chamador não passa argumento.
+
+Alguns rótulos do legado **não descrevem o conteúdo**, e foram copiados como estão:
+
+- **87** `ADIANT P/ PARCEIRO .: * DOCTO .: *` → o primeiro `*` recebe o **código** do parceiro (cru) e o
+  rotulado "DOCTO" recebe a **razão** dele (`ADIANT P/ PARCEIRO .: 3066 DOCTO .: CAIXA ECONOMICA FEDERAL`).
+- **221** `PAGTO * *` → o segundo argumento é o caractere **`¦`**, constante em **5.169 de 5.169** linhas.
+- **102/103** → o que parece uma verba (`FGTS NORMAL`, `IRRF - FOLHA`) é a **razão do parceiro**: o cliente
+  cadastra as rubricas de folha como parceiros.
+
+### 8.4 Colunas que faltavam no destino
+
+| coluna | por quê | medição |
+|---|---|---|
+| `historico_contabil` (tabela) | o cadastro dos 54 templates | 54 linhas na produção |
+| `cartao.operadora` · `cartao.codrede` | o `OPERADORA .: *` do histórico 96 | 2.038.896 e 2.061.076 de 2.062.109 |
+| `apagar.docnf` | o `NOTAFISCAL .: *` do histórico 91 | ⚠️ **nula nas 55.204 linhas** — cópia-fiel-negativa |
+
+O CNPJ dos históricos 1/21/61/112 vive em **`parceiros_end`**, não em `parceiros`, e já vem formatado
+(`06.981.180/0001-16`); `endereco_padrao` é nulo no cliente, então vale o primeiro endereço.
+
+### 8.5 O que ficou de fora, e por quê
+
+- **Origens 53 e 56** (juros de A PAGAR e A RECEBER): **zero linhas** no razão em seis anos. Sem texto para
+  reconstruir.
+- **Origem 57** (acréscimo de A RECEBER): existe, 554 linhas, mas **não sai deste caminho** — o `PARCEIRO .:`
+  que elas mostram é `AO CONSUMIDOR` enquanto o título é de outro parceiro (o `CODRCB 113104` é de DENNER
+  TEODORO SILVA). Vêm do fechamento de caixa reusando o código de origem. Sem procedência, sem argumentos.
+- Os 27 históricos que sobram do cadastro não aparecem nas origens que o Apollo gera hoje.

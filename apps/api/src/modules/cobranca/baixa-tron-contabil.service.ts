@@ -37,9 +37,21 @@ interface BaixaDoLote {
   juros: number;
   codplc_acredesc: number;
   codplc_juros: number;
+  /** o `PARCEIRO .: *` / `CLIENTE .: *` do histórico contábil. */
+  razao: string;
+  /** o `DOCTO .: *` do histórico 91: `BOLETO`, `DUPLICATA`… */
+  tipodoc: string;
+  /** o `NOTAFISCAL .: *` do histórico 91 — nulo em 100% do `APAGAR` do cliente. */
+  docnf: string;
+  /** o `BAIXADO POR .: *` do histórico 93: o nome do operador que deu a baixa. */
+  opbx: string;
+  /** o 3º `*` do histórico 106 (desconto obtido): a observação do título. */
+  obs: string;
 }
 
-interface MovDoLote { codmovconta: number; valor: number; valor_original: number; codplanocontas: number | null; codconta: number }
+interface MovDoLote { codmovconta: number; valor: number; valor_original: number; codplanocontas: number | null; codconta: number;
+  /** o texto do histórico 92/221 é o `HISTORICO` da própria movimentação bancária. */
+  historico: string }
 
 export interface ResultadoBaixaTron { lotes: number; baixas: number; lancamentos: number; total: number }
 
@@ -164,12 +176,19 @@ export class BaixaTronContabilService {
         const dsParceiro: RegistroDataSet[] = itens.map((i) => ({
           codplanocontas: i.codplanocontas, valor: i.valor, idorigem: i.codbx,
           documento: String(i.coddoc), complemento: String(i.coddoc), descricao: `o parceiro ${i.codparceiro ?? 0}`,
+          // cada linha do razão traz o SEU título: nas 1.723 baixas de A PAGAR com mais de uma linha de
+          // histórico 91, nenhuma tem texto único.
+          ctxHist: {
+            documentoTexto: String(i.coddoc), tipodoc: i.tipodoc, notafiscal: i.docnf,
+            parceiro: i.razao, usuario: i.opbx, obs: i.obs,
+          },
         }));
         // ⚠️ a movimentação NÃO traz coluna COMPLEMENTO — por isso essas linhas ficam com o do parâmetro (o
         // IDLOTE), e é o que o razão mostra: 5.411/5.411 no AP e 17.618/17.618 no AR.
         const dsDinheiro: RegistroDataSet[] = mov.map((mv) => ({
           codplanocontas: mv.codplanocontas, valor: mv.valor, idorigem: mv.codmovconta,
           documento: String(mv.codmovconta), descricao: `a conta ${mv.codconta}`,
+          ctxHist: { historicoMov: mv.historico },
         }));
         // TROCO (só no A RECEBER, `:3620-3647`): a movimentação NEGATIVA do lote é apensada ao dataset do
         // crédito como uma linha do BANCO, e sai do dataset do débito. Regra copiada; **zero ocorrências** no
@@ -177,7 +196,8 @@ export class BaixaTronContabilService {
         if (lado === 'AR') {
           for (const t of mov.filter((mv) => mv.valor_original < 0)) {
             dsParceiro.push({ codplanocontas: t.codplanocontas, valor: t.valor, idorigem: t.codmovconta,
-              documento: String(t.codmovconta), complemento: String(t.codmovconta), descricao: `a conta ${t.codconta}` });
+              documento: String(t.codmovconta), complemento: String(t.codmovconta), descricao: `a conta ${t.codconta}`,
+              ctxHist: { historicoMov: t.historico } });
           }
         }
         const dsDinheiroPos = lado === 'AR' ? dsDinheiro.filter((_, i) => mov[i].valor_original > 0) : dsDinheiro;
@@ -196,11 +216,23 @@ export class BaixaTronContabilService {
           dataSetC: lado === 'AP' ? dsDinheiroPos : dsParceiro,
           dataSetD: lado === 'AP' ? dsParceiro : dsDinheiroPos,
           desclote: `Baixa ${lado} — lote ${idlote}`,
+          // ── o texto do razão ───────────────────────────────────────────────────────────────────────────
+          // A PAGAR: débito com o histórico **91** (`PAGTO LOTE .: * DOCTO .: * - * NOTAFISCAL .: * PARCEIRO .: *`)
+          // e crédito com o **221** (`PAGTO * *`), cujo primeiro argumento é o HISTÓRICO da movimentação
+          // bancária e o segundo é o caractere `¦` — constante em **5.169 de 5.169** linhas do razão.
+          // A RECEBER: débito com o **92** (template `*`, só o histórico da movimentação) e crédito com o
+          // **93** (`RECEBTO LOTE .: * CLIENTE .: * BAIXADO POR .: *`).
+          ctxHist: {
+            lote: String(idlote), documentoTexto: String(ref.coddoc), tipodoc: ref.tipodoc,
+            notafiscal: ref.docnf, parceiro: ref.razao, usuario: ref.opbx,
+            historicoMov: mov[0]?.historico ?? '',
+          },
         });
         lancamentos += 1;
         total = r2(total + valorLote);
 
-        for (const it of itens) lancamentos += await this.acessorios(trx, lado, emp, it, cfg);
+        const ctx = { idlote, histMov: mov[0]?.historico ?? '' };
+        for (const it of itens) lancamentos += await this.acessorios(trx, lado, emp, it, cfg, ctx);
 
         await trx.updateTable(MAPA[lado].bx).set({ contabilizado: 'S' })
           .where(MAPA[lado].pk, 'in', itens.map((i) => i.codbx)).execute();
@@ -217,7 +249,10 @@ export class BaixaTronContabilService {
    * O sinal de `ACRE_DESC` escolhe entre acréscimo (> 0) e desconto (< 0) — **e troca os datasets de lado**,
    * que é como o legado inverte a partida. O centro de custo é gate: zero derruba a integração.
    */
-  private async acessorios(trx: AnyDB, lado: Lado, emp: number, it: BaixaDoLote, cfg: Record<string, number | null>): Promise<number> {
+  private async acessorios(
+    trx: AnyDB, lado: Lado, emp: number, it: BaixaDoLote, cfg: Record<string, number | null>,
+    ctx: { idlote: number; histMov: string },
+  ): Promise<number> {
     let n = 0;
     const parceiro: RegistroDataSet = { codplanocontas: it.codplanocontas, valor: 0, descricao: `o parceiro ${it.codparceiro ?? 0}` };
 
@@ -227,7 +262,7 @@ export class BaixaTronContabilService {
       await this.lancarAcessorio(trx, lado, emp, it, {
         codorigem: ORIGEM[lado].juros, situacao: sit, qual: lado === 'AP' ? 'config_juros_pagos' : 'config_juros_recebidos',
         valor: it.juros, codplc: it.codplc_juros, erro: 'CENTRO_CUSTO_JUROS_NAO_INFORMADO',
-        parceiroNo: lado === 'AP' ? 'C' : 'D', parceiro,
+        parceiroNo: lado === 'AP' ? 'C' : 'D', parceiro, ctx,
       });
       n += 1;
     }
@@ -246,7 +281,7 @@ export class BaixaTronContabilService {
       await this.lancarAcessorio(trx, lado, emp, it, {
         codorigem: acrescimo ? ORIGEM[lado].acrescimo : ORIGEM[lado].desconto,
         situacao: sit, qual, valor: Math.abs(it.acre_desc), codplc: it.codplc_acredesc,
-        erro: 'CENTRO_CUSTO_ACREDESC_NAO_INFORMADO', parceiroNo, parceiro,
+        erro: 'CENTRO_CUSTO_ACREDESC_NAO_INFORMADO', parceiroNo, parceiro, ctx,
       });
       n += 1;
     }
@@ -255,7 +290,8 @@ export class BaixaTronContabilService {
 
   private async lancarAcessorio(
     trx: AnyDB, lado: Lado, emp: number, it: BaixaDoLote,
-    a: { codorigem: number; situacao: number | null; qual: string; valor: number; codplc: number; erro: string; parceiroNo: 'D' | 'C'; parceiro: RegistroDataSet },
+    a: { codorigem: number; situacao: number | null; qual: string; valor: number; codplc: number; erro: string;
+         parceiroNo: 'D' | 'C'; parceiro: RegistroDataSet; ctx: { idlote: number; histMov: string } },
   ): Promise<void> {
     if (a.situacao == null) throw new BusinessRuleError('SITUACAO_NAO_CONFIGURADA', { qual: a.qual });
     // `QryPlcForn.IsEmpty` (:1817/:1857): o parceiro precisa ter conta contábil.
@@ -276,6 +312,19 @@ export class BaixaTronContabilService {
       dataSetD: a.parceiroNo === 'D' ? dsParceiro : dsCentro,
       dataSetC: a.parceiroNo === 'C' ? dsParceiro : dsCentro,
       desclote: `${a.codorigem === ORIGEM[lado].juros ? 'Juros' : 'Acréscimo/desconto'} ${lado} ${it.coddoc}`,
+      // ── o texto do razão, por origem, medido no razão do cliente ──────────────────────────────────────
+      // 54 acréscimo AP  → hist 107 `JUROS PAGOS .* * *`                    [documento, parceiro, histórico da mov]
+      // 55 desconto AP   → hist 106 `DESCONTO OBTIDO .: * * *`              [documento, parceiro, OBS do título]
+      // 58 desconto AR   → hist 161 `DESCONTO CONCEDIDO LOTE.: * DOCTO.: * CLIENTE.: *`  [lote, documento, cliente]
+      // ⚠️ 53/56 (juros) **não existem no razão do cliente** — zero linhas em seis anos; e a origem **57**
+      // (acréscimo AR) existe, mas as 554 linhas dela NÃO saem deste caminho: o `PARCEIRO .:` que elas
+      // mostram é `AO CONSUMIDOR` enquanto o título é de outro parceiro (`CODRCB 113104` = DENNER TEODORO
+      // SILVA). Vêm do fechamento de caixa reusando o código de origem. Sem procedência, sem argumentos —
+      // o `*` imprime vazio, e o template continua sendo o do cadastro.
+      ctxHist: {
+        documentoTexto: String(it.coddoc), lote: String(a.ctx.idlote), parceiro: it.razao,
+        obs: it.obs, historicoMov: a.ctx.histMov,
+      },
     });
   }
 
@@ -287,10 +336,14 @@ export class BaixaTronContabilService {
              to_char(b.dtpgto, 'YYYY-MM-DD') AS dtpgto, p.codparceiro,
              coalesce(t.${sql.ref(m.contaTitulo)}, p.${sql.ref(m.contaParceiro)}::int) AS codplanocontas,
              coalesce(b.acre_desc,0) AS acre_desc, coalesce(b.juros,0) AS juros,
-             coalesce(b.codplc_acredesc,0) AS codplc_acredesc, coalesce(b.codplc_juros,0) AS codplc_juros
+             coalesce(b.codplc_acredesc,0) AS codplc_acredesc, coalesce(b.codplc_juros,0) AS codplc_juros,
+             -- os argumentos do histórico contábil (91 no A PAGAR, 93 no A RECEBER)
+             coalesce(p.razao,'') AS razao, coalesce(t.tipodoc,'') AS tipodoc, coalesce(t.docnf,'') AS docnf,
+             coalesce(o.nome,'') AS opbx, coalesce(t.obs,'') AS obs
         FROM ${sql.table(m.bx)} b
         JOIN ${sql.table(m.tit)} t ON t.${sql.ref(m.fk)} = b.${sql.ref(m.fk)}
         LEFT JOIN parceiros p ON p.codparceiro = t.codparceiro
+        LEFT JOIN operadores o ON o.codoperador = b.codopbx
        WHERE b.idlote = ${idlote}
          AND coalesce(b.contabilizado,'N') = 'N'
          AND b.valorpg > 0
@@ -304,6 +357,8 @@ export class BaixaTronContabilService {
       codplanocontas: r.codplanocontas == null ? null : Number(r.codplanocontas),
       acre_desc: r2(num(r.acre_desc)), juros: r2(num(r.juros)),
       codplc_acredesc: Number(r.codplc_acredesc), codplc_juros: Number(r.codplc_juros),
+      razao: String(r.razao ?? ''), tipodoc: String(r.tipodoc ?? ''), docnf: String(r.docnf ?? ''),
+      opbx: String(r.opbx ?? ''), obs: String(r.obs ?? ''),
     }));
   }
 
@@ -315,7 +370,7 @@ export class BaixaTronContabilService {
   private async movimentacaoDoLote(trx: AnyDB, emp: number, idlote: number): Promise<MovDoLote[]> {
     const rows = (await sql<Record<string, unknown>>`
       SELECT m.codmovconta, abs(m.valor) AS valor, m.valor AS valor_original,
-             cb.codlanccontabil AS codplanocontas, m.codconta
+             cb.codlanccontabil AS codplanocontas, m.codconta, coalesce(m.historico,'') AS historico
         FROM mov_contas_bancarias m
         JOIN contas_bancarias cb ON cb.codconta = m.codconta
        WHERE m.idlote = ${idlote}
@@ -327,6 +382,7 @@ export class BaixaTronContabilService {
     return rows.map((r) => ({
       codmovconta: Number(r.codmovconta), valor: r2(num(r.valor)), valor_original: num(r.valor_original),
       codplanocontas: r.codplanocontas == null ? null : Number(r.codplanocontas), codconta: Number(r.codconta),
+      historico: String(r.historico ?? ''),
     }));
   }
 

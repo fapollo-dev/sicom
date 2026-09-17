@@ -79,7 +79,14 @@ export class DocumentosContabilService {
     const docs = (await sql<Record<string, unknown>>`
       SELECT a.codapg, to_char(a.dtcompra, 'YYYY-MM-DD') AS data, a.codgrupo, a.codparceiro, a.origem, a.idsituacao_nf,
              (a.valor + coalesce(a.vendor,0) - coalesce(a.desconto,0))::numeric(13,2) AS valor,
-             p.codcontabil_for::int AS conta_parceiro
+             p.codcontabil_for::int AS conta_parceiro,
+             -- os argumentos do histórico contábil (103, 182, 261, 21… conforme a situação do título)
+             coalesce(p.razao,'') AS razao,
+             -- o CNPJ do parceiro vive no ENDEREÇO (parceiros_end), e o razão o mostra formatado, como está
+             -- gravado lá ('06.981.180/0001-16'). ENDERECO_PADRAO é nulo no cliente, então vale o primeiro.
+             coalesce((SELECT e.cnpj_cpf FROM parceiros_end e
+                        WHERE e.codparceiro = p.codparceiro ORDER BY e.codend LIMIT 1), '') AS cnpj,
+             coalesce(a.tipodoc,'') AS tipodoc, coalesce(a.obs,'') AS obs
         FROM apagar a
         LEFT JOIN parceiros p ON p.codparceiro = a.codparceiro
        WHERE coalesce(a.contabilizado,'N') = 'N'
@@ -114,6 +121,11 @@ export class DocumentosContabilService {
         dataSetC: [{ codplanocontas: Number(d.conta_parceiro), valor, descricao: `o parceiro ${d.codparceiro ?? 0}` }],
         dataSetD: rateio,
         desclote: `Conta a pagar ${codapg}`,
+        ctxHist: {
+          documento: codapg, parceiro: String(d.razao ?? ''), cnpj: String(d.cnpj ?? ''),
+          tipodoc: String(d.tipodoc ?? ''), obs: String(d.obs ?? ''),
+          verba: rateio[0]?.descricao ?? null,
+        },
       });
       await trx.updateTable('apagar').set({ contabilizado: 'S' }).where('codapg', '=', codapg).execute();
       lancamentos += 1;
@@ -157,7 +169,8 @@ export class DocumentosContabilService {
   private async contasReceber(trx: AnyDB, emp: number, p: { dataIni: string; dataFim: string; codigo?: number | null }, cfg: Record<string, number | null>): Promise<ResultadoDocumentos> {
     const docs = (await sql<Record<string, unknown>>`
       SELECT a.codrcb, to_char(a.dtvenda, 'YYYY-MM-DD') AS data, a.valor, a.codparceiro, a.codplc, a.idsituacao_nf,
-             p.codcontabil::int AS conta_parceiro, pc.codplanocontas AS conta_cc, pl.descricao AS cc_desc
+             p.codcontabil::int AS conta_parceiro, pc.codplanocontas AS conta_cc, pl.descricao AS cc_desc,
+             coalesce(p.razao,'') AS razao, coalesce(a.obs,'') AS obs
         FROM areceber a
         LEFT JOIN parceiros p ON p.codparceiro = a.codparceiro
         LEFT JOIN plc pl ON pl.codplc = a.codplc
@@ -187,6 +200,12 @@ export class DocumentosContabilService {
         dataSetD: [{ codplanocontas: d.conta_parceiro == null ? null : Number(d.conta_parceiro), valor, descricao: `o parceiro ${d.codparceiro ?? 0}` }],
         dataSetC: [{ codplanocontas: d.conta_cc == null ? null : Number(d.conta_cc), valor, descricao: `o centro de custo ${d.cc_desc ?? d.codplc}` }],
         desclote: `Conta a receber ${codrcb}`,
+        // histórico 89: `A RECEBER DOCTO .: * VERBA .: * PARCEIRO .: *` — a verba é a descrição do centro de
+        // custo do recebível, conferida em 5.895 de 5.895 linhas da origem 14.
+        ctxHist: {
+          documento: codrcb, verba: d.cc_desc == null ? null : String(d.cc_desc),
+          parceiro: String(d.razao ?? ''), obs: String(d.obs ?? ''),
+        },
       });
       await trx.updateTable('areceber').set({ contabilizado: 'S' }).where('codrcb', '=', codrcb).execute();
       lancamentos += 1;
@@ -211,7 +230,10 @@ export class DocumentosContabilService {
                 JOIN contas_bancarias cbc ON cbc.codconta = mc.codconta
                WHERE mc.idlote = m.idlote AND mc.tipomovimento = 'D' LIMIT 1) AS conta_cred,
              (SELECT mc.codconta FROM mov_contas_bancarias mc
-               WHERE mc.idlote = m.idlote AND mc.tipomovimento = 'D' LIMIT 1) AS codconta_cred
+               WHERE mc.idlote = m.idlote AND mc.tipomovimento = 'D' LIMIT 1) AS codconta_cred,
+             -- histórico 86: "CREDITO CONTA .: * DA CONTA .: * LOTE .: *" — o 1º é o TITULAR da conta que
+             -- recebe (esta linha, a de crédito) e o 2º é o HISTORICO desta mesma movimentação.
+             coalesce(cbd.titular,'') AS titular, coalesce(m.historico,'') AS historico
         FROM mov_contas_bancarias m
         JOIN contas_bancarias cbd ON cbd.codconta = m.codconta
        WHERE m.tipomovimento = 'C'
@@ -235,6 +257,10 @@ export class DocumentosContabilService {
         dataSetD: [{ codplanocontas: d.conta_deb == null ? null : Number(d.conta_deb), valor, descricao: `a conta ${d.codconta_deb}` }],
         dataSetC: [{ codplanocontas: d.conta_cred == null ? null : Number(d.conta_cred), valor, descricao: `a conta ${d.codconta_cred ?? ''}` }],
         desclote: `Transferência bancária — lote ${d.idlote}`,
+        ctxHist: {
+          conta: String(d.titular ?? ''), historicoMov: String(d.historico ?? ''),
+          lote: d.idlote == null ? null : String(d.idlote),
+        },
       });
       // o legado marca o LOTE inteiro (`:4381`), as duas pontas de uma vez.
       await trx.updateTable('mov_contas_bancarias').set({ contabilizado: 'S' })
@@ -254,7 +280,8 @@ export class DocumentosContabilService {
     const docs = (await sql<Record<string, unknown>>`
       SELECT a.codadiantamento, a.valor, to_char(a.dtadiantamento, 'YYYY-MM-DD') AS data, a.codparceiro, a.tipo,
              a.idsituacao_nf, cb.codconta, cb.codlanccontabil AS conta_banco,
-             coalesce(pa.codcontabil::int, pa.codcontabil_for::int) AS conta_parceiro
+             coalesce(pa.codcontabil::int, pa.codcontabil_for::int) AS conta_parceiro,
+             coalesce(pa.razao,'') AS razao
         FROM adiantamento_forn a
         LEFT JOIN parceiros pa ON pa.codparceiro = a.codparceiro
         LEFT JOIN contas_bancarias cb ON cb.codconta = a.codcontacorrente
@@ -280,6 +307,12 @@ export class DocumentosContabilService {
         dataSetC: [parceiroNoCredito ? parceiro : banco],
         dataSetD: [parceiroNoCredito ? banco : parceiro],
         desclote: `Adiantamento ${cod}`,
+        // histórico 87: `ADIANT P/ PARCEIRO .: * DOCTO .: *` — o 1º é o CÓDIGO do parceiro (cru) e o rotulado
+        // "DOCTO" é a razão dele; os rótulos do legado não descrevem o conteúdo. Conferido no 3441/3421.
+        ctxHist: {
+          codparceiro: d.codparceiro == null ? null : Number(d.codparceiro),
+          parceiro: String(d.razao ?? ''), documento: cod,
+        },
       });
       await trx.updateTable('adiantamento_forn').set({ contabilizado: 'S' }).where('codadiantamento', '=', cod).execute();
       await trx.updateTable('mov_contas_bancarias').set({ contabilizado: 'S' })
@@ -299,8 +332,10 @@ export class DocumentosContabilService {
   private async movimentacaoCaixa(trx: AnyDB, emp: number, p: { dataIni: string; dataFim: string; codigo?: number | null }): Promise<ResultadoDocumentos> {
     const docs = (await sql<Record<string, unknown>>`
       SELECT c.codcx, c.valor, to_char(c.data, 'YYYY-MM-DD') AS data, c.codplc, c.codconta, c.idsituacao_nf, c.idlote,
-             pc.codplanocontas AS conta_cc, pl.descricao AS cc_desc, cb.codlanccontabil AS conta_banco
+             pc.codplanocontas AS conta_cc, pl.descricao AS cc_desc, cb.codlanccontabil AS conta_banco,
+             coalesce(pa.razao,'') AS razao
         FROM caixa c
+        LEFT JOIN parceiros pa ON pa.codparceiro = c.codparceiro
         LEFT JOIN plc pl ON pl.codplc = c.codplc
         LEFT JOIN plano_contas pc ON pc.codplanocontas = pl.codcontabil
         LEFT JOIN contas_bancarias cb ON cb.codconta = c.codconta
@@ -326,6 +361,13 @@ export class DocumentosContabilService {
         dataSetC: [entrada ? centro : banco],
         dataSetD: [entrada ? banco : centro],
         desclote: `Movimentação de caixa ${codcx}`,
+        // histórico 88: `PGTO .: * DOCTO .: * LOTE .: * *` — parceiro, o CODCX em 9 dígitos, o lote e o centro
+        // de custo. Conferido linha a linha nos caixas 280201 e 277205.
+        ctxHist: {
+          parceiro: String(d.razao ?? ''), documento: codcx,
+          lote: d.idlote == null ? null : String(d.idlote),
+          verba: d.cc_desc == null ? null : String(d.cc_desc),
+        },
       });
       await trx.updateTable('caixa').set({ contabilizado: 'S' }).where('codcx', '=', codcx).execute();
       if (d.idlote != null) {
@@ -366,7 +408,8 @@ export class DocumentosContabilService {
     for (const g of grupos) {
       const codgrupo = Number(g.codgrupo);
       const rcb = (await sql<Record<string, unknown>>`
-        SELECT a.codrcb, a.valor, p.codparceiro, coalesce(p.codcontabil::int, p.codcontabil_for::int) AS conta
+        SELECT a.codrcb, a.valor, p.codparceiro, coalesce(p.codcontabil::int, p.codcontabil_for::int) AS conta,
+               coalesce(p.razao,'') AS razao
           FROM areceber a JOIN parceiros p ON p.codparceiro = a.codparceiro
          WHERE a.codgrupo_agrupamento_apg = ${codgrupo} AND a.codempresa = ${emp}
          ORDER BY a.codrcb
@@ -384,10 +427,15 @@ export class DocumentosContabilService {
         emp, codorigem: ORIGEM.CONVENIO, situacao, data: String(g.data), valor,
         idorigem: Number(rcb[0].codrcb), documento: String(rcb[0].codrcb), complemento: String(codgrupo),
         dataSetC: rcb.map((r) => ({ codplanocontas: r.conta == null ? null : Number(r.conta), valor: r2(num(r.valor)),
-          idorigem: Number(r.codrcb), documento: String(r.codrcb), complemento: String(codgrupo), descricao: `o parceiro ${r.codparceiro}` })),
+          idorigem: Number(r.codrcb), documento: String(r.codrcb), complemento: String(codgrupo), descricao: `o parceiro ${r.codparceiro}`,
+          // um texto por recebível: nos 30 grupos do cliente, nenhum tem texto único
+          ctxHist: { documento: Number(r.codrcb), parceiro: String(r.razao ?? '') } })),
         dataSetD: apg.map((a) => ({ codplanocontas: a.conta == null ? null : Number(a.conta), valor: r2(num(a.valor)),
           idorigem: Number(a.codapg), documento: String(a.codapg), complemento: String(codgrupo), descricao: `o parceiro ${a.codparceiro}` })),
         desclote: `Agrupamento de convênio — grupo ${codgrupo}`,
+        // histórico 104 no débito (só o documento) e 105 no crédito (documento + parceiro) — é por serem
+        // diferentes que este é o lançamento mais desigual do razão: 15.089 só-crédito contra 30 só-débito.
+        ctxHist: { documento: Number(rcb[0].codrcb), parceiro: String(rcb[0].razao ?? '') },
       });
       await trx.updateTable('areceber').set({ contabilizado_agrupamento: 'S' })
         .where('codgrupo_agrupamento_apg', '=', codgrupo).where('codempresa', '=', emp).execute();

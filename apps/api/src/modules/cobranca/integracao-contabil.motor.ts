@@ -1,5 +1,6 @@
 import { sql, type Kysely } from 'kysely';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { argsDoHistorico, type CtxHistorico } from './historico-contabil.args';
 
 type AnyDB = Kysely<any>;
 
@@ -24,6 +25,17 @@ export interface RegistroDataSet {
   complemento?: string;
   /** entra na mensagem de erro quando a conta não veio ("o parceiro 12", "a conta 3"). */
   descricao?: string;
+  /**
+   * o que ESTE registro tem a dizer no texto do razão — mesclado por cima do contexto do lançamento, do mesmo
+   * jeito que as outras colunas do dataset vencem o parâmetro (regra 3).
+   *
+   * ⚠️ **o texto do razão varia LINHA A LINHA**, e isso custou uma volta: das 1.723 baixas de A PAGAR com mais
+   * de uma linha de histórico 91, **nenhuma** tem um texto só — cada linha traz o seu título, o seu tipo de
+   * documento e o seu parceiro. No agrupamento de convênio (histórico 105) é igual: 30 lotes, zero com texto
+   * único. Já no cadastro de contas a pagar (103) as 197 são constantes, porque ali as várias linhas são o
+   * rateio de UM título.
+   */
+  ctxHist?: CtxHistorico;
 }
 
 export interface LancamentoContabil {
@@ -42,9 +54,47 @@ export interface LancamentoContabil {
   dataSetC: RegistroDataSet[];
   dataSetD: RegistroDataSet[];
   desclote: string;
+  /**
+   * tudo o que o texto do razão pode querer imprimir (documento, lote, parceiro, histórico da movimentação…).
+   * Um contexto só serve as DUAS pernas: cada histórico escolhe dele o que precisa e na ordem que precisa —
+   * é assim que a baixa de A PAGAR escreve `PAGTO LOTE .: … PARCEIRO .: …` no débito (histórico 91) e o
+   * histórico da movimentação bancária no crédito (221), da mesma chamada.
+   */
+  ctxHist?: CtxHistorico;
 }
 
+/** um `*` do template: número (vira `000130582`), texto (vai cru) ou nada (vira vazio). */
+export type ArgHist = string | number | null | undefined;
+
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+/**
+ * preenche os `*` do template do histórico contábil — o que `FuncoesApollo` fazia e não veio no fonte.
+ *
+ * ⚠️ **número vira 9 dígitos com zeros à esquerda** (`FormatFloat('000000000')`). Medido no razão do cliente:
+ * `A RECEBER DOCTO .: 000130582` para documento `130582` em **5.895/5.895** linhas da origem 14, e
+ * `AGRUPAMENTO CONVENIO .: 000117847` em **15.089/15.089** da origem 65. Texto vai cru — é por isso que o
+ * lote sai `RECEBTO LOTE .: 90790` e não `000090790`: quem contabiliza o passa como texto.
+ *
+ * `*` sem argumento imprime vazio, como no legado (o razão tem `NOTA FISCAL COMPRA .: 000000000 CNPJ  FORNECEDOR `
+ * na origem 64) — e argumento a mais é ignorado, porque o template é quem manda.
+ *
+ * ⚠️ **quebra de linha vira espaço**: o `DESCHIST` é de uma linha só. Provado duas vezes — o histórico da
+ * movimentação `'TRANSF. CONTA DESTINO: 4914-7\r\n Lote: 89642\r\nRealizada…'` sai no razão como
+ * `'… 4914-7  Lote: 89642 Realizada…'`, e a observação `' REFERENTE A NOTA FISCAL 6412933 EMITIDA EM 31/07/2026\r\n'`
+ * sai terminada em espaço.
+ */
+export function montarDeschist(template: string | null | undefined, args: ArgHist[] = []): string | null {
+  if (template == null) return null;
+  let i = 0;
+  return template.replace(/\*/g, () => {
+    const a = args[i];
+    i += 1;
+    if (a == null || a === '') return '';
+    if (typeof a === 'number') return Number.isFinite(a) ? String(Math.trunc(Math.abs(a))).padStart(9, '0') : '';
+    return a.replace(/\r\n?|\n/g, ' ');
+  });
+}
 
 /**
  * MOTOR DA INTEGRAÇÃO CONTÁBIL — o `LancaDiarioContabil(..., SubstituiPeloDataSet := True)` do legado.
@@ -105,6 +155,15 @@ export async function lancarNoDiario(trx: AnyDB, l: LancamentoContabil): Promise
     .executeTakeFirstOrThrow();
   const codlote = Number((lote as { codlotecontabil: number | string }).codlotecontabil);
 
+  // o texto do razão: cada perna traz o seu template e os seus argumentos. Sem o cadastro carregado o
+  // `deschist` sai nulo — é o comportamento de hoje, e nenhuma contabilização deixa de acontecer por isso.
+  const templates = await carregarTemplates(trx, [d.codhistorico, c.codhistorico]);
+  /** o texto de uma linha: o contexto do registro vence o do lançamento, coluna a coluna. */
+  const desc = (hist: number | null, ...regs: Array<RegistroDataSet | null>) => {
+    const ctx = regs.reduce<CtxHistorico>((acc, r) => (r?.ctxHist ? { ...acc, ...r.ctxHist } : acc), { ...l.ctxHist });
+    return montarDeschist(templates.get(Number(hist)), argsDoHistorico(hist, ctx));
+  };
+
   const linha = (reg: RegistroDataSet | null) => ({
     datalan: sql`${l.data}::date`,
     valor: r2(Math.abs(reg?.valor ?? l.valor)),
@@ -130,6 +189,8 @@ export async function lancarNoDiario(trx: AnyDB, l: LancamentoContabil): Promise
         contadebito: resolverConta(d, regD, l.situacao),
         contacredito: resolverConta(c, regC, l.situacao),
         codhist: d.codhistorico,
+        // um histórico só ⇒ um texto só, com o contexto das duas pernas (o débito por cima).
+        deschist: desc(d.codhistorico, regC, regD),
       }).execute();
     }
     return { codlote, linhas: linhasD.length };
@@ -138,15 +199,33 @@ export async function lancarNoDiario(trx: AnyDB, l: LancamentoContabil): Promise
   // históricos distintos (ou contagens distintas) ⇒ cada perna sai sozinha, débito primeiro.
   for (const regD of linhasD) {
     await trx.insertInto('diario').values({
-      ...linha(regD), contadebito: resolverConta(d, regD, l.situacao), contacredito: null, codhist: d.codhistorico,
+      ...linha(regD), contadebito: resolverConta(d, regD, l.situacao), contacredito: null,
+      codhist: d.codhistorico, deschist: desc(d.codhistorico, regD),
     }).execute();
   }
   for (const regC of linhasC) {
     await trx.insertInto('diario').values({
-      ...linha(regC), contadebito: null, contacredito: resolverConta(c, regC, l.situacao), codhist: c.codhistorico,
+      ...linha(regC), contadebito: null, contacredito: resolverConta(c, regC, l.situacao),
+      codhist: c.codhistorico, deschist: desc(c.codhistorico, regC),
     }).execute();
   }
   return { codlote, linhas: linhasD.length + linhasC.length };
+}
+
+/**
+ * os templates dos históricos das duas pernas. A tabela é cadastro (54 linhas no cliente) e pode não estar
+ * carregada; nesse caso o razão sai sem texto, como saía antes desta mudança — contabilizar não pode parar
+ * por falta de um rótulo.
+ */
+async function carregarTemplates(trx: AnyDB, codigos: Array<number | null>): Promise<Map<number, string>> {
+  const ids = [...new Set(codigos.filter((x): x is number => x != null).map(Number))];
+  if (!ids.length) return new Map();
+  const rows = (await trx
+    .selectFrom('historico_contabil')
+    .select(['codhistcontabil', 'deschist'])
+    .where('codhistcontabil', 'in', ids)
+    .execute()) as Array<{ codhistcontabil: number; deschist: string | null }>;
+  return new Map(rows.filter((r) => r.deschist != null).map((r) => [Number(r.codhistcontabil), r.deschist as string]));
 }
 
 /** perna FIXA → conta da IIC; perna AUTOMÁTICA → conta do registro (`rContaAnaliticaNaoInformada` se faltar). */
