@@ -43,6 +43,7 @@ export * from './schema/conf-plano-contas.schema';
 export * from './schema/rel-financeiro.schema';
 export * from './schema/simulador-venda.schema';
 export * from './schema/extrato-fornecedores.schema';
+export * from './schema/analise-casa-carne.schema';
 export * from './schema/historico-contabil.schema';
 export * from './schema/mult-atualizacao.schema';
 export * from './schema/integracao-contabil.schema';

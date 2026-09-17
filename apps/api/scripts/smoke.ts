@@ -14519,6 +14519,58 @@ async function main() {
         await pgEf.end();
       }
     }
+
+    // ══ ANÁLISE COMPRA × VENDA — CASA DE CARNE (FRMANALISECOMPRAVENDACASACARNE) ══════════════════════
+    {
+      const CC = 'relatorios/analise-casa-carne';
+      const pgCc2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // a PEÇA (decomposicao='S') e dois CORTES, 60% e 40%
+        await pgCc2.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, ativo, codfor, aliquota, decomposicao) VALUES
+          (991200,'7891200001200','TRASEIRO SMOKE CC','KG','S',1,'T01','S'),
+          (991201,'7891200001201','PICANHA SMOKE CC','KG','S',1,'T01','N'),
+          (991202,'7891200001202','COXAO SMOKE CC','KG','S',1,'T01','N') ON CONFLICT DO NOTHING`);
+        await pgCc2.query(`INSERT INTO decomposicao (idproduto, idproduto_01, percentual) VALUES
+          (991200, 991201, 60), (991200, 991202, 40)`);
+        // compra: 100 kg da peça a R$ 20,00 ⇒ custo total R$ 2.000,00
+        const nfc = Number((await pgCc2.query(`INSERT INTO nf (codnf, idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, tipoemissao, finalidade, cfop, idsituacao_nf, codparceiro, codparceiro_end, proc, totalnf, totalprod, cancelada)
+          VALUES (991290, 1, 'E', '55', '991290', '1', '2041-05-10', '2041-05-10', '1', '1', '1102', 6, 2, NULL, 'S', 2000, 2000, 'N') RETURNING codnf`)).rows[0].codnf);
+        await pgCc2.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, fatorembal, cfop)
+                           VALUES ($1, 991200, 100, 20.00, 1, '1102')`, [nfc]);
+        // venda dos cortes
+        await pgCc2.query(`INSERT INTO vendas (idempresa, codvendas_legado, codproduto, dtvenda, qtde, vrvenda, vrcusto, cancelado, nropedido) VALUES
+          (1, 772001, 991201, '2041-05-15', 55, 40.00, 20.00, 'N', '772001'),
+          (1, 772002, 991202, '2041-05-16', 38, 25.00, 20.00, 'N', '772002')`);
+
+        const r = (await (await fetch(`${base}/${CC}?dataIni=2041-05-01&dataFim=2041-05-31&produto=SMOKE%20CC`, { headers: H })).json().catch(() => ({}))) as any;
+        const picanha = (r.linhas ?? []).find((l: any) => Number(l.codproduto) === 991201);
+        const coxao = (r.linhas ?? []).find((l: any) => Number(l.codproduto) === 991202);
+        check('ANÁLISE CASA DE CARNE §119.1 [o custo da peça vai para os cortes pelo PERCENTUAL, e divide por 100]: 100 kg a R$ 20,00 são R$ 2.000,00 de peça; 60% vão para a picanha (**R$ 1.200,00** e 60 kg) e 40% para o coxão (**R$ 800,00** e 40 kg). ⚠️ no legado o custo **não divide por 100** e ainda usa o valor UNITÁRIO — medido nas compras reais desde 2024, R$ 7.047,00 contra R$ 2.956,85 corretos, **138,3% a mais**',
+          Math.abs(Number(picanha?.custo_compra) - 1200) < 0.01 && Math.abs(Number(picanha?.qtde_compra) - 60) < 0.001
+          && Math.abs(Number(coxao?.custo_compra) - 800) < 0.01 && Math.abs(Number(coxao?.qtde_compra) - 40) < 0.001,
+          { picanha, coxao });
+
+        check('ANÁLISE CASA DE CARNE §119.2 [a margem de cada corte]: a picanha vendeu 55 kg por R$ 2.200,00 sobre R$ 1.200,00 de custo ⇒ **R$ 1.000,00**; o coxão, 38 kg por R$ 950,00 sobre R$ 800,00 ⇒ **R$ 150,00**. É a conta que diz se o rendimento do corte paga a peça',
+          Math.abs(Number(picanha?.valor_venda) - 2200) < 0.01 && Math.abs(Number(picanha?.margem) - 1000) < 0.01
+          && Math.abs(Number(coxao?.valor_venda) - 950) < 0.01 && Math.abs(Number(coxao?.margem) - 150) < 0.01,
+          { picanha: [picanha?.valor_venda, picanha?.margem], coxao: [coxao?.valor_venda, coxao?.margem] });
+
+        const soDec = (await (await fetch(`${base}/${CC}?dataIni=2041-05-01&dataFim=2041-05-31&somenteDecomposicao=S&produto=SMOKE%20CC`, { headers: H })).json().catch(() => ({}))) as any;
+        const semGrant = await fetch(`${base}/${CC}?dataIni=2041-05-01&dataFim=2041-05-31`, { headers: H_SEM_ACESSO });
+        const invertido = await fetch(`${base}/${CC}?dataIni=2041-05-31&dataFim=2041-05-01`, { headers: H });
+        check('ANÁLISE CASA DE CARNE §119.3: o filtro de decomposição deixa só a peça e seus cortes (a peça aparece porque foi comprada, os cortes porque receberam rateio). Sem grant, 403; período invertido, 400',
+          (soDec.linhas ?? []).length === 3 && semGrant.status === 403 && invertido.status === 400,
+          { soDecomposicao: soDec.linhas?.length, rbac: semGrant.status, invertido: invertido.status });
+
+        await pgCc2.query(`DELETE FROM vendas WHERE codproduto IN (991201,991202)`);
+        await pgCc2.query(`DELETE FROM nf_prod WHERE codnf=$1`, [nfc]);
+        await pgCc2.query(`DELETE FROM nf WHERE codnf=$1`, [nfc]);
+        await pgCc2.query(`DELETE FROM decomposicao WHERE idproduto=991200`);
+        await pgCc2.query(`DELETE FROM produtos WHERE idproduto IN (991200,991201,991202)`);
+      } finally {
+        await pgCc2.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
