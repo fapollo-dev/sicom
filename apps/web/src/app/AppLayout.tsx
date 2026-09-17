@@ -170,6 +170,8 @@ const TELAS = [
   { href: '/cadastro/historico-contabil', name: 'Históricos contábeis', icon: BookText },
   // FRMMULTATUALIZACAO — um campo, uma operação, N produtos de uma vez (60 acessos, 6 operadores).
   { href: '/cadastro/mult-atualizacao', name: 'Atualização automática', icon: Package },
+  // FRMCONFIGINTEGRACAOCONTABIL — qual situação o razão usa para cada evento (55 acessos).
+  { href: '/contabil/config-integracao', name: 'Config. integração contábil', icon: BookText },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 

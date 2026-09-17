@@ -347,3 +347,37 @@ O CNPJ dos históricos 1/21/61/112 vive em **`parceiros_end`**, não em `parceir
   usando a **mesma** `montarDeschist` que a API usa para escrever o razão — ela mora no pacote compartilhado
   exatamente para isso. Trocar a ordem dos `*` troca o que sai no livro, e sem a simulação o erro só
   apareceria depois, no razão.
+
+---
+
+## 9. A tela que configura tudo isso (`FRMCONFIGINTEGRACAOCONTABIL`, migration 233)
+
+**55 acessos, 2 operadores.** `UFrmConfigIntegracaoContabil.pas` (1.873 linhas). API `contabil/config-integracao`,
+tela `/contabil/config-integracao`.
+
+É o painel que diz, para cada EVENTO do sistema, **qual situação** o razão deve usar — o que o motor lê em
+`lancarNoDiario` para achar as duas pernas. Sem ele, `CONTAS_NAO_INFORMADAS`.
+
+A tabela e as **60 colunas** já vieram com as migrations 199-201; faltava a tela. No cliente, **27 dos 60
+campos estão preenchidos** — o resto são eventos que a loja não contabiliza (cheques, boa parte das retenções,
+o fiscal por dentro da NFC-e).
+
+As cinco abas e os rótulos são os do legado: *Vendas e fechamento de caixa* · *Financeiro* (contas a pagar,
+contas a receber, cheques, cartões) · *Movimentações bancárias* · *Fiscal* (ICMS, PIS, COFINS, retenções,
+outros) · *Outras configurações* (o chaveamento de período).
+
+### 9.1 O que a tela acrescenta
+
+⚠️ **apontar para uma situação sem as DUAS pernas** em `ITENS_INTEGRACAO_CONTABIL` é o erro que só aparece
+muito depois — na hora de contabilizar, com outra pessoa, longe de quem configurou. A tela lista quantas
+pernas cada situação tem, marca as incompletas na própria escolha e abre com um aviso dizendo quantos eventos
+estão pendurados numa situação que vai falhar.
+
+### 9.2 Divergências conscientes
+
+- **Só muda o que foi enviado.** O legado grava o formulário inteiro; num painel de 60 campos, isso apaga a
+  configuração que outra pessoa acabou de pôr. Aqui o `PUT` aplica campo a campo o que veio.
+- **Situação inexistente é recusada na porta** (422). Digitar um número errado aqui só daria erro na
+  contabilização, muito depois.
+- O **chaveamento de período** continua como está: a comparação é `<=` (a data final digitada tem de ser
+  POSTERIOR ao chaveamento) e no cliente o campo está NULO, então hoje não bloqueia nada.

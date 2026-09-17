@@ -14055,6 +14055,50 @@ async function main() {
         await pgMa.end();
       }
     }
+
+    // ══ CONFIGURAÇÃO DA INTEGRAÇÃO CONTÁBIL (FRMCONFIGINTEGRACAOCONTABIL) ═════════════════════════════
+    {
+      const CIC = 'contabil/config-integracao';
+      const pgCi = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // uma situação COMPLETA (duas pernas) e uma PELA METADE (só débito) — é a diferença que a tela mostra
+        await pgCi.query(`INSERT INTO situacao_nf (idsituacao_nf, descricao) VALUES
+          (7801,'SITUACAO SMOKE COMPLETA'), (7802,'SITUACAO SMOKE SO DEBITO') ON CONFLICT DO NOTHING`);
+        await pgCi.query(`INSERT INTO itens_integracao_contabil (codoperacao, natureza, tipo, codconta_contabil, codhistorico) VALUES
+          (7801,'D','F',542,94), (7801,'C','F',213,95), (7802,'D','F',542,94) ON CONFLICT DO NOTHING`);
+
+        const put = await fetch(`${base}/${CIC}`, { method: 'PUT', headers: H, body: JSON.stringify({ config_baixa_cheque: 7801, config_acresc_receb_chq: 7802 }) });
+        const obt = (await (await fetch(`${base}/${CIC}`, { headers: H })).json().catch(() => ({}))) as any;
+        const sit7801 = (obt.situacoes ?? []).find((x: any) => Number(x.idsituacao_nf) === 7801);
+        const sit7802 = (obt.situacoes ?? []).find((x: any) => Number(x.idsituacao_nf) === 7802);
+        check('CONFIG INTEGRAÇÃO §110.1 [apontar para situação PELA METADE é o erro que só aparece depois]: a tela mostra quantas pernas cada situação tem e avisa quais apontadores estão pendurados numa incompleta. A 7801 tem débito e crédito; a 7802 só débito — e é `config_acresc_receb_chq` que aparece na lista de pendentes, não a de cheques',
+          put.status === 200
+          && Number(obt.config?.config_baixa_cheque) === 7801 && Number(obt.config?.config_acresc_receb_chq) === 7802
+          && Number(sit7801?.debito) === 1 && Number(sit7801?.credito) === 1
+          && Number(sit7802?.debito) === 1 && Number(sit7802?.credito) === 0
+          && (obt.semPernas ?? []).includes('config_acresc_receb_chq')
+          && !(obt.semPernas ?? []).includes('config_baixa_cheque'),
+          { gravou: put.status, cheque: obt.config?.config_baixa_cheque, semPernas: obt.semPernas });
+
+        // gravar SÓ o que mudou: os 27 campos que o cliente já tem não podem sumir por omissão
+        const antesCartao = (await pgCi.query(`SELECT config_baixa_cartao FROM config_integracao_contabil`)).rows[0] as any;
+        await fetch(`${base}/${CIC}`, { method: 'PUT', headers: H, body: JSON.stringify({ config_desc_conc_chq: 7801 }) });
+        const depoisCartao = (await pgCi.query(`SELECT config_baixa_cartao, config_desc_conc_chq, config_baixa_cheque FROM config_integracao_contabil`)).rows[0] as any;
+        const inexistente = await fetch(`${base}/${CIC}`, { method: 'PUT', headers: H, body: JSON.stringify({ config_baixa_cheque: 999777 }) });
+        const semGrant = await fetch(`${base}/${CIC}`, { method: 'PUT', headers: H_SEM_ACESSO, body: JSON.stringify({ config_baixa_cheque: 7801 }) });
+        check('CONFIG INTEGRAÇÃO §110.2 [só muda o que foi enviado]: num painel de 60 campos, mandar o formulário inteiro apagaria a configuração que outro operador acabou de pôr. Gravar `config_desc_conc_chq` sozinho deixa a baixa de cartão e a de cheque como estavam. Situação inexistente é recusada na porta (422) — digitar um número errado aqui só daria erro muito depois, na contabilização — e sem `BTNGRAVAR` é 403',
+          String(depoisCartao.config_baixa_cartao) === String(antesCartao.config_baixa_cartao)
+          && Number(depoisCartao.config_desc_conc_chq) === 7801 && Number(depoisCartao.config_baixa_cheque) === 7801
+          && inexistente.status === 422 && semGrant.status === 403,
+          { antes: antesCartao, depois: depoisCartao, inexistente: inexistente.status, rbac: semGrant.status });
+
+        await pgCi.query(`UPDATE config_integracao_contabil SET config_baixa_cheque=NULL, config_acresc_receb_chq=NULL, config_desc_conc_chq=NULL`);
+        await pgCi.query(`DELETE FROM itens_integracao_contabil WHERE codoperacao IN (7801,7802)`);
+        await pgCi.query(`DELETE FROM situacao_nf WHERE idsituacao_nf IN (7801,7802)`);
+      } finally {
+        await pgCi.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

@@ -28,6 +28,8 @@ import { CnabRemessaService } from './cnab-remessa.service';
 import { AdiantamentoFornController } from './adiantamento-forn.controller';
 import { AdiantamentoFornService } from './adiantamento-forn.service';
 import { IntegracaoContabilController } from './integracao-contabil.controller';
+import { ConfigIntegracaoContabilController } from './config-integracao-contabil.controller';
+import { ConfigIntegracaoContabilService } from './config-integracao-contabil.service';
 import { CartaoContabilService } from './cartao-contabil.service';
 import { BaixaTronContabilService } from './baixa-tron-contabil.service';
 import { DocumentosContabilService } from './documentos-contabil.service';
@@ -55,7 +57,7 @@ import { CadastroModule } from '../cadastro/cadastro.module';
     // FRMDESCONTOTITULO — encontro de contas RCB × APG (68 acessos, 11 operadores).
     DescontoTituloController,
     // FRMCONSCLIRCB — quanto o cliente deve, com juro e atraso (64 acessos).
-    ConsCliRcbController,LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController, IntegracaoContabilController,
+    ConsCliRcbController,LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController, IntegracaoContabilController, ConfigIntegracaoContabilController,
     // FRMSALDOEMPRESA — o fluxo de caixa projetado (611 acessos).
     SaldoEmpresaController,
     // FRMRELCAIXA — divergências de caixa e caixas abertos (505 acessos).
@@ -66,7 +68,7 @@ import { CadastroModule } from '../cadastro/cadastro.module';
     CaixaService, CaixaContabilService, CaixaPdvContabilService, CaixaConferenciaService, BaixaContabilService,
     CnabRemessaService, AdiantamentoFornService, ConfigService,
     // INTEGRAÇÃO CONTÁBIL (FRMTRON) corte-1: baixa de cartões — origens 51 (baixa), 61 (taxa) e 62 (outras despesas).
-    CartaoContabilService, BaixaTronContabilService, DocumentosContabilService, SaldoEmpresaService, RelCaixaService,
+    CartaoContabilService, BaixaTronContabilService, DocumentosContabilService, ConfigIntegracaoContabilService, SaldoEmpresaService, RelCaixaService,
     DatabaseProvider,
   ],
   exports: [LotesCobrancaService],
