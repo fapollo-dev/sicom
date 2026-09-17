@@ -14571,6 +14571,66 @@ async function main() {
         await pgCc2.end();
       }
     }
+
+    // ══ ANÁLISE DE VENDAS DE PRODUTOS (FRMRELATORIOVENDASDINAMICO) ═══════════════════════════════════
+    {
+      const VD = 'relatorios/vendas-dinamico';
+      const pgVd = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // um fornecedor INATIVO — é o que fazia o produto sumir no legado
+        await pgVd.query(`INSERT INTO parceiros (codparceiro, razao, fantasia, ativado) VALUES (99310,'FORNECEDOR INATIVO VD','INATIVO VD','N') ON CONFLICT DO NOTHING`);
+        await pgVd.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, ativo, ativo_compra, codfor, aliquota) VALUES
+          (991300,'7891300001300','PROD VD COM FORN ATIVO','UN','S','S',1,'T01'),
+          (991301,'7891300001301','PROD VD FORN INATIVO','UN','S','S',99310,'T01') ON CONFLICT DO NOTHING`);
+        // duas compras do mesmo produto: a MAIS RECENTE tem código MENOR (é o caso dos 1.431 produtos)
+        for (const [codnf, dt, custo] of [[991390, '2042-06-20', 30.00], [991391, '2042-06-10', 99.00]] as Array<[number, string, number]>) {
+          await pgVd.query(`INSERT INTO nf (codnf, idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, tipoemissao, finalidade, cfop, idsituacao_nf, codparceiro, codparceiro_end, proc, totalnf, totalprod, cancelada)
+            VALUES ($1, 1, 'E', '55', $4, '1', $2, $2, '1', '1', '1102', 6, 2, NULL, 'S', $3, $3, 'N')`, [codnf, dt, custo, String(codnf)]);
+          await pgVd.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, fatorembal, cfop) VALUES ($1, 991300, 1, $2, 1, '1102')`, [codnf, custo]);
+        }
+        // uma nota CANCELADA, mais recente ainda e com custo absurdo
+        await pgVd.query(`INSERT INTO nf (codnf, idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, tipoemissao, finalidade, cfop, idsituacao_nf, codparceiro, codparceiro_end, proc, totalnf, totalprod, cancelada)
+          VALUES (991392, 1, 'E', '55', '991392', '1', '2042-06-25', '2042-06-25', '1', '1', '1102', 6, 2, NULL, 'S', 500, 500, 'S')`);
+        await pgVd.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, fatorembal, cfop) VALUES (991392, 991300, 1, 500.00, 1, '1102')`);
+        await pgVd.query(`INSERT INTO vendas (idempresa, codvendas_legado, codproduto, dtvenda, qtde, vrvenda, vrcusto, cancelado, nropedido) VALUES
+          (1, 773001, 991300, '2042-06-22 10:00', 4, 50.00, 30.00, 'N', '773001')`);
+
+        const r = (await (await fetch(`${base}/${VD}?dataIni=2042-06-01&dataFim=2042-06-30&produto=PROD%20VD`, { headers: H })).json().catch(() => ({}))) as any;
+        const comAtivo = (r.linhas ?? []).find((l: any) => Number(l.codproduto) === 991300);
+        const comInativo = (r.linhas ?? []).find((l: any) => Number(l.codproduto) === 991301);
+        check('VENDAS DINÂMICO §120.1 [o `AND f.ativado = S` anulava o LEFT JOIN]: no legado, produto com fornecedor INATIVO (ou sem fornecedor) simplesmente sumia da análise — **228 produtos** dos 47.699 do cliente. Aqui ele aparece, com o fornecedor rotulado',
+          !!comAtivo && !!comInativo && String(comInativo.nomefor) === 'FORNECEDOR INATIVO VD'
+          && String(comInativo.fornecedor_ativo) === 'N',
+          { comFornecedorAtivo: !!comAtivo, comFornecedorInativo: comInativo });
+
+        check('VENDAS DINÂMICO §120.2 [o último custo vem da nota MAIS RECENTE, não do maior código]: a compra de 20/06 (código 991390, R$ 30,00) é mais nova que a de 10/06 (código 991391, R$ 99,00) — no legado, `MAX(CODNF)` pegaria a de 99,00, e isso acontece em **1.431 de 19.966 produtos**. E a nota CANCELADA de 25/06 (R$ 500,00) fica de fora, que o legado também não filtrava',
+          String(comAtivo?.dtultimacompra).slice(0, 10) === '2042-06-20'
+          && Math.abs(Number(comAtivo?.ultimocusto) - 30) < 0.005,
+          { dtultimacompra: comAtivo?.dtultimacompra, ultimocusto: comAtivo?.ultimocusto });
+
+        check('VENDAS DINÂMICO §120.3 [o giro do período]: 4 unidades a R$ 50,00 dão R$ 200,00 de venda acumulada e R$ 120,00 de custo (o legado trunca o total, e isso foi mantido); a última venda é 22/06',
+          Math.abs(Number(comAtivo?.qtde) - 4) < 0.001
+          && Math.abs(Number(comAtivo?.venda_acumulada) - 200) < 0.005
+          && Math.abs(Number(comAtivo?.custo_acumulado) - 120) < 0.005
+          && String(comAtivo?.dtultimavenda).slice(0, 10) === '2042-06-22'
+          && Math.abs(Number(r.totais?.margem) - 80) < 0.005,
+          { linha: comAtivo, totais: r.totais });
+
+        const semGrant = await fetch(`${base}/${VD}?dataIni=2042-06-01&dataFim=2042-06-30`, { headers: H_SEM_ACESSO });
+        const invertido = await fetch(`${base}/${VD}?dataIni=2042-06-30&dataFim=2042-06-01`, { headers: H });
+        check('VENDAS DINÂMICO §120.4: sem grant, 403; período invertido, 400',
+          semGrant.status === 403 && invertido.status === 400,
+          { rbac: semGrant.status, invertido: invertido.status });
+
+        await pgVd.query(`DELETE FROM vendas WHERE codproduto IN (991300,991301)`);
+        await pgVd.query(`DELETE FROM nf_prod WHERE codnf IN (991390,991391,991392)`);
+        await pgVd.query(`DELETE FROM nf WHERE codnf IN (991390,991391,991392)`);
+        await pgVd.query(`DELETE FROM produtos WHERE idproduto IN (991300,991301)`);
+        await pgVd.query(`DELETE FROM parceiros WHERE codparceiro=99310`);
+      } finally {
+        await pgVd.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

@@ -190,6 +190,8 @@ const TELAS = [
   { href: '/relatorios/extrato-fornecedores', name: 'Extrato de fornecedores', icon: ShoppingCart },
   // FRMANALISECOMPRAVENDACASACARNE — compra a peça, vende o corte (37 acessos, 6 operadores).
   { href: '/relatorios/analise-casa-carne', name: 'Compra × venda (casa de carne)', icon: ArrowLeftRight },
+  // FRMRELATORIOVENDASDINAMICO — giro do período + última compra e custo (37 acessos, 8 operadores).
+  { href: '/relatorios/vendas-dinamico', name: 'Análise de vendas de produtos', icon: Package },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 
