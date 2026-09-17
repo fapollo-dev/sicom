@@ -13816,6 +13816,109 @@ async function main() {
         await pgAp.end();
       }
     }
+
+    // ══ CONFIGURADOR DE CONCILIAÇÃO DE CARTÕES (FRMCADCONFIGCONCILIADOR) ═══════════════════════════════
+    {
+      const CC = 'cadastro/config-conciliador';
+      const pgCc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // o layout REDE do cliente, campo a campo: linha 3, casa por NSU e autorização, NSU truncado em 8
+        const rede = {
+          cic_descricao: 'REDE SMOKE', cic_tipo_importacao: 'EXCEL', cic_linha_inicio_importacao: 3,
+          cic_tipo_separacao_campos: 'COLUNAS EXCEL',
+          buscadataempvlr: 'N', buscadatavlrcartao: 'N', buscansu: 'S', buscaautorizacao: 'S',
+          itens: [
+            { cici_campo_tabela: 'DTCREDITO', cici_tipo_campo: 'Data', cici_formato_campo: 'dd/MM/yyyy', cici_posicao: 'A' },
+            { cici_campo_tabela: 'DTVENDA', cici_tipo_campo: 'Data', cici_formato_campo: 'dd/MM/yyyy', cici_posicao: 'B' },
+            { cici_campo_tabela: 'VRBRUTO', cici_tipo_campo: 'Texto', cici_posicao: 'D' },
+            { cici_campo_tabela: 'VRLIQUIDO', cici_tipo_campo: 'Texto', cici_posicao: 'H' },
+            { cici_campo_tabela: 'NSU', cici_tipo_campo: 'Texto', cici_posicao: 'k', cici_tamanho: 8 },
+            { cici_campo_tabela: 'AUTORIZACAO', cici_tipo_campo: 'Texto', cici_posicao: 'N' },
+            { cici_campo_tabela: 'CODESTABELECIMENTO', cici_tipo_campo: 'Texto', cici_posicao: 'Q' },
+          ],
+        };
+        const cr = await fetch(`${base}/${CC}`, { method: 'POST', headers: H, body: JSON.stringify(rede) });
+        const crJ = (await cr.json().catch(() => ({}))) as any;
+        const det = (await (await fetch(`${base}/${CC}/${crJ.cic_id}`, { headers: H })).json().catch(() => ({}))) as any;
+        const lista = (await (await fetch(`${base}/${CC}`, { headers: H })).json().catch(() => ([]))) as any[];
+        const naLista = (lista ?? []).find((x: any) => Number(x.cic_id) === Number(crJ.cic_id));
+        check('CONFIG CONCILIADOR §105.1: o layout do cliente entra inteiro — 7 colunas mapeadas, linha 3 de início, casamento por NSU **e** autorização. A coluna é gravada em MAIÚSCULA (o operador digita `k`, vira `K`) e o tamanho trunca: o NSU da REDE vai a 8, como no layout real. A lista mostra o layout com a contagem de colunas',
+          cr.status === 201 && Number(crJ.cic_id) > 0
+          && (det.itens ?? []).length === 7
+          && Number(det.cic_linha_inicio_importacao) === 3 && det.buscansu === 'S' && det.buscaautorizacao === 'S'
+          && det.itens.find((i: any) => i.cici_campo_tabela === 'NSU')?.cici_posicao === 'K'
+          && Number(det.itens.find((i: any) => i.cici_campo_tabela === 'NSU')?.cici_tamanho) === 8
+          && !!naLista && Number(naLista.itens) === 7,
+          { criado: crJ, detalhe: det?.itens?.length, naLista });
+
+        // SODEXO: a planilha não traz o estabelecimento, então ele é FIXO — 3 de 3 itens Fixo do cliente
+        const sodexo = {
+          cic_descricao: 'SODEXO SMOKE', cic_tipo_importacao: 'EXCEL', cic_linha_inicio_importacao: 14,
+          cic_tipo_separacao_campos: 'COLUNAS EXCEL',
+          buscadataempvlr: 'N', buscadatavlrcartao: 'N', buscansu: 'N', buscaautorizacao: 'S',
+          itens: [
+            { cici_campo_tabela: 'DTVENDA', cici_tipo_campo: 'Data', cici_formato_campo: 'dd/MM/yyyy', cici_posicao: 'C' },
+            { cici_campo_tabela: 'AUTORIZACAO', cici_tipo_campo: 'Texto', cici_posicao: 'H' },
+            { cici_campo_tabela: 'VRBRUTO', cici_tipo_campo: 'Valor', cici_posicao: 'I' },
+            { cici_campo_tabela: 'CODESTABELECIMENTO', cici_tipo_campo: 'Fixo', cici_valor_fixo: '37.954.975/0002-40' },
+          ],
+        };
+        const sx = await fetch(`${base}/${CC}`, { method: 'POST', headers: H, body: JSON.stringify(sodexo) });
+        const sxJ = (await sx.json().catch(() => ({}))) as any;
+        const sxDet = (await (await fetch(`${base}/${CC}/${sxJ.cic_id}`, { headers: H })).json().catch(() => ({}))) as any;
+        const fixo = (sxDet.itens ?? []).find((i: any) => i.cici_tipo_campo === 'Fixo');
+        check('CONFIG CONCILIADOR §105.2 [o item FIXO]: o estabelecimento do SODEXO não está na planilha — vem do cadastro. Item `Fixo` grava o valor e NÃO tem coluna (3 de 3 no cliente), e na listagem do layout ele vai para o fim, depois das colunas',
+          sx.status === 201 && (sxDet.itens ?? []).length === 4
+          && fixo?.cici_valor_fixo === '37.954.975/0002-40' && fixo?.cici_posicao === null
+          && sxDet.itens[sxDet.itens.length - 1].cici_tipo_campo === 'Fixo',
+          { itens: sxDet.itens });
+
+        // as regras que o dado prova, cada uma recusada na porta
+        const semChave = await fetch(`${base}/${CC}`, { method: 'POST', headers: H, body: JSON.stringify({ ...rede, cic_descricao: 'X1', buscansu: 'N', buscaautorizacao: 'N' }) });
+        const semObrig = await fetch(`${base}/${CC}`, { method: 'POST', headers: H, body: JSON.stringify({ ...rede, cic_descricao: 'X2', itens: rede.itens.filter((i) => i.cici_campo_tabela !== 'AUTORIZACAO') }) });
+        const campoRepetido = await fetch(`${base}/${CC}`, { method: 'POST', headers: H, body: JSON.stringify({ ...rede, cic_descricao: 'X3', itens: [...rede.itens, { cici_campo_tabela: 'NSU', cici_tipo_campo: 'Texto', cici_posicao: 'Z' }] }) });
+        const colunaRepetida = await fetch(`${base}/${CC}`, { method: 'POST', headers: H, body: JSON.stringify({ ...rede, cic_descricao: 'X4', itens: [...rede.itens, { cici_campo_tabela: 'BANDEIRA', cici_tipo_campo: 'Texto', cici_posicao: 'Q' }] }) });
+        const fixoComColuna = await fetch(`${base}/${CC}`, { method: 'POST', headers: H, body: JSON.stringify({ ...rede, cic_descricao: 'X5', itens: [...rede.itens, { cici_campo_tabela: 'BANDEIRA', cici_tipo_campo: 'Fixo', cici_posicao: 'Z', cici_valor_fixo: 'VISA' }] }) });
+        const dataSemFormato = await fetch(`${base}/${CC}`, { method: 'POST', headers: H, body: JSON.stringify({ ...rede, cic_descricao: 'X6', itens: rede.itens.map((i) => (i.cici_campo_tabela === 'DTVENDA' ? { ...i, cici_formato_campo: null } : i)) }) });
+        const duplicada = await fetch(`${base}/${CC}`, { method: 'POST', headers: H, body: JSON.stringify({ ...rede, cic_descricao: 'rede smoke' }) });
+        check('CONFIG CONCILIADOR §105.3 [as invariantes dos 7 layouts]: sem chave de casamento o arquivo entraria e nada conciliaria (400); faltando um dos quatro campos que os 7 têm sem exceção, 400; campo repetido e coluna repetida, 400 (zero casos no cliente); item `Fixo` com coluna e item `Data` sem formato, 400; e a descrição é única — `rede smoke` colide com `REDE SMOKE` (422)',
+          semChave.status === 400 && semObrig.status === 400 && campoRepetido.status === 400
+          && colunaRepetida.status === 400 && fixoComColuna.status === 400 && dataSemFormato.status === 400
+          && duplicada.status === 422,
+          { semChave: semChave.status, semObrig: semObrig.status, campoRep: campoRepetido.status,
+            colunaRep: colunaRepetida.status, fixoComColuna: fixoComColuna.status,
+            dataSemFormato: dataSemFormato.status, duplicada: duplicada.status });
+
+        // editar o layout é reescrever o mapa: os itens antigos saem inteiros
+        // os quatro que sobram são justamente os obrigatórios — tirar um deles é o que o §105.3 recusa
+        const quatro = rede.itens.filter((i) => ['DTVENDA', 'VRBRUTO', 'AUTORIZACAO', 'CODESTABELECIMENTO'].includes(i.cici_campo_tabela));
+        const edit = await fetch(`${base}/${CC}/${crJ.cic_id}`, { method: 'PUT', headers: H, body: JSON.stringify({ ...rede, cic_linha_inicio_importacao: 5, itens: quatro }) });
+        const editDet = (await (await fetch(`${base}/${CC}/${crJ.cic_id}`, { headers: H })).json().catch(() => ({}))) as any;
+        const orfaos = (await pgCc.query(`SELECT count(*)::int n FROM config_import_conciliador_item WHERE cic_id=$1`, [crJ.cic_id])).rows[0] as any;
+        check('CONFIG CONCILIADOR §105.4: editar o layout **reescreve o mapa inteiro** — de 7 colunas para 4, sem item órfão sobrando, e a linha de início passa a 5',
+          edit.status === 200 && (editDet.itens ?? []).length === 4
+          && Number(editDet.cic_linha_inicio_importacao) === 5 && Number(orfaos.n) === 4,
+          { itens: editDet?.itens?.length, orfaos: orfaos?.n });
+
+        // ⚠️ o layout que já importou não se apaga: a linha importada guarda a DESCRIÇÃO dele
+        await pgCc.query(`INSERT INTO itens_mancartao (dtvenda, vrbruto, nsu, autorizacao, tipoconciliador, descricao, encontrado)
+                          VALUES ('2026-05-03', 10.00, '12345678', 'AUT1', 'CONFIGURAVEL', 'REDE SMOKE', 'S')`);
+        const delEmUso = await fetch(`${base}/${CC}/${crJ.cic_id}`, { method: 'DELETE', headers: H });
+        const delLivre = await fetch(`${base}/${CC}/${sxJ.cic_id}`, { method: 'DELETE', headers: H });
+        const sobrou = (await pgCc.query(`SELECT count(*)::int n FROM config_import_conciliador_item WHERE cic_id=$1`, [sxJ.cic_id])).rows[0] as any;
+        const rbac = await fetch(`${base}/${CC}`, { headers: H_SEM_ACESSO });
+        const naoExiste = await fetch(`${base}/${CC}/999999`, { headers: H });
+        check('CONFIG CONCILIADOR §105.5: o layout que JÁ IMPORTOU não é apagado (422) — as 245.984 linhas de `itens_mancartao` do cliente guardam a descrição do layout, e apagá-lo deixaria o histórico sem dizer por qual mapa a linha entrou. O que nunca importou sai, levando os itens junto. Sem grant, 403; layout inexistente, 422',
+          delEmUso.status === 422 && delLivre.status === 200 && Number(sobrou.n) === 0
+          && rbac.status === 403 && naoExiste.status === 422,
+          { emUso: delEmUso.status, livre: delLivre.status, itensRestantes: sobrou?.n, rbac: rbac.status, inexistente: naoExiste.status });
+
+        await pgCc.query(`DELETE FROM itens_mancartao WHERE descricao='REDE SMOKE'`);
+        await pgCc.query(`DELETE FROM config_import_conciliador WHERE upper(cic_descricao) LIKE '%SMOKE%'`);
+      } finally {
+        await pgCc.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

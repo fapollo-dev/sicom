@@ -163,6 +163,8 @@ const TELAS = [
   { href: '/cadastro/operadores', name: 'Operadores', icon: UserCog },
   { href: '/cadastro/perfis', name: 'Perfis & Permissões', icon: ShieldCheck },
   { href: '/cadastro/formas-pgto', name: 'Formas de Pagamento', icon: CreditCard },
+  // FRMCADCONFIGCONCILIADOR — o layout com que se lê a planilha de cada operadora (82 acessos, 6 operadores).
+  { href: '/cadastro/config-conciliador', name: 'Layouts de conciliação', icon: CreditCard },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 

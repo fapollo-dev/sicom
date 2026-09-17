@@ -46,6 +46,7 @@ import { PrecificacaoNfPage } from '../features/precificacao-nf/PrecificacaoNfPa
 import { RelComprasPage } from '../features/rel-compras/RelComprasPage';
 import { PromocaoAcumulativaPage } from '../features/promocao-acumulativa/PromocaoAcumulativaPage';
 import { ConferenciaNfIndexadorPage } from '../features/conferencia-nf-indexador/ConferenciaNfIndexadorPage';
+import { ConfigConciliadorPage } from '../features/config-conciliador/ConfigConciliadorPage';
 import { ProdutosRelPage } from '../features/produtos-rel/ProdutosRelPage';
 import { RelEntradasSaidasPage } from '../features/rel-entradas-saidas/RelEntradasSaidasPage';
 import { CotacaoFornPage } from '../features/cotacao-forn/CotacaoFornPage';
@@ -198,6 +199,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/compras', element: <RelComprasPage /> }, // FRMRELCOMPRAS
       { path: '/cadastro/promocao-acumulativa', element: <PromocaoAcumulativaPage /> }, // FRMCADPROMOCAOACUMULATIVA
       { path: '/fiscal/conferencia-nf-indexador', element: <ConferenciaNfIndexadorPage /> }, // FRMCONFERENCIANFINDEXADOR
+      { path: '/cadastro/config-conciliador', element: <ConfigConciliadorPage /> }, // FRMCADCONFIGCONCILIADOR
       { path: '/relatorios/produtos', element: <ProdutosRelPage /> }, // FRMPRODUTOSREL
       { path: '/relatorios/entradas-saidas', element: <RelEntradasSaidasPage /> }, // FRMRELENTRADASSAIDAS
       { path: '/compras/cotacao-forn', element: <CotacaoFornPage /> }, // FRMCADCOTACAOFORN
