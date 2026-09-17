@@ -1,6 +1,11 @@
 import { sql, type Kysely } from 'kysely';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { montarDeschist, type ArgHist } from '@apollo/shared';
 import { argsDoHistorico, type CtxHistorico } from './historico-contabil.args';
+
+// a substituição dos `*` vive no pacote compartilhado: a API a usa para escrever o razão e a tela de
+// cadastro do histórico, para mostrar ao operador como o texto vai sair.
+export { montarDeschist, type ArgHist };
 
 type AnyDB = Kysely<any>;
 
@@ -63,38 +68,7 @@ export interface LancamentoContabil {
   ctxHist?: CtxHistorico;
 }
 
-/** um `*` do template: número (vira `000130582`), texto (vai cru) ou nada (vira vazio). */
-export type ArgHist = string | number | null | undefined;
-
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
-
-/**
- * preenche os `*` do template do histórico contábil — o que `FuncoesApollo` fazia e não veio no fonte.
- *
- * ⚠️ **número vira 9 dígitos com zeros à esquerda** (`FormatFloat('000000000')`). Medido no razão do cliente:
- * `A RECEBER DOCTO .: 000130582` para documento `130582` em **5.895/5.895** linhas da origem 14, e
- * `AGRUPAMENTO CONVENIO .: 000117847` em **15.089/15.089** da origem 65. Texto vai cru — é por isso que o
- * lote sai `RECEBTO LOTE .: 90790` e não `000090790`: quem contabiliza o passa como texto.
- *
- * `*` sem argumento imprime vazio, como no legado (o razão tem `NOTA FISCAL COMPRA .: 000000000 CNPJ  FORNECEDOR `
- * na origem 64) — e argumento a mais é ignorado, porque o template é quem manda.
- *
- * ⚠️ **quebra de linha vira espaço**: o `DESCHIST` é de uma linha só. Provado duas vezes — o histórico da
- * movimentação `'TRANSF. CONTA DESTINO: 4914-7\r\n Lote: 89642\r\nRealizada…'` sai no razão como
- * `'… 4914-7  Lote: 89642 Realizada…'`, e a observação `' REFERENTE A NOTA FISCAL 6412933 EMITIDA EM 31/07/2026\r\n'`
- * sai terminada em espaço.
- */
-export function montarDeschist(template: string | null | undefined, args: ArgHist[] = []): string | null {
-  if (template == null) return null;
-  let i = 0;
-  return template.replace(/\*/g, () => {
-    const a = args[i];
-    i += 1;
-    if (a == null || a === '') return '';
-    if (typeof a === 'number') return Number.isFinite(a) ? String(Math.trunc(Math.abs(a))).padStart(9, '0') : '';
-    return a.replace(/\r\n?|\n/g, ' ');
-  });
-}
 
 /**
  * MOTOR DA INTEGRAÇÃO CONTÁBIL — o `LancaDiarioContabil(..., SubstituiPeloDataSet := True)` do legado.

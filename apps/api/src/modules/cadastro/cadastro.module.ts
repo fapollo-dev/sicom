@@ -33,6 +33,7 @@ import { OperadorasAggregateController } from './operadoras.aggregate';
 import { CartaoCrudController } from './cartao.crud';
 import { GradeLayoutController } from './grade-layout.controller';
 import { GradeLayoutService } from './grade-layout.service';
+import { HistoricoContabilCrudController } from './historico-contabil.crud';
 import { ConfigConciliadorController } from './config-conciliador.controller';
 import { ConfigConciliadorService } from './config-conciliador.service';
 import { ConferenciaNfIndexadorController } from './conferencia-nf-indexador.controller';
@@ -175,6 +176,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     // FRMCONFERENCIANFINDEXADOR — sistema × XML, item a item (165 acessos).
     ConferenciaNfIndexadorController,
     ConfigConciliadorController,
+    HistoricoContabilCrudController,
     // o [F8]/[F9] do legado: layout da grade por operador, para todas as telas.
     GradeLayoutController, // FRMRELLANCAMENTOSCONTABEIS — o razão por lançamento, com a origem pelo nome
     NfAnaliseController, // FRMNFANALISE — análise de notas (tributária + conferência)

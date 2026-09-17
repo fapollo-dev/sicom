@@ -28,6 +28,7 @@ import {
   Coins,
   UserCog,
   ShieldCheck,
+  BookText,
   CreditCard,
   ShoppingCart,
   FileSearch,
@@ -165,6 +166,8 @@ const TELAS = [
   { href: '/cadastro/formas-pgto', name: 'Formas de Pagamento', icon: CreditCard },
   // FRMCADCONFIGCONCILIADOR — o layout com que se lê a planilha de cada operadora (82 acessos, 6 operadores).
   { href: '/cadastro/config-conciliador', name: 'Layouts de conciliação', icon: CreditCard },
+  // FRMCADHISTORICOCONTABIL — o texto que o razão imprime, com os `*` que a contabilização preenche.
+  { href: '/cadastro/historico-contabil', name: 'Históricos contábeis', icon: BookText },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 

@@ -273,6 +273,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('228_analise_entrada_saida.sql'));
   await pool.query(sql('229_historico_contabil.sql'));
   await pool.query(sql('230_config_import_conciliador.sql'));
+  await pool.query(sql('231_cad_historico_contabil.sql'));
   await pool.end();
   return pg;
 }

@@ -32,7 +32,7 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 20 | `FRMAGRUPACARTAO` | 64 | 11 | ⛔ **mecanismo nunca usado**: agrupa lançamentos sob um número de resumo da operadora, gravando `CARTAO.RESUMO` — coluna **nula nas 2.059.893 linhas**. Os 64 acessos são gente abrindo a tela |
 | 21 | `FRMCONSCLIRCB` | 64 | 8 | ✅ **completa** (mig 227) — ⚠️ o legado exibia **R$ 11,5 milhões** de juro fantasma: a coluna JURO usava um default de 9% a.m. que o TOTAL não aplicava, em 99,96% dos títulos |
 | 22 | `FRMRELPEDIDOCOMPRA` | 63 | 6 | ⛔ **sem fonte no repositório clonado** |
-| 23 | `FRMCADHISTORICOCONTABIL` | 62 | 3 |
+| 23 | `FRMCADHISTORICOCONTABIL` | 62 | 3 | ✅ **completa** (mig 231; a tabela e os 54 templates vieram na 229) — o texto que o razão imprime, com os `*` que a contabilização preenche. A tela simula o resultado enquanto se digita, usando a **mesma** função que a API usa para escrever |
 | 24 | `FRMMULTATUALIZACAO` | 60 | 6 |
 | 25 | `FRMCADTERMINAIS` | 56 | 2 |
 | 26 | `FRMCONFIGINTEGRACAOCONTABIL` | 55 | 2 |

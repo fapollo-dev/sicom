@@ -13842,7 +13842,7 @@ async function main() {
         const det = (await (await fetch(`${base}/${CC}/${crJ.cic_id}`, { headers: H })).json().catch(() => ({}))) as any;
         const lista = (await (await fetch(`${base}/${CC}`, { headers: H })).json().catch(() => ([]))) as any[];
         const naLista = (lista ?? []).find((x: any) => Number(x.cic_id) === Number(crJ.cic_id));
-        check('CONFIG CONCILIADOR §105.1: o layout do cliente entra inteiro — 7 colunas mapeadas, linha 3 de início, casamento por NSU **e** autorização. A coluna é gravada em MAIÚSCULA (o operador digita `k`, vira `K`) e o tamanho trunca: o NSU da REDE vai a 8, como no layout real. A lista mostra o layout com a contagem de colunas',
+        check('CONFIG CONCILIADOR §108.1: o layout do cliente entra inteiro — 7 colunas mapeadas, linha 3 de início, casamento por NSU **e** autorização. A coluna é gravada em MAIÚSCULA (o operador digita `k`, vira `K`) e o tamanho trunca: o NSU da REDE vai a 8, como no layout real. A lista mostra o layout com a contagem de colunas',
           cr.status === 201 && Number(crJ.cic_id) > 0
           && (det.itens ?? []).length === 7
           && Number(det.cic_linha_inicio_importacao) === 3 && det.buscansu === 'S' && det.buscaautorizacao === 'S'
@@ -13867,7 +13867,7 @@ async function main() {
         const sxJ = (await sx.json().catch(() => ({}))) as any;
         const sxDet = (await (await fetch(`${base}/${CC}/${sxJ.cic_id}`, { headers: H })).json().catch(() => ({}))) as any;
         const fixo = (sxDet.itens ?? []).find((i: any) => i.cici_tipo_campo === 'Fixo');
-        check('CONFIG CONCILIADOR §105.2 [o item FIXO]: o estabelecimento do SODEXO não está na planilha — vem do cadastro. Item `Fixo` grava o valor e NÃO tem coluna (3 de 3 no cliente), e na listagem do layout ele vai para o fim, depois das colunas',
+        check('CONFIG CONCILIADOR §108.2 [o item FIXO]: o estabelecimento do SODEXO não está na planilha — vem do cadastro. Item `Fixo` grava o valor e NÃO tem coluna (3 de 3 no cliente), e na listagem do layout ele vai para o fim, depois das colunas',
           sx.status === 201 && (sxDet.itens ?? []).length === 4
           && fixo?.cici_valor_fixo === '37.954.975/0002-40' && fixo?.cici_posicao === null
           && sxDet.itens[sxDet.itens.length - 1].cici_tipo_campo === 'Fixo',
@@ -13881,7 +13881,7 @@ async function main() {
         const fixoComColuna = await fetch(`${base}/${CC}`, { method: 'POST', headers: H, body: JSON.stringify({ ...rede, cic_descricao: 'X5', itens: [...rede.itens, { cici_campo_tabela: 'BANDEIRA', cici_tipo_campo: 'Fixo', cici_posicao: 'Z', cici_valor_fixo: 'VISA' }] }) });
         const dataSemFormato = await fetch(`${base}/${CC}`, { method: 'POST', headers: H, body: JSON.stringify({ ...rede, cic_descricao: 'X6', itens: rede.itens.map((i) => (i.cici_campo_tabela === 'DTVENDA' ? { ...i, cici_formato_campo: null } : i)) }) });
         const duplicada = await fetch(`${base}/${CC}`, { method: 'POST', headers: H, body: JSON.stringify({ ...rede, cic_descricao: 'rede smoke' }) });
-        check('CONFIG CONCILIADOR §105.3 [as invariantes dos 7 layouts]: sem chave de casamento o arquivo entraria e nada conciliaria (400); faltando um dos quatro campos que os 7 têm sem exceção, 400; campo repetido e coluna repetida, 400 (zero casos no cliente); item `Fixo` com coluna e item `Data` sem formato, 400; e a descrição é única — `rede smoke` colide com `REDE SMOKE` (422)',
+        check('CONFIG CONCILIADOR §108.3 [as invariantes dos 7 layouts]: sem chave de casamento o arquivo entraria e nada conciliaria (400); faltando um dos quatro campos que os 7 têm sem exceção, 400; campo repetido e coluna repetida, 400 (zero casos no cliente); item `Fixo` com coluna e item `Data` sem formato, 400; e a descrição é única — `rede smoke` colide com `REDE SMOKE` (422)',
           semChave.status === 400 && semObrig.status === 400 && campoRepetido.status === 400
           && colunaRepetida.status === 400 && fixoComColuna.status === 400 && dataSemFormato.status === 400
           && duplicada.status === 422,
@@ -13895,7 +13895,7 @@ async function main() {
         const edit = await fetch(`${base}/${CC}/${crJ.cic_id}`, { method: 'PUT', headers: H, body: JSON.stringify({ ...rede, cic_linha_inicio_importacao: 5, itens: quatro }) });
         const editDet = (await (await fetch(`${base}/${CC}/${crJ.cic_id}`, { headers: H })).json().catch(() => ({}))) as any;
         const orfaos = (await pgCc.query(`SELECT count(*)::int n FROM config_import_conciliador_item WHERE cic_id=$1`, [crJ.cic_id])).rows[0] as any;
-        check('CONFIG CONCILIADOR §105.4: editar o layout **reescreve o mapa inteiro** — de 7 colunas para 4, sem item órfão sobrando, e a linha de início passa a 5',
+        check('CONFIG CONCILIADOR §108.4: editar o layout **reescreve o mapa inteiro** — de 7 colunas para 4, sem item órfão sobrando, e a linha de início passa a 5',
           edit.status === 200 && (editDet.itens ?? []).length === 4
           && Number(editDet.cic_linha_inicio_importacao) === 5 && Number(orfaos.n) === 4,
           { itens: editDet?.itens?.length, orfaos: orfaos?.n });
@@ -13908,7 +13908,7 @@ async function main() {
         const sobrou = (await pgCc.query(`SELECT count(*)::int n FROM config_import_conciliador_item WHERE cic_id=$1`, [sxJ.cic_id])).rows[0] as any;
         const rbac = await fetch(`${base}/${CC}`, { headers: H_SEM_ACESSO });
         const naoExiste = await fetch(`${base}/${CC}/999999`, { headers: H });
-        check('CONFIG CONCILIADOR §105.5: o layout que JÁ IMPORTOU não é apagado (422) — as 245.984 linhas de `itens_mancartao` do cliente guardam a descrição do layout, e apagá-lo deixaria o histórico sem dizer por qual mapa a linha entrou. O que nunca importou sai, levando os itens junto. Sem grant, 403; layout inexistente, 422',
+        check('CONFIG CONCILIADOR §108.5: o layout que JÁ IMPORTOU não é apagado (422) — as 245.984 linhas de `itens_mancartao` do cliente guardam a descrição do layout, e apagá-lo deixaria o histórico sem dizer por qual mapa a linha entrou. O que nunca importou sai, levando os itens junto. Sem grant, 403; layout inexistente, 422',
           delEmUso.status === 422 && delLivre.status === 200 && Number(sobrou.n) === 0
           && rbac.status === 403 && naoExiste.status === 422,
           { emUso: delEmUso.status, livre: delLivre.status, itensRestantes: sobrou?.n, rbac: rbac.status, inexistente: naoExiste.status });
@@ -13917,6 +13917,52 @@ async function main() {
         await pgCc.query(`DELETE FROM config_import_conciliador WHERE upper(cic_descricao) LIKE '%SMOKE%'`);
       } finally {
         await pgCc.end();
+      }
+    }
+
+    // ══ CADASTRO DE HISTÓRICO CONTÁBIL (FRMCADHISTORICOCONTABIL) ══════════════════════════════════════
+    {
+      const HC = 'cadastro/historico-contabil';
+      const pgHc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const cargaJ = (await (await fetch(`${base}/${HC}?limit=200`, { headers: H })).json().catch(() => ({}))) as any;
+        const linhas = (cargaJ?.data ?? cargaJ?.rows ?? cargaJ) as any[];
+        const h96 = (linhas ?? []).find((r: any) => Number(r.codhistcontabil) === 96);
+        const h92 = (linhas ?? []).find((r: any) => Number(r.codhistcontabil) === 92);
+        check('CAD HISTÓRICO CONTÁBIL §107.1: os 54 templates do cliente estão no destino, e a view conta os BURACOS de cada um — o 96 (`TAXA DE CARTAO BAIXADOS LOTE .: * OPERADORA .: *`) tem 2 e o 92 (o template que é só o buraco) tem 1. É a contagem que diz quantos argumentos a contabilização precisa passar',
+          Array.isArray(linhas) && linhas.length >= 54
+          && h96?.deschist === 'TAXA DE CARTAO BAIXADOS LOTE .: * OPERADORA .: *' && Number(h96?.coringas) === 2
+          && h92?.deschist === '*' && Number(h92?.coringas) === 1,
+          { total: linhas?.length, h96, h92 });
+
+        const novo = await fetch(`${base}/${HC}`, { method: 'POST', headers: H, body: JSON.stringify({ deschist: 'SMOKE LOTE .: * OPERADORA .: *', status: 'S' }) });
+        const novoJ = (await novo.json().catch(() => ({}))) as any;
+        const cod = Number(novoJ?.codhistcontabil ?? novoJ?.codigo ?? 0);
+        // ⚠️ a sequence começa DEPOIS do maior código carregado (261): o novo não colide com nenhum template
+        const colide = (await pgHc.query(`SELECT count(*)::int n FROM historico_contabil WHERE codhistcontabil=$1`, [cod])).rows[0] as any;
+        // a engine de CRUD deixa a LEITURA aberta em todo cadastro declarativo; o que ela guarda é a escrita
+        const semGrant = await fetch(`${base}/${HC}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ deschist: 'X' }) });
+        const vazio = await fetch(`${base}/${HC}`, { method: 'POST', headers: H, body: JSON.stringify({ deschist: '   ' }) });
+        check('CAD HISTÓRICO CONTÁBIL §107.2: um histórico novo nasce com código **acima de 261** (o maior que veio na carga), porque a sequence foi posicionada depois dele — sem isso o primeiro cadastro colidiria com um template em uso. Texto em branco é recusado (400) e gravar sem `BTNGRAVAR` é 403',
+          novo.status === 201 && cod > 261 && Number(colide.n) === 1
+          && semGrant.status === 403 && vazio.status === 400,
+          { codigo: cod, criado: novoJ, semGrant: semGrant.status, vazio: vazio.status });
+
+        // o texto é livre: um rótulo SEM nenhum `*` é um template de zero buracos, e o legado tem desses
+        const fixo = await fetch(`${base}/${HC}`, { method: 'POST', headers: H, body: JSON.stringify({ deschist: 'SMOKE ROTULO FIXO', status: 'N' }) });
+        const fixoJ = (await fixo.json().catch(() => ({}))) as any;
+        const codFixo = Number(fixoJ?.codhistcontabil ?? fixoJ?.codigo ?? 0);
+        const lidoFixo = (await pgHc.query(`SELECT deschist, status FROM historico_contabil WHERE codhistcontabil=$1`, [codFixo])).rows[0] as any;
+        const del = await fetch(`${base}/${HC}/${codFixo}`, { method: 'DELETE', headers: H });
+        const sumiu = (await pgHc.query(`SELECT count(*)::int n FROM historico_contabil WHERE codhistcontabil=$1`, [codFixo])).rows[0] as any;
+        check('CAD HISTÓRICO CONTÁBIL §107.3: o texto é livre — um rótulo SEM `*` é um template de zero buracos e entra normalmente, com STATUS \'N\' para ficar fora das escolhas. E o hard-delete não deixa razão órfão: `diario` guarda o texto JÁ RESOLVIDO em `deschist`, não uma referência',
+          fixo.status === 201 && lidoFixo?.deschist === 'SMOKE ROTULO FIXO' && lidoFixo?.status === 'N'
+          && (del.status === 200 || del.status === 204) && Number(sumiu.n) === 0,
+          { criado: codFixo, lido: lidoFixo, delete: del.status });
+
+        await pgHc.query(`DELETE FROM historico_contabil WHERE deschist LIKE 'SMOKE %'`);
+      } finally {
+        await pgHc.end();
       }
     }
   } finally {

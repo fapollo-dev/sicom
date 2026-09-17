@@ -327,3 +327,23 @@ O CNPJ dos históricos 1/21/61/112 vive em **`parceiros_end`**, não em `parceir
   que elas mostram é `AO CONSUMIDOR` enquanto o título é de outro parceiro (o `CODRCB 113104` é de DENNER
   TEODORO SILVA). Vêm do fechamento de caixa reusando o código de origem. Sem procedência, sem argumentos.
 - Os 27 históricos que sobram do cadastro não aparecem nas origens que o Apollo gera hoje.
+
+### 8.6 A tela que mantém os templates (`FRMCADHISTORICOCONTABIL`, migration 231)
+
+62 acessos, 3 operadores. CRUD declarativo pela engine (`historico-contabil.crud.ts`), rota
+`/cadastro/historico-contabil`.
+
+- O **código é gerado por sequence**, posicionada **depois do maior já carregado** (261). Sem isso o primeiro
+  cadastro colidiria com um template em uso. No cliente os códigos vão de 1 a 261 com saltos largos (o legado
+  dava passo de 20 em parte das inclusões); o número não tem significado, só o texto tem.
+- A view expõe a contagem de **buracos** (`coringas`): é ela que diz quantos argumentos a contabilização
+  precisa passar, e o que separa um rótulo fixo (0) de um template.
+- O **texto é livre**, inclusive sem nenhum `*` — um rótulo fixo é um template de zero buracos, e o legado
+  tem desses. Para tirar de circulação sem apagar, é o `STATUS`.
+- ⚠️ **hard-delete não deixa razão órfão**: `DIARIO` guarda o código **e o texto já resolvido** (`DESCHIST`),
+  não uma referência ao template. Apagar um histórico não muda nada do que o razão mostra — só o tira das
+  contabilizações futuras. É por isso que não há trava aqui.
+- A tela **simula o resultado enquanto se digita** (`SMOKE LOTE .: * OPERADORA .: *` → `… 90886 … ALELO …`),
+  usando a **mesma** `montarDeschist` que a API usa para escrever o razão — ela mora no pacote compartilhado
+  exatamente para isso. Trocar a ordem dos `*` troca o que sai no livro, e sem a simulação o erro só
+  apareceria depois, no razão.
