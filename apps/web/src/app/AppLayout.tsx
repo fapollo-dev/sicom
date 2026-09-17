@@ -172,6 +172,8 @@ const TELAS = [
   { href: '/cadastro/mult-atualizacao', name: 'Atualização automática', icon: Package },
   // FRMCONFIGINTEGRACAOCONTABIL — qual situação o razão usa para cada evento (55 acessos).
   { href: '/contabil/config-integracao', name: 'Config. integração contábil', icon: BookText },
+  // FRMCONFIGDRECONTABIL — a árvore que define como o DRE é somado (51 acessos).
+  { href: '/cadastro/dre-estrutura', name: 'Configurador do DRE', icon: BookText },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 

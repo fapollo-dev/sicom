@@ -14099,6 +14099,77 @@ async function main() {
         await pgCi.end();
       }
     }
+
+    // ══ CONFIGURADOR DO DRE CONTÁBIL (FRMCONFIGDRECONTABIL) ══════════════════════════════════════════
+    {
+      const DE = 'cadastro/dre-estrutura';
+      const pgDe = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const raiz = await fetch(`${base}/${DE}`, { method: 'POST', headers: H, body: JSON.stringify({ codexpandido: '91', descricao: 'RAIZ SMOKE DRE', tipo_calculo: 'F', classe: 'S', nivel: 1, ativo: 'S' }) });
+        const raizJ = (await raiz.json().catch(() => ({}))) as any;
+        const filha = await fetch(`${base}/${DE}`, { method: 'POST', headers: H, body: JSON.stringify({ codexpandido: '91.001', descricao: 'FILHA SMOKE DRE', tipo_calculo: 'P', classe: 'A', nivel: 2, codpai: raizJ.codestrutura, ativo: 'S' }) });
+        const filhaJ = (await filha.json().catch(() => ({}))) as any;
+        const arv = (await (await fetch(`${base}/${DE}`, { headers: H })).json().catch(() => ([]))) as any[];
+        const naArvore = (arv ?? []).find((l: any) => l.codexpandido === '91');
+        check('CONFIG DRE §111.1: a árvore aceita raiz (nível 1, sem pai) e filha um nível abaixo, e a listagem já traz quantas FILHAS e quantas CONTAS cada linha tem — é o que diz se a linha pode ser apagada',
+          raiz.status === 201 && filha.status === 201
+          && !!naArvore && Number(naArvore.filhas) === 1 && Number(naArvore.contas) === 0,
+          { raiz: raizJ, filha: filhaJ, naArvore });
+
+        const nivelErrado = await fetch(`${base}/${DE}`, { method: 'POST', headers: H, body: JSON.stringify({ codexpandido: '91.002', descricao: 'X', tipo_calculo: 'P', classe: 'A', nivel: 3, codpai: raizJ.codestrutura, ativo: 'S' }) });
+        const classeErrada = await fetch(`${base}/${DE}`, { method: 'POST', headers: H, body: JSON.stringify({ codexpandido: '91.003', descricao: 'X', tipo_calculo: 'P', classe: 'S', nivel: 2, codpai: raizJ.codestrutura, ativo: 'S' }) });
+        const raizComPai = await fetch(`${base}/${DE}`, { method: 'POST', headers: H, body: JSON.stringify({ codexpandido: '92', descricao: 'X', tipo_calculo: 'F', classe: 'S', nivel: 1, codpai: raizJ.codestrutura, ativo: 'S' }) });
+        const dup = await fetch(`${base}/${DE}`, { method: 'POST', headers: H, body: JSON.stringify({ codexpandido: '91', descricao: 'X', tipo_calculo: 'F', classe: 'S', nivel: 1, ativo: 'S' }) });
+        check('CONFIG DRE §111.2 [a forma da árvore]: filha tem de estar UM nível abaixo do pai (o que faz o roll-up recursivo terminar), `P` é sempre analítica e `F`/`E` sempre sintéticas (no cliente a correlação é perfeita: 78 P↔A e 20 sintéticas↔S), raiz não tem pai, e o código expandido é único',
+          nivelErrado.status === 422 && classeErrada.status === 400 && raizComPai.status === 400 && dup.status === 422,
+          { nivel: nivelErrado.status, classe: classeErrada.status, raizComPai: raizComPai.status, dup: dup.status });
+
+        // expressão: referência inexistente e auto-referência
+        const refRuim = await fetch(`${base}/${DE}`, { method: 'POST', headers: H, body: JSON.stringify({ codexpandido: '93', descricao: 'EXPR SMOKE', tipo_calculo: 'E', classe: 'S', expressao: '<91>+<99999>', nivel: 1, ativo: 'S' }) });
+        const autoRef = await fetch(`${base}/${DE}`, { method: 'POST', headers: H, body: JSON.stringify({ codexpandido: '93', descricao: 'EXPR SMOKE', tipo_calculo: 'E', classe: 'S', expressao: '<93>+<91>', nivel: 1, ativo: 'S' }) });
+        const exprOk = await fetch(`${base}/${DE}`, { method: 'POST', headers: H, body: JSON.stringify({ codexpandido: '93', descricao: 'EXPR SMOKE', tipo_calculo: 'E', classe: 'S', expressao: '<91>', nivel: 1, ativo: 'S' }) });
+        const exprJ = (await exprOk.json().catch(() => ({}))) as any;
+        check('CONFIG DRE §111.3 [a expressão]: `<nn>` tem de apontar para um código que existe, e a linha NÃO pode referenciar a si mesma — o avaliador do DRE é recursivo e giraria sem parar. No cliente existe uma só: `<01>+<03>+<04>` no LUCRO BRUTO COMERCIAL',
+          refRuim.status === 422 && autoRef.status === 422 && exprOk.status === 201,
+          { refInexistente: refRuim.status, autoRef: autoRef.status, ok: exprOk.status });
+
+        // vínculo de conta: só analítica, e uma conta em uma linha só
+        // contas ainda LIVRES: o seed da 047 já vincula parte do plano, e uma conta só pode estar em uma linha
+        const conta = (await pgDe.query(`SELECT p.codplanocontas FROM plano_contas p
+                                          WHERE NOT EXISTS (SELECT 1 FROM dre_conta c WHERE c.codplanocontas = p.codplanocontas)
+                                          ORDER BY p.codplanocontas LIMIT 2`)).rows as any[];
+        const vincOk = await fetch(`${base}/${DE}/contas`, { method: 'POST', headers: H, body: JSON.stringify({ codestrutura: filhaJ.codestrutura, codplanocontas: [Number(conta[0].codplanocontas)] }) });
+        const vincSintetica = await fetch(`${base}/${DE}/contas`, { method: 'POST', headers: H, body: JSON.stringify({ codestrutura: raizJ.codestrutura, codplanocontas: [Number(conta[1].codplanocontas)] }) });
+        const vincRepetida = await fetch(`${base}/${DE}/contas`, { method: 'POST', headers: H, body: JSON.stringify({ codestrutura: Number(exprJ.codestrutura), codplanocontas: [Number(conta[0].codplanocontas)] }) });
+        const respContas = await fetch(`${base}/${DE}/${filhaJ.codestrutura}/contas`, { headers: H });
+        const daLinha = (await respContas.json().catch(() => ([]))) as any[];
+        check('CONFIG DRE §111.4 [o vínculo de conta]: só linha ANALÍTICA recebe conta — vincular a uma sintética duplicaria o valor, porque ela já soma as filhas. E **uma conta só pode estar em uma linha**: senão entra duas vezes no DRE e o resultado fecha errado sem nada acusando. O legado não trava isso; aqui o índice único trava',
+          vincOk.status === 200 && vincSintetica.status === 422 && vincRepetida.status === 422
+          && (daLinha ?? []).length === 1,
+          { ok: vincOk.status, sintetica: vincSintetica.status, repetida: vincRepetida.status,
+            contas: Array.isArray(daLinha) ? daLinha.length : daLinha });
+
+        // exclusão: com filha, com conta, referenciada
+        const delComFilha = await fetch(`${base}/${DE}/${raizJ.codestrutura}`, { method: 'DELETE', headers: H });
+        const delComConta = await fetch(`${base}/${DE}/${filhaJ.codestrutura}`, { method: 'DELETE', headers: H });
+        await fetch(`${base}/${DE}/contas`, { method: 'POST', headers: H, body: JSON.stringify({ codestrutura: filhaJ.codestrutura, codplanocontas: [] }) }).catch(() => undefined);
+        await pgDe.query(`DELETE FROM dre_conta WHERE codestrutura=$1`, [filhaJ.codestrutura]);
+        const delLivre = await fetch(`${base}/${DE}/${filhaJ.codestrutura}`, { method: 'DELETE', headers: H });
+        const delReferenciada = await fetch(`${base}/${DE}/${raizJ.codestrutura}`, { method: 'DELETE', headers: H });
+        const semGrant = await fetch(`${base}/${DE}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codexpandido: '94', descricao: 'X', tipo_calculo: 'F', classe: 'S', nivel: 1, ativo: 'S' }) });
+        check('CONFIG DRE §111.5 [não se apaga o que o DRE ainda soma]: linha com FILHA, com CONTA vinculada ou REFERENCIADA por uma expressão não sai (422) — o roll-up sumiria com o ramo sem avisar e o resultado passaria a fechar menor, sem nada indicando o porquê. Sem a conta e sem filha, sai. E criar sem `BTNGRAVAR` é 403',
+          delComFilha.status === 422 && delComConta.status === 422
+          && (delLivre.status === 200 || delLivre.status === 204)
+          && delReferenciada.status === 422 && semGrant.status === 403,
+          { comFilha: delComFilha.status, comConta: delComConta.status, livre: delLivre.status,
+            referenciada: delReferenciada.status, rbac: semGrant.status });
+
+        await pgDe.query(`DELETE FROM dre_conta WHERE codestrutura IN (SELECT codestrutura FROM dre_estrutura WHERE codexpandido LIKE '9%')`);
+        await pgDe.query(`DELETE FROM dre_estrutura WHERE codexpandido IN ('91.001','91.002','91.003','93','92','94','91')`);
+      } finally {
+        await pgDe.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
