@@ -279,6 +279,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('234_config_dre_contabil.sql'));
   await pool.query(sql('235_agenda_limitacao_venda.sql'));
   await pool.query(sql('236_conf_integ_bancaria_tela.sql'));
+  await pool.query(sql('237_conf_plano_contas_tela.sql'));
   await pool.end();
   return pg;
 }

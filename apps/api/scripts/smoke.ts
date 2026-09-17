@@ -2638,13 +2638,15 @@ async function main() {
     // 34.7) RBAC sem grant → 403.
     const pcRbac = await fetch(`${base}/${PC}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codiexpandido: '1.1.03.01.9099', descricao: 'X', classe: 'A', natureza: 1, codpai: 9008 }) });
     check('PC: POST sem grant RBAC → 403', pcRbac.status === 403, { status: pcRbac.status });
-    // 34.8) MÁSCARA + AUTO-CÓDIGO (corte-2). máscara [1,1,2,2,4]; próximo código = irmão max+1 zero-preenchido.
+    // 34.8) MÁSCARA + AUTO-CÓDIGO (corte-2). ⚠️ a máscara é [1,1,2,2,**5**] — o seed original dizia 4, mas no
+    // plano do cliente 10.653 contas têm 5 dígitos no último nível contra 297 com 4, e `NDIG_5` diz 5
+    // (corrigido na migration 237). Próximo código = irmão max+1 zero-preenchido na largura da máscara.
     const pcMask = (await (await fetch(`${base}/${PC}/mascara`, { headers: H })).json()) as any;
-    check('PC: máscara [1,1,2,2,4] + padrão 9.9.99.99.9999', Array.isArray(pcMask.segmentos) && pcMask.segmentos.join(',') === '1,1,2,2,4' && pcMask.mascara === '9.9.99.99.9999', { mask: pcMask });
+    check('PC: máscara [1,1,2,2,5] + padrão 9.9.99.99.99999 — medido no plano do cliente (10.653 contas de 5 dígitos no último nível contra 297 de 4)', Array.isArray(pcMask.segmentos) && pcMask.segmentos.join(',') === '1,1,2,2,5' && pcMask.mascara === '9.9.99.99.99999', { mask: pcMask });
     // próximo sob 9008 (nível 4; filhos nível 5, largura 4) = max(último segmento dos filhos) + 1, computado do pg.
     const filhos9008 = (await pgPc.query(`SELECT codiexpandido FROM plano_contas WHERE codpai=9008`)).rows as any[];
     const maxSeg = Math.max(0, ...filhos9008.map((r) => parseInt(String(r.codiexpandido).split('.').pop(), 10)).filter((n) => Number.isFinite(n)));
-    const esperado = `1.1.03.01.${String(maxSeg + 1).padStart(4, '0')}`;
+    const esperado = `1.1.03.01.${String(maxSeg + 1).padStart(5, '0')}`;
     const pcProx = (await (await fetch(`${base}/${PC}/proximo-codigo?codpai=9008`, { headers: H })).json()) as any;
     check('PC: próximo código sob sintética = irmão max+1 (largura da máscara), nível 5', pcProx.codiexpandido === esperado && pcProx.nivel === 5, { esperado, got: pcProx.codiexpandido });
     // próxima conta RAIZ = max raiz + 1 (largura 1).
@@ -2659,7 +2661,7 @@ async function main() {
     const pcAplica = await fetch(`${base}/${PC}`, { method: 'POST', headers: H, body: JSON.stringify({ codiexpandido: esperado, descricao: 'AUTO-CODE TESTE', classe: 'A', natureza: 1, codpai: 9008 }) });
     const pcCriadaId = Number(((await pcAplica.json().catch(() => ({}))) as any).codplanocontas);
     const pcProx2 = (await (await fetch(`${base}/${PC}/proximo-codigo?codpai=9008`, { headers: H })).json()) as any;
-    check('PC: após criar a sugerida, o próximo código incrementa', pcAplica.status === 201 && pcProx2.codiexpandido === `1.1.03.01.${String(maxSeg + 2).padStart(4, '0')}`, { got: pcProx2.codiexpandido });
+    check('PC: após criar a sugerida, o próximo código incrementa', pcAplica.status === 201 && pcProx2.codiexpandido === `1.1.03.01.${String(maxSeg + 2).padStart(5, '0')}`, { got: pcProx2.codiexpandido });
     if (Number.isFinite(pcCriadaId)) await pgPc.query(`DELETE FROM plano_contas WHERE codplanocontas=$1`, [pcCriadaId]); // cleanup
     // 34.9) LOCK não-tautológico (fold [MÉDIA]): pai dedicado com filhos em LACUNA e ACIMA de 0009 → próximo =
     // MAX(todos)+1 = 0013 (o legado, que só vê a janela 0000-0009, sugeriria 0002 e repetiria após 10 filhos).
@@ -2668,7 +2670,7 @@ async function main() {
       (95002,'1.1.03.09.0001','F1','A',1,5,95001,'E','A'),
       (95003,'1.1.03.09.0012','F2','A',1,5,95001,'E','A') ON CONFLICT DO NOTHING`);
     const pcGap = (await (await fetch(`${base}/${PC}/proximo-codigo?codpai=95001`, { headers: H })).json()) as any;
-    check('PC: próximo código = MAX(todos)+1 (ignora lacuna, conta > janela 0000-0009) → 0013', pcGap.codiexpandido === '1.1.03.09.0013', { got: pcGap.codiexpandido });
+    check('PC: próximo código = MAX(todos)+1 (ignora lacuna, conta > janela 0000-0009) → 00013', pcGap.codiexpandido === '1.1.03.09.00013', { got: pcGap.codiexpandido });
     await pgPc.query(`DELETE FROM plano_contas WHERE codplanocontas IN (95002,95003,95001)`); // cleanup
     await pgPc.end();
 
@@ -14276,6 +14278,41 @@ async function main() {
           { emUso: delEmUso.status, livre: delLivre.status });
       } finally {
         await pgCb.end();
+      }
+    }
+
+    // ══ CONFIGURAÇÕES DO PLANO DE CONTAS (FRMCADCONFPLANOCONTAS) ═════════════════════════════════════
+    {
+      const CP = 'cadastro/conf-plano-contas';
+      const pgCp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const cfg = (await (await fetch(`${base}/${CP}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('CONF PLANO §114.1 [a máscara estava errada, e o dado prova]: o seed antigo dizia `1,1,2,2,4`, mas no plano do cliente **10.653 contas** têm 5 dígitos no último nível contra **297** com 4 — e `CONFIG_PLANO_CONTAS.NDIG_5` diz 5. Corrigido para **`1,1,2,2,5`**: com a máscara curta, o auto-código sugeriria um código errado em 97,3% dos casos. A tela também traz as contas padrão já com a descrição',
+          String(cfg.mascara) === '1,1,2,2,5'
+          && JSON.stringify(cfg.niveis) === JSON.stringify([1, 1, 2, 2, 5])
+          && Number(cfg.codcontaanalitica_for) === 11141 && Number(cfg.codcontaanalitica_cli) === 211
+          && Array.isArray(cfg.contas) && cfg.contas.length >= 2,
+          { mascara: cfg.mascara, niveis: cfg.niveis, contas: cfg.contas?.length, formatos: cfg.formatos });
+
+        // ⚠️ conta SINTÉTICA não pode ser a padrão: ela não recebe lançamento
+        const sint = (await pgCp.query(`SELECT codplanocontas FROM plano_contas WHERE upper(coalesce(tipo,'A'))='S' LIMIT 1`)).rows[0] as any;
+        const comSintetica = sint ? await fetch(`${base}/${CP}`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'E', niveis: [1, 1, 2, 2, 5], codcontaanalitica_for: Number(sint.codplanocontas) }) }) : { status: 422 };
+        const contaRuim = await fetch(`${base}/${CP}`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'E', niveis: [1, 1, 2, 2, 5], codcontaanalitica_cli: 999777 }) });
+        const semGrant = await fetch(`${base}/${CP}`, { method: 'PUT', headers: H_SEM_ACESSO, body: JSON.stringify({ tipo: 'E', niveis: [1, 1, 2, 2, 5] }) });
+        check('CONF PLANO §114.2: a conta padrão tem de existir E ser ANALÍTICA — apontar uma sintética faria a contabilização falhar na hora do lançamento, longe de quem configurou. Sem `BTNGRAVAR`, 403',
+          comSintetica.status === 422 && contaRuim.status === 422 && semGrant.status === 403,
+          { sintetica: comSintetica.status, inexistente: contaRuim.status, rbac: semGrant.status });
+
+        const ok = await fetch(`${base}/${CP}`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'E', niveis: [1, 1, 2, 2, 5, 3], descricao: 'Plano empresarial' }) });
+        const depois = (await (await fetch(`${base}/${CP}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('CONF PLANO §114.3: a máscara é editável nível a nível (o legado tem oito; o cliente usa cinco e deixa o resto nulo), e um sexto nível entra no CSV sem mexer no que já existe — a máscara SUGERE o próximo código, não valida o histórico, e o plano real tem contas dos dois formatos',
+          ok.status === 200 && String(depois.mascara) === '1,1,2,2,5,3'
+          && JSON.stringify(depois.niveis) === JSON.stringify([1, 1, 2, 2, 5, 3]),
+          { gravou: ok.status, mascara: depois.mascara });
+
+        await pgCp.query(`UPDATE config_plano_contas SET mascara='1,1,2,2,5' WHERE tipo='E'`);
+      } finally {
+        await pgCp.end();
       }
     }
   } finally {

@@ -53,6 +53,7 @@ import { ConfigIntegracaoContabilPage } from '../features/config-integracao-cont
 import { DreEstruturaPage } from '../features/dre-estrutura/DreEstruturaPage';
 import { AgendaLimitacaoPage } from '../features/agenda-limitacao/AgendaLimitacaoPage';
 import { ConfIntegBancariaPage } from '../features/conf-integ-bancaria/ConfIntegBancariaPage';
+import { ConfPlanoContasPage } from '../features/conf-plano-contas/ConfPlanoContasPage';
 import { ProdutosRelPage } from '../features/produtos-rel/ProdutosRelPage';
 import { RelEntradasSaidasPage } from '../features/rel-entradas-saidas/RelEntradasSaidasPage';
 import { CotacaoFornPage } from '../features/cotacao-forn/CotacaoFornPage';
@@ -212,6 +213,7 @@ export const router = createBrowserRouter([
       { path: '/cadastro/dre-estrutura', element: <DreEstruturaPage /> }, // FRMCONFIGDRECONTABIL
       { path: '/cadastro/agenda-limitacao', element: <AgendaLimitacaoPage /> }, // FRMCADAGENDALIMITACAOVENDA
       { path: '/cobranca/conf-integ-bancaria', element: <ConfIntegBancariaPage /> }, // FRMCONFINTEGBANCARIA
+      { path: '/cadastro/conf-plano-contas', element: <ConfPlanoContasPage /> }, // FRMCADCONFPLANOCONTAS
       { path: '/relatorios/produtos', element: <ProdutosRelPage /> }, // FRMPRODUTOSREL
       { path: '/relatorios/entradas-saidas', element: <RelEntradasSaidasPage /> }, // FRMRELENTRADASSAIDAS
       { path: '/compras/cotacao-forn', element: <CotacaoFornPage /> }, // FRMCADCOTACAOFORN

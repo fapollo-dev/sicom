@@ -178,6 +178,8 @@ const TELAS = [
   { href: '/cadastro/agenda-limitacao', name: 'Limitação de venda', icon: Package },
   // FRMCONFINTEGBANCARIA — banco, conta e layout que o CNAB usa na remessa (50 acessos).
   { href: '/cobranca/conf-integ-bancaria', name: 'Integração bancária (boleto)', icon: CreditCard },
+  // FRMCADCONFPLANOCONTAS — a máscara do código e as contas padrão por natureza (45 acessos).
+  { href: '/cadastro/conf-plano-contas', name: 'Config. plano de contas', icon: BookText },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 
