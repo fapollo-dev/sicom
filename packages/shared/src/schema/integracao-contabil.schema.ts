@@ -485,3 +485,15 @@ export const consCliRcbSchema = z.object({
   tolerancia: z.coerce.number().int().min(0).max(365).nullish(),
 });
 export type ConsCliRcbDto = z.infer<typeof consCliRcbSchema>;
+
+/** ANÁLISE DE ENTRADA × SAÍDA (`FRMANALISEENTRADAXSAIDA`): por fornecedor, com a saída de venda ou pedido. */
+export const analiseEntradaSaidaSchema = z.object({
+  dataIni: dataISO,
+  dataFim: dataISO,
+  /** o `rgPedVen`: a saída vem das vendas ou dos pedidos. */
+  origemSaida: z.enum(['VENDAS', 'PEDIDOS']).nullish(),
+  fornecedor: z.string().max(120).nullish(),
+  grupo: z.string().max(120).nullish(),
+  departamento: z.string().max(120).nullish(),
+});
+export type AnaliseEntradaSaidaDto = z.infer<typeof analiseEntradaSaidaSchema>;

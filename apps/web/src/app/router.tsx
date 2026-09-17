@@ -57,6 +57,7 @@ import { RelFaturamentoPage } from '../features/rel-faturamento/RelFaturamentoPa
 import { RelEntSaiPage } from '../features/rel-ent-sai/RelEntSaiPage';
 import { DescontoTituloPage } from '../features/desconto-titulo/DescontoTituloPage';
 import { ConsCliRcbPage } from '../features/cons-cli-rcb/ConsCliRcbPage';
+import { AnaliseEntradaSaidaPage } from '../features/analise-entrada-saida/AnaliseEntradaSaidaPage';
 import { EmpresasCadMaster } from '../features/empresas/EmpresasCadMaster';
 import { AjusteEstoquePage } from '../features/ajuste-estoque/AjusteEstoquePage';
 import { InventarioPage } from '../features/inventario/InventarioPage';
@@ -208,6 +209,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/compra-venda', element: <RelEntSaiPage /> }, // FRMRELENTSAI
       { path: '/financeiro/desconto-titulo', element: <DescontoTituloPage /> }, // FRMDESCONTOTITULO
       { path: '/financeiro/a-receber-cliente', element: <ConsCliRcbPage /> }, // FRMCONSCLIRCB
+      { path: '/relatorios/analise-entrada-saida', element: <AnaliseEntradaSaidaPage /> }, // FRMANALISEENTRADAXSAIDA
       { path: '/cadastro/configuracoes', element: <ConfiguracoesPage /> }, // configurações (UConfigura): chave-valor por empresa
     ],
   },

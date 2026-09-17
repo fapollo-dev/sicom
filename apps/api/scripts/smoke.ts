@@ -11762,6 +11762,77 @@ async function main() {
       }
     }
 
+    // ===== §120) ANÁLISE DE ENTRADA × SAÍDA (FRMANALISEENTRADAXSAIDA) — por fornecedor, com a saída
+    // vindo de venda OU de pedido. No legado, os filtros anulam o LEFT JOIN e escondem produto. ====
+    {
+      const AE = 'relatorios/analise-entrada-saida';
+      const pgAe = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgAe.query(`INSERT INTO familias_prod (codfamilia, descricao, tipo) VALUES
+          (9995,'GRUPO AE','G'),(9996,'DEPTO AE','D') ON CONFLICT (codfamilia) DO NOTHING`);
+        // produto COM tudo cadastrado
+        const pOk = Number((await pgAe.query(`INSERT INTO produtos (codbarra, descricao, codgrupo, coddpto, unidade, codfor, aliquota)
+          VALUES ('7009000015501','PROD AE COMPLETO',9995,9996,'UN',2,'T01') RETURNING idproduto`)).rows[0].idproduto);
+        // produto SEM grupo e SEM departamento: é o que o legado faz sumir
+        const pSem = Number((await pgAe.query(`INSERT INTO produtos (codbarra, descricao, unidade, codfor, aliquota)
+          VALUES ('7009000015502','PROD AE SEM CADASTRO','UN',2,'T01') RETURNING idproduto`)).rows[0].idproduto);
+
+        const nfAe = Number((await pgAe.query(
+          `INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, codparceiro, proc, cancelada, totalnf, cfop)
+           VALUES (1,'E',55,'1','993001','2057-08-10','2057-08-10',2,'S','N',1000,'1102') RETURNING codnf`)).rows[0].codnf);
+        await pgAe.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, fatorembal, aliquota)
+          VALUES ($1,$2,100,5.00,1,'T01'), ($1,$3,40,5.00,1,'T01')`, [nfAe, pOk, pSem]);
+        await pgAe.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nrocupom, codvendas_legado, codproduto, qtde, vrvenda, vrcusto, iat, cancelado)
+          VALUES (1,'2057-08-12','AE-1',920001,920001,$1,70,9.00,5.00,'A','N'),
+                 (1,'2057-08-12','AE-1',920001,920001,$2,25,9.00,5.00,'A','N')`, [pOk, pSem]);
+        // um PEDIDO, para provar a troca de origem da saída
+        await pgAe.query(`INSERT INTO pedidos (nropedido, idempresa, nroitem, codproduto, descricao, unidade, qtde, vrvenda, vrcusto, dtvenda, cancelado, bonificado, troca)
+          VALUES ('AE-P1',1,1,$1,'ITEM','UN',15,9.00,5.00,'2057-08-13','N','N','N')`, [pOk]);
+
+        const r = await fetch(`${base}/${AE}?dataIni=2057-08-01&dataFim=2057-08-31`, { headers: H });
+        const j = (await r.json().catch(() => ({}))) as any;
+        const lOk = (j.linhas ?? []).find((l: any) => String(l.produto) === 'PROD AE COMPLETO');
+        const lSem = (j.linhas ?? []).find((l: any) => String(l.produto) === 'PROD AE SEM CADASTRO');
+
+        check('ANÁLISE E×S §120.1 [os filtros do legado ANULAM o LEFT JOIN e escondem produto]: o SQL original faz `LEFT JOIN PARCEIROS/FAMILIAS_PROD` e depois filtra no WHERE com `LIKE :PARAM`. Com o filtro vazio o parâmetro vira `%%` — e **`NULL LIKE %%` é falso**, então todo produto sem fornecedor, sem grupo ou sem departamento **some do relatório mesmo sem filtro nenhum**. Medido: 4.502 produtos sem grupo e 4.520 sem departamento de 47.711; em agosto/2026 isso derrubaria 652 linhas de venda e R$ 7.111,31. Aqui o produto sem cadastro APARECE, rotulado — que é o que faz alguém ir arrumar o cadastro',
+          r.status === 200
+          && !!lSem
+          && String(lSem.desc_grupo) === '(SEM GRUPO)'
+          && String(lSem.depto) === '(SEM DEPARTAMENTO)'
+          && Math.abs(Number(lSem.qtd_entrada) - 40) < 0.005
+          && Math.abs(Number(lSem.qtd_saida) - 25) < 0.005,
+          { semCadastro: lSem && { grupo: lSem.desc_grupo, depto: lSem.depto, ent: lSem.qtd_entrada, sai: lSem.qtd_saida } });
+
+        check('ANÁLISE E×S §120.2 [entrada e saída por produto, só em quantidade]: o produto completo entrou 100 e saiu 70 — diferença de −30. A pergunta desta tela é de GIRO, não de dinheiro: não há coluna de valor, diferente das outras duas da família',
+          !!lOk && Math.abs(Number(lOk.qtd_entrada) - 100) < 0.005
+          && Math.abs(Number(lOk.qtd_saida) - 70) < 0.005
+          && Math.abs(Number(lOk.diferenca) + 30) < 0.005,
+          { completo: lOk && { ent: lOk.qtd_entrada, sai: lOk.qtd_saida, dif: lOk.diferenca } });
+
+        const porPedido = (await (await fetch(`${base}/${AE}?dataIni=2057-08-01&dataFim=2057-08-31&origemSaida=PEDIDOS`, { headers: H })).json().catch(() => ({}))) as any;
+        const pOkPed = (porPedido.linhas ?? []).find((l: any) => String(l.produto) === 'PROD AE COMPLETO');
+        check('ANÁLISE E×S §120.3 [a saída troca de origem no rádio]: com "pedidos" em vez de "vendas", a saída do produto completo passa de 70 (vendido) para **15** (pedido) — é a mesma tela respondendo se o giro é do que saiu pelo caixa ou do que foi encomendado',
+          Math.abs(Number(pOkPed?.qtd_saida) - 15) < 0.005
+          && String(porPedido.origemSaida) === 'PEDIDOS',
+          { comPedidos: pOkPed && { sai: pOkPed.qtd_saida }, origem: porPedido.origemSaida });
+
+        const comFiltro = (await (await fetch(`${base}/${AE}?dataIni=2057-08-01&dataFim=2057-08-31&grupo=GRUPO%20AE`, { headers: H })).json().catch(() => ({}))) as any;
+        check('ANÁLISE E×S §120.4 [o filtro preenchido volta a filtrar, como deve]: pedindo o grupo "GRUPO AE" só o produto completo aparece — a correção do §120.1 não desligou o filtro, só parou de aplicá-lo quando está vazio',
+          Number(comFiltro.totais?.itens) === 1
+          && String((comFiltro.linhas ?? [])[0]?.produto) === 'PROD AE COMPLETO',
+          { comFiltro: comFiltro.totais?.itens });
+
+        await pgAe.query(`DELETE FROM pedidos WHERE nropedido='AE-P1'`);
+        await pgAe.query(`DELETE FROM vendas WHERE codvendas_legado=920001`);
+        await pgAe.query(`DELETE FROM nf_prod WHERE codnf=$1`, [nfAe]);
+        await pgAe.query(`DELETE FROM nf WHERE codnf=$1`, [nfAe]);
+        await pgAe.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[pOk, pSem]]);
+        await pgAe.query(`DELETE FROM familias_prod WHERE codfamilia IN (9995,9996)`);
+      } finally {
+        await pgAe.end();
+      }
+    }
+
     // ===== §104) PRECIFICAÇÃO DE NF (FRMPRECIFICACAONF) — onde o preço de venda NASCE quando a mercadoria
     // chega. 236 acessos, 17 operadores; o usuário classificou como "de extrema importância e grande
     // influência". Ela NÃO altera preço: enfileira lote de preço. ====
