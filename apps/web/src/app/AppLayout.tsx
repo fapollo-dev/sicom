@@ -174,6 +174,8 @@ const TELAS = [
   { href: '/contabil/config-integracao', name: 'Config. integração contábil', icon: BookText },
   // FRMCONFIGDRECONTABIL — a árvore que define como o DRE é somado (51 acessos).
   { href: '/cadastro/dre-estrutura', name: 'Configurador do DRE', icon: BookText },
+  // FRMCADAGENDALIMITACAOVENDA — quanto cada cliente pode levar no dia de promoção forte (51 acessos).
+  { href: '/cadastro/agenda-limitacao', name: 'Limitação de venda', icon: Package },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 

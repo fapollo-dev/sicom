@@ -14170,6 +14170,72 @@ async function main() {
         await pgDe.end();
       }
     }
+
+    // ══ AGENDA DE LIMITAÇÃO DE VENDA (FRMCADAGENDALIMITACAOVENDA) ════════════════════════════════════
+    {
+      const AL = 'cadastro/agenda-limitacao';
+      const pgAl = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // três produtos: dois normais no mesmo grupo de preço, e um que é ITEM DE COMPOSIÇÃO
+        await pgAl.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, ativo, codfor, aliquota, codgrupopreco, imprimircomp) VALUES
+          (991000,'7891000001000','CERVEJA SMOKE AL','UN','S',1,'T01',5501,'N'),
+          (991001,'7891000001001','CERVEJA SMOKE AL 600','UN','S',1,'T01',5501,'N'),
+          (991002,'7891000001002','INSUMO SMOKE AL','UN','S',1,'T01',NULL,'S')
+          ON CONFLICT DO NOTHING`);
+
+        const semEmp = await fetch(`${base}/${AL}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'X', dtinicio: '2036-01-01', dtfim: '2036-01-02', empresas: '', itens: [] }) });
+        const invertida = await fetch(`${base}/${AL}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'X', dtinicio: '2036-01-05', dtfim: '2036-01-01', empresas: ';1;', itens: [] }) });
+        const nova = await fetch(`${base}/${AL}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'DIA D SMOKE', dtinicio: '2036-01-01', dtfim: '2036-01-02', empresas: ';1;', itens: [] }) });
+        const novaJ = (await nova.json().catch(() => ({}))) as any;
+        check('AGENDA LIMITAÇÃO §112.1: a agenda nasce com período e **lojas participantes** — sem loja não se limita nada, e o legado recusa antes mesmo de deixar adicionar produto (`Selecione as Empresas participantes`, :136). Término antes do início também é recusado',
+          semEmp.status === 400 && invertida.status === 400 && nova.status === 201 && Number(novaJ.codagenda_produto) > 0,
+          { semEmpresas: semEmp.status, invertida: invertida.status, nova: novaJ });
+
+        const cod = Number(novaJ.codagenda_produto);
+        const add = await fetch(`${base}/${AL}/${cod}/produtos`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [991000, 991001], quantidade: 6 }) });
+        const addJ = (await add.json().catch(() => ({}))) as any;
+        const deNovo = await fetch(`${base}/${AL}/${cod}/produtos`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [991000], quantidade: 12 }) });
+        const deNovoJ = (await deNovo.json().catch(() => ({}))) as any;
+        const composicao = await fetch(`${base}/${AL}/${cod}/produtos`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [991002], quantidade: 1 }) });
+        const det = (await (await fetch(`${base}/${AL}/${cod}`, { headers: H })).json().catch(() => ({}))) as any;
+        const item0 = (det.itens ?? []).find((i: any) => Number(i.idproduto) === 991000);
+        check('AGENDA LIMITAÇÃO §112.2 [a quantidade padrão e os dois filtros]: escolher N produtos põe TODOS com a mesma quantidade (`edtQtdPadrao`, :122). O produto já na agenda não entra de novo — o pesquisador do legado o exclui da lista (`NOT (CODIGO IN ...)`, :97). E item de COMPOSIÇÃO é recusado: `IMPRIMIRCOMP=N` (:104), porque ele não é vendido sozinho. ⚠️ o `codgrupo` gravado é o grupo de **PREÇO** do produto (5501), não o de produto',
+          add.status === 200 && Number(addJ.adicionados) === 2
+          && deNovo.status === 200 && Number(deNovoJ.adicionados) === 0
+          && composicao.status === 422
+          && (det.itens ?? []).length === 2 && Number(item0?.quantidade) === 6
+          && Number(item0?.codgrupo) === 5501 && Number(item0?.produtos_no_grupo) === 2,
+          { adicionados: addJ, repetido: deNovoJ, composicao: composicao.status, item: item0 });
+
+        // o flag de grupo estende a limitação à família de preço inteira
+        const flag = await fetch(`${base}/${AL}/${cod}/itens/${item0.codagenda_produto_item}`, { method: 'PUT', headers: H, body: JSON.stringify({ atualizacao_grupo: 'S', quantidade: 3 }) });
+        const det2 = (await (await fetch(`${base}/${AL}/${cod}`, { headers: H })).json().catch(() => ({}))) as any;
+        const item0b = (det2.itens ?? []).find((i: any) => Number(i.idproduto) === 991000);
+        check('AGENDA LIMITAÇÃO §112.3 [o flag de GRUPO]: `ATUALIZACAO_GRUPO=S` estende a limitação à família de preço inteira em vez de só ao produto — 2 dos 92 itens do cliente usam isso. A quantidade também muda item a item',
+          flag.status === 200 && item0b?.atualizacao_grupo === 'S' && Number(item0b?.quantidade) === 3,
+          { item: item0b });
+
+        // ⚠️ agenda FECHADA não se altera
+        await pgAl.query(`UPDATE agenda_produto SET estatus='F' WHERE codagenda_produto=$1`, [cod]);
+        const addFechada = await fetch(`${base}/${AL}/${cod}/produtos`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [991002], quantidade: 1 }) });
+        const editFechada = await fetch(`${base}/${AL}/${cod}`, { method: 'PUT', headers: H, body: JSON.stringify({ descricao: 'OUTRO', dtinicio: '2036-01-01', dtfim: '2036-01-02', empresas: ';1;', itens: [] }) });
+        const delFechada = await fetch(`${base}/${AL}/${cod}`, { method: 'DELETE', headers: H });
+        const semGrant = await fetch(`${base}/${AL}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ descricao: 'X', dtinicio: '2036-01-01', dtfim: '2036-01-02', empresas: ';1;', itens: [] }) });
+        check('AGENDA LIMITAÇÃO §112.4 [fechada é fechada]: `ESTATUS=F` bloqueia adicionar produto, editar o cabeçalho e excluir — `Agenda Fechada. Impossível alterar.` (:147). No cliente as 11 agendas estão fechadas, porque todas já passaram. Criar sem `BTNGRAVAR` é 403',
+          addFechada.status === 422 && editFechada.status === 422 && delFechada.status === 422 && semGrant.status === 403,
+          { add: addFechada.status, edit: editFechada.status, del: delFechada.status, rbac: semGrant.status });
+
+        await pgAl.query(`UPDATE agenda_produto SET estatus='A' WHERE codagenda_produto=$1`, [cod]);
+        await fetch(`${base}/${AL}/${cod}`, { method: 'DELETE', headers: H });
+        const sumiu = (await pgAl.query(`SELECT count(*)::int n FROM agenda_produto_item WHERE codagenda_produto=$1`, [cod])).rows[0] as any;
+        check('AGENDA LIMITAÇÃO §112.5: reaberta, a agenda sai — e leva os itens junto (`ON DELETE CASCADE`), sem deixar limitação órfã apontando para agenda que não existe mais',
+          Number(sumiu.n) === 0, { itensRestantes: sumiu.n });
+
+        await pgAl.query(`DELETE FROM produtos WHERE idproduto IN (991000,991001,991002)`);
+      } finally {
+        await pgAl.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

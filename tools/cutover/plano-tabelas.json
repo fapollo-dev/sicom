@@ -87,6 +87,7 @@
       "vendas"
     ],
     "f1": [
+      "agenda_produto",
       "analise_pedido_nf_cr",
       "analise_pedido_nf_diverg",
       "analise_pedido_nf_ine_nf",
@@ -133,6 +134,7 @@
     ],
     "f2": [
       "adiantamento_forn",
+      "agenda_produto_item",
       "agenda_promocao_itens",
       "ajuste_estoque",
       "analise_pedido_nf_pedido",

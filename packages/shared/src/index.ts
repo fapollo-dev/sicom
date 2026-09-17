@@ -37,6 +37,7 @@ export * from './schema/cartao.schema';
 export * from './schema/config-conciliador.schema';
 export * from './schema/config-integracao-contabil.schema';
 export * from './schema/dre-estrutura.schema';
+export * from './schema/agenda-limitacao.schema';
 export * from './schema/historico-contabil.schema';
 export * from './schema/mult-atualizacao.schema';
 export * from './schema/integracao-contabil.schema';
