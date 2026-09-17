@@ -14840,6 +14840,47 @@ async function main() {
         await pgMd.end();
       }
     }
+
+    // ══ CADASTRO DO INDEXADOR TRIBUTÁRIO (FRMCADINDEXADORTRIBUTARIO) ═════════════════════════════════
+    {
+      const IT = 'cadastro/indexador-tributario';
+      const pgIt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const figura = { tp_cadastro: 'F', tp_figura: 'N', codfigurafiscal: 7799, origem: 'MG', destino: 'MG', codcfop: 1102, operacao: 'T', aliquota_dest: 18, icm_fonte: 12, mva: 45, redcom: 100, reducao: 100, aliquota_fem: 0, st_externo: 'N' };
+        // três indexadores na MESMA figura, cada um com um discriminador diferente
+        const porNcm  = await fetch(`${base}/${IT}`, { method: 'POST', headers: H, body: JSON.stringify({ ...figura, ncm: '99887766' }) });
+        const porEan  = await fetch(`${base}/${IT}`, { method: 'POST', headers: H, body: JSON.stringify({ ...figura, ncm: '99887766', codbarra: '7899999000001', mva: 60 }) });
+        const porParc = await fetch(`${base}/${IT}`, { method: 'POST', headers: H, body: JSON.stringify({ ...figura, ncm: '99887766', codparceiro: 2, mva: 30 }) });
+        const semNada = await fetch(`${base}/${IT}`, { method: 'POST', headers: H, body: JSON.stringify(figura) });
+        const dup     = await fetch(`${base}/${IT}`, { method: 'POST', headers: H, body: JSON.stringify({ ...figura, ncm: '99887766' }) });
+        check('INDEXADOR §125.1 [a chave é COMPOSTA, e o mesmo NCM tem vários]: três indexadores convivem no mesmo NCM, um por discriminador (NCM puro, NCM+EAN, NCM+fornecedor) — no cliente são **12.053 indexadores para 1.075 NCMs**, e o `19053100` sozinho tem **285**. ⚠️ um indexador **sem nenhum** discriminador seria curinga universal no OR-null da resolução, e é recusado (400); e repetir figura+discriminadores é recusado também (422), porque o segundo nunca seria escolhido',
+          porNcm.status === 201 && porEan.status === 201 && porParc.status === 201
+          && semNada.status === 400 && dup.status === 422,
+          { porNcm: porNcm.status, porEan: porEan.status, porParc: porParc.status, semNada: semNada.status, duplicado: dup.status });
+
+        const lista = (await (await fetch(`${base}/${IT}?ncm=99887766`, { headers: H })).json().catch(() => ([]))) as any[];
+        const codEan = Number(((await porEan.json().catch(() => ({}))) as any).codindexadortributario);
+        check('INDEXADOR §125.2: a listagem por NCM traz os três, cada um com o seu MVA (45 no NCM puro, 60 no EAN, 30 no fornecedor) — é exatamente o material que a resolução multi-chave usa para desempatar por especificidade',
+          (lista ?? []).length === 3
+          && new Set((lista ?? []).map((l: any) => Number(l.mva))).size === 3,
+          { achados: lista?.length, mvas: (lista ?? []).map((l: any) => Number(l.mva)) });
+
+        const del = await fetch(`${base}/${IT}/${codEan}`, { method: 'DELETE', headers: H });
+        const aindaLa = (await pgIt.query(`SELECT indr FROM indexador_tributario WHERE codindexadortributario=$1`, [codEan])).rows[0] as any;
+        const listaDepois = (await (await fetch(`${base}/${IT}?ncm=99887766`, { headers: H })).json().catch(() => ([]))) as any[];
+        const comExcluidos = (await (await fetch(`${base}/${IT}?ncm=99887766&incluirExcluidos=S`, { headers: H })).json().catch(() => ([]))) as any[];
+        const semGrant = await fetch(`${base}/${IT}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ ...figura, ncm: '11111111' }) });
+        check('INDEXADOR §125.3 [exclusão é LÓGICA]: `INDR = E`, como no legado — a linha continua na tabela (230 das 12.053 do cliente já estão assim) e some da lista, mas pode ser vista. Apagar de verdade mudaria a base de cálculo das notas já lançadas, que é o passado. Sem `BTNGRAVAR`, 403',
+          (del.status === 200 || del.status === 204) && aindaLa?.indr === 'E'
+          && (listaDepois ?? []).length === 2 && (comExcluidos ?? []).length === 3
+          && semGrant.status === 403,
+          { del: del.status, indr: aindaLa?.indr, semExcluidos: listaDepois?.length, comExcluidos: comExcluidos?.length, rbac: semGrant.status });
+
+        await pgIt.query(`DELETE FROM indexador_tributario WHERE ncm IN ('99887766','11111111')`);
+      } finally {
+        await pgIt.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

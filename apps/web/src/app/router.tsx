@@ -64,6 +64,7 @@ import { RelPrecosAlteradosPage } from '../features/rel-precos-alterados/RelPrec
 import { RelAnaliseItensNfPage } from '../features/rel-analise-itens-nf/RelAnaliseItensNfPage';
 import { FaturamentoPage } from '../features/faturamento/FaturamentoPage';
 import { MovimentacoesDiaPage } from '../features/movimentacoes-dia/MovimentacoesDiaPage';
+import { IndexadorTributarioPage } from '../features/indexador-tributario/IndexadorTributarioPage';
 import { ProdutosRelPage } from '../features/produtos-rel/ProdutosRelPage';
 import { RelEntradasSaidasPage } from '../features/rel-entradas-saidas/RelEntradasSaidasPage';
 import { CotacaoFornPage } from '../features/cotacao-forn/CotacaoFornPage';
@@ -234,6 +235,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/analise-itens-nf', element: <RelAnaliseItensNfPage /> }, // FRMRELANALISEITENSNF
       { path: '/compras/faturamento', element: <FaturamentoPage /> }, // FRMFATURAMENTO2
       { path: '/relatorios/movimentacoes-dia', element: <MovimentacoesDiaPage /> }, // FRMMOVIMENTACOESDIA
+      { path: '/cadastro/indexador-tributario', element: <IndexadorTributarioPage /> }, // FRMCADINDEXADORTRIBUTARIO
       { path: '/relatorios/produtos', element: <ProdutosRelPage /> }, // FRMPRODUTOSREL
       { path: '/relatorios/entradas-saidas', element: <RelEntradasSaidasPage /> }, // FRMRELENTRADASSAIDAS
       { path: '/compras/cotacao-forn', element: <CotacaoFornPage /> }, // FRMCADCOTACAOFORN

@@ -57,23 +57,23 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 45 | `FRMPEDIDOTRANSFERENCIA` | 32 | 7 | 🪦 **marginal**: pedido de transferência entre lojas é `PEDIDOS` com `TIPO='T'` — **33 pedidos** em 37.080, de **15/12/2023 a 26/02/2025**, parado há 7 meses. A operação é real e pode voltar; hoje não justifica o corte frente a telas com mais uso |
 | 46 | `FRMDEVOLUCAO_NF` | 30 | 7 | ⛔ **sem fonte no repositório clonado** — o menu a chama "Devolucao de Vendas (NF)", mas nenhuma unit responde por `FRMDEVOLUCAO_NF` nem pelo caption. As outras devoluções TÊM fonte e estão em outro ponto da fila: `FRMDEVOLUCAOVENDAS` (3.958 acessos), `FRMCADPEDIDODEVOLUCAOCOMPRAS` (2.525, já migrada), `FRMCADDEVOLUCAO` (91) |
 | 47 | `FRMMOVIMENTACOESDIA` | 27 | 8 | ✅ **completa** (mig 247) — o "o que aconteceu hoje e quem fez": pedidos, contas pagas, recebidas e o log, os quatro por período e operador. ⚠️ a tabela **`HISTORICO`** (a trilha em TEXTO, **455.264 linhas** até hoje) **não existia no destino** e entra agora. ⚠️ as quatro consultas do legado **não filtram empresa** (nem as views que elas usam) |
-| 48 | `FRMCADAGENDAPREVPAGTO` | 27 | 4 |
-| 49 | `FRMVACINAS` | 27 | 6 |
-| 50 | `FRMLANFRETE` | 27 | 4 |
-| 51 | `FRMRELTROCAMERCADORIAFOR` | 27 | 5 |
+| 48 | `FRMCADAGENDAPREVPAGTO` | 27 | 4 | 🪦 **marginal — carga única e parada**: `AGENDA_PREV_PAGTO` tem **27 linhas, todas cadastradas em 04/10/2021 no mesmo minuto** (uma carga só) e nada depois. A previsão de pagamento recorrente nunca virou rotina |
+| 49 | `FRMVACINAS` | 27 | 6 | ⛔ **sem substrato**: não existe tabela `VACINAS`; a única do assunto é `CAMPANHA_VACINACAO`, com **0 linhas**. As units existem (`Uvacinas`, `uCadCampanhaVacina`) mas o mecanismo nunca foi usado |
+| 50 | `FRMLANFRETE` | 27 | 4 | ⛔ **sem fonte no repositório clonado** — nenhuma unit com esse nome |
+| 51 | `FRMRELTROCAMERCADORIAFOR` | 27 | 5 | 🪦 **marginal**: `TROCA` tem **107** registros e `ITENS_TROCA` **309** (último item em 24/11/2025). A troca com fornecedor existe, mas em volume que não justifica corte próprio agora |
 | 52 | `FRMCONSPROD` | 25 | 8 |
 | 53 | `FRMRELANALISECOMPORTAMENTOPERIODO` | 24 | 6 |
-| 54 | `FRMCADINDEXADORTRIBUTARIO` | 23 | 4 |
+| 54 | `FRMCADINDEXADORTRIBUTARIO` | 23 | 4 | ✅ **completa** (mig 248) — de onde sai o ICMS-ST de toda entrada. **12.053 indexadores atualizados hoje**, para apenas **1.075 NCMs**: 748 NCMs têm mais de um e o `19053100` tem **285**, então a chave é a figura completa com desempate por especificidade (o motor já existia). ⚠️ indexador **sem discriminador** seria curinga universal no OR-null: recusado. Exclusão é **lógica** (`INDR=E`), como no legado |
 | 55 | `FRMPROCESSAAPAGAR` | 23 | 4 |
 | 56 | `FRMRELANALISEPEDIDONF` | 22 | 4 |
 | 57 | `FRMCONSAPGBX` | 20 | 7 |
 | 58 | `FRMRELDIFERENCASNFPEDIDO` | 20 | 5 |
 | 59 | `FRMRELCORTESIAS` | 19 | 3 |
-| 60 | `FRMCADMIDIADEPARTAMENTO` | 19 | 4 |
+| 60 | `FRMCADMIDIADEPARTAMENTO` | 19 | 4 | ⛔ **sem fonte no repositório clonado** |
 | 61 | `FRMCTRLRECARGASCORRESPONDENTE` | 19 | 3 |
-| 62 | `FRMRELRUPTURAS` | 19 | 1 |
+| 62 | `FRMRELRUPTURAS` | 19 | 1 | ⛔ **sem fonte no repositório clonado** (e 1 operador) |
 | 63 | `FRMATUALIZACAOPRODUTOS` | 18 | 5 |
-| 64 | `FRMAGENDADESCARREGAMENTO` | 17 | 4 |
+| 64 | `FRMAGENDADESCARREGAMENTO` | 17 | 4 | ⛔ **sem substrato**: `AGENDA_DESCARREGAMENTO` tem **3 linhas**, a última de **05/08/2020** |
 | 65 | `FRMAGENDALOTEPRECO` | 17 | 5 |
 | 66 | `FRMCONSRCBBX` | 17 | 4 |
 | 67 | `FRMRELPERDAS` | 17 | 4 |

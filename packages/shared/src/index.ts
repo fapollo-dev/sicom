@@ -49,6 +49,7 @@ export * from './schema/rel-precos-alterados.schema';
 export * from './schema/rel-analise-itens-nf.schema';
 export * from './schema/faturamento.schema';
 export * from './schema/movimentacoes-dia.schema';
+export * from './schema/indexador-tributario.schema';
 export * from './schema/historico-contabil.schema';
 export * from './schema/mult-atualizacao.schema';
 export * from './schema/integracao-contabil.schema';
