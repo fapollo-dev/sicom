@@ -186,6 +186,8 @@ const TELAS = [
   { href: '/relatorios/simulador-venda', name: 'Simulador de vendas', icon: Tag },
   // FRMAPURACAOPISCOFINS — crédito, débito e o saldo a recolher do bloco M (39 acessos).
   { href: '/fiscal/apuracao-piscofins', name: 'Apuração PIS/COFINS', icon: FileSearch },
+  // FRMEXTRATOFORNECEDORES — o que se deve, e quanto se devia numa data passada (38 acessos).
+  { href: '/relatorios/extrato-fornecedores', name: 'Extrato de fornecedores', icon: ShoppingCart },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 

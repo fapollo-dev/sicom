@@ -14469,6 +14469,56 @@ async function main() {
         await pgAp2.end();
       }
     }
+
+    // ══ EXTRATO DE FORNECEDORES (FRMEXTRATOFORNECEDORES) ═════════════════════════════════════════════
+    {
+      const EF = 'relatorios/extrato-fornecedores';
+      const pgEf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // comprado em 05/01/2040, vence 05/02, PAGO em 10/03 — o par que separa o saldo retroativo
+        const t1 = Number((await pgEf.query(`INSERT INTO apagar (codempresa, codparceiro, nrodup, duplicata, dtcompra, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, 2, 1, 'EF-PAGO', '2040-01-05', '2040-02-05', 1000.00, 'S', 'DP') RETURNING codapg`)).rows[0].codapg);
+        await pgEf.query(`INSERT INTO apagar_bx (codapg, codempresa, dtpgto, valorpg, juros, acre_desc, indr)
+                          VALUES ($1, 1, '2040-03-10', 1020.00, 20.00, 0, 'I')`, [t1]);
+        // em aberto, vence 20/02/2040
+        const t2 = Number((await pgEf.query(`INSERT INTO apagar (codempresa, codparceiro, nrodup, duplicata, dtcompra, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, 2, 2, 'EF-ABERTO', '2040-01-08', '2040-02-20', 300.00, 'N', 'DP') RETURNING codapg`)).rows[0].codapg);
+
+        // ⚠️ o saldo em 28/02/2040: o título PAGO em março ainda era dívida naquele dia
+        const saldoFev = (await (await fetch(`${base}/${EF}?dataIni=2040-02-28&modelo=SALDO`, { headers: H })).json().catch(() => ({}))) as any;
+        const codsFev = (saldoFev.linhas ?? []).map((l: any) => Number(l.codapg));
+        const saldoAbr = (await (await fetch(`${base}/${EF}?dataIni=2040-04-30&modelo=SALDO`, { headers: H })).json().catch(() => ({}))) as any;
+        const codsAbr = (saldoAbr.linhas ?? []).map((l: any) => Number(l.codapg));
+        check('EXTRATO FORNECEDORES §118.1 [o saldo retroativo olha a DATA DO PAGAMENTO, não o flag]: em 28/02/2040 o título pago só em 10/03 **ainda era dívida** — os dois aparecem, R$ 1.300,00. Em 30/04, com o pagamento já feito, sobra só o que continua aberto, R$ 300,00. É a diferença entre um saldo retroativo correto e um que conserta o passado com a informação de hoje',
+          codsFev.includes(t1) && codsFev.includes(t2) && Math.abs(Number(saldoFev.totais?.valor) - 1300) < 0.005
+          && !codsAbr.includes(t1) && codsAbr.includes(t2) && Math.abs(Number(saldoAbr.totais?.valor) - 300) < 0.005,
+          { fev: codsFev, totaisFev: saldoFev.totais, abr: codsAbr, totaisAbr: saldoAbr.totais });
+
+        const porVenc = (await (await fetch(`${base}/${EF}?dataIni=2040-02-01&dataFim=2040-02-28&modelo=PERIODO&base=VENCIMENTO`, { headers: H })).json().catch(() => ({}))) as any;
+        const l1 = (porVenc.linhas ?? []).find((l: any) => Number(l.codapg) === t1);
+        const l2 = (porVenc.linhas ?? []).find((l: any) => Number(l.codapg) === t2);
+        check('EXTRATO FORNECEDORES §118.2 [a coluna que muda de significado]: `CASE quitada WHEN S THEN dtpgto ELSE dtvenc` — a data de referência do título QUITADO é a do **pagamento** (10/03) e a do aberto é a do **vencimento** (20/02). É intencional no legado, e a tela nomeia a coluna de acordo em vez de fingir que é só vencimento',
+          String(l1?.data_referencia).slice(0, 10) === '2040-03-10'
+          && String(l2?.data_referencia).slice(0, 10) === '2040-02-20',
+          { quitado: l1?.data_referencia, aberto: l2?.data_referencia });
+
+        const soAberto = (await (await fetch(`${base}/${EF}?dataIni=2040-01-01&dataFim=2040-12-31&modelo=PERIODO&situacao=ABERTO`, { headers: H })).json().catch(() => ({}))) as any;
+        const semParceiro = (await (await fetch(`${base}/${EF}?dataIni=2040-01-01&dataFim=2040-12-31&modelo=PERIODO&parceiro=NAO%20EXISTE%20ESSE`, { headers: H })).json().catch(() => ({}))) as any;
+        const semGrant = await fetch(`${base}/${EF}?dataIni=2040-02-28&modelo=SALDO`, { headers: H_SEM_ACESSO });
+        const semFim = await fetch(`${base}/${EF}?dataIni=2040-02-01&modelo=PERIODO`, { headers: H });
+        check('EXTRATO FORNECEDORES §118.3: situação filtra (só o aberto sobra); o nome do parceiro é tratado como NOME — no legado ele entra cru no SQL quando não tem `%` (`AND PA.RAZAO NESTLE`, que nem roda) — e o extrato por período exige as duas datas (400). Sem grant, 403',
+          (soAberto.linhas ?? []).every((l: any) => l.quitada === 'N')
+          && (soAberto.linhas ?? []).some((l: any) => Number(l.codapg) === t2)
+          && (semParceiro.linhas ?? []).length === 0
+          && semFim.status === 400 && semGrant.status === 403,
+          { aberto: soAberto.linhas?.length, semParceiro: semParceiro.linhas?.length, semFim: semFim.status, rbac: semGrant.status });
+
+        await pgEf.query(`DELETE FROM apagar_bx WHERE codapg IN ($1,$2)`, [t1, t2]);
+        await pgEf.query(`DELETE FROM apagar WHERE codapg IN ($1,$2)`, [t1, t2]);
+      } finally {
+        await pgEf.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
