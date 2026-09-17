@@ -14789,6 +14789,57 @@ async function main() {
         await pgFt.end();
       }
     }
+
+    // ══ MOVIMENTAÇÕES DO DIA (FRMMOVIMENTACOESDIA) ═══════════════════════════════════════════════════
+    {
+      const MD = 'relatorios/movimentacoes-dia';
+      const pgMd = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // baixa de A RECEBER e de A PAGAR no mesmo dia, pelo operador 7; e uma do operador 8
+        const rcb = Number((await pgMd.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, 22, 'MD-1', '2045-04-01', '2045-04-20', 400.00, 'S', 'DP') RETURNING codrcb`)).rows[0].codrcb);
+        await pgMd.query(`INSERT INTO areceber_bx (codrcb, codempresa, dtpgto, valorpg, juros, acre_desc, indr, codopbx, obs)
+                          VALUES ($1, 1, '2045-04-15', 400.00, 0, 0, 'I', 7, 'RECEBIDO NO CAIXA')`, [rcb]);
+        const apg = Number((await pgMd.query(`INSERT INTO apagar (codempresa, codparceiro, nrodup, dtcompra, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, 2, 1, '2045-04-02', '2045-04-18', 250.00, 'S', 'DP') RETURNING codapg`)).rows[0].codapg);
+        await pgMd.query(`INSERT INTO apagar_bx (codapg, codempresa, dtpgto, valorpg, juros, acre_desc, indr, codopbx, obs)
+                          VALUES ($1, 1, '2045-04-15', 250.00, 0, 0, 'I', 8, 'PAGO NO BANCO')`, [apg]);
+        // ⚠️ uma baixa ESTORNADA (INDR='E') no mesmo dia — não pode entrar
+        await pgMd.query(`INSERT INTO areceber_bx (codrcb, codempresa, dtpgto, valorpg, juros, acre_desc, indr, codopbx)
+                          VALUES ($1, 1, '2045-04-15', 999.00, 0, 0, 'E', 7)`, [rcb]);
+        await pgMd.query(`INSERT INTO historico (tabela, historico, codoperador, codempresa, data, coddoc)
+          VALUES ('ARECEBER','BAIXA MANUAL CONFERIDA', 7, 1, '2045-04-15 10:00', $1),
+                 ('APAGAR','PAGAMENTO AUTORIZADO', 8, 1, '2045-04-15 11:00', $2)`, [rcb, apg]);
+
+        const dia = (await (await fetch(`${base}/${MD}?dataIni=2045-04-15&dataFim=2045-04-15`, { headers: H })).json().catch(() => ({}))) as any;
+        check('MOVIMENTAÇÕES DO DIA §124.1 [os quatro blocos do dia]: recebidos, pagos, pedidos e o log de histórico no mesmo período. A baixa **estornada** (`INDR=E`) fica fora dos recebidos — R$ 400,00 e não R$ 1.399,00 —, e o histórico traz as duas linhas do log com o nome de quem fez',
+          Number(dia.totais?.recebidos?.itens) === 1 && Math.abs(Number(dia.totais?.recebidos?.valor) - 400) < 0.005
+          && Number(dia.totais?.pagos?.itens) === 1 && Math.abs(Number(dia.totais?.pagos?.valor) - 250) < 0.005
+          && Number(dia.totais?.historico?.itens) === 2,
+          { totais: dia.totais });
+
+        const porOperador = (await (await fetch(`${base}/${MD}?dataIni=2045-04-15&dataFim=2045-04-15&codoperador=7`, { headers: H })).json().catch(() => ({}))) as any;
+        check('MOVIMENTAÇÕES DO DIA §124.2 [o recorte por operador vale nos quatro blocos]: pedindo só o operador 7, sobra o recebimento dele e a linha de histórico dele — o pagamento e o log do operador 8 saem. É o "o que fulano fez hoje"',
+          Number(porOperador.totais?.recebidos?.itens) === 1
+          && Number(porOperador.totais?.pagos?.itens) === 0
+          && Number(porOperador.totais?.historico?.itens) === 1,
+          { totais: porOperador.totais });
+
+        const semGrant = await fetch(`${base}/${MD}?dataIni=2045-04-15&dataFim=2045-04-15`, { headers: H_SEM_ACESSO });
+        const invertido = await fetch(`${base}/${MD}?dataIni=2045-04-16&dataFim=2045-04-15`, { headers: H });
+        check('MOVIMENTAÇÕES DO DIA §124.3: a tabela `historico` (455.264 linhas no cliente, até hoje) não existia no destino e entra com a migration — é a trilha em TEXTO, diferente do `historico_dinamico` campo a campo. Sem grant, 403; período invertido, 400',
+          semGrant.status === 403 && invertido.status === 400,
+          { rbac: semGrant.status, invertido: invertido.status });
+
+        await pgMd.query(`DELETE FROM historico WHERE data::date = '2045-04-15'`);
+        await pgMd.query(`DELETE FROM areceber_bx WHERE codrcb=$1`, [rcb]);
+        await pgMd.query(`DELETE FROM apagar_bx WHERE codapg=$1`, [apg]);
+        await pgMd.query(`DELETE FROM areceber WHERE codrcb=$1`, [rcb]);
+        await pgMd.query(`DELETE FROM apagar WHERE codapg=$1`, [apg]);
+      } finally {
+        await pgMd.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

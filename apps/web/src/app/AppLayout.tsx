@@ -198,6 +198,8 @@ const TELAS = [
   { href: '/relatorios/analise-itens-nf', name: 'Análise de itens da NF', icon: FileSearch },
   // FRMFATURAMENTO2 — as parcelas da nota: vencendo hoje, atrasadas, faturadas (34 acessos, 8 operadores).
   { href: '/compras/faturamento', name: 'Faturamento da nota', icon: CalendarClock },
+  // FRMMOVIMENTACOESDIA — o que aconteceu hoje e quem fez (27 acessos, 8 operadores).
+  { href: '/relatorios/movimentacoes-dia', name: 'Movimentações do dia', icon: CalendarClock },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 
