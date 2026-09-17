@@ -14236,6 +14236,48 @@ async function main() {
         await pgAl.end();
       }
     }
+
+    // ══ CONFIGURAÇÃO DA INTEGRAÇÃO BANCÁRIA — BOLETO (FRMCONFINTEGBANCARIA) ══════════════════════════
+    {
+      const CB = 'cobranca/conf-integ-bancaria';
+      const pgCb = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const base1 = {
+          codempresa: 1, codbco: 2, agencia: '3034', nrconta: '99999-9', codfornbco: '341',
+          arqteste: 'N', layoutremessa: 'C400', codempresa_arquivo: 1, tipo_integ_bancaria: 'B',
+          sequenciaremessa: 0, habilitar_bolecode: 'N',
+          obs_boleto: ' APOS O VENCIMENTO COBRAR MULTA DE ...... $(Multa)',
+        };
+        const cr = await fetch(`${base}/${CB}`, { method: 'POST', headers: H, body: JSON.stringify(base1) });
+        const crJ = (await cr.json().catch(() => ({}))) as any;
+        const lista = (await (await fetch(`${base}/${CB}`, { headers: H })).json().catch(() => ([]))) as any[];
+        const minha = (lista ?? []).find((x: any) => Number(x.codconf) === Number(crJ.codconf));
+        check('CONF BANCÁRIA §113.1: a configuração que o CNAB lê para montar a remessa — banco, conta, layout e convênio. A listagem já traz o NOME do banco e da empresa, e o texto do boleto guarda os placeholders `$(Multa)` / `$(Juros)` que o gerador substitui (é o mesmo padrão do histórico contábil, em outro canto do sistema)',
+          cr.status === 201 && !!minha && String(minha.layoutremessa) === 'C400'
+          && String(minha.obs_boleto).includes('$(Multa)') && !!minha.nome_banco,
+          { criada: crJ, daLista: minha });
+
+        const bcoRuim = await fetch(`${base}/${CB}`, { method: 'POST', headers: H, body: JSON.stringify({ ...base1, codbco: 999888, nrconta: '11111-1' }) });
+        const empRuim = await fetch(`${base}/${CB}`, { method: 'POST', headers: H, body: JSON.stringify({ ...base1, codempresa: 999888, nrconta: '22222-2' }) });
+        const dup = await fetch(`${base}/${CB}`, { method: 'POST', headers: H, body: JSON.stringify(base1) });
+        const semGrant = await fetch(`${base}/${CB}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ ...base1, nrconta: '33333-3' }) });
+        check('CONF BANCÁRIA §113.2 [as três validações do legado]: banco inexistente (`Banco não encontrado com o Código informado`, :143) e empresa inexistente (`Empresa não encontrada!`, :178) são recusados; e DUAS configurações para a mesma empresa+conta+tipo também — o CNAB escolheria uma delas em silêncio, e a remessa sairia com o convênio errado. Sem `BTNGRAVAR`, 403',
+          bcoRuim.status === 422 && empRuim.status === 422 && dup.status === 422 && semGrant.status === 403,
+          { banco: bcoRuim.status, empresa: empRuim.status, duplicada: dup.status, rbac: semGrant.status });
+
+        // ⚠️ a configuração de quem já emitiu boleto não é apagada
+        await pgCb.query(`INSERT INTO arquivo_remessa_areceber (arquivo, nomearquivo, codempresa, codcontacorrente)
+                          VALUES ('LINHA CNAB SMOKE', 'CB999901.TXT', 1, NULL)`);
+        const delEmUso = await fetch(`${base}/${CB}/${crJ.codconf}`, { method: 'DELETE', headers: H });
+        await pgCb.query(`DELETE FROM arquivo_remessa_areceber WHERE nomearquivo='CB999901.TXT'`);
+        const delLivre = await fetch(`${base}/${CB}/${crJ.codconf}`, { method: 'DELETE', headers: H });
+        check('CONF BANCÁRIA §113.3: enquanto a empresa tiver remessa gerada, a configuração não sai (422) — o arquivo guarda empresa e conta, **não** a configuração, então sem ela ninguém sabe com que layout e convênio aquele CNAB foi montado. Sem remessa, sai',
+          delEmUso.status === 422 && (delLivre.status === 200 || delLivre.status === 204),
+          { emUso: delEmUso.status, livre: delLivre.status });
+      } finally {
+        await pgCb.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

@@ -176,6 +176,8 @@ const TELAS = [
   { href: '/cadastro/dre-estrutura', name: 'Configurador do DRE', icon: BookText },
   // FRMCADAGENDALIMITACAOVENDA — quanto cada cliente pode levar no dia de promoção forte (51 acessos).
   { href: '/cadastro/agenda-limitacao', name: 'Limitação de venda', icon: Package },
+  // FRMCONFINTEGBANCARIA — banco, conta e layout que o CNAB usa na remessa (50 acessos).
+  { href: '/cobranca/conf-integ-bancaria', name: 'Integração bancária (boleto)', icon: CreditCard },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 
