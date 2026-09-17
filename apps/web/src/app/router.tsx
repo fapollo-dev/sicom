@@ -60,6 +60,7 @@ import { ApuracaoPisCofinsPage } from '../features/apuracao-piscofins/ApuracaoPi
 import { ExtratoFornecedoresPage } from '../features/extrato-fornecedores/ExtratoFornecedoresPage';
 import { AnaliseCasaCarnePage } from '../features/analise-casa-carne/AnaliseCasaCarnePage';
 import { RelVendasDinamicoPage } from '../features/rel-vendas-dinamico/RelVendasDinamicoPage';
+import { RelPrecosAlteradosPage } from '../features/rel-precos-alterados/RelPrecosAlteradosPage';
 import { ProdutosRelPage } from '../features/produtos-rel/ProdutosRelPage';
 import { RelEntradasSaidasPage } from '../features/rel-entradas-saidas/RelEntradasSaidasPage';
 import { CotacaoFornPage } from '../features/cotacao-forn/CotacaoFornPage';
@@ -226,6 +227,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/extrato-fornecedores', element: <ExtratoFornecedoresPage /> }, // FRMEXTRATOFORNECEDORES
       { path: '/relatorios/analise-casa-carne', element: <AnaliseCasaCarnePage /> }, // FRMANALISECOMPRAVENDACASACARNE
       { path: '/relatorios/vendas-dinamico', element: <RelVendasDinamicoPage /> }, // FRMRELATORIOVENDASDINAMICO
+      { path: '/relatorios/precos-alterados', element: <RelPrecosAlteradosPage /> }, // FRMRELPRECOSALTERADOS
       { path: '/relatorios/produtos', element: <ProdutosRelPage /> }, // FRMPRODUTOSREL
       { path: '/relatorios/entradas-saidas', element: <RelEntradasSaidasPage /> }, // FRMRELENTRADASSAIDAS
       { path: '/compras/cotacao-forn', element: <CotacaoFornPage /> }, // FRMCADCOTACAOFORN

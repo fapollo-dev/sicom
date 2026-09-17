@@ -14631,6 +14631,54 @@ async function main() {
         await pgVd.end();
       }
     }
+
+    // ══ RELATÓRIO DE PREÇOS ALTERADOS (FRMRELPRECOSALTERADOS) ════════════════════════════════════════
+    {
+      const PA2 = 'relatorios/precos-alterados';
+      const pgPa = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgPa.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, ativo, codfor, aliquota) VALUES
+          (991400,'7891400001400','PROD PA COM HIST','UN','S',1,'T01'),
+          (991401,'7891400001401','PROD PA SEM HIST','UN','S',1,'T01') ON CONFLICT DO NOTHING`);
+        // o histórico: o preço subiu de 12,99 para 17,90 (o valor vem como TEXTO, em pt-BR)
+        const h = Number((await pgPa.query(`INSERT INTO historico_dinamico (tabela, chave, valor_chave, campo, valor_anterior, valor_atual, codoperador, codempresa, data, origem)
+          VALUES ('MULTI_PRECO','IDPRODUTO','991400','VRVENDA','12,99','17,90', 7, 1, '2043-07-10', 'SMOKE') RETURNING codhistorico`)).rows[0].codhistorico);
+        await pgPa.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrcusto, promocao, dtultprecoalterado, codhistorico)
+                          VALUES (991400, 1, 17.90, 10.00, 'N', '2043-07-10', $1)`, [h]);
+        // ⚠️ o MESMO tipo de alteração, mas SEM vínculo com o histórico — no legado este some do relatório
+        await pgPa.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrcusto, promocao, dtultprecoalterado, codhistorico)
+                          VALUES (991401, 1, 25.00, 12.00, 'N', '2043-07-11', NULL)`);
+
+        const r = (await (await fetch(`${base}/${PA2}?dataIni=2043-07-01&dataFim=2043-07-31&produto=PROD%20PA`, { headers: H })).json().catch(() => ({}))) as any;
+        const comH = (r.linhas ?? []).find((l: any) => Number(l.codproduto) === 991400);
+        const semH = (r.linhas ?? []).find((l: any) => Number(l.codproduto) === 991401);
+        check('PREÇOS ALTERADOS §121.1 [o INNER JOIN escondia mais da metade]: o legado junta `HISTORICO_DINAMICO` por INNER, e `MULTI_PRECO.CODHISTORICO` só existe em 43% das linhas — em agosto/2026 isso derrubava **328 de 594** alterações (55,2%). Aqui a alteração SEM histórico aparece, só sem o preço anterior: as duas linhas vêm, e a que tem histórico mostra de 12,99 para 17,90',
+          (r.linhas ?? []).length === 2 && !!comH && !!semH
+          && Math.abs(Number(comH.valor_anterior) - 12.99) < 0.005
+          && Math.abs(Number(comH.valor) - 17.90) < 0.005
+          && semH.valor_anterior === null && Math.abs(Number(semH.valor) - 25) < 0.005,
+          { comHistorico: comH, semHistorico: semH });
+
+        check('PREÇOS ALTERADOS §121.2 [de quanto para quanto]: 12,99 → 17,90 é **+R$ 4,91** e **+37,80%** — o valor anterior vem do histórico como TEXTO em pt-BR (`12,99`) e é convertido. O rodapé conta quantos subiram, caíram e quantos ficaram sem referência',
+          Math.abs(Number(comH?.diferenca) - 4.91) < 0.005
+          && Math.abs(Number(comH?.variacao_perc) - 37.8) < 0.05
+          && Number(r.totais?.subiram) === 1 && Number(r.totais?.semAnterior) === 1,
+          { diferenca: comH?.diferenca, variacao: comH?.variacao_perc, totais: r.totais });
+
+        const semGrant = await fetch(`${base}/${PA2}?dataIni=2043-07-01&dataFim=2043-07-31`, { headers: H_SEM_ACESSO });
+        const invertido = await fetch(`${base}/${PA2}?dataIni=2043-07-31&dataFim=2043-07-01`, { headers: H });
+        const porLote = await fetch(`${base}/${PA2}?dataIni=2043-07-01&dataFim=2043-07-31&origem=LOTE`, { headers: H });
+        check('PREÇOS ALTERADOS §121.3: a outra origem (o lote de alteração) responde; sem grant, 403; período invertido, 400',
+          porLote.status === 200 && semGrant.status === 403 && invertido.status === 400,
+          { lote: porLote.status, rbac: semGrant.status, invertido: invertido.status });
+
+        await pgPa.query(`DELETE FROM multi_preco WHERE idproduto IN (991400,991401)`);
+        await pgPa.query(`DELETE FROM historico_dinamico WHERE origem='SMOKE'`);
+        await pgPa.query(`DELETE FROM produtos WHERE idproduto IN (991400,991401)`);
+      } finally {
+        await pgPa.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

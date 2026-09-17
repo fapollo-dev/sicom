@@ -192,6 +192,8 @@ const TELAS = [
   { href: '/relatorios/analise-casa-carne', name: 'Compra × venda (casa de carne)', icon: ArrowLeftRight },
   // FRMRELATORIOVENDASDINAMICO — giro do período + última compra e custo (37 acessos, 8 operadores).
   { href: '/relatorios/vendas-dinamico', name: 'Análise de vendas de produtos', icon: Package },
+  // FRMRELPRECOSALTERADOS — que preços mudaram, de quanto para quanto (35 acessos).
+  { href: '/relatorios/precos-alterados', name: 'Preços alterados', icon: Tag },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 
