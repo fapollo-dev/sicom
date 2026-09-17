@@ -41,7 +41,7 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 29 | `FRMCADAGENDALIMITACAOVENDA` | 51 | 6 | ✅ **completa** (mig 235) — quanto cada cliente pode levar de um produto no período. Uso **sazonal**: 11 agendas e 92 itens entre 2020 e 2023, 8 delas ligadas ao "DIA D". ⚠️ o `CODGRUPO` do item é o grupo de **PREÇO** (não o de produto), e é por ele que o flag estende o limite à família |
 | 30 | `FRMCONFINTEGBANCARIA` | 50 | 3 | ✅ **completa** (mig 236; a tabela veio com o CNAB na 153) — banco, conta, layout e convênio que o CNAB de cobrança usa. 3 configurações vivas no cliente (última alteração 02/07/2025). ⚠️ a tela avisa que a **sequência é ESTADO** (baixá-la faz o banco rejeitar a remessa) e que **CODBCO e CODFORNBCO são dois números diferentes** para o mesmo banco |
 | 31 | `FRMCADCONFPLANOCONTAS` | 45 | 2 | ✅ **completa** (mig 237; a tabela veio nas 103/108) — a máscara do código e as contas padrão por natureza. ⚠️ **corrigido um defeito nosso**: o seed dizia `1,1,2,2,4`, mas **10.653 contas** do cliente usam 5 dígitos no último nível contra **297** com 4, e `NDIG_5` diz 5 — com a máscara curta o auto-código errava em 97,3% dos casos. 4 checks de smoke antigos foram atualizados |
-| 32 | `FRMRELFINANCEIRO` | 43 | 7 |
+| 32 | `FRMRELFINANCEIRO` | 43 | 7 | 🟢 **equivalente** (mig 238): recebíveis e compromissos no mesmo extrato, com a baixa ao lado. ⚠️ **o filtro por data de BAIXA do A Receber nem roda no legado** (ORA-00918, coluna ambígua) — e a coluna que ele tentaria usar esconde **11.782 títulos baixados, R$ 12.207.925,74**. Falta o ramo de cartões (2,06M linhas) |
 | 33 | `FRMSIMULADORVENDA` | 42 | 5 |
 | 34 | `FRMCADACORDOCOMERCIAL` | 39 | 4 |
 | 35 | `FRMAPURACAOPISCOFINS` | 39 | 2 |

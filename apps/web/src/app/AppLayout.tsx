@@ -180,6 +180,8 @@ const TELAS = [
   { href: '/cobranca/conf-integ-bancaria', name: 'Integração bancária (boleto)', icon: CreditCard },
   // FRMCADCONFPLANOCONTAS — a máscara do código e as contas padrão por natureza (45 acessos).
   { href: '/cadastro/conf-plano-contas', name: 'Config. plano de contas', icon: BookText },
+  // FRMRELFINANCEIRO — recebíveis e compromissos no mesmo extrato (43 acessos, 7 operadores).
+  { href: '/relatorios/financeiro', name: 'Relatório financeiro', icon: ArrowLeftRight },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 

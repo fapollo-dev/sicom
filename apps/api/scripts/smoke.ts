@@ -14315,6 +14315,71 @@ async function main() {
         await pgCp.end();
       }
     }
+
+    // ══ RELATÓRIO FINANCEIRO (FRMRELFINANCEIRO) ══════════════════════════════════════════════════════
+    {
+      const RF = 'relatorios/financeiro';
+      const pgRf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // um recebível BAIXADO em 10/07/2037 mas com vencimento em 20/06/2037 — é o par que separa os filtros
+        const rcb = Number((await pgRf.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, 22, 'RF-001', '2037-06-01', '2037-06-20', 500.00, 'S', 'DP') RETURNING codrcb`)).rows[0].codrcb);
+        await pgRf.query(`INSERT INTO areceber_bx (codrcb, codempresa, dtpgto, valorpg, juros, acre_desc, indr)
+                          VALUES ($1, 1, '2037-07-10', 500.00, 0, 0, 'I')`, [rcb]);
+        // ⚠️ o título tem a coluna DTPGTO denormalizada NULA — que é o estado de 44 mil títulos do cliente
+        const apg = Number((await pgRf.query(`INSERT INTO apagar (codempresa, codparceiro, nrodup, dtcompra, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, 2, 1, '2037-06-05', '2037-06-25', 300.00, 'N', 'DP') RETURNING codapg`)).rows[0].codapg);
+
+        const porVenc = (await (await fetch(`${base}/${RF}?dataIni=2037-06-01&dataFim=2037-06-30&filtroData=VENCIMENTO`, { headers: H })).json().catch(() => ({}))) as any;
+        const porBaixa = (await (await fetch(`${base}/${RF}?dataIni=2037-07-01&dataFim=2037-07-31&filtroData=BAIXA`, { headers: H })).json().catch(() => ({}))) as any;
+        const doRcbV = (porVenc.linhas ?? []).find((l: any) => Number(l.codigo) === rcb && l.lado === 'R');
+        const doRcbB = (porBaixa.linhas ?? []).find((l: any) => Number(l.codigo) === rcb && l.lado === 'R');
+        check('REL FINANCEIRO §115.1 [o filtro por BAIXA, que no legado nem roda]: o legado cola `AND DTPGTO BETWEEN` sem prefixo num SELECT que já tem `LEFT JOIN ARECEBER_BX` — e como as DUAS tabelas têm a coluna, o Oracle responde **ORA-00918** e a consulta falha (verificado na produção). Aqui a data de baixa é a da BAIXA: o título vence em junho e foi baixado em julho, então aparece em cada filtro no seu mês. ⚠️ a coluna denormalizada do título está nula, que é o estado de 44 mil títulos quitados do cliente',
+          !!doRcbV && !!doRcbB && String(doRcbB.baixa).slice(0, 10) === '2037-07-10'
+          && Math.abs(Number(doRcbB.valorpg) - 500) < 0.005,
+          { porVencimento: !!doRcbV, porBaixa: doRcbB });
+
+        const ambos = (await (await fetch(`${base}/${RF}?dataIni=2037-06-01&dataFim=2037-06-30&filtroData=VENCIMENTO`, { headers: H })).json().catch(() => ({}))) as any;
+        const soReceb = (await (await fetch(`${base}/${RF}?dataIni=2037-06-01&dataFim=2037-06-30&filtroData=VENCIMENTO&compromissos=N`, { headers: H })).json().catch(() => ({}))) as any;
+        const aberto = (await (await fetch(`${base}/${RF}?dataIni=2037-06-01&dataFim=2037-06-30&filtroData=VENCIMENTO&situacao=ABERTO`, { headers: H })).json().catch(() => ({}))) as any;
+        const temAp = (l: any) => (l.linhas ?? []).some((x: any) => Number(x.codigo) === apg && x.lado === 'P');
+        const temRc = (l: any) => (l.linhas ?? []).some((x: any) => Number(x.codigo) === rcb && x.lado === 'R');
+        check('REL FINANCEIRO §115.2 [os dois lados e a situação]: recebíveis e compromissos no mesmo extrato, cada um podendo ser desligado; `ABERTO` deixa só o que não foi quitado — o recebível baixado sai e o compromisso em aberto fica',
+          temAp(ambos) && temRc(ambos) && temRc(soReceb) && !temAp(soReceb)
+          && temAp(aberto) && !temRc(aberto),
+          { ambos: [temRc(ambos), temAp(ambos)], soReceb: [temRc(soReceb), temAp(soReceb)], aberto: [temRc(aberto), temAp(aberto)] });
+
+        // ⚠️ o LIKE do parceiro não pode derrubar título SEM parceiro
+        const semParc = Number((await pgRf.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc)
+          VALUES (1, NULL, 'RF-SEM', '2037-06-02', '2037-06-21', 90.00, 'N', 'DP') RETURNING codrcb`)).rows[0].codrcb);
+        const semFiltro = (await (await fetch(`${base}/${RF}?dataIni=2037-06-01&dataFim=2037-06-30&filtroData=VENCIMENTO`, { headers: H })).json().catch(() => ({}))) as any;
+        const comFiltro = (await (await fetch(`${base}/${RF}?dataIni=2037-06-01&dataFim=2037-06-30&filtroData=VENCIMENTO&parceiro=CLIENTE`, { headers: H })).json().catch(() => ({}))) as any;
+        const achaSem = (l: any) => (l.linhas ?? []).some((x: any) => Number(x.codigo) === semParc && x.lado === 'R');
+        check('REL FINANCEIRO §115.3 [o LIKE que anulava o LEFT JOIN]: `AND P.RAZAO LIKE` sobre um LEFT JOIN derruba todo título SEM parceiro, porque `NULL LIKE` é falso (:610) — o mesmo defeito já corrigido em outras telas. Sem filtro o título sem parceiro aparece, rotulado; com filtro de nome ele sai, que é o esperado',
+          achaSem(semFiltro) && !achaSem(comFiltro)
+          && (semFiltro.linhas ?? []).find((x: any) => Number(x.codigo) === semParc)?.parceiro === '(sem parceiro)',
+          { semFiltro: achaSem(semFiltro), comFiltro: achaSem(comFiltro) });
+
+        // o total do TÍTULO não pode multiplicar quando há várias baixas
+        await pgRf.query(`INSERT INTO areceber_bx (codrcb, codempresa, dtpgto, valorpg, juros, acre_desc, indr)
+                          VALUES ($1, 1, '2037-07-11', 0.01, 0, 0, 'I')`, [rcb]);
+        const multi = (await (await fetch(`${base}/${RF}?dataIni=2037-06-01&dataFim=2037-06-30&filtroData=VENCIMENTO&compromissos=N`, { headers: H })).json().catch(() => ({}))) as any;
+        const linhasDoRcb = (multi.linhas ?? []).filter((l: any) => Number(l.codigo) === rcb).length;
+        const semGrant = await fetch(`${base}/${RF}?dataIni=2037-06-01&dataFim=2037-06-30`, { headers: H_SEM_ACESSO });
+        const invertido = await fetch(`${base}/${RF}?dataIni=2037-06-30&dataFim=2037-06-01`, { headers: H });
+        check('REL FINANCEIRO §115.4 [duas baixas, duas linhas, UM título]: o LEFT JOIN multiplica a linha — e é assim que o legado mostra, uma por baixa. Mas o total do TÍTULO entra **uma vez só** (500,00, não 1.000,00), senão o extrato dobraria o saldo a cada baixa parcial. O recebido soma as duas (500,01). Sem grant, 403; período invertido, 400',
+          linhasDoRcb === 2 && Math.abs(Number(multi.totais?.receber) - 590) < 0.005
+          && Math.abs(Number(multi.totais?.recebido) - 500.01) < 0.005
+          && semGrant.status === 403 && invertido.status === 400,
+          { linhas: linhasDoRcb, totais: multi.totais, rbac: semGrant.status, invertido: invertido.status });
+
+        await pgRf.query(`DELETE FROM areceber_bx WHERE codrcb=$1`, [rcb]);
+        await pgRf.query(`DELETE FROM areceber WHERE codrcb IN ($1,$2)`, [rcb, semParc]);
+        await pgRf.query(`DELETE FROM apagar WHERE codapg=$1`, [apg]);
+      } finally {
+        await pgRf.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
