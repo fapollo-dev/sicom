@@ -13965,6 +13965,96 @@ async function main() {
         await pgHc.end();
       }
     }
+
+    // ══ ATUALIZAÇÃO AUTOMÁTICA DE PRODUTOS (FRMMULTATUALIZACAO) ═══════════════════════════════════════
+    {
+      const MA = 'cadastro/mult-atualizacao';
+      const pgMa = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // famílias: um grupo, um departamento e um subgrupo que aponta para os dois (a hierarquia do legado)
+        await pgMa.query(`INSERT INTO familias_prod (codfamilia, tipo, descricao, codgrupo, coddpto) VALUES
+          (7701,'G','GRUPO SMOKE MA',NULL,NULL), (7702,'D','DEPTO SMOKE MA',NULL,NULL),
+          (7703,'S','SUBGRUPO SMOKE MA',7701,7702) ON CONFLICT DO NOTHING`);
+        const prods: number[] = [];
+        for (const [i, desc] of ['ARROZ SMOKE MA', 'FEIJAO SMOKE MA', 'FARINHA SMOKE MA'].entries()) {
+          const r = await pgMa.query(
+            `INSERT INTO produtos (idproduto, codbarra, descricao, unidade, ativo, codgrupo, codsubgrupo, coddpto, codfor, aliquota)
+             VALUES ($1,$2,$3,'UN','S',1,1,1,1,'T01') RETURNING idproduto`,
+            [990900 + i, `789000000090${i}`, desc]);
+          prods.push(Number(r.rows[0].idproduto));
+          await pgMa.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, markup, ativo)
+                            VALUES ($1, 1, $2, $3, 20, 'S')`, [990900 + i, 10 + i, 20 + i * 2]);
+        }
+        // a FARINHA compõe outro produto: é a trava de desativação
+        await pgMa.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, ativo, codfor, aliquota) VALUES (990910,'7890000009910','PAO SMOKE MA','UN','S',1,'T01') ON CONFLICT DO NOTHING`);
+        await pgMa.query(`INSERT INTO composicao (idproduto, idproduto_01, qtde) VALUES (990910, $1, 1)`, [prods[2]]);
+
+        const busca = (await (await fetch(`${base}/${MA}/produtos?texto=SMOKE%20MA&limite=50`, { headers: H })).json().catch(() => ([]))) as any[];
+        const doGrupo = (busca ?? []).filter((p: any) => prods.includes(Number(p.idproduto)));
+        check('MULT ATUALIZAÇÃO §109.1: a busca traz o produto com o preço da EMPRESA da sessão (`multi_preco`) ao lado do cadastro, que é global — é dessa grade que o operador escolhe quem vai ser alterado',
+          doGrupo.length === 3 && Math.abs(Number(doGrupo.find((p: any) => p.descricao === 'ARROZ SMOKE MA')?.vrvenda) - 20) < 0.005
+          && Math.abs(Number(doGrupo.find((p: any) => p.descricao === 'ARROZ SMOKE MA')?.vrcusto) - 10) < 0.005,
+          { achados: doGrupo.length, arroz: doGrupo.find((p: any) => p.descricao === 'ARROZ SMOKE MA') });
+
+        // SIMULAR: +10% no valor de venda. O percentual é do valor ATUAL DE CADA produto (20, 22, 24)
+        const simBody = { idprodutos: prods, campo: 'VR_VENDA', operacao: 'SOMAR', modo: 'PERCENTUAL', valor: '10' };
+        const sim = await fetch(`${base}/${MA}/simular`, { method: 'POST', headers: H, body: JSON.stringify(simBody) });
+        const simJ = (await sim.json().catch(() => ({}))) as any;
+        const antesNoBanco = (await pgMa.query(`SELECT round(sum(vrvenda),2)::float8 s FROM multi_preco WHERE idproduto = ANY($1) AND idempresa=1`, [prods])).rows[0] as any;
+        const l0 = (simJ.linhas ?? []).find((l: any) => l.descricao === 'ARROZ SMOKE MA');
+        const l2 = (simJ.linhas ?? []).find((l: any) => l.descricao === 'FARINHA SMOKE MA');
+        check('MULT ATUALIZAÇÃO §109.2 [simular NÃO grava, e o percentual é de CADA produto]: +10% sobre 20,00 dá 22,00 e sobre 24,00 dá 26,40 — o legado calcula `campo × pct / 100` linha a linha (`:679`), não um valor fixo aplicado a todos. E a prévia não toca no banco: a soma continua 66,00',
+          sim.status === 200 && Number(simJ.mudam) === 3
+          && Math.abs(Number(l0?.depois) - 22) < 0.005 && Math.abs(Number(l2?.depois) - 26.4) < 0.005
+          && Math.abs(Number(antesNoBanco.s) - 66) < 0.005,
+          { mudam: simJ.mudam, arroz: l0, farinha: l2, somaNoBanco: antesNoBanco.s });
+
+        const apl = await fetch(`${base}/${MA}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify(simBody) });
+        const aplJ = (await apl.json().catch(() => ({}))) as any;
+        const depoisNoBanco = (await pgMa.query(`SELECT round(sum(vrvenda),2)::float8 s FROM multi_preco WHERE idproduto = ANY($1) AND idempresa=1`, [prods])).rows[0] as any;
+        const hist = (await pgMa.query(`SELECT count(*)::int n FROM historico_dinamico WHERE origem='FRMMULTATUALIZACAO' AND campo='VRVENDA'`)).rows[0] as any;
+        check('MULT ATUALIZAÇÃO §109.3 [aplicar grava, e o preço deixa rastro]: 66,00 viram **72,60** em `multi_preco` (o preço é por empresa) e cada mudança de VRVENDA vira uma linha de histórico — o legado guarda histórico só de VRVENDA e VRCUSTO (`FCamposHistorico` :368), e é a única pista de quem mexeu no preço de N produtos de uma vez',
+          apl.status === 200 && Number(aplJ.produtos) === 3
+          && Math.abs(Number(depoisNoBanco.s) - 72.6) < 0.005 && Number(hist.n) === 3,
+          { resp: aplJ, soma: depoisNoBanco.s, historico: hist.n });
+
+        // trocar o SUBGRUPO arrasta grupo e departamento
+        const sub = await fetch(`${base}/${MA}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [prods[0]], campo: 'CODSUBGRUPO', operacao: 'SUBSTITUIR', modo: 'VALOR', valor: '7703' }) });
+        const hier = (await pgMa.query(`SELECT codsubgrupo, codgrupo, coddpto FROM produtos WHERE idproduto=$1`, [prods[0]])).rows[0] as any;
+        const subInvalido = await fetch(`${base}/${MA}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [prods[0]], campo: 'CODSUBGRUPO', operacao: 'SUBSTITUIR', modo: 'VALOR', valor: '7701' }) });
+        check('MULT ATUALIZAÇÃO §109.4 [o subgrupo ARRASTA a hierarquia, e um grupo não serve de subgrupo]: trocar o subgrupo para 7703 puxa grupo 7701 e departamento 7702 do próprio registro da família (`AdicionaComplementoSubGrupo` :127) — 505 das 520 famílias tipo `S` do cliente têm essa hierarquia. E informar 7701, que é um GRUPO, é recusado: `FAMILIAS_PROD.TIPO` é quem diz o que cada código é',
+          sub.status === 200 && Number(hier.codsubgrupo) === 7703 && Number(hier.codgrupo) === 7701
+          && Number(hier.coddpto) === 7702 && subInvalido.status === 422,
+          { hierarquia: hier, invalido: subInvalido.status });
+
+        // as travas e as recusas
+        const desativaFarinha = await fetch(`${base}/${MA}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: prods, campo: 'ATIVO', operacao: 'SUBSTITUIR', modo: 'VALOR', valor: 'N' }) });
+        const aindaAtivos = (await pgMa.query(`SELECT count(*)::int n FROM produtos WHERE idproduto = ANY($1) AND ativo='S'`, [prods])).rows[0] as any;
+        const divZero = await fetch(`${base}/${MA}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: prods, campo: 'VR_VENDA', operacao: 'DIVIDIR', modo: 'VALOR', valor: '0' }) });
+        const opErrada = await fetch(`${base}/${MA}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: prods, campo: 'DESCRICAO', operacao: 'MULTIPLICAR', modo: 'VALOR', valor: '2' }) });
+        const semGrant = await fetch(`${base}/${MA}/aplicar`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify(simBody) });
+        check('MULT ATUALIZAÇÃO §109.5 [as travas]: desativar em massa é recusado porque UM dos três (a FARINHA) compõe outro produto — e, como é uma transação só, **nenhum** dos três é desativado: o legado aborta no meio e deixa os anteriores já mexidos em memória. Dividir por zero é barrado na porta (no legado derruba a rotina), multiplicar um campo de TEXTO também, e gravar sem `BTNGRAVAR` é 403',
+          desativaFarinha.status === 422 && Number(aindaAtivos.n) === 3
+          && divZero.status === 400 && opErrada.status === 400 && semGrant.status === 403,
+          { desativa: desativaFarinha.status, aindaAtivos: aindaAtivos.n, divZero: divZero.status,
+            opErrada: opErrada.status, rbac: semGrant.status });
+
+        // texto: prefixar e sufixar
+        const pref = await fetch(`${base}/${MA}/aplicar`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [prods[0]], campo: 'DESCRICAO', operacao: 'PREFIXAR', modo: 'VALOR', valor: 'ORG ' }) });
+        const nome = (await pgMa.query(`SELECT descricao FROM produtos WHERE idproduto=$1`, [prods[0]])).rows[0] as any;
+        check('MULT ATUALIZAÇÃO §109.6 [as três operações de texto]: `PREFIXAR` põe o valor ANTES do que já existe (`toaSomarTextoIni` :683) — `ARROZ SMOKE MA` vira `ORG ARROZ SMOKE MA`. É como se marca uma linha inteira de produtos de uma vez',
+          pref.status === 200 && nome?.descricao === 'ORG ARROZ SMOKE MA',
+          { descricao: nome?.descricao });
+
+        await pgMa.query(`DELETE FROM historico_dinamico WHERE origem='FRMMULTATUALIZACAO'`);
+        await pgMa.query(`DELETE FROM composicao WHERE idproduto=990910`);
+        await pgMa.query(`DELETE FROM multi_preco WHERE idproduto = ANY($1)`, [[...prods, 990910]]);
+        await pgMa.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[...prods, 990910]]);
+        await pgMa.query(`DELETE FROM familias_prod WHERE codfamilia IN (7701,7702,7703)`);
+      } finally {
+        await pgMa.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

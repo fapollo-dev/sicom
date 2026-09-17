@@ -168,6 +168,8 @@ const TELAS = [
   { href: '/cadastro/config-conciliador', name: 'Layouts de conciliação', icon: CreditCard },
   // FRMCADHISTORICOCONTABIL — o texto que o razão imprime, com os `*` que a contabilização preenche.
   { href: '/cadastro/historico-contabil', name: 'Históricos contábeis', icon: BookText },
+  // FRMMULTATUALIZACAO — um campo, uma operação, N produtos de uma vez (60 acessos, 6 operadores).
+  { href: '/cadastro/mult-atualizacao', name: 'Atualização automática', icon: Package },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 

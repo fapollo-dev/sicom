@@ -34,6 +34,8 @@ import { CartaoCrudController } from './cartao.crud';
 import { GradeLayoutController } from './grade-layout.controller';
 import { GradeLayoutService } from './grade-layout.service';
 import { HistoricoContabilCrudController } from './historico-contabil.crud';
+import { MultAtualizacaoController } from './mult-atualizacao.controller';
+import { MultAtualizacaoService } from './mult-atualizacao.service';
 import { ConfigConciliadorController } from './config-conciliador.controller';
 import { ConfigConciliadorService } from './config-conciliador.service';
 import { ConferenciaNfIndexadorController } from './conferencia-nf-indexador.controller';
@@ -177,6 +179,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     ConferenciaNfIndexadorController,
     ConfigConciliadorController,
     HistoricoContabilCrudController,
+    MultAtualizacaoController,
     // o [F8]/[F9] do legado: layout da grade por operador, para todas as telas.
     GradeLayoutController, // FRMRELLANCAMENTOSCONTABEIS — o razão por lançamento, com a origem pelo nome
     NfAnaliseController, // FRMNFANALISE — análise de notas (tributária + conferência)
@@ -224,7 +227,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     ExportaBalancaService,
     AjustePrecosService,
     TrocaService,
-    CartaoBaixaService, NfAnaliseService, LancamentosContabeisService, PromocaoAcumulativaService, ConferenciaNfIndexadorService, ConfigConciliadorService, GradeLayoutService,
+    CartaoBaixaService, NfAnaliseService, LancamentosContabeisService, PromocaoAcumulativaService, ConferenciaNfIndexadorService, ConfigConciliadorService, MultAtualizacaoService, GradeLayoutService,
     ConciliacaoBancariaService,
     AgendaPromocaoService,
     PerfilRelacaoService,

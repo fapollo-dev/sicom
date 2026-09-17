@@ -36,6 +36,7 @@ export * from './schema/scrap.schema';
 export * from './schema/cartao.schema';
 export * from './schema/config-conciliador.schema';
 export * from './schema/historico-contabil.schema';
+export * from './schema/mult-atualizacao.schema';
 export * from './schema/integracao-contabil.schema';
 export * from './schema/troca.schema';
 export * from './schema/conciliacao.schema';
