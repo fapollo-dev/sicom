@@ -14736,6 +14736,59 @@ async function main() {
         await pgIn.end();
       }
     }
+
+    // ══ FATURAMENTO DA NOTA (FRMFATURAMENTO2) ════════════════════════════════════════════════════════
+    {
+      const FT = 'compras/faturamento';
+      const pgFt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const hojeIso = new Date().toISOString().slice(0, 10);
+        const ontem = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+        const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+        // uma nota de ENTRADA processada, com quatro parcelas: vencida, hoje, a vencer e uma já faturada
+        await pgFt.query(`INSERT INTO nf (codnf, idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, tipoemissao, finalidade, cfop, idsituacao_nf, codparceiro, codparceiro_end, proc, totalnf, totalprod, cancelada)
+          VALUES (991690, 1, 'E', '55', '991690', '1', $1, $1, '1', '1', '1102', 6, 2, NULL, 'S', 1000, 1000, 'N')`, [ontem]);
+        // ⚠️ uma nota NÃO processada: o legado exige PROC='S' e ela não deve aparecer
+        await pgFt.query(`INSERT INTO nf (codnf, idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, tipoemissao, finalidade, cfop, idsituacao_nf, codparceiro, codparceiro_end, proc, totalnf, totalprod, cancelada)
+          VALUES (991691, 1, 'E', '55', '991691', '1', $1, $1, '1', '1', '1102', 6, 2, NULL, 'N', 500, 500, 'N')`, [ontem]);
+        await pgFt.query(`INSERT INTO faturamento (idnf, data, modalidade, valor, liberado, nrofatura, totalparcelasfatura) VALUES
+          (991690, $1, 'A PAGAR', 250.00, 'N', 1, 4),
+          (991690, $2, 'A PAGAR', 250.00, 'N', 2, 4),
+          (991690, $3, 'APAGAR',  250.00, 'N', 3, 4),
+          (991690, $2, 'A PAGAR', 250.00, 'S', 4, 4),
+          (991691, $2, 'A PAGAR', 500.00, 'N', 1, 1),
+          (991690, '0202-06-05', 'A PAGAR', 99.00, 'N', 5, 4)`, [ontem, hojeIso, amanha]);
+
+        const aFaturar = (await (await fetch(`${base}/${FT}?dataIni=0001-01-01&dataFim=2100-12-31&base=PARCELA&tipo=E&liberado=N`, { headers: H })).json().catch(() => ({}))) as any;
+        const codigos = (aFaturar.linhas ?? []).map((l: any) => Number(l.idnf));
+        check('FATURAMENTO §123.1 [só nota PROCESSADA, e só o que falta faturar]: o legado exige `COALESCE(N.PROC,\'N\') = \'S\'` — a nota não processada (991691) fica de fora. E `liberado=N` traz só o que ainda não virou título: **4 parcelas** da nota 991690 (as três de vencimento mais a de ano inválido), não a que já foi liberada',
+          (aFaturar.linhas ?? []).length === 4 && !codigos.includes(991691)
+          && Number(aFaturar.totais?.notas) === 1,
+          { linhas: aFaturar.linhas?.length, notas: aFaturar.totais?.notas, totais: aFaturar.totais });
+
+        check('FATURAMENTO §123.2 [a legenda de três cores]: vencendo HOJE, ATRASADA e a vencer, cada parcela com a sua situação — é a legenda do original. E a parcela com o ano digitado errado (`0202`) é marcada: no cliente são **5 delas, R$ 11.193,35**, e o legado aceita qualquer data',
+          Number(aFaturar.totais?.vencendoHoje) === 1
+          // 2 atrasadas: a de ontem e a de ano 0202 — que é passado de verdade, então conta
+          && Number(aFaturar.totais?.atrasadas) === 2
+          && Number(aFaturar.totais?.dataInvalida) === 1
+          && (aFaturar.linhas ?? []).some((l: any) => l.situacao === 'A_VENCER'),
+          { totais: aFaturar.totais, situacoes: (aFaturar.linhas ?? []).map((l: any) => l.situacao) });
+
+        const faturadas = (await (await fetch(`${base}/${FT}?dataIni=0001-01-01&dataFim=2100-12-31&base=PARCELA&tipo=E&liberado=S`, { headers: H })).json().catch(() => ({}))) as any;
+        const modalidades = new Set((aFaturar.linhas ?? []).map((l: any) => l.modalidade_norm));
+        const semGrant = await fetch(`${base}/${FT}?dataIni=2044-01-01&dataFim=2044-12-31`, { headers: H_SEM_ACESSO });
+        check('FATURAMENTO §123.3: o outro lado (o já faturado) traz 1 parcela; as duas grafias da modalidade (`A PAGAR` e `APAGAR`, 45.897 e 7 no cliente) normalizam para a mesma; sem grant, 403',
+          (faturadas.linhas ?? []).length === 1 && Number(faturadas.totais?.faturadas) === 1
+          && modalidades.size === 1 && modalidades.has('APAGAR')
+          && semGrant.status === 403,
+          { faturadas: faturadas.linhas?.length, modalidades: [...modalidades], rbac: semGrant.status });
+
+        await pgFt.query(`DELETE FROM faturamento WHERE idnf IN (991690,991691)`);
+        await pgFt.query(`DELETE FROM nf WHERE codnf IN (991690,991691)`);
+      } finally {
+        await pgFt.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

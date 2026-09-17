@@ -47,6 +47,7 @@ export * from './schema/analise-casa-carne.schema';
 export * from './schema/rel-vendas-dinamico.schema';
 export * from './schema/rel-precos-alterados.schema';
 export * from './schema/rel-analise-itens-nf.schema';
+export * from './schema/faturamento.schema';
 export * from './schema/historico-contabil.schema';
 export * from './schema/mult-atualizacao.schema';
 export * from './schema/integracao-contabil.schema';

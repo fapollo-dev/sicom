@@ -1,3 +1,5 @@
+import { FaturamentoController } from './faturamento.controller';
+import { FaturamentoService } from './faturamento.service';
 import { PedidoVendaController } from './pedido-venda.controller';
 import { PedidoVendaService } from './pedido-venda.service';
 import { CotacaoFornController } from './cotacao-forn.controller';
@@ -40,6 +42,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 @Module({
   imports: [CadastroModule, AuthModule], // Cadastro=NfFaturamento/Config; Auth=LiberacaoService (wire do limite E8 c3). Acíclico.
   controllers: [
+    FaturamentoController,
     // FRMCADCOTACAOFORN — o fornecedor preenche os preços (137 acessos).
     CotacaoFornController,
     // FRMDIGITACAOPEDIDOS — o pedido de VENDA (116 acessos).
@@ -59,6 +62,6 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     ManifestoDfeController,
     PendenciaOperadorController,
   ],
-  providers: [CotacaoFornService, PedidoVendaService, PedidoCompraService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, ManifestoDfeService, SefazDfeService, PendenciaOperadorService, AnaliseMotorService, ConfigService, DatabaseProvider],
+  providers: [FaturamentoService, CotacaoFornService, PedidoVendaService, PedidoCompraService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, ManifestoDfeService, SefazDfeService, PendenciaOperadorService, AnaliseMotorService, ConfigService, DatabaseProvider],
 })
 export class ComprasModule {}

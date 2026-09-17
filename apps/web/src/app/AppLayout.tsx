@@ -196,6 +196,8 @@ const TELAS = [
   { href: '/relatorios/precos-alterados', name: 'Preços alterados', icon: Tag },
   // FRMRELANALISEITENSNF — item a item das notas, com base, ICMS e ST (34 acessos).
   { href: '/relatorios/analise-itens-nf', name: 'Análise de itens da NF', icon: FileSearch },
+  // FRMFATURAMENTO2 — as parcelas da nota: vencendo hoje, atrasadas, faturadas (34 acessos, 8 operadores).
+  { href: '/compras/faturamento', name: 'Faturamento da nota', icon: CalendarClock },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 

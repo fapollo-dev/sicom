@@ -148,6 +148,7 @@
       "estoque_dep",
       "etiqueta_cons_prod",
       "fator_conversao",
+      "faturamento",
       "itens_mancartao",
       "itens_producao",
       "itens_troca",
