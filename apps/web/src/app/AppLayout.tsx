@@ -194,6 +194,8 @@ const TELAS = [
   { href: '/relatorios/vendas-dinamico', name: 'Análise de vendas de produtos', icon: Package },
   // FRMRELPRECOSALTERADOS — que preços mudaram, de quanto para quanto (35 acessos).
   { href: '/relatorios/precos-alterados', name: 'Preços alterados', icon: Tag },
+  // FRMRELANALISEITENSNF — item a item das notas, com base, ICMS e ST (34 acessos).
+  { href: '/relatorios/analise-itens-nf', name: 'Análise de itens da NF', icon: FileSearch },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 

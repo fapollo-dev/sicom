@@ -14679,6 +14679,63 @@ async function main() {
         await pgPa.end();
       }
     }
+
+    // ══ ANÁLISE DE ITENS DA NOTA FISCAL (FRMRELANALISEITENSNF) ═══════════════════════════════════════
+    {
+      const IN2 = 'relatorios/analise-itens-nf';
+      const pgIn = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgIn.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, ativo, codfor, aliquota)
+                          VALUES (991500,'7891500001500','PROD IN SMOKE','UN','S',1,'T01') ON CONFLICT DO NOTHING`);
+        // três notas na mesma data: ENTRADA válida, SAÍDA e ENTRADA CANCELADA
+        const notas: Array<[number, string, string]> = [[991590, 'E', 'N'], [991591, 'S', 'N'], [991592, 'E', 'S']];
+        for (const [cod, tipo, canc] of notas) {
+          await pgIn.query(`INSERT INTO nf (codnf, idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, tipoemissao, finalidade, cfop, idsituacao_nf, codparceiro, codparceiro_end, proc, totalnf, totalprod, cancelada)
+            VALUES ($1, 1, $2, '55', $3, '1', '2044-08-10', '2044-08-10', '1', '1', '1102', 6, 2, NULL, 'S', 100, 100, $4)`, [cod, tipo, String(cod), canc]);
+        }
+        // o item da entrada válida: 10 × R$ 10,00 − desconto 5,00 = 95,00
+        await pgIn.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, desconto, vrbasecalculo, vricm, vrbasest, vricmst, aliquota, cfop)
+                          VALUES (991590, 991500, 10, 10.00, 5.00, 95.00, 17.10, 0, 0, 'T01', '1102')`);
+        // ⚠️ o mesmo item numa SEGUNDA entrada, com DESCONTO NULO — no legado a linha sumia do total
+        await pgIn.query(`INSERT INTO nf (codnf, idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, tipoemissao, finalidade, cfop, idsituacao_nf, codparceiro, codparceiro_end, proc, totalnf, totalprod, cancelada)
+          VALUES (991593, 1, 'E', '55', '991593', '1', '2044-08-11', '2044-08-11', '1', '1', '1102', 6, 2, NULL, 'S', 40, 40, 'N')`);
+        await pgIn.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, desconto, vrbasecalculo, vricm, vrbasest, vricmst, aliquota, cfop)
+                          VALUES (991593, 991500, 4, 10.00, NULL, 40.00, 7.20, 0, 0, 'IST', '1102')`);
+        await pgIn.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, desconto, vrbasecalculo, vricm, vrbasest, vricmst, aliquota, cfop)
+                          VALUES (991591, 991500, 2, 30.00, 0, 60.00, 10.20, 0, 0, 'T01', '5102')`);
+        await pgIn.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, vrcusto, desconto, vrbasecalculo, vricm, vrbasest, vricmst, aliquota, cfop)
+                          VALUES (991592, 991500, 99, 99.00, 0, 9801.00, 1666.17, 0, 0, 'T01', '1102')`);
+
+        const entradas = (await (await fetch(`${base}/${IN2}?dataIni=2044-08-01&dataFim=2044-08-31`, { headers: H })).json().catch(() => ({}))) as any;
+        const todas = (await (await fetch(`${base}/${IN2}?dataIni=2044-08-01&dataFim=2044-08-31&tipo=TODAS&incluirCanceladas=S`, { headers: H })).json().catch(() => ({}))) as any;
+        check('ANÁLISE ITENS NF §122.1 [o WHERE do legado só filtrava DATA]: sem empresa, sem tipo e sem cancelamento, ele somava 6.840 notas de entrada com **943 de saída** de **3 empresas** em agosto/2026. Aqui o padrão são só as ENTRADAS não canceladas — duas linhas; pedindo tudo, vêm as quatro (incluindo a saída e a cancelada, que sozinha traria R$ 9.801,00 para o total)',
+          (entradas.linhas ?? []).length === 2 && (todas.linhas ?? []).length === 4,
+          { soEntradas: entradas.linhas?.length, todas: todas.linhas?.length });
+
+        const comDesc = (entradas.linhas ?? []).find((l: any) => Number(l.codnf) === 991590);
+        const semDesc = (entradas.linhas ?? []).find((l: any) => Number(l.codnf) === 991593);
+        check('ANÁLISE ITENS NF §122.2 [o desconto nulo não some mais]: `(QUANTIDADE × VRCUSTO) − DESCONTO` sem `COALESCE` vira NULL e o item desaparece do somatório — 23 linhas de 497.627. Aqui a linha com desconto nulo vale **40,00** e a com desconto vale **95,00**, somando **135,00**. E o item com alíquota `IST` conta como **isento** (40,00)',
+          Math.abs(Number(comDesc?.total_custo) - 95) < 0.005
+          && Math.abs(Number(semDesc?.total_custo) - 40) < 0.005
+          && Math.abs(Number(entradas.totais?.custo) - 135) < 0.005
+          && Math.abs(Number(entradas.totais?.isento) - 40) < 0.005
+          && Math.abs(Number(entradas.totais?.icms) - 24.3) < 0.005,
+          { comDesconto: comDesc?.total_custo, semDesconto: semDesc?.total_custo, totais: entradas.totais });
+
+        const porNota = (await (await fetch(`${base}/${IN2}?dataIni=2044-08-01&dataFim=2044-08-31&codnf=991590`, { headers: H })).json().catch(() => ({}))) as any;
+        const semGrant = await fetch(`${base}/${IN2}?dataIni=2044-08-01&dataFim=2044-08-31`, { headers: H_SEM_ACESSO });
+        const invertido = await fetch(`${base}/${IN2}?dataIni=2044-08-31&dataFim=2044-08-01`, { headers: H });
+        check('ANÁLISE ITENS NF §122.3: os filtros de nota, fornecedor, departamento, grupo e produto recortam; sem grant, 403; período invertido, 400',
+          (porNota.linhas ?? []).length === 1 && semGrant.status === 403 && invertido.status === 400,
+          { porNota: porNota.linhas?.length, rbac: semGrant.status, invertido: invertido.status });
+
+        await pgIn.query(`DELETE FROM nf_prod WHERE codnf IN (991590,991591,991592,991593)`);
+        await pgIn.query(`DELETE FROM nf WHERE codnf IN (991590,991591,991592,991593)`);
+        await pgIn.query(`DELETE FROM produtos WHERE idproduto=991500`);
+      } finally {
+        await pgIn.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
