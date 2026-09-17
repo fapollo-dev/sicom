@@ -43,6 +43,8 @@ import { RelEntSaiController } from './rel-ent-sai.controller';
 import { RelEntSaiService } from './rel-ent-sai.service';
 import { RelFaturamentoController } from './rel-faturamento.controller';
 import { RelFaturamentoService } from './rel-faturamento.service';
+import { SimuladorVendaController } from './simulador-venda.controller';
+import { SimuladorVendaService } from './simulador-venda.service';
 import { RelFinanceiroController } from './rel-financeiro.controller';
 import { RelFinanceiroService } from './rel-financeiro.service';
 import { RelInterseccaoController } from './rel-interseccao.controller';
@@ -86,12 +88,13 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     // FRMRELINTERSECCAOPRODUTOS — o que o cliente leva junto (117 acessos).
     RelInterseccaoController,
     RelFinanceiroController,
+    SimuladorVendaController,
     // FRMRELFATURAMENTO — faturamento por mês, com a perna NFC-e que falta no legado (80 acessos).
     RelFaturamentoController,
     // FRMRELENTSAI — compra × venda por produto (84 acessos).
     RelEntSaiController,
     // FRMANALISEENTRADAXSAIDA — por fornecedor, saída de venda ou pedido (68 acessos).
     AnaliseEntradaSaidaController],
-  providers: [RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService, RelCartoesService, RentabilidadeCategoriasService, RelComprasService, ProdutosRelService, RelEntradasSaidasService, RelDdeService, RelInterseccaoService, RelFinanceiroService, RelFaturamentoService, RelEntSaiService, AnaliseEntradaSaidaService],
+  providers: [RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService, RelCartoesService, RentabilidadeCategoriasService, RelComprasService, ProdutosRelService, RelEntradasSaidasService, RelDdeService, RelInterseccaoService, RelFinanceiroService, SimuladorVendaService, RelFaturamentoService, RelEntSaiService, AnaliseEntradaSaidaService],
 })
 export class RelatoriosModule {}

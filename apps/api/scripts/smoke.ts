@@ -14380,6 +14380,50 @@ async function main() {
         await pgRf.end();
       }
     }
+
+    // ══ SIMULADOR DE VENDAS (FRMSIMULADORVENDA) ══════════════════════════════════════════════════════
+    {
+      const SV = 'relatorios/simulador-venda';
+      const pgSv = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgSv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, ativo, codfor, aliquota)
+                          VALUES (991100,'7891100001100','PRODUTO SMOKE SV','UN','S',1,'T01') ON CONFLICT DO NOTHING`);
+        // empresa 1: 3 unidades a 10,00 (custo 6,00) + desconto de promoção 1,00 e acréscimo de 0,50
+        await pgSv.query(`INSERT INTO vendas (idempresa, codvendas_legado, codproduto, dtvenda, qtde, vrvenda, vrcusto, cancelado, desc_promocao, desc_acre_item, nropedido)
+          VALUES (1, 771001, 991100, '2038-03-10', 3, 10.00, 6.00, 'N', 1.00, 0.50, '771001')`);
+        // ⚠️ empresa 2 no MESMO dia e produto: é o que o legado somaria junto
+        await pgSv.query(`INSERT INTO vendas (idempresa, codvendas_legado, codproduto, dtvenda, qtde, vrvenda, vrcusto, cancelado, nropedido)
+          VALUES (2, 771002, 991100, '2038-03-10', 100, 10.00, 6.00, 'N', '771002')`);
+        // cancelada não entra
+        await pgSv.query(`INSERT INTO vendas (idempresa, codvendas_legado, codproduto, dtvenda, qtde, vrvenda, vrcusto, cancelado, nropedido)
+          VALUES (1, 771003, 991100, '2038-03-10', 50, 10.00, 6.00, 'S', '771003')`);
+
+        const r = (await (await fetch(`${base}/${SV}?dataIni=2038-03-01&dataFim=2038-03-31&produto=SMOKE%20SV`, { headers: H })).json().catch(() => ({}))) as any;
+        const l = (r.linhas ?? [])[0];
+        check('SIMULADOR §116.1 [o legado soma TODAS as empresas]: a query do original filtra só data e cancelado — não há `IDEMPRESA` em lugar nenhum, e em agosto/2026 isso mostrava R$ 2.227.179,71 onde a empresa 1 vendeu R$ 1.153.860,03. Aqui a venda da empresa 2 (100 unidades do mesmo produto, no mesmo dia) fica de fora, e a cancelada também: sobram as 3 unidades da loja da sessão',
+          (r.linhas ?? []).length === 1 && Math.abs(Number(l?.qtde) - 3) < 0.001,
+          { linhas: r.linhas?.length, qtde: l?.qtde });
+
+        // custo 3×6 = 18,00 · subtotal 3×10 = 30,00 · +0,50 acréscimo −1,00 desconto = 29,50 · lucro 11,50
+        check('SIMULADOR §116.2 [as contas, linha a linha]: custo 18,00 (arredondado) · subtotal 30,00 (truncado) · acréscimo 0,50 (a parte POSITIVA de DESC_ACRE_ITEM) · desconto 1,00 (DESC_PROMOCAO) ⇒ venda **29,50** e lucro **11,50**. ⚠️ o "Lucro %" é markup sobre o CUSTO: 11,50/18,00 dá **63,89%**, não os 38,98% que a margem sobre a venda daria',
+          Math.abs(Number(l?.total_custo) - 18) < 0.005 && Math.abs(Number(l?.sub_total_venda) - 30) < 0.005
+          && Math.abs(Number(l?.acrescimo) - 0.5) < 0.005 && Math.abs(Number(l?.desconto) - 1) < 0.005
+          && Math.abs(Number(l?.total_venda) - 29.5) < 0.005 && Math.abs(Number(l?.lucro_total) - 11.5) < 0.005
+          && Math.abs(Number(l?.lucro_perc) - 63.89) < 0.01,
+          { linha: l, totais: r.totais });
+
+        const semGrant = await fetch(`${base}/${SV}?dataIni=2038-03-01&dataFim=2038-03-31`, { headers: H_SEM_ACESSO });
+        const invertido = await fetch(`${base}/${SV}?dataIni=2038-03-31&dataFim=2038-03-01`, { headers: H });
+        check('SIMULADOR §116.3: sem grant, 403; período invertido, 400',
+          semGrant.status === 403 && invertido.status === 400,
+          { rbac: semGrant.status, invertido: invertido.status });
+
+        await pgSv.query(`DELETE FROM vendas WHERE codproduto=991100`);
+        await pgSv.query(`DELETE FROM produtos WHERE idproduto=991100`);
+      } finally {
+        await pgSv.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

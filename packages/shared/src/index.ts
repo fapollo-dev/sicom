@@ -41,6 +41,7 @@ export * from './schema/agenda-limitacao.schema';
 export * from './schema/conf-integ-bancaria.schema';
 export * from './schema/conf-plano-contas.schema';
 export * from './schema/rel-financeiro.schema';
+export * from './schema/simulador-venda.schema';
 export * from './schema/historico-contabil.schema';
 export * from './schema/mult-atualizacao.schema';
 export * from './schema/integracao-contabil.schema';

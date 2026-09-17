@@ -182,6 +182,8 @@ const TELAS = [
   { href: '/cadastro/conf-plano-contas', name: 'Config. plano de contas', icon: BookText },
   // FRMRELFINANCEIRO — recebíveis e compromissos no mesmo extrato (43 acessos, 7 operadores).
   { href: '/relatorios/financeiro', name: 'Relatório financeiro', icon: ArrowLeftRight },
+  // FRMSIMULADORVENDA — mexa no preço e veja o lucro que teria dado (42 acessos).
+  { href: '/relatorios/simulador-venda', name: 'Simulador de vendas', icon: Tag },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 
