@@ -184,6 +184,8 @@ const TELAS = [
   { href: '/relatorios/financeiro', name: 'Relatório financeiro', icon: ArrowLeftRight },
   // FRMSIMULADORVENDA — mexa no preço e veja o lucro que teria dado (42 acessos).
   { href: '/relatorios/simulador-venda', name: 'Simulador de vendas', icon: Tag },
+  // FRMAPURACAOPISCOFINS — crédito, débito e o saldo a recolher do bloco M (39 acessos).
+  { href: '/fiscal/apuracao-piscofins', name: 'Apuração PIS/COFINS', icon: FileSearch },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },
 ] as const;
 

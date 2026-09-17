@@ -3,6 +3,7 @@ import { SpedController } from './sped.controller';
 import { SpedEfdContribuicoesService } from './sped-efd-contribuicoes.service';
 import { SpedEfdIcmsIpiService } from './sped-efd-icms-ipi.service';
 import { SpedApuracaoPcService } from './sped-apuracao-pc.service';
+import { ApuracaoPcConsultaService } from './apuracao-pc-consulta.service';
 import { ApuracaoIcmsController } from './apuracao-icms.controller';
 import { ApuracaoIcmsService } from './apuracao-icms.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
@@ -13,6 +14,6 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
  */
 @Module({
   controllers: [SpedController, ApuracaoIcmsController],
-  providers: [SpedEfdContribuicoesService, SpedEfdIcmsIpiService, SpedApuracaoPcService, ApuracaoIcmsService, DatabaseProvider],
+  providers: [SpedEfdContribuicoesService, SpedEfdIcmsIpiService, SpedApuracaoPcService, ApuracaoPcConsultaService, ApuracaoIcmsService, DatabaseProvider],
 })
 export class SpedModule {}

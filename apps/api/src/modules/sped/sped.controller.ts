@@ -1,8 +1,9 @@
-import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
 import { gerarSpedSchema, type GerarSpedDto } from '@apollo/shared';
 import { SpedEfdContribuicoesService } from './sped-efd-contribuicoes.service';
 import { SpedEfdIcmsIpiService } from './sped-efd-icms-ipi.service';
 import { SpedApuracaoPcService } from './sped-apuracao-pc.service';
+import { ApuracaoPcConsultaService } from './apuracao-pc-consulta.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
@@ -18,6 +19,7 @@ export class SpedController {
     private readonly efd: SpedEfdContribuicoesService,
     private readonly efdIcmsIpi: SpedEfdIcmsIpiService,
     private readonly apuracao: SpedApuracaoPcService,
+    private readonly apuracaoConsulta: ApuracaoPcConsultaService,
   ) {}
 
   @Post('efd-contribuicoes')
@@ -35,6 +37,27 @@ export class SpedController {
   @RequerAcesso('FRMSPEDFISCAL', 'FRMSPEDFISCAL')
   gerarEfdIcmsIpi(@Body(new ZodValidationPipe(gerarSpedSchema)) dto: GerarSpedDto) {
     return this.efdIcmsIpi.gerar(dto.dtini, dto.dtfim);
+  }
+
+  /** as "Apurações Realizadas" da tela `FRMAPURACAOPISCOFINS`. */
+  @Get('apuracao-pc')
+  @RequerAcesso('FRMAPURACAOPISCOFINS', 'FRMAPURACAOPISCOFINS')
+  listarApuracoesPc() {
+    return this.apuracaoConsulta.listar();
+  }
+
+  /** uma apuração aberta: detalhe por tipo e o saldo por tributo (o M200/M600). */
+  @Get('apuracao-pc/:cod')
+  @RequerAcesso('FRMAPURACAOPISCOFINS', 'FRMAPURACAOPISCOFINS')
+  obterApuracaoPc(@Param('cod', ParseIntPipe) cod: number) {
+    return this.apuracaoConsulta.obter(cod);
+  }
+
+  /** o "reabrir" do legado: apaga para refazer. */
+  @Delete('apuracao-pc/:cod')
+  @RequerAcesso('FRMAPURACAOPISCOFINS', 'BTNEXCLUIR')
+  excluirApuracaoPc(@Param('cod', ParseIntPipe) cod: number) {
+    return this.apuracaoConsulta.excluir(cod);
   }
 
   /** apura o CRÉDITO de PIS/COFINS de entrada do período (popula apuracao_pc/_det p/ o bloco M). */

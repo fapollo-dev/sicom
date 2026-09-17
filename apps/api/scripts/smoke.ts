@@ -14424,6 +14424,51 @@ async function main() {
         await pgSv.end();
       }
     }
+
+    // ══ APURAÇÃO PIS/COFINS — a TELA (FRMAPURACAOPISCOFINS) ══════════════════════════════════════════
+    {
+      const AP = 'fiscal/sped/apuracao-pc';
+      const pgAp2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const cod = Number((await pgAp2.query(`INSERT INTO apuracao_pc (idempresa, dataini, datafim, codoperador)
+          VALUES (1, '2039-01-01', '2039-01-31', 7) RETURNING codapuracao_pc`)).rows[0].codapuracao_pc);
+        // crédito de entrada: PIS 100 / COFINS 460 · débito de saída: PIS 160 / COFINS 700
+        await pgAp2.query(`INSERT INTO apuracao_pc_det (codapuracao_pc, tipo, basecalculo, aliqpis, valorpis, aliqcofins, valorcofins, cst_pis) VALUES
+          ($1,'C', 6060.61, 1.65, 100.00, 7.60, 460.00, 50),
+          ($1,'D', 9696.97, 1.65, 160.00, 7.60, 700.00, 1)`, [cod]);
+
+        const lista = (await (await fetch(`${base}/${AP}`, { headers: H })).json().catch(() => ([]))) as any[];
+        const minha = (lista ?? []).find((x: any) => Number(x.codapuracao_pc) === cod);
+        const det = (await (await fetch(`${base}/${AP}/${cod}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('APURAÇÃO PIS/COFINS §117.1 [o saldo, que é o que o contador procura]: a lista traz crédito e débito de cada apuração, e o detalhe separa os dois lados. O **a recolher** é `débito − crédito` por tributo (o M200/M600): PIS 160 − 100 = **60,00** e COFINS 700 − 460 = **240,00**',
+          !!minha && Math.abs(Number(minha.credito) - 560) < 0.005 && Math.abs(Number(minha.debito) - 860) < 0.005
+          && (det.itens ?? []).length === 2
+          && Math.abs(Number(det.totais?.aRecolherPis) - 60) < 0.005
+          && Math.abs(Number(det.totais?.aRecolherCofins) - 240) < 0.005
+          && Number(det.totais?.creditoTransportarPis) === 0,
+          { daLista: minha, totais: det.totais });
+
+        // crédito MAIOR que o débito ⇒ transporta, e o a recolher é zero (não um número negativo)
+        await pgAp2.query(`UPDATE apuracao_pc_det SET valorpis=500, valorcofins=900 WHERE codapuracao_pc=$1 AND tipo='C'`, [cod]);
+        const det2 = (await (await fetch(`${base}/${AP}/${cod}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('APURAÇÃO PIS/COFINS §117.2 [crédito maior que o débito TRANSPORTA]: com crédito 500/900 contra débito 160/700, o a recolher é **zero** e o que sobra vira crédito a transportar (340 de PIS, 200 de COFINS) — é assim que o contador lê, e não como um valor a recolher negativo',
+          Number(det2.totais?.aRecolherPis) === 0 && Number(det2.totais?.aRecolherCofins) === 0
+          && Math.abs(Number(det2.totais?.creditoTransportarPis) - 340) < 0.005
+          && Math.abs(Number(det2.totais?.creditoTransportarCofins) - 200) < 0.005,
+          { totais: det2.totais });
+
+        const semGrant = await fetch(`${base}/${AP}`, { headers: H_SEM_ACESSO });
+        const naoExiste = await fetch(`${base}/${AP}/999777`, { headers: H });
+        const del = await fetch(`${base}/${AP}/${cod}`, { method: 'DELETE', headers: H });
+        const sobrou = (await pgAp2.query(`SELECT count(*)::int n FROM apuracao_pc_det WHERE codapuracao_pc=$1`, [cod])).rows[0] as any;
+        check('APURAÇÃO PIS/COFINS §117.3: excluir é o "reabrir" do legado — a apuração é idempotente por período, então refazer é apurar de novo; a exclusão leva o detalhe junto e serve para quando o recorte muda. Sem grant, 403; apuração inexistente, 422',
+          semGrant.status === 403 && naoExiste.status === 422
+          && (del.status === 200 || del.status === 204) && Number(sobrou.n) === 0,
+          { rbac: semGrant.status, inexistente: naoExiste.status, del: del.status, detalheRestante: sobrou.n });
+      } finally {
+        await pgAp2.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
