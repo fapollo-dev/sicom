@@ -107,7 +107,7 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 95 | `FRMVASILHAME` | 10 | 3 | ⛔ **sem substrato, com prova**: `HIST_VASILHAME` **0 linhas** — controle de vasilhame nunca usado |
 | 96 | `FRMINTEGRACAO_FISCAL` | 10 | 2 | ⛔ **sem substrato, com prova**: aplica um lote de saneamento fiscal em produtos por empresa — `PRODUTO_EMPRESA_LOTE` e `PRODUTO_EMPRESA_LOTE_ITENS` **0 linhas** |
 | 97 | `FRMSINTEGRA` | 10 | 2 |
-| 98 | `FRMRELCURVAABCFORNECEDOR` | 10 | 4 |
+| 98 | `FRMRELCURVAABCFORNECEDOR` | 10 | 4 | 🟢 **coberto**: a curva ABC do Apollo (`relatorios/curva-abc`, `rel-curva-abc.service.ts`) já tem a dimensão **FORNECEDOR** (rel 11, ao lado de PRODUTO e CLIENTE) — é esta tela. Nada a acrescentar |
 | 99 | `FRMRELGESTAO` | 9 | 3 |
 | 100 | `FRMCONTROLEENTREGAS` | 9 | 4 | ⛔ **sem substrato, com prova**: `HISTORICO_CONT_ENTREGAS` **0 linhas** — o controle de entregas nunca registrou uma |
 | 101 | `FRMCADMAPADECARGA` | 9 | 2 | ⛔ **sem substrato, com prova**: a maior unit do bloco (**6.161 linhas**, toca 20+ tabelas: caixa, cartão, cheque, a receber, estoque, faturamento…) para `MAPA_DE_CARGA`, `MAPA_DE_CARGA_DESPESAS` e `MAPA_DE_CARGA_RECEBIMENTOS` com **0 linhas** as três. Fluxo de venda externa/rota que a casa não pratica |
