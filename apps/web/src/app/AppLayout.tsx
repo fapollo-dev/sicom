@@ -221,6 +221,8 @@ const TELAS = [
   { href: '/contabil/balanco', name: 'Balanço patrimonial', icon: CalendarClock },
   { href: '/cobranca/gerar-financeiro-lote', name: 'Gerar financeiro em lote', icon: CalendarClock },
   { href: '/fiscal/figuras-fiscais', name: 'Figuras fiscais', icon: Tag },
+  { href: '/fiscal/config-legislacao', name: 'Legislação da NF-e', icon: FileSearch },
+  { href: '/cadastro/congela-estoque', name: 'Congelar estoque', icon: PackageSearch },
   // FRMCADINDEXADORTRIBUTARIO — de onde sai o ICMS-ST de toda entrada (23 acessos; 12.053 indexadores).
   { href: '/cadastro/indexador-tributario', name: 'Indexador tributário', icon: FileSearch },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },

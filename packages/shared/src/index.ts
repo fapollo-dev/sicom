@@ -71,6 +71,8 @@ export * from './schema/caixa-dme.schema';
 export * from './schema/rel-balanco.schema';
 export * from './schema/gerar-financeiro-lote.schema';
 export * from './schema/figura-fiscal.schema';
+export * from './schema/config-legislacao.schema';
+export * from './schema/congela-estoque.schema';
 export * from './schema/historico-contabil.schema';
 export * from './schema/mult-atualizacao.schema';
 export * from './schema/integracao-contabil.schema';

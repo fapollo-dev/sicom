@@ -16044,6 +16044,104 @@ async function main() {
         await pgFf.end();
       }
     }
+    // ══ LEGISLAÇÃO DA NF-e (FRMCONFIGLEGISLACAONFE) ════════════════════════════════════════════════════
+    {
+      const CL = 'fiscal/config-legislacao';
+      const pgCl2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const j = { ...H, 'content-type': 'application/json' };
+        // 4 regras: geral da empresa, por UF, por UF+CFOP, e uma com o texto estragado do cliente
+        const geral = await fetch(`${base}/${CL}`, { method: 'POST', headers: j, body: JSON.stringify({ descricao: 'GERAL TESTE', observacoes: 'Mensagem geral da empresa.' }) });
+        const geralJ = (await geral.json().catch(() => ({}))) as any;
+        const porUf = await fetch(`${base}/${CL}`, { method: 'POST', headers: j, body: JSON.stringify({ descricao: 'SUFRAMA TESTE', observacoes: 'INSCRICAO SUFRAMA: $(NF_SUFRAMA).', uf: 'AM' }) });
+        const porUfJ = (await porUf.json().catch(() => ({}))) as any;
+        const porCfop = await fetch(`${base}/${CL}`, { method: 'POST', headers: j, body: JSON.stringify({ descricao: 'DIFAL TESTE', observacoes: 'Partilha ICMS, DIFAL R$ %DIFAL%.', uf: 'AM', codcfop: 6108 }) });
+        const porCfopJ = (await porCfop.json().catch(() => ({}))) as any;
+        const estragada = await fetch(`${base}/${CL}`, { method: 'POST', headers: j, body: JSON.stringify({ descricao: 'SIMPLES TESTE', observacoes: " Documento emitido por ME ou EPP;'+ sLineBreak +' ReduÃ§Ã£o da Base" }) });
+        const estragadaJ = (await estragada.json().catch(() => ({}))) as any;
+        const lista = (await (await fetch(`${base}/${CL}`, { headers: H })).json().catch(() => ({}))) as any;
+        const daLista = (id: number) => (lista.itens ?? []).find((x: any) => x.codconfiglegislacao === id);
+        check('LEGISLAÇÃO NF-e §146.1 [o cadastro, e os três defeitos que a tela do legado escondia]: no cliente são 18 regras e **todas com CODCFOP nulo** — a função `GetConfigLegislacao` exige `CODCFOP = n`, então nenhuma NF-e jamais recebeu mensagem por ela. A listagem marca `invisivelNoLegado` para quem está sem CFOP, acha o **código Delphi colado no texto** (`+ sLineBreak +`, que existe de verdade em 2 linhas do cliente) e o **mojibake** de acentuação, e extrai os placeholders (`$(NF_SUFRAMA)`, `%DIFAL%`)',
+          geral.status === 201 && porUf.status === 201 && porCfop.status === 201 && estragada.status === 201
+          && daLista(geralJ.codconfiglegislacao)?.alertas?.invisivelNoLegado === true
+          && daLista(porCfopJ.codconfiglegislacao)?.alertas?.invisivelNoLegado === false
+          && daLista(estragadaJ.codconfiglegislacao)?.alertas?.codigoVazado === true
+          && daLista(estragadaJ.codconfiglegislacao)?.alertas?.mojibake === true
+          && (daLista(porUfJ.codconfiglegislacao)?.alertas?.placeholders ?? []).includes('$(NF_SUFRAMA)')
+          && (daLista(porCfopJ.codconfiglegislacao)?.alertas?.placeholders ?? []).includes('%DIFAL%')
+          && lista.totais?.semCfop >= 3 && lista.totais?.comCodigoVazado >= 1 && lista.totais?.comMojibake >= 1,
+          { status: [geral.status, porUf.status, porCfop.status, estragada.status], totais: lista.totais, alertas: daLista(estragadaJ.codconfiglegislacao)?.alertas });
+        const rAm = (await (await fetch(`${base}/${CL}/resolver?uf=AM&codcfop=6108`, { headers: H })).json().catch(() => ({}))) as any;
+        const rSp = (await (await fetch(`${base}/${CL}/resolver?uf=SP`, { headers: H })).json().catch(() => ({}))) as any;
+        check('LEGISLAÇÃO NF-e §146.2 [resolução por especificidade]: numa nota AM/CFOP 6108 a regra mais específica (UF+CFOP) ganha das genéricas, e todas as candidatas vêm listadas; numa nota SP só as regras gerais casam (a de AM fica fora); `resolucaoDoLegado` mostra o que a regra antiga devolveria',
+          rAm.escolhida?.codconfiglegislacao === porCfopJ.codconfiglegislacao && (rAm.candidatas ?? []).length >= 3
+          && rAm.resolucaoDoLegado?.codconfiglegislacao === porCfopJ.codconfiglegislacao
+          && !(rSp.candidatas ?? []).some((c: any) => c.codconfiglegislacao === porUfJ.codconfiglegislacao)
+          && (rSp.candidatas ?? []).some((c: any) => c.codconfiglegislacao === geralJ.codconfiglegislacao) && rSp.resolucaoDoLegado === null,
+          { am: [rAm.escolhida?.descricao, rAm.candidatas?.length, rAm.resolucaoDoLegado?.descricao], sp: [(rSp.candidatas ?? []).map((c: any) => c.descricao), rSp.resolucaoDoLegado] });
+        const del = await fetch(`${base}/${CL}/${estragadaJ.codconfiglegislacao}`, { method: 'DELETE', headers: H });
+        const depois = (await (await fetch(`${base}/${CL}`, { headers: H })).json().catch(() => ({}))) as any;
+        const comEx = (await (await fetch(`${base}/${CL}?excluidas=S`, { headers: H })).json().catch(() => ({}))) as any;
+        const semGrant = await fetch(`${base}/${CL}`, { headers: H_SEM_ACESSO });
+        check('LEGISLAÇÃO NF-e §146.3 [exclusão lógica + RBAC]: DELETE marca INDR=E (o cliente tem uma linha assim), some da lista padrão e aparece com ?excluidas=S; sem grant, 403',
+          del.status === 200 && !(depois.itens ?? []).some((x: any) => x.codconfiglegislacao === estragadaJ.codconfiglegislacao)
+          && (comEx.itens ?? []).some((x: any) => x.codconfiglegislacao === estragadaJ.codconfiglegislacao && x.indr === 'E')
+          && semGrant.status === 403,
+          { del: del.status, depois: depois.itens?.length, comEx: comEx.itens?.length, rbac: semGrant.status });
+        await pgCl2.query(`DELETE FROM config_legislacao WHERE descricao LIKE '%TESTE'`);
+      } finally {
+        await pgCl2.end();
+      }
+    }
+
+    // ══ CONGELAR ESTOQUE (FRMCONGELAESTOQUE) ═══════════════════════════════════════════════════════════
+    {
+      const CG = 'cadastro/congela-estoque';
+      const pgCg = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgCg.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+          (993901,'7899000993901','PROD CONGELA UM','UN',2,'T01','S') ON CONFLICT (idproduto) DO NOTHING`);
+        await pgCg.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES (993901,1,40) ON CONFLICT DO NOTHING`);
+        await pgCg.query(`UPDATE estoque SET qtde = 40, qtde_cong = NULL, qtde_bk = NULL WHERE idproduto = 993901 AND idempresa = 1`);
+        await pgCg.query(`INSERT INTO estoque_dep (idproduto, idempresa, qtde) VALUES (993901,1,15) ON CONFLICT DO NOTHING`);
+        await pgCg.query(`UPDATE empresas SET flagetqcong = 'N' WHERE idempresa = 1`);
+        const antes = (await (await fetch(`${base}/${CG}`, { headers: H })).json().catch(() => ({}))) as any;
+        const cong = await fetch(`${base}/${CG}/congelar`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: '{}' });
+        const congJ = (await cong.json().catch(() => ({}))) as any;
+        const linha = (await pgCg.query(`SELECT qtde, qtde_cong, qtde_bk FROM estoque WHERE idproduto = 993901 AND idempresa = 1`)).rows[0] as any;
+        const dep = (await pgCg.query(`SELECT qtde, qtde_cong FROM estoque_dep WHERE idproduto = 993901 AND idempresa = 1`)).rows[0] as any;
+        const emp = (await pgCg.query(`SELECT flagetqcong, usucongetq, datacongetq FROM empresas WHERE idempresa = 1`)).rows[0] as any;
+        const duas = await fetch(`${base}/${CG}/congelar`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: '{}' });
+        const duasJ = (await duas.json().catch(() => ({}))) as any;
+        check('CONGELAR ESTOQUE §147.1 [a foto do saldo]: congelar copia `qtde` para `qtde_cong` e `qtde_bk` nas duas tabelas (loja 40, depósito 15), marca a empresa com operador e data — no cliente `USUCONGETQ`/`DATACONGETQ` estão **nulos** nas 5 empresas, a foto foi tirada sem deixar quem nem quando; congelar de novo é 422 ESTOQUE_JA_CONGELADO',
+          antes.congelado === false && cong.status === 201 && congJ.congelado === true && congJ.linhasEstoque > 0
+          && Number(linha.qtde_cong) === 40 && Number(linha.qtde_bk) === 40 && Number(dep.qtde_cong) === 15
+          && emp.flagetqcong === 'S' && Number(emp.usucongetq) === 7 && emp.datacongetq != null
+          && duas.status === 422 && duasJ.code === 'ESTOQUE_JA_CONGELADO',
+          { antes: antes.congelado, cong: cong.status, linha, dep, emp: [emp.flagetqcong, emp.usucongetq], duas: [duas.status, duasJ.code] });
+        await pgCg.query(`UPDATE estoque SET qtde = 33 WHERE idproduto = 993901 AND idempresa = 1`);
+        const durante = (await (await fetch(`${base}/${CG}`, { headers: H })).json().catch(() => ({}))) as any;
+        const desc = await fetch(`${base}/${CG}/descongelar`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: '{}' });
+        const depois = (await pgCg.query(`SELECT qtde, qtde_cong FROM estoque WHERE idproduto = 993901 AND idempresa = 1`)).rows[0] as any;
+        const semCong = await fetch(`${base}/${CG}/descongelar`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: '{}' });
+        const semCongJ = (await semCong.json().catch(() => ({}))) as any;
+        const semGrant = await fetch(`${base}/${CG}/congelar`, { method: 'POST', headers: { ...H_SEM_ACESSO, 'content-type': 'application/json' }, body: '{}' });
+        const hist = (await (await fetch(`${base}/${CG}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('CONGELAR ESTOQUE §147.2 [divergência, descongelar e histórico]: mexer no saldo depois da foto faz a divergência aparecer (no cliente são 13.960 produtos da loja 1 divergindo de uma foto antiga); descongelar levanta a marca e **não apaga a foto** (`qtde_cong` continua 40 com saldo 33), como o legado; descongelar duas vezes é 422; o histórico grava as duas ações; sem grant, 403',
+          durante.estoque?.divergentes >= 1 && desc.status === 201 && Number(depois.qtde) === 33 && Number(depois.qtde_cong) === 40
+          && semCong.status === 422 && semCongJ.code === 'ESTOQUE_NAO_CONGELADO' && semGrant.status === 403
+          && hist.congelado === false && (hist.historico ?? []).some((x: any) => x.acao === 'CONGELAR') && (hist.historico ?? []).some((x: any) => x.acao === 'DESCONGELAR'),
+          { divergentes: durante.estoque?.divergentes, desc: desc.status, depois, semCong: [semCong.status, semCongJ.code], rbac: semGrant.status, hist: (hist.historico ?? []).map((x: any) => x.acao) });
+        await pgCg.query(`DELETE FROM congelamento_estoque WHERE idempresa = 1`);
+        await pgCg.query(`DELETE FROM estoque_dep WHERE idproduto = 993901`);
+        await pgCg.query(`DELETE FROM estoque WHERE idproduto = 993901`);
+        await pgCg.query(`DELETE FROM produtos WHERE idproduto = 993901`);
+        await pgCg.query(`UPDATE empresas SET flagetqcong = 'N', usucongetq = NULL, datacongetq = NULL WHERE idempresa = 1`);
+      } finally {
+        await pgCg.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

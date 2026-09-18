@@ -125,39 +125,39 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 113 | `FRMAGENDADEPARTAMENTO` | 7 | 1 | 🪦 **marginal, sem fonte**: nenhuma unit com o form no repositório clonado; `AGENDA_DEPARTAMENTO_COMERCIAL` tem **5 linhas**. 7 acessos, 1 operador, sem data de acesso registrada |
 | 114 | `FRMCOTACAOLISTAFORN` | 7 | 2 | 🪦 **marginal, com prova**: monta uma "lista de fornecedores" para a cotação — `COTACAO_LISTAF` tem **1 linha**, chamada **"TESTE COTACAO"**, de 02/01/2023. A cotação viva (39 cotações, 97 cotações-fornecedor até 16/03/2026, 16.014 itens) está convertida em `compras/cotacao` + `cotacao-forn` |
 | 115 | `FRMCADLANCAMENTOCONTABIL` | 7 | 5 | ⛔ **sem substrato, com prova** (a mesma do item 85): lançamento contábil MANUAL no diário — `ORIGEM_CONTABIL` tem a origem **1 = MANUAL** e o `DIARIO` (1,77 mi de linhas) tem **0 lançamentos com CODORIGEM=1**. A casa nunca lançou à mão; o diário é todo das integrações (61 = 1,2 mi). A consulta de lançamentos já existe (`contabil/lancamentos`, mig 209) |
-| 116 | `FRMGERENCIADORPROMOCAO` | 7 | 2 |
-| 117 | `FRMRELHISTPDV` | 7 | 4 |
-| 118 | `FRMNFRESSARC_ICMSST` | 7 | 3 |
-| 119 | `FRMCADGRUPOCONTABIL` | 6 | 2 |
-| 120 | `FRMCONSOLIDACAOPISCOFINS` | 6 | 3 |
+| 116 | `FRMGERENCIADORPROMOCAO` | 7 | 2 | 🟢 **coberto, com prova**: nenhuma unit com este form no repositório; o substrato é `PROMOCAO` (25, a última terminou em **18/05/2024**) + `CLUBE_DESCONTO` (3.111, vivo até 16/09/2026) — as duas já convertidas em `cadastro/promocoes` (header + CLUBE_DESCONTO por origem) e `agenda-promocao`. Último acesso 24/08/2026, 2 operadores |
+| 117 | `FRMRELHISTPDV` | 7 | 4 | ⛔ **fora de escopo (PDV)**: relatório sobre `HISTORICO_PDV` (681.173 linhas) — o usuário excluiu o PDV do escopo em 19/08 e a tabela está marcada como excluída no `plano-tabelas.json` por essa razão |
+| 118 | `FRMNFRESSARC_ICMSST` | 7 | 3 | ⛔ **sem fonte e sem substrato**: nenhuma unit com o form no repositório e nenhuma tabela de ressarcimento de ICMS-ST no schema (procurado `%RESSARC%`: só as de CT-e). NF de ressarcimento nunca foi emitida nesta base |
+| 119 | `FRMCADGRUPOCONTABIL` | 6 | 2 | ⛔ **sem substrato, com prova**: `GRUPO_CONTABIL` (CODGRUPOCONTABIL, DESCGRUPO, STATUS) tem **0 linhas** |
+| 120 | `FRMCONSOLIDACAOPISCOFINS` | 6 | 3 | 🟢 **coberto, com prova**: a unit não tem SQL próprio (só exporta de arquivo); o substrato é `APURACAO_PC` — **18 apurações** — e a apuração de PIS/COFINS + o bloco M do SPED já estão no Apollo (`apuracao_pc`, mig 098; épico SPED PIS-COFINS fechado) |
 | 121 | `FRMCADFIGURASFISCAIS` | 6 | 2 | ✅ **completa** (mig 267, `fiscal/figuras-fiscais`, dossiê `uCadFigurasFiscais.md`) — o catálogo que as regras do indexador tributário apontam (o caminho que 4 das 5 empresas usam, `EMPRESAS.FIGURAFISCAL='O'`). **16.838 figuras, e só 11 aparecem em alguma regra** — o filtro "só em uso" mostra quais; excluir figura em uso é recusado |
-| 122 | `FRMLIBERACAOPEDIDO` | 6 | 3 |
-| 123 | `FRMRELCONFERENCIAEFD` | 6 | 1 |
-| 124 | `FRMAUTORIZACAOPAGAMENTO` | 6 | 2 |
-| 125 | `FRMANALISEGERENCIALDEPEDIDOS` | 5 | 2 |
-| 126 | `FRMCADTARA` | 5 | 2 |
-| 127 | `FRMCADCTE` | 5 | 4 |
-| 128 | `FRMCONFIGLEGISLACAONFE` | 5 | 2 |
-| 129 | `FRMMANUTENCAOPEDIDOS` | 5 | 3 |
-| 130 | `FRMMIXFISCAL` | 5 | 1 |
-| 131 | `FRMCADTABELAFORNECEDORES` | 5 | 1 |
-| 132 | `FRMCONGELAESTOQUE` | 4 | 2 |
-| 133 | `FRMRELABASTECIMENTO` | 4 | 2 |
-| 134 | `FRMPENDENCIAPRODUCAO` | 4 | 2 |
-| 135 | `FRMMOVPEDIDOS` | 4 | 2 |
-| 136 | `FRMIMPORTAPLANOREFERENCIAL` | 4 | 2 |
-| 137 | `FRMLIBERASENHAGERENCIAL` | 4 | 4 |
-| 138 | `FRMCADDOCA` | 4 | 3 |
+| 122 | `FRMLIBERACAOPEDIDO` | 6 | 3 | ⛔ **sem substrato, com prova**: `LIBERACAO_PEDIDO` **0 linhas**; a unit do form (`ufrmLiberacaoPedido`) não tem SQL próprio. A casa nunca usou liberação de pedido |
+| 123 | `FRMRELCONFERENCIAEFD` | 6 | 1 | 🟡 **viva, sem fonte**: conferência do EFD — **último acesso 09/09/2026** (6 acessos, 1 operador), mas nenhuma unit com o form no repositório clonado e nenhuma tabela `%EFD%` no schema: é relatório de confronto entre o que o SPED gerou e o movimento. Precisa do fonte novo (o repositório é de mai/2020); o épico SPED ICMS-IPI/PIS-COFINS já está no Apollo e é a base dele |
+| 124 | `FRMAUTORIZACAOPAGAMENTO` | 6 | 2 | 🟡 **viva, sem fonte**: autorização de pagamento — último acesso 03/06/2026 (6 acessos, 2 operadores); nenhuma unit no repositório e nenhuma tabela `%AUTORIZ%` no schema. Provável fluxo de alçada sobre `APAGAR`, que já está convertido; precisa do fonte novo |
+| 125 | `FRMANALISEGERENCIALDEPEDIDOS` | 5 | 2 | 🪦 **marginal, com prova**: análise gerencial de pedidos cruzando `PEDIDOS` × `PEDIDO_NF` × **`MAPA_DE_CARGA`** — o mapa de carga é o item 101, morto por falta de substrato, e os pedidos pararam (3 faturados em 36.887; ver item 112). O que sobra (pedido × NF) está em `compras/rel-analise-pedido-nf` (mig 252) |
+| 126 | `FRMCADTARA` | 5 | 2 | ⛔ **sem substrato, com prova**: a tabela `TARA` existe e tem **0 linhas** |
+| 127 | `FRMCADCTE` | 5 | 4 | ⛔ **sem substrato, com prova**: `CTE` **0 linhas** e `CTE_AUTORIZADOS` **0** — a casa nunca emitiu nem recebeu CT-e por aqui (as 20+ tabelas `CTE_*` do schema estão todas vazias) |
+| 128 | `FRMCONFIGLEGISLACAONFE` | 5 | 2 | ✅ **completa** (mig 268, `fiscal/config-legislacao`, dossiê `uConfigLegislacaoNFe.md`) — as mensagens legais das observações da NF-e. **Três defeitos medidos**: a resolução do legado exige `CODCFOP = n` e **as 18 regras têm CFOP nulo** (nenhuma NF-e jamais recebeu mensagem por ela); `if RecordCount = 1` devolvia vazio em silêncio; e há **código Delphi colado dentro do texto** (`'+ sLineBreak +'`), mojibake em 2 linhas e uma base legal do **RCTE/GO** numa casa de MG. Aqui a resolução é por especificidade e cada regra mostra os alertas |
+| 129 | `FRMMANUTENCAOPEDIDOS` | 5 | 3 | 🪦 **marginal, com prova**: manutenção de `PEDIDOS` (a unit só toca essa tabela) — 36.906 pedidos não cancelados, mas o fluxo parou (ver 112: 3 faturados na vida, último pedido em 04/02/2025). 5 acessos, 3 operadores, sem data de acesso |
+| 130 | `FRMMIXFISCAL` | 5 | 1 | ⛔ **sem fonte e sem substrato**: nenhuma unit com o form no repositório e nenhuma tabela `%MIX%` no schema |
+| 131 | `FRMCADTABELAFORNECEDORES` | 5 | 1 | 🪦 **marginal, com prova**: `TABELA_FORNECEDORES` **3 linhas** e `TABELA_FORNECEDORES_ITEM` **96**. O de-para de código do fornecedor que a casa usa de verdade é `CODREFERENCIA_FOR` (**23.193 linhas**), já convertido em `cadastro/de-para` |
+| 132 | `FRMCONGELAESTOQUE` | 4 | 2 | ✅ **completa** (mig 269, `cadastro/congela-estoque`, dossiê `uCongelaEstoque.md`) — a foto do estoque para o balanço (`qtde_cong`/`qtde_bk` nas duas tabelas + marca na empresa). Medido: a foto está em **100%** das 47.716 linhas da loja 1 e já **diverge do saldo em 13.960 produtos (29%)**, e `USUCONGETQ`/`DATACONGETQ` estão **nulos nas 5 empresas** — tirada sem deixar quem nem quando. Aqui operador e data são obrigatórios e há histórico em `congelamento_estoque` |
+| 133 | `FRMRELABASTECIMENTO` | 4 | 2 | 🪦 **marginal, com prova** (mesma do item 90): relatório de abastecimento de veículos — `ABASTECIMENTO` **4 linhas**. Último acesso 28/08/2026, 2 operadores |
+| 134 | `FRMPENDENCIAPRODUCAO` | 4 | 2 | 🪦 **marginal, com prova**: pendências de produção sobre `PRODUCAO` (**43 ordens**) e `ITENS_PRODUCAO` (**46**), **paradas em 01/10/2024**. A produção já está convertida no Apollo (épico Produção); o que falta é a fila de pendências de um fluxo que a casa deixou de usar |
+| 135 | `FRMMOVPEDIDOS` | 4 | 2 | 🪦 **marginal, com prova**: relatório de movimento de pedidos (view `GET_REL_MOVPEDIDOS` + `ARECEBER`) — mesmo substrato parado dos itens 112/129 (3 pedidos faturados em 36.887) |
+| 136 | `FRMIMPORTAPLANOREFERENCIAL` | 4 | 2 | ⛔ **sem substrato, com prova**: importar o plano referencial da RFB — nenhuma tabela de plano referencial no schema, e `PLANO_CONTAS.CODPLANOREFERENCIAL` existe mas o vínculo nunca foi carregado. A importação do plano do escritório está no TRON (mig 199-201) |
+| 137 | `FRMLIBERASENHAGERENCIAL` | 4 | 4 | 🟢 **coberto, com prova**: a unit não tem SQL nem tabela própria — é a caixa de liberação por senha gerencial que as telas de dinheiro chamam. No Apollo isso é a **senha de operação por empresa** (`cadastro/senha-operacao`, E7) mais o RBAC por FORM×OPÇÃO, usados por todas as telas que pedem liberação (zerar estoque, congelar, baixar, estornar) |
+| 138 | `FRMCADDOCA` | 4 | 3 | 🪦 **marginal, com prova**: cadastro de docas de recebimento — `DOCA` tem **1 linha** ('DEPOSITO PRINCIPAL', de 05/08/2020) |
 | 139 | `FRMRECEBIMENTOS` | 4 | 1 |
-| 140 | `FRMCADCLAVEGOS` | 4 | 3 |
-| 141 | `FRMCADVEICULOS` | 4 | 1 |
+| 140 | `FRMCADCLAVEGOS` | 4 | 3 | ⛔ **sem substrato, com prova**: `CLAVEGOS` (de-para de código de produto do sistema Clavegos) **0 linhas** |
+| 141 | `FRMCADVEICULOS` | 4 | 1 | 🪦 **marginal, com prova**: `VEICULOS` tem **2 linhas**, ambas de teste — 'UNO/OK33' (MG) e 'UNO/TTTTT' (**AM**), cadastradas em 10 e 13/06/2022. Ligada ao mapa de carga (item 101, morto) e ao abastecimento (90/133, 4 linhas) |
 | 142 | `FRMRELDIARIOCONTABIL` | 4 | 4 |
-| 143 | `FRMCADPESQUISA` | 4 | 3 |
+| 143 | `FRMCADPESQUISA` | 4 | 3 | ⛔ **sem substrato, com prova**: pesquisa de satisfação — `PESQUISA`, `PESQUISA_QUESTIONARIO`, `PESQUISA_RESPOSTA` e `PESQUISA_ATENDIMENTO` todas com **0 linhas** (a `LOG_PESQUISA`, com 196.645, é o log da tela de PESQUISA genérica do sistema, outra coisa) |
 | 144 | `FRMCADGRUPOEMPRESARIAL` | 3 | 1 |
 | 145 | `FRMCADCSTIBSCBS` | 3 | 1 |
 | 146 | `FRMRELINDICADORESFINANCEIROS` | 3 | 2 |
 | 147 | `FRMWLCONSULTAPRODUTOSSANEADOS` | 3 | 1 |
-| 148 | `FRMCADCODIGOAJUSTE` | 3 | 3 |
+| 148 | `FRMCADCODIGOAJUSTE` | 3 | 3 | 🟡 **viva, sem substrato próprio**: códigos de ajuste da apuração (E111/C197 do SPED) — `CODIGO_AJUSTE` tem **0 linhas**, mas o **último acesso é de 11/09/2026**. Os ajustes que o SPED do Apollo emite hoje vêm de `EMPRESAS.COD_AJUS_*` (mig 032); se a casa começar a usar a tabela, vira corte próprio |
 | 149 | `FRMRELVENDEDORES` | 3 | 2 |
 | 150 | `FRMIMPORTAHISTORICOCONTABIL` | 3 | 3 |
 | 151 | `FRMGERENCIARSUGESTAOPROMOCAO` | 3 | 1 |
