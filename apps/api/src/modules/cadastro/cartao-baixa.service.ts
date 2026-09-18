@@ -15,7 +15,11 @@ const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
  * idorigem=idlote). O
  * líquido vem da view get_cartao (COALESCE(valorliq, bruto − bruto×txadm_ef/100) — a mesma regra do GET_CARTAO).
  * `estornarLote` reverte tudo (recebíveis → aberto, apaga o crédito). Tenant fail-closed; operador obrigatório.
- * ADIADO (fiel): baixa parcial/ajuste, antecipação, taxa→CAIXA, PLC/período, conciliação de extrato.
+ * CORTE-3 (mig 277): a baixa agora é LINHA em `cartao_bx` — 1.169.680 no cliente, R$ 58,4 mi, com baixa
+ * PARCIAL real (5.186 recebíveis) e estorno LÓGICO (59.118 com `INDR='E'`). E com a trava que o legado não
+ * tem: baixar além do valor é recusado — lá 2.921 cartões têm baixas ativas somando **R$ 131.623,12 a mais**
+ * que o próprio valor, porque o lote era estornado sem marcar a baixa e o recebível era baixado de novo.
+ * ADIADO (fiel): ajuste/antecipação, taxa→CAIXA, PLC/período, conciliação de extrato.
  */
 @Injectable()
 export class CartaoBaixaService {
@@ -65,6 +69,12 @@ export class CartaoBaixaService {
         const taxa = r2(num(r.valor) - liq);
         totalLiq = r2(totalLiq + liq);
         totalTaxa = r2(totalTaxa + taxa);
+        // corte-3 (mig 277): a baixa vira LINHA em `cartao_bx` (1.169.680 no cliente), com o BRUTO baixado —
+        // é o que permite baixa PARCIAL (5.186 cartões no cliente) e o estorno LÓGICO por baixa.
+        await this.gravarBaixa(trx, {
+          codvendcartao: Number(r.codvendcartao), idempresa: emp, valorpg: r2(num(r.valor)), idlote, codopbx: op,
+          obs: `DOCUMENTO BAIXADO NO LOTE: ${idlote}`,
+        });
         await trx.updateTable('cartao').set({ liberado: 'S', dtbaixa: sql`now()`, idlote, valor_taxa_paga: taxa, usultalteracao: op, dtultimalteracao: sql`now()` }).where('codvendcartao', '=', r.codvendcartao).where('idempresa', '=', emp).execute();
       }
       // crédito do líquido na conta bancária (razão MCB), 1 linha por lote.
@@ -80,12 +90,64 @@ export class CartaoBaixaService {
     });
   }
 
+  /** o saldo do recebível: valor − baixas ATIVAS (as com `indr='E'` não contam). */
+  private async baixado(trx: AnyDB, codvendcartao: number): Promise<number> {
+    const r = (await sql<{ pg: unknown }>`
+      SELECT coalesce(sum(valorpg), 0) AS pg FROM cartao_bx
+       WHERE codvendcartao = ${codvendcartao} AND coalesce(indr, 'I') <> 'E'`.execute(trx)).rows[0];
+    return r2(num(r?.pg));
+  }
+
+  /**
+   * grava a baixa — e **recusa passar do valor do recebível**, que é o defeito medido do legado:
+   * 2.921 cartões lá têm baixas ativas somando R$ 131.623,12 a mais que o próprio valor (o lote era estornado
+   * sem marcar a baixa, e o recebível era baixado de novo).
+   */
+  private async gravarBaixa(trx: AnyDB, b: { codvendcartao: number; idempresa: number; valorpg: number; idlote: number; codopbx: number | null; obs: string }) {
+    const c = (await sql<{ valor: unknown }>`SELECT valor FROM cartao WHERE codvendcartao = ${b.codvendcartao} AND idempresa = ${b.idempresa}`.execute(trx)).rows[0];
+    if (!c) throw new BusinessRuleError('CARTAO_NAO_ENCONTRADO', { codvendcartao: b.codvendcartao });
+    const valor = r2(num(c.valor));
+    const jaBaixado = await this.baixado(trx, b.codvendcartao);
+    if (r2(jaBaixado + b.valorpg) > r2(valor + 0.005)) {
+      throw new BusinessRuleError('CARTAO_BAIXA_EXCEDE', { codvendcartao: b.codvendcartao, valor, jaBaixado, tentando: b.valorpg });
+    }
+    await sql`INSERT INTO cartao_bx (codvendcartao, idempresa, valorpg, data_pgto, codopbx, idlote, obs, dtcadastro)
+              VALUES (${b.codvendcartao}, ${b.idempresa}, ${b.valorpg}, now(), ${b.codopbx}, ${b.idlote}, ${b.obs}, now())`.execute(trx);
+    return r2(jaBaixado + b.valorpg);
+  }
+
+  /** as baixas de um recebível, com o saldo — a visão que o corte-2 não tinha. */
+  async baixasDoCartao(codvendcartao: number): Promise<Record<string, unknown>> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const c = (await sql<Record<string, unknown>>`
+      SELECT codvendcartao, valor, coalesce(liberado, 'N') AS liberado, dtbaixa, idlote
+        FROM cartao WHERE codvendcartao = ${codvendcartao} AND idempresa = ${emp}`.execute(db)).rows[0];
+    if (!c) throw new BusinessRuleError('CARTAO_NAO_ENCONTRADO', { codvendcartao });
+    const bxs = (await sql<Record<string, unknown>>`
+      SELECT codvendcartaobx, valorpg, data_pgto, codopbx, idlote, obs, coalesce(indr, 'I') AS indr
+        FROM cartao_bx WHERE codvendcartao = ${codvendcartao} AND idempresa = ${emp}
+       ORDER BY codvendcartaobx`.execute(db)).rows;
+    const ativas = bxs.filter((b) => b.indr !== 'E');
+    const pago = r2(ativas.reduce((s2, b) => s2 + num(b.valorpg), 0));
+    return {
+      cartao: { ...c, valor: r2(num(c.valor)) },
+      baixas: bxs.map((b) => ({ ...b, valorpg: num(b.valorpg), estornada: b.indr === 'E' })),
+      totais: { baixas: bxs.length, ativas: ativas.length, pago, saldo: r2(num(c.valor) - pago) },
+    };
+  }
+
   async estornarLote(idlote: number): Promise<{ idlote: number; itens: number }> {
     const emp = this.emp();
     const op = this.op();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const recs = (await trx.selectFrom('cartao').select('codvendcartao').where('idlote', '=', idlote).where('idempresa', '=', emp).where('liberado', '=', 'S').forUpdate().execute()) as Array<{ codvendcartao: number }>;
       if (!recs.length) throw new BusinessRuleError('CARTAO_LOTE_NAO_ENCONTRADO', { idlote });
+      // corte-3 (mig 277): estorno LÓGICO das baixas do lote (INDR='E' + quem e quando) — o cliente tem 59.118
+      // assim. O legado deixava a baixa VALENDO quando o lote era estornado: 2.921 cartões ficaram com baixas
+      // ativas somando R$ 131.623,12 A MAIS que o próprio valor. Aqui a baixa morre junto com o lote.
+      await sql`UPDATE cartao_bx SET indr = 'E', indr_usuario = ${op}, indr_data = now()
+                 WHERE idlote = ${idlote} AND idempresa = ${emp} AND coalesce(indr, 'I') <> 'E'`.execute(trx);
       await trx.updateTable('cartao').set({ liberado: 'N', dtbaixa: null, idlote: null, valor_taxa_paga: null, usultalteracao: op, dtultimalteracao: sql`now()` }).where('idlote', '=', idlote).where('idempresa', '=', emp).execute();
       await trx.deleteFrom('mov_contas_bancarias').where('origem', '=', 'BXCARTAO').where('idorigem', '=', idlote).where('idempresa', '=', emp).execute();
       return { idlote, itens: recs.length };

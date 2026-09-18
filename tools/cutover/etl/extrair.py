@@ -38,6 +38,7 @@ TABELA_ORIGEM = {
     'dre_estrutura': 'CONFIG_DRE_CONTABIL',                          # 98 — a árvore do DRE
     'pedido_devolucao_compra_i': 'PEDIDO_DEVOLUCAO_COMPRA_ITENS',    # 6.103 — itens da devolução de compra
     'tributacao_reforma': 'CST_IBS_CBS',                             # 17 — CST da reforma (IBS/CBS)
+    'cartao_bx': 'CARTAO_BX',                                        # 1.169.680 — as baixas de cartão (mig 277)
 }
 RENOMEIA = {
  # tabelas que o plano antigo não cobria (§7s): nomes do Oracle → nossos

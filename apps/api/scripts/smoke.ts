@@ -3824,6 +3824,36 @@ async function main() {
         check('CARTÃO baixa: recebível não-aberto → 422 CARTAO_BAIXA_NENHUM_ABERTO; sem grant RBAC → 403',
           bxEmpty.status === 422 && ((await bxEmpty.json().catch(() => ({}))) as any).code === 'CARTAO_BAIXA_NENHUM_ABERTO' && bxRb.status === 403,
           { empty: bxEmpty.status, rbac: bxRb.status });
+
+        // §47x.4) corte-3 (mig 277): a baixa agora é LINHA em `cartao_bx`, com PARCIAL e trava de excesso.
+        const bx2 = await fetch(`${base}/${CART}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, codvendcartaos: [c1] }) });
+        const bx2J = (await bx2.json().catch(() => ({}))) as any;
+        const det = (await (await fetch(`${base}/${CART}/baixas/${c1}`, { headers: H })).json().catch(() => ({}))) as any;
+        const bxRow = (await pgCa.query(`SELECT valorpg, idlote, codopbx, obs, indr FROM cartao_bx WHERE codvendcartao=$1 AND coalesce(indr,'I')<>'E' ORDER BY codvendcartaobx DESC LIMIT 1`, [c1])).rows[0] as any;
+        check('CARTÃO §47x.4 [corte-3: a baixa virou linha em cartao_bx]: no cliente são **1.169.680 baixas** (R$ 58,4 mi) e a tabela **não existia no destino** — o corte-2 guardava só um flag no recebível, que não comporta duas baixas. Agora baixar grava a linha com o BRUTO (100), o lote, o operador e a obs do legado; a consulta devolve o saldo zerado e o recebível liberado',
+          bx2.status === 200 && bxRow && Number(bxRow.valorpg) === 100 && Number(bxRow.idlote) === Number(bx2J.idlote)
+          && Number(bxRow.codopbx) === 7 && String(bxRow.obs).includes('LOTE') && bxRow.indr == null
+          && det.totais?.ativas === 1 && Number(det.totais?.pago) === 100 && Number(det.totais?.saldo) === 0 && det.cartao?.liberado === 'S',
+          { bx2: bx2.status, bxRow, totais: det.totais });
+        // excesso: forçar uma segunda baixa ativa no mesmo recebível é o defeito do legado (2.921 cartões, R$ 131.623,12)
+        const excede = await (async () => {
+          try {
+            await pgCa.query(`UPDATE cartao SET liberado='N', idlote=NULL WHERE codvendcartao=$1 AND idempresa=1`, [c1]);
+            const r = await fetch(`${base}/${CART}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, codvendcartaos: [c1] }) });
+            return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+          } finally {
+            // devolve o recebível ao lote — o UPDATE acima só existiu para forçar a segunda baixa
+            await pgCa.query(`UPDATE cartao SET liberado='S', idlote=$2 WHERE codvendcartao=$1 AND idempresa=1`, [c1, bx2J.idlote]);
+          }
+        })();
+        const linhasDepois = Number((await pgCa.query(`SELECT count(*) n FROM cartao_bx WHERE codvendcartao=$1 AND coalesce(indr,'I')<>'E'`, [c1])).rows[0].n);
+        const es2 = await fetch(`${base}/${CART}/estornar-lote/${bx2J.idlote}`, { method: 'POST', headers: H });
+        const bxDepois = (await pgCa.query(`SELECT indr, indr_usuario FROM cartao_bx WHERE codvendcartao=$1`, [c1])).rows[0] as any;
+        check('CARTÃO §47x.5 [a trava que o legado não tem + estorno lógico]: no cliente **2.921 recebíveis têm baixas ativas somando R$ 131.623,12 A MAIS que o próprio valor** — o lote era estornado sem marcar a baixa e o recebível baixado de novo. Aqui a segunda baixa do mesmo recebível é **422 CARTAO_BAIXA_EXCEDE** e a linha não entra; e estornar o lote marca a baixa com `INDR=E` (estorno lógico, como nas outras baixas — 59.118 assim no cliente), não apaga',
+          excede.status === 422 && excede.j.code === 'CARTAO_BAIXA_EXCEDE' && linhasDepois === 1
+          && es2.status === 200 && bxDepois.indr === 'E' && Number(bxDepois.indr_usuario) === 7,
+          { excede: [excede.status, excede.j.code], linhasDepois, es2: es2.status, bxDepois });
+        await pgCa.query(`DELETE FROM cartao_bx WHERE codvendcartao IN ($1,$2)`, [c1, c2]);
       } finally {
         await pgCa.end();
       }

@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Get, Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
 import { baixarCartaoSchema, type BaixarCartaoDto } from '@apollo/shared';
 import { CartaoBaixaService } from './cartao-baixa.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -20,6 +20,11 @@ export class CartaoBaixaController {
   baixar(@Body(new ZodValidationPipe(baixarCartaoSchema)) body: BaixarCartaoDto) {
     return this.svc.baixar({ codconta: body.codconta, codvendcartaos: body.codvendcartaos });
   }
+
+  /** corte-3 (mig 277): as baixas do recebível, com saldo — a baixa parcial que o corte-2 não representava. */
+  @Get('baixas/:codvendcartao')
+  @RequerAcesso('FRMBAIXACARTAO', 'BTNGRAVAR')
+  baixas(@Param('codvendcartao', ParseIntPipe) codvendcartao: number) { return this.svc.baixasDoCartao(codvendcartao); }
 
   @Post('estornar-lote/:idlote')
   @HttpCode(200)

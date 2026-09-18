@@ -16,6 +16,7 @@
       "bancos",
       "bandeira",
       "caixa_pdv",
+      "cartao_bx",
       "cest",
       "cheque",
       "chq_proprio",
@@ -297,6 +298,7 @@
     "dre_conta": "VINCULO_PLC_CFG_DRE",
     "dre_estrutura": "CONFIG_DRE_CONTABIL",
     "pedido_devolucao_compra_i": "PEDIDO_DEVOLUCAO_COMPRA_ITENS",
-    "tributacao_reforma": "CST_IBS_CBS"
+    "tributacao_reforma": "CST_IBS_CBS",
+    "cartao_bx": "CARTAO_BX"
   }
 }
