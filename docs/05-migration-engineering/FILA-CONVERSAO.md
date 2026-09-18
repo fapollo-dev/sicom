@@ -8,6 +8,25 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 > **formulário**, são **91 de 289** com uso registrado (31%). As 194 abaixo somam 4.145 acessos — 0,1% do
 > volume, e ainda assim são 194 telas de trabalho.
 
+## ⚠️ As 8 telas que ficaram FORA desta fila (varredura de 18/09/2026)
+
+A fila foi gerada cruzando o `MENUEXPRESS` com os `FRM*` presentes em `apps/api`. Uma varredura do
+`MENUEXPRESS` inteiro (289 formulários com uso) contra **a fila + o que já existe no Apollo** achou **8
+formulários que não estavam em nenhum dos dois**, somando **43.071 acessos**:
+
+| tela | acessos | op. | último acesso | veredito |
+|---|---:|---:|---|---|
+| `FRMFECHAMENTOSANGRIA` | 36.522 | 38 | 18/09/2026 | ⛔ PDV — fora de escopo por instrução do usuário |
+| `FRMDEVOLUCAOVENDAS` | 3.958 | 36 | 17/09/2026 | ✅ **convertida** (mig 275) — era a maior lacuna de retaguarda |
+| `FRMNFCE` | 1.444 | 13 | 17/09/2026 | ⛔ PDV |
+| `FRMMANCADCARTAOBOAVISTA` | 560 | 6 | 20/05/2026 | 🟡 sem unit no repositório (cartão Boa Vista) |
+| `FRMVERIFICACAOTRIBUTARIABORBAFISCAL` | 388 | 3 | 15/06/2026 | 🟡 integração Borba Fiscal — corte próprio já mapeado |
+| `FRMCADPDV` | 93 | 8 | 01/06/2026 | ⛔ PDV |
+| `FRMCADDEVOLUCAO` | 91 | 16 | 19/08/2026 | 🟡 devolução ao fornecedor (`I_DEVOLUCAO`) — a de COMPRA já existe no Apollo; conferir sobreposição |
+| `FRMCADBALANCO` | 15 | 4 | — | 🪦 `BALANCO` com 8 linhas (o inventário/balanço do Apollo cobre) |
+
+**Lição**: uma fila derivada por cruzamento só é completa se o cruzamento for verificado nos DOIS sentidos.
+
 ## Placar da fila — **194 de 194 com veredito** (18/09/2026)
 
 | | telas | acessos | o que é |

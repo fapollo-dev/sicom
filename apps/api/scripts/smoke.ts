@@ -16407,6 +16407,77 @@ async function main() {
       }
     }
 
+    // ══ DEVOLUÇÃO DE VENDAS (FRMDEVOLUCAOVENDAS) — a tela que estava fora da fila E fora do Apollo ══════
+    {
+      const DV = 'relatorios/devolucao-vendas';
+      const pgDv = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const j = { ...H, 'content-type': 'application/json' };
+        await pgDv.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+          (994201,'7899000994201','ARROZ DEVOLVIDO 5KG','UN',2,'T01','S'),
+          (994202,'7899000994202','FEIJAO DEVOLVIDO 1KG','UN',2,'T01','S') ON CONFLICT (idproduto) DO NOTHING`);
+        await pgDv.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES (994201,1,100),(994202,1,50) ON CONFLICT DO NOTHING`);
+        await pgDv.query(`UPDATE estoque SET qtde = 100 WHERE idproduto = 994201 AND idempresa = 1`);
+        await pgDv.query(`INSERT INTO vendas (codvendas, idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, cancelado) VALUES
+          (99420001,1,'2060-03-10 09:00:00-03','P994200','3',994200,1,994201, 2, 25.50,'N'),
+          (99420002,1,'2060-03-10 09:00:00-03','P994200','3',994200,2,994202, 3,  8.00,'N'),
+          (99420003,1,'2060-03-10 09:05:00-03','P994201','3',994201,1,994201, 1, 25.50,'S'),
+          (99420004,2,'2060-03-10 09:10:00-03','P994202','3',994202,1,994201, 5, 25.50,'N')`);
+        const busca = (await (await fetch(`${base}/${DV}/venda?nrocupom=994200`, { headers: H })).json().catch(() => ({}))) as any;
+        const outraLoja = (await (await fetch(`${base}/${DV}/venda?nrocupom=994202`, { headers: H })).json().catch(() => ({}))) as any;
+        const cancelada = (await (await fetch(`${base}/${DV}/venda?nrocupom=994201`, { headers: H })).json().catch(() => ({}))) as any;
+        const mots = (await (await fetch(`${base}/${DV}/motivos`, { headers: H })).json().catch(() => [])) as any[];
+        check('DEVOLUÇÃO DE VENDAS §152.1 [achar o cupom — a tela que estava FORA da fila e FORA do Apollo]: 3.958 acessos e 36 operadores no cliente, 3.658 devoluções (250 em 2026) e **nenhuma linha no destino até agora**. A busca pelo cupom traz os 2 itens com valor (2×25,50 + 3×8,00 = 75,00); a venda CANCELADA não aparece; a da loja 2 não aparece (tenant); e a lista de motivos traz só os de `TIPO_OPERACAO=DEVOLUCAO`',
+          (busca.itens ?? []).length === 2 && Number(busca.totais?.valor) === 75 && busca.totais?.devolvidos === 0
+          && (cancelada.itens ?? []).length === 0 && (outraLoja.itens ?? []).length === 0
+          && mots.some((m: any) => Number(m.codmotivoop) === 301),
+          { itens: busca.itens?.length, valor: busca.totais?.valor, cancelada: cancelada.itens?.length, outraLoja: outraLoja.itens?.length, motivos: mots.length });
+        const estAntes = Number((await pgDv.query(`SELECT qtde FROM estoque WHERE idproduto=994201 AND idempresa=1`)).rows[0].qtde);
+        const reg = await fetch(`${base}/${DV}/registrar`, { method: 'POST', headers: j, body: JSON.stringify({ codmotivoop: 301, itens: [{ codvendas: 99420001, nroitem: 1, codproduto: 994201, qtdeDevolvido: 2 }] }) });
+        const regJ = (await reg.json().catch(() => ({}))) as any;
+        const v1 = (await pgDv.query(`SELECT devolucao, qtde_devolvido, total_item_devolvido FROM vendas WHERE codvendas=99420001`)).rows[0] as any;
+        const d1 = (await pgDv.query(`SELECT operador, codoperador, codmotivoop, idempresa FROM devolucao_vendas WHERE codvendas=99420001`)).rows[0] as any;
+        const estDepois = Number((await pgDv.query(`SELECT qtde FROM estoque WHERE idproduto=994201 AND idempresa=1`)).rows[0].qtde);
+        const denovo = await fetch(`${base}/${DV}/registrar`, { method: 'POST', headers: j, body: JSON.stringify({ codmotivoop: 301, itens: [{ codvendas: 99420001, nroitem: 1, codproduto: 994201, qtdeDevolvido: 1 }] }) });
+        const denovoJ = (await denovo.json().catch(() => ({}))) as any;
+        check('DEVOLUÇÃO DE VENDAS §152.2 [registrar — e o ESTOQUE NÃO VOLTA]: a venda fica `DEVOLUCAO=D` com qtde 2 e total 51,00; o registro guarda o NOME do operador (como o legado) mais o código; e **o estoque continua 100** — o `UPDATE ESTOQUE` está comentado no fonte com a razão em caixa alta: *ESTOQUE NÃO DEVE SER ALTERADO SEM PROCESSO FISCAL*. A resposta diz isso explicitamente (`estoqueAlterado: false`). Registrar o mesmo item de novo é 422 ITEM_JA_DEVOLVIDO',
+          reg.status === 201 && regJ.estoqueAlterado === false && Number(regJ.totais?.valor) === 51
+          && v1.devolucao === 'D' && Number(v1.qtde_devolvido) === 2 && Number(v1.total_item_devolvido) === 51
+          && d1 && Number(d1.codmotivoop) === 301 && Number(d1.idempresa) === 1 && Number(d1.codoperador) === 7 && String(d1.operador ?? '').length > 0
+          && estAntes === 100 && estDepois === 100
+          && denovo.status === 422 && denovoJ.code === 'ITEM_JA_DEVOLVIDO',
+          { reg: reg.status, v1, d1, est: [estAntes, estDepois], denovo: [denovo.status, denovoJ.code] });
+        const excede = await fetch(`${base}/${DV}/registrar`, { method: 'POST', headers: j, body: JSON.stringify({ itens: [{ codvendas: 99420002, nroitem: 2, codproduto: 994202, qtdeDevolvido: 10 }] }) });
+        const excedeJ = (await excede.json().catch(() => ({}))) as any;
+        const outra = await fetch(`${base}/${DV}/registrar`, { method: 'POST', headers: j, body: JSON.stringify({ itens: [{ codvendas: 99420004, nroitem: 1, codproduto: 994201, qtdeDevolvido: 1 }] }) });
+        const outraJ = (await outra.json().catch(() => ({}))) as any;
+        // a devolução é gravada com a data de HOJE (a venda é que tem data futura na fixture)
+        const hojeDv = new Date().toISOString().slice(0, 10);
+        const cons = (await (await fetch(`${base}/${DV}?dataIni=${hojeDv}&dataFim=${hojeDv}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('DEVOLUÇÃO DE VENDAS §152.3 [as recusas + a consulta]: devolver mais do que foi vendido é 422 QTDE_DEVOLVIDA_EXCEDE (3 vendidos, 10 pedidos); item de venda de OUTRA loja é 422 ITEM_VENDA_NAO_ENCONTRADO (tenant); a consulta do dia (a devolução nasce com a data de HOJE, não a da venda) mostra a devolução com o motivo e o valor',
+          excede.status === 422 && excedeJ.code === 'QTDE_DEVOLVIDA_EXCEDE'
+          && outra.status === 422 && outraJ.code === 'ITEM_VENDA_NAO_ENCONTRADO'
+          && cons.totais?.devolucoes === 1 && Number(cons.totais?.valor) === 51 && cons.totais?.semMotivo === 0,
+          { excede: [excede.status, excedeJ.code], outra: [outra.status, outraJ.code], cons: cons.totais });
+        const rev = await fetch(`${base}/${DV}/reverter`, { method: 'POST', headers: j, body: JSON.stringify({ itens: [{ codvendas: 99420001, nroitem: 1, codproduto: 994201 }] }) });
+        const vDepois = (await pgDv.query(`SELECT devolucao, qtde_devolvido, total_item_devolvido FROM vendas WHERE codvendas=99420001`)).rows[0] as any;
+        const sobrou = Number((await pgDv.query(`SELECT count(*) n FROM devolucao_vendas WHERE codvendas=99420001`)).rows[0].n);
+        const revDenovo = await fetch(`${base}/${DV}/reverter`, { method: 'POST', headers: j, body: JSON.stringify({ itens: [{ codvendas: 99420001, nroitem: 1, codproduto: 994201 }] }) });
+        const revDenovoJ = (await revDenovo.json().catch(() => ({}))) as any;
+        const semGrant = await fetch(`${base}/${DV}/registrar`, { method: 'POST', headers: { ...H_SEM_ACESSO, 'content-type': 'application/json' }, body: JSON.stringify({ itens: [{ codvendas: 99420002, nroitem: 2, codproduto: 994202, qtdeDevolvido: 1 }] }) });
+        check('DEVOLUÇÃO DE VENDAS §152.4 [reverter grava o literal ESPAÇO, não NULL]: a reversão devolve a venda a `DEVOLUCAO = " "` (é o que o legado escreve, e o dado do cliente confirma: 6 itens com espaço em 2026) com qtde e total zerados, e apaga o registro; reverter de novo é 422 DEVOLUCAO_NAO_ENCONTRADA; sem o grant BTNESTORNAR, 403',
+          rev.status === 201 && vDepois.devolucao === ' ' && Number(vDepois.qtde_devolvido) === 0 && Number(vDepois.total_item_devolvido) === 0
+          && sobrou === 0 && revDenovo.status === 422 && revDenovoJ.code === 'DEVOLUCAO_NAO_ENCONTRADA' && semGrant.status === 403,
+          { rev: rev.status, vDepois, sobrou, revDenovo: [revDenovo.status, revDenovoJ.code], rbac: semGrant.status });
+        await pgDv.query(`DELETE FROM devolucao_vendas WHERE codvendas BETWEEN 99420001 AND 99420004`);
+        await pgDv.query(`DELETE FROM vendas WHERE codvendas BETWEEN 99420001 AND 99420004`);
+        await pgDv.query(`DELETE FROM estoque WHERE idproduto IN (994201,994202)`);
+        await pgDv.query(`DELETE FROM produtos WHERE idproduto IN (994201,994202)`);
+      } finally {
+        await pgDv.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

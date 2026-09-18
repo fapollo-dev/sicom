@@ -76,6 +76,7 @@ export * from './schema/congela-estoque.schema';
 export * from './schema/rel-diario-contabil.schema';
 export * from './schema/nfe-inutilizada.schema';
 export * from './schema/precificacao-nf-bruta.schema';
+export * from './schema/devolucao-vendas.schema';
 export * from './schema/historico-contabil.schema';
 export * from './schema/mult-atualizacao.schema';
 export * from './schema/integracao-contabil.schema';

@@ -226,6 +226,7 @@ const TELAS = [
   { href: '/contabil/diario', name: 'Livro Diário', icon: CalendarClock },
   { href: '/fiscal/nfe-inutilizada', name: 'NF-e inutilizadas', icon: Printer },
   { href: '/precificacao/nf-bruta', name: 'Precificação pela nota', icon: Tag },
+  { href: '/relatorios/devolucao-vendas', name: 'Devolução de vendas', icon: Undo2 },
   // FRMCADINDEXADORTRIBUTARIO — de onde sai o ICMS-ST de toda entrada (23 acessos; 12.053 indexadores).
   { href: '/cadastro/indexador-tributario', name: 'Indexador tributário', icon: FileSearch },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },

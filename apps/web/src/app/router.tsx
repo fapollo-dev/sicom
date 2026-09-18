@@ -89,6 +89,7 @@ import { CongelaEstoquePage } from '../features/congela-estoque/CongelaEstoquePa
 import { RelDiarioContabilPage } from '../features/rel-diario-contabil/RelDiarioContabilPage';
 import { NfeInutilizadaPage } from '../features/nfe-inutilizada/NfeInutilizadaPage';
 import { PrecificacaoNfBrutaPage } from '../features/precificacao-nf-bruta/PrecificacaoNfBrutaPage';
+import { DevolucaoVendasPage } from '../features/devolucao-vendas/DevolucaoVendasPage';
 import { IndexadorTributarioPage } from '../features/indexador-tributario/IndexadorTributarioPage';
 import { ProdutosRelPage } from '../features/produtos-rel/ProdutosRelPage';
 import { RelEntradasSaidasPage } from '../features/rel-entradas-saidas/RelEntradasSaidasPage';
@@ -285,6 +286,7 @@ export const router = createBrowserRouter([
       { path: '/contabil/diario', element: <RelDiarioContabilPage /> }, // FRMRELDIARIOCONTABIL
       { path: '/fiscal/nfe-inutilizada', element: <NfeInutilizadaPage /> }, // FRMNFE_INUTILIZADA
       { path: '/precificacao/nf-bruta', element: <PrecificacaoNfBrutaPage /> }, // FRMPRECIFICACAONFBRUTA
+      { path: '/relatorios/devolucao-vendas', element: <DevolucaoVendasPage /> }, // FRMDEVOLUCAOVENDAS
       { path: '/cadastro/indexador-tributario', element: <IndexadorTributarioPage /> }, // FRMCADINDEXADORTRIBUTARIO
       { path: '/relatorios/produtos', element: <ProdutosRelPage /> }, // FRMPRODUTOSREL
       { path: '/relatorios/entradas-saidas', element: <RelEntradasSaidasPage /> }, // FRMRELENTRADASSAIDAS

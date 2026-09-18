@@ -181,6 +181,10 @@ const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMIT
 const CODE_PT: Record<string, string> = {
   // regra de negócio (BusinessRuleError 422)
   FAIXA_JA_INUTILIZADA: 'Essa numeração já foi inutilizada nesta série.',
+  ITEM_JA_DEVOLVIDO: 'Este item da venda já foi devolvido.',
+  QTDE_DEVOLVIDA_EXCEDE: 'A quantidade devolvida é maior que a vendida.',
+  ITEM_VENDA_NAO_ENCONTRADO: 'Item da venda não encontrado.',
+  DEVOLUCAO_NAO_ENCONTRADA: 'Devolução não encontrada.',
   PARCEIROS_DIFERENTES: 'O encontro de contas é entre títulos do mesmo parceiro.',
   VALOR_REAL_EXCEDE: 'O valor informado é maior que o valor do título.',
   VALOR_REAL_INVALIDO: 'Informe um valor maior que zero para os dois títulos.',
