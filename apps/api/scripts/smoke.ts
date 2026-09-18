@@ -15205,6 +15205,76 @@ async function main() {
         await pgCl.end();
       }
     }
+
+    // ══ RELATÓRIO DE ANÁLISE PEDIDO × NF (FRMRELANALISEPEDIDONF) ═════════════════════════════════════
+    {
+      const RA = 'compras/rel-analise-pedido-nf';
+      const pgRa = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // dois pedidos (fornecedores 22 e 2, compradores 7 e 8) e duas notas na MESMA análise → o legado faz 2×2 = 4
+        // linhas e o LISTAGG lista cada nota duas vezes; um terceiro pedido SEM comprador numa segunda análise
+        const pc1 = Number((await pgRa.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, codoperador) VALUES (22,1,'2047-02-01',7) RETURNING codpedcomp`)).rows[0].codpedcomp);
+        const pc2 = Number((await pgRa.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, codoperador) VALUES (2,1,'2047-02-01',8) RETURNING codpedcomp`)).rows[0].codpedcomp);
+        const pc3 = Number((await pgRa.query(`INSERT INTO pedidocompra (codparceiro, idempresa, data, codoperador) VALUES (22,1,'2047-02-03',NULL) RETURNING codpedcomp`)).rows[0].codpedcomp);
+        await pgRa.query(`INSERT INTO nfe_nao_cadastradas (codnfe_naocad, chavenfe, cnpj, razao, dtemissao, tipo, totalnf, idempresa, modelo, nronf) VALUES
+          (991811,'35470200000000000000000000000000000000991811','11222333000144','FORN A','2047-02-02 10:00:00-03','E',500,1,55,'770001'),
+          (991812,'35470200000000000000000000000000000000991812','11222333000144','FORN A','2047-02-02 11:00:00-03','E',300,1,55,'770002'),
+          (991813,'35470200000000000000000000000000000000991813','11222333000144','FORN A','2047-02-03 10:00:00-03','E',100,1,55,'770003')
+          ON CONFLICT (codnfe_naocad) DO NOTHING`);
+        await pgRa.query(`INSERT INTO analise_pedido_nf (apn_id, apn_data_analise, apn_status, codoperador, codempresa, apn_total_parcial, apn_diferenca_valor, apn_status_finalizacao) VALUES
+          (991801,'2047-02-02 12:00:00-03','F',7,1,'T',15.40,'F'),
+          (991802,'2047-02-03 12:00:00-03','A',7,1,'P',0,NULL),
+          (991803,'2047-02-03 13:00:00-03','E',7,1,'T',0,NULL),
+          (991804,'2047-03-10 12:00:00-03','A',7,1,'T',0,NULL)`);
+        await pgRa.query(`INSERT INTO analise_pedido_nf_pedido (apn_id, codpedcomp) VALUES (991801,$1),(991801,$2),(991802,$3),(991803,$3),(991804,$1)`, [pc1, pc2, pc3]);
+        await pgRa.query(`INSERT INTO analise_pedido_nf_nf (apn_id, apnn_ref_nf, apnn_tabela) VALUES
+          (991801,991811,'NFE_NAO_CADASTRADAS'),(991801,991812,'NFE_NAO_CADASTRADAS'),(991802,991813,'NFE_NAO_CADASTRADAS'),(991803,991813,'NFE_NAO_CADASTRADAS'),(991804,991811,'NFE_NAO_CADASTRADAS')`);
+        await pgRa.query(`INSERT INTO analise_pedido_nf_diverg (apn_id, idproduto, apnd_quantidade_nf, apnd_quantidade_pc, apnd_valor_nf, apnd_valor_pc, nronf, chavenfe) VALUES
+          (991801,1,10,8,12.50,11.00,'770001','35470200000000000000000000000000000000991811')`);
+        await pgRa.query(`INSERT INTO analise_pedido_nf_ine_nf (apn_id, idproduto, apnin_quantidade, apnin_valor) VALUES (991801,2,3,7.90)`);
+        await pgRa.query(`INSERT INTO analise_pedido_nf_ine_pc (apn_id, idproduto, apnip_quantidade, apnip_valor) VALUES (991801,3,5,4.20)`);
+
+        const res = (await (await fetch(`${base}/${RA}?dataIni=2047-02-01&dataFim=2047-02-28`, { headers: H })).json().catch(() => ({}))) as any;
+        const a1 = (res.analises ?? []).find((a: any) => a.apnId === 991801);
+        const a2 = (res.analises ?? []).find((a: any) => a.apnId === 991802);
+        check('REL ANÁLISE PEDIDO×NF §129.1 [as listas são DISTINTAS, não o produto cartesiano]: o SQL do legado junta A × NOTAS × PEDIDOS e agrega com LISTAGG — 2 notas e 2 pedidos viram 4 linhas e cada nota sai **duas vezes**; no cliente são **31 análises** assim (3×3 → 9 linhas). Aqui: notas "770001, 770002", pedidos os dois, e os DOIS fornecedores e os DOIS compradores (o `MAX()` do legado mostraria um só — 5 análises no cliente têm mais de um comprador)',
+          a1 != null && a1.notasFiscais === '770001, 770002' && a1.pedidos === [pc1, pc2].sort((x, y) => String(x).localeCompare(String(y))).join(', ')
+          && String(a1.fornecedores).split(', ').length === 2 && String(a1.compradores).split(', ').length === 2
+          && a1.statusStr === 'Finalizado' && a1.totalParcialStr === 'Total' && Math.abs(Number(a1.diferencaValor) - 15.4) < 0.005,
+          { notas: a1?.notasFiscais, pedidos: a1?.pedidos, forn: a1?.fornecedores, comp: a1?.compradores, status: a1?.statusStr });
+
+        check('REL ANÁLISE PEDIDO×NF §129.2 [a análise sem comprador NÃO some]: `JOIN OPERADORES CP ON CP.CODOPERADOR = SUB1.CODCOMPRADOR` é INNER no legado — comprador nulo ou órfão derruba a análise inteira, e no cliente são **24 análises ativas** invisíveis. Aqui a 991802 aparece com o comprador vazio; a excluída (`APN_STATUS = E`) e a de março ficam fora do período',
+          a2 != null && a2.compradores === '' && a2.statusStr === 'Em andamento' && a2.totalParcialStr === 'Parcial'
+          && (res.analises ?? []).length === 2 && !(res.analises ?? []).some((a: any) => a.apnId === 991803 || a.apnId === 991804),
+          { total: res.total, ids: (res.analises ?? []).map((a: any) => a.apnId), comp2: a2?.compradores });
+
+        const porForn = (await (await fetch(`${base}/${RA}?dataIni=2047-02-01&dataFim=2047-02-28&codparceiro=2`, { headers: H })).json().catch(() => ({}))) as any;
+        const porComp = (await (await fetch(`${base}/${RA}?dataIni=2047-02-01&dataFim=2047-02-28&codcomprador=7`, { headers: H })).json().catch(() => ({}))) as any;
+        const nenhum = (await (await fetch(`${base}/${RA}?dataIni=2047-02-01&dataFim=2047-02-28&codparceiro=999`, { headers: H })).json().catch(() => ({}))) as any;
+        check('REL ANÁLISE PEDIDO×NF §129.3 [o filtro é sobre ALGUM pedido da análise]: fornecedor 2 acha a 991801 (pelo segundo pedido) e não a 991802; comprador 7 acha só a 991801 (a 991802 não tem comprador); fornecedor inexistente, nenhuma. No destino o comprador é `pedidocompra.codoperador` — a migration 060 não trouxe `USUCADASTRO`',
+          (porForn.analises ?? []).map((a: any) => a.apnId).join() === '991801'
+          && (porComp.analises ?? []).map((a: any) => a.apnId).join() === '991801'
+          && (nenhum.analises ?? []).length === 0,
+          { forn: (porForn.analises ?? []).map((a: any) => a.apnId), comp: (porComp.analises ?? []).map((a: any) => a.apnId), nenhum: nenhum.total });
+
+        const exp = (await (await fetch(`${base}/${RA}?dataIni=2047-02-01&dataFim=2047-02-28&expandido=true`, { headers: H })).json().catch(() => ({}))) as any;
+        const e1 = (exp.analises ?? []).find((a: any) => a.apnId === 991801);
+        const semGrantRa = await fetch(`${base}/${RA}?dataIni=2047-02-01&dataFim=2047-02-28`, { headers: H_SEM_ACESSO });
+        const invertidoRa = await fetch(`${base}/${RA}?dataIni=2047-02-28&dataFim=2047-02-01`, { headers: H });
+        check('REL ANÁLISE PEDIDO×NF §129.4 ["Expandido" é o dossiê embutido]: as três grades que o legado imprime embaixo de cada análise (divergentes / só na NF / só no pedido) são a mesma leitura do `AnaliseMotorService.dossie` — não uma segunda. A 991801 traz 1 divergência (10 × 8 un; 12,50 × 11,00), 1 item só na NF e 1 só no pedido. Sem grant, 403; período invertido, 400',
+          e1 != null && (e1.divergentes ?? []).length === 1 && Math.abs(Number(e1.divergentes?.[0]?.apnd_quantidade_pc) - 8) < 0.005
+          && (e1.soNaNf ?? []).length === 1 && (e1.soNoPedido ?? []).length === 1
+          && a1?.divergentes === undefined
+          && semGrantRa.status === 403 && invertidoRa.status === 400,
+          { div: e1?.divergentes?.length, soNf: e1?.soNaNf?.length, soPed: e1?.soNoPedido?.length, rbac: semGrantRa.status, invertido: invertidoRa.status });
+
+        await pgRa.query(`DELETE FROM analise_pedido_nf WHERE apn_id IN (991801,991802,991803,991804)`);
+        await pgRa.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad IN (991811,991812,991813)`);
+        await pgRa.query(`DELETE FROM pedidocompra WHERE codpedcomp IN ($1,$2,$3)`, [pc1, pc2, pc3]);
+      } finally {
+        await pgRa.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

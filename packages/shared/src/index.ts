@@ -53,6 +53,7 @@ export * from './schema/indexador-tributario.schema';
 export * from './schema/posicao-produto.schema';
 export * from './schema/analise-comportamento-periodo.schema';
 export * from './schema/analise-comportamento.schema';
+export * from './schema/rel-analise-pedido-nf.schema';
 export * from './schema/historico-contabil.schema';
 export * from './schema/mult-atualizacao.schema';
 export * from './schema/integracao-contabil.schema';

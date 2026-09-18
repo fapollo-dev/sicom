@@ -25,6 +25,8 @@ import { ManifestoDfeController } from './manifesto-dfe.controller';
 import { ManifestoDfeService } from './manifesto-dfe.service';
 import { SefazDfeService } from './sefaz-dfe.service';
 import { PendenciaOperadorController } from './pendencia-operador.controller';
+import { RelAnalisePedidoNfController } from './rel-analise-pedido-nf.controller';
+import { RelAnalisePedidoNfService } from './rel-analise-pedido-nf.service';
 import { AnaliseMotorService } from './analise-motor.service';
 import { PendenciaOperadorService } from './pendencia-operador.service';
 import { ConfigService } from '../cadastro/config.service';
@@ -60,8 +62,8 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     CotacaoController, // COTAÇÃO DE COMPRA (RFQ) corte-1: estrutura + preços (árvore vertical)
     ConferenciaNotaController, // CONFERÊNCIA DE NOTA corte-1: aprovar/cancelar o que o coletor conferiu
     ManifestoDfeController,
-    PendenciaOperadorController,
+    PendenciaOperadorController, RelAnalisePedidoNfController,
   ],
-  providers: [FaturamentoService, CotacaoFornService, PedidoVendaService, PedidoCompraService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, ManifestoDfeService, SefazDfeService, PendenciaOperadorService, AnaliseMotorService, ConfigService, DatabaseProvider],
+  providers: [FaturamentoService, CotacaoFornService, PedidoVendaService, PedidoCompraService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, ManifestoDfeService, SefazDfeService, PendenciaOperadorService, RelAnalisePedidoNfService, AnaliseMotorService, ConfigService, DatabaseProvider],
 })
 export class ComprasModule {}
