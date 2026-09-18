@@ -12,19 +12,18 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 
 | | telas | acessos | o que é |
 |---|---:|---:|---|
-| ✅ convertida | **41** | 1.348 (32,5%) | migrada, com migration, smoke e dossiê |
+| ✅ convertida | **42** | 1.359 (32,8%) | migrada, com migration, smoke e dossiê |
 | 🟢 coberta | 23 | 480 (11,6%) | o que ela faz já existe em outra tela do Apollo, com a prova ao lado |
-| 🪦 marginal | 38 | 704 (17,0%) | a regra existe, mas o dado do cliente é resíduo (0 a algumas dezenas de linhas, ou parou há anos) |
+| 🪦 marginal | 39 | 820 (19,8%) | a regra existe, mas o dado do cliente é resíduo (0 a algumas dezenas de linhas, ou parou há anos) |
 | ⛔ sem substrato/fonte | 82 | 1.443 (34,8%) | tabela vazia, tabela inexistente, unit ausente do repositório, ou fora de escopo (PDV) |
-| 🟡 adiada com recon | **10** | 170 (4,1%) | viva e real — precisa de corte próprio |
+| 🟡 adiada com recon | **8** | 43 (1,0%) | viva e real — precisa de corte próprio |
 
 **Todo veredito tem procedência**: contagem no Oracle de produção (só leitura), linha do fonte Delphi, ou
 ambos. As 🟡 que restam são o trabalho que sobra desta fila:
 
 | # | tela | por que ficou |
 |---|---|---|
-| 3 | `FRMDIGITACAOPEDIDOS` | digitação de pedido — corte declarado |
-| 89 | `FRMPRECIFICACAONFBRUTA` | escrita sobre o motor de preços (LOTEPRECO + MARKUPFIXO) |
+| 89 | `FRMPRECIFICACAONFBRUTA` | escrita sobre o motor de preços (LOTEPRECO + MARKUPFIXO) |  | ✅ **completa** (mig 273, `precificacao/nf-bruta`, dossiê `uPrecificacaoNFBruta.md`) — a irmã enxuta da precificação por NF: enfileira o lote com o preço sugerido e grava o markup fixo. **Dois defeitos corrigidos**: o legado dá `Commit` DENTRO do laço (lote pela metade se um item falha) e grava o lote na empresa da NOTA mas o markup fixo na empresa LOGADA. E o lote agora nasce com `origem` — as 67.855 linhas de `LOTEPRECO` com origem nula no cliente são desta tela, que não preenche a coluna |
 | 97 | `FRMSINTEGRA` | obrigação acessória viva; depende de `NFAUXSPED`, ausente no destino |
 | 110 · 145 | `FRMCADCLASSTRIBIBSCBS` · `FRMCADCSTIBSCBS` | reforma tributária (EC 132/2023): `NF_IBSCBS` já tem 9.956 linhas |
 | 123 | `FRMRELCONFERENCIAEFD` | conferência do EFD — viva em 09/2026, sem fonte no repositório de mai/2020 |
@@ -37,7 +36,7 @@ ambos. As 🟡 que restam são o trabalho que sobra desta fila:
 |---|---|---|---|---|
 | 1 | `FRMCADMDFE` | 153 | 12 | ⛔ **não migrar**: a tela nunca foi implementada no legado — 47 linhas com o corpo comentado, `.dfm` com um GroupBox vazio, DataModule vazio, e `MDFE`/`MDFE_DOCUMENTO` com 0 linhas. Migrar seria escrever do zero |
 | 2 | `FRMRELINTERSECCAOPRODUTOS` | 117 | 10 | ✅ **completa** (mig 221) — sem a tabela de trabalho global do legado |
-| 3 | `FRMDIGITACAOPEDIDOS` | 116 | 9 | 🟡 **corte-1** (mig 222): consulta de pedidos + **quem aplica a promoção acumulativa** (o atacarejo dá 5× o desconto normal). As 3 telas auxiliares do legado estão sem substrato — 0 linhas. Falta digitar o pedido e a reserva de estoque |
+| 3 | `FRMDIGITACAOPEDIDOS` | 116 | 9 | 🪦 **corte-1 entregue (mig 222) e o resto é fluxo MORTO, com prova nova (18/09/2026)**: a digitação de pedidos **parou em fevereiro de 2025** — 2025-01: 1.200 pedidos · 2025-02: 212 · 2025-03: **1** · 2025-04: 1 · nada até 2026-03 (1) e 2026-07 (1). Em 2026 são **2 pedidos, R$ 4.993** contra 16.115 em 2024. Os 116 acessos são históricos (último 12/08/2026, consulta). A consulta e a promoção acumulativa (quem dá 5× o desconto) estão no corte-1; digitar pedido novo e reservar estoque é reconstruir um fluxo que a casa desligou |
 | 4 | `FRMSAIDADEP` | 104 | 9 | ⛔ **mecanismo morto no cliente**: `SAIDADEP` tem **16 linhas**, a última de **04/02/2021** — parou há mais de cinco anos. E a transferência é para o depósito, cuja tabela (`ESTOQUE_DEP`) está **inteiramente zerada** (ver `uProdutosRel.md` §2): este cliente não usa estoque por depósito. Os 104 acessos são gente abrindo a tela, não gravando. Reavaliar se algum tenant passar a usar depósito |
 | 5 | `FRMCONTROLEMOBILE` | 101 | 5 | ⛔ **sem fonte no repositório clonado** — nenhuma unit, nenhum `.dfm`. Terceiro caso (com Borba Fiscal e Boa Vista) |
 | 6 | `FRMFLUXOCARTOES` | 98 | 7 | ✅ **completa** (mig 223) — e sem a duplicação de 67% dos dias que o legado faz |

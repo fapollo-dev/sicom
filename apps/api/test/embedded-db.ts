@@ -315,6 +315,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('270_rel_diario_contabil.sql'));
   await pool.query(sql('271_nfe_inutilizada.sql'));
   await pool.query(sql('272_desconto_titulo_exec.sql'));
+  await pool.query(sql('273_precificacao_nf_bruta.sql'));
   await pool.end();
   return pg;
 }

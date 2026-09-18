@@ -16325,6 +16325,67 @@ async function main() {
       }
     }
 
+    // ══ PRECIFICAÇÃO PELA NF BRUTA (FRMPRECIFICACAONFBRUTA) ════════════════════════════════════════════
+    {
+      const PB = 'precificacao/nf-bruta';
+      const pgPb = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const j = { ...H, 'content-type': 'application/json' };
+        await pgPb.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+          (994101,'7899000994101','PROD NF BRUTA UM','UN',2,'T01','S'),
+          (994102,'7899000994102','PROD NF BRUTA DOIS','UN',2,'T01','S') ON CONFLICT (idproduto) DO NOTHING`);
+        await pgPb.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrcustorep, markupfixo) VALUES
+          (994101,1,10.00,6.00,30), (994102,1,20.00,12.00,25),
+          (994101,2,99.00,60.00,99) ON CONFLICT DO NOTHING`);
+        const nf = Number((await pgPb.query(`INSERT INTO nf (idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, codparceiro, proc, totalnf)
+          VALUES (1,'E',55,'994100','1','2059-02-10','2059-02-10',2,'S',100.00) RETURNING codnf`)).rows[0].codnf);
+        const nfOutra = Number((await pgPb.query(`INSERT INTO nf (idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, codparceiro, proc, totalnf)
+          VALUES (2,'E',55,'994199','1','2059-02-11','2059-02-11',2,'S',50.00) RETURNING codnf`)).rows[0].codnf);
+        await pgPb.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrvenda, vrcusto, cfop, aliquota, vrvendasug, pmz, ultcusto) VALUES
+          ($1,1,994101,10,1,'UN',10.00,6.00,1102,'T01',12.50,7.10,6.20),
+          ($1,2,994102,5,1,'UN',20.00,12.00,1102,'T01',20.00,13.00,12.10)`, [nf]);
+        await pgPb.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrvenda, vrcusto, cfop, aliquota, vrvendasug) VALUES
+          ($1,1,994101,3,1,'UN',99.00,60.00,1102,'T01',111.00)`, [nfOutra]);
+        const cons = (await (await fetch(`${base}/${PB}?nronf=994100`, { headers: H })).json().catch(() => ({}))) as any;
+        const i1 = (cons.itens ?? []).find((i: any) => i.idproduto === 994101);
+        const i2 = (cons.itens ?? []).find((i: any) => i.idproduto === 994102);
+        const soSug = (await (await fetch(`${base}/${PB}?nronf=994100&somenteComSugestao=true`, { headers: H })).json().catch(() => ({}))) as any;
+        const outra = (await (await fetch(`${base}/${PB}?nronf=994199`, { headers: H })).json().catch(() => ({}))) as any;
+        check('PRECIFICAÇÃO NF BRUTA §151.1 [a consulta]: os itens da nota de ENTRADA com preço atual, custo de reposição, PMZ, preço sugerido e o markup FIXO do produto. O item 1 tem sugestão (10,00 → 12,50, diferença 2,50) e o 2 não (sugerido igual ao atual); o filtro "só com sugestão" deixa 1; a nota da loja 2 não aparece (tenant) — no legado a empresa do lote e a do markup podiam ser diferentes',
+          i1?.temSugestao === true && Number(i1?.vrvenda) === 10 && Number(i1?.vrvendasug) === 12.5 && Number(i1?.diferenca) === 2.5
+          && Number(i1?.markupfixo) === 30 && Number(i1?.vrcusto) === 6 && Number(i1?.pmz) === 7.1
+          && i2?.temSugestao === false && (soSug.itens ?? []).length === 1 && (outra.itens ?? []).length === 0
+          && cons.totais?.comSugestao === 1,
+          { i1, i2: [i2?.vrvenda, i2?.vrvendasug, i2?.temSugestao], soSug: soSug.itens?.length, outra: outra.itens?.length, totais: cons.totais });
+        const ap = await fetch(`${base}/${PB}/aplicar`, { method: 'POST', headers: j, body: JSON.stringify({ itens: [{ idproduto: 994101, vrvenda: 12.5, markup: 52.5, markupfixo: 35, nronf: '994100' }] }) });
+        const apJ = (await ap.json().catch(() => ({}))) as any;
+        const lote = (await pgPb.query(`SELECT idproduto, codempresa, vrvenda, markup, processado, origem, obs FROM lote_preco WHERE idproduto = 994101 ORDER BY codlotepreco DESC LIMIT 1`)).rows[0] as any;
+        const mp1 = (await pgPb.query(`SELECT markupfixo FROM multi_preco WHERE idproduto=994101 AND idempresa=1`)).rows[0] as any;
+        const mp2 = (await pgPb.query(`SELECT markupfixo FROM multi_preco WHERE idproduto=994101 AND idempresa=2`)).rows[0] as any;
+        const precoAtual = (await pgPb.query(`SELECT vrvenda FROM multi_preco WHERE idproduto=994101 AND idempresa=1`)).rows[0] as any;
+        check('PRECIFICAÇÃO NF BRUTA §151.2 [aplicar enfileira e grava o markup fixo — na MESMA empresa]: o lote nasce com o preço SUGERIDO (12,50), `processado=N`, a obs do legado com o número da nota, e `origem=PRECIFICACAO_NF_BRUTA` — no cliente as 67.855 linhas de LOTEPRECO com origem nula são desta tela, que não preenche a coluna. O markup fixo vai para a empresa do tenant (35) e **não** toca a loja 2 (segue 99) — no legado o lote ia para a empresa da NOTA e o markup para a empresa LOGADA. E o preço em si não muda: quem muda é o processamento do lote',
+          ap.status === 201 && apJ.totais?.lotes === 1 && apJ.totais?.markupsAtualizados === 1
+          && Number(lote.vrvenda) === 12.5 && Number(lote.codempresa) === 1 && lote.processado === 'N'
+          && lote.origem === 'PRECIFICACAO_NF_BRUTA' && String(lote.obs).includes('994100')
+          && Number(mp1.markupfixo) === 35 && Number(mp2.markupfixo) === 99 && Number(precoAtual.vrvenda) === 10,
+          { ap: ap.status, totais: apJ.totais, lote, mp1: mp1.markupfixo, mp2: mp2.markupfixo, preco: precoAtual.vrvenda });
+        const invalido = await fetch(`${base}/${PB}/aplicar`, { method: 'POST', headers: j, body: JSON.stringify({ itens: [{ idproduto: 994101, vrvenda: 13 }, { idproduto: 999888, vrvenda: 5 }] }) });
+        const invalidoJ = (await invalido.json().catch(() => ({}))) as any;
+        const lotesDepois = Number((await pgPb.query(`SELECT count(*) n FROM lote_preco WHERE idproduto = 994101`)).rows[0].n);
+        const semGrant = await fetch(`${base}/${PB}/aplicar`, { method: 'POST', headers: { ...H_SEM_ACESSO, 'content-type': 'application/json' }, body: JSON.stringify({ itens: [{ idproduto: 994101, vrvenda: 13 }] }) });
+        check('PRECIFICAÇÃO NF BRUTA §151.3 [transação única — o defeito do legado]: um lote com 2 itens onde o SEGUNDO é um produto inexistente falha inteiro e **não deixa o primeiro gravado** (o legado dava commit por item: o primeiro ficaria e o lote sairia pela metade, sem aviso) — o lote do produto continua com 1 linha, a do teste anterior; sem o grant BTNAPLICAR, 403',
+          invalido.status === 422 && invalidoJ.code === 'PRODUTO_NAO_ENCONTRADO' && lotesDepois === 1 && semGrant.status === 403,
+          { invalido: [invalido.status, invalidoJ.code], lotesDepois, rbac: semGrant.status });
+        await pgPb.query(`DELETE FROM lote_preco WHERE idproduto IN (994101,994102)`);
+        await pgPb.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2)`, [nf, nfOutra]);
+        await pgPb.query(`DELETE FROM nf WHERE codnf IN ($1,$2)`, [nf, nfOutra]);
+        await pgPb.query(`DELETE FROM multi_preco WHERE idproduto IN (994101,994102)`);
+        await pgPb.query(`DELETE FROM produtos WHERE idproduto IN (994101,994102)`);
+      } finally {
+        await pgPb.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();
