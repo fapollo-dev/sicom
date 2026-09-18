@@ -34,6 +34,7 @@ import {
   FileSearch,
   ArrowLeftRight,
   CalendarClock,
+  PackageSearch,
   UserSearch,
   Undo2,
   ClipboardList,
@@ -200,6 +201,7 @@ const TELAS = [
   { href: '/compras/faturamento', name: 'Faturamento da nota', icon: CalendarClock },
   // FRMMOVIMENTACOESDIA — o que aconteceu hoje e quem fez (27 acessos, 8 operadores).
   { href: '/relatorios/movimentacoes-dia', name: 'Movimentações do dia', icon: CalendarClock },
+  { href: '/relatorios/consulta-produto', name: 'Consulta de produtos', icon: PackageSearch },
   // FRMCADINDEXADORTRIBUTARIO — de onde sai o ICMS-ST de toda entrada (23 acessos; 12.053 indexadores).
   { href: '/cadastro/indexador-tributario', name: 'Indexador tributário', icon: FileSearch },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },

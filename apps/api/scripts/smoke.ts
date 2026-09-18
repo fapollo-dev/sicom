@@ -14881,6 +14881,150 @@ async function main() {
         await pgIt.end();
       }
     }
+
+    // ══ CONSULTA DE PRODUTOS + ANÁLISE GERAL (FRMCONSPROD / FRMPOSICAOPRODUTO) ═══════════════════════
+    {
+      const CP = 'relatorios/consulta-produto';
+      const PP = 991501; // produto do cenário
+      const pgPp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgPp.query(`INSERT INTO familias_prod (codfamilia, tipo, descricao) VALUES (9905,'S','MERCEARIA SECA')
+          ON CONFLICT (codfamilia) DO NOTHING`);
+        await pgPp.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, codsubgrupo) VALUES
+          (${PP},'7899000991501','ARROZ AGULHINHA TIPO 1 5KG','UN',2,'T01','S',9905)
+          ON CONFLICT (idproduto) DO UPDATE SET descricao=EXCLUDED.descricao, codsubgrupo=EXCLUDED.codsubgrupo`);
+        // a ESCADA gravada pela precificação — a tela LÊ isto, não recalcula
+        await pgPp.query(`DELETE FROM multi_preco WHERE idproduto = ${PP}`);
+        await pgPp.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrcustoreal, vrvenda, vrpromo, promocao, markup,
+                            frete, ipi, icmst, despacessorio, seguro,
+                            creditoicm, creditopiscofins, debitoicm, debitopiscofins,
+                            vendaliq, lucrobrutov, despopv, lucroliqv, imprend, contsocial, margeml2v, margeml2)
+          VALUES (${PP}, 1, 18.40, 19.10, 25.90, 23.50, 'N', 40.76,
+                  0.50, 0.00, 1.20, 0.30, 0.10,
+                  1.35, 1.58, 4.66, 2.40, 18.84, 0.44, 1.30, -0.86, 0.00, 0.00, -0.86, -3.32),
+                 (${PP}, 2, 18.90, 19.60, 26.50, 0, 'N', 40.21,
+                  0.50, 0.00, 1.20, 0.30, 0.10,
+                  1.35, 1.58, 4.77, 2.45, 19.28, 0.38, 1.33, -0.95, 0.00, 0.00, -0.95, -3.58)`);
+        await pgPp.query(`DELETE FROM estoque WHERE idproduto = ${PP}`);
+        await pgPp.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES (${PP},1,140.5),(${PP},2,88)`);
+        await pgPp.query(`INSERT INTO estoque_dep (idproduto, idempresa, qtde) VALUES (${PP},1,25)
+          ON CONFLICT DO NOTHING`);
+
+        // ── FRMCONSPROD: os três caminhos de busca ───────────────────────────────────────────────────
+        const porDesc = (await (await fetch(`${base}/${CP}?termo=AGULHINHA`, { headers: H })).json().catch(() => [])) as any[];
+        const porEan  = (await (await fetch(`${base}/${CP}?termo=7899000991501`, { headers: H })).json().catch(() => [])) as any[];
+        const porCod  = (await (await fetch(`${base}/${CP}?termo=${PP}`, { headers: H })).json().catch(() => [])) as any[];
+        const achado = porDesc.find((r) => Number(r.idproduto) === PP);
+        check('CONSULTA DE PRODUTOS §126.1 [os três caminhos num campo só, e os PREÇOS]: descrição (LIKE), código de barras (=) e código (=) acham o mesmo produto — e a linha traz `vrcusto`, `vrcustoreal`, `vrpromo` e `vrvenda`, que é exatamente o que a `get_produtos` do Apollo **não** tem (a view é global, `multi_preco` é por empresa). O preço é o da empresa do contexto: 18,40 / 25,90 na loja 1',
+          achado != null && Math.abs(Number(achado?.vrcusto) - 18.40) < 0.005 && Math.abs(Number(achado?.vrvenda) - 25.90) < 0.005
+          && Math.abs(Number(achado?.vrcustoreal) - 19.10) < 0.005 && Math.abs(Number(achado?.vrpromo) - 23.50) < 0.005
+          && porEan.some((r) => Number(r.idproduto) === PP) && porCod.some((r) => Number(r.idproduto) === PP),
+          { desc: achado?.vrvenda, ean: porEan.length, cod: porCod.length });
+
+        // ── movimento: 13 meses de venda, o pedido e o cancelado ─────────────────────────────────────
+        await pgPp.query(`DELETE FROM vendas WHERE codproduto = ${PP}`);
+        await pgPp.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, cancelado) VALUES
+          (1,'2045-06-10 09:00','PP1','001',1,1,${PP},10,25.90,'N'),
+          (1,'2045-06-11 09:00','PP2','001',2,1,${PP},5,25.90,'N'),
+          (1,'2045-05-20 09:00','PP3','001',3,1,${PP},7,25.90,'N'),
+          (1,'2044-11-02 09:00','PP4','001',4,1,${PP},3,25.90,'N'),
+          (1,'2043-03-02 09:00','PP5','001',5,1,${PP},100,25.90,'N'),
+          (1,'2045-06-11 10:00','PP6','001',6,1,${PP},99,25.90,'S'),
+          (2,'2045-06-11 09:00','PP7','001',7,1,${PP},40,26.50,'N')`);
+        await pgPp.query(`DELETE FROM pedidos WHERE codproduto = ${PP}`);
+        // ⚠️ TIPO nulo: 99,5% dos pedidos do cliente são assim, e o filtro do legado os esconderia
+        await pgPp.query(`INSERT INTO pedidos (nropedido, idempresa, nroitem, codproduto, qtde, vrvenda, dtvenda, cancelado, tipo) VALUES
+          (9905001,1,1,${PP},4,25.90,'2045-06-10 14:00','N',NULL),
+          (9905002,1,1,${PP},6,25.90,'2045-06-11 14:00',NULL,NULL),
+          (9905003,1,1,${PP},2,25.90,'2045-06-11 15:00','N','P'),
+          (9905004,1,1,${PP},50,25.90,'2045-06-11 16:00','S',NULL)`);
+
+        const pos = (await (await fetch(`${base}/${CP}/posicao/${PP}?origem=V&referencia=2045-06-11`, { headers: H })).json().catch(() => ({}))) as any;
+        const jun = (pos.mensal ?? []).find((r: any) => r.mes === 6 && r.ano === 2045);
+        const mai = (pos.mensal ?? []).find((r: any) => r.mes === 5 && r.ano === 2045);
+        check('ANÁLISE GERAL §126.2 [o movimento sai da VENDA, não da cache]: o legado lê `MOVIMENTOS_VENDAS`, tabela materializada por job de madrugada — e no cliente ela está **226,5 un acima** da venda real em ago/2026 (mês FECHADO) e **620,35 acima** em 2025, porque congelou vendas canceladas depois do job e nunca reprocessa o passado. Aqui junho soma 15 (a de 99 está cancelada e a da loja 2 é de outra empresa) e maio soma 7',
+          Math.abs(Number(jun?.qtde) - 15) < 0.005 && Math.abs(Number(mai?.qtde) - 7) < 0.005,
+          { junho: jun?.qtde, maio: mai?.qtde, linhas: pos.mensal?.length });
+
+        check('ANÁLISE GERAL §126.3 [a série anual COMPLETA]: `cdsSaidasAnual` agrupa a cache por ANO **sem filtro de data** — parece a série histórica, mas a cache começa em 2025-01 e a venda do cliente começa em **02/01/2018**: sete anos escondidos. Aqui aparecem os três anos do cenário (2043, 2044 e 2045), inclusive o de fora da janela de 13 meses',
+          (pos.anual ?? []).length === 3
+          && Math.abs(Number((pos.anual ?? []).find((r: any) => r.ano === 2043)?.qtde) - 100) < 0.005
+          && Math.abs(Number((pos.anual ?? []).find((r: any) => r.ano === 2045)?.qtde) - 22) < 0.005,
+          { anual: pos.anual });
+
+        check('ANÁLISE GERAL §126.4 [a escada é LIDA, não recalculada]: os 12 degraus vêm gravados em `multi_preco` pela precificação (migration 129) — crédito de ICMS e de PIS/COFINS na subida, débito dos dois, venda líquida, lucro bruto, despesa operacional e lucro líquido na descida. Recalcular aqui divergiria da foto que foi gravada',
+          Math.abs(Number(pos.custo?.creditoicm) - 1.35) < 0.005 && Math.abs(Number(pos.custo?.creditopiscofins) - 1.58) < 0.005
+          && Math.abs(Number(pos.venda?.debitoicm) - 4.66) < 0.005 && Math.abs(Number(pos.venda?.vendaliq) - 18.84) < 0.005
+          && Math.abs(Number(pos.venda?.lucrobrutov) - 0.44) < 0.005 && Math.abs(Number(pos.venda?.lucroliqv) - (-0.86)) < 0.005
+          && pos.produto?.subgrupo === 'MERCEARIA SECA',
+          { credIcm: pos.custo?.creditoicm, vendaliq: pos.venda?.vendaliq, lucroliq: pos.venda?.lucroliqv, subgrupo: pos.produto?.subgrupo });
+
+        check('ANÁLISE GERAL §126.5 [estoque e preço LADO A LADO por loja]: é para isto que o legado usava o seletor multi-empresa. Loja 1 com 140,5 (+25 no depósito) a 25,90; loja 2 com 88 a 26,50 — e as cinco semanas do quadro semanal são domingo→sábado, como o `DayOfWeek` do Delphi',
+          (pos.lojas ?? []).length === 2
+          && Math.abs(Number(pos.lojas?.[0]?.qtde) - 140.5) < 0.005 && Math.abs(Number(pos.lojas?.[0]?.qtdeDeposito) - 25) < 0.005
+          && Math.abs(Number(pos.lojas?.[1]?.vrvenda) - 26.50) < 0.005
+          && (pos.semanal ?? []).length === 5 && pos.semanal?.[0]?.ini === '2045-06-11' && pos.semanal?.[0]?.fim === '2045-06-17',
+          { lojas: pos.lojas, semana1: pos.semanal?.[0] });
+
+        const posP = (await (await fetch(`${base}/${CP}/posicao/${PP}?origem=P&referencia=2045-06-11`, { headers: H })).json().catch(() => ({}))) as any;
+        const posT = (await (await fetch(`${base}/${CP}/posicao/${PP}?origem=T&referencia=2045-06-11`, { headers: H })).json().catch(() => ({}))) as any;
+        const junP = (posP.mensal ?? []).find((r: any) => r.mes === 6 && r.ano === 2045);
+        const junT = (posT.mensal ?? []).find((r: any) => r.mes === 6 && r.ano === 2045);
+        check('ANÁLISE GERAL §126.6 [o modo "Pedidos" do legado está quebrado em dois lugares]: (a) o mensal, o semanal e o anual leem a cache **de qualquer jeito** e continuam mostrando venda com o título trocado; (b) o único quadro que respeita a escolha aplica `v.tipo = ‘P’`, e `PEDIDOS.TIPO` é NULL em **36.887 dos 37.080** do cliente (99,5%) — mostraria 2 de 12. Aqui a origem vale nos quatro quadros e não filtra por TIPO: pedidos = 12 (4+6+2, o cancelado fora), todos = 27',
+          Math.abs(Number(junP?.qtde) - 12) < 0.005 && Math.abs(Number(junT?.qtde) - 27) < 0.005,
+          { pedidos: junP?.qtde, todos: junT?.qtde });
+
+        check('ANÁLISE GERAL §126.7 [um critério de cancelado só]: o legado exige `cancelado = ‘N’` no quadro mensal e aceita `= ‘N’ or is null` no diário — os **33 pedidos** do cliente com CANCELADO nulo entram num quadro e somem do outro. Aqui `coalesce(cancelado,‘N’) <> ‘S’` nos dois: o pedido de 6 un com CANCELADO nulo aparece no mensal E no diário',
+          Math.abs(Number(junP?.qtde) - 12) < 0.005
+          && Math.abs(Number((posP.diario ?? []).find((r: any) => r.data === '2045-06-11')?.qtde) - 8) < 0.005,
+          { mensal: junP?.qtde, dia11: (posP.diario ?? []).find((r: any) => r.data === '2045-06-11')?.qtde });
+
+        // ── entradas, compras, pendentes e Kardex ────────────────────────────────────────────────────
+        const nfE = Number((await pgPp.query(`INSERT INTO nf (idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, codparceiro, proc, totalnf)
+          VALUES (1,'E','55',990501,'1','2045-06-05','2045-06-05',2,'S',1840.00) RETURNING codnf`)).rows[0].codnf);
+        await pgPp.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrvenda, vrcusto, aliquota)
+          VALUES ($1, 1, ${PP}, 10, 10, 'UN', 18.40, 18.40, 'T01')`, [nfE]);
+        const pcId = Number((await pgPp.query(`INSERT INTO pedidocompra (idempresa, codparceiro, data, fechado)
+          VALUES (1, 2, '2045-06-08', 'N') RETURNING codpedcomp`)).rows[0].codpedcomp);
+        await pgPp.query(`INSERT INTO pedidocompra_i (codpedcomp, idproduto, fatorembalagem, vrcusto, vlrembalagem)
+          VALUES ($1, ${PP}, 60, 18.40, 1104.00)`, [pcId]);
+        await pgPp.query(`INSERT INTO historico_prod (idproduto, idempresa, tipo, qtde, saldo_anterior, saldo_novo, origem, codnf, historico, data)
+          VALUES (${PP},1,'E',100,40.5,140.5,'NF',$1,'ENTRADA POR NF','2045-06-05 08:00'),
+                 (${PP},1,'S',10,140.5,130.5,'VENDA',NULL,'SAIDA POR VENDA','2045-06-10 09:00')`, [nfE]);
+
+        const pos2 = (await (await fetch(`${base}/${CP}/posicao/${PP}?origem=V&referencia=2045-06-11`, { headers: H })).json().catch(() => ({}))) as any;
+        const kdx = (await (await fetch(`${base}/${CP}/kardex/${PP}?dataIni=2045-06-01&dataFim=2045-06-11`, { headers: H })).json().catch(() => [])) as any[];
+        check('ANÁLISE GERAL §126.8 [entradas, compras, pendentes e Kardex]: a entrada é a NF processada (`tipo=E`, `proc=S`) e conta `fatorembal × quantidade` = 100; a compra é o pedido em aberto (60 un); o pendente traz o fornecedor; e o Kardex sai de `historico_prod` (14,66 mi de linhas no cliente) com a entrada de 100 e a saída de 10, saldo 130,5',
+          Math.abs(Number((pos2.entradas ?? []).find((r: any) => r.mes === 6)?.qtde) - 100) < 0.005
+          && Math.abs(Number((pos2.compras ?? []).find((r: any) => r.mes === 6)?.qtde) - 60) < 0.005
+          && (pos2.pendentes ?? []).length === 1 && Math.abs(Number(pos2.pendentes?.[0]?.qtde) - 60) < 0.005
+          && kdx.length === 2 && Math.abs(Number(kdx[0]?.entrada) - 100) < 0.005 && Math.abs(Number(kdx[1]?.saida) - 10) < 0.005
+          && Math.abs(Number(kdx[1]?.qtdeAtual) - 130.5) < 0.005,
+          { entradas: pos2.entradas, compras: pos2.compras, pendentes: pos2.pendentes?.length, kardex: kdx.length });
+
+        const semGrantCp = await fetch(`${base}/${CP}?termo=AGULHINHA`, { headers: H_SEM_ACESSO });
+        const semGrantPp = await fetch(`${base}/${CP}/posicao/${PP}`, { headers: H_SEM_ACESSO });
+        const inexistente = await fetch(`${base}/${CP}/posicao/99999999`, { headers: H });
+        const kdxInvertido = await fetch(`${base}/${CP}/kardex/${PP}?dataIni=2045-06-11&dataFim=2045-06-01`, { headers: H });
+        check('ANÁLISE GERAL §126.9: os dois gates são separados — a consulta é a tela do menu (`FRMCONSPROD`, 25 acessos/8 operadores) e a análise tem o seu próprio (`FRMPOSICAOPRODUTO`, que não aparece no MENUEXPRESS porque só abre de dentro da consulta). Sem grant, 403 nos dois; produto que não existe, 422; Kardex com período invertido, 400',
+          semGrantCp.status === 403 && semGrantPp.status === 403 && inexistente.status === 422 && kdxInvertido.status === 400,
+          { consulta: semGrantCp.status, posicao: semGrantPp.status, inexistente: inexistente.status, invertido: kdxInvertido.status });
+
+        await pgPp.query(`DELETE FROM historico_prod WHERE idproduto = ${PP}`);
+        await pgPp.query(`DELETE FROM pedidocompra_i WHERE idproduto = ${PP}`);
+        await pgPp.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [pcId]);
+        await pgPp.query(`DELETE FROM nf_prod WHERE codnf = $1`, [nfE]);
+        await pgPp.query(`DELETE FROM nf WHERE codnf = $1`, [nfE]);
+        await pgPp.query(`DELETE FROM pedidos WHERE codproduto = ${PP}`);
+        await pgPp.query(`DELETE FROM vendas WHERE codproduto = ${PP}`);
+        await pgPp.query(`DELETE FROM estoque_dep WHERE idproduto = ${PP}`);
+        await pgPp.query(`DELETE FROM estoque WHERE idproduto = ${PP}`);
+        await pgPp.query(`DELETE FROM multi_preco WHERE idproduto = ${PP}`);
+        await pgPp.query(`DELETE FROM produtos WHERE idproduto = ${PP}`);
+      } finally {
+        await pgPp.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

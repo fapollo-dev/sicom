@@ -43,6 +43,8 @@ import { RelEntSaiController } from './rel-ent-sai.controller';
 import { RelEntSaiService } from './rel-ent-sai.service';
 import { RelFaturamentoController } from './rel-faturamento.controller';
 import { RelFaturamentoService } from './rel-faturamento.service';
+import { PosicaoProdutoController } from './posicao-produto.controller';
+import { PosicaoProdutoService } from './posicao-produto.service';
 import { MovimentacoesDiaController } from './movimentacoes-dia.controller';
 import { MovimentacoesDiaService } from './movimentacoes-dia.service';
 import { RelAnaliseItensNfController } from './rel-analise-itens-nf.controller';
@@ -107,12 +109,13 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     RelPrecosAlteradosController,
     RelAnaliseItensNfController,
     MovimentacoesDiaController,
+    PosicaoProdutoController,
     // FRMRELFATURAMENTO — faturamento por mês, com a perna NFC-e que falta no legado (80 acessos).
     RelFaturamentoController,
     // FRMRELENTSAI — compra × venda por produto (84 acessos).
     RelEntSaiController,
     // FRMANALISEENTRADAXSAIDA — por fornecedor, saída de venda ou pedido (68 acessos).
     AnaliseEntradaSaidaController],
-  providers: [RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService, RelCartoesService, RentabilidadeCategoriasService, RelComprasService, ProdutosRelService, RelEntradasSaidasService, RelDdeService, RelInterseccaoService, RelFinanceiroService, SimuladorVendaService, ExtratoFornecedoresService, AnaliseCasaCarneService, RelVendasDinamicoService, RelPrecosAlteradosService, RelAnaliseItensNfService, MovimentacoesDiaService, RelFaturamentoService, RelEntSaiService, AnaliseEntradaSaidaService],
+  providers: [RelVendasService, PreviaFornecedorService, RelFinalizadorasService, RelTicketMedioService, RelCaixaDreService, RelSemMovimentoService, RelCurvaAbcService, RelVendasDataService, RelVendasDepartamentoService, RelVendasHoraService, RelFormasPgtoService, RelVendasOperadorService, RelCaixaOpsService, RelCanceladosService, RelVendasExtrasService, ConfigService, DatabaseProvider, ConsHistVendasService, RelatorioConstrutorService, RelatorioImportadorService, ConsultoriaService, RelCartoesService, RentabilidadeCategoriasService, RelComprasService, ProdutosRelService, RelEntradasSaidasService, RelDdeService, RelInterseccaoService, RelFinanceiroService, SimuladorVendaService, ExtratoFornecedoresService, AnaliseCasaCarneService, RelVendasDinamicoService, RelPrecosAlteradosService, RelAnaliseItensNfService, MovimentacoesDiaService, RelFaturamentoService, RelEntSaiService, AnaliseEntradaSaidaService, PosicaoProdutoService],
 })
 export class RelatoriosModule {}
