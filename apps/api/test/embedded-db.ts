@@ -296,6 +296,8 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('251_analise_comportamento.sql'));
   await pool.query(sql('252_rel_analise_pedido_nf.sql'));
   await pool.query(sql('253_cons_apg_bx.sql'));
+  await pool.query(sql('254_cons_rcb_bx.sql'));
+  await pool.query(sql('255_rel_perdas.sql'));
   await pool.end();
   return pg;
 }

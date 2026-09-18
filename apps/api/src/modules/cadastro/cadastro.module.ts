@@ -17,6 +17,8 @@ import { InventarioRotativoService } from './inventario-rotativo.service';
 import { InventarioService } from './inventario.service';
 import { ScrapAggregateController } from './scrap.aggregate';
 import { ScrapController } from './scrap.controller';
+import { RelPerdasController } from './rel-perdas.controller';
+import { RelPerdasService } from './rel-perdas.service';
 import { ScrapService } from './scrap.service';
 import { ProducaoAggregateController } from './producao.aggregate';
 import { ProducaoController } from './producao.controller';
@@ -130,7 +132,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
  */
 @Module({
   imports: [PrecificacaoModule, AuthModule], // motor fiscal na NF F2 + LiberacaoService (zerar estoque do rotativo)
-  controllers: [
+  controllers: [RelPerdasController, 
     BancosController, // hand-written (referência + paridade SQL + golden)
     OperacoesContaCrudController, // engine (combo)
     ContasBancariasCrudController, // engine (FK/lookup)
@@ -209,7 +211,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     ConfiguracoesAdminController, // CONFIGURAÇÕES (UConfigura): catálogo chave-valor + overrides por escopo
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
-  providers: [
+  providers: [RelPerdasService, 
     BancosService,
     BancoRepository,
     ParceiroHistoricoService,

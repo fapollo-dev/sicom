@@ -194,7 +194,14 @@ export class AreceberBaixaService {
   async estornar(codrcb: number): Promise<{ codrcb: number; quitada: 'N' }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
-    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => this.estornarNoTrx(trx, emp, op, codrcb));
+  }
+
+  /**
+   * O estorno de UM título dentro de uma transação já aberta — é o que a reversão de LOTE da consulta de
+   * baixas (`FRMCONSRCBBX`, `cons-rcb-bx.service.ts`) encadeia para todos os títulos do lote, atômica.
+   */
+  async estornarNoTrx(trx: AnyDB, emp: number, op: number | null, codrcb: number): Promise<{ codrcb: number; quitada: 'N' }> {
       const t = await trx
         .selectFrom('areceber')
         .select(['codrcb', 'quitada'])
@@ -268,6 +275,5 @@ export class AreceberBaixaService {
       await AdiantamentoFornService.marcarQuitada(trx, emp, (adto as any)?.codadiantamento, 'N');
 
       return { codrcb, quitada: 'N' };
-    });
   }
 }

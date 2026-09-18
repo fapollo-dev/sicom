@@ -15356,6 +15356,122 @@ async function main() {
         await pgCx.end();
       }
     }
+
+    // ══ CONSULTA DE BAIXAS DO A RECEBER POR LOTE (FRMCONSRCBBX) — gêmea da §130 ════════════════════════
+    {
+      const CR = 'cobranca/cons-rcb-bx';
+      const LOTE = 991911, LOTE_DESC = 991912;
+      const pgCr = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const r1 = Number((await pgCr.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc, dtpgto)
+          VALUES (1,22,'CR-1','2048-04-01','2048-04-10',300.00,'S','DP','2048-04-15') RETURNING codrcb`)).rows[0].codrcb);
+        const r2 = Number((await pgCr.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc, dtpgto)
+          VALUES (1,2,'CR-2','2048-04-01','2048-04-20',200.00,'S','DP','2048-04-15') RETURNING codrcb`)).rows[0].codrcb);
+        // recebido 5 dias depois do vencimento (CR-1) e 5 dias antes (CR-2): dias de atraso 5 e 0
+        await pgCr.query(`INSERT INTO areceber_bx (codrcb, codempresa, dtpgto, valorpg, juros, acre_desc, indr, codopbx, idlote) VALUES
+          ($1,1,'2048-04-15 10:00:00-03',305.00,5.00,0,'I',7,${LOTE}), ($2,1,'2048-04-15 10:00:00-03',200.00,0,0,'I',7,${LOTE})`, [r1, r2]);
+        await pgCr.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, historico, idlote, dtemissao, nrodocumento, indr, origem)
+          VALUES (1,1,505.00,'C','RECEB LOTE ${LOTE}',${LOTE},'2048-04-15','LT${LOTE}','I','BAIXA AR')`);
+        const r3 = Number((await pgCr.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc, dtpgto, cod_desconto_titulo)
+          VALUES (1,22,'CR-3','2048-04-02','2048-04-25',150.00,'S','DP','2048-04-16',77) RETURNING codrcb`)).rows[0].codrcb);
+        await pgCr.query(`INSERT INTO areceber_bx (codrcb, codempresa, dtpgto, valorpg, juros, acre_desc, indr, codopbx, idlote) VALUES ($1,1,'2048-04-16 10:00:00-03',150.00,0,0,'I',7,${LOTE_DESC})`, [r3]);
+
+        const lotes = (await (await fetch(`${base}/${CR}/lotes?dataIni=2048-04-01&dataFim=2048-04-30`, { headers: H })).json().catch(() => ({}))) as any;
+        const l1 = (lotes.lotes ?? []).find((l: any) => l.lote === LOTE);
+        const det = (await (await fetch(`${base}/${CR}/${LOTE}`, { headers: H })).json().catch(() => ({}))) as any;
+        const tCr1 = (det.titulos ?? []).find((t: any) => t.codrcb === r1);
+        const tCr2 = (det.titulos ?? []).find((t: any) => t.codrcb === r2);
+        check('CONS BAIXAS AR §131.1 [a gêmea de recebíveis: lotes, títulos, movimento e os DIAS DE ATRASO]: no cliente são **19.225 baixas em 3.219 lotes**, 611 reversões sempre do lote inteiro (109/0). O lote 991911 tem 2 clientes e R$ 505,00; o título recebido 5 dias depois do vencimento marca 5 dias de atraso e o recebido antes marca 0 (o `DIAS_ATRAZO` do legado nunca é negativo); o movimento bancário é um crédito de 505,00',
+          l1 != null && Number(l1.titulos) === 2 && Number(l1.clientes) === 2 && Math.abs(Number(l1.valorPago) - 505) < 0.005
+          && tCr1?.diasAtraso === 5 && tCr2?.diasAtraso === 0
+          && (det.movimentos ?? []).length === 1 && det.movimentos?.[0]?.tipomovimento === 'C' && Math.abs(Number(det.totais?.valorPago) - 505) < 0.005,
+          { l1: l1 && { t: l1.titulos, c: l1.clientes, v: l1.valorPago }, atraso: [tCr1?.diasAtraso, tCr2?.diasAtraso], mov: det.movimentos?.length });
+
+        const bxId = Number(tCr1?.codrcbbx);
+        const obs = await fetch(`${base}/${CR}/baixa/${bxId}/obs`, { method: 'PUT', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ obs: 'CLIENTE PAGOU COM ATRASO, JUROS NEGOCIADOS' }) });
+        const obsDb = (await pgCr.query(`SELECT obs_editavel FROM areceber_bx WHERE codrcbbx = $1`, [bxId])).rows[0];
+        const obsSemGrant = await fetch(`${base}/${CR}/baixa/${bxId}/obs`, { method: 'PUT', headers: { ...H_SEM_ACESSO, 'content-type': 'application/json' }, body: JSON.stringify({ obs: 'x' }) });
+        check('CONS BAIXAS AR §131.2 [a observação editável da baixa]: o painel Editar/Gravar do legado grava `OBS_EDITAVEL` na linha da baixa (`ARECEBER_BX`; a variante "BAIXA COM SALDO" em `ARECEBER_BX_SALDO` tem **0 linhas** no cliente e fica de fora). Sem `BTNGRAVAR`, 403',
+          obs.status === 200 && obsDb?.obs_editavel === 'CLIENTE PAGOU COM ATRASO, JUROS NEGOCIADOS' && obsSemGrant.status === 403,
+          { status: obs.status, obs: obsDb?.obs_editavel, rbac: obsSemGrant.status });
+
+        const rev = await fetch(`${base}/${CR}/${LOTE}/reverter`, { method: 'POST', headers: H });
+        const revJ = (await rev.json().catch(() => ({}))) as any;
+        const tit = (await pgCr.query(`SELECT quitada FROM areceber WHERE codrcb IN ($1,$2)`, [r1, r2])).rows;
+        const contra = (await pgCr.query(`SELECT valor, tipomovimento, idlote_reversao, historico FROM mov_contas_bancarias WHERE idlote_reversao = ${LOTE}`)).rows;
+        const deNovo = await fetch(`${base}/${CR}/${LOTE}/reverter`, { method: 'POST', headers: H });
+        const comDesc = await fetch(`${base}/${CR}/${LOTE_DESC}/reverter`, { method: 'POST', headers: H });
+        const comDescJ = (await comDesc.json().catch(() => ({}))) as any;
+        const semGrant = await fetch(`${base}/${CR}/${LOTE_DESC}/reverter`, { method: 'POST', headers: H_SEM_ACESSO });
+        check('CONS BAIXAS AR §131.3 [Reverter o lote inteiro — o `estornar` do A Receber extraído em `estornarNoTrx`]: os dois títulos voltam a `QUITADA=N`, nasce o contra-movimento (crédito de 505 vira débito de −505, `idlote_reversao` no lote original, histórico "…contas a receber…"), reverter de novo dá 422, vínculo de desconto de títulos dá 422 e sem `BTNREVERTERBAIXA` 403',
+          rev.status === 200 && Number(revJ.titulosRevertidos) === 2 && Number(revJ.contraMovimentos) === 1
+          && tit.every((r: any) => r.quitada === 'N')
+          && contra.length === 1 && Math.abs(Number(contra[0].valor) + 505) < 0.005 && contra[0].tipomovimento === 'D' && String(contra[0].historico).includes('contas a receber, lote ' + LOTE)
+          && deNovo.status === 422 && comDesc.status === 422 && comDescJ.code === 'VINCULO_DESCONTO_TITULO' && semGrant.status === 403,
+          { status: rev.status, rev: revJ, quitadas: tit.map((r: any) => r.quitada), contra: contra[0] && { v: contra[0].valor, t: contra[0].tipomovimento }, deNovo: deNovo.status, desc: comDescJ.code, rbac: semGrant.status });
+
+        await pgCr.query(`DELETE FROM mov_contas_bancarias WHERE idlote = ${LOTE} OR idlote_reversao = ${LOTE}`);
+        await pgCr.query(`DELETE FROM areceber_bx WHERE codrcb IN ($1,$2,$3)`, [r1, r2, r3]);
+        await pgCr.query(`DELETE FROM areceber WHERE codrcb IN ($1,$2,$3)`, [r1, r2, r3]);
+      } finally {
+        await pgCr.end();
+      }
+    }
+
+    // ══ RELATÓRIO DE PERDAS (FRMRELPERDAS) ═══════════════════════════════════════════════════════════
+    {
+      const RP = 'cadastro/rel-perdas';
+      const PRD = 991921;
+      const pgRp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgRp.query(`INSERT INTO familias_prod (codfamilia, tipo, descricao) VALUES (78,'D','MERCEARIA') ON CONFLICT (codfamilia) DO NOTHING`);
+        await pgRp.query(`INSERT INTO plc (codplc, desccodplc, descricao, codpai, nivelconta) VALUES (99128,'4.99.128','PERDAS MERCEARIA',NULL,3), (99129,'4.99.129','PERDAS ACOUGUE',NULL,3) ON CONFLICT (codplc) DO NOTHING`);
+        await pgRp.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto) VALUES (${PRD},'7899000991921','MUCHIBA KG','KG',2,'T01','S',78) ON CONFLICT (idproduto) DO UPDATE SET coddpto = 78`);
+        await pgRp.query(`INSERT INTO motivos_operacao (codmotivoop, descricao, tipo_operacao) VALUES (9127,'PERDA GERAL','S'), (9141,'VALIDADE','S') ON CONFLICT (codmotivoop) DO NOTHING`);
+        await pgRp.query(`DELETE FROM scrap_item WHERE codscrap IN (991931, 991932)`); await pgRp.query(`DELETE FROM scrap WHERE codscrap IN (991931, 991932)`);
+        await pgRp.query(`INSERT INTO scrap (codscrap, idempresa, dt_cadastro, codplc, codparceiro, obs, mov_estoque, importado) VALUES
+          (991931,1,'2049-01-10 09:00:00-03',99128,22,'QUEBRA DO DIA','S','N'), (991932,1,'2049-01-20 09:00:00-03',99129,22,'VENCIDOS','N','N')`);
+        await pgRp.query(`INSERT INTO scrap_item (codscrapitem, codscrap, idempresa, idproduto, qtde, vr_custo, codmotivoop, codsetor, codfor, origem, faturado) VALUES
+          (991941,991931,1,${PRD},10,5.00,9127,78,2,'ESTOQUE','N'),
+          (991942,991931,1,${PRD},2,100.00,9141,78,2,'ESTOQUE','N'),
+          (991943,991932,1,${PRD},1,30.00,9127,NULL,2,'ESTOQUE','N')`);
+
+        const an = (await (await fetch(`${base}/${RP}?dataIni=2049-01-01&dataFim=2049-01-31&tipo=analitico`, { headers: H })).json().catch(() => ({}))) as any;
+        const cc = (an.centrosCusto ?? []);
+        check('REL PERDAS §132.1 [analítico: um item por linha + o resumo por centro de custo]: o relatório sobre os scraps que o Apollo já tem (`cadastro/scrap`). No cliente são **3.794 scraps, 133.309 itens**, o último em 02/09/2026. Aqui 3 itens em 2 scraps, custo 280,00; o centro 4.99.128 soma 250 e o 4.99.129 soma 30; cada linha traz produto, motivo, setor, fornecedor, departamento e se o estoque já foi movido',
+          an.tipo === 'analitico' && (an.itens ?? []).length === 3 && Math.abs(Number(an.totais?.custo) - 280) < 0.005 && Number(an.totais?.scraps) === 2
+          && cc.length === 2 && Math.abs(Number(cc.find((c: any) => c.codplc === 99128)?.total) - 250) < 0.005 && Math.abs(Number(cc.find((c: any) => c.codplc === 99129)?.total) - 30) < 0.005
+          && (an.itens ?? []).some((i: any) => i.motivo_perda === 'PERDA GERAL' && i.setor === 'MERCEARIA' && i.mov_estoque === 'S'),
+          { itens: an.itens?.length, custo: an.totais?.custo, cc: cc.map((c: any) => [c.codplc, c.total]) });
+
+        check('REL PERDAS §132.2 [o número que não pode passar em silêncio]: em 2026 **um scrap** (16155, 22/08) vale **91,1%** das perdas do ano — R$ 6.645.919,88 de R$ 7.292.991,37 — por um item de **139.502 kg** de MUCHIBA (a média dos outros scraps do produto é 393 kg); sem ele 2026 fecha em R$ 647 mil, a ordem de 2025. O legado imprime o total e pronto; aqui `totais.maiorItem` traz o item e a participação — no cenário, o item de 200,00 vale 71,43% dos 280,00',
+          Number(an.totais?.maiorItem?.codscrap) === 991931 && Math.abs(Number(an.totais?.maiorItem?.total) - 200) < 0.005
+          && Math.abs(Number(an.totais?.maiorItem?.participacao) - 71.43) < 0.005,
+          { maior: an.totais?.maiorItem });
+
+        const si = (await (await fetch(`${base}/${RP}?dataIni=2049-01-01&dataFim=2049-01-31&tipo=sintetico`, { headers: H })).json().catch(() => ({}))) as any;
+        const porPlc = (await (await fetch(`${base}/${RP}?dataIni=2049-01-01&dataFim=2049-01-31&codplc=99129`, { headers: H })).json().catch(() => ({}))) as any;
+        const porMotivo = (await (await fetch(`${base}/${RP}?dataIni=2049-01-01&dataFim=2049-01-31&codmotivoop=9127`, { headers: H })).json().catch(() => ({}))) as any;
+        const porDpto = (await (await fetch(`${base}/${RP}?dataIni=2049-01-01&dataFim=2049-01-31&coddpto=999`, { headers: H })).json().catch(() => ({}))) as any;
+        const semGrantRp = await fetch(`${base}/${RP}?dataIni=2049-01-01&dataFim=2049-01-31`, { headers: H_SEM_ACESSO });
+        const invertidoRp = await fetch(`${base}/${RP}?dataIni=2049-01-31&dataFim=2049-01-01`, { headers: H });
+        const linhasPrd = (si.produtos ?? []).filter((p: any) => p.idproduto === PRD);
+        const somaQ = linhasPrd.reduce((a: number, p: any) => a + Number(p.qtde), 0);
+        const somaT = linhasPrd.reduce((a: number, p: any) => a + Number(p.total), 0);
+        const linhaValidade = linhasPrd.find((p: any) => p.motivo_perda === 'VALIDADE');
+        check('REL PERDAS §132.3 [sintético por produto × motivo × setor, com custo médio PONDERADO, e os filtros do legado]: o legado agrupa por produto E por motivo/setor/fornecedor/departamento — o mesmo produto abre em 3 linhas (PERDA GERAL no setor, VALIDADE no setor, PERDA GERAL sem setor) que somam 13 kg e 280,00; a linha VALIDADE tem custo 100,00 (Σ total ÷ Σ qtde). Centro de custo 4.99.129 recorta para 30,00; motivo PERDA GERAL para 80,00 (10×5 + 1×30); departamento inexistente zera. Sem grant, 403; período invertido, 400. Fold: o STATUSNOTA do legado lê `PEDIDO_NF`, que não existe no destino',
+          si.tipo === 'sintetico' && linhasPrd.length === 3 && Math.abs(somaQ - 13) < 0.0005 && Math.abs(somaT - 280) < 0.005
+          && linhaValidade != null && Math.abs(Number(linhaValidade.vrCusto) - 100) < 0.005
+          && Math.abs(Number(porPlc.totais?.custo) - 30) < 0.005 && Math.abs(Number(porMotivo.totais?.custo) - 80) < 0.005 && Math.abs(Number(porDpto.totais?.custo)) < 0.005
+          && semGrantRp.status === 403 && invertidoRp.status === 400,
+          { linhas: linhasPrd.length, somaQ, somaT, validade: linhaValidade?.vrCusto, plc: porPlc.totais?.custo, motivo: porMotivo.totais?.custo, dpto: porDpto.totais?.custo, rbac: semGrantRp.status, inv: invertidoRp.status });
+
+        await pgRp.query(`DELETE FROM scrap_item WHERE codscrap IN (991931, 991932)`); await pgRp.query(`DELETE FROM scrap WHERE codscrap IN (991931, 991932)`);
+        await pgRp.query(`DELETE FROM produtos WHERE idproduto = ${PRD}`);
+      } finally {
+        await pgRp.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
