@@ -1,4 +1,6 @@
 import { ConsCliRcbController } from './cons-cli-rcb.controller';
+import { ConsApgBxController } from './cons-apg-bx.controller';
+import { ConsApgBxService } from './cons-apg-bx.service';
 import { ConsCliRcbService } from './cons-cli-rcb.service';
 import { DescontoTituloController } from './desconto-titulo.controller';
 import { DescontoTituloService } from './desconto-titulo.service';
@@ -59,12 +61,12 @@ import { CadastroModule } from '../cadastro/cadastro.module';
     // FRMDESCONTOTITULO — encontro de contas RCB × APG (68 acessos, 11 operadores).
     DescontoTituloController,
     // FRMCONSCLIRCB — quanto o cliente deve, com juro e atraso (64 acessos).
-    ConsCliRcbController,LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController, IntegracaoContabilController, ConfigIntegracaoContabilController, ConfIntegBancariaController,
+    ConsCliRcbController, ConsApgBxController,LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController, IntegracaoContabilController, ConfigIntegracaoContabilController, ConfIntegBancariaController,
     // FRMSALDOEMPRESA — o fluxo de caixa projetado (611 acessos).
     SaldoEmpresaController,
     // FRMRELCAIXA — divergências de caixa e caixas abertos (505 acessos).
     RelCaixaController],
-  providers: [FluxoCartoesService, DescontoTituloService, ConsCliRcbService, 
+  providers: [FluxoCartoesService, DescontoTituloService, ConsCliRcbService, ConsApgBxService, 
     LotesCobrancaService, LoteCobrancaRepository,
     AreceberService, AreceberBaixaService, AreceberAgrupamentoService, ApagarService, ApagarBaixaService, ApagarAgrupamentoService,
     CaixaService, CaixaContabilService, CaixaPdvContabilService, CaixaConferenciaService, BaixaContabilService,

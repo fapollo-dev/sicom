@@ -155,7 +155,14 @@ export class ApagarBaixaService {
   async estornar(codapg: number): Promise<{ codapg: number; quitada: 'N' }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
-    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => this.estornarNoTrx(trx, emp, op, codapg));
+  }
+
+  /**
+   * O estorno de UM título dentro de uma transação já aberta — é o que a reversão de LOTE da consulta de
+   * baixas (`FRMCONSAPGBX`, `cons-apg-bx.service.ts`) encadeia para todos os títulos do lote, atômica.
+   */
+  async estornarNoTrx(trx: AnyDB, emp: number, op: number | null, codapg: number): Promise<{ codapg: number; quitada: 'N' }> {
       const t = await trx
         .selectFrom('apagar')
         .select(['codapg', 'quitada'])
@@ -217,6 +224,5 @@ export class ApagarBaixaService {
       await AdiantamentoFornService.marcarQuitada(trx, emp, (adto as any)?.codadiantamento, 'N');
 
       return { codapg, quitada: 'N' };
-    });
   }
 }

@@ -15275,6 +15275,87 @@ async function main() {
         await pgRa.end();
       }
     }
+
+    // ══ CONSULTA DE BAIXAS DO A PAGAR POR LOTE (FRMCONSAPGBX) ════════════════════════════════════════
+    {
+      const CX = 'cobranca/cons-apg-bx';
+      const LOTE = 991901, LOTE_DESC = 991902;
+      const pgCx = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // um lote de dois títulos (fornecedores 22 e 2), baixados por banco no mesmo lote, com o movimento bancário do lote
+        const t1 = Number((await pgCx.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, nrodup, dtcompra, dtvenc, valor, quitada, tipodoc, dtpgto)
+          VALUES (1,22,'CX-1',1,'2048-03-01','2048-03-10',300.00,'S','DP','2048-03-09') RETURNING codapg`)).rows[0].codapg);
+        const t2 = Number((await pgCx.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, nrodup, dtcompra, dtvenc, valor, quitada, tipodoc, dtpgto)
+          VALUES (1,2,'CX-2',1,'2048-03-01','2048-03-12',200.00,'S','DP','2048-03-09') RETURNING codapg`)).rows[0].codapg);
+        await pgCx.query(`INSERT INTO apagar_bx (codapg, codempresa, dtpgto, valorpg, juros, acre_desc, indr, codopbx, idlote) VALUES
+          ($1,1,'2048-03-09 10:00:00-03',300.00,0,0,'I',7,${LOTE}), ($2,1,'2048-03-09 10:00:00-03',205.00,5.00,0,'I',7,${LOTE})`, [t1, t2]);
+        await pgCx.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, historico, idlote, dtemissao, nrodocumento, indr, origem)
+          VALUES (1,1,505.00,'D','PGTO LOTE ${LOTE}',${LOTE},'2048-03-09','LT${LOTE}','I','BAIXA AP')`);
+        // um segundo lote cujo título tem vínculo de DESCONTO DE TÍTULOS — o legado recusa reverter
+        const t3 = Number((await pgCx.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, nrodup, dtcompra, dtvenc, valor, quitada, tipodoc, dtpgto, cod_desconto_titulo)
+          VALUES (1,22,'CX-3',1,'2048-03-02','2048-03-15',150.00,'S','DP','2048-03-10',77) RETURNING codapg`)).rows[0].codapg);
+        await pgCx.query(`INSERT INTO apagar_bx (codapg, codempresa, dtpgto, valorpg, juros, acre_desc, indr, codopbx, idlote) VALUES ($1,1,'2048-03-10 10:00:00-03',150.00,0,0,'I',7,${LOTE_DESC})`, [t3]);
+        // e uma baixa SEM lote (as feitas no Apollo): é um lote de um
+        const t4 = Number((await pgCx.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, nrodup, dtcompra, dtvenc, valor, quitada, tipodoc, dtpgto)
+          VALUES (1,2,'CX-4',1,'2048-03-02','2048-03-20',80.00,'S','DP','2048-03-11') RETURNING codapg`)).rows[0].codapg);
+        const bx4 = Number((await pgCx.query(`INSERT INTO apagar_bx (codapg, codempresa, dtpgto, valorpg, juros, acre_desc, indr, codopbx) VALUES ($1,1,'2048-03-11 10:00:00-03',80.00,0,0,'I',7) RETURNING codapgbx`, [t4])).rows[0].codapgbx);
+
+        const lotes = (await (await fetch(`${base}/${CX}/lotes?dataIni=2048-03-01&dataFim=2048-03-31`, { headers: H })).json().catch(() => ({}))) as any;
+        const l1 = (lotes.lotes ?? []).find((l: any) => l.lote === LOTE);
+        const l4 = (lotes.lotes ?? []).find((l: any) => l.lote === -bx4);
+        check('CONS BAIXAS AP §130.1 [a busca F3 é por LOTE — e uma baixa sem lote é um lote de um]: no cliente são **51.589 baixas em 7.383 lotes**, ~8 títulos e ~5 fornecedores por lote. O lote 991901 aparece com 2 títulos, 2 fornecedores, R$ 505,00 pagos (R$ 5,00 de juros) e não revertido; a baixa feita no Apollo (que não carimba IDLOTE) aparece como lote próprio (chave negativa = codapgbx)',
+          l1 != null && Number(l1.titulos) === 2 && Number(l1.fornecedores) === 2 && Math.abs(Number(l1.valorPago) - 505) < 0.005
+          && Math.abs(Number(l1.juros) - 5) < 0.005 && l1.revertido === false
+          && l4 != null && l4.semLote === true && Number(l4.titulos) === 1,
+          { l1, l4: l4 && { lote: l4.lote, semLote: l4.semLote } });
+
+        const det = (await (await fetch(`${base}/${CX}/${LOTE}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('CONS BAIXAS AP §130.2 [abrir o lote: títulos e movimento bancário]: as duas grades vivas do legado — os títulos baixados (o que `GET_APAGARBX` mostra: documento, fornecedor, emissão, vencimento, valor, pago, juros, operador) e o movimento da conta bancária do lote. As grades de cheque ficam de fora: **0 linhas** com lote em `CHEQUE_REP`, `CHQ_PROPRIO` e `BX_APAGAR_CRT_PROPRIO` no cliente',
+          (det.titulos ?? []).length === 2 && Math.abs(Number(det.totais?.valorPago) - 505) < 0.005 && Math.abs(Number(det.totais?.valorDocumento) - 500) < 0.005
+          && (det.movimentos ?? []).length === 1 && Math.abs(Number(det.movimentos?.[0]?.valor) - 505) < 0.005 && det.movimentos?.[0]?.tipomovimento === 'D'
+          && det.revertido === false,
+          { titulos: det.titulos?.length, totais: det.totais, movs: det.movimentos?.length });
+
+        const rev = await fetch(`${base}/${CX}/${LOTE}/reverter`, { method: 'POST', headers: H });
+        const revJ = (await rev.json().catch(() => ({}))) as any;
+        const dep = (await (await fetch(`${base}/${CX}/${LOTE}`, { headers: H })).json().catch(() => ({}))) as any;
+        const tit = (await pgCx.query(`SELECT codapg, quitada FROM apagar WHERE codapg IN ($1,$2) ORDER BY codapg`, [t1, t2])).rows;
+        const bxs = (await pgCx.query(`SELECT indr, indr_usuario, indr_data FROM apagar_bx WHERE idlote = ${LOTE}`)).rows;
+        const contra = (await pgCx.query(`SELECT valor, tipomovimento, idlote, idlote_reversao, historico FROM mov_contas_bancarias WHERE idlote_reversao = ${LOTE}`)).rows;
+        check('CONS BAIXAS AP §130.3 [Reverter baixa = o LOTE INTEIRO, numa transação]: no cliente a reversão é sempre do lote inteiro — **461 lotes revertidos, 0 parciais** (4.483 baixas, 502 em 2026). Os dois títulos voltam a `QUITADA=N`, as duas baixas ficam `INDR=E` com quem e quando, e nasce o CONTRA-MOVIMENTO bancário: tipo invertido (D→C), valor negativo (−505,00), novo lote apontando o original em `idlote_reversao` e o histórico do legado palavra por palavra',
+          rev.status === 200 && Number(revJ.titulosRevertidos) === 2 && Number(revJ.contraMovimentos) === 1
+          && tit.every((r: any) => r.quitada === 'N') && bxs.length === 2 && bxs.every((b: any) => b.indr === 'E' && b.indr_usuario != null && b.indr_data != null)
+          && contra.length === 1 && Math.abs(Number(contra[0].valor) + 505) < 0.005 && contra[0].tipomovimento === 'C' && Number(contra[0].idlote_reversao) === LOTE
+          && String(contra[0].historico).startsWith(`Reabertura da baixa de contas a pagar, lote ${LOTE}, realizada pelo usuário`)
+          && dep.revertido === true && (dep.movimentos ?? []).length === 2,
+          { status: rev.status, rev: revJ, quitadas: tit.map((r: any) => r.quitada), indr: bxs.map((b: any) => b.indr), contra: contra[0] && { v: contra[0].valor, t: contra[0].tipomovimento, hist: String(contra[0].historico).slice(0, 60) } });
+
+        const deNovo = await fetch(`${base}/${CX}/${LOTE}/reverter`, { method: 'POST', headers: H });
+        const inexist = await fetch(`${base}/${CX}/${LOTE + 7777}/reverter`, { method: 'POST', headers: H });
+        const comDesc = await fetch(`${base}/${CX}/${LOTE_DESC}/reverter`, { method: 'POST', headers: H });
+        const comDescJ = (await comDesc.json().catch(() => ({}))) as any;
+        const semGrant = await fetch(`${base}/${CX}/${LOTE_DESC}/reverter`, { method: 'POST', headers: H_SEM_ACESSO });
+        const semGrantGet = await fetch(`${base}/${CX}/${LOTE_DESC}`, { headers: H_SEM_ACESSO });
+        const t3dep = (await pgCx.query(`SELECT quitada FROM apagar WHERE codapg = $1`, [t3])).rows[0];
+        check('CONS BAIXAS AP §130.4 [as travas do ReversaoPermitida que o dado alcança]: reverter de novo o lote já revertido, 422 (`LOTE_JA_REVERTIDO`); lote inexistente, 422; título com **vínculo de desconto de títulos** (19 baixados assim no cliente), 422 e NADA muda — o título segue quitado. Sem `BTNREVERTERBAIXA`, 403; sem grant de tela, 403. Período fechado e caixa fechado são checados pelo estorno de cada título, que já existia',
+          deNovo.status === 422 && inexist.status === 422 && comDesc.status === 422 && comDescJ.code === 'VINCULO_DESCONTO_TITULO'
+          && t3dep?.quitada === 'S' && semGrant.status === 403 && semGrantGet.status === 403,
+          { deNovo: deNovo.status, inexist: inexist.status, desconto: [comDesc.status, comDescJ.code], t3: t3dep?.quitada, rbac: [semGrant.status, semGrantGet.status] });
+
+        const soRev = (await (await fetch(`${base}/${CX}/lotes?dataIni=2048-03-01&dataFim=2048-03-31&situacao=revertidos`, { headers: H })).json().catch(() => ({}))) as any;
+        const soAtv = (await (await fetch(`${base}/${CX}/lotes?dataIni=2048-03-01&dataFim=2048-03-31&situacao=ativos`, { headers: H })).json().catch(() => ({}))) as any;
+        check('CONS BAIXAS AP §130.5 [uma consulta só, com a flag]: o legado troca `GET_APAGARBX` por `GET_APAGARBX_REVERTIDAS` — e a segunda soma `TXJUROS` ao valor enquanto a primeira não (inócuo no dado: TXJUROS é 0 nas 4.459 revertidas). Aqui o filtro de situação separa: "revertidos" traz o 991901; "ativos" traz o de desconto e o lote-de-um, não o revertido',
+          (soRev.lotes ?? []).map((l: any) => l.lote).includes(LOTE) && !(soAtv.lotes ?? []).map((l: any) => l.lote).includes(LOTE)
+          && (soAtv.lotes ?? []).map((l: any) => l.lote).includes(LOTE_DESC) && (soAtv.lotes ?? []).map((l: any) => l.lote).includes(-bx4),
+          { revertidos: (soRev.lotes ?? []).map((l: any) => l.lote), ativos: (soAtv.lotes ?? []).map((l: any) => l.lote) });
+
+        await pgCx.query(`DELETE FROM mov_contas_bancarias WHERE idlote = ${LOTE} OR idlote_reversao = ${LOTE}`);
+        await pgCx.query(`DELETE FROM apagar_bx WHERE codapg IN ($1,$2,$3,$4)`, [t1, t2, t3, t4]);
+        await pgCx.query(`DELETE FROM apagar WHERE codapg IN ($1,$2,$3,$4)`, [t1, t2, t3, t4]);
+      } finally {
+        await pgCx.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

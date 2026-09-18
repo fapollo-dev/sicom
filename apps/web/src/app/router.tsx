@@ -68,6 +68,7 @@ import { ConsultaProdutoPage } from '../features/consulta-produto/ConsultaProdut
 import { AnaliseComportamentoPeriodoPage } from '../features/analise-comportamento-periodo/AnaliseComportamentoPeriodoPage';
 import { AnaliseComportamentoPage } from '../features/analise-comportamento/AnaliseComportamentoPage';
 import { RelAnalisePedidoNfPage } from '../features/rel-analise-pedido-nf/RelAnalisePedidoNfPage';
+import { ConsApgBxPage } from '../features/cons-apg-bx/ConsApgBxPage';
 import { IndexadorTributarioPage } from '../features/indexador-tributario/IndexadorTributarioPage';
 import { ProdutosRelPage } from '../features/produtos-rel/ProdutosRelPage';
 import { RelEntradasSaidasPage } from '../features/rel-entradas-saidas/RelEntradasSaidasPage';
@@ -243,6 +244,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/analise-comportamento-periodo', element: <AnaliseComportamentoPeriodoPage /> }, // FRMRELANALISECOMPORTAMENTOPERIODO
       { path: '/relatorios/analise-comportamento', element: <AnaliseComportamentoPage /> }, // FRMANALISECOMPORTAMENTO
       { path: '/compras/rel-analise-pedido-nf', element: <RelAnalisePedidoNfPage /> }, // FRMRELANALISEPEDIDONF
+      { path: '/cobranca/cons-apg-bx', element: <ConsApgBxPage /> }, // FRMCONSAPGBX
       { path: '/cadastro/indexador-tributario', element: <IndexadorTributarioPage /> }, // FRMCADINDEXADORTRIBUTARIO
       { path: '/relatorios/produtos', element: <ProdutosRelPage /> }, // FRMPRODUTOSREL
       { path: '/relatorios/entradas-saidas', element: <RelEntradasSaidasPage /> }, // FRMRELENTRADASSAIDAS
