@@ -14,6 +14,8 @@ import { GerarFinanceiroLoteController } from './gerar-financeiro-lote.controlle
 import { GerarFinanceiroLoteService } from './gerar-financeiro-lote.service';
 import { RelDiarioContabilController } from './rel-diario-contabil.controller';
 import { RelDiarioContabilService } from './rel-diario-contabil.service';
+import { DescontoTituloExecController } from './desconto-titulo-exec.controller';
+import { DescontoTituloExecService } from './desconto-titulo-exec.service';
 import { BalanceteController } from './balancete.controller';
 import { BalanceteService } from './balancete.service';
 import { PeriodoContabilCadService } from './periodo-contabil-cad.service';
@@ -77,6 +79,7 @@ import { CadastroModule } from '../cadastro/cadastro.module';
     // FRMFLUXOCARTOES — o recebível de cartão por dia (98 acessos).
     FluxoCartoesController,
     // FRMDESCONTOTITULO — encontro de contas RCB × APG (68 acessos, 11 operadores).
+    DescontoTituloExecController, // corte-2: executar e reverter o encontro de contas
     DescontoTituloController,
     // FRMCONSCLIRCB — quanto o cliente deve, com juro e atraso (64 acessos).
     ConsCliRcbController, ConsApgBxController, ConsRcbBxController, PeriodoContabilCadController, ExtratoClientesController, ExtratoFuncionarioController, CaixaDmeController, RelBalancoController, GerarFinanceiroLoteController, RelDiarioContabilController, BalanceteController,LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController, IntegracaoContabilController, ConfigIntegracaoContabilController, ConfIntegBancariaController,
@@ -84,7 +87,7 @@ import { CadastroModule } from '../cadastro/cadastro.module';
     SaldoEmpresaController,
     // FRMRELCAIXA — divergências de caixa e caixas abertos (505 acessos).
     RelCaixaController],
-  providers: [FluxoCartoesService, DescontoTituloService, ConsCliRcbService, ConsApgBxService, ConsRcbBxService, PeriodoContabilCadService, ExtratoClientesService, ExtratoFuncionarioService, CaixaDmeService, RelBalancoService, GerarFinanceiroLoteService, RelDiarioContabilService, BalanceteService, 
+  providers: [FluxoCartoesService, DescontoTituloService, DescontoTituloExecService, ConsCliRcbService, ConsApgBxService, ConsRcbBxService, PeriodoContabilCadService, ExtratoClientesService, ExtratoFuncionarioService, CaixaDmeService, RelBalancoService, GerarFinanceiroLoteService, RelDiarioContabilService, BalanceteService, 
     LotesCobrancaService, LoteCobrancaRepository,
     AreceberService, AreceberBaixaService, AreceberAgrupamentoService, ApagarService, ApagarBaixaService, ApagarAgrupamentoService,
     CaixaService, CaixaContabilService, CaixaPdvContabilService, CaixaConferenciaService, BaixaContabilService,

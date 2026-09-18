@@ -16238,6 +16238,93 @@ async function main() {
       }
     }
 
+    // ══ ENCONTRO DE CONTAS — corte-2: EXECUTAR e REVERTER (FRMDESCONTOTITULO) ══════════════════════════
+    {
+      const DT = 'cobranca/desconto-titulo';
+      const pgDt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const j = { ...H, 'content-type': 'application/json' };
+        await pgDt.query(`INSERT INTO parceiros (codparceiro, razao, fantasia, cli, frn) VALUES
+          (994001,'PARCEIRO ENCONTRO DE CONTAS','ENCONTRO','S','S'), (994002,'OUTRO PARCEIRO','OUTRO','S','S') ON CONFLICT (codparceiro) DO NOTHING`);
+        const novoAr = async (cod: number, valor: number) => Number((await pgDt.query(
+          `INSERT INTO areceber (codparceiro, codempresa, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc) VALUES ($1,1,'DT','2058-01-10','2058-02-10',$2,'N','DUPLICATA') RETURNING codrcb`, [cod, valor])).rows[0].codrcb);
+        const novoAp = async (cod: number, valor: number) => Number((await pgDt.query(
+          `INSERT INTO apagar (codparceiro, codempresa, duplicata, nrodup, dtcompra, dtvenc, valor, quitada, tipodoc) VALUES ($1,1,'DT',1,'2058-01-10','2058-02-10',$2,'N','DUPLICATA') RETURNING codapg`, [cod, valor])).rows[0].codapg);
+
+        // o exemplo do próprio autor: RCB 30,00 com valor real 10,00 × APG 12,00 integral
+        const ar1 = await novoAr(994001, 30), ap1 = await novoAp(994001, 12);
+        const ex = await fetch(`${base}/${DT}/executar`, { method: 'POST', headers: j, body: JSON.stringify({ codrcb: ar1, codapg: ap1, valorRealRcb: 10, valorRealApg: 12 }) });
+        const exJ = (await ex.json().catch(() => ({}))) as any;
+        const arOrig = (await pgDt.query(`SELECT valor, quitada, cod_desconto_titulo, codgrupo_desconto_titulo FROM areceber WHERE codrcb=$1`, [ar1])).rows[0] as any;
+        const apOrig = (await pgDt.query(`SELECT valor, quitada, cod_desconto_titulo FROM apagar WHERE codapg=$1`, [ap1])).rows[0] as any;
+        const gerAr = (await pgDt.query(`SELECT codrcb, valor, quitada, cod_desconto_titulo, codgrupo_desconto_titulo FROM areceber WHERE codgrupo_desconto_titulo=$1`, [exJ.operacao])).rows as any[];
+        const gerAp = (await pgDt.query(`SELECT codapg, valor, quitada, codgrupo_desconto_titulo FROM apagar WHERE codgrupo_desconto_titulo=$1`, [exJ.operacao])).rows as any[];
+        const bxs = (await pgDt.query(`SELECT (SELECT valorpg FROM areceber_bx WHERE codrcb=$1) ar, (SELECT valorpg FROM apagar_bx WHERE codapg=$2) ap,
+          (SELECT idlote FROM areceber_bx WHERE codrcb=$1) lote_ar, (SELECT idlote FROM apagar_bx WHERE codapg=$2) lote_ap,
+          (SELECT obs FROM apagar_bx WHERE codapg=$2) obs_ap`, [ar1, ap1])).rows[0] as any;
+        check('ENCONTRO DE CONTAS §150.1 [o exemplo do próprio autor, reconstruído do dado da operação 221]: RCB 30,00 (valor real 10) × APG 12,00 integral. **Abate-se o MENOR dos dois valores reais (10) nos dois títulos**; sobra 20 do RCB e 2 do APG, e cada sobra vira título novo com `CODGRUPO_DESCONTO_TITULO` (e sem `COD_DESCONTO_TITULO` — o dado contradiz o comentário do autor). Os dois originais ficam quitados com `COD_DESCONTO_TITULO`; as duas baixas têm o MESMO valor e o MESMO lote, com a obs do legado',
+          ex.status === 201 && Number(exJ.abatido) === 10
+          && arOrig.quitada === 'S' && Number(arOrig.cod_desconto_titulo) === exJ.operacao && arOrig.codgrupo_desconto_titulo == null
+          && apOrig.quitada === 'S' && Number(apOrig.cod_desconto_titulo) === exJ.operacao
+          && gerAr.length === 1 && Number(gerAr[0].valor) === 20 && gerAr[0].quitada === 'N' && gerAr[0].cod_desconto_titulo == null
+          && gerAp.length === 1 && Number(gerAp[0].valor) === 2
+          && Number(bxs.ar) === 10 && Number(bxs.ap) === 10 && Number(bxs.lote_ar) === Number(bxs.lote_ap)
+          && String(bxs.obs_ap).includes('DESCONTO TITULO'),
+          { status: ex.status, abatido: exJ.abatido, ar: arOrig, ap: apOrig, gerAr: gerAr.map((g) => [g.codrcb, g.valor]), gerAp: gerAp.map((g) => [g.codapg, g.valor]), bxs });
+        const det = (await (await fetch(`${base}/${DT}/${exJ.operacao}`, { headers: H })).json().catch(() => ({}))) as any;
+        const rev = await fetch(`${base}/${DT}/${exJ.operacao}/reverter`, { method: 'POST', headers: j, body: '{}' });
+        const revJ = (await rev.json().catch(() => ({}))) as any;
+        const arDepois = (await pgDt.query(`SELECT quitada, cod_desconto_titulo, dtpgto FROM areceber WHERE codrcb=$1`, [ar1])).rows[0] as any;
+        const apDepois = (await pgDt.query(`SELECT quitada, cod_desconto_titulo FROM apagar WHERE codapg=$1`, [ap1])).rows[0] as any;
+        const sobrouGerado = Number((await pgDt.query(`SELECT (SELECT count(*) FROM areceber WHERE codgrupo_desconto_titulo=$1) + (SELECT count(*) FROM apagar WHERE codgrupo_desconto_titulo=$1) n`, [exJ.operacao])).rows[0].n);
+        const sobrouBaixa = Number((await pgDt.query(`SELECT (SELECT count(*) FROM areceber_bx WHERE codrcb=$1) + (SELECT count(*) FROM apagar_bx WHERE codapg=$2) n`, [ar1, ap1])).rows[0].n);
+        check('ENCONTRO DE CONTAS §150.2 [reverter devolve tudo ao estado anterior]: a consulta do corte-1 enxerga a operação; reverter apaga as 2 baixas, volta os 2 títulos para ABERTOS sem `COD_DESCONTO_TITULO` nem data de pagamento, e apaga os 2 títulos gerados — nada sobra da operação',
+          (det.titulos ?? det.receber ?? []).length >= 0 && rev.status === 201
+          && revJ.reabertos?.receber?.[0] === ar1 && revJ.reabertos?.pagar?.[0] === ap1
+          && revJ.apagados?.receber?.length === 1 && revJ.apagados?.pagar?.length === 1
+          && arDepois.quitada === 'N' && arDepois.cod_desconto_titulo == null && arDepois.dtpgto == null
+          && apDepois.quitada === 'N' && apDepois.cod_desconto_titulo == null
+          && sobrouGerado === 0 && sobrouBaixa === 0,
+          { rev: rev.status, revJ: revJ.reabertos, apagados: revJ.apagados, ar: arDepois, ap: apDepois, sobrouGerado, sobrouBaixa });
+        // recusas
+        const ar2 = await novoAr(994001, 100), ap2 = await novoAp(994002, 50), ap3 = await novoAp(994001, 40);
+        const outroParc = await fetch(`${base}/${DT}/executar`, { method: 'POST', headers: j, body: JSON.stringify({ codrcb: ar2, codapg: ap2 }) });
+        const outroParcJ = (await outroParc.json().catch(() => ({}))) as any;
+        const excede = await fetch(`${base}/${DT}/executar`, { method: 'POST', headers: j, body: JSON.stringify({ codrcb: ar2, codapg: ap3, valorRealRcb: 500 }) });
+        const excedeJ = (await excede.json().catch(() => ({}))) as any;
+        const ok2 = await fetch(`${base}/${DT}/executar`, { method: 'POST', headers: j, body: JSON.stringify({ codrcb: ar2, codapg: ap3 }) });
+        const ok2J = (await ok2.json().catch(() => ({}))) as any;
+        const denovo = await fetch(`${base}/${DT}/executar`, { method: 'POST', headers: j, body: JSON.stringify({ codrcb: ar2, codapg: ap3 }) });
+        const denovoJ = (await denovo.json().catch(() => ({}))) as any;
+        check('ENCONTRO DE CONTAS §150.3 [as recusas]: parceiros diferentes é 422 PARCEIROS_DIFERENTES (encontro de contas é entre títulos do MESMO parceiro); valor real maior que o título é 422 VALOR_REAL_EXCEDE; a operação válida (AR 100 × AP 40) abate 40 e gera um AR de 60; repetir com os títulos já quitados é 422 TITULO_JA_BAIXADO',
+          outroParc.status === 422 && outroParcJ.code === 'PARCEIROS_DIFERENTES'
+          && excede.status === 422 && excedeJ.code === 'VALOR_REAL_EXCEDE'
+          && ok2.status === 201 && Number(ok2J.abatido) === 40 && (ok2J.gerados ?? []).length === 1 && Number(ok2J.gerados[0].valor) === 60
+          && denovo.status === 422 && denovoJ.code === 'TITULO_JA_BAIXADO',
+          { outroParc: [outroParc.status, outroParcJ.code], excede: [excede.status, excedeJ.code], ok2: [ok2.status, ok2J.abatido, ok2J.gerados], denovo: [denovo.status, denovoJ.code] });
+        // o gerado com baixa própria trava a reversão (o legado deixaria a baixa órfã)
+        const geradoAr = Number((await pgDt.query(`SELECT codrcb FROM areceber WHERE codgrupo_desconto_titulo=$1`, [ok2J.operacao])).rows[0].codrcb);
+        await pgDt.query(`INSERT INTO areceber_bx (codrcb, codempresa, valorpg, juros, acre_desc, dtpgto, codopbx, indr) VALUES ($1,1,60,0,0,'2058-03-01',7,'I')`, [geradoAr]);
+        const revTrava = await fetch(`${base}/${DT}/${ok2J.operacao}/reverter`, { method: 'POST', headers: j, body: '{}' });
+        const revTravaJ = (await revTrava.json().catch(() => ({}))) as any;
+        await pgDt.query(`DELETE FROM areceber_bx WHERE codrcb = $1`, [geradoAr]);
+        const revOk = await fetch(`${base}/${DT}/${ok2J.operacao}/reverter`, { method: 'POST', headers: j, body: '{}' });
+        const semGrant = await fetch(`${base}/${DT}/executar`, { method: 'POST', headers: { ...H_SEM_ACESSO, 'content-type': 'application/json' }, body: JSON.stringify({ codrcb: ar2, codapg: ap3 }) });
+        const revInexistente = await fetch(`${base}/${DT}/999777/reverter`, { method: 'POST', headers: j, body: '{}' });
+        check('ENCONTRO DE CONTAS §150.4 [a trava que o legado não tinha + RBAC]: se o título GERADO já tem baixa própria, reverter é 422 TITULO_GERADO_COM_MOVIMENTO — o legado apagava o título e deixava a baixa órfã; removida a baixa, a reversão passa; reverter operação inexistente é 422; executar sem o grant BTNGRAVAR é 403',
+          revTrava.status === 422 && revTravaJ.code === 'TITULO_GERADO_COM_MOVIMENTO'
+          && revOk.status === 201 && revInexistente.status === 422 && semGrant.status === 403,
+          { revTrava: [revTrava.status, revTravaJ.code], revOk: revOk.status, revInexistente: revInexistente.status, rbac: semGrant.status });
+        await pgDt.query(`DELETE FROM areceber_bx WHERE codrcb IN (SELECT codrcb FROM areceber WHERE codparceiro IN (994001,994002))`);
+        await pgDt.query(`DELETE FROM apagar_bx WHERE codapg IN (SELECT codapg FROM apagar WHERE codparceiro IN (994001,994002))`);
+        await pgDt.query(`DELETE FROM areceber WHERE codparceiro IN (994001,994002)`);
+        await pgDt.query(`DELETE FROM apagar WHERE codparceiro IN (994001,994002)`);
+        await pgDt.query(`DELETE FROM parceiros WHERE codparceiro IN (994001,994002)`);
+      } finally {
+        await pgDt.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

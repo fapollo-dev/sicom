@@ -12,11 +12,11 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 
 | | telas | acessos | o que é |
 |---|---:|---:|---|
-| ✅ convertida | **40** | 1.280 (30,9%) | migrada, com migration, smoke e dossiê |
+| ✅ convertida | **41** | 1.348 (32,5%) | migrada, com migration, smoke e dossiê |
 | 🟢 coberta | 23 | 480 (11,6%) | o que ela faz já existe em outra tela do Apollo, com a prova ao lado |
 | 🪦 marginal | 38 | 704 (17,0%) | a regra existe, mas o dado do cliente é resíduo (0 a algumas dezenas de linhas, ou parou há anos) |
 | ⛔ sem substrato/fonte | 82 | 1.443 (34,8%) | tabela vazia, tabela inexistente, unit ausente do repositório, ou fora de escopo (PDV) |
-| 🟡 adiada com recon | **11** | 238 (5,7%) | viva e real — precisa de corte próprio |
+| 🟡 adiada com recon | **10** | 170 (4,1%) | viva e real — precisa de corte próprio |
 
 **Todo veredito tem procedência**: contagem no Oracle de produção (só leitura), linha do fonte Delphi, ou
 ambos. As 🟡 que restam são o trabalho que sobra desta fila:
@@ -24,7 +24,6 @@ ambos. As 🟡 que restam são o trabalho que sobra desta fila:
 | # | tela | por que ficou |
 |---|---|---|
 | 3 | `FRMDIGITACAOPEDIDOS` | digitação de pedido — corte declarado |
-| 17 | `FRMDESCONTOTITULO` | ramo pendente da tela de encontro de contas |
 | 89 | `FRMPRECIFICACAONFBRUTA` | escrita sobre o motor de preços (LOTEPRECO + MARKUPFIXO) |
 | 97 | `FRMSINTEGRA` | obrigação acessória viva; depende de `NFAUXSPED`, ausente no destino |
 | 110 · 145 | `FRMCADCLASSTRIBIBSCBS` · `FRMCADCSTIBSCBS` | reforma tributária (EC 132/2023): `NF_IBSCBS` já tem 9.956 linhas |
@@ -52,7 +51,7 @@ ambos. As 🟡 que restam são o trabalho que sobra desta fila:
 | 14 | `FRMCONTROLEFUN` | 75 | 4 | ⛔ **sem substrato**: `CONVENIO_FUN` e `FRETEIRO` com **0 linhas** |
 | 15 | `FRMMOVCONCORRENTES` | 72 | 7 | 🪦 marginal: `CONCORRENCIA` **20**, `ANALISE_CONCORRENCIA` **1**, `MOV_ANALISE_CONCORRENTE` **6** linhas |
 | 16 | `FRMANALISEENTRADAXSAIDA` | 68 | 9 | 🟢 **equivalente** (mig 228): por fornecedor, com a saída de venda **ou pedido**. ⚠️ corrigido o filtro que anulava o `LEFT JOIN` e escondia 4.502 produtos sem grupo |
-| 17 | `FRMDESCONTOTITULO` | 68 | 11 | 🟡 **corte-1** (mig 226): a consulta do **encontro de contas** (o nome engana — não é desconto bancário). 18 operações, mas **R$ 254 mil**, a última há 4 dias. Falta executar e reverter |
+| 17 | `FRMDESCONTOTITULO` | 68 | 11 | ✅ **completa** (mig 226 + **272**, `cobranca/desconto-titulo`, dossiê `uDescontoTitulo.md`) — o **encontro de contas** (o nome engana). Corte-2 executa e reverte: **abate o MENOR dos dois valores reais nos dois títulos e o que sobra de cada um vira título novo** — regra única reconstruída da operação 221 do cliente, que reproduz os dois casos do comentário do autor. O dado **contradiz o comentário**: o título gerado fica só com `CODGRUPO_DESCONTO_TITULO`. A mais: reverter é recusado se o título gerado já tem baixa (o legado deixava a baixa órfã) |
 | 18 | `FRMPEDIDOSCOMPRACERAL` | 68 | 5 | ⛔ **sem substrato**: `PEDIDOCOMPRACEREAL` com **0 linhas** |
 | 19 | `FRMPRECIFICACAOPROD` | 67 | 7 | ⛔ **sem fonte no repositório clonado** |
 | 20 | `FRMAGRUPACARTAO` | 64 | 11 | ⛔ **mecanismo nunca usado**: agrupa lançamentos sob um número de resumo da operadora, gravando `CARTAO.RESUMO` — coluna **nula nas 2.059.893 linhas**. Os 64 acessos são gente abrindo a tela |

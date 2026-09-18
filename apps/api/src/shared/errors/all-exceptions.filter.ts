@@ -181,6 +181,11 @@ const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMIT
 const CODE_PT: Record<string, string> = {
   // regra de negócio (BusinessRuleError 422)
   FAIXA_JA_INUTILIZADA: 'Essa numeração já foi inutilizada nesta série.',
+  PARCEIROS_DIFERENTES: 'O encontro de contas é entre títulos do mesmo parceiro.',
+  VALOR_REAL_EXCEDE: 'O valor informado é maior que o valor do título.',
+  VALOR_REAL_INVALIDO: 'Informe um valor maior que zero para os dois títulos.',
+  TITULO_GERADO_COM_MOVIMENTO: 'O título gerado pela operação já tem baixa — reverta a baixa antes.',
+  OPERACAO_NAO_ENCONTRADA: 'Operação não encontrada.',
   NUMERACAO_EM_USO: 'Essa numeração pertence a uma nota emitida — não pode ser inutilizada.',
   INUTILIZACAO_COM_PROTOCOLO: 'Registro com protocolo da SEFAZ não pode ser excluído.',
   INUTILIZACAO_NAO_ENCONTRADA: 'Inutilização não encontrada.',

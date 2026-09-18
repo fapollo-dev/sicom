@@ -477,6 +477,25 @@ export const descontoTituloSchema = z.object({
 });
 export type DescontoTituloDto = z.infer<typeof descontoTituloSchema>;
 
+/**
+ * ENCONTRO DE CONTAS — **executar** (corte-2). O operador escolhe um título a receber e um a pagar do
+ * mesmo parceiro e informa o VALOR REAL de cada (quanto quer usar de cada um). O menor dos dois valores
+ * reais é abatido nos dois títulos; o que sobrar de cada um vira título novo.
+ */
+export const descontoTituloExecutarSchema = z.object({
+  codrcb: z.coerce.number().int().positive(),
+  codapg: z.coerce.number().int().positive(),
+  /** quanto usar do título a receber (default: o valor inteiro dele). */
+  valorRealRcb: z.coerce.number().positive().optional(),
+  /** quanto usar do título a pagar (default: o valor inteiro dele). */
+  valorRealApg: z.coerce.number().positive().optional(),
+  /** conta corrente que recebe o crédito (a receber) e o débito (a pagar) — o par soma zero. */
+  codconta: z.coerce.number().int().positive().optional(),
+  obs: z.string().trim().max(200).optional(),
+});
+export type DescontoTituloExecutarDto = z.infer<typeof descontoTituloExecutarSchema>;
+
+
 /** CONSULTA A RECEBER POR CLIENTE (`FRMCONSCLIRCB`): quanto o cliente deve, com juro e atraso. */
 export const consCliRcbSchema = z.object({
   codparceiro: z.coerce.number().int().positive(),

@@ -32,7 +32,8 @@ const dataBr = (v: unknown) => (v == null ? '' : String(v).slice(0, 10).split('-
  * ⚠️ Apesar do nome, **não é desconto bancário de duplicata: é encontro de contas** entre um título a
  * receber e um a pagar do mesmo parceiro. O menor é abatido no maior, e a diferença vira um título novo.
  *
- * Corte-1: a consulta. Executar o encontro é o corte-2 — mexe em cinco tabelas numa transação.
+ * Corte-1: a consulta. Corte-2 (mig 272): **executar** e **reverter** — abate o menor dos dois valores
+ * reais nos dois títulos e o que sobra de cada um vira título novo.
  */
 export function DescontoTituloPage() {
   const mensagem = useMensagem();
@@ -40,6 +41,8 @@ export function DescontoTituloPage() {
   const [res, setRes] = useState<Resultado | null>(null);
   const [det, setDet] = useState<{ operacao: number; titulos: Titulo[] } | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  const [nova, setNova] = useState({ codrcb: '', codapg: '', valorRealRcb: '', valorRealApg: '', codconta: '', obs: '' });
+  const [ultima, setUltima] = useState<Record<string, any> | null>(null);
 
   const chamar = async (url: string) => {
     const r = await fetch(`${BASE}/${url}`, { headers: apiHeaders() });
@@ -50,6 +53,46 @@ export function DescontoTituloPage() {
       throw Object.assign(new Error(env.code), { envelope: env });
     }
     return r.json();
+  };
+
+  const enviar = async (url: string, body: unknown) => {
+    const r = await fetch(`${BASE}/${url}`, { method: 'POST', headers: { ...apiHeaders(), 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    handle401(r);
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      const env: ErroResposta = isErroResposta(b) ? b : { statusCode: r.status, code: 'ERRO', message: r.statusText };
+      throw Object.assign(new Error(env.code), { envelope: env });
+    }
+    return r.json();
+  };
+
+  const executar = async () => {
+    if (!nova.codrcb.trim() || !nova.codapg.trim()) return mensagem.erro(new Error('Informe o título a receber e o a pagar.'));
+    if (!window.confirm('Executar o encontro de contas? Os dois títulos serão baixados e o que sobrar vira título novo.')) return;
+    setOcupado(true);
+    try {
+      const corpo: Record<string, unknown> = { codrcb: Number(nova.codrcb), codapg: Number(nova.codapg) };
+      if (nova.valorRealRcb.trim()) corpo.valorRealRcb = Number(nova.valorRealRcb.replace(',', '.'));
+      if (nova.valorRealApg.trim()) corpo.valorRealApg = Number(nova.valorRealApg.replace(',', '.'));
+      if (nova.codconta.trim()) corpo.codconta = Number(nova.codconta);
+      if (nova.obs.trim()) corpo.obs = nova.obs.trim();
+      const r = await enviar('cobranca/desconto-titulo/executar', corpo);
+      setUltima(r as Record<string, any>);
+      mensagem.sucesso(`Encontro de contas nº ${(r as any).operacao} executado.`);
+      setNova({ codrcb: '', codapg: '', valorRealRcb: '', valorRealApg: '', codconta: '', obs: '' });
+      await buscar();
+    } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  };
+
+  const reverter = async (op: number) => {
+    if (!window.confirm(`Reverter a operação ${op}? As baixas somem, os títulos voltam a abertos e os gerados são apagados.`)) return;
+    setOcupado(true);
+    try {
+      await enviar(`cobranca/desconto-titulo/${op}/reverter`, {});
+      mensagem.sucesso(`Operação ${op} revertida.`);
+      setDet(null); setUltima(null);
+      await buscar();
+    } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
 
   const buscar = async () => {
@@ -81,7 +124,10 @@ export function DescontoTituloPage() {
     {
       field: 'acoes', headerName: '', type: 'text', width: 100, valueGetter: () => '',
       renderCell: ({ row: o }: { row: Operacao }) => (
-        <Button label="Abrir" variant="soft" onClick={() => void abrir(o.operacao)} />
+        <div className="flex gap-1">
+          <Button label="Abrir" variant="soft" onClick={() => void abrir(o.operacao)} />
+          <Button label="Reverter" variant="ghost" onClick={() => void reverter(o.operacao)} />
+        </div>
       ),
     } as DataTableColumnDef<Operacao>,
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -122,6 +168,38 @@ export function DescontoTituloPage() {
           <div className="w-40"><Field label="&Parceiro (cód.)" value={f.codparceiro} onChange={(e) => setF({ ...f, codparceiro: e.target.value })} /></div>
           <Button label="&Buscar" disabled={ocupado} onClick={() => void buscar()} />
         </div>
+      </section>
+
+      <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
+        <h4 className="mb-form-gap text-body-sm font-semibold">Novo encontro de contas</h4>
+        <p className="mb-form-gap text-body-sm text-fg-muted">
+          Informe um título a receber e um a pagar do mesmo parceiro. O <strong>valor real</strong> é quanto
+          usar de cada um (em branco = o valor inteiro); o menor dos dois é abatido nos dois títulos, e o que
+          sobrar de cada um vira título novo. A conta corrente é opcional: recebe um crédito e um débito de
+          mesmo valor, que se anulam.
+        </p>
+        <div className="flex flex-wrap items-end gap-gp-sm">
+          <div className="w-32"><Field label="&Título a receber" value={nova.codrcb} onChange={(e) => setNova({ ...nova, codrcb: e.target.value.replace(/\D/g, '') })} /></div>
+          <div className="w-32"><Field label="Valor real" value={nova.valorRealRcb} onChange={(e) => setNova({ ...nova, valorRealRcb: e.target.value })} /></div>
+          <div className="w-32"><Field label="Títul&o a pagar" value={nova.codapg} onChange={(e) => setNova({ ...nova, codapg: e.target.value.replace(/\D/g, '') })} /></div>
+          <div className="w-32"><Field label="Valor real " value={nova.valorRealApg} onChange={(e) => setNova({ ...nova, valorRealApg: e.target.value })} /></div>
+          <div className="w-28"><Field label="&Conta" value={nova.codconta} onChange={(e) => setNova({ ...nova, codconta: e.target.value.replace(/\D/g, '') })} /></div>
+          <div className="w-64"><Field label="O&bs" value={nova.obs} onChange={(e) => setNova({ ...nova, obs: e.target.value })} /></div>
+          <Button label="&Executar" disabled={ocupado} onClick={() => void executar()} />
+        </div>
+        {ultima && (
+          <div className="mt-form-gap text-body-sm">
+            <p>Operação <strong>{ultima.operacao}</strong> · abatido <strong>{moeda(ultima.abatido)}</strong> nos dois títulos (lote {ultima.idlote}).</p>
+            <p className="text-fg-muted">
+              A receber {ultima.receber?.codrcb}: {moeda(ultima.receber?.valor)} → baixa {moeda(ultima.receber?.baixado)}{Number(ultima.receber?.sobra) > 0 ? `, sobra ${moeda(ultima.receber?.sobra)}` : ''} ·
+              A pagar {ultima.pagar?.codapg}: {moeda(ultima.pagar?.valor)} → baixa {moeda(ultima.pagar?.baixado)}{Number(ultima.pagar?.sobra) > 0 ? `, sobra ${moeda(ultima.pagar?.sobra)}` : ''}
+            </p>
+            {(ultima.gerados ?? []).length > 0 && (
+              <p>Títulos gerados: {(ultima.gerados as Array<Record<string, unknown>>).map((g) => `${g.tipo} ${g.codigo} (${moeda(g.valor)})`).join(' · ')}</p>
+            )}
+            <Button label="Reverter esta operação" variant="ghost" onClick={() => void reverter(Number(ultima.operacao))} />
+          </div>
+        )}
       </section>
 
       {res && (

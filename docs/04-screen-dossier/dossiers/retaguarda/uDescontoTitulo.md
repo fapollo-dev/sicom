@@ -70,3 +70,45 @@ merece o mesmo cuidado que a baixa de títulos teve, e um smoke próprio.
 
 Mais a **reversão** (`uReverterDescontoTitulo`), que desfaz a operação apagando o que nasceu e estornando as
 baixas — e que só é possível por causa das duas colunas do §2.
+
+
+---
+
+## Corte-2 (migration 272) — executar e reverter
+
+**A regra, reconstruída do DADO.** A operação **221** (12/09/2026) mostra o mecanismo inteiro:
+
+| | |
+|---|---|
+| AR 132551 R$ 8.559,27 | baixado em R$ 5.475,93, `QUITADA='S'`, `COD_DESCONTO_TITULO=221` |
+| AP 74643 R$ 5.475,93 | baixado em R$ 5.475,93, `QUITADA='S'`, `COD_DESCONTO_TITULO=221` |
+| AR 132552 R$ 3.083,34 | **gerado** (8.559,27 − 5.475,93), `CODGRUPO_DESCONTO_TITULO=221` |
+| as duas baixas | mesmo valor, mesmo lote, obs `'DOCUMENTO BAIXADO VIA DESCONTO TITULO Nº: <o outro> |LOTE:<n>'` |
+
+Daí a regra única que cobre os dois casos do comentário do autor (a diferença entre os valores reais **e**
+a baixa parcial):
+
+> **abate-se o MENOR dos dois valores reais nos dois títulos; o que sobrar de cada um vira título novo.**
+
+No exemplo do próprio autor — RCB 30,00 com valor real 10,00 × APG 12,00 integral — o menor real é 10:
+abate 10 nos dois, sobra 20 do RCB (título novo) e 2 do APG (título novo). É exatamente o que ele descreve.
+
+**O que o dado confirma — e o que ele contradiz:**
+
+- 18 operações, sempre **1 RCB × 1 APG**; R$ 254.390,96 a receber e R$ 263.518,12 a pagar;
+- **19 baixas de AR e 19 de AP, R$ 249.913,98 nas duas pontas** — idêntico, porque o valor abatido é o menor;
+- 17 títulos gerados (9 AR de R$ 4.566,14 · 8 AP de R$ 15.370,32);
+- o par de movimentos de conta corrente (crédito no AR, débito no AP) **soma zero**: 46 lançamentos com
+  'desconto de titulo' no histórico, total R$ 0,00;
+- ⚠️ **o comentário do autor diz que `COD_DESCONTO_TITULO` marca "todos" os títulos — o dado diz que não.**
+  O título gerado fica só com `CODGRUPO_DESCONTO_TITULO`. Seguimos o dado: é ele que permite a reversão
+  apagar exatamente o que a operação criou.
+
+**Reversão** (`uReverterDescontoTitulo.pas:247+`): apaga as baixas, volta `QUITADA='N'` e limpa
+`COD_DESCONTO_TITULO` nos originais, apaga os títulos gerados e remove os dois movimentos de conta.
+**A mais que o legado:** se um título gerado já tiver baixa própria, a reversão é recusada (422
+`TITULO_GERADO_COM_MOVIMENTO`) — o legado apagava o título e deixava a baixa órfã.
+
+**Recusas:** títulos de parceiros diferentes (`PARCEIROS_DIFERENTES`), valor real maior que o título
+(`VALOR_REAL_EXCEDE`), título já quitado (`TITULO_JA_BAIXADO`). Tudo numa transação, com `FOR UPDATE` nos
+dois títulos. Grants próprios: `BTNGRAVAR` para executar, `BTNREVERTER` para reverter. Smoke §150 (4 checks).
