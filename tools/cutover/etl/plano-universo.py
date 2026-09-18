@@ -22,7 +22,19 @@ import oracledb
 
 BASE = '/Library/Apollo/tools/cutover'
 # nome no Oracle quando não é só o nosso em maiúsculas
-TABELA_ORIGEM = {'lote_preco': 'LOTEPRECO'}
+TABELA_ORIGEM = {
+    'lote_preco': 'LOTEPRECO',
+    # achados na varredura de 18/09/2026: estavam marcadas como "só do destino" e TÊM origem no Oracle,
+    # com nome diferente — sem este mapa a carga deixaria ~246 mil linhas para trás.
+    'nf_contabil': 'CODCONTABILNF',                                  # 47.720 — o rateio contábil da NF
+    'conciliacao_bancaria_ofx': 'CONCILICAO_BANCARIA_OFX',           # 46.846 — com o TYPO do legado ("CONCILICAO")
+    'conciliacao_bancaria_mov': 'CONCILICAO_BANCARIA_MOV',           # 27.986 — idem
+    'nfe_evento': 'NFE_EVENTOS',                                     # 107.708 — eventos de NF-e
+    'dre_conta': 'VINCULO_PLC_CFG_DRE',                              # 10.439 — conta → linha do DRE
+    'dre_estrutura': 'CONFIG_DRE_CONTABIL',                          # 98 — a árvore do DRE
+    'pedido_devolucao_compra_i': 'PEDIDO_DEVOLUCAO_COMPRA_ITENS',    # 6.103 — itens da devolução de compra
+    'tributacao_reforma': 'CST_IBS_CBS',                             # 17 — CST da reforma (IBS/CBS)
+}
 # o que NÃO entra, com motivo (fica no JSON para quem ler o plano)
 EXCLUSOES = {
     'historico_pdv': 'PDV — instrução do usuário (19/08): nada de PDV; a tabela existe no destino só como estrutura',

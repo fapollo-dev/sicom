@@ -247,3 +247,45 @@ ambos. As 🟡 que restam são o trabalho que sobra desta fila:
 | 192 | `FRMRETIRARAUTORIZACAOPAGAMENTO` | 1 | 1 | ⛔ **sem fonte e sem substrato** (par do item 124): nenhuma unit no repositório e nenhuma tabela de autorização de pagamento no schema |
 | 193 | `FRMCADTIPOFATURAMENTO` | 1 | 1 | ⛔ **sem fonte e sem substrato**: nenhuma unit com o form e nenhuma tabela `TIPO_FATURAMENTO`; o faturamento vivo (parcelas da nota) está convertido |
 | 194 | `FRMREMESSAVENDAS` | 1 | 1 | ⛔ **sem fonte e sem substrato**: nenhuma unit com o form e nenhuma tabela `REMESSA_VENDAS`. A remessa que existe é a bancária (CNAB), convertida |
+
+---
+
+## ⚠️ Varredura do DADO (18/09/2026) — o que o plano de carga não estava vendo
+
+Fechada a conta pelas TELAS, fiz a mesma conta pelo **dado**: as 792 tabelas do Oracle (fora
+bkp/tmp/audit/log) contra o destino + o `plano-tabelas.json`.
+
+**Achado 1 — 8 tabelas marcadas como "só do destino" TÊM origem no Oracle, com nome diferente.** Sem o
+mapeamento, a carga deixaria **~246 mil linhas** para trás, em módulos já convertidos:
+
+| destino | origem no Oracle | linhas |
+|---|---|---:|
+| `nfe_evento` | `NFE_EVENTOS` | 107.708 (último evento: hoje) |
+| `nf_contabil` | `CODCONTABILNF` | 47.720 — o rateio contábil da NF |
+| `conciliacao_bancaria_ofx` | **`CONCILICAO_BANCARIA_OFX`** | 46.846 |
+| `conciliacao_bancaria_mov` | **`CONCILICAO_BANCARIA_MOV`** | 27.986 |
+| `dre_conta` | `VINCULO_PLC_CFG_DRE` | 10.439 |
+| `pedido_devolucao_compra_i` | `PEDIDO_DEVOLUCAO_COMPRA_ITENS` | 6.103 |
+| `dre_estrutura` | `CONFIG_DRE_CONTABIL` | 98 |
+| `tributacao_reforma` | `CST_IBS_CBS` | 17 |
+
+Duas delas escaparam do casamento automático por um **erro de grafia do próprio legado**:
+`CONCILICAO_BANCARIA_*` (sem o segundo "A"). Corrigido em `plano-tabelas.json` **e** nos dois scripts do
+ETL (`extrair.py` e `plano-universo.py`, que regenera o plano) — senão o mapa se perderia na próxima
+regeneração.
+
+**Achado 2 — tabelas vivas sem destino nem plano** (as maiores, com movimento de hoje):
+
+| tabela | linhas | o que é |
+|---|---:|---|
+| `REMESSA_LOTE` | 10.919.452 | fila de replicação do legado (`TABELA` + `IDTABELA` + lote): infraestrutura de sincronização, não regra — o Apollo é centralizado |
+| `ANALISE_COMP_DIA_PROD` | 4.554.664 | cache do job de comportamento (as telas 22/23 recalculam do dado) |
+| `CLUBE_DESCONTO_MOV` | 3.106.133 | movimento do clube de desconto **com integrações externas** (IZIO, Mercafácil, Cresce Vendas) — fora do escopo de conversão, mas é decisão de cutover |
+| `NFC` / `NFC_ARQUIVO` | 3.162.075 / 2.419.449 | cupom fiscal (PDV) |
+| `CARTAO_BX` | 1.168.435 | baixas de cartão (o épico Cartões usa outro modelo) |
+| `HISTORICO_PROCESSAMENTO_NF` · `NF_STATUS_PROCESSO` | 862.152 · 439.611 | rastro do processamento de NF (ambas com registro de hoje) |
+| `PEDIDO_COMPRA_QTDE` | 256.813 | o grandchild por empresa do pedido de compra (nota de paridade já registrada) |
+
+São **282 tabelas** com dado fora do plano, somando 48,3 milhões de linhas — a maior parte log, backup
+nomeado por pessoa (`LUHAN23042026`…), temporária (`Z_TEMP_*`) e materializada de BI. As sete acima são
+as que merecem decisão explícita antes da virada.
