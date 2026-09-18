@@ -8,6 +8,32 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 > **formulário**, são **91 de 289** com uso registrado (31%). As 194 abaixo somam 4.145 acessos — 0,1% do
 > volume, e ainda assim são 194 telas de trabalho.
 
+## Placar da fila — **194 de 194 com veredito** (18/09/2026)
+
+| | telas | acessos | o que é |
+|---|---:|---:|---|
+| ✅ convertida | **40** | 1.280 (30,9%) | migrada, com migration, smoke e dossiê |
+| 🟢 coberta | 23 | 480 (11,6%) | o que ela faz já existe em outra tela do Apollo, com a prova ao lado |
+| 🪦 marginal | 38 | 704 (17,0%) | a regra existe, mas o dado do cliente é resíduo (0 a algumas dezenas de linhas, ou parou há anos) |
+| ⛔ sem substrato/fonte | 82 | 1.443 (34,8%) | tabela vazia, tabela inexistente, unit ausente do repositório, ou fora de escopo (PDV) |
+| 🟡 adiada com recon | **11** | 238 (5,7%) | viva e real — precisa de corte próprio |
+
+**Todo veredito tem procedência**: contagem no Oracle de produção (só leitura), linha do fonte Delphi, ou
+ambos. As 🟡 que restam são o trabalho que sobra desta fila:
+
+| # | tela | por que ficou |
+|---|---|---|
+| 3 | `FRMDIGITACAOPEDIDOS` | digitação de pedido — corte declarado |
+| 17 | `FRMDESCONTOTITULO` | ramo pendente da tela de encontro de contas |
+| 89 | `FRMPRECIFICACAONFBRUTA` | escrita sobre o motor de preços (LOTEPRECO + MARKUPFIXO) |
+| 97 | `FRMSINTEGRA` | obrigação acessória viva; depende de `NFAUXSPED`, ausente no destino |
+| 110 · 145 | `FRMCADCLASSTRIBIBSCBS` · `FRMCADCSTIBSCBS` | reforma tributária (EC 132/2023): `NF_IBSCBS` já tem 9.956 linhas |
+| 123 | `FRMRELCONFERENCIAEFD` | conferência do EFD — viva em 09/2026, sem fonte no repositório de mai/2020 |
+| 124 | `FRMAUTORIZACAOPAGAMENTO` | alçada de pagamento — viva em 06/2026, sem fonte |
+| 139 | `FRMRECEBIMENTOS` | recebimento de mercadoria — vivo em 08/2026, sem fonte |
+| 148 | `FRMCADCODIGOAJUSTE` | códigos de ajuste do SPED — tabela vazia, mas acesso em 09/2026 |
+| 151 | `FRMGERENCIARSUGESTAOPROMOCAO` | sugestão de promoção — viva em 08/2026, sem fonte |
+
 | # | tela | acessos | operadores | nota |
 |---|---|---|---|---|
 | 1 | `FRMCADMDFE` | 153 | 12 | ⛔ **não migrar**: a tela nunca foi implementada no legado — 47 linhas com o corpo comentado, `.dfm` com um GroupBox vazio, DataModule vazio, e `MDFE`/`MDFE_DOCUMENTO` com 0 linhas. Migrar seria escrever do zero |
@@ -49,11 +75,11 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 37 | `FRMANALISECOMPRAVENDACASACARNE` | 37 | 6 | 🟢 **equivalente** (mig 242): compra a peça, vende o corte — 13 peças em 30 cortes, vivo (corte vendido hoje). ⚠️ **o custo do corte saía 2,4× maior**: o legado esquece o `/100` do percentual e usa o custo UNITÁRIO — R$ 7.047,00 contra R$ 2.956,85, **138,3% a mais**. E a tabela de trabalho era `CREATE TABLE` em runtime; virou CTE |
 | 38 | `FRMRELATORIOVENDASDINAMICO` | 37 | 8 | 🟢 **equivalente** (mig 243): giro do período + última compra e custo, por produto. ⚠️ **quatro defeitos corrigidos**: `f.ativado=S` no WHERE anulava o LEFT JOIN (**228 produtos** sumiam); a última compra não filtrava empresa (3) nem nota cancelada (4); o último custo vinha do **maior CODNF** em vez da nota mais recente (**1.431 de 19.966**); e havia **uma consulta por linha** só para o saldo de estoque |
 | 39 | `FRMRELPRECOSALTERADOS` | 35 | 4 | 🟢 **equivalente** (mig 244): que preços mudaram, de quanto para quanto e por quem, nas duas origens. ⚠️ **o legado escondia 55,2% das alterações**: o `JOIN HISTORICO_DINAMICO` é INNER e `MULTI_PRECO.CODHISTORICO` só existe em 43% das linhas — 328 de 594 em ago/2026. E o `ROWNUM=1 ORDER BY` do outro dataset devolve linha arbitrária (produto 8242: 17,90 em vez de 12,99) |
-| 40 | `FRMCADANALISECONCORRENTES` | 35 | 4 | | 🪦 **marginal** — mesmo substrato do item 15: `CONCORRENCIA` **20** linhas, `ANALISE_CONCORRENCIA` **1** e `MOV_ANALISE_CONCORRENTE` **6**. A pesquisa de preço de concorrente nunca pegou no cliente |
+| 40 | `FRMCADANALISECONCORRENTES` | 35 | 4 | 🪦 **marginal** — mesmo substrato do item 15: `CONCORRENCIA` **20** linhas, `ANALISE_CONCORRENCIA` **1** e `MOV_ANALISE_CONCORRENTE` **6**. A pesquisa de preço de concorrente nunca pegou no cliente |
 | 41 | `FRMRELANALISEITENSNF` | 34 | 4 | 🟢 **equivalente** (mig 245): item a item das notas, com custo, base, ICMS, ST e isento. ⚠️ o `WHERE` do legado **só filtrava DATA** — somava 6.840 entradas com **943 saídas** de **3 empresas** em ago/2026, inclusive canceladas. E `NP.DESCONTO` sem `COALESCE` sumia com o item do total (23 de 497.627) |
 | 42 | `FRMIMPORTAPED` | 34 | 7 | 🪦 **marginal + fora de escopo**: importa pedido de **arquivo texto num diretório** (`PEDIDOS_*.txt` delimitado por `|`), nas abas Convênio, **Smart PDV** (fora de escopo por instrução) e Site. Medido: **28 pedidos importados** de 37.080 (**0,08%**), e `ORIGEM_IMPORT` nula em todos. A exportação de cadastros para o PDV externo é do mesmo bloco. Reavaliar se o e-commerce entrar em escopo — aí a forma muda de diretório para upload/API |
 | 43 | `FRMFATURAMENTO2` | 34 | 8 | 🟢 **corte-1** (mig 246): as parcelas de cada nota, com a legenda de três estados (vencendo hoje / atrasada / faturada). **47.063 parcelas, 42.502 notas, R$ 125,7 milhões**, 7.472 em 2026. ⚠️ cópia-fiel-negativa: `TIPOREF` nulo nas 47.063 e `LOTE_FATURAMENTO` com 0 linhas — a aba de movimento não tem substrato. ⚠️ **5 parcelas com o ano digitado errado** (202, 2202, 5202), R$ 11.193,35. Falta o ato de faturar (que mexe em `pedidos` e `cx_pedidos`) |
-| 44 | `FRMCADCONCORRENTES` | 32 | 4 | | 🪦 **marginal** — mesmo substrato do item 15: `CONCORRENCIA` **20** linhas, `ANALISE_CONCORRENCIA` **1** e `MOV_ANALISE_CONCORRENTE` **6**. A pesquisa de preço de concorrente nunca pegou no cliente |
+| 44 | `FRMCADCONCORRENTES` | 32 | 4 | 🪦 **marginal** — mesmo substrato do item 15: `CONCORRENCIA` **20** linhas, `ANALISE_CONCORRENCIA` **1** e `MOV_ANALISE_CONCORRENTE` **6**. A pesquisa de preço de concorrente nunca pegou no cliente |
 | 45 | `FRMPEDIDOTRANSFERENCIA` | 32 | 7 | 🪦 **marginal**: pedido de transferência entre lojas é `PEDIDOS` com `TIPO='T'` — **33 pedidos** em 37.080, de **15/12/2023 a 26/02/2025**, parado há 7 meses. A operação é real e pode voltar; hoje não justifica o corte frente a telas com mais uso |
 | 46 | `FRMDEVOLUCAO_NF` | 30 | 7 | ⛔ **sem fonte no repositório clonado** — o menu a chama "Devolucao de Vendas (NF)", mas nenhuma unit responde por `FRMDEVOLUCAO_NF` nem pelo caption. As outras devoluções TÊM fonte e estão em outro ponto da fila: `FRMDEVOLUCAOVENDAS` (3.958 acessos), `FRMCADPEDIDODEVOLUCAOCOMPRAS` (2.525, já migrada), `FRMCADDEVOLUCAO` (91) |
 | 47 | `FRMMOVIMENTACOESDIA` | 27 | 8 | ✅ **completa** (mig 247) — o "o que aconteceu hoje e quem fez": pedidos, contas pagas, recebidas e o log, os quatro por período e operador. ⚠️ a tabela **`HISTORICO`** (a trilha em TEXTO, **455.264 linhas** até hoje) **não existia no destino** e entra agora. ⚠️ as quatro consultas do legado **não filtram empresa** (nem as views que elas usam) |
@@ -170,7 +196,7 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 158 | `FRMPRECIFICACAOTABELAPRECO` | 2 | 1 | 🟢 **coberto, com prova**: precificação por tabela de preço — não existe tabela `TABELA_PRECO` no schema (o cadastro de tabelas de preço do Apollo, `tabela-preco`, veio do modelo do legado); o motor de preço (`MULTI_PRECO`, 203.640 linhas) e a precificação por NF estão convertidos (mig 129, 211-212) |
 | 159 | `FRMSOLICITACOESPORTALCONVENIO` | 2 | 2 | ⛔ **sem substrato, com prova**: solicitações do portal do convênio — `CONVENIO_FUN` **0 linhas** e nenhuma tabela `SOLICITACAO*` com dado. O convênio de funcionários vive em `PARCEIROS.CODCONVENIO` (item 102, convertido) |
 | 160 | `FRMFILTROCENTRALCOBRANCA` | 2 | 1 | ⛔ **sem fonte e sem substrato**: nenhuma unit com o form e nenhuma tabela de central de cobrança com dado (a `OCORR_CENTRAL_CONBRANCA` é a de ocorrências, sem tela própria aqui) |
-| 161 | `FRMRELPERMISSAOUSER` | 2 | 1 |
+| 161 | `FRMRELPERMISSAOUSER` | 2 | 1 | 🟢 **coberto, com prova**: relatório de permissões por usuário — nenhuma unit com o form no repositório, e o dado é a própria `PERMISSOES`, já convertida com a matriz FORM×OPÇÃO por perfil (`cadastro/permissoes`, corte-2) e a auditoria `audit_permissoes`. **Último acesso 28/08/2026** — o que ele mostra, a matriz mostra |
 | 162 | `FRMMAPARESUMO` | 2 | 1 | ⛔ **sem substrato, com prova**: mapa resumo do caixa a partir de `REDUCAOZ` e `REDUCAOZ_ALIQ` — as duas com **0 linhas** (a casa nunca gravou redução Z aqui; a venda vem por `CX_VENDAS`, 3,37 mi, já convertida) |
 | 163 | `FRMHISTORICOFGF` | 2 | 2 | ⛔ **sem substrato, com prova**: histórico dinâmico FGF sobre `TEMP_HISTORICO_DINAMICO_FGF` — **0 linhas** (a integração FGF parou em 05/2025, ver item 69) |
 | 164 | `FRMSUGESTAOPEDIDOCOMPRA` | 2 | 2 | 🟢 **coberto, com prova**: nenhuma unit com este nome no repositório; a sugestão de compra do Apollo é a **prévia do fornecedor** (`compras/previa-fornecedor`) somada ao relatório de dias de estoque (`relatorios/dias-estoque`), ambos convertidos |
@@ -180,27 +206,27 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 168 | `FRMMULTIPRECO` | 2 | 2 | 🟢 **coberto, com prova**: a tela lê `MULTI_PRECO` (**203.640 linhas**) e `PERMISSOES` — é a foto de preço por produto/empresa, convertida na mig 129 e usada por toda a precificação (mig 211-212, 244) e pelos relatórios de preço |
 | 169 | `FRMCONFIGBAL` | 2 | 1 | 🪦 **marginal, com prova**: configuração da balança — a unit não tem SQL próprio e `CONFIG_BALANCA` tem **2 linhas**; a integração de balança é arquivo gerado por produto (fora do banco) |
 | 170 | `FRMCADDRECONTABIL` | 2 | 2 | 🟢 **coberto, com prova**: o configurador da árvore do DRE contábil é `CONFIG_DRE_CONTABIL` (**98 linhas**, 3 níveis) — convertido na **mig 234** (`cadastro/dre-estrutura`, dossiê `uConfigDreContabil.md`, 51 acessos). Este item é o mesmo cadastro por outro nome de form (2 acessos) |
-| 171 | `FRMIMPRIMEETIQUETA` | 2 | 1 |
-| 172 | `FRMWLALINHAMENTO` | 1 | 1 |
-| 173 | `FRMWITALINHAMENTO` | 1 | 1 |
-| 174 | `FRMALINHAGENERATOR` | 1 | 1 |
-| 175 | `FRMLOTEPRODUCAO` | 1 | 1 |
+| 171 | `FRMIMPRIMEETIQUETA` | 2 | 1 | 🟢 **coberto, com prova**: impressão de etiqueta a partir de `PRODUTOS`/`COMPOSICAO`/`RECEITAS` — o épico **Etiquetas** já está no Apollo (fila de impressão + layouts), e `FRMETIQUETA` sozinha responde por 2,37 mi dos 3,05 mi de acessos do sistema. Esta é a variante com composição/receita (`RECEITAS` tem **0 linhas**) |
+| 172 | `FRMWLALINHAMENTO` | 1 | 1 | ⛔ **integração WL sem fonte e sem substrato** (como 91 e 147): nenhuma unit no repositório, nenhuma tabela com dado |
+| 173 | `FRMWITALINHAMENTO` | 1 | 1 | ⛔ **integração WIT sem fonte e sem substrato**: nenhuma unit no repositório, nenhuma tabela com dado |
+| 174 | `FRMALINHAGENERATOR` | 1 | 1 | ⛔ **ferramenta de desenvolvimento, não é tela de negócio**: a unit lê `ALL_OBJECTS`, `ALL_CONSTRAINTS` e `ALL_CONS_COLUMNS` (o dicionário do Oracle) para gerar código de alinhamento de tabelas — utilitário interno do fornecedor |
+| 175 | `FRMLOTEPRODUCAO` | 1 | 1 | ⛔ **sem substrato, com prova**: lote de produção sobre `LOTE_PRODUCAO`, `PRODUTO_FINAL_PRODUCAO` e `APONTAMENTO_PRODUCAO` — **nenhuma das três existe** no schema; `RECEITAS` tem 0 linhas e `COMPOSICAO` 61. A produção viva (43 ordens, parada em 01/10/2024) já está convertida |
 | 176 | `FRMCADCATCORTESIA` | 1 | 1 | ⛔ **sem substrato** — cadastro das categorias de cortesia: `CATEGORIA_CORTESIA` tem **0 linhas** no cliente (ver item 59) |
-| 177 | `FRMCADMAPACARGAPROD` | 1 | 1 |
-| 178 | `FRMCADREGIAO` | 1 | 1 |
-| 179 | `FRMAUTORIZACAOBAIXA` | 1 | 1 |
-| 180 | `FRMEXPORTACAOCOLETOR` | 1 | 1 |
-| 181 | `FRMCADLIMITECOMPRA` | 1 | 1 |
-| 182 | `FRMRELATORIOINDUSTRIA` | 1 | 1 |
-| 183 | `FRMORDEMSERVICO` | 1 | 1 |
-| 184 | `FRMSOLICITAOFIGURAFISCAL` | 1 | 1 |
-| 185 | `FRMRELOSPLACA` | 1 | 1 |
-| 186 | `FRMCADLOCALESTOQUE` | 1 | 1 |
-| 187 | `FRMRELENTREGA` | 1 | 1 |
-| 188 | `FRMRELDIVERGENCIAINTEGRACAO` | 1 | 1 |
-| 189 | `FRMRELTROCOPDV` | 1 | 1 |
-| 190 | `FRMPONTORECEBIMENTO` | 1 | 1 |
-| 191 | `FRMGRIDEXCEL` | 1 | 1 |
-| 192 | `FRMRETIRARAUTORIZACAOPAGAMENTO` | 1 | 1 |
-| 193 | `FRMCADTIPOFATURAMENTO` | 1 | 1 |
-| 194 | `FRMREMESSAVENDAS` | 1 | 1 |
+| 177 | `FRMCADMAPACARGAPROD` | 1 | 1 | ⛔ **sem substrato, com prova**: mapa de carga da produção sobre `PEDIDOSPRODUCAO` (**0 linhas**) e `PEDIDOSPRODUCAO_ITENS` (**0**) — e o mapa de carga geral é o item 101, também morto |
+| 178 | `FRMCADREGIAO` | 1 | 1 | ⛔ **sem substrato, com prova**: `REGIAO` **0 linhas**, `REGIAO_CIDADES` **0** e `PUBLICIDADE` **0** (esta última é o item 76). Região de entrega nunca foi usada |
+| 179 | `FRMAUTORIZACAOBAIXA` | 1 | 1 | ⛔ **sem fonte e sem substrato**: nenhuma unit com o form no repositório e nenhuma tabela de autorização de baixa. A alçada de baixa no Apollo é RBAC + senha de operação |
+| 180 | `FRMEXPORTACAOCOLETOR` | 1 | 1 | 🟢 **coberto, com prova** (como o item 71): exportação para coletor — o inventário do Apollo já faz a ponte com o coletor (importar/exportar contagem), e não há tabela própria desta tela no schema |
+| 181 | `FRMCADLIMITECOMPRA` | 1 | 1 | ⛔ **sem substrato, com prova**: `LIMITE_COMPRA` **0 linhas**. O limite que a casa usa é `PARCEIROS.CREDITO` / `LIMITE_ESPECIAL`, já convertidos |
+| 182 | `FRMRELATORIOINDUSTRIA` | 1 | 1 | ⛔ **sem substrato, com prova**: relatório da indústria sobre `PEDIDOSPRODUCAO` + `PEDIDOSPRODUCAO_ITENS` — **0 linhas nas duas** (mesma prova do item 177) |
+| 183 | `FRMORDEMSERVICO` | 1 | 1 | ⛔ **sem substrato, com prova**: `ORDEM_SERVICO` **0 linhas** e `COTACAO_ORDEM_SERVICO` **0** |
+| 184 | `FRMSOLICITAOFIGURAFISCAL` | 1 | 1 | 🪦 **marginal, com prova**: solicita ao fornecedor a criação de figura fiscal — grava em `SUPORTE` (**1 linha**). O cadastro de figuras fiscais em si está convertido (item 121, mig 267) |
+| 185 | `FRMRELOSPLACA` | 1 | 1 | ⛔ **sem substrato, com prova**: relatório de ordem de serviço por placa — `ORDEM_SERVICO` **0 linhas** (item 183); a unit só cruza `PARCEIROS`/`PARCEIROS_END` |
+| 186 | `FRMCADLOCALESTOQUE` | 1 | 1 | ⛔ **sem fonte e sem substrato**: nenhuma unit com o form e nenhuma tabela `LOCAL_ESTOQUE`. O local no Apollo é `estoque.local` + `estoque_dep` (loja/depósito), já convertidos |
+| 187 | `FRMRELENTREGA` | 1 | 1 | ⛔ **sem fonte e sem substrato**: nenhuma unit com o form e nenhuma tabela de entrega no schema (o controle de entregas é o item 100, com `HISTORICO_CONT_ENTREGAS` vazia) |
+| 188 | `FRMRELDIVERGENCIAINTEGRACAO` | 1 | 1 | ⛔ **sem fonte e sem substrato**: nenhuma unit com o form; as divergências de integração que existem de verdade (pedido × NF) estão em `analise_pedido_nf_diverg`, convertida (mig 252) |
+| 189 | `FRMRELTROCOPDV` | 1 | 1 | ⛔ **fora de escopo (PDV)**: relatório de troco do PDV — o usuário excluiu o PDV do escopo em 19/08; sem unit no repositório e sem tabela `TROCO_PDV` |
+| 190 | `FRMPONTORECEBIMENTO` | 1 | 1 | ⛔ **sem fonte e sem substrato**: nenhuma unit com o form e nenhuma tabela `PONTO_RECEBIMENTO` (a doca, que é o conceito vizinho, tem 1 linha — item 138) |
+| 191 | `FRMGRIDEXCEL` | 1 | 1 | ⛔ **utilitário de UI, não é tela de negócio**: a janela genérica de exportação de grid para Excel do framework Delphi. No Apollo, exportar é função de cada tela |
+| 192 | `FRMRETIRARAUTORIZACAOPAGAMENTO` | 1 | 1 | ⛔ **sem fonte e sem substrato** (par do item 124): nenhuma unit no repositório e nenhuma tabela de autorização de pagamento no schema |
+| 193 | `FRMCADTIPOFATURAMENTO` | 1 | 1 | ⛔ **sem fonte e sem substrato**: nenhuma unit com o form e nenhuma tabela `TIPO_FATURAMENTO`; o faturamento vivo (parcelas da nota) está convertido |
+| 194 | `FRMREMESSAVENDAS` | 1 | 1 | ⛔ **sem fonte e sem substrato**: nenhuma unit com o form e nenhuma tabela `REMESSA_VENDAS`. A remessa que existe é a bancária (CNAB), convertida |
