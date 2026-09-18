@@ -69,7 +69,9 @@ export class AnaliseComportamentoPeriodoService {
     const venda = (await sql<Record<string, unknown>>`
       SELECT coalesce(sum(round(v.qtde * v.vrvenda, 2) + coalesce(v.desc_acre_medio, 0) - coalesce(v.desc_promocao, 0)), 0) AS faturamento,
              coalesce(sum(round(v.qtde * coalesce(${custo}, 0), 2)), 0) AS cmv,
-             count(DISTINCT v.nrocupom) AS tickets
+             -- ⚠️ o número do cupom REINICIA a cada dia: distinct só do número deduplica entre dias e
+             -- subconta ~10% num mês (21.804 contra 24.097, medido em ago/2026 na loja 1)
+             count(DISTINCT (v.dtvenda::date, v.nrocupom)) AS tickets
         FROM vendas v
         JOIN produtos p ON p.idproduto = v.codproduto
        WHERE v.idempresa = ${emp}

@@ -15039,7 +15039,7 @@ async function main() {
         // REFERÊNCIA (mar/2046): 2 cupons — 100,00 com desconto médio de 3 e 100,00 com promoção de 2
         await pgAc.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, vrcustorep, cancelado, desc_acre_medio, desc_promocao) VALUES
           (1,'2046-03-05 10:00','AC1','001',7001,1,${AP},10,10.00,6.00,8.00,'N',-3.00,0),
-          (1,'2046-03-06 10:00','AC2','001',7002,1,${AP},5,20.00,12.00,12.00,'N',0,2.00),
+          (1,'2046-03-06 10:00','AC2','001',7001,1,${AP},5,20.00,12.00,12.00,'N',0,2.00),
           (1,'2046-03-07 10:00','AC3','001',7003,1,${AP},50,20.00,12.00,12.00,'S',0,0),
           (1,'2045-03-05 10:00','AC9','001',7009,1,${AP},10,10.00,6.00,6.00,'N',0,0)`);
         // três notas de saída no período de referência: só a de CFOP de VENDA entra
@@ -15063,7 +15063,7 @@ async function main() {
         const res = (await r1.json().catch(() => ({}))) as any;
         const ref = res.periodos?.[0]; const cmp = res.periodos?.[1];
 
-        check('COMPORTAMENTO §127.1 [o número é CALCULADO, não lido da cache do Giros]: o legado lê `ANALISE_COMP_DIA_PROD` (4,55 mi de linhas), alimentada por um processo externo que **não veio no fonte**. O critério foi reconstruído do dado e medido: `round(qtde × vrvenda, 2) + desc_acre_medio − desc_promocao` fecha **60 de 60 dias × 2 lojas, diferença máxima 0,00**, e confere produto a produto. Aqui: 100 − 3 + 100 − 2 = **195,00**, com a venda cancelada de 1.000,00 fora',
+        check('COMPORTAMENTO §127.1 [o número é CALCULADO, não lido da cache do Giros]: o legado lê `ANALISE_COMP_DIA_PROD` (4,55 mi de linhas), alimentada por um processo externo que **não veio no fonte**. O critério foi reconstruído do dado e medido: `round(qtde × vrvenda, 2) + desc_acre_medio − desc_promocao` fecha **60 de 60 dias × 2 lojas, diferença máxima 0,00**, e confere produto a produto. Aqui: 100 − 3 + 100 − 2 = **195,00**, com a venda cancelada de 1.000,00 fora. E os tickets são **2** mesmo os dois cupons tendo o MESMO número (7001): o número do cupom reinicia a cada dia, e contar só o número deduplicaria entre dias — medido em ago/2026 na loja 1, isso subcontaria o mês em 21.804 contra os 24.097 reais',
           Math.abs(Number(ref?.faturamentoVenda) - 195) < 0.005 && Number(ref?.tickets) === 2,
           { venda: ref?.faturamentoVenda, tickets: ref?.tickets });
 

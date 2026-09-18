@@ -79,6 +79,19 @@ else
 Medido em 10/09/2026, loja 1: **974 cupons** contra **970 pedidos**. Marcar um departamento que contém tudo
 já muda o ticket médio. Aqui é sempre por cupom.
 
+## 5b. ⚠️ O número do cupom reinicia todo dia
+
+Armadilha na reconstrução, não no legado — mas custa caro em quem calcula. `COUNT(DISTINCT NROCUPOM)` no
+período inteiro deduplica cupons de **dias diferentes** com o mesmo número. Medido em ago/2026, loja 1:
+
+| contagem | valor |
+|---|---:|
+| distinct do número no mês inteiro | 21.804 |
+| **soma da contagem diária** (correta) | **24.097** |
+| cache do Giros | 24.288 |
+
+**10,5% a menos** por uma linha de SQL. Aqui a chave é o par (data, cupom).
+
 ## 6. ⚠️ O ticket médio não divide o faturamento exibido
 
 A linha "Faturamento" mostra `VALOR_TOTAL` (venda + NF), mas o ticket médio é `VALOR_TOTAL_VENDA / tickets`.
