@@ -57,6 +57,8 @@ export * from './schema/rel-analise-pedido-nf.schema';
 export * from './schema/cons-apg-bx.schema';
 export * from './schema/cons-rcb-bx.schema';
 export * from './schema/rel-perdas.schema';
+export * from './schema/periodo-contabil.schema';
+export * from './schema/piscofins.schema';
 export * from './schema/historico-contabil.schema';
 export * from './schema/mult-atualizacao.schema';
 export * from './schema/integracao-contabil.schema';

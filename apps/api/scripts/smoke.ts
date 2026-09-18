@@ -15472,6 +15472,77 @@ async function main() {
         await pgRp.end();
       }
     }
+
+    // ══ CADASTRO DE PERÍODO CONTÁBIL (FRMCADPERIODOCONTABIL) ═════════════════════════════════════════
+    {
+      const PC = 'contabil/periodo-contabil';
+      const pgPe = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgPe.query(`DELETE FROM periodo_contabil WHERE codempresa = 1 AND competencia_contabil IN ('032047','042047')`);
+        const corpo = { competenciaContabil: '03/2047', competenciaFinanceira: '032047', dataInicio: '2047-03-01', dataFim: '2047-03-31', status: 'N', bloqNf: 'S', bloqBaixaApg: 'S' };
+        const cr = await fetch(`${base}/${PC}`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(corpo) });
+        const crJ = (await cr.json().catch(() => ({}))) as any;
+        const dup = await fetch(`${base}/${PC}`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ ...corpo, competenciaContabil: '032047' }) });
+        const dupJ = (await dup.json().catch(() => ({}))) as any;
+        check('PERÍODO CONTÁBIL §133.1 [a tabela que já travava tudo ganha a tela]: `periodo_contabil` sustentava as travas de período fechado desde a migration 038, sem escrita. No cliente são **3 períodos** (07 e 08/2024 abertos; 02/2025 com os nove bloqueios em S) e o `CHAVEAMENTO_PERIODO` é NULL — a trava viva é esta tabela. Gravar "03/2047" normaliza para **032047** (o cliente tem `082024` e `02/2025` convivendo); repetir a competência é recusado — "Já existe este período cadastrado!"',
+          cr.status === 201 && crJ.competenciaContabil === '032047' && crJ.bloqNf === 'S' && crJ.bloqBaixaApg === 'S' && crJ.bloqRcb === 'N'
+          && dup.status === 422 && dupJ.code === 'PERIODO_JA_CADASTRADO',
+          { status: cr.status, comp: crJ.competenciaContabil, bloq: [crJ.bloqNf, crJ.bloqBaixaApg, crJ.bloqRcb], dup: [dup.status, dupJ.code] });
+
+        const cod = Number(crJ.codperiodocontabil);
+        const up = await fetch(`${base}/${PC}/${cod}`, { method: 'PUT', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ ...corpo, status: 'S', bloqBaixaRcb: 'S' }) });
+        const upJ = (await up.json().catch(() => ({}))) as any;
+        const lista = (await (await fetch(`${base}/${PC}`, { headers: H })).json().catch(() => [])) as any[];
+        const invert = await fetch(`${base}/${PC}`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ ...corpo, competenciaContabil: '042047', dataInicio: '2047-04-30', dataFim: '2047-04-01' }) });
+        const semGrant = await fetch(`${base}/${PC}`, { method: 'POST', headers: { ...H_SEM_ACESSO, 'content-type': 'application/json' }, body: JSON.stringify({ ...corpo, competenciaContabil: '042047' }) });
+        const del = await fetch(`${base}/${PC}/${cod}`, { method: 'DELETE', headers: H });
+        const depois = (await (await fetch(`${base}/${PC}`, { headers: H })).json().catch(() => [])) as any[];
+        check('PERÍODO CONTÁBIL §133.2 [fechar o período e os nove bloqueios]: o PUT vira `status = S` e liga `bloq_baixa_rcb` sem apagar os outros; a lista traz o período; fim antes do início é 400; sem `BTNGRAVAR`, 403; excluir devolve e a lista não o traz mais',
+          up.status === 200 && upJ.status === 'S' && upJ.bloqBaixaRcb === 'S' && upJ.bloqNf === 'S'
+          && lista.some((p) => Number(p.codperiodocontabil) === cod)
+          && invert.status === 400 && semGrant.status === 403 && del.status === 200 && !depois.some((p) => Number(p.codperiodocontabil) === cod),
+          { up: [up.status, upJ.status, upJ.bloqBaixaRcb], lista: lista.length, invert: invert.status, rbac: semGrant.status, del: del.status });
+      } finally {
+        await pgPe.end();
+      }
+    }
+
+    // ══ CADASTRO DE PIS/COFINS (FRMCADPISCOFINS) ═════════════════════════════════════════════════════
+    {
+      const PF = 'cadastro/piscofins';
+      const pgPf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const tipos = (await (await fetch(`${base}/${PF}/tipos-credito`, { headers: H })).json().catch(() => [])) as any[];
+        const corpo = { descricao: 'CREDITO PRESUMIDO CARNE SUINA', aliqPisEnt: 0.198, aliqPisSai: 1.65, aliqCofinsEnt: 0.912, aliqCofinsSai: 7.6, cstPisEnt: 60, cstPisSai: 1, cstCofinsEnt: 60, cstCofinsSai: 1, idTipoCredito: 106, exigeNatureza: 'N' };
+        const cr = await fetch(`${base}/${PF}`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(corpo) });
+        const crJ = (await cr.json().catch(() => ({}))) as any;
+        check('PIS/COFINS §134.1 [as situações que o produto aponta, com o tipo de crédito do SPED]: no cliente **12 situações** para 45.416 produtos (31.626 em TRIBUTADOS); a tabela existia desde a migration 041 sem tela, e sem o TIPO DE CRÉDITO (tabela 4.3.6, `pc_tipocredito`, **25 códigos**, semeados) nem a flag "exige natureza". Criar "CRÉDITO PRESUMIDO CARNE SUÍNA" com 106 devolve a descrição do crédito ("PRESUMIDO DA AGROINDUSTRIA")',
+          tipos.length === 25 && tipos.some((t) => Number(t.id_tipocredito) === 106)
+          && cr.status === 201 && Math.abs(Number(crJ.aliqPisEnt) - 0.198) < 0.0001 && Number(crJ.cstPisEnt) === 60 && Number(crJ.idTipoCredito) === 106
+          && String(crJ.descricaoCredito).includes('PRESUMIDO DA AGROINDUSTRIA') && Number(crJ.produtos) === 0,
+          { tipos: tipos.length, status: cr.status, cred: crJ.descricaoCredito, aliq: crJ.aliqPisEnt });
+
+        const id = Number(crJ.idpiscofins);
+        // um produto apontando para a situação: excluir tem de ser recusado (31.626 produtos apontam para TRIBUTADOS no cliente)
+        await pgPf.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, idpiscofins) VALUES (991951,'7899000991951','LOMBO SUINO KG','KG',2,'T01','S',$1) ON CONFLICT (idproduto) DO UPDATE SET idpiscofins = $1`, [id]);
+        const emUso = await fetch(`${base}/${PF}/${id}`, { method: 'DELETE', headers: H });
+        const emUsoJ = (await emUso.json().catch(() => ({}))) as any;
+        const obt = (await (await fetch(`${base}/${PF}/${id}`, { headers: H })).json().catch(() => ({}))) as any;
+        const up = await fetch(`${base}/${PF}/${id}`, { method: 'PUT', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ ...corpo, aliqPisSai: 0, cstPisSai: 6, idTipoCredito: 299 }) });
+        const upJ = (await up.json().catch(() => ({}))) as any;
+        await pgPf.query(`DELETE FROM produtos WHERE idproduto = 991951`);
+        const del = await fetch(`${base}/${PF}/${id}`, { method: 'DELETE', headers: H });
+        const semGrant = await fetch(`${base}/${PF}`, { method: 'POST', headers: { ...H_SEM_ACESSO, 'content-type': 'application/json' }, body: JSON.stringify(corpo) });
+        const aliqRuim = await fetch(`${base}/${PF}`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ ...corpo, aliqPisEnt: 150 }) });
+        check('PIS/COFINS §134.2 [excluir situação em uso é recusado; alterar propaga]: com 1 produto apontando, DELETE é 422 (`PISCOFINS_EM_USO`, e diz quantos) — apagar TRIBUTADOS deixaria 31.626 produtos sem CST na apuração; a leitura conta os produtos (1); mudar a saída para CST 6 / crédito 299 grava; sem produto, exclui; sem `BTNGRAVAR`, 403; alíquota de 150% é 400',
+          emUso.status === 422 && emUsoJ.code === 'PISCOFINS_EM_USO' && Number(obt.produtos) === 1
+          && up.status === 200 && Number(upJ.cstPisSai) === 6 && Number(upJ.idTipoCredito) === 299
+          && del.status === 200 && semGrant.status === 403 && aliqRuim.status === 400,
+          { emUso: [emUso.status, emUsoJ.code, emUsoJ.details?.produtos ?? emUsoJ.produtos], produtos: obt.produtos, up: [up.status, upJ.cstPisSai], del: del.status, rbac: semGrant.status, aliq: aliqRuim.status });
+      } finally {
+        await pgPf.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

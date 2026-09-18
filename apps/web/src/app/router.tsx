@@ -71,6 +71,8 @@ import { RelAnalisePedidoNfPage } from '../features/rel-analise-pedido-nf/RelAna
 import { ConsApgBxPage } from '../features/cons-apg-bx/ConsApgBxPage';
 import { ConsRcbBxPage } from '../features/cons-rcb-bx/ConsRcbBxPage';
 import { RelPerdasPage } from '../features/rel-perdas/RelPerdasPage';
+import { PeriodoContabilPage } from '../features/periodo-contabil/PeriodoContabilPage';
+import { PisCofinsPage } from '../features/piscofins/PisCofinsPage';
 import { IndexadorTributarioPage } from '../features/indexador-tributario/IndexadorTributarioPage';
 import { ProdutosRelPage } from '../features/produtos-rel/ProdutosRelPage';
 import { RelEntradasSaidasPage } from '../features/rel-entradas-saidas/RelEntradasSaidasPage';
@@ -249,6 +251,8 @@ export const router = createBrowserRouter([
       { path: '/cobranca/cons-apg-bx', element: <ConsApgBxPage /> }, // FRMCONSAPGBX
       { path: '/cobranca/cons-rcb-bx', element: <ConsRcbBxPage /> }, // FRMCONSRCBBX
       { path: '/cadastro/rel-perdas', element: <RelPerdasPage /> }, // FRMRELPERDAS
+      { path: '/contabil/periodo-contabil', element: <PeriodoContabilPage /> }, // FRMCADPERIODOCONTABIL
+      { path: '/cadastro/piscofins', element: <PisCofinsPage /> }, // FRMCADPISCOFINS
       { path: '/cadastro/indexador-tributario', element: <IndexadorTributarioPage /> }, // FRMCADINDEXADORTRIBUTARIO
       { path: '/relatorios/produtos', element: <ProdutosRelPage /> }, // FRMPRODUTOSREL
       { path: '/relatorios/entradas-saidas', element: <RelEntradasSaidasPage /> }, // FRMRELENTRADASSAIDAS

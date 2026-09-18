@@ -18,6 +18,8 @@ import { InventarioService } from './inventario.service';
 import { ScrapAggregateController } from './scrap.aggregate';
 import { ScrapController } from './scrap.controller';
 import { RelPerdasController } from './rel-perdas.controller';
+import { PisCofinsCadController } from './piscofins-cad.controller';
+import { PisCofinsCadService } from './piscofins-cad.service';
 import { RelPerdasService } from './rel-perdas.service';
 import { ScrapService } from './scrap.service';
 import { ProducaoAggregateController } from './producao.aggregate';
@@ -132,7 +134,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
  */
 @Module({
   imports: [PrecificacaoModule, AuthModule], // motor fiscal na NF F2 + LiberacaoService (zerar estoque do rotativo)
-  controllers: [RelPerdasController, 
+  controllers: [RelPerdasController, PisCofinsCadController, 
     BancosController, // hand-written (referência + paridade SQL + golden)
     OperacoesContaCrudController, // engine (combo)
     ContasBancariasCrudController, // engine (FK/lookup)
@@ -211,7 +213,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     ConfiguracoesAdminController, // CONFIGURAÇÕES (UConfigura): catálogo chave-valor + overrides por escopo
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
-  providers: [RelPerdasService, 
+  providers: [RelPerdasService, PisCofinsCadService, 
     BancosService,
     BancoRepository,
     ParceiroHistoricoService,
