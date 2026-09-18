@@ -15109,6 +15109,102 @@ async function main() {
         await pgAc.end();
       }
     }
+
+    // ══ ANÁLISE DE COMPORTAMENTO DA LOJA (FRMANALISECOMPORTAMENTO) — item 27, destravado ═════════════
+    {
+      const CL = 'relatorios/analise-comportamento';
+      const CP2 = 991701;
+      const pgCl = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgCl.query(`INSERT INTO familias_prod (codfamilia, tipo, descricao, codsecao) VALUES (78,'D','MERCEARIA',5)
+          ON CONFLICT (codfamilia) DO UPDATE SET codsecao = 5`);
+        await pgCl.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto) VALUES
+          (${CP2},'7899000991701','FEIJAO CARIOCA 1KG','UN',2,'T01','S',78) ON CONFLICT (idproduto) DO UPDATE SET coddpto = 78`);
+        await pgCl.query(`INSERT INTO plc (codplc, desccodplc, descricao, codpai, nivelconta) VALUES
+          (99128,'4.99.128','ICMS A RECOLHER',NULL,3), (99129,'4.99.129','ENERGIA ELETRICA',NULL,3) ON CONFLICT (codplc) DO NOTHING`);
+        await pgCl.query(`DELETE FROM impostos WHERE codplc IN (99128, 99129)`);
+        await pgCl.query(`INSERT INTO impostos (codplc, descricao) VALUES (99128, 'ICMS A RECOLHER')`);
+
+        await pgCl.query(`DELETE FROM vendas WHERE codproduto = ${CP2}`);
+        // MÊS ATUAL = mai/2046: semana 1 (dia 3), semana 2 (dia 9, MESMO nº de cupom do dia 3), semana 5 (dia 30) + 1 cancelada
+        // MÊS ANTERIOR = abr/2046 · ANO ANTERIOR = mai/2045
+        await pgCl.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, cancelado, desc_acre_medio, desc_promocao, coddpto) VALUES
+          (1,'2046-05-03 10:00','CL1','001',5001,1,${CP2},10,10.00,6.00,'N',0,0,78),
+          (1,'2046-05-09 10:00','CL2','001',5001,1,${CP2},5,20.00,12.00,'N',0,2.00,78),
+          (1,'2046-05-30 10:00','CL3','001',5002,1,${CP2},2,50.00,30.00,'N',-1.00,0,78),
+          (1,'2046-05-30 11:00','CL4','001',5003,1,${CP2},100,50.00,30.00,'S',0,0,78),
+          (1,'2046-04-02 10:00','CL5','001',4501,1,${CP2},20,10.00,6.00,'N',0,0,78),
+          (1,'2045-05-05 10:00','CL6','001',4001,1,${CP2},10,10.00,6.00,'N',0,0,78)`);
+        const nfCl = Number((await pgCl.query(`INSERT INTO nf (idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, codparceiro, cfop, proc, totalnf, totalprod)
+          VALUES (1,'S','55',991701,'1','2046-05-16','2046-05-16',2,'5102','S',50,50) RETURNING codnf`)).rows[0].codnf);
+        await pgCl.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrvenda, vrcusto, aliquota) VALUES ($1,1,${CP2},2,1,'UN',0,25,'T01')`, [nfCl]);
+        await pgCl.query(`DELETE FROM caixa WHERE codcx IN (991701, 991702)`);
+        await pgCl.query(`INSERT INTO caixa (codcx, data, valor, codplc, idempresa, tiporecurso, codpdv, obs, origem) VALUES
+          (991701,'2046-05-10 10:00:00-03', -30.00, 99128, 1, 'D', 901, 'ICMS PAGO', 'RET'),
+          (991702,'2046-05-10 11:00:00-03', 500.00, 99129, 1, 'D', 901, 'ENERGIA', 'RET')`);
+
+        const res = (await (await fetch(`${base}/${CL}?mes=5&ano=2046`, { headers: H })).json().catch(() => ({}))) as any;
+        const atual = (res.blocos ?? []).find((b: any) => b.chave === 'mesAtual');
+        const s1 = atual?.semanas?.[0], s2 = atual?.semanas?.[1], s3 = atual?.semanas?.[2], s5 = atual?.semanas?.[4];
+        check('COMPORTAMENTO DA LOJA §128.1 [item 27, destravado — as cinco "semanas" são blocos FIXOS de 7 dias]: 1–7, 8–14, 15–21, 22–28, 29–fim, confirmado na cache do Giros linha a linha (uma por DIA) e no valor — semana 1 de ago/2026 na loja 1 é **238.838,52** nos dois lados. Aqui o dia 3 cai na semana 1 (100,00), o dia 9 na 2 (98,00, com a promoção de 2 fora), a NF do dia 16 na 3 (50,00) e o dia 30 na 5 (99,00, com o desconto médio de 1); a venda cancelada de 5.000 não entra',
+          atual?.rotulo === 'Maio de 2046' && s1?.ini === '2046-05-01' && s1?.fim === '2046-05-07' && s5?.ini === '2046-05-29' && s5?.fim === '2046-05-31'
+          && Math.abs(Number(s1?.faturamento) - 100) < 0.005 && Math.abs(Number(s2?.faturamento) - 98) < 0.005
+          && Math.abs(Number(s3?.faturamentoNf) - 50) < 0.005 && Math.abs(Number(s5?.faturamento) - 99) < 0.005,
+          { rotulo: atual?.rotulo, s1: s1?.faturamento, s2: s2?.faturamento, s3nf: s3?.faturamentoNf, s5: s5?.faturamento, janela5: [s5?.ini, s5?.fim] });
+
+        check('COMPORTAMENTO DA LOJA §128.2 [as nove linhas, no total do mês]: Faturamento 347 (297 de venda + 50 de NF) · CMV 180 · Rentabilidade (R$) 167 · Impostos 30 (só a conta marcada em `impostos`; a energia de 500 fica fora) · Lucro Final 137 · Margem Bruta 48,13% · Margem Final 39,48% · Num. Clientes **3** (o cupom 5001 aparece em dois dias e conta duas vezes — o número reinicia por dia) · Ticket médio 297/3 = 99,00',
+          Math.abs(Number(atual?.total?.faturamento) - 347) < 0.005 && Math.abs(Number(atual?.total?.cmv) - 180) < 0.005
+          && Math.abs(Number(atual?.total?.rentabilidade) - 167) < 0.005 && Math.abs(Number(atual?.total?.impostos) - 30) < 0.005
+          && Math.abs(Number(atual?.total?.lucroFinal) - 137) < 0.005 && Math.abs(Number(atual?.total?.margemBruta) - 48.13) < 0.005
+          && Math.abs(Number(atual?.total?.margemFinal) - 39.48) < 0.005 && Number(atual?.total?.clientes) === 3
+          && Math.abs(Number(atual?.total?.ticketMedio) - 99) < 0.005,
+          { total: atual?.total });
+
+        const cmpMes = (res.comparativos ?? []).find((c: any) => c.base === 'mesAnterior');
+        const cmpAno = (res.comparativos ?? []).find((c: any) => c.base === 'anoAnterior');
+        check('COMPORTAMENTO DA LOJA §128.3 [três blocos e dois comparativos]: mês anterior (abr/2046 = 200) e mesmo mês do ano anterior (mai/2045 = 100) ao lado do atual. Dif = atual − base e a % é sobre a BASE — **esta** tela acerta (147/200 = +73,5%; 247/100 = +247%), ao contrário da irmã (migration 250), que dividia pelo alvo',
+          (res.blocos ?? []).length === 3
+          && Math.abs(Number(res.blocos?.[0]?.total?.faturamento) - 200) < 0.005 && res.blocos?.[0]?.rotulo === 'Abril de 2046'
+          && Math.abs(Number(res.blocos?.[2]?.total?.faturamento) - 100) < 0.005 && res.blocos?.[2]?.rotulo === 'Maio de 2045'
+          && Math.abs(Number(cmpMes?.total?.faturamento?.diferenca) - 147) < 0.005 && Math.abs(Number(cmpMes?.total?.faturamento?.variacao) - 73.5) < 0.005
+          && Math.abs(Number(cmpAno?.total?.faturamento?.diferenca) - 247) < 0.005 && Math.abs(Number(cmpAno?.total?.faturamento?.variacao) - 247) < 0.005,
+          { blocos: (res.blocos ?? []).map((b: any) => [b.rotulo, b.total?.faturamento]), mes: cmpMes?.total?.faturamento, ano: cmpAno?.total?.faturamento });
+
+        const comFiltro = (await (await fetch(`${base}/${CL}?mes=5&ano=2046&coddpto=78`, { headers: H })).json().catch(() => ({}))) as any;
+        const porSecao = (await (await fetch(`${base}/${CL}?mes=5&ano=2046&codsecao=5`, { headers: H })).json().catch(() => ({}))) as any;
+        const vazio = (await (await fetch(`${base}/${CL}?mes=5&ano=2046&coddpto=999`, { headers: H })).json().catch(() => ({}))) as any;
+        const fat = (r: any) => Number((r.blocos ?? []).find((b: any) => b.chave === 'mesAtual')?.total?.faturamento);
+        const cmv = (r: any) => Number((r.blocos ?? []).find((b: any) => b.chave === 'mesAtual')?.total?.cmv);
+        check('COMPORTAMENTO DA LOJA §128.4 [UM critério, com ou sem filtro]: no legado, filtrar por família troca o caminho — sai da cache e monta a conta em VENDAS com um `LEFT JOIN MULTI_PRECO` **sem IDEMPRESA** (111.535 linhas viram 475.737, ×4,265) e um `IDEMPRESA IN (1)` fixo no código. Medido em ago/2026, loja 1: CMV de **R$ 3.518.208,52** contra R$ 805.652,00 reais — 4,37×, e a loja 2 vendo o custo da loja 1. Aqui o departamento 78 e a seção 5 devolvem os MESMOS 347 / 180 do sem-filtro, e um departamento vazio zera',
+          Math.abs(fat(comFiltro) - 347) < 0.005 && Math.abs(cmv(comFiltro) - 180) < 0.005
+          && Math.abs(fat(porSecao) - 347) < 0.005 && Math.abs(cmv(porSecao) - 180) < 0.005
+          && Math.abs(fat(vazio)) < 0.005 && Math.abs(cmv(vazio)) < 0.005 && comFiltro.criterio?.filtroFamilia === true,
+          { depto: [fat(comFiltro), cmv(comFiltro)], secao: [fat(porSecao), cmv(porSecao)], vazio: [fat(vazio), cmv(vazio)] });
+
+        const lista = (await (await fetch(`${base}/${CL}/impostos`, { headers: H })).json().catch(() => [])) as any[];
+        const add1 = (await (await fetch(`${base}/${CL}/impostos`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ codplcs: [99129, 99128] }) })).json().catch(() => ({}))) as any;
+        const add2 = (await (await fetch(`${base}/${CL}/impostos`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ codplcs: [99129] }) })).json().catch(() => ({}))) as any;
+        const comEnergia = (await (await fetch(`${base}/${CL}?mes=5&ano=2046`, { headers: H })).json().catch(() => ({}))) as any;
+        const del = await fetch(`${base}/${CL}/impostos/99129`, { method: 'DELETE', headers: H });
+        const semGrantPost = await fetch(`${base}/${CL}/impostos`, { method: 'POST', headers: { ...H_SEM_ACESSO, 'content-type': 'application/json' }, body: JSON.stringify({ codplcs: [99129] }) });
+        const semGrantGet = await fetch(`${base}/${CL}?mes=5&ano=2046`, { headers: H_SEM_ACESSO });
+        const mesRuim = await fetch(`${base}/${CL}?mes=13&ano=2046`, { headers: H });
+        check('COMPORTAMENTO DA LOJA §128.5 [a "Previsão de Impostos" nunca teve dado — e a lista se mantém aqui]: no cliente, `IMPOSTOS` tem **0 linhas** e `CAIXA ⋈ IMPOSTOS` nunca produziu uma linha; Lucro Final sempre foi igual à Rentabilidade. A regra é viva: marcar a conta de energia como imposto sobe a linha de 30 para 530 na hora; o legado só acrescenta o que não está na lista (1 adicionado, depois 0); remover devolve. Sem `BTNGRAVAR`, 403; sem grant de tela, 403; mês 13, 400',
+          lista.some((l) => Number(l.codplc) === 99128) && Number(add1.adicionados) === 1 && Number(add2.adicionados) === 0
+          && Math.abs(Number((comEnergia.blocos ?? []).find((b: any) => b.chave === 'mesAtual')?.total?.impostos) - 530) < 0.005
+          && del.status === 200 && semGrantPost.status === 403 && semGrantGet.status === 403 && mesRuim.status === 400,
+          { lista: lista.length, add1: add1.adicionados, add2: add2.adicionados, impostos: (comEnergia.blocos ?? []).find((b: any) => b.chave === 'mesAtual')?.total?.impostos, del: del.status, rbac: [semGrantPost.status, semGrantGet.status], mes13: mesRuim.status });
+
+        await pgCl.query(`DELETE FROM caixa WHERE codcx IN (991701, 991702)`);
+        await pgCl.query(`DELETE FROM nf_prod WHERE codnf = $1`, [nfCl]);
+        await pgCl.query(`DELETE FROM nf WHERE codnf = $1`, [nfCl]);
+        await pgCl.query(`DELETE FROM vendas WHERE codproduto = ${CP2}`);
+        await pgCl.query(`DELETE FROM impostos WHERE codplc IN (99128, 99129)`);
+        await pgCl.query(`DELETE FROM produtos WHERE idproduto = ${CP2}`);
+      } finally {
+        await pgCl.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
