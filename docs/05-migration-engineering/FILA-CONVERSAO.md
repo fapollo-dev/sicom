@@ -99,21 +99,21 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 87 | `FRMCADNFE` | 11 | 1 |
 | 88 | `FRMCADCEST` | 11 | 3 |
 | 89 | `FRMPRECIFICACAONFBRUTA` | 11 | 4 |
-| 90 | `FRMCADABASTECIMENTO` | 11 | 4 |
-| 91 | `FRMINTEGRACAOLOTEWL` | 11 | 3 |
-| 92 | `FRMCADCHEQUEPROPRIO` | 10 | 5 |
-| 93 | `FRMAPURACAOICMSST` | 10 | 5 |
+| 90 | `FRMCADABASTECIMENTO` | 11 | 4 | 🪦 **marginal, com prova**: controle de abastecimento de veículos — `ABASTECIMENTO` tem **4 registros** e `VEICULOS` **2**. Não é operação da casa |
+| 91 | `FRMINTEGRACAOLOTEWL` | 11 | 3 | ⛔ **sem fonte no repositório e sem substrato**: nenhuma unit com o form; `INTEGRACAO_IBSCBS_WL` **0 linhas**, `WL_PRODUTOS_SANEADOS` **0**. É a integração externa "WL" de saneamento fiscal (IBS/CBS) — irmã da FGF (item 69), e nunca operou |
+| 92 | `FRMCADCHEQUEPROPRIO` | 10 | 5 | ⛔ **sem substrato, com prova**: `CHQ_PROPRIO` **0 linhas** (ver item 84 — a casa não opera com cheque; 11 cheques de terceiros na vida) |
+| 93 | `FRMAPURACAOICMSST` | 10 | 5 | ⛔ **sem substrato, com prova**: `APURACAO_ICMS_ST` **0 linhas**, `APURACAO_ICMS_ST_AJUSTES` **0**; `OBRIGACAO_RECOLHER` tem 9. A apuração de ICMS (não ST) é viva (87 apurações, 2,7 mi de detalhes) e já está no Apollo; a de ST, como substituído, o cliente nunca apurou |
 | 94 | `FRMMOTIVO` | 10 | 6 |
-| 95 | `FRMVASILHAME` | 10 | 3 |
-| 96 | `FRMINTEGRACAO_FISCAL` | 10 | 2 |
+| 95 | `FRMVASILHAME` | 10 | 3 | ⛔ **sem substrato, com prova**: `HIST_VASILHAME` **0 linhas** — controle de vasilhame nunca usado |
+| 96 | `FRMINTEGRACAO_FISCAL` | 10 | 2 | ⛔ **sem substrato, com prova**: aplica um lote de saneamento fiscal em produtos por empresa — `PRODUTO_EMPRESA_LOTE` e `PRODUTO_EMPRESA_LOTE_ITENS` **0 linhas** |
 | 97 | `FRMSINTEGRA` | 10 | 2 |
 | 98 | `FRMRELCURVAABCFORNECEDOR` | 10 | 4 |
 | 99 | `FRMRELGESTAO` | 9 | 3 |
-| 100 | `FRMCONTROLEENTREGAS` | 9 | 4 |
-| 101 | `FRMCADMAPADECARGA` | 9 | 2 |
+| 100 | `FRMCONTROLEENTREGAS` | 9 | 4 | ⛔ **sem substrato, com prova**: `HISTORICO_CONT_ENTREGAS` **0 linhas** — o controle de entregas nunca registrou uma |
+| 101 | `FRMCADMAPADECARGA` | 9 | 2 | ⛔ **sem substrato, com prova**: a maior unit do bloco (**6.161 linhas**, toca 20+ tabelas: caixa, cartão, cheque, a receber, estoque, faturamento…) para `MAPA_DE_CARGA`, `MAPA_DE_CARGA_DESPESAS` e `MAPA_DE_CARGA_RECEBIMENTOS` com **0 linhas** as três. Fluxo de venda externa/rota que a casa não pratica |
 | 102 | `FRMRELFUNCIONARIO` | 9 | 4 |
 | 103 | `FRMRELATORIOCAIXADME` | 9 | 2 |
-| 104 | `FRMAPURACAOCIAP` | 9 | 4 |
+| 104 | `FRMAPURACAOCIAP` | 9 | 4 | ⛔ **sem substrato, com prova**: crédito de ICMS do ativo permanente — `APURACAO_CIAP` **0 linhas**, `APROPRIADO_CIAP` **0**. Nunca apurado |
 | 105 | `FRMIMPORTAPRODUTOSEXCEL` | 9 | 1 |
 | 106 | `FRMAPURACAO` | 8 | 6 |
 | 107 | `FRMCADPRODUTOVALIDADE` | 8 | 3 |
