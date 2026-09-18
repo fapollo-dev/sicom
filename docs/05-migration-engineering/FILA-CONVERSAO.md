@@ -94,7 +94,7 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 82 | `FRMEXTRATOCLIENTES` | 13 | 2 | ✅ **completa** (mig 257) — quatro modelos (período / referência a menor / a maior / saldo em) × campo de data × status × cliente, analítico/sintético. ⚠️ **três dos quatro modelos não filtram empresa** (2026: 3.129 títulos na loja 1, **6.364** no total). ⚠️ o "saldo em" confia em `DTPGTO`, vazio em **44.130 quitados (R$ 13,78 mi)** — aqui a data efetiva é a da baixa quando o título não a tem |
 | 83 | `FRMCADPISCOFINS` | 13 | 3 | ✅ **completa** (mig 256) — as 12 situações de PIS/COFINS que 45.416 produtos apontam, com o **tipo de crédito** (SPED 4.3.6, `pc_tipocredito`, 25 códigos semeados) e `EXIGENATUREZA`, que o destino não tinha. Excluir situação em uso é recusado com a contagem (TRIBUTADOS tem 31.626 produtos). 5 situações do cliente chamam-se "CADASTRADO VIA FGF" (item 69) |
 | 84 | `FRMCADCHEQUE` | 13 | 5 | 🪦 **marginal, com prova**: `CHEQUE` tem **11 cheques** na vida (20/04/2022 → 11/12/2023, 4 baixados); `CHEQUE_REP`, `CHEQUE_DEVOLVIDO` e `CHQ_PROPRIO` **0 linhas**; nenhum cheque com lote de baixa. A casa não recebe em cheque — 1.146 linhas de tela para 11 registros |
-| 85 | `FRMCADLANCAMENTODIARIO` | 12 | 2 |
+| 85 | `FRMCADLANCAMENTODIARIO` | 12 | 2 | ⛔ **sem substrato, com prova**: lançamento MANUAL no diário contábil — a tela grava `CODORIGEM = 1` e recusa editar/excluir lançamentos de outras origens. No `DIARIO` (1,77 milhão de linhas, 19 origens) **não existe um único lançamento com CODORIGEM=1**: a casa nunca lançou à mão. O diário é todo gerado pelas integrações (origem 61 = 1,2 mi), que o Apollo já tem, e a consulta do diário é a `contabil/lancamentos` |
 | 86 | `FRMRELENTRADAS_FINAN` | 11 | 3 |
 | 87 | `FRMCADNFE` | 11 | 1 |
 | 88 | `FRMCADCEST` | 11 | 3 |
@@ -114,7 +114,7 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 102 | `FRMRELFUNCIONARIO` | 9 | 4 |
 | 103 | `FRMRELATORIOCAIXADME` | 9 | 2 |
 | 104 | `FRMAPURACAOCIAP` | 9 | 4 | ⛔ **sem substrato, com prova**: crédito de ICMS do ativo permanente — `APURACAO_CIAP` **0 linhas**, `APROPRIADO_CIAP` **0**. Nunca apurado |
-| 105 | `FRMIMPORTAPRODUTOSEXCEL` | 9 | 1 |
+| 105 | `FRMIMPORTAPRODUTOSEXCEL` | 9 | 1 | ⛔ **sem fonte no repositório clonado** — nenhuma unit com o form; 1 operador (último acesso 18/06/2026). Importação de planilha de produtos: no Apollo a carga de produtos entra pela API/ETL |
 | 106 | `FRMAPURACAO` | 8 | 6 |
 | 107 | `FRMCADPRODUTOVALIDADE` | 8 | 3 |
 | 108 | `FRMRELBALANCO` | 8 | 3 |
