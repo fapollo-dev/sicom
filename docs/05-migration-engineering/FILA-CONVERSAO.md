@@ -19,10 +19,10 @@ formulários que não estavam em nenhum dos dois**, somando **43.071 acessos**:
 | `FRMFECHAMENTOSANGRIA` | 36.522 | 38 | 18/09/2026 | ⛔ PDV — fora de escopo por instrução do usuário |
 | `FRMDEVOLUCAOVENDAS` | 3.958 | 36 | 17/09/2026 | ✅ **convertida** (mig 275) — era a maior lacuna de retaguarda |
 | `FRMNFCE` | 1.444 | 13 | 17/09/2026 | ⛔ PDV |
-| `FRMMANCADCARTAOBOAVISTA` | 560 | 6 | 20/05/2026 | 🟡 sem unit no repositório (cartão Boa Vista) |
-| `FRMVERIFICACAOTRIBUTARIABORBAFISCAL` | 388 | 3 | 15/06/2026 | 🟡 integração Borba Fiscal — corte próprio já mapeado |
+| `FRMMANCADCARTAOBOAVISTA` | 560 | 6 | 20/05/2026 | 🟡 **sem unit no repositório — e o substrato é ENORME**: `RETORNO_PAG_BOAVISTA` **2.423.986** linhas · `REGISTROS_BOAVISTA` **977.994** · `RETORNO_BOAVISTA` 3.937 · `BANDEIRAS_BOAVISTA` 420 · `OPERADORAS_BOAVISTA` 322 · `CONTAS_CORRENTES_BOAVISTA` 4. **Nenhuma delas está no `plano-tabelas.json`** — achado de CUTOVER, não só de conversão. Precisa do fonte novo |
+| `FRMVERIFICACAOTRIBUTARIABORBAFISCAL` | 388 | 3 | 15/06/2026 | 🟡 integração Borba Fiscal — **sem unit no repositório** (só referências em `UCadEmpresa`/`UdmSpedPisCofins`); corte próprio, já mapeado na memória |
 | `FRMCADPDV` | 93 | 8 | 01/06/2026 | ⛔ PDV |
-| `FRMCADDEVOLUCAO` | 91 | 16 | 19/08/2026 | 🟡 devolução ao fornecedor (`I_DEVOLUCAO`) — a de COMPRA já existe no Apollo; conferir sobreposição |
+| `FRMCADDEVOLUCAO` | 91 | 16 | 19/08/2026 | 🪦 **marginal, com prova**: `DEVOLUCAO` tem **1 linha** (20/09/2022) e `I_DEVOLUCAO` **2 itens**; a devolução de compra viva está convertida (`compras/devolucao-compra`, sobre `PEDIDO_DEVOLUCAO_COMPRA`) |
 | `FRMCADBALANCO` | 15 | 4 | — | 🪦 `BALANCO` com 8 linhas (o inventário/balanço do Apollo cobre) |
 
 **Lição**: uma fila derivada por cruzamento só é completa se o cruzamento for verificado nos DOIS sentidos.

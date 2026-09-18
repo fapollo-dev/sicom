@@ -35,6 +35,7 @@
       "cotacao",
       "cx_vendas",
       "det_aliquota",
+      "devolucao_vendas",
       "empresas",
       "familias_prod",
       "familias_prod_area",
