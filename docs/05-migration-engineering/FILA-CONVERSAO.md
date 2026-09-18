@@ -81,19 +81,19 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 69 | `FRMINTEGRACAOLOTEFGF` | 16 | 4 |
 | 70 | `FRMSCANNTECH` | 16 | 3 |
 | 71 | `FRMCOLETOR` | 16 | 4 |
-| 72 | `FRMDECLARACAOIMPORTACAONF` | 15 | 6 |
+| 72 | `FRMDECLARACAOIMPORTACAONF` | 15 | 6 | ⛔ **sem substrato, com prova**: a Declaração de Importação (DI) da NF de entrada — `NF_DECLARACAO_IMPORTACAO`, `_ADIC` e `_RESP` têm **0 linhas** no cliente. Supermercado não importa; a unit tem 1.105 linhas para uma aba que nunca foi preenchida |
 | 73 | `FRMEXPORTANFE` | 15 | 2 |
-| 74 | `FRMRELACORDOCOMERCIAL` | 15 | 3 |
-| 75 | `FRMCADPROMOCAODEPARTAMENTO` | 15 | 6 |
-| 76 | `FRMCADPUBLICIDADE` | 14 | 5 |
-| 77 | `FRMCADAGENDAATENDIMENTO` | 14 | 3 |
+| 74 | `FRMRELACORDOCOMERCIAL` | 15 | 3 | 🪦 **marginal, com prova**: relatório sobre `ACORDO_COMERCIAL` — **7 acordos** na vida, cadastrados entre 04/09/2020 e **07/01/2022**, nada depois; `ARQUIVO_ACORDO` 0 linhas. O cadastro do acordo (`FRMCADACORDOCOMERCIAL`) segue o mesmo dado |
+| 75 | `FRMCADPROMOCAODEPARTAMENTO` | 15 | 6 | ⛔ **sem substrato, com prova**: `PROMOCAO_DEPARTAMENTO` tem **0 linhas**. A promoção da casa é por produto/agenda (`FRMCADPROMOCAO`, épico Promoções já fechado) |
+| 76 | `FRMCADPUBLICIDADE` | 14 | 5 | ⛔ **sem substrato, com prova**: publicidade com anexos e envios a parceiros — `PUBLICIDADE`, `PUBLICIDADE_ANEXO`, `PUBLICIDADE_ENVIOS` e `PUBLICIDADE_ENVIOS_PARCEIROS` têm **0 linhas**, as quatro. 529 linhas de tela para um mecanismo nunca usado |
+| 77 | `FRMCADAGENDAATENDIMENTO` | 14 | 3 | ⛔ **sem substrato, com prova**: `AGENDA_ATENDIMENTO` e `AGENDA_NAO_ATENDIMENTO` têm **0 linhas** (último acesso 15/05/2026 — abriu vazio) |
 | 78 | `FRMCADPERIODOCONTABIL` | 14 | 5 |
-| 79 | `FRMCONFIGURAPIX` | 14 | 1 |
-| 80 | `FRMCADCARTAOPROPRIO` | 14 | 6 |
+| 79 | `FRMCONFIGURAPIX` | 14 | 1 | ⛔ **sem substrato, com prova**: `PIX_CONFIG` **0 linhas**, `PIX_TRANSACAO` **0 linhas**, nenhuma chave `%PIX%` em `CONFIGURACOES`; 1 operador, unit não está no repositório. (A `PIX_FLAVIA` de 253 linhas é tabela pessoal de backup, não do mecanismo.) PIX no PDV está fora do escopo |
+| 80 | `FRMCADCARTAOPROPRIO` | 14 | 6 | ⛔ **sem substrato, com prova**: o cartão próprio da loja — `CRT_PROPRIO` **0 linhas**, `BX_APAGAR_CRT_PROPRIO` **0**. A `CONFIG_BAIXA_CHEQUE`/cartão próprio nunca teve lançamento |
 | 81 | `FRMRELBALANCETE` | 14 | 4 |
 | 82 | `FRMEXTRATOCLIENTES` | 13 | 2 |
 | 83 | `FRMCADPISCOFINS` | 13 | 3 |
-| 84 | `FRMCADCHEQUE` | 13 | 5 |
+| 84 | `FRMCADCHEQUE` | 13 | 5 | 🪦 **marginal, com prova**: `CHEQUE` tem **11 cheques** na vida (20/04/2022 → 11/12/2023, 4 baixados); `CHEQUE_REP`, `CHEQUE_DEVOLVIDO` e `CHQ_PROPRIO` **0 linhas**; nenhum cheque com lote de baixa. A casa não recebe em cheque — 1.146 linhas de tela para 11 registros |
 | 85 | `FRMCADLANCAMENTODIARIO` | 12 | 2 |
 | 86 | `FRMRELENTRADAS_FINAN` | 11 | 3 |
 | 87 | `FRMCADNFE` | 11 | 1 |
