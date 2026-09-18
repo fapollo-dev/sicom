@@ -289,3 +289,27 @@ regeneração.
 São **282 tabelas** com dado fora do plano, somando 48,3 milhões de linhas — a maior parte log, backup
 nomeado por pessoa (`LUHAN23042026`…), temporária (`Z_TEMP_*`) e materializada de BI. As sete acima são
 as que merecem decisão explícita antes da virada.
+
+
+### Achado 3 — a carga levaria os pedidos de compra R$ 32,4 milhões subcontados
+
+`PEDIDOCOMPRA_I` **não tem coluna de quantidade** no legado: ela vive no grandchild por-empresa
+`PEDIDO_COMPRA_QTDE` (o comprador da rede pede e distribui entre as lojas — **46.142 itens são
+multi-loja**, e `PEDIDOCOMPRA.EMPRESAS` é um texto tipo `'1, 2'`). O nosso modelo é a projeção
+single-empresa da mig 078, com `qtde` no item.
+
+O extrator casa coluna por coluna **pelo nome** — e `qtde`/`qtdtotal`/`totalcusto` não existem na origem.
+Resultado silencioso: a carga cairia no `DEFAULT qtde = 1`, e o total dos pedidos migraria assim:
+
+| | |
+|---|---:|
+| Σ `TOTALCUSTO` real | **R$ 43.328.145,14** |
+| Σ com `qtde = 1` | R$ 10.927.188,98 |
+| **diferença** | **R$ 32.400.956,16** |
+
+É o mesmo bug que a **mig 078** corrigiu no modelo ("~2,5× subcontado"), voltando pela porta da carga —
+agora 4×. 147.073 das 256.813 linhas do rateio têm `QTDE > 1`, e **os 210.670 itens têm rateio** (nenhum
+ficaria de fora do erro).
+
+Corrigido em `etl/extrair.py` (bloco `CALCULADAS`): as três colunas passam a vir da **soma do rateio** por
+item, com a expressão conferida na produção — o Σ bate em R$ 43.328.145,14.

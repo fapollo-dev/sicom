@@ -72,7 +72,18 @@ CALCULADAS = {
     # saldo antes do movimento = saldo depois − o que mexeu
     'saldo_anterior': 'nvl(qtde_atual,0) - nvl(qtde_alter,0)',
     # `tipo` é E/S conforme o sinal do movimento (o legado guarda só o delta assinado)
-    'tipo': "case when nvl(qtde_alter,0) < 0 then 'S' else 'E' end"}}
+    'tipo': "case when nvl(qtde_alter,0) < 0 then 'S' else 'E' end"},
+  # ⚠️ PEDIDOCOMPRA_I **não tem quantidade** no legado: ela vive no grandchild por-empresa
+  # `PEDIDO_COMPRA_QTDE` (o comprador da rede pede e distribui entre as lojas — 46.142 itens são multi-loja).
+  # O nosso modelo é a projeção single-empresa (mig 078: qtde no ITEM), então a carga tem de SOMAR o rateio.
+  # Sem isto o casamento por nome não acha as colunas, a carga cai no DEFAULT `qtde=1` e **todo pedido migra
+  # subcontado**: Σ TOTALCUSTO real = R$ 43.328.145,14 contra R$ 10.927.188,98 com qtde=1 — R$ 32,4 milhões a
+  # menos, exatamente o bug que a mig 078 corrigiu no modelo, voltando pela porta da carga.
+  # (147.073 das 256.813 linhas do rateio têm QTDE > 1; os 210.670 itens têm rateio — nenhum fica de fora.)
+  'pedidocompra_i': {
+    'qtde':       '(select nvl(sum(q.qtde), 1)       from pedido_compra_qtde q where q.codpedcompi = pedidocompra_i.codpedcompi)',
+    'qtdtotal':   '(select nvl(sum(q.qtdtotal), 0)   from pedido_compra_qtde q where q.codpedcompi = pedidocompra_i.codpedcompi)',
+    'totalcusto': '(select nvl(sum(q.totalcusto), 0) from pedido_compra_qtde q where q.codpedcompi = pedidocompra_i.codpedcompi)'}}
 
 CONSTANTES = {'operadores': {'origem_legado': 'S'}, 'arquivo_remessa_areceber': {'origem_legado': 'S'}, 'parceiros_end': {'origem_legado': 'S'},
               'nf': {'origem_legado': 'S'},
