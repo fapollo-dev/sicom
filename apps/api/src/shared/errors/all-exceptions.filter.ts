@@ -176,10 +176,23 @@ export class AllExceptionsFilter implements ExceptionFilter {
  * Códigos cujo `details` do AppError PODE ser ecoado ao cliente no envelope (`detalhe`) — allowlist explícita
  * (evita vazar dados internos de outros erros: saldos, form/opção de RBAC, etc.). Só o que o front consome.
  */
-const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO']);
+const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO']);
 
 const CODE_PT: Record<string, string> = {
   // regra de negócio (BusinessRuleError 422)
+  FAIXA_JA_INUTILIZADA: 'Essa numeração já foi inutilizada nesta série.',
+  NUMERACAO_EM_USO: 'Essa numeração pertence a uma nota emitida — não pode ser inutilizada.',
+  INUTILIZACAO_COM_PROTOCOLO: 'Registro com protocolo da SEFAZ não pode ser excluído.',
+  INUTILIZACAO_NAO_ENCONTRADA: 'Inutilização não encontrada.',
+  ESTOQUE_JA_CONGELADO: 'O estoque desta empresa já está congelado.',
+  ESTOQUE_NAO_CONGELADO: 'O estoque desta empresa não está congelado.',
+  FORMA_DUPLICATA_NAO_CADASTRADA: 'Não existe a forma de pagamento DUPLICATA cadastrada para esta empresa.',
+  CONVENIO_OBRIGATORIO: 'Selecione um convênio.',
+  PARCEIRO_NAO_E_CONVENIO: 'O parceiro informado não é um convênio.',
+  CEST_EM_USO: 'Há produtos apontando para este CEST.',
+  CEST_DUPLICADO: 'Esse par CEST/NCM já está cadastrado.',
+  FIGURA_EM_USO: 'Há regras do indexador tributário usando esta figura fiscal.',
+  MOTIVO_EXCLUIDO: 'Este motivo está excluído.',
   BANCO_OBRIGATORIO: 'O banco é obrigatório.',
   PRODUTO_NAO_ENCONTRADO: 'Produto não encontrado.',
   CIDADE_OBRIGATORIA: 'A cidade é obrigatória.',

@@ -33,6 +33,8 @@ import { ConfigLegislacaoController } from './config-legislacao.controller';
 import { ConfigLegislacaoService } from './config-legislacao.service';
 import { CongelaEstoqueController } from './congela-estoque.controller';
 import { CongelaEstoqueService } from './congela-estoque.service';
+import { NfeInutilizadaController } from './nfe-inutilizada.controller';
+import { NfeInutilizadaService } from './nfe-inutilizada.service';
 import { ScrapService } from './scrap.service';
 import { ProducaoAggregateController } from './producao.aggregate';
 import { ProducaoController } from './producao.controller';
@@ -224,13 +226,14 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     SenhaOperacaoController, // E7: senha de operação por empresa (definir/verificar)
     ConfiguracoesAdminController, // CONFIGURAÇÕES (UConfigura): catálogo chave-valor + overrides por escopo
     CestController, // FRMCADCEST — a tabela CEST × NCM que produtos.cest aponta (11 acessos)
+    NfeInutilizadaController, // FRMNFE_INUTILIZADA — o livro das numerações queimadas (187.138 no cliente)
     ConfigLegislacaoController, // FRMCONFIGLEGISLACAONFE — as mensagens legais das observações da NF-e
     CongelaEstoqueController, // FRMCONGELAESTOQUE — a foto do estoque para o balanço
     FiguraFiscalController, // FRMCADFIGURASFISCAIS — o catálogo que o indexador tributário aponta (16.838 figuras)
     MotivosController, // FRMMOTIVO — motivos do AJUSTE de estoque (tabela MOTIVOS; ≠ motivos_operacao, do scrap)
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
-  providers: [CestService, MotivosService, FiguraFiscalService, ConfigLegislacaoService, CongelaEstoqueService, RelPerdasService, PisCofinsCadService, ExportaNfeService, 
+  providers: [CestService, MotivosService, FiguraFiscalService, ConfigLegislacaoService, CongelaEstoqueService, NfeInutilizadaService, RelPerdasService, PisCofinsCadService, ExportaNfeService, 
     BancosService,
     BancoRepository,
     ParceiroHistoricoService,

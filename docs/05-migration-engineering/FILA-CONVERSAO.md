@@ -148,38 +148,38 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 136 | `FRMIMPORTAPLANOREFERENCIAL` | 4 | 2 | ⛔ **sem substrato, com prova**: importar o plano referencial da RFB — nenhuma tabela de plano referencial no schema, e `PLANO_CONTAS.CODPLANOREFERENCIAL` existe mas o vínculo nunca foi carregado. A importação do plano do escritório está no TRON (mig 199-201) |
 | 137 | `FRMLIBERASENHAGERENCIAL` | 4 | 4 | 🟢 **coberto, com prova**: a unit não tem SQL nem tabela própria — é a caixa de liberação por senha gerencial que as telas de dinheiro chamam. No Apollo isso é a **senha de operação por empresa** (`cadastro/senha-operacao`, E7) mais o RBAC por FORM×OPÇÃO, usados por todas as telas que pedem liberação (zerar estoque, congelar, baixar, estornar) |
 | 138 | `FRMCADDOCA` | 4 | 3 | 🪦 **marginal, com prova**: cadastro de docas de recebimento — `DOCA` tem **1 linha** ('DEPOSITO PRINCIPAL', de 05/08/2020) |
-| 139 | `FRMRECEBIMENTOS` | 4 | 1 |
+| 139 | `FRMRECEBIMENTOS` | 4 | 1 | 🟡 **viva, sem fonte**: nenhuma unit com o form no repositório clonado (que é de mai/2020) e nenhuma tabela `RECEBIMENTO*` no schema — mas o **último acesso é 17/08/2026** (4 acessos, 1 operador). Provável recebimento de mercadoria sobre `NF`/`PEDIDOCOMPRA`, ambos já convertidos; precisa do fonte novo para dizer o que falta |
 | 140 | `FRMCADCLAVEGOS` | 4 | 3 | ⛔ **sem substrato, com prova**: `CLAVEGOS` (de-para de código de produto do sistema Clavegos) **0 linhas** |
 | 141 | `FRMCADVEICULOS` | 4 | 1 | 🪦 **marginal, com prova**: `VEICULOS` tem **2 linhas**, ambas de teste — 'UNO/OK33' (MG) e 'UNO/TTTTT' (**AM**), cadastradas em 10 e 13/06/2022. Ligada ao mapa de carga (item 101, morto) e ao abastecimento (90/133, 4 linhas) |
-| 142 | `FRMRELDIARIOCONTABIL` | 4 | 4 |
+| 142 | `FRMRELDIARIOCONTABIL` | 4 | 4 | ✅ **completa** (mig 270, `contabil/diario`, dossiê `uRelDiarioContabil.md`) — o livro Diário, terceiro da família (balancete 258, balanço 265). **Defeito medido: o legado usa `UNION` e não `UNION ALL`** — dois lançamentos idênticos no mesmo dia colapsam em um e o livro perde lançamento legítimo. A mais: tenant-scoped, nome da origem (mig 209), contagem de lançamentos com **uma perna só**, filtros por conta e origem, e a tabela `contabilista` (4 linhas, faltava no destino) |
 | 143 | `FRMCADPESQUISA` | 4 | 3 | ⛔ **sem substrato, com prova**: pesquisa de satisfação — `PESQUISA`, `PESQUISA_QUESTIONARIO`, `PESQUISA_RESPOSTA` e `PESQUISA_ATENDIMENTO` todas com **0 linhas** (a `LOG_PESQUISA`, com 196.645, é o log da tela de PESQUISA genérica do sistema, outra coisa) |
-| 144 | `FRMCADGRUPOEMPRESARIAL` | 3 | 1 |
-| 145 | `FRMCADCSTIBSCBS` | 3 | 1 |
-| 146 | `FRMRELINDICADORESFINANCEIROS` | 3 | 2 |
-| 147 | `FRMWLCONSULTAPRODUTOSSANEADOS` | 3 | 1 |
+| 144 | `FRMCADGRUPOEMPRESARIAL` | 3 | 1 | ⛔ **sem fonte e sem substrato**: nenhuma unit com o form e nenhuma tabela `GRUPO_EMPRESARIAL` no schema. As 5 empresas do cliente já convivem por tenant no Apollo |
+| 145 | `FRMCADCSTIBSCBS` | 3 | 1 | 🟡 **épico futuro (reforma tributária)**, junto com o item 110: `CST_IBS_CBS` tem **17 linhas** e `NF_IBSCBS` **9.956** — o legado já começou a EC 132/2023; o Apollo ainda não tem IBS/CBS. Sem fonte no repositório de mai/2020 |
+| 146 | `FRMRELINDICADORESFINANCEIROS` | 3 | 2 | 🪦 **marginal, com prova no fonte**: indicadores financeiros por parceiro cruzando `ARECEBER`/`ARECEBER_BX`, `APAGAR`/`APAGAR_BX` e **`CHEQUE`** — e `CHEQUE` tem **11 linhas na vida** (item 84). O que o relatório tem de vivo (posição e baixas de AR/AP) está em `cobranca/cons-cli-rcb`, `cons-apg-bx`, `cons-rcb-bx` e no extrato de clientes |
+| 147 | `FRMWLCONSULTAPRODUTOSSANEADOS` | 3 | 1 | ⛔ **integração WL sem fonte e sem substrato** (mesmo caso do item 91): nenhuma unit no repositório; a integração Web Lojas não tem tabela com dado neste banco |
 | 148 | `FRMCADCODIGOAJUSTE` | 3 | 3 | 🟡 **viva, sem substrato próprio**: códigos de ajuste da apuração (E111/C197 do SPED) — `CODIGO_AJUSTE` tem **0 linhas**, mas o **último acesso é de 11/09/2026**. Os ajustes que o SPED do Apollo emite hoje vêm de `EMPRESAS.COD_AJUS_*` (mig 032); se a casa começar a usar a tabela, vira corte próprio |
-| 149 | `FRMRELVENDEDORES` | 3 | 2 |
-| 150 | `FRMIMPORTAHISTORICOCONTABIL` | 3 | 3 |
-| 151 | `FRMGERENCIARSUGESTAOPROMOCAO` | 3 | 1 |
-| 152 | `FRMREPOSICAODEGONDOLA` | 3 | 1 |
-| 153 | `FRMLANCAPRECO2` | 3 | 3 |
-| 154 | `FRMCADCODIGORECEITA` | 3 | 2 |
-| 155 | `FRMCADGENERONCM` | 3 | 3 |
-| 156 | `FRMCADMENSAGEMNF` | 2 | 2 |
-| 157 | `FRMNFE_INUTILIZADA` | 2 | 2 |
-| 158 | `FRMPRECIFICACAOTABELAPRECO` | 2 | 1 |
-| 159 | `FRMSOLICITACOESPORTALCONVENIO` | 2 | 2 |
-| 160 | `FRMFILTROCENTRALCOBRANCA` | 2 | 1 |
+| 149 | `FRMRELVENDEDORES` | 3 | 2 | 🪦 **marginal, com prova**: o DM da tela (`uDMRelVendedores`) **não tem SQL nenhum** — só o esqueleto; não há tabela `VENDEDORES` no schema (o vendedor é `PARCEIROS.CODVENDEDOR`). A comissão/venda por vendedor aparece nos relatórios de venda já convertidos |
+| 150 | `FRMIMPORTAHISTORICOCONTABIL` | 3 | 3 | 🪦 **marginal, com prova**: importa históricos contábeis de arquivo — a unit não tem SQL próprio e `HISTORICO_CONTABIL` tem **54 linhas** (já convertida na mig 229, com CRUD). Importação de 54 linhas não paga corte próprio |
+| 151 | `FRMGERENCIARSUGESTAOPROMOCAO` | 3 | 1 | 🟡 **viva, sem fonte**: nenhuma unit com o form; **último acesso 26/08/2026** (3 acessos, 1 operador). O substrato vivo é `CLUBE_DESCONTO` (3.111, até 16/09/2026), já convertido em promoções — a parte de *sugestão* precisa do fonte novo |
+| 152 | `FRMREPOSICAODEGONDOLA` | 3 | 1 | ⛔ **sem fonte e sem substrato**: nenhuma unit com o form e nenhuma tabela de reposição/gôndola no schema |
+| 153 | `FRMLANCAPRECO2` | 3 | 3 | 🟢 **coberto, com prova**: lançamento rápido de preço — a unit usa `PRODUTOS` + a procedure `UPDATEGRUPOPRECO` (que **não existe** no banco: `USER_OBJECTS` não tem nada com esse nome, a tela chamaria e falharia). Último acesso 26/06/2026. O lançamento de preço vivo está em `precificacao/*` e no ajuste em massa (mig 244) |
+| 154 | `FRMCADCODIGORECEITA` | 3 | 2 | ⛔ **sem substrato, com prova**: `CODIGO_RECEITA` (códigos de receita de tributo p/ DARF) tem **0 linhas** |
+| 155 | `FRMCADGENERONCM` | 3 | 3 | ⛔ **sem substrato, com prova**: `GENERO_NCM` (o capítulo/gênero do NCM) tem **0 linhas**. O NCM em si está convertido (`cadastro/ncm`) |
+| 156 | `FRMCADMENSAGEMNF` | 2 | 2 | ⛔ **sem substrato, com prova**: não existe tabela `MENSAGEM_NF` no schema; a unit não tem SQL. As mensagens que a NF-e usa de verdade estão em `CONFIG_LEGISLACAO` — item 128, convertido (mig 268) |
+| 157 | `FRMNFE_INUTILIZADA` | 2 | 2 | ✅ **completa** (mig 271, `fiscal/nfe-inutilizada`, dossiê `uNFE_Inutilizada.md`) — o livro das numerações queimadas: **187.138 registros** (131.333 na loja 1, 54.904 na 2), todos de **um número só**, até hoje (~78/dia em 2026), e `NF.STATUSNFE='I'` tem **0 linhas**: a inutilização vive só nesta tabela, que **não existia no destino nem na carga**. A mais: `buracos` (números sem nota e sem inutilização — o que o fisco pergunta), recusa de faixa sobreposta e de numeração de nota emitida, e registro com protocolo da SEFAZ não se apaga |
+| 158 | `FRMPRECIFICACAOTABELAPRECO` | 2 | 1 | 🟢 **coberto, com prova**: precificação por tabela de preço — não existe tabela `TABELA_PRECO` no schema (o cadastro de tabelas de preço do Apollo, `tabela-preco`, veio do modelo do legado); o motor de preço (`MULTI_PRECO`, 203.640 linhas) e a precificação por NF estão convertidos (mig 129, 211-212) |
+| 159 | `FRMSOLICITACOESPORTALCONVENIO` | 2 | 2 | ⛔ **sem substrato, com prova**: solicitações do portal do convênio — `CONVENIO_FUN` **0 linhas** e nenhuma tabela `SOLICITACAO*` com dado. O convênio de funcionários vive em `PARCEIROS.CODCONVENIO` (item 102, convertido) |
+| 160 | `FRMFILTROCENTRALCOBRANCA` | 2 | 1 | ⛔ **sem fonte e sem substrato**: nenhuma unit com o form e nenhuma tabela de central de cobrança com dado (a `OCORR_CENTRAL_CONBRANCA` é a de ocorrências, sem tela própria aqui) |
 | 161 | `FRMRELPERMISSAOUSER` | 2 | 1 |
-| 162 | `FRMMAPARESUMO` | 2 | 1 |
-| 163 | `FRMHISTORICOFGF` | 2 | 2 |
-| 164 | `FRMSUGESTAOPEDIDOCOMPRA` | 2 | 2 |
-| 165 | `FRMCHQCUSTODIA` | 2 | 2 |
-| 166 | `FRMCADREDUCAOZ` | 2 | 1 |
-| 167 | `FRMDEVOLUCAOCH` | 2 | 1 |
-| 168 | `FRMMULTIPRECO` | 2 | 2 |
-| 169 | `FRMCONFIGBAL` | 2 | 1 |
-| 170 | `FRMCADDRECONTABIL` | 2 | 2 |
+| 162 | `FRMMAPARESUMO` | 2 | 1 | ⛔ **sem substrato, com prova**: mapa resumo do caixa a partir de `REDUCAOZ` e `REDUCAOZ_ALIQ` — as duas com **0 linhas** (a casa nunca gravou redução Z aqui; a venda vem por `CX_VENDAS`, 3,37 mi, já convertida) |
+| 163 | `FRMHISTORICOFGF` | 2 | 2 | ⛔ **sem substrato, com prova**: histórico dinâmico FGF sobre `TEMP_HISTORICO_DINAMICO_FGF` — **0 linhas** (a integração FGF parou em 05/2025, ver item 69) |
+| 164 | `FRMSUGESTAOPEDIDOCOMPRA` | 2 | 2 | 🟢 **coberto, com prova**: nenhuma unit com este nome no repositório; a sugestão de compra do Apollo é a **prévia do fornecedor** (`compras/previa-fornecedor`) somada ao relatório de dias de estoque (`relatorios/dias-estoque`), ambos convertidos |
+| 165 | `FRMCHQCUSTODIA` | 2 | 2 | 🪦 **marginal, com prova** (mesma do item 84): cheques em custódia sobre `CHEQUE` — **11 cheques na vida**, o último em 11/12/2023 |
+| 166 | `FRMCADREDUCAOZ` | 2 | 1 | ⛔ **sem substrato, com prova**: `REDUCAOZ` e `REDUCAOZ_ALIQ` com **0 linhas** — e é tela de PDV/ECF, fora de escopo por instrução do usuário |
+| 167 | `FRMDEVOLUCAOCH` | 2 | 1 | ⛔ **sem substrato, com prova**: devolução de cheque — `CHEQUE_DEVOLVIDO` **0 linhas** |
+| 168 | `FRMMULTIPRECO` | 2 | 2 | 🟢 **coberto, com prova**: a tela lê `MULTI_PRECO` (**203.640 linhas**) e `PERMISSOES` — é a foto de preço por produto/empresa, convertida na mig 129 e usada por toda a precificação (mig 211-212, 244) e pelos relatórios de preço |
+| 169 | `FRMCONFIGBAL` | 2 | 1 | 🪦 **marginal, com prova**: configuração da balança — a unit não tem SQL próprio e `CONFIG_BALANCA` tem **2 linhas**; a integração de balança é arquivo gerado por produto (fora do banco) |
+| 170 | `FRMCADDRECONTABIL` | 2 | 2 | 🟢 **coberto, com prova**: o configurador da árvore do DRE contábil é `CONFIG_DRE_CONTABIL` (**98 linhas**, 3 níveis) — convertido na **mig 234** (`cadastro/dre-estrutura`, dossiê `uConfigDreContabil.md`, 51 acessos). Este item é o mesmo cadastro por outro nome de form (2 acessos) |
 | 171 | `FRMIMPRIMEETIQUETA` | 2 | 1 |
 | 172 | `FRMWLALINHAMENTO` | 1 | 1 |
 | 173 | `FRMWITALINHAMENTO` | 1 | 1 |

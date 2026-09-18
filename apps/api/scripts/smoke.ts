@@ -16142,6 +16142,102 @@ async function main() {
       }
     }
 
+    // ══ LIVRO DIÁRIO (FRMRELDIARIOCONTABIL) ════════════════════════════════════════════════════════════
+    {
+      const DI = 'contabil/diario';
+      const pgDi = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgDi.query(`DELETE FROM diario WHERE coddiario BETWEEN 9952001 AND 9952009`);
+        await pgDi.query(`DELETE FROM plano_contas WHERE codplanocontas BETWEEN 995201 AND 995202`);
+        await pgDi.query(`INSERT INTO plano_contas (codplanocontas, descricao, tipo, classe, codiexpandido, nivel) VALUES
+          (995201,'CAIXA DIARIO TESTE','D','A','1.98.01.00001',NULL), (995202,'RECEITA DIARIO TESTE','D','A','3.98.01.00001',NULL)`);
+        await pgDi.query(`INSERT INTO contabilista (codempresa, nome, cpf, crc) VALUES (1,'CONTADOR TESTE','111.222.333-44','CRC-9999')
+          ON CONFLICT (codempresa) DO UPDATE SET nome = EXCLUDED.nome, crc = EXCLUDED.crc`);
+        // dois lançamentos IDÊNTICOS em tudo (o UNION do legado colapsaria os dois em um) + um da loja 2
+        await pgDi.query(`INSERT INTO diario (coddiario, datalan, contadebito, contacredito, valor, codempresa, codorigem, idorigem, deschist, complemento, documento) VALUES
+          (9952001,'2056-04-10',995201,995202,100.00,1,61,1,'VENDA DO DIA','CUPOM 1','DOC-1'),
+          (9952002,'2056-04-10',995201,995202,100.00,1,61,1,'VENDA DO DIA','CUPOM 1','DOC-1'),
+          (9952003,'2056-04-11',995202,995201, 40.00,1,61,2,'ESTORNO',NULL,'DOC-2'),
+          (9952004,'2056-04-12',995201,NULL,    7.00,1,61,3,'MEIA PARTIDA',NULL,'DOC-3'),
+          (9952005,'2056-04-13',995201,995202,999.00,2,61,4,'LOJA DOIS','X','DOC-4')`);
+        const g = async (qs: string) => (await (await fetch(`${base}/${DI}?${qs}`, { headers: H })).json().catch(() => ({}))) as any;
+        const r = await g('dataIni=2056-04-01&dataFim=2056-04-30');
+        const L = (r.linhas ?? []) as any[];
+        const doDia10 = L.filter((l) => String(l.dia).slice(0, 10) === '2056-04-10');
+        const meia = L.filter((l) => l.coddiario === 9952004);
+        check('LIVRO DIÁRIO §148.1 [duas linhas por lançamento, e o UNION que apagava lançamento]: cada lançamento vira débito + crédito; os DOIS lançamentos idênticos do dia 10 dão **4 linhas** — no legado o `UNION` (sem ALL) colapsaria os iguais e o livro perderia um lançamento legítimo; o de meia partida vira uma linha só; a loja 2 fica fora (o legado somava as 5 empresas); o histórico junta DESCHIST + COMPLEMENTO e a origem vem com o NOME (mig 209), não o número cru',
+          doDia10.length === 4 && doDia10.filter((l) => Number(l.debito) === 100).length === 2 && doDia10.filter((l) => Number(l.credito) === 100).length === 2
+          && meia.length === 1 && Number(meia[0].debito) === 7
+          && !L.some((l) => l.coddiario === 9952005)
+          && doDia10[0].historico === 'VENDA DO DIA CUPOM 1' && String(doDia10[0].nome_origem ?? '').length > 2,
+          { dia10: doDia10.length, meia: meia.length, hist: doDia10[0]?.historico, origem: doDia10[0]?.nome_origem, temLoja2: L.some((l) => l.coddiario === 9952005) });
+        check('LIVRO DIÁRIO §148.2 [totais e cabeçalho]: 4 lançamentos no período (3 completos + 1 de meia partida), débito 247 e crédito 240 na lista — a diferença de 7 é exatamente o lançamento sem a perna de crédito, que o total denuncia; o contabilista do cabeçalho vem da tabela nova',
+          r.totais?.lancamentos === 4 && Number(r.totais?.debito) === 247 && Number(r.totais?.credito) === 240
+          && Number(r.totais?.diferenca) === 7 && r.totais?.meiaPartida === 1
+          && r.contabilista?.nome === 'CONTADOR TESTE' && r.contabilista?.crc === 'CRC-9999',
+          { totais: r.totais, contabilista: r.contabilista });
+        const porConta = await g('dataIni=2056-04-01&dataFim=2056-04-30&conta=3.98');
+        const porOrigem = await g('dataIni=2056-04-01&dataFim=2056-04-30&codorigem=99');
+        const semGrant = await fetch(`${base}/${DI}?dataIni=2056-04-01&dataFim=2056-04-30`, { headers: H_SEM_ACESSO });
+        check('LIVRO DIÁRIO §148.3 [filtros + RBAC]: o filtro por conta (prefixo do código expandido) traz só as linhas da conta de receita; o filtro por origem inexistente devolve vazio; sem grant, 403',
+          (porConta.linhas ?? []).length === 3 && (porConta.linhas ?? []).every((l: any) => String(l.conta).startsWith('3.98'))
+          && (porOrigem.linhas ?? []).length === 0 && semGrant.status === 403,
+          { conta: porConta.linhas?.length, origem: porOrigem.linhas?.length, rbac: semGrant.status });
+        await pgDi.query(`DELETE FROM diario WHERE coddiario BETWEEN 9952001 AND 9952009`);
+        await pgDi.query(`DELETE FROM plano_contas WHERE codplanocontas BETWEEN 995201 AND 995202`);
+        await pgDi.query(`DELETE FROM contabilista WHERE codempresa = 1`);
+      } finally {
+        await pgDi.end();
+      }
+    }
+
+    // ══ NF-e INUTILIZADAS (FRMNFE_INUTILIZADA) ═════════════════════════════════════════════════════════
+    {
+      const IN = 'fiscal/nfe-inutilizada';
+      const pgIn = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const j = { ...H, 'content-type': 'application/json' };
+        const cria = async (b: Record<string, unknown>) => { const r = await fetch(`${base}/${IN}`, { method: 'POST', headers: j, body: JSON.stringify(b) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const a = await cria({ data: '2057-05-10', tiponf: 'NFCE', serie: '9', numeracaoIni: 500, numeracaoFim: 500, protocolo: '131209999999901' });
+        const b2 = await cria({ data: '2057-05-11', tiponf: 'NFCE', serie: '9', numeracaoIni: 502, numeracaoFim: 504 });
+        const sobrepoe = await cria({ data: '2057-05-12', tiponf: 'NFCE', serie: '9', numeracaoIni: 503, numeracaoFim: 510 });
+        const outraSerie = await cria({ data: '2057-05-12', tiponf: 'NFCE', serie: '8', numeracaoIni: 500, numeracaoFim: 500 });
+        const invertida = await cria({ data: '2057-05-12', tiponf: 'NFCE', serie: '9', numeracaoIni: 900, numeracaoFim: 800 });
+        check('NF-e INUTILIZADAS §149.1 [o livro das numerações queimadas]: no cliente são **187.138 registros**, todos de UM número (`ini = fim`), e `NF.STATUSNFE=\'I\'` tem 0 linhas — a inutilização vive só nesta tabela. POST grava faixa de 1 e faixa de 3; sobrepor uma faixa já inutilizada da mesma série é 422 FAIXA_JA_INUTILIZADA (o legado não travava); a mesma numeração em OUTRA série passa; número final menor que o inicial é 400',
+          a.status === 201 && b2.status === 201 && b2.j.numeros === 3
+          && sobrepoe.status === 422 && sobrepoe.j.code === 'FAIXA_JA_INUTILIZADA' && sobrepoe.j.detalhe?.codinutilizacao === b2.j.codinutilizacao
+          && outraSerie.status === 201 && invertida.status === 400,
+          { a: a.status, b: [b2.status, b2.j.numeros], sobrepoe: [sobrepoe.status, sobrepoe.j.code], outraSerie: outraSerie.status, invertida: invertida.status });
+        const nfNum = Number((await pgIn.query(`INSERT INTO nf (idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, codparceiro, proc, totalnf)
+          VALUES (1,'S',65,'600','9','2057-05-14','2057-05-14',22,'S',10.00) RETURNING codnf`)).rows[0].codnf);
+        const emUso = await cria({ data: '2057-05-15', tiponf: 'NFCE', serie: '9', numeracaoIni: 600, numeracaoFim: 600 });
+        const cons = (await (await fetch(`${base}/${IN}?dataIni=2057-05-01&dataFim=2057-05-31&serie=9`, { headers: H })).json().catch(() => ({}))) as any;
+        const porNumero = (await (await fetch(`${base}/${IN}?dataIni=2057-05-01&dataFim=2057-05-31&numero=503`, { headers: H })).json().catch(() => ({}))) as any;
+        check('NF-e INUTILIZADAS §149.2 [não inutilizar número de nota emitida + consulta]: existir NFC-e 600 na série 9 faz o registro dessa numeração ser 422 NUMERACAO_EM_USO — inutilizar número de nota emitida é o erro que o fisco pega; a consulta por série traz os 2 registros da série 9 (4 números) e marca 1 sem protocolo; buscar pelo número 503 acha a faixa 502-504 que o contém',
+          emUso.status === 422 && emUso.j.code === 'NUMERACAO_EM_USO'
+          && cons.totais?.registros === 2 && cons.totais?.numeros === 4 && cons.totais?.semProtocolo === 1
+          && (porNumero.itens ?? []).length === 1 && porNumero.itens[0].codinutilizacao === b2.j.codinutilizacao,
+          { emUso: [emUso.status, emUso.j.code], cons: cons.totais, porNumero: porNumero.itens?.length });
+        await pgIn.query(`INSERT INTO nf (idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, codparceiro, proc, totalnf) VALUES
+          (1,'S',65,'598','9','2057-05-14','2057-05-14',22,'S',10.00),
+          (1,'S',65,'605','9','2057-05-14','2057-05-14',22,'S',10.00)`);
+        const bur = (await (await fetch(`${base}/${IN}/buracos?tiponf=NFCE&serie=9&dataIni=2057-05-01&dataFim=2057-05-31`, { headers: H })).json().catch(() => ({}))) as any;
+        const nums: number[] = bur.numeros ?? [];
+        const delSemProt = await fetch(`${base}/${IN}/${b2.j.codinutilizacao}`, { method: 'DELETE', headers: H });
+        const delComProt = await fetch(`${base}/${IN}/${a.j.codinutilizacao}`, { method: 'DELETE', headers: H });
+        const delComProtJ = (await delComProt.json().catch(() => ({}))) as any;
+        const semGrant = await fetch(`${base}/${IN}?dataIni=2057-05-01&dataFim=2057-05-31`, { headers: H_SEM_ACESSO });
+        check('NF-e INUTILIZADAS §149.3 [os buracos da numeração, e o que não se apaga]: entre as notas 598 e 605 da série 9, os números emitidos são 598/600/605 e os inutilizados 500 e 502-504 — sobram **599, 601, 602, 603 e 604** sem nota e sem inutilização: é exatamente o que o fisco pergunta, e o legado não tinha essa conta. Apagar registro SEM protocolo passa; COM protocolo é 422 INUTILIZACAO_COM_PROTOCOLO (o protocolo é da SEFAZ); sem grant, 403',
+          nums.length === 5 && nums.includes(599) && nums.includes(601) && nums.includes(604) && !nums.includes(600) && !nums.includes(598)
+          && delSemProt.status === 200 && delComProt.status === 422 && delComProtJ.code === 'INUTILIZACAO_COM_PROTOCOLO' && semGrant.status === 403,
+          { buracos: nums, delSemProt: delSemProt.status, delComProt: [delComProt.status, delComProtJ.code], rbac: semGrant.status });
+        await pgIn.query(`DELETE FROM nfe_inutilizada WHERE codempresa = 1 AND data >= '2057-01-01'`);
+        await pgIn.query(`DELETE FROM nf WHERE codnf = $1 OR (idempresa = 1 AND modelo = 65 AND serie = '9' AND dtemissao = '2057-05-14')`, [nfNum]);
+      } finally {
+        await pgIn.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

@@ -86,6 +86,8 @@ import { GerarFinanceiroLotePage } from '../features/gerar-financeiro-lote/Gerar
 import { FiguraFiscalPage } from '../features/figura-fiscal/FiguraFiscalPage';
 import { ConfigLegislacaoPage } from '../features/config-legislacao/ConfigLegislacaoPage';
 import { CongelaEstoquePage } from '../features/congela-estoque/CongelaEstoquePage';
+import { RelDiarioContabilPage } from '../features/rel-diario-contabil/RelDiarioContabilPage';
+import { NfeInutilizadaPage } from '../features/nfe-inutilizada/NfeInutilizadaPage';
 import { IndexadorTributarioPage } from '../features/indexador-tributario/IndexadorTributarioPage';
 import { ProdutosRelPage } from '../features/produtos-rel/ProdutosRelPage';
 import { RelEntradasSaidasPage } from '../features/rel-entradas-saidas/RelEntradasSaidasPage';
@@ -279,6 +281,8 @@ export const router = createBrowserRouter([
       { path: '/fiscal/figuras-fiscais', element: <FiguraFiscalPage /> }, // FRMCADFIGURASFISCAIS
       { path: '/fiscal/config-legislacao', element: <ConfigLegislacaoPage /> }, // FRMCONFIGLEGISLACAONFE
       { path: '/cadastro/congela-estoque', element: <CongelaEstoquePage /> }, // FRMCONGELAESTOQUE
+      { path: '/contabil/diario', element: <RelDiarioContabilPage /> }, // FRMRELDIARIOCONTABIL
+      { path: '/fiscal/nfe-inutilizada', element: <NfeInutilizadaPage /> }, // FRMNFE_INUTILIZADA
       { path: '/cadastro/indexador-tributario', element: <IndexadorTributarioPage /> }, // FRMCADINDEXADORTRIBUTARIO
       { path: '/relatorios/produtos', element: <ProdutosRelPage /> }, // FRMPRODUTOSREL
       { path: '/relatorios/entradas-saidas', element: <RelEntradasSaidasPage /> }, // FRMRELENTRADASSAIDAS
