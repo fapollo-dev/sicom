@@ -292,6 +292,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('247_movimentacoes_dia.sql'));
   await pool.query(sql('248_cad_indexador_tributario.sql'));
   await pool.query(sql('249_posicao_produto.sql'));
+  await pool.query(sql('250_analise_comportamento_periodo.sql'));
   await pool.end();
   return pg;
 }

@@ -202,6 +202,7 @@ const TELAS = [
   // FRMMOVIMENTACOESDIA — o que aconteceu hoje e quem fez (27 acessos, 8 operadores).
   { href: '/relatorios/movimentacoes-dia', name: 'Movimentações do dia', icon: CalendarClock },
   { href: '/relatorios/consulta-produto', name: 'Consulta de produtos', icon: PackageSearch },
+  { href: '/relatorios/analise-comportamento-periodo', name: 'Comportamento por período', icon: CalendarClock },
   // FRMCADINDEXADORTRIBUTARIO — de onde sai o ICMS-ST de toda entrada (23 acessos; 12.053 indexadores).
   { href: '/cadastro/indexador-tributario', name: 'Indexador tributário', icon: FileSearch },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },

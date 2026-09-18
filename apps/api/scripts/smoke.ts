@@ -15025,6 +15025,90 @@ async function main() {
         await pgPp.end();
       }
     }
+
+    // ══ ANÁLISE DE COMPORTAMENTO POR PERÍODO (FRMRELANALISECOMPORTAMENTOPERIODO) ══════════════════════
+    {
+      const AC = 'relatorios/analise-comportamento-periodo';
+      const AP = 991601;
+      const pgAc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgAc.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto) VALUES
+          (${AP},'7899000991601','CAFE TORRADO 500G','UN',2,'T01','S',77)
+          ON CONFLICT (idproduto) DO UPDATE SET coddpto = 77`);
+        await pgAc.query(`DELETE FROM vendas WHERE codproduto = ${AP}`);
+        // REFERÊNCIA (mar/2046): 2 cupons — 100,00 com desconto médio de 3 e 100,00 com promoção de 2
+        await pgAc.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, vrcustorep, cancelado, desc_acre_medio, desc_promocao) VALUES
+          (1,'2046-03-05 10:00','AC1','001',7001,1,${AP},10,10.00,6.00,8.00,'N',-3.00,0),
+          (1,'2046-03-06 10:00','AC2','001',7002,1,${AP},5,20.00,12.00,12.00,'N',0,2.00),
+          (1,'2046-03-07 10:00','AC3','001',7003,1,${AP},50,20.00,12.00,12.00,'S',0,0),
+          (1,'2045-03-05 10:00','AC9','001',7009,1,${AP},10,10.00,6.00,6.00,'N',0,0)`);
+        // três notas de saída no período de referência: só a de CFOP de VENDA entra
+        const mkNf = async (cfop: string, nronf: number, valor: number) => {
+          const id = Number((await pgAc.query(`INSERT INTO nf (idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, codparceiro, cfop, proc, totalnf, totalprod)
+            VALUES (1,'S','55',$1,'1','2046-03-08','2046-03-08',2,$2,'S',$3,$3) RETURNING codnf`, [nronf, cfop, valor])).rows[0].codnf);
+          await pgAc.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrvenda, vrcusto, aliquota)
+            VALUES ($1, 1, ${AP}, 2, 1, 'UN', 0, $2, 'T01')`, [id, valor / 2]);
+          return id;
+        };
+        const nfVenda  = await mkNf('5102', 991601, 50.00);   // venda de mercadoria — ENTRA
+        const nfEspelho = await mkNf('5929', 991602, 999.00); // espelho do cupom — contaria duas vezes
+        const nfDevol  = await mkNf('5411', 991603, 777.00);  // devolução de compra (proc_financeiro S, devolucao S)
+
+        const corpo = {
+          referencia: { nome: 'Março 2046', ini: '2046-03-01', fim: '2046-03-31' },
+          comparado1: { nome: 'Março 2045', ini: '2045-03-01', fim: '2045-03-31' },
+          coddpto: 77,
+        };
+        const r1 = await fetch(`${base}/${AC}`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(corpo) });
+        const res = (await r1.json().catch(() => ({}))) as any;
+        const ref = res.periodos?.[0]; const cmp = res.periodos?.[1];
+
+        check('COMPORTAMENTO §127.1 [o número é CALCULADO, não lido da cache do Giros]: o legado lê `ANALISE_COMP_DIA_PROD` (4,55 mi de linhas), alimentada por um processo externo que **não veio no fonte**. O critério foi reconstruído do dado e medido: `round(qtde × vrvenda, 2) + desc_acre_medio − desc_promocao` fecha **60 de 60 dias × 2 lojas, diferença máxima 0,00**, e confere produto a produto. Aqui: 100 − 3 + 100 − 2 = **195,00**, com a venda cancelada de 1.000,00 fora',
+          Math.abs(Number(ref?.faturamentoVenda) - 195) < 0.005 && Number(ref?.tickets) === 2,
+          { venda: ref?.faturamentoVenda, tickets: ref?.tickets });
+
+        check('COMPORTAMENTO §127.2 [a NF só entra quando o CFOP é VENDA de verdade]: o critério sai do cadastro (`proc_financeiro = S` e `devolucao = N`), não de uma lista fixa — e bateu em todos os dias com nota na produção. A nota 5102 soma 50,00; a **5929** (espelho do cupom, que contaria a mesma venda duas vezes) e a **5411** (devolução de compra, que tem `proc_financeiro = S` mas é devolução) ficam fora. Faturamento = 195 + 50 = **245,00**',
+          Math.abs(Number(ref?.faturamentoNf) - 50) < 0.005 && Math.abs(Number(ref?.faturamento) - 245) < 0.005,
+          { nf: ref?.faturamentoNf, faturamento: ref?.faturamento });
+
+        check('COMPORTAMENTO §127.3 [as seis métricas]: CMV do custo gravado NA LINHA DA VENDA (10×6 + 5×12 = 120), Lucro = 245 − 120 = 125, Rentabilidade = 125/245 = **51,02%**, e o ticket médio divide só a VENDA pelos cupons (195/2 = 97,50) — a nota não passa pelo caixa, e é por isso que faturamento ÷ tickets não dá o ticket médio, no legado também',
+          Math.abs(Number(ref?.cmv) - 120) < 0.005 && Math.abs(Number(ref?.lucro) - 125) < 0.005
+          && Math.abs(Number(ref?.rentabilidade) - 51.02) < 0.005 && Math.abs(Number(ref?.ticketMedio) - 97.5) < 0.005,
+          { cmv: ref?.cmv, lucro: ref?.lucro, rent: ref?.rentabilidade, tm: ref?.ticketMedio });
+
+        const fat = res.comparacoes?.[0]?.Faturamento;
+        check('COMPORTAMENTO §127.4 [a variação é sobre a BASE, não sobre a referência]: `GetPorcentagem(Ref − Comp, Ref)` divide pelo número errado. Medido na loja 1: ago/2026 (R$ 1.146.825,82) contra ago/2025 (R$ 1.668.836,16) é uma queda de **31,28%**, e a tela mostra **−45,52%** — 14,24 pontos, sistemático: subestima crescimento e infla queda. Aqui 245 contra 100 é **+145%** (145/100), não os 59,18% que o legado diria (145/245)',
+          Math.abs(Number(fat?.diferenca) - 145) < 0.005 && Math.abs(Number(fat?.variacao) - 145) < 0.005
+          && Math.abs(Number(cmp?.faturamento) - 100) < 0.005,
+          { dif: fat?.diferenca, variacao: fat?.variacao, comparado: cmp?.faturamento });
+
+        const rep = await fetch(`${base}/${AC}`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ ...corpo, custoReposicao: true }) });
+        const resRep = (await rep.json().catch(() => ({}))) as any;
+        check('COMPORTAMENTO §127.5 [o checkbox "custo de reposição" troca o CMV]: com ele, 10×8 + 5×12 = **140** em vez de 120, e o lucro cai de 125 para 105. ⚠️ o CMV do Giros usa o custo da **madrugada seguinte**, não o da venda — produto 130 em 10/09/2026 gravou `vrcusto` 24,33 e a cache diz 26,367; em 90 dias × 2 lojas, 177 dos 180 batem exato e o total difere **0,027%**',
+          Math.abs(Number(resRep.periodos?.[0]?.cmv) - 140) < 0.005 && Math.abs(Number(resRep.periodos?.[0]?.lucro) - 105) < 0.005,
+          { cmvRep: resRep.periodos?.[0]?.cmv, lucro: resRep.periodos?.[0]?.lucro });
+
+        const outroDpto = await fetch(`${base}/${AC}`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ ...corpo, coddpto: 999 }) });
+        const resOutro = (await outroDpto.json().catch(() => ({}))) as any;
+        const semGrantAc = await fetch(`${base}/${AC}`, { method: 'POST', headers: { ...H_SEM_ACESSO, 'content-type': 'application/json' }, body: JSON.stringify(corpo) });
+        const invertidoAc = await fetch(`${base}/${AC}`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' },
+          body: JSON.stringify({ ...corpo, referencia: { ini: '2046-03-31', fim: '2046-03-01' } }) });
+        check('COMPORTAMENTO §127.6: o recorte por família (produto, seção, departamento, grupo, subgrupo) vale nos três períodos — pedindo um departamento vazio, tudo zera. ⚠️ no legado o filtro também troca a contagem de ticket de CUPOM para PEDIDO (974 contra 970 num dia medido), então marcar um departamento que contém tudo já mudava o ticket médio; aqui é sempre por cupom. Sem grant, 403; período invertido, 400',
+          Math.abs(Number(resOutro.periodos?.[0]?.faturamento)) < 0.005 && Number(resOutro.periodos?.[0]?.tickets) === 0
+          && res.criterio?.tickets === 'cupom'
+          && semGrantAc.status === 403 && invertidoAc.status === 400,
+          { zerado: resOutro.periodos?.[0]?.faturamento, criterio: res.criterio?.tickets, rbac: semGrantAc.status, invertido: invertidoAc.status });
+
+        for (const id of [nfVenda, nfEspelho, nfDevol]) {
+          await pgAc.query(`DELETE FROM nf_prod WHERE codnf = $1`, [id]);
+          await pgAc.query(`DELETE FROM nf WHERE codnf = $1`, [id]);
+        }
+        await pgAc.query(`DELETE FROM vendas WHERE codproduto = ${AP}`);
+        await pgAc.query(`DELETE FROM produtos WHERE idproduto = ${AP}`);
+      } finally {
+        await pgAc.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
