@@ -68,7 +68,7 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 56 | `FRMRELANALISEPEDIDONF` | 22 | 4 | ✅ **completa** (mig 252) — o RELATÓRIO da análise pedido × NF-e; a análise em si já vivia no destino (mig 152) e o motor em `compras/pendencias`. Viva no cliente: **9.796** análises, a última **ontem**. Lista por período/fornecedor/comprador com notas e pedidos agregados; "Expandido" embute o `dossie` do motor (divergentes / só na NF / só no pedido) — a mesma leitura, não uma segunda. ⚠️ o SQL do legado faz o **produto cartesiano NF × PEDIDO** e o `LISTAGG` lista cada nota N vezes (**31 análises** no cliente, 3×3 → 9 linhas). ⚠️ `JOIN OPERADORES` INNER derruba **24 análises ativas** (comprador nulo/órfão). ⚠️ `MAX(comprador)` esconde um dos dois em **5 análises**. Fold: comprador = `pedidocompra.codoperador` (a mig 060 não trouxe `USUCADASTRO`) |
 | 57 | `FRMCONSAPGBX` | 20 | 7 | ✅ **completa** (mig 253) — consulta de baixas do A Pagar **por lote** (a F3 é por LOTE em `GET_APAGARBX`) + **Reverter baixa** do lote inteiro. Dado: **51.589 baixas em 7.383 lotes**, ~8 títulos/lote; **4.483 reversões**, sempre do lote inteiro (**461 lotes, 0 parciais**), 502 em 2026; 100% dos lotes de 2026 com movimento bancário. A reversão encadeia o `estornar` por título que já existia (extraído em `estornarNoTrx`) numa transação e cria o contra-movimento bancário (`idlote_reversao`, coluna que faltava). ⚠️ cheques (3 tabelas) **mortos** no cliente: 0 linhas com lote. ⚠️ `GET_APAGARBX_REVERTIDAS` soma `TXJUROS` ao valor e a normal não (inócuo: TXJUROS=0 nas 4.459 revertidas). `CaixaFechado` da conta vive em BO compilado que não veio; a trava é a do caixa do Apollo. Fold: baixa do Apollo não carimba IDLOTE → lote de um |
 | 58 | `FRMRELDIFERENCASNFPEDIDO` | 20 | 5 | 🪦 **marginal — abandonado em 2021, com prova**: lê `DIFERENCANFPEDIDO`, gravada pelo `udmNF` no fluxo de importação da NF a partir do manifesto (`pOrigemManifestoDestinatario`). No cliente a tabela tem **9 linhas** (3 notas, 3 pedidos), a primeira em 11/09/2020 e a última em **07/12/2021**; e o filtro "Operador da liberação" lê `NF.CODOPERADOR_LIBERACAO`, que está **vazio nas 6.331** NFs de entrada de 2026. O que esta tela queria mostrar (divergência item a item pedido × NF) é hoje o item 56, sobre a análise persistida que a casa usa todo dia |
-| 59 | `FRMRELCORTESIAS` | 19 | 3 |
+| 59 | `FRMRELCORTESIAS` | 19 | 3 | ⛔ **sem substrato, com prova**: o relatório cruza `PEDIDOS.NROCOMANDA` com `CONTROLE_CORTESIA` e `CATEGORIA_CORTESIA`. No cliente: `CONTROLE_CORTESIA` **0 linhas**, `CATEGORIA_CORTESIA` **0**, **0** parceiros com `IDCATEGORIA`, e `PEDIDOS.NROCOMANDA` nunca foi preenchido (**0 de 37.080**). Os 19 acessos abriram um relatório vazio. O cadastro irmão `FRMCADCATCORTESIA` (1 acesso, 1 operador) cai junto |
 | 60 | `FRMCADMIDIADEPARTAMENTO` | 19 | 4 | ⛔ **sem fonte no repositório clonado** |
 | 61 | `FRMCTRLRECARGASCORRESPONDENTE` | 19 | 3 |
 | 62 | `FRMRELRUPTURAS` | 19 | 1 | ⛔ **sem fonte no repositório clonado** (e 1 operador) |
@@ -185,7 +185,7 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 173 | `FRMWITALINHAMENTO` | 1 | 1 |
 | 174 | `FRMALINHAGENERATOR` | 1 | 1 |
 | 175 | `FRMLOTEPRODUCAO` | 1 | 1 |
-| 176 | `FRMCADCATCORTESIA` | 1 | 1 |
+| 176 | `FRMCADCATCORTESIA` | 1 | 1 | ⛔ **sem substrato** — cadastro das categorias de cortesia: `CATEGORIA_CORTESIA` tem **0 linhas** no cliente (ver item 59) |
 | 177 | `FRMCADMAPACARGAPROD` | 1 | 1 |
 | 178 | `FRMCADREGIAO` | 1 | 1 |
 | 179 | `FRMAUTORIZACAOBAIXA` | 1 | 1 |
