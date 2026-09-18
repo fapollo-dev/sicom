@@ -15543,6 +15543,131 @@ async function main() {
         await pgPf.end();
       }
     }
+
+    // ══ EXTRATO DE CLIENTES (FRMEXTRATOCLIENTES) ═════════════════════════════════════════════════════
+    {
+      const EX = 'cobranca/extrato-clientes';
+      const pgEx = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgEx.query(`INSERT INTO parceiros (codparceiro, razao, fantasia) VALUES (991961,'CLIENTE EXTRATO TESTE','EXTRATO') ON CONFLICT (codparceiro) DO NOTHING`);
+        // T1 quitado SEM dtpgto no título mas com baixa em 25/01 (o defeito dos 44.130); T2 aberto; T3 agrupado; T4 na loja 2
+        const t1 = Number((await pgEx.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc) VALUES (1,991961,'EX-1','2050-01-10','2050-01-20',100.00,'S','DP') RETURNING codrcb`)).rows[0].codrcb);
+        await pgEx.query(`INSERT INTO areceber_bx (codrcb, codempresa, dtpgto, valorpg, juros, acre_desc, indr, codopbx) VALUES ($1,1,'2050-01-25 10:00:00-03',105.00,5.00,0,'I',7)`, [t1]);
+        const t2 = Number((await pgEx.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc) VALUES (1,991961,'EX-2','2050-01-15','2050-02-15',200.00,'N','DP') RETURNING codrcb`)).rows[0].codrcb);
+        const t3 = Number((await pgEx.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc, agrupado) VALUES (1,991961,'EX-3','2050-01-16','2050-02-16',999.00,'N','DP','S') RETURNING codrcb`)).rows[0].codrcb);
+        const t4 = Number((await pgEx.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc) VALUES (2,991961,'EX-4','2050-01-17','2050-02-17',500.00,'N','DP') RETURNING codrcb`)).rows[0].codrcb);
+
+        const per = (await (await fetch(`${base}/${EX}?modelo=periodo&campoData=emissao&dataIni=2050-01-01&dataFim=2050-01-31&codparceiro=991961`, { headers: H })).json().catch(() => ({}))) as any;
+        const abertos = (await (await fetch(`${base}/${EX}?modelo=periodo&campoData=emissao&dataIni=2050-01-01&dataFim=2050-01-31&codparceiro=991961&status=aberto`, { headers: H })).json().catch(() => ({}))) as any;
+        check('EXTRATO CLIENTES §135.1 [os quatro modelos são tenant-scoped, e o agrupado fica fora]: no legado só o modelo "saldo" filtra empresa — em 2026 o extrato por período trazia **6.364** títulos onde a loja 1 tem **3.129**. Aqui o período por emissão traz EX-1 e EX-2 (300,00); o agrupado EX-3 (o título-pai já o representa) e o EX-4 da loja 2 ficam fora; "somente em aberto" deixa só EX-2',
+          per.tipo === 'analitico' && Number(per.totais?.titulos) === 2 && Math.abs(Number(per.totais?.valor) - 300) < 0.005
+          && !(per.titulos ?? []).some((t: any) => t.codrcb === t3 || t.codrcb === t4)
+          && Number(abertos.totais?.titulos) === 1 && abertos.titulos?.[0]?.codrcb === t2,
+          { titulos: per.totais?.titulos, valor: per.totais?.valor, abertos: abertos.totais?.titulos });
+
+        const saldo22 = (await (await fetch(`${base}/${EX}?modelo=saldo&dataIni=2050-01-22&codparceiro=991961`, { headers: H })).json().catch(() => ({}))) as any;
+        const saldo31 = (await (await fetch(`${base}/${EX}?modelo=saldo&dataIni=2050-01-31&codparceiro=991961`, { headers: H })).json().catch(() => ({}))) as any;
+        const saldoSint = (await (await fetch(`${base}/${EX}?modelo=saldo&dataIni=2050-01-31&codparceiro=991961&tipo=sintetico`, { headers: H })).json().catch(() => ({}))) as any;
+        check('EXTRATO CLIENTES §135.2 [o "saldo em" usa a data de pagamento EFETIVA]: o legado confia em `ARECEBER.DTPGTO`, vazio em **44.130 títulos quitados (R$ 13,78 milhões)** — 11.782 deles com a baixa registrada — e os conta como em aberto em qualquer data. Aqui a data é a da baixa quando o título não tem: em 22/01 EX-1 (pago dia 25) ainda está em aberto → 2 títulos; em 31/01 já não → só EX-2 (200,00), e o sintético traz 1 cliente com 200,00',
+          Number(saldo22.totais?.titulos) === 2 && Number(saldo31.totais?.titulos) === 1 && saldo31.titulos?.[0]?.codrcb === t2
+          && saldoSint.tipo === 'sintetico' && (saldoSint.clientes ?? []).length === 1 && Math.abs(Number(saldoSint.clientes?.[0]?.valor) - 200) < 0.005,
+          { s22: saldo22.totais?.titulos, s31: saldo31.totais?.titulos, sint: saldoSint.clientes });
+
+        const refMenor = (await (await fetch(`${base}/${EX}?modelo=refMenor&campoData=vencimento&dataIni=2050-01-31&codparceiro=991961`, { headers: H })).json().catch(() => ({}))) as any;
+        const porBaixa = (await (await fetch(`${base}/${EX}?modelo=periodo&campoData=baixa&dataIni=2050-01-24&dataFim=2050-01-26&codparceiro=991961`, { headers: H })).json().catch(() => ({}))) as any;
+        const semFim = await fetch(`${base}/${EX}?modelo=periodo&dataIni=2050-01-01`, { headers: H });
+        const semGrant = await fetch(`${base}/${EX}?modelo=periodo&dataIni=2050-01-01&dataFim=2050-01-31`, { headers: H_SEM_ACESSO });
+        check('EXTRATO CLIENTES §135.3 [referência a menor, o campo de data e os juros da baixa]: "referência a menor" por vencimento até 31/01 traz só EX-1 (vence 20/01); o período por BAIXA de 24 a 26/01 acha EX-1 pela data da baixa e mostra os 5,00 de juros cobrados (não o juro fantasma de 9% da view); período sem data final, 400; sem grant, 403',
+          Number(refMenor.totais?.titulos) === 1 && refMenor.titulos?.[0]?.codrcb === t1
+          && Number(porBaixa.totais?.titulos) === 1 && Math.abs(Number(porBaixa.titulos?.[0]?.juros) - 5) < 0.005 && porBaixa.titulos?.[0]?.mes === 'JANEIRO'
+          && semFim.status === 400 && semGrant.status === 403,
+          { refMenor: refMenor.totais?.titulos, baixa: porBaixa.totais?.titulos, juros: porBaixa.titulos?.[0]?.juros, semFim: semFim.status, rbac: semGrant.status });
+
+        await pgEx.query(`DELETE FROM areceber_bx WHERE codrcb = $1`, [t1]);
+        await pgEx.query(`DELETE FROM areceber WHERE codrcb IN ($1,$2,$3,$4)`, [t1, t2, t3, t4]);
+        await pgEx.query(`DELETE FROM parceiros WHERE codparceiro = 991961`);
+      } finally {
+        await pgEx.end();
+      }
+    }
+
+    // ══ BALANCETE DE VERIFICAÇÃO (FRMRELBALANCETE) ═══════════════════════════════════════════════════
+    {
+      const BL = 'contabil/balancete';
+      const pgBl = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // um ramo do plano: 9 (nível 1) → 9.1 (nível 2) → duas analíticas de 15 posições SEM nível (como as 10.641 do cliente)
+        await pgBl.query(`DELETE FROM diario WHERE coddiario BETWEEN 9950001 AND 9950009`);
+        await pgBl.query(`DELETE FROM plano_contas WHERE codplanocontas BETWEEN 995001 AND 995004`);
+        await pgBl.query(`INSERT INTO plano_contas (codplanocontas, descricao, tipo, classe, codiexpandido, nivel) VALUES
+          (995001,'TESTE BALANCETE','D','S','9',1), (995002,'TESTE BALANCETE GRUPO','D','S','9.1',2),
+          (995003,'CONTA ANALITICA UM','D','A','9.1.01.01.00001',NULL), (995004,'CONTA ANALITICA DOIS','D','A','9.1.01.01.00002',NULL)`);
+        await pgBl.query(`INSERT INTO diario (coddiario, datalan, contadebito, contacredito, valor, codempresa, codorigem, idorigem) VALUES
+          (9950001,'2050-02-10',995003,995004,100.00,1,99,1),
+          (9950002,'2050-03-05',995003,995004,50.00,1,99,2),
+          (9950003,'2050-03-06',995004,995003,20.00,1,99,3),
+          (9950004,'2050-03-07',995003,995004,777.00,2,99,4)`);
+        const res = (await (await fetch(`${base}/${BL}?dataIni=2050-03-01&dataFim=2050-03-31&contaIni=9`, { headers: H })).json().catch(() => ({}))) as any;
+        const L = (cod: string) => (res.linhas ?? []).find((l: any) => l.codiexpandido === cod);
+        check('BALANCETE §136.1 [saldo anterior, débito, crédito, saldo atual — e o NÍVEL derivado do código]: a analítica 00001 tem saldo anterior +100 (débito de fevereiro), 50 de débito e 20 de crédito em março, saldo 130; a 00002 o espelho (−100, 20, 50, −130). As duas estão **sem NIVEL**, como 10.641 contas do cliente — e ainda assim são nível 5 pelo código de 15 posições; a loja 2 fica fora',
+          L('9.1.01.01.00001') && Math.abs(Number(L('9.1.01.01.00001').saldoAnterior) - 100) < 0.005 && Math.abs(Number(L('9.1.01.01.00001').debito) - 50) < 0.005
+          && Math.abs(Number(L('9.1.01.01.00001').credito) - 20) < 0.005 && Math.abs(Number(L('9.1.01.01.00001').saldoAtual) - 130) < 0.005 && Number(L('9.1.01.01.00001').nivel) === 5
+          && L('9.1.01.01.00002') && Math.abs(Number(L('9.1.01.01.00002').saldoAtual) + 130) < 0.005,
+          { um: L('9.1.01.01.00001'), dois: L('9.1.01.01.00002') && L('9.1.01.01.00002').saldoAtual });
+
+        check('BALANCETE §136.2 [o roll-up por PREFIXO alcança as contas sem nível]: o legado sobe os pais por `CODPAI` só nas contas com NIVEL — **520 das 658 contas com lançamento** no cliente não têm, e os totais dos pais ficavam sem a maior parte do movimento. Aqui 9.1 e 9 somam as duas analíticas: débito 70, crédito 70, saldo 0; e são marcadas sintéticas',
+          L('9.1') && Math.abs(Number(L('9.1').debito) - 70) < 0.005 && Math.abs(Number(L('9.1').credito) - 70) < 0.005 && Math.abs(Number(L('9.1').saldoAtual)) < 0.005 && L('9.1').sintetica === true
+          && L('9') && Math.abs(Number(L('9').debito) - 70) < 0.005 && Number(L('9').nivel) === 1,
+          { g: L('9.1'), raiz: L('9') && [L('9').debito, L('9').credito, L('9').saldoAtual] });
+
+        const n2 = (await (await fetch(`${base}/${BL}?dataIni=2050-03-01&dataFim=2050-03-31&contaIni=9&nivelMax=2`, { headers: H })).json().catch(() => ({}))) as any;
+        const soSint = (await (await fetch(`${base}/${BL}?dataIni=2050-03-01&dataFim=2050-03-31&contaIni=9&analiticas=false`, { headers: H })).json().catch(() => ({}))) as any;
+        const faixa = (await (await fetch(`${base}/${BL}?dataIni=2050-03-01&dataFim=2050-03-31&contaIni=9.1&contaFim=9.1.01.01.00001`, { headers: H })).json().catch(() => ({}))) as any;
+        const semGrant = await fetch(`${base}/${BL}?dataIni=2050-03-01&dataFim=2050-03-31`, { headers: H_SEM_ACESSO });
+        check('BALANCETE §136.3 [nível máximo, só sintéticas, faixa de contas]: até o nível 2 sobram 9 e 9.1; "imprime analíticas" desligado idem; a faixa 9.1 → 9.1.01.01.00001 traz 9.1 e a primeira analítica (a segunda está fora da faixa); sem grant, 403',
+          (n2.linhas ?? []).length === 2 && (soSint.linhas ?? []).length === 2
+          && (faixa.linhas ?? []).map((l: any) => l.codiexpandido).sort().join('|') === '9.1|9.1.01.01.00001'
+          && semGrant.status === 403,
+          { n2: (n2.linhas ?? []).map((l: any) => l.codiexpandido), sint: (soSint.linhas ?? []).length, faixa: (faixa.linhas ?? []).map((l: any) => l.codiexpandido), rbac: semGrant.status });
+
+        await pgBl.query(`DELETE FROM diario WHERE coddiario BETWEEN 9950001 AND 9950009`);
+        await pgBl.query(`DELETE FROM plano_contas WHERE codplanocontas BETWEEN 995001 AND 995004`);
+      } finally {
+        await pgBl.end();
+      }
+    }
+
+    // ══ EXPORTAÇÃO DE NF-e (FRMEXPORTANFE) ════════════════════════════════════════════════════════════
+    {
+      const XN = 'fiscal/nf-exportacao';
+      const pgXn = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const chaveA = '35500400000000000000550010000099010000099011';
+        const nfA = Number((await pgXn.query(`INSERT INTO nf (idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, codparceiro, proc, totalnf, chavenfe, statusnfe) VALUES (1,'S','55',990701,'1','2050-04-10','2050-04-10',22,'S',1500.00,$1,'P') RETURNING codnf`, [chaveA])).rows[0].codnf);
+        await pgXn.query(`INSERT INTO nfe_xml (codnf, idempresa, chavenfe, modelo, ambiente, xml, simulado) VALUES ($1,1,$2,55,'1','<nfeProc><NFe><infNFe Id="NFe${chaveA}"/></NFe></nfeProc>','N')`, [nfA, chaveA]);
+        const nfB = Number((await pgXn.query(`INSERT INTO nf (idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, codparceiro, proc, totalnf, chavenfe, statusnfe) VALUES (1,'S','55',990702,'1','2050-04-12','2050-04-12',22,'S',300.00,'35500400000000000000550010000099020000099022','C') RETURNING codnf`)).rows[0].codnf);
+        const nfC = Number((await pgXn.query(`INSERT INTO nf (idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, codparceiro, proc, totalnf, chavenfe, statusnfe) VALUES (2,'S','55',990703,'1','2050-04-12','2050-04-12',22,'S',900.00,'35500400000000000000550010000099030000099033','P') RETURNING codnf`)).rows[0].codnf);
+
+        const lista = (await (await fetch(`${base}/${XN}?dataIni=2050-04-01&dataFim=2050-04-30`, { headers: H })).json().catch(() => ({}))) as any;
+        const aut = (await (await fetch(`${base}/${XN}?dataIni=2050-04-01&dataFim=2050-04-30&status=autorizadas`, { headers: H })).json().catch(() => ({}))) as any;
+        const xml = (await (await fetch(`${base}/${XN}/${nfA}/xml`, { headers: H })).json().catch(() => ({}))) as any;
+        const semXml = await fetch(`${base}/${XN}/${nfB}/xml`, { headers: H });
+        const outraLoja = await fetch(`${base}/${XN}/${nfC}/xml`, { headers: H });
+        const semGrant = await fetch(`${base}/${XN}?dataIni=2050-04-01&dataFim=2050-04-30`, { headers: H_SEM_ACESSO });
+        const a = (lista.notas ?? []).find((n: any) => n.codnf === nfA), b = (lista.notas ?? []).find((n: any) => n.codnf === nfB);
+        check('EXPORTA NF-e §137.1 [as notas eletrônicas do período e o XML guardado]: no cliente são **43.185 XMLs** em `NFE_XML` e 747 NF-e de 2026. A lista traz as duas da loja 1 (a autorizada COM XML e a cancelada SEM), não a da loja 2; "autorizadas" deixa uma; o XML da autorizada vem inteiro com a chave; pedir o XML de quem não tem, 422; de outra loja, 422; sem grant, 403. O DANFE em PDF do legado não existe no Apollo — declarado no dossiê',
+          (lista.notas ?? []).length === 2 && a?.temXml === true && b?.temXml === false && a?.statusnfe === 'P' && b?.statusnfe === 'C'
+          && (aut.notas ?? []).length === 1 && aut.notas?.[0]?.codnf === nfA
+          && xml.chavenfe === chaveA && String(xml.xml).includes('<nfeProc>')
+          && semXml.status === 422 && outraLoja.status === 422 && semGrant.status === 403,
+          { notas: (lista.notas ?? []).map((n: any) => [n.codnf, n.temXml]), aut: aut.notas?.length, xml: String(xml.xml ?? '').slice(0, 20), semXml: semXml.status, outra: outraLoja.status, rbac: semGrant.status });
+
+        await pgXn.query(`DELETE FROM nfe_xml WHERE codnf = $1`, [nfA]);
+        await pgXn.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3)`, [nfA, nfB, nfC]);
+      } finally {
+        await pgXn.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

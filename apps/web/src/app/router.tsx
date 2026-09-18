@@ -73,6 +73,9 @@ import { ConsRcbBxPage } from '../features/cons-rcb-bx/ConsRcbBxPage';
 import { RelPerdasPage } from '../features/rel-perdas/RelPerdasPage';
 import { PeriodoContabilPage } from '../features/periodo-contabil/PeriodoContabilPage';
 import { PisCofinsPage } from '../features/piscofins/PisCofinsPage';
+import { ExtratoClientesPage } from '../features/extrato-clientes/ExtratoClientesPage';
+import { BalancetePage } from '../features/balancete/BalancetePage';
+import { ExportaNfePage } from '../features/exporta-nfe/ExportaNfePage';
 import { IndexadorTributarioPage } from '../features/indexador-tributario/IndexadorTributarioPage';
 import { ProdutosRelPage } from '../features/produtos-rel/ProdutosRelPage';
 import { RelEntradasSaidasPage } from '../features/rel-entradas-saidas/RelEntradasSaidasPage';
@@ -253,6 +256,9 @@ export const router = createBrowserRouter([
       { path: '/cadastro/rel-perdas', element: <RelPerdasPage /> }, // FRMRELPERDAS
       { path: '/contabil/periodo-contabil', element: <PeriodoContabilPage /> }, // FRMCADPERIODOCONTABIL
       { path: '/cadastro/piscofins', element: <PisCofinsPage /> }, // FRMCADPISCOFINS
+      { path: '/cobranca/extrato-clientes', element: <ExtratoClientesPage /> }, // FRMEXTRATOCLIENTES
+      { path: '/contabil/balancete', element: <BalancetePage /> }, // FRMRELBALANCETE
+      { path: '/fiscal/nf-exportacao', element: <ExportaNfePage /> }, // FRMEXPORTANFE
       { path: '/cadastro/indexador-tributario', element: <IndexadorTributarioPage /> }, // FRMCADINDEXADORTRIBUTARIO
       { path: '/relatorios/produtos', element: <ProdutosRelPage /> }, // FRMPRODUTOSREL
       { path: '/relatorios/entradas-saidas', element: <RelEntradasSaidasPage /> }, // FRMRELENTRADASSAIDAS

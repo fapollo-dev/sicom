@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { boolQuery } from './bool-query';
 
 /**
  * INVENTÁRIO (FRMINVENTARIO — uInventario) — corte-1: NÚCLEO + importar-produtos. Agregado mestre-detalhe
@@ -54,8 +55,8 @@ export type AtualizarInventarioLivroDto = z.infer<typeof atualizarInventarioLivr
 
 /** Importar-produtos: popula a folha de contagem a partir de PRODUTOS (filtros ativo/com-saldo). */
 export const importarProdutosInventarioSchema = z.object({
-  apenasAtivos: opcional(z.coerce.boolean()),
-  apenasComSaldo: opcional(z.coerce.boolean()),
+  apenasAtivos: opcional(boolQuery(false)),
+  apenasComSaldo: opcional(boolQuery(false)),
 });
 export type ImportarProdutosInventarioDto = z.infer<typeof importarProdutosInventarioSchema>;
 

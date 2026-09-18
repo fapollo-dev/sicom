@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { boolQuery } from './bool-query';
 
 /**
  * RELATÓRIO DE ANÁLISE PEDIDO × NF (`FRMRELANALISEPEDIDONF`).
@@ -13,7 +14,7 @@ export const relAnalisePedidoNfSchema = z.object({
   codparceiro: z.coerce.number().int().positive().optional(),
   /** comprador de algum pedido da análise (o `PC.USUCADASTRO` do legado; aqui `pedidocompra.codoperador`). */
   codcomprador: z.coerce.number().int().positive().optional(),
-  expandido: z.coerce.boolean().default(false),
+  expandido: boolQuery(false),
   limite: z.coerce.number().int().positive().max(2000).default(500),
 }).refine((f) => f.dataFim >= f.dataIni, { message: 'o fim não pode ser antes do início', path: ['dataFim'] });
 export type RelAnalisePedidoNfDto = z.infer<typeof relAnalisePedidoNfSchema>;
