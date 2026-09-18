@@ -3614,7 +3614,7 @@ async function main() {
     const aj2J = (await aj2.json().catch(() => ({}))) as any;
     check('AJUSTE: AUMENTAR 10 → saldo=110', aj2.status === 200 && (await saldoDe(PRD)) === 110 && Number(aj2J.qtdeanterior) === 100 && Number(aj2J.qtdeatual) === 110, { saldo: await saldoDe(PRD) });
     // 47.3) DIMINUIR 30 → saldo=80.
-    const aj3 = await ajustar({ idproduto: PRD, operacao: 'DIMINUIR', qtde: 30, codmotivo: 2 });
+    const aj3 = await ajustar({ idproduto: PRD, operacao: 'DIMINUIR', qtde: 30, codmotivo: 999 });
     const aj3J = (await aj3.json().catch(() => ({}))) as any;
     check('AJUSTE: DIMINUIR 30 → saldo=80', aj3.status === 200 && (await saldoDe(PRD)) === 80, { saldo: await saldoDe(PRD) });
     // 47.4) estornar o DIMINUIR-30 (saldo atual=80=qtdeatual) → saldo volta a 110 + estornado.
@@ -3627,7 +3627,7 @@ async function main() {
     const aj7 = await fetch(`${base}/${AJ}/${aj1J.codajuste}/estornar`, { method: 'POST', headers: H });
     check('AJUSTE: estornar com saldo mudado → 422 AJUSTE_ESTORNO_SALDO_MUDOU', aj7.status === 422 && ((await aj7.json().catch(() => ({}))) as any).code === 'AJUSTE_ESTORNO_SALDO_MUDOU', { status: aj7.status });
     // 47.7) saldo NEGATIVO é PERMITIDO (fiel ao legado): DIMINUIR 200 (saldo 110 → −90) → 200.
-    const aj8n = await ajustar({ idproduto: PRD, operacao: 'DIMINUIR', qtde: 200, codmotivo: 2 });
+    const aj8n = await ajustar({ idproduto: PRD, operacao: 'DIMINUIR', qtde: 200, codmotivo: 999 });
     check('AJUSTE: saldo negativo é PERMITIDO (DIMINUIR 200 → −90, fiel ao legado)', aj8n.status === 200 && (await saldoDe(PRD)) === -90, { status: aj8n.status, saldo: await saldoDe(PRD) });
     // 47.8) SUBSTITUIR 0 (zerar o saldo) → 200, saldo=0.
     const aj0 = await ajustar({ idproduto: PRD, operacao: 'SUBSTITUIR', qtde: 0, codmotivo: 1 });
@@ -15666,6 +15666,248 @@ async function main() {
         await pgXn.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3)`, [nfA, nfB, nfC]);
       } finally {
         await pgXn.end();
+      }
+    }
+    // ══ CEST (FRMCADCEST) — a tabela CEST × NCM que produtos.cest aponta ═══════════════════════════════
+    {
+      const CE = 'cadastro/cest';
+      const pgCe = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const j = { ...H, 'content-type': 'application/json' };
+        const a = await fetch(`${base}/${CE}`, { method: 'POST', headers: j, body: JSON.stringify({ cest: '0100100', ncm: '12345678', descricao: 'CEST TESTE A' }) });
+        const aJ = (await a.json().catch(() => ({}))) as any;
+        const dup = await fetch(`${base}/${CE}`, { method: 'POST', headers: j, body: JSON.stringify({ cest: '0100100', ncm: '12345678', descricao: 'REPETIDO' }) });
+        const b = await fetch(`${base}/${CE}`, { method: 'POST', headers: j, body: JSON.stringify({ cest: '0100100', ncm: '87654321', descricao: 'CEST TESTE B' }) });
+        const bJ = (await b.json().catch(() => ({}))) as any;
+        const invalido = await fetch(`${base}/${CE}`, { method: 'POST', headers: j, body: JSON.stringify({ cest: '123', descricao: 'CURTO' }) });
+        await pgCe.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, cest) VALUES
+          (993401,'7899000993401','PROD CEST OK','UN',2,'T01','S','0100100'),
+          (993402,'7899000993402','PROD CEST SEM CADASTRO','UN',2,'T01','S','9999999'),
+          (993403,'7899000993403','PROD CEST INVALIDO','UN',2,'T01','S','12') ON CONFLICT (idproduto) DO NOTHING`);
+        const busca = (await (await fetch(`${base}/${CE}?q=01001`, { headers: H })).json().catch(() => ({}))) as any;
+        const porDesc = (await (await fetch(`${base}/${CE}?q=${encodeURIComponent('cest teste')}`, { headers: H })).json().catch(() => ({}))) as any;
+        const semCad = (await (await fetch(`${base}/${CE}/sem-cadastro`, { headers: H })).json().catch(() => ({}))) as any;
+        const sc = Object.fromEntries((semCad.produtos ?? []).map((p: any) => [p.idproduto, p]));
+        check('CEST §138.1 [cadastro CEST × NCM]: no cliente são **19.109 pares** (896 CESTs) e **248 produtos apontam um CEST que não existe** na tabela. POST cria (201); o mesmo par (CEST, NCM) de novo é 422; o mesmo CEST com outro NCM entra; CEST de 3 dígitos é 400; a busca por prefixo numérico acha os 2 pares e cada um conta o produto que aponta o CEST; a busca por trecho da descrição acha os 2',
+          a.status === 201 && Number(aJ.codcest) > 0 && dup.status === 422 && b.status === 201 && invalido.status === 400
+          && (busca.itens ?? []).length === 2 && busca.itens.every((c: any) => c.produtos === 1) && (porDesc.itens ?? []).length === 2,
+          { a: a.status, dup: dup.status, b: b.status, invalido: invalido.status, busca: busca.itens?.length, prod: busca.itens?.map((c: any) => c.produtos), desc: porDesc.itens?.length });
+        check('CEST §138.2 [produtos com CEST sem cadastro — o que a tela do legado nunca mostrou]: o produto com CEST 9999999 aparece (formato ok, sem cadastro), o com CEST "12" aparece marcado como formato inválido, e o que aponta 0100100 NÃO aparece',
+          sc[993402]?.formatoInvalido === false && sc[993403]?.formatoInvalido === true && sc[993401] === undefined,
+          { n: semCad.total, itens: Object.keys(sc) });
+        const delA = await fetch(`${base}/${CE}/${aJ.codcest}`, { method: 'DELETE', headers: H });
+        const delB = await fetch(`${base}/${CE}/${bJ.codcest}`, { method: 'DELETE', headers: H });
+        const delBJ = (await delB.json().catch(() => ({}))) as any;
+        const semGrant = await fetch(`${base}/${CE}?q=01001`, { headers: H_SEM_ACESSO });
+        check('CEST §138.3 [excluir]: apagar um NCM do CEST enquanto sobra outro passa (200); apagar o ÚLTIMO NCM de um CEST que produtos apontam é 422 CEST_EM_USO (o produto ficaria com código sem cadastro); sem grant, 403',
+          delA.status === 200 && delB.status === 422 && delBJ.code === 'CEST_EM_USO' && semGrant.status === 403,
+          { delA: delA.status, delB: delB.status, code: delBJ.code, rbac: semGrant.status });
+        await pgCe.query(`DELETE FROM produtos WHERE idproduto IN (993401,993402,993403)`);
+        await pgCe.query(`DELETE FROM cest WHERE cest = '0100100'`);
+      } finally {
+        await pgCe.end();
+      }
+    }
+
+    // ══ MOTIVOS DO AJUSTE (FRMMOTIVO) — a tabela MOTIVOS, e a FK do ajuste reapontada para ela ══════════
+    {
+      const MO = 'cadastro/motivos', AJ2 = 'cadastro/ajuste-estoque';
+      const pgMo = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const j = { ...H, 'content-type': 'application/json' };
+        const lista = (await (await fetch(`${base}/${MO}`, { headers: H })).json().catch(() => [])) as any[];
+        const porCod = Object.fromEntries(lista.map((m: any) => [m.codmotivo, m]));
+        const fk = (await pgMo.query(`SELECT confrelid::regclass::text AS alvo FROM pg_constraint WHERE conname = 'fk_ajuste_estoque_motivo'`)).rows[0]?.alvo;
+        const fkVelha = Number((await pgMo.query(`SELECT count(*) AS n FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+          WHERE c.conrelid = 'ajuste_estoque'::regclass AND c.contype = 'f' AND a.attname = 'codmotivo' AND c.confrelid = 'motivos_operacao'::regclass`)).rows[0]?.n);
+        check('MOTIVOS §139.1 [a tabela certa]: no legado `AJUSTE_ESTOQUE.CODMOTIVO` tem FK para `MOTIVOS` (3 linhas: 999 INVENTARIO ROTATIVO, 1 PERCA INDENTIFICADA, 41 excluído) e a tela de ajuste lê GET_MOTIVOS — o Apollo apontava para `motivos_operacao` (a do SCRAP) e precisou "inventar" o 999 lá (mig 171). Agora a lista traz os dois vivos do legado com o nome do legado, a FK `fk_ajuste_estoque_motivo` aponta para `motivos` e não sobra FK para motivos_operacao',
+          porCod[999]?.descricao === 'INVENTARIO ROTATIVO' && porCod[1]?.descricao === 'PERCA INDENTIFICADA' && fk === 'motivos' && fkVelha === 0,
+          { m999: porCod[999]?.descricao, m1: porCod[1]?.descricao, fk, fkVelha });
+        const novo = await fetch(`${base}/${MO}`, { method: 'POST', headers: j, body: JSON.stringify({ descricao: 'teste motivo smoke' }) });
+        const novoJ = (await novo.json().catch(() => ({}))) as any;
+        const cod = Number(novoJ.codmotivo);
+        const ren = await fetch(`${base}/${MO}/${cod}`, { method: 'PUT', headers: j, body: JSON.stringify({ descricao: 'motivo renomeado' }) });
+        const renJ = (await ren.json().catch(() => ({}))) as any;
+        const ajMais = await fetch(`${base}/${AJ2}`, { method: 'POST', headers: j, body: JSON.stringify({ idproduto: 1, operacao: 'AUMENTAR', qtde: 1, codmotivo: cod }) });
+        const aj999 = await fetch(`${base}/${AJ2}`, { method: 'POST', headers: j, body: JSON.stringify({ idproduto: 1, operacao: 'DIMINUIR', qtde: 1, codmotivo: 999 }) });
+        const ajustes = (await (await fetch(`${base}/${AJ2}?idproduto=1`, { headers: H })).json().catch(() => ({}))) as any;
+        const ultimo = (Array.isArray(ajustes) ? ajustes : ajustes.itens ?? ajustes.rows ?? []).find((x: any) => Number(x.codmotivo) === cod);
+        check('MOTIVOS §139.2 [CadMaster + uso no ajuste]: POST cria em MAIÚSCULAS com código acima do 999 do legado (a sequência nasce em 1000); PUT renomeia; um ajuste de estoque com o motivo novo grava (200, o status do endpoint de ajuste) e a listagem do ajuste mostra o NOME do motivo; um ajuste com o 999 do legado grava sem muleta',
+          novo.status === 201 && cod >= 1000 && novoJ.descricao === 'TESTE MOTIVO SMOKE' && ren.status === 200 && renJ.descricao === 'MOTIVO RENOMEADO'
+          && ajMais.status === 200 && aj999.status === 200 && (ultimo == null || ultimo.motivo === 'MOTIVO RENOMEADO'),
+          { novo: novo.status, cod, desc: novoJ.descricao, ren: ren.status, renDesc: renJ.descricao, ajMais: ajMais.status, aj999: aj999.status, motivoNoAjuste: ultimo?.motivo });
+        const del = await fetch(`${base}/${MO}/${cod}`, { method: 'DELETE', headers: H });
+        const delJ = (await del.json().catch(() => ({}))) as any;
+        const semEx = (await (await fetch(`${base}/${MO}`, { headers: H })).json().catch(() => [])) as any[];
+        const comEx = (await (await fetch(`${base}/${MO}?excluidos=S`, { headers: H })).json().catch(() => [])) as any[];
+        const ajExcluido = await fetch(`${base}/${AJ2}`, { method: 'POST', headers: j, body: JSON.stringify({ idproduto: 1, operacao: 'AUMENTAR', qtde: 1, codmotivo: cod }) });
+        const semGrant = await fetch(`${base}/${MO}`, { headers: H_SEM_ACESSO });
+        const aindaRef = Number((await pgMo.query(`SELECT count(*) AS n FROM ajuste_estoque WHERE codmotivo = $1`, [cod])).rows[0]?.n);
+        check('MOTIVOS §139.3 [exclusão lógica, como o legado fez com o 41]: DELETE marca INDR=E e devolve quantos ajustes o usaram (1); some da lista padrão, aparece com ?excluidos=S riscado; o ajuste que já o usou continua apontando para ele (FK íntegra); um ajuste NOVO com motivo excluído é 422; sem grant, 403',
+          del.status === 200 && delJ.indr === 'E' && delJ.ajustes === 1 && !semEx.some((m: any) => m.codmotivo === cod) && comEx.some((m: any) => m.codmotivo === cod && m.indr === 'E')
+          && aindaRef === 1 && ajExcluido.status === 422 && semGrant.status === 403,
+          { del: del.status, indr: delJ.indr, ajustes: delJ.ajustes, semEx: semEx.length, comEx: comEx.length, aindaRef, ajExcluido: ajExcluido.status, rbac: semGrant.status });
+      } finally {
+        await pgMo.end();
+      }
+    }
+
+    // ══ ENTRADAS × FINANCEIRO (FRMRELENTRADAS_FINAN) ═══════════════════════════════════════════════════
+    {
+      const EF = 'relatorios/entradas-financeiro';
+      const pgEf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgEf.query(`INSERT INTO parceiros (codparceiro, razao, fantasia, frn) VALUES (993501,'FORNECEDOR ENTRADAS FINAN','ENTFIN','S') ON CONFLICT (codparceiro) DO NOTHING`);
+        const nfIns = async (emp: number, nronf: string, dt: string, totalprod: number, totalnf: number, cancelada: string) =>
+          Number((await pgEf.query(`INSERT INTO nf (idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, codparceiro, proc, totalprod, totalnf, cancelada)
+            VALUES ($1,'E',55,$2,'1',$3,$3,993501,'S',$4,$5,$6) RETURNING codnf`, [emp, nronf, dt, totalprod, totalnf, cancelada])).rows[0].codnf);
+        const nfA = await nfIns(1, '993501', '2051-03-05', 900, 1000, 'N');   // 2 títulos, 1 quitado
+        const nfB = await nfIns(1, '993502', '2051-03-10', 450, 500, 'N');    // SEM título
+        const nfC = await nfIns(1, '0', '2051-03-11', 10, 10, 'N');           // NRONF '0' — fora, como no legado
+        const nfD = await nfIns(2, '993504', '2051-03-12', 100, 100, 'N');    // outra loja
+        const nfE = await nfIns(1, '993505', '2051-03-15', 200, 250, 'S');    // cancelada, sem título
+        await pgEf.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, nrodup, dtcompra, dtvenc, valor, quitada, tipodoc, idnf, codoperador, nrparcela) VALUES
+          (1,993501,'EF-1',1,'2051-03-05','2051-03-20',600.00,'S','DP',$1,7,'1/2'),
+          (1,993501,'EF-2',2,'2051-03-05','2051-04-20',400.00,'N','DP',$1,7,'2/2')`, [nfA]);
+        const g = async (qs: string) => (await (await fetch(`${base}/${EF}?${qs}`, { headers: H })).json().catch(() => ({}))) as any;
+        const todas = await g('dataIni=2051-03-01&dataFim=2051-03-31');
+        const cods = (todas.notas ?? []).map((n: any) => n.codnf);
+        const a = (todas.notas ?? []).find((n: any) => n.codnf === nfA);
+        const e = (todas.notas ?? []).find((n: any) => n.codnf === nfE);
+        check('ENTRADAS × FINANCEIRO §140.1 [as notas de entrada do período, com o financeiro ao lado]: no legado a tela mistura as 3 lojas (6.547 NF em 2026) e esconde nada. Aqui: 3 notas da loja 1 (A, B e a cancelada E), a de NRONF "0" fora como no legado, a da loja 2 fora por tenant; A tem 2 títulos (R$ 1.000, 1 quitado); E vem MARCADA cancelada; totais: 3 notas, 2 sem título (B + E = R$ 750), R$ 1.750 de NF, 1 cancelada',
+          cods.length === 3 && cods.includes(nfA) && cods.includes(nfB) && cods.includes(nfE) && !cods.includes(nfC) && !cods.includes(nfD)
+          && a?.titulos === 2 && a?.quitados === 1 && Number(a?.valorTitulos) === 1000 && e?.cancelada === true
+          && todas.totais?.notas === 3 && todas.totais?.semTitulo === 2 && Number(todas.totais?.valorSemTitulo) === 750 && Number(todas.totais?.totalnf) === 1750 && todas.totais?.canceladas === 1,
+          { cods, a: [a?.titulos, a?.quitados, a?.valorTitulos], e: e?.cancelada, totais: todas.totais });
+        const soSem = await g('dataIni=2051-03-01&dataFim=2051-03-31&somenteSemTitulo=true');
+        const semFalse = await g('dataIni=2051-03-01&dataFim=2051-03-31&somenteSemTitulo=false');
+        const porForn = await g('dataIni=2051-03-01&dataFim=2051-03-31&codparceiro=993501');
+        check('ENTRADAS × FINANCEIRO §140.2 [o filtro que a tela existe para responder]: `somenteSemTitulo=true` deixa 2 (B e E); `=false` volta 3 (boolQuery — "false" não vira true); filtro por fornecedor mantém as 3 (todas dele)',
+          (soSem.notas ?? []).length === 2 && soSem.notas.every((n: any) => n.titulos === 0) && (semFalse.notas ?? []).length === 3 && (porForn.notas ?? []).length === 3,
+          { soSem: soSem.notas?.length, semFalse: semFalse.notas?.length, porForn: porForn.notas?.length });
+        const tit = (await (await fetch(`${base}/${EF}/${nfA}/titulos`, { headers: H })).json().catch(() => ({}))) as any;
+        const titVenc = (await (await fetch(`${base}/${EF}/${nfA}/titulos?vencIni=2051-04-01`, { headers: H })).json().catch(() => ({}))) as any;
+        const outraLoja = await fetch(`${base}/${EF}/${nfD}/titulos`, { headers: H });
+        const semGrant = await fetch(`${base}/${EF}?dataIni=2051-03-01&dataFim=2051-03-31`, { headers: H_SEM_ACESSO });
+        check('ENTRADAS × FINANCEIRO §140.3 [o grid de baixo]: os 2 títulos da nota A vêm com parcela, operador e quitação (R$ 1.000, 1 quitado); o filtro de vencimento do legado deixa 1 (vence em abril); pedir os títulos de nota de OUTRA loja é 422; sem grant, 403',
+          tit.totais?.titulos === 2 && Number(tit.totais?.valor) === 1000 && tit.totais?.quitados === 1 && tit.titulos?.[0]?.nrparcela === '1/2'
+          && titVenc.totais?.titulos === 1 && outraLoja.status === 422 && semGrant.status === 403,
+          { tit: tit.totais, parcela: tit.titulos?.[0]?.nrparcela, venc: titVenc.totais?.titulos, outra: outraLoja.status, rbac: semGrant.status });
+        await pgEf.query(`DELETE FROM apagar WHERE idnf = $1`, [nfA]);
+        await pgEf.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3,$4,$5)`, [nfA, nfB, nfC, nfD, nfE]);
+        await pgEf.query(`DELETE FROM parceiros WHERE codparceiro = 993501`);
+      } finally {
+        await pgEf.end();
+      }
+    }
+
+    // ══ EXTRATO DE FUNCIONÁRIO (FRMRELFUNCIONARIO) ═════════════════════════════════════════════════════
+    {
+      const XF = 'cobranca/extrato-funcionario';
+      const pgXf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgXf.query(`INSERT INTO parceiros (codparceiro, razao, fantasia, con, fun, codconvenio) VALUES
+          (993601,'CONVENIO TESTE LTDA','CONVENIO','S','N',NULL),
+          (993602,'FUNCIONARIO A','FUNC A','N','S',993601),
+          (993603,'FUNCIONARIO B','FUNC B','N','S',993601) ON CONFLICT (codparceiro) DO NOTHING`);
+        await pgXf.query(`INSERT INTO operadores (codoperador, nome, login, desabilitado, indr, codparceiro) VALUES (993611,'OP FUNC A','funca993611','N','I',993602) ON CONFLICT (codoperador) DO NOTHING`);
+        await pgXf.query(`INSERT INTO areceber (codempresa, codparceiro, duplicata, dtvenda, dtvenc, valor, quitada, tipodoc, obs, agrupado) VALUES
+          (1,993602,'XF-1','2052-02-03','2052-03-03',100.00,'N','DP','CONTA ORIGINADA DE VENDAS - CUPOM 1','N'),
+          (1,993602,'XF-2','2052-02-03','2052-03-03', 50.00,'S','DP','CONTA ORIGINADA DE VENDAS - CUPOM 2','N'),
+          (1,993602,'XF-3','2052-02-10','2052-03-10', 30.00,'N','DP','ORIGINADO DO LANÇAMENTO DE QUEBRA DE CAIXA DO DIA','N'),
+          (1,993602,'XF-4','2052-02-12','2052-03-12',999.00,'N','DP','CONTA ORIGINADA DE VENDAS - AGRUPADA','S'),
+          (2,993602,'XF-5','2052-02-05','2052-03-05',777.00,'N','DP','CONTA ORIGINADA DE VENDAS - LOJA 2','N'),
+          (1,993603,'XF-6','2052-02-08','2052-03-08', 20.00,'N','DP',NULL,'N')`);
+        await pgXf.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, nrodup, dtcompra, dtvenc, valor, quitada, tipodoc, obs, codcxagrupamentocr) VALUES
+          (1,993602,'XF-P1',1,'2052-02-15','2052-03-15',200.00,'S','DP','ADIANTAMENTO SALARIAL',0),
+          (1,993602,'XF-P2',1,'2052-02-16','2052-03-16', 40.00,'N','DP','ADIANTAMENTO AGRUPADO',5)`);
+        const g = async (qs: string) => { const r = await fetch(`${base}/${XF}?${qs}`, { headers: H }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const P = 'dataIni=2052-02-01&dataFim=2052-02-29';
+        const sint = await g(`${P}&codconvenio=993601`);
+        const L = (sint.j.linhas ?? []) as any[];
+        const linha = (nome: string, tipo: string) => L.find((l) => l.nome === nome && l.tipo === tipo);
+        const fA = (sint.j.funcionarios ?? []).find((x: any) => x.codparceiro === 993602);
+        check('EXTRATO FUNCIONÁRIO §141.1 [o sintético do convênio — as regras do UFuncionario.pas]: TIPO pelo texto da OBS (Compras/Quebra/Adiantamento; OBS nula = "Convênio de Funcionários"); AR entra "−" e AP "+"; agrupados ficam fora (AR AGRUPADO=S; AP com CODCXAGRUPAMENTOCR); a loja 2 fora por tenant (o legado não filtra empresa). FUNC A: Compras 03/02 −150 (2 títulos), Quebra 10/02 −30, Adiantamento 15/02 +200, operador 993611 pelo CODPARCEIRO; FUNC B: Convênio 08/02 −20. Totais: créditos 200, débitos 200, saldo 0; FUNC A saldo +20',
+          sint.status === 200 && L.length === 4
+          && Number(linha('FUNC A', 'Compras')?.valor) === 150 && linha('FUNC A', 'Compras')?.sinal === '-' && linha('FUNC A', 'Compras')?.titulos === 2
+          && Number(linha('FUNC A', 'Quebra')?.valor) === 30 && Number(linha('FUNC A', 'Adiantamento')?.valor) === 200 && linha('FUNC A', 'Adiantamento')?.sinal === '+'
+          && Number(linha('FUNC B', 'Convênio de Funcionários')?.valor) === 20 && linha('FUNC A', 'Compras')?.codoperador === 993611
+          && Number(sint.j.totais?.creditos) === 200 && Number(sint.j.totais?.debitos) === 200 && Number(sint.j.totais?.saldo) === 0 && Number(fA?.saldo) === 20,
+          { status: sint.status, n: L.length, linhas: L.map((l) => [l.nome, l.tipo, l.sinal, l.valor, l.titulos, l.codoperador]), totais: sint.j.totais, fA });
+        const quit = await g(`${P}&codconvenio=993601&situacao=quitados`);
+        const soCompra = await g(`${P}&filtro=compra`);
+        const semConv = await g(P);
+        const naoConv = await g(`${P}&codconvenio=993602`);
+        check('EXTRATO FUNCIONÁRIO §141.2 [filtros e validações do legado]: situação "quitados" deixa Compras 50 (XF-2) e Adiantamento 200; filtro "compra" SEM convênio é permitido (Validacoes: convênio só obrigatório com tipo "Todos") e traz só Compras; sem convênio e tipo "Todos" é 422 CONVENIO_OBRIGATORIO; um parceiro que não é convênio de ninguém é 422 PARCEIRO_NAO_E_CONVENIO',
+          quit.status === 200 && Number(quit.j.totais?.debitos) === 50 && Number(quit.j.totais?.creditos) === 200
+          && soCompra.status === 200 && (soCompra.j.linhas ?? []).every((l: any) => l.tipo === 'Compras') && (soCompra.j.linhas ?? []).some((l: any) => l.nome === 'FUNC A' && Number(l.valor) === 150)
+          && semConv.status === 422 && semConv.j.code === 'CONVENIO_OBRIGATORIO' && naoConv.status === 422 && naoConv.j.code === 'PARCEIRO_NAO_E_CONVENIO',
+          { quit: [quit.status, quit.j.totais?.debitos, quit.j.totais?.creditos], soCompra: [soCompra.status, soCompra.j.linhas?.length], semConv: [semConv.status, semConv.j.code], naoConv: [naoConv.status, naoConv.j.code] });
+        const ana = await g(`${P}&codconvenio=993601&tipo=analitico`);
+        const A = (ana.j.linhas ?? []) as any[];
+        const conv = (await (await fetch(`${base}/${XF}/convenios`, { headers: H })).json().catch(() => [])) as any[];
+        const semGrant = await fetch(`${base}/${XF}?${P}&codconvenio=993601`, { headers: H_SEM_ACESSO });
+        check('EXTRATO FUNCIONÁRIO §141.3 [analítico + lista de convênios]: 5 linhas (4 AR negativas com documento/parcela/tipo doc, 1 AP positiva), o tipo da AR sem centro de custo é a própria OBS (e "Convênios de funcionários" para OBS nula); a lista de convênios traz o 993601 com 2 funcionários; sem grant, 403',
+          ana.status === 200 && A.length === 5 && A.filter((l) => l.origem === 'AR').length === 4 && A.filter((l) => l.origem === 'AR').every((l) => Number(l.valor) < 0 && l.documento != null)
+          && A.some((l) => l.origem === 'AP' && Number(l.valor) === 200) && A.some((l) => l.nome === 'FUNC B' && l.tipo === 'Convênios de funcionários')
+          && conv.some((c: any) => c.codparceiro === 993601 && c.funcionarios === 2) && semGrant.status === 403,
+          { status: ana.status, n: A.length, ar: A.filter((l) => l.origem === 'AR').length, tipos: A.map((l) => l.tipo), conv: conv.find((c: any) => c.codparceiro === 993601), rbac: semGrant.status });
+        await pgXf.query(`DELETE FROM areceber WHERE codparceiro IN (993602,993603)`);
+        await pgXf.query(`DELETE FROM apagar WHERE codparceiro IN (993602,993603)`);
+        await pgXf.query(`DELETE FROM operadores WHERE codoperador = 993611`);
+        await pgXf.query(`DELETE FROM parceiros WHERE codparceiro IN (993602,993603,993601)`);
+      } finally {
+        await pgXf.end();
+      }
+    }
+
+    // ══ CAIXA DME (FRMRELATORIOCAIXADME) ═══════════════════════════════════════════════════════════════
+    {
+      const DM = 'cobranca/caixa-dme';
+      const pgDm = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgDm.query(`INSERT INTO parceiros (codparceiro, razao, fantasia, fun) VALUES
+          (993701,'CLIENTE DME LTDA','CLI DME','N'), (993702,'FORNECEDOR DME LTDA','FORN DME','N'),
+          (993703,'FUNCIONARIO DME','FUNC DME','S'), (993704,'CLIENTE PEQUENO','PEQ','N') ON CONFLICT (codparceiro) DO NOTHING`);
+        // o cliente 993701 tem DOIS endereços — o legado dobrava a soma dele; aqui vale o padrão
+        await pgDm.query(`INSERT INTO parceiros_end (codparceiro, endereco, cnpj_cpf, endereco_padrao) VALUES
+          (993701,'RUA A','11111111000191','S'), (993701,'RUA B','22222222000191','N'), (993702,'RUA C','33333333000191','S')`);
+        await pgDm.query(`INSERT INTO caixa (codcx, data, valor, idempresa, tiporecurso, codparceiro, obs, origem) VALUES
+          (993701,'2053-05-02 10:00:00-03', 20000.00, 1, 'DINHEIRO',     993701, 'RECEBIMENTO 1', 'RCB'),
+          (993702,'2053-05-10 10:00:00-03', 15000.00, 1, 'DINHEIRO',     993701, 'RECEBIMENTO 2', 'RCB'),
+          (993703,'2053-05-11 10:00:00-03', -2000.00, 1, 'BOLETO',       993701, 'BOLETO NAO CONTA', 'APG'),
+          (993704,'2053-05-12 10:00:00-03',-31000.00, 1, 'DINHEIRO',     993702, 'PAGAMENTO 1', 'APG'),
+          (993705,'2053-05-13 10:00:00-03', -5000.00, 1, '1 - DINHEIRO', 993702, 'PAGAMENTO 2 (variante)', 'APG'),
+          (993706,'2053-05-14 10:00:00-03', 50000.00, 1, 'DINHEIRO',     993703, 'FUNCIONARIO FORA', 'RCB'),
+          (993707,'2053-05-15 10:00:00-03', 10000.00, 1, 'DINHEIRO',     993704, 'ABAIXO DO PISO', 'RCB'),
+          (993708,'2053-05-16 10:00:00-03', 40000.00, 1, 'DINHEIRO',     NULL,   'SEM PARCEIRO', 'RCB'),
+          (993709,'2053-05-17 10:00:00-03', 90000.00, 2, 'DINHEIRO',     993701, 'LOJA 2', 'RCB')`);
+        const g = async (qs: string) => { const r = await fetch(`${base}/${DM}?${qs}`, { headers: H }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const P = 'dataIni=2053-05-01&dataFim=2053-05-31';
+        const s = await g(P);
+        const S = (s.j.sintetico ?? []) as any[];
+        const cli = S.find((l) => l.codparceiro === 993701);
+        const forn = S.find((l) => l.codparceiro === 993702);
+        check('CAIXA DME §142.1 [quem passou de R$ 30 mil em espécie — as regras do fonte]: o cliente soma 35.000 em 2 recebimentos (ARECEBER, pelo sinal) e vem com o CNPJ do endereço PADRÃO, uma linha só (o LEFT JOIN do legado dobrava quem tem 2 endereços); o fornecedor soma −36.000 (APAGAR) contando a variante "1 - DINHEIRO" que o legado ignora; o funcionário com 50.000 fica fora (FUN=S); o de 10.000 fica abaixo do piso; BOLETO não é espécie; a loja 2 fora por tenant; o dinheiro SEM parceiro (40.000) não entra na DME mas aparece nos totais',
+          s.status === 200 && S.length === 2
+          && cli?.tipo === 'ARECEBER' && Number(cli?.total) === 35000 && cli?.lancamentos === 2 && cli?.cnpjCpf === '11111111000191'
+          && forn?.tipo === 'APAGAR' && Number(forn?.total) === -36000 && forn?.lancamentos === 2
+          && s.j.totais?.parceiros === 2 && Number(s.j.totais?.areceber?.total) === 35000 && Number(s.j.totais?.apagar?.total) === -36000
+          && s.j.totais?.semParceiro?.lancamentos === 1 && Number(s.j.totais?.semParceiro?.valor) === 40000 && s.j.piso === 30000,
+          { status: s.status, n: S.length, cli, forn, totais: s.j.totais });
+        const a = await g(`${P}&tipo=analitico`);
+        const A = (a.j.analitico ?? []) as any[];
+        const semGrant = await fetch(`${base}/${DM}?${P}`, { headers: H_SEM_ACESSO });
+        const abril = await g('dataIni=2053-04-01&dataFim=2053-04-30');
+        check('CAIXA DME §142.2 [analítico]: lista os 4 lançamentos em dinheiro de quem passou (2 do cliente, 2 do fornecedor — incluindo o da variante), nenhum de quem não passou; um mês sem movimento devolve vazio (e não erro); sem grant, 403',
+          a.status === 200 && A.length === 4 && A.filter((m) => m.codparceiro === 993701).length === 2 && A.filter((m) => m.codparceiro === 993702).length === 2
+          && A.every((m) => [993701, 993702].includes(m.codparceiro)) && abril.status === 200 && (abril.j.sintetico ?? []).length === 0 && semGrant.status === 403,
+          { status: a.status, n: A.length, por: A.map((m) => [m.codparceiro, m.valor]), abril: abril.j.sintetico?.length, rbac: semGrant.status });
+        await pgDm.query(`DELETE FROM caixa WHERE codcx BETWEEN 993701 AND 993709`);
+        await pgDm.query(`DELETE FROM parceiros_end WHERE codparceiro IN (993701,993702)`);
+        await pgDm.query(`DELETE FROM parceiros WHERE codparceiro IN (993701,993702,993703,993704)`);
+      } finally {
+        await pgDm.end();
       }
     }
   } finally {

@@ -44,7 +44,7 @@ export class AjusteEstoqueService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const prod = await trx.selectFrom('produtos').select('idproduto').where('idproduto', '=', dto.idproduto).executeTakeFirst();
       if (!prod) throw new BusinessRuleError('PRODUTO_NAO_ENCONTRADO', { idproduto: dto.idproduto });
-      const mot = await trx.selectFrom('motivos_operacao').select('codmotivoop').where('codmotivoop', '=', dto.codmotivo).where(sql`coalesce(indr,'I')`, '=', 'I').executeTakeFirst();
+      const mot = await trx.selectFrom('motivos').select('codmotivo').where('codmotivo', '=', dto.codmotivo).where(sql`coalesce(indr,'I')`, '=', 'I').executeTakeFirst();
       if (!mot) throw new BusinessRuleError('MOTIVO_NAO_ENCONTRADO', { codmotivo: dto.codmotivo });
 
       // lê e TRAVA o saldo (por produto+empresa). Sem linha → saldo 0 (será criada).
@@ -154,7 +154,7 @@ export class AjusteEstoqueService {
     return db
       .selectFrom('ajuste_estoque as a')
       .leftJoin('produtos as p', 'p.idproduto', 'a.idproduto')
-      .leftJoin('motivos_operacao as m', 'm.codmotivoop', 'a.codmotivo')
+      .leftJoin('motivos as m', 'm.codmotivo', 'a.codmotivo')
       .select([
         'a.codajuste', 'a.idproduto', 'p.descricao as produto', 'a.operacao', 'a.destino',
         'a.qtde', 'a.qtdeanterior', 'a.qtdeatual', 'a.codmotivo', 'm.descricao as motivo',

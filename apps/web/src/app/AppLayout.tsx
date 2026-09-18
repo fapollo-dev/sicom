@@ -213,6 +213,11 @@ const TELAS = [
   { href: '/cobranca/extrato-clientes', name: 'Extrato de clientes', icon: UserSearch },
   { href: '/contabil/balancete', name: 'Balancete', icon: CalendarClock },
   { href: '/fiscal/nf-exportacao', name: 'Exportação de NF-e', icon: Printer },
+  { href: '/cadastro/cest', name: 'CEST', icon: Tag },
+  { href: '/cadastro/motivos', name: 'Motivos de ajuste de estoque', icon: ListChecks },
+  { href: '/relatorios/entradas-financeiro', name: 'Entradas × Financeiro', icon: FileSearch },
+  { href: '/cobranca/extrato-funcionario', name: 'Extrato de funcionário', icon: UserSearch },
+  { href: '/cobranca/caixa-dme', name: 'Caixa DME', icon: Printer },
   // FRMCADINDEXADORTRIBUTARIO — de onde sai o ICMS-ST de toda entrada (23 acessos; 12.053 indexadores).
   { href: '/cadastro/indexador-tributario', name: 'Indexador tributário', icon: FileSearch },
   { href: '/cadastro/configuracoes', name: 'Configurações', icon: Settings },

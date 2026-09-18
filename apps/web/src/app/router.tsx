@@ -76,6 +76,11 @@ import { PisCofinsPage } from '../features/piscofins/PisCofinsPage';
 import { ExtratoClientesPage } from '../features/extrato-clientes/ExtratoClientesPage';
 import { BalancetePage } from '../features/balancete/BalancetePage';
 import { ExportaNfePage } from '../features/exporta-nfe/ExportaNfePage';
+import { CestPage } from '../features/cest/CestPage';
+import { MotivosPage } from '../features/motivos/MotivosPage';
+import { RelEntradasFinanPage } from '../features/rel-entradas-finan/RelEntradasFinanPage';
+import { ExtratoFuncionarioPage } from '../features/extrato-funcionario/ExtratoFuncionarioPage';
+import { CaixaDmePage } from '../features/caixa-dme/CaixaDmePage';
 import { IndexadorTributarioPage } from '../features/indexador-tributario/IndexadorTributarioPage';
 import { ProdutosRelPage } from '../features/produtos-rel/ProdutosRelPage';
 import { RelEntradasSaidasPage } from '../features/rel-entradas-saidas/RelEntradasSaidasPage';
@@ -197,7 +202,7 @@ export const router = createBrowserRouter([
       { path: '/financeiro/adiantamentos', element: <AdiantamentoFornPage /> }, // adiantamento a fornecedor/parceiro (movimento na conta + título gerado)
       { path: '/vendas/historico', element: <HistVendasPage /> }, // consulta de histórico de vendas (um cupom: itens + finalizadores)
       { path: '/fiscal/apuracao-icms', element: <ApuracaoIcmsPage /> }, // apuração de ICMS (livro de entradas/saídas + E110)
-      { path: '/cadastro/motivos-operacao', element: <MotivosOperacaoCadMaster /> }, // lookup do motivo do ajuste
+      { path: '/cadastro/motivos-operacao', element: <MotivosOperacaoCadMaster /> }, // motivos de operação do SCRAP (o do ajuste é /cadastro/motivos)
       { path: '/cadastro/plano-contas', element: <PlanoContasCadMaster /> }, // plano de contas (árvore)
       { path: '/contabil/dre', element: <DreRelatorio /> }, // relatório DRE (calculado do diário)
       { path: '/contabil/razao', element: <RazaoRelatorio /> }, // livro razão (movimentos do diário por conta)
@@ -259,6 +264,11 @@ export const router = createBrowserRouter([
       { path: '/cobranca/extrato-clientes', element: <ExtratoClientesPage /> }, // FRMEXTRATOCLIENTES
       { path: '/contabil/balancete', element: <BalancetePage /> }, // FRMRELBALANCETE
       { path: '/fiscal/nf-exportacao', element: <ExportaNfePage /> }, // FRMEXPORTANFE
+      { path: '/cadastro/cest', element: <CestPage /> }, // FRMCADCEST
+      { path: '/cadastro/motivos', element: <MotivosPage /> }, // FRMMOTIVO (motivos do AJUSTE; ≠ motivos-operacao)
+      { path: '/relatorios/entradas-financeiro', element: <RelEntradasFinanPage /> }, // FRMRELENTRADAS_FINAN
+      { path: '/cobranca/extrato-funcionario', element: <ExtratoFuncionarioPage /> }, // FRMRELFUNCIONARIO
+      { path: '/cobranca/caixa-dme', element: <CaixaDmePage /> }, // FRMRELATORIOCAIXADME
       { path: '/cadastro/indexador-tributario', element: <IndexadorTributarioPage /> }, // FRMCADINDEXADORTRIBUTARIO
       { path: '/relatorios/produtos', element: <ProdutosRelPage /> }, // FRMPRODUTOSREL
       { path: '/relatorios/entradas-saidas', element: <RelEntradasSaidasPage /> }, // FRMRELENTRADASSAIDAS

@@ -37,8 +37,8 @@ export function AjusteEstoquePage() {
     (p: any) => ({ value: String(p.idproduto ?? p.codigo), label: `${p.idproduto ?? p.codigo} - ${p.descricao ?? ''}` }),
   );
   const { data: motivoOptions = [] } = useResourceOptions(
-    'cadastro/motivos-operacao',
-    (m: any) => ({ value: String(m.codmotivoop ?? m.codigo), label: m.descricao ?? '' }),
+    'cadastro/motivos',
+    (m: any) => ({ value: String(m.codmotivo), label: m.descricao ?? '' }),
   );
 
   const recarregar = useCallback(async () => {
