@@ -29,7 +29,8 @@ export function importarOfx(codconta: number, nomeArquivo: string, conteudo: str
   return req('/cadastro/conciliacao-bancaria/importar-ofx', { method: 'POST', body: JSON.stringify({ codconta, nomeArquivo, conteudo }) });
 }
 export function pendentes(codconta: number): Promise<{ ofx: OfxLinha[]; mov: MovLinha[] }> { return req(`/cadastro/conciliacao-bancaria/pendentes?codconta=${codconta}`, { method: 'GET' }); }
-export function sugestoes(codconta: number): Promise<{ pares: Par[] }> { return req(`/cadastro/conciliacao-bancaria/sugestoes?codconta=${codconta}`, { method: 'GET' }); }
+export interface LoteSugerido { mbo_id: number; idlote: number; codmovcontas: number[]; valor: number; data: string }
+export function sugestoes(codconta: number): Promise<{ pares: Par[]; lotes: LoteSugerido[] }> { return req(`/cadastro/conciliacao-bancaria/sugestoes?codconta=${codconta}`, { method: 'GET' }); }
 export function conciliar(codconta: number, mboIds: number[], codmovcontas: number[]): Promise<{ cb_id: number; ofx: number; mov: number; total: number }> {
   return req('/cadastro/conciliacao-bancaria/conciliar', { method: 'POST', body: JSON.stringify({ codconta, mboIds, codmovcontas }) });
 }

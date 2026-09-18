@@ -1,0 +1,25 @@
+-- 276 — CONCILIAÇÃO BANCÁRIA, corte-3: **o LOTE não se concilia pela metade**.
+-- Corte-1/2 nas migrations 122/123 (importar OFX, sugerir por data+valor+direção, conciliar N×N).
+-- Fecha o "ramos A-PAGAR/A-RECEBER por IDLOTE = adiados" declarado no serviço.
+--
+-- ── A regra, do fonte ─────────────────────────────────────────────────────────────────────────────────
+-- A conciliação automática do legado (`UDMConciliacaoBancaria.pas`) varre o extrato em **três passadas** —
+-- `OUTRAS MOVIMENTAÇÕES` → `A PAGAR` → `A RECEBER` (:281-287, um `goto Inicio` por tipo) — e, ao final,
+-- `ValidaSelecaoLoteCompleto` procura **lote parcialmente selecionado**:
+--     `'O lote %d não foi conciliado totalmente.'`
+-- e `CancelaSelecaoLotesIncompletos` **desmarca o lote inteiro** quando falta alguma linha dele.
+--
+-- A razão é contábil: uma baixa em lote (N títulos a pagar num pagamento só) vira **um** débito no
+-- extrato. Conciliar 3 das 5 linhas do lote casaria o valor errado contra o banco e deixaria duas linhas
+-- órfãs — que ninguém mais conseguiria conciliar, porque o movimento do extrato já teria sido consumido.
+--
+-- ── O que o dado diz (produção, 18/09/2026) ─────────────────────────────────────────────────────────────
+--  · `MOV_CONTAS_BANCARIAS`: **291.484 lançamentos, 206.211 com `IDLOTE`** (70,7%) — o lote é a regra, não
+--    a exceção;
+--  · `CONCILIACAO_BANCARIA` 18.431 conciliações · `MOVIMENTACAO_BANCARIA_OFX` 66.209 linhas de extrato.
+--
+-- Aqui: `conciliar` recusa seleção com lote incompleto (422 `LOTE_INCOMPLETO`, dizendo qual lote e o que
+-- falta) e `sugerir` passa a casar **o lote inteiro** contra um movimento do extrato (soma do lote = valor
+-- da linha OFX, mesmo dia e mesma direção), além do casamento 1:1 que já existia.
+CREATE INDEX IF NOT EXISTS ix_mov_contas_bancarias_lote
+  ON mov_contas_bancarias (codconta, idlote) WHERE idlote IS NOT NULL;

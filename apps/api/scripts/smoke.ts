@@ -4010,6 +4010,29 @@ async function main() {
         check('CONCILIAÇÃO: importar sem grant RBAC → 403', rb.status === 403, { status: rb.status });
         const rb2 = await fetch(`${base}/${CO}/importar-ofx`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codconta, conteudo: ofxTxt }) });
         check('CONCILIAÇÃO: importar-ofx sem grant RBAC → 403', rb2.status === 403, { status: rb2.status });
+
+        // 47e.6) corte-3 (mig 276): o LOTE não se concilia pela metade.
+        // Uma baixa em lote (3 títulos pagos juntos) vira UM débito de 300 no extrato.
+        const lote = 99276001;
+        const mvLote = async (valor: number) => Number((await pgCo.query(
+          `INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, idlote, data_fechamento, dtcadastro)
+           VALUES ($1,1,$2,'D','BAIXA AP',$3,'2026-07-10','2026-07-10') RETURNING codmovconta`, [codconta, valor, lote])).rows[0].codmovconta);
+        const l1 = await mvLote(120), l2 = await mvLote(100), l3 = await mvLote(80);
+        await pgCo.query(`INSERT INTO movimentacao_bancaria_ofx (codconta, idempresa, mbo_data, mbo_valor, mbo_credito_debito, mbo_descricao, mbo_transacao_id, mbo_conciliado)
+          VALUES ($1,1,'2026-07-10',300,'D','PAGTO FORNECEDORES LOTE','FITLOTE300','N')`, [codconta]);
+        const mboLote = Number((await pgCo.query(`SELECT mbo_id FROM movimentacao_bancaria_ofx WHERE codconta=$1 AND mbo_transacao_id='FITLOTE300'`, [codconta])).rows[0].mbo_id);
+        const sugL = (await (await fetch(`${base}/${CO}/sugestoes?codconta=${codconta}`, { headers: H })).json().catch(() => ({}))) as any;
+        const sugLote = (sugL.lotes ?? []).find((l: any) => Number(l.idlote) === lote);
+        const parcial = await fetch(`${base}/${CO}/conciliar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, mboIds: [mboLote], codmovcontas: [l1, l2] }) });
+        const parcialJ = (await parcial.json().catch(() => ({}))) as any;
+        const inteiro = await fetch(`${base}/${CO}/conciliar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, mboIds: [mboLote], codmovcontas: [l1, l2, l3] }) });
+        const inteiroJ = (await inteiro.json().catch(() => ({}))) as any;
+        const conciliados = Number((await pgCo.query(`SELECT count(*) n FROM mov_contas_bancarias WHERE idlote=$1 AND coalesce(mov_conciliado,'N')='S'`, [lote])).rows[0].n);
+        check('CONCILIAÇÃO §47e.6 [corte-3: o LOTE não se concilia pela metade]: no cliente **206.211 de 291.484** lançamentos têm `IDLOTE` — uma baixa em lote vira UM movimento no extrato. A sugestão automática casa o LOTE INTEIRO (3 linhas de 120+100+80 = 300) contra a linha OFX de 300; conciliar só 2 das 3 é **422 LOTE_INCOMPLETO** dizendo qual lote e o que falta (é a trava `ValidaSelecaoLoteCompleto` do legado, que desmarcava o lote inteiro); com as 3, concilia e marca as 3',
+          sugLote && Number(sugLote.mbo_id) === mboLote && Number(sugLote.valor) === 300 && (sugLote.codmovcontas ?? []).length === 3
+          && parcial.status === 422 && parcialJ.code === 'LOTE_INCOMPLETO' && (parcialJ.detalhe?.faltando ?? []).includes(l3)
+          && inteiro.status === 200 && Number(inteiroJ.total) === -300 && conciliados === 3,
+          { sugLote, parcial: [parcial.status, parcialJ.code, parcialJ.detalhe], inteiro: [inteiro.status, inteiroJ.total], conciliados });
       } finally {
         await pgCo.end();
       }

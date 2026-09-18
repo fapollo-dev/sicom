@@ -53,11 +53,13 @@ export function ConciliacaoBancariaPage() {
   const sugerir = async () => {
     if (!conta) return;
     try {
-      const { pares } = await sugestoes(Number(conta));
-      if (!pares.length) { mensagem.sucesso('Nenhum par automático (data+valor) encontrado.'); return; }
-      setSelOfx(new Set(pares.map((p) => p.mbo_id)));
-      setSelMov(new Set(pares.map((p) => p.codmovconta)));
-      mensagem.sucesso(`${pares.length} par(es) sugerido(s) por data+valor. Confira e concilie.`);
+      const { pares, lotes } = await sugestoes(Number(conta));
+      if (!pares.length && !lotes.length) { mensagem.sucesso('Nenhum par automático (data+valor) encontrado.'); return; }
+      // o LOTE vem primeiro: uma baixa em lote vira UM movimento no extrato, e ele só concilia inteiro
+      setSelOfx(new Set([...lotes.map((l) => l.mbo_id), ...pares.map((p) => p.mbo_id)]));
+      setSelMov(new Set([...lotes.flatMap((l) => l.codmovcontas), ...pares.map((p) => p.codmovconta)]));
+      const parteLote = lotes.length ? ` e ${lotes.length} lote(s) inteiro(s)` : '';
+      mensagem.sucesso(`${pares.length} par(es)${parteLote} sugerido(s). Confira e concilie.`);
     } catch (e) { mensagem.erro(e); }
   };
 
@@ -87,7 +89,7 @@ export function ConciliacaoBancariaPage() {
         <Button label="&Sugerir automática" variant="ghost" disabled={!conta || !ofx.length} onClick={() => void sugerir()} />
         <Button label="&Conciliar selecionados" variant="soft" disabled={busy || !iguais || !selOfx.size || !selMov.size} onClick={() => void conciliarSel()} />
         <div className="flex-1 text-right text-body-sm">Selecionado — extrato <b className={iguais ? 'text-fg' : 'text-danger'}>{brl(totOfx)}</b> · razão <b className={iguais ? 'text-fg' : 'text-danger'}>{brl(totMov)}</b> {selOfx.size + selMov.size > 0 && (iguais ? '✓' : '≠')}</div>
-        <small className="w-full text-fg-muted">Importe o extrato do banco (arquivo .ofx) e case com o razão de contas-correntes por data + valor + direção. Os ramos A-Pagar/A-Receber por lote são cortes futuros.</small>
+        <small className="w-full text-fg-muted">Importe o extrato do banco (arquivo .ofx) e case com o razão de contas-correntes por data + valor + direção. O lote só concilia INTEIRO (uma baixa em lote vira um movimento no extrato). Os ramos A-Pagar/A-Receber por lote são cortes futuros.</small>
       </div>
 
       <div className="grid grid-cols-1 gap-gp-md md:grid-cols-2">

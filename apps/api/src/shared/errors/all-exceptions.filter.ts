@@ -176,15 +176,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
  * Códigos cujo `details` do AppError PODE ser ecoado ao cliente no envelope (`detalhe`) — allowlist explícita
  * (evita vazar dados internos de outros erros: saldos, form/opção de RBAC, etc.). Só o que o front consome.
  */
-const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO']);
+const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO']);
 
 const CODE_PT: Record<string, string> = {
   // regra de negócio (BusinessRuleError 422)
   FAIXA_JA_INUTILIZADA: 'Essa numeração já foi inutilizada nesta série.',
+  LOTE_INCOMPLETO: 'O lote não pode ser conciliado pela metade — selecione todas as linhas dele.',
   ITEM_JA_DEVOLVIDO: 'Este item da venda já foi devolvido.',
   QTDE_DEVOLVIDA_EXCEDE: 'A quantidade devolvida é maior que a vendida.',
   ITEM_VENDA_NAO_ENCONTRADO: 'Item da venda não encontrado.',
-  DEVOLUCAO_NAO_ENCONTRADA: 'Devolução não encontrada.',
   PARCEIROS_DIFERENTES: 'O encontro de contas é entre títulos do mesmo parceiro.',
   VALOR_REAL_EXCEDE: 'O valor informado é maior que o valor do título.',
   VALOR_REAL_INVALIDO: 'Informe um valor maior que zero para os dois títulos.',
