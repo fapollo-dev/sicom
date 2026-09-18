@@ -14,6 +14,16 @@ const padL = (s: string, n: number, ch: string) => (s.length >= n ? s.slice(0, n
 const padR = (s: string, n: number, ch = ' ') => (s.length >= n ? s.slice(0, n) : s + ch.repeat(n - s.length));
 /** RetiraVirgula(v,true): preço 2 casas SEM separador = CENTAVOS em dígitos. */
 const centavos = (v: number) => String(Math.round((v + Number.EPSILON) * 100));
+/**
+ * `VerificaFormato('000.0', v)` do legado: dígitos com N casas decimais e **sem o separador** — o próprio
+ * legado prova (mig 274): o guarda `copy(LinhaTab, 8, 38) = 38 zeros` só fecha se '000.0' render 4 dígitos.
+ */
+const dec = (v: number, inteiras: number, casas: number) => {
+  const f = Math.round((num(v) + Number.EPSILON) * 10 ** casas);
+  const total = inteiras + casas;
+  return padL(String(Math.max(0, f)), total, '0').slice(-total);
+};
+
 /** MGV lê ANSI; o download web é texto → normaliza acentos p/ ASCII (divergência consciente, documentada). */
 const ascii = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7e]/g, ' ');
 
@@ -28,8 +38,17 @@ export interface ArquivoBalanca { nome: string; conteudo: string; linhas: number
  * zeros), layouts posicionais fiéis a UexportaBalanca.pas:155-234. Flag peso/unidade da UNIDADE.SIGLA (no Oracle o
  * CASE do legado sempre cai na sigla), POR LINHA: UN→'1', demais→'0' (o legado não resetava a var e vazava 'P' de
  * Filizola — corrigido conscientemente). Entrega = download (dir/bat do host ficam fora). ADIADO: Filizola,
- * INFNUTRI/TXINFO (corte-2), TARA, config-UI. Truncamento dos helpers (keep-first) = ASSUNÇÃO a certificar no
+ * TARA, config-UI (INFNUTRI saiu do adiado: é o corte-2 abaixo). Truncamento dos helpers (keep-first) = ASSUNÇÃO a certificar no
  * golden do MGV no cutover (FuncoesApollo não está no repo).
+ *
+ * ── Corte-2 (mig 274): INFNUTRI.TXT ───────────────────────────────────────────────────────────────────
+ * A tabela nutricional da Toledo, para quem tem `expdadosnutricionais='S'` (2.774 produtos no cliente,
+ * 1.474 com nutriente > 0). As três colunas da **medida caseira** (`inteiramedida`/`partedec`/
+ * `usadamedida`, 1.8 mil produtos cada) não existiam no destino e entram na 274.
+ * Os decimais vão **sem separador** — e isso não é suposição: o guarda do próprio legado
+ * (`copy(LinhaTab, 8, 38) = 38 zeros`) só fecha a conta assim (a prova aritmética está na migration).
+ * Os dois guardas ficam: linha toda zerada não é escrita, PLU '000000' também não.
+ * TXINFO.TXT/REC_ASS.TXT (receita/informação extra) seguem fora: dependem de `RECEITAS`, que tem 0 linhas.
  */
 @Injectable()
 export class ExportaBalancaService {
@@ -52,7 +71,7 @@ export class ExportaBalancaService {
   }
 
   /** gera os arquivos TOLEDO da config. Devolve os .txt (nome+conteúdo) p/ o front baixar. */
-  async gerar(configId: number): Promise<{ config: number; modelo: string; produtos: number; arquivos: ArquivoBalanca[] }> {
+  async gerar(configId: number): Promise<{ config: number; modelo: string; produtos: number; arquivos: ArquivoBalanca[]; nutricional: { linhas: number; pulados: number } }> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
     const cfg = (await db.selectFrom('config_balanca').selectAll().where('id', '=', configId).where('idempresa', '=', emp).executeTakeFirst()) as Record<string, unknown> | undefined;
@@ -79,6 +98,15 @@ export class ExportaBalancaService {
         sql`coalesce(nullif(p.descricao_balanca,''), p.descricao)`.as('descricao'),
         sql`coalesce(p.validade,0)`.as('validade'),
         'm.vrvenda', 'm.vrpromo', sql`coalesce(m.promocao,'N')`.as('promocao'),
+        // corte-2 (mig 274): a tabela nutricional (INFNUTRI.TXT)
+        sql`coalesce(p.expdadosnutricionais,'N')`.as('expnutri'),
+        sql`coalesce(p.qtde_porcao,0)`.as('qtde_porcao'), sql`coalesce(p.unporcao,0)`.as('unporcao'),
+        sql`coalesce(p.inteiramedida,0)`.as('inteiramedida'), sql`coalesce(p.partedec,0)`.as('partedec'),
+        sql`coalesce(p.usadamedida,0)`.as('usadamedida'),
+        sql`coalesce(p.valorenergetico,0)`.as('valorenergetico'), sql`coalesce(p.carboidrato,0)`.as('carboidrato'),
+        sql`coalesce(p.proteina,0)`.as('proteina'), sql`coalesce(p.gorduratotal,0)`.as('gorduratotal'),
+        sql`coalesce(p.gordurasaturada,0)`.as('gordurasaturada'), sql`coalesce(p.gorduratrans,0)`.as('gorduratrans'),
+        sql`coalesce(p.fibra,0)`.as('fibra'), sql`coalesce(p.sodio,0)`.as('sodio'),
       ])
       .where('p.balanca', '=', 'S')
       .where('m.vrvenda', '>', 0)
@@ -92,6 +120,8 @@ export class ExportaBalancaService {
     const txitens: string[] = [];
     const cadastro: string[] = [];
     const itensmgv: string[] = [];
+    const infnutri: string[] = [];
+    let nutriPulados = 0;
     for (const r of rows) {
       const un = String(r.un_sigla ?? '').trim().toUpperCase(); // SIGLA da unidade (fold: fonte fiel ao Oracle)
       const flag = un === 'UN' ? '1' : '0'; // KG e demais = peso (fix do carry-over/'P' do legado, documentado)
@@ -103,6 +133,26 @@ export class ExportaBalancaService {
       const desc25 = padR(ascii(String(r.descricao ?? '')), 25);
       const setor2 = padL(String(setor), 2, '0');
       const head = setor2 + flag + plu + preco6 + val3 + desc25 + padR('', 25);
+
+      // INFNUTRI.TXT (corte-2, mig 274): só quem tem `expdadosnutricionais='S'` (UexportaBalanca.pas:130-152).
+      // 'N' + PLU(6) + reservado '0' + qtde(3) + un.porção(1) + medida caseira (2+1+2) + energético(4) +
+      // carboidrato(4) + proteína(3) + gord.total(3) + saturada(3) + trans(3) + fibra(3) + sódio(5).
+      if (String(r.expnutri) === 'S') {
+        const corpo =
+          '0'
+          + padL(String(Math.trunc(num(r.qtde_porcao))), 3, '0')
+          + padL(String(Math.trunc(num(r.unporcao))), 1, '0').slice(0, 1)
+          + padL(String(Math.trunc(num(r.inteiramedida))), 2, '0').slice(0, 2)
+          + padL(String(Math.trunc(num(r.partedec))), 1, '0').slice(0, 1)
+          + padL(String(Math.trunc(num(r.usadamedida))), 2, '0').slice(0, 2)
+          + padL(String(Math.trunc(num(r.valorenergetico))), 4, '0')
+          + dec(num(r.carboidrato), 3, 1) + dec(num(r.proteina), 2, 1) + dec(num(r.gorduratotal), 2, 1)
+          + dec(num(r.gordurasaturada), 2, 1) + dec(num(r.gorduratrans), 2, 1) + dec(num(r.fibra), 2, 1)
+          + dec(num(r.sodio), 4, 1);
+        // os dois guardas do legado: linha inteiramente zerada não vai, PLU '000000' não vai
+        if (/[^0]/.test(corpo) && plu !== '000000') infnutri.push('N' + plu + corpo);
+        else nutriPulados += 1;
+      }
 
       // TXITENS.TXT: setor2 + '01' + flag + plu + preco + val + desc25 + 25sp + 5×50sp (pas:180-192).
       txitens.push(setor2 + '01' + flag + plu + preco6 + val3 + desc25 + padR('', 25) + padR('', 50).repeat(5));
@@ -123,6 +173,9 @@ export class ExportaBalancaService {
       { nome: 'CADASTRO.TXT', conteudo: crlf(cadastro), linhas: cadastro.length },
       { nome: 'ITENSMGV.TXT', conteudo: crlf(itensmgv), linhas: itensmgv.length },
     ];
-    return { config: configId, modelo, produtos: rows.length, arquivos };
+    // o arquivo nutricional só sai quando há produto com dado — o legado cria o .TXT vazio; aqui não
+    // entregamos arquivo vazio para download (o conteúdo seria só o CRLF)
+    if (infnutri.length) arquivos.push({ nome: 'INFNUTRI.TXT', conteudo: crlf(infnutri), linhas: infnutri.length });
+    return { config: configId, modelo, produtos: rows.length, arquivos, nutricional: { linhas: infnutri.length, pulados: nutriPulados } };
   }
 }

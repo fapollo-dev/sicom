@@ -4399,8 +4399,29 @@ async function main() {
           g404.status === 422 && ((await g404.json().catch(() => ({}))) as any).code === 'CONFIG_BALANCA_NAO_ENCONTRADA' && rb.status === 403,
           { g404: g404.status, rb: rb.status });
 
+        // 47i.6) INFNUTRI.TXT (corte-2, mig 274) — a tabela nutricional da Toledo.
+        await pgBa.query(`UPDATE produtos SET expdadosnutricionais='S', qtde_porcao=30, unporcao=1,
+                                 inteiramedida=2, partedec=5, usadamedida=7, valorenergetico=123.4,
+                                 carboidrato=12.34, proteina=5.6, gorduratotal=7.8, gordurasaturada=1.2,
+                                 gorduratrans=0.3, fibra=2.1, sodio=345.6
+                           WHERE idproduto = 990300`);
+        await pgBa.query(`UPDATE produtos SET expdadosnutricionais='S', qtde_porcao=0, unporcao=0, inteiramedida=0,
+                                 partedec=0, usadamedida=0, valorenergetico=0, carboidrato=0, proteina=0,
+                                 gorduratotal=0, gordurasaturada=0, gorduratrans=0, fibra=0, sodio=0
+                           WHERE idproduto = 990301`);
+        await pgBa.query(`UPDATE produtos SET expdadosnutricionais='N' WHERE idproduto = 990304`);
+        const gN = await fetch(`${base}/${BA}/gerar/321`, { method: 'POST', headers: H });
+        const gNJ = (await gN.json().catch(() => ({}))) as any;
+        const nutri = String((gNJ.arquivos ?? []).find((a: any) => a.nome === 'INFNUTRI.TXT')?.conteudo ?? '').split('\r\n').filter((l: string) => l);
+        const l300 = nutri.find((l: string) => l.startsWith('N020101')) ?? '';
+        check('BALANÇA §47i.6 [INFNUTRI.TXT — o corte-2 que faltava]: a tabela nutricional sai só para quem tem `expdadosnutricionais=S` (2.774 produtos no cliente; 1.474 com nutriente). A linha é `N` + PLU(6) + reservado + qtde(3) + un.porção(1) + **medida caseira 2+1+2** (as 3 colunas que não existiam no destino) + energético(4) + carboidrato(4) + proteína(3) + gord.total(3) + saturada(3) + trans(3) + fibra(3) + sódio(5) = **45 chars**, com os decimais SEM separador — o guarda `copy(LinhaTab,8,38)=38 zeros` do próprio legado só fecha assim. O produto com tudo zerado é PULADO por esse guarda, e quem tem a flag em N nem entra',
+          gN.status === 200 && nutri.length === 1 && l300.length === 45
+          && l300 === 'N' + '020101' + '0' + '030' + '1' + '02' + '5' + '07' + '0123' + '0123' + '056' + '078' + '012' + '003' + '021' + '03456'
+          && gNJ.nutricional?.linhas === 1 && gNJ.nutricional?.pulados === 1,
+          { linhas: nutri.length, l300, len: l300.length, nutricional: gNJ.nutricional });
+
         // cleanup: tira os produtos da balança p/ não interferir noutras seções.
-        await pgBa.query(`UPDATE produtos SET balanca='N' WHERE idproduto IN (990300,990301,990302,990303,990304,990305)`);
+        await pgBa.query(`UPDATE produtos SET balanca='N', expdadosnutricionais=NULL WHERE idproduto IN (990300,990301,990302,990303,990304,990305)`);
       } finally {
         await pgBa.end();
       }
