@@ -115,22 +115,22 @@ Exclui as 5 telas de PDV (fora de escopo por instrução do usuário).
 | 103 | `FRMRELATORIOCAIXADME` | 9 | 2 | ✅ **completa** (mig 264, `cobranca/caixa-dme`, dossiê `uRelatorioCaixaDME.md`) — DME: quem passou de R$ 30 mil em espécie (loja 1 em 2026: 5 fornecedores + 3 clientes, um com R$ 461 mil). Folds: conta a variante `1 - DINHEIRO` (1.636 lançamentos que o legado ignora), um endereço por parceiro (o LEFT JOIN dobrava a soma), tenant, e mostra os R$ 3,9 mi em dinheiro sem parceiro que a DME não enxerga |
 | 104 | `FRMAPURACAOCIAP` | 9 | 4 | ⛔ **sem substrato, com prova**: crédito de ICMS do ativo permanente — `APURACAO_CIAP` **0 linhas**, `APROPRIADO_CIAP` **0**. Nunca apurado |
 | 105 | `FRMIMPORTAPRODUTOSEXCEL` | 9 | 1 | ⛔ **sem fonte no repositório clonado** — nenhuma unit com o form; 1 operador (último acesso 18/06/2026). Importação de planilha de produtos: no Apollo a carga de produtos entra pela API/ETL |
-| 106 | `FRMAPURACAO` | 8 | 6 |
-| 107 | `FRMCADPRODUTOVALIDADE` | 8 | 3 |
-| 108 | `FRMRELBALANCO` | 8 | 3 |
-| 109 | `FRMGERARFINANCEIROLOTE` | 8 | 3 |
-| 110 | `FRMCADCLASSTRIBIBSCBS` | 8 | 1 |
-| 111 | `FRMCADCODIGOCONTABIL` | 8 | 2 |
-| 112 | `FRMFATURAMENTOPEDIDO` | 8 | 4 |
-| 113 | `FRMAGENDADEPARTAMENTO` | 7 | 1 |
-| 114 | `FRMCOTACAOLISTAFORN` | 7 | 2 |
-| 115 | `FRMCADLANCAMENTOCONTABIL` | 7 | 5 |
+| 106 | `FRMAPURACAO` | 8 | 6 | 🪦 **defeituoso na origem, com prova no fonte**: apuração entrada × saída por alíquota — o SQL das saídas faz `LEFT JOIN DET_ALIQUOTA A ON V.ALIQUOTA = A.ALIQUOTA AND A.UF = 'GO'` (`Uapuracao.dfm`), **Goiás fixo no código**, e as 5 empresas são de **MG** (a `DET_ALIQUOTA` tem 13 linhas de MG e 7 de GO): o débito sai pela alíquota efetiva do estado errado. Ainda usa `AVG(5102)` como CFOP e cruza os dois lados no cliente Delphi. A apuração de verdade está no Apollo (`apuracao_icms`, mig 164, a que alimenta o E110) e a comparação entrada×saída em 3 telas já convertidas |
+| 107 | `FRMCADPRODUTOVALIDADE` | 8 | 3 | 🪦 **marginal, com prova**: coleta de validade por lote (`LOTE_PRODUTO_VALIDADE`) — **1 linha na vida**, de 09/03/2021 (produto 813096, lote "5"); `LOTE_PRODUTO_VALIDADE_PROMO` **0 linhas**. O controle de validade que a casa usa é o do produto (`CONTROLE_VALIDADE='S'` em 43.810 produtos), não o lote |
+| 108 | `FRMRELBALANCO` | 8 | 3 | ✅ **completa** (mig 265, `contabil/balanco`, dossiê `uRelBalanco.md`) — balanço patrimonial (ativo e passivo numa data: saldo anterior antes do 1º do mês + movimento do mês). **Defeito medido: o modo "só sintéticas" do legado vinha VAZIO** — filtra `CLASSE='S'` e o plano só tem 'A' (10.950) e 'T' (78). Aqui sintética = tem conta filha, roll-up por prefixo com separador, tenant-scoped |
+| 109 | `FRMGERARFINANCEIROLOTE` | 8 | 3 | ✅ **completa** (mig 266, `cobranca/gerar-financeiro-lote`, dossiê `uGerarFinanceiroLote.md`) — a cobrança mensal dos clientes de valor fixo: **169 clientes, R$ 182.522,81/mês**, e **10.666 títulos em 2026** (a tela tem 8 acessos porque abre 1× por mês). Copiadas a marca `DUP 01/01`/`GERADO=SISTEMA`, a trava da forma DUPLICATA e a guarda anti-duplicidade; a mais, o modo SIMULAR e `parceiros.fixo`/`areceber.codoperador`, que não existiam no destino |
+| 110 | `FRMCADCLASSTRIBIBSCBS` | 8 | 1 | 🟡 **épico futuro (reforma tributária), sem fonte**: classificação tributária IBS/CBS — a unit não veio no repositório, mas o substrato JÁ EXISTE e cresce: `CST_IBS_CBS` 17 linhas, `IBS_UF` 27, **`NF_IBSCBS` 9.956** e `NF_PROD_IBSCBS`. É o começo da EC 132/2023 no legado; o Apollo ainda não tem IBS/CBS em lugar nenhum. Corte próprio, com o fonte novo em mãos |
+| 111 | `FRMCADCODIGOCONTABIL` | 8 | 2 | ⛔ **sem substrato, com prova**: de-para "código contábil → conta débito/conta crédito" (`CODCONTABIL`, campos CONTADEBITO/CONTACREDITO) — a tabela tem **0 linhas**. O de-para que a casa usa é o `CODIREDUZIDO` do próprio plano (11.028 de 11.028 preenchidos), já no destino |
+| 112 | `FRMFATURAMENTOPEDIDO` | 8 | 4 | 🪦 **marginal, com prova**: faturar pedido/OS pelo caixa (2.479 linhas, a maior do bloco) — de **36.887 pedidos** na base, apenas **3 têm `DT_FATU`**, e o último pedido é de 04/02/2025 (o tipo P parou em 09/03/2026, com 147). O caminho vivo é NF direto; o vínculo pedido→NF (`PEDIDO_NF`, 3.531) já está no Apollo |
+| 113 | `FRMAGENDADEPARTAMENTO` | 7 | 1 | 🪦 **marginal, sem fonte**: nenhuma unit com o form no repositório clonado; `AGENDA_DEPARTAMENTO_COMERCIAL` tem **5 linhas**. 7 acessos, 1 operador, sem data de acesso registrada |
+| 114 | `FRMCOTACAOLISTAFORN` | 7 | 2 | 🪦 **marginal, com prova**: monta uma "lista de fornecedores" para a cotação — `COTACAO_LISTAF` tem **1 linha**, chamada **"TESTE COTACAO"**, de 02/01/2023. A cotação viva (39 cotações, 97 cotações-fornecedor até 16/03/2026, 16.014 itens) está convertida em `compras/cotacao` + `cotacao-forn` |
+| 115 | `FRMCADLANCAMENTOCONTABIL` | 7 | 5 | ⛔ **sem substrato, com prova** (a mesma do item 85): lançamento contábil MANUAL no diário — `ORIGEM_CONTABIL` tem a origem **1 = MANUAL** e o `DIARIO` (1,77 mi de linhas) tem **0 lançamentos com CODORIGEM=1**. A casa nunca lançou à mão; o diário é todo das integrações (61 = 1,2 mi). A consulta de lançamentos já existe (`contabil/lancamentos`, mig 209) |
 | 116 | `FRMGERENCIADORPROMOCAO` | 7 | 2 |
 | 117 | `FRMRELHISTPDV` | 7 | 4 |
 | 118 | `FRMNFRESSARC_ICMSST` | 7 | 3 |
 | 119 | `FRMCADGRUPOCONTABIL` | 6 | 2 |
 | 120 | `FRMCONSOLIDACAOPISCOFINS` | 6 | 3 |
-| 121 | `FRMCADFIGURASFISCAIS` | 6 | 2 |
+| 121 | `FRMCADFIGURASFISCAIS` | 6 | 2 | ✅ **completa** (mig 267, `fiscal/figuras-fiscais`, dossiê `uCadFigurasFiscais.md`) — o catálogo que as regras do indexador tributário apontam (o caminho que 4 das 5 empresas usam, `EMPRESAS.FIGURAFISCAL='O'`). **16.838 figuras, e só 11 aparecem em alguma regra** — o filtro "só em uso" mostra quais; excluir figura em uso é recusado |
 | 122 | `FRMLIBERACAOPEDIDO` | 6 | 3 |
 | 123 | `FRMRELCONFERENCIAEFD` | 6 | 1 |
 | 124 | `FRMAUTORIZACAOPAGAMENTO` | 6 | 2 |

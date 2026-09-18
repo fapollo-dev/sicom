@@ -27,6 +27,8 @@ import { CestController } from './cest.controller';
 import { CestService } from './cest.service';
 import { MotivosController } from './motivos.controller';
 import { MotivosService } from './motivos.service';
+import { FiguraFiscalController } from './figura-fiscal.controller';
+import { FiguraFiscalService } from './figura-fiscal.service';
 import { ScrapService } from './scrap.service';
 import { ProducaoAggregateController } from './producao.aggregate';
 import { ProducaoController } from './producao.controller';
@@ -218,10 +220,11 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     SenhaOperacaoController, // E7: senha de operação por empresa (definir/verificar)
     ConfiguracoesAdminController, // CONFIGURAÇÕES (UConfigura): catálogo chave-valor + overrides por escopo
     CestController, // FRMCADCEST — a tabela CEST × NCM que produtos.cest aponta (11 acessos)
+    FiguraFiscalController, // FRMCADFIGURASFISCAIS — o catálogo que o indexador tributário aponta (16.838 figuras)
     MotivosController, // FRMMOTIVO — motivos do AJUSTE de estoque (tabela MOTIVOS; ≠ motivos_operacao, do scrap)
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
-  providers: [CestService, MotivosService, RelPerdasService, PisCofinsCadService, ExportaNfeService, 
+  providers: [CestService, MotivosService, FiguraFiscalService, RelPerdasService, PisCofinsCadService, ExportaNfeService, 
     BancosService,
     BancoRepository,
     ParceiroHistoricoService,

@@ -8,6 +8,10 @@ import { ExtratoFuncionarioController } from './extrato-funcionario.controller';
 import { ExtratoFuncionarioService } from './extrato-funcionario.service';
 import { CaixaDmeController } from './caixa-dme.controller';
 import { CaixaDmeService } from './caixa-dme.service';
+import { RelBalancoController } from './rel-balanco.controller';
+import { RelBalancoService } from './rel-balanco.service';
+import { GerarFinanceiroLoteController } from './gerar-financeiro-lote.controller';
+import { GerarFinanceiroLoteService } from './gerar-financeiro-lote.service';
 import { BalanceteController } from './balancete.controller';
 import { BalanceteService } from './balancete.service';
 import { PeriodoContabilCadService } from './periodo-contabil-cad.service';
@@ -73,12 +77,12 @@ import { CadastroModule } from '../cadastro/cadastro.module';
     // FRMDESCONTOTITULO — encontro de contas RCB × APG (68 acessos, 11 operadores).
     DescontoTituloController,
     // FRMCONSCLIRCB — quanto o cliente deve, com juro e atraso (64 acessos).
-    ConsCliRcbController, ConsApgBxController, ConsRcbBxController, PeriodoContabilCadController, ExtratoClientesController, ExtratoFuncionarioController, CaixaDmeController, BalanceteController,LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController, IntegracaoContabilController, ConfigIntegracaoContabilController, ConfIntegBancariaController,
+    ConsCliRcbController, ConsApgBxController, ConsRcbBxController, PeriodoContabilCadController, ExtratoClientesController, ExtratoFuncionarioController, CaixaDmeController, RelBalancoController, GerarFinanceiroLoteController, BalanceteController,LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController, IntegracaoContabilController, ConfigIntegracaoContabilController, ConfIntegBancariaController,
     // FRMSALDOEMPRESA — o fluxo de caixa projetado (611 acessos).
     SaldoEmpresaController,
     // FRMRELCAIXA — divergências de caixa e caixas abertos (505 acessos).
     RelCaixaController],
-  providers: [FluxoCartoesService, DescontoTituloService, ConsCliRcbService, ConsApgBxService, ConsRcbBxService, PeriodoContabilCadService, ExtratoClientesService, ExtratoFuncionarioService, CaixaDmeService, BalanceteService, 
+  providers: [FluxoCartoesService, DescontoTituloService, ConsCliRcbService, ConsApgBxService, ConsRcbBxService, PeriodoContabilCadService, ExtratoClientesService, ExtratoFuncionarioService, CaixaDmeService, RelBalancoService, GerarFinanceiroLoteService, BalanceteService, 
     LotesCobrancaService, LoteCobrancaRepository,
     AreceberService, AreceberBaixaService, AreceberAgrupamentoService, ApagarService, ApagarBaixaService, ApagarAgrupamentoService,
     CaixaService, CaixaContabilService, CaixaPdvContabilService, CaixaConferenciaService, BaixaContabilService,

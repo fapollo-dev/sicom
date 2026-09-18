@@ -81,6 +81,9 @@ import { MotivosPage } from '../features/motivos/MotivosPage';
 import { RelEntradasFinanPage } from '../features/rel-entradas-finan/RelEntradasFinanPage';
 import { ExtratoFuncionarioPage } from '../features/extrato-funcionario/ExtratoFuncionarioPage';
 import { CaixaDmePage } from '../features/caixa-dme/CaixaDmePage';
+import { RelBalancoPage } from '../features/rel-balanco/RelBalancoPage';
+import { GerarFinanceiroLotePage } from '../features/gerar-financeiro-lote/GerarFinanceiroLotePage';
+import { FiguraFiscalPage } from '../features/figura-fiscal/FiguraFiscalPage';
 import { IndexadorTributarioPage } from '../features/indexador-tributario/IndexadorTributarioPage';
 import { ProdutosRelPage } from '../features/produtos-rel/ProdutosRelPage';
 import { RelEntradasSaidasPage } from '../features/rel-entradas-saidas/RelEntradasSaidasPage';
@@ -269,6 +272,9 @@ export const router = createBrowserRouter([
       { path: '/relatorios/entradas-financeiro', element: <RelEntradasFinanPage /> }, // FRMRELENTRADAS_FINAN
       { path: '/cobranca/extrato-funcionario', element: <ExtratoFuncionarioPage /> }, // FRMRELFUNCIONARIO
       { path: '/cobranca/caixa-dme', element: <CaixaDmePage /> }, // FRMRELATORIOCAIXADME
+      { path: '/contabil/balanco', element: <RelBalancoPage /> }, // FRMRELBALANCO
+      { path: '/cobranca/gerar-financeiro-lote', element: <GerarFinanceiroLotePage /> }, // FRMGERARFINANCEIROLOTE
+      { path: '/fiscal/figuras-fiscais', element: <FiguraFiscalPage /> }, // FRMCADFIGURASFISCAIS
       { path: '/cadastro/indexador-tributario', element: <IndexadorTributarioPage /> }, // FRMCADINDEXADORTRIBUTARIO
       { path: '/relatorios/produtos', element: <ProdutosRelPage /> }, // FRMPRODUTOSREL
       { path: '/relatorios/entradas-saidas', element: <RelEntradasSaidasPage /> }, // FRMRELENTRADASSAIDAS

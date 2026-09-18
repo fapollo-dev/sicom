@@ -15910,6 +15910,140 @@ async function main() {
         await pgDm.end();
       }
     }
+    // ══ BALANÇO PATRIMONIAL (FRMRELBALANCO) ════════════════════════════════════════════════════════════
+    {
+      const BP = 'contabil/balanco';
+      const pgBp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // ramos próprios sob as raízes reais: 1.99 (ativo), 2.99 (passivo), 3.99 (resultado, que o balanço corta).
+        // As analíticas nascem com CLASSE 'A' e sem NÍVEL — como as 10.950 'A' do cliente.
+        await pgBp.query(`DELETE FROM diario WHERE coddiario BETWEEN 9951001 AND 9951009`);
+        await pgBp.query(`DELETE FROM plano_contas WHERE codplanocontas BETWEEN 995101 AND 995106`);
+        await pgBp.query(`INSERT INTO plano_contas (codplanocontas, descricao, tipo, classe, codiexpandido, nivel) VALUES
+          (995101,'ATIVO TESTE GRUPO','D','T','1.99',2),   (995102,'CAIXA TESTE','D','A','1.99.01.00001',NULL),
+          (995103,'PASSIVO TESTE GRUPO','D','T','2.99',2), (995104,'FORNECEDOR TESTE','D','A','2.99.01.00001',NULL),
+          (995105,'RESULTADO TESTE GRUPO','D','T','3.99',2), (995106,'RECEITA TESTE','D','A','3.99.01.00001',NULL)`);
+        await pgBp.query(`INSERT INTO diario (coddiario, datalan, contadebito, contacredito, valor, codempresa, codorigem, idorigem) VALUES
+          (9951001,'2054-02-20',995102,995104,1000.00,1,99,1),
+          (9951002,'2054-03-10',995102,995104, 300.00,1,99,2),
+          (9951003,'2054-03-12',995104,995102, 120.00,1,99,3),
+          (9951004,'2054-03-15',995102,995106, 900.00,1,99,4),
+          (9951005,'2054-03-20',995102,995104, 555.00,2,99,5)`);
+        const g = async (qs: string) => (await (await fetch(`${base}/${BP}?${qs}`, { headers: H })).json().catch(() => ({}))) as any;
+        const r = await g('data=2054-03-31');
+        const L = (cod: string) => (r.linhas ?? []).find((l: any) => l.codiexpandido === cod);
+        check('BALANÇO §143.1 [ativo e passivo numa data, com o movimento do mês]: saldo anterior = tudo antes de 01/03 (o caixa nasce +1.000); em março o caixa tem 300+900 de débito e 120 de crédito → saldo 2.080; o fornecedor espelha (−1.000 anterior, 120 de débito, 300 de crédito → −1.180); a competência vem 01/03 a 31/03; as contas de RESULTADO (código 3) ficam fora — o balanço é só patrimonial; e o lançamento da loja 2 não entra',
+          Number(L('1.99.01.00001')?.saldoAnterior) === 1000 && Number(L('1.99.01.00001')?.debito) === 1200 && Number(L('1.99.01.00001')?.credito) === 120 && Number(L('1.99.01.00001')?.saldoAtual) === 2080
+          && Number(L('2.99.01.00001')?.saldoAnterior) === -1000 && Number(L('2.99.01.00001')?.debito) === 120 && Number(L('2.99.01.00001')?.credito) === 300 && Number(L('2.99.01.00001')?.saldoAtual) === -1180
+          && r.competencia?.de === '2054-03-01' && r.competencia?.ate === '2054-03-31'
+          && !(r.linhas ?? []).some((l: any) => l.codiexpandido.startsWith('3')),
+          { caixa: L('1.99.01.00001'), forn: L('2.99.01.00001'), comp: r.competencia, temResultado: (r.linhas ?? []).filter((l: any) => l.codiexpandido.startsWith('3')).length });
+        const soSint = await g('data=2054-03-31&analiticas=false');
+        const semMov = await g('data=2054-03-31&semMovimento=true');
+        const sintCods = (soSint.linhas ?? []).map((l: any) => l.codiexpandido);
+        check('BALANÇO §143.2 [roll-up por prefixo + o modo que no legado vinha VAZIO]: o grupo "1.99" soma a analítica abaixo dele (saldo 2.080) e a raiz "1" também; "só sintéticas" (analiticas=false) devolve os grupos e some com a analítica — no legado o filtro era `CLASSE=\'S\'` e **nenhuma das 10.950 contas do cliente tem essa classe**, então o relatório saía vazio (`totais.classeS` = 0); "sem movimento" traz também as contas zeradas do plano',
+          Number(L('1.99')?.saldoAtual) === 2080 && L('1.99')?.sintetica === true && Number(L('2.99')?.saldoAtual) === -1180
+          && sintCods.includes('1.99') && !sintCods.includes('1.99.01.00001') && soSint.totais?.classeS === 0
+          && (semMov.linhas ?? []).length > (r.linhas ?? []).length,
+          { grupo: L('1.99')?.saldoAtual, passivo: L('2.99')?.saldoAtual, classeS: soSint.totais?.classeS, semMov: semMov.linhas?.length, com: r.linhas?.length });
+        const semGrant = await fetch(`${base}/${BP}?data=2054-03-31`, { headers: H_SEM_ACESSO });
+        check('BALANÇO §143.3 [RBAC]: sem grant, 403', semGrant.status === 403, { status: semGrant.status });
+        await pgBp.query(`DELETE FROM diario WHERE coddiario BETWEEN 9951001 AND 9951009`);
+        await pgBp.query(`DELETE FROM plano_contas WHERE codplanocontas BETWEEN 995101 AND 995106`);
+      } finally {
+        await pgBp.end();
+      }
+    }
+
+    // ══ GERAR FINANCEIRO EM LOTE (FRMGERARFINANCEIROLOTE) ══════════════════════════════════════════════
+    {
+      const GL = 'cobranca/gerar-financeiro-lote';
+      const pgGl = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const j = { ...H, 'content-type': 'application/json' };
+        await pgGl.query(`INSERT INTO parceiros (codparceiro, razao, fantasia, cli, ativado, fixo, venc_prev) VALUES
+          (993801,'CLIENTE FIXO UM','FIXO1','S','S',150.00,10),
+          (993802,'CLIENTE FIXO DOIS','FIXO2','S','S',250.00,NULL),
+          (993803,'CLIENTE SEM FIXO','SEMFIXO','S','S',NULL,5),
+          (993804,'CLIENTE INATIVO','INATIVO','S','N',999.00,1) ON CONFLICT (codparceiro) DO NOTHING`);
+        const semForma = await fetch(`${base}/${GL}`, { method: 'POST', headers: j, body: JSON.stringify({ clientes: [993801], dtvenc: '2055-04-10', codbco: 1 }) });
+        const semFormaJ = (await semForma.json().catch(() => ({}))) as any;
+        await pgGl.query(`INSERT INTO formas_pgto (idempresa, modalidade, atalho, destino) VALUES (1,'DUPLICATA','D9','RCB') ON CONFLICT DO NOTHING`);
+        const cand = (await (await fetch(`${base}/${GL}/candidatos?q=CLIENTE%20`, { headers: H })).json().catch(() => ({}))) as any;
+        const codigos = (cand.itens ?? []).map((c: any) => c.codparceiro);
+        check('GERAR FINANCEIRO §144.1 [os candidatos e a trava da forma DUPLICATA]: sem a forma de pagamento DUPLICATA da empresa o legado recusa a tela inteira — aqui é 422 FORMA_DUPLICATA_NAO_CADASTRADA; criada a forma, a lista traz só os clientes ATIVOS com valor fixo (o sem fixo e o inativo ficam de fora) e soma os valores',
+          semForma.status === 422 && semFormaJ.code === 'FORMA_DUPLICATA_NAO_CADASTRADA'
+          && codigos.includes(993801) && codigos.includes(993802) && !codigos.includes(993803) && !codigos.includes(993804),
+          { semForma: [semForma.status, semFormaJ.code], codigos });
+        const sim = await fetch(`${base}/${GL}`, { method: 'POST', headers: j, body: JSON.stringify({ clientes: [993801, 993802, 993803], dtvenc: '2055-04-10', codbco: 7, usarVencimentoCliente: true, simular: true }) });
+        const simJ = (await sim.json().catch(() => ({}))) as any;
+        const nadaGravado = Number((await pgGl.query(`SELECT count(*) AS n FROM areceber WHERE codparceiro IN (993801,993802,993803)`)).rows[0]?.n);
+        check('GERAR FINANCEIRO §144.2 [simulação]: simular não grava nada; 2 títulos entrariam (R$ 400) e o cliente sem valor fixo é descartado com motivo; com "usar o vencimento do cliente", a data de venda do 993801 vira o dia 10 do mês do vencimento e a do 993802 (sem dia) fica hoje',
+          sim.status === 201 && simJ.simulado === true && simJ.totais?.gerados === 2 && Number(simJ.totais?.valor) === 400 && simJ.totais?.semValorFixo === 1
+          && nadaGravado === 0 && (simJ.gerados ?? []).find((g: any) => g.codparceiro === 993801)?.dtvenda === '2055-04-10',
+          { status: sim.status, totais: simJ.totais, gravou: nadaGravado, dtvenda: (simJ.gerados ?? []).map((g: any) => [g.codparceiro, g.dtvenda]) });
+        const ger = await fetch(`${base}/${GL}`, { method: 'POST', headers: j, body: JSON.stringify({ clientes: [993801, 993802], dtvenc: '2055-04-10', codbco: 7 }) });
+        const gerJ = (await ger.json().catch(() => ({}))) as any;
+        const t = (await pgGl.query(`SELECT codparceiro, duplicata, nrodup, quitada, gerado, tipodoc, codbco, valor, idpgto, codoperador FROM areceber WHERE codparceiro IN (993801,993802) ORDER BY codparceiro`)).rows as any[];
+        const denovo = await fetch(`${base}/${GL}`, { method: 'POST', headers: j, body: JSON.stringify({ clientes: [993801, 993802], dtvenc: '2055-04-10', codbco: 7 }) });
+        const denovoJ = (await denovo.json().catch(() => ({}))) as any;
+        const aindaDois = Number((await pgGl.query(`SELECT count(*) AS n FROM areceber WHERE codparceiro IN (993801,993802)`)).rows[0]?.n);
+        check('GERAR FINANCEIRO §144.3 [gera e NÃO duplica]: os 2 títulos nascem com a marca do legado — duplicata "DUP 01/01", nrodup 1, quitada N, gerado SISTEMA, tipodoc DUPLICATA, banco e a forma DUPLICATA da empresa, operador carimbado; rodar de novo o MESMO lote descarta os 2 por JA_EXISTE e o total continua 2 títulos (a guarda que evita cobrar duas vezes o mesmo mês)',
+          ger.status === 201 && gerJ.totais?.gerados === 2 && t.length === 2
+          && t.every((x) => x.duplicata === 'DUP 01/01' && Number(x.nrodup) === 1 && x.quitada === 'N' && x.gerado === 'SISTEMA' && x.tipodoc === 'DUPLICATA' && Number(x.codbco) === 7 && x.idpgto != null && Number(x.codoperador) === 7)
+          && Number(t[0].valor) === 150 && Number(t[1].valor) === 250
+          && denovoJ.totais?.gerados === 0 && denovoJ.totais?.jaExistiam === 2 && aindaDois === 2,
+          { ger: ger.status, totais: gerJ.totais, titulos: t.map((x) => [x.codparceiro, x.duplicata, x.valor, x.gerado]), denovo: denovoJ.totais, aindaDois });
+        const semGrant = await fetch(`${base}/${GL}`, { method: 'POST', headers: { ...H_SEM_ACESSO, 'content-type': 'application/json' }, body: JSON.stringify({ clientes: [993801], dtvenc: '2055-05-10', codbco: 7 }) });
+        check('GERAR FINANCEIRO §144.4 [RBAC]: gerar é ato de dinheiro — sem o grant BTNGERAR, 403', semGrant.status === 403, { status: semGrant.status });
+        await pgGl.query(`DELETE FROM areceber WHERE codparceiro IN (993801,993802,993803,993804)`);
+        await pgGl.query(`DELETE FROM parceiros WHERE codparceiro IN (993801,993802,993803,993804)`);
+        await pgGl.query(`DELETE FROM formas_pgto WHERE idempresa = 1 AND modalidade = 'DUPLICATA'`);
+      } finally {
+        await pgGl.end();
+      }
+    }
+
+    // ══ FIGURAS FISCAIS (FRMCADFIGURASFISCAIS) ═════════════════════════════════════════════════════════
+    {
+      const FF = 'fiscal/figuras-fiscais';
+      const pgFf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const j = { ...H, 'content-type': 'application/json' };
+        const nova = await fetch(`${base}/${FF}`, { method: 'POST', headers: j, body: JSON.stringify({ descfigurafiscal: 'TRIBUTADO TESTE 18%', codreduzido: 'T18' }) });
+        const novaJ = (await nova.json().catch(() => ({}))) as any;
+        const cod = Number(novaJ.codfigurafiscal);
+        const usada = await fetch(`${base}/${FF}`, { method: 'POST', headers: j, body: JSON.stringify({ descfigurafiscal: 'FIGURA COM REGRA' }) });
+        const usadaJ = (await usada.json().catch(() => ({}))) as any;
+        const codUsada = Number(usadaJ.codfigurafiscal);
+        await pgFf.query(`INSERT INTO indexador_tributario (codfigurafiscal, tp_cadastro, aliquota_dest, icm_fonte, mva, reducao) VALUES ($1,'C',18,12,40,100)`, [codUsada]);
+        const lista = (await (await fetch(`${base}/${FF}?q=TESTE`, { headers: H })).json().catch(() => ({}))) as any;
+        const emUso = (await (await fetch(`${base}/${FF}?somenteEmUso=true`, { headers: H })).json().catch(() => ({}))) as any;
+        const codsEmUso = (emUso.itens ?? []).map((x: any) => x.codfigurafiscal);
+        check('FIGURAS FISCAIS §145.1 [o catálogo que o indexador aponta]: no cliente são 16.838 figuras e **só 11 aparecem em alguma regra**. POST cria (201) com código da sequência; a busca por descrição acha a nova; o filtro "só em uso" traz a que tem regra no indexador e não a outra, e cada linha conta as regras',
+          nova.status === 201 && cod > 0 && usada.status === 201
+          && (lista.itens ?? []).some((x: any) => x.codfigurafiscal === cod)
+          && codsEmUso.includes(codUsada) && !codsEmUso.includes(cod)
+          && (emUso.itens ?? []).find((x: any) => x.codfigurafiscal === codUsada)?.regras === 1,
+          { nova: nova.status, cod, emUso: codsEmUso.slice(0, 5), regras: (emUso.itens ?? []).find((x: any) => x.codfigurafiscal === codUsada)?.regras });
+        const ren = await fetch(`${base}/${FF}/${cod}`, { method: 'PUT', headers: j, body: JSON.stringify({ descfigurafiscal: 'TRIBUTADO TESTE 12%', codreduzido: 'T12' }) });
+        const renJ = (await ren.json().catch(() => ({}))) as any;
+        const delUsada = await fetch(`${base}/${FF}/${codUsada}`, { method: 'DELETE', headers: H });
+        const delUsadaJ = (await delUsada.json().catch(() => ({}))) as any;
+        const del = await fetch(`${base}/${FF}/${cod}`, { method: 'DELETE', headers: H });
+        const sumiu = (await (await fetch(`${base}/${FF}?q=TRIBUTADO TESTE`, { headers: H })).json().catch(() => ({}))) as any;
+        const semGrant = await fetch(`${base}/${FF}`, { headers: H_SEM_ACESSO });
+        check('FIGURAS FISCAIS §145.2 [editar e excluir]: PUT renomeia e troca o reduzido; excluir figura COM regra é 422 FIGURA_EM_USO (a regra tributária ficaria órfã); a sem regra sai por exclusão lógica e some da lista; sem grant, 403',
+          ren.status === 200 && renJ.descfigurafiscal === 'TRIBUTADO TESTE 12%' && renJ.codreduzido === 'T12'
+          && delUsada.status === 422 && delUsadaJ.code === 'FIGURA_EM_USO'
+          && del.status === 200 && !(sumiu.itens ?? []).some((x: any) => x.codfigurafiscal === cod) && semGrant.status === 403,
+          { ren: ren.status, delUsada: [delUsada.status, delUsadaJ.code], del: del.status, sumiu: (sumiu.itens ?? []).length, rbac: semGrant.status });
+        await pgFf.query(`DELETE FROM indexador_tributario WHERE codfigurafiscal = $1`, [codUsada]);
+        await pgFf.query(`DELETE FROM figura_fiscal WHERE codfigurafiscal IN ($1,$2)`, [cod, codUsada]);
+      } finally {
+        await pgFf.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
