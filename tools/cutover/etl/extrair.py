@@ -37,7 +37,12 @@ TABELA_ORIGEM = {
     'dre_conta': 'VINCULO_PLC_CFG_DRE',                              # 10.439 — conta → linha do DRE
     'dre_estrutura': 'CONFIG_DRE_CONTABIL',                          # 98 — a árvore do DRE
     'pedido_devolucao_compra_i': 'PEDIDO_DEVOLUCAO_COMPRA_ITENS',    # 6.103 — itens da devolução de compra
-    'tributacao_reforma': 'CST_IBS_CBS',                             # 17 — CST da reforma (IBS/CBS)
+    # ⛔ `tributacao_reforma` NÃO entra aqui. Eu a mapeei para `CST_IBS_CBS` na varredura de 18/09 e estava
+    # errado: `CST_IBS_CBS` é o CATÁLOGO DE CST da reforma (000/010/011/200/210…, 17 linhas), e a nossa
+    # `tributacao_reforma` é ALÍQUOTA por UF+vigência (mig 007, DESENVOLVIDO — seed da EC 132/2023 +
+    # LC 214/2025). A tabela de alíquota do legado seria `IBS_UF` (27 UFs, só `valor_ibs_uf`=0,1): não
+    # tem CBS, nem vigência, nem fonte. Carregá-la SUBSTITUIRIA o seed legal por um dado mais pobre —
+    # o que ela serve é de CONFERÊNCIA, e confere (0,1 de IBS em 2026). `CST_IBS_CBS` fica sem destino.
     'cartao_bx': 'CARTAO_BX',                                        # 1.169.680 — as baixas de cartão (mig 277)
 }
 RENOMEIA = {
@@ -48,6 +53,9 @@ RENOMEIA = {
  # a mig 008 batizou a alíquota interna de `aliquota_dest`; no legado é ALIQUOTA
  'indexador_tributario': {'aliquota': 'aliquota_dest'},
  'aliquota': {'aliquota': 'codigo'},
+ # o total de ICMS-ST externo do cabeçalho: lá é TOTALICM_STEXTERNO, aqui total_icmst_externo — sem o de-para
+ # as 2.661 notas com valor (R$ 49.050,73; 353 em 2026) chegariam zeradas.
+ 'nf': {'totalicm_stexterno': 'total_icmst_externo'},
  # §7e: o código do Oracle NÃO entra na PK (lá é por venda/cupom, não por linha) — vira coluna de referência
  'vendas': {'codvendas': 'codvendas_legado'},
  'cx_vendas': {'codcxvendas': 'codcxvendas_legado'},
@@ -55,6 +63,32 @@ RENOMEIA = {
  # direta (qtde_alter = o quanto mexeu; qtde_atual = o saldo depois), e `saldo_anterior` sai da subtração — é a
  # única coluna DERIVADA da carga inteira, e ela existe porque o nosso kardex guarda os dois lados do salto.
  'historico_prod': {'qtde_alter': 'qtde', 'qtde_atual': 'saldo_novo', 'origem_documento': 'origem'},
+ # ⚠️ A COLUNA QUE NÃO CASA PELO NOME (varredura de 21/09/2026, `conferir-colunas-orfas.py`).
+ # Nas 8 tabelas cujo mapeamento de TABELA nasceu na varredura de 18/09, o nome da tabela casou e o das
+ # COLUNAS não. O extrator casa coluna por coluna; sem o de-para, a coluna simplesmente não entra — e as
+ # do destino que são NOT NULL sem default fazem a carga FALHAR, não silenciar. Achar a tabela não é
+ # achar o dado.
+ #
+ # DRE contábil: o legado prefixa TUDO com `CFGDRE_`. Sem o de-para nenhuma das 9 colunas de negócio
+ # entra e a árvore do DRE (98 linhas) chega vazia — com ela, os 10.439 vínculos conta→linha não têm
+ # onde se pendurar. O vínculo fecha perfeito: 0 órfãos entre `VINCULO_PLC_CFG_DRE` e `CONFIG_DRE_CONTABIL`.
+ 'dre_estrutura': {'cfgdre_codigo': 'codestrutura', 'cfgdre_codexpandido': 'codexpandido',
+                   'cfgdre_descricao': 'descricao', 'cfgdre_tipo_calculo': 'tipo_calculo',
+                   'cfgdre_classe': 'classe', 'cfgdre_expressao': 'expressao', 'cfgdre_nivel': 'nivel',
+                   'cfgdre_codpai': 'codpai', 'cfgdre_ativo': 'ativo'},
+ 'dre_conta': {'cfgdre_codigo': 'codestrutura'},
+ # Devolução de compra (itens): o legado usa `cod_*` com underscore. São 6.126 itens, R$ 407.275,10
+ # devolvidos, e as 5 chaves (pai, NF, item da NF, produto) estão 100% preenchidas na origem — sem o
+ # de-para chegariam todas nulas, e 5 delas são NOT NULL.
+ 'pedido_devolucao_compra_i': {'cod_pedido_dev_compra_item': 'codpeddevcomprai',
+                               'cod_pedido_dev_compra': 'codpeddevcompra', 'cod_nf': 'codnf',
+                               'cod_item_nf': 'codnfprod', 'cod_produto': 'idproduto',
+                               'fator_embalagem': 'fatorembalagem', 'observacoes': 'obs'},
+ # 70.507 acessos de operador: a PK do legado é `CODOPERADORESACESSO`, a nossa é `id` (NOT NULL).
+ 'operadores_acessos': {'codoperadoresacesso': 'id'},
+ # 107.830 eventos de NF-e. `CHAVE_ACESSO` é a nossa `chavenfe` — e é por ela que saem `codnf`/`idempresa`
+ # (ver CALCULADAS).
+ 'nfe_evento': {'chave_acesso': 'chavenfe', 'descricao_evento': 'descricao'},
  # o legado chama a empresa de CODEMPRESA; aqui a coluna é idempresa nessas duas
  'empresas': {'codempresa': 'idempresa', 'razaosocial': 'razao_social'},
  'parceiros': {'codempresa': 'idempresa'},
@@ -80,6 +114,57 @@ CALCULADAS = {
   # subcontado**: Σ TOTALCUSTO real = R$ 43.328.145,14 contra R$ 10.927.188,98 com qtde=1 — R$ 32,4 milhões a
   # menos, exatamente o bug que a mig 078 corrigiu no modelo, voltando pela porta da carga.
   # (147.073 das 256.813 linhas do rateio têm QTDE > 1; os 210.670 itens têm rateio — nenhum fica de fora.)
+  # ⚠️ A EMPRESA QUE NÃO EXISTE NA ORIGEM (varredura de 21/09/2026). Nestas tabelas o legado NÃO guarda a
+  # empresa — ela vem do PAI. O nosso schema a exige (NOT NULL), e a regra de fallback do extrator preenchia
+  # **constante 1**: tudo iria para a loja 1, em silêncio. O estrago medido:
+  #   · `areceber_bx`  — 14.538 de 19.225 baixas são de OUTRA empresa (**75%**: 14.172 da 50, 366 da 2)
+  #   · `mov_contas_bancarias` — 16.496 de 291.757 (15.829 da 2)
+  #   · `apagar_bx`    — 10.645 de 51.217 (9.066 da 2, 1.364 da 50, 181 da 51, 34 da 52)
+  # Com a empresa errada, extrato, DRE de caixa, balancete e conciliação da loja 2 perdem o movimento.
+  'apagar_bx':   {'codempresa': '(select a.idempresa from apagar a where a.codapg = apagar_bx.codapg)'},
+  'areceber_bx': {'codempresa': '(select a.codempresa from areceber a where a.codrcb = areceber_bx.codrcb)'},
+  'mov_contas_bancarias': {
+    'idempresa': '(select cb.idempresa from contas_bancarias cb where cb.codconta = mov_contas_bancarias.codconta)'},
+  'movimentacao_bancaria_ofx': {
+    'idempresa': '(select cb.idempresa from contas_bancarias cb where cb.codconta = movimentacao_bancaria_ofx.codconta)'},
+  'arquivo_remessa_areceber': {
+    'codempresa': '(select cb.idempresa from contas_bancarias cb where cb.codconta = arquivo_remessa_areceber.codcontacorrente)'},
+  # `EMPRESAS` é TEXTO com a lista de lojas do documento (';1;', '1, 2', ';1;50;'): a projeção single-empresa
+  # fica com a PRIMEIRA da lista — é a loja que abriu o documento.
+  'cotacao':      {'idempresa': "nvl(to_number(regexp_substr(empresas, '\\d+')), 1)"},
+  'pedidocompra': {'idempresa': "nvl(to_number(regexp_substr(empresas, '\\d+')), 1)"},
+  # ⚠️ IPI: no legado `NF_PROD.IPI` é a ALÍQUOTA (%) e o VALOR mora em `IPI_NOTA`. O nosso modelo guarda os
+  # dois separados (`ipi` = %, `vripi` = R$ — está escrito no `nf.aggregate.ts`), e `ipi_nota` casa pelo nome,
+  # então `vripi` ficaria em 0 e ninguém notaria: são **33.642 itens, R$ 343.351,49 de IPI** que sumiriam do
+  # SPED — `vripi` é exatamente o VL_IPI dos registros C100 e C170 (EFD ICMS-IPI e Contribuições).
+  # A aritmética prova o leiaute: quantidade × vrcusto × ipi/100 = IPI_NOTA nos itens, e a soma por nota bate
+  # com `NF.TOTALIPI` em **3.469 das 3.471** notas com IPI (Σ 343.351,49 contra 343.282,71 no cabeçalho).
+  'nf_prod': {'vripi': 'nf_prod.ipi_nota'},
+  # ⚠️ NF-e: o EVENTO não sabe de que NOTA é — só guarda a CHAVE DE ACESSO (44 dígitos). `codnf` é NOT NULL
+  # aqui, e a empresa também: sem resolver a chave, **21.922 dos 107.830 eventos** (cancelamentos, CCe,
+  # manifestações) iriam para a loja 1 — são da loja 2. A chave acha a NF em 105.008 (97,4%); os 2.822
+  # restantes são chave de nota de TERCEIRO (manifestação do destinatário) e não têm NF nossa para apontar:
+  # ficam com `codnf` nulo e a carga os rejeita, que é o comportamento correto — evento sem nota não é nosso.
+  # O nosso `texto` é o xJust/xCorrecao do XML (mig 030); o legado o espalha em três colunas por tipo de evento.
+  'nfe_evento': {
+    'codnf':     '(select n.codnf from nf n where n.chavenfe = nfe_eventos.chave_acesso)',
+    'idempresa': '(select n.idempresa from nf n where n.chavenfe = nfe_eventos.chave_acesso)',
+    # `CORRECAO` é CLOB e as outras duas VARCHAR2: sem o to_char(substr()) o Oracle recusa o coalesce
+    # (ORA-00932). 4000 basta — a legislação limita a xCorrecao a 1000 caracteres.
+    'texto':     "coalesce(to_char(substr(nfe_eventos.correcao, 1, 4000)),"
+                 ' nfe_eventos.just_op_nao_realizada, nfe_eventos.razao)'},
+  # ⚠️ Conciliação bancária: o CABEÇALHO não guarda conta nem empresa — elas vêm do movimento conciliado,
+  # dois níveis abaixo (`CONCILICAO_BANCARIA_MOV` → `MOV_CONTAS_BANCARIAS` → `CONTAS_BANCARIAS`). Ambas são
+  # NOT NULL aqui. Das 18.511 conciliações, 13.800 têm movimento e **2.445 são de outra empresa**; as 4.711
+  # sem movimento são cabeçalho vazio e ficam com conta nula.
+  'conciliacao_bancaria': {
+    'codconta':  '(select min(v.codconta) from concilicao_bancaria_mov m'
+                 ' join mov_contas_bancarias v on v.codmovconta = m.codmovconta'
+                 ' where m.cb_id = conciliacao_bancaria.cb_id)',
+    'idempresa': '(select min(cb.idempresa) from concilicao_bancaria_mov m'
+                 ' join mov_contas_bancarias v on v.codmovconta = m.codmovconta'
+                 ' join contas_bancarias cb on cb.codconta = v.codconta'
+                 ' where m.cb_id = conciliacao_bancaria.cb_id)'},
   'pedidocompra_i': {
     'qtde':       '(select nvl(sum(q.qtde), 1)       from pedido_compra_qtde q where q.codpedcompi = pedidocompra_i.codpedcompi)',
     'qtdtotal':   '(select nvl(sum(q.qtdtotal), 0)   from pedido_compra_qtde q where q.codpedcompi = pedidocompra_i.codpedcompi)',
@@ -89,6 +174,19 @@ CONSTANTES = {'operadores': {'origem_legado': 'S'}, 'arquivo_remessa_areceber': 
               'nf': {'origem_legado': 'S'},
               'movimentacao_bancaria_ofx': {'origem_legado': 'S'}, 'adiantamento_forn': {'origem_legado': 'S'},
               'nfe_nao_cadastradas': {'origem_legado': 'S'}}
+# tabelas em que a empresa REALMENTE não existe na origem e não pode ser derivada de pai nenhum: aqui a
+# constante 1 é a decisão certa, e está escrita para não voltar a ser silêncio. Só entram aqui depois de
+# procurar o pai — `apagar_bx`, `areceber_bx` e `mov_contas_bancarias` pareciam ser destes e não eram.
+EMPRESA_SEM_ORIGEM = {
+  # 115.607 impressões de etiqueta. Nem o log nem OPERADORES guardam a loja (conferido em produção), e o
+  # produto não serve de pista — ele existe em todas. É log operacional: a loja errada não move dinheiro.
+  'log_impressao_etiqueta': 'nem o log nem o operador guardam a loja; log operacional, sem efeito contábil',
+  # 3 períodos (07/2024, 08/2024, 02/2025), todos com status N (aberto). Sem coluna de empresa na origem.
+  'periodo_contabil': '3 linhas, sem coluna de empresa no legado',
+  # 70.507 acessos: OPERADORES não tem empresa no legado (a nossa `codempresa` nasceu multi-loja).
+  'operadores_acessos': 'OPERADORES não guarda empresa no legado',
+}
+_avisos = []
 # transformações de carga declaradas (expressão Oracle aplicada na extração)
 # - empresas.cnpj vem FORMATADO no legado (00.000.000/0000-00, 18 chars) e aqui a coluna guarda só dígitos
 TRANSFORMA = {
@@ -288,18 +386,32 @@ for t in FASES[fase]:
             tr_auto.setdefault(_c, "nvl({c}, 'N')")
     # colunas a levar: as que casam por nome (ou por renomeação) com o destino
     cols = [(c, ren.get(c, c)) for c in ori if ren.get(c, c) in dest[t]['colunas']]
+    # ⚠️ o que a CALCULADA preenche NÃO pode virar constante também. As calculadas só entram em `cols` mais
+    # abaixo, e o header do CSV é `cols + const`: sem descontá-las aqui, `mov_contas_bancarias.idempresa`
+    # sairia DUAS VEZES — o valor derivado do pai e, ao lado, a constante 1 — e a carga ficaria com a errada.
+    _ja_cobertas = {d for _, d in cols} | set(CALCULADAS.get(t, {})) | set(CONSTANTES.get(t, {}))
     const_auto = {}
     for _c, _d in dest[t]['colunas'].items():
-        if _d.get('nulo') or _c in {d for _, d in cols} or _d.get('default') is None:
+        if _d.get('nulo') or _c in _ja_cobertas or _d.get('default') is None:
             continue
         d_raw = str(_d['default']).strip()
         m = _re.match(r"^'?([-\w.]+)'?(::[a-z ]+)?$", d_raw)
         if m and 'nextval' not in d_raw:
             const_auto[_c] = m.group(1)
+    # ⚠️ A EMPRESA QUE NÃO EXISTE NA ORIGEM. Quando o destino exige empresa e a origem não a tem de jeito
+    # nenhum, a única saída é a constante 1 — mas isso é uma DECISÃO, e decisão calada é o defeito que a
+    # varredura de 21/09/2026 achou em 52 mil linhas. Agora ela só passa quieta se estiver DECLARADA em
+    # `EMPRESA_SEM_ORIGEM`; qualquer tabela nova cai no aviso e obriga alguém a olhar.
     for _emp in ('idempresa', 'codempresa'):
         if _emp in dest[t]['colunas'] and not dest[t]['colunas'][_emp].get('nulo', True) \
-           and _emp not in {d for _, d in cols}:
+           and _emp not in _ja_cobertas:
             const_auto.setdefault(_emp, '1')
+            if t in EMPRESA_SEM_ORIGEM:
+                print(f"       · {t}.{_emp} = 1 (sem origem: {EMPRESA_SEM_ORIGEM[t]})")
+            else:
+                _avisos.append(f"{t}.{_emp}")
+                print(f"  ⚠️  {t}.{_emp} NÃO TEM ORIGEM e vai para a empresa 1 em silêncio — procure o PAI"
+                      f" (CALCULADAS) ou declare a decisão em EMPRESA_SEM_ORIGEM.")
     if not cols:
         manifesto[t] = {'pulada': 'nenhuma coluna casa'}; print(f"  ⛔ {t}: nenhuma coluna casa"); continue
     tr = {**tr_auto, **TRANSFORMA.get(t, {})}
@@ -401,6 +513,12 @@ for t in FASES[fase]:
     _rot_delta = '' if not desde else (' · RECARGA TOTAL' if modo_delta == 'total' else f' · delta por {modo_delta}')
     print(f"  ✅ {t}: {linhas} linhas · {len(cols)} colunas{_rot_delta}")
 
+manifesto['_empresa_sem_origem_nao_declarada'] = _avisos
 json.dump(manifesto, open(f'{saida}/_manifesto.json', 'w'), indent=1, ensure_ascii=False)
 print(f"\nmanifesto → {saida}/_manifesto.json")
+if _avisos:
+    print(f"\n⚠️  {len(_avisos)} coluna(s) de empresa foram para a loja 1 SEM ORIGEM e SEM DECISÃO ESCRITA:")
+    for a in _avisos:
+        print(f"      {a}")
+    print("    Procure o pai (CALCULADAS) ou declare em EMPRESA_SEM_ORIGEM antes de carregar.")
 con.close()

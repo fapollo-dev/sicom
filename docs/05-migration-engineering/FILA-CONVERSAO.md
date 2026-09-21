@@ -313,3 +313,74 @@ ficaria de fora do erro).
 
 Corrigido em `etl/extrair.py` (bloco `CALCULADAS`): as três colunas passam a vir da **soma do rateio** por
 item, com a expressão conferida na produção — o Σ bate em R$ 43.328.145,14.
+
+### Achado 4 — a empresa que vem do pai: 52.193 linhas iriam para a loja errada
+
+Cinco tabelas de movimento **não guardam a empresa** no legado — ela vem do pai (o título, a conta
+corrente). O nosso schema a exige (`NOT NULL`), e o extrator tem uma regra de fallback que preenche
+**constante 1** quando não acha a coluna. Tudo iria para a loja 1, sem um erro sequer:
+
+| tabela | linhas de OUTRA empresa |
+|---|---:|
+| `MOV_CONTAS_BANCARIAS` | 16.496 |
+| `ARECEBER_BX` | **14.538** (75% das baixas: 14.172 da empresa 50) |
+| `MOVIMENTACAO_BANCARIA_OFX` | 10.471 |
+| `APAGAR_BX` | 10.645 |
+| `PEDIDOCOMPRA` | 43 |
+| **total** | **52.193** |
+
+Com a empresa errada, extrato, DRE de caixa, balancete e conciliação da loja 2 perdem o movimento.
+Corrigido em `CALCULADAS`: cada uma busca a empresa no pai, e as sete expressões foram testadas na
+produção. `COTACAO`/`PEDIDOCOMPRA` são o caso torto — a empresa é **texto** (`';1;'`, `'1, 2'`) e a
+projeção single-empresa fica com a primeira da lista, a loja que abriu o documento.
+
+Também entrou aqui `NF.TOTALICM_STEXTERNO` → `nf.total_icmst_externo` (`RENOMEIA`): **2.661 notas com
+valor, R$ 49.050,73** (353 em 2026) chegariam zeradas.
+
+### Achado 5 — achar a tabela não é achar o dado: a coluna que não casa pelo nome
+
+O Achado 2 mapeou 8 tabelas que existiam no cliente e não tinham destino. Conferindo agora **coluna a
+coluna**, em 6 delas o nome da tabela casou e o das colunas não. O extrator casa pelo nome: a coluna que
+não casa simplesmente não entra — e quando o destino a exige (`NOT NULL` sem default) a carga **falha**,
+não silencia.
+
+| destino ← origem | o que não casava | tamanho |
+|---|---|---:|
+| `dre_estrutura` ← `CONFIG_DRE_CONTABIL` | **as 9 colunas de negócio** têm prefixo `CFGDRE_` | 98 linhas (a árvore inteira do DRE) |
+| `dre_conta` ← `VINCULO_PLC_CFG_DRE` | `CFGDRE_CODIGO` → `codestrutura` | 10.439 vínculos (0 órfãos) |
+| `pedido_devolucao_compra_i` ← `…_ITENS` | as 5 chaves em `cod_*` com underscore | 6.126 itens, R$ 407.275,10 |
+| `nfe_evento` ← `NFE_EVENTOS` | o evento só tem a **chave de acesso**, não a NF | 107.830 eventos |
+| `conciliacao_bancaria` | conta e empresa vêm **dois níveis abaixo** | 18.511, 13.804 resolvidas |
+| `operadores_acessos` | `CODOPERADORESACESSO` → `id` | 70.507 acessos |
+
+E o pior deles, numa tabela que já estava no plano desde sempre:
+
+**`nf_prod.vripi` — R$ 343.351,49 de IPI sumiriam do SPED.** No legado `NF_PROD.IPI` é a **alíquota** (%)
+e o valor mora em `IPI_NOTA`; o nosso modelo guarda os dois separados, e `ipi_nota` casa pelo nome — então
+`vripi` ficaria zerado em **33.642 itens**. `vripi` é exatamente o VL_IPI dos registros **C100 e C170** da
+EFD ICMS-IPI e da EFD Contribuições. A aritmética prova o leiaute: `quantidade × vrcusto × ipi/100 =
+IPI_NOTA`, e a soma por nota bate com `NF.TOTALIPI` em **3.469 das 3.471** notas com IPI.
+
+**Correção minha:** `tributacao_reforma` saiu da carga. Eu a mapeei para `CST_IBS_CBS` no Achado 2 e estava
+errado — aquilo é o **catálogo de CST** da reforma (000/010/011/200/210…), enquanto a nossa tabela é
+alíquota por UF e vigência (mig 007, seed da EC 132/2023 + LC 214/2025). A tabela de alíquota do legado
+seria `IBS_UF`, e é mais pobre: 27 UFs com `valor_ibs_uf` e nada de CBS, vigência ou fonte. Serve de
+**conferência** — e confere, 0,1 de IBS em 2026. `CST_IBS_CBS` fica sem destino, em aberto.
+
+### O silêncio virou ruído
+
+Duas mudanças para o padrão não voltar:
+
+- **`tools/cutover/conferir-colunas-orfas.py`** (novo) varre as 177 tabelas do plano procurando coluna que
+  o destino exige e a origem não tem. Lê `RENOMEIA`/`CALCULADAS`/`CONSTANTES` **do próprio extrator** (por
+  AST — `extrair.py` não tem guarda `if __name__`, importá-lo dispararia a extração), então não envelhece.
+  Sai com código 1 quando sobra alguma de risco alto. Hoje: **0 altas**, 14 médias, todas flag nossa com
+  default sensato.
+- **`EMPRESA_SEM_ORIGEM`** no extrator. A constante 1 continua sendo a saída certa onde a empresa
+  realmente não existe (`log_impressao_etiqueta` 115.607 · `operadores_acessos` 70.507 · `periodo_contabil`
+  3 — conferido: nem o log nem `OPERADORES` guardam loja), mas agora é **decisão escrita**. Tabela não
+  declarada imprime ⚠️ na extração e entra no manifesto.
+
+E um defeito que anulava o Achado 4: o fallback de empresa rodava **antes** das `CALCULADAS` entrarem em
+`cols`, e o header do CSV é `cols + const` — `mov_contas_bancarias.idempresa` sairia **duas vezes**, o
+valor certo e a constante 1 ao lado. Corrigido descontando `CALCULADAS`/`CONSTANTES` do fallback.
