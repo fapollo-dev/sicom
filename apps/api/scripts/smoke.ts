@@ -16531,6 +16531,94 @@ async function main() {
       }
     }
 
+    // ══ REFORMA TRIBUTÁRIA IBS/CBS (FRMCADCSTIBSCBS + FRMCADCLASSTRIBIBSCBS) — mig 278 ═════════════════
+    {
+      const RF = 'cadastro/reforma-ibscbs';
+      const pgRf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const j = { ...H, 'content-type': 'application/json' };
+        // o catálogo de CST: 000 vale para todos os documentos; 010 não vale para NF-e (é o dado do cliente)
+        await pgRf.query(`INSERT INTO cst_ibs_cbs (cst, descricao_cst, ind_gibscbs, ind_nfe, ind_nfce, ind_cte) VALUES
+          ('000','TRIBUTACAO INTEGRAL',1,'S','S','S'),
+          ('010','ALIQUOTAS UNIFORMES',0,'N','N','N'),
+          ('200','ALIQUOTA REDUZIDA',1,'S','S','S') ON CONFLICT (cst) DO NOTHING`);
+        const cstTodas = (await (await fetch(`${base}/${RF}/cst`, { headers: H })).json().catch(() => [])) as any[];
+        const cstNfe = (await (await fetch(`${base}/${RF}/cst?so_nfe=true`, { headers: H })).json().catch(() => [])) as any[];
+        check('REFORMA IBS/CBS §153.1 [o catálogo de CST — 9 flags por documento, não uma]: no cliente `CST_IBS_CBS` tem 17 CSTs e a mesma CST vale para um documento e não para outro (NF-e, NFC-e, CT-e, BP-e, NF3e, NFCom, NFS-e são flags separadas). O filtro `so_nfe` devolve só as que valem para NF-e: a 010 fica de fora',
+          cstTodas.length >= 3 && cstNfe.length >= 2 && cstNfe.every((c) => c.ind_nfe === 'S') && !cstNfe.some((c) => c.cst === '010'),
+          { todas: cstTodas.length, nfe: cstNfe.map((c: any) => c.cst) });
+
+        // ⚠️ a classificação com reduções DIFERENTES entre IBS e CBS — a linha que o cliente tem de verdade
+        const gA = await fetch(`${base}/${RF}/class-trib`, { method: 'POST', headers: j, body: JSON.stringify({
+          cst: '200', descricao_cst: 'ALIQUOTA REDUZIDA EM 60%', class_trib: '200003',
+          nome_class_trib: 'PRODUTOS HORTICOLAS DA CESTA BASICA', lc_214_25: 'Art. 125, Anexo VII',
+          tipo_aliquota: 'Padrão', pred_ibs: 60, pred_cbs: 60 }) });
+        const gB = await fetch(`${base}/${RF}/class-trib`, { method: 'POST', headers: j, body: JSON.stringify({
+          cst: '200', descricao_cst: 'ALIQUOTA ZERO', class_trib: '200099',
+          nome_class_trib: 'REDUCAO ASSIMETRICA IBS 60 CBS 100', lc_214_25: 'Art. 9º',
+          tipo_aliquota: 'Padrão', pred_ibs: 60, pred_cbs: 100 }) });
+        const semCst = await fetch(`${base}/${RF}/class-trib`, { method: 'POST', headers: j, body: JSON.stringify({
+          cst: '999', descricao_cst: 'INEXISTENTE', class_trib: '999999', nome_class_trib: 'X' }) });
+        const semCstJ = (await semCst.json().catch(() => ({}))) as any;
+        const lista = (await (await fetch(`${base}/${RF}/class-trib?q=2000`, { headers: H })).json().catch(() => [])) as any[];
+        const assim = lista.find((c: any) => c.class_trib === '200099');
+        check('REFORMA IBS/CBS §153.2 [a redução de IBS e a de CBS são INDEPENDENTES]: das 132 classificações do cliente, **uma tem PRED_IBS 60 e PRED_CBS 100** — guardar "um percentual de redução" e aplicá-lo aos dois erraria essa linha em silêncio, e é justamente a faixa de CBS zerada com IBS reduzido, onde o erro vira imposto cobrado a mais. Aqui as duas colunas voltam separadas (60 e 100). E a CST tem de existir no catálogo: 422 CST_IBSCBS_NAO_CADASTRADA',
+          gA.status === 200 && gB.status === 200 && assim?.pred_ibs === 60 && assim?.pred_cbs === 100
+          && semCst.status === 422 && semCstJ.code === 'CST_IBSCBS_NAO_CADASTRADA',
+          { gA: gA.status, gB: gB.status, assim: [assim?.pred_ibs, assim?.pred_cbs], semCst: [semCst.status, semCstJ.code] });
+
+        // o de-para cClassTrib × NCM por anexo, e a busca por PREFIXO (quem consulta tem o capítulo na mão)
+        await pgRf.query(`INSERT INTO cclass_trib_ncm (cclass_trib, cst, anexo, legislacao, codigo_ncm) VALUES
+          ('200003','200','VII','LC 214/2025','07020000'),
+          ('200003','200','VII','LC 214/2025','07031019'),
+          ('200099','200','IX','LC 214/2025','12079910') ON CONFLICT DO NOTHING`);
+        const porCap = (await (await fetch(`${base}/${RF}/ncm?ncm=07`, { headers: H })).json().catch(() => [])) as any[];
+        const porAnexo = (await (await fetch(`${base}/${RF}/ncm?anexo=IX`, { headers: H })).json().catch(() => [])) as any[];
+        check('REFORMA IBS/CBS §153.3 [o anexo da LC que enquadra o NCM, por PREFIXO]: `CCLASS_TRIB_NCM_ANEXOS` tem 199 vínculos no cliente (anexo IX: 82 · VII: 69 · I: 29). O anexo lista o NCM com 8 dígitos e quem consulta tem o capítulo (2) ou a posição (4) — a busca é por prefixo, e traz junto o nome e as DUAS reduções da classificação',
+          porCap.length === 2 && porCap.every((n: any) => n.cclass_trib === '200003' && Number(n.pred_ibs) === 60)
+          && porAnexo.length === 1 && porAnexo[0].codigo_ncm === '12079910' && Number(porAnexo[0].pred_cbs) === 100,
+          { cap: porCap.map((n: any) => n.codigo_ncm), anexo: porAnexo.map((n: any) => n.codigo_ncm) });
+
+        // a alíquota do cliente ao lado do parâmetro com vigência: a divergência tem de ficar VISÍVEL
+        await pgRf.query(`INSERT INTO ibs_uf (uf, valor_ibs_uf) VALUES ('SP',0.1),('MG',0.5),('AC',0.1)
+          ON CONFLICT (uf) DO UPDATE SET valor_ibs_uf = excluded.valor_ibs_uf`);
+        const ufs = (await (await fetch(`${base}/${RF}/ibs-uf`, { headers: H })).json().catch(() => [])) as any[];
+        const sp = ufs.find((u: any) => u.uf === 'SP');
+        const mg = ufs.find((u: any) => u.uf === 'MG');
+        const ac = ufs.find((u: any) => u.uf === 'AC');
+        check('REFORMA IBS/CBS §153.4 [duas fontes de alíquota, e a divergência fica VISÍVEL]: `IBS_UF` é a tabela operacional do cliente (27 UFs, 0,1 em todas) e `tributacao_reforma` (mig 007) é o parâmetro COM vigência e COM CBS, semeado da EC 132/2023 antes de olhar o cliente — e os dois batem em 0,1. SP e MG têm parâmetro: SP confere (0,1 = 0,1) e MG não (0,5 contra 0,1) e vem marcada `diverge`. AC não tem parâmetro e não é divergência, é ausência',
+          Number(sp?.valor_ibs_uf) === 0.1 && Number(sp?.ibs_parametro) === 0.1 && sp?.diverge === false
+          && Number(mg?.valor_ibs_uf) === 0.5 && Number(mg?.ibs_parametro) === 0.1 && mg?.diverge === true
+          && Number(mg?.cbs_parametro) === 0.9 && ac?.ibs_parametro === null && ac?.diverge === false,
+          { sp: [sp?.valor_ibs_uf, sp?.ibs_parametro, sp?.diverge], mg: [mg?.valor_ibs_uf, mg?.ibs_parametro, mg?.diverge], ac: [ac?.ibs_parametro, ac?.diverge] });
+
+        // exclusão: produto apontando a classificação segura a exclusão
+        const codA = ((await pgRf.query(`SELECT codclass_trib FROM class_trib WHERE class_trib='200003'`)).rows[0] as any).codclass_trib;
+        await pgRf.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, codclass_trib) VALUES
+          (994301,'7899000994301','TOMATE REFORMA','KG',2,'T01','S',${codA}) ON CONFLICT (idproduto) DO UPDATE SET codclass_trib = EXCLUDED.codclass_trib`);
+        const emUso = await fetch(`${base}/${RF}/class-trib/${codA}`, { method: 'DELETE', headers: H });
+        const emUsoJ = (await emUso.json().catch(() => ({}))) as any;
+        await pgRf.query(`UPDATE produtos SET codclass_trib = NULL WHERE idproduto = 994301`);
+        const okDel = await fetch(`${base}/${RF}/class-trib/${codA}`, { method: 'DELETE', headers: H });
+        const sumiu = (await (await fetch(`${base}/${RF}/class-trib?q=200003`, { headers: H })).json().catch(() => [])) as any[];
+        const comEstorno = (await (await fetch(`${base}/${RF}/class-trib?q=200003&incluir_estornadas=true`, { headers: H })).json().catch(() => [])) as any[];
+        const semGrant = await fetch(`${base}/${RF}/class-trib/${codA}`, { method: 'DELETE', headers: H_SEM_ACESSO });
+        check('REFORMA IBS/CBS §153.5 [excluir é ESTORNO LÓGICO, e produto apontando segura]: apagar a classificação que 44.501 produtos do cliente usam deixaria a nota sem cClassTrib — rejeição na SEFAZ, não erro interno. Com produto apontando é 422 CLASS_TRIB_EM_USO dizendo quantos; sem produto, o estorno grava `INDR=E` + usuário + data e some da lista (volta com `incluir_estornadas`), a linha não é apagada; e sem o grant BTNEXCLUIR, 403',
+          emUso.status === 422 && emUsoJ.code === 'CLASS_TRIB_EM_USO' && emUsoJ.detalhe?.produtos === 1
+          && okDel.status === 200 && sumiu.length === 0 && comEstorno.length === 1 && comEstorno[0].indr === 'E'
+          && semGrant.status === 403,
+          { emUso: [emUso.status, emUsoJ.code, emUsoJ.detalhe?.produtos], del: okDel.status, sumiu: sumiu.length, comEstorno: comEstorno.length, rbac: semGrant.status });
+
+        await pgRf.query(`DELETE FROM produtos WHERE idproduto = 994301`);
+        await pgRf.query(`DELETE FROM cclass_trib_ncm WHERE cclass_trib IN ('200003','200099')`);
+        await pgRf.query(`DELETE FROM class_trib WHERE class_trib IN ('200003','200099')`);
+        await pgRf.query(`DELETE FROM ibs_uf WHERE uf IN ('SP','MG','AC')`);
+        await pgRf.query(`DELETE FROM cst_ibs_cbs WHERE cst IN ('000','010','200')`);
+      } finally {
+        await pgRf.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

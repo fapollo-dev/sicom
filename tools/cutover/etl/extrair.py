@@ -43,6 +43,9 @@ TABELA_ORIGEM = {
     # LC 214/2025). A tabela de alíquota do legado seria `IBS_UF` (27 UFs, só `valor_ibs_uf`=0,1): não
     # tem CBS, nem vigência, nem fonte. Carregá-la SUBSTITUIRIA o seed legal por um dado mais pobre —
     # o que ela serve é de CONFERÊNCIA, e confere (0,1 de IBS em 2026). `CST_IBS_CBS` fica sem destino.
+    # reforma tributária (mig 278): as duas telas de cadastro e o de-para NCM. O nome da nossa tabela de
+    # vínculo é mais curto que o do legado.
+    'cclass_trib_ncm': 'CCLASS_TRIB_NCM_ANEXOS',                     # 199 — cClassTrib × NCM por anexo da LC
     'cartao_bx': 'CARTAO_BX',                                        # 1.169.680 — as baixas de cartão (mig 277)
 }
 RENOMEIA = {
@@ -121,6 +124,11 @@ CALCULADAS = {
   #   · `mov_contas_bancarias` — 16.496 de 291.757 (15.829 da 2)
   #   · `apagar_bx`    — 10.645 de 51.217 (9.066 da 2, 1.364 da 50, 181 da 51, 34 da 52)
   # Com a empresa errada, extrato, DRE de caixa, balancete e conciliação da loja 2 perdem o movimento.
+  # E a mesma coisa em `CARTAO_BX`, a tabela criada na mig 277 — achada pelo conferidor só depois de o
+  # `schema-destino.json` ser regenerado, que é o lembrete de que a conferência mede o schema que existe,
+  # não o que está no código. É o maior número da série: **400.108 das 1.170.567 baixas** são de outra
+  # empresa (a baixa não guarda loja; ela vem do recebível de cartão).
+  'cartao_bx':   {'idempresa':  '(select k.idempresa from cartao k where k.codvendcartao = cartao_bx.codvendcartao)'},
   'apagar_bx':   {'codempresa': '(select a.idempresa from apagar a where a.codapg = apagar_bx.codapg)'},
   'areceber_bx': {'codempresa': '(select a.codempresa from areceber a where a.codrcb = areceber_bx.codrcb)'},
   'mov_contas_bancarias': {

@@ -17,10 +17,12 @@
    "bandeira",
    "caixa_pdv",
    "cartao_bx",
+   "cclass_trib_ncm",
    "cest",
    "cheque",
    "chq_proprio",
    "cidades",
+   "class_trib",
    "conciliacao_bancaria",
    "conciliacao_bancaria_mov",
    "conciliacao_bancaria_ofx",
@@ -36,6 +38,7 @@
    "contabilista",
    "contas_bancarias_op",
    "cotacao",
+   "cst_ibs_cbs",
    "cx_vendas",
    "det_aliquota",
    "devolucao_vendas",
@@ -51,6 +54,7 @@
    "historico_contabil",
    "historico_dinamico",
    "historico_prod",
+   "ibs_uf",
    "indexador_tributario",
    "inventario_livro",
    "inventario_rotativo",
@@ -298,6 +302,7 @@
   "dre_conta": "VINCULO_PLC_CFG_DRE",
   "dre_estrutura": "CONFIG_DRE_CONTABIL",
   "pedido_devolucao_compra_i": "PEDIDO_DEVOLUCAO_COMPRA_ITENS",
-  "cartao_bx": "CARTAO_BX"
+  "cartao_bx": "CARTAO_BX",
+  "cclass_trib_ncm": "CCLASS_TRIB_NCM_ANEXOS"
  }
 }

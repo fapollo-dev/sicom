@@ -33,6 +33,9 @@ TABELA_ORIGEM = {
     'dre_conta': 'VINCULO_PLC_CFG_DRE',                              # 10.439 — conta → linha do DRE
     'dre_estrutura': 'CONFIG_DRE_CONTABIL',                          # 98 — a árvore do DRE
     'pedido_devolucao_compra_i': 'PEDIDO_DEVOLUCAO_COMPRA_ITENS',    # 6.103 — itens da devolução de compra
+    # reforma tributária (mig 278): as duas telas de cadastro e o de-para NCM. O nome da nossa tabela de
+    # vínculo é mais curto que o do legado.
+    'cclass_trib_ncm': 'CCLASS_TRIB_NCM_ANEXOS',                     # 199 — cClassTrib × NCM por anexo da LC
     'cartao_bx': 'CARTAO_BX',                                        # 1.169.680 — as baixas de cartão (mig 277)
 }
 # o que NÃO entra, com motivo (fica no JSON para quem ler o plano)

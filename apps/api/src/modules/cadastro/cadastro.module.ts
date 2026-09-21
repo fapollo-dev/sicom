@@ -25,6 +25,8 @@ import { PisCofinsCadService } from './piscofins-cad.service';
 import { RelPerdasService } from './rel-perdas.service';
 import { CestController } from './cest.controller';
 import { CestService } from './cest.service';
+import { ReformaIbsCbsController } from './reforma-ibscbs.controller';
+import { ReformaIbsCbsService } from './reforma-ibscbs.service';
 import { MotivosController } from './motivos.controller';
 import { MotivosService } from './motivos.service';
 import { FiguraFiscalController } from './figura-fiscal.controller';
@@ -225,6 +227,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     PermissoesController, // corte-2: matriz de grants FORM×OPCAO por perfil (UCtrlPermissoes)
     SenhaOperacaoController, // E7: senha de operação por empresa (definir/verificar)
     ConfiguracoesAdminController, // CONFIGURAÇÕES (UConfigura): catálogo chave-valor + overrides por escopo
+    ReformaIbsCbsController, // FRMCADCSTIBSCBS + FRMCADCLASSTRIBIBSCBS — reforma tributária (mig 278)
     CestController, // FRMCADCEST — a tabela CEST × NCM que produtos.cest aponta (11 acessos)
     NfeInutilizadaController, // FRMNFE_INUTILIZADA — o livro das numerações queimadas (187.138 no cliente)
     ConfigLegislacaoController, // FRMCONFIGLEGISLACAONFE — as mensagens legais das observações da NF-e
@@ -233,7 +236,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     MotivosController, // FRMMOTIVO — motivos do AJUSTE de estoque (tabela MOTIVOS; ≠ motivos_operacao, do scrap)
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
-  providers: [CestService, MotivosService, FiguraFiscalService, ConfigLegislacaoService, CongelaEstoqueService, NfeInutilizadaService, RelPerdasService, PisCofinsCadService, ExportaNfeService, 
+  providers: [ReformaIbsCbsService, CestService, MotivosService, FiguraFiscalService, ConfigLegislacaoService, CongelaEstoqueService, NfeInutilizadaService, RelPerdasService, PisCofinsCadService, ExportaNfeService, 
     BancosService,
     BancoRepository,
     ParceiroHistoricoService,

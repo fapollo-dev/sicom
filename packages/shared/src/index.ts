@@ -64,6 +64,7 @@ export * from './schema/balancete.schema';
 export * from './schema/exporta-nfe.schema';
 export * from './schema/bool-query';
 export * from './schema/cest.schema';
+export * from './schema/reforma-ibscbs.schema';
 export * from './schema/motivo.schema';
 export * from './schema/rel-entradas-finan.schema';
 export * from './schema/extrato-funcionario.schema';

@@ -214,6 +214,7 @@ const TELAS = [
   { href: '/contabil/balancete', name: 'Balancete', icon: CalendarClock },
   { href: '/fiscal/nf-exportacao', name: 'Exportação de NF-e', icon: Printer },
   { href: '/cadastro/cest', name: 'CEST', icon: Tag },
+  { href: '/fiscal/reforma-ibscbs', name: 'Reforma IBS/CBS', icon: Tag },
   { href: '/cadastro/motivos', name: 'Motivos de ajuste de estoque', icon: ListChecks },
   { href: '/relatorios/entradas-financeiro', name: 'Entradas × Financeiro', icon: FileSearch },
   { href: '/cobranca/extrato-funcionario', name: 'Extrato de funcionário', icon: UserSearch },

@@ -176,7 +176,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
  * Códigos cujo `details` do AppError PODE ser ecoado ao cliente no envelope (`detalhe`) — allowlist explícita
  * (evita vazar dados internos de outros erros: saldos, form/opção de RBAC, etc.). Só o que o front consome.
  */
-const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE']);
+const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE', 'CLASS_TRIB_EM_USO']);
 
 const CODE_PT: Record<string, string> = {
   // regra de negócio (BusinessRuleError 422)
@@ -184,6 +184,9 @@ const CODE_PT: Record<string, string> = {
   LOTE_INCOMPLETO: 'O lote não pode ser conciliado pela metade — selecione todas as linhas dele.',
   CARTAO_BAIXA_EXCEDE: 'A baixa passaria do valor do recebível de cartão.',
   CARTAO_NAO_ENCONTRADO: 'Recebível de cartão não encontrado.',
+  CLASS_TRIB_EM_USO: 'Há produtos usando essa classificação tributária — troque-os antes de excluí-la.',
+  CLASS_TRIB_NAO_ENCONTRADA: 'Classificação tributária não encontrada.',
+  CST_IBSCBS_NAO_CADASTRADA: 'Essa CST não existe no catálogo da reforma.',
   ITEM_JA_DEVOLVIDO: 'Este item da venda já foi devolvido.',
   QTDE_DEVOLVIDA_EXCEDE: 'A quantidade devolvida é maior que a vendida.',
   ITEM_VENDA_NAO_ENCONTRADO: 'Item da venda não encontrado.',

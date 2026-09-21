@@ -135,12 +135,12 @@
    ],
    "fks": [
     {
-     "coluna": "idsituacao_nf",
-     "ref": "situacao_nf.idsituacao_nf"
-    },
-    {
      "coluna": "codparceiro",
      "ref": "parceiros.codparceiro"
+    },
+    {
+     "coluna": "idsituacao_nf",
+     "ref": "situacao_nf.idsituacao_nf"
     },
     {
      "coluna": "codcontacorrente",
@@ -270,6 +270,239 @@
     {
      "nome": "agenda_prev_pagto_pkey",
      "def": "CREATE UNIQUE INDEX agenda_prev_pagto_pkey ON public.agenda_prev_pagto USING btree (cod_agenda_prev_pagto)"
+    }
+   ]
+  },
+  "agenda_produto": {
+   "colunas": {
+    "codagenda_produto": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_agenda_produto'::regclass)"
+    },
+    "codempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "dtinicio": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "dtfim": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "tipo": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'Q'::bpchar"
+    },
+    "estatus": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'A'::bpchar"
+    },
+    "descricao": {
+     "tipo": "character varying",
+     "tam": 150,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "empresas": {
+     "tipo": "character varying",
+     "tam": 200,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dataexecucao": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    },
+    "indr": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indr_usuario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr_data": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "codagenda_produto"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "agenda_produto_pkey",
+     "def": "CREATE UNIQUE INDEX agenda_produto_pkey ON public.agenda_produto USING btree (codagenda_produto)"
+    }
+   ]
+  },
+  "agenda_produto_item": {
+   "colunas": {
+    "codagenda_produto_item": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_agenda_produto_item'::regclass)"
+    },
+    "codagenda_produto": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "idproduto": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "quantidade": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 3,
+     "nulo": false,
+     "default": null
+    },
+    "atualizacao_grupo": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "codgrupo": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "ativo": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'S'::bpchar"
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    },
+    "indr": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indr_usuario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr_data": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "codagenda_produto_item"
+   ],
+   "fks": [
+    {
+     "coluna": "codagenda_produto",
+     "ref": "agenda_produto.codagenda_produto"
+    }
+   ],
+   "unicos": [
+    {
+     "nome": "agenda_produto_item_pkey",
+     "def": "CREATE UNIQUE INDEX agenda_produto_item_pkey ON public.agenda_produto_item USING btree (codagenda_produto_item)"
+    },
+    {
+     "nome": "ux_agenda_produto_item",
+     "def": "CREATE UNIQUE INDEX ux_agenda_produto_item ON public.agenda_produto_item USING btree (codagenda_produto, idproduto)"
     }
    ]
   },
@@ -661,12 +894,12 @@
    ],
    "fks": [
     {
-     "coluna": "codmotivo",
-     "ref": "motivos_operacao.codmotivoop"
-    },
-    {
      "coluna": "idproduto",
      "ref": "produtos.idproduto"
+    },
+    {
+     "coluna": "codmotivo",
+     "ref": "motivos.codmotivo"
     }
    ],
    "unicos": [
@@ -1059,12 +1292,12 @@
    ],
    "fks": [
     {
-     "coluna": "apn_id",
-     "ref": "analise_pedido_nf.apn_id"
-    },
-    {
      "coluna": "codpedcomp",
      "ref": "pedidocompra.codpedcomp"
+    },
+    {
+     "coluna": "apn_id",
+     "ref": "analise_pedido_nf.apn_id"
     }
    ],
    "unicos": [
@@ -1404,6 +1637,48 @@
      "escala": 0,
      "nulo": true,
      "default": null
+    },
+    "docnf": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codoperador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "nrparcela": {
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "gfat": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codcxagrupamentocr": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codplcfuncionarios": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -1535,6 +1810,20 @@
      "tipo": "integer",
      "tam": 32,
      "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr_usuario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr_data": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
      "nulo": true,
      "default": null
     }
@@ -2372,6 +2661,27 @@
      "escala": 0,
      "nulo": true,
      "default": null
+    },
+    "nrodoc": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codconta": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codoperador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -2503,6 +2813,27 @@
      "tipo": "integer",
      "tam": 32,
      "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr_usuario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr_data": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "obs_editavel": {
+     "tipo": "character varying",
+     "tam": 500,
+     "escala": null,
      "nulo": true,
      "default": null
     }
@@ -4099,6 +4430,20 @@
      "escala": 2,
      "nulo": true,
      "default": null
+    },
+    "operadora": {
+     "tipo": "character varying",
+     "tam": 50,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codrede": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -4114,6 +4459,267 @@
     {
      "nome": "cartao_pkey",
      "def": "CREATE UNIQUE INDEX cartao_pkey ON public.cartao USING btree (codvendcartao)"
+    }
+   ]
+  },
+  "cartao_bx": {
+   "colunas": {
+    "codvendcartaobx": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_cartao_bx'::regclass)"
+    },
+    "codvendcartao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "idempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "valorpg": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": null
+    },
+    "data_pgto": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": "now()"
+    },
+    "codopbx": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "idlote": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "obs": {
+     "tipo": "character varying",
+     "tam": 500,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "obs_editavel": {
+     "tipo": "character varying",
+     "tam": 500,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "contabilizado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indr": {
+     "tipo": "character varying",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indr_usuario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr_data": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    }
+   },
+   "pk": [
+    "codvendcartaobx"
+   ],
+   "fks": [
+    {
+     "coluna": "codvendcartao",
+     "ref": "cartao.codvendcartao"
+    }
+   ],
+   "unicos": [
+    {
+     "nome": "cartao_bx_pkey",
+     "def": "CREATE UNIQUE INDEX cartao_bx_pkey ON public.cartao_bx USING btree (codvendcartaobx)"
+    }
+   ]
+  },
+  "cclass_trib_ncm": {
+   "colunas": {
+    "codcclass_trib_ncm": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_cclass_trib_ncm'::regclass)"
+    },
+    "cclass_trib": {
+     "tipo": "character varying",
+     "tam": 6,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "cst": {
+     "tipo": "character varying",
+     "tam": 3,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "anexo": {
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "legislacao": {
+     "tipo": "character varying",
+     "tam": 100,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codigo_ncm": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    }
+   },
+   "pk": [
+    "codcclass_trib_ncm"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "cclass_trib_ncm_pkey",
+     "def": "CREATE UNIQUE INDEX cclass_trib_ncm_pkey ON public.cclass_trib_ncm USING btree (codcclass_trib_ncm)"
+    }
+   ]
+  },
+  "cest": {
+   "colunas": {
+    "codcest": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_cest'::regclass)"
+    },
+    "cest": {
+     "tipo": "character varying",
+     "tam": 7,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "ncm": {
+     "tipo": "character varying",
+     "tam": 8,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "descricao": {
+     "tipo": "character varying",
+     "tam": 1000,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "seguimento": {
+     "tipo": "character varying",
+     "tam": 255,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "item": {
+     "tipo": "character varying",
+     "tam": 8,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "anexoxxvii": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    }
+   },
+   "pk": [
+    "codcest"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "cest_pkey",
+     "def": "CREATE UNIQUE INDEX cest_pkey ON public.cest USING btree (codcest)"
+    },
+    {
+     "nome": "ux_cest_cest_ncm",
+     "def": "CREATE UNIQUE INDEX ux_cest_cest_ncm ON public.cest USING btree (cest, COALESCE(ncm, ''::character varying))"
     }
    ]
   },
@@ -4230,6 +4836,20 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "tipo": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "proc_financeiro": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'S'::bpchar"
     }
    },
    "pk": [
@@ -4857,6 +5477,220 @@
     }
    ]
   },
+  "class_trib": {
+   "colunas": {
+    "codclass_trib": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_class_trib'::regclass)"
+    },
+    "cst": {
+     "tipo": "character varying",
+     "tam": 3,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "descricao_cst": {
+     "tipo": "character varying",
+     "tam": 255,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "class_trib": {
+     "tipo": "character varying",
+     "tam": 6,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "nome_class_trib": {
+     "tipo": "character varying",
+     "tam": 500,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "descricao_class_trib": {
+     "tipo": "text",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "lc_redacao": {
+     "tipo": "text",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "lc_214_25": {
+     "tipo": "character varying",
+     "tam": 100,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "tipo_aliquota": {
+     "tipo": "character varying",
+     "tam": 500,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "pred_ibs": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "pred_cbs": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "ind_redutor_bc": {
+     "tipo": "character varying",
+     "tam": 3,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "ind_gtrib_regular": {
+     "tipo": "smallint",
+     "tam": 16,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "ind_cred_pres": {
+     "tipo": "smallint",
+     "tam": 16,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "ind_mono": {
+     "tipo": "smallint",
+     "tam": 16,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "ind_mono_reten": {
+     "tipo": "smallint",
+     "tam": 16,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "ind_mono_ret": {
+     "tipo": "smallint",
+     "tam": 16,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "ind_mono_dif": {
+     "tipo": "smallint",
+     "tam": 16,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "credito_para": {
+     "tipo": "character varying",
+     "tam": 500,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "d_ini_vig": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "d_fim_vig": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "data_atualizacao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    },
+    "indr": {
+     "tipo": "character varying",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indr_usuario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr_data": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "codclass_trib"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "class_trib_pkey",
+     "def": "CREATE UNIQUE INDEX class_trib_pkey ON public.class_trib USING btree (codclass_trib)"
+    },
+    {
+     "nome": "ux_class_trib_codigo",
+     "def": "CREATE UNIQUE INDEX ux_class_trib_codigo ON public.class_trib USING btree (class_trib) WHERE ((COALESCE(indr, 'I'::character varying))::text <> 'E'::text)"
+    }
+   ]
+  },
   "clube_desconto": {
    "colunas": {
     "idclubedesconto": {
@@ -5260,12 +6094,12 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto",
-     "ref": "produtos.idproduto"
-    },
-    {
      "coluna": "codfor",
      "ref": "parceiros.codparceiro"
+    },
+    {
+     "coluna": "idproduto",
+     "ref": "produtos.idproduto"
     }
    ],
    "unicos": [
@@ -5343,11 +6177,11 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto",
+     "coluna": "idproduto_01",
      "ref": "produtos.idproduto"
     },
     {
-     "coluna": "idproduto_01",
+     "coluna": "idproduto",
      "ref": "produtos.idproduto"
     }
    ],
@@ -5818,6 +6652,212 @@
     }
    ]
   },
+  "config_import_conciliador": {
+   "colunas": {
+    "cic_id": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_config_import_conciliador'::regclass)"
+    },
+    "cic_descricao": {
+     "tipo": "character varying",
+     "tam": 100,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "cic_tipo_importacao": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": false,
+     "default": "'EXCEL'::character varying"
+    },
+    "cic_linha_inicio_importacao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "1"
+    },
+    "cic_tipo_separacao_campos": {
+     "tipo": "character varying",
+     "tam": 30,
+     "escala": null,
+     "nulo": false,
+     "default": "'COLUNAS EXCEL'::character varying"
+    },
+    "buscadataempvlr": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "buscadatavlrcartao": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "buscansu": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "buscaautorizacao": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    }
+   },
+   "pk": [
+    "cic_id"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "config_import_conciliador_pkey",
+     "def": "CREATE UNIQUE INDEX config_import_conciliador_pkey ON public.config_import_conciliador USING btree (cic_id)"
+    },
+    {
+     "nome": "ux_config_import_conciliador_desc",
+     "def": "CREATE UNIQUE INDEX ux_config_import_conciliador_desc ON public.config_import_conciliador USING btree (upper((cic_descricao)::text))"
+    }
+   ]
+  },
+  "config_import_conciliador_item": {
+   "colunas": {
+    "cici_id": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_config_import_conciliador_item'::regclass)"
+    },
+    "cic_id": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "cici_campo_tabela": {
+     "tipo": "character varying",
+     "tam": 40,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "cici_tipo_campo": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "cici_formato_campo": {
+     "tipo": "character varying",
+     "tam": 30,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "cici_posicao": {
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "cici_tamanho": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "cici_casas_decimais": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "cici_valor_formatado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'S'::bpchar"
+    },
+    "cici_tabela": {
+     "tipo": "character varying",
+     "tam": 40,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "cici_valor_fixo": {
+     "tipo": "character varying",
+     "tam": 100,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "cici_id"
+   ],
+   "fks": [
+    {
+     "coluna": "cic_id",
+     "ref": "config_import_conciliador.cic_id"
+    }
+   ],
+   "unicos": [
+    {
+     "nome": "config_import_conciliador_item_pkey",
+     "def": "CREATE UNIQUE INDEX config_import_conciliador_item_pkey ON public.config_import_conciliador_item USING btree (cici_id)"
+    },
+    {
+     "nome": "ux_cici_campo",
+     "def": "CREATE UNIQUE INDEX ux_cici_campo ON public.config_import_conciliador_item USING btree (cic_id, upper((cici_campo_tabela)::text))"
+    },
+    {
+     "nome": "ux_cici_posicao",
+     "def": "CREATE UNIQUE INDEX ux_cici_posicao ON public.config_import_conciliador_item USING btree (cic_id, upper((cici_posicao)::text)) WHERE (cici_posicao IS NOT NULL)"
+    }
+   ]
+  },
   "config_integracao_contabil": {
    "colunas": {
     "id_configintegcontabil": {
@@ -6252,6 +7292,132 @@
     }
    ]
   },
+  "config_legislacao": {
+   "colunas": {
+    "codconfiglegislacao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_config_legislacao'::regclass)"
+    },
+    "codempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "descricao": {
+     "tipo": "character varying",
+     "tam": 120,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "observacoes": {
+     "tipo": "text",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "uf": {
+     "tipo": "character",
+     "tam": 2,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codcfop": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codproduto": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codparceiro": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "tipo": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codoperador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'I'::bpchar"
+    },
+    "indr_usuario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr_data": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    }
+   },
+   "pk": [
+    "codconfiglegislacao"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "config_legislacao_pkey",
+     "def": "CREATE UNIQUE INDEX config_legislacao_pkey ON public.config_legislacao USING btree (codconfiglegislacao)"
+    }
+   ]
+  },
   "config_plano_contas": {
    "colunas": {
     "tipo": {
@@ -6526,6 +7692,188 @@
     {
      "nome": "configuracoes_sped_pkey",
      "def": "CREATE UNIQUE INDEX configuracoes_sped_pkey ON public.configuracoes_sped USING btree (idempresa)"
+    }
+   ]
+  },
+  "congelamento_estoque": {
+   "colunas": {
+    "idcongelamento": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_congelamento_estoque'::regclass)"
+    },
+    "idempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "acao": {
+     "tipo": "character varying",
+     "tam": 12,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "codoperador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "linhas_estoque": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "linhas_deposito": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "data": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    }
+   },
+   "pk": [
+    "idcongelamento"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "congelamento_estoque_pkey",
+     "def": "CREATE UNIQUE INDEX congelamento_estoque_pkey ON public.congelamento_estoque USING btree (idcongelamento)"
+    }
+   ]
+  },
+  "contabilista": {
+   "colunas": {
+    "codempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "nome": {
+     "tipo": "character varying",
+     "tam": 150,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "cpf": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "crc": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "cnpj": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "cep": {
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "endereco": {
+     "tipo": "character varying",
+     "tam": 150,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "numero": {
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "complemento": {
+     "tipo": "character varying",
+     "tam": 60,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "bairro": {
+     "tipo": "character varying",
+     "tam": 60,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "telefone": {
+     "tipo": "character varying",
+     "tam": 30,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "email": {
+     "tipo": "character varying",
+     "tam": 120,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    }
+   },
+   "pk": [
+    "codempresa"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "contabilista_pkey",
+     "def": "CREATE UNIQUE INDEX contabilista_pkey ON public.contabilista USING btree (codempresa)"
     }
    ]
   },
@@ -7337,6 +8685,174 @@
     }
    ]
   },
+  "cst_ibs_cbs": {
+   "colunas": {
+    "cst": {
+     "tipo": "character varying",
+     "tam": 3,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "descricao_cst": {
+     "tipo": "character varying",
+     "tam": 255,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "ind_gibscbs": {
+     "tipo": "smallint",
+     "tam": 16,
+     "escala": 0,
+     "nulo": true,
+     "default": "0"
+    },
+    "ind_gibscbsmono": {
+     "tipo": "smallint",
+     "tam": 16,
+     "escala": 0,
+     "nulo": true,
+     "default": "0"
+    },
+    "ind_gred": {
+     "tipo": "smallint",
+     "tam": 16,
+     "escala": 0,
+     "nulo": true,
+     "default": "0"
+    },
+    "ind_gdif": {
+     "tipo": "smallint",
+     "tam": 16,
+     "escala": 0,
+     "nulo": true,
+     "default": "0"
+    },
+    "ind_gtranf_cred": {
+     "tipo": "smallint",
+     "tam": 16,
+     "escala": 0,
+     "nulo": true,
+     "default": "0"
+    },
+    "ind_nfe": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "ind_nfce": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "ind_cte": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "ind_cteos": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "ind_bpe": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "ind_bpetm": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "ind_nf3e": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "ind_nfcom": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "ind_nfse": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    },
+    "indr": {
+     "tipo": "character varying",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indr_usuario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr_data": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "cst"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "cst_ibs_cbs_pkey",
+     "def": "CREATE UNIQUE INDEX cst_ibs_cbs_pkey ON public.cst_ibs_cbs USING btree (cst)"
+    }
+   ]
+  },
   "cx_apagar": {
    "colunas": {
     "codcxapagar": {
@@ -7732,11 +9248,11 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto_01",
+     "coluna": "idproduto",
      "ref": "produtos.idproduto"
     },
     {
-     "coluna": "idproduto",
+     "coluna": "idproduto_01",
      "ref": "produtos.idproduto"
     }
    ],
@@ -7822,6 +9338,106 @@
     {
      "nome": "det_aliquota_pkey",
      "def": "CREATE UNIQUE INDEX det_aliquota_pkey ON public.det_aliquota USING btree (aliquota, uf)"
+    }
+   ]
+  },
+  "devolucao_vendas": {
+   "colunas": {
+    "coddevolucaovenda": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_devolucao_vendas'::regclass)"
+    },
+    "datadevolucao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": "now()"
+    },
+    "operador": {
+     "tipo": "character varying",
+     "tam": 60,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codvendas": {
+     "tipo": "bigint",
+     "tam": 64,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "codproduto": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "idempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "nroitem": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "codmotivoop": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codapg_devolucao_saldo": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codoperador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    }
+   },
+   "pk": [
+    "coddevolucaovenda"
+   ],
+   "fks": [
+    {
+     "coluna": "codmotivoop",
+     "ref": "motivos_operacao.codmotivoop"
+    }
+   ],
+   "unicos": [
+    {
+     "nome": "devolucao_vendas_pkey",
+     "def": "CREATE UNIQUE INDEX devolucao_vendas_pkey ON public.devolucao_vendas USING btree (coddevolucaovenda)"
+    },
+    {
+     "nome": "ux_devolucao_vendas_item",
+     "def": "CREATE UNIQUE INDEX ux_devolucao_vendas_item ON public.devolucao_vendas USING btree (codvendas, codproduto, idempresa, nroitem)"
     }
    ]
   },
@@ -7938,7 +9554,7 @@
    ],
    "fks": [
     {
-     "coluna": "contadebito",
+     "coluna": "contacredito",
      "ref": "plano_contas.codplanocontas"
     },
     {
@@ -7946,7 +9562,7 @@
      "ref": "lote_contabil.codlotecontabil"
     },
     {
-     "coluna": "contacredito",
+     "coluna": "contadebito",
      "ref": "plano_contas.codplanocontas"
     }
    ],
@@ -7988,6 +9604,10 @@
     {
      "nome": "dre_conta_pkey",
      "def": "CREATE UNIQUE INDEX dre_conta_pkey ON public.dre_conta USING btree (codplanocontas, codestrutura)"
+    },
+    {
+     "nome": "ux_dre_conta_conta",
+     "def": "CREATE UNIQUE INDEX ux_dre_conta_conta ON public.dre_conta USING btree (codplanocontas)"
     }
    ]
   },
@@ -8456,6 +10076,27 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "flagetqcong": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "usucongetq": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "datacongetq": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -8680,6 +10321,20 @@
      "escala": 3,
      "nulo": false,
      "default": "0"
+    },
+    "qtde_cong": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 3,
+     "nulo": true,
+     "default": null
+    },
+    "qtde_bk": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 3,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -8780,6 +10435,27 @@
      "tipo": "character varying",
      "tam": 100,
      "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codgrupo": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "coddpto": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codsecao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
      "nulo": true,
      "default": null
     }
@@ -8905,6 +10581,146 @@
     }
    ]
   },
+  "faturamento": {
+   "colunas": {
+    "codfaturamento": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_faturamento'::regclass)"
+    },
+    "data": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "idnf": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "modalidade": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "valor": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "liberado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "obs": {
+     "tipo": "character varying",
+     "tam": 600,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codoperador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "nrofatura": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "totalparcelasfatura": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "tiporef": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codref": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "nronf": {
+     "tipo": "character varying",
+     "tam": 12,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codbco": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "duplicata": {
+     "tipo": "character varying",
+     "tam": 65,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "valor_desconto": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "valor_bonificado": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "codbarrasboleto": {
+     "tipo": "character varying",
+     "tam": 48,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "codfaturamento"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "faturamento_pkey",
+     "def": "CREATE UNIQUE INDEX faturamento_pkey ON public.faturamento USING btree (codfaturamento)"
+    }
+   ]
+  },
   "fechamento": {
    "colunas": {
     "codfechamento": {
@@ -8958,7 +10774,7 @@
      "tam": 32,
      "escala": 0,
      "nulo": false,
-     "default": null
+     "default": "nextval('seq_figura_fiscal'::regclass)"
     },
     "descfigurafiscal": {
      "tipo": "character varying",
@@ -8973,6 +10789,48 @@
      "escala": null,
      "nulo": true,
      "default": "'I'::bpchar"
+    },
+    "codreduzido": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    },
+    "indr_usuario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr_data": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -11850,6 +13708,62 @@
    "fks": [],
    "unicos": []
   },
+  "get_historico_contabil": {
+   "colunas": {
+    "codigo": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codhistcontabil": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "deschist": {
+     "tipo": "text",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "status": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "coringas": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [],
+   "fks": [],
+   "unicos": []
+  },
   "get_inventario_livro": {
    "colunas": {
     "codinvent": {
@@ -12164,6 +14078,34 @@
      "tipo": "integer",
      "tam": 32,
      "escala": 0,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [],
+   "fks": [],
+   "unicos": []
+  },
+  "get_motivos": {
+   "colunas": {
+    "codmotivo": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "descricao": {
+     "tipo": "character varying",
+     "tam": 100,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indr": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
      "nulo": true,
      "default": null
     }
@@ -14097,6 +16039,34 @@
    "fks": [],
    "unicos": []
   },
+  "get_tipocredito": {
+   "colunas": {
+    "id_tipocredito": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codigo": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "descricao": {
+     "tipo": "character varying",
+     "tam": 120,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [],
+   "fks": [],
+   "unicos": []
+  },
   "get_troca": {
    "colunas": {
     "codtroca": {
@@ -14434,6 +16404,132 @@
     {
      "nome": "hist_sangria_suprimento_pkey",
      "def": "CREATE UNIQUE INDEX hist_sangria_suprimento_pkey ON public.hist_sangria_suprimento USING btree (codhistsangria)"
+    }
+   ]
+  },
+  "historico": {
+   "colunas": {
+    "codhist": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_historico'::regclass)"
+    },
+    "tabela": {
+     "tipo": "character varying",
+     "tam": 40,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "historico": {
+     "tipo": "character varying",
+     "tam": 600,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codoperador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "data": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "auxiliar": {
+     "tipo": "character varying",
+     "tam": 100,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "coddoc": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "codhist"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "historico_pkey",
+     "def": "CREATE UNIQUE INDEX historico_pkey ON public.historico USING btree (codhist)"
+    }
+   ]
+  },
+  "historico_contabil": {
+   "colunas": {
+    "codhistcontabil": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_historico_contabil'::regclass)"
+    },
+    "deschist": {
+     "tipo": "text",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "status": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'S'::bpchar"
+    },
+    "usultalteracao": {
+     "tipo": "text",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    }
+   },
+   "pk": [
+    "codhistcontabil"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "historico_contabil_pkey",
+     "def": "CREATE UNIQUE INDEX historico_contabil_pkey ON public.historico_contabil USING btree (codhistcontabil)"
     }
    ]
   },
@@ -14848,6 +16944,45 @@
     }
    ]
   },
+  "ibs_uf": {
+   "colunas": {
+    "codibs_uf": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_ibs_uf'::regclass)"
+    },
+    "uf": {
+     "tipo": "character",
+     "tam": 2,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "valor_ibs_uf": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": false,
+     "default": "0"
+    }
+   },
+   "pk": [
+    "codibs_uf"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "ibs_uf_pkey",
+     "def": "CREATE UNIQUE INDEX ibs_uf_pkey ON public.ibs_uf USING btree (codibs_uf)"
+    },
+    {
+     "nome": "ux_ibs_uf_uf",
+     "def": "CREATE UNIQUE INDEX ux_ibs_uf_uf ON public.ibs_uf USING btree (uf)"
+    }
+   ]
+  },
   "icms_cfop": {
    "colunas": {
     "codapuracaoicms": {
@@ -14922,6 +17057,39 @@
     {
      "nome": "icms_cfop_pkey",
      "def": "CREATE UNIQUE INDEX icms_cfop_pkey ON public.icms_cfop USING btree (codapuracaoicms, tipo, cfop)"
+    }
+   ]
+  },
+  "impostos": {
+   "colunas": {
+    "codplc": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "descricao": {
+     "tipo": "character varying",
+     "tam": 80,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "codplc"
+   ],
+   "fks": [
+    {
+     "coluna": "codplc",
+     "ref": "plc.codplc"
+    }
+   ],
+   "unicos": [
+    {
+     "nome": "impostos_pkey",
+     "def": "CREATE UNIQUE INDEX impostos_pkey ON public.impostos USING btree (codplc)"
     }
    ]
   },
@@ -15087,6 +17255,55 @@
      "escala": null,
      "nulo": true,
      "default": "'I'::bpchar"
+    },
+    "basesemreducao": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "base_st_com_reducao": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    },
+    "indr_usuario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr_data": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -15711,6 +17928,363 @@
     }
    ]
   },
+  "itens_mancartao": {
+   "colunas": {
+    "cod_itens_mancartao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_itens_mancartao'::regclass)"
+    },
+    "cod_arquivo_mancartao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "tiporegistro": {
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "ident_trans": {
+     "tipo": "character varying",
+     "tam": 30,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codestab": {
+     "tipo": "character varying",
+     "tam": 15,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtvenda": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "resumo": {
+     "tipo": "character varying",
+     "tam": 15,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "comprovante": {
+     "tipo": "character varying",
+     "tam": 12,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "nsu": {
+     "tipo": "character varying",
+     "tam": 12,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "numerocartao": {
+     "tipo": "character varying",
+     "tam": 19,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "vrbruto": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "parcelas": {
+     "tipo": "character varying",
+     "tam": 2,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "vrliquido": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "valorliqorig": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "dtcredito": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcreditooriginal": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "nroparcela": {
+     "tipo": "character varying",
+     "tam": 2,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "tipoproduto": {
+     "tipo": "character varying",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "captura": {
+     "tipo": "character varying",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "identrede": {
+     "tipo": "character varying",
+     "tam": 3,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codbco": {
+     "tipo": "character varying",
+     "tam": 6,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "agencia": {
+     "tipo": "character varying",
+     "tam": 6,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "contacorrente": {
+     "tipo": "character varying",
+     "tam": 15,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "vrcomissao": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "txservico": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "codlojasitef": {
+     "tipo": "character varying",
+     "tam": 8,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "autorizacao": {
+     "tipo": "character varying",
+     "tam": 30,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "cupomfiscal": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codbandeira": {
+     "tipo": "character varying",
+     "tam": 4,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtvendasitef": {
+     "tipo": "timestamp without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "horavenda": {
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "resumounico": {
+     "tipo": "character varying",
+     "tam": 22,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indarqrecup": {
+     "tipo": "character varying",
+     "tam": 6,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "seqarq": {
+     "tipo": "character varying",
+     "tam": 6,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "referencia": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "rede": {
+     "tipo": "character varying",
+     "tam": 100,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "bandeira": {
+     "tipo": "character varying",
+     "tam": 100,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "modocaptura": {
+     "tipo": "character varying",
+     "tam": 50,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "nomeloja": {
+     "tipo": "character varying",
+     "tam": 100,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "linha": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "encontrado": {
+     "tipo": "character varying",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "tipoconciliador": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "descricao": {
+     "tipo": "character varying",
+     "tam": 100,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "cnpj": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codestabelecimento": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codvendcartao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "mod_tab_cartao": {
+     "tipo": "character varying",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "finalizado": {
+     "tipo": "character varying",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "tipo_vinculo": {
+     "tipo": "character varying",
+     "tam": 100,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "cod_itens_mancartao"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "itens_mancartao_pkey",
+     "def": "CREATE UNIQUE INDEX itens_mancartao_pkey ON public.itens_mancartao USING btree (cod_itens_mancartao)"
+    }
+   ]
+  },
   "itens_producao": {
    "colunas": {
     "coditenprod": {
@@ -15796,12 +18370,12 @@
    ],
    "fks": [
     {
-     "coluna": "codproducao",
-     "ref": "producao.codproducao"
-    },
-    {
      "coluna": "idprodutos",
      "ref": "produtos.idproduto"
+    },
+    {
+     "coluna": "codproducao",
+     "ref": "producao.codproducao"
     }
    ],
    "unicos": [
@@ -15999,12 +18573,12 @@
    ],
    "fks": [
     {
-     "coluna": "codtroca",
-     "ref": "troca.codtroca"
-    },
-    {
      "coluna": "idproduto",
      "ref": "produtos.idproduto"
+    },
+    {
+     "coluna": "codtroca",
+     "ref": "troca.codtroca"
     }
    ],
    "unicos": [
@@ -16528,6 +19102,76 @@
     }
    ]
   },
+  "motivos": {
+   "colunas": {
+    "codmotivo": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_motivos'::regclass)"
+    },
+    "descricao": {
+     "tipo": "character varying",
+     "tam": 100,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "indr": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'I'::bpchar"
+    },
+    "indr_usuario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr_data": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    }
+   },
+   "pk": [
+    "codmotivo"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "motivos_pkey",
+     "def": "CREATE UNIQUE INDEX motivos_pkey ON public.motivos USING btree (codmotivo)"
+    }
+   ]
+  },
   "motivos_operacao": {
    "colunas": {
     "codmotivoop": {
@@ -16751,6 +19395,13 @@
      "tipo": "character varying",
      "tam": 30,
      "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "idlote_reversao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
      "nulo": true,
      "default": null
     }
@@ -17261,6 +19912,13 @@
      "tipo": "numeric",
      "tam": 15,
      "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "codhistorico": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
      "nulo": true,
      "default": null
     }
@@ -18042,16 +20700,16 @@
    ],
    "fks": [
     {
-     "coluna": "idsituacao_nf",
-     "ref": "situacao_nf.idsituacao_nf"
-    },
-    {
      "coluna": "codpedcomp",
      "ref": "pedidocompra.codpedcomp"
     },
     {
      "coluna": "codparceiro",
      "ref": "parceiros.codparceiro"
+    },
+    {
+     "coluna": "idsituacao_nf",
+     "ref": "situacao_nf.idsituacao_nf"
     }
    ],
    "unicos": [
@@ -18133,16 +20791,16 @@
    ],
    "fks": [
     {
-     "coluna": "codnf",
-     "ref": "nf.codnf"
+     "coluna": "idsituacao_nf",
+     "ref": "situacao_nf.idsituacao_nf"
     },
     {
      "coluna": "codcc",
      "ref": "plc.codplc"
     },
     {
-     "coluna": "idsituacao_nf",
-     "ref": "situacao_nf.idsituacao_nf"
+     "coluna": "codnf",
+     "ref": "nf.codnf"
     }
    ],
    "unicos": [
@@ -19312,6 +21970,122 @@
     {
      "nome": "nfe_eventos_pkey",
      "def": "CREATE UNIQUE INDEX nfe_eventos_pkey ON public.nfe_eventos USING btree (codnfe_evento)"
+    }
+   ]
+  },
+  "nfe_inutilizada": {
+   "colunas": {
+    "codinutilizacao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_nfe_inutilizada'::regclass)"
+    },
+    "codempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "data": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "tiponf": {
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
+     "nulo": false,
+     "default": "'NFCE'::character varying"
+    },
+    "serie": {
+     "tipo": "character varying",
+     "tam": 3,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "numeracao_ini": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "numeracao_fim": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "protocolo": {
+     "tipo": "character varying",
+     "tam": 30,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "arquivo_xml": {
+     "tipo": "text",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codnf": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "coddocumento": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    }
+   },
+   "pk": [
+    "codinutilizacao"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "nfe_inutilizada_pkey",
+     "def": "CREATE UNIQUE INDEX nfe_inutilizada_pkey ON public.nfe_inutilizada USING btree (codinutilizacao)"
+    },
+    {
+     "nome": "ux_nfe_inutilizada_num",
+     "def": "CREATE UNIQUE INDEX ux_nfe_inutilizada_num ON public.nfe_inutilizada USING btree (codempresa, tiponf, COALESCE(serie, ''::character varying), numeracao_ini, numeracao_fim)"
     }
    ]
   },
@@ -21307,6 +24081,13 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "fixo": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -21731,6 +24512,34 @@
     {
      "nome": "pc_config_pkey",
      "def": "CREATE UNIQUE INDEX pc_config_pkey ON public.pc_config USING btree (cfop)"
+    }
+   ]
+  },
+  "pc_tipocredito": {
+   "colunas": {
+    "id_tipocredito": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "descricao": {
+     "tipo": "character varying",
+     "tam": 120,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    }
+   },
+   "pk": [
+    "id_tipocredito"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "pc_tipocredito_pkey",
+     "def": "CREATE UNIQUE INDEX pc_tipocredito_pkey ON public.pc_tipocredito USING btree (id_tipocredito)"
     }
    ]
   },
@@ -23399,6 +26208,62 @@
      "escala": null,
      "nulo": true,
      "default": "'N'::bpchar"
+    },
+    "competencia_financeira": {
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "competencia_geracao": {
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "bloq_mov_caixa": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "bloq_chq": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "bloq_baixa_crt": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'N'::bpchar"
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
     }
    },
    "pk": [
@@ -23409,6 +26274,10 @@
     {
      "nome": "periodo_contabil_pkey",
      "def": "CREATE UNIQUE INDEX periodo_contabil_pkey ON public.periodo_contabil USING btree (codperiodocontabil)"
+    },
+    {
+     "nome": "ux_periodo_contabil_emp_comp",
+     "def": "CREATE UNIQUE INDEX ux_periodo_contabil_emp_comp ON public.periodo_contabil USING btree (codempresa, competencia_contabil)"
     }
    ]
   },
@@ -23539,12 +26408,52 @@
      "escala": 0,
      "nulo": true,
      "default": null
+    },
+    "id_tipocredito": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "exigenatureza": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
     }
    },
    "pk": [
     "idpiscofins"
    ],
-   "fks": [],
+   "fks": [
+    {
+     "coluna": "id_tipocredito",
+     "ref": "pc_tipocredito.id_tipocredito"
+    }
+   ],
    "unicos": [
     {
      "nome": "piscofins_pkey",
@@ -23655,6 +26564,13 @@
     "dtcadastro": {
      "tipo": "timestamp with time zone",
      "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codexpinteiro": {
+     "tipo": "character varying",
+     "tam": 30,
      "escala": null,
      "nulo": true,
      "default": null
@@ -24745,6 +27661,83 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "descmax": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 6,
+     "nulo": true,
+     "default": null
+    },
+    "comissao": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "compqtde": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "compfator": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "tipopis": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "especificacao": {
+     "tipo": "character varying",
+     "tam": 300,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "imprimircomp": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "inteiramedida": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "partedec": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "usadamedida": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codclass_trib": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -24752,20 +27745,20 @@
    ],
    "fks": [
     {
-     "coluna": "codfor",
-     "ref": "parceiros.codparceiro"
-    },
-    {
-     "coluna": "codunidade",
-     "ref": "unidade.codunidade"
-    },
-    {
      "coluna": "idmarca",
      "ref": "marcas.idmarca"
     },
     {
+     "coluna": "codfor",
+     "ref": "parceiros.codparceiro"
+    },
+    {
      "coluna": "aliquota",
      "ref": "aliquota.codigo"
+    },
+    {
+     "coluna": "codunidade",
+     "ref": "unidade.codunidade"
     }
    ],
    "unicos": [
@@ -25124,11 +28117,11 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto",
+     "coluna": "idproduto_receita",
      "ref": "produtos.idproduto"
     },
     {
-     "coluna": "idproduto_receita",
+     "coluna": "idproduto",
      "ref": "produtos.idproduto"
     }
    ],
@@ -26359,12 +29352,12 @@
    ],
    "fks": [
     {
-     "coluna": "idsituacao_nf",
-     "ref": "situacao_nf.idsituacao_nf"
-    },
-    {
      "coluna": "codparceiro",
      "ref": "parceiros.codparceiro"
+    },
+    {
+     "coluna": "idsituacao_nf",
+     "ref": "situacao_nf.idsituacao_nf"
     }
    ],
    "unicos": [
@@ -26926,6 +29919,27 @@
     "codvendas_legado": {
      "tipo": "bigint",
      "tam": 64,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "qtde_devolvido": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 3,
+     "nulo": true,
+     "default": null
+    },
+    "total_item_devolvido": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "codnf_devolucao": {
+     "tipo": "integer",
+     "tam": 32,
      "escala": 0,
      "nulo": true,
      "default": null
