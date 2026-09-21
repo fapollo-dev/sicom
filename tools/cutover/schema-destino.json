@@ -21834,6 +21834,13 @@
      "escala": null,
      "nulo": true,
      "default": "now()"
+    },
+    "tratamento": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": false,
+     "default": "'calculado'::character varying"
     }
    },
    "pk": [

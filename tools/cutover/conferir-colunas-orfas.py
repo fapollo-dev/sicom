@@ -58,6 +58,11 @@ EMPRESA_SEM_ORIGEM = _c['EMPRESA_SEM_ORIGEM']
 # colunas que o Apollo criou e o legado nunca teve: cada uma justificada aqui, não no silêncio de um default
 NOSSAS_JUSTIFICADAS = {
     ('produtos', 'geraqtde'): 'nasceu na mig 027 (se o produto movimenta estoque na NF); default S = o legado',
+    # a mig 280 criou esta coluna para dizer POR QUE o item ficou como ficou. Na carga o default
+    # 'calculado' e exato, e isso e medido: os 98.760 itens que o legado gerou tem SO CST 000 e 200,
+    # as duas calculaveis. Ele nao gera grupo para 410 (imunidade) nem 620 (monofasica) — por isso
+    # nao ha linha de origem que precise de outro tratamento.
+    ('nf_prod_ibscbs', 'tratamento'): 'mig 280; default calculado e exato (a origem so tem CST 000 e 200)',
 }
 
 schema = json.load(open(f'{BASE}/schema-destino.json'))['tabelas']

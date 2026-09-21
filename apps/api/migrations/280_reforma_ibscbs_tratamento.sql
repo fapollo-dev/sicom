@@ -1,0 +1,71 @@
+-- 280 — REFORMA IBS/CBS corte-2, CORREÇÃO: nem toda classificação se calcula pela alíquota da UF.
+-- Corrige um defeito do meu próprio corte-2 (mig 279), achado na auditoria minuciosa de 21/09/2026.
+-- Dossiê: `uCadIBSCBS.md` §9. Contagens no Oracle de produção (só leitura).
+--
+-- ── ⚠️ O DEFEITO: EU COBRARIA IMPOSTO SOBRE IMUNIDADE CONSTITUCIONAL ──────────────────────────────────
+-- A mig 279 calcula todo item como `alíquota da UF × (1 − redução)`, lendo a redução de `CLASS_TRIB`.
+-- Quando a classificação NÃO tem redução, `PRED_IBS` vem NULL, o código lia 0 e tributava **integral**.
+-- Mas NULL ali significa duas coisas OPOSTAS, e quem decide é `TIPO_ALIQUOTA`:
+--
+--   `Padrão` + NULL        → sem redução     → tributa integral   ✔️ (é o caso da CST 000)
+--   `Sem alíquota` + NULL  → **não tributa** → ZERO               ❌ eu tributava
+--
+-- O cliente tem **23 produtos** exatamente nessa armadilha, e eles CIRCULAM:
+--   · CST **410 — Imunidade e não incidência**: 17 produtos (livros, jornais, periódicos e o papel;
+--     fonogramas e videofonogramas musicais brasileiros — a imunidade do art. 150, VI, "d" e "e" da CF).
+--     Já saíram em **18 itens de nota, R$ 8.472,82**.
+--   · CST **620 — Tributação monofásica** sobre combustíveis, cobrada antecipadamente: 6 produtos,
+--     **21 itens de nota, R$ 19.972,70**. Calcular de novo aqui é BITRIBUTAR.
+--
+-- O legado acerta: nenhum desses 39 itens tem linha em `NF_PROD_IBSCBS` — ele não gera o grupo para eles.
+-- Os 98.760 itens que ele gerou têm **só CST 000 e 200**, que são justamente as calculáveis.
+--
+-- Impacto do meu erro sobre esse volume histórico:
+--        CST   valor          na fase-teste (1%)   no regime pleno de 2033 (26,5%)
+--        410   R$  8.472,82   R$    84,73          R$ 2.245,30   ← imposto sobre operação IMUNE
+--        620   R$ 19.972,70   R$   199,73          R$ 5.292,77   ← bitributação
+-- O número de hoje é pequeno porque a alíquota de 2026 é 1%. A alíquota do regime pleno é **26,5×** maior
+-- (IBS 17,7 + CBS 8,8, o que a mig 007 já semeia para 2033): o defeito não é o valor, é a regra.
+--
+-- ── A REGRA CERTA: OS DOIS INDICADORES, E NENHUM DELES SOZINHO BASTA ──────────────────────────────────
+-- Cruzando `CST_IBS_CBS` com `CLASS_TRIB` nas 132 classificações, os dois portões DISCORDAM:
+--
+--   CST  IND_GIBSCBS  TIPO_ALIQUOTA                  o que é
+--   000       1       Padrão                         tributação integral          → calcula
+--   200       1       Padrão                         alíquota reduzida            → calcula
+--   210       1       Padrão (+ redutor de BC)       redução de alíquota E de base→ próprio
+--   222       1       Padrão (+ redutor de BC)       redução de base de cálculo   → próprio
+--   220       1       **Fixa**                       alíquota fixa, não %         → próprio
+--   510       1       **Sem alíquota**               diferimento                  → próprio
+--   550       1       **Sem alíquota**               suspensão                    → próprio
+--   830       1       **Sem alíquota**               exclusão de base de cálculo  → próprio
+--   010       0       Uniforme setorial              alíquota do setor, não da UF → próprio
+--   011       0       Uniforme nacional (referência) alíquota nacional            → próprio
+--   221       0       Fixa                           fixa proporcional            → próprio
+--   620       0 (mono=1) Uniforme setorial           monofásica (já cobrada)      → não tributa aqui
+--   400       0       Sem alíquota                   isenção                      → não tributa
+--   410       0       Sem alíquota                   imunidade/não incidência     → não tributa
+--   800       0       Sem alíquota                   transferência de crédito     → não tributa
+--   820       0       Sem alíquota                   regime específico            → não tributa
+--
+-- Note as linhas em negrito: **`IND_GIBSCBS = 1` NÃO garante alíquota percentual** (510, 550, 830 e 220),
+-- e **`TIPO_ALIQUOTA = 'Padrão'` não garante fórmula simples** (210 e 222 trazem redutor de base). Só a
+-- CONJUNÇÃO fecha:
+--
+--        calculável  ⟺  TIPO_ALIQUOTA = 'Padrão'  E  IND_GIBSCBS = 1  E  IND_REDUTOR_BC <> 'S'
+--
+-- São **56 das 132** classificações. O cliente usa 12: 9 calculáveis e 3 não (410008, 410009, 620006).
+--
+-- ── O QUE O SERVIÇO PASSA A FAZER ─────────────────────────────────────────────────────────────────────
+-- Cada item gravado diz POR QUE ficou como ficou, na coluna `tratamento`:
+--   `calculado`      — a fórmula da UF valeu (o caminho dos 98.760 itens do cliente);
+--   `nao_tributado`  — imunidade, isenção, transferência de crédito, regime específico: grava ZERO, com a
+--                      CST correta. Zero declarado, não zero por acidente;
+--   `monofasico`     — CST 62x: o tributo já foi cobrado antes na cadeia; aqui é zero, e dizer por quê;
+--   (os de tratamento próprio não chegam a ser gravados: o cálculo é RECUSADO com 422 e a lista dos
+--    itens, porque inventar número onde não se sabe calcular é pior do que parar.)
+ALTER TABLE nf_prod_ibscbs ADD COLUMN IF NOT EXISTS tratamento varchar(20) NOT NULL DEFAULT 'calculado';
+COMMENT ON COLUMN nf_prod_ibscbs.tratamento IS
+  'por que o item ficou com estes valores: calculado | nao_tributado | monofasico';
+CREATE INDEX IF NOT EXISTS ix_nf_prod_ibscbs_tratamento ON nf_prod_ibscbs (idempresa, tratamento)
+  WHERE tratamento <> 'calculado';

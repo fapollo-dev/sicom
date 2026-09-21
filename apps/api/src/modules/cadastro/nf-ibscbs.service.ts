@@ -8,11 +8,28 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 type AnyDB = Kysely<any>;
 
 const num = (v: unknown) => (v == null ? 0 : Number(v));
+/**
+ * ⚠️ `TIPO_ALIQUOTA` decide se o item é calculável, e o valor tem ACENTO ("Padrão", "Sem alíquota"). Uma
+ * comparação literal quebraria em silêncio se a carga corrompesse o encoding — e o efeito seria pesado: com
+ * "Padrão" não casando, TODO item viraria tratamento próprio e nenhuma nota calcularia. Por isso a
+ * comparação é por PREFIXO SEM DIACRÍTICO, que sobrevive tanto a "Padrao" quanto a "Padr?o".
+ * (Não é hipótese: a mesma armadilha derrubou uma consulta desta auditoria contra o Oracle,
+ * onde `tipo_aliquota <> 'Padrão'` casou com tudo.)
+ */
+const semAcento = (v: unknown) =>
+  String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
 const r4 = (v: number) => Math.round((v + Number.EPSILON) * 10000) / 10000;
 
 /**
  * REFORMA TRIBUTÁRIA IBS/CBS — corte-2: os grupos na NOTA. Migration 279. Dossiê `uCadIBSCBS.md` §9.
+ *
+ * FOLD DECLARADO — imposto seletivo: o legado **não o implementa**. Nem `NF_PROD_IBSCBS` nem `NF_IBSCBS`
+ * têm qualquer coluna de IS (conferido no dicionário do Oracle); `CSTIS`/`CCLASSTRIBIS` só existem na
+ * staging `INTEGRACAO_IBSCBS`, que tem 0 linhas. O nosso parâmetro (`tributacao_reforma.imposto_seletivo`)
+ * está semeado em 0 para 2026 e 2033. Não há leiaute nem dado para migrar — é frente nova, e não pequena:
+ * o cliente tem **3.276 produtos classificados com NCM de bebida (cap. 22) ou fumo (cap. 24)**, que são
+ * justamente as categorias do IS.
  *
  * ⚠️ A regra central, medida em 97.005 itens de produção: o valor sai da alíquota **efetiva**, e a efetiva
  * se DERIVA da redução (`cheia × (1 − predaliq/100)`) em vez de ser lida da coluna que o legado grava.
@@ -44,8 +61,11 @@ export class NfIbsCbsService {
     const db = this.dbp.forTenant() as AnyDB;
     const empresaId = this.emp();
 
-    const nf = (await sql<{ codnf: number; uf: string | null }>`
-        SELECT f.codnf, coalesce(e.uf, pe.uf) AS uf
+    const nf = (await sql<{ codnf: number; uf: string | null; data_ref: string | null }>`
+        SELECT f.codnf, coalesce(e.uf, pe.uf) AS uf,
+               -- como TEXTO: o driver devolveria um Date, e String(date).slice(0,10) da "Tue Mar 10"
+               -- em vez de "2026-03-10", o que o Postgres recusa com 22007 no ::date seguinte
+               to_char(coalesce(f.dtemissao, f.dtcontabil), 'YYYY-MM-DD') AS data_ref
           FROM nf f
           LEFT JOIN empresas e ON e.idempresa = f.idempresa
           -- a UF que decide o IBS e a do ESTABELECIMENTO (e ele que recolhe); o endereco do parceiro
@@ -56,12 +76,17 @@ export class NfIbsCbsService {
     if (!nf) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf: d.codnf });
 
     // a alíquota vigente: o parâmetro com vigência (mig 007) manda, e `ibs_uf` entra só como reserva
+    // ⚠️ A ALÍQUOTA VALE NA DATA DA NOTA, NÃO HOJE. A reforma sobe por degraus: 0,1% de IBS + 0,9% de CBS
+    // na fase-teste de 2026 e **26,5% no regime pleno de 2033** (17,7 + 8,8, o que a mig 007 já semeia).
+    // Buscar por `current_date` faria o recálculo de uma nota de 2026 feito em 2033 aplicar 26,5× a
+    // alíquota certa — e recalcular nota antiga é rotina de conferência fiscal, não exceção.
+    const dataRef = String(nf.data_ref ?? new Date().toISOString().slice(0, 10)).slice(0, 10);
     const aliq = (await sql<{ ibs: number | null; cbs: number | null; ibs_tab: number | null }>`
         SELECT (SELECT r.ibs FROM tributacao_reforma r
-                 WHERE r.uf = ${nf.uf ?? ''} AND r.vigencia_inicio <= current_date
+                 WHERE r.uf = ${nf.uf ?? ''} AND r.vigencia_inicio <= ${dataRef}::date
                  ORDER BY r.vigencia_inicio DESC LIMIT 1) AS ibs,
                (SELECT r.cbs FROM tributacao_reforma r
-                 WHERE r.uf = ${nf.uf ?? ''} AND r.vigencia_inicio <= current_date
+                 WHERE r.uf = ${nf.uf ?? ''} AND r.vigencia_inicio <= ${dataRef}::date
                  ORDER BY r.vigencia_inicio DESC LIMIT 1) AS cbs,
                (SELECT u.valor_ibs_uf FROM ibs_uf u WHERE u.uf = ${nf.uf ?? ''}) AS ibs_tab`
       .execute(db)).rows[0];
@@ -73,7 +98,9 @@ export class NfIbsCbsService {
     // cada item com a classificação do seu produto (a redução mora nela, e são DUAS)
     const itens = (await sql<Record<string, unknown>>`
         SELECT i.codnfprod, i.codproduto, i.total_produto_nota, i.quantidade, i.vrcusto, i.desconto,
-               t.class_trib, t.cst, t.pred_ibs, t.pred_cbs,
+               i.vricm, i.vrpise, i.vrcofinse,
+               t.class_trib, t.cst, t.pred_ibs, t.pred_cbs, t.tipo_aliquota, t.ind_redutor_bc,
+               s.ind_gibscbs, s.ind_gibscbsmono,
                (SELECT n.codcclass_trib_ncm FROM cclass_trib_ncm n
                  WHERE n.cclass_trib = t.class_trib AND n.codigo_ncm = i.ncm LIMIT 1) AS codcclass_trib_ncm,
                g.cst AS cst_atual, g.cclasstrib AS cclass_atual, g.vbc AS vbc_atual,
@@ -81,6 +108,7 @@ export class NfIbsCbsService {
           FROM nf_prod i
           LEFT JOIN produtos p ON p.idproduto = i.codproduto
           LEFT JOIN class_trib t ON t.codclass_trib = p.codclass_trib AND coalesce(t.indr, 'I') <> 'E'
+          LEFT JOIN cst_ibs_cbs s ON s.cst = t.cst
           LEFT JOIN nf_prod_ibscbs g ON g.codnfprod = i.codnfprod
          WHERE i.codnf = ${d.codnf}
          ORDER BY i.nroitem`.execute(db)).rows;
@@ -90,12 +118,53 @@ export class NfIbsCbsService {
     if (semClasse > 0 && !d.permitir_sem_classificacao)
       throw new BusinessRuleError('PRODUTO_SEM_CLASSIFICACAO', { codnf: d.codnf, itens: semClasse });
 
+    // ⚠️ A TRAVA DA MIG 280: nem toda classificação se calcula pela alíquota da UF, e os dois
+    // indicadores discordam entre si — só a CONJUNÇÃO fecha (56 das 132 classificações do cliente).
+    // `IND_GIBSCBS = 1` não garante alíquota percentual (510 diferimento, 550 suspensão, 830 exclusão de
+    // base e 220 fixa têm o grupo e não têm alíquota); e `TIPO_ALIQUOTA = 'Padrão'` não garante fórmula
+    // simples (210 e 222 trazem redutor de BASE além da redução de alíquota).
+    const tratamentoDe = (i: Record<string, unknown>): 'calculado' | 'nao_tributado' | 'monofasico' | 'proprio' => {
+      if (i.class_trib == null) return 'calculado';           // sem classificação: integral (ver acima)
+      if (Number(i.ind_gibscbsmono ?? 0) === 1) return 'monofasico';
+      const tipo = semAcento(i.tipo_aliquota);
+      const temGrupo = Number(i.ind_gibscbs ?? 0) === 1;
+      const redutorBase = String(i.ind_redutor_bc ?? 'N') === 'S';
+      if (tipo.startsWith('padr') && temGrupo && !redutorBase) return 'calculado';
+      // grupo ausente e sem alíquota = isenção (400), imunidade (410), transferência de crédito (800),
+      // regime específico (820): ZERO, e zero DECLARADO — o cliente tem 17 produtos imunes circulando.
+      if (!temGrupo && tipo.startsWith('sem al')) return 'nao_tributado';
+      return 'proprio';
+    };
+    const proprios = itens
+      .map((i) => ({ i, t: tratamentoDe(i) }))
+      .filter((x) => x.t === 'proprio');
+    if (proprios.length)
+      // inventar número onde não se sabe calcular é pior do que parar
+      throw new BusinessRuleError('CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO', {
+        codnf: d.codnf,
+        itens: proprios.map((x) => ({
+          codnfprod: Number(x.i.codnfprod), cclasstrib: x.i.class_trib,
+          cst: x.i.cst, tipo_aliquota: x.i.tipo_aliquota,
+          motivo: String(x.i.ind_redutor_bc ?? 'N') === 'S' ? 'redutor de base de cálculo'
+                  : `alíquota ${semAcento(x.i.tipo_aliquota) || 'indefinida'}`,
+        })),
+      });
+
     const tot = { vbc: 0, ibsuf: 0, ibsmun: 0, cbs: 0 };
     const linhas: Array<Record<string, unknown>> = [];
 
     for (const i of itens) {
-      // a base: o total do produto na nota, menos desconto — a mesma base das outras contribuições
-      const vbc = r2(num(i.total_produto_nota) || num(i.quantidade) * num(i.vrcusto) - num(i.desconto));
+      // ⚠️ A BASE NÃO É O VALOR CHEIO: o imposto não entra na base do imposto. A LC 214/2025 (art. 12,
+      // § 2º) exclui da base do IBS e da CBS o montante do ICMS, do ISS, do PIS e da COFINS — e o dado do
+      // cliente confirma com precisão: `valor do produto − ICMS − PIS − COFINS` reproduz a `VBC` do
+      // legado em **86.201 dos 87.815 itens (98,2%)**, contra 54.016 (61,5%) do valor cheio que eu usava
+      // antes. O erro era inflar a base em **R$ 806.350,38** e cobrar a mais: R$ 8.063,50 na fase-teste
+      // de 1% e **R$ 213.682,85** no regime pleno de 26,5%.
+      // O "valor do produto" é o total da nota quando existe; em 20.058 itens ele vem zerado e o legado
+      // usa quantidade × custo (acerta 19.511 desses 20.058 com a mesma subtração).
+      const valorProduto = num(i.total_produto_nota) || num(i.quantidade) * num(i.vrcusto);
+      const tributosNaBase = num(i.vricm) + num(i.vrpise) + num(i.vrcofinse);
+      const vbc = r2(Math.max(0, valorProduto - tributosNaBase));
       // ⚠️ DECISÃO EXPLÍCITA, não efeito de `null` virando 0: item cujo produto não tem classificação é
       // tributado INTEGRAL (redução 0). É o conservador — paga o imposto cheio em vez de zerar o que não
       // se sabe — e é o que o legado faz, onde a CST padrão é 000 (tributação integral). Zerar seria
@@ -103,39 +172,52 @@ export class NfIbsCbsService {
       // (422 PRODUTO_SEM_CLASSIFICACAO); isto só roda com `permitir_sem_classificacao`, e a resposta
       // devolve quantos itens saíram assim para que o cheio fique declarado.
       const semClassificacao = i.class_trib == null;
+      const tratamento = tratamentoDe(i);
+      // imunidade, isenção e monofasia não pagam AQUI: a alíquota é zero e o motivo fica gravado
+      const tributa = tratamento === 'calculado';
       const redIbs = semClassificacao ? 0 : num(i.pred_ibs);
       const redCbs = semClassificacao ? 0 : num(i.pred_cbs);
-      const efIbsUf = this.efetiva(pIbsUf, redIbs);
-      const efCbs = this.efetiva(pCbs, redCbs);
+      const efIbsUf = tributa ? this.efetiva(pIbsUf, redIbs) : 0;
+      const efCbs = tributa ? this.efetiva(pCbs, redCbs) : 0;
       const vibsuf = r2((vbc * efIbsUf) / 100);
       const vcbs = r2((vbc * efCbs) / 100);
+      const cheiaIbsUf = tributa ? pIbsUf : 0;
+      const cheiaCbs = tributa ? pCbs : 0;
       // IBS municipal: a fase-teste de 2026 não cobra (zerado nas 10.012 notas do cliente)
       const pIbsMun = 0, efIbsMun = 0, vibsmun = 0;
 
-      // o que veio do fornecedor só é carimbado na PRIMEIRA vez: recalcular não pode reescrever a origem
-      const cstOri = i.cst_ori ?? i.cst_atual ?? null;
-      const cclassOri = i.cclasstrib_ori ?? i.cclass_atual ?? null;
-      const vbcOri = i.vbc_ori ?? i.vbc_atual ?? null;
+      // ⚠️ O par `_ORI` é PROCEDÊNCIA: é o que veio no XML do fornecedor (ou na carga do legado), e só isso.
+      // A versão anterior caía para o valor ATUAL quando a origem estava vazia — ou seja, carimbava o
+      // resultado do nosso primeiro cálculo como se fosse o que o fornecedor mandou. Isso inventa uma
+      // procedência e destrói a conferência: a partir daí a nota "nunca diverge", porque o original passa
+      // a ser a nossa própria conta. Aqui só se PRESERVA o que já existe; criar é trabalho de quem recebe
+      // o documento, não de quem recalcula.
+      const cstOri = i.cst_ori ?? null;
+      const cclassOri = i.cclasstrib_ori ?? null;
+      const vbcOri = i.vbc_ori ?? null;
 
       await sql`
         INSERT INTO nf_prod_ibscbs (codnfprod, codnf, idempresa, codproduto, cst, cclasstrib, vbc,
                                     pibsuf, predaliq_ibsuf, paliqefet_ibsuf, vibsuf,
                                     pibsmun, predaliq_ibsmun, paliqefet_ibsmun, vibsmun,
                                     pcbs, predaliq_cbs, paliqefet_cbs, vcbs,
-                                    codcclass_trib_ncm, cst_ori, cclasstrib_ori, vbc_ori)
+                                    codcclass_trib_ncm, cst_ori, cclasstrib_ori, vbc_ori, tratamento)
         VALUES (${i.codnfprod}, ${d.codnf}, ${empresaId}, ${i.codproduto}, ${i.cst ?? null},
                 ${i.class_trib ?? null}, ${vbc},
-                ${pIbsUf}, ${redIbs}, ${efIbsUf}, ${vibsuf},
+                ${cheiaIbsUf}, ${redIbs}, ${efIbsUf}, ${vibsuf},
                 ${pIbsMun}, ${0}, ${efIbsMun}, ${vibsmun},
-                ${pCbs}, ${redCbs}, ${efCbs}, ${vcbs},
-                ${i.codcclass_trib_ncm ?? null}, ${cstOri}, ${cclassOri}, ${vbcOri})
+                ${cheiaCbs}, ${redCbs}, ${efCbs}, ${vcbs},
+                ${i.codcclass_trib_ncm ?? null}, ${cstOri}, ${cclassOri}, ${vbcOri}, ${tratamento})
         ON CONFLICT (codnfprod) DO UPDATE SET
           cst = excluded.cst, cclasstrib = excluded.cclasstrib, vbc = excluded.vbc,
           pibsuf = excluded.pibsuf, predaliq_ibsuf = excluded.predaliq_ibsuf,
           paliqefet_ibsuf = excluded.paliqefet_ibsuf, vibsuf = excluded.vibsuf,
           pcbs = excluded.pcbs, predaliq_cbs = excluded.predaliq_cbs,
           paliqefet_cbs = excluded.paliqefet_cbs, vcbs = excluded.vcbs,
-          codcclass_trib_ncm = excluded.codcclass_trib_ncm`.execute(db);
+          codcclass_trib_ncm = excluded.codcclass_trib_ncm,
+          tratamento = excluded.tratamento
+          -- as colunas _ori NAO entram neste SET de proposito: recalcular nao reescreve a procedencia
+          `.execute(db);
 
       tot.vbc = r2(tot.vbc + vbc);
       tot.ibsuf = r2(tot.ibsuf + vibsuf);
@@ -144,9 +226,10 @@ export class NfIbsCbsService {
       linhas.push({
         codnfprod: Number(i.codnfprod), codproduto: Number(i.codproduto),
         cst: i.cst ?? null, cclasstrib: i.class_trib ?? null, vbc,
-        pibsuf: pIbsUf, predaliq_ibsuf: redIbs, paliqefet_ibsuf: efIbsUf, vibsuf,
-        pcbs: pCbs, predaliq_cbs: redCbs, paliqefet_cbs: efCbs, vcbs,
-        sem_classificacao: semClassificacao,
+        valor_produto: r2(valorProduto), tributos_excluidos: r2(tributosNaBase),
+        pibsuf: cheiaIbsUf, predaliq_ibsuf: redIbs, paliqefet_ibsuf: efIbsUf, vibsuf,
+        pcbs: cheiaCbs, predaliq_cbs: redCbs, paliqefet_cbs: efCbs, vcbs,
+        sem_classificacao: semClassificacao, tratamento,
       });
     }
 
@@ -160,9 +243,15 @@ export class NfIbsCbsService {
         vibs = excluded.vibs, vcbs = excluded.vcbs`.execute(db);
 
     return {
-      codnf: d.codnf, uf: nf.uf, aliquota: { ibsuf: pIbsUf, cbs: pCbs },
+      codnf: d.codnf, uf: nf.uf, data_referencia: dataRef, aliquota: { ibsuf: pIbsUf, cbs: pCbs },
       totais: { vbcibscbs: tot.vbc, vibsuf: tot.ibsuf, vibsmun: tot.ibsmun, vibs, vcbs: tot.cbs },
       itens: linhas, sem_classificacao: semClasse,
+      // o que NÃO foi tributado e por quê — para que o zero apareça na conferência em vez de sumir
+      tratamentos: linhas.reduce<Record<string, number>>((acc, l) => {
+        const k = String(l.tratamento);
+        acc[k] = (acc[k] ?? 0) + 1;
+        return acc;
+      }, {}),
     };
   }
 
@@ -207,7 +296,7 @@ export class NfIbsCbsService {
         vbc: num(g.vbc), pibsuf: n(g.pibsuf), predaliq_ibsuf: n(g.predaliq_ibsuf),
         paliqefet_ibsuf: n(g.paliqefet_ibsuf), vibsuf: num(g.vibsuf),
         pcbs: n(g.pcbs), predaliq_cbs: n(g.predaliq_cbs), paliqefet_cbs: n(g.paliqefet_cbs),
-        vcbs: num(g.vcbs),
+        vcbs: num(g.vcbs), tratamento: g.tratamento ?? 'calculado',
         cst_ori: g.cst_ori ?? null, cclasstrib_ori: g.cclasstrib_ori ?? null, vbc_ori: n(g.vbc_ori),
         divergencias: [
           g.cst_ori != null && g.cst_ori !== g.cst ? 'cst' : null,

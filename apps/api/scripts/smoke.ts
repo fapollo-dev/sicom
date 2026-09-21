@@ -16628,12 +16628,14 @@ async function main() {
         // o catálogo e as três classificações: sem redução, redução 60% e alíquota zero (100%)
         await pgNg.query(`INSERT INTO cst_ibs_cbs (cst, descricao_cst, ind_gibscbs, ind_nfe) VALUES
           ('000','TRIBUTACAO INTEGRAL',1,'S'),('200','ALIQUOTA REDUZIDA',1,'S') ON CONFLICT (cst) DO NOTHING`);
-        await pgNg.query(`INSERT INTO class_trib (codclass_trib, cst, descricao_cst, class_trib, nome_class_trib, pred_ibs, pred_cbs) VALUES
-          (994401,'000','TRIBUTACAO INTEGRAL','000001','SEM REDUCAO',           0,   0),
-          (994402,'200','ALIQUOTA REDUZIDA',  '200003','CESTA BASICA 60%',      60,  60),
-          (994403,'200','ALIQUOTA ZERO',      '200018','ALIQUOTA ZERO',         100, 100),
-          (994404,'200','ALIQUOTA REDUZIDA',  '200099','ASSIMETRICA IBS60 CBS100', 60, 100)
-          ON CONFLICT (codclass_trib) DO UPDATE SET pred_ibs = EXCLUDED.pred_ibs, pred_cbs = EXCLUDED.pred_cbs`);
+        // `tipo_aliquota` NÃO é decoração: é ele que diz se a fórmula da UF vale (ver §154.6 e §154.7)
+        await pgNg.query(`INSERT INTO class_trib (codclass_trib, cst, descricao_cst, class_trib, nome_class_trib, tipo_aliquota, pred_ibs, pred_cbs) VALUES
+          (994401,'000','TRIBUTACAO INTEGRAL','000001','SEM REDUCAO',           'Padrão', 0,   0),
+          (994402,'200','ALIQUOTA REDUZIDA',  '200003','CESTA BASICA 60%',      'Padrão', 60,  60),
+          (994403,'200','ALIQUOTA ZERO',      '200018','ALIQUOTA ZERO',         'Padrão', 100, 100),
+          (994404,'200','ALIQUOTA REDUZIDA',  '200099','ASSIMETRICA IBS60 CBS100','Padrão', 60, 100)
+          ON CONFLICT (codclass_trib) DO UPDATE SET pred_ibs = EXCLUDED.pred_ibs, pred_cbs = EXCLUDED.pred_cbs,
+            tipo_aliquota = EXCLUDED.tipo_aliquota`);
         await pgNg.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, ncmsh, codclass_trib) VALUES
           (994401,'7899000994401','PRODUTO SEM REDUCAO','UN',2,'T01','S','22030000',994401),
           (994402,'7899000994402','ARROZ CESTA BASICA','KG',2,'T01','S','10063021',994402),
@@ -16704,6 +16706,119 @@ async function main() {
           && Number(forcadoJ.totais?.vibsuf) === 1.8 && semGrant.status === 403
           && outraLoja.status === 422 && ((await outraLoja.json().catch(() => ({}))) as any).code === 'NF_NAO_ENCONTRADA',
           { semCl: [semCl.status, semClJ.code], forcado: [forcado.status, forcadoJ.sem_classificacao, forcadoJ.totais?.vibsuf], rbac: semGrant.status, outra: outraLoja.status });
+
+
+
+        // ── a BASE exclui os tributos, e a ALÍQUOTA é a da data da NOTA ────────────────────────────
+        // o §154.5 desclassificou este produto de propósito; aqui ele volta a ser "Padrão" sem redução
+        await pgNg.query(`UPDATE produtos SET codclass_trib = 994401 WHERE idproduto = 994401`);
+        // item com ICMS/PIS/COFINS destacados: base 1.000,00 − 180,00 − 16,50 − 76,00 = 727,50
+        await pgNg.query(`INSERT INTO nf (codnf, idempresa, codparceiro, nronf, serie, modelo, tipo, dtemissao, dtcontabil, totalnf) VALUES
+          (9944005, 1, 2, '9944005', '1', '55', 'E', '2026-03-14', '2026-03-14', 1000.00),
+          (9944006, 1, 2, '9944006', '1', '55', 'E', '2033-06-10', '2033-06-10', 1000.00)
+          ON CONFLICT (codnf) DO NOTHING`);
+        await pgNg.query(`INSERT INTO nf_prod (codnfprod, codnf, nroitem, codproduto, quantidade, vrcusto, unidade, cfop, ncm, total_produto_nota, vricm, vrpise, vrcofinse) VALUES
+          (99440051, 9944005, 1, 994401, 10, 100, 'UN', 1102, '22030000', 1000.00, 180.00, 16.50, 76.00),
+          (99440061, 9944006, 1, 994401, 10, 100, 'UN', 1102, '22030000', 1000.00, 180.00, 16.50, 76.00)
+          ON CONFLICT (codnfprod) DO NOTHING`);
+        const comTrib = await fetch(`${base}/${NG}/calcular`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9944005 }) });
+        const ct = (await comTrib.json().catch(() => ({}))) as any;
+        const itct = (ct.itens ?? [])[0];
+        check('REFORMA IBS/CBS §154.9 [o imposto NÃO entra na base do imposto — LC 214/2025, art. 12, §2º]: a base do IBS/CBS exclui o ICMS, o ISS, o PIS e a COFINS. O dado do cliente confirma com precisão: `valor do produto − ICMS − PIS − COFINS` reproduz a VBC do legado em **86.201 dos 87.815 itens (98,2%)**, contra 54.016 (61,5%) do valor cheio. Usar o cheio inflava a base em **R$ 806.350,38** e cobraria a mais R$ 8.063,50 na fase-teste e **R$ 213.682,85 no regime pleno**. Aqui: produto 1.000,00 com ICMS 180,00 + PIS 16,50 + COFINS 76,00 dá base **727,50** (não 1.000,00), IBS 0,73 e CBS 6,55',
+          comTrib.status === 200 && Number(itct?.vbc) === 727.5
+          && Number(itct?.valor_produto) === 1000 && Number(itct?.tributos_excluidos) === 272.5
+          && Number(itct?.vibsuf) === 0.73 && Number(itct?.vcbs) === 6.55,
+          { st: comTrib.status, vbc: itct?.vbc, produto: itct?.valor_produto, excluidos: itct?.tributos_excluidos, ibs: itct?.vibsuf, cbs: itct?.vcbs });
+
+        // a mesma nota, emitida em 2033: o regime pleno cobra 26,5×
+        await pgNg.query(`INSERT INTO tributacao_reforma (uf, vigencia_inicio, ibs, cbs, imposto_seletivo, fonte)
+          VALUES ('${ufEmp}','2033-01-01',17.7,8.8,0,'smoke') ON CONFLICT (uf, vigencia_inicio) DO UPDATE SET ibs = 17.7, cbs = 8.8`);
+        const pleno = await fetch(`${base}/${NG}/calcular`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9944006 }) });
+        const pl = (await pleno.json().catch(() => ({}))) as any;
+        const itpl = (pl.itens ?? [])[0];
+        check('REFORMA IBS/CBS §154.10 [a alíquota vale na data da NOTA, não hoje]: a reforma sobe por degraus — 0,1% + 0,9% na fase-teste de 2026 e **17,7% + 8,8% no regime pleno de 2033** (o que a mig 007 já semeia). Buscar a alíquota por `current_date` faria o recálculo de uma nota de 2026 feito em 2033 aplicar **26,5× a mais**, e recalcular nota antiga é rotina de conferência fiscal, não exceção. Sobre a MESMA base de 727,50: a nota de 2026 dá 0,73 e 6,55; a de 2033, **128,77 e 64,02**',
+          pleno.status === 200 && pl.data_referencia === '2033-06-10'
+          && Number(pl.aliquota?.ibsuf) === 17.7 && Number(pl.aliquota?.cbs) === 8.8
+          && Number(itpl?.vbc) === 727.5 && Number(itpl?.vibsuf) === 128.77 && Number(itpl?.vcbs) === 64.02
+          && ct.data_referencia === '2026-03-14' && Number(ct.aliquota?.ibsuf) === 0.1,
+          { data: pl.data_referencia, aliq: pl.aliquota, ibs: itpl?.vibsuf, cbs: itpl?.vcbs, ref2026: ct.data_referencia });
+
+        // ── mig 280: nem toda classificação se calcula pela alíquota da UF ──────────────────────────
+        await pgNg.query(`INSERT INTO cst_ibs_cbs (cst, descricao_cst, ind_gibscbs, ind_gibscbsmono, ind_nfe) VALUES
+          ('410','IMUNIDADE E NAO INCIDENCIA', 0, 0, 'S'),
+          ('620','TRIBUTACAO MONOFASICA',      0, 1, 'S'),
+          ('510','DIFERIMENTO',                1, 0, 'S'),
+          ('220','ALIQUOTA FIXA',              1, 0, 'N')
+          ON CONFLICT (cst) DO UPDATE SET ind_gibscbs = EXCLUDED.ind_gibscbs, ind_gibscbsmono = EXCLUDED.ind_gibscbsmono`);
+        await pgNg.query(`INSERT INTO class_trib (codclass_trib, cst, descricao_cst, class_trib, nome_class_trib, tipo_aliquota, pred_ibs, pred_cbs, ind_redutor_bc) VALUES
+          (994411,'410','IMUNIDADE E NAO INCIDENCIA','410008','LIVROS JORNAIS E PERIODICOS','Sem alíquota',   NULL, NULL, NULL),
+          (994412,'620','TRIBUTACAO MONOFASICA',     '620006','COMBUSTIVEIS MONOFASICO',    'Uniforme setorial', NULL, NULL, NULL),
+          (994413,'510','DIFERIMENTO',               '510002','INSUMOS COM DIFERIMENTO',    'Sem alíquota',   NULL, NULL, NULL),
+          (994414,'220','ALIQUOTA FIXA',             '220001','ALIQUOTA FIXA POR UNIDADE',  'Fixa',           NULL, NULL, NULL),
+          (994415,'000','TRIBUTACAO INTEGRAL',       '000009','PADRAO SEM ACENTO NO TIPO',  'Padrao',         NULL, NULL, NULL)
+          ON CONFLICT (codclass_trib) DO NOTHING`);
+        await pgNg.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, ncmsh, codclass_trib) VALUES
+          (994411,'7899000994411','LIVRO DIDATICO','UN',2,'T01','S','49019900',994411),
+          (994412,'7899000994412','GASOLINA COMUM','LT',2,'T01','S','27101259',994412),
+          (994413,'7899000994413','INSUMO DIFERIDO','UN',2,'T01','S','31051000',994413),
+          (994414,'7899000994414','PRODUTO ALIQ FIXA','UN',2,'T01','S','24022000',994414),
+          (994415,'7899000994415','PADRAO SEM ACENTO','UN',2,'T01','S','22030000',994415)
+          ON CONFLICT (idproduto) DO NOTHING`);
+        // nota só com o imune e o monofásico: os dois têm de sair ZERADOS e DECLARADOS
+        await pgNg.query(`INSERT INTO nf (codnf, idempresa, codparceiro, nronf, serie, modelo, tipo, dtemissao, dtcontabil, totalnf) VALUES
+          (9944002, 1, 2, '9944002', '1', '55', 'E', '2026-03-11', '2026-03-11', 2000.00) ON CONFLICT (codnf) DO NOTHING`);
+        await pgNg.query(`INSERT INTO nf_prod (codnfprod, codnf, nroitem, codproduto, quantidade, vrcusto, unidade, cfop, ncm, total_produto_nota) VALUES
+          (99440021, 9944002, 1, 994411, 10, 100, 'UN', 1102, '49019900', 1000.00),
+          (99440022, 9944002, 2, 994412, 10, 100, 'LT', 1102, '27101259', 1000.00)
+          ON CONFLICT (codnfprod) DO NOTHING`);
+        const imune = await fetch(`${base}/${NG}/calcular`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9944002 }) });
+        const im = (await imune.json().catch(() => ({}))) as any;
+        const livro = (im.itens ?? []).find((x: any) => x.codproduto === 994411);
+        const gasolina = (im.itens ?? []).find((x: any) => x.codproduto === 994412);
+        check('REFORMA IBS/CBS §154.6 [IMUNIDADE e MONOFASIA não pagam aqui — o defeito que eu mesmo tinha]: `PRED_IBS` nulo significa **duas coisas opostas** conforme o TIPO_ALIQUOTA — em "Padrão" é sem redução (tributa integral), em "Sem alíquota" é **não tributa**. O cliente tem **17 produtos com CST 410** (livros, jornais, periódicos — imunidade do art. 150, VI da CF; já em 18 itens, R$ 8.472,82) e **6 com CST 620** (combustível monofásico, já cobrado antes; 21 itens, R$ 19.972,70). A versão anterior cobraria imposto sobre imunidade e bitributaria o combustível: R$ 284,46 na fase-teste de 1% e **R$ 7.538,07 no regime pleno de 26,5%**. Agora saem zerados e com o motivo GRAVADO',
+          imune.status === 200
+          && livro?.tratamento === 'nao_tributado' && livro?.vibsuf === 0 && livro?.vcbs === 0 && livro?.pibsuf === 0
+          && gasolina?.tratamento === 'monofasico' && gasolina?.vibsuf === 0 && gasolina?.vcbs === 0
+          && Number(im.totais?.vibs) === 0 && Number(im.totais?.vcbs) === 0
+          && im.tratamentos?.nao_tributado === 1 && im.tratamentos?.monofasico === 1,
+          { st: imune.status, livro: [livro?.tratamento, livro?.vibsuf, livro?.vcbs], gasolina: [gasolina?.tratamento, gasolina?.vcbs], totais: [im.totais?.vibs, im.totais?.vcbs], tratamentos: im.tratamentos });
+
+        // diferimento e alíquota fixa: o serviço NÃO inventa número
+        await pgNg.query(`INSERT INTO nf (codnf, idempresa, codparceiro, nronf, serie, modelo, tipo, dtemissao, dtcontabil, totalnf) VALUES
+          (9944003, 1, 2, '9944003', '1', '55', 'E', '2026-03-12', '2026-03-12', 2000.00) ON CONFLICT (codnf) DO NOTHING`);
+        await pgNg.query(`INSERT INTO nf_prod (codnfprod, codnf, nroitem, codproduto, quantidade, vrcusto, unidade, cfop, ncm, total_produto_nota) VALUES
+          (99440031, 9944003, 1, 994413, 10, 100, 'UN', 1102, '31051000', 1000.00),
+          (99440032, 9944003, 2, 994414, 10, 100, 'UN', 1102, '24022000', 1000.00)
+          ON CONFLICT (codnfprod) DO NOTHING`);
+        const proprio = await fetch(`${base}/${NG}/calcular`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9944003 }) });
+        const pr = (await proprio.json().catch(() => ({}))) as any;
+        const nada = (await pgNg.query(`SELECT count(*) n FROM nf_prod_ibscbs WHERE codnf = 9944003`)).rows[0] as any;
+        check('REFORMA IBS/CBS §154.7 [o que não se sabe calcular NÃO sai calculado]: **`IND_GIBSCBS = 1` não garante alíquota percentual** — diferimento (510), suspensão (550), exclusão de base (830) e alíquota fixa (220) têm o grupo e não têm alíquota; e **"Padrão" não garante fórmula simples** — 210 e 222 trazem redutor de BASE além da redução de alíquota. Só a conjunção fecha, e ela vale em **56 das 132** classificações do cliente. Nota com item diferido e item de alíquota fixa é **422 CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO**, listando cada item e o motivo, e **nada é gravado** — inventar número onde não se sabe calcular é pior do que parar',
+          proprio.status === 422 && pr.code === 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO'
+          && (pr.detalhe?.itens ?? []).length === 2 && Number(nada.n) === 0
+          && (pr.detalhe?.itens ?? []).some((x: any) => x.cclasstrib === '510002')
+          && (pr.detalhe?.itens ?? []).some((x: any) => x.cclasstrib === '220001'),
+          { st: proprio.status, code: pr.code, itens: pr.detalhe?.itens, gravados: Number(nada.n) });
+
+        // o encoding: "Padrao" sem acento tem de calcular igual a "Padrão"
+        await pgNg.query(`INSERT INTO nf (codnf, idempresa, codparceiro, nronf, serie, modelo, tipo, dtemissao, dtcontabil, totalnf) VALUES
+          (9944004, 1, 2, '9944004', '1', '55', 'E', '2026-03-13', '2026-03-13', 1000.00) ON CONFLICT (codnf) DO NOTHING`);
+        await pgNg.query(`INSERT INTO nf_prod (codnfprod, codnf, nroitem, codproduto, quantidade, vrcusto, unidade, cfop, ncm, total_produto_nota) VALUES
+          (99440041, 9944004, 1, 994415, 10, 100, 'UN', 1102, '22030000', 1000.00) ON CONFLICT (codnfprod) DO NOTHING`);
+        const semAc = await fetch(`${base}/${NG}/calcular`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9944004 }) });
+        const sa = (await semAc.json().catch(() => ({}))) as any;
+        check('REFORMA IBS/CBS §154.8 [a comparação do TIPO_ALIQUOTA não pode depender do acento]: o valor que decide tudo é texto com acento ("Padrão", "Sem alíquota"). Se a carga corromper o encoding, uma comparação literal falharia e **nenhuma nota calcularia** — todo item viraria tratamento próprio. Não é hipótese: nesta mesma auditoria, `tipo_aliquota <> \'Padrão\'` contra o Oracle casou com TODAS as linhas. A comparação é por prefixo sem diacrítico, então "Padrao" calcula igual a "Padrão": 1,00 de IBS e 9,00 de CBS sobre base 1.000,00',
+          semAc.status === 200 && (sa.itens ?? [])[0]?.tratamento === 'calculado'
+          && Number(sa.totais?.vibsuf) === 1 && Number(sa.totais?.vcbs) === 9,
+          { st: semAc.status, trat: (sa.itens ?? [])[0]?.tratamento, tot: [sa.totais?.vibsuf, sa.totais?.vcbs] });
+
+        await pgNg.query(`DELETE FROM nf_prod_ibscbs WHERE codnf IN (9944002,9944003,9944004,9944005,9944006)`);
+        await pgNg.query(`DELETE FROM nf_ibscbs WHERE codnf IN (9944002,9944003,9944004,9944005,9944006)`);
+        await pgNg.query(`DELETE FROM nf_prod WHERE codnf IN (9944002,9944003,9944004,9944005,9944006)`);
+        await pgNg.query(`DELETE FROM nf WHERE codnf IN (9944002,9944003,9944004,9944005,9944006)`);
+        await pgNg.query(`DELETE FROM produtos WHERE idproduto BETWEEN 994411 AND 994415`);
+        await pgNg.query(`DELETE FROM class_trib WHERE codclass_trib BETWEEN 994411 AND 994415`);
+        await pgNg.query(`DELETE FROM cst_ibs_cbs WHERE cst IN ('410','620','510','220')`);
 
         await pgNg.query(`DELETE FROM nf_prod_ibscbs WHERE codnf = 9944001`);
         await pgNg.query(`DELETE FROM nf_ibscbs WHERE codnf = 9944001`);

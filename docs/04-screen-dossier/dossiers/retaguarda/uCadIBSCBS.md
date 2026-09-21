@@ -176,3 +176,85 @@ ETL o zero vira NULL (`nullif`).
 
 ⚠️ A empresa vem da nota (padrão do Achado 4): nenhuma das duas tabelas guarda loja e **3.623 das 10.012
 notas são da empresa 2**. As duas entraram na f1 do `plano-tabelas.json` com a empresa derivada da NF.
+
+
+## 9. Auditoria minuciosa do corte-2 (21/09/2026) — quatro defeitos meus, medidos
+
+Auditei o corte-2 linha a linha contra a legislação e o dado depois de entregue. Achei **quatro defeitos**,
+todos meus, todos corrigidos na migration **280** e provados no smoke §154.6 a §154.10.
+
+### 9.1 ⚠️ Eu cobraria imposto sobre imunidade constitucional
+
+`PRED_IBS` nulo significa **duas coisas opostas**, e quem decide é `TIPO_ALIQUOTA`:
+
+| | | |
+|---|---|---|
+| `Padrão` + nulo | sem redução | tributa integral ✔️ |
+| `Sem alíquota` + nulo | **não tributa** | ❌ eu tributava |
+
+O cliente tem **23 produtos** nessa armadilha, e eles circulam:
+
+| CST | o que é | produtos | já em nota |
+|---|---|---:|---|
+| **410** | Imunidade e não incidência (livros, jornais, periódicos e o papel; fonogramas musicais brasileiros — art. 150, VI, "d" e "e" da CF) | 17 | 18 itens, R$ 8.472,82 |
+| **620** | Tributação monofásica sobre combustíveis, cobrada antecipadamente | 6 | 21 itens, R$ 19.972,70 |
+
+O legado acerta: nenhum desses 39 itens tem linha em `NF_PROD_IBSCBS`. Os 98.760 que ele gerou têm **só CST
+000 e 200**. Meu erro daria R$ 284,46 na fase-teste de 1% e **R$ 7.538,07 no regime pleno de 26,5%** — e o
+que importa não é o valor, é cobrar sobre imunidade e bitributar combustível.
+
+**A regra certa exige os dois indicadores, e nenhum sozinho basta:** `IND_GIBSCBS = 1` não garante alíquota
+percentual (510 diferimento, 550 suspensão, 830 exclusão de base e 220 fixa têm o grupo e não têm
+alíquota), e `TIPO_ALIQUOTA = 'Padrão'` não garante fórmula simples (210 e 222 trazem redutor de **base**).
+
+> calculável ⟺ `TIPO_ALIQUOTA = 'Padrão'` **e** `IND_GIBSCBS = 1` **e** `IND_REDUTOR_BC <> 'S'`
+
+São **56 das 132** classificações. Cada item gravado agora diz por quê, na coluna `tratamento`:
+`calculado` · `nao_tributado` · `monofasico`. O que não se sabe calcular é **recusado** (422
+`CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO`, com a lista) e nada é gravado — inventar número onde não se sabe
+calcular é pior do que parar.
+
+### 9.2 ⚠️ A base não é o valor cheio: o imposto não entra na base do imposto
+
+A LC 214/2025 (art. 12, § 2º) exclui da base do IBS e da CBS o montante do **ICMS, do ISS, do PIS e da
+COFINS**. O dado confirma com precisão:
+
+| fórmula | acerta (de 87.815 itens) |
+|---|---:|
+| **valor do produto − ICMS − PIS − COFINS** | **86.201 (98,2%)** |
+| valor cheio (o que eu usava) | 54.016 (61,5%) |
+
+O "valor do produto" é o total da nota quando existe; em 20.058 itens ele vem zerado e o legado usa
+quantidade × custo (com a mesma subtração, acerta 19.511 desses 20.058).
+
+Meu erro inflava a base em **R$ 806.350,38**, o que cobra a mais R$ 8.063,50 na fase-teste e
+**R$ 213.682,85 no regime pleno**.
+
+### 9.3 ⚠️ A alíquota vale na data da nota, não hoje
+
+Eu buscava a alíquota por `current_date`. A reforma sobe por degraus — 0,1% + 0,9% em 2026 e **17,7% + 8,8%
+em 2033** (o que a mig 007 semeia) — então recalcular em 2033 uma nota de 2026 aplicaria **26,5× a mais**.
+E recalcular nota antiga é rotina de conferência fiscal, não exceção. Agora a data de emissão manda.
+
+### 9.4 ⚠️ Eu carimbava procedência falsa
+
+O par `_ORI` é **procedência**: o que veio no XML do fornecedor ou na carga do legado. Meu código caía para
+o valor atual quando a origem estava vazia, ou seja, carimbava o resultado do nosso próprio cálculo como se
+fosse o do fornecedor. A partir daí a nota **nunca mais divergiria**, porque o original passaria a ser a
+nossa conta. Agora só se preserva o que já existe, e as colunas `_ori` ficam fora do `SET` do recálculo.
+
+### 9.5 Dois folds que a auditoria confirmou com rigor
+
+- **IBS municipal: zero em 98.794 de 98.794 itens** (alíquota e valor). Não é "quase sempre zero" — é
+  sempre, e por isso o cálculo o fixa em zero na fase-teste.
+- **Imposto seletivo: o legado não o implementa.** Nem `NF_PROD_IBSCBS` nem `NF_IBSCBS` têm coluna de IS
+  (conferido no dicionário do Oracle); `CSTIS`/`CCLASSTRIBIS` só existem na staging `INTEGRACAO_IBSCBS`, com
+  0 linhas. Não há leiaute nem dado para migrar. **É frente nova e não é pequena**: o cliente tem **3.276
+  produtos classificados com NCM de bebida (cap. 22) ou fumo (cap. 24)**, as categorias do IS.
+
+### 9.6 O que a auditoria também ensinou sobre o método
+
+A comparação do `TIPO_ALIQUOTA` é feita **por prefixo sem diacrítico**, não por igualdade literal. Não é
+zelo excessivo: nesta mesma auditoria, a consulta `tipo_aliquota <> 'Padrão'` contra o Oracle **casou com
+todas as linhas** por diferença de encoding. Se isso acontecesse na carga, o efeito seria pesado — com
+"Padrão" não casando, todo item viraria tratamento próprio e nenhuma nota calcularia. Smoke §154.8.

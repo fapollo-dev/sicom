@@ -40,6 +40,7 @@ type GrupoItem = {
   pibsuf: number | null; predaliq_ibsuf: number | null; paliqefet_ibsuf: number | null; vibsuf: number;
   pcbs: number | null; predaliq_cbs: number | null; paliqefet_cbs: number | null; vcbs: number;
   cst_ori: string | null; cclasstrib_ori: string | null; vbc_ori: number | null; divergencias: string[];
+  tratamento: string;
 };
 type Grupos = {
   cabecalho: { codnf: number; vbcibscbs: number; vibsuf: number; vibsmun: number; vibs: number;
@@ -57,6 +58,12 @@ const DOCS = [
   ['ind_nfse', 'NFS-e'],
 ] as const;
 
+/** por que o item ficou com estes valores — imunidade e monofasia zeram, e o zero fica dito */
+const TRATAMENTO: Record<string, string> = {
+  calculado: 'calculado',
+  nao_tributado: 'não tributado (imunidade/isenção)',
+  monofasico: 'monofásico (já cobrado antes)',
+};
 const pct = (v: number | null) => (v == null ? '' : `${v.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%`);
 const vazio = () => ({
   cst: '', descricao_cst: '', class_trib: '', nome_class_trib: '', descricao_class_trib: '',
@@ -318,7 +325,9 @@ export function ReformaIbsCbsPage() {
             Os grupos IBS/CBS de uma nota. O valor sai da alíquota <strong>efetiva</strong> (a cheia menos a
             redução da classificação): usar a cheia cobraria 23× a mais nos itens reduzidos. As colunas
             &quot;fornecedor&quot; mostram o que veio no XML — quando a conferência muda a CST, a
-            classificação ou a base, a linha fica marcada.
+            classificação ou a base, a linha fica marcada. A base <strong>exclui</strong> o ICMS, o PIS e a
+            COFINS, porque o imposto não entra na base do imposto; e item imune ou monofásico sai zerado com
+            o motivo dito, em vez de tributado por engano.
           </p>
           <div className="flex flex-wrap items-end gap-gp-sm">
             <div className="w-40"><Field label="&Nota (codnf)" value={codnf} onChange={(e) => setCodnf(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter') void carregarGrupos(); }} /></div>
@@ -344,6 +353,7 @@ export function ReformaIbsCbsPage() {
                 <thead><tr className="border-b border-border text-left text-fg-muted">
                   <th className="p-pad-xs">Item</th><th className="p-pad-xs">Produto</th>
                   <th className="p-pad-xs">CST</th><th className="p-pad-xs">cClassTrib</th>
+                  <th className="p-pad-xs">Tratamento</th>
                   <th className="p-pad-xs text-right">Base</th>
                   <th className="p-pad-xs text-right">IBS efet.</th><th className="p-pad-xs text-right">IBS</th>
                   <th className="p-pad-xs text-right">CBS efet.</th><th className="p-pad-xs text-right">CBS</th>
@@ -355,6 +365,7 @@ export function ReformaIbsCbsPage() {
                     <td className="p-pad-xs">{g.descricao ?? g.codproduto}</td>
                     <td className={`p-pad-xs tabular-nums ${g.divergencias.includes('cst') ? 'font-semibold text-fg-danger' : ''}`}>{g.cst ?? '—'}</td>
                     <td className={`p-pad-xs tabular-nums ${g.divergencias.includes('cclasstrib') ? 'font-semibold text-fg-danger' : ''}`} title={g.nome_class_trib ?? undefined}>{g.cclasstrib ?? '—'}</td>
+                    <td className="p-pad-xs">{TRATAMENTO[g.tratamento] ?? g.tratamento}</td>
                     <td className={`p-pad-xs text-right tabular-nums ${g.divergencias.includes('vbc') ? 'font-semibold text-fg-danger' : ''}`}>{g.vbc.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                     <td className="p-pad-xs text-right tabular-nums text-fg-muted">{pct(g.paliqefet_ibsuf)}</td>
                     <td className="p-pad-xs text-right tabular-nums">{g.vibsuf.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
