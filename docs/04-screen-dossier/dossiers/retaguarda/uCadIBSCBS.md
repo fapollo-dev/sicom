@@ -1,7 +1,8 @@
-# Reforma tributária IBS/CBS — corte-1: os cadastros
+# Reforma tributária IBS/CBS
 
-Telas **110 `FRMCADCLASSTRIBIBSCBS`** e **145 `FRMCADCSTIBSCBS`** da fila. Migration **278**.
-Smoke §153.1 a §153.5.
+Telas **110 `FRMCADCLASSTRIBIBSCBS`** e **145 `FRMCADCSTIBSCBS`** da fila.
+Corte-1 (os cadastros): migration **278**, smoke §153.1-5. Corte-2 (os grupos na nota): migration **279**,
+smoke §154.1-5, na seção 8.
 
 ## 1. Sem fonte no repositório, e por um motivo legítimo
 
@@ -100,9 +101,78 @@ que grupos do XML entram, então ela não pode ser texto livre. Smoke §153.2 e 
 destino, mas **nenhuma regra depende delas** — quem tem vigência de verdade aqui é a alíquota, e essa mora
 em `tributacao_reforma`.
 
-## 8. O que fica para o corte-2
+## 8. Corte-2 — os grupos na nota (migration 279)
 
-Os **grupos na nota**: `NF_PROD_IBSCBS` (98.747 itens, 24 colunas — base, alíquota e valor de IBS-UF,
-IBS-Mun e CBS, mais os campos de redução e os `_ORI` de origem) e `NF_IBSCBS` (10.011 notas, com
-`VCREDPRES`, `VCREDPRESCONDSUS`, `VDIF` e `VDEVTRIB`). São tabelas de movimento e pedem o corte do
-documento, não o do cadastro. Ainda **não estão no `plano-tabelas.json`** — entram com o corte-2.
+`NF_PROD_IBSCBS` (98.760 itens) e `NF_IBSCBS` (10.012 notas), smoke §154.1 a §154.5.
+
+### 8.1 ⚠️ A alíquota efetiva é a que conta, e a coluna dela não é confiável
+
+Duas camadas, as duas medidas.
+
+**(a) Quem multiplicar a base pela alíquota cheia cobra imposto a mais.** Nos **31.633 itens com redução**:
+
+| | real | pela alíquota cheia |
+|---|---:|---:|
+| IBS | R$ 469,70 | R$ 10.872,08 |
+| CBS | R$ 4.233,04 | R$ 97.781,80 |
+| **cobrado a mais** | | **R$ 103.951,14** |
+
+São 23× em cada tributo. A redução vem de `CLASS_TRIB` (corte-1) e chega ao item: **21.848 itens têm
+redução de 100%** (alíquota zero) e 9.833 têm 60%.
+
+**(b) E ler a coluna de alíquota efetiva que o legado grava não resolve — para a CBS ela é lixo.**
+`PALIQEFET_CBS` fica em **0 em 46.677 itens cuja redução é 0** (deveria ser 0,9), enquanto 41.255 deles
+têm o valor de CBS calculado certo. Medido nas 97.005 linhas com base:
+
+| conta | acerta |
+|---|---:|
+| IBS derivando `vbc × pibsuf × (1 − predaliq/100)` | **96.966 (99,96%)** |
+| IBS lendo `paliqefet_ibsuf` | 95.038 |
+| CBS derivando | **89.277** |
+| CBS lendo `paliqefet_cbs` | 56.129 (57,9%) |
+
+Por isso o serviço **deriva** e grava a efetiva como resultado, em vez de confiar na coluna. É uma função
+só para os três tributos, de propósito: o erro que ela evita é aplicar a redução a um e esquecer do outro.
+
+### 8.2 ⚠️ O que o fornecedor mandou não é o que fica: R$ 4,9 milhões
+
+As colunas `_ORI` guardam o que veio no XML; as sem sufixo, o que ficou depois da conferência de entrada.
+
+| | |
+|---|---:|
+| itens com base alterada | **36.278** |
+| base do fornecedor | R$ 4.040.470,56 |
+| base efetiva | R$ 8.936.794,30 |
+| **diferença** | **+R$ 4.896.323,74** |
+
+E a CST é reclassificada em 9.530 itens: **7.753 vieram como 000** (tributação integral) e ficaram **200**
+(alíquota reduzida) — o fornecedor não aplicou a redução e a conferência aplicou; 1.375 no sentido inverso
+e 377 de 410 para 000. É a mesma semântica dos pares `*_nota` do `nf_prod`, e é por isso que as duas
+colunas existem. Recalcular **não reescreve** a origem: sem esse par não há o que conferir.
+
+### 8.3 A aritmética do cabeçalho
+
+`VIBS = VIBSUF + VIBSMUN` em **10.012 de 10.012** notas — exata, não aproximada; a consulta devolve
+`ibs_fecha` para que a quebra apareça. O cabeçalho é a soma dos itens em ~95% (9.642 no IBS-UF).
+
+### 8.4 Produto sem classificação: decisão escrita, não `null` virando zero
+
+**44.501 dos 47.729 produtos** estão classificados; os 3.228 que faltam sairiam com IBS/CBS zerado e a nota
+seria rejeitada. Calcular com item sem classificação é **422 `PRODUTO_SEM_CLASSIFICACAO`**. Só passa com
+pedido explícito, e aí o item é tributado **integral** (redução 0), porque pagar cheio o que não se sabe é
+o conservador e zerar seria sonegar calado — é também o que o legado faz, onde a CST padrão é 000. A
+resposta devolve quantos itens saíram assim.
+
+### 8.5 Folds declarados
+
+No item, `PREDALIQ` e `PALIQEFET` **sem sufixo** estão vazias nas 98.760 linhas — são as genéricas, e o
+cliente só usa as por tributo. No cabeçalho, `VDIF`, `VDEVTRIB`, `VIBSMUN`, `VCREDPRES` e
+`VCREDPRESCONDSUS` estão **zeradas nas 10.012 notas**: o município ainda não cobra IBS na fase-teste e o
+cliente não tem crédito presumido. Vêm com destino porque o leiaute da NF-e as exige.
+
+⚠️ `CODCCLASS_TRIB_NCM_ANEXOS` é **0 em 92.726 dos 98.760 itens** (93,9%): o legado usa zero como "sem
+vínculo", não NULL. Os 6.034 positivos casam todos. Uma FK direta rejeitaria 92.726 linhas na carga — no
+ETL o zero vira NULL (`nullif`).
+
+⚠️ A empresa vem da nota (padrão do Achado 4): nenhuma das duas tabelas guarda loja e **3.623 das 10.012
+notas são da empresa 2**. As duas entraram na f1 do `plano-tabelas.json` com a empresa derivada da NF.

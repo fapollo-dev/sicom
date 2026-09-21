@@ -134,6 +134,8 @@
    "inventario_rotativo_dpto",
    "itens_lotecob",
    "log_liberacoes",
+   "nf_ibscbs",
+   "nf_prod_ibscbs",
    "operadoras_taxa",
    "operadores_acessos",
    "parceiros_bancos",

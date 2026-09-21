@@ -135,16 +135,16 @@
    ],
    "fks": [
     {
-     "coluna": "codparceiro",
-     "ref": "parceiros.codparceiro"
+     "coluna": "codcontacorrente",
+     "ref": "contas_bancarias.codconta"
     },
     {
      "coluna": "idsituacao_nf",
      "ref": "situacao_nf.idsituacao_nf"
     },
     {
-     "coluna": "codcontacorrente",
-     "ref": "contas_bancarias.codconta"
+     "coluna": "codparceiro",
+     "ref": "parceiros.codparceiro"
     }
    ],
    "unicos": [
@@ -752,12 +752,12 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto",
-     "ref": "produtos.idproduto"
-    },
-    {
      "coluna": "codagenda",
      "ref": "agenda_promocao.codagenda"
+    },
+    {
+     "coluna": "idproduto",
+     "ref": "produtos.idproduto"
     }
    ],
    "unicos": [
@@ -894,12 +894,12 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto",
-     "ref": "produtos.idproduto"
-    },
-    {
      "coluna": "codmotivo",
      "ref": "motivos.codmotivo"
+    },
+    {
+     "coluna": "idproduto",
+     "ref": "produtos.idproduto"
     }
    ],
    "unicos": [
@@ -1292,12 +1292,12 @@
    ],
    "fks": [
     {
-     "coluna": "codpedcomp",
-     "ref": "pedidocompra.codpedcomp"
-    },
-    {
      "coluna": "apn_id",
      "ref": "analise_pedido_nf.apn_id"
+    },
+    {
+     "coluna": "codpedcomp",
+     "ref": "pedidocompra.codpedcomp"
     }
    ],
    "unicos": [
@@ -9248,11 +9248,11 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto",
+     "coluna": "idproduto_01",
      "ref": "produtos.idproduto"
     },
     {
-     "coluna": "idproduto_01",
+     "coluna": "idproduto",
      "ref": "produtos.idproduto"
     }
    ],
@@ -9554,15 +9554,15 @@
    ],
    "fks": [
     {
-     "coluna": "contacredito",
-     "ref": "plano_contas.codplanocontas"
-    },
-    {
      "coluna": "codlote",
      "ref": "lote_contabil.codlotecontabil"
     },
     {
      "coluna": "contadebito",
+     "ref": "plano_contas.codplanocontas"
+    },
+    {
+     "coluna": "contacredito",
      "ref": "plano_contas.codplanocontas"
     }
    ],
@@ -18370,12 +18370,12 @@
    ],
    "fks": [
     {
-     "coluna": "idprodutos",
-     "ref": "produtos.idproduto"
-    },
-    {
      "coluna": "codproducao",
      "ref": "producao.codproducao"
+    },
+    {
+     "coluna": "idprodutos",
+     "ref": "produtos.idproduto"
     }
    ],
    "unicos": [
@@ -18573,12 +18573,12 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto",
-     "ref": "produtos.idproduto"
-    },
-    {
      "coluna": "codtroca",
      "ref": "troca.codtroca"
+    },
+    {
+     "coluna": "idproduto",
+     "ref": "produtos.idproduto"
     }
    ],
    "unicos": [
@@ -20700,12 +20700,12 @@
    ],
    "fks": [
     {
-     "coluna": "codpedcomp",
-     "ref": "pedidocompra.codpedcomp"
-    },
-    {
      "coluna": "codparceiro",
      "ref": "parceiros.codparceiro"
+    },
+    {
+     "coluna": "codpedcomp",
+     "ref": "pedidocompra.codpedcomp"
     },
     {
      "coluna": "idsituacao_nf",
@@ -20910,6 +20910,109 @@
     {
      "nome": "nf_forma_pagamento_pkey",
      "def": "CREATE UNIQUE INDEX nf_forma_pagamento_pkey ON public.nf_forma_pagamento USING btree (codnforpgto)"
+    }
+   ]
+  },
+  "nf_ibscbs": {
+   "colunas": {
+    "codnf": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "idempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "vbcibscbs": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "vibsuf": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "vibsmun": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "vibs": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "vcbs": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "vdif": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "vdevtrib": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "vcredpres": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "vcredprescondsus": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    }
+   },
+   "pk": [
+    "codnf"
+   ],
+   "fks": [
+    {
+     "coluna": "codnf",
+     "ref": "nf.codnf"
+    }
+   ],
+   "unicos": [
+    {
+     "nome": "nf_ibscbs_pkey",
+     "def": "CREATE UNIQUE INDEX nf_ibscbs_pkey ON public.nf_ibscbs USING btree (codnf)"
     }
    ]
   },
@@ -21559,6 +21662,193 @@
     {
      "nome": "nf_prod_pkey",
      "def": "CREATE UNIQUE INDEX nf_prod_pkey ON public.nf_prod USING btree (codnfprod)"
+    }
+   ]
+  },
+  "nf_prod_ibscbs": {
+   "colunas": {
+    "codnfprod": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "codnf": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "idempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "codproduto": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "cst": {
+     "tipo": "character varying",
+     "tam": 3,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "cclasstrib": {
+     "tipo": "character varying",
+     "tam": 6,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "vbc": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "pibsuf": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "predaliq_ibsuf": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "paliqefet_ibsuf": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "vibsuf": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "pibsmun": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "predaliq_ibsmun": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "paliqefet_ibsmun": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "vibsmun": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "pcbs": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "predaliq_cbs": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "paliqefet_cbs": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "vcbs": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "codcclass_trib_ncm": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "cst_ori": {
+     "tipo": "character varying",
+     "tam": 3,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "cclasstrib_ori": {
+     "tipo": "character varying",
+     "tam": 6,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "vbc_ori": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    }
+   },
+   "pk": [
+    "codnfprod"
+   ],
+   "fks": [
+    {
+     "coluna": "codnfprod",
+     "ref": "nf_prod.codnfprod"
+    }
+   ],
+   "unicos": [
+    {
+     "nome": "nf_prod_ibscbs_pkey",
+     "def": "CREATE UNIQUE INDEX nf_prod_ibscbs_pkey ON public.nf_prod_ibscbs USING btree (codnfprod)"
     }
    ]
   },
@@ -24983,12 +25273,12 @@
    ],
    "fks": [
     {
-     "coluna": "codnf",
-     "ref": "nf.codnf"
-    },
-    {
      "coluna": "codpeddevcompra",
      "ref": "pedido_devolucao_compra.codpeddevcompra"
+    },
+    {
+     "coluna": "codnf",
+     "ref": "nf.codnf"
     }
    ],
    "unicos": [
@@ -25452,12 +25742,12 @@
    ],
    "fks": [
     {
-     "coluna": "codpedcomp",
-     "ref": "pedidocompra.codpedcomp"
-    },
-    {
      "coluna": "idproduto",
      "ref": "produtos.idproduto"
+    },
+    {
+     "coluna": "codpedcomp",
+     "ref": "pedidocompra.codpedcomp"
     }
    ],
    "unicos": [
@@ -27745,20 +28035,20 @@
    ],
    "fks": [
     {
-     "coluna": "idmarca",
-     "ref": "marcas.idmarca"
-    },
-    {
-     "coluna": "codfor",
-     "ref": "parceiros.codparceiro"
+     "coluna": "codunidade",
+     "ref": "unidade.codunidade"
     },
     {
      "coluna": "aliquota",
      "ref": "aliquota.codigo"
     },
     {
-     "coluna": "codunidade",
-     "ref": "unidade.codunidade"
+     "coluna": "idmarca",
+     "ref": "marcas.idmarca"
+    },
+    {
+     "coluna": "codfor",
+     "ref": "parceiros.codparceiro"
     }
    ],
    "unicos": [
@@ -28365,12 +28655,12 @@
    ],
    "fks": [
     {
-     "coluna": "codoperador",
-     "ref": "operadores.codoperador"
-    },
-    {
      "coluna": "codperfil",
      "ref": "perfil.codperfil"
+    },
+    {
+     "coluna": "codoperador",
+     "ref": "operadores.codoperador"
     }
    ],
    "unicos": [

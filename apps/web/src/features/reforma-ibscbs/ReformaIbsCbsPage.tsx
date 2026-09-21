@@ -8,11 +8,12 @@ import { apiHeaders, handle401 } from '../../shared/auth/session';
 
 /**
  * REFORMA TRIBUTÁRIA IBS/CBS — cadastros (`FRMCADCSTIBSCBS` e `FRMCADCLASSTRIBIBSCBS`).
- * Dossiê: `uCadIBSCBS.md`. Migration 278.
+ * Dossiê: `uCadIBSCBS.md`. Migrations 278 (cadastros) e 279 (grupos na nota).
  *
- * Três abas porque são três coisas diferentes: o catálogo de CST (com as 9 flags por documento fiscal), a
- * classificação tributária da LC 214/2025 (onde as reduções de IBS e CBS são independentes) e a alíquota
- * por UF ao lado do parâmetro com vigência.
+ * Quatro abas porque são quatro coisas diferentes: o catálogo de CST (com as 9 flags por documento
+ * fiscal), a classificação tributária da LC 214/2025 (onde as reduções de IBS e CBS são independentes),
+ * a alíquota por UF ao lado do parâmetro com vigência, e os grupos calculados de uma nota — onde o valor
+ * sai da alíquota EFETIVA e as colunas do fornecedor ficam ao lado para conferência.
  */
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -33,6 +34,18 @@ type Ncm = {
   legislacao: string | null; codigo_ncm: string; nome_class_trib: string | null;
   pred_ibs: number | null; pred_cbs: number | null;
 };
+type GrupoItem = {
+  codnfprod: number; nroitem: number | null; descricao: string | null; codproduto: number;
+  cst: string | null; cclasstrib: string | null; nome_class_trib: string | null; vbc: number;
+  pibsuf: number | null; predaliq_ibsuf: number | null; paliqefet_ibsuf: number | null; vibsuf: number;
+  pcbs: number | null; predaliq_cbs: number | null; paliqefet_cbs: number | null; vcbs: number;
+  cst_ori: string | null; cclasstrib_ori: string | null; vbc_ori: number | null; divergencias: string[];
+};
+type Grupos = {
+  cabecalho: { codnf: number; vbcibscbs: number; vibsuf: number; vibsmun: number; vibs: number;
+    vcbs: number; ibs_fecha: boolean } | null;
+  itens: GrupoItem[];
+};
 type Uf = {
   codibs_uf: number; uf: string; valor_ibs_uf: number; ibs_parametro: number | null;
   cbs_parametro: number | null; vigencia_inicio: string | null; fonte: string | null; diverge: boolean;
@@ -52,7 +65,7 @@ const vazio = () => ({
 
 export function ReformaIbsCbsPage() {
   const mensagem = useMensagem();
-  const [aba, setAba] = useState<'class' | 'cst' | 'uf'>('class');
+  const [aba, setAba] = useState<'class' | 'cst' | 'uf' | 'nota'>('class');
   const [q, setQ] = useState('');
   const [soNfe, setSoNfe] = useState(false);
   const [csts, setCsts] = useState<Cst[]>([]);
@@ -63,6 +76,9 @@ export function ReformaIbsCbsPage() {
   const [sel, setSel] = useState<number | null>(null);
   const [f, setF] = useState<Record<string, string>>(vazio());
   const [ocupado, setOcupado] = useState(false);
+  const [codnf, setCodnf] = useState('');
+  const [soDiv, setSoDiv] = useState(false);
+  const [grupos, setGrupos] = useState<Grupos | null>(null);
 
   const pedir = async <T,>(url: string, init?: RequestInit): Promise<T> => {
     const r = await fetch(url, { ...init, headers: { ...apiHeaders(), ...(init?.headers ?? {}) } });
@@ -96,6 +112,25 @@ export function ReformaIbsCbsPage() {
   };
   const carregarUf = async () => {
     try { setUfs(await pedir<Uf[]>(`${BASE}/cadastro/reforma-ibscbs/ibs-uf`)); } catch (e) { mensagem.erro(e); }
+  };
+  const carregarGrupos = async () => {
+    if (!codnf.trim()) return;
+    try {
+      const p = new URLSearchParams({ codnf: codnf.trim() });
+      if (soDiv) p.set('so_divergentes', 'true');
+      setGrupos(await pedir<Grupos>(`${BASE}/fiscal/nf-ibscbs?${p}`));
+    } catch (e) { mensagem.erro(e); }
+  };
+  const calcular = async () => {
+    if (!codnf.trim()) return;
+    setOcupado(true);
+    try {
+      await pedir(`${BASE}/fiscal/nf-ibscbs/calcular`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ codnf: Number(codnf) }),
+      });
+      mensagem.sucesso('Grupos IBS/CBS recalculados.'); await carregarGrupos();
+    } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
   useEffect(() => {
     if (aba === 'cst') void carregarCst();
@@ -151,6 +186,7 @@ export function ReformaIbsCbsPage() {
         <Button label="&Classificação tributária" variant={aba === 'class' ? 'filled' : 'outline'} onClick={() => setAba('class')} />
         <Button label="C&ST" variant={aba === 'cst' ? 'filled' : 'outline'} onClick={() => setAba('cst')} />
         <Button label="Alíquota por &UF" variant={aba === 'uf' ? 'filled' : 'outline'} onClick={() => setAba('uf')} />
+        <Button label="Grupos na &nota" variant={aba === 'nota' ? 'filled' : 'outline'} onClick={() => setAba('nota')} />
       </div>
 
       {aba === 'class' && (
@@ -273,6 +309,67 @@ export function ReformaIbsCbsPage() {
                 </tr>))}</tbody>
             </table>
           </div>
+        </section>
+      )}
+
+      {aba === 'nota' && (
+        <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <p className="mb-form-gap text-body-sm text-fg-muted">
+            Os grupos IBS/CBS de uma nota. O valor sai da alíquota <strong>efetiva</strong> (a cheia menos a
+            redução da classificação): usar a cheia cobraria 23× a mais nos itens reduzidos. As colunas
+            &quot;fornecedor&quot; mostram o que veio no XML — quando a conferência muda a CST, a
+            classificação ou a base, a linha fica marcada.
+          </p>
+          <div className="flex flex-wrap items-end gap-gp-sm">
+            <div className="w-40"><Field label="&Nota (codnf)" value={codnf} onChange={(e) => setCodnf(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter') void carregarGrupos(); }} /></div>
+            <Button label="&Consultar" onClick={() => void carregarGrupos()} />
+            <Button label="Reca&lcular" variant="outline" disabled={ocupado} onClick={() => void calcular()} />
+            <label className="flex items-center gap-gp-xs text-body-sm">
+              <input type="checkbox" checked={soDiv} onChange={(e) => setSoDiv(e.target.checked)} /> só o que a conferência mudou
+            </label>
+          </div>
+          {grupos?.cabecalho && (
+            <div className="mt-form-gap flex flex-wrap gap-gp-md text-body-sm">
+              <span>Base <strong className="tabular-nums">{grupos.cabecalho.vbcibscbs.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>
+              <span>IBS-UF <strong className="tabular-nums">{grupos.cabecalho.vibsuf.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>
+              <span>IBS-Mun <strong className="tabular-nums">{grupos.cabecalho.vibsmun.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>
+              <span>IBS <strong className="tabular-nums">{grupos.cabecalho.vibs.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>
+              <span>CBS <strong className="tabular-nums">{grupos.cabecalho.vcbs.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>
+              {!grupos.cabecalho.ibs_fecha && <span className="font-semibold text-fg-danger">o IBS total não fecha com UF + município</span>}
+            </div>
+          )}
+          {grupos && grupos.itens.length > 0 && (
+            <div className="mt-form-gap overflow-x-auto">
+              <table className="w-full min-w-[1100px] border-collapse text-body-sm">
+                <thead><tr className="border-b border-border text-left text-fg-muted">
+                  <th className="p-pad-xs">Item</th><th className="p-pad-xs">Produto</th>
+                  <th className="p-pad-xs">CST</th><th className="p-pad-xs">cClassTrib</th>
+                  <th className="p-pad-xs text-right">Base</th>
+                  <th className="p-pad-xs text-right">IBS efet.</th><th className="p-pad-xs text-right">IBS</th>
+                  <th className="p-pad-xs text-right">CBS efet.</th><th className="p-pad-xs text-right">CBS</th>
+                  <th className="p-pad-xs">Fornecedor mandou</th>
+                </tr></thead>
+                <tbody>{grupos.itens.map((g) => (
+                  <tr key={g.codnfprod} className={`border-b border-border ${g.divergencias.length ? 'bg-bg-muted' : ''}`}>
+                    <td className="p-pad-xs tabular-nums">{g.nroitem ?? ''}</td>
+                    <td className="p-pad-xs">{g.descricao ?? g.codproduto}</td>
+                    <td className={`p-pad-xs tabular-nums ${g.divergencias.includes('cst') ? 'font-semibold text-fg-danger' : ''}`}>{g.cst ?? '—'}</td>
+                    <td className={`p-pad-xs tabular-nums ${g.divergencias.includes('cclasstrib') ? 'font-semibold text-fg-danger' : ''}`} title={g.nome_class_trib ?? undefined}>{g.cclasstrib ?? '—'}</td>
+                    <td className={`p-pad-xs text-right tabular-nums ${g.divergencias.includes('vbc') ? 'font-semibold text-fg-danger' : ''}`}>{g.vbc.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                    <td className="p-pad-xs text-right tabular-nums text-fg-muted">{pct(g.paliqefet_ibsuf)}</td>
+                    <td className="p-pad-xs text-right tabular-nums">{g.vibsuf.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                    <td className="p-pad-xs text-right tabular-nums text-fg-muted">{pct(g.paliqefet_cbs)}</td>
+                    <td className="p-pad-xs text-right tabular-nums">{g.vcbs.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                    <td className="p-pad-xs text-fg-muted">
+                      {g.divergencias.length === 0 ? '—' : `CST ${g.cst_ori ?? '—'} · ${g.cclasstrib_ori ?? '—'} · base ${(g.vbc_ori ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+                    </td>
+                  </tr>))}</tbody>
+              </table>
+            </div>
+          )}
+          {grupos && grupos.itens.length === 0 && (
+            <p className="mt-form-gap text-body-sm text-fg-muted">Nenhum item{soDiv ? ' divergente' : ''} nesta nota.</p>
+          )}
         </section>
       )}
 

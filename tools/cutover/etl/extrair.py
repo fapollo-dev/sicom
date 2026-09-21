@@ -128,6 +128,13 @@ CALCULADAS = {
   # `schema-destino.json` ser regenerado, que é o lembrete de que a conferência mede o schema que existe,
   # não o que está no código. É o maior número da série: **400.108 das 1.170.567 baixas** são de outra
   # empresa (a baixa não guarda loja; ela vem do recebível de cartão).
+  # reforma IBS/CBS (mig 279): nem o cabecalho nem o item guardam a loja — ela vem da NOTA, e **3.623 das
+  # 10.012 notas sao da empresa 2**. Mesmo padrao do Achado 4.
+  'nf_ibscbs':      {'idempresa': '(select f.idempresa from nf f where f.codnf = nf_ibscbs.codnf)'},
+  'nf_prod_ibscbs': {'idempresa': '(select f.idempresa from nf f where f.codnf = nf_prod_ibscbs.codnf)',
+    # o legado usa ZERO como "sem vinculo" em 92.726 dos 98.760 itens (93,9%); aqui a coluna e nullable
+    # e o zero vira NULL — uma FK direta rejeitaria essas 92.726 linhas na carga.
+    'codcclass_trib_ncm': 'nullif(nf_prod_ibscbs.codcclass_trib_ncm_anexos, 0)'},
   'cartao_bx':   {'idempresa':  '(select k.idempresa from cartao k where k.codvendcartao = cartao_bx.codvendcartao)'},
   'apagar_bx':   {'codempresa': '(select a.idempresa from apagar a where a.codapg = apagar_bx.codapg)'},
   'areceber_bx': {'codempresa': '(select a.codempresa from areceber a where a.codrcb = areceber_bx.codrcb)'},

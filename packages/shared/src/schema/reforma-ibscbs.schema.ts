@@ -89,3 +89,19 @@ export const ibsUfSchema = z.object({
   valor_ibs_uf: z.coerce.number().min(0).max(100),
 });
 export type IbsUfDto = z.infer<typeof ibsUfSchema>;
+
+/** corte-2 (mig 279): recalcular os grupos IBS/CBS de uma nota. */
+export const nfIbsCbsCalculoSchema = z.object({
+  codnf: z.coerce.number().int().positive(),
+  /** deixa passar item cujo produto não tem classificação (grava o item com CST nula). */
+  // body JSON, não query: `z.boolean()` mesmo — `z.coerce.boolean()` faria a string "false" virar true
+  permitir_sem_classificacao: z.boolean().default(false),
+});
+export type NfIbsCbsCalculoDto = z.infer<typeof nfIbsCbsCalculoSchema>;
+
+/** consulta dos grupos de uma nota, com o par de conferência (o que o fornecedor mandou × o que ficou). */
+export const nfIbsCbsConsultaSchema = z.object({
+  codnf: z.coerce.number().int().positive(),
+  so_divergentes: boolQuery(false),
+});
+export type NfIbsCbsConsultaDto = z.infer<typeof nfIbsCbsConsultaSchema>;

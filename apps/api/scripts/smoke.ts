@@ -16619,6 +16619,105 @@ async function main() {
       }
     }
 
+    // ══ REFORMA IBS/CBS corte-2 — os grupos na NOTA (mig 279) ══════════════════════════════════════════
+    {
+      const NG = 'fiscal/nf-ibscbs';
+      const pgNg = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const j = { ...H, 'content-type': 'application/json' };
+        // o catálogo e as três classificações: sem redução, redução 60% e alíquota zero (100%)
+        await pgNg.query(`INSERT INTO cst_ibs_cbs (cst, descricao_cst, ind_gibscbs, ind_nfe) VALUES
+          ('000','TRIBUTACAO INTEGRAL',1,'S'),('200','ALIQUOTA REDUZIDA',1,'S') ON CONFLICT (cst) DO NOTHING`);
+        await pgNg.query(`INSERT INTO class_trib (codclass_trib, cst, descricao_cst, class_trib, nome_class_trib, pred_ibs, pred_cbs) VALUES
+          (994401,'000','TRIBUTACAO INTEGRAL','000001','SEM REDUCAO',           0,   0),
+          (994402,'200','ALIQUOTA REDUZIDA',  '200003','CESTA BASICA 60%',      60,  60),
+          (994403,'200','ALIQUOTA ZERO',      '200018','ALIQUOTA ZERO',         100, 100),
+          (994404,'200','ALIQUOTA REDUZIDA',  '200099','ASSIMETRICA IBS60 CBS100', 60, 100)
+          ON CONFLICT (codclass_trib) DO UPDATE SET pred_ibs = EXCLUDED.pred_ibs, pred_cbs = EXCLUDED.pred_cbs`);
+        await pgNg.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, ncmsh, codclass_trib) VALUES
+          (994401,'7899000994401','PRODUTO SEM REDUCAO','UN',2,'T01','S','22030000',994401),
+          (994402,'7899000994402','ARROZ CESTA BASICA','KG',2,'T01','S','10063021',994402),
+          (994403,'7899000994403','PRODUTO ALIQUOTA ZERO','UN',2,'T01','S','49019900',994403),
+          (994404,'7899000994404','PRODUTO ASSIMETRICO','UN',2,'T01','S','12079910',994404)
+          ON CONFLICT (idproduto) DO UPDATE SET codclass_trib = EXCLUDED.codclass_trib, ncmsh = EXCLUDED.ncmsh`);
+        // a alíquota da UF da empresa; o parâmetro da mig 007 é quem manda
+        const ufEmp = ((await pgNg.query(`SELECT uf FROM empresas WHERE idempresa = 1`)).rows[0] as any)?.uf ?? 'SP';
+        await pgNg.query(`INSERT INTO tributacao_reforma (uf, vigencia_inicio, ibs, cbs, imposto_seletivo, fonte)
+          VALUES ('${ufEmp}','2026-01-01',0.1,0.9,0,'smoke') ON CONFLICT (uf, vigencia_inicio) DO UPDATE SET ibs = 0.1, cbs = 0.9`);
+        // uma nota com os quatro itens, base 1.000,00 cada
+        await pgNg.query(`INSERT INTO nf (codnf, idempresa, codparceiro, nronf, serie, modelo, tipo, dtemissao, dtcontabil, totalnf) VALUES
+          (9944001, 1, 2, '9944001', '1', '55', 'E', '2026-03-10', '2026-03-10', 4000.00) ON CONFLICT (codnf) DO NOTHING`);
+        await pgNg.query(`INSERT INTO nf_prod (codnfprod, codnf, nroitem, codproduto, quantidade, vrcusto, unidade, cfop, ncm, total_produto_nota) VALUES
+          (99440011, 9944001, 1, 994401, 10, 100, 'UN', 1102, '22030000', 1000.00),
+          (99440012, 9944001, 2, 994402, 10, 100, 'KG', 1102, '10063021', 1000.00),
+          (99440013, 9944001, 3, 994403, 10, 100, 'UN', 1102, '49019900', 1000.00),
+          (99440014, 9944001, 4, 994404, 10, 100, 'UN', 1102, '12079910', 1000.00)
+          ON CONFLICT (codnfprod) DO NOTHING`);
+
+        const calc = await fetch(`${base}/${NG}/calcular`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9944001 }) });
+        const c = (await calc.json().catch(() => ({}))) as any;
+        const it = (n: number) => (c.itens ?? []).find((x: any) => x.codproduto === n);
+        const semRed = it(994401), red60 = it(994402), zero = it(994403), assim = it(994404);
+        check('REFORMA IBS/CBS §154.1 [a alíquota EFETIVA é a que conta — quem usar a CHEIA cobra 23× a mais]: nos **31.633 itens com redução** do cliente, o IBS real é R$ 469,70 e pela alíquota cheia seria R$ 10.872,08; a CBS, R$ 4.233,04 contra R$ 97.781,80 — **R$ 103.951,14 cobrados a mais**. Aqui, sobre base 1.000,00 com IBS 0,1% e CBS 0,9%: sem redução dá 1,00 e 9,00; com 60% dá 0,40 e 3,60 (efetivas 0,04 e 0,36); com 100% dá **zero** (é alíquota zero, não "quase nada")',
+          calc.status === 200
+          && semRed?.paliqefet_ibsuf === 0.1 && semRed?.vibsuf === 1 && semRed?.paliqefet_cbs === 0.9 && semRed?.vcbs === 9
+          && red60?.paliqefet_ibsuf === 0.04 && red60?.vibsuf === 0.4 && red60?.paliqefet_cbs === 0.36 && red60?.vcbs === 3.6
+          && zero?.paliqefet_ibsuf === 0 && zero?.vibsuf === 0 && zero?.vcbs === 0,
+          { st: calc.status, semRed: [semRed?.vibsuf, semRed?.vcbs], red60: [red60?.vibsuf, red60?.vcbs], zero: [zero?.vibsuf, zero?.vcbs] });
+
+        check('REFORMA IBS/CBS §154.2 [a redução de IBS não é a de CBS, e o cálculo respeita as duas]: a classificação assimétrica (IBS 60%, CBS 100%) rende IBS 0,40 **e CBS zero** na mesma linha — uma implementação com um percentual só daria 0,40 e 3,60 (cobrando R$ 3,60 de CBS que a lei zerou) ou 0,00 e 0,00 (deixando de cobrar o IBS devido). É a única linha assimétrica das 132 do cliente, e é justamente a que o erro machuca',
+          assim?.predaliq_ibsuf === 60 && assim?.predaliq_cbs === 100
+          && assim?.paliqefet_ibsuf === 0.04 && assim?.vibsuf === 0.4
+          && assim?.paliqefet_cbs === 0 && assim?.vcbs === 0,
+          { red: [assim?.predaliq_ibsuf, assim?.predaliq_cbs], efet: [assim?.paliqefet_ibsuf, assim?.paliqefet_cbs], valor: [assim?.vibsuf, assim?.vcbs] });
+
+        const cab = c.totais ?? {};
+        check('REFORMA IBS/CBS §154.3 [o cabeçalho, e VIBS = VIBSUF + VIBSMUN]: a identidade é exata em **10.012 de 10.012** notas do cliente, não aproximada. Base 4.000,00 (4 × 1.000,00); IBS-UF 1,00 + 0,40 + 0 + 0,40 = 1,80; CBS 9,00 + 3,60 + 0 + 0 = 12,60; e o IBS total fecha com a soma de UF e município (o municipal é zero na fase-teste — zerado nas 10.012 notas)',
+          Number(cab.vbcibscbs) === 4000 && Number(cab.vibsuf) === 1.8 && Number(cab.vibsmun) === 0
+          && Number(cab.vibs) === 1.8 && Number(cab.vcbs) === 12.6,
+          cab);
+
+        // o par de conferência: mexer na classificação e recalcular NÃO pode reescrever o que o fornecedor mandou
+        await pgNg.query(`UPDATE nf_prod_ibscbs SET cst_ori = '000', cclasstrib_ori = '000001', vbc_ori = 700.00 WHERE codnfprod = 99440012`);
+        const recalc = await fetch(`${base}/${NG}/calcular`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9944001 }) });
+        const todos = (await (await fetch(`${base}/${NG}?codnf=9944001`, { headers: H })).json().catch(() => ({}))) as any;
+        const soDiv = (await (await fetch(`${base}/${NG}?codnf=9944001&so_divergentes=true`, { headers: H })).json().catch(() => ({}))) as any;
+        const d = (soDiv.itens ?? [])[0];
+        check('REFORMA IBS/CBS §154.4 [o que o fornecedor mandou NÃO é o que fica — R$ 4,9 milhões de base reclassificada]: em **36.278 itens** do cliente a base mudou (R$ 4.040.470,56 do fornecedor viraram R$ 8.936.794,30) e a CST é reclassificada em 9.530, das quais **7.753 de 000 para 200** (o fornecedor não aplicou a redução e a conferência aplicou). O par `_ORI` guarda a origem; recalcular **não a reescreve**, e o filtro traz só o item divergente, dizendo em que campos',
+          recalc.status === 200 && (todos.itens ?? []).length === 4 && (soDiv.itens ?? []).length === 1
+          && d?.cst_ori === '000' && d?.cst === '200' && Number(d?.vbc_ori) === 700 && Number(d?.vbc) === 1000
+          && (d?.divergencias ?? []).sort().join(',') === 'cclasstrib,cst,vbc'
+          && todos.cabecalho?.ibs_fecha === true,
+          { todos: (todos.itens ?? []).length, div: (soDiv.itens ?? []).length, campos: d?.divergencias, fecha: todos.cabecalho?.ibs_fecha });
+
+        // produto sem classificação: não calcula por engano
+        await pgNg.query(`UPDATE produtos SET codclass_trib = NULL WHERE idproduto = 994401`);
+        const semCl = await fetch(`${base}/${NG}/calcular`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9944001 }) });
+        const semClJ = (await semCl.json().catch(() => ({}))) as any;
+        const forcado = await fetch(`${base}/${NG}/calcular`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9944001, permitir_sem_classificacao: true }) });
+        const forcadoJ = (await forcado.json().catch(() => ({}))) as any;
+        const semGrant = await fetch(`${base}/${NG}/calcular`, { method: 'POST', headers: { ...H_SEM_ACESSO, 'content-type': 'application/json' }, body: JSON.stringify({ codnf: 9944001 }) });
+        const outraLoja = await fetch(`${base}/${NG}/calcular`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9944999 }) });
+        check('REFORMA IBS/CBS §154.5 [produto sem classificação não passa calado]: **44.501 dos 47.729 produtos** do cliente estão classificados — os 3.228 que faltam sairiam com IBS/CBS zerado e a nota seria rejeitada. Calcular com item sem classificação é 422 PRODUTO_SEM_CLASSIFICACAO; só passa com o pedido explícito, e aí a resposta DIZ quantos saíram assim. E o item sem classificação sai **tributado INTEGRAL** (o total segue 1,80, não cai para 0,80): é decisão escrita, não `null` virando zero — pagar cheio o que não se sabe é o conservador, zerar seria sonegar calado, e é o que o legado faz com a CST padrão 000. Nota de outra loja é 422 NF_NAO_ENCONTRADA (tenant) e sem o grant BTNCALCULAR, 403',
+          semCl.status === 422 && semClJ.code === 'PRODUTO_SEM_CLASSIFICACAO'
+          && forcado.status === 200 && forcadoJ.sem_classificacao === 1
+          && Number(forcadoJ.totais?.vibsuf) === 1.8 && semGrant.status === 403
+          && outraLoja.status === 422 && ((await outraLoja.json().catch(() => ({}))) as any).code === 'NF_NAO_ENCONTRADA',
+          { semCl: [semCl.status, semClJ.code], forcado: [forcado.status, forcadoJ.sem_classificacao, forcadoJ.totais?.vibsuf], rbac: semGrant.status, outra: outraLoja.status });
+
+        await pgNg.query(`DELETE FROM nf_prod_ibscbs WHERE codnf = 9944001`);
+        await pgNg.query(`DELETE FROM nf_ibscbs WHERE codnf = 9944001`);
+        await pgNg.query(`DELETE FROM nf_prod WHERE codnf = 9944001`);
+        await pgNg.query(`DELETE FROM nf WHERE codnf = 9944001`);
+        await pgNg.query(`DELETE FROM produtos WHERE idproduto BETWEEN 994401 AND 994404`);
+        await pgNg.query(`DELETE FROM class_trib WHERE codclass_trib BETWEEN 994401 AND 994404`);
+        await pgNg.query(`DELETE FROM tributacao_reforma WHERE fonte = 'smoke'`);
+        await pgNg.query(`DELETE FROM cst_ibs_cbs WHERE cst IN ('000','200')`);
+      } finally {
+        await pgNg.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();
