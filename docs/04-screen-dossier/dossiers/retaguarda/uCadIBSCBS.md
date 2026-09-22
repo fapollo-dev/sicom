@@ -440,3 +440,58 @@ mas porque reproduzem 89.494 casos reais e as exceções são erros identificáv
 Não permite afirmar que a tela está pronta. O que falta continua sendo o que está na tabela de §11.3 — o
 grupo no XML, o imposto seletivo, o crédito na entrada, e as classificações de alíquota setorial, fixa,
 crédito presumido, diferimento e suspensão, que hoje são **recusadas** em vez de calculadas.
+
+
+## 13. Corte-3 — a APURAÇÃO de IBS/CBS (migration 281)
+
+**DESENVOLVIDO (novo).** O legado não apura IBS/CBS: só grava os grupos na nota. Não há tela, tabela nem
+coluna de saldo em lugar nenhum do Oracle. O substrato, porém, é grande. Smoke §155.1 a §155.4.
+
+### 13.1 ⚠️ IBS e CBS se apuram separadamente — um não compensa o outro
+
+É a regra estrutural do corte, e é do desenho da reforma: a **CBS é federal** (substitui PIS e COFINS) e o
+**IBS é dos Estados e Municípios** (substitui ICMS e ISS). São entes tributantes diferentes. Somá-los num
+"total de crédito" para abater de um "total de débito" produz um número que não corresponde a imposto
+nenhum — e a CBS acabaria pagando conta do IBS.
+
+No cliente as ordens de grandeza mostram por que isso não é teórico: em 2026-01 o crédito de IBS é
+**R$ 1.530,42** e o de CBS é **R$ 13.745,12**. Por isso a tabela tem quatro colunas de resultado (a recolher
+e saldo credor, para cada tributo), a tela não mostra total nenhum, e o saldo anterior também transita
+separado.
+
+### 13.2 O substrato, por mês de 2026
+
+| mês | entradas (crédito) | IBS | CBS | saídas (débito) | IBS | CBS |
+|---|---:|---:|---:|---:|---:|---:|
+| 2026-01 | 697 notas | 1.530,42 | 13.745,12 | 82 notas | 92,93 | 834,79 |
+| 2026-03 | 801 | 781,03 | 7.026,77 | 119 | 69,58 | 626,45 |
+| 2026-08 | 705 | 702,73 | 6.328,56 | 56 | 83,78 | 754,83 |
+
+O crédito é cerca de dez vezes o débito, e isso tem explicação — ver o fold a seguir.
+
+### 13.3 ⚠️ Fold declarado: o débito de cupom não entra
+
+A venda no PDV sai em NFC-e e **nenhuma venda de cupom tem grupo IBS/CBS** no cliente: os 98.760 itens são
+todos de NF. Enquanto for assim, o débito de saída fica estruturalmente baixo. PDV está fora de escopo por
+instrução, então isto é limite declarado, não esquecimento — e a resposta da API diz isso em texto, para
+que ninguém leia o número sem saber o que ele não cobre. Quando a NFC-e passar a carregar os grupos, entra
+uma perna nova aqui, como a apuração de ICMS (mig 164) tem a perna do cupom carregando 99,8% do detalhe.
+
+### 13.4 Os filtros, e por que são os mesmos do ICMS
+
+Data **contábil** (não a de emissão), `PROC='S'`, não cancelada e `STATUSNFE <> 'D'`. Crédito de nota
+cancelada é crédito que não existe. Smoke §155.2 prova com quatro notas no período, das quais só duas
+entram.
+
+### 13.5 Não cumulatividade sem regra nova
+
+O crédito sai do que está **gravado** no grupo do item, e o corte-2 já garante que imunidade, isenção e
+monofasia gravam zero com o motivo ao lado (`tratamento`). Logo elas não geram crédito **por construção** —
+não foi preciso escrever uma regra de exclusão que pudesse divergir da do cálculo.
+
+### 13.6 O saldo transita, e só do período fechado
+
+Saldo credor abate o débito do período seguinte, cada tributo no seu. A busca é pela competência anterior
+**fechada**; reprocessar um mês antigo não recalcula os seguintes, que é a mesma escolha da apuração de
+ICMS e pelo mesmo motivo: o fechado é documento. Apuração fechada não se reprocessa nem com pedido
+explícito (422), diferente de competência apenas já processada, que aceita o reprocessamento.

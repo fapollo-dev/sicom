@@ -127,3 +127,19 @@ export const nfIbsCbsConsultaSchema = z.object({
   so_divergentes: boolQuery(false),
 });
 export type NfIbsCbsConsultaDto = z.infer<typeof nfIbsCbsConsultaSchema>;
+
+/** corte-3 (mig 281): apuração de IBS/CBS por competência. */
+export const apuracaoIbsCbsProcessarSchema = z.object({
+  /** AAAAMM */
+  competencia: z.string().trim().regex(/^\d{6}$/, 'competência no formato AAAAMM')
+    .refine((v) => { const m = Number(v.slice(4)); return m >= 1 && m <= 12; }, 'mês inválido'),
+  /** reprocessar apaga o detalhe e recalcula; apuração FECHADA nunca é reprocessada */
+  reprocessar: z.boolean().default(false),
+});
+export type ApuracaoIbsCbsProcessarDto = z.infer<typeof apuracaoIbsCbsProcessarSchema>;
+
+export const apuracaoIbsCbsObterSchema = z.object({
+  competencia: z.string().trim().regex(/^\d{6}$/).optional(),
+  limite_detalhe: z.coerce.number().int().positive().max(5000).default(500),
+});
+export type ApuracaoIbsCbsObterDto = z.infer<typeof apuracaoIbsCbsObterSchema>;

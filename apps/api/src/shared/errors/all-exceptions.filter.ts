@@ -176,7 +176,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
  * Códigos cujo `details` do AppError PODE ser ecoado ao cliente no envelope (`detalhe`) — allowlist explícita
  * (evita vazar dados internos de outros erros: saldos, form/opção de RBAC, etc.). Só o que o front consome.
  */
-const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE', 'CLASS_TRIB_EM_USO', 'PRODUTO_SEM_CLASSIFICACAO', 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO']);
+const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE', 'CLASS_TRIB_EM_USO', 'PRODUTO_SEM_CLASSIFICACAO', 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO', 'APURACAO_IBSCBS_JA_EXISTE']);
 
 const CODE_PT: Record<string, string> = {
   // regra de negócio (BusinessRuleError 422)
@@ -189,6 +189,9 @@ const CODE_PT: Record<string, string> = {
   CST_IBSCBS_NAO_CADASTRADA: 'Essa CST não existe no catálogo da reforma.',
   PRODUTO_SEM_CLASSIFICACAO: 'Há itens cujo produto não tem classificação tributária (IBS/CBS).',
   ALIQUOTA_REFORMA_AUSENTE: 'Não há alíquota de IBS/CBS cadastrada para a UF desta nota.',
+  APURACAO_IBSCBS_FECHADA: 'Esta apuração de IBS/CBS já foi fechada e não pode ser reprocessada.',
+  APURACAO_IBSCBS_JA_EXISTE: 'Já existe apuração de IBS/CBS para esta competência — peça o reprocessamento.',
+  APURACAO_IBSCBS_NAO_ENCONTRADA: 'Não há apuração de IBS/CBS para esta competência.',
   CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO:
     'Há itens cuja classificação não se calcula pela alíquota da UF (alíquota fixa, setorial, nacional, '
     + 'redutor de base, diferimento ou suspensão). Trate-os à parte antes de calcular a nota.',

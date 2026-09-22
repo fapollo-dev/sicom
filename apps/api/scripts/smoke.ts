@@ -16866,6 +16866,83 @@ async function main() {
       }
     }
 
+    // ══ APURAÇÃO DE IBS/CBS (corte-3 da reforma, mig 281) ══════════════════════════════════════════════
+    {
+      const AP = 'fiscal/apuracao-ibscbs';
+      const pgAp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const j = { ...H, 'content-type': 'application/json' };
+        await pgAp.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+          (994501,'7899000994501','PRODUTO APURACAO','UN',2,'T01','S') ON CONFLICT (idproduto) DO NOTHING`);
+        // 4 notas em 2026-05: entrada boa, saída boa, cancelada e denegada
+        await pgAp.query(`INSERT INTO nf (codnf, idempresa, codparceiro, nronf, serie, modelo, tipo, dtemissao, dtcontabil, totalnf, proc, cancelada, statusnfe) VALUES
+          (9945001, 1, 2, '9945001', '1', '55', 'E', '2026-05-10', '2026-05-10', 1000, 'S', 'N', 'A'),
+          (9945002, 1, 2, '9945002', '1', '55', 'S', '2026-05-11', '2026-05-11', 1000, 'S', 'N', 'A'),
+          (9945003, 1, 2, '9945003', '1', '55', 'E', '2026-05-12', '2026-05-12', 1000, 'S', 'S', 'A'),
+          (9945004, 1, 2, '9945004', '1', '55', 'E', '2026-05-13', '2026-05-13', 1000, 'S', 'N', 'D')
+          ON CONFLICT (codnf) DO NOTHING`);
+        await pgAp.query(`INSERT INTO nf_prod (codnfprod, codnf, nroitem, codproduto, quantidade, vrcusto, unidade, cfop) VALUES
+          (99450011, 9945001, 1, 994501, 1, 1000, 'UN', 1102),
+          (99450021, 9945002, 1, 994501, 1, 1000, 'UN', 5102),
+          (99450031, 9945003, 1, 994501, 1, 1000, 'UN', 1102),
+          (99450041, 9945004, 1, 994501, 1, 1000, 'UN', 1102) ON CONFLICT (codnfprod) DO NOTHING`);
+        // crédito grande de CBS e pequeno de IBS — é o desenho real do cliente
+        await pgAp.query(`INSERT INTO nf_prod_ibscbs (codnfprod, codnf, idempresa, codproduto, vbc, vibsuf, vibsmun, vcbs) VALUES
+          (99450011, 9945001, 1, 994501, 1000, 10.00, 0, 90.00),
+          (99450021, 9945002, 1, 994501,  400,  4.00, 0,  9.00),
+          (99450031, 9945003, 1, 994501, 1000, 10.00, 0, 90.00),
+          (99450041, 9945004, 1, 994501, 1000, 10.00, 0, 90.00) ON CONFLICT (codnfprod) DO NOTHING`);
+
+        const p1 = await fetch(`${base}/${AP}/processar`, { method: 'POST', headers: j, body: JSON.stringify({ competencia: '202605' }) });
+        const a1 = (await p1.json().catch(() => ({}))) as any;
+        check('APURAÇÃO IBS/CBS §155.1 [IBS e CBS se apuram SEPARADAMENTE — um não compensa o outro]: a CBS é federal (substitui PIS e COFINS) e o IBS é dos Estados e Municípios (substitui ICMS e ISS) — são entes tributantes diferentes, e somar os dois num total só produziria um número que não é imposto nenhum. No cliente as ordens de grandeza mostram por que importa: em 2026-01 o crédito de IBS é R$ 1.530,42 e o de CBS é R$ 13.745,12. Aqui, crédito 10,00/90,00 contra débito 4,00/9,00: o **IBS fica credor em 6,00 e a CBS credora em 81,00**, cada um na sua conta, e nada a recolher em nenhum dos dois',
+          p1.status === 200
+          && Number(a1.credito?.ibs) === 10 && Number(a1.credito?.cbs) === 90
+          && Number(a1.debito?.ibs) === 4 && Number(a1.debito?.cbs) === 9
+          && Number(a1.resultado?.ibs_saldo_credor) === 6 && Number(a1.resultado?.cbs_saldo_credor) === 81
+          && Number(a1.resultado?.ibs_a_recolher) === 0 && Number(a1.resultado?.cbs_a_recolher) === 0,
+          { st: p1.status, cred: a1.credito, deb: a1.debito, res: a1.resultado });
+
+        check('APURAÇÃO IBS/CBS §155.2 [cancelada e denegada não entram, nem como crédito]: os filtros são os mesmos da apuração de ICMS (mig 152) e pela mesma razão — data CONTÁBIL, `PROC=S`, não cancelada e `STATUSNFE<>D`. As 4 notas do período somariam 30,00 de IBS de crédito; entram só as 10,00 da nota boa, porque uma está cancelada e outra denegada. Crédito de nota cancelada é crédito que não existe',
+          Number(a1.credito?.ibs) === 10 && Number(a1.credito?.notas) === 1 && Number(a1.debito?.notas) === 1,
+          { cred_notas: a1.credito?.notas, deb_notas: a1.debito?.notas, cred_ibs: a1.credito?.ibs });
+
+        // o saldo só transita de período FECHADO — e transita separado
+        const semFechar = await fetch(`${base}/${AP}/processar`, { method: 'POST', headers: j, body: JSON.stringify({ competencia: '202606', reprocessar: true }) });
+        const sf = (await semFechar.json().catch(() => ({}))) as any;
+        await fetch(`${base}/${AP}/fechar`, { method: 'POST', headers: j, body: JSON.stringify({ competencia: '202605' }) });
+        const comFechar = await fetch(`${base}/${AP}/processar`, { method: 'POST', headers: j, body: JSON.stringify({ competencia: '202606', reprocessar: true }) });
+        const cf = (await comFechar.json().catch(() => ({}))) as any;
+        check('APURAÇÃO IBS/CBS §155.3 [o saldo credor transita, mas só do período FECHADO — e separado por tributo]: antes de fechar maio, junho não herda nada (0,00 e 0,00); depois de fechar, junho abre com **6,00 de IBS e 81,00 de CBS** de saldo anterior, cada um na sua coluna. Se os dois fossem somados num saldo só, 87,00 de crédito abateriam débito de qualquer um dos dois tributos — e a CBS pagaria conta do IBS',
+          semFechar.status === 200 && Number(sf.saldo_anterior?.ibs) === 0 && Number(sf.saldo_anterior?.cbs) === 0
+          && comFechar.status === 200 && Number(cf.saldo_anterior?.ibs) === 6 && Number(cf.saldo_anterior?.cbs) === 81,
+          { antes: sf.saldo_anterior, depois: cf.saldo_anterior });
+
+        const refaz = await fetch(`${base}/${AP}/processar`, { method: 'POST', headers: j, body: JSON.stringify({ competencia: '202605' }) });
+        const rfJ = (await refaz.json().catch(() => ({}))) as any;
+        const forca = await fetch(`${base}/${AP}/processar`, { method: 'POST', headers: j, body: JSON.stringify({ competencia: '202605', reprocessar: true }) });
+        const forcaJ = (await forca.json().catch(() => ({}))) as any;
+        const semGrant = await fetch(`${base}/${AP}/processar`, { method: 'POST', headers: { ...H_SEM_ACESSO, 'content-type': 'application/json' }, body: JSON.stringify({ competencia: '202607' }) });
+        const cons = (await (await fetch(`${base}/${AP}?competencia=202605`, { headers: H })).json().catch(() => ({}))) as any;
+        const consSt = (await fetch(`${base}/${AP}?competencia=202605`, { headers: H })).status;
+        check('APURAÇÃO IBS/CBS §155.4 [apuração FECHADA é documento: não se reprocessa nem com pedido explícito]: maio está fechada, então tanto o processar normal quanto o `reprocessar: true` devolvem **422 APURACAO_IBSCBS_FECHADA** — diferente de competência apenas já processada, que devolve APURACAO_IBSCBS_JA_EXISTE e aceita o reprocessamento. A consulta traz o cabeçalho com as quatro colunas de resultado e o detalhe por nota (é o que permite conferir a apuração contra o documento). Sem o grant BTNPROCESSAR, 403',
+          refaz.status === 422 && rfJ.code === 'APURACAO_IBSCBS_FECHADA'
+          && forca.status === 422 && forcaJ.code === 'APURACAO_IBSCBS_FECHADA'
+          && semGrant.status === 403
+          && consSt === 200 && (cons.apuracoes ?? []).length === 1 && cons.apuracoes[0].fechada === 'S'
+          && (cons.detalhe ?? []).length === 2,
+          { refaz: [refaz.status, rfJ.code], forca: [forca.status, forcaJ.code], rbac: semGrant.status, consulta: consSt, det: (cons.detalhe ?? []).length });
+
+        await pgAp.query(`DELETE FROM apuracao_ibscbs WHERE idempresa = 1 AND competencia IN ('202605','202606')`);
+        await pgAp.query(`DELETE FROM nf_prod_ibscbs WHERE codnf BETWEEN 9945001 AND 9945004`);
+        await pgAp.query(`DELETE FROM nf_prod WHERE codnf BETWEEN 9945001 AND 9945004`);
+        await pgAp.query(`DELETE FROM nf WHERE codnf BETWEEN 9945001 AND 9945004`);
+        await pgAp.query(`DELETE FROM produtos WHERE idproduto = 994501`);
+      } finally {
+        await pgAp.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

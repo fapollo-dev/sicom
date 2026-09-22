@@ -78,6 +78,7 @@ import { BalancetePage } from '../features/balancete/BalancetePage';
 import { ExportaNfePage } from '../features/exporta-nfe/ExportaNfePage';
 import { CestPage } from '../features/cest/CestPage';
 import { ReformaIbsCbsPage } from '../features/reforma-ibscbs/ReformaIbsCbsPage';
+import { ApuracaoIbsCbsPage } from '../features/apuracao-ibscbs/ApuracaoIbsCbsPage';
 import { MotivosPage } from '../features/motivos/MotivosPage';
 import { RelEntradasFinanPage } from '../features/rel-entradas-finan/RelEntradasFinanPage';
 import { ExtratoFuncionarioPage } from '../features/extrato-funcionario/ExtratoFuncionarioPage';
@@ -276,6 +277,7 @@ export const router = createBrowserRouter([
       { path: '/fiscal/nf-exportacao', element: <ExportaNfePage /> }, // FRMEXPORTANFE
       { path: '/cadastro/cest', element: <CestPage /> }, // FRMCADCEST
       { path: '/fiscal/reforma-ibscbs', element: <ReformaIbsCbsPage /> }, // FRMCADCSTIBSCBS + FRMCADCLASSTRIBIBSCBS
+      { path: '/fiscal/apuracao-ibscbs', element: <ApuracaoIbsCbsPage /> }, // FRMAPURACAOIBSCBS (desenvolvido)
       { path: '/cadastro/motivos', element: <MotivosPage /> }, // FRMMOTIVO (motivos do AJUSTE; ≠ motivos-operacao)
       { path: '/relatorios/entradas-financeiro', element: <RelEntradasFinanPage /> }, // FRMRELENTRADAS_FINAN
       { path: '/cobranca/extrato-funcionario', element: <ExtratoFuncionarioPage /> }, // FRMRELFUNCIONARIO

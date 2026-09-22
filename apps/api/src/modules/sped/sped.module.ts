@@ -6,6 +6,8 @@ import { SpedApuracaoPcService } from './sped-apuracao-pc.service';
 import { ApuracaoPcConsultaService } from './apuracao-pc-consulta.service';
 import { ApuracaoIcmsController } from './apuracao-icms.controller';
 import { ApuracaoIcmsService } from './apuracao-icms.service';
+import { ApuracaoIbsCbsController } from './apuracao-ibscbs.controller';
+import { ApuracaoIbsCbsService } from './apuracao-ibscbs.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 
 /**
@@ -13,7 +15,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
  * **APURAÇÃO DE ICMS** (o processo do livro de Registro de Entradas e Saídas, que produz o E110 — mig 164).
  */
 @Module({
-  controllers: [SpedController, ApuracaoIcmsController],
-  providers: [SpedEfdContribuicoesService, SpedEfdIcmsIpiService, SpedApuracaoPcService, ApuracaoPcConsultaService, ApuracaoIcmsService, DatabaseProvider],
+  controllers: [SpedController, ApuracaoIcmsController, ApuracaoIbsCbsController],
+  providers: [ApuracaoIbsCbsService, SpedEfdContribuicoesService, SpedEfdIcmsIpiService, SpedApuracaoPcService, ApuracaoPcConsultaService, ApuracaoIcmsService, DatabaseProvider],
 })
 export class SpedModule {}
