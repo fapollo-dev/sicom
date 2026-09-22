@@ -135,16 +135,16 @@
    ],
    "fks": [
     {
-     "coluna": "codcontacorrente",
-     "ref": "contas_bancarias.codconta"
+     "coluna": "codparceiro",
+     "ref": "parceiros.codparceiro"
     },
     {
      "coluna": "idsituacao_nf",
      "ref": "situacao_nf.idsituacao_nf"
     },
     {
-     "coluna": "codparceiro",
-     "ref": "parceiros.codparceiro"
+     "coluna": "codcontacorrente",
+     "ref": "contas_bancarias.codconta"
     }
    ],
    "unicos": [
@@ -752,12 +752,12 @@
    ],
    "fks": [
     {
-     "coluna": "codagenda",
-     "ref": "agenda_promocao.codagenda"
-    },
-    {
      "coluna": "idproduto",
      "ref": "produtos.idproduto"
+    },
+    {
+     "coluna": "codagenda",
+     "ref": "agenda_promocao.codagenda"
     }
    ],
    "unicos": [
@@ -894,12 +894,12 @@
    ],
    "fks": [
     {
-     "coluna": "codmotivo",
-     "ref": "motivos.codmotivo"
-    },
-    {
      "coluna": "idproduto",
      "ref": "produtos.idproduto"
+    },
+    {
+     "coluna": "codmotivo",
+     "ref": "motivos.codmotivo"
     }
    ],
    "unicos": [
@@ -1292,12 +1292,12 @@
    ],
    "fks": [
     {
-     "coluna": "apn_id",
-     "ref": "analise_pedido_nf.apn_id"
-    },
-    {
      "coluna": "codpedcomp",
      "ref": "pedidocompra.codpedcomp"
+    },
+    {
+     "coluna": "apn_id",
+     "ref": "analise_pedido_nf.apn_id"
     }
    ],
    "unicos": [
@@ -1841,6 +1841,254 @@
     {
      "nome": "apagar_bx_pkey",
      "def": "CREATE UNIQUE INDEX apagar_bx_pkey ON public.apagar_bx USING btree (codapgbx)"
+    }
+   ]
+  },
+  "apuracao_ibscbs": {
+   "colunas": {
+    "codapuracao_ibscbs": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_apuracao_ibscbs'::regclass)"
+    },
+    "idempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "competencia": {
+     "tipo": "character",
+     "tam": 6,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "data_inicio": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "data_fim": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "base_debito": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "ibs_debito": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "cbs_debito": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "notas_debito": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "0"
+    },
+    "base_credito": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "ibs_credito": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "cbs_credito": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "notas_credito": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "0"
+    },
+    "ibs_saldo_anterior": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "cbs_saldo_anterior": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "ibs_a_recolher": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "ibs_saldo_credor": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "cbs_a_recolher": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "cbs_saldo_credor": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "fechada": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": false,
+     "default": "'N'::bpchar"
+    },
+    "codoperador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "codapuracao_ibscbs"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "apuracao_ibscbs_pkey",
+     "def": "CREATE UNIQUE INDEX apuracao_ibscbs_pkey ON public.apuracao_ibscbs USING btree (codapuracao_ibscbs)"
+    },
+    {
+     "nome": "ux_apuracao_ibscbs_comp",
+     "def": "CREATE UNIQUE INDEX ux_apuracao_ibscbs_comp ON public.apuracao_ibscbs USING btree (idempresa, competencia)"
+    }
+   ]
+  },
+  "apuracao_ibscbs_nf": {
+   "colunas": {
+    "codapuracao_ibscbs": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "codnf": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "direcao": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "base": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "ibs": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "cbs": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "itens": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "0"
+    }
+   },
+   "pk": [
+    "codapuracao_ibscbs",
+    "codnf"
+   ],
+   "fks": [
+    {
+     "coluna": "codapuracao_ibscbs",
+     "ref": "apuracao_ibscbs.codapuracao_ibscbs"
+    }
+   ],
+   "unicos": [
+    {
+     "nome": "apuracao_ibscbs_nf_pkey",
+     "def": "CREATE UNIQUE INDEX apuracao_ibscbs_nf_pkey ON public.apuracao_ibscbs_nf USING btree (codapuracao_ibscbs, codnf)"
     }
    ]
   },
@@ -6177,11 +6425,11 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto_01",
+     "coluna": "idproduto",
      "ref": "produtos.idproduto"
     },
     {
-     "coluna": "idproduto",
+     "coluna": "idproduto_01",
      "ref": "produtos.idproduto"
     }
    ],
@@ -7913,16 +8161,16 @@
    ],
    "fks": [
     {
-     "coluna": "codplc",
-     "ref": "plc.codplc"
+     "coluna": "codpdv",
+     "ref": "pdv.codpdv"
     },
     {
      "coluna": "idpgto",
      "ref": "formas_pgto.idpgto"
     },
     {
-     "coluna": "codpdv",
-     "ref": "pdv.codpdv"
+     "coluna": "codplc",
+     "ref": "plc.codplc"
     }
    ],
    "unicos": [
@@ -8536,12 +8784,12 @@
    ],
    "fks": [
     {
-     "coluna": "codctcforn",
-     "ref": "cotacao_forn.codctcforn"
-    },
-    {
      "coluna": "codcpr",
      "ref": "cotacao_prod.codcpr"
+    },
+    {
+     "coluna": "codctcforn",
+     "ref": "cotacao_forn.codctcforn"
     }
    ],
    "unicos": [
@@ -9558,11 +9806,11 @@
      "ref": "lote_contabil.codlotecontabil"
     },
     {
-     "coluna": "contadebito",
+     "coluna": "contacredito",
      "ref": "plano_contas.codplanocontas"
     },
     {
-     "coluna": "contacredito",
+     "coluna": "contadebito",
      "ref": "plano_contas.codplanocontas"
     }
    ],
@@ -17060,6 +17308,87 @@
     }
    ]
   },
+  "imposto_seletivo_ncm": {
+   "colunas": {
+    "codis_ncm": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_imposto_seletivo_ncm'::regclass)"
+    },
+    "ncm": {
+     "tipo": "character varying",
+     "tam": 8,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "descricao": {
+     "tipo": "character varying",
+     "tam": 200,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "vigencia_inicio": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "aliquota": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": false,
+     "default": "0"
+    },
+    "valor_por_unidade": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": false,
+     "default": "0"
+    },
+    "unidade": {
+     "tipo": "character varying",
+     "tam": 6,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "fonte": {
+     "tipo": "character varying",
+     "tam": 200,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    }
+   },
+   "pk": [
+    "codis_ncm"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "imposto_seletivo_ncm_pkey",
+     "def": "CREATE UNIQUE INDEX imposto_seletivo_ncm_pkey ON public.imposto_seletivo_ncm USING btree (codis_ncm)"
+    },
+    {
+     "nome": "ux_imposto_seletivo_ncm",
+     "def": "CREATE UNIQUE INDEX ux_imposto_seletivo_ncm ON public.imposto_seletivo_ncm USING btree (ncm, vigencia_inicio)"
+    }
+   ]
+  },
   "impostos": {
    "colunas": {
     "codplc": {
@@ -18370,12 +18699,12 @@
    ],
    "fks": [
     {
-     "coluna": "codproducao",
-     "ref": "producao.codproducao"
-    },
-    {
      "coluna": "idprodutos",
      "ref": "produtos.idproduto"
+    },
+    {
+     "coluna": "codproducao",
+     "ref": "producao.codproducao"
     }
    ],
    "unicos": [
@@ -20700,16 +21029,16 @@
    ],
    "fks": [
     {
-     "coluna": "codparceiro",
-     "ref": "parceiros.codparceiro"
-    },
-    {
      "coluna": "codpedcomp",
      "ref": "pedidocompra.codpedcomp"
     },
     {
      "coluna": "idsituacao_nf",
      "ref": "situacao_nf.idsituacao_nf"
+    },
+    {
+     "coluna": "codparceiro",
+     "ref": "parceiros.codparceiro"
     }
    ],
    "unicos": [
@@ -20998,6 +21327,13 @@
      "escala": null,
      "nulo": true,
      "default": "now()"
+    },
+    "vis": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
     }
    },
    "pk": [
@@ -21841,6 +22177,20 @@
      "escala": null,
      "nulo": false,
      "default": "'calculado'::character varying"
+    },
+    "vis": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "pis_seletivo": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": false,
+     "default": "0"
     }
    },
    "pk": [
@@ -25280,12 +25630,12 @@
    ],
    "fks": [
     {
-     "coluna": "codpeddevcompra",
-     "ref": "pedido_devolucao_compra.codpeddevcompra"
-    },
-    {
      "coluna": "codnf",
      "ref": "nf.codnf"
+    },
+    {
+     "coluna": "codpeddevcompra",
+     "ref": "pedido_devolucao_compra.codpeddevcompra"
     }
    ],
    "unicos": [
@@ -25749,12 +26099,12 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto",
-     "ref": "produtos.idproduto"
-    },
-    {
      "coluna": "codpedcomp",
      "ref": "pedidocompra.codpedcomp"
+    },
+    {
+     "coluna": "idproduto",
+     "ref": "produtos.idproduto"
     }
    ],
    "unicos": [
@@ -28583,12 +28933,12 @@
    ],
    "fks": [
     {
-     "coluna": "codoperador",
-     "ref": "operadores.codoperador"
-    },
-    {
      "coluna": "codempresa",
      "ref": "empresas.idempresa"
+    },
+    {
+     "coluna": "codoperador",
+     "ref": "operadores.codoperador"
     }
    ],
    "unicos": [

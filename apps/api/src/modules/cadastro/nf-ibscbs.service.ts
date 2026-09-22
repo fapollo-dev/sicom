@@ -104,7 +104,13 @@ export class NfIbsCbsService {
     // cada item com a classificação do seu produto (a redução mora nela, e são DUAS)
     const itens = (await sql<Record<string, unknown>>`
         SELECT i.codnfprod, i.codproduto, i.total_produto_nota, i.quantidade, i.vrcusto, i.desconto,
-               i.vricm, i.vrpise, i.vrcofinse,
+               i.vricm, i.vrpise, i.vrcofinse, i.ncm, i.quantidade AS qtd_is,
+               (SELECT s2.aliquota FROM imposto_seletivo_ncm s2
+                 WHERE i.ncm LIKE s2.ncm || '%' AND s2.vigencia_inicio <= ${dataRef}::date
+                 ORDER BY length(s2.ncm) DESC, s2.vigencia_inicio DESC LIMIT 1) AS is_aliquota,
+               (SELECT s2.valor_por_unidade FROM imposto_seletivo_ncm s2
+                 WHERE i.ncm LIKE s2.ncm || '%' AND s2.vigencia_inicio <= ${dataRef}::date
+                 ORDER BY length(s2.ncm) DESC, s2.vigencia_inicio DESC LIMIT 1) AS is_unitario,
                t.class_trib, t.cst, t.pred_ibs, t.pred_cbs, t.tipo_aliquota, t.ind_redutor_bc,
                s.ind_gibscbs, s.ind_gibscbsmono,
                (SELECT n.codcclass_trib_ncm FROM cclass_trib_ncm n
@@ -156,7 +162,7 @@ export class NfIbsCbsService {
         })),
       });
 
-    const tot = { vbc: 0, ibsuf: 0, ibsmun: 0, cbs: 0 };
+    const tot = { vbc: 0, ibsuf: 0, ibsmun: 0, cbs: 0, vis: 0 };
     const linhas: Array<Record<string, unknown>> = [];
 
     for (const i of itens) {
@@ -170,7 +176,15 @@ export class NfIbsCbsService {
       // usa quantidade × custo (acerta 19.511 desses 20.058 com a mesma subtração).
       const valorProduto = num(i.total_produto_nota) || num(i.quantidade) * num(i.vrcusto);
       const tributosNaBase = num(i.vricm) + num(i.vrpise) + num(i.vrcofinse);
-      const vbc = r2(Math.max(0, valorProduto - tributosNaBase));
+      // ⚠️ O IMPOSTO SELETIVO INTEGRA A BASE — é a EXCEÇÃO à regra de cima (mig 282). ICMS, ISS, PIS e
+      // COFINS saem da base (art. 12, §2º); o IS **entra** (art. 12, §1º). Logo ele é apurado ANTES e
+      // somado, nunca calculado depois sobre a base já fechada — inverter subtributa o IBS/CBS em toda
+      // linha que tiver IS. A LC prevê as duas formas, ad valorem e por unidade, e as duas somam.
+      const isAliq = num(i.is_aliquota);
+      const isUnit = num(i.is_unitario);
+      const liquido = Math.max(0, valorProduto - tributosNaBase);
+      const vis = r2((liquido * isAliq) / 100 + num(i.qtd_is) * isUnit);
+      const vbc = r2(liquido + vis);
       // ⚠️ DECISÃO EXPLÍCITA, não efeito de `null` virando 0: item cujo produto não tem classificação é
       // tributado INTEGRAL (redução 0). É o conservador — paga o imposto cheio em vez de zerar o que não
       // se sabe — e é o que o legado faz, onde a CST padrão é 000 (tributação integral). Zerar seria
@@ -207,13 +221,15 @@ export class NfIbsCbsService {
                                     pibsuf, predaliq_ibsuf, paliqefet_ibsuf, vibsuf,
                                     pibsmun, predaliq_ibsmun, paliqefet_ibsmun, vibsmun,
                                     pcbs, predaliq_cbs, paliqefet_cbs, vcbs,
-                                    codcclass_trib_ncm, cst_ori, cclasstrib_ori, vbc_ori, tratamento)
+                                    codcclass_trib_ncm, cst_ori, cclasstrib_ori, vbc_ori, tratamento,
+                                    vis, pis_seletivo)
         VALUES (${i.codnfprod}, ${d.codnf}, ${empresaId}, ${i.codproduto}, ${i.cst ?? null},
                 ${i.class_trib ?? null}, ${vbc},
                 ${cheiaIbsUf}, ${redIbs}, ${efIbsUf}, ${vibsuf},
                 ${pIbsMun}, ${0}, ${efIbsMun}, ${vibsmun},
                 ${cheiaCbs}, ${redCbs}, ${efCbs}, ${vcbs},
-                ${i.codcclass_trib_ncm ?? null}, ${cstOri}, ${cclassOri}, ${vbcOri}, ${tratamento})
+                ${i.codcclass_trib_ncm ?? null}, ${cstOri}, ${cclassOri}, ${vbcOri}, ${tratamento},
+                ${vis}, ${isAliq})
         ON CONFLICT (codnfprod) DO UPDATE SET
           -- codnf/codproduto também: o item pode ter trocado de produto entre um cálculo e outro, e um
           -- grupo apontando o produto errado passaria despercebido (os valores seriam recalculados certos)
@@ -224,7 +240,8 @@ export class NfIbsCbsService {
           pcbs = excluded.pcbs, predaliq_cbs = excluded.predaliq_cbs,
           paliqefet_cbs = excluded.paliqefet_cbs, vcbs = excluded.vcbs,
           codcclass_trib_ncm = excluded.codcclass_trib_ncm,
-          tratamento = excluded.tratamento
+          tratamento = excluded.tratamento,
+          vis = excluded.vis, pis_seletivo = excluded.pis_seletivo
           -- as colunas _ori NAO entram neste SET de proposito: recalcular nao reescreve a procedencia
           `.execute(db);
 
@@ -232,10 +249,12 @@ export class NfIbsCbsService {
       tot.ibsuf = r2(tot.ibsuf + vibsuf);
       tot.ibsmun = r2(tot.ibsmun + vibsmun);
       tot.cbs = r2(tot.cbs + vcbs);
+      tot.vis = r2(tot.vis + vis);
       linhas.push({
         codnfprod: Number(i.codnfprod), codproduto: Number(i.codproduto),
         cst: i.cst ?? null, cclasstrib: i.class_trib ?? null, vbc,
         valor_produto: r2(valorProduto), tributos_excluidos: r2(tributosNaBase),
+        vis, pis_seletivo: isAliq,
         pibsuf: cheiaIbsUf, predaliq_ibsuf: redIbs, paliqefet_ibsuf: efIbsUf, vibsuf,
         pcbs: cheiaCbs, predaliq_cbs: redCbs, paliqefet_cbs: efCbs, vcbs,
         sem_classificacao: semClassificacao, tratamento,
@@ -245,15 +264,16 @@ export class NfIbsCbsService {
     // `VIBS = VIBSUF + VIBSMUN` — exato em 10.012 de 10.012 notas do cliente
     const vibs = r2(tot.ibsuf + tot.ibsmun);
     await sql`
-      INSERT INTO nf_ibscbs (codnf, idempresa, vbcibscbs, vibsuf, vibsmun, vibs, vcbs)
-      VALUES (${d.codnf}, ${empresaId}, ${tot.vbc}, ${tot.ibsuf}, ${tot.ibsmun}, ${vibs}, ${tot.cbs})
+      INSERT INTO nf_ibscbs (codnf, idempresa, vbcibscbs, vibsuf, vibsmun, vibs, vcbs, vis)
+      VALUES (${d.codnf}, ${empresaId}, ${tot.vbc}, ${tot.ibsuf}, ${tot.ibsmun}, ${vibs}, ${tot.cbs},
+              ${tot.vis})
       ON CONFLICT (codnf) DO UPDATE SET
         vbcibscbs = excluded.vbcibscbs, vibsuf = excluded.vibsuf, vibsmun = excluded.vibsmun,
-        vibs = excluded.vibs, vcbs = excluded.vcbs`.execute(db);
+        vibs = excluded.vibs, vcbs = excluded.vcbs, vis = excluded.vis`.execute(db);
 
     return {
       codnf: d.codnf, uf: nf.uf, data_referencia: dataRef, aliquota: { ibsuf: pIbsUf, cbs: pCbs },
-      totais: { vbcibscbs: tot.vbc, vibsuf: tot.ibsuf, vibsmun: tot.ibsmun, vibs, vcbs: tot.cbs },
+      totais: { vbcibscbs: tot.vbc, vibsuf: tot.ibsuf, vibsmun: tot.ibsmun, vibs, vcbs: tot.cbs, vis: tot.vis },
       itens: linhas, sem_classificacao: semClasse,
       // o que NÃO foi tributado e por quê — para que o zero apareça na conferência em vez de sumir
       tratamentos: linhas.reduce<Record<string, number>>((acc, l) => {
@@ -308,7 +328,8 @@ export class NfIbsCbsService {
         vbc: num(g.vbc), pibsuf: n(g.pibsuf), predaliq_ibsuf: n(g.predaliq_ibsuf),
         paliqefet_ibsuf: n(g.paliqefet_ibsuf), vibsuf: num(g.vibsuf),
         pcbs: n(g.pcbs), predaliq_cbs: n(g.predaliq_cbs), paliqefet_cbs: n(g.paliqefet_cbs),
-        vcbs: num(g.vcbs), tratamento: g.tratamento ?? 'calculado',
+        vcbs: num(g.vcbs), vis: num(g.vis), pis_seletivo: num(g.pis_seletivo),
+        tratamento: g.tratamento ?? 'calculado',
         cst_ori: g.cst_ori ?? null, cclasstrib_ori: g.cclasstrib_ori ?? null, vbc_ori: n(g.vbc_ori),
         divergencias: [
           g.cst_ori != null && g.cst_ori !== g.cst ? 'cst' : null,

@@ -495,3 +495,60 @@ Saldo credor abate o débito do período seguinte, cada tributo no seu. A busca 
 **fechada**; reprocessar um mês antigo não recalcula os seguintes, que é a mesma escolha da apuração de
 ICMS e pelo mesmo motivo: o fechado é documento. Apuração fechada não se reprocessa nem com pedido
 explícito (422), diferente de competência apenas já processada, que aceita o reprocessamento.
+
+
+## 14. Corte-4 — o IMPOSTO SELETIVO (migration 282)
+
+**DESENVOLVIDO (novo).** O legado não tem IS em lugar nenhum: nenhuma coluna nas duas tabelas de grupo e
+nenhuma tabela de alíquota. Smoke §154.11 e §154.12.
+
+### 14.1 ⚠️ O seletivo INTEGRA a base do IBS/CBS — é a exceção à regra do corte-2
+
+No corte-2 a lição foi "o imposto não entra na base do imposto": ICMS, ISS, PIS e COFINS **saem** da base
+(LC 214/2025, art. 12, § 2º). O Imposto Seletivo é a **exceção**: o art. 12, § 1º, o inclui expressamente.
+A ordem, portanto, é apurar o IS, somar à base, e só então aplicar IBS e CBS. Inverter subtributa o IBS/CBS
+em toda linha com IS.
+
+Exemplo do smoke: cerveja de R$ 1.000,00 com IS de 10% rende IS de R$ 100,00 e base de **R$ 1.100,00** — o
+IBS sai 1,10 e a CBS 9,90, não 1,00 e 9,00.
+
+### 14.2 O substrato: R$ 22,66 milhões
+
+| | itens de nota | valor |
+|---|---:|---:|
+| bebidas (capítulo 22) | 70.085 | R$ 22.139.235,13 |
+| fumo (capítulo 24) | 2.739 | R$ 521.209,78 |
+
+São **3.283 produtos ativos**: 1.480 em refrigerante/chá (2202), 498 vinho, 400 cerveja, 344 destilado,
+240 cigarro, 86 outras fermentadas, 13 vermute e 3 fumo.
+
+### 14.3 ⚠️ Nem todo NCM do capítulo é sujeito
+
+Água mineral (2201, **99 produtos**) e álcool etílico (2207, **44**) estão no capítulo 22 e **não** sofrem
+IS. Semear "capítulo 22 inteiro" cobraria seletivo sobre água. Por isso a tabela é por NCM em prefixo, o
+seed lista só as posições alcançadas, e a busca casa o prefixo **mais longo** primeiro (posição de 4 dígitos
+cede para item de 8, quando houver).
+
+### 14.4 Ad valorem e específico: as duas formas somam
+
+A LC prevê percentual sobre o valor e valor fixo por unidade. O cigarro é o caso típico do específico: no
+smoke, R$ 1,50 por unidade × 20 unidades = R$ 30,00 de IS. Uma implementação só com percentual não
+representaria o cigarro.
+
+### 14.5 A alíquota ainda não existe em lei, e o seed diz isso
+
+A LC define a incidência; as alíquotas virão por lei ordinária. O seed entra com **alíquota zero e a fonte
+escrita**, como a mig 007 fez com `tributacao_reforma`. Enquanto for zero o IS não altera cálculo nenhum —
+mas a estrutura já está no lugar certo, que é dentro da base do IBS/CBS, e publicar a alíquota é preencher
+uma linha, não mexer em código.
+
+### 14.6 ⚠️ Por que NÃO há apuração de IS
+
+O IS é devido por quem **produz, extrai, comercializa no atacado ou importa** — é monofásico na origem da
+cadeia. Um supermercado não é contribuinte: ele paga o IS embutido no preço do fornecedor. Criar uma
+apuração de IS a recolher aqui geraria um débito que o cliente não deve.
+
+O que o `vis` calculado serve, então, é para (a) compor corretamente a base do IBS/CBS, que é obrigatório,
+e (b) conferir o que veio destacado na nota do fornecedor. Se um dia o cliente passar a industrializar
+(há produção própria de padaria e açougue no cadastro), a apuração entra como corte próprio — com a regra
+de quem é contribuinte medida antes, não suposta.

@@ -16776,6 +16776,46 @@ async function main() {
           && ct.data_referencia === '2026-03-14' && Number(ct.aliquota?.ibsuf) === 0.1,
           { data: pl.data_referencia, aliq: pl.aliquota, ibs: itpl?.vibsuf, cbs: itpl?.vcbs, ref2026: ct.data_referencia });
 
+
+        // ── mig 282: o IMPOSTO SELETIVO integra a base do IBS/CBS ───────────────────────────────────
+        // cerveja (2203, sujeita) e água mineral (2201, NÃO sujeita) — mesmo capítulo, tratamento oposto
+        await pgNg.query(`UPDATE imposto_seletivo_ncm SET aliquota = 10, vigencia_inicio = '2026-01-01' WHERE ncm = '2203'`);
+        await pgNg.query(`UPDATE imposto_seletivo_ncm SET valor_por_unidade = 1.50, unidade = 'UN', vigencia_inicio = '2026-01-01' WHERE ncm = '2402'`);
+        await pgNg.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, ncmsh, codclass_trib) VALUES
+          (994421,'7899000994421','CERVEJA LATA 350ML','UN',2,'T01','S','22030000',994401),
+          (994422,'7899000994422','AGUA MINERAL 500ML','UN',2,'T01','S','22011000',994401),
+          (994423,'7899000994423','CIGARRO MACO','UN',2,'T01','S','24022000',994401)
+          ON CONFLICT (idproduto) DO NOTHING`);
+        await pgNg.query(`INSERT INTO nf (codnf, idempresa, codparceiro, nronf, serie, modelo, tipo, dtemissao, dtcontabil, totalnf) VALUES
+          (9944007, 1, 2, '9944007', '1', '55', 'E', '2026-04-10', '2026-04-10', 3000) ON CONFLICT (codnf) DO NOTHING`);
+        await pgNg.query(`INSERT INTO nf_prod (codnfprod, codnf, nroitem, codproduto, quantidade, vrcusto, unidade, cfop, ncm, total_produto_nota, vricm, vrpise, vrcofinse) VALUES
+          (99440071, 9944007, 1, 994421, 10, 100, 'UN', 1102, '22030000', 1000.00, 0, 0, 0),
+          (99440072, 9944007, 2, 994422, 10, 100, 'UN', 1102, '22011000', 1000.00, 0, 0, 0),
+          (99440073, 9944007, 3, 994423, 20,  50, 'UN', 1102, '24022000', 1000.00, 0, 0, 0)
+          ON CONFLICT (codnfprod) DO NOTHING`);
+        const cIs = await fetch(`${base}/${NG}/calcular`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9944007 }) });
+        const ci = (await cIs.json().catch(() => ({}))) as any;
+        const cerveja = (ci.itens ?? []).find((x: any) => x.codproduto === 994421);
+        const agua = (ci.itens ?? []).find((x: any) => x.codproduto === 994422);
+        const cigarro = (ci.itens ?? []).find((x: any) => x.codproduto === 994423);
+        check('REFORMA IBS/CBS §154.11 [o IMPOSTO SELETIVO integra a base — é a EXCEÇÃO à regra do corte-2]: ICMS, ISS, PIS e COFINS **saem** da base do IBS/CBS (art. 12 §2º); o IS **entra** (art. 12 §1º). Então ele é apurado ANTES e somado, nunca calculado depois sobre a base fechada — inverter subtributaria o IBS/CBS em toda linha com IS. Cerveja de 1.000,00 com IS de 10%: IS 100,00 e **base 1.100,00** (não 1.000,00), IBS 1,10 e CBS 9,90. No cliente são 70.085 itens de bebida (R$ 22.139.235,13) e 2.739 de fumo (R$ 521.209,78) sujeitos à incidência',
+          cIs.status === 200 && Number(cerveja?.vis) === 100 && Number(cerveja?.vbc) === 1100
+          && Number(cerveja?.vibsuf) === 1.1 && Number(cerveja?.vcbs) === 9.9,
+          { st: cIs.status, vis: cerveja?.vis, vbc: cerveja?.vbc, ibs: cerveja?.vibsuf, cbs: cerveja?.vcbs });
+
+        check('REFORMA IBS/CBS §154.12 [nem todo NCM do capítulo é sujeito, e o específico não é percentual]: água mineral (2201) e cerveja (2203) estão no MESMO capítulo 22 e só a segunda sofre IS — semear "capítulo inteiro" cobraria seletivo sobre água, e o cliente tem 99 produtos de água e 44 de álcool etílico nessa situação. A água sai com IS zero e base 1.000,00. E o cigarro mostra a outra forma que a LC prevê: **R$ 1,50 por unidade** × 20 unidades = **30,00 de IS**, não um percentual — uma implementação só com alíquota não representaria o cigarro',
+          Number(agua?.vis) === 0 && Number(agua?.vbc) === 1000
+          && Number(cigarro?.vis) === 30 && Number(cigarro?.vbc) === 1030
+          && Number(ci.totais?.vis) === 130,
+          { agua: [agua?.vis, agua?.vbc], cigarro: [cigarro?.vis, cigarro?.vbc], total_is: ci.totais?.vis });
+
+        await pgNg.query(`DELETE FROM nf_prod_ibscbs WHERE codnf = 9944007`);
+        await pgNg.query(`DELETE FROM nf_ibscbs WHERE codnf = 9944007`);
+        await pgNg.query(`DELETE FROM nf_prod WHERE codnf = 9944007`);
+        await pgNg.query(`DELETE FROM nf WHERE codnf = 9944007`);
+        await pgNg.query(`DELETE FROM produtos WHERE idproduto BETWEEN 994421 AND 994423`);
+        await pgNg.query(`UPDATE imposto_seletivo_ncm SET aliquota = 0, valor_por_unidade = 0, vigencia_inicio = '2027-01-01' WHERE ncm IN ('2203','2402')`);
+
         // ── mig 280: nem toda classificação se calcula pela alíquota da UF ──────────────────────────
         await pgNg.query(`INSERT INTO cst_ibs_cbs (cst, descricao_cst, ind_gibscbs, ind_gibscbsmono, ind_nfe) VALUES
           ('410','IMUNIDADE E NAO INCIDENCIA', 0, 0, 'S'),

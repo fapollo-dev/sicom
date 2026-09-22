@@ -40,11 +40,11 @@ type GrupoItem = {
   pibsuf: number | null; predaliq_ibsuf: number | null; paliqefet_ibsuf: number | null; vibsuf: number;
   pcbs: number | null; predaliq_cbs: number | null; paliqefet_cbs: number | null; vcbs: number;
   cst_ori: string | null; cclasstrib_ori: string | null; vbc_ori: number | null; divergencias: string[];
-  tratamento: string;
+  tratamento: string; vis: number; pis_seletivo: number;
 };
 type Grupos = {
   cabecalho: { codnf: number; vbcibscbs: number; vibsuf: number; vibsmun: number; vibs: number;
-    vcbs: number; ibs_fecha: boolean } | null;
+    vcbs: number; vis: number; ibs_fecha: boolean } | null;
   itens: GrupoItem[];
 };
 type Uf = {
@@ -326,8 +326,9 @@ export function ReformaIbsCbsPage() {
             redução da classificação): usar a cheia cobraria 23× a mais nos itens reduzidos. As colunas
             &quot;fornecedor&quot; mostram o que veio no XML — quando a conferência muda a CST, a
             classificação ou a base, a linha fica marcada. A base <strong>exclui</strong> o ICMS, o PIS e a
-            COFINS, porque o imposto não entra na base do imposto; e item imune ou monofásico sai zerado com
-            o motivo dito, em vez de tributado por engano.
+            COFINS, porque o imposto não entra na base do imposto — mas <strong>soma</strong> o Imposto
+            Seletivo, que é a exceção da lei. Item imune ou monofásico sai zerado com o motivo dito, em vez
+            de tributado por engano.
           </p>
           <div className="flex flex-wrap items-end gap-gp-sm">
             <div className="w-40"><Field label="&Nota (codnf)" value={codnf} onChange={(e) => setCodnf(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter') void carregarGrupos(); }} /></div>
@@ -344,6 +345,7 @@ export function ReformaIbsCbsPage() {
               <span>IBS-Mun <strong className="tabular-nums">{grupos.cabecalho.vibsmun.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>
               <span>IBS <strong className="tabular-nums">{grupos.cabecalho.vibs.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>
               <span>CBS <strong className="tabular-nums">{grupos.cabecalho.vcbs.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>
+              {grupos.cabecalho.vis > 0 && <span>Seletivo <strong className="tabular-nums">{grupos.cabecalho.vis.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>}
               {!grupos.cabecalho.ibs_fecha && <span className="font-semibold text-fg-danger">o IBS total não fecha com UF + município</span>}
             </div>
           )}
@@ -354,6 +356,7 @@ export function ReformaIbsCbsPage() {
                   <th className="p-pad-xs">Item</th><th className="p-pad-xs">Produto</th>
                   <th className="p-pad-xs">CST</th><th className="p-pad-xs">cClassTrib</th>
                   <th className="p-pad-xs">Tratamento</th>
+                  <th className="p-pad-xs text-right">Seletivo</th>
                   <th className="p-pad-xs text-right">Base</th>
                   <th className="p-pad-xs text-right">IBS efet.</th><th className="p-pad-xs text-right">IBS</th>
                   <th className="p-pad-xs text-right">CBS efet.</th><th className="p-pad-xs text-right">CBS</th>
@@ -366,6 +369,9 @@ export function ReformaIbsCbsPage() {
                     <td className={`p-pad-xs tabular-nums ${g.divergencias.includes('cst') ? 'font-semibold text-fg-danger' : ''}`}>{g.cst ?? '—'}</td>
                     <td className={`p-pad-xs tabular-nums ${g.divergencias.includes('cclasstrib') ? 'font-semibold text-fg-danger' : ''}`} title={g.nome_class_trib ?? undefined}>{g.cclasstrib ?? '—'}</td>
                     <td className="p-pad-xs">{TRATAMENTO[g.tratamento] ?? g.tratamento}</td>
+                    <td className="p-pad-xs text-right tabular-nums" title={g.vis > 0 ? 'o seletivo INTEGRA a base do IBS/CBS' : undefined}>
+                      {g.vis > 0 ? g.vis.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '—'}
+                    </td>
                     <td className={`p-pad-xs text-right tabular-nums ${g.divergencias.includes('vbc') ? 'font-semibold text-fg-danger' : ''}`}>{g.vbc.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                     <td className="p-pad-xs text-right tabular-nums text-fg-muted">{pct(g.paliqefet_ibsuf)}</td>
                     <td className="p-pad-xs text-right tabular-nums">{g.vibsuf.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>

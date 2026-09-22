@@ -63,6 +63,12 @@ NOSSAS_JUSTIFICADAS = {
     # as duas calculaveis. Ele nao gera grupo para 410 (imunidade) nem 620 (monofasica) — por isso
     # nao ha linha de origem que precise de outro tratamento.
     ('nf_prod_ibscbs', 'tratamento'): 'mig 280; default calculado e exato (a origem so tem CST 000 e 200)',
+    # mig 282: o legado NAO tem imposto seletivo em coluna nenhuma (conferido no dicionario do Oracle).
+    # Default 0 e exato: o que o legado gravou nao tem IS, e o IS so passa a existir quando a lei ordinaria
+    # fixar a aliquota — o seed entra com zero e a fonte escrita.
+    ('nf_prod_ibscbs', 'vis'): 'mig 282; o legado nao tem IS — default 0 e o valor correto para a carga',
+    ('nf_prod_ibscbs', 'pis_seletivo'): 'mig 282; idem',
+    ('nf_ibscbs', 'vis'): 'mig 282; idem',
 }
 
 schema = json.load(open(f'{BASE}/schema-destino.json'))['tabelas']
