@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-CONFERIDOR DE COLUNAS ÓRFÃS — o par do `conferir-ancoras.py`, pelo lado das COLUNAS.
+CONFERIDOR DE COLUNAS — o par do `conferir-ancoras.py`, pelo lado das COLUNAS, nos DOIS SENTIDOS.
 
-Procura o padrão que já custou caro duas vezes: **coluna que o destino exige e a origem não tem**.
-Quando isso acontece, o extrator não a encontra pelo nome, a carga cai no DEFAULT (ou na constante 1
-de empresa) e o dado entra errado **sem um único erro**:
+**Sentido 1 — o destino exige e a origem não tem.** A carga cai no DEFAULT (ou na constante 1 de empresa)
+e o dado entra errado sem um único erro:
 
   · `pedidocompra_i.qtde` — a quantidade mora no grandchild `PEDIDO_COMPRA_QTDE`; com o default 1 os
-    pedidos migrariam R$ 32,4 milhões subcontados (Σ real 43.328.145,14 → 10.927.188,98);
-  · `areceber_bx.codempresa` — a empresa vem do título; com a constante 1, **75%** das baixas (14.172
-    da empresa 50) mudariam de loja.
+    pedidos migrariam R$ 32,4 milhões subcontados;
+  · `areceber_bx.codempresa` — a empresa vem do título; com a constante 1, 75% das baixas mudariam de loja.
+
+**Sentido 2 — a origem tem e o destino não.** Essa não cai em default nenhum: a coluna simplesmente não é
+carregada, e o dado some sem deixar buraco visível. Foi o que escondeu o `CLUBE_DESCONTO.BARRAS` por três
+migrations — a coluna diz sobre qual produto a regra de preço age, está preenchida em **99,8% das 3.111
+regras**, e a tabela estava no plano desde a mig 112 sem ela. O sentido 1 nunca a veria, porque do lado do
+destino não faltava nada.
 
 Uso (só leitura no Oracle):
     python3 tools/cutover/conferir-colunas-orfas.py
 
-Sai 1 quando acha coluna órfã de risco ALTO sem tratamento — serve de gate antes da carga.
+Sai 1 quando acha coluna órfã de risco ALTO ou coluna da origem ficando para trás — serve de gate.
 """
 import ast
 import json
@@ -26,6 +30,7 @@ import oracledb
 
 BASE = '/Library/Apollo/tools/cutover'
 ORACLE = dict(user='pinheirao', password='apollo', dsn='hiperpinheirao.ddns.com.br:1521/apollo')
+
 
 # lê as constantes do PRÓPRIO extrator — se o mapa mudar lá, esta conferência acompanha.
 # Por AST, SEM importar: `etl/extrair.py` não tem guarda `if __name__` — importá-lo dispararia a
@@ -55,23 +60,18 @@ RENOMEIA, CALCULADAS = _c['RENOMEIA'], _c['CALCULADAS']
 CONSTANTES, TABELA_ORIGEM = _c['CONSTANTES'], _c['TABELA_ORIGEM']
 # a constante 1 de empresa DECLARADA no extrator é decisão escrita, não silêncio — não conta como órfã
 EMPRESA_SEM_ORIGEM = _c['EMPRESA_SEM_ORIGEM']
+
 # colunas que o Apollo criou e o legado nunca teve: cada uma justificada aqui, não no silêncio de um default
 NOSSAS_JUSTIFICADAS = {
-    ('produtos', 'geraqtde'): 'nasceu na mig 027 (se o produto movimenta estoque na NF); default S = o legado',
-    # a mig 280 criou esta coluna para dizer POR QUE o item ficou como ficou. Na carga o default
-    # 'calculado' e exato, e isso e medido: os 98.760 itens que o legado gerou tem SO CST 000 e 200,
-    # as duas calculaveis. Ele nao gera grupo para 410 (imunidade) nem 620 (monofasica) — por isso
-    # nao ha linha de origem que precise de outro tratamento.
-    ('nf_prod_ibscbs', 'tratamento'): 'mig 280; default calculado e exato (a origem so tem CST 000 e 200)',
-    # mig 282: o legado NAO tem imposto seletivo em coluna nenhuma (conferido no dicionario do Oracle).
-    # Default 0 e exato: o que o legado gravou nao tem IS, e o IS so passa a existir quando a lei ordinaria
-    # fixar a aliquota — o seed entra com zero e a fonte escrita.
-    ('nf_prod_ibscbs', 'vis'): 'mig 282; o legado nao tem IS — default 0 e o valor correto para a carga',
+    ('produtos', 'geraqtde'): 'mig 027 (se o produto movimenta estoque na NF); default S = o legado',
+    # mig 280: na carga o default 'calculado' é exato — os 98.760 itens que o legado gerou têm SÓ CST 000
+    # e 200, as duas calculáveis; ele não gera grupo para 410 (imunidade) nem 620 (monofásica).
+    ('nf_prod_ibscbs', 'tratamento'): 'mig 280; default calculado é exato (a origem só tem CST 000 e 200)',
+    # mig 282/283/284: o legado não tem imposto seletivo, regimes especiais nem split em coluna nenhuma
+    ('nf_prod_ibscbs', 'vis'): 'mig 282; o legado não tem IS — default 0 é o valor correto',
     ('nf_prod_ibscbs', 'pis_seletivo'): 'mig 282; idem',
     ('nf_ibscbs', 'vis'): 'mig 282; idem',
-    # mig 283/284: regimes especiais e split. O legado nao tem nenhum deles, e o cliente nao tem um unico
-    # item nesses regimes (medido: 0 produtos e 0 itens nas 48 classificacoes). Default 0 e exato.
-    ('nf_prod_ibscbs', 'pred_base'): 'mig 283; o legado nao tem redutor de base — default 0 e exato',
+    ('nf_prod_ibscbs', 'pred_base'): 'mig 283; o legado não tem redutor de base — default 0 é exato',
     ('nf_prod_ibscbs', 'vibs_suspenso'): 'mig 283; idem',
     ('nf_prod_ibscbs', 'vcbs_suspenso'): 'mig 283; idem',
     ('nf_prod_ibscbs', 'vcred_pres_ibs'): 'mig 283; idem',
@@ -93,19 +93,50 @@ NUMERICAS = re.compile(r'(qtde|quant|valor|total|custo|preco|^vr|_vr|perc|aliq|s
 # a empresa é o outro caso caro: a constante 1 troca a loja do movimento
 EMPRESA = re.compile(r'^(idempresa|codempresa)$')
 
+# ── sentido 2 ────────────────────────────────────────────────────────────────────────────────────────
+# colunas da ORIGEM que não vêm de propósito: sobra de manutenção, carimbo que o nosso schema não repete,
+# ou flag de integração externa. Cada padrão é uma decisão, não um esquecimento.
+ORIGEM_NAO_VEM = re.compile(
+    r'^(old_|bkp_|tmp_|temp_|f_bkp|'
+    r'usucadastro|usuexclusao|dtexclusao|dtalteracao|dtultacesso|'
+    r'sincronizado|exportado|codigoempresawl|filialempresawl)'
+    r'|(_bkp|_temp|_wl|_old)$')
+# grandezas cuja ausência muda NÚMERO ou IDENTIDADE — é onde a perda é cara
+CHAVE_OU_NUMERO = re.compile(
+    r'(^cod|^id|barras|codbarra|ncm|cest|cfop|^cst|'
+    r'qtde|quant|valor|total|custo|preco|^vr|_vr|perc|aliq|saldo|markup|margem|desconto)')
+
 
 def main() -> int:
     c = oracledb.connect(**ORACLE)
     cu = c.cursor()
     cu.execute("SET TRANSACTION READ ONLY")
 
+    # ⚠️ o dicionário inteiro em TRÊS consultas, não uma por tabela. O Oracle é remoto e cada ida custa
+    # latência; com 186 tabelas × 2 passos eram centenas de viagens, e um `count()` por coluna em tabela
+    # de 18 milhões de linhas levava mais de dez minutos. Ferramenta lenta deixa de ser rodada, que é o
+    # pior desfecho possível para uma conferência.
+    nomes = sorted({TABELA_ORIGEM.get(t, t.upper()) for t in alvo})
+    lista = ", ".join(f"'{n}'" for n in nomes)
+    cu.execute(f"select table_name, column_name from user_tab_columns where table_name in ({lista})")
+    COLS: dict = {}
+    for tab, col in cu.fetchall():
+        COLS.setdefault(tab, set()).add(col.lower())
+    cu.execute(f"select table_name, column_name, num_nulls, num_distinct"
+               f"  from user_tab_col_statistics where table_name in ({lista})")
+    EST: dict = {}
+    for tab, col, nulls, dist in cu.fetchall():
+        EST.setdefault(tab, {})[col.lower()] = (nulls, dist)
+    cu.execute(f"select table_name, num_rows from user_tables where table_name in ({lista})")
+    LINHAS = {t: (n or 0) for t, n in cu.fetchall()}
+
+    # ── SENTIDO 1: o destino exige e a origem não tem ───────────────────────────────────────────────
     achados = []
     for t in alvo:
         if t not in schema:
             continue
         T = TABELA_ORIGEM.get(t, t.upper())
-        cu.execute("select column_name from user_tab_columns where table_name=:t", t=T)
-        ori = {r[0].lower() for r in cu.fetchall()}
+        ori = COLS.get(T, set())
         if not ori:
             continue  # sem origem: é tabela só do destino (o conferir-ancoras cuida disso)
         destino_de = {d: o for o, d in RENOMEIA.get(t, {}).items()}
@@ -127,17 +158,68 @@ def main() -> int:
             risco = 'ALTO' if (NUMERICAS.search(col) or EMPRESA.match(col)) else 'MEDIO'
             achados.append((risco, t, col, str(default), 'NOT NULL' if not nulo else 'nulo ok'))
 
+    # ── SENTIDO 2: a origem tem e o destino não ─────────────────────────────────────────────────────
+    perdidas = []
+    for t in alvo:
+        if t not in schema:
+            continue
+        T = TABELA_ORIGEM.get(t, t.upper())
+        ori = COLS.get(T, set())
+        if not ori:
+            continue
+        dst = set(schema[t]['colunas'])
+        renomeadas = set(RENOMEIA.get(t, {}))       # origem → destino já mapeada
+        calculadas_de = set()                        # colunas da origem já usadas em expressões
+        for expr in (CALCULADAS.get(t, {}) or {}).values():
+            if isinstance(expr, str):
+                calculadas_de |= {x for x in ori if x in expr}
+        # a REGRA GERAL de empresa do extrator (idempresa ↔ codempresa nas duas direções) já resolve
+        # esse par sozinha — sem descontá-la, toda tabela apareceria aqui com um falso positivo
+        equiv = set()
+        for a, b in (('idempresa', 'codempresa'), ('codempresa', 'idempresa')):
+            if a in ori and b in dst:
+                equiv.add(a)
+        candidatas = [x for x in sorted(ori - dst - renomeadas - calculadas_de - equiv)
+                      if CHAVE_OU_NUMERO.search(x) and not ORIGEM_NAO_VEM.search(x)
+                      and not NOSSAS.match(x)]
+        if not candidatas:
+            continue
+        est = EST.get(T, {})
+        total = int(LINHAS.get(T, 0) or 0)
+        if not total:
+            continue   # sem estatística não dá para medir: melhor calar do que chutar
+        for col in candidatas:
+            nulls, distintos = est.get(col, (None, None))
+            if nulls is None or not distintos:
+                continue   # coluna vazia na origem não é perda
+            preenchidas = max(0, total - int(nulls))
+            pct = (preenchidas / total) * 100
+            if preenchidas and pct >= 50:
+                perdidas.append((t, col, preenchidas, total, pct))
+    perdidas.sort(key=lambda x: -x[4])
+
     achados.sort(key=lambda x: (x[0] != 'ALTO', x[1], x[2]))
     altos = [a for a in achados if a[0] == 'ALTO']
     print(f"tabelas do plano conferidas: {len(alvo)}")
-    print(f"colunas órfãs (destino exige, origem não tem, sem tratamento): {len(achados)} — ALTO: {len(altos)}\n")
+    print(f"[1] o destino exige e a origem não tem: {len(achados)} — ALTO: {len(altos)}\n")
     for risco, t, col, dflt, nn in achados:
         print(f"  [{risco:5s}] {t}.{col:30s} default={dflt[:20]:22s} {nn}")
-    if altos:
-        print("\n⚠️  as de risco ALTO mudam NÚMERO ou EMPRESA: cada uma precisa de entrada em")
-        print("    CALCULADAS/RENOMEIA no etl/extrair.py, ou de uma justificativa escrita aqui.")
+
+    print(f"\n[2] a ORIGEM tem e o destino NÃO — o dado some sem deixar buraco: {len(perdidas)}")
+    print("    (só chave/número preenchido em 50% ou mais, pelas estatísticas do Oracle;")
+    print("     estatística desatualizada mede a MENOS, nunca a mais)")
+    for t, col, n, tot, pct in perdidas:
+        print(f"      {t}.{col:28s} {n:>10,} de {tot:>10,} linhas ({pct:5.1f}%)")
+
+    if altos or perdidas:
+        if altos:
+            print("\n⚠️  as de risco ALTO mudam NÚMERO ou EMPRESA: cada uma precisa de entrada em")
+            print("    CALCULADAS/RENOMEIA no etl/extrair.py, ou de justificativa em NOSSAS_JUSTIFICADAS.")
+        if perdidas:
+            print("\n⚠️  as do sentido [2] precisam de coluna no destino, ou de um padrão em ORIGEM_NAO_VEM")
+            print("    dizendo por que não vêm. Foi assim que `clube_desconto.barras` passou três migrations.")
         return 1
-    print("\nnenhuma coluna órfã de risco alto — a carga não vai inventar número nem trocar de loja.")
+    print("\nnenhuma coluna órfã de risco alto, e nenhuma coluna da origem ficando para trás.")
     return 0
 
 

@@ -415,3 +415,34 @@ percentual. Dossiê `uClubeDesconto.md`.
 rejeitou porque a tabela já existia desde a mig 112. **Antes de criar tabela para uma "tabela sem destino",
 conferir cada nome contra o `schema-destino.json`** — a lista de pendências dizia `CLUBE_DESCONTO_MOV`, e eu
 li "a família do clube".
+
+
+### Achado 7 — a conferência só olhava um lado, e o outro tinha 167 colunas
+
+O `conferir-colunas-orfas.py` comparava **destino → origem**: a coluna que o destino exige e a origem não
+tem, onde a carga cai no default. Faltava o inverso: **a coluna que a origem tem e o destino não**. Essa
+não cai em default nenhum — ela simplesmente não é carregada, e o dado some sem deixar buraco visível.
+
+Foi exatamente o que escondeu o `CLUBE_DESCONTO.BARRAS` por três migrations (Achado 6): o sentido antigo
+nunca o veria, porque do lado do destino não faltava nada.
+
+Com os dois sentidos e a mesma régua (chave ou número, preenchido em 50% ou mais das linhas), sobram
+**167 colunas** que a origem tem e o destino não recebe. As de maior peso:
+
+| coluna | preenchida |
+|---|---:|
+| `cartao.codoperador` | 2.025.583 (100%) |
+| `nf.*` — 15 totais fiscais (ICMS desonerado, FCP, ST real, base de ICMS da nota, desconto final, frete 2, produtos ST, outros) | 49.655 cada (100%) |
+| `vendas.vrcustoreal`, `vrcustocsi`, `vrcustoajuste`, `vrfcpst` | 16.358.670 (86%) |
+| `historico_prod.id_origem_documento` | 11.106.972 (79%) |
+| `nf.codnfstatuspro` (liga à esteira do manifesto) | 42.032 (85%) |
+| `inventario.idunico` | 15.441 (100%) |
+
+Não são 167 defeitos: é uma lista de triagem ordenada por quanto o dado está preenchido. Cada uma precisa
+de coluna no destino ou de um padrão em `ORIGEM_NAO_VEM` dizendo por que não vem. Os totais fiscais da NF e
+os custos de venda são os primeiros a olhar, porque mudam número.
+
+**E a ferramenta ficou utilizável:** era um `count()` por coluna, com 186 tabelas e uma delas de 18 milhões
+de linhas — passava de dez minutos e por isso não seria rodada. Agora lê o dicionário em três consultas e
+mede o preenchimento pelas estatísticas do Oracle: **5,6 segundos**. Estatística desatualizada mede a
+menos, nunca a mais, então ela erra para o lado seguro.
