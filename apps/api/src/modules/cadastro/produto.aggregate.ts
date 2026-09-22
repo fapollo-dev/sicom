@@ -128,6 +128,11 @@ export const produtoAggregateConfig: AggregateConfig = {
     'codgrupo', 'codsubgrupo', 'coddpto', 'codsecao', 'codgrupopreco',
     // config fiscal (armazenada; cálculo vive em precificacao)
     'ncmsh', 'cest', 'cest_obrigatorio', 'aliquota',
+    // mig 278 — a classificação tributária da reforma (cClassTrib). Sem ela na lista o cadastro não
+    // consegue classificar o produto, e **44.501 dos 47.729 produtos do cliente têm classificação**.
+    // Não havia perda (o master faz UPDATE parcial, não DELETE+INSERT como os detalhes), mas o campo
+    // ficava inalcançável pela tela — e é ele que liga o produto ao cálculo de IBS/CBS.
+    'codclass_trib',
     'idpiscofins', 'codfigurafiscal', 'codfcp', 'mva', 'origemprod',
     // mig 132 — entram na PROPAGAÇÃO pai→filho (trigger trg_produtos_propaga_filhos)
     'aliqope_interna', 'coberturamaxima', 'idtabela', 'codireduzido', 'dif_preco_prod_filho_x_pai',

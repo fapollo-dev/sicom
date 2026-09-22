@@ -150,6 +150,13 @@ export const promocaoAggregateConfig: AggregateConfig = {
         'quantidade', 'quantidade_paga', 'minimo', 'maximo', 'maximo_estoque', 'preco_grupo', 'grupo',
         'codigo_promocional', 'codperfil_parceiro', 'codparceiro', 'valor_minimo_compra', 'id_formas_pgto',
         'data_inicio', 'data_fim', 'encerrada', 'loja', 'ativo', 'idempresa',
+        // ⚠️ as colunas que a mig 285 acrescentou a `clube_desconto` PRECISAM estar nesta lista.
+        // O engine de agregado faz DELETE+INSERT dos detalhes a cada save do master: o que não está
+        // listado não é relido no GET, não volta no PUT e é gravado NULL. Medido: das 47 regras que
+        // têm promoção de verdade, **40 têm `barras`** — um save da promoção apagaria o produto delas
+        // (13 têm `venda_estoque`, 6 `pdv`, 5 `hora`). É a mesma armadilha que já custou as 30 colunas
+        // do painel de precificação e o par etq_impressa/codagenda.
+        'barras', 'descricao', 'pdv', 'hora', 'vrcusto', 'vrcustorep', 'venda_estoque',
       ],
       derivarItensTrx: async (itens, _trx, emp, header) => {
         // espelha SetDadosIniciaisPadrao/AtualizaDadosFilho (pas:1265/1534): copia período+DESTINO do header + defaults golden.

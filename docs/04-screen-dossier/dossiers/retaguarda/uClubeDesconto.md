@@ -114,3 +114,42 @@ entrou no plano com destino e carga, como dado histórico, sem tela.
 **Fold declarado:** o movimento tem colunas para quatro integradores de CRM (Izio, Mercafácil, Cresce
 Vendas e "sistema") e o status de **todos os quatro é nulo nas 3.118.725 linhas**. Nunca foram usados. As
 colunas vêm para a carga não perder o leiaute, mas nenhuma regra depende delas.
+
+
+## 7. ⚠️ A regressão que a migration criou na PROMOÇÃO, e como ela apareceu
+
+Acrescentar coluna a `clube_desconto` não é inócuo: a tabela é **detalhe de agregado** da promoção
+(mig 112), e o engine de agregado faz **DELETE + INSERT** dos detalhes a cada save do master. O que não
+estiver declarado não volta no PUT e é gravado **NULL**.
+
+Medido: das 47 regras que têm promoção de verdade, **40 usam `barras`**, 13 `venda_estoque`, 6 `pdv` e 5
+`hora`. Um save da promoção pela tela apagaria o produto dessas 40.
+
+### 7.1 São TRÊS lugares, e faltar um só já perde o dado
+
+1. a **migration** (a coluna existir);
+2. a lista `colunas` do **detalhe no agregado** — sem ela o GET nem devolve o valor;
+3. o **schema Zod** do item — e este foi o que me pegou: com a coluna já no agregado, o GET devolvia
+   `barras` corretamente e o PUT respondia 200, mas o banco ficava NULL. O Zod remove o que não declara,
+   então o item chegava ao engine sem o campo.
+
+O smoke §91.1b prova o caminho inteiro: grava o valor direto no banco, lê pelo GET, devolve no PUT e
+confere que sobreviveu. Sem esse teste eu teria "corrigido" com a coluna no agregado e ficado com a
+regressão de pé.
+
+### 7.2 O que NÃO era regressão
+
+`produtos.codclass_trib` (mig 278) parecia o mesmo caso, mas não é: `produtos` é **master**, e o master faz
+`UPDATE` só das colunas do dto — o valor não se perde. Era outra coisa, uma **lacuna**: o campo estava
+inalcançável pela tela, e é ele que liga o produto ao cálculo de IBS/CBS (44.501 dos 47.729 produtos do
+cliente o têm). Entrou no agregado e no schema.
+
+### 7.3 O que foi conferido e está limpo
+
+- **A chave estrangeira removida não quebrou a exclusão em cascata**: o engine apaga os detalhes
+  explicitamente (`deleteFrom(det.tabela).where(det.fk, ...)`), não depende do `ON DELETE CASCADE`. E a
+  promoção usa soft delete, então o cascade nunca disparava.
+- **`idpromocao` agora aceita nulo**: o engine sempre o preenche com o id do master, então nada muda no
+  caminho da promoção; a permissão de nulo serve às 3.064 regras que não têm promoção-pai.
+- Os demais commits da sequência mexeram em módulos (registro de controller), no catálogo de mensagens de
+  erro e na transmissão da NF-e — todos cobertos pelos 1.409 checks do smoke.
