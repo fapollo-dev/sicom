@@ -58,9 +58,25 @@ export class SimuladorSefazProvider implements SefazPort {
         : status === 'D'
           ? `Nota fiscal DENEGADA (SIMULADO cStat ${cstat})`
           : `Retorno SIMULADO cStat ${cstat}`;
+    // os grupos da reforma entram no XML simulado quando a nota os tem. Não é o leiaute oficial da SEFAZ —
+    // quem monta o XML de verdade é o provider real —, mas serve ao propósito do simulador: provar que o
+    // contrato ENTREGA os grupos. Sem isto a lacuna só apareceria na primeira transmissão real.
+    const g = req.ibscbs;
+    const grupoXml = g
+      ? `<IBSCBS vBCIBSCBS="${g.total.vbcibscbs.toFixed(2)}" vIBSUF="${g.total.vibsuf.toFixed(2)}"`
+        + ` vIBSMun="${g.total.vibsmun.toFixed(2)}" vIBS="${g.total.vibs.toFixed(2)}"`
+        + ` vCBS="${g.total.vcbs.toFixed(2)}" vIS="${g.total.vis.toFixed(2)}" itens="${g.itens.length}">`
+        + g.itens.map((i) =>
+            `<det nItem="${i.nroitem ?? ''}" CST="${i.cst ?? ''}" cClassTrib="${i.cclasstrib ?? ''}"`
+            + ` vBC="${i.vbc.toFixed(2)}" pIBSUF="${i.paliqefet_ibsuf}" vIBSUF="${i.vibsuf.toFixed(2)}"`
+            + ` pCBS="${i.paliqefet_cbs}" vCBS="${i.vcbs.toFixed(2)}" vIS="${i.vis.toFixed(2)}"`
+            + ` trat="${i.tratamento}"/>`).join('')
+        + `</IBSCBS>`
+      : '';
     const xml =
       `<!-- SIMULADO homologacao (NAO transmitido a SEFAZ) -->` +
-      `<nfeSimulada chave="${chave}" protocolo="${protocolo}" cStat="${cstat}" tpAmb="${req.ambiente}"/>`;
+      `<nfeSimulada chave="${chave}" protocolo="${protocolo}" cStat="${cstat}" tpAmb="${req.ambiente}">`
+      + grupoXml + `</nfeSimulada>`;
     return {
       chave,
       protocolo,

@@ -25,6 +25,38 @@ export interface TransmitirReq {
   cuf: number; // IBGE da UF do emitente
   ambiente: string; // '1' produção / '2' homologação
   tpEmis: number; // 1 normal
+  /**
+   * ⚠️ OS GRUPOS DA REFORMA (IBS/CBS/IS) — obrigatórios no leiaute da NF-e desde a fase-teste de 2026.
+   *
+   * O Apollo **não monta o XML** (decisão de arquitetura, dossiê `uNF.md` §8: geração, assinatura e envio
+   * ficam atrás desta porta). Mas quem monta precisa receber os grupos, e até aqui o contrato não os
+   * levava: o cálculo dos cortes 2 a 4 gravava em `nf_prod_ibscbs`/`nf_ibscbs` e parava ali. Sem este
+   * campo, o provider real emitiria a nota **sem os grupos** e a SEFAZ rejeitaria — uma lacuna que só
+   * apareceria na primeira transmissão real.
+   *
+   * Vem opcional porque nota calculada antes dos cortes da reforma não tem grupo, e nesse caso o provider
+   * emite como emitia. Quando vem, é o que foi calculado e gravado, não um recálculo na hora de transmitir.
+   */
+  ibscbs?: {
+    total: {
+      vbcibscbs: number; vibsuf: number; vibsmun: number; vibs: number; vcbs: number; vis: number;
+    };
+    /** um por item da nota, na ordem de `nroitem` */
+    itens: Array<{
+      nroitem: number | null;
+      cst: string | null;
+      cclasstrib: string | null;
+      vbc: number;
+      /** alíquota e valor por tributo; as efetivas já trazem a redução aplicada */
+      pibsuf: number; paliqefet_ibsuf: number; vibsuf: number;
+      pibsmun: number; paliqefet_ibsmun: number; vibsmun: number;
+      pcbs: number; paliqefet_cbs: number; vcbs: number;
+      /** o seletivo, que INTEGRA a base acima (art. 12 §1º) */
+      vis: number; pis_seletivo: number;
+      /** por que o item ficou assim: calculado | nao_tributado | monofasico */
+      tratamento: string;
+    }>;
+  };
 }
 
 /** resultado da transmissão (mapeado pela porta a partir do cStat da SEFAZ). */

@@ -93,6 +93,24 @@ export class NfNfeService {
         .executeTakeFirst();
       if (!ef || !ef.cnpj || ef.cuf == null) throw new BusinessRuleError('EMPRESA_FISCAL_NAO_CONFIGURADA', { idempresa: emp });
 
+      // ⚠️ os grupos da reforma vão JUNTO com a transmissão (mig 283). Sem isto o provider real emitiria a
+      // nota sem IBS/CBS/IS e a SEFAZ rejeitaria — o cálculo dos cortes 2-4 parava no banco.
+      const grupoCab = (await sql<Record<string, unknown>>`
+          SELECT vbcibscbs, vibsuf, vibsmun, vibs, vcbs, vis FROM nf_ibscbs
+           WHERE codnf = ${codnf} AND idempresa = ${emp}`.execute(trx)).rows[0];
+      const grupoItens = grupoCab
+        ? (await sql<Record<string, unknown>>`
+            SELECT p.nroitem, g.cst, g.cclasstrib, g.vbc,
+                   g.pibsuf, g.paliqefet_ibsuf, g.vibsuf,
+                   g.pibsmun, g.paliqefet_ibsmun, g.vibsmun,
+                   g.pcbs, g.paliqefet_cbs, g.vcbs,
+                   g.vis, g.pis_seletivo, g.tratamento
+              FROM nf_prod_ibscbs g
+              LEFT JOIN nf_prod p ON p.codnfprod = g.codnfprod
+             WHERE g.codnf = ${codnf} AND g.idempresa = ${emp}
+             ORDER BY p.nroitem, g.codnfprod`.execute(trx)).rows
+        : [];
+
       const res = await this.sefaz.transmitir({
         codnf,
         idempresa: emp,
@@ -104,6 +122,25 @@ export class NfNfeService {
         cuf: Number(ef.cuf),
         ambiente: ef.ambiente ?? '2',
         tpEmis: num(nf.tpemissao) || 1,
+        ...(grupoCab ? {
+          ibscbs: {
+            total: {
+              vbcibscbs: num(grupoCab.vbcibscbs), vibsuf: num(grupoCab.vibsuf),
+              vibsmun: num(grupoCab.vibsmun), vibs: num(grupoCab.vibs),
+              vcbs: num(grupoCab.vcbs), vis: num(grupoCab.vis),
+            },
+            itens: grupoItens.map((g) => ({
+              nroitem: g.nroitem == null ? null : Number(g.nroitem),
+              cst: (g.cst as string | null) ?? null, cclasstrib: (g.cclasstrib as string | null) ?? null,
+              vbc: num(g.vbc),
+              pibsuf: num(g.pibsuf), paliqefet_ibsuf: num(g.paliqefet_ibsuf), vibsuf: num(g.vibsuf),
+              pibsmun: num(g.pibsmun), paliqefet_ibsmun: num(g.paliqefet_ibsmun), vibsmun: num(g.vibsmun),
+              pcbs: num(g.pcbs), paliqefet_cbs: num(g.paliqefet_cbs), vcbs: num(g.vcbs),
+              vis: num(g.vis), pis_seletivo: num(g.pis_seletivo),
+              tratamento: String(g.tratamento ?? 'calculado'),
+            })),
+          },
+        } : {}),
       });
       // só persiste se a SEFAZ autorizou (P) ou denegou (D) — qualquer outro cStat é rejeição:
       // não flipa o estado (espelha o legado, que só grava em retorno válido). O provider real

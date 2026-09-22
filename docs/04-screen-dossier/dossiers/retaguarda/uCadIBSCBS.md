@@ -552,3 +552,51 @@ O que o `vis` calculado serve, então, é para (a) compor corretamente a base do
 e (b) conferir o que veio destacado na nota do fornecedor. Se um dia o cliente passar a industrializar
 (há produção própria de padaria e açougue no cadastro), a apuração entra como corte próprio — com a regra
 de quem é contribuinte medida antes, não suposta.
+
+
+## 15. Corte-5 — os grupos na TRANSMISSÃO (a lacuna que só apareceria na SEFAZ)
+
+O Apollo **não monta o XML**: geração, assinatura e envio ficam atrás da porta SEFAZ, por decisão de
+arquitetura registrada no dossiê `uNF.md` §8 — hoje a única implementação é o simulador, e o provider real
+(ACBrLibNFe ou equivalente) pluga na mesma interface.
+
+Mas o contrato dessa porta **não levava os grupos da reforma**. O cálculo dos cortes 2 a 4 gravava em
+`nf_prod_ibscbs`/`nf_ibscbs` e parava ali. O provider real emitiria a nota **sem IBS, CBS e IS**, e a SEFAZ
+rejeitaria — uma lacuna que não aparece em teste nenhum do Apollo e só surgiria na primeira transmissão de
+verdade.
+
+`TransmitirReq` passou a levar `ibscbs`, com o total e o detalhe por item: CST, cClassTrib, base, as
+alíquotas **efetivas** (já com a redução aplicada), os valores por tributo, o seletivo e o `tratamento` de
+cada linha. É opcional, porque nota calculada antes dos cortes da reforma não tem grupo, e nesse caso o
+provider emite como emitia. Quando vem, é **o que foi calculado e gravado** — não um recálculo na hora de
+transmitir, que poderia divergir do que está no banco. Smoke §154.13.
+
+## 16. O que deliberadamente NÃO foi implementado, com a prova
+
+Das 132 classificações, **76 não se calculam pela alíquota da UF**. Dessas, o cliente usa 28 — as 22 de
+imunidade (CST 410) e 6 de monofasia (620) —, e as duas famílias estão tratadas desde o corte-2: saem
+zeradas com o motivo gravado, que é o que o legado também faz.
+
+**As outras 48 não têm substrato nenhum**: nem um produto cadastrado, nem um item de nota.
+
+| CST | o que é | classificações | produtos | itens de nota |
+|---|---|---:|---:|---:|
+| 550 | suspensão | 20 | 0 | 0 |
+| 820 | regime específico | 6 | 0 | 0 |
+| 011 | alíquota uniforme nacional | 5 | 0 | 0 |
+| 220 · 221 | alíquota fixa (incorporação imobiliária, locação de imóvel) | 4 | 0 | 0 |
+| 210 | redutor social (locação, cessão) | 3 | 0 | 0 |
+| 510 | diferimento | 2 | 0 | 0 |
+| 010 | alíquota uniforme setorial | 2 | 0 | 0 |
+| 800 | transferência de crédito | 2 | 0 | 0 |
+| 830 · 810 · 400 · 222 | exclusão de base, ajustes, isenção, redução de base | 4 | 0 | 0 |
+
+São regimes de **incorporação imobiliária, locação de imóveis, transporte internacional, resseguro,
+cooperativas e serviços financeiros** — setores que um supermercado não opera. Implementar o cálculo de
+alíquota fixa de incorporação imobiliária seria escrever regra para um caso que o cliente nunca terá, sem
+nenhum dado para conferir se está certa: exatamente o tipo de código que passa em teste inventado e falha
+na primeira vez que encontra a realidade.
+
+O tratamento atual é o correto: a nota com um desses itens é **recusada** com `422
+CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO`, listando cada item e o motivo. Quem encontrar essa recusa
+encontrou um caso novo de verdade — e aí a regra se implementa com o dado na mão, não antes.

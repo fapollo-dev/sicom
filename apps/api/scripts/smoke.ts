@@ -16816,6 +16816,33 @@ async function main() {
         await pgNg.query(`DELETE FROM produtos WHERE idproduto BETWEEN 994421 AND 994423`);
         await pgNg.query(`UPDATE imposto_seletivo_ncm SET aliquota = 0, valor_por_unidade = 0, vigencia_inicio = '2027-01-01' WHERE ncm IN ('2203','2402')`);
 
+
+        // ── mig 283: os grupos vão JUNTO na transmissão, senão a SEFAZ rejeita ──────────────────────
+        await pgNg.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, ncmsh, codclass_trib) VALUES
+          (994431,'7899000994431','PRODUTO TRANSMISSAO','UN',2,'T01','S','22030000',994401)
+          ON CONFLICT (idproduto) DO NOTHING`);
+        await pgNg.query(`INSERT INTO nf (codnf, idempresa, codparceiro, nronf, serie, modelo, tipo, tipoemissao, dtemissao, dtcontabil, totalnf, proc, cancelada, tpemissao) VALUES
+          (9944008, 1, 2, '9944008', '1', '55', 'S', '0', '2026-04-20', '2026-04-20', 1000, 'S', 'N', 1)
+          ON CONFLICT (codnf) DO NOTHING`);
+        await pgNg.query(`INSERT INTO nf_prod (codnfprod, codnf, nroitem, codproduto, quantidade, vrcusto, unidade, cfop, ncm, total_produto_nota) VALUES
+          (99440081, 9944008, 1, 994431, 10, 100, 'UN', 5102, '22030000', 1000.00) ON CONFLICT (codnfprod) DO NOTHING`);
+        await fetch(`${base}/${NG}/calcular`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9944008 }) });
+        const tx = await fetch(`${base}/fiscal/nf/9944008/transmitir`, { method: 'POST', headers: H });
+        const txJ = (await tx.json().catch(() => ({}))) as any;
+        const xmlSalvo = (await pgNg.query(`SELECT xml FROM nfe_xml WHERE codnf = 9944008 ORDER BY codnfexml DESC LIMIT 1`)).rows[0] as any;
+        const xml = String(xmlSalvo?.xml ?? txJ.xml ?? '');
+        check('REFORMA IBS/CBS §154.13 [os grupos vão JUNTO na transmissão, senão a nota sai sem eles]: o Apollo **não monta o XML** — geração, assinatura e envio ficam atrás da porta SEFAZ (decisão de arquitetura, `uNF.md` §8). Mas o contrato da porta **não levava os grupos**: o cálculo dos cortes 2-4 gravava no banco e parava ali, e o provider real emitiria a nota sem IBS/CBS/IS, com rejeição na SEFAZ — lacuna que só apareceria na primeira transmissão de verdade. Agora a transmissão carrega o total e o detalhe por item, com as alíquotas EFETIVAS e o motivo de cada linha',
+          tx.status === 200 && xml.includes('IBSCBS') && xml.includes('vIBSUF="1.00"')
+          && xml.includes('vCBS="9.00"') && xml.includes('cClassTrib="000001"') && xml.includes('trat="calculado"'),
+          { st: tx.status, temGrupo: xml.includes('IBSCBS'), trecho: xml.slice(xml.indexOf('<IBSCBS'), xml.indexOf('<IBSCBS') + 150) });
+
+        await pgNg.query(`DELETE FROM nfe_xml WHERE codnf = 9944008`);
+        await pgNg.query(`DELETE FROM nf_prod_ibscbs WHERE codnf = 9944008`);
+        await pgNg.query(`DELETE FROM nf_ibscbs WHERE codnf = 9944008`);
+        await pgNg.query(`DELETE FROM nf_prod WHERE codnf = 9944008`);
+        await pgNg.query(`DELETE FROM nf WHERE codnf = 9944008`);
+        await pgNg.query(`DELETE FROM produtos WHERE idproduto = 994431`);
+
         // ── mig 280: nem toda classificação se calcula pela alíquota da UF ──────────────────────────
         await pgNg.query(`INSERT INTO cst_ibs_cbs (cst, descricao_cst, ind_gibscbs, ind_gibscbsmono, ind_nfe) VALUES
           ('410','IMUNIDADE E NAO INCIDENCIA', 0, 0, 'S'),
