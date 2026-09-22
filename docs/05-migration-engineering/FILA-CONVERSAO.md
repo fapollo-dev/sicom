@@ -569,3 +569,44 @@ dela está nulo nas 3,1 milhões de linhas do movimento do clube, ou seja, nunca
 
 Recuperado até aqui: **R$ 695,2 milhões** em bases, custos e valores que a carga deixava para trás. O que
 sobra se concentra em `pedido_devolucao_compra_i` (23) e `empresas` (18).
+
+
+### Achado 11 — o kardex sem valor, o cartão sem autoria e o CFOP sem regra (mig 290)
+
+Fecha a série. As últimas concentrações eram menores em volume e maiores em consequência.
+
+**O kardex guardava a quantidade e não o valor.** `HISTORICO_PROD` tem 13.968.279 linhas e o destino
+trouxe só o movimento em quantidade. Ficaram de fora `valor_alter` e `valor_atual` (445.233 linhas com
+valor, R$ 6.455.305,54) e `id_origem_documento` (**11.810.697 linhas, 2.668.620 documentos distintos**).
+Sem o valor, o kardex responde "quanto entrou" e não "por quanto"; sem a origem, não responde "de onde".
+
+**O cartão perdia os três operadores**: quem lançou (2.068.857), de qual operadora veio (2.031.051) e quem
+baixou (1.769.287) — a trilha inteira do recebível.
+
+**O CFOP perdia REGRA, não dado.** `ALTERA_CUSTO_NF` está em 389 dos 398 CFOPs: é o CFOP dizendo se a
+entrada por ele altera o custo do produto. Sem a coluna, ou toda entrada passa a alterar custo ou nenhuma
+altera, conforme o default — e é a diferença entre bonificação mexer ou não no preço.
+
+Mais `pedidocompra_i.vendaliq`/`vrcustob` (R$ 4,1 milhões, a escada de custo de novo), a figura fiscal e o
+enquadramento de PIS/COFINS em `multi_preco`, e doze colunas menores de autoria e chave.
+
+### A varredura origem → destino está fechada
+
+| passo | restantes |
+|---|---:|
+| ao criar o sentido 2 | 167 |
+| mig 286 — totais da nota | 139 |
+| mig 287 — item da nota (+ descarte das zeradas) | 89 |
+| mig 288 — vendas | 74 |
+| mig 289 — devolução e empresa | 33 |
+| mig 290 — kardex, cartão, CFOP, preço | 6 |
+| RENOMEIA das PKs + declaração das últimas | **0** |
+
+> **`[1] 14 achados, 0 de risco alto · [2] 0 — nenhuma coluna da origem ficando para trás.`**
+
+Recuperado na série: **R$ 707,8 milhões** em bases, custos e valores, mais 19 milhões de NCMs de venda,
+12,2 milhões de códigos lidos no caixa e 11,8 milhões de vínculos de kardex com o documento de origem.
+
+Tudo que não vem está declarado com o número medido ao lado, em `ORIGEM_DECLARADA` no conferidor — a lista
+não volta a crescer sem exame, porque o conferidor sai com erro quando alguém acrescenta coluna nova sem
+justificar.

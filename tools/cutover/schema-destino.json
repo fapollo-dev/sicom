@@ -2568,6 +2568,20 @@
      "escala": 0,
      "nulo": true,
      "default": null
+    },
+    "valorpisapura": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "valorcofinsapura": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -2967,6 +2981,13 @@
      "default": null
     },
     "codoperador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codpdv": {
      "tipo": "integer",
      "tam": 32,
      "escala": 0,
@@ -4734,6 +4755,27 @@
      "escala": 0,
      "nulo": true,
      "default": null
+    },
+    "codoperador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codoperadoraorigem": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codopbx": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -5140,6 +5182,27 @@
      "escala": null,
      "nulo": true,
      "default": "'S'::bpchar"
+    },
+    "altera_custo_nf": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "abater_cfop": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codplanocontas": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -8693,6 +8756,20 @@
      "escala": null,
      "nulo": true,
      "default": "now()"
+    },
+    "codcontabilista": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "cod_mun": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -8923,6 +9000,13 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "exibe_saldo_emp": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -8977,6 +9061,27 @@
      "escala": null,
      "nulo": false,
      "default": "'S'::bpchar"
+    },
+    "visualizar_saldos": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "habiltiar_lanca_saldo": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "habiltiar_troca_valores": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -9441,6 +9546,13 @@
      "escala": 4,
      "nulo": true,
      "default": "0"
+    },
+    "codoperador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -10924,6 +11036,111 @@
      "tipo": "timestamp with time zone",
      "tam": null,
      "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codplc_juros_pagos": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codplc_juros_recebidos": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codplc_descontos_concedidos": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codplc_descontos_recebidos": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codplc_acrescimos_pagos": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codplc_acrescimos_recebidos": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codplc_taxas_cartao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codplc_taxa_cartao_paga": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codplc_trocosolidario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codfornecedor_trocosolidario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codparceiro": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codterminal": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codoperador_autoatendimento": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "idpgto": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "valor_cbs": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
      "nulo": true,
      "default": null
     }
@@ -17760,6 +17977,27 @@
      "escala": 0,
      "nulo": true,
      "default": null
+    },
+    "valor_alter": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "valor_atual": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "id_origem_documento": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -18359,6 +18597,13 @@
      "tipo": "numeric",
      "tam": 13,
      "escala": 3,
+     "nulo": true,
+     "default": null
+    },
+    "idunico": {
+     "tipo": "character varying",
+     "tam": 40,
+     "escala": null,
      "nulo": true,
      "default": null
     }
@@ -20831,6 +21076,27 @@
      "escala": 0,
      "nulo": true,
      "default": null
+    },
+    "codfigurafiscal": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "idpiscofins": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "idtabela": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -23073,6 +23339,13 @@
      "escala": 2,
      "nulo": false,
      "default": "0"
+    },
+    "codcclass_trib_ncm_anexos": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -24319,6 +24592,13 @@
      "tipo": "timestamp with time zone",
      "tam": null,
      "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codrede": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
      "nulo": true,
      "default": null
     }
@@ -26505,6 +26785,167 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "cst": {
+     "tipo": "character varying",
+     "tam": 3,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "valor_venda": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "vrcustorep": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "desconto": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "desconto_nota": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "icms_aliquota": {
+     "tipo": "numeric",
+     "tam": 9,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "icms_valor": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "icms_st_aliquota": {
+     "tipo": "numeric",
+     "tam": 9,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "icms_st_valor": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "aliqpise": {
+     "tipo": "numeric",
+     "tam": 9,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "vrpise": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "vrpise_nota": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "aliqcofinse": {
+     "tipo": "numeric",
+     "tam": 9,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "vrcofinse": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "vrcofinse_nota": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "fcp_aliquota_st": {
+     "tipo": "numeric",
+     "tam": 9,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "fcp_valor_st": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "fcp_aliquota_st_nota": {
+     "tipo": "numeric",
+     "tam": 9,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "fcp_valor_st_nota": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "fcp_aliquota_st_ret": {
+     "tipo": "numeric",
+     "tam": 9,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "fcp_valor_st_ret": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "fcp_aliquota_st_ret_nota": {
+     "tipo": "numeric",
+     "tam": 9,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "fcp_valor_st_ret_nota": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -26972,6 +27413,20 @@
      "tipo": "integer",
      "tam": 32,
      "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "vendaliq": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "vrcustob": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
      "nulo": true,
      "default": null
     }

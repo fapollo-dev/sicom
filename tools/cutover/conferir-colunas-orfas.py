@@ -130,6 +130,15 @@ ORIGEM_DECLARADA = {
     # status dela esta nulo nas 3,1 milhoes de CLUBE_DESCONTO_MOV — o mecanismo nunca foi usado.
     ('vendas', 'crescevendas_qtde'): 'integracao Cresce Vendas nunca usada: 0,08% das linhas',
     ('vendas', 'crescevendas_valor'): 'idem',
+    # mig 289: flags de comportamento de tela sem uso medido no cliente
+    ('empresas', 'preen_ncm'): 'flag de tela sem uso medido',
+    ('empresas', 'sincroniza_preco_nf'): 'idem',
+    ('empresas', 'valor_perc_multa'): 'idem',
+    # mig 290, o que resta da varredura — cada um com o motivo medido
+    ('config_plano_contas', 'codconfig'): 'PK da origem; o destino usa `tipo` como chave (1 linha)',
+    ('situacao_nf_parceiros', 'codoperador'): 'autoria do vinculo; 146 linhas, sem uso em regra',
+    ('nfe_nao_cadastradas', 'codnfstatuspro'): 'FK para NF_STATUS_PROCESSO, que ainda nao tem destino',
+    ('log_impressao_etiqueta', 'valor_impressao'): 'log operacional; o destino ja guarda valor_venda',
 }
 # grandezas cuja ausência muda NÚMERO ou IDENTIDADE — é onde a perda é cara
 CHAVE_OU_NUMERO = re.compile(

@@ -80,6 +80,9 @@ RENOMEIA = {
                    'cfgdre_classe': 'classe', 'cfgdre_expressao': 'expressao', 'cfgdre_nivel': 'nivel',
                    'cfgdre_codpai': 'codpai', 'cfgdre_ativo': 'ativo'},
  'dre_conta': {'cfgdre_codigo': 'codestrutura'},
+ # PKs que so mudaram de nome — sem o de-para a chave nao entra e a linha perde identidade
+ 'cclass_trib_ncm': {'codcclass_trib_ncm_anexos': 'codcclass_trib_ncm'},
+ 'parceiros_vendedores': {'codparceiro_vendedor': 'codparceirovendedor'},
  # Devolução de compra (itens): o legado usa `cod_*` com underscore. São 6.126 itens, R$ 407.275,10
  # devolvidos, e as 5 chaves (pai, NF, item da NF, produto) estão 100% preenchidas na origem — sem o
  # de-para chegariam todas nulas, e 5 delas são NOT NULL.
