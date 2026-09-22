@@ -126,6 +126,10 @@ ORIGEM_DECLARADA = {
     ('nf_prod', 'atualiza_multipreco_decomp'): 'flag de decomposicao sem uso medido',
     ('nf_prod', 'item_perda_total'): 'idem',
     ('nf_prod', 'ipi_devolucao_perc_devol'): 'residuo: 81 itens',
+    # mig 288: a integracao Cresce Vendas tem 14.612 linhas de 18,9 milhoes (0,08%) e R$ 39 mil, e o
+    # status dela esta nulo nas 3,1 milhoes de CLUBE_DESCONTO_MOV — o mecanismo nunca foi usado.
+    ('vendas', 'crescevendas_qtde'): 'integracao Cresce Vendas nunca usada: 0,08% das linhas',
+    ('vendas', 'crescevendas_valor'): 'idem',
 }
 # grandezas cuja ausência muda NÚMERO ou IDENTIDADE — é onde a perda é cara
 CHAVE_OU_NUMERO = re.compile(

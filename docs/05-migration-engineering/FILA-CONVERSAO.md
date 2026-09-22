@@ -522,3 +522,50 @@ descarta as zeradas. São ~20 idas ao banco, o conferidor passou de 5,6s para 1m
 para **89** — ruído que não voltaria a ser triado à mão a cada rodada.
 
 O que sobra se concentra em `pedido_devolucao_compra_i` (23), `empresas` (18) e `vendas` (15).
+
+
+### Achado 10 — a venda perdia as duas escadas de custo e o que foi lido no caixa
+
+Terceiro da série, e na maior tabela do sistema: `VENDAS`, **18.995.349 linhas**. Migration 288.
+
+| coluna | vendas ≠ 0 | soma |
+|---|---:|---:|
+| `vrproduto` | 14.527.218 | R$ 172.748.041,54 |
+| `vrcustoreal` | 16.378.032 | R$ 112.180.725,27 |
+| `vrcustocsi` | 16.301.522 | R$ 111.496.471,56 |
+| `margem_comissao` | 220.328 | R$ 660.984,00 |
+| `vrfcpst` | 1.253.770 | R$ 135.567,38 |
+| **total** | | **R$ 397.221.038,16** |
+
+**Sem `vrcustoreal` e `vrcustocsi` não há margem no histórico.** O destino tinha `vrcusto` e `vrcustorep`,
+que são outros degraus: todo relatório de rentabilidade sobre 18,9 milhões de vendas ficaria sem o custo
+que o legado de fato usou. É a mesma meia-escada da mig 287, com 38 vezes mais linhas.
+
+**E o que foi lido no caixa:**
+
+| coluna | linhas | distintos |
+|---|---:|---:|
+| `ncmsh` | 19.021.932 | 963 |
+| `codigo_informado` | 12.246.066 | **405.681** |
+| `cest` | 13.580.609 | 492 |
+| `vrvenda_tipo` · `codigo_tipo` | ~13 milhões | 4 cada |
+| `codfor` | 18.657.242 | |
+
+`CODIGO_INFORMADO` é o código que o operador leu ou digitou, com mais valores distintos do que o cadastro
+tem de produtos. É a evidência de **como** a venda aconteceu, e sem ela não há como auditar divergência
+entre o que foi lido e o produto que saiu.
+
+Fica de fora, com prova: a integração Cresce Vendas (14.612 de 18,9 milhões, 0,08%, R$ 39 mil) — e o status
+dela está nulo nas 3,1 milhões de linhas do movimento do clube, ou seja, nunca foi usada.
+
+### Placar da varredura origem → destino
+
+| passo | achados restantes |
+|---|---:|
+| ao criar o sentido 2 | 167 |
+| depois da nf (mig 286) | 139 |
+| depois de nf_prod (mig 287) | 114 → **89** com o descarte das zeradas |
+| depois de vendas (mig 288) | **74** |
+
+Recuperado até aqui: **R$ 695,2 milhões** em bases, custos e valores que a carga deixava para trás. O que
+sobra se concentra em `pedido_devolucao_compra_i` (23) e `empresas` (18).

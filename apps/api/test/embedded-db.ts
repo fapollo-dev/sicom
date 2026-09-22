@@ -330,6 +330,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('285_clube_desconto.sql'));
   await pool.query(sql('286_nf_totais_faltantes.sql'));
   await pool.query(sql('287_nf_prod_custos_faltantes.sql'));
+  await pool.query(sql('288_vendas_custos_faltantes.sql'));
   await pool.end();
   return pg;
 }
