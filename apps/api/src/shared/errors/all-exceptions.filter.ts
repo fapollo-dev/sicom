@@ -176,7 +176,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
  * Códigos cujo `details` do AppError PODE ser ecoado ao cliente no envelope (`detalhe`) — allowlist explícita
  * (evita vazar dados internos de outros erros: saldos, form/opção de RBAC, etc.). Só o que o front consome.
  */
-const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE', 'CLASS_TRIB_EM_USO', 'PRODUTO_SEM_CLASSIFICACAO', 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO', 'APURACAO_IBSCBS_JA_EXISTE']);
+const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE', 'CLASS_TRIB_EM_USO', 'PRODUTO_SEM_CLASSIFICACAO', 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO', 'APURACAO_IBSCBS_JA_EXISTE', 'SPLIT_MANUAL_EXCEDE']);
 
 const CODE_PT: Record<string, string> = {
   // regra de negócio (BusinessRuleError 422)
@@ -192,6 +192,11 @@ const CODE_PT: Record<string, string> = {
   APURACAO_IBSCBS_FECHADA: 'Esta apuração de IBS/CBS já foi fechada e não pode ser reprocessada.',
   APURACAO_IBSCBS_JA_EXISTE: 'Já existe apuração de IBS/CBS para esta competência — peça o reprocessamento.',
   APURACAO_IBSCBS_NAO_ENCONTRADA: 'Não há apuração de IBS/CBS para esta competência.',
+  SPLIT_NAO_ATIVO: 'O split payment não está ativo para esta empresa.',
+  SPLIT_PERCENTUAL_OBRIGATORIO: 'A modalidade simplificada exige o percentual de retenção.',
+  SPLIT_MANUAL_SEM_VALOR: 'A modalidade manual exige o valor a separar.',
+  SPLIT_MANUAL_EXCEDE: 'Não se pode separar mais imposto do que o documento deve.',
+  NF_SEM_GRUPO_IBSCBS: 'Esta nota não tem os grupos de IBS/CBS calculados.',
   CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO:
     'Há itens cuja classificação não se calcula pela alíquota da UF (alíquota fixa, setorial, nacional, '
     + 'redutor de base, diferimento ou suspensão). Trate-os à parte antes de calcular a nota.',

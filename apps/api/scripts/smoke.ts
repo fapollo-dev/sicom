@@ -16843,6 +16843,89 @@ async function main() {
         await pgNg.query(`DELETE FROM nf WHERE codnf = 9944008`);
         await pgNg.query(`DELETE FROM produtos WHERE idproduto = 994431`);
 
+
+        // ── mig 283: os SEIS regimes especiais, cada um com aritmética própria ──────────────────────
+        await pgNg.query(`INSERT INTO cst_ibs_cbs (cst, descricao_cst, ind_gibscbs, ind_gibscbsmono, ind_nfe) VALUES
+          ('210','REDUCAO DE ALIQUOTA COM REDUTOR DE BASE',1,0,'S'),
+          ('011','TRIBUTACAO COM ALIQUOTAS UNIFORMES REDUZIDAS',0,0,'N'),
+          ('550','SUSPENSAO',1,0,'S')
+          ON CONFLICT (cst) DO UPDATE SET ind_gibscbs = EXCLUDED.ind_gibscbs`);
+        await pgNg.query(`INSERT INTO class_trib (codclass_trib, cst, descricao_cst, class_trib, nome_class_trib, tipo_aliquota, pred_ibs, pred_cbs, ind_redutor_bc, ind_cred_pres) VALUES
+          (994431,'210','REDUCAO COM REDUTOR','210001','REDUTOR SOCIAL',        'Padrão',            50, 50, 'S', NULL),
+          (994432,'011','ALIQUOTAS UNIFORMES','011001','SERVICO FINANCEIRO',    'Uniforme nacional (referência)', 0, 0, NULL, NULL),
+          (994433,'220','ALIQUOTA FIXA',      '220001','INCORPORACAO IMOBILIARIA','Fixa',            NULL, NULL, NULL, NULL),
+          (994434,'550','SUSPENSAO',          '550009','REMESSA COM SUSPENSAO', 'Sem alíquota',      NULL, NULL, NULL, NULL),
+          (994435,'000','TRIBUTACAO INTEGRAL','000005','COM CREDITO PRESUMIDO', 'Padrão',            0, 0, NULL, 1),
+          (994436,'011','ALIQUOTAS UNIFORMES','011009','SEM PARAMETRO CADASTRADO','Uniforme nacional (referência)', 0, 0, NULL, NULL)
+          ON CONFLICT (codclass_trib) DO NOTHING`);
+        await pgNg.query(`INSERT INTO class_trib_parametro (class_trib, vigencia_inicio, aliquota_ibs, aliquota_cbs, valor_fixo_ibs, valor_fixo_cbs, unidade_fixa, pred_base, pcred_pres_ibs, pcred_pres_cbs, fonte) VALUES
+          ('210001','2026-01-01', NULL, NULL, NULL,  NULL,  NULL, 40,   NULL, NULL, 'smoke'),
+          ('011001','2026-01-01', 3.0,  5.0,  NULL,  NULL,  NULL, NULL, NULL, NULL, 'smoke'),
+          ('220001','2026-01-01', NULL, NULL, 12.00, 30.00, 'UN', NULL, NULL, NULL, 'smoke'),
+          ('000005','2026-01-01', NULL, NULL, NULL,  NULL,  NULL, NULL, 2.0,  4.0,  'smoke')
+          ON CONFLICT (class_trib, vigencia_inicio) DO NOTHING`);
+        await pgNg.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, ncmsh, codclass_trib) VALUES
+          (994441,'7899000994441','REDUTOR DE BASE','UN',2,'T01','S','99011000',994431),
+          (994442,'7899000994442','ALIQUOTA PROPRIA','UN',2,'T01','S','99012000',994432),
+          (994443,'7899000994443','ALIQUOTA FIXA','UN',2,'T01','S','99013000',994433),
+          (994444,'7899000994444','SUSPENSO','UN',2,'T01','S','99014000',994434),
+          (994445,'7899000994445','CREDITO PRESUMIDO','UN',2,'T01','S','99015000',994435),
+          (994446,'7899000994446','SEM PARAMETRO','UN',2,'T01','S','99016000',994436)
+          ON CONFLICT (idproduto) DO NOTHING`);
+        await pgNg.query(`INSERT INTO nf (codnf, idempresa, codparceiro, nronf, serie, modelo, tipo, dtemissao, dtcontabil, totalnf) VALUES
+          (9944009, 1, 2, '9944009', '1', '55', 'E', '2026-05-20', '2026-05-20', 5000),
+          (9944010, 1, 2, '9944010', '1', '55', 'E', '2026-05-21', '2026-05-21', 1000)
+          ON CONFLICT (codnf) DO NOTHING`);
+        await pgNg.query(`INSERT INTO nf_prod (codnfprod, codnf, nroitem, codproduto, quantidade, vrcusto, unidade, cfop, ncm, total_produto_nota) VALUES
+          (99440091, 9944009, 1, 994441, 10, 100, 'UN', 1102, '99011000', 1000.00),
+          (99440092, 9944009, 2, 994442, 10, 100, 'UN', 1102, '99012000', 1000.00),
+          (99440093, 9944009, 3, 994443,  5, 200, 'UN', 1102, '99013000', 1000.00),
+          (99440094, 9944009, 4, 994444, 10, 100, 'UN', 1102, '99014000', 1000.00),
+          (99440095, 9944009, 5, 994445, 10, 100, 'UN', 1102, '99015000', 1000.00),
+          (99440101, 9944010, 1, 994446, 10, 100, 'UN', 1102, '99016000', 1000.00)
+          ON CONFLICT (codnfprod) DO NOTHING`);
+        const rg = await fetch(`${base}/${NG}/calcular`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9944009 }) });
+        const rgJ = (await rg.json().catch(() => ({}))) as any;
+        const it2 = (n: number) => (rgJ.itens ?? []).find((x: any) => x.codproduto === n);
+        const rb = it2(994441), ap = it2(994442), fx = it2(994443), su = it2(994444), cp = it2(994445);
+
+        check('REFORMA IBS/CBS §154.14 [redutor de BASE, e ele ACUMULA com a redução de alíquota]: a CST 210 se chama "redução de alíquota COM redutor de base" justamente porque as duas agem juntas — nenhum atalho representa isso. Base 1.000,00 com redutor de 40% dá **base reduzida 600,00**; sobre ela a alíquota já reduzida em 50% (0,05% de IBS e 0,45% de CBS) rende **0,30 e 2,70**. Quem aplicasse só a redução de alíquota sobre a base cheia cobraria 0,50 e 4,50 — 67% a mais',
+          rg.status === 200 && rb?.tratamento === 'redutor_base' && Number(rb?.base_reduzida) === 600
+          && Number(rb?.pred_base) === 40 && Number(rb?.paliqefet_ibsuf) === 0.05
+          && Number(rb?.vibsuf) === 0.3 && Number(rb?.vcbs) === 2.7,
+          { trat: rb?.tratamento, base_red: rb?.base_reduzida, ef: rb?.paliqefet_ibsuf, v: [rb?.vibsuf, rb?.vcbs] });
+
+        check('REFORMA IBS/CBS §154.15 [alíquota PRÓPRIA não é a da UF, e alíquota FIXA não é percentual]: uniforme setorial (010) e nacional (011) têm alíquota própria — aplicar a da UF a um serviço financeiro daria número errado sem aviso: aqui 3% e 5% sobre 1.000,00 rendem **30,00 e 50,00**, não 1,00 e 9,00. E a alíquota fixa (220/221, incorporação imobiliária e locação) é **valor em reais**: R$ 12,00 e R$ 30,00 por unidade × 5 unidades = **60,00 e 150,00**, com a alíquota gravada em ZERO de propósito, porque percentual nenhum existe ali e gravar um inventaria',
+          ap?.tratamento === 'aliquota_propria' && Number(ap?.pibsuf) === 3 && Number(ap?.vibsuf) === 30
+          && Number(ap?.vcbs) === 50
+          && fx?.tratamento === 'fixa' && Number(fx?.vibsuf) === 60 && Number(fx?.vcbs) === 150
+          && Number(fx?.pibsuf) === 0 && Number(fx?.paliqefet_ibsuf) === 0,
+          { propria: [ap?.tratamento, ap?.vibsuf, ap?.vcbs], fixa: [fx?.tratamento, fx?.vibsuf, fx?.vcbs, fx?.pibsuf] });
+
+        check('REFORMA IBS/CBS §154.16 [suspenso EXISTE e não é pago; crédito presumido é crédito SEM imposto pago]: em suspensão (550) e diferimento (510) o imposto é calculado e vai para a coluna de **suspenso** — 1,00 e 9,00 —, enquanto o valor a pagar fica zero. Guardar só zero perderia quanto está suspenso, que é o que a fiscalização pergunta. E o crédito presumido (9 classificações) nasce **sem imposto pago na etapa anterior**: 2% e 4% sobre 1.000,00 dão 20,00 e 40,00 em coluna PRÓPRIA, porque somá-lo ao imposto do item misturaria débito com crédito na mesma linha',
+          su?.tratamento === 'suspenso' && Number(su?.vibs_suspenso) === 1 && Number(su?.vcbs_suspenso) === 9
+          && Number(su?.vibsuf) === 0 && Number(su?.vcbs) === 0
+          && Number(cp?.vcred_pres_ibs) === 20 && Number(cp?.vcred_pres_cbs) === 40
+          && Number(cp?.vibsuf) === 1 && Number(cp?.vcbs) === 9
+          && Number(rgJ.totais?.vibs_suspenso) === 1 && Number(rgJ.totais?.vcred_pres_ibs) === 20,
+          { susp: [su?.vibs_suspenso, su?.vcbs_suspenso, su?.vibsuf], credpres: [cp?.vcred_pres_ibs, cp?.vcred_pres_cbs, cp?.vibsuf], tot: [rgJ.totais?.vibs_suspenso, rgJ.totais?.vcred_pres_ibs] });
+
+        const semParam = await fetch(`${base}/${NG}/calcular`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9944010 }) });
+        const spJ = (await semParam.json().catch(() => ({}))) as any;
+        check('REFORMA IBS/CBS §154.17 [sem o parâmetro da lei, NÃO calcula — zero pareceria resultado]: alíquota própria e alíquota fixa dependem de um número que só a lei dá. Se a classificação existe mas o parâmetro não foi cadastrado, o item continua sendo **recusado** (422) e a mensagem diz exatamente o que falta e onde cadastrar. Inventar zero aqui seria pior do que parar, porque zero parece um resultado legítimo e ninguém iria conferir',
+          semParam.status === 422 && spJ.code === 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO'
+          && String((spJ.detalhe?.itens ?? [])[0]?.motivo ?? '').includes('não cadastrada'),
+          { st: semParam.status, code: spJ.code, motivo: (spJ.detalhe?.itens ?? [])[0]?.motivo });
+
+        await pgNg.query(`DELETE FROM nf_prod_ibscbs WHERE codnf IN (9944009,9944010)`);
+        await pgNg.query(`DELETE FROM nf_ibscbs WHERE codnf IN (9944009,9944010)`);
+        await pgNg.query(`DELETE FROM nf_prod WHERE codnf IN (9944009,9944010)`);
+        await pgNg.query(`DELETE FROM nf WHERE codnf IN (9944009,9944010)`);
+        await pgNg.query(`DELETE FROM produtos WHERE idproduto BETWEEN 994441 AND 994446`);
+        await pgNg.query(`DELETE FROM class_trib_parametro WHERE fonte = 'smoke'`);
+        await pgNg.query(`DELETE FROM class_trib WHERE codclass_trib BETWEEN 994431 AND 994436`);
+        await pgNg.query(`DELETE FROM cst_ibs_cbs WHERE cst IN ('210','011','550')`);
+
         // ── mig 280: nem toda classificação se calcula pela alíquota da UF ──────────────────────────
         await pgNg.query(`INSERT INTO cst_ibs_cbs (cst, descricao_cst, ind_gibscbs, ind_gibscbsmono, ind_nfe) VALUES
           ('410','IMUNIDADE E NAO INCIDENCIA', 0, 0, 'S'),
@@ -16893,11 +16976,11 @@ async function main() {
         const proprio = await fetch(`${base}/${NG}/calcular`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9944003 }) });
         const pr = (await proprio.json().catch(() => ({}))) as any;
         const nada = (await pgNg.query(`SELECT count(*) n FROM nf_prod_ibscbs WHERE codnf = 9944003`)).rows[0] as any;
-        check('REFORMA IBS/CBS §154.7 [o que não se sabe calcular NÃO sai calculado]: **`IND_GIBSCBS = 1` não garante alíquota percentual** — diferimento (510), suspensão (550), exclusão de base (830) e alíquota fixa (220) têm o grupo e não têm alíquota; e **"Padrão" não garante fórmula simples** — 210 e 222 trazem redutor de BASE além da redução de alíquota. Só a conjunção fecha, e ela vale em **56 das 132** classificações do cliente. Nota com item diferido e item de alíquota fixa é **422 CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO**, listando cada item e o motivo, e **nada é gravado** — inventar número onde não se sabe calcular é pior do que parar',
+        check('REFORMA IBS/CBS §154.7 [o que FALTA PARÂMETRO não sai calculado — e o resto, sim]: **`IND_GIBSCBS = 1` não garante alíquota percentual** e **"Padrão" não garante fórmula simples**. Depois da mig 283 cada regime tem a sua aritmética (§154.14-16), mas os que dependem de um número que só a lei dá — alíquota própria e alíquota fixa — continuam **recusados enquanto o parâmetro não estiver cadastrado**: a nota com o item de alíquota fixa sem valor é 422 CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO dizendo onde cadastrar, e **nada é gravado**. O item de diferimento da mesma nota já não é recusado — ele calcula e vai para a coluna de suspenso',
           proprio.status === 422 && pr.code === 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO'
-          && (pr.detalhe?.itens ?? []).length === 2 && Number(nada.n) === 0
-          && (pr.detalhe?.itens ?? []).some((x: any) => x.cclasstrib === '510002')
-          && (pr.detalhe?.itens ?? []).some((x: any) => x.cclasstrib === '220001'),
+          && (pr.detalhe?.itens ?? []).length === 1 && Number(nada.n) === 0
+          && (pr.detalhe?.itens ?? []).some((x: any) => x.cclasstrib === '220001')
+          && !(pr.detalhe?.itens ?? []).some((x: any) => x.cclasstrib === '510002'),
           { st: proprio.status, code: pr.code, itens: pr.detalhe?.itens, gravados: Number(nada.n) });
 
         // o encoding: "Padrao" sem acento tem de calcular igual a "Padrão"
@@ -16960,6 +17043,10 @@ async function main() {
           (99450031, 9945003, 1, 994501, 1000, 10.00, 0, 90.00),
           (99450041, 9945004, 1, 994501, 1000, 10.00, 0, 90.00) ON CONFLICT (codnfprod) DO NOTHING`);
 
+        // o cabeçalho dos grupos, que o split consulta para saber o imposto do documento
+        await pgAp.query(`INSERT INTO nf_ibscbs (codnf, idempresa, vbcibscbs, vibsuf, vibsmun, vibs, vcbs) VALUES
+          (9945001, 1, 1000, 10.00, 0, 10.00, 90.00),
+          (9945002, 1,  400,  4.00, 0,  4.00,  9.00) ON CONFLICT (codnf) DO NOTHING`);
         const p1 = await fetch(`${base}/${AP}/processar`, { method: 'POST', headers: j, body: JSON.stringify({ competencia: '202605' }) });
         const a1 = (await p1.json().catch(() => ({}))) as any;
         check('APURAÇÃO IBS/CBS §155.1 [IBS e CBS se apuram SEPARADAMENTE — um não compensa o outro]: a CBS é federal (substitui PIS e COFINS) e o IBS é dos Estados e Municípios (substitui ICMS e ISS) — são entes tributantes diferentes, e somar os dois num total só produziria um número que não é imposto nenhum. No cliente as ordens de grandeza mostram por que importa: em 2026-01 o crédito de IBS é R$ 1.530,42 e o de CBS é R$ 13.745,12. Aqui, crédito 10,00/90,00 contra débito 4,00/9,00: o **IBS fica credor em 6,00 e a CBS credora em 81,00**, cada um na sua conta, e nada a recolher em nenhum dos dois',
@@ -16999,6 +17086,56 @@ async function main() {
           && consSt === 200 && (cons.apuracoes ?? []).length === 1 && cons.apuracoes[0].fechada === 'S'
           && (cons.detalhe ?? []).length === 2,
           { refaz: [refaz.status, rfJ.code], forca: [forca.status, forcaJ.code], rbac: semGrant.status, consulta: consSt, det: (cons.detalhe ?? []).length });
+
+
+        // ── mig 284: SPLIT PAYMENT — as três modalidades e a dupla cobrança evitada ──────────────────
+        const SP = 'fiscal/split-payment';
+        const semAtivar = await fetch(`${base}/${SP}/gerar`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9945002 }) });
+        const semAtivarJ = (await semAtivar.json().catch(() => ({}))) as any;
+        const semPerc = await fetch(`${base}/${SP}/config`, { method: 'POST', headers: j, body: JSON.stringify({ modalidade: 'simplificada', perc_simplificado: 0, ativo: 'S' }) });
+        await fetch(`${base}/${SP}/config`, { method: 'POST', headers: j, body: JSON.stringify({ modalidade: 'inteligente', perc_simplificado: 0, ativo: 'S', fonte: 'LC 214/2025 art. 32' }) });
+        const spInt = await fetch(`${base}/${SP}/gerar`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9945002 }) });
+        const si = (await spInt.json().catch(() => ({}))) as any;
+        check('APURAÇÃO IBS/CBS §155.5 [split INTELIGENTE: o retido é o imposto exato do documento]: no split o imposto é separado na liquidação e vai direto ao fisco — o vendedor recebe LÍQUIDO. A nota de saída tem 4,00 de IBS e 9,00 de CBS sobre valor 1.000,00: retém-se exatamente isso e o líquido é **987,00**, com `operação = líquido + IBS + CBS` fechando. Sem o split ativo é 422 SPLIT_NAO_ATIVO, e a modalidade simplificada sem percentual é 422 — percentual zero pareceria "sem split" quando é configuração incompleta',
+          semAtivar.status === 422 && semAtivarJ.code === 'SPLIT_NAO_ATIVO' && semPerc.status === 422
+          && spInt.status === 200 && Number(si.ibs_retido) === 4 && Number(si.cbs_retido) === 9
+          && Number(si.valor_liquido) === 987 && si.confere === true && si.modalidade === 'inteligente',
+          { semAtivo: [semAtivar.status, semAtivarJ.code], semPerc: semPerc.status, ret: [si.ibs_retido, si.cbs_retido], liq: si.valor_liquido, confere: si.confere });
+
+        await fetch(`${base}/${SP}/config`, { method: 'POST', headers: j, body: JSON.stringify({ modalidade: 'simplificada', perc_simplificado: 2.6, ativo: 'S' }) });
+        const spSimp = await fetch(`${base}/${SP}/gerar`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9945002 }) });
+        const ss = (await spSimp.json().catch(() => ({}))) as any;
+        await fetch(`${base}/${SP}/config`, { method: 'POST', headers: j, body: JSON.stringify({ modalidade: 'manual', perc_simplificado: 0, ativo: 'S' }) });
+        const spSemValor = await fetch(`${base}/${SP}/gerar`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9945002 }) });
+        const spExcede = await fetch(`${base}/${SP}/gerar`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9945002, ibs_manual: 99, cbs_manual: 1 }) });
+        const spExcedeJ = (await spExcede.json().catch(() => ({}))) as any;
+        const spMan = await fetch(`${base}/${SP}/gerar`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9945002, ibs_manual: 2, cbs_manual: 5 }) });
+        const sm = (await spMan.json().catch(() => ({}))) as any;
+        check('APURAÇÃO IBS/CBS §155.6 [as outras duas modalidades, e a trava do manual]: a **simplificada** (art. 33) retém percentual do valor da operação quando a consulta não é possível — 2,6% de 1.000,00 = 26,00, rateado entre os dois na proporção do imposto do documento (8,00 e 18,00), e a diferença se acerta na apuração. A **manual** (art. 34) aceita o que o contribuinte informa, mas **nunca mais do que o documento deve**: 99,00 de IBS contra 4,00 devidos é 422 SPLIT_MANUAL_EXCEDE dizendo o devido; sem valor nenhum é 422 também',
+          spSimp.status === 200 && Number(ss.ibs_retido) === 8 && Number(ss.cbs_retido) === 18
+          && spSemValor.status === 422
+          && spExcede.status === 422 && spExcedeJ.code === 'SPLIT_MANUAL_EXCEDE'
+          && Number(spExcedeJ.detalhe?.devido?.ibs) === 4
+          && spMan.status === 200 && Number(sm.ibs_retido) === 2 && Number(sm.cbs_retido) === 5,
+          { simp: [ss.ibs_retido, ss.cbs_retido], semValor: spSemValor.status, excede: [spExcede.status, spExcedeJ.code], manual: [sm.ibs_retido, sm.cbs_retido] });
+
+        // ⚠️ e a apuração tem de DESCONTAR o retido, senão paga duas vezes
+        await fetch(`${base}/${SP}/config`, { method: 'POST', headers: j, body: JSON.stringify({ modalidade: 'inteligente', perc_simplificado: 0, ativo: 'S' }) });
+        await fetch(`${base}/${SP}/gerar`, { method: 'POST', headers: j, body: JSON.stringify({ codnf: 9945002 }) });
+        const apComSplit = await fetch(`${base}/${AP}/processar`, { method: 'POST', headers: j, body: JSON.stringify({ competencia: '202607', reprocessar: true }) });
+        await pgAp.query(`UPDATE nf SET dtcontabil = '2026-07-11' WHERE codnf = 9945002`);
+        await pgAp.query(`UPDATE split_payment SET competencia = '202607' WHERE codnf = 9945002`);
+        const ap7 = await fetch(`${base}/${AP}/processar`, { method: 'POST', headers: j, body: JSON.stringify({ competencia: '202607', reprocessar: true }) });
+        const a7 = (await ap7.json().catch(() => ({}))) as any;
+        check('APURAÇÃO IBS/CBS §155.7 [o retido no split ABATE o a recolher — senão o contribuinte paga DUAS VEZES]: o imposto já foi separado na liquidação e foi direto ao fisco; cobrá-lo de novo na guia do período seria cobrança em duplicidade. A saída de julho tem débito de 4,00 de IBS e 9,00 de CBS, e os mesmos 4,00 e 9,00 já retidos: **o a recolher fica zero nos dois**, e as colunas de retido mostram por quê. Só a retenção das SAÍDAS abate — a das entradas foi retida do fornecedor e já está no crédito que ele destacou',
+          ap7.status === 200 && Number(a7.debito?.ibs) === 4 && Number(a7.debito?.cbs) === 9
+          && Number(a7.retido_split?.ibs) === 4 && Number(a7.retido_split?.cbs) === 9
+          && Number(a7.resultado?.ibs_a_recolher) === 0 && Number(a7.resultado?.cbs_a_recolher) === 0,
+          { deb: a7.debito, retido: a7.retido_split, res: a7.resultado });
+
+        await pgAp.query(`DELETE FROM split_payment WHERE idempresa = 1`);
+        await pgAp.query(`DELETE FROM split_payment_config WHERE idempresa = 1`);
+        await pgAp.query(`DELETE FROM apuracao_ibscbs WHERE idempresa = 1 AND competencia = '202607'`);
 
         await pgAp.query(`DELETE FROM apuracao_ibscbs WHERE idempresa = 1 AND competencia IN ('202605','202606')`);
         await pgAp.query(`DELETE FROM nf_prod_ibscbs WHERE codnf BETWEEN 9945001 AND 9945004`);

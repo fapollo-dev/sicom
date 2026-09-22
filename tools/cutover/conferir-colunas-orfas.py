@@ -69,6 +69,15 @@ NOSSAS_JUSTIFICADAS = {
     ('nf_prod_ibscbs', 'vis'): 'mig 282; o legado nao tem IS — default 0 e o valor correto para a carga',
     ('nf_prod_ibscbs', 'pis_seletivo'): 'mig 282; idem',
     ('nf_ibscbs', 'vis'): 'mig 282; idem',
+    # mig 283/284: regimes especiais e split. O legado nao tem nenhum deles, e o cliente nao tem um unico
+    # item nesses regimes (medido: 0 produtos e 0 itens nas 48 classificacoes). Default 0 e exato.
+    ('nf_prod_ibscbs', 'pred_base'): 'mig 283; o legado nao tem redutor de base — default 0 e exato',
+    ('nf_prod_ibscbs', 'vibs_suspenso'): 'mig 283; idem',
+    ('nf_prod_ibscbs', 'vcbs_suspenso'): 'mig 283; idem',
+    ('nf_prod_ibscbs', 'vcred_pres_ibs'): 'mig 283; idem',
+    ('nf_prod_ibscbs', 'vcred_pres_cbs'): 'mig 283; idem',
+    ('nf_ibscbs', 'vibs_suspenso'): 'mig 283; idem',
+    ('nf_ibscbs', 'vcbs_suspenso'): 'mig 283; idem',
 }
 
 schema = json.load(open(f'{BASE}/schema-destino.json'))['tabelas']

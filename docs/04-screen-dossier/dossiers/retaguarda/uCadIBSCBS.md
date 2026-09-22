@@ -600,3 +600,78 @@ na primeira vez que encontra a realidade.
 O tratamento atual é o correto: a nota com um desses itens é **recusada** com `422
 CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO`, listando cada item e o motivo. Quem encontrar essa recusa
 encontrou um caso novo de verdade — e aí a regra se implementa com o dado na mão, não antes.
+
+
+## 17. Corte-6 — os REGIMES ESPECIAIS (migration 283)
+
+**Procedência diferente dos cortes anteriores, e isso pesa.** Os cortes 1 a 5 foram conferidos contra
+89.494 itens de produção. Estes 48 regimes **não têm um único produto nem um único item de nota** no
+cliente. Implementados a pedido explícito, com a LC 214/2025 como fonte e a aritmética provada no smoke
+(§154.14 a §154.17). **Nenhum foi conferido contra dado real, porque não existe dado real** — quando o
+primeiro caso aparecer, a regra deve ser reconferida antes de se confiar no número.
+
+### 17.1 Os seis regimes, e por que cada um é diferente
+
+| regime | CST | o que muda | prova |
+|---|---|---|---|
+| **redutor de base** | 210, 222 | reduz a **base**, e em 210 **acumula** com a redução de alíquota | §154.14 |
+| **alíquota própria** | 010, 011 | não usa a alíquota da UF: tem a sua | §154.15 |
+| **alíquota fixa** | 220, 221 | valor em **reais**, por operação ou unidade | §154.15 |
+| **suspensão/diferimento** | 510, 550 | o imposto existe, não é pago agora, fica **registrado** | §154.16 |
+| **crédito presumido** | 9 classificações | crédito **sem** imposto pago na etapa anterior | §154.16 |
+| **não tributado** | 400, 410, 800, 820, 830 | zero — já vinha do corte-2 | §154.6 |
+
+**O redutor de base acumula.** A CST 210 se chama "redução de alíquota COM redutor de base" exatamente por
+isso. Base de R$ 1.000,00 com redutor de 40% dá base reduzida de R$ 600,00; sobre ela, a alíquota já
+reduzida em 50% rende 0,30 e 2,70. Quem aplicasse só a redução de alíquota sobre a base cheia cobraria
+0,50 e 4,50 — **67% a mais**.
+
+**Alíquota fixa não tem percentual**, e a alíquota fica gravada em zero de propósito: gravar um número ali
+inventaria uma taxa que não existe.
+
+**Suspenso não é zero.** O imposto é calculado e vai para coluna própria; o valor a pagar é que é zero.
+Guardar só zero perderia quanto está suspenso, que é o que a fiscalização pergunta.
+
+**Crédito presumido em coluna própria**: somá-lo ao imposto do item misturaria débito com crédito na mesma
+linha.
+
+### 17.2 Sem o parâmetro da lei, não calcula
+
+Alíquota própria e alíquota fixa dependem de um número que só a lei dá. Se a classificação existe e o
+parâmetro não foi cadastrado, o item **continua sendo recusado**, e a mensagem diz o que falta e onde
+cadastrar. Inventar zero seria pior do que parar, porque zero parece resultado legítimo e ninguém conferiria.
+
+## 18. Corte-7 — o SPLIT PAYMENT (migration 284)
+
+O split não altera o imposto devido: altera **quem paga e quando**. O imposto é separado na liquidação
+financeira e vai direto ao fisco, e o vendedor recebe líquido — `valor da operação = líquido + IBS + CBS`.
+Smoke §155.5 a §155.7.
+
+### 18.1 As três modalidades, e por que as três precisam existir
+
+- **Inteligente** (art. 32): o prestador de pagamento consulta e separa o **valor exato** do documento. É o
+  padrão, e o único caso em que o retido bate com o imposto.
+- **Simplificada** (art. 33): percentual do valor da operação quando a consulta não é possível, com a
+  diferença acertada na apuração. O rateio entre os dois tributos segue a proporção do imposto do documento.
+- **Manual** (art. 34): o contribuinte informa — mas **nunca mais do que o documento deve** (422, dizendo o
+  devido).
+
+Uma implementação só com percentual representaria a segunda e erraria a primeira.
+
+### 18.2 ⚠️ O retido abate o a recolher, senão o contribuinte paga duas vezes
+
+Esta é a regra que o corte existe para garantir. O imposto já foi separado na liquidação e foi ao fisco;
+cobrá-lo de novo na guia do período é cobrança em duplicidade. A apuração do corte-3 ganhou as colunas de
+retido e o resultado passou a ser:
+
+> a recolher = débito − crédito − crédito presumido − saldo anterior − **retido no split**
+
+Só a retenção das **saídas** abate: a das entradas foi retida do fornecedor, não do cliente, e já está
+refletida no crédito que ele destacou na nota.
+
+### 18.3 O que não se retém
+
+Item imune, isento, monofásico ou **suspenso** não gera retenção, porque não gera imposto a pagar naquela
+operação. Isso sai de graça dos cortes 2 e 6 — a retenção incide sobre o que foi efetivamente apurado, e
+nesses casos já é zero. O suspenso é o exemplo de por que não se pode reter: o imposto existe e não é
+devido agora.

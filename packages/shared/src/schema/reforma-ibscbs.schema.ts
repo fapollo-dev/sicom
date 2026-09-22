@@ -143,3 +143,28 @@ export const apuracaoIbsCbsObterSchema = z.object({
   limite_detalhe: z.coerce.number().int().positive().max(5000).default(500),
 });
 export type ApuracaoIbsCbsObterDto = z.infer<typeof apuracaoIbsCbsObterSchema>;
+
+/** corte-7 (mig 284): split payment — o imposto separado na liquidação. */
+export const splitPaymentGerarSchema = z.object({
+  codnf: z.coerce.number().int().positive(),
+  /** só na modalidade manual: o valor que o contribuinte informa separar */
+  ibs_manual: z.coerce.number().min(0).optional(),
+  cbs_manual: z.coerce.number().min(0).optional(),
+});
+export type SplitPaymentGerarDto = z.infer<typeof splitPaymentGerarSchema>;
+
+export const splitPaymentConfigSchema = z.object({
+  modalidade: z.enum(['inteligente', 'simplificada', 'manual']),
+  perc_simplificado: z.coerce.number().min(0).max(100).default(0),
+  ativo: z.enum(['S', 'N']).default('N'),
+  vigencia_inicio: z.string().trim().date().nullable().optional(),
+  fonte: z.string().trim().max(200).nullable().optional(),
+});
+export type SplitPaymentConfigDto = z.infer<typeof splitPaymentConfigSchema>;
+
+export const splitPaymentConsultaSchema = z.object({
+  competencia: z.string().trim().regex(/^\d{6}$/).optional(),
+  codnf: z.coerce.number().int().positive().optional(),
+  limite: z.coerce.number().int().positive().max(2000).default(300),
+});
+export type SplitPaymentConsultaDto = z.infer<typeof splitPaymentConsultaSchema>;

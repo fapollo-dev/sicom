@@ -135,16 +135,16 @@
    ],
    "fks": [
     {
-     "coluna": "codparceiro",
-     "ref": "parceiros.codparceiro"
+     "coluna": "codcontacorrente",
+     "ref": "contas_bancarias.codconta"
     },
     {
      "coluna": "idsituacao_nf",
      "ref": "situacao_nf.idsituacao_nf"
     },
     {
-     "coluna": "codcontacorrente",
-     "ref": "contas_bancarias.codconta"
+     "coluna": "codparceiro",
+     "ref": "parceiros.codparceiro"
     }
    ],
    "unicos": [
@@ -1292,12 +1292,12 @@
    ],
    "fks": [
     {
-     "coluna": "codpedcomp",
-     "ref": "pedidocompra.codpedcomp"
-    },
-    {
      "coluna": "apn_id",
      "ref": "analise_pedido_nf.apn_id"
+    },
+    {
+     "coluna": "codpedcomp",
+     "ref": "pedidocompra.codpedcomp"
     }
    ],
    "unicos": [
@@ -2006,6 +2006,48 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "ibs_cred_presumido": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "cbs_cred_presumido": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "ibs_suspenso": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "cbs_suspenso": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "ibs_retido_split": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "cbs_retido_split": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
     }
    },
    "pk": [
@@ -5939,6 +5981,115 @@
     }
    ]
   },
+  "class_trib_parametro": {
+   "colunas": {
+    "codparam": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_class_trib_param'::regclass)"
+    },
+    "class_trib": {
+     "tipo": "character varying",
+     "tam": 6,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "vigencia_inicio": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "aliquota_ibs": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "aliquota_cbs": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "valor_fixo_ibs": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "valor_fixo_cbs": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "unidade_fixa": {
+     "tipo": "character varying",
+     "tam": 6,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "pred_base": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "pcred_pres_ibs": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "pcred_pres_cbs": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "fonte": {
+     "tipo": "character varying",
+     "tam": 200,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    }
+   },
+   "pk": [
+    "codparam"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "class_trib_parametro_pkey",
+     "def": "CREATE UNIQUE INDEX class_trib_parametro_pkey ON public.class_trib_parametro USING btree (codparam)"
+    },
+    {
+     "nome": "ux_class_trib_param",
+     "def": "CREATE UNIQUE INDEX ux_class_trib_param ON public.class_trib_parametro USING btree (class_trib, vigencia_inicio)"
+    }
+   ]
+  },
   "clube_desconto": {
    "colunas": {
     "idclubedesconto": {
@@ -8161,12 +8312,12 @@
    ],
    "fks": [
     {
-     "coluna": "codpdv",
-     "ref": "pdv.codpdv"
-    },
-    {
      "coluna": "idpgto",
      "ref": "formas_pgto.idpgto"
+    },
+    {
+     "coluna": "codpdv",
+     "ref": "pdv.codpdv"
     },
     {
      "coluna": "codplc",
@@ -9802,12 +9953,12 @@
    ],
    "fks": [
     {
-     "coluna": "codlote",
-     "ref": "lote_contabil.codlotecontabil"
-    },
-    {
      "coluna": "contacredito",
      "ref": "plano_contas.codplanocontas"
+    },
+    {
+     "coluna": "codlote",
+     "ref": "lote_contabil.codlotecontabil"
     },
     {
      "coluna": "contadebito",
@@ -21033,12 +21184,12 @@
      "ref": "pedidocompra.codpedcomp"
     },
     {
-     "coluna": "idsituacao_nf",
-     "ref": "situacao_nf.idsituacao_nf"
-    },
-    {
      "coluna": "codparceiro",
      "ref": "parceiros.codparceiro"
+    },
+    {
+     "coluna": "idsituacao_nf",
+     "ref": "situacao_nf.idsituacao_nf"
     }
    ],
    "unicos": [
@@ -21329,6 +21480,20 @@
      "default": "now()"
     },
     "vis": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "vibs_suspenso": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "vcbs_suspenso": {
      "tipo": "numeric",
      "tam": 15,
      "escala": 2,
@@ -22189,6 +22354,48 @@
      "tipo": "numeric",
      "tam": 7,
      "escala": 4,
+     "nulo": false,
+     "default": "0"
+    },
+    "base_reduzida": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "pred_base": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": false,
+     "default": "0"
+    },
+    "vibs_suspenso": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "vcbs_suspenso": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "vcred_pres_ibs": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "vcred_pres_cbs": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
      "nulo": false,
      "default": "0"
     }
@@ -28392,20 +28599,20 @@
    ],
    "fks": [
     {
-     "coluna": "codunidade",
-     "ref": "unidade.codunidade"
-    },
-    {
-     "coluna": "aliquota",
-     "ref": "aliquota.codigo"
-    },
-    {
      "coluna": "idmarca",
      "ref": "marcas.idmarca"
     },
     {
      "coluna": "codfor",
      "ref": "parceiros.codparceiro"
+    },
+    {
+     "coluna": "codunidade",
+     "ref": "unidade.codunidade"
+    },
+    {
+     "coluna": "aliquota",
+     "ref": "aliquota.codigo"
     }
    ],
    "unicos": [
@@ -28933,12 +29140,12 @@
    ],
    "fks": [
     {
-     "coluna": "codempresa",
-     "ref": "empresas.idempresa"
-    },
-    {
      "coluna": "codoperador",
      "ref": "operadores.codoperador"
+    },
+    {
+     "coluna": "codempresa",
+     "ref": "empresas.idempresa"
     }
    ],
    "unicos": [
@@ -29912,12 +30119,12 @@
    ],
    "fks": [
     {
-     "coluna": "codscrap",
-     "ref": "scrap.codscrap"
-    },
-    {
      "coluna": "idproduto",
      "ref": "produtos.idproduto"
+    },
+    {
+     "coluna": "codscrap",
+     "ref": "scrap.codscrap"
     }
    ],
    "unicos": [
@@ -29999,18 +30206,202 @@
    ],
    "fks": [
     {
-     "coluna": "codparceiro",
-     "ref": "parceiros.codparceiro"
-    },
-    {
      "coluna": "idsituacao_nf",
      "ref": "situacao_nf.idsituacao_nf"
+    },
+    {
+     "coluna": "codparceiro",
+     "ref": "parceiros.codparceiro"
     }
    ],
    "unicos": [
     {
      "nome": "situacao_nf_parceiros_pkey",
      "def": "CREATE UNIQUE INDEX situacao_nf_parceiros_pkey ON public.situacao_nf_parceiros USING btree (idsituacao_nf, codparceiro)"
+    }
+   ]
+  },
+  "split_payment": {
+   "colunas": {
+    "codsplit": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_split_payment'::regclass)"
+    },
+    "idempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "codnf": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "direcao": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "modalidade": {
+     "tipo": "character varying",
+     "tam": 12,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "valor_operacao": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "ibs_retido": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "cbs_retido": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "valor_liquido": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "competencia": {
+     "tipo": "character",
+     "tam": 6,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "liquidado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": false,
+     "default": "'N'::bpchar"
+    },
+    "data_liquidacao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codoperador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    }
+   },
+   "pk": [
+    "codsplit"
+   ],
+   "fks": [
+    {
+     "coluna": "codnf",
+     "ref": "nf.codnf"
+    }
+   ],
+   "unicos": [
+    {
+     "nome": "split_payment_pkey",
+     "def": "CREATE UNIQUE INDEX split_payment_pkey ON public.split_payment USING btree (codsplit)"
+    },
+    {
+     "nome": "ux_split_payment_nf",
+     "def": "CREATE UNIQUE INDEX ux_split_payment_nf ON public.split_payment USING btree (codnf, direcao)"
+    }
+   ]
+  },
+  "split_payment_config": {
+   "colunas": {
+    "idempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "modalidade": {
+     "tipo": "character varying",
+     "tam": 12,
+     "escala": null,
+     "nulo": false,
+     "default": "'inteligente'::character varying"
+    },
+    "perc_simplificado": {
+     "tipo": "numeric",
+     "tam": 7,
+     "escala": 4,
+     "nulo": false,
+     "default": "0"
+    },
+    "ativo": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": false,
+     "default": "'N'::bpchar"
+    },
+    "vigencia_inicio": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "fonte": {
+     "tipo": "character varying",
+     "tam": 200,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "idempresa"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "split_payment_config_pkey",
+     "def": "CREATE UNIQUE INDEX split_payment_config_pkey ON public.split_payment_config USING btree (idempresa)"
     }
    ]
   },

@@ -325,6 +325,8 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('280_reforma_ibscbs_tratamento.sql'));
   await pool.query(sql('281_apuracao_ibscbs.sql'));
   await pool.query(sql('282_imposto_seletivo.sql'));
+  await pool.query(sql('283_regimes_especiais_ibscbs.sql'));
+  await pool.query(sql('284_split_payment.sql'));
   await pool.end();
   return pg;
 }

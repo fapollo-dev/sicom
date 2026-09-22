@@ -68,7 +68,7 @@ export class NfIbsCbsService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (db: AnyDB) => {
 
     const nf = (await sql<{ codnf: number; uf: string | null; data_ref: string | null }>`
-        SELECT f.codnf, coalesce(e.uf, pe.uf) AS uf,
+        SELECT f.codnf, coalesce(e.uf, pe.uf, pp.uf) AS uf,
                -- como TEXTO: o driver devolveria um Date, e String(date).slice(0,10) da "Tue Mar 10"
                -- em vez de "2026-03-10", o que o Postgres recusa com 22007 no ::date seguinte
                to_char(coalesce(f.dtemissao, f.dtcontabil), 'YYYY-MM-DD') AS data_ref
@@ -76,7 +76,12 @@ export class NfIbsCbsService {
           LEFT JOIN empresas e ON e.idempresa = f.idempresa
           -- a UF que decide o IBS e a do ESTABELECIMENTO (e ele que recolhe); o endereco do parceiro
           -- entra so como reserva, e a tabela de parceiros nao guarda UF: ela mora no endereco.
-          LEFT JOIN parceiros_end pe ON pe.codparceiro = f.codparceiro AND coalesce(pe.endereco_padrao, 'S') = 'S'
+          -- ⚠️ e o endereco certo e o DA NOTA (NF.CODPARCEIRO_END), nao o padrao do parceiro: um parceiro
+          -- pode ter varias filiais e a nota aponta qual. Hoje da no mesmo (medido: em 9.653 notas, ZERO
+          -- tem UF diferente entre os dois), mas depender do padrao erraria no dia em que divergirem.
+          LEFT JOIN parceiros_end pe ON pe.codend = f.codparceiro_end
+          LEFT JOIN parceiros_end pp ON pp.codparceiro = f.codparceiro
+                                    AND coalesce(pp.endereco_padrao, 'S') = 'S'
          WHERE f.codnf = ${d.codnf} AND f.idempresa = ${empresaId}
          LIMIT 1`.execute(db)).rows[0];
     if (!nf) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf: d.codnf });
@@ -112,7 +117,9 @@ export class NfIbsCbsService {
                  WHERE i.ncm LIKE s2.ncm || '%' AND s2.vigencia_inicio <= ${dataRef}::date
                  ORDER BY length(s2.ncm) DESC, s2.vigencia_inicio DESC LIMIT 1) AS is_unitario,
                t.class_trib, t.cst, t.pred_ibs, t.pred_cbs, t.tipo_aliquota, t.ind_redutor_bc,
-               s.ind_gibscbs, s.ind_gibscbsmono,
+               s.ind_gibscbs, s.ind_gibscbsmono, t.ind_cred_pres,
+               pr.aliquota_ibs, pr.aliquota_cbs, pr.valor_fixo_ibs, pr.valor_fixo_cbs, pr.unidade_fixa,
+               pr.pred_base, pr.pcred_pres_ibs, pr.pcred_pres_cbs,
                (SELECT n.codcclass_trib_ncm FROM cclass_trib_ncm n
                  WHERE n.cclass_trib = t.class_trib AND n.codigo_ncm = i.ncm LIMIT 1) AS codcclass_trib_ncm,
                g.cst AS cst_atual, g.cclasstrib AS cclass_atual, g.vbc AS vbc_atual,
@@ -121,6 +128,10 @@ export class NfIbsCbsService {
           LEFT JOIN produtos p ON p.idproduto = i.codproduto
           LEFT JOIN class_trib t ON t.codclass_trib = p.codclass_trib AND coalesce(t.indr, 'I') <> 'E'
           LEFT JOIN cst_ibs_cbs s ON s.cst = t.cst
+          LEFT JOIN LATERAL (
+                 SELECT * FROM class_trib_parametro x
+                  WHERE x.class_trib = t.class_trib AND x.vigencia_inicio <= ${dataRef}::date
+                  ORDER BY x.vigencia_inicio DESC LIMIT 1) pr ON true
           LEFT JOIN nf_prod_ibscbs g ON g.codnfprod = i.codnfprod
          WHERE i.codnf = ${d.codnf}
          ORDER BY i.nroitem`.execute(db)).rows;
@@ -135,16 +146,33 @@ export class NfIbsCbsService {
     // `IND_GIBSCBS = 1` não garante alíquota percentual (510 diferimento, 550 suspensão, 830 exclusão de
     // base e 220 fixa têm o grupo e não têm alíquota); e `TIPO_ALIQUOTA = 'Padrão'` não garante fórmula
     // simples (210 e 222 trazem redutor de BASE além da redução de alíquota).
-    const tratamentoDe = (i: Record<string, unknown>): 'calculado' | 'nao_tributado' | 'monofasico' | 'proprio' => {
+    type Trat = 'calculado' | 'nao_tributado' | 'monofasico' | 'redutor_base' | 'aliquota_propria'
+      | 'fixa' | 'suspenso' | 'proprio';
+    // ⚠️ SEM PARÂMETRO, NÃO CALCULA. Os regimes de alíquota própria e fixa dependem de um número que só
+    // a lei dá (mig 283). Se o parâmetro não estiver cadastrado, o item volta a ser recusado — inventar
+    // zero aqui seria pior do que parar, porque zero parece resultado.
+    const tratamentoDe = (i: Record<string, unknown>): Trat => {
       if (i.class_trib == null) return 'calculado';           // sem classificação: integral (ver acima)
       if (Number(i.ind_gibscbsmono ?? 0) === 1) return 'monofasico';
       const tipo = semAcento(i.tipo_aliquota);
       const temGrupo = Number(i.ind_gibscbs ?? 0) === 1;
       const redutorBase = String(i.ind_redutor_bc ?? 'N') === 'S';
+      const cst = String(i.cst ?? '');
+      const temParamAliq = i.aliquota_ibs != null || i.aliquota_cbs != null;
+      const temParamFixo = i.valor_fixo_ibs != null || i.valor_fixo_cbs != null;
+
       if (tipo.startsWith('padr') && temGrupo && !redutorBase) return 'calculado';
-      // grupo ausente e sem alíquota = isenção (400), imunidade (410), transferência de crédito (800),
-      // regime específico (820): ZERO, e zero DECLARADO — o cliente tem 17 produtos imunes circulando.
-      if (!temGrupo && tipo.startsWith('sem al')) return 'nao_tributado';
+      // (1) redutor de BASE (210, 222): reduz a base e pode acumular com redução de alíquota
+      if (redutorBase && temGrupo) return i.pred_base != null ? 'redutor_base' : 'proprio';
+      // (4) suspensão (550) e diferimento (510): o imposto existe, não é pago agora, e fica registrado
+      if (temGrupo && (cst === '510' || cst === '550')) return 'suspenso';
+      // (3) alíquota FIXA (220, 221): valor em reais, não percentual
+      if (tipo.startsWith('fixa')) return temParamFixo ? 'fixa' : 'proprio';
+      // (2) alíquota PRÓPRIA (010 setorial, 011 nacional): não usa a da UF
+      if (tipo.startsWith('uniforme')) return temParamAliq ? 'aliquota_propria' : 'proprio';
+      // (6) isenção (400), imunidade (410), transferência de crédito (800), regime específico (820),
+      // exclusão de base (830): ZERO declarado
+      if (tipo.startsWith('sem al')) return 'nao_tributado';
       return 'proprio';
     };
     const proprios = itens
@@ -157,12 +185,18 @@ export class NfIbsCbsService {
         itens: proprios.map((x) => ({
           codnfprod: Number(x.i.codnfprod), cclasstrib: x.i.class_trib,
           cst: x.i.cst, tipo_aliquota: x.i.tipo_aliquota,
-          motivo: String(x.i.ind_redutor_bc ?? 'N') === 'S' ? 'redutor de base de cálculo'
-                  : `alíquota ${semAcento(x.i.tipo_aliquota) || 'indefinida'}`,
+          motivo: String(x.i.ind_redutor_bc ?? 'N') === 'S'
+            ? 'redutor de base de cálculo sem percentual cadastrado (class_trib_parametro.pred_base)'
+            : semAcento(x.i.tipo_aliquota).startsWith('fixa')
+              ? 'alíquota fixa sem valor cadastrado (class_trib_parametro.valor_fixo_ibs/cbs)'
+              : semAcento(x.i.tipo_aliquota).startsWith('uniforme')
+                ? 'alíquota própria não cadastrada (class_trib_parametro.aliquota_ibs/cbs)'
+                : `alíquota ${semAcento(x.i.tipo_aliquota) || 'indefinida'}`,
         })),
       });
 
-    const tot = { vbc: 0, ibsuf: 0, ibsmun: 0, cbs: 0, vis: 0 };
+    const tot = { vbc: 0, ibsuf: 0, ibsmun: 0, cbs: 0, vis: 0,
+                  ibsSusp: 0, cbsSusp: 0, credPresIbs: 0, credPresCbs: 0 };
     const linhas: Array<Record<string, unknown>> = [];
 
     for (const i of itens) {
@@ -193,16 +227,56 @@ export class NfIbsCbsService {
       // devolve quantos itens saíram assim para que o cheio fique declarado.
       const semClassificacao = i.class_trib == null;
       const tratamento = tratamentoDe(i);
-      // imunidade, isenção e monofasia não pagam AQUI: a alíquota é zero e o motivo fica gravado
-      const tributa = tratamento === 'calculado';
       const redIbs = semClassificacao ? 0 : num(i.pred_ibs);
       const redCbs = semClassificacao ? 0 : num(i.pred_cbs);
-      const efIbsUf = tributa ? this.efetiva(pIbsUf, redIbs) : 0;
-      const efCbs = tributa ? this.efetiva(pCbs, redCbs) : 0;
-      const vibsuf = r2((vbc * efIbsUf) / 100);
-      const vcbs = r2((vbc * efCbs) / 100);
-      const cheiaIbsUf = tributa ? pIbsUf : 0;
-      const cheiaCbs = tributa ? pCbs : 0;
+
+      // ── A ARITMÉTICA DE CADA REGIME (mig 283) ───────────────────────────────────────────────────────
+      // Cada ramo produz quatro coisas: a base efetivamente usada, a alíquota cheia gravada, a efetiva e o
+      // valor. O que muda entre eles é ONDE a redução age — na base, na alíquota, ou em lugar nenhum.
+      let baseIbs = vbc, baseCbs = vbc;
+      let cheiaIbsUf = 0, cheiaCbs = 0, efIbsUf = 0, efCbs = 0;
+      let vibsuf = 0, vcbs = 0;
+      let vibsSusp = 0, vcbsSusp = 0;
+      let baseReduzida: number | null = null;
+      const predBase = num(i.pred_base);
+
+      if (tratamento === 'calculado') {
+        cheiaIbsUf = pIbsUf; cheiaCbs = pCbs;
+        efIbsUf = this.efetiva(pIbsUf, redIbs); efCbs = this.efetiva(pCbs, redCbs);
+        vibsuf = r2((vbc * efIbsUf) / 100); vcbs = r2((vbc * efCbs) / 100);
+      } else if (tratamento === 'redutor_base') {
+        // (1) a redução age na BASE — e em CST 210 ela ACUMULA com a redução de alíquota, que é o motivo
+        // de o nome da CST ser "redução de alíquota COM redutor de base". Nenhum atalho representa as duas.
+        baseReduzida = r2(vbc * (1 - predBase / 100));
+        baseIbs = baseReduzida; baseCbs = baseReduzida;
+        cheiaIbsUf = pIbsUf; cheiaCbs = pCbs;
+        efIbsUf = this.efetiva(pIbsUf, redIbs); efCbs = this.efetiva(pCbs, redCbs);
+        vibsuf = r2((baseIbs * efIbsUf) / 100); vcbs = r2((baseCbs * efCbs) / 100);
+      } else if (tratamento === 'aliquota_propria') {
+        // (2) a alíquota é a do setor/nacional, NÃO a da UF. A redução da classificação ainda se aplica.
+        cheiaIbsUf = num(i.aliquota_ibs); cheiaCbs = num(i.aliquota_cbs);
+        efIbsUf = this.efetiva(cheiaIbsUf, redIbs); efCbs = this.efetiva(cheiaCbs, redCbs);
+        vibsuf = r2((vbc * efIbsUf) / 100); vcbs = r2((vbc * efCbs) / 100);
+      } else if (tratamento === 'fixa') {
+        // (3) valor em REAIS: por unidade quando a unidade está cadastrada, senão por operação.
+        // A alíquota fica zero de propósito — não existe percentual aqui, e gravar um inventaria um.
+        const mult = i.unidade_fixa ? num(i.quantidade) : 1;
+        vibsuf = r2(num(i.valor_fixo_ibs) * mult);
+        vcbs = r2(num(i.valor_fixo_cbs) * mult);
+      } else if (tratamento === 'suspenso') {
+        // (4) o imposto EXISTE e não é pago agora. Calcula-se normalmente e o valor vai para a coluna de
+        // suspenso; o valor a pagar é zero. Guardar só zero perderia quanto está suspenso, que é
+        // exatamente o que a fiscalização pergunta.
+        cheiaIbsUf = pIbsUf; cheiaCbs = pCbs;
+        efIbsUf = this.efetiva(pIbsUf, redIbs); efCbs = this.efetiva(pCbs, redCbs);
+        vibsSusp = r2((vbc * efIbsUf) / 100); vcbsSusp = r2((vbc * efCbs) / 100);
+      }
+      // (6) nao_tributado e monofasico caem no zero inicial, com o motivo em `tratamento`.
+
+      // (5) CRÉDITO PRESUMIDO: crédito SEM imposto pago na etapa anterior. Coluna própria — somá-lo ao
+      // imposto do item misturaria débito com crédito na mesma linha.
+      const vCredPresIbs = r2((vbc * num(i.pcred_pres_ibs)) / 100);
+      const vCredPresCbs = r2((vbc * num(i.pcred_pres_cbs)) / 100);
       // IBS municipal: a fase-teste de 2026 não cobra (zerado nas 10.012 notas do cliente)
       const pIbsMun = 0, efIbsMun = 0, vibsmun = 0;
 
@@ -222,14 +296,16 @@ export class NfIbsCbsService {
                                     pibsmun, predaliq_ibsmun, paliqefet_ibsmun, vibsmun,
                                     pcbs, predaliq_cbs, paliqefet_cbs, vcbs,
                                     codcclass_trib_ncm, cst_ori, cclasstrib_ori, vbc_ori, tratamento,
-                                    vis, pis_seletivo)
+                                    vis, pis_seletivo, base_reduzida, pred_base,
+                                    vibs_suspenso, vcbs_suspenso, vcred_pres_ibs, vcred_pres_cbs)
         VALUES (${i.codnfprod}, ${d.codnf}, ${empresaId}, ${i.codproduto}, ${i.cst ?? null},
                 ${i.class_trib ?? null}, ${vbc},
                 ${cheiaIbsUf}, ${redIbs}, ${efIbsUf}, ${vibsuf},
                 ${pIbsMun}, ${0}, ${efIbsMun}, ${vibsmun},
                 ${cheiaCbs}, ${redCbs}, ${efCbs}, ${vcbs},
                 ${i.codcclass_trib_ncm ?? null}, ${cstOri}, ${cclassOri}, ${vbcOri}, ${tratamento},
-                ${vis}, ${isAliq})
+                ${vis}, ${isAliq}, ${baseReduzida}, ${predBase},
+                ${vibsSusp}, ${vcbsSusp}, ${vCredPresIbs}, ${vCredPresCbs})
         ON CONFLICT (codnfprod) DO UPDATE SET
           -- codnf/codproduto também: o item pode ter trocado de produto entre um cálculo e outro, e um
           -- grupo apontando o produto errado passaria despercebido (os valores seriam recalculados certos)
@@ -241,7 +317,10 @@ export class NfIbsCbsService {
           paliqefet_cbs = excluded.paliqefet_cbs, vcbs = excluded.vcbs,
           codcclass_trib_ncm = excluded.codcclass_trib_ncm,
           tratamento = excluded.tratamento,
-          vis = excluded.vis, pis_seletivo = excluded.pis_seletivo
+          vis = excluded.vis, pis_seletivo = excluded.pis_seletivo,
+          base_reduzida = excluded.base_reduzida, pred_base = excluded.pred_base,
+          vibs_suspenso = excluded.vibs_suspenso, vcbs_suspenso = excluded.vcbs_suspenso,
+          vcred_pres_ibs = excluded.vcred_pres_ibs, vcred_pres_cbs = excluded.vcred_pres_cbs
           -- as colunas _ori NAO entram neste SET de proposito: recalcular nao reescreve a procedencia
           `.execute(db);
 
@@ -250,11 +329,16 @@ export class NfIbsCbsService {
       tot.ibsmun = r2(tot.ibsmun + vibsmun);
       tot.cbs = r2(tot.cbs + vcbs);
       tot.vis = r2(tot.vis + vis);
+      tot.ibsSusp = r2(tot.ibsSusp + vibsSusp); tot.cbsSusp = r2(tot.cbsSusp + vcbsSusp);
+      tot.credPresIbs = r2(tot.credPresIbs + vCredPresIbs);
+      tot.credPresCbs = r2(tot.credPresCbs + vCredPresCbs);
       linhas.push({
         codnfprod: Number(i.codnfprod), codproduto: Number(i.codproduto),
         cst: i.cst ?? null, cclasstrib: i.class_trib ?? null, vbc,
         valor_produto: r2(valorProduto), tributos_excluidos: r2(tributosNaBase),
-        vis, pis_seletivo: isAliq,
+        vis, pis_seletivo: isAliq, base_reduzida: baseReduzida, pred_base: predBase,
+        vibs_suspenso: vibsSusp, vcbs_suspenso: vcbsSusp,
+        vcred_pres_ibs: vCredPresIbs, vcred_pres_cbs: vCredPresCbs,
         pibsuf: cheiaIbsUf, predaliq_ibsuf: redIbs, paliqefet_ibsuf: efIbsUf, vibsuf,
         pcbs: cheiaCbs, predaliq_cbs: redCbs, paliqefet_cbs: efCbs, vcbs,
         sem_classificacao: semClassificacao, tratamento,
@@ -264,16 +348,21 @@ export class NfIbsCbsService {
     // `VIBS = VIBSUF + VIBSMUN` — exato em 10.012 de 10.012 notas do cliente
     const vibs = r2(tot.ibsuf + tot.ibsmun);
     await sql`
-      INSERT INTO nf_ibscbs (codnf, idempresa, vbcibscbs, vibsuf, vibsmun, vibs, vcbs, vis)
+      INSERT INTO nf_ibscbs (codnf, idempresa, vbcibscbs, vibsuf, vibsmun, vibs, vcbs, vis,
+                             vibs_suspenso, vcbs_suspenso, vcredpres)
       VALUES (${d.codnf}, ${empresaId}, ${tot.vbc}, ${tot.ibsuf}, ${tot.ibsmun}, ${vibs}, ${tot.cbs},
-              ${tot.vis})
+              ${tot.vis}, ${tot.ibsSusp}, ${tot.cbsSusp}, ${r2(tot.credPresIbs + tot.credPresCbs)})
       ON CONFLICT (codnf) DO UPDATE SET
         vbcibscbs = excluded.vbcibscbs, vibsuf = excluded.vibsuf, vibsmun = excluded.vibsmun,
-        vibs = excluded.vibs, vcbs = excluded.vcbs, vis = excluded.vis`.execute(db);
+        vibs = excluded.vibs, vcbs = excluded.vcbs, vis = excluded.vis,
+        vibs_suspenso = excluded.vibs_suspenso, vcbs_suspenso = excluded.vcbs_suspenso,
+        vcredpres = excluded.vcredpres`.execute(db);
 
     return {
       codnf: d.codnf, uf: nf.uf, data_referencia: dataRef, aliquota: { ibsuf: pIbsUf, cbs: pCbs },
-      totais: { vbcibscbs: tot.vbc, vibsuf: tot.ibsuf, vibsmun: tot.ibsmun, vibs, vcbs: tot.cbs, vis: tot.vis },
+      totais: { vbcibscbs: tot.vbc, vibsuf: tot.ibsuf, vibsmun: tot.ibsmun, vibs, vcbs: tot.cbs, vis: tot.vis,
+        vibs_suspenso: tot.ibsSusp, vcbs_suspenso: tot.cbsSusp,
+        vcred_pres_ibs: tot.credPresIbs, vcred_pres_cbs: tot.credPresCbs },
       itens: linhas, sem_classificacao: semClasse,
       // o que NÃO foi tributado e por quê — para que o zero apareça na conferência em vez de sumir
       tratamentos: linhas.reduce<Record<string, number>>((acc, l) => {
@@ -329,6 +418,10 @@ export class NfIbsCbsService {
         paliqefet_ibsuf: n(g.paliqefet_ibsuf), vibsuf: num(g.vibsuf),
         pcbs: n(g.pcbs), predaliq_cbs: n(g.predaliq_cbs), paliqefet_cbs: n(g.paliqefet_cbs),
         vcbs: num(g.vcbs), vis: num(g.vis), pis_seletivo: num(g.pis_seletivo),
+        base_reduzida: g.base_reduzida == null ? null : num(g.base_reduzida),
+        pred_base: num(g.pred_base),
+        vibs_suspenso: num(g.vibs_suspenso), vcbs_suspenso: num(g.vcbs_suspenso),
+        vcred_pres_ibs: num(g.vcred_pres_ibs), vcred_pres_cbs: num(g.vcred_pres_cbs),
         tratamento: g.tratamento ?? 'calculado',
         cst_ori: g.cst_ori ?? null, cclasstrib_ori: g.cclasstrib_ori ?? null, vbc_ori: n(g.vbc_ori),
         divergencias: [

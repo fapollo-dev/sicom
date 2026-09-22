@@ -22,6 +22,9 @@ type Apuracao = {
   ibs_saldo_anterior: number; cbs_saldo_anterior: number;
   ibs_a_recolher: number; ibs_saldo_credor: number;
   cbs_a_recolher: number; cbs_saldo_credor: number;
+  ibs_cred_presumido: number; cbs_cred_presumido: number;
+  ibs_suspenso: number; cbs_suspenso: number;
+  ibs_retido_split: number; cbs_retido_split: number;
 };
 type Detalhe = {
   codnf: number; direcao: string; nronf: string | null; serie: string | null; dtcontabil: string | null;
@@ -133,6 +136,24 @@ export function ApuracaoIbsCbsPage() {
                   <td className="p-pad-xs text-right tabular-nums">{brl(atual.cbs_credito)}</td>
                   <td className="p-pad-xs text-right tabular-nums">{brl(atual.base_credito)}</td>
                   <td className="p-pad-xs text-right tabular-nums">{atual.notas_credito}</td>
+                </tr>
+                <tr className="border-b border-border">
+                  <td className="p-pad-xs">Crédito presumido</td>
+                  <td className="p-pad-xs text-right tabular-nums">{brl(atual.ibs_cred_presumido)}</td>
+                  <td className="p-pad-xs text-right tabular-nums">{brl(atual.cbs_cred_presumido)}</td>
+                  <td className="p-pad-xs text-fg-muted" colSpan={2}>crédito sem imposto pago na etapa anterior</td>
+                </tr>
+                <tr className="border-b border-border">
+                  <td className="p-pad-xs">Retido no split</td>
+                  <td className="p-pad-xs text-right tabular-nums">{brl(atual.ibs_retido_split)}</td>
+                  <td className="p-pad-xs text-right tabular-nums">{brl(atual.cbs_retido_split)}</td>
+                  <td className="p-pad-xs text-fg-muted" colSpan={2}>já separado na liquidação — abate o a recolher</td>
+                </tr>
+                <tr className="border-b border-border text-fg-muted">
+                  <td className="p-pad-xs">Suspenso / diferido</td>
+                  <td className="p-pad-xs text-right tabular-nums">{brl(atual.ibs_suspenso)}</td>
+                  <td className="p-pad-xs text-right tabular-nums">{brl(atual.cbs_suspenso)}</td>
+                  <td className="p-pad-xs" colSpan={2}>não é imposto a pagar — é controle</td>
                 </tr>
                 <tr className="border-b border-border text-fg-muted">
                   <td className="p-pad-xs">Saldo credor anterior</td>
