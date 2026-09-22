@@ -325,3 +325,57 @@ testados na produção: passam 89.376 e 9.638, descartando 9.733 e 416, contados
   arredondados. É o que o legado faz (o cabeçalho bate com a soma dos itens em ~95% das notas).
 - **Alíquota zero legítima**: `pIbsUf` só cai para a tabela de reserva quando o parâmetro é **nulo**, não
   quando é zero — `??` e não `||`.
+
+
+## 11. Terceira verificação (22/09/2026) — o que ainda NÃO está coberto
+
+Perguntado se novos problemas vão aparecer, a resposta honesta é **sim, provavelmente**. Esta terceira
+passada não achou defeito ativo novo, mas achou o que falta. Fica escrito para não se perder.
+
+### 11.1 Dois alarmes que investiguei e eram falsos
+
+- **A base das notas de SAÍDA.** Um teste meu indicou que a fórmula acertava 1 item em 11.405. O teste
+  estava errado, não o código: eu havia escrito `nvl(total_produto_nota, 0)` onde o código faz
+  `coalesce(nullif(total_produto_nota, 0), quantidade × custo)` — e nas saídas o total vem zerado. Medida
+  com a fórmula real: **94,8% nas saídas, 98,6% nas entradas, 98,1% no geral**. Lição: medir a fórmula
+  que está no código, não uma paráfrase dela.
+- **O endereço do parceiro.** O serviço usa o endereço padrão e a nota tem o seu próprio
+  (`NF.CODPARCEIRO_END`). Medido: em **9.653 notas, zero** têm UF diferente entre os dois. Inócuo hoje,
+  mas o certo é a nota mandar — anotado abaixo.
+
+### 11.2 Um risco real, hoje sem efeito: operação interestadual
+
+| | notas | itens | base |
+|---|---:|---:|---:|
+| entrada interestadual | 324 | 2.447 | R$ 550.041,03 |
+| saída interestadual | 28 | 637 | R$ 59.322,22 |
+
+Na reforma o IBS interestadual se reparte entre origem e destino, e o cálculo aqui aplica só a alíquota do
+estabelecimento. **Hoje isso não muda um centavo**: as 27 UFs de `IBS_UF` têm alíquota idêntica (0,1) e o
+legado usa a mesma alíquota nas interestaduais e nas internas. Vira material quando as UFs fixarem
+alíquotas próprias, na transição a partir de 2029.
+
+### 11.3 Frentes inteiras que não foram feitas, e estão declaradas
+
+| frente | situação |
+|---|---|
+| **XML da NF-e com os grupos** | o Apollo calcula e grava; não emite o grupo no XML nem valida contra o schema da SEFAZ |
+| **Imposto seletivo** | não existe no leiaute do legado (§9.5); 3.276 produtos de bebida/fumo esperando |
+| **Crédito de IBS/CBS na entrada** | o comprador credita o imposto da entrada; nada aqui apura crédito |
+| **Alíquota setorial, nacional e fixa** | 17 classificações — recusadas com 422, não calculadas |
+| **Crédito presumido** | 9 classificações — idem |
+| **Diferimento e suspensão** | 22 classificações — idem |
+| **Split payment** | mecanismo de recolhimento na liquidação; fora de escopo até aqui |
+| **Endereço da nota** | usar `NF.CODPARCEIRO_END` em vez do endereço padrão (hoje dá no mesmo em 9.653 de 9.653) |
+
+### 11.4 O que as três passadas dizem sobre o risco
+
+| passada | o que auditou | defeitos |
+|---|---|---:|
+| 1ª | a regra fiscal contra a LC 214/2025 e o dado | 4 |
+| 2ª | o corte-1, o código e o ETL | 6 |
+| 3ª | saída, interestadual, endereço, cobertura | 0 ativos (2 alarmes falsos, 1 risco futuro) |
+
+A curva sugere convergência, não perfeição. O que dá confiança no que **está** feito não é a ausência de
+achados na terceira passada — é que cada regra tem um número medido em produção ao lado e um check no
+smoke. O que não tem número medido é o que está na tabela de 11.3, e é por ali que o próximo problema vem.
