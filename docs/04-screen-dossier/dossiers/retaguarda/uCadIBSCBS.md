@@ -379,3 +379,64 @@ alíquotas próprias, na transição a partir de 2029.
 A curva sugere convergência, não perfeição. O que dá confiança no que **está** feito não é a ausência de
 achados na terceira passada — é que cada regra tem um número medido em produção ao lado e um check no
 smoke. O que não tem número medido é o que está na tabela de 11.3, e é por ali que o próximo problema vem.
+
+
+## 12. Quarta verificação (22/09/2026) — o cálculo rodado contra os 89.494 itens reais
+
+As três passadas anteriores mediram **fórmulas em SQL**. Esta rodou **a lógica do serviço**, em JavaScript,
+importando a normalização do shared compilado, contra **todos os 89.494 itens** de `NF_PROD_IBSCBS` da
+produção, comparando item a item com o que o legado gravou.
+
+### 12.1 O resultado
+
+| | acerta | |
+|---|---:|---|
+| base de cálculo | **95,86%** | 85.787 de 89.494 |
+| IBS | **97,75%** | 86.163 de 88.146 com base |
+| CBS | **98,29%** | 86.638 de 88.146 |
+
+Soma de todas as diferenças: **R$ 56,49 no IBS e R$ 437,65 na CBS**, sobre R$ 25,1 milhões de base.
+
+### 12.2 O arredondamento é half-up, e isso foi medido, não suposto
+
+Testei os quatro modos contra os mesmos 88.146 itens, com a redução aplicada:
+
+| modo | IBS | CBS |
+|---|---:|---:|
+| **half-up (o que o serviço usa)** | **97,75%** | **98,29%** |
+| meio-par | 97,21% | 97,79% |
+| teto | 64,72% | 64,27% |
+| trunca | 60,96% | 61,39% |
+
+A margem sobre meio-par é pequena, mas sobre teto e trunca é decisiva. Das divergências que restam,
+**1.948 são de até um centavo** — ruído inerente, não regra.
+
+### 12.3 ⚠️ O encoding vem corrompido MESMO, e a escolha do prefixo salvou o cálculo
+
+Nos dados lidos da produção, `TIPO_ALIQUOTA` chega literalmente como **`"Padr o"`** — o "ã" perdido. Se a
+comparação fosse `=== 'Padrão'`, **nenhum item seria calculado**: todos cairiam em "tratamento próprio" e
+toda nota seria recusada. A decisão de comparar por prefixo sem diacrítico (§9.6) não era zelo — era a
+diferença entre funcionar e não funcionar, e agora está confirmada com o dado real, não com hipótese.
+
+### 12.4 Os desvios maiores são defeitos DO LEGADO
+
+Separando o ruído de centavo, sobram ~235 itens. Reproduzindo o cálculo neles:
+
+| defeito do legado | ocorrências | valor |
+|---|---:|---:|
+| imposto cobrado onde a alíquota efetiva é **zero** | 25 | R$ 106,96 |
+| valor gravado acima do **dobro** do devido | 201 | R$ 33,95 a mais |
+| alíquota positiva e valor gravado **zero** | 9 | R$ 0,62 a menos |
+
+Exemplo: o item 1121629 tem base R$ 47,89 com redução de **100%** (alíquota zero) e o legado gravou
+**R$ 6,02** de IBS — 12,6% da base, numa fase em que a alíquota é 0,1%. Os valores são pequenos porque a
+fase-teste cobra 1%; no regime pleno o mesmo desvio vale **26,5×**.
+
+### 12.5 O que isto permite afirmar, e o que não permite
+
+Permite afirmar que **a fórmula, a redução, a base e o arredondamento estão certos** — não por argumento,
+mas porque reproduzem 89.494 casos reais e as exceções são erros identificáveis do lado do legado.
+
+Não permite afirmar que a tela está pronta. O que falta continua sendo o que está na tabela de §11.3 — o
+grupo no XML, o imposto seletivo, o crédito na entrada, e as classificações de alíquota setorial, fixa,
+crédito presumido, diferimento e suspensão, que hoje são **recusadas** em vez de calculadas.
