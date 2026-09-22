@@ -121,6 +121,11 @@ ORIGEM_DECLARADA = {
     ('nf', 'valorservico'): 'idem',
     ('nf', 'totalbaseicmsrep_ret'): 'resíduo',
     ('nf', 'total_desc_pedido'): 'zerado nas 49.655 notas (0 com valor)',
+    # mig 287: das 31 colunas de nf_prod, 24 entraram (R$ 137,5 milhoes) e estas ficam de fora
+    ('nf_prod', 'vrcustoajustenf'): 'residuo: 1 item, R$ 0,01',
+    ('nf_prod', 'atualiza_multipreco_decomp'): 'flag de decomposicao sem uso medido',
+    ('nf_prod', 'item_perda_total'): 'idem',
+    ('nf_prod', 'ipi_devolucao_perc_devol'): 'residuo: 81 itens',
 }
 # grandezas cuja ausência muda NÚMERO ou IDENTIDADE — é onde a perda é cara
 CHAVE_OU_NUMERO = re.compile(
@@ -139,10 +144,13 @@ def main() -> int:
     # pior desfecho possível para uma conferência.
     nomes = sorted({TABELA_ORIGEM.get(t, t.upper()) for t in alvo})
     lista = ", ".join(f"'{n}'" for n in nomes)
-    cu.execute(f"select table_name, column_name from user_tab_columns where table_name in ({lista})")
+    cu.execute(f"select table_name, column_name, data_type from user_tab_columns"
+               f"  where table_name in ({lista})")
     COLS: dict = {}
-    for tab, col in cu.fetchall():
+    TIPOS: dict = {}
+    for tab, col, tipo in cu.fetchall():
         COLS.setdefault(tab, set()).add(col.lower())
+        TIPOS.setdefault(tab, {})[col.lower()] = tipo
     cu.execute(f"select table_name, column_name, num_nulls, num_distinct"
                f"  from user_tab_col_statistics where table_name in ({lista})")
     EST: dict = {}
@@ -209,6 +217,7 @@ def main() -> int:
         total = int(LINHAS.get(T, 0) or 0)
         if not total:
             continue   # sem estatística não dá para medir: melhor calar do que chutar
+        vivas = []
         for col in candidatas:
             nulls, distintos = est.get(col, (None, None))
             if nulls is None or not distintos:
@@ -216,6 +225,26 @@ def main() -> int:
             preenchidas = max(0, total - int(nulls))
             pct = (preenchidas / total) * 100
             if preenchidas and pct >= 50:
+                vivas.append((col, preenchidas, pct))
+        if not vivas:
+            continue
+        # ⚠️ "preenchida" pela estatística é NÃO-NULA, e **zero conta como preenchida**. Sem este segundo
+        # passo, uma coluna numérica zerada em 100% das linhas aparece como perda de 100% — foi o que
+        # aconteceu com seis colunas de `nf_prod` (vrpis, markupl, vrcomissao…), todas zeradas.
+        # Uma consulta por TABELA (não por coluna) mede o que de fato tem valor: ~20 idas, não centenas.
+        numericas = [x for (x, _, _) in vivas if TIPOS.get(T, {}).get(x) in ('NUMBER', 'FLOAT')]
+        com_valor = {x for (x, _, _) in vivas}
+        if numericas:
+            sel = ", ".join(f"count(case when {x} <> 0 then 1 end)" for x in numericas)
+            try:
+                cu.execute(f"select {sel} from {T}")
+                for x, n in zip(numericas, cu.fetchone()):
+                    if not int(n or 0):
+                        com_valor.discard(x)   # numérica zerada em toda a tabela: não é perda
+            except Exception:
+                pass   # sem permissão ou tipo exótico: mantém pela estatística
+        for col, preenchidas, pct in vivas:
+            if col in com_valor:
                 perdidas.append((t, col, preenchidas, total, pct))
     perdidas.sort(key=lambda x: -x[4])
 
@@ -227,8 +256,8 @@ def main() -> int:
         print(f"  [{risco:5s}] {t}.{col:30s} default={dflt[:20]:22s} {nn}")
 
     print(f"\n[2] a ORIGEM tem e o destino NÃO — o dado some sem deixar buraco: {len(perdidas)}")
-    print("    (só chave/número preenchido em 50% ou mais, pelas estatísticas do Oracle;")
-    print("     estatística desatualizada mede a MENOS, nunca a mais)")
+    print("    (só chave/número preenchido em 50% ou mais das linhas E com valor ≠ 0 em alguma delas;")
+    print("     a estatística diz o que é não-nulo, e uma segunda passada por tabela descarta as zeradas)")
     for t, col, n, tot, pct in perdidas:
         print(f"      {t}.{col:28s} {n:>10,} de {tot:>10,} linhas ({pct:5.1f}%)")
 

@@ -483,3 +483,42 @@ menos de R$ 151 mil em pouquíssimas notas, ou estão zeradas nas 49.655.
 
 Com isso o sentido 2 do conferidor caiu de **167 para 139**, e a `nf` saiu da lista inteira. O que sobra se
 concentra em `nf_prod` (31), `vendas` (26), `pedido_devolucao_compra_i` (23) e `empresas` (18).
+
+
+### Achado 9 — o item da nota perdia a escada de custo: R$ 137 milhões
+
+Depois do cabeçalho (Achado 8), o item repete o padrão e com valores maiores, porque é aqui que mora a
+**escada de custo** que a precificação usa. Migration 287, 24 colunas.
+
+| coluna | itens ≠ 0 | soma |
+|---|---:|---:|
+| `vrbase_stexterno` | 124.158 | R$ 43.523.952,71 |
+| `vrcustoreal` | 422.514 | R$ 30.085.170,82 |
+| `ultcustorep` | 411.701 | R$ 18.128.955,45 |
+| `custo_real_unit` | 391.422 | R$ 15.931.303,45 |
+| `markup` | 385.147 | R$ 12.443.660,80 |
+| `vrbasecalculoicm_calc` | 66.351 | R$ 9.536.359,85 |
+| `vendaliq` | 383.537 | R$ 5.994.641,70 |
+| demais (ICMS recalculado, margem, FCP-ST, ajuste do Decreto 47.530, desonerado, frete) | | R$ 1.856.676,15 |
+| **total** | | **R$ 137.500.720,73** |
+
+E `IDSITUACAO_NF` estava preenchida em **497.983 dos 498.439 itens**: é a situação do item na nota, e sem
+ela o item perde o próprio estado.
+
+**Por que a escada importa**: o destino já tinha `vrcusto`, `vrcustorep`, `vrcustocsi`, `ultcusto` e
+`vl_custo`, mas não o `vrcustoreal` nem o `custo_real_unit` — justamente os degraus que a precificação por
+NF usa para decidir preço. Carregar meia escada faz o recálculo partir de um degrau que não existe, e o
+erro não aparece como falta: aparece como **preço diferente**.
+
+### O conferidor ficou preciso: zero não é valor
+
+A primeira versão do sentido 2 contava "preenchida" pela estatística do Oracle, que é **não-nula** — e zero
+conta como preenchido. Seis colunas de `nf_prod` (`vrpis`, `markupl`, `vrcomissao`, `vrsaldoflex`,
+`custo_recalculo_bonif`, `vricms_stexterno_separadonf`) apareciam como perda de 100% estando **zeradas em
+todas as 498.439 linhas**.
+
+Agora há uma segunda passada: **uma consulta por tabela** (não por coluna) conta o que tem valor ≠ 0 e
+descarta as zeradas. São ~20 idas ao banco, o conferidor passou de 5,6s para 1min26 e a lista caiu de 114
+para **89** — ruído que não voltaria a ser triado à mão a cada rodada.
+
+O que sobra se concentra em `pedido_devolucao_compra_i` (23), `empresas` (18) e `vendas` (15).
