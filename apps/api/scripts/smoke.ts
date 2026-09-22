@@ -17147,6 +17147,81 @@ async function main() {
       }
     }
 
+    // ══ CLUBE DE DESCONTO — o cadastro das regras (mig 285) ════════════════════════════════════════════
+    {
+      const CL = 'precificacao/clube-desconto';
+      const pgCl = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const j = { ...H, 'content-type': 'application/json' };
+        await pgCl.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+          (994601,'7899000994601','PRODUTO CLUBE 1','UN',2,'T01','S'),
+          (994602,'7899000994602','PRODUTO CLUBE 2','UN',2,'T01','S') ON CONFLICT (idproduto) DO NOTHING`);
+        await pgCl.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, ativo) VALUES
+          (994601, 1, 100.00, 'S'), (994602, 1, 100.00, 'S')
+          ON CONFLICT DO NOTHING`);
+
+        const base2 = { loja: 1, ativo: 'S', encerrada: 'F', origem: 'S',
+          data_inicio: '2026-01-01T00:00:00-03:00', data_fim: '2026-12-31T23:59:00-03:00' };
+        const preco = await fetch(`${base}/${CL}`, { method: 'POST', headers: j, body: JSON.stringify({
+          ...base2, operacao: 'PRECO', barras: '7899000994601', quantidade: 1, valor: 79.9 }) });
+        const variavel = await fetch(`${base}/${CL}`, { method: 'POST', headers: j, body: JSON.stringify({
+          ...base2, operacao: 'VARIAVEL', barras: '7899000994602', quantidade: 1, valor: 15, tipo: '%' }) });
+        const lista = (await (await fetch(`${base}/${CL}?q=78990009946`, { headers: H })).json().catch(() => ({}))) as any;
+        const rPreco = (lista.itens ?? []).find((x: any) => x.operacao === 'PRECO');
+        const rVar = (lista.itens ?? []).find((x: any) => x.operacao === 'VARIAVEL');
+        check('CLUBE DE DESCONTO §156.1 [o VALOR muda de unidade conforme a operação — e a faixa do dado prova]: nas 3.111 regras do cliente, `PRECO` (2.970 delas) tem valor de **0,99 a 419,40** e é o PREÇO em reais; `VARIAVEL` tem de **6 a 20** e é PERCENTUAL. Tratar tudo como percentual daria 419% de desconto; tudo como preço venderia a R$ 6,00 o que deveria ter 6% de desconto. Sobre preço normal de 100,00: PRECO 79,90 dá preço de clube **79,90**, e VARIAVEL 15% dá **85,00** — e cada linha volta dizendo em que unidade ler o valor',
+          preco.status === 201 && variavel.status === 201
+          && Number(rPreco?.preco_clube) === 79.9 && rPreco?.unidade_valor === 'preço em R$'
+          && Number(rVar?.preco_clube) === 85 && rVar?.unidade_valor === 'percentual',
+          { st: [preco.status, variavel.status], preco: [rPreco?.preco_clube, rPreco?.unidade_valor], variavel: [rVar?.preco_clube, rVar?.unidade_valor] });
+
+        const precoComTipo = await fetch(`${base}/${CL}`, { method: 'POST', headers: j, body: JSON.stringify({
+          ...base2, operacao: 'PRECO', barras: '7899000994601', quantidade: 1, valor: 50, tipo: '%' }) });
+        const varSemTipo = await fetch(`${base}/${CL}`, { method: 'POST', headers: j, body: JSON.stringify({
+          ...base2, operacao: 'VARIAVEL', barras: '7899000994602', quantidade: 1, valor: 15 }) });
+        const pctAcima = await fetch(`${base}/${CL}`, { method: 'POST', headers: j, body: JSON.stringify({
+          ...base2, operacao: 'VARIAVEL', barras: '7899000994602', quantidade: 1, valor: 150, tipo: '%' }) });
+        const levePague = await fetch(`${base}/${CL}`, { method: 'POST', headers: j, body: JSON.stringify({
+          ...base2, operacao: 'LEVE_PAGUE', barras: '7899000994601', quantidade: 3, quantidade_paga: 4 }) });
+        check('CLUBE DE DESCONTO §156.2 [a ambiguidade do valor é barrada na entrada]: `PRECO` com tipo preenchido viraria desconto e `VARIAVEL` sem tipo fica sem unidade — as duas são recusadas (400) dizendo o campo. Percentual acima de 100 é recusado, e **LEVE_PAGUE pagando mais do que leva** (3 levados, 4 pagos) também: não é promoção, é erro de digitação que o legado aceitaria',
+          precoComTipo.status === 400 && varSemTipo.status === 400
+          && pctAcima.status === 400 && levePague.status === 400,
+          { precoComTipo: precoComTipo.status, varSemTipo: varSemTipo.status, pctAcima: pctAcima.status, levePague: levePague.status });
+
+        const semBarras = await fetch(`${base}/${CL}`, { method: 'POST', headers: j, body: JSON.stringify({
+          ...base2, operacao: 'PRECO', quantidade: 1, valor: 10 }) });
+        const cupomComBarras = await fetch(`${base}/${CL}`, { method: 'POST', headers: j, body: JSON.stringify({
+          ...base2, operacao: 'DESCONTO_POR_PDV', barras: '7899000994601', quantidade: 1, valor: 10, tipo: '%', pdv: 5 }) });
+        const cupomOk = await fetch(`${base}/${CL}`, { method: 'POST', headers: j, body: JSON.stringify({
+          ...base2, operacao: 'DESCONTO_POR_PDV', quantidade: 1, valor: 10, tipo: '%', pdv: 5 }) });
+        check('CLUBE DE DESCONTO §156.3 [duas operações agem no CUPOM, não no produto]: `DESCONTO_POR_PDV` e `CODIGO_PROMOCIONAL` são as únicas **sem código de barras** no cliente (0 de 7 regras têm) — elas descontam o cupom inteiro. Exigir barras de toda regra impediria cadastrá-las; aceitá-las com barras faria o PDV procurar um produto que a regra não tem. As duas direções são barradas: regra de produto sem barras é 400, e regra de cupom COM barras também',
+          semBarras.status === 400 && cupomComBarras.status === 400 && cupomOk.status === 201,
+          { semBarras: semBarras.status, cupomComBarras: cupomComBarras.status, cupomOk: cupomOk.status });
+
+        const sobreposta = await fetch(`${base}/${CL}`, { method: 'POST', headers: j, body: JSON.stringify({
+          ...base2, operacao: 'PRECO', barras: '7899000994601', quantidade: 1, valor: 69.9,
+          data_inicio: '2026-06-01T00:00:00-03:00', data_fim: '2026-07-31T23:59:00-03:00' }) });
+        const sobrepostaJ = (await sobreposta.json().catch(() => ({}))) as any;
+        const outraJanela = await fetch(`${base}/${CL}`, { method: 'POST', headers: j, body: JSON.stringify({
+          ...base2, operacao: 'PRECO', barras: '7899000994601', quantidade: 1, valor: 69.9,
+          data_inicio: '2027-01-01T00:00:00-03:00', data_fim: '2027-02-28T23:59:00-03:00' }) });
+        const semGrant = await fetch(`${base}/${CL}`, { method: 'POST', headers: { ...H_SEM_ACESSO, 'content-type': 'application/json' }, body: JSON.stringify({ ...base2, operacao: 'PRECO', barras: '7899000994601', quantidade: 1, valor: 10 }) });
+        const semProduto = await fetch(`${base}/${CL}`, { method: 'POST', headers: j, body: JSON.stringify({
+          ...base2, operacao: 'PRECO', barras: '0000000000000', quantidade: 1, valor: 10 }) });
+        check('CLUBE DE DESCONTO §156.4 [duas regras iguais na mesma janela deixariam o PDV sem critério]: dois preços de clube para o mesmo produto em vigências que se cruzam tornam o resultado indeterminado — vale o que o banco devolver primeiro. O legado não trava isso; aqui é **422 CLUBE_DESCONTO_SOBREPOSTO** dizendo com qual regra conflita. Em janela que não cruza, grava normalmente. Produto inexistente é 422, e sem o grant BTNGRAVAR, 403',
+          sobreposta.status === 422 && sobrepostaJ.code === 'CLUBE_DESCONTO_SOBREPOSTO'
+          && Number(sobrepostaJ.detalhe?.conflita_com) > 0
+          && outraJanela.status === 201 && semProduto.status === 422 && semGrant.status === 403,
+          { sobreposta: [sobreposta.status, sobrepostaJ.code], outraJanela: outraJanela.status, semProduto: semProduto.status, rbac: semGrant.status });
+
+        await pgCl.query(`DELETE FROM clube_desconto WHERE idempresa = 1`);
+        await pgCl.query(`DELETE FROM multi_preco WHERE idproduto IN (994601,994602)`);
+        await pgCl.query(`DELETE FROM produtos WHERE idproduto IN (994601,994602)`);
+      } finally {
+        await pgCl.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

@@ -176,7 +176,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
  * Códigos cujo `details` do AppError PODE ser ecoado ao cliente no envelope (`detalhe`) — allowlist explícita
  * (evita vazar dados internos de outros erros: saldos, form/opção de RBAC, etc.). Só o que o front consome.
  */
-const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE', 'CLASS_TRIB_EM_USO', 'PRODUTO_SEM_CLASSIFICACAO', 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO', 'APURACAO_IBSCBS_JA_EXISTE', 'SPLIT_MANUAL_EXCEDE']);
+const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE', 'CLASS_TRIB_EM_USO', 'PRODUTO_SEM_CLASSIFICACAO', 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO', 'APURACAO_IBSCBS_JA_EXISTE', 'SPLIT_MANUAL_EXCEDE', 'CLUBE_DESCONTO_SOBREPOSTO']);
 
 const CODE_PT: Record<string, string> = {
   // regra de negócio (BusinessRuleError 422)
@@ -197,6 +197,8 @@ const CODE_PT: Record<string, string> = {
   SPLIT_MANUAL_SEM_VALOR: 'A modalidade manual exige o valor a separar.',
   SPLIT_MANUAL_EXCEDE: 'Não se pode separar mais imposto do que o documento deve.',
   NF_SEM_GRUPO_IBSCBS: 'Esta nota não tem os grupos de IBS/CBS calculados.',
+  CLUBE_DESCONTO_NAO_ENCONTRADO: 'Regra do clube de desconto não encontrada.',
+  CLUBE_DESCONTO_SOBREPOSTO: 'Já existe regra igual para este produto na mesma vigência — o PDV não teria como escolher.',
   CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO:
     'Há itens cuja classificação não se calcula pela alíquota da UF (alíquota fixa, setorial, nacional, '
     + 'redutor de base, diferimento ou suspensão). Trate-os à parte antes de calcular a nota.',

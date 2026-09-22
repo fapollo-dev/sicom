@@ -384,3 +384,34 @@ Duas mudanças para o padrão não voltar:
 E um defeito que anulava o Achado 4: o fallback de empresa rodava **antes** das `CALCULADAS` entrarem em
 `cols`, e o header do CSV é `cols + const` — `mov_contas_bancarias.idempresa` sairia **duas vezes**, o
 valor certo e a constante 1 ao lado. Corrigido descontando `CALCULADAS`/`CONSTANTES` do fallback.
+
+
+### Achado 6 — o clube de desconto: a carga perdia o produto de 3.104 regras
+
+A varredura das tabelas sem destino (22/09/2026) começou pelo tamanho e terminou em três defeitos de carga
+numa tabela que **já estava no plano desde a mig 112**.
+
+| tabela | linhas | em 2026 | situação antes |
+|---|---:|---:|---|
+| `CLUBE_DESCONTO` | 3.111 | 400 | no plano, com 3 defeitos |
+| `CLUBE_DESCONTO_MOV` | **3.118.725** | **824.491** | fora do plano |
+| `CLUBE_DESCONTO_EXT` | 40 | | fora do plano |
+| `CLUBE_DESCONTO_PROD` | 273 | | fora do plano |
+
+**(a) O produto sumia.** `BARRAS` diz sobre qual produto a regra age, está em **3.104 das 3.111 (99,8%)** e
+não existia no destino. Sem ela a regra chega inútil. Mais nove colunas ficavam para trás.
+
+**(b) A chave estrangeira rejeitaria 98,5% da carga.** A mig 112 ligou `idpromocao` a `promocao`, mas só
+**47 de 3.111** casam — o id é da promoção no sistema do clube, não da nossa. A carga falharia inteira.
+
+**(c) A empresa vinha como TEXTO com lista** (`'1,2'`) para uma coluna `integer`. Mesmo padrão do Achado 4:
+a projeção fica com a primeira da lista.
+
+Corrigido na mig 285, com tela de cadastro das nove operações. A regra central é que **o `valor` muda de
+unidade**: em `PRECO` (2.970 regras) vai de 0,99 a 419,40 e é preço; em `VARIAVEL` fica entre 6 e 20 e é
+percentual. Dossiê `uClubeDesconto.md`.
+
+**Lição de método:** eu comecei a escrever uma migration criando `clube_desconto` do zero, e o smoke a
+rejeitou porque a tabela já existia desde a mig 112. **Antes de criar tabela para uma "tabela sem destino",
+conferir cada nome contra o `schema-destino.json`** — a lista de pendências dizia `CLUBE_DESCONTO_MOV`, e eu
+li "a família do clube".

@@ -130,6 +130,16 @@ CALCULADAS = {
   # empresa (a baixa não guarda loja; ela vem do recebível de cartão).
   # reforma IBS/CBS (mig 279): nem o cabecalho nem o item guardam a loja — ela vem da NOTA, e **3.623 das
   # 10.012 notas sao da empresa 2**. Mesmo padrao do Achado 4.
+  # ⚠️ CLUBE DE DESCONTO (mig 285): `IDEMPRESA` la e **VARCHAR com LISTA** — ha valor '1,2' — e aqui a
+  # coluna e integer. E o mesmo padrao de COTACAO/PEDIDOCOMPRA (Achado 4): a projecao single-empresa fica
+  # com a PRIMEIRA da lista. Sem isto a carga tentaria gravar '1,2' num integer e quebraria a tabela
+  # inteira. So 50 das 3.111 regras tem a coluna preenchida; as demais caem na loja 1.
+  'clube_desconto': {'idempresa': "nvl(to_number(regexp_substr(idempresa, '\\d+')), 1)"},
+  # a extensao nao tem empresa propria (0 de 40) e casa com a regra em 40 de 40: vem de la, com a mesma
+  # extracao, porque o valor do pai tambem e texto.
+  'clube_desconto_ext': {'idempresa':
+    "nvl((select min(to_number(regexp_substr(cd.idempresa, '\\d+'))) from clube_desconto cd"
+    " where cd.idpromocao = clube_desconto_ext.idpromocao), 1)"},
   'nf_ibscbs':      {'idempresa': '(select f.idempresa from nf f where f.codnf = nf_ibscbs.codnf)'},
   'nf_prod_ibscbs': {'idempresa': '(select f.idempresa from nf f where f.codnf = nf_prod_ibscbs.codnf)',
     # o legado usa ZERO como "sem vinculo" em 92.726 dos 98.760 itens (93,9%); aqui a coluna e nullable
@@ -200,6 +210,8 @@ EMPRESA_SEM_ORIGEM = {
   'periodo_contabil': '3 linhas, sem coluna de empresa no legado',
   # 70.507 acessos: OPERADORES não tem empresa no legado (a nossa `codempresa` nasceu multi-loja).
   'operadores_acessos': 'OPERADORES não guarda empresa no legado',
+  # a fila de sincronizacao do clube (273 linhas) so tem produto e data — nao ha de onde tirar a loja
+  'clube_desconto_prod': 'so tem idproduto e dtmovimento; nao ha coluna nem pai com empresa',
 }
 _avisos = []
 # transformações de carga declaradas (expressão Oracle aplicada na extração)

@@ -135,16 +135,16 @@
    ],
    "fks": [
     {
+     "coluna": "codparceiro",
+     "ref": "parceiros.codparceiro"
+    },
+    {
      "coluna": "codcontacorrente",
      "ref": "contas_bancarias.codconta"
     },
     {
      "coluna": "idsituacao_nf",
      "ref": "situacao_nf.idsituacao_nf"
-    },
-    {
-     "coluna": "codparceiro",
-     "ref": "parceiros.codparceiro"
     }
    ],
    "unicos": [
@@ -894,12 +894,12 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto",
-     "ref": "produtos.idproduto"
-    },
-    {
      "coluna": "codmotivo",
      "ref": "motivos.codmotivo"
+    },
+    {
+     "coluna": "idproduto",
+     "ref": "produtos.idproduto"
     }
    ],
    "unicos": [
@@ -1292,12 +1292,12 @@
    ],
    "fks": [
     {
-     "coluna": "apn_id",
-     "ref": "analise_pedido_nf.apn_id"
-    },
-    {
      "coluna": "codpedcomp",
      "ref": "pedidocompra.codpedcomp"
+    },
+    {
+     "coluna": "apn_id",
+     "ref": "analise_pedido_nf.apn_id"
     }
    ],
    "unicos": [
@@ -6103,7 +6103,7 @@
      "tipo": "integer",
      "tam": 32,
      "escala": 0,
-     "nulo": false,
+     "nulo": true,
      "default": null
     },
     "idempresa": {
@@ -6329,21 +6329,451 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "barras": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "descricao": {
+     "tipo": "character varying",
+     "tam": 200,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "pdv": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "hora": {
+     "tipo": "time without time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "vrcusto": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "vrcustorep": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "venda_estoque": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 3,
+     "nulo": true,
+     "default": null
+    },
+    "dtalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indr_usuario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr_data": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
     "idclubedesconto"
    ],
-   "fks": [
-    {
-     "coluna": "idpromocao",
-     "ref": "promocao.idpromocao"
-    }
-   ],
+   "fks": [],
    "unicos": [
     {
      "nome": "clube_desconto_pkey",
      "def": "CREATE UNIQUE INDEX clube_desconto_pkey ON public.clube_desconto USING btree (idclubedesconto)"
+    }
+   ]
+  },
+  "clube_desconto_ext": {
+   "colunas": {
+    "idclubedescontoext": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_clube_desconto_ext'::regclass)"
+    },
+    "idempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "idpromocao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "loja": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "1"
+    },
+    "operacao": {
+     "tipo": "character varying",
+     "tam": 30,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "ativo": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": false,
+     "default": "'S'::bpchar"
+    },
+    "barras": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "quantidade": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 3,
+     "nulo": false,
+     "default": null
+    },
+    "valor": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "tipo": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "encerrada": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": false,
+     "default": "'F'::bpchar"
+    },
+    "origem": {
+     "tipo": "character varying",
+     "tam": 2,
+     "escala": null,
+     "nulo": false,
+     "default": "'S'::character varying"
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": "now()"
+    },
+    "dtalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "idclubedescontoext"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "clube_desconto_ext_pkey",
+     "def": "CREATE UNIQUE INDEX clube_desconto_ext_pkey ON public.clube_desconto_ext USING btree (idclubedescontoext)"
+    }
+   ]
+  },
+  "clube_desconto_mov": {
+   "colunas": {
+    "idclubedescontomov": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_clube_desconto_mov'::regclass)"
+    },
+    "idempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "loja": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "pdv": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "tipo": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "nrodocumento": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "movimento": {
+     "tipo": "character varying",
+     "tam": 60,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "nome": {
+     "tipo": "character varying",
+     "tam": 60,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtmovimento": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtarquivo": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "chave": {
+     "tipo": "character varying",
+     "tam": 60,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "versao": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "situacao": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "nropedido": {
+     "tipo": "character varying",
+     "tam": 30,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "cpfcnpj": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "origem": {
+     "tipo": "character varying",
+     "tam": 2,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "mov_izio": {
+     "tipo": "text",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtmov_izio": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "status_izio": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "mov_sistema": {
+     "tipo": "text",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtmov_sistema": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "status_sistema": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "mov_cresce_vendas": {
+     "tipo": "text",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "status_cresce_vendas": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "mov_mercafacil": {
+     "tipo": "text",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "status_mercafacil": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indr": {
+     "tipo": "character varying",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indr_usuario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr_data": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "idclubedescontomov"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "clube_desconto_mov_pkey",
+     "def": "CREATE UNIQUE INDEX clube_desconto_mov_pkey ON public.clube_desconto_mov USING btree (idclubedescontomov)"
+    }
+   ]
+  },
+  "clube_desconto_prod": {
+   "colunas": {
+    "idproduto": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "dtmovimento": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    }
+   },
+   "pk": [
+    "idproduto",
+    "dtmovimento"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "clube_desconto_prod_pkey",
+     "def": "CREATE UNIQUE INDEX clube_desconto_prod_pkey ON public.clube_desconto_prod USING btree (idproduto, dtmovimento)"
     }
    ]
   },
@@ -6493,12 +6923,12 @@
    ],
    "fks": [
     {
-     "coluna": "codfor",
-     "ref": "parceiros.codparceiro"
-    },
-    {
      "coluna": "idproduto",
      "ref": "produtos.idproduto"
+    },
+    {
+     "coluna": "codfor",
+     "ref": "parceiros.codparceiro"
     }
    ],
    "unicos": [
@@ -8312,16 +8742,16 @@
    ],
    "fks": [
     {
+     "coluna": "codplc",
+     "ref": "plc.codplc"
+    },
+    {
      "coluna": "idpgto",
      "ref": "formas_pgto.idpgto"
     },
     {
      "coluna": "codpdv",
      "ref": "pdv.codpdv"
-    },
-    {
-     "coluna": "codplc",
-     "ref": "plc.codplc"
     }
    ],
    "unicos": [

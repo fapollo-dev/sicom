@@ -216,6 +216,7 @@ const TELAS = [
   { href: '/cadastro/cest', name: 'CEST', icon: Tag },
   { href: '/fiscal/reforma-ibscbs', name: 'Reforma IBS/CBS', icon: Tag },
   { href: '/fiscal/apuracao-ibscbs', name: 'Apuração IBS/CBS', icon: Tag },
+  { href: '/precificacao/clube-desconto', name: 'Clube de desconto', icon: Tag },
   { href: '/cadastro/motivos', name: 'Motivos de ajuste de estoque', icon: ListChecks },
   { href: '/relatorios/entradas-financeiro', name: 'Entradas × Financeiro', icon: FileSearch },
   { href: '/cobranca/extrato-funcionario', name: 'Extrato de funcionário', icon: UserSearch },
