@@ -12996,22 +12996,23 @@ async function main() {
         && Number(gView?.qtde_itens) === 2 && gView?.tipo === 'P',
         { status: g1.status, itens: (g1J.itens ?? []).length, cd0: { op: cd[0]?.operacao, tipo: cd[0]?.tipo, qtd: cd[0]?.quantidade, enc: cd[0]?.encerrada, loja: cd[0]?.loja, di: cd[0]?.data_inicio }, qtde: gView?.qtde_itens });
 
-      // 91.1b) as colunas que a mig 285 acrescentou ao detalhe SOBREVIVEM a um save do master.
+      // 91.1b) as colunas do CLUBE sobrevivem ao save do master SEM a promoção conhecê-las.
       const idp1b = idp;
       await pgGp.query(`UPDATE clube_desconto SET barras='7000000000910', venda_estoque=5, pdv=3
                          WHERE idpromocao=$1 AND idorigempromocao=1`, [idp1b]);
       const lido = (await (await fetch(`${base}/${GP}/${idp1b}`, { headers: H })).json().catch(() => ({}))) as any;
       const itemLido = (lido.itens ?? []).find((x: any) => Number(x.idorigempromocao) === 1);
+      // o PUT manda EXATAMENTE o que a tela de promoção manda hoje — nenhum campo do clube no payload
       const reSalvo = await fetch(`${base}/${GP}/${idp1b}`, { method: 'PUT', headers: H,
         body: JSON.stringify({ descricao: 'PROMO PRECO FIXO', tipo: 'P', datainicio: '2028-05-01T08:00',
-          datafim: '2028-05-10T22:00', destino: 'T', itens: lido.itens }) });
+          datafim: '2028-05-10T22:00', destino: 'T',
+          itens: [{ origem: 'P', idorigempromocao: 1, valor: 3.99 }, { origem: 'P', idorigempromocao: 2, valor: 5.49 }] }) });
       const depois = (await pgGp.query(`SELECT barras, venda_estoque, pdv FROM clube_desconto
                         WHERE idpromocao=$1 AND idorigempromocao=1`, [idp1b])).rows[0] as any;
-      check('GP 91.1b [as colunas da mig 285 sobrevivem ao save do master]: o engine de agregado faz DELETE+INSERT dos detalhes a cada save — o que não está na lista `colunas` não é relido no GET, não volta no PUT e vira NULL. `clube_desconto` ganhou 10 colunas na mig 285, e **40 das 47 regras que têm promoção de verdade usam `barras`**: sem elas na lista, um save da promoção apagaria o produto delas. O GET traz o valor gravado e o PUT o devolve intacto',
-        itemLido?.barras === '7000000000910' && Number(itemLido?.venda_estoque) === 5
-        && reSalvo.status === 200 && depois?.barras === '7000000000910'
+      check('GP 91.1b [as colunas do CLUBE sobrevivem ao save da promoção — sem a promoção conhecê-las]: `clube_desconto` é detalhe de agregado, e o engine faz DELETE+INSERT dos detalhes a cada save do master: o que ele não reinsere vira NULL. A mig 285 deu 10 colunas novas à tabela, e **40 das 47 regras que têm promoção de verdade usam `barras`** — um save apagaria o produto delas. A correção NÃO muda o fluxo da promoção: o payload do PUT aqui é exatamente o de hoje, sem um campo do clube, e o engine **preserva** as colunas lendo a linha existente com LOCK na mesma transação. São as DUAS coisas: `colunas` para o engine saber gravar, `preservar` para o valor vir do banco e não do dto — uma sem a outra deixa NULL',
+        reSalvo.status === 200 && depois?.barras === '7000000000910'
         && Number(depois?.venda_estoque) === 5 && Number(depois?.pdv) === 3,
-        { lido: [itemLido?.barras, itemLido?.venda_estoque], put: reSalvo.status, depois });
+        { get_expoe: itemLido?.barras, put: reSalvo.status, depois });
 
       // 91.2) validações: preço fixo <=0 → 422 PROMOCAO_PRECO_INVALIDO; produto inexistente → 422 PROMOCAO_PRODUTO_INEXISTENTE.
       const g2a = await crGp({ descricao: 'X', tipo: 'P', itens: [{ origem: 'P', idorigempromocao: 1, valor: 0 }] });

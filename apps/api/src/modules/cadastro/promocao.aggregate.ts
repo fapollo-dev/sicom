@@ -150,14 +150,25 @@ export const promocaoAggregateConfig: AggregateConfig = {
         'quantidade', 'quantidade_paga', 'minimo', 'maximo', 'maximo_estoque', 'preco_grupo', 'grupo',
         'codigo_promocional', 'codperfil_parceiro', 'codparceiro', 'valor_minimo_compra', 'id_formas_pgto',
         'data_inicio', 'data_fim', 'encerrada', 'loja', 'ativo', 'idempresa',
-        // ⚠️ as colunas que a mig 285 acrescentou a `clube_desconto` PRECISAM estar nesta lista.
-        // O engine de agregado faz DELETE+INSERT dos detalhes a cada save do master: o que não está
-        // listado não é relido no GET, não volta no PUT e é gravado NULL. Medido: das 47 regras que
-        // têm promoção de verdade, **40 têm `barras`** — um save da promoção apagaria o produto delas
-        // (13 têm `venda_estoque`, 6 `pdv`, 5 `hora`). É a mesma armadilha que já custou as 30 colunas
-        // do painel de precificação e o par etq_impressa/codagenda.
+        // ── as 7 colunas que a mig 285 acrescentou a `clube_desconto` ──────────────────────────────
+        // Estão aqui SÓ para o engine saber gravá-las; quem define o VALOR delas é o `preservar` abaixo,
+        // que lê do banco. O payload da promoção não muda: o schema Zod continua sem esses campos, então
+        // o cliente não os envia e não os pode alterar por aqui.
         'barras', 'descricao', 'pdv', 'hora', 'vrcusto', 'vrcustorep', 'venda_estoque',
       ],
+      // ⚠️ POR QUE AS DUAS COISAS. O engine faz DELETE+INSERT dos detalhes a cada save do master e grava
+      // apenas o que está em `colunas`; `preservar` troca o valor do dto pelo valor ATUAL do banco, lido
+      // COM LOCK na mesma transação. Uma sem a outra não resolve:
+      //   · só `colunas`  → o Zod já removeu o campo do dto, o engine grava NULL;
+      //   · só `preservar`→ o engine nem tenta gravar a coluna, e o INSERT a deixa NULL.
+      // Medido: **40 das 47 regras que têm promoção de verdade usam `barras`** (13 `venda_estoque`,
+      // 6 `pdv`, 5 `hora`) — sem isto, um save da promoção apagaria o produto delas.
+      // ⚠️ E a CHAVE NATURAL só pode usar campos que o DTO TRAZ: a primeira tentativa incluiu `barras` e
+      // não casou linha nenhuma, justamente porque `barras` é o que a promoção não envia. A chave é
+      // (origem + alvo), única em 46 das 47 linhas do cliente; a repetida são duas regras de cupom
+      // (`DESCONTO_POR_PDV`, promoção 582) com alvo nulo e nada a preservar — empate inofensivo.
+      chaveNatural: ['origem', 'idorigempromocao'],
+      preservar: ['barras', 'descricao', 'pdv', 'hora', 'vrcusto', 'vrcustorep', 'venda_estoque'],
       derivarItensTrx: async (itens, _trx, emp, header) => {
         // espelha SetDadosIniciaisPadrao/AtualizaDadosFilho (pas:1265/1534): copia período+DESTINO do header + defaults golden.
         const dtini = (header?.datainicio as string | undefined) ?? undefined;

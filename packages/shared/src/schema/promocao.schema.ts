@@ -49,18 +49,6 @@ export const promocaoItemSchema = z.object({
   codparceiro: opcional(z.string().trim().max(255)), // real VARCHAR2(255): CSV I/E-prefixado, não FK inteira
   valor_minimo_compra: dec(z.number().nonnegative()),
   id_formas_pgto: opcional(z.string().trim().max(255)), // real VARCHAR2(255): CSV de formas de pgto
-  // ⚠️ as colunas que a mig 285 acrescentou a `clube_desconto` precisam estar AQUI TAMBÉM, não só na lista
-  // `colunas` do agregado. O Zod remove o que não declara, então o item chega ao engine sem elas e o
-  // DELETE+INSERT as grava NULL — mesmo com a coluna listada no agregado e devolvida pelo GET.
-  // Medido: 40 das 47 regras que têm promoção de verdade usam `barras`. São TRÊS lugares (migration,
-  // agregado e schema), e faltar um só já perde o dado.
-  barras: opcional(z.string().trim().max(20)),
-  descricao: opcional(z.string().trim().max(200)),
-  pdv: opcional(z.coerce.number().int()),
-  hora: opcional(z.string().trim().max(8)),
-  vrcusto: dec(z.number().nonnegative()),
-  vrcustorep: dec(z.number().nonnegative()),
-  venda_estoque: dec(z.number().nonnegative()),
   ativo: opcional(sn()),
 });
 export type PromocaoItemDto = z.infer<typeof promocaoItemSchema>;

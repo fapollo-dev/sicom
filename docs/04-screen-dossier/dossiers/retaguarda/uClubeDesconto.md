@@ -125,17 +125,35 @@ estiver declarado não volta no PUT e é gravado **NULL**.
 Medido: das 47 regras que têm promoção de verdade, **40 usam `barras`**, 13 `venda_estoque`, 6 `pdv` e 5
 `hora`. Um save da promoção pela tela apagaria o produto dessas 40.
 
-### 7.1 São TRÊS lugares, e faltar um só já perde o dado
+### 7.1 A correção: proteger o dado SEM mudar o fluxo da promoção
 
-1. a **migration** (a coluna existir);
-2. a lista `colunas` do **detalhe no agregado** — sem ela o GET nem devolve o valor;
-3. o **schema Zod** do item — e este foi o que me pegou: com a coluna já no agregado, o GET devolvia
-   `barras` corretamente e o PUT respondia 200, mas o banco ficava NULL. O Zod remove o que não declara,
-   então o item chegava ao engine sem o campo.
+A primeira tentativa foi declarar as colunas no schema Zod do item da promoção. Funcionava, mas **mudava o
+fluxo**: a promoção passaria a aceitar e devolver campos que não são dela, e o cliente poderia alterá-los
+por uma tela que não os mostra. Errado — o dono desses campos é o clube.
 
-O smoke §91.1b prova o caminho inteiro: grava o valor direto no banco, lê pelo GET, devolve no PUT e
-confere que sobreviveu. Sem esse teste eu teria "corrigido" com a coluna no agregado e ficado com a
-regressão de pé.
+A correção certa usa o mecanismo que o engine já tem para isto, e são **duas coisas juntas**:
+
+| | para quê |
+|---|---|
+| a coluna na lista `colunas` do detalhe | o engine só grava o que está listado |
+| a coluna em `preservar` + `chaveNatural` | o valor vem do **banco**, lido com LOCK na mesma transação, não do dto |
+
+Uma sem a outra não resolve, e cada uma falha de um jeito:
+
+- **só `colunas`** → o Zod já removeu o campo do dto, e o engine grava NULL;
+- **só `preservar`** → o engine nem tenta gravar a coluna, e o INSERT a deixa NULL.
+
+O **schema Zod continua sem esses campos**, que é o ponto: o payload da promoção não muda uma vírgula, o
+cliente não pode alterá-los por ali, e o dado do clube fica intacto.
+
+⚠️ E a **chave natural só pode usar campos que o dto traz**. A primeira versão incluiu `barras` na chave e
+não casou linha nenhuma — justamente porque `barras` é o que a promoção não envia, que é o motivo de ela
+estar em `preservar`. A chave ficou `(origem, idorigempromocao)`: única em 46 das 47 linhas; a repetida são
+duas regras de cupom com alvo nulo e nada a preservar.
+
+O smoke §91.1b prova o caminho inteiro **com o payload de hoje**: grava o valor direto no banco, salva a
+promoção mandando exatamente o que a tela manda (sem nenhum campo do clube) e confere que sobreviveu.
+Foram três tentativas até passar, e cada falha ensinou uma parte da regra.
 
 ### 7.2 O que NÃO era regressão
 
