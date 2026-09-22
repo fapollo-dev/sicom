@@ -136,17 +136,36 @@ export class ReformaIbsCbsService {
    * milhares de produtos, e apagá-la deixaria a nota sem cClassTrib — rejeição na SEFAZ, não erro interno.
    */
   async excluirClassTrib(codclass_trib: number) {
-    const db = this.dbp.forTenant() as AnyDB;
-    const uso = (await sql<{ n: string }>`
-        SELECT count(*) AS n FROM produtos WHERE codclass_trib = ${codclass_trib}`.execute(db)).rows[0];
-    if (Number(uso.n) > 0)
-      throw new BusinessRuleError('CLASS_TRIB_EM_USO', { codclass_trib, produtos: Number(uso.n) });
-    const r = (await sql<{ codclass_trib: number }>`
-        UPDATE class_trib SET indr = 'E', indr_usuario = ${this.op()}, indr_data = now()
-         WHERE codclass_trib = ${codclass_trib} AND coalesce(indr, 'I') <> 'E'
-         RETURNING codclass_trib`.execute(db)).rows[0];
-    if (!r) throw new BusinessRuleError('CLASS_TRIB_NAO_ENCONTRADA', { codclass_trib });
-    return { codclass_trib: Number(r.codclass_trib) };
+    // ⚠️ validar FORA da transação do UPDATE é TOCTOU: entre o SELECT que conta os produtos e o UPDATE que
+    // estorna, outra sessão pode classificar um produto — e ele ficaria apontando classificação estornada.
+    // A linha é travada antes da contagem.
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const alvo = (await sql<{ codclass_trib: number; class_trib: string; indr: string | null }>`
+          SELECT codclass_trib, class_trib, indr FROM class_trib
+           WHERE codclass_trib = ${codclass_trib} FOR UPDATE`.execute(trx)).rows[0];
+      if (!alvo || (alvo.indr ?? 'I') === 'E')
+        throw new BusinessRuleError('CLASS_TRIB_NAO_ENCONTRADA', { codclass_trib });
+
+      const uso = (await sql<{ produtos: string; notas: string; ncms: string }>`
+          SELECT (SELECT count(*) FROM produtos WHERE codclass_trib = ${codclass_trib}) AS produtos,
+                 (SELECT count(*) FROM nf_prod_ibscbs WHERE cclasstrib = ${alvo.class_trib}) AS notas,
+                 (SELECT count(*) FROM cclass_trib_ncm WHERE cclass_trib = ${alvo.class_trib}) AS ncms`
+        .execute(trx)).rows[0];
+      // produto apontando é o que BARRA: a próxima nota desse produto sairia sem cClassTrib e a SEFAZ
+      // rejeita. Itens de nota já calculados e vínculos de NCM não barram — são histórico, e a consulta
+      // dos grupos mostra o nome mesmo depois do estorno —, mas vão no detalhe para quem decide ver.
+      if (Number(uso.produtos) > 0)
+        throw new BusinessRuleError('CLASS_TRIB_EM_USO', {
+          codclass_trib, produtos: Number(uso.produtos),
+          itens_de_nota: Number(uso.notas), vinculos_ncm: Number(uso.ncms),
+        });
+
+      await sql`UPDATE class_trib SET indr = 'E', indr_usuario = ${this.op()}, indr_data = now()
+                 WHERE codclass_trib = ${codclass_trib}`.execute(trx);
+      return {
+        codclass_trib, itens_de_nota: Number(uso.notas), vinculos_ncm: Number(uso.ncms),
+      };
+    });
   }
 
   // ─── de-para cClassTrib × NCM ───────────────────────────────────────────────────────────────────────

@@ -16558,14 +16558,27 @@ async function main() {
           nome_class_trib: 'REDUCAO ASSIMETRICA IBS 60 CBS 100', lc_214_25: 'Art. 9º',
           tipo_aliquota: 'Padrão', pred_ibs: 60, pred_cbs: 100 }) });
         const semCst = await fetch(`${base}/${RF}/class-trib`, { method: 'POST', headers: j, body: JSON.stringify({
-          cst: '999', descricao_cst: 'INEXISTENTE', class_trib: '999999', nome_class_trib: 'X' }) });
+          cst: '999', descricao_cst: 'INEXISTENTE', class_trib: '999999', nome_class_trib: 'X',
+          tipo_aliquota: 'Padrão' }) });
         const semCstJ = (await semCst.json().catch(() => ({}))) as any;
+        const semTipo = await fetch(`${base}/${RF}/class-trib`, { method: 'POST', headers: j, body: JSON.stringify({
+          cst: '200', descricao_cst: 'X', class_trib: '200097', nome_class_trib: 'SEM TIPO' }) });
+        const tipoDoido = await fetch(`${base}/${RF}/class-trib`, { method: 'POST', headers: j, body: JSON.stringify({
+          cst: '200', descricao_cst: 'X', class_trib: '200096', nome_class_trib: 'TIPO INVENTADO',
+          tipo_aliquota: 'Meia boca' }) });
+        const semAcentoOk = await fetch(`${base}/${RF}/class-trib`, { method: 'POST', headers: j, body: JSON.stringify({
+          cst: '200', descricao_cst: 'X', class_trib: '200095', nome_class_trib: 'PADRAO SEM ACENTO',
+          tipo_aliquota: 'Padrao', pred_ibs: 0, pred_cbs: 0 }) });
         const lista = (await (await fetch(`${base}/${RF}/class-trib?q=2000`, { headers: H })).json().catch(() => [])) as any[];
         const assim = lista.find((c: any) => c.class_trib === '200099');
         check('REFORMA IBS/CBS §153.2 [a redução de IBS e a de CBS são INDEPENDENTES]: das 132 classificações do cliente, **uma tem PRED_IBS 60 e PRED_CBS 100** — guardar "um percentual de redução" e aplicá-lo aos dois erraria essa linha em silêncio, e é justamente a faixa de CBS zerada com IBS reduzido, onde o erro vira imposto cobrado a mais. Aqui as duas colunas voltam separadas (60 e 100). E a CST tem de existir no catálogo: 422 CST_IBSCBS_NAO_CADASTRADA',
           gA.status === 200 && gB.status === 200 && assim?.pred_ibs === 60 && assim?.pred_cbs === 100
           && semCst.status === 422 && semCstJ.code === 'CST_IBSCBS_NAO_CADASTRADA',
           { gA: gA.status, gB: gB.status, assim: [assim?.pred_ibs, assim?.pred_cbs], semCst: [semCst.status, semCstJ.code] });
+
+        check('REFORMA IBS/CBS §153.6 [o TIPO DE ALÍQUOTA governa a fórmula, então não pode ser texto livre]: é ele que decide se o item se calcula pela alíquota da UF, se não tributa ou se tem cálculo próprio (mig 280). Deixá-lo opcional e aberto — como estava — permitiria gravar classificação sem tipo (e aí toda nota dela seria recusada) ou com tipo inventado (e aí o cálculo sairia errado calado). Agora é **obrigatório e fechado** nos cinco da LC 214/2025: sem tipo é 400, tipo inventado é 400, e "Padrao" sem acento passa — o valor vem de carga e não pode depender do encoding',
+          semTipo.status === 400 && tipoDoido.status === 400 && semAcentoOk.status === 200,
+          { semTipo: semTipo.status, doido: tipoDoido.status, semAcento: semAcentoOk.status });
 
         // o de-para cClassTrib × NCM por anexo, e a busca por PREFIXO (quem consulta tem o capítulo na mão)
         await pgRf.query(`INSERT INTO cclass_trib_ncm (cclass_trib, cst, anexo, legislacao, codigo_ncm) VALUES
@@ -16609,9 +16622,29 @@ async function main() {
           && semGrant.status === 403,
           { emUso: [emUso.status, emUsoJ.code, emUsoJ.detalhe?.produtos], del: okDel.status, sumiu: sumiu.length, comEstorno: comEstorno.length, rbac: semGrant.status });
 
+        // a exclusão também CONTA o uso em notas e em vínculos de NCM (não barra, mas informa)
+        const codB = ((await pgRf.query(`SELECT codclass_trib FROM class_trib WHERE class_trib='200099'`)).rows[0] as any).codclass_trib;
+        await pgRf.query(`INSERT INTO nf (codnf, idempresa, codparceiro, nronf, serie, modelo, tipo, dtemissao, dtcontabil, totalnf)
+          VALUES (9943001, 1, 2, '9943001', '1', '55', 'E', '2026-03-09', '2026-03-09', 10) ON CONFLICT (codnf) DO NOTHING`);
+        await pgRf.query(`INSERT INTO nf_prod (codnfprod, codnf, nroitem, codproduto, quantidade, vrcusto, unidade, cfop)
+          VALUES (99430011, 9943001, 1, 994301, 1, 10, 'UN', 1102) ON CONFLICT (codnfprod) DO NOTHING`);
+        await pgRf.query(`INSERT INTO nf_prod_ibscbs (codnfprod, codnf, idempresa, codproduto, cclasstrib, vbc)
+          VALUES (99430011, 9943001, 1, 994301, '200099', 10) ON CONFLICT (codnfprod) DO NOTHING`);
+        const delB = await fetch(`${base}/${RF}/class-trib/${codB}`, { method: 'DELETE', headers: H });
+        const delBJ = (await delB.json().catch(() => ({}))) as any;
+        const aindaLa = (await pgRf.query(`SELECT indr FROM class_trib WHERE codclass_trib = ${codB}`)).rows[0] as any;
+        const nomeNoHistorico = (await (await fetch(`${base}/fiscal/nf-ibscbs?codnf=9943001`, { headers: H })).json().catch(() => ({}))) as any;
+        check('REFORMA IBS/CBS §153.7 [excluir classificação usada em NOTA: informa, não esconde]: a exclusão barra por PRODUTO apontando (a próxima nota sairia sem cClassTrib), mas item de nota já calculado é **histórico** e não barra — apagar a classificação não apaga a nota. A resposta diz quantos itens de nota e quantos vínculos de NCM ficaram apontando, e **a consulta dos grupos continua mostrando o nome da classificação mesmo estornada**: filtrar estornadas ali deixaria a nota antiga sem descrição. A validação roda com a linha TRAVADA, senão entre contar produtos e estornar alguém classifica um',
+          delB.status === 200 && delBJ.itens_de_nota === 1 && aindaLa?.indr === 'E'
+          && (nomeNoHistorico.itens ?? [])[0]?.nome_class_trib != null,
+          { del: delB.status, notas: delBJ.itens_de_nota, ncms: delBJ.vinculos_ncm, indr: aindaLa?.indr, nome: (nomeNoHistorico.itens ?? [])[0]?.nome_class_trib });
+        await pgRf.query(`DELETE FROM nf_prod_ibscbs WHERE codnf = 9943001`);
+        await pgRf.query(`DELETE FROM nf_prod WHERE codnf = 9943001`);
+        await pgRf.query(`DELETE FROM nf WHERE codnf = 9943001`);
+
         await pgRf.query(`DELETE FROM produtos WHERE idproduto = 994301`);
         await pgRf.query(`DELETE FROM cclass_trib_ncm WHERE cclass_trib IN ('200003','200099')`);
-        await pgRf.query(`DELETE FROM class_trib WHERE class_trib IN ('200003','200099')`);
+        await pgRf.query(`DELETE FROM class_trib WHERE class_trib IN ('200003','200099','200095')`);
         await pgRf.query(`DELETE FROM ibs_uf WHERE uf IN ('SP','MG','AC')`);
         await pgRf.query(`DELETE FROM cst_ibs_cbs WHERE cst IN ('000','010','200')`);
       } finally {

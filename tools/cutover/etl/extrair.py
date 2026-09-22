@@ -241,7 +241,15 @@ FILTROS = {
            # tem o que virar — a carga descarta e conta (não dá para inventar o produto).
            'pedidocompra_i': 'idproduto is not null',
            # pedido de compra sem fornecedor não tem o que virar (codparceiro é NOT NULL aqui): descarta e conta
-           'pedidocompra': 'codparceiro is not null'}
+           'pedidocompra': 'codparceiro is not null',
+           # ⚠️ REFORMA IBS/CBS (mig 279): as duas tabelas têm FK para o documento, e o legado guarda ÓRFÃOS.
+           # Sem filtro a carga não perde linha em silêncio — ela FALHA na FK, tabela inteira. Medido:
+           #   · `nf_prod_ibscbs`: **9.733 dos 99.109 itens (9,8%)** não têm item de nota (e 8.504 não têm
+           #     nem nota). Valor preso neles: base R$ 1.141.521,80 · IBS R$ 708,36 · CBS R$ 6.377,56.
+           #   · `nf_ibscbs`: **416 dos 10.054 cabeçalhos** não têm nota.
+           # Grupo de tributação sem o documento a que se refere não é dado, é resto: descarta e conta.
+           'nf_prod_ibscbs': 'exists (select 1 from nf_prod p where p.codnfprod = nf_prod_ibscbs.codnfprod)',
+           'nf_ibscbs': 'exists (select 1 from nf f where f.codnf = nf_ibscbs.codnf)'}
 
 # PKs naturais que a origem repete: a carga fica com a ÚLTIMA linha por chave e CONTA o descarte (§7e)
 # LER EM FATIAS (ORA-01555): tabela grande em base VIVA não sobrevive a um SELECT de 20 min — o UNDO é reciclado

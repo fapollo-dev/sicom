@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type Kysely } from 'kysely';
+import { normalizaTipoAliquota } from '@apollo/shared';
 import type { NfIbsCbsCalculoDto, NfIbsCbsConsultaDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
@@ -16,8 +17,7 @@ const num = (v: unknown) => (v == null ? 0 : Number(v));
  * (Não é hipótese: a mesma armadilha derrubou uma consulta desta auditoria contra o Oracle,
  * onde `tipo_aliquota <> 'Padrão'` casou com tudo.)
  */
-const semAcento = (v: unknown) =>
-  String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+const semAcento = normalizaTipoAliquota;  // a MESMA do shared que valida o schema: uma verdade só
 const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
 const r4 = (v: number) => Math.round((v + Number.EPSILON) * 10000) / 10000;
 
@@ -58,8 +58,14 @@ export class NfIbsCbsService {
    * no cliente **36.278 itens têm base diferente da que o fornecedor mandou** (R$ 4,9 milhões).
    */
   async calcular(d: NfIbsCbsCalculoDto) {
-    const db = this.dbp.forTenant() as AnyDB;
     const empresaId = this.emp();
+    // ⚠️ TUDO NUMA TRANSAÇÃO SÓ. São N gravações de item mais a do cabeçalho, e o cabeçalho afirma uma
+    // identidade sobre os itens (`vibs = vibsuf + vibsmun`, exata em 10.012/10.012 notas do cliente).
+    // Gravar fora de transação deixaria, numa falha no meio do laço, metade dos itens novos e o cabeçalho
+    // velho — ou seja, um total que não corresponde a nenhuma versão dos itens. É o mesmo defeito que eu
+    // apontei no legado da precificação por NF bruta (mig 273: `Commit` dentro do laço), e aqui seria pior,
+    // porque é documento fiscal.
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (db: AnyDB) => {
 
     const nf = (await sql<{ codnf: number; uf: string | null; data_ref: string | null }>`
         SELECT f.codnf, coalesce(e.uf, pe.uf) AS uf,
@@ -209,6 +215,9 @@ export class NfIbsCbsService {
                 ${cheiaCbs}, ${redCbs}, ${efCbs}, ${vcbs},
                 ${i.codcclass_trib_ncm ?? null}, ${cstOri}, ${cclassOri}, ${vbcOri}, ${tratamento})
         ON CONFLICT (codnfprod) DO UPDATE SET
+          -- codnf/codproduto também: o item pode ter trocado de produto entre um cálculo e outro, e um
+          -- grupo apontando o produto errado passaria despercebido (os valores seriam recalculados certos)
+          codnf = excluded.codnf, idempresa = excluded.idempresa, codproduto = excluded.codproduto,
           cst = excluded.cst, cclasstrib = excluded.cclasstrib, vbc = excluded.vbc,
           pibsuf = excluded.pibsuf, predaliq_ibsuf = excluded.predaliq_ibsuf,
           paliqefet_ibsuf = excluded.paliqefet_ibsuf, vibsuf = excluded.vibsuf,
@@ -253,6 +262,7 @@ export class NfIbsCbsService {
         return acc;
       }, {}),
     };
+    });
   }
 
   /**
@@ -270,7 +280,9 @@ export class NfIbsCbsService {
         SELECT g.*, p.nroitem, p.descricao, t.nome_class_trib
           FROM nf_prod_ibscbs g
           LEFT JOIN nf_prod p ON p.codnfprod = g.codnfprod
-          LEFT JOIN class_trib t ON t.class_trib = g.cclasstrib AND coalesce(t.indr, 'I') <> 'E'
+          -- SEM filtrar estornadas: isto é HISTÓRICO. Se a classificação foi estornada depois de a nota
+          -- ser calculada, o nome ainda tem de aparecer — esconder deixaria a nota antiga sem descrição.
+          LEFT JOIN class_trib t ON t.class_trib = g.cclasstrib
          WHERE g.codnf = ${q.codnf} AND g.idempresa = ${empresaId}
            AND (NOT ${q.so_divergentes}::boolean
                 OR (g.cst_ori IS NOT NULL

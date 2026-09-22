@@ -7,6 +7,19 @@ import { boolQuery } from './bool-query';
  */
 
 const sn = () => z.enum(['S', 'N']);
+
+/** normaliza o tipo de alíquota: minúsculo, sem diacrítico — o valor vem de carga e pode perder o acento */
+export const normalizaTipoAliquota = (v: unknown) =>
+  String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+
+/**
+ * Os cinco tipos que a LC 214/2025 produz, e que decidem COMO o item se calcula.
+ * Distribuição nas 132 classificações do cliente: Padrão 60 · Sem alíquota 55 · Uniforme setorial 8 ·
+ * Uniforme nacional (referência) 5 · Fixa 4.
+ */
+export const TIPOS_ALIQUOTA_CONHECIDOS = new Set([
+  'padrao', 'sem aliquota', 'uniforme setorial', 'uniforme nacional (referencia)', 'fixa',
+]);
 const flag = () => z.coerce.number().int().min(0).max(1);
 
 /** CST da reforma: 3 dígitos (000, 010, 011, 200, 210, 220…). */
@@ -46,7 +59,16 @@ export const classTribSchema = z.object({
   descricao_class_trib: z.string().trim().nullable().optional(),
   lc_redacao: z.string().trim().nullable().optional(),
   lc_214_25: z.string().trim().max(100).nullable().optional(),
-  tipo_aliquota: z.string().trim().max(500).nullable().optional(),
+  /**
+   * ⚠️ NÃO é rótulo: é o campo que GOVERNA A FÓRMULA (mig 280). Só "Padrão" se calcula pela alíquota da
+   * UF; "Sem alíquota" não tributa; setorial, nacional e fixa têm cálculo próprio. Por isso é obrigatório
+   * e fechado num conjunto — texto livre aqui vira imposto errado, e vazio faria a nota inteira ser
+   * recusada. A comparação aceita com e sem acento porque o valor vem de carga (ver `semAcento` no
+   * serviço).
+   */
+  tipo_aliquota: z.string().trim().min(1, 'informe o tipo de alíquota').max(500)
+    .refine((v) => TIPOS_ALIQUOTA_CONHECIDOS.has(normalizaTipoAliquota(v)),
+      { message: 'tipo de alíquota desconhecido — governa a fórmula do IBS/CBS e não pode ser texto livre' }),
   pred_ibs: z.coerce.number().min(0).max(100).nullable().optional(),
   pred_cbs: z.coerce.number().min(0).max(100).nullable().optional(),
   ind_redutor_bc: z.string().trim().max(3).nullable().optional(),

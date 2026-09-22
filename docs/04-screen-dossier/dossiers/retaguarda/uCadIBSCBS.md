@@ -258,3 +258,70 @@ A comparação do `TIPO_ALIQUOTA` é feita **por prefixo sem diacrítico**, não
 zelo excessivo: nesta mesma auditoria, a consulta `tipo_aliquota <> 'Padrão'` contra o Oracle **casou com
 todas as linhas** por diferença de encoding. Se isso acontecesse na carga, o efeito seria pesado — com
 "Padrão" não casando, todo item viraria tratamento próprio e nenhuma nota calcularia. Smoke §154.8.
+
+
+## 10. Segunda revisão (22/09/2026) — o que a primeira auditoria não olhou
+
+A primeira auditoria (§9) atacou a **regra fiscal** do corte-2. Esta segunda olhou o que ficou de fora:
+o **corte-1**, o **código** (transação, tenant, concorrência) e o **ETL**. Mais seis defeitos, todos meus.
+
+### 10.1 ⚠️ O cálculo não tinha transação
+
+O `calcular` gravava N itens e depois o cabeçalho, cada um numa instrução solta. Uma falha no meio do laço
+deixaria **metade dos itens novos ao lado do cabeçalho velho** — um total que não corresponde a nenhuma
+versão dos itens, logo depois de o próprio cabeçalho afirmar a identidade `vibs = vibsuf + vibsmun`.
+É o mesmo defeito que apontei no legado da precificação por NF bruta (mig 273, `Commit` dentro do laço),
+e aqui seria pior porque é documento fiscal. Agora tudo roda numa transação só.
+
+### 10.2 ⚠️ O tipo de alíquota governava a fórmula e aceitava qualquer coisa
+
+Depois da mig 280, `TIPO_ALIQUOTA` decide se o item se calcula pela alíquota da UF, se não tributa ou se
+tem cálculo próprio. Mas o schema o deixava **opcional e de texto livre**. Gravar sem tipo faria toda nota
+daquela classificação ser recusada; gravar com tipo inventado faria o cálculo sair errado calado. Agora é
+obrigatório e fechado nos cinco valores da LC 214/2025, comparados sem diacrítico — e a normalização é
+**a mesma função** que o serviço usa (`normalizaTipoAliquota`, no shared), porque duas cópias dessa regra
+seriam duas verdades. Smoke §153.6.
+
+### 10.3 ⚠️ A exclusão validava fora da transação (TOCTOU)
+
+`excluirClassTrib` contava os produtos num `SELECT` e estornava num `UPDATE` separado: entre um e outro,
+outra sessão pode classificar um produto, que ficaria apontando classificação estornada. Agora a linha é
+travada com `FOR UPDATE` antes da contagem. A exclusão também passou a **contar o uso em notas e em
+vínculos de NCM** — isso não barra (item de nota calculado é histórico; apagar a classificação não apaga a
+nota), mas vai no detalhe para quem decide ver. Smoke §153.7.
+
+### 10.4 ⚠️ O histórico perdia o nome da classificação
+
+A consulta dos grupos fazia `JOIN class_trib ... AND coalesce(indr,'I') <> 'E'`. Bastava estornar a
+classificação para toda nota antiga aparecer **sem descrição**. Consulta de cadastro filtra estornadas;
+consulta de **histórico** não. O join foi aberto.
+
+### 10.5 ⚠️ O upsert não atualizava a nota nem o produto do item
+
+O `ON CONFLICT` recalculava os valores mas mantinha `codnf`, `idempresa` e `codproduto` antigos. Se o item
+trocasse de produto entre um cálculo e outro, o grupo apontaria o produto errado **com os valores certos** —
+o pior tipo de inconsistência, porque não chama atenção. As três colunas entraram no `SET`.
+
+### 10.6 ⚠️ A carga FALHARIA na chave estrangeira — o legado guarda órfãos
+
+As duas tabelas referenciam o documento, e o legado tem grupo de tributação sem documento:
+
+| | total | órfãos | |
+|---|---:|---:|---|
+| `NF_PROD_IBSCBS` | 99.109 | **9.733 (9,8%)** | sem item de nota (8.504 sem nem a nota) |
+| `NF_IBSCBS` | 10.054 | **416** | sem nota |
+
+Valor preso nos itens órfãos: base R$ 1.141.521,80 · IBS R$ 708,36 · CBS R$ 6.377,56. Sem filtro a carga
+não perderia linha em silêncio — ela **falharia inteira** na FK. Os dois `FILTROS` entraram no ETL e foram
+testados na produção: passam 89.376 e 9.638, descartando 9.733 e 416, contados no manifesto.
+
+### 10.7 Conferido e correto (para não reabrir depois)
+
+- **Tenant nos itens**: `nf_prod` não tem coluna de empresa; o filtro por `codnf` é seguro por
+  transitividade, porque a nota já foi validada contra o tenant antes.
+- **Itens que somem**: a FK `ON DELETE CASCADE` limpa o grupo quando o item da nota é apagado — não sobra
+  grupo órfão de um recálculo para outro.
+- **Arredondamento**: cada item é arredondado a 2 casas antes de somar, e o cabeçalho é a soma dos itens
+  arredondados. É o que o legado faz (o cabeçalho bate com a soma dos itens em ~95% das notas).
+- **Alíquota zero legítima**: `pIbsUf` só cai para a tabela de reserva quando o parâmetro é **nulo**, não
+  quando é zero — `??` e não `||`.
