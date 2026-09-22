@@ -101,6 +101,27 @@ ORIGEM_NAO_VEM = re.compile(
     r'usucadastro|usuexclusao|dtexclusao|dtalteracao|dtultacesso|'
     r'sincronizado|exportado|codigoempresawl|filialempresawl)'
     r'|(_bkp|_temp|_wl|_old)$')
+# colunas da ORIGEM que ficam de fora com PROVA medida — cada par é uma decisão, não um esquecimento
+ORIGEM_DECLARADA = {
+    # mig 286: das 28 colunas de total da NF, 12 entraram (R$ 160,5 milhões) e estas 16 não.
+    ('nf', 'codnfstatuspro'): 'FK para NF_STATUS_PROCESSO, que ainda não tem destino — entra com ela',
+    ('nf', 'qtde'): 'contagem de itens: derivável de nf_prod; guardar criaria uma segunda verdade',
+    ('nf', 'validatotalnf'): 'flag de processo do legado, não valor',
+    ('nf', 'totalfrete2'): 'resíduo: 1 nota',
+    ('nf', 'total_fcp'): 'resíduo: 1 nota',
+    ('nf', 'total_fcp_bc'): 'resíduo',
+    ('nf', 'totalvroutros'): 'resíduo: 1 nota',
+    ('nf', 'totaldescfinal'): 'resíduo: 22 notas, R$ -175,96',
+    ('nf', 'totalipi_devolucao'): 'resíduo: 41 notas, R$ 175,10',
+    ('nf', 'total_icms_uf_dest_bc'): 'resíduo: zerado nas notas do cliente',
+    ('nf', 'totalicm_stexterno_sepnf'): 'resíduo',
+    ('nf', 'total_desc_acordo'): 'resíduo',
+    ('nf', 'fisco_emit_dar_valor'): 'campo de fisco do emitente: zerado',
+    ('nf', 'valorissqn'): 'ISSQN: o cliente não presta serviço (zerado)',
+    ('nf', 'valorservico'): 'idem',
+    ('nf', 'totalbaseicmsrep_ret'): 'resíduo',
+    ('nf', 'total_desc_pedido'): 'zerado nas 49.655 notas (0 com valor)',
+}
 # grandezas cuja ausência muda NÚMERO ou IDENTIDADE — é onde a perda é cara
 CHAVE_OU_NUMERO = re.compile(
     r'(^cod|^id|barras|codbarra|ncm|cest|cfop|^cst|'
@@ -181,7 +202,7 @@ def main() -> int:
                 equiv.add(a)
         candidatas = [x for x in sorted(ori - dst - renomeadas - calculadas_de - equiv)
                       if CHAVE_OU_NUMERO.search(x) and not ORIGEM_NAO_VEM.search(x)
-                      and not NOSSAS.match(x)]
+                      and not NOSSAS.match(x) and (t, x) not in ORIGEM_DECLARADA]
         if not candidatas:
             continue
         est = EST.get(T, {})

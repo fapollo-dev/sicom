@@ -328,6 +328,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('283_regimes_especiais_ibscbs.sql'));
   await pool.query(sql('284_split_payment.sql'));
   await pool.query(sql('285_clube_desconto.sql'));
+  await pool.query(sql('286_nf_totais_faltantes.sql'));
   await pool.end();
   return pg;
 }

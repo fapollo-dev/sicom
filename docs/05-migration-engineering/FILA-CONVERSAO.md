@@ -446,3 +446,40 @@ os custos de venda são os primeiros a olhar, porque mudam número.
 de linhas — passava de dez minutos e por isso não seria rodada. Agora lê o dicionário em três consultas e
 mede o preenchimento pelas estatísticas do Oracle: **5,6 segundos**. Estatística desatualizada mede a
 menos, nunca a mais, então ela erra para o lado seguro.
+
+
+### Achado 8 — R$ 160 milhões de bases e valores de ICMS/ST que a nota perdia na carga
+
+Primeiro resultado do sentido novo do conferidor (Achado 7). A tabela `nf` está no plano desde o começo e
+mesmo assim deixava **28 colunas do cabeçalho** para trás — não em silêncio parcial, mas inteiras.
+
+Das 28, **12 entraram** (mig 286), com o valor medido em notas que têm o campo diferente de zero:
+
+| coluna | notas | soma |
+|---|---:|---:|
+| `total_icms_nota_bc` | 26.056 | R$ 49.762.363,32 |
+| `totalbase_stexterno` | 17.078 | R$ 43.524.106,47 |
+| `totalbaseicmt` | 16.999 | R$ 41.191.944,85 |
+| `totalbaseicmsrep` | 7.153 | R$ 7.638.892,75 |
+| `totalprodst` | 1.903 | R$ 7.063.321,44 |
+| `total_icms_nota_valor` | 23.956 | R$ 6.006.312,03 |
+| `total_streal` | 17.051 | R$ 3.058.772,97 |
+| `totalrepicm` | 7.190 | R$ 913.053,46 |
+| `total_bonificado` | 1.891 | R$ 889.628,65 |
+| `total_fcp_valor_st` · `_ret` · `total_icmsdeson` | 5.216 | R$ 447.310,53 |
+| **total** | | **R$ 160.495.706,47** |
+
+O padrão do que faltava é nítido: o destino trouxe os totais principais (produto, desconto, frete, ICMS,
+IPI) e deixou de fora os de **substituição tributária, FCP, repasse e o par de conferência da nota**.
+
+`TOTAL_ICMS_NOTA_BC` e `_VALOR` são o par de conferência do cabeçalho — o que o fornecedor declarou ao lado
+do que a conferência apurou, o mesmo desenho que o item já tinha. Sem eles, a nota perde a referência de
+origem justamente nos dois campos que a fiscalização confronta primeiro.
+
+**As outras 16 ficam de fora com prova**, agora declaradas em `ORIGEM_DECLARADA` no conferidor:
+`codnfstatuspro` é FK para a esteira que ainda não tem destino (entra com ela); `qtde` é derivável de
+`nf_prod` e guardá-la criaria uma segunda verdade; `validatotalnf` é flag de processo; e as demais somam
+menos de R$ 151 mil em pouquíssimas notas, ou estão zeradas nas 49.655.
+
+Com isso o sentido 2 do conferidor caiu de **167 para 139**, e a `nf` saiu da lista inteira. O que sobra se
+concentra em `nf_prod` (31), `vendas` (26), `pedido_devolucao_compra_i` (23) e `empresas` (18).
