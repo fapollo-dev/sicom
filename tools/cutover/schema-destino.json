@@ -11435,6 +11435,13 @@
      "escala": 4,
      "nulo": true,
      "default": null
+    },
+    "meta_compra": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [

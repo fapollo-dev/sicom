@@ -789,30 +789,41 @@ function AcoesEstadoBar({ form, onRecebeu }: { form: UseFormReturn<CriarPedidoCo
   const fechar = async () => {
     if (executando) return;
     setExecutando(true);
+    // cada recusa do servidor que o legado resolvia com uma liberação vira uma pergunta e uma nova tentativa:
+    // o LIMITE do período (liberar-limite, grant LIBERAVALORMAX) e a META DIÁRIA da loja (senha administrativa).
+    let senhaAdm: string | undefined;
+    let limiteLiberado = false;
     try {
-      const r = (await fecharPedido(codpedcomp)) as { fechamento?: string; idempresa?: number };
-      await recarregarEstado(form, codpedcomp);
-      mensagem.sucesso(r?.fechamento === 'parcial'
-        ? `Pedido fechado para a loja ${r.idempresa ?? ''}. As outras lojas do pedido ainda estão abertas.`
-        : 'Pedido fechado. Gere a NF de entrada para receber, ou reabra para editar.');
-    } catch (e) {
-      // corte-final: limite de compra excedido → oferece a LIBERAÇÃO (grant LIBERAVALORMAX) e refecha —
-      // espelha o fluxo do legado (senha de supervisor → libera → continua).
-      const code = (e as { envelope?: { code?: string } })?.envelope?.code;
-      if (code === 'PEDIDO_LIMITE_EXCEDIDO') {
-        if (window.confirm('O pedido excede o limite de compra do período. Liberar o limite (requer permissão) e fechar?')) {
-          try {
+      for (;;) {
+        try {
+          const r = (await fecharPedido(codpedcomp, senhaAdm)) as { fechamento?: string; idempresa?: number };
+          await recarregarEstado(form, codpedcomp);
+          mensagem.sucesso(r?.fechamento === 'parcial'
+            ? `Pedido fechado para a loja ${r.idempresa ?? ''}. As outras lojas do pedido ainda estão abertas.`
+            : 'Pedido fechado. Gere a NF de entrada para receber, ou reabra para editar.');
+          return;
+        } catch (e) {
+          const env = (e as { envelope?: { code?: string; detalhe?: any } })?.envelope;
+          if (env?.code === 'PEDIDO_LIMITE_EXCEDIDO' && !limiteLiberado) {
+            if (!window.confirm('O pedido excede o limite de compra do período. Liberar o limite (requer permissão) e fechar?')) return;
             await liberarLimitePedido(codpedcomp);
-            await fecharPedido(codpedcomp);
-            await recarregarEstado(form, codpedcomp);
-            mensagem.sucesso('Limite liberado e pedido fechado.');
-          } catch (e2) {
-            mensagem.erro(e2);
+            limiteLiberado = true;
+            continue;
           }
+          if (env?.code === 'PEDIDO_META_DIARIA_EXCEDIDA' && senhaAdm == null) {
+            // a mensagem do legado (mniFecharPedidoClick): loja, valor permitido e total informado
+            const linhas = ((env.detalhe?.excedidas ?? []) as Array<{ idempresa: number; meta: number; total: number }>)
+              .map((x) => `Loja ${x.idempresa} — valor permitido: ${fmtBRL(x.meta)}, total informado: ${fmtBRL(x.total)}`);
+            const s = window.prompt(`O pedido ultrapassa a meta diária de compra.\n${linhas.join('\n')}\nSerá preciso liberação. Senha administrativa:`);
+            if (!s) return;
+            senhaAdm = s;
+            continue;
+          }
+          throw e;
         }
-      } else {
-        mensagem.erro(e);
       }
+    } catch (e) {
+      mensagem.erro(e);
     } finally {
       setExecutando(false);
     }

@@ -66,8 +66,9 @@ export function removerPedido(id: number): Promise<void> {
 }
 
 /** POST compras/pedidos/:id/fechar — rascunho→fechado (exige ≥1 item; o servidor reforça). */
-export function fecharPedido(id: number): Promise<{ codpedcomp: number; fechado: 'S' }> {
-  return req(`/compras/pedidos/${id}/fechar`, { method: 'POST' });
+export function fecharPedido(id: number, senhaAdm?: string): Promise<{ codpedcomp: number; fechado: 'S' }> {
+  // senhaAdm: a liberação da META DIÁRIA de compra da loja (mig 304, SenhaAdministrativa('ADM') do legado)
+  return req(`/compras/pedidos/${id}/fechar`, { method: 'POST', body: JSON.stringify(senhaAdm ? { senhaAdm } : {}) });
 }
 
 /** POST compras/pedidos/:id/reabrir — fechado→rascunho (destrava edição/exclusão). */

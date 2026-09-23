@@ -24,8 +24,8 @@ export class PedidoCompraController {
   @Post(':id/fechar')
   @HttpCode(200)
   @RequerAcesso('FRMPEDIDOCOMPRA', 'MNIFECHARPEDIDO')
-  fechar(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.fechar(id);
+  fechar(@Param('id', ParseIntPipe) id: number, @Body() body?: { senhaAdm?: string }) {
+    return this.svc.fechar(id, { senhaAdm: body?.senhaAdm });
   }
 
   @Post(':id/reabrir')

@@ -432,7 +432,23 @@ a trava de faturado nessas ações é a da loja (nota dela) no multi-loja.
 
 Smoke §165.1-§165.3. **1435/0.**
 
-**Fica:** a conferência FINANCEIRA da análise pedido×NF (`uDMConferenciaFinanceiroNFPedComp`: parcelas da nota × parcelas
-do pedido DA LOJA da nota, `VALOR > 0` — não migrada, nem no dossiê da análise); cotação multi-loja
-(`COTACAO_PRODQTDE` → PCQ); meta diária de compra por loja (`cdsTotalDiario` × `EMPRESAS.META_COMPRA`, uPedidoCompra.pas:2424);
-relatório de pedidos por loja.
+**Veredito — a conferência FINANCEIRA da análise antiga não roda na produção** (`GeraDivergencias`,
+UanalisaPedComp_NF.pas:2426: parcelas da nota × parcelas do pedido DA LOJA da nota, grava `NF_PEDCOMP_DIV_FINANCEIRO`).
+A tabela foi criada em 19/10/2025 e tem **0 linhas**; no mesmo período a análise persistida (`ANALISE_PEDIDO_NF`, a que o
+Apollo já migrou — mig 152) registrou **325 análises, 311 com pedido parcelado** — a conferência apaga e regrava a cada
+análise, então teria deixado linhas. O `STATUS_PEDCOMP` 'LIBERADO COM DIVERGENCIA FINANCEIRA…' também não aparece (NF e
+NFE_NAO_CADASTRADAS, 2025-26). Não migrada, com esta prova.
+
+**Contexto medido (2025-26), para dimensionar o recebimento pelo pedido:** das 15.656 NF de entrada, só **13** têm
+`NF.CODPEDCOMP`, e `PEDIDO_NF` tipo 'P' não tem nenhuma; o cliente usa o pedido para comprar, parcelar e atualizar
+preço (867 pedidos com loja fechada), e a nota entra pelo manifesto sem o vínculo.
+
+**Meta diária de compra por loja (mig 304).** Ao fechar (`mniFecharPedidoClick`, uPedidoCompra.pas:2424), para cada
+loja do pedido o legado soma o TOTALCUSTO de TODOS os pedidos daquela loja na data do pedido (`sqqTotalDiario`,
+udmPedidoCompra.dfm:2236) e, passando de `EMPRESAS.META_COMPRA`, pede "liberação" com `SenhaAdministrativa('ADM')`.
+O Apollo: coluna `empresas.meta_compra` (a carga traz pelo nome), 422 `PEDIDO_META_DIARIA_EXCEDIDA` com loja, meta e
+total; com a senha administrativa da empresa, fecha; a tela pergunta a senha com a mensagem do legado. **Defeito não
+copiado:** lá a senha errada dá `Break` no laço e o `FecharPedido(True)` roda do mesmo jeito. No cliente a meta é nula
+nas 5 empresas — pronta e desligada, como lá. Smoke §165.4. **1436/0.**
+
+**Fica:** cotação multi-loja (`COTACAO_PRODQTDE` → PCQ); relatório de pedidos por loja.

@@ -17853,6 +17853,25 @@ async function main() {
           && Number(fLimJ.detalhe?.violacoes?.[0]?.total) === 105.33 && fOk.status === 200,
           { codB, fLim: [fLim.status, fLimJ.code, fLimJ.detalhe], fOk: [fOk.status, fOkJ.code ?? fOkJ.fechamento] });
 
+        // §165.4 — a META DIÁRIA DE COMPRA de cada loja do pedido (mniFecharPedidoClick, uPedidoCompra.pas:2424; mig 304)
+        await fetch(`${base}/${PED}/${codP}/reabrir`, { method: 'POST', headers: H });
+        await pgMl.query(`UPDATE empresas SET meta_compra = 50 WHERE idempresa = 2`);
+        await fetch(`${base}/cadastro/senha-operacao`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'admin', senha: 'meta-165' }) });
+        const mSem = await fetch(`${base}/${PED}/${codP}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+        const mSemJ = (await mSem.json().catch(() => ({}))) as any;
+        const mBad = await fetch(`${base}/${PED}/${codP}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({ senhaAdm: 'errada' }) });
+        const mBadJ = (await mBad.json().catch(() => ({}))) as any;
+        const mOk = await fetch(`${base}/${PED}/${codP}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({ senhaAdm: 'meta-165' }) });
+        const mOkJ = (await mOk.json().catch(() => ({}))) as any;
+        await pgMl.query(`UPDATE empresas SET meta_compra = NULL WHERE idempresa = 2`);
+        await pgMl.query(`DELETE FROM empresas_senha_lockout WHERE idempresa = 1 AND tipo = 'admin'`);
+        check('PEDIDO MULTI-LOJA §165.4 [a meta diária de compra é de CADA LOJA do pedido]: ao fechar, o legado soma o TOTALCUSTO de todos os pedidos da loja na data do pedido (`sqqTotalDiario`) e compara com `EMPRESAS.META_COMPRA`. A loja 1 fechando um pedido em que a loja 2 soma R$ 60 no dia, com meta de R$ 50 na loja 2: 422 PEDIDO_META_DIARIA_EXCEDIDA dizendo loja, meta e total; senha administrativa errada não libera (no legado a senha errada dava `Break` e fechava do mesmo jeito — defeito não copiado); a certa fecha. No cliente a meta é nula nas 5 empresas',
+          mSem.status === 422 && mSemJ.code === 'PEDIDO_META_DIARIA_EXCEDIDA'
+          && JSON.stringify(mSemJ.detalhe?.excedidas) === JSON.stringify([{ idempresa: 2, meta: 50, total: 60 }])
+          && mBad.status === 422 && mBadJ.code === 'SENHA_ADMINISTRATIVA_INVALIDA'
+          && mOk.status === 200,
+          { mSem: [mSem.status, mSemJ.code, mSemJ.detalhe], mBad: [mBad.status, mBadJ.code], mOk: [mOk.status, mOkJ.code ?? mOkJ.fechamento] });
+
         await pgMl.query(`DELETE FROM nf WHERE codnf = $1`, [Number(nfB.codnf)]);
         for (const c of [codP, codB]) {
           await pgMl.query(`DELETE FROM pedidocompra_parcelas WHERE codpedcomp = $1`, [c]);

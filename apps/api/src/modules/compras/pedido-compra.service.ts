@@ -4,6 +4,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { estadoFechamento, lojaFechada, lojaRecebeu, lojasDoPedido, novoHistorico } from './pedido-lojas';
+import { SenhaOperacaoService } from '../cadastro/senha-operacao.service';
 import { gravarHistorico, gravarHistoricoMarca } from '../../shared/crud/historico';
 import { ConfigService } from '../cadastro/config.service';
 import { LiberacaoService } from '../auth/liberacao.service';
@@ -37,6 +38,7 @@ export class PedidoCompraService {
     private readonly dbp: DatabaseProvider,
     private readonly config: ConfigService,
     private readonly liberacao: LiberacaoService,
+    private readonly senhaOp: SenhaOperacaoService, // senha administrativa da meta diária (SenhaAdministrativa('ADM'))
   ) {}
 
   private emp(): number {
@@ -56,11 +58,12 @@ export class PedidoCompraService {
    * histórico 'Pedido fechado para a empresa N…'. Exige que a loja participe do pedido e ainda esteja aberta, e ≥ 1
    * item. Para o pedido de uma loja só é o fechar de antes. O LIMITE diário/semanal segue no fechar.
    */
-  async fechar(codpedcomp: number): Promise<{ codpedcomp: number; fechado: 'S'; idempresa: number; fechamento: string }> {
+  async fechar(codpedcomp: number, opcoes?: { senhaAdm?: string }): Promise<{ codpedcomp: number; fechado: 'S'; idempresa: number; fechamento: string }> {
     const emp = this.emp();
     const op = this.op();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const pc = await this.pedidoDaLoja(trx, codpedcomp, emp, ['fechado', 'operador_ult_lib_valor_max']);
+      const pc = await this.pedidoDaLoja(trx, codpedcomp, emp, ['fechado', 'operador_ult_lib_valor_max',
+        sql<string>`to_char(data::date, 'YYYY-MM-DD')`.as('dia') as any]);
       const antes = await estadoFechamento(trx, codpedcomp, (pc as any).fechado);
       if (lojaFechada(antes, emp)) throw new BusinessRuleError('PEDIDO_JA_FECHADO', { codpedcomp, idempresa: emp });
 
@@ -77,6 +80,7 @@ export class PedidoCompraService {
       if ((pc as any).operador_ult_lib_valor_max == null) {
         await this.validarLimites(trx, codpedcomp, Number((pc as any).idempresa));
       }
+      await this.validarMetaDiaria(trx, codpedcomp, pc, opcoes?.senhaAdm);
 
       await trx
         .updateTable('pedidocompra')
@@ -90,6 +94,36 @@ export class PedidoCompraService {
       const depois = await estadoFechamento(trx, codpedcomp, 'S');
       return { codpedcomp, fechado: 'S' as const, idempresa: emp, fechamento: depois.tipo };
     });
+  }
+
+  /**
+   * META DIÁRIA DE COMPRA POR LOJA (`mniFecharPedidoClick`, uPedidoCompra.pas:2424; mig 304): para cada loja do pedido
+   * (`cdsTotalPedido`), o total de TODOS os pedidos daquela loja na data do pedido (`sqqTotalDiario`: Σ
+   * PEDIDO_COMPRA_QTDE.TOTALCUSTO da loja, `TRUNC(P.DATA) = :DATA`) contra `EMPRESAS.META_COMPRA`. Meta nula/zero = sem
+   * meta. Passou → "Será preciso liberação": sem senha, 422 com a loja, a meta e o total; com a senha administrativa
+   * da empresa, fecha. DEFEITO DO LEGADO não copiado: lá a senha errada dá `Break` e o `FecharPedido` roda do mesmo
+   * jeito — a liberação que a mensagem pede não travava nada. No cliente a meta é nula nas 5 empresas.
+   */
+  private async validarMetaDiaria(trx: AnyDB, codpedcomp: number, pc: Record<string, unknown>, senhaAdm?: string): Promise<void> {
+    const lojas = (await this.totaisPorLoja(trx, codpedcomp, pc.empresas, pc.idempresa as number | null)).map((t) => t.idempresa);
+    const excedidas: Array<{ idempresa: number; meta: number; total: number }> = [];
+    for (const loja of lojas) {
+      const r = (await sql<{ meta: unknown; total: unknown }>`
+          SELECT (SELECT e.meta_compra FROM empresas e WHERE e.idempresa = ${loja}) AS meta,
+                 (SELECT sum(q.totalcusto)
+                    FROM pedido_compra_qtde q
+                    JOIN pedidocompra_i i ON i.codpedcompi = q.codpedcompi
+                    JOIN pedidocompra p ON p.codpedcomp = i.codpedcomp
+                   WHERE q.idempresa = ${loja} AND p.data::date = ${String(pc.dia)}::date
+                     AND coalesce(p.indr, 'I') <> 'E') AS total`.execute(trx)).rows[0];
+      const meta = num(r?.meta);
+      const total = r2(num(r?.total));
+      if (meta > 0 && total > meta) excedidas.push({ idempresa: loja, meta, total });
+    }
+    if (!excedidas.length) return;
+    if (!senhaAdm) throw new BusinessRuleError('PEDIDO_META_DIARIA_EXCEDIDA', { codpedcomp, excedidas });
+    const { ok } = await this.senhaOp.verificar('admin', senhaAdm);
+    if (!ok) throw new BusinessRuleError('SENHA_ADMINISTRATIVA_INVALIDA', { codpedcomp });
   }
 
   /**
