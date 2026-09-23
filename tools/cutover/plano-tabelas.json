@@ -68,6 +68,8 @@
    "motivos_operacao",
    "mov_contas_bancarias",
    "movimentacao_bancaria_ofx",
+   "config_lancamento_auto_ofx",
+   "cfg_descricao_nao_importar_ofx",
    "ncm",
    "ncm_lc224_2025",
    "nf_contabil",

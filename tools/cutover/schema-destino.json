@@ -3725,7 +3725,7 @@
      "tam": 32,
      "escala": 0,
      "nulo": false,
-     "default": null
+     "default": "nextval('seq_caixa_codcx'::regclass)"
     },
     "data": {
      "tipo": "timestamp with time zone",
@@ -5052,6 +5052,35 @@
     {
      "nome": "ux_cest_cest_ncm",
      "def": "CREATE UNIQUE INDEX ux_cest_cest_ncm ON public.cest USING btree (cest, COALESCE(ncm, ''::character varying))"
+    }
+   ]
+  },
+  "cfg_descricao_nao_importar_ofx": {
+   "colunas": {
+    "codconta": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "descricao": {
+     "tipo": "character varying",
+     "tam": 250,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    }
+   },
+   "pk": [
+    "codconta",
+    "descricao"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "cfg_descricao_nao_importar_ofx_pkey",
+     "def": "CREATE UNIQUE INDEX cfg_descricao_nao_importar_ofx_pkey ON public.cfg_descricao_nao_importar_ofx USING btree (codconta, descricao)"
     }
    ]
   },
@@ -8181,6 +8210,97 @@
     {
      "nome": "config_integracao_contabil_pkey",
      "def": "CREATE UNIQUE INDEX config_integracao_contabil_pkey ON public.config_integracao_contabil USING btree (id_configintegcontabil)"
+    }
+   ]
+  },
+  "config_lancamento_auto_ofx": {
+   "colunas": {
+    "clao_id": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_config_lancamento_auto_ofx'::regclass)"
+    },
+    "codconta": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "codconta_transferencia": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "clao_descricao": {
+     "tipo": "character varying",
+     "tam": 250,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "clao_tipo": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "idsituacao_nf": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codplc": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "tipo_descricao": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indr": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indr_data": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "indr_usuario": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "clao_id"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "config_lancamento_auto_ofx_pkey",
+     "def": "CREATE UNIQUE INDEX config_lancamento_auto_ofx_pkey ON public.config_lancamento_auto_ofx USING btree (clao_id)"
     }
    ]
   },
@@ -21133,6 +21253,13 @@
      "tipo": "date",
      "tam": null,
      "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "clao_id": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
      "nulo": true,
      "default": null
     }

@@ -17507,6 +17507,70 @@ async function main() {
       }
     }
 
+    // ══ AS REGRAS DO EXTRATO: o que não se importa e o que se lança sozinho (mig 298) ══════════════════
+    {
+      const pgOf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const CB = 'cadastro/conciliacao-bancaria';
+        const bancoOf = Number((await pgOf.query(`SELECT codbco FROM bancos WHERE codbco > 0 ORDER BY codbco LIMIT 1`)).rows[0]?.codbco ?? 1);
+        const cO = Number((await pgOf.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES ($1,1,'SMOKE OFX') RETURNING codconta`, [bancoOf])).rows[0].codconta);
+        const plcOf = Number((await pgOf.query(`SELECT codplc FROM plc ORDER BY codplc LIMIT 1`)).rows[0]?.codplc);
+        await pgOf.query(`INSERT INTO cfg_descricao_nao_importar_ofx (codconta, descricao) VALUES ($1,'APL APLIC AUT MAIS')`, [cO]);
+        const imp = await fetch(`${base}/${CB}/importar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: cO, linhas: [
+          { data: '2048-07-01', valor: 900, credito_debito: 'D', descricao: 'APL APLIC AUT MAIS', transacao_id: 'OF1' },
+          { data: '2048-07-01', valor: 900, credito_debito: 'C', descricao: '  apl aplic aut mais ', transacao_id: 'OF2' },
+          { data: '2048-07-01', valor: 2.09, credito_debito: 'C', descricao: 'REND PAGO APLIC AUT MAIS', transacao_id: 'OF3' },
+          { data: '2048-07-02', valor: 13.01, credito_debito: 'D', descricao: 'TAR PIX', transacao_id: 'OF4' },
+          { data: '2048-07-02', valor: 50, credito_debito: 'D', descricao: 'PIX TRANSF ANA', transacao_id: 'OF5' },
+          { data: '2048-07-02', valor: 7, credito_debito: 'D', descricao: 'IOF', transacao_id: 'OF6' },
+        ] }) });
+        const impJ = (await imp.json().catch(() => ({}))) as any;
+        const importadas = ((await pgOf.query(`SELECT mbo_descricao FROM movimentacao_bancaria_ofx WHERE codconta = $1 ORDER BY mbo_id`, [cO])).rows as any[]).map((r) => r.mbo_descricao);
+        check('REGRAS DO EXTRATO §162.1 [a lista de descrições que NÃO se importam, por igualdade EXATA]: 3 descrições da conta 42 do cliente (a aplicação automática do banco). O filtro está vivo e é por igualdade: \'APL\'/\'RES APLIC AUT MAIS\' param de entrar em 30/11/2022, enquanto \'REND PAGO APLIC AUT MAIS\' — que CONTÉM o mesmo texto — segue entrando até 2026. Aqui as duas linhas da aplicação (inclusive com espaços e minúsculas) ficam de fora e o rendimento entra',
+          imp.status === 200 && Number(impJ.ignoradas) === 2 && Number(impJ.inseridas) === 4
+          && !importadas.some((d: string) => d.trim().toUpperCase() === 'APL APLIC AUT MAIS') && importadas.includes('REND PAGO APLIC AUT MAIS'),
+          { status: imp.status, impJ, importadas });
+
+        // regras: uma 'N' ativa (a que vale), uma 'N' excluída e uma 'T' — as duas últimas não lançam nada
+        const regraN = Number((await pgOf.query(`INSERT INTO config_lancamento_auto_ofx (codconta, clao_descricao, clao_tipo, idsituacao_nf, codplc, tipo_descricao)
+          VALUES ($1,'TAR PIX','N',566,$2,'1') RETURNING clao_id`, [cO, plcOf])).rows[0].clao_id);
+        await pgOf.query(`INSERT INTO config_lancamento_auto_ofx (codconta, clao_descricao, clao_tipo, idsituacao_nf, codplc, tipo_descricao, indr) VALUES ($1,'IOF','N',566,$2,'1','E')`, [cO, plcOf]);
+        await pgOf.query(`INSERT INTO config_lancamento_auto_ofx (codconta, codconta_transferencia, clao_descricao, clao_tipo) VALUES ($1,$1,'PIX TRANSF ANA','T')`, [cO]);
+        const auto = await fetch(`${base}/${CB}/lancamentos-automaticos`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: cO }) });
+        const autoJ = (await auto.json().catch(() => ({}))) as any;
+        const mv = (await pgOf.query(`SELECT valor, tipomovimento, historico, origem, clao_id, idlote, mov_conciliado, liberado FROM mov_contas_bancarias WHERE codconta = $1`, [cO])).rows as any[];
+        const cx = (await pgOf.query(`SELECT valor, codplc, idsituacao_nf, obs, tiporecurso, cadastrado_manualmente, idlote, codconta FROM caixa WHERE codconta = $1`, [cO])).rows as any[];
+        const ofxTar = (await pgOf.query(`SELECT mbo_conciliado FROM movimentacao_bancaria_ofx WHERE codconta = $1 AND mbo_descricao = 'TAR PIX'`, [cO])).rows[0]?.mbo_conciliado;
+        const pendentes = Number((await pgOf.query(`SELECT count(*)::int AS n FROM movimentacao_bancaria_ofx WHERE codconta = $1 AND coalesce(mbo_conciliado,'N') = 'N'`, [cO])).rows[0]?.n);
+        const deNovo = (await (await fetch(`${base}/${CB}/lancamentos-automaticos`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: cO }) })).json().catch(() => ({}))) as any;
+        const semGrant = await fetch(`${base}/${CB}/lancamentos-automaticos`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codconta: cO }) });
+        check('REGRAS DO EXTRATO §162.2 [a linha que casa com uma regra \'N\' vira lançamento e JÁ SAI CONCILIADA — e só ela]: é o mecanismo dos 17 movimentos que o cliente gerou assim em ago/2026. A linha \'TAR PIX\' (D 13,01) vira um LOTE com uma CAIXA de −13,01 (valor com sinal, conta gerencial e situação da regra, "Gerado pela conciliação bancária.", DINHEIRO) e um movimento bancário D 13,01 (absoluto, convenção do Apollo), histórico = a descrição, origem OFX, a regra carimbada, conciliado com a linha do extrato. A regra excluída (IOF) e a de transferência (nenhum movimento do cliente foi gerado por elas) não lançam. Rodar de novo não lança nada; sem o grant é 403',
+          auto.status === 200 && Number(autoJ.lancados) === 1
+          && mv.length === 1 && Number(mv[0].valor) === 13.01 && mv[0].tipomovimento === 'D' && mv[0].historico === 'TAR PIX' && mv[0].origem === 'OFX'
+          && Number(mv[0].clao_id) === regraN && mv[0].mov_conciliado === 'S' && mv[0].liberado === 'S'
+          && cx.length === 1 && Number(cx[0].valor) === -13.01 && Number(cx[0].codplc) === plcOf && Number(cx[0].idsituacao_nf) === 566
+          && cx[0].obs === 'Gerado pela conciliação bancária.' && cx[0].tiporecurso === 'DINHEIRO' && cx[0].cadastrado_manualmente === 'S'
+          && Number(cx[0].idlote) === Number(mv[0].idlote)
+          && ofxTar === 'S' && pendentes === 3 && Number(deNovo.lancados) === 0 && semGrant.status === 403,
+          { status: auto.status, autoJ, mv, cx, ofxTar, pendentes, deNovo: deNovo.lancados, rbac: semGrant.status });
+
+        const cbs = ((await pgOf.query(`SELECT cb_id FROM conciliacao_bancaria WHERE codconta = $1`, [cO])).rows as any[]).map((r) => Number(r.cb_id));
+        if (cbs.length) {
+          await pgOf.query(`DELETE FROM conciliacao_bancaria_ofx WHERE cb_id = ANY($1)`, [cbs]);
+          await pgOf.query(`DELETE FROM conciliacao_bancaria_mov WHERE cb_id = ANY($1)`, [cbs]);
+          await pgOf.query(`DELETE FROM conciliacao_bancaria WHERE cb_id = ANY($1)`, [cbs]);
+        }
+        await pgOf.query(`DELETE FROM caixa WHERE codconta = $1`, [cO]);
+        await pgOf.query(`DELETE FROM mov_contas_bancarias WHERE codconta = $1`, [cO]);
+        await pgOf.query(`DELETE FROM movimentacao_bancaria_ofx WHERE codconta = $1`, [cO]);
+        await pgOf.query(`DELETE FROM config_lancamento_auto_ofx WHERE codconta = $1`, [cO]);
+        await pgOf.query(`DELETE FROM cfg_descricao_nao_importar_ofx WHERE codconta = $1`, [cO]);
+        await pgOf.query(`DELETE FROM contas_bancarias WHERE codconta = $1`, [cO]);
+      } finally {
+        await pgOf.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

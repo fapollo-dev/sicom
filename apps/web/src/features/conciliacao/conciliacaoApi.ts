@@ -25,7 +25,7 @@ export interface Par { mbo_id: number; codmovconta: number; valor: number; data:
 
 export function listarContas(): Promise<ContaBancaria[]> { return req('/cadastro/contas-bancarias', { method: 'GET' }); }
 /** corte-2: sobe o arquivo .ofx cru (texto) — o servidor parseia e dedup por FITID. */
-export function importarOfx(codconta: number, nomeArquivo: string, conteudo: string): Promise<{ codconta: number; lidas: number; inseridas: number; duplicadas: number }> {
+export function importarOfx(codconta: number, nomeArquivo: string, conteudo: string): Promise<{ codconta: number; lidas: number; inseridas: number; duplicadas: number; ignoradas: number }> {
   return req('/cadastro/conciliacao-bancaria/importar-ofx', { method: 'POST', body: JSON.stringify({ codconta, nomeArquivo, conteudo }) });
 }
 export function pendentes(codconta: number): Promise<{ ofx: OfxLinha[]; mov: MovLinha[] }> { return req(`/cadastro/conciliacao-bancaria/pendentes?codconta=${codconta}`, { method: 'GET' }); }
@@ -33,4 +33,8 @@ export interface LoteSugerido { mbo_id: number; idlote: number; codmovcontas: nu
 export function sugestoes(codconta: number): Promise<{ pares: Par[]; lotes: LoteSugerido[] }> { return req(`/cadastro/conciliacao-bancaria/sugestoes?codconta=${codconta}`, { method: 'GET' }); }
 export function conciliar(codconta: number, mboIds: number[], codmovcontas: number[]): Promise<{ cb_id: number; ofx: number; mov: number; total: number }> {
   return req('/cadastro/conciliacao-bancaria/conciliar', { method: 'POST', body: JSON.stringify({ codconta, mboIds, codmovcontas }) });
+}
+/** mig 298: lança e concilia as linhas pendentes que casam com uma regra de lançamento automático da conta. */
+export function lancarAutomaticos(codconta: number): Promise<{ codconta: number; lancados: number }> {
+  return req('/cadastro/conciliacao-bancaria/lancamentos-automaticos', { method: 'POST', body: JSON.stringify({ codconta }) });
 }

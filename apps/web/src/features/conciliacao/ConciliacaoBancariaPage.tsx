@@ -3,7 +3,7 @@ import { PageHeader } from '@apollosg/design-system';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
-import { listarContas, pendentes, sugestoes, conciliar, importarOfx, type ContaBancaria, type OfxLinha, type MovLinha } from './conciliacaoApi';
+import { listarContas, pendentes, sugestoes, conciliar, importarOfx, type ContaBancaria, type OfxLinha, type MovLinha, lancarAutomaticos } from './conciliacaoApi';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—');
@@ -41,7 +41,7 @@ export function ConciliacaoBancariaPage() {
     try {
       const conteudo = await file.text();
       const r = await importarOfx(Number(conta), file.name, conteudo);
-      mensagem.sucesso(`${file.name}: ${r.lidas} linha(s) lida(s) — ${r.inseridas} importada(s), ${r.duplicadas} duplicada(s).`);
+      mensagem.sucesso(`${file.name}: ${r.lidas} linha(s) lida(s) — ${r.inseridas} importada(s), ${r.duplicadas} duplicada(s)${r.ignoradas ? `, ${r.ignoradas} ignorada(s) pela lista de descrições da conta` : ''}.`);
       await carregar(Number(conta));
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
   };
@@ -61,6 +61,19 @@ export function ConciliacaoBancariaPage() {
       const parteLote = lotes.length ? ` e ${lotes.length} lote(s) inteiro(s)` : '';
       mensagem.sucesso(`${pares.length} par(es)${parteLote} sugerido(s). Confira e concilie.`);
     } catch (e) { mensagem.erro(e); }
+  };
+
+  // mig 298: a linha do extrato que casa com uma regra da conta vira lançamento e já sai conciliada
+  const lancarAuto = async () => {
+    if (busy || !conta) return;
+    setBusy(true);
+    try {
+      const r = await lancarAutomaticos(Number(conta));
+      mensagem.sucesso(r.lancados
+        ? `${r.lancados} linha(s) do extrato lançada(s) e conciliada(s) pelas regras da conta.`
+        : 'Nenhuma linha pendente casa com uma regra de lançamento automático desta conta.');
+      await carregar(Number(conta));
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
   const totOfx = ofx.filter((o) => selOfx.has(o.mbo_id)).reduce((s, o) => s + Number(o.mbo_valor), 0);
@@ -87,6 +100,7 @@ export function ConciliacaoBancariaPage() {
         <input ref={fileRef} type="file" accept=".ofx,text/plain" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void importarArquivo(f); }} />
         <Button label="&Importar .ofx" variant="ghost" disabled={busy || !conta} onClick={() => fileRef.current?.click()} />
         <Button label="&Sugerir automática" variant="ghost" disabled={!conta || !ofx.length} onClick={() => void sugerir()} />
+        <Button label="&Lançamentos automáticos" variant="ghost" disabled={busy || !conta || !ofx.length} onClick={() => void lancarAuto()} />
         <Button label="&Conciliar selecionados" variant="soft" disabled={busy || !iguais || !selOfx.size || !selMov.size} onClick={() => void conciliarSel()} />
         <div className="flex-1 text-right text-body-sm">Selecionado — extrato <b className={iguais ? 'text-fg' : 'text-danger'}>{brl(totOfx)}</b> · razão <b className={iguais ? 'text-fg' : 'text-danger'}>{brl(totMov)}</b> {selOfx.size + selMov.size > 0 && (iguais ? '✓' : '≠')}</div>
         <small className="w-full text-fg-muted">Importe o extrato do banco (arquivo .ofx) e case com o razão de contas-correntes por data + valor + direção. O lote só concilia INTEIRO (uma baixa em lote vira um movimento no extrato). Os ramos A-Pagar/A-Receber por lote são cortes futuros.</small>

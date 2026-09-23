@@ -39,3 +39,7 @@ export const conciliarSchema = z.object({
   codmovcontas: z.array(z.coerce.number().int().positive()).min(1, 'Selecione ao menos um lançamento do razão.'),
 });
 export type ConciliarDto = z.infer<typeof conciliarSchema>;
+
+/** LANÇAMENTO AUTOMÁTICO DO EXTRATO (mig 298): aplica as regras 'N' da conta às linhas pendentes. */
+export const lancarAutomaticosSchema = z.object({ codconta: z.coerce.number().int().positive() });
+export type LancarAutomaticosDto = z.infer<typeof lancarAutomaticosSchema>;

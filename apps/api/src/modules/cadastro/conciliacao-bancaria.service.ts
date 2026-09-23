@@ -41,14 +41,22 @@ export class ConciliacaoBancariaService {
   }
 
   /** importa as linhas do extrato (dedup por FITID). Retorna quantas entraram e quantas eram duplicadas. */
-  async importar(dto: { codconta: number; nomeArquivo?: string; linhas: Array<{ data: string; valor: number; credito_debito: 'C' | 'D'; descricao?: string; transacao_id?: string; check_num?: string }> }): Promise<{ codconta: number; inseridas: number; duplicadas: number }> {
+  async importar(dto: { codconta: number; nomeArquivo?: string; linhas: Array<{ data: string; valor: number; credito_debito: 'C' | 'D'; descricao?: string; transacao_id?: string; check_num?: string }> }): Promise<{ codconta: number; inseridas: number; duplicadas: number; ignoradas: number }> {
     const emp = this.emp();
     const op = this.op();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       await this.contaDaEmpresa(trx, dto.codconta, emp);
+      // descrições que a importação IGNORA (mig 298): no cliente, a aplicação automática do banco. ⚠️ Igualdade
+      // exata — 'REND PAGO APLIC AUT MAIS', que contém o mesmo texto e não está na lista, o legado importa.
+      const ignorar = new Set(
+        ((await trx.selectFrom('cfg_descricao_nao_importar_ofx').select('descricao').where('codconta', '=', dto.codconta).execute()) as Array<{ descricao: string }>)
+          .map((r) => chaveDescricao(r.descricao)),
+      );
       let inseridas = 0;
       let duplicadas = 0;
+      let ignoradas = 0;
       for (const l of dto.linhas) {
+        if (ignorar.size && ignorar.has(chaveDescricao(l.descricao))) { ignoradas++; continue; }
         // fold auditoria [BAIXA]: FITID vazio/espaços → null (senão 2 linhas '' + mesmo check_num furam o unique
         // ux_mbo_fitid com 23505 cru; null vira NULLS-DISTINCT, fiel ao legado que só deduplica com transacao_id≠''/0).
         const fit = (l.transacao_id ?? '').trim() || null;
@@ -65,13 +73,13 @@ export class ConciliacaoBancariaService {
         }).execute();
         inseridas++;
       }
-      return { codconta: dto.codconta, inseridas, duplicadas };
+      return { codconta: dto.codconta, inseridas, duplicadas, ignoradas };
     });
   }
 
   /** corte-2: recebe o TEXTO do arquivo .ofx, parseia (OFX 1.x SGML / 2.x XML) e reusa `importar` (dedup por FITID).
    *  Retorna também quantas linhas o parser extraiu, para o cliente distinguir "arquivo sem transações" de "tudo duplicado". */
-  async importarArquivo(dto: { codconta: number; nomeArquivo?: string; conteudo: string }): Promise<{ codconta: number; lidas: number; inseridas: number; duplicadas: number }> {
+  async importarArquivo(dto: { codconta: number; nomeArquivo?: string; conteudo: string }): Promise<{ codconta: number; lidas: number; inseridas: number; duplicadas: number; ignoradas: number }> {
     const linhas = parseOfx(dto.conteudo);
     if (linhas.length === 0) throw new BusinessRuleError('OFX_SEM_TRANSACOES');
     const r = await this.importar({ codconta: dto.codconta, nomeArquivo: dto.nomeArquivo, linhas });
@@ -175,17 +183,92 @@ export class ConciliacaoBancariaService {
       const totalMov = r2(mov.reduce((s, m) => s + (String(m.tipomovimento) === 'D' ? -num(m.valor) : num(m.valor)), 0));
       if (totalOfx !== totalMov) throw new BusinessRuleError('CONCILIACAO_TOTAIS_DIVERGENTES', { totalOfx, totalMov });
 
-      const cb = await trx.insertInto('conciliacao_bancaria').values({ idempresa: emp, codconta: dto.codconta, cb_data: sql`now()`, cb_operador: op }).returning('cb_id').executeTakeFirstOrThrow();
-      const cbId = Number((cb as any).cb_id);
-      for (const o of ofx) {
-        await trx.insertInto('conciliacao_bancaria_ofx').values({ cb_id: cbId, mbo_id: o.mbo_id }).execute();
-        await trx.updateTable('movimentacao_bancaria_ofx').set({ mbo_conciliado: 'S' }).where('mbo_id', '=', o.mbo_id).where('idempresa', '=', emp).execute();
-      }
-      for (const m of mov) {
-        await trx.insertInto('conciliacao_bancaria_mov').values({ cb_id: cbId, codmovconta: m.codmovconta }).execute();
-        await trx.updateTable('mov_contas_bancarias').set({ mov_conciliado: 'S' }).where('codmovconta', '=', m.codmovconta).where('idempresa', '=', emp).execute();
-      }
+      const cbId = await this.registrarConciliacao(trx, emp, op, dto.codconta, ofx.map((o) => Number(o.mbo_id)), mov.map((m) => Number(m.codmovconta)));
       return { cb_id: cbId, ofx: ofx.length, mov: mov.length, total: totalOfx };
     });
   }
+
+  /** o evento de conciliação: 1 CB + as junções dos dois lados + a marca de conciliado em cada linha. */
+  private async registrarConciliacao(trx: AnyDB, emp: number, op: number | null, codconta: number, mboIds: number[], movIds: number[]): Promise<number> {
+    const cb = await trx.insertInto('conciliacao_bancaria').values({ idempresa: emp, codconta, cb_data: sql`now()`, cb_operador: op }).returning('cb_id').executeTakeFirstOrThrow();
+    const cbId = Number((cb as any).cb_id);
+    for (const id of mboIds) {
+      await trx.insertInto('conciliacao_bancaria_ofx').values({ cb_id: cbId, mbo_id: id }).execute();
+      await trx.updateTable('movimentacao_bancaria_ofx').set({ mbo_conciliado: 'S' }).where('mbo_id', '=', id).where('idempresa', '=', emp).execute();
+    }
+    for (const id of movIds) {
+      await trx.insertInto('conciliacao_bancaria_mov').values({ cb_id: cbId, codmovconta: id }).execute();
+      await trx.updateTable('mov_contas_bancarias').set({ mov_conciliado: 'S' }).where('codmovconta', '=', id).where('idempresa', '=', emp).execute();
+    }
+    return cbId;
+  }
+
+  /**
+   * LANÇAMENTO AUTOMÁTICO DO EXTRATO (mig 298): cada linha pendente do extrato cuja descrição casa com uma regra 'N'
+   * da conta vira um lançamento — e já sai conciliada com ela.
+   *
+   * O mecanismo é o dos 17 movimentos que o cliente gerou assim (ago/2026): um LOTE por linha, com uma linha em
+   * `caixa` (data da linha, valor com sinal, conta gerencial e situação da regra, "Gerado pela conciliação
+   * bancária.", recurso DINHEIRO) — é ela que a contabilização da origem 64 pega pela situação — e uma em
+   * `mov_contas_bancarias` (histórico = a descrição, origem 'OFX', a regra em `clao_id`). As regras de
+   * transferência ('T') não entram: nenhum movimento do cliente foi gerado por elas, e sem o efeito provado não há
+   * o que copiar.
+   */
+  async lancarAutomaticos(codconta: number): Promise<{ codconta: number; lancados: number; lancamentos: Array<{ mbo_id: number; clao_id: number; codmovconta: number; codcx: number }> }> {
+    const emp = this.emp();
+    const op = this.op();
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      await this.contaDaEmpresa(trx, codconta, emp);
+      const regras = (await trx.selectFrom('config_lancamento_auto_ofx')
+        .select(['clao_id', 'clao_descricao', 'idsituacao_nf', 'codplc'])
+        .where('codconta', '=', codconta)
+        .where('clao_tipo', '=', 'N')
+        .where(sql`coalesce(indr, ' ')`, '<>', 'E')
+        // 1 = descrição idêntica (as 9 que o cliente usou); nulo = idem, regras antigas; o 3 nunca foi aplicado
+        .where((eb: any) => eb.or([eb('tipo_descricao', 'is', null), eb('tipo_descricao', '=', '1')]))
+        .orderBy('clao_id')
+        .execute()) as Array<{ clao_id: number; clao_descricao: string; idsituacao_nf: number | null; codplc: number | null }>;
+      const porDescricao = new Map<string, (typeof regras)[number]>();
+      // regra repetida para a mesma descrição (55 no cliente): vale a primeira cadastrada
+      for (const r of regras) if (!porDescricao.has(chaveDescricao(r.clao_descricao))) porDescricao.set(chaveDescricao(r.clao_descricao), r);
+      if (!porDescricao.size) return { codconta, lancados: 0, lancamentos: [] };
+
+      const pendentes = (await trx.selectFrom('movimentacao_bancaria_ofx')
+        .select(['mbo_id', 'mbo_data', 'mbo_valor', 'mbo_credito_debito', 'mbo_descricao'])
+        .where('codconta', '=', codconta).where('idempresa', '=', emp)
+        .where(sql`coalesce(mbo_conciliado,'N')`, '=', 'N')
+        .orderBy('mbo_data').orderBy('mbo_id')
+        .forUpdate()
+        .execute()) as Array<{ mbo_id: number; mbo_data: unknown; mbo_valor: unknown; mbo_credito_debito: string; mbo_descricao: string | null }>;
+
+      const lancamentos: Array<{ mbo_id: number; clao_id: number; codmovconta: number; codcx: number }> = [];
+      for (const l of pendentes) {
+        const regra = porDescricao.get(chaveDescricao(l.mbo_descricao));
+        if (!regra) continue;
+        const valor = r2(num(l.mbo_valor));
+        const debito = String(l.mbo_credito_debito) === 'D';
+        const lote = Number(((await trx.executeQuery(sql`select nextval('seq_controle_lote') as lote`.compile(trx))).rows[0] as { lote: number | string }).lote);
+        // a CAIXA guarda o valor COM SINAL (a contabilização da origem 64 decide o lado por ele)
+        const cx = (await trx.insertInto('caixa').values({
+          data: l.mbo_data, valor: debito ? -valor : valor, obs: 'Gerado pela conciliação bancária.', operador: op,
+          codplc: regra.codplc, idlote: lote, idempresa: emp, tiporecurso: 'DINHEIRO', codconta,
+          idsituacao_nf: regra.idsituacao_nf, cadastrado_manualmente: 'S', dtcadastro: sql`now()`,
+        }).returning('codcx').executeTakeFirstOrThrow()) as { codcx: number };
+        // o razão bancário guarda o ABSOLUTO com a direção no tipo (convenção do Apollo, mig 297)
+        const mv = (await trx.insertInto('mov_contas_bancarias').values({
+          codconta, idempresa: emp, valor, tipomovimento: debito ? 'D' : 'C', codopconta: 0,
+          historico: l.mbo_descricao ?? regra.clao_descricao, codoperador: op, origem: 'OFX', idorigem: Number(l.mbo_id),
+          idlote: lote, clao_id: regra.clao_id, data_fechamento: l.mbo_data, dtemissao: l.mbo_data, liberado: 'S', dtcadastro: sql`now()`,
+        }).returning('codmovconta').executeTakeFirstOrThrow()) as { codmovconta: number };
+        await this.registrarConciliacao(trx, emp, op, codconta, [Number(l.mbo_id)], [Number(mv.codmovconta)]);
+        lancamentos.push({ mbo_id: Number(l.mbo_id), clao_id: Number(regra.clao_id), codmovconta: Number(mv.codmovconta), codcx: Number(cx.codcx) });
+      }
+      return { codconta, lancados: lancamentos.length, lancamentos };
+    });
+  }
+}
+
+/** a chave de casamento de uma descrição do extrato: sem espaços nas pontas e sem distinção de caixa. */
+function chaveDescricao(d: string | null | undefined): string {
+  return String(d ?? '').trim().toUpperCase();
 }

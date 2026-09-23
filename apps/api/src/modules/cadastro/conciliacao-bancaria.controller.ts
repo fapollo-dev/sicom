@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
-import { importarOfxSchema, importarOfxArquivoSchema, conciliarSchema, type ImportarOfxDto, type ImportarOfxArquivoDto, type ConciliarDto } from '@apollo/shared';
+import { importarOfxSchema, importarOfxArquivoSchema, conciliarSchema, lancarAutomaticosSchema, type ImportarOfxDto, type ImportarOfxArquivoDto, type ConciliarDto, type LancarAutomaticosDto } from '@apollo/shared';
 import { ConciliacaoBancariaService } from './conciliacao-bancaria.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -50,5 +50,13 @@ export class ConciliacaoBancariaController {
   @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNGRAVAR')
   conciliar(@Body(new ZodValidationPipe(conciliarSchema)) body: ConciliarDto) {
     return this.svc.conciliar({ codconta: body.codconta, mboIds: body.mboIds, codmovcontas: body.codmovcontas });
+  }
+
+  /** lança e concilia as linhas pendentes que casam com uma regra 'N' da conta (mig 298). */
+  @Post('lancamentos-automaticos')
+  @HttpCode(200)
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNGRAVAR')
+  lancamentosAutomaticos(@Body(new ZodValidationPipe(lancarAutomaticosSchema)) body: LancarAutomaticosDto) {
+    return this.svc.lancarAutomaticos(body.codconta);
   }
 }
