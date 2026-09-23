@@ -31,10 +31,10 @@ formulários que não estavam em nenhum dos dois**, somando **43.071 acessos**:
 
 | | telas | acessos | o que é |
 |---|---:|---:|---|
-| ✅ convertida | **42** | 1.359 (32,8%) | migrada, com migration, smoke e dossiê |
+| ✅ convertida | **43** | 1.422 (34,3%) | migrada, com migration, smoke e dossiê |
 | 🟢 coberta | 23 | 480 (11,6%) | o que ela faz já existe em outra tela do Apollo, com a prova ao lado |
 | 🪦 marginal | 39 | 820 (19,8%) | a regra existe, mas o dado do cliente é resíduo (0 a algumas dezenas de linhas, ou parou há anos) |
-| ⛔ sem substrato/fonte | 82 | 1.443 (34,8%) | tabela vazia, tabela inexistente, unit ausente do repositório, ou fora de escopo (PDV) |
+| ⛔ sem substrato/fonte | 81 | 1.380 (33,3%) | tabela vazia, tabela inexistente, unit ausente do repositório, ou fora de escopo (PDV) |
 | 🟡 adiada com recon | **8** | 43 (1,0%) | viva e real — precisa de corte próprio |
 
 **Todo veredito tem procedência**: contagem no Oracle de produção (só leitura), linha do fonte Delphi, ou
@@ -74,7 +74,7 @@ ambos. As 🟡 que restam são o trabalho que sobra desta fila:
 | 19 | `FRMPRECIFICACAOPROD` | 67 | 7 | ⛔ **sem fonte no repositório clonado** |
 | 20 | `FRMAGRUPACARTAO` | 64 | 11 | ⛔ **mecanismo nunca usado**: agrupa lançamentos sob um número de resumo da operadora, gravando `CARTAO.RESUMO` — coluna **nula nas 2.059.893 linhas**. Os 64 acessos são gente abrindo a tela |
 | 21 | `FRMCONSCLIRCB` | 64 | 8 | ✅ **completa** (mig 227) — ⚠️ o legado exibia **R$ 11,5 milhões** de juro fantasma: a coluna JURO usava um default de 9% a.m. que o TOTAL não aplicava, em 99,96% dos títulos |
-| 22 | `FRMRELPEDIDOCOMPRA` | 63 | 6 | ⛔ **sem fonte no repositório clonado** |
+| 22 | `FRMRELPEDIDOCOMPRA` | 63 | 6 | ✅ **convertida** (mig 306, `relatorios/pedidos-compra`, dossiê `uRelPedidosCompra.md`, smoke §166). ⚠️ **O veredito anterior estava ERRADO**: "sem fonte no repositório" — o fonte existe, `uRelPedidosCompra.pas` (com "s"; a classe é `TfrmRelPedidoCompra`, e a busca pelo nome do form não casava com o da unit). Previsão de pagamentos dos pedidos, **por pedido e por loja** (Σ `PEDIDO_COMPRA_QTDE.TOTALCUSTO`), desdobrada nas parcelas da condição, com os 4 filtros de data e os 5 agrupamentos dos `.fr3` |
 | 23 | `FRMCADHISTORICOCONTABIL` | 62 | 3 | ✅ **completa** (mig 231; a tabela e os 54 templates vieram na 229) — o texto que o razão imprime, com os `*` que a contabilização preenche. A tela simula o resultado enquanto se digita, usando a **mesma** função que a API usa para escrever |
 | 24 | `FRMMULTATUALIZACAO` | 60 | 6 | ✅ **completa** (mig 232) — um campo, uma operação, N produtos. As três travas do legado (composição, tipo de família, hierarquia do subgrupo) + prévia com a MESMA conta da gravação. ⚠️ corrigido: dividir por zero derrubava a rotina; e os campos de controle (IDPRODUTO, auditoria) saíram do combo, onde o legado os deixou por esquecimento |
 | 25 | `FRMCADTERMINAIS` | 56 | 2 | ⛔ **fora de escopo por instrução (NADA de PDV)** — as 8 linhas de `TERMINAIS` são os CAIXAS: cada uma aponta para um Firebird local (`192.168.15.xx:C:\SICOM\CONFIG\VENDAS.FDB`) e guarda a `DTAULTIMACARGA` da carga de preço para o PDV. O cadastro existe só para alimentar o PDV. Vivo (última carga hoje), mas reavaliar apenas se o escopo de PDV mudar |

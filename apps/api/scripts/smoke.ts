@@ -17923,6 +17923,32 @@ async function main() {
           && imp.lojas?.[1]?.razao_social != null && sitOk,
           { porLojaImp, agImp, cab: imp.cabecalho, totais: [imp.totais, impAg.totais], loja2: imp.lojas?.[1]?.razao_social, sitInfo });
 
+        // §166 — o RELATÓRIO DE PEDIDOS DE COMPRA, previsão de pagamentos (FRMRELPEDIDOCOMPRA, uRelPedidosCompra.pas)
+        const cR = await fetch(`${base}/${PED}`, { method: 'POST', headers: H, body: JSON.stringify({
+          codparceiro: 22, data: '2037-03-10', data_faturamento: '2037-03-12', empresas: '1, 2', cd1: 30, cd2: 60,
+          itens: [{ idproduto: 1, fatorembalagem: 6, vrcusto: 2, lojas: [{ idempresa: 1, qtde: 3 }, { idempresa: 2, qtde: 5 }] }] }) });
+        const codR = Number(((await cR.json().catch(() => ({}))) as any).codpedcomp);
+        const rel = async (q: string) => (await (await fetch(`${base}/relatorios/pedidos-compra?${q}`, { headers: H })).json().catch(() => ({}))) as any;
+        const rPed = await rel('dataIni=2037-03-01&dataFim=2037-03-31&filtroData=PEDIDO&empresas=1,2');
+        const rParc = await rel('dataIni=2037-05-01&dataFim=2037-05-31&filtroData=PARCELA&empresas=1,2&agrupamento=VENC_PARCELA');
+        const rFat = await rel('dataIni=2037-03-12&dataFim=2037-03-12&filtroData=FATURAMENTO&empresas=1,2&status=FECHADOS');
+        const rSess = await rel('dataIni=2037-03-01&dataFim=2037-03-31');
+        const doR = (r: any) => (r.pedidos ?? []).filter((p: any) => p.nropedido === codR).map((p: any) => [p.idempresa, p.valor]);
+        const parcRel = (r: any) => (r.grupos ?? []).flatMap((g: any) => g.parcelas).filter((v: any) => v.nropedido === codR)
+          .map((v: any) => [v.idempresa, v.dt_venc_parc, v.condpag, v.valor_parcela]);
+        check('RELATÓRIO DE PEDIDOS §166 [a previsão de pagamentos é por pedido E POR LOJA, e cada linha vira as parcelas da condição]: a base é Σ PEDIDO_COMPRA_QTDE.TOTALCUSTO por loja — o pedido das lojas 1 e 2 dá duas linhas (R$ 36 e R$ 60); cada uma dividida pelos 2 prazos, vencendo em faturamento (12/03) + 30 e + 60. Filtrar pelo vencimento da PARCELA em maio acha o pedido e lista também a parcela de abril (o recorte por parcela está comentado no fonte); "fechados" não o acha; sem lojas, só a da sessão. A fila dava esta tela como "sem fonte" — o fonte existe (uRelPedidosCompra.pas)',
+          cR.status === 201
+          && JSON.stringify(doR(rPed)) === JSON.stringify([[1, 36], [2, 60]])
+          && JSON.stringify(parcRel(rPed)) === JSON.stringify([[1, '2037-04-11', 30, 18], [1, '2037-05-11', 60, 18], [2, '2037-04-11', 30, 30], [2, '2037-05-11', 60, 30]])
+          && JSON.stringify(doR(rParc)) === JSON.stringify([[1, 36], [2, 60]]) && parcRel(rParc).length === 4
+          && doR(rFat).length === 0
+          && JSON.stringify(doR(rSess)) === JSON.stringify([[1, 36]]),
+          { cR: cR.status, ped: doR(rPed), parc: parcRel(rPed), rParc: [doR(rParc), parcRel(rParc).length], rFat: doR(rFat), rSess: doR(rSess), erro: rPed.code });
+        if (codR) {
+          await pgMl.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [codR]);
+          await pgMl.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [codR]);
+        }
+
         await pgMl.query(`DELETE FROM nf WHERE codnf = $1`, [Number(nfB.codnf)]);
         for (const c of [codP, codB]) {
           await pgMl.query(`DELETE FROM pedidocompra_parcelas WHERE codpedcomp = $1`, [c]);

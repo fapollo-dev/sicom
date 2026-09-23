@@ -73,7 +73,7 @@ export class PedidoImpressaoService {
                f.codparceiro, f.razao AS fornecedor, f.email, f.descpadrao,
                co.descricao AS condicao, o.nome AS comprador
           FROM pedidocompra p
-          LEFT JOIN parceiros f ON f.codparceiro = p.codparceiro AND f.idempresa = p.idempresa
+          LEFT JOIN parceiros f ON f.codparceiro = p.codparceiro
           LEFT JOIN condicoes_pagto co ON co.codconpagto = p.codconpagto
           LEFT JOIN operadores o ON o.codoperador = p.usultalteracao
          WHERE p.codpedcomp = ${codpedcomp}

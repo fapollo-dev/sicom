@@ -311,3 +311,23 @@ export const liberarConferenciaSchema = z.object({
   senha: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().max(200).optional()),
 });
 export type LiberarConferenciaDto = z.infer<typeof liberarConferenciaSchema>;
+
+/* ── RELATÓRIO DE PEDIDOS DE COMPRA — previsão financeira (`FRMRELPEDIDOCOMPRA`, uRelPedidosCompra.pas) ── */
+const dataISORel = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Informe a data no formato AAAA-MM-DD.');
+export const relPedidosCompraSchema = z.object({
+  dataIni: dataISORel,
+  dataFim: dataISORel,
+  /** `rgFiltroDatas`: data do pedido, vencimento do pedido, data de faturamento, vencimento da parcela. */
+  filtroData: z.enum(['PEDIDO', 'VENCIMENTO', 'FATURAMENTO', 'PARCELA']).default('PEDIDO'),
+  /** `rgStatusPedido`: todos, abertos, fechados (o FECHADO do cabeçalho). */
+  status: z.enum(['TODOS', 'ABERTOS', 'FECHADOS']).default('TODOS'),
+  /** `rgAgrupamento`: a ordem e a quebra da impressão (um `.fr3` por opção). */
+  agrupamento: z.enum(['FORNECEDOR', 'DATA_PEDIDO', 'VENCIMENTO', 'FATURAMENTO', 'VENC_PARCELA']).default('FORNECEDOR'),
+  codparceiro: z.coerce.number().int().positive().nullish(),
+  /** "Busca direto pela descrição": parte da razão do fornecedor. */
+  razao: z.string().trim().max(100).nullish(),
+  empresas: z.union([z.array(z.coerce.number().int().positive()), z.string()])
+    .transform((v) => (typeof v === 'string' ? v.split(',').map((x) => Number(x.trim())).filter((n) => Number.isInteger(n) && n > 0) : v))
+    .pipe(z.array(z.number().int().positive()).max(50)).nullish(),
+});
+export type RelPedidosCompraDto = z.infer<typeof relPedidosCompraSchema>;

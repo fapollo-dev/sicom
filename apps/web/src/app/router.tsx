@@ -44,6 +44,7 @@ import { LancamentosContabeisPage } from '../features/lancamentos-contabeis/Lanc
 import { RentabilidadePage } from '../features/rentabilidade/RentabilidadePage';
 import { PrecificacaoNfPage } from '../features/precificacao-nf/PrecificacaoNfPage';
 import { RelComprasPage } from '../features/rel-compras/RelComprasPage';
+import { RelPedidosCompraPage } from '../features/rel-pedidos-compra/RelPedidosCompraPage';
 import { PromocaoAcumulativaPage } from '../features/promocao-acumulativa/PromocaoAcumulativaPage';
 import { ConferenciaNfIndexadorPage } from '../features/conferencia-nf-indexador/ConferenciaNfIndexadorPage';
 import { ConfigConciliadorPage } from '../features/config-conciliador/ConfigConciliadorPage';
@@ -246,6 +247,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/rentabilidade', element: <RentabilidadePage /> }, // FRMRENTABILIDADECATEGORIAS
       { path: '/precificacao/nf', element: <PrecificacaoNfPage /> }, // FRMPRECIFICACAONF
       { path: '/relatorios/compras', element: <RelComprasPage /> }, // FRMRELCOMPRAS
+      { path: '/relatorios/pedidos-compra', element: <RelPedidosCompraPage /> }, // FRMRELPEDIDOCOMPRA
       { path: '/cadastro/promocao-acumulativa', element: <PromocaoAcumulativaPage /> }, // FRMCADPROMOCAOACUMULATIVA
       { path: '/fiscal/conferencia-nf-indexador', element: <ConferenciaNfIndexadorPage /> }, // FRMCONFERENCIANFINDEXADOR
       { path: '/cadastro/config-conciliador', element: <ConfigConciliadorPage /> }, // FRMCADCONFIGCONCILIADOR

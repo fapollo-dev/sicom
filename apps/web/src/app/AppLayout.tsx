@@ -130,6 +130,8 @@ const TELAS = [
   { href: '/precificacao/nf', name: 'Precificação de NF', icon: Tag },
   // FRMRELCOMPRAS — os três relatórios de compra por categoria (204 acessos).
   { href: '/relatorios/compras', name: 'Relatórios de compras', icon: ShoppingCart },
+  // FRMRELPEDIDOCOMPRA — previsão de pagamentos dos pedidos de compra, por loja (63 acessos).
+  { href: '/relatorios/pedidos-compra', name: 'Relatório de pedidos de compra', icon: ShoppingCart },
   // FRMCADPROMOCAOACUMULATIVA — leve N, pague menos (199 acessos, 26 operadores).
   { href: '/cadastro/promocao-acumulativa', name: 'Promoção acumulativa', icon: Tag },
   // FRMCONFERENCIANFINDEXADOR — sistema × XML da nota, item a item (165 acessos).
