@@ -54,7 +54,7 @@ NFs de 2026: 7.219 em 31 situações; itens 68.745 (68.624 com situação; em 70
 | bonificação = CFOP 1910/2910/5910/6910 | udmNF.pas:5325; uLancamentoContabilNF.pas:762 | 5 e 24 | FALTA |
 | rateio pré-preenchido pelo CC da situação | udmNF.pas:11027 (uNF.pas:5036/2912); uLancamentoContabilNF.pas:673 | 5.353 de 6.449 NFs de entrada | ✅ C3 (`nf-rateio.ts`, no gravar) |
 | CCs permitidos por situação; situação do rateio = cabeçalho/itens | uLancamentoContabilNF.pas:148/230/314 | 6.531/6.531 dentro | ✅ C3 (tela; regras de pesquisa no legado, não do servidor) |
-| **lançamentos de CAIXA da NF** (F3) e a reversão | udmNF.pas:9266 (:7776), :5011 | **1.011 em 2026, 903 NFs, R$ 764.054,09** | FALTA |
+| **lançamentos de CAIXA da NF** (F3) e a reversão | udmNF.pas:9266 (:7776), :5011 | **1.011 em 2026, 903 NFs, R$ 764.054,09** | ✅ C4 (`nf-caixa.ts`, mig 319) |
 | CC restrito em AP/AR/caixa/scrap | uAPagar.pas:763…; uCadAReceber.pas:538…; uMovCaixa.pas:540; uCadSCRAP.pas:421 | CX_APAGAR: 0 fora | FALTA |
 | parceiro restrito em AP/AR/caixa/adiantamento | uAPagar.pas:3555… | AP: 1 fora de 613 | adiantamento ✅; resto FALTA |
 | pesquisa por TIPO_OPERACAO (AP F04, AR F05, caixa F06, scrap E02, CFOP I*…) | uAPagar.pas:6506… | — | adiantamento ✅; resto FALTA |
@@ -92,7 +92,14 @@ NFs de 2026: 7.219 em 31 situações; itens 68.745 (68.624 com situação; em 70
   situação, bonificação (CFOP 1910/2910) marca ADICIONAL (o servidor também deriva quando não vem), e a nota de entrada
   gravada abre com os CCs das situações a valor 0 (`InserirCentroDeCustosDefinidos`). As restrições de situação e de CC
   são de PESQUISA no legado (o Exit do CC só confere que existe), por isso não viraram recusa do servidor.
-- **C4 — caixa da NF**: `GerarLancamentosDeCaixa` e a reversão (golden: 1.011 linhas / R$ 764.054,09 de 2026).
+- **C4 — caixa da NF** ✅ (23/09/2026, mig 319-320, smoke 1477/0): o processamento gera os lançamentos gerenciais
+  na CAIXA (origem 'NF', `GerarLancamentosDeCaixa`) e o reverter os apaga (`ReverteLancamentosDeCaixa`). Finalidade
+  1/4; CFOP que gera financeiro → só a bonificação; senão, sem rateio → um lançamento com o total no 1º CC da situação,
+  com rateio → um por linha; saída positiva, entrada negativa, bonificação (x910) invertida e BONIFICADO='S'.
+  Produção 2026: 218/218, 382/382 e 186/186 nos três ramos. O cancelamento NÃO apaga (17 NFs canceladas mantêm o
+  caixa). Grupo novo por lançamento (`seq_caixa_codgrupo`, a ID_CODGRUPO do legado, compartilhada com CX_VENDAS e
+  CX_APAGAR). ⚠️ Achado no caminho: `CAIXA.NRPARCELA` ('1/1') era inteiro aqui e a carga cortava no primeiro número;
+  com `CAIXA.FORMAPGTO` e `NF.SEQUENCIA_NFE` (flag 'S'/'N'), voltaram ao tipo do legado (mig 320).
 - **C5 — pesquisas fora da NF**: TIPO_OPERACAO, CC e parceiro em AP/AR/caixa/scrap/CFOP/empresa/pedido.
 - **C6 — regras pequenas**: BCR>100, importação automática; declarar mortos os campos acima.
 

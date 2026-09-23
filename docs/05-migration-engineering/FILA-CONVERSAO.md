@@ -903,7 +903,7 @@ banco) — a data de criação não separa backup de tabela viva; o nome datado 
 ela contava como coberta. O legado tem ~20 campos e 4 detalhes (CFOPs permitidos `ISITUACAO_NF`, centros de custo
 `SITUACAO_NF_PLC`, parceiros `SITUACAO_NF_PARCEIROS`, integração contábil), e regras da NF, do pedido e do contábil leem
 esses campos — entre elas os **lançamentos de caixa da NF** (`GerarLancamentosDeCaixa`, udmNF.pas:9266: 1.011 em 2026,
-origem 'NF'; o Apollo não gera nenhum). Dossiê `UCadSituacaoNF.md`: **C1 (a tela) ✅ mig 317**; **C2 NF×CFOP ✅**; **C2b transferência ✅ (veredito: a importação de pedido/transferência está morta)**; **C3 rateio ✅**, C4 caixa da NF, C5 pesquisas fora da NF e C6 regras pequenas na fila — os itens 3 e 4 desta tabela entram neles.
+origem 'NF'; o Apollo não gera nenhum). Dossiê `UCadSituacaoNF.md`: **C1 (a tela) ✅ mig 317**; **C2 NF×CFOP ✅**; **C2b transferência ✅ (veredito: a importação de pedido/transferência está morta)**; **C3 rateio ✅**; **C4 caixa da NF ✅ (mig 319-320)**, C4 caixa da NF, C5 pesquisas fora da NF e C6 regras pequenas na fila — os itens 3 e 4 desta tabela entram neles.
 
 **A finalização do fechamento de caixa volta para a fila (decisão do usuário, 23/09/2026: "corrija e siga").** Tinha
 saído em 19/08 pela regra "nada de PDV" — interpretação minha, não do usuário: é a tesouraria do RETAGUARDA

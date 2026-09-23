@@ -1181,6 +1181,35 @@ async function main() {
           && j4.status === 201 && j4.linhas.find((l) => l.idsituacao_nf === 7933)?.adicional === 'S',
           { j1: j1.linhas, j2: j2.linhas, j3: j3.linhas, j4: [j4.status, j4.linhas] });
         for (const j of [j1, j2, j3, j4]) await fetch(`${base}/fiscal/nf/${j.codnf}`, { method: 'DELETE', headers: H });
+
+        // k) C4 — o CAIXA que o processamento gera (GerarLancamentosDeCaixa, udmNF.pas:9266): CFOP que não gera
+        // financeiro; entrada COM rateio → um caixa por linha, negativo; saída SEM rateio → um caixa com o total no 1º CC
+        // da situação, positivo; o reverter apaga (ReverteLancamentosDeCaixa)
+        const pf0 = (await pgSit.query(`SELECT codcfop, proc_financeiro FROM cfop WHERE codcfop IN ('1102','5102')`)).rows as any[];
+        await pgSit.query(`UPDATE cfop SET proc_financeiro='N' WHERE codcfop IN ('1102','5102')`);
+        await pgSit.query(`INSERT INTO situacao_nf (idsituacao_nf, descricao, tipo, tipo_operacao) VALUES (7934,'SAIDA COM 2 CC','S','E01') ON CONFLICT DO NOTHING`);
+        await pgSit.query(`INSERT INTO isituacao_nf (idsituacao_nf, codcfop) VALUES (7934, 5102)`);
+        await pgSit.query(`INSERT INTO situacao_nf_plc (idsituacao_nf, codplc) VALUES (7934, 4), (7934, 5)`);
+        const k1 = await rt('CAIXA1', 7930);
+        const kS = await nfSit({ tipo: 'S', nronf: 'CAIXA2', cfop: '5102', idsituacao_nf: 7934, codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 30, cfop: '5102', aliquota: 'T01' }] });
+        const kSId = Number(((await kS.json().catch(() => ({}))) as any).codnf);
+        const pr1 = await fetch(`${base}/fiscal/nf/${k1.codnf}/processar`, { method: 'POST', headers: H });
+        const pr2 = await fetch(`${base}/fiscal/nf/${kSId}/processar`, { method: 'POST', headers: H });
+        const cxDe = async (codnf: number) => (await pgSit.query(`SELECT valor::float AS valor, vrtitulo::float AS vrtitulo, codplc, bonificado, origem, gerado, nrparcela, codgrupo, obs FROM caixa WHERE codnf=$1 ORDER BY codcx`, [codnf])).rows as any[];
+        const cx1 = await cxDe(k1.codnf);
+        const cx2 = await cxDe(kSId);
+        const rv1 = await fetch(`${base}/fiscal/nf/${k1.codnf}/reverter`, { method: 'POST', headers: H });
+        const cx1r = await cxDe(k1.codnf);
+        check('SITUAÇÃO k (C4): processar gera o caixa da NF — entrada com rateio (7930, CC 3, 100) → caixa −100 no CC 3 (origem NF, SISTEMA, 1/1, grupo novo, "REFERENTE A NOTA FISCAL CAIXA1") · saída sem rateio (2 CCs) → caixa +30 no 1º CC · reverter apaga o caixa',
+          pr1.status === 200 && pr2.status === 200 && cx1.length === 1 && cx1[0].valor === -100 && cx1[0].vrtitulo === -100 && Number(cx1[0].codplc) === 3
+          && cx1[0].origem === 'NF' && cx1[0].gerado === 'SISTEMA' && cx1[0].nrparcela === '1/1' && cx1[0].codgrupo != null && cx1[0].bonificado === 'N'
+          && String(cx1[0].obs).startsWith(' REFERENTE A NOTA FISCAL CAIXA1 EMITIDA EM ')
+          && cx2.length === 1 && cx2[0].valor === 30 && [4, 5].includes(Number(cx2[0].codplc))
+          && rv1.status === 200 && cx1r.length === 0,
+          { pr: [pr1.status, pr2.status], cx1, cx2, rv: rv1.status, depois: cx1r.length });
+        await fetch(`${base}/fiscal/nf/${kSId}/reverter`, { method: 'POST', headers: H });
+        for (const c of [k1.codnf, kSId]) await fetch(`${base}/fiscal/nf/${c}`, { method: 'DELETE', headers: H });
+        for (const r of pf0) await pgSit.query(`UPDATE cfop SET proc_financeiro=$2 WHERE codcfop=$1`, [r.codcfop, r.proc_financeiro]);
         // a integração volta ao que o resto do smoke espera (desligada) e a retenção configurada sai
         await pgSit.query(`DELETE FROM configuracoes_especificas WHERE id=(SELECT id FROM configuracoes WHERE codigo='UTILIZA_INTEGRACAO_CONTABIL') AND tipo='Modulo'`);
         await pgSit.query(`UPDATE config_integracao_contabil SET config_retencao_pis_nf = $1`, [cfgPis0?.config_retencao_pis_nf ?? null]);

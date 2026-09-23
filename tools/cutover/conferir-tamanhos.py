@@ -27,15 +27,16 @@ destino = json.load(open(os.path.join(BASE, 'schema-destino.json')))['tabelas']
 # de-para de tabela e de coluna, lidos do extrator (a mesma fonte que a carga usa)
 src = open(os.path.join(BASE, 'etl', 'extrair.py'), encoding='utf-8').read()
 TABELA_ORIGEM, RENOMEIA, TRANSFORMA, CALCULADAS = {}, {}, {}, {}
-for node in ast.walk(ast.parse(src)):
+for node in ast.parse(src).body:
     if isinstance(node, ast.Assign):
         for t in node.targets:
             nome = getattr(t, 'id', '')
             if nome in ('TABELA_ORIGEM', 'RENOMEIA', 'TRANSFORMA', 'CALCULADAS'):
-                try:
-                    globals()[nome] = ast.literal_eval(node.value)
-                except ValueError:
-                    pass
+                # exec da atribuição (não literal_eval): a CALCULADAS monta expressões com join/f-string e o
+                # literal_eval falhava calado — a lista ficava vazia e as colunas calculadas eram medidas como brutas
+                ns = {}
+                exec(compile(ast.Module([node], []), 'extrair.py', 'exec'), ns)
+                globals()[nome] = ns[nome]
 
 # DATA com hora no legado → `date` no destino: a hora só some com veredito, e a prova é a medida. Nestas o que o legado
 # guarda é o CARIMBO do momento da gravação (o campo é data na tela — TcxDBDateEdit): horários de relógio aleatórios, a
@@ -57,6 +58,23 @@ DATAS_DIA = {
     ('troca', 'data'): '2 de 107',
 }
 TABELA_ORIGEM.update(plano.get('tabela_origem', {}))
+
+# a carga que TRANSFORMA um valor pode estar perdendo dado — foi assim que `caixa.nrparcela` ('1/3' → 1),
+# `caixa.formapgto` e `nf.sequencia_nfe` ('S' → nulo) passaram por este conferidor (mig 320). Cada transformação
+# precisa de veredito: o valor original não se perde (preenche nulo, tira máscara) ou o original mora em outra coluna.
+TRANSFORMA_DECLARADAS = {
+    ('parceiros', 'idempresa'): 'preenche o nulo (96,9% nulo no legado; a coluna é NOT NULL aqui) — nada se perde',
+    ('nf_prod', 'vl_custo'): 'preenche o nulo com 0 (NOT NULL aqui)',
+    ('apuracao_pc_det', 'tipo'): 'papel C/D; o texto original fica em `tipo_origem` (mig 320)',
+    ('clube_desconto', 'idempresa'): 'a primeira loja; a LISTA original fica em `empresas` (mig 320)',
+    ('operadoras', 'operadora'): 'preenche o nome nulo (NOT NULL aqui)',
+    ('historico_prod', 'qtde_alter'): 'preenche o nulo com 0',
+    ('historico_prod', 'qtde_atual'): 'preenche o nulo com 0',
+    ('empresas', 'cnpj'): 'tira a máscara (os dígitos ficam)',
+    ('empresas', 'insc'): 'tira a máscara (os dígitos e letras ficam)',
+    ('empresas', 'cep'): 'tira a máscara (os dígitos ficam)',
+}
+sem_veredito = sorted(f'{t}.{c}' for t, cols in TRANSFORMA.items() for c in cols if (t, c) not in TRANSFORMA_DECLARADAS)
 
 tabelas = sorted({t for v in plano['fases'].values() for t in v})
 host = os.environ.get('ORACLE_HOST', '192.168.1.240')
@@ -91,7 +109,13 @@ for t in tabelas:
         if dc in TRANSFORMA.get(t, {}) or oc in TRANSFORMA.get(t, {}) or dc in CALCULADAS.get(t, {}):
             continue
         motivo, medir, alvo = None, None, None
-        if dty in ('VARCHAR2', 'NVARCHAR2', 'CHAR', 'NCHAR'):
+        if dty in ('VARCHAR2', 'NVARCHAR2', 'CHAR', 'NCHAR') and (dtipo in INTEIRO_DEST or dtipo == 'numeric'):
+            # TEXTO no legado, NÚMERO aqui: o que não for número derruba a carga ('1/3', 'S') — o tipo é o do legado
+            motivo = f'texto {dty}({clen}) → {dtipo}'
+            medir = (f"SELECT count(*) FROM \"{orig}\" WHERE {q(oc)} IS NOT NULL AND NOT regexp_like(trim({q(oc)}), '^-?[0-9]+([.,][0-9]+)?$')",
+                     lambda v: v is not None and v > 0)
+            alvo = f'char({clen})' if dty in ('CHAR', 'NCHAR') else f'varchar({clen})'
+        elif dty in ('VARCHAR2', 'NVARCHAR2', 'CHAR', 'NCHAR'):
             if dtipo in TEXTO_DEST and dtam is not None and clen and dtam < clen:
                 motivo = f'texto {dty}({clen}) → {dtipo}({dtam})'
                 medir = (f'SELECT max(length({q(oc)})) FROM "{orig}"', lambda v, lim=dtam: v is not None and v > lim)
@@ -146,6 +170,9 @@ if '--sql' in sys.argv:
             print(f"SELECT apollo_alterar_tipo('{t}', '{c}', '{alvo}');  -- {m}")
     sys.exit(0)
 print(f'tabelas conferidas: {len(tabelas)}')
+print(f'\n[TRANSFORMAÇÃO SEM VEREDITO] a carga altera o valor e ninguém disse que nada se perde: {len(sem_veredito)}')
+for x in sem_veredito:
+    print(f'   {x}')
 print(f'\n[ALTO] o dado atual NÃO cabe no destino: {len(altos)}')
 for t, c, m, v, _ in altos:
     print(f'   {t}.{c:32s} {m:48s} dado: {v}')
@@ -155,5 +182,5 @@ for t, c, m, v, _ in medios:
 print(f'\n[DECLARADAS] data com carimbo de hora no legado, dia no destino (com a medida): {len(declaradas)}')
 for t, c, m, prova in declaradas:
     print(f'   {t}.{c:32s} {prova}')
-if altos or medios:
+if altos or medios or sem_veredito:
     sys.exit(1)

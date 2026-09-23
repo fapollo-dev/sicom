@@ -130,6 +130,8 @@ CALCULADAS = {
   # CONFIG_PLANO_CONTAS guarda a máscara como NDIG_1..NDIG_8 (larguras por nível); a nossa é o CSV '1,1,2,2,5'.
   'config_plano_contas': {'mascara': "rtrim(" + "||".join(f"nvl2(ndig_{i}, to_char(ndig_{i})||',', '')" for i in range(1, 9)) + ", ',')"},
   'icms_cfop': {'tipo': "case when substr(to_char(cfop),1,1) in ('1','2','3') then 'E' else 'S' end"},
+  # (mig 320) o ORIGINAL do que a carga reduz: o texto do TIPO da apuração (a LISTA de lojas do clube, mais abaixo)
+  'apuracao_pc_det': {'tipo_origem': 'tipo'},
   # ⚠️ O ITEM DO CUPOM E A SUA NFC-e. `VENDAS` do legado não tem CODNFC, CHAVENFE nem STATUSNFE — moram no
   # cabeçalho `NFC`, que não migra (PDV). As migs 105/165 previram as três colunas "vindas da carga", mas o
   # extrator não as derivava: depois da carga ficariam NULAS e a perna de cupom das apurações de ICMS e de IBS/CBS
@@ -192,7 +194,8 @@ CALCULADAS = {
     '     nvl((select min(f.idempresa) from nf f where f.chavenfe = nf_status_processo.chavenfe), 1)))'},
   'historico_processamento_nf': {'idempresa':
     'nvl((select f.idempresa from nf f where f.codnf = historico_processamento_nf.codnf), 1)'},
-  'clube_desconto': {'idempresa': "nvl(to_number(regexp_substr(idempresa, '\\d+')), 1)"},
+  # (mig 320) a LISTA de lojas do legado ('1,2') fica inteira em `empresas`; `idempresa` é a primeira
+  'clube_desconto': {'idempresa': "nvl(to_number(regexp_substr(idempresa, '\\d+')), 1)", 'empresas': 'idempresa'},
   # a extensao nao tem empresa propria (0 de 40) e casa com a regra em 40 de 40: vem de la, com a mesma
   # extracao, porque o valor do pai tambem e texto.
   'clube_desconto_ext': {'idempresa':
@@ -287,13 +290,8 @@ TRANSFORMA = {
  # prática. Aqui a coluna é NOT NULL DEFAULT 1 e nenhum dos 17 pontos que consultam parceiros filtra por
  # empresa: a carga preserva os 575 que a casa amarrou a uma loja e usa o default nos demais.
  'parceiros': {'idempresa': 'nvl({c}, 1)'},
- # `nf.sequencia_nfe` é integer aqui e VARCHAR2 no legado, com 'S' gravado (flag usada como texto): só entra o
- # que for número; o resto vira nulo, em vez de derrubar as 23.420 notas.
- # `caixa.nrparcela` é integer aqui e no legado vem como "1/3" (parcela/total): entra só o número da parcela.
- 'caixa': {'nrparcela': "case when regexp_like({c}, '^[0-9]+$') then {c} else regexp_substr({c}, '^[0-9]+') end",
-           # `formapgto` é integer aqui e no legado guarda o NOME da forma ('BOLETO'…): só entra se for número
-           'formapgto': "case when regexp_like({c}, '^[0-9]+$') then {c} else null end"},
- 'nf': {'sequencia_nfe': "case when regexp_like({c}, '^[0-9]+$') then {c} else null end"},
+ # (mig 320) `caixa.nrparcela`/`caixa.formapgto`/`nf.sequencia_nfe` tinham tipo errado aqui e a carga cortava/anulava
+ # o dado ('1/3' virava 1; 'S' virava nulo). Agora têm o tipo do legado e entram como estão.
  # colunas NOT NULL no destino que a origem deixa nula: a carga preenche o neutro (o app conta com o valor)
  'nf_prod': {'vl_custo': 'nvl({c}, 0)'},
  # APURACAO_PC_DET.TIPO no legado é texto ('ENTRADA' 118 · 'SAIDA NF' 27 · 'NFC-e' 48); o nosso é o papel na

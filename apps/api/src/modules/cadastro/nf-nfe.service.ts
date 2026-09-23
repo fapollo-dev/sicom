@@ -157,7 +157,7 @@ export class NfNfeService {
           statusnfe: res.status, // 'P' autorizada / 'D' denegada
           confirmada: res.status === 'P' ? 'S' : 'N',
           tpemissao: num(nf.tpemissao) || 1,
-          sequencia_nfe: 1,
+          sequencia_nfe: 'S', // a flag do legado: numerada na sequência da NF-e (uNF.pas:10863; mig 320)
           usultalteracao: op,
           dtultimalteracao: sql`now()`,
         })

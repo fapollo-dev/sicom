@@ -263,7 +263,7 @@ const nfBase = z.object({
   protocolo_nfe: opcional(z.string().trim().max(20)),
   protocolo_cancelamento: opcional(z.string().trim().max(20)),
   xjust: opcional(z.string().trim().max(255)),
-  sequencia_nfe: z.number().int().optional(),
+  sequencia_nfe: sn().optional(), // CHAR(1) 'S'/'N': numerada na sequência da NF-e (uNF.pas:10863; mig 320)
   tpemissao: z.number().int().optional(),
   // flags
   faturada: sn().optional(), // F4: financeiro gerado (server-controlled; fora das colunas do agregado)

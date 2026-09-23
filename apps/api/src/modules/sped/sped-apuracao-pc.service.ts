@@ -69,6 +69,7 @@ export class SpedApuracaoPcService {
           .values({
             codapuracao_pc,
             tipo: 'C',
+            tipo_origem: 'ENTRADA', // o TIPO do legado (mig 320)
             id_tipocredito: '101',
             id_basecredito: 1,
             idpiscofins: null,
@@ -129,6 +130,7 @@ export class SpedApuracaoPcService {
           .values({
             codapuracao_pc,
             tipo: 'D',
+            tipo_origem: 'NFC-e', // o TIPO do legado (mig 320)
             id_tipocredito: null,
             id_basecredito: null,
             idpiscofins: null,
@@ -178,7 +180,7 @@ export class SpedApuracaoPcService {
         const vCof = r2((base * aCof) / 100);
         await trx
           .insertInto('apuracao_pc_det')
-          .values({ codapuracao_pc, tipo: 'D', id_tipocredito: null, id_basecredito: null, idpiscofins: null, cst_pis: g.cst != null ? Number(g.cst) : null, basecalculo: base, aliqpis: aPis, valorpis: vPis, aliqcofins: aCof, valorcofins: vCof })
+          .values({ codapuracao_pc, tipo: 'D', tipo_origem: 'SAIDA NF', id_tipocredito: null, id_basecredito: null, idpiscofins: null, cst_pis: g.cst != null ? Number(g.cst) : null, basecalculo: base, aliqpis: aPis, valorpis: vPis, aliqcofins: aCof, valorcofins: vCof })
           .execute();
         totDebPis += vPis;
         totDebCofins += vCof;

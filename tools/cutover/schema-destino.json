@@ -3479,6 +3479,13 @@
      "escala": 2,
      "nulo": true,
      "default": null
+    },
+    "tipo_origem": {
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -5199,9 +5206,9 @@
      "default": null
     },
     "nrparcela": {
-     "tipo": "integer",
-     "tam": 32,
-     "escala": 0,
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
      "nulo": true,
      "default": null
     },
@@ -5346,9 +5353,9 @@
      "default": null
     },
     "formapgto": {
-     "tipo": "integer",
-     "tam": 32,
-     "escala": 0,
+     "tipo": "character varying",
+     "tam": 30,
+     "escala": null,
      "nulo": true,
      "default": null
     },
@@ -8379,6 +8386,13 @@
     "indr_data": {
      "tipo": "timestamp with time zone",
      "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "empresas": {
+     "tipo": "character varying",
+     "tam": 30,
      "escala": null,
      "nulo": true,
      "default": null
@@ -23345,9 +23359,9 @@
      "default": null
     },
     "coddoc": {
-     "tipo": "integer",
-     "tam": 32,
-     "escala": 0,
+     "tipo": "character varying",
+     "tam": 50,
+     "escala": null,
      "nulo": true,
      "default": null
     }
@@ -26599,9 +26613,9 @@
      "default": null
     },
     "codoperador": {
-     "tipo": "integer",
-     "tam": 32,
-     "escala": 0,
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
      "nulo": true,
      "default": null
     },
@@ -29594,9 +29608,9 @@
      "default": null
     },
     "sequencia_nfe": {
-     "tipo": "integer",
-     "tam": 32,
-     "escala": 0,
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
      "nulo": true,
      "default": null
     },

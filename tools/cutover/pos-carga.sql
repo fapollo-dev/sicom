@@ -61,3 +61,10 @@ UPDATE cx_vendas cv SET contabilizado = 'S'
  WHERE coalesce(cv.contabilizado, 'N') <> 'S'
    AND cv.codgrupo IS NOT NULL
    AND EXISTS (SELECT 1 FROM caixa c WHERE c.codgrupo = cv.codgrupo AND c.origem = 'FECHAMENTO' AND c.contabilizado = 'S');
+
+-- O GRUPO DO CAIXA (mig 319): a sequência do legado (ID_CODGRUPO) é uma só para CAIXA, CX_VENDAS e CX_APAGAR — a carga a
+-- reposiciona pelo CAIXA; aqui, pelo maior dos três (produção: caixa 107.111, cx_apagar 107.111, cx_vendas 107.089).
+SELECT setval('seq_caixa_codgrupo', greatest(
+  coalesce((SELECT max(codgrupo) FROM caixa), 0),
+  coalesce((SELECT max(codgrupo) FROM cx_vendas), 0),
+  coalesce((SELECT max(codgrupo) FROM cx_apagar), 0))::bigint + 1, false);

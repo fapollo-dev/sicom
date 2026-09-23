@@ -8,6 +8,7 @@ import { NfContabilizacaoService } from './nf-contabilizacao.service';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 import { validarItensNoProcessamento } from './nf-cfop-situacao';
 import { totaisProdutosNf } from '@apollo/shared';
+import { gerarCaixaDaNf, reverterCaixaDaNf } from './nf-caixa';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -186,6 +187,10 @@ export class NfProcessamentoService {
       if (Number(r?.numUpdatedRows ?? 0) === 0) {
         throw new BusinessRuleError(modo === 'processar' ? 'NF_JA_PROCESSADA' : 'NF_NAO_PROCESSADA', { codnf });
       }
+      // o CAIXA gerencial da NF (GerarLancamentosDeCaixa / ReverteLancamentosDeCaixa; UCadSituacaoNF.md C4) — o
+      // legado gera depois do commit do processamento; aqui na mesma transação, para não sobrar caixa de nota não processada
+      if (modo === 'processar') await gerarCaixaDaNf(trx, codnf, emp, op);
+      else await reverterCaixaDaNf(trx, codnf, emp);
     });
   }
 
