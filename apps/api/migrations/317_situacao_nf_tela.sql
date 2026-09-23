@@ -4,8 +4,7 @@
 -- campos e 4 detalhes — CFOPs permitidos (ISITUACAO_NF), centros de custo (SITUACAO_NF_PLC), parceiros
 -- (SITUACAO_NF_PARCEIROS) e a integração contábil (ITENS_INTEGRACAO_CONTABIL, `codoperacao` = a situação).
 -- Os ids são sequências no legado (`ID_IDSITUACAO_NF` em 3680, `ID_IDISITUACAO_NF` em 3160): aqui `OWNED BY`, que a
--- carga reposiciona no max(id). (A descrição é VARCHAR2(100) no legado e varchar(80) aqui — views dependem da coluna; o
--- alargamento vai com o conferidor de tamanhos, que trata isso para todas as tabelas.)
+-- carga reposiciona no max(id). (A descrição, VARCHAR2(100) no legado e varchar(80) aqui, alarga na mig 318.)
 
 CREATE SEQUENCE IF NOT EXISTS seq_situacao_nf;
 ALTER SEQUENCE seq_situacao_nf OWNED BY situacao_nf.idsituacao_nf;

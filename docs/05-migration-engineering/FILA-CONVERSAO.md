@@ -919,3 +919,21 @@ recriação bate com o do FRMSPEDFISCAL). Item 156: `MENSAGENS_NF` existe (no pl
 
 **Fora do Apollo mas lendo este Oracle** (registrado, não é dado do Apollo): o app GestaoMobile (login e permissões em
 `APP_PERMISSOES`), o licenciamento central do fornecedor (270 clientes ativos) e o BI novo (usuários, painéis, metas).
+
+### Achado 21 — todos os tamanhos: 160 colunas mais estreitas que as do legado, e a agenda que perdia a hora (23/09/2026, mig 318)
+
+A terceira escala do "tem que ter todos os campos". O conferidor de colunas garante que a coluna EXISTE; faltava o TAMANHO:
+`situacao_nf.descricao` é VARCHAR2(100) no legado e era varchar(80) aqui (o `ALTER` da mig 317 barrou numa view — foi o
+que revelou o problema). **Conferidor novo, permanente: `tools/cutover/conferir-tamanhos.py`** — para cada coluna do plano,
+compara o tipo declarado e, onde o destino é menor, MEDE o dado da produção (ALTO = não cabe; MÉDIO = cabe hoje, mas o
+legado aceita mais); pula o que a carga transforma (CNPJ sem máscara, ENTRADA/SAÍDA → C/D) e inteiro que cabe.
+
+- **160 colunas alargadas ao tamanho do legado** (textos e números — ex.: `cotacao_prod.valorcusto` NUMBER(15,4) contra
+  numeric(13,4)), por uma função que guarda, derruba e recria as views dependentes com o COMMENT (`apollo_alterar_tipo`);
+- **a agenda de limitação de venda guarda a HORA**: no legado DTINICIO/DTFIM são TIMESTAMP (a tela põe 00:00 e 23:59, e
+  há agendas de 05:00 até 01:00 do dia seguinte); o Apollo guardava só o dia;
+- **14 datas com hora no legado ficam `date`, declaradas com a medida**: a hora é o carimbo do momento da gravação num
+  campo que a tela trata como data (horários de relógio aleatórios; a mesma hora na emissão e no vencimento do movimento
+  bancário; 4.095 validades de lote às 16:47:25). Trocar o tipo quebraria filtros por período.
+
+Conferidor: ALTO 0 · MÉDIO 0 · declaradas 14. Smoke 1465/0.

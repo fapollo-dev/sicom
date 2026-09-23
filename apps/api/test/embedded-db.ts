@@ -360,6 +360,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('315_histareceber.sql'));
   await pool.query(sql('316_caixa_estorno_preciso.sql'));
   await pool.query(sql('317_situacao_nf_tela.sql'));
+  await pool.query(sql('318_tamanhos_do_legado.sql'));
   await pool.end();
   return pg;
 }

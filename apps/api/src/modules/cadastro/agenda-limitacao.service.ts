@@ -78,7 +78,7 @@ export class AgendaLimitacaoService {
       const r = (await sql<{ codagenda_produto: number }>`
         INSERT INTO agenda_produto (codempresa, descricao, dtinicio, dtfim, tipo, estatus, empresas,
                                     usultalteracao, dtultimalteracao)
-        VALUES (${emp}, ${dto.descricao}, ${dto.dtinicio}::date, ${dto.dtfim}::date, ${dto.tipo},
+        VALUES (${emp}, ${dto.descricao}, (${dto.dtinicio})::timestamp AT TIME ZONE 'America/Sao_Paulo', (${dto.dtfim})::timestamp AT TIME ZONE 'America/Sao_Paulo', ${dto.tipo},
                 ${dto.estatus}, ${dto.empresas}, ${operador}, now())
         RETURNING codagenda_produto
       `.execute(trx)).rows[0];
@@ -95,7 +95,7 @@ export class AgendaLimitacaoService {
       await this.assertAberta(trx, cod, emp);
       await sql`
         UPDATE agenda_produto
-           SET descricao = ${dto.descricao}, dtinicio = ${dto.dtinicio}::date, dtfim = ${dto.dtfim}::date,
+           SET descricao = ${dto.descricao}, dtinicio = (${dto.dtinicio})::timestamp AT TIME ZONE 'America/Sao_Paulo', dtfim = (${dto.dtfim})::timestamp AT TIME ZONE 'America/Sao_Paulo',
                tipo = ${dto.tipo}, estatus = ${dto.estatus}, empresas = ${dto.empresas},
                usultalteracao = ${operador}, dtultimalteracao = now()
          WHERE codagenda_produto = ${cod} AND codempresa = ${emp}

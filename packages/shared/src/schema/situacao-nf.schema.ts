@@ -93,7 +93,7 @@ export const situacaoNfParceiroSchema = z.object({
 const base = z.object({
   idsituacao_nf: num(),
   descricao: z.string({ message: 'Informe a descrição da situação do documento.' }).trim()
-    .min(1, 'Informe a descrição da situação do documento.').max(80), // 100 no legado; alarga com o conferidor de tamanhos
+    .min(1, 'Informe a descrição da situação do documento.').max(100), // VARCHAR2(100) do legado (mig 318)
   tipo_operacao: z.string({ message: 'Informe o tipo de operação.' }).trim().toUpperCase()
     .refine((v) => v in TIPOS_OPERACAO_SITUACAO, 'Tipo de operação inválido.'),
   // E/S — e 'T' (uma situação da produção, a 2020 F03)

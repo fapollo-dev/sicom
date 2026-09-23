@@ -37,8 +37,13 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
-const dataBr = (v: unknown) => (v == null ? '' : String(v).slice(0, 10).split('-').reverse().join('/'));
-const hoje = () => new Date().toISOString().slice(0, 10);
+// o período tem hora (mig 318): mostra dia e hora no fuso do navegador
+const dataBr = (v: unknown) => (v == null ? '' : new Date(String(v)).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }));
+const hojeLocal = () => {
+  const d = new Date();
+  const p = (x: number) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
 
 export function AgendaLimitacaoPage() {
   const mensagem = useMensagem();
@@ -110,14 +115,14 @@ export function AgendaLimitacaoPage() {
           Quanto de um produto <strong>cada cliente</strong> pode levar no período. É o que segura a gôndola
           no dia de promoção forte. Agenda <strong>fechada</strong> não se altera.
         </p>
-        <Button label="&Nova agenda" onClick={() => { setForm({ descricao: '', dtinicio: hoje(), dtfim: hoje(), tipo: 'Q', estatus: 'A', empresas: ';1;', itens: [] }); setAberta(null); }} />
+        <Button label="&Nova agenda" onClick={() => { setForm({ descricao: '', dtinicio: `${hojeLocal()}T00:00`, dtfim: `${hojeLocal()}T23:59`, tipo: 'Q', estatus: 'A', empresas: ';1;', itens: [] }); setAberta(null); }} />
       </section>
 
       {form && (
         <section className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
           <div className="w-80"><Field label="&Descrição" value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} /></div>
-          <div className="w-40"><Field label="&Início" type="date" value={form.dtinicio} onChange={(e) => setForm({ ...form, dtinicio: e.target.value })} /></div>
-          <div className="w-40"><Field label="&Término" type="date" value={form.dtfim} onChange={(e) => setForm({ ...form, dtfim: e.target.value })} /></div>
+          <div className="w-56"><Field label="&Início" type="datetime-local" value={form.dtinicio} onChange={(e) => setForm({ ...form, dtinicio: e.target.value })} /></div>
+          <div className="w-56"><Field label="&Término" type="datetime-local" value={form.dtfim} onChange={(e) => setForm({ ...form, dtfim: e.target.value })} /></div>
           <div className="w-40"><Field label="&Lojas (;1;2;)" value={form.empresas} onChange={(e) => setForm({ ...form, empresas: e.target.value })} /></div>
           <Button label="&Criar" disabled={ocupado || !form.descricao || !form.empresas} onClick={() => void criar()} />
           <Button variant="outline" label="Cancelar" onClick={() => setForm(null)} />

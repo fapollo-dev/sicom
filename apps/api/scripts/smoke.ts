@@ -14609,6 +14609,17 @@ async function main() {
           semEmp.status === 400 && invertida.status === 400 && nova.status === 201 && Number(novaJ.codagenda_produto) > 0,
           { semEmpresas: semEmp.status, invertida: invertida.status, nova: novaJ });
 
+        // §112.1b mig 318: o período tem HORA (TIMESTAMP no legado; produção com agendas de 05:00 até 01:00 do dia seguinte).
+        // Só a data → os padrões da tela (início 00:00, fim 23:59 — SetaDataPadrao); término igual ao início → 400.
+        const comHora = await fetch(`${base}/${AL}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'NOITE', dtinicio: '2036-02-01T05:00', dtfim: '2036-02-02T01:00', empresas: ';1;', itens: [] }) });
+        const comHoraJ = (await comHora.json().catch(() => ({}))) as any;
+        const igual = await fetch(`${base}/${AL}`, { method: 'POST', headers: H, body: JSON.stringify({ descricao: 'X', dtinicio: '2036-02-01T05:00', dtfim: '2036-02-01T05:00', empresas: ';1;', itens: [] }) });
+        const hrs = (await pgAl.query(`SELECT to_char(dtinicio AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD HH24:MI') i, to_char(dtfim AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD HH24:MI') f
+                                         FROM agenda_produto WHERE codagenda_produto IN ($1, $2) ORDER BY codagenda_produto`, [Number(novaJ.codagenda_produto), Number(comHoraJ.codagenda_produto)])).rows as any[];
+        check('AGENDA LIMITAÇÃO §112.1b: guarda a hora (05:00 → 01:00 do dia seguinte) · só a data vira 00:00 → 23:59 · término = início → 400',
+          comHora.status === 201 && igual.status === 400 && hrs[0]?.i === '2036-01-01 00:00' && hrs[0]?.f === '2036-01-02 23:59'
+          && hrs[1]?.i === '2036-02-01 05:00' && hrs[1]?.f === '2036-02-02 01:00',
+          { comHora: comHora.status, igual: igual.status, hrs });
         const cod = Number(novaJ.codagenda_produto);
         const add = await fetch(`${base}/${AL}/${cod}/produtos`, { method: 'POST', headers: H, body: JSON.stringify({ idprodutos: [991000, 991001], quantidade: 6 }) });
         const addJ = (await add.json().catch(() => ({}))) as any;
