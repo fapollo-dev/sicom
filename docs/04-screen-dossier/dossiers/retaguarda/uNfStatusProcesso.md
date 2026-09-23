@@ -70,3 +70,21 @@ Restava também `REMESSA_LOTE`, com **11.048.221 linhas** — a maior de todas. 
 está escrito no `plano-tabelas.json`: é **log de replicação**, não regra. Cada linha é uma tripla (tabela,
 id, data) apontando outra tabela (`HISTORICO_PDV`, `ARECEBER`, `CX_VENDAS`, `NFC`, `VENDAS`), e o Apollo tem
 outro mecanismo de sincronização. Migrar o log de sincronismo do legado não reproduz regra nenhuma.
+
+## 7. ⚠️ O vínculo da nota com a esteira é um CURSOR, e o cursor atrasa (mig 293)
+
+`NF.CODNFSTATUSPRO` (42.065 preenchidos) e `NFE_NAO_CADASTRADAS.CODNFSTATUSPRO` (43.872) casam **100%** com
+a esteira — mas não apontam a esteira: apontam **uma etapa**. Comparado com a etapa realizada mais alta da
+própria chave:
+
+| | nf | nfe_nao_cadastradas |
+|---|---:|---:|
+| é a etapa realizada mais alta | **40.732 (96,8%)** | 42.592 |
+| etapa ANTERIOR à mais alta | **1.321** | 1.258 |
+| etapa POSTERIOR à mais alta | 2 | 16 |
+| chave sem etapa realizada | 3 | 0 |
+| aponta a etapa de OUTRA chave | 7 | 6 |
+
+É o cursor da nota na esteira, e em 1.321 notas ele não foi avançado. Por isso o "parada em" da tela sai das
+**dez linhas**, não do ponteiro — ler o ponteiro diria que a nota está atrás de onde está. A coluna migra
+como o legado a gravou (fidelidade), sem FK: `nfe_nao_cadastradas` carrega na f0 e a esteira na f2.

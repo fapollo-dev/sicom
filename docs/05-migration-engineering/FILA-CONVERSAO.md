@@ -673,3 +673,9 @@ mistas, então ela se recupera da própria esteira; só 3 caem na nota e depois 
 data) apontando outra tabela, e o Apollo tem outro mecanismo de sincronização. Migrar o log de sincronismo
 do legado não reproduz regra nenhuma — e isso agora está no `plano-tabelas.json`, em `excluidas`, com o
 motivo por extenso.
+
+**E o vínculo da nota com a esteira (mig 293)** — que na mig 286 ficou declarado no conferidor como "entra
+com a esteira" — entrou: `nf.codnfstatuspro` e `nfe_nao_cadastradas.codnfstatuspro`, 42.065 e 43.872
+preenchidos, 100% casando. ⚠️ Ele aponta **uma etapa**, o cursor da nota, e o cursor atrasa: é a etapa
+realizada mais alta em 96,8% das notas e fica **para trás em 1.321**. A tela calcula o estado pelas dez linhas,
+não pelo ponteiro. As duas declarações saíram do conferidor, que segue em **0 nos dois sentidos**.

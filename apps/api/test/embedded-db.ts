@@ -335,6 +335,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('290_varredura_colunas_final.sql'));
   await pool.query(sql('291_historico_processamento_nf.sql'));
   await pool.query(sql('292_nf_status_processo.sql'));
+  await pool.query(sql('293_nf_vinculo_esteira.sql'));
   await pool.end();
   return pg;
 }

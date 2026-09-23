@@ -104,7 +104,6 @@ ORIGEM_NAO_VEM = re.compile(
 # colunas da ORIGEM que ficam de fora com PROVA medida — cada par é uma decisão, não um esquecimento
 ORIGEM_DECLARADA = {
     # mig 286: das 28 colunas de total da NF, 12 entraram (R$ 160,5 milhões) e estas 16 não.
-    ('nf', 'codnfstatuspro'): 'FK para NF_STATUS_PROCESSO, que ainda não tem destino — entra com ela',
     ('nf', 'qtde'): 'contagem de itens: derivável de nf_prod; guardar criaria uma segunda verdade',
     ('nf', 'validatotalnf'): 'flag de processo do legado, não valor',
     ('nf', 'totalfrete2'): 'resíduo: 1 nota',
@@ -137,7 +136,6 @@ ORIGEM_DECLARADA = {
     # mig 290, o que resta da varredura — cada um com o motivo medido
     ('config_plano_contas', 'codconfig'): 'PK da origem; o destino usa `tipo` como chave (1 linha)',
     ('situacao_nf_parceiros', 'codoperador'): 'autoria do vinculo; 146 linhas, sem uso em regra',
-    ('nfe_nao_cadastradas', 'codnfstatuspro'): 'FK para NF_STATUS_PROCESSO, que ainda nao tem destino',
     ('log_impressao_etiqueta', 'valor_impressao'): 'log operacional; o destino ja guarda valor_venda',
 }
 # grandezas cuja ausência muda NÚMERO ou IDENTIDADE — é onde a perda é cara
