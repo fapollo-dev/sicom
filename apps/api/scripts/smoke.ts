@@ -998,6 +998,63 @@ async function main() {
     const cfops = (await (await fetch(`${base}/cadastro/cfops`, { headers: H })).json()) as any[];
     check('GET /cadastro/cfops lista o catálogo (tem 5102)', Array.isArray(cfops) && cfops.some((c) => c.codcfop === '5102'), cfops?.length);
 
+    // 16.12b) SITUAÇÃO DO DOCUMENTO — a tela (mig 317; UCadSituacaoNF): 27 campos + CFOPs, CCs, parceiros e contas
+    {
+      const pgSit = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const SIT = 'cadastro/situacoes-nf';
+        await pgSit.query(`UPDATE cfop SET tipo='S' WHERE codcfop='5102'`);
+        await pgSit.query(`UPDATE cfop SET tipo='E' WHERE codcfop='1403'`);
+        const crSit = (b: Record<string, unknown>) => fetch(`${base}/${SIT}`, { method: 'POST', headers: H, body: JSON.stringify(b) });
+        // a) F04 força ENTRADA (mesmo mandando S); id da sequência (≥ 3681); contas C+D; parceiro; LOG gravado
+        const s1 = await crSit({ descricao: 'CONTAS A PAGAR TESTE', tipo_operacao: 'F04', tipo: 'S', parceiros: [{ codparceiro: 2 }],
+          contas: [{ natureza: 'D', tipo: 'F', codconta_contabil: 183, codhistorico: 84 }, { natureza: 'C', tipo: 'A', codhistorico: 84 }] });
+        const s1J = (await s1.json().catch(() => ({}))) as any;
+        const s1Id = Number(s1J.idsituacao_nf);
+        const s1Log = Number((await pgSit.query(`SELECT count(*)::int n FROM log WHERE tabela='SITUACAO_NF' AND valor=$1`, [s1Id])).rows[0].n);
+        check('SITUAÇÃO a: F04 força tipo E · id pela sequência (≥3681) · 2 contas (D fixa + C automática) · 1 parceiro com carimbo · LOG',
+          s1.status === 201 && s1J.tipo === 'E' && s1Id >= 3681 && (s1J.contas ?? []).length === 2 && (s1J.parceiros ?? []).length === 1
+          && s1J.parceiros[0].dtcadastro != null && s1Log === 1,
+          { status: s1.status, tipo: s1J.tipo, id: s1Id, contas: (s1J.contas ?? []).length, log: s1Log });
+        // b) contas: 3 → 400; D sem histórico → 422; O01 (conta fixa) com conta automática e sem conta → 422
+        const s2 = await crSit({ descricao: 'X', tipo_operacao: 'F06', contas: [{ natureza: 'D', tipo: 'F', codconta_contabil: 1, codhistorico: 1 }, { natureza: 'C', tipo: 'F', codconta_contabil: 1, codhistorico: 1 }, { natureza: 'C', tipo: 'F', codconta_contabil: 1, codhistorico: 1 }] });
+        const s3 = await crSit({ descricao: 'X', tipo_operacao: 'F06', contas: [{ natureza: 'D', tipo: 'F', codconta_contabil: 1 }, { natureza: 'C', tipo: 'F', codconta_contabil: 1, codhistorico: 1 }] });
+        const s3J = (await s3.json().catch(() => ({}))) as any;
+        const s4 = await crSit({ descricao: 'X', tipo_operacao: 'O01', contas: [{ natureza: 'D', tipo: 'A', codhistorico: 1 }, { natureza: 'C', tipo: 'F', codconta_contabil: 1, codhistorico: 1 }] });
+        const s4J = (await s4.json().catch(() => ({}))) as any;
+        check('SITUAÇÃO b: 3 contas → 400 · conta sem histórico → 422 · operação de conta fixa (O01) não aceita automática sem conta → 422',
+          s2.status === 400 && s3.status === 422 && s3J.code === 'SITUACAO_HISTORICO_OBRIGATORIO' && s4.status === 422 && s4J.code === 'SITUACAO_CONTA_OBRIGATORIA',
+          { s2: s2.status, s3: [s3.status, s3J.code], s4: [s4.status, s4J.code] });
+        // c) CFOP: de outro tipo → 422; repetido → 422; inexistente → 422; do mesmo tipo → 201
+        const c1 = await crSit({ descricao: 'ESTOQUE E', tipo_operacao: 'E01', tipo: 'E', cfops: [{ codcfop: 5102 }] });
+        const c1J = (await c1.json().catch(() => ({}))) as any;
+        const c2 = await crSit({ descricao: 'ESTOQUE E', tipo_operacao: 'E01', tipo: 'E', cfops: [{ codcfop: 1403 }, { codcfop: 1403 }] });
+        const c3 = await crSit({ descricao: 'ESTOQUE E', tipo_operacao: 'E01', tipo: 'E', cfops: [{ codcfop: 1999 }] });
+        const c4 = await crSit({ descricao: 'ESTOQUE E', tipo_operacao: 'E01', tipo: 'E', cfops: [{ codcfop: 1403 }] });
+        const c4J = (await c4.json().catch(() => ({}))) as any;
+        check('SITUAÇÃO c: CFOP de saída numa situação de entrada → 422 · repetido 422 · inexistente 422 · do mesmo tipo 201',
+          c1.status === 422 && c1J.code === 'SITUACAO_CFOP_TIPO_DIFERENTE' && c2.status === 422 && c3.status === 422 && c4.status === 201 && (c4J.cfops ?? []).length === 1,
+          { c1: [c1.status, c1J.code], c2: c2.status, c3: c3.status, c4: c4.status });
+        // d) a linha QUE JÁ EXISTE fora da regra (4 na produção) continua gravando: situação E com CFOP 5102 (S) inserido direto
+        const legId = Number(c4J.idsituacao_nf);
+        await pgSit.query(`INSERT INTO isituacao_nf (idsituacao_nf, codcfop) VALUES ($1, 5102)`, [legId]);
+        const d1 = await fetch(`${base}/${SIT}/${legId}`, { method: 'PUT', headers: H, body: JSON.stringify({ descricao: 'ESTOQUE E ALTERADA', cfops: [{ codcfop: 1403 }, { codcfop: 5102 }] }) });
+        check('SITUAÇÃO d: CFOP que já estava na situação fora da regra do tipo continua gravando (só a linha NOVA é cobrada)', d1.status === 200, { status: d1.status });
+        // e) excluir: em uso (NF) → 422; sem uso → 204 e os detalhes somem
+        await pgSit.query(`UPDATE nf SET idsituacao_nf=$1 WHERE codnf=(SELECT min(codnf) FROM nf)`, [legId]);
+        const e1 = await fetch(`${base}/${SIT}/${legId}`, { method: 'DELETE', headers: H });
+        const e1J = (await e1.json().catch(() => ({}))) as any;
+        await pgSit.query(`UPDATE nf SET idsituacao_nf=NULL WHERE idsituacao_nf=$1`, [legId]);
+        const e2 = await fetch(`${base}/${SIT}/${s1Id}`, { method: 'DELETE', headers: H });
+        const e2Filhos = Number((await pgSit.query(`SELECT (SELECT count(*) FROM itens_integracao_contabil WHERE codoperacao=$1) + (SELECT count(*) FROM situacao_nf_parceiros WHERE idsituacao_nf=$1) AS n`, [s1Id])).rows[0].n);
+        check('SITUAÇÃO e: em uso numa NF → 422 SITUACAO_EM_USO · sem uso → 204 e contas/parceiros apagados',
+          e1.status === 422 && e1J.code === 'SITUACAO_EM_USO' && e2.status === 204 && e2Filhos === 0,
+          { e1: [e1.status, e1J.code], e2: e2.status, filhos: e2Filhos });
+      } finally {
+        await pgSit.end();
+      }
+    }
+
     // 16.12b) CFOP × SITUAÇÃO (UCadCFOP aba "Situação do documento"): grava/lê o mapa situação-por-imposto +
     // CFOP de devolução + flags. idsituacao_nf_saida é FK → situacao_nf (900 seedado); demais são integer livre.
     const sitId = Number((sits.find((s) => Number(s.idsituacao_nf) === 900) ?? sits[0])?.idsituacao_nf);

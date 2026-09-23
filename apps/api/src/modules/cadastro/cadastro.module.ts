@@ -118,7 +118,7 @@ import { UnidadeCrudController } from './unidade.crud';
 import { FamiliasCrudController } from './familias.crud';
 import { PromocaoAggregateController } from './promocao.aggregate';
 import { AliquotaCrudController } from './aliquota.crud';
-import { SituacaoNfCrudController } from './situacao-nf.crud';
+import { SituacaoNfAggregateController } from './situacao-nf.aggregate';
 import { CfopCrudController } from './cfop.crud';
 import { PlcCrudController } from './plc.crud';
 import { PlanoContasController } from './plano-contas.controller';
@@ -178,7 +178,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     UnidadeCrudController, // engine (lookup de apoio do Produto)
     FamiliasCrudController, // engine (lookup único G/S/D/O/R do Produto)
     AliquotaCrudController, // engine (catálogo fiscal; chave natural CODIGO)
-    SituacaoNfCrudController, // engine (lookup da NF: natureza do documento)
+    SituacaoNfAggregateController, // a tela Situação do documento (mig 317): 27 campos + 4 detalhes
     CfopCrudController, // engine (lookup da NF: CFOP; chave natural)
     PlcCrudController, // engine (lookup do rateio contábil da NF: centro de custo gerencial; chave natural)
     PlanoContasController, // vertical (PLANO DE CONTAS contábil — árvore/validações/travas)

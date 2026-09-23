@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |---|---|
-| **Status** | RECON (23/09/2026). A tela não estava na fila nem no placar: o Apollo tinha só uma API de consulta com 2 campos (`situacao-nf.crud.ts`), sem tela. 656 acessos, usada até 17/09/2026. |
+| **Status** | **C1 ENTREGUE** (23/09/2026, mig 317, smoke 1464/0): a tela — agregado com os 27 campos e os 4 detalhes, a matriz do `SetTipoOperacao` no shared (API e tela), validações, guarda de exclusão, LOG, sequências, tela web com as abas que a operação liga. ⚠️ descrição segue varchar(80) (100 no legado) até o conferidor de tamanhos. C2-C6 na fila. RECON (23/09/2026). A tela não estava na fila nem no placar: o Apollo tinha só uma API de consulta com 2 campos (`situacao-nf.crud.ts`), sem tela. 656 acessos, usada até 17/09/2026. |
 | **Fontes** | `UCadSituacaoNF.pas` (1.694) + `UdmCadSituacaoNF.pas/.dfm` + `uRdmCadSituacaoNF` (`TfrmCadSituacaoNF = class(TfrmCadMasterDet)`). |
 | **Produção** | 194 situações (103 E · 90 S · 1 T, a 2020 F03), todas ATIVO='S'. |
 

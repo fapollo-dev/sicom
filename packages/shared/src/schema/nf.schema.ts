@@ -471,16 +471,7 @@ export interface Nf extends CriarNfDto {
 
 /* ─────────────────────────  Lookups de apoio (catálogos)  ───────────────────────── */
 
-/** SITUACAO_NF — "natureza do documento" (chave natural idsituacao_nf). */
-export const situacaoNfSchema = z.object({
-  idsituacao_nf: z.number({ message: 'Informe o código da situação.' }).int('Código inválido.'),
-  descricao: z.string().trim().min(1, 'Informe a descrição.').max(80),
-  tipo: opcional(z.enum(['E', 'S'])),
-});
-export type CriarSituacaoNfDto = z.infer<typeof situacaoNfSchema>;
-export const atualizarSituacaoNfSchema = situacaoNfSchema.partial();
-export type AtualizarSituacaoNfDto = z.infer<typeof atualizarSituacaoNfSchema>;
-export interface SituacaoNf extends CriarSituacaoNfDto {}
+/** SITUACAO_NF — a tela inteira (27 campos + 4 detalhes) mora em `situacao-nf.schema.ts` (mig 317). */
 
 /** CFOP — catálogo (chave natural codcfop char(4)). */
 const cfopBase = z.object({

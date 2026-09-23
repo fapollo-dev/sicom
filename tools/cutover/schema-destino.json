@@ -22842,6 +22842,34 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "tipo_operacao": {
+     "tipo": "character varying",
+     "tam": 4,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "ativo": {
+     "tipo": "character",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "nao_realiza_integracao": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "qtde_cfop": {
+     "tipo": "bigint",
+     "tam": 64,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [],
@@ -25476,7 +25504,7 @@
      "tam": 10,
      "escala": 0,
      "nulo": false,
-     "default": null
+     "default": "nextval('seq_isituacao_nf'::regclass)"
     },
     "idsituacao_nf": {
      "tipo": "numeric",
@@ -44535,7 +44563,7 @@
      "tam": 32,
      "escala": 0,
      "nulo": false,
-     "default": null
+     "default": "nextval('seq_situacao_nf'::regclass)"
     },
     "descricao": {
      "tipo": "character varying",

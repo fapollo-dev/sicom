@@ -12,6 +12,7 @@ export * from './schema/preco.schema';
 export * from './schema/parceiro.schema';
 export * from './schema/produto.schema';
 export * from './schema/nf.schema';
+export * from './schema/situacao-nf.schema';
 export * from './schema/empresa.schema';
 export * from './schema/areceber.schema';
 export * from './schema/apagar.schema';
