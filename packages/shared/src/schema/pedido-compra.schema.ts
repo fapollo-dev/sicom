@@ -91,9 +91,11 @@ export const pedidoCompraItemSchema = z.object({
 export type PedidoCompraItemDto = z.infer<typeof pedidoCompraItemSchema>;
 
 /* ── parcela (corte-2) ── */
-/** Parcela do pedido: número + vencimento + valor + dias-após-faturamento. Gerada por `gerar-parcelas`
- *  (RatearTotalNasParcelas) mas EDITÁVEL (o legado permite ajustar valores/datas). idempresa = server. */
+/** Parcela do pedido: loja + número + vencimento + valor + dias-após-faturamento. Gerada por `gerar-parcelas`
+ *  (RatearTotalNasParcelas) mas EDITÁVEL (o legado permite ajustar valores/datas). mig 303: cada loja tem as suas
+ *  parcelas (`Locate('IDEMPRESA;PARCELA')`, uPedidoCompra.pas:8929); sem loja, o servidor põe a logada. */
 export const pedidoCompraParcelaSchema = z.object({
+  idempresa: opcional(z.coerce.number().int().positive()),
   parcela: z.coerce.number({ message: 'Parcela inválida.' }).int().positive(),
   data: opcional(z.string().trim()),
   valor: dec(z.number().nonnegative('Valor da parcela inválido.')),

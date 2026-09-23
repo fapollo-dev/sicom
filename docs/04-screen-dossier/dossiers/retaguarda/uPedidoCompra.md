@@ -401,8 +401,38 @@ Smoke §164.5 (recebimento por loja: a loja 1 recebe 18 un. do produto 1 e 2 do 
 reaberta não recebe; a nota da loja 1 não trava a loja 2; a loja 1 não reabre o que recebeu), §164.6 (posição), §164.7
 (preço nas duas lojas; promoção na logada trava as duas). **1432/0.**
 
-**Fica para o corte-C:** PARCELAS POR LOJA — medido na produção: **1.083 de 1.083** pedidos multi-loja com parcela
-(2025-26) têm parcelas das DUAS lojas, cada loja parcelando o próprio total (pedido 33836: loja 1 R$ 2.738,82, loja 2
-R$ 3.676,26 = `Σ TOTALCUSTO` de cada uma); limite de compra por loja (`MontaFluxoPorEmpresa`); `gerar-parcelas` /
-`liberar-limite` / `duplicar` pela loja participante; cotação multi-loja (`COTACAO_PRODQTDE` → PCQ); relatório de
-pedidos por loja.
+## 20. PEDIDO MULTI-LOJA — corte-C: as parcelas por loja e o limite da rede, 23/09/2026
+
+**Parcelas por loja.** Na produção, **1.083 de 1.083** pedidos multi-loja com parcela (2025-26) têm parcelas das DUAS
+lojas (pedido 33836: loja 1 R$ 2.738,82, loja 2 R$ 3.676,26). O `RatearTotalNasParcelas` (uPedidoCompra.pas:8892)
+percorre o `cdsTotalPedido` — `Σ PEDIDO_COMPRA_QTDE.TOTALCUSTO` por loja (udmPedidoCompra.dfm:3939) — e rateia CADA
+loja: round(total da loja / nº de prazos), a sobra na primeira, a mesma data nas lojas (1.521 de 1.521). A loja do CSV
+sem quantidade entra com zero (:857, :4544) e ganha parcelas zeradas — 222 assim na produção. O Apollo faz igual:
+`gerar-parcelas` rateia por loja, a parcela carrega a loja (`IDEMPRESA;PARCELA`) e a gravação a mantém; parcela para
+loja fora do pedido é 422. A tela mostra a coluna Loja e o total de cada uma.
+
+**Um defeito do legado que NÃO foi copiado:** o `cdsTotalPedido` é lido do banco ao abrir o pedido e não é recarregado
+quando a quantidade muda — o re-rateio de cada edição (`Apply`, :4007) usa o total da abertura. Por isso só 1.573 de
+2.494 (pedido, loja) de 2025-26 têm parcelas iguais ao total atual da loja (513 abaixo, 408 acima). O Apollo rateia
+o total vigente.
+
+**O limite de compra é da REDE.** `GetSQLFluxo` (udmPedidoCompra.pas:1893), que alimenta `ValidaValorMaximoDia/Semana`,
+soma as parcelas dos outros pedidos de TODAS as lojas, fora as de (pedido, loja) que já têm nota; e o próprio pedido
+entra sem as lojas que já receberam (`GetValorParcela` × `GetEmpresasComNF`, :1725/:1933). O Apollo filtrava a loja
+dona e o `dtfaturamento` do cabeçalho — no multi-loja, o carimbo da PRIMEIRA nota, que tiraria do fluxo a loja que
+ainda não recebeu. Corrigido. `MontaFluxoPorEmpresa` é só a grade visual por loja (config `FLUXO_POR_EMPRESA`, 'N' no
+cliente) — não valida nada.
+
+Na produção a regra está desligada: `VALOR_MAXIMO_DIARIO_PC` não existe na `CONFIGURACOES` e o semanal é 0 (tipo 'D').
+O modo `FLUXO_CAIXA_SOMENTE_VALOR_PC` do cliente é 'T' (soma também `GET_FLUXOSAIDAS`); o Apollo segue só com 'P' —
+divergência antiga, sem efeito enquanto o limite estiver desligado.
+
+**Pela loja participante:** `gerar-parcelas`, `liberar-limite`, `duplicar` e `importar-itens` (antes só a loja dona);
+a trava de faturado nessas ações é a da loja (nota dela) no multi-loja.
+
+Smoke §165.1-§165.3. **1435/0.**
+
+**Fica:** a conferência FINANCEIRA da análise pedido×NF (`uDMConferenciaFinanceiroNFPedComp`: parcelas da nota × parcelas
+do pedido DA LOJA da nota, `VALOR > 0` — não migrada, nem no dossiê da análise); cotação multi-loja
+(`COTACAO_PRODQTDE` → PCQ); meta diária de compra por loja (`cdsTotalDiario` × `EMPRESAS.META_COMPRA`, uPedidoCompra.pas:2424);
+relatório de pedidos por loja.

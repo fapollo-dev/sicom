@@ -80,7 +80,7 @@ export function reabrirPedido(id: number): Promise<{ codpedcomp: number; fechado
  * pagamento: prazos CD1..CD8 do pedido, senão da condição; valor rateado c/ sobra na 1ª; venc = data+CDn).
  * Substitui as parcelas existentes. Bloqueado em pedido fechado/faturado. Retorna { codpedcomp, parcelas, total }.
  */
-export function gerarParcelasPedido(id: number): Promise<{ codpedcomp: number; parcelas: number; total: number }> {
+export function gerarParcelasPedido(id: number): Promise<{ codpedcomp: number; parcelas: number; total: number; lojas?: number }> {
   return req(`/compras/pedidos/${id}/gerar-parcelas`, { method: 'POST' });
 }
 

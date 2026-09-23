@@ -17782,6 +17782,84 @@ async function main() {
         await pgMl.query(`DELETE FROM pedido_compra_historico WHERE codpedcomp = $1`, [cod]);
         await pgMl.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [cod]);
         await pgMl.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [cod]);
+
+        // ══ §165 — PARCELAS POR LOJA (RatearTotalNasParcelas, uPedidoCompra.pas:8892) ══
+        const criarP = await fetch(`${base}/${PED}`, { method: 'POST', headers: H, body: JSON.stringify({
+          codparceiro: 22, data: '2036-05-04', empresas: '1, 2', cd1: 30, cd2: 60, cd3: 90,
+          itens: [
+            { idproduto: 1, fatorembalagem: 6, vrcusto: 2, lojas: [{ idempresa: 1, qtde: 3 }, { idempresa: 2, qtde: 5 }] },
+            { idproduto: 2, fatorembalagem: 1, vrcusto: 10.01, lojas: [{ idempresa: 1, qtde: 1 }] },
+          ] }) });
+        const criarPJ = (await criarP.json().catch(() => ({}))) as any;
+        const codP = Number(criarPJ.codpedcomp ?? criarPJ.id);
+        const parcelasDe = async (c: number) => ((await pgMl.query(`SELECT idempresa, parcela, to_char(data::date,'YYYY-MM-DD') d, valor
+            FROM pedidocompra_parcelas WHERE codpedcomp = $1 ORDER BY idempresa, parcela`, [c])).rows as any[])
+          .map((r) => [Number(r.idempresa), Number(r.parcela), r.d, Number(r.valor)]);
+        const gP = await fetch(`${base}/${PED}/${codP}/gerar-parcelas`, { method: 'POST', headers: H2 });
+        const gPJ = (await gP.json().catch(() => ({}))) as any;
+        const parcP = await parcelasDe(codP);
+        check('PEDIDO MULTI-LOJA §165.1 [cada loja parcela o PRÓPRIO total]: o rateio do legado percorre o total por loja (`sqqTotalPedido` = Σ PEDIDO_COMPRA_QTDE.TOTALCUSTO por IDEMPRESA) — na produção 1.083 de 1.083 pedidos multi-loja com parcela têm parcelas das duas lojas. Loja 1 = R$ 46,01 (3 caixas de R$ 12 + R$ 10,01) em três prazos: 15,33 + 15,34 + 15,34, a sobra de −1 centavo na primeira; loja 2 = R$ 60,00: 20 + 20 + 20; as datas são as mesmas nas duas lojas. E a loja 2, que participa, gera',
+          criarP.status === 201 && gP.status === 200 && Number(gPJ.parcelas) === 6 && Number(gPJ.lojas) === 2 && Number(gPJ.total) === 106.01
+          && JSON.stringify(parcP) === JSON.stringify([
+            [1, 1, '2036-06-03', 15.33], [1, 2, '2036-07-03', 15.34], [1, 3, '2036-08-02', 15.34],
+            [2, 1, '2036-06-03', 20], [2, 2, '2036-07-03', 20], [2, 3, '2036-08-02', 20]]),
+          { criar: [criarP.status, criarP.status === 201 ? undefined : criarPJ], gP: [gP.status, gPJ], parcP });
+
+        // loja do CSV sem quantidade: entra com total zero e ganha parcelas zeradas (uPedidoCompra.pas:857; 222 na produção)
+        const soL1 = await fetch(`${base}/${PED}/${codP}`, { method: 'PUT', headers: H, body: JSON.stringify({ itens: [
+          { idproduto: 1, fatorembalagem: 6, vrcusto: 2, lojas: [{ idempresa: 1, qtde: 3 }] },
+        ] }) });
+        const gZ = await fetch(`${base}/${PED}/${codP}/gerar-parcelas`, { method: 'POST', headers: H });
+        const parcZ = await parcelasDe(codP);
+        // a loja de cada parcela sobrevive à gravação do pedido; parcela de loja fora do pedido é recusada
+        const lido = (await (await fetch(`${base}/${PED}/${codP}`, { headers: H })).json().catch(() => ({}))) as any;
+        const regrava = await fetch(`${base}/${PED}/${codP}`, { method: 'PUT', headers: H, body: JSON.stringify({ parcelas: lido.parcelas }) });
+        const parcR = await parcelasDe(codP);
+        const fora = await fetch(`${base}/${PED}/${codP}`, { method: 'PUT', headers: H, body: JSON.stringify({ parcelas: [{ idempresa: 51, parcela: 1, data: '2036-06-03', valor: 1 }] }) });
+        const foraJ = (await fora.json().catch(() => ({}))) as any;
+        check('PEDIDO MULTI-LOJA §165.2 [loja sem quantidade = parcelas zeradas; a loja da parcela fica]: a loja do CSV sem linha entra no total por loja com zero (o legado a acrescenta ao `cdsTotalPedido`, uPedidoCompra.pas:857) e ganha parcelas de R$ 0,00 — são 222 assim na produção. Regravar o pedido com as parcelas lidas mantém a loja de cada uma (`IDEMPRESA;PARCELA`); parcela para uma loja que não está no pedido é 422 PEDIDO_LOJA_FORA_DO_PEDIDO',
+          soL1.status === 200 && gZ.status === 200
+          && JSON.stringify(parcZ) === JSON.stringify([
+            [1, 1, '2036-06-03', 12], [1, 2, '2036-07-03', 12], [1, 3, '2036-08-02', 12],
+            [2, 1, '2036-06-03', 0], [2, 2, '2036-07-03', 0], [2, 3, '2036-08-02', 0]])
+          && regrava.status === 200 && JSON.stringify(parcR) === JSON.stringify(parcZ)
+          && fora.status === 422 && foraJ.code === 'PEDIDO_LOJA_FORA_DO_PEDIDO',
+          { soL1: soL1.status, gZ: gZ.status, parcZ, regrava: regrava.status, parcR, fora: [fora.status, foraJ.code] });
+
+        // §165.3 — o LIMITE é da rede (GetSQLFluxo, udmPedidoCompra.pas:1893): soma parcelas de TODAS as lojas, menos
+        // as de (pedido, loja) que já têm nota
+        await fetch(`${base}/${PED}/${codP}`, { method: 'PUT', headers: H, body: JSON.stringify({ itens: [
+          { idproduto: 1, fatorembalagem: 6, vrcusto: 2, lojas: [{ idempresa: 1, qtde: 3 }, { idempresa: 2, qtde: 5 }] },
+          { idproduto: 2, fatorembalagem: 1, vrcusto: 10.01, lojas: [{ idempresa: 1, qtde: 1 }] },
+        ] }) });
+        await fetch(`${base}/${PED}/${codP}/gerar-parcelas`, { method: 'POST', headers: H }); // 06-03: 15,33 + 20
+        // um pedido SÓ DA LOJA 2, com parcela de R$ 70 no mesmo dia (direto no banco: o fornecedor do fixture é da loja 1)
+        const codB = Number(((await pgMl.query(`INSERT INTO pedidocompra (idempresa, codparceiro, data, empresas, fechado)
+            VALUES (2, 22, '2036-05-04', '2', 'N') RETURNING codpedcomp`)).rows[0] as any).codpedcomp);
+        await pgMl.query(`INSERT INTO pedidocompra_parcelas (codpedcomp, idempresa, parcela, data, valor, qtdediasaposfaturamento)
+            VALUES ($1, 2, 1, '2036-06-03', 70, 30)`, [codB]);
+        await pgMl.query(`UPDATE configuracoes SET valor='D' WHERE codigo='TIPO_FLUXO_CAIXA_PC'`);
+        await pgMl.query(`UPDATE configuracoes SET valor='100' WHERE codigo='VALOR_MAXIMO_DIARIO_PC'`);
+        const fLim = await fetch(`${base}/${PED}/${codP}/fechar`, { method: 'POST', headers: H });
+        const fLimJ = (await fLim.json().catch(() => ({}))) as any;
+        const nfB = (await pgMl.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop, codpedcomp)
+            VALUES (2, 22, '916501', 55, '1', 'E', 'S', 'N', '2036-05-10', '2036-05-10', 1102, $1) RETURNING codnf`, [codB])).rows[0] as any;
+        const fOk = await fetch(`${base}/${PED}/${codP}/fechar`, { method: 'POST', headers: H });
+        const fOkJ = (await fOk.json().catch(() => ({}))) as any;
+        await pgMl.query(`UPDATE configuracoes SET valor='S' WHERE codigo='TIPO_FLUXO_CAIXA_PC'`);
+        await pgMl.query(`UPDATE configuracoes SET valor='0' WHERE codigo='VALOR_MAXIMO_DIARIO_PC'`);
+        check('PEDIDO MULTI-LOJA §165.3 [o limite de compra é da REDE, e a loja que recebeu sai]: o fluxo do legado soma as parcelas de TODAS as lojas (`GetSQLFluxo` não filtra empresa) menos as de (pedido, loja) com nota (`NOT EXISTS NF … N.IDEMPRESA = P.IDEMPRESA`). Com limite diário de R$ 100, a loja 1 fechando este pedido (R$ 35,33 em 03/06) esbarra nos R$ 70 de um pedido SÓ DA LOJA 2 no mesmo dia (R$ 105,33 → 422) — antes o Apollo somava só os pedidos da loja dona e deixava passar; quando a loja 2 recebe a nota daquele pedido, ele sai do fluxo e o fechamento passa',
+          fLim.status === 422 && fLimJ.code === 'PEDIDO_LIMITE_EXCEDIDO'
+          && Number(fLimJ.detalhe?.violacoes?.[0]?.total) === 105.33 && fOk.status === 200,
+          { codB, fLim: [fLim.status, fLimJ.code, fLimJ.detalhe], fOk: [fOk.status, fOkJ.code ?? fOkJ.fechamento] });
+
+        await pgMl.query(`DELETE FROM nf WHERE codnf = $1`, [Number(nfB.codnf)]);
+        for (const c of [codP, codB]) {
+          await pgMl.query(`DELETE FROM pedidocompra_parcelas WHERE codpedcomp = $1`, [c]);
+          await pgMl.query(`DELETE FROM pedido_compra_historico WHERE codpedcomp = $1`, [c]);
+          await pgMl.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [c]);
+          await pgMl.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [c]);
+        }
       } finally {
         await pgMl.end();
       }

@@ -625,9 +625,12 @@ function ItensSection({
 
 /**
  * PARCELAS do pedido (corte-2). O botão «Gerar parcelas» chama o servidor (RatearTotalNasParcelas):
- * rateia o total do pedido pelos prazos CD1..CD8 (do pedido, senão da condição), venc = data + CDn,
- * sobra na 1ª. Exige pedido GRAVADO. As parcelas são um 2º detalhe (persistem no agregado).
+ * rateia o total pelos prazos CD1..CD8 (do pedido, senão da condição), venc = data + CDn, sobra na 1ª.
+ * mig 303: o rateio é POR LOJA — cada loja do pedido parcela o próprio total (a coluna Loja, e o total de
+ * cada uma no rodapé). Exige pedido GRAVADO. As parcelas são um 2º detalhe (persistem no agregado).
  */
+const chaveParc = (p: PedidoCompraParcelaDto) => `${p.idempresa ?? ''}-${p.parcela}`;
+
 function ParcelasSection({ form, editavel }: { form: UseFormReturn<CriarPedidoCompraDto>; editavel: boolean }) {
   const mensagem = useMensagem();
   const [gerando, setGerando] = useState(false);
@@ -636,6 +639,10 @@ function ParcelasSection({ form, editavel }: { form: UseFormReturn<CriarPedidoCo
   const codpedcomp = (form.getValues() as { codpedcomp?: number }).codpedcomp;
   const parcelas = (form.watch('parcelas') ?? []) as PedidoCompraParcelaDto[];
   const total = parcelas.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+  const porLoja = [...parcelas.reduce((m, p) => {
+    const l = Number(p.idempresa ?? 0);
+    return m.set(l, (m.get(l) ?? 0) + (Number(p.valor) || 0));
+  }, new Map<number, number>())].sort((a, b) => a[0] - b[0]);
 
   const salvarParcela = () => {
     if (editParc == null) return;
@@ -646,8 +653,12 @@ function ParcelasSection({ form, editavel }: { form: UseFormReturn<CriarPedidoCo
     setEditParc(null);
   };
   const removerParcela = (idx: number) => {
-    // renumera após remover (PARCELA 1..n — o legado deleta a parcela zerada e re-rateia; aqui remoção explícita).
-    const novas = parcelas.filter((_, i) => i !== idx).map((p, i) => ({ ...p, parcela: i + 1 }));
+    // renumera após remover (PARCELA 1..n DENTRO DA LOJA — o legado deleta a parcela zerada e re-rateia; aqui
+    // remoção explícita).
+    const loja = parcelas[idx]?.idempresa ?? null;
+    let n = 0;
+    const novas = parcelas.filter((_, i) => i !== idx)
+      .map((p) => ((p.idempresa ?? null) === loja ? { ...p, parcela: ++n } : p));
     form.setValue('parcelas' as any, novas as any, { shouldDirty: true });
   };
 
@@ -662,7 +673,7 @@ function ParcelasSection({ form, editavel }: { form: UseFormReturn<CriarPedidoCo
       const r = await gerarParcelasPedido(codpedcomp);
       const fresh = await obterPedido(codpedcomp);
       form.setValue('parcelas' as any, (fresh.parcelas ?? []) as any);
-      mensagem.sucesso(`${r.parcelas} parcela(s) gerada(s) (total R$ ${fmtBRL(r.total)}).`);
+      mensagem.sucesso(`${r.parcelas} parcela(s) gerada(s)${(r.lojas ?? 1) > 1 ? ` para ${r.lojas} lojas` : ''} (total R$ ${fmtBRL(r.total)}).`);
     } catch (e) {
       mensagem.erro(e);
     } finally {
@@ -672,6 +683,7 @@ function ParcelasSection({ form, editavel }: { form: UseFormReturn<CriarPedidoCo
 
   const columns = useMemo<DataTableColumnDef<PedidoCompraParcelaDto>[]>(
     () => [
+      { field: 'idempresa', headerName: 'Loja', type: 'number', width: 80 },
       { field: 'parcela', headerName: 'Parcela', type: 'number', width: 100, isPrimary: true },
       { field: 'data', headerName: 'Vencimento', type: 'text', width: 150, valueGetter: (r) => String(r.data ?? '').slice(0, 10) },
       { field: 'qtdediasaposfaturamento', headerName: 'Dias', type: 'number', width: 90 },
@@ -687,7 +699,7 @@ function ParcelasSection({ form, editavel }: { form: UseFormReturn<CriarPedidoCo
             label: 'Editar',
             icon: <Pencil className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
             onClick: (r: PedidoCompraParcelaDto) => {
-              const idx = parcelas.findIndex((p) => p.parcela === r.parcela);
+              const idx = parcelas.findIndex((p) => chaveParc(p) === chaveParc(r));
               if (idx >= 0) setEditParc({ idx, valor: Number(parcelas[idx].valor) || 0, data: String(parcelas[idx].data ?? '').slice(0, 10) });
             },
           },
@@ -697,7 +709,7 @@ function ParcelasSection({ form, editavel }: { form: UseFormReturn<CriarPedidoCo
             icon: <Trash2 className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
             destructive: true,
             onClick: (r: PedidoCompraParcelaDto) => {
-              const idx = parcelas.findIndex((p) => p.parcela === r.parcela);
+              const idx = parcelas.findIndex((p) => chaveParc(p) === chaveParc(r));
               if (idx >= 0) removerParcela(idx);
             },
           },
@@ -725,11 +737,14 @@ function ParcelasSection({ form, editavel }: { form: UseFormReturn<CriarPedidoCo
       savedViewsService={gradeLayoutService}
               rows={parcelas}
               columns={columns}
-              getRowId={(r) => String(r.parcela)}
+              getRowId={chaveParc}
               toolbar={{ enableSearch: false, enableFilters: false }}
               cardBreakpoint={false}
             />
-            <small className="text-fg-muted">Total das parcelas: R$ {fmtBRL(total)}. Ajustes manuais persistem ao gravar o pedido.</small>
+            <small className="text-fg-muted">
+              {porLoja.length > 1 && <>{porLoja.map(([l, v]) => `Loja ${l}: R$ ${fmtBRL(v)}`).join(' · ')} · </>}
+              Total das parcelas: R$ {fmtBRL(total)}. Ajustes manuais persistem ao gravar o pedido.
+            </small>
           </>
         )}
       </div>
@@ -739,7 +754,7 @@ function ParcelasSection({ form, editavel }: { form: UseFormReturn<CriarPedidoCo
           open
           onClose={() => setEditParc(null)}
           size="sm"
-          title={`Editar parcela ${parcelas[editParc.idx]?.parcela ?? ''}`}
+          title={`Editar parcela ${parcelas[editParc.idx]?.parcela ?? ''}${porLoja.length > 1 ? ` da loja ${parcelas[editParc.idx]?.idempresa ?? ''}` : ''}`}
           primaryAction={{ label: 'Aplicar', onClick: salvarParcela }}
           secondaryAction={{ label: 'Cancelar', onClick: () => setEditParc(null) }}
         >

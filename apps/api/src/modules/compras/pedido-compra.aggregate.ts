@@ -169,15 +169,28 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
     },
     {
       // corte-2: PARCELAS (2º detalhe). Editáveis (o legado permite ajustar); geradas pelo `gerar-parcelas`
-      // (RatearTotalNasParcelas). Substituídas no PUT só quando a chave `parcelas` vier no dto. idempresa
-      // carimbada server-side (single-empresa = a do pedido; split multi-loja adiado).
+      // (RatearTotalNasParcelas). Substituídas no PUT só quando a chave `parcelas` vier no dto. mig 303: cada loja
+      // tem as suas (`IDEMPRESA;PARCELA`) — a loja da parcela é mantida se for do pedido; sem loja, a logada.
       tabela: 'pedidocompra_parcelas',
       pk: 'codpedcompparcelas',
       fk: 'codpedcomp',
       chave: 'parcelas',
       colunas: ['idempresa', 'parcela', 'data', 'valor', 'qtdediasaposfaturamento'],
-      derivarItensTrx: async (parcelas) =>
-        parcelas.map((p) => ({ ...p, idempresa: currentTenant().empresaId ?? null })),
+      derivarItensTrx: async (parcelas, trx, emp, header, masterId) => {
+        let empresas = header?.empresas;
+        if (empresas == null && masterId != null) {
+          const m = (await trx.selectFrom('pedidocompra').select(['empresas', 'idempresa'])
+            .where('codpedcomp', '=', masterId).executeTakeFirst()) as { empresas?: string; idempresa?: number } | undefined;
+          empresas = m?.empresas ?? m?.idempresa;
+        }
+        const lojas = lojasDoPedido(empresas, emp);
+        for (const p of parcelas) {
+          if (p.idempresa != null && !lojas.includes(Number(p.idempresa))) {
+            throw new BusinessRuleError('PEDIDO_LOJA_FORA_DO_PEDIDO', { idempresa: Number(p.idempresa), parcela: p.parcela });
+          }
+        }
+        return parcelas.map((p) => ({ ...p, idempresa: p.idempresa != null ? Number(p.idempresa) : (emp ?? currentTenant().empresaId ?? null) }));
+      },
     },
   ],
   // CODOPERADOR = comprador (operador do contexto). Só no create (derivarTrx não roda no update) → imutável.

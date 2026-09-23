@@ -120,85 +120,113 @@ export class PedidoCompraService {
   }
 
   /**
+   * O TOTAL DE CADA LOJA do pedido (`sqqTotalPedido`, udmPedidoCompra.dfm:3939: Σ PEDIDO_COMPRA_QTDE.TOTALCUSTO por
+   * IDEMPRESA), em centavos, na ordem da loja. A loja do CSV sem linha entra com zero — o legado a acrescenta ao
+   * `cdsTotalPedido` com TOTALCUSTO 0 (uPedidoCompra.pas:857, :4544) e ela ganha parcelas zeradas (222 na produção,
+   * 2025-26). Pedido sem linha por loja nenhuma (legado anterior à mig 303): a soma dos itens, na loja dona.
+   */
+  private async totaisPorLoja(trx: AnyDB, codpedcomp: number, empresas: unknown, idempresa: number | null): Promise<Array<{ idempresa: number; cents: number }>> {
+    const rows = (await sql<{ idempresa: number; s: unknown }>`
+        SELECT q.idempresa, sum(q.totalcusto) AS s
+          FROM pedido_compra_qtde q
+          JOIN pedidocompra_i i ON i.codpedcompi = q.codpedcompi
+         WHERE i.codpedcomp = ${codpedcomp}
+         GROUP BY q.idempresa
+         ORDER BY q.idempresa`.execute(trx)).rows;
+    const lojas = lojasDoPedido(empresas, idempresa);
+    if (!rows.length) {
+      const tot = (await trx.selectFrom('pedidocompra_i').select(({ fn }: any) => [fn.sum('totalcusto').as('s')])
+        .where('codpedcomp', '=', codpedcomp).executeTakeFirst()) as { s?: unknown } | undefined;
+      return [{ idempresa: lojas[0] ?? Number(idempresa), cents: Math.round(num(tot?.s) * 100) }];
+    }
+    const out = rows.map((r) => ({ idempresa: Number(r.idempresa), cents: Math.round(num(r.s) * 100) }));
+    for (const l of lojas) if (!out.some((o) => o.idempresa === l)) out.push({ idempresa: l, cents: 0 });
+    return out;
+  }
+
+  /**
+   * O RATEIO (`RatearTotalNasParcelas`, uPedidoCompra.pas:8892) — POR LOJA: para cada loja do `cdsTotalPedido`,
+   * VALOR = round(total DA LOJA / nº de prazos), a SOBRA na PRIMEIRA (Σ = total da loja ao centavo), a mesma data
+   * para todas as lojas (base + CDn; na produção 1.521 de 1.521 parcelas têm a mesma data nas duas lojas).
+   * Pedido de uma loja só = um grupo, o comportamento de sempre.
+   */
+  private rateioPorLoja(totais: Array<{ idempresa: number; cents: number }>, prazos: number[], baseISO: string):
+    Array<{ idempresa: number; parcela: number; data: string; valor: number; dias: number }> {
+    const out: Array<{ idempresa: number; parcela: number; data: string; valor: number; dias: number }> = [];
+    const n = prazos.length;
+    for (const t of totais) {
+      const valorCents = Math.round(t.cents / n);
+      const residuo = t.cents - valorCents * n;
+      prazos.forEach((dias, i) => {
+        const dt = new Date(`${baseISO}T00:00:00Z`);
+        dt.setUTCDate(dt.getUTCDate() + dias);
+        out.push({ idempresa: t.idempresa, parcela: i + 1, data: dt.toISOString().slice(0, 10), valor: (valorCents + (i === 0 ? residuo : 0)) / 100, dias });
+      });
+    }
+    return out;
+  }
+
+  /** os prazos efetivos: CD1..CD8 do PEDIDO (override); se nenhum, os da CONDIÇÃO (codconpagto). */
+  private async prazosDoPedido(trx: AnyDB, pc: Record<string, unknown>): Promise<number[]> {
+    let prazos = CD_COLS.map((c) => pc[c]).filter((v) => v != null && v !== '').map((v) => Number(v));
+    if (prazos.length === 0 && pc.codconpagto != null) {
+      const cond = (await trx.selectFrom('condicoes_pagto').select([...CD_COLS])
+        .where('codconpagto', '=', Number(pc.codconpagto)).executeTakeFirst()) as Record<string, unknown> | undefined;
+      if (cond) prazos = CD_COLS.map((c) => cond[c]).filter((v) => v != null && v !== '').map((v) => Number(v));
+    }
+    return prazos;
+  }
+
+  /**
+   * a trava de FATURADO para a loja (mig 303): no multi-loja, a nota DA LOJA vinculada ao pedido (a da loja 1 não
+   * trava a loja 2); na loja só, o marcador `dtfaturamento` do cabeçalho — o comportamento de sempre.
+   */
+  private async faturadoNaLoja(trx: AnyDB, pc: Record<string, unknown>, codpedcomp: number, emp: number): Promise<boolean> {
+    if (lojasDoPedido(pc.empresas, pc.idempresa as number).length > 1) return lojaRecebeu(trx, codpedcomp, emp);
+    return pc.dtfaturamento != null;
+  }
+
+  /**
    * corte-2 — GERA as parcelas do pedido a partir da condição de pagamento (RatearTotalNasParcelas,
    * uPedidoCompra.pas:8892). Prazos (dias) = CD1..CD8 do PEDIDO (override local); se nenhum, os da CONDIÇÃO
-   * (codconpagto). Para cada CDn não-nulo: 1 parcela; VALOR = round(TOTAL/nParc) com a SOBRA na PRIMEIRA
-   * (Σ = total ao centavo); DATA = data_pedido + CDn dias; QTDEDIASAPOSFATURAMENTO = CDn. Substitui as
-   * parcelas existentes. Bloqueado em pedido fechado/faturado (é uma edição). Single-empresa.
+   * (codconpagto). mig 303: o rateio é POR LOJA (`rateioPorLoja`) — cada loja parcela o PRÓPRIO total, como na
+   * produção (1.083 de 1.083 pedidos multi-loja com parcela de 2025-26 têm parcelas das duas lojas). Data-base =
+   * data de faturamento (ou a do pedido); VENC = base + CDn. Substitui as parcelas existentes. É uma edição: a loja
+   * que dispara tem de participar e poder editar.
    */
-  async gerarParcelas(codpedcomp: number): Promise<{ codpedcomp: number; parcelas: number; total: number }> {
+  async gerarParcelas(codpedcomp: number): Promise<{ codpedcomp: number; parcelas: number; total: number; lojas: number }> {
     const emp = this.emp();
     const op = this.op();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const pc = await trx
-        .selectFrom('pedidocompra')
-        .select(['codpedcomp', 'fechado', 'dtfaturamento', 'data', 'data_faturamento', 'codconpagto', 'cd1', 'cd2', 'cd3', 'cd4', 'cd5', 'cd6', 'cd7', 'cd8'])
-        .where('codpedcomp', '=', codpedcomp)
-        .where('idempresa', '=', emp)
-        .where(sql`coalesce(indr,'I')`, '<>', 'E')
-        .forUpdate()
-        .executeTakeFirst();
-      if (!pc) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
-      if ((pc as any).dtfaturamento != null) throw new BusinessRuleError('PEDIDO_FATURADO', { codpedcomp });
-      await this.exigirEditavel(trx, codpedcomp, emp, (pc as any).fechado); // mig 303: trava por loja
+      const pc = await this.pedidoDaLoja(trx, codpedcomp, emp, [
+        'fechado', 'dtfaturamento', 'codconpagto', ...CD_COLS,
+        sql<string>`to_char(coalesce(data_faturamento, data)::date, 'YYYY-MM-DD')`.as('base') as any,
+      ]);
+      if (await this.faturadoNaLoja(trx, pc, codpedcomp, emp)) throw new BusinessRuleError('PEDIDO_FATURADO', { codpedcomp });
+      await this.exigirEditavel(trx, codpedcomp, emp, pc.fechado); // mig 303: trava por loja
 
-      // prazos: CD1..CD8 do PEDIDO (override); se nenhum, os da CONDIÇÃO (codconpagto).
-      const cdCols = ['cd1', 'cd2', 'cd3', 'cd4', 'cd5', 'cd6', 'cd7', 'cd8'] as const;
-      const num = (v: unknown): number | null => (v == null || v === '' ? null : Number(v));
-      let prazos = cdCols.map((c) => num((pc as any)[c])).filter((d): d is number => d != null);
-      if (prazos.length === 0 && (pc as any).codconpagto != null) {
-        const cond = await trx
-          .selectFrom('condicoes_pagto')
-          .select(['cd1', 'cd2', 'cd3', 'cd4', 'cd5', 'cd6', 'cd7', 'cd8'])
-          .where('codconpagto', '=', Number((pc as any).codconpagto))
-          .executeTakeFirst();
-        if (cond) prazos = cdCols.map((c) => num((cond as any)[c])).filter((d): d is number => d != null);
-      }
+      const prazos = await this.prazosDoPedido(trx, pc);
       if (prazos.length === 0) throw new BusinessRuleError('PEDIDO_SEM_CONDICAO_PAGTO', { codpedcomp });
 
-      // total = Σ TOTALCUSTO dos itens (078, FLIP: TOTALCUSTO = QTDE×VLREMBALAGEM, fiel ao sqqTotalPedido). Single-empresa
-      // = 1 grupo; o split multi-loja por empresa (PEDIDO_COMPRA_QTDE grandchild = cross-docking) segue ADIADO.
-      const tot = await trx
-        .selectFrom('pedidocompra_i')
-        .select(({ fn }: any) => [fn.sum('totalcusto').as('s')])
-        .where('codpedcomp', '=', codpedcomp)
-        .executeTakeFirst();
-      const totalCents = Math.round(Number((tot as any)?.s ?? 0) * 100);
+      // total = Σ TOTALCUSTO (078, FLIP: TOTALCUSTO = QTDE×VLREMBALAGEM, fiel ao sqqTotalPedido) — agora POR LOJA.
+      const totais = await this.totaisPorLoja(trx, codpedcomp, pc.empresas, pc.idempresa as number | null);
+      const totalCents = totais.reduce((s, t) => s + t.cents, 0);
       if (totalCents <= 0) throw new BusinessRuleError('PEDIDO_SEM_VALOR', { codpedcomp });
 
-      // rateio: valor por parcela + SOBRA na PRIMEIRA (fiel ao RatearTotalNasParcelas:8941). Σ == total.
-      const n = prazos.length;
-      const valorCents = Math.round(totalCents / n);
-      const residuo = totalCents - valorCents * n;
-      // data-base do vencimento = DATA_FATURAMENTO (legado edtDtFaturamento→DTFATURAMENTO; golden 99,2%);
-      // fallback p/ a data do pedido quando não informada.
-      const base = new Date(((pc as any).data_faturamento ?? (pc as any).data) as string | number | Date);
-
+      const parcelas = this.rateioPorLoja(totais, prazos, String(pc.base));
       await trx.deleteFrom('pedidocompra_parcelas').where('codpedcomp', '=', codpedcomp).execute();
-      for (let i = 0; i < n; i++) {
-        const dias = prazos[i];
-        const dt = new Date(base.getTime());
-        dt.setUTCDate(dt.getUTCDate() + dias);
-        await trx
-          .insertInto('pedidocompra_parcelas')
-          .values({
-            codpedcomp,
-            idempresa: emp,
-            parcela: i + 1,
-            data: dt.toISOString().slice(0, 10),
-            valor: (valorCents + (i === 0 ? residuo : 0)) / 100, // sobra na PRIMEIRA
-            qtdediasaposfaturamento: dias,
-          })
-          .execute();
+      for (const p of parcelas) {
+        await trx.insertInto('pedidocompra_parcelas').values({
+          codpedcomp, idempresa: p.idempresa, parcela: p.parcela, data: p.data, valor: p.valor, qtdediasaposfaturamento: p.dias,
+        }).execute();
       }
 
       await trx
         .updateTable('pedidocompra')
         .set({ usultalteracao: op, dtultimalteracao: sql`now()` })
         .where('codpedcomp', '=', codpedcomp)
-        .where('idempresa', '=', emp)
         .execute();
-      return { codpedcomp, parcelas: n, total: totalCents / 100 };
+      return { codpedcomp, parcelas: parcelas.length, total: totalCents / 100, lojas: totais.length };
     });
   }
 
@@ -206,53 +234,41 @@ export class PedidoCompraService {
    * corte-final — FLUXO deste pedido (parcelas MATERIALIZADAS ou PROJETADAS). O legado chama
    * `RatearTotalNasParcelas(False)` no próprio gravar (uPedidoCompra.pas:6866), então o fluxo do pedido
    * SEMPRE existe na validação — mesmo sem o operador ter clicado "Gerar parcelas". Aqui: usa as parcelas
-   * persistidas se houver; senão PROJETA pelas CDs efetivas (pedido→condição) + total (Σ vlrembalagem) +
-   * data-base (data_faturamento ?? data), com o MESMO rateio de gerarParcelas (round(total/n), sobra na 1ª,
-   * venc = base + CDn). Sem CDs → 1 ponto (total na data-base). Total ≤ 0 → sem fluxo.
+   * persistidas se houver; senão PROJETA com o MESMO rateio por loja do gerarParcelas. Sem CDs → 1 ponto (total na
+   * data-base). Total ≤ 0 → sem fluxo. mig 303: a loja que JÁ RECEBEU nota deste pedido sai do fluxo
+   * (`GetValorParcela` ignora as lojas de `GetEmpresasComNF`, uPedidoCompra.pas:1725/1933) — o dinheiro dela já é
+   * duplicata, não previsão.
    */
-  private async fluxoDoPedido(trx: AnyDB, codpedcomp: number, emp: number): Promise<Array<{ data: string; valor: number }>> {
+  private async fluxoDoPedido(trx: AnyDB, codpedcomp: number): Promise<Array<{ data: string; valor: number }>> {
+    const comNf = new Set(((await trx.selectFrom('nf').select('idempresa').distinct()
+      .where('codpedcomp', '=', codpedcomp)
+      .where(sql`coalesce(cancelada, 'N')`, '<>', 'S').where(sql`coalesce(statusnfe, '')`, '<>', 'C')
+      .execute()) as Array<{ idempresa: number }>).map((r) => Number(r.idempresa)));
     const parc = (await trx
       .selectFrom('pedidocompra_parcelas')
-      .select([sql<string>`to_char(data::date, 'YYYY-MM-DD')`.as('d'), 'valor'])
+      .select([sql<string>`to_char(data::date, 'YYYY-MM-DD')`.as('d'), 'valor', 'idempresa'])
       .where('codpedcomp', '=', codpedcomp)
-      .execute()) as Array<{ d: string; valor: unknown }>;
-    if (parc.length) return parc.map((p) => ({ data: p.d, valor: r2(num(p.valor)) }));
+      .execute()) as Array<{ d: string; valor: unknown; idempresa: number | null }>;
+    if (parc.length) {
+      return parc.filter((p) => p.idempresa == null || !comNf.has(Number(p.idempresa)))
+        .map((p) => ({ data: p.d, valor: r2(num(p.valor)) }));
+    }
 
     // sem parcelas materializadas → projeta pelo mesmo rateio do gerarParcelas.
     const pc = (await trx
       .selectFrom('pedidocompra')
-      .select([sql<string>`to_char(coalesce(data_faturamento, data)::date, 'YYYY-MM-DD')`.as('base'), 'codconpagto', ...CD_COLS])
+      .select(['idempresa', 'empresas', sql<string>`to_char(coalesce(data_faturamento, data)::date, 'YYYY-MM-DD')`.as('base'), 'codconpagto', ...CD_COLS])
       .where('codpedcomp', '=', codpedcomp)
-      .where('idempresa', '=', emp)
       .executeTakeFirst()) as Record<string, unknown> | undefined;
     if (!pc) return [];
-    const tot = (await trx
-      .selectFrom('pedidocompra_i')
-      .select(({ fn }: any) => [fn.sum('totalcusto').as('s')]) // 078 FLIP: total = Σ TOTALCUSTO (QTDE×VLREMBALAGEM)
-      .where('codpedcomp', '=', codpedcomp)
-      .executeTakeFirst()) as { s?: unknown } | undefined;
-    const totalCents = Math.round(num(tot?.s) * 100);
+    const totais = (await this.totaisPorLoja(trx, codpedcomp, pc.empresas, pc.idempresa as number | null))
+      .filter((t) => !comNf.has(t.idempresa));
+    const totalCents = totais.reduce((s, t) => s + t.cents, 0);
     if (totalCents <= 0) return [];
-
-    let prazos = CD_COLS.map((c) => pc[c]).filter((v) => v != null && v !== '').map((v) => Number(v));
-    if (prazos.length === 0 && pc.codconpagto != null) {
-      const cond = (await trx
-        .selectFrom('condicoes_pagto')
-        .select([...CD_COLS])
-        .where('codconpagto', '=', Number(pc.codconpagto))
-        .executeTakeFirst()) as Record<string, unknown> | undefined;
-      if (cond) prazos = CD_COLS.map((c) => cond[c]).filter((v) => v != null).map((v) => Number(v));
-    }
+    const prazos = await this.prazosDoPedido(trx, pc);
     const baseISO = String(pc.base);
     if (prazos.length === 0) return [{ data: baseISO, valor: totalCents / 100 }];
-    const n = prazos.length;
-    const valorCents = Math.round(totalCents / n);
-    const residuo = totalCents - valorCents * n;
-    return prazos.map((dias, i) => {
-      const dt = new Date(`${baseISO}T00:00:00Z`);
-      dt.setUTCDate(dt.getUTCDate() + dias);
-      return { data: dt.toISOString().slice(0, 10), valor: (valorCents + (i === 0 ? residuo : 0)) / 100 };
-    });
+    return this.rateioPorLoja(totais, prazos, baseISO).map((p) => ({ data: p.data, valor: p.valor }));
   }
 
   /**
@@ -272,19 +288,23 @@ export class PedidoCompraService {
     const sem = modo === 'S' ? numCfg(await this.config.resolver('VALOR_MAXIMO_SEMANAL_PC', { empresaId: emp })) : 0;
     if (dia <= 0 && sem <= 0) return;
 
-    const meu = await this.fluxoDoPedido(trx, codpedcomp, emp);
+    const meu = await this.fluxoDoPedido(trx, codpedcomp);
     if (!meu.length) return; // A1: pedido sem valor → nada a projetar; com valor, o fluxo SEMPRE é validado.
 
-    // Σ parcelas de OUTROS pedidos abertos da empresa num intervalo (exclui o corrente — somado da memória).
+    // Σ parcelas de OUTROS pedidos num intervalo (exclui o corrente — somado da memória). O escopo é o do legado
+    // (`GetSQLFluxo`, udmPedidoCompra.pas:1893): parcelas de TODAS as lojas — o limite é da rede, não da loja —, fora
+    // as de (pedido, loja) que já têm nota (`NOT EXISTS NF … N.IDEMPRESA = P.IDEMPRESA`). Até a mig 303 o Apollo
+    // filtrava a loja dona e o `dtfaturamento` do cabeçalho, que no multi-loja marca a PRIMEIRA nota e tiraria do
+    // fluxo a loja que ainda não recebeu.
     const somaOutros = async (ini: string, fim: string): Promise<number> => {
       const t = (await trx
         .selectFrom('pedidocompra_parcelas as pp')
         .innerJoin('pedidocompra as p', 'p.codpedcomp', 'pp.codpedcomp')
         .select(({ fn }: any) => [fn.sum('pp.valor').as('s')])
-        .where('p.idempresa', '=', emp)
         .where('pp.codpedcomp', '<>', codpedcomp)
         .where(sql`coalesce(p.indr,'I')`, '<>', 'E')
-        .where('p.dtfaturamento', 'is', null)
+        .where(sql<boolean>`NOT EXISTS (SELECT 1 FROM nf n WHERE n.codpedcomp = pp.codpedcomp AND n.idempresa = pp.idempresa
+                                          AND coalesce(n.cancelada, 'N') <> 'S' AND coalesce(n.statusnfe, '') <> 'C')`)
         .where(sql`pp.data::date`, '>=', ini)
         .where(sql`pp.data::date`, '<=', fim)
         .executeTakeFirst()) as { s?: unknown } | undefined;
@@ -343,16 +363,8 @@ export class PedidoCompraService {
       liberador = r.codOperador;
     }
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const pc = await trx
-        .selectFrom('pedidocompra')
-        .select(['codpedcomp', 'fechado', 'dtfaturamento'])
-        .where('codpedcomp', '=', codpedcomp)
-        .where('idempresa', '=', emp)
-        .where(sql`coalesce(indr,'I')`, '<>', 'E')
-        .forUpdate()
-        .executeTakeFirst();
-      if (!pc) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
-      if ((pc as any).dtfaturamento != null) throw new BusinessRuleError('PEDIDO_FATURADO', { codpedcomp });
+      const pc = await this.pedidoDaLoja(trx, codpedcomp, emp, ['fechado', 'dtfaturamento']); // mig 303: loja participante
+      if (await this.faturadoNaLoja(trx, pc, codpedcomp, emp)) throw new BusinessRuleError('PEDIDO_FATURADO', { codpedcomp });
       // mig 303: a liberação vale para o fechar da loja — que já tenha fechado, não há o que liberar
       if (lojaFechada(await estadoFechamento(trx, codpedcomp, (pc as any).fechado), emp)) {
         throw new BusinessRuleError('PEDIDO_JA_FECHADO', { codpedcomp });
@@ -361,7 +373,6 @@ export class PedidoCompraService {
         .updateTable('pedidocompra')
         .set({ operador_ult_lib_valor_max: liberador, usultalteracao: op, dtultimalteracao: sql`now()` })
         .where('codpedcomp', '=', codpedcomp)
-        .where('idempresa', '=', emp)
         .execute();
       return { codpedcomp, operador: liberador };
     });
@@ -547,7 +558,8 @@ export class PedidoCompraService {
           ...CD_COLS,
         ])
         .where('codpedcomp', '=', codpedcomp)
-        .where('idempresa', '=', emp)
+        // mig 303: a loja PARTICIPANTE duplica (o pedido não tem dona no legado)
+        .where(sql<boolean>`(idempresa = ${emp} OR ${String(emp)} = ANY(string_to_array(replace(coalesce(empresas, ''), ' ', ''), ',')))`)
         .where(sql`coalesce(indr,'I')`, '<>', 'E')
         .executeTakeFirst()) as Record<string, unknown> | undefined;
       if (!pc) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
@@ -670,16 +682,8 @@ export class PedidoCompraService {
     const emp = this.emp();
     const op = this.op();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const pc = await trx
-        .selectFrom('pedidocompra')
-        .select(['codpedcomp', 'fechado', 'dtfaturamento', 'codparceiro', 'empresas'])
-        .where('codpedcomp', '=', codpedcomp)
-        .where('idempresa', '=', emp)
-        .where(sql`coalesce(indr,'I')`, '<>', 'E')
-        .forUpdate()
-        .executeTakeFirst();
-      if (!pc) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
-      if ((pc as any).dtfaturamento != null) throw new BusinessRuleError('PEDIDO_FATURADO', { codpedcomp });
+      const pc = await this.pedidoDaLoja(trx, codpedcomp, emp, ['fechado', 'dtfaturamento', 'codparceiro']); // mig 303: loja participante
+      if (await this.faturadoNaLoja(trx, pc, codpedcomp, emp)) throw new BusinessRuleError('PEDIDO_FATURADO', { codpedcomp });
       // adicionar item bloqueia só com TODAS as lojas fechadas (btnAdicionarIClick, uPedidoCompra.pas:4432)
       if ((await estadoFechamento(trx, codpedcomp, (pc as any).fechado)).tipo === 'total') {
         throw new BusinessRuleError('PEDIDO_FECHADO', { codpedcomp });
@@ -780,7 +784,6 @@ export class PedidoCompraService {
         .updateTable('pedidocompra')
         .set({ usultalteracao: op, dtultimalteracao: sql`now()` })
         .where('codpedcomp', '=', codpedcomp)
-        .where('idempresa', '=', emp)
         .execute();
       return { codpedcomp, importados, ja_no_pedido: jaNoPedido, inativos };
     });
