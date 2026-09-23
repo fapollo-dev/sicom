@@ -3,7 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
-import { estadoFechamento, lojaFechada, lojasDoPedido, novoHistorico } from './pedido-lojas';
+import { estadoFechamento, lojaFechada, lojaRecebeu, lojasDoPedido, novoHistorico } from './pedido-lojas';
 import { gravarHistorico, gravarHistoricoMarca } from '../../shared/crud/historico';
 import { ConfigService } from '../cadastro/config.service';
 import { LiberacaoService } from '../auth/liberacao.service';
@@ -367,6 +367,14 @@ export class PedidoCompraService {
     });
   }
 
+  /** proxy do `PromocaoAcumulativa` (módulo não migrado): o produto está em promoção nessa loja? */
+  private async emPromocao(trx: AnyDB, idproduto: number, idempresa: number): Promise<boolean> {
+    const r = (await trx.selectFrom('multi_preco').select('promocao')
+      .where('idproduto', '=', idproduto).where('idempresa', '=', idempresa)
+      .executeTakeFirst()) as { promocao?: string } | undefined;
+    return r?.promocao === 'S';
+  }
+
   /**
    * corte-final — PROPAGAÇÃO DE PREÇO AO CATÁLOGO ("Atualizar preço → On-line", uPedidoCompra.pas:3444-3603).
    * Regra VIVA de alto volume (golden: 95,5% dos preços 2024+ do catálogo vêm do item do pedido). Para cada
@@ -389,15 +397,8 @@ export class PedidoCompraService {
   async gerarLotePreco(codpedcomp: number): Promise<{ codpedcomp: number; lotes: number; pulados_promocao: number; sem_diferenca: number }> {
     const emp = this.emp();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const pc = (await trx
-        .selectFrom('pedidocompra')
-        .select(['codpedcomp', 'ltpreco_processado'])
-        .where('codpedcomp', '=', codpedcomp)
-        .where('idempresa', '=', emp)
-        .where(sql`coalesce(indr,'I')`, '<>', 'E')
-        .forUpdate()
-        .executeTakeFirst()) as { ltpreco_processado?: string } | undefined;
-      if (!pc) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
+      // a loja que participa do pedido pode atualizar os preços dele (mig 303)
+      const pc = (await this.pedidoDaLoja(trx, codpedcomp, emp, ['ltpreco_processado'])) as { ltpreco_processado?: string; empresas?: string; idempresa?: number };
       if (String(pc.ltpreco_processado ?? 'N') === 'S') throw new BusinessRuleError('PEDIDO_LOTE_PRECO_JA_GERADO', { codpedcomp });
 
       const itens = (await trx
@@ -408,9 +409,9 @@ export class PedidoCompraService {
         .orderBy('codpedcompi')
         .execute()) as Array<{ idproduto: number; vrvenda: unknown }>;
 
-      // mesmo conjunto de empresas do ramo on-line (ver a nota de paridade em atualizarPrecos).
+      // mesmo conjunto de empresas do ramo on-line: as LOJAS DO PEDIDO, ou todas com a config (mig 303).
       const todas = (await this.config.resolver('ATUALIZA_PRECO_OUTRAS_EMPRESAS', { empresaId: emp })) === 'S';
-      let empresas: number[] = [emp];
+      let empresas: number[] = lojasDoPedido(pc.empresas, pc.idempresa ?? emp);
       if (todas) {
         const rows = (await trx.selectFrom('empresas').select('idempresa').execute()) as Array<{ idempresa: number }>;
         empresas = rows.map((r) => Number(r.idempresa));
@@ -421,6 +422,9 @@ export class PedidoCompraService {
       let semDif = 0;
       for (const it of itens) {
         const venda = r4(num(it.vrvenda));
+        // no lote, a trava da loja logada só existe no ramo das lojas do pedido (uPedidoCompra.pas:1437); o ramo
+        // da config 'S' olha só a loja de destino (:1478)
+        if (!todas && (await this.emPromocao(trx, it.idproduto, emp))) { pulados += empresas.length; continue; }
         for (const e of empresas) {
           const mp = (await trx
             .selectFrom('multi_preco')
@@ -449,15 +453,7 @@ export class PedidoCompraService {
     const emp = this.emp();
     const op = this.op();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const pc = await trx
-        .selectFrom('pedidocompra')
-        .select(['codpedcomp'])
-        .where('codpedcomp', '=', codpedcomp)
-        .where('idempresa', '=', emp)
-        .where(sql`coalesce(indr,'I')`, '<>', 'E')
-        .forUpdate()
-        .executeTakeFirst();
-      if (!pc) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
+      const pc = (await this.pedidoDaLoja(trx, codpedcomp, emp, [])) as { empresas?: string; idempresa?: number };
 
       const itens = (await trx
         .selectFrom('pedidocompra_i')
@@ -467,13 +463,11 @@ export class PedidoCompraService {
         .orderBy('codpedcompi')
         .execute()) as Array<{ idproduto: number; vrvenda: unknown }>;
 
-      // conjunto de empresas: config 'S' → TODAS; senão as empresas DO PEDIDO. NOTA DE PARIDADE (não-bug): o legado
-      // lê as empresas do pedido em PEDIDO_COMPRA_QTDE (grandchild por-empresa) — que NÃO foi migrado (mig 078
-      // projetou o pedido como SINGLE-empresa; N-por-empresa = corte-3 cross-docking, adiado por decisão de tenant).
-      // Logo {empresas do pedido} ≡ {emp} é a projeção FIEL hoje; quando o corte-3 migrar o grandchild, o conjunto
-      // passa a vir dele (aqui e em gerarLotePreco).
+      // conjunto de empresas: config 'S' → TODAS; senão as LOJAS DO PEDIDO — o legado percorre `cdsTotalPedido`, as
+      // lojas participantes (uPedidoCompra.pas:3504-3530). Até a mig 303 o pedido era de uma loja só e o conjunto era
+      // {emp}; agora vem do CSV `empresas`.
       const todas = (await this.config.resolver('ATUALIZA_PRECO_OUTRAS_EMPRESAS', { empresaId: emp })) === 'S';
-      let empresas: number[] = [emp];
+      let empresas: number[] = lojasDoPedido(pc.empresas, pc.idempresa ?? emp);
       if (todas) {
         const rows = (await trx.selectFrom('empresas').select('idempresa').execute()) as Array<{ idempresa: number }>;
         empresas = rows.map((r) => Number(r.idempresa));
@@ -484,6 +478,9 @@ export class PedidoCompraService {
       let semDif = 0;
       for (const it of itens) {
         const venda = r2(num(it.vrvenda));
+        // "Se a empresa atual não pode atualizar o preço, então não pode passar valor desatualizado às demais"
+        // (uPedidoCompra.pas:3508, :3548 — nos DOIS ramos): promoção na loja logada trava o produto em todas.
+        if (await this.emPromocao(trx, it.idproduto, emp)) { pulados += empresas.length; continue; }
         // último item do produto vence (o loop do legado percorre em ordem; duplicatas de produto são raras)
         for (const e of empresas) {
           const mp = (await trx
@@ -817,7 +814,11 @@ export class PedidoCompraService {
       const pc = await this.pedidoDaLoja(trx, codpedcomp, emp, ['fechado', 'dtfaturamento']);
       const antes = await estadoFechamento(trx, codpedcomp, (pc as any).fechado);
       if (!lojaFechada(antes, emp)) throw new BusinessRuleError('PEDIDO_NAO_FECHADO', { codpedcomp, idempresa: emp });
-      if ((pc as any).dtfaturamento != null) throw new BusinessRuleError('PEDIDO_FATURADO', { codpedcomp });
+      // recebido não reabre: no multi-loja é a nota DESTA loja (mig 303); numa loja só, o marcador de antes
+      const multi = lojasDoPedido((pc as any).empresas, (pc as any).idempresa).length > 1;
+      if (multi ? await lojaRecebeu(trx, codpedcomp, emp) : (pc as any).dtfaturamento != null) {
+        throw new BusinessRuleError('PEDIDO_FATURADO', { codpedcomp });
+      }
 
       // REARMA o limite (M1) na reabertura — e desfaz o fechamento SÓ da loja logada (uPedidoCompra.pas:7840)
       await trx

@@ -5,7 +5,7 @@ import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { derivarPisCofinsRentabPedido } from '../shared/piscofins-rentab';
-import { estadoFechamento, formatarEmpresas, lojaFechada, lojasDoPedido, quantidadesPorLoja } from './pedido-lojas';
+import { estadoFechamento, formatarEmpresas, lojaFechada, lojaRecebeu, lojasDoPedido, quantidadesPorLoja } from './pedido-lojas';
 
 /**
  * PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela do legado. Corte-1: NÚCLEO cadastro, agregado
@@ -222,7 +222,12 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
         .where(sql`coalesce(indr,'I')`, '<>', 'E')
         .executeTakeFirst()) as typeof atual;
       if (!atual) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp: id });
-      if (atual.dtfaturamento != null) throw new BusinessRuleError('PEDIDO_FATURADO');
+      // RECEBIDO trava a edição. No pedido de uma loja só é o marcador de antes (dtfaturamento); no multi-loja a nota
+      // é POR LOJA — a loja 1 ter recebido não trava a loja 2, que ainda está aberta (mig 303)
+      const multi = lojasDoPedido(atual.empresas, atual.idempresa).length > 1;
+      if (multi ? (emp != null && (await lojaRecebeu(db, id, emp))) : atual.dtfaturamento != null) {
+        throw new BusinessRuleError('PEDIDO_FATURADO');
+      }
       await validarFechamentoPorLoja(db, id, atual, dto, emp);
     }
     // o fornecedor e as configs são os da loja DONA do pedido (parceiros é por empresa no Apollo)

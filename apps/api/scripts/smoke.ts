@@ -15078,15 +15078,18 @@ async function main() {
           VALUES ($1, 1, ${PP}, 10, 10, 'UN', 18.40, 18.40, 'T01')`, [nfE]);
         const pcId = Number((await pgPp.query(`INSERT INTO pedidocompra (idempresa, codparceiro, data, fechado)
           VALUES (1, 2, '2045-06-08', 'N') RETURNING codpedcomp`)).rows[0].codpedcomp);
-        await pgPp.query(`INSERT INTO pedidocompra_i (codpedcomp, idproduto, fatorembalagem, vrcusto, vlrembalagem)
-          VALUES ($1, ${PP}, 60, 18.40, 1104.00)`, [pcId]);
+        // mig 303: a quantidade do pedido mora POR LOJA (pedido_compra_qtde) — é ela que a posição lê (`SUM(Q.QTDE)`,
+        // UdmPosicaoProduto.dfm:1152). Antes a fixture punha 60 no FATOR do item, a medida errada que a posição usava.
+        const pciId = Number((await pgPp.query(`INSERT INTO pedidocompra_i (codpedcomp, idproduto, fatorembalagem, vrcusto, vlrembalagem, qtde, qtdtotal, totalcusto)
+          VALUES ($1, ${PP}, 1, 18.40, 18.40, 60, 60, 1104.00) RETURNING codpedcompi`, [pcId])).rows[0].codpedcompi);
+        await pgPp.query(`INSERT INTO pedido_compra_qtde (codpedcompi, idempresa, qtde, qtdtotal, totalcusto) VALUES ($1, 1, 60, 60, 1104.00)`, [pciId]);
         await pgPp.query(`INSERT INTO historico_prod (idproduto, idempresa, tipo, qtde, saldo_anterior, saldo_novo, origem, codnf, historico, data)
           VALUES (${PP},1,'E',100,40.5,140.5,'NF',$1,'ENTRADA POR NF','2045-06-05 08:00'),
                  (${PP},1,'S',10,140.5,130.5,'VENDA',NULL,'SAIDA POR VENDA','2045-06-10 09:00')`, [nfE]);
 
         const pos2 = (await (await fetch(`${base}/${CP}/posicao/${PP}?origem=V&referencia=2045-06-11`, { headers: H })).json().catch(() => ({}))) as any;
         const kdx = (await (await fetch(`${base}/${CP}/kardex/${PP}?dataIni=2045-06-01&dataFim=2045-06-11`, { headers: H })).json().catch(() => [])) as any[];
-        check('ANÁLISE GERAL §126.8 [entradas, compras, pendentes e Kardex]: a entrada é a NF processada (`tipo=E`, `proc=S`) e conta `fatorembal × quantidade` = 100; a compra é o pedido em aberto (60 un); o pendente traz o fornecedor; e o Kardex sai de `historico_prod` (14,66 mi de linhas no cliente) com a entrada de 100 e a saída de 10, saldo 130,5',
+        check('ANÁLISE GERAL §126.8 [entradas, compras, pendentes e Kardex]: a entrada é a NF processada (`tipo=E`, `proc=S`) e conta `fatorembal × quantidade` = 100; a compra é a quantidade DA LOJA no pedido em aberto (60 caixas, `SUM(Q.QTDE)` — mig 303); o pendente traz o fornecedor; e o Kardex sai de `historico_prod` (14,66 mi de linhas no cliente) com a entrada de 100 e a saída de 10, saldo 130,5',
           Math.abs(Number((pos2.entradas ?? []).find((r: any) => r.mes === 6)?.qtde) - 100) < 0.005
           && Math.abs(Number((pos2.compras ?? []).find((r: any) => r.mes === 6)?.qtde) - 60) < 0.005
           && (pos2.pendentes ?? []).length === 1 && Math.abs(Number(pos2.pendentes?.[0]?.qtde) - 60) < 0.005
@@ -17709,6 +17712,72 @@ async function main() {
             'Pedido reaberto para a empresa 2 através da tela de pedido de compra.'])
           && JSON.stringify((r4.lojas ?? []).map((l: any) => [l.idempresa, l.fechado])) === JSON.stringify([[1, true], [2, false]]),
           { fecha2: [fecha2.status, fecha2J.fechamento], edit2Total: [edit2Total.status, edit2TotalJ.code], fecha2x: [fecha2x.status, fecha2xJ.code], reabre2: [reabre2.status, reabre2J], hist, lojas: r4.lojas });
+
+        // §164.6 — a POSIÇÃO DO PRODUTO lê a quantidade DA LOJA (UdmPosicaoProduto.dfm:1152, :1287)
+        const posL1 = (await (await fetch(`${base}/relatorios/consulta-produto/posicao/1?referencia=2036-04-15`, { headers: H })).json().catch(() => ({}))) as any;
+        const compraAbr = (posL1.compras ?? []).find((c: any) => Number(c.mes) === 4 && Number(c.ano) === 2036);
+        const pendenteL1 = (posL1.pendentes ?? []).filter((p: any) => Number(p.nropedido) === cod);
+        await pgMl.query(`UPDATE pedido_compra_qtde SET fechado = NULL WHERE idempresa = 1 AND codpedcompi IN (SELECT codpedcompi FROM pedidocompra_i WHERE codpedcomp = $1)`, [cod]);
+        const posAberta = (await (await fetch(`${base}/relatorios/consulta-produto/posicao/1?referencia=2036-04-15`, { headers: H })).json().catch(() => ({}))) as any;
+        const pendenteAberta = (posAberta.pendentes ?? []).filter((p: any) => Number(p.nropedido) === cod);
+        await pgMl.query(`UPDATE pedido_compra_qtde SET fechado = 'S' WHERE idempresa = 1 AND codpedcompi IN (SELECT codpedcompi FROM pedidocompra_i WHERE codpedcomp = $1)`, [cod]);
+        check('PEDIDO MULTI-LOJA §164.6 [a posição do produto é da LOJA]: o legado soma `Q.QTDE` com `Q.QTDE > 0` e filtra `q.idempresa`, e o pedido só é "pendente" enquanto a linha DA LOJA está aberta (`COALESCE(Q.FECHADO,\'N\')=\'N\'`). Antes o Apollo somava o FATOR de embalagem do item e olhava o cabeçalho da loja dona. Aqui, para a loja 1: as compras de abril contam as 3 caixas dela (não o fator 6, nem as 6 caixas da loja 2); com a loja 1 fechada o pedido não é pendente para ela, e aberta é — com as 3 caixas dela',
+          Number(compraAbr?.qtde) === 3 && pendenteL1.length === 0
+          && pendenteAberta.length === 1 && Number(pendenteAberta[0]?.qtde) === 3,
+          { compras: posL1.compras, pendenteL1, pendenteAberta });
+
+        // §164.5 — o RECEBIMENTO é por loja (udmNF.dfm:15370): a loja 1, fechada, gera a nota com a quantidade DELA
+        const nf1 = await fetch(`${base}/${PED}/${cod}/gerar-nf`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+        const nf1J = (await nf1.json().catch(() => ({}))) as any;
+        const itensNf1 = nf1.status === 200 || nf1.status === 201
+          ? ((await pgMl.query(`SELECT codproduto, quantidade FROM nf_prod WHERE codnf = $1 ORDER BY codproduto`, [Number(nf1J.codnf)])).rows as any[]).map((r) => [Number(r.codproduto), Number(r.quantidade)])
+          : [];
+        const idempNf1 = nf1J.codnf ? (await pgMl.query(`SELECT idempresa FROM nf WHERE codnf = $1`, [Number(nf1J.codnf)])).rows[0]?.idempresa : null;
+        const saldo1 = (await (await fetch(`${base}/${PED}/${cod}/saldo`, { headers: H })).json().catch(() => ({}))) as any;
+        const nf2 = await fetch(`${base}/${PED}/${cod}/gerar-nf`, { method: 'POST', headers: H2, body: JSON.stringify({}) });
+        const nf2J = (await nf2.json().catch(() => ({}))) as any;
+        const edit2Pos = await fetch(`${base}/${PED}/${cod}`, { method: 'PUT', headers: H2, body: JSON.stringify({ obs: 'loja 2 segue aberta' }) });
+        const reabre1 = await fetch(`${base}/${PED}/${cod}/reabrir`, { method: 'POST', headers: H });
+        const reabre1J = (await reabre1.json().catch(() => ({}))) as any;
+        check('PEDIDO MULTI-LOJA §164.5 [o RECEBIMENTO é por loja]: a nota de entrada gerada do pedido leva a quantidade DA LOJA da nota (`LEFT JOIN PEDIDO_COMPRA_QTDE Q … AND Q.IDEMPRESA = :IDEMPRESA`, udmNF.dfm:15370) — a loja 1 recebe 18 unidades do produto 1 (3 caixas × 6) e 2 do produto 2, na nota DELA, e o saldo dela zera. A loja 2, reaberta, não recebe (422 PEDIDO_NAO_FECHADO — feche antes de receber); a nota da loja 1 não trava a loja 2, que segue editando; e a loja 1 não reabre o que já recebeu (422 PEDIDO_FATURADO)',
+          (nf1.status === 200 || nf1.status === 201) && Number(idempNf1) === 1
+          && JSON.stringify(itensNf1) === JSON.stringify([[1, 18], [2, 2]])
+          && saldo1.totalmenteRecebido === true
+          && nf2.status === 422 && nf2J.code === 'PEDIDO_NAO_FECHADO'
+          && edit2Pos.status === 200
+          && reabre1.status === 422 && reabre1J.code === 'PEDIDO_FATURADO',
+          { nf1: [nf1.status, nf1J.code ?? nf1J.codnf], idempNf1, itensNf1, saldo1: saldo1.itens, nf2: [nf2.status, nf2J.code], edit2Pos: edit2Pos.status, reabre1: [reabre1.status, reabre1J.code] });
+        if (nf1J.codnf) {
+          await pgMl.query(`DELETE FROM nf_prod WHERE codnf = $1`, [Number(nf1J.codnf)]);
+          await pgMl.query(`DELETE FROM nf WHERE codnf = $1`, [Number(nf1J.codnf)]);
+        }
+
+        // §164.7 — o PREÇO vai para as LOJAS DO PEDIDO (o legado percorre as lojas participantes, uPedidoCompra.pas:3504)
+        const mp0 = (await pgMl.query(`SELECT idempresa, vrvenda, promocao FROM multi_preco WHERE idproduto = 2 AND idempresa IN (1,2)`)).rows as any[];
+        for (const e of [1, 2]) {
+          await pgMl.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, markup, vrvenda, promocao, ativo, ativo_compra)
+            VALUES (2, $1, 5, 30, 12.34, 'N', 'S', 'S') ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda = 12.34, promocao = 'N'`, [e]);
+        }
+        await pgMl.query(`UPDATE pedidocompra_i SET vrvenda = 15.90 WHERE codpedcomp = $1 AND idproduto = 2`, [cod]);
+        const atu = await fetch(`${base}/${PED}/${cod}/atualizar-precos`, { method: 'POST', headers: H2 });
+        const atuJ = (await atu.json().catch(() => ({}))) as any;
+        const mp = ((await pgMl.query(`SELECT idempresa, vrvenda FROM multi_preco WHERE idproduto = 2 AND idempresa IN (1,2) ORDER BY idempresa`)).rows as any[]).map((r) => [Number(r.idempresa), Number(r.vrvenda)]);
+        check('PEDIDO MULTI-LOJA §164.7 [o preço do pedido vai para as LOJAS DO PEDIDO]: sem a config de outras empresas, o legado percorre as lojas participantes e atualiza o preço em cada uma. Até aqui o Apollo atualizava só a loja dona; agora o pedido das lojas 1 e 2 leva o R$ 15,90 às duas — e a loja 2, que participa, pode disparar',
+          atu.status === 200 && JSON.stringify(mp) === JSON.stringify([[1, 15.9], [2, 15.9]]),
+          { status: atu.status, atuJ, mp });
+        // a promoção na loja LOGADA trava o produto em todas (uPedidoCompra.pas:3508)
+        await pgMl.query(`UPDATE multi_preco SET vrvenda = 12.34, promocao = CASE WHEN idempresa = 2 THEN 'S' ELSE 'N' END WHERE idproduto = 2 AND idempresa IN (1,2)`);
+        const atuP = await fetch(`${base}/${PED}/${cod}/atualizar-precos`, { method: 'POST', headers: H2 });
+        const atuPJ = (await atuP.json().catch(() => ({}))) as any;
+        const mpP = ((await pgMl.query(`SELECT idempresa, vrvenda FROM multi_preco WHERE idproduto = 2 AND idempresa IN (1,2) ORDER BY idempresa`)).rows as any[]).map((r) => [Number(r.idempresa), Number(r.vrvenda)]);
+        check('PEDIDO MULTI-LOJA §164.7 [promoção na loja logada trava as outras]: "se a empresa atual não pode atualizar o preço, então não pode passar valor desatualizado às demais" (uPedidoCompra.pas:3508) — com o produto em promoção na loja 2 (a logada), a loja 1 também fica com o preço antigo',
+          atuP.status === 200 && JSON.stringify(mpP) === JSON.stringify([[1, 12.34], [2, 12.34]]) && Number(atuPJ.pulados_promocao) === 2 && Number(atuPJ.atualizados) === 0,
+          { status: atuP.status, atuPJ, mpP });
+        for (const e of [1, 2]) {
+          const antes = mp0.find((r) => Number(r.idempresa) === e);
+          if (antes) await pgMl.query(`UPDATE multi_preco SET vrvenda = $1, promocao = $2 WHERE idproduto = 2 AND idempresa = $3`, [antes.vrvenda, antes.promocao, e]);
+          else await pgMl.query(`DELETE FROM multi_preco WHERE idproduto = 2 AND idempresa = $1`, [e]);
+        }
 
         await pgMl.query(`DELETE FROM pedido_compra_historico WHERE codpedcomp = $1`, [cod]);
         await pgMl.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [cod]);

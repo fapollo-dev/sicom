@@ -213,16 +213,19 @@ export class PosicaoProdutoService {
        ORDER BY 3 DESC, 2 DESC
     `.execute(db)).rows;
 
-    // ── compras por mês (pedido de compra; no destino a quantidade é o fatorembalagem do item) ──────────
+    // ── compras por mês: a quantidade (caixas) DA LOJA no pedido — `SUM(Q.QTDE)` com `Q.QTDE > 0` e o filtro
+    // `q.idempresa` (UdmPosicaoProduto.dfm:1152, UPosicaoProduto.pas:880). Antes somava o FATOR de embalagem do item
+    // e filtrava pela loja dona do pedido: errava a medida e sumia com a parte da outra loja (mig 303) ──────────
     const compras = (await sql<Record<string, unknown>>`
       WITH ref AS (SELECT coalesce(${ref}::date, current_date) AS d)
       SELECT to_char(date_trunc('month', pc.data), 'MM/YYYY') AS periodo,
              extract(month from pc.data)::int AS mes, extract(year from pc.data)::int AS ano,
-             sum(i.fatorembalagem) AS qtde
+             sum(q.qtde) AS qtde
         FROM pedidocompra pc
         JOIN pedidocompra_i i ON i.codpedcomp = pc.codpedcomp
+        JOIN pedido_compra_qtde q ON q.codpedcompi = i.codpedcompi AND q.qtde > 0 AND q.idempresa = ${emp}
         CROSS JOIN ref r
-       WHERE i.idproduto = ${id} AND pc.idempresa = ${emp}
+       WHERE i.idproduto = ${id}
          AND coalesce(pc.indr, 'A') <> 'E' AND coalesce(i.indr, 'A') <> 'E'
          AND pc.data >= date_trunc('month', r.d) - interval '12 months'
          AND pc.data <  date_trunc('month', r.d) + interval '1 month'
@@ -230,17 +233,18 @@ export class PosicaoProdutoService {
        ORDER BY 3 DESC, 2 DESC
     `.execute(db)).rows;
 
-    // ── pedidos de compra ainda abertos (o legado: COALESCE(Q.FECHADO,'N') = 'N') ───────────────────────
+    // ── pedidos de compra ainda abertos PARA A LOJA: a linha dela com `COALESCE(Q.FECHADO,'N') = 'N'` e a quantidade
+    // dela (UdmPosicaoProduto.dfm:1287-1301). Antes lia o cabeçalho e o fator do item (mig 303) ────────────────────
     const pendentes = (await sql<Record<string, unknown>>`
       SELECT pc.codpedcomp AS nropedido, to_char(pc.data, 'YYYY-MM-DD') AS dtpedido,
-             i.fatorembalagem AS qtde, pc.codparceiro AS codfor, f.razao
+             q.qtde AS qtde, pc.codparceiro AS codfor, f.razao
         FROM pedidocompra pc
         JOIN pedidocompra_i i ON i.codpedcomp = pc.codpedcomp
+        JOIN pedido_compra_qtde q ON q.codpedcompi = i.codpedcompi AND q.qtde > 0 AND q.idempresa = ${emp}
         LEFT JOIN parceiros f ON f.codparceiro = pc.codparceiro
-       WHERE i.idproduto = ${id} AND pc.idempresa = ${emp}
-         AND coalesce(pc.fechado, 'N') = 'N'
+       WHERE i.idproduto = ${id}
+         AND coalesce(q.fechado, 'N') = 'N'
          AND coalesce(pc.indr, 'A') <> 'E' AND coalesce(i.indr, 'A') <> 'E'
-         AND i.fatorembalagem > 0
        ORDER BY pc.data DESC
     `.execute(db)).rows;
 

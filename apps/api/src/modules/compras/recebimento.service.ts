@@ -6,6 +6,7 @@ import { nfAggregateConfig } from '../cadastro/nf.aggregate';
 import { NfFaturamentoService } from '../cadastro/nf-faturamento.service';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { pedidoParaReceber } from './pedido-lojas';
 import { parseNfeXml, type NfeItemParsed } from './nfe-xml.parser';
 import { normRef, digEan } from './codref-normalize';
 import { AnalisePedidoNfService } from './analise-pedido-nf.service';
@@ -62,25 +63,14 @@ export class RecebimentoService {
     const op = this.op();
     const db = this.dbp.forTenantRead() as AnyDB;
 
-    // guarda: pedido existe e está FECHADO (feche antes de receber). `data::date` (não JS Date) → sem shift de fuso.
-    const pedido = (await db
-      .selectFrom('pedidocompra')
-      .select([
-        'codpedcomp',
-        'codparceiro',
-        sql<string>`to_char(data::date, 'YYYY-MM-DD')`.as('data_iso'),
-        'fechado',
-        'dtfaturamento',
-        'idsituacao_nf', // corte-final: a situação-NF classificada no pedido é carregada à NF de entrada
-      ])
-      .where('codpedcomp', '=', codpedcomp)
-      .where('idempresa', '=', emp)
-      .where(sql`coalesce(indr,'I')`, '<>', 'E')
-      .executeTakeFirst()) as
-      | { codpedcomp: number; codparceiro: number; data_iso: string; fechado?: string; dtfaturamento?: unknown; idsituacao_nf?: number | null }
-      | undefined;
-    if (!pedido) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
-    if (pedido.fechado !== 'S') throw new BusinessRuleError('PEDIDO_NAO_FECHADO', { codpedcomp }); // feche antes de receber
+    // guarda: a LOJA participa do pedido e está FECHADA nele (feche antes de receber — por loja desde a mig 303;
+    // a nota leva a quantidade da loja, udmNF.dfm:15370). `data::date` (não JS Date) → sem shift de fuso.
+    const pedido = (await pedidoParaReceber(db, codpedcomp, emp, [
+      'codparceiro',
+      sql<string>`to_char(data::date, 'YYYY-MM-DD')`.as('data_iso') as any,
+      'dtfaturamento',
+      'idsituacao_nf', // corte-final: a situação-NF classificada no pedido é carregada à NF de entrada
+    ])) as unknown as { codpedcomp: number; codparceiro: number; data_iso: string; fechado?: string; dtfaturamento?: unknown; idsituacao_nf?: number | null };
 
     // SALDO por produto (1:N): qtd pedida − Σ recebida nas NFs já vinculadas. Se nada resta → totalmente recebido.
     const { itens: saldoItens, totalmenteRecebido } = await this.analise.saldo(codpedcomp);
@@ -177,9 +167,7 @@ export class RecebimentoService {
     const marca = await (this.dbp.forTenant() as AnyDB)
       .updateTable('pedidocompra')
       .set({ dtfaturamento: sql`now()`, usultalteracao: op, dtultimalteracao: sql`now()` })
-      .where('codpedcomp', '=', codpedcomp)
-      .where('idempresa', '=', emp)
-      .where('fechado', '=', 'S')
+      .where('codpedcomp', '=', codpedcomp) // a posse e o fechamento da loja já foram validados (pedidoParaReceber)
       .where('dtfaturamento', 'is', null)
       .executeTakeFirst();
     const nosSetamos = Number((marca as any)?.numUpdatedRows ?? 0) > 0; // true só na 1ª remessa
@@ -192,7 +180,7 @@ export class RecebimentoService {
       if (nosSetamos) {
         await (this.dbp.forTenant() as AnyDB)
           .updateTable('pedidocompra').set({ dtfaturamento: null })
-          .where('codpedcomp', '=', codpedcomp).where('idempresa', '=', emp).execute();
+          .where('codpedcomp', '=', codpedcomp).execute();
       }
       throw e;
     }
@@ -632,15 +620,8 @@ export class RecebimentoService {
         throw e;
       }
     }
-    const pedido = (await (this.dbp.forTenantRead() as AnyDB)
-      .selectFrom('pedidocompra')
-      .select(['codparceiro', 'fechado', 'dtfaturamento'])
-      .where('codpedcomp', '=', codpedcomp)
-      .where('idempresa', '=', emp)
-      .where(sql`coalesce(indr,'I')`, '<>', 'E')
-      .executeTakeFirst()) as { codparceiro?: number; fechado?: string; dtfaturamento?: unknown } | undefined;
-    if (!pedido) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
-    if (pedido.fechado !== 'S') throw new BusinessRuleError('PEDIDO_NAO_FECHADO', { codpedcomp });
+    // a loja participa e está fechada no pedido (mig 303 — o recebimento é por loja)
+    const pedido = (await pedidoParaReceber(this.dbp.forTenantRead() as AnyDB, codpedcomp, emp, ['codparceiro', 'dtfaturamento'])) as { codparceiro?: number; fechado?: string; dtfaturamento?: unknown };
     if (Number(pedido.codparceiro) !== codparceiro) throw new BusinessRuleError('NFE_FORNECEDOR_DIVERGE_PEDIDO', { codpedcomp });
     // RECEBIMENTO 1:N (Wave 4): o import pode vincular VÁRIAS NFs ao mesmo pedido (o fornecedor entrega em remessas).
     // Bloqueia só quando não há mais saldo (todos os produtos já recebidos). Over-receipt (XML > saldo) NÃO bloqueia
@@ -653,9 +634,7 @@ export class RecebimentoService {
     const marca = await (this.dbp.forTenant() as AnyDB)
       .updateTable('pedidocompra')
       .set({ dtfaturamento: sql`now()`, usultalteracao: op, dtultimalteracao: sql`now()` })
-      .where('codpedcomp', '=', codpedcomp)
-      .where('idempresa', '=', emp)
-      .where('fechado', '=', 'S')
+      .where('codpedcomp', '=', codpedcomp) // a posse e o fechamento da loja já foram validados (pedidoParaReceber)
       .where('dtfaturamento', 'is', null)
       .executeTakeFirst();
     const nosSetamos = Number((marca as any)?.numUpdatedRows ?? 0) > 0;
@@ -665,7 +644,7 @@ export class RecebimentoService {
       if (nosSetamos) {
         await (this.dbp.forTenant() as AnyDB)
           .updateTable('pedidocompra').set({ dtfaturamento: null })
-          .where('codpedcomp', '=', codpedcomp).where('idempresa', '=', emp).execute();
+          .where('codpedcomp', '=', codpedcomp).execute();
       }
       // fold auditoria [BAIXA]: re-import do mesmo documento (ux_nf_natural) → erro específico, não 409 genérico.
       if ((e as { code?: string })?.code === '23505') throw new BusinessRuleError('NF_DUPLICADA');

@@ -1,4 +1,5 @@
 import { sql } from 'kysely';
+import { BusinessRuleError } from '../../shared/errors/app-error';
 
 type AnyDB = any;
 
@@ -90,4 +91,35 @@ export async function novoHistorico(db: AnyDB, codpedcomp: number, codoperador: 
   await db.insertInto('pedido_compra_historico')
     .values({ codpedcomp, codoperador, pch_historico: texto.slice(0, 1000), pch_data: sql`now()` })
     .execute();
+}
+
+/** a loja já recebeu nota deste pedido? (NF de entrada da loja vinculada ao pedido, não cancelada) */
+export async function lojaRecebeu(db: AnyDB, codpedcomp: number, idempresa: number): Promise<boolean> {
+  const r = await db.selectFrom('nf').select('codnf')
+    .where('codpedcomp', '=', codpedcomp).where('idempresa', '=', idempresa)
+    .where(sql`coalesce(cancelada, 'N')`, '<>', 'S').where(sql`coalesce(statusnfe, '')`, '<>', 'C')
+    .executeTakeFirst();
+  return !!r;
+}
+
+/**
+ * o pedido que a LOJA pode receber (mig 303): ela participa do pedido e está FECHADA nele. É o `:IDEMPRESA` do
+ * recebimento do legado — a nota de entrada gerada do pedido leva a quantidade DA LOJA (udmNF.dfm:15370).
+ */
+export async function pedidoParaReceber(db: AnyDB, codpedcomp: number, idempresa: number, colunas: string[]): Promise<Record<string, unknown>> {
+  const p = (await db.selectFrom('pedidocompra')
+    .select(['codpedcomp', 'idempresa', 'empresas', 'fechado', ...colunas])
+    .where('codpedcomp', '=', codpedcomp)
+    .where(sql<boolean>`(idempresa = ${idempresa} OR ${String(idempresa)} = ANY(string_to_array(replace(coalesce(empresas, ''), ' ', ''), ',')))`)
+    .where(sql`coalesce(indr,'I')`, '<>', 'E')
+    .executeTakeFirst()) as Record<string, unknown> | undefined;
+  if (!p) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
+  if (!lojasDoPedido(p.empresas, p.idempresa as number).includes(idempresa)) {
+    throw new BusinessRuleError('PEDIDO_LOJA_NAO_PARTICIPA', { codpedcomp, idempresa });
+  }
+  // feche antes de receber — a loja que recebe tem de estar fechada no pedido
+  if (!lojaFechada(await estadoFechamento(db, codpedcomp, p.fechado as string | null), idempresa)) {
+    throw new BusinessRuleError('PEDIDO_NAO_FECHADO', { codpedcomp, idempresa });
+  }
+  return p;
 }

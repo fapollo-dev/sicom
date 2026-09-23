@@ -381,3 +381,28 @@ lista vazia no cliente). O estado é derivado das linhas — TOTAL, PARCIAL ou N
 cabeçalho fechado), posição do produto e demais leitores de "quantidade em pedido" por loja, lote de preço pelas lojas
 do pedido, limite de compra por loja (`MontaFluxoPorEmpresa`), parcelas por loja, e as ações `gerar-parcelas` /
 `liberar-limite` / `atualizar-precos` / `duplicar` pela loja participante (hoje pela loja dona).
+
+## 19. PEDIDO MULTI-LOJA — corte-B: os consumidores por loja, 23/09/2026
+
+O corte-A pôs a quantidade e o fechamento por loja; os leitores ainda liam a SOMA e o cabeçalho. Agora leem a loja:
+
+| consumidor | antes | agora | legado |
+|---|---|---|---|
+| gerar a NF de entrada do pedido (e importar XML) | soma das lojas, cabeçalho fechado | a quantidade DA LOJA da nota; a loja tem de participar e estar FECHADA (`PEDIDO_LOJA_NAO_PARTICIPA`, `PEDIDO_NAO_FECHADO`) | `LEFT JOIN PEDIDO_COMPRA_QTDE Q … AND Q.IDEMPRESA = :IDEMPRESA`, udmNF.dfm:15370 |
+| saldo pedido×NF (análise) | soma | `Σ QTDTOTAL` da loja | udmNF.dfm:17531 |
+| trava "já faturado" (editar, reabrir) | `dtfaturamento` do cabeçalho | no multi-loja, NF da PRÓPRIA loja vinculada ao pedido — a nota da loja 1 não trava a loja 2 | — (derivado: o marcador do cabeçalho é único e as lojas recebem em dias diferentes) |
+| posição do produto (compras / pedidos pendentes) | quantidade do item | `Q.QTDE` da loja logada; pendente = linha da loja não fechada | UdmPosicaoProduto.dfm:1152, :1287 |
+| atualizar preço (on-line e lote) | a loja dona | as LOJAS DO PEDIDO (`cdsTotalPedido`), ou todas com `ATUALIZA_PRECO_OUTRAS_EMPRESAS='S'`; a loja participante pode disparar | uPedidoCompra.pas:3504, :1433 |
+| promoção na loja logada | não olhada | trava o produto em TODAS as lojas no on-line (os dois ramos) e no lote das lojas do pedido; o lote da config 'S' olha só o destino | uPedidoCompra.pas:3508, :3548, :1437, :1478 |
+
+Pedido de uma loja só: tudo igual ao que era (os checks anteriores passaram sem mudança; o fixture do §126.8 foi
+corrigido para o modelo real — item com fator 1 e a linha por loja — porque media a posição pela regra antiga).
+Smoke §164.5 (recebimento por loja: a loja 1 recebe 18 un. do produto 1 e 2 do produto 2 na nota dela; a loja 2
+reaberta não recebe; a nota da loja 1 não trava a loja 2; a loja 1 não reabre o que recebeu), §164.6 (posição), §164.7
+(preço nas duas lojas; promoção na logada trava as duas). **1432/0.**
+
+**Fica para o corte-C:** PARCELAS POR LOJA — medido na produção: **1.083 de 1.083** pedidos multi-loja com parcela
+(2025-26) têm parcelas das DUAS lojas, cada loja parcelando o próprio total (pedido 33836: loja 1 R$ 2.738,82, loja 2
+R$ 3.676,26 = `Σ TOTALCUSTO` de cada uma); limite de compra por loja (`MontaFluxoPorEmpresa`); `gerar-parcelas` /
+`liberar-limite` / `duplicar` pela loja participante; cotação multi-loja (`COTACAO_PRODQTDE` → PCQ); relatório de
+pedidos por loja.

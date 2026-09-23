@@ -65,7 +65,8 @@ export class AnalisePedidoNfService {
       .selectFrom('pedidocompra')
       .select(['codpedcomp', 'fechado', 'codparceiro'])
       .where('codpedcomp', '=', codpedcomp)
-      .where('idempresa', '=', emp)
+      // a loja que participa do pedido (mig 303) — o saldo e a análise são DELA
+      .where(sql<boolean>`(idempresa = ${emp} OR ${String(emp)} = ANY(string_to_array(replace(coalesce(empresas, ''), ' ', ''), ',')))`)
       .where(sql`coalesce(indr,'I')`, '<>', 'E')
       .executeTakeFirst()) as { codpedcomp: number; fechado?: string; codparceiro?: number } | undefined;
     if (!p) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
@@ -78,15 +79,17 @@ export class AnalisePedidoNfService {
     const db = this.dbp.forTenantRead() as AnyDB;
     await this.carregarPedido(db, codpedcomp, emp);
 
-    // qtd pedida por produto (Σ qtdtotal) + qtd recebida (subquery correlacionada por produto sobre as NFs
-    // vinculadas não-estornadas). fatorembal default 1 (a NF de entrada usa fatorembal=1 pois quantidade já é
-    // a qtde em unidades — mesma convenção do gerarNf/import). SQL raw (uma query): o vínculo NF↔pedido é por
+    // qtd pedida por produto PELA LOJA (Σ das linhas dela em pedido_compra_qtde — mig 303; o legado junta
+    // `PEDIDO_COMPRA_QTDE Q … AND Q.IDEMPRESA = :IDEMPRESA`, udmNF.dfm:17531; loja sem linha pediu zero) + qtd
+    // recebida nas NFs DA LOJA vinculadas e não-estornadas. fatorembal default 1 (a NF de entrada usa fatorembal=1
+    // pois quantidade já é a qtde em unidades — mesma convenção do gerarNf/import). O vínculo NF↔pedido é por
     // PRODUTO (nf_prod.codproduto = pedidocompra_i.idproduto), fiel ao legado (udmNF.dfm:17495).
     const rows = (
       await sql<{ idproduto: number; descricao: string | null; qtd_pedido: unknown; qtd_recebida: unknown }>`
         select i.idproduto as idproduto,
                o.descricao as descricao,
-               sum(coalesce(i.qtdtotal, i.fatorembalagem, 0)) as qtd_pedido,
+               sum(coalesce((select sum(q.qtdtotal) from pedido_compra_qtde q
+                              where q.codpedcompi = i.codpedcompi and q.idempresa = ${emp}), 0)) as qtd_pedido,
                coalesce((
                  select sum(np.quantidade * coalesce(np.fatorembal, 1))
                  from nf_prod np
