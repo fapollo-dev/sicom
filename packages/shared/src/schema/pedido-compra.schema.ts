@@ -39,6 +39,14 @@ export const PC_TIPO_FRETE_OPCOES = [
 /* ── item ── */
 /** Item do pedido: produto + QTDE (nº de embalagens) + FATOREMBALAGEM (fator) + custo. Derivados server-side:
  *  VLREMBALAGEM=fator×custo (custo/caixa), QTDTOTAL=qtde×fator (unidades), TOTALCUSTO=qtde×vlrembalagem (linha). */
+/** a quantidade (caixas) de um item em UMA loja do pedido (mig 303, `PEDIDO_COMPRA_QTDE`). Zero é legítimo. */
+export const pedidoCompraItemLojaSchema = z.object({
+  idempresa: z.coerce.number({ message: 'Loja inválida.' }).int().positive('Loja inválida.'),
+  qtde: z.preprocess((v) => (v === '' || v == null ? 0 : typeof v === 'string' ? Number(v) : v),
+    z.number({ message: 'Quantidade inválida.' }).nonnegative('Quantidade inválida.').max(9_999_999, 'Quantidade acima do limite permitido.')),
+});
+export type PedidoCompraItemLojaDto = z.infer<typeof pedidoCompraItemLojaSchema>;
+
 export const pedidoCompraItemSchema = z.object({
   idproduto: z.coerce.number({ message: 'Produto inválido.' }).int().positive('Informe o produto do item.'),
   // QTDE = nº de embalagens pedidas (078 FLIP; o comprador digita CAIXAS). > 0; default 1. Base do TOTALCUSTO.
@@ -77,6 +85,8 @@ export const pedidoCompraItemSchema = z.object({
   pmz: dec(z.number().nonnegative()),
   // % bonificado do item (100 no pedido-espelho de bonificação).
   bonificacao: dec(z.number().nonnegative().max(100, 'Bonificação (%) inválida.')),
+  // mig 303: a QUANTIDADE POR LOJA (PEDIDO_COMPRA_QTDE) — a do item é a soma. Sem ela, pedido de uma loja só.
+  lojas: z.array(pedidoCompraItemLojaSchema).max(50).optional(),
 });
 export type PedidoCompraItemDto = z.infer<typeof pedidoCompraItemSchema>;
 
@@ -118,6 +128,8 @@ const pedidoCompraBase = z.object({
   pc_valor_frete: dec(z.number().nonnegative('Valor de frete inválido.')),
   pc_nronf_cruzamento: opcional(z.string().trim().max(500)),
   obs: opcional(z.string().trim().max(2000)),
+  // mig 303: as LOJAS PARTICIPANTES, no CSV do legado ('1, 2'). Sem elas, o pedido é da loja que o cria.
+  empresas: opcional(z.string().trim().max(250).regex(/^\s*\d+(\s*,\s*\d+)*\s*$/, 'Informe as lojas separadas por vírgula.')),
   itens: z.array(pedidoCompraItemSchema).optional().default([]),
   // corte-2: parcelas (2º detalhe). Editáveis; se ausentes num PUT, NÃO são tocadas (chave ausente).
   parcelas: z.array(pedidoCompraParcelaSchema).optional(),

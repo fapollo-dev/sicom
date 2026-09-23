@@ -335,3 +335,49 @@ Self-review (sem auditor dedicado — camada fina de UI sobre o backend já audi
 (useMemo+useCallback) → sem loop de fetch no `useEffect([carregarSaldo, refreshKey])`; supervisor login/senha só
 enviados quando há divergência. **RECEBIMENTO PARCIAL 1:N = ÉPICO COMPLETO** (corte-1 saldo/1:N + corte-2 Análise +
 corte-3 front). **Verde:** web tsc 0 · web test 32 · web build ✓ (api/smoke inalterados 577/0).
+
+## 18. PEDIDO MULTI-LOJA — corte-A: a quantidade por loja e o fechamento por loja (migration 303), 23/09/2026
+
+Adiado como "cross-docking" por decisão do usuário sobre "2% dos pedidos" (número da homologação, ver §1). Na
+produção são **78% dos pedidos de 2024-2026**; o usuário mandou converter.
+
+**O modelo do legado.** `PEDIDOCOMPRA.EMPRESAS` é o CSV das lojas participantes ('1, 2'); o pedido não tem dona. A
+quantidade de cada item mora **por loja** em `PEDIDO_COMPRA_QTDE` (QTDE caixas, QTDTOTAL = × fator, TOTALCUSTO =
+× preço da caixa — `uPedidoCompra.pas:1971`), uma linha por item e loja, sempre dentro do CSV; **linha ausente é
+zero** (21.328 itens de 2025-26 — o botão "retirar quantidade zerada"). O item é a soma. `PEDIDO_COMPRA_EMPRESA` é o
+CSV normalizado; `PEDIDO_COMPRA_HISTORICO` registra fechar/reabrir.
+
+**O fechamento é por loja** (`FecharPedido`, :7754; `ItemFechado`, :4817): "Fechar" marca só as linhas da loja
+logada e põe o cabeçalho em 'S'; "Reabrir" desfaz só as dela (com a liberação `USUARIOS_REABREM_PEDIDO_COMPRA` —
+lista vazia no cliente). O estado é derivado das linhas — TOTAL, PARCIAL ou NENHUM — e trava as ações:
+
+| ação | bloqueia se | legado |
+|---|---|---|
+| quantidade de uma loja | aquela loja fechou | :2002, :2055 |
+| editar o pedido | todas fecharam, ou a loja logada fechou | :6610 |
+| adicionar item | todas fecharam | :4432 |
+| excluir pedido, tirar item | qualquer loja fechou | :6664, :6709, :7090 |
+
+**O que o Apollo faz agora:**
+
+- `pedidocompra.empresas` (CSV do legado) + `pedido_compra_qtde` / `_empresa` / `_historico`; a carga traz as três
+  (257.329 de 257.345 linhas por loja — 16 órfãs de item sem produto ficam fora, como o item).
+- **Visibilidade por participação**: a loja que está no CSV vê e trabalha o pedido (o motor ganhou `empresasColuna`,
+  genérico). É o `PedidoPertenceEmpresaSelecionada` do legado; pedido de loja que não participa continua fora.
+- **Gravação**: o item leva `lojas: [{idempresa, qtde}]` e o servidor deriva a soma. O motor regrava os itens a cada
+  salvamento e a linha por loja iria junto — ganhou os ganchos genéricos de NETO (`antesDeSubstituirTrx` /
+  `aposInserirItensTrx`): o fechamento de cada loja é lido antes e reaplicado às linhas novas (smoke §164.2 prova:
+  a loja 2 grava e as linhas da loja 1 voltam fechadas, com operador e data).
+- As travas da tabela acima, com códigos próprios (`PEDIDO_FECHADO_NA_EMPRESA`, `PEDIDO_LOJA_FECHADA`,
+  `PEDIDO_FECHADO_PARCIAL`, `PEDIDO_LOJA_FORA_DO_PEDIDO`). **Pedido de uma loja só se comporta exatamente como antes**
+  — os 1.424 checks anteriores do smoke passaram sem mudança.
+- `fechar`/`reabrir` por loja, com o histórico nas palavras do legado; `duplicar` copia as lojas e as quantidades por
+  loja (`DuplicaPedido`, udmPedidoCompra.pas:1665), sem o fechamento; `importarItens` cria a linha de cada loja (no
+  multi-loja o item entra zerado para o comprador distribuir).
+- A tela: campo «Lojas do pedido» com o estado de cada loja, quantidade POR LOJA no item (loja fechada travada),
+  coluna "Por loja" na grade, fechar/reabrir agindo na loja logada.
+
+**Fica para o corte-B (consumidores)**: gerar a NF de entrada POR LOJA (hoje o recebimento lê a soma e exige o
+cabeçalho fechado), posição do produto e demais leitores de "quantidade em pedido" por loja, lote de preço pelas lojas
+do pedido, limite de compra por loja (`MontaFluxoPorEmpresa`), parcelas por loja, e as ações `gerar-parcelas` /
+`liberar-limite` / `atualizar-precos` / `duplicar` pela loja participante (hoje pela loja dona).

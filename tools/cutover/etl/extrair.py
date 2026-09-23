@@ -298,6 +298,15 @@ FILTROS = {
            # `pedidocompra_i.idproduto` é NOT NULL aqui e a origem deixa nulo: item de pedido sem produto não
            # tem o que virar — a carga descarta e conta (não dá para inventar o produto).
            'pedidocompra_i': 'idproduto is not null',
+           # mig 303: as linhas por loja, as lojas e o histórico só dos pedidos/itens que entram — senão a FK
+           # para pedidocompra_i (e o vínculo com o pedido) acusaria órfãos na integridade do fim da carga
+           'pedido_compra_qtde': 'exists (select 1 from pedidocompra_i i join pedidocompra p on p.codpedcomp = i.codpedcomp'
+                                 ' where i.codpedcompi = pedido_compra_qtde.codpedcompi and i.idproduto is not null'
+                                 ' and p.codparceiro is not null)',
+           'pedido_compra_empresa': 'exists (select 1 from pedidocompra p where p.codpedcomp = pedido_compra_empresa.codpedcomp'
+                                    ' and p.codparceiro is not null)',
+           'pedido_compra_historico': 'exists (select 1 from pedidocompra p where p.codpedcomp = pedido_compra_historico.codpedcomp'
+                                      ' and p.codparceiro is not null)',
            # pedido de compra sem fornecedor não tem o que virar (codparceiro é NOT NULL aqui): descarta e conta
            'pedidocompra': 'codparceiro is not null',
            # ⚠️ REFORMA IBS/CBS (mig 279): as duas tabelas têm FK para o documento, e o legado guarda ÓRFÃOS.

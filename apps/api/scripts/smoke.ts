@@ -17619,6 +17619,105 @@ async function main() {
       }
     }
 
+    // ══ PEDIDO DE COMPRA MULTI-LOJA: a quantidade por loja e o fechamento por loja (mig 303) ══════════════
+    {
+      const pgMl = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const PED = 'compras/pedidos';
+      const H2 = { ...H, 'x-empresa-id': '2' };
+      try {
+        const criar = await fetch(`${base}/${PED}`, { method: 'POST', headers: H, body: JSON.stringify({
+          codparceiro: 22, data: '2036-04-01', empresas: '2,1',
+          itens: [
+            { idproduto: 1, fatorembalagem: 6, vrcusto: 2, lojas: [{ idempresa: 1, qtde: 3 }, { idempresa: 2, qtde: 5 }] },
+            { idproduto: 2, fatorembalagem: 1, vrcusto: 10, lojas: [{ idempresa: 1, qtde: 2 }] },
+          ] }) });
+        const criarJ = (await criar.json().catch(() => ({}))) as any;
+        const cod = Number(criarJ.codpedcomp ?? criarJ.id ?? criarJ.codigo);
+        const ler = async (h: Record<string, string>) => (await (await fetch(`${base}/${PED}/${cod}`, { headers: h })).json().catch(() => ({}))) as any;
+        const r1 = await ler(H);
+        const itA = (r1.itens ?? []).find((i: any) => Number(i.idproduto) === 1);
+        const lista2 = (await (await fetch(`${base}/${PED}?campo=codpedcomp&operador=igual&valor=${cod}`, { headers: H2 })).json().catch(() => [])) as any;
+        const r2 = await ler(H2);
+        check('PEDIDO MULTI-LOJA §164.1 [a quantidade é POR LOJA, e o item é a soma]: no cliente 78% dos pedidos de 2024-2026 são para duas lojas (`EMPRESAS=\'1, 2\'`) — a decisão de adiar tinha sido tomada sobre "2%", número da homologação. O CSV sai no formato do legado (\'1, 2\'); o item A leva 3 caixas para a loja 1 e 5 para a loja 2 — o item fica com 8 caixas, 48 unidades (× 6) e R$ 96,00 (8 × a caixa de R$ 12,00); a loja 2, que participa, enxerga o pedido na pesquisa e na leitura',
+          criar.status === 201 && r1.empresas === '1, 2'
+          && Number(itA?.qtde) === 8 && Number(itA?.qtdtotal) === 48 && Number(itA?.totalcusto) === 96
+          && JSON.stringify((itA?.lojas ?? []).map((l: any) => [l.idempresa, l.qtde])) === JSON.stringify([[1, 3], [2, 5]])
+          && r1.fechamento === 'nenhum' && (lista2 as any[]).some?.((p: any) => Number(p.codpedcomp) === cod) && Number(r2.codpedcomp) === cod,
+          { status: criar.status, criarJ: criar.status === 201 ? undefined : criarJ, empresas: r1.empresas, itA, lista2: Array.isArray(lista2) ? lista2.length : lista2, r2: r2.codpedcomp });
+
+        const fecha1 = await fetch(`${base}/${PED}/${cod}/fechar`, { method: 'POST', headers: H });
+        const fecha1J = (await fecha1.json().catch(() => ({}))) as any;
+        const edit1 = await fetch(`${base}/${PED}/${cod}`, { method: 'PUT', headers: H, body: JSON.stringify({ obs: 'loja 1 tenta' }) });
+        const edit1J = (await edit1.json().catch(() => ({}))) as any;
+        // a loja 2 muda só a SUA quantidade (5 → 6) — as linhas da loja 1 são regravadas e o fechamento dela fica
+        const edit2 = await fetch(`${base}/${PED}/${cod}`, { method: 'PUT', headers: H2, body: JSON.stringify({ itens: [
+          { idproduto: 1, fatorembalagem: 6, vrcusto: 2, lojas: [{ idempresa: 1, qtde: 3 }, { idempresa: 2, qtde: 6 }] },
+          { idproduto: 2, fatorembalagem: 1, vrcusto: 10, lojas: [{ idempresa: 1, qtde: 2 }] },
+        ] }) });
+        const edit2J = (await edit2.json().catch(() => ({}))) as any;
+        const linhasLoja1 = (await pgMl.query(`SELECT q.fechado, q.codoperador, q.data_fechamento FROM pedido_compra_qtde q JOIN pedidocompra_i i ON i.codpedcompi = q.codpedcompi
+            WHERE i.codpedcomp = $1 AND q.idempresa = 1`, [cod])).rows as any[];
+        const r3 = await ler(H2);
+        check('PEDIDO MULTI-LOJA §164.2 [o fechamento é POR LOJA e sobrevive à gravação da outra loja]: "Fechar" marca só as linhas da loja logada (uPedidoCompra.pas:7780) — o pedido fica PARCIAL. A loja 1, fechada, não edita mais (422 PEDIDO_FECHADO_NA_EMPRESA, btnEditarClick :6610); a loja 2, aberta, muda a SUA quantidade de 5 para 6 — e as linhas da loja 1, que o motor apaga e regrava com o item, voltam FECHADAS, com o operador e a data do fechamento',
+          fecha1.status === 200 && fecha1J.fechamento === 'parcial' && Number(fecha1J.idempresa) === 1
+          && edit1.status === 422 && edit1J.code === 'PEDIDO_FECHADO_NA_EMPRESA'
+          && edit2.status === 200 && linhasLoja1.length === 2 && linhasLoja1.every((l) => l.fechado === 'S' && l.codoperador != null && l.data_fechamento != null)
+          && Number((r3.itens ?? []).find((i: any) => Number(i.idproduto) === 1)?.qtde) === 9 && r3.fechamento === 'parcial',
+          { fecha1: [fecha1.status, fecha1J], edit1: [edit1.status, edit1J.code], edit2: [edit2.status, edit2J.code], linhasLoja1, fech: r3.fechamento });
+
+        const mudaLoja1 = await fetch(`${base}/${PED}/${cod}`, { method: 'PUT', headers: H2, body: JSON.stringify({ itens: [
+          { idproduto: 1, fatorembalagem: 6, vrcusto: 2, lojas: [{ idempresa: 1, qtde: 4 }, { idempresa: 2, qtde: 6 }] },
+          { idproduto: 2, fatorembalagem: 1, vrcusto: 10, lojas: [{ idempresa: 1, qtde: 2 }] },
+        ] }) });
+        const mudaLoja1J = (await mudaLoja1.json().catch(() => ({}))) as any;
+        const tiraItem = await fetch(`${base}/${PED}/${cod}`, { method: 'PUT', headers: H2, body: JSON.stringify({ itens: [
+          { idproduto: 1, fatorembalagem: 6, vrcusto: 2, lojas: [{ idempresa: 1, qtde: 3 }, { idempresa: 2, qtde: 6 }] },
+        ] }) });
+        const tiraItemJ = (await tiraItem.json().catch(() => ({}))) as any;
+        const excluir = await fetch(`${base}/${PED}/${cod}`, { method: 'DELETE', headers: H2 });
+        const excluirJ = (await excluir.json().catch(() => ({}))) as any;
+        const foraLoja = await fetch(`${base}/${PED}/${cod}`, { method: 'PUT', headers: H2, body: JSON.stringify({ itens: [
+          { idproduto: 1, fatorembalagem: 6, vrcusto: 2, lojas: [{ idempresa: 1, qtde: 3 }, { idempresa: 2, qtde: 6 }, { idempresa: 51, qtde: 1 }] },
+          { idproduto: 2, fatorembalagem: 1, vrcusto: 10, lojas: [{ idempresa: 1, qtde: 2 }] },
+        ] }) });
+        const foraLojaJ = (await foraLoja.json().catch(() => ({}))) as any;
+        check('PEDIDO MULTI-LOJA §164.3 [com uma loja fechada: a quantidade dela não muda, e não se tira item nem se exclui o pedido]: a célula da loja fechada é travada (uPedidoCompra.pas:2002) — mudar a loja 1 de 3 para 4 é 422 PEDIDO_LOJA_FECHADA dizendo qual loja e qual produto; tirar um item com o pedido parcialmente fechado é 422 (btnExcluirIClick exige nenhuma loja fechada, :6709), e excluir o pedido também (:6664); e item com quantidade para uma loja que não está no pedido é 422 PEDIDO_LOJA_FORA_DO_PEDIDO',
+          mudaLoja1.status === 422 && mudaLoja1J.code === 'PEDIDO_LOJA_FECHADA' && Number(mudaLoja1J.detalhe?.idempresa) === 1
+          && tiraItem.status === 422 && tiraItemJ.code === 'PEDIDO_FECHADO_PARCIAL'
+          && excluir.status === 422 && excluirJ.code === 'PEDIDO_FECHADO'
+          && foraLoja.status === 422 && foraLojaJ.code === 'PEDIDO_LOJA_FORA_DO_PEDIDO',
+          { mudaLoja1: [mudaLoja1.status, mudaLoja1J.code, mudaLoja1J.detalhe], tiraItem: [tiraItem.status, tiraItemJ.code], excluir: [excluir.status, excluirJ.code], foraLoja: [foraLoja.status, foraLojaJ.code] });
+
+        const fecha2 = await fetch(`${base}/${PED}/${cod}/fechar`, { method: 'POST', headers: H2 });
+        const fecha2J = (await fecha2.json().catch(() => ({}))) as any;
+        const edit2Total = await fetch(`${base}/${PED}/${cod}`, { method: 'PUT', headers: H2, body: JSON.stringify({ obs: 'tudo fechado' }) });
+        const edit2TotalJ = (await edit2Total.json().catch(() => ({}))) as any;
+        const fecha2x = await fetch(`${base}/${PED}/${cod}/fechar`, { method: 'POST', headers: H2 });
+        const fecha2xJ = (await fecha2x.json().catch(() => ({}))) as any;
+        const reabre2 = await fetch(`${base}/${PED}/${cod}/reabrir`, { method: 'POST', headers: H2 });
+        const reabre2J = (await reabre2.json().catch(() => ({}))) as any;
+        const hist = ((await pgMl.query(`SELECT pch_historico FROM pedido_compra_historico WHERE codpedcomp = $1 ORDER BY pch_id`, [cod])).rows as any[]).map((r) => r.pch_historico);
+        const r4 = await ler(H);
+        check('PEDIDO MULTI-LOJA §164.4 [as duas lojas fechadas = TOTAL; reabrir desfaz só a loja logada; tudo no histórico]: com a loja 2 fechando, o pedido fica TOTAL e ninguém edita (422 PEDIDO_FECHADO); fechar de novo é 422; "Reabrir" pela loja 2 desfaz só as linhas dela (uPedidoCompra.pas:7840) e o pedido volta a PARCIAL, com a loja 1 ainda fechada. Cada ação grava `PEDIDO_COMPRA_HISTORICO` com as palavras do legado — no cliente são 32 fechamentos e 232 reaberturas assim',
+          fecha2.status === 200 && fecha2J.fechamento === 'total'
+          && edit2Total.status === 422 && edit2TotalJ.code === 'PEDIDO_FECHADO'
+          && fecha2x.status === 422 && fecha2xJ.code === 'PEDIDO_JA_FECHADO'
+          && reabre2.status === 200 && reabre2J.fechamento === 'parcial'
+          && JSON.stringify(hist) === JSON.stringify([
+            'Pedido fechado para a empresa 1 através da tela de pedido de compra.',
+            'Pedido fechado para a empresa 2 através da tela de pedido de compra.',
+            'Pedido reaberto para a empresa 2 através da tela de pedido de compra.'])
+          && JSON.stringify((r4.lojas ?? []).map((l: any) => [l.idempresa, l.fechado])) === JSON.stringify([[1, true], [2, false]]),
+          { fecha2: [fecha2.status, fecha2J.fechamento], edit2Total: [edit2Total.status, edit2TotalJ.code], fecha2x: [fecha2x.status, fecha2xJ.code], reabre2: [reabre2.status, reabre2J], hist, lojas: r4.lojas });
+
+        await pgMl.query(`DELETE FROM pedido_compra_historico WHERE codpedcomp = $1`, [cod]);
+        await pgMl.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [cod]);
+        await pgMl.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [cod]);
+      } finally {
+        await pgMl.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

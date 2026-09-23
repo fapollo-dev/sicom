@@ -7120,12 +7120,12 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto",
-     "ref": "produtos.idproduto"
-    },
-    {
      "coluna": "codfor",
      "ref": "parceiros.codparceiro"
+    },
+    {
+     "coluna": "idproduto",
+     "ref": "produtos.idproduto"
     }
    ],
    "unicos": [
@@ -7203,11 +7203,11 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto",
+     "coluna": "idproduto_01",
      "ref": "produtos.idproduto"
     },
     {
-     "coluna": "idproduto_01",
+     "coluna": "idproduto",
      "ref": "produtos.idproduto"
     }
    ],
@@ -9044,16 +9044,16 @@
    ],
    "fks": [
     {
-     "coluna": "codpdv",
-     "ref": "pdv.codpdv"
+     "coluna": "codplc",
+     "ref": "plc.codplc"
     },
     {
      "coluna": "idpgto",
      "ref": "formas_pgto.idpgto"
     },
     {
-     "coluna": "codplc",
-     "ref": "plc.codplc"
+     "coluna": "codpdv",
+     "ref": "pdv.codpdv"
     }
    ],
    "unicos": [
@@ -9762,12 +9762,12 @@
    ],
    "fks": [
     {
-     "coluna": "codctcforn",
-     "ref": "cotacao_forn.codctcforn"
-    },
-    {
      "coluna": "codcpr",
      "ref": "cotacao_prod.codcpr"
+    },
+    {
+     "coluna": "codctcforn",
+     "ref": "cotacao_forn.codctcforn"
     }
    ],
    "unicos": [
@@ -10791,12 +10791,12 @@
      "ref": "plano_contas.codplanocontas"
     },
     {
-     "coluna": "contadebito",
-     "ref": "plano_contas.codplanocontas"
-    },
-    {
      "coluna": "codlote",
      "ref": "lote_contabil.codlotecontabil"
+    },
+    {
+     "coluna": "contadebito",
+     "ref": "plano_contas.codplanocontas"
     }
    ],
    "unicos": [
@@ -16370,6 +16370,13 @@
      "escala": 0,
      "nulo": true,
      "default": null
+    },
+    "empresas": {
+     "tipo": "character varying",
+     "tam": 250,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [],
@@ -20305,12 +20312,12 @@
    ],
    "fks": [
     {
-     "coluna": "codproducao",
-     "ref": "producao.codproducao"
-    },
-    {
      "coluna": "idprodutos",
      "ref": "produtos.idproduto"
+    },
+    {
+     "coluna": "codproducao",
+     "ref": "producao.codproducao"
     }
    ],
    "unicos": [
@@ -20508,12 +20515,12 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto",
-     "ref": "produtos.idproduto"
-    },
-    {
      "coluna": "codtroca",
      "ref": "troca.codtroca"
+    },
+    {
+     "coluna": "idproduto",
+     "ref": "produtos.idproduto"
     }
    ],
    "unicos": [
@@ -23062,12 +23069,12 @@
    ],
    "fks": [
     {
-     "coluna": "codcc",
-     "ref": "plc.codplc"
-    },
-    {
      "coluna": "codnf",
      "ref": "nf.codnf"
+    },
+    {
+     "coluna": "codcc",
+     "ref": "plc.codplc"
     },
     {
      "coluna": "idsituacao_nf",
@@ -27654,6 +27661,219 @@
     }
    ]
   },
+  "pedido_compra_empresa": {
+   "colunas": {
+    "codpedcomp": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "codempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "pce_frete": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "indr": {
+     "tipo": "character varying",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "codpedcomp",
+    "codempresa"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "pedido_compra_empresa_pkey",
+     "def": "CREATE UNIQUE INDEX pedido_compra_empresa_pkey ON public.pedido_compra_empresa USING btree (codpedcomp, codempresa)"
+    }
+   ]
+  },
+  "pedido_compra_historico": {
+   "colunas": {
+    "pch_id": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_pedido_compra_historico'::regclass)"
+    },
+    "codpedcomp": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "pch_data": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": "now()"
+    },
+    "codoperador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "pch_historico": {
+     "tipo": "character varying",
+     "tam": 1000,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    }
+   },
+   "pk": [
+    "pch_id"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "pedido_compra_historico_pkey",
+     "def": "CREATE UNIQUE INDEX pedido_compra_historico_pkey ON public.pedido_compra_historico USING btree (pch_id)"
+    }
+   ]
+  },
+  "pedido_compra_qtde": {
+   "colunas": {
+    "codpedqtde": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_pedido_compra_qtde'::regclass)"
+    },
+    "codpedcompi": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "idempresa": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "qtde": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
+     "nulo": false,
+     "default": "0"
+    },
+    "qtdtotal": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "totalcusto": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "fechado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codoperador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "data_fechamento": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codcomprador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "digitacao_fechada": {
+     "tipo": "character varying",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "digitacao_data_fechamento": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "digitacao_codoperador": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "indr": {
+     "tipo": "character varying",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "codpedqtde"
+   ],
+   "fks": [
+    {
+     "coluna": "codpedcompi",
+     "ref": "pedidocompra_i.codpedcompi"
+    }
+   ],
+   "unicos": [
+    {
+     "nome": "pedido_compra_qtde_pkey",
+     "def": "CREATE UNIQUE INDEX pedido_compra_qtde_pkey ON public.pedido_compra_qtde USING btree (codpedqtde)"
+    },
+    {
+     "nome": "ux_pedido_compra_qtde",
+     "def": "CREATE UNIQUE INDEX ux_pedido_compra_qtde ON public.pedido_compra_qtde USING btree (codpedcompi, idempresa)"
+    }
+   ]
+  },
   "pedido_devolucao_compra": {
    "colunas": {
     "codpeddevcompra": {
@@ -28320,6 +28540,13 @@
      "escala": 0,
      "nulo": true,
      "default": null
+    },
+    "empresas": {
+     "tipo": "character varying",
+     "tam": 250,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -28542,12 +28769,12 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto",
-     "ref": "produtos.idproduto"
-    },
-    {
      "coluna": "codpedcomp",
      "ref": "pedidocompra.codpedcomp"
+    },
+    {
+     "coluna": "idproduto",
+     "ref": "produtos.idproduto"
     }
    ],
    "unicos": [
@@ -30835,16 +31062,16 @@
    ],
    "fks": [
     {
-     "coluna": "codfor",
-     "ref": "parceiros.codparceiro"
-    },
-    {
      "coluna": "aliquota",
      "ref": "aliquota.codigo"
     },
     {
      "coluna": "idmarca",
      "ref": "marcas.idmarca"
+    },
+    {
+     "coluna": "codfor",
+     "ref": "parceiros.codparceiro"
     },
     {
      "coluna": "codunidade",
@@ -31207,11 +31434,11 @@
    ],
    "fks": [
     {
-     "coluna": "idproduto_receita",
+     "coluna": "idproduto",
      "ref": "produtos.idproduto"
     },
     {
-     "coluna": "idproduto",
+     "coluna": "idproduto_receita",
      "ref": "produtos.idproduto"
     }
    ],
@@ -31455,12 +31682,12 @@
    ],
    "fks": [
     {
-     "coluna": "codperfil",
-     "ref": "perfil.codperfil"
-    },
-    {
      "coluna": "codoperador",
      "ref": "operadores.codoperador"
+    },
+    {
+     "coluna": "codperfil",
+     "ref": "perfil.codperfil"
     }
    ],
    "unicos": [
@@ -32355,12 +32582,12 @@
    ],
    "fks": [
     {
-     "coluna": "codscrap",
-     "ref": "scrap.codscrap"
-    },
-    {
      "coluna": "idproduto",
      "ref": "produtos.idproduto"
+    },
+    {
+     "coluna": "codscrap",
+     "ref": "scrap.codscrap"
     }
    ],
    "unicos": [

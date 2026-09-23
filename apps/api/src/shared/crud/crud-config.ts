@@ -30,6 +30,13 @@ export interface CrudConfig {
    * empresa. A view de listagem precisa expor `idempresa`. Default: false (tabela global).
    */
   empresaScoped?: boolean;
+  /**
+   * Coluna CSV de empresas que TAMBÉM enxergam o registro, além da dona (`idempresa`) — ex.: `pedidocompra.empresas`,
+   * as lojas participantes do pedido multi-loja ('1, 2'; o legado habilita as ações para a loja que está nela,
+   * `PedidoPertenceEmpresaSelecionada`). Com `empresaScoped`, read/list/posse passam a aceitar a empresa do contexto
+   * quando ela está na lista. A view de listagem precisa expor a coluna. Sem ela, nada muda.
+   */
+  empresasColuna?: string;
   /** gera evento de replicação no outbox (como BANCOS tem REM_*). Default: false. */
   replica?: boolean;
   /** carimba USULTALTERACAO/DTULTIMALTERACAO/DTCADASTRO. Default: true. */
@@ -98,6 +105,24 @@ export interface DetalheConfig {
     header?: Record<string, unknown>,
     masterId?: number,
   ) => Promise<Record<string, unknown>[]>;
+  /**
+   * NETOS do agregado (tabelas que apontam para o ITEM, não para o master — ex.: `pedido_compra_qtde`, a quantidade de
+   * cada item por loja). O motor regrava os itens a cada salvamento (delete + insert, PK nova), e o neto iria junto
+   * pela cascata. Os dois ganchos abaixo o fazem sobreviver: `antesDeSubstituirTrx` tira um INSTANTÂNEO do que precisa
+   * ser preservado ANTES do delete (só no update); `aposInserirItensTrx` recebe os itens JÁ GRAVADOS — com a PK nova,
+   * na ordem do dto — e o instantâneo, e reinsere os netos. Rodam na mesma transação do agregado.
+   */
+  antesDeSubstituirTrx?: (ctx: { trx: any; masterId: number; emp: number | null }) => Promise<unknown>;
+  aposInserirItensTrx?: (ctx: {
+    trx: any;
+    masterId: number;
+    emp: number | null;
+    itens: Record<string, unknown>[];
+    snapshot: unknown;
+    header?: Record<string, unknown>;
+  }) => Promise<void>;
+  /** anexa dados à LEITURA dos itens (ex.: as quantidades por loja de cada item). */
+  anexarLeitura?: (ctx: { db: any; masterId: number; itens: Record<string, unknown>[] }) => Promise<Record<string, unknown>[]>;
 }
 
 /**
@@ -135,6 +160,8 @@ export interface AggregateConfig extends CrudConfig {
    * e precisa ser atômico. Só master; recebe o delta já carimbado (com idempresa).
    */
   derivarTrx?: (ctx: { dto: Record<string, unknown>; trx: any; emp: number | null }) => Promise<Record<string, unknown>>;
+  /** anexa dados derivados à LEITURA do agregado (ex.: o estado de fechamento de cada loja do pedido). */
+  anexarLeitura?: (ctx: { db: any; id: number; registro: Record<string, unknown>; emp: number | null }) => Promise<Record<string, unknown>>;
 }
 
 /** Operadores da Pesquisa (espelham os TTipoPesquisa do frmPesquisa). */

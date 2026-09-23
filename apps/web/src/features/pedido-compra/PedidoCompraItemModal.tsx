@@ -26,9 +26,14 @@ const ITEM_VAZIO: PedidoCompraItemDto = {
   vrcusto: undefined as unknown as number,
 };
 
+/** uma loja participante do pedido, com o seu estado (mig 303). */
+export interface LojaDoPedido { idempresa: number; fechado: boolean }
+
 interface Props {
   /** item a EDITAR (do field array) ou undefined p/ ADICIONAR. */
   inicial?: PedidoCompraItemDto;
+  /** as lojas do pedido: com mais de uma, a quantidade é digitada POR LOJA e a do item é a soma. */
+  lojas?: LojaDoPedido[];
   produtoOptions: Opcao[];
   /** idproduto → alíquota-código (para o motor de preço formar a venda a partir do custo). */
   produtoAliquotas: Record<string, string>;
@@ -36,9 +41,18 @@ interface Props {
   onConfirmar: (item: PedidoCompraItemDto) => void;
 }
 
-export function PedidoCompraItemModal({ inicial, produtoOptions, produtoAliquotas, onFechar, onConfirmar }: Props) {
+export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, produtoAliquotas, onFechar, onConfirmar }: Props) {
   const mensagem = useMensagem();
   const [item, setItem] = useState<PedidoCompraItemDto>(inicial ?? ITEM_VAZIO);
+  // mig 303: pedido de mais de uma loja → a quantidade é POR LOJA (PEDIDO_COMPRA_QTDE); loja fechada não se mexe
+  const multiLoja = lojas.length > 1;
+  const [porLoja, setPorLoja] = useState<Record<number, number>>(() => {
+    const m: Record<number, number> = {};
+    for (const l of lojas) m[l.idempresa] = 0;
+    for (const l of inicial?.lojas ?? []) m[Number(l.idempresa)] = Number(l.qtde) || 0;
+    return m;
+  });
+  const somaLojas = Object.values(porLoja).reduce((a, b) => a + (Number(b) || 0), 0);
   const [erro, setErro] = useState<string | undefined>();
   const [uf, setUf] = useState('SP'); // UF do cálculo (default; a UF real virá da EMPRESA — mesmo limite da tela de Produto)
   const [calculando, setCalculando] = useState(false);
@@ -48,7 +62,7 @@ export function PedidoCompraItemModal({ inicial, produtoOptions, produtoAliquota
   // Derivados (078 FLIP) — só exibição; o servidor recomputa. VLREMBALAGEM = fator×custo (custo por caixa);
   // TOTALCUSTO = qtde × vlrembalagem (total da linha); QTDTOTAL = qtde × fator (unidades).
   const vlrembalagem = (Number(item.fatorembalagem) || 0) * (Number(item.vrcusto) || 0);
-  const totalcusto = (Number(item.qtde) || 0) * vlrembalagem;
+  const totalcusto = (multiLoja ? somaLojas : Number(item.qtde) || 0) * vlrembalagem;
 
   /** o comprador FORMA o preço: reusa o motor (POST /precificacao/produto) — custo + markup → venda/margem/PMZ. */
   const precificar = async () => {
@@ -89,10 +103,14 @@ export function PedidoCompraItemModal({ inicial, produtoOptions, produtoAliquota
 
   const salvar = () => {
     if (item.idproduto == null) return setErro('Informe o produto do item.');
-    if (!(Number(item.qtde) > 0)) return setErro('A quantidade (embalagens) deve ser maior que zero.');
+    if (multiLoja ? !(somaLojas > 0) : !(Number(item.qtde) > 0)) return setErro('A quantidade (embalagens) deve ser maior que zero.');
     if (!(Number(item.fatorembalagem) > 0)) return setErro('O fator de embalagem deve ser maior que zero.');
     if (!(Number(item.vrcusto) >= 0)) return setErro('Custo inválido.');
-    onConfirmar({ ...item, qtde: Number(item.qtde) || 1 });
+    if (multiLoja) {
+      onConfirmar({ ...item, qtde: somaLojas, lojas: lojas.map((l) => ({ idempresa: l.idempresa, qtde: Number(porLoja[l.idempresa]) || 0 })) });
+    } else {
+      onConfirmar({ ...item, qtde: Number(item.qtde) || 1 });
+    }
   };
 
   return (
@@ -116,13 +134,35 @@ export function PedidoCompraItemModal({ inicial, produtoOptions, produtoAliquota
               placeholder="Selecione o produto…"
             />
           </div>
-          <NumberField
-            label="&Qtde (embalagens)"
-            value={item.qtde as number | undefined}
-            onChange={(v) => set('qtde', v as number)}
-            decimais={3}
-            min={0}
-          />
+          {multiLoja ? (
+            <div className="sm:col-span-2 flex flex-col gap-gp-xs">
+              <span className="text-body-sm font-semibold text-fg-default">Quantidade por loja (embalagens) — o item é a soma: {somaLojas.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}</span>
+              <div className="grid grid-cols-2 gap-form-gap sm:grid-cols-4">
+                {lojas.map((l) => (
+                  <NumberField
+                    key={l.idempresa}
+                    label={`Loja ${l.idempresa}${l.fechado ? ' (fechada)' : ''}`}
+                    value={porLoja[l.idempresa] as number | undefined}
+                    onChange={(v) => setPorLoja((m) => ({ ...m, [l.idempresa]: Number(v) || 0 }))}
+                    decimais={3}
+                    min={0}
+                    disabled={l.fechado}
+                  />
+                ))}
+              </div>
+              {lojas.some((l) => l.fechado) && (
+                <small className="text-fg-muted">A quantidade de loja fechada não muda — ela reabre o pedido para alterar.</small>
+              )}
+            </div>
+          ) : (
+            <NumberField
+              label="&Qtde (embalagens)"
+              value={item.qtde as number | undefined}
+              onChange={(v) => set('qtde', v as number)}
+              decimais={3}
+              min={0}
+            />
+          )}
           <NumberField
             label="&Fator/emb."
             value={item.fatorembalagem as number | undefined}

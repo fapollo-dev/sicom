@@ -37,7 +37,7 @@ export class CrudEngineService {
     // paridade BR-05/G-05: carregar por código NÃO reabre registro excluído (INDR='E').
     if (cfg.softDelete) q = q.where(sql`coalesce(indr, 'I')`, '<>', 'E');
     // escopo multi-tenant: só lê registros da empresa do contexto (fail-closed).
-    if (cfg.empresaScoped) q = q.where('idempresa', '=', this.emp());
+    if (cfg.empresaScoped) q = q.where(this.escopoEmpresa(cfg));
     const row = (await q.executeTakeFirst()) as Record<string, unknown> | undefined;
     // segredos que o `selectAll` da base traz mas não podem sair (ex.: senha_hash) — a allowlist de ESCRITA
     // (`colunas`) não filtra a LEITURA; removidos aqui (cobre o GET/:id e o echo de POST/PUT do agregado).
@@ -52,7 +52,7 @@ export class CrudEngineService {
     let q = (this.dbp.forTenantRead() as AnyDB).selectFrom(cfg.view).selectAll();
 
     // escopo multi-tenant por empresa (a view expõe idempresa).
-    if (cfg.empresaScoped) q = q.where('idempresa', '=', this.emp());
+    if (cfg.empresaScoped) q = q.where(this.escopoEmpresa(cfg));
 
     // filtro rdgAtivo (F6): ativos (INDR='I') · inativos (INDR='E') · todos.
     // 'incluirExcluidos' do legado mapeia para 'todos'.
@@ -191,9 +191,19 @@ export class CrudEngineService {
    * deleta por fk=masterId sem idempresa — casariam por PK entre empresas do MESMO banco de
    * tenant (IDOR / perda-de-dados cross-empresa). Fail-closed: emp()=null ⇒ não pertence.
    */
+  /**
+   * o filtro de empresa: a dona (`idempresa`) — e, quando a config declara `empresasColuna`, também a empresa que está
+   * na lista CSV da linha (as lojas participantes do pedido multi-loja). Fail-closed: sem empresa no contexto, nada.
+   */
+  protected escopoEmpresa(cfg: { empresasColuna?: string }) {
+    const emp = this.emp();
+    if (!cfg.empresasColuna) return sql<boolean>`idempresa = ${emp}`;
+    return sql<boolean>`(idempresa = ${emp} OR ${String(emp)} = ANY(string_to_array(replace(coalesce(${sql.ref(cfg.empresasColuna)}, ''), ' ', ''), ',')))`;
+  }
+
   protected async pertenceAEmpresa(
     trx: AnyDB,
-    cfg: { tabela: string; pk: string; empresaScoped?: boolean },
+    cfg: { tabela: string; pk: string; empresaScoped?: boolean; empresasColuna?: string },
     id: number,
     lock = false, // FOR UPDATE no master: serializa update/remove contra os passos verticais (processar/aplicar/
     //                fechar/baixar) que também travam o master → fecha a janela TOCTOU do agregado.
@@ -208,7 +218,7 @@ export class CrudEngineService {
       .selectFrom(cfg.tabela)
       .select(cfg.pk)
       .where(cfg.pk, '=', id)
-      .where('idempresa', '=', this.emp());
+      .where(this.escopoEmpresa(cfg));
     if (lock) qb = qb.forUpdate();
     const r = await qb.executeTakeFirst();
     return !!r;

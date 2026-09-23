@@ -5,6 +5,7 @@ import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { derivarPisCofinsRentabPedido } from '../shared/piscofins-rentab';
+import { estadoFechamento, formatarEmpresas, lojaFechada, lojasDoPedido, quantidadesPorLoja } from './pedido-lojas';
 
 /**
  * PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela do legado. Corte-1: NÚCLEO cadastro, agregado
@@ -75,8 +76,15 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
     // OPERADOR_ULT_LIB_VALOR_MAX são server-controlled (gerar-bonificado / liberar-limite) — fora do allowlist.
     'idsituacao_nf',
     'pc_tipo_frete', 'pc_valor_frete', 'pc_nronf_cruzamento', 'obs',
+    // mig 303: as LOJAS PARTICIPANTES, no CSV do legado ('1, 2'). O pedido é visto e trabalhado por elas.
+    'empresas',
   ],
-  colunasPesquisa: ['codpedcomp', 'codparceiro', 'fornecedor', 'data', 'fechado', 'total'],
+  // a loja que está no CSV também enxerga o pedido (PedidoPertenceEmpresaSelecionada, uPedidoCompra.pas:3766)
+  empresasColuna: 'empresas',
+  // o CSV sai sempre no formato do legado ('1, 2'), ordenado e sem repetição
+  derivar: (dto) => (dto.empresas === undefined || dto.empresas === null || dto.empresas === ''
+    ? {} : { empresas: formatarEmpresas(lojasDoPedido(dto.empresas)) }),
+  colunasPesquisa: ['codpedcomp', 'codparceiro', 'fornecedor', 'data', 'fechado', 'total', 'empresas'],
   detalhes: [
     {
       tabela: 'pedidocompra_i',
@@ -99,14 +107,20 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
       // Derivação server-authoritative (078, uPedidoCompra.pas:1971-1972): VLREMBALAGEM = FATOREMBALAGEM×VRCUSTO
       // (custo por caixa); QTDTOTAL = QTDE×FATOREMBALAGEM (unidades); TOTALCUSTO = QTDE×VLREMBALAGEM (total da linha).
       // QTDE default 1 (behavior-preserving: TOTALCUSTO≡VLREMBALAGEM). O cliente não é fonte da verdade dos derivados.
-      derivarItensTrx: async (itens, trx, emp) => {
+      derivarItensTrx: async (itens, trx, emp, header, masterId) => {
         // Wave 5: PIS/COFINS de rentabilidade resolvido do catálogo (produto.idpiscofins) + regime da empresa.
         const rentab = await derivarPisCofinsRentabPedido(trx, emp, itens);
+        const lojasPed = await lojasDoMaster(trx, header, masterId, emp);
         return itens.map((it, idx) => {
-          const qtde = num(it.qtde) > 0 ? num(it.qtde) : 1;
           const vlrembalagem = r4(num(it.fatorembalagem) * num(it.vrcusto));
+          // mig 303: a quantidade é POR LOJA (`PEDIDO_COMPRA_QTDE`) e a do item é a SOMA — como a carga já faz.
+          // Sem `lojas` no item, é o pedido de uma loja só: a quantidade inteira vai para a primeira loja do pedido
+          // (default 1, o comportamento de antes). Loja com zero é legítima (o legado cria a linha zerada).
+          const lojas = normalizarLojasItem(it.lojas, lojasPed, num(it.qtde) > 0 ? num(it.qtde) : 1);
+          const qtde = r4(lojas.reduce((a, l) => a + l.qtde, 0));
           return {
             ...it,
+            lojas,
             qtde,
             vlrembalagem,
             qtdtotal: r4(qtde * num(it.fatorembalagem)),
@@ -115,6 +129,42 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
             creditopiscofins: rentab[idx].creditopiscofins,
           };
         });
+      },
+      // ⚠️ o neto `pedido_compra_qtde` (a quantidade de cada loja) vai junto com o item no delete+insert do motor: o
+      // FECHAMENTO de cada loja é lido antes e reaplicado às linhas novas — fechar é por loja (uPedidoCompra.pas:7780)
+      antesDeSubstituirTrx: async ({ trx, masterId }) => (await estadoFechamento(trx, masterId)).lojas.filter((l) => l.fechado),
+      aposInserirItensTrx: async ({ trx, itens, snapshot }) => {
+        const fechadas = new Map(((snapshot as Array<{ idempresa: number; data_fechamento: unknown; codoperador: number | null }>) ?? [])
+          .map((l) => [l.idempresa, l]));
+        const linhas: Record<string, unknown>[] = [];
+        for (const it of itens) {
+          for (const l of (it.lojas as Array<{ idempresa: number; qtde: number }>) ?? []) {
+            const f = fechadas.get(l.idempresa);
+            linhas.push({
+              codpedcompi: it.codpedcompi, idempresa: l.idempresa, qtde: l.qtde,
+              qtdtotal: r4(l.qtde * num(it.fatorembalagem)),
+              totalcusto: Math.round((l.qtde * num(it.vlrembalagem) + Number.EPSILON) * 100) / 100,
+              fechado: f ? 'S' : null, data_fechamento: f ? f.data_fechamento : null, codoperador: f ? f.codoperador : null,
+              digitacao_fechada: 'N',
+            });
+          }
+        }
+        if (linhas.length) await trx.insertInto('pedido_compra_qtde').values(linhas).execute();
+      },
+      // a leitura traz a quantidade de cada loja em cada item
+      anexarLeitura: async ({ db, itens }) => {
+        const ids = itens.map((i) => Number(i.codpedcompi)).filter(Boolean);
+        if (!ids.length) return itens;
+        const rows = (await db.selectFrom('pedido_compra_qtde')
+          .select(['codpedcompi', 'idempresa', 'qtde', 'qtdtotal', 'totalcusto', 'fechado'])
+          .where('codpedcompi', 'in', ids).orderBy('idempresa').execute()) as Array<Record<string, unknown>>;
+        return itens.map((i) => ({
+          ...i,
+          lojas: rows.filter((r) => Number(r.codpedcompi) === Number(i.codpedcompi)).map((r) => ({
+            idempresa: Number(r.idempresa), qtde: Number(r.qtde ?? 0), qtdtotal: Number(r.qtdtotal ?? 0),
+            totalcusto: Number(r.totalcusto ?? 0), fechado: r.fechado === 'S',
+          })),
+        }));
       },
     },
     {
@@ -131,7 +181,23 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
     },
   ],
   // CODOPERADOR = comprador (operador do contexto). Só no create (derivarTrx não roda no update) → imutável.
-  derivarTrx: async () => ({ codoperador: currentTenant().operadorId ?? null }),
+  // mig 303: sem lojas informadas, o pedido é da loja que o cria (como o legado, que abre com a empresa logada).
+  derivarTrx: async ({ dto, emp }) => ({
+    codoperador: currentTenant().operadorId ?? null,
+    ...(dto.empresas ? {} : { empresas: emp != null ? String(emp) : null }),
+  }),
+  // o estado de fechamento de cada loja vai junto na leitura: é o que a tela precisa para saber o que pode fazer
+  anexarLeitura: async ({ db, id, registro, emp }) => {
+    const estado = await estadoFechamento(db, id, registro.fechado as string | null);
+    const lojas = lojasDoPedido(registro.empresas, registro.idempresa as number);
+    return {
+      ...registro,
+      lojas: lojas.map((l) => ({ idempresa: l, fechado: lojaFechada(estado, l) })),
+      fechamento: estado.tipo,
+      loja_logada_participa: emp != null && lojas.includes(emp),
+      loja_logada_fechada: emp != null && lojaFechada(estado, emp),
+    };
+  },
   // Regras cross-row do btnGravar (consultam o banco antes de gravar).
   validar: async ({ dto, id, db }) => {
     const emp = currentTenant().empresaId ?? null;
@@ -145,19 +211,35 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
     // — no golden 1.804 pedidos já foram faturados com FECHADO='N', então a trava é por dtfaturamento,
     // não só por FECHADO. FECHADO='S' é read-only (o fechar/reabrir é o vertical).
     let atual:
-      | ({ fechado?: string; dtfaturamento?: unknown; codparceiro?: number; codconpagto?: number } & Record<string, unknown>)
+      | ({ fechado?: string; dtfaturamento?: unknown; codparceiro?: number; codconpagto?: number; idempresa?: number; empresas?: string } & Record<string, unknown>)
       | undefined;
     if (id != null) {
       atual = (await db
         .selectFrom('pedidocompra')
-        .select(['fechado', 'dtfaturamento', 'codparceiro', 'codconpagto', ...CD_COLS])
+        .select(['fechado', 'dtfaturamento', 'codparceiro', 'codconpagto', 'idempresa', 'empresas', ...CD_COLS])
         .where('codpedcomp', '=', id)
-        .where('idempresa', '=', emp)
+        .where(participa(emp))
         .where(sql`coalesce(indr,'I')`, '<>', 'E')
         .executeTakeFirst()) as typeof atual;
       if (!atual) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp: id });
       if (atual.dtfaturamento != null) throw new BusinessRuleError('PEDIDO_FATURADO');
-      if (atual.fechado === 'S') throw new BusinessRuleError('PEDIDO_FECHADO');
+      await validarFechamentoPorLoja(db, id, atual, dto, emp);
+    }
+    // o fornecedor e as configs são os da loja DONA do pedido (parceiros é por empresa no Apollo)
+    const empDono = atual?.idempresa != null ? Number(atual.idempresa) : emp;
+    // as lojas do pedido existem, e cada item só leva quantidade para loja do pedido
+    const lojasPed = lojasDoPedido(dto.empresas !== undefined ? dto.empresas : atual?.empresas, empDono);
+    if (dto.empresas !== undefined && lojasPed.length) {
+      const existem = (await db.selectFrom('empresas').select('idempresa').where('idempresa', 'in', lojasPed).execute()) as Array<{ idempresa: number }>;
+      const faltam = lojasPed.filter((l) => !existem.some((e) => Number(e.idempresa) === l));
+      if (faltam.length) throw new BusinessRuleError('PEDIDO_LOJA_INEXISTENTE', { lojas: faltam });
+    }
+    for (const it of (Array.isArray(dto.itens) ? dto.itens : []) as Array<Record<string, unknown>>) {
+      for (const l of (Array.isArray(it.lojas) ? it.lojas : []) as Array<Record<string, unknown>>) {
+        if (!lojasPed.includes(Number(l.idempresa))) {
+          throw new BusinessRuleError('PEDIDO_LOJA_FORA_DO_PEDIDO', { idempresa: Number(l.idempresa), idproduto: it.idproduto ?? null, lojas: lojasPed });
+        }
+      }
     }
 
     // fornecedor tem de existir e ser fornecedor (FRN='S') — SegFornecedor do legado. O filtro por
@@ -170,7 +252,7 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
         .selectFrom('parceiros')
         .select(['codparceiro', 'frn'])
         .where('codparceiro', '=', cod)
-        .where('idempresa', '=', emp)
+        .where('idempresa', '=', empDono)
         .executeTakeFirst()) as { frn?: string } | undefined;
       if (!forn || forn.frn !== 'S') throw new BusinessRuleError('PEDIDO_FORNECEDOR_INVALIDO', { codparceiro: cod });
     }
@@ -195,7 +277,7 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
         .selectFrom('parceiros')
         .select('qtde_dias_maximo_fp_pc')
         .where('codparceiro', '=', fornEf)
-        .where('idempresa', '=', emp)
+        .where('idempresa', '=', empDono)
         .executeTakeFirst()) as { qtde_dias_maximo_fp_pc?: number } | undefined;
       const max = fp?.qtde_dias_maximo_fp_pc != null ? Number(fp.qtde_dias_maximo_fp_pc) : 0;
       if (max > 0) {
@@ -238,14 +320,92 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
       .selectFrom('pedidocompra')
       .select(['fechado', 'dtfaturamento'])
       .where('codpedcomp', '=', id)
-      .where('idempresa', '=', emp)
+      .where(participa(emp))
       .where(sql`coalesce(indr,'I')`, '<>', 'E')
       .executeTakeFirst()) as { fechado?: string; dtfaturamento?: unknown } | undefined;
     if (!pc) return; // já excluído / not-found → fluxo normal (soft-delete idempotente)
     if (pc.dtfaturamento != null) throw new BusinessRuleError('PEDIDO_FATURADO');
-    if (pc.fechado === 'S') throw new BusinessRuleError('PEDIDO_FECHADO');
+    // excluir o pedido bloqueia se QUALQUER loja fechou — parcial ou total (btnExcluirClick, uPedidoCompra.pas:6664)
+    const estado = await estadoFechamento(db, id, pc.fechado);
+    if (estado.tipo !== 'nenhum') throw new BusinessRuleError('PEDIDO_FECHADO', { fechamento: estado.tipo });
   },
 };
+
+/** a loja do contexto participa do pedido: é a dona ou está no CSV das lojas (mig 303). */
+function participa(emp: number | null) {
+  return sql<boolean>`(idempresa = ${emp} OR ${String(emp)} = ANY(string_to_array(replace(coalesce(empresas, ''), ' ', ''), ',')))`;
+}
+
+/** as lojas do pedido para os itens: do dto do cabeçalho, ou do banco (update parcial), ou a loja do contexto. */
+async function lojasDoMaster(trx: any, header: Record<string, unknown> | undefined, masterId: number | undefined, emp: number | null): Promise<number[]> {
+  if (header?.empresas) return lojasDoPedido(header.empresas);
+  if (masterId != null) {
+    const r = (await trx.selectFrom('pedidocompra').select(['empresas', 'idempresa']).where('codpedcomp', '=', masterId)
+      .executeTakeFirst()) as { empresas?: string; idempresa?: number } | undefined;
+    if (r) return lojasDoPedido(r.empresas, r.idempresa);
+  }
+  return emp != null ? [emp] : [];
+}
+
+/** as quantidades de um item por loja: as que vieram (somando repetições), ou tudo na primeira loja do pedido. */
+function normalizarLojasItem(bruto: unknown, lojasPed: number[], qtdeItem: number): Array<{ idempresa: number; qtde: number }> {
+  if (Array.isArray(bruto) && bruto.length) {
+    const soma = new Map<number, number>();
+    for (const l of bruto as Array<Record<string, unknown>>) {
+      const loja = Number(l.idempresa);
+      soma.set(loja, r4((soma.get(loja) ?? 0) + Math.max(0, num(l.qtde))));
+    }
+    return [...soma.entries()].sort((a, b) => a[0] - b[0]).map(([idempresa, qtde]) => ({ idempresa, qtde }));
+  }
+  return lojasPed.length ? [{ idempresa: lojasPed[0], qtde: qtdeItem }] : [];
+}
+
+/**
+ * As travas de edição POR LOJA do legado (mig 303), no lugar do "cabeçalho fechado":
+ *   editar o pedido ...................... TODAS as lojas fechadas, ou a LOJA LOGADA fechada (btnEditarClick, :6610)
+ *   tirar item ........................... QUALQUER loja fechada (btnExcluirIClick/btnLimparIClick, :6709/:7090)
+ *   quantidade de uma loja fechada ....... não muda (edição da célula, :2002) — nem tirando a loja do pedido
+ * Para o pedido de uma loja só isto é exatamente a trava de antes.
+ */
+async function validarFechamentoPorLoja(
+  db: any, id: number, atual: { fechado?: string; empresas?: string; idempresa?: number },
+  dto: Record<string, unknown>, emp: number | null,
+): Promise<void> {
+  const estado = await estadoFechamento(db, id, atual.fechado);
+  if (estado.tipo === 'nenhum') return;
+  if (estado.tipo === 'total') throw new BusinessRuleError('PEDIDO_FECHADO');
+  if (emp != null && lojaFechada(estado, emp)) throw new BusinessRuleError('PEDIDO_FECHADO_NA_EMPRESA', { idempresa: emp });
+  const fechadas = estado.lojas.filter((l) => l.fechado).map((l) => l.idempresa);
+  if (dto.empresas !== undefined) {
+    const novas = lojasDoPedido(dto.empresas);
+    const saiu = fechadas.find((l) => !novas.includes(l));
+    if (saiu != null) throw new BusinessRuleError('PEDIDO_LOJA_FECHADA', { idempresa: saiu });
+  }
+  if (!Array.isArray(dto.itens)) return;
+  const antes = await quantidadesPorLoja(db, id);
+  const produtosAntes = new Set([...antes.keys()].map((k) => k.split('|')[0]));
+  const lojasPed = lojasDoPedido(dto.empresas !== undefined ? dto.empresas : atual.empresas, atual.idempresa);
+  const depois = new Map<string, number>();
+  const produtosDepois = new Set<string>();
+  for (const it of dto.itens as Array<Record<string, unknown>>) {
+    produtosDepois.add(String(it.idproduto));
+    for (const l of normalizarLojasItem(it.lojas, lojasPed, num(it.qtde) > 0 ? num(it.qtde) : 1)) {
+      const k = `${it.idproduto}|${l.idempresa}`;
+      depois.set(k, r4((depois.get(k) ?? 0) + l.qtde));
+    }
+  }
+  // com loja fechada não se tira item — o legado bloqueia excluir/limpar item no parcial
+  const saiuProduto = [...produtosAntes].find((p) => !produtosDepois.has(p));
+  if (saiuProduto != null) throw new BusinessRuleError('PEDIDO_FECHADO_PARCIAL', { idproduto: Number(saiuProduto) });
+  for (const loja of fechadas) {
+    const chaves = new Set([...antes.keys(), ...depois.keys()].filter((k) => k.endsWith(`|${loja}`)));
+    for (const k of chaves) {
+      if (r4(antes.get(k) ?? 0) !== r4(depois.get(k) ?? 0)) {
+        throw new BusinessRuleError('PEDIDO_LOJA_FECHADA', { idempresa: loja, idproduto: Number(k.split('|')[0]) });
+      }
+    }
+  }
+}
 
 export const PedidoCompraAggregateController = createAggregateController({
   path: 'compras/pedidos',

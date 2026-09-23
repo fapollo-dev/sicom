@@ -31,8 +31,10 @@ export class PedidoCompraController {
   @Post(':id/reabrir')
   @HttpCode(200)
   @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNREABRIR')
-  reabrir(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.reabrir(id);
+  // mig 303: reabre PARA A LOJA LOGADA. Login e senha só quando a lista USUARIOS_REABREM_PEDIDO_COMPRA está
+  // preenchida e o operador não está nela (um dos permitidos autoriza) — corpo opcional
+  reabrir(@Param('id', ParseIntPipe) id: number, @Body() body?: { login?: string; senha?: string }) {
+    return this.svc.reabrir(id, { login: body?.login, senha: body?.senha });
   }
 
   /** corte-2: gera as parcelas do pedido (ratear pela condição de pagamento). Retorna { codpedcomp, parcelas, total }.

@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { estadoFechamento, lojaFechada, lojasDoPedido, novoHistorico } from './pedido-lojas';
 import { gravarHistorico, gravarHistoricoMarca } from '../../shared/crud/historico';
 import { ConfigService } from '../cadastro/config.service';
 import { LiberacaoService } from '../auth/liberacao.service';
@@ -49,21 +50,19 @@ export class PedidoCompraService {
     return o;
   }
 
-  /** fecha o pedido (N→S): exige ≥1 item; CAS em FECHADO p/ evitar duplo-fechamento concorrente. */
-  async fechar(codpedcomp: number): Promise<{ codpedcomp: number; fechado: 'S' }> {
+  /**
+   * FECHA o pedido PARA A LOJA LOGADA (mig 303; FecharPedido, uPedidoCompra.pas:7754): marca FECHADO/DATA_FECHAMENTO/
+   * CODOPERADOR só nas linhas por loja da empresa do contexto, põe o cabeçalho em 'S' (como o legado) e grava o
+   * histórico 'Pedido fechado para a empresa N…'. Exige que a loja participe do pedido e ainda esteja aberta, e ≥ 1
+   * item. Para o pedido de uma loja só é o fechar de antes. O LIMITE diário/semanal segue no fechar.
+   */
+  async fechar(codpedcomp: number): Promise<{ codpedcomp: number; fechado: 'S'; idempresa: number; fechamento: string }> {
     const emp = this.emp();
     const op = this.op();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const pc = await trx
-        .selectFrom('pedidocompra')
-        .select(['codpedcomp', 'fechado', 'operador_ult_lib_valor_max'])
-        .where('codpedcomp', '=', codpedcomp)
-        .where('idempresa', '=', emp)
-        .where(sql`coalesce(indr,'I')`, '<>', 'E') // pedido excluído (soft-delete) é inexistente
-        .forUpdate()
-        .executeTakeFirst();
-      if (!pc) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
-      if ((pc as any).fechado === 'S') throw new BusinessRuleError('PEDIDO_JA_FECHADO', { codpedcomp });
+      const pc = await this.pedidoDaLoja(trx, codpedcomp, emp, ['fechado', 'operador_ult_lib_valor_max']);
+      const antes = await estadoFechamento(trx, codpedcomp, (pc as any).fechado);
+      if (lojaFechada(antes, emp)) throw new BusinessRuleError('PEDIDO_JA_FECHADO', { codpedcomp, idempresa: emp });
 
       const itens = await trx
         .selectFrom('pedidocompra_i')
@@ -76,19 +75,48 @@ export class PedidoCompraService {
       // DIVERGÊNCIA consciente: o legado valida no GRAVAR; aqui no FECHAR (o commit do pedido no novo). Já
       // liberado (operador_ult_lib_valor_max) → passa (LiberouLimiteDiario do legado).
       if ((pc as any).operador_ult_lib_valor_max == null) {
-        await this.validarLimites(trx, codpedcomp, emp);
+        await this.validarLimites(trx, codpedcomp, Number((pc as any).idempresa));
       }
 
-      const upd = await trx
+      await trx
         .updateTable('pedidocompra')
         .set({ fechado: 'S', usultalteracao: op, dtultimalteracao: sql`now()` })
         .where('codpedcomp', '=', codpedcomp)
-        .where('idempresa', '=', emp)
-        .where((eb: any) => eb.or([eb('fechado', '<>', 'S'), eb('fechado', 'is', null)]))
-        .executeTakeFirst();
-      if (Number((upd as any)?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('PEDIDO_JA_FECHADO', { codpedcomp });
-      return { codpedcomp, fechado: 'S' as const };
+        .execute();
+      await sql`UPDATE pedido_compra_qtde SET fechado = 'S', data_fechamento = now(), codoperador = ${op}
+                 WHERE idempresa = ${emp}
+                   AND codpedcompi IN (SELECT codpedcompi FROM pedidocompra_i WHERE codpedcomp = ${codpedcomp})`.execute(trx);
+      await novoHistorico(trx, codpedcomp, op, `Pedido fechado para a empresa ${emp} através da tela de pedido de compra.`);
+      const depois = await estadoFechamento(trx, codpedcomp, 'S');
+      return { codpedcomp, fechado: 'S' as const, idempresa: emp, fechamento: depois.tipo };
     });
+  }
+
+  /**
+   * o pedido, travado, se a LOJA do contexto participa dele (é a dona ou está no CSV `empresas`) — o
+   * `PedidoPertenceEmpresaSelecionada` do legado. Pedido excluído (soft-delete) é inexistente.
+   */
+  private async pedidoDaLoja(trx: AnyDB, codpedcomp: number, emp: number, colunas: string[]): Promise<Record<string, unknown>> {
+    const pc = (await trx
+      .selectFrom('pedidocompra')
+      .select(['codpedcomp', 'idempresa', 'empresas', ...colunas])
+      .where('codpedcomp', '=', codpedcomp)
+      .where(sql<boolean>`(idempresa = ${emp} OR ${String(emp)} = ANY(string_to_array(replace(coalesce(empresas, ''), ' ', ''), ',')))`)
+      .where(sql`coalesce(indr,'I')`, '<>', 'E')
+      .forUpdate()
+      .executeTakeFirst()) as Record<string, unknown> | undefined;
+    if (!pc) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
+    if (!lojasDoPedido(pc.empresas, pc.idempresa as number).includes(emp)) {
+      throw new BusinessRuleError('PEDIDO_LOJA_NAO_PARTICIPA', { codpedcomp, idempresa: emp });
+    }
+    return pc;
+  }
+
+  /** a trava de EDIÇÃO por loja (btnEditarClick, uPedidoCompra.pas:6610): todas fechadas, ou a loja logada fechada. */
+  private async exigirEditavel(trx: AnyDB, codpedcomp: number, emp: number, fechadoCabecalho: unknown): Promise<void> {
+    const estado = await estadoFechamento(trx, codpedcomp, fechadoCabecalho as string | null);
+    if (estado.tipo === 'total') throw new BusinessRuleError('PEDIDO_FECHADO', { codpedcomp });
+    if (lojaFechada(estado, emp)) throw new BusinessRuleError('PEDIDO_FECHADO_NA_EMPRESA', { codpedcomp, idempresa: emp });
   }
 
   /**
@@ -112,7 +140,7 @@ export class PedidoCompraService {
         .executeTakeFirst();
       if (!pc) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
       if ((pc as any).dtfaturamento != null) throw new BusinessRuleError('PEDIDO_FATURADO', { codpedcomp });
-      if ((pc as any).fechado === 'S') throw new BusinessRuleError('PEDIDO_FECHADO', { codpedcomp });
+      await this.exigirEditavel(trx, codpedcomp, emp, (pc as any).fechado); // mig 303: trava por loja
 
       // prazos: CD1..CD8 do PEDIDO (override); se nenhum, os da CONDIÇÃO (codconpagto).
       const cdCols = ['cd1', 'cd2', 'cd3', 'cd4', 'cd5', 'cd6', 'cd7', 'cd8'] as const;
@@ -325,7 +353,10 @@ export class PedidoCompraService {
         .executeTakeFirst();
       if (!pc) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
       if ((pc as any).dtfaturamento != null) throw new BusinessRuleError('PEDIDO_FATURADO', { codpedcomp });
-      if ((pc as any).fechado === 'S') throw new BusinessRuleError('PEDIDO_JA_FECHADO', { codpedcomp });
+      // mig 303: a liberação vale para o fechar da loja — que já tenha fechado, não há o que liberar
+      if (lojaFechada(await estadoFechamento(trx, codpedcomp, (pc as any).fechado), emp)) {
+        throw new BusinessRuleError('PEDIDO_JA_FECHADO', { codpedcomp });
+      }
       await trx
         .updateTable('pedidocompra')
         .set({ operador_ult_lib_valor_max: liberador, usultalteracao: op, dtultimalteracao: sql`now()` })
@@ -512,7 +543,7 @@ export class PedidoCompraService {
       const pc = (await trx
         .selectFrom('pedidocompra')
         .select([
-          'codpedcomp', 'codparceiro', 'codconpagto', 'idsituacao_nf', 'pc_tipo_frete', 'pc_valor_frete', 'obs',
+          'codpedcomp', 'codparceiro', 'codconpagto', 'idsituacao_nf', 'pc_tipo_frete', 'pc_valor_frete', 'obs', 'empresas',
           sql<string>`to_char(data::date, 'YYYY-MM-DD')`.as('data_iso'),
           sql<string | null>`to_char(dt_vencimento::date, 'YYYY-MM-DD')`.as('venc_iso'),
           sql<string>`to_char(now()::date, 'YYYY-MM-DD')`.as('hoje_iso'),
@@ -526,7 +557,7 @@ export class PedidoCompraService {
 
       const itens = (await trx
         .selectFrom('pedidocompra_i')
-        .select(['idproduto', 'qtde', 'fatorembalagem', 'vrcusto', 'desconto', 'descontop', 'obs', 'vrcustoliquido', 'markup', 'vrvenda', 'vrvendasug', 'margeml2', 'margeml2v', 'pmz', 'bonificacao'])
+        .select(['codpedcompi', 'idproduto', 'qtde', 'fatorembalagem', 'vrcusto', 'desconto', 'descontop', 'obs', 'vrcustoliquido', 'markup', 'vrvenda', 'vrvendasug', 'margeml2', 'margeml2v', 'pmz', 'bonificacao'])
         .where('codpedcomp', '=', codpedcomp)
         .orderBy('codpedcompi')
         .execute()) as Array<Record<string, unknown>>;
@@ -559,6 +590,7 @@ export class PedidoCompraService {
             obs: `BONIFICAÇÃO REFERENTE AO PEDIDO: ${codpedcomp}`,
             fechado: 'N',
             bonificacao: 'S',
+            empresas: (pc.empresas as string | null) ?? String(emp), // mig 303: as mesmas lojas (DuplicaPedido clona o cabeçalho)
           }
         : {
             idempresa: emp,
@@ -576,6 +608,7 @@ export class PedidoCompraService {
             obs: (pc.obs as string | null) ?? null,
             fechado: 'N',
             bonificacao: 'N',
+            empresas: (pc.empresas as string | null) ?? String(emp), // mig 303: as mesmas lojas
           };
       const ins = (await trx
         .insertInto('pedidocompra')
@@ -606,7 +639,18 @@ export class PedidoCompraService {
               pmz: (it.pmz as number | null) ?? null,
               bonificacao: (it.bonificacao as number | null) ?? null,
             };
-        await trx.insertInto('pedidocompra_i').values(item).execute();
+        const novoItem = (await trx.insertInto('pedidocompra_i').values(item).returning('codpedcompi').executeTakeFirstOrThrow()) as { codpedcompi: number };
+        // mig 303: as quantidades POR LOJA vêm junto (DuplicaPedido copia PEDIDO_COMPRA_QTDE, udmPedidoCompra.pas:1665) —
+        // sem o fechamento: o pedido novo é rascunho. Item antigo sem linha por loja cai inteiro na primeira loja.
+        const origemLojas = (await trx.selectFrom('pedido_compra_qtde').select(['idempresa', 'qtde'])
+          .where('codpedcompi', '=', Number(it.codpedcompi)).orderBy('idempresa').execute()) as Array<{ idempresa: number; qtde: unknown }>;
+        const lojasNovo = origemLojas.length
+          ? origemLojas.map((l) => ({ idempresa: Number(l.idempresa), qtde: num(l.qtde) }))
+          : [{ idempresa: lojasDoPedido(pc.empresas, emp)[0] ?? emp, qtde }];
+        await trx.insertInto('pedido_compra_qtde').values(lojasNovo.map((l) => ({
+          codpedcompi: novoItem.codpedcompi, idempresa: l.idempresa, qtde: l.qtde, qtdtotal: r4(l.qtde * fator),
+          totalcusto: Math.round((l.qtde * r4(fator * custo) + Number.EPSILON) * 100) / 100, digitacao_fechada: 'N',
+        }))).execute();
       }
 
       await gravarHistoricoMarca(
@@ -631,7 +675,7 @@ export class PedidoCompraService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const pc = await trx
         .selectFrom('pedidocompra')
-        .select(['codpedcomp', 'fechado', 'dtfaturamento', 'codparceiro'])
+        .select(['codpedcomp', 'fechado', 'dtfaturamento', 'codparceiro', 'empresas'])
         .where('codpedcomp', '=', codpedcomp)
         .where('idempresa', '=', emp)
         .where(sql`coalesce(indr,'I')`, '<>', 'E')
@@ -639,8 +683,12 @@ export class PedidoCompraService {
         .executeTakeFirst();
       if (!pc) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
       if ((pc as any).dtfaturamento != null) throw new BusinessRuleError('PEDIDO_FATURADO', { codpedcomp });
-      if ((pc as any).fechado === 'S') throw new BusinessRuleError('PEDIDO_FECHADO', { codpedcomp });
+      // adicionar item bloqueia só com TODAS as lojas fechadas (btnAdicionarIClick, uPedidoCompra.pas:4432)
+      if ((await estadoFechamento(trx, codpedcomp, (pc as any).fechado)).tipo === 'total') {
+        throw new BusinessRuleError('PEDIDO_FECHADO', { codpedcomp });
+      }
       const forn = Number((pc as any).codparceiro);
+      const lojasPed = lojasDoPedido((pc as any).empresas, emp);
 
       const existentes = new Set(
         ((await trx.selectFrom('pedidocompra_i').select('idproduto').where('codpedcomp', '=', codpedcomp).execute()) as Array<{ idproduto: number }>)
@@ -715,10 +763,20 @@ export class PedidoCompraService {
         const fator = (useRefFator && fatores.get(idp)) || (num(c.fatorcx) > 0 ? num(c.fatorcx) : 1);
         // 078 FLIP: QTDE=1 default (o comprador ajusta depois); TOTALCUSTO obrigatório (SUM ignora NULL → item some do total).
         const vlrembalagem = r4(fator * custo);
-        await trx
+        // mig 303: pedido de uma loja só mantém a QTDE=1 de antes; no multi-loja o item entra ZERADO em cada loja —
+        // o comprador distribui (é a linha zerada que o legado cria para cada loja participante)
+        const multi = lojasPed.length > 1;
+        const qtdeItem = multi ? 0 : 1;
+        const novoItem = (await trx
           .insertInto('pedidocompra_i')
-          .values({ codpedcomp, idproduto: idp, qtde: 1, fatorembalagem: fator, vrcusto: custo, vlrembalagem, qtdtotal: r4(fator), totalcusto: Math.round((vlrembalagem + Number.EPSILON) * 100) / 100 })
-          .execute();
+          .values({ codpedcomp, idproduto: idp, qtde: qtdeItem, fatorembalagem: fator, vrcusto: custo, vlrembalagem, qtdtotal: r4(qtdeItem * fator), totalcusto: Math.round((qtdeItem * vlrembalagem + Number.EPSILON) * 100) / 100 })
+          .returning('codpedcompi')
+          .executeTakeFirstOrThrow()) as { codpedcompi: number };
+        await trx.insertInto('pedido_compra_qtde').values(lojasPed.map((loja, idx) => {
+          const q = multi ? 0 : (idx === 0 ? 1 : 0);
+          return { codpedcompi: novoItem.codpedcompi, idempresa: loja, qtde: q, qtdtotal: r4(q * fator),
+            totalcusto: Math.round((q * vlrembalagem + Number.EPSILON) * 100) / 100, digitacao_fechada: 'N' };
+        })).execute();
         importados++;
       }
       await trx
@@ -739,32 +797,46 @@ export class PedidoCompraService {
    * (reabre → infla itens → fecha sem re-checagem). A flag está fora do allowlist do agregado, logo o
    * reabrir é a única superfície de reset.
    */
-  async reabrir(codpedcomp: number): Promise<{ codpedcomp: number; fechado: 'N' }> {
+  async reabrir(codpedcomp: number, override?: { login?: string; senha?: string }): Promise<{ codpedcomp: number; fechado: 'N'; idempresa: number; fechamento: string }> {
     const emp = this.emp();
     const op = this.op();
+    // USUARIOS_REABREM_PEDIDO_COMPRA (uPedidoCompra.pas:7811): com a lista preenchida, só quem está nela reabre — ou
+    // um deles autoriza por login e senha. Lista vazia (é o caso do cliente) = qualquer operador com o grant da tela.
+    let autorizador: { cod: number; nome: string | null } | null = null;
+    const permitidos = await this.config.usuariosPermitidos('USUARIOS_REABREM_PEDIDO_COMPRA');
+    if (permitidos.length && !permitidos.includes(op)) {
+      if (!override?.login || !override?.senha) throw new BusinessRuleError('LIBERACAO_NAO_AUTORIZADA', { codpedcomp, liberacao: 'USUARIOS_REABREM_PEDIDO_COMPRA' });
+      const r = await this.liberacao.validar({
+        codigo: 'USUARIOS_REABREM_PEDIDO_COMPRA', login: override.login, senha: override.senha,
+        liberacao: `REABERTURA DO PEDIDO DE COMPRA ${codpedcomp}`,
+      });
+      if (!r.liberado || r.codOperador == null) throw new BusinessRuleError('LIBERACAO_NAO_AUTORIZADA', { codpedcomp });
+      autorizador = { cod: r.codOperador, nome: null };
+    }
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const pc = await trx
-        .selectFrom('pedidocompra')
-        .select(['codpedcomp', 'fechado', 'dtfaturamento'])
-        .where('codpedcomp', '=', codpedcomp)
-        .where('idempresa', '=', emp)
-        .where(sql`coalesce(indr,'I')`, '<>', 'E') // pedido excluído (soft-delete) é inexistente
-        .forUpdate()
-        .executeTakeFirst();
-      if (!pc) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp });
-      if ((pc as any).fechado !== 'S') throw new BusinessRuleError('PEDIDO_NAO_FECHADO', { codpedcomp });
+      const pc = await this.pedidoDaLoja(trx, codpedcomp, emp, ['fechado', 'dtfaturamento']);
+      const antes = await estadoFechamento(trx, codpedcomp, (pc as any).fechado);
+      if (!lojaFechada(antes, emp)) throw new BusinessRuleError('PEDIDO_NAO_FECHADO', { codpedcomp, idempresa: emp });
       if ((pc as any).dtfaturamento != null) throw new BusinessRuleError('PEDIDO_FATURADO', { codpedcomp });
 
-      // CAS em FECHADO (cinto-e-suspensório com o forUpdate) — padrão do repo (caixa.reabrir).
-      const upd = await trx
+      // REARMA o limite (M1) na reabertura — e desfaz o fechamento SÓ da loja logada (uPedidoCompra.pas:7840)
+      await trx
         .updateTable('pedidocompra')
         .set({ fechado: 'N', operador_ult_lib_valor_max: null, usultalteracao: op, dtultimalteracao: sql`now()` })
         .where('codpedcomp', '=', codpedcomp)
-        .where('idempresa', '=', emp)
-        .where('fechado', '=', 'S')
-        .executeTakeFirst();
-      if (Number((upd as any)?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('PEDIDO_NAO_FECHADO', { codpedcomp });
-      return { codpedcomp, fechado: 'N' as const };
+        .execute();
+      await sql`UPDATE pedido_compra_qtde SET fechado = 'N', data_fechamento = NULL, codoperador = NULL
+                 WHERE idempresa = ${emp}
+                   AND codpedcompi IN (SELECT codpedcompi FROM pedidocompra_i WHERE codpedcomp = ${codpedcomp})`.execute(trx);
+      if (autorizador) {
+        const nome = (await trx.selectFrom('operadores').select('nome').where('codoperador', '=', autorizador.cod).executeTakeFirst()) as { nome?: string } | undefined;
+        await novoHistorico(trx, codpedcomp, op, `Pedido reaberto para a empresa ${emp} através da tela de pedido de compra autorizado pelo operador ${nome?.nome ?? autorizador.cod}.`);
+      } else {
+        await novoHistorico(trx, codpedcomp, op, `Pedido reaberto para a empresa ${emp} através da tela de pedido de compra.`);
+      }
+      const depois = await estadoFechamento(trx, codpedcomp, 'N');
+      return { codpedcomp, fechado: 'N' as const, idempresa: emp, fechamento: depois.tipo };
     });
   }
+
 }

@@ -30,6 +30,38 @@ import { NumberField } from '../../shared/ui/NumberField';
 
 /** hoje em ISO 'YYYY-MM-DD' (DATA default hoje, como no OnNewRecord do legado). */
 const hojeISO = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * mig 303 — o ESTADO POR LOJA do pedido, como a leitura do agregado o devolve (`lojas`, `fechamento`,
+ * `loja_logada_fechada`). As lojas saem do campo «Lojas do pedido» (o CSV que o comprador edita) com o estado lido;
+ * loja recém-incluída ainda não tem estado — está aberta.
+ */
+function estadoLojas(form: UseFormReturn<CriarPedidoCompraDto>) {
+  const csv = String((form.watch('empresas' as any) as string | undefined) ?? '');
+  const lidas = ((form.watch('lojas' as any) as Array<{ idempresa: number; fechado: boolean }> | undefined) ?? []);
+  const doCsv = [...new Set(csv.split(',').map((x) => Number(x.trim())).filter((n) => Number.isInteger(n) && n > 0))];
+  const ids = doCsv.length ? doCsv : lidas.map((l) => l.idempresa);
+  const lojas = ids.sort((a, b) => a - b).map((id) => ({ idempresa: id, fechado: !!lidas.find((l) => l.idempresa === id)?.fechado }));
+  const fechamento = (form.watch('fechamento' as any) as string | undefined)
+    ?? ((form.watch('fechado' as any) as string | undefined) === 'S' ? 'total' : 'nenhum');
+  const lojaLogadaFechada = (form.watch('loja_logada_fechada' as any) as boolean | undefined) ?? false;
+  const participa = (form.watch('loja_logada_participa' as any) as boolean | undefined) ?? true;
+  return { lojas, fechamento, lojaLogadaFechada, participa, travado: fechamento === 'total' || lojaLogadaFechada };
+}
+
+/** a quantidade (caixas) do item: a soma das lojas quando elas vêm, senão a do item (default 1, a linha de antes). */
+function qtdeDoItem(it: Partial<PedidoCompraItemDto>): number {
+  if (Array.isArray(it.lojas) && it.lojas.length) return it.lojas.reduce((a, l) => a + (Number(l.qtde) || 0), 0);
+  return Number(it.qtde ?? 1) || 1;
+}
+
+/** recarrega o estado por loja depois de fechar/reabrir (quem fechou, o que ficou parcial). */
+async function recarregarEstado(form: UseFormReturn<CriarPedidoCompraDto>, codpedcomp: number) {
+  const fresh = (await obterPedido(codpedcomp)) as unknown as Record<string, unknown>;
+  for (const k of ['fechado', 'lojas', 'fechamento', 'loja_logada_fechada', 'loja_logada_participa', 'empresas']) {
+    form.setValue(k as any, fresh[k] as any);
+  }
+}
 const fmtBRL = (n: number) =>
   n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 /** combos {value:string} do schema → {value:string} p/ o SelectField. */
@@ -133,15 +165,25 @@ function PedidoForm({
 }) {
   // TRAVA de estado (espelha o `travado` da NF via watch): pedido FECHADO é read-only. `fechado` não
   // está no schema de escrita (é state-controlled), mas o read do agregado o traz e o reset o mantém.
-  const fechado = (form.watch('fechado' as any) as string | undefined) === 'S';
+  // mig 303: o fechamento é POR LOJA — a edição trava com TODAS as lojas fechadas ou com a loja logada fechada
+  // (btnEditarClick do legado). O cabeçalho `fechado` só vale para o pedido ainda sem estado por loja (novo).
+  const est = estadoLojas(form);
   const bonificado = (form.watch('bonificacao' as any) as string | undefined) === 'S';
-  const liberado = editavel && !fechado;
+  const liberado = editavel && !est.travado;
 
   return (
     <div className="flex flex-col gap-form-gap">
-      {fechado && (
+      {est.travado && (
         <div className="rounded-radius-base border border-border bg-bg-subtle p-pad-sm text-fg-muted">
-          Pedido fechado — edição bloqueada. Use «Reabrir» para voltar a rascunho.
+          {est.fechamento === 'total'
+            ? 'Pedido fechado em todas as lojas — edição bloqueada. Use «Reabrir» para voltar a rascunho.'
+            : 'Pedido fechado nesta loja — edição bloqueada aqui. Use «Reabrir» para alterar a quantidade desta loja.'}
+        </div>
+      )}
+      {!est.travado && est.fechamento === 'parcial' && (
+        <div className="rounded-radius-base border border-border bg-bg-subtle p-pad-sm text-fg-muted">
+          Fechado em parte das lojas ({est.lojas.filter((l) => l.fechado).map((l) => `loja ${l.idempresa}`).join(', ')}): a
+          quantidade delas não muda, e não se tiram itens.
         </div>
       )}
       {bonificado && (
@@ -202,16 +244,17 @@ function CabecalhoBand({
   situacaoOptions: Opcao[];
 }) {
   const err = form.formState.errors;
-  const fechado = (form.watch('fechado' as any) as string | undefined) === 'S';
+  const est = estadoLojas(form);
   const itens = (form.watch('itens') ?? []) as PedidoCompraItemDto[];
-  // 078 FLIP: total = Σ TOTALCUSTO = Σ (qtde × fator × custo). QTDE default 1.
-  const total = itens.reduce((s, it) => s + (Number(it.qtde ?? 1) || 1) * (Number(it.fatorembalagem) || 0) * (Number(it.vrcusto) || 0), 0);
+  // 078 FLIP: total = Σ TOTALCUSTO = Σ (qtde × fator × custo); a qtde do item é a soma das lojas (mig 303).
+  const total = itens.reduce((s, it) => s + qtdeDoItem(it) * (Number(it.fatorembalagem) || 0) * (Number(it.vrcusto) || 0), 0);
+  const rotuloEstado = est.fechamento === 'total' ? 'Fechado' : est.fechamento === 'parcial' ? 'Fechado em parte' : 'Rascunho';
 
   return (
     <fieldset disabled={!editavel} className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
       <div className="mb-form-gap flex items-center gap-gp-sm">
         <span className="rounded-radius-base bg-bg-subtle px-pad-sm py-pad-xs text-body-sm font-semibold text-fg-default">
-          {fechado ? 'Fechado' : 'Rascunho'}
+          {rotuloEstado}
         </span>
         <span className="text-fg-muted">·</span>
         <span className="text-body-sm text-fg-muted">Cabeçalho do pedido</span>
@@ -219,6 +262,19 @@ function CabecalhoBand({
         <span className="rounded-radius-base bg-bg-subtle px-pad-sm py-pad-xs text-body-sm font-semibold text-fg-default tabular-nums">
           R$ {fmtBRL(total)}
         </span>
+      </div>
+
+      {/* mig 303: as LOJAS PARTICIPANTES (o CSV do legado, '1, 2') e o fechamento de cada uma */}
+      <div className="mb-form-gap flex flex-wrap items-end gap-gp-sm">
+        <div className="w-48">
+          <Field label="&Lojas do pedido" placeholder="ex.: 1, 2" {...form.register('empresas' as any)}
+            error={(err as any).empresas?.message as string | undefined} />
+        </div>
+        {est.lojas.map((l) => (
+          <span key={l.idempresa} className={`rounded-radius-base px-pad-sm py-pad-xs text-body-sm ${l.fechado ? 'bg-bg-subtle font-semibold text-fg-default' : 'border border-border text-fg-muted'}`}>
+            Loja {l.idempresa}: {l.fechado ? 'fechada' : 'aberta'}
+          </span>
+        ))}
       </div>
 
       {/* linha 1: Fornecedor (largo) */}
@@ -433,9 +489,10 @@ function ItensSection({
   };
 
   const itens = fields as Array<PedidoCompraItemDto & { fieldId: string }>;
-  // 078 FLIP: total = Σ TOTALCUSTO = Σ (qtde × fator × custo). QTDE default 1 (linha legada = fator × custo).
+  // 078 FLIP: total = Σ TOTALCUSTO = Σ (qtde × fator × custo); a qtde do item é a soma das lojas (mig 303).
   const linhaTotal = (it: Partial<PedidoCompraItemDto>) =>
-    (Number(it.qtde ?? 1) || 1) * (Number(it.fatorembalagem) || 0) * (Number(it.vrcusto) || 0);
+    qtdeDoItem(it) * (Number(it.fatorembalagem) || 0) * (Number(it.vrcusto) || 0);
+  const lojasPedido = estadoLojas(form).lojas;
   const total = itens.reduce((s, it) => s + linhaTotal(it), 0);
 
   const columns = useMemo<DataTableColumnDef<PedidoCompraItemDto & { fieldId: string }>[]>(
@@ -447,7 +504,14 @@ function ItensSection({
         isPrimary: true,
         valueGetter: (row) => rotuloProduto(row.idproduto),
       },
-      { field: 'qtde', headerName: 'Qtde', type: 'number', width: 90, valueGetter: (row) => Number(row.qtde ?? 1) || 1 },
+      { field: 'qtde', headerName: 'Qtde', type: 'number', width: 90, valueGetter: (row) => qtdeDoItem(row) },
+      // mig 303: a distribuição entre as lojas, quando o pedido tem mais de uma
+      ...(lojasPedido.length > 1
+        ? [{
+            field: 'lojas' as any, headerName: 'Por loja', type: 'text' as const, width: 150,
+            valueGetter: (row: PedidoCompraItemDto) => (row.lojas ?? []).map((l) => `${l.idempresa}: ${Number(l.qtde) || 0}`).join(' · '),
+          }]
+        : []),
       { field: 'fatorembalagem', headerName: 'Fator/emb.', type: 'number', width: 100 },
       {
         field: 'vrcusto',
@@ -506,7 +570,7 @@ function ItensSection({
         ],
       },
     ],
-    [fields, remove, produtoOptions],
+    [fields, remove, produtoOptions, lojasPedido.length],
   );
 
   return (
@@ -546,6 +610,7 @@ function ItensSection({
       {editIdx != null && (
         <PedidoCompraItemModal
           inicial={editIdx >= 0 ? (fields[editIdx] as PedidoCompraItemDto) : undefined}
+          lojas={lojasPedido}
           produtoOptions={produtoOptions}
           produtoAliquotas={produtoAliquotas}
           onFechar={() => setEditIdx(null)}
@@ -703,15 +768,18 @@ function AcoesEstadoBar({ form, onRecebeu }: { form: UseFormReturn<CriarPedidoCo
   const codpedcomp = (form.getValues() as { codpedcomp?: number }).codpedcomp;
   const fechado = (form.watch('fechado' as any) as string | undefined) === 'S';
   const recebido = (form.watch('dtfaturamento' as any) as string | null | undefined) != null;
+  const est = estadoLojas(form);
   if (codpedcomp == null) return null; // ações só em pedido gravado
 
   const fechar = async () => {
     if (executando) return;
     setExecutando(true);
     try {
-      await fecharPedido(codpedcomp);
-      form.setValue('fechado' as any, 'S');
-      mensagem.sucesso('Pedido fechado. Gere a NF de entrada para receber, ou reabra para editar.');
+      const r = (await fecharPedido(codpedcomp)) as { fechamento?: string; idempresa?: number };
+      await recarregarEstado(form, codpedcomp);
+      mensagem.sucesso(r?.fechamento === 'parcial'
+        ? `Pedido fechado para a loja ${r.idempresa ?? ''}. As outras lojas do pedido ainda estão abertas.`
+        : 'Pedido fechado. Gere a NF de entrada para receber, ou reabra para editar.');
     } catch (e) {
       // corte-final: limite de compra excedido → oferece a LIBERAÇÃO (grant LIBERAVALORMAX) e refecha —
       // espelha o fluxo do legado (senha de supervisor → libera → continua).
@@ -721,7 +789,7 @@ function AcoesEstadoBar({ form, onRecebeu }: { form: UseFormReturn<CriarPedidoCo
           try {
             await liberarLimitePedido(codpedcomp);
             await fecharPedido(codpedcomp);
-            form.setValue('fechado' as any, 'S');
+            await recarregarEstado(form, codpedcomp);
             mensagem.sucesso('Limite liberado e pedido fechado.');
           } catch (e2) {
             mensagem.erro(e2);
@@ -773,12 +841,12 @@ function AcoesEstadoBar({ form, onRecebeu }: { form: UseFormReturn<CriarPedidoCo
 
   const reabrir = async () => {
     if (executando) return;
-    if (!window.confirm('Reabrir o pedido? Ele volta a rascunho e a edição é liberada.')) return;
+    if (!window.confirm('Reabrir o pedido para esta loja? A quantidade dela volta a poder ser alterada.')) return;
     setExecutando(true);
     try {
       await reabrirPedido(codpedcomp);
-      form.setValue('fechado' as any, 'N');
-      mensagem.sucesso('Pedido reaberto: voltou a rascunho.');
+      await recarregarEstado(form, codpedcomp);
+      mensagem.sucesso('Pedido reaberto para esta loja.');
     } catch (e) {
       mensagem.erro(e);
     } finally {
@@ -817,12 +885,12 @@ function AcoesEstadoBar({ form, onRecebeu }: { form: UseFormReturn<CriarPedidoCo
     <fieldset className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
       <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Estado do pedido</legend>
       <div className="flex flex-wrap items-center gap-gp-sm">
-        {!fechado && !recebido && <Button label="&Fechar pedido" variant="soft" onClick={() => void fechar()} />}
+        {est.participa && !est.lojaLogadaFechada && !recebido && <Button label="&Fechar pedido" variant="soft" onClick={() => void fechar()} />}
         {/* Wave 4 1:N: gerar/importar disponíveis enquanto FECHADO (o servidor barra quando o saldo zera —
             PEDIDO_TOTALMENTE_RECEBIDO); recebimento em VÁRIAS remessas. Reabrir só ANTES da 1ª remessa. */}
         {fechado && <Button label="&Gerar NF de entrada" variant="soft" onClick={() => void gerarNf()} />}
         {fechado && <Button label="&Importar XML da NFe" variant="soft" onClick={() => setMostrarImport(true)} />}
-        {fechado && !recebido && <Button label="&Reabrir pedido" variant="ghost" onClick={() => void reabrir()} />}
+        {est.lojaLogadaFechada && !recebido && <Button label="&Reabrir pedido" variant="ghost" onClick={() => void reabrir()} />}
         <Button label="Atualizar &preços no catálogo" variant="ghost" onClick={() => void atualizarPrecos()} />
         <Button label="&Duplicar pedido" variant="ghost" onClick={() => void duplicar(false)} />
         <Button label="Gerar pedido &bonificado" variant="ghost" onClick={() => void duplicar(true)} />

@@ -176,7 +176,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
  * Códigos cujo `details` do AppError PODE ser ecoado ao cliente no envelope (`detalhe`) — allowlist explícita
  * (evita vazar dados internos de outros erros: saldos, form/opção de RBAC, etc.). Só o que o front consome.
  */
-const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE', 'CLASS_TRIB_EM_USO', 'PRODUTO_SEM_CLASSIFICACAO', 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO', 'APURACAO_IBSCBS_JA_EXISTE', 'SPLIT_MANUAL_EXCEDE', 'CLUBE_DESCONTO_SOBREPOSTO', 'TRANSFERENCIA_NAO_PERMITIDA']);
+const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE', 'CLASS_TRIB_EM_USO', 'PRODUTO_SEM_CLASSIFICACAO', 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO', 'APURACAO_IBSCBS_JA_EXISTE', 'SPLIT_MANUAL_EXCEDE', 'CLUBE_DESCONTO_SOBREPOSTO', 'TRANSFERENCIA_NAO_PERMITIDA', 'PEDIDO_LOJA_FECHADA', 'PEDIDO_LOJA_FORA_DO_PEDIDO', 'PEDIDO_LOJA_INEXISTENTE', 'PEDIDO_FECHADO_NA_EMPRESA', 'PEDIDO_FECHADO_PARCIAL']);
 
 const CODE_PT: Record<string, string> = {
   // regra de negócio (BusinessRuleError 422)
@@ -199,6 +199,12 @@ const CODE_PT: Record<string, string> = {
   NF_SEM_GRUPO_IBSCBS: 'Esta nota não tem os grupos de IBS/CBS calculados.',
   CLUBE_DESCONTO_NAO_ENCONTRADO: 'Regra do clube de desconto não encontrada.',
   HISTORICO_CONTABIL_NAO_ENCONTRADO: 'Histórico contábil não encontrado.',
+  PEDIDO_FECHADO_NA_EMPRESA: 'Não é possível editar o pedido de compra: ele já foi fechado nesta loja.',
+  PEDIDO_FECHADO_PARCIAL: 'Não é possível tirar itens: o pedido já foi fechado em uma das lojas.',
+  PEDIDO_LOJA_FECHADA: 'A quantidade desta loja não pode mudar: o pedido já foi fechado nela.',
+  PEDIDO_LOJA_FORA_DO_PEDIDO: 'O item tem quantidade para uma loja que não participa do pedido.',
+  PEDIDO_LOJA_INEXISTENTE: 'Loja do pedido não cadastrada.',
+  PEDIDO_LOJA_NAO_PARTICIPA: 'Esta loja não participa do pedido.',
   TRANSFERENCIA_NAO_PERMITIDA: 'Esta conta só pode transferir para as contas cadastradas como permitidas.',
   TRANSFERENCIA_MESMA_CONTA: 'A conta de origem e a de destino são a mesma.',
   SALDO_INSUFICIENTE: 'Saldo insuficiente na conta para este lançamento.',

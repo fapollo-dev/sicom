@@ -22,14 +22,16 @@ export class AggregateEngineService extends CrudEngineService {
     const db = this.dbp.forTenantRead() as AnyDB;
     const out: Record<string, unknown> = { ...(master as Record<string, unknown>) };
     for (const det of cfg.detalhes) {
-      out[det.chave] = await db
+      let itens = (await db
         .selectFrom(det.tabela)
         .select([det.pk, det.fk, ...det.colunas])
         .where(det.fk, '=', id)
         .orderBy(det.pk)
-        .execute();
+        .execute()) as Record<string, unknown>[];
+      if (det.anexarLeitura) itens = await det.anexarLeitura({ db, masterId: id, itens });
+      out[det.chave] = itens;
     }
-    return out;
+    return cfg.anexarLeitura ? cfg.anexarLeitura({ db, id, registro: out, emp: this.emp() }) : out;
   }
 
   /** cria o agregado: master (delta+stamp+histórico+outbox) + itens, numa transação. */
@@ -89,8 +91,10 @@ export class AggregateEngineService extends CrudEngineService {
         if (det.preservar?.length && det.chaveNatural?.length) {
           itens = await this.preservarColunas(trx, det, id, itens);
         }
+        // netos que precisam sobreviver ao delete+insert (ex.: o fechamento de cada loja do pedido)
+        const snapshot = det.antesDeSubstituirTrx ? await det.antesDeSubstituirTrx({ trx, masterId: id, emp: this.emp() }) : undefined;
         await trx.deleteFrom(det.tabela).where(det.fk, '=', id).execute();
-        await this.inserirItens(trx, det, id, itens, dto);
+        await this.inserirItens(trx, det, id, itens, dto, snapshot);
       }
     });
   }
@@ -165,8 +169,12 @@ export class AggregateEngineService extends CrudEngineService {
     masterId: number,
     itens: Record<string, unknown>[],
     header?: Record<string, unknown>,
+    snapshot?: unknown,
   ) {
-    if (!itens.length) return;
+    if (!itens.length) {
+      if (det.aposInserirItensTrx) await det.aposInserirItensTrx({ trx, masterId, emp: this.emp(), itens: [], snapshot, header });
+      return;
+    }
     // enriquecimento transacional por item (ex.: congelar nf_prod.vl_custo de multi_preco; copiar o período
     // do header p/ cada filho como o AtualizaDadosFilho do legado). Recebe o `header` (dto do master) p/ derivações
     // que dependem do cabeçalho — retrocompatível: impls com 3 params ignoram o 4º.
@@ -176,6 +184,13 @@ export class AggregateEngineService extends CrudEngineService {
       for (const c of det.colunas) if (i[c] !== undefined) row[c] = i[c];
       return row;
     });
-    await trx.insertInto(det.tabela).values(linhas).execute();
+    if (!det.aposInserirItensTrx) {
+      await trx.insertInto(det.tabela).values(linhas).execute();
+      return;
+    }
+    // com netos: a PK nova de cada item volta na ordem do VALUES (INSERT … RETURNING de uma instrução só)
+    const gravados = (await trx.insertInto(det.tabela).values(linhas).returning(det.pk).execute()) as Record<string, unknown>[];
+    const comPk = itens.map((it, i) => ({ ...it, [det.pk]: gravados[i]?.[det.pk] }));
+    await det.aposInserirItensTrx({ trx, masterId, emp: this.emp(), itens: comPk, snapshot, header });
   }
 }
