@@ -825,3 +825,10 @@ do item**; o motor agora preserva o que o agregado não gerencia, ligado em 10 d
 scrap, operadoras). Pendentes do Achado 18: 34 (a escada na venda e no item da nota, PIS/COFINS da NF-e, `produtos.pis`
 e as constantes a declarar).
 
+**Fechado (23/09/2026, mig 309):** das 34 restantes, entram no destino a escada de preço da venda (12 colunas + o flag de
+PIS, a redução da base e a origem da mercadoria do cupom) e do item da nota (8), os totais de PIS/COFINS da NF-e e o
+`produtos.pis` (lido pela apuração, Uapuracao.dfm:1535); ficam de fora, declaradas em `ORIGEM_DECLARADA` com a medida, as
+constantes e resíduos — modalidade da base do cupom (sempre 3), rateio de IPI (sempre 'N'), abater ICMS desonerado (4
+notas), destaque de ICMS no Simples (sempre 'N'), tara da embalagem (2 produtos) e a retenção de PIS/COFINS na saída
+(todos os parceiros 'N'). `TRIAGEM_PENDENTE` vazia; conferidor 0/0.
+

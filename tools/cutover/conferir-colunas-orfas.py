@@ -136,47 +136,22 @@ ORIGEM_DECLARADA = {
     ('config_plano_contas', 'codconfig'): 'PK da origem; o destino usa `tipo` como chave (1 linha)',
     ('situacao_nf_parceiros', 'codoperador'): 'autoria do vinculo; 146 linhas, sem uso em regra',
     ('log_impressao_etiqueta', 'valor_impressao'): 'log operacional; o destino ja guarda valor_venda',
+    # Achado 18 (23/09/2026) — o que a triagem mostrou constante ou residual, medido na produção
+    ('vendas', 'icms_modalidade_bc'): 'constante 3 (valor da operação) em todas as vendas — campo do XML da NFC-e (PDV)',
+    ('nf', 'rateio_ipi'): "flag 'N' nas 49.713 notas",
+    ('nf', 'rateio_ipi_devolucao'): "flag 'N' em todas as notas com valor (54 nulas)",
+    ('nf', 'abater_icms_deson'): "'S' em 4 de 49.713 notas — resíduo",
+    ('nf_prod', 'destacicmssn'): "flag 'N' nos 484.830 itens com valor",
+    ('produtos', 'taraembalagem'): 'valor em 2 de 47.741 produtos — resíduo',
+    ('parceiros', 'hab_ret_pis_nf_sai'): "'N' nos 19.070 parceiros: a retenção de PIS na saída não é usada no cliente",
+    ('parceiros', 'hab_ret_cofins_nf_sai'): "'N' nos 19.070 parceiros: idem COFINS",
 }
-# ⏳ TRIAGEM PENDENTE, DECLARADA — o que o filtro de nomes estendido (revisão do pedido, 23/09/2026) passou a ver fora do
+# ⏳ TRIAGEM PENDENTE, DECLARADA (esvaziada em 23/09/2026 — mig 308/309 e ORIGEM_DECLARADA) — o que o filtro de nomes estendido (revisão do pedido, 23/09/2026) passou a ver fora do
 # pedido: a escada de preço gravada em cada VENDA (16 milhões de linhas) e em cada item de NOTA, os tributos do item da
 # devolução de compra, o PIS do produto, as retenções do parceiro. Nenhuma está no destino. Não derrubam o gate (são
 # trabalho de outras telas, com fila própria — FILA-CONVERSAO, Achado 18), mas saem no relatório toda vez: sair daqui é
 # ganhar coluna no destino ou uma linha em ORIGEM_DECLARADA com a prova.
 TRIAGEM_PENDENTE = {
-    ('nf', 'cofins_nfe'),
-    ('nf', 'pis_nfe'),
-    ('nf', 'rateio_ipi'),
-    ('parceiros', 'hab_ret_cofins_nf_sai'),
-    ('parceiros', 'hab_ret_pis_nf_sai'),
-    ('nf_prod', 'contsocial'),
-    ('nf_prod', 'debitoicm'),
-    ('nf_prod', 'despopv'),
-    ('nf_prod', 'imprend'),
-    ('nf_prod', 'lucrobrutop'),
-    ('nf_prod', 'lucrobrutov'),
-    ('nf_prod', 'lucroliqp'),
-    ('nf_prod', 'lucroliqv'),
-    ('vendas', 'icms_modalidade_bc'),
-    ('vendas', 'icms_origem_mercadoria'),
-    ('vendas', 'icms_taxa_reducao_bc'),
-    ('nf', 'rateio_ipi_devolucao'),
-    ('nf', 'abater_icms_deson'),
-    ('produtos', 'pis'),
-    ('nf_prod', 'destacicmssn'),
-    ('vendas', 'pis'),
-    ('vendas', 'contsocial'),
-    ('vendas', 'creditoicm'),
-    ('vendas', 'creditopiscofins'),
-    ('vendas', 'debitoicm'),
-    ('vendas', 'despacessorio'),
-    ('vendas', 'despopv'),
-    ('vendas', 'frete'),
-    ('vendas', 'frete2'),
-    ('vendas', 'icmst'),
-    ('vendas', 'imprend'),
-    ('vendas', 'ipi'),
-    ('vendas', 'seguro'),
-    ('produtos', 'taraembalagem'),
 }
 
 # grandezas cuja ausência muda NÚMERO ou IDENTIDADE — é onde a perda é cara
