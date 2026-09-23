@@ -185,6 +185,8 @@ export function ManifestoDfePage() {
                 <td className="p-pad-xs">{manif(l)}{Number(l.cancelada) ? ' · CANCELADA' : ''}</td>
                 <td className="p-pad-xs">
                   {l.importada === 'S' ? 'Importada' : l.ignorada === 'S' ? `Ignorada (${String(l.ignorar_manifesto_motivo ?? '')})` : 'Pendente'}
+                  {/* o vínculo NF × devolução (VINCULA_ENT_DEV da GET_NF_MANIFESTO do legado) */}
+                  {l.cod_vincula_ent_dev ? <span className="block text-body-xs text-fg-muted" title={String(l.cod_vincula_ent_dev)}>Vinculada à devolução</span> : null}
                 </td>
                 <td className="p-pad-xs whitespace-nowrap">
                   <button className="underline" onClick={() => void verEventos(String(l.chavenfe))}>eventos</button>

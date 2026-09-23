@@ -6334,6 +6334,20 @@ async function main() {
           && (mdPend.linhas ?? []).length === 2,
           { b: [mB?.ciencia, mB?.cancelada], aXml: mA?.tem_xml, canc: (mdCanc.linhas ?? []).length, pend: (mdPend.linhas ?? []).length });
 
+        // Achado 20, item 8: o vínculo NF × devolução (NFE_REF_DEV_ENT_VINCULO) aparece na fila, como na GET_NF_MANIFESTO;
+        // a mesma chave com dois vínculos não duplica a linha
+        await pgRv.query(`DELETE FROM nfe_ref_dev_ent_vinculo WHERE chavenfe LIKE '5299%'`);
+        await pgRv.query(`INSERT INTO nfe_ref_dev_ent_vinculo (chavenfe, chavenfe_dev) VALUES
+          ('52991201000000000001550010000010001000010001','52991201000000000009550010000010009000010009'),
+          ('52991201000000000001550010000010001000010001','52991201000000000008550010000010008000010008')`);
+        const mdV = await mdQ({});
+        const mdVA = (mdV.linhas ?? []).filter((l: any) => Number(l.codnfe_naocad) === 97001);
+        await pgRv.query(`DELETE FROM nfe_ref_dev_ent_vinculo WHERE chavenfe LIKE '5299%'`);
+        check('MANIFESTO vínculo × devolução: a nota A traz as 2 chaves vinculadas numa linha só; B sem vínculo',
+          mdVA.length === 1 && String(mdVA[0]?.cod_vincula_ent_dev ?? '').split(', ').length === 2
+          && !(mdV.linhas ?? []).find((l: any) => Number(l.codnfe_naocad) === 97002)?.cod_vincula_ent_dev,
+          { a: mdVA.map((l: any) => l.cod_vincula_ent_dev) });
+
         const ig = async (body: Record<string, unknown>) => await fetch(`${base}/${MD}/ignorar`, { method: 'POST', headers: H, body: JSON.stringify(body) });
         const igSem = await ig({ codnfe_naocad: 97001 });
         const igImp = await ig({ codnfe_naocad: 97003, motivo: 'teste' });

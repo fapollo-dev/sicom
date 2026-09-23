@@ -78,6 +78,11 @@ export class ManifestoDfeService {
         sql`coalesce(e.cancelada,0)`.as('cancelada'),
         // tem XML completo? (habilita exportar/importar)
         sql`exists (select 1 from nfe_xml x where x.chavenfe = n.chavenfe)`.as('tem_xml'),
+        // o vínculo NF × devolução (NFE_REF_DEV_ENT_VINCULO, mig 311): as colunas VINCULA_ENT_DEV / COD_VINCULA_ENT_DEV da
+        // GET_NF_MANIFESTO do legado. Quem grava é o binário novo (não está no fonte de 2020) — aqui, a leitura do que
+        // veio na carga (589 pares; 546 entre duas NF-e de fornecedor ainda não importadas). Subconsulta em vez do LEFT
+        // JOIN da view: a mesma chave com dois vínculos não duplica a linha.
+        sql`(select string_agg(distinct v.chavenfe_dev, ', ') from nfe_ref_dev_ent_vinculo v where v.chavenfe = n.chavenfe)`.as('cod_vincula_ent_dev'),
       ])
       .where('n.idempresa', '=', emp);
     if (f.dtini) q = q.where('n.dtemissao', '>=', sql`${f.dtini}::timestamptz`);
