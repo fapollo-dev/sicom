@@ -70,8 +70,9 @@ NFs de 2026: 7.219 em 31 situações; itens 68.745 (68.624 com situação; em 70
   comum com filtros (tipo, tipo_operacao, com_cfop).
 - **C2 — NF × CFOP** ✅: pesquisa de situação e de CFOP filtradas, `validaCFOP_SituacaoNF`, `nf_prod.idsituacao_nf`,
   devolução pela ISITUACAO_NF. A validação é a do legado inteira: situação sem CFOP nenhum recusa qualquer CFOP (o
-  `Locate` não acha); o item digitado é cobrado em qualquer tipo de nota (uItensNF.pas:1525) e a nota inteira só na
-  entrada ou com a config (o Processamento, uNF.pas:14921) — é o que deixa passar o item importado da saída.
+  `Locate` não acha); no gravar, o item só é cobrado na ENTRADA e quando passou pelo diálogo (o OK do diálogo,
+  uItensNF.pas:1525, fica DENTRO do `if TIPO = 'E'`, :1492 — ⚠️ corrigido no C6: a primeira versão cobrava o item
+  digitado da saída também); a nota inteira, no Processamento, na entrada ou com a config (uNF.pas:14921).
   O processamento (F3) confere de novo cada item pela situação dele (uNF.pas:14921; uProcessaNotaFiscal.pas:587).
 - **C2b — transferência** ✅ (veredito, produção lida em 23/09/2026): situação com CFOP 5152 marca o pedido como
   transferência e o CFOP vira 5152/6152 (uNF.pas:1423) — mas isso só existe na importação de PEDIDO/TRANSFERÊNCIA da
@@ -108,7 +109,12 @@ NFs de 2026: 7.219 em 31 situações; itens 68.745 (68.624 com situação; em 70
   parceiro nem centro de custo — a tela do legado (uMovCaixa, F06) lança na CAIXA gerencial com os três; é conversão
   própria da tela, não deste corte. As pesquisas dos CFOPs (I01…I10) e da empresa (E01) vivem nas telas de CFOP e
   empresa (a lista de situações já tem o tipo de operação).
-- **C6 — regras pequenas**: BCR>100, importação automática; declarar mortos os campos acima.
+- **C6 — regras pequenas** ✅ (23/09/2026, mig 321, smoke 1480/0): base de cálculo acima de 100% no item de SAÍDA
+  digitado só com `PERMITE_BASECALC_MAIOR100='S'` na situação (o `else` do diálogo, uItensNF.pas:1561; mensagem
+  literal); a importação automática da situação (`IMPORTACAO_AUTO_NF`, uNF.pas:14396) — 'SC' abre o SCRAP na nota de
+  saída (situação 90 da produção). ⚠️ As outras origens configuradas na produção não existem no Apollo: **'VE' (a NF
+  DE CUPOM, situação 9: 170 NFs em 2024, 337 em 2025, 375 em 2026 — importa as VENDAS e referencia as NFC-e, 466
+  referências em 2026)** e 'DE' (devolução de venda, situação 2: 1 por ano) — na FILA.
 
 ## 5. Riscos
 Editar os itens contábeis mexe no motor contábil vivo; `RetornarValores` pega a primeira linha (24 CFOPs em várias

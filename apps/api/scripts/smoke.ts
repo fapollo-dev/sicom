@@ -1076,15 +1076,15 @@ async function main() {
         await pgSit.query(`INSERT INTO cfop (codcfop, descricao, tipo) VALUES ('1556','COMPRA USO CONSUMO','E') ON CONFLICT DO NOTHING`);
         const f2 = await nfSit({ tipo: 'E', nronf: 'SITC2B', cfop: '1102', idsituacao_nf: 6, codparceiro: 22, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1, cfop: '1556', aliquota: 'T01' }] });
         const f2J = (await f2.json().catch(() => ({}))) as any;
-        // SAÍDA: o item digitado é cobrado mesmo com VALIDA_CFOP_SITUACAO_NF_SAIDA='N' (o OK do diálogo do item)
+        // SAÍDA: o diálogo do item NÃO confere o CFOP×situação (fica dentro do `if TIPO = 'E'`, uItensNF.pas:1492) → grava
         await pgSit.query(`INSERT INTO cfop (codcfop, descricao, tipo) VALUES ('5405','VENDA ST','S') ON CONFLICT DO NOTHING`);
         const f3 = await nfSit({ tipo: 'S', nronf: 'SITC2C', cfop: '5102', idsituacao_nf: 8, codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1, cfop: '5405', aliquota: 'T01' }] });
         const f3J = (await f3.json().catch(() => ({}))) as any;
-        check('SITUAÇÃO f (C2): CFOP da NF fora da situação → 422 NF_CFOP_SITUACAO · item de entrada fora → 422 NF_ITEM_CFOP_SITUACAO · item digitado na saída também é cobrado',
-          f1.status === 422 && f1J.code === 'NF_CFOP_SITUACAO' && f2.status === 422 && f2J.code === 'NF_ITEM_CFOP_SITUACAO'
-          && f3.status === 422 && f3J.code === 'NF_ITEM_CFOP_SITUACAO',
+        check('SITUAÇÃO f (C2): CFOP da NF fora da situação → 422 NF_CFOP_SITUACAO · item de ENTRADA digitado fora → 422 NF_ITEM_CFOP_SITUACAO · item de SAÍDA digitado fora grava (o diálogo só confere na entrada)',
+          f1.status === 422 && f1J.code === 'NF_CFOP_SITUACAO' && f2.status === 422 && f2J.code === 'NF_ITEM_CFOP_SITUACAO' && f3.status === 201,
           { f1: [f1.status, f1J.code], f2: [f2.status, f2J.code], f3: [f3.status, f3J.code] });
-        // g) o item entra com a situação do cabeçalho; o que veio por importação (CFOP fora) só é cobrado na saída com a config
+        if (f3.status === 201) await fetch(`${base}/fiscal/nf/${Number(f3J.codnf)}`, { method: 'DELETE', headers: H });
+        // g) o item entra com a situação do cabeçalho; a SAÍDA com item fora só é cobrada no PROCESSAMENTO e com a config
         const g0 = await nfSit({ tipo: 'S', nronf: 'SITC2D', cfop: '5102', idsituacao_nf: 8, codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1, cfop: '5102', aliquota: 'T01' }] });
         const g0Id = Number(((await g0.json().catch(() => ({}))) as any).codnf);
         const gSit = (await pgSit.query(`SELECT idsituacao_nf FROM nf_prod WHERE codnf=$1`, [g0Id])).rows.map((r) => Number(r.idsituacao_nf));
@@ -1099,12 +1099,33 @@ async function main() {
            WHERE NOT EXISTS (SELECT 1 FROM configuracoes WHERE codigo='VALIDA_CFOP_SITUACAO_NF_SAIDA')`);
         await pgSit.query(`UPDATE configuracoes SET valor='S' WHERE codigo='VALIDA_CFOP_SITUACAO_NF_SAIDA'`);
         const g2 = await gEcho();
-        const g2J = (await g2.json().catch(() => ({}))) as any;
+        const g3 = await fetch(`${base}/fiscal/nf/${g0Id}/processar`, { method: 'POST', headers: H });
+        const g3J = (await g3.json().catch(() => ({}))) as any;
         await pgSit.query(`UPDATE configuracoes SET valor='N' WHERE codigo='VALIDA_CFOP_SITUACAO_NF_SAIDA'`);
         await fetch(`${base}/fiscal/nf/${g0Id}`, { method: 'DELETE', headers: H });
-        check('SITUAÇÃO g (C2): o item gravado leva a situação do cabeçalho (8) · item importado com CFOP fora: saída regrava (200) e, com VALIDA_CFOP_SITUACAO_NF_SAIDA=S, 422',
-          g0.status === 201 && gSit.length === 1 && gSit[0] === 8 && g1.status === 200 && g2.status === 422 && g2J.code === 'NF_ITEM_CFOP_SITUACAO',
-          { g0: g0.status, sitItem: gSit, g1: g1.status, g2: [g2.status, g2J.code] });
+        check('SITUAÇÃO g (C2): o item gravado leva a situação do cabeçalho (8) · saída com item fora regrava (200, com ou sem a config) · com VALIDA_CFOP_SITUACAO_NF_SAIDA=S o PROCESSAMENTO recusa (422)',
+          g0.status === 201 && gSit.length === 1 && gSit[0] === 8 && g1.status === 200 && g2.status === 200 && g3.status === 422 && g3J.code === 'NF_ITEM_CFOP_SITUACAO',
+          { g0: g0.status, sitItem: gSit, g1: g1.status, g2: g2.status, g3: [g3.status, g3J.code] });
+        // C6 — BASE DE CÁLCULO ACIMA DE 100% na saída (uItensNF.pas:1561): sem `PERMITE_BASECALC_MAIOR100` na situação → 422;
+        // com → grava; na entrada não se aplica
+        const b1 = await nfSit({ tipo: 'S', nronf: 'BCR1', cfop: '5102', idsituacao_nf: 8, codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, bcr: 120, cfop: '5102', aliquota: 'T01' }] });
+        const b1J = (await b1.json().catch(() => ({}))) as any;
+        await pgSit.query(`UPDATE situacao_nf SET permite_basecalc_maior100='S' WHERE idsituacao_nf=8`);
+        const b2 = await nfSit({ tipo: 'S', nronf: 'BCR2', cfop: '5102', idsituacao_nf: 8, codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, bcr: 120, cfop: '5102', aliquota: 'T01' }] });
+        const b2J = (await b2.json().catch(() => ({}))) as any;
+        await pgSit.query(`UPDATE situacao_nf SET permite_basecalc_maior100=NULL WHERE idsituacao_nf=8`);
+        const b3 = await nfSit({ tipo: 'E', nronf: 'BCR3', cfop: '1102', idsituacao_nf: 6, codparceiro: 22, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, bcr: 120, cfop: '1102', aliquota: 'T01' }] });
+        const b3J = (await b3.json().catch(() => ({}))) as any;
+        check('SITUAÇÃO C6: item de saída com base de cálculo 120% → 422 NF_BCR_MAIOR_100 (a mensagem do legado) · com PERMITE_BASECALC_MAIOR100=S na situação → 201 · na entrada não se aplica (201)',
+          b1.status === 422 && b1J.code === 'NF_BCR_MAIOR_100' && b2.status === 201 && b3.status === 201,
+          { b1: [b1.status, b1J.code], b2: b2.status, b3: b3.status });
+        for (const x of [b2J, b3J]) if (x?.codnf) await fetch(`${base}/fiscal/nf/${Number(x.codnf)}`, { method: 'DELETE', headers: H });
+        // C6 — a lista de situações traz a IMPORTAÇÃO AUTOMÁTICA (a tela da NF abre o SCRAP quando é 'SC' — a 90 da produção)
+        await pgSit.query(`UPDATE situacao_nf SET importacao_auto_nf='SC' WHERE idsituacao_nf=8`);
+        const lsit = (await (await fetch(`${base}/cadastro/situacoes-nf`, { headers: H })).json().catch(() => [])) as any[];
+        await pgSit.query(`UPDATE situacao_nf SET importacao_auto_nf=NULL WHERE idsituacao_nf=8`);
+        check('SITUAÇÃO C6: a lista de situações traz IMPORTACAO_AUTO_NF (8 → SC) para a tela disparar a importação',
+          Array.isArray(lsit) && lsit.find((x) => Number(x.idsituacao_nf) === 8)?.importacao_auto_nf === 'SC', { v: Array.isArray(lsit) ? lsit.find((x) => Number(x.idsituacao_nf) === 8)?.importacao_auto_nf : lsit });
         // h) o PROCESSAMENTO confere de novo (uNF.pas:14921): entrada gravada certa, item mudado por fora → processar 422
         const h0 = await nfSit({ tipo: 'E', nronf: 'SITC2E', cfop: '1102', idsituacao_nf: 6, codparceiro: 22, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1, cfop: '1102', aliquota: 'T01' }] });
         const h0Id = Number(((await h0.json().catch(() => ({}))) as any).codnf);
@@ -4057,11 +4078,12 @@ async function main() {
         const nfAJ = (await nfA.json().catch(() => ({}))) as any;
         const nfDig = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ ...nfBase, nronf: 'SCRAPD', cfop: '6949', idsituacao_nf: 7921, itens: (pvJ.itens ?? []).map(({ importado_de: _x, ...i }: any) => i) }) });
         const nfDigJ = (await nfDig.json().catch(() => ({}))) as any;
+        if (nfDigJ?.codnf) await fetch(`${base}/fiscal/nf/${Number(nfDigJ.codnf)}`, { method: 'DELETE', headers: H });
         const vin = await fetch(`${base}/fiscal/nf/${Number(nfAJ.codnf)}/scrap`, { method: 'POST', headers: H, body: JSON.stringify({ codscraps: [scA] }) });
         const pnA = (await pgSc.query(`SELECT tipo FROM pedido_nf WHERE codnf=$1 AND codpedido=$2`, [Number(nfAJ.codnf), scA])).rows;
         const impA = (await pgSc.query(`SELECT importado FROM scrap WHERE codscrap=$1`, [scA])).rows[0]?.importado;
-        check('SCRAP→NF gravar: item importado com CFOP fora da situação grava (201, como os 358 itens de 2026) · o mesmo item digitado → 422 NF_ITEM_CFOP_SITUACAO · vínculo no gravar: PEDIDO_NF tipo S + SCRAP.IMPORTADO=S · TOTALPROD 56 (5×10 + 1×6)',
-          nfA.status === 201 && Number(nfAJ.totalprod) === 56 && nfDig.status === 422 && nfDigJ.code === 'NF_ITEM_CFOP_SITUACAO'
+        check('SCRAP→NF gravar: item com CFOP fora da situação grava (201, como os 358 itens de 2026 — na saída o item não é conferido no gravar, importado ou digitado) · vínculo no gravar: PEDIDO_NF tipo S + SCRAP.IMPORTADO=S · TOTALPROD 56 (5×10 + 1×6)',
+          nfA.status === 201 && Number(nfAJ.totalprod) === 56 && nfDig.status === 201
           && vin.status === 200 && pnA.length === 1 && pnA[0].tipo === 'S' && impA === 'S',
           { nfA: [nfA.status, nfAJ.totalprod], dig: [nfDig.status, nfDigJ.code], vin: vin.status, pn: pnA, imp: impA });
 

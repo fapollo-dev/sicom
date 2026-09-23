@@ -506,6 +506,7 @@ const CODE_PT: Record<string, string> = {
   PROMOCAO_PRODUTO_SOBREPOSTO: 'Um produto já está em outra promoção no mesmo período.',
   NF_CFOP_SITUACAO: 'CFOP não permitido para a situação informada para a nota fiscal. Verifique!',
   NF_ITEM_CFOP_SITUACAO: 'CFOP não permitido para a situação informada no item. Verifique!',
+  NF_BCR_MAIOR_100: 'Atenção: O valor da base de cálculo do ICMS é maior que 100%!',
   // restrições da situação do documento fora da NF (UCadSituacaoNF.md C5) — as mensagens de cada tela do legado
   SITUACAO_FORNECEDOR_NAO_PERMITIDO: 'O fornecedor informado não é permitido para a situação do documento selecionada.',
   SITUACAO_CLIENTE_NAO_PERMITIDO: 'O cliente informado não é permitido para a situação do documento selecionada.',

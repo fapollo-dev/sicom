@@ -7,7 +7,7 @@ import { estornarVinculoRotativo } from './inventario-rotativo-nf';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { debitoPisCofins } from '../shared/piscofins-rentab';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
-import { conferirNotaInteira, leitorCfopsDaSituacao } from './nf-cfop-situacao';
+import { leitorCfopsDaSituacao } from './nf-cfop-situacao';
 import { normalizarItensNf } from './nf-item-padrao';
 import { estornarVinculoScrap } from './nf-scrap.service';
 import { preencherRateioContabil } from './nf-rateio';
@@ -204,37 +204,48 @@ export const nfAggregateConfig: AggregateConfig = {
 
     // CFOP × SITUAÇÃO (`validaCFOP_SituacaoNF`, udmNF.pas:7900; UCadSituacaoNF.md C2): com situação na NF, o CFOP do
     // cabeçalho tem de estar entre os CFOPs dela (btnGravar, uNF.pas:4543) — situação sem CFOP nenhum recusa qualquer
-    // CFOP, como o Locate do legado. O de cada item, pela situação DO ITEM: o item digitado ou alterado é cobrado sempre
-    // (o OK do diálogo do item, uItensNF.pas:1525); a nota inteira, na ENTRADA ou com `VALIDA_CFOP_SITUACAO_NF_SAIDA='S'`
-    // (o Processamento, uNF.pas:14921 — na produção 'N'), o que pega o item que veio por importação.
+    // CFOP, como o Locate do legado. No gravar, o ITEM só é cobrado na ENTRADA e quando passou pelo diálogo (digitado
+    // ou com o CFOP alterado — o OK do diálogo, uItensNF.pas:1525, fica dentro do `if TIPO = 'E'`); a nota inteira é
+    // cobrada no PROCESSAMENTO (`nf-cfop-situacao.ts`). O item de SAÍDA não é cobrado no diálogo: lá a regra é a base
+    // de cálculo acima de 100% (C6, abaixo).
     const sitNf = Number(dto.idsituacao_nf ?? atual?.idsituacao_nf ?? 0);
+    const tipoNf = String(dto.tipo ?? atual?.tipo ?? '');
     if (sitNf > 0) {
-      const cfopsDe = leitorCfopsDaSituacao(db);
       const cfopNf = dto.cfop ?? atual?.cfop;
-      if (cfopNf != null && cfopNf !== '' && !(await cfopsDe(sitNf)).has(Number(cfopNf))) {
+      if (cfopNf != null && cfopNf !== '' && !(await leitorCfopsDaSituacao(db)(sitNf)).has(Number(cfopNf))) {
         throw new BusinessRuleError('NF_CFOP_SITUACAO', { cfop: Number(cfopNf), idsituacao_nf: sitNf });
       }
-      if (Array.isArray(dto.itens)) {
-        const notaInteira = await conferirNotaInteira(db, String(dto.tipo ?? atual?.tipo ?? ''), emp);
-        // o item já gravado, casado pelo produto na ordem (como o motor casa): dá a situação própria do item (701 linhas
-        // da produção diferem do cabeçalho) e diz se o CFOP mudou
-        const antigos = new Map<string, Array<{ cfop: unknown; idsituacao_nf: unknown }>>();
-        if (id != null) {
-          for (const r of (await db.selectFrom('nf_prod').select(['codproduto', 'cfop', 'idsituacao_nf']).where('codnf', '=', id).orderBy('codnfprod').execute()) as Array<{ codproduto: unknown; cfop: unknown; idsituacao_nf: unknown }>) {
-            const k = String(r.codproduto);
-            antigos.set(k, [...(antigos.get(k) ?? []), r]);
-          }
+    }
+    if (Array.isArray(dto.itens) && (sitNf > 0 || tipoNf === 'S')) {
+      // o item já gravado, casado pelo produto na ordem (como o motor casa): dá a situação própria do item (701 linhas
+      // da produção diferem do cabeçalho) e diz o que mudou
+      const antigos = new Map<string, Array<{ cfop: unknown; idsituacao_nf: unknown; bcr: unknown }>>();
+      if (id != null) {
+        for (const r of (await db.selectFrom('nf_prod').select(['codproduto', 'cfop', 'idsituacao_nf', 'bcr']).where('codnf', '=', id).orderBy('codnfprod').execute()) as Array<{ codproduto: unknown; cfop: unknown; idsituacao_nf: unknown; bcr: unknown }>) {
+          const k = String(r.codproduto);
+          antigos.set(k, [...(antigos.get(k) ?? []), r]);
         }
-        for (const it of dto.itens as Array<Record<string, unknown>>) {
-          const par = antigos.get(String(it.codproduto))?.shift();
-          if (it.cfop == null || it.cfop === '') continue;
-          // o item que veio de importação (scrap, rotativo) não passou pelo diálogo — só a nota inteira o cobra
-          const tocado = (!par || Number(par.cfop) !== Number(it.cfop)) && !it.importado_de;
-          if (!tocado && !notaInteira) continue;
+      }
+      const cfopsDe = leitorCfopsDaSituacao(db);
+      let permiteBcr: boolean | null = null;
+      for (const it of dto.itens as Array<Record<string, unknown>>) {
+        const par = antigos.get(String(it.codproduto))?.shift();
+        // o item que veio de importação (scrap, rotativo, XML) não passou pelo diálogo
+        if (it.importado_de) continue;
+        if (tipoNf === 'E' && sitNf > 0 && it.cfop != null && it.cfop !== '' && (!par || Number(par.cfop) !== Number(it.cfop))) {
           const sitIt = [it.idsituacao_nf, par?.idsituacao_nf].map(Number).find((s) => s > 0) ?? sitNf;
           if (!(await cfopsDe(sitIt)).has(Number(it.cfop))) {
             throw new BusinessRuleError('NF_ITEM_CFOP_SITUACAO', { cfop: Number(it.cfop), idsituacao_nf: sitIt, codproduto: it.codproduto });
           }
+        }
+        // C6 — BASE DE CÁLCULO ACIMA DE 100% na SAÍDA (uItensNF.pas:1561): só com `PERMITE_BASECALC_MAIOR100='S'` na
+        // situação da nota (`PermiteBaseDeCalcMaior100`, udmNF.pas:11593); cobrada no item digitado ou com o BCR alterado
+        if (tipoNf === 'S' && Number(it.bcr ?? 0) > 100 && (!par || Number(par.bcr ?? 0) !== Number(it.bcr))) {
+          if (permiteBcr == null) {
+            const s0 = sitNf > 0 ? ((await db.selectFrom('situacao_nf').select('permite_basecalc_maior100').where('idsituacao_nf', '=', sitNf).executeTakeFirst()) as { permite_basecalc_maior100?: string } | undefined) : undefined;
+            permiteBcr = String(s0?.permite_basecalc_maior100 ?? '') === 'S';
+          }
+          if (!permiteBcr) throw new BusinessRuleError('NF_BCR_MAIOR_100', { bcr: Number(it.bcr), codproduto: it.codproduto, idsituacao_nf: sitNf });
         }
       }
     }

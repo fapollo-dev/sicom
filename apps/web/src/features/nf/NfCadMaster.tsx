@@ -57,7 +57,7 @@ const toStr = (opts: ReadonlyArray<{ value: number; label: string }>): Opcao[] =
   opts.map((o) => ({ value: String(o.value), label: o.label }));
 
 type OpcaoCfop = Opcao & { tipo: string | null };
-type OpcaoSituacao = Opcao & { tipo: string | null; qtdeCfop: number };
+type OpcaoSituacao = Opcao & { tipo: string | null; qtdeCfop: number; importacaoAuto?: string | null };
 
 type LookupOptions = {
   parceiroOptions: Opcao[];
@@ -108,6 +108,7 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
     label: `${s.idsituacao_nf} - ${s.descricao}`,
     tipo: s.tipo ?? null,
     qtdeCfop: Number(s.qtde_cfop ?? 0),
+    importacaoAuto: s.importacao_auto_nf ? String(s.importacao_auto_nf).trim().toUpperCase() : null,
   }));
   const { data: plcOptions = [] } = useResourceOptions('cadastro/plc', (c: any) => ({
     value: String(c.codplc),
@@ -897,6 +898,22 @@ function ItensSection({
   // `fListaImportacaoScrap` e marca IMPORTADO no `btnGravar` (uNF.pas:5251); a liberação da reimportação vai junto
   const [scrapAberto, setScrapAberto] = useState(false);
   const pendenteScrap = useRef<{ codscraps: number[]; credenciais: CredenciaisLiberacao } | null>(null);
+  // IMPORTAÇÃO AUTOMÁTICA da situação (IMPORTACAO_AUTO_NF, uNF.pas:14396; UCadSituacaoNF.md C6): escolher na nota de
+  // saída uma situação com 'SC' abre a importação do SCRAP (a 90 da produção). As outras origens do legado (VE vendas,
+  // DE devolução de venda…) ainda não existem no Apollo — ver a FILA
+  const sitWatch = form.watch('idsituacao_nf');
+  const sitAnterior = useRef(sitWatch);
+  useEffect(() => {
+    const antes = sitAnterior.current;
+    sitAnterior.current = sitWatch;
+    if (!editavel || sitWatch == null || Number(sitWatch) === Number(antes ?? 0) || form.getValues('tipo') !== 'S') return;
+    const o = opts.situacaoOptions.find((x) => Number(x.value) === Number(sitWatch));
+    if (o?.importacaoAuto === 'SC') {
+      mensagem.sucesso('A importação de SCRAP será iniciada, conforme configuração na situação de documento.');
+      setScrapAberto(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sitWatch]);
   const codnfAtual = form.watch('codnf' as any) as number | undefined;
   const codparceiroAtual = form.watch('codparceiro');
   useEffect(() => {
