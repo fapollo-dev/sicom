@@ -10,6 +10,7 @@ import {
   type AtualizarPedidoCompraDto,
   type PedidoCompra,
 } from '@apollo/shared';
+import type { ImpressaoPedido } from './imprimirPedido';
 
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
@@ -69,6 +70,11 @@ export function removerPedido(id: number): Promise<void> {
 export function fecharPedido(id: number, senhaAdm?: string): Promise<{ codpedcomp: number; fechado: 'S' }> {
   // senhaAdm: a liberação da META DIÁRIA de compra da loja (mig 304, SenhaAdministrativa('ADM') do legado)
   return req(`/compras/pedidos/${id}/fechar`, { method: 'POST', body: JSON.stringify(senhaAdm ? { senhaAdm } : {}) });
+}
+
+/** GET compras/pedidos/:id/impressao — o documento do pedido (por loja; `agrupado` soma as lojas). */
+export function obterImpressaoPedido(id: number, agrupado: boolean): Promise<ImpressaoPedido> {
+  return req(`/compras/pedidos/${id}/impressao${agrupado ? '?agrupado=1' : ''}`);
 }
 
 /** POST compras/pedidos/:id/reabrir — fechado→rascunho (destrava edição/exclusão). */

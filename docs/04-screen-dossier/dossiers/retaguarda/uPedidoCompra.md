@@ -457,4 +457,28 @@ linha de COTACAO_PRODQTDE (:1848 — QTDTOTAL = × fator, TOTALCUSTO = × embala
 leva as lojas e as quantidades por loja (produto sem quantidade por loja: a do produto, como antes). A cotação é pouco
 usada no cliente — 1 em 2026, 3 em 2025 (uma para as lojas 1 e 2). Smoke §165.5. **1437/0.**
 
-**Fica:** relatório de pedidos por loja.
+## 21. IMPRESSÃO DO PEDIDO — por loja e agrupado (mig 305), 23/09/2026
+
+Não existia no Apollo, nem constava deste dossiê: o documento que vai ao fornecedor.
+
+- **«Imprimir pedido»** (`mniImprimirPedidoClick`, uPedidoCompra.pas:2893 → `ped_compra.fr3`): o SQL `sqqImprime`
+  (udmPedidoCompra.dfm) parte de `PEDIDO_COMPRA_QTDE` e o relatório agrupa por IDEMPRESA — uma seção por loja com
+  razão, fantasia, endereço, CNPJ, IE e fone da loja, e os itens com a quantidade DELA: cód. barra, produto (e a
+  situação da NF do item), un., qtde, vr. unit, total (qtde × embalagem), fator, qtde total, vr. embalagem e o ICMS
+  efetivo (`DET_ALIQUOTA` pela UF da loja). Cabeçalho: pedido, data, fornecedor, "fornecedor com desconto de X %",
+  condição, vencimento, comprador (operador da última alteração), observação. Rodapé: nº de produtos, total da
+  compra, total bonificado (Σ total × % bonificação), assinaturas.
+- **«Imprimir agrupado»** (:2818 → `ped_compra_agrupado.fr3`): as mesmas colunas, as lojas do pedido somadas por item.
+- A "Cond. Pagto" impressa são os PRAZOS ("30-60-90"): o script do relatório escreve por cima da descrição da condição.
+  O script tem dois defeitos, não copiados — o CD8 sai grudado, sem o hífen, e todas as condições testam o CD1; e
+  sem prazos o legado imprime vazio, o Apollo imprime a descrição da condição.
+- `IMPRIME_ZERADO_PC` ('S' imprime, 'N' omite, 'P' pergunta — o do cliente é 'P'): a tela decide com a mesma pergunta.
+- O `CODREF` do fornecedor (`PreencheCodRefFornecedor`, :8823) vem na projeção, mas nenhum dos dois `.fr3` o imprime.
+- Não há permissão de impressão no legado (0 linhas na `PERMISSOES`): é leitura, como no Apollo.
+- **Situação da NF por item** (mig 305, `PEDIDOCOMPRA_I.IDSITUACAO_NF`): esparsa na produção (769 de 211.035; 17 em
+  2025), fora da conta do conferidor. Item sem situação herda a do cabeçalho (uPedidoCompra.pas:7349); sai na impressão.
+
+API `GET compras/pedidos/:id/impressao[?agrupado=1]`; a tela monta o documento e entrega à camada global de impressão.
+Smoke §165.6. **1438/0.**
+
+**Fica:** o e-mail do pedido ao fornecedor (`SendEmail`, :4970 — SMTP da empresa); o relatório de pedidos (listagem).

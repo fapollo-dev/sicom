@@ -17895,6 +17895,34 @@ async function main() {
           await pgMl.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [codM]);
         }
 
+        // §165.6 — a IMPRESSÃO do pedido (ped_compra.fr3 por loja; ped_compra_agrupado.fr3 somando as lojas)
+        const imp = (await (await fetch(`${base}/${PED}/${codP}/impressao`, { headers: H2 })).json().catch(() => ({}))) as any;
+        const impAg = (await (await fetch(`${base}/${PED}/${codP}/impressao?agrupado=1`, { headers: H })).json().catch(() => ({}))) as any;
+        const porLojaImp = (imp.lojas ?? []).map((l: any) => [l.idempresa, (l.itens ?? []).map((i: any) => [i.idproduto, i.qtde, i.qtdtotal, i.total])]);
+        const agImp = (impAg.itens ?? []).map((i: any) => [i.idproduto, i.qtde, i.qtdtotal, i.total]);
+        // a situação da NF do item (mig 305): item sem situação herda a do cabeçalho (uPedidoCompra.pas:7349)
+        const sit = (await pgMl.query(`SELECT idsituacao_nf, descricao FROM situacao_nf ORDER BY idsituacao_nf LIMIT 1`)).rows[0] as any;
+        let sitOk = true;
+        let sitInfo: unknown = 'sem situacao_nf no banco';
+        if (sit) {
+          const cS = await fetch(`${base}/${PED}`, { method: 'POST', headers: H, body: JSON.stringify({
+            codparceiro: 22, data: '2036-05-05', idsituacao_nf: Number(sit.idsituacao_nf),
+            itens: [{ idproduto: 1, fatorembalagem: 6, vrcusto: 2, lojas: [{ idempresa: 1, qtde: 1 }] }] }) });
+          const codS = Number(((await cS.json().catch(() => ({}))) as any).codpedcomp);
+          const itS = (await pgMl.query(`SELECT idsituacao_nf FROM pedidocompra_i WHERE codpedcomp = $1`, [codS])).rows[0] as any;
+          const impS = (await (await fetch(`${base}/${PED}/${codS}/impressao`, { headers: H })).json().catch(() => ({}))) as any;
+          sitOk = Number(itS?.idsituacao_nf) === Number(sit.idsituacao_nf) && impS.lojas?.[0]?.itens?.[0]?.situacao === String(sit.descricao).trim();
+          sitInfo = { cS: cS.status, itS, impS: impS.lojas?.[0]?.itens?.[0]?.situacao };
+          await pgMl.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [codS]);
+          await pgMl.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [codS]);
+        }
+        check('PEDIDO MULTI-LOJA §165.6 [a impressão do pedido é POR LOJA, e o agrupado soma]: o `ped_compra.fr3` agrupa por IDEMPRESA — cada loja com os dados dela (é para onde a mercadoria vai) e a quantidade DELA (`PEDIDO_COMPRA_QTDE`): loja 1 = 3 caixas do produto 1 (18 un., R$ 36) e 1 do produto 2 (R$ 10,01); loja 2 = 5 caixas (30 un., R$ 60). O agrupado soma: 8 caixas (48 un., R$ 96). Condição "30-60-90" (o script do relatório escreve os prazos), total da compra R$ 106,01. E a situação da NF do item herda a do cabeçalho e sai na impressão (mig 305)',
+          JSON.stringify(porLojaImp) === JSON.stringify([[1, [[1, 3, 18, 36], [2, 1, 1, 10.01]]], [2, [[1, 5, 30, 60]]]])
+          && JSON.stringify(agImp) === JSON.stringify([[1, 8, 48, 96], [2, 1, 1, 10.01]])
+          && imp.cabecalho?.cond_pagto === '30-60-90' && Number(imp.totais?.compra) === 106.01 && Number(impAg.totais?.compra) === 106.01
+          && imp.lojas?.[1]?.razao_social != null && sitOk,
+          { porLojaImp, agImp, cab: imp.cabecalho, totais: [imp.totais, impAg.totais], loja2: imp.lojas?.[1]?.razao_social, sitInfo });
+
         await pgMl.query(`DELETE FROM nf WHERE codnf = $1`, [Number(nfB.codnf)]);
         for (const c of [codP, codB]) {
           await pgMl.query(`DELETE FROM pedidocompra_parcelas WHERE codpedcomp = $1`, [c]);

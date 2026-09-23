@@ -49,6 +49,8 @@ export type PedidoCompraItemLojaDto = z.infer<typeof pedidoCompraItemLojaSchema>
 
 export const pedidoCompraItemSchema = z.object({
   idproduto: z.coerce.number({ message: 'Produto inválido.' }).int().positive('Informe o produto do item.'),
+  // mig 305: situação da NF do item (sem ela, o servidor herda a do cabeçalho)
+  idsituacao_nf: opcional(z.coerce.number().int().positive()),
   // QTDE = nº de embalagens pedidas (078 FLIP; o comprador digita CAIXAS). > 0; default 1. Base do TOTALCUSTO.
   qtde: z.coerce
     .number({ message: 'Quantidade inválida.' })
@@ -271,6 +273,7 @@ export interface PedidoCompraItem {
   codpedcompi?: number;
   codpedcomp?: number;
   idproduto: number;
+  idsituacao_nf?: number | null;
   // 078 FLIP: QTDE (nº de embalagens) + derivados. EXPOSTOS no read-type (fold auditoria): um consumidor
   // tipado que remonta o item no PUT precisa VER qtde — senão o omite → default(1) → reintroduz o undercount.
   qtde: number | string;

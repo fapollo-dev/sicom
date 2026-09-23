@@ -1,6 +1,7 @@
-import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { gerarNfPedidoSchema, importarItensPedidoSchema, liberarLimiteSupervisorSchema, type GerarNfPedidoDto, type LiberarLimiteSupervisorDto } from '@apollo/shared';
 import { PedidoCompraService } from './pedido-compra.service';
+import { PedidoImpressaoService } from './pedido-impressao.service';
 import { RecebimentoService } from './recebimento.service';
 import { AnalisePedidoNfService } from './analise-pedido-nf.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -19,7 +20,15 @@ export class PedidoCompraController {
     private readonly svc: PedidoCompraService,
     private readonly recebimento: RecebimentoService,
     private readonly analise: AnalisePedidoNfService,
+    private readonly impressaoSvc: PedidoImpressaoService,
   ) {}
+
+  /** a IMPRESSÃO do pedido (`ped_compra.fr3` por loja; `?agrupado=1` = `ped_compra_agrupado.fr3`). Leitura: como o
+   *  resto da leitura do pedido, sem opção própria — o legado não tem permissão de impressão (0 na PERMISSOES). */
+  @Get(':id/impressao')
+  impressao(@Param('id', ParseIntPipe) id: number, @Query('agrupado') agrupado?: string) {
+    return this.impressaoSvc.impressao(id, agrupado === '1' || agrupado === 'true');
+  }
 
   @Post(':id/fechar')
   @HttpCode(200)

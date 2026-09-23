@@ -10,6 +10,7 @@ import { PedidoCompraController } from './pedido-compra.controller';
 import { CondicoesPagtoCrudController } from './condicoes-pagto.crud';
 import { ImportacaoNfeController } from './importacao-nfe.controller';
 import { PedidoCompraService } from './pedido-compra.service';
+import { PedidoImpressaoService } from './pedido-impressao.service';
 import { RecebimentoService } from './recebimento.service';
 import { DevolucaoCompraAggregateController } from './devolucao-compra.aggregate';
 import { DevolucaoCompraController } from './devolucao-compra.controller';
@@ -64,6 +65,6 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     ManifestoDfeController,
     PendenciaOperadorController, RelAnalisePedidoNfController,
   ],
-  providers: [FaturamentoService, CotacaoFornService, PedidoVendaService, PedidoCompraService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, ManifestoDfeService, SefazDfeService, PendenciaOperadorService, RelAnalisePedidoNfService, AnaliseMotorService, ConfigService, DatabaseProvider],
+  providers: [FaturamentoService, CotacaoFornService, PedidoVendaService, PedidoCompraService, PedidoImpressaoService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, ManifestoDfeService, SefazDfeService, PendenciaOperadorService, RelAnalisePedidoNfService, AnaliseMotorService, ConfigService, DatabaseProvider],
 })
 export class ComprasModule {}

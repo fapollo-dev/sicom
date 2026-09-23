@@ -22,9 +22,10 @@ import { PedidoCompraItemModal } from './PedidoCompraItemModal';
 import { ImportarXmlModal } from './ImportarXmlModal';
 import { AnalisePedidoNfPanel } from './AnalisePedidoNfPanel';
 import {
-  fecharPedido, reabrirPedido, gerarNfDoPedido, gerarParcelasPedido, obterPedido,
+  fecharPedido, reabrirPedido, gerarNfDoPedido, gerarParcelasPedido, obterPedido, obterImpressaoPedido,
   atualizarPrecosPedido, duplicarPedido, gerarBonificadoPedido, liberarLimitePedido, importarItensPedido,
 } from './pedidoCompraApi';
+import { imprimirPedido } from './imprimirPedido';
 import type { PedidoCompraParcelaDto } from '@apollo/shared';
 import { NumberField } from '../../shared/ui/NumberField';
 
@@ -829,6 +830,23 @@ function AcoesEstadoBar({ form, onRecebeu }: { form: UseFormReturn<CriarPedidoCo
     }
   };
 
+  // IMPRESSÃO (mniImprimirPedidoClick / agrupado, uPedidoCompra.pas:2893/2818): a janela abre JÁ no clique (o bloqueador
+  // de pop-up engole janela aberta depois de um await); IMPRIME_ZERADO_PC 'N' tira as linhas zeradas, 'P' pergunta.
+  const imprimir = async (agrupado: boolean) => {
+    const win = window.open('', '_blank', 'width=1024,height=768');
+    if (!win) { mensagem.erro('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.'); return; }
+    try {
+      const d = await obterImpressaoPedido(codpedcomp, agrupado);
+      const zerado = d.imprime_zerado;
+      const comZerados = zerado === 'S' || !d.tem_zerados
+        || (zerado === 'P' && window.confirm('Deseja imprimir os itens com quantidade igual a zero?'));
+      imprimirPedido(win, d, comZerados);
+    } catch (e) {
+      win.close();
+      mensagem.erro(e);
+    }
+  };
+
   // corte-final: PROPAGA o preço de venda dos itens ao catálogo (MULTI_PRECO) — "Atualizar preço → On-line".
   const atualizarPrecos = async () => {
     if (executando) return;
@@ -918,6 +936,8 @@ function AcoesEstadoBar({ form, onRecebeu }: { form: UseFormReturn<CriarPedidoCo
         {fechado && <Button label="&Importar XML da NFe" variant="soft" onClick={() => setMostrarImport(true)} />}
         {est.lojaLogadaFechada && !recebido && <Button label="&Reabrir pedido" variant="ghost" onClick={() => void reabrir()} />}
         <Button label="Atualizar &preços no catálogo" variant="ghost" onClick={() => void atualizarPrecos()} />
+        <Button label="&Imprimir pedido" variant="ghost" onClick={() => void imprimir(false)} />
+        <Button label="Imprimir a&grupado" variant="ghost" onClick={() => void imprimir(true)} />
         <Button label="&Duplicar pedido" variant="ghost" onClick={() => void duplicar(false)} />
         <Button label="Gerar pedido &bonificado" variant="ghost" onClick={() => void duplicar(true)} />
         <small className="text-fg-muted">

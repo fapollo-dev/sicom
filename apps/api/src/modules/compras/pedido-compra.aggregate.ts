@@ -103,6 +103,8 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
         'debitopiscofins', 'creditopiscofins',
         // corte-final: % bonificado do item (100 no pedido-espelho gerado por gerar-bonificado).
         'bonificacao',
+        // mig 305: situação da NF do item (uPedidoCompra.pas:5183); sem ela, herda a do cabeçalho (:7349)
+        'idsituacao_nf',
       ],
       // Derivação server-authoritative (078, uPedidoCompra.pas:1971-1972): VLREMBALAGEM = FATOREMBALAGEM×VRCUSTO
       // (custo por caixa); QTDTOTAL = QTDE×FATOREMBALAGEM (unidades); TOTALCUSTO = QTDE×VLREMBALAGEM (total da linha).
@@ -122,6 +124,9 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
             ...it,
             lojas,
             qtde,
+            // item sem situação herda a do cabeçalho, quando há (uPedidoCompra.pas:7349)
+            idsituacao_nf: it.idsituacao_nf != null ? Number(it.idsituacao_nf)
+              : num(header?.idsituacao_nf) > 0 ? Number(header?.idsituacao_nf) : null,
             vlrembalagem,
             qtdtotal: r4(qtde * num(it.fatorembalagem)),
             totalcusto: Math.round((qtde * vlrembalagem + Number.EPSILON) * 100) / 100,
