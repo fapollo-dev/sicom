@@ -639,3 +639,37 @@ loja 1, 177.804 na loja 2 e 76 na 52**. Sem a derivação, 177.880 iriam para a 
 **Restam duas tabelas vivas sem destino**: `NF_STATUS_PROCESSO` (440.211 linhas, a esteira do manifesto) e
 `REMESSA_LOTE` (11 milhões), esta última já triada como **log de replicação** — infraestrutura do legado,
 não regra, e o veredito de não migrar precisa ser escrito.
+
+
+### Achado 13 — a esteira da nota, e o fim do inventário de tabelas sem destino
+
+`NF_STATUS_PROCESSO`, **440.571 linhas para 44.054 chaves**: sempre as mesmas dez etapas por nota, do
+manifesto à devolução. Migration 292, com tela. Dossiê `uNfStatusProcesso.md`.
+
+**Pendente não tem data, e isso é o estado.** São 237.036 realizadas (com data) e **201.557 pendentes sem
+data**: a etapa foi criada e não aconteceu. Preencher a data afirmaria que ocorreu; deixar a linha de fora
+perderia que ela está prevista e parada. É o que permite responder em que etapa cada nota travou.
+
+**A nota que nunca virou NF também tem esteira**: a chave casa com `nfe_nao_cadastradas` em 438.731 linhas
+e com `nf` em 420.769 — **19.802 (4,5%)** são de notas manifestadas que nunca entraram. Sem FK para `nf`,
+porque ela apagaria o histórico do que não entrou.
+
+**O painel conta só a primeira pendente de cada nota** — as seguintes são consequência, e somá-las contaria
+a mesma nota várias vezes.
+
+⚠️ E a empresa é nula em **201.556 linhas**, justamente as pendentes. Medido: 44.051 das 44.054 chaves são
+mistas, então ela se recupera da própria esteira; só 3 caem na nota e depois na loja 1.
+
+### O inventário de tabelas vivas sem destino está fechado
+
+| tabela | linhas | desfecho |
+|---|---:|---|
+| `CLUBE_DESCONTO_MOV` + família | 3.118.725 | mig 285 |
+| `HISTORICO_PROCESSAMENTO_NF` | 863.582 | mig 291 |
+| `NF_STATUS_PROCESSO` | 440.571 | mig 292 |
+| `REMESSA_LOTE` | **11.048.221** | **não migra** — log de replicação, veredito escrito no plano |
+
+`REMESSA_LOTE` era a maior de todas e é a única que não vira nada: cada linha é uma tripla (tabela, id,
+data) apontando outra tabela, e o Apollo tem outro mecanismo de sincronização. Migrar o log de sincronismo
+do legado não reproduz regra nenhuma — e isso agora está no `plano-tabelas.json`, em `excluidas`, com o
+motivo por extenso.

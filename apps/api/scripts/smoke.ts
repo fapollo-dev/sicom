@@ -17303,6 +17303,70 @@ async function main() {
       }
     }
 
+    // ══ A ESTEIRA DA NOTA — dez etapas do manifesto à devolução (mig 292) ══════════════════════════════
+    {
+      const ES = 'cadastro/nf-esteira';
+      const pgEs = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const CH1 = '35260612345678000199550010000099471000099471';  // virou NF
+        const CH2 = '35260612345678000199550010000099472000099472';  // manifestada e nunca virou NF
+        await pgEs.query(`INSERT INTO nf (codnf, idempresa, codparceiro, nronf, serie, modelo, tipo, dtemissao, dtcontabil, totalnf, chavenfe) VALUES
+          (9948001, 1, 2, '9948001', '1', '55', 'E', '2026-06-20', '2026-06-20', 500, '${CH1}') ON CONFLICT (codnf) DO NOTHING`);
+        const ET = [['stManifesto','Manifesto Destinatário'],['stCiencia','Ciência da operação'],
+          ['stCruzamentoPedido','Cruzamento com pedido de compra'],['stConfirmacaoOp','Confirmação da operação'],
+          ['stRepasseItens','Lançamento de nota fiscal, repasse'],['stColeta','Coleta'],
+          ['stConferencia','Conferência (coleta)'],['stProcessarFaturar','Processar, Faturar'],
+          ['stGerarFinanceiro','Gerar financeiro'],['stDevolucao','Devolução']];
+        // a nota 1 andou até a etapa 4 (as 3 primeiras realizadas, a 4ª pendente)
+        for (let i = 0; i < ET.length; i++) {
+          const ok = i < 3;
+          await pgEs.query(`INSERT INTO nf_status_processo (idempresa, chavenfe, ordem, processo, processo_desc, status, dataprocesso, codoperador)
+            VALUES (1, $1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING`,
+            [CH1, i + 1, ET[i][0], ET[i][1], ok ? 'R' : 'P', ok ? '2026-06-20 08:0' + i + ':00-03' : null, ok ? 7 : null]);
+        }
+        // a nota 2 parou logo na ciência (etapa 2) e nunca virou NF
+        for (let i = 0; i < ET.length; i++) {
+          const ok = i < 1;
+          await pgEs.query(`INSERT INTO nf_status_processo (idempresa, chavenfe, ordem, processo, processo_desc, status, dataprocesso, codoperador)
+            VALUES (1, $1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING`,
+            [CH2, i + 1, ET[i][0], ET[i][1], ok ? 'R' : 'P', ok ? '2026-06-21 09:00:00-03' : null, ok ? 7 : null]);
+        }
+
+        const e1 = (await (await fetch(`${base}/${ES}?chavenfe=${CH1}`, { headers: H })).json().catch(() => ({}))) as any;
+        const pend = (e1.etapas ?? []).find((x: any) => x.ordem === 4);
+        const feita = (e1.etapas ?? []).find((x: any) => x.ordem === 1);
+        check('ESTEIRA DA NOTA §158.1 [dez etapas, e o PENDENTE não tem data — é o estado, não falta de dado]: a esteira do cliente tem **440.571 linhas para 44.054 chaves**, sempre as mesmas dez etapas na mesma ordem (manifesto → ciência → cruzamento com pedido → confirmação → repasse → coleta → conferência → faturar → financeiro → devolução). **201.557 linhas estão pendentes e SEM data**: a etapa foi criada e não aconteceu. Preencher a data afirmaria que ocorreu; deixar a linha de fora perderia que ela está prevista e parada. Aqui a nota andou até a 3ª e está **parada na 4ª**, que volta com `dataprocesso: null`',
+          (e1.etapas ?? []).length === 10 && e1.concluidas === 3
+          && feita?.realizada === true && feita?.dataprocesso != null
+          && pend?.realizada === false && pend?.dataprocesso === null
+          && e1.parada_em?.ordem === 4 && e1.parada_em?.processo === 'stConfirmacaoOp',
+          { etapas: (e1.etapas ?? []).length, concluidas: e1.concluidas, parada: e1.parada_em, pend_data: pend?.dataprocesso });
+
+        const e2 = (await (await fetch(`${base}/${ES}?chavenfe=${CH2}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('ESTEIRA DA NOTA §158.2 [a nota que NUNCA virou NF tem esteira — e é isso que registra o que não entrou]: a esteira começa no manifesto, antes de a nota existir no sistema: no cliente a chave casa com `nfe_nao_cadastradas` em **438.731 linhas** e com `nf` em 420.769 — **19.802 (4,5%) são de notas que nunca viraram NF**. Uma FK para `nf` rejeitaria essas linhas e apagaria o histórico do que NÃO entrou, que é metade do que a conferência precisa saber. Aqui a segunda nota tem as dez etapas, parou na ciência e `virou_nf: false`',
+          e1.virou_nf === true && e1.codnf === 9948001
+          && e2.virou_nf === false && e2.codnf === null
+          && (e2.etapas ?? []).length === 10 && e2.parada_em?.ordem === 2,
+          { nota1: [e1.virou_nf, e1.codnf], nota2: [e2.virou_nf, e2.codnf, e2.parada_em?.ordem] });
+
+        const painel = (await (await fetch(`${base}/${ES}?paradas=true`, { headers: H })).json().catch(() => ({}))) as any;
+        const p4 = (painel.paradas ?? []).find((x: any) => x.ordem === 4);
+        const p2 = (painel.paradas ?? []).find((x: any) => x.ordem === 2);
+        const p5 = (painel.paradas ?? []).find((x: any) => x.ordem === 5);
+        const semNada = await fetch(`${base}/${ES}`, { headers: H });
+        const semGrant = await fetch(`${base}/${ES}?paradas=true`, { headers: H_SEM_ACESSO });
+        check('ESTEIRA DA NOTA §158.3 [o painel conta só a PRIMEIRA pendente de cada nota]: com 44 mil notas × 10 etapas, a pergunta operacional é em que etapa cada uma travou. Contar toda linha pendente somaria a mesma nota em várias etapas — a nota parada na 4ª também tem a 5ª, a 6ª e as demais pendentes, por consequência. O painel conta só a primeira: uma nota na etapa 2, outra na 4, e **nenhuma na 5**, embora a 5 esteja pendente nas duas. Sem chave e sem o painel é 400, e sem o grant é 403',
+          p2?.notas === 1 && p4?.notas === 1 && p5 === undefined
+          && painel.total_paradas === 2 && semNada.status === 400 && semGrant.status === 403,
+          { paradas: painel.paradas, total: painel.total_paradas, semNada: semNada.status, rbac: semGrant.status });
+
+        await pgEs.query(`DELETE FROM nf_status_processo WHERE idempresa = 1`);
+        await pgEs.query(`DELETE FROM nf WHERE codnf = 9948001`);
+      } finally {
+        await pgEs.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

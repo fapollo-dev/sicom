@@ -140,6 +140,16 @@ CALCULADAS = {
   # historico de processamento da NF (mig 291): a tabela nao guarda empresa — vem da NOTA. Onde a nota
   # ja nao existe (~2.000 das 863.582 linhas), a loja 1 e a decisao, e o historico do PRODUTO continua
   # valendo: e por isso que a FK e so para produtos.
+  # ⚠️ ESTEIRA DA NOTA (mig 292): `IDEMPRESA` e NULA em **201.556 das 440.571 linhas** — exatamente as
+  # etapas PENDENTES, criadas antes de a nota ter loja definida. O destino a exige (NOT NULL).
+  # Medido: **44.051 das 44.054 chaves sao MISTAS** (tem a empresa em alguma etapa irma e nao em outras),
+  # entao a empresa se recupera da propria esteira; so 3 chaves nao a tem em lugar nenhum e caem na NF,
+  # e depois na loja 1. Sem isto, 201.556 linhas iriam para a loja 1 em silencio.
+  'nf_status_processo': {'idempresa':
+    'nvl(nf_status_processo.idempresa,'
+    ' nvl((select min(o.idempresa) from nf_status_processo o'
+    '       where o.chavenfe = nf_status_processo.chavenfe and o.idempresa is not null),'
+    '     nvl((select min(f.idempresa) from nf f where f.chavenfe = nf_status_processo.chavenfe), 1)))'},
   'historico_processamento_nf': {'idempresa':
     'nvl((select f.idempresa from nf f where f.codnf = historico_processamento_nf.codnf), 1)'},
   'clube_desconto': {'idempresa': "nvl(to_number(regexp_substr(idempresa, '\\d+')), 1)"},

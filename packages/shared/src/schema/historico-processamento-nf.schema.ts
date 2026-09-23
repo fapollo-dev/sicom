@@ -20,3 +20,19 @@ export const histProcNfConsultaSchema = z.object({
 }).refine((d) => d.codproduto != null || d.codnf != null,
   { message: 'informe o produto ou a nota' });
 export type HistProcNfConsultaDto = z.infer<typeof histProcNfConsultaSchema>;
+
+/**
+ * A ESTEIRA DA NOTA (mig 292): as dez etapas do manifesto à devolução.
+ *
+ * ⚠️ `P` (pendente) não tem data — a etapa está prevista e não aconteceu. É o estado, não falta de dado,
+ * e é o que permite responder em que etapa cada nota travou.
+ */
+export const nfEsteiraConsultaSchema = z.object({
+  /** a esteira de uma nota */
+  chavenfe: z.string().trim().length(44).optional(),
+  /** ou o painel: onde as notas estão paradas */
+  paradas: boolQuery(false),
+  limite: z.coerce.number().int().positive().max(2000).default(200),
+}).refine((d) => !!d.chavenfe || d.paradas,
+  { message: 'informe a chave da nota ou peça o painel de paradas' });
+export type NfEsteiraConsultaDto = z.infer<typeof nfEsteiraConsultaSchema>;

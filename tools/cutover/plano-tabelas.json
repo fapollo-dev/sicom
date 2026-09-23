@@ -181,6 +181,7 @@
    "movimentacao_diaria",
    "multi_preco",
    "nf",
+   "nf_status_processo",
    "pedidocompra_i",
    "pedidocompra_parcelas",
    "pedidos",
@@ -201,7 +202,8 @@
  },
  "excluidas": {
   "historico_pdv": "PDV — instrução do usuário (19/08): nada de PDV; a tabela existe no destino só como estrutura",
-  "hist_sangria_suprimento": "PDV (sangria/suprimento é do fechamento por PDV, fora da regra)"
+  "hist_sangria_suprimento": "PDV (sangria/suprimento é do fechamento por PDV, fora da regra)",
+  "REMESSA_LOTE": "log de REPLICACAO, nao regra: 11.048.221 linhas de (tabela, id, data) apontando outras tabelas (HISTORICO_PDV, ARECEBER, CX_VENDAS, NFC, VENDAS) — e o Apollo tem outro mecanismo de sincronizacao. Migrar o log de sincronismo do legado nao reproduz regra nenhuma."
  },
  "so_do_destino": [
   "caixa_mov",
