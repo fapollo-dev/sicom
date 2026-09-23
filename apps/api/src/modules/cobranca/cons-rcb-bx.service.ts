@@ -164,10 +164,13 @@ export class ConsRcbBxService {
         const nome = op == null ? null : (await sql<{ nome: string }>`SELECT nome FROM operadores WHERE codoperador = ${op}`.execute(trx)).rows[0]?.nome;
         const historico = `Reabertura da baixa de contas a receber, lote ${lote}, realizada pelo usuário ${nome ?? '-'}.`;
         const novoLote = Number((await sql<{ id: string }>`SELECT nextval('seq_idlote_reversao') AS id`.execute(trx)).rows[0].id);
+        // o contra-movimento: MESMO valor, tipo invertido. O legado grava `valor × −1` porque guarda o valor com
+        // sinal (D −505 → C +505); o Apollo guarda o absoluto, e o `× −1` aqui DOBRAVA o movimento em vez de
+        // zerá-lo (D 505 → C −505). Herda o LIBERADO do original: o a prazo estornado continua a prazo (mig 297).
         const ins = await sql`
-          INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, codopconta, historico, idpgto, codoperador, origem, idlote, idlote_reversao, dtemissao, nrodocumento, indr)
-          SELECT m.codconta, m.idempresa, m.valor * -1, CASE WHEN m.tipomovimento = 'C' THEN 'D' ELSE 'C' END, m.codopconta, ${historico}, m.idpgto, ${op},
-                 'REV BX AR', ${novoLote}, ${lote}, now(), m.nrodocumento, 'I'
+          INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, codopconta, historico, idpgto, codoperador, origem, idlote, idlote_reversao, dtemissao, nrodocumento, indr, liberado)
+          SELECT m.codconta, m.idempresa, m.valor, CASE WHEN m.tipomovimento = 'C' THEN 'D' ELSE 'C' END, m.codopconta, ${historico}, m.idpgto, ${op},
+                 'REV BX AR', ${novoLote}, ${lote}, now(), m.nrodocumento, 'I', m.liberado
             FROM mov_contas_bancarias m
            WHERE m.idempresa = ${emp} AND m.idlote = ${lote} AND m.idlote_reversao IS NULL
         `.execute(trx);

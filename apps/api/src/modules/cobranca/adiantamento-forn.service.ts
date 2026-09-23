@@ -114,9 +114,9 @@ export class AdiantamentoFornService {
    * `AND UPPER(F.MODALIDADE) = 'DINHEIRO'` (a modalidade vem do call site, uCadAdiantamentoFornecedor.pas:583).
    * A diferença é enorme no golden: conta 22 → −284.308,49 (legado) contra +1.590.292,62 (soma geral); conta 24 →
    * 0,00 contra 50.472,70. Com a soma geral o gate liberaria débito em conta que o legado barra.
-   * O único termo que não dá para reproduzir é `LIBERADO`: a coluna não existe no nosso razão (split registrado
-   * como adiado no Controle de Contas Correntes) — aqui todo movimento conta como liberado.
-   * O sinal vem do `tipomovimento` (convenção do novo; o legado guarda VALOR já com sinal).
+   * `LIBERADO` entrou no razão na mig 297 — antes era o único termo que não dava para reproduzir —, e agora
+   * só o movimento liberado conta, aqui e no Controle de Contas.
+   * O sinal vem do `tipomovimento` (convenção do novo; o legado guarda VALOR já com sinal, e a carga converte).
    */
   private async saldoDinheiro(db: AnyDB, codconta: number, emp: number): Promise<number> {
     const r = (await db
@@ -126,6 +126,8 @@ export class AdiantamentoFornService {
       .where('m.codconta', '=', codconta)
       .where('m.idempresa', '=', emp)
       .where(sql`upper(f.modalidade)`, '=', 'DINHEIRO')
+      // só o LIBERADO conta no saldo, como no controle de contas (mig 297)
+      .where(sql`coalesce(m.liberado, 'N')`, '=', 'S')
       .executeTakeFirst()) as { saldo?: unknown } | undefined;
     return r2(num(r?.saldo));
   }

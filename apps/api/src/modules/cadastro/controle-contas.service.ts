@@ -46,7 +46,9 @@ export class ControleContasService {
       .selectFrom('mov_contas_bancarias')
       .select(sql`coalesce(sum(case when tipomovimento='D' then -valor else valor end),0)`.as('saldo'))
       .where('codconta', '=', codconta)
-      .where('idempresa', '=', emp);
+      .where('idempresa', '=', emp)
+      // o saldo do legado conta só o LIBERADO (mig 297); N e nulo são "a prazo", à parte
+      .where(sql`coalesce(liberado, 'N')`, '=', 'S');
     if (ateData) q = q.where(sql`data_fechamento`, '<=', ateData);
     const r = (await q.executeTakeFirst()) as { saldo?: unknown } | undefined;
     return r2(num(r?.saldo));
@@ -58,22 +60,25 @@ export class ControleContasService {
   }
 
   /** saldo da conta (com totais de entrada/saída). */
-  async saldo(codconta: number): Promise<{ codconta: number; saldo: number; entradas: number; saidas: number }> {
+  async saldo(codconta: number): Promise<{ codconta: number; saldo: number; entradas: number; saidas: number; a_prazo: number }> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
     await this.conta(db, codconta, emp);
+    // como o legado (udmControleContasBancarias.dfm:765): entradas, saídas e saldo só do LIBERADO; o que não
+    // está liberado (N ou nulo) vira o TOTAL A PRAZO, mostrado à parte — mig 297
     const r = (await db
       .selectFrom('mov_contas_bancarias')
       .select([
-        sql`coalesce(sum(case when tipomovimento='C' then valor else 0 end),0)`.as('entradas'),
-        sql`coalesce(sum(case when tipomovimento='D' then valor else 0 end),0)`.as('saidas'),
+        sql`coalesce(sum(case when coalesce(liberado,'N')='S' and tipomovimento='C' then valor else 0 end),0)`.as('entradas'),
+        sql`coalesce(sum(case when coalesce(liberado,'N')='S' and tipomovimento='D' then valor else 0 end),0)`.as('saidas'),
+        sql`coalesce(sum(case when coalesce(liberado,'N')<>'S' then (case when tipomovimento='D' then -valor else valor end) else 0 end),0)`.as('a_prazo'),
       ])
       .where('codconta', '=', codconta)
       .where('idempresa', '=', emp)
-      .executeTakeFirst()) as { entradas?: unknown; saidas?: unknown };
+      .executeTakeFirst()) as { entradas?: unknown; saidas?: unknown; a_prazo?: unknown };
     const entradas = r2(num(r?.entradas));
     const saidas = r2(num(r?.saidas));
-    return { codconta, saldo: r2(entradas - saidas), entradas, saidas };
+    return { codconta, saldo: r2(entradas - saidas), entradas, saidas, a_prazo: r2(num(r?.a_prazo)) };
   }
 
   /** extrato: movimentos da conta (mais recentes primeiro, até 5000) + saldo corrente por linha. O header usa o
@@ -87,7 +92,7 @@ export class ControleContasService {
     const ancora = dtfim ? await this.saldoDe(db, codconta, emp, dtfim) : saldoAtual; // saldo após o mais recente do recorte
     let q = db
       .selectFrom('mov_contas_bancarias')
-      .select(['codmovconta', 'valor', 'tipomovimento', 'codopconta', 'historico', 'origem', 'idorigem', 'data_fechamento', 'mov_conciliado'])
+      .select(['codmovconta', 'valor', 'tipomovimento', 'codopconta', 'historico', 'origem', 'idorigem', 'data_fechamento', 'mov_conciliado', 'liberado'])
       .where('codconta', '=', codconta)
       .where('idempresa', '=', emp);
     if (dtini) q = q.where(sql`data_fechamento`, '>=', dtini);
@@ -98,7 +103,10 @@ export class ControleContasService {
     let running = ancora;
     const movimentos = rows.map((m) => {
       const delta = String(m.tipomovimento) === 'D' ? -num(m.valor) : num(m.valor);
-      const linha = { ...m, valor_com_sinal: r2(delta), saldo_corrente: r2(running) };
+      // o que está a prazo aparece no extrato mas não mexe no saldo — a âncora (saldoDe) também não o conta
+      const liberado = String(m.liberado ?? 'N') === 'S';
+      const linha = { ...m, valor_com_sinal: r2(delta), a_prazo: !liberado, saldo_corrente: r2(running) };
+      if (!liberado) return linha;
       running = r2(running - delta); // saldo ANTES desta linha = saldo APÓS a próxima (mais antiga)
       return linha;
     });

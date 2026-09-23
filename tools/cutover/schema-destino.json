@@ -21114,6 +21114,27 @@
      "escala": 0,
      "nulo": true,
      "default": null
+    },
+    "liberado": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": "'S'::bpchar"
+    },
+    "dtliberacao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtvenc": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [

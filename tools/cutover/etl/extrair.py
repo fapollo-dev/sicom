@@ -167,7 +167,15 @@ CALCULADAS = {
   'apagar_bx':   {'codempresa': '(select a.idempresa from apagar a where a.codapg = apagar_bx.codapg)'},
   'areceber_bx': {'codempresa': '(select a.codempresa from areceber a where a.codrcb = areceber_bx.codrcb)'},
   'mov_contas_bancarias': {
-    'idempresa': '(select cb.idempresa from contas_bancarias cb where cb.codconta = mov_contas_bancarias.codconta)'},
+    'idempresa': '(select cb.idempresa from contas_bancarias cb where cb.codconta = mov_contas_bancarias.codconta)',
+    # ⚠️ o legado grava o VALOR JÁ COM SINAL e soma pelo sinal (udmControleContasBancarias.dfm:765); o Apollo
+    # guarda o valor ABSOLUTO e a direção no tipo. Sem converter, os 82.999 débitos negativos (Σ −R$ 310 mi)
+    # seriam SOMADOS ao saldo. O tipo sai do SINAL — como o legado lê a linha —, o que mantém o saldo idêntico
+    # ao dele em toda linha, inclusive nas 23 anômalas (crédito negativo, débito positivo). Mig 297.
+    'valor': 'abs(mov_contas_bancarias.valor)',
+    'tipomovimento': "case when mov_contas_bancarias.valor < 0 then 'D'"
+                     " when mov_contas_bancarias.valor > 0 then 'C'"
+                     " else mov_contas_bancarias.tipomovimento end"},
   'movimentacao_bancaria_ofx': {
     'idempresa': '(select cb.idempresa from contas_bancarias cb where cb.codconta = movimentacao_bancaria_ofx.codconta)'},
   'arquivo_remessa_areceber': {

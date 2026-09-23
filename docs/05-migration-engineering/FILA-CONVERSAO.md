@@ -713,3 +713,24 @@ com texto. Dossiê `uTron-integracao-contabil.md` §8.7.
 | `CONTAS_BANC_TRANSF_PERM` | 19 | ✅ **mig 295, com a regra** — origem com linhas ativas só transfere para os destinos listados; origem sem linhas fica livre. Saiu do dado: desde a matriz, nenhuma transferência de conta listada foi para destino fora da lista, e as 6 "fora" eram da conta 201, que não é origem nela. Quadro no cadastro da conta. Dossiê `UCadContasBancarias.md` |
 | `CONFIG_LANCAMENTO_AUTO_OFX` | 5.311 | lançamento automático do OFX por descrição → conta; a mig 120 cita a tabela, mas ela não está no plano |
 | `RETORNO_PAG_BOAVISTA` + 5 | 3,4 mi | a conciliadora de cartão Boa Vista: R$ 131 mi em retornos, parada desde 04/05/2026; as baixas seguiram sem ela (39 mil em jul/2026) |
+
+### Achado 15 — o razão bancário: a carga somaria os débitos, e o estorno os dobrava (mig 297)
+
+Achado ao estudar o lançamento automático do OFX. O legado grava o valor do movimento bancário **com sinal**
+e soma pelo sinal; o Apollo guarda o valor **absoluto** com a direção no tipo. A convenção nova foi decidida e
+seguida por todo gravador e leitor do Apollo — **mas a carga não convertia o dado do legado para ela**.
+
+| Σ dos saldos das 27 contas | |
+|---|---:|
+| legado | R$ 41.364.570,33 |
+| Apollo, carga convertida (agora) | R$ 41.364.570,33 — 27/27 iguais |
+| Apollo, carga crua (antes) | **R$ 658.788.795,95** — 25/27 erradas |
+
+E o estorno de baixa em lote copiava o `valor × −1` do legado: lá zera, aqui **dobrava** o débito — com um
+smoke afirmando o valor errado como fidelidade. Junto, o `LIBERADO` (R$ 9,1 mi a prazo que o saldo atual do
+legado não soma) entrou no destino; o conferidor não o acusava porque só olha colunas de chave/número.
+Dossiê `UCadContasBancarias.md`.
+
+**Dois pontos cegos do conferidor, registrados**: (1) só acusa coluna preenchida em ≥ 50% — `CLAO_ID` (17 de
+1,2 milhão) passa; (2) só olha chave/número — a flag `LIBERADO`, que decide o saldo, passa. A convenção de um
+valor (sinal × absoluto) ele não vê de jeito nenhum: a coluna existe nos dois lados.

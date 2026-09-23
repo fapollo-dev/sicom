@@ -423,6 +423,36 @@ o `CadMasterDet` aceita um detalhe só e o de "Liberação de operadores" já o 
 do cadastro não era necessário. Destino tem de ser conta da mesma empresa (é o que a transferência exige das
 duas pontas), não pode ser a própria conta, e não se repete.
 
+## ⚠️ O razão bancário: o sinal que a carga não convertia, e o "a prazo" (migration 297)
+
+**O sinal.** O legado grava `MOV_CONTAS_BANCARIAS.VALOR` **já com sinal** e soma pelo sinal
+(`udmControleContasBancarias.dfm:765`: entradas = `VALOR > 0`, saídas = `VALOR < 0`, saldo = `Σ VALOR`). O Apollo
+decidiu outra convenção — valor absoluto, direção em `tipomovimento`, saldo = Σ(C) − Σ(D) — e todos os seus
+gravadores e leitores a seguem. **A carga não convertia**: os 82.999 débitos negativos do cliente (Σ −R$ 310 mi)
+entrariam como D negativo e o saldo os SOMARIA. Medido por conta, no Oracle de produção:
+
+| | Σ dos saldos |
+|---|---:|
+| legado (`Σ VALOR` liberado) | **R$ 41.364.570,33** |
+| Apollo com a carga convertida | **R$ 41.364.570,33** — 27 de 27 contas iguais |
+| Apollo com a carga crua | R$ 658.788.795,95 — **25 de 27 contas erradas** |
+
+`extrair.py` carrega o valor ABSOLUTO e o tipo PELO SINAL — como o próprio legado lê a linha —, o que acerta
+também as 23 linhas anômalas (20 créditos negativos, 3 débitos positivos), que o legado conta pelo sinal.
+
+**O contra-movimento do estorno de baixa** (`cons-apg-bx`, `cons-rcb-bx`, `UReversaoBaixaContasPagar.pas:113`)
+copiava o legado ao pé da letra: `valor × −1` e tipo invertido. No legado isso zera (D −505 → C +505); na
+convenção do Apollo **dobrava** (D 505 → C −505, líquido −1.010 — e o smoke afirmava o −505 como fidelidade).
+Agora leva o mesmo valor com o tipo invertido, que é o que o legado grava lido na convenção nova (as 77 mil
+reversões do cliente são C+ para D− e D− para C+), e herda o `LIBERADO` do original.
+
+**O "a prazo".** O saldo do legado conta só `LIBERADO='S'`; N e nulo são o TOTAL A PRAZO, mostrado à parte. No
+cliente: S 268.510 · N 23.373 (R$ 8,9 mi) · nulo 115 (R$ 226 mil) — sobretudo PIX POS até mai/2025 e baixas de
+cartão em conta de dinheiro. O saldo do Apollo agora conta só o liberado e devolve `a_prazo`; o extrato marca as
+linhas a prazo e elas não mexem no saldo corrente; o saldo em dinheiro do adiantamento segue a mesma regra.
+Movimento novo do Apollo nasce liberado. ⚠️ Quem vira N → S no legado mora em `FuncoesApollo` (ausente do
+fonte); a liberação fica adiada com essa procedência, e o dado carregado mantém o estado do legado.
+
 ## Ver também
 
 - [dossier-template.md](../../dossier-template.md) · [dossier-process.md](../../dossier-process.md)

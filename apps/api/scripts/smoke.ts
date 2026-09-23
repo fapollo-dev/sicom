@@ -15414,13 +15414,17 @@ async function main() {
         const tit = (await pgCx.query(`SELECT codapg, quitada FROM apagar WHERE codapg IN ($1,$2) ORDER BY codapg`, [t1, t2])).rows;
         const bxs = (await pgCx.query(`SELECT indr, indr_usuario, indr_data FROM apagar_bx WHERE idlote = ${LOTE}`)).rows;
         const contra = (await pgCx.query(`SELECT valor, tipomovimento, idlote, idlote_reversao, historico FROM mov_contas_bancarias WHERE idlote_reversao = ${LOTE}`)).rows;
-        check('CONS BAIXAS AP §130.3 [Reverter baixa = o LOTE INTEIRO, numa transação]: no cliente a reversão é sempre do lote inteiro — **461 lotes revertidos, 0 parciais** (4.483 baixas, 502 em 2026). Os dois títulos voltam a `QUITADA=N`, as duas baixas ficam `INDR=E` com quem e quando, e nasce o CONTRA-MOVIMENTO bancário: tipo invertido (D→C), valor negativo (−505,00), novo lote apontando o original em `idlote_reversao` e o histórico do legado palavra por palavra',
+        // o lote e o seu contra-movimento, somados na convenção do Apollo (D subtrai, C soma): tem de dar ZERO
+        const liquidoAp = Number((await pgCx.query(`SELECT coalesce(sum(case when tipomovimento='D' then -valor else valor end),0) AS s
+            FROM mov_contas_bancarias WHERE idlote = ${LOTE} OR idlote_reversao = ${LOTE}`)).rows[0]?.s);
+        check('CONS BAIXAS AP §130.3 [Reverter baixa = o LOTE INTEIRO, numa transação — e o contra-movimento ZERA o lote]: no cliente a reversão é sempre do lote inteiro — **461 lotes revertidos, 0 parciais** (4.483 baixas, 502 em 2026). Os dois títulos voltam a `QUITADA=N`, as duas baixas ficam `INDR=E` com quem e quando, e nasce o CONTRA-MOVIMENTO bancário: tipo invertido (D→C), **mesmo valor (505,00)**, novo lote apontando o original em `idlote_reversao` e o histórico do legado palavra por palavra. ⚠️ Mig 297: o legado grava `valor × −1` porque guarda o valor com sinal (D −505 → C +505); copiado para a convenção do Apollo, o `× −1` DOBRAVA o débito (D 505 → C −505, líquido −1.010). Agora o lote somado ao contra-movimento dá zero',
           rev.status === 200 && Number(revJ.titulosRevertidos) === 2 && Number(revJ.contraMovimentos) === 1
           && tit.every((r: any) => r.quitada === 'N') && bxs.length === 2 && bxs.every((b: any) => b.indr === 'E' && b.indr_usuario != null && b.indr_data != null)
-          && contra.length === 1 && Math.abs(Number(contra[0].valor) + 505) < 0.005 && contra[0].tipomovimento === 'C' && Number(contra[0].idlote_reversao) === LOTE
+          && contra.length === 1 && Math.abs(Number(contra[0].valor) - 505) < 0.005 && contra[0].tipomovimento === 'C' && Number(contra[0].idlote_reversao) === LOTE
+          && Math.abs(liquidoAp) < 0.005
           && String(contra[0].historico).startsWith(`Reabertura da baixa de contas a pagar, lote ${LOTE}, realizada pelo usuário`)
           && dep.revertido === true && (dep.movimentos ?? []).length === 2,
-          { status: rev.status, rev: revJ, quitadas: tit.map((r: any) => r.quitada), indr: bxs.map((b: any) => b.indr), contra: contra[0] && { v: contra[0].valor, t: contra[0].tipomovimento, hist: String(contra[0].historico).slice(0, 60) } });
+          { status: rev.status, rev: revJ, quitadas: tit.map((r: any) => r.quitada), indr: bxs.map((b: any) => b.indr), liquidoAp, contra: contra[0] && { v: contra[0].valor, t: contra[0].tipomovimento, hist: String(contra[0].historico).slice(0, 60) } });
 
         const deNovo = await fetch(`${base}/${CX}/${LOTE}/reverter`, { method: 'POST', headers: H });
         const inexist = await fetch(`${base}/${CX}/${LOTE + 7777}/reverter`, { method: 'POST', headers: H });
@@ -15491,14 +15495,17 @@ async function main() {
         const revJ = (await rev.json().catch(() => ({}))) as any;
         const tit = (await pgCr.query(`SELECT quitada FROM areceber WHERE codrcb IN ($1,$2)`, [r1, r2])).rows;
         const contra = (await pgCr.query(`SELECT valor, tipomovimento, idlote_reversao, historico FROM mov_contas_bancarias WHERE idlote_reversao = ${LOTE}`)).rows;
+        const liquidoAr = Number((await pgCr.query(`SELECT coalesce(sum(case when tipomovimento='D' then -valor else valor end),0) AS s
+            FROM mov_contas_bancarias WHERE idlote = ${LOTE} OR idlote_reversao = ${LOTE}`)).rows[0]?.s);
         const deNovo = await fetch(`${base}/${CR}/${LOTE}/reverter`, { method: 'POST', headers: H });
         const comDesc = await fetch(`${base}/${CR}/${LOTE_DESC}/reverter`, { method: 'POST', headers: H });
         const comDescJ = (await comDesc.json().catch(() => ({}))) as any;
         const semGrant = await fetch(`${base}/${CR}/${LOTE_DESC}/reverter`, { method: 'POST', headers: H_SEM_ACESSO });
-        check('CONS BAIXAS AR §131.3 [Reverter o lote inteiro — o `estornar` do A Receber extraído em `estornarNoTrx`]: os dois títulos voltam a `QUITADA=N`, nasce o contra-movimento (crédito de 505 vira débito de −505, `idlote_reversao` no lote original, histórico "…contas a receber…"), reverter de novo dá 422, vínculo de desconto de títulos dá 422 e sem `BTNREVERTERBAIXA` 403',
+        check('CONS BAIXAS AR §131.3 [Reverter o lote inteiro — o `estornar` do A Receber extraído em `estornarNoTrx`]: os dois títulos voltam a `QUITADA=N`, nasce o contra-movimento (crédito de 505 vira **débito de 505** — mesmo valor, tipo invertido, e o lote somado a ele dá zero; mig 297), `idlote_reversao` no lote original, histórico "…contas a receber…", reverter de novo dá 422, vínculo de desconto de títulos dá 422 e sem `BTNREVERTERBAIXA` 403',
           rev.status === 200 && Number(revJ.titulosRevertidos) === 2 && Number(revJ.contraMovimentos) === 1
           && tit.every((r: any) => r.quitada === 'N')
-          && contra.length === 1 && Math.abs(Number(contra[0].valor) + 505) < 0.005 && contra[0].tipomovimento === 'D' && String(contra[0].historico).includes('contas a receber, lote ' + LOTE)
+          && contra.length === 1 && Math.abs(Number(contra[0].valor) - 505) < 0.005 && contra[0].tipomovimento === 'D' && String(contra[0].historico).includes('contas a receber, lote ' + LOTE)
+          && Math.abs(liquidoAr) < 0.005
           && deNovo.status === 422 && comDesc.status === 422 && comDescJ.code === 'VINCULO_DESCONTO_TITULO' && semGrant.status === 403,
           { status: rev.status, rev: revJ, quitadas: tit.map((r: any) => r.quitada), contra: contra[0] && { v: contra[0].valor, t: contra[0].tipomovimento }, deNovo: deNovo.status, desc: comDescJ.code, rbac: semGrant.status });
 
@@ -17466,6 +17473,37 @@ async function main() {
         await pgTp.query(`DELETE FROM contas_bancarias WHERE codconta IN ($1,$2,$3)`, [cA, cB, cC]);
       } finally {
         await pgTp.end();
+      }
+    }
+
+    // ══ O RAZÃO BANCÁRIO: o "a prazo" (LIBERADO) fora do saldo (mig 297) ═══════════════════════════════
+    {
+      const pgLb = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const CC = 'cadastro/controle-contas';
+        const bancoLb = Number((await pgLb.query(`SELECT codbco FROM bancos WHERE codbco > 0 ORDER BY codbco LIMIT 1`)).rows[0]?.codbco ?? 1);
+        const cL = Number((await pgLb.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES ($1,1,'SMOKE LIBERADO') RETURNING codconta`, [bancoLb])).rows[0].codconta);
+        // dois liberados (C 100, D 30) e dois a prazo (C 50 com N, D 20 com nulo — o nulo do legado também é a prazo)
+        await pgLb.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, historico, data_fechamento, liberado) VALUES
+          ($1,1,100,'C','lib C','2048-06-01','S'), ($1,1,30,'D','lib D','2048-06-02','S'),
+          ($1,1,50,'C','prazo C','2048-06-03','N'), ($1,1,20,'D','prazo D','2048-06-04',NULL)`, [cL]);
+        const sal = (await (await fetch(`${base}/${CC}/saldo?codconta=${cL}`, { headers: H })).json().catch(() => ({}))) as any;
+        const ext = (await (await fetch(`${base}/${CC}/extrato?codconta=${cL}`, { headers: H })).json().catch(() => ({}))) as any;
+        const linha = (h: string) => (ext.movimentos ?? []).find((m: any) => m.historico === h);
+        const cL2 = Number((await pgLb.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES ($1,1,'SMOKE LIBERADO 2') RETURNING codconta`, [bancoLb])).rows[0].codconta);
+        const novoMov = Number((await (await fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H,
+          body: JSON.stringify({ codorigem: cL, coddestino: cL2, valor: 1 }) })).json().catch(() => ({})) as any).debito);
+        const libNovo = (await pgLb.query(`SELECT liberado FROM mov_contas_bancarias WHERE codmovconta = $1`, [novoMov])).rows[0]?.liberado;
+        check('RAZÃO BANCÁRIO §161.1 [o saldo conta só o LIBERADO; o resto é "a prazo", à parte]: o saldo do legado é `Σ VALOR` com `LIBERADO=\'S\'` e o que não está liberado vira o TOTAL A PRAZO (`udmControleContasBancarias.dfm:765`). No cliente são **23.373 movimentos N (R$ 8,9 mi) e 115 nulos (R$ 226 mil)** — sem a coluna, o saldo atual somaria R$ 9,1 mi que o legado não soma. Aqui: saldo 70 (100 − 30), a prazo +30 (50 − 20, o nulo incluso); no extrato as linhas a prazo aparecem marcadas e NÃO mexem no saldo corrente; e o movimento novo do Apollo nasce liberado',
+          Number(sal.saldo) === 70 && Number(sal.entradas) === 100 && Number(sal.saidas) === 30 && Number(sal.a_prazo) === 30
+          && Number(ext.saldo) === 70 && linha('prazo C')?.a_prazo === true && linha('prazo D')?.a_prazo === true
+          && Number(linha('lib D')?.saldo_corrente) === 70 && Number(linha('lib C')?.saldo_corrente) === 100 && linha('lib C')?.a_prazo === false
+          && libNovo === 'S',
+          { saldo: sal, ext: (ext.movimentos ?? []).map((m: any) => [m.historico, m.a_prazo, m.saldo_corrente]), libNovo });
+        await pgLb.query(`DELETE FROM mov_contas_bancarias WHERE codconta IN ($1,$2)`, [cL, cL2]);
+        await pgLb.query(`DELETE FROM contas_bancarias WHERE codconta IN ($1,$2)`, [cL, cL2]);
+      } finally {
+        await pgLb.end();
       }
     }
 
