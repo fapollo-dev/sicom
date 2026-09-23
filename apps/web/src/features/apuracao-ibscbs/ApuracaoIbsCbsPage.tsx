@@ -25,6 +25,8 @@ type Apuracao = {
   ibs_cred_presumido: number; cbs_cred_presumido: number;
   ibs_suspenso: number; cbs_suspenso: number;
   ibs_retido_split: number; cbs_retido_split: number;
+  // mig 299: a perna do cupom, já somada ao débito acima
+  base_debito_cupom?: number; ibs_debito_cupom?: number; cbs_debito_cupom?: number; cupons_debito?: number;
 };
 type Detalhe = {
   codnf: number; direcao: string; nronf: string | null; serie: string | null; dtcontabil: string | null;
@@ -130,6 +132,15 @@ export function ApuracaoIbsCbsPage() {
                   <td className="p-pad-xs text-right tabular-nums">{brl(atual.base_debito)}</td>
                   <td className="p-pad-xs text-right tabular-nums">{atual.notas_debito}</td>
                 </tr>
+                {Number(atual.cupons_debito ?? 0) > 0 && (
+                  <tr className="border-b border-border text-fg-muted">
+                    <td className="p-pad-xs pl-pad-md">dos quais, cupom (NFC-e)</td>
+                    <td className="p-pad-xs text-right tabular-nums">{brl(Number(atual.ibs_debito_cupom ?? 0))}</td>
+                    <td className="p-pad-xs text-right tabular-nums">{brl(Number(atual.cbs_debito_cupom ?? 0))}</td>
+                    <td className="p-pad-xs text-right tabular-nums">{brl(Number(atual.base_debito_cupom ?? 0))}</td>
+                    <td className="p-pad-xs text-right tabular-nums">{atual.cupons_debito} cupons</td>
+                  </tr>
+                )}
                 <tr className="border-b border-border">
                   <td className="p-pad-xs">Crédito (entradas)</td>
                   <td className="p-pad-xs text-right tabular-nums">{brl(atual.ibs_credito)}</td>

@@ -17162,6 +17162,27 @@ async function main() {
         await pgAp.query(`DELETE FROM split_payment_config WHERE idempresa = 1`);
         await pgAp.query(`DELETE FROM apuracao_ibscbs WHERE idempresa = 1 AND competencia = '202607'`);
 
+        // §155.8 — o DÉBITO DO CUPOM (mig 299): duas vendas autorizadas entram; cancelada, sem NFC-e autorizada e
+        // de outro mês não. Nenhuma nota em 2026-08, então todo o débito do período é de cupom.
+        await pgAp.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, cancelado, venda_nfc, statusnfe, chavenfe, codnfc, vbc, vibsuf, vibsmun, vcbs, cst_ibscbs, cclasstrib) VALUES
+          (1,'2026-08-10 12:00:00-03',99,994601,1,994501,1,100,50,'A',5102,'N','S','P','31260837954975000169650990000994601000994601',994601,100,0.10,0,0.90,'000','000001'),
+          (1,'2026-08-10 12:00:00-03',99,994601,2,994501,1,100,50,'A',5102,'N','S','P','31260837954975000169650990000994601000994601',994601,100,0.10,0,0.90,'000','000001'),
+          (1,'2026-08-10 12:00:00-03',99,994601,3,994501,1,100,50,'A',5102,'S','S','P','31260837954975000169650990000994601000994601',994601,100,0.10,0,0.90,'000','000001'),
+          (1,'2026-08-11 12:00:00-03',99,994602,1,994501,1,100,50,'A',5102,'N','S',NULL,NULL,NULL,100,0.10,0,0.90,'000','000001'),
+          (1,'2026-09-01 12:00:00-03',99,994603,1,994501,1,100,50,'A',5102,'N','S','P','31260937954975000169650990000994603000994603',994603,100,0.10,0,0.90,'000','000001')`);
+        const pCup = await fetch(`${base}/${AP}/processar`, { method: 'POST', headers: j, body: JSON.stringify({ competencia: '202608' }) });
+        const aCup = (await pCup.json().catch(() => ({}))) as any;
+        const cabCup = (await pgAp.query(`SELECT base_debito, ibs_debito, cbs_debito, base_debito_cupom, ibs_debito_cupom, cbs_debito_cupom, cupons_debito, notas_debito
+            FROM apuracao_ibscbs WHERE idempresa = 1 AND competencia = '202608'`)).rows[0];
+        check('APURAÇÃO IBS/CBS §155.8 [o CUPOM entra no débito — correção de uma afirmação minha]: eu tinha registrado que "nenhuma venda de cupom carrega grupo IBS/CBS" porque medi as NOTAS; os itens do cupom moram em `VENDAS` e carregam os grupos desde mar/2026 — **~200 mil itens por mês, CBS ~R$ 9 mil/mês** no cliente, que a apuração deixava de fora. A perna usa os filtros da de ICMS: NFC-e autorizada e com chave, item não cancelado, data no fuso local. Aqui entram as duas vendas boas de agosto (IBS 0,20, CBS 1,80, base 200, 1 cupom); a cancelada, a sem NFC-e autorizada e a de setembro ficam fora; e o débito total é o do cupom, porque não há nota no mês',
+          pCup.status === 200 && Number(aCup.debito?.ibs) === 0.2 && Number(aCup.debito?.cbs) === 1.8 && Number(aCup.debito?.base) === 200
+          && Number(aCup.debito?.cupom?.cupons) === 1 && Number(aCup.debito?.notas) === 0
+          && Number(cabCup?.ibs_debito_cupom) === 0.2 && Number(cabCup?.cbs_debito_cupom) === 1.8 && Number(cabCup?.cupons_debito) === 1
+          && Number(cabCup?.cbs_debito) === 1.8 && aCup.observacao === undefined,
+          { status: pCup.status, deb: aCup.debito, cab: cabCup });
+        await pgAp.query(`DELETE FROM vendas WHERE nrocupom::text IN ('994601', '994602', '994603') AND nroserie::text = '99'`);
+        await pgAp.query(`DELETE FROM apuracao_ibscbs WHERE idempresa = 1 AND competencia = '202608'`);
+
         await pgAp.query(`DELETE FROM apuracao_ibscbs WHERE idempresa = 1 AND competencia IN ('202605','202606')`);
         await pgAp.query(`DELETE FROM nf_prod_ibscbs WHERE codnf BETWEEN 9945001 AND 9945004`);
         await pgAp.query(`DELETE FROM nf_prod WHERE codnf BETWEEN 9945001 AND 9945004`);

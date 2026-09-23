@@ -60,7 +60,9 @@ RENOMEIA = {
  # as 2.661 notas com valor (R$ 49.050,73; 353 em 2026) chegariam zeradas.
  'nf': {'totalicm_stexterno': 'total_icmst_externo'},
  # §7e: o código do Oracle NÃO entra na PK (lá é por venda/cupom, não por linha) — vira coluna de referência
- 'vendas': {'codvendas': 'codvendas_legado'},
+ 'vendas': {'codvendas': 'codvendas_legado',
+            # mig 299: o CST do IBS/CBS; `cst` solto seria lido como o do ICMS (`icms_cst`)
+            'cst': 'cst_ibscbs'},
  'cx_vendas': {'codcxvendas': 'codcxvendas_legado'},
  # KARDEX: o legado nomeia o movimento por "alteração" e "atual"; nós, por "qtde" e "saldo". A equivalência é
  # direta (qtde_alter = o quanto mexeu; qtde_atual = o saldo depois), e `saldo_anterior` sai da subtração — é a
@@ -108,6 +110,24 @@ CALCULADAS = {
   # CONFIG_PLANO_CONTAS guarda a máscara como NDIG_1..NDIG_8 (larguras por nível); a nossa é o CSV '1,1,2,2,5'.
   'config_plano_contas': {'mascara': "rtrim(" + "||".join(f"nvl2(ndig_{i}, to_char(ndig_{i})||',', '')" for i in range(1, 9)) + ", ',')"},
   'icms_cfop': {'tipo': "case when substr(to_char(cfop),1,1) in ('1','2','3') then 'E' else 'S' end"},
+  # ⚠️ O ITEM DO CUPOM E A SUA NFC-e. `VENDAS` do legado não tem CODNFC, CHAVENFE nem STATUSNFE — moram no
+  # cabeçalho `NFC`, que não migra (PDV). As migs 105/165 previram as três colunas "vindas da carga", mas o
+  # extrator não as derivava: depois da carga ficariam NULAS e a perna de cupom das apurações de ICMS e de IBS/CBS
+  # (que filtra `statusnfe='P'` com chave) não acharia venda nenhuma — e é ela que carrega 99,8% do detalhe.
+  # A ligação é a do próprio legado (`GetSQLNFC`, uRelRegistros_ES.pas:1822): pedido + loja + série + DIA, com o
+  # índice NFC_IDX_DU_03 nessa chave. A chave NÃO é única (21.719 casos em 2026 — inutilizada ao lado da
+  # autorizada): vence a NFC-e AUTORIZADA E PROCESSADA não cancelada. `statusnfe` só é 'P' nesse caso (o legado
+  # exige STATUSNFE='P' **e** PROC='S'); cancelada vira 'C'; 'P' não processada fica sem status. Conferido na
+  # semana de 01-07/07/2026: 53.015 itens e ICMS R$ 9.179,50, idênticos ao GetSQLNFC do legado. Mig 299.
+  'vendas': {
+    'codnfc':    "(select max(n.codnfc) keep (dense_rank first order by case when n.statusnfe = 'P' and n.proc = 'S' and nvl(n.cancelada,'N') = 'N' then 0 else 1 end, n.codnfc desc)"
+                 " from nfc n where n.nropedido = vendas.nropedido and n.idempresa = vendas.idempresa and n.serie = vendas.nroserie and trunc(n.dtemissao) = trunc(vendas.dtvenda))",
+    'chavenfe':  "(select max(n.chavenfe) keep (dense_rank first order by case when n.statusnfe = 'P' and n.proc = 'S' and nvl(n.cancelada,'N') = 'N' then 0 else 1 end, n.codnfc desc)"
+                 " from nfc n where n.nropedido = vendas.nropedido and n.idempresa = vendas.idempresa and n.serie = vendas.nroserie and trunc(n.dtemissao) = trunc(vendas.dtvenda))",
+    'statusnfe': "(select max(case when n.statusnfe = 'P' and n.proc = 'S' and nvl(n.cancelada,'N') = 'N' then 'P'"
+                 " when nvl(n.cancelada,'N') = 'S' then 'C' when n.statusnfe = 'P' then null else n.statusnfe end)"
+                 " keep (dense_rank first order by case when n.statusnfe = 'P' and n.proc = 'S' and nvl(n.cancelada,'N') = 'N' then 0 else 1 end, n.codnfc desc)"
+                 " from nfc n where n.nropedido = vendas.nropedido and n.idempresa = vendas.idempresa and n.serie = vendas.nroserie and trunc(n.dtemissao) = trunc(vendas.dtvenda))"},
   'historico_prod': {
     # saldo antes do movimento = saldo depois − o que mexeu
     'saldo_anterior': 'nvl(qtde_atual,0) - nvl(qtde_alter,0)',

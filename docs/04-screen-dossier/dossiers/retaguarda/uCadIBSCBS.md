@@ -469,13 +469,32 @@ separado.
 
 O crédito é cerca de dez vezes o débito, e isso tem explicação — ver o fold a seguir.
 
-### 13.3 ⚠️ Fold declarado: o débito de cupom não entra
+### 13.3 ⚠️ CORRIGIDO (mig 299): o débito de cupom ENTRA — a afirmação anterior estava errada
 
-A venda no PDV sai em NFC-e e **nenhuma venda de cupom tem grupo IBS/CBS** no cliente: os 98.760 itens são
-todos de NF. Enquanto for assim, o débito de saída fica estruturalmente baixo. PDV está fora de escopo por
-instrução, então isto é limite declarado, não esquecimento — e a resposta da API diz isso em texto, para
-que ninguém leia o número sem saber o que ele não cobre. Quando a NFC-e passar a carregar os grupos, entra
-uma perna nova aqui, como a apuração de ICMS (mig 164) tem a perna do cupom carregando 99,8% do detalhe.
+~~A venda no PDV sai em NFC-e e **nenhuma venda de cupom tem grupo IBS/CBS** no cliente: os 98.760 itens são
+todos de NF.~~ **Errado.** Eu medi os itens das NOTAS (`NF_PROD_IBSCBS`) e não olhei os itens do CUPOM, que
+moram em `VENDAS` — e carregam os grupos desde mar/2026:
+
+| mês | itens | base | CBS | IBS-UF |
+|---|---:|---:|---:|---:|
+| 2026-03 | 166.588 | R$ 1.870.461,14 | R$ 6.858,23 | R$ 390,68 |
+| 2026-04 | 205.810 | R$ 2.536.041,46 | R$ 9.908,81 | R$ 639,81 |
+| 2026-07 | 227.892 | R$ 2.892.967,70 | R$ 10.340,65 | R$ 659,66 |
+
+A apuração deixava o débito do cupom de fora todo mês — e "o crédito é dez vezes o débito" parecia ter a
+explicação do fold, quando o débito estava simplesmente incompleto. Achado na varredura dos pontos cegos do
+conferidor: as colunas estão em ~7% das 19 milhões de vendas, abaixo do limiar de 50% que ele olha.
+
+Agora a apuração tem a **perna do cupom** (`somaCupons`), com os filtros da perna de cupom da apuração de ICMS
+(NFC-e autorizada e processada, com chave, item e cupom não cancelados, data no fuso local), em colunas próprias
+(`base/ibs/cbs_debito_cupom`, `cupons_debito`) e somada ao débito. IBS = IBS-UF + IBS-municipal. As colunas vêm de
+`VENDAS` pela carga, com o CST em `cst_ibscbs` (`vendas` já tem o CST do ICMS). A observação de "limite
+declarado" saiu da resposta da API.
+
+⚠️ E a perna do cupom — nesta apuração e na de ICMS — depende de `vendas.codnfc/chavenfe/statusnfe`, que o
+legado não tem em `VENDAS` (moram no cabeçalho `NFC`) e que a carga **não derivava**: depois da carga ficariam
+nulas e as duas pernas de cupom viriam vazias. Derivadas agora pela ligação do próprio legado (ver o dossiê da
+apuração de ICMS e o Achado 16 da FILA).
 
 ### 13.4 Os filtros, e por que são os mesmos do ICMS
 

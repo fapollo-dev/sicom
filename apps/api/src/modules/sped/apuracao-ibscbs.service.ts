@@ -107,7 +107,14 @@ export class ApuracaoIbsCbsService {
           sIbs: r2(a.sIbs + num(r.ibs_susp)), sCbs: r2(a.sCbs + num(r.cbs_susp)),
         }), { base: 0, ibs: 0, cbs: 0, cpIbs: 0, cpCbs: 0, sIbs: 0, sCbs: 0 });
       const cred = soma(entradas);
-      const deb = soma(saidas);
+      const debNotas = soma(saidas);
+      // ⚠️ a perna do CUPOM (mig 299): a venda do PDV carrega os grupos desde mar/2026 (~200 mil itens/mês, CBS
+      // ~R$ 9 mil/mês no cliente). Sem ela o débito saía só das notas — e subestimado todo mês.
+      const cupom = await this.somaCupons(trx, emp, ini, fim);
+      const deb: Soma = {
+        ...debNotas,
+        base: r2(debNotas.base + cupom.base), ibs: r2(debNotas.ibs + cupom.ibs), cbs: r2(debNotas.cbs + cupom.cbs),
+      };
 
       // ⚠️ o saldo anterior vem do período anterior FECHADO, e vem SEPARADO por tributo
       const ant = (await sql<{ ibs_saldo_credor: number; cbs_saldo_credor: number }>`
@@ -152,6 +159,7 @@ export class ApuracaoIbsCbsService {
               ibs_a_recolher, ibs_saldo_credor, cbs_a_recolher, cbs_saldo_credor,
               ibs_cred_presumido, cbs_cred_presumido, ibs_suspenso, cbs_suspenso,
               ibs_retido_split, cbs_retido_split,
+              base_debito_cupom, ibs_debito_cupom, cbs_debito_cupom, cupons_debito,
               codoperador, dtultimalteracao)
         VALUES (${emp}, ${dto.competencia}, ${ini}::date, ${fim}::date,
                 ${deb.base}, ${deb.ibs}, ${deb.cbs}, ${saidas.length},
@@ -161,6 +169,7 @@ export class ApuracaoIbsCbsService {
                 ${res.cbs_a_recolher}, ${res.cbs_saldo_credor},
                 ${cpIbs}, ${cpCbs}, ${r2(cred.sIbs + deb.sIbs)}, ${r2(cred.sCbs + deb.sCbs)},
                 ${retIbs}, ${retCbs},
+                ${cupom.base}, ${cupom.ibs}, ${cupom.cbs}, ${cupom.cupons},
                 ${currentTenant().operadorId ?? null}, now())
         ON CONFLICT (idempresa, competencia) DO UPDATE SET
           data_inicio = excluded.data_inicio, data_fim = excluded.data_fim,
@@ -177,6 +186,8 @@ export class ApuracaoIbsCbsService {
           ibs_suspenso = excluded.ibs_suspenso, cbs_suspenso = excluded.cbs_suspenso,
           ibs_retido_split = excluded.ibs_retido_split,
           cbs_retido_split = excluded.cbs_retido_split,
+          base_debito_cupom = excluded.base_debito_cupom, ibs_debito_cupom = excluded.ibs_debito_cupom,
+          cbs_debito_cupom = excluded.cbs_debito_cupom, cupons_debito = excluded.cupons_debito,
           codoperador = excluded.codoperador, dtultimalteracao = now()
         RETURNING codapuracao_ibscbs`.execute(trx)).rows[0];
       const cod = Number(cab.codapuracao_ibscbs);
@@ -194,16 +205,37 @@ export class ApuracaoIbsCbsService {
       return {
         codapuracao_ibscbs: cod, competencia: dto.competencia, data_inicio: ini, data_fim: fim,
         credito: { ...cred, notas: entradas.length },
-        debito: { ...deb, notas: saidas.length },
+        debito: { ...deb, notas: saidas.length, cupom: { ...cupom } },
         saldo_anterior: { ibs: ibsAnt, cbs: cbsAnt },
         credito_presumido: { ibs: cpIbs, cbs: cpCbs },
         retido_split: { ibs: retIbs, cbs: retCbs },
         suspenso: { ibs: r2(cred.sIbs + deb.sIbs), cbs: r2(cred.sCbs + deb.sCbs) },
         resultado: res,
-        // o limite declarado, na própria resposta: quem lê o número tem de saber o que ele não cobre
-        observacao: 'o débito de cupom (NFC-e) não entra: nenhuma venda de cupom carrega grupo IBS/CBS',
       };
     });
+  }
+
+  /**
+   * O DÉBITO DO CUPOM (mig 299) — os itens de venda da NFC-e com os grupos IBS/CBS. Os filtros são os da perna de
+   * cupom da apuração de ICMS (`apuracao-icms.service.ts`, `detalheCupons`): data da venda no fuso local, item e cupom
+   * não cancelados, **NFC-e autorizada** (`STATUSNFE='P'`) e com chave — cupom em contingência ou inutilizado não é
+   * documento fiscal. IBS = IBS-UF + IBS-municipal, como nas notas.
+   */
+  private async somaCupons(trx: AnyDB, emp: number, ini: string, fim: string) {
+    const r = (await sql<{ base: unknown; ibs: unknown; cbs: unknown; cupons: unknown }>`
+        SELECT coalesce(sum(v.vbc), 0) AS base,
+               coalesce(sum(coalesce(v.vibsuf, 0) + coalesce(v.vibsmun, 0)), 0) AS ibs,
+               coalesce(sum(v.vcbs), 0) AS cbs,
+               count(DISTINCT coalesce(v.codnfc::text, v.nropedido)) AS cupons
+          FROM vendas v
+         WHERE v.idempresa = ${emp}
+           AND cast(v.dtvenda at time zone 'America/Sao_Paulo' as date) BETWEEN ${ini}::date AND ${fim}::date
+           AND coalesce(v.cancelado, 'N') = 'N'
+           AND coalesce(v.tipocanc, 'N') <> 'C'
+           AND coalesce(v.statusnfe, '') = 'P'
+           AND v.chavenfe IS NOT NULL
+           AND v.vbc IS NOT NULL`.execute(trx)).rows[0];
+    return { base: r2(num(r?.base)), ibs: r2(num(r?.ibs)), cbs: r2(num(r?.cbs)), cupons: Number(r?.cupons ?? 0) };
   }
 
   async obter(dto: ApuracaoIbsCbsObterDto) {

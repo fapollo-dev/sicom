@@ -2048,6 +2048,34 @@
      "escala": 2,
      "nulo": false,
      "default": "0"
+    },
+    "base_debito_cupom": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "ibs_debito_cupom": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "cbs_debito_cupom": {
+     "tipo": "numeric",
+     "tam": 15,
+     "escala": 2,
+     "nulo": false,
+     "default": "0"
+    },
+    "cupons_debito": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "0"
     }
    },
    "pk": [
@@ -6661,8 +6689,8 @@
      "default": null
     },
     "movimento": {
-     "tipo": "character varying",
-     "tam": 60,
+     "tipo": "text",
+     "tam": null,
      "escala": null,
      "nulo": true,
      "default": null
@@ -10657,21 +10685,21 @@
     },
     "documento": {
      "tipo": "character varying",
-     "tam": 60,
+     "tam": 200,
      "escala": null,
      "nulo": true,
      "default": null
     },
     "deschist": {
      "tipo": "character varying",
-     "tam": 255,
+     "tam": 4000,
      "escala": null,
      "nulo": true,
      "default": null
     },
     "tipodoc": {
      "tipo": "character varying",
-     "tam": 10,
+     "tam": 25,
      "escala": null,
      "nulo": true,
      "default": null
@@ -33201,6 +33229,111 @@
      "tipo": "integer",
      "tam": 32,
      "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "cst_ibscbs": {
+     "tipo": "character varying",
+     "tam": 3,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "cclasstrib": {
+     "tipo": "character varying",
+     "tam": 6,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "vbc": {
+     "tipo": "numeric",
+     "tam": 12,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "pibsuf": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "vibsuf": {
+     "tipo": "numeric",
+     "tam": 12,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "pibsmun": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "vibsmun": {
+     "tipo": "numeric",
+     "tam": 12,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "pcbs": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "vcbs": {
+     "tipo": "numeric",
+     "tam": 12,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    },
+    "predaliq_cbs": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "paliqefet_cbs": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "predaliq_ibsuf": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "paliqefet_ibsuf": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "predaliq_ibsmun": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
+     "nulo": true,
+     "default": null
+    },
+    "paliqefet_ibsmun": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 4,
      "nulo": true,
      "default": null
     }

@@ -734,3 +734,19 @@ Dossiê `UCadContasBancarias.md`.
 **Dois pontos cegos do conferidor, registrados**: (1) só acusa coluna preenchida em ≥ 50% — `CLAO_ID` (17 de
 1,2 milhão) passa; (2) só olha chave/número — a flag `LIBERADO`, que decide o saldo, passa. A convenção de um
 valor (sinal × absoluto) ele não vê de jeito nenhum: a coluna existe nos dois lados.
+
+### Achado 16 — o que a carga não conseguiria carregar, e o cupom que as apurações não veriam (migs 299-300)
+
+**Capacidade, medida na PRODUÇÃO.** O `mapa-colunas.py` confere capacidade, mas mede na homologação. Refeito
+contra a produção em todas as fases: cinco colunas apontadas, duas falso positivo (a carga já transforma) e
+**três que parariam a carga**: `diario.tipodoc` (15 contra 10 — 36.596 linhas), `diario.deschist` (371 contra
+255) e `clube_desconto_mov.movimento` (um registro posicional de 1,5 a 3 mil caracteres num varchar(60) — a mig
+285 supôs que era "a chave do cupom"). `diario` é o razão contábil inteiro.
+
+**A ligação do cupom.** `vendas.codnfc/chavenfe/statusnfe` não existem no `VENDAS` do legado (moram na `NFC`)
+e a carga não as derivava: as pernas de cupom das apurações de ICMS e de IBS/CBS viriam vazias. Derivadas pela
+ligação do `GetSQLNFC`; na semana conferida, 53.015 itens e ICMS R$ 9.179,50 idênticos ao legado.
+
+**E uma afirmação minha corrigida.** Eu tinha registrado que o cupom não carrega IBS/CBS (medi as notas); os
+itens do cupom carregam desde mar/2026 — ~200 mil por mês, CBS ~R$ 9 mil/mês. A apuração de IBS/CBS ganhou a
+perna do cupom. Dossiês `uCadIBSCBS.md` §13.3 e `uRelRegistros_ES-apuracao-icms.md`.

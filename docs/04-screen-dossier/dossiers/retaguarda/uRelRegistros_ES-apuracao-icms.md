@@ -246,3 +246,19 @@ Uma consequência da fórmula literal do legado que fica registrada: `ARECOLHER 
 piso** — com dedução maior que o devedor o valor fica **negativo** (o teste chegou a `-4,00` antes de eu ajustar o
 cenário). O legado é assim; o E110 com `VL_ICMS_RECOLHER` negativo não é entregável, então isso é candidato a
 validação própria (registrado, não implementado).
+
+## ⚠️ A perna do cupom dependia de três colunas que a carga não preenchia (migration 299)
+
+A perna do cupom (`detalheCupons`) filtra `vendas.statusnfe = 'P'` com `chavenfe` e identifica o documento por
+`vendas.codnfc`. **No legado `VENDAS` não tem nenhuma das três** — moram no cabeçalho `NFC`, que não migra (PDV).
+As migrations 105 e 165 previram as colunas "vindas da carga", mas o extrator não as derivava: depois da carga
+elas ficariam nulas e a perna que carrega **99,8% do detalhe** não acharia venda nenhuma — a apuração do cliente
+sairia só com as notas.
+
+Agora a carga deriva as três pela ligação do próprio `GetSQLNFC` (`uRelRegistros_ES.pas:1822`): pedido + loja +
+série + dia (`V.NROPEDIDO = N.NROPEDIDO AND V.IDEMPRESA = N.IDEMPRESA AND V.NROSERIE = N.SERIE AND TRUNC(V.DTVENDA)
+= TRUNC(N.DTEMISSAO)`), com o índice `NFC_IDX_DU_03` exatamente nessa chave. A chave **não é única** — 21.719
+casos em 2026 com uma NFC-e inutilizada ao lado da autorizada —, então vence a **autorizada e processada não
+cancelada**, e `statusnfe` só vira 'P' nesse caso (o legado exige `STATUSNFE='P'` **e** `PROC='S'`). Conferido
+na semana de 01 a 07/07/2026: **53.015 itens e ICMS R$ 9.179,50, idênticos ao `GetSQLNFC`**; 91 itens sem NFC-e
+casada ficam de fora, como no legado. A mesma derivação alimenta a perna do cupom da apuração de IBS/CBS.
