@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { configNaTrx } from '../compras/pedido-heranca';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -16,6 +17,11 @@ const r3 = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000; // num
  * movimento relativo oposto (+qtde) e limpa `mov_estoque`. Movimento RELATIVO (não restaura saldo absoluto) →
  * compõe corretamente mesmo com movimento posterior de outra origem. qtde é SIGNED (fiel ao golden): qtde<0 num
  * item inverte o sentido naturalmente. Tenant por `idempresa` fail-closed; operador obrigatório.
+ *
+ * A baixa NO PRÓPRIO SCRAP só existe com `BAIXAR_ESTOQUE_NO_SCRAP='S'` ("define se o estoque será baixado na criação
+ * do scrap", config do binário novo). Na produção ela é 'N' e nenhum scrap tem `MOV_ESTOQUE='S'`: quem baixa o
+ * estoque é o processamento da NF DE PERDA em que o scrap é importado (`nf-scrap.service.ts`) — aplicar aqui e
+ * processar a NF baixaria duas vezes.
  */
 @Injectable()
 export class ScrapService {
@@ -33,11 +39,18 @@ export class ScrapService {
     return o;
   }
 
+  /** sem `BAIXAR_ESTOQUE_NO_SCRAP='S'` a baixa é da NF de perda — aplicar/estornar aqui recusa */
+  private async exigirBaixaNoScrap(trx: AnyDB, emp: number): Promise<void> {
+    const v = await configNaTrx(trx, 'BAIXAR_ESTOQUE_NO_SCRAP', { empresaId: emp, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' });
+    if (String(v ?? 'N').toUpperCase() !== 'S') throw new BusinessRuleError('SCRAP_BAIXA_PELA_NF');
+  }
+
   /** aplica a baixa de estoque de TODOS os itens do scrap (idempotente pela guarda mov_estoque). */
   async aplicar(codscrap: number): Promise<{ codscrap: number; mov_estoque: 'S'; itens: number }> {
     const emp = this.emp();
     const op = this.op();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      await this.exigirBaixaNoScrap(trx, emp);
       const s = await trx
         .selectFrom('scrap').select(['codscrap', 'mov_estoque', 'importado'])
         .where('codscrap', '=', codscrap).where('idempresa', '=', emp)
@@ -60,6 +73,7 @@ export class ScrapService {
     const emp = this.emp();
     const op = this.op();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      await this.exigirBaixaNoScrap(trx, emp);
       const s = await trx
         .selectFrom('scrap').select(['codscrap', 'mov_estoque', 'importado'])
         .where('codscrap', '=', codscrap).where('idempresa', '=', emp)

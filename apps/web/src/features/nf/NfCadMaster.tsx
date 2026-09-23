@@ -29,6 +29,8 @@ import { useMensagem } from '../../shared/mensagem';
 import { NfItemModal } from './NfItemModal';
 import { NfRotativoModal } from './NfRotativoModal';
 import { NfLoteModal } from './NfLoteModal';
+import { NfScrapModal } from './NfScrapModal';
+import { vincularScrapNf, type CredenciaisLiberacao } from './nfScrapApi';
 import { vincularNfRotativo, type LadoRotativoNf } from '../inventario-rotativo/inventarioRotativoApi';
 import { createResourceApi } from '../../shared/cadmaster/resourceApi';
 import { recalcularNf } from './nfFiscalApi';
@@ -891,6 +893,10 @@ function ItensSection({
   const [lotesDe, setLotesDe] = useState<{ codnfprod: number; titulo: string } | null>(null);
   const [ufDestino, setUfDestino] = useState<string | undefined>();
   const pendenteRotativo = useRef<{ lotes: number[]; lado: LadoRotativoNf } | null>(null);
+  // IMPORTAR SCRAP (uNF.pas:1880): os scraps ficam pendentes até a nota ser gravada — o legado guarda
+  // `fListaImportacaoScrap` e marca IMPORTADO no `btnGravar` (uNF.pas:5251); a liberação da reimportação vai junto
+  const [scrapAberto, setScrapAberto] = useState(false);
+  const pendenteScrap = useRef<{ codscraps: number[]; credenciais: CredenciaisLiberacao } | null>(null);
   const codnfAtual = form.watch('codnf' as any) as number | undefined;
   const codparceiroAtual = form.watch('codparceiro');
   useEffect(() => {
@@ -902,6 +908,15 @@ function ItensSection({
         if (r.recusados.length) mensagem.erro(`Lote(s) ${r.recusados.map((x) => x.lote).join(', ')} não vinculado(s): já importado(s) em outra nota.`);
         else mensagem.sucesso(`Inventário rotativo vinculado à nota ${codnfAtual} (lotes ${r.carimbados.join(', ')}).`);
       })
+      .catch((e) => mensagem.erro(e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codnfAtual]);
+  useEffect(() => {
+    const p = pendenteScrap.current;
+    if (codnfAtual == null || !p) return;
+    pendenteScrap.current = null;
+    vincularScrapNf(Number(codnfAtual), { codscraps: p.codscraps, ...p.credenciais })
+      .then((r) => mensagem.sucesso(`SCRAP ${r.vinculados.join(', ')} vinculado(s) à nota ${codnfAtual}.`))
       .catch((e) => mensagem.erro(e));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codnfAtual]);
@@ -1051,7 +1066,30 @@ function ItensSection({
           <Button label="Adicionar &item" variant="soft" onClick={() => setEditIdx(-1)} />
           <Button label="Recalcular &impostos" variant="soft" onClick={() => void recalcular()} />
           <Button label="Importar inventário &rotativo" variant="soft" onClick={() => void abrirRotativo()} />
+          {form.getValues('tipo') === 'S' && (
+            <Button label="Importar &SCRAP" variant="soft" onClick={() => setScrapAberto(true)} />
+          )}
         </div>
+        {scrapAberto && (
+          <NfScrapModal
+            onFechar={() => setScrapAberto(false)}
+            onConfirmar={({ previa, credenciais }) => {
+              let n = proximoNroItem();
+              for (const it of previa.itens) append({ ...it, importado_de: 'SCRAP', nroitem: n++ });
+              // o destinatário é a própria empresa e o CFOP é o de perda (uNF.pas:1966-1971)
+              form.setValue('codparceiro' as any, previa.codparceiro);
+              form.setValue('codparceiro_end' as any, previa.codparceiro_end);
+              form.setValue('cfop' as any, String(previa.cfop));
+              const p = pendenteScrap.current;
+              pendenteScrap.current = {
+                codscraps: Array.from(new Set([...(p?.codscraps ?? []), ...previa.scraps])),
+                credenciais: previa.reimportados.length ? credenciais : (p?.credenciais ?? {}),
+              };
+              setScrapAberto(false);
+              mensagem.sucesso(`${previa.itens.length} item(ns) incluído(s). Os scraps ${previa.scraps.join(', ')} serão vinculados quando a nota for gravada.`);
+            }}
+          />
+        )}
         {lotesDe && codnfAtual != null && (
           <NfLoteModal codnf={Number(codnfAtual)} codnfprod={lotesDe.codnfprod} titulo={lotesDe.titulo} onFechar={() => setLotesDe(null)} />
         )}

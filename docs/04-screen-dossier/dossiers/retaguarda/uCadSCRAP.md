@@ -32,6 +32,13 @@ O corte foi escolhido por um **mapa menu × migrado × dado real**: a tabela de 
 
 As perdas **fluíram por NF-de-perda** (`importado='S'`, 92% entre 2020-24) e **viraram baixa-direta** (`mov_estoque='S'`) a partir de **2025-10-27**. Implementar a baixa-direta e decoplar o "aplicar" é fiel ao comportamento **atual** da operação.
 
+> ⚠️ **CORREÇÃO (23/09/2026, produção lida):** a frase acima está ERRADA para a produção. De jun/2025 a set/2026
+> **nenhum** scrap tem `MOV_ESTOQUE='S'` (25-32 por mês, 85-90% importados em NF — PEDIDO_NF tipo 'S': 199 scraps →
+> 131 NFs em 2026, todas processadas e autorizadas) e a config `BAIXAR_ESTOQUE_NO_SCRAP` (id 576, "define se o estoque
+> será baixado na criação do scrap") é **'N'**. Quem baixa o estoque é o PROCESSAMENTO da NF de perda. O "aplicar" do
+> Apollo passou a exigir `BAIXAR_ESTOQUE_NO_SCRAP='S'` (senão 422 `SCRAP_BAIXA_PELA_NF`) e a importação do scrap na
+> NF de saída foi convertida (`nf-scrap.service.ts`; dossiê uNF.md). Lição 133: medir na produção antes de afirmar.
+
 ## 3. Corte-1 (ENTREGUE)
 
 - **Migration 116:** `scrap` + `scrap_item` (FK cascata) + seed dos 4 motivos PERDA em `motivos_operacao` + view `get_scrap` (nº de itens + valor Σ `qtde × vr_custo`) + RBAC `FRMCADSCRAP`.
@@ -53,7 +60,7 @@ Idempotência de aplicar/estornar (`forUpdate` + guard de `mov_estoque` re-checa
 ## 4. Adiado (com procedência)
 
 - **Lançamento gerencial em CAIXA** (`btnGravarClick`).
-- **NF de perda CFOP 5927** → SPED, via o motor de NF de saída mod. 55 já entregue.
+- ~~**NF de perda CFOP 5927**~~ ✅ 23/09/2026 — a importação do SCRAP na NF de saída (`nf-scrap.service.ts`, `NfScrapModal`).
 - **Importador F7** de perdas identificadas (`UmportaVendasPerdas`).
 - **Gating de config PLC** (`PERDA='S'`, `FLG_USO_SETOR`, `OBRIGA_MOTIVO`) e de setor.
 - **Situação do documento** (E02).

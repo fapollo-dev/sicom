@@ -55,7 +55,9 @@ export function NfItemModal({
   const salvar = () => {
     if (item.codproduto == null) return setErro('Informe o produto do item.');
     if (!(Number(item.quantidade) > 0)) return setErro('A quantidade deve ser maior que zero.');
-    onConfirmar(item);
+    // passou pelo diálogo: deixa de ser "importado" e o CFOP×situação passa a cobrá-lo (uItensNF.pas:1525)
+    const { importado_de: _imp, ...digitado } = item;
+    onConfirmar(digitado as NfItemDto);
   };
 
   return (

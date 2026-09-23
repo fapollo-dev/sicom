@@ -88,6 +88,7 @@ export function NfRotativoModal({ tipoNota, ufDestino, onFechar, onConfirmar }: 
       fatorembal: it.fatorembal,
       unidade: it.unidade ? it.unidade.slice(0, 2) : undefined,
       vrcusto: it.vrcusto, // VRVENDA (preço de venda) fica 0, como nas NFs de perda da produção
+      importado_de: 'ROTATIVO', // não passou pelo diálogo do item (o CFOP×situação só cobra a nota inteira)
       desconto: 0, vrdescprod: 0, bonificacao: 0,
       cfop: String(it.cfop),
       ncm: it.ncmsh ?? undefined,

@@ -9,6 +9,7 @@ import { debitoPisCofins } from '../shared/piscofins-rentab';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 import { conferirNotaInteira, leitorCfopsDaSituacao } from './nf-cfop-situacao';
 import { normalizarItensNf } from './nf-item-padrao';
+import { estornarVinculoScrap } from './nf-scrap.service';
 
 /**
  * NOTA FISCAL (tela-coroa) — Fase 1: NÚCLEO CADASTRO, agregado mestre-detalhe via
@@ -216,7 +217,8 @@ export const nfAggregateConfig: AggregateConfig = {
         for (const it of dto.itens as Array<Record<string, unknown>>) {
           const par = antigos.get(String(it.codproduto))?.shift();
           if (it.cfop == null || it.cfop === '') continue;
-          const tocado = !par || Number(par.cfop) !== Number(it.cfop);
+          // o item que veio de importação (scrap, rotativo) não passou pelo diálogo — só a nota inteira o cobra
+          const tocado = (!par || Number(par.cfop) !== Number(it.cfop)) && !it.importado_de;
           if (!tocado && !notaInteira) continue;
           const sitIt = [it.idsituacao_nf, par?.idsituacao_nf].map(Number).find((s) => s > 0) ?? sitNf;
           if (!(await cfopsDe(sitIt)).has(Number(it.cfop))) {
@@ -281,6 +283,8 @@ export const nfAggregateConfig: AggregateConfig = {
     const nf = (await db.selectFrom('nf').select('tipo').where('codnf', '=', id).where('idempresa', '=', emp).executeTakeFirst()) as { tipo?: string } | undefined;
     if (!nf) return;
     await estornarVinculoRotativo(db, id, nf.tipo ?? null, emp);
+    // o scrap importado nesta nota volta a "não importado" e a PEDIDO_NF da nota sai (udmNF.pas:3217; uNF.pas:4216)
+    await estornarVinculoScrap(db, id, nf.tipo ?? null, true);
   },
   detalhes: [
     {
@@ -294,7 +298,7 @@ export const nfAggregateConfig: AggregateConfig = {
       chaveNatural: ['codproduto'],
       preservarNaoGerenciadas: true,
       colunas: [
-        'nroitem', 'codproduto', 'codprodnota', 'quantidade', 'fatorembal', 'unidade',
+        'nroitem', 'codproduto', 'idproduto_filho', 'codprodnota', 'quantidade', 'fatorembal', 'unidade',
         'geraestoque', 'movimenta_estoque',
         'vrvenda', 'vrcusto', 'desconto', 'vrdescprod', 'bonificacao',
         'cfop', 'ncm', 'cest', 'origem_estoque', 'aliquota', 'icms', 'cst', 'csosn',

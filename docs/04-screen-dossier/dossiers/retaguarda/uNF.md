@@ -432,3 +432,24 @@ Captura de golden no Oracle real (PINHEIRAO, read-only, **V$SQL acessível**) + 
 - **Oracle read-only**; nada de DML em homolog (PINHEIRAO replica).
 
 Ver [[parity-certificacao]] · [[fiscal-usar-legado]] · [[apollo-recon]] · [[apollo-erp-app]].
+
+
+## Importar SCRAP na NF de saída (23/09/2026) — `btnAddPedidoClick` opção 3 (uNF.pas:1880-2070)
+
+Das 10 origens do importar da NF (PEDIDO, VENDAS, TROCAS, SCRAP, PEDIDO PRODUÇÃO, INVENTÁRIO, PEDIDO DE COMPRA,
+TRANSFERÊNCIA, DEVOLUÇÃO DE COMPRA, INVENTÁRIO ROTATIVO), a produção só usa em volume o **SCRAP** (PEDIDO_NF: tipo 'S'
+3.526 linhas, 199 em 2026 → 131 NFs; 'T' 3 até 12/2023; 'V' 1 em 2022; 'P' 1 em 2022). Devolução de compra e
+rotativo já existiam no Apollo. Convertido (`nf-scrap.service.ts`, `NfScrapModal`, smoke 1475/0):
+- pesquisa `GET_SCRAP` (a view da produção) com as cores do legado (importado / NF-e enviada / cancelada / denegada);
+- destinatário = a própria empresa (PARCEIROS_END com o CNPJ dela), CFOP 5927 na UF e 6927 fora (o item acompanha o
+  1º dígito da nota — o legado põe 5927 fixo, mas o Apollo exige item e nota iguais e a produção não tem caso
+  interestadual); motivo 'USO INTERNO' → 5949 (nunca ocorre: 100% 'LIXO/PERDA');
+- itens agrupados por produto e FILHO (`IDPRODUTO_FILHO` passou a ser coluna do item da NF — 6.633 itens desde 2025),
+  quantidade somada, valor = custo do MULTI_PRECO ponderado (`qrySCRAP`), impostos pelo motor fiscal;
+- o item importado não passa pela regra do "item digitado" do CFOP×situação (358 itens de 2026 com 5927 em situação
+  1137/90 — `importado_de`, transitório); editar o item no diálogo tira a marca;
+- vínculo NO GRAVAR (PEDIDO_NF tipo 'S' + SCRAP.IMPORTADO='S'); reimportação só com liberação de
+  `USUARIOS_LIBERAM_SCRAP_NF` (produção: usuários 1 e 85), conferida na prévia e no vínculo; estorno
+  (`AtualizaStatusScrap`) na exclusão (apaga a PEDIDO_NF) e no cancelamento (mantém);
+- o OBS "1,2,3)" que o legado escreve é sobrescrito pela mensagem de tributos (nenhuma NF de scrap da produção o
+  guarda) — não reproduzido; scrap com `MOV_ESTOQUE='S'` não entra (baixaria duas vezes — sem caso na produção).

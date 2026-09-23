@@ -3851,6 +3851,11 @@ async function main() {
       const pgSc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       try {
         const SC = 'cadastro/scrap', PRD = 1;
+        // os testes do "aplicar" rodam no modo de baixa NO SCRAP (config do binário novo); a produção usa 'N' (47b.10)
+        await pgSc.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, descricao, config_especificas_permitidas)
+          SELECT 576, 'BAIXAR_ESTOQUE_NO_SCRAP', 'S', 'String', 'Define se o estoque será baixado na criação do scrap.', 'Modulo;Empresa'
+           WHERE NOT EXISTS (SELECT 1 FROM configuracoes WHERE codigo='BAIXAR_ESTOQUE_NO_SCRAP')`);
+        await pgSc.query(`UPDATE configuracoes SET valor='S' WHERE codigo='BAIXAR_ESTOQUE_NO_SCRAP'`);
         // baseline: custo 10 (valoração) + saldo 50.
         await pgSc.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto) VALUES (1,1,10) ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=10`);
         await pgSc.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES (1,1,50) ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde=50`);
@@ -3925,6 +3930,86 @@ async function main() {
         // 47b.9) RBAC sem grant → 403.
         const rb = await fetch(`${base}/${SC}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ itens: [{ idproduto: PRD, qtde: 1 }] }) });
         check('SCRAP: POST sem grant RBAC → 403', rb.status === 403, { status: rb.status });
+
+        // 47b.10) a PRODUÇÃO: BAIXAR_ESTOQUE_NO_SCRAP='N' — o scrap não baixa o estoque, quem baixa é a NF de perda
+        await pgSc.query(`UPDATE configuracoes SET valor='N' WHERE codigo='BAIXAR_ESTOQUE_NO_SCRAP'`);
+        const sN = Number(((await (await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idproduto: PRD, qtde: 1, codmotivoop: 261 }] }) })).json().catch(() => ({}))) as any).codscrap);
+        const apN = await fetch(`${base}/${SC}/${sN}/aplicar`, { method: 'POST', headers: H });
+        const apNJ = (await apN.json().catch(() => ({}))) as any;
+        check('SCRAP: com BAIXAR_ESTOQUE_NO_SCRAP=N (a produção) o aplicar recusa — a baixa é da NF de perda (422 SCRAP_BAIXA_PELA_NF, saldo intacto)',
+          apN.status === 422 && apNJ.code === 'SCRAP_BAIXA_PELA_NF' && (await saldoSc()) === 50, { status: apN.status, code: apNJ.code, saldo: await saldoSc() });
+        await pgSc.query(`DELETE FROM scrap WHERE codscrap=$1`, [sN]);
+
+        // 47b.11) IMPORTAR SCRAP NA NF DE SAÍDA (uNF.pas:1880): destinatário = a própria empresa (endereço com o CNPJ
+        // dela), CFOP 5927 na UF; itens agrupados por produto a custo do MULTI_PRECO; vínculo no gravar; reimportação
+        // só com liberação; estorno na exclusão; o processamento da NF é quem baixa o estoque
+        await pgSc.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto) VALUES (2,1,6) ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=6`);
+        // o seed já tem o endereço com o CNPJ da empresa: parceiro 1, em MA — a empresa é de MG, então é interestadual
+        await pgSc.query(`INSERT INTO cfop (codcfop, descricao, tipo) VALUES ('5927','LANCAMENTO EFETUADO A TITULO DE BAIXA DE ESTOQUE','S'), ('6927','LANCAMENTO EFETUADO A TITULO DE BAIXA DE ESTOQUE','S'), ('5949','OUTRA SAIDA','S'), ('6949','OUTRA SAIDA','S') ON CONFLICT DO NOTHING`);
+        await pgSc.query(`INSERT INTO situacao_nf (idsituacao_nf, descricao, tipo, tipo_operacao) VALUES (7920,'NF DE SCRAP PERDA','S','E01'), (7921,'SAIDA USO OU CONSUMO','S','E01') ON CONFLICT DO NOTHING`);
+        await pgSc.query(`INSERT INTO isituacao_nf (idsituacao_nf, codcfop) VALUES (7920, 5927), (7920, 6927), (7921, 6949)`);
+        const crSc = async (itens: Array<{ idproduto: number; qtde: number }>) => Number(((await (await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ itens: itens.map((i) => ({ ...i, codmotivoop: 261 })) }) })).json().catch(() => ({}))) as any).codscrap);
+        const scA = await crSc([{ idproduto: 1, qtde: 3 }, { idproduto: 1, qtde: 2 }, { idproduto: 2, qtde: 1 }]);
+        const scB = await crSc([{ idproduto: 1, qtde: 4 }]);
+        const disp = (await (await fetch(`${base}/fiscal/nf/scrap/disponiveis`, { headers: H })).json().catch(() => [])) as any[];
+        const pv = await fetch(`${base}/fiscal/nf/scrap/previa`, { method: 'POST', headers: H, body: JSON.stringify({ codscraps: [scA] }) });
+        const pvJ = (await pv.json().catch(() => ({}))) as any;
+        const pvP1 = (pvJ.itens ?? []).find((i: any) => Number(i.codproduto) === 1);
+        const pvP2 = (pvJ.itens ?? []).find((i: any) => Number(i.codproduto) === 2);
+        check('SCRAP→NF prévia: a lista traz os scraps não importados · destinatário = a própria empresa (parceiro 1, o endereço com o CNPJ dela) · em outra UF (MA × MG) → CFOP 6927 · itens AGRUPADOS por produto (3+2=5 do produto 1) a custo do MULTI_PRECO (10 e 6) · marcados como importados',
+          Array.isArray(disp) && disp.some((d) => d.codscrap === scA && d.importado === 'N') && pv.status === 200 && Number(pvJ.codparceiro) === 1 && Number(pvJ.codparceiro_end) === 1
+          && pvJ.cfop === '6927' && (pvJ.itens ?? []).length === 2 && Number(pvP1?.quantidade) === 5 && Number(pvP1?.vrcusto) === 10 && Number(pvP2?.vrcusto) === 6
+          && pvP1?.importado_de === 'SCRAP' && pvP1?.cfop === '6927',
+          { disp: Array.isArray(disp) ? disp.length : disp, status: pv.status, err: pvJ.code, cab: [pvJ.codparceiro, pvJ.codparceiro_end, pvJ.cfop], itens: pvJ.itens?.map((i: any) => [i.codproduto, i.quantidade, i.vrcusto, i.cfop]) });
+
+        // a NF: situação "de uso ou consumo" (só 6949, como a 1137 da produção) com os itens importados em 6927 → grava
+        // (item importado não passa pelo diálogo); o mesmo item DIGITADO (sem a marca) → 422
+        const nfBase = { tipo: 'S', modelo: 55, serie: '1', dtemissao: '2026-06-20', dtcontabil: '2026-06-20', tipoemissao: '0', finalidade: '1', codparceiro: pvJ.codparceiro, codparceiro_end: pvJ.codparceiro_end };
+        const nfA = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ ...nfBase, nronf: 'SCRAPA', cfop: '6949', idsituacao_nf: 7921, itens: pvJ.itens }) });
+        const nfAJ = (await nfA.json().catch(() => ({}))) as any;
+        const nfDig = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ ...nfBase, nronf: 'SCRAPD', cfop: '6949', idsituacao_nf: 7921, itens: (pvJ.itens ?? []).map(({ importado_de: _x, ...i }: any) => i) }) });
+        const nfDigJ = (await nfDig.json().catch(() => ({}))) as any;
+        const vin = await fetch(`${base}/fiscal/nf/${Number(nfAJ.codnf)}/scrap`, { method: 'POST', headers: H, body: JSON.stringify({ codscraps: [scA] }) });
+        const pnA = (await pgSc.query(`SELECT tipo FROM pedido_nf WHERE codnf=$1 AND codpedido=$2`, [Number(nfAJ.codnf), scA])).rows;
+        const impA = (await pgSc.query(`SELECT importado FROM scrap WHERE codscrap=$1`, [scA])).rows[0]?.importado;
+        check('SCRAP→NF gravar: item importado com CFOP fora da situação grava (201, como os 358 itens de 2026) · o mesmo item digitado → 422 NF_ITEM_CFOP_SITUACAO · vínculo no gravar: PEDIDO_NF tipo S + SCRAP.IMPORTADO=S · TOTALPROD 56 (5×10 + 1×6)',
+          nfA.status === 201 && Number(nfAJ.totalprod) === 56 && nfDig.status === 422 && nfDigJ.code === 'NF_ITEM_CFOP_SITUACAO'
+          && vin.status === 200 && pnA.length === 1 && pnA[0].tipo === 'S' && impA === 'S',
+          { nfA: [nfA.status, nfAJ.totalprod], dig: [nfDig.status, nfDigJ.code], vin: vin.status, pn: pnA, imp: impA });
+
+        // reimportar: sem usuário liberador → 422; com liberador e sem login → 422; com login do liberador → 200
+        const re1 = await fetch(`${base}/fiscal/nf/scrap/previa`, { method: 'POST', headers: H, body: JSON.stringify({ codscraps: [scA] }) });
+        const re1J = (await re1.json().catch(() => ({}))) as any;
+        await pgSc.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, descricao, config_especificas_permitidas)
+          SELECT 208, 'USUARIOS_LIBERAM_SCRAP_NF', 'N', 'String', 'Usuários que liberam importação de SCRAP já importados na nota fiscal de saída.', 'Usuario'
+           WHERE NOT EXISTS (SELECT 1 FROM configuracoes WHERE codigo='USUARIOS_LIBERAM_SCRAP_NF')`);
+        await pgSc.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor)
+          SELECT c.id, 'Usuario', o.codoperador::text, 'S' FROM configuracoes c, operadores o WHERE c.codigo='USUARIOS_LIBERAM_SCRAP_NF' AND upper(o.login)='SMOKE'
+          ON CONFLICT (id, tipo, chave) DO UPDATE SET valor='S'`);
+        const re2 = await fetch(`${base}/fiscal/nf/scrap/previa`, { method: 'POST', headers: H, body: JSON.stringify({ codscraps: [scA] }) });
+        const re2J = (await re2.json().catch(() => ({}))) as any;
+        const re3 = await fetch(`${base}/fiscal/nf/scrap/previa`, { method: 'POST', headers: H, body: JSON.stringify({ codscraps: [scA], login: 'SMOKE', senha: 'smoke123' }) });
+        const re3J = (await re3.json().catch(() => ({}))) as any;
+        check('SCRAP→NF reimportação: sem usuário liberador → 422 SCRAP_SEM_LIBERADOR · com liberador e sem login → 422 SCRAP_JA_IMPORTADO · com o login do liberador → 200 (reimportados [A])',
+          re1.status === 422 && re1J.code === 'SCRAP_SEM_LIBERADOR' && re2.status === 422 && re2J.code === 'SCRAP_JA_IMPORTADO'
+          && re3.status === 200 && (re3J.reimportados ?? []).includes(scA),
+          { re1: [re1.status, re1J.code], re2: [re2.status, re2J.code], re3: [re3.status, re3J.reimportados] });
+
+        // excluir a NF: o scrap volta a "não importado" e a PEDIDO_NF sai (AtualizaStatusScrap + uNF.pas:4216)
+        const delA = await fetch(`${base}/fiscal/nf/${Number(nfAJ.codnf)}`, { method: 'DELETE', headers: H });
+        const impA2 = (await pgSc.query(`SELECT importado FROM scrap WHERE codscrap=$1`, [scA])).rows[0]?.importado;
+        const pnA2 = Number((await pgSc.query(`SELECT count(*)::int n FROM pedido_nf WHERE codnf=$1`, [Number(nfAJ.codnf)])).rows[0].n);
+        // a NF de B processada é quem baixa o estoque (50 → 46)
+        const saldoAntesB = await saldoSc();
+        const pvB = (await (await fetch(`${base}/fiscal/nf/scrap/previa`, { method: 'POST', headers: H, body: JSON.stringify({ codscraps: [scB] }) })).json().catch(() => ({}))) as any;
+        const nfB = (await (await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ ...nfBase, nronf: 'SCRAPB', cfop: pvB.cfop, idsituacao_nf: 7920, itens: pvB.itens }) })).json().catch(() => ({}))) as any;
+        await fetch(`${base}/fiscal/nf/${Number(nfB.codnf)}/scrap`, { method: 'POST', headers: H, body: JSON.stringify({ codscraps: [scB] }) });
+        const prB = await fetch(`${base}/fiscal/nf/${Number(nfB.codnf)}/processar`, { method: 'POST', headers: H });
+        const saldoDepoisB = await saldoSc();
+        check('SCRAP→NF estorno e baixa: excluir a NF devolve o scrap a IMPORTADO=N e apaga a PEDIDO_NF · a NF do scrap B processada baixa o estoque (−4); o scrap segue sem MOV_ESTOQUE',
+          delA.status === 204 && impA2 === 'N' && pnA2 === 0 && prB.status === 200 && saldoDepoisB === saldoAntesB - 4
+          && (await pgSc.query(`SELECT mov_estoque FROM scrap WHERE codscrap=$1`, [scB])).rows[0]?.mov_estoque == null,
+          { del: delA.status, imp: impA2, pn: pnA2, proc: prB.status, saldo: [saldoAntesB, saldoDepoisB] });
       } finally {
         await pgSc.end();
       }

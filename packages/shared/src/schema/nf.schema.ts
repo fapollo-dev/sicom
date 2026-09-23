@@ -97,6 +97,10 @@ export const nfItemSchema = z.object({
   nroitem: z.number().int().optional(),
   codproduto: z.number({ message: 'Informe o produto do item.' }).int('Produto inválido.'),
   codprodnota: z.string().trim().max(25).optional(),
+  idproduto_filho: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()), // o produto filho (NF_PROD.IDPRODUTO_FILHO)
+  // TRANSITÓRIO (não é coluna): o item veio de uma importação (scrap, rotativo) e não do diálogo do item — o legado só
+  // confere o CFOP×situação do item digitado (uItensNF.pas:1525); o importado passa no gravar (UCadSituacaoNF.md C2)
+  importado_de: z.enum(['SCRAP', 'ROTATIVO']).optional(),
   quantidade: z.preprocess(
     (v) => (typeof v === 'string' ? Number(v) : v),
     z.number({ message: 'Informe a quantidade do item.' }).positive('A quantidade deve ser maior que zero.'),
@@ -543,3 +547,11 @@ export const fecharMesSchema = z.object({
   fechar: z.boolean(),
 });
 export type FecharMesDto = z.infer<typeof fecharMesSchema>;
+
+/** importar SCRAP na NF de saída (uNF.pas:1880): os scraps e, para o já importado, a liberação por login */
+export const importarScrapNfSchema = z.object({
+  codscraps: z.array(z.coerce.number().int().positive()).min(1, 'Selecione ao menos um scrap.'),
+  login: z.string().trim().max(60).optional(),
+  senha: z.string().max(100).optional(),
+});
+export type ImportarScrapNfDto = z.infer<typeof importarScrapNfSchema>;

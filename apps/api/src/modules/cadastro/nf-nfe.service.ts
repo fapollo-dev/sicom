@@ -9,6 +9,7 @@ import { NfFaturamentoService } from './nf-faturamento.service';
 import { NfContabilizacaoService } from './nf-contabilizacao.service';
 import { ConfigService } from './config.service';
 import { InventarioRotativoService } from './inventario-rotativo.service';
+import { estornarVinculoScrap } from './nf-scrap.service';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -271,6 +272,8 @@ export class NfNfeService {
       // (udmNF.pas:3406-3463 — o legado faz isso no excluir E no cancelar, escolhendo o lado pelo TIPO da
       // nota). Dentro da transação do cancelamento, senão um rollback deixaria o lote solto.
       await this.invRotativo.estornarVinculo(trx, codnf, nf.tipo ?? null, emp);
+      // o scrap importado volta a "não importado" (AtualizaStatusScrap taCancelar, udmNF.pas:3217); a PEDIDO_NF fica
+      await estornarVinculoScrap(trx, codnf, nf.tipo ?? null, false);
 
       await trx
         .insertInto('nfe_evento')

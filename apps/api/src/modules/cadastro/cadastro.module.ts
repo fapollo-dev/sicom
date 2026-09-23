@@ -136,6 +136,8 @@ import { ConfiguracoesAdminService } from './configuracoes-admin.service';
 import { RazaoController } from './razao.controller';
 import { RazaoService } from './razao.service';
 import { NfProcessamentoController } from './nf-processamento.controller';
+import { NfScrapController } from './nf-scrap.controller';
+import { NfScrapService } from './nf-scrap.service';
 import { NfProcessamentoService } from './nf-processamento.service';
 import { FechamentoDiarioController } from './fechamento-diario.controller';
 import { FechamentoDiarioService } from './fechamento-diario.service';
@@ -189,6 +191,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     FormasPgtoCrudController, // engine (FORMAS DE PAGAMENTO; empresaScoped, 3 vínculos p/ Caixa corte-2d)
     NfFiscalController, // F2 — recálculo fiscal por item (POST /fiscal/nf/recalcular), reusa precificacao
     NfProcessamentoController, // F3 — processar/reverter (move estoque atômico)
+    NfScrapController, // importar SCRAP na NF de saída (uNF.pas:1880)
     NfLoteController, // lotes/validade do item (uNFLoteValidade)
     FechamentoDiarioController, // fechamento diário (FRMFECHAMENTODIARIO)
     NfFaturamentoController, // F4 — faturar/estornar (gera títulos ARECEBER/APAGAR atômico)
@@ -262,6 +265,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     ConfiguracoesAdminService,
     NfFiscalService,
     NfProcessamentoService,
+    NfScrapService,
     NfLoteService,
     FechamentoDiarioService,
     NfFaturamentoService,
