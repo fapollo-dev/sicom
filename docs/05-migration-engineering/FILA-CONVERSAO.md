@@ -862,3 +862,51 @@ preenchimento ou de zeros — e, contra a PRODUÇÃO, achou **1.319 colunas em 8
 
 Conferidor: **sentido 2 = 0** (nenhuma coluna da origem fica para trás, 196 tabelas); sentido 1 = 9 colunas só do
 Apollo, todas com padrão. Smoke 1445/0.
+
+### Achado 20 — todos os dados: a triagem das 329 tabelas fora do plano (23/09/2026, mig 311)
+
+Continuação do "tem que ter todos os campos" uma escala acima. As **329 tabelas com dado fora do plano** (inventário
+do Achado 14 menos as que entraram depois) foram triadas **uma a uma contra a produção**, em quatro frentes (caixa,
+fiscal, compras/produto, sistema/auditoria). Cada veredito tem prova — fonte, trigger, job ou número do Oracle.
+
+⚠️ **"Não está no fonte" não é prova de morte.** O fonte é de mai/2020 e a produção roda binário mais novo: tabelas
+vivas como `SUGEST_PROMO_PROD` (21/09/2026), `CARTAO_SELECAO` (340 mil, gravada hoje), `AGENDA_PROMOCAO_EMPRESA` e
+`TB_SPEED_AUX` não aparecem no fonte. E `user_objects.created` = 19/10/2025 para quase tudo (a data da mudança do
+banco) — a data de criação não separa backup de tabela viva; o nome datado separa.
+
+**O resultado:**
+- **48 tabelas entram (mig 311)**, com todas as colunas e o tipo do Oracle (gerada do dicionário; o plano é derivado do
+  destino e as pegou sozinho — 200 → 248). São o dado de negócio que uma tela convertida usa e o Apollo não tinha onde
+  guardar, ou que é de tela ainda não convertida e se perderia. Mais `reducaoz` (vazia) com as 19 colunas do legado.
+- **280 ficam de fora, com veredito**: auditoria técnica 32 · auxiliar 57 · cópia/planilha 63 · equivalente 11 ·
+  outro sistema 37 · morta 66 · PDV 13.
+- **Conferidor novo, permanente: `tools/cutover/conferir-tabelas-fora.py`** — falha em qualquer tabela com dado fora do
+  plano sem veredito (tabela nova que o binário da produção criar aparece sozinha). O de colunas continua em 0 nas 248.
+- O gerador do plano apagava uma exclusão que só existia no JSON (`REMESSA_LOTE`) — agora mora no gerador.
+
+**A fila de trabalho que a triagem abriu (lacunas em telas JÁ convertidas), por risco:**
+
+| # | tabela(s) | o que é | o que falta no Apollo |
+|---|---|---|---|
+| 1 | `LOG` (2,49 mi, viva) | o "Registros de Log" que **21 telas** abrem (`TLog.GravaLog`, 113 chamadas em 25 units): usuário + valor anterior/atual de cada campo. É o **único registro de quem mudou permissão de quem** (1.501 linhas de PERMISSOES — ex.: "CLONOU AS PERMISSOES … PARA O USUARIO …") | a tabela (✅ mig 311), o visualizador nas telas e o Apollo gravar nela. ⚠️ `uCtrlPermissoes.md` §3 item 7 marca como coberto por `audit_permissoes` — **errado**: o GravaLog grava na LOG; a `audit_permissoes` só guarda programa + máquina Windows |
+| 2 | `AGENDA_PROMOCAO_EMPRESA` + `agenda_promocao_itens.empresas` | agenda de promoção **multi-loja**: em 2026, 185 de 468 agendas valem para mais de uma loja. Quem manda no preço é a lista de lojas DO ITEM (o multi_preco segue ela em 106/108 desde jun/2026); a tabela de lojas da agenda é o filtro do app de gestão | o Apollo aplica só na loja logada (mig 080 adiou com a premissa do "cross-docking" — a mesma que caiu no pedido). ⚠️ E o **ciclo de vida**: `FLAGPROMOCAO` N=ABERTA → E=EXECUTANDO → J=FECHADA (combo `cbbStatus`; na produção E = as 6 vigentes, J = as 1.142 passadas, N = 1 futura). O dossiê leu 'J' como "agendada = norma" e o Apollo grava agenda nova como **'J' = fechada** |
+| 3 | `ISITUACAO_NF` (148) | CFOPs permitidos por situação de NF — é a origem da situação de **99,5% dos itens de NF de 2026** (68.238/68.606); teste de bonificação, transferências | a mig 076 copiou só 4 CFOPs para `cfop.idsituacao_nf_saida` |
+| 4 | `SITUACAO_NF_PLC` (333) | centros de custo por situação: o CC do faturamento quando a NF não tem rateio (396 NFs em 2026), os CCs permitidos, o rateio pré-preenchido | adiado para "F5b" com a premissa de que nada se perdia — a configuração se perderia |
+| 5 | `PEDIDO_NF` (3.531) | NF emitida a partir do SCRAP: **199 de 244 scraps de 2026 viraram NF-e** (CFOP 5927/5949/5557) | o Apollo baixa o estoque direto no scrap. ⚠️ `uCadSCRAP.md` diz que desde 27/10/2025 a baixa é direta (`MOV_ESTOQUE='S'`) — **na produção MOV_ESTOQUE é nulo em todos os scraps de 2024-2026**; o Apollo somaria uma segunda baixa à da NF |
+| 6 | `TB_SPEED_AUX` (7.796, viva) | registros 0205 (produto mudou descrição/código) e 0175 (parceiro mudou) do SPED; 1.474 ainda não informados | o SPED do Apollo não tem 0205/0175 nem a captura da alteração |
+| 7 | `PRODUTOS_FORN_DESASSOCIADOS` (304) | produtos que o comprador desassociou do fornecedor — a importação de itens do pedido os pula (`uPedidoCompra.pas:8313`) | o filtro no `importarItens` |
+| 8 | `NFE_REF_DEV_ENT_VINCULO` (589) | vínculo NF de devolução × NF de entrada no manifesto | o manifesto mostra como "não importada" a contrapartida da devolução |
+| 9 | `ARQUIVO_MANCARTAO`, `REDE`, `EMPRESA_REDE_ESTABELECIMENTO`, `CONTAGEM_CEDULAS`, `CX_PEDIDOS`, `HISTARECEBER`, `CONTAS_BANCARIAS_EMPRESAS`, `RECEITA_PROD_HIST`, `CONFIRMA_INV_ROT`, `DECOMPOSICAO_NF_QTDE`, `PC_BASECREDITO` | pais/catálogos de tabelas já carregadas (a `itens_mancartao` apontava para um cabeçalho que não vinha; `cartao.codrede` para um nome que não vinha), pagamentos do pedido de venda, trilha do AR por trigger… | as tabelas (✅ mig 311); o uso em tela, caso a caso |
+
+**Tela fora do escopo que guarda dado de tesouraria:** a finalização do fechamento de caixa (`FINALIZA_FECHAMENTO`
+386 mil + `DOC_FECHAMENTO` 2,1 mi, vivas; `FRMFECHAMENTOCAIXA` 64.854 acessos) saiu da fila em 19/08 pela regra "nada
+de PDV" — **interpretação minha**, não do usuário. Os dados entram (mig 311); a tela aguarda a decisão.
+
+**Correções de vereditos antigos:** a FILA dizia que o inventário de tabelas vivas sem destino estava fechado — não
+estava (TB_SPEED_AUX, ICME_PROD_APURACAO, REF_MENSAGENS_NF, NFE_REF_DEV_ENT_VINCULO e SITUACAO_NF_PLC gravadas em
+set/2026). Item 97: `NFAUXSPED`/`NF_PRODAUXSPED`/`VENDASAUXSPED` são fotos refeitas a cada geração (o horário da
+recriação bate com o do FRMSPEDFISCAL). Item 156: `MENSAGENS_NF` existe (no plural), e o veredito "morta" fica. A
+`PEDIDO_NF` não parou em set/2025 — só a coluna `INDR_DATA` parou; junto de NF vai até 01/09/2026.
+
+**Fora do Apollo mas lendo este Oracle** (registrado, não é dado do Apollo): o app GestaoMobile (login e permissões em
+`APP_PERMISSOES`), o licenciamento central do fornecedor (270 clientes ativos) e o BI novo (usuários, painéis, metas).
