@@ -56,6 +56,7 @@ export class AggregateEngineService extends CrudEngineService {
       if (cfg.historico !== false) await gravarHistorico(trx, this.alvo(cfg), id, op, this.emp(), {}, d, 'INSERT');
       if (cfg.replica) await this.outbox(trx, cfg, 'INSERT', id);
       for (const det of cfg.detalhes) await this.inserirItens(trx, det, id, this.itens(dto, det), dto);
+      if (cfg.aposGravarTrx) await cfg.aposGravarTrx({ trx, id, dto, criado: true, emp: this.emp() });
       return id;
     });
   }
@@ -100,6 +101,7 @@ export class AggregateEngineService extends CrudEngineService {
         await trx.deleteFrom(det.tabela).where(det.fk, '=', id).execute();
         await this.inserirItens(trx, det, id, itens, dto, snapshot, antigas);
       }
+      if (cfg.aposGravarTrx) await cfg.aposGravarTrx({ trx, id, dto, criado: false, emp: this.emp() });
     });
   }
 

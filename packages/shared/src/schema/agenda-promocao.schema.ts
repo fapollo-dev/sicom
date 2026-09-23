@@ -20,6 +20,19 @@ const dec = (inner: z.ZodNumber = z.number()) =>
   }, inner.optional());
 
 const sn = () => z.enum(['S', 'N']);
+/** flag de mídia do item: 'T'/'F' no legado (dmCadAgendaPromocao.pas:350; 15.865 de 15.865 itens desde 2025 = 'F').
+ *  Aceita o 'S'/'N' que o Apollo gravava antes da mig 312 e normaliza. */
+const tf = () =>
+  z.preprocess((v) => (v === '' || v == null ? undefined : v === 'S' ? 'T' : v === 'N' ? 'F' : v), z.enum(['T', 'F']).optional());
+
+/** o STATUS da agenda (`FLAGPROMOCAO`, combo cbbStatus do form): N = ABERTA · E = EXECUTANDO · J = FECHADA. */
+export const STATUS_AGENDA_PROMOCAO = { N: 'ABERTA', E: 'EXECUTANDO', J: 'FECHADA' } as const;
+
+/** as lojas da agenda: o legado abre a seleção de empresas ao incluir (cdsAgendaPromocaoBeforeInsert) e grava a
+ *  lista em cada item ('1, 2'); sem loja não grava ("Selecione as Empresas participantes", uCadAgendaPromocao:491). */
+const lojas = () =>
+  z.array(z.coerce.number().int().positive('Loja inválida.'), { message: 'Selecione as empresas participantes.' })
+    .min(1, 'Selecione as empresas participantes.');
 
 /** Item da agenda: produto + preço promocional. Regra do legado (uCadAgendaPromocao:651, Locate [0,0]): NÃO
  *  ambos zero — aceita vlrpromocao=0 se vrclube_fidelidade>0 (promoção só no clube). VRVENDA/derivados p/ round-trip. */
@@ -35,10 +48,10 @@ export const agendaPromocaoItemSchema = z
     vrclube_fidelidade: dec(z.number().nonnegative()),
     maximo: dec(z.number().nonnegative()),
     vlr_min_compra: dec(z.number().nonnegative()),
-    tv: opcional(sn()),
-    radio: opcional(sn()),
-    tabloide: opcional(sn()),
-    interno: opcional(sn()),
+    tv: tf(),
+    radio: tf(),
+    tabloide: tf(),
+    interno: tf(),
     nroitem: dec(z.number().int().nonnegative()),
   })
   .superRefine((it, ctx) => {
@@ -54,7 +67,7 @@ const base = z.object({
   // período com data+hora (ISO 'YYYY-MM-DDTHH:mm'); ambos obrigatórios; dtfim > dtini (superRefine).
   dtiniciopromocao: z.string({ message: 'Informe o início da promoção.' }).trim().min(1, 'Informe o início da promoção.'),
   dtfimpromocao: z.string({ message: 'Informe o fim da promoção.' }).trim().min(1, 'Informe o fim da promoção.'),
-  flagpromocao: opcional(z.string().trim().max(1)),
+  flagpromocao: opcional(z.enum(['N', 'E', 'J'], { message: 'Status inválido (ABERTA, EXECUTANDO ou FECHADA).' })),
   opcoes: dec(z.number().int()),
   obs: opcional(z.string().trim().max(4000)),
 });
@@ -70,12 +83,12 @@ const validaPeriodo = (d: { dtiniciopromocao?: string; dtfimpromocao?: string },
 };
 
 export const agendaPromocaoSchema = base
-  .extend({ itens: z.array(agendaPromocaoItemSchema).min(1, 'Informe ao menos um item na promoção.') })
+  .extend({ empresas: lojas(), itens: z.array(agendaPromocaoItemSchema).min(1, 'Informe ao menos um item na promoção.') })
   .superRefine(validaPeriodo);
 export type AgendaPromocaoDto = z.infer<typeof agendaPromocaoSchema>;
 
 export const atualizarAgendaPromocaoSchema = base
-  .extend({ itens: z.array(agendaPromocaoItemSchema).optional() })
+  .extend({ empresas: lojas().optional(), itens: z.array(agendaPromocaoItemSchema).optional() })
   .partial()
   .superRefine(validaPeriodo);
 
@@ -90,6 +103,10 @@ export interface AgendaPromocao {
   obs?: string | null;
   dtencerramento?: string | null;
   situacao?: string | null; // ENCERRADA/AGENDADA/VIGENTE/EXPIRADA (view)
+  status?: string | null; // ABERTA/EXECUTANDO/FECHADA (view, do FLAGPROMOCAO)
+  dataexecucao?: string | null;
+  /** na view: '1, 2'; na leitura por id: a lista de lojas */
+  empresas?: string | number[] | null;
   qtde_itens?: number | string | null;
   itens?: AgendaPromocaoItemDto[];
 }

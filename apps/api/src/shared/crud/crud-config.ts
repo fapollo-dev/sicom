@@ -172,6 +172,13 @@ export interface AggregateConfig extends CrudConfig {
   derivarTrx?: (ctx: { dto: Record<string, unknown>; trx: any; emp: number | null }) => Promise<Record<string, unknown>>;
   /** anexa dados derivados à LEITURA do agregado (ex.: o estado de fechamento de cada loja do pedido). */
   anexarLeitura?: (ctx: { db: any; id: number; registro: Record<string, unknown>; emp: number | null }) => Promise<Record<string, unknown>>;
+  /**
+   * EFEITO depois de gravar o agregado (master + itens), na MESMA transação — no create e no update, mesmo quando o
+   * dto não traz itens. Para o que o btnGravar do legado faz ao salvar além de gravar as linhas: ex.: a agenda de
+   * promoção volta de EXECUTANDO para ABERTA, a loja retirada da agenda perde o preço promocional, a tabela de lojas da
+   * agenda é regravada (uCadAgendaPromocao.pas:745-770). `criado` diz se foi um create.
+   */
+  aposGravarTrx?: (ctx: { trx: any; id: number; dto: Record<string, unknown>; criado: boolean; emp: number | null }) => Promise<void>;
 }
 
 /** Operadores da Pesquisa (espelham os TTipoPesquisa do frmPesquisa). */

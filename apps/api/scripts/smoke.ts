@@ -8514,7 +8514,8 @@ async function main() {
     const pgPromo = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     try {
       const AP = 'cadastro/agenda-promocao';
-      const crPromo = (body: Record<string, unknown>, headers = H) => fetch(`${base}/${AP}`, { method: 'POST', headers, body: JSON.stringify(body) });
+      // mig 312: a agenda exige as lojas participantes ("Selecione as Empresas participantes") — os testes antigos usam a loja 1
+      const crPromo = (body: Record<string, unknown>, headers = H) => fetch(`${base}/${AP}`, { method: 'POST', headers, body: JSON.stringify({ empresas: [1], ...body }) });
       // produto inativo dedicado p/ o teste de gate.
       await pgPromo.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES (990001,'7000000000019','PROD INATIVO PROMO','UN',1,'T01','N') ON CONFLICT (idproduto) DO UPDATE SET ativo='N'`);
 
@@ -8632,6 +8633,80 @@ async function main() {
       check('PROMO 76.10b: processar-vigencia IDEMPOTENTE (2ª chamada: 0 aplicadas, 0 desaplicadas)',
         vig2.status === 200 && Number(vig2J.aplicadas) === 0 && Number(vig2J.desaplicadas) === 0, vig2J);
       await pgPromo.query(`UPDATE multi_preco SET promocao='N', vrpromo=NULL, codagenda=NULL WHERE idproduto IN (1,2) AND idempresa=1`);
+      const flagB = (await pgPromo.query(`SELECT flagpromocao FROM agenda_promocao WHERE codagenda=$1`, [agB])).rows[0] as any;
+      const flagA = (await pgPromo.query(`SELECT flagpromocao, dataexecucao FROM agenda_promocao WHERE codagenda=$1`, [agA])).rows[0] as any;
+      check('PROMO 76.10c ciclo do status (mig 312): a vigente aplicada fica EXECUTANDO (E, com DATAEXECUCAO); a expirada desligada fica FECHADA (J)',
+        flagA?.flagpromocao === 'E' && flagA?.dataexecucao != null && flagB?.flagpromocao === 'J', { A: flagA, B: flagB?.flagpromocao });
+
+      // ===== §76b) MULTI-LOJA + ciclo N/E/J (mig 312) =====
+      await pgPromo.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+        (994001,'7000000994001','PROMO REDE A','UN',2,'T01','S'),(994002,'7000000994002','PROMO REDE B','UN',2,'T01','S'),
+        (994003,'7000000994003','PROMO REDE C','UN',2,'T01','S') ON CONFLICT (idproduto) DO UPDATE SET ativo='S'`);
+      // 76.11) agenda nova nasce ABERTA ('N'); as lojas vão para CADA item ('1, 2') e para agenda_promocao_empresa;
+      // aplicar liga o preço nas DUAS lojas (o AtualizaAtivo percorre a lista do item).
+      await pgPromo.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda) VALUES (994001,1,5,9),(994001,2,5,9) ON CONFLICT (idproduto, idempresa) DO UPDATE SET promocao='N', vrpromo=NULL, codagenda=NULL`);
+      const ml = await crPromo({ nomepromo: 'REDE 2032', empresas: [2, 1], dtiniciopromocao: '2032-03-01T00:00', dtfimpromocao: '2032-03-10T00:00', itens: [{ idproduto: 994001, vlrpromocao: 6.66 }] });
+      const mlId = Number(((await ml.json().catch(() => ({}))) as any).codagenda);
+      const mlCab = (await pgPromo.query(`SELECT flagpromocao, idempresa FROM agenda_promocao WHERE codagenda=$1`, [mlId])).rows[0] as any;
+      const mlIt = (await pgPromo.query(`SELECT empresas FROM agenda_promocao_itens WHERE codagenda=$1`, [mlId])).rows[0] as any;
+      const mlApe = (await pgPromo.query(`SELECT string_agg(codempresa::text, ',' ORDER BY codempresa) AS l FROM agenda_promocao_empresa WHERE codagenda=$1`, [mlId])).rows[0] as any;
+      const mlApl = (await (await fetch(`${base}/${AP}/${mlId}/aplicar`, { method: 'POST', headers: H })).json().catch(() => ({}))) as any;
+      const mlMp = (await pgPromo.query(`SELECT idempresa, promocao, vrpromo, codagenda FROM multi_preco WHERE idproduto=994001 ORDER BY idempresa`)).rows as any[];
+      check('PROMO 76.11 multi-loja: nasce ABERTA (N) · item com as lojas "1, 2" · agenda_promocao_empresa 1,2 · aplicar liga o preço nas DUAS lojas (2 aplicados)',
+        ml.status === 201 && mlCab?.flagpromocao === 'N' && Number(mlCab?.idempresa) === 1 && mlIt?.empresas === '1, 2' && mlApe?.l === '1,2'
+        && Number(mlApl.aplicados) === 2 && mlMp.length === 2 && mlMp.every((m) => m.promocao === 'S' && Number(m.vrpromo) === 6.66 && Number(m.codagenda) === mlId),
+        { status: ml.status, cab: mlCab, item: mlIt?.empresas, ape: mlApe?.l, aplicados: mlApl.aplicados, mp: mlMp });
+
+      // 76.12) gravar sem a loja 2: a loja que saiu perde o preço desta agenda (:750); a que ficou mantém; gravar uma
+      // agenda EXECUTANDO a devolve para ABERTA (:757); a leitura traz as lojas.
+      const mlPut = await fetch(`${base}/${AP}/${mlId}`, { method: 'PUT', headers: H, body: JSON.stringify({ empresas: [1] }) });
+      const mlMp2 = (await pgPromo.query(`SELECT idempresa, promocao, codagenda FROM multi_preco WHERE idproduto=994001 ORDER BY idempresa`)).rows as any[];
+      const mlCab2 = (await pgPromo.query(`SELECT flagpromocao FROM agenda_promocao WHERE codagenda=$1`, [mlId])).rows[0] as any;
+      const mlIt2 = (await pgPromo.query(`SELECT empresas FROM agenda_promocao_itens WHERE codagenda=$1`, [mlId])).rows[0] as any;
+      const mlGet = (await (await fetch(`${base}/${AP}/${mlId}`, { headers: H })).json().catch(() => ({}))) as any;
+      check('PROMO 76.12: tirar a loja 2 → multi_preco da loja 2 revertido, loja 1 mantido · item "1" · EXECUTANDO volta a ABERTA · leitura traz [1]',
+        mlPut.status === 200 && mlMp2[0]?.promocao === 'S' && mlMp2[1]?.promocao === 'N' && mlMp2[1]?.codagenda == null
+        && mlCab2?.flagpromocao === 'N' && mlIt2?.empresas === '1' && JSON.stringify(mlGet.empresas) === '[1]',
+        { put: mlPut.status, mp: mlMp2, flag: mlCab2?.flagpromocao, item: mlIt2?.empresas, lojas: mlGet.empresas });
+
+      // 76.13) status à mão (cbbStatus): ABERTA não muda (combo desabilitado); EXECUTANDO → FECHADA barrado; → ABERTA ok.
+      const stN = await fetch(`${base}/${AP}/${mlId}`, { method: 'PUT', headers: H, body: JSON.stringify({ flagpromocao: 'J' }) });
+      const stNJ = (await stN.json().catch(() => ({}))) as any;
+      await pgPromo.query(`UPDATE agenda_promocao SET flagpromocao='E' WHERE codagenda=$1`, [mlId]);
+      const stEJ = await fetch(`${base}/${AP}/${mlId}`, { method: 'PUT', headers: H, body: JSON.stringify({ flagpromocao: 'J' }) });
+      const stEN = await fetch(`${base}/${AP}/${mlId}`, { method: 'PUT', headers: H, body: JSON.stringify({ flagpromocao: 'N' }) });
+      check('PROMO 76.13 status (cbbStatusExit): ABERTA→FECHADA 422 · EXECUTANDO→FECHADA 422 · EXECUTANDO→ABERTA 200',
+        stN.status === 422 && stNJ.code === 'PROMOCAO_STATUS_INVALIDO' && stEJ.status === 422 && stEN.status === 200,
+        { nj: [stN.status, stNJ.code], ej: stEJ.status, en: stEN.status });
+
+      // 76.14) sobreposição POR LOJA e só contra ABERTA/EXECUTANDO (config N): o mesmo produto no mesmo período em OUTRA
+      // loja passa; na mesma loja é barrado; contra uma agenda FECHADA passa.
+      await pgPromo.query(`UPDATE configuracoes SET valor='N' WHERE codigo='PERMITE_PRODUTO_MAIS_UMA_AGENDA'`);
+      const ovA = await crPromo({ nomepromo: 'OV L2', empresas: [2], dtiniciopromocao: '2033-05-01T00:00', dtfimpromocao: '2033-05-31T00:00', itens: [{ idproduto: 994002, vlrpromocao: 1 }] });
+      const ovAId = Number(((await ovA.json().catch(() => ({}))) as any).codagenda);
+      const ovB = await crPromo({ nomepromo: 'OV L1', empresas: [1], dtiniciopromocao: '2033-05-10T00:00', dtfimpromocao: '2033-05-20T00:00', itens: [{ idproduto: 994002, vlrpromocao: 1 }] });
+      const ovC = await crPromo({ nomepromo: 'OV L2 DE NOVO', empresas: [2], dtiniciopromocao: '2033-05-10T00:00', dtfimpromocao: '2033-05-20T00:00', itens: [{ idproduto: 994002, vlrpromocao: 1 }] });
+      const ovCJ = (await ovC.json().catch(() => ({}))) as any;
+      await pgPromo.query(`UPDATE agenda_promocao SET flagpromocao='J' WHERE codagenda=$1`, [ovAId]);
+      const ovD = await crPromo({ nomepromo: 'OV L2 APOS FECHADA', empresas: [2], dtiniciopromocao: '2033-05-10T00:00', dtfimpromocao: '2033-05-20T00:00', itens: [{ idproduto: 994002, vlrpromocao: 1 }] });
+      await pgPromo.query(`UPDATE configuracoes SET valor='S' WHERE codigo='PERMITE_PRODUTO_MAIS_UMA_AGENDA'`);
+      check('PROMO 76.14 sobreposição por loja (ProdutoOutraPromocao:1586): outra loja 201 · mesma loja 422 · contra agenda FECHADA 201',
+        ovA.status === 201 && ovB.status === 201 && ovC.status === 422 && ovCJ.code === 'PROMOCAO_PRODUTO_SOBREPOSTO' && ovD.status === 201,
+        { a: ovA.status, b: ovB.status, c: [ovC.status, ovCJ.code], d: ovD.status });
+
+      // 76.15) a agenda é da REDE (a pesquisa do legado não filtra loja): a criada na loja 2 abre na loja 1; loja
+      // inexistente → 422; flags de mídia do legado ('F') aceitas no gravar.
+      const r2 = await crPromo({ nomepromo: 'DA LOJA 2', empresas: [2], dtiniciopromocao: '2034-01-01T00:00', dtfimpromocao: '2034-01-02T00:00', itens: [{ idproduto: 994003, vlrpromocao: 1, tv: 'F', radio: 'F', tabloide: 'F', interno: 'F' }] }, { ...H, 'x-empresa-id': '2' });
+      const r2Id = Number(((await r2.json().catch(() => ({}))) as any).codagenda);
+      const r2Get = await fetch(`${base}/${AP}/${r2Id}`, { headers: H });
+      const r2Lista = ((await (await fetch(`${base}/${AP}?campo=codagenda&operador=igual&valor=${r2Id}`, { headers: H })).json().catch(() => [])) as any[])[0];
+      const r2Dono = (await pgPromo.query(`SELECT idempresa FROM agenda_promocao WHERE codagenda=$1`, [r2Id])).rows[0] as any;
+      const lojaX = await crPromo({ nomepromo: 'LOJA X', empresas: [9999], dtiniciopromocao: '2034-02-01T00:00', dtfimpromocao: '2034-02-02T00:00', itens: [{ idproduto: 994003, vlrpromocao: 1 }] });
+      const lojaXJ = (await lojaX.json().catch(() => ({}))) as any;
+      check('PROMO 76.15: agenda criada na loja 2 (dona 2, flags T/F aceitas) abre e aparece na pesquisa da loja 1 (lojas "2") · loja inexistente 422',
+        r2.status === 201 && Number(r2Dono?.idempresa) === 2 && r2Get.status === 200 && r2Lista?.empresas === '2' && lojaX.status === 422 && lojaXJ.code === 'PROMOCAO_LOJA_INVALIDA',
+        { cria: r2.status, dono: r2Dono?.idempresa, get: r2Get.status, lista: r2Lista?.empresas, lojaX: [lojaX.status, lojaXJ.code] });
+      await pgPromo.query(`UPDATE multi_preco SET promocao='N', vrpromo=NULL, codagenda=NULL WHERE idproduto=994001`);
     } finally {
       await pgPromo.end();
     }

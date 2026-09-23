@@ -912,7 +912,7 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": "'J'::bpchar"
+     "default": "'N'::bpchar"
     },
     "opcoes": {
      "tipo": "integer",
@@ -1144,28 +1144,28 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": "'N'::bpchar"
+     "default": "'F'::bpchar"
     },
     "radio": {
      "tipo": "character",
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": "'N'::bpchar"
+     "default": "'F'::bpchar"
     },
     "tabloide": {
      "tipo": "character",
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": "'N'::bpchar"
+     "default": "'F'::bpchar"
     },
     "interno": {
      "tipo": "character",
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": "'N'::bpchar"
+     "default": "'F'::bpchar"
     },
     "empresas": {
      "tipo": "character varying",
@@ -17803,6 +17803,20 @@
      "nulo": true,
      "default": null
     },
+    "status": {
+     "tipo": "character",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dataexecucao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
     "opcoes": {
      "tipo": "integer",
      "tam": 32,
@@ -17839,6 +17853,13 @@
      "default": null
     },
     "situacao": {
+     "tipo": "text",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "empresas": {
      "tipo": "text",
      "tam": null,
      "escala": null,
