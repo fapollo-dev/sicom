@@ -280,7 +280,7 @@ export class SpedEfdContribuicoesService {
       .execute()) as Array<Record<string, unknown>>;
     const nfIds = nfs.map((n) => Number(n.codnf));
     const itens = nfIds.length
-      ? ((await db.selectFrom('nf_prod').select(['codnf', 'nroitem', 'codproduto', 'quantidade', 'vrcusto', 'vrvenda', 'desconto', 'vrbasecalculo', 'icms', 'vricm', 'vripi', 'cst', 'origem_estoque', 'cfop', 'bcpiscofinse', 'vrpise', 'vrcofinse', 'aliqpise', 'aliqcofinse', 'aliqpiss', 'aliqcofinss', 'cstpiscofins']).where('codnf', 'in', nfIds).orderBy('codnf').orderBy('nroitem').execute()) as Array<Record<string, unknown>>)
+      ? ((await db.selectFrom('nf_prod').select(['codnf', 'nroitem', 'codproduto', 'quantidade', 'vrcusto', 'vrdescprod', 'desconto', 'vrbasecalculo', 'icms', 'vricm', 'vripi', 'cst', 'origem_estoque', 'cfop', 'bcpiscofinse', 'vrpise', 'vrcofinse', 'aliqpise', 'aliqcofinse', 'aliqpiss', 'aliqcofinss', 'cstpiscofins']).where('codnf', 'in', nfIds).orderBy('codnf').orderBy('nroitem').execute()) as Array<Record<string, unknown>>)
       : [];
     const itensPorNf = new Map<number, Array<Record<string, unknown>>>();
     for (const it of itens) {
@@ -398,15 +398,15 @@ export class SpedEfdContribuicoesService {
       const itens = nf.itens;
       const soma = (c: string) => itens.reduce((s, it) => s + nn(it[c]), 0);
       // PIS/COFINS por item conforme o SENTIDO: ENTRADA usa os valores GRAVADOS (base=bcpiscofinse, valor=vrpise/
-      // vrcofinse); SAÍDA (mod-55) não grava base/valor — só as alíquotas → base = qtd×vrvenda − desconto e valor =
+      // vrcofinse); SAÍDA (mod-55) não grava base/valor — só as alíquotas → base = qtd×vrcusto − vrdescprod e valor =
       // round(base×alíq/100,2) (mesma mecânica do débito de VENDAS/apuração).
       const pc = itens.map((it) => {
         const q = nn(it.quantidade);
         if (saida) {
-          const base = r2(q * nn(it.vrvenda) - nn(it.desconto));
+          const base = r2(q * nn(it.vrcusto) - nn(it.vrdescprod));
           const aPis = nn(it.aliqpiss);
           const aCof = nn(it.aliqcofinss);
-          return { base, aPis, aCof, vPis: r2((base * aPis) / 100), vCof: r2((base * aCof) / 100), vlItem: r2(q * nn(it.vrvenda)) };
+          return { base, aPis, aCof, vPis: r2((base * aPis) / 100), vCof: r2((base * aCof) / 100), vlItem: r2(q * nn(it.vrcusto)) };
         }
         return { base: nn(it.bcpiscofinse), aPis: nn(it.aliqpise), aCof: nn(it.aliqcofinse), vPis: nn(it.vrpise), vCof: nn(it.vrcofinse), vlItem: r2(nn(it.vrcusto) * q) };
       });
@@ -426,7 +426,7 @@ export class SpedEfdContribuicoesService {
         const cstIcms = String(it.origem_estoque ?? '0').slice(0, 1) + String(nn(it.cst)).padStart(2, '0');
         const cstIpi = String(it.cfop ?? '').charAt(0) < '5' ? '49' : '99'; // entrada (1/2/3xxx) → 49
         // C170 (37 campos): NUM_ITEM|COD_ITEM|DESCR_COMPL|QTD|UNID|VL_ITEM|VL_DESC|IND_MOV|CST_ICMS|CFOP|COD_NAT|VL_BC_ICMS|ALIQ_ICMS|VL_ICMS|VL_BC_ICMS_ST|ALIQ_ST|VL_ICMS_ST|IND_APUR|CST_IPI|COD_ENQ|VL_BC_IPI|ALIQ_IPI|VL_IPI|CST_PIS|VL_BC_PIS|ALIQ_PIS|QUANT_BC_PIS|ALIQ_PIS_QUANT|VL_PIS|CST_COFINS|VL_BC_COFINS|ALIQ_COFINS|QUANT_BC_COFINS|ALIQ_COFINS_QUANT|VL_COFINS|COD_CTA|VL_ABAT_NT
-        arq.add('C170', [String(++nro), String(it.codproduto ?? ''), String(prod?.descricao ?? ''), fmtNum(nn(it.quantidade), 3), String(prod?.unidade ?? '').trim(), fmtNum(p.vlItem), fmtNum(nn(it.desconto)), '0', cstIcms, String(it.cfop ?? ''), '', fmtNum(nn(it.vrbasecalculo)), fmtNum(nn(it.icms)), fmtNum(nn(it.vricm)), fmtNum(0), fmtNum(0), fmtNum(0), '0', cstIpi, '', fmtNum(0), fmtNum(0), fmtNum(0), cstPc, fmtNum(p.base), fmtNum(p.aPis, 4), '', '', fmtNum(p.vPis), cstPc, fmtNum(p.base), fmtNum(p.aCof, 4), '', '', fmtNum(p.vCof), '', '']);
+        arq.add('C170', [String(++nro), String(it.codproduto ?? ''), String(prod?.descricao ?? ''), fmtNum(nn(it.quantidade), 3), String(prod?.unidade ?? '').trim(), fmtNum(p.vlItem), fmtNum(nn(it.vrdescprod)), '0', cstIcms, String(it.cfop ?? ''), '', fmtNum(nn(it.vrbasecalculo)), fmtNum(nn(it.icms)), fmtNum(nn(it.vricm)), fmtNum(0), fmtNum(0), fmtNum(0), '0', cstIpi, '', fmtNum(0), fmtNum(0), fmtNum(0), cstPc, fmtNum(p.base), fmtNum(p.aPis, 4), '', '', fmtNum(p.vPis), cstPc, fmtNum(p.base), fmtNum(p.aCof, 4), '', '', fmtNum(p.vCof), '', '']);
       }
     }
 

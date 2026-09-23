@@ -869,8 +869,8 @@ async function main() {
         tipo: 'E', modelo: 55, nronf: '3001', serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10',
         tipoemissao: '0', finalidade: '1', cfop: '1102', idsituacao_nf: 6, codparceiro: 22, codparceiro_end: 6,
         itens: [
-          { codproduto: 1, quantidade: 10, vrvenda: 3.5, cfop: '1102', ncm: '17019900', aliquota: 'T01', icms: 18, origem_estoque: 'E' },
-          { codproduto: 2, quantidade: 5, vrvenda: 6, cfop: '1102', ncm: '22021000', aliquota: 'T01', icms: 18, origem_estoque: 'E' },
+          { codproduto: 1, quantidade: 10, vrcusto: 3.5, cfop: '1102', ncm: '17019900', aliquota: 'T01', icms: 18, origem_estoque: 'E' },
+          { codproduto: 2, quantidade: 5, vrcusto: 6, cfop: '1102', ncm: '22021000', aliquota: 'T01', icms: 18, origem_estoque: 'E' },
         ],
         referencias: [{ codnf_ref: 1, valor_ref: 50 }],
       }),
@@ -910,7 +910,7 @@ async function main() {
       body: JSON.stringify({
         tipo: 'S', modelo: 55, nronf: '4001', serie: '1', dtemissao: '2026-06-11', dtcontabil: '2026-06-11',
         tipoemissao: '0', finalidade: '1', cfop: '5102', idsituacao_nf: 8, codparceiro: 20,
-        itens: [{ codproduto: 1, quantidade: 2, vrvenda: 4.2, cfop: '5102', aliquota: 'T01', icms: 18 }],
+        itens: [{ codproduto: 1, quantidade: 2, vrcusto: 4.2, cfop: '5102', aliquota: 'T01', icms: 18 }],
       }),
     });
     check('POST /fiscal/nf cria agregado de saída (cliente)', nfSaida.status === 201, nfSaida.status);
@@ -921,7 +921,7 @@ async function main() {
       headers: H,
       body: JSON.stringify({
         tipo: 'E', modelo: 55, nronf: '1001', serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', cfop: '1102', codparceiro: 22,
-        itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1 }],
+        itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1 }],
       }),
     });
     const nfDupBody = (await nfDup.json().catch(() => ({}))) as any;
@@ -937,7 +937,7 @@ async function main() {
       headers: H,
       body: JSON.stringify({
         tipo: 'E', modelo: 55, tipoemissao: '1', nronf: '7777', serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22,
-        itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1 }],
+        itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1 }],
       }),
     });
     const nfM55Body = (await nfM55.json().catch(() => ({}))) as any;
@@ -962,7 +962,7 @@ async function main() {
       headers: H,
       body: JSON.stringify({
         tipo: 'E', modelo: 1, nronf: '8101', serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-01', codparceiro: 22,
-        itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1 }],
+        itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1 }],
       }),
     });
     const nfDataBody = (await nfData.json().catch(() => ({}))) as any;
@@ -974,7 +974,7 @@ async function main() {
       headers: H,
       body: JSON.stringify({
         tipo: 'E', modelo: 1, nronf: '9001', serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, proc: 'S',
-        itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1 }],
+        itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1 }],
       }),
     });
     const nfProcBody = (await nfProc.json()) as any;
@@ -995,7 +995,7 @@ async function main() {
       headers: H,
       body: JSON.stringify({
         tipo: 'S', modelo: 55, nronf: '9101', serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 20, statusnfe: 'P',
-        itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1 }],
+        itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1 }],
       }),
     });
     const nfEnvId = Number(((await nfEnv.json()) as any).codnf);
@@ -1070,22 +1070,22 @@ async function main() {
         const nfSit = (b: Record<string, unknown>) => fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({
           modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', tipoemissao: '0', finalidade: '1', ...b }) });
         // cabeçalho: entrada na 1031 (só 1102) com CFOP 1403 → 422
-        const f1 = await nfSit({ tipo: 'E', nronf: 'SITC2A', cfop: '1403', idsituacao_nf: 1031, codparceiro: 22, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1, cfop: '1403', aliquota: 'T01' }] });
+        const f1 = await nfSit({ tipo: 'E', nronf: 'SITC2A', cfop: '1403', idsituacao_nf: 1031, codparceiro: 22, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1, cfop: '1403', aliquota: 'T01' }] });
         const f1J = (await f1.json().catch(() => ({}))) as any;
         // item de ENTRADA fora da situação (6 não tem 1556) → 422
         await pgSit.query(`INSERT INTO cfop (codcfop, descricao, tipo) VALUES ('1556','COMPRA USO CONSUMO','E') ON CONFLICT DO NOTHING`);
-        const f2 = await nfSit({ tipo: 'E', nronf: 'SITC2B', cfop: '1102', idsituacao_nf: 6, codparceiro: 22, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1, cfop: '1556', aliquota: 'T01' }] });
+        const f2 = await nfSit({ tipo: 'E', nronf: 'SITC2B', cfop: '1102', idsituacao_nf: 6, codparceiro: 22, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1, cfop: '1556', aliquota: 'T01' }] });
         const f2J = (await f2.json().catch(() => ({}))) as any;
         // SAÍDA: o item digitado é cobrado mesmo com VALIDA_CFOP_SITUACAO_NF_SAIDA='N' (o OK do diálogo do item)
         await pgSit.query(`INSERT INTO cfop (codcfop, descricao, tipo) VALUES ('5405','VENDA ST','S') ON CONFLICT DO NOTHING`);
-        const f3 = await nfSit({ tipo: 'S', nronf: 'SITC2C', cfop: '5102', idsituacao_nf: 8, codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1, cfop: '5405', aliquota: 'T01' }] });
+        const f3 = await nfSit({ tipo: 'S', nronf: 'SITC2C', cfop: '5102', idsituacao_nf: 8, codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1, cfop: '5405', aliquota: 'T01' }] });
         const f3J = (await f3.json().catch(() => ({}))) as any;
         check('SITUAÇÃO f (C2): CFOP da NF fora da situação → 422 NF_CFOP_SITUACAO · item de entrada fora → 422 NF_ITEM_CFOP_SITUACAO · item digitado na saída também é cobrado',
           f1.status === 422 && f1J.code === 'NF_CFOP_SITUACAO' && f2.status === 422 && f2J.code === 'NF_ITEM_CFOP_SITUACAO'
           && f3.status === 422 && f3J.code === 'NF_ITEM_CFOP_SITUACAO',
           { f1: [f1.status, f1J.code], f2: [f2.status, f2J.code], f3: [f3.status, f3J.code] });
         // g) o item entra com a situação do cabeçalho; o que veio por importação (CFOP fora) só é cobrado na saída com a config
-        const g0 = await nfSit({ tipo: 'S', nronf: 'SITC2D', cfop: '5102', idsituacao_nf: 8, codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1, cfop: '5102', aliquota: 'T01' }] });
+        const g0 = await nfSit({ tipo: 'S', nronf: 'SITC2D', cfop: '5102', idsituacao_nf: 8, codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1, cfop: '5102', aliquota: 'T01' }] });
         const g0Id = Number(((await g0.json().catch(() => ({}))) as any).codnf);
         const gSit = (await pgSit.query(`SELECT idsituacao_nf FROM nf_prod WHERE codnf=$1`, [g0Id])).rows.map((r) => Number(r.idsituacao_nf));
         await pgSit.query(`UPDATE nf_prod SET cfop='5405' WHERE codnf=$1`, [g0Id]);
@@ -1106,7 +1106,7 @@ async function main() {
           g0.status === 201 && gSit.length === 1 && gSit[0] === 8 && g1.status === 200 && g2.status === 422 && g2J.code === 'NF_ITEM_CFOP_SITUACAO',
           { g0: g0.status, sitItem: gSit, g1: g1.status, g2: [g2.status, g2J.code] });
         // h) o PROCESSAMENTO confere de novo (uNF.pas:14921): entrada gravada certa, item mudado por fora → processar 422
-        const h0 = await nfSit({ tipo: 'E', nronf: 'SITC2E', cfop: '1102', idsituacao_nf: 6, codparceiro: 22, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1, cfop: '1102', aliquota: 'T01' }] });
+        const h0 = await nfSit({ tipo: 'E', nronf: 'SITC2E', cfop: '1102', idsituacao_nf: 6, codparceiro: 22, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1, cfop: '1102', aliquota: 'T01' }] });
         const h0Id = Number(((await h0.json().catch(() => ({}))) as any).codnf);
         await pgSit.query(`UPDATE nf_prod SET cfop='1556' WHERE codnf=$1`, [h0Id]);
         const h1 = await fetch(`${base}/fiscal/nf/${h0Id}/processar`, { method: 'POST', headers: H });
@@ -1116,6 +1116,34 @@ async function main() {
         check('SITUAÇÃO h (C2): o processamento confere o CFOP de cada item contra a situação — item fora → 422 e a nota não processa',
           h0.status === 201 && h1.status === 422 && h1J.code === 'NF_ITEM_CFOP_SITUACAO' && h1Proc !== 'S',
           { h0: h0.status, h1: [h1.status, h1J.code], proc: h1Proc });
+
+        // i) VALOR DO ITEM (CalcValorNota; nf-valor.ts — provado contra a produção): a linha é quantidade × VRCUSTO,
+        // truncada sem ARREDONDA e arredondada com ARREDONDA=S; TOTALDESC = Σ VRDESCPROD e DESCONTO guarda o %
+        await pgSit.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, descricao, config_especificas_permitidas)
+          SELECT 486, 'DESCAMARCAR_ARREDONDAMENTO_NF', 'S', 'String', 'Define se na nota fiscal será feito arredondamento de valores.', 'Modulo;Empresa'
+           WHERE NOT EXISTS (SELECT 1 FROM configuracoes WHERE codigo='DESCAMARCAR_ARREDONDAMENTO_NF')`);
+        await pgSit.query(`UPDATE configuracoes SET valor='S', config_especificas_permitidas='Modulo;Empresa' WHERE codigo='DESCAMARCAR_ARREDONDAMENTO_NF'`);
+        await pgSit.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) SELECT id, 'Modulo', 'Retaguarda', 'N' FROM configuracoes WHERE codigo='DESCAMARCAR_ARREDONDAMENTO_NF'
+          ON CONFLICT (id, tipo, chave) DO UPDATE SET valor='N'`);
+        const v1 = await nfSit({ tipo: 'E', nronf: 'VALOR1', cfop: '1102', idsituacao_nf: 6, codparceiro: 22, itens: [
+          { codproduto: 1, quantidade: 3, vrcusto: 3.333, arredonda: 'N', cfop: '1102', aliquota: 'T01' }, // 9,999 → 9,99
+          { codproduto: 2, quantidade: 3, vrcusto: 3.335, arredonda: 'S', vrdescprod: 2.5, cfop: '1102', aliquota: 'T01' }, // 10,005 → 10,01
+          { codproduto: 3, quantidade: 1, vrcusto: 0.555, cfop: '1102', aliquota: 'T01' }, // sem ARREDONDA → padrão 'S' (módulo) → 0,56
+        ] });
+        const v1J = (await v1.json().catch(() => ({}))) as any;
+        const v1It = (await pgSit.query(`SELECT codproduto, arredonda, desconto, vrvenda FROM nf_prod WHERE codnf=$1 ORDER BY codproduto`, [Number(v1J.codnf)])).rows as any[];
+        check('VALOR DO ITEM: linha = qtde × VRCUSTO (trunca sem ARREDONDA, arredonda com) · TOTALPROD 20,56 · TOTALDESC = VRDESCPROD 2,50 · TOTALNF 18,06 · DESCONTO guarda o % (2,5/10,005) · ARREDONDA padrão pela config do MÓDULO (S) · VRVENDA nulo = 0',
+          v1.status === 201 && Number(v1J.totalprod) === 20.56 && Number(v1J.totaldesc) === 2.5 && Number(v1J.totalnf) === 18.06
+          && v1It.length === 3 && v1It[2].arredonda === 'S' && Math.abs(Number(v1It[1].desconto) - 24.987506) < 0.00001 && Number(v1It[0].vrvenda) === 0,
+          { status: v1.status, tp: v1J.totalprod, td: v1J.totaldesc, tn: v1J.totalnf, itens: v1It });
+        // a base do ICMS sai LÍQUIDA do desconto (produção: 39 de 39): 100 − 10 de desconto, T01 18% → base 90, ICMS 16,20
+        const rc = await fetch(`${base}/fiscal/nf/recalcular`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, cfop: '1102',
+          itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, vrdescprod: 10, arredonda: 'S', aliquota: 'T01', cfop: '1102' }] }) });
+        const rcIt = (((await rc.json().catch(() => ({}))) as any).itens ?? [])[0] ?? {};
+        check('VALOR DO ITEM: a base do ICMS é quantidade × VRCUSTO − VRDESCPROD (100 − 10 = 90 × BCR)',
+          rc.status === 200 && Number(rcIt.vrbasecalculo) === Math.round(90 * Number(rcIt.bcr)) / 100,
+          { status: rc.status, base: rcIt.vrbasecalculo, bcr: rcIt.bcr, icm: rcIt.vricm });
+        await fetch(`${base}/fiscal/nf/${Number(v1J.codnf)}`, { method: 'DELETE', headers: H });
       } finally {
         await pgSit.end();
       }
@@ -1165,7 +1193,7 @@ async function main() {
       const r = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify(body) });
       return Number(((await r.json()) as any).codnf);
     };
-    const itemP1 = (q: number) => ({ codproduto: 1, quantidade: q, vrvenda: 3.5, cfop: '1102', aliquota: 'T01' });
+    const itemP1 = (q: number) => ({ codproduto: 1, quantidade: q, vrcusto: 3.5, cfop: '1102', aliquota: 'T01' });
     const baseNf = (extra: Record<string, unknown>) => ({
       modelo: 55, serie: '1', dtemissao: '2026-06-12', dtcontabil: '2026-06-12', tipoemissao: '0', cfop: '1102', ...extra,
     });
@@ -1179,8 +1207,8 @@ async function main() {
     // 18.0b) SINCRONIZAR CFOP por DE-PARA (T1.3): NF c/ itens heterogêneos [1202, 1411]; mapa {1202→1102} muda
     // só o item 1202 e PRESERVA o 1411 (o de-para NÃO sobrescreve tudo com o cabeçalho — evita corromper ST/isento).
     const nfSync = await novaNf(baseNf({ tipo: 'E', nronf: 'SYNCFOP', codparceiro: 22, cfop: '1102', itens: [
-      { codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '1202', aliquota: 'T01' },
-      { codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '1411', aliquota: 'T01' },
+      { codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '1202', aliquota: 'T01' },
+      { codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '1411', aliquota: 'T01' },
     ] }));
     const syncRes = await fetch(`${base}/fiscal/nf/${nfSync}/sincronizar-cfop`, { method: 'POST', headers: H, body: JSON.stringify({ mapa: [{ de: '1202', para: '1102' }] }) });
     const syncJ = (await syncRes.json().catch(() => ({}))) as any;
@@ -1231,7 +1259,7 @@ async function main() {
     );
 
     // 18.4) SAÍDA processada BAIXA o saldo (-2).
-    const nfSai = await novaNf(baseNf({ tipo: 'S', nronf: 'P4001', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 2, vrvenda: 4.2, cfop: '5102', aliquota: 'T01' }] }));
+    const nfSai = await novaNf(baseNf({ tipo: 'S', nronf: 'P4001', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 2, vrcusto: 4.2, cfop: '5102', aliquota: 'T01' }] }));
     const procS = await fetch(`${base}/fiscal/nf/${nfSai}/processar`, { method: 'POST', headers: H });
     const s3 = await saldoProd1();
     check('processar (saída) BAIXA o estoque (−2)', procS.status === 200 && s3 === s0 - 2, { status: procS.status, s3, esperado: s0 - 2 });
@@ -1240,7 +1268,7 @@ async function main() {
     const pgNeg = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     // (a) override Empresa='N' → BLOQUEIA saída que deixaria negativo (422, rollback atômico, saldo intacto).
     await pgNeg.query(`INSERT INTO configuracoes_especificas (id,tipo,chave,valor) VALUES (84,'Empresa','1','N') ON CONFLICT (id,tipo,chave) DO UPDATE SET valor='N'`);
-    const nfNegN = await novaNf(baseNf({ tipo: 'S', nronf: 'P4002', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 999999, vrvenda: 1, cfop: '5102', aliquota: 'T01' }] }));
+    const nfNegN = await novaNf(baseNf({ tipo: 'S', nronf: 'P4002', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 999999, vrcusto: 1, cfop: '5102', aliquota: 'T01' }] }));
     const procNeg = await fetch(`${base}/fiscal/nf/${nfNegN}/processar`, { method: 'POST', headers: H });
     const procNegBody = (await procNeg.json().catch(() => ({}))) as any;
     check(
@@ -1250,7 +1278,7 @@ async function main() {
     );
     // (b) default 'S' (fiel ao legado) → PERMITE saldo negativo; processa e reverte p/ restaurar.
     await pgNeg.query(`DELETE FROM configuracoes_especificas WHERE id=84 AND tipo='Empresa' AND chave='1'`);
-    const nfNegS = await novaNf(baseNf({ tipo: 'S', nronf: 'P4003', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 5, vrvenda: 1, cfop: '5102', aliquota: 'T01' }] }));
+    const nfNegS = await novaNf(baseNf({ tipo: 'S', nronf: 'P4003', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 5, vrcusto: 1, cfop: '5102', aliquota: 'T01' }] }));
     const procNegS = await fetch(`${base}/fiscal/nf/${nfNegS}/processar`, { method: 'POST', headers: H });
     check(
       "F3b default 'S': saída PERMITE saldo negativo (fiel ao legado, udmNF:11643)",
@@ -1304,8 +1332,8 @@ async function main() {
       body: JSON.stringify({
         tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22,
         itens: [
-          { codproduto: 1, quantidade: 10, vrvenda: 3.5, aliquota: 'T01', cfop: '1102', ncm: '17019900', ipi: 5 },
-          { codproduto: 3, quantidade: 2, vrvenda: 20, aliquota: 'STB', cfop: '1403', ncm: '04061010' },
+          { codproduto: 1, quantidade: 10, vrcusto: 3.5, aliquota: 'T01', cfop: '1102', ncm: '17019900', ipi: 5 },
+          { codproduto: 3, quantidade: 2, vrcusto: 20, aliquota: 'STB', cfop: '1403', ncm: '04061010' },
         ],
       }),
     });
@@ -1333,7 +1361,7 @@ async function main() {
       headers: H,
       body: JSON.stringify({
         tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22,
-        itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, aliquota: 'T20', cfop: '1102', ncm: '17019900' }],
+        itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, aliquota: 'T20', cfop: '1102', ncm: '17019900' }],
       }),
     });
     const ir = ((await recalcRed.json().catch(() => ({}))) as any)?.itens?.[0] ?? {};
@@ -1350,7 +1378,7 @@ async function main() {
       headers: H,
       body: JSON.stringify({
         tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22,
-        itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1, aliquota: 'T99', cfop: '1102' }],
+        itens: [{ codproduto: 1, quantidade: 1, vrcusto: 1, aliquota: 'T99', cfop: '1102' }],
       }),
     });
     const recalcBadBody = (await recalcBad.json().catch(() => ({}))) as any;
@@ -1368,8 +1396,8 @@ async function main() {
         tipo: 'E', modelo: 55, nronf: '6001', serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10',
         tipoemissao: '0', cfop: '1102', codparceiro: 22,
         itens: [
-          { codproduto: 1, quantidade: 10, vrvenda: 3.5, aliquota: 'T01', cfop: '1102', vrbasecalculo: 35, vricm: 7.7, vripi: 1.75, cst: 0 },
-          { codproduto: 3, quantidade: 2, vrvenda: 20, aliquota: 'STB', cfop: '1403', vrbasecalculo: 0, vricm: 0, vrbasest: 58, vricmst: 3.24, cst: 60 },
+          { codproduto: 1, quantidade: 10, vrcusto: 3.5, aliquota: 'T01', cfop: '1102', vrbasecalculo: 35, vricm: 7.7, vripi: 1.75, cst: 0 },
+          { codproduto: 3, quantidade: 2, vrcusto: 20, aliquota: 'STB', cfop: '1403', vrbasecalculo: 0, vricm: 0, vrbasest: 58, vricmst: 3.24, cst: 60 },
         ],
       }),
     });
@@ -1392,7 +1420,7 @@ async function main() {
       method: 'POST', headers: H,
       body: JSON.stringify({
         tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22,
-        itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, aliquota: 'STB', cfop: '1403', ncm: '99999999' }],
+        itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, aliquota: 'STB', cfop: '1403', ncm: '99999999' }],
       }),
     });
     const recStB = (await recSt.json().catch(() => ({}))) as any;
@@ -1409,7 +1437,7 @@ async function main() {
       method: 'POST', headers: H,
       body: JSON.stringify({
         tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22,
-        itens: [{ codproduto: 1, quantidade: 3, vrvenda: 3.33, aliquota: 'T01', cfop: '1102', arredonda: 'N' }],
+        itens: [{ codproduto: 1, quantidade: 3, vrcusto: 3.33, aliquota: 'T01', cfop: '1102', arredonda: 'N' }],
       }),
     });
     const recTruncB = (await recTrunc.json().catch(() => ({}))) as any;
@@ -1419,7 +1447,7 @@ async function main() {
       method: 'POST', headers: H,
       body: JSON.stringify({
         tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22,
-        itens: [{ codproduto: 1, quantidade: 3, vrvenda: 3.33, aliquota: 'T01', cfop: '1102', arredonda: 'S' }],
+        itens: [{ codproduto: 1, quantidade: 3, vrcusto: 3.33, aliquota: 'T01', cfop: '1102', arredonda: 'S' }],
       }),
     });
     const recRoundB = (await recRound.json().catch(() => ({}))) as any;
@@ -1436,7 +1464,7 @@ async function main() {
     };
 
     // 20.1) SAÍDA com itens (totalnf>0) → faturar 3 parcelas → títulos em ARECEBER, Σ == totalnf.
-    const nfFat = await novaNf(baseNf({ tipo: 'S', nronf: 'F4001', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfFat = await novaNf(baseNf({ tipo: 'S', nronf: 'F4001', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     const totalNf = Number(((await (await fetch(`${base}/fiscal/nf/${nfFat}`, { headers: H })).json()) as any).totalnf);
     const fatRes = await fetch(`${base}/fiscal/nf/${nfFat}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 3, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
     const fatBody = (await fatRes.json().catch(() => ({}))) as any;
@@ -1526,7 +1554,7 @@ async function main() {
     check('4c: estornar-faturamento remove o título RESIDUAL ST (por idnf)', strTitPos.length === 0, { strTitPos });
 
     // 54.6) SAÍDA com total_icmst_externo → NÃO gera RESIDUAL ST (só entrada recolhe).
-    const nfStS = await novaNf(baseNf({ tipo: 'S', nronf: 'STR004', cfop: '5102', codparceiro: 20, total_icmst_externo: 50, itens: [{ codproduto: 1, quantidade: 5, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfStS = await novaNf(baseNf({ tipo: 'S', nronf: 'STR004', cfop: '5102', codparceiro: 20, total_icmst_externo: 50, itens: [{ codproduto: 1, quantidade: 5, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     await fetch(`${base}/fiscal/nf/${nfStS}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-18', intervaloDias: 30 }) });
     const strTitS = await stResidualDaNf(nfStS);
     check('4c: SAÍDA com total_icmst_externo → 0 RESIDUAL ST (só entrada recolhe)', strTitS.length === 0, { strTitS });
@@ -1582,7 +1610,7 @@ async function main() {
     check('4c-b: estornar-faturamento remove retenção + fornecedor (por idnf)', titsRetPos.length === 0, { titsRetPos });
 
     // 55.3) SAÍDA com total_ret_* → NÃO gera retenção (só entrada de serviço recolhe).
-    const nfRetS = await novaNf(baseNf({ tipo: 'S', nronf: 'RET002', cfop: '5102', codparceiro: 20, total_ret_pis: 10, itens: [{ codproduto: 1, quantidade: 5, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfRetS = await novaNf(baseNf({ tipo: 'S', nronf: 'RET002', cfop: '5102', codparceiro: 20, total_ret_pis: 10, itens: [{ codproduto: 1, quantidade: 5, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     await fetch(`${base}/fiscal/nf/${nfRetS}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
     const titsRetS = (await pgRet.query(`SELECT count(*)::int AS n FROM apagar WHERE idnf=$1 AND retencao IS NOT NULL`, [nfRetS])).rows[0]?.n;
     check('4c-b: SAÍDA com total_ret_* → 0 título de retenção (só entrada)', Number(titsRetS) === 0, { titsRetS });
@@ -1606,7 +1634,7 @@ async function main() {
     await pgRet.end();
 
     // 20.5) totalnf=0 (item com vrvenda 0) → 422 NF_SEM_VALOR.
-    const nfZero = await novaNf(baseNf({ tipo: 'S', nronf: 'F4200', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 0, cfop: '5102', aliquota: 'T01' }] }));
+    const nfZero = await novaNf(baseNf({ tipo: 'S', nronf: 'F4200', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 0, cfop: '5102', aliquota: 'T01' }] }));
     const fatZero = await fetch(`${base}/fiscal/nf/${nfZero}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
     const fatZeroBody = (await fatZero.json().catch(() => ({}))) as any;
     check('faturar NF com total 0 → 422 NF_SEM_VALOR', fatZero.status === 422 && fatZeroBody.code === 'NF_SEM_VALOR', { status: fatZero.status, code: fatZeroBody.code });
@@ -1617,7 +1645,7 @@ async function main() {
     check('faturar com numParcelas 0 → 400 VALIDACAO', fatBad.status === 400 && fatBadBody.code === 'VALIDACAO', { status: fatBad.status, code: fatBadBody.code });
 
     // 20.7) TRAVA de estorno: título QUITADO bloqueia (simula baixa via UPDATE direto no pg).
-    const nfQuit = await novaNf(baseNf({ tipo: 'S', nronf: 'F4300', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 5, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfQuit = await novaNf(baseNf({ tipo: 'S', nronf: 'F4300', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 5, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     await fetch(`${base}/fiscal/nf/${nfQuit}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 2, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
     const pool = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     await pool.query(`UPDATE areceber SET quitada='S' WHERE idnf=$1`, [nfQuit]);
@@ -1633,7 +1661,7 @@ async function main() {
 
     // 20.8) INVARIANTE: faturar NÃO move estoque (F3 intacta).
     const sFat = await saldoProd1();
-    const nfFatInv = await novaNf(baseNf({ tipo: 'S', nronf: 'F4400', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 3, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfFatInv = await novaNf(baseNf({ tipo: 'S', nronf: 'F4400', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 3, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     await fetch(`${base}/fiscal/nf/${nfFatInv}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
     check('faturar NÃO move estoque (invariante F3)', (await saldoProd1()) === sFat, { sFat, depois: await saldoProd1() });
 
@@ -1646,25 +1674,25 @@ async function main() {
     check('DELETE NF processada → 422 NF_PROCESSADA (sem órfão de estoque)', delP.status === 422 && delPB.code === 'NF_PROCESSADA', { status: delP.status, code: delPB.code });
 
     // 21.2) DELETE bloqueado em NF FATURADA (apagar deixaria títulos órfãos).
-    const nfDelF = await novaNf(baseNf({ tipo: 'S', nronf: 'R7002', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfDelF = await novaNf(baseNf({ tipo: 'S', nronf: 'R7002', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     await fetch(`${base}/fiscal/nf/${nfDelF}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
     const delF = await fetch(`${base}/fiscal/nf/${nfDelF}`, { method: 'DELETE', headers: H });
     const delFB = (await delF.json().catch(() => ({}))) as any;
     check('DELETE NF faturada → 422 NF_TEM_FATURAMENTO (sem título órfão)', delF.status === 422 && delFB.code === 'NF_TEM_FATURAMENTO', { status: delF.status, code: delFB.code });
 
     // 21.3) EDIT bloqueado em NF CANCELADA.
-    const nfCanc = await novaNf(baseNf({ tipo: 'S', nronf: 'R7003', cfop: '5102', codparceiro: 20, cancelada: 'S', itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfCanc = await novaNf(baseNf({ tipo: 'S', nronf: 'R7003', cfop: '5102', codparceiro: 20, cancelada: 'S', itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     const editC = await fetch(`${base}/fiscal/nf/${nfCanc}`, { method: 'PUT', headers: H, body: JSON.stringify({ obs: 'tentando editar cancelada' }) });
     const editCB = (await editC.json().catch(() => ({}))) as any;
     check('PUT NF cancelada → 422 NF_CANCELADA', editC.status === 422 && editCB.code === 'NF_CANCELADA', { status: editC.status, code: editCB.code });
 
     // 21.4) DEVOLUÇÃO (finalidade '4') sem documento referenciado → 400 VALIDACAO.
-    const devSemRef = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify(baseNf({ tipo: 'S', nronf: 'R7004', cfop: '5102', finalidade: '4', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] })) });
+    const devSemRef = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify(baseNf({ tipo: 'S', nronf: 'R7004', cfop: '5102', finalidade: '4', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] })) });
     const devSemRefB = (await devSemRef.json().catch(() => ({}))) as any;
     check('POST devolução (finalidade 4) SEM referência → 400 VALIDACAO', devSemRef.status === 400 && devSemRefB.code === 'VALIDACAO', { status: devSemRef.status, code: devSemRefB.code });
 
     // 21.5) CFOP do item com 1º dígito ≠ do cabeçalho → 400 VALIDACAO.
-    const cfopMix = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify(baseNf({ tipo: 'E', nronf: 'R7005', cfop: '1102', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] })) });
+    const cfopMix = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify(baseNf({ tipo: 'E', nronf: 'R7005', cfop: '1102', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] })) });
     const cfopMixB = (await cfopMix.json().catch(() => ({}))) as any;
     check('POST item com CFOP 1º dígito divergente do cabeçalho → 400 VALIDACAO', cfopMix.status === 400 && cfopMixB.code === 'VALIDACAO', { status: cfopMix.status, code: cfopMixB.code });
 
@@ -1676,7 +1704,7 @@ async function main() {
     // 21.7) REVERTER bloqueado em NF FATURADA (cert 2026-07-02): no legado `ReverteProcessamento`
     // (uNF:9000-9002) desfaz o financeiro junto com o estoque; no corte-1 faturar é ação SEPARADA, então
     // barramos para não deixar título ARECEBER/APAGAR órfão. Estornar o faturamento LIBERA o reverter.
-    const nfRevFat = await novaNf(baseNf({ tipo: 'S', nronf: 'R7007', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfRevFat = await novaNf(baseNf({ tipo: 'S', nronf: 'R7007', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     await fetch(`${base}/fiscal/nf/${nfRevFat}/processar`, { method: 'POST', headers: H });
     await fetch(`${base}/fiscal/nf/${nfRevFat}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
     const revFat = await fetch(`${base}/fiscal/nf/${nfRevFat}/reverter`, { method: 'POST', headers: H });
@@ -1688,8 +1716,8 @@ async function main() {
 
     // 21.8) DELETE bloqueado em NF REFERENCIADA por outra (cert 2026-07-02, uNF:4145): a nota-origem de uma
     // devolução/complemento aponta p/ esta via nf_referencia.codnf_ref — apagar romperia a cadeia (órfão).
-    const nfRefAlvo = await novaNf(baseNf({ tipo: 'S', nronf: 'R7008', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
-    const nfRefOrigem = await novaNf(baseNf({ tipo: 'S', nronf: 'R7009', cfop: '5102', codparceiro: 20, referencias: [{ codnf_ref: nfRefAlvo }], itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfRefAlvo = await novaNf(baseNf({ tipo: 'S', nronf: 'R7008', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfRefOrigem = await novaNf(baseNf({ tipo: 'S', nronf: 'R7009', cfop: '5102', codparceiro: 20, referencias: [{ codnf_ref: nfRefAlvo }], itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     const delRef = await fetch(`${base}/fiscal/nf/${nfRefAlvo}`, { method: 'DELETE', headers: H });
     const delRefB = (await delRef.json().catch(() => ({}))) as any;
     check('DELETE NF referenciada por outra → 422 NF_REFERENCIADA (cadeia devolução/complemento)', delRef.status === 422 && delRefB.code === 'NF_REFERENCIADA', { status: delRef.status, code: delRefB.code });
@@ -1698,7 +1726,7 @@ async function main() {
     check('removida a origem, DELETE do alvo referenciado é liberado (204)', delOrigem.status === 204 && delAlvo.status === 204, { origem: delOrigem.status, alvo: delAlvo.status });
 
     // 22) NF F5 — CONTÁBIL (rateio CODCONTABILNF por centro de custo). Config armazenada, SEM efeito.
-    const itemS100 = { codproduto: 1, quantidade: 10, vrvenda: 10, cfop: '5102', aliquota: 'T01' }; // totalnf=100
+    const itemS100 = { codproduto: 1, quantidade: 10, vrcusto: 10, cfop: '5102', aliquota: 'T01' }; // totalnf=100
     // 22.1) lookup PLC + criar NF saída com rateio que SOMA o total → 201 e GET traz 2 linhas.
     const plc = (await (await fetch(`${base}/cadastro/plc`, { headers: H })).json()) as any[];
     check('GET /cadastro/plc lista o catálogo (≥5)', Array.isArray(plc) && plc.length >= 5, plc?.length);
@@ -1750,7 +1778,7 @@ async function main() {
 
     // 23) NF F6 — NFe mod.55 (transmissão/cancelamento/CCe) atrás da PORTA SEFAZ (simulador homolog).
     // Fluxo fiel ao legado (uNF.pas:8273: Transmitir só habilita com PROC='S'): digitar→processar→transmitir.
-    const itemS = () => ({ codproduto: 1, quantidade: 10, vrvenda: 10, cfop: '5102', aliquota: 'T01' }); // totalnf=100
+    const itemS = () => ({ codproduto: 1, quantidade: 10, vrcusto: 10, cfop: '5102', aliquota: 'T01' }); // totalnf=100
     const pg23 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const processarOk = async (id: number) => { const r = await fetch(`${base}/fiscal/nf/${id}/processar`, { method: 'POST', headers: H }); return r.status; };
 
@@ -1799,7 +1827,7 @@ async function main() {
 
     // 23.5) total 0 → 422 NF_SEM_VALOR (processada; codparceiro/itens são obrigatórios no create →
     // NF_SEM_DESTINATARIO/NF_SEM_ITENS/NF_TERCEIROS_NAO_TRANSMITE ficam defensivos, inalcançáveis).
-    const nfSV = await novaNf(baseNf({ tipo: 'S', nronf: 'N9004', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 0, cfop: '5102', aliquota: 'T01' }] }));
+    const nfSV = await novaNf(baseNf({ tipo: 'S', nronf: 'N9004', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 0, cfop: '5102', aliquota: 'T01' }] }));
     await processarOk(nfSV);
     const txSV = await fetch(`${base}/fiscal/nf/${nfSV}/transmitir`, { method: 'POST', headers: H });
     const txSVBody = (await txSV.json().catch(() => ({}))) as any;
@@ -1889,7 +1917,7 @@ async function main() {
     check('POST empresa com margem_contribuicao<0 → 400 VALIDACAO', empMargBad.status === 400 && ((await empMargBad.json().catch(() => ({}))) as any).code === 'VALIDACAO', empMargBad.status);
 
     // 24.4) F4b: faturar grava txjuros = empresas.txjuropadrao (5,0), não mais do parceiro.
-    const nfTxj = await novaNf(baseNf({ tipo: 'S', nronf: 'E5001', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 5, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfTxj = await novaNf(baseNf({ tipo: 'S', nronf: 'E5001', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 5, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     await fetch(`${base}/fiscal/nf/${nfTxj}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
     const pgTxj = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const titTxj = (await pgTxj.query(`SELECT txjuros FROM areceber WHERE idnf=$1`, [nfTxj])).rows[0];
@@ -1900,7 +1928,7 @@ async function main() {
     const pgCfg = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     // T01/MA (base 100, icm 22) + CFOP 1403 (fim '403' → zeraCreditoIcms). vrbasecalculo: 0 (default) / 100 (aproveita).
     const recalcCredito = async (): Promise<number> => {
-      const r = await fetch(`${base}/fiscal/nf/recalcular`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, aliquota: 'T01', cfop: '1403' }] }) });
+      const r = await fetch(`${base}/fiscal/nf/recalcular`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, aliquota: 'T01', cfop: '1403' }] }) });
       return Number(((await r.json().catch(() => ({}))) as any).itens?.[0]?.vrbasecalculo);
     };
     // 25.1) resolver: default 'N' zera o crédito; override Empresa='S' APROVEITA; remover volta ao default.
@@ -1912,7 +1940,7 @@ async function main() {
 
     // 25.2) F2c gate SN: empresa Simples NÃO destaca ICMS (DmOld/udmNF.pas:1869). T01/MA CFOP 1102 (não zera).
     const recalcIcm = async (): Promise<number> => {
-      const r = await fetch(`${base}/fiscal/nf/recalcular`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'S', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, aliquota: 'T01', cfop: '1102' }] }) });
+      const r = await fetch(`${base}/fiscal/nf/recalcular`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'S', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, aliquota: 'T01', cfop: '1102' }] }) });
       return Number(((await r.json().catch(() => ({}))) as any).itens?.[0]?.vricm);
     };
     check('F2c: empresa LR destaca ICMS (vricm 22,00)', (await recalcIcm()) === 22, { vricm: await recalcIcm() });
@@ -1922,7 +1950,7 @@ async function main() {
     check('F2c: revertida p/ LR volta a destacar (vricm 22,00)', (await recalcIcm()) === 22, { vricm: await recalcIcm() });
     // 25.3) F2c-2 P1 — crédito de ENTRADA da empresa SN = base·ALQSIMPLESNAC/100 (udmNF.pas:4021).
     await pgCfg.query(`UPDATE empresas SET classfiscal='SN', alqsimplesnac=3 WHERE idempresa=1`);
-    const recEntSn = await fetch(`${base}/fiscal/nf/recalcular`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, aliquota: 'T01', cfop: '1102' }] }) });
+    const recEntSn = await fetch(`${base}/fiscal/nf/recalcular`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, aliquota: 'T01', cfop: '1102' }] }) });
     const itEntSn = ((((await recEntSn.json().catch(() => ({}))) as any).itens ?? [])[0] ?? {}) as any;
     check('F2c-2: entrada SN → crédito presumido base·ALQSIMPLESNAC/100 (vricm 3, base 100, ST 0)', Number(itEntSn.vricm) === 3 && Number(itEntSn.vrbasecalculo) === 100 && Number(itEntSn.vrbasest ?? 0) === 0, { vricm: itEntSn.vricm, base: itEntSn.vrbasecalculo, st: itEntSn.vrbasest });
     await pgCfg.query(`UPDATE empresas SET classfiscal='LR', alqsimplesnac=NULL WHERE idempresa=1`);
@@ -1930,18 +1958,18 @@ async function main() {
     // (R→20, udmNF.pas:10096) e ST pela figura (multi-chave MG→MA CFOP 6404, MVA 40). Empresa 'D' não usa.
     await pgCfg.query(`UPDATE empresas SET figurafiscal='O' WHERE idempresa=1`);
     await pgCfg.query(`UPDATE produtos SET codfigurafiscal=1 WHERE idproduto=1`);
-    const recFig = await fetch(`${base}/fiscal/nf/recalcular`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'S', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, aliquota: 'T01', cfop: '6404' }] }) });
+    const recFig = await fetch(`${base}/fiscal/nf/recalcular`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'S', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, aliquota: 'T01', cfop: '6404' }] }) });
     const itFig = ((((await recFig.json().catch(() => ({}))) as any).itens ?? [])[0] ?? {}) as any;
     check('F2c-2: figura O → CST pela operação (R→20) + ST pela figura (vricmst>0)', Number(itFig.cst) === 20 && Number(itFig.vricmst) > 0, { cst: itFig.cst, vricmst: itFig.vricmst, mva: itFig.mva });
     await pgCfg.query(`UPDATE empresas SET figurafiscal='D' WHERE idempresa=1`);
     await pgCfg.query(`UPDATE produtos SET codfigurafiscal=NULL WHERE idproduto=1`);
     // 25.5) A1 — RETENÇÕES de serviço (entrada, situação E03=1031, CFOP 1102 dispara FUNRURAL). base=totalnf=100.
     await pgCfg.query(`UPDATE parceiros SET habilita_retencao_pis_nf='S', habilita_retencao_cofins_nf='S', habilita_retencao_csll_nf='S', habilita_retencao_ir_nf='S', habilita_retencao_inss_nf='S', habilita_retencao_issqn_nf='S', habilita_retencao_funrural_nf='S', perc_aliquota_issqn=2, perc_aliquota_ir=0 WHERE codparceiro=22`);
-    const recRet = await fetch(`${base}/fiscal/nf/recalcular`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, idsituacao_nf: 1031, cfop: '1102', itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, aliquota: 'T01', cfop: '1102' }] }) });
+    const recRet = await fetch(`${base}/fiscal/nf/recalcular`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, idsituacao_nf: 1031, cfop: '1102', itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, aliquota: 'T01', cfop: '1102' }] }) });
     const ret = (await recRet.json().catch(() => ({}))) as any;
     check('A1 retenções (base 100): PIS 0,65 · COFINS 3 · CSLL 1 · IR 1 · INSS 11 · ISSQN 2 · FUNRURAL 1', Number(ret.total_ret_pis) === 0.65 && Number(ret.total_ret_cofins) === 3 && Number(ret.total_ret_csll) === 1 && Number(ret.total_ret_ir) === 1 && Number(ret.total_ret_inss) === 11 && Number(ret.total_ret_issqn) === 2 && Number(ret.total_ret_funrural) === 1, { pis: ret.total_ret_pis, cofins: ret.total_ret_cofins, csll: ret.total_ret_csll, ir: ret.total_ret_ir, inss: ret.total_ret_inss, issqn: ret.total_ret_issqn, funrural: ret.total_ret_funrural });
     // não gera retenção quando a situação não é E03 (idsituacao 6).
-    const recNoRet = await fetch(`${base}/fiscal/nf/recalcular`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, idsituacao_nf: 6, cfop: '5102', itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, aliquota: 'T01', cfop: '5102' }] }) });
+    const recNoRet = await fetch(`${base}/fiscal/nf/recalcular`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22, idsituacao_nf: 6, cfop: '5102', itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, aliquota: 'T01', cfop: '5102' }] }) });
     const noRet = (await recNoRet.json().catch(() => ({}))) as any;
     check('A1 retenções: situação não-E03 → zero retenção (só E03 gera)', Number(noRet.total_ret_pis) === 0 && Number(noRet.total_ret_inss) === 0, { pis: noRet.total_ret_pis, inss: noRet.total_ret_inss });
     await pgCfg.query(`UPDATE parceiros SET habilita_retencao_pis_nf=NULL, habilita_retencao_cofins_nf=NULL, habilita_retencao_csll_nf=NULL, habilita_retencao_inss_nf=NULL, habilita_retencao_issqn_nf=NULL, habilita_retencao_funrural_nf=NULL WHERE codparceiro=22`);
@@ -2029,7 +2057,7 @@ async function main() {
     const pgFin = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     // prepara uma NF de saída cancelável: processa (proc='S') → fatura (2 títulos ARECEBER) → transmite (statusnfe='P').
     const prepCancelavel = async (nronf: string): Promise<number> => {
-      const id = await novaNf(baseNf({ tipo: 'S', nronf, cfop: '5102', codparceiro: 20, modelo: 55, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+      const id = await novaNf(baseNf({ tipo: 'S', nronf, cfop: '5102', codparceiro: 20, modelo: 55, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
       await fetch(`${base}/fiscal/nf/${id}/processar`, { method: 'POST', headers: H });
       await fetch(`${base}/fiscal/nf/${id}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 2, primeiroVencimento: '2026-08-10', intervaloDias: 30 }) });
       await fetch(`${base}/fiscal/nf/${id}/transmitir`, { method: 'POST', headers: H });
@@ -2060,7 +2088,7 @@ async function main() {
     // 28) F3b — reconciliação no processar + tratamento de DENEGADA (statusnfe='D') + guarda de faturar.
     const pgF3b = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     // 28.1) reconciliação de TOTAL: total adulterado → 422 (rollback, proc intacto); corrigido → processa.
-    const nfRec = await novaNf(baseNf({ tipo: 'S', nronf: 'E8101', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 2, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfRec = await novaNf(baseNf({ tipo: 'S', nronf: 'E8101', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 2, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     await pgF3b.query(`UPDATE nf SET totalnf = totalnf + 1 WHERE codnf=$1`, [nfRec]);
     const procRec = await fetch(`${base}/fiscal/nf/${nfRec}/processar`, { method: 'POST', headers: H });
     const procRecBody = (await procRec.json().catch(() => ({}))) as any;
@@ -2070,13 +2098,13 @@ async function main() {
     const procRecOk = await fetch(`${base}/fiscal/nf/${nfRec}/processar`, { method: 'POST', headers: H });
     check('F3b reconciliação: total correto → processa (200)', procRecOk.status === 200, { status: procRecOk.status });
     // 28.2) reconciliação de ICMS-ST (empresa figurafiscal='D'): totalicm_st adulterado → 422 NF_ST_DIVERGENTE.
-    const nfSt = await novaNf(baseNf({ tipo: 'S', nronf: 'E8102', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfSt = await novaNf(baseNf({ tipo: 'S', nronf: 'E8102', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     await pgF3b.query(`UPDATE nf SET totalicm_st = 5 WHERE codnf=$1`, [nfSt]);
     const procStF = await fetch(`${base}/fiscal/nf/${nfSt}/processar`, { method: 'POST', headers: H });
     const procStBody = (await procStF.json().catch(() => ({}))) as any;
     check("F3b reconciliação ST (figurafiscal='D'): totalicm_st adulterado → 422 NF_ST_DIVERGENTE", procStF.status === 422 && procStBody.code === 'NF_ST_DIVERGENTE', { status: procStF.status, code: procStBody.code });
     // 28.3) DENEGADA: transmitir cStat 110 → statusnfe='D' com estoque preso; faturar bloqueia; reverter estorna+limpa.
-    const nfDen = await novaNf(baseNf({ tipo: 'S', nronf: 'E8201', cfop: '5102', codparceiro: 20, modelo: 55, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfDen = await novaNf(baseNf({ tipo: 'S', nronf: 'E8201', cfop: '5102', codparceiro: 20, modelo: 55, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     const s0Den = await saldoProd1();
     await fetch(`${base}/fiscal/nf/${nfDen}/processar`, { method: 'POST', headers: H }); // proc='S' (saldo −1)
     process.env.SEFAZ_SIM_CSTAT = '110'; // força a SEFAZ simulada a DENEGAR só neste transmitir
@@ -2096,7 +2124,7 @@ async function main() {
     const pgCon = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const diarioDe = async (codnf: number) => (await pgCon.query(`SELECT contadebito, contacredito, valor FROM diario WHERE codorigem=12 AND idorigem=$1 ORDER BY coddiario`, [codnf])).rows;
     // NF entrada processada + rateio contábil (situação 6 → IIC D=148/C=11141).
-    const nfCon = await novaNf(baseNf({ tipo: 'E', nronf: 'E9001', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 5, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));
+    const nfCon = await novaNf(baseNf({ tipo: 'E', nronf: 'E9001', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 5, vrcusto: 10, cfop: '1102', aliquota: 'T01' }] }));
     await fetch(`${base}/fiscal/nf/${nfCon}/processar`, { method: 'POST', headers: H });
     await pgCon.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,6,1,30),($1,6,1,20)`, [nfCon]); // Σ situação 6 = 50
     const conRes = await fetch(`${base}/fiscal/nf/${nfCon}/contabilizar`, { method: 'POST', headers: H });
@@ -2112,19 +2140,19 @@ async function main() {
     // situação 'F' (6 → D148/C11141) gera UMA linha no DIÁRIO com valor=Σ — fiel ao golden (CODNF 72296/
     // 84938/80589: N centros de custo → 1 linha consolidada, codcc nulo). Antes do fix eram 2 linhas
     // idênticas (fragmentação). O CODCC só quebraria a linha se o débito fosse automático 'A' por CC.
-    const nfCons = await novaNf(baseNf({ tipo: 'E', nronf: 'E9100', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));
+    const nfCons = await novaNf(baseNf({ tipo: 'E', nronf: 'E9100', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, cfop: '1102', aliquota: 'T01' }] }));
     await fetch(`${base}/fiscal/nf/${nfCons}/processar`, { method: 'POST', headers: H }); // proc=S (rateio entra depois → auto-disparo pula)
     await pgCon.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,6,1,60),($1,6,2,40)`, [nfCons]); // 2 CC DIFERENTES, Σ situação 6 = 100
     const conCons = await fetch(`${base}/fiscal/nf/${nfCons}/contabilizar`, { method: 'POST', headers: H });
     const principais = ((await diarioDe(nfCons)) as any[]).filter((l) => Number(l.contadebito) === 148 && Number(l.contacredito) === 11141);
     check('F5b-cert: rateio multi-CC na MESMA situação F → 1 linha consolidada (valor Σ=100), sem fragmentar', conCons.status === 200 && principais.length === 1 && Number(principais[0].valor) === 100, { status: conCons.status, principais });
     // guarda: NF processada SEM rateio → 422 NF_SEM_RATEIO_CONTABIL.
-    const nfSR = await novaNf(baseNf({ tipo: 'E', nronf: 'E9002', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));
+    const nfSR = await novaNf(baseNf({ tipo: 'E', nronf: 'E9002', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '1102', aliquota: 'T01' }] }));
     await fetch(`${base}/fiscal/nf/${nfSR}/processar`, { method: 'POST', headers: H });
     const srRes = await fetch(`${base}/fiscal/nf/${nfSR}/contabilizar`, { method: 'POST', headers: H });
     check('F5b: contabilizar sem rateio → 422 NF_SEM_RATEIO_CONTABIL', srRes.status === 422 && ((await srRes.json().catch(() => ({}))) as any).code === 'NF_SEM_RATEIO_CONTABIL', { status: srRes.status });
     // 29b) F5b-fase2: conta AUTOMÁTICA TIPO='A' (situação 900: débito=PLC[1]→148, crédito=parceiro[22]→11141).
-    const nfA = await novaNf(baseNf({ tipo: 'E', nronf: 'E9003', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 2, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));
+    const nfA = await novaNf(baseNf({ tipo: 'E', nronf: 'E9003', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 2, vrcusto: 10, cfop: '1102', aliquota: 'T01' }] }));
     await fetch(`${base}/fiscal/nf/${nfA}/processar`, { method: 'POST', headers: H });
     await pgCon.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,900,1,20)`, [nfA]);
     const conA = await fetch(`${base}/fiscal/nf/${nfA}/contabilizar`, { method: 'POST', headers: H });
@@ -2156,7 +2184,7 @@ async function main() {
     await pgCon.query(`UPDATE produtos SET idpiscofins=NULL WHERE idproduto=1`);
     // 29g) F5b-fase4b: CMV — vl_custo CONGELADO de multi_preco no lançamento (snapshot não acompanha o MP).
     await pgCon.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto) VALUES (1,1,5.57) ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=5.57`);
-    const nfCmv = await novaNf(baseNf({ tipo: 'S', nronf: 'E9008', cfop: '5102', codparceiro: 20, modelo: 55, statusnfe: 'P', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfCmv = await novaNf(baseNf({ tipo: 'S', nronf: 'E9008', cfop: '5102', codparceiro: 20, modelo: 55, statusnfe: 'P', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     const vlFrozen = (await pgCon.query(`SELECT vl_custo FROM nf_prod WHERE codnf=$1`, [nfCmv])).rows[0]?.vl_custo;
     await pgCon.query(`UPDATE multi_preco SET vrcusto=9.99 WHERE idproduto=1 AND idempresa=1`); // altera DEPOIS do lançamento
     await fetch(`${base}/fiscal/nf/${nfCmv}/processar`, { method: 'POST', headers: H });
@@ -2181,7 +2209,7 @@ async function main() {
     await pgCon.query(`UPDATE cfop SET situacao_pis_entradas_nf=NULL, situacao_cofins_entradas_nf=NULL WHERE codcfop='1102'`);
     // 29d) F5b-fase3: AUTO-DISPARO — processar uma ENTRADA (AUTOMATICA) COM rateio contabiliza sozinho;
     // reverter (AUTOMATICA) estorna o contábil e reverte o estoque.
-    const nfAuto = await novaNf(baseNf({ tipo: 'E', nronf: 'E9005', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 3, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));
+    const nfAuto = await novaNf(baseNf({ tipo: 'E', nronf: 'E9005', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 3, vrcusto: 10, cfop: '1102', aliquota: 'T01' }] }));
     await pgCon.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,6,1,30)`, [nfAuto]); // rateio ANTES do processar
     await fetch(`${base}/fiscal/nf/${nfAuto}/processar`, { method: 'POST', headers: H }); // auto-contabiliza
     const autoF = (await pgCon.query(`SELECT contabilizado FROM nf WHERE codnf=$1`, [nfAuto])).rows[0]?.contabilizado;
@@ -2191,7 +2219,7 @@ async function main() {
     const autoF2 = (await pgCon.query(`SELECT contabilizado, proc FROM nf WHERE codnf=$1`, [nfAuto])).rows[0];
     check('F5b-3: reverter (AUTOMATICA) estorna o contábil e reverte (contabilizado null, proc N, diario vazio)', revAuto.status === 200 && autoF2?.contabilizado == null && autoF2?.proc === 'N' && (await diarioDe(nfAuto)).length === 0, { status: revAuto.status, flag: autoF2?.contabilizado, proc: autoF2?.proc });
     // 29e) F5b-fase3: linha de ICMS (golden saída: valor = nf.totalicm; cfop 5102 → sit791 D127/C232).
-    const nfIcms = await novaNf(baseNf({ tipo: 'S', nronf: 'E9006', cfop: '5102', codparceiro: 20, modelo: 55, statusnfe: 'P', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 5, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfIcms = await novaNf(baseNf({ tipo: 'S', nronf: 'E9006', cfop: '5102', codparceiro: 20, modelo: 55, statusnfe: 'P', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 5, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     await fetch(`${base}/fiscal/nf/${nfIcms}/processar`, { method: 'POST', headers: H }); // auto-contab barrado (sem rateio ainda)
     // ICMS do razão = Σ VRICM dos itens tributados ('T'), NÃO o header. Seta o VRICM do item T01.
     await pgCon.query(`UPDATE nf_prod SET vricm=52.25 WHERE codnf=$1`, [nfIcms]);
@@ -2203,7 +2231,7 @@ async function main() {
     // 29f) F5b-fase4: PERÍODO CONTÁBIL FECHADO (competência 01/2024, BLOQ_NF='S') barra a CONTABILIZAÇÃO.
     // (T1.2 agora barra o CADASTRO na data fechada também → cria em data ABERTA e move a DTCONTABIL via pg
     //  p/ 2024-01-15, driblando o gate de cadastro e isolando o gate de CONTABILIZAR.)
-    const nfPer = await novaNf(baseNf({ tipo: 'E', nronf: 'E9007', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 2, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));
+    const nfPer = await novaNf(baseNf({ tipo: 'E', nronf: 'E9007', cfop: '1102', codparceiro: 22, idsituacao_nf: 6, itens: [{ codproduto: 1, quantidade: 2, vrcusto: 10, cfop: '1102', aliquota: 'T01' }] }));
     await fetch(`${base}/fiscal/nf/${nfPer}/processar`, { method: 'POST', headers: H });
     await pgCon.query(`UPDATE nf SET dtcontabil='2024-01-15' WHERE codnf=$1`, [nfPer]); // move p/ período fechado
     await pgCon.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,6,1,20)`, [nfPer]);
@@ -2219,11 +2247,11 @@ async function main() {
     // 30) A2 — AUTO-NUMERAÇÃO de NRONF na emissão própria (SetaNroNF). Série '99' isolada (max=0 → 1,2).
     const pgNum = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const rdNronf = async (id: number) => (await pgNum.query(`SELECT nronf FROM nf WHERE codnf=$1`, [id])).rows[0]?.nronf;
-    const nfN1 = await novaNf(baseNf({ tipo: 'S', modelo: 55, serie: '99', tipoemissao: '0', nronf: '', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
-    const nfN2 = await novaNf(baseNf({ tipo: 'S', modelo: 55, serie: '99', tipoemissao: '0', nronf: '', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfN1 = await novaNf(baseNf({ tipo: 'S', modelo: 55, serie: '99', tipoemissao: '0', nronf: '', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
+    const nfN2 = await novaNf(baseNf({ tipo: 'S', modelo: 55, serie: '99', tipoemissao: '0', nronf: '', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     check('A2: auto-numeração emissão própria (série 99 isolada → 1, depois 2)', String(await rdNronf(nfN1)) === '1' && String(await rdNronf(nfN2)) === '2', { n1: await rdNronf(nfN1), n2: await rdNronf(nfN2) });
     // terceiros (tipoemissao '1', modelo 1) mantém o número digitado.
-    const nfT = await novaNf(baseNf({ tipo: 'E', modelo: 1, serie: '99', tipoemissao: '1', nronf: '777777', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, cfop: '1102', aliquota: 'T01' }] }));
+    const nfT = await novaNf(baseNf({ tipo: 'E', modelo: 1, serie: '99', tipoemissao: '1', nronf: '777777', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '1102', aliquota: 'T01' }] }));
     check('A2: terceiros (tipoemissao 1) mantém o número digitado (777777)', String(await rdNronf(nfT)) === '777777', { n: await rdNronf(nfT) });
     await pgNum.end();
 
@@ -7462,10 +7490,10 @@ async function main() {
       r2.status === 200 && codnf > 0 && nfRow?.tipo === 'E' && Number(nfRow?.codpedcomp) === rpId && nfRow?.tipoemissao === '1' && Number(nfRow?.modelo) === 1 && Number(nfRow?.codparceiro) === 22 && nfRow?.proc === 'N',
       { status: r2.status, nf: nfRow });
 
-    // 49.3) itens mapeados: qtde=fatorembalagem, vrvenda=vrcusto, aliquota/ncm do PRODUTO.
-    const nfItens = (await pgRec.query(`SELECT codproduto, quantidade, vrvenda, aliquota, ncm, cfop FROM nf_prod WHERE codnf=$1 ORDER BY nroitem`, [codnf])).rows as any[];
-    check('RECEB: itens mapeados (qtde=fatorembalagem 10/3, vrvenda=vrcusto 5/2,5, NCM/aliquota DISTINTOS do produto, cfop 1102)',
-      nfItens.length === 2 && Number(nfItens[0].quantidade) === 10 && Number(nfItens[0].vrvenda) === 5 && nfItens[0].aliquota === 'T01' && nfItens[0].ncm === '17019900' && nfItens[0].cfop === '1102' && Number(nfItens[1].quantidade) === 3 && Number(nfItens[1].vrvenda) === 2.5 && nfItens[1].ncm === '22021000',
+    // 49.3) itens mapeados: qtde=fatorembalagem, valor da linha = VRCUSTO do pedido (nf-valor.ts), aliquota/ncm do PRODUTO.
+    const nfItens = (await pgRec.query(`SELECT codproduto, quantidade, vrcusto, aliquota, ncm, cfop FROM nf_prod WHERE codnf=$1 ORDER BY nroitem`, [codnf])).rows as any[];
+    check('RECEB: itens mapeados (qtde=fatorembalagem 10/3, valor unitário VRCUSTO 5/2,5, NCM/aliquota DISTINTOS do produto, cfop 1102)',
+      nfItens.length === 2 && Number(nfItens[0].quantidade) === 10 && Number(nfItens[0].vrcusto) === 5 && nfItens[0].aliquota === 'T01' && nfItens[0].ncm === '17019900' && nfItens[0].cfop === '1102' && Number(nfItens[1].quantidade) === 3 && Number(nfItens[1].vrcusto) === 2.5 && nfItens[1].ncm === '22021000',
       { itens: nfItens });
 
     // 49.3b) 078 FLIP: pedido com QTDE>1 → gerar-nf mapeia quantidade = QTDTOTAL (qtde×fator), não o fator.
@@ -8553,7 +8581,7 @@ async function main() {
     const vnItem = (await pgDev.query(`SELECT valor_custo, total_produto_devolvido, cst, icms_aliquota, icms_bc, icms_valor, icms_bc_nota, icms_nota, ipi, ipi_nota, frete FROM pedido_devolucao_compra_i WHERE codpeddevcompra=$1`, [vnId])).rows[0] as any;
     await fetch(`${base}/${DEV}/${vnId}/finalizar`, { method: 'POST', headers: H });
     const vnG = (await (await fetch(`${base}/${DEV}/${vnId}/gerar-nf`, { method: 'POST', headers: H })).json().catch(() => ({}))) as any;
-    const vnNfItem = (await pgDev.query(`SELECT vrvenda, quantidade, vrbasecalculo, vricm, icms, cst, vripi, ipi_devolucao, ipi_devolucao_perc_devol, frete, informacoes_adicionais FROM nf_prod WHERE codnf=$1`, [Number(vnG.codnf)])).rows[0] as any;
+    const vnNfItem = (await pgDev.query(`SELECT vrcusto, quantidade, vrbasecalculo, vricm, icms, cst, vripi, ipi_devolucao, ipi_devolucao_perc_devol, frete, informacoes_adicionais FROM nf_prod WHERE codnf=$1`, [Number(vnG.codnf)])).rows[0] as any;
     const vnNfHdr = (await pgDev.query(`SELECT totalipi_devolucao, totalfrete, totalprod, totalnf FROM nf WHERE codnf=$1`, [Number(vnG.codnf)])).rows[0] as any;
     if (cfgIpiDev) await pgDev.query(`UPDATE configuracoes SET valor = $1 WHERE codigo = 'IPI_DEVOLUCAO_EM_TRIBUTOS_DEVOLVIDOS'`, [cfgIpiDev.valor]);
     else await pgDev.query(`DELETE FROM configuracoes WHERE id = 99308`);
@@ -8561,7 +8589,7 @@ async function main() {
       Number(vnItem?.valor_custo) === 6 && Number(vnItem?.total_produto_devolvido) === 30 && Number(vnItem?.cst) === 0 && Number(vnItem?.icms_aliquota) === 18
       && Number(vnItem?.icms_bc) === 50 && Number(vnItem?.icms_valor) === 9 && Number(vnItem?.icms_bc_nota) === 100 && Number(vnItem?.icms_nota) === 18
       && Number(vnItem?.ipi) === 4 && Number(vnItem?.ipi_nota) === 8 && Number(vnItem?.frete) === 2
-      && Number(vnNfItem?.vrvenda) === 6 && Number(vnNfItem?.vrbasecalculo) === 50 && Number(vnNfItem?.vricm) === 9 && Number(vnNfItem?.icms) === 18
+      && Number(vnNfItem?.vrcusto) === 6 && Number(vnNfItem?.vrbasecalculo) === 50 && Number(vnNfItem?.vricm) === 9 && Number(vnNfItem?.icms) === 18
       && Number(vnNfItem?.vripi ?? 0) === 0 && Number(vnNfItem?.ipi_devolucao_perc_devol) === 50 && Number(vnNfItem?.ipi_devolucao) === 13.33
       && Number(vnNfHdr?.totalipi_devolucao) === 4 && Number(vnNfHdr?.totalfrete) === 2 && Number(vnNfHdr?.totalnf) === 36
       && String(vnNfItem?.informacoes_adicionais ?? '').includes('31260900000000000000550010000999011000000001'),
@@ -12792,7 +12820,7 @@ async function main() {
           pcRnd.status === 201 && Number(pcRndIt.debitopiscofins) === 8.33 && Number(pcRndIt.creditopiscofins) === 8.33, { deb: pcRndIt.debitopiscofins, cred: pcRndIt.creditopiscofins });
 
         // 88.2) NF: débito server-authoritative das alíquotas de saída do PRÓPRIO item ((1,65+7,6)×vrvenda 100 = 9,25).
-        const nfPc = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'S', modelo: 55, nronf: '9911', serie: '1', dtemissao: '2026-07-07', dtcontabil: '2026-07-07', tipoemissao: '0', finalidade: '1', cfop: '5102', idsituacao_nf: 8, codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 100, aliqpiss: 1.65, aliqcofinss: 7.6, cfop: '5102', aliquota: 'T01', icms: 18 }] }) });
+        const nfPc = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'S', modelo: 55, nronf: '9911', serie: '1', dtemissao: '2026-07-07', dtcontabil: '2026-07-07', tipoemissao: '0', finalidade: '1', cfop: '5102', idsituacao_nf: 8, codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 100, vrvenda: 100, aliqpiss: 1.65, aliqcofinss: 7.6, cfop: '5102', aliquota: 'T01', icms: 18 }] }) });
         const nfPcIt = (((await nfPc.json().catch(() => ({}))) as any).itens ?? [])[0] ?? {};
         check('PIS/COFINS §86.2 NF: débito server-authoritative=9,25 ((aliqpiss 1,65+aliqcofinss 7,6)×vrvenda 100)',
           nfPc.status === 201 && Number(nfPcIt.debitopiscofins) === 9.25, { st: nfPc.status, deb: nfPcIt.debitopiscofins });
@@ -13020,7 +13048,7 @@ async function main() {
         const nfIcms = await novaNf(baseNf({ tipo: 'E', nronf: 'SPEDF01', codparceiro: 22, dtemissao: '2026-11-05', dtcontabil: '2026-11-05', itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, vrcusto: 10, cfop: '1102', aliquota: 'T01', icms: 18 }] }));
         await pgFi.query(`UPDATE nf_prod SET vrbasecalculo=100, vricm=18, icms=18, vripi=0, cst=0, origem_estoque='0' WHERE codnf=$1`, [nfIcms]);
         await pgFi.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfIcms]);
-        const nfSaiF = await novaNf(baseNf({ tipo: 'S', nronf: 'SPEDF02', modelo: 55, cfop: '5102', codparceiro: 20, dtemissao: '2026-11-06', dtcontabil: '2026-11-06', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, cfop: '5102', aliquota: 'T01', icms: 30 }] }));
+        const nfSaiF = await novaNf(baseNf({ tipo: 'S', nronf: 'SPEDF02', modelo: 55, cfop: '5102', codparceiro: 20, dtemissao: '2026-11-06', dtcontabil: '2026-11-06', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, cfop: '5102', aliquota: 'T01', icms: 30 }] }));
         await pgFi.query(`UPDATE nf_prod SET vrbasecalculo=100, vricm=30, icms=30, vrcusto=10, vripi=0, cst=0, origem_estoque='0' WHERE codnf=$1`, [nfSaiF]);
         await pgFi.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfSaiF]);
         const efdF = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-01', dtfim: '2026-11-30' }) });
@@ -13215,7 +13243,7 @@ async function main() {
         const nfEnt = await novaNf(baseNf({ tipo: 'E', nronf: 'SCENT01', codparceiro: 22, dtemissao: '2026-12-03', dtcontabil: '2026-12-03', itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, vrcusto: 10, cfop: '1102', aliquota: 'T01' }] }));
         await pgSc.query(`UPDATE nf_prod SET bcpiscofinse=100, vrpise=0.66, vrcofinse=3.04, aliqpise=0.66, aliqcofinse=3.04, cstpiscofins='50' WHERE codnf=$1`, [nfEnt]);
         await pgSc.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfEnt]);
-        const nfSai = await novaNf(baseNf({ tipo: 'S', nronf: 'SCSAI01', modelo: 55, cfop: '5102', codparceiro: 20, dtemissao: '2026-12-04', dtcontabil: '2026-12-04', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, cfop: '5102', aliquota: 'T01' }] }));
+        const nfSai = await novaNf(baseNf({ tipo: 'S', nronf: 'SCSAI01', modelo: 55, cfop: '5102', codparceiro: 20, dtemissao: '2026-12-04', dtcontabil: '2026-12-04', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
         await pgSc.query(`UPDATE nf_prod SET vrvenda=10, desconto=0, aliqpiss=1.65, aliqcofinss=7.60, cstpiscofins='01' WHERE codnf=$1`, [nfSai]);
         await pgSc.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfSai]);
         // apuração: débito da saída mod-55 (1,65 / 7,60) além do crédito de entrada (0,66 / 3,04).
@@ -13250,7 +13278,7 @@ async function main() {
     // ===== §90b: POSIÇÃO DE ESTOQUE (UPosicaoProduto) — saldo/empresa + Ficha de movimentação (Kardex) read-only =====
     {
       // processa 1 entrada de +7 no produto 1 (grava historico_prod) e confere a posição consolidada + o Kardex.
-      const nfPos = await novaNf(baseNf({ tipo: 'E', nronf: 'POSEST1', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 7, vrvenda: 3.5, cfop: '1102', aliquota: 'T01' }] }));
+      const nfPos = await novaNf(baseNf({ tipo: 'E', nronf: 'POSEST1', codparceiro: 22, itens: [{ codproduto: 1, quantidade: 7, vrcusto: 3.5, cfop: '1102', aliquota: 'T01' }] }));
       await fetch(`${base}/fiscal/nf/${nfPos}/processar`, { method: 'POST', headers: H });
       const pos = (await (await fetch(`${base}/cadastro/produtos/1/posicao-estoque`, { headers: H })).json().catch(() => ({}))) as any;
       const movNf = (pos.movimentos ?? []).find((m: any) => m.origem === 'NF' && Number(m.qtde) > 0);
@@ -17810,7 +17838,7 @@ async function main() {
         // a situação usa o histórico 62 nas duas pernas — o dos itens que contradizem o rótulo
         await pgIh.query(`INSERT INTO itens_integracao_contabil (codoperacao, natureza, tipo, codconta_contabil, codhistorico) VALUES
           (7901,'D','F',148,62), (7901,'C','F',11141,62) ON CONFLICT DO NOTHING`);
-        const nfIh = await novaNf(baseNf({ tipo: 'E', nronf: '7922433', cfop: '1403', codparceiro: 22, idsituacao_nf: 7901, itens: [{ codproduto: 1, quantidade: 3, vrvenda: 10, cfop: '1403', aliquota: 'T01' }] }));
+        const nfIh = await novaNf(baseNf({ tipo: 'E', nronf: '7922433', cfop: '1403', codparceiro: 22, idsituacao_nf: 7901, itens: [{ codproduto: 1, quantidade: 3, vrcusto: 10, cfop: '1403', aliquota: 'T01' }] }));
         await fetch(`${base}/fiscal/nf/${nfIh}/processar`, { method: 'POST', headers: H });
         await pgIh.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,7901,1,30)`, [nfIh]);
         const ctbIh = await fetch(`${base}/fiscal/nf/${nfIh}/contabilizar`, { method: 'POST', headers: H });

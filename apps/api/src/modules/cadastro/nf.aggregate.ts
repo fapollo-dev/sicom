@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { nfSchema, atualizarNfSchema } from '@apollo/shared';
+import { nfSchema, atualizarNfSchema, totaisProdutosNf, totalProdutoItem } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -8,6 +8,7 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { debitoPisCofins } from '../shared/piscofins-rentab';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 import { conferirNotaInteira, leitorCfopsDaSituacao } from './nf-cfop-situacao';
+import { normalizarItensNf } from './nf-item-padrao';
 
 /**
  * NOTA FISCAL (tela-coroa) — Fase 1: NÚCLEO CADASTRO, agregado mestre-detalhe via
@@ -94,27 +95,22 @@ export const nfAggregateConfig: AggregateConfig = {
 
     const itens = dto.itens;
     if (!Array.isArray(itens)) return stOut;
-    let totalprod = 0;
-    let totaldesc = 0;
+    // o VALOR DA LINHA é o VRCUSTO (o `CalcValorNota` do legado — `nf-valor.ts` do shared, provado contra a produção):
+    // TOTALPROD = Σ quantidade × VRCUSTO (arredondado/truncado por item), TOTALDESC = Σ VRDESCPROD (dinheiro)
+    const { totalprod, totaldesc } = totaisProdutosNf(itens as Record<string, unknown>[]);
     let totalipi = 0;
     let totalicm_st = 0;
     let totalicm = 0;
     let totalbaseicm = 0;
     let totalisento = 0;
     for (const it of itens as Record<string, unknown>[]) {
-      const bruto = num(it.quantidade) * num(it.vrvenda);
-      totalprod += bruto;
-      // golden: TOTALDESC = SUM do desconto-VALOR por item (um único campo). No migrado o desconto
-      // é capturado como dinheiro em `desconto` (CurrencyField no modal). NÃO somar `vrdescprod`
-      // junto (dupla contagem — ambos são dinheiro; o legado soma só um, SUM(VRDESCPROD)).
-      totaldesc += num(it.desconto);
       totalipi += num(it.vripi); // F2: vripi é o VALOR (ipi virou a alíquota %)
       totalicm_st += num(it.vricmst);
       totalicm += num(it.vricm);
       totalbaseicm += num(it.vrbasecalculo);
       // golden/legado: isento é disparado pelo CÓDIGO DE ALÍQUOTA 'IST' (udmNF.pas:4169/4299),
       // não pelo CST. (CST 40/41 correlacionam mas não são idênticos a ALIQUOTA='IST'.)
-      if (String(it.aliquota) === 'IST') totalisento += bruto;
+      if (String(it.aliquota) === 'IST') totalisento += totalProdutoItem(it);
     }
     const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
     const totalfrete = num(dto.totalfrete);
@@ -137,6 +133,8 @@ export const nfAggregateConfig: AggregateConfig = {
   // Regras cross-row do btnGravar (consultam o banco antes de gravar).
   validar: async ({ dto, id, db }) => {
     const emp = currentTenant().empresaId ?? null;
+    // o item completo ANTES do derivar somar os totais: ARREDONDA padrão, VRVENDA nulo = 0, DESCONTO % do VRDESCPROD
+    await normalizarItensNf(db, emp, dto.itens);
 
     // estado atual (update): travas de edição por estado + fallback dos campos da chave.
     // Espelha NotaEletronica/btnEditar do legado: NF processada/contabilizada/faturada/enviada/

@@ -145,7 +145,8 @@ export class SpedApuracaoPcService {
       }
 
       // DÉBITO de SAÍDA por NF-e mod-55 (SAÍDA-NF-mod55): itens das NFs tipo='S' processadas do período. A saída
-      // não grava base/valor de PIS/COFINS (só as alíquotas aliqpiss/aliqcofinss) → base = Σ(qtd×vrvenda − desconto)
+      // não grava base/valor de PIS/COFINS (só as alíquotas aliqpiss/aliqcofinss) → base = Σ(qtd×vrcusto − vrdescprod)
+      // (o valor da linha é o VRCUSTO e o desconto em dinheiro é o VRDESCPROD — nf-valor.ts do shared)
       // e valor = round(base×alíq/100,2), mesma mecânica do débito de VENDAS. Agrupa por (CST, alíq PIS, alíq COFINS)
       // e alimenta o M200/M600 JUNTO com o PDV. ADIADO (fiel-conservador): abatimento de ICMS na base (GET_CONFIG_
       // ABATER_ICMS_PC) e descontos rateados — o corte usa a base bruta de venda.
@@ -156,7 +157,7 @@ export class SpedApuracaoPcService {
           sql`coalesce(nullif(trim(np.cstpiscofins),''),'01')`.as('cst'),
           sql`coalesce(np.aliqpiss,0)`.as('aliqpis'),
           sql`coalesce(np.aliqcofinss,0)`.as('aliqcofins'),
-          sql`round(coalesce(sum(np.quantidade*np.vrvenda - coalesce(np.desconto,0)),0),2)`.as('basecalculo'),
+          sql`round(coalesce(sum(np.quantidade*np.vrcusto - coalesce(np.vrdescprod,0)),0),2)`.as('basecalculo'),
         ])
         .where('n.idempresa', '=', emp)
         .where('n.tipo', '=', 'S')

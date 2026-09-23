@@ -7,6 +7,7 @@ import { ConfigService } from './config.service';
 import { NfContabilizacaoService } from './nf-contabilizacao.service';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 import { validarItensNoProcessamento } from './nf-cfop-situacao';
+import { totaisProdutosNf } from '@apollo/shared';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -118,7 +119,7 @@ export class NfProcessamentoService {
         .selectFrom('nf')
         .select([
           'codnf', 'tipo', 'proc', 'cancelada', 'statusnfe', 'contabilizado', 'faturada',
-          'totalnf', 'totalicm_st', 'totalfrete', 'totalseguro', 'totalacessorias',
+          'totalnf', 'totalicm_st', 'totalfrete', 'totalseguro', 'totalacessorias', 'totalipi_devolucao',
         ])
         .where('codnf', '=', codnf)
         .where('idempresa', '=', emp)
@@ -198,22 +199,21 @@ export class NfProcessamentoService {
   private async reconciliarTotais(trx: AnyDB, codnf: number, emp: number, nf: Record<string, unknown>): Promise<void> {
     const itens = await trx
       .selectFrom('nf_prod')
-      .select(['quantidade', 'vrvenda', 'desconto', 'vripi', 'vricmst'])
+      .select(['quantidade', 'vrcusto', 'vrdescprod', 'arredonda', 'vripi', 'vricmst'])
       .where('codnf', '=', codnf)
       .execute();
-    let totalprod = 0;
-    let totaldesc = 0;
+    // a mesma fórmula do `derivar` do agregado: o valor da linha é o VRCUSTO e o desconto é o VRDESCPROD (nf-valor.ts)
+    const { totalprod, totaldesc } = totaisProdutosNf(itens as Record<string, unknown>[]);
     let totalipi = 0;
     let totalicmSt = 0;
     for (const it of itens as Record<string, unknown>[]) {
-      totalprod += num(it.quantidade) * num(it.vrvenda);
-      totaldesc += num(it.desconto);
       totalipi += num(it.vripi);
       totalicmSt += num(it.vricmst);
     }
     const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
     const totalnfRec = r2(
-      totalprod - totaldesc + num(nf.totalfrete) + num(nf.totalseguro) + num(nf.totalacessorias) + totalipi + totalicmSt,
+      totalprod - totaldesc + num(nf.totalfrete) + num(nf.totalseguro) + num(nf.totalacessorias) + totalipi + totalicmSt
+      + num(nf.totalipi_devolucao), // o IPI devolvido entra no total da nota (udmNF.pas:5557), como no `derivar`
     );
     if (Math.abs(num(nf.totalnf) - totalnfRec) > 0.01) {
       throw new BusinessRuleError('NF_TOTAL_DIVERGENTE', { informado: num(nf.totalnf), calculado: totalnfRec });

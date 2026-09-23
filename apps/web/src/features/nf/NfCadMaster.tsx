@@ -13,6 +13,7 @@ import {
   type NfItemDto,
   type NfReferenciaDto,
   type NfContabilItemDto,
+  totalProdutoItem,
 } from '@apollo/shared';
 import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
@@ -957,10 +958,8 @@ function ItensSection({
   };
 
   const itens = fields as Array<NfItemDto & { fieldId: string }>;
-  const totalProd = itens.reduce(
-    (s, it) => s + (Number(it.quantidade) || 0) * (Number(it.vrvenda) || 0) - (Number(it.desconto) || 0),
-    0,
-  );
+  // o total da linha é quantidade × VRCUSTO (arredondado/truncado pelo item); o desconto é o VRDESCPROD (nf-valor.ts)
+  const totalProd = itens.reduce((s, it) => s + totalProdutoItem(it) - (Number(it.vrdescprod) || 0), 0);
 
   const columns = useMemo<DataTableColumnDef<NfItemDto & { fieldId: string }>[]>(
     () => [
@@ -975,18 +974,18 @@ function ItensSection({
       { field: 'quantidade', headerName: 'Qtde', type: 'number', width: 110 },
       { field: 'unidade', headerName: 'UN', type: 'text', width: 80 },
       {
-        field: 'vrvenda',
+        field: 'vrcusto',
         headerName: 'Vlr unit.',
         type: 'text',
         width: 130,
-        valueGetter: (row) => fmtBRL(Number(row.vrvenda) || 0),
+        valueGetter: (row) => fmtBRL(Number(row.vrcusto) || 0),
       },
       {
         field: 'total',
         headerName: 'Total',
         type: 'text',
         width: 130,
-        valueGetter: (row) => fmtBRL((Number(row.quantidade) || 0) * (Number(row.vrvenda) || 0)),
+        valueGetter: (row) => fmtBRL(totalProdutoItem(row)),
       },
       { field: 'cfop', headerName: 'CFOP', type: 'text', width: 90 },
       { field: 'cst', headerName: 'CST', type: 'text', width: 70 },
@@ -1098,6 +1097,7 @@ function ItensSection({
       {editIdx != null && (
         <NfItemModal
           inicial={editIdx >= 0 ? (fields[editIdx] as NfItemDto) : undefined}
+          tipo={form.getValues('tipo') as 'E' | 'S' | undefined}
           produtoOptions={opts.produtoOptions}
           cfopOptions={opts.cfopOptions}
           aliquotaOptions={opts.aliquotaOptions}

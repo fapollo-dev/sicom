@@ -238,7 +238,7 @@ export class SpedEfdIcmsIpiService {
       .execute()) as Array<Record<string, any>>;
     const nfIds = nfs.map((n) => Number(n.codnf));
     const itens = nfIds.length
-      ? ((await db.selectFrom('nf_prod').select(['codnf', 'nroitem', 'codproduto', 'quantidade', 'vrcusto', 'desconto', 'vrbasecalculo', 'icms', 'vricm', 'vripi', 'cst', 'origem_estoque', 'cfop', 'bcpiscofinse', 'vrpise', 'vrcofinse', 'aliqpise', 'aliqcofinse', 'cstpiscofins']).where('codnf', 'in', nfIds)
+      ? ((await db.selectFrom('nf_prod').select(['codnf', 'nroitem', 'codproduto', 'quantidade', 'vrcusto', 'desconto', 'vrdescprod', 'vrbasecalculo', 'icms', 'vricm', 'vripi', 'cst', 'origem_estoque', 'cfop', 'bcpiscofinse', 'vrpise', 'vrcofinse', 'aliqpise', 'aliqcofinse', 'cstpiscofins']).where('codnf', 'in', nfIds)
           .where(sql<boolean>`not exists (select 1 from cfop c where c.codcfop::text = nf_prod.cfop::text and coalesce(c.nao_gera_sped,'N') = 'S')`)
           .orderBy('codnf').orderBy('nroitem').execute()) as Array<Record<string, any>>)
       : [];
@@ -401,7 +401,7 @@ export class SpedEfdIcmsIpiService {
         const vlIcmsIt = cfop929 ? 0 : nn(it.vricm);
         const aliqIcmsIt = cfop929 ? 0 : nn(it.icms);
         // C170 (37): ...ICMS/IPI... (mesmo layout do C170 já auditado no EFD-Contribuições; ICMS gated por CFOP 929)
-        arq.add('C170', [String(++nro), String(it.codproduto ?? ''), String(prod?.descricao ?? ''), fmtNum(nn(it.quantidade), 3), String(prod?.unidade ?? '').trim(), fmtNum(vlItem), fmtNum(nn(it.desconto)), '0', cstIcms, String(it.cfop ?? ''), '', fmtNum(bcIcmsIt), fmtNum(aliqIcmsIt), fmtNum(vlIcmsIt), fmtNum(0), fmtNum(0), fmtNum(0), '0', cstIpi, '', fmtNum(0), fmtNum(0), fmtNum(nn(it.vripi)), cstPc, fmtNum(base), fmtNum(nn(it.aliqpise), 4), '', '', fmtNum(nn(it.vrpise)), cstPc, fmtNum(base), fmtNum(nn(it.aliqcofinse), 4), '', '', fmtNum(nn(it.vrcofinse)), '', '']);
+        arq.add('C170', [String(++nro), String(it.codproduto ?? ''), String(prod?.descricao ?? ''), fmtNum(nn(it.quantidade), 3), String(prod?.unidade ?? '').trim(), fmtNum(vlItem), fmtNum(nn(it.vrdescprod)), '0', cstIcms, String(it.cfop ?? ''), '', fmtNum(bcIcmsIt), fmtNum(aliqIcmsIt), fmtNum(vlIcmsIt), fmtNum(0), fmtNum(0), fmtNum(0), '0', cstIpi, '', fmtNum(0), fmtNum(0), fmtNum(nn(it.vripi)), cstPc, fmtNum(base), fmtNum(nn(it.aliqpise), 4), '', '', fmtNum(nn(it.vrpise)), cstPc, fmtNum(base), fmtNum(nn(it.aliqcofinse), 4), '', '', fmtNum(nn(it.vrcofinse)), '', '']);
         const k = `${cstIcms}|${it.cfop}|${aliqIcmsIt.toFixed(2)}`;
         const g = grupos.get(k) ?? { cstIcms, cfop: String(it.cfop ?? ''), aliq: aliqIcmsIt, vlOpr: 0, bcIcms: 0, vlIcms: 0, vlIpi: 0 };
         g.vlOpr = r2(g.vlOpr + vlItem);

@@ -233,7 +233,8 @@ INSERT INTO nf (codnf, idempresa, tipo, modelo, nronf, serie, dtemissao, dtconta
 ON CONFLICT (codnf) DO NOTHING;
 SELECT setval('seq_nf_codnf', 1000, false);
 
-INSERT INTO nf_prod (codnf, nroitem, codproduto, codprodnota, quantidade, fatorembal, unidade, vrvenda, cfop, ncm, aliquota, icms, cst, origem_estoque) VALUES
+-- o valor da linha é o VRCUSTO (nf-valor.ts do shared); VRVENDA é o preço de venda
+INSERT INTO nf_prod (codnf, nroitem, codproduto, codprodnota, quantidade, fatorembal, unidade, vrcusto, cfop, ncm, aliquota, icms, cst, origem_estoque) VALUES
   (1, 1, 1, '1', 10, 1, 'UN', 3.50, '1102', '17019900', 'T01', 18, 0, 'E'),
   (1, 2, 2, '2', 5,  1, 'UN', 6.00, '1102', '22021000', 'T01', 18, 0, 'E'),
   (2, 1, 1, '1', 2,  1, 'UN', 4.20, '5102', '17019900', 'T01', 18, 0, 'E')

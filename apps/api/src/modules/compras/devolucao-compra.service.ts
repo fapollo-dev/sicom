@@ -263,8 +263,7 @@ export class DevolucaoCompraService {
         quantidade: qtdDev,
         fatorembal: 1,
         unidade: (it.unidade as string) ?? (it.pr_unidade as string) ?? undefined,
-        vrvenda: custo,
-        vrcusto: custo,
+        vrcusto: custo, // o valor da linha (nf-valor.ts); VRVENDA fica 0, como nas devoluções da produção
         arredonda: (it.arredonda as string) ?? undefined,
         cfop: (it.cfop as string) ?? undefined,
         aliquota: (it.pr_aliquota as string) ?? (it.p_aliquota as string) ?? undefined,
@@ -279,7 +278,7 @@ export class DevolucaoCompraService {
         vrbasest: num(it.icms_st_bc),
         vricmst: num(it.icms_st_valor),
         streal: num(it.icms_st_valor),
-        desconto: num(it.desconto), // VALOR (convenção do agregado da NF; o legado guarda o % e o valor)
+        vrdescprod: num(it.desconto), // o desconto em DINHEIRO (o `DESCONTO` % sai dele no gravar da NF)
         frete: num(it.frete),
         seguro: num(it.seguro),
         depsacess: num(it.outras_despesas),

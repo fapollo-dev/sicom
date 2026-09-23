@@ -31,6 +31,18 @@ Revisão adversarial de ~320 handlers, todas as validações, todos os efeitos s
 - **Peso agregado por item sob `CALCULAPESO='S'`** (`uNF.pas:8519-8523`): `PESOBRUTO/PESOLIQUIDO` da nota derivados da soma dos itens (perfil pecuária/granel). Migrado tem os campos como manuais; a derivação automática sob o flag não foi portada.
 - **`DESC_ACRE_MEDIO` na importação de venda** (`uNF.pas:6596-6666`): rateia desconto/acréscimo médio por item e regrava em `VENDAS`. Caminho-pai (importar venda do PDV) já adiado; regra específica agora registrada.
 - **Base fiscal de ENTRADA sobre VRVENDA vs VRCUSTO** (INFIDELIDADE latente, delta zero na homolog atual pois o operador digita o custo em `vrvenda`): o legado deriva `TOTALPRODS` do custo (`udmNF:3985-3998`). Fechar antes de entradas com preço-de-venda ≠ custo.
+  - ⚠️ **PROVADO NA PRODUÇÃO (23/09/2026) — não é latente, é o valor do item inteiro, nos dois tipos.** Nas NFs de 2026 (não canceladas), `NF.TOTALPROD` = Σ round(`QUANTIDADE × VRCUSTO`, 2) em **6.447 de 6.449 entradas**, 339 de 378 saídas e 375 de 375 NFs de cupom (CFOP x929); com `VRVENDA` bate em 48 entradas e 5 saídas. `VRVENDA` está **zerado em 100% dos itens de saída** desde jun/2026 (exceto a NF de cupom) e, na entrada, é o PREÇO DE VENDA que a precificação sugere. O Apollo usa `nf_prod.vrvenda` como valor unitário — os itens carregados abririam com valor 0 e o `derivar` zeraria o total no primeiro gravar. O desconto não entra no `TOTALPROD` (vai para `TOTALDESC`); no `CalcValorNota` (udmNF.pas:3928) ele é PERCENTUAL (`DESCONTO`) na saída comum e em dinheiro (`VRDESCPROD`) na entrada e na x929, e `VRVENDAFINAL > 0` sobrepõe o valor na saída comum.
+  - ✅ **FECHADA (23/09/2026)** — `packages/shared/src/nf-valor.ts` + `test/nf-valor.spec.ts` (golden de 36 NFs reais,
+    40 asserts). As 39 saídas que não batiam eram TRUNCAMENTO: com `ARREDONDA≠'S'` a linha é truncada
+    (`TruncarArredondar 'T'`) — com isso a fórmula bate 6.449/6.449 entradas, 375/375 cupons e 374/378 saídas (as 4 são
+    rascunhos com total 0). A base do ICMS sai LÍQUIDA do desconto (39 de 39 itens com desconto). Trocados: `derivar`,
+    motor fiscal (`recalcular` e retenções), reconciliação do processamento (que também passou a somar o IPI devolvido,
+    como o `derivar`), SPED PIS/COFINS da saída (apuração e C170, e o VL_DESC do C170 nos dois SPEDs = `VRDESCPROD`),
+    tela (valor unitário = `VRCUSTO`, desconto em R$ = `VRDESCPROD`, preço de venda só na entrada, "Arredondar"), import do
+    XML (`VRVENDA` = preço do MULTI_PRECO, como udmNF.pas:10600), recebimento, devolução e rotativo. O `ARREDONDA` do
+    item novo vem de `DESCAMARCAR_ARREDONDAMENTO_NF` resolvida no MÓDULO Retaguarda (produção: global 'S', módulo 'N'
+    → arredonda) — o leitor de config da transação passou a olhar o escopo Módulo. O relatório de Entradas e Saídas
+    continua com `NP.VRVENDA` no comparativo porque é a SQL do legado (`uRelEntradasSaidas.dfm:2418`).
 - **Terceiros-M55** ignora o gate de config `LIBERA_DIGITACAO_NF_TERCEIROS` e exceções `NF_IMPORTACAO_NFE`/`STATUSNFE='T'` (mais restritivo, direção segura).
 - **CFOP item×nota** é **advisory** no legado (`uItensNF.pas:2175`, sem `Exit`); o migrado **bloqueia** (tightening deliberado, direção segura).
 - **Auto-numeração** omite o filtro `SEQUENCIA_NFE<>'N'` e o `lpad(serie,3)` (`SetaNroNF` uNF:15800).

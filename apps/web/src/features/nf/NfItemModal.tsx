@@ -5,6 +5,7 @@ import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { NumberField } from '../../shared/ui/NumberField';
 import { CurrencyField } from '../../shared/ui/CurrencyField';
+import { CheckboxField } from '../../shared/ui/CheckboxField';
 import type { Opcao } from '../../shared/cadmaster/useResourceOptions';
 
 /**
@@ -17,12 +18,18 @@ import type { Opcao } from '../../shared/cadmaster/useResourceOptions';
  * CÁLCULO de imposto (bases/valores) é F2 (reusa `precificacao`). Por isso o modal coleta o
  * que o operador digita; produto e quantidade são obrigatórios (item sem produto/qtde é
  * rejeitado no schema). Validação de formato/obrigatórios é do `nfSchema` no submit.
+ *
+ * O VALOR UNITÁRIO da linha é o `VRCUSTO` e o desconto digitado é em DINHEIRO (`VRDESCPROD`) — o `DESCONTO` guarda o
+ * percentual e sai dele no gravar; o `VRVENDA` é o PREÇO DE VENDA, que só a nota de entrada mostra (`nf-valor.ts` do
+ * shared, provado contra a produção). "Arredondar" é o `chkARREDONDA` do item: sem ele o total da linha é truncado.
  */
 const ITEM_VAZIO: NfItemDto = { codproduto: undefined as unknown as number, quantidade: undefined as unknown as number };
 
 interface Props {
   /** item a EDITAR (do field array) ou undefined p/ ADICIONAR. */
   inicial?: NfItemDto;
+  /** tipo da nota: o preço de venda (VRVENDA) só existe no item de ENTRADA */
+  tipo?: 'E' | 'S';
   produtoOptions: Opcao[];
   cfopOptions: Opcao[];
   aliquotaOptions: Opcao[];
@@ -33,6 +40,7 @@ interface Props {
 
 export function NfItemModal({
   inicial,
+  tipo,
   produtoOptions,
   cfopOptions,
   aliquotaOptions,
@@ -94,10 +102,18 @@ export function NfItemModal({
           />
           <CurrencyField
             label="&Valor unitário"
-            value={item.vrvenda}
-            onChange={(v) => set('vrvenda', v)}
+            value={item.vrcusto}
+            onChange={(v) => set('vrcusto', v)}
           />
-          <CurrencyField label="&Desconto" value={item.desconto} onChange={(v) => set('desconto', v)} />
+          <CurrencyField label="&Desconto (R$)" value={item.vrdescprod} onChange={(v) => set('vrdescprod', v)} />
+          {tipo === 'E' && (
+            <CurrencyField label="Preço de &venda" value={item.vrvenda} onChange={(v) => set('vrvenda', v)} />
+          )}
+          <CheckboxField
+            label="A&rredondar"
+            value={item.arredonda === 'N' ? 'N' : item.arredonda === 'S' ? 'S' : undefined}
+            onChange={(v) => set('arredonda', v)}
+          />
           <CurrencyField label="&Bonificação" value={item.bonificacao} onChange={(v) => set('bonificacao', v)} />
         </div>
 

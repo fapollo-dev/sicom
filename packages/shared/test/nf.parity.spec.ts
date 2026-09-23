@@ -12,12 +12,8 @@ import { chaveNfeValida, dvChaveNfe, montarChaveNfe } from '../src/validators/ch
  * migrada (funções puras de `@apollo/shared`) reproduza o legado por três caminhos
  * independentes — validade, recomputo do DV (direção/pesos), e remontagem do layout.
  *
- * Escopo (honesto): a paridade de VALOR FISCAL por-item (TOTALNF/ICMS a partir de NF_PROD)
- * NÃO entra aqui porque a base real guarda `NF_PROD.VRVENDA` frequentemente zerada — o legado
- * deriva o total da ENTRADA de VRCUSTO (INFIDELIDADE-3 registrada no dossiê §0), então um
- * golden por-item contra dados reais mediria a divergência de modelo, não a fórmula. Esse
- * confronto fica coberto por: smoke §29 (DIÁRIO/valores contra golden pontuais) e §29a2
- * (consolidação), e pela reconciliação de VRCUSTO no cutover (dossiê §0).
+ * A paridade do VALOR do item (TOTALPROD/TOTALDESC a partir de NF_PROD) vive em `nf-valor.spec.ts`: o valor da
+ * linha é o VRCUSTO, não o VRVENDA (a INFIDELIDADE-3, fechada em 23/09/2026 com golden de 36 NFs reais).
  */
 
 type ChaveGolden = { codnf: number; chave: string; cuf: string; serie: string; dv: number; status: string };

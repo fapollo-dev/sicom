@@ -129,9 +129,9 @@ export class RecebimentoService {
         quantidade, // SALDO (unidades) — 1:N; fatorembal=1 pois quantidade já é a qtde em unidades
         fatorembal: 1,
         unidade: prod?.unidade ?? undefined,
-        vrvenda: custo, // SEED: custo como unitário (TOTALPROD=custo); o real vem da NF do fornecedor (ajuste na NF)
-        vrcusto: custo,
-        desconto: it.desconto != null ? num(it.desconto) : undefined,
+        // o valor da linha é o VRCUSTO (nf-valor.ts); VRVENDA é o preço de venda — nulo aqui vira 0 no gravar
+        vrcusto: custo, // SEED: o custo do pedido; o real vem da NF do fornecedor (ajuste na NF)
+        vrdescprod: it.desconto != null ? num(it.desconto) : undefined, // o desconto em DINHEIRO do item do pedido
         cfop,
         aliquota: prod?.aliquota ?? undefined,
         ncm: prod?.ncmsh ?? undefined,
@@ -203,8 +203,9 @@ export class RecebimentoService {
    * Itens NÃO casados BLOQUEIAM o import (lista de pendências — espelha o frmProdNC do legado). Draft-only
    * (PROC='N'): o FATO (estoque/A Pagar) é o F3/F4 na NF. Vínculo opcional ao pedido (reusa CAS-first do corte-1).
    *
-   * Divergências CONSCIENTES do legado: VRVENDA = custo (vUnCom) e não MULTI_PRECO/varejo (assim TOTALPROD do
-   * `derivar` = vProd do XML — reconciliação); o CFOP é ajustado saída→entrada (5→1/6→2/7→3); a de-para de
+   * O valor da linha é o VRCUSTO = vUnCom (TOTALPROD do `derivar` = vProd do XML) e o VRVENDA é o preço de venda do
+   * produto no MULTI_PRECO, como o legado grava (udmNF.pas:10600; `nf-valor.ts` do shared). Divergências CONSCIENTES
+   * do legado: o CFOP é ajustado saída→entrada (5→1/6→2/7→3); a de-para de
    * fornecedor (CODREFERENCIA_FOR). **Corte-4:** as duplicatas do XML (`<cobr><dup>`) geram os títulos A Pagar
    * AUTOMATICAMENTE (fiel a NFe.pas:3457) — 1 por `<dup>`, valores/vencimentos reais. Adiados: análise
    * Pedido×NF (link automático), SEFAZ, retenções/ST, `<pag>`/forma, gate por CFOP.
@@ -301,7 +302,14 @@ export class RecebimentoService {
     const cfops = new Set<string>(resolvidos.map((r) => this.cfopEntrada(r.it.cfopXml)));
     await this.garantirCfops(cfops);
 
-    // itens da NF: valores fiscais REAIS do XML. vrvenda=custo (vUnCom) p/ TOTALPROD do derivar = vProd do XML.
+    // itens da NF: valores fiscais REAIS do XML; o valor da linha é o vUnCom (VRCUSTO), o VRVENDA é o preço de venda
+    const precos = new Map<number, number>();
+    const ids = [...new Set(resolvidos.map((r) => Number(r.idproduto)))];
+    if (ids.length) {
+      for (const m of (await db.selectFrom('multi_preco').select(['idproduto', 'vrvenda']).where('idempresa', '=', emp).where('idproduto', 'in', ids).execute()) as Array<{ idproduto: unknown; vrvenda: unknown }>) {
+        precos.set(Number(m.idproduto), num(m.vrvenda));
+      }
+    }
     const nfItens: Record<string, unknown>[] = resolvidos.map((r, idx) => {
       const it = r.it;
       const u = (r.unidade ?? it.uCom ?? '').slice(0, 2) || undefined;
@@ -312,9 +320,9 @@ export class RecebimentoService {
         quantidade: it.qCom,
         fatorembal: 1,
         unidade: u,
-        vrvenda: it.vUnCom,
+        vrvenda: precos.get(Number(r.idproduto)) ?? 0,
         vrcusto: it.vUnCom,
-        desconto: it.vDesc || undefined,
+        vrdescprod: it.vDesc || undefined, // o desconto em DINHEIRO do item do XML
         cfop: this.cfopEntrada(it.cfopXml),
         ncm: it.ncm ?? undefined,
         cest: it.cest ?? undefined,

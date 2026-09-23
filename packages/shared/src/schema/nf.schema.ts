@@ -106,9 +106,11 @@ export const nfItemSchema = z.object({
   // F3 — guardas de movimento de estoque (default 'S' no banco); permitem item que não move físico
   geraestoque: sn().optional(),
   movimenta_estoque: sn().optional(),
-  vrvenda: dec(z.number().nonnegative('Valor de venda inválido')),
-  vrcusto: dec(z.number().nonnegative('Custo inválido')),
-  desconto: dec(z.number().nonnegative('Desconto inválido')),
+  // o VALOR UNITÁRIO da linha é o VRCUSTO; VRVENDA é o preço de venda (entrada); o desconto digitado é o VRDESCPROD
+  // (R$) e o DESCONTO guarda o percentual, derivado no gravar (`nf-valor.ts`, provado contra a produção)
+  vrvenda: dec(z.number().nonnegative('Preço de venda inválido')),
+  vrcusto: dec(z.number().nonnegative('Valor unitário inválido')),
+  desconto: dec(z.number().nonnegative('Desconto (%) inválido')),
   vrdescprod: dec(z.number().nonnegative('Desconto inválido')),
   bonificacao: dec(z.number().nonnegative('Bonificação inválida')),
   // config fiscal (armazenada)

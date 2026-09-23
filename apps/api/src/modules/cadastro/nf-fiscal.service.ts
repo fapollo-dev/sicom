@@ -5,6 +5,8 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { TributacaoRepository } from '../precificacao/tributacao.repository';
 import { FiscalPricingService } from '../precificacao/preco-fiscal.service';
 import { ConfigService } from './config.service';
+import { baseProdutoItem, totaisProdutosNf } from '@apollo/shared';
+import { normalizarItensNf } from './nf-item-padrao';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -76,7 +78,9 @@ export class NfFiscalService {
     const figuraFiscal = empresa?.figurafiscal ?? 'D';
     // Epic-config: gate real do zeramento de crédito de ST (udmNF.pas:4231/4470); default 'N' = zera.
     const aproveitaCreditoSt = await this.config.ligado('APROVEITAMENTO_CREDITO_ICMSST_NF', { empresaId: emp });
-    const itens = Array.isArray(dto.itens) ? (dto.itens as Record<string, unknown>[]) : [];
+    const itens = Array.isArray(dto.itens) ? (dto.itens as Record<string, unknown>[]).map((i) => ({ ...i })) : [];
+    // o item completo (ARREDONDA padrão, DESCONTO %) — o mesmo do gravar, para o cálculo bater com o que se grava
+    await normalizarItensNf(this.dbp.forTenantRead(), emp, itens);
     const calculados: Record<string, unknown>[] = [];
     for (const it of itens)
       calculados.push(
@@ -124,10 +128,9 @@ export class NfFiscalService {
 
     // base = totalnf recomputado dos itens (mesma fórmula do nf.aggregate.derivar).
     const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
-    let totalprod = 0, totaldesc = 0, totalipi = 0, totalicmSt = 0;
+    const { totalprod, totaldesc } = totaisProdutosNf(itens); // o valor da linha é o VRCUSTO (nf-valor.ts)
+    let totalipi = 0, totalicmSt = 0;
     for (const it of itens) {
-      totalprod += num(it.quantidade) * num(it.vrvenda);
-      totaldesc += num(it.desconto);
       totalipi += num(it.vripi);
       totalicmSt += num(it.vricmst);
     }
@@ -248,7 +251,8 @@ export class NfFiscalService {
     if (!codAliquota) return item; // sem config fiscal por item → nada a recalcular
 
     const modo = it.arredonda != null ? String(it.arredonda) : 'S'; // F2b: arredonda(S)/trunca(N) por item
-    const totalProds = this.round2(num(it.quantidade) * num(it.vrvenda)); // TOTALPRODS do item
+    // TOTALPRODS do item: quantidade × VRCUSTO − desconto em dinheiro (a base do ICMS sai líquida — nf-valor.ts)
+    const totalProds = baseProdutoItem({ ...it, arredonda: modo });
 
     // (1) ICMS próprio — resolve (aliquota, uf) e aplica as fórmulas verbatim do legado.
     const a = await this.trib.resolverAtual(codAliquota, uf); // {icm (destacada), icmEfetivo, base (BCR), cst}

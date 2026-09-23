@@ -123,3 +123,4 @@ export * from './validators/codigo-barras';
 export * from './validators/chave-nfe';
 export * from './nfe-status';
 export * from './ufs';
+export * from './nf-valor';

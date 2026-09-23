@@ -102,13 +102,14 @@ export async function herdarDoCatalogo(
  * a configuração com a MESMA precedência do `ConfigService` (usuário > empresa > módulo > global, só nos escopos
  * permitidos da chave), mas lida na transação — o agregado é configuração estática, sem injeção de dependência.
  */
-export async function configNaTrx(db: AnyDB, codigo: string, ctx: { empresaId?: number | null; operadorId?: number | null }): Promise<string | null> {
+export async function configNaTrx(db: AnyDB, codigo: string, ctx: { empresaId?: number | null; operadorId?: number | null; modulo?: string }): Promise<string | null> {
   const cfg = (await sql<{ id: number; valor: unknown; permitidos: unknown }>`
       SELECT id, valor, config_especificas_permitidas AS permitidos FROM configuracoes WHERE codigo = ${codigo} LIMIT 1`
     .execute(db)).rows[0];
   if (!cfg) return null;
   const permitidos = String(cfg.permitidos ?? '').split(';').map((s) => s.trim()).filter(Boolean);
-  for (const [tipo, chave] of [['Usuario', ctx.operadorId], ['Empresa', ctx.empresaId]] as const) {
+  // Usuario > Empresa > Modulo (o `ValorConfiguracao` do legado resolve no módulo em execução — o Retaguarda)
+  for (const [tipo, chave] of [['Usuario', ctx.operadorId], ['Empresa', ctx.empresaId], ['Modulo', ctx.modulo]] as const) {
     if (chave == null || !permitidos.includes(tipo)) continue;
     const ov = (await sql<{ valor: unknown }>`
         SELECT valor FROM configuracoes_especificas WHERE id = ${cfg.id} AND tipo = ${tipo} AND chave = ${String(chave)} LIMIT 1`
