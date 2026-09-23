@@ -229,12 +229,18 @@ export class SpedEfdIcmsIpiService {
       .where('dtcontabil', '<=', dtfim)
       .where('nronf', 'is not', null)
       .where('nronf', 'not in', ['0', '000000'])
+      // CFOP marcado para não gerar SPED fica de fora — no cabeçalho e, abaixo, no item (UdmSpedFiscal.dfm:2658,
+      // :4017, :4154; mig 301). ⚠️ O JOIN do legado também descarta nota com CFOP fora do cadastro; aqui ela entra e
+      // o validador do SPED a acusa, em vez de sumir calada.
+      .where(sql<boolean>`not exists (select 1 from cfop c where c.codcfop::text = nf.cfop::text and coalesce(c.nao_gera_sped,'N') = 'S')`)
       .orderBy('codnf')
       .limit(5000)
       .execute()) as Array<Record<string, any>>;
     const nfIds = nfs.map((n) => Number(n.codnf));
     const itens = nfIds.length
-      ? ((await db.selectFrom('nf_prod').select(['codnf', 'nroitem', 'codproduto', 'quantidade', 'vrcusto', 'desconto', 'vrbasecalculo', 'icms', 'vricm', 'vripi', 'cst', 'origem_estoque', 'cfop', 'bcpiscofinse', 'vrpise', 'vrcofinse', 'aliqpise', 'aliqcofinse', 'cstpiscofins']).where('codnf', 'in', nfIds).orderBy('codnf').orderBy('nroitem').execute()) as Array<Record<string, any>>)
+      ? ((await db.selectFrom('nf_prod').select(['codnf', 'nroitem', 'codproduto', 'quantidade', 'vrcusto', 'desconto', 'vrbasecalculo', 'icms', 'vricm', 'vripi', 'cst', 'origem_estoque', 'cfop', 'bcpiscofinse', 'vrpise', 'vrcofinse', 'aliqpise', 'aliqcofinse', 'cstpiscofins']).where('codnf', 'in', nfIds)
+          .where(sql<boolean>`not exists (select 1 from cfop c where c.codcfop::text = nf_prod.cfop::text and coalesce(c.nao_gera_sped,'N') = 'S')`)
+          .orderBy('codnf').orderBy('nroitem').execute()) as Array<Record<string, any>>)
       : [];
     const porNf = new Map<number, Array<Record<string, any>>>();
     for (const it of itens) (porNf.get(Number(it.codnf)) ?? porNf.set(Number(it.codnf), []).get(Number(it.codnf))!).push(it);

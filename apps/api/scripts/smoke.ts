@@ -17592,6 +17592,33 @@ async function main() {
       }
     }
 
+    // ══ AS FLAGS DO CFOP: o que não gera SPED (mig 301) ═══════════════════════════════════════════════
+    {
+      const pgCf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgCf.query(`INSERT INTO cfop (codcfop, descricao, nao_gera_sped) VALUES ('2949','OUTRA ENTRADA DE MERC NAO ESPECIFICA','S')
+          ON CONFLICT (codcfop) DO UPDATE SET nao_gera_sped = 'S'`);
+        await pgCf.query(`INSERT INTO cfop (codcfop, descricao) VALUES ('1102','COMPRA P/ COMERCIALIZA') ON CONFLICT (codcfop) DO NOTHING`);
+        const nfBoa = await novaNf(baseNf({ tipo: 'E', nronf: 'CF2949A', codparceiro: 22, cfop: '1102', dtemissao: '2036-03-05', dtcontabil: '2036-03-05', itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, vrcusto: 10, cfop: '1102', aliquota: 'T01' }] }));
+        const nfFora = await novaNf(baseNf({ tipo: 'E', nronf: 'CF2949B', codparceiro: 22, cfop: '2949', dtemissao: '2036-03-06', dtcontabil: '2036-03-06', itens: [{ codproduto: 1, quantidade: 1, vrvenda: 20, vrcusto: 20, cfop: '2949', aliquota: 'T01' }] }));
+        await pgCf.query(`UPDATE nf SET proc = 'S' WHERE codnf IN ($1,$2)`, [nfBoa, nfFora]);
+        const efd = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2036-03-01', dtfim: '2036-03-31' }) });
+        const linhas = String(((await efd.json().catch(() => ({}))) as any).arquivo ?? '').split('\r\n');
+        const c100 = linhas.filter((l) => l.startsWith('|C100|'));
+        const c190_2949 = linhas.filter((l) => l.startsWith('|C190|') && l.includes('|2949|'));
+        check('FLAGS DO CFOP §163.1 [CFOP marcado para NÃO GERAR SPED fica fora — no cabeçalho e no item]: o SPED do legado só aceita item e nota com `COALESCE(C.NAO_GERA_SPED,\'N\')=\'N\'` (`UdmSpedFiscal.dfm:2658`, `:4017`, `:4154`). No cliente é o 2949 (outra entrada não especificada): ~10 notas por ano, R$ 14.862,53 em 2026, que o SPED do Apollo levaria. Aqui a nota 1102 entra e a 2949 não aparece nem como C100 nem num C190',
+          efd.status === 200 && c100.length === 1 && c190_2949.length === 0,
+          { status: efd.status, c100: c100.map((l) => l.slice(0, 40)), c190_2949 });
+        for (const cod of [nfBoa, nfFora]) {
+          await pgCf.query(`DELETE FROM nf_prod WHERE codnf = $1`, [cod]);
+          await pgCf.query(`DELETE FROM nf WHERE codnf = $1`, [cod]);
+        }
+        await pgCf.query(`UPDATE cfop SET nao_gera_sped = NULL WHERE codcfop = '2949'`);
+      } finally {
+        await pgCf.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

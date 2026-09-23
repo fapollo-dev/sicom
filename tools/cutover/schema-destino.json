@@ -5260,6 +5260,83 @@
      "escala": 0,
      "nulo": true,
      "default": null
+    },
+    "nao_gera_sped": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "cod_bc_credito": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "naoalimentadre": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "preco_custo": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dispensado_coleta": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "compra": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "venda": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "tipoestado": {
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "tipo_cfop": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "sintegra": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "codcontabil": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -18188,8 +18265,8 @@
     },
     "vrcusto": {
      "tipo": "numeric",
-     "tam": 15,
-     "escala": 4,
+     "tam": 18,
+     "escala": 9,
      "nulo": true,
      "default": null
     },
@@ -27783,7 +27860,7 @@
     "qtd_devolvida": {
      "tipo": "numeric",
      "tam": 13,
-     "escala": 3,
+     "escala": 4,
      "nulo": false,
      "default": "0"
     },
@@ -28637,7 +28714,7 @@
     "vrvenda": {
      "tipo": "numeric",
      "tam": 15,
-     "escala": 2,
+     "escala": 3,
      "nulo": true,
      "default": "0"
     },

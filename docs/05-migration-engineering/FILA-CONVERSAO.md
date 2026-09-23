@@ -750,3 +750,22 @@ ligação do `GetSQLNFC`; na semana conferida, 53.015 itens e ICMS R$ 9.179,50 i
 **E uma afirmação minha corrigida.** Eu tinha registrado que o cupom não carrega IBS/CBS (medi as notas); os
 itens do cupom carregam desde mar/2026 — ~200 mil por mês, CBS ~R$ 9 mil/mês. A apuração de IBS/CBS ganhou a
 perna do cupom. Dossiês `uCadIBSCBS.md` §13.3 e `uRelRegistros_ES-apuracao-icms.md`.
+
+**Os pontos cegos do conferidor, triados (continuação, migs 301-302).** Refeita a varredura das colunas da
+origem ausentes no destino SEM os dois filtros do conferidor (≥ 50% e só chave/número): **575 colunas**, 17 do
+PDV/PAF e 25 de replicação/integração, e **533 para triagem semântica** — `empresas` 61, `nf` 52, `parceiros` 46,
+`produtos` 42, `nf_prod` 32, `vendas` 31, `multi_preco` 29, `areceber` 25, `cfop` 18… Das 31 de `vendas`, 15 eram o
+IBS/CBS do cupom (mig 299). As 18 do `cfop` (mig 301):
+
+| flag | CFOPs | veredito |
+|---|---:|---|
+| `NAO_GERA_SPED` | 1 (2949) | ✅ **regra viva** — o SPED do legado só aceita CFOP com 'N' (`UdmSpedFiscal.dfm:2658`); ligada no SPED ICMS-IPI, cabeçalho e item |
+| `COD_BC_CREDITO` | 17 | ⚠️ **achado para o épico SPED PIS/COFINS**: a apuração do Apollo grava base de crédito 1 FIXA; a do legado varia (1, 2, 4, 6, 7). Pelo CFOP reproduz-se só parte (bases 1 e 2, aproximadas; 02-03/2026: 473 mil × 478 mil na 1, 62,6 mil × 56,8 mil na 2); as 4/6/7 vêm de fontes que o fonte de 2020 não mostra |
+| `NAOALIMENTADRE` | 4 | carregada; nenhuma DRE do Apollo lê nota de saída, onde agiria |
+| `PRECO_CUSTO` | 5 | só no fluxo de nota a partir de pedido de venda tipo 7 (`uNF.pas:1616`) — fluxo morto com prova |
+| `DISPENSADO_COLETA` | 4 | etapa de coleta do app de conferência (mobile) — fora do escopo |
+| 7 flags | 398 | 'N' em todos os CFOPs — comportamento padrão, sem efeito |
+
+**Escala numérica, medida na produção** (o `escala-numerica.py` lê os CSVs da homologação): nenhum estouro de
+precisão; três escalas curtas alargadas (mig 302), a relevante na minha própria mig 291 —
+`historico_processamento_nf.vrcusto` arredondava 115.363 custos de 5-6 casas.

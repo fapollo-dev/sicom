@@ -343,6 +343,8 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('298_ofx_regras.sql'));
   await pool.query(sql('299_ibscbs_cupom.sql'));
   await pool.query(sql('300_capacidade_carga.sql'));
+  await pool.query(sql('301_cfop_flags.sql'));
+  await pool.query(sql('302_escala_numerica.sql'));
   await pool.end();
   return pg;
 }
