@@ -146,6 +146,7 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
       titulo={TITULO[tipo]}
       resourcePath="fiscal/nf"
       pk="codnf"
+      log={{ form: 'FRMNF', chave: 'CODNF' }}
       schema={nfSchema}
       defaultValues={defaultValues}
       largura="6xl"

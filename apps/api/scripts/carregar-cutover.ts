@@ -205,7 +205,8 @@ async function main() {
           WHERE a.attrelid = $1::regclass AND a.attnum > 0 AND NOT a.attisdropped
             AND pg_get_serial_sequence($1, a.attname) IS NOT NULL`, [tabela])).rows as Array<{ col: string; seq: string }>;
       for (const c of cols) {
-        await pool.query(`SELECT setval($1, coalesce((SELECT max(${c.col}) FROM ${tabela}), 0) + 1, false)`, [c.seq]);
+        // ::bigint — a coluna pode ser numeric(10,0) (tipo do Oracle, mig 311: log.idlog) e setval não aceita numeric
+        await pool.query(`SELECT setval($1, (coalesce((SELECT max(${c.col}) FROM ${tabela}), 0) + 1)::bigint, false)`, [c.seq]);
         seqs++;
       }
     }

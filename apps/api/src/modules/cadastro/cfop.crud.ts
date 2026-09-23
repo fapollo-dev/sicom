@@ -20,6 +20,8 @@ export const cfopCrudConfig: CrudConfig = {
     'idsituacao_nf_saida', 'cfop_devolucao', 'proc_cupom', 'gera_financeiro_auto',
   ],
   rbacForm: 'FRMCADCFOP',
+  // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
+  log: { formulario: 'Cadastro de CFOP' },
   audit: false,
   replica: false,
   historico: false,

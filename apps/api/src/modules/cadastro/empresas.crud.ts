@@ -20,6 +20,8 @@ export const empresasCrudConfig: CrudConfig = {
   empresaScoped: false, // a tabela É a empresa; o schema-per-tenant isola
   view: 'get_empresas',
   rbacForm: 'FRMCADEMPRESA',
+  // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
+  log: { formulario: 'Cadastro de empresas', chave: 'CODEMPRESA' },
   colunas: [
     'razao_social', 'fantasia', 'cnpj', 'insc', 'im',
     'endereco', 'numero', 'complemento', 'bairro', 'cidade', 'uf', 'cep', 'fone1', 'idcidade', 'cuf',

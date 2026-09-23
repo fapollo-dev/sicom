@@ -28,6 +28,8 @@ export const ncmCrudConfig: CrudConfig = {
     'observacao',
   ],
   rbacForm: 'FRMCADNCM',
+  // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
+  log: { formulario: 'Cadastro de NCM' },
   // sem softDelete → hard-delete (NCM não tem INDR)
   replica: false,
   colunasPesquisa: ['codigo', 'ncmsh', 'descricao'],

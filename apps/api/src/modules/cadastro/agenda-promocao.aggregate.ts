@@ -39,6 +39,8 @@ export const agendaPromocaoAggregateConfig: AggregateConfig = {
   pk: 'codagenda',
   view: 'get_agenda_promocao',
   rbacForm: 'FRMCADAGENDAPROMOCAO',
+  // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
+  log: { formulario: 'Agenda de Promoção' },
   // a agenda é da REDE (a view de pesquisa do legado não filtra loja); a loja logada só carimba a dona ao criar
   empresaScoped: false,
   softDelete: true,

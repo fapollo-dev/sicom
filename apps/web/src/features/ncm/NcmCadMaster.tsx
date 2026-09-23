@@ -27,6 +27,7 @@ export function NcmCadMaster() {
       titulo="NCM"
       resourcePath="cadastro/ncm"
       pk="codigo"
+      log={{ form: 'FRMCADNCM', chave: 'CODIGO' }}
       pkGerada={false} // chave natural: usuário digita o código NCM
       colunasPesquisa={[
         { campo: 'codigo', label: 'Código', tipo: 'text', largura: 120 },

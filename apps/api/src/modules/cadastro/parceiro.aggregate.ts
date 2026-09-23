@@ -18,6 +18,8 @@ export const parceiroAggregateConfig: AggregateConfig = {
   pk: 'codparceiro',
   view: 'get_parceiros',
   rbacForm: 'FRMCADCLIENTES',
+  // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
+  log: { formulario: 'Cadastro de parceiros' },
   empresaScoped: true,
   colunas: [
     'razao', 'fantasia', 'tipofj',

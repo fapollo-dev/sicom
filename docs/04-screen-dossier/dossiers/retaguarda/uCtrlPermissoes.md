@@ -50,7 +50,7 @@ CodPerfil := iif(Operador = 0, CodPerfil, 0);
 | 4 | **marcar/desmarcar todas as opções** de um form | `btnMarcarTodosOpcoesClick` `:516` | ✗ |
 | 5 | **clonar permissões** de um usuário/perfil para outro, inclusive **entre empresas** | `btnCopiarParaClick` `:389` → `SP_REPLICA_PERMISSAO` | ✗ |
 | 6 | trocar a empresa em edição | `cbbEmpresaChange` | ✗ (a nossa é a empresa da sessão) |
-| 7 | log de toda ação | `GravaLog` + `AUDIT_PERMISSOES` | ✓ (audit_permissoes) |
+| 7 | log de toda ação | `GravaLog` → tabela **LOG** (texto com operador, alvo e empresa) · `AUDIT_PERMISSOES` é outra coisa: trigger com programa + máquina Windows | ✓ **desde a mig 313** (antes marcado ✓ por engano: o GravaLog grava na LOG, não na AUDIT_PERMISSOES — ver `uLog-registros.md`) |
 
 ### ⛔ A lacuna que importa
 
@@ -155,3 +155,15 @@ mostraria o histórico errado.
 
 **Falta**: nada do §6. O que sobra é o balde B do §7w (34 atos sem permissão própria no legado), que é decisão
 de privilégio e não implementação.
+
+## Correção (23/09/2026) — o log da tela é a LOG, não a AUDIT_PERMISSOES
+
+O item 7 da tabela estava marcado como coberto pela `audit_permissoes`. Errado: `TfrmCtrlPermissoes.GravaLog` (:951) grava
+na **LOG** (`TLog.GravaLog`, uLog.pas) um texto com o operador que fez, o alvo e a empresa — "USUARIO ANTONIO CLONOU AS
+PERMISSOES DE USUARIO  PARA O  USUARIO LILIA … NA EMPRESA 2." — e o botão **Log** da tela (`BtnLogClick` :460) abre esse
+histórico filtrado pelo usuário, com a coluna Empresa. A `AUDIT_PERMISSOES` é uma trigger que guarda só programa e máquina
+Windows. Na produção a LOG tem 1.501 linhas de PERMISSOES — o único registro de quem mudou a permissão de quem.
+
+Convertido na mig 313: o serviço grava na LOG os textos de `GetMsgAcaoLog` (:897) — liberar/remover uma permissão
+(`talMarcarOpcao`/`talDesmarcaOpcao`), todas as da tela, acesso total/geral e a clonagem (com o defeito do legado de
+repetir o tipo onde viria o nome da origem, como a produção grava) — e a tela ganhou o **Registro de log**.

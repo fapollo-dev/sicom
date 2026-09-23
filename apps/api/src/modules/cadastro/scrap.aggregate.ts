@@ -23,6 +23,8 @@ export const scrapAggregateConfig: AggregateConfig = {
   pk: 'codscrap',
   view: 'get_scrap',
   rbacForm: 'FRMCADSCRAP',
+  // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
+  log: { formulario: 'SCRAP - PERDAS' },
   empresaScoped: true,
   softDelete: false, // legado: exclusão física (hard delete + cascata de itens)
   colunas: ['dt_cadastro', 'codplc', 'codparceiro', 'idsituacao_nf', 'obs'],

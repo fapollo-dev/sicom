@@ -38,6 +38,8 @@ export const operadoresAggregateConfig: AggregateConfig = {
     'solicitar_alteracao_senha',
   ],
   rbacForm: 'FRMCADUSUARIOS',
+  // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
+  log: { formulario: 'Cadastro de usuários' },
   softDelete: true, // excluir master → INDR='E' (a ponte é apagada na cascata)
   // senha_hash (070) NUNCA sai no read/echo — a allowlist `colunas` só filtra a escrita; o read faz selectAll.
   colunasOcultasLeitura: ['senha_hash'],

@@ -32,6 +32,7 @@ export function FormasPgtoCadMaster() {
       titulo="Formas de Pagamento"
       resourcePath="cadastro/formas-pgto"
       pk="idpgto"
+      log={{ form: 'FRMCADFORMAPGTO', chave: 'IDPGTO' }}
       colunasPesquisa={[
         { campo: 'idpgto', label: 'Código', tipo: 'text', largura: 100 },
         { campo: 'modalidade', label: 'Modalidade', tipo: 'text' },

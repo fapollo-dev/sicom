@@ -57,6 +57,7 @@ export function ContasReceberCadMaster() {
       titulo="Contas a Receber"
       resourcePath="cadastro/areceber"
       pk="codrcb"
+      log={{ form: 'FRMCADARECEBER', chave: 'CODRCB' }}
       schema={areceberSchema}
       defaultValues={defaultValues}
       largura="5xl"

@@ -160,6 +160,7 @@ export function ProdutoCadMaster() {
       titulo="Produtos"
       resourcePath="cadastro/produtos"
       pk="idproduto"
+      log={{ form: 'FRMCADPRODUTO', chave: 'IDPRODUTO' }}
       schema={produtoSchema}
       defaultValues={defaultValues}
       colunasPesquisa={[

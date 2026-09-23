@@ -15,6 +15,8 @@ export const operadorasAggregateConfig: AggregateConfig = {
   pk: 'codoperadoras',
   view: 'get_operadoras',
   rbacForm: 'FRMCADOPERADORAS',
+  // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
+  log: { formulario: 'Operadoras de Cartão' },
   empresaScoped: false, // cadastro global; o override por empresa vive em operadoras_taxa
   softDelete: true,
   colunas: ['operadora', 'txadm', 'txadmparc', 'diascomp', 'tipo', 'tipocartao', 'codbandeira', 'codadm', 'codbanco', 'codoperadorabase', 'ativo'],

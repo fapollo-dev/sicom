@@ -48,6 +48,7 @@ export function CfopCadMaster() {
       titulo="CFOP"
       resourcePath="cadastro/cfops"
       pk="codcfop"
+      log={{ form: 'FRMCADCFOP', chave: 'CODCFOP' }}
       pkGerada={false} // chave natural: o usuário digita o CFOP (4 dígitos)
       colunasPesquisa={[
         { campo: 'codcfop', label: 'CFOP', tipo: 'text', largura: 110 },

@@ -26456,7 +26456,7 @@
      "tam": 10,
      "escala": 0,
      "nulo": false,
-     "default": null
+     "default": "nextval('seq_log'::regclass)"
     },
     "acao": {
      "tipo": "character varying",

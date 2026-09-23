@@ -4,6 +4,7 @@ import { CrudEngineService } from './crud-engine.service';
 import type { AggregateConfig, DetalheConfig } from './crud-config';
 import { currentTenant } from '../tenant/tenant-context';
 import { gravarHistorico, gravarHistoricoMarca } from './historico';
+import { gravarLogDeCadastro } from '../log/registro-log';
 
 type AnyDB = any;
 
@@ -54,6 +55,7 @@ export class AggregateEngineService extends CrudEngineService {
       }
       await this.stamp(trx, cfg, id, op, true);
       if (cfg.historico !== false) await gravarHistorico(trx, this.alvo(cfg), id, op, this.emp(), {}, d, 'INSERT');
+      await gravarLogDeCadastro(trx, cfg, 'Inseriu', id, {}, d);
       if (cfg.replica) await this.outbox(trx, cfg, 'INSERT', id);
       for (const det of cfg.detalhes) await this.inserirItens(trx, det, id, this.itens(dto, det), dto);
       if (cfg.aposGravarTrx) await cfg.aposGravarTrx({ trx, id, dto, criado: true, emp: this.emp() });
@@ -74,13 +76,14 @@ export class AggregateEngineService extends CrudEngineService {
       if (cfg.validar) await cfg.validar({ dto, id, db: trx });
       const d = this.delta(cfg, this.derivados(cfg, dto, id)); // derivar (ex.: flags COMPOSICAO/DECOMPOSICAO) também no update
       const antes =
-        cfg.historico === false || !Object.keys(d).length
+        (cfg.historico === false && !cfg.log) || !Object.keys(d).length
           ? {}
           : ((await trx.selectFrom(cfg.tabela).selectAll().where(cfg.pk, '=', id).executeTakeFirst()) ?? {});
       if (Object.keys(d).length) await trx.updateTable(cfg.tabela).set(d).where(cfg.pk, '=', id).execute();
       await this.stamp(trx, cfg, id, op, false);
       if (cfg.historico !== false)
         await gravarHistorico(trx, this.alvo(cfg), id, op, this.emp(), antes as Record<string, unknown>, d, 'UPDATE');
+      await gravarLogDeCadastro(trx, cfg, 'Alterou', id, antes as Record<string, unknown>, d);
       if (cfg.replica) await this.outbox(trx, cfg, 'UPDATE', id);
       // substituição de itens (delete + insert), por detalhe — só quando o dto traz a chave
       for (const det of cfg.detalhes) {

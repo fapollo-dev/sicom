@@ -8855,6 +8855,54 @@ async function main() {
       await fetch(`${base}/cadastro/permissoes`, { method: 'PUT', headers: H, body: JSON.stringify({ codperfil, form: 'FRMLIBERACOES', opcao: 'BTNCONSULTAR', concedido: false }) }); // muda → DELETE
       const audDel = (await (await fetch(`${base}/cadastro/permissoes/auditoria?codperfil=${codperfil}`, { headers: H })).json().catch(() => [])) as any[];
       check('PERFIL §77.8b: no-op não audita; mudança real audita (DELETE no topo)', audNoop.length === nAntes && audDel.length === nAntes + 1 && audDel[0].tipo === 'DELETE', { antes: nAntes, noop: audNoop.length, del: audDel.length });
+
+      // ===== §77L) A LOG — o "Registros de Log" do legado (mig 313; FILA Achado 20) =====
+      const logDe = async (tabela: string, valor: number) =>
+        (await pgPf.query(`SELECT acao, formulario, chave, valor, usuario, historico, idempresa FROM log WHERE tabela=$1 AND valor=$2 ORDER BY idlog`, [tabela, valor])).rows as any[];
+      // 77L.1) o controle de permissões grava o texto do legado (GetMsgAcaoLog): liberar/remover uma permissão, todas
+      // as da tela — com o operador que fez, o alvo e a empresa (a audit_permissoes só guarda programa/máquina).
+      await pgPf.query(`DELETE FROM log WHERE tabela='PERMISSOES' AND valor=8`);
+      await fetch(`${base}/cadastro/permissoes/operador`, { method: 'PUT', headers: H, body: JSON.stringify({ codoperador: 8, form: 'FRMLIBERACOES', opcao: 'BTNCONSULTAR', concedido: true, codempresa: 1 }) });
+      await fetch(`${base}/cadastro/permissoes/operador`, { method: 'PUT', headers: H, body: JSON.stringify({ codoperador: 8, form: 'FRMLIBERACOES', opcao: 'BTNCONSULTAR', concedido: false, codempresa: 1 }) });
+      await fetch(`${base}/cadastro/permissoes/lote`, { method: 'PUT', headers: H, body: JSON.stringify({ codoperador: 8, form: 'FRMLIBERACOES', concedido: true, codempresa: 1 }) });
+      await fetch(`${base}/cadastro/permissoes/lote`, { method: 'PUT', headers: H, body: JSON.stringify({ codoperador: 8, form: 'FRMLIBERACOES', concedido: false, codempresa: 1 }) });
+      const lp = await logDe('PERMISSOES', 8);
+      check('LOG §77L.1: permissões gravam na LOG o texto do legado (liberou/removeu a permissão · todas as da tela), em maiúsculas sem acento, com empresa e operador',
+        lp.length === 4 && lp[0].acao === 'Inseriu' && lp[1].acao === 'Excluiu' && lp[0].formulario === 'Controle de permissões' && lp[0].chave === 'CODOPERADOR'
+        && /^USUARIO .+ LIBEROU A PERMISSAO .+ DA TELA .+ PARA O  USUARIO .+ NA EMPRESA 1\.$/.test(lp[0].historico)
+        && /REMOVEU A PERMISSAO/.test(lp[1].historico) && /LIBEROU TODAS AS PERMISSOES DA TELA  .+ PARA O USUARIO .+ NA EMPRESA 1\.$/.test(lp[2].historico)
+        && /REMOVEU TODAS AS PERMISSOES DA TELA/.test(lp[3].historico) && Number(lp[0].idempresa) === 1 && !!lp[0].usuario && lp[0].usuario === lp[0].usuario.toUpperCase(),
+        lp.map((l) => [l.acao, l.historico]));
+
+      // 77L.2) o form-base grava a LOG de cada gravação de cadastro (uCadMaster.pas:485): Inseriu com os campos,
+      // Alterou só com o que mudou (5.50 do banco = 5.5 do formulário não é mudança); nada mudou → nada grava.
+      const lpc = await fetch(`${base}/cadastro/parceiros`, { method: 'POST', headers: H, body: JSON.stringify({
+        razao: 'PARCEIRO DO LOG LTDA', fantasia: 'LOG ANTES', tipofj: 'J', frn: 'S', desconto_pedidos: 5.5,
+        enderecos: [{ endereco: 'RUA LOG', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', cnpj_cpf: '11444777000323', endereco_padrao: 'S' }] }) });
+      const lpcJ = (await lpc.json().catch(() => ({}))) as any;
+      const cpl = Number(lpcJ.codparceiro);
+      await fetch(`${base}/cadastro/parceiros/${cpl}`, { method: 'PUT', headers: H, body: JSON.stringify({ ...lpcJ, fantasia: 'LOG DEPOIS' }) });
+      const eco = (await (await fetch(`${base}/cadastro/parceiros/${cpl}`, { headers: H })).json().catch(() => ({}))) as any;
+      await fetch(`${base}/cadastro/parceiros/${cpl}`, { method: 'PUT', headers: H, body: JSON.stringify(eco) }); // sem mudança
+      const lc = await logDe('PARCEIROS', cpl);
+      check('LOG §77L.2: cadastro grava Inseriu (campos) + Alterou só com o campo mudado (FANTASIA LOG ANTES → LOG DEPOIS); regravar sem mudar não grava',
+        lpc.status === 201 && lc.length === 2 && lc[0].acao === 'Inseriu' && lc[0].formulario === 'Cadastro de parceiros' && lc[0].chave === 'CODPARCEIRO'
+        && /^INSERIU: \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2} \r\nCAMPO: /.test(lc[0].historico) && /CAMPO: RAZAO   VALOR: PARCEIRO DO LOG LTDA/.test(lc[0].historico)
+        && lc[1].acao === 'Alterou' && /CAMPO: FANTASIA    VALOR ANTERIOR: LOG ANTES    VALOR ATUAL: LOG DEPOIS/.test(lc[1].historico)
+        && !/DESCONTO_PEDIDOS/.test(lc[1].historico),
+        lc.map((l) => [l.acao, l.historico]));
+
+      // 77L.3) o visualizador (uRegistrosLog): por chave+valor, últimos 30 dias; o gate é o da tela que abre; sem chave 422.
+      await pgPf.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) SELECT 'FRMCADCLIENTES','FRMCADCLIENTES',7,1
+                          WHERE NOT EXISTS (SELECT 1 FROM permissoes WHERE form='FRMCADCLIENTES' AND opcao='FRMCADCLIENTES' AND codoperador=7 AND codempresa=1)`);
+      const vis = await fetch(`${base}/cadastro/registros-log?form=FRMCADCLIENTES&chave=CODPARCEIRO&valor=${cpl}`, { headers: H });
+      const visJ = (await vis.json().catch(() => ({}))) as any;
+      const visSem = await fetch(`${base}/cadastro/registros-log?form=FRMCADCLIENTES&chave=CODPARCEIRO&valor=${cpl}`, { headers: H_SEM_ACESSO });
+      const visBad = await fetch(`${base}/cadastro/registros-log?form=FRMCADCLIENTES`, { headers: H });
+      const visPerm = (await (await fetch(`${base}/cadastro/registros-log?form=FRMCTRLPERMISSOES&chave=CODOPERADOR&valor=8`, { headers: H })).json().catch(() => ({}))) as any;
+      check('LOG §77L.3: visualizador traz o log do registro (2 do parceiro, 4 das permissões do op 8) · sem acesso à tela 403 · sem chave 422',
+        vis.status === 200 && visJ.linhas?.length === 2 && visJ.linhas[1].acao === 'Alterou' && visSem.status === 403 && visBad.status === 422 && visPerm.linhas?.length === 4,
+        { status: vis.status, n: visJ.linhas?.length, sem: visSem.status, bad: visBad.status, perm: visPerm.linhas?.length });
     } finally {
       await pgPf.end();
     }

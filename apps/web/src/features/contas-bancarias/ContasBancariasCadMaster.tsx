@@ -57,6 +57,7 @@ export function ContasBancariasCadMaster() {
       titulo="Contas Bancárias"
       resourcePath="cadastro/contas-bancarias"
       pk="codconta"
+      log={{ form: 'FRMCADCONTASBANCARIAS', chave: 'CODCONTA' }}
       colunasPesquisa={[
         { campo: 'codconta', label: 'Código', tipo: 'text', largura: 110 },
         { campo: 'banco', label: 'Banco', tipo: 'text' },

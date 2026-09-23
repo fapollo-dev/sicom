@@ -1,3 +1,4 @@
+import type { LogConfig } from '../log/registro-log';
 /**
  * Configuração declarativa de um CRUD de tabela única — o "engine" lê isto e
  * implementa read/list/create/update/delete herdando a fundação (auditoria,
@@ -37,6 +38,11 @@ export interface CrudConfig {
    * quando ela está na lista. A view de listagem precisa expor a coluna. Sem ela, nada muda.
    */
   empresasColuna?: string;
+  /**
+   * grava a LOG do legado a cada gravação (o "Registros de Log" que a tela mostra — uCadMaster.pas:485, TLog.GravaLog
+   * com o DataSet): o título da tela e, quando diferem das nossas, a tabela e a coluna-chave do legado.
+   */
+  log?: LogConfig;
   /** gera evento de replicação no outbox (como BANCOS tem REM_*). Default: false. */
   replica?: boolean;
   /** carimba USULTALTERACAO/DTULTIMALTERACAO/DTCADASTRO. Default: true. */

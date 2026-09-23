@@ -65,6 +65,8 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
   pk: 'codpedcomp',
   view: 'get_pedidocompra',
   rbacForm: 'FRMPEDIDOCOMPRA',
+  // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
+  log: { formulario: 'Pedido de Compra' },
   empresaScoped: true,
   softDelete: true,
   // CODOPERADOR (server-set via derivarTrx) e FECHADO (state-controlled) NÃO entram nas colunas editáveis.

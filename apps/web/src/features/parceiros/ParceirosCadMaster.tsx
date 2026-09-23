@@ -163,6 +163,7 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
       titulo={titulo}
       resourcePath="cadastro/parceiros"
       pk="codparceiro"
+      log={{ form: 'FRMCADCLIENTES', chave: 'CODPARCEIRO' }}
       schema={parceiroSchema}
       defaultValues={defaultValues}
       // a Pesquisa lista só o papel da tela (CLI='S' p/ Clientes, FRN='S' p/ Fornecedores)

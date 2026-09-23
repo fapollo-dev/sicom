@@ -20,6 +20,8 @@ export const formasPgtoCrudConfig: CrudConfig = {
     'recebe_pdv', 'permite_sangria_pdv', 'lanc_movimento_individual', 'tipo', 'inativo', 'data_inativo',
   ],
   rbacForm: 'FRMCADFORMAPGTO',
+  // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
+  log: { formulario: 'Formas de pagamento' },
   colunasPesquisa: ['idpgto', 'modalidade', 'atalho', 'destino'],
   replica: false,
   // soft-delete legado (INATIVO+DATA_INATIVO): ao inativar, carimba a data; ao reativar, limpa.

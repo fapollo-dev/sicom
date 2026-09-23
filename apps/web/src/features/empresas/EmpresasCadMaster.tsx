@@ -73,6 +73,7 @@ export function EmpresasCadMaster() {
       titulo="Empresas"
       resourcePath="cadastro/empresas"
       pk="idempresa"
+      log={{ form: 'FRMCADEMPRESA', chave: 'CODEMPRESA' }}
       pkGerada={false}
       colunasPesquisa={[
         { campo: 'idempresa', label: 'Código', tipo: 'text', largura: 100 },

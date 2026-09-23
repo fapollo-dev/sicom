@@ -96,6 +96,8 @@ import { PerfilCrudController } from './perfil.crud';
 import { PerfilRelacaoController } from './perfil-relacao.controller';
 import { PerfilRelacaoService } from './perfil-relacao.service';
 import { PermissoesController } from './permissoes.controller';
+import { RegistrosLogController } from './registros-log.controller';
+import { RegistrosLogService } from './registros-log.service';
 import { PermissoesService } from './permissoes.service';
 import { SenhaOperacaoController } from './senha-operacao.controller';
 import { SenhaOperacaoService } from './senha-operacao.service';
@@ -234,6 +236,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     PromocaoAggregateController, // GESTÃO DE PROMOÇÕES (UCadPromocao): header PROMOCAO + detalhe CLUBE_DESCONTO por ORIGEM
     PerfilCrudController, // PERFIS & PERMISSÕES corte-1: CRUD de perfis (RBAC)
     PerfilRelacaoController, // vertical: atribuir perfis a operadores (relacao_operador_perfil)
+    RegistrosLogController, // o "Registros de Log" do legado (uRegistrosLog, mig 313)
     PermissoesController, // corte-2: matriz de grants FORM×OPCAO por perfil (UCtrlPermissoes)
     SenhaOperacaoController, // E7: senha de operação por empresa (definir/verificar)
     ConfiguracoesAdminController, // CONFIGURAÇÕES (UConfigura): catálogo chave-valor + overrides por escopo
@@ -248,7 +251,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     MotivosController, // FRMMOTIVO — motivos do AJUSTE de estoque (tabela MOTIVOS; ≠ motivos_operacao, do scrap)
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
-  providers: [HistoricoContabilItensService, ContasTransfPermService, ReformaIbsCbsService, NfIbsCbsService, NfEsteiraService, CestService, MotivosService, FiguraFiscalService, ConfigLegislacaoService, CongelaEstoqueService, NfeInutilizadaService, RelPerdasService, PisCofinsCadService, ExportaNfeService, 
+  providers: [RegistrosLogService, HistoricoContabilItensService, ContasTransfPermService, ReformaIbsCbsService, NfIbsCbsService, NfEsteiraService, CestService, MotivosService, FiguraFiscalService, ConfigLegislacaoService, CongelaEstoqueService, NfeInutilizadaService, RelPerdasService, PisCofinsCadService, ExportaNfeService, 
     BancosService,
     BancoRepository,
     ParceiroHistoricoService,

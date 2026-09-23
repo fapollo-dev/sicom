@@ -127,6 +127,7 @@ export function PedidoCompraCadMaster() {
       titulo="Pedido de Compra"
       resourcePath="compras/pedidos"
       pk="codpedcomp"
+      log={{ form: 'FRMPEDIDOCOMPRA', chave: 'CODPEDCOMP' }}
       schema={pedidoCompraSchema}
       defaultValues={defaultValues}
       largura="6xl"

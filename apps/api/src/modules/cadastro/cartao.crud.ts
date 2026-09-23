@@ -15,6 +15,8 @@ export const cartaoCrudConfig: CrudConfig = {
   pkGerada: true,
   view: 'get_cartao',
   rbacForm: 'FRMCADCARTAO',
+  // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
+  log: { formulario: 'Lançamento de Cartões' },
   empresaScoped: true,
   colunas: ['dtvenda', 'valor', 'codoperadora', 'idpgto', 'nrocupom', 'nropedido', 'codpdv', 'nroparcela', 'qtde_parcelas', 'tipocartao', 'codbandeira', 'nsu', 'autorizacao', 'nrocartao', 'obs'],
   colunasPesquisa: ['codvendcartao', 'dtvenda', 'operadora', 'liberado', 'nrocupom', 'nropedido', 'valor'],

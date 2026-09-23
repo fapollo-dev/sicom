@@ -13,6 +13,8 @@ export const situacaoNfCrudConfig: CrudConfig = {
   view: 'get_situacao_nf',
   colunas: ['descricao', 'tipo'],
   rbacForm: 'FRMCADSITUACAONF',
+  // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
+  log: { formulario: 'Cadastro de Situação do Documento' },
   audit: false,
   replica: false,
   historico: false,

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { RegistrosLogModal } from '../../shared/log/RegistrosLogModal';
 import { DataTable, type DataTableColumnDef, PageHeader, Modal } from '@apollosg/design-system';
 import { ShieldCheck, ShieldOff } from 'lucide-react';
 import { Button } from '../../shared/ui/Button';
@@ -37,6 +38,7 @@ export function CtrlPermissoesPage() {
   const [trilha, setTrilha] = useState<AuditoriaPermissao[]>([]);
   const [ocupado, setOcupado] = useState(false);
   const [clonando, setClonando] = useState(false);
+  const [logAberto, setLogAberto] = useState(false);
   const [clone, setClone] = useState<{ de?: number; de_empresa?: number; para?: number; para_empresa?: number }>({});
 
   const { data: operadorOptions = [] } = useResourceOptions('cadastro/operadores', (o: any) => ({
@@ -148,6 +150,8 @@ export function CtrlPermissoesPage() {
           <Button label={filtroForm ? 'Marcar tudo desta tela' : 'Marcar &tudo'} variant="soft" disabled={ocupado || operador == null} onClick={() => void lote(true, filtroForm || undefined)} />
           <Button label={filtroForm ? 'Desmarcar tudo desta tela' : '&Desmarcar tudo'} variant="soft" disabled={ocupado || operador == null} onClick={() => void lote(false, filtroForm || undefined)} />
           <Button label="&Copiar de outro operador…" variant="soft" disabled={ocupado} onClick={() => { setClone({ para: operador, de_empresa: empresa, para_empresa: empresa }); setClonando(true); }} />
+          {/* BtnLogClick (uCtrlPermissoes.pas:460): exige o usuário; mostra a coluna Empresa — quem liberou/removeu o quê */}
+          <Button label="Registro de &log" variant="soft" disabled={operador == null} onClick={() => setLogAberto(true)} />
         </div>
         {operador == null && <p className="mt-form-gap text-body-sm text-fg-muted">Selecione um operador para ver e editar as permissões. Sem permissão registrada, a ação é negada — é assim no legado também.</p>}
       </section>
@@ -203,6 +207,9 @@ export function CtrlPermissoesPage() {
             </div>
           </div>
         </Modal>
+      )}
+    {logAberto && operador != null && (
+        <RegistrosLogModal log={{ form: 'FRMCTRLPERMISSOES', chave: 'CODOPERADOR', exibirEmpresa: true }} valor={operador} onFechar={() => setLogAberto(false)} />
       )}
     </div>
   );

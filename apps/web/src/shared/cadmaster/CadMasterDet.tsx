@@ -6,6 +6,7 @@ import {
   type ArrayPath,
 } from 'react-hook-form';
 import type { ZodSchema } from 'zod';
+import type { LogDaTela } from '../log/RegistrosLogModal';
 import { CadMaster } from './CadMaster';
 import type { ColunaPesquisa } from './Pesquisa';
 import { Button } from '../ui/Button';
@@ -38,6 +39,8 @@ interface Props<T extends FieldValues> {
   colunasPesquisa?: ColunaPesquisa[];
   viewPk?: string;
   pkGerada?: boolean;
+  /** o "Registro de log" do legado — repassado ao `<CadMaster>` (menu Outros) */
+  log?: LogDaTela;
   /** campos do HEADER (master) */
   campos: (ctx: CamposCtx<T>) => ReactNode;
   /** o detalhe (itens) — espelha o ClientDataSet de detalhe do TfrmCadMasterDet */

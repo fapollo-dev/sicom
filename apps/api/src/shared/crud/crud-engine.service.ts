@@ -4,6 +4,7 @@ import { DatabaseProvider } from '../database/database.provider';
 import { currentTenant } from '../tenant/tenant-context';
 import type { CrudConfig, PesquisaQuery } from './crud-config';
 import { gravarHistorico, gravarHistoricoMarca, type HistoricoAlvo } from './historico';
+import { gravarLogDeCadastro } from '../log/registro-log';
 
 type AnyDB = Kysely<any>;
 
@@ -120,6 +121,7 @@ export class CrudEngineService {
       }
       await this.stamp(trx, cfg, id, op, true);
       if (cfg.historico !== false) await gravarHistorico(trx, this.alvo(cfg), id, op, this.emp(), {}, d, 'INSERT');
+      await gravarLogDeCadastro(trx, cfg, 'Inseriu', id, {}, d);
       if (cfg.replica) await this.outbox(trx, cfg, 'INSERT', id);
       return id;
     });
@@ -133,13 +135,14 @@ export class CrudEngineService {
       const d = this.delta(cfg, this.derivados(cfg, dto, id));
       // lê o estado anterior ANTES do update (diff campo-a-campo p/ o histórico)
       const antes =
-        cfg.historico === false || !Object.keys(d).length
+        (cfg.historico === false && !cfg.log) || !Object.keys(d).length
           ? {}
           : ((await trx.selectFrom(cfg.tabela).selectAll().where(cfg.pk, '=', id).executeTakeFirst()) ?? {});
       if (Object.keys(d).length) await trx.updateTable(cfg.tabela).set(d).where(cfg.pk, '=', id).execute();
       await this.stamp(trx, cfg, id, op, false);
       if (cfg.historico !== false)
         await gravarHistorico(trx, this.alvo(cfg), id, op, this.emp(), antes as Record<string, unknown>, d, 'UPDATE');
+      await gravarLogDeCadastro(trx, cfg, 'Alterou', id, antes as Record<string, unknown>, d);
       if (cfg.replica) await this.outbox(trx, cfg, 'UPDATE', id);
     });
   }

@@ -22,6 +22,8 @@ export const trocaAggregateConfig: AggregateConfig = {
   pk: 'codtroca',
   view: 'get_troca',
   rbacForm: 'FRMTROCAMERCADORIAFOR',
+  // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
+  log: { formulario: 'Troca de mercadorias do fornecedor' },
   empresaScoped: true,
   softDelete: false, // exclusão física (fiel — sem INDR)
   colunas: ['codparceiro', 'data', 'descricao'],

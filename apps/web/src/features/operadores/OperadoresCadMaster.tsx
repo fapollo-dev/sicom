@@ -33,6 +33,7 @@ export function OperadoresCadMaster() {
       titulo="Operadores"
       resourcePath="cadastro/operadores"
       pk="codoperador"
+      log={{ form: 'FRMCADUSUARIOS', chave: 'CODOPERADOR' }}
       pkGerada={false} // código do operador é digitado
       colunasPesquisa={[
         { campo: 'codoperador', label: 'Código', tipo: 'text', largura: 110 },

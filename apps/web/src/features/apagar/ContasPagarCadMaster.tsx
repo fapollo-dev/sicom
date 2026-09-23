@@ -50,6 +50,7 @@ export function ContasPagarCadMaster() {
       titulo="Contas a Pagar"
       resourcePath="cadastro/apagar"
       pk="codapg"
+      log={{ form: 'FRMAPAGAR', chave: 'CODAPG' }}
       schema={apagarSchema}
       defaultValues={defaultValues}
       largura="5xl"

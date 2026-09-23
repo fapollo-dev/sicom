@@ -13,6 +13,8 @@ export const familiasCrudConfig: CrudConfig = {
   view: 'get_familias_prod',
   colunas: ['tipo', 'descricao'],
   rbacForm: 'FRMCADFAMILIAPROD',
+  // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
+  log: { formulario: 'Cadastro de categorias e departamentos' },
   audit: false,
   replica: false,
   colunasPesquisa: ['codfamilia', 'tipo', 'descricao'],

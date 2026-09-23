@@ -45,6 +45,8 @@ export const devolucaoCompraAggregateConfig: AggregateConfig = {
   pk: 'codpeddevcompra',
   view: 'get_pedido_devolucao_compra',
   rbacForm: 'FRMCADPEDIDODEVOLUCAOCOMPRAS',
+  // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
+  log: { formulario: 'Devolução de Compras' },
   empresaScoped: true,
   softDelete: true,
   // STATUS (state-controlled: finalizar/reabrir/cancelar), CODNF_EMITIDA (gerar-NF) e CODOPERADOR (derivarTrx)

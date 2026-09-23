@@ -9,6 +9,7 @@ import { useMensagem } from '../mensagem';
 import { createResourceApi } from './resourceApi';
 import { useCadMaster } from './useCadMaster';
 import { Pesquisa, type ColunaPesquisa } from './Pesquisa';
+import { RegistrosLogModal, type LogDaTela } from '../log/RegistrosLogModal';
 
 interface CamposCtx<T extends FieldValues> {
   form: UseFormReturn<T>;
@@ -38,6 +39,11 @@ interface Props<T extends FieldValues> {
   pkGerada?: boolean;
   /** ações do menu "Outros" (btnOutros/ppmBotaoOutros do form-base; Alt+O abre) */
   outros?: AcaoOutros[];
+  /**
+   * o "Registro de log" do legado (ChamaTelaRegistrosLog): com um registro carregado, o menu Outros ganha a entrada, que
+   * abre o histórico da LOG daquele registro (o form-base grava uma linha a cada gravação — uCadMaster.pas:485).
+   */
+  log?: LogDaTela;
   /**
    * Largura máxima do container. Default '3xl' (cadastro simples, formulário estreito).
    * Telas densas/tabuladas (ex.: NOTA FISCAL, fiel ao form largo do legado) usam '6xl'/'full'.
@@ -85,6 +91,7 @@ export function CadMaster<T extends FieldValues>({
   viewPk,
   pkGerada = true,
   outros,
+  log,
   largura = '3xl',
   gerenciaEdicaoInterna = false,
   campos,
@@ -97,6 +104,10 @@ export function CadMaster<T extends FieldValues>({
   const [codigo, setCodigo] = useState('');
   const [pesquisaAberta, setPesquisaAberta] = useState(false);
   const [confirmExcluir, setConfirmExcluir] = useState(false);
+  const [logAberto, setLogAberto] = useState(false);
+  const idCorrente = cad.registro ? Number((cad.registro as any)[pk] ?? (cad.registro as any)[colunaCodigo]) : null;
+  const outrosComLog: AcaoOutros[] | undefined =
+    log && idCorrente ? [...(outros ?? []), { label: 'Registro de &log', onClick: () => setLogAberto(true) }] : outros;
   // chave natural: no insert o usuário DIGITA o código (que vira a PK)
   const codigoEditavelInsert = !pkGerada && cad.modo === 'insert';
 
@@ -224,9 +235,11 @@ export function CadMaster<T extends FieldValues>({
           onEditar={onEditar}
           onExcluir={onExcluir}
           onCancelar={onCancelar}
-          outros={outros}
+          outros={outrosComLog}
         />
       </FormScope>
+
+      {logAberto && log && <RegistrosLogModal log={log} valor={idCorrente} onFechar={() => setLogAberto(false)} />}
 
       {/* Confirmação de exclusão — AlertModal do DS (substitui o confirm() nativo) */}
       <AlertModal

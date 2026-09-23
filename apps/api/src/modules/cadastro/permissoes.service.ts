@@ -3,6 +3,7 @@ import { sql } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { gravarLog, type AcaoLog } from '../../shared/log/registro-log';
 
 type AnyDB = any;
 
@@ -89,6 +90,9 @@ export class PermissoesService {
           form: f, opcao: o, codoperador: null, codperfil, codempresa: emp,
           tipo: concedido ? 'INSERT' : 'DELETE', programa: 'ApolloWeb', maquina: null, codoperador_acao: ator,
         }).execute();
+        const r = await this.rotulos(trx, f, o);
+        await this.logPermissao(trx, concedido ? 'Inseriu' : 'Excluiu', { codperfil }, emp, (quem, paraO) =>
+          `${quem} ${concedido ? 'liberou' : 'removeu'} a permissão ${r.form_caption ?? f} da tela ${r.caption ?? o} para o  ${paraO}.`);
       }
       return { codperfil, form: f, opcao: o, concedido };
     });
@@ -99,6 +103,35 @@ export class PermissoesService {
   /** empresa do pedido: a tela do legado tem seletor (`cbbEmpresaChange`); ausente = a da sessão. */
   private empDe(codempresa?: number): number {
     return codempresa != null && Number.isFinite(codempresa) ? Number(codempresa) : this.emp();
+  }
+
+  /**
+   * a LOG do controle de permissões (`TfrmCtrlPermissoes.GravaLog` :951 + `GetMsgAcaoLog` :897): TABELA 'PERMISSOES',
+   * CHAVE 'CODOPERADOR', VALOR = o usuário da tela (0 quando é um perfil), IDEMPRESA = a empresa da permissão. É o que
+   * o "Registro de log" da tela mostra — o único registro de QUEM mudou a permissão de quem (a `audit_permissoes` só
+   * guarda programa e máquina). Os textos são os do legado, com os espaços duplos dele; a gravação sai em maiúsculas
+   * e sem acento, como na produção.
+   */
+  private async logPermissao(
+    trx: AnyDB, acao: AcaoLog, alvo: { codoperador?: number | null; codperfil?: number | null }, emp: number,
+    montar: (ator: string, paraO: string) => string,
+  ): Promise<void> {
+    const opAtor = currentTenant().operadorId ?? null;
+    const ator = opAtor != null
+      ? ((await trx.selectFrom('operadores').select(['nome', 'login']).where('codoperador', '=', opAtor).executeTakeFirst()) as { nome?: string; login?: string } | undefined)
+      : undefined;
+    let paraO: string;
+    if (alvo.codoperador != null) {
+      const o = (await trx.selectFrom('operadores').select(['nome', 'login']).where('codoperador', '=', alvo.codoperador).executeTakeFirst()) as { nome?: string; login?: string } | undefined;
+      paraO = `Usuário ${o?.nome ?? o?.login ?? ''} na empresa ${emp}`;
+    } else {
+      const p = (await trx.selectFrom('perfil').select('perfil').where('codperfil', '=', alvo.codperfil ?? -1).executeTakeFirst()) as { perfil?: string } | undefined;
+      paraO = `Perfil ${p?.perfil ?? ''} na empresa ${emp}`;
+    }
+    await gravarLog(trx, {
+      acao, formulario: 'Controle de permissões', tabela: 'PERMISSOES', chave: 'CODOPERADOR',
+      valor: alvo.codoperador ?? 0, historico: montar(`Usuário ${ator?.nome ?? ator?.login ?? ''}`, paraO), idempresa: emp,
+    });
   }
 
   private async assertOperador(db: AnyDB, codoperador: number): Promise<void> {
@@ -149,6 +182,10 @@ export class PermissoesService {
           form: f, opcao: o, codoperador: dto.codoperador, codperfil: null, codempresa: emp,
           tipo: dto.concedido ? 'INSERT' : 'DELETE', programa: 'ApolloWeb', maquina: null, codoperador_acao: ator,
         }).execute();
+        // talMarcarOpcao / talDesmarcaOpcao (:933-941): "…liberou a permissão <tela> da tela <opção> para o  …"
+        const r = await this.rotulos(trx, f, o);
+        await this.logPermissao(trx, dto.concedido ? 'Inseriu' : 'Excluiu', { codoperador: dto.codoperador }, emp, (quem, paraO) =>
+          `${quem} ${dto.concedido ? 'liberou' : 'removeu'} a permissão ${r.form_caption ?? f} da tela ${r.caption ?? o} para o  ${paraO}.`);
       }
       return { codoperador: dto.codoperador, codempresa: emp, form: f, opcao: o, concedido: dto.concedido };
     });
@@ -208,6 +245,18 @@ export class PermissoesService {
           }).execute();
         }
       }
+      // o legado grava uma linha por clique (:446/:457/:505/:520): todas as opções de uma tela, ou o acesso total/geral
+      const quemAlvo = porOperador ? { codoperador: alvo } : { codperfil: alvo };
+      const acaoLog: AcaoLog = dto.concedido ? 'Inseriu' : 'Excluiu';
+      if (dto.form) {
+        const fu = dto.form.trim().toUpperCase();
+        const tela = (pares[0]?.form_caption as string | null | undefined) ?? (await this.rotulos(trx, fu, fu)).form_caption ?? fu;
+        await this.logPermissao(trx, acaoLog, quemAlvo, emp, (quem, paraO) =>
+          `${quem} ${dto.concedido ? 'liberou' : 'removeu'} todas as permissões da tela  ${tela} para o ${paraO}.`);
+      } else {
+        await this.logPermissao(trx, acaoLog, quemAlvo, emp, (quem, paraO) =>
+          dto.concedido ? `${quem} liberou acesso total para o  ${paraO}.` : `${quem} removeu o acesso geral do ${paraO}.`);
+      }
     });
     return { alterados, ignorados_industria: ignorados };
   }
@@ -235,7 +284,12 @@ export class PermissoesService {
       for (const g of origem) {
         await trx.insertInto('permissoes').values({ form: g.form, opcao: g.opcao, [col]: dto.para, codempresa: dto.para_empresa }).execute();
       }
-      // a tela do legado grava log da clonagem (`GravaLog(doInserir, talClonar)`); aqui vai uma linha de trilha.
+      // talClonar (:928): "…clonou as permissões de <Usuário|Perfil> para o  <Usuário|Perfil> <nome> na empresa N." — o
+      // legado repete o TIPO onde deveria vir o nome da origem (vPermissao duas vezes); a produção grava assim
+      // ("CLONOU AS PERMISSOES DE USUARIO  PARA O  USUARIO LILIA … NA EMPRESA 2.")
+      const tipoTxt = dto.tipo === 'USUARIO' ? 'Usuário' : 'Perfil';
+      await this.logPermissao(trx, 'Inseriu', dto.tipo === 'USUARIO' ? { codoperador: dto.para } : { codperfil: dto.para }, dto.para_empresa,
+        (quem, paraO) => `${quem} clonou as permissões de ${tipoTxt}  para o  ${paraO}.`);
       await trx.insertInto('audit_permissoes').values({
         form: 'FRMCTRLPERMISSOES', opcao: 'CLONAR', codempresa: dto.para_empresa,
         codoperador: dto.tipo === 'USUARIO' ? dto.para : null, codperfil: dto.tipo === 'PERFIL' ? dto.para : null,

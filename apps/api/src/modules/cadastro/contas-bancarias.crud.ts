@@ -25,6 +25,8 @@ export const contasBancariasCrudConfig: AggregateConfig = {
     'nroconvenio_arqrem', 'conta_propria', 'exibe_rel_apuracao_caixa', 'ativo',
   ], // NÃO inclui idempresa (carimbado) nem codconta (PK gerada)
   rbacForm: 'FRMCADCONTASBANCARIAS',
+  // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
+  log: { formulario: 'Contas correntes' },
   colunasPesquisa: ['codconta', 'banco', 'titular', 'nroconta', 'gerente', 'ativo'],
   softDelete: false, // legado usa flag ATIVO → hard-delete (detalhe cai na cascata do engine)
   replica: false,

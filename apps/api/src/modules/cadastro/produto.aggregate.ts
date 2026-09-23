@@ -120,6 +120,8 @@ export const produtoAggregateConfig: AggregateConfig = {
   pk: 'idproduto',
   view: 'get_produtos',
   rbacForm: 'FRMCADPRODUTO',
+  // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
+  log: { formulario: 'Cadastro de produtos' },
   colunas: [
     // identidade
     'codbarra', 'descricao', 'descricao_resumida', 'descricao_web', 'descricao_balanca',
