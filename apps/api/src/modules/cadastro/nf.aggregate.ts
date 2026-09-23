@@ -7,6 +7,7 @@ import { estornarVinculoRotativo } from './inventario-rotativo-nf';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { debitoPisCofins } from '../shared/piscofins-rentab';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
+import { configNaTrx } from '../compras/pedido-heranca';
 
 /**
  * NOTA FISCAL (tela-coroa) — Fase 1: NÚCLEO CADASTRO, agregado mestre-detalhe via
@@ -141,12 +142,12 @@ export const nfAggregateConfig: AggregateConfig = {
     // Espelha NotaEletronica/btnEditar do legado: NF processada/contabilizada/faturada/enviada/
     // cancelada é read-only (editar deixaria efeitos dessincronizados).
     let atual:
-      | { proc?: string; statusnfe?: string; contabilizado?: string; cancelada?: string; faturada?: string; nronf?: string; serie?: string; modelo?: number; tipoemissao?: string; codparceiro?: number; dtcontabil?: unknown }
+      | { proc?: string; statusnfe?: string; contabilizado?: string; cancelada?: string; faturada?: string; nronf?: string; serie?: string; modelo?: number; tipoemissao?: string; codparceiro?: number; dtcontabil?: unknown; cfop?: unknown; idsituacao_nf?: unknown; tipo?: string }
       | undefined;
     if (id != null) {
       atual = (await db
         .selectFrom('nf')
-        .select(['proc', 'statusnfe', 'contabilizado', 'cancelada', 'faturada', 'nronf', 'serie', 'modelo', 'tipoemissao', 'codparceiro', 'dtcontabil'])
+        .select(['proc', 'statusnfe', 'contabilizado', 'cancelada', 'faturada', 'nronf', 'serie', 'modelo', 'tipoemissao', 'codparceiro', 'dtcontabil', 'cfop', 'idsituacao_nf', 'tipo'])
         .where('codnf', '=', id)
         .where('idempresa', '=', emp)
         .executeTakeFirst()) as typeof atual;
@@ -190,6 +191,59 @@ export const nfAggregateConfig: AggregateConfig = {
       const dup = await q.executeTakeFirst();
       if (dup) throw new BusinessRuleError('NF_DUPLICADA');
     }
+
+    // CFOP × SITUAÇÃO (`validaCFOP_SituacaoNF`, udmNF.pas:7900; UCadSituacaoNF.md C2): com situação na NF, o CFOP do
+    // cabeçalho tem de estar entre os CFOPs dela (btnGravar, uNF.pas:4543) — situação sem CFOP nenhum recusa qualquer
+    // CFOP, como o Locate do legado. O de cada item, pela situação DO ITEM: o item digitado ou alterado é cobrado sempre
+    // (o OK do diálogo do item, uItensNF.pas:1525); a nota inteira, na ENTRADA ou com `VALIDA_CFOP_SITUACAO_NF_SAIDA='S'`
+    // (o Processamento, uNF.pas:14921 — na produção 'N'), o que pega o item que veio por importação.
+    const sitNf = Number(dto.idsituacao_nf ?? atual?.idsituacao_nf ?? 0);
+    if (sitNf > 0) {
+      const cache = new Map<number, Set<number>>();
+      const cfopsDe = async (sit: number) => {
+        if (!cache.has(sit)) {
+          cache.set(sit, new Set(((await db.selectFrom('isituacao_nf').select('codcfop').where('idsituacao_nf', '=', sit).execute()) as Array<{ codcfop: unknown }>)
+            .map((r) => Number(r.codcfop))));
+        }
+        return cache.get(sit)!;
+      };
+      const cfopNf = dto.cfop ?? atual?.cfop;
+      if (cfopNf != null && cfopNf !== '' && !(await cfopsDe(sitNf)).has(Number(cfopNf))) {
+        throw new BusinessRuleError('NF_CFOP_SITUACAO', { cfop: Number(cfopNf), idsituacao_nf: sitNf });
+      }
+      if (Array.isArray(dto.itens)) {
+        const tipoNf = String(dto.tipo ?? atual?.tipo ?? '');
+        const notaInteira = tipoNf === 'E' || String((await configNaTrx(db, 'VALIDA_CFOP_SITUACAO_NF_SAIDA', { empresaId: emp, operadorId: currentTenant().operadorId ?? null })) ?? 'N').toUpperCase() === 'S';
+        // o item já gravado, casado pelo produto na ordem (como o motor casa): dá a situação própria do item (701 linhas
+        // da produção diferem do cabeçalho) e diz se o CFOP mudou
+        const antigos = new Map<string, Array<{ cfop: unknown; idsituacao_nf: unknown }>>();
+        if (id != null) {
+          for (const r of (await db.selectFrom('nf_prod').select(['codproduto', 'cfop', 'idsituacao_nf']).where('codnf', '=', id).orderBy('codnfprod').execute()) as Array<{ codproduto: unknown; cfop: unknown; idsituacao_nf: unknown }>) {
+            const k = String(r.codproduto);
+            antigos.set(k, [...(antigos.get(k) ?? []), r]);
+          }
+        }
+        for (const it of dto.itens as Array<Record<string, unknown>>) {
+          const par = antigos.get(String(it.codproduto))?.shift();
+          if (it.cfop == null || it.cfop === '') continue;
+          const tocado = !par || Number(par.cfop) !== Number(it.cfop);
+          if (!tocado && !notaInteira) continue;
+          const sitIt = [it.idsituacao_nf, par?.idsituacao_nf].map(Number).find((s) => s > 0) ?? sitNf;
+          if (!(await cfopsDe(sitIt)).has(Number(it.cfop))) {
+            throw new BusinessRuleError('NF_ITEM_CFOP_SITUACAO', { cfop: Number(it.cfop), idsituacao_nf: sitIt, codproduto: it.codproduto });
+          }
+        }
+      }
+    }
+  },
+  // a SITUAÇÃO DO ITEM (UCadSituacaoNF.md C2): o item entra com a situação do cabeçalho (uNF.pas:1594, 5724, 13699,
+  // 16043) — 99,5% dos itens de 2026. O item que já tinha a sua (701 linhas da produção diferem do cabeçalho) mantém:
+  // a coluna não é gerenciada pelo formulário, então o motor a preserva, e aqui só se preenche a que falta.
+  aposGravarTrx: async ({ trx, id }) => {
+    await sql`
+      UPDATE nf_prod p SET idsituacao_nf = n.idsituacao_nf
+        FROM nf n
+       WHERE n.codnf = ${id} AND p.codnf = n.codnf AND p.idsituacao_nf IS NULL AND n.idsituacao_nf IS NOT NULL`.execute(trx);
   },
   // Guarda de EXCLUSÃO (btnExcluir do legado, uNF.pas:4072): não apagar NF com efeitos — apagar deixaria
   // estoque movido e títulos órfãos. Exige reverter (F3) / estornar (F4) antes.

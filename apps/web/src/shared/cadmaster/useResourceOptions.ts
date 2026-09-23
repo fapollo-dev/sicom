@@ -14,9 +14,9 @@ export interface Opcao {
  * `params` permite FILTRAR o recurso (ex.: vendedores = parceiros com FUN='S'):
  * `useResourceOptions('cadastro/parceiros', map, { campo:'fun', operador:'igual', valor:'S' })`.
  */
-export function useResourceOptions<T = any>(
+export function useResourceOptions<T = any, O extends Opcao = Opcao>(
   resourcePath: string,
-  mapRow: (row: T) => Opcao,
+  mapRow: (row: T) => O,
   params?: PesquisaParams,
 ) {
   return useQuery({

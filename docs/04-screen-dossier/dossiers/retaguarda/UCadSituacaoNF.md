@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |---|---|
-| **Status** | **C1 ENTREGUE** (23/09/2026, mig 317, smoke 1464/0): a tela — agregado com os 27 campos e os 4 detalhes, a matriz do `SetTipoOperacao` no shared (API e tela), validações, guarda de exclusão, LOG, sequências, tela web com as abas que a operação liga. ⚠️ descrição segue varchar(80) (100 no legado) até o conferidor de tamanhos. C2-C6 na fila. RECON (23/09/2026). A tela não estava na fila nem no placar: o Apollo tinha só uma API de consulta com 2 campos (`situacao-nf.crud.ts`), sem tela. 656 acessos, usada até 17/09/2026. |
+| **Status** | **C2 ENTREGUE** (23/09/2026, smoke 1467/0): a NF confere o CFOP contra os CFOPs da situação, o item leva a situação do cabeçalho, a tela filtra situação e CFOP, a devolução busca a situação na ISITUACAO_NF. C2b (transferência 5152) e C3-C6 na fila. **C1 ENTREGUE** (23/09/2026, mig 317, smoke 1464/0): a tela — agregado com os 27 campos e os 4 detalhes, a matriz do `SetTipoOperacao` no shared (API e tela), validações, guarda de exclusão, LOG, sequências, tela web com as abas que a operação liga. ⚠️ descrição segue varchar(80) (100 no legado) até o conferidor de tamanhos. C2-C6 na fila. RECON (23/09/2026). A tela não estava na fila nem no placar: o Apollo tinha só uma API de consulta com 2 campos (`situacao-nf.crud.ts`), sem tela. 656 acessos, usada até 17/09/2026. |
 | **Fontes** | `UCadSituacaoNF.pas` (1.694) + `UdmCadSituacaoNF.pas/.dfm` + `uRdmCadSituacaoNF` (`TfrmCadSituacaoNF = class(TfrmCadMasterDet)`). |
 | **Produção** | 194 situações (103 E · 90 S · 1 T, a 2020 F03), todas ATIVO='S'. |
 
@@ -45,12 +45,12 @@ NFs de 2026: 7.219 em 31 situações; itens 68.745 (68.624 com situação; em 70
 ## 3. Quem usa — e o que falta no Apollo
 | Regra | Legado | Dado vivo | Apollo |
 |---|---|---|---|
-| lista de situações da NF só do TIPO e com CFOP | uConsultaSitucaoDocumento.dfm:923-945 | — | FALTA |
-| pesquisa de CFOP filtrada pela situação | uNF.pas:2955-2977 | — | FALTA |
-| `validaCFOP_SituacaoNF` (cabeçalho; itens se E ou config) | udmNF.pas:7900; uNF.pas:4543, 9563, 14921 | cabeçalho fora: 0 de 7.205 | FALTA |
-| situação do item = a do cabeçalho | uNF.pas:1594, 5724, 13699, 16043 | 99,5% | FALTA (`nf_prod.idsituacao_nf` não é gravado) |
-| devolução: situação do item pelo CFOP | uNF.pas:7250; uPedidoDevolucaoCompra.pas:362 | 4 CFOPs → 17 | PARCIAL (mig 076) |
-| transferência (5152, CFOP.PROC_TRANSF) | uNF.pas:1423; uProcessaNotaFiscal.pas:1636 | 6 situações | FALTA |
+| lista de situações da NF só do TIPO e com CFOP | uConsultaSitucaoDocumento.dfm:923-945 | — | ✅ C2 (a tela da NF) |
+| pesquisa de CFOP filtrada pela situação | uNF.pas:2955-2977 | — | ✅ C2 (cabeçalho e item; o valor gravado continua na lista) |
+| `validaCFOP_SituacaoNF` (cabeçalho; itens se E ou config) | udmNF.pas:7900; uNF.pas:4543, 9563, 14921; uItensNF.pas:1525 | cabeçalho fora: 0 de 7.205 | ✅ C2 — cabeçalho sempre; item digitado/alterado sempre (o OK do diálogo); a nota inteira na entrada ou com `VALIDA_CFOP_SITUACAO_NF_SAIDA='S'` |
+| situação do item = a do cabeçalho | uNF.pas:1594, 5724, 13699, 16043 | 99,5% | ✅ C2 (a que falta é preenchida; a do item que já tinha a sua fica) |
+| devolução: situação do item pelo CFOP | uNF.pas:7250; uPedidoDevolucaoCompra.pas:362 | 4 CFOPs → 17 | ✅ C2 (ISITUACAO_NF da situação de saída; o de-para da mig 076 fica como reserva) |
+| transferência (5152, CFOP.PROC_TRANSF) | uNF.pas:1423; uProcessaNotaFiscal.pas:1636 | 6 situações | FALTA — C2b (importação do pedido e do XML) |
 | bonificação = CFOP 1910/2910/5910/6910 | udmNF.pas:5325; uLancamentoContabilNF.pas:762 | 5 e 24 | FALTA |
 | rateio pré-preenchido pelo CC da situação | udmNF.pas:11027 (uNF.pas:5036/2912); uLancamentoContabilNF.pas:673 | 5.353 de 6.449 NFs de entrada | FALTA |
 | CCs permitidos por situação; situação do rateio = cabeçalho/itens | uLancamentoContabilNF.pas:148/230/314 | 6.531/6.531 dentro | FALTA |
@@ -68,8 +68,12 @@ NFs de 2026: 7.219 em 31 situações; itens 68.745 (68.624 com situação; em 70
 - **C1 — a tela**: agregado com os 27 campos + os 4 detalhes, a matriz do `SetTipoOperacao`, validações, lookups, guarda
   de exclusão, LOG, RBAC, sequências acima do legado, TIPO 'T', CFOP-tipo validado só em linha nova/alterada; um lookup
   comum com filtros (tipo, tipo_operacao, com_cfop).
-- **C2 — NF × CFOP**: pesquisa de situação e de CFOP filtradas, `validaCFOP_SituacaoNF`, `nf_prod.idsituacao_nf`,
-  devolução pela ISITUACAO_NF, 5152.
+- **C2 — NF × CFOP** ✅: pesquisa de situação e de CFOP filtradas, `validaCFOP_SituacaoNF`, `nf_prod.idsituacao_nf`,
+  devolução pela ISITUACAO_NF. A validação é a do legado inteira: situação sem CFOP nenhum recusa qualquer CFOP (o
+  `Locate` não acha); o item digitado é cobrado em qualquer tipo de nota (uItensNF.pas:1525) e a nota inteira só na
+  entrada ou com a config (o Processamento, uNF.pas:14921) — é o que deixa passar o item importado da saída.
+- **C2b — transferência**: situação com CFOP 5152 marca o pedido como transferência e o CFOP vira 5152/6152
+  (uNF.pas:1423); a importação do XML oferece só as situações com CFOP `PROC_TRANSF` (uProcessaNotaFiscal.pas:1636).
 - **C3 — rateio**: pré-preenchimento, CCs permitidos, ADICIONAL da bonificação.
 - **C4 — caixa da NF**: `GerarLancamentosDeCaixa` e a reversão (golden: 1.011 linhas / R$ 764.054,09 de 2026).
 - **C5 — pesquisas fora da NF**: TIPO_OPERACAO, CC e parceiro em AP/AR/caixa/scrap/CFOP/empresa/pedido.

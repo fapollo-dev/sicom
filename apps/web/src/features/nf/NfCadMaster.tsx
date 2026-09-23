@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Pencil, Trash2, Layers } from 'lucide-react';
 import { DataTable, type DataTableColumnDef, Modal } from '@apollosg/design-system';
@@ -52,11 +53,16 @@ const fmtBRL = (n: number) =>
 const toStr = (opts: ReadonlyArray<{ value: number; label: string }>): Opcao[] =>
   opts.map((o) => ({ value: String(o.value), label: o.label }));
 
+type OpcaoCfop = Opcao & { tipo: string | null };
+type OpcaoSituacao = Opcao & { tipo: string | null; qtdeCfop: number };
+
 type LookupOptions = {
   parceiroOptions: Opcao[];
   transpOptions: Opcao[];
-  cfopOptions: Opcao[];
-  situacaoOptions: Opcao[];
+  cfopOptions: OpcaoCfop[];
+  situacaoOptions: OpcaoSituacao[];
+  /** a situação do CABEÇALHO: só as do tipo da nota que têm CFOP (a consulta do legado faz JOIN com os CFOPs dela) */
+  situacaoNfOptions?: Opcao[];
   plcOptions: Opcao[];
   aliquotaOptions: Opcao[];
   unidadeOptions: Opcao[];
@@ -89,13 +95,16 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
     (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao}` }),
     { campo: 'tra', operador: 'igual', valor: 'S' },
   );
-  const { data: cfopOptions = [] } = useResourceOptions('cadastro/cfops', (c: any) => ({
-    value: String(c.codcfop),
+  const { data: cfopOptions = [] } = useResourceOptions('cadastro/cfops', (c: any): OpcaoCfop => ({
+    value: String(c.codcfop).trim(),
     label: `${c.codcfop} - ${c.descricao}`,
+    tipo: c.tipo ?? null,
   }));
-  const { data: situacaoOptions = [] } = useResourceOptions('cadastro/situacoes-nf', (s: any) => ({
+  const { data: situacaoOptions = [] } = useResourceOptions('cadastro/situacoes-nf', (s: any): OpcaoSituacao => ({
     value: String(s.idsituacao_nf),
     label: `${s.idsituacao_nf} - ${s.descricao}`,
+    tipo: s.tipo ?? null,
+    qtdeCfop: Number(s.qtde_cfop ?? 0),
   }));
   const { data: plcOptions = [] } = useResourceOptions('cadastro/plc', (c: any) => ({
     value: String(c.codplc),
@@ -170,6 +179,30 @@ export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
 
 const DEFERRED_TABS = new Set(['pedidos', 'servico', 'cce', 'impexp', 'devcompra', 'avulsa', 'nfdev', 'xml']);
 
+/**
+ * as opções que dependem da SITUAÇÃO (UCadSituacaoNF.md C2): a situação do cabeçalho só lista as do tipo da nota que
+ * têm CFOP (TfrmConsultaSituacaoDocumento, uNF.pas:15996 — a consulta faz JOIN com os CFOPs da situação); o CFOP, do
+ * cabeçalho e do item, só os do tipo da nota e, com situação que tem CFOP, só os dela (btnAddCFOPClick, uNF.pas:2955;
+ * btnCFOPClick, uItensNF.pas:1080). O valor já gravado continua na lista — a NF antiga abre como está.
+ */
+function useOpcoesDaSituacao(form: UseFormReturn<CriarNfDto>, tipo: NfTipo, opts: LookupOptions): LookupOptions {
+  const sit = Number(form.watch('idsituacao_nf') ?? 0);
+  const cfopAtual = String(form.watch('cfop') ?? '').trim();
+  const { data: cfopsDaSituacao } = useQuery({
+    queryKey: ['cadastro/situacoes-nf', sit, 'cfops'],
+    queryFn: () => createResourceApi<{ cfops?: Array<{ codcfop: unknown }> }>('cadastro/situacoes-nf').ler(sit),
+    enabled: sit > 0,
+    select: (r) => new Set((r.cfops ?? []).map((c) => String(c.codcfop).trim())),
+  });
+  return useMemo(() => {
+    const situacaoNfOptions = opts.situacaoOptions.filter((o) => (o.tipo === tipo && o.qtdeCfop > 0) || Number(o.value) === sit);
+    const filtroSit = sit > 0 && cfopsDaSituacao && cfopsDaSituacao.size > 0 ? cfopsDaSituacao : null;
+    const cfopOptions = opts.cfopOptions.filter((o) =>
+      o.value === cfopAtual || ((!o.tipo || o.tipo === tipo) && (!filtroSit || filtroSit.has(o.value))));
+    return { ...opts, situacaoNfOptions, cfopOptions };
+  }, [opts, tipo, sit, cfopAtual, cfopsDaSituacao]);
+}
+
 function NfForm({
   form,
   editavel,
@@ -183,6 +216,7 @@ function NfForm({
 }) {
   // aba ativa (o legado abre em "Cálculo de impostos"; começamos em Itens, que é onde se digita)
   const [aba, setAba] = useState('itens');
+  const optsNf = useOpcoesDaSituacao(form, tipo, opts);
 
   // TRAVA de estado (espelha dsNFStateChange + bloqueios do btnEditar do legado):
   const proc = form.watch('proc');
@@ -233,14 +267,14 @@ function NfForm({
       )}
 
       {/* BANDA DE CABEÇALHO (posições do legado: Tipo/Modelo/Nº/Série/Emissão/… + Destinatário + Total NF) */}
-      <CabecalhoBand form={form} editavel={liberado} tipo={tipo} opts={opts} />
+      <CabecalhoBand form={form} editavel={liberado} tipo={tipo} opts={optsNf} />
 
       {/* BARRA DE ABAS + CONTEÚDO (folder tabs do legado) */}
       <div>
         <Tabs tabs={mainTabs} active={aba} onChange={setAba} />
         <TabPanel>
           {aba === 'calc' && <CalcTab form={form} liberado={liberado} />}
-          {aba === 'itens' && <ItensSection form={form} editavel={liberado} opts={opts} />}
+          {aba === 'itens' && <ItensSection form={form} editavel={liberado} opts={optsNf} />}
           {aba === 'fin' && <FinTab form={form} liberado={liberado} tipo={tipo} />}
           {aba === 'ref' && <ReferenciasSection form={form} editavel={liberado} />}
           {aba === 'dados' && <DadosGeraisTab form={form} editavel={liberado} />}
@@ -385,7 +419,7 @@ function CabecalhoBand({
           render={({ field }) => (
             <SelectField
               label="&Situação (natureza)"
-              options={opts.situacaoOptions}
+              options={opts.situacaoNfOptions ?? opts.situacaoOptions}
               value={field.value != null ? String(field.value) : undefined}
               onChange={(v) => field.onChange(v ? Number(v) : undefined)}
               placeholder="Selecione a situação…"

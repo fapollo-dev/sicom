@@ -330,9 +330,16 @@ export class DevolucaoCompraService {
     const cfopHeader = String(nfItens[0]?.cfop ?? '5202');
     // corte SPED c1: SITUAÇÃO OPERACIONAL do header = de-para do CFOP de saída (ISITUACAO_NF; golden 17='VENDAS PDV'
     // p/ 5202/6202/5411/6411). uPedidoDevolucaoCompra.pas:362-368/541-552. INERTE p/ contábil (nf_contabil não é populado).
+    // mig 317/C2: pela ISITUACAO_NF (a situação de SAÍDA que tem o CFOP — `GetSQLSituacaoNF`, join SITUACAO_NF TIPO='S');
+    // CFOP em mais de uma situação: a primeira (o `RetornarValores` do legado pega a primeira linha). Sem nenhuma, o de-para
+    // antigo da mig 076 (cfop.idsituacao_nf_saida).
+    const sitIsit = (await sql<{ idsituacao_nf: number }>`
+        SELECT i.idsituacao_nf FROM isituacao_nf i JOIN situacao_nf s ON s.idsituacao_nf = i.idsituacao_nf
+         WHERE i.codcfop = ${Number(cfopHeader)} AND s.tipo = 'S' ORDER BY i.idisituacao_nf LIMIT 1`.execute(db)).rows[0];
     const sitRow = (await db
       .selectFrom('cfop').select('idsituacao_nf_saida').where('codcfop', '=', cfopHeader).executeTakeFirst()) as { idsituacao_nf_saida?: number | null } | undefined;
-    const idsituacaoNf = sitRow?.idsituacao_nf_saida != null ? Number(sitRow.idsituacao_nf_saida) : undefined;
+    const idsituacaoNf = sitIsit?.idsituacao_nf != null ? Number(sitIsit.idsituacao_nf)
+      : sitRow?.idsituacao_nf_saida != null ? Number(sitRow.idsituacao_nf_saida) : undefined;
     const dto: Record<string, unknown> = {
       tipo: 'S',
       modelo: 55, // NFe própria de saída (NUMERADA pelo agregado; a transmissão SEFAZ é F6 — adiado)

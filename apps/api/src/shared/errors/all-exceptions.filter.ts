@@ -504,6 +504,8 @@ const CODE_PT: Record<string, string> = {
   PROMOCAO_PRODUTO_INVALIDO: 'Produto inválido em um item da promoção.',
   PROMOCAO_PRODUTO_INATIVO: 'Um produto da promoção está inativo.',
   PROMOCAO_PRODUTO_SOBREPOSTO: 'Um produto já está em outra promoção no mesmo período.',
+  NF_CFOP_SITUACAO: 'CFOP não permitido para a situação informada para a nota fiscal. Verifique!',
+  NF_ITEM_CFOP_SITUACAO: 'CFOP não permitido para a situação informada no item. Verifique!',
   SITUACAO_NAO_ENCONTRADA: 'Situação do documento não encontrada.',
   SITUACAO_CONTA_OBRIGATORIA: 'Informe a conta contábil (ou marque a conta como automática).',
   SITUACAO_HISTORICO_OBRIGATORIO: 'Informe o histórico da conta contábil.',

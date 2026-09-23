@@ -841,6 +841,21 @@ async function main() {
       nutriPut.status === 200 && Number(nutriBody.carboidrato) === 50 && Number(nutriBody.valorenergetico) === 387,
       { status: nutriPut.status, carb: nutriBody.carboidrato },
     );
+    // 16.0) os CFOPs das situações do seed (ISITUACAO_NF): a NF com situação só aceita CFOP da situação
+    // (validaCFOP_SituacaoNF — UCadSituacaoNF.md C2). A 17 primeiro, como o de-para da devolução (mig 076).
+    {
+      const pgCf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        for (const [s, cs] of [[17, [5202, 6202, 5411, 6411]], [6, [1102, 1202, 1403, 1411, 2949]], [8, [5102, 5202, 5411, 5949, 6404]], [1031, [1102]]] as Array<[number, number[]]>) {
+          for (const c of cs) {
+            await pgCf.query(`INSERT INTO isituacao_nf (idsituacao_nf, codcfop) SELECT $1::int, $2::int WHERE NOT EXISTS (SELECT 1 FROM isituacao_nf WHERE idsituacao_nf=$1::int AND codcfop=$2::int)`, [s, c]);
+          }
+        }
+      } finally {
+        await pgCf.end();
+      }
+    }
+
     // 16) NOTA FISCAL (tela-coroa) — F1 NÚCLEO CADASTRO, SEM EFEITOS. Header+itens+referências.
     // 16.1) saldo de estoque do produto 1 ANTES (prova de que a NF NÃO move estoque na F1)
     const estAntes = (await (await fetch(`${base}/cadastro/produtos/1`, { headers: H })).json()) as any;
@@ -1050,6 +1065,46 @@ async function main() {
         check('SITUAÇÃO e: em uso numa NF → 422 SITUACAO_EM_USO · sem uso → 204 e contas/parceiros apagados',
           e1.status === 422 && e1J.code === 'SITUACAO_EM_USO' && e2.status === 204 && e2Filhos === 0,
           { e1: [e1.status, e1J.code], e2: e2.status, filhos: e2Filhos });
+
+        // f) C2 — NF × CFOP da situação (validaCFOP_SituacaoNF, udmNF.pas:7900)
+        const nfSit = (b: Record<string, unknown>) => fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({
+          modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', tipoemissao: '0', finalidade: '1', ...b }) });
+        // cabeçalho: entrada na 1031 (só 1102) com CFOP 1403 → 422
+        const f1 = await nfSit({ tipo: 'E', nronf: 'SITC2A', cfop: '1403', idsituacao_nf: 1031, codparceiro: 22, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1, cfop: '1403', aliquota: 'T01' }] });
+        const f1J = (await f1.json().catch(() => ({}))) as any;
+        // item de ENTRADA fora da situação (6 não tem 1556) → 422
+        await pgSit.query(`INSERT INTO cfop (codcfop, descricao, tipo) VALUES ('1556','COMPRA USO CONSUMO','E') ON CONFLICT DO NOTHING`);
+        const f2 = await nfSit({ tipo: 'E', nronf: 'SITC2B', cfop: '1102', idsituacao_nf: 6, codparceiro: 22, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1, cfop: '1556', aliquota: 'T01' }] });
+        const f2J = (await f2.json().catch(() => ({}))) as any;
+        // SAÍDA: o item digitado é cobrado mesmo com VALIDA_CFOP_SITUACAO_NF_SAIDA='N' (o OK do diálogo do item)
+        await pgSit.query(`INSERT INTO cfop (codcfop, descricao, tipo) VALUES ('5405','VENDA ST','S') ON CONFLICT DO NOTHING`);
+        const f3 = await nfSit({ tipo: 'S', nronf: 'SITC2C', cfop: '5102', idsituacao_nf: 8, codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1, cfop: '5405', aliquota: 'T01' }] });
+        const f3J = (await f3.json().catch(() => ({}))) as any;
+        check('SITUAÇÃO f (C2): CFOP da NF fora da situação → 422 NF_CFOP_SITUACAO · item de entrada fora → 422 NF_ITEM_CFOP_SITUACAO · item digitado na saída também é cobrado',
+          f1.status === 422 && f1J.code === 'NF_CFOP_SITUACAO' && f2.status === 422 && f2J.code === 'NF_ITEM_CFOP_SITUACAO'
+          && f3.status === 422 && f3J.code === 'NF_ITEM_CFOP_SITUACAO',
+          { f1: [f1.status, f1J.code], f2: [f2.status, f2J.code], f3: [f3.status, f3J.code] });
+        // g) o item entra com a situação do cabeçalho; o que veio por importação (CFOP fora) só é cobrado na saída com a config
+        const g0 = await nfSit({ tipo: 'S', nronf: 'SITC2D', cfop: '5102', idsituacao_nf: 8, codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1, cfop: '5102', aliquota: 'T01' }] });
+        const g0Id = Number(((await g0.json().catch(() => ({}))) as any).codnf);
+        const gSit = (await pgSit.query(`SELECT idsituacao_nf FROM nf_prod WHERE codnf=$1`, [g0Id])).rows.map((r) => Number(r.idsituacao_nf));
+        await pgSit.query(`UPDATE nf_prod SET cfop='5405' WHERE codnf=$1`, [g0Id]);
+        const gEcho = async () => {
+          const b = (await (await fetch(`${base}/fiscal/nf/${g0Id}`, { headers: H })).json()) as any;
+          return fetch(`${base}/fiscal/nf/${g0Id}`, { method: 'PUT', headers: H, body: JSON.stringify(b) });
+        };
+        const g1 = await gEcho();
+        await pgSit.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, descricao, valorespossiveis, config_especificas_permitidas)
+          SELECT 272, 'VALIDA_CFOP_SITUACAO_NF_SAIDA', 'N', 'String', 'Validar se CFOP do item da nota de saída está dentro da situação do documento informada', 'S;N|Sim;Não', 'F'
+           WHERE NOT EXISTS (SELECT 1 FROM configuracoes WHERE codigo='VALIDA_CFOP_SITUACAO_NF_SAIDA')`);
+        await pgSit.query(`UPDATE configuracoes SET valor='S' WHERE codigo='VALIDA_CFOP_SITUACAO_NF_SAIDA'`);
+        const g2 = await gEcho();
+        const g2J = (await g2.json().catch(() => ({}))) as any;
+        await pgSit.query(`UPDATE configuracoes SET valor='N' WHERE codigo='VALIDA_CFOP_SITUACAO_NF_SAIDA'`);
+        await fetch(`${base}/fiscal/nf/${g0Id}`, { method: 'DELETE', headers: H });
+        check('SITUAÇÃO g (C2): o item gravado leva a situação do cabeçalho (8) · item importado com CFOP fora: saída regrava (200) e, com VALIDA_CFOP_SITUACAO_NF_SAIDA=S, 422',
+          g0.status === 201 && gSit.length === 1 && gSit[0] === 8 && g1.status === 200 && g2.status === 422 && g2J.code === 'NF_ITEM_CFOP_SITUACAO',
+          { g0: g0.status, sitItem: gSit, g1: g1.status, g2: [g2.status, g2J.code] });
       } finally {
         await pgSit.end();
       }
@@ -17740,6 +17795,7 @@ async function main() {
       try {
         await pgIh.query(`UPDATE empresas SET integracao = 'AUTOMATICA' WHERE idempresa = 1`);
         await pgIh.query(`INSERT INTO situacao_nf (idsituacao_nf, descricao) VALUES (7901,'SITUACAO SMOKE CREDITO ICMS') ON CONFLICT DO NOTHING`);
+        await pgIh.query(`INSERT INTO isituacao_nf (idsituacao_nf, codcfop) VALUES (7901, 1403)`);
         // a situação usa o histórico 62 nas duas pernas — o dos itens que contradizem o rótulo
         await pgIh.query(`INSERT INTO itens_integracao_contabil (codoperacao, natureza, tipo, codconta_contabil, codhistorico) VALUES
           (7901,'D','F',148,62), (7901,'C','F',11141,62) ON CONFLICT DO NOTHING`);
