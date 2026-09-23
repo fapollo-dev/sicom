@@ -769,3 +769,15 @@ IBS/CBS do cupom (mig 299). As 18 do `cfop` (mig 301):
 **Escala numérica, medida na produção** (o `escala-numerica.py` lê os CSVs da homologação): nenhum estouro de
 precisão; três escalas curtas alargadas (mig 302), a relevante na minha própria mig 291 —
 `historico_processamento_nf.vrcusto` arredondava 115.363 custos de 5-6 casas.
+
+### Épico de plataforma — ENVIO DE E-MAIL (não existe no Apollo)
+
+Achado ao fechar a impressão do pedido (23/09/2026): o Apollo não tem envio de e-mail nem PDF gerado no servidor
+(a impressão é a camada `imprimirPagina`, no navegador). O legado envia de **9 units** — `NFe.pas` (4 pontos),
+`uPedidoCompra.pas` (3), `uCadCotacao.pas` (3), `uCadAcordoComercial.pas` (3), `uNFCe.pas` (2), `udmNF.pas`,
+`uDMSolicitacoesPortalConvenio.pas`, `uConfBoleto.pas`, `UCadEmpresa.pas` (o teste do SMTP) — sempre pelo SMTP DA
+EMPRESA (`EMPRESAS.SMTP/EMAIL/SENHA_EMAIL/PORTA`, preenchido em 4 das 5 empresas do cliente), com o relatório em PDF
+anexo (o pedido: `Pedido000123.pdf`, assunto "Pedido de Compra - <fantasia>", saudação pela hora) e, quando existe,
+pelo executável `EnviaEmail.exe` em vez do Indy. Peças: remetente SMTP por empresa + PDF no servidor (os `.fr3`
+viram HTML, como a impressão) + a confirmação "deseja enviar" em cada tela. Sem rastro de envio no banco (nenhuma
+tabela de e-mail), então o uso não é medível pelo dado.
