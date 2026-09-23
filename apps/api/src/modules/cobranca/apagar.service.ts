@@ -4,6 +4,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
+import { assertRestricoesSituacao } from '../shared/situacao-restricoes';
 
 type AnyDB = Kysely<any>;
 
@@ -78,6 +79,8 @@ export class ApagarService {
     const id = await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const d = this.delta(dto);
       await assertPeriodoNaoFechado(trx, emp, d.dtvenda, 'bloq_apg'); // período fechado (DTVENDA × BLOQ_APG)
+      // fornecedor e centro de custo da situação do documento (uAPagar.pas:3559/3671; UCadSituacaoNF.md C5)
+      await assertRestricoesSituacao(trx, d, {}, { papel: 'fornecedor' });
       if (d.txjuros == null) {
         const e = await trx.selectFrom('empresas').select('txjuropadrao').where('idempresa', '=', emp).executeTakeFirst();
         d.txjuros = e?.txjuropadrao ?? null;
@@ -102,7 +105,7 @@ export class ApagarService {
   private async travarEditavel(trx: AnyDB, id: number, emp: number) {
     const t = await trx
       .selectFrom('apagar')
-      .select(['codapg', 'quitada', 'agrupado', 'contabilizado', 'idnf', 'origem', 'consiliado', 'cadastrado_manualmente', 'dtvenda'])
+      .select(['codapg', 'quitada', 'agrupado', 'contabilizado', 'idnf', 'origem', 'consiliado', 'cadastrado_manualmente', 'dtvenda', 'codparceiro', 'idsituacao_nf', 'codplc'])
       .where('codapg', '=', id)
       .where('codempresa', '=', emp)
       .forUpdate()
@@ -129,6 +132,7 @@ export class ApagarService {
       await assertPeriodoNaoFechado(trx, emp, t.dtvenda, 'bloq_apg');
       if (dto.dtvenda != null) await assertPeriodoNaoFechado(trx, emp, dto.dtvenda, 'bloq_apg');
       const d = this.delta(dto);
+      await assertRestricoesSituacao(trx, d, t as Record<string, unknown>, { papel: 'fornecedor' });
       if (Object.keys(d).length) {
         await trx
           .updateTable('apagar')

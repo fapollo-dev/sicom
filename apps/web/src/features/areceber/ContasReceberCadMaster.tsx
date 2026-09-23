@@ -11,6 +11,7 @@ import { TextArea } from '../../shared/ui/TextArea';
 import { Button } from '../../shared/ui/Button';
 import { Tabs, TabPanel, type TabDef } from '../../shared/ui/Tabs';
 import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
+import { useSituacoesDaOperacao, useSituacaoUnica } from '../../shared/situacao/situacaoDaOperacao';
 import { useMensagem } from '../../shared/mensagem';
 import { baixarTitulo, estornarBaixaTitulo } from './areceberApi';
 
@@ -42,10 +43,8 @@ export function ContasReceberCadMaster() {
     value: String(c.codplc),
     label: `${c.desccodplc ?? c.codplc} - ${c.descricao}`,
   }));
-  const { data: situacaoOptions = [] } = useResourceOptions('cadastro/situacoes-nf', (s: any) => ({
-    value: String(s.idsituacao_nf),
-    label: `${s.idsituacao_nf} - ${s.descricao}`,
-  }));
+  // só as situações da operação da tela (UCadSituacaoNF.md C5)
+  const situacaoOptions = useSituacoesDaOperacao('F05', 'S');
 
   const defaultValues = useMemo<Partial<CriarAreceberDto>>(
     () => ({ dtvenda: hojeISO(), dtvenc: hojeISO(), nrodup: 1, tipodoc: 'DUPLICATA' }),
@@ -101,6 +100,7 @@ function ArForm({
   const [aba, setAba] = useState('cadastro');
   // travas de estado (o servidor reforça): quitado/agrupado/contabilizado/vindo de NF → só leitura.
   const g = form.getValues() as Record<string, unknown>;
+  useSituacaoUnica(form, opts.situacaoOptions, g.codrcb == null); // a única F05 entra sozinha (uCadAReceber.pas:3110)
   const quitada = form.watch('quitada' as any) ?? g.quitada;
   const agrupado = form.watch('agrupado' as any) ?? g.agrupado;
   const contabilizado = g.contabilizado;

@@ -2631,6 +2631,25 @@ async function main() {
     const apId = Number(apNovoBody.codapg);
     const apVal0 = await fetch(`${base}/${AP}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 0 }) });
     check('CP: POST valor 0 → 400 VALIDACAO', apVal0.status === 400 && ((await apVal0.json().catch(() => ({}))) as any).code === 'VALIDACAO', { status: apVal0.status });
+    // 33.2b) SITUAÇÃO C5 — o fornecedor e o centro de custo da situação do documento (uAPagar.pas:3559/3671): a
+    // situação F04 com lista de parceiros e de centros de custo; fora da lista → 422 com a mensagem do legado; o título
+    // antigo que já estava fora continua gravando quando ninguém mexe no fornecedor/CC/situação
+    await pgAp.query(`INSERT INTO situacao_nf (idsituacao_nf, descricao, tipo, tipo_operacao) VALUES (7940,'CONTAS A PAGAR RESTRITA','E','F04') ON CONFLICT DO NOTHING`);
+    await pgAp.query(`INSERT INTO situacao_nf_parceiros (idsituacao_nf, codparceiro) SELECT 7940, 22 WHERE NOT EXISTS (SELECT 1 FROM situacao_nf_parceiros WHERE idsituacao_nf=7940)`);
+    await pgAp.query(`INSERT INTO situacao_nf_plc (idsituacao_nf, codplc) VALUES (7940, 2) ON CONFLICT DO NOTHING`);
+    const apS1 = await fetch(`${base}/${AP}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 10, idsituacao_nf: 7940 }) });
+    const apS1J = (await apS1.json().catch(() => ({}))) as any;
+    const apS2 = await fetch(`${base}/${AP}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 10, idsituacao_nf: 7940, codplc: 3 }) });
+    const apS2J = (await apS2.json().catch(() => ({}))) as any;
+    const apS3 = await fetch(`${base}/${AP}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 10, idsituacao_nf: 7940, codplc: 2 }) });
+    const apS3J = (await apS3.json().catch(() => ({}))) as any;
+    // o título que ficou fora (a regra nova sobre dado velho): muda só o valor → grava
+    await pgAp.query(`UPDATE apagar SET codparceiro = 20 WHERE codapg = $1`, [Number(apS3J.codapg)]);
+    const apS4 = await fetch(`${base}/${AP}/${Number(apS3J.codapg)}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 11 }) });
+    check('SITUAÇÃO C5 (CP): fornecedor fora da lista da situação → 422 SITUACAO_FORNECEDOR_NAO_PERMITIDO · centro de custo fora → 422 SITUACAO_CC_NAO_PERMITIDO · dentro → 201 · título antigo fora da lista, editado sem mexer no fornecedor → 200',
+      apS1.status === 422 && apS1J.code === 'SITUACAO_FORNECEDOR_NAO_PERMITIDO' && apS2.status === 422 && apS2J.code === 'SITUACAO_CC_NAO_PERMITIDO'
+      && apS3.status === 201 && apS4.status === 200,
+      { s1: [apS1.status, apS1J.code], s2: [apS2.status, apS2J.code], s3: apS3.status, s4: apS4.status });
     // 33.3) editar manual + TRAVAS de estado (7003 pago/7004 agrup/7005 NF/7006 contab/7007 origem/7008 concil).
     const apEdit = await fetch(`${base}/${AP}/${apId}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 300 }) });
     check('CP: PUT edita manual (valor 300)', apEdit.status === 200 && Number(((await apEdit.json().catch(() => ({}))) as any).valor) === 300, { status: apEdit.status });

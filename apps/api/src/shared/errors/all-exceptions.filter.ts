@@ -506,6 +506,11 @@ const CODE_PT: Record<string, string> = {
   PROMOCAO_PRODUTO_SOBREPOSTO: 'Um produto já está em outra promoção no mesmo período.',
   NF_CFOP_SITUACAO: 'CFOP não permitido para a situação informada para a nota fiscal. Verifique!',
   NF_ITEM_CFOP_SITUACAO: 'CFOP não permitido para a situação informada no item. Verifique!',
+  // restrições da situação do documento fora da NF (UCadSituacaoNF.md C5) — as mensagens de cada tela do legado
+  SITUACAO_FORNECEDOR_NAO_PERMITIDO: 'O fornecedor informado não é permitido para a situação do documento selecionada.',
+  SITUACAO_CLIENTE_NAO_PERMITIDO: 'O cliente informado não é permitido para a situação do documento selecionada.',
+  SITUACAO_PARCEIRO_NAO_PERMITIDO: 'O parceiro informado não é permitido para a situação do documento selecionada.',
+  SITUACAO_CC_NAO_PERMITIDO: 'O centro de custo informado não é permitido para a situação do documento selecionada.',
   // importar SCRAP na NF de saída (uNF.pas:1880) e a baixa do scrap
   SCRAP_JA_IMPORTADO: 'Existem SCRAP\'s que já foram importados. Informe o login e a senha de um usuário que libera a reimportação.',
   SCRAP_SEM_LIBERADOR: 'Nenhum usuário foi definido para liberar reimportações de SCRAP.',

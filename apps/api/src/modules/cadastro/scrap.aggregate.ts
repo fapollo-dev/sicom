@@ -2,6 +2,7 @@ import { scrapSchema, atualizarScrapSchema } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { assertCentroCustoDaSituacao } from '../shared/situacao-restricoes';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 
 /**
@@ -80,10 +81,18 @@ export const scrapAggregateConfig: AggregateConfig = {
     // fold auditoria [ALTA]: editar (PUT) um scrap com baixa APLICADA (mov_estoque='S') ou já FATURADO
     // (importado='S') dessincronizaria a baixa do conjunto de itens (o estornar usa os itens ATUAIS). Trava aqui —
     // espelha o validarRemocao. (leitura fora da txn de escrita, como o validarRemocao; janela TOCTOU mínima.)
+    let antes: { codplc?: unknown; idsituacao_nf?: unknown } = {};
     if (id != null) {
-      const s = (await db.selectFrom('scrap').select(['mov_estoque', 'importado']).where('codscrap', '=', id).executeTakeFirst()) as { mov_estoque?: string; importado?: string } | undefined;
+      const s = (await db.selectFrom('scrap').select(['mov_estoque', 'importado', 'codplc', 'idsituacao_nf']).where('codscrap', '=', id).executeTakeFirst()) as { mov_estoque?: string; importado?: string; codplc?: unknown; idsituacao_nf?: unknown } | undefined;
       if (s?.mov_estoque === 'S') throw new BusinessRuleError('SCRAP_ESTOQUE_APLICADO', { codscrap: id });
       if (s?.importado === 'S') throw new BusinessRuleError('SCRAP_JA_FATURADO', { codscrap: id });
+      antes = s ?? {};
+    }
+    // o centro de custo da situação do documento (edtCodPLCExit, uCadSCRAP.pas:1311; UCadSituacaoNF.md C5) — cobrado
+    // quando a situação ou o centro de custo é informado/alterado
+    const mudou = (c: 'codplc' | 'idsituacao_nf') => dto[c] !== undefined && Number(dto[c] ?? 0) !== Number(antes[c] ?? 0);
+    if (mudou('codplc') || mudou('idsituacao_nf')) {
+      await assertCentroCustoDaSituacao(db, dto.idsituacao_nf !== undefined ? dto.idsituacao_nf : antes.idsituacao_nf, dto.codplc !== undefined ? dto.codplc : antes.codplc);
     }
     const itens = Array.isArray(dto.itens) ? (dto.itens as Array<Record<string, unknown>>) : null;
     if (!itens || !itens.length) return;

@@ -55,9 +55,9 @@ NFs de 2026: 7.219 em 31 situações; itens 68.745 (68.624 com situação; em 70
 | rateio pré-preenchido pelo CC da situação | udmNF.pas:11027 (uNF.pas:5036/2912); uLancamentoContabilNF.pas:673 | 5.353 de 6.449 NFs de entrada | ✅ C3 (`nf-rateio.ts`, no gravar) |
 | CCs permitidos por situação; situação do rateio = cabeçalho/itens | uLancamentoContabilNF.pas:148/230/314 | 6.531/6.531 dentro | ✅ C3 (tela; regras de pesquisa no legado, não do servidor) |
 | **lançamentos de CAIXA da NF** (F3) e a reversão | udmNF.pas:9266 (:7776), :5011 | **1.011 em 2026, 903 NFs, R$ 764.054,09** | ✅ C4 (`nf-caixa.ts`, mig 319) |
-| CC restrito em AP/AR/caixa/scrap | uAPagar.pas:763…; uCadAReceber.pas:538…; uMovCaixa.pas:540; uCadSCRAP.pas:421 | CX_APAGAR: 0 fora | FALTA |
-| parceiro restrito em AP/AR/caixa/adiantamento | uAPagar.pas:3555… | AP: 1 fora de 613 | adiantamento ✅; resto FALTA |
-| pesquisa por TIPO_OPERACAO (AP F04, AR F05, caixa F06, scrap E02, CFOP I*…) | uAPagar.pas:6506… | — | adiantamento ✅; resto FALTA |
+| CC restrito em AP/AR/caixa/scrap | uAPagar.pas:763…; uCadAReceber.pas:538…; uMovCaixa.pas:540; uCadSCRAP.pas:421 | CX_APAGAR: 0 fora | ✅ C5 AP/AR/scrap; caixa ⚠️ (abaixo) |
+| parceiro restrito em AP/AR/caixa/adiantamento | uAPagar.pas:3555… | AP: 1 fora de 613 | ✅ C5 AP/AR (adiantamento já era); caixa ⚠️ |
+| pesquisa por TIPO_OPERACAO (AP F04, AR F05, caixa F06, scrap E02, CFOP I*…) | uAPagar.pas:6506… | — | ✅ C5 AP/AR (+ a única entra sozinha); scrap sem campo na tela (config 'N'); caixa ⚠️ |
 | retenções E03 | udmNF.pas:5356… | 1 situação | ✅ |
 | NAO_REALIZA_INTEGRACAO | udmNF.pas:5338; UIntegracaoContabil.pas | S em 17 | PARCIAL |
 | editor dos itens contábeis | a grade da tela | 224 | FALTA (só leitura) |
@@ -100,7 +100,14 @@ NFs de 2026: 7.219 em 31 situações; itens 68.745 (68.624 com situação; em 70
   caixa). Grupo novo por lançamento (`seq_caixa_codgrupo`, a ID_CODGRUPO do legado, compartilhada com CX_VENDAS e
   CX_APAGAR). ⚠️ Achado no caminho: `CAIXA.NRPARCELA` ('1/1') era inteiro aqui e a carga cortava no primeiro número;
   com `CAIXA.FORMAPGTO` e `NF.SEQUENCIA_NFE` (flag 'S'/'N'), voltaram ao tipo do legado (mig 320).
-- **C5 — pesquisas fora da NF**: TIPO_OPERACAO, CC e parceiro em AP/AR/caixa/scrap/CFOP/empresa/pedido.
+- **C5 — pesquisas fora da NF** ✅ (23/09/2026, smoke 1478/0): `shared/situacao-restricoes.ts` — o parceiro e o centro
+  de custo da situação (listas SITUACAO_NF_PARCEIROS / SITUACAO_NF_PLC; vazia = livre), com as mensagens de cada tela,
+  cobrados quando o campo é informado ou alterado (o Exit do legado): contas a pagar (fornecedor + CC), a receber
+  (cliente + CC), scrap (CC). Telas de AP/AR: situação só da operação (F04/E, F05/S, com as sem CFOP) e a única entra
+  sozinha no título novo. ⚠️ PENDENTE: o movimento de caixa do Apollo (`caixa_mov`, sessão/sangria) não tem situação,
+  parceiro nem centro de custo — a tela do legado (uMovCaixa, F06) lança na CAIXA gerencial com os três; é conversão
+  própria da tela, não deste corte. As pesquisas dos CFOPs (I01…I10) e da empresa (E01) vivem nas telas de CFOP e
+  empresa (a lista de situações já tem o tipo de operação).
 - **C6 — regras pequenas**: BCR>100, importação automática; declarar mortos os campos acima.
 
 ## 5. Riscos

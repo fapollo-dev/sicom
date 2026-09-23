@@ -4,6 +4,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
+import { assertRestricoesSituacao } from '../shared/situacao-restricoes';
 
 type AnyDB = Kysely<any>;
 
@@ -123,6 +124,8 @@ export class AreceberService {
       const d = this.delta(dto);
       // trava de período contábil fechado (ValidaPeriodoFechado, DTVENDA × BLOQ_RCB).
       await assertPeriodoNaoFechado(trx, emp, d.dtvenda, 'bloq_rcb');
+      // cliente e centro de custo da situação do documento (uCadAReceber.pas:1728/2009; UCadSituacaoNF.md C5)
+      await assertRestricoesSituacao(trx, d, {}, { papel: 'cliente' });
       // txjuros default = snapshot da EMPRESAS.TXJUROPADRAO (uCadAReceber: default do padrão da empresa).
       if (d.txjuros == null) {
         const e = await trx.selectFrom('empresas').select('txjuropadrao').where('idempresa', '=', emp).executeTakeFirst();
@@ -248,7 +251,7 @@ export class AreceberService {
   private async travarEditavel(trx: AnyDB, id: number, emp: number) {
     const t = await trx
       .selectFrom('areceber')
-      .select(['codrcb', 'quitada', 'agrupado', 'contabilizado', 'idnf', 'origem', 'consiliado', 'cadastrado_manualmente', 'dtvenda'])
+      .select(['codrcb', 'quitada', 'agrupado', 'contabilizado', 'idnf', 'origem', 'consiliado', 'cadastrado_manualmente', 'dtvenda', 'codparceiro', 'idsituacao_nf', 'codplc'])
       .where('codrcb', '=', id)
       .where('codempresa', '=', emp)
       .forUpdate()
@@ -277,6 +280,7 @@ export class AreceberService {
       await assertPeriodoNaoFechado(trx, emp, t.dtvenda, 'bloq_rcb');
       if (dto.dtvenda != null) await assertPeriodoNaoFechado(trx, emp, dto.dtvenda, 'bloq_rcb');
       const d = this.delta(dto);
+      await assertRestricoesSituacao(trx, d, t as Record<string, unknown>, { papel: 'cliente' });
       if (Object.keys(d).length) {
         await trx
           .updateTable('areceber')
