@@ -59,6 +59,13 @@ RENOMEIA = {
  # o total de ICMS-ST externo do cabeçalho: lá é TOTALICM_STEXTERNO, aqui total_icmst_externo — sem o de-para
  # as 2.661 notas com valor (R$ 49.050,73; 353 em 2026) chegariam zeradas.
  'nf': {'totalicm_stexterno': 'total_icmst_externo'},
+ # ⚠️ A DATA DE FATURAMENTO DO PEDIDO (23/09/2026). No legado `DTFATURAMENTO` é a data DIGITADA (edtDtFaturamento,
+ # a base do vencimento das parcelas — 1.541 de 1.541 pedidos de 2025-26 a têm). O Apollo a guardou em
+ # `data_faturamento` (mig 067) e deu ao `dtfaturamento` outro sentido: o CARIMBO de "recebido" que trava o pedido.
+ # Casando pelo nome, a carga poria a data digitada no carimbo — TODO pedido migrado chegaria recebido e travado
+ # (PEDIDO_FATURADO), e sem a base das parcelas. O carimbo vem da nota vinculada, no `pos-carga.sql` (no Oracle
+ # a subconsulta por pedido leva 92 s para 2.771 pedidos — `NF.CODPEDCOMP` não tem índice).
+ 'pedidocompra': {'dtfaturamento': 'data_faturamento'},
  # §7e: o código do Oracle NÃO entra na PK (lá é por venda/cupom, não por linha) — vira coluna de referência
  'vendas': {'codvendas': 'codvendas_legado',
             # mig 299: o CST do IBS/CBS; `cst` solto seria lido como o do ICMS (`icms_cst`)

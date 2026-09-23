@@ -781,3 +781,18 @@ anexo (o pedido: `Pedido000123.pdf`, assunto "Pedido de Compra - <fantasia>", sa
 pelo executável `EnviaEmail.exe` em vez do Indy. Peças: remetente SMTP por empresa + PDF no servidor (os `.fr3`
 viram HTML, como a impressão) + a confirmação "deseja enviar" em cada tela. Sem rastro de envio no banco (nenhuma
 tabela de e-mail), então o uso não é medível pelo dado.
+
+### Achado 17 — o pedido de compra chegaria "recebido": a data digitada no carimbo (23/09/2026)
+
+No legado `PEDIDOCOMPRA.DTFATURAMENTO` é a data de faturamento DIGITADA (edtDtFaturamento, a base do vencimento
+das parcelas) — **1.541 de 1.541** pedidos de 2025-26 a têm. O Apollo a guardou em `data_faturamento` (mig 067) e
+deu ao `dtfaturamento` outro sentido: o carimbo da primeira nota de entrada, que TRAVA o pedido (`PEDIDO_FATURADO`
+em editar, reabrir, gerar parcelas, importar itens, liberar limite). A carga casava pelo nome: **todo pedido
+migrado chegaria recebido e travado**, e sem a base das parcelas (que cairia na data do pedido). É a lição 112 de
+novo — convenção decidida no Apollo que a carga não converte e nenhuma conferência vê (o conferidor olha nomes).
+
+Corrigido: `RENOMEIA` leva `DTFATURAMENTO` → `data_faturamento`, e o carimbo sai da nota vinculada no
+`pos-carga.sql` (`NF.CODPEDCOMP`: 3.269 notas de 3.193 pedidos; a outra perna da `GET_PEDIDO_NF`, `PEDIDO_NF` tipo
+'P', tem 1 linha). Medido na produção: de 2.771 pedidos de 2024-26, **41** têm nota vinculada — são esses que
+chegam travados, não os 2.771. A subconsulta no Oracle levaria ~20 min na carga inteira (`NF.CODPEDCOMP` sem
+índice); no Postgres, depois da carga, é uma agregação.

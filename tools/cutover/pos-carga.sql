@@ -28,3 +28,18 @@ SELECT * FROM (VALUES
   (335, 'FUSO_HORARIO_ACESSO',                  'America/Sao_Paulo', 'texto',  'Modulo', 'Fuso IANA para avaliar a janela de horário de acesso do operador (OPERADORES_RESTRICAO_ACESSO) no login/refresh.')
 ) AS c(id, codigo, valor, tipovalor, config_especificas_permitidas, descricao)
 WHERE NOT EXISTS (SELECT 1 FROM configuracoes x WHERE x.id = c.id OR x.codigo = c.codigo);
+
+-- O CARIMBO DE "RECEBIDO" DO PEDIDO DE COMPRA (23/09/2026). No legado `PEDIDOCOMPRA.DTFATURAMENTO` é a data DIGITADA
+-- (a base das parcelas) e a carga a leva para `data_faturamento` (RENOMEIA do `extrair.py`); o `dtfaturamento` do
+-- Apollo é outra coisa — o carimbo da PRIMEIRA nota de entrada do pedido, que trava a edição (mig 060/087). O legado
+-- não tem esse carimbo: ele sai da nota vinculada (`NF.CODPEDCOMP`: 3.269 notas, 3.193 pedidos; a outra perna da
+-- `GET_PEDIDO_NF`, `PEDIDO_NF` tipo 'P', tem 1 linha). Sem isto, ou todo pedido chegaria travado (a data digitada
+-- no carimbo — 100% dos pedidos a têm) ou nenhum (o pedido já recebido voltaria editável). Idempotente.
+UPDATE pedidocompra p
+   SET dtfaturamento = x.primeira
+  FROM (SELECT codpedcomp, min(coalesce(dtcontabil, dtemissao)) AS primeira
+          FROM nf
+         WHERE codpedcomp IS NOT NULL AND coalesce(cancelada, 'N') <> 'S'
+         GROUP BY codpedcomp) x
+ WHERE x.codpedcomp = p.codpedcomp
+   AND p.dtfaturamento IS NULL;
