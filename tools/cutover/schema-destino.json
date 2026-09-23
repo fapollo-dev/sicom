@@ -8838,6 +8838,73 @@
     }
    ]
   },
+  "contas_banc_transf_perm": {
+   "colunas": {
+    "codtransfperm": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_contas_banc_transf_perm'::regclass)"
+    },
+    "codconta_origem": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "codconta_destino": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "ativo": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": false,
+     "default": "'S'::bpchar"
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "codtransfperm"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "contas_banc_transf_perm_pkey",
+     "def": "CREATE UNIQUE INDEX contas_banc_transf_perm_pkey ON public.contas_banc_transf_perm USING btree (codtransfperm)"
+    },
+    {
+     "nome": "ux_contas_transf_perm",
+     "def": "CREATE UNIQUE INDEX ux_contas_transf_perm ON public.contas_banc_transf_perm USING btree (codconta_origem, codconta_destino)"
+    }
+   ]
+  },
   "contas_bancarias": {
    "colunas": {
     "codconta": {
@@ -21709,6 +21776,202 @@
     {
      "nome": "ncm_pkey",
      "def": "CREATE UNIQUE INDEX ncm_pkey ON public.ncm USING btree (codigo)"
+    }
+   ]
+  },
+  "ncm_lc224_2025": {
+   "colunas": {
+    "id": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "segmento": {
+     "tipo": "character varying",
+     "tam": 50,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "ncm_padrao": {
+     "tipo": "character varying",
+     "tam": 60,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "tipo_match": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "prefixo_match": {
+     "tipo": "character varying",
+     "tam": 10,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "descricao": {
+     "tipo": "character varying",
+     "tam": 2000,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "excecoes": {
+     "tipo": "character varying",
+     "tam": 2000,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "aliq_pis_pres": {
+     "tipo": "numeric",
+     "tam": 10,
+     "escala": 7,
+     "nulo": true,
+     "default": null
+    },
+    "aliq_cofins_pres": {
+     "tipo": "numeric",
+     "tam": 10,
+     "escala": 7,
+     "nulo": true,
+     "default": null
+    },
+    "aliq_pis_real": {
+     "tipo": "numeric",
+     "tam": 10,
+     "escala": 7,
+     "nulo": true,
+     "default": null
+    },
+    "aliq_cofins_real": {
+     "tipo": "numeric",
+     "tam": 10,
+     "escala": 7,
+     "nulo": true,
+     "default": null
+    },
+    "cst_pis_sai": {
+     "tipo": "character varying",
+     "tam": 2,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "cst_cofins_sai": {
+     "tipo": "character varying",
+     "tam": 2,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "cst_pis_ent": {
+     "tipo": "character varying",
+     "tam": 2,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "cst_cofins_ent": {
+     "tipo": "character varying",
+     "tam": 2,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "tributo": {
+     "tipo": "character varying",
+     "tam": 60,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "base_legal": {
+     "tipo": "character varying",
+     "tam": 500,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "item_lc224": {
+     "tipo": "character varying",
+     "tam": 300,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "impacto": {
+     "tipo": "character varying",
+     "tam": 500,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "obs": {
+     "tipo": "character varying",
+     "tam": 2000,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dt_vigencia_inicio": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "dt_vigencia_fim": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "ativo": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": false,
+     "default": "'S'::bpchar"
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "id"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "ncm_lc224_2025_pkey",
+     "def": "CREATE UNIQUE INDEX ncm_lc224_2025_pkey ON public.ncm_lc224_2025 USING btree (id)"
     }
    ]
   },

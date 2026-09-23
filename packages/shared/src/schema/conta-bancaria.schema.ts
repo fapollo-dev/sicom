@@ -108,3 +108,24 @@ export interface ContaBancaria extends CriarContaBancariaDto {
   idempresa?: number; // escopo multi-tenant (carimbado no servidor)
   banco?: string; // nome do banco (via join/lookup), para exibição
 }
+
+/**
+ * TRANSFERÊNCIAS PERMITIDAS (`CONTAS_BANC_TRANSF_PERM`, mig 295): para quais contas esta conta pode transferir.
+ *
+ * ⚠️ A regra saiu do dado (a tabela é de 2026, sem fonte): **conta de origem com linhas ATIVAS só transfere para os
+ * destinos listados; conta sem linhas fica livre**. Desde que a matriz existe, nenhuma transferência do cliente saiu
+ * de uma conta listada para um destino fora da lista — e as que saíram "fora" vinham de uma conta sem linhas.
+ */
+export const transferenciaPermitidaSchema = z.object({
+  codconta_destino: z.coerce.number().int().positive('informe a conta de destino'),
+  ativo: z.enum(['S', 'N']).default('S'),
+});
+
+export const transferenciasPermitidasSchema = z
+  .object({ destinos: z.array(transferenciaPermitidaSchema).max(200) })
+  .refine((v) => new Set(v.destinos.map((d) => d.codconta_destino)).size === v.destinos.length, {
+    message: 'a mesma conta de destino aparece duas vezes',
+    path: ['destinos'],
+  });
+
+export type TransferenciasPermitidasDto = z.infer<typeof transferenciasPermitidasSchema>;

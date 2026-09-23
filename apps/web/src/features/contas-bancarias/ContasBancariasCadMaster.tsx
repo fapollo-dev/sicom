@@ -7,6 +7,7 @@ import { DateField } from '../../shared/ui/DateField';
 import { TextArea } from '../../shared/ui/TextArea';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
+import { TransferenciasPermitidas } from './TransferenciasPermitidas';
 import {
   contaBancariaSchema,
   TIPO_COBRANCA,
@@ -325,6 +326,15 @@ export function ContasBancariasCadMaster() {
               disabled={!editavel}
               error={form.formState.errors.nroconvenio_arqrem?.message as string | undefined}
               {...form.register('nroconvenio_arqrem')}
+            />
+          </fieldset>
+
+          {/* Transferências permitidas (CONTAS_BANC_TRANSF_PERM, mig 295) — recurso da conta, fora do agregado */}
+          <fieldset className="rounded-radius-md border border-border p-pad-md sm:col-span-2">
+            <legend className="px-pad-xs text-fg-muted">Transferências permitidas</legend>
+            <TransferenciasPermitidas
+              codconta={(() => { const v = form.watch('codconta' as any) ?? (form.getValues() as Record<string, unknown>).codconta; return v == null ? null : Number(v); })()}
+              editavel={editavel}
             />
           </fieldset>
 

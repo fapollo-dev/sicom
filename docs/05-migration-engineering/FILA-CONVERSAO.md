@@ -707,9 +707,9 @@ com texto. Dossiê `uTron-integracao-contabil.md` §8.7.
 
 | tabela | linhas | o que é |
 |---|---:|---|
-| `PEDIDO_COMPRA_QTDE` · `_EMPRESA` · `_HISTORICO` | 257.345 · 15.070 · 266 | o **split do pedido por loja**, adiado no corte-1 como "cross-docking": **46.309 itens (R$ 10,8 mi) divididos entre duas lojas**, e vivo — 395 pedidos em 2026 (R$ 2,0 mi), 590 em 2025, 710 em 2024. A carga projeta tudo numa loja só |
+| `PEDIDO_COMPRA_QTDE` · `_EMPRESA` · `_HISTORICO` | 257.345 · 15.070 · 266 | o **split do pedido por loja**, adiado como "cross-docking" por decisão do usuário — tomada sobre "2% dos pedidos", número da HOMOLOGAÇÃO. Na produção **78% dos pedidos de 2024-2026 são para duas lojas** (`EMPRESAS='1, 2'`: 1.000/1.230, 752/975, 441/566), 46.309 itens (R$ 10,8 mi) divididos, fechamento POR LOJA. A carga preserva o total mas perde qual loja recebe quanto, e o pedido vai inteiro para a loja 1. **Aguardando o usuário rever a decisão com o número certo** |
 | `SUGEST_PROMO_PROD` | 471 | o substrato da tela 151 (`FRMGERENCIARSUGESTAOPROMOCAO`), que estava como "sem fonte" — o dado existe, até 21/09/2026 |
-| `NCM_LC224_2025` | 59 | regra de PIS/COFINS da LC 224/2025 por prefixo de NCM, **vigente desde 01/04/2026**, cadastrada em jun/2026 |
-| `CONTAS_BANC_TRANSF_PERM` | 19 | quais transferências entre contas são permitidas — regra criada em **ago/2026** |
+| `NCM_LC224_2025` | 59 | ✅ **mig 296, como REFERÊNCIA** — PIS/COFINS a 10% da alíquota padrão por NCM (LC 224/2025), vigência 01/04/2026. ⚠️ **o legado tem a tabela e não a aplica**: o catálogo `PISCOFINS` não tem nenhuma alíquota 0,165/0,76 nem 0,065/0,3, e as 28.428 vendas com CST 06 da 1ª semana de abril/2026 saíram com PIS nulo. Por fidelidade o Apollo também não calcula — aplicar é decisão fiscal do cliente |
+| `CONTAS_BANC_TRANSF_PERM` | 19 | ✅ **mig 295, com a regra** — origem com linhas ativas só transfere para os destinos listados; origem sem linhas fica livre. Saiu do dado: desde a matriz, nenhuma transferência de conta listada foi para destino fora da lista, e as 6 "fora" eram da conta 201, que não é origem nela. Quadro no cadastro da conta. Dossiê `UCadContasBancarias.md` |
 | `CONFIG_LANCAMENTO_AUTO_OFX` | 5.311 | lançamento automático do OFX por descrição → conta; a mig 120 cita a tabela, mas ela não está no plano |
 | `RETORNO_PAG_BOAVISTA` + 5 | 3,4 mi | a conciliadora de cartão Boa Vista: R$ 131 mi em retornos, parada desde 04/05/2026; as baixas seguiram sem ela (39 mil em jul/2026) |

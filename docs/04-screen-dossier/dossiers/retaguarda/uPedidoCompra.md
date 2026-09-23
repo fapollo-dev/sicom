@@ -18,7 +18,15 @@
 - **Máquina de estados** = flags + timestamps (não há campo "status" único): `FECHADO` 'N' rascunho (1.817) → 'S' fechado (8.113); **há um 3º valor `FECHADO`=NULL (448, ~4,3%)** — a maioria (437) é faturada (legado legado). É o **gate principal**; `DTFATURAMENTO` (faturado — **1.804 pedidos têm dtfaturamento com FECHADO='N'**: faturado NÃO implica FECHADO='S', por isso a trava de edição/exclusão é por `dtfaturamento`, não só por `FECHADO`); `DTENCERRAMENTO` (encerrado); `INDR='E'` cancelado (71); `IMPORTADO`/`LTPRECO_PROCESSADO`/`BONIFICACAO` (periférico). **Cutover:** ao importar, `FECHADO`=NULL vira rascunho editável salvo se `dtfaturamento` presente (a guarda pega).
 - **`EMPRESAS`** (cabeçalho) é um **CSV** de ids de loja ("1-para-N-lojas"; `COMPRA_1_PARA_N_LOJAS` quase sempre 'N').
 - **TRIGGERS / efeitos:** cabeçalho **NENHUM trigger**; item só `AUDIT_PEDIDOCOMPRA_I` (auditoria, não mexe em estoque/custo). **O pedido é TRANSACIONAL PURO — sem side-effects no banco.** Todo efeito é da aplicação ou do fluxo de NF.
-- **Volumes:** 10.378 pedidos (2020→2026), em queda recente (2024=186) — feature em desuso relativo.
+- **Volumes:** ~~10.378 pedidos (2020→2026), em queda recente (2024=186) — feature em desuso relativo.~~
+  ⚠️ **CORRIGIDO em 23/09/2026 — o número acima veio da HOMOLOGAÇÃO, que parou em fev/2024.** Na PRODUÇÃO
+  (só leitura): 2021=4.167 · 2022=3.886 · 2023=1.359 · **2024=1.230 · 2025=975 · 2026=566** (até setembro).
+  E o pedido é **multi-loja na regra, não na exceção**: `EMPRESAS='1, 2'` em **1.000 de 1.230 (81%)** em 2024,
+  **752 de 975 (77%)** em 2025 e **441 de 566 (78%)** em 2026. A flag `COMPRA_1_PARA_N_LOJAS` é sempre 'N' — quem
+  manda é o CSV. Todo item de 2026 tem linhas por loja em `PEDIDO_COMPRA_QTDE` (0 sem), 46.309 itens (R$ 10,8 mi)
+  divididos entre duas lojas, e o fechamento é POR LOJA (`PEDIDO_COMPRA_QTDE.FECHADO`: 88 mil linhas desde 2025).
+  A carga preserva o total (Σ por item, Achado 3), mas perde **qual loja recebe quanto**, e o pedido inteiro vai
+  para a loja do primeiro número do CSV. A decisão de adiar o cross-docking foi tomada sobre o "2%".
 
 ## 2. Monorepo
 Agregado DECLARATIVO (molde `nf.aggregate.ts` / `lote-cobranca.aggregate.ts`) via `AggregateEngineService` (header+itens numa transação, substituição de itens no update, cascata na exclusão). Reusa: engine + `createAggregateController`, lookup de fornecedor (`parceiros` FRN='S'), lookup de produtos, `all-exceptions.filter` (CODE→PT). Novo módulo `ComprasModule` (path `compras/pedidos`).
@@ -31,7 +39,7 @@ Agregado DECLARATIVO (molde `nf.aggregate.ts` / `lote-cobranca.aggregate.ts`) vi
 - **Smoke §48** (15 checks): criar/derivar VLREMBALAGEM/total-view · server-authoritative · fornecedor-não-FRN 422 · sem-itens/sem-fornecedor 400 · editar-substitui-itens · fechar/reabrir · editar/excluir-FECHADO 422 · fechar-2x/reabrir-não-fechado/fechar-sem-itens 422 · soft-delete · RBAC 403 · multi-tenant.
 
 ### Divergências CONSCIENTES
-- **Single-empresa** (empresaScoped IDEMPRESA) — o legado tem `EMPRESAS` CSV "1-para-N-lojas" (`COMPRA_1_PARA_N_LOJAS` quase sempre 'N'; só 214 pedidos, 2%, têm CSV multi-loja). O corte-1 é single-loja (padrão do monorepo); o 1-para-N é feature ADIADA.
+- **Single-empresa** (empresaScoped IDEMPRESA) — o legado tem `EMPRESAS` CSV "1-para-N-lojas" (`COMPRA_1_PARA_N_LOJAS` quase sempre 'N'; ~~só 214 pedidos, 2%, têm CSV multi-loja~~ — **número da homologação; na produção são 78% dos pedidos de 2024-2026**, ver §1). O corte-1 é single-loja (padrão do monorepo); o 1-para-N é feature ADIADA.
 - **Fornecedor escopado por IDEMPRESA** — no legado `PARCEIROS` é GLOBAL (17.722 de ~18.147 têm IDEMPRESA NULL; o vínculo loja é a coluna `EMPRESAS`). No monorepo `parceiros` é `empresaScoped` (parceiro.aggregate.ts) e TODA tela migrada valida assim (o Lote de Cobrança valida o cobrador por idempresa — `lote-cobranca.repository.assertCobradorValido`). O `validar` do pedido segue esse padrão UNIFORME: divergência consciente do legado, mas coerente com o monorepo. (Consequência: cada empresa/tenant precisa dos seus próprios fornecedores cadastrados.)
 - **Cabeçalho NÃO persiste total** — fiel ao legado (total = Σ VLREMBALAGEM na view/on-demand). Não há coluna de total.
 - **VLREMBALAGEM derivado server-side** — o cliente não é fonte da verdade (fórmula confirmada no golden). Divergência de FORMA, não de valor.

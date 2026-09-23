@@ -69,6 +69,7 @@
    "mov_contas_bancarias",
    "movimentacao_bancaria_ofx",
    "ncm",
+   "ncm_lc224_2025",
    "nf_contabil",
    "nfe_evento",
    "nfe_eventos",
@@ -103,7 +104,8 @@
    "situacao_nf",
    "troca",
    "unidade",
-   "vendas"
+   "vendas",
+   "contas_banc_transf_perm"
   ],
   "f1": [
    "agenda_produto",

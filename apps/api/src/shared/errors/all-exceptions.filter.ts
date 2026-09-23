@@ -176,7 +176,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
  * Códigos cujo `details` do AppError PODE ser ecoado ao cliente no envelope (`detalhe`) — allowlist explícita
  * (evita vazar dados internos de outros erros: saldos, form/opção de RBAC, etc.). Só o que o front consome.
  */
-const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE', 'CLASS_TRIB_EM_USO', 'PRODUTO_SEM_CLASSIFICACAO', 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO', 'APURACAO_IBSCBS_JA_EXISTE', 'SPLIT_MANUAL_EXCEDE', 'CLUBE_DESCONTO_SOBREPOSTO']);
+const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE', 'CLASS_TRIB_EM_USO', 'PRODUTO_SEM_CLASSIFICACAO', 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO', 'APURACAO_IBSCBS_JA_EXISTE', 'SPLIT_MANUAL_EXCEDE', 'CLUBE_DESCONTO_SOBREPOSTO', 'TRANSFERENCIA_NAO_PERMITIDA']);
 
 const CODE_PT: Record<string, string> = {
   // regra de negócio (BusinessRuleError 422)
@@ -199,6 +199,9 @@ const CODE_PT: Record<string, string> = {
   NF_SEM_GRUPO_IBSCBS: 'Esta nota não tem os grupos de IBS/CBS calculados.',
   CLUBE_DESCONTO_NAO_ENCONTRADO: 'Regra do clube de desconto não encontrada.',
   HISTORICO_CONTABIL_NAO_ENCONTRADO: 'Histórico contábil não encontrado.',
+  TRANSFERENCIA_NAO_PERMITIDA: 'Esta conta só pode transferir para as contas cadastradas como permitidas.',
+  TRANSFERENCIA_MESMA_CONTA: 'A conta de origem e a de destino são a mesma.',
+  SALDO_INSUFICIENTE: 'Saldo insuficiente na conta para este lançamento.',
   CLUBE_DESCONTO_SOBREPOSTO: 'Já existe regra igual para este produto na mesma vigência — o PDV não teria como escolher.',
   CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO:
     'Há itens cuja classificação não se calcula pela alíquota da UF (alíquota fixa, setorial, nacional, '

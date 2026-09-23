@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { destinosPermitidos } from './contas-transf-perm.service';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -135,6 +136,11 @@ export class ControleContasService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const orig = await this.conta(trx, dto.codorigem, emp);
       await this.conta(trx, dto.coddestino, emp);
+      // a matriz de transferências permitidas (mig 295): origem com linhas ativas só vai para os destinos listados
+      const permitidos = await destinosPermitidos(trx, dto.codorigem);
+      if (permitidos && !permitidos.includes(dto.coddestino)) {
+        throw new BusinessRuleError('TRANSFERENCIA_NAO_PERMITIDA', { origem: dto.codorigem, destino: dto.coddestino, permitidos });
+      }
       const valor = r2(num(dto.valor));
       if (orig.codbco === 0) {
         const saldo = await this.saldoDe(trx, dto.codorigem, emp);

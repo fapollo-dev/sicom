@@ -393,6 +393,36 @@ Handlers próprios de `UCadContasBancarias.pas`. O ciclo de gravação/edição/
 3. **Revisão independente** ([../../08-agents/review-loop.md](../../08-agents/review-loop.md)) — autor ≠ revisor.
 4. **Paridade verde que exercita o caminho real** ([../../06-testing-quality/parity-harness.md](../../06-testing-quality/parity-harness.md)) — incl. teclado (taborder, Enter, mnemônicos via Playwright).
 
+## Transferências permitidas entre contas (`CONTAS_BANC_TRANSF_PERM`, migration 295)
+
+Tabela criada no legado em jun/2026 — **19 pares** origem → destino, os últimos em 11/08/2026 —, achada no
+inventário completo de tabelas fora do plano (Achado 14 da FILA). Não há fonte: o repositório é de mai/2020.
+**A regra saiu do dado** (produção, só leitura). Transferências com `CODCONTA_DESTINO`, perna D, desde jun/2025:
+
+| período | dentro da matriz | fora |
+|---|---:|---:|
+| antes de 12/06/2026 | 106 | 65 |
+| 12/06 a 10/08/2026 | 31 | 4 |
+| desde 11/08/2026 | 21 | 2 |
+
+As 6 "fora" depois da matriz são todas **da conta 201 → 42**, e a 201 **não é origem** na matriz. Nenhuma
+transferência saiu de uma conta listada para um destino fora da lista. A regra que o dado sustenta sem exceção:
+
+- **origem com linhas ATIVAS só transfere para os destinos listados** — `controle-contas.transferir` recusa com
+  `TRANSFERENCIA_NAO_PERMITIDA` (422), e a lista dos permitidos vai no `detalhe` para a tela mostrar;
+- **origem sem linhas fica livre** — a matriz é da origem, não uma lista global.
+
+⚠️ Decisão sem prova, registrada: origem com linhas **só inativas** é tratada como livre. Os 19 pares da produção
+estão todos em `S`; o dado não decide esse caso.
+
+**A tela**: um quadro "Transferências permitidas" dentro do cadastro da conta, que diz em qual dos dois estados a
+conta está ("só transfere para as contas abaixo" / "transfere para qualquer conta da empresa") — a diferença
+entre livre e restrita é uma linha só. É um recurso da conta (`/cadastro/contas-bancarias/:cod/transferencias-
+permitidas`), gravado como lista inteira numa transação que trava a origem, **fora do agregado** do cadastro:
+o `CadMasterDet` aceita um detalhe só e o de "Liberação de operadores" já o ocupa, e mexer no fluxo de gravação
+do cadastro não era necessário. Destino tem de ser conta da mesma empresa (é o que a transferência exige das
+duas pontas), não pode ser a própria conta, e não se repete.
+
 ## Ver também
 
 - [dossier-template.md](../../dossier-template.md) · [dossier-process.md](../../dossier-process.md)

@@ -17425,6 +17425,50 @@ async function main() {
       }
     }
 
+    // ══ TRANSFERÊNCIAS PERMITIDAS ENTRE CONTAS (mig 295) ══════════════════════════════════════════════
+    {
+      const pgTp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const CC = 'cadastro/controle-contas';
+        const bancoTp = Number((await pgTp.query(`SELECT codbco FROM bancos WHERE codbco > 0 ORDER BY codbco LIMIT 1`)).rows[0]?.codbco ?? 1);
+        const nova = async (t: string) => Number((await pgTp.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES ($1,1,$2) RETURNING codconta`, [bancoTp, t])).rows[0].codconta);
+        const cA = await nova('SMOKE TP A'); const cB = await nova('SMOKE TP B'); const cC = await nova('SMOKE TP C');
+        const TP = (c: number) => `${base}/cadastro/contas-bancarias/${c}/transferencias-permitidas`;
+        const trf = (o: number, d: number) => fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H, body: JSON.stringify({ codorigem: o, coddestino: d, valor: 1, historico: 'smoke tp' }) });
+
+        const putA = await fetch(TP(cA), { method: 'PUT', headers: H, body: JSON.stringify({ destinos: [{ codconta_destino: cB, ativo: 'S' }] }) });
+        const putAJ = (await putA.json().catch(() => ({}))) as any;
+        const aParaC = await trf(cA, cC); const aParaCJ = (await aParaC.json().catch(() => ({}))) as any;
+        const aParaB = await trf(cA, cB);
+        const cParaA = await trf(cC, cA);
+        check('TRANSFERÊNCIAS PERMITIDAS §160.1 [a matriz vale para a ORIGEM que está nela, e só para ela]: a tabela é de 2026 e não tem fonte — a regra saiu do dado. Desde que a matriz existe, **nenhuma** transferência do cliente saiu de uma conta listada para um destino fora da lista; as 6 que saíram "fora" vieram todas da conta 201, que não é origem na matriz. Então: a conta A, restrita a B, não transfere para C (422 com a lista dos permitidos no detalhe), transfere para B; e a conta C, que não está na matriz, transfere livremente',
+          putA.status === 200 && putAJ.restrita === true
+          && aParaC.status === 422 && aParaCJ.code === 'TRANSFERENCIA_NAO_PERMITIDA' && JSON.stringify(aParaCJ.detalhe?.permitidos) === JSON.stringify([cB])
+          && aParaB.status === 200 && cParaA.status === 200,
+          { put: [putA.status, putAJ.restrita], aParaC: [aParaC.status, aParaCJ.code, aParaCJ.detalhe], aParaB: aParaB.status, cParaA: cParaA.status });
+
+        const inativa = await fetch(TP(cA), { method: 'PUT', headers: H, body: JSON.stringify({ destinos: [{ codconta_destino: cB, ativo: 'N' }] }) });
+        const inativaJ = (await inativa.json().catch(() => ({}))) as any;
+        const aParaCDepois = await trf(cA, cC);
+        const propria = await fetch(TP(cA), { method: 'PUT', headers: H, body: JSON.stringify({ destinos: [{ codconta_destino: cA, ativo: 'S' }] }) });
+        const propriaJ = (await propria.json().catch(() => ({}))) as any;
+        const dup = await fetch(TP(cA), { method: 'PUT', headers: H, body: JSON.stringify({ destinos: [{ codconta_destino: cB }, { codconta_destino: cB }] }) });
+        const semGrant = await fetch(TP(cA), { method: 'PUT', headers: H_SEM_ACESSO, body: JSON.stringify({ destinos: [] }) });
+        const linhas = Number((await pgTp.query(`SELECT count(*)::int AS n FROM contas_banc_transf_perm WHERE codconta_origem = $1`, [cA])).rows[0]?.n);
+        check('TRANSFERÊNCIAS PERMITIDAS §160.2 [destino só INATIVO deixa a conta livre; e a lista não aceita a própria conta nem repetição]: os 19 pares do cliente estão todos ativos, então o dado não decide a linha inativa — seguimos a leitura de um campo "ativo": com o único destino desligado a conta volta a ser livre e transfere para C. Pôr a própria conta na lista é 422 (a transferência já recusa origem = destino), destino repetido é 400, sem o grant é 403, e nenhuma recusa mexe no que estava gravado',
+          inativa.status === 200 && inativaJ.restrita === false && aParaCDepois.status === 200
+          && propria.status === 422 && propriaJ.code === 'TRANSFERENCIA_MESMA_CONTA'
+          && dup.status === 400 && semGrant.status === 403 && linhas === 1,
+          { inativa: [inativa.status, inativaJ.restrita], aParaCDepois: aParaCDepois.status, propria: [propria.status, propriaJ.code], dup: dup.status, rbac: semGrant.status, linhas });
+
+        await pgTp.query(`DELETE FROM contas_banc_transf_perm WHERE codconta_origem IN ($1,$2,$3)`, [cA, cB, cC]);
+        await pgTp.query(`DELETE FROM mov_contas_bancarias WHERE codconta IN ($1,$2,$3)`, [cA, cB, cC]);
+        await pgTp.query(`DELETE FROM contas_bancarias WHERE codconta IN ($1,$2,$3)`, [cA, cB, cC]);
+      } finally {
+        await pgTp.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();
