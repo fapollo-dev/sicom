@@ -5935,6 +5935,20 @@
      "escala": null,
      "nulo": true,
      "default": null
+    },
+    "codlote_contabil": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codmovconta_fcp": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
     }
    },
    "pk": [
@@ -23209,7 +23223,7 @@
      "tam": 10,
      "escala": 0,
      "nulo": false,
-     "default": null
+     "default": "nextval('seq_histareceber'::regclass)"
     },
     "data": {
      "tipo": "timestamp with time zone",

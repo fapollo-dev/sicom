@@ -124,6 +124,7 @@ export class CaixaContabilService {
       }
 
       // (2) TESOURARIA do DINHEIRO (corte-2d-b) — registra a entrada de dinheiro na tesouraria (netDin>0).
+      let codmovcontaFcp: number | null = null;
       let tesouraria: { contadebito: number; contacredito: number; valor: number } | null = null;
       if (netDin > 0) {
         const forma = await this.formaDinheiro(trx, emp); // { idpgto, conta (=183 p/ dinheiro), codcontacorrente }
@@ -135,18 +136,20 @@ export class CaixaContabilService {
           codhist: HIST_TRANSFERENCIA, complemento: `Tesouraria do caixa ${codcaixa} (dinheiro)`, codlote,
         }).execute();
         // razão de tesouraria (MCB) — o registro OPERACIONAL do dinheiro na conta da tesouraria (ORIGEM='FCP').
-        await trx.insertInto('mov_contas_bancarias').values({
+        const mcb = (await trx.insertInto('mov_contas_bancarias').values({
           codconta: forma.codcontacorrente, idempresa: emp, valor: valorTes, tipomovimento: 'C',
           codopconta: 0, historico: `Fechamento do caixa ${codcaixa} em DINHEIRO`, idpgto: forma.idpgto,
           codoperador: op, nropdv_fechamento: codcaixa, data_fechamento: dt, origem: 'FCP',
           idorigem: codcaixa, contabilizado: null, indr: 'I', dtcadastro: sql`now()`,
-        }).execute();
+        }).returning('codmovconta').executeTakeFirstOrThrow()) as { codmovconta: number };
+        codmovcontaFcp = Number(mcb.codmovconta);
         tesouraria = { contadebito: forma.conta, contacredito: CONTA_CAIXA, valor: valorTes };
       }
 
       const upd = await trx
         .updateTable('caixa_sessao')
-        .set({ contabilizado: 'S', usultalteracao: op, dtultimalteracao: sql`now()` })
+        // mig 316: o lote e o movimento que ESTA contabilização criou — o estorno apaga exatamente esses
+        .set({ contabilizado: 'S', codlote_contabil: codlote, codmovconta_fcp: codmovcontaFcp, usultalteracao: op, dtultimalteracao: sql`now()` })
         .where('codcaixa', '=', codcaixa).where('codempresa', '=', emp)
         .where((eb: any) => eb.or([eb('contabilizado', '<>', 'S'), eb('contabilizado', 'is', null)]))
         .executeTakeFirst();
@@ -214,20 +217,33 @@ export class CaixaContabilService {
    * Idempotente (no-op se não houver lançamento).
    */
   async estornarNoTrx(trx: AnyDB, emp: number, codcaixa: number, op: number | null): Promise<void> {
-    // apaga AS DUAS pernas do fechamento: divergência (CODORIGEM 17) E tesouraria (CODORIGEM 19). EXCLUI a
-    // situação 2010 (fechamento do PDV por modalidade, caixa-pdv-contabil): compartilha o CODORIGEM 17 mas tem
-    // idorigem de outro espaço (codgrupo) — sem esse filtro, um codcaixa==codgrupo apagaria o DIÁRIO do PDV.
-    const lotes = await trx
-      .selectFrom('diario').select('codlote').distinct()
-      .where('codorigem', 'in', [CODORIGEM_CAIXA, CODORIGEM_TESOURARIA]).where('idorigem', '=', codcaixa).where('codempresa', '=', emp).where(sql`coalesce(codoperacao,0)`, '<>', 2010)
-      .execute();
-    await trx.deleteFrom('diario').where('codorigem', 'in', [CODORIGEM_CAIXA, CODORIGEM_TESOURARIA]).where('idorigem', '=', codcaixa).where('codempresa', '=', emp).where(sql`coalesce(codoperacao,0)`, '<>', 2010).execute();
-    const ids = (lotes as Record<string, unknown>[]).map((l) => Number(l.codlote)).filter((n) => Number.isFinite(n));
-    if (ids.length) await trx.deleteFrom('lote_contabil').where('codlotecontabil', 'in', ids).execute();
-    // razão de tesouraria (MOV_CONTAS_BANCARIAS) do fechamento — remove junto (fechamento não aconteceu).
-    await trx.deleteFrom('mov_contas_bancarias').where('nropdv_fechamento', '=', codcaixa).where('idempresa', '=', emp).where('origem', '=', 'FCP').execute();
+    // mig 316: apaga SÓ o que esta contabilização gravou — o lote (as duas pernas: divergência CODORIGEM 17 e
+    // tesouraria 19) e o movimento FCP. As chaves antigas colidiam com o dado migrado: no legado NROPDV_FECHAMENTO é o
+    // número do PDV e o IDORIGEM de 17/19 é IDSALDOOP/CODCX — reabrir o caixa 53 apagaria o fechamento do PDV 53.
+    const s = (await trx.selectFrom('caixa_sessao').select(['codlote_contabil', 'codmovconta_fcp'])
+      .where('codcaixa', '=', codcaixa).where('codempresa', '=', emp).executeTakeFirst()) as { codlote_contabil?: number | null; codmovconta_fcp?: number | null } | undefined;
+    let lotes: number[] = s?.codlote_contabil != null ? [Number(s.codlote_contabil)] : [];
+    if (!lotes.length) {
+      // caixa contabilizado antes da mig 316: o lote que ELE criou (desclote `CAIXA <cod>`, origem 17, a empresa)
+      lotes = ((await trx.selectFrom('lote_contabil').select('codlotecontabil')
+        .where('desclote', '=', `CAIXA ${codcaixa}`).where('codorigem', '=', CODORIGEM_CAIXA).where('codempresa', '=', emp)
+        .execute()) as Array<{ codlotecontabil: number }>).map((l) => Number(l.codlotecontabil));
+    }
+    if (lotes.length) {
+      await trx.deleteFrom('diario').where('codlote', 'in', lotes).where('codempresa', '=', emp).execute();
+      await trx.deleteFrom('lote_contabil').where('codlotecontabil', 'in', lotes).execute();
+    }
+    // razão de tesouraria (MOV_CONTAS_BANCARIAS) do fechamento — remove junto (fechamento não aconteceu)
+    if (s?.codmovconta_fcp != null) {
+      await trx.deleteFrom('mov_contas_bancarias').where('codmovconta', '=', Number(s.codmovconta_fcp)).execute();
+    } else {
+      // antes da mig 316: o movimento que ESTE caixa gravou, pelo histórico exato que só o Apollo escreve
+      await trx.deleteFrom('mov_contas_bancarias').where('idempresa', '=', emp).where('origem', '=', 'FCP')
+        .where('idorigem', '=', codcaixa).where('historico', '=', `Fechamento do caixa ${codcaixa} em DINHEIRO`).execute();
+    }
     await trx
-      .updateTable('caixa_sessao').set({ contabilizado: null, usultalteracao: op, dtultimalteracao: sql`now()` })
+      .updateTable('caixa_sessao').set({ contabilizado: null, codlote_contabil: null, codmovconta_fcp: null, usultalteracao: op, dtultimalteracao: sql`now()` })
       .where('codcaixa', '=', codcaixa).where('codempresa', '=', emp).execute();
   }
+
 }

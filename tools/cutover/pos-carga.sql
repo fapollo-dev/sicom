@@ -51,3 +51,13 @@ UPDATE nf SET faturada = 'S'
  WHERE coalesce(faturada, 'N') <> 'S'
    AND (EXISTS (SELECT 1 FROM areceber r WHERE r.idnf = nf.codnf)
         OR EXISTS (SELECT 1 FROM apagar p WHERE p.idnf = nf.codnf));
+
+-- O TURNO DO PDV QUE O LEGADO JÁ CONTABILIZOU (recon do fechamento de caixa, 23/09/2026). A contabilização do legado marca os
+-- lançamentos de CAIXA do fechamento (ORIGEM 'FECHAMENTO', mesmo CODGRUPO do turno) e nunca o CX_VENDAS — CONTABILIZADO vem
+-- nulo em 100% dos 474.750 registros de 2026. A contabilização do PDV do Apollo seleciona o turno "não contabilizado" pelo
+-- CX_VENDAS: sem isto, repostaria no razão todos os turnos migrados (R$ 19,9 mi em 2026, já no DIÁRIO pela origem 17).
+-- Idempotente. (O serviço tem a mesma guarda, para a carga incremental.)
+UPDATE cx_vendas cv SET contabilizado = 'S'
+ WHERE coalesce(cv.contabilizado, 'N') <> 'S'
+   AND cv.codgrupo IS NOT NULL
+   AND EXISTS (SELECT 1 FROM caixa c WHERE c.codgrupo = cv.codgrupo AND c.origem = 'FECHAMENTO' AND c.contabilizado = 'S');

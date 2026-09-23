@@ -102,6 +102,10 @@ export class CaixaPdvContabilService {
         .where('cv.idempresa', '=', emp)
         .where('cv.codgrupo', 'is not', null)
         .where(sql`coalesce(cv.contabilizado,'N')`, '<>', 'S')
+        // ⚠️ o turno que o LEGADO já contabilizou fica de fora: lá a contabilização marca os lançamentos de CAIXA do
+        // fechamento (ORIGEM 'FECHAMENTO', mesmo CODGRUPO — 90/90 numa semana de set/2026) e nunca o CX_VENDAS
+        // (CONTABILIZADO nulo em 100% dos 474.750 de 2026). Sem isto, os turnos migrados iriam ao razão de novo.
+        .where(sql<boolean>`NOT EXISTS (SELECT 1 FROM caixa c WHERE c.codgrupo = cv.codgrupo AND c.origem = 'FECHAMENTO' AND c.contabilizado = 'S')`)
         .where(sql`coalesce(f.destino,'')`, '<>', 'QUE')
         .where('f.codplanocontas', 'is not', null)
         .where(sql`cv.data`, '>=', d0)
@@ -143,10 +147,17 @@ export class CaixaPdvContabilService {
     const emp = this.emp();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       // só as linhas do PDV (codoperacao=2010) — o CODORIGEM 17 é compartilhado com o caixa da retaguarda.
+      // ⚠️ e só as que ESTE serviço lançou: no legado o IDORIGEM da situação 2010 é o CAIXA.CODCX (13.755 linhas em
+      // 2026), outro espaço de números — um CODGRUPO do Apollo igual a um CODCX migrado apagaria o razão do legado. O
+      // marcador é o lote que o contabilizar cria (`Fechamento caixa PDV grupo <codgrupo>`).
+      const lotesApollo = trx.selectFrom('lote_contabil').select('codlotecontabil')
+        .where('desclote', '=', `Fechamento caixa PDV grupo ${codgrupo}`).where('codorigem', '=', CODORIGEM_FECHAMENTO).where('codempresa', '=', emp);
       const linhas = (await trx.selectFrom('diario').select([sql`to_char(datalan,'YYYY-MM-DD')`.as('datalan'), 'codlote'])
-        .where('codorigem', '=', CODORIGEM_FECHAMENTO).where('codoperacao', '=', SIT_FECHAMENTO).where('idorigem', '=', codgrupo).where('codempresa', '=', emp).execute()) as Array<{ datalan: string; codlote: number | null }>;
+        .where('codorigem', '=', CODORIGEM_FECHAMENTO).where('codoperacao', '=', SIT_FECHAMENTO).where('idorigem', '=', codgrupo).where('codempresa', '=', emp)
+        .where('codlote', 'in', lotesApollo).execute()) as Array<{ datalan: string; codlote: number | null }>;
       for (const l of linhas) await this.assertPeriodoAberto(trx, emp, l.datalan); // não estorna em período fechado
-      const del = await trx.deleteFrom('diario').where('codorigem', '=', CODORIGEM_FECHAMENTO).where('codoperacao', '=', SIT_FECHAMENTO).where('idorigem', '=', codgrupo).where('codempresa', '=', emp).executeTakeFirst();
+      const del = await trx.deleteFrom('diario').where('codorigem', '=', CODORIGEM_FECHAMENTO).where('codoperacao', '=', SIT_FECHAMENTO).where('idorigem', '=', codgrupo).where('codempresa', '=', emp)
+        .where('codlote', 'in', lotesApollo).executeTakeFirst();
       const lotes = [...new Set(linhas.map((l) => Number(l.codlote)).filter((n) => Number.isFinite(n)))];
       if (lotes.length) await trx.deleteFrom('lote_contabil').where('codlotecontabil', 'in', lotes).execute();
       await trx.updateTable('cx_vendas').set({ contabilizado: 'N' } as any).where('idempresa', '=', emp).where('codgrupo', '=', codgrupo).execute();

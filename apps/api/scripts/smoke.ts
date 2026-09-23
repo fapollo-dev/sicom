@@ -3103,6 +3103,26 @@ async function main() {
     // 42.3) estornar contábil → DIÁRIO removido.
     const ct1Est = await fetch(`${base}/${CX}/${ct1}/estornar-contabil`, { method: 'POST', headers: H });
     check('CX-2d: estornar-contábil → 200 e DIÁRIO removido', ct1Est.status === 200 && (await diarioCaixa(ct1)).length === 0, { status: ct1Est.status });
+    // 42.3b) mig 316 — o estorno apaga SÓ o que o Apollo gravou: um movimento FCP "do legado" do PDV de número = este caixa
+    // (no legado NROPDV_FECHAMENTO é o número do PDV) e um lançamento 17/2002 com IDORIGEM = este número (IDSALDOOP)
+    // sobrevivem ao estorno; os do Apollo saem.
+    const ctCol = await cfFresh(100);
+    await fecharCx(ctCol, { valorContado: 115 }); // sobra +15
+    await pgCx2.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, nropdv_fechamento, idorigem, historico, indr)
+                       VALUES (1, 1, 777, 'C', 'FCP', $1, 555001, 'FECHAMENTO LEGADO PDV', 'I')`, [ctCol]);
+    await pgCx2.query(`INSERT INTO diario (datalan, contadebito, contacredito, valor, codorigem, idorigem, codoperacao, codempresa)
+                       VALUES ('2026-01-15', 148, 183, 7.77, 17, $1, 2002, 1)`, [ctCol]);
+    await fetch(`${base}/${CX}/${ctCol}/contabilizar`, { method: 'POST', headers: H });
+    const ct6Antes = (await diarioCaixa(ctCol)).length;
+    const ct6Est = await fetch(`${base}/${CX}/${ctCol}/estornar-contabil`, { method: 'POST', headers: H });
+    const ct6Leg = (await pgCx2.query(`SELECT count(*)::int n FROM diario WHERE codorigem=17 AND idorigem=$1 AND valor=7.77`, [ctCol])).rows[0].n;
+    const ct6Mcb = (await pgCx2.query(`SELECT count(*)::int n FROM mov_contas_bancarias WHERE nropdv_fechamento=$1 AND valor=777`, [ctCol])).rows[0].n;
+    const ct6Apollo = (await pgCx2.query(`SELECT count(*)::int n FROM diario WHERE codorigem=17 AND idorigem=$1 AND valor<>7.77`, [ctCol])).rows[0].n;
+    check('CX-2d mig 316: estornar o caixa apaga só o lançamento dele — o FCP do PDV de mesmo número e o 17/2002 migrado ficam',
+      ct6Antes === 2 && ct6Est.status === 200 && Number(ct6Leg) === 1 && Number(ct6Mcb) === 1 && Number(ct6Apollo) === 0,
+      { antes: ct6Antes, est: ct6Est.status, legado: ct6Leg, fcpLegado: ct6Mcb, apollo: ct6Apollo });
+    await pgCx2.query(`DELETE FROM diario WHERE codorigem=17 AND idorigem=$1 AND valor=7.77`, [ctCol]);
+    await pgCx2.query(`DELETE FROM mov_contas_bancarias WHERE nropdv_fechamento=$1 AND valor=777`, [ctCol]);
     // 42.4) QUEBRA-sem-título → 2002 (D148 / C183).
     const ct2 = await cfFresh(100);
     await fecharCx(ct2, { valorContado: 70, gerarTituloQuebra: false }); // quebra -30 sem título
@@ -3478,6 +3498,26 @@ async function main() {
     check('CAIXA-PDV 45b.5: forma sem conta → 422 CONTA_FORMA_NAO_INFORMADA (nada lançado/marcado — fail-loud)',
       cvFail.status === 422 && ((await cvFail.json().catch(() => ({}))) as any).code === 'CONTA_FORMA_NAO_INFORMADA' && Number(naoLancou) === 0 && Number(naoMarcou) === 0,
       { status: cvFail.status, lancou: naoLancou, marcou: naoMarcou });
+    // 45b.6) recon do fechamento: o turno que o LEGADO contabilizou (CAIXA do fechamento, mesmo CODGRUPO, contabilizado)
+    // não vai ao razão de novo; e reverter um turno do Apollo não apaga um 17/2010 do legado com IDORIGEM igual (CODCX).
+    await pgCv.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, valor, troco, codgrupo, status) VALUES
+      (1,'2026-11-20 10:00:00-03',1,7,'DINHEIRO',80,0,91003,'F'),
+      (1,'2026-11-21 10:00:00-03',1,7,'DINHEIRO',40,0,91004,'F')`);
+    await pgCv.query(`INSERT INTO caixa (data, valor, idempresa, origem, codgrupo, contabilizado) VALUES ('2026-11-20', 80, 1, 'FECHAMENTO', 91003, 'S')`);
+    await pgCv.query(`INSERT INTO diario (datalan, contadebito, contacredito, valor, codorigem, idorigem, codoperacao, codempresa)
+                      VALUES ('2026-11-02', 183, 200, 6.66, 17, 91004, 2010, 1)`);
+    const cvLeg = await fetch(`${base}/cobranca/caixa/contabilizar-pdv?dtini=2026-11-15&dtfim=2026-11-30`, { method: 'POST', headers: H });
+    const cvLegJ = (await cvLeg.json().catch(() => ({}))) as any;
+    const d91003 = Number((await pgCv.query(`SELECT count(*)::int n FROM diario WHERE codorigem=17 AND idorigem=91003`)).rows[0].n);
+    const cvRev4 = await fetch(`${base}/cobranca/caixa/91004/reverter-pdv`, { method: 'POST', headers: H });
+    const d91004Leg = Number((await pgCv.query(`SELECT count(*)::int n FROM diario WHERE codorigem=17 AND idorigem=91004 AND valor=6.66`)).rows[0].n);
+    const d91004Apollo = Number((await pgCv.query(`SELECT count(*)::int n FROM diario WHERE codorigem=17 AND idorigem=91004 AND valor=40`)).rows[0].n);
+    check('CAIXA-PDV 45b.6: turno já contabilizado pelo legado fica fora (1 grupo lançado, o 91004) · reverter apaga só o do Apollo (o 17/2010 migrado fica)',
+      cvLeg.status === 200 && Number(cvLegJ.grupos) === 1 && d91003 === 0 && cvRev4.status === 200 && d91004Leg === 1 && d91004Apollo === 0,
+      { body: cvLegJ, d91003, rev: cvRev4.status, legado: d91004Leg, apollo: d91004Apollo });
+    await pgCv.query(`DELETE FROM diario WHERE codorigem=17 AND idorigem=91004 AND valor=6.66`);
+    await pgCv.query(`DELETE FROM caixa WHERE codgrupo=91003 AND origem='FECHAMENTO'`);
+    await pgCv.query(`DELETE FROM cx_vendas WHERE codgrupo IN (91003, 91004)`);
     await pgCv.query(`DELETE FROM cx_vendas WHERE codgrupo IN (91001,91002)`); // cleanup
 
     // 45c) CAIXA × CX_VENDAS — CONFERÊNCIA do fechamento do PDV (SALDO_OPERADOR): gaveta contada vs DINHEIRO esperado.
