@@ -19377,6 +19377,104 @@
     }
    ]
   },
+  "itens_historico_contabil": {
+   "colunas": {
+    "coditemhistcontabil": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_itens_historico_contabil'::regclass)"
+    },
+    "codhistcontabil": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "ordem": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "posicao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "tabela": {
+     "tipo": "character varying",
+     "tam": 200,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "campo": {
+     "tipo": "character varying",
+     "tam": 200,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "tipo_dados": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "status": {
+     "tipo": "character",
+     "tam": 1,
+     "escala": null,
+     "nulo": false,
+     "default": "'S'::bpchar"
+    },
+    "deschist": {
+     "tipo": "character varying",
+     "tam": 200,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "usultalteracao": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "dtultimalteracao": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "dtcadastro": {
+     "tipo": "timestamp with time zone",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": "now()"
+    }
+   },
+   "pk": [
+    "coditemhistcontabil"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "itens_historico_contabil_pkey",
+     "def": "CREATE UNIQUE INDEX itens_historico_contabil_pkey ON public.itens_historico_contabil USING btree (coditemhistcontabil)"
+    }
+   ]
+  },
   "itens_integracao_contabil": {
    "colunas": {
     "coditemoperacao": {

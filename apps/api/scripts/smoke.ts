@@ -17367,6 +17367,64 @@ async function main() {
       }
     }
 
+    // ══ OS ITENS DO HISTÓRICO CONTÁBIL e o TEXTO DO RAZÃO DA NOTA (mig 294) ═══════════════════════════
+    {
+      const pgIh = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const integ0 = (await pgIh.query(`SELECT integracao FROM empresas WHERE idempresa = 1`)).rows[0]?.integracao ?? null;
+      try {
+        await pgIh.query(`UPDATE empresas SET integracao = 'AUTOMATICA' WHERE idempresa = 1`);
+        await pgIh.query(`INSERT INTO situacao_nf (idsituacao_nf, descricao) VALUES (7901,'SITUACAO SMOKE CREDITO ICMS') ON CONFLICT DO NOTHING`);
+        // a situação usa o histórico 62 nas duas pernas — o dos itens que contradizem o rótulo
+        await pgIh.query(`INSERT INTO itens_integracao_contabil (codoperacao, natureza, tipo, codconta_contabil, codhistorico) VALUES
+          (7901,'D','F',148,62), (7901,'C','F',11141,62) ON CONFLICT DO NOTHING`);
+        const nfIh = await novaNf(baseNf({ tipo: 'E', nronf: '7922433', cfop: '1403', codparceiro: 22, idsituacao_nf: 7901, itens: [{ codproduto: 1, quantidade: 3, vrvenda: 10, cfop: '1403', aliquota: 'T01' }] }));
+        await fetch(`${base}/fiscal/nf/${nfIh}/processar`, { method: 'POST', headers: H });
+        await pgIh.query(`INSERT INTO nf_contabil (codnf, idsituacao_nf, codcc, valor) VALUES ($1,7901,1,30)`, [nfIh]);
+        const ctbIh = await fetch(`${base}/fiscal/nf/${nfIh}/contabilizar`, { method: 'POST', headers: H });
+        const linhaIh = (await pgIh.query(`SELECT codhist, deschist FROM diario WHERE codorigem = 12 AND idorigem = $1 AND codoperacao = 7901`, [nfIh])).rows[0];
+        const cnpjIh = (await pgIh.query(
+          `SELECT coalesce((SELECT e.cnpj_cpf FROM parceiros_end e WHERE e.codparceiro = n.codparceiro AND e.codend = n.codparceiro_end),
+                           (SELECT e.cnpj_cpf FROM parceiros_end e WHERE e.codparceiro = n.codparceiro ORDER BY e.codend LIMIT 1)) AS cnpj
+             FROM nf n WHERE n.codnf = $1`, [nfIh])).rows[0]?.cnpj ?? '';
+        const esperadoIh = `CREDITO ICMS NFISCAL COMPRA .: 007922433 CNPJ.: 1403 PARCEIRO.:${cnpjIh}`;
+        check('ITENS DO HISTÓRICO §159.1 [a nota passa a gravar o TEXTO do razão, e na ordem dos ITENS]: a contabilização da NF gravava o código do histórico e deixava `deschist` NULO — no cliente são **14.322 linhas de razão de nota só em 2026, todas com texto**. O texto é o template com os `*` preenchidos pelos itens do histórico, e o razão prova que é a ordem dos ITENS que manda, não a dos rótulos: no 62 o CFOP sai no rótulo "CNPJ" e o CNPJ no rótulo "PARCEIRO" (`…COMPRA .: 007922433 CNPJ.: 1403 PARCEIRO.:23.814.940/0010-00`). Montado assim, bate em **32.731 de 32.894** linhas de nota do cliente desde 2025 — o resto é parceiro renomeado depois',
+          ctbIh.status === 200 && Number(linhaIh?.codhist) === 62 && linhaIh?.deschist === esperadoIh,
+          { status: ctbIh.status, linha: linhaIh, esperado: esperadoIh });
+
+        const IH = 'cadastro/historico-contabil';
+        const g62 = (await (await fetch(`${base}/${IH}/62/itens`, { headers: H })).json().catch(() => ({}))) as any;
+        const campos62 = (g62.itens ?? []).map((i: any) => i.campo).join(',');
+        await pgIh.query(`INSERT INTO historico_contabil (codhistcontabil, deschist, status) VALUES (7999, 'SMOKE .: * - *', 'S') ON CONFLICT DO NOTHING`);
+        const putIh = await fetch(`${base}/${IH}/7999/itens`, { method: 'PUT', headers: H, body: JSON.stringify({ itens: [
+          { ordem: 2, tabela: 'nf', campo: 'cfop', tipo_dados: 'NUMERIC', status: 'S' },
+          { ordem: 1, tabela: 'NF', campo: 'NRO_NF', tipo_dados: 'NUMERIC', status: 'S' },
+        ] }) });
+        const putBody = (await putIh.json().catch(() => ({}))) as any;
+        const putOrdem = (putBody.itens ?? []).map((i: any) => `${i.ordem}:${i.tabela}.${i.campo}`).join(',');
+        const dup = await fetch(`${base}/${IH}/7999/itens`, { method: 'PUT', headers: H, body: JSON.stringify({ itens: [
+          { ordem: 1, tabela: 'NF', campo: 'NRO_NF', status: 'S' }, { ordem: 1, tabela: 'NF', campo: 'CFOP', status: 'S' },
+        ] }) });
+        const semHist = await fetch(`${base}/${IH}/7998/itens`, { method: 'PUT', headers: H, body: JSON.stringify({ itens: [] }) });
+        const semHistBody = (await semHist.json().catch(() => ({}))) as any;
+        const semGrantIh = await fetch(`${base}/${IH}/7999/itens`, { method: 'PUT', headers: H_SEM_ACESSO, body: JSON.stringify({ itens: [] }) });
+        const aindaDois = (await pgIh.query(`SELECT count(*)::int AS n FROM itens_historico_contabil WHERE codhistcontabil = 7999`)).rows[0]?.n;
+        check('ITENS DO HISTÓRICO §159.2 [a grade do cadastro: a lista inteira, na ordem, e ordem repetida é recusada]: no legado os itens são o dataset aninhado do cadastro (`uCadHistoricoContabil.dfm:359`) e se gravam como lista. O 62 volta com os seus quatro itens na ordem da produção (NRO_NF, CFOP, CNPJ_CPF, PARCEIRO); gravar devolve a lista ORDENADA e em maiúsculas; duas linhas com a mesma ordem deixariam o `*` ambíguo e são 400; histórico que não existe é 422 e sem o grant é 403 — e nenhuma das recusas mexe no que estava gravado',
+          campos62 === 'NRO_NF,CFOP,CNPJ_CPF,PARCEIRO'
+          && putIh.status === 200 && putOrdem === '1:NF.NRO_NF,2:NF.CFOP'
+          && dup.status === 400 && semHist.status === 422 && semHistBody.code === 'HISTORICO_CONTABIL_NAO_ENCONTRADO'
+          && semGrantIh.status === 403 && aindaDois === 2,
+          { campos62, put: putIh.status, putOrdem, dup: dup.status, semHist: [semHist.status, semHistBody.code], rbac: semGrantIh.status, aindaDois });
+
+        await fetch(`${base}/fiscal/nf/${nfIh}/estornar-contabilizacao`, { method: 'POST', headers: H });
+        await pgIh.query(`DELETE FROM itens_historico_contabil WHERE codhistcontabil = 7999`);
+        await pgIh.query(`DELETE FROM historico_contabil WHERE codhistcontabil = 7999`);
+        await pgIh.query(`DELETE FROM itens_integracao_contabil WHERE codoperacao = 7901`);
+      } finally {
+        await pgIh.query(`UPDATE empresas SET integracao = $1 WHERE idempresa = 1`, [integ0]);
+        await pgIh.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

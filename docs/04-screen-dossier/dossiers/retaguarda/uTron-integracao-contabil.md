@@ -348,6 +348,52 @@ O CNPJ dos históricos 1/21/61/112 vive em **`parceiros_end`**, não em `parceir
   exatamente para isso. Trocar a ordem dos `*` troca o que sai no livro, e sem a simulação o erro só
   apareceria depois, no razão.
 
+### 8.7 ⚠️ Os ITENS do histórico são a regra — e a nota gravava o razão sem texto (migration 294)
+
+A grade de detalhe do cadastro (`uCadHistoricoContabil.dfm:359`, dataset aninhado `sqqItens_Historico`) é
+`ITENS_HISTORICO_CONTABIL`: **144 itens para os 54 históricos**, cada um com ORDEM, TABELA e CAMPO. Ficou
+fora do plano de carga até o inventário completo de 23/09/2026 — e não é documentação, é a lista que diz qual
+campo preenche cada `*`. **O razão prova**, porque o texto segue os itens mesmo quando eles contradizem o
+rótulo do template:
+
+| hist. | template | itens, na ordem | o que o razão grava |
+|---|---|---|---|
+| 62 | `CREDITO ICMS NFISCAL COMPRA .: * CNPJ.: * PARCEIRO.:*` | NRO_NF, CFOP, CNPJ_CPF, PARCEIRO | `… .: 007922433 CNPJ.: 1403 PARCEIRO.:23.814.940/0010-00` |
+| 66 | `DEBITO ICMS NFISCAL PERDA .: * CFOP .: *LOJA .: *` | CFOP, IDEMPRESA, NRO_NF | `… PERDA .: 5927 CFOP .: 001LOJA .: 000004412` |
+| 70 | `CUSTO VENDA NFISCAL .:*CFOP .: *` | CFOP, NRO_NF | `CUSTO VENDA NFISCAL .:5405CFOP .: 000004393` |
+
+Montando o texto das NOTAS pelos itens, bate em **32.731 de 32.894** linhas do razão desde 2025 (**99,5%**),
+nos 17 históricos de nota. As 163 restantes são parceiro renomeado depois do lançamento (o razão guarda o nome
+da época) e uma linha corrompida do próprio legado.
+
+**A lacuna**: `nf-contabilizacao.service.ts` gravava `diario.codhist` e deixava `diario.deschist` nulo — o
+mesmo defeito que a migration 229 corrigiu no motor da integração contábil, mas que ficou no caminho da nota.
+No cliente são **14.322 linhas de razão de nota só em 2026, todas com texto**. Agora a nota monta o texto
+pelos itens, com os formatos que o razão mostra: número com 9 dígitos, loja com 3 (`LOJA .: 001`), CFOP cru,
+e o CNPJ como está gravado no endereço da nota (`codparceiro_end`; sem ele, o primeiro endereço).
+
+**Como os itens convivem com o mapa medido (§8.3)**:
+
+- **o mapa vence onde existe.** No 89 os itens dizem `ARECEBER.OBS` e o razão mostra a descrição do centro de
+  custo em 5.895 de 5.895 linhas: o nome do campo é o do dataset interno do legado (`FuncoesApollo`), não o da
+  coluna. O mapa foi medido contra o razão; os itens, não.
+- **os itens entram onde o mapa não tem o histórico**, traduzidos por `CAMPO_DO_LEGADO` (tabela.campo →
+  contexto). Cada tradução tem âncora: o mesmo par aparece num histórico que o mapa prova, e a tradução é a
+  dele — `APAGAR_BX.CODIGO_DOCUMENTO` sai cru (91, 106, 107), `APAGAR.CODIGO` com 9 dígitos (21, 101-103). O
+  teste `historico-contabil-itens.spec.ts` confere que dicionário e mapa **não se contradizem em nenhuma
+  posição**, e reproduz oito linhas reais do razão de históricos que o mapa não tinha (41, 62, 64, 66, 70, 108,
+  121, 201).
+- Os históricos de PDV (81-85, 98-100) ficam sem tradução — fora de escopo.
+
+**A grade no cadastro**: o legado grava mestre e itens juntos (`ClientDataSet` aninhado). Aqui os itens são um
+recurso do histórico (`/cadastro/historico-contabil/:cod/itens`), gravado como lista inteira numa transação
+que trava o mestre — para não mexer no cadastro do mestre, que já funcionava. A tela mostra o texto **com o
+nome do campo em cada buraco** (`… .: [NRO_NF] CNPJ.: [CFOP] PARCEIRO.:[CNPJ_CPF]`), que é onde se vê o CFOP
+caindo no rótulo "CNPJ" antes de gravar. Ordem repetida é recusada (o `*` ficaria ambíguo).
+
+⚠️ **Decisão sem prova, registrada**: item com `STATUS='N'` sai da lista e o seguinte sobe um `*`. Os 144 itens
+da produção estão todos em `S`, então o dado não decide o caso; seguimos a leitura natural de um campo "ativo".
+
 ---
 
 ## 9. A tela que configura tudo isso (`FRMCONFIGINTEGRACAOCONTABIL`, migration 233)

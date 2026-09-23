@@ -4,6 +4,8 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { resolverContaContabilParceiro } from '../shared/conta-parceiro';
+import { carregarHistoricos, textoDoRazao, type HistoricoCarregado } from '../cobranca/integracao-contabil.motor';
+import type { CtxHistorico } from '../cobranca/historico-contabil.args';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -92,7 +94,8 @@ export class NfContabilizacaoService {
         .executeTakeFirstOrThrow();
       const codlote = Number(lote.codlotecontabil);
 
-      const ctx = { tipo: String(nf.tipo), codparceiro: Number(nf.codparceiro), dtcontabil: nf.dtcontabil, nronf: nf.nronf, codnf, emp, codlote };
+      const texto = await this.textoDoRazaoNf(trx, codnf, emp, nf);
+      const ctx = { tipo: String(nf.tipo), codparceiro: Number(nf.codparceiro), dtcontabil: nf.dtcontabil, nronf: nf.nronf, codnf, emp, codlote, texto };
       let linhas = 0;
       let total = 0;
       // (1) linhas PRINCIPAIS. O DIÁRIO real CONSOLIDA por situação: uma NF cujo rateio (CODCONTABILNF)
@@ -275,10 +278,57 @@ export class NfContabilizacaoService {
     return Number(plc.codcontabil);
   }
 
+  /**
+   * O TEXTO DO RAZÃO DA NOTA (mig 294). O legado grava em `DIARIO.DESCHIST` o template do histórico com os `*`
+   * preenchidos pelos ITENS do histórico — e o Apollo gravava o código e deixava o texto nulo. No cliente são
+   * 14.322 linhas de razão de nota em 2026, todas com texto; montado pelos itens, bate em 32.731 de 32.894
+   * desde 2025 (o resto é parceiro renomeado depois — o razão guarda o nome da época).
+   *
+   * Os formatos são os que o razão mostra: nota com 9 dígitos (`000004413`), loja com 3 (`LOJA .: 001`), CFOP
+   * cru, e o CNPJ como está gravado no ENDEREÇO da nota (`codparceiro_end`; sem ele, o primeiro endereço).
+   * Os históricos são carregados sob demanda e guardados: uma nota usa três ou quatro.
+   */
+  private async textoDoRazaoNf(
+    trx: AnyDB,
+    codnf: number,
+    emp: number,
+    nf: { nronf: unknown; cfop: unknown },
+  ): Promise<(codhist: unknown) => Promise<string | null>> {
+    const p = (await sql<{ razao: string | null; cnpj: string | null }>`
+        SELECT pa.razao,
+               coalesce((SELECT e.cnpj_cpf FROM parceiros_end e
+                          WHERE e.codparceiro = n.codparceiro AND e.codend = n.codparceiro_end),
+                        (SELECT e.cnpj_cpf FROM parceiros_end e
+                          WHERE e.codparceiro = n.codparceiro ORDER BY e.codend LIMIT 1)) AS cnpj
+          FROM nf n
+          LEFT JOIN parceiros pa ON pa.codparceiro = n.codparceiro
+         WHERE n.codnf = ${codnf} AND n.idempresa = ${emp}`.execute(trx)).rows[0];
+    const nronf = String(nf.nronf ?? '').trim();
+    const ctxHist: CtxHistorico = {
+      // número vira os 9 dígitos do legado; nota sem número numérico vai crua, como está
+      documento: /^\d+$/.test(nronf) ? Number(nronf) : nronf || null,
+      cnpj: p?.cnpj ?? null,
+      parceiro: p?.razao ?? null,
+      cfop: nf.cfop == null ? null : String(nf.cfop),
+      loja: String(emp).padStart(3, '0'),
+    };
+    const cache = new Map<number, HistoricoCarregado>();
+    return async (codhist: unknown) => {
+      if (codhist == null) return null;
+      const cod = Number(codhist);
+      if (!cache.has(cod)) {
+        const h = (await carregarHistoricos(trx, [cod])).get(cod);
+        if (!h) return null;
+        cache.set(cod, h);
+      }
+      return textoDoRazao(cache, cod, ctxHist);
+    };
+  }
+
   /** insere uma linha no DIÁRIO (CODORIGEM=12 Nota Fiscal). */
   private async lancar(
     trx: AnyDB,
-    ctx: { dtcontabil: unknown; codnf: number; emp: number; codlote: number },
+    ctx: { dtcontabil: unknown; codnf: number; emp: number; codlote: number; texto?: (codhist: unknown) => Promise<string | null> },
     situacao: number,
     contadebito: number,
     contacredito: number,
@@ -298,6 +348,7 @@ export class NfContabilizacaoService {
         codoperacao: situacao,
         codempresa: ctx.emp,
         codhist: codhist ?? null,
+        deschist: ctx.texto ? await ctx.texto(codhist) : null,
         complemento,
         codlote: ctx.codlote,
       })
@@ -317,7 +368,7 @@ export class NfContabilizacaoService {
    */
   private async lancarPisCofins(
     trx: AnyDB,
-    ctx: { tipo: string; codparceiro: number; dtcontabil: unknown; nronf: unknown; codnf: number; emp: number; codlote: number },
+    ctx: { tipo: string; codparceiro: number; dtcontabil: unknown; nronf: unknown; codnf: number; emp: number; codlote: number; texto?: (codhist: unknown) => Promise<string | null> },
     cfopRow: Record<string, unknown> | undefined,
     headerCfop: string,
   ): Promise<number> {

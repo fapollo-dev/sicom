@@ -1,4 +1,4 @@
-import type { ArgHist } from './integracao-contabil.motor';
+import { argsPelosItens, type ArgHist, type ItemHistoricoContabil } from '@apollo/shared';
 
 /**
  * O CONTEXTO DE UM LANÇAMENTO — tudo o que um histórico contábil pode querer imprimir.
@@ -6,7 +6,7 @@ import type { ArgHist } from './integracao-contabil.motor';
  */
 export interface CtxHistorico {
   /** documento que vira **9 dígitos com zeros à esquerda** (`000130582`): codapg, codrcb, codcx… */
-  documento?: number | null;
+  documento?: number | string | null;
   /** o mesmo documento quando o legado o imprime CRU (`DOCTO .: - 46964`). */
   documentoTexto?: string | null;
   /** o lote de baixa — sempre cru (`LOTE .: 90790`). */
@@ -31,6 +31,8 @@ export interface CtxHistorico {
   /** o nome da conta bancária de destino (`CREDITO CONTA .: JF SUPERMERCADOS ITAU`). */
   conta?: string | null;
   cfop?: string | null;
+  /** a loja com **3 dígitos** (`LOJA .: 001`), como os históricos de nota 64, 66 e 67 a imprimem. */
+  loja?: string | null;
 }
 
 /**
@@ -122,9 +124,70 @@ export const ARGS_POR_HISTORICO: Record<number, (c: CtxHistorico) => ArgHist[]> 
   261: (c) => [c.documento, c.tipodoc, c.obs],
 };
 
-/** os argumentos do histórico `cod` para este contexto; vazio quando o histórico não tem regra provada. */
-export function argsDoHistorico(cod: number | null | undefined, ctx: CtxHistorico | undefined): ArgHist[] {
+/**
+ * O QUE CADA CAMPO DOS ITENS DO HISTÓRICO VALE NO CONTEXTO (`ITENS_HISTORICO_CONTABIL.TABELA` + `CAMPO`, mig 294).
+ *
+ * ⚠️ **cada entrada tem âncora**: o mesmo par tabela/campo aparece num histórico que o mapa acima já prova contra o
+ * razão, e a tradução é a que esse histórico usa — `APAGAR_BX.CODIGO_DOCUMENTO` sai CRU (91, 106, 107) e
+ * `APAGAR.CODIGO` sai com 9 dígitos (21, 101-103); `ARECEBER.OBS` é a descrição do centro de custo (89, 5.895 de
+ * 5.895). O teste `historico-contabil.args.spec.ts` confere que dicionário e mapa não se contradizem.
+ * Par sem entrada aqui imprime vazio, como o legado quando o chamador não passa argumento. PDV fica de fora.
+ */
+export const CAMPO_DO_LEGADO: Record<string, (c: CtxHistorico) => ArgHist> = {
+  'NF.NRO_NF': (c) => c.documento,
+  'NF.CNPJ_CPF': (c) => c.cnpj,
+  'NF.PARCEIRO': (c) => c.parceiro,
+  'NF.CFOP': (c) => c.cfop,
+  'NF.IDEMPRESA': (c) => c.loja,
+  'APAGAR.CODIGO': (c) => c.documento,
+  'APAGAR.FORNECEDOR': (c) => c.parceiro,
+  'APAGAR.TIPO_DOCUMENTO': (c) => c.tipodoc,
+  'APAGAR.OBSERVACAO': (c) => c.obs,
+  'APAGAR_BX.LOTE': (c) => c.lote,
+  'APAGAR_BX.TIPO_DOCUMENTO': (c) => c.tipodoc,
+  'APAGAR_BX.CODIGO_DOCUMENTO': (c) => c.documentoTexto,
+  'APAGAR_BX.NR_NF': (c) => c.notafiscal,
+  'APAGAR_BX.FORNECEDOR': (c) => c.parceiro,
+  'APAGAR_BX.OBSERVACAO': (c) => c.obs,
+  'APAGAR_BX.HISTORICO': (c) => c.historicoMov,
+  'ARECEBER.CODIGO': (c) => c.documento,
+  'ARECEBER.OBS': (c) => c.verba,
+  'ARECEBER.CLIENTE': (c) => c.parceiro,
+  'ARECEBER_BX.LOTE': (c) => c.lote,
+  'ARECEBER_BX.CODIGO_DOCUMENTO': (c) => c.documentoTexto,
+  'ARECEBER_BX.CLIENTE': (c) => c.parceiro,
+  'ARECEBER_BX.OPERADOR_BAIXA': (c) => c.usuario,
+  'CARTAO_BX.LOTE': (c) => c.lote,
+  'CARTAO_BX.OPERADORA': (c) => c.operadora,
+  'MOV_CONTAS_BANCARIAS.TITULAR': (c) => c.conta,
+  'MOV_CONTAS_BANCARIAS.HISTORICO': (c) => c.historicoMov,
+  'MOV_CONTAS_BANCARIAS.IDLOTE': (c) => c.lote,
+  'MOVIMENTO DE CAIXA.CODIGO': (c) => c.documento,
+  'MOVIMENTO DE CAIXA.LOTE': (c) => c.lote,
+  'MOVIMENTO DE CAIXA.PARCEIRO': (c) => c.parceiro,
+  'MOVIMENTO DE CAIXA.CENTRO_DE_CUSTO': (c) => c.verba,
+  // sem âncora no mapa, mas o 121 do cliente imprime a observação no 5º `*` ('… PARCEIRO.: SODEXO … TAXA PLUXEE')
+  'MOVIMENTO DE CAIXA.OBS': (c) => c.obs,
+  // cru, sem os 9 dígitos — é como o 87 o imprime ('ADIANT P/ PARCEIRO .: 3066')
+  'ADIANTAMENTO PARA PARCEIROS.CODPARCEIRO': (c) => (c.codparceiro == null ? null : String(c.codparceiro)),
+  'ADIANTAMENTO PARA PARCEIROS.PARCEIRO': (c) => c.parceiro,
+  'ADIANTAMENTO PARA PARCEIROS.CODIGO': (c) => c.documento,
+};
+
+/**
+ * os argumentos do histórico `cod` para este contexto.
+ *
+ * O mapa medido vence; sem entrada nele, valem os ITENS do histórico (mig 294) traduzidos por `CAMPO_DO_LEGADO`;
+ * sem os dois, vazio — o template sai com os `*` em branco, como no legado quando ninguém passa argumento.
+ */
+export function argsDoHistorico(
+  cod: number | null | undefined,
+  ctx: CtxHistorico | undefined,
+  itens?: readonly ItemHistoricoContabil[],
+): ArgHist[] {
   if (cod == null || ctx == null) return [];
   const f = ARGS_POR_HISTORICO[Number(cod)];
-  return f ? f(ctx) : [];
+  if (f) return f(ctx);
+  if (!itens?.length) return [];
+  return argsPelosItens(itens, (tabela, campo) => CAMPO_DO_LEGADO[`${tabela}.${campo}`]?.(ctx) ?? null);
 }

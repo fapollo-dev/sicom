@@ -52,6 +52,7 @@
    "formas_pgto",
    "grupo_operador",
    "historico_contabil",
+   "itens_historico_contabil",
    "historico_dinamico",
    "historico_prod",
    "ibs_uf",

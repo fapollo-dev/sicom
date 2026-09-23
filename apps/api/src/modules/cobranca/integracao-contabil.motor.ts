@@ -1,6 +1,6 @@
 import { sql, type Kysely } from 'kysely';
 import { BusinessRuleError } from '../../shared/errors/app-error';
-import { montarDeschist, type ArgHist } from '@apollo/shared';
+import { montarDeschist, type ArgHist, type ItemHistoricoContabil } from '@apollo/shared';
 import { argsDoHistorico, type CtxHistorico } from './historico-contabil.args';
 
 // a substituição dos `*` vive no pacote compartilhado: a API a usa para escrever o razão e a tela de
@@ -131,11 +131,11 @@ export async function lancarNoDiario(trx: AnyDB, l: LancamentoContabil): Promise
 
   // o texto do razão: cada perna traz o seu template e os seus argumentos. Sem o cadastro carregado o
   // `deschist` sai nulo — é o comportamento de hoje, e nenhuma contabilização deixa de acontecer por isso.
-  const templates = await carregarTemplates(trx, [d.codhistorico, c.codhistorico]);
+  const historicos = await carregarHistoricos(trx, [d.codhistorico, c.codhistorico]);
   /** o texto de uma linha: o contexto do registro vence o do lançamento, coluna a coluna. */
   const desc = (hist: number | null, ...regs: Array<RegistroDataSet | null>) => {
     const ctx = regs.reduce<CtxHistorico>((acc, r) => (r?.ctxHist ? { ...acc, ...r.ctxHist } : acc), { ...l.ctxHist });
-    return montarDeschist(templates.get(Number(hist)), argsDoHistorico(hist, ctx));
+    return textoDoRazao(historicos, hist, ctx);
   };
 
   const linha = (reg: RegistroDataSet | null) => ({
@@ -186,12 +186,21 @@ export async function lancarNoDiario(trx: AnyDB, l: LancamentoContabil): Promise
   return { codlote, linhas: linhasD.length + linhasC.length };
 }
 
+/** o template de um histórico e os ITENS que dizem qual campo preenche cada `*` (mig 294). */
+export interface HistoricoCarregado {
+  template: string;
+  itens: ItemHistoricoContabil[];
+}
+
 /**
- * os templates dos históricos das duas pernas. A tabela é cadastro (54 linhas no cliente) e pode não estar
- * carregada; nesse caso o razão sai sem texto, como saía antes desta mudança — contabilizar não pode parar
- * por falta de um rótulo.
+ * os templates dos históricos pedidos, com os seus itens. A tabela é cadastro (54 linhas no cliente) e pode não
+ * estar carregada; nesse caso o razão sai sem texto, como saía antes desta mudança — contabilizar não pode parar
+ * por falta de um rótulo. Exportado porque a contabilização da NF escreve o mesmo razão.
  */
-async function carregarTemplates(trx: AnyDB, codigos: Array<number | null>): Promise<Map<number, string>> {
+export async function carregarHistoricos(
+  trx: AnyDB,
+  codigos: Array<number | null | undefined>,
+): Promise<Map<number, HistoricoCarregado>> {
   const ids = [...new Set(codigos.filter((x): x is number => x != null).map(Number))];
   if (!ids.length) return new Map();
   const rows = (await trx
@@ -199,7 +208,33 @@ async function carregarTemplates(trx: AnyDB, codigos: Array<number | null>): Pro
     .select(['codhistcontabil', 'deschist'])
     .where('codhistcontabil', 'in', ids)
     .execute()) as Array<{ codhistcontabil: number; deschist: string | null }>;
-  return new Map(rows.filter((r) => r.deschist != null).map((r) => [Number(r.codhistcontabil), r.deschist as string]));
+  const itens = (await trx
+    .selectFrom('itens_historico_contabil')
+    .select(['codhistcontabil', 'ordem', 'tabela', 'campo', 'status'])
+    .where('codhistcontabil', 'in', ids)
+    .orderBy('codhistcontabil')
+    .orderBy('ordem')
+    .orderBy('coditemhistcontabil')
+    .execute()) as Array<ItemHistoricoContabil & { codhistcontabil: number }>;
+  const out = new Map<number, HistoricoCarregado>();
+  for (const r of rows) {
+    if (r.deschist == null) continue;
+    const cod = Number(r.codhistcontabil);
+    out.set(cod, { template: r.deschist, itens: itens.filter((i) => Number(i.codhistcontabil) === cod) });
+  }
+  return out;
+}
+
+/** o texto que o razão grava para o histórico `hist` neste contexto — nulo se o histórico não estiver cadastrado. */
+export function textoDoRazao(
+  historicos: Map<number, HistoricoCarregado>,
+  hist: number | null | undefined,
+  ctx: CtxHistorico,
+): string | null {
+  if (hist == null) return null;
+  const h = historicos.get(Number(hist));
+  if (!h) return null;
+  return montarDeschist(h.template, argsDoHistorico(hist, ctx, h.itens));
 }
 
 /** perna FIXA → conta da IIC; perna AUTOMÁTICA → conta do registro (`rContaAnaliticaNaoInformada` se faltar). */

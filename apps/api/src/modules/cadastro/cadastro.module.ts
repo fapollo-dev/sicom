@@ -58,6 +58,8 @@ import { CartaoCrudController } from './cartao.crud';
 import { GradeLayoutController } from './grade-layout.controller';
 import { GradeLayoutService } from './grade-layout.service';
 import { HistoricoContabilCrudController } from './historico-contabil.crud';
+import { HistoricoContabilItensController } from './historico-contabil-itens.controller';
+import { HistoricoContabilItensService } from './historico-contabil-itens.service';
 import { IndexadorTributarioController } from './indexador-tributario.controller';
 import { IndexadorTributarioService } from './indexador-tributario.service';
 import { ConfPlanoContasController } from './conf-plano-contas.controller';
@@ -211,6 +213,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     ConferenciaNfIndexadorController,
     ConfigConciliadorController,
     HistoricoContabilCrudController,
+    HistoricoContabilItensController,
     MultAtualizacaoController,
     DreEstruturaController,
     AgendaLimitacaoController,
@@ -242,7 +245,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     MotivosController, // FRMMOTIVO — motivos do AJUSTE de estoque (tabela MOTIVOS; ≠ motivos_operacao, do scrap)
     CepController, // proxy ViaCEP (autofill de endereço)
   ],
-  providers: [ReformaIbsCbsService, NfIbsCbsService, NfEsteiraService, CestService, MotivosService, FiguraFiscalService, ConfigLegislacaoService, CongelaEstoqueService, NfeInutilizadaService, RelPerdasService, PisCofinsCadService, ExportaNfeService, 
+  providers: [HistoricoContabilItensService, ReformaIbsCbsService, NfIbsCbsService, NfEsteiraService, CestService, MotivosService, FiguraFiscalService, ConfigLegislacaoService, CongelaEstoqueService, NfeInutilizadaService, RelPerdasService, PisCofinsCadService, ExportaNfeService, 
     BancosService,
     BancoRepository,
     ParceiroHistoricoService,

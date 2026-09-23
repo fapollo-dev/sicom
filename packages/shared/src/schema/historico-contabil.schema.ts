@@ -53,3 +53,60 @@ export const historicoContabilSchema = z.object({
 export const atualizarHistoricoContabilSchema = historicoContabilSchema.partial();
 
 export type HistoricoContabilDto = z.infer<typeof historicoContabilSchema>;
+
+/**
+ * OS ITENS DO HISTÓRICO (`ITENS_HISTORICO_CONTABIL`, a grade de detalhe de `uCadHistoricoContabil.dfm:359`):
+ * **qual campo preenche cada `*`, na ORDEM**. Migration 294.
+ *
+ * ⚠️ É a regra, não documentação — o razão prova. No histórico 62 o template tem três `*` e os itens são
+ * `NRO_NF`, `CFOP`, `CNPJ_CPF`, `PARCEIRO`; o razão grava `…COMPRA .: 007922433 CNPJ.: 1403 PARCEIRO.:23.814.940/…`
+ * — o CFOP cai no rótulo "CNPJ" e o CNPJ no rótulo "PARCEIRO", exatamente na ordem dos itens, e não na dos
+ * rótulos. Montando o texto pelos itens, as notas batem em **32.731 de 32.894** linhas do razão (99,5%); o
+ * resto é parceiro renomeado depois do lançamento (o razão guarda o nome da época).
+ *
+ * Item a mais que `*` é ignorado (o 63 tem cinco itens e um `*`): o template manda, como em `montarDeschist`.
+ */
+export interface ItemHistoricoContabil {
+  ordem: number | null;
+  tabela: string | null;
+  campo: string | null;
+  status?: string | null;
+}
+
+/**
+ * os argumentos do template, tirados dos itens na ORDEM, perguntando a `valor` o que cada campo vale.
+ *
+ * ⚠️ item com `STATUS='N'` sai da lista (e o seguinte sobe um `*`). Os 144 itens da produção estão todos em
+ * `S`, então o dado não decide o caso do `N`; seguimos a leitura natural de um campo "ativo" — decisão nossa,
+ * sem prova, registrada aqui para ser revista se um `N` aparecer.
+ */
+export function argsPelosItens(
+  itens: readonly ItemHistoricoContabil[],
+  valor: (tabela: string, campo: string) => ArgHist,
+): ArgHist[] {
+  return itens
+    .map((it, i) => ({ it, i }))
+    .filter(({ it }) => (it.status ?? 'S') !== 'N')
+    .sort((a, b) => (a.it.ordem ?? Number.MAX_SAFE_INTEGER) - (b.it.ordem ?? Number.MAX_SAFE_INTEGER) || a.i - b.i)
+    .map(({ it }) => valor(String(it.tabela ?? '').trim().toUpperCase(), String(it.campo ?? '').trim().toUpperCase()));
+}
+
+export const itemHistoricoContabilSchema = z.object({
+  ordem: z.coerce.number().int().min(1).max(99),
+  // o legado grava o NOME do dataset, não o da tabela física: 'MOVIMENTO DE CAIXA', 'ADIANTAMENTO PARA PARCEIROS'
+  tabela: z.string().trim().min(1, 'informe a tabela').max(200),
+  campo: z.string().trim().min(1, 'informe o campo').max(200),
+  tipo_dados: z.string().trim().max(20).nullish(),
+  status: z.enum(['S', 'N']).default('S'),
+});
+
+export const itensHistoricoContabilSchema = z
+  .object({ itens: z.array(itemHistoricoContabilSchema).max(30) })
+  // duas linhas na mesma ordem deixariam o `*` ambíguo — qual das duas preenche?
+  .refine((v) => new Set(v.itens.map((i) => i.ordem)).size === v.itens.length, {
+    message: 'duas linhas com a mesma ordem',
+    path: ['itens'],
+  });
+
+export type ItemHistoricoContabilDto = z.infer<typeof itemHistoricoContabilSchema>;
+export type ItensHistoricoContabilDto = z.infer<typeof itensHistoricoContabilSchema>;

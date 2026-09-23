@@ -198,6 +198,7 @@ const CODE_PT: Record<string, string> = {
   SPLIT_MANUAL_EXCEDE: 'Não se pode separar mais imposto do que o documento deve.',
   NF_SEM_GRUPO_IBSCBS: 'Esta nota não tem os grupos de IBS/CBS calculados.',
   CLUBE_DESCONTO_NAO_ENCONTRADO: 'Regra do clube de desconto não encontrada.',
+  HISTORICO_CONTABIL_NAO_ENCONTRADO: 'Histórico contábil não encontrado.',
   CLUBE_DESCONTO_SOBREPOSTO: 'Já existe regra igual para este produto na mesma vigência — o PDV não teria como escolher.',
   CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO:
     'Há itens cuja classificação não se calcula pela alíquota da UF (alíquota fixa, setorial, nacional, '

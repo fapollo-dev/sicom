@@ -679,3 +679,37 @@ com a esteira" — entrou: `nf.codnfstatuspro` e `nfe_nao_cadastradas.codnfstatu
 preenchidos, 100% casando. ⚠️ Ele aponta **uma etapa**, o cursor da nota, e o cursor atrasa: é a etapa
 realizada mais alta em 96,8% das notas e fica **para trás em 1.321**. A tela calcula o estado pelas dez linhas,
 não pelo ponteiro. As duas declarações saíram do conferidor, que segue em **0 nos dois sentidos**.
+
+### Achado 14 — o inventário completo: 337 tabelas com dado fora do plano, e o razão da nota sem texto
+
+⚠️ **Correção de escopo do Achado 13.** "O inventário de tabelas vivas sem destino está fechado" valia para o
+recorte que ele fez — as maiores, com movimento no dia. Uma triagem **tabela a tabela** de tudo que tem dado e
+está fora do plano dá **337 tabelas** (566 milhões de linhas, 470 milhões delas num único backup,
+`BKP_ESTOQUE_SICOM`). A maior parte é backup datado, temporária, BI, log, auditoria por trigger ou PDV — mas
+não toda, e a Boa Vista (3,4 milhões de linhas, parada em mai/2026) mostrou que "parou" não é veredito.
+
+**Primeira lacuna fechada — `ITENS_HISTORICO_CONTABIL` (mig 294).** A grade do cadastro de histórico é a regra
+que monta o texto do razão: o texto segue a ORDEM dos itens mesmo contra o rótulo do template (no 62 o CFOP sai
+no rótulo "CNPJ"). Montado assim, o razão das notas bate em **32.731 de 32.894** linhas (99,5%). E a
+contabilização da NF do Apollo **gravava o razão sem texto** — 14.322 linhas de nota em 2026 no cliente, todas
+com texto. Dossiê `uTron-integracao-contabil.md` §8.7.
+
+**Vereditos já fechados, com prova:**
+
+| tabela | linhas | veredito |
+|---|---:|---|
+| `NF_CANCELAMENTO` | 12.485 | ⛔ PDV — **só modelo 65** (NFC-e) em todos os anos, de 2020 a 2026 |
+| `FCP` | 11 | 🪦 as 11 categorias de MG a 2% existem, mas **nenhum produto aponta `codfcp`** — o FCP das notas vem da alíquota e do XML |
+| `COD_BENEFICIO_FISCAL` | 1.823 | 🪦 cBenef: **1 produto em 47.741** o preenche e **nenhuma das 5 lojas** tem `HAB_COD_BENEFICIO_FIS` |
+| `APP_PERMISSOES` | 469 | ⛔ permissões do app mobile — já adiado com prova em `uCadPerfilOperador.md` |
+
+**Lacunas achadas, na fila (medidas no Oracle de produção):**
+
+| tabela | linhas | o que é |
+|---|---:|---|
+| `PEDIDO_COMPRA_QTDE` · `_EMPRESA` · `_HISTORICO` | 257.345 · 15.070 · 266 | o **split do pedido por loja**, adiado no corte-1 como "cross-docking": **46.309 itens (R$ 10,8 mi) divididos entre duas lojas**, e vivo — 395 pedidos em 2026 (R$ 2,0 mi), 590 em 2025, 710 em 2024. A carga projeta tudo numa loja só |
+| `SUGEST_PROMO_PROD` | 471 | o substrato da tela 151 (`FRMGERENCIARSUGESTAOPROMOCAO`), que estava como "sem fonte" — o dado existe, até 21/09/2026 |
+| `NCM_LC224_2025` | 59 | regra de PIS/COFINS da LC 224/2025 por prefixo de NCM, **vigente desde 01/04/2026**, cadastrada em jun/2026 |
+| `CONTAS_BANC_TRANSF_PERM` | 19 | quais transferências entre contas são permitidas — regra criada em **ago/2026** |
+| `CONFIG_LANCAMENTO_AUTO_OFX` | 5.311 | lançamento automático do OFX por descrição → conta; a mig 120 cita a tabela, mas ela não está no plano |
+| `RETORNO_PAG_BOAVISTA` + 5 | 3,4 mi | a conciliadora de cartão Boa Vista: R$ 131 mi em retornos, parada desde 04/05/2026; as baixas seguiram sem ela (39 mil em jul/2026) |
