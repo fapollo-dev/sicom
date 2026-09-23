@@ -50,7 +50,7 @@ NFs de 2026: 7.219 em 31 situações; itens 68.745 (68.624 com situação; em 70
 | `validaCFOP_SituacaoNF` (cabeçalho; itens se E ou config) | udmNF.pas:7900; uNF.pas:4543, 9563, 14921; uItensNF.pas:1525 | cabeçalho fora: 0 de 7.205 | ✅ C2 — cabeçalho sempre; item digitado/alterado sempre (o OK do diálogo); a nota inteira na entrada ou com `VALIDA_CFOP_SITUACAO_NF_SAIDA='S'` |
 | situação do item = a do cabeçalho | uNF.pas:1594, 5724, 13699, 16043 | 99,5% | ✅ C2 (a que falta é preenchida; a do item que já tinha a sua fica) |
 | devolução: situação do item pelo CFOP | uNF.pas:7250; uPedidoDevolucaoCompra.pas:362 | 4 CFOPs → 17 | ✅ C2 (ISITUACAO_NF da situação de saída; o de-para da mig 076 fica como reserva) |
-| transferência (5152, CFOP.PROC_TRANSF) | uNF.pas:1423; uProcessaNotaFiscal.pas:1636 | 6 situações | FALTA — C2b (importação do pedido e do XML) |
+| transferência (5152, CFOP.PROC_TRANSF) | uNF.pas:1423; uProcessaNotaFiscal.pas:1636 | 6 situações | ✅ C2b — veredito com prova (abaixo) |
 | bonificação = CFOP 1910/2910/5910/6910 | udmNF.pas:5325; uLancamentoContabilNF.pas:762 | 5 e 24 | FALTA |
 | rateio pré-preenchido pelo CC da situação | udmNF.pas:11027 (uNF.pas:5036/2912); uLancamentoContabilNF.pas:673 | 5.353 de 6.449 NFs de entrada | FALTA |
 | CCs permitidos por situação; situação do rateio = cabeçalho/itens | uLancamentoContabilNF.pas:148/230/314 | 6.531/6.531 dentro | FALTA |
@@ -73,8 +73,15 @@ NFs de 2026: 7.219 em 31 situações; itens 68.745 (68.624 com situação; em 70
   `Locate` não acha); o item digitado é cobrado em qualquer tipo de nota (uItensNF.pas:1525) e a nota inteira só na
   entrada ou com a config (o Processamento, uNF.pas:14921) — é o que deixa passar o item importado da saída.
   O processamento (F3) confere de novo cada item pela situação dele (uNF.pas:14921; uProcessaNotaFiscal.pas:587).
-- **C2b — transferência**: situação com CFOP 5152 marca o pedido como transferência e o CFOP vira 5152/6152
-  (uNF.pas:1423); a importação do XML oferece só as situações com CFOP `PROC_TRANSF` (uProcessaNotaFiscal.pas:1636).
+- **C2b — transferência** ✅ (veredito, produção lida em 23/09/2026): situação com CFOP 5152 marca o pedido como
+  transferência e o CFOP vira 5152/6152 (uNF.pas:1423) — mas isso só existe na importação de PEDIDO/TRANSFERÊNCIA da
+  NF (`btnAddPedidoClick` opções 0 e 7), que está **morta**: `PEDIDO_NF` tipo 'T' tem 3 linhas, a última de
+  15/12/2023, e 'P' uma de 2022; das 131 NFs de transferência (situação 16, CFOP 5152) desde 2025 nenhuma tem
+  `NROPEDIDO`; as 17 NFs de saída com `NROPEDIDO` desde 2025 não casam com nenhum `PEDIDOS` (numeração de fora). O F4
+  do processamento do XML (`VincularSituacaoDeDocumento`, uProcessaNotaFiscal.pas:1636 — oferece só as situações com
+  CFOP `PROC_TRANSF` e copia a situação para todos os itens) fica coberto pela tela da NF: as 119 entradas de
+  transferência desde 2025 (situação 15, CFOP 1152) chegam pelo XML sem situação, e a situação escolhida na NF (lista do
+  tipo e com CFOP) desce para os itens sem situação ao gravar.
 - **C3 — rateio**: pré-preenchimento, CCs permitidos, ADICIONAL da bonificação.
 - **C4 — caixa da NF**: `GerarLancamentosDeCaixa` e a reversão (golden: 1.011 linhas / R$ 764.054,09 de 2026).
 - **C5 — pesquisas fora da NF**: TIPO_OPERACAO, CC e parceiro em AP/AR/caixa/scrap/CFOP/empresa/pedido.
