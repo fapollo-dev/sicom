@@ -26,6 +26,19 @@ const num = (v: unknown): number => {
 };
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const r3 = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000; // fold B2: qtd é numeric(13,3)
+const r4 = (n: number) => Math.round((n + Number.EPSILON) * 10000) / 10000;
+const nul = (v: unknown): number | null => (v == null || v === '' ? null : Number(v));
+
+/** mig 308 — os tributos do item da devolução: o destacado na nota do fornecedor (`*_nota`) e a parte devolvida. */
+export const COLUNAS_FISCAIS_DEVOLUCAO = [
+  'descricao_produto', 'cst', 'icms_aliquota', 'icms_bc', 'icms_bc_nota', 'icms_valor', 'icms_nota', 'icms_reducao_bc',
+  'icms_st_aliquota', 'icms_st_bc', 'icms_st_bc_nota', 'icms_st_valor', 'icms_st_nota', 'icms_st_reducao_bc',
+  'ipi', 'ipi_nota', 'frete', 'frete_nota', 'seguro', 'seguro_nota', 'desconto', 'desconto_nota',
+  'outras_despesas', 'outras_despesas_nota', 'aliqpise', 'aliqcofinse', 'bcpiscofinse', 'bcpiscofinse_nota',
+  'vrpise', 'vrpise_nota', 'vrcofinse', 'vrcofinse_nota', 'arredonda',
+  'fcp_bc_st', 'fcp_bc_st_nota', 'fcp_aliquota_st', 'fcp_aliquota_st_nota', 'fcp_valor_st', 'fcp_valor_st_nota',
+  'fcp_bc_st_ret', 'fcp_bc_st_ret_nota', 'fcp_aliquota_st_ret', 'fcp_aliquota_st_ret_nota', 'fcp_valor_st_ret', 'fcp_valor_st_ret_nota',
+] as const;
 
 export const devolucaoCompraAggregateConfig: AggregateConfig = {
   tabela: 'pedido_devolucao_compra',
@@ -47,44 +60,103 @@ export const devolucaoCompraAggregateConfig: AggregateConfig = {
       colunas: [
         'codnf', 'codnfprod', 'idproduto', 'nroitem', 'unidade', 'fatorembalagem', 'cfop',
         'qtd_nota_fiscal', 'qtd_devolvida', 'valor_custo', 'total_produto_nota', 'total_produto_devolvido', 'obs',
+        // mig 308: os tributos DA NOTA (o que o fornecedor destacou) e a parte devolvida — calculados no servidor
+        ...COLUNAS_FISCAIS_DEVOLUCAO,
       ],
-      // fold M1: SNAPSHOT AUTORITATIVO do servidor — idproduto/valor_custo/qtd_nota_fiscal/cfop vêm da NF de
-      // ENTRADA (nf_prod + de-para CFOP), NÃO do cliente (que só escolhe qtd_devolvida). Custo = vrcusto da
-      // entrada (premissa fatorembal=1 do recebimento novo → vrcusto já é por unidade efetiva; ver dossiê).
-      // Roda DENTRO da transação (a trx é passada ao derivarItensTrx). O `validar` já garantiu que a origem
-      // existe/é do fornecedor/tem CFOP_DEVOLUCAO; aqui só materializamos os valores.
+      // o que a carga trouxe e o documento não recalcula (troca de origem…) sobrevive ao save (lição 124)
+      chaveNatural: ['codnfprod'],
+      preservarNaoGerenciadas: true,
+      // SNAPSHOT AUTORITATIVO do servidor (fold M1): tudo vem do item da NF de ENTRADA; o cliente só escolhe a
+      // quantidade. mig 308 — como o legado (uCadPedidoDevolucaoCompras.pas:1021-1120): os valores DESTACADOS na nota
+      // do fornecedor (`*_NOTA`), a parte devolvida = valor da nota × (devolvido ÷ quantidade da nota), arredondada a 2
+      // casas item a item; CST e alíquota da nota; o valor do produto pela nota (`TOTAL_PRODUTO_NOTA`); e a regra do
+      // fornecedor que zera ICMS/ST (`ParceiroZeraImpostosDeICMSSt`) pelo CFOP ORIGINAL da nota.
       derivarItensTrx: async (itens, trx, emp) => {
         const out: Record<string, unknown>[] = [];
+        let zera: boolean | null = null;
         for (const it of itens) {
           const orig = (await trx
             .selectFrom('nf_prod as p')
             .innerJoin('nf as n', 'n.codnf', 'p.codnf')
-            .leftJoin('cfop as c', 'c.codcfop', 'p.cfop')
+            .leftJoin('cfop as c', (j: any) => j.on(sql`c.codcfop = coalesce(p.cfop_original::text, p.cfop)`))
             .select([
-              'p.codproduto as idproduto',
-              'p.vrcusto as vrcusto',
-              'p.unidade as unidade',
+              'p.codproduto as idproduto', 'p.vrcusto as vrcusto', 'p.unidade as unidade', 'p.descricao as descricao',
               sql<number>`coalesce(p.quantidade,0) * coalesce(p.fatorembal,1)`.as('qtd'),
-              'c.cfop_devolucao as cfop_dev',
+              'c.cfop_devolucao as cfop_dev', sql<string>`coalesce(p.cfop_original::text, p.cfop)`.as('cfop_origem'),
+              'p.cst_nota', 'p.cst', 'p.icms_aliq_nota', 'p.icms_nota_bc', 'p.icms_nota_valor', 'p.icms_red_bc_nota',
+              'p.icms_st_aliq_nota', 'p.vrbasest', 'p.vricmst', 'p.icms_st_red_bc_nota',
+              'p.ipi_nota', 'p.frete_nota', 'p.seguro_nota', 'p.desconto_nota', 'p.outras_despesas_nota', 'p.total_produto_nota',
+              'p.bcpiscofinse', 'p.aliqpise', 'p.aliqcofinse', 'p.vrpise', 'p.vrcofinse', 'p.arredonda',
+              'p.fcp_bc_st', 'p.fcp_aliquota_st', 'p.fcp_valor_st', 'p.fcp_bc_st_ret', 'p.fcp_aliquota_st_ret', 'p.fcp_valor_st_ret',
+              'n.codparceiro as codparceiro',
             ])
             .where('p.codnfprod', '=', Number(it.codnfprod))
             .where('p.codnf', '=', Number(it.codnf))
             .where('n.idempresa', '=', emp)
-            .executeTakeFirst()) as { idproduto?: number; vrcusto?: unknown; unidade?: string; qtd?: unknown; cfop_dev?: string | null } | undefined;
-          const custo = num(orig?.vrcusto);
-          const qtdEnt = num(orig?.qtd);
+            .executeTakeFirst()) as Record<string, unknown> | undefined;
+          const o = orig ?? {};
+          const qtdEnt = num(o.qtd);
           const qtdDev = num(it.qtd_devolvida);
-          out.push({
+          const f = qtdEnt > 0 ? qtdDev / qtdEnt : 0;
+          const parte = (v: unknown) => r2(num(v) * f); // RoundTo((X_NOTA / QtdNota) * QtdADevolver, -2)
+          // o valor do produto é o DA NOTA (`TOTAL_PRODUTO_NOTA`; zerado → quantidade × custo, como o legado)
+          const totalNota = num(o.total_produto_nota) > 0 ? num(o.total_produto_nota) : r2(num(o.vrcusto) * qtdEnt);
+          const custo = qtdEnt > 0 ? totalNota / qtdEnt : num(o.vrcusto);
+          const item: Record<string, unknown> = {
             ...it,
-            idproduto: orig?.idproduto ?? it.idproduto,
-            unidade: orig?.unidade ?? it.unidade,
+            idproduto: o.idproduto ?? it.idproduto,
+            unidade: (o.unidade as string) ?? it.unidade,
+            descricao_produto: (o.descricao as string) ?? null,
             fatorembalagem: 1, // recebimento novo grava fatorembal=1; a qtd efetiva já está em qtd_nota_fiscal
-            cfop: orig?.cfop_dev ?? it.cfop,
-            valor_custo: custo,
+            cfop: (o.cfop_dev as string) ?? it.cfop,
+            valor_custo: r4(custo),
             qtd_nota_fiscal: qtdEnt,
-            total_produto_nota: r2(custo * qtdEnt),
+            total_produto_nota: r2(totalNota),
             total_produto_devolvido: r2(custo * qtdDev),
-          });
+            cst: o.cst_nota != null ? Number(o.cst_nota) : o.cst != null ? Number(o.cst) : null,
+            icms_aliquota: nul(o.icms_aliq_nota),
+            icms_bc_nota: nul(o.icms_nota_bc), icms_nota: nul(o.icms_nota_valor),
+            icms_bc: parte(o.icms_nota_bc), icms_valor: parte(o.icms_nota_valor), icms_reducao_bc: nul(o.icms_red_bc_nota),
+            icms_st_aliquota: nul(o.icms_st_aliq_nota),
+            icms_st_bc_nota: nul(o.vrbasest), icms_st_nota: nul(o.vricmst),
+            icms_st_bc: parte(o.vrbasest), icms_st_valor: parte(o.vricmst), icms_st_reducao_bc: nul(o.icms_st_red_bc_nota),
+            ipi_nota: nul(o.ipi_nota), ipi: parte(o.ipi_nota),
+            frete_nota: nul(o.frete_nota), frete: parte(o.frete_nota),
+            seguro_nota: nul(o.seguro_nota), seguro: parte(o.seguro_nota),
+            desconto_nota: nul(o.desconto_nota), desconto: parte(o.desconto_nota),
+            outras_despesas_nota: nul(o.outras_despesas_nota), outras_despesas: parte(o.outras_despesas_nota),
+            aliqpise: nul(o.aliqpise), aliqcofinse: nul(o.aliqcofinse),
+            bcpiscofinse_nota: nul(o.bcpiscofinse), vrpise_nota: nul(o.vrpise), vrcofinse_nota: nul(o.vrcofinse),
+            bcpiscofinse: parte(o.bcpiscofinse), vrpise: parte(o.vrpise), vrcofinse: parte(o.vrcofinse),
+            arredonda: (o.arredonda as string) ?? null,
+            // FCP-ST: valor e base proporcionais; a ALÍQUOTA fica inteira — o legado a rateia também
+            // (`FCP_ALIQUOTA_ST := RoundTo((FCP_ALIQUOTA_ST/QtdNota)*QtdADevolver)`), defeito não copiado
+            fcp_bc_st_nota: nul(o.fcp_bc_st), fcp_bc_st: parte(o.fcp_bc_st),
+            fcp_aliquota_st_nota: nul(o.fcp_aliquota_st), fcp_aliquota_st: nul(o.fcp_aliquota_st),
+            fcp_valor_st_nota: nul(o.fcp_valor_st), fcp_valor_st: parte(o.fcp_valor_st),
+            fcp_bc_st_ret_nota: nul(o.fcp_bc_st_ret), fcp_bc_st_ret: parte(o.fcp_bc_st_ret),
+            fcp_aliquota_st_ret_nota: nul(o.fcp_aliquota_st_ret), fcp_aliquota_st_ret: nul(o.fcp_aliquota_st_ret),
+            fcp_valor_st_ret_nota: nul(o.fcp_valor_st_ret), fcp_valor_st_ret: parte(o.fcp_valor_st_ret),
+          };
+          // ParceiroZeraImpostosDeICMSSt (:1039-1080), pelo CFOP ORIGINAL da nota (dígitos 2-4)
+          if (zera == null) {
+            const pz = (await trx.selectFrom('parceiros').select('devolucao_zera_imposto_icmsst')
+              .where('codparceiro', '=', Number(o.codparceiro ?? 0)).executeTakeFirst()) as { devolucao_zera_imposto_icmsst?: string } | undefined;
+            zera = String(pz?.devolucao_zera_imposto_icmsst ?? 'N') === 'S';
+          }
+          if (zera) {
+            const d3 = String(o.cfop_origem ?? '').slice(1, 4);
+            const zeraSt = () => Object.assign(item, { icms_st_aliquota: 0, icms_st_bc: 0, icms_st_reducao_bc: 0, icms_st_valor: 0 });
+            if (d3 === '401' || d3 === '403' || d3 === '405') {
+              Object.assign(item, { icms_aliquota: 0, icms_bc: 0, icms_reducao_bc: 0, icms_valor: 0, cst: 60 });
+              zeraSt();
+            } else if (d3 === '101' || d3 === '102') {
+              zeraSt();
+              const red = num(o.icms_red_bc_nota);
+              item.cst = red === 100 || red === 0 ? 0 : 20;
+            }
+          }
+          out.push(item);
         }
         return out;
       },

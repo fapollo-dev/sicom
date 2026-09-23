@@ -32,6 +32,9 @@ export const trocaAggregateConfig: AggregateConfig = {
       pk: 'coditenstroca',
       fk: 'codtroca',
       chave: 'itens',
+      chaveNatural: ['idproduto'],
+      // idem: codscrap, o vínculo com o scrap gerado (lição 124)
+      preservarNaoGerenciadas: true,
       colunas: ['idempresa', 'idproduto', 'qtde', 'vrcusto', 'vrcustorep', 'estoqueretirada', 'fechado'],
       // custo SERVER-AUTHORITATIVE de MULTI_PRECO (o operador não digita custo). fechado='N' ao criar (a baixa é o `fechar`).
       derivarItensTrx: async (itens, trx, emp) => {

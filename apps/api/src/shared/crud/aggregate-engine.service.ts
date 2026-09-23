@@ -93,8 +93,12 @@ export class AggregateEngineService extends CrudEngineService {
         }
         // netos que precisam sobreviver ao delete+insert (ex.: o fechamento de cada loja do pedido)
         const snapshot = det.antesDeSubstituirTrx ? await det.antesDeSubstituirTrx({ trx, masterId: id, emp: this.emp() }) : undefined;
+        // as colunas que o agregado não gerencia, lidas ANTES do delete (lição 124)
+        const antigas = det.preservarNaoGerenciadas && det.chaveNatural?.length
+          ? ((await trx.selectFrom(det.tabela).selectAll().where(det.fk, '=', id).orderBy(det.pk).forUpdate().execute()) as Record<string, unknown>[])
+          : undefined;
         await trx.deleteFrom(det.tabela).where(det.fk, '=', id).execute();
-        await this.inserirItens(trx, det, id, itens, dto, snapshot);
+        await this.inserirItens(trx, det, id, itens, dto, snapshot, antigas);
       }
     });
   }
@@ -170,6 +174,7 @@ export class AggregateEngineService extends CrudEngineService {
     itens: Record<string, unknown>[],
     header?: Record<string, unknown>,
     snapshot?: unknown,
+    antigas?: Record<string, unknown>[],
   ) {
     if (!itens.length) {
       if (det.aposInserirItensTrx) await det.aposInserirItensTrx({ trx, masterId, emp: this.emp(), itens: [], snapshot, header });
@@ -181,8 +186,17 @@ export class AggregateEngineService extends CrudEngineService {
     // o `snapshot` (tirado por `antesDeSubstituirTrx` ANTES do delete) vai também para a derivação: é o único jeito de
     // um item regravado saber o que ele era — ex.: a foto de preço herdada do catálogo no pedido de compra (mig 307)
     if (det.derivarItensTrx) itens = await det.derivarItensTrx(itens, trx, this.emp(), header, masterId, snapshot);
+    // fila por chave natural das linhas antigas (preservarNaoGerenciadas): a n-ésima ocorrência casa com a n-ésima
+    const fila = new Map<string, Record<string, unknown>[]>();
+    for (const a of antigas ?? []) {
+      const k = this.chaveNat(det, a);
+      fila.set(k, [...(fila.get(k) ?? []), a]);
+    }
+    const gerenciadas = new Set([...det.colunas, det.pk, det.fk]);
     const linhas = itens.map((i) => {
       const row: Record<string, unknown> = { [det.fk]: masterId };
+      const antiga = antigas ? fila.get(this.chaveNat(det, i))?.shift() : undefined;
+      if (antiga) for (const [c, v] of Object.entries(antiga)) if (!gerenciadas.has(c)) row[c] = v;
       for (const c of det.colunas) if (i[c] !== undefined) row[c] = i[c];
       return row;
     });

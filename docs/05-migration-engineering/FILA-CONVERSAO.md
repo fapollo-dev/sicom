@@ -816,3 +816,12 @@ gate):
 | `parceiros` | `hab_ret_pis_nf_sai`, `hab_ret_cofins_nf_sai` | 19 mil | habilita retenção de PIS/COFINS na saída |
 
 Cada uma precisa de coluna no destino (e da regra que a lê) ou de uma linha em `ORIGEM_DECLARADA` com a prova.
+
+**Andamento (23/09/2026):** a devolução de compra era a de maior risco — o item não guardava os tributos e a NF de
+devolução rateava o imposto ESCRITURADO em vez do DESTACADO na nota (37.881 itens de entrada de 2025-26 com base
+destacada e escriturada zero; R$ 3.943 × R$ 520 de ICMS devolvido em 2025). Corrigido (mig 308, dossiê
+`uCadPedidoDevolucaoCompras.md` corte-4), junto com o defeito que ela revelou no motor: **salvar a NF apagava 59 colunas
+do item**; o motor agora preserva o que o agregado não gerencia, ligado em 10 detalhes (NF, produto, inventário, troca,
+scrap, operadoras). Pendentes do Achado 18: 34 (a escada na venda e no item da nota, PIS/COFINS da NF-e, `produtos.pis`
+e as constantes a declarar).
+

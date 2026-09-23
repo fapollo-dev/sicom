@@ -33,6 +33,9 @@ export const scrapAggregateConfig: AggregateConfig = {
       pk: 'codscrapitem',
       fk: 'codscrap',
       chave: 'itens',
+      chaveNatural: ['idproduto'],
+      // idem (lição 124)
+      preservarNaoGerenciadas: true,
       colunas: ['idempresa', 'idproduto', 'idproduto_filho', 'qtde', 'vr_custo', 'vrcustorep', 'codmotivoop', 'codsetor', 'codfor', 'origem', 'motivo', 'origem_estoque', 'faturado', 'obs'],
       // SNAPSHOT server-authoritative do custo: o operador fornece produto/qtde/motivo; vr_custo/vrcustorep vêm de
       // MULTI_PRECO (por empresa) — fiel a SetaOutrasInformacoesItemScrap. origem/motivo/faturado = defaults do legado.

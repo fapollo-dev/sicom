@@ -238,6 +238,8 @@ export const produtoAggregateConfig: AggregateConfig = {
       pk: 'id_multi_preco',
       fk: 'idproduto',
       chave: 'precos',
+      // o que o cadastro não gerencia (idpiscofins/idtabela/figura fiscal por loja, custo fiscal) sobrevive ao save (lição 124)
+      preservarNaoGerenciadas: true,
       colunas: [
         'idempresa', 'vrcusto', 'vrcustorep', 'markup', 'vrvenda', 'vrpromo',
         'promocao', 'margeml', 'aliquotasaida', 'ativo', 'ativo_compra',
@@ -272,6 +274,8 @@ export const produtoAggregateConfig: AggregateConfig = {
       pk: 'id_estoque',
       fk: 'idproduto',
       chave: 'estoques',
+      // idem: quantidade congelada/entrada/pedidos, datas da última entrada e venda (lição 124)
+      preservarNaoGerenciadas: true,
       colunas: ['idempresa', 'qtde', 'minimo', 'maximo', 'local'],
       // `qtde` (saldo) é OWNED pelo movimento (NF/F3), não pelo cadastro: no substitute, o engine
       // PRESERVA o saldo atual do banco (casado por idempresa) em vez de regravar o valor obsoleto
@@ -285,6 +289,9 @@ export const produtoAggregateConfig: AggregateConfig = {
       pk: 'codcomp',
       fk: 'idproduto',
       chave: 'composicoes',
+      chaveNatural: ['idproduto_01'],
+      // idem (lição 124)
+      preservarNaoGerenciadas: true,
       colunas: ['idproduto_01', 'qtde', 'valor', 'descricao'],
     },
     {
@@ -292,6 +299,9 @@ export const produtoAggregateConfig: AggregateConfig = {
       pk: 'coddecomp',
       fk: 'idproduto',
       chave: 'decomposicoes',
+      chaveNatural: ['idproduto_01'],
+      // idem: gera_scrap (lição 124)
+      preservarNaoGerenciadas: true,
       colunas: ['idproduto_01', 'percentual'],
     },
     {
@@ -299,6 +309,9 @@ export const produtoAggregateConfig: AggregateConfig = {
       pk: 'codreceita',
       fk: 'idproduto',
       chave: 'receitas',
+      chaveNatural: ['idproduto_receita'],
+      // idem (lição 124)
+      preservarNaoGerenciadas: true,
       colunas: ['idproduto_receita', 'qtde', 'valor', 'unidade', 'servico', 'fatorcxprod'],
     },
     // Fator de conversão de unidades (tabFatorConversao) — FK é `codproduto` (nome fiel ao legado).

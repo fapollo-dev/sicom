@@ -47,6 +47,8 @@ export const nfAggregateConfig: AggregateConfig = {
     // totais (derivados server-side — F1 btnCalcular)
     'totalnf', 'totalprod', 'totaldesc', 'totalfrete', 'totalseguro', 'totalacessorias',
     'totalicm', 'totalbaseicm', 'totalipi', 'totalicm_st', 'totalisento',
+    // mig 308: IPI DEVOLVIDO (entra no total da nota, udmNF.pas:5557) e os totais de FCP-ST — a NF de devolução os preenche
+    'totalipi_devolucao', 'total_fcp_valor_st', 'total_fcp_valor_st_ret',
     // ST residual (corte-4c): TOTALICM_STEXTERNO/ICMS_ST_PAGO_FONTE são inputs de cabeçalho (F2/operador);
     // ICMS_ST_APAGAR é derivado (=max(0, externo−pago_fonte)) mas fica no allowlist p/ persistir o derivado.
     'total_icmst_externo', 'icms_st_pago_fonte', 'icms_st_apagar',
@@ -117,7 +119,8 @@ export const nfAggregateConfig: AggregateConfig = {
     const totalfrete = num(dto.totalfrete);
     const totalseguro = num(dto.totalseguro);
     const totalacessorias = num(dto.totalacessorias);
-    const totalnf = r2(totalprod - totaldesc + totalfrete + totalseguro + totalacessorias + totalipi + totalicm_st);
+    const totalipiDev = num(dto.totalipi_devolucao);
+    const totalnf = r2(totalprod - totaldesc + totalfrete + totalseguro + totalacessorias + totalipi + totalicm_st + totalipiDev);
     return {
       totalprod: r2(totalprod),
       totaldesc: r2(totaldesc),
@@ -241,6 +244,11 @@ export const nfAggregateConfig: AggregateConfig = {
       pk: 'codnfprod',
       fk: 'codnf',
       chave: 'itens',
+      // 59 das 113 colunas do item não passam pela tela (os valores DA NOTA do fornecedor — base/ICMS/ST/IPI/frete
+      // destacados, que a devolução devolve —, FCP-ST, ICMS desonerado, custo real, o que a coleta gravou…): salvar a
+      // NF as apagaria. O motor as mantém, casando o item pelo produto (lição 124)
+      chaveNatural: ['codproduto'],
+      preservarNaoGerenciadas: true,
       colunas: [
         'nroitem', 'codproduto', 'codprodnota', 'quantidade', 'fatorembal', 'unidade',
         'geraestoque', 'movimenta_estoque',

@@ -8324,7 +8324,8 @@ async function main() {
     // 73.9) corte SPED c2 — IPI% RECOMPUTADO: entrada item qtd 10, custo 5, vripi 20. Devolver 5 → vripi rateado
     // = 10; VRTOTALPRODUTOS = 5×5 = 25; ipi% = 10×100/25 = 40 (não a % copiada da entrada).
     const ipiNf = Number((await pgDev.query(`INSERT INTO nf (idempresa,tipo,modelo,serie,dtemissao,dtcontabil,tipoemissao,finalidade,cfop,codparceiro,proc,totalnf,totalprod) VALUES (1,'E',55,'1',now(),now(),'0','1','1102',22,'N',0,0) RETURNING codnf`)).rows[0].codnf);
-    const ipiIt = Number((await pgDev.query(`INSERT INTO nf_prod (codnf,nroitem,codproduto,quantidade,fatorembal,unidade,vrcusto,cfop,ipi,vripi) VALUES ($1,1,1,10,1,'UN',5,'1102',7,20) RETURNING codnfprod`, [ipiNf])).rows[0].codnfprod);
+    // mig 308: o IPI devolvido é o DA NOTA (`IPI_NOTA`, uCadPedidoDevolucaoCompras.pas:1093), não o escriturado
+    const ipiIt = Number((await pgDev.query(`INSERT INTO nf_prod (codnf,nroitem,codproduto,quantidade,fatorembal,unidade,vrcusto,cfop,ipi,vripi,ipi_nota) VALUES ($1,1,1,10,1,'UN',5,'1102',7,20,20) RETURNING codnfprod`, [ipiNf])).rows[0].codnfprod);
     const ipiCJ = (await (await crDev({ codparceiro: 22, itens: [{ codnf: ipiNf, codnfprod: ipiIt, idproduto: 1, qtd_nota_fiscal: 10, qtd_devolvida: 5, valor_custo: 5, cfop: '5202' }] })).json().catch(() => ({}))) as any;
     const ipiId = Number(ipiCJ.codpeddevcompra ?? ipiCJ.codigo);
     await fetch(`${base}/${DEV}/${ipiId}/finalizar`, { method: 'POST', headers: H });
@@ -8332,6 +8333,49 @@ async function main() {
     const ipiOut = (await pgDev.query(`SELECT ipi, vripi FROM nf_prod WHERE codnf=$1 ORDER BY nroitem LIMIT 1`, [Number(ipiGnf.codnf)])).rows[0] as any;
     check('DEVOLUÇÃO SPED c2: IPI% recomputado da saída (vripi 20→10 rateado; ipi% = 10×100/25 = 40, não copia a % da entrada)',
       Number(ipiOut?.vripi) === 10 && Number(ipiOut?.ipi) === 40, { ipiOut });
+
+    // 73.9b) mig 308 — OS VALORES DA NOTA (uCadPedidoDevolucaoCompras.pas:1021-1120; uNF.pas:11994): a nota do fornecedor
+    // DESTACOU ICMS (base 100, R$ 18) mas a escrituração ficou com base ZERO — é o caso de 37.881 itens de 2025-26. A
+    // devolução devolve o DESTACADO; o valor do produto é o da nota (R$ 60 por 10 = 6, não o custo 5); IPI e frete da
+    // nota proporcionais; com IPI_DEVOLUCAO_EM_TRIBUTOS_DEVOLVIDOS='S' (o do cliente) o IPI vai para o grupo devolvido
+    // e entra no total da nota.
+    const cfgIpiDev = (await pgDev.query(`SELECT id, valor FROM configuracoes WHERE codigo = 'IPI_DEVOLUCAO_EM_TRIBUTOS_DEVOLVIDOS'`)).rows[0] as any;
+    if (cfgIpiDev) await pgDev.query(`UPDATE configuracoes SET valor = 'S' WHERE codigo = 'IPI_DEVOLUCAO_EM_TRIBUTOS_DEVOLVIDOS'`);
+    else await pgDev.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor) VALUES (99308, 'IPI_DEVOLUCAO_EM_TRIBUTOS_DEVOLVIDOS', 'S', 'S/N')`);
+    const vnNf = Number((await pgDev.query(`INSERT INTO nf (idempresa,tipo,modelo,serie,dtemissao,dtcontabil,tipoemissao,finalidade,cfop,codparceiro,proc,totalnf,totalprod,chavenfe) VALUES (1,'E',55,'1',now(),now(),'0','1','1102',22,'N',0,0,'31260900000000000000550010000999011000000001') RETURNING codnf`)).rows[0].codnf);
+    const vnIt = Number((await pgDev.query(`INSERT INTO nf_prod (codnf,nroitem,codproduto,quantidade,fatorembal,unidade,vrcusto,cfop,icms,vrbasecalculo,vricm,
+        cst_nota,icms_aliq_nota,icms_nota_bc,icms_nota_valor,icms_red_bc_nota,total_produto_nota,ipi_nota,frete_nota,arredonda)
+      VALUES ($1,1,1,10,1,'UN',5,'1102',18,0,0, 0,18,100,18,0,60,8,4,'S') RETURNING codnfprod`, [vnNf])).rows[0].codnfprod);
+    const vnC = (await (await crDev({ codparceiro: 22, itens: [{ codnf: vnNf, codnfprod: vnIt, idproduto: 1, qtd_nota_fiscal: 10, qtd_devolvida: 5, valor_custo: 5, cfop: '5202' }] })).json().catch(() => ({}))) as any;
+    const vnId = Number(vnC.codpeddevcompra ?? vnC.codigo);
+    const vnItem = (await pgDev.query(`SELECT valor_custo, total_produto_devolvido, cst, icms_aliquota, icms_bc, icms_valor, icms_bc_nota, icms_nota, ipi, ipi_nota, frete FROM pedido_devolucao_compra_i WHERE codpeddevcompra=$1`, [vnId])).rows[0] as any;
+    await fetch(`${base}/${DEV}/${vnId}/finalizar`, { method: 'POST', headers: H });
+    const vnG = (await (await fetch(`${base}/${DEV}/${vnId}/gerar-nf`, { method: 'POST', headers: H })).json().catch(() => ({}))) as any;
+    const vnNfItem = (await pgDev.query(`SELECT vrvenda, quantidade, vrbasecalculo, vricm, icms, cst, vripi, ipi_devolucao, ipi_devolucao_perc_devol, frete, informacoes_adicionais FROM nf_prod WHERE codnf=$1`, [Number(vnG.codnf)])).rows[0] as any;
+    const vnNfHdr = (await pgDev.query(`SELECT totalipi_devolucao, totalfrete, totalprod, totalnf FROM nf WHERE codnf=$1`, [Number(vnG.codnf)])).rows[0] as any;
+    if (cfgIpiDev) await pgDev.query(`UPDATE configuracoes SET valor = $1 WHERE codigo = 'IPI_DEVOLUCAO_EM_TRIBUTOS_DEVOLVIDOS'`, [cfgIpiDev.valor]);
+    else await pgDev.query(`DELETE FROM configuracoes WHERE id = 99308`);
+    check('DEVOLUÇÃO mig 308 [os valores DA NOTA]: base destacada 100/ICMS 18 com a escriturada ZERO — devolvendo 5 de 10, o item leva base 50 e ICMS 9 (o Apollo rateava a escriturada e devolveria 0), CST e alíquota da nota; o valor do produto é o da nota (6, não o custo 5 → total 30); IPI 4 e frete 2 da nota; na NF, com IPI_DEVOLUCAO_EM_TRIBUTOS_DEVOLVIDOS=S, o IPI vai para o grupo devolvido (50% do IPI da nota, 13,33% do item) e entra no total: 30 + 2 + 4 = 36; e a informação adicional cita a chave da nota',
+      Number(vnItem?.valor_custo) === 6 && Number(vnItem?.total_produto_devolvido) === 30 && Number(vnItem?.cst) === 0 && Number(vnItem?.icms_aliquota) === 18
+      && Number(vnItem?.icms_bc) === 50 && Number(vnItem?.icms_valor) === 9 && Number(vnItem?.icms_bc_nota) === 100 && Number(vnItem?.icms_nota) === 18
+      && Number(vnItem?.ipi) === 4 && Number(vnItem?.ipi_nota) === 8 && Number(vnItem?.frete) === 2
+      && Number(vnNfItem?.vrvenda) === 6 && Number(vnNfItem?.vrbasecalculo) === 50 && Number(vnNfItem?.vricm) === 9 && Number(vnNfItem?.icms) === 18
+      && Number(vnNfItem?.vripi ?? 0) === 0 && Number(vnNfItem?.ipi_devolucao_perc_devol) === 50 && Number(vnNfItem?.ipi_devolucao) === 13.33
+      && Number(vnNfHdr?.totalipi_devolucao) === 4 && Number(vnNfHdr?.totalfrete) === 2 && Number(vnNfHdr?.totalnf) === 36
+      && String(vnNfItem?.informacoes_adicionais ?? '').includes('31260900000000000000550010000999011000000001'),
+      { vnItem, vnNfItem, vnNfHdr });
+
+    // 73.9c) a NF salva pela tela não apaga o que ela não mostra (preservarNaoGerenciadas, lição 124): lê a nota de
+    // entrada do 73.9b e grava de volta com os itens — os valores DA NOTA (base/ICMS destacados, total da nota, IPI da
+    // nota) e o que outro processo gravou continuam lá; antes o motor os apagava
+    const vnRead = (await (await fetch(`${base}/fiscal/nf/${vnNf}`, { headers: H })).json().catch(() => ({}))) as any;
+    const vnPut = await fetch(`${base}/fiscal/nf/${vnNf}`, { method: 'PUT', headers: H, body: JSON.stringify({ ...vnRead, obs: 'salva pela tela' }) });
+    const vnPutJ = (await vnPut.json().catch(() => ({}))) as any;
+    const vnDepois = (await pgDev.query(`SELECT icms_nota_bc, icms_nota_valor, total_produto_nota, ipi_nota, frete_nota, cst_nota FROM nf_prod WHERE codnf=$1`, [vnNf])).rows[0] as any;
+    check('NF [a tela salva sem apagar o que não mostra]: gravada de volta com os itens, a nota de entrada mantém base 100, ICMS 18, total 60, IPI 8, frete 4 e CST da nota — 59 das 113 colunas do item não passam pela tela, e o motor as apagava a cada save',
+      vnPut.status === 200 && Number(vnDepois?.icms_nota_bc) === 100 && Number(vnDepois?.icms_nota_valor) === 18 && Number(vnDepois?.total_produto_nota) === 60
+      && Number(vnDepois?.ipi_nota) === 8 && Number(vnDepois?.frete_nota) === 4 && vnDepois?.cst_nota != null,
+      { put: [vnPut.status, vnPutJ.code], vnDepois });
 
     // 73.10) corte SPED c4 — VENCIMENTO ANCORADO na entrada: entrada com A Pagar de venc FUTURO (2027-01-01).
     // Devolução de 1 única entrada → boleto venc = 2027-01-01 + 15 = 2027-01-16 (ancorado), não hoje+15.

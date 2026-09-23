@@ -202,36 +202,26 @@ export class DevolucaoCompraService {
     const empRow = (await db.selectFrom('empresas').select('serie_nfe').where('idempresa', '=', emp).executeTakeFirst()) as { serie_nfe?: string } | undefined;
     const serie = (empRow?.serie_nfe ?? '1').trim() || '1';
 
-    // corte-3 — ParceiroZeraImpostosDeICMSSt (uDMCadPedidoDevolucaoCompra.pas:435): fornecedor com
-    // DEVOLUCAO_ZERA_IMPOSTO_ICMSST='S' → zera ICMS-ST (e ICMS, p/ CFOP de ST-retido) + força CST por CFOP de origem.
-    const zeraRow = (await db
-      .selectFrom('parceiros')
-      .select('devolucao_zera_imposto_icmsst')
-      .where('codparceiro', '=', dev.codparceiro)
-      .where('idempresa', '=', emp)
-      .executeTakeFirst()) as { devolucao_zera_imposto_icmsst?: string } | undefined;
-    const zeraIcmsSt = String(zeraRow?.devolucao_zera_imposto_icmsst ?? 'N') === 'S';
-
-    // itens + ESPELHO fiscal da entrada (nf_prod) + chave/estado da NF de origem + fallbacks do produto.
+    // os itens do documento, com os tributos DA NOTA já calculados na gravação (mig 308) + chave/estado da NF de origem
     const itens = (await db
       .selectFrom('pedido_devolucao_compra_i as i')
       .innerJoin('nf as n', 'n.codnf', 'i.codnf')
       .leftJoin('nf_prod as p', 'p.codnfprod', 'i.codnfprod')
       .leftJoin('produtos as pr', 'pr.idproduto', 'i.idproduto')
       .select([
-        'i.codnf as codnf', 'i.idproduto as idproduto', 'i.qtd_devolvida as qtd_devolvida', 'i.qtd_nota_fiscal as qtd_nota_fiscal',
-        'i.valor_custo as valor_custo', 'i.cfop as cfop', 'i.unidade as unidade',
+        'i.codnf as codnf', 'i.idproduto as idproduto', 'i.nroitem as nroitem', 'i.qtd_devolvida as qtd_devolvida',
+        'i.valor_custo as valor_custo', 'i.cfop as cfop', 'i.unidade as unidade', 'i.obs as obs',
+        'i.total_produto_nota as total_produto_nota', 'i.total_produto_devolvido as total_produto_devolvido', 'i.arredonda as arredonda',
+        'i.cst as cst', 'i.icms_aliquota as icms_aliquota', 'i.icms_bc as icms_bc', 'i.icms_valor as icms_valor', 'i.icms_reducao_bc as icms_reducao_bc',
+        'i.icms_st_bc as icms_st_bc', 'i.icms_st_valor as icms_st_valor',
+        'i.ipi as ipi', 'i.ipi_nota as ipi_nota', 'i.frete as frete', 'i.seguro as seguro', 'i.desconto as desconto', 'i.outras_despesas as outras_despesas',
+        'i.bcpiscofinse as bcpiscofinse', 'i.aliqpise as aliqpise', 'i.aliqcofinse as aliqcofinse', 'i.vrpise as vrpise', 'i.vrcofinse as vrcofinse',
+        'i.fcp_bc_st as fcp_bc_st', 'i.fcp_aliquota_st as fcp_aliquota_st', 'i.fcp_valor_st as fcp_valor_st',
+        'i.fcp_bc_st_ret as fcp_bc_st_ret', 'i.fcp_aliquota_st_ret as fcp_aliquota_st_ret', 'i.fcp_valor_st_ret as fcp_valor_st_ret',
         'n.chavenfe as chave_ref',
         sql<string>`case when coalesce(n.cancelada,'N')='S' or coalesce(n.statusnfe,'')='C' then 'S' else 'N' end`.as('origem_cancelada'),
-        'p.cfop as cfop_origem', 'p.bcr as bcr', // CFOP de ENTRADA (p/ ParceiroZera CST) + base reduzida %
-        'p.aliquota as p_aliquota', 'p.cst as cst', 'p.icms as icms', 'p.vrbasecalculo as vrbasecalculo',
-        'p.vricm as vricm', 'p.vrbasest as vrbasest', 'p.vricmst as vricmst', 'p.ipi as ipi', 'p.vripi as vripi',
-        'p.fcp_valor as fcp_valor', 'p.ncm as ncm', 'p.origem_estoque as origem_estoque',
-        // corte-3 (fold): desconto/frete/seguro/outras despesas da entrada (compõem o TOTALNF → valor do A Receber).
-        'p.desconto as desconto', 'p.frete as frete', 'p.seguro as seguro', 'p.vroutrasdesp as vroutrasdesp',
-        // PIS/COFINS de entrada (espelho — corte-3): alíquotas + CST íntegros.
-        'p.pis as pis', 'p.cstpiscofins as cstpiscofins', 'p.aliqpise as aliqpise', 'p.aliqcofinse as aliqcofinse',
-        'pr.aliquota as pr_aliquota', 'pr.ncmsh as ncmsh', 'pr.origemprod as origemprod', 'pr.unidade as pr_unidade',
+        'p.aliquota as p_aliquota', 'p.ncm as ncm', 'p.origem_estoque as origem_estoque', 'p.pis as pis', 'p.cstpiscofins as cstpiscofins',
+        'pr.aliquota as pr_aliquota', 'pr.ncmsh as ncmsh', 'pr.origemprod as origemprod', 'pr.unidade as pr_unidade', 'pr.codbarra as codbarra',
       ])
       .where('i.codpeddevcompra', '=', codpeddevcompra)
       .where('n.idempresa', '=', emp) // fold BAIXA: filtro de tenant também no read do espelho fiscal
@@ -240,79 +230,92 @@ export class DevolucaoCompraService {
     if (!itens.length) throw new BusinessRuleError('DEVOLUCAO_SEM_ITENS', { codpeddevcompra });
     // M3: não devolver contra NF de entrada CANCELADA.
     if (itens.some((it) => String(it.origem_cancelada) === 'S')) throw new BusinessRuleError('DEVOLUCAO_ORIGEM_CANCELADA', { codpeddevcompra });
+    const ipiEmDevolvidos = (await this.config.resolver('IPI_DEVOLUCAO_EM_TRIBUTOS_DEVOLVIDOS', { empresaId: emp })) === 'S';
 
-    // itens da NF de saída — quantidade = qtd_devolvida; fiscal RATEADO da entrada por qtd_devolvida/qtd_entrada.
+    // itens da NF de saída — `ImportaPedidoDevolucaoCompra` (uNF.pas:11994): copia do item da devolução custo,
+    // quantidade, CST, alíquota, base e ICMS, ST, FCP-ST, PIS/COFINS, IPI; frete/seguro/desconto em valor.
     const nfItens: Record<string, unknown>[] = [];
+    const extras: Array<Record<string, unknown>> = []; // o que o agregado da NF não gerencia (gravado depois)
     let totFrete = 0;
     let totSeguro = 0;
-    let totAcess = 0; // outras despesas acessórias (compõem o header → totalnf)
+    let totAcess = 0;
+    let totIpiDev = 0;
+    let totFcpSt = 0;
+    let totFcpStRet = 0;
     let nro = 1;
+    // TruncarArredondar(x, 'A'|'T', 2)
+    const ta = (x: number, modo: 'A' | 'T') => (modo === 'A' ? r2(x) : Math.trunc((x + Number.EPSILON) * 100) / 100);
     for (const it of itens) {
       const qtdDev = num(it.qtd_devolvida);
-      const qtdEnt = num(it.qtd_nota_fiscal) || qtdDev;
-      const f = qtdEnt > 0 ? qtdDev / qtdEnt : 1; // fator de rateio (espelho fiscal proporcional do legado)
-      const rat = (v: unknown) => r2(num(v) * f);
-      // corte SPED c2: alíquota de IPI RECOMPUTADA da NF de saída (não copia a % da entrada). O VrIPI já é
-      // rateado; ipi% = VrIPI×100 / VRTOTALPRODUTOS (= qtd_devolvida × custo). uNF ImportaPedidoDevolucaoCompra
-      // ramo VrIPI>0: cdsItensNotaIPI := TruncarArredondar((VrIPI*100)/VRTOTALPRODUTOS,'A',2). VrIPI=0 → mantém a %.
-      const vripiRat = rat(it.vripi);
-      const vrProdItem = qtdDev * num(it.valor_custo); // = quantidade × vrvenda (base do ipi%)
+      let custo = num(it.valor_custo);
+      // devolução TOTAL do item: se quantidade × custo (arredondado ou truncado, `ARREDONDA`) não fecha o total
+      // devolvido, o custo vira total ÷ quantidade (:12103-12110)
+      if (num(it.total_produto_nota) === num(it.total_produto_devolvido) && qtdDev > 0) {
+        const calc = ta(qtdDev * custo, String(it.arredonda ?? '') === 'S' ? 'A' : 'T');
+        if (calc !== r2(num(it.total_produto_devolvido))) custo = num(it.total_produto_devolvido) / qtdDev;
+      }
+      const vrTotal = r2(qtdDev * custo);
+      const ipiV = num(it.ipi);
       const item: Record<string, unknown> = {
         nroitem: nro++,
         codproduto: it.idproduto,
+        codprodnota: (it.codbarra as string) ?? undefined,
         quantidade: qtdDev,
         fatorembal: 1,
         unidade: (it.unidade as string) ?? (it.pr_unidade as string) ?? undefined,
-        vrvenda: num(it.valor_custo),
-        vrcusto: num(it.valor_custo),
+        vrvenda: custo,
+        vrcusto: custo,
+        arredonda: (it.arredonda as string) ?? undefined,
         cfop: (it.cfop as string) ?? undefined,
-        aliquota: (it.p_aliquota as string) ?? (it.pr_aliquota as string) ?? undefined,
-        ncm: (it.ncm as string) ?? (it.ncmsh as string) ?? undefined,
+        aliquota: (it.pr_aliquota as string) ?? (it.p_aliquota as string) ?? undefined,
+        ncm: (it.ncmsh as string) ?? (it.ncm as string) ?? undefined,
         origem_estoque: (it.origem_estoque as string) ?? (it.origemprod as string) ?? undefined,
-        icms: it.icms != null ? num(it.icms) : undefined, // alíquota % — ÍNTEGRA (não rateia)
         cst: it.cst != null ? Number(it.cst) : undefined,
-        vrbasecalculo: rat(it.vrbasecalculo),
-        vricm: rat(it.vricm),
-        vrbasest: rat(it.vrbasest),
-        vricmst: rat(it.vricmst),
-        ipi: vripiRat > 0 && vrProdItem > 0 ? r2((vripiRat * 100) / vrProdItem) : (it.ipi != null ? num(it.ipi) : undefined), // % recomputada (c2)
-        vripi: vripiRat,
-        fcp_valor: rat(it.fcp_valor),
-        // corte-3 (fold): desconto/frete/seguro/despesas RATEADOS (compõem o TOTALNF; raros no golden mas afetam o valor).
-        desconto: rat(it.desconto),
-        frete: rat(it.frete),
-        seguro: rat(it.seguro),
-        vroutrasdesp: rat(it.vroutrasdesp),
-        // corte-3: espelho PIS/COFINS de entrada (alíquotas/CST íntegros; ~41-47% dos itens no golden).
+        icms: num(it.icms_aliquota),
+        icme: num(it.icms_aliquota),
+        ...(num(it.icms_valor) > 0 ? { bcr: 100 - num(it.icms_reducao_bc) } : {}),
+        vrbasecalculo: num(it.icms_bc),
+        vricm: num(it.icms_valor),
+        vrbasest: num(it.icms_st_bc),
+        vricmst: num(it.icms_st_valor),
+        streal: num(it.icms_st_valor),
+        desconto: num(it.desconto), // VALOR (convenção do agregado da NF; o legado guarda o % e o valor)
+        frete: num(it.frete),
+        seguro: num(it.seguro),
+        depsacess: num(it.outras_despesas),
         pis: (it.pis as string) ?? undefined,
         cstpiscofins: (it.cstpiscofins as string) ?? undefined,
-        aliqpise: it.aliqpise != null ? num(it.aliqpise) : undefined,
-        aliqcofinse: it.aliqcofinse != null ? num(it.aliqcofinse) : undefined,
+        ...(num(it.bcpiscofinse) > 0
+          ? { bcpiscofinse: num(it.bcpiscofinse), aliqpise: num(it.aliqpise), aliqcofinse: num(it.aliqcofinse), vrpise: num(it.vrpise), vrcofinse: num(it.vrcofinse) }
+          : {}),
         geraestoque: 'S',
         movimenta_estoque: 'S',
       };
-      // corte-3 — ParceiroZera: por CFOP de ORIGEM (dígitos 2-4). 401/403/405 (ST retido na fonte) → zera ICMS
-      // E ST, CST 060. 101/102 (tributado normal) → zera só ST, CST 000 (redução 0/100) senão 020.
-      if (zeraIcmsSt) {
-        const d3 = String(it.cfop_origem ?? '').slice(1, 4);
-        if (d3 === '401' || d3 === '403' || d3 === '405') {
-          item.icms = 0;
-          item.vrbasecalculo = 0;
-          item.vricm = 0;
-          item.vrbasest = 0;
-          item.vricmst = 0;
-          item.cst = 60;
-        } else if (d3 === '101' || d3 === '102') {
-          item.vrbasest = 0;
-          item.vricmst = 0;
-          const reducao = 100 - num(it.bcr); // BCR = % da base tributada
-          item.cst = reducao === 0 || reducao === 100 ? 0 : 20;
+      const extra: Record<string, unknown> = {
+        nroitem: item.nroitem,
+        vrbase_stexterno: num(it.icms_st_bc), vricms_stexterno: 0,
+        fcp_bc_st: num(it.fcp_bc_st), fcp_aliquota_st: num(it.fcp_aliquota_st), fcp_valor_st: num(it.fcp_valor_st),
+        fcp_bc_st_ret: num(it.fcp_bc_st_ret), fcp_aliquota_st_ret: num(it.fcp_aliquota_st_ret), fcp_valor_st_ret: num(it.fcp_valor_st_ret),
+        informacoes_adicionais: `Devolucao Ref. Nota Fiscal: ${it.chave_ref ?? ''}${it.obs ? `. ${it.obs}` : ''}`.slice(0, 500),
+      };
+      if (ipiV > 0) {
+        if (ipiEmDevolvidos) {
+          // IPI DEVOLVIDO (:12143-12150): % devolvido do IPI da nota + % sobre o total do item; entra no total da nota
+          extra.ipi_devolucao_perc_devol = num(it.ipi_nota) > 0 ? ta((ipiV / num(it.ipi_nota)) * 100, 'A') : 100;
+          extra.ipi_devolucao = vrTotal > 0 ? ta((ipiV * 100) / vrTotal, 'A') : 0;
+          totIpiDev += ipiV;
+        } else {
+          item.vripi = ipiV;
+          item.ipi = vrTotal > 0 ? ta((ipiV * 100) / vrTotal, 'A') : 0;
         }
       }
-      totFrete += num(item.frete);
-      totSeguro += num(item.seguro);
-      totAcess += num(item.vroutrasdesp);
+      totFrete += num(it.frete);
+      totSeguro += num(it.seguro);
+      totAcess += num(it.outras_despesas);
+      totFcpSt += num(it.fcp_valor_st);
+      totFcpStRet += num(it.fcp_valor_st_ret);
       nfItens.push(item);
+      extras.push(extra);
     }
 
     // refNFe: 1 referência por NF de ENTRADA distinta (codnf_ref + chave_ref da origem).
@@ -346,6 +349,9 @@ export class DevolucaoCompraService {
       totalfrete: r2(totFrete),
       totalseguro: r2(totSeguro),
       totalacessorias: r2(totAcess),
+      totalipi_devolucao: r2(totIpiDev), // entra no total da nota (udmNF.pas:5557)
+      total_fcp_valor_st: r2(totFcpSt),
+      total_fcp_valor_st_ret: r2(totFcpStRet),
       itens: nfItens,
       referencias, // exigido por validaDevolucao (finalidade='4' → ≥1 documento referenciado)
     };
@@ -375,6 +381,13 @@ export class DevolucaoCompraService {
         .execute();
       if ((e as { code?: string })?.code === '23505') throw new BusinessRuleError('DEVOLUCAO_NF_JA_EMITIDA', { codpeddevcompra });
       throw e;
+    }
+    // o que o agregado da NF não gerencia (FCP-ST, IPI devolvido, informação adicional por item): gravado no item já
+    // criado — e protegido nos saves seguintes da NF (preservarNaoGerenciadas)
+    const dbw = this.dbp.forTenant() as AnyDB;
+    for (const e of extras) {
+      const { nroitem, ...cols } = e;
+      await dbw.updateTable('nf_prod').set(cols).where('codnf', '=', codnf).where('nroitem', '=', Number(nroitem)).execute();
     }
     // NF criada (vínculo IN-ROW). Reverse-link no documento — BEST-EFFORT: se falhar (ou o processo morrer), a
     // NF NÃO é recriada (UNIQUE) e o jaNf reconcilia o codnf_emitida na próxima chamada. Nunca duplica/trava.

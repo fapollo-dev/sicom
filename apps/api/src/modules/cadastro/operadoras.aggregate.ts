@@ -25,6 +25,9 @@ export const operadorasAggregateConfig: AggregateConfig = {
       pk: 'idoperadorastaxa',
       fk: 'codoperadoras',
       chave: 'itens',
+      chaveNatural: ['idempresa'],
+      // idem (lição 124)
+      preservarNaoGerenciadas: true,
       colunas: ['idempresa', 'txadm', 'diafechamento'],
     },
   ],

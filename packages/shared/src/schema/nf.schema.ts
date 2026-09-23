@@ -215,6 +215,10 @@ const nfBase = z.object({
   totalfrete: dec(z.number().nonnegative()),
   totalseguro: dec(z.number().nonnegative()),
   totalacessorias: dec(z.number().nonnegative()),
+  // mig 308: IPI devolvido (soma ao total) e totais de FCP-ST — a NF de devolução os preenche
+  totalipi_devolucao: dec(z.number().nonnegative()),
+  total_fcp_valor_st: dec(z.number().nonnegative()),
+  total_fcp_valor_st_ret: dec(z.number().nonnegative()),
   totalicm: dec(z.number().nonnegative()),
   totalbaseicm: dec(z.number().nonnegative()),
   totalipi: dec(z.number().nonnegative()),

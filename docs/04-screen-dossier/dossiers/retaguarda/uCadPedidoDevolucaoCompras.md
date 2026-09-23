@@ -81,3 +81,34 @@ sufixo (a parte **devolvida**, proporcional à quantidade que volta). Isso vale 
 - **corte-2**: o elo com a NF de devolução já migrada (gerar a NF a partir do pedido e gravar
   `COD_NOTA_FISCAL_EMITIDA`) e o vínculo raro com a Troca com Fornecedor.
 - **fora**: `PRODUTO_TROCA` (morta no golden) — registrada, não implementada.
+
+## Corte-4 — os valores DA NOTA (mig 308, 23/09/2026)
+
+Achado na triagem do conferidor estendido (FILA, Achado 18): o item da devolução no destino não tinha as bases, e o
+Apollo montava a NF de devolução **rateando o imposto ESCRITURADO** da entrada (`VRBASECALCULO`/`VRICM`). O legado
+devolve o **DESTACADO na nota do fornecedor**:
+
+- **o item** (`uCadPedidoDevolucaoCompras.pas:1021-1120`) sai das colunas `*_NOTA` do item de entrada: CST e alíquota da
+  nota; base e ICMS = `ICMS_NOTA_BC`/`ICMS_NOTA_VALOR` × (devolvido ÷ quantidade da nota), arredondados a 2 casas item a
+  item; ST pela base escriturada proporcional; IPI, frete, seguro, desconto, outras despesas, FCP-ST e PIS/COFINS da
+  nota, proporcionais; o valor do produto pelo `TOTAL_PRODUTO_NOTA` (zerado: quantidade × custo); a regra do
+  fornecedor que zera ICMS/ST (`ParceiroZeraImpostosDeICMSSt`) pelo **CFOP original** da nota;
+- **a NF** (`uNF.pas:11994`, `ImportaPedidoDevolucaoCompra`) copia esses valores do item: custo (com a correção de
+  arredondar/truncar pela flag `ARREDONDA` quando a devolução é total), CST, alíquota, `BCR = 100 − redução`, base e ICMS,
+  ST, FCP-ST (e o total no cabeçalho), PIS/COFINS de entrada; frete, seguro e desconto em valor; com
+  `IPI_DEVOLUCAO_EM_TRIBUTOS_DEVOLVIDOS='S'` (o do cliente) o IPI vai para o **grupo devolvido** — `IPI_DEVOLUCAO_PERC_DEVOL`
+  (% do IPI da nota) e `IPI_DEVOLUCAO` (% do item) —, e o `TOTALIPI_DEVOLUCAO` **entra no total da nota**
+  (udmNF.pas:5557); e a informação adicional do item cita a chave da nota de origem.
+
+**O tamanho:** em 2025-26, 37.881 itens de entrada têm base destacada e base escriturada zero; nas devoluções de 2025 o
+legado devolveu **R$ 3.943** de ICMS, e pelo escriturado seriam **R$ 520**.
+
+**Defeito do legado não copiado:** ele rateia também a ALÍQUOTA do FCP-ST (`FCP_ALIQUOTA_ST := (FCP_ALIQUOTA_ST / QtdNota)
+× QtdADevolver`); aqui a alíquota fica inteira.
+
+**E o salvamento da NF:** 59 das 113 colunas do item da NF (entre elas os `*_NOTA` de que a devolução depende) estavam fora
+da lista do agregado — salvar a NF pela tela as apagava. O motor ganhou `preservarNaoGerenciadas` (genérico): o item
+regravado herda da linha antiga, casada por chave, o que o agregado não gerencia. Ligado também no produto (preço e
+estoque por loja, composição, decomposição, receita), inventário, troca, scrap e taxas das operadoras.
+
+Smoke §73.9 (IPI da nota), §73.9b (valores da nota + IPI devolvido), §73.9c (a NF salva sem apagar). **1445/0.**

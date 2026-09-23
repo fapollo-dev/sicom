@@ -34,6 +34,9 @@ export const inventarioAggregateConfig: AggregateConfig = {
       pk: 'sequencia',
       fk: 'codinvent',
       chave: 'itens',
+      chaveNatural: ['idproduto'],
+      // idem: alterado/diferença/idunico (lição 124)
+      preservarNaoGerenciadas: true,
       colunas: ['idempresa', 'idproduto', 'codbarra', 'descricao', 'unidade', 'codsubgrupo', 'aliquota', 'qtde', 'vrcusto', 'vrvenda', 'tipo'],
       // SNAPSHOT server-authoritative: o operador só fornece idproduto + qtde (contado); descricao/unidade/codbarra
       // vêm de PRODUTOS e vrcusto/vrvenda de MULTI_PRECO (por empresa) — fiel à carga do legado (GetCustoProduto).

@@ -89,6 +89,14 @@ export interface DetalheConfig {
    */
   preservar?: string[];
   /**
+   * PRESERVA AS COLUNAS QUE O AGREGADO NÃO GERENCIA (lição 124). O motor regrava os detalhes (delete+insert) e só
+   * escreve `colunas` — tudo mais que a linha tinha (o que a carga trouxe, o que outro processo gravou) SUMIRIA no
+   * primeiro save. Com esta opção, cada item novo herda as colunas não gerenciadas da linha antiga casada por
+   * `chaveNatural` (na ordem de ocorrência — o mesmo produto duas vezes casa 1ª com 1ª). Item sem par fica como veio.
+   * Requer `chaveNatural`.
+   */
+  preservarNaoGerenciadas?: boolean;
+  /**
    * Enriquecimento ASSÍNCRONO/TRANSACIONAL de cada item ANTES do insert (o análogo por-linha do
    * `derivarTrx` do master). Recebe os itens, a `trx` e a empresa; devolve os itens com colunas
    * derivadas do banco. Uso: CONGELAR o custo do item (nf_prod.vl_custo = snapshot de
