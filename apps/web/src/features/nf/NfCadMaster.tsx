@@ -1246,6 +1246,49 @@ function ContabilSection({
   });
   const [editIdx, setEditIdx] = useState<number | null>(null);
 
+  // as situações da NOTA e dos ITENS — as únicas que a linha do rateio aceita (`GetCodigosSituacaoNFPermitidos`,
+  // uLancamentoContabilNF.pas:168) — e, de cada uma, os centros de custo e se é de bonificação (UCadSituacaoNF.md C3)
+  const sitNota = Number(form.watch('idsituacao_nf') ?? 0);
+  const itensNota = (form.watch('itens') ?? []) as Array<{ idsituacao_nf?: number | null }>;
+  const sitsPermitidas = useMemo(
+    () => Array.from(new Set([sitNota, ...itensNota.map((i) => Number(i.idsituacao_nf ?? 0))].filter((x) => x > 0))).sort((a, b) => a - b),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sitNota, JSON.stringify(itensNota.map((i) => i.idsituacao_nf))],
+  );
+  const { data: detalhesSit = {} } = useQuery({
+    queryKey: ['cadastro/situacoes-nf', 'rateio', sitsPermitidas],
+    enabled: sitsPermitidas.length > 0,
+    queryFn: async () => {
+      const api = createResourceApi<{ centros_custo?: Array<{ codplc: unknown }>; cfops?: Array<{ codcfop: unknown }> }>('cadastro/situacoes-nf');
+      const out: Record<number, { ccs: number[]; bonificacao: boolean }> = {};
+      for (const id of sitsPermitidas) {
+        const d = await api.ler(id).catch(() => undefined);
+        out[id] = {
+          ccs: (d?.centros_custo ?? []).map((c) => Number(c.codplc)),
+          bonificacao: (d?.cfops ?? []).some((c) => [1910, 2910].includes(Number(c.codcfop))),
+        };
+      }
+      return out;
+    },
+  });
+  // ao abrir (nota de ENTRADA já gravada), os centros de custo definidos nas situações entram com valor 0
+  // (`InserirCentroDeCustosDefinidos`, uLancamentoContabilNF.pas:697)
+  const codnf = form.watch('codnf' as any) as number | undefined;
+  const inseridos = useRef(false);
+  useEffect(() => {
+    if (inseridos.current || !editavel || codnf == null || form.getValues('tipo') !== 'E' || !Object.keys(detalhesSit).length) return;
+    inseridos.current = true;
+    const atuais = (form.getValues('contabil') ?? []) as NfContabilItemDto[];
+    for (const [sit, d] of Object.entries(detalhesSit)) {
+      for (const cc of d.ccs) {
+        if (!atuais.some((l) => Number(l.idsituacao_nf) === Number(sit) && Number(l.codcc) === cc)) {
+          append({ idsituacao_nf: Number(sit), codcc: cc, valor: 0, adicional: d.bonificacao ? 'S' : 'N' });
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detalhesSit, codnf, editavel]);
+
   const onConfirmar = (item: NfContabilItemDto) => {
     if (editIdx == null) return;
     if (editIdx < 0) append(item);
@@ -1349,7 +1392,9 @@ function ContabilSection({
       {editIdx != null && (
         <ContabilModal
           inicial={editIdx >= 0 ? (fields[editIdx] as NfContabilItemDto) : undefined}
-          situacaoOptions={situacaoOptions}
+          situacaoOptions={situacaoOptions.filter((o) => sitsPermitidas.includes(Number(o.value))
+            || (editIdx >= 0 && Number(o.value) === Number((fields[editIdx] as NfContabilItemDto).idsituacao_nf)))}
+          detalhesSit={detalhesSit}
           plcOptions={plcOptions}
           onFechar={() => setEditIdx(null)}
           onConfirmar={onConfirmar}
@@ -1362,12 +1407,15 @@ function ContabilSection({
 function ContabilModal({
   inicial,
   situacaoOptions,
+  detalhesSit,
   plcOptions,
   onFechar,
   onConfirmar,
 }: {
   inicial?: NfContabilItemDto;
   situacaoOptions: Opcao[];
+  /** por situação: os centros de custo dela (SITUACAO_NF_PLC) e se é de bonificação (CFOP 1910/2910) */
+  detalhesSit: Record<number, { ccs: number[]; bonificacao: boolean }>;
   plcOptions: Opcao[];
   onFechar: () => void;
   onConfirmar: (item: NfContabilItemDto) => void;
@@ -1398,12 +1446,20 @@ function ContabilModal({
           label="&Situação (natureza)"
           options={situacaoOptions}
           value={item.idsituacao_nf != null ? String(item.idsituacao_nf) : undefined}
-          onChange={(v) => set('idsituacao_nf', v ? Number(v) : undefined)}
+          onChange={(v) => {
+            const sit = v ? Number(v) : undefined;
+            // situação de bonificação marca a linha como ADICIONAL (edtCodSituacaoNFExit, uLancamentoContabilNF.pas:534)
+            setItem((i) => ({ ...i, idsituacao_nf: sit, adicional: sit != null && detalhesSit[sit]?.bonificacao ? 'S' : 'N' }));
+          }}
           placeholder="Selecione a situação…"
         />
         <SelectField
           label="&Centro de custo"
-          options={plcOptions}
+          options={(() => {
+            // a pesquisa de centro de custo mostra só os da situação, quando ela tem (btnAddPLCClick, :216)
+            const ccs = item.idsituacao_nf != null ? detalhesSit[item.idsituacao_nf]?.ccs ?? [] : [];
+            return ccs.length ? plcOptions.filter((o) => ccs.includes(Number(o.value)) || Number(o.value) === Number(item.codcc)) : plcOptions;
+          })()}
           value={item.codcc != null ? String(item.codcc) : undefined}
           onChange={(v) => set('codcc', v ? Number(v) : undefined)}
           placeholder="Selecione o centro de custo…"

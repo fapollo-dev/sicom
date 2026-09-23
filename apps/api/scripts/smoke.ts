@@ -1144,6 +1144,46 @@ async function main() {
           rc.status === 200 && Number(rcIt.vrbasecalculo) === Math.round(90 * Number(rcIt.bcr)) / 100,
           { status: rc.status, base: rcIt.vrbasecalculo, bcr: rcIt.bcr, icm: rcIt.vricm });
         await fetch(`${base}/fiscal/nf/${Number(v1J.codnf)}`, { method: 'DELETE', headers: H });
+
+        // j) C3 — o RATEIO que o gravar preenche (InserirLancamentosContabil, udmNF.pas:11027): com a integração ligada
+        // NO MÓDULO (a produção: global N, Retaguarda S), situação com UM centro de custo → a linha com o total − retenções;
+        // com dois → nenhuma; a retenção configurada → linha ADICIONAL com o valor retido; situação de bonificação → ADICIONAL S
+        await pgSit.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, descricao, config_especificas_permitidas)
+          SELECT 100, 'UTILIZA_INTEGRACAO_CONTABIL', 'N', 'String', 'Utiliza integração contábil', 'Modulo;Empresa'
+           WHERE NOT EXISTS (SELECT 1 FROM configuracoes WHERE codigo='UTILIZA_INTEGRACAO_CONTABIL')`);
+        await pgSit.query(`UPDATE configuracoes SET valor='N', config_especificas_permitidas='Modulo;Empresa' WHERE codigo='UTILIZA_INTEGRACAO_CONTABIL'`);
+        await pgSit.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) SELECT id, 'Modulo', 'Retaguarda', 'S' FROM configuracoes WHERE codigo='UTILIZA_INTEGRACAO_CONTABIL'
+          ON CONFLICT (id, tipo, chave) DO UPDATE SET valor='S'`);
+        await pgSit.query(`INSERT INTO cfop (codcfop, descricao, tipo) VALUES ('1910','ENTRADA DE BONIFICACAO','E') ON CONFLICT DO NOTHING`);
+        await pgSit.query(`INSERT INTO situacao_nf (idsituacao_nf, descricao, tipo, tipo_operacao) VALUES
+          (7930,'COMPRA COM 1 CC','E','E01'), (7932,'COMPRA COM 2 CC','E','E01'), (7931,'RETENCAO PIS','E','I13'), (7933,'BONIFICACAO','E','E01') ON CONFLICT DO NOTHING`);
+        await pgSit.query(`INSERT INTO isituacao_nf (idsituacao_nf, codcfop) VALUES (7930, 1102), (7932, 1102), (7933, 1910)`);
+        await pgSit.query(`INSERT INTO situacao_nf_plc (idsituacao_nf, codplc) VALUES (7930, 3), (7932, 3), (7932, 4), (7931, 2)`);
+        const cfgPis0 = (await pgSit.query(`SELECT id_configintegcontabil, config_retencao_pis_nf FROM config_integracao_contabil ORDER BY 1 LIMIT 1`)).rows[0] as any;
+        if (cfgPis0) await pgSit.query(`UPDATE config_integracao_contabil SET config_retencao_pis_nf = 7931 WHERE id_configintegcontabil = $1`, [cfgPis0.id_configintegcontabil]);
+        else await pgSit.query(`INSERT INTO config_integracao_contabil (id_configintegcontabil, config_retencao_pis_nf) VALUES (1, 7931)`);
+        const rt = async (nronf: string, sit: number, extra: Record<string, unknown> = {}) => {
+          const r = await nfSit({ tipo: 'E', nronf, cfop: '1102', idsituacao_nf: sit, codparceiro: 22, itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, cfop: '1102', aliquota: 'T01' }], ...extra });
+          const j = (await r.json().catch(() => ({}))) as any;
+          const linhas = (await pgSit.query(`SELECT idsituacao_nf, codcc, valor::float AS valor, tipovalor, adicional FROM nf_contabil WHERE codnf=$1 ORDER BY idsituacao_nf, codcc`, [Number(j.codnf)])).rows as any[];
+          return { status: r.status, codnf: Number(j.codnf), linhas };
+        };
+        const j1 = await rt('RAT1', 7930);
+        const j2 = await rt('RAT2', 7932);
+        const j3 = await rt('RAT3', 7930, { total_ret_pis: 10 });
+        const j4 = await rt('RAT4', 7930, { contabil: [{ idsituacao_nf: 7933, codcc: 1, valor: 0 }] });
+        const l3cc = j3.linhas.find((l) => l.idsituacao_nf === 7930);
+        const l3ret = j3.linhas.find((l) => l.idsituacao_nf === 7931);
+        check('SITUAÇÃO j (C3): o gravar preenche o rateio — 1 centro de custo → linha (7930, CC 3, 100, V) · 2 centros → nenhuma · retenção de PIS 10 → linha ADICIONAL (7931, CC 2, 10) e a do CC com 100 − 10 = 90 · linha em situação de bonificação (CFOP 1910) → ADICIONAL S',
+          j1.status === 201 && j1.linhas.length === 1 && j1.linhas[0].codcc === 3 && j1.linhas[0].valor === 100 && j1.linhas[0].tipovalor === 'V'
+          && j2.status === 201 && j2.linhas.length === 0
+          && j3.status === 201 && l3cc?.valor === 90 && l3ret?.valor === 10 && l3ret?.adicional === 'S' && l3ret?.codcc === 2
+          && j4.status === 201 && j4.linhas.find((l) => l.idsituacao_nf === 7933)?.adicional === 'S',
+          { j1: j1.linhas, j2: j2.linhas, j3: j3.linhas, j4: [j4.status, j4.linhas] });
+        for (const j of [j1, j2, j3, j4]) await fetch(`${base}/fiscal/nf/${j.codnf}`, { method: 'DELETE', headers: H });
+        // a integração volta ao que o resto do smoke espera (desligada) e a retenção configurada sai
+        await pgSit.query(`DELETE FROM configuracoes_especificas WHERE id=(SELECT id FROM configuracoes WHERE codigo='UTILIZA_INTEGRACAO_CONTABIL') AND tipo='Modulo'`);
+        await pgSit.query(`UPDATE config_integracao_contabil SET config_retencao_pis_nf = $1`, [cfgPis0?.config_retencao_pis_nf ?? null]);
       } finally {
         await pgSit.end();
       }

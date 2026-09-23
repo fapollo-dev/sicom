@@ -10,6 +10,7 @@ import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 import { conferirNotaInteira, leitorCfopsDaSituacao } from './nf-cfop-situacao';
 import { normalizarItensNf } from './nf-item-padrao';
 import { estornarVinculoScrap } from './nf-scrap.service';
+import { preencherRateioContabil } from './nf-rateio';
 
 /**
  * NOTA FISCAL (tela-coroa) — Fase 1: NÚCLEO CADASTRO, agregado mestre-detalhe via
@@ -136,6 +137,16 @@ export const nfAggregateConfig: AggregateConfig = {
     const emp = currentTenant().empresaId ?? null;
     // o item completo ANTES do derivar somar os totais: ARREDONDA padrão, VRVENDA nulo = 0, DESCONTO % do VRDESCPROD
     await normalizarItensNf(db, emp, dto.itens);
+    // a linha do rateio sem ADICIONAL: 'S' quando a situação é de bonificação — tem CFOP 1910/2910
+    // (`SituacaoDeBonificacao`, uLancamentoContabilNF.pas:762, no Exit da situação)
+    if (Array.isArray(dto.contabil)) {
+      for (const l of dto.contabil as Array<Record<string, unknown>>) {
+        if ((l.adicional === 'S' || l.adicional === 'N') || !(Number(l.idsituacao_nf) > 0)) continue;
+        const bon = await db.selectFrom('isituacao_nf').select('idisituacao_nf').where('idsituacao_nf', '=', Number(l.idsituacao_nf))
+          .where('codcfop', 'in', [1910, 2910]).executeTakeFirst();
+        l.adicional = bon ? 'S' : 'N';
+      }
+    }
 
     // estado atual (update): travas de edição por estado + fallback dos campos da chave.
     // Espelha NotaEletronica/btnEditar do legado: NF processada/contabilizada/faturada/enviada/
@@ -231,11 +242,13 @@ export const nfAggregateConfig: AggregateConfig = {
   // a SITUAÇÃO DO ITEM (UCadSituacaoNF.md C2): o item entra com a situação do cabeçalho (uNF.pas:1594, 5724, 13699,
   // 16043) — 99,5% dos itens de 2026. O item que já tinha a sua (701 linhas da produção diferem do cabeçalho) mantém:
   // a coluna não é gerenciada pelo formulário, então o motor a preserva, e aqui só se preenche a que falta.
-  aposGravarTrx: async ({ trx, id }) => {
+  aposGravarTrx: async ({ trx, id, emp }) => {
     await sql`
       UPDATE nf_prod p SET idsituacao_nf = n.idsituacao_nf
         FROM nf n
        WHERE n.codnf = ${id} AND p.codnf = n.codnf AND p.idsituacao_nf IS NULL AND n.idsituacao_nf IS NOT NULL`.execute(trx);
+    // o rateio contábil que o gravar do legado preenche sozinho (InserirLancamentosContabil; UCadSituacaoNF.md C3)
+    await preencherRateioContabil(trx, id, emp ?? null);
   },
   // Guarda de EXCLUSÃO (btnExcluir do legado, uNF.pas:4072): não apagar NF com efeitos — apagar deixaria
   // estoque movido e títulos órfãos. Exige reverter (F3) / estornar (F4) antes.

@@ -52,8 +52,8 @@ NFs de 2026: 7.219 em 31 situações; itens 68.745 (68.624 com situação; em 70
 | devolução: situação do item pelo CFOP | uNF.pas:7250; uPedidoDevolucaoCompra.pas:362 | 4 CFOPs → 17 | ✅ C2 (ISITUACAO_NF da situação de saída; o de-para da mig 076 fica como reserva) |
 | transferência (5152, CFOP.PROC_TRANSF) | uNF.pas:1423; uProcessaNotaFiscal.pas:1636 | 6 situações | ✅ C2b — veredito com prova (abaixo) |
 | bonificação = CFOP 1910/2910/5910/6910 | udmNF.pas:5325; uLancamentoContabilNF.pas:762 | 5 e 24 | FALTA |
-| rateio pré-preenchido pelo CC da situação | udmNF.pas:11027 (uNF.pas:5036/2912); uLancamentoContabilNF.pas:673 | 5.353 de 6.449 NFs de entrada | FALTA |
-| CCs permitidos por situação; situação do rateio = cabeçalho/itens | uLancamentoContabilNF.pas:148/230/314 | 6.531/6.531 dentro | FALTA |
+| rateio pré-preenchido pelo CC da situação | udmNF.pas:11027 (uNF.pas:5036/2912); uLancamentoContabilNF.pas:673 | 5.353 de 6.449 NFs de entrada | ✅ C3 (`nf-rateio.ts`, no gravar) |
+| CCs permitidos por situação; situação do rateio = cabeçalho/itens | uLancamentoContabilNF.pas:148/230/314 | 6.531/6.531 dentro | ✅ C3 (tela; regras de pesquisa no legado, não do servidor) |
 | **lançamentos de CAIXA da NF** (F3) e a reversão | udmNF.pas:9266 (:7776), :5011 | **1.011 em 2026, 903 NFs, R$ 764.054,09** | FALTA |
 | CC restrito em AP/AR/caixa/scrap | uAPagar.pas:763…; uCadAReceber.pas:538…; uMovCaixa.pas:540; uCadSCRAP.pas:421 | CX_APAGAR: 0 fora | FALTA |
 | parceiro restrito em AP/AR/caixa/adiantamento | uAPagar.pas:3555… | AP: 1 fora de 613 | adiantamento ✅; resto FALTA |
@@ -82,7 +82,16 @@ NFs de 2026: 7.219 em 31 situações; itens 68.745 (68.624 com situação; em 70
   CFOP `PROC_TRANSF` e copia a situação para todos os itens) fica coberto pela tela da NF: as 119 entradas de
   transferência desde 2025 (situação 15, CFOP 1152) chegam pelo XML sem situação, e a situação escolhida na NF (lista do
   tipo e com CFOP) desce para os itens sem situação ao gravar.
-- **C3 — rateio**: pré-preenchimento, CCs permitidos, ADICIONAL da bonificação.
+- **C3 — rateio** ✅ (23/09/2026, smoke 1476/0): o gravar da NF preenche o rateio (`InserirLancamentosContabil`,
+  udmNF.pas:11027 — chamado no btnGravar, uNF.pas:5036): com `UTILIZA_INTEGRACAO_CONTABIL='S'` (produção: global 'N',
+  módulo Retaguarda 'S'), total > 0, finalidade ≠ 2 e situação que integra, (1) o centro de custo das situações da nota
+  e dos itens — só quando é UM — com total − bonificado − retenções − desconto de acordo ("V"; existente só ganha valor
+  se estava 0); (2) cada retenção configurada (I13-I19) com CC vira linha ADICIONAL com o valor retido; (3) o desconto
+  de acordo (I20) tipo "D". Produção 2026: 1 CC e integra → 5.545/5.545 NFs de entrada com rateio, 5.279 no valor
+  exato; não integra → 2/129. Tela: a linha só aceita as situações da nota e dos itens, o CC é filtrado pelos da
+  situação, bonificação (CFOP 1910/2910) marca ADICIONAL (o servidor também deriva quando não vem), e a nota de entrada
+  gravada abre com os CCs das situações a valor 0 (`InserirCentroDeCustosDefinidos`). As restrições de situação e de CC
+  são de PESQUISA no legado (o Exit do CC só confere que existe), por isso não viraram recusa do servidor.
 - **C4 — caixa da NF**: `GerarLancamentosDeCaixa` e a reversão (golden: 1.011 linhas / R$ 764.054,09 de 2026).
 - **C5 — pesquisas fora da NF**: TIPO_OPERACAO, CC e parceiro em AP/AR/caixa/scrap/CFOP/empresa/pedido.
 - **C6 — regras pequenas**: BCR>100, importação automática; declarar mortos os campos acima.
