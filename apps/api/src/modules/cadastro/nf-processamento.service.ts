@@ -6,6 +6,7 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ConfigService } from './config.service';
 import { NfContabilizacaoService } from './nf-contabilizacao.service';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
+import { validarItensNoProcessamento } from './nf-cfop-situacao';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -131,6 +132,8 @@ export class NfProcessamentoService {
         // reconciliação (ValidaTotalICMSStNota, uProcessaNotaFiscal.pas:564): recomputa os totais
         // dos itens e confere contra o header ANTES de mover estoque (evita processar total adulterado).
         await this.reconciliarTotais(trx, codnf, emp, nf);
+        // CFOP de cada item × a situação dele (uNF.pas:14921; UCadSituacaoNF.md C2)
+        await validarItensNoProcessamento(trx, codnf, emp);
       } else {
         if (nf.proc !== 'S') throw new BusinessRuleError('NF_NAO_PROCESSADA', { codnf });
         // reverter bloqueado se já enviada à SEFAZ (uNF.pas:8945) — 'T' (terceiros importada) e 'D'

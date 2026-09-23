@@ -1105,6 +1105,17 @@ async function main() {
         check('SITUAÇÃO g (C2): o item gravado leva a situação do cabeçalho (8) · item importado com CFOP fora: saída regrava (200) e, com VALIDA_CFOP_SITUACAO_NF_SAIDA=S, 422',
           g0.status === 201 && gSit.length === 1 && gSit[0] === 8 && g1.status === 200 && g2.status === 422 && g2J.code === 'NF_ITEM_CFOP_SITUACAO',
           { g0: g0.status, sitItem: gSit, g1: g1.status, g2: [g2.status, g2J.code] });
+        // h) o PROCESSAMENTO confere de novo (uNF.pas:14921): entrada gravada certa, item mudado por fora → processar 422
+        const h0 = await nfSit({ tipo: 'E', nronf: 'SITC2E', cfop: '1102', idsituacao_nf: 6, codparceiro: 22, itens: [{ codproduto: 1, quantidade: 1, vrvenda: 1, cfop: '1102', aliquota: 'T01' }] });
+        const h0Id = Number(((await h0.json().catch(() => ({}))) as any).codnf);
+        await pgSit.query(`UPDATE nf_prod SET cfop='1556' WHERE codnf=$1`, [h0Id]);
+        const h1 = await fetch(`${base}/fiscal/nf/${h0Id}/processar`, { method: 'POST', headers: H });
+        const h1J = (await h1.json().catch(() => ({}))) as any;
+        const h1Proc = (await pgSit.query(`SELECT proc FROM nf WHERE codnf=$1`, [h0Id])).rows[0]?.proc;
+        await fetch(`${base}/fiscal/nf/${h0Id}`, { method: 'DELETE', headers: H });
+        check('SITUAÇÃO h (C2): o processamento confere o CFOP de cada item contra a situação — item fora → 422 e a nota não processa',
+          h0.status === 201 && h1.status === 422 && h1J.code === 'NF_ITEM_CFOP_SITUACAO' && h1Proc !== 'S',
+          { h0: h0.status, h1: [h1.status, h1J.code], proc: h1Proc });
       } finally {
         await pgSit.end();
       }

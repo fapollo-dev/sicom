@@ -7,7 +7,7 @@ import { estornarVinculoRotativo } from './inventario-rotativo-nf';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { debitoPisCofins } from '../shared/piscofins-rentab';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
-import { configNaTrx } from '../compras/pedido-heranca';
+import { conferirNotaInteira, leitorCfopsDaSituacao } from './nf-cfop-situacao';
 
 /**
  * NOTA FISCAL (tela-coroa) — Fase 1: NÚCLEO CADASTRO, agregado mestre-detalhe via
@@ -199,21 +199,13 @@ export const nfAggregateConfig: AggregateConfig = {
     // (o Processamento, uNF.pas:14921 — na produção 'N'), o que pega o item que veio por importação.
     const sitNf = Number(dto.idsituacao_nf ?? atual?.idsituacao_nf ?? 0);
     if (sitNf > 0) {
-      const cache = new Map<number, Set<number>>();
-      const cfopsDe = async (sit: number) => {
-        if (!cache.has(sit)) {
-          cache.set(sit, new Set(((await db.selectFrom('isituacao_nf').select('codcfop').where('idsituacao_nf', '=', sit).execute()) as Array<{ codcfop: unknown }>)
-            .map((r) => Number(r.codcfop))));
-        }
-        return cache.get(sit)!;
-      };
+      const cfopsDe = leitorCfopsDaSituacao(db);
       const cfopNf = dto.cfop ?? atual?.cfop;
       if (cfopNf != null && cfopNf !== '' && !(await cfopsDe(sitNf)).has(Number(cfopNf))) {
         throw new BusinessRuleError('NF_CFOP_SITUACAO', { cfop: Number(cfopNf), idsituacao_nf: sitNf });
       }
       if (Array.isArray(dto.itens)) {
-        const tipoNf = String(dto.tipo ?? atual?.tipo ?? '');
-        const notaInteira = tipoNf === 'E' || String((await configNaTrx(db, 'VALIDA_CFOP_SITUACAO_NF_SAIDA', { empresaId: emp, operadorId: currentTenant().operadorId ?? null })) ?? 'N').toUpperCase() === 'S';
+        const notaInteira = await conferirNotaInteira(db, String(dto.tipo ?? atual?.tipo ?? ''), emp);
         // o item já gravado, casado pelo produto na ordem (como o motor casa): dá a situação própria do item (701 linhas
         // da produção diferem do cabeçalho) e diz se o CFOP mudou
         const antigos = new Map<string, Array<{ cfop: unknown; idsituacao_nf: unknown }>>();

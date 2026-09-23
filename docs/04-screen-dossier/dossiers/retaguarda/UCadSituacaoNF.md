@@ -72,6 +72,7 @@ NFs de 2026: 7.219 em 31 situações; itens 68.745 (68.624 com situação; em 70
   devolução pela ISITUACAO_NF. A validação é a do legado inteira: situação sem CFOP nenhum recusa qualquer CFOP (o
   `Locate` não acha); o item digitado é cobrado em qualquer tipo de nota (uItensNF.pas:1525) e a nota inteira só na
   entrada ou com a config (o Processamento, uNF.pas:14921) — é o que deixa passar o item importado da saída.
+  O processamento (F3) confere de novo cada item pela situação dele (uNF.pas:14921; uProcessaNotaFiscal.pas:587).
 - **C2b — transferência**: situação com CFOP 5152 marca o pedido como transferência e o CFOP vira 5152/6152
   (uNF.pas:1423); a importação do XML oferece só as situações com CFOP `PROC_TRANSF` (uProcessaNotaFiscal.pas:1636).
 - **C3 — rateio**: pré-preenchimento, CCs permitidos, ADICIONAL da bonificação.
