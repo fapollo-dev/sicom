@@ -168,6 +168,7 @@ export const promocaoAggregateConfig: AggregateConfig = {
       // (origem + alvo), única em 46 das 47 linhas do cliente; a repetida são duas regras de cupom
       // (`DESCONTO_POR_PDV`, promoção 582) com alvo nulo e nada a preservar — empate inofensivo.
       chaveNatural: ['origem', 'idorigempromocao'],
+      preservarNaoGerenciadas: true,
       preservar: ['barras', 'descricao', 'pdv', 'hora', 'vrcusto', 'vrcustorep', 'venda_estoque'],
       derivarItensTrx: async (itens, _trx, emp, header) => {
         // espelha SetDadosIniciaisPadrao/AtualizaDadosFilho (pas:1265/1534): copia período+DESTINO do header + defaults golden.

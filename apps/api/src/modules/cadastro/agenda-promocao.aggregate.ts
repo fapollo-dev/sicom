@@ -44,6 +44,9 @@ export const agendaPromocaoAggregateConfig: AggregateConfig = {
       tabela: 'agenda_promocao_itens',
       pk: 'codagendaitem',
       fk: 'codagenda',
+      chaveNatural: ['idproduto'],
+      // "todos os campos" (mig 310): o que o cadastro não gerencia sobrevive ao save (lição 124)
+      preservarNaoGerenciadas: true,
       chave: 'itens',
       colunas: [
         'nroitem', 'idproduto', 'vlrpromocao', 'vrvenda', 'ativo', 'dtativo',

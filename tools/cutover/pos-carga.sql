@@ -43,3 +43,11 @@ UPDATE pedidocompra p
          GROUP BY codpedcomp) x
  WHERE x.codpedcomp = p.codpedcomp
    AND p.dtfaturamento IS NULL;
+
+-- A NOTA JÁ FATURADA (23/09/2026). O Apollo marca `nf.faturada='S'` ao gerar os títulos (F4) e exige o 'S' para o
+-- ESTORNO do faturamento; o legado não tem o flag — a nota faturada é a que tem título (`IDNF` em ARECEBER/APAGAR).
+-- A carga põe o padrão 'N' em todas: sem isto, nenhuma nota migrada poderia ter o faturamento estornado. Idempotente.
+UPDATE nf SET faturada = 'S'
+ WHERE coalesce(faturada, 'N') <> 'S'
+   AND (EXISTS (SELECT 1 FROM areceber r WHERE r.idnf = nf.codnf)
+        OR EXISTS (SELECT 1 FROM apagar p WHERE p.idnf = nf.codnf));

@@ -30,7 +30,9 @@ export const contasBancariasCrudConfig: AggregateConfig = {
   replica: false,
   detalhes: [
     // liberação de operadores (ponte conta↔operador; PK surrogate; substitute no update).
-    { tabela: 'contas_bancarias_op', pk: 'codrelacao', fk: 'codconta', chave: 'operadores', colunas: ['codoperador', 'cbo_baixa_cr', 'cbo_baixa_cp'] },
+    // "todos os campos" (mig 310): as 8 permissões por operador que a tela não mostra sobrevivem ao save (lição 124)
+    { tabela: 'contas_bancarias_op', pk: 'codrelacao', fk: 'codconta', chave: 'operadores', colunas: ['codoperador', 'cbo_baixa_cr', 'cbo_baixa_cp'],
+      chaveNatural: ['codoperador'], preservarNaoGerenciadas: true },
   ],
   validar: async ({ dto, id, db }) => {
     // lookup Plano de Contas (só quando informado): conta de lançamento tem de ser ANALÍTICA de EMPRESA.

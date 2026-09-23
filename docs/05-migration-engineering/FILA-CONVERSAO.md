@@ -832,3 +832,33 @@ constantes e resíduos — modalidade da base do cupom (sempre 3), rateio de IPI
 notas), destaque de ICMS no Simples (sempre 'N'), tara da embalagem (2 produtos) e a retenção de PIS/COFINS na saída
 (todos os parceiros 'N'). `TRIAGEM_PENDENTE` vazia; conferidor 0/0.
 
+
+> **Revertido no mesmo dia (Achado 19):** as constantes e resíduos declarados "de fora" acima entram também — ordem do
+> usuário, "tem que ter todos os campos". `ORIGEM_DECLARADA` vazia.
+
+### Achado 19 — todos os campos: 1.319 colunas da origem que o destino não tinha (23/09/2026, mig 310)
+
+Ordem do usuário, depois de eu ter declarado constantes e resíduos "de fora" no Achado 18: **"tem que ter todos os
+campos"**. O conferidor passou a acusar QUALQUER coluna da origem ausente no destino — sem filtro de nome, de
+preenchimento ou de zeros — e, contra a PRODUÇÃO, achou **1.319 colunas em 82 tabelas** do plano.
+
+- **7 eram só nome diferente** e o dado chegava VAZIO sem ninguém notar (viraram de-para em `RENOMEIA`):
+  - `CONFIGURACOES.CONFIGESPECIFICASPERMITIDAS` (842 de 842) → `config_especificas_permitidas`: a lista de escopos em que
+    cada configuração aceita valor por loja/operador. Sem ela, depois da virada só o valor GLOBAL valeria;
+  - `EMPRESAS.SERIE` ('001' nas lojas que emitem) → `serie_nfe` (o Apollo assumia '1'). A numeração da NF passou a
+    comparar a série normalizada (`ltrim` dos zeros): '001' e '1' são a mesma série para a SEFAZ — sem isso a numeração
+    própria recomeçaria do 1 e duplicaria NF-e;
+  - `COTACAO` (2 datas de preenchimento), `INVENTARIO_LIVRO` (2 flags), `FORMAS_PGTO.LANC_MOVIMENT_INDIVIDUAL` (o legado
+    grafa sem o O).
+- **1.312 entram pela mig 310**, com o tipo do Oracle (gerada do `user_tab_columns`, em ordem de coluna). A carga casa
+  pelo nome; o extrator e o carregador passaram a citar nomes que só existem entre aspas (`PARCEIROS."2017"…"2022"`),
+  a gravar BLOB/RAW como `bytea` (a biometria — decodificar como texto corromperia) e a dividir o lote pelo número de
+  colunas (500 linhas × 240 colunas estourava o limite de 65.535 parâmetros do Postgres).
+- **As telas preservam o que não mostram:** `preservarNaoGerenciadas` ligado em mais 10 detalhes (item do pedido,
+  pagamentos/relacionamentos/endereços do parceiro, código auxiliar, clube de desconto, agenda de promoção, operações da
+  conta, referências e contábil da NF) — salvar pela tela não apaga coluna que veio do legado.
+- **`nf.faturada`** (flag só do Apollo, padrão 'N'): a pós-carga marca 'S' nas notas com título em ARECEBER/APAGAR — sem
+  isso nenhuma nota migrada poderia ter o faturamento estornado.
+
+Conferidor: **sentido 2 = 0** (nenhuma coluna da origem fica para trás, 196 tabelas); sentido 1 = 9 colunas só do
+Apollo, todas com padrão. Smoke 1445/0.

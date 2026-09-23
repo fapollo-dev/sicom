@@ -92,6 +92,8 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
       pk: 'codpedcompi',
       fk: 'codpedcomp',
       chave: 'itens',
+      chaveNatural: ['idproduto'],
+      preservarNaoGerenciadas: true,
       colunas: [
         // FLIP do modelo (078): QTDE = nº de embalagens (comprador digita CAIXAS); FATOREMBALAGEM = fator (FATORCX).
         'idproduto', 'qtde', 'fatorembalagem', 'vrcusto', 'vlrembalagem', 'qtdtotal', 'totalcusto', 'desconto', 'descontop', 'obs',

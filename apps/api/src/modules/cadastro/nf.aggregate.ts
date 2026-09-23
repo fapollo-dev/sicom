@@ -288,6 +288,9 @@ export const nfAggregateConfig: AggregateConfig = {
       tabela: 'nf_referencia',
       pk: 'codnfreferencia',
       fk: 'codnf',
+      chaveNatural: ['codnf_ref'],
+      // "todos os campos" (mig 310): o que o cadastro não gerencia sobrevive ao save (lição 124)
+      preservarNaoGerenciadas: true,
       chave: 'referencias',
       colunas: ['codnf_ref', 'chave_ref', 'valor_ref'],
     },
@@ -297,6 +300,9 @@ export const nfAggregateConfig: AggregateConfig = {
       tabela: 'nf_contabil',
       pk: 'codcontabilnf',
       fk: 'codnf',
+      chaveNatural: ['idsituacao_nf', 'codcc'],
+      // "todos os campos" (mig 310): o que o cadastro não gerencia sobrevive ao save (lição 124)
+      preservarNaoGerenciadas: true,
       chave: 'contabil',
       colunas: ['idsituacao_nf', 'codcc', 'valor', 'adicional', 'tipovalor', 'insert_manual'],
     },
@@ -317,7 +323,9 @@ export const nfAggregateConfig: AggregateConfig = {
       .select(sql<number>`coalesce(max(case when nronf ~ '^[0-9]+$' then nronf::integer else 0 end), 0)`.as('maxn'))
       .where('idempresa', '=', emp)
       .where('modelo', '=', dto.modelo)
-      .where('serie', '=', dto.serie)
+      // a série compara SEM zeros à esquerda: o legado grava '001' e para a SEFAZ '1' e '001' são a mesma série —
+      // comparar o texto recomeçaria a numeração do 1 e a NF-e voltaria rejeitada por duplicidade
+      .where(sql<boolean>`coalesce(nullif(ltrim(serie, '0'), ''), '0') = coalesce(nullif(ltrim(${String(dto.serie ?? '')}, '0'), ''), '0')`)
       .where('tipoemissao', '=', tipoemissao)
       .executeTakeFirst();
     return { nronf: String((Number(row?.maxn) || 0) + 1) };

@@ -96,55 +96,13 @@ EMPRESA = re.compile(r'^(idempresa|codempresa)$')
 # ── sentido 2 ────────────────────────────────────────────────────────────────────────────────────────
 # colunas da ORIGEM que não vêm de propósito: sobra de manutenção, carimbo que o nosso schema não repete,
 # ou flag de integração externa. Cada padrão é uma decisão, não um esquecimento.
-ORIGEM_NAO_VEM = re.compile(
-    r'^(old_|bkp_|tmp_|temp_|f_bkp|'
-    r'usucadastro|usuexclusao|dtexclusao|dtalteracao|dtultacesso|'
-    r'sincronizado|exportado|codigoempresawl|filialempresawl)'
-    r'|(_bkp|_temp|_wl|_old)$')
+# ⚠️ "TEM QUE TER TODOS OS CAMPOS" (usuário, 23/09/2026): nenhuma coluna da origem fica de fora por padrão de nome.
+# Um padrão aqui só com ordem explícita do usuário.
+ORIGEM_NAO_VEM = re.compile(r'(?!x)x')   # casa com nada
 # colunas da ORIGEM que ficam de fora com PROVA medida — cada par é uma decisão, não um esquecimento
+# idem: colunas da origem fora do destino só com ordem explícita do usuário — a lista que havia (constantes, resíduos,
+# deriváveis) foi desfeita pela mig 310, que trouxe todas.
 ORIGEM_DECLARADA = {
-    # mig 286: das 28 colunas de total da NF, 12 entraram (R$ 160,5 milhões) e estas 16 não.
-    ('nf', 'qtde'): 'contagem de itens: derivável de nf_prod; guardar criaria uma segunda verdade',
-    ('nf', 'validatotalnf'): 'flag de processo do legado, não valor',
-    ('nf', 'totalfrete2'): 'resíduo: 1 nota',
-    ('nf', 'total_fcp'): 'resíduo: 1 nota',
-    ('nf', 'total_fcp_bc'): 'resíduo',
-    ('nf', 'totalvroutros'): 'resíduo: 1 nota',
-    ('nf', 'totaldescfinal'): 'resíduo: 22 notas, R$ -175,96',
-    ('nf', 'total_icms_uf_dest_bc'): 'resíduo: zerado nas notas do cliente',
-    ('nf', 'totalicm_stexterno_sepnf'): 'resíduo',
-    ('nf', 'total_desc_acordo'): 'resíduo',
-    ('nf', 'fisco_emit_dar_valor'): 'campo de fisco do emitente: zerado',
-    ('nf', 'valorissqn'): 'ISSQN: o cliente não presta serviço (zerado)',
-    ('nf', 'valorservico'): 'idem',
-    ('nf', 'totalbaseicmsrep_ret'): 'resíduo',
-    ('nf', 'total_desc_pedido'): 'zerado nas 49.655 notas (0 com valor)',
-    # mig 287: das 31 colunas de nf_prod, 24 entraram (R$ 137,5 milhoes) e estas ficam de fora
-    ('nf_prod', 'vrcustoajustenf'): 'residuo: 1 item, R$ 0,01',
-    ('nf_prod', 'atualiza_multipreco_decomp'): 'flag de decomposicao sem uso medido',
-    ('nf_prod', 'item_perda_total'): 'idem',
-    ('nf_prod', 'ipi_devolucao_perc_devol'): 'residuo: 81 itens',
-    # mig 288: a integracao Cresce Vendas tem 14.612 linhas de 18,9 milhoes (0,08%) e R$ 39 mil, e o
-    # status dela esta nulo nas 3,1 milhoes de CLUBE_DESCONTO_MOV — o mecanismo nunca foi usado.
-    ('vendas', 'crescevendas_qtde'): 'integracao Cresce Vendas nunca usada: 0,08% das linhas',
-    ('vendas', 'crescevendas_valor'): 'idem',
-    # mig 289: flags de comportamento de tela sem uso medido no cliente
-    ('empresas', 'preen_ncm'): 'flag de tela sem uso medido',
-    ('empresas', 'sincroniza_preco_nf'): 'idem',
-    ('empresas', 'valor_perc_multa'): 'idem',
-    # mig 290, o que resta da varredura — cada um com o motivo medido
-    ('config_plano_contas', 'codconfig'): 'PK da origem; o destino usa `tipo` como chave (1 linha)',
-    ('situacao_nf_parceiros', 'codoperador'): 'autoria do vinculo; 146 linhas, sem uso em regra',
-    ('log_impressao_etiqueta', 'valor_impressao'): 'log operacional; o destino ja guarda valor_venda',
-    # Achado 18 (23/09/2026) — o que a triagem mostrou constante ou residual, medido na produção
-    ('vendas', 'icms_modalidade_bc'): 'constante 3 (valor da operação) em todas as vendas — campo do XML da NFC-e (PDV)',
-    ('nf', 'rateio_ipi'): "flag 'N' nas 49.713 notas",
-    ('nf', 'rateio_ipi_devolucao'): "flag 'N' em todas as notas com valor (54 nulas)",
-    ('nf', 'abater_icms_deson'): "'S' em 4 de 49.713 notas — resíduo",
-    ('nf_prod', 'destacicmssn'): "flag 'N' nos 484.830 itens com valor",
-    ('produtos', 'taraembalagem'): 'valor em 2 de 47.741 produtos — resíduo',
-    ('parceiros', 'hab_ret_pis_nf_sai'): "'N' nos 19.070 parceiros: a retenção de PIS na saída não é usada no cliente",
-    ('parceiros', 'hab_ret_cofins_nf_sai'): "'N' nos 19.070 parceiros: idem COFINS",
 }
 # ⏳ TRIAGEM PENDENTE, DECLARADA (esvaziada em 23/09/2026 — mig 308/309 e ORIGEM_DECLARADA) — o que o filtro de nomes estendido (revisão do pedido, 23/09/2026) passou a ver fora do
 # pedido: a escada de preço gravada em cada VENDA (16 milhões de linhas) e em cada item de NOTA, os tributos do item da
@@ -239,44 +197,17 @@ def main() -> int:
         for a, b in (('idempresa', 'codempresa'), ('codempresa', 'idempresa')):
             if a in ori and b in dst:
                 equiv.add(a)
-        candidatas = [x for x in sorted(ori - dst - renomeadas - calculadas_de - equiv)
-                      if CHAVE_OU_NUMERO.search(x) and not ORIGEM_NAO_VEM.search(x)
-                      and not NOSSAS.match(x) and (t, x) not in ORIGEM_DECLARADA]
+        # TODAS as colunas da origem sem par no destino — sem filtro de nome, de preenchimento nem de zeros (mig 310)
+        candidatas = [x for x in sorted(ori - dst - renomeadas - equiv) if (t, x) not in ORIGEM_DECLARADA]
         if not candidatas:
             continue
         est = EST.get(T, {})
         total = int(LINHAS.get(T, 0) or 0)
-        if not total:
-            continue   # sem estatística não dá para medir: melhor calar do que chutar
-        vivas = []
         for col in candidatas:
-            nulls, distintos = est.get(col, (None, None))
-            if nulls is None or not distintos:
-                continue   # coluna vazia na origem não é perda
-            preenchidas = max(0, total - int(nulls))
-            pct = (preenchidas / total) * 100
-            if preenchidas and pct >= 50:
-                vivas.append((col, preenchidas, pct))
-        if not vivas:
-            continue
-        # ⚠️ "preenchida" pela estatística é NÃO-NULA, e **zero conta como preenchida**. Sem este segundo
-        # passo, uma coluna numérica zerada em 100% das linhas aparece como perda de 100% — foi o que
-        # aconteceu com seis colunas de `nf_prod` (vrpis, markupl, vrcomissao…), todas zeradas.
-        # Uma consulta por TABELA (não por coluna) mede o que de fato tem valor: ~20 idas, não centenas.
-        numericas = [x for (x, _, _) in vivas if TIPOS.get(T, {}).get(x) in ('NUMBER', 'FLOAT')]
-        com_valor = {x for (x, _, _) in vivas}
-        if numericas:
-            sel = ", ".join(f"count(case when {x} <> 0 then 1 end)" for x in numericas)
-            try:
-                cu.execute(f"select {sel} from {T}")
-                for x, n in zip(numericas, cu.fetchone()):
-                    if not int(n or 0):
-                        com_valor.discard(x)   # numérica zerada em toda a tabela: não é perda
-            except Exception:
-                pass   # sem permissão ou tipo exótico: mantém pela estatística
-        for col, preenchidas, pct in vivas:
-            if col in com_valor:
-                (pendentes if (t, col) in TRIAGEM_PENDENTE else perdidas).append((t, col, preenchidas, total, pct))
+            nulls, _dist = est.get(col, (None, None))
+            preenchidas = max(0, total - int(nulls)) if (nulls is not None and total) else 0
+            pct = (preenchidas / total) * 100 if total else 0.0
+            (pendentes if (t, col) in TRIAGEM_PENDENTE else perdidas).append((t, col, preenchidas, total, pct))
     perdidas.sort(key=lambda x: -x[4])
 
     achados.sort(key=lambda x: (x[0] != 'ALTO', x[1], x[2]))
@@ -287,8 +218,7 @@ def main() -> int:
         print(f"  [{risco:5s}] {t}.{col:30s} default={dflt[:20]:22s} {nn}")
 
     print(f"\n[2] a ORIGEM tem e o destino NÃO — o dado some sem deixar buraco: {len(perdidas)}")
-    print("    (só chave/número preenchido em 50% ou mais das linhas E com valor ≠ 0 em alguma delas;")
-    print("     a estatística diz o que é não-nulo, e uma segunda passada por tabela descarta as zeradas)")
+    print("    (TODAS — \"tem que ter todos os campos\": nenhum filtro de nome, de preenchimento ou de zeros)")
     for t, col, n, tot, pct in perdidas:
         print(f"      {t}.{col:28s} {n:>10,} de {tot:>10,} linhas ({pct:5.1f}%)")
 

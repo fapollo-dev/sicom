@@ -50,6 +50,9 @@ export const parceiroAggregateConfig: AggregateConfig = {
       tabela: 'parceiros_end',
       pk: 'codend',
       fk: 'codparceiro',
+      chaveNatural: ['tipo_endereco'],
+      // "todos os campos" (mig 310): o que o cadastro não gerencia sobrevive ao save (lição 124)
+      preservarNaoGerenciadas: true,
       chave: 'enderecos',
       colunas: [
         'endereco', 'numero', 'complemento', 'bairro', 'cidade', 'idcidade', 'uf', 'cep',
@@ -59,8 +62,8 @@ export const parceiroAggregateConfig: AggregateConfig = {
     },
     // F2 — sub-recursos 1:N (engine grava todos na mesma transação; substitui no update)
     { tabela: 'parceiros_bancos', pk: 'codparceirobanco', fk: 'codparceiro', chave: 'bancos', colunas: ['codbco', 'agencia', 'nrconta'] },
-    { tabela: 'parceiros_pgto', pk: 'codparceiros_pgto', fk: 'codparceiro', chave: 'pgtos', colunas: ['idpgto', 'modalidade'] },
-    { tabela: 'parceiros_rel', pk: 'codrelacionamento', fk: 'codparceiro', chave: 'relacionamentos', colunas: ['nome', 'doc1', 'doc2', 'tiporel', 'telefone', 'celular', 'endereco'] },
+    { tabela: 'parceiros_pgto', pk: 'codparceiros_pgto', fk: 'codparceiro', chave: 'pgtos', chaveNatural: ['idpgto'], preservarNaoGerenciadas: true, colunas: ['idpgto', 'modalidade'] },
+    { tabela: 'parceiros_rel', pk: 'codrelacionamento', fk: 'codparceiro', chave: 'relacionamentos', chaveNatural: ['nome'], preservarNaoGerenciadas: true, colunas: ['nome', 'doc1', 'doc2', 'tiporel', 'telefone', 'celular', 'endereco'] },
     { tabela: 'parceiros_vendedores', pk: 'codparceirovendedor', fk: 'codparceiro', chave: 'vendedores', colunas: ['codvendedor'] },
   ],
   colunasPesquisa: ['codparceiro', 'razao', 'fantasia', 'cnpj_cpf', 'cidade', 'uf', 'tipofj', 'cli', 'frn', 'fun', 'tra', 'con'],

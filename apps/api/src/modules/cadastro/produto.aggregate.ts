@@ -228,6 +228,8 @@ export const produtoAggregateConfig: AggregateConfig = {
       pk: 'chaveaux',
       fk: 'idproduto',
       chave: 'codauxiliares',
+      chaveNatural: ['codauxiliar'],
+      preservarNaoGerenciadas: true,
       colunas: ['codauxiliar', 'codbarra', 'fatoremb', 'codunidade', 'operacao'],
     },
     // F2 — MULTI_PRECO: preço/custo POR EMPRESA, na MESMA form (detalhe 1:N do agregado).

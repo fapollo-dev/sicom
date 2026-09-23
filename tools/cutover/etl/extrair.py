@@ -59,6 +59,15 @@ RENOMEIA = {
  # o total de ICMS-ST externo do cabeçalho: lá é TOTALICM_STEXTERNO, aqui total_icmst_externo — sem o de-para
  # as 2.661 notas com valor (R$ 49.050,73; 353 em 2026) chegariam zeradas.
  'nf': {'totalicm_stexterno': 'total_icmst_externo'},
+ # ⚠️ O NOME QUE A CARGA NÃO CASAVA (varredura "todos os campos", 23/09/2026): o Apollo pôs sublinhado onde o legado não
+ # tem, e sem o de-para o dado chegava VAZIO. O pior é o da configuração: `CONFIGESPECIFICASPERMITIDAS` (842 de 842) é a
+ # lista de escopos em que cada configuração aceita valor por empresa/usuário — sem ela, depois da virada, só o valor
+ # GLOBAL valeria e toda configuração por loja ou por operador seria ignorada.
+ 'configuracoes': {'configespecificaspermitidas': 'config_especificas_permitidas'},
+ 'cotacao': {'dtiniciopreenchimento': 'dtinicio_preenchimento', 'dtfimpreenchimento': 'dtfim_preenchimento'},
+ 'inventario_livro': {'produtosativos': 'produtos_ativos', 'apenasestoque': 'apenas_estoque'},
+ # o legado grafa MOVIMENT (sem o O)
+ 'formas_pgto': {'lanc_moviment_individual': 'lanc_movimento_individual'},
  # ⚠️ A DATA DE FATURAMENTO DO PEDIDO (23/09/2026). No legado `DTFATURAMENTO` é a data DIGITADA (edtDtFaturamento,
  # a base do vencimento das parcelas — 1.541 de 1.541 pedidos de 2025-26 a têm). O Apollo a guardou em
  # `data_faturamento` (mig 067) e deu ao `dtfaturamento` outro sentido: o CARIMBO de "recebido" que trava o pedido.
@@ -105,7 +114,11 @@ RENOMEIA = {
  # (ver CALCULADAS).
  'nfe_evento': {'chave_acesso': 'chavenfe', 'descricao_evento': 'descricao'},
  # o legado chama a empresa de CODEMPRESA; aqui a coluna é idempresa nessas duas
- 'empresas': {'codempresa': 'idempresa', 'razaosocial': 'razao_social'},
+ 'empresas': {'codempresa': 'idempresa', 'razaosocial': 'razao_social',
+              # a SÉRIE da NF-e (23/09/2026): o Apollo lê `serie_nfe` (padrão '1'); o legado guarda em `SERIE` ('001'
+              # nas lojas que emitem). Sem o de-para a numeração própria recomeçaria do 1 numa "série 1" que para a
+              # SEFAZ é a mesma 001 — duplicidade de NF-e.
+              'serie': 'serie_nfe'},
  'parceiros': {'codempresa': 'idempresa'},
 }
 # colunas CONSTANTES que o destino exige e a origem não tem (§7b: sem `origem_legado='S'` o índice parcial de
@@ -512,7 +525,9 @@ for t in FASES[fase]:
     if not cols:
         manifesto[t] = {'pulada': 'nenhuma coluna casa'}; print(f"  ⛔ {t}: nenhuma coluna casa"); continue
     tr = {**tr_auto, **TRANSFORMA.get(t, {})}
-    sel = ", ".join((tr[c].format(c=c) + f" as {c}") if c in tr else c for c, _ in cols)
+    # coluna do legado com nome que o Oracle só aceita entre aspas (parceiros "2017"…"2022", mig 310)
+    _q = lambda c: c if _re.match(r'^[a-z_][a-z0-9_$#]*$', c) else f'"{c.upper()}"'
+    sel = ", ".join((tr[c].format(c=_q(c)) + f" as {_q(c)}") if c in tr else _q(c) for c, _ in cols)
     calc = CALCULADAS.get(t, {})
     if calc:
         sel += ", " + ", ".join(f"{expr} as {nome}" for nome, expr in calc.items())
@@ -521,7 +536,7 @@ for t in FASES[fase]:
     if chave:
         # ROW_NUMBER pela PK física (ROWID) — determinístico e sem depender de coluna de data
         ordem = ", ".join(chave)
-        cols_alias = ", ".join(c for c, _ in cols)
+        cols_alias = ", ".join(_q(c) for c, _ in cols)
         onde = FILTROS.get(t)  # o FILTRO também vale no caminho do dedup (era o bug que deixava codref nulo passar)
         cur.execute(f"select {cols_alias} from (select {sel}, row_number() over (partition by {ordem} order by rowid desc) rn from {T}"
                     + (f" where {onde}" if onde else "") + ") where rn = 1")
@@ -577,10 +592,15 @@ for t in FASES[fase]:
                   if hasattr(v, 'read'):
                       v = v.read()
                   if isinstance(v, bytes):
-                      try:
-                          v = v.decode('utf-8')
-                      except UnicodeDecodeError:
-                          v = v.hex()
+                      # BINÁRIO de verdade (BLOB/RAW — a biometria) vai no formato bytea do Postgres ('\\x' + hex): tentar
+                      # decodificar como UTF-8 corromperia o binário que por acaso decodifica
+                      if str(ori.get(oc, '')).upper() in ('BLOB', 'RAW', 'LONG RAW'):
+                          v = '\\x' + v.hex()
+                      else:
+                          try:
+                              v = v.decode('utf-8')
+                          except UnicodeDecodeError:
+                              v = v.hex()
                   if isinstance(v, decimal.Decimal):
                       somas[dc] = somas.get(dc, decimal.Decimal(0)) + v
                   elif isinstance(v, (datetime.datetime, datetime.date)):

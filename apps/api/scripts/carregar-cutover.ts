@@ -120,7 +120,8 @@ async function carregarFase(pool: Pool, fase: string, rel: Rel[]): Promise<void>
         const values = lote
           .map((l) => `(${l.map((v) => { params.push(v === '' ? null : v); return `$${params.length}`; }).join(',')})`)
           .join(',');
-        await cli.query(`INSERT INTO ${tabela} (${cols.join(',')}) VALUES ${values}`, params);
+        // nomes entre aspas: há coluna que começa com número no legado (parceiros "2017"…"2022", mig 310)
+        await cli.query(`INSERT INTO ${tabela} (${cols.map((c) => `"${c}"`).join(',')}) VALUES ${values}`, params);
         carregadas += lote.length;
       };
       // ⚠️ o cabeçalho tem de chegar ANTES do primeiro lote: sem isso `cols` fica vazio durante o stream, o
@@ -128,7 +129,9 @@ async function carregarFase(pool: Pool, fase: string, rel: Rel[]): Promise<void>
       // mostrou: 74 de 980.574 em balancoitens — exatamente o resto da divisão por 500).
       cols = await lerCsv(resolve(dir, `${tabela}.csv`), async (l) => {
         buffer.push(l);
-        if (buffer.length >= 500) await descarrega();
+        // o lote respeita o teto de 65.535 parâmetros do Postgres: com "todos os campos" (mig 310) a vendas passa de 240
+        // colunas, e 500 linhas × 240 estourariam o comando
+        if (buffer.length >= Math.max(1, Math.min(500, Math.floor(60000 / Math.max(1, cols.length))))) await descarrega();
       }, (c) => { cols = c; });
       await descarrega();
       await cli.query(`ALTER TABLE ${tabela} ENABLE TRIGGER ALL`);
