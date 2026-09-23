@@ -8942,6 +8942,19 @@ async function main() {
       check('LOG §77L.3: visualizador traz o log do registro (2 do parceiro, 4 das permissões do op 8) · sem acesso à tela 403 · sem chave 422',
         vis.status === 200 && visJ.linhas?.length === 2 && visJ.linhas[1].acao === 'Alterou' && visSem.status === 403 && visBad.status === 422 && visPerm.linhas?.length === 4,
         { status: vis.status, n: visJ.linhas?.length, sem: visSem.status, bad: visBad.status, perm: visPerm.linhas?.length });
+
+      // 77L.4) HISTARECEBER (mig 315 — a trigger REM_RECEBER do Oracle): mudar a data da venda grava "DATA DA VENDA
+      // ALTERADA" com o operador DO TÍTULO; mudar outra coisa não grava; excluir o título apaga o histórico.
+      const har = (await pgPf.query(`INSERT INTO areceber (codparceiro, codempresa, dtvenda, dtvenc, valor, quitada, codoperador)
+                                     VALUES (2, 1, '2026-09-01', '2026-10-01', 50, 'N', 5) RETURNING codrcb`)).rows[0].codrcb;
+      await pgPf.query(`UPDATE areceber SET valor = 51 WHERE codrcb = $1`, [har]);
+      await pgPf.query(`UPDATE areceber SET dtvenda = '2026-09-02' WHERE codrcb = $1`, [har]);
+      const harH = (await pgPf.query(`SELECT codoperador, historico FROM histareceber WHERE codrcb = $1`, [har])).rows as any[];
+      await pgPf.query(`DELETE FROM areceber WHERE codrcb = $1`, [har]);
+      const harDel = Number((await pgPf.query(`SELECT count(*)::int AS n FROM histareceber WHERE codrcb = $1`, [har])).rows[0].n);
+      check('HISTARECEBER §77L.4: data da venda alterada → 1 linha com o operador do título (5); valor alterado não grava; excluir o título apaga',
+        harH.length === 1 && Number(harH[0].codoperador) === 5 && harH[0].historico === 'DATA DA VENDA ALTERADA' && harDel === 0,
+        { hist: harH, aposExcluir: harDel });
     } finally {
       await pgPf.end();
     }
