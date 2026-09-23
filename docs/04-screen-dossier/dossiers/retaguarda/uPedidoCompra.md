@@ -451,4 +451,10 @@ total; com a senha administrativa da empresa, fecha; a tela pergunta a senha com
 copiado:** lá a senha errada dá `Break` no laço e o `FecharPedido(True)` roda do mesmo jeito. No cliente a meta é nula
 nas 5 empresas — pronta e desligada, como lá. Smoke §165.4. **1436/0.**
 
-**Fica:** cotação multi-loja (`COTACAO_PRODQTDE` → PCQ); relatório de pedidos por loja.
+**Cotação → pedido por loja.** O `GerarPedido` da cotação (uCadCotacao.pas:1663) cria uma linha de PEDIDO_COMPRA_QTDE por
+linha de COTACAO_PRODQTDE (:1848 — QTDTOTAL = × fator, TOTALCUSTO = × embalagem) e dá ao pedido as lojas da cotação
+(:1771; a cotação 1101 da loja 1 gerou o pedido 31837 com EMPRESAS='1'). O Apollo mandava tudo para uma loja; agora
+leva as lojas e as quantidades por loja (produto sem quantidade por loja: a do produto, como antes). A cotação é pouco
+usada no cliente — 1 em 2026, 3 em 2025 (uma para as lojas 1 e 2). Smoke §165.5. **1437/0.**
+
+**Fica:** relatório de pedidos por loja.

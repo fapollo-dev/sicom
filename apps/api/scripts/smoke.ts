@@ -17872,6 +17872,29 @@ async function main() {
           && mOk.status === 200,
           { mSem: [mSem.status, mSemJ.code, mSemJ.detalhe], mBad: [mBad.status, mBadJ.code], mOk: [mOk.status, mOkJ.code ?? mOkJ.fechamento] });
 
+        // §165.5 — a COTAÇÃO com quantidade por loja gera o pedido dividido (GerarPedido, uCadCotacao.pas:1848)
+        const CTM = 'compras/cotacao';
+        const ctM = (await (await fetch(`${base}/${CTM}`, { method: 'POST', headers: H, body: JSON.stringify({
+          descricao: 'COT MULTI-LOJA', produtos: [{ idproduto: 1, quantidade: 10, qtdes: [{ idempresa: 1, qtde: 4 }, { idempresa: 2, qtde: 6 }] }],
+          fornecedores: [{ codparceiro: 22 }] }) })).json().catch(() => ({}))) as any;
+        const ctMId = Number(ctM.codctc);
+        await fetch(`${base}/${CTM}/${ctMId}/lancar-precos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, itens: [{ idproduto: 1, valor: 3, fatorembalagem: 6 }] }) });
+        await fetch(`${base}/${CTM}/${ctMId}/apurar`, { method: 'POST', headers: H });
+        const gM = await fetch(`${base}/${CTM}/${ctMId}/gerar-pedido`, { method: 'POST', headers: H });
+        const gMJ = (await gM.json().catch(() => ({}))) as any;
+        const codM = Number((gMJ.pedidos ?? [])[0]);
+        const pedM = (await pgMl.query(`SELECT empresas FROM pedidocompra WHERE codpedcomp = $1`, [codM])).rows[0] as any;
+        const pcqM = ((await pgMl.query(`SELECT q.idempresa, q.qtde, q.qtdtotal, q.totalcusto, i.qtde AS item FROM pedido_compra_qtde q JOIN pedidocompra_i i ON i.codpedcompi = q.codpedcompi
+            WHERE i.codpedcomp = $1 ORDER BY q.idempresa`, [codM])).rows as any[]).map((r) => [Number(r.idempresa), Number(r.qtde), Number(r.qtdtotal), Number(r.totalcusto), Number(r.item)]);
+        check('PEDIDO MULTI-LOJA §165.5 [a cotação com quantidade por loja gera o pedido dividido]: o GerarPedido do legado cria uma linha de PEDIDO_COMPRA_QTDE por linha de COTACAO_PRODQTDE (QTDTOTAL = × fator, TOTALCUSTO = × embalagem) e o pedido leva as lojas da cotação. Cotação de 4 caixas para a loja 1 e 6 para a loja 2, a R$ 3 × 6 = R$ 18 a caixa: o pedido sai com EMPRESAS \'1, 2\', 4 caixas (24 un., R$ 72) na loja 1, 6 (36 un., R$ 108) na loja 2, e o item com 10. Antes o pedido ia inteiro para uma loja',
+          gM.status === 200 && pedM?.empresas === '1, 2'
+          && JSON.stringify(pcqM) === JSON.stringify([[1, 4, 24, 72, 10], [2, 6, 36, 108, 10]]),
+          { gM: [gM.status, gMJ], ctM: ctM.codctc ?? ctM, empresas: pedM?.empresas, pcqM });
+        if (codM) {
+          await pgMl.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [codM]);
+          await pgMl.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [codM]);
+        }
+
         await pgMl.query(`DELETE FROM nf WHERE codnf = $1`, [Number(nfB.codnf)]);
         for (const c of [codP, codB]) {
           await pgMl.query(`DELETE FROM pedidocompra_parcelas WHERE codpedcomp = $1`, [c]);

@@ -4,6 +4,7 @@ import type { CriarCotacaoDto, LancarPrecosCotacaoDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { AggregateEngineService } from '../../shared/crud/aggregate-engine.service';
 import { pedidoCompraAggregateConfig } from './pedido-compra.aggregate';
+import { formatarEmpresas } from './pedido-lojas';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 
@@ -338,7 +339,7 @@ export class CotacaoService {
    *  4) grava COTACAO.PEDIDOS (log). A cotação já está 'F' (claim).
    * Residual documentado: cada createAggregate é sua própria trx (como o recebimento) → falha parcial no meio do
    * loop deixa pedidos órfãos com a cotação 'F' sem PEDIDOS (re-run bloqueia em FECHADA — SEM duplicar); recuperar
-   * exige reabrir manual. Split multi-loja (COTACAO_PRODQTDE → PEDIDO_COMPRA_QTDE) ADIADO (alinha com o cross-docking).
+   * exige reabrir manual. mig 303: a quantidade por loja da cotação vira a do pedido (COTACAO_PRODQTDE → PEDIDO_COMPRA_QTDE).
    */
   async gerarPedido(codctc: number): Promise<{ codctc: number; pedidos: number[] }> {
     const emp = this.emp();
@@ -381,28 +382,46 @@ export class CotacaoService {
         .selectFrom('cotacao_forn_itens as fi')
         .innerJoin('cotacao_forn as f', 'f.codctcforn', 'fi.codctcforn')
         .innerJoin('cotacao_prod as p', 'p.codcpr', 'fi.codcpr')
-        .select(['f.codparceiro as codparceiro', 'p.idproduto as idproduto', 'p.quantidade as quantidade', 'fi.fatorembalagem as fatorembalagem', 'fi.valor as valor'])
+        .select(['f.codparceiro as codparceiro', 'p.codcpr as codcpr', 'p.idproduto as idproduto', 'p.quantidade as quantidade', 'fi.fatorembalagem as fatorembalagem', 'fi.valor as valor'])
         .where('f.codctc', '=', codctc)
         .where('fi.ganhador', '=', 'A')
         .orderBy('f.codparceiro')
-        .execute()) as Array<{ codparceiro: number; idproduto: number; quantidade: unknown; fatorembalagem: unknown; valor: unknown }>;
+        .execute()) as Array<{ codparceiro: number; codcpr: number; idproduto: number; quantidade: unknown; fatorembalagem: unknown; valor: unknown }>;
       if (!ganhos.length) {
         await rollback();
         throw new BusinessRuleError('COTACAO_SEM_VENCEDOR', { codctc }); // apure antes
       }
 
+      // a QUANTIDADE POR LOJA da cotação vira a quantidade por loja do pedido (GerarPedido, uCadCotacao.pas:1848: uma
+      // linha de PEDIDO_COMPRA_QTDE por linha de COTACAO_PRODQTDE, QTDTOTAL = × fator, TOTALCUSTO = × embalagem) e as
+      // lojas do pedido são as lojas da cotação (:1771 — na produção, a cotação 1101 da loja 1 gerou o pedido 31837
+      // com EMPRESAS='1'). Produto sem quantidade por loja: a quantidade do produto, na loja logada, como antes.
+      const qtdesRows = (await db.selectFrom('cotacao_prodqtde').select(['codcpr', 'idempresa', 'qtde'])
+        .where('codcpr', 'in', [...new Set(ganhos.map((g) => Number(g.codcpr)))])
+        .orderBy('idempresa').execute()) as Array<{ codcpr: number; idempresa: number; qtde: unknown }>;
+      const qtdesPorProd = new Map<number, Array<{ idempresa: number; qtde: number }>>();
+      for (const q of qtdesRows) {
+        const arr = qtdesPorProd.get(Number(q.codcpr)) ?? [];
+        arr.push({ idempresa: Number(q.idempresa), qtde: num(q.qtde) });
+        qtdesPorProd.set(Number(q.codcpr), arr);
+      }
+      const lojasCot = [...new Set(qtdesRows.map((q) => Number(q.idempresa)))];
+      const empresas = formatarEmpresas(lojasCot.length ? lojasCot : [emp]);
+
       // agrupa por fornecedor → 1 pedido cada (reusa o agregado; deriva vlrembalagem/qtdtotal/totalcusto).
-      const porForn = new Map<number, Array<{ idproduto: number; qtde: number; fatorembalagem: number; vrcusto: number }>>();
+      const porForn = new Map<number, Array<{ idproduto: number; qtde: number; fatorembalagem: number; vrcusto: number; lojas: Array<{ idempresa: number; qtde: number }> }>>();
       for (const g of ganhos) {
         const arr = porForn.get(Number(g.codparceiro)) ?? [];
-        arr.push({ idproduto: Number(g.idproduto), qtde: num(g.quantidade) > 0 ? num(g.quantidade) : 1, fatorembalagem: num(g.fatorembalagem) > 0 ? num(g.fatorembalagem) : 1, vrcusto: num(g.valor) });
+        const qtde = num(g.quantidade) > 0 ? num(g.quantidade) : 1;
+        const lojas = qtdesPorProd.get(Number(g.codcpr)) ?? [{ idempresa: lojasCot.length ? lojasCot[0] : emp, qtde }];
+        arr.push({ idproduto: Number(g.idproduto), qtde, fatorembalagem: num(g.fatorembalagem) > 0 ? num(g.fatorembalagem) : 1, vrcusto: num(g.valor), lojas });
         porForn.set(Number(g.codparceiro), arr);
       }
       // (3) gera — `_sistema:true` faz o agregado PULAR os gates interativos do btnGravar (o GerarPedido insere direto).
       const hoje = new Date().toISOString().slice(0, 10);
       const pedidos: number[] = [];
       for (const [codparceiro, itens] of porForn) {
-        const codpedcomp = await this.engine.createAggregate(pedidoCompraAggregateConfig, { codparceiro, data: hoje, itens, _sistema: true });
+        const codpedcomp = await this.engine.createAggregate(pedidoCompraAggregateConfig, { codparceiro, data: hoje, empresas, itens, _sistema: true });
         pedidos.push(Number(codpedcomp));
       }
       // (4) grava o log dos pedidos (a cotação já está 'F' pelo claim).
