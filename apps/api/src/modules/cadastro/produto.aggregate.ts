@@ -234,6 +234,27 @@ export const produtoAggregateConfig: AggregateConfig = {
       preservarNaoGerenciadas: true,
       colunas: ['codauxiliar', 'codbarra', 'fatoremb', 'codunidade', 'operacao'],
     },
+    // mig 314 — a aba "Fornecedores desassociados" (TbsFornecedoresDesassociados, UCadProduto.pas:679/1830): os
+    // fornecedores de quem o produto foi tirado; as importações de itens do pedido de compra o pulam para eles
+    {
+      tabela: 'produtos_forn_desassociados',
+      pk: 'pfd_id',
+      fk: 'idproduto',
+      chave: 'fornecedores_desassociados',
+      chaveNatural: ['codparceiro'],
+      preservarNaoGerenciadas: true,
+      colunas: ['codparceiro'],
+      // o fornecedor repetido é ignorado, como o Locate do BtnAdicionar (UCadProduto.pas:1852) faz
+      derivarItensTrx: async (itens) => {
+        const vistos = new Set<number>();
+        return itens.filter((it) => {
+          const c = Number(it.codparceiro);
+          if (vistos.has(c)) return false;
+          vistos.add(c);
+          return true;
+        });
+      },
+    },
     // F2 — MULTI_PRECO: preço/custo POR EMPRESA, na MESMA form (detalhe 1:N do agregado).
     // PK surrogate id_multi_preco; idempresa é coluna (1 linha por empresa). O cálculo
     // custo→venda é REUSADO de POST /precificacao/produto (não reescrito aqui).

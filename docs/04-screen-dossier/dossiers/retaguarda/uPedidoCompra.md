@@ -550,3 +550,18 @@ operacional da empresa (20%), lucro líquido, IR (15%) e CSLL (9%) sobre o lucro
 - R10 — processar não muda o status (a análise segue aberta até a liberação).
 
 Smoke §167.1-§167.4 + os testes da análise (§47as) ajustados ao modelo por loja. **1443/0.**
+
+## §23 — Produtos desassociados do fornecedor (mig 314, 23/09/2026)
+
+Aberto pela triagem das tabelas fora do plano (FILA, Achado 20, item 7). `PRODUTOS_FORN_DESASSOCIADOS` (304 linhas,
+mantida até 02/09/2026 pela trilha `AUDIT_PROD_DESASSOCIADOS`) é a lista dos produtos que o comprador tirou de um
+fornecedor. As importações de itens do pedido os pulam — `P.IDPRODUTO NOT IN (SELECT IDPRODUTO FROM
+PRODUTOS_FORN_DESASSOCIADOS WHERE CODPARCEIRO = :CODPARCEIRO)` em `GetSQLProdutos` (:8313, base de "comprados", da NF e
+da tabela do fornecedor) e na consulta dos associados (uPedidoCompra.dfm:4972). O Apollo importava sem o filtro.
+- **importação**: as duas origens (associados/comprados) pulam o produto desassociado do fornecedor do pedido;
+- **"Desassociar fornecedor do produto"** (`MniDesassociarFornecedorDoProdutoClick` :2297, no menu do item): grava o par
+  (fornecedor, produto); já desassociado → "Este produto já está desassociado do fornecedor." Não mexe no item;
+- **cadastro de produto**: a aba "Fornecedores desassociados" (UCadProduto.pas:679/1830) como detalhe do agregado —
+  fornecedor repetido é ignorado (o Locate do BtnAdicionar); um PUT que não traz a lista não a apaga (o pedido também
+  desassocia, por fora da tela);
+- `seq_pfd` (o `ID_PFD_ID` do legado) e um par por (fornecedor, produto) — a produção não tem repetição.

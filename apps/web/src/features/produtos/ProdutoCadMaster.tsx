@@ -212,6 +212,8 @@ export function ProdutoCadMaster() {
           <NutricionalSection form={form} editavel={editavel} />
           <LogisticaSection form={form} editavel={editavel} />
           <OutrosSection form={form} editavel={editavel} />
+          {/* mig 314 — Fornecedores desassociados (TbsFornecedoresDesassociados): as importações do pedido pulam o produto. */}
+          <FornecedoresDesassociadosSection form={form} editavel={editavel} fornecedorOptions={fornecedorOptions} />
           {/* Referência Fornecedor (CODREFERENCIA_FOR / DE-PARA) — visto por idproduto; só p/ produto gravado. */}
           <fieldset className="rounded-radius-md border border-border p-pad-md">
             <legend className="px-pad-xs text-fg-muted">Referência Fornecedor</legend>
@@ -220,6 +222,60 @@ export function ProdutoCadMaster() {
         </div>
       )}
     />
+  );
+}
+
+// ───────────────────────── Fornecedores desassociados ─────────────────────────
+
+/**
+ * A aba "Fornecedores desassociados" (UCadProduto.pas:679, BtnAdicionar/BtnExcluir :1830): os fornecedores de quem o
+ * produto foi tirado — a importação de itens do pedido de compra não o traz para eles. Fornecedor repetido é ignorado.
+ */
+function FornecedoresDesassociadosSection({
+  form,
+  editavel,
+  fornecedorOptions,
+}: {
+  form: UseFormReturn<CriarProdutoDto>;
+  editavel: boolean;
+  fornecedorOptions: Opcao[];
+}) {
+  const { fields, append, remove } = useFieldArray<CriarProdutoDto, 'fornecedores_desassociados', 'fieldId'>({
+    control: form.control,
+    name: 'fornecedores_desassociados',
+    keyName: 'fieldId',
+  });
+  const [escolhido, setEscolhido] = useState<string | undefined>(undefined);
+  const adicionar = () => {
+    const c = Number(escolhido);
+    if (!c) return;
+    if (!fields.some((f) => Number(f.codparceiro) === c)) append({ codparceiro: c });
+    setEscolhido(undefined);
+  };
+  return (
+    <fieldset disabled={!editavel} className="rounded-radius-base border border-border p-pad-md">
+      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Fornecedores desassociados</legend>
+      <div className="flex flex-col gap-gp-sm">
+        <div className="flex flex-wrap items-end gap-gp-sm">
+          <div className="min-w-64">
+            <SelectField label="Fornecedor" options={fornecedorOptions} value={escolhido} onChange={(v) => setEscolhido(v || undefined)} placeholder="Selecione…" />
+          </div>
+          <Button label="Desassociar fornecedor" variant="soft" onClick={adicionar} />
+        </div>
+        {fields.length === 0 ? (
+          <p className="text-body-sm text-fg-muted">Nenhum fornecedor desassociado.</p>
+        ) : (
+          <ul className="flex flex-col gap-gp-2xs">
+            {fields.map((f, i) => (
+              <li key={f.fieldId} className="flex items-center justify-between rounded-radius-base border border-border-subtle px-pad-sm py-pad-xs text-body-sm">
+                <span>{rotuloOpcao(fornecedorOptions, Number(f.codparceiro))}</span>
+                <Button label="Remover" variant="ghost" onClick={() => remove(i)} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </fieldset>
   );
 }
 

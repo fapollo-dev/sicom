@@ -139,6 +139,15 @@ export class PedidoCompraController {
     return this.svc.importarItens(id, body.origem);
   }
 
+  /** mig 314: "Desassociar fornecedor do produto" (uPedidoCompra.pas:2297) — as importações passam a pular o produto. */
+  @Post(':id/itens/:idproduto/desassociar')
+  @HttpCode(200)
+  // o menu do legado não tem permissão própria; é escrita no pedido, como a importação de itens → BTNGRAVAR
+  @RequerAcesso('FRMPEDIDOCOMPRA', 'BTNGRAVAR')
+  desassociarProduto(@Param('id', ParseIntPipe) id: number, @Param('idproduto', ParseIntPipe) idproduto: number) {
+    return this.svc.desassociarProduto(id, idproduto);
+  }
+
   /** RECEBIMENTO PARCIAL 1:N: gera a NF de entrada (rascunho) do SALDO do pedido (ou das `quantidades` explícitas).
    *  Chamável VÁRIAS vezes até o saldo zerar. Retorna { codnf, codpedcomp, statusQtd }. */
   @Post(':id/gerar-nf')

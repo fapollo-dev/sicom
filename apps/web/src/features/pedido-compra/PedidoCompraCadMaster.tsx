@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { gradeLayoutService } from '../../shared/grade/savedViewsService';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2, Unlink } from 'lucide-react';
 import { DataTable, Modal, type DataTableColumnDef } from '@apollosg/design-system';
 import {
   pedidoCompraSchema,
@@ -23,7 +23,7 @@ import { ImportarXmlModal } from './ImportarXmlModal';
 import { AnalisePedidoNfPanel } from './AnalisePedidoNfPanel';
 import {
   fecharPedido, reabrirPedido, gerarNfDoPedido, gerarParcelasPedido, obterPedido, obterImpressaoPedido,
-  atualizarPrecosPedido, duplicarPedido, gerarBonificadoPedido, liberarLimitePedido, importarItensPedido,
+  atualizarPrecosPedido, duplicarPedido, gerarBonificadoPedido, liberarLimitePedido, importarItensPedido, desassociarProdutoPedido,
 } from './pedidoCompraApi';
 import { imprimirPedido } from './imprimirPedido';
 import type { PedidoCompraParcelaDto } from '@apollo/shared';
@@ -569,10 +569,25 @@ function ItensSection({
               if (idx >= 0) remove(idx);
             },
           },
+          // mig 314: "Desassociar fornecedor do produto" (uPedidoCompra.pas:2297) — a importação passa a pular o produto
+          {
+            id: 'desassociar',
+            label: 'Desassociar fornecedor do produto',
+            icon: <Unlink className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            onClick: async (r: PedidoCompraItemDto & { fieldId: string }) => {
+              if (codpedcomp == null) return mensagem.erro('Grave o pedido antes de desassociar o produto.');
+              try {
+                await desassociarProdutoPedido(codpedcomp, Number(r.idproduto));
+                mensagem.sucesso('Produto desassociado com sucesso.');
+              } catch (e) {
+                mensagem.erro(e);
+              }
+            },
+          },
         ],
       },
     ],
-    [fields, remove, produtoOptions, lojasPedido.length],
+    [fields, remove, produtoOptions, lojasPedido.length, codpedcomp, mensagem],
   );
 
   return (

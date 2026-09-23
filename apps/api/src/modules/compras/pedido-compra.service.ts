@@ -736,6 +736,28 @@ export class PedidoCompraService {
   }
 
   /**
+   * DESASSOCIAR FORNECEDOR DO PRODUTO (`MniDesassociarFornecedorDoProdutoClick`, uPedidoCompra.pas:2297): o produto do
+   * item deixa de ser do fornecedor do pedido — as importações de itens passam a pulá-lo. Já desassociado → avisa
+   * ("Este produto já está desassociado do fornecedor."). Não mexe no item do pedido.
+   */
+  async desassociarProduto(codpedcomp: number, idproduto: number): Promise<{ codpedcomp: number; idproduto: number; codparceiro: number; pfd_id: number }> {
+    const emp = this.emp();
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const pc = await this.pedidoDaLoja(trx, codpedcomp, emp, ['codparceiro']);
+      const forn = Number((pc as any).codparceiro);
+      const noPedido = await trx.selectFrom('pedidocompra_i').select('idproduto')
+        .where('codpedcomp', '=', codpedcomp).where('idproduto', '=', idproduto).executeTakeFirst();
+      if (!noPedido) throw new BusinessRuleError('PEDIDO_ITEM_NAO_ENCONTRADO', { codpedcomp, idproduto });
+      const ja = (await trx.selectFrom('produtos_forn_desassociados').select('pfd_id')
+        .where('codparceiro', '=', forn).where('idproduto', '=', idproduto).executeTakeFirst()) as { pfd_id?: unknown } | undefined;
+      if (ja) throw new BusinessRuleError('PRODUTO_JA_DESASSOCIADO', { codparceiro: forn, idproduto });
+      const r = (await trx.insertInto('produtos_forn_desassociados').values({ codparceiro: forn, idproduto })
+        .returning('pfd_id').executeTakeFirstOrThrow()) as { pfd_id: unknown };
+      return { codpedcomp, idproduto, codparceiro: forn, pfd_id: Number(r.pfd_id) };
+    });
+  }
+
+  /**
    * corte-final — IMPORTAR ITENS EM MASSA (ImportaItens, uPedidoCompra.pas:8242-8529). Origem: produtos
    * ASSOCIADOS ao fornecedor (PRODUTOS.CODFOR) ou já COMPRADOS dele (histórico PEDIDOCOMPRA_I). Exclui:
    * já no pedido, produtos-FILHO (idproduto_pai) e inativos (produto/multi_preco ativo_compra). Custo =
@@ -763,11 +785,15 @@ export class PedidoCompraService {
 
       // candidatos (produtos ativos, não-filho) por origem. ATIVO/ATIVO_COMPRA vêm de PRODUTOS (M4: o legado
       // filtra COALESCE(P.ATIVO_COMPRA,'S')='S' na PRODUTOS — GetSQLProdutos:8313 —, não em MULTI_PRECO).
+      // mig 314: o produto que o comprador DESASSOCIOU deste fornecedor não volta pela importação — nas duas origens
+      // (`P.IDPRODUTO NOT IN (SELECT IDPRODUTO FROM PRODUTOS_FORN_DESASSOCIADOS WHERE CODPARCEIRO = :CODPARCEIRO)`,
+      // GetSQLProdutos uPedidoCompra.pas:8313 e a consulta dos associados, uPedidoCompra.dfm:4972)
       let q = trx
         .selectFrom('produtos as pr')
         .select(['pr.idproduto', 'pr.fatorcx', 'pr.ativo_compra'])
         .where('pr.idproduto_pai', 'is', null)
-        .where(sql`coalesce(pr.ativo,'S')`, '=', 'S');
+        .where(sql`coalesce(pr.ativo,'S')`, '=', 'S')
+        .where(sql<boolean>`NOT EXISTS (SELECT 1 FROM produtos_forn_desassociados d WHERE d.idproduto = pr.idproduto AND d.codparceiro = ${forn})`);
       if (origem === 'associados') {
         q = q.where('pr.codfor', '=', forn);
       } else {

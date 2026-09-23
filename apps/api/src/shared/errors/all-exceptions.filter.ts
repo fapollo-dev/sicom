@@ -504,6 +504,13 @@ const CODE_PT: Record<string, string> = {
   PROMOCAO_PRODUTO_INVALIDO: 'Produto inválido em um item da promoção.',
   PROMOCAO_PRODUTO_INATIVO: 'Um produto da promoção está inativo.',
   PROMOCAO_PRODUTO_SOBREPOSTO: 'Um produto já está em outra promoção no mesmo período.',
+  PROMOCAO_STATUS_INVALIDO: 'Mudança de status não permitida: a agenda ABERTA não muda à mão, e de EXECUTANDO ou FECHADA só volta para ABERTA.',
+  PROMOCAO_LOJA_INVALIDA: 'Empresa participante inexistente.',
+  PROMOCAO_FECHADA: 'A agenda está FECHADA: volte o status para ABERTA antes de aplicar os preços.',
+  LOG_PARAMETROS: 'Informe a tela e a chave para consultar o registro de log.',
+  LOG_PERIODO_INVALIDO: 'A data inicial do período é maior que a final.',
+  PRODUTO_JA_DESASSOCIADO: 'Este produto já está desassociado do fornecedor.',
+  PEDIDO_ITEM_NAO_ENCONTRADO: 'O produto não está no pedido.',
   PROMOCAO_PRODUTO_DUPLICADO: 'Produto repetido na mesma promoção.',
   // Liberação por supervisor (FRMLIBERACOES)
   LIBERACAO_CHAVE_INVALIDA: 'Chave de liberação inválida.',

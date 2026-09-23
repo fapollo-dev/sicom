@@ -42361,7 +42361,7 @@
      "tam": 10,
      "escala": 0,
      "nulo": false,
-     "default": null
+     "default": "nextval('seq_pfd'::regclass)"
     },
     "codparceiro": {
      "tipo": "numeric",
@@ -42386,6 +42386,10 @@
     {
      "nome": "produtos_forn_desassociados_pkey",
      "def": "CREATE UNIQUE INDEX produtos_forn_desassociados_pkey ON public.produtos_forn_desassociados USING btree (pfd_id)"
+    },
+    {
+     "nome": "ux_pfd_parceiro_produto",
+     "def": "CREATE UNIQUE INDEX ux_pfd_parceiro_produto ON public.produtos_forn_desassociados USING btree (codparceiro, idproduto)"
     }
    ]
   },

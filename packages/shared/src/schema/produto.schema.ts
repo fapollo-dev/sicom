@@ -322,6 +322,11 @@ const produtoBase = z.object({
   receitas: z.array(receitaItemSchema).optional().default([]),
   // Fator de conversão de unidades (tabFatorConversao) — 1 grid na mesma form; PARA derivado no servidor.
   fatoresConversao: z.array(fatorConversaoItemSchema).optional().default([]),
+  // mig 314 — aba "Fornecedores desassociados" (UCadProduto.pas:679). SEM default: quem não manda a lista não a apaga
+  // (o motor só regrava o detalhe que vem no dto) — o pedido de compra também desassocia, por fora desta tela.
+  fornecedores_desassociados: z
+    .array(z.object({ codparceiro: z.coerce.number({ message: 'Fornecedor inválido.' }).int().positive('Informe o fornecedor.') }))
+    .optional(),
 });
 
 /**

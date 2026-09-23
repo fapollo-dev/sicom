@@ -894,13 +894,22 @@ banco) — a data de criação não separa backup de tabela viva; o nome datado 
 | 4 | `SITUACAO_NF_PLC` (333) | centros de custo por situação: o CC do faturamento quando a NF não tem rateio (396 NFs em 2026), os CCs permitidos, o rateio pré-preenchido | adiado para "F5b" com a premissa de que nada se perdia — a configuração se perderia |
 | 5 | `PEDIDO_NF` (3.531) | NF emitida a partir do SCRAP: **199 de 244 scraps de 2026 viraram NF-e** (CFOP 5927/5949/5557) | o Apollo baixa o estoque direto no scrap. ⚠️ `uCadSCRAP.md` diz que desde 27/10/2025 a baixa é direta (`MOV_ESTOQUE='S'`) — **na produção MOV_ESTOQUE é nulo em todos os scraps de 2024-2026**; o Apollo somaria uma segunda baixa à da NF |
 | 6 | `TB_SPEED_AUX` (7.796, viva) | registros 0205 (produto mudou descrição/código) e 0175 (parceiro mudou) do SPED; 1.474 ainda não informados | o SPED do Apollo não tem 0205/0175 nem a captura da alteração |
-| 7 | `PRODUTOS_FORN_DESASSOCIADOS` (304) | produtos que o comprador desassociou do fornecedor — a importação de itens do pedido os pula (`uPedidoCompra.pas:8313`) | o filtro no `importarItens` |
+| 7 ✅ mig 314 (`uPedidoCompra.md` §23) | `PRODUTOS_FORN_DESASSOCIADOS` (304) | produtos que o comprador desassociou do fornecedor — a importação de itens do pedido os pula (`uPedidoCompra.pas:8313`) | o filtro no `importarItens` |
 | 8 | `NFE_REF_DEV_ENT_VINCULO` (589) | vínculo NF de devolução × NF de entrada no manifesto | o manifesto mostra como "não importada" a contrapartida da devolução |
 | 9 | `ARQUIVO_MANCARTAO`, `REDE`, `EMPRESA_REDE_ESTABELECIMENTO`, `CONTAGEM_CEDULAS`, `CX_PEDIDOS`, `HISTARECEBER`, `CONTAS_BANCARIAS_EMPRESAS`, `RECEITA_PROD_HIST`, `CONFIRMA_INV_ROT`, `DECOMPOSICAO_NF_QTDE`, `PC_BASECREDITO` | pais/catálogos de tabelas já carregadas (a `itens_mancartao` apontava para um cabeçalho que não vinha; `cartao.codrede` para um nome que não vinha), pagamentos do pedido de venda, trilha do AR por trigger… | as tabelas (✅ mig 311); o uso em tela, caso a caso |
 
-**Tela fora do escopo que guarda dado de tesouraria:** a finalização do fechamento de caixa (`FINALIZA_FECHAMENTO`
-386 mil + `DOC_FECHAMENTO` 2,1 mi, vivas; `FRMFECHAMENTOCAIXA` 64.854 acessos) saiu da fila em 19/08 pela regra "nada
-de PDV" — **interpretação minha**, não do usuário. Os dados entram (mig 311); a tela aguarda a decisão.
+**Tela que não estava em lugar nenhum: "Situação do documento" (`FRMCADSITUACAONF`, 656 acessos, usada até
+17/09/2026).** Fora da fila e do placar — o Apollo tinha uma API de consulta com 2 campos (descrição e tipo) e por isso
+ela contava como coberta. O legado tem ~20 campos e 4 detalhes (CFOPs permitidos `ISITUACAO_NF`, centros de custo
+`SITUACAO_NF_PLC`, parceiros `SITUACAO_NF_PARCEIROS`, integração contábil), e regras da NF, do pedido e do contábil leem
+esses campos — entre elas os **lançamentos de caixa da NF** (`GerarLancamentosDeCaixa`, udmNF.pas:9266: 1.011 em 2026,
+origem 'NF'; o Apollo não gera nenhum). Recon em andamento; os itens 3 e 4 desta tabela entram nela.
+
+**A finalização do fechamento de caixa volta para a fila (decisão do usuário, 23/09/2026: "corrija e siga").** Tinha
+saído em 19/08 pela regra "nada de PDV" — interpretação minha, não do usuário: é a tesouraria do RETAGUARDA
+consolidando o que os PDVs apuraram (`FINALIZA_FECHAMENTO` 386 mil + `DOC_FECHAMENTO` 2,1 mi, vivas;
+`FRMFECHAMENTOCAIXA` 64.854 acessos). Os dados entram (mig 311); a conversão está em andamento
+(`uFechamentoCaixa-finalizacao.md`).
 
 **Correções de vereditos antigos:** a FILA dizia que o inventário de tabelas vivas sem destino estava fechado — não
 estava (TB_SPEED_AUX, ICME_PROD_APURACAO, REF_MENSAGENS_NF, NFE_REF_DEV_ENT_VINCULO e SITUACAO_NF_PLC gravadas em

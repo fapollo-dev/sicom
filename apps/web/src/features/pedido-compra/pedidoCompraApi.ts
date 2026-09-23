@@ -126,6 +126,11 @@ export function liberarLimitePedido(id: number): Promise<{ codpedcomp: number; o
   return req(`/compras/pedidos/${id}/liberar-limite`, { method: 'POST' });
 }
 
+/** POST :id/itens/:idproduto/desassociar — mig 314: "Desassociar fornecedor do produto" (as importações passam a pulá-lo). */
+export function desassociarProdutoPedido(id: number, idproduto: number): Promise<{ codpedcomp: number; idproduto: number; codparceiro: number }> {
+  return req(`/compras/pedidos/${id}/itens/${idproduto}/desassociar`, { method: 'POST' });
+}
+
 /** POST :id/importar-itens — corte-final: importa itens em massa do fornecedor (associados / já comprados). */
 export function importarItensPedido(
   id: number,

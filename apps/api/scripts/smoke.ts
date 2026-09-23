@@ -7579,6 +7579,31 @@ async function main() {
       f57Imp1.status === 200 && Number(f57Imp1J.importados) >= 1 && !!f57It3 && Number(f57It3.vrcusto) === 18 && Number(f57It3.fatorembalagem) >= 1,
       { status: f57Imp1.status, f57Imp1J, f57It3 });
 
+    // 57.6b) mig 314 — DESASSOCIAR FORNECEDOR DO PRODUTO (uPedidoCompra.pas:2297): pelo item do pedido; de novo → 422;
+    // a importação dos associados passa a pular o produto (GetSQLProdutos:8313); a aba do produto mostra, preserva
+    // quando não vem no PUT e remove quando vem vazia.
+    await pgF57.query(`DELETE FROM produtos_forn_desassociados WHERE codparceiro=22`);
+    const f57Des = await fetch(`${base}/${PED}/${f57PImpId}/itens/3/desassociar`, { method: 'POST', headers: H });
+    const f57Des2 = await fetch(`${base}/${PED}/${f57PImpId}/itens/3/desassociar`, { method: 'POST', headers: H });
+    const f57Des2J = (await f57Des2.json().catch(() => ({}))) as any;
+    await pgF57.query(`UPDATE produtos SET codfor=22 WHERE idproduto=3`);
+    const f57PImp2 = await crPed({ codparceiro: 22, data: '2026-07-01', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 5 }] });
+    const f57PImp2Id = Number(((await f57PImp2.json().catch(() => ({}))) as any).codpedcomp);
+    const f57Imp2J = (await (await fetch(`${base}/${PED}/${f57PImp2Id}/importar-itens`, { method: 'POST', headers: H, body: JSON.stringify({ origem: 'associados' }) })).json().catch(() => ({}))) as any;
+    const f57Imp2Read = (await (await fetch(`${base}/${PED}/${f57PImp2Id}`, { headers: H })).json()) as any;
+    await pgF57.query(`UPDATE produtos SET codfor=2 WHERE idproduto=3`);
+    const f57Prod3 = (await (await fetch(`${base}/cadastro/produtos/3`, { headers: H })).json().catch(() => ({}))) as any;
+    const f57PutSem = await fetch(`${base}/cadastro/produtos/3`, { method: 'PUT', headers: H, body: JSON.stringify({ descricao: f57Prod3.descricao }) });
+    const f57AposSem = Number((await pgF57.query(`SELECT count(*)::int AS n FROM produtos_forn_desassociados WHERE idproduto=3 AND codparceiro=22`)).rows[0].n);
+    const f57PutVazio = await fetch(`${base}/cadastro/produtos/3`, { method: 'PUT', headers: H, body: JSON.stringify({ fornecedores_desassociados: [] }) });
+    const f57AposVazio = Number((await pgF57.query(`SELECT count(*)::int AS n FROM produtos_forn_desassociados WHERE idproduto=3`)).rows[0].n);
+    check('DESASSOCIADOS (mig 314): desassociar pelo pedido 200 · de novo 422 · importar associados pula o produto 3 · aba do produto mostra [22] · PUT sem a lista preserva · lista vazia remove',
+      f57Des.status === 200 && f57Des2.status === 422 && f57Des2J.code === 'PRODUTO_JA_DESASSOCIADO'
+      && !(f57Imp2Read.itens ?? []).some((i: any) => Number(i.idproduto) === 3) && Number(f57Imp2J.importados ?? 0) === 0
+      && (f57Prod3.fornecedores_desassociados ?? []).some((f: any) => Number(f.codparceiro) === 22)
+      && f57PutSem.status === 200 && f57AposSem === 1 && f57PutVazio.status === 200 && f57AposVazio === 0,
+      { des: f57Des.status, des2: [f57Des2.status, f57Des2J.code], imp2: f57Imp2J, aba: f57Prod3.fornecedores_desassociados, sem: [f57PutSem.status, f57AposSem], vazio: [f57PutVazio.status, f57AposVazio] });
+
     // 57.7) GATES do gravar: condição obrigatória (config) / prazo máx do fornecedor / pendências B.
     await pgF57.query(`UPDATE configuracoes SET valor='S' WHERE codigo='OBRIGA_INFORMAR_CONDICOES_PAGAMENTO'`);
     const f57GCond = await crPed({ codparceiro: 22, data: '2026-07-01', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 5 }] });
