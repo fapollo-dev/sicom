@@ -90,15 +90,21 @@ export class AnaliseMotorService {
     return { positivaValor: cfgNum(pos), negativaPerc: cfgNum(neg), qtdeKgPerc: cfgNum(kg) };
   }
 
-  /** produtos do PEDIDO da análise: custo médio ponderado + quantidade total, por produto. */
+  /**
+   * produtos do PEDIDO da análise: custo médio ponderado + quantidade total, por produto — com a quantidade DA LOJA
+   * da análise (`JOIN PEDIDO_COMPRA_QTDE Q … AND Q.IDEMPRESA = A.CODEMPRESA`, UAnalisePedidosNF.pas:642). Até a mig
+   * 303 lia `pedidocompra_i.qtdtotal`, a soma das lojas: a nota da loja 1 era comparada ao pedido das lojas 1 e 2.
+   */
   private async produtosPedido(db: AnyDB, apnId: number) {
     return (await db.selectFrom('analise_pedido_nf_pedido as ap')
+      .innerJoin('analise_pedido_nf as a', 'a.apn_id', 'ap.apn_id')
       .innerJoin('pedidocompra_i as i', 'i.codpedcomp', 'ap.codpedcomp')
+      .innerJoin('pedido_compra_qtde as q', (j: any) => j.onRef('q.codpedcompi', '=', 'i.codpedcompi').onRef('q.idempresa', '=', 'a.codempresa'))
       .innerJoin('produtos as pr', 'pr.idproduto', 'i.idproduto')
       .select([
         'i.idproduto', sql`pr.codbarra`.as('codbarra'), sql`pr.descricao`.as('descricao'), sql`pr.unidade`.as('unidade'),
-        sql`sum(round(coalesce(i.vrcusto,0) * coalesce(i.qtdtotal,0), 2)) / (case when sum(coalesce(i.qtdtotal,0)) > 0 then sum(coalesce(i.qtdtotal,0)) else 1 end)`.as('vrcusto'),
-        sql`sum(coalesce(i.qtdtotal,0))`.as('qtdtotal'),
+        sql`sum(round(coalesce(i.vrcusto,0) * coalesce(q.qtdtotal,0), 2)) / (case when sum(coalesce(q.qtdtotal,0)) > 0 then sum(coalesce(q.qtdtotal,0)) else 1 end)`.as('vrcusto'),
+        sql`sum(coalesce(q.qtdtotal,0))`.as('qtdtotal'),
       ])
       .where('ap.apn_id', '=', apnId)
       .groupBy(['i.idproduto', 'pr.codbarra', 'pr.descricao', 'pr.unidade'])
@@ -222,8 +228,13 @@ export class AnaliseMotorService {
         const dif = Number(d.apnd_valor_nf) - Number(d.apnd_valor_pc);
         return dif > 0 && dif > tol.positivaValor ? s + dif * Number(d.apnd_quantidade_nf) : s;
       }, 0);
+      // ⚠️ processar NÃO muda o status: no legado a análise fica ABERTA ('A') depois de processada
+      // (`ProcessarAnalise` só grava as listas; o form marca o processo "em andamento", UFrmAnalisePedidosNF.pas:743) e
+      // só a LIBERAÇÃO a finaliza ('F', `FinalizaAnalise`:929) e fecha o pedido (`FechaPedidoCompra`). 'E' é EXCLUÍDA
+      // (`saExcluida`, UAnalisePedidosNF.pas:14) — gravar 'E' em análise com divergência a tirava do relatório de
+      // análises, que filtra as excluídas; e 'F' sem divergência finalizava sem liberar, e o pedido nunca fechava.
       await trx.updateTable('analise_pedido_nf')
-        .set({ apn_status: divs.length || ineNf.length || inePc.length ? 'E' : 'F', apn_diferenca_valor: Math.round(difValor * 100) / 100 })
+        .set({ apn_diferenca_valor: Math.round(difValor * 100) / 100 })
         .where('apn_id', '=', apnId).execute();
 
       return {
@@ -231,7 +242,8 @@ export class AnaliseMotorService {
         produtos_pedido: ped.length, produtos_nf: nf.length,
         divergencias: divs.length, inexistentes_nf: ineNf.length, inexistentes_pc: inePc.length,
         diferenca_valor: Math.round(difValor * 100) / 100,
-        status: divs.length || ineNf.length || inePc.length ? 'E' : 'F',
+        // o que a conferência achou (a análise segue aberta até ser liberada)
+        situacao: divs.length || ineNf.length || inePc.length ? 'COM_DIVERGENCIA' : 'SEM_DIVERGENCIA',
         tolerancias: tol,
       };
     });
@@ -372,10 +384,14 @@ export class AnaliseMotorService {
         if (ids.length) {
           await trx.updateTable('pedidocompra')
             .set({ importado: 'S', fechado: 'S', pc_nronf_cruzamento: cruzamento })
-            .where('codpedcomp', 'in', ids).where('idempresa', '=', emp).execute();
-          await trx.updateTable('pedidocompra_i')
-            .set({ fechado: 'S', data_fechamento: sql`current_date`, codoperador_fechamento: op })
+            // por CODPEDCOMP (UAnalisePedidosNF.pas:337): no multi-loja a loja da análise não é, necessariamente, a dona
             .where('codpedcomp', 'in', ids).execute();
+          // o fechamento é da QUANTIDADE DA LOJA da análise (`UPDATE PEDIDO_COMPRA_QTDE … AND IDEMPRESA = A.CODEMPRESA`,
+          // UAnalisePedidosNF.pas:339) — é dela que o estado do pedido é derivado desde a mig 303; fechar o item não
+          // travava nada, e o pedido seguia editável depois da análise liberada
+          await sql`UPDATE pedido_compra_qtde SET fechado = 'S', data_fechamento = current_date, codoperador = ${op}
+                     WHERE idempresa = ${Number(cab.codempresa ?? emp)}
+                       AND codpedcompi IN (SELECT codpedcompi FROM pedidocompra_i WHERE codpedcomp = ANY(${ids}))`.execute(trx);
           pedidosFechados = ids.length;
         }
       }

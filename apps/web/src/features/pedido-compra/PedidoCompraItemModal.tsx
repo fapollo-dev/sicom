@@ -5,11 +5,10 @@ import { SelectField } from '../../shared/ui/SelectField';
 import { NumberField } from '../../shared/ui/NumberField';
 import { CurrencyField } from '../../shared/ui/CurrencyField';
 import { TextArea } from '../../shared/ui/TextArea';
-import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import type { Opcao } from '../../shared/cadmaster/useResourceOptions';
 import { useMensagem } from '../../shared/mensagem';
-import { precificarProduto } from '../produtos/precificacaoApi';
+import { herdarItemPedido, precificarItemPedido } from './pedidoCompraApi';
 
 /**
  * Modal de ADICIONAR/EDITAR um ITEM do pedido de compra (detalhe 1:N — PEDIDOCOMPRA_I). Espelha o
@@ -35,13 +34,15 @@ interface Props {
   /** as lojas do pedido: com mais de uma, a quantidade é digitada POR LOJA e a do item é a soma. */
   lojas?: LojaDoPedido[];
   produtoOptions: Opcao[];
-  /** idproduto → alíquota-código (para o motor de preço formar a venda a partir do custo). */
-  produtoAliquotas: Record<string, string>;
+  /** idproduto → alíquota-código (legado; o preço do item agora é calculado no servidor). */
+  produtoAliquotas?: Record<string, string>;
+  /** o fornecedor do pedido — o fator pode vir da referência dele (mig 307) */
+  codparceiro?: number | null;
   onFechar: () => void;
   onConfirmar: (item: PedidoCompraItemDto) => void;
 }
 
-export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, produtoAliquotas, onFechar, onConfirmar }: Props) {
+export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, codparceiro, onFechar, onConfirmar }: Props) {
   const mensagem = useMensagem();
   const [item, setItem] = useState<PedidoCompraItemDto>(inicial ?? ITEM_VAZIO);
   // mig 303: pedido de mais de uma loja → a quantidade é POR LOJA (PEDIDO_COMPRA_QTDE); loja fechada não se mexe
@@ -54,8 +55,9 @@ export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, pro
   });
   const somaLojas = Object.values(porLoja).reduce((a, b) => a + (Number(b) || 0), 0);
   const [erro, setErro] = useState<string | undefined>();
-  const [uf, setUf] = useState('SP'); // UF do cálculo (default; a UF real virá da EMPRESA — mesmo limite da tela de Produto)
   const [calculando, setCalculando] = useState(false);
+  // mig 307: de onde veio o custo e o fator herdados (para a tela dizer)
+  const [origem, setOrigem] = useState<{ custo: string; fator: string } | null>(null);
   const set = <K extends keyof PedidoCompraItemDto>(k: K, v: PedidoCompraItemDto[K]) =>
     setItem((i) => ({ ...i, [k]: v }));
 
@@ -64,36 +66,54 @@ export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, pro
   const vlrembalagem = (Number(item.fatorembalagem) || 0) * (Number(item.vrcusto) || 0);
   const totalcusto = (multiLoja ? somaLojas : Number(item.qtde) || 0) * vlrembalagem;
 
-  /** o comprador FORMA o preço: reusa o motor (POST /precificacao/produto) — custo + markup → venda/margem/PMZ. */
+  /**
+   * mig 307 — ao escolher o produto, o item HERDA do catálogo da loja (`CarregarItens`, uPedidoCompra.pas:7241): custo
+   * (de reposição, com `CUSTO_REP_PC`), fator (do pedido, senão o da caixa), venda, markup, a composição do custo e a
+   * escada de preço. Só no item NOVO — editar não troca a foto da compra.
+   */
+  const escolherProduto = async (v: string | undefined) => {
+    const idproduto = v ? Number(v) : (undefined as unknown as number);
+    set('idproduto', idproduto);
+    setOrigem(null);
+    if (!idproduto || inicial) return;
+    try {
+      const h = await herdarItemPedido(idproduto, codparceiro ?? null);
+      const { origem_custo, origem_fator, idproduto: _i, ...campos } = h as Record<string, unknown>;
+      setItem((i) => ({ ...i, ...(campos as Partial<PedidoCompraItemDto>), idproduto }));
+      setOrigem({
+        custo: origem_custo === 'reposicao' ? 'custo de reposição' : 'custo do produto',
+        fator: origem_fator === 'fator_pedido' ? 'fator de pedido do produto' : origem_fator === 'referencia_fornecedor' ? 'referência do fornecedor' : 'fator da caixa',
+      });
+      setErro(undefined);
+    } catch (e) {
+      mensagem.erro(e);
+    }
+  };
+
+  /** o PREÇO DO ITEM (o modal `uPrecificacaoProdutos` do legado), calculado no servidor com os parâmetros da loja. */
   const precificar = async () => {
     if (calculando) return;
     if (item.idproduto == null) return setErro('Selecione o produto antes de precificar.');
     if (!(Number(item.vrcusto) >= 0)) return setErro('Informe o custo antes de precificar.');
-    const aliquota = (produtoAliquotas[String(item.idproduto)] ?? '').trim();
-    if (!aliquota) return setErro('Produto sem alíquota fiscal cadastrada — não é possível precificar.');
     setCalculando(true);
     setErro(undefined);
     try {
-      const r = await precificarProduto({
-        custo: Number(item.vrcusto) || 0,
-        margem: Number(item.markup) || 0,
-        aliquota,
-        uf: uf.trim().toUpperCase(),
-        pis: 0,
-        cofins: 0,
-        regime: 'atual',
+      const r = await precificarItemPedido({
+        idproduto: Number(item.idproduto), vrcusto: Number(item.vrcusto) || 0,
+        markup: Number(item.markup) || 0, vrvenda: Number(item.vrvenda) || 0,
+        icme: item.icme != null ? Number(item.icme) : undefined,
+        icm_efetivo: item.icm_efetivo != null ? Number(item.icm_efetivo) : undefined,
+        fcp_saida: item.fcp_saida != null ? Number(item.fcp_saida) : undefined,
       });
-      setItem((i) => ({
-        ...i,
-        vrcustoliquido: r.custoLiquido,
-        vrvendasug: r.valorVenda, // SUGESTÃO do motor (DbtVendaSugestao)
-        // PRATICADO: default = sugestão, mas preserva um valor já digitado pelo comprador (≠ sugerido no legado).
-        vrvenda: Number(i.vrvenda) > 0 ? i.vrvenda : r.valorVenda,
-        margeml2: r.margemLiquida,
-        margeml2v: r.lucroLiquido,
-        pmz: r.pmz,
-      }));
-      mensagem.sucesso(`Venda sugerida R$ ${r.valorVenda.toFixed(2)} · PMZ R$ ${r.pmz.toFixed(2)} · margem líq. ${r.margemLiquida.toFixed(2)}%.`);
+      // PRATICADO: sem venda digitada, a sugerida — e a escada é refeita sobre ela
+      const venda = Number(item.vrvenda) > 0 ? Number(item.vrvenda) : r.vrvendasug;
+      const r2 = venda !== (Number(item.vrvenda) || 0)
+        ? await precificarItemPedido({ idproduto: Number(item.idproduto), vrcusto: Number(item.vrcusto) || 0, markup: Number(item.markup) || 0, vrvenda: venda,
+          icme: item.icme != null ? Number(item.icme) : undefined, icm_efetivo: item.icm_efetivo != null ? Number(item.icm_efetivo) : undefined,
+          fcp_saida: item.fcp_saida != null ? Number(item.fcp_saida) : undefined })
+        : r;
+      setItem((i) => ({ ...i, ...(r2 as unknown as Partial<PedidoCompraItemDto>), vrvenda: venda }));
+      mensagem.sucesso(`Venda sugerida R$ ${fmtBRL(r.vrvendasug)} · PMZ R$ ${fmtBRL(r2.pmz)} · margem final ${fmtBRL(r2.margeml2)}%.`);
     } catch (e) {
       mensagem.erro(e);
     } finally {
@@ -130,9 +150,14 @@ export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, pro
               label="&Produto"
               options={produtoOptions}
               value={item.idproduto != null ? String(item.idproduto) : undefined}
-              onChange={(v) => set('idproduto', v ? Number(v) : (undefined as unknown as number))}
+              onChange={(v) => void escolherProduto(v)}
               placeholder="Selecione o produto…"
             />
+            {origem && (
+              <small className="text-fg-muted">
+                Herdado da loja: {origem.custo}{item.vrcusto_anterior != null ? ` R$ ${fmtBRL(Number(item.vrcusto_anterior))}` : ''} · {origem.fator}.
+              </small>
+            )}
           </div>
           {multiLoja ? (
             <div className="sm:col-span-2 flex flex-col gap-gp-xs">
@@ -195,25 +220,51 @@ export function PedidoCompraItemModal({ inicial, lojas = [], produtoOptions, pro
           </div>
         </div>
 
-        {/* Precificação do item (o comprador FORMA o preço) — reuso do motor /precificacao/produto. */}
+        {/* COMPOSIÇÃO DO CUSTO (herdada do catálogo; o modal de preço do legado edita no item) */}
         <fieldset className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
-          <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Precificação (forma o preço de venda)</legend>
+          <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Composição do custo e impostos</legend>
           <div className="grid grid-cols-2 gap-form-gap sm:grid-cols-4">
-            <NumberField label="&Markup" value={item.markup as number | undefined} onChange={(v) => set('markup', v)} decimais={2} min={0} endAddon="%" />
+            <NumberField label="&IPI" value={item.ipi as number | undefined} onChange={(v) => set('ipi', v)} decimais={2} min={0} endAddon="%" />
+            <NumberField label="&Frete" value={item.frete as number | undefined} onChange={(v) => set('frete', v)} decimais={2} min={0} endAddon="%" />
+            <NumberField label="Se&guro" value={item.seguro as number | undefined} onChange={(v) => set('seguro', v)} decimais={2} min={0} endAddon="%" />
+            <CurrencyField label="Desp. &acessória" value={item.despacessorio as number | undefined} onChange={(v) => set('despacessorio', v)} />
+            <CurrencyField label="ICMS-&ST" value={item.icmst as number | undefined} onChange={(v) => set('icmst', v)} />
+            <NumberField label="ICMS &entrada" value={item.icme as number | undefined} onChange={(v) => set('icme', v)} decimais={2} min={0} endAddon="%" />
+            <NumberField label="ICMS e&fetivo" value={item.icm_efetivo as number | undefined} onChange={(v) => set('icm_efetivo', v)} decimais={2} min={0} endAddon="%" />
+            <NumberField label="FCP saída" value={item.fcp_saida as number | undefined} onChange={(v) => set('fcp_saida', v)} decimais={2} min={0} endAddon="%" />
+          </div>
+          {item.vrcustorep != null && (
+            <small className="mt-form-gap block text-fg-muted tabular-nums">
+              Custo de reposição da loja R$ {fmtBRL(Number(item.vrcustorep))} — já traz a composição; o custo líquido é o custo menos os créditos.
+            </small>
+          )}
+        </fieldset>
+
+        {/* PREÇO DO ITEM (o comprador forma o preço de venda) — o modal uPrecificacaoProdutos, calculado no servidor */}
+        <fieldset className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Preço de venda</legend>
+          <div className="grid grid-cols-2 gap-form-gap sm:grid-cols-4">
+            <NumberField label="&Markup" value={item.markup as number | undefined} onChange={(v) => set('markup', v)} decimais={2} endAddon="%" />
             <CurrencyField label="&Venda (praticada)" value={item.vrvenda as number | undefined} onChange={(v) => set('vrvenda', v)} />
-            <NumberField label="Margem &líq. (L2)" value={item.margeml2 as number | undefined} onChange={(v) => set('margeml2', v)} decimais={2} endAddon="%" />
-            <div className="w-24">
-              <Field label="&UF" value={uf} maxLength={2} onChange={(e) => setUf(e.target.value.toUpperCase().slice(0, 2))} />
-            </div>
           </div>
           <div className="mt-form-gap flex flex-wrap items-center gap-gp-sm">
-            <Button label="&Calcular venda" variant="soft" onClick={() => void precificar()} />
-            {(item.pmz != null || item.vrcustoliquido != null || item.vrvendasug != null) && (
-              <small className="text-fg-muted tabular-nums">
-                Custo líq. R$ {fmtBRL(Number(item.vrcustoliquido) || 0)} · Venda sugerida R$ {fmtBRL(Number(item.vrvendasug) || 0)} · PMZ R$ {fmtBRL(Number(item.pmz) || 0)}
-              </small>
-            )}
+            <Button label="&Calcular preço" variant="soft" disabled={calculando} onClick={() => void precificar()} />
           </div>
+          {item.vrcustoliquido != null && (
+            <div className="mt-form-gap grid grid-cols-2 gap-x-gp-md gap-y-gp-xs text-body-sm tabular-nums sm:grid-cols-4">
+              <span>Créditos: R$ {fmtBRL((Number(item.creditoicm) || 0) + (Number((item as Record<string, unknown>).creditopiscofins) || 0))}</span>
+              <span>Custo líq.: R$ {fmtBRL(Number(item.vrcustoliquido) || 0)}</span>
+              <span>PMZ: R$ {fmtBRL(Number(item.pmz) || 0)}</span>
+              <span>Sugerida: R$ {fmtBRL(Number(item.vrvendasug) || 0)}</span>
+              <span>Débitos: R$ {fmtBRL((Number(item.debitoicm) || 0) + (Number((item as Record<string, unknown>).debitopiscofins) || 0))}</span>
+              <span>Venda líq.: R$ {fmtBRL(Number(item.vendaliq) || 0)}</span>
+              <span>Lucro bruto: R$ {fmtBRL(Number(item.lucrobrutov) || 0)} ({fmtBRL(Number(item.lucrobrutop) || 0)}%)</span>
+              <span>Desp. oper.: R$ {fmtBRL(Number(item.despopv) || 0)}</span>
+              <span>Lucro líq.: R$ {fmtBRL(Number(item.lucroliqv) || 0)} ({fmtBRL(Number(item.lucroliqp) || 0)}%)</span>
+              <span>IR + CSLL: R$ {fmtBRL((Number(item.imprend) || 0) + (Number(item.contsocial) || 0))}</span>
+              <span className="font-semibold">Margem final: R$ {fmtBRL(Number(item.margeml2v) || 0)} ({fmtBRL(Number(item.margeml2) || 0)}%)</span>
+            </div>
+          )}
         </fieldset>
         <div className="flex items-center justify-end gap-gp-sm border-t border-border pt-pad-sm">
           <span className="text-body-sm text-fg-muted">Custo/emb. R$ {fmtBRL(vlrembalagem)} · Total do item (qtde × custo/emb.)</span>

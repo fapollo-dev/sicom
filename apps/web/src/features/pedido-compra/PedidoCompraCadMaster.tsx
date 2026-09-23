@@ -614,6 +614,7 @@ function ItensSection({
           lojas={lojasPedido}
           produtoOptions={produtoOptions}
           produtoAliquotas={produtoAliquotas}
+          codparceiro={(form.getValues() as { codparceiro?: number }).codparceiro ?? null}
           onFechar={() => setEditIdx(null)}
           onConfirmar={onConfirmar}
         />

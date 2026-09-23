@@ -1,11 +1,12 @@
 import { sql } from 'kysely';
-import { pedidoCompraSchema, atualizarPedidoCompraSchema } from '@apollo/shared';
+import { pedidoCompraSchema, atualizarPedidoCompraSchema, CAMPOS_HERDADOS_ITEM } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { derivarPisCofinsRentabPedido } from '../shared/piscofins-rentab';
 import { estadoFechamento, formatarEmpresas, lojaFechada, lojaRecebeu, lojasDoPedido, quantidadesPorLoja } from './pedido-lojas';
+import { configNaTrx, herdarDoCatalogo } from './pedido-heranca';
 
 /**
  * PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela do legado. Corte-1: NÚCLEO cadastro, agregado
@@ -105,11 +106,38 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
         'bonificacao',
         // mig 305: situação da NF do item (uPedidoCompra.pas:5183); sem ela, herda a do cabeçalho (:7349)
         'idsituacao_nf',
+        // mig 307: o que o item herda do catálogo e o modal de preço edita. ⚠️ o motor regrava os itens a cada
+        // salvamento — coluna fora desta lista é APAGADA no primeiro save (era o caso de vendaliq/vrcustob, que a
+        // carga já trazia)
+        ...CAMPOS_HERDADOS_ITEM,
       ],
       // Derivação server-authoritative (078, uPedidoCompra.pas:1971-1972): VLREMBALAGEM = FATOREMBALAGEM×VRCUSTO
       // (custo por caixa); QTDTOTAL = QTDE×FATOREMBALAGEM (unidades); TOTALCUSTO = QTDE×VLREMBALAGEM (total da linha).
       // QTDE default 1 (behavior-preserving: TOTALCUSTO≡VLREMBALAGEM). O cliente não é fonte da verdade dos derivados.
-      derivarItensTrx: async (itens, trx, emp, header, masterId) => {
+      derivarItensTrx: async (itensDto, trx, emp, header, masterId, snapshot) => {
+        // mig 307: a HERANÇA (CarregarItens, uPedidoCompra.pas:7241). Campo ausente no payload: o item que já existia
+        // guarda o que tinha (a foto da compra não muda porque o pedido foi salvo de novo — o motor regrava os itens);
+        // o produto novo herda do catálogo da loja. Presente, é o que o comprador negociou.
+        const anteriores = ((snapshot as { anteriores?: Map<number, Record<string, unknown>> } | undefined)?.anteriores) ?? new Map();
+        const herdaveis = [...CAMPOS_HERDADOS_ITEM, 'markup', 'vrvenda', 'margeml2', 'margeml2v'] as const;
+        let cfg: { custoRep: boolean; fatorRef: boolean } | null = null;
+        const codparceiro = header?.codparceiro != null ? Number(header.codparceiro)
+          : masterId != null ? Number(((await trx.selectFrom('pedidocompra').select('codparceiro').where('codpedcomp', '=', masterId).executeTakeFirst()) as any)?.codparceiro ?? 0) : 0;
+        const itens: Record<string, unknown>[] = [];
+        for (const it of itensDto) {
+          if (!herdaveis.some((c) => it[c] === undefined)) { itens.push(it); continue; }
+          let base: Record<string, unknown> | null = anteriores.get(Number(it.idproduto)) ?? null;
+          if (!base && emp != null) {
+            cfg ??= {
+              custoRep: (await configNaTrx(trx, 'CUSTO_REP_PC', { empresaId: emp })) === 'S',
+              fatorRef: (await configNaTrx(trx, 'USAR_FATOR_EMBALAGEM_REFERENCIA_FORNECEDOR', { empresaId: emp })) === 'S',
+            };
+            base = (await herdarDoCatalogo(trx, { emp, idproduto: Number(it.idproduto), codparceiro, custoRep: cfg.custoRep, fatorRefFornecedor: cfg.fatorRef })) as Record<string, unknown> | null;
+          }
+          const novo = { ...it };
+          if (base) for (const c of herdaveis) if (novo[c] === undefined && base[c] != null) novo[c] = base[c];
+          itens.push(novo);
+        }
         // Wave 5: PIS/COFINS de rentabilidade resolvido do catálogo (produto.idpiscofins) + regime da empresa.
         const rentab = await derivarPisCofinsRentabPedido(trx, emp, itens);
         const lojasPed = await lojasDoMaster(trx, header, masterId, emp);
@@ -137,9 +165,18 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
       },
       // ⚠️ o neto `pedido_compra_qtde` (a quantidade de cada loja) vai junto com o item no delete+insert do motor: o
       // FECHAMENTO de cada loja é lido antes e reaplicado às linhas novas — fechar é por loja (uPedidoCompra.pas:7780)
-      antesDeSubstituirTrx: async ({ trx, masterId }) => (await estadoFechamento(trx, masterId)).lojas.filter((l) => l.fechado),
+      antesDeSubstituirTrx: async ({ trx, masterId }) => {
+        // mig 307: a foto herdada de cada produto, antes do delete — é o que o item regravado mantém
+        const anteriores = new Map<number, Record<string, unknown>>();
+        for (const r of (await trx.selectFrom('pedidocompra_i')
+          .select(['idproduto', 'markup', 'vrvenda', 'margeml2', 'margeml2v', ...CAMPOS_HERDADOS_ITEM])
+          .where('codpedcomp', '=', masterId).orderBy('codpedcompi').execute()) as Array<Record<string, unknown>>) {
+          if (!anteriores.has(Number(r.idproduto))) anteriores.set(Number(r.idproduto), r);
+        }
+        return { fechadas: (await estadoFechamento(trx, masterId)).lojas.filter((l) => l.fechado), anteriores };
+      },
       aposInserirItensTrx: async ({ trx, itens, snapshot }) => {
-        const fechadas = new Map(((snapshot as Array<{ idempresa: number; data_fechamento: unknown; codoperador: number | null }>) ?? [])
+        const fechadas = new Map((((snapshot as { fechadas?: Array<{ idempresa: number; data_fechamento: unknown; codoperador: number | null }> } | undefined)?.fechadas) ?? [])
           .map((l) => [l.idempresa, l]));
         const linhas: Record<string, unknown>[] = [];
         for (const it of itens) {

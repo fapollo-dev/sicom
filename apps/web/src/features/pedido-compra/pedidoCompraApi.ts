@@ -77,6 +77,21 @@ export function obterImpressaoPedido(id: number, agrupado: boolean): Promise<Imp
   return req(`/compras/pedidos/${id}/impressao${agrupado ? '?agrupado=1' : ''}`);
 }
 
+/** GET compras/pedidos/heranca/:idproduto — o que o item novo herda do catálogo da loja (mig 307). */
+export function herdarItemPedido(idproduto: number, codparceiro?: number | null): Promise<Record<string, unknown>> {
+  return req(`/compras/pedidos/heranca/${idproduto}${codparceiro ? `?codparceiro=${codparceiro}` : ''}`);
+}
+
+export interface PrecoItemPedido {
+  creditoicm: number; creditopiscofins: number; vrcustoliquido: number; vrvendasug: number; pmz: number; icm_efetivo: number;
+  debitoicm: number; debitopiscofins: number; vendaliq: number; lucrobrutov: number; lucrobrutop: number; despopv: number;
+  lucroliqv: number; lucroliqp: number; imprend: number; contsocial: number; margeml2v: number; margeml2: number;
+}
+/** POST compras/pedidos/precificar-item — o preço do item (o modal uPrecificacaoProdutos), puro. */
+export function precificarItemPedido(b: { idproduto: number; vrcusto: number; markup?: number; vrvenda?: number; icme?: number; icm_efetivo?: number; fcp_saida?: number }): Promise<PrecoItemPedido> {
+  return req(`/compras/pedidos/precificar-item`, { method: 'POST', body: JSON.stringify(b) });
+}
+
 /** POST compras/pedidos/:id/reabrir — fechado→rascunho (destrava edição/exclusão). */
 export function reabrirPedido(id: number): Promise<{ codpedcomp: number; fechado: 'N' }> {
   return req(`/compras/pedidos/${id}/reabrir`, { method: 'POST' });

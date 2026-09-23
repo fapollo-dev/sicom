@@ -104,6 +104,8 @@ export interface DetalheConfig {
     emp: number | null,
     header?: Record<string, unknown>,
     masterId?: number,
+    /** o que `antesDeSubstituirTrx` devolveu (só no update) — o estado dos itens ANTES de serem apagados */
+    snapshot?: unknown,
   ) => Promise<Record<string, unknown>[]>;
   /**
    * NETOS do agregado (tabelas que apontam para o ITEM, não para o master — ex.: `pedido_compra_qtde`, a quantidade de

@@ -138,10 +138,72 @@ ORIGEM_DECLARADA = {
     ('situacao_nf_parceiros', 'codoperador'): 'autoria do vinculo; 146 linhas, sem uso em regra',
     ('log_impressao_etiqueta', 'valor_impressao'): 'log operacional; o destino ja guarda valor_venda',
 }
+# ⏳ TRIAGEM PENDENTE, DECLARADA — o que o filtro de nomes estendido (revisão do pedido, 23/09/2026) passou a ver fora do
+# pedido: a escada de preço gravada em cada VENDA (16 milhões de linhas) e em cada item de NOTA, os tributos do item da
+# devolução de compra, o PIS do produto, as retenções do parceiro. Nenhuma está no destino. Não derrubam o gate (são
+# trabalho de outras telas, com fila própria — FILA-CONVERSAO, Achado 18), mas saem no relatório toda vez: sair daqui é
+# ganhar coluna no destino ou uma linha em ORIGEM_DECLARADA com a prova.
+TRIAGEM_PENDENTE = {
+    ('nf', 'cofins_nfe'),
+    ('nf', 'pis_nfe'),
+    ('nf', 'rateio_ipi'),
+    ('parceiros', 'hab_ret_cofins_nf_sai'),
+    ('parceiros', 'hab_ret_pis_nf_sai'),
+    ('pedido_devolucao_compra_i', 'bcpiscofinse'),
+    ('pedido_devolucao_compra_i', 'bcpiscofinse_nota'),
+    ('pedido_devolucao_compra_i', 'frete'),
+    ('pedido_devolucao_compra_i', 'frete_nota'),
+    ('pedido_devolucao_compra_i', 'icms_bc'),
+    ('pedido_devolucao_compra_i', 'icms_bc_nota'),
+    ('pedido_devolucao_compra_i', 'icms_nota'),
+    ('pedido_devolucao_compra_i', 'icms_st_bc'),
+    ('pedido_devolucao_compra_i', 'icms_st_bc_nota'),
+    ('pedido_devolucao_compra_i', 'icms_st_nota'),
+    ('pedido_devolucao_compra_i', 'ipi'),
+    ('pedido_devolucao_compra_i', 'ipi_nota'),
+    ('nf_prod', 'contsocial'),
+    ('nf_prod', 'debitoicm'),
+    ('nf_prod', 'despopv'),
+    ('nf_prod', 'imprend'),
+    ('nf_prod', 'lucrobrutop'),
+    ('nf_prod', 'lucrobrutov'),
+    ('nf_prod', 'lucroliqp'),
+    ('nf_prod', 'lucroliqv'),
+    ('vendas', 'icms_modalidade_bc'),
+    ('vendas', 'icms_origem_mercadoria'),
+    ('vendas', 'icms_taxa_reducao_bc'),
+    ('pedido_devolucao_compra_i', 'icms_reducao_bc'),
+    ('pedido_devolucao_compra_i', 'icms_st_reducao_bc'),
+    ('pedido_devolucao_compra_i', 'outras_despesas'),
+    ('pedido_devolucao_compra_i', 'outras_despesas_nota'),
+    ('nf', 'rateio_ipi_devolucao'),
+    ('nf', 'abater_icms_deson'),
+    ('produtos', 'pis'),
+    ('nf_prod', 'ipi_devolucao'),
+    ('nf_prod', 'destacicmssn'),
+    ('vendas', 'pis'),
+    ('vendas', 'contsocial'),
+    ('vendas', 'creditoicm'),
+    ('vendas', 'creditopiscofins'),
+    ('vendas', 'debitoicm'),
+    ('vendas', 'despacessorio'),
+    ('vendas', 'despopv'),
+    ('vendas', 'frete'),
+    ('vendas', 'frete2'),
+    ('vendas', 'icmst'),
+    ('vendas', 'imprend'),
+    ('vendas', 'ipi'),
+    ('vendas', 'seguro'),
+    ('produtos', 'taraembalagem'),
+}
+
 # grandezas cuja ausência muda NÚMERO ou IDENTIDADE — é onde a perda é cara
 CHAVE_OU_NUMERO = re.compile(
     r'(^cod|^id|barras|codbarra|ncm|cest|cfop|^cst|'
-    r'qtde|quant|valor|total|custo|preco|^vr|_vr|perc|aliq|saldo|markup|margem|desconto)')
+    r'qtde|quant|valor|total|custo|preco|^vr|_vr|perc|aliq|saldo|markup|margem|desconto|'
+    # revisão do pedido (23/09/2026): o item perdia 21 colunas de imposto e de lucro que nenhum termo acima pegava —
+    # ICME, ICMST, IPI, FRETE, SEGURO, DESPACESSORIO, LUCROBRUTOV, IMPREND, CONTSOCIAL, PISCONFIS, DEBITOICM…
+    r'icm|ipi|frete|seguro|desp|lucro|imprend|contsocial|pis|cofins|debito|credito|vendaliq|pmz|embalagem)')
 
 
 def main() -> int:
@@ -200,6 +262,7 @@ def main() -> int:
 
     # ── SENTIDO 2: a origem tem e o destino não ─────────────────────────────────────────────────────
     perdidas = []
+    pendentes = []
     for t in alvo:
         if t not in schema:
             continue
@@ -256,7 +319,7 @@ def main() -> int:
                 pass   # sem permissão ou tipo exótico: mantém pela estatística
         for col, preenchidas, pct in vivas:
             if col in com_valor:
-                perdidas.append((t, col, preenchidas, total, pct))
+                (pendentes if (t, col) in TRIAGEM_PENDENTE else perdidas).append((t, col, preenchidas, total, pct))
     perdidas.sort(key=lambda x: -x[4])
 
     achados.sort(key=lambda x: (x[0] != 'ALTO', x[1], x[2]))
@@ -271,6 +334,12 @@ def main() -> int:
     print("     a estatística diz o que é não-nulo, e uma segunda passada por tabela descarta as zeradas)")
     for t, col, n, tot, pct in perdidas:
         print(f"      {t}.{col:28s} {n:>10,} de {tot:>10,} linhas ({pct:5.1f}%)")
+
+    if pendentes:
+        pendentes.sort(key=lambda x: -x[4])
+        print(f"\n[2b] TRIAGEM PENDENTE, declarada (FILA Achado 18) — não derruba, mas não some: {len(pendentes)}")
+        for t, col, n, tot, pct in pendentes:
+            print(f"      {t}.{col:28s} {n:>10,} de {tot:>10,} linhas ({pct:5.1f}%)")
 
     if altos or perdidas:
         if altos:

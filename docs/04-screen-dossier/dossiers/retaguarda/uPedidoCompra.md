@@ -482,3 +482,71 @@ API `GET compras/pedidos/:id/impressao[?agrupado=1]`; a tela monta o documento e
 Smoke §165.6. **1438/0.**
 
 **Fica:** o e-mail do pedido ao fornecedor (`SendEmail`, :4970 — SMTP da empresa); o relatório de pedidos (listagem).
+
+## 22. REVISÃO — os valores que o pedido HERDA (23/09/2026)
+
+Pedida pelo usuário ("tela muito extensa, com vários valores herdados"). Recon refeito do zero sobre o dado da
+produção (colunas × preenchimento em 2025-26) e o fonte (`CarregarItens` uPedidoCompra.pas:7241, a view
+`GET_PRODUTOS_PC`, o modal de preço do item `uPrecificacaoProdutos.pas`). **O item do Apollo não herdava nada.**
+
+**Como o legado monta o item** (`CarregarItens`, toda inclusão passa por ela — busca, importação, bonificação):
+a busca é a view `GET_PRODUTOS_PC` = `MULTI_PRECO` da LOJA LOGADA ⋈ `PRODUTOS` (UF da empresa), e o item copia:
+
+| valor | origem | produção |
+|---|---|---|
+| custo | tabela do fornecedor (`CUSTO_TABELA_FORNECEDOR`, :7284) → custo de REPOSIÇÃO (`CUSTO_REP_PC`) → custo | `CUSTO_TABELA_FORNECEDOR='N'`, **`CUSTO_REP_PC='S'`** |
+| fator | referência do fornecedor (`USAR_FATOR_EMBALAGEM_REFERENCIA_FORNECEDOR`) → **`PRODUTOS.FATOR_PEDIDOCOMPRA`** → `FATORCX` (a view) | ref. 'N'; 13.840 produtos com fator de pedido, 2.669 ≠ `FATORCX` |
+| custo anterior | o custo herdado, antes da negociação (`VRCUSTO_OLD`, :7319; `VRCUSTO_ANTERIOR` no binário novo) | = custo em 81% dos itens de 2026 |
+| venda, markup | `MULTI_PRECO` | |
+| composição do custo | `MULTI_PRECO`: IPI %, frete %, seguro %, despesa acessória R$, ICMS-ST R$, FCP | ST ≠ 0 em **17.341** itens (30%), IPI em 5.098 |
+| escada de preço | `MULTI_PRECO`: ICMS de entrada, crédito ICMS/PIS-COFINS, ICMS efetivo, débitos, venda líquida, lucro bruto/líquido, desp. operacional, IR, CSLL, margem L2 | 85-99% preenchidas |
+| PIS/COFINS da empresa | `EMPRESAS.PISCONFIS` | 9,3 |
+| situação da NF | a do cabeçalho (mig 305 ✅) | |
+
+**E o preço do item** (`uPrecificacaoProdutos`, `CalcValorCusto`:1254 + `MargemPrecificacao`:1097), sobre esses campos
+do item: crédito de ICMS = ICME% × custo (se ICMS efetivo > 0; SN = 0); crédito PIS/COFINS de entrada só no LR; com
+**`CUSTO_CHEIO_PC='S'` (o do cliente)** IPI, frete, seguro, despesa e ST COMPÕEM o custo (ST e IPI não, se o
+fornecedor for classificação 'C'); custo líquido = custo + composição − créditos; venda sugerida pelo markup
+(`TMargemPreco`; `TIPO_PRECIFICACAO` D/M usa o custo cheio); PMZ = custo líquido ÷ (100 − PIS/COFINS saída − ICMS −
+FCP − desp. operacional); escada: débitos, venda líquida (menos a composição no custo cheio), lucro bruto, desp.
+operacional da empresa (20%), lucro líquido, IR (15%) e CSLL (9%) sobre o lucro, margem final.
+
+**O que o Apollo fazia — os achados:**
+
+| # | achado | peso |
+|---|---|---|
+| R1 | o modal do item não herdava NADA: fator, custo, venda e markup digitados à mão | toda inclusão |
+| R2 | 21 colunas do item não existem no destino (composição, escada, custo de reposição, custo anterior, bruto da embalagem); a carga as perde — 57.696 itens de 2025-26 | carga |
+| R3 | `PRODUTOS.FATOR_PEDIDOCOMPRA` não existe no destino; importar itens usa `FATORCX` | 2.669 produtos |
+| R4 | "precificar" do item usava UF **'SP'** fixa (o cliente é MG), PIS/COFINS 0 e nenhuma composição — custo líquido, PMZ e margem errados nos 30% com ST | preço |
+| R5 | `vendaliq` e `vrcustob` estão na tabela mas fora da lista do agregado: o primeiro salvamento apaga os dois em todo item migrado; idem o `fechado` do item gravado pela análise | salvamento |
+| R6 | importar itens não herda venda, markup nem composição | importação |
+| R7 | auditoria da liberação do limite (`USULTALTERACAO/DTULTIMALTERACAO/SENHA_NOVO_LIMITE`, binário novo): 596 pedidos; o Apollo guarda só o operador | carga |
+| R8 | o conferidor de colunas não viu R2: filtra por NOME (ICME, ICMST, IPI, FRETE, LUCROBRUTOV… não batem) e mede a história toda (211 mil itens), não o uso atual | ferramenta |
+| R9 | a análise pedido×NF comparava a nota da loja com o pedido das DUAS lojas (`pedidocompra_i.qtdtotal`) e fechava o item, não a quantidade da loja — o pedido seguia editável depois da análise liberada (UAnalisePedidosNF.pas:339, :642) | análise |
+| R10 | processar a análise gravava 'E' (com divergência) ou 'F' (sem): no legado 'E' é **excluída** e só a liberação dá 'F' e fecha o pedido — o relatório de análises, que esconde as excluídas, sumia com toda análise divergente | análise |
+
+**Corrigido (mig 307):**
+- R1/R6 — `herdarDoCatalogo` reproduz o `CarregarItens`; `GET compras/pedidos/heranca/:idproduto` preenche o modal ao
+  escolher o produto (custo de reposição, fator do pedido, venda, markup, composição, escada, PIS/COFINS da empresa,
+  custo anterior); o servidor herda sozinho o que não vier no payload do item NOVO; o item que já existia guarda a foto
+  (o motor regrava os itens a cada save — o instantâneo agora também chega à derivação, gancho genérico); importar
+  itens e duplicar levam a foto inteira (`CarregarItensComArray`, `DuplicaPedido`:1656).
+- R2/R3/R7 — as 22 colunas no item, `produtos.fator_pedidocompra`, `empresas.pisconfis`, a auditoria do novo limite
+  (gravada também pela liberação do Apollo); a carga as traz pelo nome.
+- R4 — `POST compras/pedidos/precificar-item` com as regras que a produção PRATICA, medidas em 4.000 itens de
+  jun-set/2026: créditos de entrada; **custo líquido = custo − créditos, sem somar a composição (91%)** — o fonte de
+  2020 somaria IPI/frete/seguro/despesa/ST com `CUSTO_CHEIO_PC='S'`, mas o custo herdado já é o de reposição, que os
+  traz; **venda líquida = venda − débitos (99,8%)**; lucro bruto/líquido, IR, CSLL e margem final (98-99%); PMZ pela
+  fórmula (54%; nos outros 44% o valor gravado é igual ao custo de reposição — artefato que não se reproduz). A venda
+  SUGERIDA gravada bate com o motor do catálogo a 1 centavo em só 45% — é calculada num momento que o dado não guarda;
+  fica o motor que o Apollo já validou. O modal ganhou os campos da composição (IPI, frete, seguro, despesa, ST, ICMS de
+  entrada/efetivo, FCP), como o do legado, e a escada completa.
+- R5 — todas as colunas do item estão na lista do agregado (vendaliq e vrcustob deixam de sumir no primeiro save).
+- R8 — o conferidor passou a reconhecer nomes de imposto e lucro; o que ele revelou fora do pedido (51 colunas: a
+  escada na venda e no item da nota, tributos da devolução de compra, PIS do produto, retenções do parceiro) está
+  declarado como triagem pendente (FILA, Achado 18) — sai no relatório, não derruba o gate.
+- R9 — a análise lê a quantidade da loja dela e fecha as linhas dessa loja; o cabeçalho é marcado por CODPEDCOMP.
+- R10 — processar não muda o status (a análise segue aberta até a liberação).
+
+Smoke §167.1-§167.4 + os testes da análise (§47as) ajustados ao modelo por loja. **1443/0.**

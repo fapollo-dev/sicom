@@ -18,6 +18,16 @@ import { z } from 'zod';
 const opcional = <T extends z.ZodTypeAny>(s: T) =>
   z.preprocess((v) => (v === '' || v == null ? undefined : v), s.optional());
 
+/** mig 307 — os campos que o item do pedido HERDA do catálogo (MULTI_PRECO da loja) e guarda como foto da compra. */
+export const CAMPOS_HERDADOS_ITEM = [
+  'vrcustob', 'vlrembalagemb', 'vrcustorep', 'vrcusto_anterior', 'vrcustocsi', 'pisconfis',
+  'ipi', 'frete', 'seguro', 'despacessorio', 'icmst', 'fcp_saida',
+  // (crédito/débito de PIS/COFINS têm dono próprio: a derivação da rentabilidade, a mesma fórmula do modal do legado)
+  'icme', 'creditoicm', 'icm_efetivo', 'debitoicm', 'vendaliq',
+  'lucrobrutov', 'lucrobrutop', 'despopv', 'lucroliqv', 'lucroliqp', 'imprend', 'contsocial',
+] as const;
+export type CampoHerdadoItem = (typeof CAMPOS_HERDADOS_ITEM)[number];
+
 /** decimal tolerante: aceita número OU string numérica ('' / null → ausente). numeric do PG volta string. */
 const dec = (inner: z.ZodNumber = z.number()) =>
   z.preprocess((v) => {
@@ -89,6 +99,10 @@ export const pedidoCompraItemSchema = z.object({
   bonificacao: dec(z.number().nonnegative().max(100, 'Bonificação (%) inválida.')),
   // mig 303: a QUANTIDADE POR LOJA (PEDIDO_COMPRA_QTDE) — a do item é a soma. Sem ela, pedido de uma loja só.
   lojas: z.array(pedidoCompraItemLojaSchema).max(50).optional(),
+  // mig 307: o que o item HERDA do MULTI_PRECO da loja (CarregarItens, uPedidoCompra.pas:7241) e o modal de preço do
+  // item edita — a composição do custo (IPI/frete/seguro em %, despesa e ST em R$) e a escada de preço. Ausentes no
+  // payload, o servidor herda do catálogo; presentes, são o que o comprador negociou.
+  ...Object.fromEntries(CAMPOS_HERDADOS_ITEM.map((c) => [c, dec(z.number())])) as Record<CampoHerdadoItem, ReturnType<typeof dec>>,
 });
 export type PedidoCompraItemDto = z.infer<typeof pedidoCompraItemSchema>;
 

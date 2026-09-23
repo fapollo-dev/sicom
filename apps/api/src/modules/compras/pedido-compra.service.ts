@@ -5,6 +5,8 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { estadoFechamento, lojaFechada, lojaRecebeu, lojasDoPedido, novoHistorico } from './pedido-lojas';
 import { SenhaOperacaoService } from '../cadastro/senha-operacao.service';
+import { herdarDoCatalogo } from './pedido-heranca';
+import { CAMPOS_HERDADOS_ITEM } from '@apollo/shared';
 import { gravarHistorico, gravarHistoricoMarca } from '../../shared/crud/historico';
 import { ConfigService } from '../cadastro/config.service';
 import { LiberacaoService } from '../auth/liberacao.service';
@@ -405,7 +407,13 @@ export class PedidoCompraService {
       }
       await trx
         .updateTable('pedidocompra')
-        .set({ operador_ult_lib_valor_max: liberador, usultalteracao: op, dtultimalteracao: sql`now()` })
+        // + a AUDITORIA do binário novo (mig 307): quem, quando e se foi com senha (596 pedidos na produção, todos 'S' —
+        // lá a liberação sempre passa pela senha de um liberador; aqui o caminho sem senha é o grant LIBERAVALORMAX)
+        .set({
+          operador_ult_lib_valor_max: liberador, usultalteracao: op, dtultimalteracao: sql`now()`,
+          usultalteracao_novo_limite: liberador, dtultimalteracao_novo_limite: sql`now()`,
+          senha_novo_limite: override?.login && override?.senha ? 'S' : 'N',
+        })
         .where('codpedcomp', '=', codpedcomp)
         .execute();
       return { codpedcomp, operador: liberador };
@@ -600,7 +608,8 @@ export class PedidoCompraService {
 
       const itens = (await trx
         .selectFrom('pedidocompra_i')
-        .select(['codpedcompi', 'idproduto', 'qtde', 'fatorembalagem', 'vrcusto', 'desconto', 'descontop', 'obs', 'vrcustoliquido', 'markup', 'vrvenda', 'vrvendasug', 'margeml2', 'margeml2v', 'pmz', 'bonificacao'])
+        .select(['codpedcompi', 'idproduto', 'qtde', 'fatorembalagem', 'vrcusto', 'desconto', 'descontop', 'obs', 'vrcustoliquido', 'markup', 'vrvenda', 'vrvendasug', 'margeml2', 'margeml2v', 'pmz', 'bonificacao',
+          'idsituacao_nf', ...CAMPOS_HERDADOS_ITEM])
         .where('codpedcomp', '=', codpedcomp)
         .orderBy('codpedcompi')
         .execute()) as Array<Record<string, unknown>>;
@@ -680,6 +689,10 @@ export class PedidoCompraService {
               margeml2: (it.margeml2 as number | null) ?? null,
               margeml2v: (it.margeml2v as number | null) ?? null,
               pmz: (it.pmz as number | null) ?? null,
+              // mig 307: a foto herdada também é copiada (o INSERT do DuplicaPedido, udmPedidoCompra.pas:1656, leva a
+              // composição do custo e a escada de preço)
+              idsituacao_nf: (it.idsituacao_nf as number | null) ?? null,
+              ...Object.fromEntries(CAMPOS_HERDADOS_ITEM.map((c) => [c, (it[c] as number | null) ?? null])),
               bonificacao: (it.bonificacao as number | null) ?? null,
             };
         const novoItem = (await trx.insertInto('pedidocompra_i').values(item).returning('codpedcompi').executeTakeFirstOrThrow()) as { codpedcompi: number };
@@ -702,6 +715,24 @@ export class PedidoCompraService {
       );
       return { codpedcomp: novo, origem: codpedcomp, bonificacao: bonificar ? 'S' : 'N' };
     });
+  }
+
+  /**
+   * mig 307 — o que o item NOVO herda do catálogo da loja logada (`CarregarItens`, uPedidoCompra.pas:7241): custo
+   * (de reposição com `CUSTO_REP_PC`), fator (do pedido/`FATORCX`, ou da referência do fornecedor), venda, markup,
+   * a composição do custo e a escada de preço. É o que o modal preenche ao escolher o produto.
+   */
+  async heranca(idproduto: number, codparceiro?: number | null) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const h = await herdarDoCatalogo(db, {
+      emp, idproduto, codparceiro: codparceiro ?? null,
+      custoRep: (await this.config.resolver('CUSTO_REP_PC', { empresaId: emp })) === 'S',
+      fatorRefFornecedor: (await this.config.resolver('USAR_FATOR_EMBALAGEM_REFERENCIA_FORNECEDOR', { empresaId: emp })) === 'S',
+    });
+    // a busca do legado é `FROM MULTI_PRECO` da loja: produto sem preço nela nem aparece para ser escolhido
+    if (!h) throw new BusinessRuleError('PRODUTO_SEM_PRECO_NA_LOJA', { idproduto, idempresa: emp });
+    return h;
   }
 
   /**
@@ -759,43 +790,22 @@ export class PedidoCompraService {
 
       const useRep = (await this.config.resolver('CUSTO_REP_PC', { empresaId: emp })) === 'S';
       const useRefFator = (await this.config.resolver('USAR_FATOR_EMBALAGEM_REFERENCIA_FORNECEDOR', { empresaId: emp })) === 'S';
-
-      const ids = candidatos.map((c) => Number(c.idproduto));
-      const mps = new Map<number, { vrcusto: number; vrcustorep: number }>();
-      for (const r of (await trx
-        .selectFrom('multi_preco')
-        .select(['idproduto', 'vrcusto', 'vrcustorep'])
-        .where('idempresa', '=', emp)
-        .where('idproduto', 'in', ids)
-        .execute()) as any[]) {
-        mps.set(Number(r.idproduto), { vrcusto: num(r.vrcusto), vrcustorep: num(r.vrcustorep) });
-      }
-      const fatores = new Map<number, number>();
-      if (useRefFator) {
-        for (const r of (await trx
-          .selectFrom('codreferencia_for')
-          .select(['idproduto', ({ fn }: any) => fn.max('fator_embalagem').as('fator')] as any)
-          .where('codfor', '=', forn)
-          .where('idproduto', 'in', ids)
-          .groupBy('idproduto')
-          .execute()) as any[]) {
-          if (num(r.fator) > 0) fatores.set(Number(r.idproduto), num(r.fator));
-        }
-      }
-
       let importados = 0;
       let inativos = 0;
       for (const c of candidatos) {
         const idp = Number(c.idproduto);
-        const mp = mps.get(idp);
+        // mig 307: a MESMA herança da inclusão (CarregarItensComArray, uPedidoCompra.pas:7384 — o INSERT leva a
+        // composição do custo e a escada de preço, não só custo e fator); fator do pedido antes do FATORCX
+        const h = String(c.ativo_compra ?? 'S') === 'N' ? null
+          : await herdarDoCatalogo(trx, { emp, idproduto: idp, codparceiro: forn, custoRep: useRep, fatorRefFornecedor: useRefFator });
         // não-importáveis (contam em `inativos`): inativo p/ compra em PRODUTOS (M4) OU sem preço na empresa
         // (B1: o legado usa INNER JOIN com MULTI_PRECO → produto sem preço não é candidato; evita item custo-0).
-        if (String(c.ativo_compra ?? 'S') === 'N' || !mp) {
+        if (!h) {
           inativos++;
           continue;
         }
-        const custo = useRep ? (mp.vrcustorep || mp.vrcusto || 0) : (mp.vrcusto ?? 0);
-        const fator = (useRefFator && fatores.get(idp)) || (num(c.fatorcx) > 0 ? num(c.fatorcx) : 1);
+        const custo = h.vrcusto;
+        const fator = h.fatorembalagem;
         // 078 FLIP: QTDE=1 default (o comprador ajusta depois); TOTALCUSTO obrigatório (SUM ignora NULL → item some do total).
         const vlrembalagem = r4(fator * custo);
         // mig 303: pedido de uma loja só mantém a QTDE=1 de antes; no multi-loja o item entra ZERADO em cada loja —
@@ -804,7 +814,12 @@ export class PedidoCompraService {
         const qtdeItem = multi ? 0 : 1;
         const novoItem = (await trx
           .insertInto('pedidocompra_i')
-          .values({ codpedcomp, idproduto: idp, qtde: qtdeItem, fatorembalagem: fator, vrcusto: custo, vlrembalagem, qtdtotal: r4(qtdeItem * fator), totalcusto: Math.round((qtdeItem * vlrembalagem + Number.EPSILON) * 100) / 100 })
+          .values({
+            codpedcomp, idproduto: idp, qtde: qtdeItem, fatorembalagem: fator, vrcusto: custo, vlrembalagem, qtdtotal: r4(qtdeItem * fator),
+            totalcusto: Math.round((qtdeItem * vlrembalagem + Number.EPSILON) * 100) / 100,
+            ...Object.fromEntries(([...CAMPOS_HERDADOS_ITEM, 'markup', 'vrvenda', 'margeml2', 'margeml2v'] as const)
+              .filter((k) => (h as unknown as Record<string, unknown>)[k] !== undefined).map((k) => [k, (h as unknown as Record<string, unknown>)[k]])),
+          })
           .returning('codpedcompi')
           .executeTakeFirstOrThrow()) as { codpedcompi: number };
         await trx.insertInto('pedido_compra_qtde').values(lojasPed.map((loja, idx) => {

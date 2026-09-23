@@ -6477,6 +6477,9 @@ async function main() {
           ($1, 2,       8.00,  5, 1,  5,   8.00,  40.00),
           ($1, 990996,  5.00,100, 1,100,   5.00, 500.00),
           ($1, 990997,  3.00,  7, 1,  7,   3.00,  21.00)`, [pedMot.codpedcomp]);
+        // a quantidade mora POR LOJA (mig 303) — a análise lê a da loja dela, como o legado (UAnalisePedidosNF.pas:642)
+        await pgRv.query(`INSERT INTO pedido_compra_qtde (codpedcompi, idempresa, qtde, qtdtotal, totalcusto)
+          SELECT codpedcompi, 1, qtde, qtdtotal, totalcusto FROM pedidocompra_i WHERE codpedcomp = $1`, [pedMot.codpedcomp]);
         await pgRv.query(`INSERT INTO nfe_nao_cadastradas (codnfe_naocad, chavenfe, cnpj, razao, dtemissao, tipo, totalnf, idempresa, modelo, nronf)
           VALUES (990995,'35261200000000000000000000000000000000990995','11222333000144','FORN MOTOR','2026-12-06 10:00:00-03','E',700.00,1,55,'880995')`);
         // itens do XML: sem rateio (frete/seguro/outros/ST/IPI zerados) p/ o custo unitário ser o vrunitariotrib
@@ -6489,6 +6492,7 @@ async function main() {
         const anCriarJ = (await anCriar.json().catch(() => ({}))) as any;
         const anProc = await fetch(`${base}/${PO}/analise/processar`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anCriarJ.apn_id }) });
         const anProcJ = (await anProc.json().catch(() => ({}))) as any;
+        const anProcStatus = (await pgRv.query(`SELECT apn_status FROM analise_pedido_nf WHERE apn_id=$1`, [anCriarJ.apn_id])).rows[0] as any;
         // reprocessar tem de ser idempotente (o legado exclui antes de gravar)
         const anProc2 = (await (await fetch(`${base}/${PO}/analise/processar`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anCriarJ.apn_id }) })).json().catch(() => ({}))) as any;
         const divProd = (await pgRv.query(`SELECT idproduto, apnd_valor_nf, apnd_valor_pc, apnd_quantidade_nf, apnd_quantidade_pc FROM analise_pedido_nf_diverg WHERE apn_id=$1 ORDER BY idproduto`, [anCriarJ.apn_id])).rows as any[];
@@ -6497,11 +6501,13 @@ async function main() {
         // criar sem pedido / sem nota → 422 (as validações do form)
         const anSemPed = await fetch(`${base}/${PO}/analise/criar`, { method: 'POST', headers: H, body: JSON.stringify({ codpedcomps: [], refs_nf: [990995] }) });
         const anSemNota = await fetch(`${base}/${PO}/analise/criar`, { method: 'POST', headers: H, body: JSON.stringify({ codpedcomps: [pedMot.codpedcomp], refs_nf: [] }) });
-        check('PENDÊNCIAS corte-2b (MOTOR): criar+processar acha 2 divergências — produto 1 por VALOR (12,50 × 10,00, tolerância positiva ABSOLUTA) e produto 2 por QUANTIDADE (4 × 5, unidade não-KG sem tolerância) — o de KG que bate nos dois lados NÃO entra · 1 item só na NF (990998) e 1 só no pedido (990997) · status "E" e diferença de valor calculada · REPROCESSAR é idempotente (mesmos números, sem duplicar) · criar sem pedido → 400/422 e sem nota → 400/422',
+        check('PENDÊNCIAS corte-2b (MOTOR): criar+processar acha 2 divergências — produto 1 por VALOR (12,50 × 10,00, tolerância positiva ABSOLUTA) e produto 2 por QUANTIDADE (4 × 5, unidade não-KG sem tolerância) — o de KG que bate nos dois lados NÃO entra · 1 item só na NF (990998) e 1 só no pedido (990997) · a análise segue ABERTA (A — no legado E é EXCLUÍDA, e o relatório esconde as excluídas) e a diferença de valor calculada · REPROCESSAR é idempotente (mesmos números, sem duplicar) · criar sem pedido → 400/422 e sem nota → 400/422',
           anCriar.status === 200 && Number(anCriarJ.apn_id) > 0
           && anProc.status === 200 && Number(anProcJ.divergencias) === 2
           && Number(anProcJ.inexistentes_nf) === 1 && Number(anProcJ.inexistentes_pc) === 1
-          && anProcJ.status === 'E' && Number(anProcJ.produtos_pedido) === 4 && Number(anProcJ.produtos_nf) === 4
+          // processar não finaliza nem "exclui": a análise segue ABERTA até a liberação (no legado 'E' é excluída)
+          && anProcJ.situacao === 'COM_DIVERGENCIA' && anProcStatus?.apn_status === 'A'
+          && Number(anProcJ.produtos_pedido) === 4 && Number(anProcJ.produtos_nf) === 4
           && divProd.length === 2 && Number(divProd[0].idproduto) === 1 && Number(divProd[0].apnd_valor_nf) === 12.5
           && Number(divProd[1].idproduto) === 2 && Number(divProd[1].apnd_quantidade_nf) === 4 && Number(divProd[1].apnd_quantidade_pc) === 5
           && ineNfP.length === 1 && Number(ineNfP[0].idproduto) === 990998
@@ -6525,7 +6531,9 @@ async function main() {
         const libRepetir = await fetch(`${base}/${PO}/analise/liberar`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anCriarJ.apn_id, gerar_financeiro: true }) });
         const rcbGerado = (await pgRv.query(`SELECT r.codrcb, r.valor, r.codparceiro, r.obs FROM areceber r JOIN analise_pedido_nf_cr c ON c.codrcb=r.codrcb WHERE c.apn_id=$1`, [anCriarJ.apn_id])).rows[0] as any;
         const pedFechado = (await pgRv.query(`SELECT importado, fechado, pc_nronf_cruzamento FROM pedidocompra WHERE codpedcomp=$1`, [pedMot.codpedcomp])).rows[0] as any;
-        const itensFechados = (await pgRv.query(`SELECT count(*)::int n FROM pedidocompra_i WHERE codpedcomp=$1 AND fechado='S'`, [pedMot.codpedcomp])).rows[0] as any;
+        // o fechamento é da quantidade DA LOJA da análise (UAnalisePedidosNF.pas:339), de onde o estado do pedido deriva
+        const itensFechados = (await pgRv.query(`SELECT count(*)::int n FROM pedido_compra_qtde q JOIN pedidocompra_i i ON i.codpedcompi = q.codpedcompi
+          WHERE i.codpedcomp=$1 AND q.idempresa = 1 AND q.fechado='S' AND q.data_fechamento IS NOT NULL AND q.codoperador IS NOT NULL`, [pedMot.codpedcomp])).rows[0] as any;
         const anFinal = (await pgRv.query(`SELECT apn_status, apn_status_finalizacao, codoperador_finalizado FROM analise_pedido_nf WHERE apn_id=$1`, [anCriarJ.apn_id])).rows[0] as any;
         check('PENDÊNCIAS corte-2c (LIBERAR): sem gerar o financeiro → 422 (o legado exige com divergência) · liberando: título a receber da diferença criado contra o FORNECEDOR do pedido e vinculado em analise_pedido_nf_cr · análise vira F/F com o operador que finalizou · pedido fica IMPORTADO+FECHADO com o nº da NF no cruzamento e os itens fechados · liberar de novo → 422',
           libSemFin.status === 422 && libRes.status === 200 && libJ.status === 'F'
@@ -17948,6 +17956,102 @@ async function main() {
           await pgMl.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [codR]);
           await pgMl.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [codR]);
         }
+
+        // ══ §167 — a REVISÃO dos valores herdados (mig 307, dossiê §22) ══
+        const mpAntes = (await pgMl.query(`SELECT * FROM multi_preco WHERE idproduto = 2 AND idempresa = 1`)).rows[0] as any;
+        const prAntes = (await pgMl.query(`SELECT fatorcx, fator_pedidocompra FROM produtos WHERE idproduto = 2`)).rows[0] as any;
+        const cfgRep = (await pgMl.query(`SELECT valor FROM configuracoes WHERE codigo = 'CUSTO_REP_PC'`)).rows[0] as any;
+        await pgMl.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, markup, vrvenda, promocao, ativo, ativo_compra)
+          VALUES (2, 1, 10, 40, 20, 'N', 'S', 'S') ON CONFLICT (idproduto, idempresa) DO NOTHING`);
+        await pgMl.query(`UPDATE multi_preco SET vrcusto = 10, vrcustorep = 11.5, vrvenda = 20, markup = 40, ipi = 5, icmst = 1.2, frete = 2,
+            seguro = 0, despacessorio = 0.3, lucrobrutov = 3, imprend = 0.4, icme = 18 WHERE idproduto = 2 AND idempresa = 1`);
+        await pgMl.query(`UPDATE produtos SET fatorcx = 1, fator_pedidocompra = 12 WHERE idproduto = 2`);
+        await pgMl.query(`UPDATE empresas SET pisconfis = 9.3 WHERE idempresa = 1`);
+        await pgMl.query(`UPDATE configuracoes SET valor = 'S' WHERE codigo = 'CUSTO_REP_PC'`);
+        const her = (await (await fetch(`${base}/${PED}/heranca/2?codparceiro=22`, { headers: H })).json().catch(() => ({}))) as any;
+        const cH = await fetch(`${base}/${PED}`, { method: 'POST', headers: H, body: JSON.stringify({
+          codparceiro: 22, data: '2037-06-01', itens: [{ idproduto: 2, fatorembalagem: 12, vrcusto: 11, lojas: [{ idempresa: 1, qtde: 2 }] }] }) });
+        const codH = Number(((await cH.json().catch(() => ({}))) as any).codpedcomp);
+        const itemH = async () => (await pgMl.query(`SELECT vrcusto, vrcusto_anterior, vrvenda, markup, ipi, icmst, frete, despacessorio, lucrobrutov, imprend, pisconfis, icme, vendaliq
+            FROM pedidocompra_i WHERE codpedcomp = $1`, [codH])).rows[0] as any;
+        const iH1 = await itemH();
+        // o catálogo muda; o pedido é salvo de novo SEM os campos (cliente antigo) → a foto da compra fica
+        await pgMl.query(`UPDATE multi_preco SET ipi = 7, icmst = 9 WHERE idproduto = 2 AND idempresa = 1`);
+        await fetch(`${base}/${PED}/${codH}`, { method: 'PUT', headers: H, body: JSON.stringify({ itens: [{ idproduto: 2, fatorembalagem: 12, vrcusto: 11, lojas: [{ idempresa: 1, qtde: 2 }] }] }) });
+        const iH2 = await itemH();
+        // e o que o comprador negociou é o que fica
+        await fetch(`${base}/${PED}/${codH}`, { method: 'PUT', headers: H, body: JSON.stringify({ itens: [{ idproduto: 2, fatorembalagem: 12, vrcusto: 11, ipi: 6, lojas: [{ idempresa: 1, qtde: 2 }] }] }) });
+        const iH3 = await itemH();
+        const semPreco = await fetch(`${base}/${PED}/heranca/990998`, { headers: H });
+        const semPrecoJ = (await semPreco.json().catch(() => ({}))) as any;
+        check('REVISÃO §167.1 [o item HERDA do catálogo da loja, como o CarregarItens]: com CUSTO_REP_PC=\'S\' (o do cliente) o custo herdado é o de REPOSIÇÃO (11,50, não 10); o fator é o FATOR_PEDIDOCOMPRA (12), que a view de busca usa antes do FATORCX (1); a embalagem sai 138; o custo anterior guarda o herdado; vêm também venda, markup, a composição do custo (IPI 5%, ST R$ 1,20, frete 2%, despesa R$ 0,30), a escada (lucro bruto, IR, ICMS de entrada) e o PIS/COFINS da empresa (9,3). Produto sem preço na loja não tem herança (422)',
+          her.vrcusto === 11.5 && her.fatorembalagem === 12 && her.vlrembalagem === 138 && her.vrcusto_anterior === 11.5
+          && her.origem_custo === 'reposicao' && her.origem_fator === 'fator_pedido'
+          && her.ipi === 5 && her.icmst === 1.2 && her.frete === 2 && her.despacessorio === 0.3 && her.vrvenda === 20 && her.markup === 40
+          && her.lucrobrutov === 3 && her.imprend === 0.4 && her.icme === 18 && her.pisconfis === 9.3
+          && semPreco.status === 422 && semPrecoJ.code === 'PRODUTO_SEM_PRECO_NA_LOJA',
+          { her, semPreco: [semPreco.status, semPrecoJ.code] });
+        check('REVISÃO §167.2 [o servidor aplica a herança, e a foto da compra não muda no re-salvamento]: o item gravado sem os campos herda do catálogo — custo negociado 11 com o anterior 11,50, IPI 5, ST 1,20, lucro bruto 3, PIS/COFINS 9,3. O catálogo muda (IPI 7, ST 9) e o pedido é salvo de novo sem os campos: o item guarda IPI 5 e ST 1,20 (o motor regrava os itens a cada save — sem o instantâneo, a foto viraria o preço de hoje). E o IPI negociado (6) é o que fica',
+          cH.status === 201 && Number(iH1?.vrcusto) === 11 && Number(iH1?.vrcusto_anterior) === 11.5
+          && Number(iH1?.ipi) === 5 && Number(iH1?.icmst) === 1.2 && Number(iH1?.lucrobrutov) === 3 && Number(iH1?.pisconfis) === 9.3
+          && Number(iH1?.vrvenda) === 20 && Number(iH1?.markup) === 40
+          && Number(iH2?.ipi) === 5 && Number(iH2?.icmst) === 1.2
+          && Number(iH3?.ipi) === 6 && Number(iH3?.icmst) === 1.2,
+          { cH: cH.status, iH1, iH2, iH3 });
+        await pgMl.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [codH]);
+        await pgMl.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [codH]);
+        if (mpAntes) {
+          await pgMl.query(`UPDATE multi_preco SET vrcusto = $1, vrcustorep = $2, vrvenda = $3, markup = $4, ipi = $5, icmst = $6, frete = $7, seguro = $8,
+              despacessorio = $9, lucrobrutov = $10, imprend = $11, icme = $12 WHERE idproduto = 2 AND idempresa = 1`,
+            [mpAntes.vrcusto, mpAntes.vrcustorep, mpAntes.vrvenda, mpAntes.markup, mpAntes.ipi, mpAntes.icmst, mpAntes.frete, mpAntes.seguro, mpAntes.despacessorio, mpAntes.lucrobrutov, mpAntes.imprend, mpAntes.icme]);
+        } else await pgMl.query(`DELETE FROM multi_preco WHERE idproduto = 2 AND idempresa = 1`);
+        await pgMl.query(`UPDATE produtos SET fatorcx = $1, fator_pedidocompra = $2 WHERE idproduto = 2`, [prAntes?.fatorcx ?? 1, prAntes?.fator_pedidocompra ?? null]);
+        await pgMl.query(`UPDATE configuracoes SET valor = $1 WHERE codigo = 'CUSTO_REP_PC'`, [cfgRep?.valor ?? 'N']);
+
+        // §167.4 — o PREÇO DO ITEM com as regras que a produção pratica (uPrecificacaoProdutos; medidas em 4.000 itens)
+        const empAntes = (await pgMl.query(`SELECT classfiscal, despoperacional, imprenda, contsocial FROM empresas WHERE idempresa = 1`)).rows[0] as any;
+        const prPc = (await pgMl.query(`SELECT idpiscofins FROM produtos WHERE idproduto = 2`)).rows[0] as any;
+        await pgMl.query(`INSERT INTO piscofins (idpiscofins, aliq_pis_ent, aliq_cofins_ent, aliq_pis_sai, aliq_cofins_sai)
+          VALUES (99167, 1.65, 7.6, 1.65, 7.6) ON CONFLICT (idpiscofins) DO UPDATE SET aliq_pis_ent = 1.65, aliq_cofins_ent = 7.6, aliq_pis_sai = 1.65, aliq_cofins_sai = 7.6`);
+        await pgMl.query(`UPDATE produtos SET idpiscofins = 99167 WHERE idproduto = 2`);
+        await pgMl.query(`UPDATE empresas SET classfiscal = 'LR', despoperacional = 20, imprenda = 15, contsocial = 9 WHERE idempresa = 1`);
+        const pI = await fetch(`${base}/${PED}/precificar-item`, { method: 'POST', headers: H, body: JSON.stringify({
+          idproduto: 2, vrcusto: 10, icme: 18, icm_efetivo: 18, fcp_saida: 0, markup: 30, vrvenda: 20 }) });
+        const pIJ = (await pI.json().catch(() => ({}))) as any;
+        await pgMl.query(`UPDATE empresas SET classfiscal = $1, despoperacional = $2, imprenda = $3, contsocial = $4 WHERE idempresa = 1`,
+          [empAntes?.classfiscal ?? null, empAntes?.despoperacional ?? null, empAntes?.imprenda ?? null, empAntes?.contsocial ?? null]);
+        await pgMl.query(`UPDATE produtos SET idpiscofins = $1 WHERE idproduto = 2`, [prPc?.idpiscofins ?? null]);
+        await pgMl.query(`DELETE FROM piscofins WHERE idpiscofins = 99167`);
+        const espera = { creditoicm: 1.8, creditopiscofins: 0.93, vrcustoliquido: 7.27, pmz: 13.78, debitoicm: 3.6, debitopiscofins: 1.85,
+          vendaliq: 14.55, lucrobrutov: 7.28, lucrobrutop: 50.03, despopv: 4, lucroliqv: 3.28, lucroliqp: 16.4, imprend: 0.49, contsocial: 0.3, margeml2v: 2.49, margeml2: 12.45 };
+        const difs = Object.entries(espera).filter(([k, v]) => Number(pIJ[k]) !== v);
+        check('REVISÃO §167.4 [o preço do item segue as regras que a produção pratica]: custo 10, ICMS 18%, PIS/COFINS 9,25% (Lucro Real), venda 20: créditos 1,80 + 0,93; custo líquido 7,27 = custo − créditos, SEM somar de novo a composição (91% dos itens — o custo herdado já é o de reposição); PMZ 13,78; débitos 3,60 + 1,85; venda líquida 14,55 = venda − débitos (99,8%); lucro bruto 7,28 (50,03%); despesa 4; lucro líquido 3,28; IR 0,49; CSLL 0,30; margem final 2,49 (12,45%). Antes o modal usava UF SP fixa e PIS/COFINS zero',
+          pI.status === 200 && difs.length === 0 && Number(pIJ.vrvendasug) > 0,
+          { status: pI.status, difs, pIJ });
+
+        // §167.3 — a ANÁLISE pedido×NF lê e fecha a quantidade DA LOJA da análise (UAnalisePedidosNF.pas:339, :642)
+        const cA = await fetch(`${base}/${PED}`, { method: 'POST', headers: H, body: JSON.stringify({
+          codparceiro: 22, data: '2037-06-02', empresas: '1, 2',
+          itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 4, lojas: [{ idempresa: 1, qtde: 3 }, { idempresa: 2, qtde: 5 }] }] }) });
+        const codA = Number(((await cA.json().catch(() => ({}))) as any).codpedcomp);
+        await pgMl.query(`INSERT INTO nfe_nao_cadastradas (codnfe_naocad, chavenfe, cnpj, razao, dtemissao, tipo, totalnf, idempresa, modelo, nronf)
+          VALUES (991671, '35370600000000000000000000000000000000991671', '11222333000144', 'FORN LOJA', '2037-06-03 10:00:00-03', 'E', 12, 1, 55, '916701')`);
+        await pgMl.query(`INSERT INTO nfe_nao_cadastradas_itens (chavenfe, idproduto, nroitem, unidade, quantidade, fatorembal, vrunitariotrib, vrtotal)
+          VALUES ('35370600000000000000000000000000000000991671', 1, 1, 'UN', 3, 1, 4, 12)`);
+        const PO2 = 'compras/pendencias';
+        const anA = (await (await fetch(`${base}/${PO2}/analise/criar`, { method: 'POST', headers: H, body: JSON.stringify({ codpedcomps: [codA], refs_nf: [991671], total_parcial: 'T' }) })).json().catch(() => ({}))) as any;
+        const procA = (await (await fetch(`${base}/${PO2}/analise/processar`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anA.apn_id }) })).json().catch(() => ({}))) as any;
+        const libA = await fetch(`${base}/${PO2}/analise/liberar`, { method: 'POST', headers: H, body: JSON.stringify({ apn_id: anA.apn_id }) });
+        const libAJ = (await libA.json().catch(() => ({}))) as any;
+        const pcqA = ((await pgMl.query(`SELECT q.idempresa, q.fechado FROM pedido_compra_qtde q JOIN pedidocompra_i i ON i.codpedcompi = q.codpedcompi
+            WHERE i.codpedcomp = $1 ORDER BY q.idempresa`, [codA])).rows as any[]).map((r) => [Number(r.idempresa), r.fechado ?? null]);
+        const lerA = (await (await fetch(`${base}/${PED}/${codA}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('REVISÃO §167.3 [a análise pedido×NF é da LOJA]: a nota da loja 1 tem 3 unidades e o pedido tem 3 para a loja 1 e 5 para a loja 2 — o legado compara com a quantidade DA LOJA da análise e não acusa divergência; o Apollo comparava com a soma (8) e acusava. Liberada, a análise fecha a quantidade da loja 1 (não o item) e o pedido fica PARCIAL — antes ele seguia editável, porque o estado vem das linhas por loja',
+          cA.status === 201 && Number(procA.divergencias) === 0 && procA.situacao === 'SEM_DIVERGENCIA' && libA.status === 200
+          && JSON.stringify(pcqA) === JSON.stringify([[1, 'S'], [2, null]]) && lerA.fechamento === 'parcial',
+          { cA: cA.status, anA: anA.apn_id ?? anA, procA, libA: [libA.status, libAJ.code ?? libAJ.status], pcqA, fech: lerA.fechamento });
+        await pgMl.query(`DELETE FROM analise_pedido_nf_nf WHERE apn_id = $1`, [anA.apn_id ?? -1]).catch(() => undefined);
+        await pgMl.query(`DELETE FROM analise_pedido_nf_nf WHERE apn_id = $1`, [anA.apn_id ?? -1]).catch(() => undefined);
 
         await pgMl.query(`DELETE FROM nf WHERE codnf = $1`, [Number(nfB.codnf)]);
         for (const c of [codP, codB]) {

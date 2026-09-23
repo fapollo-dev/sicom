@@ -796,3 +796,23 @@ Corrigido: `RENOMEIA` leva `DTFATURAMENTO` → `data_faturamento`, e o carimbo s
 'P', tem 1 linha). Medido na produção: de 2.771 pedidos de 2024-26, **41** têm nota vinculada — são esses que
 chegam travados, não os 2.771. A subconsulta no Oracle levaria ~20 min na carga inteira (`NF.CODPEDCOMP` sem
 índice); no Postgres, depois da carga, é uma agregação.
+
+### Achado 18 — o conferidor não via imposto nem lucro: 51 colunas fora do destino (23/09/2026)
+
+Na revisão do pedido de compra (dossiê `uPedidoCompra.md` §22) o item perdia 21 colunas preenchidas em 85-99% — a
+composição do custo e a escada de preço — e o `conferir-colunas-orfas.py` não acusava: o filtro de nomes dele
+(`custo|preco|valor|margem…`) não pega `ICME`, `ICMST`, `IPI`, `FRETE`, `SEGURO`, `DESPACESSORIO`, `LUCROBRUTOV`,
+`IMPREND`, `CONTSOCIAL`, `PISCONFIS`, `DEBITOICM`. O filtro foi estendido; o pedido foi resolvido (mig 307); e apareceram
+**51 colunas em outras tabelas**, agora declaradas em `TRIAGEM_PENDENTE` (saem no relatório toda vez, sem derrubar o
+gate):
+
+| tabela | colunas | linhas | o que parece |
+|---|---|---:|---|
+| `vendas` | `creditoicm`, `creditopiscofins`, `debitoicm`, `despopv`, `imprend`, `contsocial`, `frete`, `frete2`, `ipi`, `seguro`, `despacessorio`, `icmst` (86%), `pis` (97%), `icms_modalidade_bc`, `icms_origem_mercadoria`, `icms_taxa_reducao_bc` (100%) | 18,9 mi | a escada de preço de cada item vendido (a rentabilidade por venda) e o ICMS do cupom |
+| `nf_prod` | `debitoicm`, `despopv`, `imprend`, `contsocial`, `lucrobrutov/p`, `lucroliqv/p` (100%), `ipi_devolucao`, `destacicmssn` (97%) | 498 mil | a escada no item da nota de entrada |
+| `pedido_devolucao_compra_i` | ICMS/ST/IPI/frete/PIS-COFINS com e sem "_nota" (14 colunas, 100%) | 6.136 | os tributos da devolução de compra |
+| `nf` | `pis_nfe`, `cofins_nfe`, `rateio_ipi`, `rateio_ipi_devolucao`, `abater_icms_deson` | 49,6 mil | totais de PIS/COFINS da NF-e e flags de rateio |
+| `produtos` | `pis`, `taraembalagem` | 47,7 mil | |
+| `parceiros` | `hab_ret_pis_nf_sai`, `hab_ret_cofins_nf_sai` | 19 mil | habilita retenção de PIS/COFINS na saída |
+
+Cada uma precisa de coluna no destino (e da regra que a lê) ou de uma linha em `ORIGEM_DECLARADA` com a prova.

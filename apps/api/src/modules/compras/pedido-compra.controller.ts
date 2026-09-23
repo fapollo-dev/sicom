@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseG
 import { gerarNfPedidoSchema, importarItensPedidoSchema, liberarLimiteSupervisorSchema, type GerarNfPedidoDto, type LiberarLimiteSupervisorDto } from '@apollo/shared';
 import { PedidoCompraService } from './pedido-compra.service';
 import { PedidoImpressaoService } from './pedido-impressao.service';
+import { PedidoItemPrecoService } from './pedido-item-preco.service';
 import { RecebimentoService } from './recebimento.service';
 import { AnalisePedidoNfService } from './analise-pedido-nf.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -21,7 +22,26 @@ export class PedidoCompraController {
     private readonly recebimento: RecebimentoService,
     private readonly analise: AnalisePedidoNfService,
     private readonly impressaoSvc: PedidoImpressaoService,
+    private readonly precoItem: PedidoItemPrecoService,
   ) {}
+
+  /** mig 307 — o PREÇO DO ITEM (o modal `uPrecificacaoProdutos`): créditos, custo líquido, PMZ, sugerida e a escada.
+   *  Puro (não grava): o resultado volta ao item e é salvo com o pedido. */
+  @Post('precificar-item')
+  @HttpCode(200)
+  precificarItem(@Body() body: { idproduto: number; vrcusto: number; markup?: number; vrvenda?: number; icme?: number; icm_efetivo?: number; fcp_saida?: number }) {
+    return this.precoItem.precificar({
+      idproduto: Number(body?.idproduto), vrcusto: Number(body?.vrcusto ?? 0),
+      markup: body?.markup ?? null, vrvenda: body?.vrvenda ?? null,
+      icme: body?.icme ?? null, icm_efetivo: body?.icm_efetivo ?? null, fcp_saida: body?.fcp_saida ?? null,
+    });
+  }
+
+  /** mig 307 — o que o item novo herda do catálogo da loja (custo, fator, venda, markup, composição, escada). */
+  @Get('heranca/:idproduto')
+  heranca(@Param('idproduto', ParseIntPipe) idproduto: number, @Query('codparceiro') codparceiro?: string) {
+    return this.svc.heranca(idproduto, codparceiro ? Number(codparceiro) : null);
+  }
 
   /** a IMPRESSÃO do pedido (`ped_compra.fr3` por loja; `?agrupado=1` = `ped_compra_agrupado.fr3`). Leitura: como o
    *  resto da leitura do pedido, sem opção própria — o legado não tem permissão de impressão (0 na PERMISSOES). */

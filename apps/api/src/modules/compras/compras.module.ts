@@ -11,6 +11,8 @@ import { CondicoesPagtoCrudController } from './condicoes-pagto.crud';
 import { ImportacaoNfeController } from './importacao-nfe.controller';
 import { PedidoCompraService } from './pedido-compra.service';
 import { PedidoImpressaoService } from './pedido-impressao.service';
+import { PedidoItemPrecoService } from './pedido-item-preco.service';
+import { PrecificacaoModule } from '../precificacao/precificacao.module';
 import { RecebimentoService } from './recebimento.service';
 import { DevolucaoCompraAggregateController } from './devolucao-compra.aggregate';
 import { DevolucaoCompraController } from './devolucao-compra.controller';
@@ -43,7 +45,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
  * intenção; o FATO nasce na NF de entrada — corte futuro).
  */
 @Module({
-  imports: [CadastroModule, AuthModule], // Cadastro=NfFaturamento/Config; Auth=LiberacaoService (wire do limite E8 c3). Acíclico.
+  imports: [CadastroModule, AuthModule, PrecificacaoModule], // Cadastro=NfFaturamento/Config; Auth=LiberacaoService (wire do limite E8 c3). Acíclico.
   controllers: [
     FaturamentoController,
     // FRMCADCOTACAOFORN — o fornecedor preenche os preços (137 acessos).
@@ -65,6 +67,6 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     ManifestoDfeController,
     PendenciaOperadorController, RelAnalisePedidoNfController,
   ],
-  providers: [FaturamentoService, CotacaoFornService, PedidoVendaService, PedidoCompraService, PedidoImpressaoService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, ManifestoDfeService, SefazDfeService, PendenciaOperadorService, RelAnalisePedidoNfService, AnaliseMotorService, ConfigService, DatabaseProvider],
+  providers: [FaturamentoService, CotacaoFornService, PedidoVendaService, PedidoCompraService, PedidoImpressaoService, PedidoItemPrecoService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, ManifestoDfeService, SefazDfeService, PendenciaOperadorService, RelAnalisePedidoNfService, AnaliseMotorService, ConfigService, DatabaseProvider],
 })
 export class ComprasModule {}
