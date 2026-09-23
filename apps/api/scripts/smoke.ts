@@ -17240,6 +17240,69 @@ async function main() {
       }
     }
 
+    // ══ HISTÓRICO DE PROCESSAMENTO DA NF — por que o custo mudou (mig 291) ═════════════════════════════
+    {
+      const HP = 'precificacao/hist-processamento-nf';
+      const pgHp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgHp.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+          (994701,'7899000994701','PRODUTO HISTORICO','UN',2,'T01','S') ON CONFLICT (idproduto) DO NOTHING`);
+        await pgHp.query(`INSERT INTO nf (codnf, idempresa, codparceiro, nronf, serie, modelo, tipo, dtemissao, dtcontabil, totalnf) VALUES
+          (9947001, 1, 2, '9947001', '1', '55', 'E', '2026-06-10', '2026-06-10', 1000) ON CONFLICT (codnf) DO NOTHING`);
+        await pgHp.query(`INSERT INTO nf_prod (codnfprod, codnf, nroitem, codproduto, quantidade, vrcusto, unidade, cfop) VALUES
+          (99470011, 9947001, 1, 994701, 10, 10, 'UN', 1102) ON CONFLICT (codnfprod) DO NOTHING`);
+        // o PAR: o ANTES (custo 10,00 / venda 15,00) e o DEPOIS (custo 12,00 / venda 18,00)
+        await pgHp.query(`INSERT INTO historico_processamento_nf
+            (idempresa, historico, dthistorico, usuhistorico, codnf, codnfprod, codproduto, codparceiro,
+             unidade, vrcusto, vrcustoreal, vrvenda, markup, margeml)
+          VALUES
+            (1, 'PRODUTO',       '2026-06-10 10:00:00-03', 7, 9947001, 99470011, 994701, 2, 'UN', 10.00, 10.50, 15.00, 50.00, 33.33),
+            (1, 'PROCESSAMENTO', '2026-06-10 10:00:01-03', 7, 9947001, 99470011, 994701, 2, 'UN', 12.00, 12.60, 18.00, 50.00, 33.33)`);
+        await pgHp.query(`UPDATE historico_processamento_nf SET existealteracaocusto='S', alteracustodeco='S',
+            alteracustoesto='S', alteracustocfop='N', existealteracaovenda='S', alteravendaonline='N', alteravendalote='S'
+          WHERE codnfprod = 99470011 AND historico = 'PROCESSAMENTO'`);
+
+        const r = (await (await fetch(`${base}/${HP}?codproduto=994701`, { headers: H })).json().catch(() => ({}))) as any;
+        const ev = (r.itens ?? [])[0];
+        const custo = (ev?.escada ?? []).find((e: any) => e.campo === 'vrcusto');
+        const venda = (ev?.escada ?? []).find((e: any) => e.campo === 'vrvenda');
+        const markup = (ev?.escada ?? []).find((e: any) => e.campo === 'markup');
+        check('HISTÓRICO DE PROCESSAMENTO §157.1 [o par ANTES/DEPOIS, e ler só um dá metade da história]: cada processamento grava DUAS linhas — `PRODUTO` é o estado anterior e `PROCESSAMENTO` o posterior —, e os totais por ano no cliente são idênticos porque é sempre um par (2026: 64.209 e 64.209). Nos **531.650 pares** medidos, **191.695 mudaram o custo** (R$ 111.934,23) e 20.330 mudaram o preço (R$ 585.336,06). A consulta devolve o par já casado e a variação calculada: custo de 10,00 para 12,00 (**+2,00, +20%**), venda de 15,00 para 18,00, e o markup que NÃO mudou vem marcado como não-alterado em vez de sumir',
+          (r.itens ?? []).length === 1 && ev?.tem_par === true
+          && custo?.antes === 10 && custo?.depois === 12 && custo?.mudou === true
+          && custo?.variacao === 2 && custo?.variacao_pct === 20
+          && venda?.antes === 15 && venda?.depois === 18 && venda?.variacao === 3
+          && markup?.mudou === false && markup?.variacao === 0,
+          { itens: (r.itens ?? []).length, par: ev?.tem_par, custo: [custo?.antes, custo?.depois, custo?.variacao, custo?.variacao_pct], venda: [venda?.antes, venda?.depois], markup_mudou: markup?.mudou });
+
+        check('HISTÓRICO DE PROCESSAMENTO §157.2 [as flags dizem POR QUAL CAMINHO o custo mudou]: em 2026, **60.508 dos 64.209** processamentos do cliente têm `EXISTEALTERACAOCUSTO=S` com alteração por decomposição, estoque e CFOP ao mesmo tempo — 94% dos processamentos mexem no custo, e as flags separam o motivo. Aqui o evento veio por decomposição e estoque, **não** por CFOP, e alterou a venda em lote e não online — cada caminho é um booleano próprio na resposta, não um campo de texto para interpretar',
+          ev?.alterou_custo === true && ev?.por_decomposicao === true && ev?.por_estoque === true
+          && ev?.por_cfop === false && ev?.alterou_venda === true
+          && ev?.venda_lote === true && ev?.venda_online === false
+          && r.resumo?.alteraram_custo === 1 && r.resumo?.sem_par === 0,
+          { custo: ev?.alterou_custo, deco: ev?.por_decomposicao, cfop: ev?.por_cfop, lote: ev?.venda_lote, resumo: r.resumo });
+
+        // sem o par, a linha diz isso em vez de mostrar variação zero
+        await pgHp.query(`DELETE FROM historico_processamento_nf WHERE codnfprod=99470011 AND historico='PRODUTO'`);
+        const semPar = (await (await fetch(`${base}/${HP}?codproduto=994701`, { headers: H })).json().catch(() => ({}))) as any;
+        const semFiltro = await fetch(`${base}/${HP}`, { headers: H });
+        const soAlterou = (await (await fetch(`${base}/${HP}?codproduto=994701&so_alterou_custo=true`, { headers: H })).json().catch(() => ({}))) as any;
+        const semGrant = await fetch(`${base}/${HP}?codproduto=994701`, { headers: H_SEM_ACESSO });
+        check('HISTÓRICO DE PROCESSAMENTO §157.3 [sem o ANTES, a linha DIZ que não tem par]: ~2.000 das 863.582 linhas do cliente estão sem o par (a nota já não existe), e nessas a variação não é zero — é **desconhecida**. Mostrar zero afirmaria que nada mudou, que é uma afirmação diferente de "não sei": a resposta traz `tem_par: false` e o resumo conta quantas estão assim. A consulta exige produto ou nota (400 sem nenhum dos dois), o filtro de alteração funciona, e sem o grant é 403',
+          semPar.itens?.[0]?.tem_par === false && semPar.resumo?.sem_par === 1
+          && semFiltro.status === 400
+          && (soAlterou.itens ?? []).length === 1 && semGrant.status === 403,
+          { tem_par: semPar.itens?.[0]?.tem_par, sem_par: semPar.resumo?.sem_par, semFiltro: semFiltro.status, soAlterou: (soAlterou.itens ?? []).length, rbac: semGrant.status });
+
+        await pgHp.query(`DELETE FROM historico_processamento_nf WHERE codproduto = 994701`);
+        await pgHp.query(`DELETE FROM nf_prod WHERE codnf = 9947001`);
+        await pgHp.query(`DELETE FROM nf WHERE codnf = 9947001`);
+        await pgHp.query(`DELETE FROM produtos WHERE idproduto = 994701`);
+      } finally {
+        await pgHp.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

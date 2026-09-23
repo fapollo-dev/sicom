@@ -610,3 +610,32 @@ Recuperado na série: **R$ 707,8 milhões** em bases, custos e valores, mais 19 
 Tudo que não vem está declarado com o número medido ao lado, em `ORIGEM_DECLARADA` no conferidor — a lista
 não volta a crescer sem exame, porque o conferidor sai com erro quando alguém acrescenta coluna nova sem
 justificar.
+
+
+### Achado 12 — o histórico que responde "por que o custo mudou" não tinha destino
+
+`HISTORICO_PROCESSAMENTO_NF`, **863.582 linhas** (128 mil em 2026), era a segunda maior tabela viva sem
+destino. Migration 291, com tela de consulta. Dossiê `uHistoricoProcessamentoNF.md`.
+
+O kardex responde *quanto* entrou e saiu. Esta tabela responde a pergunta que mais ninguém responde: **por
+que o custo e o preço do produto mudaram** — em que nota, em que data, de quanto para quanto. Guarda a
+escada de custo inteira a cada processamento.
+
+**Cada evento grava DUAS linhas**: `PRODUTO` é o antes, `PROCESSAMENTO` é o depois. Os totais por ano são
+idênticos porque é sempre um par. E o par não é decorativo — nos 531.650 pares completos, **191.695 (36%)
+mudaram o custo** e 20.330 mudaram o preço, com variação média de 18,29% em 2026.
+
+Três decisões de projeto, cada uma com o número que a justifica:
+
+- **o par vem casado e a variação calculada** no serviço, para que nenhum consumidor refaça a subtração;
+- **sem o par, a variação é desconhecida e não zero** — ~2.000 linhas estão nessa condição, e mostrar zero
+  afirmaria que nada mudou;
+- **a FK é só para `produtos`** (casa em 100%), não para a nota (861.582 de 863.582): uma FK para a nota
+  rejeitaria os órfãos e levaria junto o histórico do produto, que vale mesmo sem ela.
+
+⚠️ E mais um caso do Achado 4: a tabela não guarda empresa, e derivando da nota são **685.702 linhas na
+loja 1, 177.804 na loja 2 e 76 na 52**. Sem a derivação, 177.880 iriam para a loja errada.
+
+**Restam duas tabelas vivas sem destino**: `NF_STATUS_PROCESSO` (440.211 linhas, a esteira do manifesto) e
+`REMESSA_LOTE` (11 milhões), esta última já triada como **log de replicação** — infraestrutura do legado,
+não regra, e o veredito de não migrar precisa ser escrito.

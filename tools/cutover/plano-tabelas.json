@@ -173,6 +173,7 @@
    "fator_conversao",
    "faturamento",
    "historico",
+   "historico_processamento_nf",
    "itens_mancartao",
    "itens_producao",
    "itens_troca",

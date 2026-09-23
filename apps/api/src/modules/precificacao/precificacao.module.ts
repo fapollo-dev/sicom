@@ -1,3 +1,5 @@
+import { HistProcNfController } from './hist-proc-nf.controller';
+import { HistProcNfService } from './hist-proc-nf.service';
 import { ClubeDescontoController } from './clube-desconto.controller';
 import { ClubeDescontoService } from './clube-desconto.service';
 import { Module } from '@nestjs/common';
@@ -15,13 +17,13 @@ import { ConfigService } from '../cadastro/config.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 
 @Module({
-  controllers: [ClubeDescontoController, 
+  controllers: [HistProcNfController, ClubeDescontoController, 
     // FRMPRECIFICACAONFBRUTA — a irmã enxuta da precificação por NF
     PrecificacaoNfBrutaController,
     PrecificacaoController,
     PrecificacaoNfController,
   ],
-  providers: [ClubeDescontoService, 
+  providers: [HistProcNfService, ClubeDescontoService, 
     PrecificacaoNfBrutaService,
     PrecoService,
     FiscalPricingService,

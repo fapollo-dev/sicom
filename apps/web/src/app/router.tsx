@@ -80,6 +80,7 @@ import { CestPage } from '../features/cest/CestPage';
 import { ReformaIbsCbsPage } from '../features/reforma-ibscbs/ReformaIbsCbsPage';
 import { ApuracaoIbsCbsPage } from '../features/apuracao-ibscbs/ApuracaoIbsCbsPage';
 import { ClubeDescontoPage } from '../features/clube-desconto/ClubeDescontoPage';
+import { HistProcNfPage } from '../features/hist-processamento-nf/HistProcNfPage';
 import { MotivosPage } from '../features/motivos/MotivosPage';
 import { RelEntradasFinanPage } from '../features/rel-entradas-finan/RelEntradasFinanPage';
 import { ExtratoFuncionarioPage } from '../features/extrato-funcionario/ExtratoFuncionarioPage';
@@ -280,6 +281,7 @@ export const router = createBrowserRouter([
       { path: '/fiscal/reforma-ibscbs', element: <ReformaIbsCbsPage /> }, // FRMCADCSTIBSCBS + FRMCADCLASSTRIBIBSCBS
       { path: '/fiscal/apuracao-ibscbs', element: <ApuracaoIbsCbsPage /> }, // FRMAPURACAOIBSCBS (desenvolvido)
       { path: '/precificacao/clube-desconto', element: <ClubeDescontoPage /> }, // FRMCLUBEDESCONTO (mig 285)
+      { path: '/precificacao/hist-processamento-nf', element: <HistProcNfPage /> }, // FRMHISTPROCESSAMENTONF (mig 291)
       { path: '/cadastro/motivos', element: <MotivosPage /> }, // FRMMOTIVO (motivos do AJUSTE; ≠ motivos-operacao)
       { path: '/relatorios/entradas-financeiro', element: <RelEntradasFinanPage /> }, // FRMRELENTRADAS_FINAN
       { path: '/cobranca/extrato-funcionario', element: <ExtratoFuncionarioPage /> }, // FRMRELFUNCIONARIO

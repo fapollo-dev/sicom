@@ -137,6 +137,11 @@ CALCULADAS = {
   # coluna e integer. E o mesmo padrao de COTACAO/PEDIDOCOMPRA (Achado 4): a projecao single-empresa fica
   # com a PRIMEIRA da lista. Sem isto a carga tentaria gravar '1,2' num integer e quebraria a tabela
   # inteira. So 50 das 3.111 regras tem a coluna preenchida; as demais caem na loja 1.
+  # historico de processamento da NF (mig 291): a tabela nao guarda empresa — vem da NOTA. Onde a nota
+  # ja nao existe (~2.000 das 863.582 linhas), a loja 1 e a decisao, e o historico do PRODUTO continua
+  # valendo: e por isso que a FK e so para produtos.
+  'historico_processamento_nf': {'idempresa':
+    'nvl((select f.idempresa from nf f where f.codnf = historico_processamento_nf.codnf), 1)'},
   'clube_desconto': {'idempresa': "nvl(to_number(regexp_substr(idempresa, '\\d+')), 1)"},
   # a extensao nao tem empresa propria (0 de 40) e casa com a regra em 40 de 40: vem de la, com a mesma
   # extracao, porque o valor do pai tambem e texto.
