@@ -63,7 +63,7 @@ export class NfNfeService {
     const resultado = await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nf = await trx
         .selectFrom('nf')
-        .select(['codnf', 'tipo', 'tipoemissao', 'modelo', 'nronf', 'serie', 'dtemissao', 'codparceiro', 'totalnf', 'proc', 'statusnfe', 'cancelada', 'tpemissao'])
+        .select(['codnf', 'tipo', 'tipoemissao', 'modelo', 'nronf', 'serie', 'dtemissao', 'codparceiro', 'totalnf', 'proc', 'statusnfe', 'cancelada', 'tpemissao', 'obs'])
         .where('codnf', '=', codnf)
         .where('idempresa', '=', emp)
         .forUpdate()
@@ -112,6 +112,24 @@ export class NfNfeService {
              WHERE g.codnf = ${codnf} AND g.idempresa = ${emp}
              ORDER BY p.nroitem, g.codnfprod`.execute(trx)).rows
         : [];
+
+      // os documentos REFERENCIADOS vão na observação (NFe.pas:960-990): as chaves de NF-e/NFC-e/CT-e (modelos 55/65/57)
+      // entram como "Notas Fiscais Ref.: <chaves>. " se ainda não estiverem lá — é o que a NF de cupom da produção
+      // mostra (355 de 423 notas autorizadas com referência em 2026). A referência por número (modelo 1/produtor) não
+      // tem uso desde 2024 e não é montada aqui.
+      const refs = (await sql<{ chave: string | null; modelo: number | null }>`
+          SELECT coalesce(r.chavenfe, r.chave_ref) AS chave,
+                 coalesce(r.modelo, CASE WHEN length(coalesce(r.chavenfe, r.chave_ref)) = 44 THEN 55 END) AS modelo
+            FROM nf_referencia r WHERE r.codnf = ${codnf} ORDER BY r.codnfreferencia`.execute(trx)).rows;
+      const chavesRef = refs.filter((r) => r.chave && [55, 57, 65].includes(Number(r.modelo))).map((r) => String(r.chave).trim());
+      if (chavesRef.length) {
+        const texto = chavesRef.join(',');
+        const obsAtual = String(nf.obs ?? '');
+        if (!obsAtual.includes(texto)) {
+          await trx.updateTable('nf').set({ obs: `${obsAtual}${obsAtual !== '' ? ' ' : ''}Notas Fiscais Ref.: ${texto}. ` })
+            .where('codnf', '=', codnf).where('idempresa', '=', emp).execute();
+        }
+      }
 
       const res = await this.sefaz.transmitir({
         codnf,

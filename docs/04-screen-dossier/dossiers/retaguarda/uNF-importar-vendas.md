@@ -63,5 +63,7 @@
   referenciada pela CHAVE (modelo 65), cupom ECF na OBS; vínculo no gravar (`VENDAS.IMPORTADO` + CODPARCEIRO do
   cupom, PEDIDO_NF 'V' do ECF, `SUBSTITUI_FINANCEIRO_GERAR_NF` apaga o AR do cupom); estorno na exclusão e no
   cancelamento (`AtualizaStatusCupomFiscal`); a situação com `IMPORTACAO_AUTO_NF='VE'` abre a importação.
-- **C2** — a mensagem "Notas Fiscais Ref.: <chaves>" na OBS (montada na transmissão) e a DEVOLUÇÃO DE VENDA de entrada
-  (`IncluiProdDevoucaoVendas`, situação 'DE', 1 por ano).
+- **C2** — ✅ a frase "Notas Fiscais Ref.: <chaves>. " na OBS, montada na TRANSMISSÃO (NFe.pas:960-990) com as chaves
+  dos documentos 55/57/65 referenciados, se ainda não estiver lá (produção 2026: 355 de 423 NFs autorizadas com
+  referência). A referência por número (modelo 1/produtor, "Notas Fiscais Ref. Nro:") não tem uso desde 2024 (3 linhas
+  com modelo nulo/0). Pendente: a DEVOLUÇÃO DE VENDA de entrada (`IncluiProdDevoucaoVendas`, situação 'DE', 1 por ano).

@@ -1898,6 +1898,15 @@ async function main() {
     // 23.1c) INVARIANTE: a TRANSMISSÃO em si não move estoque (quem moveu foi o processamento).
     check('transmitir NÃO move estoque (o processamento moveu; transmitir é fiscal)', (await saldoProd1()) === saldoAposProc, { saldoAposProc, depois: await saldoProd1() });
 
+    // 23.1d) as referências vão na OBS na transmissão (NFe.pas:960-990): "Notas Fiscais Ref.: <chaves>. ", uma vez
+    const chRef = '31260900000000000000650010000009991000000999';
+    const nfRef = await novaNf(baseNf({ tipo: 'S', nronf: 'N9001R', cfop: '5102', codparceiro: 20, obs: 'VENDA A CONSUMIDOR', itens: [itemS()], referencias: [{ modelo: 65, chavenfe: chRef }] }));
+    await processarOk(nfRef);
+    const txRef = await fetch(`${base}/fiscal/nf/${nfRef}/transmitir`, { method: 'POST', headers: H });
+    const obsRef = (await pg23.query(`SELECT obs FROM nf WHERE codnf=$1`, [nfRef])).rows[0]?.obs as string;
+    check('transmitir: a NFC-e referenciada entra na OBS ("Notas Fiscais Ref.: <chave>. ") depois do texto que já havia, uma vez só',
+      txRef.status === 200 && obsRef === `VENDA A CONSUMIDOR Notas Fiscais Ref.: ${chRef}. `, { status: txRef.status, obs: obsRef });
+
     // 23.2) transmitir 2x → 422 NF_JA_TRANSMITIDA (idempotente CAS).
     const tx2 = await fetch(`${base}/fiscal/nf/${nfTx}/transmitir`, { method: 'POST', headers: H });
     const tx2Body = (await tx2.json().catch(() => ({}))) as any;
@@ -15515,9 +15524,11 @@ async function main() {
       const FT = 'compras/faturamento';
       const pgFt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       try {
-        const hojeIso = new Date().toISOString().slice(0, 10);
-        const ontem = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-        const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+        // o dia da LOJA (America/Sao_Paulo), não o de UTC — depois das 21h o UTC já é amanhã
+        const diaBr = (d: number) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date(Date.now() + d * 86400000));
+        const hojeIso = diaBr(0);
+        const ontem = diaBr(-1);
+        const amanha = diaBr(1);
         // uma nota de ENTRADA processada, com quatro parcelas: vencida, hoje, a vencer e uma já faturada
         await pgFt.query(`INSERT INTO nf (codnf, idempresa, tipo, modelo, nronf, serie, dtemissao, dtcontabil, tipoemissao, finalidade, cfop, idsituacao_nf, codparceiro, codparceiro_end, proc, totalnf, totalprod, cancelada)
           VALUES (991690, 1, 'E', '55', '991690', '1', $1, $1, '1', '1', '1102', 6, 2, NULL, 'S', 1000, 1000, 'N')`, [ontem]);
