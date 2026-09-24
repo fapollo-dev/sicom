@@ -14198,13 +14198,13 @@ async function main() {
         const adD = await adCriar({ idsituacao_nf: 1011, codparceiro: 1, codcontacorrente: adCx, dtadiantamento: '2026-07-01', dtvencimento: '2026-08-01', valor: 100, obs: 'ADIANT P/ TESTE' });
         const adDJ = (await adD.json().catch(() => ({}))) as any;
         const adDRow = (await pgAd.query(`SELECT tipo, quitada, codmovconta, valor, idsituacao_nf, obs, usultalteracao FROM adiantamento_forn WHERE codadiantamento=$1`, [adDJ.codadiantamento])).rows[0] as any;
-        const adDMov = (await pgAd.query(`SELECT valor, tipomovimento, origem, idorigem, codadiantamento, historico, codopconta, idpgto, codoperador, to_char(data_fechamento,'YYYY-MM-DD') d FROM mov_contas_bancarias WHERE codmovconta=$1`, [adDRow?.codmovconta])).rows[0] as any;
+        const adDMov = (await pgAd.query(`SELECT valor, tipomovimento, origem, idorigem, codadiantamento, historico, codopconta, idpgto, codoperador, liberado, to_char(dtemissao,'YYYY-MM-DD') d, to_char(dtvenc,'YYYY-MM-DD') dv, to_char(dtliberacao,'YYYY-MM-DD') dl FROM mov_contas_bancarias WHERE codmovconta=$1`, [adDRow?.codmovconta])).rows[0] as any;
         const adDTit = (await pgAd.query(`SELECT codrcb, valor, quitada, nrodup, tipodoc, adfornecedor, consiliado, duplicata, obs, idpgto, codparceiro, idsituacao_nf, to_char(dtvenda,'YYYY-MM-DD') dv, to_char(dtvenc,'YYYY-MM-DD') dc FROM areceber WHERE codadiantamento=$1`, [adDJ.codadiantamento])).rows[0] as any;
-        check('ADTO §83.2: tipo D → registro (quitada N) + MOVIMENTO magnitude 100/tipomovimento D/origem ADTOFORN/codopconta 0/idpgto DINHEIRO/histórico = OBS + TÍTULO A RECEBER (valor 100, quitada N, nrodup 1, TIPODOC "A VISTA", ADFORNECEDOR S, CONSILIADO S, DUPLICATA = código, OBS "Originado do lancamento…", IDPGTO da forma RCB, DTVENDA = data e DTVENC = vencimento, SEM idsituacao_nf) + saldo 900',
+        check('ADTO §83.2: tipo D → registro (quitada N) + MOVIMENTO magnitude 100/tipomovimento D/origem nula/emissão=vencimento=liberação na data/LIBERADO S/codopconta 0/idpgto DINHEIRO/histórico = OBS + TÍTULO A RECEBER (valor 100, quitada N, nrodup 1, TIPODOC "A VISTA", ADFORNECEDOR S, CONSILIADO S, DUPLICATA = código, OBS "Originado do lancamento…", IDPGTO da forma RCB, DTVENDA = data e DTVENC = vencimento, SEM idsituacao_nf) + saldo 900',
           adD.status === 200 && adDRow?.tipo === 'D' && adDRow?.quitada === 'N' && Number(adDRow?.valor) === 100 && Number(adDRow?.idsituacao_nf) === 1011 && Number(adDRow?.usultalteracao) === 7
-          && Number(adDMov?.valor) === 100 && adDMov?.tipomovimento === 'D' && adDMov?.origem === 'ADTOFORN' && Number(adDMov?.idorigem) === Number(adDJ.codadiantamento)
+          && Number(adDMov?.valor) === 100 && adDMov?.tipomovimento === 'D' && adDMov?.origem == null && adDMov?.idorigem == null && adDMov?.liberado === 'S'
           && Number(adDMov?.codadiantamento) === Number(adDJ.codadiantamento) && adDMov?.historico === 'ADIANT P/ TESTE' && Number(adDMov?.codopconta) === 0
-          && Number(adDMov?.idpgto) === 1 && Number(adDMov?.codoperador) === 7 && adDMov?.d === '2026-07-01'
+          && Number(adDMov?.idpgto) === 1 && Number(adDMov?.codoperador) === 7 && adDMov?.d === '2026-07-01' && adDMov?.dv === '2026-07-01' && adDMov?.dl === '2026-07-01'
           && Number(adDTit?.valor) === 100 && adDTit?.quitada === 'N' && Number(adDTit?.nrodup) === 1 && adDTit?.tipodoc === 'A VISTA'
           && adDTit?.adfornecedor === 'S' && adDTit?.consiliado === 'S' && adDTit?.duplicata === String(adDJ.codadiantamento)
           && adDTit?.obs === `Originado do lancamento do adiantamento de parceiro n: ${adDJ.codadiantamento}` && Number(adDTit?.idpgto) === 4
@@ -14287,10 +14287,13 @@ async function main() {
         await fetch(`${base}/${AD}/excluir`, { method: 'POST', headers: H, body: JSON.stringify({ codadiantamento: adCh2J.codadiantamento }) });
         await pgAd.query(`UPDATE contas_bancarias SET dtchaveamento = NULL WHERE codconta=$1`, [adCx]);
 
-        // 82.7) EDITAR propaga para o movimento e para o título (valor/datas/parceiro).
+        // 82.7) EDITAR propaga para o movimento e para o título (valor/datas/parceiro). O chaveamento da conta não é
+        // testado no editar (FlagGravacao=1, pas:208) — a conta chaveada até 10/07 não barra a data 04/07.
+        await pgAd.query(`UPDATE contas_bancarias SET dtchaveamento = '2026-07-10' WHERE codconta=$1`, [adCx]);
         const adEd = await fetch(`${base}/${AD}/editar`, { method: 'POST', headers: H, body: JSON.stringify({ codadiantamento: adDJ.codadiantamento, codparceiro: 20, dtadiantamento: '2026-07-04', dtvencimento: '2026-09-01', valor: 250, obs: 'adiant editado' }) });
         const adEdJ = (await adEd.json().catch(() => ({}))) as any;
-        const adEdMov = (await pgAd.query(`SELECT valor, historico, to_char(data_fechamento,'YYYY-MM-DD') d FROM mov_contas_bancarias WHERE codadiantamento=$1`, [adDJ.codadiantamento])).rows[0] as any;
+        await pgAd.query(`UPDATE contas_bancarias SET dtchaveamento = NULL WHERE codconta=$1`, [adCx]);
+        const adEdMov = (await pgAd.query(`SELECT valor, historico, to_char(dtemissao,'YYYY-MM-DD') d FROM mov_contas_bancarias WHERE codadiantamento=$1`, [adDJ.codadiantamento])).rows[0] as any;
         const adEdObs = (await pgAd.query(`SELECT obs FROM adiantamento_forn WHERE codadiantamento=$1`, [adDJ.codadiantamento])).rows[0] as any;
         const adEdTit = (await pgAd.query(`SELECT valor, codparceiro, to_char(dtvenda,'YYYY-MM-DD') dv, to_char(dtvenc,'YYYY-MM-DD') dc FROM areceber WHERE codadiantamento=$1`, [adDJ.codadiantamento])).rows[0] as any;
         check('ADTO §83.7: editar (250, parceiro 20, datas novas) → movimento (valor+data) e título A RECEBER atualizados; o HISTÓRICO do movimento NÃO muda (o UPDATE do legado não toca HISTORICO — é a razão dos 6/563 do golden com HISTORICO ≠ OBS); a OBS vira MAIÚSCULA; saldo 750',
@@ -14325,13 +14328,25 @@ async function main() {
         check('ADTO §83.8b: adiantamento QUITADA=S com título em aberto → 422 ADIANTAMENTO_BAIXADO (a trava do legado)',
           adEdF.status === 422 && adEdFJ.code === 'ADIANTAMENTO_BAIXADO', { status: adEdF.status, code: adEdFJ.code });
 
-        // 82.9) CONTABILIZADO='S' bloqueia editar e excluir (VerificaContabilizado — o estorno contábil do
-        // adiantamento não está migrado, então é fail-closed).
+        // 82.9) VerificaContabilizado (pas:777-806): CONTABILIZADO='S' só barra sem a integração AUTOMÁTICA; com ela, estorna o
+        // razão da origem 63 e segue. A conciliação do movimento não barra (o legado não olha MOV_CONCILIADO).
+        const intAd = ((await pgAd.query(`SELECT integracao FROM empresas WHERE idempresa = 1`)).rows[0] as any)?.integracao ?? null;
         await pgAd.query(`UPDATE adiantamento_forn SET contabilizado='S' WHERE codadiantamento=$1`, [adDJ.codadiantamento]);
+        await pgAd.query(`UPDATE empresas SET integracao='MANUAL' WHERE idempresa=1`);
         const adCtb = await fetch(`${base}/${AD}/excluir`, { method: 'POST', headers: H, body: JSON.stringify({ codadiantamento: adDJ.codadiantamento }) });
         const adCtbJ = (await adCtb.json().catch(() => ({}))) as any;
+        await pgAd.query(`INSERT INTO diario (datalan, valor, codorigem, idorigem, complemento, codempresa) VALUES ('2026-07-04', 12345.67, 63, $1, $2, 1)`, [adDJ.codadiantamento, String(adDJ.codadiantamento)]);
+        await pgAd.query(`UPDATE mov_contas_bancarias SET mov_conciliado='S', contabilizado='S' WHERE codadiantamento=$1`, [adDJ.codadiantamento]);
+        await pgAd.query(`UPDATE empresas SET integracao='AUTOMATICA' WHERE idempresa=1`);
+        const adCtbA = await fetch(`${base}/${AD}/editar`, { method: 'POST', headers: H, body: JSON.stringify({ codadiantamento: adDJ.codadiantamento, codparceiro: 20, dtadiantamento: '2026-07-04', dtvencimento: '2026-09-01', valor: 250, obs: 'adiant editado' }) });
+        const fakeResta = Number((await pgAd.query(`SELECT count(*)::int n FROM diario WHERE codorigem=63 AND idorigem=$1 AND valor=12345.67`, [adDJ.codadiantamento])).rows[0].n);
+        await pgAd.query(`UPDATE empresas SET integracao = $1 WHERE idempresa = 1`, [intAd]);
+        await pgAd.query(`DELETE FROM diario WHERE codorigem=63 AND idorigem=$1`, [adDJ.codadiantamento]);
         await pgAd.query(`UPDATE adiantamento_forn SET contabilizado=NULL WHERE codadiantamento=$1`, [adDJ.codadiantamento]);
-        check('ADTO §83.9: CONTABILIZADO=S → excluir 422 ADIANTAMENTO_CONTABILIZADO', adCtb.status === 422 && adCtbJ.code === 'ADIANTAMENTO_CONTABILIZADO', { status: adCtb.status, code: adCtbJ.code });
+        await pgAd.query(`UPDATE mov_contas_bancarias SET mov_conciliado=NULL, contabilizado=NULL WHERE codadiantamento=$1`, [adDJ.codadiantamento]);
+        check('ADTO §83.9: CONTABILIZADO=S → sem integração automática excluir 422 ADIANTAMENTO_CONTABILIZADO; com ela editar (movimento conciliado) → 200 e o razão velho estornado',
+          adCtb.status === 422 && adCtbJ.code === 'ADIANTAMENTO_CONTABILIZADO' && adCtbA.status === 200 && fakeResta === 0,
+          { status: adCtb.status, code: adCtbJ.code, auto: adCtbA.status, fakeResta });
 
         // 83.10) PERÍODO CONTÁBIL: o flag desta tela é o DEDICADO `BLOQ_ADIANTAMENTO_FORN` (existe no Oracle e vale
         // 'S' nos 2 períodos fechados do golden), não os de A Receber/A Pagar — um período fechado só com BLOQ_RCB

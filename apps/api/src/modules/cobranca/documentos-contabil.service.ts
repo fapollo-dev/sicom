@@ -101,6 +101,23 @@ export class DocumentosContabilService {
     return r.length;
   }
 
+  /** o estorno de UM adiantamento (`TIntegracaoAdiantamento.Estornar(CODADIANTAMENTO)`), na transação de quem edita ou exclui
+   *  (`VerificaContabilizado`, uCadAdiantamentoFornecedor.pas:777-806): o razão da origem 63 e as marcas do registro e do
+   *  movimento — a AUDIT_MOV_CONTAS_BANCARIAS mostra o CONTABILIZADO do movimento 'S' → nulo segundos antes do DELETE */
+  async estornarAdiantamentoNaTrx(trx: AnyDB, cod: number): Promise<number> {
+    const emp = this.emp();
+    const r = (await sql<{ codlote: number | null }>`DELETE FROM diario WHERE codorigem = ${ORIGEM.ADTO} AND idorigem = ${cod} AND codempresa = ${emp}
+                RETURNING codlote`.execute(trx)).rows;
+    const lotes = [...new Set(r.map((x) => num(x.codlote)).filter((n) => n > 0))];
+    if (lotes.length) {
+      await sql`DELETE FROM lote_contabil l WHERE l.codlotecontabil = ANY(${lotes}::int[])
+                  AND NOT EXISTS (SELECT 1 FROM diario d WHERE d.codlote = l.codlotecontabil)`.execute(trx);
+    }
+    await this.desmarcar(trx, 'ADTO', emp, [cod]);
+    await trx.updateTable('mov_contas_bancarias').set({ contabilizado: null }).where('codadiantamento', '=', cod).where('idempresa', '=', emp).execute();
+    return r.length;
+  }
+
   async integrar(tipo: TipoDocumento, p: { dataIni: string; dataFim: string; codigo?: number | null }): Promise<ResultadoDocumentos> {
     const emp = this.emp();
     const db = this.dbp.forTenant() as AnyDB;

@@ -205,7 +205,7 @@ Três fatos, nesta ordem:
 - `ImprimirRecibo(cod)` e `IntegraAdiantamento(cod)` (integração contábil quando `INTEGRACAO='AUTOMATICA'`,
   que grava `CONTABILIZADO='S'` — `UIntegracaoContabil.pas:2988`) ficam para corte futuro. Como o estorno contábil
   (`TIntegracaoAdiantamento.Estornar`) depende dessa integração, o novo **bloqueia** editar/excluir de um
-  adiantamento `CONTABILIZADO='S'` em vez de estornar — fail-closed até a integração existir.
+  adiantamento `CONTABILIZADO='S'` em vez de estornar — fail-closed até a integração existir. **Superado em 24/09 (ver o fim).**
 - **prefill e MAIÚSCULAS da OBS**: `dbmOBSEnter` (linha 468) pré-preenche `'ADIANT P/ <razão> - '` (tipo `D`) ou
   `'ADIANT DE <razão> - '` (`C`/`E`) e `dbmOBSKeyPress` (linha 481) força `UpCase`. Golden: **563/563 em
   maiúsculas**, 527 começando com `'ADIANT P/ '` e 5 com `'ADIANT DE '`; e **0/563** usam o fallback
@@ -230,3 +230,17 @@ Três fatos, nesta ordem:
   e o wire da quitação nas baixas/estornos de AR/AP. Tela + smoke.
 - **fora (registrado)**: recibo impresso, integração contábil automática (`CONTABILIZADO`/`IDDOCGERADO`),
   `CODMAPA` (morta), `OLD_CODPARCEIRO`.
+
+## Correção da auditoria g3 (24/09/2026)
+
+- **Contabilizado** (`VerificaContabilizado`, pas:777-806): só barra sem `EMPRESAS.INTEGRACAO='AUTOMATICA'`. Com ela,
+  estorna o razão da origem 63 (`DocumentosContabilService.estornarAdiantamentoNaTrx`: diário, lote vazio, flag do
+  registro e do movimento) e segue. 23 dos 24 adiantamentos de 2025-26 estão contabilizados em empresas AUTOMATICA:
+  antes toda edição/exclusão era barrada. As 2 exclusões do período (nº 3141 e nº 3401) mostram na AUDIT o
+  CONTABILIZADO do movimento 'S' → nulo segundos antes do DELETE.
+- **Conciliação** do movimento não barra (o legado não olha `MOV_CONCILIADO`; 23 de 24 movimentos estão conciliados).
+- **Chaveamento** só na criação (`FlagGravacao=0`); o editar não testa (pas:208).
+- **Integração depois de gravar** (criar/editar) com AUTOMATICA, best-effort (`IntegraAdiantamento` em try/except vazio).
+- **Movimento como o legado grava**: `DTEMISSAO`/`DTVENC`/`DTLIBERACAO` = data do adiantamento, `LIBERADO='S'`,
+  `ORIGEM`/`IDORIGEM` nulos (antes: `origem='ADTOFORN'` e só `DATA_FECHAMENTO`). O editar atualiza as três datas
+  (pas:409-414), não `DATA_FECHAMENTO`.

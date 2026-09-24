@@ -5,6 +5,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ConfigService } from '../cadastro/config.service';
+import { DocumentosContabilService } from './documentos-contabil.service';
 import { assertPeriodoNaoFechado, type BloqPeriodo } from '../shared/periodo-contabil';
 
 type AnyDB = Kysely<any>;
@@ -32,7 +33,20 @@ export class AdiantamentoFornService {
   constructor(
     private readonly dbp: DatabaseProvider,
     private readonly config: ConfigService,
+    private readonly docs: DocumentosContabilService,
   ) {}
+
+  /** com a integração AUTOMÁTICA, contabiliza o adiantamento depois de gravar — `IntegraAdiantamento` num try/except
+   *  vazio (uCadAdiantamentoFornecedor.pas:420-423 e 740-750): o erro não desfaz a gravação */
+  private async integrarSeAutomatica(emp: number, cod: number): Promise<void> {
+    try {
+      const e = (await sql<{ integracao: string | null }>`SELECT integracao FROM empresas WHERE idempresa = ${emp}`.execute(this.dbp.forTenantRead() as AnyDB)).rows[0];
+      if (String(e?.integracao ?? '') !== 'AUTOMATICA') return;
+      await this.docs.integrar('ADTO', { dataIni: '1900-01-01', dataFim: '2999-12-31', codigo: cod });
+    } catch {
+      /* best-effort, como o legado */
+    }
+  }
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -212,7 +226,7 @@ export class AdiantamentoFornService {
   async criar(dto: AdiantamentoCriarDto): Promise<{ codadiantamento: number; tipo: string; codmovconta: number; codrcb: number | null; codapg: number | null; saldo: number }> {
     const emp = this.emp();
     const op = this.op();
-    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+    const res = await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const { tipo, idsituacao_nf } = await this.tipoDoDocumento(trx, dto);
       await assertPeriodoNaoFechado(trx, emp, dto.dtadiantamento, this.flagPeriodo());
       await this.assertParceiro(trx, dto.codparceiro, idsituacao_nf, emp);
@@ -237,9 +251,10 @@ export class AdiantamentoFornService {
         .insertInto('mov_contas_bancarias')
         .values({
           codconta: dto.codcontacorrente, idempresa: emp, valor, tipomovimento: tipo === 'D' ? 'D' : 'C',
-          codopconta: 0, origem: 'ADTOFORN', historico,
+          codopconta: 0, historico,
           idpgto: await this.idpgtoMovimento(trx, emp, codbco), codoperador: op,
-          data_fechamento: dto.dtadiantamento, dtcadastro: sql`now()`,
+          // o movimento do legado: emissão, vencimento e liberação na data do adiantamento, LIBERADO 'S' (produção)
+          dtemissao: dto.dtadiantamento, dtvenc: dto.dtadiantamento, dtliberacao: dto.dtadiantamento, liberado: 'S', dtcadastro: sql`now()`,
         })
         .returning('codmovconta')
         .executeTakeFirstOrThrow()) as { codmovconta: number };
@@ -256,8 +271,8 @@ export class AdiantamentoFornService {
         .returning('codadiantamento')
         .executeTakeFirstOrThrow()) as { codadiantamento: number };
       const cod = Number(ins.codadiantamento);
-      // fecha o vínculo inverso no movimento (o `origem`/`idorigem` genéricos do razão + a coluna própria).
-      await trx.updateTable('mov_contas_bancarias').set({ codadiantamento: cod, idorigem: cod }).where('codmovconta', '=', codmovconta).where('idempresa', '=', emp).execute();
+      // fecha o vínculo inverso no movimento (MOV_CONTAS_BANCARIAS.CODADIANTAMENTO, pas:396-401).
+      await trx.updateTable('mov_contas_bancarias').set({ codadiantamento: cod }).where('codmovconta', '=', codmovconta).where('idempresa', '=', emp).execute();
 
       // 2) o título. Comum aos dois lados: DUPLICATA = o código, NRODUP=1, TIPODOC='A VISTA', ADFORNECEDOR='S'.
       const comum = {
@@ -287,6 +302,8 @@ export class AdiantamentoFornService {
       }
       return { codadiantamento: cod, tipo, codmovconta, codrcb, codapg, saldo: await this.saldoDinheiro(trx, dto.codcontacorrente, emp) };
     });
+    await this.integrarSeAutomatica(emp, res.codadiantamento);
+    return res;
   }
 
   /**
@@ -365,21 +382,13 @@ export class AdiantamentoFornService {
     // o legado testa o período com a data de HOJE (GetDataHoraServidor), não com a data do registro.
     await assertPeriodoNaoFechado(trx, emp, new Date().toISOString(), this.flagPeriodo());
     if (String(a.quitada ?? 'N') === 'S') throw new BusinessRuleError('ADIANTAMENTO_BAIXADO', { codadiantamento: cod, operacao });
-    // VerificaContabilizado: o legado ESTORNA a contabilização quando a empresa é INTEGRACAO='AUTOMATICA'. A
-    // integração contábil DO ADIANTAMENTO (TIntegracaoAdiantamento) não está migrada — bloquear é o fail-closed:
-    // liberar a edição deixaria o lançamento contábil velho de pé.
-    if (String(a.contabilizado ?? '') === 'S') throw new BusinessRuleError('ADIANTAMENTO_CONTABILIZADO', { codadiantamento: cod, operacao });
-    // movimento já CONCILIADO com o extrato OFX: conciliacao_bancaria_mov aponta p/ codmovconta SEM FK, e o match
-    // é por data+valor — apagar/alterar aqui deixaria a conciliação mentindo (mesmo gate do Controle de Contas).
-    if (a.codmovconta != null) {
-      const mov = (await trx
-        .selectFrom('mov_contas_bancarias')
-        .select(['codmovconta', 'mov_conciliado'])
-        .where('codmovconta', '=', Number(a.codmovconta))
-        .where('idempresa', '=', emp)
-        .forUpdate()
-        .executeTakeFirst()) as { mov_conciliado?: string } | undefined;
-      if (mov && String(mov.mov_conciliado ?? 'N') === 'S') throw new BusinessRuleError('MOVIMENTO_CONCILIADO', { codadiantamento: cod, codmovconta: Number(a.codmovconta), operacao });
+    // VerificaContabilizado (pas:777-806): contabilizado só barra sem a integração AUTOMÁTICA ("Não é permitido editar/excluir
+    // esta conta pois já foi contabilizada."); com ela, estorna o razão e segue — 23 dos 24 adiantamentos de 2025-26 são
+    // contabilizados. A conciliação do movimento o legado não olha (MOV_CONCILIADO só aparece na tela de conciliação).
+    if (String(a.contabilizado ?? '') === 'S') {
+      const e = (await trx.selectFrom('empresas').select('integracao').where('idempresa', '=', emp).executeTakeFirst()) as { integracao?: string | null } | undefined;
+      if (String(e?.integracao ?? '') !== 'AUTOMATICA') throw new BusinessRuleError('ADIANTAMENTO_CONTABILIZADO', { codadiantamento: cod, operacao });
+      await this.docs.estornarAdiantamentoNaTrx(trx, cod);
     }
     return {
       tipo: String(a.tipo), codmovconta: a.codmovconta == null ? null : Number(a.codmovconta),
@@ -393,13 +402,13 @@ export class AdiantamentoFornService {
   async editar(dto: AdiantamentoEditarDto): Promise<{ codadiantamento: number; tipo: string; titulo_atualizado: boolean }> {
     const emp = this.emp();
     const op = this.op();
-    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+    const res = await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const atual = await this.paraAlterar(trx, emp, dto.codadiantamento, 'editar');
       // a data NOVA também passa pelo gate de período (fold auditoria [MÉDIA]): senão editar jogaria o registro, o
       // movimento e o título para dentro de um período fechado, contornando o gate da criação.
       await assertPeriodoNaoFechado(trx, emp, dto.dtadiantamento, this.flagPeriodo());
-      const { dtchaveamento } = await this.conta(trx, atual.codcontacorrente, emp, true);
-      this.assertChaveamento(dtchaveamento, dto.dtadiantamento, atual.codcontacorrente);
+      // o chaveamento da conta NÃO é testado no editar: o edtNroContaExit só valida com FlagGravacao=0 (pas:582-600) e o
+      // btnEditarClick põe 1 (pas:208)
       await this.assertParceiro(trx, dto.codparceiro, atual.idsituacao_nf, emp);
       const valor = r2(num(dto.valor));
       await trx
@@ -414,7 +423,7 @@ export class AdiantamentoFornService {
         // histórico do movimento é o do lançamento original.
         await trx
           .updateTable('mov_contas_bancarias')
-          .set({ valor, data_fechamento: dto.dtadiantamento })
+          .set({ valor, dtemissao: dto.dtadiantamento, dtvenc: dto.dtadiantamento, dtliberacao: dto.dtadiantamento })
           .where('codmovconta', '=', atual.codmovconta)
           .where('idempresa', '=', emp)
           .execute();
@@ -444,6 +453,8 @@ export class AdiantamentoFornService {
       // tipo 'E': o legado não tem ramo de UPDATE (só 'C' e 'D') — o APAGAR fica com os valores antigos.
       return { codadiantamento: dto.codadiantamento, tipo: atual.tipo, titulo_atualizado };
     });
+    await this.integrarSeAutomatica(emp, dto.codadiantamento); // o estorno do paraAlterar volta a contabilizar com o dado novo
+    return res;
   }
 
   /** EXCLUIR: apaga o movimento e o título junto com o registro (btnExcluirClick). */
