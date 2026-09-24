@@ -362,14 +362,24 @@ export class ControleContasService {
       await this.conta(trx, dto.codorigem, 'habilitar_tranfer');
       const orig = await this.contaCompleta(trx, dto.codorigem, null);
       const dest = await this.contaCompleta(trx, dto.coddestino, null);
-      // a matriz de transferências permitidas (mig 295): origem com linhas ativas só vai para os destinos listados
-      const permitidos = await destinosPermitidos(trx, dto.codorigem);
+      const ctx = { empresaId: emp, operadorId: op, modulo: 'Retaguarda' };
+      // a matriz de transferências permitidas (mig 295): origem com linhas ativas só vai para os destinos listados — ligada por
+      // INFORMAR_CONTAS_TRANSFERENCIA_BANCARIA (binário novo; 'S' no módulo Retaguarda da produção). Só o 'N' explícito a desliga.
+      const informarContas = String((await configNaTrx(trx, 'INFORMAR_CONTAS_TRANSFERENCIA_BANCARIA', ctx)) ?? 'S').toUpperCase();
+      const permitidos = informarContas === 'N' ? null : await destinosPermitidos(trx, dto.codorigem);
       if (permitidos && !permitidos.includes(dto.coddestino)) {
         throw new BusinessRuleError('TRANSFERENCIA_NAO_PERMITIDA', { origem: dto.codorigem, destino: dto.coddestino, permitidos });
       }
       // NAO_PERMITIDO_ALTERAR_DATA_TRANSF_MOV_CONTAS_BANCARIAS (por usuário) desabilita a data: vale o dia
-      const travaData = await configNaTrx(trx, 'NAO_PERMITIDO_ALTERAR_DATA_TRANSF_MOV_CONTAS_BANCARIAS', { empresaId: emp, operadorId: op, modulo: 'Retaguarda' });
+      const travaData = await configNaTrx(trx, 'NAO_PERMITIDO_ALTERAR_DATA_TRANSF_MOV_CONTAS_BANCARIAS', ctx);
       const data = travaData === 'S' || !dto.data ? hoje() : dto.data.slice(0, 10);
+      // a janela de datas do binário novo: DIAS_RETROATIVOS_TRANSF_CONTAS_CORRENTES (90 na produção) e DIAS_FUTUROS_… (30) —
+      // nenhuma transferência de 2025-26 saiu dela (0 com mais de 90 dias para trás, 0 com mais de 30 para frente)
+      const retro = num(await configNaTrx(trx, 'DIAS_RETROATIVOS_TRANSF_CONTAS_CORRENTES', ctx));
+      const futuro = num(await configNaTrx(trx, 'DIAS_FUTUROS_TRANSF_CONTAS_CORRENTES', ctx));
+      const dias = Math.round((Date.parse(data) - Date.parse(hoje())) / 86_400_000);
+      if (retro > 0 && -dias > retro) throw new BusinessRuleError('TRANSFERENCIA_DATA_RETROATIVA', { data, dias: retro });
+      if (futuro > 0 && dias > futuro) throw new BusinessRuleError('TRANSFERENCIA_DATA_FUTURA', { data, dias: futuro });
       // "Caixa FECHADO não é permitida alteração dos documentos!" — o chaveamento de cada conta (`:156-183`)
       for (const c of [orig, dest]) {
         if (c.dtchaveamento && data <= c.dtchaveamento) throw new BusinessRuleError('CONTA_CAIXA_FECHADA', { codconta: c.codconta, ate: c.dtchaveamento });

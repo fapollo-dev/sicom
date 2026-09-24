@@ -21162,6 +21162,18 @@ async function main() {
         const trN = await fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H, body: JSON.stringify({ codorigem: kc, coddestino: semVinculo, valor: 1 }) });
         const semVin = await fetch(`${base}/${CC}/saldo?codconta=${semVinculo}`, { headers: H });
         const trSem = await fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codorigem: kc, coddestino: semVinculo, valor: 1 }) });
+        await pgK.query(`UPDATE contas_bancarias_op SET habilitar_tranfer = 'S' WHERE codconta = $1 AND codoperador = 7`, [kc]);
+        await pgK.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, config_especificas_permitidas, descricao) VALUES
+            (991201, 'DIAS_RETROATIVOS_TRANSF_CONTAS_CORRENTES', '90', 'texto', 'Modulo', 'smoke'), (991202, 'DIAS_FUTUROS_TRANSF_CONTAS_CORRENTES', '30', 'texto', 'Modulo', 'smoke')
+            ON CONFLICT DO NOTHING`);
+        const diaRel = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }); };
+        const trRetro = await fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H, body: JSON.stringify({ codorigem: kc, coddestino: semVinculo, valor: 1, data: diaRel(-120) }) });
+        const trFut = await fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H, body: JSON.stringify({ codorigem: kc, coddestino: semVinculo, valor: 1, data: diaRel(40) }) });
+        await pgK.query(`DELETE FROM configuracoes WHERE id IN (991201, 991202)`);
+        check('CONTA-CC §198.5: a janela do binário novo — transferência 120 dias para trás (limite 90) → 422 TRANSFERENCIA_DATA_RETROATIVA; 40 para frente (limite 30) → 422 TRANSFERENCIA_DATA_FUTURA',
+          trRetro.status === 422 && ((await trRetro.json().catch(() => ({}))) as any).code === 'TRANSFERENCIA_DATA_RETROATIVA'
+          && trFut.status === 422 && ((await trFut.json().catch(() => ({}))) as any).code === 'TRANSFERENCIA_DATA_FUTURA', { trRetro: trRetro.status, trFut: trFut.status });
+        await pgK.query(`UPDATE contas_bancarias_op SET habilitar_tranfer = 'N' WHERE codconta = $1 AND codoperador = 7`, [kc]);
         check('CONTA-CC §198.4: HABILITAR_TRANFER N na conta → 422 CONTA_ACAO_NAO_PERMITIDA; conta sem vínculo com o operador → 422 CONTA_CORRENTE_NAO_ENCONTRADA; transferir sem a opção BTNFECHA → 403',
           trN.status === 422 && ((await trN.json().catch(() => ({}))) as any).code === 'CONTA_ACAO_NAO_PERMITIDA'
           && semVin.status === 422 && ((await semVin.json().catch(() => ({}))) as any).code === 'CONTA_CORRENTE_NAO_ENCONTRADA' && trSem.status === 403,

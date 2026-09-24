@@ -210,6 +210,8 @@ const CODE_PT: Record<string, string> = {
   TRANSFERENCIA_NAO_PERMITIDA: 'Esta conta só pode transferir para as contas cadastradas como permitidas.',
   TRANSFERENCIA_MESMA_CONTA: 'A conta de destino deve ser diferente da conta de origem.',
   TRANSFERENCIA_CONTABILIZADA: 'A transferência já foi contabilizada.',
+  TRANSFERENCIA_DATA_RETROATIVA: 'A data da transferência passa do limite de dias retroativos permitido.',
+  TRANSFERENCIA_DATA_FUTURA: 'A data da transferência passa do limite de dias futuros permitido.',
   CONTA_CAIXA_FECHADA: 'Caixa FECHADO não é permitida alteração dos documentos!',
   CONTA_CORRENTE_NAO_ENCONTRADA: 'Conta corrente não encontrada ou sem vínculo com o operador.',
   CONTA_ACAO_NAO_PERMITIDA: 'O operador não tem permissão para esta ação nesta conta corrente.',

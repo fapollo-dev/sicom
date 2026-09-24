@@ -444,3 +444,10 @@ liberados, documento; grade na ordem do legado — emissão com hora, depois o c
 títulos": o lote, ou o de reversão, em ARECEBER_BX → consulta do a receber, APAGAR_BX → do a pagar, CARTAO_BX → cartão). As
 consultas de baixa abrem o lote vindo por `?lote=`. A tela troca o extrato pelo detalhamento, com Títulos/Liberar/Mudar data/
 Remover por linha. Smoke §200 (2 casos). Falta: o estilo caixa (UNION por título) e as impressões (corte E).
+
+## 15. Transferência — as configs do binário novo (24/09/2026)
+
+`DIAS_RETROATIVOS_TRANSF_CONTAS_CORRENTES` (90 no módulo Retaguarda e nas empresas 1/2) e `DIAS_FUTUROS_…` (30) viraram janela
+da data da transferência — o dado confirma: 0 transferências de 2025-26 com mais de 90 dias para trás ou 30 para frente (512
+inserções). `INFORMAR_CONTAS_TRANSFERENCIA_BANCARIA` liga a matriz de destinos permitidos ('S' no Retaguarda); só o 'N'
+explícito a desliga. As mensagens não têm fonte (binário novo) e são do Apollo. Smoke §198.5.
