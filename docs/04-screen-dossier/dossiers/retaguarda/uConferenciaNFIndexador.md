@@ -82,3 +82,20 @@ Aqui as divisões usam `NULLIF`: o item aparece, com o encargo em zero, e o conf
 
 ✅ **exportar a grade (`[F10]`)** foi implementado: leva o que está na tela, já filtrado, para CSV com `;` e
 BOM UTF-8 — que é o que o Excel em português espera.
+
+## Cadastro do indexador (`FRMCADINDEXADORTRIBUTARIO`) — correção de fidelidade (24/09/2026)
+
+Achada ao escrever a LOG da tela (a amostra da produção tinha OPERACAO 'Z', que o Apollo recusava).
+
+- **Operação:** as 10 do legado (T, R, Z, C, F, S, D, I, N, Y), com o rótulo do CST. O Apollo aceitava só T/I/S/N/F e recusava a mais usada da produção, C = CST 010 (3.400 indexadores), além de Z (782), R (162), Y e D. O motor fiscal já conhecia as 10.
+- **Tipo da figura:** F/I/C/S (ou vazio), derivado da CLASSIFICACAO do parceiro, travado como na tela do legado. O Apollo aceitava só S/N e inventava o "N"; recusava editar os 4 F e o 1 I da produção.
+- **Duplicado:** o legado recusa só o indexador igual em **todos** os campos, incluindo alíquotas, MVA e reduções. O Apollo recusava pela figura + discriminadores, sem olhar nem a operação. A produção tem 159 grupos (330 indexadores) iguais nesses campos e diferentes nos valores, e editar qualquer um deles era recusado.
+- **Regras do Gravar que faltavam** (`btnGravarClick`, :273-370):
+  - Obrigatórios: UFs, tipo de cadastro, operação, figura e CFOP.
+  - CFOP x401/x403 exige MVA > 0, salvo empresa do Simples ou operação F.
+  - MVA só nos CFOPs de ST (`EnableDisableMVA`), e nos de remessa com operação C/F/Z. Fora deles: "Não informar MVA para itens tributados!".
+  - CPF com alíquota fonte: zera.
+  - Editar o desativado: "Não é possível alterar o registro, pois ele foi desativado.".
+- **Mantido, com nota:** a recusa do indexador sem nenhum discriminador (EAN, NCM ou fornecedor). A produção tem 29 assim, todos de 2017-2020; nenhum depois.
+- **LOG "Indexador Tributário":** Inseriu/Alterou na ordem do legado (5.030 + 183 desde 2025).
+- **Smoke §125 ajustado** (CFOP de ST) e **§193**.

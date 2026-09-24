@@ -15692,14 +15692,15 @@ async function main() {
       const IT = 'cadastro/indexador-tributario';
       const pgIt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       try {
-        const figura = { tp_cadastro: 'F', tp_figura: 'N', codfigurafiscal: 7799, origem: 'MG', destino: 'MG', codcfop: 1102, operacao: 'T', aliquota_dest: 18, icm_fonte: 12, mva: 45, redcom: 100, reducao: 100, aliquota_fem: 0, st_externo: 'N' };
+        // CFOP 1403 (entrada com ST): o legado só aceita MVA nos CFOPs de ST (`EnableDisableMVA`)
+        const figura = { tp_cadastro: 'F', codfigurafiscal: 7799, origem: 'MG', destino: 'MG', codcfop: 1403, operacao: 'T', aliquota_dest: 18, icm_fonte: 12, mva: 45, redcom: 100, reducao: 100, aliquota_fem: 0, st_externo: 'N' };
         // três indexadores na MESMA figura, cada um com um discriminador diferente
         const porNcm  = await fetch(`${base}/${IT}`, { method: 'POST', headers: H, body: JSON.stringify({ ...figura, ncm: '99887766' }) });
         const porEan  = await fetch(`${base}/${IT}`, { method: 'POST', headers: H, body: JSON.stringify({ ...figura, ncm: '99887766', codbarra: '7899999000001', mva: 60 }) });
         const porParc = await fetch(`${base}/${IT}`, { method: 'POST', headers: H, body: JSON.stringify({ ...figura, ncm: '99887766', codparceiro: 2, mva: 30 }) });
         const semNada = await fetch(`${base}/${IT}`, { method: 'POST', headers: H, body: JSON.stringify(figura) });
         const dup     = await fetch(`${base}/${IT}`, { method: 'POST', headers: H, body: JSON.stringify({ ...figura, ncm: '99887766' }) });
-        check('INDEXADOR §125.1 [a chave é COMPOSTA, e o mesmo NCM tem vários]: três indexadores convivem no mesmo NCM, um por discriminador (NCM puro, NCM+EAN, NCM+fornecedor) — no cliente são **12.053 indexadores para 1.075 NCMs**, e o `19053100` sozinho tem **285**. ⚠️ um indexador **sem nenhum** discriminador seria curinga universal no OR-null da resolução, e é recusado (400); e repetir figura+discriminadores é recusado também (422), porque o segundo nunca seria escolhido',
+        check('INDEXADOR §125.1 [a chave é COMPOSTA, e o mesmo NCM tem vários]: três indexadores convivem no mesmo NCM, um por discriminador (NCM puro, NCM+EAN, NCM+fornecedor) — no cliente são **12.053 indexadores para 1.075 NCMs**, e o `19053100` sozinho tem **285**. ⚠️ um indexador **sem nenhum** discriminador seria curinga universal no OR-null da resolução, e é recusado (400); e repetir o indexador IGUAL em todos os campos é recusado (422 "Indexador ja cadastrado com estes parâmetros"), como no legado',
           porNcm.status === 201 && porEan.status === 201 && porParc.status === 201
           && semNada.status === 400 && dup.status === 422,
           { porNcm: porNcm.status, porEan: porEan.status, porParc: porParc.status, semNada: semNada.status, duplicado: dup.status });
@@ -20596,6 +20597,47 @@ async function main() {
       } finally {
         await pgEb.query(`DELETE FROM log WHERE formulario = 'Exportar para balança'`).catch(() => undefined);
         await pgEb.end();
+      }
+    }
+    // ══ §193 LOG "Indexador Tributário" (o form-base com o DataSet: Inseriu e Alterou, na ordem do legado) ══
+    {
+      const pgIx = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      let cod = 0;
+      try {
+        const corpo = { tp_cadastro: 'F', tp_figura: 'N', codfigurafiscal: 7793, origem: 'MG', destino: 'MG', codcfop: 1403, operacao: 'Z', aliquota_dest: 18, icm_fonte: 18,
+          mva: 15, redcom: 38.89, reducao: 38.89, aliquota_fem: 0, st_externo: 'N', ncm: '02032293' };
+        const resp = await fetch(`${base}/cadastro/indexador-tributario`, { method: 'POST', headers: H, body: JSON.stringify(corpo) });
+        const r = (await resp.json()) as any;
+        cod = Number(r.codindexadortributario);
+        await fetch(`${base}/cadastro/indexador-tributario/${cod}`, { method: 'PUT', headers: H, body: JSON.stringify({ ...corpo, mva: 20 }) });
+        const logs = (await pgIx.query(`SELECT acao, chave, historico FROM log WHERE formulario = 'Indexador Tributário' AND valor = $1 ORDER BY idlog`, [cod])).rows as any[];
+        const ins = logs.find((l) => l.acao === 'Inseriu');
+        const alt = logs.find((l) => l.acao === 'Alterou');
+        // as regras do Gravar do legado (uCadIndexadorTributario.pas:273-370)
+        const post = async (b: Record<string, unknown>) => { const x = await fetch(`${base}/cadastro/indexador-tributario`, { method: 'POST', headers: H, body: JSON.stringify(b) }); return { status: x.status, j: (await x.json().catch(() => ({}))) as any }; };
+        const opC = await post({ ...corpo, ncm: '02032294', operacao: 'C' });
+        const outroMva = await post({ ...corpo, mva: 25 });
+        const semMva = await post({ ...corpo, ncm: '02032295', mva: 0, operacao: 'T' });
+        const mvaIndevido = await post({ ...corpo, ncm: '02032296', codcfop: 1102, mva: 10 });
+        const semCfop = await post({ ...corpo, ncm: '02032297', codcfop: null });
+        await pgIx.query(`UPDATE indexador_tributario SET indr = 'E' WHERE codindexadortributario = $1`, [Number(opC.j.codindexadortributario)]);
+        const desativ = await fetch(`${base}/cadastro/indexador-tributario/${Number(opC.j.codindexadortributario)}`, { method: 'PUT', headers: H, body: JSON.stringify({ ...corpo, ncm: '02032294', operacao: 'C' }) });
+        const desativJ = (await desativ.json().catch(() => ({}))) as any;
+        await pgIx.query(`DELETE FROM indexador_tributario WHERE codindexadortributario = ANY($1::int[])`, [[opC.j.codindexadortributario, outroMva.j.codindexadortributario].map(Number).filter(Boolean)]);
+        check('INDEXADOR §193.2 [as regras do legado]: a operação C (CST 010, a mais usada da produção) é aceita; o mesmo indexador com outro MVA NÃO é duplicado (o legado compara todos os campos); CFOP 1403 sem MVA → 422 "Para o CFOP informado o MVA precisa ter um valor válido maior que zero!"; MVA num CFOP sem ST (1102) → 422 "Não informar MVA para itens tributados!"; sem CFOP → 422 dos obrigatórios; editar o desativado → 422',
+          opC.status === 201 && outroMva.status === 201 && semMva.status === 422 && semMva.j.code === 'INDEXADOR_MVA_OBRIGATORIO'
+          && mvaIndevido.status === 422 && mvaIndevido.j.code === 'INDEXADOR_MVA_NAO_PERMITIDO' && [400, 422].includes(semCfop.status)
+          && desativ.status === 422 && desativJ.code === 'INDEXADOR_DESATIVADO',
+          { opC: [opC.status, opC.j], outroMva: [outroMva.status, outroMva.j], semMva: [semMva.status, semMva.j.code], mvaIndevido: [mvaIndevido.status, mvaIndevido.j.code], semCfop: [semCfop.status, semCfop.j.code], desativ: [desativ.status, desativJ.code] });
+        check('LOG §193 [indexador tributário]: incluir grava a Inseriu (chave CODINDEXADORTRIBUTARIO) com os campos do legado na ordem dele — a alíquota de destino como ALIQUOTA, a redução com vírgula (38,89) —; alterar grava a Alterou só com o MVA (15 → 20)',
+          ins?.chave === 'CODINDEXADORTRIBUTARIO' && ins.historico.includes(`CAMPO: CODINDEXADORTRIBUTARIO   VALOR: ${cod}`) && ins.historico.includes('CAMPO: ALIQUOTA   VALOR: 18')
+          && ins.historico.includes('CAMPO: REDUCAO   VALOR: 38,89') && ins.historico.indexOf('CAMPO: TP_CADASTRO') < ins.historico.indexOf('CAMPO: ORIGEM')
+          && alt?.historico.includes('CAMPO: MVA    VALOR ANTERIOR: 15    VALOR ATUAL: 20') && !alt.historico.includes('CAMPO: NCM'),
+          { cod, logs });
+      } finally {
+        await pgIx.query(`DELETE FROM log WHERE formulario = 'Indexador Tributário' AND valor = $1`, [cod]).catch(() => undefined);
+        await pgIx.query(`DELETE FROM indexador_tributario WHERE codindexadortributario = $1`, [cod]).catch(() => undefined);
+        await pgIx.end();
       }
     }
   } finally {

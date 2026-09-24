@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { PageHeader } from '@apollosg/design-system';
 import {
-  isErroResposta, OPERACOES_INDEXADOR, TIPOS_CADASTRO_INDEXADOR,
+  isErroResposta, OPERACAO_INDEXADOR_ROTULO, OPERACOES_INDEXADOR, TIPOS_CADASTRO_INDEXADOR,
   type ErroResposta, type IndexadorTributarioDto,
 } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
@@ -39,7 +39,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 const vazio = (): IndexadorTributarioDto => ({
-  tp_cadastro: 'F', tp_figura: 'N', codfigurafiscal: null, origem: 'MG', destino: 'MG',
+  tp_cadastro: 'F', tp_figura: null, codfigurafiscal: null, origem: 'MG', destino: 'MG',
   codcfop: null, operacao: 'T', codbarra: null, ncm: null, codparceiro: null, cnpj_cpf: null,
   aliquota_dest: 18, icm_fonte: 12, mva: 0, redcom: 100, reducao: 100, aliquota_fem: 0,
   st_externo: 'N', basesemreducao: null, base_st_com_reducao: null,
@@ -173,13 +173,13 @@ export function IndexadorTributarioPage() {
               Operação
               <select className="h-9 rounded-radius-sm border border-border bg-bg-base px-pad-sm"
                 value={form.operacao ?? 'T'} onChange={(e) => setForm({ ...form, operacao: e.target.value as 'T' })}>
-                {OPERACOES_INDEXADOR.map((o) => <option key={o} value={o}>{o}</option>)}
+                {OPERACOES_INDEXADOR.map((o) => <option key={o} value={o}>{o} — {OPERACAO_INDEXADOR_ROTULO[o]}</option>)}
               </select>
             </label>
-            <label className="flex items-center gap-gp-xs text-body-sm">
-              <input type="checkbox" checked={form.tp_figura === 'S'} onChange={(e) => setForm({ ...form, tp_figura: e.target.checked ? 'S' : 'N' })} />
-              Fornecedor do Simples
-            </label>
+            {/* o tipo da figura vem da classificação do parceiro (a tela do legado o trava): só mostra */}
+            <small className="self-center text-fg-muted">
+              Tipo da figura: {({ F: 'Fornecedor/Atacado', I: 'Indústria', C: 'Comércio', S: 'Simples Nacional' } as Record<string, string>)[String(form.tp_figura ?? '')] ?? '—'}
+            </small>
           </div>
 
           <div className="flex flex-wrap items-end gap-gp-sm">
