@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | RECON em andamento (23/09/2026). Não existe no Apollo. |
+| **Status** | **C1 ENTREGUE** (23/09/2026, smoke 1482/0): `nf-vendas.service.ts` + `NfVendasModal` + disparo pela situação 'VE'. C2/C3 abaixo. |
 | **Fonte** | `uNF.pas:1774` (opção 1) → `ImportaVenda` (:13201-13475), `IncluiProd` (:13637-13810), `RealizaAjusteDeValores` (:13066), `SetaPedido` com `VendaNFC='S'` (:15914 — referência da NFC-e), gravação `fListaImportacaoVendas` (:5236-5247) |
 | **Disparo** | situação 9 "NOTA FISCAL DE CUPOM" com `IMPORTACAO_AUTO_NF='VE'` (uNF.pas:14396) |
 | **Uso** | **170 NFs em 2024, 337 em 2025, 375 em 2026** (CFOP 5929/6929), crescendo. NF_REFERENCIA modelo 65: 458 referências em 375 NFs de 2026. |
@@ -39,17 +39,29 @@
   a referência no Apollo tem de ir pela CHAVE (`vendas.chavenfe`, derivada na carga — `extrair.py` CALCULADAS).
 - A OBS das NFs traz "Notas Fiscais Ref.: <chaves>" (montada na transmissão a partir da NF_REFERENCIA).
 
-## 3. Perguntas abertas (antes do corte 1)
+## 3. Respostas do recon (produção, 23/09/2026)
 
-1. A regra do CST no binário novo (medir: CST do item × CST/`pis_cst` da VENDA, pessoa física/jurídica, contribuinte).
-2. `RealizaAjusteDeValores` (:13066) — o que ajusta quando agrupa.
-3. `GET_VENDAS` (view da produção) e `cdsVenda` (udmNF.dfm) — colunas e filtros.
-4. A marcação `VENDAS.IMPORTADO` e o `CODPARCEIRO` gravado na venda (conferir no dado).
+1. **CST com o ICMS zerado** (binário novo; o fonte forçava 41 em MG): pessoa física → **41** (857 de 863);
+   CNPJ com a venda em ST (`VENDAS.ICMS_CST='60'`) → **60** (743/743); CNPJ não contribuinte (`CONTRIBUINTE_ICMS='9'`)
+   com a venda isenta (40) → **40** (505/527); demais CNPJ → **90** (476/530). ~95% no total; fora de MG, o CST da
+   alíquota (o fonte). Os desvios podem ser parceiro que mudou de cadastro depois da nota.
+2. `RealizaAjusteDeValores`: no agrupado, o unitário anda de 0,0001 até o total da linha (arredondado/truncado pelo
+   IAT) bater com a soma das linhas dos cupons, quando a diferença é de até R$ 0,09 — só acontece com quantidade
+   fracionada (VRVENDA tem 2 casas no legado).
+3. `GET_VENDAS` agrupa por `CODVENDAS` = o CUPOM (1.085 cupons, 4.741 itens num dia). A carga renomeia o CODVENDAS do
+   legado para `codvendas_legado` (o nosso `codvendas` é o id da linha) — é por ele que o Apollo agrupa e liga a
+   PEDIDO_NF 'V'.
+4. `VENDAS.IMPORTADO='S'` em 431 pedidos de 2026 (375 NFs, 458 referências NFC-e); a NFC-e liga pela referência
+   modelo 65, a PEDIDO_NF 'V' só existe para cupom ECF (0 nas NFs de 2026).
 5. `IncluiProdDevoucaoVendas` (:13818) é a opção de ENTRADA (devolução de venda, situação 2) — 1 por ano, depois.
 
 ## 4. Cortes propostos
 
-- **C1** — pesquisa das vendas + prévia (itens com os valores/descontos/alíquota da venda, ICMS zerado, CFOP,
-  agrupamento + ajuste) + referência NFC-e pela chave + vínculo no gravar (`VENDAS.IMPORTADO`, `CODPARCEIRO`).
-- **C2** — travas: NFC-e não autorizada, reimportação com senha ADM, cupom ECF na OBS.
-- **C3** — `SUBSTITUI_FINANCEIRO_GERAR_NF` e o estorno no cancelamento/exclusão.
+- **C1** ✅ — pesquisa dos cupons por período (a VENDAS é grande), prévia (itens com o valor/IAT/descontos/alíquota da
+  venda, CFOP 5929/6929 pela UF do cliente do cupom, agrupamento + ajuste, ICMS zerado com o CST medido), NFC-e não
+  processada fica de fora, reimportação só com a senha administrativa (a senha de operação 'admin'), NFC-e
+  referenciada pela CHAVE (modelo 65), cupom ECF na OBS; vínculo no gravar (`VENDAS.IMPORTADO` + CODPARCEIRO do
+  cupom, PEDIDO_NF 'V' do ECF, `SUBSTITUI_FINANCEIRO_GERAR_NF` apaga o AR do cupom); estorno na exclusão e no
+  cancelamento (`AtualizaStatusCupomFiscal`); a situação com `IMPORTACAO_AUTO_NF='VE'` abre a importação.
+- **C2** — a mensagem "Notas Fiscais Ref.: <chaves>" na OBS (montada na transmissão) e a DEVOLUÇÃO DE VENDA de entrada
+  (`IncluiProdDevoucaoVendas`, situação 'DE', 1 por ano).

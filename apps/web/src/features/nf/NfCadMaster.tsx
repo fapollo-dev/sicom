@@ -31,6 +31,8 @@ import { NfRotativoModal } from './NfRotativoModal';
 import { NfLoteModal } from './NfLoteModal';
 import { NfScrapModal } from './NfScrapModal';
 import { vincularScrapNf, type CredenciaisLiberacao } from './nfScrapApi';
+import { NfVendasModal } from './NfVendasModal';
+import { vincularVendasNf } from './nfVendasApi';
 import { vincularNfRotativo, type LadoRotativoNf } from '../inventario-rotativo/inventarioRotativoApi';
 import { createResourceApi } from '../../shared/cadmaster/resourceApi';
 import { recalcularNf } from './nfFiscalApi';
@@ -898,6 +900,9 @@ function ItensSection({
   // `fListaImportacaoScrap` e marca IMPORTADO no `btnGravar` (uNF.pas:5251); a liberação da reimportação vai junto
   const [scrapAberto, setScrapAberto] = useState(false);
   const pendenteScrap = useRef<{ codscraps: number[]; credenciais: CredenciaisLiberacao } | null>(null);
+  // IMPORTAR VENDAS — a NF de cupom (uNF.pas:13201): os cupons ficam pendentes até a nota ser gravada (uNF.pas:5236)
+  const [vendasAberto, setVendasAberto] = useState(false);
+  const pendenteVendas = useRef<{ codvendas: number[]; senhaAdm?: string } | null>(null);
   // IMPORTAÇÃO AUTOMÁTICA da situação (IMPORTACAO_AUTO_NF, uNF.pas:14396; UCadSituacaoNF.md C6): escolher na nota de
   // saída uma situação com 'SC' abre a importação do SCRAP (a 90 da produção). As outras origens do legado (VE vendas,
   // DE devolução de venda…) ainda não existem no Apollo — ver a FILA
@@ -911,6 +916,9 @@ function ItensSection({
     if (o?.importacaoAuto === 'SC') {
       mensagem.sucesso('A importação de SCRAP será iniciada, conforme configuração na situação de documento.');
       setScrapAberto(true);
+    } else if (o?.importacaoAuto === 'VE') {
+      mensagem.sucesso('A importação de VENDAS será iniciada, conforme configuração na situação de documento.');
+      setVendasAberto(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sitWatch]);
@@ -925,6 +933,15 @@ function ItensSection({
         if (r.recusados.length) mensagem.erro(`Lote(s) ${r.recusados.map((x) => x.lote).join(', ')} não vinculado(s): já importado(s) em outra nota.`);
         else mensagem.sucesso(`Inventário rotativo vinculado à nota ${codnfAtual} (lotes ${r.carimbados.join(', ')}).`);
       })
+      .catch((e) => mensagem.erro(e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codnfAtual]);
+  useEffect(() => {
+    const p = pendenteVendas.current;
+    if (codnfAtual == null || !p) return;
+    pendenteVendas.current = null;
+    vincularVendasNf(Number(codnfAtual), { codvendas: p.codvendas, ...(p.senhaAdm ? { senhaAdm: p.senhaAdm } : {}) })
+      .then((r) => mensagem.sucesso(`${r.vinculados.length} cupom(ns) vinculado(s) à nota ${codnfAtual}.`))
       .catch((e) => mensagem.erro(e));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codnfAtual]);
@@ -1086,7 +1103,33 @@ function ItensSection({
           {form.getValues('tipo') === 'S' && (
             <Button label="Importar &SCRAP" variant="soft" onClick={() => setScrapAberto(true)} />
           )}
+          {form.getValues('tipo') === 'S' && (
+            <Button label="Importar &vendas" variant="soft" onClick={() => setVendasAberto(true)} />
+          )}
         </div>
+        {vendasAberto && (
+          <NfVendasModal
+            onFechar={() => setVendasAberto(false)}
+            onConfirmar={({ previa, senhaAdm }) => {
+              let n = proximoNroItem();
+              for (const it of previa.itens) append({ ...it, importado_de: 'VENDAS', nroitem: n++ });
+              // o cliente do cupom, o CFOP 5929/6929, as NFC-e referenciadas e os cupons ECF na OBS (ImportaVenda)
+              if (previa.codparceiro != null) form.setValue('codparceiro' as any, previa.codparceiro);
+              if (previa.codparceiro_end != null) form.setValue('codparceiro_end' as any, previa.codparceiro_end);
+              form.setValue('cfop' as any, String(previa.cfop));
+              const refs = (form.getValues('referencias' as any) ?? []) as Array<Record<string, unknown>>;
+              form.setValue('referencias' as any, [...refs, ...previa.referencias.filter((r) => !refs.some((x) => x.chavenfe === r.chavenfe))]);
+              if (previa.obs) {
+                const obsAtual = String(form.getValues('obs' as any) ?? '').trim();
+                form.setValue('obs' as any, obsAtual ? `${obsAtual}\n${previa.obs}` : previa.obs);
+              }
+              const p = pendenteVendas.current;
+              pendenteVendas.current = { codvendas: Array.from(new Set([...(p?.codvendas ?? []), ...previa.cupons])), senhaAdm: senhaAdm ?? p?.senhaAdm };
+              setVendasAberto(false);
+              mensagem.sucesso(`${previa.itens.length} item(ns) de ${previa.cupons.length} cupom(ns) incluído(s). Os cupons serão vinculados quando a nota for gravada.`);
+            }}
+          />
+        )}
         {scrapAberto && (
           <NfScrapModal
             onFechar={() => setScrapAberto(false)}

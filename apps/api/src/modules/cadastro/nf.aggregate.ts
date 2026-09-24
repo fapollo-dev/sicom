@@ -10,6 +10,7 @@ import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 import { leitorCfopsDaSituacao } from './nf-cfop-situacao';
 import { normalizarItensNf } from './nf-item-padrao';
 import { estornarVinculoScrap } from './nf-scrap.service';
+import { estornarVinculoVendas } from './nf-vendas.service';
 import { preencherRateioContabil } from './nf-rateio';
 
 /**
@@ -307,6 +308,8 @@ export const nfAggregateConfig: AggregateConfig = {
     const nf = (await db.selectFrom('nf').select('tipo').where('codnf', '=', id).where('idempresa', '=', emp).executeTakeFirst()) as { tipo?: string } | undefined;
     if (!nf) return;
     await estornarVinculoRotativo(db, id, nf.tipo ?? null, emp);
+    // os cupons da NF de cupom voltam a "não importado" (AtualizaStatusCupomFiscal) — antes de a PEDIDO_NF sair
+    await estornarVinculoVendas(db, id, nf.tipo ?? null);
     // o scrap importado nesta nota volta a "não importado" e a PEDIDO_NF da nota sai (udmNF.pas:3217; uNF.pas:4216)
     await estornarVinculoScrap(db, id, nf.tipo ?? null, true);
   },
@@ -322,7 +325,7 @@ export const nfAggregateConfig: AggregateConfig = {
       chaveNatural: ['codproduto'],
       preservarNaoGerenciadas: true,
       colunas: [
-        'nroitem', 'codproduto', 'idproduto_filho', 'codprodnota', 'quantidade', 'fatorembal', 'unidade',
+        'nroitem', 'codproduto', 'idproduto_filho', 'nroitem_venda', 'codprodnota', 'quantidade', 'fatorembal', 'unidade',
         'geraestoque', 'movimenta_estoque',
         'vrvenda', 'vrcusto', 'desconto', 'vrdescprod', 'bonificacao',
         'cfop', 'ncm', 'cest', 'origem_estoque', 'aliquota', 'icms', 'cst', 'csosn',
@@ -364,7 +367,7 @@ export const nfAggregateConfig: AggregateConfig = {
       // "todos os campos" (mig 310): o que o cadastro não gerencia sobrevive ao save (lição 124)
       preservarNaoGerenciadas: true,
       chave: 'referencias',
-      colunas: ['codnf_ref', 'chave_ref', 'valor_ref'],
+      colunas: ['codnf_ref', 'chave_ref', 'valor_ref', 'modelo', 'chavenfe'],
     },
     // F5 — rateio contábil (CODCONTABILNF): config armazenada na transação do agregado (sem efeito).
     // codcc = PLC (centro de custo gerencial). Soma = TOTALNF é validada no schema (validaRateioContabil).

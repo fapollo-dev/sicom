@@ -100,7 +100,8 @@ export const nfItemSchema = z.object({
   idproduto_filho: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()), // o produto filho (NF_PROD.IDPRODUTO_FILHO)
   // TRANSITÓRIO (não é coluna): o item veio de uma importação (scrap, rotativo) e não do diálogo do item — o legado só
   // confere o CFOP×situação do item digitado (uItensNF.pas:1525); o importado passa no gravar (UCadSituacaoNF.md C2)
-  importado_de: z.enum(['SCRAP', 'ROTATIVO']).optional(),
+  importado_de: z.enum(['SCRAP', 'ROTATIVO', 'VENDAS']).optional(),
+  nroitem_venda: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()), // o item do cupom (NF de cupom)
   quantidade: z.preprocess(
     (v) => (typeof v === 'string' ? Number(v) : v),
     z.number({ message: 'Informe a quantidade do item.' }).positive('A quantidade deve ser maior que zero.'),
@@ -161,6 +162,9 @@ export const nfReferenciaSchema = z.object({
   codnf_ref: z.number().int().optional(),
   chave_ref: opcional(z.string().trim().max(44)),
   valor_ref: dec(z.number().nonnegative()),
+  // o documento referenciado: 65 = NFC-e (a NF de cupom referencia a NFC-e pela CHAVE — a NFC não migra), 55 = NF-e
+  modelo: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()),
+  chavenfe: opcional(z.string().trim().max(44)),
 });
 export type NfReferenciaDto = z.infer<typeof nfReferenciaSchema>;
 
@@ -555,3 +559,10 @@ export const importarScrapNfSchema = z.object({
   senha: z.string().max(100).optional(),
 });
 export type ImportarScrapNfDto = z.infer<typeof importarScrapNfSchema>;
+
+/** importar VENDAS (cupons) na NF de saída — a NF de cupom (uNF.pas:13201): os cupons e, para o já importado, a senha ADM */
+export const importarVendasNfSchema = z.object({
+  codvendas: z.array(z.coerce.number().int().positive()).min(1, 'Selecione ao menos um cupom.'),
+  senhaAdm: z.string().max(100).optional(),
+});
+export type ImportarVendasNfDto = z.infer<typeof importarVendasNfSchema>;

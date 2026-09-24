@@ -10,6 +10,7 @@ import { NfContabilizacaoService } from './nf-contabilizacao.service';
 import { ConfigService } from './config.service';
 import { InventarioRotativoService } from './inventario-rotativo.service';
 import { estornarVinculoScrap } from './nf-scrap.service';
+import { estornarVinculoVendas } from './nf-vendas.service';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -274,6 +275,7 @@ export class NfNfeService {
       await this.invRotativo.estornarVinculo(trx, codnf, nf.tipo ?? null, emp);
       // o scrap importado volta a "não importado" (AtualizaStatusScrap taCancelar, udmNF.pas:3217); a PEDIDO_NF fica
       await estornarVinculoScrap(trx, codnf, nf.tipo ?? null, false);
+      await estornarVinculoVendas(trx, codnf, nf.tipo ?? null); // os cupons voltam a "não importado" (AtualizaStatusCupomFiscal)
 
       await trx
         .insertInto('nfe_evento')

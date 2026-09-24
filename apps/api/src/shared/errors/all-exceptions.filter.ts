@@ -507,6 +507,12 @@ const CODE_PT: Record<string, string> = {
   NF_CFOP_SITUACAO: 'CFOP não permitido para a situação informada para a nota fiscal. Verifique!',
   NF_ITEM_CFOP_SITUACAO: 'CFOP não permitido para a situação informada no item. Verifique!',
   NF_BCR_MAIOR_100: 'Atenção: O valor da base de cálculo do ICMS é maior que 100%!',
+  // a NF de cupom — importar VENDAS (uNF.pas:13201)
+  VENDA_NAO_ENCONTRADA: 'Cupom não encontrado nesta empresa (ou cancelado).',
+  VENDA_NFC_NAO_PROCESSADA: 'Os cupons selecionados ainda não foram processados e não podem ser importados.',
+  VENDA_JA_IMPORTADA: 'Cupom fiscal já importado. Informe a senha administrativa para continuar.',
+  PERIODO_OBRIGATORIO: 'Informe o período (data inicial e final).',
+  SENHA_ADM_INVALIDA: 'Senha administrativa inválida.',
   // restrições da situação do documento fora da NF (UCadSituacaoNF.md C5) — as mensagens de cada tela do legado
   SITUACAO_FORNECEDOR_NAO_PERMITIDO: 'O fornecedor informado não é permitido para a situação do documento selecionada.',
   SITUACAO_CLIENTE_NAO_PERMITIDO: 'O cliente informado não é permitido para a situação do documento selecionada.',

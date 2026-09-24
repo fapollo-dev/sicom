@@ -4116,6 +4116,63 @@ async function main() {
         await fetch(`${base}/fiscal/nf/${Number(nfB.codnf)}/scrap`, { method: 'POST', headers: H, body: JSON.stringify({ codscraps: [scB] }) });
         const prB = await fetch(`${base}/fiscal/nf/${Number(nfB.codnf)}/processar`, { method: 'POST', headers: H });
         const saldoDepoisB = await saldoSc();
+        // 47b.12) A NF DE CUPOM — importar VENDAS (ImportaVenda, uNF.pas:13201): três cupons de hoje — A NFC-e autorizada
+        // (produto 1 em duas linhas que o agrupamento junta e o ajuste acerta, produto 2 com desconto de promoção), B NFC-e
+        // NÃO processada (fica de fora), C cupom ECF (vai na OBS e liga pela PEDIDO_NF 'V')
+        for (const [cod, v] of [['AGRUPA_PRODUTO_IMPORT_VENDA', 'S'], ['ZERAR_ICMS_IMPORTACAO_CUPOM', 'S']] as const) {
+          await pgSc.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, descricao, config_especificas_permitidas)
+            SELECT (SELECT coalesce(max(id),0)+1 FROM configuracoes), $1::text, 'N', 'String', $1::text, 'Modulo;Empresa' WHERE NOT EXISTS (SELECT 1 FROM configuracoes WHERE codigo=$1::text)`, [cod]);
+          await pgSc.query(`UPDATE configuracoes SET config_especificas_permitidas='Modulo;Empresa' WHERE codigo=$1::text`, [cod]);
+          await pgSc.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) SELECT id, 'Modulo', 'Retaguarda', $2::text FROM configuracoes WHERE codigo=$1::text
+            ON CONFLICT (id, tipo, chave) DO UPDATE SET valor=$2::text`, [cod, v]);
+        }
+        await pgSc.query(`INSERT INTO cfop (codcfop, descricao, tipo) VALUES ('5929','LANCAMENTO RELATIVO A CUPOM FISCAL','S'), ('6929','LANCAMENTO RELATIVO A CUPOM FISCAL','S') ON CONFLICT DO NOTHING`);
+        await pgSc.query(`INSERT INTO vendas (codvendas_legado, idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, aliquota, cancelado, venda_nfc, statusnfe, chavenfe, codnfc, codparceiro, desc_promocao, icms_cst) VALUES
+          (880001, 1, now(), 'PED-A', '1', 101, 1, 1, 0.333, 9.99, 5, 'A', 'T01', 'N', 'S', 'P', '31260900000000000000650010000001011000000011', 5001, 20, 0, '00'),
+          (880001, 1, now(), 'PED-A', '1', 101, 2, 1, 0.333, 9.99, 5, 'A', 'T01', 'N', 'S', 'P', '31260900000000000000650010000001011000000011', 5001, 20, 0, '00'),
+          (880001, 1, now(), 'PED-A', '1', 101, 3, 2, 3, 5, 2, 'T', 'T01', 'N', 'S', 'P', '31260900000000000000650010000001011000000011', 5001, 20, 1.5, '60'),
+          (880002, 1, now(), 'PED-B', '1', 202, 1, 1, 1, 7, 3, 'A', 'T01', 'N', 'S', NULL, NULL, NULL, 20, 0, '00'),
+          (880003, 1, now(), 'PED-C', '1', 303, 1, 2, 2, 5, 2, 'A', 'T01', 'N', 'N', NULL, NULL, NULL, 20, 0, '00')`);
+        const hojeBr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+        const cup = (await (await fetch(`${base}/fiscal/nf/vendas/disponiveis?data_ini=${hojeBr}&data_fim=${hojeBr}`, { headers: H })).json().catch(() => [])) as any[];
+        const vp = await fetch(`${base}/fiscal/nf/vendas/previa`, { method: 'POST', headers: H, body: JSON.stringify({ codvendas: [880001, 880002, 880003] }) });
+        const vpJ = (await vp.json().catch(() => ({}))) as any;
+        const vp1 = (vpJ.itens ?? []).find((i: any) => Number(i.codproduto) === 1);
+        const vp2 = (vpJ.itens ?? []).filter((i: any) => Number(i.codproduto) === 2);
+        check('NF DE CUPOM prévia: a pesquisa lista os 3 cupons do dia · a NFC-e não processada fica de fora · cliente do cupom (20, em MA × empresa MG → 6929) · produto 1 em duas linhas vira UMA (0,666 kg) e o ajuste acerta o unitário até bater com os cupons (3,33 + 3,33 = 6,66; 9,99 daria 6,65 → 9,9925) · produto 2 de dois cupons num item só (qtde 5) com o desconto da promoção em R$ · ICMS zerado · 1 NFC-e referenciada pela chave · o cupom ECF 303 na OBS',
+          Array.isArray(cup) && [880001, 880002, 880003].every((c) => cup.some((x) => Number(x.codvendas) === c))
+          && vp.status === 200 && (vpJ.naoProcessados ?? []).includes(880002) && Number(vpJ.codparceiro) === 20 && vpJ.cfop === '6929'
+          && Number(vp1?.quantidade) === 0.666 && Math.abs(Number(vp1?.vrcusto) - 9.9925) < 0.00001 && vp1?.importado_de === 'VENDAS'
+          && vp2.length === 1 && Number(vp2[0].quantidade) === 5 && Number(vp2[0].vrdescprod) === 1.5 && (vpJ.itens ?? []).every((i: any) => Number(i.vricm ?? 0) === 0 && Number(i.icms ?? 0) === 0)
+          && (vpJ.referencias ?? []).length === 1 && (vpJ.referencias ?? [])[0].modelo === 65 && String(vpJ.obs).includes('303'),
+          { status: vpJ.code ?? vp.status, cupons: Array.isArray(cup) ? cup.length : cup, nao: vpJ.naoProcessados, cab: [vpJ.codparceiro, vpJ.cfop], p1: vp1 && [vp1.quantidade, vp1.vrcusto], p2: vp2.map((i: any) => [i.quantidade, i.vrdescprod]), refs: vpJ.referencias, obs: vpJ.obs });
+
+        // gravar + vincular: VENDAS.IMPORTADO nos dois cupons, PEDIDO_NF 'V' do ECF, a referência modelo 65 com a chave
+        const nfCup = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'S', modelo: 55, serie: '1', dtemissao: hojeBr, dtcontabil: hojeBr, tipoemissao: '0', finalidade: '1',
+          codparceiro: vpJ.codparceiro, codparceiro_end: vpJ.codparceiro_end, cfop: vpJ.cfop, nronf: 'CUPOM1', obs: vpJ.obs, itens: vpJ.itens, referencias: vpJ.referencias }) });
+        const nfCupJ = (await nfCup.json().catch(() => ({}))) as any;
+        const vinC = await fetch(`${base}/fiscal/nf/${Number(nfCupJ.codnf)}/vendas`, { method: 'POST', headers: H, body: JSON.stringify({ codvendas: vpJ.cupons }) });
+        const impV = (await pgSc.query(`SELECT codvendas_legado AS c, importado FROM vendas WHERE codvendas_legado IN (880001, 880002, 880003) GROUP BY codvendas_legado, importado ORDER BY 1`)).rows as any[];
+        const pnC = (await pgSc.query(`SELECT codpedido FROM pedido_nf WHERE codnf=$1 AND tipo='V'`, [Number(nfCupJ.codnf)])).rows.map((r: any) => Number(r.codpedido));
+        const refC = (await pgSc.query(`SELECT modelo, chavenfe FROM nf_referencia WHERE codnf=$1`, [Number(nfCupJ.codnf)])).rows as any[];
+        // reimportar A: sem senha → 422; com a senha administrativa → 200
+        const re1V = await fetch(`${base}/fiscal/nf/vendas/previa`, { method: 'POST', headers: H, body: JSON.stringify({ codvendas: [880001] }) });
+        const re1VJ = (await re1V.json().catch(() => ({}))) as any;
+        const admHash0 = (await pgSc.query(`SELECT senha_admin_hash FROM empresas WHERE idempresa=1`)).rows[0]?.senha_admin_hash ?? null;
+        await fetch(`${base}/cadastro/senha-operacao`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'admin', senha: 'adm-cupom-1' }) });
+        const re2V = await fetch(`${base}/fiscal/nf/vendas/previa`, { method: 'POST', headers: H, body: JSON.stringify({ codvendas: [880001], senhaAdm: 'adm-cupom-1' }) });
+        await pgSc.query(`UPDATE empresas SET senha_admin_hash=$1 WHERE idempresa=1`, [admHash0]); // o resto do smoke conta com a senha como estava
+        // excluir a NF devolve os cupons (AtualizaStatusCupomFiscal)
+        const delCup = await fetch(`${base}/fiscal/nf/${Number(nfCupJ.codnf)}`, { method: 'DELETE', headers: H });
+        const impV2 = (await pgSc.query(`SELECT DISTINCT importado FROM vendas WHERE codvendas_legado IN (880001, 880003)`)).rows.map((r: any) => r.importado);
+        check('NF DE CUPOM gravar: a NF grava com os itens e a referência NFC-e (modelo 65 + chave) · o vínculo marca IMPORTADO=S nos cupons A e C (B segue N) e liga o ECF pela PEDIDO_NF V · reimportar A sem senha → 422 VENDA_JA_IMPORTADA, com a senha administrativa → 200 · excluir a NF devolve os dois cupons a N',
+          nfCup.status === 201 && vinC.status === 200
+          && impV.find((r) => Number(r.c) === 880001)?.importado === 'S' && impV.find((r) => Number(r.c) === 880003)?.importado === 'S' && (impV.find((r) => Number(r.c) === 880002)?.importado ?? 'N') !== 'S'
+          && pnC.length === 1 && pnC[0] === 880003 && refC.length === 1 && Number(refC[0].modelo) === 65 && String(refC[0].chavenfe).length === 44
+          && re1V.status === 422 && re1VJ.code === 'VENDA_JA_IMPORTADA' && re2V.status === 200
+          && delCup.status === 204 && impV2.length === 1 && impV2[0] === 'N',
+          { nf: [nfCup.status, nfCupJ.code], vin: vinC.status, imp: impV, pn: pnC, ref: refC, re: [re1V.status, re1VJ.code, re2V.status], del: delCup.status, depois: impV2 });
+
         check('SCRAP→NF estorno e baixa: excluir a NF devolve o scrap a IMPORTADO=N e apaga a PEDIDO_NF · a NF do scrap B processada baixa o estoque (−4); o scrap segue sem MOV_ESTOQUE',
           delA.status === 204 && impA2 === 'N' && pnA2 === 0 && prB.status === 200 && saldoDepoisB === saldoAntesB - 4
           && (await pgSc.query(`SELECT mov_estoque FROM scrap WHERE codscrap=$1`, [scB])).rows[0]?.mov_estoque == null,
@@ -17157,7 +17214,7 @@ async function main() {
         const outra = await fetch(`${base}/${DV}/registrar`, { method: 'POST', headers: j, body: JSON.stringify({ itens: [{ codvendas: 99420004, nroitem: 1, codproduto: 994201, qtdeDevolvido: 1 }] }) });
         const outraJ = (await outra.json().catch(() => ({}))) as any;
         // a devolução é gravada com a data de HOJE (a venda é que tem data futura na fixture)
-        const hojeDv = new Date().toISOString().slice(0, 10);
+        const hojeDv = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date()); // o dia da LOJA, não o de UTC
         const cons = (await (await fetch(`${base}/${DV}?dataIni=${hojeDv}&dataFim=${hojeDv}`, { headers: H })).json().catch(() => ({}))) as any;
         check('DEVOLUÇÃO DE VENDAS §152.3 [as recusas + a consulta]: devolver mais do que foi vendido é 422 QTDE_DEVOLVIDA_EXCEDE (3 vendidos, 10 pedidos); item de venda de OUTRA loja é 422 ITEM_VENDA_NAO_ENCONTRADO (tenant); a consulta do dia (a devolução nasce com a data de HOJE, não a da venda) mostra a devolução com o motivo e o valor',
           excede.status === 422 && excedeJ.code === 'QTDE_DEVOLVIDA_EXCEDE'
