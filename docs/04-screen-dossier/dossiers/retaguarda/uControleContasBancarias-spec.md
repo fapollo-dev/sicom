@@ -435,3 +435,12 @@ empresa — o legado aceita também a senha de retaguarda de qualquer operador e
 valor com sinal (crédito/débito), histórico padrão "SALDO INICIAL", data (retroativa, binário novo), LIBERADO 'S' com
 emissão = vencimento = liberação na data, operação 0, operador, `LANCAMENTO_SALDO='S'` e `USUCAD_LANCAMENTO_SALDO`, trava de
 chaveamento, sem teste de saldo. A exclusão do lançamento (4 em 2025+) é a remoção da movimentação sem lote (corte da §5).
+
+## 14. Conversão — corte B, detalhamento (24/09/2026)
+
+`GET detalhamento` (período padrão hoje, data de emissão/vencimento/liberação pelo dia no fuso da loja, Todos/Liberados/Não
+liberados, documento; grade na ordem do legado — emissão com hora, depois o código — com as 13 colunas; limite 20.000; rodapé de
+7 totais com saldo anterior; com o período vazio o anterior aparece — divergência consciente) e `GET :id/titulos` ("Visualizar
+títulos": o lote, ou o de reversão, em ARECEBER_BX → consulta do a receber, APAGAR_BX → do a pagar, CARTAO_BX → cartão). As
+consultas de baixa abrem o lote vindo por `?lote=`. A tela troca o extrato pelo detalhamento, com Títulos/Liberar/Mudar data/
+Remover por linha. Smoke §200 (2 casos). Falta: o estilo caixa (UNION por título) e as impressões (corte E).

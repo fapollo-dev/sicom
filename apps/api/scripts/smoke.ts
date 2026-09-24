@@ -21209,6 +21209,45 @@ async function main() {
         await pgL.end();
       }
     }
+
+    // ══ §200 CONTROLE DE CONTAS, corte B — o Detalhamento da conta: filtros, ordem do legado, rodapé de 7 totais e Visualizar títulos
+    {
+      const pgD = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const CC = 'cadastro/controle-contas';
+      try {
+        const bancoReal = Number((await pgD.query(`SELECT codbco FROM bancos WHERE codbco > 0 ORDER BY codbco LIMIT 1`)).rows[0]?.codbco ?? 1);
+        const dc = Number((await pgD.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular, nroconta) VALUES ($1,1,'CONTA DETALHE 200','D-200') RETURNING codconta`, [bancoReal])).rows[0].codconta);
+        await pgD.query(`INSERT INTO contas_bancarias_op (codconta, codoperador) VALUES ($1,7)`, [dc]);
+        const ins = async (valor: number, tipo: string, lib: string | null, quando: string, doc: string | null = null, idlote: number | null = null) =>
+          Number((await pgD.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, codopconta, liberado, dtemissao, dtvenc, nrodocumento, idlote, historico)
+            VALUES ($1,1,$2,$3,0,$4,$5::timestamptz,$5::timestamptz,$6,$7,'det 200') RETURNING codmovconta`, [dc, valor, tipo, lib, quando, doc, idlote])).rows[0].codmovconta);
+        await ins(100, 'C', 'S', '2026-09-01 08:00-03');
+        await ins(50, 'C', 'S', '2026-09-10 15:00-03');
+        await ins(20, 'D', 'N', '2026-09-10 09:00-03');
+        const loteAp = Number((await pgD.query(`SELECT nextval('seq_idlote') AS id`)).rows[0].id);
+        const tAp = Number((await pgD.query(`INSERT INTO apagar (codparceiro, codempresa, valor, quitada, agrupado) VALUES (22,1,5,'S','N') RETURNING codapg`)).rows[0].codapg);
+        await pgD.query(`INSERT INTO apagar_bx (codapg, codempresa, valorpg, dtpgto, idlote, indr) VALUES ($1,1,5,'2026-09-11',$2,'I')`, [tAp, loteAp]);
+        const mAp = await ins(5, 'D', 'S', '2026-09-11 10:00-03', 'CHQ 123', loteAp);
+        const mSem = await ins(1, 'C', 'S', '2026-09-11 11:00-03');
+        const det = async (q: string) => (await (await fetch(`${base}/${CC}/detalhamento?codconta=${dc}&dtini=2026-09-10&dtfim=2026-09-11${q}`, { headers: H })).json().catch(() => ({}))) as any;
+        const d = await det('');
+        const dLib = await det('&liberado=LIBERADOS');
+        const dDoc = await det('&documento=CHQ');
+        check('CONTA-CC §200.1: o detalhamento de 10 a 11/09 traz 4 linhas na ordem do legado (emissão com hora: 09:00 antes de 15:00) e o rodapé — anterior 100, entradas 51, saídas 25, período 46 (liberado), a prazo −20, futuro 26, atual 146; Liberados → 3 linhas; documento "CHQ" → 1',
+          (d.movimentos ?? []).length === 4 && d.movimentos[0].dtemissao === '2026-09-10 09:00' && d.movimentos[1].dtemissao === '2026-09-10 15:00'
+          && Number(d.totais?.anterior) === 100 && Number(d.totais?.entradas) === 51 && Number(d.totais?.saidas) === 25 && Number(d.totais?.periodo) === 46
+          && Number(d.totais?.a_prazo) === -20 && Number(d.totais?.futuro) === 26 && Number(d.totais?.atual) === 146
+          && (dLib.movimentos ?? []).length === 3 && (dDoc.movimentos ?? []).length === 1,
+          { n: (d.movimentos ?? []).length, totais: d.totais, lib: (dLib.movimentos ?? []).length, doc: (dDoc.movimentos ?? []).length });
+        const vt = (await (await fetch(`${base}/${CC}/${mAp}/titulos`, { headers: H })).json().catch(() => ({}))) as any;
+        const vtSem = await fetch(`${base}/${CC}/${mSem}/titulos`, { headers: H });
+        check('CONTA-CC §200.2: Visualizar títulos — o movimento do lote de baixa de A Pagar aponta o lote e o tipo AP; o sem lote → 422 MOVIMENTO_SEM_TITULOS',
+          vt.lote === loteAp && vt.tipo === 'AP' && vt.revertido === false && vtSem.status === 422 && ((await vtSem.json().catch(() => ({}))) as any).code === 'MOVIMENTO_SEM_TITULOS',
+          { vt, vtSem: vtSem.status });
+      } finally {
+        await pgD.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

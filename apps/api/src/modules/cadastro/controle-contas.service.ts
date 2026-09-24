@@ -130,6 +130,77 @@ export class ControleContasService {
     return { codconta, entradas, saidas, a_prazo: aPrazo, futuro: r2(saldo + aPrazo), saldo };
   }
 
+  /**
+   * DETALHAMENTO DA CONTA (`UconsMovBancaria`, FRMCONSMOVBANCARIAS): o período (padrão hoje), a data do filtro (emissão,
+   * vencimento ou liberação — `TRUNC(data) BETWEEN`), Todos/Liberados/Não liberados e o documento (F3). A grade na ordem do
+   * legado (`ORDER BY MOV.DTEMISSAO, MOV.CODMOVCONTA`, com a hora) e o rodapé de 7 totais (`cdsSaldoDet`, .pas:418-489): Saldo
+   * anterior (liberado até a véspera do início), Entradas, Saídas, Saldo do período (liberado), Total a prazo, Saldo futuro
+   * (período + a prazo) e Saldo atual (período + anterior). Com o período vazio o legado apaga o rodapé inteiro (inclusive o
+   * anterior) — aqui o anterior aparece (divergência consciente).
+   */
+  async detalhamento(f: { codconta: number; dtini?: string; dtfim?: string; liberado?: string; dataDe?: string; documento?: string }): Promise<Record<string, unknown>> {
+    this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    await this.conta(db, f.codconta, 'habiltiar_detalhar_conta');
+    const ini = (f.dtini ?? hoje()).slice(0, 10);
+    const fim = (f.dtfim ?? hoje()).slice(0, 10);
+    const col = f.dataDe === 'vencimento' ? sql`m.dtvenc` : f.dataDe === 'liberacao' ? sql`m.dtliberacao` : sql`coalesce(m.dtemissao, m.data_fechamento)`;
+    const dia = sql`(${col} AT TIME ZONE 'America/Sao_Paulo')::date`;
+    const filtroLib = f.liberado === 'LIBERADOS' ? sql`AND m.liberado = 'S'` : f.liberado === 'NAO' ? sql`AND coalesce(m.liberado, 'N') <> 'S'` : sql``;
+    const doc = f.documento?.trim() ? sql`AND m.nrodocumento ILIKE ${'%' + f.documento.trim() + '%'}` : sql``;
+    const sinal = sql`CASE WHEN m.tipomovimento = 'D' THEN -m.valor ELSE m.valor END`;
+    const rows = (await sql<Record<string, unknown>>`
+      SELECT m.codmovconta, m.idlote, m.nrodocumento, ${sinal} AS valor,
+             to_char(coalesce(m.dtemissao, m.data_fechamento) AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD HH24:MI') AS dtemissao,
+             to_char(m.dtvenc AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS dtvenc, to_char(m.dtliberacao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS dtliberacao,
+             coalesce(m.liberado, 'N') AS liberado, m.tipomovimento, m.historico, m.codoperador, o.nome AS operador, f.modalidade, oc.descricao AS operacao,
+             m.contabilizado, m.idlote_reversao, m.revertido, m.mov_conciliado, m.origem
+        FROM mov_contas_bancarias m
+        LEFT JOIN operacoes_conta oc ON oc.codopconta = m.codopconta
+        LEFT JOIN formas_pgto f ON f.idpgto = m.idpgto
+        LEFT JOIN operadores o ON o.codoperador = m.codoperador
+       WHERE m.codconta = ${f.codconta} AND ${dia} BETWEEN ${ini}::date AND ${fim}::date ${filtroLib} ${doc}
+       ORDER BY coalesce(m.dtemissao, m.data_fechamento), m.codmovconta
+       LIMIT 20000`.execute(db)).rows;
+    const t = (await sql<Record<string, unknown>>`
+      SELECT coalesce(sum(CASE WHEN ${dia} BETWEEN ${ini}::date AND ${fim}::date AND m.tipomovimento <> 'D' THEN m.valor ELSE 0 END), 0) AS entradas,
+             coalesce(sum(CASE WHEN ${dia} BETWEEN ${ini}::date AND ${fim}::date AND m.tipomovimento = 'D' THEN m.valor ELSE 0 END), 0) AS saidas,
+             coalesce(sum(CASE WHEN ${dia} BETWEEN ${ini}::date AND ${fim}::date AND m.liberado = 'S' THEN ${sinal} ELSE 0 END), 0) AS periodo,
+             coalesce(sum(CASE WHEN ${dia} BETWEEN ${ini}::date AND ${fim}::date AND coalesce(m.liberado, 'N') <> 'S' THEN ${sinal} ELSE 0 END), 0) AS a_prazo,
+             coalesce(sum(CASE WHEN ${dia} < ${ini}::date AND m.liberado = 'S' THEN ${sinal} ELSE 0 END), 0) AS anterior
+        FROM mov_contas_bancarias m
+       WHERE m.codconta = ${f.codconta} ${filtroLib} ${doc}`.execute(db)).rows[0] ?? {};
+    const periodo = r2(num(t.periodo));
+    const aPrazo = r2(num(t.a_prazo));
+    const anterior = r2(num(t.anterior));
+    return {
+      codconta: f.codconta, dtini: ini, dtfim: fim,
+      movimentos: rows.map((m) => ({ ...m, codmovconta: Number(m.codmovconta), valor: r2(num(m.valor)) })),
+      totais: { anterior, entradas: r2(num(t.entradas)), saidas: r2(num(t.saidas)), periodo, a_prazo: aPrazo, futuro: r2(periodo + aPrazo), atual: r2(periodo + anterior) },
+    };
+  }
+
+  /**
+   * "Visualizar títulos" (UconsMovBancaria.pas:986-1061): o lote do movimento (o de reversão, se for um contra-movimento) e onde
+   * ele está — baixa de A Receber, de A Pagar ou de cartão. "Movimentação não possui lançamento de baixa a receber, a pagar ou cartão."
+   */
+  async titulosDoMovimento(codmovconta: number): Promise<{ lote: number; tipo: 'AR' | 'AP' | 'CARTAO'; revertido: boolean }> {
+    this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const m = (await sql<{ codconta: number; idlote: number | null; idlote_reversao: number | null; revertido: string | null }>`
+      SELECT codconta, idlote, idlote_reversao, revertido FROM mov_contas_bancarias WHERE codmovconta = ${codmovconta}`.execute(db)).rows[0];
+    if (!m) throw new BusinessRuleError('MOVIMENTO_NAO_ENCONTRADO', { codmovconta });
+    await this.conta(db, Number(m.codconta), 'habiltiar_detalhar_conta');
+    const lote = num(m.idlote_reversao) > 0 ? num(m.idlote_reversao) : num(m.idlote);
+    const revertido = num(m.idlote_reversao) > 0 || String(m.revertido ?? '') === 'S';
+    if (lote > 0) {
+      if ((await sql`SELECT 1 FROM areceber_bx WHERE idlote = ${lote} LIMIT 1`.execute(db)).rows.length) return { lote, tipo: 'AR', revertido };
+      if ((await sql`SELECT 1 FROM apagar_bx WHERE idlote = ${lote} LIMIT 1`.execute(db)).rows.length) return { lote, tipo: 'AP', revertido };
+      if (!revertido && (await sql`SELECT 1 FROM cartao_bx WHERE idlote = ${lote} LIMIT 1`.execute(db)).rows.length) return { lote, tipo: 'CARTAO', revertido };
+    }
+    throw new BusinessRuleError(revertido ? 'MOVIMENTO_REVERTIDO_SEM_TITULOS' : 'MOVIMENTO_SEM_TITULOS', { codmovconta });
+  }
+
   /** extrato: movimentos da conta (mais recentes primeiro, até 5000) + saldo corrente por linha. O header usa o
    *  saldo VERDADEIRO (Σ ALL — fold auditoria [MÉDIA]: antes o header vinha do Σ das 5000 mais ANTIGAS → errado numa
    *  conta com >5000 mov.). O saldo corrente é ancorado no saldo até dtfim (após o mais recente exibido) e desce. */

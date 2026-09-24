@@ -215,6 +215,8 @@ const CODE_PT: Record<string, string> = {
   CONTA_ACAO_NAO_PERMITIDA: 'O operador não tem permissão para esta ação nesta conta corrente.',
   MOVIMENTO_NAO_LIBERADO: 'Não é possivel alterar a data de documentos não liberados!',
   MODALIDADE_NAO_ENCONTRADA: 'Modalidade não encontrada!',
+  MOVIMENTO_SEM_TITULOS: 'Movimentação não possui lançamento de baixa a receber, a pagar ou cartão.',
+  MOVIMENTO_REVERTIDO_SEM_TITULOS: 'Não é possível detalhar uma movimentação de cartão/cheque que foi revertida.',
   MOVIMENTO_COM_LOTE: 'Esse documento não pode ser excluído, pois contém referência de lote.',
   SALDO_INSUFICIENTE: 'Saldo insuficiente na conta para este lançamento.',
   CLUBE_DESCONTO_SOBREPOSTO: 'Já existe regra igual para este produto na mesma vigência — o PDV não teria como escolher.',

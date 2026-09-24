@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '@apollosg/design-system';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
@@ -28,6 +28,7 @@ interface Detalhe { lote: number; semLote: boolean; revertido: boolean; parcialm
 export function ConsApgBxPage() {
   const mensagem = useMensagem();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [f, setF] = useState({ dataIni: inicioDoMes(), dataFim: hoje(), codparceiro: '', situacao: 'todos' });
   const [lotes, setLotes] = useState<LoteResumo[] | null>(null);
   const [det, setDet] = useState<Detalhe | null>(null);
@@ -56,7 +57,12 @@ export function ConsApgBxPage() {
   const abrir = async (lote: number) => {
     setOcupado(true);
     try { setDet(await pedir<Detalhe>(`${BASE}/cobranca/cons-apg-bx/${lote}`)); } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
-  };
+  };  // o "Visualizar títulos" do controle de contas chega com o lote (UconsMovBancaria.pas:986-1061)
+  useEffect(() => {
+    const lote = Number(params.get('lote') ?? 0);
+    if (lote) void abrir(lote);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const reverter = async () => {
     if (!det) return;
     if (!window.confirm('Tem certeza que deseja reverter todos os documentos deste lote?')) return;

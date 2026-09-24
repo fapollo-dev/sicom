@@ -73,3 +73,18 @@ export function liberarMovimentos(body: { codconta: number; codmovcontas: number
 export function mudarDataLiberacao(codmovconta: number, data: string): Promise<{ codmovconta: number; dtliberacao: string }> {
   return req(`/cadastro/controle-contas/${codmovconta}/data-liberacao`, { method: 'POST', body: JSON.stringify({ data }) });
 }
+export interface DetMov {
+  codmovconta: number; idlote: number | null; nrodocumento: string | null; valor: number; dtemissao: string | null; dtvenc: string | null; dtliberacao: string | null;
+  liberado: string; tipomovimento: string; historico: string | null; codoperador: number | null; operador: string | null; modalidade: string | null; operacao: string | null;
+  contabilizado: string | null; idlote_reversao: number | null; revertido: string | null; mov_conciliado: string | null; origem: string | null;
+}
+export interface Detalhamento { codconta: number; dtini: string; dtfim: string; movimentos: DetMov[]; totais: { anterior: number; entradas: number; saidas: number; periodo: number; a_prazo: number; futuro: number; atual: number } }
+export interface FiltroDet { dtini: string; dtfim: string; dataDe: 'emissao' | 'vencimento' | 'liberacao'; liberado: 'TODOS' | 'LIBERADOS' | 'NAO'; documento: string }
+export function obterDetalhamento(codconta: number, f: FiltroDet): Promise<Detalhamento> {
+  const q = new URLSearchParams({ codconta: String(codconta), dtini: f.dtini, dtfim: f.dtfim, dataDe: f.dataDe, liberado: f.liberado });
+  if (f.documento.trim()) q.set('documento', f.documento.trim());
+  return req(`/cadastro/controle-contas/detalhamento?${q}`, { method: 'GET' });
+}
+export function titulosDoMovimento(codmovconta: number): Promise<{ lote: number; tipo: 'AR' | 'AP' | 'CARTAO'; revertido: boolean }> {
+  return req(`/cadastro/controle-contas/${codmovconta}/titulos`, { method: 'GET' });
+}

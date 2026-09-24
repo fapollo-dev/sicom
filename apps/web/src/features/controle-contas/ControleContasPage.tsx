@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@apollosg/design-system';
 import { SelectField } from '../../shared/ui/SelectField';
 import { NumberField } from '../../shared/ui/NumberField';
@@ -8,8 +9,8 @@ import { useMensagem } from '../../shared/mensagem';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { DateField } from '../../shared/ui/DateField';
 import {
-  listarContasCC, listarDestinos, listarModalidades, obterExtrato, obterSaldo, lancarSaldo, transferir, estornar, listarALiberar, liberarMovimentos, mudarDataLiberacao,
-  type ContaCC, type Movimento, type PainelSaldo, type MovALiberar,
+  listarContasCC, listarDestinos, listarModalidades, obterSaldo, lancarSaldo, transferir, estornar, listarALiberar, liberarMovimentos, mudarDataLiberacao, obterDetalhamento, titulosDoMovimento,
+  type ContaCC, type PainelSaldo, type MovALiberar, type Detalhamento, type DetMov, type FiltroDet,
 } from './controleContasApi';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -25,15 +26,17 @@ const hoje = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/S
  */
 export function ControleContasPage() {
   const mensagem = useMensagem();
+  const navigate = useNavigate();
   const [contas, setContas] = useState<ContaCC[]>([]);
   const [destinos, setDestinos] = useState<Array<{ codconta: number; nroconta: string | null; titular: string | null; idempresa: number }>>([]);
   const [modalidades, setModalidades] = useState<Array<{ idpgto: number; modalidade: string }>>([]);
   const [conta, setConta] = useState('');
-  const [saldo, setSaldo] = useState(0);
   const [painel, setPainel] = useState<PainelSaldo | null>(null);
   const [posicionar, setPosicionar] = useState<{ ativo: boolean; data: string }>({ ativo: false, data: hoje() });
+  // o Detalhamento (UconsMovBancaria): período padrão hoje, data de emissão/vencimento/liberação, liberados, documento
+  const [filtroDet, setFiltroDet] = useState<FiltroDet>({ dtini: hoje(), dtfim: hoje(), dataDe: 'emissao', liberado: 'TODOS', documento: '' });
+  const [det, setDet] = useState<Detalhamento | null>(null);
   const [aLiberar, setALiberar] = useState<{ itens: MovALiberar[]; marcados: Set<number>; data: string } | null>(null);
-  const [movimentos, setMovimentos] = useState<Movimento[]>([]);
   const [busy, setBusy] = useState(false);
   // form do lançamento de saldo (UlancamentoSaldo): valor com sinal, modalidade, histórico, data, senha administrativa
   const [ls, setLs] = useState({ valor: '', idpgto: '', historico: 'SALDO INICIAL', data: hoje(), senha: '' });
@@ -53,12 +56,25 @@ export function ControleContasPage() {
     const c = contas.find((x) => x.codconta === cod);
     try {
       setPainel(c && c.visualizar_saldos !== 'S' ? null : await obterSaldo(cod, ate));
-      if (c && c.habiltiar_detalhar_conta !== 'S') { setMovimentos([]); return; }
-      const ext = await obterExtrato(cod);
-      setSaldo(ext.saldo); setMovimentos(ext.movimentos ?? []);
+      if (c && c.habiltiar_detalhar_conta !== 'S') { setDet(null); return; }
+      setDet((atual) => atual);
     } catch (e) { mensagem.erro(e); }
   }, [mensagem, contas]);
-  const escolher = (v: string) => { setConta(v); if (v) void carregar(Number(v), posicionar.ativo ? posicionar.data : undefined); else { setMovimentos([]); setSaldo(0); setPainel(null); } };
+  const escolher = (v: string) => { setConta(v); setDet(null); if (v) void carregar(Number(v), posicionar.ativo ? posicionar.data : undefined); else setPainel(null); };
+  const pesquisarDet = async (cod = Number(conta), f = filtroDet) => {
+    if (!cod) return;
+    try { setDet(await obterDetalhamento(cod, f)); } catch (e) { mensagem.erro(e); }
+  };
+  const recarregar = async () => { await carregar(Number(conta), posicionar.ativo ? posicionar.data : undefined); if (det) await pesquisarDet(); };
+  // "Visualizar títulos" (UconsMovBancaria.pas:986-1061): abre a consulta de baixa do lote
+  const visualizarTitulos = async (m: DetMov) => {
+    try {
+      const r = await titulosDoMovimento(m.codmovconta);
+      if (r.tipo === 'AR') navigate(`/cobranca/cons-rcb-bx?lote=${r.lote}`);
+      else if (r.tipo === 'AP') navigate(`/cobranca/cons-apg-bx?lote=${r.lote}`);
+      else mensagem.sucesso(`Baixa de cartão do lote ${r.lote}${r.revertido ? ' (revertida)' : ''}.`);
+    } catch (e) { mensagem.erro(e); }
+  };
 
   const lancarMov = async () => {
     if (busy || !conta) return;
@@ -71,7 +87,7 @@ export function ControleContasPage() {
       await lancarSaldo({ codconta: Number(conta), valor, idpgto: Number(ls.idpgto), historico: ls.historico || undefined, data: ls.data, senhaAdm: ls.senha });
       mensagem.sucesso('Transação efetuada com sucesso!');
       setLs({ ...ls, valor: '', senha: '' });
-      await carregar(Number(conta));
+      await recarregar();
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
@@ -84,11 +100,11 @@ export function ControleContasPage() {
       const r = await transferir({ codorigem: Number(conta), coddestino: Number(destino), valor: valorT, historico: histT || undefined });
       mensagem.sucesso(`Transferência ${brl(valorT)} → conta ${destino} (lote ${r.idlote}).`);
       setValorT(undefined); setHistT(''); setDestino('');
-      await carregar(Number(conta));
+      await recarregar();
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
-  const estornarMov = async (m: Movimento) => {
+  const estornarMov = async (m: { codmovconta: number; nrodocumento?: string | null; idlote?: number | null }) => {
     if (busy) return;
     const msg = transferencia(m) ? 'Deseja remover a transferência? As duas movimentações do lote serão apagadas.' : 'Deseja remover registro?';
     if (!window.confirm(msg)) return;
@@ -96,7 +112,7 @@ export function ControleContasPage() {
     try {
       const r = await estornar(m.codmovconta);
       mensagem.sucesso(`Removido — ${r.removidos} movimentação(ões).`);
-      await carregar(Number(conta));
+      await recarregar();
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
@@ -112,20 +128,20 @@ export function ControleContasPage() {
       const r = await liberarMovimentos({ codconta: sel.codconta, codmovcontas: ids, data });
       if (r.liberados > 0) mensagem.sucesso('Alterações Realizadas com Sucesso');
       setALiberar(null);
-      await carregar(sel.codconta, posicionar.ativo ? posicionar.data : undefined);
+      await recarregar();
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
-  const mudarData = async (m: Movimento) => {
+  const mudarData = async (m: { codmovconta: number }) => {
     const d = window.prompt('Nova data de liberação (AAAA-MM-DD)', hoje());
     if (!d) { mensagem.erro(new Error('Operação cancelada pelo usuário.')); return; }
     setBusy(true);
-    try { await mudarDataLiberacao(m.codmovconta, d); await carregar(Number(conta)); } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+    try { await mudarDataLiberacao(m.codmovconta, d); await recarregar(); } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
   const opcoesDestino = destinos.filter((d) => String(d.codconta) !== conta).map((d) => ({ value: String(d.codconta), label: nomeDestino(d) }));
   const pode = (flag: keyof ContaCC) => !!sel && sel[flag] === 'S';
   // como o legado: a transferência sai pelo lote (UconsMovBancaria.pas:925); a movimentação sem lote, pelo cadastro (:107)
-  const transferencia = (m: Movimento) => m.nrodocumento === 'TRANSFERENCIA' && Number(m.idlote ?? 0) > 0;
-  const removivel = (m: Movimento) => transferencia(m) || !Number(m.idlote ?? 0);
+  const transferencia = (m: { nrodocumento?: string | null; idlote?: number | null }) => m.nrodocumento === 'TRANSFERENCIA' && Number(m.idlote ?? 0) > 0;
+  const removivel = (m: { nrodocumento?: string | null; idlote?: number | null }) => transferencia(m) || !Number(m.idlote ?? 0);
 
   return (
     <div className="flex flex-col gap-gp-md p-pad-md">
@@ -237,35 +253,66 @@ export function ControleContasPage() {
         </div>
       )}
 
-      {conta && (
-        <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
-          <div className="border-b border-border p-pad-xs text-body-sm font-semibold text-fg-muted">Extrato — {movimentos.length} movimento(s)</div>
-          <table className="w-full text-body-sm">
-            <thead>
-              <tr className="text-left text-fg-muted">
-                <th className="p-pad-xs">Data</th><th className="p-pad-xs">Histórico</th><th className="p-pad-xs">Origem</th>
-                <th className="p-pad-xs text-right">Valor</th><th className="p-pad-xs text-right">Saldo</th><th className="p-pad-xs" />
-              </tr>
-            </thead>
-            <tbody>
-              {movimentos.map((m) => (
-                <tr key={m.codmovconta} className="border-t border-border">
-                  <td className="p-pad-xs tabular-nums">{dia(m.dtemissao ?? m.data_fechamento)}{m.hora && m.hora !== '00:00' ? ` ${m.hora}` : ''}</td>
-                  <td className="p-pad-xs">{m.historico ?? '—'}{m.mov_conciliado === 'S' ? ' 🔒' : ''}</td>
-                  <td className="p-pad-xs text-fg-muted">{m.origem ?? '—'}</td>
-                  <td className={`p-pad-xs text-right tabular-nums ${m.valor_com_sinal < 0 ? 'text-danger' : 'text-fg'}`}>{m.valor_com_sinal < 0 ? '−' : '+'}{brl(Math.abs(m.valor_com_sinal))}</td>
-                  <td className="p-pad-xs text-right tabular-nums">{brl(m.saldo_corrente)}</td>
-                  <td className="p-pad-xs text-right">
-                    {/* o menu da linha do detalhamento: liberar (UconsMovBancaria.pas:769), mudar a data (:870) e remover */}
-                    {m.a_prazo && pode('habiltiar_libe_moviment') && <Button label="Liberar" variant="ghost" onClick={() => { const d = window.prompt('Data da liberação (AAAA-MM-DD)', hoje()); if (d) void liberar([m.codmovconta], d); else mensagem.erro(new Error('Operação cancelada pelo usuário.')); }} />}
-                    {!m.a_prazo && <Button label="Mudar data" variant="ghost" onClick={() => void mudarData(m)} />}
-                    {removivel(m) && <Button label="Remover" variant="ghost" onClick={() => void estornarMov(m)} />}
-                  </td>
-                </tr>
-              ))}
-              {!movimentos.length && <tr><td colSpan={6} className="p-pad-md text-fg-muted">Sem movimentos nesta conta.</td></tr>}
-            </tbody>
-          </table>
+      {sel && pode('habiltiar_detalhar_conta') && (
+        <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <div className="text-body-sm font-semibold text-fg-muted">Detalhamento da conta</div>
+          <div className="flex flex-wrap items-end gap-gp-sm">
+            <div className="w-40"><DateField label="De" value={filtroDet.dtini} onChange={(v) => setFiltroDet({ ...filtroDet, dtini: v ?? hoje() })} /></div>
+            <div className="w-40"><DateField label="Até" value={filtroDet.dtfim} onChange={(v) => setFiltroDet({ ...filtroDet, dtfim: v ?? hoje() })} /></div>
+            <div className="w-44"><SelectField label="Filtrar pela data de" value={filtroDet.dataDe} onChange={(v) => setFiltroDet({ ...filtroDet, dataDe: v as FiltroDet['dataDe'] })}
+              options={[{ value: 'emissao', label: 'Emissão' }, { value: 'vencimento', label: 'Vencimento' }, { value: 'liberacao', label: 'Liberação' }]} /></div>
+            <div className="w-44"><SelectField label="Movimentos" value={filtroDet.liberado} onChange={(v) => setFiltroDet({ ...filtroDet, liberado: v as FiltroDet['liberado'] })}
+              options={[{ value: 'TODOS', label: 'Todos' }, { value: 'LIBERADOS', label: 'Liberados' }, { value: 'NAO', label: 'Não liberados' }]} /></div>
+            <div className="w-40"><Field label="Documento" value={filtroDet.documento} onChange={(e) => setFiltroDet({ ...filtroDet, documento: e.target.value })} /></div>
+            <Button label="&Pesquisar" variant="soft" onClick={() => void pesquisarDet()} />
+          </div>
+          {det && (
+            <>
+              <div className="overflow-x-auto rounded-md border border-border">
+                <table className="w-full min-w-[1100px] text-body-sm">
+                  <thead>
+                    <tr className="text-left text-fg-muted">
+                      <th className="p-pad-xs">Lote</th><th className="p-pad-xs">Documento</th><th className="p-pad-xs text-right">Valor</th><th className="p-pad-xs">Dt. emissão</th>
+                      <th className="p-pad-xs">Dt. vencimento</th><th className="p-pad-xs">Dt. liberação</th><th className="p-pad-xs">Liberado</th><th className="p-pad-xs">C/D</th>
+                      <th className="p-pad-xs">Histórico</th><th className="p-pad-xs">Operador</th><th className="p-pad-xs">Modalidade</th><th className="p-pad-xs">Operação</th><th className="p-pad-xs" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {det.movimentos.map((m) => (
+                      <tr key={m.codmovconta} className="border-t border-border">
+                        <td className="p-pad-xs tabular-nums">{m.idlote ?? ''}</td>
+                        <td className="p-pad-xs">{m.nrodocumento ?? ''}</td>
+                        <td className={`p-pad-xs text-right tabular-nums ${m.valor < 0 ? 'text-danger' : ''}`}>{brl(m.valor)}</td>
+                        <td className="p-pad-xs tabular-nums">{m.dtemissao ? `${dia(m.dtemissao)}${m.dtemissao.slice(11, 16) && m.dtemissao.slice(11, 16) !== '00:00' ? ` ${m.dtemissao.slice(11, 16)}` : ''}` : ''}</td>
+                        <td className="p-pad-xs tabular-nums">{m.dtvenc ? dia(m.dtvenc) : ''}</td>
+                        <td className="p-pad-xs tabular-nums">{m.dtliberacao ? dia(m.dtliberacao) : ''}</td>
+                        <td className="p-pad-xs">{m.liberado}</td>
+                        <td className="p-pad-xs">{m.tipomovimento}</td>
+                        <td className="p-pad-xs">{m.historico ?? ''}{m.mov_conciliado === 'S' ? ' (conciliado)' : ''}</td>
+                        <td className="p-pad-xs">{m.operador ?? (m.codoperador ?? '')}</td>
+                        <td className="p-pad-xs">{m.modalidade ?? ''}</td>
+                        <td className="p-pad-xs">{m.operacao ?? ''}</td>
+                        <td className="whitespace-nowrap p-pad-xs text-right">
+                          {/* o menu da linha: Visualizar títulos (:986), Liberar (:769), Mudar data (:870), Remover transferência (:924) */}
+                          {(m.idlote || m.idlote_reversao) ? <Button label="Títulos" variant="ghost" onClick={() => void visualizarTitulos(m)} /> : null}
+                          {m.liberado !== 'S' && pode('habiltiar_libe_moviment') && <Button label="Liberar" variant="ghost" onClick={() => { const d = window.prompt('Data da liberação (AAAA-MM-DD)', hoje()); if (d) void liberar([m.codmovconta], d); else mensagem.erro(new Error('Operação cancelada pelo usuário.')); }} />}
+                          {m.liberado === 'S' && <Button label="Mudar data" variant="ghost" onClick={() => void mudarData(m)} />}
+                          {removivel(m) && <Button label="Remover" variant="ghost" onClick={() => void estornarMov(m)} />}
+                        </td>
+                      </tr>
+                    ))}
+                    {!det.movimentos.length && <tr><td colSpan={13} className="p-pad-md text-fg-muted">Sem movimentos no período.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+              <div className="grid grid-cols-2 gap-gp-sm text-body-sm sm:grid-cols-4 lg:grid-cols-7">
+                {([['Saldo anterior', det.totais.anterior], ['Entradas', det.totais.entradas], ['Saídas', -det.totais.saidas], ['Saldo período', det.totais.periodo],
+                  ['Total a prazo', det.totais.a_prazo], ['Saldo futuro', det.totais.futuro], ['Saldo atual', det.totais.atual]] as Array<[string, number]>).map(([rot, v]) => (
+                  <div key={rot}><div className="text-fg-muted">{rot}</div><div className={`font-semibold tabular-nums ${v < 0 ? 'text-danger' : ''}`}>{brl(v)}</div></div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

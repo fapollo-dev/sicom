@@ -51,6 +51,24 @@ export class ControleContasController {
     return this.svc.mudarDataLiberacao(id, body.data);
   }
 
+  /** o Detalhamento da conta (filtros, grade e rodapé do legado). */
+  @Get('detalhamento')
+  @RequerAcesso('FRMCONTROLECONTASBANCARIAS', 'FRMCONTROLECONTASBANCARIAS')
+  detalhamento(
+    @Query('codconta', ParseIntPipe) codconta: number, @Query('dtini') dtini?: string, @Query('dtfim') dtfim?: string,
+    @Query('liberado') liberado?: string, @Query('dataDe') dataDe?: string, @Query('documento') documento?: string,
+  ) {
+    const d = (v?: string) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined);
+    return this.svc.detalhamento({ codconta, dtini: d(dtini), dtfim: d(dtfim), liberado, dataDe, documento: documento?.slice(0, 30) });
+  }
+
+  /** "Visualizar títulos" de um movimento: o lote e a consulta de baixa onde ele está. */
+  @Get(':id/titulos')
+  @RequerAcesso('FRMCONTROLECONTASBANCARIAS', 'FRMCONTROLECONTASBANCARIAS')
+  titulosDoMovimento(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.titulosDoMovimento(id);
+  }
+
   /** as modalidades da loja (lançamento de saldo). */
   @Get('modalidades')
   @RequerAcesso('FRMCONTROLECONTASBANCARIAS', 'BTNLANCSALDO')
