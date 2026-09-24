@@ -578,6 +578,7 @@ const CODE_PT: Record<string, string> = {
   FECHAMENTO_DOCUMENTO_SEM_CLIENTE: 'Obrigatório a informação do cliente!',
   FECHAMENTO_PDV_NAO_FECHADO: 'O caixa selecionado ainda não foi fechado no PDV.',
   FECHAMENTO_PDV_NAO_CADASTRADO: 'O PDV não foi cadastrado para a empresa.',
+  FECHAMENTO_RELATORIO_PDV: 'Um dos PDVs selecionados não foi cadastrado para a empresa.',
   FECHAMENTO_FISCAL_INEXISTENTE: 'Informe o fiscal de caixa (operador cadastrado).',
   FECHAMENTO_MODALIDADE_INEXISTENTE: 'Informe uma modalidade do cadastro de formas de pagamento.',
   FECHAMENTO_EXCLUSAO_SEM_PERMISSAO: 'Você não tem permissões para excluir documentos. Verifique.',

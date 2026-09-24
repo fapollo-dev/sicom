@@ -480,3 +480,25 @@ com a comparação certa (NROPEDIDO + valor numérico).
 - **"Efetivar lançamento":** só confere Σ(valor + sangrias − suprimentos) contra a venda líquida ("Venda liquida diverge do total informado!"). As linhas já foram gravadas.
 - **Fora:** os ramos de sangria e suprimento do diálogo, com 0 uso na produção (spec §3).
 - **Smoke §185:** 1522/0.
+
+### 4.9 ENTREGUE (24/09/2026) — o relatório "Fechamento de caixa" e o "Relatório de análise" (spec `uFechamentoCaixa-impressoes-spec.md`)
+
+- **"Fechamento de caixa"** (`POST cobranca/fechamento-caixa/relatorio`, RBAC FECHAMENTOCAIXA1; `MontaRel` + FechamentoCaixa.fr3):
+  - Pedido: um turno (botão da finalização) ou os marcados na lista de caixas do dia (o "Selecionar caixas para relatório" dos caixas em aberto, com marcar/desmarcar todos).
+  - **Linhas por turno × recurso:**
+    - Venda = CX_VENDAS − troco − venda balcão, mais as 3 linhas de recarga/correspondente/voucher da CAIXA_PDV (saem 0,00, por paridade).
+    - Caixa = CAIXA de plano `tpconta` 0.
+    - Divergência = caixa − venda sem a venda balcão; venda sem caixa ⇒ −venda.
+  - **Rodapé do grupo** (operador + PDV, sem a chave): suprimento, sangria (negativa), "Divergência Vendas p/ Caixa" = Σ(caixa − venda), desconto das vendas, cancelamentos da CAIXA_PDV e a observação (CAIXA_OBS).
+  - **Página "Totais":** por recurso, somando todos os grupos.
+  - **Filtro do turno:** a chave, mais o dia com `FECHAMENTO_CAIXA_SOMENTE_CHAVE`='N' (a produção). Sem chave, o dia. PDV fora da empresa → 422.
+- **Decisões** (as pendências da spec):
+  - **A QUEBRA DE CAIXA** (só no CAIXA, R$ 14.231,14 em 2026) **fica fora, como no legado.** Ela é o próprio resultado da diferença; incluí-la zeraria a divergência que o relatório existe para mostrar.
+  - O rótulo é **"Sangria:"**. A tela principal do legado o trocava por "Divergência Vendas p/ Tesouraria", um defeito.
+  - As 3 linhas zeradas da CAIXA_PDV ficam, por paridade.
+- **Fora (mortos, com prova):** tesouraria (0 linhas), "DEVOLUÇÃO EM DINHEIRO" (nenhuma forma DEV, HIST_DEVOLUCAO vazia), a variante Balcão (CX_PEDIDOS 1 linha em 2026, quebrada no fonte).
+- **"Relatório de análise"** (Totalizado / Descritivo, gerado no cliente a partir da grade do turno, reordenada por operação, data, operador e PDV):
+  - Totalizado: Σ por operação e os totais, com Suprimentos/Sangrias da grade, que dão 0,00 como no legado.
+  - Descritivo: valor e data por lançamento, e o total.
+  - Vazio: "Não foi possivel encontrar Vendas com os Filtros informados, Verifique".
+- **Smoke §186** (o exemplo-ouro da spec, mais dois turnos no mesmo grupo): 1523/0.

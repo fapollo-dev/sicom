@@ -8,11 +8,11 @@ import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { SelectField } from '../../shared/ui/SelectField';
 import { listarOperadoras, type Operadora } from '../cartao/cartaoApi';
 import { imprimirPagina } from '../../shared/print/imprimirPagina';
-import { imprimirComprovanteQuebra, imprimirHistorico } from './imprimirFechamento';
+import { imprimirAnalise, imprimirComprovanteQuebra, imprimirHistorico, imprimirRelatorioFechamento } from './imprimirFechamento';
 import { LancamentoProvisorioModal } from './LancamentoProvisorioModal';
 import { useMensagem } from '../../shared/mensagem';
 import {
-  abrirTurno, cancelamentosTurno, comprovanteQuebra, descontosTurno, detalheTurno, documentosTurno, editarDocumento, historicoTurno, efetivarTurno, excluirDocumento, inserirDocumento, listarTurnos, reabrirTurno, salvarRascunho,
+  abrirTurno, cancelamentosTurno, comprovanteQuebra, descontosTurno, detalheTurno, documentosTurno, editarDocumento, historicoTurno, efetivarTurno, excluirDocumento, inserirDocumento, listarTurnos, reabrirTurno, relatorioFechamento, salvarRascunho,
   type CamposDocumento, type CancelamentosTurno, type DescontoTurno, type DetalheTurno, type DocumentoConferencia, type Documentos, type Fixa, type LinhaFechamento, type TurnoRef, type TurnoResumo,
 } from './fechamentoCaixaApi';
 
@@ -59,6 +59,8 @@ export function FechamentoCaixaPage() {
   const [exclusao, setExclusao] = useState<Exclusao | null>(null);
   // os diálogos de leitura da finalização: cancelamentos (Enter no campo) e vendas com descontos (F6)
   const [lancProv, setLancProv] = useState(false);
+  // "Selecionar caixas para relatório" (Caixas em aberto): os turnos marcados para o relatório de fechamento
+  const [marcadosRel, setMarcadosRel] = useState<Set<string>>(new Set());
   const [leitura, setLeitura] = useState<{ tipo: 'cancelamentos'; d: CancelamentosTurno } | { tipo: 'descontos'; d: DescontoTurno[] } | null>(null);
   const [operadoras, setOperadoras] = useState<Operadora[]>([]);
   useEffect(() => {
@@ -70,7 +72,7 @@ export function FechamentoCaixaPage() {
     try { await f(); } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
 
-  const pesquisar = () => executar(async () => { setTurnos(await listarTurnos(data)); });
+  const pesquisar = () => executar(async () => { setMarcadosRel(new Set()); setTurnos(await listarTurnos(data)); });
 
   const carregar = (d: DetalheTurno) => {
     setDet(d);
@@ -282,6 +284,23 @@ export function FechamentoCaixaPage() {
     imprimirHistorico(win, linhas, `PDV ${det.turno.nropdv} · operador(a) ${det.turno.codoperadora} — ${det.turno.nome ?? ''} · ${det.turno.data.split('-').reverse().join('/')}`);
     return true;
   });
+  // o relatório "Fechamento de caixa" (MontaRel): do turno aberto na tela ou dos marcados na lista
+  const chaveTurno = (t: TurnoResumo) => `${t.nropdv}|${t.codoperadora}|${t.chave ?? ''}|${t.situacao}`;
+  const imprimirRelatorio = (lista: Array<{ nropdv: number; codoperadora: number; chave: string | null }>) => void imprimirComDado(async (win) => {
+    if (!lista.length) return false;
+    imprimirRelatorioFechamento(win, await relatorioFechamento(ref?.data ?? data, lista));
+    return true;
+  });
+  const imprimirMarcados = () => imprimirRelatorio((turnos ?? []).filter((t) => marcadosRel.has(chaveTurno(t))).map((t) => ({ nropdv: t.nropdv, codoperadora: t.codoperadora, chave: t.chave })));
+  // o "Relatório de análise" (Totalizado/Descritivo): a grade do turno reordenada
+  const imprimirRelAnalise = (modo: 'totalizado' | 'descritivo') => {
+    const linhas = det?.grade ?? [];
+    if (!linhas.length) { mensagem.erro(new Error('Não foi possivel encontrar Vendas com os Filtros informados, Verifique')); return; }
+    const win = window.open('', '_blank');
+    if (!win) { mensagem.erro(new Error('O navegador bloqueou a janela de impressão.')); return; }
+    imprimirAnalise(win, linhas.map((l) => ({ ...l, nome: l.nome ?? det?.turno.nome ?? null })), modo);
+  };
+
   // a lista do diálogo de documentos (fec_fechamento_de_caixa_doc_fin_*.fr3): imprime a grade como está
   const gradeDocs = useRef<HTMLDivElement>(null);
   const imprimirDocs = () => {
@@ -312,6 +331,16 @@ export function FechamentoCaixaPage() {
           <div className="flex flex-wrap items-end gap-gp-sm">
             <div className="w-44"><DateField label="&Data do caixa" value={data} onChange={(v) => setData(v ?? hoje())} /></div>
             <Button label="&Caixas do dia" variant="soft" onClick={() => void pesquisar()} disabled={ocupado} />
+            {turnos && turnos.length > 0 && (
+              <>
+                <Button
+                  label="Marcar/desmarcar &todos"
+                  variant="ghost"
+                  onClick={() => setMarcadosRel((m) => (m.size === turnos.length ? new Set() : new Set(turnos.map(chaveTurno))))}
+                />
+                <Button label="&Imprimir marcados" variant="ghost" onClick={imprimirMarcados} disabled={ocupado || marcadosRel.size === 0} />
+              </>
+            )}
             {/* F6 dos caixas em aberto: a transferência de espécie é a do controle de contas correntes (Utransferencia) */}
             <Button label="&Transferência" variant="ghost" onClick={() => navigate('/financeiro/contas-correntes')} />
             {/* Imprimir › "Relatório de caixa": só um atalho para a tela do relatório (FRMRELATORIOCAIXA, já migrada) */}
@@ -325,7 +354,7 @@ export function FechamentoCaixaPage() {
                   <thead>
                     <tr className="text-left text-fg-muted">
                       <th className="px-2 py-1">PDV</th><th className="px-2 py-1">Operador(a)</th><th className="px-2 py-1">Entrada</th>
-                      <th className="px-2 py-1">Saída</th><th className="px-2 py-1">Situação</th><th className="px-2 py-1" />
+                      <th className="px-2 py-1">Saída</th><th className="px-2 py-1">Situação</th><th className="px-2 py-1">Relatório</th><th className="px-2 py-1" />
                     </tr>
                   </thead>
                   <tbody>
@@ -336,6 +365,13 @@ export function FechamentoCaixaPage() {
                         <td className="px-2 py-1 tabular-nums" title={t.horaDaChave ? 'Hora tirada da chave do turno' : undefined}>{hora(t.horaentrada)}{t.horaDaChave ? '*' : ''}</td>
                         <td className="px-2 py-1 tabular-nums">{t.horasaida ? hora(t.horasaida) : <span className="text-fg-muted">não fechado no PDV</span>}</td>
                         <td className={`px-2 py-1 ${SITUACAO[t.situacao].cor}`}>{SITUACAO[t.situacao].rotulo}</td>
+                        <td className="px-2 py-1">
+                          <CheckboxField
+                            label="Marcar"
+                            value={marcadosRel.has(chaveTurno(t)) ? 'S' : 'N'}
+                            onChange={() => setMarcadosRel((m) => { const n2 = new Set(m); const k = chaveTurno(t); if (n2.has(k)) n2.delete(k); else n2.add(k); return n2; })}
+                          />
+                        </td>
                         <td className="px-2 py-1 text-right">
                           <Button label={t.situacao === 1 ? 'Fechar caixa' : 'Consultar caixa'} variant="ghost" onClick={() => void abrir(t)} disabled={ocupado} />
                         </td>
@@ -367,6 +403,9 @@ export function FechamentoCaixaPage() {
               {!consulta && <Button label="&Efetivar fechamento" onClick={() => void efetivar()} disabled={ocupado || !!det.pdvNaoFechado} />}
               {consulta && det.turno.situacao === 3 && <Button label="&Reabrir caixa" variant="soft" onClick={() => void reabrir()} disabled={ocupado} />}
               {!consulta && <Button label="&Lançamento provisório" variant="ghost" onClick={() => setLancProv(true)} disabled={ocupado} />}
+              <Button label="Relatório de &fechamento" variant="ghost" onClick={() => imprimirRelatorio([{ nropdv: det.turno.nropdv, codoperadora: det.turno.codoperadora, chave: det.turno.chave }])} disabled={ocupado} />
+              <Button label="Análise totalizada" variant="ghost" onClick={() => imprimirRelAnalise('totalizado')} disabled={ocupado} />
+              <Button label="Análise descritiva" variant="ghost" onClick={() => imprimirRelAnalise('descritivo')} disabled={ocupado} />
               <Button label="Comprovante de &quebra" variant="ghost" onClick={imprimirQuebra} disabled={ocupado} />
               <Button label="&Histórico" variant="ghost" onClick={imprimirHist} disabled={ocupado} />
               <Button label="&Voltar" variant="soft" onClick={() => void voltar()} disabled={ocupado} />

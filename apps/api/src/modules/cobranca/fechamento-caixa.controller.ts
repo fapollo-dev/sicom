@@ -1,9 +1,9 @@
 import { Body, Controller, Get, HttpCode, Post, Put, Query, UseGuards } from '@nestjs/common';
 import {
   editarDocumentoFechamentoSchema, efetivarFechamentoSchema, excluirDocumentoFechamentoSchema, inserirDocumentoFechamentoSchema, lancProvCabecalhoSchema, lancProvExcluirSchema,
-  lancProvLinhaSchema, rascunhoFechamentoSchema, turnoFechamentoSchema,
+  lancProvLinhaSchema, rascunhoFechamentoSchema, relatorioFechamentoSchema, turnoFechamentoSchema,
   type EditarDocumentoFechamentoDto, type EfetivarFechamentoDto, type ExcluirDocumentoFechamentoDto, type InserirDocumentoFechamentoDto, type LancProvCabecalhoDto,
-  type LancProvExcluirDto, type LancProvLinhaDto, type RascunhoFechamentoDto, type TurnoFechamentoDto,
+  type LancProvExcluirDto, type LancProvLinhaDto, type RascunhoFechamentoDto, type RelatorioFechamentoDto, type TurnoFechamentoDto,
 } from '@apollo/shared';
 import { FechamentoCaixaService } from './fechamento-caixa.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -73,6 +73,14 @@ export class FechamentoCaixaController {
   @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNFECHA')
   descontos(@Query(new ZodValidationPipe(turnoFechamentoSchema)) q: TurnoFechamentoDto) {
     return this.svc.descontosDoTurno(q);
+  }
+
+  /** o relatório "Fechamento de caixa" (Imprimir › "Fechamento de caixa" / os caixas marcados em "Caixas em aberto") */
+  @Post('relatorio')
+  @HttpCode(200)
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'FECHAMENTOCAIXA1')
+  relatorio(@Body(new ZodValidationPipe(relatorioFechamentoSchema)) body: RelatorioFechamentoDto) {
+    return this.svc.relatorioFechamento(body);
   }
 
   /** o comprovante de quebra de caixa do turno (Imprimir › "Comprovante de quebra de caixa"; o menu não tem RBAC próprio) */

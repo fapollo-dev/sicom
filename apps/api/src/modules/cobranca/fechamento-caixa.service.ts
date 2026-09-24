@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { sql, type RawBuilder } from 'kysely';
 import type {
   EditarDocumentoFechamentoDto, EfetivarFechamentoDto, ExcluirDocumentoFechamentoDto, InserirDocumentoFechamentoDto, LancProvCabecalhoDto, LancProvExcluirDto,
-  LancProvLinhaDto, RascunhoFechamentoDto, TurnoFechamentoDto,
+  LancProvLinhaDto, RascunhoFechamentoDto, RelatorioFechamentoDto, TurnoFechamentoDto,
 } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -1135,6 +1135,129 @@ export class FechamentoCaixaService {
       nrocupom: r.nrocupom, codbarra: r.codbarra ?? null, descricao: r.descricao ?? null, codproduto: r.codproduto, desconto: r2(num(r.desconto)),
       responsavel: r.responsavel ?? null, motivo: r.motivo ?? null,
     }));
+  }
+
+  // ── o relatório "Fechamento de caixa" (MontaRel) ─────────────────────────────────────────────────────────────
+  /**
+   * O RELATÓRIO "FECHAMENTO DE CAIXA" (`TDmFechamentoCaixa.MontaRel`, UdmFechamentoCaixa.pas:760-996; FechamentoCaixa.fr3; spec
+   * `uFechamentoCaixa-impressoes-spec.md` §e). Por turno × recurso: a VENDA (CX_VENDAS menos troco e venda balcão, mais as 3 linhas
+   * de recarga/correspondente/voucher da CAIXA_PDV — saem 0,00 na produção, por paridade) contra o CAIXA gravado pelo fechamento
+   * (plano de contas `tpconta` 0) e a divergência (caixa − venda sem a venda balcão; venda sem caixa ⇒ −venda). SANGRIA e
+   * SUPRIMENTO não viram linha: vão para o rodapé do grupo, com o desconto das vendas e os cancelamentos da CAIXA_PDV. O grupo é
+   * operador + PDV (sem a chave: dois turnos do mesmo operador no mesmo PDV somam). Totais por recurso de todos os grupos.
+   * O turno é a chave (e o dia, com `FECHAMENTO_CAIXA_SOMENTE_CHAVE`='N' — a produção) ou, sem chave, o dia.
+   * Como o legado: o recurso que só existe no CAIXA (a QUEBRA DE CAIXA) não casa com venda nenhuma e fica fora — incluí-lo zeraria
+   * a divergência que o relatório existe para mostrar; os ramos da CAIXA_PDV não filtram a empresa. Fora (mortos, com prova):
+   * tesouraria (0 linhas), "DEVOLUÇÃO EM DINHEIRO" (nenhuma forma DEV), a variante Balcão. O rótulo da sangria é "Sangria:" (a tela
+   * principal do legado o trocava por "Divergência Vendas p/ Tesouraria").
+   */
+  async relatorioFechamento(dto: RelatorioFechamentoDto) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const emp = this.emp();
+    const tz = (await this.cfg(db, 'FUSO_HORARIO_ACESSO', emp)) ?? 'America/Sao_Paulo';
+    const porData = (await this.cfg(db, 'FECHAMENTO_CAIXA_SOMENTE_CHAVE', emp)) === 'N';
+    const turnos = dto.turnos.map((t) => ({ pdv: t.nropdv, op: t.codoperadora, chave: t.chave ? String(t.chave).trim() || null : null }));
+    for (const t of turnos) {
+      if (!(await sql`SELECT 1 FROM pdv WHERE nropdv = ${t.pdv} AND codempresa = ${emp}`.execute(db)).rows.length) {
+        throw new BusinessRuleError('FECHAMENTO_RELATORIO_PDV', { pdv: t.pdv, empresa: emp });
+      }
+    }
+    const ctx = (t: { pdv: number; op: number; chave: string | null }): Ctx => ({ emp, tz, data: dto.data, chave: t.chave, pdv: t.pdv, op: t.op });
+    // o filtro do turno (`FC:1315-1326` / `CXA:207-285`): a chave (e o dia, com FiltraData) ou, sem chave, o dia
+    const doTurno = (colChave: string, colData: string, c: Ctx) =>
+      c.chave ? sql`${sql.ref(colChave)} = ${c.chave} ${porData ? sql`AND ${this.noDia(colData, c)}` : sql``}` : sql`${sql.ref(colChave)} IS NULL AND ${this.noDia(colData, c)}`;
+
+    type Linha = { chave: string | null; recurso: string; venda: number; vendaDiv: number; caixa: number; div: number; casou: boolean };
+    type Grupo = { codoperadora: number; nome: string; nropdv: number; obs: string | null; linhas: Linha[]; sangria: number; suprimento: number; desconto: number; cancelamentos: number };
+    const grupos = new Map<string, Grupo>();
+    for (const t of turnos) {
+      const c = ctx(t);
+      const vendas = (await sql<{ recurso: string; nome: string | null; venda: unknown; venda_div: unknown; sangria: unknown; suprimento: unknown }>`
+        SELECT upper(cx.operacao) AS recurso, max(o.nome) AS nome, sum(cx.valor - coalesce(cx.troco, 0) - coalesce(cx.venda_balcao, 0)) AS venda,
+               sum(cx.valor - coalesce(cx.troco, 0)) AS venda_div,
+               sum(CASE WHEN cx.operacao = 'SANGRIA' THEN cx.valor ELSE 0 END) AS sangria, sum(CASE WHEN cx.operacao = 'SUPRIMENTO' THEN cx.valor ELSE 0 END) AS suprimento
+          FROM cx_vendas cx LEFT JOIN operadores o ON o.codoperador = cx.codoperadora
+         WHERE cx.idempresa = ${emp} AND cx.operacao <> 'DESCONTO' AND cx.operacao <> 'ACRESCIMO'
+           AND cx.nropdv = ${t.pdv} AND cx.codoperadora = ${t.op} AND ${doTurno('cx.chave', 'cx.data', c)}
+         GROUP BY upper(cx.operacao)
+        UNION ALL
+        SELECT r.recurso, max(o.nome), sum(r.valor), sum(r.valor), 0, 0
+          FROM caixa_pdv cp LEFT JOIN operadores o ON o.codoperador = cp.codoperadora
+         CROSS JOIN LATERAL (VALUES ('RECARGA', coalesce(cp.recarga, 0)), ('CORRESPONDENTE', coalesce(cp.correspondente, 0)), ('VOUCHER', coalesce(cp.voucher, 0))) r(recurso, valor)
+         WHERE cp.codpdv = ${t.pdv} AND cp.codoperadora = ${t.op} AND ${doTurno('cp.chave', 'cp.data', c)}
+         GROUP BY r.recurso`.execute(db)).rows;
+      if (!vendas.length) continue;
+      const caixa = new Map(((await sql<{ recurso: string; caixa: unknown }>`
+        SELECT upper(cx.tiporecurso) AS recurso, sum(cx.valor) AS caixa FROM caixa cx JOIN plc p ON p.codplc = cx.codplc AND p.tpconta = 0
+         WHERE cx.idempresa = ${emp} AND cx.codpdv = ${t.pdv} AND cx.operador = ${t.op} AND ${doTurno('cx.chave', 'cx.data', c)}
+         GROUP BY upper(cx.tiporecurso)`.execute(db)).rows).map((r) => [r.recurso, num(r.caixa)]));
+      const k = `${t.op}|${t.pdv}`;
+      const nome = String(vendas.find((v) => v.nome)?.nome ?? '');
+      let g = grupos.get(k);
+      if (!g) {
+        const obs = (await sql<{ obs: string | null }>`SELECT obs FROM caixa_obs WHERE codoperador = ${t.op} AND nropdv = ${t.pdv} AND data::date = ${dto.data}::date
+            AND coalesce(obs, '') <> '' LIMIT 1`.execute(db)).rows[0]?.obs ?? null;
+        g = { codoperadora: t.op, nome, nropdv: t.pdv, obs, linhas: [], sangria: 0, suprimento: 0, desconto: 0, cancelamentos: 0 };
+        grupos.set(k, g);
+      }
+      for (const v of vendas) {
+        if (v.recurso === 'SANGRIA' || v.recurso === 'SUPRIMENTO') {
+          g.sangria = r2(g.sangria + num(v.sangria));
+          g.suprimento = r2(g.suprimento + num(v.suprimento));
+          continue;
+        }
+        const cx = caixa.get(v.recurso);
+        const venda = r2(num(v.venda));
+        // os ramos da CAIXA_PDV no CAIXA têm chave nula e nunca casam (spec e.5): a divergência sai pela regra da venda sem caixa
+        const casou = cx != null && !['RECARGA', 'CORRESPONDENTE', 'VOUCHER'].includes(v.recurso);
+        const caixaV = casou ? r2(cx!) : 0;
+        let div = casou ? r2(caixaV - num(v.venda_div)) : 0;
+        if (venda > 0 && caixaV === 0 && div === 0) div = r2(-venda);
+        g.linhas.push({ chave: t.chave, recurso: v.recurso, venda, vendaDiv: r2(num(v.venda_div)), caixa: caixaV, div, casou });
+      }
+    }
+    // desconto das vendas e cancelamentos da CAIXA_PDV por operador + PDV, de todos os turnos escolhidos (QryDescontos/QryCancelamentos)
+    for (const g of grupos.values()) {
+      const dos = turnos.filter((t) => t.op === g.codoperadora && t.pdv === g.nropdv);
+      for (const t of dos) {
+        const c = ctx(t);
+        g.desconto = r2(g.desconto + num((await sql<{ total: unknown }>`SELECT sum(coalesce(v.desc_acre_medio, 0) + coalesce(v.desc_acre_item, 0)) AS total FROM vendas v
+            WHERE (coalesce(v.desc_acre_medio, 0) < 0 OR coalesce(v.desc_acre_item, 0) < 0) AND v.idempresa = ${emp} AND v.cancelado <> 'S'
+              AND v.nropedido LIKE ${`${String(t.pdv).padStart(2, '0')}%`} AND v.operador = ${t.op} AND ${doTurno('v.chave', 'v.dtvenda', c)}`.execute(db)).rows[0]?.total));
+        g.cancelamentos = r2(g.cancelamentos + num((await sql<{ total: unknown }>`SELECT sum(coalesce(cp.cancelamentos, 0)) AS total FROM caixa_pdv cp
+            WHERE coalesce(cp.cancelamentos, 0) > 0 AND cp.idempresa = ${emp} AND cp.codpdv = ${t.pdv} AND cp.codoperadora = ${t.op}
+              AND ${doTurno('cp.chave', 'cp.data', c)}`.execute(db)).rows[0]?.total));
+      }
+    }
+    const lista = [...grupos.values()].sort((a, b) => String(a.nropdv).localeCompare(String(b.nropdv)) || a.codoperadora - b.codoperadora);
+    const porRecurso = new Map<string, { recurso: string; venda: number; caixa: number; div: number }>();
+    const saida = lista.map((g) => {
+      g.linhas.sort((a, b) => String(a.chave ?? '').localeCompare(String(b.chave ?? '')) || a.recurso.localeCompare(b.recurso));
+      for (const l of g.linhas) {
+        const t = porRecurso.get(l.recurso) ?? { recurso: l.recurso, venda: 0, caixa: 0, div: 0 };
+        t.venda = r2(t.venda + l.venda); t.caixa = r2(t.caixa + l.caixa); t.div = r2(t.div + l.div);
+        porRecurso.set(l.recurso, t);
+      }
+      const totalVenda = r2(g.linhas.reduce((s2, l) => s2 + l.venda, 0));
+      const totalCaixa = r2(g.linhas.reduce((s2, l) => s2 + l.caixa, 0));
+      return {
+        codoperadora: g.codoperadora, nome: g.nome, nropdv: g.nropdv, obs: g.obs,
+        linhas: g.linhas.map((l) => ({ chave: l.chave, recurso: l.recurso, venda: l.venda, caixa: l.caixa, div: l.div })),
+        totalVenda, totalCaixa, divergencia: r2(totalCaixa - totalVenda), sangria: g.sangria, suprimento: g.suprimento, desconto: g.desconto, cancelamentos: g.cancelamentos,
+      };
+    });
+    const empresa = (await sql<Record<string, unknown>>`SELECT razao_social, fantasia, cnpj, insc, fone1 FROM empresas WHERE idempresa = ${emp}`.execute(db)).rows[0] ?? {};
+    const soma = (f: (g: typeof saida[number]) => number) => r2(saida.reduce((s2, g) => s2 + f(g), 0));
+    return {
+      data: dto.data.split('-').reverse().join('/'),
+      empresa: { razao: empresa.razao_social ?? null, fantasia: empresa.fantasia ?? null, cnpj: empresa.cnpj ?? null, insc: empresa.insc ?? null, fone: empresa.fone1 ?? null },
+      grupos: saida,
+      totais: [...porRecurso.values()].sort((a, b) => a.recurso.localeCompare(b.recurso)),
+      total: {
+        venda: soma((g) => g.totalVenda), caixa: soma((g) => g.totalCaixa), divergencia: soma((g) => g.divergencia),
+        sangria: soma((g) => g.sangria), suprimento: soma((g) => g.suprimento), desconto: soma((g) => g.desconto), cancelamentos: soma((g) => g.cancelamentos),
+      },
+    };
   }
 
   // ── impressões (corte 4) ───────────────────────────────────────────────────────────────────────────────────────

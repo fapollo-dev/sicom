@@ -20338,6 +20338,69 @@ async function main() {
         await pgCB.end();
       }
     }
+    // ══ §186 FECHAMENTO DE CAIXA, corte 4: o relatório "Fechamento de caixa" (MontaRel + FechamentoCaixa.fr3) ══
+    {
+      const pgCC = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const DIA = '2038-03-19';
+      const CHA = '79190338080000';
+      const CHB = '79190338160000';
+      const ts = (h: string) => `${DIA} ${h}-03`;
+      const rel = async (turnos: unknown[], headers = H) => {
+        const r = await fetch(`${base}/cobranca/fechamento-caixa/relatorio`, { method: 'POST', headers, body: JSON.stringify({ data: DIA, turnos }) });
+        return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+      };
+      try {
+        await pgCC.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) SELECT 'FRMFECHAMENTOCAIXA', 'FECHAMENTOCAIXA1', 7, 1
+            WHERE NOT EXISTS (SELECT 1 FROM permissoes WHERE form = 'FRMFECHAMENTOCAIXA' AND opcao = 'FECHAMENTOCAIXA1' AND codoperador = 7 AND codempresa = 1)`);
+        await pgCC.query(`INSERT INTO pdv (codpdv, nropdv, descricao, codempresa) VALUES (979, 79, 'PDV 79 SMOKE', 1) ON CONFLICT DO NOTHING`);
+        await pgCC.query(`INSERT INTO plc (codplc, descricao, tpconta) VALUES (99186, 'CAIXA SMOKE 186', 0), (99187, 'OUTRA SMOKE 186', 1) ON CONFLICT DO NOTHING`);
+        // o exemplo-ouro da spec (turno 64220926141131): vendas por recurso e o que o fechamento gravou no CAIXA
+        const vendas: Array<[string, number, number?]> = [['BOLETO', 0], ['CARTOES', 5383.03], ['CONVENIO', 107.61], ['DEVOLUCAO', 0], ['DINHEIRO', 1784.26, 20], ['PIX', 483.06], ['SANGRIA', 1753.70]];
+        for (const [i, [op, v, troco]] of vendas.entries()) {
+          await pgCC.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, debito_credito, valor, troco, nropedido, chave, status, tesouraria)
+              VALUES (1, $1, 79, 7, $2, 'C', $3, $4, $5, $6, 'F', 'S')`, [ts(`09:${String(10 + i).padStart(2, '0')}:00`), op, v, troco ?? 0, `7986${i}`, CHA]);
+        }
+        const caixa: Array<[string, number, number]> = [['PIX', 483.06, 99186], ['CARTOES', 5383.03, 99186], ['CONVENIO', 107.61, 99186], ['DEVOLUCAO', 10.99, 99186],
+          ['DINHEIRO', 1753.70, 99186], ['QUEBRA DE CAIXA', 10.56, 99186], ['DINHEIRO', 999, 99187]];
+        for (const [rec, v, plc] of caixa) {
+          await pgCC.query(`INSERT INTO caixa (data, valor, idempresa, tiporecurso, operador, codpdv, codplc, chave, origem) VALUES ($1, $2, 1, $3, 7, 79, $4, $5, 'FECHAMENTO')`,
+            [`${DIA} 00:00:00-03`, v, rec, plc, CHA]);
+        }
+        await pgCC.query(`INSERT INTO caixa_pdv (codcaixa, codpdv, codoperadora, data, horaentrada, chave, idempresa, sangria, fundocaixa, cancelamentos, recarga, correspondente, voucher)
+            VALUES (9918601, 79, 7, $1, $1, $2, 1, 0, 0, 314.86, 0, 0, 0)`, [ts('08:00:00'), CHA]);
+        await pgCC.query(`INSERT INTO caixa_obs (codempresa, codoperador, data, nropdv, obs) VALUES (1, 7, $1, 79, 'QUEBRA SMOKE 186')`, [`${DIA} 00:00:00`]);
+        // um segundo turno do mesmo operador no mesmo PDV (outra chave): soma no MESMO grupo
+        await pgCC.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, debito_credito, valor, troco, nropedido, chave, status, tesouraria)
+            VALUES (1, $1, 79, 7, 'DINHEIRO', 'C', 50, 0, '79869', $2, 'F', 'S')`, [ts('17:00:00'), CHB]);
+
+        const r1 = await rel([{ nropdv: 79, codoperadora: 7, chave: CHA }]);
+        const g = r1.j.grupos?.[0];
+        const linha = (rec: string) => g?.linhas?.find((l: any) => l.recurso === rec);
+        const r2 = await rel([{ nropdv: 79, codoperadora: 7, chave: CHA }, { nropdv: 79, codoperadora: 7, chave: CHB }]);
+        const semPdv = await rel([{ nropdv: 78, codoperadora: 7, chave: CHA }]);
+        const rbac = await rel([{ nropdv: 79, codoperadora: 7, chave: CHA }], H_SEM_ACESSO);
+        check('FECHAMENTO §186 [relatório "Fechamento de caixa"]: o exemplo-ouro — as linhas por recurso (BOLETO, CARTOES, CONVENIO, DEVOLUCAO, DINHEIRO, PIX e as 3 zeradas da CAIXA_PDV), a venda menos o troco (DINHEIRO 1.764,26), o CAIXA de plano tpconta 0 (o de tpconta 1 fica fora), a divergência (DEVOLUCAO +10,99, DINHEIRO −10,56), a QUEBRA DE CAIXA só no caixa fora do relatório (como o legado); rodapé Σvenda 7.737,96, Σcaixa 7.738,39, divergência 0,43, sangria 1.753,70, cancelamentos 314,86 e a obs de divergência; dois turnos do mesmo operador no mesmo PDV somam no mesmo grupo (DINHEIRO do 2º turno sem caixa → −50); PDV fora da empresa → 422; sem FECHAMENTOCAIXA1 → 403',
+          r1.status === 200 && r1.j.data === '19/03/2038' && r1.j.grupos?.length === 1 && g.nropdv === 79 && g.codoperadora === 7 && g.obs === 'QUEBRA SMOKE 186'
+          && g.linhas.map((l: any) => l.recurso).join(',') === 'BOLETO,CARTOES,CONVENIO,CORRESPONDENTE,DEVOLUCAO,DINHEIRO,PIX,RECARGA,VOUCHER'
+          && linha('DINHEIRO')?.venda === 1764.26 && linha('DINHEIRO')?.caixa === 1753.7 && linha('DINHEIRO')?.div === -10.56
+          && linha('DEVOLUCAO')?.venda === 0 && linha('DEVOLUCAO')?.caixa === 10.99 && linha('DEVOLUCAO')?.div === 10.99 && linha('CARTOES')?.div === 0
+          && !g.linhas.some((l: any) => l.recurso === 'QUEBRA DE CAIXA' || l.recurso === 'SANGRIA')
+          && g.totalVenda === 7737.96 && g.totalCaixa === 7738.39 && g.divergencia === 0.43 && g.sangria === 1753.7 && g.suprimento === 0 && g.desconto === 0 && g.cancelamentos === 314.86
+          && r1.j.totais?.length === 9 && r1.j.total?.divergencia === 0.43
+          && r2.status === 200 && r2.j.grupos?.length === 1 && r2.j.grupos[0].linhas.filter((l: any) => l.recurso === 'DINHEIRO').length === 2
+          && r2.j.grupos[0].linhas.find((l: any) => l.recurso === 'DINHEIRO' && l.chave === CHB)?.div === -50 && r2.j.totais.find((t: any) => t.recurso === 'DINHEIRO')?.venda === 1814.26
+          && semPdv.status === 422 && semPdv.j.code === 'FECHAMENTO_RELATORIO_PDV' && rbac.status === 403,
+          { r1: [r1.status, r1.j.data, g], totais: r1.j.totais, total: r1.j.total, r2: r2.j.grupos?.[0]?.linhas, semPdv: [semPdv.status, semPdv.j.code], rbac: rbac.status });
+      } finally {
+        await pgCC.query(`DELETE FROM caixa WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgCC.query(`DELETE FROM caixa_obs WHERE obs = 'QUEBRA SMOKE 186'`).catch(() => undefined);
+        await pgCC.query(`DELETE FROM caixa_pdv WHERE codcaixa = 9918601`).catch(() => undefined);
+        await pgCC.query(`DELETE FROM cx_vendas WHERE chave IN ($1, $2)`, [CHA, CHB]).catch(() => undefined);
+        await pgCC.query(`DELETE FROM plc WHERE codplc IN (99186, 99187)`).catch(() => undefined);
+        await pgCC.query(`DELETE FROM pdv WHERE codpdv = 979`).catch(() => undefined);
+        await pgCC.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

@@ -114,3 +114,17 @@ export const lancProvLinhaSchema = turnoFechamentoSchema.extend({
 export type LancProvLinhaDto = z.infer<typeof lancProvLinhaSchema>;
 export const lancProvExcluirSchema = turnoFechamentoSchema.extend({ codcxvendas: z.coerce.number().int().positive() });
 export type LancProvExcluirDto = z.infer<typeof lancProvExcluirSchema>;
+
+/**
+ * O RELATÓRIO "FECHAMENTO DE CAIXA" (`MontaRel` + FechamentoCaixa.fr3; corte 4): um turno (a tela, Imprimir › "Fechamento de
+ * caixa", RBAC FECHAMENTOCAIXA1) ou vários (os marcados em "Caixas em aberto"), do mesmo dia.
+ */
+export const relatorioFechamentoSchema = z.object({
+  data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  turnos: z.array(z.object({
+    nropdv: z.coerce.number().int().positive(),
+    codoperadora: z.coerce.number().int().positive(),
+    chave: z.preprocess((v) => (v === '' ? null : v), z.string().max(20).nullable().optional()),
+  })).min(1).max(200),
+});
+export type RelatorioFechamentoDto = z.infer<typeof relatorioFechamentoSchema>;

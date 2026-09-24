@@ -272,7 +272,7 @@ Todas carregam o .fr3 de `Relatorios\` (fonte de 14/05/2020).
 3. ✅ (4.2, 24/09; a tela básica fica de fora) **Cartão manual** (tela completa; a básica é opcional e rara): 459 em 2026. Mais a exclusão com liberação `USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO` (reusar `LiberacaoService` / LOG_LIBERACOES 'EXCLUIR DOCUMENTOS') e `DELETAR_DOCUMENTO_FCX`.
 4. ✅ (4.3, 24/09) **Sangria/suprimento manual** com liberação (`USUARIOS_PERMITIDOS_ALTERAR_SUP_SAN_FECHAMENTO`), MCB na conta fiscal, IDENTIFICADOR_MOVCB, e a exclusão levando a MCB.
 5. ✅ (4.4, 24/09) **CARTAO da refechada** com o casamento por multiconjunto em centavos e o gatilho de reaberto. Levar ao usuário a decisão sobre as 202 linhas fantasma (R$ 6.593,84) na carga.
-6. **Impressões**, nesta ordem: Fechamento de caixa (e multi, pelos caixas abertos), comprovante de quebra, histórico (com o filtro corrigido), listas dos documentos, relatório de análise, link do Relatório de caixa.
+6. ✅ (4.5 + 4.9, 24/09) **Impressões**, nesta ordem: Fechamento de caixa (e multi, pelos caixas abertos), comprovante de quebra, histórico (com o filtro corrigido), listas dos documentos, relatório de análise, link do Relatório de caixa.
 7. ✅ (4.6, 24/09) **Diálogos de leitura de cancelamentos (F5) e descontos (F6)**, cópia da chave e link ao histórico de vendas.
 8. ✅ (4.7, 24/09) **`OBRIGA_FECHAR_CAIXA_PDV`** e o atalho de transferência (F6 dos caixas abertos → tela existente).
 9. ✅ (4.8, 24/09; CAIXA_OBS vai com o relatório) **Lançamento provisório** (só modalidade + DADOSCX) e **CAIXA_OBS** (upsert + coluna no relatório): baixo uso.
