@@ -1,4 +1,4 @@
-import type { LogConfig } from '../log/registro-log';
+import type { LogConfig, LogDetalhe } from '../log/registro-log';
 /**
  * Configuração declarativa de um CRUD de tabela única — o "engine" lê isto e
  * implementa read/list/create/update/delete herdando a fundação (auditoria,
@@ -74,6 +74,12 @@ export interface CrudConfig {
  * TfrmCadMasterDet). Ex.: itens_lotecob (pk codilotcob, fk codlotecob → master).
  */
 export interface DetalheConfig {
+  /**
+   * a LOG dos itens (o dataset filho do legado): Inseriu com os campos preenchidos do item novo, Alterou com os que mudaram
+   * no item casado pela `chaveNatural` (o delete+insert do motor troca a PK — ela não conta como alteração). O item removido
+   * não é registrado (o legado não registra: 0 "Excluiu NF_PROD" em produção).
+   */
+  log?: LogDetalhe;
   tabela: string; // tabela do detalhe, ex.: 'itens_lotecob'
   pk: string; // pk do detalhe (gerada), ex.: 'codilotcob'
   fk: string; // coluna que aponta ao master, ex.: 'codlotecob'

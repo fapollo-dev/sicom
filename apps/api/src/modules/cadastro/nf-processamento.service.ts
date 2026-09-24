@@ -11,6 +11,7 @@ import { validarItensNoProcessamento } from './nf-cfop-situacao';
 import { totaisProdutosNf } from '@apollo/shared';
 import { gerarCaixaDaNf, reverterCaixaDaNf } from './nf-caixa';
 import { configNaTrx } from '../compras/pedido-heranca';
+import { fotoDaNf, logDaDiferencaNf } from './nf-log';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -101,12 +102,14 @@ export class NfProcessamentoService {
       const invalido = alvos.find((a) => !existentes.includes(a));
       if (invalido) throw new BusinessRuleError('NF_CFOP_INVALIDO', { cfop: invalido });
       // aplica o de-para item-a-item (CFOPAtual→CFOPNovo); preserva os itens fora do mapa.
+      const fotoLog = await fotoDaNf(trx, codnf);
       let itens = 0;
       for (const p of pares) {
         const r = await trx.updateTable('nf_prod').set({ cfop: p.para }).where('codnf', '=', codnf).where('cfop', '=', p.de).executeTakeFirst();
         itens += Number((r as any)?.numUpdatedRows ?? 0);
       }
       await trx.updateTable('nf').set({ usultalteracao: op, dtultimalteracao: sql`now()` }).where('codnf', '=', codnf).where('idempresa', '=', emp).execute();
+      await logDaDiferencaNf(trx, codnf, fotoLog);
       return { codnf, itens };
     });
   }
@@ -129,6 +132,7 @@ export class NfProcessamentoService {
         .where('idempresa', '=', emp)
         .forUpdate()
         .executeTakeFirst();
+      const fotoLog = await fotoDaNf(trx, codnf);
       if (!nf) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf });
 
       if (modo === 'processar') {
@@ -194,6 +198,8 @@ export class NfProcessamentoService {
       // legado gera depois do commit do processamento; aqui na mesma transação, para não sobrar caixa de nota não processada
       if (modo === 'processar') await gerarCaixaDaNf(trx, codnf, emp, op);
       else await reverterCaixaDaNf(trx, codnf, emp);
+      // a LOG do processamento/reversão: o que mudou no cabeçalho e nos itens ("Alterou NF — PROC N→S", …)
+      await logDaDiferencaNf(trx, codnf, fotoLog);
     });
   }
 

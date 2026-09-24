@@ -4,7 +4,7 @@ import { CrudEngineService } from './crud-engine.service';
 import type { AggregateConfig, DetalheConfig } from './crud-config';
 import { currentTenant } from '../tenant/tenant-context';
 import { gravarHistorico, gravarHistoricoMarca } from './historico';
-import { gravarLogDeCadastro } from '../log/registro-log';
+import { gravarLogDaLinha, gravarLogDeCadastro } from '../log/registro-log';
 
 type AnyDB = any;
 
@@ -55,9 +55,10 @@ export class AggregateEngineService extends CrudEngineService {
       }
       await this.stamp(trx, cfg, id, op, true);
       if (cfg.historico !== false) await gravarHistorico(trx, this.alvo(cfg), id, op, this.emp(), {}, d, 'INSERT');
-      await gravarLogDeCadastro(trx, cfg, 'Inseriu', id, {}, d);
+      if (!cfg.log?.campos) await gravarLogDeCadastro(trx, cfg, 'Inseriu', id, {}, d);
       if (cfg.replica) await this.outbox(trx, cfg, 'INSERT', id);
       for (const det of cfg.detalhes) await this.inserirItens(trx, det, id, this.itens(dto, det), dto);
+      await this.logDaLinha(trx, cfg, id, null);
       if (cfg.aposGravarTrx) await cfg.aposGravarTrx({ trx, id, dto, criado: true, emp: this.emp() });
       return id;
     });
@@ -75,6 +76,8 @@ export class AggregateEngineService extends CrudEngineService {
       // processado/aplicado enquanto esperávamos o lock é visto por esta leitura, então o guard de status barra a edição.
       if (cfg.validar) await cfg.validar({ dto, id, db: trx });
       const d = this.delta(cfg, this.derivados(cfg, dto, id)); // derivar (ex.: flags COMPOSICAO/DECOMPOSICAO) também no update
+      // a foto do registro e dos itens antes da gravação, para a LOG da linha inteira (o legado compara OldValue × NewValue)
+      const fotoLog = await this.fotoParaLog(trx, cfg, id, dto);
       const antes =
         (cfg.historico === false && !cfg.log) || !Object.keys(d).length
           ? {}
@@ -83,7 +86,7 @@ export class AggregateEngineService extends CrudEngineService {
       await this.stamp(trx, cfg, id, op, false);
       if (cfg.historico !== false)
         await gravarHistorico(trx, this.alvo(cfg), id, op, this.emp(), antes as Record<string, unknown>, d, 'UPDATE');
-      await gravarLogDeCadastro(trx, cfg, 'Alterou', id, antes as Record<string, unknown>, d);
+      if (!cfg.log?.campos) await gravarLogDeCadastro(trx, cfg, 'Alterou', id, antes as Record<string, unknown>, d);
       if (cfg.replica) await this.outbox(trx, cfg, 'UPDATE', id);
       // substituição de itens (delete + insert), por detalhe — só quando o dto traz a chave
       for (const det of cfg.detalhes) {
@@ -104,8 +107,60 @@ export class AggregateEngineService extends CrudEngineService {
         await trx.deleteFrom(det.tabela).where(det.fk, '=', id).execute();
         await this.inserirItens(trx, det, id, itens, dto, snapshot, antigas);
       }
+      await this.logDaLinha(trx, cfg, id, fotoLog);
       if (cfg.aposGravarTrx) await cfg.aposGravarTrx({ trx, id, dto, criado: false, emp: this.emp() });
     });
+  }
+
+  /** a foto (SELECT *) do mestre e dos itens com LOG, antes do update — só dos detalhes que o dto regrava */
+  private async fotoParaLog(trx: AnyDB, cfg: AggregateConfig, id: number, dto: Record<string, unknown>): Promise<{ mestre: Record<string, unknown> | null; itens: Map<string, Record<string, unknown>[]> } | null> {
+    const temLog = !!cfg.log?.campos || cfg.detalhes.some((det) => det.log);
+    if (!temLog) return null;
+    const mestre = cfg.log?.campos ? ((await trx.selectFrom(cfg.tabela).selectAll().where(cfg.pk, '=', id).executeTakeFirst()) as Record<string, unknown> | undefined) ?? null : null;
+    const itens = new Map<string, Record<string, unknown>[]>();
+    for (const det of cfg.detalhes) {
+      if (!det.log || dto[det.chave] === undefined) continue;
+      itens.set(det.chave, (await trx.selectFrom(det.tabela).selectAll().where(det.fk, '=', id).orderBy(det.pk).execute()) as Record<string, unknown>[]);
+    }
+    return { mestre, itens };
+  }
+
+  /**
+   * a LOG da linha inteira depois da gravação (create: foto nula → Inseriu; update: Alterou com a foto). Mestre primeiro e depois
+   * os itens, na ordem do legado (o form-base grava o master e em seguida o dataset filho).
+   */
+  private async logDaLinha(trx: AnyDB, cfg: AggregateConfig, id: number, foto: Awaited<ReturnType<AggregateEngineService['fotoParaLog']>> | null): Promise<void> {
+    const criado = foto === null;
+    if (!cfg.log?.campos && !cfg.detalhes.some((det) => det.log)) return;
+    const mestre = (await trx.selectFrom(cfg.tabela).selectAll().where(cfg.pk, '=', id).executeTakeFirst()) as Record<string, unknown> | undefined;
+    if (!mestre) return;
+    const formulario = cfg.log?.formularioDe ? cfg.log.formularioDe(mestre) : (cfg.log?.formulario ?? '');
+    if (!formulario) return;
+    if (cfg.log?.campos) {
+      await gravarLogDaLinha(trx, {
+        acao: criado ? 'Inseriu' : 'Alterou', formulario, tabela: cfg.log.tabela ?? cfg.tabela, chave: cfg.log.chave ?? cfg.pk, valor: id,
+        campos: cfg.log.campos, antes: criado ? null : foto?.mestre ?? null, depois: mestre,
+      });
+    }
+    for (const det of cfg.detalhes) {
+      if (!det.log) continue;
+      if (!criado && !foto?.itens.has(det.chave)) continue; // o update não regravou estes itens
+      const depois = (await trx.selectFrom(det.tabela).selectAll().where(det.fk, '=', id).orderBy(det.pk).execute()) as Record<string, unknown>[];
+      // casa o item novo com o antigo pela chave natural (n-ésima ocorrência com a n-ésima), como a preservação de colunas
+      const fila = new Map<string, Record<string, unknown>[]>();
+      for (const a of criado ? [] : foto?.itens.get(det.chave) ?? []) {
+        const k = this.chaveNat(det, a);
+        fila.set(k, [...(fila.get(k) ?? []), a]);
+      }
+      for (const linha of depois) {
+        const antiga = det.chaveNatural?.length ? fila.get(this.chaveNat(det, linha))?.shift() : undefined;
+        await gravarLogDaLinha(trx, {
+          acao: antiga ? 'Alterou' : 'Inseriu', formulario, tabela: det.log.tabela, chave: det.log.chave, valor: id, campos: det.log.campos,
+          // a PK do item muda no delete+insert do motor: não é alteração
+          antes: antiga ? { ...antiga, [det.pk]: linha[det.pk] } : null, depois: linha,
+        });
+      }
+    }
   }
 
   /**

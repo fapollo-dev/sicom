@@ -146,9 +146,25 @@ export async function gravarLog(trx: AnyDB, r: RegistroLog): Promise<void> {
 /** o que um cadastro declara para o form-base gravar a LOG (uCadMaster.pas:485) */
 export interface LogConfig {
   formulario: string;
+  /** o título quando depende do registro (ex.: a NF de entrada e a de saída são telas com títulos diferentes) */
+  formularioDe?: (linha: Record<string, unknown>) => string;
   /** tabela e chave do legado quando diferem das nossas (ex.: empresas → CODEMPRESA) */
   tabela?: string;
   chave?: string;
+  /**
+   * a LINHA INTEIRA na ordem do dataset do legado (`gravarLogDaLinha`) — com isso o motor lê o registro antes e depois
+   * da gravação e registra todos os campos (Inseriu) ou os que mudaram (Alterou), não só os do formulário
+   */
+  campos?: readonly CampoLog[];
+}
+
+/** a LOG de um DETALHE do agregado (os itens do dataset filho): o legado grava uma linha por item, com a chave do mestre */
+export interface LogDetalhe {
+  /** tabela do legado (ex.: NF_PROD) */
+  tabela: string;
+  /** coluna-chave gravada na LOG — a do mestre (ex.: CODNF); o VALOR é o código do mestre */
+  chave: string;
+  campos: readonly CampoLog[];
 }
 
 /** a gravação de cadastro: monta o texto e grava, se algum campo entrou ou mudou */

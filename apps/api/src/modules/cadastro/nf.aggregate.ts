@@ -1,4 +1,5 @@
 import { sql } from 'kysely';
+import type { CampoLog } from '../../shared/log/registro-log';
 import { nfSchema, atualizarNfSchema, totaisProdutosNf, totalProdutoItem } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
@@ -36,7 +37,57 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/**
+ * A LOG da NF ("Notas fiscais de entrada"/"Notas fiscais de saída" — ~225 mil linhas por ano em produção): o form-base do legado grava
+ * o cabeçalho (NF) e cada item (NF_PROD, com a chave CODNF) — Inseriu com os campos preenchidos, Alterou com os que mudaram —,
+ * na ordem do dataset (as listas vêm de linhas reais da LOG de produção, set/2026). Colunas do Apollo com outro nome: o total do
+ * ICMS-ST externo (`total_icmst_externo`) e o IPI do item (`vripi`, o IPI_NOTA do legado).
+ */
+export const NF_CAMPOS_LOG: readonly CampoLog[] = [
+  'codnf', 'protocolo_nfe', 'tipo', 'nronf', 'dtemissao', 'dtcontabil', 'dtchegada', 'codparceiro',
+  'codparceiro_end', 'totalnf', 'totalfrete', 'totalicm', 'totalipi', 'totalacessorias', 'totalicm_st',
+  'totalrepicm', 'totalvroutros', 'totalisento', 'totalprodst', 'totalbaseicm', 'totaldesc', 'totalbaseicmt',
+  'totaloutrasdesp', 'totalseguro', 'totaldescfinal', 'totalprod', 'proc', 'cancelada', 'modelo', 'serie', 'cfop',
+  'tipofrete', 'idempresa', 'qtdetransp', 'pesobruto', 'pesoliquido', 'totalfrete2', 'chavenfe', 'valorservico',
+  'issqn', 'valorissqn', 'qtde', 'pis_nfe', 'cofins_nfe', 'taxa_importacao_nfe', 'stexterno', 'tipoemissao',
+  'nf_importacao_nfe', 'sequencia_nfe', 'validatotalnf', 'idsituacao_nf', 'rateio', 'rateio_ipi', 'rateio_st',
+  'tpemissao', 'complemento', 'finalidade', 'vtoticmsufdest', 'vtoticmsufremet', 'vtotfcpufdest',
+  ['TOTALICM_STEXTERNO', 'total_icmst_externo'], 'totalbase_stexterno', 'totalbaseicmsrep', 'total_icms_uf_dest_bc',
+  'total_fcp_bc', 'total_fcp', 'obs', 'total_streal', 'total_icms_nota_valor', 'total_icms_nota_bc',
+  'icms_st_pago_fonte', 'icms_st_apagar', 'dthorasaida', 'fisco_emit_dar_valor', 'calculapeso',
+  'totalicm_stexterno_sepnf', 'versaoxml', 'indicador_presenca', 'total_fcp_valor_st', 'total_fcp_valor_st_ret',
+  'imp_importadormassa', 'imp_manifesto', 'total_icmsdeson', 'total_bonificado', 'total_ret_pis', 'total_ret_cofins',
+  'total_ret_csll', 'total_ret_inss', 'total_ret_issqn', 'total_ret_funrural', 'total_ret_ir',
+  'perc_aliquota_ret_pis', 'perc_aliquota_ret_cofins', 'perc_aliquota_ret_csll', 'perc_aliquota_ret_inss',
+  'perc_aliquota_ret_ir', 'perc_aliquota_ret_issqn', 'perc_aliquota_ret_funrural', 'total_desc_acordo',
+  'base_retencao_inss', 'alteraestoquereversao', 'totalipi_devolucao', 'rateio_ipi_devolucao', 'total_desc_pedido',
+  'base_ret_irrf_piscofins_csll', 'nota_neutra', 'total_vrcfop_abatido', 'perc_aliquota_ret_senar',
+  'total_ret_senar', 'abater_icms_deson', 'dtprocessamento',
+];
+export const NF_PROD_CAMPOS_LOG: readonly CampoLog[] = [
+  'codnfprod', 'codnf', 'codproduto', 'codprodnota', 'descricao', 'unidade', 'vrcusto', 'vrcustoreal', 'markup',
+  'vrvenda', 'quantidade', 'fatorembal', 'cfop', 'aliquota', 'ipi', 'icms', 'cst', 'vricm', 'icme', 'bcr',
+  'depsacess', 'frete', 'seguro', 'vrpis', 'vrbasecalculo', 'vrbasest', 'vricmst', 'vroutrasdesp', 'beneficio',
+  'geraicm_ipi', 'geraicm_acess', 'frete2', 'markupl', 'markupl2', 'geraicm_frete', 'creditoicm', 'creditopiscofins',
+  'debitoicm', 'debitopiscofins', 'vendaliq', 'lucrobrutov', 'lucrobrutop', 'despopv', 'lucroliqv', 'lucroliqp',
+  'imprend', 'contsocial', 'margeml2v', 'despextra', 'streal', 'ncm', 'custo_real_unit', 'aliqpise', 'aliqcofinse',
+  'aliqpiss', 'aliqcofinss', 'arredonda', 'pis', 'nroitem', 'ultcusto', 'ultvenda', 'vrcustorep', 'pmz',
+  'vrvendasug', 'vrcustocsi', 'origem_estoque', 'idsituacao_nf', 'bonificacao', 'desconto', 'geraestoque',
+  'vrdescprod', 'cest', 'vicmsufdest', 'vicmsufremet', 'vfcpufdest', 'vricms_stexterno', 'vrbase_stexterno',
+  'produc_peso_liq_exp', 'produc_peso_bruto_exp', 'fcp_aliquota', 'fcp_bc', 'icms_uf_dest_bc', 'icms_nota_valor',
+  'icms_nota_bc', 'cfop_original', 'mva_ajustado', 'icms_aliq_nota', 'icms_st_aliq_nota', 'icms_red_bc_nota',
+  'icms_st_red_bc_nota', 'total_produto_nota', 'qtd_nota', ['IPI_NOTA', 'vripi'], 'seguro_nota', 'frete_nota',
+  'desconto_nota', 'outras_despesas_nota', 'cst_nota', 'vl_custo', 'vl_unitario', 'vricms_stexterno_separadonf',
+  'fcp_aliquota_st', 'fcp_valor_st', 'fcp_bc_st', 'fcp_aliquota_st_ret', 'fcp_valor_st_ret', 'fcp_bc_st_ret',
+  'vricms_desonerado', 'ind_deduz_deson', 'item_perda_total', 'atualiza_multipreco_decomp', 'vrcustoajustenf',
+  'vrbasecalculoicm_calc', 'vricm_calc', 'vrajcustodec47530', 'ipi_devolucao', 'ipi_devolucao_perc_devol',
+  'ipi_devolucao_nota', 'vrsaldoflex', 'vrcomissao', 'ultcustorep', 'mva', 'nroitem_venda', 'bcpiscofinse', 'vrpise',
+  'vrcofinse', 'codoperador_lib_estoqueneg', 'usoconsumo',
+];
+export const formularioDaNf = (nf: Record<string, unknown>): string => (String(nf.tipo ?? '').toUpperCase() === 'S' ? 'Notas fiscais de saída' : 'Notas fiscais de entrada');
+
 export const nfAggregateConfig: AggregateConfig = {
+  log: { formulario: 'Notas fiscais de entrada', formularioDe: formularioDaNf, tabela: 'NF', chave: 'CODNF', campos: NF_CAMPOS_LOG },
   tabela: 'nf',
   pk: 'codnf',
   view: 'get_nf',
@@ -324,6 +375,7 @@ export const nfAggregateConfig: AggregateConfig = {
       pk: 'codnfprod',
       fk: 'codnf',
       chave: 'itens',
+      log: { tabela: 'NF_PROD', chave: 'CODNF', campos: NF_PROD_CAMPOS_LOG },
       // 59 das 113 colunas do item não passam pela tela (os valores DA NOTA do fornecedor — base/ICMS/ST/IPI/frete
       // destacados, que a devolução devolve —, FCP-ST, ICMS desonerado, custo real, o que a coleta gravou…): salvar a
       // NF as apagaria. O motor as mantém, casando o item pelo produto (lição 124)

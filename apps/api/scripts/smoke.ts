@@ -21288,6 +21288,38 @@ async function main() {
         await pgD.end();
       }
     }
+
+    // ══ §201 LOG DA NF ("Notas fiscais de entrada") — o log genérico do legado: Inseriu com os campos preenchidos (NF e NF_PROD, chave CODNF),
+    // Alterou só com o que mudou (o item casado pelo produto; a PK do delete+insert não conta), e o processamento (PROC N → S)
+    {
+      const pgN = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const corpo = (qtde: number) => ({ modelo: 55, serie: '1', dtemissao: '2026-06-12', dtcontabil: '2026-06-12', tipoemissao: '0', cfop: '1102', tipo: 'E', nronf: 'LOGNF1', codparceiro: 22,
+          itens: [{ codproduto: 1, quantidade: qtde, vrcusto: 3.5, cfop: '1102', aliquota: 'T01' }] });
+        const cr = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify(corpo(2)) });
+        const codnf = Number(((await cr.json().catch(() => ({}))) as any).codnf);
+        const logs = async () => (await pgN.query(`SELECT acao, formulario, tabela, chave, valor, historico FROM log WHERE valor = $1 AND tabela IN ('NF','NF_PROD') ORDER BY idlog`, [codnf])).rows as any[];
+        const l1 = await logs();
+        check('LOG-NF §201.1: criar a NF de entrada → Inseriu NF e Inseriu NF_PROD ("Notas fiscais de entrada", chave CODNF, valor = a nota) com os campos preenchidos',
+          cr.status === 201 && l1.length === 2 && l1[0].acao === 'Inseriu' && l1[0].tabela === 'NF' && l1[0].formulario === 'Notas fiscais de entrada' && l1[0].chave === 'CODNF'
+          && String(l1[0].historico).includes('CAMPO: NRONF   VALOR: LOGNF1') && l1[1].tabela === 'NF_PROD' && String(l1[1].historico).includes('CAMPO: QUANTIDADE   VALOR: 2'),
+          { st: cr.status, l1 });
+        const up = await fetch(`${base}/fiscal/nf/${codnf}`, { method: 'PUT', headers: H, body: JSON.stringify(corpo(3)) });
+        const l2 = (await logs()).slice(2);
+        const altItem = l2.find((l) => l.tabela === 'NF_PROD');
+        check('LOG-NF §201.2: editar a quantidade do item → Alterou NF_PROD só com QUANTIDADE (2 → 3); a PK regravada não aparece',
+          up.status === 200 && altItem?.acao === 'Alterou' && String(altItem?.historico).includes('CAMPO: QUANTIDADE    VALOR ANTERIOR: 2    VALOR ATUAL: 3')
+          && !String(altItem?.historico).includes('CODNFPROD'),
+          { up: up.status, l2 });
+        const pr = await fetch(`${base}/fiscal/nf/${codnf}/processar`, { method: 'POST', headers: H });
+        const l3 = (await logs()).filter((l) => l.tabela === 'NF' && l.acao === 'Alterou' && String(l.historico).includes('CAMPO: PROC'));
+        check('LOG-NF §201.3: processar → Alterou NF com PROC N → S',
+          (pr.status === 200 || pr.status === 204) && l3.length >= 1 && String(l3[l3.length - 1].historico).includes('CAMPO: PROC    VALOR ANTERIOR: N    VALOR ATUAL: S'),
+          { pr: pr.status, l3 });
+      } finally {
+        await pgN.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
