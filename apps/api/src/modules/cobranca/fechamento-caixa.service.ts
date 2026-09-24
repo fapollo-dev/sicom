@@ -937,6 +937,53 @@ export class FechamentoCaixaService {
     });
   }
 
+  // ── impressões (corte 4) ───────────────────────────────────────────────────────────────────────────────────────
+  /**
+   * o COMPROVANTE DE QUEBRA DE CAIXA (`ImprimeComprovanteQuebraCaixa`, UdmFechamentoCaixa.pas:705; `FDQSaldoOperador` no .dfm;
+   * "Comprovante de quebra de caixa.fr3"): um por SALDO_OPERADOR do turno não excluído e com GERA_SALDO. Não filtra o sinal —
+   * imprime também a sobra (o valor sai negativo, como o `FormatFloat('0.00', SALDO * (-1))` do legado). Sem linha, a tela diz
+   * "Não foram encontradas quebras de caixa no dia dd/mm/aaaa.".
+   */
+  async comprovanteQuebra(t: TurnoFechamentoDto) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const c = await this.contexto(db, t);
+    const rows = (await sql<{ idsaldoop: number; nome: string | null; codpdv: number; dia: string; saldo: unknown }>`
+      SELECT s.idsaldoop, op.nome, s.codpdv, to_char(s.datafechamento, 'DD/MM/YYYY') AS dia, s.saldo
+        FROM saldo_operador s JOIN operadores op ON op.codoperador = s.codoperador
+       WHERE s.codoperador = ${c.op} AND s.datafechamento = ${c.data}::date AND s.codpdv = ${c.pdv}
+         AND coalesce(s.excluido, 'N') = 'N' AND coalesce(s.gera_saldo, 'S') = 'S'
+         AND ${c.chave ? sql`s.chave = ${c.chave}` : sql`s.chave IS NULL`}
+       ORDER BY s.idsaldoop`.execute(db)).rows;
+    return {
+      data: c.data.split('-').reverse().join('/'),
+      quebras: rows.map((r) => {
+        const valor = r2(-num(r.saldo));
+        return {
+          idsaldoop: Number(r.idsaldoop), nome: r.nome ?? '', codpdv: Number(r.codpdv), dia: r.dia, saldo: num(r.saldo), valor,
+          texto: `Eu, ${r.nome ?? ''}, reconheço a quebra de caixa do PDV ${r.codpdv}, no dia ${r.dia}, no valor de ${valor.toFixed(2).replace('.', ',')} reais.`,
+        };
+      }),
+    };
+  }
+
+  /**
+   * o HISTÓRICO do turno (`ImprimeHistorico`, UdmFechamentoCaixa.pas:730; `sqqHistorico`; "Rel_Historico_Finalizadoras.fr3" —
+   * "Histórico de alterações do fechamento de caixa"): o HISTORICO da empresa com AUXILIAR = a chave do turno, na ordem de
+   * gravação, com o nome de quem fez (JOIN em OPERADORES: linha sem operador não sai, como no legado). ⚠️ correção: sem chave,
+   * o legado pegava TODO o HISTORICO de AUXILIAR nulo da empresa; aqui fica o do dia do caixa.
+   */
+  async historicoTurno(t: TurnoFechamentoDto) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const c = await this.contexto(db, t);
+    const rows = (await sql<{ codhist: number; historico: string | null; data: string | null; nome: string | null }>`
+      SELECT s.codhist, s.historico, to_char(s.data, 'YYYY-MM-DD HH24:MI:SS') AS data, op.nome
+        FROM historico s JOIN operadores op ON op.codoperador = s.codoperador
+       WHERE s.codempresa = ${c.emp}
+         AND ${c.chave ? sql`s.auxiliar = ${c.chave}` : sql`s.auxiliar IS NULL AND s.data::date = ${c.data}::date`}
+       ORDER BY s.codhist`.execute(db)).rows;
+    return rows.map((r) => ({ codhist: Number(r.codhist), data: dataHoraAsString(r.data), historico: r.historico ?? '', usuario: r.nome ?? '' }));
+  }
+
   // ── o rascunho ─────────────────────────────────────────────────────────────────────────────────────────────────
   async salvarRascunho(dto: RascunhoFechamentoDto) {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {

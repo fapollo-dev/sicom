@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Modal, PageHeader } from '@apollosg/design-system';
 import { DateField } from '../../shared/ui/DateField';
 import { Field } from '../../shared/ui/Field';
@@ -6,9 +7,11 @@ import { Button } from '../../shared/ui/Button';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { SelectField } from '../../shared/ui/SelectField';
 import { listarOperadoras, type Operadora } from '../cartao/cartaoApi';
+import { imprimirPagina } from '../../shared/print/imprimirPagina';
+import { imprimirComprovanteQuebra, imprimirHistorico } from './imprimirFechamento';
 import { useMensagem } from '../../shared/mensagem';
 import {
-  abrirTurno, detalheTurno, documentosTurno, editarDocumento, efetivarTurno, excluirDocumento, inserirDocumento, listarTurnos, reabrirTurno, salvarRascunho,
+  abrirTurno, comprovanteQuebra, detalheTurno, documentosTurno, editarDocumento, historicoTurno, efetivarTurno, excluirDocumento, inserirDocumento, listarTurnos, reabrirTurno, salvarRascunho,
   type CamposDocumento, type DetalheTurno, type DocumentoConferencia, type Documentos, type Fixa, type LinhaFechamento, type TurnoRef, type TurnoResumo,
 } from './fechamentoCaixaApi';
 
@@ -40,6 +43,7 @@ const txt = (v: unknown) => (v == null ? '' : String(v));
 
 export function FechamentoCaixaPage() {
   const mensagem = useMensagem();
+  const navigate = useNavigate();
   const [data, setData] = useState(hoje());
   const [turnos, setTurnos] = useState<TurnoResumo[] | null>(null);
   const [ref, setRef] = useState<TurnoRef | null>(null);
@@ -241,6 +245,36 @@ export function FechamentoCaixaPage() {
     carregar(r);
     mensagem.sucesso('Caixa reaberto com sucesso!');
   });
+  // IMPRIMIR (o menu do legado): a janela abre no clique e o dado chega depois (popup-blocker)
+  const imprimirComDado = async (carregarDado: (win: Window) => Promise<boolean>) => {
+    const win = window.open('', '_blank');
+    if (!win) { mensagem.erro(new Error('O navegador bloqueou a janela de impressão.')); return; }
+    try { if (!(await carregarDado(win))) win.close(); } catch (e) { win.close(); mensagem.erro(e); }
+  };
+  const imprimirQuebra = () => void imprimirComDado(async (win) => {
+    if (!ref) return false;
+    const d = await comprovanteQuebra(ref);
+    if (!d.quebras.length) { mensagem.erro(new Error(`Não foram encontradas quebras de caixa no dia ${d.data}.`)); return false; }
+    imprimirComprovanteQuebra(win, d);
+    return true;
+  });
+  const imprimirHist = () => void imprimirComDado(async (win) => {
+    if (!ref || !det) return false;
+    const linhas = await historicoTurno(ref);
+    if (!linhas.length) { mensagem.erro(new Error('Não foram encontrados dados.')); return false; }
+    imprimirHistorico(win, linhas, `PDV ${det.turno.nropdv} · operador(a) ${det.turno.codoperadora} — ${det.turno.nome ?? ''} · ${det.turno.data.split('-').reverse().join('/')}`);
+    return true;
+  });
+  // a lista do diálogo de documentos (fec_fechamento_de_caixa_doc_fin_*.fr3): imprime a grade como está
+  const gradeDocs = useRef<HTMLDivElement>(null);
+  const imprimirDocs = () => {
+    if (!docs || !gradeDocs.current) return;
+    if (!docs.d.documentos.length) { mensagem.erro(new Error('Não existem dados para gerar e imprimir o relatório.')); return; }
+    const win = window.open('', '_blank');
+    if (!win) { mensagem.erro(new Error('O navegador bloqueou a janela de impressão.')); return; }
+    imprimirPagina(win, gradeDocs.current, `Documentos da finalizadora (${docs.d.operacao.toLowerCase()}) — ${ref?.data.split('-').reverse().join('/') ?? ''}`);
+  };
+
   // sair da finalização grava o rascunho, como o FormClose do legado
   const voltar = () => executar(async () => {
     await gravar();
@@ -261,6 +295,8 @@ export function FechamentoCaixaPage() {
           <div className="flex flex-wrap items-end gap-gp-sm">
             <div className="w-44"><DateField label="&Data do caixa" value={data} onChange={(v) => setData(v ?? hoje())} /></div>
             <Button label="&Caixas do dia" variant="soft" onClick={() => void pesquisar()} disabled={ocupado} />
+            {/* Imprimir › "Relatório de caixa": só um atalho para a tela do relatório (FRMRELATORIOCAIXA, já migrada) */}
+            <Button label="&Relatório de caixa" variant="ghost" onClick={() => navigate('/relatorios/caixa-dre')} />
           </div>
           {turnos && (turnos.length === 0
             ? <small className="text-fg-muted">Nenhum movimento de PDV nesta data.</small>
@@ -307,6 +343,8 @@ export function FechamentoCaixaPage() {
               {!consulta && <Button label="&Gravar conferência" variant="soft" onClick={() => void salvar()} disabled={ocupado} />}
               {!consulta && <Button label="&Efetivar fechamento" onClick={() => void efetivar()} disabled={ocupado} />}
               {consulta && det.turno.situacao === 3 && <Button label="&Reabrir caixa" variant="soft" onClick={() => void reabrir()} disabled={ocupado} />}
+              <Button label="Comprovante de &quebra" variant="ghost" onClick={imprimirQuebra} disabled={ocupado} />
+              <Button label="&Histórico" variant="ghost" onClick={imprimirHist} disabled={ocupado} />
               <Button label="&Voltar" variant="soft" onClick={() => void voltar()} disabled={ocupado} />
             </div>
           </section>
@@ -496,13 +534,14 @@ export function FechamentoCaixaPage() {
                 </div>
               </section>
             )}
-            {docs.d.insercao && !edicao && (
-              <div className="flex justify-end"><Button label={rotuloIncluir} variant="outline" onClick={inserir} disabled={ocupado} /></div>
-            )}
+            <div className="flex justify-end gap-gp-sm">
+              <Button label="Imprimir" variant="ghost" onClick={imprimirDocs} disabled={ocupado} />
+              {docs.d.insercao && !edicao && <Button label={rotuloIncluir} variant="outline" onClick={inserir} disabled={ocupado} />}
+            </div>
             {docs.d.documentos.length === 0
               ? <small className="text-fg-muted">Nenhum documento para esta operação.</small>
               : (
-                <div className="max-h-96 overflow-auto rounded-md border border-border">
+                <div ref={gradeDocs} className="max-h-96 overflow-auto rounded-md border border-border">
                   <table className="w-full text-sm">
                     <tbody>
                       {docs.d.documentos.map((x) => (

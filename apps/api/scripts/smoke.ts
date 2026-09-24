@@ -20161,6 +20161,43 @@ async function main() {
         await pgC7.end();
       }
     }
+    // ══ §182 FECHAMENTO DE CAIXA, corte 4: as impressões — comprovante de quebra (FDQSaldoOperador) e histórico (sqqHistorico) ══
+    {
+      const pgC8 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const FC = 'cobranca/fechamento-caixa';
+      const DIA = '2038-03-15';
+      const CHA = '79150338080000';
+      const qsT = new URLSearchParams({ data: DIA, chave: CHA, nropdv: '79', codoperadora: '7', situacao: '3' }).toString();
+      try {
+        const nome = String(((await pgC8.query(`SELECT nome FROM operadores WHERE codoperador = 7`)).rows[0] as any)?.nome ?? '');
+        await pgC8.query(`INSERT INTO saldo_operador (idempresa, codgrupo, codoperador, codpdv, datafechamento, saldo, gera_saldo, excluido, chave) VALUES
+            (1, 9918201, 7, 79, $1, -12.5, 'S', 'N', $2), (1, 9918202, 7, 79, $1, -3, 'N', 'N', $2), (1, 9918203, 7, 79, $1, -4, 'S', 'S', $2),
+            (1, 9918204, 7, 79, $1, 8.5, NULL, NULL, $2), (1, 9918205, 7, 79, $1, -99, 'S', 'N', '79150338990000')`, [DIA, CHA]);
+        await pgC8.query(`INSERT INTO historico (tabela, historico, coddoc, codoperador, codempresa, data, auxiliar) VALUES
+            ('CAIXA', 'SMOKE 182 PRIMEIRO', '1', 7, 1, '2038-03-15 10:00:00', $1), ('CAIXA', 'SMOKE 182 SEM OPERADOR', '1', NULL, 1, '2038-03-15 10:05:00', $1),
+            ('CARTAO', 'SMOKE 182 SEGUNDO', '1', 7, 1, '2038-03-15 00:00:00', $1), ('CAIXA', 'SMOKE 182 OUTRA CHAVE', '1', 7, 1, '2038-03-15 11:00:00', '79150338990000'),
+            ('CAIXA', 'SMOKE 182 OUTRA EMPRESA', '1', 7, 2, '2038-03-15 11:00:00', $1)`, [CHA]);
+        const q = await fetch(`${base}/${FC}/turno/quebra?${qsT}`, { headers: H });
+        const qj = (await q.json()) as any;
+        const h = await fetch(`${base}/${FC}/turno/historico?${qsT}`, { headers: H });
+        const hj = (await h.json()) as any[];
+        const vazio = (await (await fetch(`${base}/${FC}/turno/quebra?${new URLSearchParams({ data: '2038-03-16', chave: CHA, nropdv: '79', codoperadora: '7', situacao: '3' })}`, { headers: H })).json()) as any;
+        const semAcesso = await fetch(`${base}/${FC}/turno/quebra?${qsT}`, { headers: H_SEM_ACESSO });
+        check('FECHAMENTO §182 [impressões]: o comprovante de quebra traz o SALDO do turno não excluído e com GERA_SALDO (nulo conta): a quebra de 12,50 ("Eu, <nome>, reconheço a quebra de caixa do PDV 79, no dia 15/03/2038, no valor de 12,50 reais.") e a sobra de 8,50 com o valor negativo (-8,50, o legado não filtra o sinal); o de outra chave, o excluído e o sem GERA_SALDO ficam de fora; outro dia → lista vazia (a tela diz "Não foram encontradas quebras…"); o histórico traz o HISTORICO da empresa com AUXILIAR = a chave, na ordem de gravação, com o usuário (a linha sem operador não sai, JOIN como no legado) e a data como o Delphi mostra (só o dia à meia-noite); sem acesso → 403',
+          q.status === 200 && qj.data === '15/03/2038' && qj.quebras?.length === 2
+          && qj.quebras[0].valor === 12.5 && qj.quebras[0].texto === `Eu, ${nome}, reconheço a quebra de caixa do PDV 79, no dia 15/03/2038, no valor de 12,50 reais.`
+          && qj.quebras[1].valor === -8.5 && qj.quebras[1].texto.endsWith('no valor de -8,50 reais.')
+          && Array.isArray(vazio.quebras) && vazio.quebras.length === 0
+          && h.status === 200 && hj.map((x) => x.historico).join('|') === 'SMOKE 182 PRIMEIRO|SMOKE 182 SEGUNDO'
+          && hj[0].data === '15/03/2038 10:00:00' && hj[1].data === '15/03/2038' && hj[0].usuario === nome
+          && semAcesso.status === 403,
+          { q: [q.status, qj], h: [h.status, hj], vazio, semAcesso: semAcesso.status });
+      } finally {
+        await pgC8.query(`DELETE FROM saldo_operador WHERE chave IN ($1, '79150338990000')`, [CHA]).catch(() => undefined);
+        await pgC8.query(`DELETE FROM historico WHERE historico LIKE 'SMOKE 182 %'`).catch(() => undefined);
+        await pgC8.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

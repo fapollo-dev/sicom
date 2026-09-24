@@ -115,3 +115,10 @@ export const inserirDocumento = (t: TurnoRef, operacao: string, campos: CamposDo
   req<{ tipo: 'CARTAO' | 'RCB' | 'SANGRIA'; codigo: number }>(`${P}/turno/documentos`, { method: 'POST', body: JSON.stringify({ ...t, operacao, campos, ...liberacao }) });
 export const excluirDocumento = (t: TurnoRef, operacao: string, codigo: number, liberacao?: { login: string; senha: string }) =>
   req<{ codigo: number; excluido: boolean }>(`${P}/turno/documentos/excluir`, { method: 'POST', body: JSON.stringify({ ...t, operacao, codigo, ...liberacao }) });
+export interface ComprovanteQuebra {
+  data: string;
+  quebras: Array<{ idsaldoop: number; nome: string; codpdv: number; dia: string; saldo: number; valor: number; texto: string }>;
+}
+export interface LinhaHistorico { codhist: number; data: string; historico: string; usuario: string }
+export const comprovanteQuebra = (t: TurnoRef) => req<ComprovanteQuebra>(`${P}/turno/quebra?${qs(t)}`);
+export const historicoTurno = (t: TurnoRef) => req<LinhaHistorico[]>(`${P}/turno/historico?${qs(t)}`);

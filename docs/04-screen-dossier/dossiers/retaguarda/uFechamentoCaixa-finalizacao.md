@@ -419,3 +419,20 @@ com a comparação certa (NROPEDIDO + valor numérico).
 - **Continua com o usuário:** as 202 linhas fantasma já na base (R$ 6.593,84), que a carga traz como estão.
 - **Smoke §181:** 1518/0.
 - **Observação dos conferidores:** o **homolog** (192.168.1.240) ganhou tabelas que a produção não tem (CUSTO_MEDIO_BUCKET/PARAM, FGF4_* ×9, INTEGRACAO_IBSCBS) e `VRCUSTO_MEDIO` NUMBER(18,6). É desenvolvimento do fornecedor. Contra a produção, os três conferidores dão exit 0. Os conferidores devem rodar com `ORACLE_HOST=hiperpinheirao.ddns.com.br`, porque o padrão deles é o homolog.
+
+### 4.5 ENTREGUE (24/09/2026) — impressões simples: comprovante de quebra, histórico, lista de documentos, link do Relatório de caixa
+
+- **Comprovante de quebra de caixa** (`GET turno/quebra`, `ImprimeComprovanteQuebraCaixa` :705, `FDQSaldoOperador`, "Comprovante de quebra de caixa.fr3"):
+  - Um por SALDO_OPERADOR do turno, não excluído e com GERA_SALDO (nulo conta).
+  - Texto: "Eu, NOME, reconheço a quebra de caixa do PDV N, no dia dd/mm/aaaa, no valor de 0,00 reais." e a linha de assinatura.
+  - Não filtra o sinal: a sobra sai com o valor negativo, como o `FormatFloat('0.00', SALDO * (-1))`.
+  - Sem linha: "Não foram encontradas quebras de caixa no dia dd/mm/aaaa.".
+- **Histórico** (`GET turno/historico`, `ImprimeHistorico` :730, `sqqHistorico`, "Histórico de alterações do fechamento de caixa"):
+  - O HISTORICO da empresa com AUXILIAR = a chave, na ordem de gravação: Data, Histórico, Usuário.
+  - JOIN em OPERADORES: linha sem operador não sai, como no legado.
+  - ⚠️ **Correção:** sem chave, o legado pegava todo HISTORICO de AUXILIAR nulo da empresa; aqui fica o do dia do caixa.
+- **Lista do diálogo de documentos** (`fec_fechamento_de_caixa_doc_fin_*.fr3`): o botão "Imprimir" imprime a grade como está. Grade vazia: "Não existem dados para gerar e imprimir o relatório.".
+- **"Relatório de caixa":** atalho para `/relatorios/caixa-dre` (FRMRELATORIOCAIXA, já migrada).
+- **Web:** tudo pela camada global `imprimirPagina` (`imprimirFechamento.ts`). A janela abre no clique.
+- **Pendente do item 6:** o relatório "Fechamento de caixa" (`MontaRel`, RBAC FECHAMENTOCAIXA1) e o "Relatório de análise". A spec está em `uFechamentoCaixa-impressoes-spec.md` (recon em andamento).
+- **Smoke §182:** 1519/0.

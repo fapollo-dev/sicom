@@ -32,6 +32,20 @@ export class FechamentoCaixaController {
     return this.svc.detalhe(q);
   }
 
+  /** o comprovante de quebra de caixa do turno (Imprimir › "Comprovante de quebra de caixa"; o menu não tem RBAC próprio) */
+  @Get('turno/quebra')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNCXABERTO')
+  comprovanteQuebra(@Query(new ZodValidationPipe(turnoFechamentoSchema)) q: TurnoFechamentoDto) {
+    return this.svc.comprovanteQuebra(q);
+  }
+
+  /** o histórico de alterações do turno (Imprimir › "Histórico") */
+  @Get('turno/historico')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNCXABERTO')
+  historico(@Query(new ZodValidationPipe(turnoFechamentoSchema)) q: TurnoFechamentoDto) {
+    return this.svc.historicoTurno(q);
+  }
+
   @Get('turno/documentos')
   @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNFECHA')
   documentos(@Query(new ZodValidationPipe(turnoFechamentoSchema)) q: TurnoFechamentoDto, @Query('operacao') operacao?: string) {
