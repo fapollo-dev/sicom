@@ -30,3 +30,17 @@ export const transferirContaSchema = z
   })
   .refine((v) => v.codorigem !== v.coddestino, { message: 'A conta de destino deve ser diferente da origem.', path: ['coddestino'] });
 export type TransferirContaDto = z.infer<typeof transferirContaSchema>;
+
+/** LIBERAR movimentos a prazo (o botão com multisseleção e o menu por linha do legado): a data vira a DTLIBERACAO. */
+export const liberarMovContaSchema = z.object({
+  codconta: z.coerce.number().int().positive(),
+  codmovcontas: z.array(z.coerce.number().int().positive()).min(1, { message: 'Selecione ao menos um movimento.' }).max(5000),
+  data: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}/, { message: 'Informe a data da liberação.' }),
+});
+export type LiberarMovContaDto = z.infer<typeof liberarMovContaSchema>;
+
+/** "Mudar data de liberação" do detalhamento. */
+export const mudarDataLiberacaoSchema = z.object({
+  data: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}/, { message: 'Informe a data.' }),
+});
+export type MudarDataLiberacaoDto = z.infer<typeof mudarDataLiberacaoSchema>;

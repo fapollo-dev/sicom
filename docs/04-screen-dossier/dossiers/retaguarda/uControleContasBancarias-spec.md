@@ -412,3 +412,12 @@ ORDER BY MOV.DTEMISSAO, MOV.CODMOVCONTA
 - Destinos da transferência: qualquer conta ativa (`GET destinos`). Smoke §198 (4 casos) + §47h/§160/§161 ajustados.
 
 Próximos: B (detalhamento), C (liberação — a escrita mais usada), D (lançamento de saldo no lugar do lançamento por operação).
+
+## 12. Conversão — corte C, liberação (24/09/2026)
+
+`GET a-liberar` (a pesquisa do botão: não liberados da conta), `POST liberar` (multisseleção ou uma linha; a data vira
+`DTLIBERACAO` à meia-noite e `LIBERADO='S'`; `MUDAR_EMISSAO_LIBERACAO_MOV='S'` muda também emissão/vencimento; baixa o cheque
+próprio da RELACAO_CHQ_PROP; numa transação; a linha já liberada é ignorada — o menu do legado re-liberava e sobrescrevia a
+data) e `POST :id/data-liberacao` ("Mudar data de liberação": só a data do já liberado; "Não é possivel alterar a data de
+documentos não liberados!"). RBAC `BTNLIBERAR` + flag `HABILTIAR_LIBE_MOVIMENT`. Tela: botão "Liberar movimentações" com a
+lista e a data; no extrato, Liberar / Mudar data / Remover por linha. Smoke §199 (3 casos).

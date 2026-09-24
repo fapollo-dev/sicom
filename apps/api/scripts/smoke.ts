@@ -21158,6 +21158,45 @@ async function main() {
         await pgK.end();
       }
     }
+
+    // ══ §199 CONTROLE DE CONTAS, corte C — LIBERAR movimentos a prazo (a escrita mais usada: 3.655 linhas em 2025+) e mudar a data
+    {
+      const pgL = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const CC = 'cadastro/controle-contas';
+      try {
+        const bancoReal = Number((await pgL.query(`SELECT codbco FROM bancos WHERE codbco > 0 ORDER BY codbco LIMIT 1`)).rows[0]?.codbco ?? 1);
+        const lc = Number((await pgL.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular, nroconta) VALUES ($1,1,'CONTA LIBERAR 199','L-199') RETURNING codconta`, [bancoReal])).rows[0].codconta);
+        await pgL.query(`INSERT INTO contas_bancarias_op (codconta, codoperador) VALUES ($1,7)`, [lc]);
+        const din = Number((await pgL.query(`SELECT idpgto FROM formas_pgto WHERE idempresa = 1 AND upper(modalidade) = 'DINHEIRO' ORDER BY idpgto LIMIT 1`)).rows[0]?.idpgto ?? 1);
+        const ins = async (valor: number, liberado: string | null) => Number((await pgL.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, codopconta, idpgto, liberado, dtemissao, dtvenc, historico)
+            VALUES ($1,1,$2,'C',0,$3,$4,'2026-09-01 10:00-03','2026-09-01 10:00-03','a prazo 199') RETURNING codmovconta`, [lc, valor, din, liberado])).rows[0].codmovconta);
+        const m1 = await ins(40, 'N');
+        const m2 = await ins(60, null);
+        const m3 = await ins(5, 'S');
+        const lista = (await (await fetch(`${base}/${CC}/a-liberar?codconta=${lc}`, { headers: H })).json().catch(() => [])) as any[];
+        const post = async (path: string, body: unknown, headers = H) => { const r = await fetch(`${base}/${path}`, { method: 'POST', headers, body: JSON.stringify(body) }); return { status: r.status, j: (await r.json().catch(() => ({}))) as any }; };
+        const lib = await post(`${CC}/liberar`, { codconta: lc, codmovcontas: [m1, m2, m3], data: '2026-09-15' });
+        const rows = (await pgL.query(`SELECT codmovconta, liberado, to_char(dtliberacao AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD HH24:MI') dl, to_char(dtemissao AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') de FROM mov_contas_bancarias WHERE codmovconta = ANY($1::int[]) ORDER BY codmovconta`, [[m1, m2]])).rows as any[];
+        const painel = (await (await fetch(`${base}/${CC}/saldo?codconta=${lc}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('CONTA-CC §199.1: a pesquisa traz os 2 a prazo (N e nulo); liberar em 15/09 → LIBERADO S e DTLIBERACAO 15/09 00:00, a emissão fica (MUDAR_EMISSAO_LIBERACAO_MOV=N), o já liberado é ignorado; o saldo atual passa a 105 e o a prazo a 0',
+          lista.length === 2 && lib.status === 200 && lib.j.liberados === 2 && lib.j.ignorados === 1
+          && rows.every((r) => r.liberado === 'S' && r.dl === '2026-09-15 00:00' && r.de === '2026-09-01') && Number(painel.saldo) === 105 && Number(painel.a_prazo) === 0,
+          { lista: lista.length, lib, rows, painel });
+        const mud = await post(`${CC}/${m1}/data-liberacao`, { data: '2026-09-16' });
+        const m4 = await ins(7, 'N');
+        const mudN = await post(`${CC}/${m4}/data-liberacao`, { data: '2026-09-16' });
+        const dl1 = (await pgL.query(`SELECT to_char(dtliberacao AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') d, liberado FROM mov_contas_bancarias WHERE codmovconta = $1`, [m1])).rows[0] as any;
+        check('CONTA-CC §199.2: mudar a data de liberação de um liberado → 16/09 (LIBERADO segue S); de um não liberado → 422 MOVIMENTO_NAO_LIBERADO ("Não é possivel alterar a data de documentos não liberados!")',
+          mud.status === 200 && dl1?.d === '2026-09-16' && dl1?.liberado === 'S' && mudN.j.code === 'MOVIMENTO_NAO_LIBERADO', { mud, mudN: mudN.j.code, dl1 });
+        await pgL.query(`UPDATE contas_bancarias_op SET habiltiar_libe_moviment = 'N' WHERE codconta = $1 AND codoperador = 7`, [lc]);
+        const libN = await post(`${CC}/liberar`, { codconta: lc, codmovcontas: [m4], data: '2026-09-15' });
+        const libSem = await post(`${CC}/liberar`, { codconta: lc, codmovcontas: [m4], data: '2026-09-15' }, H_SEM_ACESSO);
+        check('CONTA-CC §199.3: HABILTIAR_LIBE_MOVIMENT N na conta → 422 CONTA_ACAO_NAO_PERMITIDA; sem a opção BTNLIBERAR → 403',
+          libN.j.code === 'CONTA_ACAO_NAO_PERMITIDA' && libSem.status === 403, { libN: libN.j.code, libSem: libSem.status });
+      } finally {
+        await pgL.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

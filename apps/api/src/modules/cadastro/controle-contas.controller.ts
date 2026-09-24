@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
-import { lancarContaSchema, transferirContaSchema, type LancarContaDto, type TransferirContaDto } from '@apollo/shared';
+import { lancarContaSchema, liberarMovContaSchema, mudarDataLiberacaoSchema, transferirContaSchema, type LancarContaDto, type LiberarMovContaDto, type MudarDataLiberacaoDto, type TransferirContaDto } from '@apollo/shared';
 import { ControleContasService } from './controle-contas.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -26,6 +26,29 @@ export class ControleContasController {
   @RequerAcesso('FRMCONTROLECONTASBANCARIAS', 'BTNFECHA')
   destinos() {
     return this.svc.destinos();
+  }
+
+  /** os movimentos a liberar da conta (a pesquisa do "Liberar Movimentações"). */
+  @Get('a-liberar')
+  @RequerAcesso('FRMCONTROLECONTASBANCARIAS', 'BTNLIBERAR')
+  aLiberar(@Query('codconta', ParseIntPipe) codconta: number) {
+    return this.svc.aLiberar(codconta);
+  }
+
+  /** liberar os movimentos escolhidos na data informada. */
+  @Post('liberar')
+  @HttpCode(200)
+  @RequerAcesso('FRMCONTROLECONTASBANCARIAS', 'BTNLIBERAR')
+  liberar(@Body(new ZodValidationPipe(liberarMovContaSchema)) body: LiberarMovContaDto) {
+    return this.svc.liberar(body);
+  }
+
+  /** "Mudar data de liberação" do detalhamento. */
+  @Post(':id/data-liberacao')
+  @HttpCode(200)
+  @RequerAcesso('FRMCONTROLECONTASBANCARIAS', 'FRMCONTROLECONTASBANCARIAS')
+  mudarDataLiberacao(@Param('id', ParseIntPipe) id: number, @Body(new ZodValidationPipe(mudarDataLiberacaoSchema)) body: MudarDataLiberacaoDto) {
+    return this.svc.mudarDataLiberacao(id, body.data);
   }
 
   /** catálogo de operações manuais (C/D). */

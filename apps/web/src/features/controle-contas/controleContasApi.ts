@@ -36,6 +36,7 @@ export interface Movimento {
   mov_conciliado?: string | null;
   valor_com_sinal: number;
   saldo_corrente: number;
+  a_prazo?: boolean;
 }
 
 /** a conta da lista do legado: as do operador, com o chaveamento e as 8 permissões por conta */
@@ -63,4 +64,12 @@ export function transferir(body: { codorigem: number; coddestino: number; valor:
 }
 export function estornar(codmovconta: number): Promise<{ codmovconta: number; removidos: number; transferencia: boolean }> {
   return req(`/cadastro/controle-contas/${codmovconta}`, { method: 'DELETE' });
+}
+export interface MovALiberar { codmovconta: number; dtemissao: string | null; dtvenc: string | null; nrodocumento: string | null; valor: number; historico: string | null; idlote: number | null; modalidade: string | null }
+export function listarALiberar(codconta: number): Promise<MovALiberar[]> { return req(`/cadastro/controle-contas/a-liberar?codconta=${codconta}`, { method: 'GET' }); }
+export function liberarMovimentos(body: { codconta: number; codmovcontas: number[]; data: string }): Promise<{ liberados: number; ignorados: number }> {
+  return req('/cadastro/controle-contas/liberar', { method: 'POST', body: JSON.stringify(body) });
+}
+export function mudarDataLiberacao(codmovconta: number, data: string): Promise<{ codmovconta: number; dtliberacao: string }> {
+  return req(`/cadastro/controle-contas/${codmovconta}/data-liberacao`, { method: 'POST', body: JSON.stringify({ data }) });
 }

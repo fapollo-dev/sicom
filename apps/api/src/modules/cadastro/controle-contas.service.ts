@@ -166,6 +166,71 @@ export class ControleContasService {
     return { codconta, saldo: saldoAtual, movimentos };
   }
 
+  /**
+   * os movimentos A LIBERAR da conta — a pesquisa do botão "Liberar Movimentações" (`GET_MOV_CONTAS_BANCARIAS` com
+   * `LIBERADO <> 'SIM' AND CODIGO_CONTA = conta`, uControleContasBancarias.pas:211-215), em multisseleção.
+   */
+  async aLiberar(codconta: number): Promise<Record<string, unknown>[]> {
+    this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    await this.conta(db, codconta, 'habiltiar_libe_moviment');
+    const rows = (await sql<Record<string, unknown>>`
+      SELECT m.codmovconta, to_char(m.dtemissao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS dtemissao, to_char(m.dtvenc AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS dtvenc,
+             m.nrodocumento, CASE WHEN m.tipomovimento = 'D' THEN -m.valor ELSE m.valor END AS valor, m.historico, m.tipomovimento, m.idlote, f.modalidade
+        FROM mov_contas_bancarias m LEFT JOIN formas_pgto f ON f.idpgto = m.idpgto
+       WHERE m.codconta = ${codconta} AND coalesce(m.liberado, 'N') <> 'S'
+       ORDER BY m.dtemissao, m.codmovconta
+       LIMIT 5000`.execute(db)).rows;
+    return rows.map((r) => ({ ...r, codmovconta: Number(r.codmovconta), valor: r2(num(r.valor)) }));
+  }
+
+  /**
+   * LIBERAR — o botão "Liberar Movimentações" (uControleContasBancarias.pas:197-278, multisseleção) e o "Liberar Movimento" do
+   * detalhamento (UconsMovBancaria.pas:769-861, uma linha): a data informada vira `DTLIBERACAO` e `LIBERADO='S'`; com
+   * `MUDAR_EMISSAO_LIBERACAO_MOV='S'` também a emissão e o vencimento (produção 'N'). O cheque próprio ligado ao movimento é
+   * baixado na mesma data (RELACAO_CHQ_PROP; 0 linhas hoje). A linha já liberada não é tocada — o menu do legado re-liberava e
+   * sobrescrevia a data (defeito não copiado). Numa transação (o legado aplica linha a linha).
+   */
+  async liberar(dto: { codconta: number; codmovcontas: number[]; data: string }): Promise<{ liberados: number; ignorados: number }> {
+    const emp = this.emp();
+    const op = this.op();
+    const data = dto.data.slice(0, 10);
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      await this.conta(trx, dto.codconta, 'habiltiar_libe_moviment');
+      const mudarEmissao = String((await configNaTrx(trx, 'MUDAR_EMISSAO_LIBERACAO_MOV', { empresaId: emp, operadorId: op, modulo: 'Retaguarda' })) ?? 'N').toUpperCase() === 'S';
+      const ids = [...new Set(dto.codmovcontas)];
+      const alvo = (await sql<{ codmovconta: number }>`
+        SELECT codmovconta FROM mov_contas_bancarias
+         WHERE codconta = ${dto.codconta} AND codmovconta = ANY(${ids}::int[]) AND coalesce(liberado, 'N') <> 'S'
+           FOR UPDATE`.execute(trx)).rows.map((r) => Number(r.codmovconta));
+      if (alvo.length) {
+        await sql`UPDATE chq_proprio SET baixado = 'S', dtbaixa = ${data}::date
+                   WHERE codchqproprio IN (SELECT codchqproprio FROM relacao_chq_prop WHERE codmovconta = ANY(${alvo}::int[]))`.execute(trx);
+        await sql`UPDATE mov_contas_bancarias
+                     SET liberado = 'S', dtliberacao = (${data}::date)::timestamp AT TIME ZONE 'America/Sao_Paulo'
+                         ${mudarEmissao ? sql`, dtemissao = (${data}::date)::timestamp AT TIME ZONE 'America/Sao_Paulo', dtvenc = (${data}::date)::timestamp AT TIME ZONE 'America/Sao_Paulo'` : sql``}
+                   WHERE codmovconta = ANY(${alvo}::int[])`.execute(trx);
+      }
+      return { liberados: alvo.length, ignorados: ids.length - alvo.length };
+    });
+  }
+
+  /**
+   * "Mudar data de liberação" (UconsMovBancaria.pas:870-922): só a `DTLIBERACAO` do movimento já liberado; não mexe em LIBERADO
+   * nem testa chaveamento ou contabilizado (~13 usos por ano). "Não é possivel alterar a data de documentos não liberados!"
+   */
+  async mudarDataLiberacao(codmovconta: number, data: string): Promise<{ codmovconta: number; dtliberacao: string }> {
+    this.emp();
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const m = (await sql<{ codconta: number; dtliberacao: unknown }>`SELECT codconta, dtliberacao FROM mov_contas_bancarias WHERE codmovconta = ${codmovconta} FOR UPDATE`.execute(trx)).rows[0];
+      if (!m) throw new BusinessRuleError('MOVIMENTO_NAO_ENCONTRADO', { codmovconta });
+      await this.conta(trx, Number(m.codconta), 'habiltiar_detalhar_conta');
+      if (m.dtliberacao == null) throw new BusinessRuleError('MOVIMENTO_NAO_LIBERADO', { codmovconta });
+      await sql`UPDATE mov_contas_bancarias SET dtliberacao = (${data.slice(0, 10)}::date)::timestamp AT TIME ZONE 'America/Sao_Paulo' WHERE codmovconta = ${codmovconta}`.execute(trx);
+      return { codmovconta, dtliberacao: data.slice(0, 10) };
+    });
+  }
+
   /** lançamento MANUAL (1 linha). A operação define o tipomovimento (C/D); VALOR gravado como magnitude. Sem teste de
    *  saldo: o lançamento do legado chama `ValidaSaldoAnterior(..., VerifSaldo=False)` (`UlancamentoSaldo.pas:54`) e o
    *  cadastro de movimentação não testa (`uCadMovContasBancarias.pas:115-131`). Com operação, LIBERADO 'S' na data. */

@@ -8,8 +8,8 @@ import { useMensagem } from '../../shared/mensagem';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { DateField } from '../../shared/ui/DateField';
 import {
-  listarContasCC, listarDestinos, listarOperacoes, obterExtrato, obterSaldo, lancar, transferir, estornar,
-  type ContaCC, type Operacao, type Movimento, type PainelSaldo,
+  listarContasCC, listarDestinos, listarOperacoes, obterExtrato, obterSaldo, lancar, transferir, estornar, listarALiberar, liberarMovimentos, mudarDataLiberacao,
+  type ContaCC, type Operacao, type Movimento, type PainelSaldo, type MovALiberar,
 } from './controleContasApi';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -32,6 +32,7 @@ export function ControleContasPage() {
   const [saldo, setSaldo] = useState(0);
   const [painel, setPainel] = useState<PainelSaldo | null>(null);
   const [posicionar, setPosicionar] = useState<{ ativo: boolean; data: string }>({ ativo: false, data: hoje() });
+  const [aLiberar, setALiberar] = useState<{ itens: MovALiberar[]; marcados: Set<number>; data: string } | null>(null);
   const [movimentos, setMovimentos] = useState<Movimento[]>([]);
   const [busy, setBusy] = useState(false);
   // form lançamento
@@ -99,6 +100,27 @@ export function ControleContasPage() {
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
+  // "Liberar Movimentações" (uControleContasBancarias.pas:197-278): a pesquisa dos a prazo em multisseleção e uma data
+  const abrirLiberacao = async () => {
+    if (!sel) return;
+    try { setALiberar({ itens: await listarALiberar(sel.codconta), marcados: new Set(), data: hoje() }); } catch (e) { mensagem.erro(e); }
+  };
+  const liberar = async (ids: number[], data: string) => {
+    if (!sel || !ids.length) return;
+    setBusy(true);
+    try {
+      const r = await liberarMovimentos({ codconta: sel.codconta, codmovcontas: ids, data });
+      if (r.liberados > 0) mensagem.sucesso('Alterações Realizadas com Sucesso');
+      setALiberar(null);
+      await carregar(sel.codconta, posicionar.ativo ? posicionar.data : undefined);
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+  const mudarData = async (m: Movimento) => {
+    const d = window.prompt('Nova data de liberação (AAAA-MM-DD)', hoje());
+    if (!d) { mensagem.erro(new Error('Operação cancelada pelo usuário.')); return; }
+    setBusy(true);
+    try { await mudarDataLiberacao(m.codmovconta, d); await carregar(Number(conta)); } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
   const opcoesDestino = destinos.filter((d) => String(d.codconta) !== conta).map((d) => ({ value: String(d.codconta), label: nomeDestino(d) }));
   const pode = (flag: keyof ContaCC) => !!sel && sel[flag] === 'S';
   // como o legado: a transferência sai pelo lote (UconsMovBancaria.pas:925); a movimentação sem lote, pelo cadastro (:107)
@@ -152,6 +174,43 @@ export function ControleContasPage() {
         </div>
       )}
 
+      {sel && (
+        <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <div className="flex flex-wrap items-center gap-gp-sm">
+            <div className="text-body-sm font-semibold text-fg-muted">Movimentos a prazo</div>
+            <div className="flex-1" />
+            {!aLiberar && <Button label="Liberar &movimentações" variant="soft" disabled={busy || !pode('habiltiar_libe_moviment')} onClick={() => void abrirLiberacao()} />}
+          </div>
+          {aLiberar && (
+            <>
+              {aLiberar.itens.length === 0 ? <small className="text-fg-muted">Nenhum movimento a prazo nesta conta.</small> : (
+                <div className="max-h-72 overflow-auto rounded-md border border-border">
+                  <table className="w-full text-body-sm">
+                    <thead><tr className="text-left text-fg-muted"><th className="p-pad-xs" /><th className="p-pad-xs">Emissão</th><th className="p-pad-xs">Vencimento</th><th className="p-pad-xs">Documento</th><th className="p-pad-xs">Histórico</th><th className="p-pad-xs">Modalidade</th><th className="p-pad-xs text-right">Valor</th></tr></thead>
+                    <tbody>
+                      {aLiberar.itens.map((m) => (
+                        <tr key={m.codmovconta} className="border-t border-border">
+                          <td className="p-pad-xs"><CheckboxField label="Liberar" value={aLiberar.marcados.has(m.codmovconta) ? 'S' : 'N'}
+                            onChange={() => { const x = new Set(aLiberar.marcados); if (x.has(m.codmovconta)) x.delete(m.codmovconta); else x.add(m.codmovconta); setALiberar({ ...aLiberar, marcados: x }); }} /></td>
+                          <td className="p-pad-xs tabular-nums">{dia(m.dtemissao)}</td><td className="p-pad-xs tabular-nums">{dia(m.dtvenc)}</td><td className="p-pad-xs">{m.nrodocumento ?? ''}</td>
+                          <td className="p-pad-xs">{m.historico ?? ''}</td><td className="p-pad-xs">{m.modalidade ?? ''}</td>
+                          <td className={`p-pad-xs text-right tabular-nums ${m.valor < 0 ? 'text-danger' : ''}`}>{brl(m.valor)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="flex flex-wrap items-end gap-gp-sm">
+                <div className="w-44"><DateField label="Data da liberação" value={aLiberar.data} onChange={(v) => setALiberar({ ...aLiberar, data: v ?? hoje() })} /></div>
+                <Button label="Cancelar" variant="ghost" onClick={() => setALiberar(null)} />
+                <Button label="&Liberar" disabled={busy || aLiberar.marcados.size === 0} onClick={() => void liberar([...aLiberar.marcados], aLiberar.data)} />
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {conta && (
         <div className="grid grid-cols-1 gap-gp-md md:grid-cols-2">
           <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
@@ -194,7 +253,12 @@ export function ControleContasPage() {
                   <td className="p-pad-xs text-fg-muted">{m.origem ?? '—'}</td>
                   <td className={`p-pad-xs text-right tabular-nums ${m.valor_com_sinal < 0 ? 'text-danger' : 'text-fg'}`}>{m.valor_com_sinal < 0 ? '−' : '+'}{brl(Math.abs(m.valor_com_sinal))}</td>
                   <td className="p-pad-xs text-right tabular-nums">{brl(m.saldo_corrente)}</td>
-                  <td className="p-pad-xs text-right">{removivel(m) ? <Button label="Remover" variant="ghost" onClick={() => void estornarMov(m)} /> : <span className="text-fg-muted text-body-xs">—</span>}</td>
+                  <td className="p-pad-xs text-right">
+                    {/* o menu da linha do detalhamento: liberar (UconsMovBancaria.pas:769), mudar a data (:870) e remover */}
+                    {m.a_prazo && pode('habiltiar_libe_moviment') && <Button label="Liberar" variant="ghost" onClick={() => { const d = window.prompt('Data da liberação (AAAA-MM-DD)', hoje()); if (d) void liberar([m.codmovconta], d); else mensagem.erro(new Error('Operação cancelada pelo usuário.')); }} />}
+                    {!m.a_prazo && <Button label="Mudar data" variant="ghost" onClick={() => void mudarData(m)} />}
+                    {removivel(m) && <Button label="Remover" variant="ghost" onClick={() => void estornarMov(m)} />}
+                  </td>
                 </tr>
               ))}
               {!movimentos.length && <tr><td colSpan={6} className="p-pad-md text-fg-muted">Sem movimentos nesta conta.</td></tr>}
