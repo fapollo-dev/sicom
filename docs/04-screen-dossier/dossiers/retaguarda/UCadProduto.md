@@ -409,3 +409,28 @@ Handlers próprios de `UCadProduto.pas`. O ciclo CRUD (gravar/editar/excluir/pes
 - [../../../03-legacy-analysis/dynamic-sql-extraction.md](../../../03-legacy-analysis/dynamic-sql-extraction.md) — capturar SQL/golden em runtime (fecha §4/§9).
 - [../../../03-legacy-analysis/business-rule-extraction.md](../../../03-legacy-analysis/business-rule-extraction.md) · [../../../03-legacy-analysis/hidden-coupling-traps.md](../../../03-legacy-analysis/hidden-coupling-traps.md) · [../../../02-stack-and-standards/keyboard-ux-layer.md](../../../02-stack-and-standards/keyboard-ux-layer.md)
 - [../../../00-orientation/canonical-decisions.md](../../../00-orientation/canonical-decisions.md) — ADR-008/010/011/012.
+
+## Corte "produto nas lojas" (24/09/2026) — auditoria de esqueletos §4.1, lacunas 1-5
+
+O cadastro edita a linha de preço da **loja da sessão** e mexe nas outras a partir dela (`produto-lojas.ts`, smoke §202):
+
+- **Web**: a linha editada (`precos.0`/`estoques.0`) era fixa na empresa 1; agora é a da sessão. Em 2026 as edições de preço
+  do cliente se dividem em 1 = 1.380, 2 = 1.069, 52 = 50.
+- **Inclusão** (`SetaMulti_Preco(usInserted)`, udmCadProduto.pas:2680-2745; `SetaEstoque`): MULTI_PRECO, ESTOQUE e ESTOQUE_DEP
+  em todas as empresas de EMPRESAS. Com SINCRONIZA_PRECO_NF='S' as outras copiam os campos numéricos da sessão; ATIVO copiado
+  (ou 'N' com ATIVA_PRODUTO_EMPRESA_ATUAL); PROMOCAO nula. Produção: 1.175 de 1.179 produtos de 2026 com 5+5; o 869411 tem
+  5/5/5 e PROMOCAO 'N' só na loja da sessão.
+- **Alteração de VRVENDA ou da flag PROMOCAO** (só o VRPROMO não conta, :3087-3094), com SINCRONIZA_PRECO_NF='S':
+  (a) o **clone** da linha da sessão nas lojas do operador com estoque do produto (`cdsEmpresa` = PERMISSOES × ESTOQUE,
+  udmCadProduto.dfm:5227), menos MARGEML2/MARGEML2V, MARKUP zero e DTULTPRECOALTERADO (o trigger carimba), com
+  HISTORICO_DINAMICO "Precificação do Custo". No modo lote o VRVENDA clonado é o **revertido**. Prova: produto 1489 em
+  24/09 16:45:55-58 — sessão na 2, a 52 recebe 6,99→5,99 e custo 4→3,50, a 1 o custo, a 51 (sem permissão) fica de fora;
+  (b) o **lote** (ORIGEM 'P') ou o **UPDATE on-line** para cada produto do grupo de preço × essas lojas, e o **lote dos
+  filhos** (`GeraLoteFilho`, sem o filtro de DIF do fonte — o binário novo o derrubou; helper `precificacao/lote-filho.ts`,
+  o mesmo da Precificação NF). Lotes 117180-117185: 1489 e o filho 832304 nas lojas 1, 2 e 52.
+- **Modo** (HABILITA_GERACAO_LOTE_PRODUTO) com o escopo Módulo: a empresa 52, só com o override "Modulo Retaguarda", gerou
+  lote em 30 de 31 edições de 2026.
+- **On-line**: a linha da sessão volta a ETQ_IMPRESSA='N' e carimba DTULTPRECOALTERADO (o delete+insert do motor não
+  dispara o trigger). A sessão não ganha HISTORICO_DINAMICO — no legado ela é relida já gravada e o diff sai vazio.
+- ADIADO: sincronização do atacarejo (MULTI_PRECO_ATACAREJO), a tela de diferenças (EXIBIR_TELA_SINCRONICACAO_MULTIPRECO='N'
+  no cliente), os triggers de custo (UPDATE_CUSTO_MULTI_PRECO, REM_MULTI_PRECO) e as AUDIT_* (decisão transversal pendente).

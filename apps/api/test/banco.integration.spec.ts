@@ -929,9 +929,11 @@ describe('15ª — PRODUTO F2 (MULTI_PRECO por empresa)', () => {
       }),
     );
     const agg = (await withTenant(() => eng().readAggregate(cfg, cod))) as any;
-    expect(agg.precos.length).toBe(1);
-    expect(agg.precos[0].idempresa).toBe(1);
-    expect(Number(agg.precos[0].vrvenda)).toBe(15);
+    // a inclusão cria a linha de preço em TODAS as empresas (SetaMulti_Preco(usInserted), produto-lojas.ts)
+    const nEmp = Number(((await withTenant(() => (dbp.forTenantRead() as any).selectFrom('empresas').select((eb: any) => eb.fn.countAll().as('n')).executeTakeFirst())) as any).n);
+    expect(agg.precos.length).toBe(nEmp);
+    const p1 = agg.precos.find((p: any) => p.idempresa === 1);
+    expect(Number(p1.vrvenda)).toBe(15);
   });
 
   it('UPDATE substitui precos (delete+insert): vrvenda 15 → 19.9', async () => {
@@ -977,10 +979,12 @@ describe('PRODUTO F3 (ESTOQUE por empresa)', () => {
       }),
     );
     const agg = (await withTenant(() => eng().readAggregate(cfg, cod))) as any;
-    expect(agg.estoques.length).toBe(1);
-    expect(agg.estoques[0].idempresa).toBe(1);
-    expect(Number(agg.estoques[0].minimo)).toBe(5);
-    expect(Number(agg.estoques[0].qtde)).toBe(0);
+    // a inclusão cria o estoque em TODAS as empresas (SetaEstoque, produto-lojas.ts)
+    const nEmp = Number(((await withTenant(() => (dbp.forTenantRead() as any).selectFrom('empresas').select((eb: any) => eb.fn.countAll().as('n')).executeTakeFirst())) as any).n);
+    expect(agg.estoques.length).toBe(nEmp);
+    const e1 = agg.estoques.find((e: any) => e.idempresa === 1);
+    expect(Number(e1.minimo)).toBe(5);
+    expect(Number(e1.qtde)).toBe(0);
   });
 
   it('UPDATE preserva saldo (regra): só min/max/local mudam; qtde reenviado 0 fica 0', async () => {

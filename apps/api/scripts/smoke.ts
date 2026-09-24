@@ -622,7 +622,8 @@ async function main() {
     const prodPreco = (await prodPrecoPost.json()) as any;
     check(
       'POST /cadastro/produtos cria com precos por empresa (vrvenda 10 round-trip)',
-      prodPrecoPost.status === 201 && prodPreco.precos?.length === 1 && Number(prodPreco.precos[0].vrvenda) === 10,
+      // a linha da loja da sessão (1) volta como gravada; as outras lojas nascem da inclusão (§202 confere)
+      prodPrecoPost.status === 201 && prodPreco.precos?.length >= 1 && Number(prodPreco.precos.find((p: any) => Number(p.idempresa) === 1)?.vrvenda) === 10,
       prodPreco,
     );
 
@@ -723,7 +724,7 @@ async function main() {
     const prodEst = (await prodEstPost.json()) as any;
     check(
       'POST /cadastro/produtos cria com estoques por empresa (minimo 7 round-trip)',
-      prodEstPost.status === 201 && prodEst.estoques?.length === 1 && Number(prodEst.estoques[0].minimo) === 7,
+      prodEstPost.status === 201 && prodEst.estoques?.length >= 1 && Number(prodEst.estoques.find((e: any) => Number(e.idempresa) === 1)?.minimo) === 7,
       prodEst,
     );
 
@@ -21366,6 +21367,81 @@ async function main() {
         await pgN.end();
       }
     }
+    // ══ §202 PRODUTO NAS LOJAS (auditoria de esqueletos §4.1): a inclusão cria o preço/estoque em TODAS as empresas; a
+    // alteração de preço clona a linha da loja da sessão nas lojas do operador e espalha o lote (e o do filho) por elas
+    {
+      const pgPl = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const sincAntes = (await pgPl.query(`SELECT sincroniza_preco_nf FROM empresas WHERE idempresa=1`)).rows[0]?.sincroniza_preco_nf ?? null;
+        await pgPl.query(`UPDATE empresas SET sincroniza_preco_nf='S' WHERE idempresa=1`);
+        const permAntes = Number((await pgPl.query(`SELECT count(*)::int n FROM permissoes WHERE codoperador=7 AND codempresa=2`)).rows[0].n);
+        if (!permAntes) await pgPl.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMCADPRODUTO','BTNGRAVAR',7,2)`);
+        const nEmp = Number((await pgPl.query(`SELECT count(*)::int n FROM empresas`)).rows[0].n);
+        const cr = await fetch(`${base}/cadastro/produtos`, { method: 'POST', headers: H, body: JSON.stringify({
+          codbarra: '7890000006200', descricao: 'PRODUTO NAS LOJAS SMOKE', unidade: 'UN', codfor: 2, aliquota: 'T01',
+          precos: [{ idempresa: 1, vrcusto: 5, markup: 20, vrvenda: 9.9, promocao: 'N', ativo: 'S', ativo_compra: 'S' }],
+          estoques: [{ idempresa: 1, qtde: 0, minimo: 3, maximo: 30 }],
+        }) });
+        const crJ = (await cr.json().catch(() => ({}))) as any;
+        const idp = Number(crJ.idproduto) || 0;
+        const mps = (await pgPl.query(`SELECT idempresa, vrvenda::float AS vrvenda, vrcusto::float AS vrcusto, promocao, ativo FROM multi_preco WHERE idproduto=$1 ORDER BY idempresa`, [idp])).rows as any[];
+        const nEst = Number((await pgPl.query(`SELECT count(*)::int n FROM estoque WHERE idproduto=$1`, [idp])).rows[0].n);
+        const nDep = Number((await pgPl.query(`SELECT count(*)::int n FROM estoque_dep WHERE idproduto=$1`, [idp])).rows[0].n);
+        const outra = mps.find((m) => Number(m.idempresa) === 2);
+        check('PRODUTO §202.1 [inclusão nas lojas]: incluir na loja 1 cria MULTI_PRECO, ESTOQUE e ESTOQUE_DEP em TODAS as empresas (produção: 1.175 de 1.179 produtos de 2026 com 5+5) — com SINCRONIZA_PRECO_NF as outras copiam custo/venda (5 / 9,90), ATIVO da sessão e PROMOCAO nula',
+          cr.status === 201 && idp > 0 && mps.length === nEmp && nEst === nEmp && nDep === nEmp
+          && !!outra && outra.vrvenda === 9.9 && outra.vrcusto === 5 && outra.promocao == null && outra.ativo === 'S',
+          { status: cr.status, idp, mps, nEst, nDep, nEmp });
+
+        // um FILHO do produto (sem diferença: fica com o preço do pai) para o GeraLoteFilho
+        const idFilho = 990620;
+        await pgPl.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, idproduto_pai) VALUES ($1,'7890000006217','FILHO NAS LOJAS','UN',2,'T01','S',$2) ON CONFLICT (idproduto) DO NOTHING`, [idFilho, idp]);
+        // modo LOTE: a sessão (1) vai a 12,90 e custo 6 → a 1 fica com 9,90 (reversão), a 2 recebe o clone (custo 6, venda 9,90
+        // revertida) e o lote vai para as DUAS lojas do operador, mais o do filho nas duas
+        await pgPl.query(`UPDATE configuracoes SET valor='S' WHERE codigo='HABILITA_GERACAO_LOTE_PRODUTO'`);
+        // como a web: carrega o registro, edita a linha da loja da sessão e devolve TODAS as linhas (o motor substitui o detalhe)
+        const editarSessao = async (campos: Record<string, unknown>) => {
+          const reg = (await (await fetch(`${base}/cadastro/produtos/${idp}`, { headers: H })).json()) as any;
+          const precos = (reg.precos ?? []).map((p: any) => (Number(p.idempresa) === 1 ? { ...p, ...campos } : p));
+          return fetch(`${base}/cadastro/produtos/${idp}`, { method: 'PUT', headers: H, body: JSON.stringify({ descricao: reg.descricao, precos }) });
+        };
+        const put1 = await editarSessao({ vrcusto: 6, vrvenda: 12.9 });
+        // as lojas do operador (PERMISSOES × ESTOQUE do produto) — no smoke, o operador 7 tem 1, 2 e 50
+        const lojasOp = ((await pgPl.query(`SELECT DISTINCT p.codempresa AS e FROM permissoes p JOIN estoque s ON s.idempresa = p.codempresa AND s.idproduto = $1 WHERE p.codoperador = 7 ORDER BY 1`, [idp])).rows as any[]).map((r) => Number(r.e));
+        const mp1 = (await pgPl.query(`SELECT idempresa, vrvenda::float AS vrvenda, vrcusto::float AS vrcusto FROM multi_preco WHERE idproduto=$1 AND idempresa IN (1,2) ORDER BY idempresa`, [idp])).rows as any[];
+        const lotes = (await pgPl.query(`SELECT idproduto, codempresa, vrvenda::float AS vrvenda, origem, obs FROM lote_preco WHERE idproduto IN ($1,$2) ORDER BY codlotepreco`, [idp, idFilho])).rows as any[];
+        const doPai = lotes.filter((l) => Number(l.idproduto) === idp);
+        const doFilho = lotes.filter((l) => Number(l.idproduto) === idFilho);
+        check('PRODUTO §202.2 [lote nas lojas do operador]: modo lote — a loja da sessão segue 9,90 (reversão), a loja 2 recebe o CLONE da linha (custo 6, venda 9,90), e o lote 12,90 vai para TODAS as lojas do operador (ORIGEM P), mais o do FILHO em cada uma ("REFERENTE A ALTERAÇÃO DE PREÇO DO PRODUTO PAI", sem origem) — como os lotes 117180-117185 da produção',
+          put1.status === 200 && mp1.length === 2 && mp1[0].vrvenda === 9.9 && mp1[0].vrcusto === 6 && mp1[1].vrcusto === 6 && mp1[1].vrvenda === 9.9
+          && lojasOp.includes(1) && lojasOp.includes(2)
+          && doPai.map((l) => Number(l.codempresa)).sort((a, b) => a - b).join(',') === lojasOp.join(',') && doPai.every((l) => l.vrvenda === 12.9 && l.origem === 'P')
+          && doFilho.map((l) => Number(l.codempresa)).sort((a, b) => a - b).join(',') === lojasOp.join(',') && doFilho.every((l) => l.vrvenda === 12.9 && l.origem == null && l.obs === 'REFERENTE A ALTERAÇÃO DE PREÇO DO PRODUTO PAI'),
+          { put: put1.status, mp1, lotes, lojasOp });
+
+        // modo ON-LINE: a sessão vai a 13,90 → as duas lojas passam a 13,90, a etiqueta da sessão volta a "reimprimir" e o
+        // HISTORICO_DINAMICO registra "Cadastro de produtos"
+        await pgPl.query(`UPDATE configuracoes SET valor='N' WHERE codigo='HABILITA_GERACAO_LOTE_PRODUTO'`);
+        await pgPl.query(`UPDATE multi_preco SET etq_impressa='S' WHERE idproduto=$1`, [idp]);
+        const put2 = await editarSessao({ vrvenda: 13.9 });
+        const mp2 = (await pgPl.query(`SELECT idempresa, vrvenda::float AS vrvenda, etq_impressa FROM multi_preco WHERE idproduto=$1 AND idempresa IN (1,2) ORDER BY idempresa`, [idp])).rows as any[];
+        // as lojas do clone registram "Precificação do Custo"; a da sessão não registra nada — no legado ela é relida já gravada
+        // (cdsMultiPreco_Alteracao, :3268) e o diff sai vazio; o "Cadastro de produtos" é dos OUTROS produtos do grupo
+        const hist = (await pgPl.query(`SELECT codempresa, historico FROM historico_dinamico WHERE tabela='MULTI_PRECO' AND valor_chave=$1 AND campo='VRVENDA' AND valor_atual::numeric = 13.9 ORDER BY codempresa`, [String(idp)])).rows as any[];
+        check('PRODUTO §202.3 [on-line nas lojas]: modo on-line — 13,90 nas lojas 1 e 2, ETQ_IMPRESSA da sessão volta a N (o delete+insert não disparava o trigger) e o HISTORICO_DINAMICO do VRVENDA só nas lojas do clone ("Precificação do Custo", uma por loja, sem o falso "13.9000 → 13.9")',
+          put2.status === 200 && mp2.every((m) => m.vrvenda === 13.9) && mp2[0].etq_impressa === 'N'
+          && hist.length === lojasOp.length - 1 && hist.every((h) => Number(h.codempresa) !== 1 && h.historico === 'Precificação do Custo'),
+          { put: put2.status, mp2, hist });
+
+        await pgPl.query(`DELETE FROM lote_preco WHERE idproduto IN ($1,$2)`, [idp, idFilho]);
+        await pgPl.query(`DELETE FROM produtos WHERE idproduto = $1`, [idFilho]);
+        if (!permAntes) await pgPl.query(`DELETE FROM permissoes WHERE form='FRMCADPRODUTO' AND opcao='BTNGRAVAR' AND codoperador=7 AND codempresa=2`);
+        await pgPl.query(`UPDATE empresas SET sincroniza_preco_nf=$1 WHERE idempresa=1`, [sincAntes]);
+      } finally {
+        await pgPl.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

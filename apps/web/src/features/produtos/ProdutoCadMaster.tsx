@@ -33,12 +33,15 @@ import { getProdutosFilhos, type ProdutoFilho } from './produtoFilhosApi';
 import { getPosicaoEstoque, type EstoqueSaldo, type EstoqueMovimento } from './produtoEstoqueApi';
 import { RefFornecedorSection } from '../de-para/RefFornecedorSection';
 import { precificarProduto } from './precificacaoApi';
+import { getSessao } from '../../shared/auth/session';
 
 /**
- * empresa única do contexto F2/F3 — toda a edição inline de preço acontece em `precos.0`
- * e a de estoque em `estoques.0`.
+ * a LOJA DA SESSÃO (`dmPrincipal.EmpresaCODEMPRESA` no legado) — a edição inline de preço acontece em `precos.0` e a de
+ * estoque em `estoques.0`, sempre a linha da empresa em que o operador entrou. Era fixa na empresa 1: em 2026 as edições
+ * de preço do cliente se dividem entre as empresas 1 (1.380), 2 (1.069) e 52 (50) — a 2 e a 52 gravavam na 1. As outras
+ * lojas o servidor sincroniza como o legado (produto-lojas.ts).
  */
-const IDEMPRESA_F2 = 1;
+const empresaF2 = (): number => getSessao()?.empresa ?? 1;
 
 /**
  * Cadastro de PRODUTO (hub do ERP) — Fase 1: NÚCLEO fiel (legado `UCadProduto.pas`),
@@ -140,11 +143,11 @@ export function ProdutoCadMaster() {
       codauxiliares: [],
       // F2 — MULTI_PRECO por empresa: a tela edita a linha da empresa única INLINE em
       // `precos.0`; semeada aqui p/ o binding existir num registro NOVO (defaults do legado).
-      precos: [{ idempresa: IDEMPRESA_F2, promocao: 'N', ativo: 'S', ativo_compra: 'S' }],
+      precos: [{ idempresa: empresaF2(), promocao: 'N', ativo: 'S', ativo_compra: 'S' }],
       // F3 — ESTOQUE por empresa: linha da empresa única INLINE em `estoques.0`; semeada
       // zerada (saldo movido por transação) p/ o binding existir num registro NOVO — espelha
       // o legado, onde a linha de estoque de um produto novo nasce zerada.
-      estoques: [{ idempresa: IDEMPRESA_F2, qtde: 0, minimo: 0, maximo: 0 }],
+      estoques: [{ idempresa: empresaF2(), qtde: 0, minimo: 0, maximo: 0 }],
       // F4 — kit/BOM: 3 sub-grids 1:N na mesma form, começam vazios num registro NOVO.
       composicoes: [],
       decomposicoes: [],
@@ -700,7 +703,7 @@ function FiscalSection({
  * onde Custo/Custo Rep./Markup/Valor Venda/VL.Promo + flags ficam na própria aba Principal,
  * com um botão "Precificação". Substitui o antigo grid+modal (`PrecoModal`), que o operador
  * achava ruim de ver/editar. NÃO é mais um sub-grid: os campos são `Controller`/register
- * direto em `precos.0.*` (MULTI_PRECO continua sendo o modelo; em F2 há 1 empresa, idempresa=1).
+ * direto em `precos.0.*` (MULTI_PRECO continua sendo o modelo; a linha editada é a da loja da sessão).
  *
  * O VRVENDA continua sendo RESULTADO do motor REUSADO (POST /precificacao/produto), agora via
  * um botão "Calcular venda" inline. A gravação cascateia no engine agregado (master + preços
@@ -735,7 +738,7 @@ function PrecosSection({
   useEffect(() => { setAnalise(null); }, [idprodAtual]);
 
   // ── Normalização edit-load: garante que `precos.0` é SEMPRE a linha da empresa F2 ──
-  // O `form.reset` do pilar substitui `precos` pelo array carregado (idempresa=1 pode não
+  // O `form.reset` do pilar substitui `precos` pelo array carregado (a linha da sessão pode não
   // estar no índice 0; produtos antigos podem vir sem linha). Reordena/inicializa uma única
   // vez por carga, sem sujar o form (shouldDirty:false), preservando `idempresa`.
   const precos = form.watch('precos');
@@ -743,13 +746,13 @@ function PrecosSection({
     const lista = (precos ?? []) as PrecoProdutoDto[];
     const atual0 = lista[0];
     // já normalizado: linha 0 existe e é a empresa F2 → nada a fazer (evita loop).
-    if (atual0 && Number(atual0.idempresa) === IDEMPRESA_F2) return;
+    if (atual0 && Number(atual0.idempresa) === empresaF2()) return;
 
-    const daEmpresa = lista.find((p) => Number(p.idempresa) === IDEMPRESA_F2);
-    const restante = lista.filter((p) => Number(p.idempresa) !== IDEMPRESA_F2);
+    const daEmpresa = lista.find((p) => Number(p.idempresa) === empresaF2());
+    const restante = lista.filter((p) => Number(p.idempresa) !== empresaF2());
     const linha0: PrecoProdutoDto = daEmpresa
-      ? { ...daEmpresa, idempresa: IDEMPRESA_F2 }
-      : { idempresa: IDEMPRESA_F2, promocao: 'N', ativo: 'S', ativo_compra: 'S' };
+      ? { ...daEmpresa, idempresa: empresaF2() }
+      : { idempresa: empresaF2(), promocao: 'N', ativo: 'S', ativo_compra: 'S' };
     form.setValue('precos', [linha0, ...restante], { shouldDirty: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [precos]);
@@ -954,7 +957,7 @@ function PrecosSection({
 /**
  * ESTOQUE da empresa única (F3) — INLINE na MESMA form do produto, espelhando a seção de
  * Preços (`PrecosSection`). NÃO é grid/modal: os campos são `Controller`/register direto em
- * `estoques.0.*` (ESTOQUE por empresa continua sendo o modelo; em F3 há 1 empresa, idempresa=1).
+ * `estoques.0.*` (ESTOQUE por empresa continua sendo o modelo; a linha editada é a da loja da sessão).
  *
  * REGRA DE NEGÓCIO: o SALDO (`qtde`) é MOVIDO POR TRANSAÇÃO (NF/vendas/ajuste) — no cadastro
  * é READ-ONLY (no legado os 3 campos de saldo são Enabled=False). Aqui exibimos só o saldo,
@@ -975,7 +978,7 @@ function EstoqueSection({
   editavel: boolean;
 }) {
   // ── Normalização edit-load: garante que `estoques.0` é SEMPRE a linha da empresa F3 ──
-  // O `form.reset` do pilar substitui `estoques` pelo array carregado (idempresa=1 pode não
+  // O `form.reset` do pilar substitui `estoques` pelo array carregado (a linha da sessão pode não
   // estar no índice 0; produtos antigos podem vir sem linha). Reordena/inicializa uma única
   // vez por carga, sem sujar o form (shouldDirty:false), preservando `idempresa` e `qtde`.
   const estoques = form.watch('estoques');
@@ -983,13 +986,13 @@ function EstoqueSection({
     const lista = (estoques ?? []) as EstoqueProdutoDto[];
     const atual0 = lista[0];
     // já normalizado: linha 0 existe e é a empresa F3 → nada a fazer (evita loop).
-    if (atual0 && Number(atual0.idempresa) === IDEMPRESA_F2) return;
+    if (atual0 && Number(atual0.idempresa) === empresaF2()) return;
 
-    const daEmpresa = lista.find((e) => Number(e.idempresa) === IDEMPRESA_F2);
-    const restante = lista.filter((e) => Number(e.idempresa) !== IDEMPRESA_F2);
+    const daEmpresa = lista.find((e) => Number(e.idempresa) === empresaF2());
+    const restante = lista.filter((e) => Number(e.idempresa) !== empresaF2());
     const linha0: EstoqueProdutoDto = daEmpresa
-      ? { ...daEmpresa, idempresa: IDEMPRESA_F2 }
-      : { idempresa: IDEMPRESA_F2, qtde: 0, minimo: 0, maximo: 0 };
+      ? { ...daEmpresa, idempresa: empresaF2() }
+      : { idempresa: empresaF2(), qtde: 0, minimo: 0, maximo: 0 };
     form.setValue('estoques', [linha0, ...restante], { shouldDirty: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [estoques]);
