@@ -18,7 +18,7 @@ export class CartaoBaixaController {
   @HttpCode(200)
   @RequerAcesso('FRMBAIXACARTAO', 'BTNGRAVAR')
   baixar(@Body(new ZodValidationPipe(baixarCartaoSchema)) body: BaixarCartaoDto) {
-    return this.svc.baixar({ codconta: body.codconta, codvendcartaos: body.codvendcartaos });
+    return this.svc.baixar({ codconta: body.codconta, codvendcartaos: body.codvendcartaos, codplcTaxa: body.codplcTaxa });
   }
 
   /** corte-3 (mig 277): as baixas do recebível, com saldo — a baixa parcial que o corte-2 não representava. */

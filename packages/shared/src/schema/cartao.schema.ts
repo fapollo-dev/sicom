@@ -73,5 +73,7 @@ export type AtualizarCartaoDto = z.infer<typeof atualizarCartaoSchema>;
 export const baixarCartaoSchema = z.object({
   codconta: z.coerce.number().int().positive({ message: 'Informe a conta bancária de destino.' }),
   codvendcartaos: z.array(z.coerce.number().int().positive()).min(1, 'Selecione ao menos um recebível.'),
+  // o centro de custo da TAXA na CAIXA gerencial (EdtCodPlcTaxa, UbaixaCartao.pas:1183); vazio = o de multa/juros da empresa
+  codplcTaxa: z.coerce.number().int().positive().optional(),
 });
 export type BaixarCartaoDto = z.infer<typeof baixarCartaoSchema>;

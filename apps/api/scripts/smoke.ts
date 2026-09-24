@@ -4304,18 +4304,23 @@ async function main() {
         const idlote = Number(bxJ.idlote);
         const mcb = (await pgCa.query(`SELECT valor, tipomovimento, origem FROM mov_contas_bancarias WHERE origem='BXCARTAO' AND idorigem=$1`, [idlote])).rows[0] as any;
         const lib = (await pgCa.query(`SELECT liberado, idlote, valor_taxa_paga FROM cartao WHERE codvendcartao=$1`, [c1])).rows[0] as any;
-        check('CARTÃO baixa: baixar 2 recebíveis → lote + liberado=S/idlote/valor_taxa_paga(2) + MCB crédito 147,00 (líquido) tipomov C',
+        const cxTaxa = (await pgCa.query(`SELECT valor::float AS valor, obs, origem, codplc, idlotebxcartao FROM caixa WHERE idlotebxcartao=$1`, [idlote])).rows as any[];
+        const ccMj = (await pgCa.query(`SELECT ccmultajuros FROM empresas WHERE idempresa=1`)).rows[0]?.ccmultajuros ?? null;
+        check('CARTÃO baixa: baixar 2 recebíveis → lote + liberado=S/idlote/valor_taxa_paga(2) + MCB crédito 147,00 (líquido) tipomov C + a TAXA na CAIXA gerencial (−3,00, "Ref. a bx cartao lote N", CC de multa/juros da empresa)',
           bx.status === 200 && Number(bxJ.itens) === 2 && Number(bxJ.total_liquido) === 147 && Number(bxJ.total_taxa) === 3
           && lib?.liberado === 'S' && Number(lib?.idlote) === idlote && Number(lib?.valor_taxa_paga) === 2
-          && Number(mcb?.valor) === 147 && mcb?.tipomovimento === 'C',
-          { bx: bxJ, mcb, lib });
+          && Number(mcb?.valor) === 147 && mcb?.tipomovimento === 'C'
+          && cxTaxa.length === 1 && cxTaxa[0].valor === -3 && cxTaxa[0].obs === `Ref. a bx cartao lote ${idlote}` && cxTaxa[0].origem === 'BAIXA CARTAO'
+          && (ccMj == null ? cxTaxa[0].codplc == null : Number(cxTaxa[0].codplc) === Number(ccMj)),
+          { bx: bxJ, mcb, lib, cxTaxa, ccMj });
 
         // estornar lote → recebíveis voltam a ABERTO + crédito MCB apagado.
         const es = await fetch(`${base}/${CART}/estornar-lote/${idlote}`, { method: 'POST', headers: H });
         const libE = (await pgCa.query(`SELECT liberado, idlote FROM cartao WHERE codvendcartao=$1`, [c1])).rows[0] as any;
         const mcbE = Number((await pgCa.query(`SELECT count(*)::int n FROM mov_contas_bancarias WHERE origem='BXCARTAO' AND idorigem=$1`, [idlote])).rows[0].n);
-        check('CARTÃO baixa: estornar lote → recebíveis ABERTOS (liberado=N, idlote null) + crédito MCB apagado',
-          es.status === 200 && libE?.liberado === 'N' && libE?.idlote == null && mcbE === 0, { es: es.status, libE, mcbE });
+        const cxE = Number((await pgCa.query(`SELECT count(*)::int n FROM caixa WHERE idlotebxcartao=$1`, [idlote])).rows[0].n);
+        check('CARTÃO baixa: estornar lote → recebíveis ABERTOS (liberado=N, idlote null) + crédito MCB apagado + a taxa sai da CAIXA',
+          es.status === 200 && libE?.liberado === 'N' && libE?.idlote == null && mcbE === 0 && cxE === 0, { es: es.status, libE, mcbE, cxE });
 
         // recebível inexistente/não-aberto → 422; RBAC sem grant → 403.
         const bxEmpty = await fetch(`${base}/${CART}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, codvendcartaos: [999999999] }) });
