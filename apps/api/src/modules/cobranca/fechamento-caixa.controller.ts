@@ -1,9 +1,9 @@
 import { Body, Controller, Get, HttpCode, Post, Put, Query, UseGuards } from '@nestjs/common';
 import {
   editarDocumentoFechamentoSchema, efetivarFechamentoSchema, excluirDocumentoFechamentoSchema, inserirDocumentoFechamentoSchema, lancProvCabecalhoSchema, lancProvExcluirSchema,
-  lancProvLinhaSchema, rascunhoFechamentoSchema, relatorioFechamentoSchema, turnoFechamentoSchema,
+  lancProvLinhaSchema, observacaoFechamentoSchema, rascunhoFechamentoSchema, relatorioFechamentoSchema, turnoFechamentoSchema,
   type EditarDocumentoFechamentoDto, type EfetivarFechamentoDto, type ExcluirDocumentoFechamentoDto, type InserirDocumentoFechamentoDto, type LancProvCabecalhoDto,
-  type LancProvExcluirDto, type LancProvLinhaDto, type RascunhoFechamentoDto, type RelatorioFechamentoDto, type TurnoFechamentoDto,
+  type LancProvExcluirDto, type LancProvLinhaDto, type ObservacaoFechamentoDto, type RascunhoFechamentoDto, type RelatorioFechamentoDto, type TurnoFechamentoDto,
 } from '@apollo/shared';
 import { FechamentoCaixaService } from './fechamento-caixa.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -81,6 +81,19 @@ export class FechamentoCaixaController {
   @RequerAcesso('FRMFECHAMENTOCAIXA', 'FECHAMENTOCAIXA1')
   relatorio(@Body(new ZodValidationPipe(relatorioFechamentoSchema)) body: RelatorioFechamentoDto) {
     return this.svc.relatorioFechamento(body);
+  }
+
+  /** a observação de divergência do turno (F5 dos caixas em aberto — sem RBAC próprio: vale o do diálogo) */
+  @Get('turno/observacao')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNCXABERTO')
+  observacao(@Query(new ZodValidationPipe(turnoFechamentoSchema)) q: TurnoFechamentoDto) {
+    return this.svc.observacao(q);
+  }
+
+  @Put('turno/observacao')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNCXABERTO')
+  gravarObservacao(@Body(new ZodValidationPipe(observacaoFechamentoSchema)) body: ObservacaoFechamentoDto) {
+    return this.svc.gravarObservacao(body);
   }
 
   /** o comprovante de quebra de caixa do turno (Imprimir › "Comprovante de quebra de caixa"; o menu não tem RBAC próprio) */

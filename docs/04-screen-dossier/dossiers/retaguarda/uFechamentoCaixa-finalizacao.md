@@ -502,3 +502,14 @@ com a comparação certa (NROPEDIDO + valor numérico).
   - Descritivo: valor e data por lançamento, e o total.
   - Vazio: "Não foi possivel encontrar Vendas com os Filtros informados, Verifique".
 - **Smoke §186** (o exemplo-ouro da spec, mais dois turnos no mesmo grupo): 1523/0.
+
+### 4.10 ENTREGUE (24/09/2026) — a observação de divergência (F5 dos caixas em aberto, CAIXA_OBS) — **CORTE 4 FECHADO**
+
+- **API:** `GET/PUT turno/observacao` (`uObsDivergenciaCx.pas:80-100`).
+- **Chave da observação:** uma por PDV × operador × **dia**, sem chave nem empresa, como o legado. Vários turnos do dia dividem a mesma.
+- **Gravação:** existe, edita; senão insere com a empresa logada e o dia às 00:00. Sai na coluna "Obs. de divergência" do relatório (4.9).
+- **Web:** botão "Obs." por turno na lista de caixas do dia.
+- **Uso na produção:** 3 linhas em 2025, 0 em 2026.
+- **Smoke §187:** 1524/0.
+
+**Corte 4 fechado**, com os itens 1-9 da spec. Continua fora, com prova (spec §10): cheque, devolução e recarga manuais, correspondente e voucher, colunas de tesouraria, sangria/suprimento do lançamento provisório, Abrir Caixa manual, Balcão/OS; o troco solidário fica só como lista. Também ficam fora a tela básica de cartão (com desdobramento em parcelas; a empresa 1 usa a completa) e o duplo clique na grade de CX_VENDAS por venda (o Apollo não mostra essa grade).

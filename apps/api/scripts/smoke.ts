@@ -20401,6 +20401,29 @@ async function main() {
         await pgCC.end();
       }
     }
+    // ══ §187 FECHAMENTO DE CAIXA, corte 4: a observação de divergência (F5 dos caixas em aberto, CAIXA_OBS) ══
+    {
+      const pgCD = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const FC = 'cobranca/fechamento-caixa/turno/observacao';
+      const DIA = '2038-03-20';
+      const t = { data: DIA, chave: '79200338080000', nropdv: 79, codoperadora: 7 };
+      const outraChave = { ...t, chave: '79200338170000' };
+      const qs1 = (x: typeof t) => new URLSearchParams({ data: x.data, chave: x.chave, nropdv: '79', codoperadora: '7' }).toString();
+      try {
+        const g0 = (await (await fetch(`${base}/${FC}?${qs1(t)}`, { headers: H })).json()) as any;
+        const p1 = await fetch(`${base}/${FC}`, { method: 'PUT', headers: H, body: JSON.stringify({ ...t, obs: 'QUEBRA DE CAIXA - SMOKE 187 - VALOR 48,88' }) });
+        const p2 = await fetch(`${base}/${FC}`, { method: 'PUT', headers: H, body: JSON.stringify({ ...outraChave, obs: 'CORRIGIDA SMOKE 187' }) });
+        const g1 = (await (await fetch(`${base}/${FC}?${qs1(t)}`, { headers: H })).json()) as any;
+        const rows = (await pgCD.query(`SELECT codempresa, codoperador, nropdv, to_char(data, 'YYYY-MM-DD HH24:MI') AS d, obs FROM caixa_obs WHERE nropdv = 79 AND codoperador = 7 AND data::date = $1`, [DIA])).rows as any[];
+        check('FECHAMENTO §187 [observação de divergência]: sem registro, vazia; gravar insere a CAIXA_OBS do PDV × operador × dia (00:00, a empresa logada); outro turno do MESMO dia (outra chave) edita a mesma linha — a observação é do dia, como o legado',
+          g0.existe === false && g0.obs === null && p1.status === 200 && p2.status === 200 && g1.obs === 'CORRIGIDA SMOKE 187'
+          && rows.length === 1 && Number(rows[0].codempresa) === 1 && rows[0].d === `${DIA} 00:00`,
+          { g0, p: [p1.status, p2.status], g1, rows });
+      } finally {
+        await pgCD.query(`DELETE FROM caixa_obs WHERE nropdv = 79 AND codoperador = 7 AND data::date = $1`, [DIA]).catch(() => undefined);
+        await pgCD.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

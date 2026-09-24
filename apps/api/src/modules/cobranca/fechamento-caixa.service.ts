@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { sql, type RawBuilder } from 'kysely';
 import type {
   EditarDocumentoFechamentoDto, EfetivarFechamentoDto, ExcluirDocumentoFechamentoDto, InserirDocumentoFechamentoDto, LancProvCabecalhoDto, LancProvExcluirDto,
-  LancProvLinhaDto, RascunhoFechamentoDto, RelatorioFechamentoDto, TurnoFechamentoDto,
+  LancProvLinhaDto, ObservacaoFechamentoDto, RascunhoFechamentoDto, RelatorioFechamentoDto, TurnoFechamentoDto,
 } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -1258,6 +1258,32 @@ export class FechamentoCaixaService {
         sangria: soma((g) => g.sangria), suprimento: soma((g) => g.suprimento), desconto: soma((g) => g.desconto), cancelamentos: soma((g) => g.cancelamentos),
       },
     };
+  }
+
+  // ── a observação de divergência (F5 dos caixas em aberto) ─────────────────────────────────────────────────────
+  /**
+   * CAIXA_OBS (`TfrmObsDivergenciaCx`, uObsDivergenciaCx.pas:80-100): uma observação por PDV × operador × DIA — sem a chave nem a
+   * empresa, como o legado (vários turnos do dia dividem a mesma). Existe: edita; senão insere com a empresa logada e o dia
+   * (00:00). Sai na coluna "Obs. de divergência" do relatório de fechamento. Quase morta na produção: 3 linhas em 2025, 0 em 2026.
+   */
+  async observacao(t: TurnoFechamentoDto) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const c = await this.contexto(db, t);
+    const r = (await sql<{ obs: string | null }>`SELECT obs FROM caixa_obs WHERE nropdv = ${c.pdv} AND codoperador = ${c.op} AND data::date = ${c.data}::date
+        ORDER BY data LIMIT 1`.execute(db)).rows[0];
+    return { obs: r?.obs ?? null, existe: !!r };
+  }
+
+  async gravarObservacao(dto: ObservacaoFechamentoDto) {
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const c = await this.contexto(trx, dto);
+      const obs = dto.obs.trim() === '' ? null : dto.obs;
+      const upd = await sql`UPDATE caixa_obs SET obs = ${obs} WHERE nropdv = ${c.pdv} AND codoperador = ${c.op} AND data::date = ${c.data}::date`.execute(trx);
+      if (!Number(upd.numAffectedRows ?? 0)) {
+        await sql`INSERT INTO caixa_obs (nropdv, codempresa, codoperador, data, obs) VALUES (${c.pdv}, ${c.emp}, ${c.op}, ${c.data}::date, ${obs})`.execute(trx);
+      }
+      return { obs, existe: true };
+    });
   }
 
   // ── impressões (corte 4) ───────────────────────────────────────────────────────────────────────────────────────

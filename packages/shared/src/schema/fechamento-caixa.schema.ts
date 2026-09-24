@@ -128,3 +128,7 @@ export const relatorioFechamentoSchema = z.object({
   })).min(1).max(200),
 });
 export type RelatorioFechamentoDto = z.infer<typeof relatorioFechamentoSchema>;
+
+/** a OBSERVAÇÃO DE DIVERGÊNCIA do turno (F5 dos caixas em aberto, `uObsDivergenciaCx`; CAIXA_OBS) */
+export const observacaoFechamentoSchema = turnoFechamentoSchema.extend({ obs: z.string().max(4000) });
+export type ObservacaoFechamentoDto = z.infer<typeof observacaoFechamentoSchema>;

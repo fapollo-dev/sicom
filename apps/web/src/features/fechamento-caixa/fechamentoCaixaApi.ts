@@ -161,3 +161,6 @@ export interface RelatorioFechamento {
 }
 export const relatorioFechamento = (data: string, turnos: Array<{ nropdv: number; codoperadora: number; chave: string | null }>) =>
   req<RelatorioFechamento>(`${P}/relatorio`, { method: 'POST', body: JSON.stringify({ data, turnos }) });
+export const observacaoTurno = (t: TurnoRef) => req<{ obs: string | null; existe: boolean }>(`${P}/turno/observacao?${qs(t)}`);
+export const gravarObservacaoTurno = (t: TurnoRef, obs: string) =>
+  req<{ obs: string | null; existe: boolean }>(`${P}/turno/observacao`, { method: 'PUT', body: JSON.stringify({ ...t, obs }) });

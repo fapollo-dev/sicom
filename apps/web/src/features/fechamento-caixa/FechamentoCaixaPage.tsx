@@ -5,6 +5,7 @@ import { DateField } from '../../shared/ui/DateField';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
+import { TextArea } from '../../shared/ui/TextArea';
 import { SelectField } from '../../shared/ui/SelectField';
 import { listarOperadoras, type Operadora } from '../cartao/cartaoApi';
 import { imprimirPagina } from '../../shared/print/imprimirPagina';
@@ -12,7 +13,7 @@ import { imprimirAnalise, imprimirComprovanteQuebra, imprimirHistorico, imprimir
 import { LancamentoProvisorioModal } from './LancamentoProvisorioModal';
 import { useMensagem } from '../../shared/mensagem';
 import {
-  abrirTurno, cancelamentosTurno, comprovanteQuebra, descontosTurno, detalheTurno, documentosTurno, editarDocumento, historicoTurno, efetivarTurno, excluirDocumento, inserirDocumento, listarTurnos, reabrirTurno, relatorioFechamento, salvarRascunho,
+  abrirTurno, cancelamentosTurno, comprovanteQuebra, descontosTurno, detalheTurno, documentosTurno, editarDocumento, historicoTurno, efetivarTurno, excluirDocumento, gravarObservacaoTurno, inserirDocumento, listarTurnos, observacaoTurno, reabrirTurno, relatorioFechamento, salvarRascunho,
   type CamposDocumento, type CancelamentosTurno, type DescontoTurno, type DetalheTurno, type DocumentoConferencia, type Documentos, type Fixa, type LinhaFechamento, type TurnoRef, type TurnoResumo,
 } from './fechamentoCaixaApi';
 
@@ -61,6 +62,8 @@ export function FechamentoCaixaPage() {
   const [lancProv, setLancProv] = useState(false);
   // "Selecionar caixas para relatório" (Caixas em aberto): os turnos marcados para o relatório de fechamento
   const [marcadosRel, setMarcadosRel] = useState<Set<string>>(new Set());
+  // F5 dos caixas em aberto: a observação de divergência (CAIXA_OBS) do PDV × operador × dia
+  const [obsTurno, setObsTurno] = useState<{ t: TurnoRef; texto: string } | null>(null);
   const [leitura, setLeitura] = useState<{ tipo: 'cancelamentos'; d: CancelamentosTurno } | { tipo: 'descontos'; d: DescontoTurno[] } | null>(null);
   const [operadoras, setOperadoras] = useState<Operadora[]>([]);
   useEffect(() => {
@@ -284,6 +287,17 @@ export function FechamentoCaixaPage() {
     imprimirHistorico(win, linhas, `PDV ${det.turno.nropdv} · operador(a) ${det.turno.codoperadora} — ${det.turno.nome ?? ''} · ${det.turno.data.split('-').reverse().join('/')}`);
     return true;
   });
+  const abrirObs = (t: TurnoResumo) => executar(async () => {
+    const r: TurnoRef = { data, chave: t.chave, nropdv: t.nropdv, codoperadora: t.codoperadora, situacao: t.situacao };
+    setObsTurno({ t: r, texto: (await observacaoTurno(r)).obs ?? '' });
+  });
+  const gravarObs = () => executar(async () => {
+    if (!obsTurno) return;
+    await gravarObservacaoTurno(obsTurno.t, obsTurno.texto);
+    setObsTurno(null);
+    mensagem.sucesso('Observação gravada.');
+  });
+
   // o relatório "Fechamento de caixa" (MontaRel): do turno aberto na tela ou dos marcados na lista
   const chaveTurno = (t: TurnoResumo) => `${t.nropdv}|${t.codoperadora}|${t.chave ?? ''}|${t.situacao}`;
   const imprimirRelatorio = (lista: Array<{ nropdv: number; codoperadora: number; chave: string | null }>) => void imprimirComDado(async (win) => {
@@ -373,6 +387,7 @@ export function FechamentoCaixaPage() {
                           />
                         </td>
                         <td className="px-2 py-1 text-right">
+                          <Button label="Obs." variant="ghost" onClick={() => void abrirObs(t)} disabled={ocupado} />
                           <Button label={t.situacao === 1 ? 'Fechar caixa' : 'Consultar caixa'} variant="ghost" onClick={() => void abrir(t)} disabled={ocupado} />
                         </td>
                       </tr>
@@ -509,6 +524,18 @@ export function FechamentoCaixaPage() {
             </div>
           </section>
         </>
+      )}
+
+      {obsTurno && (
+        <Modal
+          open
+          onClose={() => setObsTurno(null)}
+          title={`Observação de divergência — PDV ${obsTurno.t.nropdv}, operador(a) ${obsTurno.t.codoperadora}`}
+          primaryAction={{ label: 'OK', onClick: () => void gravarObs() }}
+          secondaryAction={{ label: 'Sair', onClick: () => setObsTurno(null) }}
+        >
+          <TextArea label="Observação" rows={6} value={obsTurno.texto} onChange={(e) => setObsTurno((s) => (s ? { ...s, texto: e.target.value } : s))} />
+        </Modal>
       )}
 
       {lancProv && ref && (
