@@ -5,7 +5,6 @@ import { DataTable, type DataTableColumnDef } from '@apollosg/design-system';
 import {
   produtoSchema,
   ORIGEM_OPCOES,
-  eanValido,
   gerarCodigoInternoEan13,
   type CriarProdutoDto,
   type CodAuxiliarDto,
@@ -305,9 +304,7 @@ function PrincipalSection({
   dptoOptions: Opcao[];
   secaoOptions: Opcao[];
 }) {
-  const codbarraAtual = (form.watch('codbarra') ?? '').trim();
   // dica visual: só sinaliza inválido quando há conteúdo (a obrigatoriedade é do schema).
-  const codbarraInvalido = codbarraAtual !== '' && !eanValido(codbarraAtual);
   const ehBalanca = form.watch('balanca') === 'S';
 
   // F8 — gera um EAN-13 interno a partir de um sequencial (prefixo '7'); seta o campo.
@@ -328,10 +325,7 @@ function PrincipalSection({
                 label="Código de &barras"
                 inputMode="numeric"
                 disabled={!editavel}
-                error={
-                  (form.formState.errors.codbarra?.message as string | undefined) ??
-                  (codbarraInvalido ? 'Código de barras (EAN-13) inválido.' : undefined)
-                }
+                error={form.formState.errors.codbarra?.message as string | undefined}
                 {...form.register('codbarra')}
               />
             </div>

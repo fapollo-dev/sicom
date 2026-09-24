@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { soDigitos } from '../validators/br';
-import { eanValido } from '../validators/codigo-barras';
 
 /**
  * Cadastro de PRODUTO (hub do ERP) — Fase 1: NÚCLEO fiel. A tela ARMAZENA config
@@ -76,10 +75,9 @@ const codbarra = z
   .max(14)
   .refine((v) => !v.includes('*'), {
     message: 'Não é permitido o uso do caractere (*) no código de barras.',
-  })
-  .refine((v) => soDigitos(v).length !== 13 || eanValido(soDigitos(v)), {
-    message: 'Código de barras (EAN-13) inválido.',
   });
+// ⚠️ SEM o dígito verificador do EAN-13: o legado não valida (edtCODBARRAExit, UCadProduto.pas:4895-4975) e a produção tem 334
+// produtos com EAN-13 de DV inválido (13 criados em 2025, 15 em 2026) — a regra os deixava sem poder gravar (auditoria g2 #5).
 
 /** DESCRICAO (edtDESCRICAOExit): obrigatória, máx. 120, sem ';' nem '|'. */
 const descricao = z

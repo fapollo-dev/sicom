@@ -199,13 +199,17 @@ export const produtoAggregateConfig: AggregateConfig = {
     if (id != null && dto.idproduto_pai != null && Number(dto.idproduto_pai) === id) {
       throw new BusinessRuleError('PRODUTO_PAI_IGUAL_FILHO', { idproduto: id });
     }
+    // DESATIVAR o componente de um kit (chbATIVOClick, UCadProduto.pas:4077-4104): só na TRANSIÇÃO S→N (`ATIVO.OldValue = 'S'`) e
+    // contra a composição VIGENTE do kit (`GetSQLComposicao`, udmCadProduto.pas:3294 — a CHAVECOMPOSICAO do kit casa a da linha).
+    // O Apollo testava todo PUT com ativo 'N': o produto já inativo que é componente não gravava nem para corrigir o NCM.
     if (id != null && dto.ativo === 'N') {
-      const comp = await db
-        .selectFrom('composicao')
-        .select('idproduto')
-        .where('idproduto_01', '=', id)
-        .executeTakeFirst();
-      if (comp) throw new BusinessRuleError('PRODUTO_EM_COMPOSICAO', { idproduto: id });
+      const atual = (await sql<{ ativo: string | null }>`SELECT ativo FROM produtos WHERE idproduto = ${id}`.execute(db)).rows[0];
+      if (String(atual?.ativo ?? '') === 'S') {
+        const comp = (await sql<{ idproduto: number }>`SELECT c.idproduto FROM composicao c
+            JOIN produtos pcomp ON pcomp.idproduto = c.idproduto AND pcomp.chavecomposicao IS NOT DISTINCT FROM c.chavecomposicao
+           WHERE c.idproduto_01 = ${id} LIMIT 1`.execute(db)).rows[0];
+        if (comp) throw new BusinessRuleError('PRODUTO_EM_COMPOSICAO', { idproduto: id });
+      }
     }
     // Fator de conversão: unicidade por (DE,PARA) dentro do produto (fiel ao RetornarValores do legado;
     // golden tem 0 duplicados). PARA = unidade do produto; DE≠unidade e FATOR>0 são guardas de ENTRADA

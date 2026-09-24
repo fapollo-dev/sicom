@@ -20640,6 +20640,29 @@ async function main() {
         await pgIx.end();
       }
     }
+    // ══ §194 PRODUTO — travas inventadas removidas (auditoria g2): EAN-13 com DV inválido e o componente de kit já inativo ══
+    {
+      const pgPd = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const antes = (await pgPd.query(`SELECT idproduto, codbarra, ativo FROM produtos WHERE idproduto IN (2, 3) ORDER BY idproduto`)).rows as any[];
+      try {
+        // DV do EAN-13 errado de propósito: a produção tem 334 assim e o legado não valida
+        const dvErrado = (() => { const base = '789000009999'; const d = (Number(base.split('').reduce((s, c, i) => s + Number(c) * (i % 2 ? 3 : 1), 0)) * 9) % 10; return base + String((d + 1) % 10); })();
+        const p3 = (await (await fetch(`${base}/cadastro/produtos/3`, { headers: H })).json()) as any;
+        const put3 = await fetch(`${base}/cadastro/produtos/3`, { method: 'PUT', headers: H, body: JSON.stringify({ ...p3, codbarra: dvErrado }) });
+        const put3J = (await put3.json().catch(() => ({}))) as any;
+        // o componente do kit 1 JÁ inativo: gravar (corrigir outro campo) não é "desativar"
+        await pgPd.query(`UPDATE produtos SET ativo = 'N' WHERE idproduto = 2`);
+        const p2 = (await (await fetch(`${base}/cadastro/produtos/2`, { headers: H })).json()) as any;
+        const put2 = await fetch(`${base}/cadastro/produtos/2`, { method: 'PUT', headers: H, body: JSON.stringify({ ...p2, ativo: 'N' }) });
+        const put2J = (await put2.json().catch(() => ({}))) as any;
+        check('PRODUTO §194 [travas inventadas removidas]: o EAN-13 com dígito verificador inválido grava (o legado não valida; 334 produtos assim na produção); o componente de kit que JÁ está inativo grava — a trava do legado é só a transição S→N (a §15i.4 segue provando a transição)',
+          put3.status === 200 && put2.status === 200,
+          { dvErrado, put3: [put3.status, put3J.code, put3J.campos], put2: [put2.status, put2J.code] });
+      } finally {
+        for (const a of antes) await pgPd.query(`UPDATE produtos SET codbarra = $2, ativo = $3 WHERE idproduto = $1`, [a.idproduto, a.codbarra, a.ativo]).catch(() => undefined);
+        await pgPd.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
