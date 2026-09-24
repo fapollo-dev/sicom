@@ -4253,43 +4253,75 @@ async function main() {
           const codbco = Number((await pgCa.query(`SELECT codbco FROM bancos ORDER BY codbco LIMIT 1`)).rows[0]?.codbco);
           codconta = Number((await pgCa.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES ($1,1,'CONTA SMOKE') RETURNING codconta`, [codbco])).rows[0].codconta);
         }
+        // o cenário da baixa do legado: a conta de destino liberada ao operador (CONTAS_BANCARIAS_OP), bancária (CODBCO ≠ 0);
+        // a forma TEF (o cartão sem forma cai nela) com a SUA conta — de onde saem o líquido e a taxa; e o CC de multa/juros
+        await pgCa.query(`UPDATE contas_bancarias SET codbco = (SELECT min(codbco) FROM bancos WHERE codbco <> 0) WHERE codconta = $1 AND coalesce(codbco, 0) = 0`, [codconta]);
+        await pgCa.query(`INSERT INTO contas_bancarias_op (codconta, codoperador) VALUES ($1,7) ON CONFLICT DO NOTHING`, [codconta]);
+        await pgCa.query(`INSERT INTO bancos (codbco, banco, cidade) VALUES (0,'CAIXA','LOCAL') ON CONFLICT (codbco) DO NOTHING`);
+        const ctaForma = Number((await pgCa.query(`INSERT INTO contas_bancarias (codconta, codbco, idempresa, titular) VALUES (9871,0,1,'CAIXA CARTOES SMOKE') RETURNING codconta`)).rows[0].codconta); // id fixo: não desloca a sequência das contas
+        const fpTefAntes = (await pgCa.query(`SELECT idpgto, codcontacorrente FROM formas_pgto WHERE idempresa=1 AND destino='TEF' ORDER BY idpgto LIMIT 1`)).rows[0] as any;
+        const fpTef = fpTefAntes ? Number(fpTefAntes.idpgto) : Number((await pgCa.query(`INSERT INTO formas_pgto (idpgto, idempresa, modalidade, atalho, destino) VALUES (9870,1,'CARTOES SMOKE','CS','TEF') RETURNING idpgto`)).rows[0].idpgto); // id fixo: não consome a sequência (o §83.5b conta com o idpgto 3)
+        await pgCa.query(`UPDATE formas_pgto SET codcontacorrente = $2 WHERE idpgto = $1`, [fpTef, ctaForma]);
+        const ccMjAntes = (await pgCa.query(`SELECT ccmultajuros FROM empresas WHERE idempresa=1`)).rows[0]?.ccmultajuros ?? null;
+        if (ccMjAntes == null) await pgCa.query(`UPDATE empresas SET ccmultajuros = (SELECT min(codplc) FROM plc) WHERE idempresa=1`);
         // operadora base 2% + 2 recebíveis abertos (100→líq 98 / 50→líq 49).
         const opJ = (await (await fetch(`${base}/${OPER}`, { method: 'POST', headers: H, body: JSON.stringify({ operadora: 'REDE DEBITO', txadm: 2, diascomp: 1, tipo: 'D' }) })).json().catch(() => ({}))) as any;
         const codoper = Number(opJ.codoperadoras);
         const c1 = Number(((await (await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 100, codoperadora: codoper, dtvenda: '2026-06-01' }) })).json().catch(() => ({}))) as any).codvendcartao);
         const c2 = Number(((await (await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 50, codoperadora: codoper, dtvenda: '2026-06-01' }) })).json().catch(() => ({}))) as any).codvendcartao);
 
-        // baixar os 2 → líquido total 147 creditado na conta (MCB), liberado=S/idlote/valor_taxa_paga.
-        const bx = await fetch(`${base}/${CART}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, codvendcartaos: [c1, c2] }) });
+        // baixar os 2 NA DATA DIGITADA → as três pernas do legado (lote 91347 da produção): o crédito do líquido na conta de
+        // destino (IDPGTO 1, a liberar) e as saídas do líquido e da taxa na conta da FORMA; DTBAIXA/CARTAO_BX/CAIXA na data.
+        const bxFut = await fetch(`${base}/${CART}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, codvendcartaos: [c1, c2], dataBaixa: '2099-01-01' }) });
+        const bxFutJ = (await bxFut.json().catch(() => ({}))) as any;
+        const bx = await fetch(`${base}/${CART}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, codvendcartaos: [c1, c2], dataBaixa: '2026-06-10' }) });
         const bxJ = (await bx.json().catch(() => ({}))) as any;
-        const idlote = Number(bxJ.idlote);
-        const mcb = (await pgCa.query(`SELECT valor, tipomovimento, origem FROM mov_contas_bancarias WHERE origem='BXCARTAO' AND idorigem=$1`, [idlote])).rows[0] as any;
-        const lib = (await pgCa.query(`SELECT liberado, idlote, valor_taxa_paga FROM cartao WHERE codvendcartao=$1`, [c1])).rows[0] as any;
-        const cxTaxa = (await pgCa.query(`SELECT valor::float AS valor, obs, origem, codplc, idlotebxcartao FROM caixa WHERE idlotebxcartao=$1`, [idlote])).rows as any[];
+        const idlote = Number(bxJ.idlote) || 0; // 0 = a baixa falhou: o check abaixo mostra o porquê em vez de derrubar o smoke
+        const movs = (await pgCa.query(`SELECT codconta, valor::float AS valor, tipomovimento, idpgto, liberado, historico, origem,
+                                              to_char(dtemissao AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') AS em, to_char(dtliberacao AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') AS lib
+                                         FROM mov_contas_bancarias WHERE idlote=$1 ORDER BY codmovconta`, [idlote])).rows as any[];
+        const lib = (await pgCa.query(`SELECT liberado, idlote, valor_taxa_paga, codopbx, codplc_taxa_cartao, data_operacao, to_char(dtbaixa,'YYYY-MM-DD') AS dtb FROM cartao WHERE codvendcartao=$1`, [c1])).rows[0] as any;
+        const cxTaxa = (await pgCa.query(`SELECT valor::float AS valor, obs, origem, codplc, idlotebxcartao, to_char(data,'YYYY-MM-DD') AS data FROM caixa WHERE idlotebxcartao=$1`, [idlote])).rows as any[];
+        const bxData = (await pgCa.query(`SELECT to_char(data_pgto,'YYYY-MM-DD') AS d FROM cartao_bx WHERE idlote=$1 LIMIT 1`, [idlote])).rows[0] as any;
         const ccMj = (await pgCa.query(`SELECT ccmultajuros FROM empresas WHERE idempresa=1`)).rows[0]?.ccmultajuros ?? null;
-        check('CARTÃO baixa: baixar 2 recebíveis → lote + liberado=S/idlote/valor_taxa_paga(2) + MCB crédito 147,00 (líquido) tipomov C + a TAXA na CAIXA gerencial (−3,00, "Ref. a bx cartao lote N", CC de multa/juros da empresa)',
-          bx.status === 200 && Number(bxJ.itens) === 2 && Number(bxJ.total_liquido) === 147 && Number(bxJ.total_taxa) === 3
-          && lib?.liberado === 'S' && Number(lib?.idlote) === idlote && Number(lib?.valor_taxa_paga) === 2
-          && Number(mcb?.valor) === 147 && mcb?.tipomovimento === 'C'
-          && cxTaxa.length === 1 && cxTaxa[0].valor === -3 && cxTaxa[0].obs === `Ref. a bx cartao lote ${idlote}` && cxTaxa[0].origem === 'BAIXA CARTAO'
-          && (ccMj == null ? cxTaxa[0].codplc == null : Number(cxTaxa[0].codplc) === Number(ccMj)),
-          { bx: bxJ, mcb, lib, cxTaxa, ccMj });
+        const [mC, mD, mT] = movs;
+        check('CARTÃO baixa [auditoria de esqueletos §1]: data futura é 422 ("Data da baixa não pode ser maior que a data atual!"); baixar 2 recebíveis em 10/06 grava as TRÊS pernas do legado — crédito 147,00 C na conta de destino (IDPGTO 1, a liberar, "REF. BX LOTE: N"), saída 147,00 D "SAIDA PARA BAIXA DE DOCUMENTOS" e 3,00 D "SAIDA REF A TAXA ADMINISTRATIVA…" na conta da FORMA (IDPGTO da forma, liberadas) — tudo em 10/06, como DTBAIXA, CARTAO_BX e a taxa −3,00 na CAIXA; o cartão leva CODOPBX, DATA_OPERACAO e o CC da taxa',
+          bxFut.status === 422 && bxFutJ.code === 'CARTAO_BAIXA_DATA_FUTURA'
+          && bx.status === 200 && Number(bxJ.itens) === 2 && Number(bxJ.total_liquido) === 147 && Number(bxJ.total_taxa) === 3 && Number(bxJ.debitos) === 2
+          && lib?.liberado === 'S' && Number(lib?.idlote) === idlote && Number(lib?.valor_taxa_paga) === 2 && lib?.dtb === '2026-06-10'
+          && Number(lib?.codopbx) === 7 && lib?.data_operacao != null && Number(lib?.codplc_taxa_cartao) === Number(ccMj)
+          && movs.length === 3
+          && Number(mC.codconta) === codconta && mC.valor === 147 && mC.tipomovimento === 'C' && Number(mC.idpgto) === 1 && mC.liberado === 'N' && mC.lib === '2026-06-10' && mC.historico === `REF. BX LOTE: ${idlote}` && mC.origem == null
+          && Number(mD.codconta) === ctaForma && mD.valor === 147 && mD.tipomovimento === 'D' && Number(mD.idpgto) === fpTef && mD.liberado === 'S' && mD.historico === 'SAIDA PARA BAIXA DE DOCUMENTOS'
+          && Number(mT.codconta) === ctaForma && mT.valor === 3 && mT.tipomovimento === 'D' && mT.historico === 'SAIDA REF A TAXA ADMINISTRATIVA DA BAIXA DE DOCUMENTOS'
+          && movs.every((m) => m.em === '2026-06-10') && bxData?.d === '2026-06-10'
+          && cxTaxa.length === 1 && cxTaxa[0].valor === -3 && cxTaxa[0].obs === `Ref. a bx cartao lote ${idlote}` && cxTaxa[0].origem === 'BAIXA CARTAO' && cxTaxa[0].data === '2026-06-10'
+          && Number(cxTaxa[0].codplc) === Number(ccMj),
+          { fut: [bxFut.status, bxFutJ.code], bx: bxJ, movs, lib, cxTaxa, bxData, ccMj, ctaForma, fpTef });
 
-        // estornar lote → recebíveis voltam a ABERTO + crédito MCB apagado.
+        // reverter o lote (UConsCRTbx.pas:185-265): recebíveis ABERTOS; a movimentação NÃO é apagada — as 3 linhas ficam
+        // REVERTIDO='S' e ganham a contrária (tipo invertido, IDLOTE_REVERSAO = o lote, cada uma num lote novo, "Reabertura…")
         const es = await fetch(`${base}/${CART}/estornar-lote/${idlote}`, { method: 'POST', headers: H });
-        const libE = (await pgCa.query(`SELECT liberado, idlote FROM cartao WHERE codvendcartao=$1`, [c1])).rows[0] as any;
-        const mcbE = Number((await pgCa.query(`SELECT count(*)::int n FROM mov_contas_bancarias WHERE origem='BXCARTAO' AND idorigem=$1`, [idlote])).rows[0].n);
+        const esJ = (await es.json().catch(() => ({}))) as any;
+        const libE = (await pgCa.query(`SELECT liberado, idlote, dtbaixa, valor_taxa_paga, codplc_taxa_cartao, data_operacao FROM cartao WHERE codvendcartao=$1`, [c1])).rows[0] as any;
+        const origE = (await pgCa.query(`SELECT count(*) FILTER (WHERE revertido='S')::int AS rev, count(*)::int AS n FROM mov_contas_bancarias WHERE idlote=$1`, [idlote])).rows[0] as any;
+        const contra = (await pgCa.query(`SELECT tipomovimento, valor::float AS valor, idlote, historico FROM mov_contas_bancarias WHERE idlote_reversao=$1 ORDER BY codmovconta`, [idlote])).rows as any[];
         const cxE = Number((await pgCa.query(`SELECT count(*)::int n FROM caixa WHERE idlotebxcartao=$1`, [idlote])).rows[0].n);
-        check('CARTÃO baixa: estornar lote → recebíveis ABERTOS (liberado=N, idlote null) + crédito MCB apagado + a taxa sai da CAIXA',
-          es.status === 200 && libE?.liberado === 'N' && libE?.idlote == null && mcbE === 0 && cxE === 0, { es: es.status, libE, mcbE, cxE });
+        check('CARTÃO baixa [reversão fiel]: estornar o lote reabre os recebíveis (DTBAIXA, taxa, CC e DATA_OPERACAO limpos), marca as 3 movimentações REVERTIDO=S e lança as 3 contrárias (D→C, C→D, lotes novos distintos, "Reabertura da baixa de cartões, lote N, realizada pelo usuário …") e tira a taxa da CAIXA',
+          es.status === 200 && Number(esJ.contraMovimentos) === 3 && libE?.liberado === 'N' && libE?.idlote == null && libE?.dtbaixa == null && libE?.valor_taxa_paga == null && libE?.codplc_taxa_cartao == null && libE?.data_operacao == null
+          && Number(origE?.rev) === 3 && Number(origE?.n) === 3
+          && contra.length === 3 && contra.map((c) => c.tipomovimento).join('') === 'DCC' && contra.map((c) => c.valor).join('|') === '147|147|3'
+          && new Set(contra.map((c) => Number(c.idlote))).size === 3 && contra.every((c) => Number(c.idlote) !== idlote && String(c.historico).startsWith(`Reabertura da baixa de cartões, lote ${idlote}, realizada pelo usuário `))
+          && cxE === 0,
+          { es: [es.status, esJ], libE, origE, contra, cxE });
 
         // OUTRAS DESPESAS (UbaixaCartao.pas:1151, :1240): saem do crédito, rateadas pelos cartões, e vão à CAIXA antes da taxa
         const bxOdX = await fetch(`${base}/${CART}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, codvendcartaos: [c1, c2], outrasDespesas: 150 }) });
         const bxOdXJ = (await bxOdX.json().catch(() => ({}))) as any;
         const bxOd = await fetch(`${base}/${CART}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, codvendcartaos: [c1, c2], outrasDespesas: 7.35 }) });
         const bxOdJ = (await bxOd.json().catch(() => ({}))) as any;
-        const loteOd = Number(bxOdJ.idlote);
-        const mcbOd = (await pgCa.query(`SELECT valor FROM mov_contas_bancarias WHERE origem='BXCARTAO' AND idorigem=$1`, [loteOd])).rows[0] as any;
+        const loteOd = Number(bxOdJ.idlote) || 0;
+        const mcbOd = (await pgCa.query(`SELECT valor FROM mov_contas_bancarias WHERE idlote=$1 AND tipomovimento='C'`, [loteOd])).rows[0] as any;
         const odRat = ((await pgCa.query(`SELECT codvendcartao, valor_outras_despesas_paga FROM cartao WHERE codvendcartao = ANY($1::int[]) ORDER BY codvendcartao`, [[c1, c2]])).rows as any[]).map((r) => Number(r.valor_outras_despesas_paga));
         const cxOd = (await pgCa.query(`SELECT valor::float AS valor, codplc FROM caixa WHERE idlotebxcartao=$1 ORDER BY codcx`, [loteOd])).rows as any[];
         const ccDc = (await pgCa.query(`SELECT codplc_descontos_concedidos FROM empresas WHERE idempresa=1`)).rows[0]?.codplc_descontos_concedidos ?? null;
@@ -4338,6 +4370,13 @@ async function main() {
           && es2.status === 200 && bxDepois.indr === 'E' && Number(bxDepois.indr_usuario) === 7,
           { excede: [excede.status, excede.j.code], linhasDepois, es2: es2.status, bxDepois });
         await pgCa.query(`DELETE FROM cartao_bx WHERE codvendcartao IN ($1,$2)`, [c1, c2]);
+        // devolve o cenário: a forma TEF, o CC de multa/juros e a conta da forma (a movimentação da conta vai junto)
+        if (fpTefAntes) await pgCa.query(`UPDATE formas_pgto SET codcontacorrente = $2 WHERE idpgto = $1`, [fpTef, fpTefAntes.codcontacorrente]);
+        else await pgCa.query(`DELETE FROM formas_pgto WHERE idpgto = $1`, [fpTef]);
+        if (ccMjAntes == null) await pgCa.query(`UPDATE empresas SET ccmultajuros = NULL WHERE idempresa=1`);
+        const lotesCa = [idlote, loteOd, Number(bx2J.idlote)].filter((n) => n > 0);
+        await pgCa.query(`DELETE FROM mov_contas_bancarias WHERE codconta = $1 OR idlote = ANY($2::int[]) OR idlote_reversao = ANY($2::int[])`, [ctaForma, lotesCa]);
+        await pgCa.query(`DELETE FROM contas_bancarias WHERE codconta = $1`, [ctaForma]);
       } finally {
         await pgCa.end();
       }

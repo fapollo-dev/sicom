@@ -73,6 +73,11 @@ export type AtualizarCartaoDto = z.infer<typeof atualizarCartaoSchema>;
 export const baixarCartaoSchema = z.object({
   codconta: z.coerce.number().int().positive({ message: 'Informe a conta bancária de destino.' }),
   codvendcartaos: z.array(z.coerce.number().int().positive()).min(1, 'Selecione ao menos um recebível.'),
+  // a DATA DA BAIXA digitada (edtDataBaixa) — vai a DTBAIXA, CARTAO_BX, MCB e CAIXA; vazia = hoje
+  dataBaixa: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data da baixa inválida.').optional(),
+  // o destino (rdgDestino): conta bancária e antecipação creditam A LIBERAR; a tesouraria aceita conta caixa e credita liberado
+  destino: z.enum(['BANCARIA', 'ANTECIPACAO', 'TESOURARIA']).optional(),
+  historico: z.string().max(255).optional(),
   // o centro de custo da TAXA na CAIXA gerencial (EdtCodPlcTaxa, UbaixaCartao.pas:1183); vazio = o de multa/juros da empresa
   codplcTaxa: z.coerce.number().int().positive().optional(),
   // OUTRAS DESPESAS (edtOutrasDesp, UbaixaCartao.pas:1151): saem do crédito e vão à CAIXA no CC de descontos concedidos

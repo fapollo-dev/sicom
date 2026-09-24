@@ -46,3 +46,38 @@ data, operador, lote, obs, e **estorno lógico** por `indr`/`indr_usuario`/`indr
 o **bruto** — no cliente a soma bate com `CARTAO.VALOR` em 9.935 de 10.000 amostras (não com o líquido).
 
 A tabela entrou no `plano-tabelas.json` (f0) e no mapa `tabela_origem` dos dois scripts do ETL.
+
+## 5. Corte-4 (24/09/2026) — as três pernas da baixa, a data digitada e a reversão fiel
+
+Achado da auditoria de esqueletos (`docs/05-migration-engineering/auditoria-esqueletos.md` §1): o Apollo gravava só o
+crédito, com a data do dia. O que uma baixa grava na produção (lote 91347, 15/09/2026):
+
+| perna | conta | valor | IDPGTO | LIBERADO | histórico | fonte |
+|---|---|---:|---|---|---|---|
+| (a) crédito | destino (421) | +154,44 C | 1 | N (bancária) / S (tesouraria) | o digitado — padrão `REF. BX LOTE: N` | `rdgDestinoExit` :2001-2030 |
+| (b) saída do líquido | a da FORMA do cartão (1) | −154,44 D | da forma (200) | S | `SAIDA PARA BAIXA DE DOCUMENTOS` | `ValidaSaldoAntMultiEmpresa` |
+| (c) saída da taxa | a da forma (1) | −5,08 D | da forma | S | `SAIDA REF A TAXA ADMINISTRATIVA DA BAIXA DE DOCUMENTOS` | idem |
+
+- (b)+(c) saem **uma dupla por IDPGTO** (`BaixaContasApagar` :683-799, cdsTemp): líquido = Σ `VALOR_COM_TAXA`, taxa = Σ bruto − Σ líquido.
+  O cartão sem forma herda a do anterior (`FIdpgto` só muda quando > 0); forma não achada cai na TEF. A query da forma
+  (`FDqFormasPgtoMultiEmpresa`) traz UMA linha — o `Locate('DESTINO','CXA')` nunca acha outra, então o IDPGTO é sempre o da forma.
+- 8.798 dos 8.805 lotes do cliente têm (b) (R$ −33,1 mi) e (c) (R$ −0,62 mi). Desde ago/2026, 100% das saídas estão na DTBAIXA.
+- **Tudo na data digitada**: DTBAIXA 00:00, `CARTAO_BX.DATA_PGTO`, as 3 pernas (emissão/vencimento/liberação), a CAIXA.
+  "Data da baixa não pode ser maior que a data atual!" (:1372).
+- O `UPDATE CARTAO` (:731-742): CODOPBX, DATA_OPERACAO (hora do servidor), CODPLC_ACREDESC (só com outras despesas),
+  VALOR_OUTRAS_DESPESAS_PAGA (0 quando não há — 0 nulos desde 2025), VALOR_TAXA_PAGA, CODPLC_TAXA_CARTAO (só com taxa).
+  O `OBS || ' BAIXA DO LOTE: N'` do fonte **a produção não grava** (0 de 670.924 baixas desde 2025) — o dado vivo decide.
+  `LIBERADO = 'N' se ItemIndex = 3` é morto (o combo tem 3 itens).
+- Travas novas: CC de multa/juros da empresa obrigatório (:996), período contábil chaveado, conta do operador
+  (`CONTAS_BANCARIAS_OP`), conta caixa só na tesouraria (:1340), caixa FECHADO na conta da forma (DTCHAVEAMENTO).
+- Recebíveis de todas as empresas do operador (`GetMultiEmpresa`); a conta de destino pode ser de outra empresa.
+- Depois do commit, `INTEGRACAO = 'AUTOMATICA'` → integração contábil do lote (:1214). A integração pega o crédito por
+  `tipomovimento = 'C'` (o `M.VALOR > 0` do legado — o Apollo guarda o absoluto, e com `valor > 0` as saídas entravam).
+- **Reversão** (`UConsCRTbx.pas:95-275`): não apaga a movimentação. Cada linha do lote fica `REVERTIDO='S'` e ganha a
+  contrária — tipo invertido, **um lote novo por linha**, `IDLOTE_REVERSAO` = o lote, emissão agora, "Reabertura da baixa
+  de cartões, lote N, realizada pelo usuário X." (produção: 86909 → 86911/86912). Recusa com contabilizado fora da
+  AUTOMATICA (que estorna junto), período chaveado e caixa FECHADO; limpa REFERENCIA/DTBAIXA/conciliação/IDLOTE/
+  DATA_OPERACAO/CCs/taxa/outras/`VALOR_AJUSTE_BAIXA`; apaga `CONS_REG10_NAO_ENCONTRADOS` dos arquivos do lote e a CAIXA.
+  `TIVIT_REDE_*` têm 0 linhas no cliente e não vieram.
+- Tela: marca os recebíveis (antes baixava todos os abertos da lista), destino, conta do operador, data e histórico.
+- ADIADO: `AjustarDiferenca`/baixa parcial por valor digitado (VALOR_MAXIMO_DIFERENCA_BAIXA), taxa de antecipação, E-Extrato/SITEF.

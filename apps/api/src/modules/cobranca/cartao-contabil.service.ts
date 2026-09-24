@@ -285,7 +285,8 @@ export class CartaoContabilService {
 
   /**
    * `GetSQLMovimentacao` :1960-1983 com o `/*FILTRO_ADICIONAL*​/` que a baixa de cartão injeta:
-   * `AND M.VALOR > 0` (:301). É o que separa o CRÉDITO da baixa das saídas do mesmo lote — no cliente há
+   * `AND M.VALOR > 0` (:301) — aqui `tipomovimento = 'C'`, porque o Apollo guarda o valor ABSOLUTO (a carga tira o
+   * sinal, `extrair.py:215`): com `valor > 0` as saídas do lote (a forma debitada e a taxa) entravam como crédito. É o que separa o CRÉDITO da baixa das saídas do mesmo lote — no cliente há
    * 21.523 movimentações positivas contra 42.639 negativas nos lotes de cartão.
    * O filtro de "DEVOLUÇÃO DE CHEQUE" vem do legado e pega 1 linha no banco inteiro; entra por fidelidade.
    */
@@ -298,7 +299,7 @@ export class CartaoContabilService {
          AND coalesce(m.contabilizado,'N') = 'N'
          AND m.idempresa = ${emp}
          AND NOT (upper(coalesce(m.historico,'.')) LIKE '%DEVOLUÇÃO DE CHEQUE%')
-         AND m.valor > 0
+         AND m.tipomovimento = 'C'
        ORDER BY m.codmovconta
     `.execute(trx)).rows;
     return rows.map((r) => ({
@@ -321,8 +322,12 @@ export class CartaoContabilService {
     const emp = this.emp();
     const db = this.dbp.forTenant() as AnyDB;
     await this.assertPeriodoAberto(db, p.dataFim);
+    return db.transaction().execute((trx: AnyDB) => this.estornarNaTrx(trx, emp, p));
+  }
 
-    return db.transaction().execute(async (trx: AnyDB) => {
+  /** o estorno na transação de quem chama — a reversão do lote de cartões (`UConsCRTbx.pas:185-195`) estorna junto. */
+  async estornarNaTrx(trx: AnyDB, emp: number, p: { dataIni: string; dataFim: string; idlote?: number | null }): Promise<{ lotes: number; cartoes: number; linhas: number }> {
+    {
       // os cartões contabilizados que TÊM lançamento no alvo (`GetSQLCartoesBX` :96-126).
       const alvo = (await sql<Record<string, unknown>>`
         SELECT c.codvendcartao, c.idlote
@@ -366,7 +371,7 @@ export class CartaoContabilService {
       await trx.updateTable('cartao').set({ contabilizado: null }).where('codvendcartao', 'in', ids).where('idempresa', '=', emp).execute();
       await trx.updateTable('mov_contas_bancarias').set({ contabilizado: null }).where('idlote', 'in', lotes).where('idempresa', '=', emp).execute();
       return { lotes: lotes.length, cartoes: ids.length, linhas };
-    });
+    }
   }
 }
 

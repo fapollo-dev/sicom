@@ -14,11 +14,16 @@ import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 export class CartaoBaixaController {
   constructor(private readonly svc: CartaoBaixaService) {}
 
+  /** as contas do operador (`CONTAS_BANCARIAS_OP`, `edtCodContaExit` :1336) — a F3 da conta de destino */
+  @Get('baixa/contas') // 2 segmentos: o GET :id do CRUD (registrado antes) engoliria 'contas'
+  @RequerAcesso('FRMBAIXACARTAO', 'BTNGRAVAR')
+  contas() { return this.svc.contas(); }
+
   @Post('baixar')
   @HttpCode(200)
   @RequerAcesso('FRMBAIXACARTAO', 'BTNGRAVAR')
   baixar(@Body(new ZodValidationPipe(baixarCartaoSchema)) body: BaixarCartaoDto) {
-    return this.svc.baixar({ codconta: body.codconta, codvendcartaos: body.codvendcartaos, codplcTaxa: body.codplcTaxa, outrasDespesas: body.outrasDespesas, codplcOutrasDesp: body.codplcOutrasDesp });
+    return this.svc.baixar({ codconta: body.codconta, codvendcartaos: body.codvendcartaos, dataBaixa: body.dataBaixa, destino: body.destino, historico: body.historico, codplcTaxa: body.codplcTaxa, outrasDespesas: body.outrasDespesas, codplcOutrasDesp: body.codplcOutrasDesp });
   }
 
   /** corte-3 (mig 277): as baixas do recebível, com saldo — a baixa parcial que o corte-2 não representava. */

@@ -3,29 +3,29 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { CartaoContabilService } from '../cobranca/cartao-contabil.service';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 /**
- * CARTÕES corte-2 — BAIXA / LIQUIDAÇÃO em lote (FRMBAIXACARTAO). Fecha o recebível: gera um LOTE (seq_idlote — o ID_IDLOTE do legado, mig 323),
- * marca os recebíveis abertos (liberado='S', dtbaixa, idlote, valor_taxa_paga = bruto − líquido) e CREDITA o líquido
- * total numa conta bancária (mov_contas_bancarias, tipomovimento='C', origem='BXCARTAO' [MCB.origem é varchar(10)],
- * idorigem=idlote). O
- * líquido vem da view get_cartao (COALESCE(valorliq, bruto − bruto×txadm_ef/100) — a mesma regra do GET_CARTAO).
- * `estornarLote` reverte tudo (recebíveis → aberto, apaga o crédito). Tenant fail-closed; operador obrigatório.
- * CORTE-3 (mig 277): a baixa agora é LINHA em `cartao_bx` — 1.169.680 no cliente, R$ 58,4 mi, com baixa
- * PARCIAL real (5.186 recebíveis) e estorno LÓGICO (59.118 com `INDR='E'`). E com a trava que o legado não
- * tem: baixar além do valor é recusado — lá 2.921 cartões têm baixas ativas somando **R$ 131.623,12 a mais**
- * que o próprio valor, porque o lote era estornado sem marcar a baixa e o recebível era baixado de novo.
- * A TAXA vai à CAIXA gerencial (UbaixaCartao.pas:1180-1206; `CAIXA-escritores.md`): uma linha negativa por lote, no CC
- * da taxa (ou o de multa/juros da empresa), "Ref. a bx cartao lote N"; o estorno do lote a apaga (UConsCRTbx.pas:265).
- * OUTRAS DESPESAS (UbaixaCartao.pas:1151-1176, :1240-1280): o valor digitado sai do crédito, é rateado pelos cartões
- * (VALOR_OUTRAS_DESPESAS_PAGA, sobra no maior) e vai à CAIXA antes da taxa, negativo, no CC de descontos concedidos da
- * empresa (ou o de multa/juros). Produção 2026: 363 dos 1.362 lotes; a linha = o valor digitado. O ajuste do rateio no
- * legado soma a diferença com o sinal trocado (Σ dos cartões fica 2 centavos longe) — aqui a sobra fecha o total.
- * ADIADO (fiel): ajuste/antecipação, PLC/período, conciliação de extrato.
+ * CARTÕES — BAIXA / LIQUIDAÇÃO em lote (FRMBAIXACARTAO, `UbaixaCartao.pas`). Um LOTE (seq_idlote — o ID_IDLOTE do legado)
+ * com três pernas na movimentação bancária, como na produção (lote 91347: +154,44 na conta 421; −154,44 e −5,08 na conta 1):
+ *  (a) o CRÉDITO do líquido (− outras despesas) na conta de destino, IDPGTO 1, a liberar quando é conta bancária;
+ *  (b) a SAÍDA do líquido e (c) a da TAXA na conta da FORMA de cada cartão, uma dupla por IDPGTO (`ValidaSaldoAntMultiEmpresa`).
+ * Tudo na DATA DIGITADA da baixa (DTBAIXA, CARTAO_BX, MCB e CAIXA). Até a auditoria de esqueletos (24/09/2026) o Apollo
+ * gravava só (a), com a data do dia: 8.798 dos 8.805 lotes do cliente têm (b), R$ −33,1 mi, e (c), R$ −0,62 mi.
+ * O líquido vem da view get_cartao (COALESCE(valorliq, bruto − bruto×txadm_ef/100) — a mesma regra do GET_CARTAO).
+ * CORTE-3 (mig 277): a baixa é LINHA em `cartao_bx` — 1.169.680 no cliente, R$ 58,4 mi, com baixa PARCIAL real
+ * (5.186 recebíveis) e estorno LÓGICO (59.118 com `INDR='E'`). E com a trava que o legado não tem: baixar além do valor é
+ * recusado — lá 2.921 cartões têm baixas ativas somando **R$ 131.623,12 a mais** que o próprio valor.
+ * A TAXA vai à CAIXA gerencial (UbaixaCartao.pas:1180-1206): uma linha negativa por lote, no CC da taxa (ou o de multa/juros
+ * da empresa), "Ref. a bx cartao lote N". OUTRAS DESPESAS (:1151-1176, :1240-1280): saem do crédito, rateadas pelos cartões
+ * (VALOR_OUTRAS_DESPESAS_PAGA, sobra no maior) e vão à CAIXA antes da taxa, no CC de descontos concedidos (ou multa/juros).
+ * Depois do commit, a integração contábil AUTOMATICA do lote (`IntegraBaixaCartao`, :1214).
+ * ADIADO (fiel): o ajuste da diferença/baixa parcial por valor digitado (VALOR_MAXIMO_DIFERENCA_BAIXA, `AjustarDiferenca`),
+ * a taxa de antecipação e a conciliação de extrato (E-Extrato/SITEF).
  */
 @Injectable()
 export class CartaoBaixaService {
@@ -42,97 +42,195 @@ export class CartaoBaixaService {
     return o;
   }
 
-  async baixar(dto: { codconta: number; codvendcartaos: number[]; codplcTaxa?: number; outrasDespesas?: number; codplcOutrasDesp?: number }): Promise<{ idlote: number; itens: number; total_liquido: number; total_taxa: number; outras_despesas: number }> {
+  /** as empresas do operador (`dmPrincipal.GetMultiEmpresa`: a corrente + `RELACAO_OPERADOR_EMPRESA`) — a pesquisa `GET_CARTAO` filtra por elas */
+  private async empresasPermitidas(db: AnyDB, emp: number, op: number): Promise<number[]> {
+    const rel = ((await db.selectFrom('relacao_operador_empresa').select('codempresa').where('codoperador', '=', op).execute()) as Array<{ codempresa: number }>).map((r) => Number(r.codempresa));
+    return [...new Set([emp, ...rel])];
+  }
+
+  /** `TIntegracaoContabil.ValidaPeriodoFechado` (btnGravarClick :1000) — chaveamento nulo não bloqueia */
+  private async assertPeriodo(db: AnyDB, data: string): Promise<void> {
+    const cfg = (await sql<{ chav: string | null }>`SELECT to_char(chaveamento_periodo, 'YYYY-MM-DD') AS chav FROM config_integracao_contabil LIMIT 1`.execute(db)).rows[0];
+    if (cfg?.chav && data <= cfg.chav) throw new BusinessRuleError('PERIODO_CONTABIL_CHAVEADO', { ate: cfg.chav });
+  }
+
+  /** as contas ativas do operador (`CONTAS_BANCARIAS_OP`) — conta caixa só serve à TESOURARIA */
+  async contas(): Promise<Array<{ codconta: number; nroconta: unknown; titular: unknown; codbco: number | null; idempresa: number; caixa: boolean }>> {
+    this.emp();
+    const op = this.op();
+    const rows = (await sql<Record<string, unknown>>`
+      SELECT c.codconta, c.nroconta, c.titular, c.codbco, c.idempresa
+        FROM contas_bancarias c
+        JOIN contas_bancarias_op o ON o.codconta = c.codconta AND o.codoperador = ${op}
+       WHERE coalesce(c.ativo, 'S') = 'S'
+       ORDER BY c.titular, c.codconta`.execute(this.dbp.forTenantRead() as AnyDB)).rows;
+    return rows.map((c) => ({ codconta: Number(c.codconta), nroconta: c.nroconta, titular: c.titular, codbco: c.codbco == null ? null : Number(c.codbco), idempresa: Number(c.idempresa), caixa: Number(c.codbco) === 0 }));
+  }
+
+  async baixar(dto: {
+    codconta: number; codvendcartaos: number[]; dataBaixa?: string; destino?: 'BANCARIA' | 'ANTECIPACAO' | 'TESOURARIA'; historico?: string;
+    codplcTaxa?: number; outrasDespesas?: number; codplcOutrasDesp?: number;
+  }): Promise<{ idlote: number; itens: number; total_liquido: number; total_taxa: number; outras_despesas: number; debitos: number; contabilizado: boolean }> {
     const emp = this.emp();
     const op = this.op();
     const ids = Array.from(new Set((dto.codvendcartaos ?? []).map(Number).filter((n) => Number.isInteger(n) && n > 0)));
     if (!ids.length) throw new BusinessRuleError('CARTAO_BAIXA_SEM_ITENS');
-    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      // fold auditoria [ALTA]: a conta de destino TEM de ser da empresa do tenant (contas_bancarias é empresaScoped;
-      // sem o filtro idempresa, um POST direto creditaria a conta de OUTRA empresa no mesmo banco de dados). Espelha
-      // o areceber-baixa.service.
-      const conta = await trx.selectFrom('contas_bancarias').select('codconta').where('codconta', '=', dto.codconta).where('idempresa', '=', emp).executeTakeFirst();
+    const destino = dto.destino ?? 'BANCARIA';
+    const res = await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      // a data DIGITADA (edtDataBaixa) — não o dia da gravação: "Data da baixa não pode ser maior que a data atual!" (:1372)
+      const hoje = String((await sql<{ d: string }>`SELECT to_char((now() AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD') AS d`.execute(trx)).rows[0].d);
+      const data = dto.dataBaixa ?? hoje;
+      if (data > hoje) throw new BusinessRuleError('CARTAO_BAIXA_DATA_FUTURA', { data, hoje });
+      const empCc = (await trx.selectFrom('empresas').select(['ccmultajuros', 'codplc_descontos_concedidos']).where('idempresa', '=', emp).executeTakeFirst()) as { ccmultajuros?: unknown; codplc_descontos_concedidos?: unknown } | undefined;
+      // "É necessário configurar na empresa o centro de custo de multas, juros e taxas!" (:996)
+      if (empCc?.ccmultajuros == null) throw new BusinessRuleError('EMPRESA_SEM_CC_MULTA_JUROS');
+      await this.assertPeriodo(trx, data);
+      // a conta de destino: a do operador (`CONTAS_BANCARIAS_OP`, `edtCodContaExit` :1336); conta caixa só na TESOURARIA (:1340)
+      const conta = (await sql<{ codconta: number; idempresa: number; codbco: unknown; codrelacao: unknown }>`
+        SELECT c.codconta, c.idempresa, c.codbco, o.codconta AS codrelacao
+          FROM contas_bancarias c
+          LEFT JOIN contas_bancarias_op o ON o.codconta = c.codconta AND o.codoperador = ${op}
+         WHERE c.codconta = ${dto.codconta} AND coalesce(c.ativo, 'S') = 'S' LIMIT 1`.execute(trx)).rows[0];
       if (!conta) throw new BusinessRuleError('CONTA_NAO_ENCONTRADA', { codconta: dto.codconta });
-      // TRAVA as linhas ABERTAS na tabela base (FOR UPDATE numa view com outer join não é permitido no PG).
+      if (conta.codrelacao == null) throw new BusinessRuleError('CONTA_SEM_PERMISSAO_OPERADOR', { codconta: dto.codconta });
+      if (Number(conta.codbco) === 0 && destino !== 'TESOURARIA') throw new BusinessRuleError('BAIXA_CONTA_CAIXA_OPERACAO_BANCARIA', { codconta: dto.codconta });
+      // TRAVA as linhas ABERTAS na tabela base (FOR UPDATE numa view com outer join não é permitido no PG), das empresas do operador
+      const permitidas = await this.empresasPermitidas(trx, emp, op);
       const abertos = (await trx
         .selectFrom('cartao')
-        .select(['codvendcartao', 'valor'])
+        .select(['codvendcartao', 'valor', 'idempresa', 'idpgto'])
         .where('codvendcartao', 'in', ids)
-        .where('idempresa', '=', emp)
+        .where('idempresa', 'in', permitidas)
         .where('liberado', '=', 'N')
+        .orderBy('codvendcartao')
         .forUpdate()
-        .execute()) as Array<{ codvendcartao: number; valor: unknown }>;
+        .execute()) as Array<{ codvendcartao: number; valor: unknown; idempresa: number; idpgto: unknown }>;
       if (!abertos.length) throw new BusinessRuleError('CARTAO_BAIXA_NENHUM_ABERTO');
       // líquido COMPUTADO pela view get_cartao (sem lock — só leitura do cálculo).
-      const netRows = (await trx.selectFrom('get_cartao').select(['codvendcartao', 'valor_com_taxa']).where('codvendcartao', 'in', abertos.map((a) => a.codvendcartao)).where('idempresa', '=', emp).execute()) as Array<{ codvendcartao: number; valor_com_taxa: unknown }>;
+      const netRows = (await trx.selectFrom('get_cartao').select(['codvendcartao', 'valor_com_taxa']).where('codvendcartao', 'in', abertos.map((a) => a.codvendcartao)).execute()) as Array<{ codvendcartao: number; valor_com_taxa: unknown }>;
       const netMap = new Map(netRows.map((r) => [Number(r.codvendcartao), r2(num(r.valor_com_taxa))]));
+      const liqDe = (r: { codvendcartao: number; valor: unknown }) => netMap.get(Number(r.codvendcartao)) ?? r2(num(r.valor));
       // outras despesas: não passam do total a baixar (`edtOutrasDespExit`) e pedem o CC de descontos concedidos
       const outras = r2(num(dto.outrasDespesas));
-      const totalBaixar = r2(abertos.reduce((s, r) => s + (netMap.get(Number(r.codvendcartao)) ?? r2(num(r.valor))), 0));
+      const totalBaixar = r2(abertos.reduce((s, r) => s + liqDe(r), 0));
       if (outras > totalBaixar) throw new BusinessRuleError('CARTAO_OUTRAS_DESPESAS_EXCEDE', { outras, totalBaixar });
-      const empCc = (await trx.selectFrom('empresas').select(['ccmultajuros', 'codplc_descontos_concedidos']).where('idempresa', '=', emp).executeTakeFirst()) as { ccmultajuros?: unknown; codplc_descontos_concedidos?: unknown } | undefined;
       const ccOutras = Number(dto.codplcOutrasDesp ?? empCc?.codplc_descontos_concedidos ?? 0) || null;
       if (outras > 0 && ccOutras == null) throw new BusinessRuleError('BAIXA_CC_DESCONTO_CONCEDIDO');
+      const ccMulta = Number(empCc?.ccmultajuros ?? 0) || null;
       // o rateio pelos cartões, proporcional ao líquido; a sobra do arredondamento vai para o maior
       const rateio = new Map<number, number>();
       if (outras > 0 && totalBaixar > 0) {
         let maior = abertos[0];
         for (const r of abertos) {
-          const liq = netMap.get(Number(r.codvendcartao)) ?? r2(num(r.valor));
-          if (liq > (netMap.get(Number(maior.codvendcartao)) ?? r2(num(maior.valor)))) maior = r;
-          rateio.set(Number(r.codvendcartao), r2((outras / totalBaixar) * liq));
+          if (liqDe(r) > liqDe(maior)) maior = r;
+          rateio.set(Number(r.codvendcartao), r2((outras / totalBaixar) * liqDe(r)));
         }
         const soma = r2([...rateio.values()].reduce((s, v) => s + v, 0));
         if (soma !== outras) rateio.set(Number(maior.codvendcartao), r2((rateio.get(Number(maior.codvendcartao)) ?? 0) + (outras - soma)));
       }
       const loteRes = await trx.executeQuery(sql`select nextval('seq_idlote') as v`.compile(trx));
       const idlote = Number((loteRes.rows[0] as { v: number | string }).v);
+      // `BaixaContasApagar` (:683-799): por cartão, o UPDATE do legado; e o agrupamento por IDPGTO (cdsTemp) — o cartão
+      // sem forma herda a do anterior (FIdpgto só muda quando > 0), e a forma não achada cai na TEF (:766-767)
+      const ccTaxa = dto.codplcTaxa ?? ccMulta;
+      const grupos = new Map<number, { bruto: number; liquido: number }>();
+      let fIdpgto = 0;
       let totalLiq = 0;
       let totalTaxa = 0;
       for (const r of abertos) {
-        const liq = netMap.get(Number(r.codvendcartao)) ?? r2(num(r.valor));
+        const liq = liqDe(r);
         const taxa = r2(num(r.valor) - liq);
         totalLiq = r2(totalLiq + liq);
         totalTaxa = r2(totalTaxa + taxa);
         // corte-3 (mig 277): a baixa vira LINHA em `cartao_bx` (1.169.680 no cliente), com o BRUTO baixado —
         // é o que permite baixa PARCIAL (5.186 cartões no cliente) e o estorno LÓGICO por baixa.
         await this.gravarBaixa(trx, {
-          codvendcartao: Number(r.codvendcartao), idempresa: emp, valorpg: r2(num(r.valor)), idlote, codopbx: op,
+          codvendcartao: Number(r.codvendcartao), idempresa: Number(r.idempresa), valorpg: r2(num(r.valor)), idlote, codopbx: op, data,
           obs: `DOCUMENTO BAIXADO NO LOTE: ${idlote}`,
         });
+        // DTBAIXA = a data digitada 00:00; LIBERADO 'S' (o 'N' do legado é do ItemIndex 3, que o combo de 3 itens não tem);
+        // o OBS || ' BAIXA DO LOTE' do fonte a produção não grava (0 de 670.924 baixas desde 2025) — o dado vivo decide
         await trx.updateTable('cartao').set({
-          liberado: 'S', dtbaixa: sql`now()`, idlote, valor_taxa_paga: taxa, valor_outras_despesas_paga: rateio.get(Number(r.codvendcartao)) ?? null,
+          liberado: 'S', dtbaixa: sql`${data}::date`, codopbx: op, idlote, data_operacao: sql`now()`,
+          codplc_acredesc: outras > 0 ? ccOutras : null, valor_outras_despesas_paga: rateio.get(Number(r.codvendcartao)) ?? 0,
+          valor_taxa_paga: taxa, codplc_taxa_cartao: taxa > 0 ? ccTaxa : null,
           usultalteracao: op, dtultimalteracao: sql`now()`,
-        }).where('codvendcartao', '=', r.codvendcartao).where('idempresa', '=', emp).execute();
+        }).where('codvendcartao', '=', r.codvendcartao).execute();
+        if (num(r.idpgto) > 0) fIdpgto = Number(r.idpgto);
+        const g = grupos.get(fIdpgto) ?? { bruto: 0, liquido: 0 };
+        grupos.set(fIdpgto, { bruto: r2(g.bruto + r2(num(r.valor))), liquido: r2(g.liquido + liq) });
       }
-      // crédito do líquido na conta bancária (razão MCB), 1 linha por lote.
-      // `idlote` é a coluna do LEGADO que amarra o crédito ao lote (é por ela que a integração contábil soma o
-      // total baixado do lote — `GetSQLMovimentacao`, `UIntegracaoContabil.pas:1979`). `origem`/`idorigem`
-      // continuam sendo a chave do nosso estorno.
+      // (a) o CRÉDITO na conta de destino (cdsContaCorrente, `rdgDestinoExit` :2001-2030): IDPGTO 1, C, emissão/vencimento na
+      // data da baixa; conta bancária/antecipação nascem A LIBERAR (LIBERADO 'N' + DTLIBERACAO), a tesouraria liberada.
+      // O histórico é o digitado (padrão "REF. BX LOTE: N", `dbmObsEnter` :1290). Sem ORIGEM/IDORIGEM — o legado não grava.
+      const aLiberar = destino !== 'TESOURARIA';
       await trx.insertInto('mov_contas_bancarias').values({
-        codconta: dto.codconta, idempresa: emp, valor: r2(totalLiq - outras), tipomovimento: 'C', origem: 'BXCARTAO', idorigem: idlote, idlote,
-        historico: `Baixa de cartão — lote ${idlote} (${abertos.length} recebível(is), taxa ${totalTaxa}${outras > 0 ? `, outras despesas ${outras}` : ''})`,
-        codoperador: op, data_fechamento: sql`now()`, dtcadastro: sql`now()`,
+        codconta: dto.codconta, idempresa: Number(conta.idempresa), valor: r2(totalLiq - outras), tipomovimento: 'C', idlote, idpgto: 1, codopconta: 0,
+        historico: (dto.historico?.trim() || `REF. BX LOTE: ${idlote}`).slice(0, 255), liberado: aLiberar ? 'N' : 'S',
+        dtemissao: sql`${data}::date`, dtvenc: sql`${data}::date`, dtliberacao: aLiberar ? sql`${data}::date` : null,
+        codoperador: op, dtcadastro: sql`now()`,
       }).execute();
-      // OUTRAS DESPESAS na CAIXA gerencial, antes da taxa: o valor digitado, negativo (UbaixaCartao.pas:1151)
+      // (b)+(c) as SAÍDAS da conta da forma, por IDPGTO (`ValidaSaldoAntMultiEmpresa`, udmPrincipal.pas): o líquido e a taxa,
+      // D, liberadas, na data da baixa, IDPGTO da forma. É o que tira o cartão da conta onde a venda o pôs.
+      let debitos = 0;
+      for (const [idpgto, g] of grupos) {
+        const forma = ((await sql<{ idpgto: number; codcontacorrente: unknown }>`
+          SELECT idpgto, codcontacorrente FROM formas_pgto WHERE idpgto = ${idpgto}`.execute(trx)).rows[0])
+          ?? (await sql<{ idpgto: number; codcontacorrente: unknown }>`
+          SELECT idpgto, codcontacorrente FROM formas_pgto WHERE destino = 'TEF' AND idempresa = ${emp} ORDER BY idpgto LIMIT 1`.execute(trx)).rows[0];
+        // "Não a formas de pagamento configuradas para empresa!"
+        if (!forma || num(forma.codcontacorrente) <= 0) throw new BusinessRuleError('CARTAO_BAIXA_FORMA_SEM_CONTA', { idpgto });
+        const origem = (await sql<{ codconta: number; idempresa: number; dtchav: string | null }>`
+          SELECT codconta, idempresa, to_char(dtchaveamento, 'YYYY-MM-DD') AS dtchav FROM contas_bancarias WHERE codconta = ${Number(forma.codcontacorrente)}`.execute(trx)).rows[0];
+        if (!origem) throw new BusinessRuleError('CARTAO_BAIXA_FORMA_SEM_CONTA', { idpgto });
+        // "Caixa FECHADO não é permitida alteração dos documentos!"
+        if (origem.dtchav && data <= origem.dtchav) throw new BusinessRuleError('BAIXA_CAIXA_FECHADO', { codconta: Number(origem.codconta), ate: origem.dtchav });
+        const saidas: Array<[number, string]> = [[g.liquido, 'SAIDA PARA BAIXA DE DOCUMENTOS']];
+        const taxaGrupo = r2(g.bruto - g.liquido);
+        if (taxaGrupo > 0) saidas.push([taxaGrupo, 'SAIDA REF A TAXA ADMINISTRATIVA DA BAIXA DE DOCUMENTOS']);
+        for (const [valor, historico] of saidas) {
+          await trx.insertInto('mov_contas_bancarias').values({
+            codconta: Number(origem.codconta), idempresa: Number(origem.idempresa), valor: Math.abs(valor), tipomovimento: valor < 0 ? 'C' : 'D',
+            idlote, idpgto: Number(forma.idpgto), codopconta: 0, historico, liberado: 'S',
+            dtemissao: sql`${data}::date`, dtvenc: sql`${data}::date`, dtliberacao: sql`${data}::date`,
+            codoperador: op, dtcadastro: sql`now()`,
+          }).execute();
+          debitos++;
+        }
+      }
+      // OUTRAS DESPESAS na CAIXA gerencial, antes da taxa: o valor digitado, negativo, na data da baixa (UbaixaCartao.pas:1151)
       if (outras > 0) {
         await trx.insertInto('caixa').values({
-          data: sql`current_date`, valor: -outras, vrtitulo: -outras, obs: `Ref. a bx cartao lote ${idlote}`, operador: op,
-          codplc: ccOutras || Number(empCc?.ccmultajuros ?? 0) || null, idempresa: emp, tiporecurso: 'DINHEIRO', codconta: null, codparceiro: 0,
-          nrparcela: '1', codgrupo: null, dtvenc: sql`current_date`, gerado: 'SISTEMA', idlotebxcartao: idlote, origem: 'BAIXA CARTAO',
+          data: sql`${data}::date`, valor: -outras, vrtitulo: -outras, obs: `Ref. a bx cartao lote ${idlote}`, operador: op,
+          codplc: ccOutras || ccMulta, idempresa: emp, tiporecurso: 'DINHEIRO', codconta: null, codparceiro: 0,
+          nrparcela: '1', codgrupo: null, dtvenc: sql`${data}::date`, gerado: 'SISTEMA', idlotebxcartao: idlote, origem: 'BAIXA CARTAO',
         }).execute();
       }
       // a TAXA na CAIXA gerencial: negativa, no CC da taxa ou no de multa/juros da empresa (UbaixaCartao.pas:1180)
       if (totalTaxa > 0) {
-        const cc = dto.codplcTaxa ?? Number(empCc?.ccmultajuros ?? 0);
         await trx.insertInto('caixa').values({
-          data: sql`current_date`, valor: -totalTaxa, vrtitulo: -totalTaxa, obs: `Ref. a bx cartao lote ${idlote}`, operador: op,
-          codplc: cc || null, idempresa: emp, tiporecurso: 'DINHEIRO', codconta: null, codparceiro: 0, nrparcela: '1', codgrupo: null,
-          dtvenc: sql`current_date`, gerado: 'SISTEMA', idlotebxcartao: idlote, origem: 'BAIXA CARTAO',
+          data: sql`${data}::date`, valor: -totalTaxa, vrtitulo: -totalTaxa, obs: `Ref. a bx cartao lote ${idlote}`, operador: op,
+          codplc: ccTaxa || null, idempresa: emp, tiporecurso: 'DINHEIRO', codconta: null, codparceiro: 0, nrparcela: '1', codgrupo: null,
+          dtvenc: sql`${data}::date`, gerado: 'SISTEMA', idlotebxcartao: idlote, origem: 'BAIXA CARTAO',
         }).execute();
       }
-      return { idlote, itens: abertos.length, total_liquido: r2(totalLiq - outras), total_taxa: totalTaxa, outras_despesas: outras };
+      return { idlote, data, itens: abertos.length, total_liquido: r2(totalLiq - outras), total_taxa: totalTaxa, outras_despesas: outras, debitos };
     });
+    // depois do commit, como o legado (:1214): `EmpresaINTEGRACAO = 'AUTOMATICA'` → `IntegraBaixaCartao(IDLOTE)`
+    const contabilizado = await this.integrarSeAutomatica(emp, res.idlote, res.data);
+    const { data: _d, ...resto } = res;
+    return { ...resto, contabilizado };
+  }
+
+  private async integrarSeAutomatica(emp: number, idlote: number, data: string): Promise<boolean> {
+    try {
+      const e = (await sql<{ integracao: string | null }>`SELECT integracao FROM empresas WHERE idempresa = ${emp}`.execute(this.dbp.forTenantRead() as AnyDB)).rows[0];
+      if (String(e?.integracao ?? '') !== 'AUTOMATICA') return false;
+      const r = await new CartaoContabilService(this.dbp).integrar({ dataIni: data, dataFim: data, idlote });
+      return r.lancamentos > 0;
+    } catch {
+      return false;
+    }
   }
 
   /** o saldo do recebível: valor − baixas ATIVAS (as com `indr='E'` não contam). */
@@ -148,7 +246,7 @@ export class CartaoBaixaService {
    * 2.921 cartões lá têm baixas ativas somando R$ 131.623,12 a mais que o próprio valor (o lote era estornado
    * sem marcar a baixa, e o recebível era baixado de novo).
    */
-  private async gravarBaixa(trx: AnyDB, b: { codvendcartao: number; idempresa: number; valorpg: number; idlote: number; codopbx: number | null; obs: string }) {
+  private async gravarBaixa(trx: AnyDB, b: { codvendcartao: number; idempresa: number; valorpg: number; idlote: number; codopbx: number | null; obs: string; data: string }) {
     const c = (await sql<{ valor: unknown }>`SELECT valor FROM cartao WHERE codvendcartao = ${b.codvendcartao} AND idempresa = ${b.idempresa}`.execute(trx)).rows[0];
     if (!c) throw new BusinessRuleError('CARTAO_NAO_ENCONTRADO', { codvendcartao: b.codvendcartao });
     const valor = r2(num(c.valor));
@@ -157,7 +255,7 @@ export class CartaoBaixaService {
       throw new BusinessRuleError('CARTAO_BAIXA_EXCEDE', { codvendcartao: b.codvendcartao, valor, jaBaixado, tentando: b.valorpg });
     }
     await sql`INSERT INTO cartao_bx (codvendcartao, idempresa, valorpg, data_pgto, codopbx, idlote, obs, dtcadastro)
-              VALUES (${b.codvendcartao}, ${b.idempresa}, ${b.valorpg}, now(), ${b.codopbx}, ${b.idlote}, ${b.obs}, now())`.execute(trx);
+              VALUES (${b.codvendcartao}, ${b.idempresa}, ${b.valorpg}, ${b.data}::date, ${b.codopbx}, ${b.idlote}, ${b.obs}, now())`.execute(trx);
     return r2(jaBaixado + b.valorpg);
   }
 
@@ -182,21 +280,67 @@ export class CartaoBaixaService {
     };
   }
 
-  async estornarLote(idlote: number): Promise<{ idlote: number; itens: number }> {
+  /**
+   * REVERTER o lote (`TfrmConsCRTbx.btnReverterBaixaClick`, `UConsCRTbx.pas:95-275`). Não apaga a movimentação: marca cada
+   * linha do lote como REVERTIDA e lança a CONTRÁRIA — cada uma num lote novo, com `IDLOTE_REVERSAO` = o lote, emissão agora,
+   * tipo invertido e "Reabertura da baixa de cartões, lote N, realizada pelo usuário X." (produção: 86909 → 86911/86912).
+   * Travas: período contábil (na data de hoje), contabilizado só com a integração automática (que estorna junto) e o caixa
+   * FECHADO das contas do lote. Solta o recebível (DTBAIXA, conciliação, taxa, CCs e o ajuste), apaga os "não encontrados"
+   * dos arquivos de conciliação do lote e as linhas da CAIXA. As tabelas TIVIT_REDE_* do fonte têm 0 linhas no cliente e
+   * não vieram. A baixa em `cartao_bx` morre junto (INDR='E'), diferente do legado — ver `gravarBaixa`.
+   */
+  async estornarLote(idlote: number): Promise<{ idlote: number; itens: number; contraMovimentos: number }> {
     const emp = this.emp();
     const op = this.op();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const recs = (await trx.selectFrom('cartao').select('codvendcartao').where('idlote', '=', idlote).where('idempresa', '=', emp).where('liberado', '=', 'S').forUpdate().execute()) as Array<{ codvendcartao: number }>;
+      const hoje = String((await sql<{ d: string }>`SELECT to_char((now() AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD') AS d`.execute(trx)).rows[0].d);
+      await this.assertPeriodo(trx, hoje);
+      const permitidas = await this.empresasPermitidas(trx, emp, op);
+      const recs = (await trx.selectFrom('cartao').select(['codvendcartao', 'contabilizado', sql<string>`to_char(dtbaixa, 'YYYY-MM-DD')`.as('dtbaixa')])
+        .where('idlote', '=', idlote).where('idempresa', 'in', permitidas).where('liberado', '=', 'S').orderBy('codvendcartao').forUpdate().execute()) as Array<{ codvendcartao: number; contabilizado: string | null; dtbaixa: string | null }>;
+      // "Não existem documentos a reverter."
       if (!recs.length) throw new BusinessRuleError('CARTAO_LOTE_NAO_ENCONTRADO', { idlote });
-      // corte-3 (mig 277): estorno LÓGICO das baixas do lote (INDR='E' + quem e quando) — o cliente tem 59.118
-      // assim. O legado deixava a baixa VALENDO quando o lote era estornado: 2.921 cartões ficaram com baixas
-      // ativas somando R$ 131.623,12 A MAIS que o próprio valor. Aqui a baixa morre junto com o lote.
+      const contabilizados = recs.filter((r) => String(r.contabilizado ?? '') === 'S').map((r) => Number(r.codvendcartao));
+      const integracao = String(((await trx.selectFrom('empresas').select('integracao').where('idempresa', '=', emp).executeTakeFirst()) as { integracao?: string | null } | undefined)?.integracao ?? '');
+      // "Não é permitido reverter pois existe(m) documento(s) contabilizado(s). Código(s): …"
+      if (contabilizados.length && integracao !== 'AUTOMATICA') throw new BusinessRuleError('CARTAO_REVERSAO_CONTABILIZADA', { idlote, codigos: contabilizados.join(', ') });
+      // "Caixa FECHADO não é permitida alteração dos documentos!" — a data da baixa contra o chaveamento de cada conta do lote
+      const dataBaixa = recs[0].dtbaixa;
+      if (dataBaixa) {
+        const fechada = (await sql<{ codconta: number; ate: string }>`
+          SELECT m.codconta, to_char(c.dtchaveamento, 'YYYY-MM-DD') AS ate FROM mov_contas_bancarias m JOIN contas_bancarias c ON c.codconta = m.codconta
+           WHERE m.idlote = ${idlote} AND c.dtchaveamento IS NOT NULL AND ${dataBaixa}::date <= c.dtchaveamento::date LIMIT 1`.execute(trx)).rows[0];
+        if (fechada) throw new BusinessRuleError('BAIXA_CAIXA_FECHADO', { codconta: Number(fechada.codconta), ate: fechada.ate });
+      }
+      // "Movimentação não encontrada."
+      const movs = Number((await sql<{ n: number }>`SELECT count(*)::int AS n FROM mov_contas_bancarias WHERE idlote = ${idlote}`.execute(trx)).rows[0].n);
+      if (!movs) throw new BusinessRuleError('CARTAO_LOTE_SEM_MOVIMENTACAO', { idlote });
+      // `ApagaCartoesNaoEncontrados`: os "não encontrados" dos arquivos de conciliação do lote
+      await sql`DELETE FROM cons_reg10_nao_encontrados
+                 WHERE upper(nomearquivo) IN (SELECT DISTINCT upper(nomearquivoconciliacao) FROM cartao
+                                               WHERE idlote = ${idlote} AND coalesce(nomearquivoconciliacao, '') <> '')`.execute(trx);
+      if (contabilizados.length) await new CartaoContabilService(this.dbp).estornarNaTrx(trx, emp, { dataIni: hoje, dataFim: hoje, idlote });
       await sql`UPDATE cartao_bx SET indr = 'E', indr_usuario = ${op}, indr_data = now()
-                 WHERE idlote = ${idlote} AND idempresa = ${emp} AND coalesce(indr, 'I') <> 'E'`.execute(trx);
-      await trx.updateTable('cartao').set({ liberado: 'N', dtbaixa: null, idlote: null, valor_taxa_paga: null, valor_outras_despesas_paga: null, usultalteracao: op, dtultimalteracao: sql`now()` }).where('idlote', '=', idlote).where('idempresa', '=', emp).execute();
-      await trx.deleteFrom('mov_contas_bancarias').where('origem', '=', 'BXCARTAO').where('idorigem', '=', idlote).where('idempresa', '=', emp).execute();
-      await trx.deleteFrom('caixa').where('idlotebxcartao', '=', idlote).where('idempresa', '=', emp).execute(); // UConsCRTbx.pas:265
-      return { idlote, itens: recs.length };
+                 WHERE idlote = ${idlote} AND coalesce(indr, 'I') <> 'E'`.execute(trx);
+      await trx.updateTable('cartao').set({
+        liberado: 'N', referencia: null, dtbaixa: null, nomearquivoconciliacao: null, tipo_conciliacao: null, idlote: null, data_operacao: null,
+        codplc_acredesc: null, valor_outras_despesas_paga: null, valor_taxa_paga: null, codplc_taxa_cartao: null, valor_ajuste_baixa: null,
+        usultalteracao: op, dtultimalteracao: sql`now()`,
+      }).where('codvendcartao', 'in', recs.map((r) => r.codvendcartao)).execute();
+      // a movimentação contrária — uma por linha do lote, cada uma num lote novo (o `TDB.GetId('IDLOTE')` dentro do laço)
+      const nome = String(((await trx.selectFrom('operadores').select('nome').where('codoperador', '=', op).executeTakeFirst()) as { nome?: string } | undefined)?.nome ?? '');
+      const ins = await sql`
+        INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, codopconta, historico, idpgto, idlote, idlote_reversao, revertido,
+                                          dtemissao, dtvenc, dtliberacao, liberado, nrodocumento, codoperador, origem, idorigem, dtcadastro)
+        SELECT m.codconta, m.idempresa, m.valor, CASE WHEN m.tipomovimento = 'C' THEN 'D' ELSE 'C' END, m.codopconta,
+               ${`Reabertura da baixa de cartões, lote ${idlote}, realizada pelo usuário ${nome}.`}, m.idpgto, nextval('seq_idlote'), ${idlote}, 'N',
+               now(), now(), m.dtliberacao, m.liberado, m.nrodocumento, m.codoperador, m.origem, 0, now()
+          FROM mov_contas_bancarias m
+         WHERE m.idlote = ${idlote}
+         ORDER BY m.codmovconta`.execute(trx);
+      await sql`UPDATE mov_contas_bancarias SET revertido = 'S' WHERE idlote = ${idlote}`.execute(trx);
+      await trx.deleteFrom('caixa').where('idlotebxcartao', '=', idlote).execute(); // UConsCRTbx.pas:265
+      return { idlote, itens: recs.length, contraMovimentos: Number(ins.numAffectedRows ?? 0) };
     });
   }
 }

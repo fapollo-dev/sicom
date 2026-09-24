@@ -59,9 +59,14 @@ export function criarCartao(body: { valor: number; codoperadora: number; dtvenda
 export function excluirCartao(id: number): Promise<void> { return req(`/cadastro/cartao/${id}`, { method: 'DELETE' }); }
 // baixa (corte-2)
 export function listarContas(): Promise<ContaBancaria[]> { return req('/cadastro/contas-bancarias', { method: 'GET' }); }
-export function baixarCartoes(codconta: number, codvendcartaos: number[], outrasDespesas?: number): Promise<{ idlote: number; itens: number; total_liquido: number; total_taxa: number; outras_despesas?: number }> {
-  return req('/cadastro/cartao/baixar', { method: 'POST', body: JSON.stringify({ codconta, codvendcartaos, ...(outrasDespesas ? { outrasDespesas } : {}) }) });
+export type DestinoBaixaCartao = 'BANCARIA' | 'ANTECIPACAO' | 'TESOURARIA';
+export interface BaixarCartoesDto { codconta: number; codvendcartaos: number[]; dataBaixa?: string; destino?: DestinoBaixaCartao; historico?: string; outrasDespesas?: number }
+export function baixarCartoes(dto: BaixarCartoesDto): Promise<{ idlote: number; itens: number; total_liquido: number; total_taxa: number; outras_despesas?: number; debitos: number; contabilizado: boolean }> {
+  return req('/cadastro/cartao/baixar', { method: 'POST', body: JSON.stringify(dto) });
 }
-export function estornarLoteCartao(idlote: number): Promise<{ idlote: number; itens: number }> {
+/** as contas do operador (`CONTAS_BANCARIAS_OP`) — a F3 da conta na baixa (`edtCodContaExit`) */
+export interface ContaDoOperador { codconta: number; nroconta?: string | null; titular?: string | null; codbco: number | null; caixa: boolean }
+export function contasDoOperador(): Promise<ContaDoOperador[]> { return req('/cadastro/cartao/baixa/contas', { method: 'GET' }); }
+export function estornarLoteCartao(idlote: number): Promise<{ idlote: number; itens: number; contraMovimentos: number }> {
   return req(`/cadastro/cartao/estornar-lote/${idlote}`, { method: 'POST' });
 }
