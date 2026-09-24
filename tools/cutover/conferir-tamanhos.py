@@ -47,8 +47,6 @@ DATAS_DIA = {
     ('caixa', 'dtvenc'): '278 de 240.568; 218 horários distintos',
     ('cotacao_forn', 'data'): '5 de 97, todas 17:19:16 (uma rodada)',
     ('faturamento', 'data'): '5 de 47.203, todas 01:03:17 (uma rodada)',
-    ('mov_contas_bancarias', 'dtemissao'): '176.174 de 292.255; a MESMA hora do dtvenc (carimbo da gravação)',
-    ('mov_contas_bancarias', 'dtvenc'): '168.046 de 292.255; a mesma hora do dtemissao',
     ('nf', 'dtcontabil'): '6.611 de 49.723; 341 às 05:31:38 (rotina), resto relógio',
     ('nf_prod_lote', 'dtvalidade'): '10.563 de 132.141; 4.095 às 16:47:25 e 2.054 às 15:21:19 (rodadas de importação)',
     ('parceiros', 'dtnascimento'): '26 de 19.071, às 07:00/23:00/01:00 (efeito de fuso)',

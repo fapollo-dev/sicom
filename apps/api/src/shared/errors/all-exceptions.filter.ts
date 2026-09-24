@@ -211,6 +211,8 @@ const CODE_PT: Record<string, string> = {
   TRANSFERENCIA_MESMA_CONTA: 'A conta de destino deve ser diferente da conta de origem.',
   TRANSFERENCIA_CONTABILIZADA: 'A transferência já foi contabilizada.',
   CONTA_CAIXA_FECHADA: 'Caixa FECHADO não é permitida alteração dos documentos!',
+  CONTA_CORRENTE_NAO_ENCONTRADA: 'Conta corrente não encontrada ou sem vínculo com o operador.',
+  CONTA_ACAO_NAO_PERMITIDA: 'O operador não tem permissão para esta ação nesta conta corrente.',
   MOVIMENTO_COM_LOTE: 'Esse documento não pode ser excluído, pois contém referência de lote.',
   SALDO_INSUFICIENTE: 'Saldo insuficiente na conta para este lançamento.',
   CLUBE_DESCONTO_SOBREPOSTO: 'Já existe regra igual para este produto na mesma vigência — o PDV não teria como escolher.',

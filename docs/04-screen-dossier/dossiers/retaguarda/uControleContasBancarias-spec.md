@@ -393,3 +393,22 @@ ORDER BY MOV.DTEMISSAO, MOV.CODMOVCONTA
 6. **A senha ADM do legado aceita a `SENHARETAGUARDA` de qualquer operador** (`uSenhaAdmin.pas:77-85`).
 7. **Troca de valores, cheques próprios e cadastro de movimentação têm uso zero** em toda a história de produção.
 8. Os DELETEs do AUDIT 2025+ vêm quase todos de outros fluxos: 811 reabertura de caixa (FCP), **770 via `SQLToolsU.exe`** (manutenção direta no banco) e 114 com `IDLOTE=0`. Os desta tela são só os 117 de transferência e os 4 de lançamento de saldo.
+
+---
+
+## 11. Conversão — corte A (24/09/2026)
+
+- **Mig 335:** `mov_contas_bancarias.dtemissao`/`dtvenc` → `timestamptz` (a hora do legado; a grade ordena por ela) e
+  `relacao_chq_prop` criada (G14). A integração de transferência compara pelo dia no fuso da loja.
+- **Mig 336 + controller:** RBAC pelas opções reais — a tela (leitura), `BTNFECHA` (transferir/remover), `BTNLANCSALDO`
+  (lançamento); `BTNLIBERAR`/`BITBTN2` semeados para os próximos cortes (G13).
+- **Lista** `GET contas`: as contas do operador (`CONTAS_BANCARIAS_OP`) e ativas, **sem filtro de loja** (o fonte de 2020; a
+  hipótese do `CONTAS_BANCARIAS_EMPRESAS` não tem prova), com o chaveamento e as 8 permissões por conta. Toda ação exige o vínculo
+  e a flag da ação (saldo → `VISUALIZAR_SALDOS`, extrato → `HABILTIAR_DETALHAR_CONTA`, transferir → `HABILITAR_TRANFER`,
+  lançar → `HABILTIAR_LANCA_SALDO`) (G7).
+- **Painel** `GET saldo`: os 5 números do `sqqSaldo` com o `INNER JOIN FORMAS_PGTO` (Entradas e Saídas de tudo, a prazo,
+  futuro, atual) e "posicionar na data" — o dia inteiro (o legado corta à meia-noite; divergência consciente) (G5). O saldo é da
+  conta, sem filtro de empresa na movimentação (G1). O lançamento grava a forma DINHEIRO quando não vem outra.
+- Destinos da transferência: qualquer conta ativa (`GET destinos`). Smoke §198 (4 casos) + §47h/§160/§161 ajustados.
+
+Próximos: B (detalhamento), C (liberação — a escrita mais usada), D (lançamento de saldo no lugar do lançamento por operação).

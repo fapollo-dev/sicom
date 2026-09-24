@@ -5,26 +5,33 @@ import { NumberField } from '../../shared/ui/NumberField';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
+import { CheckboxField } from '../../shared/ui/CheckboxField';
+import { DateField } from '../../shared/ui/DateField';
 import {
-  listarContas, listarOperacoes, obterExtrato, lancar, transferir, estornar,
-  type ContaBancaria, type Operacao, type Movimento,
+  listarContasCC, listarDestinos, listarOperacoes, obterExtrato, obterSaldo, lancar, transferir, estornar,
+  type ContaCC, type Operacao, type Movimento, type PainelSaldo,
 } from './controleContasApi';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—');
-const nomeConta = (c: ContaBancaria) => `${c.banco ?? ''} ${c.titular ?? ''}`.trim() || `Conta ${c.codconta}`;
+const nomeDestino = (c: { codconta: number; nroconta: string | null; titular: string | null; idempresa: number }) => `${c.nroconta ?? c.codconta} · ${c.titular ?? ''} (loja ${c.idempresa})`;
+const hoje = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
 
 /**
- * CONTROLE DE CONTAS CORRENTES (FRMCONTROLECONTASBANCARIAS) — corte-1. A tela-hub financeira: escolhe a conta → vê o
- * SALDO + o EXTRATO (razão mov_contas_bancarias) → «Novo lançamento» (operação C/D) ou «Transferência» entre contas
- * (2 pernas no mesmo lote) → remove a transferência (o lote) ou a movimentação sem lote. Split LIBERADO, forma-pgto e chaveamento de período = adiados.
+ * CONTROLE DE CONTAS CORRENTES (FRMCONTROLECONTASBANCARIAS; uControleContasBancarias-spec.md). A lista é a das contas do
+ * operador (CONTAS_BANCARIAS_OP) — de qualquer loja; o painel tem os 5 números do legado (Entradas e Saídas de tudo, Total a
+ * prazo, Saldo futuro, Saldo atual), com "posicionar saldo nesta data". Os botões seguem as permissões da conta. Abaixo, a
+ * transferência (destino em qualquer conta), o lançamento e o extrato (a data é a emissão, com hora).
  */
 export function ControleContasPage() {
   const mensagem = useMensagem();
-  const [contas, setContas] = useState<ContaBancaria[]>([]);
+  const [contas, setContas] = useState<ContaCC[]>([]);
+  const [destinos, setDestinos] = useState<Array<{ codconta: number; nroconta: string | null; titular: string | null; idempresa: number }>>([]);
   const [operacoes, setOperacoes] = useState<Operacao[]>([]);
   const [conta, setConta] = useState('');
   const [saldo, setSaldo] = useState(0);
+  const [painel, setPainel] = useState<PainelSaldo | null>(null);
+  const [posicionar, setPosicionar] = useState<{ ativo: boolean; data: string }>({ ativo: false, data: hoje() });
   const [movimentos, setMovimentos] = useState<Movimento[]>([]);
   const [busy, setBusy] = useState(false);
   // form lançamento
@@ -37,17 +44,22 @@ export function ControleContasPage() {
   const [histT, setHistT] = useState('');
 
   useEffect(() => {
-    void listarContas().then(setContas).catch(() => setContas([]));
+    void listarContasCC().then(setContas).catch(() => setContas([]));
+    void listarDestinos().then(setDestinos).catch(() => setDestinos([]));
     void listarOperacoes().then(setOperacoes).catch(() => setOperacoes([]));
   }, []);
 
-  const carregar = useCallback(async (cod: number) => {
+  const sel = contas.find((c) => String(c.codconta) === conta);
+  const carregar = useCallback(async (cod: number, ate?: string) => {
+    const c = contas.find((x) => x.codconta === cod);
     try {
+      setPainel(c && c.visualizar_saldos !== 'S' ? null : await obterSaldo(cod, ate));
+      if (c && c.habiltiar_detalhar_conta !== 'S') { setMovimentos([]); return; }
       const ext = await obterExtrato(cod);
       setSaldo(ext.saldo); setMovimentos(ext.movimentos ?? []);
     } catch (e) { mensagem.erro(e); }
-  }, [mensagem]);
-  const escolher = (v: string) => { setConta(v); if (v) void carregar(Number(v)); else { setMovimentos([]); setSaldo(0); } };
+  }, [mensagem, contas]);
+  const escolher = (v: string) => { setConta(v); if (v) void carregar(Number(v), posicionar.ativo ? posicionar.data : undefined); else { setMovimentos([]); setSaldo(0); setPainel(null); } };
 
   const lancarMov = async () => {
     if (busy || !conta) return;
@@ -87,7 +99,8 @@ export function ControleContasPage() {
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
-  const opcoesConta = contas.map((c) => ({ value: String(c.codconta), label: nomeConta(c) }));
+  const opcoesDestino = destinos.filter((d) => String(d.codconta) !== conta).map((d) => ({ value: String(d.codconta), label: nomeDestino(d) }));
+  const pode = (flag: keyof ContaCC) => !!sel && sel[flag] === 'S';
   // como o legado: a transferência sai pelo lote (UconsMovBancaria.pas:925); a movimentação sem lote, pelo cadastro (:107)
   const transferencia = (m: Movimento) => m.nrodocumento === 'TRANSFERENCIA' && Number(m.idlote ?? 0) > 0;
   const removivel = (m: Movimento) => transferencia(m) || !Number(m.idlote ?? 0);
@@ -95,10 +108,49 @@ export function ControleContasPage() {
   return (
     <div className="flex flex-col gap-gp-md p-pad-md">
       <PageHeader title="Controle de Contas Correntes" />
-      <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
-        <div className="w-72"><SelectField label="&Conta corrente" value={conta} onChange={escolher} options={opcoesConta} placeholder="(selecione a conta)" /></div>
-        {conta && <div className="flex-1 text-right"><div className="text-body-sm text-fg-muted">Saldo atual</div><div className={`text-title-md font-bold ${saldo < 0 ? 'text-danger' : 'text-fg'}`}>{brl(saldo)}</div></div>}
+      <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
+        <table className="w-full text-body-sm">
+          <thead>
+            <tr className="text-left text-fg-muted">
+              <th className="p-pad-xs">Conta</th><th className="p-pad-xs">Nº conta</th><th className="p-pad-xs">Titular</th><th className="p-pad-xs">Banco</th>
+              <th className="p-pad-xs">Loja</th><th className="p-pad-xs">Dt. chaveamento</th><th className="p-pad-xs">Usuário chaveamento</th>
+            </tr>
+          </thead>
+          <tbody>
+            {contas.map((c) => (
+              <tr key={c.codconta} tabIndex={0} aria-selected={String(c.codconta) === conta}
+                className={`cursor-pointer border-t border-border ${String(c.codconta) === conta ? 'bg-bg-subtle font-semibold' : ''}`}
+                onClick={() => escolher(String(c.codconta))} onKeyDown={(e) => { if (e.key === 'Enter') escolher(String(c.codconta)); }}>
+                <td className="p-pad-xs tabular-nums">{c.codconta}</td><td className="p-pad-xs">{c.nroconta ?? ''}</td><td className="p-pad-xs">{c.titular ?? ''}</td>
+                <td className="p-pad-xs">{c.banco ?? ''}{c.caixa ? ' (caixa)' : ''}</td><td className="p-pad-xs tabular-nums">{c.idempresa}</td>
+                <td className="p-pad-xs tabular-nums">{c.dtchaveamento ? dia(c.dtchaveamento) : ''}</td><td className="p-pad-xs">{c.operadorchaveamento ?? ''}</td>
+              </tr>
+            ))}
+            {!contas.length && <tr><td colSpan={7} className="p-pad-md text-fg-muted">Nenhuma conta ligada a este operador.</td></tr>}
+          </tbody>
+        </table>
       </div>
+
+      {sel && (
+        <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <div className="text-body-sm text-fg-muted">
+            {sel.banco ?? ''} · {sel.titular ?? ''} · Nº {sel.nroconta ?? ''}{sel.gerente ? ` · gerente ${sel.gerente}` : ''}{sel.fone1 ? ` · ${sel.fone1}` : ''}{sel.dtabertura ? ` · aberta em ${dia(sel.dtabertura)}` : ''}
+          </div>
+          {painel ? (
+            <div className="grid grid-cols-2 gap-gp-sm sm:grid-cols-5">
+              {([['Entradas', painel.entradas], ['Saídas', -painel.saidas], ['Total a prazo', painel.a_prazo], ['Saldo futuro', painel.futuro], ['Saldo atual', painel.saldo]] as Array<[string, number]>).map(([rot, v]) => (
+                <div key={rot}><div className="text-body-sm text-fg-muted">{rot}</div><div className={`text-title-sm font-bold tabular-nums ${v < 0 ? 'text-danger' : 'text-fg'}`}>{brl(v)}</div></div>
+              ))}
+            </div>
+          ) : <small className="text-fg-muted">Sem permissão para ver os saldos desta conta.</small>}
+          <div className="flex flex-wrap items-end gap-gp-sm">
+            <CheckboxField label="Posicionar saldo nesta data" value={posicionar.ativo ? 'S' : 'N'}
+              onChange={(v) => { const n = { ...posicionar, ativo: v === 'S' }; setPosicionar(n); void carregar(sel.codconta, n.ativo ? n.data : undefined); }} />
+            <div className="w-44"><DateField label="Data" value={posicionar.data}
+              onChange={(v) => { const n = { ...posicionar, data: v ?? hoje() }; setPosicionar(n); if (n.ativo) void carregar(sel.codconta, n.data); }} /></div>
+          </div>
+        </div>
+      )}
 
       {conta && (
         <div className="grid grid-cols-1 gap-gp-md md:grid-cols-2">
@@ -109,17 +161,17 @@ export function ControleContasPage() {
               <div className="w-40"><NumberField label="&Valor" value={valor} decimais={2} min={0} onChange={setValor} /></div>
               <div className="flex-1"><Field label="&Histórico" value={hist} onChange={(e) => setHist(e.target.value)} placeholder="descrição" /></div>
             </div>
-            <div><Button label="&Lançar" variant="soft" disabled={busy || !op || !valor} onClick={() => void lancarMov()} /></div>
+            <div><Button label="&Lançar" variant="soft" disabled={busy || !op || !valor || !pode('habiltiar_lanca_saldo')} onClick={() => void lancarMov()} /></div>
           </div>
 
           <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
             <div className="text-body-sm font-semibold text-fg-muted">Transferência (débito nesta conta → crédito no destino)</div>
-            <SelectField label="Conta de &destino" value={destino} onChange={setDestino} options={opcoesConta.filter((o) => o.value !== conta)} placeholder="(conta destino)" />
+            <SelectField label="Conta de &destino" value={destino} onChange={setDestino} options={opcoesDestino} placeholder="(conta destino)" />
             <div className="flex gap-gp-sm">
               <div className="w-40"><NumberField label="&Valor" value={valorT} decimais={2} min={0} onChange={setValorT} /></div>
               <div className="flex-1"><Field label="&Histórico" value={histT} onChange={(e) => setHistT(e.target.value)} placeholder="descrição" /></div>
             </div>
-            <div><Button label="&Transferir" variant="soft" disabled={busy || !destino || !valorT} onClick={() => void transferirMov()} /></div>
+            <div><Button label="&Transferir" variant="soft" disabled={busy || !destino || !valorT || !pode('habilitar_tranfer')} onClick={() => void transferirMov()} /></div>
           </div>
         </div>
       )}
@@ -137,7 +189,7 @@ export function ControleContasPage() {
             <tbody>
               {movimentos.map((m) => (
                 <tr key={m.codmovconta} className="border-t border-border">
-                  <td className="p-pad-xs tabular-nums">{dia(m.dtemissao ?? m.data_fechamento)}</td>
+                  <td className="p-pad-xs tabular-nums">{dia(m.dtemissao ?? m.data_fechamento)}{m.hora && m.hora !== '00:00' ? ` ${m.hora}` : ''}</td>
                   <td className="p-pad-xs">{m.historico ?? '—'}{m.mov_conciliado === 'S' ? ' 🔒' : ''}</td>
                   <td className="p-pad-xs text-fg-muted">{m.origem ?? '—'}</td>
                   <td className={`p-pad-xs text-right tabular-nums ${m.valor_com_sinal < 0 ? 'text-danger' : 'text-fg'}`}>{m.valor_com_sinal < 0 ? '−' : '+'}{brl(Math.abs(m.valor_com_sinal))}</td>

@@ -11,8 +11,13 @@ type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const hoje = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
-/** a data da movimentação é a EMISSÃO (a carga traz a do legado); o fechamento de caixa antigo só tinha DATA_FECHAMENTO */
-const DATA_MOV = sql`coalesce(dtemissao, data_fechamento::date)`;
+/** a data da movimentação é a EMISSÃO, com hora (mig 335); o fechamento de caixa antigo só tinha DATA_FECHAMENTO */
+const DATA_MOV = sql`coalesce(dtemissao, data_fechamento)`;
+/** o dia da movimentação no fuso da loja — para comparar com datas */
+const DIA_MOV = sql`(coalesce(dtemissao, data_fechamento) AT TIME ZONE 'America/Sao_Paulo')::date`;
+/** as 8 permissões por operador × conta do binário novo (`CONTAS_BANCARIAS_OP`, uControleContasBancarias-spec.md §1.1) */
+export const FLAGS_CONTA = ['visualizar_saldos', 'habilitar_tranfer', 'habiltiar_libe_moviment', 'habiltiar_lanca_saldo', 'habiltiar_chavear_fec_cxa', 'habiltiar_troca_valores', 'habiltiar_detalhar_conta', 'habiltiar_conci_ofx'] as const;
+export type FlagConta = (typeof FLAGS_CONTA)[number];
 type ContaCompleta = { codconta: number; idempresa: number; nroconta: string | null; codbco: number; dtchaveamento: string | null };
 /** o lote da transferência sai do mesmo `ID_IDLOTE` das baixas, cartão e fechamento (`GetID('IDLOTE')`) */
 const novoLoteTransferencia = async (trx: AnyDB): Promise<number> =>
@@ -38,24 +43,34 @@ export class ControleContasService {
     return currentTenant().operadorId ?? null;
   }
 
-  /** confirma que a conta é da empresa e devolve codbco (0 = CAIXA, trava saldo negativo). */
-  private async conta(db: AnyDB, codconta: number, emp: number): Promise<{ codbco: number }> {
-    const c = (await db.selectFrom('contas_bancarias').select(['codconta', 'codbco']).where('codconta', '=', codconta).where('idempresa', '=', emp).executeTakeFirst()) as { codbco?: number } | undefined;
-    if (!c) throw new BusinessRuleError('CONTA_NAO_ENCONTRADA', { codconta });
-    // codbco null → −1 (NÃO tratar como CAIXA/0; fold auditoria nit). CAIXA = codbco 0 (trava saldo negativo).
-    return { codbco: c.codbco == null ? -1 : Number(c.codbco) };
+  /**
+   * a conta da lista do operador (`udmControleContasBancarias.dfm:669-683`: `CONTAS_BANCARIAS_OP` do operador e conta ativa —
+   * sem filtro de loja no fonte; 15 operadores veem contas de mais de uma loja) e, se pedida, a permissão da ação na conta
+   * (as flags por operador × conta do binário novo; 'S' em 100% da produção hoje, mas precisam valer).
+   */
+  private async conta(db: AnyDB, codconta: number, flag?: FlagConta): Promise<{ codbco: number; idempresa: number }> {
+    const c = (await sql<Record<string, unknown>>`
+      SELECT c.codconta, c.codbco, c.idempresa, ${flag ? sql`coalesce(o.${sql.ref(flag)}, 'S')` : sql`'S'`} AS permitido
+        FROM contas_bancarias c
+        JOIN contas_bancarias_op o ON o.codconta = c.codconta AND o.codoperador = ${this.op()}
+       WHERE c.codconta = ${codconta} AND coalesce(c.ativo, 'S') = 'S'
+       LIMIT 1`.execute(db)).rows[0];
+    if (!c) throw new BusinessRuleError('CONTA_CORRENTE_NAO_ENCONTRADA', { codconta });
+    if (String(c.permitido) !== 'S') throw new BusinessRuleError('CONTA_ACAO_NAO_PERMITIDA', { codconta, acao: flag });
+    // codbco null → −1 (NÃO tratar como CAIXA/0). CAIXA = codbco 0 (trava saldo negativo).
+    return { codbco: c.codbco == null ? -1 : Number(c.codbco), idempresa: Number(c.idempresa) };
   }
 
   /** saldo (Σ com sinal) da conta. `ateData` (opcional) = saldo ATÉ a data (âncora do extrato com filtro). */
-  private async saldoDe(db: AnyDB, codconta: number, emp: number, ateData?: string): Promise<number> {
+  private async saldoDe(db: AnyDB, codconta: number, _emp: number, ateData?: string): Promise<number> {
+    // o saldo é da CONTA (o legado não tem IDEMPRESA na movimentação; a carga dá a empresa da conta)
     let q = db
       .selectFrom('mov_contas_bancarias')
       .select(sql`coalesce(sum(case when tipomovimento='D' then -valor else valor end),0)`.as('saldo'))
       .where('codconta', '=', codconta)
-      .where('idempresa', '=', emp)
       // o saldo do legado conta só o LIBERADO (mig 297); N e nulo são "a prazo", à parte
       .where(sql`coalesce(liberado, 'N')`, '=', 'S');
-    if (ateData) q = q.where(DATA_MOV, '<=', ateData);
+    if (ateData) q = q.where(DIA_MOV, '<=', ateData);
     const r = (await q.executeTakeFirst()) as { saldo?: unknown } | undefined;
     return r2(num(r?.saldo));
   }
@@ -65,26 +80,58 @@ export class ControleContasService {
     return (await (this.dbp.forTenantRead() as AnyDB).selectFrom('operacoes_conta').select(['codopconta', 'descricao', 'tipo']).where('codopconta', '>', 0).orderBy('descricao').execute()) as Array<{ codopconta: number; descricao: string; tipo: string }>;
   }
 
-  /** saldo da conta (com totais de entrada/saída). */
-  async saldo(codconta: number): Promise<{ codconta: number; saldo: number; entradas: number; saidas: number; a_prazo: number }> {
-    const emp = this.emp();
+  /**
+   * a LISTA de contas da tela (`udmControleContasBancarias.dfm:669-683`): as ligadas ao operador em CONTAS_BANCARIAS_OP e
+   * ativas, por titular, com o chaveamento e as 8 permissões da conta (que ligam os botões).
+   */
+  async contas(): Promise<Record<string, unknown>[]> {
+    this.emp();
+    const rows = (await sql<Record<string, unknown>>`
+      SELECT c.codconta, c.codbco, b.banco, c.titular, c.nroconta, c.gerente, to_char(c.dtabertura, 'YYYY-MM-DD') AS dtabertura, c.fone1, c.obs,
+             to_char(c.dtchaveamento, 'YYYY-MM-DD') AS dtchaveamento, c.codoperadorchaveamento, op.nome AS operadorchaveamento, c.idempresa,
+             ${sql.join(FLAGS_CONTA.map((f) => sql`coalesce(o.${sql.ref(f)}, 'S') AS ${sql.ref(f)}`))}
+        FROM contas_bancarias c
+        JOIN contas_bancarias_op o ON o.codconta = c.codconta AND o.codoperador = ${this.op()}
+        LEFT JOIN bancos b ON b.codbco = c.codbco
+        LEFT JOIN operadores op ON op.codoperador = c.codoperadorchaveamento
+       WHERE coalesce(c.ativo, 'S') = 'S'
+       ORDER BY c.titular, c.codconta`.execute(this.dbp.forTenantRead() as AnyDB)).rows;
+    return rows.map((c) => ({ ...c, codconta: Number(c.codconta), codbco: c.codbco == null ? null : Number(c.codbco), caixa: Number(c.codbco) === 0 }));
+  }
+
+  /** os DESTINOS da transferência: qualquer conta ativa, de qualquer loja (`SpeedButton1Click` sem filtro, Utransferencia.pas:530) */
+  async destinos(): Promise<Record<string, unknown>[]> {
+    this.emp();
+    const rows = (await sql<Record<string, unknown>>`
+      SELECT c.codconta, c.nroconta, c.titular, c.idempresa, c.codbco FROM contas_bancarias c WHERE coalesce(c.ativo, 'S') = 'S' ORDER BY c.titular, c.codconta`
+      .execute(this.dbp.forTenantRead() as AnyDB)).rows;
+    return rows.map((c) => ({ ...c, codconta: Number(c.codconta) }));
+  }
+
+  /**
+   * o painel "Saldo" (`sqqSaldo`, `udmControleContasBancarias.dfm:759-777`, com `INNER JOIN FORMAS_PGTO`): Entradas e Saídas de
+   * TUDO (liberado ou não), Total a Prazo (não liberado), Saldo Futuro (tudo) e Saldo Atual (liberado). "Posicionar saldo nesta
+   * data" corta pela emissão — o legado compara com a data à meia-noite e deixa de fora o movimento do próprio dia que tem hora;
+   * aqui entra o dia inteiro (divergência consciente).
+   */
+  async saldo(codconta: number, ateData?: string): Promise<{ codconta: number; entradas: number; saidas: number; a_prazo: number; futuro: number; saldo: number }> {
+    this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
-    await this.conta(db, codconta, emp);
-    // como o legado (udmControleContasBancarias.dfm:765): entradas, saídas e saldo só do LIBERADO; o que não
-    // está liberado (N ou nulo) vira o TOTAL A PRAZO, mostrado à parte — mig 297
-    const r = (await db
-      .selectFrom('mov_contas_bancarias')
-      .select([
-        sql`coalesce(sum(case when coalesce(liberado,'N')='S' and tipomovimento='C' then valor else 0 end),0)`.as('entradas'),
-        sql`coalesce(sum(case when coalesce(liberado,'N')='S' and tipomovimento='D' then valor else 0 end),0)`.as('saidas'),
-        sql`coalesce(sum(case when coalesce(liberado,'N')<>'S' then (case when tipomovimento='D' then -valor else valor end) else 0 end),0)`.as('a_prazo'),
-      ])
-      .where('codconta', '=', codconta)
-      .where('idempresa', '=', emp)
-      .executeTakeFirst()) as { entradas?: unknown; saidas?: unknown; a_prazo?: unknown };
-    const entradas = r2(num(r?.entradas));
-    const saidas = r2(num(r?.saidas));
-    return { codconta, saldo: r2(entradas - saidas), entradas, saidas, a_prazo: r2(num(r?.a_prazo)) };
+    await this.conta(db, codconta, 'visualizar_saldos');
+    const r = (await sql<Record<string, unknown>>`
+      SELECT coalesce(sum(CASE WHEN m.tipomovimento <> 'D' THEN m.valor ELSE 0 END), 0) AS entradas,
+             coalesce(sum(CASE WHEN m.tipomovimento = 'D' THEN m.valor ELSE 0 END), 0) AS saidas,
+             coalesce(sum(CASE WHEN coalesce(m.liberado, 'N') <> 'S' THEN (CASE WHEN m.tipomovimento = 'D' THEN -m.valor ELSE m.valor END) ELSE 0 END), 0) AS a_prazo,
+             coalesce(sum(CASE WHEN m.liberado = 'S' THEN (CASE WHEN m.tipomovimento = 'D' THEN -m.valor ELSE m.valor END) ELSE 0 END), 0) AS saldo
+        FROM mov_contas_bancarias m
+        JOIN formas_pgto f ON f.idpgto = m.idpgto
+       WHERE m.codconta = ${codconta}
+         AND (${ateData ?? null}::date IS NULL OR (coalesce(m.dtemissao, m.data_fechamento) AT TIME ZONE 'America/Sao_Paulo')::date <= ${ateData ?? null}::date)`.execute(db)).rows[0] ?? {};
+    const entradas = r2(num(r.entradas));
+    const saidas = r2(num(r.saidas)); // magnitude (o legado mostra negativo)
+    const aPrazo = r2(num(r.a_prazo));
+    const saldo = r2(num(r.saldo));
+    return { codconta, entradas, saidas, a_prazo: aPrazo, futuro: r2(saldo + aPrazo), saldo };
   }
 
   /** extrato: movimentos da conta (mais recentes primeiro, até 5000) + saldo corrente por linha. O header usa o
@@ -93,17 +140,17 @@ export class ControleContasService {
   async extrato(codconta: number, dtini?: string, dtfim?: string): Promise<{ codconta: number; saldo: number; movimentos: Record<string, unknown>[] }> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
-    await this.conta(db, codconta, emp);
+    await this.conta(db, codconta, 'habiltiar_detalhar_conta');
     const saldoAtual = await this.saldoDe(db, codconta, emp); // Σ ALL = saldo corrente real (header)
     const ancora = dtfim ? await this.saldoDe(db, codconta, emp, dtfim) : saldoAtual; // saldo após o mais recente do recorte
     let q = db
       .selectFrom('mov_contas_bancarias')
-      .select(['codmovconta', 'valor', 'tipomovimento', 'codopconta', 'historico', 'origem', 'idorigem', 'data_fechamento', 'mov_conciliado', 'liberado', 'nrodocumento', 'idlote', 'contabilizado', sql<string>`to_char(${DATA_MOV}, 'YYYY-MM-DD')`.as('dtemissao')])
-      .where('codconta', '=', codconta)
-      .where('idempresa', '=', emp);
-    if (dtini) q = q.where(DATA_MOV, '>=', dtini);
-    if (dtfim) q = q.where(DATA_MOV, '<=', dtfim);
-    // mais recentes primeiro (limita aos 5000 últimos, não aos primeiros).
+      .select(['codmovconta', 'valor', 'tipomovimento', 'codopconta', 'historico', 'origem', 'idorigem', 'data_fechamento', 'mov_conciliado', 'liberado', 'nrodocumento', 'idlote', 'contabilizado',
+        sql<string>`to_char(${DATA_MOV} AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD')`.as('dtemissao'), sql<string>`to_char(${DATA_MOV} AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI')`.as('hora')])
+      .where('codconta', '=', codconta);
+    if (dtini) q = q.where(DIA_MOV, '>=', dtini);
+    if (dtfim) q = q.where(DIA_MOV, '<=', dtfim);
+    // mais recentes primeiro (limita aos 5000 últimos, não aos primeiros); dentro do dia, pela hora (mig 335)
     const rows = (await q.orderBy(DATA_MOV, 'desc').orderBy('codmovconta', 'desc').limit(5000).execute()) as Record<string, unknown>[];
     // saldo corrente: da linha mais nova (após ela = âncora) descendo p/ as mais antigas.
     let running = ancora;
@@ -126,15 +173,17 @@ export class ControleContasService {
     const emp = this.emp();
     const op = this.op();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      await this.conta(trx, dto.codconta, emp);
+      const { idempresa } = await this.conta(trx, dto.codconta, 'habiltiar_lanca_saldo');
       const oc = (await trx.selectFrom('operacoes_conta').select(['codopconta', 'tipo']).where('codopconta', '=', dto.codopconta).where('codopconta', '>', 0).executeTakeFirst()) as { tipo?: string } | undefined;
       if (!oc) throw new BusinessRuleError('OPERACAO_NAO_ENCONTRADA', { codopconta: dto.codopconta });
       const tipo = String(oc.tipo) === 'D' ? 'D' : 'C';
       const valor = r2(num(dto.valor));
       const data = dto.data ? dto.data.slice(0, 10) : hoje();
       const ins = (await trx.insertInto('mov_contas_bancarias').values({
-        codconta: dto.codconta, idempresa: emp, valor, tipomovimento: tipo, codopconta: dto.codopconta, origem: null, idorigem: null,
-        historico: dto.historico ?? null, idpgto: dto.idpgto ?? null, codoperador: op, dtcadastro: sql`now()`,
+        codconta: dto.codconta, idempresa, valor, tipomovimento: tipo, codopconta: dto.codopconta, origem: null, idorigem: null,
+        // a modalidade do lançamento (`IDPGTO`, localizada pelo nome, udmPrincipal.pas:2140-2183); sem ela, a DINHEIRO da loja —
+        // o painel do legado só soma movimento com forma (INNER JOIN FORMAS_PGTO)
+        historico: dto.historico ?? null, idpgto: dto.idpgto ?? (await this.idpgtoDinheiro(trx, emp)), codoperador: op, dtcadastro: sql`now()`,
         dtemissao: data, dtvenc: data, liberado: 'S', dtliberacao: data,
       }).returning('codmovconta').executeTakeFirstOrThrow()) as { codmovconta: number };
       return { codmovconta: Number(ins.codmovconta), tipomovimento: tipo, saldo: await this.saldoDe(trx, dto.codconta, emp) };
@@ -161,7 +210,9 @@ export class ControleContasService {
     // "A conta de destino deve ser diferente da conta de origem." (`Utransferencia.pas:151`)
     if (dto.codorigem === dto.coddestino) throw new BusinessRuleError('TRANSFERENCIA_MESMA_CONTA', { conta: dto.codorigem });
     const res = await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const orig = await this.contaCompleta(trx, dto.codorigem, emp);
+      // a origem é a conta selecionada na lista (`uControleContasBancarias.pas:137-154`), com a permissão de transferir
+      await this.conta(trx, dto.codorigem, 'habilitar_tranfer');
+      const orig = await this.contaCompleta(trx, dto.codorigem, null);
       const dest = await this.contaCompleta(trx, dto.coddestino, null);
       // a matriz de transferências permitidas (mig 295): origem com linhas ativas só vai para os destinos listados
       const permitidos = await destinosPermitidos(trx, dto.codorigem);
@@ -215,8 +266,10 @@ export class ControleContasService {
   async estornar(codmovconta: number): Promise<{ codmovconta: number; removidos: number; transferencia: boolean }> {
     const emp = this.emp();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const m = (await trx.selectFrom('mov_contas_bancarias').select(['codmovconta', 'nrodocumento', 'idlote', 'contabilizado']).where('codmovconta', '=', codmovconta).where('idempresa', '=', emp).forUpdate().executeTakeFirst()) as { nrodocumento?: string | null; idlote?: number | null; contabilizado?: string | null } | undefined;
+      const m = (await trx.selectFrom('mov_contas_bancarias').select(['codmovconta', 'codconta', 'nrodocumento', 'idlote', 'contabilizado']).where('codmovconta', '=', codmovconta).forUpdate().executeTakeFirst()) as { codconta?: number; nrodocumento?: string | null; idlote?: number | null; contabilizado?: string | null } | undefined;
       if (!m) throw new BusinessRuleError('MOVIMENTO_NAO_ENCONTRADO', { codmovconta });
+      // a movimentação é de uma conta da lista do operador (o detalhamento abre a partir dela)
+      await this.conta(trx, Number(m.codconta), 'habiltiar_detalhar_conta');
       const idlote = num(m.idlote);
       if (String(m.nrodocumento ?? '') === 'TRANSFERENCIA' && idlote > 0) {
         await trx.selectFrom('mov_contas_bancarias').select('codmovconta').where('idlote', '=', idlote).forUpdate().execute();
@@ -229,7 +282,7 @@ export class ControleContasService {
         return { codmovconta, removidos: Number((res as any)?.numDeletedRows ?? 0), transferencia: true };
       }
       if (idlote > 0) throw new BusinessRuleError('MOVIMENTO_COM_LOTE', { codmovconta, idlote });
-      const res = await trx.deleteFrom('mov_contas_bancarias').where('codmovconta', '=', codmovconta).where('idempresa', '=', emp).executeTakeFirst();
+      const res = await trx.deleteFrom('mov_contas_bancarias').where('codmovconta', '=', codmovconta).executeTakeFirst();
       return { codmovconta, removidos: Number((res as any)?.numDeletedRows ?? 0), transferencia: false };
     });
   }

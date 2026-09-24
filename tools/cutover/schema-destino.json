@@ -28613,7 +28613,7 @@
      "default": null
     },
     "dtemissao": {
-     "tipo": "date",
+     "tipo": "timestamp with time zone",
      "tam": null,
      "escala": null,
      "nulo": true,
@@ -28648,7 +28648,7 @@
      "default": null
     },
     "dtvenc": {
-     "tipo": "date",
+     "tipo": "timestamp with time zone",
      "tam": null,
      "escala": null,
      "nulo": true,
@@ -44123,6 +44123,41 @@
    "pk": [],
    "fks": [],
    "unicos": []
+  },
+  "relacao_chq_prop": {
+   "colunas": {
+    "codrelacaochq": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "codmovconta": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    },
+    "codchqproprio": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "codrelacaochq"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "relacao_chq_prop_pkey",
+     "def": "CREATE UNIQUE INDEX relacao_chq_prop_pkey ON public.relacao_chq_prop USING btree (codrelacaochq)"
+    }
+   ]
   },
   "relacao_operador_empresa": {
    "colunas": {

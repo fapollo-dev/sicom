@@ -30,6 +30,7 @@ export interface Movimento {
   idorigem?: number | null;
   data_fechamento?: string | null;
   dtemissao?: string | null;
+  hora?: string | null;
   nrodocumento?: string | null;
   idlote?: number | null;
   mov_conciliado?: string | null;
@@ -37,10 +38,19 @@ export interface Movimento {
   saldo_corrente: number;
 }
 
-export function listarContas(): Promise<ContaBancaria[]> { return req('/cadastro/contas-bancarias', { method: 'GET' }); }
+/** a conta da lista do legado: as do operador, com o chaveamento e as 8 permissões por conta */
+export interface ContaCC {
+  codconta: number; codbco: number | null; banco: string | null; titular: string | null; nroconta: string | null; gerente: string | null; dtabertura: string | null;
+  fone1: string | null; dtchaveamento: string | null; operadorchaveamento: string | null; idempresa: number; caixa: boolean;
+  visualizar_saldos: string; habilitar_tranfer: string; habiltiar_libe_moviment: string; habiltiar_lanca_saldo: string; habiltiar_chavear_fec_cxa: string;
+  habiltiar_troca_valores: string; habiltiar_detalhar_conta: string; habiltiar_conci_ofx: string;
+}
+export interface PainelSaldo { codconta: number; entradas: number; saidas: number; a_prazo: number; futuro: number; saldo: number }
+export function listarContasCC(): Promise<ContaCC[]> { return req('/cadastro/controle-contas/contas', { method: 'GET' }); }
+export function listarDestinos(): Promise<Array<{ codconta: number; nroconta: string | null; titular: string | null; idempresa: number }>> { return req('/cadastro/controle-contas/destinos', { method: 'GET' }); }
 export function listarOperacoes(): Promise<Operacao[]> { return req('/cadastro/controle-contas/operacoes', { method: 'GET' }); }
-export function obterSaldo(codconta: number): Promise<{ codconta: number; saldo: number; entradas: number; saidas: number }> {
-  return req(`/cadastro/controle-contas/saldo?codconta=${codconta}`, { method: 'GET' });
+export function obterSaldo(codconta: number, ateData?: string): Promise<PainelSaldo> {
+  return req(`/cadastro/controle-contas/saldo?codconta=${codconta}${ateData ? `&ateData=${ateData}` : ''}`, { method: 'GET' });
 }
 export function obterExtrato(codconta: number): Promise<{ codconta: number; saldo: number; movimentos: Movimento[] }> {
   return req(`/cadastro/controle-contas/extrato?codconta=${codconta}`, { method: 'GET' });

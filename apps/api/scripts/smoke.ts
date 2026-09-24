@@ -4797,6 +4797,8 @@ async function main() {
         const bancoReal = Number((await pgCc.query(`SELECT codbco FROM bancos WHERE codbco>0 ORDER BY codbco LIMIT 1`)).rows[0]?.codbco ?? 1);
         const cxa = Number((await pgCc.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES (0,1,'CAIXA CC') RETURNING codconta`)).rows[0].codconta);
         const bco = Number((await pgCc.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES ($1,1,'BANCO CC') RETURNING codconta`, [bancoReal])).rows[0].codconta);
+        // a lista de contas do legado é a do operador (CONTAS_BANCARIAS_OP); as ações pedem a permissão da conta
+        await pgCc.query(`INSERT INTO contas_bancarias_op (codconta, codoperador) VALUES ($1,7),($2,7)`, [cxa, bco]);
         const saldo = async (c: number) => Number(((await (await fetch(`${base}/${CC}/saldo?codconta=${c}`, { headers: H })).json().catch(() => ({}))) as any).saldo);
 
         // 47h.1) lançar DEPÓSITO (op 901 C, 100) → saldo 100; SAQUE (op 902 D, 30) → saldo 70.
@@ -18328,6 +18330,7 @@ async function main() {
         const bancoTp = Number((await pgTp.query(`SELECT codbco FROM bancos WHERE codbco > 0 ORDER BY codbco LIMIT 1`)).rows[0]?.codbco ?? 1);
         const nova = async (t: string) => Number((await pgTp.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES ($1,1,$2) RETURNING codconta`, [bancoTp, t])).rows[0].codconta);
         const cA = await nova('SMOKE TP A'); const cB = await nova('SMOKE TP B'); const cC = await nova('SMOKE TP C');
+        await pgTp.query(`INSERT INTO contas_bancarias_op (codconta, codoperador) VALUES ($1,7),($2,7),($3,7)`, [cA, cB, cC]); // a origem é da lista do operador
         const TP = (c: number) => `${base}/cadastro/contas-bancarias/${c}/transferencias-permitidas`;
         const trf = (o: number, d: number) => fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H, body: JSON.stringify({ codorigem: o, coddestino: d, valor: 1, historico: 'smoke tp' }) });
 
@@ -18372,9 +18375,11 @@ async function main() {
         const bancoLb = Number((await pgLb.query(`SELECT codbco FROM bancos WHERE codbco > 0 ORDER BY codbco LIMIT 1`)).rows[0]?.codbco ?? 1);
         const cL = Number((await pgLb.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES ($1,1,'SMOKE LIBERADO') RETURNING codconta`, [bancoLb])).rows[0].codconta);
         // dois liberados (C 100, D 30) e dois a prazo (C 50 com N, D 20 com nulo — o nulo do legado também é a prazo)
-        await pgLb.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, historico, data_fechamento, liberado) VALUES
-          ($1,1,100,'C','lib C','2048-06-01','S'), ($1,1,30,'D','lib D','2048-06-02','S'),
-          ($1,1,50,'C','prazo C','2048-06-03','N'), ($1,1,20,'D','prazo D','2048-06-04',NULL)`, [cL]);
+        await pgLb.query(`INSERT INTO contas_bancarias_op (codconta, codoperador) VALUES ($1,7)`, [cL]);
+        const dinLb = Number((await pgLb.query(`SELECT idpgto FROM formas_pgto WHERE idempresa = 1 AND upper(modalidade) = 'DINHEIRO' ORDER BY idpgto LIMIT 1`)).rows[0]?.idpgto ?? 1);
+        await pgLb.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, historico, data_fechamento, liberado, idpgto) VALUES
+          ($1,1,100,'C','lib C','2048-06-01','S',$2), ($1,1,30,'D','lib D','2048-06-02','S',$2),
+          ($1,1,50,'C','prazo C','2048-06-03','N',$2), ($1,1,20,'D','prazo D','2048-06-04',NULL,$2)`, [cL, dinLb]);
         const sal = (await (await fetch(`${base}/${CC}/saldo?codconta=${cL}`, { headers: H })).json().catch(() => ({}))) as any;
         const ext = (await (await fetch(`${base}/${CC}/extrato?codconta=${cL}`, { headers: H })).json().catch(() => ({}))) as any;
         const linha = (h: string) => (ext.movimentos ?? []).find((m: any) => m.historico === h);
@@ -18383,7 +18388,8 @@ async function main() {
           body: JSON.stringify({ codorigem: cL, coddestino: cL2, valor: 1 }) })).json().catch(() => ({})) as any).debito);
         const libNovo = (await pgLb.query(`SELECT liberado FROM mov_contas_bancarias WHERE codmovconta = $1`, [novoMov])).rows[0]?.liberado;
         check('RAZÃO BANCÁRIO §161.1 [o saldo conta só o LIBERADO; o resto é "a prazo", à parte]: o saldo do legado é `Σ VALOR` com `LIBERADO=\'S\'` e o que não está liberado vira o TOTAL A PRAZO (`udmControleContasBancarias.dfm:765`). No cliente são **23.373 movimentos N (R$ 8,9 mi) e 115 nulos (R$ 226 mil)** — sem a coluna, o saldo atual somaria R$ 9,1 mi que o legado não soma. Aqui: saldo 70 (100 − 30), a prazo +30 (50 − 20, o nulo incluso); no extrato as linhas a prazo aparecem marcadas e NÃO mexem no saldo corrente; e o movimento novo do Apollo nasce liberado',
-          Number(sal.saldo) === 70 && Number(sal.entradas) === 100 && Number(sal.saidas) === 30 && Number(sal.a_prazo) === 30
+          // as Entradas e Saídas do painel do legado são de TUDO, liberado ou não (sqqSaldo; §198)
+          Number(sal.saldo) === 70 && Number(sal.entradas) === 150 && Number(sal.saidas) === 50 && Number(sal.a_prazo) === 30
           && Number(ext.saldo) === 70 && linha('prazo C')?.a_prazo === true && linha('prazo D')?.a_prazo === true
           && Number(linha('lib D')?.saldo_corrente) === 70 && Number(linha('lib C')?.saldo_corrente) === 100 && linha('lib C')?.a_prazo === false
           && libNovo === 'S',
@@ -21102,6 +21108,54 @@ async function main() {
       } finally {
         await pgBr.query(`DELETE FROM configuracoes_especificas WHERE id = 112 AND tipo = 'Usuario' AND chave = '8'`).catch(() => undefined);
         await pgBr.end();
+      }
+    }
+
+    // ══ §198 CONTROLE DE CONTAS, corte A — a lista do operador com as permissões por conta, o painel de 5 números do legado
+    // (sqqSaldo, com INNER JOIN FORMAS_PGTO), "posicionar na data" e a emissão com hora (mig 335)
+    {
+      const pgK = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const CC = 'cadastro/controle-contas';
+      try {
+        const bancoReal = Number((await pgK.query(`SELECT codbco FROM bancos WHERE codbco > 0 ORDER BY codbco LIMIT 1`)).rows[0]?.codbco ?? 1);
+        const kc = Number((await pgK.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular, nroconta) VALUES ($1,2,'CONTA LOJA 2 198','K-198') RETURNING codconta`, [bancoReal])).rows[0].codconta);
+        const semVinculo = Number((await pgK.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular, nroconta) VALUES ($1,1,'SEM VINCULO 198','SV-198') RETURNING codconta`, [bancoReal])).rows[0].codconta);
+        await pgK.query(`INSERT INTO contas_bancarias_op (codconta, codoperador) VALUES ($1,7)`, [kc]);
+        const din = Number((await pgK.query(`SELECT idpgto FROM formas_pgto WHERE idempresa = 1 AND upper(modalidade) = 'DINHEIRO' ORDER BY idpgto LIMIT 1`)).rows[0]?.idpgto ?? 1);
+        const mov = (valor: number, tipo: string, liberado: string | null, quando: string, idpgto: number | null = din, hist = 'mov 198') =>
+          pgK.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, codopconta, idpgto, liberado, dtemissao, historico) VALUES ($1,2,$2,$3,0,$4,$5,$6::timestamptz,$7)`,
+            [kc, valor, tipo, idpgto, liberado, quando, hist]);
+        await mov(100, 'C', 'S', '2026-09-10 09:00-03');
+        await mov(30, 'D', 'S', '2026-09-10 16:45-03', din, 'saida da tarde');
+        await mov(50, 'C', 'N', '2026-09-11 10:00-03');
+        await mov(20, 'D', null, '2026-09-11 11:00-03');
+        await mov(10, 'C', 'S', '2026-09-11 12:00-03', null); // sem forma: fora do painel (INNER JOIN FORMAS_PGTO)
+        const lista = (await (await fetch(`${base}/${CC}/contas`, { headers: H })).json().catch(() => [])) as any[];
+        const kRow = lista.find((c) => c.codconta === kc);
+        check('CONTA-CC §198.1: a lista é a do operador (CONTAS_BANCARIAS_OP) e ativa, sem filtro de loja — a conta da loja 2 ligada aparece com as 8 permissões; a sem vínculo não',
+          !!kRow && kRow.visualizar_saldos === 'S' && kRow.habilitar_tranfer === 'S' && Number(kRow.idempresa) === 2 && !lista.some((c) => c.codconta === semVinculo),
+          { kRow, n: lista.length });
+        const p = (await (await fetch(`${base}/${CC}/saldo?codconta=${kc}`, { headers: H })).json().catch(() => ({}))) as any;
+        const p10 = (await (await fetch(`${base}/${CC}/saldo?codconta=${kc}&ateData=2026-09-10`, { headers: H })).json().catch(() => ({}))) as any;
+        check('CONTA-CC §198.2: o painel do legado — Entradas 150 e Saídas 50 de TUDO, Total a prazo 30 (N e nulo), Saldo atual 70 (liberado), Saldo futuro 100; o movimento sem forma fica fora; posicionado em 10/09 (o dia inteiro, com a saída das 16:45): 70',
+          Number(p.entradas) === 150 && Number(p.saidas) === 50 && Number(p.a_prazo) === 30 && Number(p.saldo) === 70 && Number(p.futuro) === 100
+          && Number(p10.saldo) === 70 && Number(p10.a_prazo) === 0,
+          { p, p10 });
+        const ext = (await (await fetch(`${base}/${CC}/extrato?codconta=${kc}&dtini=2026-09-10&dtfim=2026-09-10`, { headers: H })).json().catch(() => ({}))) as any;
+        const m0 = (ext.movimentos ?? [])[0];
+        check('CONTA-CC §198.3: a emissão guarda a HORA (mig 335) — o extrato de 10/09 traz as 2 linhas do dia, a das 16:45 antes da das 09:00',
+          (ext.movimentos ?? []).length === 2 && m0?.hora === '16:45' && m0?.historico === 'saida da tarde' && m0?.dtemissao === '2026-09-10',
+          { movs: ext.movimentos });
+        await pgK.query(`UPDATE contas_bancarias_op SET habilitar_tranfer = 'N' WHERE codconta = $1 AND codoperador = 7`, [kc]);
+        const trN = await fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H, body: JSON.stringify({ codorigem: kc, coddestino: semVinculo, valor: 1 }) });
+        const semVin = await fetch(`${base}/${CC}/saldo?codconta=${semVinculo}`, { headers: H });
+        const trSem = await fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codorigem: kc, coddestino: semVinculo, valor: 1 }) });
+        check('CONTA-CC §198.4: HABILITAR_TRANFER N na conta → 422 CONTA_ACAO_NAO_PERMITIDA; conta sem vínculo com o operador → 422 CONTA_CORRENTE_NAO_ENCONTRADA; transferir sem a opção BTNFECHA → 403',
+          trN.status === 422 && ((await trN.json().catch(() => ({}))) as any).code === 'CONTA_ACAO_NAO_PERMITIDA'
+          && semVin.status === 422 && ((await semVin.json().catch(() => ({}))) as any).code === 'CONTA_CORRENTE_NAO_ENCONTRADA' && trSem.status === 403,
+          { trN: trN.status, semVin: semVin.status, trSem: trSem.status });
+      } finally {
+        await pgK.end();
       }
     }
   } finally {

@@ -539,7 +539,7 @@ export async function integrarTransferencias(trx: AnyDB, emp: number, p: { dataI
   const situacao = cfg.config_transferencia_bancaria;
   if (!situacao) throw new BusinessRuleError('SITUACAO_NAO_CONFIGURADA', { qual: 'config_transferencia_bancaria' });
   const docs = (await sql<Record<string, unknown>>`
-    SELECT m.codmovconta, m.idlote, to_char(m.dtemissao, 'YYYY-MM-DD') AS data, abs(m.valor) AS valor,
+    SELECT m.codmovconta, m.idlote, to_char(m.dtemissao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS data, abs(m.valor) AS valor,
            cbd.codlanccontabil AS conta_deb, cbd.codconta AS codconta_deb,
            (SELECT cbc.codlanccontabil FROM mov_contas_bancarias mc
               JOIN contas_bancarias cbc ON cbc.codconta = mc.codconta
@@ -559,7 +559,7 @@ export async function integrarTransferencias(trx: AnyDB, emp: number, p: { dataI
        -- outra loja (477 lotes em 2025-26) tem a perna de crédito lá, e o razão vai para a empresa dessa conta
        AND (${p.codigo ?? null}::int IS NOT NULL OR m.idempresa = ${emp})
        AND ((${p.codigo ?? null}::int IS NOT NULL AND m.idlote = ${p.codigo ?? null}::int)
-         OR (${p.codigo ?? null}::int IS NULL AND m.dtemissao BETWEEN ${p.dataIni}::date AND ${p.dataFim}::date))
+         OR (${p.codigo ?? null}::int IS NULL AND (m.dtemissao AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN ${p.dataIni}::date AND ${p.dataFim}::date))
      ORDER BY m.codmovconta
   `.execute(trx)).rows;
 
