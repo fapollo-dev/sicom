@@ -20483,6 +20483,28 @@ async function main() {
         await pgCE.end();
       }
     }
+    // ══ §189 AGRUPAMENTO: a busca da tela de agrupar (GET_RCB / GET_APAGAR_AGRUPAR — aberto, não agrupado, parceiro e períodos) ══
+    {
+      const pgCF = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const ids: number[] = [];
+      try {
+        for (const [q, a, venc] of [['N', 'N', '2041-05-10'], ['S', 'N', '2041-05-11'], ['N', 'S', '2041-05-12'], ['N', 'N', '2041-06-20']] as Array<[string, string, string]>) {
+          ids.push(Number(((await pgCF.query(`INSERT INTO areceber (codempresa, codparceiro, valor, total, dtvenda, dtvenc, quitada, agrupado, idpgto, nrodup)
+              VALUES (1, 20, 10, 10, '2041-05-01', $1::date, $2, $3, 4, 1) RETURNING codrcb`, [venc, q, a])).rows[0] as any).codrcb));
+        }
+        const busca = async (extra: Record<string, string>) => ((await (await fetch(`${base}/cadastro/areceber?${new URLSearchParams({ paraAgrupar: 'S', codparceiro: '20', limite: '500', ...extra })}`, { headers: H })).json()) as any[])
+          .map((t) => Number(t.codrcb)).filter((c) => ids.includes(c));
+        const todos = await busca({});
+        const maio = await busca({ vencDe: '2041-05-01', vencAte: '2041-05-31' });
+        const outro = ((await (await fetch(`${base}/cadastro/areceber?${new URLSearchParams({ paraAgrupar: 'S', codparceiro: '22', limite: '500' })}`, { headers: H })).json()) as any[]).filter((t) => ids.includes(Number(t.codrcb)));
+        check('AGRUPAMENTO §189 [a busca para agrupar]: só os títulos abertos e não agrupados do cliente (o quitado e o agrupado ficam fora); o período de vencimento filtra; outro cliente não os traz',
+          todos.length === 2 && todos.includes(ids[0]) && todos.includes(ids[3]) && maio.length === 1 && maio[0] === ids[0] && outro.length === 0,
+          { todos, maio, outro: outro.length });
+      } finally {
+        await pgCF.query(`DELETE FROM areceber WHERE codrcb = ANY($1::int[])`, [ids]).catch(() => undefined);
+        await pgCF.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

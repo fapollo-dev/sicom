@@ -78,6 +78,8 @@ const TELAS = [
   { href: '/cobranca/cnab', name: 'Boleto / Remessa CNAB', icon: Landmark },
   { href: '/cadastro/areceber', name: 'Contas a Receber', icon: HandCoins },
   { href: '/cadastro/apagar', name: 'Contas a Pagar', icon: Banknote },
+  { href: '/cobranca/agrupar-receber', name: 'Agrupar contas a receber', icon: HandCoins },
+  { href: '/cobranca/agrupar-pagar', name: 'Agrupar contas a pagar', icon: Banknote },
   { href: '/cobranca/caixa', name: 'Caixa', icon: Coins },
   { href: '/cobranca/fechamento-caixa', name: 'Fechamento de Caixa', icon: Coins },
   { href: '/cobranca/lancamento-caixa', name: 'Lançamento de Caixa', icon: Coins },

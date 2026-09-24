@@ -89,6 +89,19 @@ export class AreceberService {
         break;
       // 'todos' / ausente → sem filtro de estado
     }
+    // a busca da tela de agrupar (`uAgrupaContasAReceber`, GET_RCB): aberto e não agrupado — e, com o fechamento de caixa da
+    // empresa, só o conciliado na tesouraria; mais o cliente e os períodos de venda/vencimento
+    if (query.paraAgrupar === 'S') {
+      q = q.where(sql`coalesce(quitada,'N')`, '=', 'N').where(sql`coalesce(agrupado,'N')`, '=', 'N');
+      const fc = (await (this.dbp.forTenantRead() as AnyDB).selectFrom('empresas').select('fechamento_caixa').where('idempresa', '=', emp).executeTakeFirst()) as { fechamento_caixa?: string } | undefined;
+      if (fc?.fechamento_caixa === 'S') q = q.where('consiliado', '=', 'S');
+    }
+    if (query.codparceiro && Number(query.codparceiro) > 0) q = q.where('codparceiro', '=', Number(query.codparceiro));
+    const dia = /^\d{4}-\d{2}-\d{2}$/;
+    if (query.vencDe && dia.test(query.vencDe)) q = q.where(sql`dtvenc::date`, '>=', query.vencDe);
+    if (query.vencAte && dia.test(query.vencAte)) q = q.where(sql`dtvenc::date`, '<=', query.vencAte);
+    if (query.vendaDe && dia.test(query.vendaDe)) q = q.where(sql`dtvenda::date`, '>=', query.vendaDe);
+    if (query.vendaAte && dia.test(query.vendaAte)) q = q.where(sql`dtvenda::date`, '<=', query.vendaAte);
 
     const campo = query.campo;
     if (campo && AreceberService.PESQUISA.has(campo) && query.valor != null && query.valor !== '') {

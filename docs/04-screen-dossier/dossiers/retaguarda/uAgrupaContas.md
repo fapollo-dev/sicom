@@ -19,7 +19,7 @@
 - **TRON convênio** (G15): o valor é Σ do A Pagar; o débito fica com o primeiro recebível e documento vazio, como no razão.
 - Integridade mantida (o legado não verificava): baixa ativa e lote de cobrança bloqueiam o reverter; consolidado pago não
   recebe nem perde título.
-- **Falta**: a tela web de agrupar/reverter e os relatórios (corte F).
+- **Falta**: os relatórios (corte F). (A tela web saiu depois; ver abaixo.)
 
 ## ✅ ENTREGUE (24/09/2026) — corte E: o convênio do mesmo CNPJ
 
@@ -37,6 +37,19 @@
   - Solta os títulos, apaga a CAIXA e o A Pagar.
   - ⚠️ **Inferido:** a reversão devolve QUITADA 'N' aos membros sem baixa. O fonte de 2020 não mexe, mas também não quitava; a auditoria da produção não guarda AGRUPADO, e não há reversão medível.
 - **Smoke §188:** 1525/0.
+
+## ✅ ENTREGUE (24/09/2026) — as telas web de agrupar (`/cobranca/agrupar-receber` e `/cobranca/agrupar-pagar`)
+
+- **Busca** (`GET cadastro/areceber|apagar?paraAgrupar=S`): a regra do GET_RCB / GET_APAGAR_AGRUPAR. Aberto e não agrupado; no A Receber, com o fechamento de caixa da empresa, só o conciliado. Filtros: cliente/fornecedor, vencimento e, no A Receber, venda.
+- **Seleção:** marcar um a um ou todos (tecla T). No A Receber, a coluna "Calc. juros" (o juro do dia entra no total).
+- **Total do legado** (`SetaTotal`): Σ valor + Σ juro marcado − desconto.
+- **Parceiro:** obrigatório com clientes/fornecedores diversos, com as mensagens do legado.
+- **A Receber:** forma, data do lançamento, vencimento, desconto, taxa administrativa e obs.
+  - O convênio do mesmo CNPJ abre o painel "Convênio parceiro": centro de custo de despesa, forma, vencimento da conta a pagar e obs, com a sugestão do servidor. Gravar: "A conta à pagar nº X foi gerada com sucesso.".
+- **A Pagar:** vencimento, obs, centro de custo opcional e N parcelas (valor igual, mensais, o resto na última).
+- **Consultar agrupamento** pelo código do consolidado: os títulos, "Reverter agrupamento" ("Deseja realmente reverter o agrupamento?") e, no A Receber, remover título (a confirmação do legado) e incluir os marcados da busca.
+- **Falta:** os relatórios (corte F: Agrupamento*.fr3, AgrupamentoCP*.fr3).
+- **Smoke §189** (a busca): 1526/0.
 
 **Fontes lidas:** `uAgrupaContasAReceber.pas`, `uAddTituloAgrupamentoAReceber.pas`, `uCadAReceber.pas` (os trechos de agrupamento: 400-1240, 2620-2880, 2985-3200, 3480-4248), `udmCadAReceber.pas/.dfm`, `uAgrupaContasAPagar.pas`, `uAPagar.pas` (reverter, impressão, `AgrupaAPagar`), `udmAPagar.dfm`, `uConvenioParceiro.pas`, `UIntegracaoContabil.pas` (3035-3320 e o filtro do CR), `UBaixaAreceber.pas`, `UReversaoBaixaContasReceber.pas`, `udmConfigura.pas` e `uDescontoTitulo.pas`.
 

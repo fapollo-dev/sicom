@@ -48,6 +48,12 @@ export class ApagarService {
       case 'agrupados': q = q.where('agrupado', '=', 'S'); break;
       case 'abertos': q = q.where(sql`coalesce(quitada,'N')`, '=', 'N').where(sql`coalesce(agrupado,'N')`, '=', 'N'); break;
     }
+    // a busca da tela de agrupar (`uAgrupaContasAPagar`, GET_APAGAR_AGRUPAR): aberto e não agrupado; o fornecedor e o vencimento
+    if (query.paraAgrupar === 'S') q = q.where(sql`coalesce(quitada,'N')`, '=', 'N').where(sql`coalesce(agrupado,'N')`, '=', 'N');
+    if (query.codparceiro && Number(query.codparceiro) > 0) q = q.where('codparceiro', '=', Number(query.codparceiro));
+    const dia = /^\d{4}-\d{2}-\d{2}$/;
+    if (query.vencDe && dia.test(query.vencDe)) q = q.where(sql`dtvenc::date`, '>=', query.vencDe);
+    if (query.vencAte && dia.test(query.vencAte)) q = q.where(sql`dtvenc::date`, '<=', query.vencAte);
     const campo = query.campo;
     if (campo && ApagarService.PESQUISA.has(campo) && query.valor != null && query.valor !== '') {
       const col = sql.ref(campo);
