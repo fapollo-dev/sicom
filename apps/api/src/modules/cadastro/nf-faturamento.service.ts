@@ -84,7 +84,10 @@ export class NfFaturamentoService {
     row: { codparceiro: number; codempresa: number; idnf: number; dtvenda: unknown; dtvenc: string; duplicata: string; nrodup: number; valor: number; txjuros: number; tipodoc?: string },
     extraApagar?: { codgrupo: number; obs: string; nrparcela: string; codoperador: number | null },
   ): Promise<void> {
-    await trx.insertInto(tabela).values({ ...row, ...(tabela === 'apagar' && extraApagar ? extraApagar : {}), quitada: 'N', consiliado: 'N' }).execute();
+    // o título do faturamento é GFAT='S' e GERADO 'SISTEMA' (uAPagar.pas:2034-2037; 3.430 títulos de NF em 2026) — é por aí que
+    // a tela de contas a pagar o reconhece como de origem automática e trava valor, fornecedor e rateio
+    const doFaturamento = tabela === 'apagar' ? { gfat: 'S', gerado: 'SISTEMA' } : {};
+    await trx.insertInto(tabela).values({ ...row, ...(tabela === 'apagar' && extraApagar ? extraApagar : {}), ...doFaturamento, quitada: 'N', consiliado: 'N' }).execute();
   }
 
   /**

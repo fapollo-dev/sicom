@@ -61,6 +61,22 @@ export class DocumentosContabilService {
     return tipo === 'CP' ? this.contasPagar(trx, emp, p, cfg, dataFixa) : this.contasReceber(trx, emp, p, cfg, dataFixa);
   }
 
+  /** o estorno de UM título (`TIntegracaoContabil.Estornar(codigo, …)`), na transação de quem chama — a edição e a exclusão
+   *  do contas a pagar estornam antes de mexer no título contabilizado (`VerificaContabilizado`, uAPagar.pas:5536) */
+  async estornarDocumentoNaTrx(trx: AnyDB, tipo: 'CP' | 'CR', codigo: number): Promise<number> {
+    const emp = this.emp();
+    const codorigem = ORIGEM[tipo];
+    const r = (await sql<{ codlote: number | null }>`DELETE FROM diario WHERE codorigem = ${codorigem} AND idorigem = ${codigo} AND codempresa = ${emp}
+                RETURNING codlote`.execute(trx)).rows;
+    const lotes = [...new Set(r.map((x) => num(x.codlote)).filter((n) => n > 0))];
+    if (lotes.length) {
+      await sql`DELETE FROM lote_contabil l WHERE l.codlotecontabil = ANY(${lotes}::int[])
+                  AND NOT EXISTS (SELECT 1 FROM diario d WHERE d.codlote = l.codlotecontabil)`.execute(trx);
+    }
+    await this.desmarcar(trx, tipo, emp, [codigo]);
+    return r.length;
+  }
+
   async integrar(tipo: TipoDocumento, p: { dataIni: string; dataFim: string; codigo?: number | null }): Promise<ResultadoDocumentos> {
     const emp = this.emp();
     const db = this.dbp.forTenant() as AnyDB;

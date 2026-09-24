@@ -176,7 +176,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
  * Códigos cujo `details` do AppError PODE ser ecoado ao cliente no envelope (`detalhe`) — allowlist explícita
  * (evita vazar dados internos de outros erros: saldos, form/opção de RBAC, etc.). Só o que o front consome.
  */
-const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE', 'CLASS_TRIB_EM_USO', 'PRODUTO_SEM_CLASSIFICACAO', 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO', 'APURACAO_IBSCBS_JA_EXISTE', 'SPLIT_MANUAL_EXCEDE', 'CLUBE_DESCONTO_SOBREPOSTO', 'TRANSFERENCIA_NAO_PERMITIDA', 'PEDIDO_LOJA_FECHADA', 'PEDIDO_LOJA_FORA_DO_PEDIDO', 'PEDIDO_LOJA_INEXISTENTE', 'PEDIDO_FECHADO_NA_EMPRESA', 'PEDIDO_FECHADO_PARCIAL', 'PEDIDO_META_DIARIA_EXCEDIDA', 'FECHAMENTO_DOCUMENTOS_NAO_SELECIONADOS', 'FECHAMENTO_OPERADOR_SEM_PARCEIRO', 'FECHAMENTO_CC_QUEBRA', 'FECHAMENTO_MODALIDADE_SEM_PDV', 'FECHAMENTO_FORMA_SEM_CONTA', 'FECHAMENTO_FORMA_NAO_ENCONTRADA', 'FECHAMENTO_REABRIR_VARIOS_GRUPOS', 'FECHAMENTO_REABRIR_APAGAR_BAIXADO', 'FECHAMENTO_REABRIR_APAGAR_AGRUPADO', 'FECHAMENTO_REABRIR_QUEBRA_BAIXADA']);
+const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE', 'CLASS_TRIB_EM_USO', 'PRODUTO_SEM_CLASSIFICACAO', 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO', 'APURACAO_IBSCBS_JA_EXISTE', 'SPLIT_MANUAL_EXCEDE', 'CLUBE_DESCONTO_SOBREPOSTO', 'TRANSFERENCIA_NAO_PERMITIDA', 'PEDIDO_LOJA_FECHADA', 'PEDIDO_LOJA_FORA_DO_PEDIDO', 'PEDIDO_LOJA_INEXISTENTE', 'PEDIDO_FECHADO_NA_EMPRESA', 'PEDIDO_FECHADO_PARCIAL', 'PEDIDO_META_DIARIA_EXCEDIDA', 'FECHAMENTO_DOCUMENTOS_NAO_SELECIONADOS', 'FECHAMENTO_OPERADOR_SEM_PARCEIRO', 'FECHAMENTO_CC_QUEBRA', 'FECHAMENTO_MODALIDADE_SEM_PDV', 'FECHAMENTO_FORMA_SEM_CONTA', 'FECHAMENTO_FORMA_NAO_ENCONTRADA', 'FECHAMENTO_REABRIR_VARIOS_GRUPOS', 'FECHAMENTO_REABRIR_APAGAR_BAIXADO', 'FECHAMENTO_REABRIR_APAGAR_AGRUPADO', 'FECHAMENTO_REABRIR_QUEBRA_BAIXADA', 'TITULO_CAMPO_BLOQUEADO', 'APAGAR_SITUACAO_DESC_EMBUT_NAO_CONFIGURADA', 'APAGAR_SITUACAO_SEM_CC']);
 
 const CODE_PT: Record<string, string> = {
   // regra de negócio (BusinessRuleError 422)
@@ -303,6 +303,15 @@ const CODE_PT: Record<string, string> = {
   TITULO_DE_NF: 'Este título foi gerado por uma nota fiscal — altere pela própria nota (faturar/estornar).',
   TITULO_ORIGEM_AUTO: 'Título gerado por outro processo (quitação/convênio/caixa) não pode ser alterado nem excluído por aqui.',
   TITULO_CONCILIADO: 'Título conciliado na tesouraria não pode ser alterado nem excluído.',
+  // o contas a pagar como a tela do legado (uAPagar)
+  TITULO_ADCREDITO: 'Este documento foi gerado através de um adiantamento crédito para clientes.',
+  TITULO_CAMPO_BLOQUEADO: 'Este campo não pode ser alterado em conta gerada automaticamente (nota fiscal, fechamento de caixa, adiantamento) — BLOQUEIA_CONTAS_PAGAR_ORIGEM_AUTO.',
+  TITULO_DE_ADIANTAMENTO: 'Documento criado por Adiantamento de Parceiro. Exclusão não permitida! Acesse o Adiantamento de Parceiro e realize a exclusão.',
+  TITULO_GRUPO_COM_PAGAMENTO: 'Não será possível excluir pois já existem parcelas pagas.',
+  TITULO_DESCONTO_VINCULADO: 'Não é possível excluir uma conta vinculada a um desconto de títulos.',
+  TITULO_DE_DESCONTO: 'Não é possível excluir uma conta gerada de um desconto de títulos.',
+  APAGAR_SITUACAO_DESC_EMBUT_NAO_CONFIGURADA: 'Necessário configurar situação de documento para descontos/embutidos no integrador contábil (Contábil, Cadastro, Integração contábil, aba financeiro, contas a pagar).',
+  APAGAR_SITUACAO_SEM_CC: 'Necessário configurar um centro de custo para a situação de documento do desconto/embutidos.',
   // Baixa / recebimento (corte-2)
   TITULO_EM_LOTE: 'Título está em um lote de cobrança — remova-o do lote antes de baixar.',
   TITULO_NAO_BAIXADO: 'Título não está baixado — não há baixa a estornar.',

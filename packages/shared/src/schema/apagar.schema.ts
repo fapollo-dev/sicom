@@ -40,6 +40,9 @@ const apagarBase = z.object({
   txjuros: dec(z.number().min(0)),
   txmulta: dec(z.number().min(0)),
   desconto_boleto: dec(z.number().min(0)),
+  // o desconto e os embutidos (acréscimo) do título — uAPagar `edtDesconto`/`edtVendor`
+  desconto: dec(z.number().min(0, 'O desconto não pode ser negativo.')),
+  vendor: dec(z.number().min(0, 'Os embutidos não podem ser negativos.')),
   nrodup: opcional(z.number().int().min(1, 'Mínimo 1 parcela.').max(200, 'Máximo de 200 parcelas.')),
   duplicata: opcional(z.string().max(20)),
   tipodoc: opcional(z.string().max(25)),

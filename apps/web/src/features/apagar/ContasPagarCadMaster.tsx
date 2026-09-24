@@ -84,8 +84,10 @@ function ApForm({ form, editavel, opts }: { form: UseFormReturn<CriarApagarDto>;
   const agrupado = (form.watch('agrupado' as any) ?? g.agrupado) === 'S';
   const contabilizado = g.contabilizado === 'S';
   const idnf = g.idnf;
-  const travado = quitada || agrupado || contabilizado || idnf != null;
+  // como o legado (uAPagar): só o título pago ou agrupado trava a tela; o de nota fiscal/fechamento trava só alguns campos
+  const travado = quitada || agrupado;
   const liberado = editavel && !travado;
+  const bloqueados = new Set(((g.campos_bloqueados as string[] | undefined) ?? []));
 
   const tabs: TabDef[] = [
     { id: 'cadastro', label: 'Cadastro' },
@@ -97,9 +99,13 @@ function ApForm({ form, editavel, opts }: { form: UseFormReturn<CriarApagarDto>;
     <div className="flex flex-col gap-form-gap">
       {travado && (
         <div className="rounded-radius-base border border-border bg-bg-subtle p-pad-sm text-fg-muted">
-          Título{' '}
-          {quitada ? 'pago' : agrupado ? 'agrupado' : contabilizado ? 'contabilizado' : 'gerado por nota fiscal'}
-          {' '}— edição bloqueada{idnf != null ? ' (altere pela nota fiscal)' : ''}.
+          Título {quitada ? 'pago' : 'agrupado'} — edição bloqueada.
+        </div>
+      )}
+      {!travado && (bloqueados.size > 0 || contabilizado) && (
+        <div className="rounded-radius-base border border-border bg-bg-subtle p-pad-sm text-fg-muted">
+          {bloqueados.size > 0 && <>Conta gerada automaticamente{idnf != null ? ' pela nota fiscal' : ''}: valor, fornecedor, juros, observação e centro de custo não se alteram aqui. </>}
+          {contabilizado && <>Conta contabilizada: ao gravar, o lançamento contábil é refeito.</>}
         </div>
       )}
       <EstadoBar form={form} />
@@ -107,7 +113,7 @@ function ApForm({ form, editavel, opts }: { form: UseFormReturn<CriarApagarDto>;
       <div>
         <Tabs tabs={tabs} active={aba} onChange={setAba} />
         <TabPanel>
-          {aba === 'cadastro' && <CadastroTab form={form} editavel={liberado} opts={opts} />}
+          {aba === 'cadastro' && <CadastroTab form={form} editavel={liberado} opts={opts} bloqueados={bloqueados} />}
           {(aba === 'historico' || aba === 'pendencias') && (
             <div className="flex min-h-24 flex-col items-center justify-center gap-gp-xs text-center text-fg-muted">
               <span className="text-body-sm font-semibold text-fg-default">{tabs.find((t) => t.id === aba)?.label}</span>
@@ -246,8 +252,9 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarApagarDto> }) {
   );
 }
 
-function CadastroTab({ form, editavel, opts }: { form: UseFormReturn<CriarApagarDto>; editavel: boolean; opts: LookupOptions }) {
+function CadastroTab({ form, editavel, opts, bloqueados }: { form: UseFormReturn<CriarApagarDto>; editavel: boolean; opts: LookupOptions; bloqueados: Set<string> }) {
   const err = form.formState.errors;
+  const trava = (campo: string) => bloqueados.has(campo);
   return (
     <fieldset disabled={!editavel} className="border-0 p-0">
       <Controller
@@ -261,11 +268,12 @@ function CadastroTab({ form, editavel, opts }: { form: UseFormReturn<CriarApagar
             onChange={(v) => field.onChange(v ? Number(v) : undefined)}
             placeholder="Selecione o fornecedor…"
             error={err.codparceiro?.message as string | undefined}
+            disabled={trava('codparceiro')}
           />
         )}
       />
       <div className="mt-form-gap grid grid-cols-2 gap-form-gap sm:grid-cols-3 lg:grid-cols-4">
-        <Field label="&Duplicata" maxLength={20} {...form.register('duplicata')} />
+        <Field label="&Duplicata" maxLength={20} disabled={trava('duplicata')} {...form.register('duplicata')} />
         <Controller
           control={form.control}
           name="tipodoc"
@@ -284,13 +292,23 @@ function CadastroTab({ form, editavel, opts }: { form: UseFormReturn<CriarApagar
           <DateField label="&Vencimento" value={(field.value as string) || undefined} onChange={(v) => field.onChange(v ?? '')} error={err.dtvenc?.message as string | undefined} />
         )} />
         <Controller control={form.control} name="valor" render={({ field }) => (
-          <CurrencyField label="&Valor" value={field.value as number | undefined} onChange={field.onChange} />
+          <CurrencyField label="&Valor" value={field.value as number | undefined} onChange={field.onChange} disabled={trava('valor')} />
         )} />
         <Controller control={form.control} name="txjuros" render={({ field }) => (
-          <NumberField label="&Juros (%)" value={field.value as number | undefined} onChange={field.onChange} decimais={2} min={0} />
+          <NumberField label="&Juros (%)" value={field.value as number | undefined} onChange={field.onChange} decimais={2} min={0} disabled={trava('txjuros')} />
         )} />
         <Controller control={form.control} name="nrodup" render={({ field }) => (
-          <NumberField label="&Parcelas" value={field.value as number | undefined} onChange={field.onChange} decimais={0} min={1} />
+          <NumberField label="&Parcelas" value={field.value as number | undefined} onChange={field.onChange} decimais={0} min={1} disabled={trava('nrodup')} />
+        )} />
+      </div>
+      <div className="mt-form-gap grid grid-cols-2 gap-form-gap sm:grid-cols-3 lg:grid-cols-5">
+        {/* o desconto e os embutidos do título (edtDesconto/edtVendor): com LANCAR_CENTROCUSTO_DESCACREJRS_CONTAS_PAGAR viram
+            linhas próprias no rateio; sem ela, entram no rateio dos centros de custo */}
+        <Controller control={form.control} name="desconto" render={({ field }) => (
+          <CurrencyField label="D&esconto" value={field.value as number | undefined} onChange={field.onChange} />
+        )} />
+        <Controller control={form.control} name="vendor" render={({ field }) => (
+          <CurrencyField label="E&mbutidos (acréscimo)" value={field.value as number | undefined} onChange={field.onChange} />
         )} />
       </div>
       <div className="mt-form-gap grid grid-cols-1 gap-form-gap sm:grid-cols-2 lg:grid-cols-3">
@@ -298,14 +316,14 @@ function CadastroTab({ form, editavel, opts }: { form: UseFormReturn<CriarApagar
           <SelectField label="&Banco" options={opts.bancoOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" />
         )} />
         <Controller control={form.control} name="codplc" render={({ field }) => (
-          <SelectField label="Centro de &custo" options={opts.plcOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" />
+          <SelectField label="Centro de &custo" options={opts.plcOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" disabled={trava('codplc')} />
         )} />
         <Controller control={form.control} name="idsituacao_nf" render={({ field }) => (
           <SelectField label="&Situação (natureza)" options={opts.situacaoOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" />
         )} />
       </div>
       <div className="mt-form-gap">
-        <TextArea label="&Observações" rows={2} {...form.register('obs')} />
+        <TextArea label="&Observações" rows={2} disabled={trava('obs')} {...form.register('obs')} />
       </div>
     </fieldset>
   );

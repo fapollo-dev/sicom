@@ -2733,11 +2733,24 @@ async function main() {
     // 33.3) editar manual + TRAVAS de estado (7003 pago/7004 agrup/7005 NF/7006 contab/7007 origem/7008 concil).
     const apEdit = await fetch(`${base}/${AP}/${apId}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 300 }) });
     check('CP: PUT edita manual (valor 300)', apEdit.status === 200 && Number(((await apEdit.json().catch(() => ({}))) as any).valor) === 300, { status: apEdit.status });
-    const putAp = async (id: number) => { const r = await fetch(`${base}/${AP}/${id}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 1 }) }); return { s: r.status, c: ((await r.json().catch(() => ({}))) as any).code }; };
-    const g3 = await putAp(7003), g4 = await putAp(7004), g5 = await putAp(7005), g6 = await putAp(7006), g7 = await putAp(7007), g8 = await putAp(7008);
-    check('CP: travas de estado editar (pago/agrup/NF/contab/origem/concil → 422)',
-      g3.c === 'TITULO_JA_BAIXADO' && g4.c === 'TITULO_AGRUPADO' && g5.c === 'TITULO_DE_NF' && g6.c === 'TITULO_CONTABILIZADO' && g7.c === 'TITULO_ORIGEM_AUTO' && g8.c === 'TITULO_CONCILIADO',
-      { g3, g4, g5, g6, g7, g8 });
+    // as travas são as da tela do legado (uAPagar): pago e agrupado travam tudo; o de NF (GFAT) e o de ORIGEM só travam os campos
+    // de BloquearCampos com BLOQUEIA_CONTAS_PAGAR_ORIGEM_AUTO ('S' na produção); contabilizado sem integração automática não muda
+    const putAp = async (id: number, body: Record<string, unknown> = { valor: 1 }) => { const r = await fetch(`${base}/${AP}/${id}`, { method: 'PUT', headers: H, body: JSON.stringify(body) }); return { s: r.status, c: ((await r.json().catch(() => ({}))) as any).code }; };
+    await pgAp.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, config_especificas_permitidas, descricao)
+        VALUES (991033, 'BLOQUEIA_CONTAS_PAGAR_ORIGEM_AUTO', 'S', 'texto', 'Modulo', 'smoke') ON CONFLICT DO NOTHING`);
+    await pgAp.query(`UPDATE apagar SET gfat = 'S', idnf = (SELECT min(codnf) FROM nf) WHERE codapg = 7005`);
+    const empIntAp = ((await pgAp.query(`SELECT integracao FROM empresas WHERE idempresa = 1`)).rows[0] as any)?.integracao ?? null;
+    await pgAp.query(`UPDATE empresas SET integracao = 'MANUAL' WHERE idempresa = 1`);
+    const g3 = await putAp(7003), g4 = await putAp(7004), g5 = await putAp(7005), g6 = await putAp(7006), g7 = await putAp(7007);
+    const g5b = await putAp(7005, { dtvenc: '2026-04-15' });
+    const g8 = await putAp(7008, { dtvenc: '2027-01-02' });
+    await pgAp.query(`UPDATE empresas SET integracao = $1 WHERE idempresa = 1`, [empIntAp]);
+    const hist7005 = ((await pgAp.query(`SELECT historico FROM historico WHERE tabela = 'APAGAR' AND coddoc = '7005'`)).rows as any[]).map((r) => r.historico);
+    check('CP: as travas da tela do legado — pago → TITULO_JA_BAIXADO, agrupado → TITULO_AGRUPADO; título da NF (GFAT) e de origem automática: o valor é campo travado (TITULO_CAMPO_BLOQUEADO) mas o vencimento muda, com o HISTORICO "ALTERACAO DO CAMPO DTVENC DE: 01/04/2026 PARA: 15/04/2026"; contabilizado sem integração automática → TITULO_CONTABILIZADO; conciliado edita (a trava não existe no legado)',
+      g3.c === 'TITULO_JA_BAIXADO' && g4.c === 'TITULO_AGRUPADO' && g5.c === 'TITULO_CAMPO_BLOQUEADO' && g5b.s === 200 && g6.c === 'TITULO_CONTABILIZADO'
+      && g7.c === 'TITULO_CAMPO_BLOQUEADO' && g8.s === 200 && hist7005.includes('ALTERACAO DO CAMPO DTVENC DE: 01/04/2026 PARA: 15/04/2026'),
+      { g3, g4, g5, g5b, g6, g7, g8, hist7005 });
+    await pgAp.query(`DELETE FROM configuracoes WHERE id = 991033`);
     // 33.4) excluir manual → 204; pago(7003) → 422.
     const apDel = await fetch(`${base}/${AP}/${apId}`, { method: 'DELETE', headers: H });
     const apDelP = await fetch(`${base}/${AP}/7003`, { method: 'DELETE', headers: H });
@@ -19451,6 +19464,97 @@ async function main() {
         await pgC3.query(`UPDATE parceiros SET codcontabil_for = $1 WHERE codparceiro = 22`, [antes.p22?.codcontabil_for ?? null]).catch(() => undefined);
         await pgC3.query(`DELETE FROM configuracoes WHERE id = ANY($1::int[])`, [cfgIds]).catch(() => undefined);
         await pgC3.end();
+      }
+    }
+    // ══ §174 CONTAS A PAGAR como a tela do legado (uAPagar): desconto/embutidos e as linhas D/E, o estorno do contábil e a exclusão do documento ══
+    {
+      const pgA = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const AP = 'cadastro/apagar';
+      const cfgAntes = (await pgA.query(`SELECT config_descontos_apg, config_embutidos_apg FROM config_integracao_contabil LIMIT 1`)).rows[0] as any;
+      const empInt = ((await pgA.query(`SELECT integracao FROM empresas WHERE idempresa = 1`)).rows[0] as any)?.integracao ?? null;
+      const criados: number[] = [];
+      try {
+        await pgA.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, config_especificas_permitidas, descricao)
+            VALUES (991741, 'LANCAR_CENTROCUSTO_DESCACREJRS_CONTAS_PAGAR', 'S', 'texto', 'Modulo', 'smoke') ON CONFLICT DO NOTHING`);
+        await pgA.query(`INSERT INTO situacao_nf_plc (idsituacao_nf, codplc) VALUES (991150, 2), (991290, 3) ON CONFLICT DO NOTHING`);
+        await pgA.query(`UPDATE config_integracao_contabil SET config_descontos_apg = 991150, config_embutidos_apg = 991290`);
+        await pgA.query(`UPDATE empresas SET integracao = 'MANUAL' WHERE idempresa = 1`);
+        const cr = await fetch(`${base}/${AP}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2039-02-01', dtvenc: '2039-03-01', valor: 100, codplc: 1, duplicata: 'SMK174' }) });
+        const crJ = (await cr.json().catch(() => ({}))) as any;
+        const id = Number(crJ.codapg);
+        criados.push(id);
+        const grupo = Number(((await pgA.query(`SELECT codgrupo FROM apagar WHERE codapg = $1`, [id])).rows[0] as any)?.codgrupo);
+        const rateio = async () => (await pgA.query(`SELECT tipo, codcc, valor::float AS valor, idsituacao_nf FROM cx_apagar WHERE codgrupo = $1 ORDER BY tipo`, [grupo])).rows as any[];
+        const caixa = async () => (await pgA.query(`SELECT count(*)::int AS n, coalesce(sum(valor), 0)::float AS s FROM caixa WHERE codgrupo = $1 AND origem = 'APAGAR'`, [grupo])).rows[0] as any;
+        const put = async (body: Record<string, unknown>) => {
+          const r = await fetch(`${base}/${AP}/${id}`, { method: 'PUT', headers: H, body: JSON.stringify(body) });
+          return { s: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+
+        // 174.1 — desconto e embutidos viram linhas D/E no rateio e entram na CAIXA pelo resíduo do último CC
+        const p1 = await put({ desconto: 10, vendor: 5 });
+        const r1 = await rateio();
+        const c1 = await caixa();
+        const hist = ((await pgA.query(`SELECT historico FROM historico WHERE tabela = 'APAGAR' AND coddoc = $1 ORDER BY codhist`, [String(id)])).rows as any[]).map((r) => r.historico);
+        const d = r1.find((x) => x.tipo === 'D');
+        const e = r1.find((x) => x.tipo === 'E');
+        check('CONTAS A PAGAR §174.1 [desconto e embutidos, LANCAR_CENTROCUSTO_DESCACREJRS_CONTAS_PAGAR]: o desconto (10) vira a linha D no CC da situação CONFIG_DESCONTOS_APG e os embutidos (5) a linha E no da CONFIG_EMBUTIDOS_APG, com a situação na linha; a V fica com o valor do título (100); a CAIXA do grupo soma −(valor + embutidos − desconto) = −95 em 3 linhas; o HISTORICO registra "ALTERACAO DO CAMPO DESCONTO DE: 0 PARA: 10", VENDOR e TOTAL_DOC (100 → 95); a leitura devolve o desconto, os embutidos e o total do documento',
+          cr.status === 201 && p1.s === 200 && r1.length === 3 && r1.find((x) => x.tipo === 'V')?.valor === 100
+          && d?.valor === 10 && Number(d?.codcc) === 2 && Number(d?.idsituacao_nf) === 991150 && e?.valor === 5 && Number(e?.codcc) === 3 && Number(e?.idsituacao_nf) === 991290
+          && c1?.n === 3 && Math.abs(c1?.s + 95) < 0.001
+          && hist.includes('ALTERACAO DO CAMPO DESCONTO DE: 0 PARA: 10') && hist.includes('ALTERACAO DO CAMPO VENDOR DE: 0 PARA: 5') && hist.includes('ALTERACAO DO CAMPO TOTAL_DOC DE: 100 PARA: 95')
+          && Number(p1.j.desconto) === 10 && Number(p1.j.vendor) === 5 && Number(p1.j.total_doc) === 95,
+          { cr: [cr.status, crJ.code], p1: [p1.s, p1.j.code, p1.j.total_doc], r1, c1, hist });
+
+        // 174.2 — desconto zerado tira a linha D (divergência: o legado a deixava) e a CAIXA volta a −105
+        const p2 = await put({ desconto: 0 });
+        const r2 = await rateio();
+        const c2 = await caixa();
+        check('CONTAS A PAGAR §174.2 [o desconto zerado]: a linha D sai (o legado a deixava e a CAIXA ficava com o desconto velho); a CAIXA volta a −105 (valor + embutidos)',
+          p2.s === 200 && !r2.some((x) => x.tipo === 'D') && r2.some((x) => x.tipo === 'E') && Math.abs(c2?.s + 105) < 0.001,
+          { p2: [p2.s, p2.j.code], r2, c2 });
+
+        // 174.3 — contabilizado com integração automática: o contábil do título é estornado e o título muda
+        const lote = Number(((await pgA.query(`INSERT INTO lote_contabil (desclote, datalote, codorigem, codempresa) VALUES ('Conta a pagar smoke', '2039-02-01', 13, 1) RETURNING codlotecontabil`)).rows[0] as any).codlotecontabil);
+        await pgA.query(`INSERT INTO diario (datalan, contadebito, contacredito, valor, codorigem, idorigem, codoperacao, codempresa, documento, codlote)
+            VALUES ('2039-02-01', 183, 11141, 105, 13, $1, 464, 1, $2, $3)`, [id, String(id), lote]);
+        await pgA.query(`UPDATE apagar SET contabilizado = 'S' WHERE codapg = $1`, [id]);
+        const bloqueado = await put({ dtvenc: '2039-03-10' });
+        await pgA.query(`UPDATE empresas SET integracao = 'AUTOMATICA' WHERE idempresa = 1`);
+        const p3 = await put({ dtvenc: '2039-03-10' });
+        const razao = Number(((await pgA.query(`SELECT count(*)::int AS n FROM diario WHERE codorigem = 13 AND idorigem = $1 AND codlote = $2`, [id, lote])).rows[0] as any).n);
+        const flag = ((await pgA.query(`SELECT contabilizado, to_char(dtvenc, 'YYYY-MM-DD') AS v FROM apagar WHERE codapg = $1`, [id])).rows[0] as any);
+        check('CONTAS A PAGAR §174.3 [contabilizado, VerificaContabilizado]: sem integração automática → 422 TITULO_CONTABILIZADO; com ela, o lançamento do título sai do razão e a edição grava (o contábil volta pelo IntegraApagar quando o título tem situação)',
+          bloqueado.s === 422 && bloqueado.j.code === 'TITULO_CONTABILIZADO' && p3.s === 200 && razao === 0 && flag?.v === '2039-03-10' && flag?.contabilizado == null,
+          { bloqueado: [bloqueado.s, bloqueado.j.code], p3: [p3.s, p3.j.code], razao, flag });
+        await pgA.query(`UPDATE empresas SET integracao = 'MANUAL' WHERE idempresa = 1`);
+
+        // 174.4 — excluir leva o documento inteiro (as parcelas do grupo), cada uma com o HISTORICO de exclusão
+        const id2 = Number(((await pgA.query(`INSERT INTO apagar (codparceiro, codempresa, dtvenda, dtvenc, duplicata, valor, quitada, agrupado, codgrupo, nrparcela)
+            VALUES (22, 1, '2039-02-01', '2039-04-01', 'SMK174-2', 54.4, 'N', 'N', $1, '2/2') RETURNING codapg`, [grupo])).rows[0] as any).codapg);
+        criados.push(id2);
+        const del = await fetch(`${base}/${AP}/${id}`, { method: 'DELETE', headers: H });
+        const sobra = Number(((await pgA.query(`SELECT count(*)::int AS n FROM apagar WHERE codgrupo = $1`, [grupo])).rows[0] as any).n);
+        const rateioSobra = (await rateio()).length;
+        const cxSobra = (await caixa())?.n;
+        const razao22 = ((await pgA.query(`SELECT razao FROM parceiros WHERE codparceiro = 22`)).rows[0] as any)?.razao ?? '';
+        const histDel = ((await pgA.query(`SELECT historico FROM historico WHERE tabela = 'APAGAR' AND coddoc = ANY($1::text[]) AND historico LIKE 'EXCLUSAO%' ORDER BY coddoc`, [[String(id), String(id2)]])).rows as any[]).map((r) => r.historico);
+        check('CONTAS A PAGAR §174.4 [excluir, btnExcluirClick]: o documento inteiro sai — as duas parcelas do grupo, o rateio e a CAIXA —, cada parcela com "EXCLUSAO DO REGISTRO FORNECEDOR: 22-…, DOCUMENTO: …, VALOR: …" (o valor como o FormatFloat("0,00") do Delphi: 100 e 054)',
+          del.status === 204 && sobra === 0 && rateioSobra === 0 && cxSobra === 0 && histDel.length === 2
+          && histDel.includes(`EXCLUSAO DO REGISTRO FORNECEDOR: 22-${razao22}, DOCUMENTO: SMK174, VALOR: 100`)
+          && histDel.includes(`EXCLUSAO DO REGISTRO FORNECEDOR: 22-${razao22}, DOCUMENTO: SMK174-2, VALOR: 054`),
+          { del: del.status, sobra, rateioSobra, cxSobra, histDel });
+      } finally {
+        for (const x of criados) {
+          await pgA.query(`DELETE FROM diario WHERE codorigem = 13 AND idorigem = $1`, [x]).catch(() => undefined);
+        }
+        await pgA.query(`DELETE FROM lote_contabil WHERE desclote = 'Conta a pagar smoke'`).catch(() => undefined);
+        await pgA.query(`DELETE FROM historico WHERE tabela = 'APAGAR' AND coddoc = ANY($1::text[])`, [criados.map(String)]).catch(() => undefined);
+        await pgA.query(`DELETE FROM situacao_nf_plc WHERE idsituacao_nf IN (991150, 991290)`).catch(() => undefined);
+        await pgA.query(`UPDATE config_integracao_contabil SET config_descontos_apg = $1, config_embutidos_apg = $2`, [cfgAntes?.config_descontos_apg ?? null, cfgAntes?.config_embutidos_apg ?? null]).catch(() => undefined);
+        await pgA.query(`UPDATE empresas SET integracao = $1 WHERE idempresa = 1`, [empInt]).catch(() => undefined);
+        await pgA.query(`DELETE FROM configuracoes WHERE id = 991741`).catch(() => undefined);
+        await pgA.end();
       }
     }
   } finally {
