@@ -421,3 +421,17 @@ próprio da RELACAO_CHQ_PROP; numa transação; a linha já liberada é ignorada
 data) e `POST :id/data-liberacao` ("Mudar data de liberação": só a data do já liberado; "Não é possivel alterar a data de
 documentos não liberados!"). RBAC `BTNLIBERAR` + flag `HABILTIAR_LIBE_MOVIMENT`. Tela: botão "Liberar movimentações" com a
 lista e a data; no extrato, Liberar / Mudar data / Remover por linha. Smoke §199 (3 casos).
+
+## 13. Conversão — corte D, lançamento de saldo (24/09/2026) — e uma correção desta spec
+
+⚠️ **Correção do §3.3:** `LANCAMENTO_SALDO='N'` **não** é "lançamento financeiro que contabiliza": são os movimentos de
+**adiantamento a parceiros** (79 das 80 linhas N têm `CODADIANTAMENTO`; o contábil é o da origem 63 — ex.: o "EMPRESTIMO…"
+de R$ 761.541 é o adiantamento 3421). O lançamento de saldo de verdade é o `'S'` (20 linhas, nenhuma contabilizada). Por isso:
+o adiantamento do Apollo passou a gravar `LANCAMENTO_SALDO='N'`/`USUCAD_LANCAMENTO_SALDO`, e o lançamento de saldo **não**
+contabiliza.
+
+`POST lancar-saldo` substitui o "lançamento por operação" (removido, com `GET operacoes`): senha administrativa (`admin` da
+empresa — o legado aceita também a senha de retaguarda de qualquer operador e a senha do dia; não copiado), modalidade da loja,
+valor com sinal (crédito/débito), histórico padrão "SALDO INICIAL", data (retroativa, binário novo), LIBERADO 'S' com
+emissão = vencimento = liberação na data, operação 0, operador, `LANCAMENTO_SALDO='S'` e `USUCAD_LANCAMENTO_SALDO`, trava de
+chaveamento, sem teste de saldo. A exclusão do lançamento (4 em 2025+) é a remoção da movimentação sem lote (corte da §5).

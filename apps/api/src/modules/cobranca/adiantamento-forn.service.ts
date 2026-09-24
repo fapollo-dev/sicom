@@ -255,6 +255,8 @@ export class AdiantamentoFornService {
           idpgto: await this.idpgtoMovimento(trx, emp, codbco), codoperador: op,
           // o movimento do legado: emissão, vencimento e liberação na data do adiantamento, LIBERADO 'S' (produção)
           dtemissao: dto.dtadiantamento, dtvenc: dto.dtadiantamento, dtliberacao: dto.dtadiantamento, liberado: 'S', dtcadastro: sql`now()`,
+          // o `LancaMovimento` do binário novo marca o movimento do adiantamento: 79 das 80 linhas LANCAMENTO_SALDO='N' da produção
+          lancamento_saldo: 'N', usucad_lancamento_saldo: op,
         })
         .returning('codmovconta')
         .executeTakeFirstOrThrow()) as { codmovconta: number };

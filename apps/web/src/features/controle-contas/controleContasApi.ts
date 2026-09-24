@@ -49,15 +49,15 @@ export interface ContaCC {
 export interface PainelSaldo { codconta: number; entradas: number; saidas: number; a_prazo: number; futuro: number; saldo: number }
 export function listarContasCC(): Promise<ContaCC[]> { return req('/cadastro/controle-contas/contas', { method: 'GET' }); }
 export function listarDestinos(): Promise<Array<{ codconta: number; nroconta: string | null; titular: string | null; idempresa: number }>> { return req('/cadastro/controle-contas/destinos', { method: 'GET' }); }
-export function listarOperacoes(): Promise<Operacao[]> { return req('/cadastro/controle-contas/operacoes', { method: 'GET' }); }
+export function listarModalidades(): Promise<Array<{ idpgto: number; modalidade: string }>> { return req('/cadastro/controle-contas/modalidades', { method: 'GET' }); }
 export function obterSaldo(codconta: number, ateData?: string): Promise<PainelSaldo> {
   return req(`/cadastro/controle-contas/saldo?codconta=${codconta}${ateData ? `&ateData=${ateData}` : ''}`, { method: 'GET' });
 }
 export function obterExtrato(codconta: number): Promise<{ codconta: number; saldo: number; movimentos: Movimento[] }> {
   return req(`/cadastro/controle-contas/extrato?codconta=${codconta}`, { method: 'GET' });
 }
-export function lancar(body: { codconta: number; codopconta: number; valor: number; historico?: string }): Promise<{ codmovconta: number; tipomovimento: string; saldo: number }> {
-  return req('/cadastro/controle-contas/lancar', { method: 'POST', body: JSON.stringify(body) });
+export function lancarSaldo(body: { codconta: number; valor: number; idpgto: number; historico?: string; data?: string; senhaAdm: string }): Promise<{ codmovconta: number; tipomovimento: string; saldo: number }> {
+  return req('/cadastro/controle-contas/lancar-saldo', { method: 'POST', body: JSON.stringify(body) });
 }
 export function transferir(body: { codorigem: number; coddestino: number; valor: number; historico?: string }): Promise<{ idlote: number; debito: number; credito: number }> {
   return req('/cadastro/controle-contas/transferir', { method: 'POST', body: JSON.stringify(body) });

@@ -8,8 +8,8 @@ import { useMensagem } from '../../shared/mensagem';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { DateField } from '../../shared/ui/DateField';
 import {
-  listarContasCC, listarDestinos, listarOperacoes, obterExtrato, obterSaldo, lancar, transferir, estornar, listarALiberar, liberarMovimentos, mudarDataLiberacao,
-  type ContaCC, type Operacao, type Movimento, type PainelSaldo, type MovALiberar,
+  listarContasCC, listarDestinos, listarModalidades, obterExtrato, obterSaldo, lancarSaldo, transferir, estornar, listarALiberar, liberarMovimentos, mudarDataLiberacao,
+  type ContaCC, type Movimento, type PainelSaldo, type MovALiberar,
 } from './controleContasApi';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -27,7 +27,7 @@ export function ControleContasPage() {
   const mensagem = useMensagem();
   const [contas, setContas] = useState<ContaCC[]>([]);
   const [destinos, setDestinos] = useState<Array<{ codconta: number; nroconta: string | null; titular: string | null; idempresa: number }>>([]);
-  const [operacoes, setOperacoes] = useState<Operacao[]>([]);
+  const [modalidades, setModalidades] = useState<Array<{ idpgto: number; modalidade: string }>>([]);
   const [conta, setConta] = useState('');
   const [saldo, setSaldo] = useState(0);
   const [painel, setPainel] = useState<PainelSaldo | null>(null);
@@ -35,10 +35,8 @@ export function ControleContasPage() {
   const [aLiberar, setALiberar] = useState<{ itens: MovALiberar[]; marcados: Set<number>; data: string } | null>(null);
   const [movimentos, setMovimentos] = useState<Movimento[]>([]);
   const [busy, setBusy] = useState(false);
-  // form lançamento
-  const [op, setOp] = useState('');
-  const [valor, setValor] = useState<number | undefined>();
-  const [hist, setHist] = useState('');
+  // form do lançamento de saldo (UlancamentoSaldo): valor com sinal, modalidade, histórico, data, senha administrativa
+  const [ls, setLs] = useState({ valor: '', idpgto: '', historico: 'SALDO INICIAL', data: hoje(), senha: '' });
   // form transferência
   const [destino, setDestino] = useState('');
   const [valorT, setValorT] = useState<number | undefined>();
@@ -47,7 +45,7 @@ export function ControleContasPage() {
   useEffect(() => {
     void listarContasCC().then(setContas).catch(() => setContas([]));
     void listarDestinos().then(setDestinos).catch(() => setDestinos([]));
-    void listarOperacoes().then(setOperacoes).catch(() => setOperacoes([]));
+    void listarModalidades().then(setModalidades).catch(() => setModalidades([]));
   }, []);
 
   const sel = contas.find((c) => String(c.codconta) === conta);
@@ -64,13 +62,15 @@ export function ControleContasPage() {
 
   const lancarMov = async () => {
     if (busy || !conta) return;
-    if (!op) { window.alert('Escolha a operação.'); return; }
-    if (valor == null || valor <= 0) { window.alert('Informe o valor (> 0).'); return; }
+    const valor = Number(ls.valor.replace(/\./g, '').replace(',', '.'));
+    if (!ls.idpgto) { mensagem.erro(new Error('Informe a modalidade!')); return; }
+    if (!Number.isFinite(valor) || valor === 0) { mensagem.erro(new Error('Informe o valor.')); return; }
+    if (!ls.senha) { mensagem.erro(new Error('Favor informar a senha.')); return; }
     setBusy(true);
     try {
-      const r = await lancar({ codconta: Number(conta), codopconta: Number(op), valor, historico: hist || undefined });
-      mensagem.sucesso(`Lançamento ${r.tipomovimento === 'C' ? 'de crédito' : 'de débito'} gravado. Saldo: ${brl(r.saldo)}.`);
-      setValor(undefined); setHist('');
+      await lancarSaldo({ codconta: Number(conta), valor, idpgto: Number(ls.idpgto), historico: ls.historico || undefined, data: ls.data, senhaAdm: ls.senha });
+      mensagem.sucesso('Transação efetuada com sucesso!');
+      setLs({ ...ls, valor: '', senha: '' });
       await carregar(Number(conta));
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
@@ -214,13 +214,15 @@ export function ControleContasPage() {
       {conta && (
         <div className="grid grid-cols-1 gap-gp-md md:grid-cols-2">
           <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
-            <div className="text-body-sm font-semibold text-fg-muted">Novo lançamento</div>
-            <SelectField label="&Operação" value={op} onChange={setOp} options={operacoes.map((o) => ({ value: String(o.codopconta), label: `${o.descricao} (${o.tipo === 'C' ? 'crédito' : 'débito'})` }))} placeholder="(operação)" />
-            <div className="flex gap-gp-sm">
-              <div className="w-40"><NumberField label="&Valor" value={valor} decimais={2} min={0} onChange={setValor} /></div>
-              <div className="flex-1"><Field label="&Histórico" value={hist} onChange={(e) => setHist(e.target.value)} placeholder="descrição" /></div>
+            <div className="text-body-sm font-semibold text-fg-muted">Lançamento de saldo</div>
+            <SelectField label="&Modalidade" value={ls.idpgto} onChange={(v) => setLs({ ...ls, idpgto: v })} options={modalidades.map((m) => ({ value: String(m.idpgto), label: m.modalidade }))} placeholder="(modalidade)" />
+            <div className="flex flex-wrap gap-gp-sm">
+              <div className="w-40"><Field label="&Valor (− débito)" inputMode="decimal" value={ls.valor} onChange={(e) => setLs({ ...ls, valor: e.target.value })} /></div>
+              <div className="w-40"><DateField label="Data" value={ls.data} onChange={(v) => setLs({ ...ls, data: v ?? hoje() })} /></div>
+              <div className="flex-1"><Field label="&Histórico" value={ls.historico} onChange={(e) => setLs({ ...ls, historico: e.target.value })} /></div>
             </div>
-            <div><Button label="&Lançar" variant="soft" disabled={busy || !op || !valor || !pode('habiltiar_lanca_saldo')} onClick={() => void lancarMov()} /></div>
+            <div className="w-56"><Field label="Senha administrativa" type="password" value={ls.senha} onChange={(e) => setLs({ ...ls, senha: e.target.value })} /></div>
+            <div><Button label="&Efetuar" variant="soft" disabled={busy || !ls.idpgto || !ls.valor || !pode('habiltiar_lanca_saldo')} onClick={() => void lancarMov()} /></div>
           </div>
 
           <div className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">

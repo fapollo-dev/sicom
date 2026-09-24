@@ -6,16 +6,17 @@ import { z } from 'zod';
  * Σ com sinal. Split LIBERADO, forma-de-pgto, chaveamento de período, integração contábil = adiados.
  */
 
-/** lançamento MANUAL: escolhe uma operação (define C/D) + valor + histórico (+ data/forma-pgto opcionais). */
-export const lancarContaSchema = z.object({
+/** LANÇAMENTO DE SALDO (`UlancamentoSaldo.pas`): valor COM SINAL (positivo = crédito), a modalidade da loja, histórico (padrão
+ *  "SALDO INICIAL"), a data e a senha administrativa. */
+export const lancarSaldoContaSchema = z.object({
   codconta: z.coerce.number().int().positive({ message: 'Informe a conta.' }),
-  codopconta: z.coerce.number().int().positive({ message: 'Informe a operação.' }),
-  valor: z.coerce.number().positive({ message: 'O valor deve ser maior que zero.' }),
-  historico: z.string().trim().max(255).optional(),
-  idpgto: z.coerce.number().int().positive().optional(),
-  data: z.string().trim().optional(), // ISO; default = agora no service
+  valor: z.coerce.number().refine((v) => v !== 0, { message: 'Informe o valor.' }),
+  idpgto: z.coerce.number({ invalid_type_error: 'Informe a modalidade!' }).int().positive({ message: 'Informe a modalidade!' }),
+  historico: z.string().trim().max(300).optional(),
+  data: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}/).optional(),
+  senhaAdm: z.string().min(1, { message: 'Favor informar a senha.' }).max(200),
 });
-export type LancarContaDto = z.infer<typeof lancarContaSchema>;
+export type LancarSaldoContaDto = z.infer<typeof lancarSaldoContaSchema>;
 
 /** TRANSFERÊNCIA (`Utransferencia.pas`): débito na conta ORIGEM (da loja) + crédito na conta DESTINO (qualquer loja), no mesmo lote. */
 export const transferirContaSchema = z

@@ -4,6 +4,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { destinosPermitidos } from './contas-transf-perm.service';
+import { SenhaOperacaoService } from './senha-operacao.service';
 import { configNaTrx } from '../compras/pedido-heranca';
 import { estornarTransferenciaLote, integrarTransferencias } from '../cobranca/documentos-contabil.service';
 
@@ -25,14 +26,14 @@ const novoLoteTransferencia = async (trx: AnyDB): Promise<number> =>
 
 /**
  * CONTROLE DE CONTAS CORRENTES (FRMCONTROLECONTASBANCARIAS). Movimentação da tesouraria (mov_contas_bancarias).
- * `saldo`/`extrato`: Σ com sinal (C:+ / D:−) do LIBERADO da conta, pela data de EMISSÃO. `lancar`: 1 linha (operação
- * C/D → tipomovimento, VALOR magnitude). `transferir`: as 2 pernas do legado (lote + NRODOCUMENTO 'TRANSFERENCIA'),
+ * `saldo`/`extrato`: Σ com sinal (C:+ / D:−) do LIBERADO da conta, pela data de EMISSÃO. `lancarSaldo`: o lançamento de
+ * saldo do legado (senha ADM, valor com sinal, modalidade, LANCAMENTO_SALDO='S'). `transferir`: as 2 pernas do legado (lote + NRODOCUMENTO 'TRANSFERENCIA'),
  * destino em qualquer loja. `estornar`: a remoção de transferência (o lote inteiro) ou a exclusão da movimentação
  * sem lote, como as duas telas do legado. Saldo-negativo travado só na transferência a partir de conta CAIXA.
  */
 @Injectable()
 export class ControleContasService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(private readonly dbp: DatabaseProvider, private readonly senhaOp: SenhaOperacaoService) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -73,11 +74,6 @@ export class ControleContasService {
     if (ateData) q = q.where(DIA_MOV, '<=', ateData);
     const r = (await q.executeTakeFirst()) as { saldo?: unknown } | undefined;
     return r2(num(r?.saldo));
-  }
-
-  /** operações manuais disponíveis (catálogo C/D, exclui a 0=TRANSFERENCIA interna). */
-  async operacoes(): Promise<Array<{ codopconta: number; descricao: string; tipo: string }>> {
-    return (await (this.dbp.forTenantRead() as AnyDB).selectFrom('operacoes_conta').select(['codopconta', 'descricao', 'tipo']).where('codopconta', '>', 0).orderBy('descricao').execute()) as Array<{ codopconta: number; descricao: string; tipo: string }>;
   }
 
   /**
@@ -231,28 +227,44 @@ export class ControleContasService {
     });
   }
 
-  /** lançamento MANUAL (1 linha). A operação define o tipomovimento (C/D); VALOR gravado como magnitude. Sem teste de
-   *  saldo: o lançamento do legado chama `ValidaSaldoAnterior(..., VerifSaldo=False)` (`UlancamentoSaldo.pas:54`) e o
-   *  cadastro de movimentação não testa (`uCadMovContasBancarias.pas:115-131`). Com operação, LIBERADO 'S' na data. */
-  async lancar(dto: { codconta: number; codopconta: number; valor: number; historico?: string; idpgto?: number; data?: string }): Promise<{ codmovconta: number; tipomovimento: string; saldo: number }> {
+  /**
+   * LANÇAMENTO DE SALDO (`uControleContasBancarias.pas:181-195` → `UlancamentoSaldo.pas` → `ValidaSaldoAnterior(LancaMov=True,
+   * VerifSaldo=False)`, udmPrincipal.pas:2131-2250): senha administrativa; valor COM SINAL (positivo = crédito); a modalidade da
+   * loja (IDPGTO); histórico (padrão "SALDO INICIAL"); a data (binário novo: retroativa). Uma linha com LIBERADO 'S', emissão =
+   * vencimento = liberação na data, operação 0, o operador e — binário novo — `LANCAMENTO_SALDO='S'` com `USUCAD_LANCAMENTO_SALDO`
+   * (20 linhas em produção, nenhuma contabilizada: o 'N' da coluna é o movimento do ADIANTAMENTO, origem 63). Sem teste de saldo;
+   * trava o chaveamento da conta. Substitui o "lançamento por operação" (CODOPCONTA>0: 0 linhas em toda a história).
+   */
+  async lancarSaldo(dto: { codconta: number; valor: number; idpgto: number; historico?: string; data?: string; senhaAdm: string }): Promise<{ codmovconta: number; tipomovimento: string; saldo: number }> {
     const emp = this.emp();
     const op = this.op();
+    // "Favor informar a senha." / "SENHA INCORRETA, VERIFIQUE!" (uSenhaAdmin.pas) — a senha administrativa da empresa
+    const { ok } = await this.senhaOp.verificar('admin', dto.senhaAdm);
+    if (!ok) throw new BusinessRuleError('SENHA_ADMINISTRATIVA_INVALIDA');
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const { idempresa } = await this.conta(trx, dto.codconta, 'habiltiar_lanca_saldo');
-      const oc = (await trx.selectFrom('operacoes_conta').select(['codopconta', 'tipo']).where('codopconta', '=', dto.codopconta).where('codopconta', '>', 0).executeTakeFirst()) as { tipo?: string } | undefined;
-      if (!oc) throw new BusinessRuleError('OPERACAO_NAO_ENCONTRADA', { codopconta: dto.codopconta });
-      const tipo = String(oc.tipo) === 'D' ? 'D' : 'C';
-      const valor = r2(num(dto.valor));
+      // "Modalidade não encontrada!" — a forma da loja
+      const f = (await sql<{ idpgto: number }>`SELECT idpgto FROM formas_pgto WHERE idpgto = ${dto.idpgto} AND idempresa = ${emp}`.execute(trx)).rows[0];
+      if (!f) throw new BusinessRuleError('MODALIDADE_NAO_ENCONTRADA', { idpgto: dto.idpgto });
       const data = dto.data ? dto.data.slice(0, 10) : hoje();
+      const c = await this.contaCompleta(trx, dto.codconta, null);
+      if (c.dtchaveamento && data <= c.dtchaveamento) throw new BusinessRuleError('CONTA_CAIXA_FECHADA', { codconta: dto.codconta, ate: c.dtchaveamento });
+      const valor = r2(num(dto.valor));
+      const tipo = valor > 0 ? 'C' : 'D';
+      const quando = sql`(${data}::date)::timestamp AT TIME ZONE 'America/Sao_Paulo'`;
       const ins = (await trx.insertInto('mov_contas_bancarias').values({
-        codconta: dto.codconta, idempresa, valor, tipomovimento: tipo, codopconta: dto.codopconta, origem: null, idorigem: null,
-        // a modalidade do lançamento (`IDPGTO`, localizada pelo nome, udmPrincipal.pas:2140-2183); sem ela, a DINHEIRO da loja —
-        // o painel do legado só soma movimento com forma (INNER JOIN FORMAS_PGTO)
-        historico: dto.historico ?? null, idpgto: dto.idpgto ?? (await this.idpgtoDinheiro(trx, emp)), codoperador: op, dtcadastro: sql`now()`,
-        dtemissao: data, dtvenc: data, liberado: 'S', dtliberacao: data,
+        codconta: dto.codconta, idempresa, valor: Math.abs(valor), tipomovimento: tipo, codopconta: 0, idpgto: dto.idpgto,
+        historico: (dto.historico?.trim() || 'SALDO INICIAL').slice(0, 300), codoperador: op, liberado: 'S',
+        dtemissao: quando, dtvenc: quando, dtliberacao: quando, lancamento_saldo: 'S', usucad_lancamento_saldo: op, dtcadastro: sql`now()`,
       }).returning('codmovconta').executeTakeFirstOrThrow()) as { codmovconta: number };
       return { codmovconta: Number(ins.codmovconta), tipomovimento: tipo, saldo: await this.saldoDe(trx, dto.codconta, emp) };
     });
+  }
+
+  /** as modalidades da loja para o lançamento de saldo (`GET_FORMAS_PGTO` da empresa) */
+  async modalidades(): Promise<Record<string, unknown>[]> {
+    const emp = this.emp();
+    return (await sql<Record<string, unknown>>`SELECT idpgto, modalidade FROM formas_pgto WHERE idempresa = ${emp} ORDER BY modalidade`.execute(this.dbp.forTenantRead() as AnyDB)).rows;
   }
 
   /**

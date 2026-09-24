@@ -4802,8 +4802,19 @@ async function main() {
         const saldo = async (c: number) => Number(((await (await fetch(`${base}/${CC}/saldo?codconta=${c}`, { headers: H })).json().catch(() => ({}))) as any).saldo);
 
         // 47h.1) lançar DEPÓSITO (op 901 C, 100) → saldo 100; SAQUE (op 902 D, 30) → saldo 70.
-        const dep = await fetch(`${base}/${CC}/lancar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: cxa, codopconta: 901, valor: 100, historico: 'deposito' }) });
-        const saq = await fetch(`${base}/${CC}/lancar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: cxa, codopconta: 902, valor: 30 }) });
+        // o LANÇAMENTO DE SALDO do legado (UlancamentoSaldo): valor com sinal, a modalidade da loja, senha administrativa
+        const admAntes = ((await pgCc.query(`SELECT senha_admin_hash FROM empresas WHERE idempresa = 1`)).rows[0] as any)?.senha_admin_hash ?? null;
+        await fetch(`${base}/cadastro/senha-operacao`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'admin', senha: 'adm-cc-1' }) });
+        const dinCc = Number((await pgCc.query(`SELECT idpgto FROM formas_pgto WHERE idempresa = 1 AND upper(modalidade) = 'DINHEIRO' ORDER BY idpgto LIMIT 1`)).rows[0]?.idpgto ?? 1);
+        const lsal = (codconta: number, valor: number, extra: Record<string, unknown> = {}, headers = H) =>
+          fetch(`${base}/${CC}/lancar-saldo`, { method: 'POST', headers, body: JSON.stringify({ codconta, valor, idpgto: dinCc, senhaAdm: 'adm-cc-1', ...extra }) });
+        const dep = await lsal(cxa, 100, { historico: 'deposito' });
+        const saq = await lsal(cxa, -30);
+        const lsRow = (await pgCc.query(`SELECT lancamento_saldo, usucad_lancamento_saldo, codopconta, liberado, historico FROM mov_contas_bancarias WHERE codconta = $1 AND tipomovimento = 'D' ORDER BY codmovconta DESC LIMIT 1`, [cxa])).rows[0] as any;
+        const senhaErr = await lsal(cxa, 1, { senhaAdm: 'errada' });
+        check('CONTA-CC: lançamento de saldo — crédito 100 e débito −30 (valor com sinal) → saldo 70; a linha com LANCAMENTO_SALDO S, o operador, operação 0, liberado, histórico padrão "SALDO INICIAL"; senha administrativa errada → 422',
+          lsRow?.lancamento_saldo === 'S' && Number(lsRow?.usucad_lancamento_saldo) === 7 && Number(lsRow?.codopconta) === 0 && lsRow?.liberado === 'S' && lsRow?.historico === 'SALDO INICIAL'
+          && senhaErr.status === 422 && ((await senhaErr.json().catch(() => ({}))) as any).code === 'SENHA_ADMINISTRATIVA_INVALIDA', { lsRow, senhaErr: senhaErr.status, dep: dep.status });
         check('CONTA-CC: lançar depósito (op C 100) + saque (op D 30) → saldo 70 (Σ com sinal)',
           dep.status === 200 && saq.status === 200 && Number(((await saq.json().catch(() => ({}))) as any).saldo) === 70 && (await saldo(cxa)) === 70,
           { saldo: await saldo(cxa) });
@@ -4850,13 +4861,13 @@ async function main() {
         // 47h.5) SALDO: a transferência a partir de conta CAIXA testa o saldo ("Saldo insuficiente!", Utransferencia.pas:185);
         // o lançamento NÃO testa (UlancamentoSaldo.pas:54 com VerifSaldo=False) — o caixa pode ficar negativo por ele.
         const trNeg = await fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H, body: JSON.stringify({ codorigem: cxa, coddestino: bco, valor: 999 }) });
-        const neg = await fetch(`${base}/${CC}/lancar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: cxa, codopconta: 902, valor: 999 }) });
-        const negBco = await fetch(`${base}/${CC}/lancar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: bco, codopconta: 902, valor: 500 }) });
+        const neg = await lsal(cxa, -999);
+        const negBco = await lsal(bco, -500);
         check('CONTA-CC: transferência do CAIXA sem saldo → 422 SALDO_INSUFICIENTE; lançamento de saque no caixa passa (−929); banco −500',
           trNeg.status === 422 && ((await trNeg.json().catch(() => ({}))) as any).code === 'SALDO_INSUFICIENTE'
           && neg.status === 200 && (await saldo(cxa)) === -929 && negBco.status === 200 && (await saldo(bco)) === -500,
           { trNeg: trNeg.status, neg: neg.status, cxa: await saldo(cxa), bco: await saldo(bco) });
-        await fetch(`${base}/${CC}/lancar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: cxa, codopconta: 901, valor: 999 }) }); // caixa volta a 70
+        await lsal(cxa, 999); // caixa volta a 70
 
         // 47h.6) REMOVER fora da transferência (uCadMovContasBancarias.pas:107): só a movimentação SEM lote; com lote → 422.
         // Conciliada remove (o legado não olha conciliação). Contabilizada sem integração automática → 422; com ela, estorna o razão.
@@ -4903,8 +4914,9 @@ async function main() {
 
         // 47h.7) transferência p/ a mesma conta → 400 (schema); RBAC sem grant → 403.
         const mesma = await fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H, body: JSON.stringify({ codorigem: cxa, coddestino: cxa, valor: 10 }) });
-        const rb = await fetch(`${base}/${CC}/lancar`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codconta: cxa, codopconta: 901, valor: 1 }) });
+        const rb = await lsal(cxa, 1, {}, H_SEM_ACESSO);
         check('CONTA-CC: transferir p/ mesma conta → 400; lançar sem grant RBAC → 403', mesma.status === 400 && rb.status === 403, { mesma: mesma.status, rb: rb.status });
+        await pgCc.query(`UPDATE empresas SET senha_admin_hash = $1 WHERE idempresa = 1`, [admAntes]); // a §80 (carga da senha) espera a senha como estava
       } finally {
         await pgCc.end();
       }
@@ -14222,11 +14234,11 @@ async function main() {
         const adD = await adCriar({ idsituacao_nf: 1011, codparceiro: 1, codcontacorrente: adCx, dtadiantamento: '2026-07-01', dtvencimento: '2026-08-01', valor: 100, obs: 'ADIANT P/ TESTE' });
         const adDJ = (await adD.json().catch(() => ({}))) as any;
         const adDRow = (await pgAd.query(`SELECT tipo, quitada, codmovconta, valor, idsituacao_nf, obs, usultalteracao FROM adiantamento_forn WHERE codadiantamento=$1`, [adDJ.codadiantamento])).rows[0] as any;
-        const adDMov = (await pgAd.query(`SELECT valor, tipomovimento, origem, idorigem, codadiantamento, historico, codopconta, idpgto, codoperador, liberado, to_char(dtemissao,'YYYY-MM-DD') d, to_char(dtvenc,'YYYY-MM-DD') dv, to_char(dtliberacao,'YYYY-MM-DD') dl FROM mov_contas_bancarias WHERE codmovconta=$1`, [adDRow?.codmovconta])).rows[0] as any;
+        const adDMov = (await pgAd.query(`SELECT valor, tipomovimento, origem, idorigem, codadiantamento, historico, codopconta, idpgto, codoperador, liberado, lancamento_saldo, to_char(dtemissao,'YYYY-MM-DD') d, to_char(dtvenc,'YYYY-MM-DD') dv, to_char(dtliberacao,'YYYY-MM-DD') dl FROM mov_contas_bancarias WHERE codmovconta=$1`, [adDRow?.codmovconta])).rows[0] as any;
         const adDTit = (await pgAd.query(`SELECT codrcb, valor, quitada, nrodup, tipodoc, adfornecedor, consiliado, duplicata, obs, idpgto, codparceiro, idsituacao_nf, to_char(dtvenda,'YYYY-MM-DD') dv, to_char(dtvenc,'YYYY-MM-DD') dc FROM areceber WHERE codadiantamento=$1`, [adDJ.codadiantamento])).rows[0] as any;
         check('ADTO §83.2: tipo D → registro (quitada N) + MOVIMENTO magnitude 100/tipomovimento D/origem nula/emissão=vencimento=liberação na data/LIBERADO S/codopconta 0/idpgto DINHEIRO/histórico = OBS + TÍTULO A RECEBER (valor 100, quitada N, nrodup 1, TIPODOC "A VISTA", ADFORNECEDOR S, CONSILIADO S, DUPLICATA = código, OBS "Originado do lancamento…", IDPGTO da forma RCB, DTVENDA = data e DTVENC = vencimento, SEM idsituacao_nf) + saldo 900',
           adD.status === 200 && adDRow?.tipo === 'D' && adDRow?.quitada === 'N' && Number(adDRow?.valor) === 100 && Number(adDRow?.idsituacao_nf) === 1011 && Number(adDRow?.usultalteracao) === 7
-          && Number(adDMov?.valor) === 100 && adDMov?.tipomovimento === 'D' && adDMov?.origem == null && adDMov?.idorigem == null && adDMov?.liberado === 'S'
+          && Number(adDMov?.valor) === 100 && adDMov?.tipomovimento === 'D' && adDMov?.origem == null && adDMov?.idorigem == null && adDMov?.liberado === 'S' && adDMov?.lancamento_saldo === 'N'
           && Number(adDMov?.codadiantamento) === Number(adDJ.codadiantamento) && adDMov?.historico === 'ADIANT P/ TESTE' && Number(adDMov?.codopconta) === 0
           && Number(adDMov?.idpgto) === 1 && Number(adDMov?.codoperador) === 7 && adDMov?.d === '2026-07-01' && adDMov?.dv === '2026-07-01' && adDMov?.dl === '2026-07-01'
           && Number(adDTit?.valor) === 100 && adDTit?.quitada === 'N' && Number(adDTit?.nrodup) === 1 && adDTit?.tipodoc === 'A VISTA'

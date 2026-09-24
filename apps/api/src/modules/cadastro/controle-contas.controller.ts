@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
-import { lancarContaSchema, liberarMovContaSchema, mudarDataLiberacaoSchema, transferirContaSchema, type LancarContaDto, type LiberarMovContaDto, type MudarDataLiberacaoDto, type TransferirContaDto } from '@apollo/shared';
+import { lancarSaldoContaSchema, liberarMovContaSchema, mudarDataLiberacaoSchema, transferirContaSchema, type LancarSaldoContaDto, type LiberarMovContaDto, type MudarDataLiberacaoDto, type TransferirContaDto } from '@apollo/shared';
 import { ControleContasService } from './controle-contas.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -51,11 +51,11 @@ export class ControleContasController {
     return this.svc.mudarDataLiberacao(id, body.data);
   }
 
-  /** catálogo de operações manuais (C/D). */
-  @Get('operacoes')
+  /** as modalidades da loja (lançamento de saldo). */
+  @Get('modalidades')
   @RequerAcesso('FRMCONTROLECONTASBANCARIAS', 'BTNLANCSALDO')
-  operacoes() {
-    return this.svc.operacoes();
+  modalidades() {
+    return this.svc.modalidades();
   }
 
   /** saldo (Σ com sinal) + entradas/saídas da conta. */
@@ -72,12 +72,12 @@ export class ControleContasController {
     return this.svc.extrato(codconta, dtini, dtfim);
   }
 
-  /** lançamento manual (1 linha; a operação define C/D). */
-  @Post('lancar')
+  /** lançamento de saldo (senha ADM, valor com sinal, modalidade, data). */
+  @Post('lancar-saldo')
   @HttpCode(200)
   @RequerAcesso('FRMCONTROLECONTASBANCARIAS', 'BTNLANCSALDO')
-  lancar(@Body(new ZodValidationPipe(lancarContaSchema)) body: LancarContaDto) {
-    return this.svc.lancar({ codconta: body.codconta, codopconta: body.codopconta, valor: body.valor, historico: body.historico, idpgto: body.idpgto, data: body.data });
+  lancarSaldo(@Body(new ZodValidationPipe(lancarSaldoContaSchema)) body: LancarSaldoContaDto) {
+    return this.svc.lancarSaldo({ codconta: body.codconta, valor: body.valor, idpgto: body.idpgto, historico: body.historico, data: body.data, senhaAdm: body.senhaAdm });
   }
 
   /** transferência entre contas (débito origem + crédito destino, atômica). */
