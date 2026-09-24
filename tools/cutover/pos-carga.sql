@@ -68,3 +68,19 @@ SELECT setval('seq_caixa_codgrupo', greatest(
   coalesce((SELECT max(codgrupo) FROM caixa), 0),
   coalesce((SELECT max(codgrupo) FROM cx_vendas), 0),
   coalesce((SELECT max(codgrupo) FROM cx_apagar), 0))::bigint + 1, false);
+
+-- O LOTE DE BAIXA (mig 323): `seq_idlote` é o ID_IDLOTE do legado — um só para as baixas de A Pagar/A Receber, cartão,
+-- cheque e o fechamento. Não é OWNED por coluna (a carga não o reposiciona sozinha): aqui, depois do maior lote carregado,
+-- fora as faixas altas próprias do Apollo (reversão 900.000.000, desconto de título 800.000.000).
+SELECT setval('seq_idlote', greatest(
+  coalesce((SELECT max(idlote) FROM apagar_bx WHERE idlote < 800000000), 0),
+  coalesce((SELECT max(idlote) FROM areceber_bx WHERE idlote < 800000000), 0),
+  coalesce((SELECT max(idlote) FROM apagar WHERE idlote < 800000000), 0),
+  coalesce((SELECT max(idlote) FROM areceber WHERE idlote < 800000000), 0),
+  coalesce((SELECT max(idlote) FROM caixa WHERE idlote < 800000000), 0),
+  coalesce((SELECT max(idlotebxcartao) FROM caixa WHERE idlotebxcartao < 800000000), 0),
+  coalesce((SELECT max(idlote) FROM cartao WHERE idlote < 800000000), 0),
+  coalesce((SELECT max(idlote) FROM cartao_bx WHERE idlote < 800000000), 0),
+  coalesce((SELECT max(idlote) FROM cheque WHERE idlote < 800000000), 0),
+  coalesce((SELECT max(idlote) FROM chq_proprio WHERE idlote < 800000000), 0),
+  coalesce((SELECT max(idlote) FROM mov_contas_bancarias WHERE idlote < 800000000), 0))::bigint + 1, false);

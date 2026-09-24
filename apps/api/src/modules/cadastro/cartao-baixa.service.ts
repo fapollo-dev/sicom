@@ -9,7 +9,7 @@ const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 /**
- * CARTÕES corte-2 — BAIXA / LIQUIDAÇÃO em lote (FRMBAIXACARTAO). Fecha o recebível: gera um LOTE (seq_cartao_lote),
+ * CARTÕES corte-2 — BAIXA / LIQUIDAÇÃO em lote (FRMBAIXACARTAO). Fecha o recebível: gera um LOTE (seq_idlote — o ID_IDLOTE do legado, mig 323),
  * marca os recebíveis abertos (liberado='S', dtbaixa, idlote, valor_taxa_paga = bruto − líquido) e CREDITA o líquido
  * total numa conta bancária (mov_contas_bancarias, tipomovimento='C', origem='BXCARTAO' [MCB.origem é varchar(10)],
  * idorigem=idlote). O
@@ -63,7 +63,7 @@ export class CartaoBaixaService {
       // líquido COMPUTADO pela view get_cartao (sem lock — só leitura do cálculo).
       const netRows = (await trx.selectFrom('get_cartao').select(['codvendcartao', 'valor_com_taxa']).where('codvendcartao', 'in', abertos.map((a) => a.codvendcartao)).where('idempresa', '=', emp).execute()) as Array<{ codvendcartao: number; valor_com_taxa: unknown }>;
       const netMap = new Map(netRows.map((r) => [Number(r.codvendcartao), r2(num(r.valor_com_taxa))]));
-      const loteRes = await trx.executeQuery(sql`select nextval('seq_cartao_lote') as v`.compile(trx));
+      const loteRes = await trx.executeQuery(sql`select nextval('seq_idlote') as v`.compile(trx));
       const idlote = Number((loteRes.rows[0] as { v: number | string }).v);
       let totalLiq = 0;
       let totalTaxa = 0;

@@ -154,6 +154,10 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarApagarDto> }) {
   const [desconto, setDesconto] = useState<number | undefined>(undefined);
   const [recurso, setRecurso] = useState<string>(''); // '' = sem caixa · DINHEIRO = caixa · BANCO = pagto por banco
   const [codconta, setCodconta] = useState<number | undefined>(undefined);
+  // o centro de custo dos juros e do desconto (ValidaCentroCustos): vazio = o padrão da empresa (EMPRESAS.CODPLC_*)
+  const [codplcJuros, setCodplcJuros] = useState<string>('');
+  const [codplcDesconto, setCodplcDesconto] = useState<string>('');
+  const { data: ccOptions = [] } = useResourceOptions('cadastro/plc', (c: any) => ({ value: String(c.codplc), label: `${c.desccodplc ?? c.codplc} - ${c.descricao}` }));
   const { data: contasBancarias = [] } = useResourceOptions(
     'cadastro/contas-bancarias',
     (c: any) => ({ value: String(c.codconta), label: `${c.codconta} - ${c.titular ?? ''}${c.nroconta ? ' (' + c.nroconta + ')' : ''}` }),
@@ -166,6 +170,8 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarApagarDto> }) {
     try {
       const r = await baixarApagar(codapg, {
         dtpgto, juros, desconto,
+        codplcJuros: codplcJuros ? Number(codplcJuros) : undefined,
+        codplcDesconto: codplcDesconto ? Number(codplcDesconto) : undefined,
         recurso: recurso === 'DINHEIRO' || recurso === 'BANCO' ? (recurso as 'DINHEIRO' | 'BANCO') : undefined,
         codconta: recurso === 'BANCO' ? codconta : undefined,
       });
@@ -207,6 +213,12 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarApagarDto> }) {
           <div className="w-44"><DateField label="Data do &pagamento" value={dtpgto} onChange={setDtpgto} /></div>
           <div className="w-36"><NumberField label="&Juros (R$)" value={juros} onChange={setJuros} decimais={2} min={0} /></div>
           <div className="w-36"><NumberField label="&Desconto (R$)" value={desconto} onChange={setDesconto} decimais={2} min={0} /></div>
+          {!!juros && Number(juros) > 0 && (
+            <div className="w-56"><SelectField label="C. custo dos juros" options={ccOptions} value={codplcJuros || undefined} onChange={(v) => setCodplcJuros(v ?? '')} placeholder="Padrão da empresa" /></div>
+          )}
+          {!!desconto && Number(desconto) > 0 && (
+            <div className="w-56"><SelectField label="C. custo do desconto" options={ccOptions} value={codplcDesconto || undefined} onChange={(v) => setCodplcDesconto(v ?? '')} placeholder="Padrão da empresa" /></div>
+          )}
           <div className="w-44">
             <SelectField
               label="&Recurso"

@@ -118,6 +118,10 @@ export const baixarTituloSchema = z.preprocess(
       // (UBaixaAreceber.edtDesc_AcreExit → SenhaAdministrativa('DESC')). Verificada no service; nunca persistida.
       senhaOperacao: opcional(z.string().max(30)),
       obs: opcional(z.string()),
+      // o centro de custo de juros / acréscimo / desconto (CAIXA "Ref. … lote N"); sem ele, o padrão da empresa
+      codplcJuros: dec(z.number().int().positive()),
+      codplcAcrescimo: dec(z.number().int().positive()),
+      codplcDesconto: dec(z.number().int().positive()),
     })
     .superRefine((v, ctx) => {
       if (v.recurso === 'BANCO' && v.codconta == null)

@@ -7,6 +7,7 @@ import { CaixaService } from './caixa.service';
 import { BaixaContabilService } from './baixa-contabil.service';
 import { AdiantamentoFornService } from './adiantamento-forn.service';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
+import { centrosDaBaixa, colunasCentroDaBaixa, estornarCaixaDaBaixa, lancarCaixaDaBaixa, novoLote } from './baixa-caixa';
 
 type AnyDB = Kysely<any>;
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -60,7 +61,7 @@ export class ApagarBaixaService {
 
   async baixar(
     codapg: number,
-    dto: { dtpgto?: string; juros?: number; multa?: number; desconto?: number; acrescimo?: number; valorpg?: number; dtvencSaldo?: string; recurso?: string; codconta?: number; obs?: string },
+    dto: { dtpgto?: string; juros?: number; multa?: number; desconto?: number; acrescimo?: number; valorpg?: number; dtvencSaldo?: string; recurso?: string; codconta?: number; obs?: string; codplcJuros?: number; codplcAcrescimo?: number; codplcDesconto?: number },
   ): Promise<{ codapg: number; valorpg: number; troco: number; juros: number; quitada: 'S'; parcial: boolean; saldoTitulo: number | null }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
@@ -97,12 +98,16 @@ export class ApagarBaixaService {
       const valorpg = troco > 0 ? total : valorInformado; // efetivamente aplicado ao título
       const parcial = valorpg < total; // pagou menos que o total → gera título-saldo (espelha UBaixaAreceber.pas:1403)
       const dtpgto = dto.dtpgto ?? sql`current_date`;
+      // o centro de custo de juros/acréscimo/desconto (padrão da empresa) e o lote da baixa (CAIXA-escritores.md §4)
+      const cc = await centrosDaBaixa(trx, 'AP', emp, dto, r2(juros), acre);
+      const idlote = await novoLote(trx);
 
       const bxIns = await trx
         .insertInto('apagar_bx')
         .values({
           codapg, codempresa: emp, valorpg, juros: r2(juros), multa: r2(multa), acre_desc: acre,
           dtpgto, codopbx: op, data_operacao: sql`now()`, indr: 'I', obs: dto.obs ?? null,
+          idlote, ...colunasCentroDaBaixa(cc, r2(juros), acre), tx_juros: juros > 0 ? (t as any).txjuros ?? null : null,
         })
         .returning('codapgbx').executeTakeFirstOrThrow();
 
@@ -137,6 +142,9 @@ export class ApagarBaixaService {
         saldoTitulo = Number((sIns as any).codapg);
         await trx.updateTable('apagar_bx').set({ codapg_gerado: saldoTitulo }).where('codapgbx', '=', Number((bxIns as any).codapgbx)).execute();
       }
+
+      // juros, acréscimo e desconto na CAIXA gerencial (UBaixaApagar.pas:790-792)
+      await lancarCaixaDaBaixa(trx, 'AP', emp, { idlote, dtpgto, juros: r2(juros), acreDesc: acre, cc });
 
       // recurso DINHEIRO → PAGAMENTO (saída, guarda saldo≥0) no caixa aberto + contábil (CODORIGEM=15: D fornecedor / C 183).
       // recurso BANCO → pagamento por banco (NÃO toca o caixa) + contábil (D fornecedor / C conta-do-banco).
@@ -175,7 +183,7 @@ export class ApagarBaixaService {
 
       const bx = await trx
         .selectFrom('apagar_bx')
-        .select(['codapgbx', 'codapg_gerado', 'dtpgto'])
+        .select(['codapgbx', 'codapg_gerado', 'dtpgto', 'idlote'])
         .where('codapg', '=', codapg)
         .where('codempresa', '=', emp)
         .where(sql`coalesce(indr,'I')`, '=', 'I')
@@ -206,6 +214,9 @@ export class ApagarBaixaService {
           await trx.deleteFrom('apagar').where('codapg', '=', codSaldo).where('codempresa', '=', emp).execute();
         }
       }
+
+      // as linhas de juros/acréscimo/desconto do lote saem da CAIXA (UReversaoBaixaContasPagar.pas:169-171)
+      await estornarCaixaDaBaixa(trx, 'AP', emp, (bx as any).idlote);
 
       // estorno LÓGICO da linha lida (codapgbx) — não deleta, reabre o título.
       await trx.updateTable('apagar_bx').set({ indr: 'E', data_operacao: sql`now()` }).where('codapgbx', '=', bx.codapgbx).execute();

@@ -515,6 +515,12 @@ const CODE_PT: Record<string, string> = {
   SENHA_ADM_INVALIDA: 'Senha administrativa inválida.',
   // o fechamento de caixa — conferência e rascunho (UfinalizaFechamento.pas)
   FECHAMENTO_DATA_OBRIGATORIA: 'Informe a data do caixa.',
+  // o centro de custo de juros/acréscimo/desconto da baixa (ValidaCentroCustos, UBaixaApagar/UBaixaAreceber)
+  BAIXA_CC_JUROS: 'Informe o centro de custo para juros.',
+  BAIXA_CC_ACRESCIMO: 'Informe o centro de custo para acréscimos.',
+  BAIXA_CC_DESCONTO_RECEBIDO: 'Informe o centro de custo para descontos recebidos.',
+  BAIXA_CC_DESCONTO_CONCEDIDO: 'Informe o centro de custo para descontos concedidos.',
+  BAIXA_CC_INVALIDO: 'Centro de custo não encontrado.',
   FECHAMENTO_CAIXA_CONSULTA: 'Este caixa já foi fechado: a conferência está em modo consulta e não grava.',
   FECHAMENTO_OPERACAO_FORA_DO_TURNO: 'A operação informada não faz parte do movimento deste caixa.',
   // restrições da situação do documento fora da NF (UCadSituacaoNF.md C5) — as mensagens de cada tela do legado

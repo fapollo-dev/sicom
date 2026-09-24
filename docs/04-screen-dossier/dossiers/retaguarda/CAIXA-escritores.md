@@ -17,8 +17,8 @@
 | NF | 1.011 | R$ 764.054,09 | `udmNF.pas:9283` | ✅ C4 (`nf-caixa.ts`) |
 | ARECEBER | 441 | R$ 687.687,98 | `uCadAReceber.pas:1075/1110` | ✅ 24/09 (`areceber-caixa.ts`: uma linha por documento — o título, ou o total das parcelas geradas juntas; edição relança; exclusão apaga) |
 | manual (sem origem, 'S') | 166 | R$ −41.936,86 | `uMovCaixa` (FRMMOVCAIXA, 5.022 acessos) | FALTA — o `caixa_mov` do Apollo é outro modelo |
-| BAIXA APAGAR | 112 | R$ 7.377,98 | `UBaixaApagar.pas:505` | FALTA |
-| BAIXA ARECEBER | 33 | R$ −349,54 | `UBaixaAreceber.pas:1264` | FALTA |
+| BAIXA APAGAR | 112 | R$ 7.377,98 | `UBaixaApagar.pas:505` | ✅ 24/09 (`baixa-caixa.ts`: juros/acréscimo/desconto no CC da baixa ou no padrão da empresa, lote `seq_idlote`; o estorno apaga) |
+| BAIXA ARECEBER | 33 | R$ −349,54 | `UBaixaAreceber.pas:1264` | ✅ 24/09 (idem) |
 | CONVENIO PARCEIRO | 1 | R$ −20.051,06 | `uConvenioParceiro.pas:136` | FALTA |
 
 Outros escritores no fonte sem linha em 2026: `UbaixaCheque.pas:352`, `UCadMapaDeCarga.pas:6036`,
@@ -58,7 +58,13 @@ soma percorre o dataset da GRADE de parcelas (`GrdParcelasDBTableView1.DataContr
 fornecedor posicionado; só entram os descontos do fornecedor em foco (lote 90372: descontos 9,37 + 186 + 95 + 95, CAIXA
 195,37 = os dois primeiros; 79 lotes com desconto e nenhuma linha). O certo é a soma do lote inteiro — não copiar.
 
-**Lacuna no Apollo:** a baixa (`apagar-baixa.service.ts` / `areceber-baixa.service.ts`) é por título, não grava `IDLOTE` nem
+**✅ Convertido (24/09, mig 323):** `baixa-caixa.ts` — os CCs vêm do painel de baixa (opcionais) ou do padrão da empresa;
+sem CC para a natureza com valor, 422 com a mensagem do legado; a baixa ganha o lote do `seq_idlote` (o `ID_IDLOTE`,
+que também passa a numerar a baixa de cartão — o `seq_cartao_lote` começava em 1 e repetiria lotes da carga) e grava
+IDLOTE/CODPLC_ACREDESC/CODPLC_JUROS/TX_JUROS; o estorno apaga as linhas pelo texto do lote. O acréscimo não tem campo no
+painel do Apollo (a API aceita).
+
+**Era a lacuna:** a baixa (`apagar-baixa.service.ts` / `areceber-baixa.service.ts`) é por título, não gravava `IDLOTE` nem
 `CODPLC_ACREDESC`/`CODPLC_JUROS`, e a tela não pede os centros de custo. Converter = a baixa pedir os CCs quando houver
 juros/acréscimo/desconto (as mensagens do `ValidaCentroCustos`), gravá-los em APAGAR_BX/ARECEBER_BX e lançar as linhas;
 o "lote" do Apollo é a baixa (`IDLOTE` nulo → `-codapgbx` no `cons-apg-bx`). O estorno apaga as linhas (a reversão do

@@ -2620,10 +2620,30 @@ async function main() {
     // 32.5b) desconto + senha ERRADA → 422 SENHA_OPERACAO_INVALIDA (título intacto).
     const bxSenhaBad = await fetch(`${base}/${AR}/${bxId2}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ juros: 10, desconto: 5, senhaOperacao: 'errada' }) });
     check('CR-baixa: desconto + senha errada → 422 SENHA_OPERACAO_INVALIDA', bxSenhaBad.status === 422 && ((await bxSenhaBad.json().catch(() => ({}))) as any).code === 'SENHA_OPERACAO_INVALIDA', { status: bxSenhaBad.status });
+    // 32.5c-0) juros/desconto exigem o CENTRO DE CUSTO (ValidaCentroCustos): a empresa sem padrão e sem CC informado → 422
+    const bxSemCc = await fetch(`${base}/${AR}/${bxId2}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ juros: 10, desconto: 5, senhaOperacao: 'segredo123' }) });
+    const bxSemCcJ = (await bxSemCc.json().catch(() => ({}))) as any;
+    // o padrão da empresa (SetCCPadrao: EMPRESAS.CODPLC_*), para esta e as próximas baixas do smoke
+    await pgBx.query(`UPDATE empresas SET codplc_juros_recebidos = 5, codplc_acrescimos_recebidos = 5, codplc_descontos_concedidos = 2,
+        codplc_juros_pagos = 2, codplc_acrescimos_pagos = 4, codplc_descontos_recebidos = 5 WHERE idempresa = 1`);
     // 32.5c) desconto + senha CORRETA → 200; juros/desconto compõem o valor pago: 100 + 10 − 5 = 105.
     const bxJ = await fetch(`${base}/${AR}/${bxId2}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ juros: 10, desconto: 5, senhaOperacao: 'segredo123' }) });
     const bxJBody = (await bxJ.json().catch(() => ({}))) as any;
     check('CR-baixa: desconto + senha correta → 200, valorpg (100+10−5=105)', bxJ.status === 200 && Number(bxJBody.valorpg) === 105, { body: bxJBody });
+    const cxBxAr = async () => (await pgBx.query(`SELECT c.obs, c.valor, c.codplc, c.idlote, c.tiporecurso, c.codparceiro, c.nrparcela, c.gerado,
+        b.idlote AS bxlote, b.codplc_acredesc, b.codplc_juros
+        FROM areceber_bx b JOIN caixa c ON c.idlote = b.idlote AND c.origem = 'BAIXA ARECEBER' WHERE b.codrcb = $1 AND coalesce(b.indr, 'I') = 'I' ORDER BY c.valor DESC`, [bxId2])).rows as any[];
+    const cxAr = await cxBxAr();
+    const loteAr = Number(cxAr[0]?.bxlote);
+    await fetch(`${base}/${AR}/${bxId2}/estornar-baixa`, { method: 'POST', headers: H });
+    const cxArDepois = Number(((await pgBx.query(`SELECT count(*) AS n FROM caixa WHERE upper(obs) LIKE $1`, [`%LOTE ${loteAr}`])).rows[0] as any).n);
+    check('CR-baixa [juros e desconto na CAIXA gerencial]: sem centro de custo é 422 BAIXA_CC_JUROS ("Informe o centro de custo para juros."); com o padrão da empresa, a baixa ganha um LOTE (o ID_IDLOTE, mig 323) e lança "Ref. juros recebidos lote N" +10 no CC de juros e "Ref. descontos concedidos lote N" −5 no de descontos, DINHEIRO, parceiro 0, SISTEMA (UBaixaAreceber.pas:1767); a baixa guarda os CCs (CODPLC_JUROS 5, CODPLC_ACREDESC 2); o estorno apaga as linhas (UReversaoBaixaContasReceber.pas:62)',
+      bxSemCc.status === 422 && bxSemCcJ.code === 'BAIXA_CC_JUROS' && cxAr.length === 2 && loteAr > 0
+      && cxAr[0].obs === `Ref. juros recebidos lote ${loteAr}` && Number(cxAr[0].valor) === 10 && Number(cxAr[0].codplc) === 5
+      && cxAr[1].obs === `Ref. descontos concedidos lote ${loteAr}` && Number(cxAr[1].valor) === -5 && Number(cxAr[1].codplc) === 2
+      && cxAr[0].tiporecurso === 'DINHEIRO' && Number(cxAr[0].codparceiro) === 0 && cxAr[0].nrparcela === '1' && cxAr[0].gerado === 'SISTEMA'
+      && Number(cxAr[0].codplc_juros) === 5 && Number(cxAr[0].codplc_acredesc) === 2 && cxArDepois === 0,
+      { semCc: [bxSemCc.status, bxSemCcJ.code], cxAr, cxArDepois });
 
     // 32.5-lockout) E7 FAST-FOLLOW: lockout da senha de operação por (empresa, tipo). Config max=2 → 2 erradas
     // bloqueiam; senha CORRETA durante o bloqueio → 422 SENHA_OPERACAO_BLOQUEADA (recusa ANTES de verificar).
@@ -2739,6 +2759,21 @@ async function main() {
     const apBxId2 = await crAp();
     const apJ = await fetch(`${base}/${AP}/${apBxId2}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ juros: 10, desconto: 5 }) });
     check('CP-baixa: juros/desconto compõem valorpg (105)', apJ.status === 200 && Number(((await apJ.json().catch(() => ({}))) as any).valorpg) === 105, {});
+    const cxAp = (await pgAp.query(`SELECT c.obs, c.valor, c.codplc, b.idlote AS bxlote FROM apagar_bx b JOIN caixa c ON c.idlote = b.idlote AND c.origem = 'BAIXA APAGAR'
+        WHERE b.codapg = $1 AND coalesce(b.indr, 'I') = 'I' ORDER BY c.valor`, [apBxId2])).rows as any[];
+    const loteAp = Number(cxAp[0]?.bxlote);
+    const apAcre = await crAp();
+    const apA = await fetch(`${base}/${AP}/${apAcre}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ acrescimo: 3, codplcAcrescimo: 3 }) });
+    const cxApA = (await pgAp.query(`SELECT c.obs, c.valor, c.codplc FROM apagar_bx b JOIN caixa c ON c.idlote = b.idlote AND c.origem = 'BAIXA APAGAR' WHERE b.codapg = $1`, [apAcre])).rows as any[];
+    await fetch(`${base}/${AP}/${apBxId2}/estornar-baixa`, { method: 'POST', headers: H });
+    await fetch(`${base}/${AP}/${apAcre}/estornar-baixa`, { method: 'POST', headers: H });
+    const cxApDepois = Number(((await pgAp.query(`SELECT count(*) AS n FROM caixa WHERE origem = 'BAIXA APAGAR' AND idlote IN ($1, $2)`, [loteAp, Number(((await pgAp.query(`SELECT idlote FROM apagar_bx WHERE codapg = $1`, [apAcre])).rows[0] as any)?.idlote ?? -1)])).rows[0] as any).n);
+    check('CP-baixa [juros, acréscimo e desconto na CAIXA gerencial]: no pagamento o dinheiro sai — "Ref. juros pgto lote N" −10 (CC de juros pagos da empresa) e "Ref. descontos recebidos lote N" +5 (UBaixaApagar.pas:790-792); o acréscimo informado com o próprio CC vai −3 nele ("Ref. acréscimos pgto lote N"); o estorno apaga (UReversaoBaixaContasPagar.pas:169)',
+      cxAp.length === 2 && cxAp[0].obs === `Ref. juros pgto lote ${loteAp}` && Number(cxAp[0].valor) === -10 && Number(cxAp[0].codplc) === 2
+      && cxAp[1].obs === `Ref. descontos recebidos lote ${loteAp}` && Number(cxAp[1].valor) === 5 && Number(cxAp[1].codplc) === 5
+      && apA.status === 200 && cxApA.length === 1 && /^Ref\. acréscimos pgto lote \d+$/.test(cxApA[0].obs) && Number(cxApA[0].valor) === -3 && Number(cxApA[0].codplc) === 3
+      && cxApDepois === 0,
+      { cxAp, cxApA, apA: apA.status, cxApDepois });
     const apAgr = await fetch(`${base}/${AP}/7004/baixar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
     check('CP-baixa: pagar agrupado → 422 TITULO_AGRUPADO', apAgr.status === 422 && ((await apAgr.json().catch(() => ({}))) as any).code === 'TITULO_AGRUPADO', { status: apAgr.status });
     const apBxId3 = await crAp();

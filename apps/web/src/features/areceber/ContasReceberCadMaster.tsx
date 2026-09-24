@@ -176,6 +176,10 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarAreceberDto> }) {
   const [desconto, setDesconto] = useState<number | undefined>(undefined);
   const [recurso, setRecurso] = useState<string>(''); // '' = sem caixa · DINHEIRO = caixa · BANCO = depósito
   const [codconta, setCodconta] = useState<number | undefined>(undefined);
+  // o centro de custo dos juros e do desconto (ValidaCentroCustos): vazio = o padrão da empresa (EMPRESAS.CODPLC_*)
+  const [codplcJuros, setCodplcJuros] = useState<string>('');
+  const [codplcDesconto, setCodplcDesconto] = useState<string>('');
+  const { data: ccOptions = [] } = useResourceOptions('cadastro/plc', (c: any) => ({ value: String(c.codplc), label: `${c.desccodplc ?? c.codplc} - ${c.descricao}` }));
   const [senhaOperacao, setSenhaOperacao] = useState<string>(''); // senha de operação 'DESC' (E7) — exigida se há desconto
   const exigeSenha = !!desconto && Number(desconto) !== 0; // gate fiel a UBaixaAreceber.edtDesc_AcreExit (desconto ≠ 0)
   const { data: contasBancarias = [] } = useResourceOptions(
@@ -190,6 +194,8 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarAreceberDto> }) {
     try {
       const r = await baixarTitulo(codrcb, {
         dtpgto, juros, desconto,
+        codplcJuros: codplcJuros ? Number(codplcJuros) : undefined,
+        codplcDesconto: codplcDesconto ? Number(codplcDesconto) : undefined,
         recurso: recurso === 'DINHEIRO' || recurso === 'BANCO' ? (recurso as 'DINHEIRO' | 'BANCO') : undefined,
         codconta: recurso === 'BANCO' ? codconta : undefined,
         senhaOperacao: exigeSenha ? senhaOperacao : undefined, // só envia a senha quando há desconto (E7)
@@ -239,6 +245,12 @@ function BaixaSection({ form }: { form: UseFormReturn<CriarAreceberDto> }) {
           <div className="w-36">
             <NumberField label="&Desconto (R$)" value={desconto} onChange={setDesconto} decimais={2} min={0} />
           </div>
+          {!!juros && Number(juros) > 0 && (
+            <div className="w-56"><SelectField label="C. custo dos juros" options={ccOptions} value={codplcJuros || undefined} onChange={(v) => setCodplcJuros(v ?? '')} placeholder="Padrão da empresa" /></div>
+          )}
+          {!!desconto && Number(desconto) > 0 && (
+            <div className="w-56"><SelectField label="C. custo do desconto" options={ccOptions} value={codplcDesconto || undefined} onChange={(v) => setCodplcDesconto(v ?? '')} placeholder="Padrão da empresa" /></div>
+          )}
           <div className="w-44">
             <SelectField
               label="&Recurso"
