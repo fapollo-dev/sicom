@@ -90,6 +90,8 @@ SELECT setval('seq_nfe_financeiro_manifesto', coalesce((SELECT max(id_fm) FROM n
 
 -- A SUGESTÃO DE PROMOÇÃO (mig 330): a sequência depois das sugestões carregadas.
 SELECT setval('seq_sugest_promo_prod', coalesce((SELECT max(idsugest_promo_prod) FROM sugest_promo_prod), 0)::bigint + 1, false);
+-- mig 334: o cabeçalho do lançamento provisório do fechamento de caixa (DADOSCX, 133 linhas na produção)
+SELECT setval('seq_dadoscx', coalesce((SELECT max(coddadoscx) FROM dadoscx), 0)::bigint + 1, false);
 
 -- A DATA DO TÍTULO A PAGAR (mig 327): o legado só tem DTCOMPRA; a tela do Apollo lê `dtvenda`. A trigger da mig 327
 -- sincroniza as duas a cada gravação — aqui para o caso de a carga ter rodado com as triggers desligadas. Idempotente.

@@ -20285,6 +20285,59 @@ async function main() {
         await pgCA.end();
       }
     }
+    // ══ §185 FECHAMENTO DE CAIXA, corte 4: o LANÇAMENTO PROVISÓRIO (UlancProv, BTNLANCPROV; mig 334) ══
+    {
+      const pgCB = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const FC = 'cobranca/fechamento-caixa/turno/lancamento-provisorio';
+      const DIA = '2038-03-18';
+      const CHA = '79180338080000';
+      const tA = { data: DIA, chave: CHA, nropdv: 79, codoperadora: 7 };
+      const qsT = new URLSearchParams({ data: DIA, chave: CHA, nropdv: '79', codoperadora: '7' }).toString();
+      const req = async (method: string, path: string, body?: unknown, headers = H) => {
+        const r = await fetch(`${base}/${FC}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+        return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+      };
+      try {
+        await pgCB.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) SELECT 'FRMFECHAMENTOCAIXA', 'BTNLANCPROV', 7, 1
+            WHERE NOT EXISTS (SELECT 1 FROM permissoes WHERE form = 'FRMFECHAMENTOCAIXA' AND opcao = 'BTNLANCPROV' AND codoperador = 7 AND codempresa = 1)`);
+        await pgCB.query(`INSERT INTO pdv (codpdv, nropdv, descricao, codempresa) VALUES (979, 79, 'PDV 79 SMOKE', 1) ON CONFLICT DO NOTHING`);
+        for (const [op, v, ped] of [['DINHEIRO', 100, '797001'], ['CARTOES', 50, '797002']] as Array<[string, number, string]>) {
+          await pgCB.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, debito_credito, valor, troco, nropedido, chave)
+              VALUES (1, $1, 79, 7, $2, 'C', $3, 0, $4, $5)`, [`${DIA} 09:00:00-03`, op, v, ped, CHA]);
+        }
+        const g0 = await req('GET', `?${qsT}`);
+        const cab = await req('PUT', '', { ...tA, codfiscalcaixa: 7, gtinicial: 1000, gtfinal: 1200, cancelamentos: 20, descontos: 30 });
+        const dx = (await pgCB.query(`SELECT codpdv, codoperador, codfiscalcaixa, vendab::float AS vendab, vendal::float AS vendal, to_char(data, 'YYYY-MM-DD') AS dia
+            FROM dadoscx WHERE codpdv = 979 AND codoperador = 7`)).rows as any[];
+        const zero = await req('POST', '/linhas', { ...tA, operacao: 'DINHEIRO', valor: 0, codfiscalcaixa: 7 });
+        const semMod = await req('POST', '/linhas', { ...tA, operacao: 'INEXISTENTE', valor: 5, codfiscalcaixa: 7 });
+        const semFiscal = await req('POST', '/linhas', { ...tA, operacao: 'DINHEIRO', valor: 5, codfiscalcaixa: 98765 });
+        const l1 = await req('POST', '/linhas', { ...tA, operacao: 'DINHEIRO', valor: -68.23, codfiscalcaixa: 7 });
+        const l2 = await req('POST', '/linhas', { ...tA, operacao: 'CARTOES', valor: 68.23, codfiscalcaixa: 7 });
+        const prov = (await pgCB.query(`SELECT codcxvendas, operacao, valor::float AS valor, nropedido, lanc_provisorio, lanc_provisorio_usuario, lanc_provisorio_data IS NOT NULL AS dt,
+            codfiscalcaixa, coo, gnf, chave, debito_credito, to_char(data AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD HH24:MI') AS dia
+            FROM cx_vendas WHERE chave = $1 AND lanc_provisorio = 'S' ORDER BY codcxvendas`, [CHA])).rows as any[];
+        const g1 = await req('GET', `?${qsT}`);
+        const x = await req('POST', '/linhas/excluir', { ...tA, codcxvendas: Number(prov[1]?.codcxvendas) });
+        const g2 = await req('GET', `?${qsT}`);
+        const rbac = await req('GET', `?${qsT}`, undefined, H_SEM_ACESSO);
+        check('FECHAMENTO §185 [lançamento provisório]: sem cabeçalho a tela mostra as linhas abertas do turno (2); gravar o cabeçalho cria a DADOSCX do dia × PDV interno (979) × operador com o fiscal e a venda bruta (1200 − 1000 = 200) e líquida (200 − 30 − 20 = 150); valor zero, modalidade fora do cadastro e fiscal inexistente → 422; cada modalidade vira uma linha "00000" da CX_VENDAS com o fiscal, LANC_PROVISORIO S, a data e o usuário, COO/GNF 0, a chave e o dia do caixa; a soma (100 + 50 − 68,23 + 68,23 = 150) confere com a venda líquida; remover uma linha desconfere; sem o BTNLANCPROV → 403',
+          g0.status === 200 && g0.j.cabecalho === null && g0.j.linhas?.length === 2
+          && cab.status === 200 && dx.length === 1 && Number(dx[0].codpdv) === 979 && Number(dx[0].codfiscalcaixa) === 7 && dx[0].vendab === 200 && dx[0].vendal === 150 && dx[0].dia === DIA
+          && zero.status === 422 && semMod.status === 422 && semMod.j.code === 'FECHAMENTO_MODALIDADE_INEXISTENTE' && semFiscal.status === 422 && semFiscal.j.code === 'FECHAMENTO_FISCAL_INEXISTENTE'
+          && l1.status === 200 && l2.status === 200 && prov.length === 2
+          && prov.every((p) => p.nropedido === '00000' && Number(p.lanc_provisorio_usuario) === 7 && p.dt && Number(p.codfiscalcaixa) === 7 && Number(p.coo) === 0 && Number(p.gnf) === 0
+            && p.chave === CHA && p.debito_credito === 'C' && p.dia === `${DIA} 00:00`)
+          && g1.j.total === 150 && g1.j.confere === true && g1.j.cabecalho?.vendal === 150
+          && x.status === 200 && g2.j.linhas?.length === 3 && g2.j.total === 81.77 && g2.j.confere === false && rbac.status === 403,
+          { g0: [g0.status, g0.j.cabecalho, g0.j.linhas?.length], cab: cab.status, dx, zero: zero.status, semMod: semMod.j.code, semFiscal: semFiscal.j.code, prov, g1: [g1.j.total, g1.j.confere], g2: [g2.j.linhas?.length, g2.j.total, g2.j.confere], rbac: rbac.status });
+      } finally {
+        await pgCB.query(`DELETE FROM dadoscx WHERE codpdv = 979 AND codoperador = 7`).catch(() => undefined);
+        await pgCB.query(`DELETE FROM cx_vendas WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgCB.query(`DELETE FROM pdv WHERE codpdv = 979`).catch(() => undefined);
+        await pgCB.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

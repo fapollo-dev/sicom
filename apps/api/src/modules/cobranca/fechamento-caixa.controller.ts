@@ -1,7 +1,9 @@
 import { Body, Controller, Get, HttpCode, Post, Put, Query, UseGuards } from '@nestjs/common';
 import {
-  editarDocumentoFechamentoSchema, efetivarFechamentoSchema, excluirDocumentoFechamentoSchema, inserirDocumentoFechamentoSchema, rascunhoFechamentoSchema, turnoFechamentoSchema,
-  type EditarDocumentoFechamentoDto, type EfetivarFechamentoDto, type ExcluirDocumentoFechamentoDto, type InserirDocumentoFechamentoDto, type RascunhoFechamentoDto, type TurnoFechamentoDto,
+  editarDocumentoFechamentoSchema, efetivarFechamentoSchema, excluirDocumentoFechamentoSchema, inserirDocumentoFechamentoSchema, lancProvCabecalhoSchema, lancProvExcluirSchema,
+  lancProvLinhaSchema, rascunhoFechamentoSchema, turnoFechamentoSchema,
+  type EditarDocumentoFechamentoDto, type EfetivarFechamentoDto, type ExcluirDocumentoFechamentoDto, type InserirDocumentoFechamentoDto, type LancProvCabecalhoDto,
+  type LancProvExcluirDto, type LancProvLinhaDto, type RascunhoFechamentoDto, type TurnoFechamentoDto,
 } from '@apollo/shared';
 import { FechamentoCaixaService } from './fechamento-caixa.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -30,6 +32,33 @@ export class FechamentoCaixaController {
   @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNFECHA')
   detalhe(@Query(new ZodValidationPipe(turnoFechamentoSchema)) q: TurnoFechamentoDto) {
     return this.svc.detalhe(q);
+  }
+
+  /** o lançamento provisório do turno (BTNLANCPROV): o cabeçalho DADOSCX e as linhas abertas */
+  @Get('turno/lancamento-provisorio')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNLANCPROV')
+  lancamentoProvisorio(@Query(new ZodValidationPipe(turnoFechamentoSchema)) q: TurnoFechamentoDto) {
+    return this.svc.lancamentoProvisorio(q);
+  }
+
+  @Put('turno/lancamento-provisorio')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNLANCPROV')
+  gravarCabecalhoLancProv(@Body(new ZodValidationPipe(lancProvCabecalhoSchema)) body: LancProvCabecalhoDto) {
+    return this.svc.gravarCabecalhoLancProv(body);
+  }
+
+  @Post('turno/lancamento-provisorio/linhas')
+  @HttpCode(200)
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNLANCPROV')
+  inserirLinhaLancProv(@Body(new ZodValidationPipe(lancProvLinhaSchema)) body: LancProvLinhaDto) {
+    return this.svc.inserirLinhaLancProv(body);
+  }
+
+  @Post('turno/lancamento-provisorio/linhas/excluir')
+  @HttpCode(200)
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNLANCPROV')
+  excluirLinhaLancProv(@Body(new ZodValidationPipe(lancProvExcluirSchema)) body: LancProvExcluirDto) {
+    return this.svc.excluirLinhaLancProv(body);
   }
 
   /** os cupons e itens cancelados do turno (Enter em "Cancelamentos" na finalização) — o diálogo não tem RBAC próprio */

@@ -465,3 +465,18 @@ com a comparação certa (NROPEDIDO + valor numérico).
 - **`caixaFechadoNoPdv`** reproduz o `CaixaFechadoNoPDV` do legado: a primeira CAIXA_PDV do operador e do PDV, pela chave, e também no dia com `FECHAMENTO_CAIXA_SOMENTE_CHAVE`='N'. Não filtra a empresa, como o legado. O modo 'P' do 4.1/4.2 passou a usá-lo; antes, ignorava o operador.
 - **Transferência:** o F6 dos caixas em aberto vira o botão "Transferência" da lista, que leva a `/financeiro/contas-correntes` (a transferência do controle de contas já migrada).
 - **Smoke §184:** 1521/0.
+
+### 4.8 ENTREGUE (24/09/2026) — o lançamento provisório (`UlancProv`, BTNLANCPROV; mig 334)
+
+- **O que é:** a ferramenta de suporte para acertar um turno à mão. Na produção: 14 linhas em 2025 e 1 em 2026, todas do usuário 1; 133 DADOSCX desde 2020, só com o fiscal.
+- **API:** `GET/PUT turno/lancamento-provisorio`, `POST …/linhas` e `…/linhas/excluir`, todos com RBAC BTNLANCPROV.
+- **Cabeçalho:** DADOSCX do dia × PDV interno × operador, com fiscal, GT inicial/final, cancelamentos e descontos.
+  - Venda bruta = GT final − GT inicial; líquida = bruta − descontos − cancelamentos.
+  - Mig 334: sequência de CODDADOSCX, mais o setval no pós-carga.
+- **Linhas:**
+  - A grade mostra as CX_VENDAS abertas do dia, do PDV e do operador (sem filtrar a chave, como o `cdsLancProv`).
+  - Cada modalidade digitada vira uma linha '00000' com o fiscal, LANC_PROVISORIO 'S', a data e o usuário (`cdsLancProvNewRecord`), COO/GNF 0 e a chave.
+  - "Remover" apaga qualquer linha aberta da grade, como o legado.
+- **"Efetivar lançamento":** só confere Σ(valor + sangrias − suprimentos) contra a venda líquida ("Venda liquida diverge do total informado!"). As linhas já foram gravadas.
+- **Fora:** os ramos de sangria e suprimento do diálogo, com 0 uso na produção (spec §3).
+- **Smoke §185:** 1522/0.

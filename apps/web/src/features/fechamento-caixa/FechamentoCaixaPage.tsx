@@ -9,6 +9,7 @@ import { SelectField } from '../../shared/ui/SelectField';
 import { listarOperadoras, type Operadora } from '../cartao/cartaoApi';
 import { imprimirPagina } from '../../shared/print/imprimirPagina';
 import { imprimirComprovanteQuebra, imprimirHistorico } from './imprimirFechamento';
+import { LancamentoProvisorioModal } from './LancamentoProvisorioModal';
 import { useMensagem } from '../../shared/mensagem';
 import {
   abrirTurno, cancelamentosTurno, comprovanteQuebra, descontosTurno, detalheTurno, documentosTurno, editarDocumento, historicoTurno, efetivarTurno, excluirDocumento, inserirDocumento, listarTurnos, reabrirTurno, salvarRascunho,
@@ -57,6 +58,7 @@ export function FechamentoCaixaPage() {
   const [edicao, setEdicao] = useState<Edicao | null>(null);
   const [exclusao, setExclusao] = useState<Exclusao | null>(null);
   // os diálogos de leitura da finalização: cancelamentos (Enter no campo) e vendas com descontos (F6)
+  const [lancProv, setLancProv] = useState(false);
   const [leitura, setLeitura] = useState<{ tipo: 'cancelamentos'; d: CancelamentosTurno } | { tipo: 'descontos'; d: DescontoTurno[] } | null>(null);
   const [operadoras, setOperadoras] = useState<Operadora[]>([]);
   useEffect(() => {
@@ -364,6 +366,7 @@ export function FechamentoCaixaPage() {
               {!consulta && <Button label="&Gravar conferência" variant="soft" onClick={() => void salvar()} disabled={ocupado} />}
               {!consulta && <Button label="&Efetivar fechamento" onClick={() => void efetivar()} disabled={ocupado || !!det.pdvNaoFechado} />}
               {consulta && det.turno.situacao === 3 && <Button label="&Reabrir caixa" variant="soft" onClick={() => void reabrir()} disabled={ocupado} />}
+              {!consulta && <Button label="&Lançamento provisório" variant="ghost" onClick={() => setLancProv(true)} disabled={ocupado} />}
               <Button label="Comprovante de &quebra" variant="ghost" onClick={imprimirQuebra} disabled={ocupado} />
               <Button label="&Histórico" variant="ghost" onClick={imprimirHist} disabled={ocupado} />
               <Button label="&Voltar" variant="soft" onClick={() => void voltar()} disabled={ocupado} />
@@ -467,6 +470,14 @@ export function FechamentoCaixaPage() {
             </div>
           </section>
         </>
+      )}
+
+      {lancProv && ref && (
+        <LancamentoProvisorioModal
+          turno={ref}
+          onClose={() => setLancProv(false)}
+          onAlterou={() => void executar(async () => { setDet(await detalheTurno(ref)); })}
+        />
       )}
 
       {leitura && (

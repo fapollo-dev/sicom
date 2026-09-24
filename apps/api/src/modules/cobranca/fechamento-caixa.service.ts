@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { sql, type RawBuilder } from 'kysely';
 import type {
-  EditarDocumentoFechamentoDto, EfetivarFechamentoDto, ExcluirDocumentoFechamentoDto, InserirDocumentoFechamentoDto, RascunhoFechamentoDto, TurnoFechamentoDto,
+  EditarDocumentoFechamentoDto, EfetivarFechamentoDto, ExcluirDocumentoFechamentoDto, InserirDocumentoFechamentoDto, LancProvCabecalhoDto, LancProvExcluirDto,
+  LancProvLinhaDto, RascunhoFechamentoDto, TurnoFechamentoDto,
 } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -951,6 +952,108 @@ export class FechamentoCaixaService {
       const mcb = h.identificador_movcb ? (await sql`DELETE FROM mov_contas_bancarias WHERE identificador = ${h.identificador_movcb}`.execute(trx)).numAffectedRows : 0n;
       return { tipo: 'SANGRIA', codigo: dto.codigo, excluido: true, liberado, movimentacoes: Number(mcb ?? 0) };
     });
+  }
+
+  // ── o lançamento provisório (UlancProv, BTNLANCPROV) ──────────────────────────────────────────────────────────
+  /**
+   * O LANÇAMENTO PROVISÓRIO (`TfrmLanProv`, UlancProv.pas; `DMLancProv`): a ferramenta de suporte para acertar um turno à mão —
+   * na produção, 14 linhas em 2025 e 1 em 2026, todas do usuário 1 (ajustes entre modalidades, ex.: DINHEIRO −68,23 / CARTOES
+   * +68,23), e 133 cabeçalhos DADOSCX desde 2020 só com o fiscal. As linhas são as de CX_VENDAS abertas do dia, do PDV e do
+   * operador (`cdsLancProv`: sem filtrar a chave, como o legado); cada modalidade digitada vira uma linha '00000' com o fiscal,
+   * LANC_PROVISORIO 'S', a data e o usuário (`cdsLancProvNewRecord`). O cabeçalho é a DADOSCX do dia × PDV (o código interno)
+   * × operador. Os ramos de sangria e suprimento do diálogo não são usados na produção (spec §3) e ficam de fora.
+   */
+  private async ctxLancProv(db: AnyDB, t: TurnoFechamentoDto) {
+    const c = await this.contexto(db, t);
+    const codpdv = (await sql<{ codpdv: number }>`SELECT codpdv FROM pdv WHERE nropdv = ${c.pdv} AND codempresa = ${c.emp} ORDER BY codpdv LIMIT 1`.execute(db)).rows[0]?.codpdv ?? null;
+    return { c, codpdv: codpdv == null ? null : Number(codpdv) };
+  }
+
+  private async linhasLancProv(db: AnyDB, c: Ctx) {
+    return ((await sql<Record<string, unknown>>`
+      SELECT cx.codcxvendas, upper(cx.operacao) AS operacao, cx.valor, coalesce(cx.sangrias, 0) AS sangrias, coalesce(cx.suprimentos, 0) AS suprimentos,
+             cx.nropedido, cx.lanc_provisorio, cx.codfiscalcaixa
+        FROM cx_vendas cx
+       WHERE ${this.noDia('cx.data', c)} AND cx.nropdv = ${c.pdv} AND cx.codoperadora = ${c.op} AND cx.status IS NULL AND cx.idempresa = ${c.emp}
+       ORDER BY cx.codcxvendas`.execute(db)).rows).map((r) => ({
+      codcxvendas: Number(r.codcxvendas), operacao: String(r.operacao ?? ''), valor: num(r.valor), sangrias: num(r.sangrias), suprimentos: num(r.suprimentos),
+      nropedido: r.nropedido ?? null, provisorio: r.lanc_provisorio === 'S', codfiscalcaixa: r.codfiscalcaixa == null ? null : Number(r.codfiscalcaixa),
+    }));
+  }
+
+  async lancamentoProvisorio(t: TurnoFechamentoDto) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const { c, codpdv } = await this.ctxLancProv(db, t);
+    const cab = codpdv == null ? undefined : (await sql<Record<string, unknown>>`
+      SELECT d.coddadoscx, d.codfiscalcaixa, op.nome AS fiscal, d.gtinicial, d.gtfinal, d.vendab, d.vendal, d.cancelamentos, d.descontos
+        FROM dadoscx d LEFT JOIN operadores op ON op.codoperador = d.codfiscalcaixa
+       WHERE d.data::date = ${c.data}::date AND d.codpdv = ${codpdv} AND d.codoperador = ${c.op} ORDER BY d.coddadoscx LIMIT 1`.execute(db)).rows[0];
+    const linhas = await this.linhasLancProv(db, c);
+    const total = r2(linhas.reduce((s, l) => s + l.valor + l.sangrias - l.suprimentos, 0));
+    const formas = (await sql<{ modalidade: string }>`SELECT DISTINCT upper(modalidade) AS modalidade FROM formas_pgto WHERE idempresa = ${c.emp} ORDER BY 1`.execute(db)).rows.map((f) => f.modalidade);
+    return {
+      cabecalho: cab ? {
+        codfiscalcaixa: cab.codfiscalcaixa == null ? null : Number(cab.codfiscalcaixa), fiscal: cab.fiscal ?? null, gtinicial: cab.gtinicial == null ? null : num(cab.gtinicial),
+        gtfinal: cab.gtfinal == null ? null : num(cab.gtfinal), vendab: cab.vendab == null ? null : num(cab.vendab), vendal: cab.vendal == null ? null : num(cab.vendal),
+        cancelamentos: cab.cancelamentos == null ? null : num(cab.cancelamentos), descontos: cab.descontos == null ? null : num(cab.descontos),
+      } : null,
+      linhas, total, formas,
+      // "Efetivar lançamento" só confere (`btnFechaClick`): Σ(VALOR + SANGRIAS − SUPRIMENTOS) contra a venda líquida
+      confere: cab ? total === r2(num(cab.vendal)) : total === 0,
+    };
+  }
+
+  /** o cabeçalho (DADOSCX): a venda bruta = GT final − GT inicial e a líquida = bruta − descontos − cancelamentos (`edtgtfinalExit`/`edtdescExit`) */
+  async gravarCabecalhoLancProv(dto: LancProvCabecalhoDto) {
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const { c, codpdv } = await this.ctxLancProv(trx, dto);
+      if (codpdv == null) throw new BusinessRuleError('FECHAMENTO_PDV_NAO_CADASTRADO', { pdv: c.pdv, empresa: c.emp });
+      if (dto.codfiscalcaixa != null && !(await sql`SELECT 1 FROM operadores WHERE codoperador = ${dto.codfiscalcaixa}`.execute(trx)).rows.length) {
+        throw new BusinessRuleError('FECHAMENTO_FISCAL_INEXISTENTE');
+      }
+      const vendab = dto.gtfinal == null && dto.gtinicial == null ? null : r2(num(dto.gtfinal) - num(dto.gtinicial));
+      const vendal = vendab == null && dto.descontos == null && dto.cancelamentos == null ? null : r2(num(vendab) - num(dto.descontos) - num(dto.cancelamentos));
+      const existe = (await sql<{ coddadoscx: number }>`SELECT coddadoscx FROM dadoscx WHERE data::date = ${c.data}::date AND codpdv = ${codpdv} AND codoperador = ${c.op}
+          ORDER BY coddadoscx LIMIT 1 FOR UPDATE`.execute(trx)).rows[0];
+      const valores = { codfiscalcaixa: dto.codfiscalcaixa ?? null, gtinicial: dto.gtinicial ?? null, gtfinal: dto.gtfinal ?? null, vendab, vendal,
+        cancelamentos: dto.cancelamentos ?? null, descontos: dto.descontos ?? null };
+      if (existe) await trx.updateTable('dadoscx').set(valores).where('coddadoscx', '=', existe.coddadoscx).execute();
+      else await trx.insertInto('dadoscx').values({ ...valores, data: sql`${c.data}::date`, codpdv, codoperador: c.op }).execute();
+      return this.lancamentoProvisorioNaTrx(trx, c);
+    });
+  }
+
+  /** uma modalidade (`edtValorExit`): valor diferente de zero, a modalidade do cadastro e o fiscal obrigatório */
+  async inserirLinhaLancProv(dto: LancProvLinhaDto) {
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const c = await this.contexto(trx, dto);
+      const operacao = String(dto.operacao).trim().toUpperCase();
+      if (r2(num(dto.valor)) === 0) throw new BusinessRuleError('FECHAMENTO_DOCUMENTO_VALOR');
+      if (!(await sql`SELECT 1 FROM formas_pgto WHERE idempresa = ${c.emp} AND upper(modalidade) = ${operacao}`.execute(trx)).rows.length) {
+        throw new BusinessRuleError('FECHAMENTO_MODALIDADE_INEXISTENTE', { operacao });
+      }
+      if (!(await sql`SELECT 1 FROM operadores WHERE codoperador = ${dto.codfiscalcaixa}`.execute(trx)).rows.length) throw new BusinessRuleError('FECHAMENTO_FISCAL_INEXISTENTE');
+      await sql`INSERT INTO cx_vendas (data, nropdv, codoperadora, codfiscalcaixa, nropedido, operacao, debito_credito, valor, chave, coo, gnf, idempresa,
+                                       lanc_provisorio, lanc_provisorio_data, lanc_provisorio_usuario)
+          VALUES (${this.ini(c)}, ${c.pdv}, ${c.op}, ${dto.codfiscalcaixa}, '00000', ${operacao}, 'C', ${r2(num(dto.valor))}, ${c.chave}, 0, 0, ${c.emp},
+                  'S', now(), ${currentTenant().operadorId ?? null})`.execute(trx);
+      return this.lancamentoProvisorioNaTrx(trx, c);
+    });
+  }
+
+  /** remover uma linha da grade ("Deseja remover está modalidade?", Del) — qualquer linha aberta do turno, como o legado */
+  async excluirLinhaLancProv(dto: LancProvExcluirDto) {
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const c = await this.contexto(trx, dto);
+      if (!(await this.linhasLancProv(trx, c)).some((l) => l.codcxvendas === dto.codcxvendas)) throw new BusinessRuleError('FECHAMENTO_DOCUMENTO_FORA_DO_TURNO', { codigo: dto.codcxvendas });
+      await sql`DELETE FROM cx_vendas WHERE codcxvendas = ${dto.codcxvendas}`.execute(trx);
+      return this.lancamentoProvisorioNaTrx(trx, c);
+    });
+  }
+
+  private async lancamentoProvisorioNaTrx(trx: AnyDB, c: Ctx) {
+    const linhas = await this.linhasLancProv(trx, c);
+    return { linhas, total: r2(linhas.reduce((s, l) => s + l.valor + l.sangrias - l.suprimentos, 0)) };
   }
 
   // ── os diálogos de leitura: cancelamentos (F5) e descontos (F6) ────────────────────────────────────────────────

@@ -13506,7 +13506,7 @@
      "tam": 10,
      "escala": 0,
      "nulo": false,
-     "default": null
+     "default": "nextval('seq_dadoscx'::regclass)"
     },
     "data": {
      "tipo": "timestamp with time zone",

@@ -131,3 +131,18 @@ export interface CancelamentosTurno {
 export interface DescontoTurno { nrocupom: string | null; codbarra: string | null; descricao: string | null; codproduto: number; desconto: number; responsavel: string | null; motivo: string | null }
 export const cancelamentosTurno = (t: TurnoRef) => req<CancelamentosTurno>(`${P}/turno/cancelamentos?${qs(t)}`);
 export const descontosTurno = (t: TurnoRef) => req<DescontoTurno[]>(`${P}/turno/descontos?${qs(t)}`);
+export interface LinhaLancProv { codcxvendas: number; operacao: string; valor: number; sangrias: number; suprimentos: number; nropedido: string | null; provisorio: boolean; codfiscalcaixa: number | null }
+export interface LancamentoProvisorio {
+  cabecalho: { codfiscalcaixa: number | null; fiscal: string | null; gtinicial: number | null; gtfinal: number | null; vendab: number | null; vendal: number | null; cancelamentos: number | null; descontos: number | null } | null;
+  linhas: LinhaLancProv[];
+  total: number;
+  formas: string[];
+  confere: boolean;
+}
+export const lancamentoProvisorio = (t: TurnoRef) => req<LancamentoProvisorio>(`${P}/turno/lancamento-provisorio?${qs(t)}`);
+export const gravarCabecalhoLancProv = (t: TurnoRef, cab: { codfiscalcaixa?: number; gtinicial?: number; gtfinal?: number; cancelamentos?: number; descontos?: number }) =>
+  req<{ linhas: LinhaLancProv[]; total: number }>(`${P}/turno/lancamento-provisorio`, { method: 'PUT', body: JSON.stringify({ ...t, ...cab }) });
+export const inserirLinhaLancProv = (t: TurnoRef, linha: { operacao: string; valor: number; codfiscalcaixa: number }) =>
+  req<{ linhas: LinhaLancProv[]; total: number }>(`${P}/turno/lancamento-provisorio/linhas`, { method: 'POST', body: JSON.stringify({ ...t, ...linha }) });
+export const excluirLinhaLancProv = (t: TurnoRef, codcxvendas: number) =>
+  req<{ linhas: LinhaLancProv[]; total: number }>(`${P}/turno/lancamento-provisorio/linhas/excluir`, { method: 'POST', body: JSON.stringify({ ...t, codcxvendas }) });

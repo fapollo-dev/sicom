@@ -92,3 +92,25 @@ export const excluirDocumentoFechamentoSchema = turnoFechamentoSchema.extend({
   senha: z.string().max(100).optional(),
 });
 export type ExcluirDocumentoFechamentoDto = z.infer<typeof excluirDocumentoFechamentoSchema>;
+
+/**
+ * LANÇAMENTO PROVISÓRIO do turno (`UlancProv`, BTNLANCPROV; corte 4): o cabeçalho em DADOSCX (fiscal de caixa, GT inicial e
+ * final, cancelamentos e descontos — a venda bruta e a líquida são calculadas) e as linhas de modalidade em CX_VENDAS.
+ */
+const valorOpc = z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().optional());
+export const lancProvCabecalhoSchema = turnoFechamentoSchema.extend({
+  codfiscalcaixa: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().int().optional()),
+  gtinicial: valorOpc,
+  gtfinal: valorOpc,
+  cancelamentos: valorOpc,
+  descontos: valorOpc,
+});
+export type LancProvCabecalhoDto = z.infer<typeof lancProvCabecalhoSchema>;
+export const lancProvLinhaSchema = turnoFechamentoSchema.extend({
+  operacao: z.string().min(1).max(30),
+  valor: z.coerce.number(),
+  codfiscalcaixa: z.coerce.number().int().positive(),
+});
+export type LancProvLinhaDto = z.infer<typeof lancProvLinhaSchema>;
+export const lancProvExcluirSchema = turnoFechamentoSchema.extend({ codcxvendas: z.coerce.number().int().positive() });
+export type LancProvExcluirDto = z.infer<typeof lancProvExcluirSchema>;
