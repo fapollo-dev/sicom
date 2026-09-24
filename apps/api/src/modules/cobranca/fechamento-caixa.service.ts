@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type RawBuilder } from 'kysely';
-import type { RascunhoFechamentoDto, TurnoFechamentoDto } from '@apollo/shared';
+import type { EfetivarFechamentoDto, RascunhoFechamentoDto, TurnoFechamentoDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { currentTenant } from '../../shared/tenant/tenant-context';
@@ -323,6 +323,8 @@ export class FechamentoCaixaService {
       sangriaPendente: pendentes,
       dinheiroContado: doRascunho(CONTADO)?.vrreal ?? 0,
       contadoHabilitado: String(emp?.validacaixa ?? '') !== 'N',
+      // o limite da diferença acima do qual a caixa "saldo do operador" é marcada sozinha (VerificaCheckGeralSaldo)
+      limiteSaldo: Number(String((await this.cfg(db, 'LIMITE_LANCAR_SALDO_AUTOMATICAMENTE_FECHAMENTO', c.emp)) ?? '0').replace(',', '.')) || 0,
       filtraPdv: String(emp?.filtrapdv ?? '') !== 'NAO',
       adicionais: { recarga, correspondente, voucher, trocoSolidario },
       cancelamentos: cp.cancelamentos,
@@ -506,6 +508,13 @@ export class FechamentoCaixaService {
   async salvarRascunho(dto: RascunhoFechamentoDto) {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const c = await this.contexto(trx, dto);
+      return this.gravarRascunho(trx, c, dto);
+    });
+  }
+
+  /** o rascunho dentro de uma transação aberta — o salvar da tela e o primeiro passo do efetivar */
+  private async gravarRascunho(trx: AnyDB, c: Ctx, dto: RascunhoFechamentoDto) {
+    {
       const det = await this.montar(trx, c);
       if (det.modo === 'consulta') throw new BusinessRuleError('FECHAMENTO_CAIXA_CONSULTA');
       c.situacao = det.turno.situacao;
@@ -581,6 +590,255 @@ export class FechamentoCaixaService {
                    AND NOT (codigo = ANY(${codigos.length ? codigos : [-1]}::bigint[]))`.execute(trx);
       }
       return this.montar(trx, c);
+    }
+  }
+
+  // ── EFETIVAR (corte 2) ─────────────────────────────────────────────────────────────────────────────────────────
+  /**
+   * `btnFechaClick` (UfinalizaFechamento.pas:234-895; dossiê "CORTE 2"). Numa transação: o rascunho com a seleção; as
+   * validações do legado na ordem; o título do troco solidário/recarga/correspondente/voucher (`LancaApagar`); por linha
+   * da grade com REAL > 0 a CAIXA 'FECHAMENTO' (CC do par PDV × forma em CONTACORRENTE), o MCB 'FCP' e os HISTORICOs; a
+   * CONTACORRENTEOP de toda linha; com diferença, SALDO_OPERADOR — e, na quebra com o saldo marcado, o título A Receber
+   * 'Q' e a CAIXA da quebra; as marcas nos documentos conferidos; o CX_VENDAS vai a F/tesouraria com o grupo; e o
+   * CONSOLIDADO do rascunho (só no fechamento do mesmo dia, como o legado). A integração contábil é o corte 3.
+   * Guarda que o legado não tem: o turno é travado e tem de estar aberto (3 chaves foram fechadas duas vezes em 2026).
+   */
+  async efetivar(dto: EfetivarFechamentoDto) {
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const c = await this.contexto(trx, dto);
+      const emp = c.emp;
+      const logado = currentTenant().operadorId ?? null;
+      const chaveOuDia = c.chave ? sql`cx.chave = ${c.chave}` : sql`cx.chave IS NULL AND ${this.noDia('cx.data', c)}`;
+      const abertos = (await sql`SELECT cx.codcxvendas FROM cx_vendas cx
+          WHERE ${chaveOuDia} AND cx.nropdv = ${c.pdv} AND cx.codoperadora = ${c.op} AND cx.status IS NULL AND cx.idempresa = ${emp}
+          FOR UPDATE`.execute(trx)).rows;
+      if (!abertos.length) throw new BusinessRuleError('FECHAMENTO_CAIXA_CONSULTA');
+      c.situacao = 1;
+
+      // o rascunho com a seleção da tela — é dele que saem o REAL e os documentos (o legado grava ao fechar a tela)
+      const det = await this.gravarRascunho(trx, c, dto);
+      if (det.modo === 'consulta') throw new BusinessRuleError('FECHAMENTO_CAIXA_CONSULTA');
+      const cfg = (k: string) => this.cfg(trx, k, emp);
+      const ccOperador = (await cfg('FECHA_CAIXA_CC_OPERADOR')) === 'S';
+      const enviaSangriaFiscal = (await cfg('ENVIA_SANGRIA_SUPRIMENTO_CONTA_FISCAL')) === 'S';
+      const dif = det.totais.diferenca;
+      const dataCx = c.data.split('-').reverse().join('/');
+      const valorTxt = (n: number) => r2(n).toFixed(2).replace('.', ',');
+      const palavra = (op: string) => ({ devolucao: 'devolução', convenio: 'convênio' } as Record<string, string>)[op.toLowerCase()] ?? op.toLowerCase();
+
+      const oper = (await sql<{ nome: string | null; codparceiro: number | null }>`SELECT nome, codparceiro FROM operadores WHERE codoperador = ${c.op}`.execute(trx)).rows[0];
+      const nomeOper = String(oper?.nome ?? '');
+      const nomeLogado = String((await sql<{ nome: string | null }>`SELECT nome FROM operadores WHERE codoperador = ${logado}`.execute(trx)).rows[0]?.nome ?? '');
+      const empresa = (await sql<Record<string, unknown>>`SELECT * FROM empresas WHERE idempresa = ${emp}`.execute(trx)).rows[0] ?? {};
+      const pdvInterno = (await sql<{ codpdv: number }>`SELECT codpdv FROM pdv WHERE nropdv = ${c.pdv} AND codempresa = ${emp} ORDER BY codpdv LIMIT 1`.execute(trx)).rows[0]?.codpdv ?? null;
+      const formas = await this.formas(trx, emp);
+      const formaCompleta = async (idpgto: number) => (await sql<Record<string, unknown>>`SELECT idpgto, modalidade, destino, codcontacorrente FROM formas_pgto WHERE idpgto = ${idpgto}`.execute(trx)).rows[0];
+      const ccDoPdv = async (idpgto: number): Promise<number> => {
+        if (pdvInterno == null) return 0;
+        const r = (await sql<{ codplc: number | null }>`SELECT codplc FROM contacorrente WHERE codpdv = ${pdvInterno} AND idpgto = ${idpgto} ORDER BY codcontacorrente LIMIT 1`.execute(trx)).rows[0];
+        return num(r?.codplc);
+      };
+
+      // 1) a conta do usuário que fecha (FECHA_CAIXA_CC_OPERADOR, UF:393-402)
+      let contaUsuario: number | null = null;
+      if (ccOperador) {
+        const r = (await sql<{ codconta: number | null }>`SELECT p.codconta FROM operadores o JOIN parceiros p ON p.codparceiro = o.codparceiro WHERE o.codoperador = ${logado}`.execute(trx)).rows[0];
+        contaUsuario = num(r?.codconta) || null;
+        if (!contaUsuario) throw new BusinessRuleError('FECHAMENTO_CONTA_OPERADOR');
+      }
+      // 2) o saldo do operador (VerificaCheckGeralSaldo, UF:255-306): marcado à mão ou pela diferença acima do limite
+      const gerarSaldo = !!dto.gerarSaldo || (det.limiteSaldo !== 0 && Math.abs(dif) > det.limiteSaldo);
+      let ccQuebra = 0;
+      let formaQuebra: Record<string, unknown> | undefined;
+      if (gerarSaldo) {
+        if (!oper?.codparceiro) throw new BusinessRuleError('FECHAMENTO_OPERADOR_SEM_PARCEIRO', { nome: nomeOper });
+        if (empresa.idpgto == null) throw new BusinessRuleError('FECHAMENTO_SEM_FORMA_QUEBRA');
+        formaQuebra = await formaCompleta(num(empresa.idpgto));
+        ccQuebra = await ccDoPdv(num(empresa.idpgto));
+        if (!ccQuebra) throw new BusinessRuleError('FECHAMENTO_CC_QUEBRA', { modalidade: String(formaQuebra?.modalidade ?? '') });
+      }
+      // 3) cada linha com valor precisa do CC no PDV e da conta na forma (UF:417-474)
+      const comValor = det.linhas.filter((l) => (l.real ?? 0) > 0);
+      const plcDe = new Map<string, number>();
+      for (const l of comValor) {
+        const f = formas.find((x) => x.modalidade === l.operacao);
+        const plc = f ? await ccDoPdv(f.idpgto) : 0;
+        if (!f || !plc) throw new BusinessRuleError('FECHAMENTO_MODALIDADE_SEM_PDV', { operacao: l.operacao });
+        const fc = await formaCompleta(f.idpgto);
+        if (!num(fc?.codcontacorrente)) throw new BusinessRuleError('FECHAMENTO_FORMA_SEM_CONTA', { operacao: l.operacao });
+        plcDe.set(l.operacao, plc);
+      }
+      // 4) documentos não conferidos (ValidaDocumentosNaoSelecionados, UF:308-353) — pergunta, e segue se confirmado
+      if (!dto.confirmarDocumentosNaoSelecionados) {
+        const pendentes: Array<{ operacao: string; documentos: number }> = [];
+        for (const l of det.linhas) {
+          if (!['RCB', 'CHQ', 'CHP', 'TEF', 'CRT', 'DEV'].includes(String(l.destino ?? '')) || !l.tipo || l.tipo === 'DINHEIRO' || l.idpgto == null) continue;
+          const marcados = new Set(l.documentos);
+          const fora = (await this.listarDocs(trx, c, l.tipo, l.idpgto, false, det.filtraPdv)).filter((d) => !marcados.has(d.codigo)).length;
+          if (fora) pendentes.push({ operacao: l.operacao, documentos: fora });
+        }
+        if (pendentes.length) throw new BusinessRuleError('FECHAMENTO_DOCUMENTOS_NAO_SELECIONADOS', { finalizadoras: pendentes });
+      }
+
+      const codgrupo = Number((await sql<{ id: string }>`SELECT nextval('seq_caixa_codgrupo') AS id`.execute(trx)).rows[0].id);
+      const instante = sql`now()`;
+      const historico = (tabela: string, texto: string, coddoc: string) =>
+        sql`INSERT INTO historico (tabela, historico, coddoc, codoperador, codempresa, data, auxiliar)
+            VALUES (${tabela}, ${texto}, ${coddoc}, ${logado}, ${emp}, date_trunc('second', now()), ${c.chave})`.execute(trx);
+
+      // 5) LancaApagar (UF:1876-2028): o título de cada adicional com fornecedor e CC na empresa — na produção só o troco
+      //    solidário ('T'); o binário novo lança também a CAIXA 'APAGAR' do rateio
+      const adicionais: Array<[string, string, number, unknown, unknown]> = [
+        ['R', 'recarga', det.adicionais.recarga, empresa.codfornecedor_recarga, empresa.codplc_recarga],
+        ['C', 'corespondente bancário', det.adicionais.correspondente, empresa.codfornecedor_correspondente, empresa.codplc_correspondente],
+        ['V', 'voucher', det.adicionais.voucher, empresa.codfornecedor_voucher, empresa.codplc_voucher],
+        ['T', 'troco solidário', det.adicionais.trocoSolidario, empresa.codfornecedor_trocosolidario, empresa.codplc_trocosolidario],
+      ];
+      for (const [sigla, nome, valor, fornecedor, plc] of adicionais) {
+        if (!(valor > 0) || !num(fornecedor) || !num(plc)) continue;
+        const grupoApg = Number((await sql<{ id: string }>`SELECT nextval('seq_caixa_codgrupo') AS id`.execute(trx)).rows[0].id);
+        const obs = `Conta gerada do fechamento do caixa do operador ${nomeOper}, PDV ${c.pdv}, no dia ${dataCx} em ${nome}`;
+        const apg = (await sql<{ codapg: number }>`
+          INSERT INTO apagar (codparceiro, codoperador, dtcompra, dtvenc, valor, obs, codempresa, quitada, nrodup, nrparcela, dtcadastro,
+                              operacao_convenio_funcionario, convenio, tipodoc, txjuros, desconto, vendor, gerado, geradocartaoproprio,
+                              codgrupo, origem, codgrupo_fcx, idsituacao_nf)
+          VALUES (${num(fornecedor)}, ${logado}, ${this.ini(c)}, ${this.ini(c)}, ${r2(valor)}, ${obs}, ${emp}, 'N', 1, '1/1', now(),
+                  'D', 'N', 'BOLETO', 0, 0, 0, 'SISTEMA', 'N', ${grupoApg}, ${sigla}, ${codgrupo}, 0)
+          RETURNING codapg`.execute(trx)).rows[0];
+        await sql`UPDATE apagar SET duplicata = ${String(apg.codapg)} WHERE codapg = ${apg.codapg}`.execute(trx);
+        const cxa = (await sql<{ codcxapagar: number }>`
+          INSERT INTO cx_apagar (codapg, codcc, valor, codgrupo, tipo, dtultimalteracao)
+          VALUES (${apg.codapg}, ${num(plc)}, ${r2(valor)}, ${grupoApg}, 'V', now()) RETURNING codcxapagar`.execute(trx)).rows[0];
+        await trx.insertInto('caixa').values({
+          data: this.ini(c), valor: -r2(valor), vrtitulo: -r2(valor), obs, operador: logado, codplc: num(plc), idempresa: emp,
+          tiporecurso: 'BOLETO', codparceiro: num(fornecedor), nrparcela: '1/1', codgrupo: grupoApg, dtvenc: this.ini(c),
+          codcxapagar: cxa.codcxapagar, origem: 'APAGAR', idorigem: apg.codapg,
+        }).execute();
+      }
+
+      // 6) as linhas da grade (UF:523-733): CAIXA + HISTORICO e MCB + HISTORICO nas que têm REAL > 0; CONTACORRENTEOP em todas
+      let nCaixa = 0;
+      let nMcb = 0;
+      for (const l of det.linhas) {
+        const real = l.real ?? 0;
+        const f = formas.find((x) => x.modalidade === l.operacao);
+        if (real > 0) {
+          const cx = (await trx.insertInto('caixa').values({
+            data: this.ini(c), valor: r2(real), vrtitulo: r2(real), codfiscalcx: c.op, operador: c.op,
+            obs: `Referente ao fechamento de caixa do(a) operador(a): ${nomeOper} do dia: ${dataCx}`,
+            codplc: plcDe.get(l.operacao) ?? null, idempresa: emp, tiporecurso: l.operacao, codparceiro: 0, nrparcela: '1/1',
+            codgrupo, codpdv: c.pdv, dtvenc: this.ini(c), gerado: 'SISTEMA', chave: c.chave, dtcadastro: instante, origem: 'FECHAMENTO',
+          }).returning('codcx').executeTakeFirstOrThrow()) as { codcx: number };
+          nCaixa++;
+          await historico('CAIXA', `Fechamento do caixa ${c.pdv}, do operador ${nomeOper}, no dia ${dataCx}, na quantia de ${valorTxt(real)} em ${palavra(l.operacao)}.`, String(cx.codcx));
+
+          // o MCB da linha (UF:588-681): conta da forma; no DINHEIRO a do usuário e o contado; cheque só o de fora da sangria
+          if (!f) throw new BusinessRuleError('FECHAMENTO_FORMA_NAO_ENCONTRADA', { operacao: l.operacao });
+          const fc = await formaCompleta(f.idpgto);
+          let valorMcb = r2(real);
+          let conta = num(fc?.codcontacorrente);
+          let pular = false;
+          if (String(fc?.destino ?? '') === 'CHQ') {
+            const cheques = l.documentos.length
+              ? num((await sql<{ t: string }>`SELECT sum(ch.valor) AS t FROM cheque ch LEFT JOIN hist_sangria_suprimento h ON h.identificador = ch.identificador
+                   WHERE ch.codchq = ANY(${l.documentos}::int[]) AND h.identificador IS NULL`.execute(trx)).rows[0]?.t)
+              : 0;
+            if (!cheques) pular = true; else valorMcb = r2(cheques);
+          }
+          if (l.operacao === 'DINHEIRO') {
+            if (ccOperador && contaUsuario) conta = contaUsuario;
+            if (ccOperador && enviaSangriaFiscal) valorMcb = r2(det.dinheiroContado);
+          }
+          if (!pular && valorMcb !== 0) {
+            const mcb = (await trx.insertInto('mov_contas_bancarias').values({
+              codconta: conta, idempresa: emp, valor: valorMcb, tipomovimento: 'C', codopconta: 0, idpgto: f.idpgto,
+              historico: `Fechamento do caixa ${c.pdv}, do operador ${nomeOper}, no dia ${dataCx} em ${palavra(l.operacao)}, realizado pelo(a) usuário(a) ${nomeLogado}.`,
+              codoperador: c.op, nropdv_fechamento: c.pdv, data_fechamento: this.ini(c), origem: 'FCP', idorigem: cx.codcx,
+              dtemissao: instante, dtvenc: instante, nrodocumento: `ECF ${c.pdv}`, liberado: 'S', chave: c.chave, idempresa_fechamento: emp,
+            }).returning('codmovconta').executeTakeFirstOrThrow()) as { codmovconta: number };
+            nMcb++;
+            // o texto descreve a conta DA FORMA mesmo quando o dinheiro vai para a do usuário (como o legado)
+            const cb = (await sql<{ nroconta: string | null; banco: string | null }>`SELECT c.nroconta, b.banco FROM contas_bancarias c LEFT JOIN bancos b ON b.codbco = c.codbco WHERE c.codconta = ${num(fc?.codcontacorrente)}`.execute(trx)).rows[0];
+            await historico('MOV_CONTAS_BANCARIAS',
+              `Movimentação bancária da conta nº ${String(cb?.nroconta ?? '').trim()}${cb?.banco ? ` no banco ${String(cb.banco).trim()}` : ''}, referente ao fechamento do caixa ${c.pdv}, do operador ${nomeOper}, no dia ${dataCx}, na quantia de ${valorTxt(valorMcb)} em ${palavra(l.operacao)}.`,
+              String(mcb.codmovconta));
+          }
+        }
+        // CONTACORRENTEOP (UF:687-730): o saldo da linha zera o acumulado; com o saldo do operador marcado, soma. O legado usa
+        // o IDPGTO da última linha com valor nas linhas zeradas — aqui, o da própria linha.
+        if (f) {
+          const saldoLinha = r2(l.saldo + (l.linhaDinheiro ? det.totais.devolucaoDinheiro : 0));
+          const existe = (await sql`SELECT 1 FROM contacorrenteop WHERE codoperador = ${c.op} AND idpgto = ${f.idpgto} LIMIT 1`.execute(trx)).rows.length > 0;
+          if (saldoLinha === 0) {
+            if (existe) await sql`UPDATE contacorrenteop SET saldo = 0 WHERE codoperador = ${c.op} AND idpgto = ${f.idpgto}`.execute(trx);
+          } else if (gerarSaldo) {
+            if (existe) await sql`UPDATE contacorrenteop SET saldo = coalesce(saldo, 0) + ${saldoLinha} WHERE codoperador = ${c.op} AND idpgto = ${f.idpgto}`.execute(trx);
+            else await sql`INSERT INTO contacorrenteop (codoperador, idpgto, saldo) VALUES (${c.op}, ${f.idpgto}, ${saldoLinha})`.execute(trx);
+          }
+        }
+      }
+
+      // 7) a diferença (UF:744-791): na quebra com o saldo marcado, o título A Receber 'Q' e a CAIXA da quebra; SALDO_OPERADOR
+      let codrcb: number | null = null;
+      let idsaldoop: number | null = null;
+      if (dif !== 0) {
+        if (dif < 0 && gerarSaldo && oper?.codparceiro) {
+          // a forma RCB do título: o legado pega a primeira que o banco devolver; a produção de 2026 é a BOLETO
+          const fRcb = (await sql<{ idpgto: number }>`SELECT idpgto FROM formas_pgto WHERE idempresa = ${emp} AND destino = 'RCB'
+              ORDER BY (upper(modalidade) = 'BOLETO') DESC, idpgto LIMIT 1`.execute(trx)).rows[0];
+          const q = r2(Math.abs(dif));
+          const rcb = (await sql<{ codrcb: number }>`
+            INSERT INTO areceber (codparceiro, codoperador, dtvenda, dtvenc, valor, total, total_brt, obs, codempresa, quitada, nrodup,
+                                  idpgto, consiliado, codplc, origem, agrupado)
+            VALUES (${oper.codparceiro}, ${logado}, ${this.ini(c)}, ${this.ini(c)}, ${q}, ${q}, ${q},
+                    ${`ORIGINADO DO LANÇAMENTO DE QUEBRA DE CAIXA DO(a) OPERADOR(A) ${nomeOper}, PDV ${c.pdv} NO DIA ${dataCx}`},
+                    ${emp}, 'N', 1, ${fRcb?.idpgto ?? null}, 'S', ${ccQuebra}, 'Q', 'N')
+            RETURNING codrcb`.execute(trx)).rows[0];
+          codrcb = Number(rcb.codrcb);
+          await sql`UPDATE areceber SET duplicata = ${String(codrcb)} WHERE codrcb = ${codrcb}`.execute(trx);
+          await trx.insertInto('caixa').values({
+            data: this.ini(c), valor: q, vrtitulo: q, operador: logado, idempresa: emp, tiporecurso: String(formaQuebra?.modalidade ?? ''),
+            codconta: null, codparceiro: oper.codparceiro, nrparcela: '1', codgrupo, gerado: 'SISTEMA', codrcb, codplc: ccQuebra,
+            obs: `Originado do lançamento de quebra de caixa do(a) operador(a) ${nomeOper}, PDV ${c.pdv} no dia ${dataCx}`,
+            origem: 'FECHAMENTO', dtvenc: this.ini(c), dtcadastro: instante, chave: c.chave,
+          }).execute();
+        }
+        const so = (await trx.insertInto('saldo_operador').values({
+          idempresa: emp, codgrupo, codoperador: c.op, codpdv: c.pdv, datafechamento: this.ini(c), saldo: dif,
+          gera_saldo: codrcb ? 'S' : 'N', codrcb, excluido: 'N', chave: c.chave, usucadastro: logado,
+          valor_esperado: det.totais.fechamento, valor_real: det.totais.real, devolucao: det.totais.devolucaoDinheiro,
+        }).returning('idsaldoop').executeTakeFirstOrThrow()) as { idsaldoop: number };
+        idsaldoop = Number(so.idsaldoop);
+        await historico('QUEBRA_CAIXA', `${dif < 0 ? 'Quebra' : 'Sobra'} de caixa referente ao fechamento do caixa ${c.pdv}, do operador ${nomeOper}, no dia ${dataCx}, na quantia de ${valorTxt(dif)}.`, '0');
+      }
+
+      // 8) as marcas nos documentos conferidos (UF:793-852)
+      let nMarcas = 0;
+      for (const l of det.linhas) {
+        if (!l.documentos.length) continue;
+        const d = String(l.destino ?? '');
+        const marcar = async (tabela: string, pk: string, colConc: string, colEmp: string) => {
+          const r = await sql`UPDATE ${sql.table(tabela)} SET ${sql.ref(colConc)} = 'S', dtfechamentocx = ${this.ini(c)}
+              WHERE ${sql.ref(pk)} = ANY(${l.documentos}::int[]) AND ${sql.ref(colEmp)} = ${emp}`.execute(trx);
+          nMarcas += Number(r.numAffectedRows ?? 0);
+        };
+        if (d === 'RCB') await marcar('areceber', 'codrcb', 'consiliado', 'codempresa');
+        else if (d === 'CHQ' || d === 'CHP') await marcar('cheque', 'codchq', 'consiliado', 'idempresa');
+        else if (d === 'TEF' || d === 'CRT') await marcar('cartao', 'codvendcartao', 'consiliado', 'idempresa');
+        else if (d === 'CXA' && l.operacao === 'TICKET') await marcar('ticket', 'codticket', 'consiliado', 'idempresa');
+        else if (d === 'DEV') await marcar('hist_devolucao', 'codhistdevolucao', 'conciliado', 'idempresa');
+      }
+
+      // 9) o turno fecha (uFechamentoCaixa.pas:425-434): todas as datas da chave (ou o dia, sem chave)
+      await sql`UPDATE cx_vendas cx SET status = 'F', codgrupo = ${codgrupo}, tesouraria = 'S'
+          WHERE cx.nropdv = ${c.pdv} AND cx.codoperadora = ${c.op} AND cx.status IS NULL AND ${chaveOuDia} AND cx.idempresa = ${emp}`.execute(trx);
+      // 10) CONSOLIDADO (UF:2170-2186): o filtro do legado é a data de HOJE — só marca quem fecha no mesmo dia do caixa
+      await sql`UPDATE finaliza_fechamento f SET consolidado = 'F'
+          WHERE f.operador = ${c.op} AND f.idempresa = ${emp} AND f.pdv = ${c.pdv}
+            AND (f.data AT TIME ZONE ${c.tz})::date = (now() AT TIME ZONE ${c.tz})::date AND ${this.daChave('f.chave', c)}`.execute(trx);
+
+      c.situacao = 3;
+      return { ...(await this.montar(trx, c)), efetivado: { codgrupo, caixa: nCaixa, mcb: nMcb, idsaldoop, codrcb, marcas: nMarcas, diferenca: dif, gerarSaldo } };
     });
   }
 }

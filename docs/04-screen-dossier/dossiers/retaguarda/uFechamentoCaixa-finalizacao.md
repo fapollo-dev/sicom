@@ -229,3 +229,50 @@ entram com todas as colunas; os vereditos "PDV" de TICKET e TROCO_SOLIDÁRIO no 
 - **Corte 3 — contábil + reabertura**. **Corte 4 — acessórios**: diálogos de recarga/voucher/troco, documentos manuais
   (inserir/editar/excluir no diálogo, `USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO`), CARTAO criado só com
   `ReabriuCaixa`, lançamento provisório, F5 observação, F6 transferência, impressões.
+
+---
+
+## CORTE 2 ENTREGUE (24/09/2026) — efetivar o fechamento
+
+Mig 325 · `FechamentoCaixaService.efetivar` (`POST cobranca/fechamento-caixa/turno/efetivar`, BTNFECHA) · botão "Efetivar
+fechamento" e a caixa "Gerar saldo do operador" na tela · smoke §169 (4). Especificação com a produção de 2026 (3.668
+grupos, 13.939 linhas de CAIXA, 10.390 MCB FCP, 3.663 SALDO_OPERADOR) reconstruída turno a turno.
+
+### O que entrou (tudo numa transação)
+- **Guarda que o legado não tem:** o CX_VENDAS do turno é travado (FOR UPDATE) e tem de ter linha aberta — 3 chaves de
+  2026 foram fechadas duas vezes (CAIXA, MCB e SALDO duplicados).
+- **O rascunho primeiro**, com a seleção da tela (o legado grava ao fechar a tela; aqui dentro da transação).
+- **Validações na ordem do legado:** conta do usuário que fecha (`FECHA_CAIXA_CC_OPERADOR`, `PARCEIROS.CODCONTA`); o
+  saldo do operador — marcado à mão ou quando |diferença| > `LIMITE_LANCAR_SALDO_AUTOMATICAMENTE_FECHAMENTO` (2 nas
+  empresas 1 e 2) — exige o operador com parceiro, a forma de quebra na empresa (`EMPRESAS.IDPGTO`) e o CC dela no PDV;
+  cada linha com REAL > 0 exige o CC do par PDV × forma em CONTACORRENTE e a conta na forma; documentos listáveis não
+  conferidos perguntam "A finalizadora X possui documentos que não foram selecionados. Deseja continuar?" (422 com a
+  lista; a tela reenvia com a confirmação — com a config de usuários vazia na produção, é a confirmação simples).
+- **LancaApagar:** o título de cada adicional com fornecedor e CC na empresa (produção: só o troco solidário, 'T') —
+  APAGAR (novo CODGRUPO, CODGRUPO_FCX = o do fechamento), CX_APAGAR (TIPO 'V') e a CAIXA 'APAGAR' do binário novo.
+- **Por linha com REAL > 0:** CAIXA ORIGEM 'FECHAMENTO' (CC de CONTACORRENTE, PDV = número, "1/1", SISTEMA, chave,
+  "Referente ao fechamento de caixa do(a) operador(a): …") + HISTORICO 'CAIXA'; MCB 'FCP' na conta da forma (cheque só
+  o de fora da sangria; zero não grava), e no DINHEIRO a conta do usuário e o CONTADO com `ENVIA_SANGRIA_SUPRIMENTO_
+  CONTA_FISCAL` (a sangria já foi à conta fiscal na hora) + HISTORICO 'MOV_CONTAS_BANCARIAS' (que descreve a conta da
+  forma, como o legado).
+- **CONTACORRENTEOP** de toda linha: saldo zero zera o acumulado; com o saldo marcado, soma.
+- **A diferença:** SALDO_OPERADOR sempre que ≠ 0; na quebra com o saldo marcado, o A Receber 'Q' (parceiro do operador,
+  forma RCB — a BOLETO, como a produção desde 08/2025 —, CC da quebra, AGRUPADO 'N' e TOTAL_BRT que as triggers do
+  Oracle punham) e a CAIXA da quebra (tipo QUEBRA DE CAIXA, parcela '1', sem PDV); HISTORICO 'QUEBRA_CAIXA'.
+- **Marcas** CONSILIADO='S' + DTFECHAMENTOCX nos documentos conferidos (A Receber, cheque, cartão, TICKET só com a
+  modalidade 'TICKET' exata — na produção 'TICKETS', nunca marca —, devolução).
+- **CX_VENDAS** de todas as datas da chave (ou do dia, sem chave) vai a F/tesouraria com o grupo; **CONSOLIDADO** com a
+  data de hoje (como o legado: só marca quem fecha no mesmo dia).
+
+### Decisões conscientes
+1. CONTACORRENTEOP pelo IDPGTO da própria linha (o legado reaproveita o da última linha com valor).
+2. Um instante só para o grupo (o legado mistura o relógio da estação com o do servidor — até 88 s).
+3. A forma RCB do título da quebra: a BOLETO, senão a de menor código (o legado pega a primeira que o banco devolver).
+4. "CONSIDERAR NO CAIXA DINHEIRO CONTADO" vem do XML da estação no legado; pelo dado, é "não" — não há config.
+5. A baixa automática do título de recarga/correspondente (conta de baixa na empresa) não roda na produção — fica fora.
+
+### Falta
+- **Corte 3 — contábil + reabertura** (`TIntegracaoFechamentoCaixa`; o CAIXA.CONTABILIZADO, SALDO_OPERADOR e o 'Q'
+  marcados pelo contábil; a reabertura completa). O `caixa-conferencia.service.ts` antigo (SALDO só do dinheiro) e o
+  `caixa-pdv-contabil` (modelo divergente) saem quando o corte 3 entrar.
+- **Corte 4 — acessórios** (impressões, comprovante de quebra, documentos manuais, F5/F6, lançamento provisório).

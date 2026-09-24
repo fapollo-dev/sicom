@@ -54,6 +54,7 @@ export interface DetalheTurno {
   fixas: Record<Fixa, number>;
   dinheiroContado: number;
   contadoHabilitado: boolean;
+  limiteSaldo: number;
   adicionais: { recarga: number; correspondente: number; voucher: number; trocoSolidario: number };
   cancelamentos: number;
   descontos: number;
@@ -61,6 +62,7 @@ export interface DetalheTurno {
   completadas?: number;
   sangriasInseridas?: number;
   ticketsCriados?: number;
+  efetivado?: { codgrupo: number; caixa: number; mcb: number; idsaldoop: number | null; codrcb: number | null; marcas: number; diferenca: number; gerarSaldo: boolean };
 }
 export interface DocumentoConferencia { codigo: number; valor: number; sel: boolean; [k: string]: unknown }
 export interface Documentos {
@@ -84,3 +86,5 @@ export const abrirTurno = (t: TurnoRef) => req<DetalheTurno>(`${P}/turno/abrir`,
 export const documentosTurno = (t: TurnoRef, operacao: string) => req<Documentos>(`${P}/turno/documentos?${qs(t, { operacao })}`);
 export const salvarRascunho = (t: TurnoRef, body: { dinheiroContado: number; documentos: Array<{ operacao: string; codigos: number[] }> }) =>
   req<DetalheTurno>(`${P}/turno/rascunho`, { method: 'PUT', body: JSON.stringify({ ...t, ...body }) });
+export const efetivarTurno = (t: TurnoRef, body: { dinheiroContado: number; documentos: Array<{ operacao: string; codigos: number[] }>; gerarSaldo?: boolean; confirmarDocumentosNaoSelecionados?: boolean }) =>
+  req<DetalheTurno>(`${P}/turno/efetivar`, { method: 'POST', body: JSON.stringify({ ...t, ...body }) });

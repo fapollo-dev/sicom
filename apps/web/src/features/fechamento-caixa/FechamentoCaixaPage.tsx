@@ -6,7 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { useMensagem } from '../../shared/mensagem';
 import {
-  abrirTurno, detalheTurno, documentosTurno, listarTurnos, salvarRascunho,
+  abrirTurno, detalheTurno, documentosTurno, efetivarTurno, listarTurnos, salvarRascunho,
   type DetalheTurno, type Documentos, type Fixa, type LinhaFechamento, type TurnoRef, type TurnoResumo,
 } from './fechamentoCaixaApi';
 
@@ -15,7 +15,7 @@ import {
  * (dossiê uFechamentoCaixa-finalizacao.md). Os turnos do dia ("Caixas em aberto"); abrir um turno aberto completa o
  * movimento com as modalidades zeradas e abre a finalização; cada operação é conferida pelos documentos (cartões,
  * convênios, cheques, tickets) e o dinheiro pelo contado + sangria − suprimento. O rascunho é gravado ao sair, como
- * no legado. Efetivar o fechamento (caixa, conta do operador, quebra) é o próximo corte.
+ * no legado. Efetivar (corte 2) grava o caixa gerencial, a conta bancária, o saldo do operador e a quebra, e fecha o turno.
  */
 const moeda = (v: number | null | undefined) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const hoje = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
@@ -40,6 +40,7 @@ export function FechamentoCaixaPage() {
   const [conferidas, setConferidas] = useState<Map<string, Conferida>>(new Map());
   const [docs, setDocs] = useState<{ d: Documentos; marcados: Set<number>; aConferir: number } | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  const [gerarSaldo, setGerarSaldo] = useState(false); // CkSaldoOperador — marcada sozinha acima do limite
 
   const executar = async (f: () => Promise<void>) => {
     setOcupado(true);
@@ -52,6 +53,7 @@ export function FechamentoCaixaPage() {
     setDet(d);
     setContado(String(d.dinheiroContado ?? 0));
     setConferidas(new Map());
+    setGerarSaldo(false);
   };
 
   const abrir = (t: TurnoResumo) => executar(async () => {
@@ -120,6 +122,34 @@ export function FechamentoCaixaPage() {
   };
 
   const salvar = () => executar(async () => { await gravar(); mensagem.sucesso('Conferência gravada.'); });
+  // a caixa do saldo do operador vem marcada quando a diferença passa do limite da empresa (VerificaCheckGeralSaldo)
+  const saldoAutomatico = !!det && !!totais && det.limiteSaldo !== 0 && Math.abs(totais.diferenca) > det.limiteSaldo;
+  // EFETIVAR (btnFechaClick): as perguntas do legado, depois a gravação numa transação
+  const efetivar = () => executar(async () => {
+    if (!ref || !det || consulta || !totais) return;
+    if (!window.confirm('Confirma a efetivação do fechamento?')) return;
+    if (totais.diferenca !== 0 && !window.confirm('Operador(a) com saldo em caixa, deseja continuar?')) return;
+    const corpo = {
+      dinheiroContado: contadoNum,
+      documentos: [...conferidas].map(([operacao, cfd]) => ({ operacao, codigos: cfd.codigos })),
+      gerarSaldo: gerarSaldo || saldoAutomatico,
+    };
+    let r: DetalheTurno;
+    try {
+      r = await efetivarTurno(ref, corpo);
+    } catch (e) {
+      const env = (e as { envelope?: { code?: string; detalhe?: { finalizadoras?: Array<{ operacao: string }> } } }).envelope;
+      if (env?.code !== 'FECHAMENTO_DOCUMENTOS_NAO_SELECIONADOS') throw e;
+      const fz = (env.detalhe?.finalizadoras ?? []).map((x) => x.operacao);
+      const texto = fz.length === 1
+        ? `A finalizadora ${fz[0]} possui documentos que não foram selecionados.`
+        : `As seguintes finalizadoras possuem documentos que não foram selecionados:\n${fz.join('\n')}`;
+      if (!window.confirm(`${texto}\nDeseja continuar?`)) return;
+      r = await efetivarTurno(ref, { ...corpo, confirmarDocumentosNaoSelecionados: true });
+    }
+    carregar(r);
+    mensagem.sucesso('Fechamento realizado com sucesso.');
+  });
   // sair da finalização grava o rascunho, como o FormClose do legado
   const voltar = () => executar(async () => {
     await gravar();
@@ -182,7 +212,8 @@ export function FechamentoCaixaPage() {
               </small>
             </div>
             <div className="flex flex-wrap gap-gp-sm">
-              {!consulta && <Button label="&Gravar conferência" onClick={() => void salvar()} disabled={ocupado} />}
+              {!consulta && <Button label="&Gravar conferência" variant="soft" onClick={() => void salvar()} disabled={ocupado} />}
+              {!consulta && <Button label="&Efetivar fechamento" onClick={() => void efetivar()} disabled={ocupado} />}
               <Button label="&Voltar" variant="soft" onClick={() => void voltar()} disabled={ocupado} />
             </div>
           </section>
@@ -253,6 +284,13 @@ export function FechamentoCaixaPage() {
             </div>
             <div className="flex flex-col gap-gp-xs">
               <strong className="text-body-sm">Adicionais e informativos</strong>
+              {!consulta && (
+                <CheckboxField
+                  label={`Gerar &saldo do operador (título da quebra)${saldoAutomatico ? ' — marcado: a diferença passa do limite' : ''}`}
+                  value={gerarSaldo || saldoAutomatico ? 'S' : 'N'}
+                  onChange={(v) => setGerarSaldo(v === 'S')}
+                />
+              )}
               {([
                 ['Recarga', det.adicionais.recarga], ['Correspondente', det.adicionais.correspondente],
                 ['Voucher', det.adicionais.voucher], ['Troco solidário', det.adicionais.trocoSolidario],

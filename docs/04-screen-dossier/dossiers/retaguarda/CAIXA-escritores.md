@@ -9,7 +9,7 @@
 
 | origem | linhas | Σ valor | escritor no legado | Apollo |
 |---|---:|---:|---|---|
-| FECHAMENTO | 13.939 | R$ 19.951.875,03 | `UfinalizaFechamento.pas:1753` (efetivar do fechamento de caixa) | FALTA — corte 2 do fechamento (`uFechamentoCaixa-finalizacao.md`) |
+| FECHAMENTO | 13.939 | R$ 19.951.875,03 | `UfinalizaFechamento.pas:1753` (efetivar do fechamento de caixa) | ✅ 24/09 corte 2 do fechamento (`fechamento-caixa.service.ts` `efetivar`: a linha por operação com REAL > 0 e a da quebra) |
 | APAGAR (sistema) | 8.297 | R$ −25.132.770,34 | **binário novo** (o texto "100,00% do Documento nº" não está no fonte de 2020); `uAPagar.pas:4961` (`GeraCaixa`) só cobre o convênio de funcionários | FALTA |
 | APAGAR (manual 'S') | 462 | R$ −523.445,84 | idem (títulos digitados na tela) | FALTA |
 | SCRAP | 4.880 | R$ −7.296.171,67 | `uCadSCRAP.pas:736` | ✅ 24/09 (`scrap-caixa.ts`: a diferença a cada gravação, com a linha de 0,00 do legado; a exclusão leva junto) |

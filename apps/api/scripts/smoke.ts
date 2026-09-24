@@ -19054,6 +19054,146 @@ async function main() {
       }
     }
 
+    // ══ §169 FECHAMENTO DE CAIXA, corte 2: EFETIVAR (btnFechaClick, UfinalizaFechamento.pas:234-895; mig 325) ══
+    {
+      const pgEf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const FC = 'cobranca/fechamento-caixa';
+      const DIA = '2037-09-23';
+      const CH = '77230937073450';
+      const ts = (h: string) => `${DIA} ${h}-03`;
+      const turno = { data: DIA, chave: CH, nropdv: 77, codoperadora: 7 };
+      const cfgIds = [991691, 991692, 991693];
+      try {
+        const opr = Number(((await pgEf.query(`SELECT min(codoperadoras) AS c FROM operadoras`)).rows[0] as any).c);
+        const operAntes = (await pgEf.query(`SELECT codparceiro FROM operadores WHERE codoperador = 7`)).rows[0] as any;
+        const empAntes = (await pgEf.query(`SELECT idpgto, codfornecedor_trocosolidario, codplc_trocosolidario FROM empresas WHERE idempresa = 1`)).rows[0] as any;
+        const parcAntes = (await pgEf.query(`SELECT codconta FROM parceiros WHERE codparceiro = 20`)).rows[0] as any;
+        // as configurações da produção: conta do usuário que fecha, sangria na conta fiscal, limite 2
+        await pgEf.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, config_especificas_permitidas, descricao) VALUES
+            (991691, 'FECHA_CAIXA_CC_OPERADOR', 'S', 'texto', 'Modulo', 'smoke'),
+            (991692, 'ENVIA_SANGRIA_SUPRIMENTO_CONTA_FISCAL', 'S', 'texto', 'Modulo', 'smoke'),
+            (991693, 'LIMITE_LANCAR_SALDO_AUTOMATICAMENTE_FECHAMENTO', '2', 'numero', 'Empresa', 'smoke')
+          ON CONFLICT DO NOTHING`);
+        await pgEf.query(`UPDATE operadores SET codparceiro = 20 WHERE codoperador = 7`);
+        await pgEf.query(`UPDATE parceiros SET codconta = 201 WHERE codparceiro = 20`);
+        await pgEf.query(`UPDATE empresas SET idpgto = 6, codfornecedor_trocosolidario = 22, codplc_trocosolidario = 4 WHERE idempresa = 1`);
+        await pgEf.query(`INSERT INTO pdv (codpdv, nropdv, descricao, codempresa) VALUES (977, 77, 'PDV 77 SMOKE', 1) ON CONFLICT DO NOTHING`);
+        const ins = async (op: string, valor: number, ped: string, hora: string) =>
+          pgEf.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, debito_credito, valor, troco, nropedido, chave)
+            VALUES (1, $1, 77, 7, $2, 'C', $3, 0, $4, $5)`, [ts(hora), op, valor, ped, CH]);
+        await ins('DINHEIRO', 100, '771001', '10:00:00');
+        await ins('CARTOES', 80, '771002', '11:00:00');
+        await ins('CARTOES', 5, '771003', '11:30:00');
+        await ins('CONVENIO', 30, '771004', '12:00:00');
+        await ins('SANGRIA', 60, '771005', '13:00:00');
+        await pgEf.query(`INSERT INTO caixa_pdv (codcaixa, codpdv, codoperadora, data, horaentrada, chave, idempresa, sangria, fundocaixa)
+          VALUES (9916901, 77, 7, $1, $1, $2, 1, 60, 0)`, [ts('07:34:50'), CH]);
+        await pgEf.query(`INSERT INTO hist_troco_solidario (codhisttrocosolidario, idempresa, codcaixa, dtvenda, valor, codpdv, codoperador, chave)
+          VALUES (9916901, 1, 9916901, $1, 1.5, 77, 7, $2)`, [ts('10:05:00'), CH]);
+        const cartao = async (valor: number, ped: string) => Number(((await pgEf.query(`INSERT INTO cartao (idempresa, codoperadora, idpgto, dtvenda, valor, codpdv, codoperador, nropedido, chave)
+            VALUES (1, $1, 3, $2, $3, 77, 7, $4, $5) RETURNING codvendcartao`, [opr, ts('11:00:00'), valor, ped, CH])).rows[0] as any).codvendcartao);
+        const c80 = await cartao(80, '771002');
+        const c5 = await cartao(5, '771003');
+        const r30 = Number(((await pgEf.query(`INSERT INTO areceber (codempresa, idpgto, dtvenda, dtvenc, valor, codpdv, codoperador, nrocupom, chave)
+            VALUES (1, 4, $1, $1, 30, 77, 7, '771004', $2) RETURNING codrcb`, [ts('12:00:00'), CH])).rows[0] as any).codrcb);
+
+        await fetch(`${base}/${FC}/turno/abrir`, { method: 'POST', headers: H, body: JSON.stringify(turno) });
+        const corpo = { ...turno, dinheiroContado: 30, documentos: [{ operacao: 'CARTOES', codigos: [c80] }, { operacao: 'CONVENIO', codigos: [r30] }] };
+        const ef = async (extra: Record<string, unknown> = {}) => {
+          const r = await fetch(`${base}/${FC}/turno/efetivar`, { method: 'POST', headers: H, body: JSON.stringify({ ...corpo, ...extra }) });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const semCc = await ef();
+        await pgEf.query(`INSERT INTO contacorrente (codcontacorrente, codpdv, idpgto, codplc) VALUES (9916901, 977, 6, 5)`);
+        const semCcLinha = await ef();
+        await pgEf.query(`INSERT INTO contacorrente (codcontacorrente, codpdv, idpgto, codplc) VALUES (9916902, 977, 1, 1), (9916903, 977, 3, 2), (9916904, 977, 4, 3)`);
+        const semConf = await ef();
+        check('FECHAMENTO §169.1 [as validações do efetivar, na ordem do legado]: com a diferença (−16,50) acima do limite 2 o saldo do operador é marcado sozinho e exige o CC da forma de quebra no PDV (422 FECHAMENTO_CC_QUEBRA); depois, cada linha com valor exige o CC do par PDV × forma em CONTACORRENTE ("Modalidade de pagamento não configurada no cadastro de PDV."); e o cartão de R$ 5 não conferido faz a pergunta "A finalizadora CARTOES possui documentos que não foram selecionados" (422 com a lista)',
+          semCc.status === 422 && semCc.j.code === 'FECHAMENTO_CC_QUEBRA'
+          && semCcLinha.status === 422 && semCcLinha.j.code === 'FECHAMENTO_MODALIDADE_SEM_PDV'
+          && semConf.status === 422 && semConf.j.code === 'FECHAMENTO_DOCUMENTOS_NAO_SELECIONADOS'
+          && JSON.stringify(semConf.j.detalhe?.finalizadoras) === JSON.stringify([{ operacao: 'CARTOES', documentos: 1 }]),
+          { semCc: [semCc.status, semCc.j.code], semCcLinha: [semCcLinha.status, semCcLinha.j.code, semCcLinha.j.detalhe], semConf: [semConf.status, semConf.j.code, semConf.j.detalhe] });
+
+        const ok = await ef({ confirmarDocumentosNaoSelecionados: true });
+        const g = Number(ok.j.efetivado?.codgrupo);
+        const cx = (await pgEf.query(`SELECT tiporecurso, valor::float AS valor, codplc, codpdv, codfiscalcx, operador, nrparcela, gerado, chave, obs, codrcb, codparceiro,
+            to_char(data AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD HH24:MI') AS dl FROM caixa WHERE codgrupo = $1 AND origem = 'FECHAMENTO' ORDER BY codcx`, [g])).rows as any[];
+        const principais = cx.filter((r) => r.tiporecurso !== 'QUEBRA DE CAIXA');
+        const quebra = cx.find((r) => r.tiporecurso === 'QUEBRA DE CAIXA');
+        const cxv = (op: string) => principais.find((r) => r.tiporecurso === op);
+        const mcb = (await pgEf.query(`SELECT m.valor::float AS valor, m.codconta, m.origem, m.nrodocumento, m.tipomovimento, m.historico, c.tiporecurso
+            FROM mov_contas_bancarias m JOIN caixa c ON c.codcx = m.idorigem WHERE m.origem = 'FCP' AND c.codgrupo = $1 ORDER BY m.codmovconta`, [g])).rows as any[];
+        const mcbv = (op: string) => mcb.find((r) => r.tiporecurso === op);
+        const so = (await pgEf.query(`SELECT saldo::float AS saldo, gera_saldo, codrcb, codpdv, excluido FROM saldo_operador WHERE codgrupo = $1`, [g])).rows as any[];
+        const rq = (await pgEf.query(`SELECT valor::float AS valor, origem, consiliado, codplc, codparceiro, idpgto, obs, duplicata, agrupado, total_brt::float AS tb FROM areceber WHERE codrcb = $1`, [so[0]?.codrcb ?? -1])).rows[0] as any;
+        const hist = (await pgEf.query(`SELECT tabela, historico FROM historico WHERE auxiliar = $1 ORDER BY codhist`, [CH])).rows as any[];
+        const check2 = check;
+        check2('FECHAMENTO §169.2 [a CAIXA do fechamento e o MCB]: uma linha de CAIXA ORIGEM FECHAMENTO por operação com REAL > 0 — DINHEIRO 90 (contado 30 + sangria 60), CARTOES 80, CONVENIO 30 — no CC do PDV × forma (1, 2, 3), 00:00 do dia do caixa, PDV 77, parcela "1/1", SISTEMA, a chave e o texto "Referente ao fechamento de caixa do(a) operador(a): …"; as operações zeradas não lançam. O MCB FCP de cada uma na conta da forma, e o do DINHEIRO com o CONTADO (30) na conta do usuário que fecha (FECHA_CAIXA_CC_OPERADOR + ENVIA_SANGRIA_SUPRIMENTO_CONTA_FISCAL), documento "ECF 77", histórico "…realizado pelo(a) usuário(a) …"',
+          ok.status === 200 && ok.j.modo === 'consulta' && principais.length === 3
+          && cxv('DINHEIRO')?.valor === 90 && Number(cxv('DINHEIRO')?.codplc) === 1 && cxv('CARTOES')?.valor === 80 && Number(cxv('CARTOES')?.codplc) === 2
+          && cxv('CONVENIO')?.valor === 30 && Number(cxv('CONVENIO')?.codplc) === 3
+          && principais.every((r) => Number(r.codpdv) === 77 && r.nrparcela === '1/1' && r.gerado === 'SISTEMA' && r.chave === CH && r.dl === `${DIA} 00:00`
+            && Number(r.codfiscalcx) === 7 && String(r.obs).startsWith('Referente ao fechamento de caixa do(a) operador(a): ') && String(r.obs).endsWith(` do dia: 23/09/2037`))
+          && mcb.length === 3 && mcbv('DINHEIRO')?.valor === 30 && Number(mcbv('DINHEIRO')?.codconta) === 201 && mcbv('CARTOES')?.valor === 80 && mcbv('CONVENIO')?.valor === 30
+          && mcb.every((m) => m.nrodocumento === 'ECF 77' && m.tipomovimento === 'C' && /^Fechamento do caixa 77, do operador .*, no dia 23\/09\/2037 em .*, realizado pelo\(a\) usuário\(a\) .*\.$/.test(m.historico))
+          && mcbv('CONVENIO')?.historico.includes(' em convênio, '),
+          { status: ok.status, code: ok.j.code, efetivado: ok.j.efetivado, principais, mcb });
+        check2('FECHAMENTO §169.3 [a quebra]: diferença = 200 − (215 + 1,50 do troco solidário) = −16,50, acima do limite: título A Receber ORIGEM Q contra o parceiro do operador (16,50, consiliado S, CC da quebra, forma RCB, duplicata = o código, "ORIGINADO DO LANÇAMENTO DE QUEBRA DE CAIXA …"), a CAIXA da quebra (tipo QUEBRA DE CAIXA, parcela "1", o título, sem PDV) e o SALDO_OPERADOR −16,50 com o título; o HISTORICO tem 3 CAIXA + 3 MOV_CONTAS_BANCARIAS + "Quebra de caixa … na quantia de -16,50."',
+          so.length === 1 && so[0].saldo === -16.5 && so[0].gera_saldo === 'S' && Number(so[0].codpdv) === 77 && so[0].excluido === 'N'
+          && rq?.valor === 16.5 && rq?.origem === 'Q' && rq?.consiliado === 'S' && Number(rq?.codplc) === 5 && Number(rq?.codparceiro) === 20 && Number(rq?.idpgto) === 4
+          && rq?.duplicata === String(so[0].codrcb) && rq?.agrupado === 'N' && rq?.tb === 16.5 && String(rq?.obs).startsWith('ORIGINADO DO LANÇAMENTO DE QUEBRA DE CAIXA DO(a) OPERADOR(A) ')
+          && quebra?.valor === 16.5 && quebra?.nrparcela === '1' && Number(quebra?.codrcb) === Number(so[0].codrcb) && quebra?.codpdv == null && Number(quebra?.codplc) === 5
+          && hist.filter((h) => h.tabela === 'CAIXA').length === 3 && hist.filter((h) => h.tabela === 'MOV_CONTAS_BANCARIAS').length === 3
+          && hist.some((h) => h.tabela === 'QUEBRA_CAIXA' && /^Quebra de caixa referente ao fechamento do caixa 77, do operador .*, no dia 23\/09\/2037, na quantia de -16,50\.$/.test(h.historico))
+          && hist.some((h) => h.tabela === 'CAIXA' && h.historico.endsWith('na quantia de 90,00 em dinheiro.')),
+          { so, rq, quebra, hist: hist.map((h) => [h.tabela, h.historico.slice(0, 90)]) });
+
+        const apg = (await pgEf.query(`SELECT a.codapg, a.valor::float AS valor, a.origem, a.codparceiro, a.codgrupo, a.codgrupo_fcx, a.tipodoc, a.duplicata, x.codcc, x.tipo,
+            (SELECT valor::float FROM caixa c WHERE c.codcxapagar = x.codcxapagar AND c.origem = 'APAGAR') AS cxv
+            FROM apagar a JOIN cx_apagar x ON x.codapg = a.codapg WHERE a.codgrupo_fcx = $1`, [g])).rows as any[];
+        const marcas = (await pgEf.query(`SELECT codvendcartao, consiliado, to_char(dtfechamentocx AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS d FROM cartao WHERE codvendcartao = ANY($1::int[]) ORDER BY codvendcartao`, [[c80, c5]])).rows as any[];
+        const marcaR = (await pgEf.query(`SELECT consiliado FROM areceber WHERE codrcb = $1`, [r30])).rows[0] as any;
+        const cxvds = (await pgEf.query(`SELECT count(*) FILTER (WHERE status = 'F' AND tesouraria = 'S' AND codgrupo = $2)::int AS f, count(*)::int AS n FROM cx_vendas WHERE chave = $1`, [CH, g])).rows[0] as any;
+        const ccop = ((await pgEf.query(`SELECT idpgto, saldo::float AS saldo FROM contacorrenteop WHERE codoperador = 7 ORDER BY idpgto`)).rows as any[]).map((r) => [Number(r.idpgto), r.saldo]);
+        const de_novo = await ef({ confirmarDocumentosNaoSelecionados: true });
+        check2('FECHAMENTO §169.4 [o resto do efetivar]: o troco solidário (1,50) vira o título ORIGEM T do fornecedor da empresa, com o rateio em CX_APAGAR (CC da empresa) e a CAIXA APAGAR −1,50, amarrado ao grupo do fechamento (CODGRUPO_FCX); o cartão conferido é marcado (CONSILIADO S, DTFECHAMENTOCX = o dia do caixa) e o não conferido não; o convênio também; TODO o CX_VENDAS da chave vai a F/tesouraria com o grupo (a sangria e as linhas de completar inclusive); a CONTACORRENTEOP acumula o saldo de cada linha (DINHEIRO −10, CARTOES −5); fechar de novo é 422 (o turno já está fechado — a guarda que o legado não tem)',
+          apg.length === 1 && apg[0].valor === 1.5 && apg[0].origem === 'T' && Number(apg[0].codparceiro) === 22 && Number(apg[0].codgrupo_fcx) === g && Number(apg[0].codgrupo) !== g
+          && apg[0].tipodoc === 'BOLETO' && apg[0].duplicata === String(apg[0].codapg) && Number(apg[0].codcc) === 4 && apg[0].tipo === 'V' && apg[0].cxv === -1.5
+          && marcas.find((m) => Number(m.codvendcartao) === c80)?.consiliado === 'S' && marcas.find((m) => Number(m.codvendcartao) === c80)?.d === DIA
+          && marcas.find((m) => Number(m.codvendcartao) === c5)?.consiliado == null && marcaR?.consiliado === 'S'
+          && cxvds.f === cxvds.n && cxvds.n > 5
+          && JSON.stringify(ccop.filter(([, s]) => s !== 0)) === JSON.stringify([[1, -10], [3, -5]])
+          && de_novo.status === 422 && de_novo.j.code === 'FECHAMENTO_CAIXA_CONSULTA',
+          { apg, marcas, marcaR, cxvds, ccop, de_novo: [de_novo.status, de_novo.j.code] });
+
+        // limpeza
+        await pgEf.query(`DELETE FROM mov_contas_bancarias WHERE origem = 'FCP' AND idorigem IN (SELECT codcx FROM caixa WHERE codgrupo = $1)`, [g]);
+        await pgEf.query(`DELETE FROM caixa WHERE codgrupo = $1 OR codgrupo IN (SELECT codgrupo FROM apagar WHERE codgrupo_fcx = $1)`, [g]);
+        await pgEf.query(`DELETE FROM cx_apagar WHERE codapg IN (SELECT codapg FROM apagar WHERE codgrupo_fcx = $1)`, [g]);
+        await pgEf.query(`DELETE FROM apagar WHERE codgrupo_fcx = $1`, [g]);
+        await pgEf.query(`DELETE FROM areceber WHERE codrcb = ANY($1::int[])`, [[r30, Number(so[0]?.codrcb ?? -1)]]);
+        await pgEf.query(`DELETE FROM saldo_operador WHERE codgrupo = $1`, [g]);
+        await pgEf.query(`DELETE FROM historico WHERE auxiliar = $1`, [CH]);
+        await pgEf.query(`DELETE FROM contacorrenteop WHERE codoperador = 7`);
+        await pgEf.query(`DELETE FROM doc_fechamento WHERE codifinfech IN (SELECT codifinfech FROM finaliza_fechamento WHERE chave = $1)`, [CH]);
+        await pgEf.query(`DELETE FROM finaliza_fechamento WHERE chave = $1`, [CH]);
+        await pgEf.query(`DELETE FROM hist_sangria_suprimento WHERE chave = $1`, [CH]);
+        await pgEf.query(`DELETE FROM hist_troco_solidario WHERE codhisttrocosolidario = 9916901`);
+        await pgEf.query(`DELETE FROM cartao WHERE codvendcartao = ANY($1::int[])`, [[c80, c5]]);
+        await pgEf.query(`DELETE FROM caixa_pdv WHERE codcaixa = 9916901`);
+        await pgEf.query(`DELETE FROM cx_vendas WHERE chave = $1`, [CH]);
+        await pgEf.query(`DELETE FROM contacorrente WHERE codpdv = 977`);
+        await pgEf.query(`DELETE FROM pdv WHERE codpdv = 977`);
+        await pgEf.query(`UPDATE empresas SET idpgto = $1, codfornecedor_trocosolidario = $2, codplc_trocosolidario = $3 WHERE idempresa = 1`, [empAntes?.idpgto ?? null, empAntes?.codfornecedor_trocosolidario ?? null, empAntes?.codplc_trocosolidario ?? null]);
+        await pgEf.query(`UPDATE parceiros SET codconta = $1 WHERE codparceiro = 20`, [parcAntes?.codconta ?? null]);
+        await pgEf.query(`UPDATE operadores SET codparceiro = $1 WHERE codoperador = 7`, [operAntes?.codparceiro ?? null]);
+      } finally {
+        await pgEf.query(`DELETE FROM configuracoes WHERE id = ANY($1::int[])`, [cfgIds]).catch(() => undefined);
+        await pgEf.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

@@ -30,3 +30,15 @@ export const rascunhoFechamentoSchema = turnoFechamentoSchema.extend({
   })).max(100).default([]),
 });
 export type RascunhoFechamentoDto = z.infer<typeof rascunhoFechamentoSchema>;
+
+/**
+ * EFETIVAR o fechamento (`btnFechaClick`, UfinalizaFechamento.pas:234-895): grava o rascunho com a mesma seleção e fecha
+ * o turno numa transação. `gerarSaldo` é a caixa "saldo do operador" (`CkSaldoOperador`) — marcada sozinha quando a
+ * diferença passa do limite da empresa. `confirmarDocumentosNaoSelecionados` responde à pergunta do legado
+ * ("possui documentos que não foram selecionados. Deseja continuar?").
+ */
+export const efetivarFechamentoSchema = rascunhoFechamentoSchema.extend({
+  gerarSaldo: z.preprocess((v) => v === true || v === 'S' || v === 'true', z.boolean()).optional(),
+  confirmarDocumentosNaoSelecionados: z.preprocess((v) => v === true || v === 'S' || v === 'true', z.boolean()).optional(),
+});
+export type EfetivarFechamentoDto = z.infer<typeof efetivarFechamentoSchema>;

@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Post, Put, Query, UseGuards } from '@nestjs/common';
-import { rascunhoFechamentoSchema, turnoFechamentoSchema, type RascunhoFechamentoDto, type TurnoFechamentoDto } from '@apollo/shared';
+import { efetivarFechamentoSchema, rascunhoFechamentoSchema, turnoFechamentoSchema, type EfetivarFechamentoDto, type RascunhoFechamentoDto, type TurnoFechamentoDto } from '@apollo/shared';
 import { FechamentoCaixaService } from './fechamento-caixa.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -47,5 +47,13 @@ export class FechamentoCaixaController {
   @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNFECHA')
   rascunho(@Body(new ZodValidationPipe(rascunhoFechamentoSchema)) body: RascunhoFechamentoDto) {
     return this.svc.salvarRascunho(body);
+  }
+
+  /** efetivar o fechamento (corte 2) — o mesmo botão Fechar do legado (BTNFECHA) */
+  @Post('turno/efetivar')
+  @HttpCode(200)
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNFECHA')
+  efetivar(@Body(new ZodValidationPipe(efetivarFechamentoSchema)) body: EfetivarFechamentoDto) {
+    return this.svc.efetivar(body);
   }
 }

@@ -176,7 +176,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
  * Códigos cujo `details` do AppError PODE ser ecoado ao cliente no envelope (`detalhe`) — allowlist explícita
  * (evita vazar dados internos de outros erros: saldos, form/opção de RBAC, etc.). Só o que o front consome.
  */
-const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE', 'CLASS_TRIB_EM_USO', 'PRODUTO_SEM_CLASSIFICACAO', 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO', 'APURACAO_IBSCBS_JA_EXISTE', 'SPLIT_MANUAL_EXCEDE', 'CLUBE_DESCONTO_SOBREPOSTO', 'TRANSFERENCIA_NAO_PERMITIDA', 'PEDIDO_LOJA_FECHADA', 'PEDIDO_LOJA_FORA_DO_PEDIDO', 'PEDIDO_LOJA_INEXISTENTE', 'PEDIDO_FECHADO_NA_EMPRESA', 'PEDIDO_FECHADO_PARCIAL', 'PEDIDO_META_DIARIA_EXCEDIDA']);
+const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE', 'CLASS_TRIB_EM_USO', 'PRODUTO_SEM_CLASSIFICACAO', 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO', 'APURACAO_IBSCBS_JA_EXISTE', 'SPLIT_MANUAL_EXCEDE', 'CLUBE_DESCONTO_SOBREPOSTO', 'TRANSFERENCIA_NAO_PERMITIDA', 'PEDIDO_LOJA_FECHADA', 'PEDIDO_LOJA_FORA_DO_PEDIDO', 'PEDIDO_LOJA_INEXISTENTE', 'PEDIDO_FECHADO_NA_EMPRESA', 'PEDIDO_FECHADO_PARCIAL', 'PEDIDO_META_DIARIA_EXCEDIDA', 'FECHAMENTO_DOCUMENTOS_NAO_SELECIONADOS', 'FECHAMENTO_OPERADOR_SEM_PARCEIRO', 'FECHAMENTO_CC_QUEBRA', 'FECHAMENTO_MODALIDADE_SEM_PDV', 'FECHAMENTO_FORMA_SEM_CONTA', 'FECHAMENTO_FORMA_NAO_ENCONTRADA']);
 
 const CODE_PT: Record<string, string> = {
   // regra de negócio (BusinessRuleError 422)
@@ -524,6 +524,14 @@ const CODE_PT: Record<string, string> = {
   CARTAO_OUTRAS_DESPESAS_EXCEDE: 'Valor das despesas não pode ser maior que o total da baixa!',
   FECHAMENTO_CAIXA_CONSULTA: 'Este caixa já foi fechado: a conferência está em modo consulta e não grava.',
   FECHAMENTO_OPERACAO_FORA_DO_TURNO: 'A operação informada não faz parte do movimento deste caixa.',
+  FECHAMENTO_CONTA_OPERADOR: 'A conta corrente do operador não foi definida no cadastro de parceiros.',
+  FECHAMENTO_OPERADOR_SEM_PARCEIRO: 'Necessário associar o(a) operador(a) a um parceiro no cadastro de operadores.',
+  FECHAMENTO_SEM_FORMA_QUEBRA: 'Necessário informar uma forma de pagamento do tipo quebra de caixa no cadastro de empresa.',
+  FECHAMENTO_CC_QUEBRA: 'Necessário informar o centro de custo referente à forma de pagamento da quebra de caixa no cadastro de PDV.',
+  FECHAMENTO_MODALIDADE_SEM_PDV: 'Modalidade de pagamento não configurada no cadastro de PDV.',
+  FECHAMENTO_FORMA_SEM_CONTA: 'A conta corrente deve ser informada no cadastro da forma de pagamento antes de fechar o caixa.',
+  FECHAMENTO_FORMA_NAO_ENCONTRADA: 'A forma de pagamento do recurso não foi encontrada.',
+  FECHAMENTO_DOCUMENTOS_NAO_SELECIONADOS: 'Há finalizadoras com documentos que não foram selecionados. Deseja continuar?',
   // restrições da situação do documento fora da NF (UCadSituacaoNF.md C5) — as mensagens de cada tela do legado
   SITUACAO_FORNECEDOR_NAO_PERMITIDO: 'O fornecedor informado não é permitido para a situação do documento selecionada.',
   SITUACAO_CLIENTE_NAO_PERMITIDO: 'O cliente informado não é permitido para a situação do documento selecionada.',
