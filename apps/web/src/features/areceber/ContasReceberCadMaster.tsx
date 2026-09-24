@@ -22,7 +22,7 @@ const fmtBRL = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits:
  * CONTAS A RECEBER (uCadAReceber) — corte-1: cadastro/gestão do título, layout tabulado fiel ao
  * legado (abas Cadastro / Histórico / Pendências), visual do design system. Sobre o <CadMaster>
  * (contrato REST em `cadastro/areceber`). A BAIXA é o corte-2 (ARECEBER_BX). As TRAVAS de estado
- * (quitado/agrupado/contabilizado/vindo de NF) desabilitam a edição — o servidor reforça (422 PT).
+ * (quitado/agrupado) desabilitam a edição; o título de outro processo trava só os campos que o servidor indica.
  */
 export function ContasReceberCadMaster() {
   const { data: clienteOptions = [] } = useResourceOptions(
@@ -98,15 +98,17 @@ function ArForm({
   opts: LookupOptions;
 }) {
   const [aba, setAba] = useState('cadastro');
-  // travas de estado (o servidor reforça): quitado/agrupado/contabilizado/vindo de NF → só leitura.
+  // como o legado (uCadAReceber): quitado/agrupado travam a tela; o de NF e o de ORIGEM Q/O/C travam só os campos que o servidor
+  // devolve em campos_bloqueados (BLOQUEIA_CONTAS_RECEBER_ORIGEM_AUTO); contabilizado grava e refaz o contábil
   const g = form.getValues() as Record<string, unknown>;
   useSituacaoUnica(form, opts.situacaoOptions, g.codrcb == null); // a única F05 entra sozinha (uCadAReceber.pas:3110)
   const quitada = form.watch('quitada' as any) ?? g.quitada;
   const agrupado = form.watch('agrupado' as any) ?? g.agrupado;
   const contabilizado = g.contabilizado;
   const idnf = g.idnf;
-  const travado = quitada === 'S' || agrupado === 'S' || contabilizado === 'S' || idnf != null;
+  const travado = quitada === 'S' || agrupado === 'S';
   const liberado = editavel && !travado;
+  const bloqueados = new Set(((g.campos_bloqueados as string[] | undefined) ?? []));
 
   const tabs: TabDef[] = [
     { id: 'cadastro', label: 'Cadastro' },
@@ -118,9 +120,13 @@ function ArForm({
     <div className="flex flex-col gap-form-gap">
       {travado && (
         <div className="rounded-radius-base border border-border bg-bg-subtle p-pad-sm text-fg-muted">
-          Título{' '}
-          {quitada === 'S' ? 'quitado' : agrupado === 'S' ? 'agrupado' : contabilizado === 'S' ? 'contabilizado' : 'gerado por nota fiscal'}
-          {' '}— edição bloqueada{idnf != null ? ' (altere pela nota fiscal)' : ''}.
+          Título {quitada === 'S' ? 'quitado' : 'agrupado'} — edição bloqueada.
+        </div>
+      )}
+      {!travado && (bloqueados.size > 0 || contabilizado === 'S') && (
+        <div className="rounded-radius-base border border-border bg-bg-subtle p-pad-sm text-fg-muted">
+          {bloqueados.size > 0 && <>Conta gerada por outro processo{idnf != null ? ' (nota fiscal)' : ''}: os campos travados não se alteram aqui. </>}
+          {contabilizado === 'S' && <>Conta contabilizada: ao gravar, o lançamento contábil é refeito.</>}
         </div>
       )}
       <EstadoBar form={form} />
@@ -128,7 +134,7 @@ function ArForm({
       <div>
         <Tabs tabs={tabs} active={aba} onChange={setAba} />
         <TabPanel>
-          {aba === 'cadastro' && <CadastroTab form={form} editavel={liberado} opts={opts} />}
+          {aba === 'cadastro' && <CadastroTab form={form} editavel={liberado} opts={opts} bloqueados={bloqueados} />}
           {(aba === 'historico' || aba === 'pendencias') && (
             <div className="flex min-h-24 flex-col items-center justify-center gap-gp-xs text-center text-fg-muted">
               <span className="text-body-sm font-semibold text-fg-default">{tabs.find((t) => t.id === aba)?.label}</span>
@@ -294,12 +300,15 @@ function CadastroTab({
   form,
   editavel,
   opts,
+  bloqueados,
 }: {
   form: UseFormReturn<CriarAreceberDto>;
   editavel: boolean;
   opts: LookupOptions;
+  bloqueados: Set<string>;
 }) {
   const err = form.formState.errors;
+  const trava = (campo: string) => bloqueados.has(campo);
   return (
     <fieldset disabled={!editavel} className="border-0 p-0">
       {/* cliente (largo) */}
@@ -314,12 +323,13 @@ function CadastroTab({
             onChange={(v) => field.onChange(v ? Number(v) : undefined)}
             placeholder="Selecione o cliente…"
             error={err.codparceiro?.message as string | undefined}
+            disabled={trava('codparceiro')}
           />
         )}
       />
       {/* documento */}
       <div className="mt-form-gap grid grid-cols-2 gap-form-gap sm:grid-cols-3 lg:grid-cols-4">
-        <Field label="&Duplicata" maxLength={20} {...form.register('duplicata')} />
+        <Field label="&Duplicata" maxLength={20} disabled={trava('duplicata')} {...form.register('duplicata')} />
         <Controller
           control={form.control}
           name="tipodoc"
@@ -333,8 +343,8 @@ function CadastroTab({
             />
           )}
         />
-        <Field label="Nº &pedido" maxLength={20} {...form.register('nroped')} />
-        <Field label="Nº &cupom" maxLength={20} {...form.register('nrocupom')} />
+        <Field label="Nº &pedido" maxLength={20} disabled={trava('nroped')} {...form.register('nroped')} />
+        <Field label="Nº &cupom" maxLength={20} disabled={trava('nrocupom')} {...form.register('nrocupom')} />
       </div>
       {/* datas e valores */}
       <div className="mt-form-gap grid grid-cols-2 gap-form-gap sm:grid-cols-3 lg:grid-cols-5">
@@ -342,7 +352,7 @@ function CadastroTab({
           control={form.control}
           name="dtvenda"
           render={({ field }) => (
-            <DateField label="Data de &venda" value={(field.value as string) || undefined} onChange={(v) => field.onChange(v ?? '')} error={err.dtvenda?.message as string | undefined} />
+            <DateField label="Data de &venda" value={(field.value as string) || undefined} onChange={(v) => field.onChange(v ?? '')} error={err.dtvenda?.message as string | undefined} disabled={trava('dtvenda')} />
           )}
         />
         <Controller
@@ -356,21 +366,21 @@ function CadastroTab({
           control={form.control}
           name="valor"
           render={({ field }) => (
-            <CurrencyField label="&Valor" value={field.value as number | undefined} onChange={field.onChange} />
+            <CurrencyField label="&Valor" value={field.value as number | undefined} onChange={field.onChange} disabled={trava('valor')} />
           )}
         />
         <Controller
           control={form.control}
           name="txjuros"
           render={({ field }) => (
-            <NumberField label="&Juros (%)" value={field.value as number | undefined} onChange={field.onChange} decimais={2} min={0} />
+            <NumberField label="&Juros (%)" value={field.value as number | undefined} onChange={field.onChange} decimais={2} min={0} disabled={trava('txjuros')} />
           )}
         />
         <Controller
           control={form.control}
           name="nrodup"
           render={({ field }) => (
-            <NumberField label="&Parcelas" value={field.value as number | undefined} onChange={field.onChange} decimais={0} min={1} />
+            <NumberField label="&Parcelas" value={field.value as number | undefined} onChange={field.onChange} decimais={0} min={1} disabled={trava('nrodup')} />
           )}
         />
       </div>
@@ -380,14 +390,14 @@ function CadastroTab({
           control={form.control}
           name="codvendedor"
           render={({ field }) => (
-            <SelectField label="Ven&dedor" options={opts.funcionarioOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" />
+            <SelectField label="Ven&dedor" options={opts.funcionarioOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" disabled={trava('codvendedor')} />
           )}
         />
         <Controller
           control={form.control}
           name="codcobrador"
           render={({ field }) => (
-            <SelectField label="C&obrador" options={opts.funcionarioOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" />
+            <SelectField label="C&obrador" options={opts.funcionarioOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" disabled={trava('codcobrador')} />
           )}
         />
         <Controller
@@ -401,7 +411,7 @@ function CadastroTab({
           control={form.control}
           name="codplc"
           render={({ field }) => (
-            <SelectField label="Centro de &custo" options={opts.plcOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" />
+            <SelectField label="Centro de &custo" options={opts.plcOptions} value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} placeholder="Opcional…" disabled={trava('codplc')} />
           )}
         />
         <Controller
@@ -413,7 +423,7 @@ function CadastroTab({
         />
       </div>
       <div className="mt-form-gap">
-        <TextArea label="&Observações" rows={2} {...form.register('obs')} />
+        <TextArea label="&Observações" rows={2} disabled={trava('obs')} {...form.register('obs')} />
       </div>
     </fieldset>
   );

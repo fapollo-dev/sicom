@@ -110,12 +110,13 @@ export class AreceberService {
 
   /** Leitura por código (escopo empresa). */
   async read(id: number): Promise<Record<string, unknown> | undefined> {
-    return (this.dbp.forTenantRead() as AnyDB)
-      .selectFrom('get_areceber')
-      .selectAll()
-      .where('codrcb', '=', id)
-      .where('codempresa', '=', this.emp())
-      .executeTakeFirst();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const emp = this.emp();
+    const v = (await db.selectFrom('get_areceber').selectAll().where('codrcb', '=', id).where('codempresa', '=', emp).executeTakeFirst()) as Record<string, unknown> | undefined;
+    if (!v) return v;
+    // os campos que a tela trava neste título (VerificaCRCadastradaAutomaticamente)
+    const x = (await sql<Record<string, unknown>>`SELECT origem, idnf, nfadicmanual, agrupamento FROM areceber WHERE codrcb = ${id}`.execute(db)).rows[0] ?? {};
+    return { ...v, campos_bloqueados: await this.camposBloqueados(db, emp, { ...v, ...x }) };
   }
 
   /** Colunas que o usuário edita (delta) — nunca codrcb/codempresa/estado. */
