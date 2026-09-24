@@ -27,6 +27,7 @@ const CHAVES_LIBERACAO = new Set([
   'USUARIOS_APROVAM_CONFERENCIA_NOTA',
   'USUARIOS_LIBERAM_SCRAP_NF', // reimportar SCRAP já importado na NF de saída (uNF.pas:1994)
   'USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO', // excluir documento no diálogo do fechamento de caixa (UConsDocs :1667)
+  'USUARIOS_PERMITIDOS_ALTERAR_SUP_SAN_FECHAMENTO', // inserir/excluir sangria e suprimento no fechamento de caixa (UConsDocs :2027)
 ]);
 
 @Injectable()
@@ -71,15 +72,19 @@ export class LiberacaoService {
    * Falha (login/senha/permissão) → {liberado:false} SEM distinguir o motivo (não vira oráculo de senha);
    * verificarSenha SEMPRE roda (timing-safe, DUMMY_HASH). Registra também a NEGAÇÃO (auditoria).
    */
-  async validar(dados: { codigo: string; login: string; senha: string; liberacao: string; computador?: string | null }): Promise<{ liberado: boolean; codOperador?: number }> {
+  /**
+   * `qualquerUsuario`: o `ChamaLiberacaoLogin(nil, …)` do legado — sem lista de liberadores, qualquer usuário ativo com a
+   * senha certa libera (a sangria manual do fechamento quando a USUARIOS_PERMITIDOS_ALTERAR_SUP_SAN_FECHAMENTO está vazia).
+   */
+  async validar(dados: { codigo: string; login: string; senha: string; liberacao: string; computador?: string | null; qualquerUsuario?: boolean }): Promise<{ liberado: boolean; codOperador?: number; nome?: string }> {
     if (!CHAVES_LIBERACAO.has(dados.codigo)) throw new BusinessRuleError('LIBERACAO_CHAVE_INVALIDA', { codigo: dados.codigo });
     const db = this.dbp.forTenant() as AnyDB; // precisa gravar (lockout + log)
     const sup = (await db
       .selectFrom('operadores')
-      .select(['codoperador', 'desabilitado', 'senha_hash', 'tentativas_login', 'bloqueado_ate'])
+      .select(['codoperador', 'nome', 'desabilitado', 'senha_hash', 'tentativas_login', 'bloqueado_ate'])
       .where(sql`upper(login)`, '=', String(dados.login).toUpperCase())
       .where(sql`coalesce(indr,'I')`, '<>', 'E')
-      .executeTakeFirst()) as { codoperador: number; desabilitado?: string | null; senha_hash?: string | null; tentativas_login?: number | null; bloqueado_ate?: unknown } | undefined;
+      .executeTakeFirst()) as { codoperador: number; nome?: string | null; desabilitado?: string | null; senha_hash?: string | null; tentativas_login?: number | null; bloqueado_ate?: unknown } | undefined;
 
     const registrarNegacao = () =>
       this.registrar(db, { usuarioSistema: currentTenant().operadorId ?? null, usuarioLiberou: String(dados.login).slice(0, 200), liberacao: 'NEGADO: ' + dados.liberacao, computador: dados.computador ?? null });
@@ -94,8 +99,8 @@ export class LiberacaoService {
     }
 
     const senhaOk = verificarSenha(dados.senha, sup?.senha_hash ?? DUMMY_HASH); // sempre roda (anti-timing)
-    const permitidos = new Set(await this.usuariosPermitidosLocal(dados.codigo));
-    const liberado = !!sup && sup.desabilitado !== 'S' && senhaOk && permitidos.has(Number(sup.codoperador));
+    const permitidos = dados.qualquerUsuario ? null : new Set(await this.usuariosPermitidosLocal(dados.codigo));
+    const liberado = !!sup && sup.desabilitado !== 'S' && senhaOk && (!permitidos || permitidos.has(Number(sup.codoperador)));
 
     if (!liberado) {
       // conta SENHA errada como tentativa e BLOQUEIA ao exceder (mesmo backstop do login endurecido). Só quando
@@ -117,7 +122,7 @@ export class LiberacaoService {
       await db.updateTable('operadores').set({ tentativas_login: 0, bloqueado_ate: null }).where('codoperador', '=', sup!.codoperador).execute();
     }
     await this.registrar(db, { usuarioSistema: currentTenant().operadorId ?? null, usuarioLiberou: String(sup!.codoperador), liberacao: dados.liberacao, computador: dados.computador ?? null });
-    return { liberado: true, codOperador: Number(sup!.codoperador) };
+    return { liberado: true, codOperador: Number(sup!.codoperador), nome: sup!.nome ?? undefined };
   }
 
   /** usa o ConfigService injetado (mesma query dedicada); helper p/ manter o validar coeso. */

@@ -81,6 +81,9 @@ export interface Documentos {
   insercao?: boolean;
   exclusao?: boolean;
   liberacaoExclusao?: boolean;
+  /** sangria/suprimento: inserir pede sempre o login de quem libera; a sangria em dinheiro escolhe a forma */
+  liberacaoInsercao?: boolean;
+  formasSangria?: Array<{ idpgto: number; modalidade: string }>;
   documentos: DocumentoConferencia[];
   conferido: number;
 }
@@ -102,13 +105,13 @@ export const efetivarTurno = (t: TurnoRef, body: { dinheiroContado: number; docu
   req<DetalheTurno>(`${P}/turno/efetivar`, { method: 'POST', body: JSON.stringify({ ...t, ...body }) });
 export interface CamposDocumento {
   valor?: number; codoperadora?: number; nsu?: string; nsuhost?: string; autorizacao?: string; codrede?: number; nroparcela?: number;
-  obs?: string; dtvenc?: string; codparceiro?: number; nrocupom?: string; nropedido?: string;
+  obs?: string; dtvenc?: string; codparceiro?: number; nrocupom?: string; nropedido?: string; idpgto?: number; descricao?: string;
 }
 export const editarDocumento = (t: TurnoRef, operacao: string, codigo: number, campos: CamposDocumento) =>
   req<{ tipo: 'CARTAO' | 'RCB'; codigo: number; alterados: string[]; soOperadora: boolean }>(`${P}/turno/documentos`, {
     method: 'PUT', body: JSON.stringify({ ...t, operacao, codigo, campos }),
   });
-export const inserirDocumento = (t: TurnoRef, operacao: string, campos: CamposDocumento) =>
-  req<{ tipo: 'CARTAO' | 'RCB'; codigo: number }>(`${P}/turno/documentos`, { method: 'POST', body: JSON.stringify({ ...t, operacao, campos }) });
+export const inserirDocumento = (t: TurnoRef, operacao: string, campos: CamposDocumento, liberacao?: { login: string; senha: string }) =>
+  req<{ tipo: 'CARTAO' | 'RCB' | 'SANGRIA'; codigo: number }>(`${P}/turno/documentos`, { method: 'POST', body: JSON.stringify({ ...t, operacao, campos, ...liberacao }) });
 export const excluirDocumento = (t: TurnoRef, operacao: string, codigo: number, liberacao?: { login: string; senha: string }) =>
   req<{ codigo: number; excluido: boolean }>(`${P}/turno/documentos/excluir`, { method: 'POST', body: JSON.stringify({ ...t, operacao, codigo, ...liberacao }) });

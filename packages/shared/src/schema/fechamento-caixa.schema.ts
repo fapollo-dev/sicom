@@ -63,6 +63,9 @@ const camposDocumento = z.object({
   /** só na inserção do cartão (a tela completa aceita o cupom e o pedido) */
   nrocupom: z.string().max(20).optional(),
   nropedido: z.string().max(20).optional(),
+  /** só na sangria/suprimento: a forma da sangria em dinheiro e a descrição */
+  idpgto: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().int().optional()),
+  descricao: z.string().max(100).optional(),
 });
 export const editarDocumentoFechamentoSchema = turnoFechamentoSchema.extend({
   operacao: z.string().min(1).max(30),
@@ -71,10 +74,13 @@ export const editarDocumentoFechamentoSchema = turnoFechamentoSchema.extend({
 });
 export type EditarDocumentoFechamentoDto = z.infer<typeof editarDocumentoFechamentoSchema>;
 
-/** INSERIR um documento no diálogo (Insert do UConsDocs, corte 4): o A Receber ORIGEM 'F' e o cartão da tela completa */
+/** INSERIR um documento no diálogo (Insert do UConsDocs, corte 4): o A Receber ORIGEM 'F', o cartão da tela completa, a sangria e o suprimento */
 export const inserirDocumentoFechamentoSchema = turnoFechamentoSchema.extend({
   operacao: z.string().min(1).max(30),
   campos: camposDocumento,
+  /** a sangria/suprimento pede sempre o login de quem libera (o responsável) */
+  login: z.string().max(60).optional(),
+  senha: z.string().max(100).optional(),
 });
 export type InserirDocumentoFechamentoDto = z.infer<typeof inserirDocumentoFechamentoSchema>;
 

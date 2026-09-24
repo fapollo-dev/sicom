@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { sql, type RawBuilder } from 'kysely';
 import type {
   EditarDocumentoFechamentoDto, EfetivarFechamentoDto, ExcluirDocumentoFechamentoDto, InserirDocumentoFechamentoDto, RascunhoFechamentoDto, TurnoFechamentoDto,
@@ -26,6 +27,8 @@ const dataHoraAsString = (v: string | null) => {
 };
 /** as colunas do cartão que o diálogo grava (`sqqDocsCRT`) */
 const CAMPOS_CARTAO = ['valor', 'codoperadora', 'nsu', 'nsuhost', 'autorizacao', 'codrede', 'nroparcela', 'obs'];
+/** as listas de liberadores que o diálogo de documentos consulta */
+type LiberacaoFechamento = 'USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO' | 'USUARIOS_PERMITIDOS_ALTERAR_SUP_SAN_FECHAMENTO';
 const r2 = (n: number) => Math.round((n + (n >= 0 ? Number.EPSILON : -Number.EPSILON)) * 100) / 100;
 
 /** as quatro linhas fixas de sangria/suprimento do rascunho (`TipoSangriaSuprimentoToStr`) e a do dinheiro contado */
@@ -510,7 +513,10 @@ export class FechamentoCaixaService {
     const consulta = det.modo === 'consulta';
     if ((FIXAS_FECHAMENTO as readonly string[]).includes(operacao)) {
       const docs = await this.docsSangria(db, c, operacao as Fixa, det.filtraPdv);
-      return { operacao, tipo: 'SANGRIA' as const, modo: det.modo, marcacaoLivre: false, documentos: docs.map((d) => ({ ...d, sel: true })), conferido: r2(docs.reduce((s, d) => s + d.valor, 0)) };
+      return {
+        operacao, tipo: 'SANGRIA' as const, modo: det.modo, marcacaoLivre: false, documentos: docs.map((d) => ({ ...d, sel: true })),
+        conferido: r2(docs.reduce((s, d) => s + d.valor, 0)), ...(await this.manutencaoSangria(db, c, det, operacao as Fixa)),
+      };
     }
     const linha = det.linhas.find((l) => l.operacao === operacao);
     if (!linha) throw new BusinessRuleError('FECHAMENTO_OPERACAO_FORA_DO_TURNO', { operacao });
@@ -545,21 +551,49 @@ export class FechamentoCaixaService {
     if ((await this.cfg(db, 'USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO', c.emp)) === 'S') {
       [editar, inserir, excluir] = fechadoNoPdv ? [true, false, false] : [true, true, true];
     }
-    const deletarFcx = String((await this.cfg(db, 'DELETAR_DOCUMENTO_FCX', c.emp)) ?? '').trim().toUpperCase();
-    const exclusao = excluir && !['', 'N', 'NAO', 'NÃO'].includes(deletarFcx);
+    const exclusao = excluir && (await this.deletarFcx(db, c.emp));
     return {
       edicao: !editar || tipo === 'TICKET' ? null : tipo === 'CARTAO' && fechadoNoPdv ? 'operadora' as const : 'completa' as const,
       insercao: inserir && tipo !== 'TICKET',
       exclusao,
-      liberacaoExclusao: exclusao && (await this.liberadoresExclusao(db)).length > 0,
+      liberacaoExclusao: exclusao && (await this.liberadores(db, 'USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO')).length > 0,
     };
   }
 
-  /** os usuários 'S' da `USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO` — com algum, excluir pede o login de um deles (:1667) */
-  private async liberadoresExclusao(db: AnyDB): Promise<number[]> {
+  /** os usuários 'S' de uma lista de liberadores (`GetUsuariosPermitidos`) — com algum, a ação pede o login de um deles */
+  private async liberadores(db: AnyDB, codigo: LiberacaoFechamento): Promise<number[]> {
     return ((await sql<{ chave: string }>`SELECT e.chave FROM configuracoes c JOIN configuracoes_especificas e ON e.id = c.id
-        WHERE c.codigo = 'USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO' AND e.tipo = 'Usuario' AND e.valor = 'S'`.execute(db)).rows)
+        WHERE c.codigo = ${codigo} AND e.tipo = 'Usuario' AND e.valor = 'S'`.execute(db)).rows)
       .map((r) => Number(r.chave)).filter((n) => Number.isFinite(n));
+  }
+
+  /** `DELETAR_DOCUMENTO_FCX` 'N'/vazio desliga toda exclusão do diálogo (`TeclaDelete :1643`) */
+  private async deletarFcx(db: AnyDB, emp: number): Promise<boolean> {
+    return !['', 'N', 'NAO', 'NÃO'].includes(String((await this.cfg(db, 'DELETAR_DOCUMENTO_FCX', emp)) ?? '').trim().toUpperCase());
+  }
+
+  /**
+   * sangria e suprimento no diálogo (`FormShow :865-918`): nunca se editam nem se marcam; inserir só na sangria em dinheiro e no
+   * suprimento; excluir nas quatro; na consulta, nada (a `USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO` não vale aqui). Inserir
+   * pede SEMPRE um login: o de um liberador da `USUARIOS_PERMITIDOS_ALTERAR_SUP_SAN_FECHAMENTO` (13 na produção) ou, sem lista, o de
+   * qualquer usuário (`ChamaLiberacaoLogin(nil)`); excluir pede só quando há lista.
+   */
+  private async manutencaoSangria(db: AnyDB, c: Ctx, det: Awaited<ReturnType<FechamentoCaixaService['montar']>>, fx: Fixa) {
+    const consulta = det.modo === 'consulta';
+    const insercao = !consulta && (fx === 'SANGRIA EM DINHEIRO' || fx === 'SUPRIMENTO');
+    const exclusao = !consulta && (await this.deletarFcx(db, c.emp));
+    const lista = (insercao || exclusao) ? await this.liberadores(db, 'USUARIOS_PERMITIDOS_ALTERAR_SUP_SAN_FECHAMENTO') : [];
+    return {
+      edicao: null, insercao, exclusao, liberacaoInsercao: insercao, liberacaoExclusao: exclusao && lista.length > 0,
+      formasSangria: insercao && fx === 'SANGRIA EM DINHEIRO' ? await this.formasSangria(db, c.emp) : [],
+    };
+  }
+
+  /** as formas da sangria em dinheiro (`PreencheTipoSangria`): PERMITE_SANGRIA_PDV 'S' e DESTINO CXA */
+  private async formasSangria(db: AnyDB, emp: number): Promise<Array<{ idpgto: number; modalidade: string }>> {
+    return ((await sql<{ idpgto: number; modalidade: string }>`SELECT idpgto, modalidade FROM formas_pgto
+        WHERE coalesce(permite_sangria_pdv, 'N') = 'S' AND idempresa = ${emp} AND destino = 'CXA' ORDER BY idpgto`.execute(db)).rows)
+      .map((f) => ({ idpgto: num(f.idpgto), modalidade: String(f.modalidade ?? '') }));
   }
 
   /** o turno, a linha da forma e o operador logado — o começo comum de editar, inserir e excluir */
@@ -668,6 +702,8 @@ export class FechamentoCaixaService {
    * - Cartão (a tela completa — `TELA_LANCTO_CARTAO_DOCTO_FINALIZADORAS`='C' na empresa 1): NROPARCELA 1, LIBERADO 'N', DTCADASTRO.
    */
   async inserirDocumento(dto: InserirDocumentoFechamentoDto) {
+    const fixa = String(dto.operacao ?? '').trim().toUpperCase();
+    if ((FIXAS_FECHAMENTO as readonly string[]).includes(fixa)) return this.inserirSangria(dto, fixa as Fixa);
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const { c, linha, m, logado, nomeLogado, dataCx } = await this.prepararManutencao(trx, dto);
       if (!m.insercao) throw new BusinessRuleError('FECHAMENTO_CAIXA_CONSULTA');
@@ -734,7 +770,9 @@ export class FechamentoCaixaService {
    * (a data do A Receber é o VENCIMENTO; a do cartão, a DTVENDA com a hora — o AsString do Delphi); depois o DELETE físico.
    */
   async excluirDocumento(dto: ExcluirDocumentoFechamentoDto) {
-    const liberadorNecessario = await this.liberadoresExclusao(this.dbp.forTenantRead() as AnyDB);
+    const fixa = String(dto.operacao ?? '').trim().toUpperCase();
+    if ((FIXAS_FECHAMENTO as readonly string[]).includes(fixa)) return this.excluirSangria(dto, fixa as Fixa);
+    const liberadorNecessario = await this.liberadores(this.dbp.forTenantRead() as AnyDB, 'USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO');
     let liberado = false;
     if (liberadorNecessario.length) {
       if (!dto.login || !dto.senha) throw new BusinessRuleError('FECHAMENTO_EXCLUSAO_LIBERACAO');
@@ -744,10 +782,7 @@ export class FechamentoCaixaService {
     }
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const { c, linha, m, logado, nomeLogado, doc: docDe } = await this.prepararManutencao(trx, dto);
-      if (!m.exclusao) {
-        const deletarFcx = String((await this.cfg(trx, 'DELETAR_DOCUMENTO_FCX', c.emp)) ?? '').trim().toUpperCase();
-        throw new BusinessRuleError(['', 'N', 'NAO', 'NÃO'].includes(deletarFcx) ? 'FECHAMENTO_EXCLUSAO_SEM_PERMISSAO' : 'FECHAMENTO_CAIXA_CONSULTA');
-      }
+      if (!m.exclusao) throw new BusinessRuleError((await this.deletarFcx(trx, c.emp)) ? 'FECHAMENTO_CAIXA_CONSULTA' : 'FECHAMENTO_EXCLUSAO_SEM_PERMISSAO');
       await docDe(dto.codigo);
       const alvo = linha.tipo === 'CARTAO'
         ? { tabela: 'CARTAO', campo: 'NROCUPOM', sqlDoc: sql`SELECT nrocupom AS doc, valor, codpdv, to_char(dtvenda AT TIME ZONE ${c.tz}, 'YYYY-MM-DD HH24:MI:SS') AS dia FROM cartao WHERE codvendcartao = ${dto.codigo} FOR UPDATE`, del: sql`DELETE FROM cartao WHERE codvendcartao = ${dto.codigo}` }
@@ -761,6 +796,99 @@ export class FechamentoCaixaService {
                   (now() AT TIME ZONE ${c.tz}), ${logado}, ${c.emp}, ${c.chave})`.execute(trx);
       await sql`${alvo.del}`.execute(trx);
       return { tipo: linha.tipo, codigo: dto.codigo, excluido: true, liberado };
+    });
+  }
+
+  // ── sangria e suprimento manuais ───────────────────────────────────────────────────────────────────────────────
+  /**
+   * inserir sangria/suprimento (`UConsDocs :2025-2150`; 133 sangrias e 24 suprimentos em 2026). O login (liberador ou, sem lista,
+   * qualquer usuário) é o RESPONSÁVEL; com `ENVIA_SANGRIA_SUPRIMENTO_CONTA_FISCAL`='S' (Módulo Retaguarda na produção) o dinheiro
+   * vai para a conta do fiscal (`PARCEIROS.CODCONTA` do liberador, `GetCodContaFiscal`) numa MOV_CONTAS_BANCARIAS — a sangria
+   * entra (+, 'C', a forma escolhida), o suprimento sai (−, 'D', a forma DINHEIRO) —, ligada pelo IDENTIFICADOR_MOVCB. A linha da
+   * HIST_SANGRIA_SUPRIMENTO leva o valor positivo, o operador do caixa, quem cadastrou e, no suprimento, IDPGTO 0. Sem LOG nem
+   * HISTORICO de inclusão (o legado não grava). A liberação é gravada fora da transação, como no legado.
+   */
+  private async inserirSangria(dto: InserirDocumentoFechamentoDto, fx: Fixa) {
+    if (fx !== 'SANGRIA EM DINHEIRO' && fx !== 'SUPRIMENTO') throw new BusinessRuleError('FECHAMENTO_DOCUMENTO_NAO_EDITAVEL', { operacao: fx });
+    if (!dto.login || !dto.senha) throw new BusinessRuleError('FECHAMENTO_SANGRIA_LIBERACAO');
+    const lista = await this.liberadores(this.dbp.forTenantRead() as AnyDB, 'USUARIOS_PERMITIDOS_ALTERAR_SUP_SAN_FECHAMENTO');
+    const lib = await this.liberacao.validar({
+      codigo: 'USUARIOS_PERMITIDOS_ALTERAR_SUP_SAN_FECHAMENTO', login: dto.login, senha: dto.senha,
+      liberacao: lista.length ? 'USUÁRIO NÃO PERMITIDO A INSERIR REGISTROS' : '', qualquerUsuario: lista.length === 0,
+    });
+    if (!lib.liberado || !lib.codOperador) throw new BusinessRuleError('FECHAMENTO_SANGRIA_INSERIR_NAO_LIBERADO');
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const c = await this.contexto(trx, dto);
+      const det = await this.montar(trx, c);
+      if (!(await this.manutencaoSangria(trx, c, det, fx)).insercao) throw new BusinessRuleError('FECHAMENTO_CAIXA_CONSULTA');
+      const campos = dto.campos ?? {};
+      const sangria = fx === 'SANGRIA EM DINHEIRO';
+      const valor = r2(num(campos.valor));
+      let forma: { idpgto: number; modalidade: string } | undefined;
+      if (sangria) {
+        const formas = await this.formasSangria(trx, c.emp);
+        if (!formas.length) throw new BusinessRuleError('FECHAMENTO_SANGRIA_SEM_FORMA');
+        forma = campos.idpgto != null ? formas.find((f) => f.idpgto === campos.idpgto) : formas[0];
+        if (!forma) throw new BusinessRuleError('FECHAMENTO_SANGRIA_FORMA');
+      }
+      if (valor === 0) throw new BusinessRuleError('FECHAMENTO_DOCUMENTO_VALOR');
+      const logado = currentTenant().operadorId ?? null;
+      let identificador: string | null = null;
+      if ((await this.cfg(trx, 'ENVIA_SANGRIA_SUPRIMENTO_CONTA_FISCAL', c.emp)) === 'S') {
+        const conta = num((await sql<{ codconta: unknown }>`SELECT p.codconta FROM operadores o JOIN parceiros p ON p.codparceiro = o.codparceiro
+            WHERE o.codoperador = ${lib.codOperador}`.execute(trx)).rows[0]?.codconta);
+        if (!conta) throw new BusinessRuleError('FECHAMENTO_SANGRIA_SEM_CONTA_FISCAL');
+        const idpgtoMcb = sangria ? forma!.idpgto : num((await sql<{ idpgto: unknown }>`SELECT idpgto FROM formas_pgto WHERE upper(modalidade) = 'DINHEIRO'
+            AND idempresa = ${c.emp} ORDER BY idpgto LIMIT 1`.execute(trx)).rows[0]?.idpgto);
+        identificador = `{${randomUUID().toUpperCase()}}`;
+        const dataCx = c.data.split('-').reverse().join('/');
+        await trx.insertInto('mov_contas_bancarias').values({
+          codconta: conta, idempresa: c.emp, valor: sangria ? valor : -valor, tipomovimento: sangria ? 'C' : 'D', codopconta: 0, idpgto: idpgtoMcb || null,
+          historico: `${sangria ? 'Sangria realizada ' : 'Suprimento realizado '}no caixa ${c.pdv}, no dia ${dataCx} através do fechamento de caixa`,
+          dtemissao: c.data, dtvenc: c.data, dtliberacao: this.ini(c), liberado: 'S', coddestino: 0, contabilizado: 'N', chave: c.chave, identificador,
+        }).execute();
+      }
+      const r = (await sql<{ codhistsangria: number }>`
+        INSERT INTO hist_sangria_suprimento (idempresa, data, idpgto, codpdv, descricao, valor, chave, codoperador, responsavel, codoperador_cadastro,
+                                             identificador_movcb, tipo)
+        VALUES (${c.emp}, ${this.ini(c)}, ${sangria ? forma!.idpgto : 0}, ${c.pdv}, ${String(campos.descricao ?? '').slice(0, 100) || null}, ${valor}, ${c.chave},
+                ${c.op}, ${lib.codOperador}, ${logado}, ${identificador}, ${sangria ? 'SAN' : 'SUP'})
+        RETURNING codhistsangria`.execute(trx)).rows[0];
+      return { tipo: 'SANGRIA', codigo: Number(r.codhistsangria), responsavel: lib.codOperador, identificadorMovcb: identificador };
+    });
+  }
+
+  /**
+   * excluir sangria/suprimento (`TeclaDelete :1653`): o login de um liberador da `USUARIOS_PERMITIDOS_ALTERAR_SUP_SAN_FECHAMENTO`
+   * quando há lista (LOG_LIBERACOES "USUÁRIO NÃO PERMITIDO A EXCLUIR REGISTROS", 90 desde 2025); o HISTORICO "EXCLUSAO DO REGISTRO
+   * CODHISTSANGRIA: …" com a chave no AUXILIAR; o DELETE e a MOV_CONTAS_BANCARIAS do IDENTIFICADOR_MOVCB (`ExcluiMovimentacaoBancaria`).
+   */
+  private async excluirSangria(dto: ExcluirDocumentoFechamentoDto, fx: Fixa) {
+    const lista = await this.liberadores(this.dbp.forTenantRead() as AnyDB, 'USUARIOS_PERMITIDOS_ALTERAR_SUP_SAN_FECHAMENTO');
+    let liberado = false;
+    if (lista.length) {
+      if (!dto.login || !dto.senha) throw new BusinessRuleError('FECHAMENTO_SANGRIA_LIBERACAO');
+      liberado = (await this.liberacao.validar({ codigo: 'USUARIOS_PERMITIDOS_ALTERAR_SUP_SAN_FECHAMENTO', login: dto.login, senha: dto.senha, liberacao: 'USUÁRIO NÃO PERMITIDO A EXCLUIR REGISTROS' })).liberado;
+      if (!liberado) throw new BusinessRuleError('FECHAMENTO_SANGRIA_EXCLUIR_NAO_LIBERADO');
+    }
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const c = await this.contexto(trx, dto);
+      const det = await this.montar(trx, c);
+      if (!(await this.manutencaoSangria(trx, c, det, fx)).exclusao) {
+        throw new BusinessRuleError(det.modo === 'consulta' ? 'FECHAMENTO_CAIXA_CONSULTA' : 'FECHAMENTO_EXCLUSAO_SEM_PERMISSAO');
+      }
+      if (!(await this.docsSangria(trx, c, fx, det.filtraPdv)).some((d) => d.codigo === dto.codigo)) throw new BusinessRuleError('FECHAMENTO_DOCUMENTO_FORA_DO_TURNO', { codigo: dto.codigo });
+      const h = (await sql<{ valor: unknown; codpdv: unknown; dia: string | null; identificador_movcb: string | null }>`SELECT valor, codpdv, identificador_movcb,
+          to_char(data AT TIME ZONE ${c.tz}, 'YYYY-MM-DD HH24:MI:SS') AS dia FROM hist_sangria_suprimento WHERE codhistsangria = ${dto.codigo} FOR UPDATE`.execute(trx)).rows[0];
+      const logado = currentTenant().operadorId ?? null;
+      const nomeLogado = String((await sql<{ nome: string | null }>`SELECT nome FROM operadores WHERE codoperador = ${logado}`.execute(trx)).rows[0]?.nome ?? '');
+      await sql`INSERT INTO historico (coddoc, tabela, historico, data, codoperador, codempresa, auxiliar)
+          VALUES (${String(dto.codigo)}, 'HIST_SANGRIA_SUPRIMENTO',
+                  ${`EXCLUSAO DO REGISTRO CODHISTSANGRIA: ${dto.codigo}, VALOR: ${floatToStr(h.valor)}, NO DIA ${dataHoraAsString(h.dia)} DA ECF: ${h.codpdv ?? ''}, FEITO PELO OPERADOR: ${logado ?? ''} ${nomeLogado}`.slice(0, 600)},
+                  (now() AT TIME ZONE ${c.tz}), ${logado}, ${c.emp}, ${c.chave})`.execute(trx);
+      await sql`DELETE FROM hist_sangria_suprimento WHERE codhistsangria = ${dto.codigo}`.execute(trx);
+      const mcb = h.identificador_movcb ? (await sql`DELETE FROM mov_contas_bancarias WHERE identificador = ${h.identificador_movcb}`.execute(trx)).numAffectedRows : 0n;
+      return { tipo: 'SANGRIA', codigo: dto.codigo, excluido: true, liberado, movimentacoes: Number(mcb ?? 0) };
     });
   }
 

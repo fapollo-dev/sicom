@@ -34,7 +34,7 @@ const FIXAS: Fixa[] = ['SANGRIA EM DINHEIRO', 'SANGRIA EM CHEQUE', 'OUTRAS SANGR
 
 interface Conferida { codigos: number[]; total: number }
 /** o formulário de edição de um documento (UConsDocs.AlteraDocs): tudo em texto, convertido ao gravar */
-interface Edicao { doc: DocumentoConferencia | null; f: Record<keyof CamposDocumento, string> }
+interface Edicao { doc: DocumentoConferencia | null; f: Record<keyof CamposDocumento, string>; login: string; senha: string }
 interface Exclusao { doc: DocumentoConferencia; login: string; senha: string }
 const txt = (v: unknown) => (v == null ? '' : String(v));
 
@@ -110,8 +110,9 @@ export function FechamentoCaixaPage() {
     f: {
       valor: txt(x.valor), codoperadora: txt(x.codoperadora), nsu: txt(x.nsu), nsuhost: txt(x.nsuhost), autorizacao: txt(x.autorizacao),
       codrede: txt(x.codrede), nroparcela: txt(x.nroparcela), obs: txt(x.obs), dtvenc: txt(x.dtvenc), codparceiro: txt(x.codparceiro),
-      nrocupom: txt(x.nrocupom), nropedido: txt(x.nropedido),
+      nrocupom: txt(x.nrocupom), nropedido: txt(x.nropedido), idpgto: '', descricao: '',
     },
+    login: '', senha: '',
   }); };
   // INSERIR (Insert do legado): o A Receber nasce do consumidor (0), vencendo no dia do caixa; o cartão com 1 parcela
   const inserir = () => { setExclusao(null); setEdicao({
@@ -119,7 +120,9 @@ export function FechamentoCaixaPage() {
     f: {
       valor: '', codoperadora: '', nsu: '', nsuhost: '', autorizacao: '', codrede: '', nroparcela: '1', obs: '',
       dtvenc: ref?.data ?? '', codparceiro: '0', nrocupom: '', nropedido: '',
+      idpgto: txt(docs?.d.formasSangria?.[0]?.idpgto), descricao: '',
     },
+    login: '', senha: '',
   }); };
   // EXCLUIR (Del do legado): confirma e, com liberadores configurados, pede o login de um deles
   const excluir = () => executar(async () => {
@@ -130,7 +133,8 @@ export function FechamentoCaixaPage() {
     const cod = exclusao.doc.codigo;
     setDocs((s) => (s ? { ...s, d, marcados: new Set([...s.marcados].filter((c) => c !== cod)) } : s));
     setExclusao(null);
-    if (consulta) setDet(await detalheTurno(ref));
+    // a sangria muda o total da linha fixa (e o dinheiro); na consulta o REAL vem do banco — recarrega o turno sem perder a conferência
+    if (consulta || docs.d.tipo === 'SANGRIA') setDet(await detalheTurno(ref));
     mensagem.sucesso('Documento excluído.');
   });
   const campo = (k: keyof CamposDocumento) => ({
@@ -141,6 +145,16 @@ export function FechamentoCaixaPage() {
     if (!ref || !docs || !edicao) return;
     const f = edicao.f;
     const n = (v: string) => (v.trim() === '' ? undefined : Number(v.replace(',', '.')));
+    if (docs.d.tipo === 'SANGRIA') {
+      if (!edicao.login || !edicao.senha) { mensagem.erro(new Error('Informe o usuário e a senha de quem libera a sangria/suprimento.')); return; }
+      await inserirDocumento(ref, docs.d.operacao, { valor: n(f.valor), idpgto: n(f.idpgto), descricao: f.descricao }, { login: edicao.login, senha: edicao.senha });
+      const d = await documentosTurno(ref, docs.d.operacao);
+      setDocs((s) => (s ? { ...s, d, marcados: new Set(d.documentos.map((x) => x.codigo)) } : s));
+      setEdicao(null);
+      setDet(await detalheTurno(ref));
+      mensagem.sucesso('Lançamento incluído.');
+      return;
+    }
     const campos: CamposDocumento = docs.d.tipo === 'CARTAO'
       ? docs.d.edicao === 'operadora'
         ? { codoperadora: n(f.codoperadora) }
@@ -235,6 +249,7 @@ export function FechamentoCaixaPage() {
     setTurnos(await listarTurnos(data));
   });
 
+  const rotuloIncluir = docs?.d.tipo !== 'SANGRIA' ? 'Incluir documento' : docs.d.operacao === 'SUPRIMENTO' ? 'Incluir suprimento' : 'Incluir sangria';
   const aConferirDocs = docs ? r2(docs.d.documentos.filter((x) => docs.marcados.has(x.codigo)).reduce((s, x) => s + x.valor, 0)) : 0;
 
   return (
@@ -410,10 +425,27 @@ export function FechamentoCaixaPage() {
                 <strong className="text-sm">
                   {edicao.doc
                     ? <>Editar documento {edicao.doc.codigo}{edicao.doc.nrocupom ? ` · cupom ${String(edicao.doc.nrocupom)}` : ''}</>
-                    : <>Incluir documento</>}
+                    : <>{rotuloIncluir}</>}
                   {edicao.doc && docs.d.edicao === 'operadora' && <small className="font-normal text-fg-muted"> — turno fechado no PDV: só a operadora</small>}
                 </strong>
-                {docs.d.tipo === 'CARTAO' ? (
+                {docs.d.tipo === 'SANGRIA' ? (
+                  <div className="grid grid-cols-2 gap-gp-sm md:grid-cols-4">
+                    {(docs.d.formasSangria?.length ?? 0) > 0 && (
+                      <div className="col-span-2">
+                        <SelectField
+                          label="Forma da sangria"
+                          value={edicao.f.idpgto}
+                          onChange={(v) => setEdicao((s) => (s ? { ...s, f: { ...s.f, idpgto: v } } : s))}
+                          options={(docs.d.formasSangria ?? []).map((fp) => ({ value: String(fp.idpgto), label: fp.modalidade }))}
+                        />
+                      </div>
+                    )}
+                    <Field label="Valor" inputMode="decimal" {...campo('valor')} />
+                    <div className="col-span-2 md:col-span-4"><Field label="Descrição" maxLength={100} {...campo('descricao')} /></div>
+                    <Field label="Usuário que libera" value={edicao.login} onChange={(e) => setEdicao((s) => (s ? { ...s, login: e.target.value } : s))} />
+                    <Field label="Senha" type="password" value={edicao.senha} onChange={(e) => setEdicao((s) => (s ? { ...s, senha: e.target.value } : s))} />
+                  </div>
+                ) : docs.d.tipo === 'CARTAO' ? (
                   <div className="grid grid-cols-2 gap-gp-sm md:grid-cols-4">
                     <Field label="Valor" inputMode="decimal" disabled={!!edicao.doc && docs.d.edicao === 'operadora'} {...campo('valor')} />
                     <div className="col-span-2">
@@ -465,7 +497,7 @@ export function FechamentoCaixaPage() {
               </section>
             )}
             {docs.d.insercao && !edicao && (
-              <div className="flex justify-end"><Button label="Incluir documento" variant="outline" onClick={inserir} disabled={ocupado} /></div>
+              <div className="flex justify-end"><Button label={rotuloIncluir} variant="outline" onClick={inserir} disabled={ocupado} /></div>
             )}
             {docs.d.documentos.length === 0
               ? <small className="text-fg-muted">Nenhum documento para esta operação.</small>

@@ -383,3 +383,27 @@ com a comparação certa (NROPEDIDO + valor numérico).
   - Parcelas: o legado barra **> 200**. Eu barrava 200.
   - Valor: o legado barra só o **zero** (`= 0`). Eu barrava negativos também.
 - **Smoke §179** (3 checks) + §178 ajustado: 1514/0.
+
+### 4.3 ENTREGUE (24/09/2026) — sangria e suprimento manuais (`UConsDocs :2025-2150`, `TeclaDelete :1653`)
+
+- **Habilitação** (`FormShow :865-918`):
+  - Não se editam nem se marcam.
+  - Inserir só na sangria em dinheiro e no suprimento; excluir nas quatro.
+  - Na consulta, nada (a `USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO` não vale aqui).
+- **Inserir** (`POST turno/documentos` com a linha fixa): pede **sempre** um login.
+  - Com lista na `USUARIOS_PERMITIDOS_ALTERAR_SUP_SAN_FECHAMENTO` (13 usuários na produção), o login tem de ser de um deles.
+  - Sem lista, qualquer usuário (`ChamaLiberacaoLogin(nil)`). O `LiberacaoService.validar` ganhou `qualquerUsuario`.
+  - Quem libera é o RESPONSÁVEL. LOG_LIBERACOES "USUÁRIO NÃO PERMITIDO A INSERIR REGISTROS" (243 desde 2025).
+  - A sangria escolhe a forma: PERMITE_SANGRIA_PDV 'S' e DESTINO CXA (`PreencheTipoSangria`).
+  - **Com `ENVIA_SANGRIA_SUPRIMENTO_CONTA_FISCAL`='S'** (Módulo Retaguarda na produção), a MOV_CONTAS_BANCARIAS vai para a conta do fiscal (`PARCEIROS.CODCONTA` do liberador). Sem conta: "A conta corrente do fiscal de caixa não foi informada…".
+    - Sangria: +v 'C', na forma escolhida.
+    - Suprimento: −v 'D', na forma DINHEIRO.
+    - Histórico "Sangria realizada no caixa N, no dia dd/mm/aaaa através do fechamento de caixa". A ligação é pelo IDENTIFICADOR = `{GUID}`.
+  - HIST_SANGRIA_SUPRIMENTO: valor positivo, operador do caixa, CODOPERADOR_CADASTRO = logado, IDPGTO 0 no suprimento, tipo SAN/SUP. **Sem LOG nem HISTORICO de inclusão** (o legado não grava).
+  - Conferido contra a produção: 133 SAN + 24 SUP em 2026, todos com MCB; o SUP é sempre IDPGTO 0.
+- **Excluir:**
+  - Login só quando há lista. LOG_LIBERACOES "USUÁRIO NÃO PERMITIDO A EXCLUIR REGISTROS".
+  - HISTORICO "EXCLUSAO DO REGISTRO CODHISTSANGRIA: …".
+  - DELETE da linha e da MOV_CONTAS_BANCARIAS do IDENTIFICADOR_MOVCB (`ExcluiMovimentacaoBancaria`).
+- **Web:** no diálogo das linhas fixas, "Incluir sangria/suprimento" (forma, valor, descrição, login e senha) e "Excluir". O turno é recarregado sem perder a conferência.
+- **Smoke §180** (3 checks): 1517/0.

@@ -19992,6 +19992,118 @@ async function main() {
         await pgC5.end();
       }
     }
+    // ══ §180 FECHAMENTO DE CAIXA, corte 4: SANGRIA e SUPRIMENTO manuais no diálogo (UConsDocs :2025-2150 / TeclaDelete) ══
+    {
+      const pgC6 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const FC = 'cobranca/fechamento-caixa';
+      const DIA = '2038-03-13';
+      const CHA = '79130338080000';
+      const ts = (h: string) => `${DIA} ${h}-03`;
+      const tA = { data: DIA, chave: CHA, nropdv: 79, codoperadora: 7 };
+      const qsT = (t: Record<string, unknown>, op: string) => new URLSearchParams({ ...Object.fromEntries(Object.entries(t).map(([k, v]) => [k, String(v)])), operacao: op }).toString();
+      const post = async (path: string, body: unknown, headers = H) => {
+        const r = await fetch(`${base}/${FC}/${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
+        return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+      };
+      const docsDe = async (op: string) => (await (await fetch(`${base}/${FC}/turno/documentos?${qsT(tA, op)}`, { headers: H })).json()) as any;
+      const antes = {
+        op7: (await pgC6.query(`SELECT codparceiro FROM operadores WHERE codoperador = 7`)).rows[0] as any,
+        p20: (await pgC6.query(`SELECT codconta FROM parceiros WHERE codparceiro = 20`)).rows[0] as any,
+      };
+      try {
+        const nomeLog = String(((await pgC6.query(`SELECT nome FROM operadores WHERE codoperador = 7`)).rows[0] as any)?.nome ?? '');
+        const reNome = nomeLog.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        await pgC6.query(`UPDATE operadores SET codparceiro = 20 WHERE codoperador = 7`);
+        await pgC6.query(`UPDATE parceiros SET codconta = NULL WHERE codparceiro = 20`);
+        await pgC6.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, config_especificas_permitidas, descricao) VALUES
+            (991801, 'ENVIA_SANGRIA_SUPRIMENTO_CONTA_FISCAL', 'S', 'texto', 'Modulo;Empresa;Usuario', 'smoke'),
+            (991802, 'DELETAR_DOCUMENTO_FCX', 'S', 'texto', 'Modulo;Empresa;Usuario', 'smoke') ON CONFLICT DO NOTHING`);
+        await pgC6.query(`INSERT INTO pdv (codpdv, nropdv, descricao, codempresa) VALUES (979, 79, 'PDV 79 SMOKE', 1) ON CONFLICT DO NOTHING`);
+        await pgC6.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, debito_credito, valor, troco, nropedido, chave)
+            VALUES (1, $1, 79, 7, 'DINHEIRO', 'C', 100, 0, '793001', $2)`, [ts('09:00:00'), CHA]);
+        await pgC6.query(`INSERT INTO caixa_pdv (codcaixa, codpdv, codoperadora, data, horaentrada, chave, idempresa, sangria, fundocaixa)
+            VALUES (9918001, 79, 7, $1, $1, $2, 1, 0, 0)`, [ts('08:00:00'), CHA]);
+        await fetch(`${base}/${FC}/turno/abrir`, { method: 'POST', headers: H, body: JSON.stringify(tA) });
+        const lib = async () => ((await pgC6.query(`SELECT usuario_liberou, liberacao FROM log_liberacoes WHERE usuario_liberou = '7' AND data_liberacao > now() - interval '5 minutes'
+            AND (liberacao = '' OR liberacao LIKE 'USU%RIO N%O PERMITIDO A %') ORDER BY id`)).rows as any[]);
+
+        // 180.1 — a sangria em dinheiro, sem lista de liberadores (qualquer usuário libera)
+        const d0 = await docsDe('SANGRIA EM DINHEIRO');
+        const dOutras = await docsDe('OUTRAS SANGRIAS');
+        const sSemLogin = await post('turno/documentos', { ...tA, operacao: 'SANGRIA EM DINHEIRO', campos: { valor: 5 } });
+        const sSemConta = await post('turno/documentos', { ...tA, operacao: 'SANGRIA EM DINHEIRO', campos: { valor: 5 }, login: 'SMOKE', senha: 'smoke123' });
+        await pgC6.query(`UPDATE parceiros SET codconta = 21 WHERE codparceiro = 20`);
+        const sZero = await post('turno/documentos', { ...tA, operacao: 'SANGRIA EM DINHEIRO', campos: { valor: 0, idpgto: 1 }, login: 'SMOKE', senha: 'smoke123' });
+        const s1 = await post('turno/documentos', { ...tA, operacao: 'SANGRIA EM DINHEIRO', campos: { valor: 5, idpgto: 1, descricao: 'SANGRIA MANUAL - FISCAL SMOKE' }, login: 'SMOKE', senha: 'smoke123' });
+        const sOutras = await post('turno/documentos', { ...tA, operacao: 'OUTRAS SANGRIAS', campos: { valor: 5 }, login: 'SMOKE', senha: 'smoke123' });
+        const h1 = (await pgC6.query(`SELECT tipo, idpgto, valor::float AS valor, codoperador, responsavel, codoperador_cadastro, chave, codpdv, descricao, identificador_movcb
+            FROM hist_sangria_suprimento WHERE codhistsangria = $1`, [Number(s1.j.codigo)])).rows[0] as any;
+        const m1 = (await pgC6.query(`SELECT codconta, valor::float AS valor, tipomovimento, idpgto, historico, liberado, contabilizado, codopconta, coddestino::int AS coddestino, chave,
+            to_char(dtemissao, 'YYYY-MM-DD') AS de FROM mov_contas_bancarias WHERE identificador = $1`, [h1?.identificador_movcb ?? '-'])).rows as any[];
+        const det1 = (await (await fetch(`${base}/${FC}/turno?${new URLSearchParams({ data: DIA, chave: CHA, nropdv: '79', codoperadora: '7' })}`, { headers: H })).json()) as any;
+        const lib1 = await lib();
+        check('FECHAMENTO §180.1 [a sangria manual]: o diálogo da sangria em dinheiro insere (com liberação e a forma DINHEIRO), o de outras sangrias não; sem login → 422; com ENVIA_SANGRIA_SUPRIMENTO_CONTA_FISCAL e o fiscal sem conta → 422 "A conta corrente do fiscal…"; valor zero → 422; gravada: HIST_SANGRIA_SUPRIMENTO SAN, forma 1, 5,00, operador do caixa 7, RESPONSÁVEL = quem liberou, CODOPERADOR_CADASTRO = o logado, a CHAVE, a descrição e o IDENTIFICADOR_MOVCB; a MOV_CONTAS_BANCARIAS na conta do fiscal (21): +5 C, forma 1, "Sangria realizada no caixa 79, no dia 13/03/2038 através do fechamento de caixa", liberada, não contabilizada, no dia do caixa; a linha fixa do turno passa a 5; sem lista de liberadores, qualquer usuário libera (LOG_LIBERACOES sem texto); inserir em outras sangrias → 422',
+          d0.insercao === true && d0.liberacaoInsercao === true && d0.formasSangria?.some((f: any) => f.idpgto === 1) && dOutras.insercao === false
+          && sSemLogin.status === 422 && sSemLogin.j.code === 'FECHAMENTO_SANGRIA_LIBERACAO' && sSemConta.status === 422 && sSemConta.j.code === 'FECHAMENTO_SANGRIA_SEM_CONTA_FISCAL'
+          && sZero.status === 422 && sZero.j.code === 'FECHAMENTO_DOCUMENTO_VALOR' && s1.status === 201
+          && h1?.tipo === 'SAN' && Number(h1.idpgto) === 1 && h1.valor === 5 && Number(h1.codoperador) === 7 && Number(h1.responsavel) === 7 && Number(h1.codoperador_cadastro) === 7
+          && h1.chave === CHA && Number(h1.codpdv) === 79 && h1.descricao === 'SANGRIA MANUAL - FISCAL SMOKE' && /^\{[0-9A-F-]{36}\}$/.test(String(h1.identificador_movcb))
+          && m1.length === 1 && Number(m1[0].codconta) === 21 && m1[0].valor === 5 && m1[0].tipomovimento === 'C' && Number(m1[0].idpgto) === 1
+          && m1[0].historico === 'Sangria realizada no caixa 79, no dia 13/03/2038 através do fechamento de caixa' && m1[0].liberado === 'S' && m1[0].contabilizado === 'N'
+          && Number(m1[0].codopconta) === 0 && m1[0].coddestino === 0 && m1[0].chave === CHA && m1[0].de === DIA
+          && Number(det1.fixas?.['SANGRIA EM DINHEIRO']) === 5 && lib1.some((l) => l.liberacao === '')
+          && sOutras.status === 422 && sOutras.j.code === 'FECHAMENTO_DOCUMENTO_NAO_EDITAVEL',
+          { d0: [d0.insercao, d0.liberacaoInsercao, d0.formasSangria], outras: dOutras.insercao, sSemLogin: [sSemLogin.status, sSemLogin.j.code], sSemConta: [sSemConta.status, sSemConta.j.code],
+            sZero: [sZero.status, sZero.j.code], s1: [s1.status, s1.j], h1, m1, fixas: det1.fixas, lib1, sOutras: [sOutras.status, sOutras.j.code] });
+
+        // 180.2 — o suprimento, com a lista de liberadores
+        await pgC6.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, config_especificas_permitidas, descricao)
+            VALUES (991803, 'USUARIOS_PERMITIDOS_ALTERAR_SUP_SAN_FECHAMENTO', 'S', 'texto', 'Usuario', 'smoke') ON CONFLICT DO NOTHING`);
+        await pgC6.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) VALUES (991803, 'Usuario', '7', 'S') ON CONFLICT (id, tipo, chave) DO UPDATE SET valor = 'S'`);
+        const supFora = await post('turno/documentos', { ...tA, operacao: 'SUPRIMENTO', campos: { valor: 200 }, login: 'AUTHTEST', senha: 'smoke123' });
+        const sup = await post('turno/documentos', { ...tA, operacao: 'SUPRIMENTO', campos: { valor: 200, descricao: 'SUPRIMENTO SMOKE' }, login: 'SMOKE', senha: 'smoke123' });
+        const h2 = (await pgC6.query(`SELECT tipo, idpgto, valor::float AS valor, identificador_movcb FROM hist_sangria_suprimento WHERE codhistsangria = $1`, [Number(sup.j.codigo)])).rows[0] as any;
+        const m2 = (await pgC6.query(`SELECT valor::float AS valor, tipomovimento, idpgto, historico FROM mov_contas_bancarias WHERE identificador = $1`, [h2?.identificador_movcb ?? '-'])).rows[0] as any;
+        const lib2 = await lib();
+        check('FECHAMENTO §180.2 [o suprimento manual]: com a USUARIOS_PERMITIDOS_ALTERAR_SUP_SAN_FECHAMENTO, quem não está na lista não libera (422 "Usuário não permitido a inserir registros."); o liberador grava o SUP com IDPGTO 0 e o valor positivo, e a MOV_CONTAS_BANCARIAS sai (−200, D, a forma DINHEIRO) com "Suprimento realizado no caixa 79, no dia 13/03/2038 através do fechamento de caixa"; o LOG_LIBERACOES registra "USUÁRIO NÃO PERMITIDO A INSERIR REGISTROS"',
+          supFora.status === 422 && supFora.j.code === 'FECHAMENTO_SANGRIA_INSERIR_NAO_LIBERADO' && sup.status === 201
+          && h2?.tipo === 'SUP' && Number(h2.idpgto) === 0 && h2.valor === 200
+          && m2?.valor === -200 && m2.tipomovimento === 'D' && Number(m2.idpgto) === 1 && m2.historico === 'Suprimento realizado no caixa 79, no dia 13/03/2038 através do fechamento de caixa'
+          && lib2.some((l) => l.liberacao === 'USUÁRIO NÃO PERMITIDO A INSERIR REGISTROS'),
+          { supFora: [supFora.status, supFora.j.code], sup: [sup.status, sup.j], h2, m2, lib2 });
+
+        // 180.3 — excluir a sangria: a liberação, o HISTORICO e a MOV_CONTAS_BANCARIAS que sai junto
+        const dEx = await docsDe('SANGRIA EM DINHEIRO');
+        const xSem = await post('turno/documentos/excluir', { ...tA, operacao: 'SANGRIA EM DINHEIRO', codigo: Number(s1.j.codigo) });
+        const x1 = await post('turno/documentos/excluir', { ...tA, operacao: 'SANGRIA EM DINHEIRO', codigo: Number(s1.j.codigo), login: 'SMOKE', senha: 'smoke123' });
+        const hDepois = (await pgC6.query(`SELECT 1 FROM hist_sangria_suprimento WHERE codhistsangria = $1`, [Number(s1.j.codigo)])).rows.length;
+        const mDepois = (await pgC6.query(`SELECT 1 FROM mov_contas_bancarias WHERE identificador = $1`, [h1?.identificador_movcb ?? '-'])).rows.length;
+        const hx = ((await pgC6.query(`SELECT historico, coddoc, auxiliar FROM historico WHERE tabela = 'HIST_SANGRIA_SUPRIMENTO' AND coddoc = $1`, [String(s1.j.codigo)])).rows as any[]);
+        const lib3 = await lib();
+        check('FECHAMENTO §180.3 [excluir a sangria]: o diálogo exclui com liberação (a lista existe); sem login → 422; com o liberador sai a linha e a MOV_CONTAS_BANCARIAS do IDENTIFICADOR_MOVCB, o HISTORICO "EXCLUSAO DO REGISTRO CODHISTSANGRIA: <cód>, VALOR: 5, NO DIA 13/03/2038 DA ECF: 79, FEITO PELO OPERADOR: 7 …" com a chave no AUXILIAR e o LOG_LIBERACOES "USUÁRIO NÃO PERMITIDO A EXCLUIR REGISTROS"',
+          dEx.exclusao === true && dEx.liberacaoExclusao === true && xSem.status === 422 && xSem.j.code === 'FECHAMENTO_SANGRIA_LIBERACAO'
+          && x1.status === 200 && x1.j.movimentacoes === 1 && hDepois === 0 && mDepois === 0
+          && hx.length === 1 && hx[0].auxiliar === CHA && new RegExp(`^EXCLUSAO DO REGISTRO CODHISTSANGRIA: ${s1.j.codigo}, VALOR: 5, NO DIA 13/03/2038 DA ECF: 79, FEITO PELO OPERADOR: 7 ${reNome}$`).test(hx[0].historico)
+          && lib3.some((l) => l.liberacao === 'USUÁRIO NÃO PERMITIDO A EXCLUIR REGISTROS'),
+          { dEx: [dEx.exclusao, dEx.liberacaoExclusao], xSem: [xSem.status, xSem.j.code], x1: [x1.status, x1.j], hDepois, mDepois, hx, lib3 });
+      } finally {
+        await pgC6.query(`DELETE FROM configuracoes_especificas WHERE id IN (991801, 991802, 991803)`).catch(() => undefined);
+        await pgC6.query(`DELETE FROM configuracoes WHERE id IN (991801, 991802, 991803)`).catch(() => undefined);
+        await pgC6.query(`DELETE FROM mov_contas_bancarias WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgC6.query(`DELETE FROM historico WHERE auxiliar = $1`, [CHA]).catch(() => undefined);
+        await pgC6.query(`DELETE FROM log_liberacoes WHERE usuario_liberou IN ('7', 'AUTHTEST') AND data_liberacao > now() - interval '30 minutes' AND (liberacao = '' OR liberacao LIKE '%PERMITIDO A %')`).catch(() => undefined);
+        await pgC6.query(`DELETE FROM doc_fechamento WHERE codifinfech IN (SELECT codifinfech FROM finaliza_fechamento WHERE chave = $1)`, [CHA]).catch(() => undefined);
+        await pgC6.query(`DELETE FROM finaliza_fechamento WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgC6.query(`DELETE FROM hist_sangria_suprimento WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgC6.query(`DELETE FROM ticket WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgC6.query(`DELETE FROM caixa_pdv WHERE codcaixa = 9918001`).catch(() => undefined);
+        await pgC6.query(`DELETE FROM cx_vendas WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgC6.query(`DELETE FROM pdv WHERE codpdv = 979`).catch(() => undefined);
+        await pgC6.query(`UPDATE operadores SET codparceiro = $1, tentativas_login = 0, bloqueado_ate = NULL WHERE codoperador = 7`, [antes.op7?.codparceiro ?? null]).catch(() => undefined);
+        await pgC6.query(`UPDATE parceiros SET codconta = $1 WHERE codparceiro = 20`, [antes.p20?.codconta ?? null]).catch(() => undefined);
+        await pgC6.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
