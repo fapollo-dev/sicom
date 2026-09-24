@@ -53,6 +53,11 @@ export const agendaPromocaoItemSchema = z
     tabloide: tf(),
     interno: tf(),
     nroitem: dec(z.number().int().nonnegative()),
+    // "Atualizar grupo" (GRUPOPRECOSEL): 'M' = o item MESTRE que gera os irmãos do grupo de preço ao gravar, 'S' = o irmão
+    // gerado, 'N' = item comum (udmCadAgendaPromocao.pas:329; uCadAgendaPromocao.pas:286-417)
+    atualizacao_grupo: opcional(z.enum(['M', 'N', 'S'])),
+    codgrupo: dec(z.number().int()),
+    descricao_promocao: opcional(z.string().max(255)),
   })
   .superRefine((it, ctx) => {
     // fiel ao legado: rejeita só quando preço promo E preço clube são ambos zero.
@@ -70,6 +75,8 @@ const base = z.object({
   flagpromocao: opcional(z.enum(['N', 'E', 'J'], { message: 'Status inválido (ABERTA, EXECUTANDO ou FECHADA).' })),
   opcoes: dec(z.number().int()),
   obs: opcional(z.string().trim().max(4000)),
+  // o % de desconto do cabeçalho (JvCalcEdit1): na geração por grupo, cada irmão sai com VRVENDA − VRVENDA × %/100 (não é coluna)
+  percentualDesconto: dec(z.number().min(0).max(100)),
 });
 
 const validaPeriodo = (d: { dtiniciopromocao?: string; dtfimpromocao?: string }, ctx: z.RefinementCtx) => {

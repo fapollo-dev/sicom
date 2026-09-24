@@ -91,3 +91,20 @@ agenda da loja 2 visível na loja 1, loja inexistente 422, flags T/F.
 
 **Continua adiado:** atualização por grupo de preço (`ATUALIZACAO_GRUPO`/`CODGRUPO`), opções obrigatórias
 (`OpcoesAgendaPromocaoObrigatorio`), relatórios, clonar e etiquetas.
+
+## Corte "o agendador e o grupo de preço" (24/09/2026) — auditoria de esqueletos §4.4
+
+- **O agendador da vigência** (`agenda-vigencia.agendador.ts`) faz o papel do `ServerRemessaDS.exe` (fora do fonte): a cada
+  60 s (`APOLLO_AGENDADOR_MS`; `APOLLO_AGENDADOR=off` desliga) percorre os tenants (`APOLLO_TENANTS` ou os bancos com o
+  prefixo) e roda `processarVigencia` sem operador — liga a agenda na janela (EXECUTANDO, MULTI_PRECO em promoção com
+  CODAGENDA), religa a agenda regravada (gravar uma EXECUTANDO a devolve para ABERTA) e fecha (J) a vencida, desligando o
+  preço. Antes, nada chamava a vigência fora do botão: a agenda não ligava no início e a aplicada à mão não desligava no fim.
+  Produção 2025-26: 1.144 de 1.153 agendas executadas pelo serviço; a 31185 ligou nas lojas 1 e 2 às 05:00:48.
+- **A geração por grupo de preço** (`AtualizaGrupoPreco`, uCadAgendaPromocao.pas:286-417): o item com "Atualizar grupo"
+  (ATUALIZACAO_GRUPO 'M') puxa, ao gravar, os produtos do seu grupo de preço — os de fora entram como irmãos 'S' (CODGRUPO,
+  as lojas e as opções do mestre, ATIVO nulo como na produção); os que já estão têm o VLRPROMOCAO sobrescrito (inclusive o
+  mestre): com o % do cabeçalho (JvCalcEdit1, `percentualDesconto`, não é coluna), VRVENDA − VRVENDA × %/100; sem ele, o preço
+  do mestre. Desmarcar o mestre tira os irmãos (e o aposGravar desliga o preço deles). Produção 2025-26: 520 mestres, 3.465
+  irmãos em 230 agendas.
+- VRVENDA do item sem valor = a foto do MULTI_PRECO da primeira loja do item (o legado preenche 100%).
+- Smoke §204. ADIADO: LOG por item (14.487) e AUDIT_AGENDAPROMOCAOITENS (decisão transversal das AUDIT_*).

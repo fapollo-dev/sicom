@@ -61,6 +61,8 @@ export function AgendaPromocaoCadMaster() {
   const [dtini, setDtini] = useState('');
   const [dtfim, setDtfim] = useState('');
   const [itens, setItens] = useState<AgendaPromocaoItemDto[]>([]);
+  // o % de desconto do cabeçalho (JvCalcEdit1): na geração por grupo, cada irmão sai com Vr. Venda − Vr. Venda × %/100
+  const [pct, setPct] = useState<number | undefined>(undefined);
 
   // linha em edição do adder de itens
   const [idproduto, setIdproduto] = useState<number | undefined>(undefined);
@@ -124,10 +126,13 @@ export function AgendaPromocaoCadMaster() {
   // "Marcar produto como ativo/inativo" (uCadAgendaPromocao:1412/1446) — vale ao gravar
   const alternarAtivo = (id: number) =>
     setItens((xs) => xs.map((it) => (it.idproduto === id ? { ...it, ativo: it.ativo === 'N' ? 'S' : 'N' } : it)));
+  // "Atualizar Grupo" (GRUPOPRECOSEL): o item vira MESTRE e, ao gravar, puxa os produtos do seu grupo de preço; desmarcar os tira
+  const alternarGrupo = (id: number) =>
+    setItens((xs) => xs.map((it) => (it.idproduto === id ? { ...it, atualizacao_grupo: it.atualizacao_grupo === 'M' ? 'N' : 'M' } : it)));
 
   const limparForm = () => {
     setEditando(null); setStatusAtual(undefined); setLojas([]);
-    setNome(''); setStatus(undefined); setOpcoes(undefined); setObs(''); setDtini(''); setDtfim(''); setItens([]);
+    setNome(''); setStatus(undefined); setOpcoes(undefined); setObs(''); setDtini(''); setDtfim(''); setItens([]); setPct(undefined);
   };
 
   const editar = async (id: number) => {
@@ -143,8 +148,11 @@ export function AgendaPromocaoCadMaster() {
         idproduto: Number(it.idproduto), vlrpromocao: n(it.vlrpromocao), vrvenda: it.vrvenda != null ? n(it.vrvenda) : undefined,
         vrclube_fidelidade: it.vrclube_fidelidade != null ? n(it.vrclube_fidelidade) : undefined,
         maximo: it.maximo != null ? n(it.maximo) : undefined, vlr_min_compra: it.vlr_min_compra != null ? n(it.vlr_min_compra) : undefined,
-        ativo: it.ativo === 'N' ? 'N' : 'S', tv: snParaTf(tfParaSn(it.tv)), radio: snParaTf(tfParaSn(it.radio)),
+        // o irmão gerado pelo grupo vem com ATIVO nulo (vale como ativo) — volta nulo ao gravar
+        ativo: it.ativo === 'N' ? 'N' : it.ativo == null ? undefined : 'S', tv: snParaTf(tfParaSn(it.tv)), radio: snParaTf(tfParaSn(it.radio)),
         tabloide: snParaTf(tfParaSn(it.tabloide)), interno: snParaTf(tfParaSn(it.interno)),
+        atualizacao_grupo: (it as { atualizacao_grupo?: 'M' | 'N' | 'S' | null }).atualizacao_grupo ?? undefined,
+        codgrupo: (it as { codgrupo?: number | null }).codgrupo ?? undefined,
       }) as AgendaPromocaoItemDto));
     } catch (e) {
       mensagem.erro(e);
@@ -162,7 +170,7 @@ export function AgendaPromocaoCadMaster() {
       const iso = (s: string) => new Date(s).toISOString();
       const dto = {
         nomepromo: nome.trim(), dtiniciopromocao: iso(dtini), dtfimpromocao: iso(dtfim),
-        opcoes, obs: obs.trim() || undefined, empresas: lojas, itens,
+        opcoes, obs: obs.trim() || undefined, empresas: lojas, itens, percentualDesconto: pct,
       };
       if (editando != null) {
         await atualizarAgenda(editando, { ...dto, ...(status && status !== statusAtual ? { flagpromocao: status as 'N' | 'E' | 'J' } : {}) });
@@ -214,6 +222,7 @@ export function AgendaPromocaoCadMaster() {
 
   const itensColunas = useMemo<DataTableColumnDef<AgendaPromocaoItemDto>[]>(() => [
     { field: 'ativo', headerName: 'Ativo', type: 'text', width: 70, valueGetter: (r) => simNao(r.ativo ?? 'S') },
+    { field: 'atualizacao_grupo', headerName: 'Grupo', type: 'text', width: 110, valueGetter: (r) => (r.atualizacao_grupo === 'M' ? 'Atualiza grupo' : r.atualizacao_grupo === 'S' ? 'Do grupo' : '—') },
     { field: 'idproduto', headerName: 'Produto', type: 'text', isPrimary: true, valueGetter: (r) => rotuloProduto(r.idproduto) },
     { field: 'vrvenda', headerName: 'Vr. Venda', type: 'text', width: 120, valueGetter: (r) => (n(r.vrvenda) > 0 ? fmtMoeda(r.vrvenda) : '—') },
     { field: 'vlrpromocao', headerName: 'Vr. Promocional', type: 'text', width: 140, valueGetter: (r) => fmtMoeda(r.vlrpromocao) },
@@ -228,6 +237,7 @@ export function AgendaPromocaoCadMaster() {
       field: 'rem', headerName: '', type: 'actions', width: 90,
       getActions: ({ row: r }: { row: AgendaPromocaoItemDto }) => [
         { id: 'ativo', label: r.ativo === 'N' ? 'Marcar como ativo' : 'Marcar como inativo', icon: <CheckCircle2 size={16} />, onClick: () => alternarAtivo(r.idproduto) },
+        ...(r.atualizacao_grupo === 'S' ? [] : [{ id: 'grupo', label: r.atualizacao_grupo === 'M' ? 'Não atualizar o grupo de preço' : 'Atualizar o grupo de preço', icon: <CheckCircle2 size={16} />, onClick: () => alternarGrupo(r.idproduto) }]),
         { id: 'rem', label: 'Remover', icon: <X size={16} />, destructive: true, onClick: () => removerItem(r.idproduto) },
       ],
     },
@@ -246,7 +256,8 @@ export function AgendaPromocaoCadMaster() {
             <SelectField label="&Status" options={editando != null ? statusPermitidos(statusAtual) : STATUS_OPCOES.filter((o) => o.value === 'N')}
               value={editando != null ? status : 'N'} onChange={(v) => setStatus(v || undefined)} disabled={editando == null || statusAtual === 'N'} />
           </div>
-          <div className="sm:col-span-2"><NumberField label="&Opções" value={opcoes} onChange={setOpcoes} decimais={0} min={0} /></div>
+          <div className="sm:col-span-1"><NumberField label="&Opções" value={opcoes} onChange={setOpcoes} decimais={0} min={0} /></div>
+          <div className="sm:col-span-1"><NumberField label="% &desconto" value={pct} onChange={setPct} decimais={2} min={0} max={100} /></div>
           <label className="flex flex-col gap-gp-2xs text-body-sm sm:col-span-3">
             <span className="text-fg-muted">Início (data e hora)</span>
             <input type="datetime-local" className="rounded-radius-base border border-border bg-bg-default px-pad-sm py-pad-xs" value={dtini} onChange={(e) => setDtini(e.target.value)} />

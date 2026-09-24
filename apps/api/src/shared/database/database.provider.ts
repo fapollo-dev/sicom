@@ -73,6 +73,22 @@ export class DatabaseProvider implements OnModuleDestroy {
     return db;
   }
 
+  /**
+   * os tenants deste servidor, para as tarefas que rodam fora de request (o agendador da vigência da agenda de promoção):
+   * `APOLLO_TENANTS` (lista separada por vírgula) ou, sem ela, os bancos com o prefixo de tenant no Postgres.
+   */
+  async listarTenants(): Promise<string[]> {
+    const env = (process.env.APOLLO_TENANTS ?? '').split(',').map((t) => t.trim()).filter(Boolean);
+    if (env.length) return env;
+    const pool = new Pool({ host: this.conn.host, port: this.conn.port, user: this.conn.user, password: this.conn.password, database: 'postgres', max: 1 });
+    try {
+      const r = await pool.query<{ datname: string }>(`SELECT datname FROM pg_database WHERE datname LIKE $1 AND NOT datistemplate ORDER BY datname`, [`${this.conn.databasePrefix}%`]);
+      return r.rows.map((x) => x.datname.slice(this.conn.databasePrefix.length)).filter(Boolean);
+    } finally {
+      await pool.end();
+    }
+  }
+
   async closeAll(): Promise<void> {
     for (const db of this.pools.values()) await db.destroy();
     this.pools.clear();

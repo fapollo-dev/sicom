@@ -160,8 +160,9 @@ export class AgendaPromocaoService {
    *  - ABERTA ('N') com o fim passado sem nunca ter rodado → FECHA (6 das 1.142 fechadas não têm DATAEXECUCAO).
    * Da REDE (todas as lojas de cada agenda). Idempotente: o próprio status é o marcador.
    */
-  async processarVigencia(): Promise<{ aplicadas: number; desaplicadas: number }> {
-    this.emp(); // tenant fail-closed
+  async processarVigencia(opts: { sistema?: boolean } = {}): Promise<{ aplicadas: number; desaplicadas: number }> {
+    // pela tela, fail-closed na empresa; pelo AGENDADOR (o ServerRemessaDS do legado) só o tenant, sem operador
+    if (!opts.sistema) this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
     const agendas = (await db
       .selectFrom('agenda_promocao as a')

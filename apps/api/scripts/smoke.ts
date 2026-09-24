@@ -16,6 +16,7 @@ import { chaveNfeValida, montarChaveNfe, gerarCodigoInternoEan13 } from '@apollo
 import { startEmbeddedPg, PG_CONN } from '../test/embedded-db';
 import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/shared/errors/all-exceptions.filter';
+import { AgendaVigenciaAgendador } from '../src/modules/cadastro/agenda-vigencia.agendador';
 import { dedupCodref, type RawCodref } from './cutover/dedup-codref';
 import { loadCodref } from './cutover/load-codref';
 import { cutoverSenhasEmpresa } from './cutover/senha-empresa';
@@ -67,6 +68,8 @@ async function main() {
   process.env.PGUSER = PG_CONN.user;
   process.env.PGPASSWORD = PG_CONN.password;
   process.env.PG_TENANT_PREFIX = PG_CONN.databasePrefix;
+  // o agendador da vigência roda sozinho a cada minuto — no smoke ele fica desligado e o §204 chama o ciclo direto
+  process.env.APOLLO_AGENDADOR = 'off';
 
   const app = await NestFactory.create(AppModule, { cors: true });
   app.useGlobalFilters(new AllExceptionsFilter());
@@ -21503,6 +21506,74 @@ async function main() {
         await pgS3.query(`UPDATE empresas SET codparceiro=$1 WHERE idempresa=1`, [parcAntes]);
       } finally {
         await pgS3.end();
+      }
+    }
+
+    // ══ §204 AGENDA DE PROMOÇÃO (auditoria de esqueletos §4.4): o AGENDADOR da vigência (o ServerRemessaDS do legado) e a
+    // geração por GRUPO DE PREÇO no gravar
+    {
+      const pgAg = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const AP = 'cadastro/agenda-promocao';
+        // um grupo de preço com 3 produtos, preço cheio 10 na loja 1
+        await pgAg.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, codgrupopreco) VALUES
+          (992041,'7000000992041','GRUPO PROMO A','UN',1,'T01','S',99204),(992042,'7000000992042','GRUPO PROMO B','UN',1,'T01','S',99204),(992043,'7000000992043','GRUPO PROMO C','UN',1,'T01','S',99204)
+          ON CONFLICT (idproduto) DO UPDATE SET codgrupopreco=99204, ativo='S'`);
+        await pgAg.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, promocao) VALUES (992041,1,10,'N'),(992042,1,10,'N'),(992043,1,10,'N')
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda=10, promocao='N', vrpromo=NULL, codagenda=NULL`);
+        // o mestre A com "Atualizar grupo" e 10% no cabeçalho: B e C entram como irmãos 'S' a 9,00; A também vai a 9,00
+        const ini = new Date(Date.now() - 3600_000).toISOString().slice(0, 16);
+        const fim = new Date(Date.now() + 86400_000).toISOString().slice(0, 16);
+        const cr = await fetch(`${base}/${AP}`, { method: 'POST', headers: H, body: JSON.stringify({
+          nomepromo: 'GRUPO SMOKE', dtiniciopromocao: ini, dtfimpromocao: fim, empresas: [1], percentualDesconto: 10,
+          itens: [{ idproduto: 992041, vlrpromocao: 8.5, atualizacao_grupo: 'M' }],
+        }) });
+        const crJ = (await cr.json().catch(() => ({}))) as any;
+        const cod = Number(crJ.codagenda) || 0;
+        const itens = (await pgAg.query(`SELECT idproduto, atualizacao_grupo, codgrupo, vlrpromocao::float AS v, vrvenda::float AS vv, empresas, ativo FROM agenda_promocao_itens WHERE codagenda=$1 ORDER BY idproduto`, [cod])).rows as any[];
+        check('AGENDA §204.1 [geração por grupo de preço]: o item mestre (M) com 10% no cabeçalho puxa o grupo — B e C entram como irmãos S (CODGRUPO, as lojas do mestre, ATIVO nulo como na produção) e os três saem a 9,00 (10 − 10%); VRVENDA é a foto do preço cheio (10)',
+          cr.status === 201 && itens.length === 3 && itens[0].atualizacao_grupo === 'M' && itens.slice(1).every((i) => i.atualizacao_grupo === 'S' && Number(i.codgrupo) === 99204 && i.ativo == null)
+          && itens.every((i) => i.v === 9 && i.vv === 10 && String(i.empresas).replace(/ /g, '') === '1'),
+          { status: cr.status, crJ, itens });
+
+        // o AGENDADOR: a agenda dentro da janela liga no ciclo (EXECUTANDO, MULTI_PRECO em promoção nos três); o fim passado a fecha
+        // a janela em volta de agora (o ISO sem fuso do teste seria lido como hora local)
+        await pgAg.query(`UPDATE agenda_promocao SET dtiniciopromocao = now() - interval '1 hour', dtfimpromocao = now() + interval '1 day' WHERE codagenda=$1`, [cod]);
+        const agendador = app.get(AgendaVigenciaAgendador);
+        const c1 = await agendador.ciclo();
+        const st1 = (await pgAg.query(`SELECT flagpromocao, dataexecucao FROM agenda_promocao WHERE codagenda=$1`, [cod])).rows[0] as any;
+        const mp1 = (await pgAg.query(`SELECT idproduto, promocao, vrpromo::float AS vp, codagenda FROM multi_preco WHERE idempresa=1 AND idproduto IN (992041,992042,992043) ORDER BY idproduto`)).rows as any[];
+        await pgAg.query(`UPDATE agenda_promocao SET dtfimpromocao = now() - interval '1 minute' WHERE codagenda=$1`, [cod]);
+        const c2 = await agendador.ciclo();
+        const st2 = (await pgAg.query(`SELECT flagpromocao FROM agenda_promocao WHERE codagenda=$1`, [cod])).rows[0] as any;
+        const mp2 = (await pgAg.query(`SELECT promocao, codagenda FROM multi_preco WHERE idempresa=1 AND idproduto IN (992041,992042,992043)`)).rows as any[];
+        check('AGENDA §204.2 [o agendador da vigência]: o ciclo percorre os tenants (pinheirao sem erro) — a agenda na janela LIGA (EXECUTANDO com DATAEXECUCAO; os três em promoção a 9,00 com CODAGENDA) e, com o fim passado, o ciclo seguinte a FECHA (J) e desliga o preço',
+          c1.some((t) => t.tenant === 'pinheirao' && !t.erro) && st1?.flagpromocao === 'E' && st1?.dataexecucao != null
+          && mp1.length === 3 && mp1.every((m) => m.promocao === 'S' && m.vp === 9 && Number(m.codagenda) === cod)
+          && c2.some((t) => t.tenant === 'pinheirao' && !t.erro) && st2?.flagpromocao === 'J' && mp2.every((m) => m.promocao === 'N' && m.codagenda == null),
+          { c1, st1, mp1, c2, st2, mp2 });
+
+        // desmarcar o mestre tira os irmãos (numa agenda nova, ABERTA)
+        const cr2 = await fetch(`${base}/${AP}`, { method: 'POST', headers: H, body: JSON.stringify({
+          nomepromo: 'GRUPO SMOKE 2', dtiniciopromocao: '2030-01-01T00:00', dtfimpromocao: '2030-01-02T00:00', empresas: [1],
+          itens: [{ idproduto: 992041, vlrpromocao: 7, atualizacao_grupo: 'M' }],
+        }) });
+        const cod2 = Number(((await cr2.json().catch(() => ({}))) as any).codagenda) || 0;
+        const reg = (await (await fetch(`${base}/${AP}/${cod2}`, { headers: H })).json().catch(() => ({}))) as any;
+        const n1 = (reg.itens ?? []).length;
+        const itensN = (reg.itens ?? []).map((i: any) => (Number(i.idproduto) === 992041 ? { ...i, atualizacao_grupo: 'N' } : i));
+        const put = await fetch(`${base}/${AP}/${cod2}`, { method: 'PUT', headers: H, body: JSON.stringify({ itens: itensN }) });
+        const depois = (await pgAg.query(`SELECT idproduto, atualizacao_grupo FROM agenda_promocao_itens WHERE codagenda=$1`, [cod2])).rows as any[];
+        check('AGENDA §204.3 [desmarcar o grupo]: sem o % o irmão sai com o preço do mestre (7,00); desmarcar o "Atualizar grupo" do mestre (M → N) tira os irmãos S e sobra só o item',
+          cr2.status === 201 && n1 === 3 && (reg.itens ?? []).every((i: any) => Number(i.vlrpromocao) === 7)
+          && put.status === 200 && depois.length === 1 && Number(depois[0].idproduto) === 992041 && depois[0].atualizacao_grupo === 'N',
+          { cr2: cr2.status, n1, put: put.status, depois });
+
+        await pgAg.query(`DELETE FROM agenda_promocao_itens WHERE codagenda = ANY($1::int[])`, [[cod, cod2]]);
+        await pgAg.query(`DELETE FROM agenda_promocao_empresa WHERE codagenda = ANY($1::int[])`, [[cod, cod2]]);
+        await pgAg.query(`DELETE FROM agenda_promocao WHERE codagenda = ANY($1::int[])`, [[cod, cod2]]);
+      } finally {
+        await pgAg.end();
       }
     }
 

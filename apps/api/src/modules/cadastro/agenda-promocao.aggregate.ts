@@ -34,6 +34,53 @@ async function cfgValor(db: any, codigo: string, emp: number | null): Promise<st
   return c.valor != null ? String(c.valor) : null;
 }
 
+/**
+ * A GERAÇÃO POR GRUPO DE PREÇO (`AtualizaGrupoPreco`, uCadAgendaPromocao.pas:286-417), no gravar:
+ *  - o item MESTRE ('M', o "Atualizar Grupo" marcado) puxa todos os produtos do seu grupo de preço: o que não está na lista
+ *    entra como irmão ('S', CODGRUPO do grupo, as lojas e as opções do mestre); o que está tem o VLRPROMOCAO sobrescrito
+ *    (inclusive o próprio mestre) — com o % do cabeçalho, VRVENDA − VRVENDA × %/100; sem ele, o preço promocional do mestre;
+ *  - o mestre DESMARCADO ('M' → 'N') tira os irmãos 'S' do grupo (o `AtualizaAtivo(False)` + `Delete`); o preço que eles
+ *    ligaram sai no aposGravar (a reversão do item removido).
+ * Produção 2025-26: 520 mestres, 3.465 irmãos (230 agendas); a 31185 de 24/09 tem 8 por grupo.
+ */
+async function gerarGrupoDePreco(trx: any, lista: Array<Record<string, unknown>>, antes: Map<number, Record<string, unknown>> | undefined, header: Record<string, unknown>): Promise<Array<Record<string, unknown>>> {
+  const pct = Number(header.percentualDesconto ?? 0) || 0;
+  const grupoDe = async (idproduto: number): Promise<number | null> => {
+    const r = (await sql<{ g: number | null }>`SELECT codgrupopreco AS g FROM produtos WHERE idproduto = ${idproduto}`.execute(trx)).rows[0];
+    return r?.g != null && Number(r.g) > 0 ? Number(r.g) : null;
+  };
+  // os desmarcados: os irmãos do grupo saem da lista
+  for (const it of [...lista]) {
+    const eraMestre = String(antes?.get(Number(it.idproduto))?.atualizacao_grupo ?? '') === 'M';
+    if (!eraMestre || it.atualizacao_grupo !== 'N') continue;
+    const g = await grupoDe(Number(it.idproduto));
+    if (g == null) continue;
+    const irmaos = new Set(((await sql<{ p: number }>`SELECT idproduto AS p FROM produtos WHERE codgrupopreco = ${g} AND idproduto <> ${Number(it.idproduto)}`.execute(trx)).rows).map((r) => Number(r.p)));
+    lista = lista.filter((x) => !(x.atualizacao_grupo === 'S' && irmaos.has(Number(x.idproduto))));
+  }
+  // os mestres: puxam o grupo
+  for (const mestre of lista.filter((x) => x.atualizacao_grupo === 'M')) {
+    const g = await grupoDe(Number(mestre.idproduto));
+    if (g == null) continue;
+    const lojas = lojasDoCsv(mestre.empresas as string | null, []);
+    const doGrupo = (await sql<{ p: number; v: unknown }>`
+      SELECT p.idproduto AS p, (SELECT m.vrvenda FROM multi_preco m WHERE m.idproduto = p.idproduto AND m.idempresa = ANY(${lojas}::int[]) ORDER BY m.idempresa LIMIT 1) AS v
+        FROM produtos p WHERE p.codgrupopreco = ${g} ORDER BY p.idproduto`.execute(trx)).rows;
+    for (const r of doGrupo) {
+      const vrvenda = Number(r.v ?? 0);
+      const vlr = pct > 0 ? Math.round((vrvenda - (vrvenda * pct) / 100) * 100) / 100 : Number(mestre.vlrpromocao ?? 0);
+      const ja = lista.find((x) => Number(x.idproduto) === Number(r.p));
+      if (ja) { ja.vlrpromocao = vlr; continue; }
+      lista.push({
+        idproduto: Number(r.p), vlrpromocao: vlr, vrvenda: r.v != null ? vrvenda : null, empresas: mestre.empresas, codgrupo: g,
+        atualizacao_grupo: 'S', opcoes: header.opcoes != null ? String(header.opcoes) : mestre.opcoes ?? null, ativo: null, dtativo: null,
+        tv: 'F', radio: 'F', tabloide: 'F', interno: 'F',
+      });
+    }
+  }
+  return lista;
+}
+
 export const agendaPromocaoAggregateConfig: AggregateConfig = {
   tabela: 'agenda_promocao',
   pk: 'codagenda',
@@ -67,31 +114,55 @@ export const agendaPromocaoAggregateConfig: AggregateConfig = {
         'vrclube_fidelidade', 'maximo', 'vlr_min_compra', 'tv', 'radio', 'tabloide', 'interno',
         // as lojas do item ('1, 2') — onde o preço entra (mig 312)
         'empresas',
+        // a geração por grupo de preço (M = mestre, S = irmão gerado) — gerenciadas aqui desde a auditoria de esqueletos §4.4
+        'atualizacao_grupo', 'codgrupo', 'opcoes', 'descricao_promocao',
       ],
       // a lista de lojas de cada item ANTES do delete: um PUT com itens e sem `empresas` mantém a de cada produto
       antesDeSubstituirTrx: async ({ trx, masterId }) => {
-        const r = (await trx.selectFrom('agenda_promocao_itens').select(['idproduto', 'empresas'])
-          .where('codagenda', '=', masterId).execute()) as Array<{ idproduto: number; empresas: string | null }>;
-        return { porProduto: new Map(r.map((x) => [Number(x.idproduto), x.empresas])), lojas: await lojasDaAgenda(trx, masterId) };
+        const r = (await trx.selectFrom('agenda_promocao_itens').select(['idproduto', 'empresas', 'atualizacao_grupo', 'codgrupo', 'opcoes', 'descricao_promocao'])
+          .where('codagenda', '=', masterId).execute()) as Array<{ idproduto: number; empresas: string | null; atualizacao_grupo: string | null; codgrupo: unknown; opcoes: string | null; descricao_promocao: string | null }>;
+        return {
+          porProduto: new Map(r.map((x) => [Number(x.idproduto), x.empresas])),
+          grupoPorProduto: new Map(r.map((x) => [Number(x.idproduto), { atualizacao_grupo: x.atualizacao_grupo, codgrupo: x.codgrupo, opcoes: x.opcoes, descricao_promocao: x.descricao_promocao }])),
+          lojas: await lojasDaAgenda(trx, masterId),
+        };
       },
       // ATIVO default 'S'; NROITEM sequencial; DTATIVO=now nos ativos (fiel ao legado, DTATIVO gravado ao ativar).
       // EMPRESAS: a lista selecionada vale para todos os itens (btnGravar:703-708); sem lista no dto, cada produto fica
       // com a sua e o produto novo leva a da agenda.
-      derivarItensTrx: async (itens, _trx, emp, header, _masterId, snapshot) => {
-        const snap = snapshot as { porProduto?: Map<number, string | null>; lojas?: number[] } | undefined;
+      derivarItensTrx: async (itens, trx, emp, header, _masterId, snapshot) => {
+        const snap = snapshot as { porProduto?: Map<number, string | null>; grupoPorProduto?: Map<number, Record<string, unknown>>; lojas?: number[] } | undefined;
         const doDto = Array.isArray(header?.empresas) ? csvLojas(header!.empresas as number[]) : null;
         const daAgenda = csvLojas(snap?.lojas?.length ? snap.lojas : emp != null ? [emp] : []);
-        return itens.map((it, i) => {
-          const ativo = it.ativo === 'N' ? 'N' : 'S';
+        let lista = itens.map((it, i) => {
           const antes = snap?.porProduto?.get(Number(it.idproduto));
+          const g = snap?.grupoPorProduto?.get(Number(it.idproduto));
+          const grupo = String(it.atualizacao_grupo ?? g?.atualizacao_grupo ?? 'N');
+          // o irmão gerado nasce sem ATIVO (a produção: ATIVO nulo nos 'S'); nulo vale como ativo na aplicação
+          const ativo = it.ativo === 'N' ? 'N' : grupo === 'S' && it.ativo == null && g?.atualizacao_grupo === 'S' ? null : 'S';
           return {
             ...it,
             ativo,
             nroitem: it.nroitem != null ? it.nroitem : i + 1,
             dtativo: ativo === 'S' ? sql`now()` : null,
             empresas: doDto ?? (antes ? csvLojas(lojasDoCsv(antes, [])) : daAgenda) ?? null,
-          };
+            atualizacao_grupo: grupo,
+            codgrupo: it.codgrupo ?? g?.codgrupo ?? null,
+            opcoes: it.opcoes ?? g?.opcoes ?? null,
+            descricao_promocao: it.descricao_promocao ?? g?.descricao_promocao ?? null,
+          } as Record<string, unknown>;
         });
+        lista = await gerarGrupoDePreco(trx, lista, snap?.grupoPorProduto, header ?? {});
+        // VRVENDA = a foto do preço cheio (uCadAgendaPromocao.pas:958 — 100% preenchido no legado); o item sem ela a toma do
+        // MULTI_PRECO da primeira loja do item
+        for (const it of lista) {
+          if (Number(it.vrvenda ?? 0) > 0) continue;
+          const loja = lojasDoCsv(it.empresas as string | null, emp != null ? [emp] : [])[0];
+          if (loja == null) continue;
+          const mp = (await sql<{ v: unknown }>`SELECT vrvenda AS v FROM multi_preco WHERE idproduto = ${Number(it.idproduto)} AND idempresa = ${loja}`.execute(trx)).rows[0];
+          if (mp?.v != null) it.vrvenda = Number(mp.v);
+        }
+        return lista.map((it, i) => ({ ...it, nroitem: it.nroitem != null ? it.nroitem : i + 1 }));
       },
     },
   ],
