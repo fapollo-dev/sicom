@@ -158,8 +158,12 @@ export class ApagarService {
           await trx.updateTable('apagar').set({ codgrupo }).where('codapg', '=', id).execute();
         }
         const soma = Number((await sql<{ t: string }>`SELECT sum(valor) AS t FROM apagar WHERE codgrupo = ${codgrupo}`.execute(trx)).rows[0]?.t ?? 0);
-        const linha = (await sql<{ codcxapagar: number }>`SELECT codcxapagar FROM cx_apagar WHERE codgrupo = ${codgrupo} AND coalesce(tipo, 'V') = 'V' ORDER BY codcxapagar LIMIT 1`.execute(trx)).rows[0];
-        if (linha) {
+        // só o rateio de UM centro de custo segue o CC do título; o de vários (o do legado, digitado na grade) fica como está
+        const linhasV = (await sql<{ codcxapagar: number }>`SELECT codcxapagar FROM cx_apagar WHERE codgrupo = ${codgrupo} AND coalesce(tipo, 'V') = 'V' ORDER BY codcxapagar`.execute(trx)).rows;
+        const linha = linhasV.length === 1 ? linhasV[0] : undefined;
+        if (linhasV.length > 1) {
+          // nada a fazer no rateio
+        } else if (linha) {
           await sql`UPDATE cx_apagar SET codcc = ${Number(g.codplc)}, valor = ${soma}, idsituacao_nf = ${g.idsituacao_nf ?? null}, dtultimalteracao = now()
                     WHERE codcxapagar = ${linha.codcxapagar}`.execute(trx);
         } else {

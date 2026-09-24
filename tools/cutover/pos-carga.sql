@@ -88,3 +88,15 @@ SELECT setval('seq_idlote', greatest(
 -- A DATA DO TÍTULO A PAGAR (mig 327): o legado só tem DTCOMPRA; a tela do Apollo lê `dtvenda`. A trigger da mig 327
 -- sincroniza as duas a cada gravação — aqui para o caso de a carga ter rodado com as triggers desligadas. Idempotente.
 UPDATE apagar SET dtvenda = (dtcompra::timestamp AT TIME ZONE 'America/Sao_Paulo') WHERE dtvenda IS NULL AND dtcompra IS NOT NULL;
+
+-- O CENTRO DE CUSTO E A DATA DE PAGAMENTO DO TÍTULO A PAGAR (colunas só do Apollo, 24/09/2026). No legado o CC do título
+-- mora no rateio CX_APAGAR (por grupo) e a data de pagamento na baixa (APAGAR_BX); a tela do Apollo lê `apagar.codplc` e
+-- `apagar.dtpgto`, que a carga não preenche — o título migrado apareceria sem CC e, pago, sem data de pagamento. O CC é o
+-- da 1ª linha de valor do rateio do grupo (a grade do legado mostra essa); a data, a da última baixa ativa. Idempotente.
+UPDATE apagar a SET codplc = x.codcc
+  FROM (SELECT DISTINCT ON (codgrupo) codgrupo, codcc FROM cx_apagar
+         WHERE coalesce(tipo, 'V') = 'V' AND codcc IS NOT NULL ORDER BY codgrupo, codcxapagar) x
+ WHERE a.codgrupo = x.codgrupo AND a.codplc IS NULL;
+UPDATE apagar a SET dtpgto = b.dt
+  FROM (SELECT codapg, max(dtpgto) AS dt FROM apagar_bx WHERE coalesce(indr, 'I') <> 'E' GROUP BY codapg) b
+ WHERE a.codapg = b.codapg AND a.quitada = 'S' AND a.dtpgto IS NULL;

@@ -952,3 +952,11 @@ legado aceita mais); pula o que a carga transforma (CNPJ sem máscara, ENTRADA/S
   bancário; 4.095 validades de lote às 16:47:25). Trocar o tipo quebraria filtros por período.
 
 Conferidor: ALTO 0 · MÉDIO 0 · declaradas 14. Smoke 1465/0.
+
+**Achado 21 — colunas só do Apollo que a tela lê e a carga não preenche (24/09/2026).** O conferidor de colunas órfãs
+olha só as colunas OBRIGATÓRIAS do destino; uma anulável que o Apollo criou no lugar de uma do legado fica vazia na base
+migrada sem alarme. Caso que achou: `apagar.dtvenda` (a tela e a view liam; o legado só tem DTCOMPRA) — o título migrado
+aparecia sem data de emissão (mig 327 sincroniza pelo fuso). Varredura: 186 colunas anuláveis só do destino em tabelas
+carregadas; a maioria é carimbo do próprio Apollo ou já calculada na carga. Tratadas: `apagar.codplc` (o CC mora no
+CX_APAGAR) e `apagar.dtpgto` (a data vem da APAGAR_BX), na pós-carga. A registrar para decisão (não é do código):
+`empresas.ambiente` nasce '2' (homologação) — no legado a falta de linha em AMBIENTE_CONTINGENCIA significa produção.
