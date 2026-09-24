@@ -4,6 +4,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ConfigService } from './config.service';
+import { gravarLog } from '../../shared/log/registro-log';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -176,6 +177,15 @@ export class ExportaBalancaService {
     // o arquivo nutricional só sai quando há produto com dado — o legado cria o .TXT vazio; aqui não
     // entregamos arquivo vazio para download (o conteúdo seria só o CRLF)
     if (infnutri.length) arquivos.push({ nome: 'INFNUTRI.TXT', conteudo: crlf(infnutri), linhas: infnutri.length });
+    // a LOG de cada exportação (binário novo — não está no fonte de 2020; 4.057 em 2026): "Exportar para balança"/Inseriu, tabela
+    // EXPBALANCA, chave BALANCA, valor 0, com as flags da config. ⚠️ O binário grava TIPO/MODELO/SETOR sempre 0 (4.056 de 4.057,
+    // com a config TOLEDO / PRIX4-N / "Código da Balança") — o texto fica igual ao dele.
+    const sn = (v: unknown) => (String(v ?? '').toUpperCase() === 'S' ? 'S' : String(v ?? '').toUpperCase() === 'N' ? 'N' : '');
+    await (this.dbp.forTenant() as AnyDB).transaction().execute((trx: AnyDB) => gravarLog(trx, {
+      acao: 'Inseriu', formulario: 'Exportar para balança', tabela: 'EXPBALANCA', chave: 'BALANCA', valor: 0, idempresa: emp,
+      historico: [' - TIPO: 0', ' - MODELO: 0', ' - SETOR: 0', ` - EXPORTA TABELA NUTRICIONAL: ${sn(cfg.export_nutricional)}`,
+        ` - EXPORTA RECEITA: ${sn(cfg.export_receita)}`, ` - EXPORTA TARA: ${sn(cfg.exporta_tara)}`].join('\r\n'),
+    }));
     return { config: configId, modelo, produtos: rows.length, arquivos, nutricional: { linhas: infnutri.length, pulados: nutriPulados } };
   }
 }

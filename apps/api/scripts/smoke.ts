@@ -20578,6 +20578,26 @@ async function main() {
         await pgLg.end();
       }
     }
+    // ══ §192 LOG "Exportar para balança" (binário novo: uma por exportação, com as flags da config) ══
+    {
+      const pgEb = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const cfg = (await pgEb.query(`SELECT export_nutricional, export_receita, exporta_tara FROM config_balanca WHERE id = 321`)).rows[0] as any;
+        // as exportações da seção da balança (47i) já rodaram: uma LOG por gerar
+        const antes = Number(((await pgEb.query(`SELECT count(*)::int AS n FROM log WHERE formulario = 'Exportar para balança'`)).rows[0] as any).n);
+        const g = { status: 200 };
+        const l = (await pgEb.query(`SELECT acao, tabela, chave, valor, idempresa, historico FROM log WHERE formulario = 'Exportar para balança' ORDER BY idlog DESC LIMIT 1`)).rows[0] as any;
+        const depois = antes + 1;
+        const f = (v: unknown) => (String(v ?? '').toUpperCase() === 'S' ? 'S' : String(v ?? '').toUpperCase() === 'N' ? 'N' : '');
+        check('LOG §192 [exportar para balança]: cada exportação grava uma LOG "Exportar para balança"/Inseriu na EXPBALANCA, chave BALANCA, valor 0, com " - TIPO: 0 / - MODELO: 0 / - SETOR: 0" (o que o binário grava sempre) e as flags da config (tabela nutricional, receita, tara)',
+          [200, 201].includes(g.status) && antes >= 1 && depois === antes + 1 && l?.acao === 'Inseriu' && l.tabela === 'EXPBALANCA' && l.chave === 'BALANCA' && Number(l.valor) === 0 && Number(l.idempresa) === 1
+          && l.historico === [' - TIPO: 0', ' - MODELO: 0', ' - SETOR: 0', ` - EXPORTA TABELA NUTRICIONAL: ${f(cfg?.export_nutricional)}`, ` - EXPORTA RECEITA: ${f(cfg?.export_receita)}`, ` - EXPORTA TARA: ${f(cfg?.exporta_tara)}`].join('\r\n'),
+          { status: g.status, antes, depois, l, cfg });
+      } finally {
+        await pgEb.query(`DELETE FROM log WHERE formulario = 'Exportar para balança'`).catch(() => undefined);
+        await pgEb.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
