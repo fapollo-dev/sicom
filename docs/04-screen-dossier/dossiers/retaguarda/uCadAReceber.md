@@ -79,3 +79,21 @@ Corrigidas antes do commit: (1) **`valorpg ≤ 0`** era aceito e quitava o títu
 
 ## 7. Riscos (do recon)
 SQL por concatenação no legado (reescrever parametrizado); baixa por LOTE com efeitos amplos (ARECEBER_BX/CAIXA/CHEQUE/CARTAO/PERMUTAS/MOV_CONTAS/APAGAR-saldo/contábil) → estorno atômico; dezenas de configs (catalogar); IDs por `GetID` (migrar p/ sequence); TXJUROS congelada no título; dado sujo (DTPGTO ano 5022, valor 0); encoding ISO-8859.
+
+## A EDIÇÃO E A EXCLUSÃO COMO A TELA DO LEGADO (24/09/2026)
+
+As travas do Apollo eram mais largas que as do legado (título de NF, de origem Q/O/C, contabilizado e conciliado não se
+editavam). Agora, como o `uCadAReceber.pas`:
+- **Editar:** pago/agrupado travam a tela (`VerificaBloqueio :4163`); com `BLOQUEIA_CONTAS_RECEBER_ORIGEM_AUTO`='S' (a
+  produção), o título de ORIGEM Q/O/C e o da NF (fora a NF adicionada à mão, `NFADICMANUAL`) travam os campos de
+  `DesabilitaCampos` (:4116) — pedido, cupom, juros, duplicata, emissão, parcelas, valor, desconto do boleto, cliente, CC,
+  cobrador, vendedor, obs —, mas no título da NF ainda aberto o desconto do boleto e a taxa de juros voltam; o vencimento, a
+  forma, o banco e o tipo seguem editáveis (422 `TITULO_CAMPO_BLOQUEADO` para o resto). Contabilizado
+  (`VerificaContabilizado :4083`): sem integração automática recusa; com ela estorna e o gravar recontabiliza
+  (`IntegraReceber :3130`, também na criação). HISTORICO `ALTERACAO DO CAMPO X DE: a PARA: b` por campo.
+- **Excluir** (`btnExcluirClick :3524`), na ordem: gerado por outro processo ("Este documento foi gerado por outro processo e
+  não pode ser excluído."), agrupamento, desconto de títulos, contabilizado, período fechado, **conciliado na tesouraria só
+  com a senha administrativa** (`SenhaAdministrativa('ADM')` — o DELETE aceita `senhaAdm`), criado pela NF, criado por
+  adiantamento; saem o HISTARECEBER, o título e a CAIXA dele, com `EXCLUSAO DO REGISTRO CLIENTE: …, DOCUMENTO: …, VALOR: 086`.
+
+Smoke §31.5 (as travas) e §175 (histórico, senha administrativa na exclusão do conciliado).

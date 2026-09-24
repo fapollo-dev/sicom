@@ -6,8 +6,13 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 import { assertRestricoesSituacao } from '../shared/situacao-restricoes';
 import { lancarCaixaDoAreceber } from './areceber-caixa';
+import { configNaTrx } from '../compras/pedido-heranca';
+import { DocumentosContabilService } from './documentos-contabil.service';
+import { emSavepoint } from './fechamento-contabil.service';
+import { SenhaOperacaoService } from '../cadastro/senha-operacao.service';
 
 type AnyDB = Kysely<any>;
+const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -45,7 +50,15 @@ function addMonthsClamped(iso: string, months: number, fixedDay?: number): strin
  */
 @Injectable()
 export class AreceberService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly docs: DocumentosContabilService,
+    private readonly senhaOp: SenhaOperacaoService,
+  ) {}
+
+  private async cfg(trx: AnyDB, codigo: string, emp: number): Promise<string | null> {
+    return configNaTrx(trx, codigo, { empresaId: emp, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' });
+  }
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -150,6 +163,7 @@ export class AreceberService {
         .executeTakeFirstOrThrow();
       const codrcb = Number((ins as Record<string, unknown>).codrcb);
       await lancarCaixaDoAreceber(trx, codrcb, emp, 'incluir'); // a CAIXA gerencial do título (uCadAReceber.pas:1075)
+      await this.integrarDocumento(trx, emp, codrcb);
       return codrcb;
     });
     return this.read(id);
@@ -242,50 +256,109 @@ export class AreceberService {
     return { parcelas: numparc, total: r2(total), codrcbs, titulos };
   }
 
-  // origens geradas por OUTRO processo (getter ORIGEM legado) — não editáveis pela tela
-  // (uCadAReceber VerificaCRCadastradaAutomaticamente :4148 / btnExcluir :3557): Q=quebra de caixa,
-  // O=convênio funcionário, C=(fechamento/caixa). B (baixa parcial) e F (faturamento) têm trava própria.
-  private static readonly ORIGEM_AUTO = new Set(['Q', 'O', 'C']);
-
+  // ── as travas da tela (uCadAReceber) ────────────────────────────────────────────────────────────────────────
   /**
-   * Trava de estado + posse (uCadAReceber VerificaBloqueio :4166 / VerificaContabilizado :4083 /
-   * btnExcluir :3524-3644): lê e TRAVA o título (FOR UPDATE, escopo empresa) e barra edição/exclusão de
-   * título com efeito. Além de quitado/agrupado/contabilizado/de-NF: origem automática ('Q'/'O'/'C') e
-   * conciliado-na-tesouraria (só quando NÃO é manual — o legado :3585 exige CADASTRADO_MANUALMENTE<>'S').
+   * `VerificaCRCadastradaAutomaticamente` (uCadAReceber.pas:4115-4146): o título de ORIGEM Q/O/C (quebra, convênio, caixa) e o da
+   * NF (IDNF, fora a NF adicionada à mão) é "de outro processo". Com `BLOQUEIA_CONTAS_RECEBER_ORIGEM_AUTO`='S' (a produção), a tela
+   * trava os campos de `DesabilitaCampos` — o vencimento, a forma, o banco e o tipo seguem editáveis; no título da NF ainda
+   * aberto, o desconto do boleto e a taxa de juros voltam.
    */
-  private async travarEditavel(trx: AnyDB, id: number, emp: number) {
-    const t = await trx
-      .selectFrom('areceber')
-      .select(['codrcb', 'quitada', 'agrupado', 'contabilizado', 'idnf', 'origem', 'consiliado', 'cadastrado_manualmente', 'dtvenda', 'codparceiro', 'idsituacao_nf', 'codplc'])
-      .where('codrcb', '=', id)
-      .where('codempresa', '=', emp)
-      .forUpdate()
-      .executeTakeFirst();
+  private static origemAutomatica(t: Record<string, unknown>): boolean {
+    return ['Q', 'O', 'C'].includes(String(t.origem ?? '')) || (num(t.idnf) !== 0 && t.nfadicmanual !== 'S');
+  }
+  private static readonly CAMPOS_ORIGEM_AUTO = [
+    'nroped', 'nrocupom', 'txjuros', 'duplicata', 'dtvenda', 'nrodup', 'valor', 'desconto_boleto',
+    'codparceiro', 'codplc', 'codcobrador', 'codvendedor', 'obs',
+  ];
+  private async camposBloqueados(trx: AnyDB, emp: number, t: Record<string, unknown>): Promise<string[]> {
+    if (AreceberService.origemAutomatica(t) && (await this.cfg(trx, 'BLOQUEIA_CONTAS_RECEBER_ORIGEM_AUTO', emp)) === 'S') {
+      const livres = num(t.idnf) !== 0 ? new Set(['desconto_boleto', 'txjuros']) : new Set<string>();
+      return AreceberService.CAMPOS_ORIGEM_AUTO.filter((c) => !livres.has(c));
+    }
+    return t.agrupamento === 'S' || t.origem === 'A' ? ['valor'] : [];
+  }
+
+  private async titulo(trx: AnyDB, id: number, emp: number): Promise<Record<string, unknown>> {
+    const t = (await sql<Record<string, unknown>>`SELECT * FROM areceber WHERE codrcb = ${id} AND codempresa = ${emp} FOR UPDATE`.execute(trx)).rows[0];
     if (!t) throw new BusinessRuleError('TITULO_NAO_ENCONTRADO', { codrcb: id });
+    return t;
+  }
+
+  /** `VerificaBloqueio` (:4163-4172): pago ou agrupado trava a tela — editar e excluir */
+  private static travasDaTela(t: Record<string, unknown>) {
     if (t.quitada === 'S') throw new BusinessRuleError('TITULO_JA_BAIXADO'); // baixado — estorne a baixa antes
     if (t.agrupado === 'S') throw new BusinessRuleError('TITULO_AGRUPADO'); // remova do agrupamento antes
-    if (t.contabilizado === 'S') throw new BusinessRuleError('TITULO_CONTABILIZADO');
-    if (t.idnf != null) throw new BusinessRuleError('TITULO_DE_NF', { idnf: t.idnf }); // gerido pela NF
-    if (String(t.origem ?? '') === 'A') throw new BusinessRuleError('TITULO_AGRUPAMENTO'); // consolidado — use reverter
-    if (t.origem != null && AreceberService.ORIGEM_AUTO.has(String(t.origem)))
-      throw new BusinessRuleError('TITULO_ORIGEM_AUTO', { origem: t.origem });
-    if (t.consiliado === 'S' && t.cadastrado_manualmente !== 'S')
-      throw new BusinessRuleError('TITULO_CONCILIADO');
-    return t;
+  }
+
+  /** `VerificaContabilizado` (:4083): sem integração automática não muda; com ela, o contábil do título é estornado antes */
+  private async estornarSeContabilizado(trx: AnyDB, emp: number, t: Record<string, unknown>): Promise<void> {
+    if (t.contabilizado !== 'S') return;
+    const integracao = (await sql<{ integracao: string | null }>`SELECT integracao FROM empresas WHERE idempresa = ${emp}`.execute(trx)).rows[0]?.integracao;
+    if (String(integracao ?? '') !== 'AUTOMATICA') throw new BusinessRuleError('TITULO_CONTABILIZADO');
+    await this.docs.estornarDocumentoNaTrx(trx, 'CR', num(t.codrcb));
+  }
+
+  /** `IntegraReceber` (:3130): com integração automática, o gravar contabiliza os títulos do grupo; o erro é calado */
+  private async integrarDocumento(trx: AnyDB, emp: number, codrcb: number): Promise<void> {
+    const integracao = (await sql<{ integracao: string | null }>`SELECT integracao FROM empresas WHERE idempresa = ${emp}`.execute(trx)).rows[0]?.integracao;
+    if (String(integracao ?? '') !== 'AUTOMATICA') return;
+    const titulos = (await sql<{ codrcb: number }>`SELECT r.codrcb FROM areceber r, (SELECT codgrupo FROM areceber WHERE codrcb = ${codrcb}) g
+        WHERE (r.codrcb = ${codrcb} OR (g.codgrupo IS NOT NULL AND r.codgrupo = g.codgrupo)) AND coalesce(r.contabilizado, 'N') <> 'S' ORDER BY r.codrcb`.execute(trx)).rows;
+    for (const r of titulos) await emSavepoint(trx, 'contabil_areceber', () => this.docs.integrarDocumentoNaTrx(trx, 'CR', num(r.codrcb), null));
+  }
+
+  /** o título com os campos já no formato do histórico (dd/mm/aaaa, o dia no fuso da loja) */
+  private async paraHistorico(trx: AnyDB, id: number, emp: number): Promise<Record<string, unknown>> {
+    const tz = (await this.cfg(trx, 'FUSO_HORARIO_ACESSO', emp)) ?? 'America/Sao_Paulo';
+    return (await sql<Record<string, unknown>>`SELECT *, to_char(dtvenda AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS dtvenda_h,
+        to_char(dtvenc AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS dtvenc_h FROM areceber WHERE codrcb = ${id}`.execute(trx)).rows[0] ?? {};
+  }
+
+  /** o HISTORICO da edição (`SetaHistorico`, udmPrincipal.pas:3038): uma linha por campo alterado, como no contas a pagar */
+  private async historicoDaEdicao(trx: AnyDB, emp: number, antes: Record<string, unknown>, depois: Record<string, unknown>): Promise<void> {
+    const op = currentTenant().operadorId ?? null;
+    const n = (v: unknown) => (v == null || v === '' ? '' : String(Number(v)).replace('.', ','));
+    const i = (v: unknown) => String(Math.trunc(num(v)));
+    const t = (v: unknown) => (v == null ? '' : String(v));
+    const campos: Array<[string, (r: Record<string, unknown>) => string]> = [
+      ['CODPARCEIRO', (r) => i(r.codparceiro)], ['DTVENDA', (r) => t(r.dtvenda_h)], ['DTVENC', (r) => t(r.dtvenc_h)],
+      ['VALOR', (r) => n(r.valor)], ['DUPLICATA', (r) => t(r.duplicata)], ['OBS', (r) => t(r.obs)],
+    ];
+    for (const [campo, f] of campos) {
+      const a = f(antes);
+      const b = f(depois);
+      if (a === b) continue;
+      await sql`INSERT INTO historico (coddoc, tabela, historico, data, codoperador, codempresa)
+          VALUES (${String(num(antes.codrcb))}, 'ARECEBER', ${`ALTERACAO DO CAMPO ${campo} DE: ${a} PARA: ${b}`.slice(0, 600)}, current_date, ${op}, ${emp})`.execute(trx);
+    }
   }
 
   async atualizar(id: number, dto: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const t = await this.travarEditavel(trx, id, emp);
+      const t = await this.titulo(trx, id, emp);
+      AreceberService.travasDaTela(t);
       // período fechado × BLOQ_RCB — o legado trava a ABERTURA da edição pela data ATUAL (uCadAReceber:3470)
       // E o SALVAR pela data nova (:965). Barrar se a DTVENDA gravada OU a nova cair em período fechado
       // (senão dá para "resgatar"/mover um título ancorado num período já fechado).
       await assertPeriodoNaoFechado(trx, emp, t.dtvenda, 'bloq_rcb');
       if (dto.dtvenda != null) await assertPeriodoNaoFechado(trx, emp, dto.dtvenda, 'bloq_rcb');
       const d = this.delta(dto);
+      // os campos travados (só recusa o que MUDOU); o valor do agrupamento é a soma dos agrupados
+      const igual = (a: unknown, b: unknown) => {
+        const norm = (v: unknown) => (v == null || v === '' ? '' : v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? 10 : undefined).trim());
+        const na = norm(a); const nb = norm(b);
+        return na === nb || (na !== '' && nb !== '' && !Number.isNaN(Number(na)) && Number(na) === Number(nb));
+      };
+      for (const campo of await this.camposBloqueados(trx, emp, t)) {
+        if (d[campo] !== undefined && !igual(d[campo], t[campo])) {
+          throw new BusinessRuleError(campo === 'valor' && (t.agrupamento === 'S' || t.origem === 'A') ? 'TITULO_AGRUPAMENTO' : 'TITULO_CAMPO_BLOQUEADO', { campo });
+        }
+      }
       await assertRestricoesSituacao(trx, d, t as Record<string, unknown>, { papel: 'cliente' });
+      await this.estornarSeContabilizado(trx, emp, t);
+      const antes = await this.paraHistorico(trx, id, emp);
       if (Object.keys(d).length) {
         await trx
           .updateTable('areceber')
@@ -295,17 +368,52 @@ export class AreceberService {
           .execute();
         await lancarCaixaDoAreceber(trx, id, emp, 'editar'); // a edição apaga e relança a CAIXA do título (:1102)
       }
+      await this.historicoDaEdicao(trx, emp, antes, await this.paraHistorico(trx, id, emp));
+      await this.integrarDocumento(trx, emp, id);
     });
     return this.read(id);
   }
 
-  async excluir(id: number): Promise<void> {
+  /**
+   * EXCLUIR (`btnExcluirClick`, uCadAReceber.pas:3524-3645), as travas na ordem do legado: gerado por outro processo; agrupamento;
+   * desconto de títulos; contabilizado (estorna com integração automática); período fechado; conciliado na tesouraria (só com a
+   * senha administrativa, `SenhaAdministrativa('ADM')`); criado pela NF; criado por adiantamento. Saem o HISTARECEBER, o
+   * título, a CAIXA dele e fica o HISTORICO `EXCLUSAO DO REGISTRO CLIENTE: …, DOCUMENTO: …, VALOR: …`.
+   */
+  async excluir(id: number, senhaAdm?: string): Promise<void> {
     const emp = this.emp();
+    const op = currentTenant().operadorId ?? null;
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const t = await this.travarEditavel(trx, id, emp);
+      const t = await this.titulo(trx, id, emp);
+      AreceberService.travasDaTela(t);
+      if (AreceberService.origemAutomatica(t) && (await this.cfg(trx, 'BLOQUEIA_CONTAS_RECEBER_ORIGEM_AUTO', emp)) === 'S') {
+        throw new BusinessRuleError('TITULO_ORIGEM_AUTO', { origem: t.origem ?? null, idnf: t.idnf ?? null });
+      }
+      if (t.agrupamento === 'S' || t.origem === 'A') throw new BusinessRuleError('TITULO_AGRUPAMENTO');
+      if (num(t.codgrupo_desconto_titulo) > 0) throw new BusinessRuleError('TITULO_DE_DESCONTO');
+      if (num(t.cod_desconto_titulo) > 0) throw new BusinessRuleError('TITULO_DESCONTO_VINCULADO');
+      await this.estornarSeContabilizado(trx, emp, t);
       await assertPeriodoNaoFechado(trx, emp, t.dtvenda, 'bloq_rcb'); // não excluir título de período fechado
+      if (t.consiliado === 'S' && t.cadastrado_manualmente !== 'S') {
+        if (!senhaAdm) throw new BusinessRuleError('TITULO_CONCILIADO');
+        const { ok } = await this.senhaOp.verificar('admin', senhaAdm);
+        if (!ok) throw new BusinessRuleError('SENHA_ADM_INVALIDA', { tipo: 'admin' });
+      }
+      if (num(t.idnf) > 0 && t.nfadicmanual !== 'S' && (await sql`SELECT 1 FROM nf WHERE codnf = ${num(t.idnf)}`.execute(trx)).rows.length) {
+        throw new BusinessRuleError('TITULO_DE_NF', { idnf: t.idnf });
+      }
+      if (num(t.codadiantamento) > 0 && (await sql`SELECT 1 FROM adiantamento_forn WHERE codadiantamento = ${num(t.codadiantamento)}`.execute(trx)).rows.length) {
+        throw new BusinessRuleError('TITULO_DE_ADIANTAMENTO', { codadiantamento: t.codadiantamento });
+      }
+      await sql`DELETE FROM histareceber WHERE codrcb = ${id}`.execute(trx);
       await trx.deleteFrom('areceber').where('codrcb', '=', id).where('codempresa', '=', emp).execute();
       await trx.deleteFrom('caixa').where('codrcb', '=', id).execute(); // a CAIXA do título sai junto (uCadAReceber.pas:3632)
+      const nome = (await sql<{ razao: string | null }>`SELECT razao FROM parceiros WHERE codparceiro = ${num(t.codparceiro)}`.execute(trx)).rows[0]?.razao ?? '';
+      const milhar = (v: unknown) => String(Math.round(num(v))).padStart(3, '0').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+      await sql`INSERT INTO historico (coddoc, tabela, historico, data, codoperador, codempresa)
+          VALUES (${String(id)}, 'ARECEBER', ${`EXCLUSAO DO REGISTRO CLIENTE: ${num(t.codparceiro)}-${nome}, DOCUMENTO: ${t.duplicata ?? ''}, VALOR: ${milhar(t.valor)}`.slice(0, 600)},
+                  current_date, ${op}, ${emp})`.execute(trx);
     });
   }
+
 }

@@ -2386,23 +2386,35 @@ async function main() {
     const arEditBody = (await arEdit.json().catch(() => ({}))) as any;
     check('CR: PUT edita título manual (valor 400)', arEdit.status === 200 && Number(arEditBody.valor) === 400, { status: arEdit.status, valor: arEditBody?.valor });
 
-    // 31.5) TRAVAS de estado (editar): cada estado do legado → 422 com seu código PT.
-    const putTrava = async (id: number) => {
-      const r = await fetch(`${base}/${AR}/${id}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 1 }) });
+    // 31.5) as TRAVAS da tela do legado (uCadAReceber): pago e agrupado travam tudo (VerificaBloqueio); o título de NF e o de
+    // ORIGEM Q/O/C só travam os campos de DesabilitaCampos com BLOQUEIA_CONTAS_RECEBER_ORIGEM_AUTO ('S' na produção);
+    // contabilizado sem integração automática não muda; conciliado edita (a trava do legado é só na exclusão).
+    const putTrava = async (id: number, body: Record<string, unknown> = { valor: 1 }) => {
+      const r = await fetch(`${base}/${AR}/${id}`, { method: 'PUT', headers: H, body: JSON.stringify(body) });
       return { status: r.status, code: ((await r.json().catch(() => ({}))) as any).code };
     };
+    const pgTr = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    await pgTr.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, config_especificas_permitidas, descricao)
+        VALUES (991031, 'BLOQUEIA_CONTAS_RECEBER_ORIGEM_AUTO', 'S', 'texto', 'Modulo', 'smoke') ON CONFLICT DO NOTHING`);
+    const intTr = ((await pgTr.query(`SELECT integracao FROM empresas WHERE idempresa = 1`)).rows[0] as any)?.integracao ?? null;
+    await pgTr.query(`UPDATE empresas SET integracao = 'MANUAL' WHERE idempresa = 1`);
     const tQ = await putTrava(999);
     check('CR: PUT título quitado → 422 TITULO_JA_BAIXADO', tQ.status === 422 && tQ.code === 'TITULO_JA_BAIXADO', tQ);
     const tA = await putTrava(400);
     check('CR: PUT título agrupado → 422 TITULO_AGRUPADO', tA.status === 422 && tA.code === 'TITULO_AGRUPADO', tA);
     const tN = await putTrava(300);
-    check('CR: PUT título de NF → 422 TITULO_DE_NF', tN.status === 422 && tN.code === 'TITULO_DE_NF', tN);
+    const tN2 = await putTrava(300, { desconto_boleto: 1 });
+    check('CR: título de NF — o valor é campo travado (TITULO_CAMPO_BLOQUEADO), o desconto do boleto muda (o legado o reabre no título da NF)',
+      tN.status === 422 && tN.code === 'TITULO_CAMPO_BLOQUEADO' && tN2.status === 200, { tN, tN2 });
     const tC = await putTrava(201);
-    check('CR: PUT título contabilizado → 422 TITULO_CONTABILIZADO', tC.status === 422 && tC.code === 'TITULO_CONTABILIZADO', tC);
+    check('CR: PUT título contabilizado sem integração automática → 422 TITULO_CONTABILIZADO', tC.status === 422 && tC.code === 'TITULO_CONTABILIZADO', tC);
     const tO = await putTrava(102);
-    check('CR: PUT título origem-auto (Q) → 422 TITULO_ORIGEM_AUTO', tO.status === 422 && tO.code === 'TITULO_ORIGEM_AUTO', tO);
-    const tK = await putTrava(500);
-    check('CR: PUT título conciliado não-manual → 422 TITULO_CONCILIADO', tK.status === 422 && tK.code === 'TITULO_CONCILIADO', tK);
+    check('CR: PUT valor de título origem-auto (Q) → 422 TITULO_CAMPO_BLOQUEADO', tO.status === 422 && tO.code === 'TITULO_CAMPO_BLOQUEADO', tO);
+    const tK = await putTrava(500, { obs: 'conciliado edita' });
+    check('CR: PUT título conciliado não-manual → 200 (no legado a trava do conciliado é só na exclusão)', tK.status === 200, tK);
+    await pgTr.query(`UPDATE empresas SET integracao = $1 WHERE idempresa = 1`, [intTr]);
+    await pgTr.query(`DELETE FROM configuracoes WHERE id = 991031`);
+    await pgTr.end();
 
     // 31.5b) o TÍTULO NA CAIXA GERENCIAL (uCadAReceber.pas:1075): com centro de custo e forma → uma linha com o valor do
     // documento, data/vencimento = a venda, a forma como recurso; editar relança; parcelas → uma linha com o total; excluir apaga
@@ -19555,6 +19567,42 @@ async function main() {
         await pgA.query(`UPDATE empresas SET integracao = $1 WHERE idempresa = 1`, [empInt]).catch(() => undefined);
         await pgA.query(`DELETE FROM configuracoes WHERE id = 991741`).catch(() => undefined);
         await pgA.end();
+      }
+    }
+    // ══ §175 CONTAS A RECEBER como a tela do legado (uCadAReceber): o histórico da edição e as travas da exclusão ══
+    {
+      const pgR = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const AR = 'cadastro/areceber';
+      const admHash0 = ((await pgR.query(`SELECT senha_admin_hash FROM empresas WHERE idempresa = 1`)).rows[0] as any)?.senha_admin_hash ?? null;
+      let id = -1;
+      try {
+        const cr = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2039-05-02', dtvenc: '2039-06-02', valor: 80, duplicata: 'SMK175' }) });
+        id = Number(((await cr.json().catch(() => ({}))) as any).codrcb);
+        const ed = await fetch(`${base}/${AR}/${id}`, { method: 'PUT', headers: H, body: JSON.stringify({ dtvenc: '2039-06-12', valor: 85.5 }) });
+        const hist = ((await pgR.query(`SELECT historico FROM historico WHERE tabela = 'ARECEBER' AND coddoc = $1 ORDER BY codhist`, [String(id)])).rows as any[]).map((r) => r.historico);
+        // conciliado (e não cadastrado à mão): sem a senha administrativa não sai; com a senha errada também não; com a certa, sai
+        await pgR.query(`UPDATE areceber SET consiliado = 'S', cadastrado_manualmente = 'N' WHERE codrcb = $1`, [id]);
+        const semSenha = await fetch(`${base}/${AR}/${id}`, { method: 'DELETE', headers: H });
+        const semSenhaJ = (await semSenha.json().catch(() => ({}))) as any;
+        await fetch(`${base}/cadastro/senha-operacao`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'admin', senha: 'adm-175' }) });
+        const errada = await fetch(`${base}/${AR}/${id}`, { method: 'DELETE', headers: H, body: JSON.stringify({ senhaAdm: 'outra' }) });
+        const erradaJ = (await errada.json().catch(() => ({}))) as any;
+        const certa = await fetch(`${base}/${AR}/${id}`, { method: 'DELETE', headers: H, body: JSON.stringify({ senhaAdm: 'adm-175' }) });
+        const sobra = Number(((await pgR.query(`SELECT count(*)::int AS n FROM areceber WHERE codrcb = $1`, [id])).rows[0] as any).n);
+        const razao20 = ((await pgR.query(`SELECT razao FROM parceiros WHERE codparceiro = 20`)).rows[0] as any)?.razao ?? '';
+        const histDel = ((await pgR.query(`SELECT historico FROM historico WHERE tabela = 'ARECEBER' AND coddoc = $1 AND historico LIKE 'EXCLUSAO%'`, [String(id)])).rows as any[]).map((r) => r.historico);
+        check('CONTAS A RECEBER §175 [a edição e a exclusão do legado]: a edição grava o HISTORICO por campo ("ALTERACAO DO CAMPO DTVENC DE: 02/06/2039 PARA: 12/06/2039", "VALOR DE: 80 PARA: 85,5"); o título conciliado na tesouraria não sai sem a senha administrativa (TITULO_CONCILIADO), nem com a errada (SENHA_ADM_INVALIDA); com a certa sai, com "EXCLUSAO DO REGISTRO CLIENTE: 20-…, DOCUMENTO: SMK175, VALOR: 086"',
+          cr.status === 201 && ed.status === 200
+          && hist.includes('ALTERACAO DO CAMPO DTVENC DE: 02/06/2039 PARA: 12/06/2039') && hist.includes('ALTERACAO DO CAMPO VALOR DE: 80 PARA: 85,5')
+          && semSenha.status === 422 && semSenhaJ.code === 'TITULO_CONCILIADO' && errada.status === 422 && erradaJ.code === 'SENHA_ADM_INVALIDA'
+          && certa.status === 204 && sobra === 0 && histDel.includes(`EXCLUSAO DO REGISTRO CLIENTE: 20-${razao20}, DOCUMENTO: SMK175, VALOR: 086`),
+          { cr: cr.status, ed: ed.status, hist, semSenha: [semSenha.status, semSenhaJ.code], errada: [errada.status, erradaJ.code], certa: certa.status, sobra, histDel });
+      } finally {
+        await pgR.query(`UPDATE empresas SET senha_admin_hash = $1 WHERE idempresa = 1`, [admHash0]).catch(() => undefined);
+        await pgR.query(`DELETE FROM caixa WHERE codrcb = $1`, [id]).catch(() => undefined);
+        await pgR.query(`DELETE FROM areceber WHERE codrcb = $1`, [id]).catch(() => undefined);
+        await pgR.query(`DELETE FROM historico WHERE tabela = 'ARECEBER' AND coddoc = $1`, [String(id)]).catch(() => undefined);
+        await pgR.end();
       }
     }
   } finally {

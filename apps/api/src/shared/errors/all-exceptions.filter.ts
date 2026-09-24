@@ -301,8 +301,8 @@ const CODE_PT: Record<string, string> = {
   TITULO_NAO_PERTENCE_AGRUPAMENTO: 'O título não pertence a este agrupamento.',
   TITULO_CONTABILIZADO: 'Título contabilizado não pode ser modificado nem excluído.',
   TITULO_DE_NF: 'Este título foi gerado por uma nota fiscal — altere pela própria nota (faturar/estornar).',
-  TITULO_ORIGEM_AUTO: 'Título gerado por outro processo (quitação/convênio/caixa) não pode ser alterado nem excluído por aqui.',
-  TITULO_CONCILIADO: 'Título conciliado na tesouraria não pode ser alterado nem excluído.',
+  TITULO_ORIGEM_AUTO: 'Este documento foi gerado por outro processo e não pode ser excluído.',
+  TITULO_CONCILIADO: 'Documento já conciliado na tesouraria, não é permitida a deleção! Informe a senha administrativa para excluir.',
   // o contas a pagar como a tela do legado (uAPagar)
   TITULO_ADCREDITO: 'Este documento foi gerado através de um adiantamento crédito para clientes.',
   TITULO_CAMPO_BLOQUEADO: 'Este campo não pode ser alterado em conta gerada automaticamente (nota fiscal, fechamento de caixa, adiantamento) — BLOQUEIA_CONTAS_PAGAR_ORIGEM_AUTO.',

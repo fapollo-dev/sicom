@@ -59,8 +59,9 @@ export class AreceberController {
   @Delete(':id')
   @RequerAcesso('FRMCADARECEBER', 'BTNEXCLUIR')
   @HttpCode(204)
-  excluir(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.excluir(id);
+  excluir(@Param('id', ParseIntPipe) id: number, @Body() body?: { senhaAdm?: string }) {
+    // o título conciliado na tesouraria só sai com a senha administrativa (uCadAReceber.pas:3585-3591)
+    return this.svc.excluir(id, typeof body?.senhaAdm === 'string' ? body.senhaAdm : undefined);
   }
 
   // ── BAIXA / recebimento (corte-2) ──
