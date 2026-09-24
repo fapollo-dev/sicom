@@ -15,7 +15,7 @@
 | SCRAP | 4.880 | R$ −7.296.171,67 | `uCadSCRAP.pas:736` | ✅ 24/09 (`scrap-caixa.ts`: a diferença a cada gravação, com a linha de 0,00 do legado; a exclusão leva junto) |
 | BAIXA CARTAO | 1.722 | R$ −85.411,37 | `UbaixaCartao.pas:1158/1188`, `UConciliadorCartao.pas:394` | FALTA |
 | NF | 1.011 | R$ 764.054,09 | `udmNF.pas:9283` | ✅ C4 (`nf-caixa.ts`) |
-| ARECEBER | 441 | R$ 687.687,98 | `uCadAReceber.pas:1075/1110` | FALTA |
+| ARECEBER | 441 | R$ 687.687,98 | `uCadAReceber.pas:1075/1110` | ✅ 24/09 (`areceber-caixa.ts`: uma linha por documento — o título, ou o total das parcelas geradas juntas; edição relança; exclusão apaga) |
 | manual (sem origem, 'S') | 166 | R$ −41.936,86 | `uMovCaixa` (FRMMOVCAIXA, 5.022 acessos) | FALTA — o `caixa_mov` do Apollo é outro modelo |
 | BAIXA APAGAR | 112 | R$ 7.377,98 | `UBaixaApagar.pas:505` | FALTA |
 | BAIXA ARECEBER | 33 | R$ −349,54 | `UBaixaAreceber.pas:1264` | FALTA |
@@ -37,6 +37,6 @@ CAIXA. **Reconstruir pelo dado** (a regra do percentual, a data, o que acontece 
 
 1. APAGAR (faturamento da NF + tela) — o rateio `CX_APAGAR` e a CAIXA por linha.
 2. ✅ SCRAP (`uCadSCRAP.pas:736`) — gravar do scrap.
-3. BAIXA CARTAO, ARECEBER, BAIXA APAGAR/ARECEBER.
+3. BAIXA CARTAO, ✅ ARECEBER, BAIXA APAGAR/ARECEBER.
 4. O movimento de caixa gerencial (`uMovCaixa`, F06) — conversão da tela.
 5. FECHAMENTO — no corte 2 do fechamento de caixa.

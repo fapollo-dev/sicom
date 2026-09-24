@@ -2404,6 +2404,36 @@ async function main() {
     const tK = await putTrava(500);
     check('CR: PUT título conciliado não-manual → 422 TITULO_CONCILIADO', tK.status === 422 && tK.code === 'TITULO_CONCILIADO', tK);
 
+    // 31.5b) o TÍTULO NA CAIXA GERENCIAL (uCadAReceber.pas:1075): com centro de custo e forma → uma linha com o valor do
+    // documento, data/vencimento = a venda, a forma como recurso; editar relança; parcelas → uma linha com o total; excluir apaga
+    {
+      const pgArC = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const cxRcb = async (id: number) => (await pgArC.query(`SELECT valor::float AS valor, tiporecurso, codplc, origem, to_char(data,'YYYY-MM-DD') AS data, to_char(dtvenc,'YYYY-MM-DD') AS dtvenc FROM caixa WHERE codrcb=$1 ORDER BY codcx`, [id])).rows as any[];
+        const t1 = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-02', dtvenc: '2026-08-02', valor: 120, codplc: 3, idpgto: 1, obs: 'RECEITA DIVERSA' }) });
+        const t1Id = Number(((await t1.json().catch(() => ({}))) as any).codrcb);
+        const c1 = await cxRcb(t1Id);
+        await fetch(`${base}/${AR}/${t1Id}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 150 }) });
+        const c2 = await cxRcb(t1Id);
+        const semForma = await fetch(`${base}/${AR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-02', dtvenc: '2026-08-02', valor: 10, codplc: 3 }) });
+        const c3 = await cxRcb(Number(((await semForma.json().catch(() => ({}))) as any).codrcb));
+        const gp = await fetch(`${base}/${AR}/gerar-parcelas`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-03', total: 90, numparc: 3, venc1: '2026-07-10', intervalo: 30, codplc: 3, idpgto: 1 }) });
+        const gpJ = (await gp.json().catch(() => ({}))) as any;
+        const cGp = (await pgArC.query(`SELECT codrcb, valor::float AS valor FROM caixa WHERE codrcb = ANY($1::int[])`, [gpJ.codrcbs ?? []])).rows as any[];
+        const del = await fetch(`${base}/${AR}/${t1Id}`, { method: 'DELETE', headers: H });
+        const c4 = await cxRcb(t1Id);
+        check('CR na CAIXA: título com centro de custo e forma → linha 120 (DINHEIRO, CC 3, data e vencimento = a venda 02/07) · editar para 150 relança (uma linha, 150) · sem forma não lança · 3 parcelas de 90 → UMA linha de 90 no 1º título · excluir apaga',
+          t1.status === 201 && c1.length === 1 && c1[0].valor === 120 && c1[0].tiporecurso === 'DINHEIRO' && Number(c1[0].codplc) === 3 && c1[0].origem === 'ARECEBER'
+          && c1[0].data === '2026-07-02' && c1[0].dtvenc === '2026-07-02'
+          && c2.length === 1 && c2[0].valor === 150 && c3.length === 0
+          && gp.status === 201 && cGp.length === 1 && cGp[0].valor === 90 && Number(cGp[0].codrcb) === Number((gpJ.codrcbs ?? [])[0])
+          && del.status === 204 && c4.length === 0,
+          { c1, c2, c3, gp: [gp.status, cGp], del: del.status, c4 });
+      } finally {
+        await pgArC.end();
+      }
+    }
+
     // 31.6) GERAR MULTI-PARCELA na tela (T1.6, btnGeraParcelasClick + BuildParcelas).
     // (a) modo INTERVALO: 3 parcelas de 100 (+30d) → rateio round(total/N) sobra na 1ª [33.34,33.33,33.33] Σ=100;
     //     venc = venc1, +30d, +60d; duplicata "i/N"; cadastrado_manualmente='S'.

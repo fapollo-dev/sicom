@@ -5,6 +5,7 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 import { assertRestricoesSituacao } from '../shared/situacao-restricoes';
+import { lancarCaixaDoAreceber } from './areceber-caixa';
 
 type AnyDB = Kysely<any>;
 
@@ -147,7 +148,9 @@ export class AreceberService {
         })
         .returning('codrcb')
         .executeTakeFirstOrThrow();
-      return Number((ins as Record<string, unknown>).codrcb);
+      const codrcb = Number((ins as Record<string, unknown>).codrcb);
+      await lancarCaixaDoAreceber(trx, codrcb, emp, 'incluir'); // a CAIXA gerencial do título (uCadAReceber.pas:1075)
+      return codrcb;
     });
     return this.read(id);
   }
@@ -230,6 +233,8 @@ export class AreceberService {
           .executeTakeFirstOrThrow();
         ids.push(Number((ins as Record<string, unknown>).codrcb));
       }
+      // uma CAIXA para o DOCUMENTO, com o total das parcelas, no primeiro título (GetTotalDoc; uCadAReceber.pas:1075)
+      if (ids.length) await lancarCaixaDoAreceber(trx, ids[0], emp, 'incluir', r2(total));
       return ids;
     });
 
@@ -288,6 +293,7 @@ export class AreceberService {
           .where('codrcb', '=', id)
           .where('codempresa', '=', emp)
           .execute();
+        await lancarCaixaDoAreceber(trx, id, emp, 'editar'); // a edição apaga e relança a CAIXA do título (:1102)
       }
     });
     return this.read(id);
@@ -299,6 +305,7 @@ export class AreceberService {
       const t = await this.travarEditavel(trx, id, emp);
       await assertPeriodoNaoFechado(trx, emp, t.dtvenda, 'bloq_rcb'); // não excluir título de período fechado
       await trx.deleteFrom('areceber').where('codrcb', '=', id).where('codempresa', '=', emp).execute();
+      await trx.deleteFrom('caixa').where('codrcb', '=', id).execute(); // a CAIXA do título sai junto (uCadAReceber.pas:3632)
     });
   }
 }
