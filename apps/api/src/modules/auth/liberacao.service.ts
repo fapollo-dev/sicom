@@ -26,6 +26,7 @@ const CHAVES_LIBERACAO = new Set([
   'USUARIOS_ZERAM_ESTOQUE_INVENTARIO', // zerar o estoque pela grade do inventário rotativo (uInvRotativoGrid)
   'USUARIOS_APROVAM_CONFERENCIA_NOTA',
   'USUARIOS_LIBERAM_SCRAP_NF', // reimportar SCRAP já importado na NF de saída (uNF.pas:1994)
+  'USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO', // excluir documento no diálogo do fechamento de caixa (UConsDocs :1667)
 ]);
 
 @Injectable()

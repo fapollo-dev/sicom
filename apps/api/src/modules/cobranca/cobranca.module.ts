@@ -60,6 +60,7 @@ import { SaldoEmpresaService } from './saldo-empresa.service';
 import { RelCaixaController } from './rel-caixa.controller';
 import { FechamentoCaixaController } from './fechamento-caixa.controller';
 import { FechamentoCaixaService } from './fechamento-caixa.service';
+import { AuthModule } from '../auth/auth.module';
 import { FechamentoContabilService } from './fechamento-contabil.service';
 import { LancamentoCaixaController } from './lancamento-caixa.controller';
 import { LancamentoCaixaService } from './lancamento-caixa.service';
@@ -70,7 +71,8 @@ import { CadastroModule } from '../cadastro/cadastro.module';
 
 @Module({
   // E7: reusa SenhaOperacaoService (exportado por CadastroModule) para o gate de senha de DESCONTO na baixa AR.
-  imports: [CadastroModule],
+  // Auth: LiberacaoService — a exclusão de documento no fechamento pede o login de um liberador (UConsDocs.TeclaDelete).
+  imports: [CadastroModule, AuthModule],
   // LotesMdController (cobranca/lotes-md) substitui o controller genérico da fábrica:
   // mesmo caminho/RBAC e mesmas transações (engine), mas READ enriquecido (master+RAZAO+
   // itens com display columns + juros/total) e validação do "Cobrador" FUN='S'.

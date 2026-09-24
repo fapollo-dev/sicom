@@ -49,20 +49,40 @@ export type EfetivarFechamentoDto = z.infer<typeof efetivarFechamentoSchema>;
  * 15.678 edições de cartão em 2026, quase todas a reclassificação da operadora "CARTAO A CLASSIFICAR".
  */
 const num2 = z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().optional());
+const camposDocumento = z.object({
+  valor: num2,
+  codoperadora: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().int().optional()),
+  nsu: z.string().max(10).optional(),
+  nsuhost: z.string().max(30).optional(),
+  autorizacao: z.string().max(30).optional(),
+  codrede: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().int().optional()),
+  nroparcela: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().int().optional()),
+  obs: z.string().max(1000).optional(),
+  dtvenc: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  codparceiro: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().int().optional()),
+  /** só na inserção do cartão (a tela completa aceita o cupom e o pedido) */
+  nrocupom: z.string().max(20).optional(),
+  nropedido: z.string().max(20).optional(),
+});
 export const editarDocumentoFechamentoSchema = turnoFechamentoSchema.extend({
   operacao: z.string().min(1).max(30),
   codigo: z.coerce.number().int().positive(),
-  campos: z.object({
-    valor: num2,
-    codoperadora: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().int().optional()),
-    nsu: z.string().max(10).optional(),
-    nsuhost: z.string().max(30).optional(),
-    autorizacao: z.string().max(30).optional(),
-    codrede: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().int().optional()),
-    nroparcela: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().int().optional()),
-    obs: z.string().max(1000).optional(),
-    dtvenc: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-    codparceiro: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().int().optional()),
-  }),
+  campos: camposDocumento,
 });
 export type EditarDocumentoFechamentoDto = z.infer<typeof editarDocumentoFechamentoSchema>;
+
+/** INSERIR um documento no diálogo (Insert do UConsDocs, corte 4): o A Receber ORIGEM 'F' e o cartão da tela completa */
+export const inserirDocumentoFechamentoSchema = turnoFechamentoSchema.extend({
+  operacao: z.string().min(1).max(30),
+  campos: camposDocumento,
+});
+export type InserirDocumentoFechamentoDto = z.infer<typeof inserirDocumentoFechamentoSchema>;
+
+/** EXCLUIR um documento (Del do UConsDocs): com liberadores configurados, o login e a senha de um deles */
+export const excluirDocumentoFechamentoSchema = turnoFechamentoSchema.extend({
+  operacao: z.string().min(1).max(30),
+  codigo: z.coerce.number().int().positive(),
+  login: z.string().max(60).optional(),
+  senha: z.string().max(100).optional(),
+});
+export type ExcluirDocumentoFechamentoDto = z.infer<typeof excluirDocumentoFechamentoSchema>;

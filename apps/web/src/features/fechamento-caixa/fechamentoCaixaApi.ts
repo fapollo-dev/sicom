@@ -1,6 +1,6 @@
 /**
  * FECHAMENTO DE CAIXA (`FRMFECHAMENTOCAIXA`) — fetcher: turnos do dia, conferência do turno, documentos e rascunho
- * (corte 1), efetivar (corte 2), reabrir (corte 3) e editar documento (corte 4). Espelha os demais (apiHeaders/BASE + envelope ADR-015).
+ * (corte 1), efetivar (corte 2), reabrir (corte 3) e editar/inserir/excluir documento (corte 4). Espelha os demais (apiHeaders/BASE + envelope ADR-015).
  */
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
@@ -77,6 +77,10 @@ export interface Documentos {
   marcacaoLivre: boolean;
   /** o que o diálogo deixa editar (corte 4): tudo, só a operadora do cartão (turno fechado no PDV) ou nada */
   edicao?: 'completa' | 'operadora' | null;
+  /** inserir (A Receber, cartão) e excluir (e ticket); a exclusão pede o login de um liberador quando há liberadores */
+  insercao?: boolean;
+  exclusao?: boolean;
+  liberacaoExclusao?: boolean;
   documentos: DocumentoConferencia[];
   conferido: number;
 }
@@ -98,9 +102,13 @@ export const efetivarTurno = (t: TurnoRef, body: { dinheiroContado: number; docu
   req<DetalheTurno>(`${P}/turno/efetivar`, { method: 'POST', body: JSON.stringify({ ...t, ...body }) });
 export interface CamposDocumento {
   valor?: number; codoperadora?: number; nsu?: string; nsuhost?: string; autorizacao?: string; codrede?: number; nroparcela?: number;
-  obs?: string; dtvenc?: string; codparceiro?: number;
+  obs?: string; dtvenc?: string; codparceiro?: number; nrocupom?: string; nropedido?: string;
 }
 export const editarDocumento = (t: TurnoRef, operacao: string, codigo: number, campos: CamposDocumento) =>
   req<{ tipo: 'CARTAO' | 'RCB'; codigo: number; alterados: string[]; soOperadora: boolean }>(`${P}/turno/documentos`, {
     method: 'PUT', body: JSON.stringify({ ...t, operacao, codigo, campos }),
   });
+export const inserirDocumento = (t: TurnoRef, operacao: string, campos: CamposDocumento) =>
+  req<{ tipo: 'CARTAO' | 'RCB'; codigo: number }>(`${P}/turno/documentos`, { method: 'POST', body: JSON.stringify({ ...t, operacao, campos }) });
+export const excluirDocumento = (t: TurnoRef, operacao: string, codigo: number, liberacao?: { login: string; senha: string }) =>
+  req<{ codigo: number; excluido: boolean }>(`${P}/turno/documentos/excluir`, { method: 'POST', body: JSON.stringify({ ...t, operacao, codigo, ...liberacao }) });

@@ -1,5 +1,8 @@
 import { Body, Controller, Get, HttpCode, Post, Put, Query, UseGuards } from '@nestjs/common';
-import { editarDocumentoFechamentoSchema, efetivarFechamentoSchema, rascunhoFechamentoSchema, turnoFechamentoSchema, type EditarDocumentoFechamentoDto, type EfetivarFechamentoDto, type RascunhoFechamentoDto, type TurnoFechamentoDto } from '@apollo/shared';
+import {
+  editarDocumentoFechamentoSchema, efetivarFechamentoSchema, excluirDocumentoFechamentoSchema, inserirDocumentoFechamentoSchema, rascunhoFechamentoSchema, turnoFechamentoSchema,
+  type EditarDocumentoFechamentoDto, type EfetivarFechamentoDto, type ExcluirDocumentoFechamentoDto, type InserirDocumentoFechamentoDto, type RascunhoFechamentoDto, type TurnoFechamentoDto,
+} from '@apollo/shared';
 import { FechamentoCaixaService } from './fechamento-caixa.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -54,6 +57,21 @@ export class FechamentoCaixaController {
   @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNFECHA')
   editarDocumento(@Body(new ZodValidationPipe(editarDocumentoFechamentoSchema)) body: EditarDocumentoFechamentoDto) {
     return this.svc.editarDocumento(body);
+  }
+
+  /** inserir um documento no diálogo (corte 4): o A Receber ORIGEM 'F' e o cartão */
+  @Post('turno/documentos')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNFECHA')
+  inserirDocumento(@Body(new ZodValidationPipe(inserirDocumentoFechamentoSchema)) body: InserirDocumentoFechamentoDto) {
+    return this.svc.inserirDocumento(body);
+  }
+
+  /** excluir um documento no diálogo (corte 4) — com a liberação dos usuários da USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO */
+  @Post('turno/documentos/excluir')
+  @HttpCode(200)
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNFECHA')
+  excluirDocumento(@Body(new ZodValidationPipe(excluirDocumentoFechamentoSchema)) body: ExcluirDocumentoFechamentoDto) {
+    return this.svc.excluirDocumento(body);
   }
 
   /** efetivar o fechamento (corte 2) — o mesmo botão Fechar do legado (BTNFECHA) */

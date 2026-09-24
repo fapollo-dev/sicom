@@ -361,3 +361,25 @@ com a comparação certa (NROPEDIDO + valor numérico).
 - **Fora deste corte:** a tela básica de cartão (`frmManipulaFin`, com o desdobramento em parcelas; a Empresa 1 usa a completa) e a edição de cheque e devolução (mortos, spec §10).
 - **Web:** botão "Editar" por documento no diálogo, com os campos que a regra libera. Na consulta, o turno é recarregado depois de gravar.
 - **Smoke §178** (3 checks): turno aberto (cartão + validações + 403), A Receber, e turno fechado (consulta → completa → só operadora).
+
+### 4.2 ENTREGUE (24/09/2026) — inserir e excluir o documento; correções do 4.1
+
+- **Habilitação única** (`FormShow :1207-1233`), agora no `GET turno/documentos`: `edicao`, `insercao`, `exclusao`, `liberacaoExclusao`.
+  - Na conferência: tudo.
+  - No turno fechado: nada, a não ser com `USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO`='S'. Com o turno fechado também no PDV, só a edição; senão, tudo.
+  - `DELETAR_DOCUMENTO_FCX` 'N'/vazio desliga a exclusão. A produção: global 'N', 'S' no Módulo Retaguarda, na Empresa 1 e em 4 usuários.
+- **Inserir** (`POST turno/documentos`, Insert `:1854-2235`):
+  - Regra comum: o documento nasce no turno (DTVENDA = dia do caixa, operador do caixa, PDV, forma, CHAVE) e desmarcado.
+  - **A Receber:** ORIGEM 'F', NROCUPOM '0', QUITADA 'N', TXJUROS da empresa, cliente padrão 0 "AO CONSUMIDOR" (639 dos 643 de 2026), vencimento = dia do caixa + `DATA_PROMISSORIA_AVULSA` (nula na produção). LOG "Contas a receber".
+  - **Cartão:** tela completa (`TELA_LANCTO_CARTAO_DOCTO_FINALIZADORAS`='C' na empresa 1), com cupom e pedido, 1 parcela, LIBERADO 'N', DTCADASTRO. LOG "Lançamento de Cartões".
+  - **HISTORICO:** `INCLUSAO DE DOCUMENTO , VALOR: v, NO DIA d DA ECF: p, FEITO PELO OPERADOR: …`. CODDOC = o cupom; DATA = só a data; no A Receber, o dia é o **vencimento** (o `edtData` do diálogo). Conferido contra a produção.
+- **Excluir** (`POST turno/documentos/excluir`, `TeclaDelete :1639`):
+  - Cartão, A Receber e ticket.
+  - Com usuários 'S' na `USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO` (1, 59 e 701 na produção), pede o login de um deles pelo `LiberacaoService`. LOG_LIBERACOES "EXCLUIR DOCUMENTOS": 117 em 2026. A chave entrou na allowlist da tela de liberações.
+  - HISTORICO `EXCLUSAO DO REGISTRO NROCUPOM|CODTICKET: doc, VALOR: v, NO DIA <AsString> DA ECF: p, …`, com AUXILIAR = chave e DATA = agora. A data do A Receber é o vencimento; a do cartão, a DTVENDA com hora quando há.
+  - Depois, DELETE físico.
+- **Correções do 4.1** (fonte relido):
+  - O cliente do A Receber só precisa **existir** no cadastro (`segCliente.IsEmpty`); o 0 vale. Eu barrava o 0.
+  - Parcelas: o legado barra **> 200**. Eu barrava 200.
+  - Valor: o legado barra só o **zero** (`= 0`). Eu barrava negativos também.
+- **Smoke §179** (3 checks) + §178 ajustado: 1514/0.
