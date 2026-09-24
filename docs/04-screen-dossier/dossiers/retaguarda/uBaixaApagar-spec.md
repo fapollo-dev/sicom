@@ -575,3 +575,31 @@ Importar o retorno, casar pelo código de barras (`CODBARRASBLT`), recurso autom
     marcada obsoleta.
 12. `IntegraBaixaApagar` engole qualquer erro da integração contábil. Mesmo assim, 88 baixas de 2026 e 11 de 2025 ficaram
     sem `CONTABILIZADO='S'`.
+
+---
+
+## 7. Conversão — corte A, backend (24/09/2026)
+
+`cobranca/baixa-apagar-lote.service.ts` + controller `cobranca/baixa-apagar` (RBAC do legado: `FRMBAIXAAPAGAR`,
+`BTNADICIONARREGISTRO` no iniciar, `BTNGRAVAR` no gravar). Smoke §196 (11 casos).
+
+- `POST iniciar` aloca o lote (`seq_idlote`), como o `GetID('IDLOTE')` do "Iniciar baixa"; o gravar recusa lote já usado.
+- `GET titulos` (GET_APAGAR: abertos, sem ADCREDITO, não agrupados, das empresas de `RELACAO_OPERADOR_EMPRESA`), base
+  `VALOR + VENDOR`, acréscimo/desconto inicial `−DESCONTO`. `GET contas` (as de `CONTAS_BANCARIAS_OP` do operador, ativas).
+  `GET padroes` (CCs da empresa, configs de data, os 4 tipos de recurso).
+- `POST gravar`, numa transação: MCB por recurso (literal da §2.7.4), APAGAR_BX por documento com a distribuição crescente,
+  `QUITADA`, adiantamento, título-saldo da parcial (um por lote), CAIXA (desconto só o digitado). Depois do commit, com
+  AUTOMATICA, `BaixaTronContabilService.integrar` do lote (erro engolido).
+- Travas: tipo × conta caixa, vínculo operador×conta, `CBO_BAIXA_CP`, `DTCHAVEAMENTO` (qualquer conta), saldo DINHEIRO
+  liberado só na caixa (reforço: desconta os recursos anteriores do lote na mesma conta), valor ≤ restante, parcial só com
+  confirmação e mesmo fornecedor, CCs com o TPCONTA, período (`bloq_baixa_apg` + `CHAVEAMENTO_PERIODO`).
+- Reversão (`reverterLoteNaTrx`), usada pela consulta de baixas para todo lote com MCB e pela manutenção: contábil do lote,
+  títulos reabertos (`CODAPGCARTAO` nulo), adiantamento, contra-MCB + `REVERTIDO='S'`, `INDR='E'`, `DELETE APAGAR … IDLOTE
+  AND QUITADA='N'` (o saldo em aberto; o baixado fica, como o legado — sem a trava REVERSAO_PARCIAL_SALDO_BAIXADO), CAIXA
+  pelo texto. Trava: caixa fechado pelo chaveamento das contas do lote; contabilizado sem AUTOMATICA; desconto de títulos.
+- Manutenção: `loteManutencao` reverte e regrava na mesma transação.
+
+**Divergências conscientes:** o título-saldo leva a emissão do título quando não há NF (o legado grava a data zero do
+Delphi, 1899-12-30); `CODPLC_JUROS=3707` nas linhas de desconto (binário novo, origem não identificada) não é copiado;
+cheque próprio/terceiros, devolução e retorno ficam fora (0 uso, §5). A baixa título a título antiga
+(`cadastro/apagar/:id/baixar`, sessão de caixa) segue no ar só até a tela nova assumir.

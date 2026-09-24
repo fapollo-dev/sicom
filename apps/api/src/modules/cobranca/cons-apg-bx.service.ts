@@ -5,6 +5,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ApagarBaixaService } from './apagar-baixa.service';
+import { BaixaApagarLoteService } from './baixa-apagar-lote.service';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -30,7 +31,7 @@ const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
  */
 @Injectable()
 export class ConsApgBxService {
-  constructor(private readonly dbp: DatabaseProvider, private readonly baixa: ApagarBaixaService) {}
+  constructor(private readonly dbp: DatabaseProvider, private readonly baixa: ApagarBaixaService, private readonly baixaLote: BaixaApagarLoteService) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -152,6 +153,14 @@ export class ConsApgBxService {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      // o lote do legado (e o da tela de baixa) tem movimentação bancária: a reversão é a do `ReverteLote`, pelo lote
+      if (lote > 0) {
+        const temMov = (await sql`SELECT 1 FROM mov_contas_bancarias WHERE idlote = ${lote} AND idlote_reversao IS NULL LIMIT 1`.execute(trx)).rows.length > 0;
+        if (temMov) {
+          const r = await this.baixaLote.reverterLoteNaTrx(trx, emp, op, lote);
+          return { lote, titulosRevertidos: r.titulos.length, codapgs: r.titulos, contraMovimentos: r.contraMovimentos };
+        }
+      }
       const chave = lote < 0 ? sql`b.idlote IS NULL AND b.codapgbx = ${-lote}` : sql`b.idlote = ${lote}`;
       const ativas = (await sql<Record<string, unknown>>`
         SELECT b.codapgbx, b.codapg, a.cod_desconto_titulo

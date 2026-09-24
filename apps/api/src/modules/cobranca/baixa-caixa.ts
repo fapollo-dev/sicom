@@ -94,6 +94,27 @@ export async function lancarCaixaDaBaixa(
   }
 }
 
+/**
+ * a mesma linha por natureza, com os três valores já somados pelo lote — a baixa em lote (`UBaixaApagar.pas:790-792`)
+ * soma o acréscimo e o desconto de cada documento em separado (um lote pode ter os dois).
+ */
+export async function lancarCaixaDaBaixaLote(
+  trx: AnyDB, lado: LadoBaixa, emp: number,
+  p: { idlote: number; dtpgto: unknown; juros: number; acrescimo: number; desconto: number; cc: CentrosBaixa },
+): Promise<void> {
+  const L = LADO[lado];
+  const v: Record<Natureza, number> = { juros: r2(Math.max(p.juros, 0)), acrescimo: r2(Math.max(p.acrescimo, 0)), desconto: r2(Math.max(p.desconto, 0)) };
+  for (const n of ['juros', 'acrescimo', 'desconto'] as const) {
+    if (v[n] === 0 || p.cc[n] == null) continue;
+    const valor = r2(v[n] * L.sinal[n]);
+    await trx.insertInto('caixa').values({
+      data: p.dtpgto, valor, vrtitulo: valor, obs: `${L.obs[n]} ${p.idlote}`, operador: currentTenant().operadorId ?? null,
+      codplc: p.cc[n], idempresa: emp, tiporecurso: 'DINHEIRO', codconta: null, codparceiro: 0, nrparcela: '1',
+      codgrupo: null, dtvenc: p.dtpgto, gerado: 'SISTEMA', idlote: p.idlote, origem: L.origem,
+    }).execute();
+  }
+}
+
 /** a reversão apaga as três linhas do lote pelo texto, como o legado */
 export async function estornarCaixaDaBaixa(trx: AnyDB, lado: LadoBaixa, emp: number, idlote: number | null | undefined): Promise<void> {
   if (idlote == null) return;

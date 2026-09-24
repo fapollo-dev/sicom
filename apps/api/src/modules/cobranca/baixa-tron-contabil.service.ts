@@ -387,6 +387,32 @@ export class BaixaTronContabilService {
   }
 
   /**
+   * o estorno de UM lote na transação de quem chama — a reversão/manutenção do lote (`TReversaoBaixaContasPagar`
+   * estorna o contábil de cada baixa antes de desfazer, `UReversaoBaixaContasPagar.pas:96-110`): o razão das origens do
+   * lado (baixa + acessórios) cujas baixas ou movimentações são do lote, e o CONTABILIZADO de volta a nulo.
+   */
+  async estornarLoteNaTrx(trx: AnyDB, lado: Lado, idlote: number): Promise<number> {
+    const emp = this.emp();
+    const m = MAPA[lado];
+    const o = ORIGEM[lado];
+    const origens = [o.baixa, o.juros, o.acrescimo, o.desconto];
+    const bx = (await sql<{ codbx: number }>`SELECT ${sql.ref(m.pk)} AS codbx FROM ${sql.table(m.bx)} WHERE idlote = ${idlote}`.execute(trx)).rows.map((r) => Number(r.codbx));
+    const mov = (await sql<{ codmovconta: number }>`SELECT codmovconta FROM mov_contas_bancarias WHERE idlote = ${idlote}`.execute(trx)).rows.map((r) => Number(r.codmovconta));
+    const ids = bx.concat(mov);
+    if (!ids.length) return 0;
+    const r = (await sql<{ codlote: number | null }>`DELETE FROM diario WHERE codorigem = ANY(${origens}) AND codempresa = ${emp}
+                AND idorigem = ANY(${ids}::int[]) RETURNING codlote`.execute(trx)).rows;
+    const lotes = [...new Set(r.map((x) => num(x.codlote)).filter((n) => n > 0))];
+    if (lotes.length) {
+      await sql`DELETE FROM lote_contabil l WHERE l.codlotecontabil = ANY(${lotes}::int[])
+                  AND NOT EXISTS (SELECT 1 FROM diario d WHERE d.codlote = l.codlotecontabil)`.execute(trx);
+    }
+    await sql`UPDATE ${sql.table(m.bx)} SET contabilizado = NULL WHERE idlote = ${idlote}`.execute(trx);
+    await sql`UPDATE mov_contas_bancarias SET contabilizado = NULL WHERE idlote = ${idlote}`.execute(trx);
+    return r.length;
+  }
+
+  /**
    * ESTORNAR (`:1440` AP · `:3346` AR). Pela tela (`Codigo = 0`) é o mesmo bloco por período do corte-1:
    * `DELETE FROM DIARIO WHERE CODORIGEM IN (15,53,54,55)` — ou `(16,56,57,58)` — `AND TRUNC(DATALAN) BETWEEN…`
    * (`:3456`), mais o retorno de `CONTABILIZADO` a nulo na baixa e na movimentação do lote.

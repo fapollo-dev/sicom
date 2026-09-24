@@ -16,6 +16,7 @@ export * from './schema/situacao-nf.schema';
 export * from './schema/empresa.schema';
 export * from './schema/areceber.schema';
 export * from './schema/apagar.schema';
+export * from './schema/baixa-apagar.schema';
 export * from './schema/plano-contas.schema';
 export * from './schema/caixa.schema';
 export * from './schema/operador.schema';

@@ -20794,6 +20794,148 @@ async function main() {
         await pgAg.end();
       }
     }
+
+    // ══ §196 BAIXA DE CONTAS A PAGAR EM LOTE (FRMBAIXAAPAGAR, corte A) — o lote do legado: N documentos, recursos em conta
+    // corrente, MOV_CONTAS_BANCARIAS por recurso, distribuição do pago, parcial no lote, reversão e manutenção (uBaixaApagar-spec.md)
+    {
+      const pgBa = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const BA = 'cobranca/baixa-apagar';
+      const tpAntes = (await pgBa.query(`SELECT codplc, tpconta FROM plc WHERE codplc IN (4,5)`)).rows as any[];
+      try {
+        for (const opc of ['FRMBAIXAAPAGAR', 'BTNADICIONARREGISTRO', 'BTNGRAVAR']) {
+          await pgBa.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) SELECT 'FRMBAIXAAPAGAR', $1::text, 7, 1
+              WHERE NOT EXISTS (SELECT 1 FROM permissoes WHERE form = 'FRMBAIXAAPAGAR' AND opcao = $1::text AND codoperador = 7 AND codempresa = 1)`, [opc]);
+        }
+        await pgBa.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) SELECT 'FRMCONSAPGBX', o, 7, 1 FROM (VALUES ('FRMCONSAPGBX'), ('BTNREVERTERBAIXA')) v(o)
+            WHERE NOT EXISTS (SELECT 1 FROM permissoes WHERE form = 'FRMCONSAPGBX' AND opcao = v.o AND codoperador = 7 AND codempresa = 1)`);
+        await pgBa.query(`INSERT INTO bancos (codbco, banco, cidade) VALUES (0,'CAIXA','LOCAL') ON CONFLICT (codbco) DO NOTHING`);
+        await pgBa.query(`UPDATE plc SET tpconta = 1 WHERE codplc = 4`); // acréscimo: despesa
+        await pgBa.query(`UPDATE plc SET tpconta = 0 WHERE codplc = 5`); // desconto recebido: receita
+        const bancoReal = Number((await pgBa.query(`SELECT codbco FROM bancos WHERE codbco > 0 ORDER BY codbco LIMIT 1`)).rows[0]?.codbco ?? 1);
+        const nova = async (codbco: number, titular: string, nro: string) =>
+          Number((await pgBa.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular, nroconta) VALUES ($1,1,$2,$3) RETURNING codconta`, [codbco, titular, nro])).rows[0].codconta);
+        const cxB = await nova(0, 'CAIXA BAIXA 196', 'CXB-196');
+        const bcB = await nova(bancoReal, 'BANCO BAIXA 196', 'BCB-196');
+        const semOp = await nova(bancoReal, 'SEM OPERADOR 196', 'SOP-196');
+        await pgBa.query(`INSERT INTO contas_bancarias_op (codconta, codoperador) VALUES ($1,7),($2,7)`, [cxB, bcB]);
+        const din = Number((await pgBa.query(`SELECT idpgto FROM formas_pgto WHERE idempresa = 1 ORDER BY (upper(modalidade) = 'DINHEIRO') DESC, idpgto LIMIT 1`)).rows[0].idpgto);
+        await pgBa.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, codopconta, idpgto, liberado, dtemissao, historico) VALUES ($1,1,200,'C',0,$2,'S','2026-09-01','saldo inicial 196')`, [cxB, din]);
+        const titulo = async (codparceiro: number, valor: number, dup: string, desconto = 0) =>
+          Number((await pgBa.query(`INSERT INTO apagar (codparceiro, codempresa, valor, desconto, duplicata, dtvenc, dtcompra, tipodoc, quitada, agrupado, gerado)
+              VALUES ($1,1,$2,$3,$4,'2026-09-15','2026-09-01','BOLETO','N','N','OPERADOR') RETURNING codapg`, [codparceiro, valor, desconto, dup])).rows[0].codapg);
+        const t1 = await titulo(22, 100, 'BX196-1', 10);
+        const t2 = await titulo(22, 300, 'BX196-2');
+        const t3 = await titulo(20, 50, 'BX196-3');
+        const nomeOp = String((await pgBa.query(`SELECT nome FROM operadores WHERE codoperador = 7`)).rows[0]?.nome ?? '');
+        const post = async (path: string, body: unknown, headers = H) => {
+          const r = await fetch(`${base}/${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const iniciar = async () => Number((await post(`${BA}/iniciar`, {})).j.idlote);
+
+        // 196.1 a pesquisa: base = VALOR + VENDOR e o acréscimo/desconto já com −DESCONTO (binário novo); as contas do operador
+        const tit = (await (await fetch(`${base}/${BA}/titulos?busca=BX196`, { headers: H })).json().catch(() => [])) as any[];
+        const ct = (await (await fetch(`${base}/${BA}/contas`, { headers: H })).json().catch(() => [])) as any[];
+        const t1Row = tit.find((t) => Number(t.codapg) === t1);
+        check('BAIXA-AP §196.1: a pesquisa traz os 3 títulos abertos, o de desconto 10 com base 100 e acréscimo/desconto −10; as contas são só as do operador (a sem vínculo não aparece), com a caixa marcada',
+          tit.length === 3 && Number(t1Row?.base) === 100 && Number(t1Row?.acre_desc) === -10
+          && ct.some((c) => c.codconta === cxB && c.caixa === true) && ct.some((c) => c.codconta === bcB && c.caixa === false) && !ct.some((c) => c.codconta === semOp),
+          { tit: tit.length, t1Row, contas: ct.map((c) => c.codconta) });
+
+        // 196.2 as travas do recurso: DOC em conta caixa; conta sem vínculo; saldo DINHEIRO da caixa (200) menor que 395
+        const L1 = await iniciar();
+        const docs12 = [{ codapg: t1 }, { codapg: t2, acreDesc: 5 }];
+        const eDoc = await post(`${BA}/gravar`, { idlote: L1, dtpgto: '2026-09-20', documentos: docs12, recursos: [{ tipo: 2, codconta: cxB, valor: 395 }] });
+        const eOp = await post(`${BA}/gravar`, { idlote: L1, dtpgto: '2026-09-20', documentos: docs12, recursos: [{ tipo: 0, codconta: semOp, valor: 395 }] });
+        const eSaldo = await post(`${BA}/gravar`, { idlote: L1, dtpgto: '2026-09-20', documentos: docs12, recursos: [{ tipo: 0, codconta: cxB, valor: 395 }] });
+        const eExcede = await post(`${BA}/gravar`, { idlote: L1, dtpgto: '2026-09-20', documentos: docs12, recursos: [{ tipo: 0, codconta: bcB, valor: 396 }] });
+        check('BAIXA-AP §196.2: DOC em conta caixa → 422 BAIXA_CONTA_CAIXA_OPERACAO_BANCARIA; conta sem vínculo → 422 CONTA_SEM_PERMISSAO_OPERADOR; caixa com 200 de DINHEIRO pagando 395 → 422 BAIXA_SALDO_INSUFICIENTE; recurso acima do total → 422 BAIXA_RECURSO_EXCEDE',
+          eDoc.j.code === 'BAIXA_CONTA_CAIXA_OPERACAO_BANCARIA' && eOp.j.code === 'CONTA_SEM_PERMISSAO_OPERADOR' && eSaldo.j.code === 'BAIXA_SALDO_INSUFICIENTE' && eExcede.j.code === 'BAIXA_RECURSO_EXCEDE',
+          { eDoc: eDoc.j.code, eOp: eOp.j.code, eSaldo: eSaldo.j.code, eExcede: eExcede.j.code });
+
+        // 196.3 gravar: 2 documentos (90 com o desconto do título, 305 com acréscimo 5) e 1 recurso DINHEIRO de 395 na caixa
+        await pgBa.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, codopconta, idpgto, liberado, dtemissao, historico) VALUES ($1,1,300,'C',0,$2,'S','2026-09-02','reforço 196')`, [cxB, din]);
+        const g1 = await post(`${BA}/gravar`, { idlote: L1, dtpgto: '2026-09-20', documentos: docs12, recursos: [{ tipo: 0, codconta: cxB, valor: 395 }] });
+        const mov1 = (await pgBa.query(`SELECT codconta, valor, tipomovimento, liberado, codopconta, idpgto, origem, codoperador, nrodocumento, historico,
+                                              to_char(dtemissao,'YYYY-MM-DD') de, to_char(dtvenc,'YYYY-MM-DD') dv, to_char(dtliberacao,'YYYY-MM-DD') dl
+                                         FROM mov_contas_bancarias WHERE idlote = $1`, [L1])).rows as any[];
+        const bx1 = (await pgBa.query(`SELECT codapg, valorpg, acre_desc, codplc_acredesc, obs, indr, to_char(dtpgto,'YYYY-MM-DD') d FROM apagar_bx WHERE idlote = $1 ORDER BY codapg`, [L1])).rows as any[];
+        const q1 = (await pgBa.query(`SELECT count(*) FILTER (WHERE quitada = 'S')::int n FROM apagar WHERE codapg IN ($1,$2)`, [t1, t2])).rows[0] as any;
+        const cx1 = (await pgBa.query(`SELECT obs, valor, codplc FROM caixa WHERE idlote = $1 ORDER BY obs`, [L1])).rows as any[];
+        const histEsperado = `REFERENTE A BAIXA DO LOTE: ${L1} - Baixa das contas a pagar realizada pelo(a) usuário(a) ${nomeOp}.`;
+        check('BAIXA-AP §196.3: gravar → 1 MOV_CONTAS_BANCARIAS (395, D, liberado S, emissão = vencimento = liberação = 20/09, operação 0, a forma DINHEIRO da loja, origem/operador/documento nulos, o histórico literal)',
+          g1.status === 200 && mov1.length === 1 && Number(mov1[0].valor) === 395 && mov1[0].tipomovimento === 'D' && mov1[0].liberado === 'S'
+          && Number(mov1[0].codopconta) === 0 && Number(mov1[0].idpgto) === din && mov1[0].origem == null && mov1[0].codoperador == null && mov1[0].nrodocumento == null
+          && mov1[0].de === '2026-09-20' && mov1[0].dv === '2026-09-20' && mov1[0].dl === '2026-09-20' && mov1[0].historico === histEsperado,
+          { g1, mov1 });
+        check('BAIXA-AP §196.3b: uma APAGAR_BX por documento (90 com −10 no CC de desconto, 305 com +5 no CC de acréscimo, OBS = histórico do recurso, INDR I), os 2 títulos quitados, e na CAIXA só o acréscimo (−5) — o desconto veio do título, não é digitado',
+          bx1.length === 2 && Number(bx1[0].valorpg) === 90 && Number(bx1[0].acre_desc) === -10 && Number(bx1[0].codplc_acredesc) === 5
+          && Number(bx1[1].valorpg) === 305 && Number(bx1[1].acre_desc) === 5 && Number(bx1[1].codplc_acredesc) === 4
+          && bx1.every((b) => b.obs === histEsperado && b.indr === 'I' && b.d === '2026-09-20') && q1.n === 2
+          && cx1.length === 1 && cx1[0].obs === `Ref. acréscimos pgto lote ${L1}` && Number(cx1[0].valor) === -5 && Number(cx1[0].codplc) === 4,
+          { bx1, q1, cx1 });
+        const deNovo = await post(`${BA}/gravar`, { idlote: L1, dtpgto: '2026-09-20', documentos: [{ codapg: t3 }], recursos: [{ tipo: 0, codconta: bcB, valor: 50 }] });
+        check('BAIXA-AP §196.3c: o mesmo lote não grava duas vezes → 422 BAIXA_LOTE_EM_USO', deNovo.j.code === 'BAIXA_LOTE_EM_USO', deNovo);
+
+        // 196.4 PARCIAL: título de 50 com TRANSFERÊNCIA (LIBERADO N) de 20 — sem confirmar → 422; com a data → um título-saldo de 30
+        const L2 = await iniciar();
+        const semOk = await post(`${BA}/gravar`, { idlote: L2, dtpgto: '2026-09-20', documentos: [{ codapg: t3 }], recursos: [{ tipo: 3, codconta: bcB, valor: 20, historico: 'PARCELA 1' }] });
+        const g2 = await post(`${BA}/gravar`, { idlote: L2, dtpgto: '2026-09-20', documentos: [{ codapg: t3 }], recursos: [{ tipo: 3, codconta: bcB, valor: 20, historico: 'PARCELA 1' }], parcial: { dtvenc: '2026-10-20' } });
+        const saldoT = (await pgBa.query(`SELECT codapg, valor, origem, codapg_pai, obs, nrparcela, gerado, quitada, idlote, codparceiro, to_char(dtvenc,'YYYY-MM-DD') dv FROM apagar WHERE idlote = $1`, [L2])).rows as any[];
+        const mov2 = (await pgBa.query(`SELECT liberado, dtliberacao, historico FROM mov_contas_bancarias WHERE idlote = $1`, [L2])).rows as any[];
+        const bx2 = (await pgBa.query(`SELECT valorpg FROM apagar_bx WHERE idlote = $1`, [L2])).rows as any[];
+        check('BAIXA-AP §196.4: recursos < documentos sem confirmar → 422 BAIXA_TOTAL_NAO_CONFERE; com a parcial → baixa de 20, título-saldo de 30 (ORIGEM B, pai = o documento, "Duplicatas:BX196-3", 1/1, SISTEMA, vencimento informado, no lote) e a transferência com LIBERADO N sem data de liberação',
+          semOk.j.code === 'BAIXA_TOTAL_NAO_CONFERE' && g2.status === 200 && g2.j.parcial === true && Number(g2.j.codapgSaldo) > 0
+          && saldoT.length === 1 && Number(saldoT[0].valor) === 30 && saldoT[0].origem === 'B' && Number(saldoT[0].codapg_pai) === t3 && saldoT[0].obs === 'Duplicatas:BX196-3'
+          && saldoT[0].nrparcela === '1/1' && saldoT[0].gerado === 'SISTEMA' && saldoT[0].quitada === 'N' && saldoT[0].dv === '2026-10-20' && Number(saldoT[0].codparceiro) === 20
+          && Number(bx2[0]?.valorpg) === 20 && mov2[0]?.liberado === 'N' && mov2[0]?.dtliberacao == null
+          && mov2[0]?.historico === `PARCELA 1 - Baixa das contas a pagar realizada pelo(a) usuário(a) ${nomeOp}.`,
+          { semOk: semOk.j.code, g2, saldoT, mov2, bx2 });
+        const t4 = await titulo(22, 40, 'BX196-4');
+        const L3 = await iniciar();
+        const doisForn = await post(`${BA}/gravar`, { idlote: L3, dtpgto: '2026-09-20', documentos: [{ codapg: Number(g2.j.codapgSaldo) }, { codapg: t4 }], recursos: [{ tipo: 0, codconta: bcB, valor: 10 }], parcial: { dtvenc: '2026-10-20' } });
+        check('BAIXA-AP §196.4b: parcial com dois fornecedores → 422 BAIXA_PARCIAL_FORNECEDORES', doisForn.j.code === 'BAIXA_PARCIAL_FORNECEDORES', doisForn);
+
+        // 196.5 REVERTER (consulta de baixas): o contra-movimento, REVERTIDO, INDR E, títulos reabertos, CAIXA apagada; e o saldo da parcial some
+        const rv1 = await post(`cobranca/cons-apg-bx/${L1}/reverter`, {});
+        const contra = (await pgBa.query(`SELECT valor, tipomovimento, historico, idlote_reversao FROM mov_contas_bancarias WHERE idlote_reversao = $1`, [L1])).rows as any[];
+        const orig = (await pgBa.query(`SELECT revertido FROM mov_contas_bancarias WHERE idlote = $1 AND idlote_reversao IS NULL`, [L1])).rows[0] as any;
+        const bxE = (await pgBa.query(`SELECT count(*) FILTER (WHERE indr = 'E')::int e, count(*)::int n FROM apagar_bx WHERE idlote = $1`, [L1])).rows[0] as any;
+        const abertos = (await pgBa.query(`SELECT count(*) FILTER (WHERE quitada = 'N')::int n FROM apagar WHERE codapg IN ($1,$2)`, [t1, t2])).rows[0] as any;
+        const cxRest = Number((await pgBa.query(`SELECT count(*)::int n FROM caixa WHERE idlote = $1`, [L1])).rows[0].n);
+        check('BAIXA-AP §196.5: reverter o lote → contra-movimento C 395 "Reabertura da baixa de contas a pagar, lote N, realizada pelo usuário X.", o original REVERTIDO S, as baixas INDR E, os títulos reabertos e a linha da CAIXA apagada',
+          rv1.status === 200 && contra.length === 1 && Number(contra[0].valor) === 395 && contra[0].tipomovimento === 'C'
+          && contra[0].historico === `Reabertura da baixa de contas a pagar, lote ${L1}, realizada pelo usuário ${nomeOp}.` && orig?.revertido === 'S'
+          && bxE.e === 2 && bxE.n === 2 && abertos.n === 2 && cxRest === 0,
+          { rv1, contra, orig, bxE, abertos, cxRest });
+        const rv2 = await post(`cobranca/cons-apg-bx/${L2}/reverter`, {});
+        const saldoRest = Number((await pgBa.query(`SELECT count(*)::int n FROM apagar WHERE codapg = $1`, [Number(g2.j.codapgSaldo)])).rows[0].n);
+        const t3q = (await pgBa.query(`SELECT quitada FROM apagar WHERE codapg = $1`, [t3])).rows[0] as any;
+        check('BAIXA-AP §196.5b: reverter a parcial → o título-saldo em aberto é apagado (DELETE … IDLOTE AND QUITADA=N) e o documento reabre',
+          rv2.status === 200 && saldoRest === 0 && t3q?.quitada === 'N', { rv2, saldoRest, t3q });
+
+        // 196.6 MANUTENÇÃO: baixa do t1 no banco (lote L4) e o regravar em outro lote (L5) com outra conta — na mesma transação
+        const L4 = await iniciar();
+        const g4 = await post(`${BA}/gravar`, { idlote: L4, dtpgto: '2026-09-21', documentos: [{ codapg: t1 }], recursos: [{ tipo: 4, codconta: bcB, valor: 90 }] });
+        const L5 = await iniciar();
+        const g5 = await post(`${BA}/gravar`, { idlote: L5, dtpgto: '2026-09-21', documentos: [{ codapg: t1, acreDesc: -12 }], recursos: [{ tipo: 0, codconta: bcB, valor: 88 }], loteManutencao: L4 });
+        const bx4 = (await pgBa.query(`SELECT indr FROM apagar_bx WHERE idlote = $1`, [L4])).rows[0] as any;
+        const bx5 = (await pgBa.query(`SELECT valorpg, acre_desc, indr FROM apagar_bx WHERE idlote = $1`, [L5])).rows[0] as any;
+        const cx5 = (await pgBa.query(`SELECT valor FROM caixa WHERE idlote = $1 AND obs = $2`, [L5, `Ref. descontos recebidos lote ${L5}`])).rows[0] as any;
+        const contra4 = Number((await pgBa.query(`SELECT count(*)::int n FROM mov_contas_bancarias WHERE idlote_reversao = $1`, [L4])).rows[0].n);
+        check('BAIXA-AP §196.6: manutenção → o lote antigo revertido (INDR E + contra-movimento) e o novo gravado (88 com desconto −12; na CAIXA só os 2 digitados além do desconto de 10 do título), numa transação',
+          g4.status === 200 && g5.status === 200 && bx4?.indr === 'E' && contra4 === 1 && Number(bx5?.valorpg) === 88 && Number(bx5?.acre_desc) === -12 && bx5?.indr === 'I'
+          && Number(cx5?.valor) === 2,
+          { g4, g5, bx4, bx5, cx5, contra4 });
+
+        // 196.7 RBAC: iniciar sem a opção → 403
+        const semGrant = await fetch(`${base}/${BA}/iniciar`, { method: 'POST', headers: H_SEM_ACESSO });
+        check('BAIXA-AP §196.7: iniciar sem a opção BTNADICIONARREGISTRO → 403', semGrant.status === 403, { status: semGrant.status });
+      } finally {
+        for (const t of tpAntes) await pgBa.query(`UPDATE plc SET tpconta = $2 WHERE codplc = $1`, [t.codplc, t.tpconta]).catch(() => undefined);
+        await pgBa.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();
