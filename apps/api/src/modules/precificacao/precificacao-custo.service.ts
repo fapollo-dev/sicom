@@ -247,9 +247,14 @@ export class PrecificacaoCustoService {
         if (!perm) throw new BusinessRuleError('SEM_PERMISSAO_EMPRESA', { idempresa: e });
         const antes = (await trx.selectFrom('multi_preco').selectAll().where('idproduto', '=', dto.idproduto).where('idempresa', '=', e).forUpdate().executeTakeFirst()) as Record<string, unknown> | undefined;
         if (!antes) continue; // sem linha de preço nessa empresa → nada a gravar (fiel: o UPDATE não casa)
-        // PROMO: o legado apenas CONGELA o preço da empresa em promoção (:603/:943) e grava o resto. Fold auditoria
-        // [MÉDIA]: antes eu lançava erro e abortava o save INTEIRO (bloqueava até corrigir custo nas outras empresas).
-        const emPromocao = String(antes.promocao ?? 'N') === 'S';
+        // PROMO ACUMULATIVA: o legado CONGELA o preço do produto em promoção ACUMULATIVA vigente (`PromocaoAcumulativa`, :603/:943 —
+        // o rótulo "Produto em promoção acumulativa") e grava o resto. ⚠️ Não é o MULTI_PRECO.PROMOCAO comum: por ele o Apollo
+        // descartava em silêncio o preço de todo produto em promoção (38 alterações em 2025 e 19 em 2026 — auditoria g2).
+        // A vigência: a lista de lojas `;1;2;`, dtini ≤ agora ≤ dtfim, o produto ou o grupo de preço dele.
+        const emPromocao = (await sql`SELECT 1 FROM promocao_acumulativa pa
+            WHERE coalesce(pa.idempresa, '') LIKE ${`%;${e};%`} AND pa.dtini <= now() AND pa.dtfim >= now()
+              AND (pa.idproduto = ${dto.idproduto} OR (coalesce(pa.codgrupopreco, 0) <> 0 AND pa.codgrupopreco = ${num(grupo?.codgrupopreco) || -1}))
+            LIMIT 1`.execute(trx)).rows.length > 0;
         // GRANT do preço (fold [MÉDIA]): sem EDTVRVENDA o operador salva custos mas NÃO altera o preço.
         const podePreco = await this.podeAlterarPreco(trx, e);
         const painel = await this.calcular({ ...dto, idempresa: e });

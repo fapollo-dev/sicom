@@ -5204,16 +5204,22 @@ async function main() {
           && Number(loteL.codoperador) === 7 && String(loteL.obs).startsWith('REFERENTE AO AJUSTE NO CADASTRO DO PRODUTO REALIZADO PELO OPERADOR: 7-'),
           { svLJ, mpLote, loteL });
 
-        // 47l.6) produto EM PROMOÇÃO → preço congelado (422); RBAC sem grant → 403.
+        // 47l.6) a promoção COMUM (multi_preco.promocao 'S') NÃO congela o preço; a promoção ACUMULATIVA vigente congela (auditoria g2 —
+        // `PromocaoAcumulativa`, :603/:943); RBAC sem grant → 403.
         await pgPc.query(`UPDATE multi_preco SET promocao='S', vrpromo=199 WHERE idproduto=990600 AND idempresa=1`);
-        const vrAntesProm = Number((await pgPc.query(`SELECT vrvenda FROM multi_preco WHERE idproduto=990600 AND idempresa=1`)).rows[0].vrvenda);
-        const svProm = await fetch(`${base}/${PC}/salvar`, { method: 'POST', headers: H, body: JSON.stringify({ ...comp, vrcusto: 177, empresas: [1], vrvenda: 260 }) });
-        const promDep = (await pgPc.query(`SELECT vrvenda, vrcusto FROM multi_preco WHERE idproduto=990600 AND idempresa=1`)).rows[0] as any;
+        const svComum = await fetch(`${base}/${PC}/salvar`, { method: 'POST', headers: H, body: JSON.stringify({ ...comp, vrcusto: 176, empresas: [1], vrvenda: 260 }) });
+        const comumDep = (await pgPc.query(`SELECT vrvenda, vrcusto FROM multi_preco WHERE idproduto=990600 AND idempresa=1`)).rows[0] as any;
         await pgPc.query(`UPDATE multi_preco SET promocao='N', vrpromo=NULL WHERE idproduto=990600 AND idempresa=1`);
+        await pgPc.query(`INSERT INTO promocao_acumulativa (idproacumulativa, idproduto, qtde, desconto, idempresa, dtini, dtfim)
+            VALUES (990601, 990600, 3, 1, ';1;', now() - interval '1 day', now() + interval '1 day')`);
+        const vrAntesProm = Number((await pgPc.query(`SELECT vrvenda FROM multi_preco WHERE idproduto=990600 AND idempresa=1`)).rows[0].vrvenda);
+        const svProm = await fetch(`${base}/${PC}/salvar`, { method: 'POST', headers: H, body: JSON.stringify({ ...comp, vrcusto: 177, empresas: [1], vrvenda: 270 }) });
+        const promDep = (await pgPc.query(`SELECT vrvenda, vrcusto FROM multi_preco WHERE idproduto=990600 AND idempresa=1`)).rows[0] as any;
+        await pgPc.query(`DELETE FROM promocao_acumulativa WHERE idproacumulativa = 990601`);
         const rb = await fetch(`${base}/${PC}/990600`, { headers: H_SEM_ACESSO });
-        check('PRECIFICAÇÃO: produto em promoção → CONGELA só o preço (fold: não aborta o save; grava o custo 177) ; abrir sem grant RBAC → 403',
-          svProm.status === 200 && Number(promDep.vrvenda) === vrAntesProm && Number(promDep.vrcusto) === 177 && rb.status === 403,
-          { prom: svProm.status, promDep, vrAntesProm, rb: rb.status });
+        check('PRECIFICAÇÃO: a promoção comum não congela o preço (260 grava); a promoção ACUMULATIVA vigente congela só o preço (grava o custo 177, o preço fica); abrir sem grant RBAC → 403',
+          svComum.status === 200 && Number(comumDep.vrvenda) === 260 && svProm.status === 200 && Number(promDep.vrvenda) === vrAntesProm && Number(promDep.vrcusto) === 177 && rb.status === 403,
+          { comum: [svComum.status, comumDep], prom: svProm.status, promDep, vrAntesProm, rb: rb.status });
 
         // 47l.6b) FOLD [ALTA] SN: no Simples Nacional a escada ZERA o PIS/COFINS (:2315) — antes eu deduzia 9,25%
         // e reportava margem ~9pp MENOR do que a real (6.913 linhas na empresa SN do tenant).
