@@ -19,7 +19,7 @@
 - **TRON convênio** (G15): o valor é Σ do A Pagar; o débito fica com o primeiro recebível e documento vazio, como no razão.
 - Integridade mantida (o legado não verificava): baixa ativa e lote de cobrança bloqueiam o reverter; consolidado pago não
   recebe nem perde título.
-- **Falta**: os relatórios (corte F). (A tela web saiu depois; ver abaixo.)
+- (A tela web e os relatórios saíram depois; ver abaixo.)
 
 ## ✅ ENTREGUE (24/09/2026) — corte E: o convênio do mesmo CNPJ
 
@@ -48,8 +48,20 @@
   - O convênio do mesmo CNPJ abre o painel "Convênio parceiro": centro de custo de despesa, forma, vencimento da conta a pagar e obs, com a sugestão do servidor. Gravar: "A conta à pagar nº X foi gerada com sucesso.".
 - **A Pagar:** vencimento, obs, centro de custo opcional e N parcelas (valor igual, mensais, o resto na última).
 - **Consultar agrupamento** pelo código do consolidado: os títulos, "Reverter agrupamento" ("Deseja realmente reverter o agrupamento?") e, no A Receber, remover título (a confirmação do legado) e incluir os marcados da busca.
-- **Falta:** os relatórios (corte F: Agrupamento*.fr3, AgrupamentoCP*.fr3).
 - **Smoke §189** (a busca): 1526/0.
+
+## ✅ ENTREGUE (24/09/2026) — corte F: as impressões do agrupamento — **AGRUPAMENTO COMPLETO**
+
+- **A Receber** (`GET cadastro/areceber/:id/relatorio-agrupamento`, `btnImprimirClick` do uCadAReceber):
+  - "EXTRATO DE CONVÊNIO" analítico (Agrupamento.fr3): Dados do Convênio, e os títulos com código, cupom, venda, vencimento, valor, PDV, operador e loja; taxa administrativa quando houver; total.
+  - O totalizado por cliente (Agrupamentototalizado.fr3).
+  - O extrato por funcionário (Agrupamento_extrato_funcionario.fr3, `GetSqlExtratoFuncionario`): por funcionário e tipo (o centro de custo, ou a obs, ou "CONVENIOS DE FUNCIONARIOS"), valor NEGATIVO, na ordem do legado.
+- **A Pagar** (`GET cadastro/apagar/:id/relatorio-agrupamento`):
+  - "CONTAS À PAGAR AGRUPADAS" analítico / sintético por parceiro (AgrupamentoCP.fr3 / …Agrupado.fr3).
+  - No convênio do mesmo CNPJ, o "EXTRATO DE CONVÊNIO" com os A Receber do grupo (AgrupamentoCPCR*.fr3).
+- **Web:** botões na consulta do agrupamento, pela camada global de impressão.
+- **Fora:** o AgrupamentoAR.fr3 do desconto de título (tela de desconto de título, não migrada aqui).
+- **Smoke §190:** 1527/0.
 
 **Fontes lidas:** `uAgrupaContasAReceber.pas`, `uAddTituloAgrupamentoAReceber.pas`, `uCadAReceber.pas` (os trechos de agrupamento: 400-1240, 2620-2880, 2985-3200, 3480-4248), `udmCadAReceber.pas/.dfm`, `uAgrupaContasAPagar.pas`, `uAPagar.pas` (reverter, impressão, `AgrupaAPagar`), `udmAPagar.dfm`, `uConvenioParceiro.pas`, `UIntegracaoContabil.pas` (3035-3320 e o filtro do CR), `UBaixaAreceber.pas`, `UReversaoBaixaContasReceber.pas`, `udmConfigura.pas` e `uDescontoTitulo.pas`.
 

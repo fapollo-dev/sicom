@@ -313,6 +313,46 @@ export class AreceberAgrupamentoService {
   }
 
   /** os membros do consolidado — pelo CODGRUPO dele (`QryAgrupados`) */
+  /**
+   * os dados das impressões do agrupamento (`btnImprimirClick`, uCadAReceber): o consolidado (frxDBDataset3 = o título), os títulos
+   * agrupados (`QryAgrupados`: cupom, venda, vencimento, valor, PDV, operador, loja, cliente) — para "Agrupamento.fr3" (analítico) e
+   * "Agrupamentototalizado.fr3" (por cliente) — e o extrato por funcionário (`GetSqlExtratoFuncionario`: nome, tipo = o centro de
+   * custo ou a obs ou "CONVENIOS DE FUNCIONARIOS", o valor NEGATIVO, documento, parcela, cobrança e obs, na ordem do legado).
+   */
+  async relatorio(codConsolidado: number) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const tz = await this.tz(db, emp);
+    const c = (await sql<Record<string, unknown>>`SELECT r.codrcb, r.codgrupo, r.valor, r.total, r.txadm, p.razao AS cliente,
+        to_char(r.dtvenda AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS dtvenda, to_char(r.dtvenc AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS dtvenc
+        FROM areceber r LEFT JOIN parceiros p ON p.codparceiro = r.codparceiro
+       WHERE r.codrcb = ${codConsolidado} AND r.codempresa = ${emp} AND r.agrupamento = 'S'`.execute(db)).rows[0];
+    if (!c) throw new BusinessRuleError('NAO_E_AGRUPAMENTO', { codrcb: codConsolidado });
+    const g = num(c.codgrupo);
+    const membros = (await sql<Record<string, unknown>>`SELECT r.codrcb, r.nrocupom, to_char(r.dtvenda AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS dtvenda,
+        to_char(r.dtvenc AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS dtvenc, r.valor, r.codpdv, o.nome AS operador, r.codempresa, r.codparceiro, p.razao AS cliente
+        FROM areceber r LEFT JOIN operadores o ON o.codoperador = r.codoperador LEFT JOIN parceiros p ON p.codparceiro = r.codparceiro
+       WHERE r.codgrupo_agrupamento_rcb = ${g} AND r.codempresa = ${emp} ORDER BY r.codrcb`.execute(db)).rows;
+    const extrato = (await sql<Record<string, unknown>>`
+      SELECT a.codparceiro, op.codoperador, coalesce(p.fantasia, p.razao) AS nome, pl.desccodplc,
+             CASE WHEN position('Originado do lancamento do adiantamento de parceiro' in coalesce(pl.descricao, a.obs, 'CONVENIOS DE FUNCIONARIOS')) > 0
+                  THEN 'Originado do lancamento do adiantamento de parceiro' ELSE coalesce(pl.descricao, a.obs, 'CONVENIOS DE FUNCIONARIOS') END AS tipo,
+             to_char(a.dtvenda AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS data, a.dtvenda AS ord_data, -a.valor AS valor, a.codrcb AS documento, a.nrodup AS parcelas, a.tipodoc, a.obs
+        FROM areceber a JOIN parceiros p ON p.codparceiro = a.codparceiro
+        LEFT JOIN (SELECT op1.codparceiro, max(op1.codoperador) AS codoperador FROM operadores op1 WHERE coalesce(op1.desabilitado, 'N') = 'N' GROUP BY op1.codparceiro) op
+               ON op.codparceiro = p.codparceiro
+        LEFT JOIN plc pl ON pl.codplc = a.codplc
+       WHERE a.codgrupo_agrupamento_rcb = ${g}
+       ORDER BY 3, 2, 1, 5, 4, 7`.execute(db)).rows;
+    const empresa = (await sql<Record<string, unknown>>`SELECT razao_social, fantasia, cnpj FROM empresas WHERE idempresa = ${emp}`.execute(db)).rows[0] ?? {};
+    return {
+      empresa: { razao: empresa.razao_social ?? null, fantasia: empresa.fantasia ?? null, cnpj: empresa.cnpj ?? null },
+      consolidado: { codrcb: num(c.codrcb), cliente: c.cliente ?? null, dtvenda: c.dtvenda, dtvenc: c.dtvenc, total: num(c.total) || num(c.valor), txadm: num(c.txadm) },
+      membros: membros.map((m) => ({ ...m, valor: num(m.valor) })),
+      extrato: extrato.map(({ ord_data: _o, ...e }) => ({ ...e, valor: num(e.valor) })),
+    };
+  }
+
   async membros(codConsolidado: number): Promise<Array<Record<string, unknown>>> {
     const emp = this.emp();
     return (await sql<Record<string, unknown>>`SELECT m.codrcb, m.codparceiro, m.valor, m.dtvenc, m.duplicata, m.quitada

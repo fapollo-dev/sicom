@@ -192,6 +192,37 @@ export class ApagarAgrupamentoService {
     });
   }
 
+  /**
+   * os dados das impressões do agrupamento do A Pagar (`frmAPagar`): o consolidado (DbdApagar) e os documentos agrupados
+   * (DbdAgrupamento) — "AgrupamentoCP.fr3" (analítico) / "AgrupamentoCPAgrupado.fr3" (por parceiro); no convênio do mesmo CNPJ
+   * (CODCXAGRUPAMENTOCR) os documentos são os A RECEBER do grupo ("AgrupamentoCPCR*.fr3", "EXTRATO DE CONVÊNIO").
+   */
+  async relatorio(codConsolidado: number) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const tz = String((await configNaTrx(db, 'FUSO_HORARIO_ACESSO', { empresaId: emp, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' })) ?? 'America/Sao_Paulo');
+    const c = (await sql<Record<string, unknown>>`SELECT a.codapg, a.codgrupo, a.valor, a.codcxagrupamentocr, p.razao,
+        to_char(a.dtcompra AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS dtcompra, to_char(a.dtvenc AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS dtvenc
+        FROM apagar a LEFT JOIN parceiros p ON p.codparceiro = a.codparceiro
+       WHERE a.codapg = ${codConsolidado} AND a.codempresa = ${emp} AND a.agrupamento = 'S'`.execute(db)).rows[0];
+    if (!c) throw new BusinessRuleError('NAO_E_AGRUPAMENTO', { codapg: codConsolidado });
+    const g = num(c.codgrupo);
+    const convenio = num(c.codcxagrupamentocr) > 0;
+    const docs = convenio
+      ? (await sql<Record<string, unknown>>`SELECT r.codrcb AS codigo, r.duplicata, r.codparceiro, p.razao, to_char(r.dtvenda AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS emissao,
+            to_char(r.dtvenc AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS dtvenc, r.valor
+            FROM areceber r LEFT JOIN parceiros p ON p.codparceiro = r.codparceiro WHERE r.codgrupo_agrupamento_apg = ${g} AND r.codempresa = ${emp} ORDER BY p.razao, r.codrcb`.execute(db)).rows
+      : (await sql<Record<string, unknown>>`SELECT m.codapg AS codigo, m.duplicata, m.codparceiro, p.razao, to_char(m.dtcompra AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS emissao,
+            to_char(m.dtvenc AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS dtvenc, m.valor
+            FROM apagar m LEFT JOIN parceiros p ON p.codparceiro = m.codparceiro WHERE m.codgrupo_agrupamento_apg = ${g} AND m.codempresa = ${emp} ORDER BY p.razao, m.codapg`.execute(db)).rows;
+    const empresa = (await sql<Record<string, unknown>>`SELECT razao_social FROM empresas WHERE idempresa = ${emp}`.execute(db)).rows[0] ?? {};
+    return {
+      convenio, empresa: { razao: empresa.razao_social ?? null },
+      consolidado: { codapg: num(c.codapg), parceiro: c.razao ?? null, dtcompra: c.dtcompra, dtvenc: c.dtvenc, valor: num(c.valor) },
+      documentos: docs.map((d) => ({ ...d, valor: num(d.valor) })),
+    };
+  }
+
   /** os membros do consolidado — pelo CODGRUPO dele */
   async membros(codConsolidado: number): Promise<Array<Record<string, unknown>>> {
     const emp = this.emp();

@@ -20505,6 +20505,43 @@ async function main() {
         await pgCF.end();
       }
     }
+    // ══ §190 AGRUPAMENTO corte F: os dados das impressões (Agrupamento*.fr3, extrato por funcionário, AgrupamentoCP*.fr3) ══
+    {
+      const pgCG = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const rcb: number[] = [];
+      const apg: number[] = [];
+      let consAr = 0;
+      let consAp = 0;
+      try {
+        for (const [parc, v, obs] of [[20, 30, null], [22, 12.5, 'VALE FUNCIONARIO']] as Array<[number, number, string | null]>) {
+          rcb.push(Number(((await pgCG.query(`INSERT INTO areceber (codempresa, codparceiro, valor, total, dtvenda, dtvenc, quitada, idpgto, nrodup, nrocupom, codpdv, codoperador, obs)
+              VALUES (1, $1, $2, $2, '2041-07-01', '2041-08-01', 'N', 4, 1, '12345', 79, 7, $3) RETURNING codrcb`, [parc, v, obs])).rows[0] as any).codrcb));
+        }
+        const ag = await fetch(`${base}/cadastro/areceber/agrupar`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: rcb, codparceiro: 20, idpgto: 4 }) });
+        consAr = Number(((await ag.json()) as any).consolidado);
+        const rAr = (await (await fetch(`${base}/cadastro/areceber/${consAr}/relatorio-agrupamento`, { headers: H })).json()) as any;
+        for (const [parc, v] of [[22, 40], [22, 60]] as Array<[number, number]>) {
+          apg.push(Number(((await pgCG.query(`INSERT INTO apagar (codempresa, codparceiro, valor, dtcompra, dtvenc, quitada, nrodup, duplicata)
+              VALUES (1, $1, $2, '2041-07-01', '2041-08-01', 'N', 1, 'SMK190') RETURNING codapg`, [parc, v])).rows[0] as any).codapg));
+        }
+        const agp = await fetch(`${base}/cadastro/apagar/agrupar`, { method: 'POST', headers: H, body: JSON.stringify({ codapgs: apg, dtvenc: '2041-08-15' }) });
+        consAp = Number(((await agp.json()) as any).consolidado);
+        const rAp = (await (await fetch(`${base}/cadastro/apagar/${consAp}/relatorio-agrupamento`, { headers: H })).json()) as any;
+        check('AGRUPAMENTO §190 [impressões]: o A Receber devolve o consolidado (o convênio = o cliente, 42,50, datas dd/mm/aaaa), os títulos agrupados com cupom, PDV, operador e loja, e o extrato por funcionário com o valor NEGATIVO e o tipo do legado (a obs, ou "CONVENIOS DE FUNCIONARIOS" sem centro de custo e sem obs); o A Pagar devolve o consolidado e os documentos agrupados (100) — não é convênio',
+          consAr > 0 && rAr.consolidado?.total === 42.5 && rAr.consolidado?.dtvenc && /^\d{2}\/\d{2}\/\d{4}$/.test(rAr.consolidado.dtvenc) && rAr.membros?.length === 2
+          && rAr.membros[0].nrocupom === '12345' && Number(rAr.membros[0].codpdv) === 79 && rAr.membros[0].operador != null && Number(rAr.membros[0].codempresa) === 1
+          && rAr.extrato?.length === 2 && rAr.extrato.every((e: any) => e.valor < 0)
+          && rAr.extrato.some((e: any) => e.tipo === 'VALE FUNCIONARIO') && rAr.extrato.some((e: any) => e.tipo === 'CONVENIOS DE FUNCIONARIOS')
+          && consAp > 0 && rAp.convenio === false && rAp.consolidado?.valor === 100 && rAp.documentos?.length === 2 && rAp.documentos.reduce((s: number, d: any) => s + d.valor, 0) === 100,
+          { consAr, rAr, consAp, rAp });
+      } finally {
+        await pgCG.query(`DELETE FROM areceber WHERE codrcb = ANY($1::int[]) OR codrcb = $2`, [rcb, consAr]).catch(() => undefined);
+        await pgCG.query(`DELETE FROM caixa WHERE codgrupo IN (SELECT codgrupo FROM apagar WHERE codapg = $1)`, [consAp]).catch(() => undefined);
+        await pgCG.query(`DELETE FROM cx_apagar WHERE codapg = $1`, [consAp]).catch(() => undefined);
+        await pgCG.query(`DELETE FROM apagar WHERE codapg = ANY($1::int[]) OR codapg = $2`, [apg, consAp]).catch(() => undefined);
+        await pgCG.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

@@ -98,6 +98,12 @@ export class ApagarController {
     return this.agrupamento.removerTitulo(id, membro);
   }
 
+  /** os dados das impressões do agrupamento (o relatório do legado depois de agrupar / pelo consolidado). */
+  @Get(':id/relatorio-agrupamento')
+  relatorioAgrupamento(@Param('id', ParseIntPipe) id: number) {
+    return this.agrupamento.relatorio(id);
+  }
+
   /** membros de um agrupamento consolidado (consulta). */
   @Get(':id/membros-agrupamento')
   membrosAgrupamento(@Param('id', ParseIntPipe) id: number) {

@@ -6,9 +6,11 @@ import { Button } from '../../shared/ui/Button';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { useMensagem } from '../../shared/mensagem';
 import {
-  adicionarAoAgrupamento, agruparPagar, agruparReceber, buscarParaAgrupar, membrosAgrupamento, removerDoAgrupamento, reverterAgrupamento,
+  adicionarAoAgrupamento, agruparPagar, agruparReceber, buscarParaAgrupar, membrosAgrupamento, relatorioAgrupamentoAP, relatorioAgrupamentoAR,
+  removerDoAgrupamento, reverterAgrupamento,
   type ConvenioSugestao, type FiltroAgrupar, type Lado, type TituloAgrupar,
 } from './agrupamentoApi';
+import { imprimirAgrupamentoAP, imprimirAgrupamentoAR, type ModoAR } from './imprimirAgrupamento';
 
 /**
  * AGRUPAR CONTAS A RECEBER / A PAGAR (`FRMAGRUPACONTASARECEBER` / `FRMAGRUPACONTASAPAGAR`; dossiê uAgrupaContas.md).
@@ -107,6 +109,20 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
     setSel(new Set());
     setJuros(new Set());
   });
+
+  // IMPRIMIR (o relatório do agrupamento do legado): a janela abre no clique e o dado chega depois (popup-blocker)
+  const imprimir = (modo: ModoAR | 'agrupado' | 'analiticoAp') => {
+    const id = Number(consulta.cod);
+    if (!id) return;
+    const win = window.open('', '_blank');
+    if (!win) { mensagem.erro(new Error('O navegador bloqueou a janela de impressão.')); return; }
+    void executar(async () => {
+      try {
+        if (ar) imprimirAgrupamentoAR(win, await relatorioAgrupamentoAR(id), modo as ModoAR);
+        else imprimirAgrupamentoAP(win, await relatorioAgrupamentoAP(id), modo === 'agrupado');
+      } catch (e) { win.close(); throw e; }
+    });
+  };
 
   const consultar = () => executar(async () => {
     const id = Number(consulta.cod);
@@ -229,6 +245,19 @@ export function AgrupamentoPage({ lado }: { lado: Lado }) {
           <Button label="&Consultar" variant="soft" onClick={() => void consultar()} disabled={ocupado} />
           {consulta.membros && <Button label="&Reverter agrupamento" variant="ghost" onClick={() => void reverter()} disabled={ocupado} />}
           {ar && consulta.membros && <Button label="Incluir os marcados" variant="ghost" onClick={() => void adicionarMarcados()} disabled={ocupado || marcados.length === 0} />}
+          {consulta.membros && ar && (
+            <>
+              <Button label="Imprimir analítico" variant="ghost" onClick={() => imprimir('analitico')} disabled={ocupado} />
+              <Button label="Imprimir totalizado" variant="ghost" onClick={() => imprimir('totalizado')} disabled={ocupado} />
+              <Button label="Extrato por funcionário" variant="ghost" onClick={() => imprimir('funcionario')} disabled={ocupado} />
+            </>
+          )}
+          {!ar && consulta.cod && (
+            <>
+              <Button label="Imprimir analítico" variant="ghost" onClick={() => imprimir('analiticoAp')} disabled={ocupado} />
+              <Button label="Imprimir sintético" variant="ghost" onClick={() => imprimir('agrupado')} disabled={ocupado} />
+            </>
+          )}
         </div>
         {consulta.membros && (consulta.membros.length === 0
           ? <small className="text-fg-muted">O agrupamento não tem títulos.</small>
