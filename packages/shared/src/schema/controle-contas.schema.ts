@@ -45,3 +45,10 @@ export const mudarDataLiberacaoSchema = z.object({
   data: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}/, { message: 'Informe a data.' }),
 });
 export type MudarDataLiberacaoDto = z.infer<typeof mudarDataLiberacaoSchema>;
+
+/** "Chavear Fech. Caixa": a data de chaveamento da conta. */
+export const chavearContaSchema = z.object({
+  codconta: z.coerce.number().int().positive(),
+  data: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}/, { message: 'Informe a data.' }),
+});
+export type ChavearContaDto = z.infer<typeof chavearContaSchema>;

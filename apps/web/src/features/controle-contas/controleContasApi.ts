@@ -88,3 +88,6 @@ export function obterDetalhamento(codconta: number, f: FiltroDet): Promise<Detal
 export function titulosDoMovimento(codmovconta: number): Promise<{ lote: number; tipo: 'AR' | 'AP' | 'CARTAO'; revertido: boolean }> {
   return req(`/cadastro/controle-contas/${codmovconta}/titulos`, { method: 'GET' });
 }
+export function chavearConta(codconta: number, data: string): Promise<{ codconta: number; dtchaveamento: string; operador: string | null }> {
+  return req('/cadastro/controle-contas/chavear', { method: 'POST', body: JSON.stringify({ codconta, data }) });
+}

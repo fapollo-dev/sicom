@@ -21215,6 +21215,12 @@ async function main() {
         await pgL.query(`UPDATE contas_bancarias_op SET habiltiar_libe_moviment = 'N' WHERE codconta = $1 AND codoperador = 7`, [lc]);
         const libN = await post(`${CC}/liberar`, { codconta: lc, codmovcontas: [m4], data: '2026-09-15' });
         const libSem = await post(`${CC}/liberar`, { codconta: lc, codmovcontas: [m4], data: '2026-09-15' }, H_SEM_ACESSO);
+        const chav = await post(`${CC}/chavear`, { codconta: lc, data: '2026-09-18' });
+        const chavRow = (await pgL.query(`SELECT to_char(dtchaveamento,'YYYY-MM-DD') d, codoperadorchaveamento op FROM contas_bancarias WHERE codconta = $1`, [lc])).rows[0] as any;
+        const chavSem = await post(`${CC}/chavear`, { codconta: lc, data: '2026-09-18' }, H_SEM_ACESSO);
+        await pgL.query(`UPDATE contas_bancarias SET dtchaveamento = NULL, codoperadorchaveamento = NULL WHERE codconta = $1`, [lc]);
+        check('CONTA-CC §199.4: Chavear Fech. Caixa → DTCHAVEAMENTO 18/09 e o operador na conta; sem a opção BITBTN2 → 403',
+          chav.status === 200 && chavRow?.d === '2026-09-18' && Number(chavRow?.op) === 7 && chavSem.status === 403, { chav, chavRow, chavSem: chavSem.status });
         check('CONTA-CC §199.3: HABILTIAR_LIBE_MOVIMENT N na conta → 422 CONTA_ACAO_NAO_PERMITIDA; sem a opção BTNLIBERAR → 403',
           libN.j.code === 'CONTA_ACAO_NAO_PERMITIDA' && libSem.status === 403, { libN: libN.j.code, libSem: libSem.status });
       } finally {

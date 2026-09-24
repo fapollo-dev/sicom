@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
-import { lancarSaldoContaSchema, liberarMovContaSchema, mudarDataLiberacaoSchema, transferirContaSchema, type LancarSaldoContaDto, type LiberarMovContaDto, type MudarDataLiberacaoDto, type TransferirContaDto } from '@apollo/shared';
+import { chavearContaSchema, type ChavearContaDto, lancarSaldoContaSchema, liberarMovContaSchema, mudarDataLiberacaoSchema, transferirContaSchema, type LancarSaldoContaDto, type LiberarMovContaDto, type MudarDataLiberacaoDto, type TransferirContaDto } from '@apollo/shared';
 import { ControleContasService } from './controle-contas.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -41,6 +41,14 @@ export class ControleContasController {
   @RequerAcesso('FRMCONTROLECONTASBANCARIAS', 'BTNLIBERAR')
   liberar(@Body(new ZodValidationPipe(liberarMovContaSchema)) body: LiberarMovContaDto) {
     return this.svc.liberar(body);
+  }
+
+  /** "Chavear Fech. Caixa": a data de chaveamento da conta. */
+  @Post('chavear')
+  @HttpCode(200)
+  @RequerAcesso('FRMCONTROLECONTASBANCARIAS', 'BITBTN2')
+  chavear(@Body(new ZodValidationPipe(chavearContaSchema)) body: ChavearContaDto) {
+    return this.svc.chavear(body.codconta, body.data);
   }
 
   /** "Mudar data de liberação" do detalhamento. */

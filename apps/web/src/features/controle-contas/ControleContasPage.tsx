@@ -9,7 +9,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { DateField } from '../../shared/ui/DateField';
 import {
-  listarContasCC, listarDestinos, listarModalidades, obterSaldo, lancarSaldo, transferir, estornar, listarALiberar, liberarMovimentos, mudarDataLiberacao, obterDetalhamento, titulosDoMovimento,
+  listarContasCC, listarDestinos, listarModalidades, obterSaldo, lancarSaldo, transferir, estornar, listarALiberar, liberarMovimentos, mudarDataLiberacao, obterDetalhamento, titulosDoMovimento, chavearConta,
   type ContaCC, type PainelSaldo, type MovALiberar, type Detalhamento, type DetMov, type FiltroDet,
 } from './controleContasApi';
 
@@ -137,6 +137,17 @@ export function ControleContasPage() {
     setBusy(true);
     try { await mudarDataLiberacao(m.codmovconta, d); await recarregar(); } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
+  // "Chavear Fech. Caixa" (BitBtn2): a data de chaveamento da conta
+  const chavear = async () => {
+    if (!sel) return;
+    const d = window.prompt('Data do chaveamento (AAAA-MM-DD)', hoje());
+    if (!d) return;
+    try {
+      const r = await chavearConta(sel.codconta, d);
+      mensagem.sucesso(`Conta chaveada em ${dia(r.dtchaveamento)}${r.operador ? ` por ${r.operador}` : ''}.`);
+      setContas(await listarContasCC());
+    } catch (e) { mensagem.erro(e); }
+  };
   const opcoesDestino = destinos.filter((d) => String(d.codconta) !== conta).map((d) => ({ value: String(d.codconta), label: nomeDestino(d) }));
   const pode = (flag: keyof ContaCC) => !!sel && sel[flag] === 'S';
   // como o legado: a transferência sai pelo lote (UconsMovBancaria.pas:925); a movimentação sem lote, pelo cadastro (:107)
@@ -182,6 +193,7 @@ export function ControleContasPage() {
             </div>
           ) : <small className="text-fg-muted">Sem permissão para ver os saldos desta conta.</small>}
           <div className="flex flex-wrap items-end gap-gp-sm">
+            <Button label="Chavear fech. &caixa" variant="ghost" disabled={busy || !pode('habiltiar_chavear_fec_cxa')} onClick={() => void chavear()} />
             <CheckboxField label="Posicionar saldo nesta data" value={posicionar.ativo ? 'S' : 'N'}
               onChange={(v) => { const n = { ...posicionar, ativo: v === 'S' }; setPosicionar(n); void carregar(sel.codconta, n.ativo ? n.data : undefined); }} />
             <div className="w-44"><DateField label="Data" value={posicionar.data}

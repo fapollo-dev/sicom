@@ -332,6 +332,22 @@ export class ControleContasService {
     });
   }
 
+  /**
+   * "Chavear Fech. Caixa" (`BitBtn2`, uControleContasBancarias.pas:117-135): a data vira `DTCHAVEAMENTO` da conta e o operador
+   * `CODOPERADORCHAVEAMENTO` — sem senha, confirmação nem validação de data, como o legado. Depois disso o lançamento de saldo,
+   * as baixas e a transferência recusam data até ela ("Caixa FECHADO não é permitida alteração dos documentos!").
+   */
+  async chavear(codconta: number, data: string): Promise<{ codconta: number; dtchaveamento: string; operador: string | null }> {
+    this.emp();
+    const op = this.op();
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      await this.conta(trx, codconta, 'habiltiar_chavear_fec_cxa');
+      await sql`UPDATE contas_bancarias SET dtchaveamento = ${data.slice(0, 10)}::date, codoperadorchaveamento = ${op} WHERE codconta = ${codconta}`.execute(trx);
+      const nome = op == null ? null : String(((await trx.selectFrom('operadores').select('nome').where('codoperador', '=', op).executeTakeFirst()) as { nome?: string } | undefined)?.nome ?? '');
+      return { codconta, dtchaveamento: data.slice(0, 10), operador: nome };
+    });
+  }
+
   /** as modalidades da loja para o lançamento de saldo (`GET_FORMAS_PGTO` da empresa) */
   async modalidades(): Promise<Record<string, unknown>[]> {
     const emp = this.emp();
