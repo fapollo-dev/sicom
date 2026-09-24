@@ -2,6 +2,8 @@ import { ConsCliRcbController } from './cons-cli-rcb.controller';
 import { ConsApgBxController } from './cons-apg-bx.controller';
 import { BaixaApagarLoteController } from './baixa-apagar-lote.controller';
 import { BaixaApagarLoteService } from './baixa-apagar-lote.service';
+import { BaixaReceberLoteController } from './baixa-receber-lote.controller';
+import { BaixaReceberLoteService } from './baixa-receber-lote.service';
 import { ConsRcbBxController } from './cons-rcb-bx.controller';
 import { PeriodoContabilCadController } from './periodo-contabil-cad.controller';
 import { ExtratoClientesController } from './extrato-clientes.controller';
@@ -89,7 +91,7 @@ import { CadastroModule } from '../cadastro/cadastro.module';
     DescontoTituloExecController, // corte-2: executar e reverter o encontro de contas
     DescontoTituloController,
     // FRMCONSCLIRCB — quanto o cliente deve, com juro e atraso (64 acessos).
-    ConsCliRcbController, ConsApgBxController, BaixaApagarLoteController, ConsRcbBxController, PeriodoContabilCadController, ExtratoClientesController, ExtratoFuncionarioController, CaixaDmeController, RelBalancoController, GerarFinanceiroLoteController, RelDiarioContabilController, BalanceteController,LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController, IntegracaoContabilController, ConfigIntegracaoContabilController, ConfIntegBancariaController,
+    ConsCliRcbController, ConsApgBxController, BaixaApagarLoteController, BaixaReceberLoteController, ConsRcbBxController, PeriodoContabilCadController, ExtratoClientesController, ExtratoFuncionarioController, CaixaDmeController, RelBalancoController, GerarFinanceiroLoteController, RelDiarioContabilController, BalanceteController,LotesCobrancaController, LotesMdController, AreceberController, ApagarController, CaixaController, CnabRemessaController, AdiantamentoFornController, IntegracaoContabilController, ConfigIntegracaoContabilController, ConfIntegBancariaController,
     // FRMSALDOEMPRESA — o fluxo de caixa projetado (611 acessos).
     SaldoEmpresaController,
     // FRMRELCAIXA — divergências de caixa e caixas abertos (505 acessos).
@@ -98,7 +100,7 @@ import { CadastroModule } from '../cadastro/cadastro.module';
     FechamentoCaixaController,
     // FRMMOVCAIXA — o lançamento de caixa gerencial (F06).
     LancamentoCaixaController],
-  providers: [FluxoCartoesService, DescontoTituloService, DescontoTituloExecService, ConsCliRcbService, ConsApgBxService, BaixaApagarLoteService, ConsRcbBxService, PeriodoContabilCadService, ExtratoClientesService, ExtratoFuncionarioService, CaixaDmeService, RelBalancoService, GerarFinanceiroLoteService, RelDiarioContabilService, BalanceteService, 
+  providers: [FluxoCartoesService, DescontoTituloService, DescontoTituloExecService, ConsCliRcbService, ConsApgBxService, BaixaApagarLoteService, BaixaReceberLoteService, ConsRcbBxService, PeriodoContabilCadService, ExtratoClientesService, ExtratoFuncionarioService, CaixaDmeService, RelBalancoService, GerarFinanceiroLoteService, RelDiarioContabilService, BalanceteService, 
     LotesCobrancaService, LoteCobrancaRepository,
     AreceberService, AreceberBaixaService, AreceberAgrupamentoService, ApagarService, ApagarBaixaService, ApagarAgrupamentoService,
     CaixaService, CaixaContabilService, BaixaContabilService,

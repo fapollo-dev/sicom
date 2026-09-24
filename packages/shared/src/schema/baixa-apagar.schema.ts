@@ -42,3 +42,47 @@ export const baixaApagarGravarSchema = z.object({
   loteManutencao: opcionalNum,
 });
 export type BaixaApagarGravarDto = z.infer<typeof baixaApagarGravarSchema>;
+
+/**
+ * BAIXA DE CONTAS A RECEBER (`FRMBAIXAARECEBER`, `UBaixaAreceber.pas`) — o lote: N documentos (acréscimo/desconto em % e em R$
+ * por documento, mais o global rateado com a senha DESC) e 1..N recursos em conta corrente. `uBaixaAreceber-spec.md`.
+ */
+export const baixaReceberTitulosSchema = baixaApagarTitulosSchema.extend({
+  /** a data da baixa — o desconto do cliente por prazo depende dela */
+  dtpgto: z.preprocess((v) => (v === '' ? undefined : v), data.optional()),
+});
+export type BaixaReceberTitulosDto = z.infer<typeof baixaReceberTitulosSchema>;
+
+export const baixaReceberGravarSchema = z.object({
+  idlote: z.coerce.number().int().positive(),
+  dtpgto: data,
+  documentos: z.array(z.object({
+    codrcb: z.coerce.number().int().positive(),
+    calculaJuro: z.boolean().optional(),
+    txjuros: z.coerce.number().min(0).optional(),
+    /** R$ Acrés/Desc (+ acréscimo / − desconto) */
+    acreDescValor: z.coerce.number().optional(),
+    /** % Acrés/Desc */
+    percentual: z.coerce.number().optional(),
+  })).min(1, { message: 'Nenhum documento foi selecionado para realizar a baixa.' }),
+  recursos: z.array(z.object({
+    /** o índice do combo: 0 DINHEIRO · 2 DOC · 3 TRANSFERÊNCIA · 4 DÉBITO EM CONTA · 6 ANTECIPAÇÃO BANCÁRIA · 7 CARTAO */
+    tipo: z.coerce.number().int(),
+    codconta: z.coerce.number().int().positive({ message: 'É obrigatório informar a conta corrente.' }),
+    valor: z.coerce.number().positive({ message: 'Valor deve ser maior que zero!' }),
+    historico: z.string().max(250).nullish(),
+    /** no CARTAO, a forma escolhida (PIX POS, IFOOD…) */
+    idpgto: opcionalNum,
+  })).min(1, { message: 'Não foi informado nenhum recurso, não é possivel continuar!' }),
+  /** o acréscimo (+) / desconto (−) global, rateado pelo valor — pede a senha DESC */
+  acreDescGlobal: z.coerce.number().optional(),
+  senhaDesconto: z.string().max(200).optional(),
+  /** o liberador do desconto máximo (USUARIOS_LIBERAM_DESCONTO_MAXIMO_EXCEDIDO) */
+  liberacaoDesconto: z.object({ login: z.string().trim().max(50), senha: z.string().max(200) }).optional(),
+  ccJuros: opcionalNum,
+  ccAcrescimo: opcionalNum,
+  ccDesconto: opcionalNum,
+  parcial: z.object({ dtvenc: data }).optional(),
+  loteManutencao: opcionalNum,
+});
+export type BaixaReceberGravarDto = z.infer<typeof baixaReceberGravarSchema>;

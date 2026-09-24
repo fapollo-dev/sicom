@@ -459,3 +459,27 @@ Recibo (`recibo.fr3`) e boleto do saldo parcial acompanham os cortes A e C.
    filtro de cliente com o código do título (`:1930`); modalidade do cheque com `DESTINO='CHEQUE'` em campo CHAR(3); erro da integração
    contábil engolido (`:2269`).
 7. **Juros, multa, antecipação, cheque, troco, SALDO e permuta = 0** em 2025-26 — são os cortes E/F, no fim da fila.
+
+---
+
+## 6. Conversão — corte A (+ parcial, liberação de desconto e reversão/manutenção), backend (24/09/2026)
+
+`cobranca/baixa-receber-lote.service.ts` + controller `cobranca/baixa-receber` (RBAC `FRMBAIXAARECEBER`, `BTNADICIONARREGISTRO`,
+`BTNGRAVAR`). Smoke §197 (9 casos).
+
+- Tipos de recurso usados em produção: DINHEIRO (caixa ou banco), DOC, TRANSFERÊNCIA, DÉBITO, ANTECIPAÇÃO (banco), CARTAO
+  (a forma escolhida, CRT/TEF, LIBERADO 'N', sem linha em CARTAO — como o vivo). `MOV_CONTAS_BANCARIAS.RECURSO` com o texto do
+  combo; conta própria libera na hora. Sem teste de saldo (VerifSaldo=False). Chaveamento na conta do RECURSO (o legado olha a
+  conta da forma do título — defeito não copiado).
+- Documento: `% × valor + R$ − desconto do cliente (DIASPRAZO/DESCPADRAO) + rateio do global`; juro simples com "Calcula juro".
+  Senha DESC só no acréscimo/desconto GLOBAL; `DescontoValidado` (% máximo + liberadores) grava
+  `CODOPERADOR_LIBERACAO_DESCONTO` por lote (sem o vazamento do legado).
+- Gravar numa transação: MCB (C, positivo, histórico `BAIXA DO LOTE N` + sufixo), ARECEBER_BX (OBS `DOCUMENTO BAIXADO NO LOTE:`,
+  `VALOR_PERC_MULTA` do título), `QUITADA`/`ANTECIPADO`, adiantamento, cascata do agrupamento, título-saldo da parcial DENTRO da
+  transação, CAIXA (soma do lote). Contábil do lote com AUTOMATICA depois do commit.
+- Reversão (`reverterLoteNaTrx`, usada pela consulta de baixas para lote com MCB e pela manutenção): espelho com o RECURSO e
+  datas de hoje só na conta própria, `REVERTIDO`, títulos QUITADA N/ANTECIPADO nulo, adiantamento REABRE (o legado grava 'S'),
+  membros do agrupamento reabrem, o título-saldo e as baixas dele apagados (como o legado), INDR E, CHEQUE do lote e CAIXA.
+
+Fora (0 uso em 2025-26): cheque, cheque pré, permuta, SALDO, troco, antecipação por documento. Próximo: tela web e o arquivo
+retorno (corte B, 80% do valor).
