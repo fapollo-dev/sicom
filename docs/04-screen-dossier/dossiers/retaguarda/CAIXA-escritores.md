@@ -9,17 +9,17 @@
 
 | origem | linhas | Σ valor | escritor no legado | Apollo |
 |---|---:|---:|---|---|
-| FECHAMENTO | 13.939 | R$ 19.951.875,03 | `UfinalizaFechamento.pas:1753` (efetivar do fechamento de caixa) | ✅ 24/09 corte 2 do fechamento (`fechamento-caixa.service.ts` `efetivar`: a linha por operação com REAL > 0 e a da quebra) |
+| FECHAMENTO | 13.939 | R$ 19.951.875,03 | `UfinalizaFechamento.pas:1753` (efetivar do fechamento de caixa) | ✅ 24/09 corte 2 do fechamento (`fechamento-caixa.service.ts` `efetivar`: a linha por operação com REAL > 0 e a da quebra); a reabertura (corte 3) apaga |
 | APAGAR (sistema) | 8.297 | R$ −25.132.770,34 | **binário novo**: o GRAVAR da tela de Contas a Pagar (também no faturamento da NF) refaz a CAIXA do grupo inteiro a partir do CX_APAGAR (§2) | ✅ 24/09 (`apagar-caixa.ts`, mig 327: faturamento da NF, título digitado, edição, exclusão e estorno) |
 | APAGAR (manual 'S') | 462 | R$ −523.445,84 | ⚠️ correção: é o **lançamento de caixa** (`uMovCaixa`, F06) — a despesa gera um título já quitado (APAGAR + CX_APAGAR + APAGAR_BX), a CAIXA é o registro primário | ✅ 24/09 — conversão do F06 (`uMovCaixa.md`, `lancamento-caixa.service.ts`) |
 | SCRAP | 4.880 | R$ −7.296.171,67 | `uCadSCRAP.pas:736` | ✅ 24/09 (`scrap-caixa.ts`: a diferença a cada gravação, com a linha de 0,00 do legado; a exclusão leva junto) |
-| BAIXA CARTAO | 1.722 | R$ −85.411,37 | `UbaixaCartao.pas:1158/1188`, `UConciliadorCartao.pas:394` | ✅ a TAXA (24/09, `cartao-baixa.service.ts`: uma linha por lote no CC da taxa ou no de multa/juros; o estorno apaga). ✅ OUTRAS DESPESAS (24/09: o valor digitado sai do crédito, rateado pelos cartões — sobra no maior; a linha vai antes da taxa, no CC de descontos concedidos; 363 dos 1.362 lotes de 2026; o ajuste do rateio do legado tem o sinal trocado, não copiado). FALTA o conciliador de cartão |
+| BAIXA CARTAO | 1.722 | R$ −85.411,37 | `UbaixaCartao.pas:1158/1188`, `UConciliadorCartao.pas:394` | ✅ a TAXA (24/09, `cartao-baixa.service.ts`: uma linha por lote no CC da taxa ou no de multa/juros; o estorno apaga). ✅ OUTRAS DESPESAS (24/09: o valor digitado sai do crédito, rateado pelos cartões — sobra no maior; a linha vai antes da taxa, no CC de descontos concedidos; 363 dos 1.362 lotes de 2026; o ajuste do rateio do legado tem o sinal trocado, não copiado). ⚠️ correção: o conciliador de cartão (`UConciliadorCartao.LancaCaixa`, ORIGEM 'CONCILIADOR CARTAO') **nunca escreveu** — 0 linhas em toda a CAIXA (2020-2026, medido em 24/09): morto, com prova |
 | NF | 1.011 | R$ 764.054,09 | `udmNF.pas:9283` | ✅ C4 (`nf-caixa.ts`) |
 | ARECEBER | 441 | R$ 687.687,98 | `uCadAReceber.pas:1075/1110` | ✅ 24/09 (`areceber-caixa.ts`: uma linha por documento — o título, ou o total das parcelas geradas juntas; edição relança; exclusão apaga) |
 | manual (sem origem, 'S') | 166 | R$ −41.936,86 | ⚠️ correção: é a **conciliação OFX** ("Gerado pela conciliação bancária.", `CONFIG_LANCAMENTO_AUTO_OFX`) | ✅ já no Apollo (`conciliacao-bancaria.service.ts`, mig 298) |
 | BAIXA APAGAR | 112 | R$ 7.377,98 | `UBaixaApagar.pas:505` | ✅ 24/09 (`baixa-caixa.ts`: juros/acréscimo/desconto no CC da baixa ou no padrão da empresa, lote `seq_idlote`; o estorno apaga) |
 | BAIXA ARECEBER | 33 | R$ −349,54 | `UBaixaAreceber.pas:1264` | ✅ 24/09 (idem) |
-| CONVENIO PARCEIRO | 1 | R$ −20.051,06 | `uConvenioParceiro.pas:136` | FALTA |
+| CONVENIO PARCEIRO | 1 | R$ −20.051,06 | `uConvenioParceiro.pas:136`, aberto só pelo agrupamento de contas a receber (`uAgrupaContasAReceber.pas:223`: o adiantamento de parceiro com o mesmo CNPJ vira A PAGAR + esta CAIXA) | FALTA — vai com o fluxo convênio do agrupamento (adiado em `areceber-agrupamento.service.ts`); 32 linhas desde 2020, 1 em 2026 |
 
 Outros escritores no fonte sem linha em 2026: `UbaixaCheque.pas:352`, `UCadMapaDeCarga.pas:6036`,
 `uCadAcordoComercial.pas:967`, `uCadClientes.pas:3964`. ⚠️ correção: a trigger `CAIXA_APAGAR` (BEFORE DELETE em CX_APAGAR) APAGA a CAIXA do rateio (`WHERE CODGRUPO AND CODCXAPAGAR`); até 02/2022 ela também inseria (9.111 linhas 'TRIGGER CAIXA_PAGAR').

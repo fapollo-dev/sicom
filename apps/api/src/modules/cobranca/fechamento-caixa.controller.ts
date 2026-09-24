@@ -7,9 +7,9 @@ import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 
 /**
- * FECHAMENTO DE CAIXA — corte 1 (conferência + rascunho; `fechamento-caixa.service.ts`). RBAC do legado: a lista de
- * turnos é o botão "Caixas abertos" (BTNCXABERTO); a finalização — fechar ou consultar — abre pelo botão Fechar
- * (BTNFECHA), nos dois modos.
+ * FECHAMENTO DE CAIXA — corte 1 (conferência + rascunho), corte 2 (efetivar) e corte 3 (a contabilização no efetivar e a
+ * reabertura); `fechamento-caixa.service.ts`. RBAC do legado: a lista de turnos é o botão "Caixas abertos" (BTNCXABERTO);
+ * a finalização — fechar ou consultar — abre pelo botão Fechar (BTNFECHA), nos dois modos; reabrir é o BTNREABRIR.
  */
 @Controller('cobranca/fechamento-caixa')
 @UseGuards(AcessoGuard)
@@ -55,5 +55,13 @@ export class FechamentoCaixaController {
   @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNFECHA')
   efetivar(@Body(new ZodValidationPipe(efetivarFechamentoSchema)) body: EfetivarFechamentoDto) {
     return this.svc.efetivar(body);
+  }
+
+  /** reabrir o caixa fechado (corte 3) — o botão Reabrir do legado (BTNREABRIR, 117 concessões no cliente) */
+  @Post('turno/reabrir')
+  @HttpCode(200)
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNREABRIR')
+  reabrir(@Body(new ZodValidationPipe(turnoFechamentoSchema)) body: TurnoFechamentoDto) {
+    return this.svc.reabrir(body);
   }
 }

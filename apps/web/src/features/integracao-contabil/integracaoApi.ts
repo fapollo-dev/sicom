@@ -23,7 +23,8 @@ export interface Periodo { dataIni: string; dataFim: string; codigo?: number | n
 /** o que cada rodada devolve; os campos variam por origem e a tela mostra o que veio. */
 export interface Resultado {
   lotes?: number; cartoes?: number; baixas?: number; documentos?: number; lancamentos?: number;
-  total?: number; linhas?: number;
+  total?: number; linhas?: number; fechamentos?: number;
+  avisos?: Array<{ documento: string; mensagem: string }>;
 }
 
 export const cartaoPendentes = (p: Periodo): Promise<Array<{ idlote: number; cartoes: number; total_liquido: number }>> =>
@@ -44,3 +45,9 @@ export const integrarDocumento = (tipo: TipoDoc, p: Periodo): Promise<Resultado>
   req(`${P}/documento/${tipo}`, { method: 'POST', body: JSON.stringify(p) });
 export const estornarDocumento = (tipo: TipoDoc, p: Periodo): Promise<Resultado> =>
   req(`${P}/documento/${tipo}/estornar`, { method: 'POST', body: JSON.stringify(p) });
+
+/** opção 8: o fechamento de caixa (o código é o grupo do fechamento) */
+export const integrarFechamento = (p: Periodo): Promise<Resultado> =>
+  req(`${P}/fechamento`, { method: 'POST', body: JSON.stringify(p) });
+export const estornarFechamento = (p: Periodo): Promise<Resultado> =>
+  req(`${P}/fechamento/estornar`, { method: 'POST', body: JSON.stringify(p) });

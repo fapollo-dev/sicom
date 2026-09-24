@@ -42,8 +42,6 @@ import { ApagarBaixaService } from './apagar-baixa.service';
 import { CaixaController } from './caixa.controller';
 import { CaixaService } from './caixa.service';
 import { CaixaContabilService } from './caixa-contabil.service';
-import { CaixaPdvContabilService } from './caixa-pdv-contabil.service';
-import { CaixaConferenciaService } from './caixa-conferencia.service';
 import { BaixaContabilService } from './baixa-contabil.service';
 import { CnabRemessaController } from './cnab-remessa.controller';
 import { CnabRemessaService } from './cnab-remessa.service';
@@ -62,6 +60,7 @@ import { SaldoEmpresaService } from './saldo-empresa.service';
 import { RelCaixaController } from './rel-caixa.controller';
 import { FechamentoCaixaController } from './fechamento-caixa.controller';
 import { FechamentoCaixaService } from './fechamento-caixa.service';
+import { FechamentoContabilService } from './fechamento-contabil.service';
 import { LancamentoCaixaController } from './lancamento-caixa.controller';
 import { LancamentoCaixaService } from './lancamento-caixa.service';
 import { RelCaixaService } from './rel-caixa.service';
@@ -98,10 +97,10 @@ import { CadastroModule } from '../cadastro/cadastro.module';
   providers: [FluxoCartoesService, DescontoTituloService, DescontoTituloExecService, ConsCliRcbService, ConsApgBxService, ConsRcbBxService, PeriodoContabilCadService, ExtratoClientesService, ExtratoFuncionarioService, CaixaDmeService, RelBalancoService, GerarFinanceiroLoteService, RelDiarioContabilService, BalanceteService, 
     LotesCobrancaService, LoteCobrancaRepository,
     AreceberService, AreceberBaixaService, AreceberAgrupamentoService, ApagarService, ApagarBaixaService, ApagarAgrupamentoService,
-    CaixaService, CaixaContabilService, CaixaPdvContabilService, CaixaConferenciaService, BaixaContabilService,
+    CaixaService, CaixaContabilService, BaixaContabilService,
     CnabRemessaService, AdiantamentoFornService, ConfigService,
     // INTEGRAÇÃO CONTÁBIL (FRMTRON) corte-1: baixa de cartões — origens 51 (baixa), 61 (taxa) e 62 (outras despesas).
-    CartaoContabilService, BaixaTronContabilService, DocumentosContabilService, ConfigIntegracaoContabilService, ConfIntegBancariaService, SaldoEmpresaService, RelCaixaService, FechamentoCaixaService, LancamentoCaixaService,
+    CartaoContabilService, BaixaTronContabilService, DocumentosContabilService, ConfigIntegracaoContabilService, ConfIntegBancariaService, SaldoEmpresaService, RelCaixaService, FechamentoCaixaService, FechamentoContabilService, LancamentoCaixaService,
     DatabaseProvider,
   ],
   exports: [LotesCobrancaService],

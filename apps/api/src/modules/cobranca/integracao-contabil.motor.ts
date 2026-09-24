@@ -54,7 +54,10 @@ export interface LancamentoContabil {
   valor: number;
   idorigem: number;
   documento: string;
-  complemento: string;
+  /** nulo onde o legado não grava (as origens 13 e 14, a quebra/sobra do fechamento). */
+  complemento: string | null;
+  /** o `TIPODOC` do razão — o fechamento de caixa marca a quebra/sobra com 'QUEBRA/SOBRA' (origem 17). */
+  tipodoc?: string | null;
   /** dataset da perna de CRÉDITO (o `DataSetC`) e da perna de DÉBITO (o `DataSetD`). */
   dataSetC: RegistroDataSet[];
   dataSetD: RegistroDataSet[];
@@ -147,6 +150,7 @@ export async function lancarNoDiario(trx: AnyDB, l: LancamentoContabil): Promise
     codempresa: l.emp,
     documento: reg?.documento ?? l.documento,
     complemento: reg?.complemento ?? l.complemento,
+    tipodoc: l.tipodoc ?? null,
     codlote,
   });
 

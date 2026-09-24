@@ -1,6 +1,6 @@
 /**
- * FECHAMENTO DE CAIXA (`FRMFECHAMENTOCAIXA`) — fetcher do corte 1: turnos do dia, conferência do turno, documentos e
- * rascunho. Espelha os demais (apiHeaders/BASE + envelope ADR-015).
+ * FECHAMENTO DE CAIXA (`FRMFECHAMENTOCAIXA`) — fetcher: turnos do dia, conferência do turno, documentos e rascunho
+ * (corte 1), efetivar (corte 2) e reabrir (corte 3). Espelha os demais (apiHeaders/BASE + envelope ADR-015).
  */
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
@@ -62,7 +62,12 @@ export interface DetalheTurno {
   completadas?: number;
   sangriasInseridas?: number;
   ticketsCriados?: number;
-  efetivado?: { codgrupo: number; caixa: number; mcb: number; idsaldoop: number | null; codrcb: number | null; marcas: number; diferenca: number; gerarSaldo: boolean };
+  efetivado?: {
+    codgrupo: number; caixa: number; mcb: number; idsaldoop: number | null; codrcb: number | null; marcas: number; diferenca: number; gerarSaldo: boolean;
+    /** a contabilização (corte 3) — nula sem integração automática; os avisos são o que ficou pendente para o TRON */
+    contabil: { lancamentos: number; avisos: Array<{ documento: string; codigo: string; mensagem: string }> } | null;
+  };
+  reaberto?: { codgrupo: number; estorno: number; titulos: number; quebras: number; caixa: number; mcb: number; modo: 'E' | 'D' };
 }
 export interface DocumentoConferencia { codigo: number; valor: number; sel: boolean; [k: string]: unknown }
 export interface Documentos {
@@ -86,5 +91,6 @@ export const abrirTurno = (t: TurnoRef) => req<DetalheTurno>(`${P}/turno/abrir`,
 export const documentosTurno = (t: TurnoRef, operacao: string) => req<Documentos>(`${P}/turno/documentos?${qs(t, { operacao })}`);
 export const salvarRascunho = (t: TurnoRef, body: { dinheiroContado: number; documentos: Array<{ operacao: string; codigos: number[] }> }) =>
   req<DetalheTurno>(`${P}/turno/rascunho`, { method: 'PUT', body: JSON.stringify({ ...t, ...body }) });
+export const reabrirTurno = (t: TurnoRef) => req<DetalheTurno>(`${P}/turno/reabrir`, { method: 'POST', body: JSON.stringify(t) });
 export const efetivarTurno = (t: TurnoRef, body: { dinheiroContado: number; documentos: Array<{ operacao: string; codigos: number[] }>; gerarSaldo?: boolean; confirmarDocumentosNaoSelecionados?: boolean }) =>
   req<DetalheTurno>(`${P}/turno/efetivar`, { method: 'POST', body: JSON.stringify({ ...t, ...body }) });

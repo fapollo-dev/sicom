@@ -1,11 +1,9 @@
 import {
   Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards,
 } from '@nestjs/common';
-import { abrirCaixaSchema, movimentoCaixaSchema, fecharCaixaSchema, conferirPdvSchema } from '@apollo/shared';
+import { abrirCaixaSchema, movimentoCaixaSchema, fecharCaixaSchema } from '@apollo/shared';
 import { CaixaService } from './caixa.service';
 import { CaixaContabilService } from './caixa-contabil.service';
-import { CaixaPdvContabilService } from './caixa-pdv-contabil.service';
-import { CaixaConferenciaService } from './caixa-conferencia.service';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -26,8 +24,6 @@ export class CaixaController {
   constructor(
     private readonly svc: CaixaService,
     private readonly contabil: CaixaContabilService,
-    private readonly pdvContabil: CaixaPdvContabilService,
-    private readonly conferencia: CaixaConferenciaService,
   ) {}
 
   /** Sessão aberta do operador logado (+ movimentos), ou null. */
@@ -103,41 +99,6 @@ export class CaixaController {
     return this.contabil.estornarFechamento(id);
   }
 
-  /** Caixa 2d-c: contabiliza os fechamentos do PDV (CX_VENDAS) por forma de pagamento no DIÁRIO (situação 2010). */
-  @Post('contabilizar-pdv')
-  @HttpCode(200)
-  @RequerAcesso('FRMCAIXA', 'BTNCONTABILIZARPDV')
-  contabilizarPdv(@Query() q: Record<string, string>) {
-    return this.pdvContabil.contabilizar(q.dtini, q.dtfim);
-  }
-
-  /** estorna a contabilização de um fechamento do PDV (por CODGRUPO). */
-  @Post(':codgrupo/reverter-pdv')
-  @HttpCode(200)
-  @RequerAcesso('FRMCAIXA', 'BTNCONTABILIZARPDV')
-  reverterPdv(@Param('codgrupo', ParseIntPipe) codgrupo: number) {
-    return this.pdvContabil.reverter(codgrupo);
-  }
-
-  /** CAIXA × CX_VENDAS: confere o fechamento do PDV (gaveta contada vs DINHEIRO do CX_VENDAS) → quebra/sobra. */
-  @Post('pdv-conferencia/:codgrupo')
-  @HttpCode(200)
-  @RequerAcesso('FRMCAIXA', 'BTNCONFERIRPDV')
-  conferirPdv(@Param('codgrupo', ParseIntPipe) codgrupo: number, @Body(new ZodValidationPipe(conferirPdvSchema)) dto: { valorReal: number; devolucao?: number; gerarTitulo?: boolean }) {
-    return this.conferencia.conferir(codgrupo, dto);
-  }
-
-  /** estorna a conferência do PDV (reverte divergência + apaga o título-quebra intocado). */
-  @Post('pdv-conferencia/:codgrupo/estornar')
-  @HttpCode(200)
-  @RequerAcesso('FRMCAIXA', 'BTNCONFERIRPDV')
-  estornarConferenciaPdv(@Param('codgrupo', ParseIntPipe) codgrupo: number) {
-    return this.conferencia.estornar(codgrupo);
-  }
-
-  /** consulta a conferência ativa de um grupo (ou null). Leitura livre. */
-  @Get('pdv-conferencia/:codgrupo')
-  obterConferenciaPdv(@Param('codgrupo', ParseIntPipe) codgrupo: number) {
-    return this.conferencia.obter(codgrupo);
-  }
+  // o fechamento do PDV (CX_VENDAS) — a contabilização por forma e a conferência com quebra/sobra — é o FECHAMENTO DE CAIXA
+  // (`cobranca/fechamento-caixa`, cortes 1-3) e a opção 8 do TRON (`contabil/integracao/fechamento`).
 }

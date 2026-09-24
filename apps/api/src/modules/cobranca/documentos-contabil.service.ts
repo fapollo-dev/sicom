@@ -49,6 +49,18 @@ export class DocumentosContabilService {
     if (chav && dataFim <= chav) throw new BusinessRuleError('PERIODO_CONTABIL_CHAVEADO', { ate: chav });
   }
 
+  /**
+   * UM título, dentro da transação de quem chama, na data dada (o `DataFixa`) — é como o fechamento de caixa contabiliza o
+   * título da quebra (CR) e o do troco solidário (CP) (`UIntegracaoContabilFechamentoCaixa.pas:457-524`).
+   */
+  async integrarDocumentoNaTrx(trx: AnyDB, tipo: 'CP' | 'CR', codigo: number, dataFixa: string | null): Promise<ResultadoDocumentos> {
+    const emp = this.emp();
+    const cfg = (await trx.selectFrom('config_integracao_contabil').selectAll().executeTakeFirst()) as Record<string, number | null> | undefined;
+    if (!cfg) throw new BusinessRuleError('CONFIG_INTEGRACAO_NAO_DEFINIDA');
+    const p = { dataIni: '1900-01-01', dataFim: '2999-12-31', codigo };
+    return tipo === 'CP' ? this.contasPagar(trx, emp, p, cfg, dataFixa) : this.contasReceber(trx, emp, p, cfg, dataFixa);
+  }
+
   async integrar(tipo: TipoDocumento, p: { dataIni: string; dataFim: string; codigo?: number | null }): Promise<ResultadoDocumentos> {
     const emp = this.emp();
     const db = this.dbp.forTenant() as AnyDB;
@@ -75,7 +87,7 @@ export class DocumentosContabilService {
    * Cinco exclusões (`:1240-1244`), cada uma com o seu próprio caminho contábil: título agrupado, adiantamento
    * a fornecedor, origem 'B' (boleto), título-filho (`CODAPG_PAI`) e título gerado por nota (`IDNF`).
    */
-  private async contasPagar(trx: AnyDB, emp: number, p: { dataIni: string; dataFim: string; codigo?: number | null }, cfg: Record<string, number | null>): Promise<ResultadoDocumentos> {
+  private async contasPagar(trx: AnyDB, emp: number, p: { dataIni: string; dataFim: string; codigo?: number | null }, cfg: Record<string, number | null>, dataFixa: string | null = null): Promise<ResultadoDocumentos> {
     const docs = (await sql<Record<string, unknown>>`
       SELECT a.codapg, to_char(a.dtcompra, 'YYYY-MM-DD') AS data, a.codgrupo, a.codparceiro, a.origem, a.idsituacao_nf,
              (a.valor + coalesce(a.vendor,0) - coalesce(a.desconto,0))::numeric(13,2) AS valor,
@@ -111,13 +123,15 @@ export class DocumentosContabilService {
       const situacao = chave ? cfg[chave] : (d.idsituacao_nf == null ? null : Number(d.idsituacao_nf));
       if (!situacao) throw new BusinessRuleError('SITUACAO_DOCUMENTO_NAO_INFORMADA', { origem: 'CP', documento: codapg });
       if (d.conta_parceiro == null) throw new BusinessRuleError('CONTA_PARCEIRO_NAO_DEFINIDA', { documento: codapg, codparceiro: d.codparceiro });
-      if (!d.data) throw new BusinessRuleError('DOCUMENTO_SEM_DATA', { origem: 'CP', documento: codapg });
+      const data = dataFixa ?? d.data;
+      if (!data) throw new BusinessRuleError('DOCUMENTO_SEM_DATA', { origem: 'CP', documento: codapg });
       const valor = r2(num(d.valor));
       const rateio = await this.rateio(trx, Number(d.codgrupo ?? 0), valor);
 
+      // o COMPLEMENTO fica nulo: é assim nas 807 linhas da origem 13 desde 2025
       await lancarNoDiario(trx, {
-        emp, codorigem: ORIGEM.CP, situacao, data: String(d.data), valor,
-        idorigem: codapg, documento: String(codapg), complemento: String(codapg),
+        emp, codorigem: ORIGEM.CP, situacao, data: String(data), valor,
+        idorigem: codapg, documento: String(codapg), complemento: null,
         dataSetC: [{ codplanocontas: Number(d.conta_parceiro), valor, descricao: `o parceiro ${d.codparceiro ?? 0}` }],
         dataSetD: rateio,
         desclote: `Conta a pagar ${codapg}`,
@@ -166,9 +180,9 @@ export class DocumentosContabilService {
    * (`ARECEBER.CODPLC` → `PLC.CODCONTABIL`). Uma linha de cada lado, sempre — no razão, 6.711 linhas
    * balanceadas e nenhuma single.
    */
-  private async contasReceber(trx: AnyDB, emp: number, p: { dataIni: string; dataFim: string; codigo?: number | null }, cfg: Record<string, number | null>): Promise<ResultadoDocumentos> {
+  private async contasReceber(trx: AnyDB, emp: number, p: { dataIni: string; dataFim: string; codigo?: number | null }, cfg: Record<string, number | null>, dataFixa: string | null = null): Promise<ResultadoDocumentos> {
     const docs = (await sql<Record<string, unknown>>`
-      SELECT a.codrcb, to_char(a.dtvenda, 'YYYY-MM-DD') AS data, a.valor, a.codparceiro, a.codplc, a.idsituacao_nf,
+      SELECT a.codrcb, to_char(a.dtvenda, 'YYYY-MM-DD') AS data, a.valor, a.codparceiro, a.codplc, a.idsituacao_nf, a.nropedido,
              p.codcontabil::int AS conta_parceiro, pc.codplanocontas AS conta_cc, pl.descricao AS cc_desc,
              coalesce(p.razao,'') AS razao, coalesce(a.obs,'') AS obs
         FROM areceber a
@@ -188,15 +202,33 @@ export class DocumentosContabilService {
 
     let lancamentos = 0;
     let total = 0;
+    let pulados = 0;
     for (const d of docs) {
       const codrcb = Number(d.codrcb);
-      const situacao = d.idsituacao_nf == null ? cfg.config_quebracaixarcb : Number(d.idsituacao_nf);
+      // o título de VENDA não passa por aqui (`:4064-4081`): com NROPEDIDO, pula o 'CONTA ORIGINADA DE VENDAS' e o que tem a
+      // venda ou o pedido vivos — esses vão pela contabilização da venda
+      const nropedido = String(d.nropedido ?? '').trim();
+      if (nropedido) {
+        const daVenda = String(d.obs ?? '') === 'CONTA ORIGINADA DE VENDAS' || (await sql`
+          SELECT 1 FROM vendas WHERE nropedido = ${nropedido} AND cancelado = 'N'
+          UNION ALL SELECT 1 FROM pedidos WHERE nropedido = ${nropedido} AND cancelado = 'N' LIMIT 1`.execute(trx)).rows.length > 0;
+        if (daVenda) { pulados += 1; continue; }
+      }
+      if (d.conta_parceiro == null) throw new BusinessRuleError('CONTA_PARCEIRO_NAO_DEFINIDA', { documento: codrcb, codparceiro: d.codparceiro });
+      // a situação é a do título; a 785 (`CONFIG_QUEBRACAIXARCB`) só quando um SALDO_OPERADOR aponta o título — a quebra de
+      // caixa (`GetOrigemFechamento`, `:3927`), e aí o texto do razão (85) sai do saldo: o PDV e o operador
+      const quebra = (await sql<{ codpdv: number | null; nome: string | null }>`
+        SELECT s.codpdv, o.nome FROM saldo_operador s LEFT JOIN operadores o ON o.codoperador = s.codoperador
+         WHERE s.codrcb = ${codrcb} ORDER BY s.idsaldoop LIMIT 1`.execute(trx)).rows[0];
+      const situacao = quebra ? cfg.config_quebracaixarcb : (num(d.idsituacao_nf) || null);
       if (!situacao) throw new BusinessRuleError('SITUACAO_DOCUMENTO_NAO_INFORMADA', { origem: 'CR', documento: codrcb });
-      if (!d.data) throw new BusinessRuleError('DOCUMENTO_SEM_DATA', { origem: 'CR', documento: codrcb });
+      const data = dataFixa ?? d.data;
+      if (!data) throw new BusinessRuleError('DOCUMENTO_SEM_DATA', { origem: 'CR', documento: codrcb });
       const valor = r2(num(d.valor));
+      // o COMPLEMENTO fica nulo: é assim nas 3.041 linhas da origem 14 desde 2025
       await lancarNoDiario(trx, {
-        emp, codorigem: ORIGEM.CR, situacao, data: String(d.data), valor,
-        idorigem: codrcb, documento: String(codrcb), complemento: String(codrcb),
+        emp, codorigem: ORIGEM.CR, situacao, data: String(data), valor,
+        idorigem: codrcb, documento: String(codrcb), complemento: null,
         dataSetD: [{ codplanocontas: d.conta_parceiro == null ? null : Number(d.conta_parceiro), valor, descricao: `o parceiro ${d.codparceiro ?? 0}` }],
         dataSetC: [{ codplanocontas: d.conta_cc == null ? null : Number(d.conta_cc), valor, descricao: `o centro de custo ${d.cc_desc ?? d.codplc}` }],
         desclote: `Conta a receber ${codrcb}`,
@@ -205,13 +237,14 @@ export class DocumentosContabilService {
         ctxHist: {
           documento: codrcb, verba: d.cc_desc == null ? null : String(d.cc_desc),
           parceiro: String(d.razao ?? ''), obs: String(d.obs ?? ''),
+          ...(quebra ? { pdv: String(Math.trunc(num(quebra.codpdv))).padStart(3, '0'), operadorNome: String(quebra.nome ?? '') } : {}),
         },
       });
       await trx.updateTable('areceber').set({ contabilizado: 'S' }).where('codrcb', '=', codrcb).execute();
       lancamentos += 1;
       total = r2(total + valor);
     }
-    return { documentos: docs.length, lancamentos, total };
+    return { documentos: docs.length - pulados, lancamentos, total };
   }
 
   /**

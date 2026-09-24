@@ -923,8 +923,9 @@ saído em 19/08 pela regra "nada de PDV" — interpretação minha, não do usu�
 consolidando o que os PDVs apuraram (`FINALIZA_FECHAMENTO` 386 mil + `DOC_FECHAMENTO` 2,1 mi, vivas;
 `FRMFECHAMENTOCAIXA` 64.854 acessos). Os dados entram (mig 311); **corte 1 (conferência + rascunho) ✅ 24/09/2026**
 (mig 322: turnos, detalhe, completar o CX_VENDAS, sangria automática, documentos, FF/DOC, consulta; tela
-`/cobranca/fechamento-caixa`); falta o efetivar (corte 2), contábil/reabertura (3) e acessórios (4)
-(`uFechamentoCaixa-finalizacao.md`).
+`/cobranca/fechamento-caixa`); **corte 2 (efetivar) ✅** (mig 325) e **corte 3 (a contabilização no efetivar, o TRON opção 8
+e a reabertura) ✅ 24/09/2026** (mig 328; os antigos `caixa-pdv-contabil`/`caixa-conferencia` saíram); falta só o corte 4,
+os acessórios (`uFechamentoCaixa-finalizacao.md`).
 
 **Correções de vereditos antigos:** a FILA dizia que o inventário de tabelas vivas sem destino estava fechado — não
 estava (TB_SPEED_AUX, ICME_PROD_APURACAO, REF_MENSAGENS_NF, NFE_REF_DEV_ENT_VINCULO e SITUACAO_NF_PLC gravadas em

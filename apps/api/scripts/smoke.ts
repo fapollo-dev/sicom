@@ -3788,147 +3788,7 @@ async function main() {
     await fetch(`${base}/${CXt}/${tc4}/fechar`, { method: 'POST', headers: H, body: JSON.stringify({}) }); // cleanup
     await pgTes.end();
 
-    // 45b) CAIXA 2d-c — CONTÁBIL do FECHAMENTO do PDV por forma de pagamento (CX_VENDAS → DIÁRIO, situação 2010).
-    const pgCv = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
-    // grupo 91001 (codoperadora=OPERADOR 7; forma casa por OPERACAO=MODALIDADE): DINHEIRO(→forma 1, conta 183)
-    // líq 100 + (60−10)=50 → 150 ; CARTOES(→forma 3, conta 213) 200 ; QUEBRA DE CAIXA(→forma 6, destino QUE) 30 → IGNORADO.
-    await pgCv.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, valor, troco, codgrupo, status, contabilizado) VALUES
-      (1,'2026-11-05 10:00:00-03',1,7,'DINHEIRO',100, 0,91001,'F','N'),
-      (1,'2026-11-05 10:05:00-03',1,7,'DINHEIRO', 60,10,91001,'F','N'),
-      (1,'2026-11-05 10:10:00-03',1,7,'CARTOES', 200, 0,91001,'F','N'),
-      (1,'2026-11-05 10:15:00-03',1,7,'QUEBRA DE CAIXA', 30, 0,91001,'F','N')`);
-    const cvDiario = async () => (await pgCv.query(`SELECT contadebito, contacredito, valor, codorigem, idorigem, codoperacao FROM diario WHERE codorigem=17 AND idorigem=91001 AND codempresa=1 ORDER BY contadebito`)).rows as any[];
-    // 45b.1) contabilizar → 2 lançamentos (dinheiro D183/C200 150 ; cartão D213/C200 200), quebra ignorada; total 350.
-    const cvCtb = await fetch(`${base}/cobranca/caixa/contabilizar-pdv?dtini=2026-11-01&dtfim=2026-11-30`, { method: 'POST', headers: H });
-    const cvCtbJ = (await cvCtb.json().catch(() => ({}))) as any;
-    const dia1 = await cvDiario();
-    const dDin = dia1.find((d) => Number(d.contadebito) === 183);
-    const dCar = dia1.find((d) => Number(d.contadebito) === 213);
-    check('CAIXA-PDV 45b.1: contabiliza por forma (D183/C200 150 dinheiro + D213/C200 200 cartão; quebra QUE ignorada; sit 2010)',
-      cvCtb.status === 200 && Number(cvCtbJ.grupos) === 1 && Number(cvCtbJ.lancamentos) === 2 && Number(cvCtbJ.total) === 350
-      && dia1.length === 2 && dDin && Number(dDin.contacredito) === 200 && Number(dDin.valor) === 150 && Number(dDin.codoperacao) === 2010
-      && dCar && Number(dCar.contacredito) === 200 && Number(dCar.valor) === 200,
-      { body: cvCtbJ, dia: dia1 });
-    // 45b.2) idempotente: 2ª chamada não gera nada (grupo já contabilizado).
-    const cvCtb2 = await fetch(`${base}/cobranca/caixa/contabilizar-pdv?dtini=2026-11-01&dtfim=2026-11-30`, { method: 'POST', headers: H });
-    const cvCtb2J = (await cvCtb2.json().catch(() => ({}))) as any;
-    const contab = (await pgCv.query(`SELECT count(*)::int n FROM cx_vendas WHERE codgrupo=91001 AND coalesce(contabilizado,'N')='S'`)).rows[0]?.n;
-    check('CAIXA-PDV 45b.2: idempotente (2ª vez grupos=0, sem novo DIÁRIO) + grupo inteiro marcado contabilizado (4 linhas)',
-      Number(cvCtb2J.grupos) === 0 && (await cvDiario()).length === 2 && Number(contab) === 4, { body: cvCtb2J, contab });
-    // 45b.3) reverter (por grupo) remove o DIÁRIO e reabre o grupo.
-    const cvRev = await fetch(`${base}/cobranca/caixa/91001/reverter-pdv`, { method: 'POST', headers: H });
-    const contabPos = (await pgCv.query(`SELECT count(*)::int n FROM cx_vendas WHERE codgrupo=91001 AND coalesce(contabilizado,'N')='S'`)).rows[0]?.n;
-    check('CAIXA-PDV 45b.3: reverter remove o DIÁRIO (0) + reabre o grupo (0 contabilizado)',
-      cvRev.status === 200 && (await cvDiario()).length === 0 && Number(contabPos) === 0, { status: cvRev.status, contabPos });
-    // 45b.4) RBAC sem grant → 403.
-    const cvRbac = await fetch(`${base}/cobranca/caixa/contabilizar-pdv?dtini=2026-11-01&dtfim=2026-11-30`, { method: 'POST', headers: H_SEM_ACESSO });
-    check('CAIXA-PDV 45b.4: contabilizar sem grant RBAC → 403', cvRbac.status === 403, { status: cvRbac.status });
-    // 45b.5) FAIL-LOUD (fold [ALTA]): forma não resolvível (OPERACAO 'VALE' sem forma cadastrada) → 422 e NADA lançado.
-    await pgCv.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, valor, troco, codgrupo, status, contabilizado) VALUES
-      (1,'2026-12-03 10:00:00-03',1,7,'VALE', 90, 0,91002,'F','N')`);
-    const cvFail = await fetch(`${base}/cobranca/caixa/contabilizar-pdv?dtini=2026-12-01&dtfim=2026-12-31`, { method: 'POST', headers: H });
-    const naoLancou = (await pgCv.query(`SELECT count(*)::int n FROM diario WHERE codorigem=17 AND idorigem=91002`)).rows[0]?.n;
-    const naoMarcou = (await pgCv.query(`SELECT count(*)::int n FROM cx_vendas WHERE codgrupo=91002 AND coalesce(contabilizado,'N')='S'`)).rows[0]?.n;
-    check('CAIXA-PDV 45b.5: forma sem conta → 422 CONTA_FORMA_NAO_INFORMADA (nada lançado/marcado — fail-loud)',
-      cvFail.status === 422 && ((await cvFail.json().catch(() => ({}))) as any).code === 'CONTA_FORMA_NAO_INFORMADA' && Number(naoLancou) === 0 && Number(naoMarcou) === 0,
-      { status: cvFail.status, lancou: naoLancou, marcou: naoMarcou });
-    // 45b.6) recon do fechamento: o turno que o LEGADO contabilizou (CAIXA do fechamento, mesmo CODGRUPO, contabilizado)
-    // não vai ao razão de novo; e reverter um turno do Apollo não apaga um 17/2010 do legado com IDORIGEM igual (CODCX).
-    await pgCv.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, valor, troco, codgrupo, status) VALUES
-      (1,'2026-11-20 10:00:00-03',1,7,'DINHEIRO',80,0,91003,'F'),
-      (1,'2026-11-21 10:00:00-03',1,7,'DINHEIRO',40,0,91004,'F')`);
-    await pgCv.query(`INSERT INTO caixa (data, valor, idempresa, origem, codgrupo, contabilizado) VALUES ('2026-11-20', 80, 1, 'FECHAMENTO', 91003, 'S')`);
-    await pgCv.query(`INSERT INTO diario (datalan, contadebito, contacredito, valor, codorigem, idorigem, codoperacao, codempresa)
-                      VALUES ('2026-11-02', 183, 200, 6.66, 17, 91004, 2010, 1)`);
-    const cvLeg = await fetch(`${base}/cobranca/caixa/contabilizar-pdv?dtini=2026-11-15&dtfim=2026-11-30`, { method: 'POST', headers: H });
-    const cvLegJ = (await cvLeg.json().catch(() => ({}))) as any;
-    const d91003 = Number((await pgCv.query(`SELECT count(*)::int n FROM diario WHERE codorigem=17 AND idorigem=91003`)).rows[0].n);
-    const cvRev4 = await fetch(`${base}/cobranca/caixa/91004/reverter-pdv`, { method: 'POST', headers: H });
-    const d91004Leg = Number((await pgCv.query(`SELECT count(*)::int n FROM diario WHERE codorigem=17 AND idorigem=91004 AND valor=6.66`)).rows[0].n);
-    const d91004Apollo = Number((await pgCv.query(`SELECT count(*)::int n FROM diario WHERE codorigem=17 AND idorigem=91004 AND valor=40`)).rows[0].n);
-    check('CAIXA-PDV 45b.6: turno já contabilizado pelo legado fica fora (1 grupo lançado, o 91004) · reverter apaga só o do Apollo (o 17/2010 migrado fica)',
-      cvLeg.status === 200 && Number(cvLegJ.grupos) === 1 && d91003 === 0 && cvRev4.status === 200 && d91004Leg === 1 && d91004Apollo === 0,
-      { body: cvLegJ, d91003, rev: cvRev4.status, legado: d91004Leg, apollo: d91004Apollo });
-    await pgCv.query(`DELETE FROM diario WHERE codorigem=17 AND idorigem=91004 AND valor=6.66`);
-    await pgCv.query(`DELETE FROM caixa WHERE codgrupo=91003 AND origem='FECHAMENTO'`);
-    await pgCv.query(`DELETE FROM cx_vendas WHERE codgrupo IN (91003, 91004)`);
-    await pgCv.query(`DELETE FROM cx_vendas WHERE codgrupo IN (91001,91002)`); // cleanup
-
-    // 45c) CAIXA × CX_VENDAS — CONFERÊNCIA do fechamento do PDV (SALDO_OPERADOR): gaveta contada vs DINHEIRO esperado.
-    await pgCv.query(`UPDATE operadores SET codparceiro=20 WHERE codoperador=7 AND codparceiro IS NULL`); // defensivo p/ título-quebra
-    await pgCv.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, valor, troco, codgrupo, status, contabilizado) VALUES
-      (1,'2026-11-06 10:00:00-03',1,7,'DINHEIRO',100, 0,91003,'F','N'),
-      (1,'2026-11-06 10:05:00-03',1,7,'DINHEIRO', 60,10,91003,'F','N'),
-      (1,'2026-11-06 10:10:00-03',1,7,'CARTOES', 200, 0,91003,'F','N'),
-      (1,'2026-11-06 11:00:00-03',1,7,'DINHEIRO',100, 0,91004,'F','N'),
-      (1,'2026-11-06 12:00:00-03',1,7,'DINHEIRO',100, 0,91005,'F','N'),
-      (1,'2026-11-06 13:00:00-03',1,7,'DINHEIRO',100, 0,91006,'F','N')`);
-    // grupo com sangria/suprimento/venda_balcao (fold [ALTA]): esperado = 200 − 5(vb) − 50(sang) + 10(supr) = 155.
-    await pgCv.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, valor, troco, venda_balcao, sangrias, suprimentos, codgrupo, status, contabilizado) VALUES
-      (1,'2026-11-06 14:00:00-03',1,7,'DINHEIRO',200,0,5,50,10,91007,'F','N')`);
-    const confDiario = async (idsaldoop: number) => (await pgCv.query(`SELECT contadebito, contacredito, valor, codorigem, codoperacao, codhist FROM diario WHERE codorigem=18 AND idorigem=$1 AND codempresa=1`, [idsaldoop])).rows as any[];
-    const CONFPDV = (g: number) => `${base}/cobranca/caixa/pdv-conferencia/${g}`;
-    // 45c.1) SOBRA: esperado 150 (DINHEIRO 100 + (60−10 troco); CARTOES fora da gaveta); real 155 → dif +5 → 2019 D183/C541 (codorigem 18).
-    const c1 = await fetch(CONFPDV(91003), { method: 'POST', headers: H, body: JSON.stringify({ valorReal: 155 }) });
-    const c1J = (await c1.json().catch(() => ({}))) as any;
-    const c1Dia = await confDiario(c1J.idsaldoop);
-    check('CAIXA-PDV 45c.1: SOBRA — esperado 150, real 155 → dif +5, SOBRA, contábil 2019 D183/C541 valor 5 (codorigem 18 distinto)',
-      c1.status === 200 && Number(c1J.esperado) === 150 && Number(c1J.diferenca) === 5 && c1J.classificacao === 'SOBRA' && c1J.contabilizado === 'S'
-      && c1Dia.length === 1 && Number(c1Dia[0].contadebito) === 183 && Number(c1Dia[0].contacredito) === 541 && Number(c1Dia[0].valor) === 5 && Number(c1Dia[0].codoperacao) === 2019 && Number(c1Dia[0].codorigem) === 18 && Number(c1Dia[0].codhist) === 84,
-      { body: c1J, dia: c1Dia });
-    // 45c.2) QUEBRA-sem-título: esperado 100, real 90 → dif −10 → 2018 D541/C200 valor 10.
-    const c2 = await fetch(CONFPDV(91004), { method: 'POST', headers: H, body: JSON.stringify({ valorReal: 90 }) });
-    const c2J = (await c2.json().catch(() => ({}))) as any;
-    const c2Dia = await confDiario(c2J.idsaldoop);
-    check('CAIXA-PDV 45c.2: QUEBRA-sem-título — real 90 vs 100 → dif −10, contábil 2018 D541/C200 valor 10',
-      c2.status === 200 && Number(c2J.diferenca) === -10 && c2J.classificacao === 'QUEBRA' && c2J.codrcb === null
-      && c2Dia.length === 1 && Number(c2Dia[0].contadebito) === 541 && Number(c2Dia[0].contacredito) === 200 && Number(c2Dia[0].valor) === 10 && Number(c2Dia[0].codoperacao) === 2018 && Number(c2Dia[0].codhist) === 85,
-      { body: c2J, dia: c2Dia });
-    // 45c.3) QUEBRA-com-título: gerarTitulo → A Receber (parceiro 20, valor 5, origem Q); SEM contábil de divergência.
-    const c3 = await fetch(CONFPDV(91005), { method: 'POST', headers: H, body: JSON.stringify({ valorReal: 95, gerarTitulo: true }) });
-    const c3J = (await c3.json().catch(() => ({}))) as any;
-    const c3Ar = c3J.codrcb ? (await pgCv.query(`SELECT codparceiro, valor, origem, quitada FROM areceber WHERE codrcb=$1`, [c3J.codrcb])).rows[0] as any : null;
-    check('CAIXA-PDV 45c.3: QUEBRA-com-título — gera A Receber (parceiro 20, valor 5, origem Q), SEM contábil de divergência',
-      c3.status === 200 && c3J.classificacao === 'QUEBRA' && Number(c3J.codrcb) > 0 && c3J.contabilizado === null
-      && c3Ar && Number(c3Ar.codparceiro) === 20 && Number(c3Ar.valor) === 5 && c3Ar.origem === 'Q' && c3Ar.quitada === 'N'
-      && (await confDiario(c3J.idsaldoop)).length === 0,
-      { body: c3J, ar: c3Ar });
-    // 45c.4) idempotente (re-conferir 91003 → 422) + devolução na fórmula (91006: real 100 + dev 10 − esp 100 = +10 SOBRA).
-    const c4dup = await fetch(CONFPDV(91003), { method: 'POST', headers: H, body: JSON.stringify({ valorReal: 150 }) });
-    const c4dev = await fetch(CONFPDV(91006), { method: 'POST', headers: H, body: JSON.stringify({ valorReal: 100, devolucao: 10 }) });
-    const c4devJ = (await c4dev.json().catch(() => ({}))) as any;
-    check('CAIXA-PDV 45c.4: re-conferir grupo já conferido → 422 CONFERENCIA_JA_REALIZADA; devolução entra na fórmula (+10 SOBRA)',
-      c4dup.status === 422 && ((await c4dup.json().catch(() => ({}))) as any).code === 'CONFERENCIA_JA_REALIZADA'
-      && c4dev.status === 200 && Number(c4devJ.diferenca) === 10 && c4devJ.classificacao === 'SOBRA',
-      { dup: c4dup.status, dev: c4devJ });
-    // 45c.5) estornar: sobra (91003) reverte diário (codorigem 18) + excluido='S'; com-título (91005) apaga o A Receber.
-    const e1 = await fetch(`${CONFPDV(91003)}/estornar`, { method: 'POST', headers: H });
-    const e1saldo = (await pgCv.query(`SELECT excluido FROM saldo_operador WHERE codgrupo=91003 AND idempresa=1 ORDER BY idsaldoop DESC LIMIT 1`)).rows[0] as any;
-    const e1dia = await confDiario(c1J.idsaldoop);
-    const e2 = await fetch(`${CONFPDV(91005)}/estornar`, { method: 'POST', headers: H });
-    const e2ar = (await pgCv.query(`SELECT count(*)::int n FROM areceber WHERE codrcb=$1`, [c3J.codrcb])).rows[0]?.n;
-    check('CAIXA-PDV 45c.5: estornar — sobra reverte diário (0) + excluido=S; com-título apaga o A Receber (0)',
-      e1.status === 200 && e1saldo?.excluido === 'S' && e1dia.length === 0 && e2.status === 200 && Number(e2ar) === 0,
-      { e1: e1.status, exc: e1saldo, dia: e1dia.length, e2: e2.status, ar: e2ar });
-    // 45c.6) RBAC sem grant → 403; grupo sem movimento → 422 GRUPO_SEM_MOVIMENTO.
-    const c6rbac = await fetch(CONFPDV(91004), { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ valorReal: 1 }) });
-    const c6vazio = await fetch(CONFPDV(99999), { method: 'POST', headers: H, body: JSON.stringify({ valorReal: 1 }) });
-    check('CAIXA-PDV 45c.6: RBAC sem grant → 403; grupo sem movimento → 422 GRUPO_SEM_MOVIMENTO',
-      c6rbac.status === 403 && c6vazio.status === 422 && ((await c6vazio.json().catch(() => ({}))) as any).code === 'GRUPO_SEM_MOVIMENTO',
-      { rbac: c6rbac.status, vazio: c6vazio.status });
-    // 45c.7) fold [ALTA]: netagem sangria/suprimento/venda_balcao no esperado. DINHEIRO 200, vb 5, sangria 50,
-    // supr 10 → esperado = 200 − 5 − 50 + 10 = 155; real 155 → dif 0 (OK). SEM a netagem daria esperado 200 → quebra-fantasma −45.
-    const c7 = await fetch(CONFPDV(91007), { method: 'POST', headers: H, body: JSON.stringify({ valorReal: 155 }) });
-    const c7J = (await c7.json().catch(() => ({}))) as any;
-    check('CAIXA-PDV 45c.7: esperado NETA sangria/suprimento/venda_balcao (200−5−50+10=155); real 155 → dif 0 OK (sem quebra-fantasma)',
-      c7.status === 200 && Number(c7J.esperado) === 155 && Number(c7J.diferenca) === 0 && c7J.classificacao === 'OK' && c7J.contabilizado === null,
-      { body: c7J });
-    // cleanup §45c
-    await pgCv.query(`DELETE FROM diario WHERE codorigem=18 AND codempresa=1`);
-    await pgCv.query(`DELETE FROM saldo_operador WHERE codgrupo IN (91003,91004,91005,91006,91007)`);
-    await pgCv.query(`DELETE FROM cx_vendas WHERE codgrupo IN (91003,91004,91005,91006,91007)`);
-    await pgCv.end();
-
+    // (45b/45c — a contabilização e a conferência do fechamento do PDV — foram para o FECHAMENTO DE CAIXA, §169 e §173)
     // 46) AR/AP contábil-2 — baixa por recurso BANCO (money leg = contas_bancarias.codlanccontabil; NÃO toca o caixa).
     const pgBco = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const ARb = 'cadastro/areceber', APb = 'cadastro/apagar';
@@ -19385,6 +19245,214 @@ async function main() {
       }
     }
 
+    // ══ §173 FECHAMENTO DE CAIXA, corte 3: a CONTABILIZAÇÃO (TIntegracaoFechamentoCaixa) e a REABERTURA (btnReabrirClick) ══
+    {
+      const pgC3 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const FC = 'cobranca/fechamento-caixa';
+      const TRON = 'contabil/integracao/fechamento';
+      const DIA = '2038-03-10';
+      const CH = '78100338080000';
+      const ts = (h: string) => `${DIA} ${h}-03`;
+      const turno = { data: DIA, chave: CH, nropdv: 78, codoperadora: 7 };
+      const cfgIds = [991721];
+      const post = async (path: string, body: unknown, headers = H) => {
+        const r = await fetch(`${base}/${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
+        return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+      };
+      const antes = {
+        emp: (await pgC3.query(`SELECT idpgto, integracao, codfornecedor_trocosolidario, codplc_trocosolidario FROM empresas WHERE idempresa = 1`)).rows[0] as any,
+        oper: (await pgC3.query(`SELECT codparceiro FROM operadores WHERE codoperador = 7`)).rows[0] as any,
+        p20: (await pgC3.query(`SELECT codcontabil FROM parceiros WHERE codparceiro = 20`)).rows[0] as any,
+        p22: (await pgC3.query(`SELECT codcontabil_for FROM parceiros WHERE codparceiro = 22`)).rows[0] as any,
+      };
+      const gruposCriados: number[] = [];
+      try {
+        const opr = Number(((await pgC3.query(`SELECT min(codoperadoras) AS c FROM operadoras`)).rows[0] as any).c);
+        const nomeOp = String(((await pgC3.query(`SELECT nome FROM operadores WHERE codoperador = 7`)).rows[0] as any)?.nome ?? '');
+        await pgC3.query(`UPDATE empresas SET integracao = 'AUTOMATICA', idpgto = 6, codfornecedor_trocosolidario = 22, codplc_trocosolidario = 4 WHERE idempresa = 1`);
+        await pgC3.query(`UPDATE operadores SET codparceiro = 20 WHERE codoperador = 7`);
+        await pgC3.query(`UPDATE parceiros SET codcontabil = 211 WHERE codparceiro = 20`);
+        await pgC3.query(`UPDATE parceiros SET codcontabil_for = 11141 WHERE codparceiro = 22`);
+        await pgC3.query(`INSERT INTO pdv (codpdv, nropdv, descricao, codempresa) VALUES (978, 78, 'PDV 78 SMOKE', 1) ON CONFLICT DO NOTHING`);
+        await pgC3.query(`INSERT INTO contacorrente (codcontacorrente, codpdv, idpgto, codplc) VALUES (9917201, 978, 1, 1), (9917202, 978, 3, 2), (9917203, 978, 4, 3), (9917204, 978, 6, 5)`);
+        const ins = async (op: string, valor: number, ped: string, hora: string) =>
+          pgC3.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, debito_credito, valor, troco, nropedido, chave)
+            VALUES (1, $1, 78, 7, $2, 'C', $3, 0, $4, $5)`, [ts(hora), op, valor, ped, CH]);
+        await ins('DINHEIRO', 100, '781001', '10:00:00');
+        await ins('CARTOES', 80, '781002', '11:00:00');
+        await ins('CONVENIO', 30, '781003', '12:00:00');
+        await pgC3.query(`INSERT INTO caixa_pdv (codcaixa, codpdv, codoperadora, data, horaentrada, chave, idempresa, sangria, fundocaixa)
+          VALUES (9917201, 78, 7, $1, $1, $2, 1, 0, 0)`, [ts('08:00:00'), CH]);
+        await pgC3.query(`INSERT INTO hist_troco_solidario (codhisttrocosolidario, idempresa, codcaixa, dtvenda, valor, codpdv, codoperador, chave)
+          VALUES (9917201, 1, 9917201, $1, 1.5, 78, 7, $2)`, [ts('10:05:00'), CH]);
+        const c80 = Number(((await pgC3.query(`INSERT INTO cartao (idempresa, codoperadora, idpgto, dtvenda, valor, codpdv, codoperador, nropedido, chave)
+            VALUES (1, $1, 3, $2, 80, 78, 7, '781002', $3) RETURNING codvendcartao`, [opr, ts('11:00:00'), CH])).rows[0] as any).codvendcartao);
+        const r30 = Number(((await pgC3.query(`INSERT INTO areceber (codempresa, idpgto, dtvenda, dtvenc, valor, codpdv, codoperador, nrocupom, chave)
+            VALUES (1, 4, $1, $1, 30, 78, 7, '781003', $2) RETURNING codrcb`, [ts('12:00:00'), CH])).rows[0] as any).codrcb);
+        const corpo = (contado: number, extra: Record<string, unknown> = {}) => ({ ...turno, dinheiroContado: contado, documentos: [{ operacao: 'CARTOES', codigos: [c80] }, { operacao: 'CONVENIO', codigos: [r30] }], ...extra });
+        const razao = async (g: number) => (await pgC3.query(`SELECT d.codorigem, d.codoperacao, d.contadebito, d.contacredito, d.valor::float AS valor, d.idorigem, d.documento,
+            d.complemento, d.tipodoc, d.deschist, d.codhist, to_char(d.datalan, 'YYYY-MM-DD') AS datalan
+            FROM diario d WHERE (d.codorigem = 17 AND (d.complemento = $2 OR (d.tipodoc = 'QUEBRA/SOBRA' AND d.idorigem IN (SELECT idsaldoop FROM saldo_operador WHERE codgrupo = $1))))
+               OR (d.codorigem = 14 AND d.idorigem IN (SELECT codrcb FROM saldo_operador WHERE codgrupo = $1 AND codrcb IS NOT NULL))
+               OR (d.codorigem = 13 AND d.idorigem IN (SELECT codapg FROM apagar WHERE codgrupo_fcx = $1))
+            ORDER BY d.codorigem DESC, d.contadebito, d.coddiario`, [g, String(g)])).rows as any[];
+
+        // 172.1 — efetivar com a quebra cobrada do operador (título) e o troco solidário
+        await post(`${FC}/turno/abrir`, turno);
+        const ef1 = await post(`${FC}/turno/efetivar`, corpo(90, { gerarSaldo: true, confirmarDocumentosNaoSelecionados: true }));
+        const g1 = Number(ef1.j.efetivado?.codgrupo);
+        gruposCriados.push(g1);
+        const rz1 = await razao(g1);
+        const r17 = rz1.filter((d) => d.codorigem === 17);
+        const d14 = rz1.find((d) => d.codorigem === 14);
+        const d13 = rz1.find((d) => d.codorigem === 13);
+        const so1 = (await pgC3.query(`SELECT idsaldoop, saldo::float AS saldo, codrcb, contabilizado FROM saldo_operador WHERE codgrupo = $1`, [g1])).rows[0] as any;
+        const flags1 = (await pgC3.query(`SELECT tiporecurso, contabilizado FROM caixa WHERE codgrupo = $1 AND origem = 'FECHAMENTO' ORDER BY codcx`, [g1])).rows as any[];
+        const t1 = (await pgC3.query(`SELECT codapg, contabilizado FROM apagar WHERE codgrupo_fcx = $1`, [g1])).rows[0] as any;
+        const q1 = (await pgC3.query(`SELECT contabilizado FROM areceber WHERE codrcb = $1`, [so1?.codrcb ?? -1])).rows[0] as any;
+        const f = (esp: string) => r17.find((d) => d.documento === esp);
+        check('FECHAMENTO §173.1 [a contabilização no efetivar, com INTEGRACAO AUTOMATICA]: uma linha BALANCEADA por forma na origem 17, situação 2010, débito na conta da forma (DINHEIRO 183, CARTOES 213, CONVENIO 211) e crédito 200, na DATA DO CAIXA, DOCUMENTO = a forma, COMPLEMENTO = o grupo, IDORIGEM = a CAIXA, hist 83 "FECHAMENTO CAIXA NFC 078 OPERADOR … ESPECIE …"; a CAIXA da quebra (forma QUE) não entra; a quebra COM título vai pelo contas a receber (origem 14, situação 785, D211/C200, hist 85 "QUEBRA DE CAIXA NFC 078 OPERADOR …", COMPLEMENTO nulo) e o SALDO fica sem marca; o troco solidário vai pelo contas a pagar (origem 13, situação 3260, D183/C11141, hist 181); 5 lançamentos e nenhum aviso',
+          ef1.status === 200 && ef1.j.efetivado?.contabil?.lancamentos === 5 && (ef1.j.efetivado?.contabil?.avisos ?? []).length === 0
+          && r17.length === 3 && r17.every((d) => d.codoperacao === 2010 && Number(d.contacredito) === 200 && d.complemento === String(g1) && d.datalan === DIA && d.tipodoc == null && d.codhist === 83)
+          && Number(f('DINHEIRO')?.contadebito) === 183 && f('DINHEIRO')?.valor === 90 && Number(f('CARTOES')?.contadebito) === 213 && f('CARTOES')?.valor === 80
+          && Number(f('CONVENIO')?.contadebito) === 211 && f('CONVENIO')?.valor === 30
+          && f('DINHEIRO')?.deschist === `FECHAMENTO CAIXA NFC 078 OPERADOR ${nomeOp} ESPECIE DINHEIRO`
+          && flags1.filter((x) => x.tiporecurso !== 'QUEBRA DE CAIXA').every((x) => x.contabilizado === 'S') && flags1.find((x) => x.tiporecurso === 'QUEBRA DE CAIXA')?.contabilizado == null
+          && so1?.saldo === -11.5 && so1?.contabilizado == null && q1?.contabilizado === 'S'
+          && d14?.codoperacao === 785 && Number(d14?.contadebito) === 211 && Number(d14?.contacredito) === 200 && d14?.valor === 11.5 && d14?.complemento == null && d14?.datalan === DIA
+          && d14?.deschist === `QUEBRA DE CAIXA NFC 078 OPERADOR ${nomeOp}` && Number(d14?.documento) === Number(so1?.codrcb)
+          && d13?.codoperacao === 3260 && Number(d13?.contadebito) === 183 && Number(d13?.contacredito) === 11141 && d13?.valor === 1.5 && d13?.complemento == null && d13?.datalan === DIA
+          && String(d13?.deschist ?? '').startsWith('TROCO SOLIDARIO À PAGAR ') && t1?.contabilizado === 'S',
+          { status: ef1.status, code: ef1.j.code, contabil: ef1.j.efetivado?.contabil, rz1, so1, flags1, t1, q1 });
+
+        // 172.2 — reabrir: as travas e depois o desfazer (modo E, o da produção)
+        await pgC3.query(`UPDATE empresas SET integracao = NULL WHERE idempresa = 1`);
+        const semAuto = await post(`${FC}/turno/reabrir`, turno);
+        await pgC3.query(`UPDATE empresas SET integracao = 'AUTOMATICA' WHERE idempresa = 1`);
+        await pgC3.query(`UPDATE areceber SET quitada = 'S' WHERE codrcb = $1`, [so1?.codrcb ?? -1]);
+        const baixada = await post(`${FC}/turno/reabrir`, turno);
+        await pgC3.query(`UPDATE areceber SET quitada = 'N' WHERE codrcb = $1`, [so1?.codrcb ?? -1]);
+        const semAcesso = await post(`${FC}/turno/reabrir`, turno, H_SEM_ACESSO);
+        const re1 = await post(`${FC}/turno/reabrir`, turno);
+        const rz2 = await razao(g1);
+        const est = {
+          caixa: Number(((await pgC3.query(`SELECT count(*)::int AS n FROM caixa WHERE codgrupo = $1`, [g1])).rows[0] as any).n),
+          mcb: Number(((await pgC3.query(`SELECT count(*)::int AS n FROM mov_contas_bancarias WHERE chave = $1 AND origem = 'FCP'`, [CH])).rows[0] as any).n),
+          apagar: Number(((await pgC3.query(`SELECT count(*)::int AS n FROM apagar WHERE codgrupo_fcx = $1`, [g1])).rows[0] as any).n),
+          cxApagar: Number(((await pgC3.query(`SELECT count(*)::int AS n FROM caixa WHERE idorigem = $1 AND origem = 'APAGAR'`, [t1?.codapg ?? -1])).rows[0] as any).n),
+          quebra: Number(((await pgC3.query(`SELECT count(*)::int AS n FROM areceber WHERE codrcb = $1`, [so1?.codrcb ?? -1])).rows[0] as any).n),
+          saldo: (await pgC3.query(`SELECT excluido, codrcb FROM saldo_operador WHERE idsaldoop = $1`, [so1?.idsaldoop ?? -1])).rows[0] as any,
+          cxv: (await pgC3.query(`SELECT count(*) FILTER (WHERE status IS NULL AND codgrupo IS NULL AND tesouraria IS NULL)::int AS a, count(*)::int AS n FROM cx_vendas WHERE chave = $1`, [CH])).rows[0] as any,
+          cartao: ((await pgC3.query(`SELECT consiliado FROM cartao WHERE codvendcartao = $1`, [c80])).rows[0] as any)?.consiliado,
+          conv: ((await pgC3.query(`SELECT consiliado FROM areceber WHERE codrcb = $1`, [r30])).rows[0] as any)?.consiliado,
+          ff: Number(((await pgC3.query(`SELECT count(*) FILTER (WHERE consolidado IS NOT NULL)::int AS n FROM finaliza_fechamento WHERE chave = $1`, [CH])).rows[0] as any).n),
+          hist: ((await pgC3.query(`SELECT historico, coddoc FROM historico WHERE auxiliar = $1 AND historico LIKE 'Reabertura%'`, [CH])).rows as any[]),
+        };
+        check('FECHAMENTO §173.2 [a reabertura]: sem integração automática e com a CAIXA contabilizada, não reabre ("Não é permitido reabrir este caixa pois já foi contabilizado."); o título da quebra já baixado bloqueia (divergência: o legado o apagava); sem o BTNREABRIR, 403. Reaberto: o razão do grupo sai inteiro (17, 14 e 13), a CAIXA do fechamento, o MCB (modo E), o título do troco com o rateio e a CAIXA dele, o título da quebra; o SALDO fica EXCLUIDO sem o título; o CX_VENDAS da chave volta a aberto; o cartão e o convênio perdem a conciliação; o rascunho perde o CONSOLIDADO; o HISTORICO "Reabertura do caixa 78, do operador …, no dia 10/03/2038." com o grupo',
+          semAuto.status === 422 && semAuto.j.code === 'FECHAMENTO_REABRIR_CONTABILIZADO'
+          && baixada.status === 422 && baixada.j.code === 'FECHAMENTO_REABRIR_QUEBRA_BAIXADA' && semAcesso.status === 403
+          && re1.status === 200 && re1.j.modo === 'fechamento' && re1.j.reaberto?.modo === 'E' && re1.j.reaberto?.codgrupo === g1
+          && rz2.length === 0 && est.caixa === 0 && est.mcb === 0 && est.apagar === 0 && est.cxApagar === 0 && est.quebra === 0
+          && est.saldo?.excluido === 'S' && est.saldo?.codrcb == null && est.cxv?.a === est.cxv?.n && est.cxv?.n >= 3
+          && est.cartao == null && est.conv == null && est.ff === 0
+          && est.hist.length === 1 && est.hist[0].historico === `Reabertura do caixa 78, do operador ${nomeOp}, no dia 10/03/2038.` && est.hist[0].coddoc === String(g1),
+          { semAuto: [semAuto.status, semAuto.j.code], baixada: [baixada.status, baixada.j.code], semAcesso: semAcesso.status, re1: [re1.status, re1.j.code, re1.j.reaberto], rz2: rz2.length, est });
+
+        // 172.3 — refechar com uma forma sem conta contábil: o fechamento fica, a contabilização não (aviso) e o TRON pega depois
+        await pgC3.query(`UPDATE formas_pgto SET codplanocontas = NULL WHERE idpgto = 3`);
+        const ef2 = await post(`${FC}/turno/efetivar`, corpo(110, { confirmarDocumentosNaoSelecionados: true }));
+        const g2 = Number(ef2.j.efetivado?.codgrupo);
+        gruposCriados.push(g2);
+        const rzAntes = await razao(g2);
+        const cxs2 = (await pgC3.query(`SELECT count(*)::int AS n, count(contabilizado)::int AS c FROM caixa WHERE codgrupo = $1 AND origem = 'FECHAMENTO'`, [g2])).rows[0] as any;
+        await pgC3.query(`UPDATE formas_pgto SET codplanocontas = 213 WHERE idpgto = 3`);
+        const tron1 = await post(TRON, { dataIni: DIA, dataFim: DIA, codigo: g2 });
+        const rz3 = await razao(g2);
+        const sob = rz3.find((d) => d.tipodoc === 'QUEBRA/SOBRA');
+        const so2 = (await pgC3.query(`SELECT idsaldoop, saldo::float AS saldo, contabilizado FROM saldo_operador WHERE codgrupo = $1 AND excluido = 'N'`, [g2])).rows[0] as any;
+        check('FECHAMENTO §173.3 [a falha calada e o TRON]: com a forma CARTOES sem conta contábil, o efetivar GRAVA o fechamento (3 CAIXA) e a contabilização volta inteira (nada no razão, nenhuma CAIXA marcada) com o aviso da conta que falta — o legado roda com MostraMensagem=False; corrigida a forma, o TRON (opção 8, pelo grupo) contabiliza: as 3 formas, a SOBRA de 8,50 (origem 17, situação 2019, D183/C541, TIPODOC "QUEBRA/SOBRA", IDORIGEM = o SALDO, documento "Sobra de caixa PDV 78, operador 7", hist 84 "SOBRA CAIXA NFC 078 OPERADOR …", sem complemento; o SALDO marcado) e o troco',
+          ef2.status === 200 && ef2.j.efetivado?.contabil?.lancamentos === 0 && (ef2.j.efetivado?.contabil?.avisos ?? []).length === 1
+          && ef2.j.efetivado.contabil.avisos[0].codigo === 'CONTA_ANALITICA_NAO_INFORMADA' && rzAntes.length === 0 && cxs2?.n === 3 && cxs2?.c === 0
+          && tron1.status === 200 && tron1.j.fechamentos === 1 && tron1.j.lancamentos === 5
+          && rz3.filter((d) => d.codorigem === 17 && d.tipodoc == null).length === 3
+          && sob?.codoperacao === 2019 && Number(sob?.contadebito) === 183 && Number(sob?.contacredito) === 541 && sob?.valor === 8.5 && Number(sob?.idorigem) === Number(so2?.idsaldoop)
+          && sob?.documento === 'Sobra de caixa PDV 78, operador 7' && sob?.complemento == null && sob?.deschist === `SOBRA CAIXA NFC 078 OPERADOR ${nomeOp}`
+          && so2?.saldo === 8.5 && so2?.contabilizado === 'S' && rz3.some((d) => d.codorigem === 13 && d.codoperacao === 3260),
+          { ef2: [ef2.status, ef2.j.code, ef2.j.efetivado?.contabil], rzAntes: rzAntes.length, cxs2, tron1: [tron1.status, tron1.j], rz3, so2 });
+
+        // 172.4 — o TRON por período: estorna só o fechamento (a divergência do caixa da retaguarda, também origem 17, fica) e contabiliza de novo
+        const loteSessao = Number(((await pgC3.query(`INSERT INTO lote_contabil (desclote, datalote, codorigem, codempresa) VALUES ('CAIXA 9917299', $1, 17, 1) RETURNING codlotecontabil`, [DIA])).rows[0] as any).codlotecontabil);
+        await pgC3.query(`INSERT INTO diario (datalan, contadebito, contacredito, valor, codorigem, idorigem, codoperacao, codempresa, complemento, codlote)
+          VALUES ($1, 183, 541, 1, 17, 9917299, 2019, 1, 'Sobra de caixa', $2)`, [DIA, loteSessao]);
+        const estP = await post(`${TRON}/estornar`, { dataIni: DIA, dataFim: DIA });
+        const rz4 = await razao(g2);
+        const flags4 = {
+          caixa: Number(((await pgC3.query(`SELECT count(contabilizado)::int AS n FROM caixa WHERE codgrupo = $1`, [g2])).rows[0] as any).n),
+          saldo: ((await pgC3.query(`SELECT contabilizado FROM saldo_operador WHERE idsaldoop = $1`, [so2?.idsaldoop ?? -1])).rows[0] as any)?.contabilizado,
+          apagar: Number(((await pgC3.query(`SELECT count(contabilizado)::int AS n FROM apagar WHERE codgrupo_fcx = $1`, [g2])).rows[0] as any).n),
+          sessao: Number(((await pgC3.query(`SELECT count(*)::int AS n FROM diario WHERE idorigem = 9917299 AND codorigem = 17`)).rows[0] as any).n),
+        };
+        const intP = await post(TRON, { dataIni: DIA, dataFim: DIA });
+        const rz5 = await razao(g2);
+        const semTron = await post(TRON, { dataIni: DIA, dataFim: DIA }, H_SEM_ACESSO);
+        check('FECHAMENTO §173.4 [o TRON por período]: o estorno apaga as linhas do fechamento no período (forma, sobra e o título do troco) e desmarca CAIXA, SALDO e o título — mas a linha da origem 17 que não é do fechamento (a divergência do caixa da retaguarda, complemento "Sobra de caixa") fica: divergência consciente, o legado apagava a origem 17 inteira; contabilizar o período refaz as 5; sem o FRMTRON, 403',
+          estP.status === 200 && rz4.length === 0 && flags4.caixa === 0 && flags4.saldo == null && flags4.apagar === 0 && flags4.sessao === 1
+          && intP.status === 200 && intP.j.lancamentos === 5 && rz5.length === 5 && semTron.status === 403,
+          { estP: [estP.status, estP.j], rz4: rz4.length, flags4, intP: [intP.status, intP.j], rz5: rz5.length, semTron: semTron.status });
+        await pgC3.query(`DELETE FROM diario WHERE idorigem = 9917299 AND codorigem = 17`);
+        await pgC3.query(`DELETE FROM lote_contabil WHERE codlotecontabil = $1`, [loteSessao]);
+
+        // 172.5 — reabrir no modo D (EXCLUI_OU_LANCA_DEBITO_REABRIR_CAIXA = 'D', a exceção do ADMIN na produção): o MCB fica e ganha o estorno
+        await pgC3.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, config_especificas_permitidas, descricao)
+            VALUES (991721, 'EXCLUI_OU_LANCA_DEBITO_REABRIR_CAIXA', 'D', 'texto', 'Modulo;Empresa;Grupo;Usuario', 'smoke') ON CONFLICT DO NOTHING`);
+        const mcbAntes = (await pgC3.query(`SELECT codmovconta, valor::float AS valor, tipomovimento, idpgto FROM mov_contas_bancarias WHERE chave = $1 AND origem = 'FCP' ORDER BY codmovconta`, [CH])).rows as any[];
+        const re2 = await post(`${FC}/turno/reabrir`, turno);
+        const mcbDepois = (await pgC3.query(`SELECT codmovconta, valor::float AS valor, tipomovimento, idorigem, historico FROM mov_contas_bancarias WHERE chave = $1 AND origem = 'FCP' ORDER BY codmovconta`, [CH])).rows as any[];
+        const reversoes = mcbDepois.filter((m) => !mcbAntes.some((a) => Number(a.codmovconta) === Number(m.codmovconta)));
+        const originais = mcbDepois.filter((m) => mcbAntes.some((a) => Number(a.codmovconta) === Number(m.codmovconta)));
+        const de_novo = await post(`${FC}/turno/reabrir`, turno);
+        check('FECHAMENTO §173.5 [reabrir no modo D]: o MCB do fechamento fica, sem o vínculo com a CAIXA (IDORIGEM nulo), e ganha a movimentação inversa (tipo D, valor negativo) com o histórico "Reabertura do caixa 78, do operador …, do dia 10/03/2038, referente a forma de pagamento "…", realizado pelo(a) usuário(a) … no dia …"; reabrir de novo é 422 (não há fechamento)',
+          re2.status === 200 && re2.j.reaberto?.modo === 'D' && mcbAntes.length === 3 && originais.length === 3 && originais.every((m) => m.idorigem == null)
+          && reversoes.length === 3 && reversoes.every((m) => m.tipomovimento === 'D' && m.valor < 0 && m.idorigem == null
+            && new RegExp(`^Reabertura do caixa 78, do operador ${nomeOp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}, do dia 10/03/2038, referente a forma de pagamento ".+", realizado pelo\\(a\\) usuário\\(a\\) .* no dia \\d{2}/\\d{2}/\\d{4}\\.$`).test(m.historico))
+          && Math.abs(reversoes.reduce((s, m) => s + m.valor, 0) + mcbAntes.reduce((s, m) => s + m.valor, 0)) < 0.001
+          && de_novo.status === 422 && de_novo.j.code === 'FECHAMENTO_REABRIR_NAO_FECHADO',
+          { re2: [re2.status, re2.j.code, re2.j.reaberto], mcbAntes, mcbDepois: mcbDepois.map((m) => [m.codmovconta, m.valor, m.tipomovimento, m.idorigem]), de_novo: [de_novo.status, de_novo.j.code] });
+
+        // limpeza
+        for (const g of gruposCriados) {
+          await pgC3.query(`DELETE FROM diario WHERE codorigem = 17 AND (complemento = $2 OR (tipodoc = 'QUEBRA/SOBRA' AND idorigem IN (SELECT idsaldoop FROM saldo_operador WHERE codgrupo = $1)))`, [g, String(g)]);
+          await pgC3.query(`DELETE FROM diario WHERE codorigem = 13 AND idorigem IN (SELECT codapg FROM apagar WHERE codgrupo_fcx = $1)`, [g]);
+          await pgC3.query(`DELETE FROM caixa WHERE codgrupo = $1 OR codgrupo IN (SELECT codgrupo FROM apagar WHERE codgrupo_fcx = $1)`, [g]);
+          await pgC3.query(`DELETE FROM cx_apagar WHERE codapg IN (SELECT codapg FROM apagar WHERE codgrupo_fcx = $1)`, [g]);
+          await pgC3.query(`DELETE FROM apagar WHERE codgrupo_fcx = $1`, [g]);
+          await pgC3.query(`DELETE FROM saldo_operador WHERE codgrupo = $1`, [g]);
+        }
+        await pgC3.query(`DELETE FROM mov_contas_bancarias WHERE chave = $1`, [CH]);
+        await pgC3.query(`DELETE FROM historico WHERE auxiliar = $1`, [CH]);
+        await pgC3.query(`DELETE FROM contacorrenteop WHERE codoperador = 7`);
+        await pgC3.query(`DELETE FROM doc_fechamento WHERE codifinfech IN (SELECT codifinfech FROM finaliza_fechamento WHERE chave = $1)`, [CH]);
+        await pgC3.query(`DELETE FROM finaliza_fechamento WHERE chave = $1`, [CH]);
+        await pgC3.query(`DELETE FROM hist_sangria_suprimento WHERE chave = $1`, [CH]);
+        await pgC3.query(`DELETE FROM hist_troco_solidario WHERE codhisttrocosolidario = 9917201`);
+        await pgC3.query(`DELETE FROM ticket WHERE chave = $1`, [CH]);
+        await pgC3.query(`DELETE FROM cartao WHERE codvendcartao = $1`, [c80]);
+        await pgC3.query(`DELETE FROM areceber WHERE codrcb = $1 OR (chave = $2)`, [r30, CH]);
+        await pgC3.query(`DELETE FROM caixa_pdv WHERE codcaixa = 9917201`);
+        await pgC3.query(`DELETE FROM cx_vendas WHERE chave = $1`, [CH]);
+        await pgC3.query(`DELETE FROM contacorrente WHERE codpdv = 978`);
+        await pgC3.query(`DELETE FROM pdv WHERE codpdv = 978`);
+      } finally {
+        await pgC3.query(`UPDATE formas_pgto SET codplanocontas = 213 WHERE idpgto = 3`).catch(() => undefined);
+        await pgC3.query(`UPDATE empresas SET idpgto = $1, integracao = $2, codfornecedor_trocosolidario = $3, codplc_trocosolidario = $4 WHERE idempresa = 1`,
+          [antes.emp?.idpgto ?? null, antes.emp?.integracao ?? null, antes.emp?.codfornecedor_trocosolidario ?? null, antes.emp?.codplc_trocosolidario ?? null]).catch(() => undefined);
+        await pgC3.query(`UPDATE operadores SET codparceiro = $1 WHERE codoperador = 7`, [antes.oper?.codparceiro ?? null]).catch(() => undefined);
+        await pgC3.query(`UPDATE parceiros SET codcontabil = $1 WHERE codparceiro = 20`, [antes.p20?.codcontabil ?? null]).catch(() => undefined);
+        await pgC3.query(`UPDATE parceiros SET codcontabil_for = $1 WHERE codparceiro = 22`, [antes.p22?.codcontabil_for ?? null]).catch(() => undefined);
+        await pgC3.query(`DELETE FROM configuracoes WHERE id = ANY($1::int[])`, [cfgIds]).catch(() => undefined);
+        await pgC3.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

@@ -33,6 +33,12 @@ export interface CtxHistorico {
   cfop?: string | null;
   /** a loja com **3 dígitos** (`LOJA .: 001`), como os históricos de nota 64, 66 e 67 a imprimem. */
   loja?: string | null;
+  /** o PDV com **3 dígitos** (`NFC 064`), como o fechamento de caixa o imprime (83, 84, 85). */
+  pdv?: string | null;
+  /** o NOME do operador do caixa (`OPERADOR LETICIA ADM`). */
+  operadorNome?: string | null;
+  /** a espécie/forma do fechamento (`ESPECIE DINHEIRO`) — o `TIPORECURSO` da CAIXA. */
+  especie?: string | null;
 }
 
 /**
@@ -60,6 +66,15 @@ export const ARGS_POR_HISTORICO: Record<number, (c: CtxHistorico) => ArgHist[]> 
   61: (c) => [c.documento, c.cfop, c.cnpj, c.parceiro],
   // 63 · `NOTA FISCAL *` → 'NOTA FISCAL 000740112'
   63: (c) => [c.documento],
+  // 83 · `FECHAMENTO CAIXA NFC * OPERADOR * ESPECIE *` — o fechamento de caixa por forma (origem 17, situação 2010)
+  //     'FECHAMENTO CAIXA NFC 064 OPERADOR LETICIA ADM ESPECIE DINHEIRO' (13.680 de 13.755 em 2026; o resto é
+  //     operador renomeado depois — o razão guarda o nome da época)
+  83: (c) => [c.pdv, c.operadorNome, c.especie],
+  // 84 · `SOBRA CAIXA NFC * OPERADOR *` (situação 2019; 1.574 de 1.588)
+  84: (c) => [c.pdv, c.operadorNome],
+  // 85 · `QUEBRA DE CAIXA NFC * OPERADOR *` — o título da quebra (situação 785, origem 14; 175 de 175): o PDV e o
+  //     operador vêm do SALDO_OPERADOR que aponta o título (`IdOrigemBuscaHistorico`)
+  85: (c) => [c.pdv, c.operadorNome],
   // 86 · `CREDITO CONTA .: * DA CONTA .: * LOTE .: *`
   //     'CREDITO CONTA .: JF SUPERMERCADOS ITAU DA CONTA .: TRANSF. CONTA DESTINO: 4914-7 … LOTE .: 89642'
   86: (c) => [c.conta, c.historicoMov, c.lote],
@@ -131,7 +146,8 @@ export const ARGS_POR_HISTORICO: Record<number, (c: CtxHistorico) => ArgHist[]> 
  * razão, e a tradução é a que esse histórico usa — `APAGAR_BX.CODIGO_DOCUMENTO` sai CRU (91, 106, 107) e
  * `APAGAR.CODIGO` sai com 9 dígitos (21, 101-103); `ARECEBER.OBS` é a descrição do centro de custo (89, 5.895 de
  * 5.895). O teste `historico-contabil.args.spec.ts` confere que dicionário e mapa não se contradizem.
- * Par sem entrada aqui imprime vazio, como o legado quando o chamador não passa argumento. PDV fica de fora.
+ * Par sem entrada aqui imprime vazio, como o legado quando o chamador não passa argumento. `VENDAS` e
+ * `VENDAS_SOBRAS` são os pares do fechamento de caixa (83, 84, 85).
  */
 export const CAMPO_DO_LEGADO: Record<string, (c: CtxHistorico) => ArgHist> = {
   'NF.NRO_NF': (c) => c.documento,
@@ -172,6 +188,11 @@ export const CAMPO_DO_LEGADO: Record<string, (c: CtxHistorico) => ArgHist> = {
   'ADIANTAMENTO PARA PARCEIROS.CODPARCEIRO': (c) => (c.codparceiro == null ? null : String(c.codparceiro)),
   'ADIANTAMENTO PARA PARCEIROS.PARCEIRO': (c) => c.parceiro,
   'ADIANTAMENTO PARA PARCEIROS.CODIGO': (c) => c.documento,
+  'VENDAS.NROPDV': (c) => c.pdv,
+  'VENDAS.NOME': (c) => c.operadorNome,
+  'VENDAS.TIPORECURSO': (c) => c.especie,
+  'VENDAS_SOBRAS.NROPDV': (c) => c.pdv,
+  'VENDAS_SOBRAS.NOME': (c) => c.operadorNome,
 };
 
 /**

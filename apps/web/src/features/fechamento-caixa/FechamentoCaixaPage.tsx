@@ -6,7 +6,7 @@ import { Button } from '../../shared/ui/Button';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { useMensagem } from '../../shared/mensagem';
 import {
-  abrirTurno, detalheTurno, documentosTurno, efetivarTurno, listarTurnos, salvarRascunho,
+  abrirTurno, detalheTurno, documentosTurno, efetivarTurno, listarTurnos, reabrirTurno, salvarRascunho,
   type DetalheTurno, type Documentos, type Fixa, type LinhaFechamento, type TurnoRef, type TurnoResumo,
 } from './fechamentoCaixaApi';
 
@@ -15,7 +15,9 @@ import {
  * (dossiê uFechamentoCaixa-finalizacao.md). Os turnos do dia ("Caixas em aberto"); abrir um turno aberto completa o
  * movimento com as modalidades zeradas e abre a finalização; cada operação é conferida pelos documentos (cartões,
  * convênios, cheques, tickets) e o dinheiro pelo contado + sangria − suprimento. O rascunho é gravado ao sair, como
- * no legado. Efetivar (corte 2) grava o caixa gerencial, a conta bancária, o saldo do operador e a quebra, e fecha o turno.
+ * no legado. Efetivar (corte 2) grava o caixa gerencial, a conta bancária, o saldo do operador e a quebra, e fecha o turno;
+ * com a integração automática, contabiliza (corte 3) — o que falhar fica pendente para o TRON e aparece como aviso.
+ * Reabrir (corte 3) desfaz o fechamento do turno fechado na tesouraria.
  */
 const moeda = (v: number | null | undefined) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const hoje = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
@@ -41,6 +43,7 @@ export function FechamentoCaixaPage() {
   const [docs, setDocs] = useState<{ d: Documentos; marcados: Set<number>; aConferir: number } | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [gerarSaldo, setGerarSaldo] = useState(false); // CkSaldoOperador — marcada sozinha acima do limite
+  const [avisos, setAvisos] = useState<string[]>([]);
 
   const executar = async (f: () => Promise<void>) => {
     setOcupado(true);
@@ -51,6 +54,7 @@ export function FechamentoCaixaPage() {
 
   const carregar = (d: DetalheTurno) => {
     setDet(d);
+    setAvisos((d.efetivado?.contabil?.avisos ?? []).map((a) => `${a.documento}: ${a.mensagem}`));
     setContado(String(d.dinheiroContado ?? 0));
     setConferidas(new Map());
     setGerarSaldo(false);
@@ -150,6 +154,15 @@ export function FechamentoCaixaPage() {
     carregar(r);
     mensagem.sucesso('Fechamento realizado com sucesso.');
   });
+  // REABRIR (btnReabrirClick): desfaz o fechamento — a contabilização, os títulos gerados, o caixa e a conta bancária
+  const reabrir = () => executar(async () => {
+    if (!ref || !det) return;
+    if (!window.confirm('Confirma a reabertura do caixa? O fechamento, a contabilização e as contas geradas por ele serão desfeitos.')) return;
+    const r = await reabrirTurno({ ...ref, situacao: undefined });
+    setRef({ ...ref, situacao: 1 });
+    carregar(r);
+    mensagem.sucesso('Caixa reaberto com sucesso!');
+  });
   // sair da finalização grava o rascunho, como o FormClose do legado
   const voltar = () => executar(async () => {
     await gravar();
@@ -214,9 +227,17 @@ export function FechamentoCaixaPage() {
             <div className="flex flex-wrap gap-gp-sm">
               {!consulta && <Button label="&Gravar conferência" variant="soft" onClick={() => void salvar()} disabled={ocupado} />}
               {!consulta && <Button label="&Efetivar fechamento" onClick={() => void efetivar()} disabled={ocupado} />}
+              {consulta && det.turno.situacao === 3 && <Button label="&Reabrir caixa" variant="soft" onClick={() => void reabrir()} disabled={ocupado} />}
               <Button label="&Voltar" variant="soft" onClick={() => void voltar()} disabled={ocupado} />
             </div>
           </section>
+
+          {avisos.length > 0 && (
+            <section className="flex flex-col gap-gp-xs rounded-radius-md border border-border bg-bg-surface p-pad-md" role="status">
+              <strong className="text-fg-danger">A contabilização deste fechamento ficou pendente — o TRON (fechamento de caixa) contabiliza depois.</strong>
+              {avisos.map((a) => <small key={a} className="text-fg-muted">{a}</small>)}
+            </section>
+          )}
 
           <section className="grid grid-cols-1 gap-gp-sm sm:grid-cols-3">
             <div className="rounded-radius-md border border-border bg-bg-surface p-pad-sm">

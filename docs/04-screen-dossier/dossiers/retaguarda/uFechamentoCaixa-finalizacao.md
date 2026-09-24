@@ -272,7 +272,77 @@ grupos, 13.939 linhas de CAIXA, 10.390 MCB FCP, 3.663 SALDO_OPERADOR) reconstru�
 5. A baixa automática do título de recarga/correspondente (conta de baixa na empresa) não roda na produção — fica fora.
 
 ### Falta
-- **Corte 3 — contábil + reabertura** (`TIntegracaoFechamentoCaixa`; o CAIXA.CONTABILIZADO, SALDO_OPERADOR e o 'Q'
+- ✅ **Corte 3 — contábil + reabertura** — ENTREGUE (seção abaixo). (`TIntegracaoFechamentoCaixa`; o CAIXA.CONTABILIZADO, SALDO_OPERADOR e o 'Q'
   marcados pelo contábil; a reabertura completa). O `caixa-conferencia.service.ts` antigo (SALDO só do dinheiro) e o
   `caixa-pdv-contabil` (modelo divergente) saem quando o corte 3 entrar.
 - **Corte 4 — acessórios** (impressões, comprovante de quebra, documentos manuais, F5/F6, lançamento provisório).
+
+---
+
+## CORTE 3 ENTREGUE (24/09/2026) — a contabilização e a reabertura
+
+Mig 328 · `FechamentoContabilService` (`fechamento-contabil.service.ts`) · `FechamentoCaixaService.reabrir`
+(`POST cobranca/fechamento-caixa/turno/reabrir`, BTNREABRIR) · TRON opção 8 (`POST contabil/integracao/fechamento` e
+`/fechamento/estornar`, FRMTRON) · botão "Reabrir caixa" (com confirmação) e os avisos da contabilização na tela · smoke
+§173 (5). Os antigos `caixa-pdv-contabil` e `caixa-conferencia` (e as rotas `cobranca/caixa/contabilizar-pdv`,
+`reverter-pdv`, `pdv-conferencia`) SAÍRAM: eram outro modelo (CX_VENDAS pelo líquido, origem 18) e nenhuma tela os usava.
+
+### A contabilização (`TIntegracaoFechamentoCaixa`, `UIntegracaoContabilFechamentoCaixa.pas`)
+Prova: produção de 2026, **100%** em cada regra (R1 13.755/13.755 · R2 1.588/1.588 · R3 1.795/1.795 · R4 175/175).
+- **Quando:** no efetivar, com `EMPRESAS.INTEGRACAO='AUTOMATICA'`, dentro da transação e num **savepoint** — o legado roda
+  com `MostraMensagem=False` e a transação aninhada do FireDAC: o erro volta só a contabilização, o fechamento fica e o
+  CAIXA espera o TRON. A tela mostra o que ficou pendente (o legado não mostrava nada).
+- **Quem entra:** o grupo só com CAIXA ligada ao CX_VENDAS (operador, forma, PDV) — sem isso nada roda, nem o saldo.
+- **R1** uma linha balanceada por CAIXA fora da forma QUE: situação `CONFIG_FECHAMENTOCAIXA` (2010), débito automático na
+  `FORMAS_PGTO.CODPLANOCONTAS`, crédito 200; origem 17, IDORIGEM = CODCX, DOCUMENTO = a forma, COMPLEMENTO = o grupo,
+  DATA = o dia do caixa; hist 83 `FECHAMENTO CAIXA NFC 078 OPERADOR … ESPECIE …`; marca a CAIXA.
+- **R2/R3** a sobra (`CONFIG_SOBRACAIXA` 2019, hist 84) e a quebra sem título (`CONFIG_FALTACAIXA` 2002): TIPODOC
+  'QUEBRA/SOBRA', IDORIGEM = IDSALDOOP, documento `Sobra de caixa PDV 78, operador 7`, sem complemento; marca o SALDO.
+- **R4** a quebra com título: o contas a receber do título (origem 14) na data do caixa, situação `CONFIG_QUEBRACAIXARCB`
+  (785) — só quando um SALDO_OPERADOR aponta o título (`GetOrigemFechamento`) —, hist 85 `QUEBRA DE CAIXA NFC … OPERADOR …`;
+  o SALDO fica sem marca (o `Continue` do legado).
+- **R5** os títulos do troco solidário/recarga/voucher/correspondente (`CODGRUPO_FCX`): o contas a pagar (origem 13) na
+  data do caixa (situação pela ORIGEM — `CONFIG_TROCO_SOLIDARIO` 3260 na produção).
+- Falhas de R4/R5 são caladas também no legado (outro `Integrar`, sem abortar): viram aviso.
+- **Ajustes no TRON que vieram junto** (o fechamento os usa): CP e CR com COMPLEMENTO **nulo** (807 + 3.041 linhas desde
+  2025, todas nulas — o Apollo gravava o código); a 785 só para o título da quebra (antes: qualquer título sem situação); o
+  título de venda (NROPEDIDO com venda/pedido vivo ou "CONTA ORIGINADA DE VENDAS") não passa pelo CR; o cliente sem conta
+  contábil recusa o CR (como o legado); a data fixa.
+
+### A reabertura (`btnReabrirClick`, `uFechamentoCaixa.pas:504-1086`)
+Prova: as 114 reaberturas de 2026 (113 refechadas, mediana de 55 s), reconstruídas pelas tabelas `AUDIT_*`.
+Numa transação: a conta do DINHEIRO chaveada (`DTCHAVEAMENTO`) bloqueia; o grupo do turno; com a CAIXA contabilizada e sem
+integração automática, "Não é permitido reabrir este caixa pois já foi contabilizado."; o estorno contábil do grupo
+(17, e as linhas 14/13 dos títulos); os títulos do fechamento (a baixa automática REC/COR é revertida; baixa de gente ou
+agrupamento bloqueiam) com o rateio e a CAIXA dele (a trigger `CAIXA_APAGAR` do Oracle); a quebra — o SALDO vira EXCLUIDO
+sem o título, a CAIXA e o título saem; a CAIXA do turno; o MCB conforme `EXCLUI_OU_LANCA_DEBITO_REABRIR_CAIXA` — **E**
+(produção) apaga, **D** (exceção do ADMIN desde 2026) mantém sem o vínculo e lança a movimentação inversa com o texto
+"Reabertura do caixa …, referente a forma de pagamento "…", realizado pelo(a) usuário(a) … no dia …"; o CX_VENDAS volta a
+aberto; CARTAO/ARECEBER/CHEQUE perdem o CONSILIADO e HIST_DEVOLUCAO o CONCILIADO; o rascunho perde o CONSOLIDADO (e fica);
+HISTORICO "Reabertura do caixa 78, do operador …, no dia dd/mm/aaaa." com o grupo e a chave.
+
+### Divergências conscientes (cada uma com o caso da produção)
+1. **Uma transação só** — o legado comita o estorno contábil antes de reabrir.
+2. **Com chave, tudo pela chave** (o efetivar fecha todas as datas dela). O legado mistura chave e data
+   (`FECHAMENTO_CAIXA_SOMENTE_CHAVE`='N'): o grupo 95631 (chave de duas datas, reaberto com a data errada) perdeu a CAIXA e
+   o MCB do outro dia, que ficou com o CX_VENDAS fechado e a sobra de R$ 264,13 sem contabilizar para sempre.
+3. **Estorna sempre pelo grupo** — o legado só estornava com CAIXA contabilizada e apagava o título contabilizado pelo TRON,
+   deixando o razão órfão.
+4. **Mais de um grupo na chave recusa** (o legado pega o primeiro); **sem grupo recusa** (o legado seguia sem ele).
+5. **O título da quebra já baixado bloqueia** (o legado o apagava sem olhar; 0 dos 27 de 2026 estavam).
+6. **O HISTORICO usa o nome do cadastro** (o legado usava o texto da tela — saiu "do operador TODOS").
+7. **O hist 103 da quebra sai sem título** (`APAGAR DOCTO .: 000000000  `): o legado imprime o A PAGAR cujo CODAPG é igual
+   ao IDSALDOOP — um fornecedor sem relação com a quebra (1.290 das 1.795 linhas de 2026).
+8. **O estorno do TRON por período apaga só o fechamento** na origem 17 (a linha da forma e a quebra/sobra) e só desmarca a
+   CAIXA das linhas da forma: o legado apaga a origem 17 inteira e desmarca a CAIXA de CODCX igual a um IDSALDOOP —
+   desmarcaria um lançamento de caixa (origem 64, a mesma flag) e o faria ir ao razão de novo.
+9. Chaveamento do período contábil (`CHAVEAMENTO_PERIODO`, nulo na produção) bloqueia a reabertura de fechamento já no
+   período fechado (o legado não olha).
+
+Fica **como o legado** (não revertido): DTFECHAMENTOCX, TICKET, CONTACORRENTEOP (acumula de novo na refechada), CAIXA_PDV.
+O CARTAO criado na refechada (`ReabriuCaixa`, 155 em 2026, **148 duplicatas** de cartão que já existia) vai para o corte 4
+com a comparação certa (NROPEDIDO + valor numérico).
+
+### Falta
+- **Corte 4 — acessórios**: impressões, comprovante de quebra, documentos manuais, F5/F6, lançamento provisório e o CARTAO
+  da refechada.

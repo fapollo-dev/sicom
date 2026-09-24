@@ -5,6 +5,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { configNaTrx } from '../compras/pedido-heranca';
+import { FechamentoContabilService, avisoDoErro, emSavepoint, type AvisoContabil } from './fechamento-contabil.service';
 
 type AnyDB = any;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -56,7 +57,10 @@ interface Doc { codigo: number; valor: number; [k: string]: unknown }
  */
 @Injectable()
 export class FechamentoCaixaService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(
+    private readonly dbp: DatabaseProvider,
+    private readonly contabil: FechamentoContabilService,
+  ) {}
 
   private emp(): number {
     const e = currentTenant().empresaId;
@@ -684,7 +688,7 @@ export class FechamentoCaixaService {
       const instante = sql`now()`;
       const historico = (tabela: string, texto: string, coddoc: string) =>
         sql`INSERT INTO historico (tabela, historico, coddoc, codoperador, codempresa, data, auxiliar)
-            VALUES (${tabela}, ${texto}, ${coddoc}, ${logado}, ${emp}, date_trunc('second', now()), ${c.chave})`.execute(trx);
+            VALUES (${tabela}, ${texto}, ${coddoc}, ${logado}, ${emp}, date_trunc('second', now() AT TIME ZONE ${c.tz}), ${c.chave})`.execute(trx);
 
       // 5) LancaApagar (UF:1876-2028): o título de cada adicional com fornecedor e CC na empresa — na produção só o troco
       //    solidário ('T'); o binário novo lança também a CAIXA 'APAGAR' do rateio
@@ -837,8 +841,169 @@ export class FechamentoCaixaService {
           WHERE f.operador = ${c.op} AND f.idempresa = ${emp} AND f.pdv = ${c.pdv}
             AND (f.data AT TIME ZONE ${c.tz})::date = (now() AT TIME ZONE ${c.tz})::date AND ${this.daChave('f.chave', c)}`.execute(trx);
 
+      // 11) a contabilização (corte 3, `uFechamentoCaixa.pas:436-441`): só com INTEGRACAO AUTOMATICA, num savepoint — o legado a
+      //     roda calada (`MostraMensagem=False`) e o erro volta só a contabilização; o fechamento fica e o CAIXA espera o TRON
+      let contabil: { lancamentos: number; avisos: AvisoContabil[] } | null = null;
+      if (String(empresa.integracao ?? '') === 'AUTOMATICA') {
+        const r = await emSavepoint(trx, 'contabil_fechamento', () => this.contabil.integrarNaTrx(trx, emp, { codgrupo }));
+        contabil = r.ok ? { lancamentos: r.v.lancamentos, avisos: r.v.avisos } : { lancamentos: 0, avisos: [avisoDoErro(`fechamento ${codgrupo}`, r.erro)] };
+      }
+
       c.situacao = 3;
-      return { ...(await this.montar(trx, c)), efetivado: { codgrupo, caixa: nCaixa, mcb: nMcb, idsaldoop, codrcb, marcas: nMarcas, diferenca: dif, gerarSaldo } };
+      return { ...(await this.montar(trx, c)), efetivado: { codgrupo, caixa: nCaixa, mcb: nMcb, idsaldoop, codrcb, marcas: nMarcas, diferenca: dif, gerarSaldo, contabil } };
+    });
+  }
+
+  // ── REABRIR (corte 3) ──────────────────────────────────────────────────────────────────────────────────────────
+  /**
+   * `btnReabrirClick` (uFechamentoCaixa.pas:504-1086; dossiê "CORTE 3" e as 114 reaberturas de 2026). Numa transação só:
+   * o estorno contábil do grupo; os títulos gerados pelo fechamento (e a CAIXA do rateio deles, que no Oracle a trigger
+   * `CAIXA_APAGAR` leva); a CAIXA do turno; o MCB — excluído, ou revertido com um débito (`EXCLUI_OU_LANCA_DEBITO_REABRIR_CAIXA`
+   * = 'D'); o CX_VENDAS volta a aberto; as conciliações dos documentos; a quebra (título, CAIXA e o SALDO como excluído);
+   * o CONSOLIDADO do rascunho (que fica); e o HISTORICO. Divergências conscientes, cada uma com o caso da produção:
+   *  - o legado estorna a contabilização numa transação à parte, já comitada antes da reabertura — aqui é uma só;
+   *  - com CHAVE, tudo é pela chave (o efetivar fecha todas as datas dela); o legado mistura chave e data
+   *    (`FECHAMENTO_CAIXA_SOMENTE_CHAVE`='N') e a reabertura de um turno de duas datas apagava a CAIXA do outro dia e deixava o
+   *    CX_VENDAS dele fechado (grupo 95631);
+   *  - o estorno é sempre pelo grupo (o legado só estorna com CAIXA contabilizada e deixava o razão órfão do título);
+   *  - com mais de um grupo na chave, recusa (o legado pega o primeiro); sem grupo, recusa (o legado segue sem ele);
+   *  - o título da quebra JÁ BAIXADO bloqueia (o legado o apagava sem olhar; 0 dos 27 de 2026 estavam baixados);
+   *  - o HISTORICO usa o nome do operador do cadastro (o legado usava o texto da tela, que chegou a sair "TODOS").
+   * Fica como no legado: DTFECHAMENTOCX, TICKET, CONTACORRENTEOP, CAIXA_PDV e o rascunho não voltam.
+   */
+  async reabrir(dto: TurnoFechamentoDto) {
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const c = await this.contexto(trx, dto);
+      const emp = c.emp;
+      const logado = currentTenant().operadorId ?? null;
+      if (!c.op) throw new BusinessRuleError('FECHAMENTO_REABRIR_SEM_OPERADOR');
+      if (!c.pdv) throw new BusinessRuleError('FECHAMENTO_REABRIR_SEM_PDV');
+      const dataCx = c.data.split('-').reverse().join('/');
+
+      // 1) a conta do DINHEIRO chaveada até o dia do caixa (:716-727)
+      const chav = (await sql<{ d: string | null }>`SELECT to_char(cb.dtchaveamento, 'YYYY-MM-DD') AS d FROM formas_pgto f
+          JOIN contas_bancarias cb ON cb.codconta = f.codcontacorrente WHERE f.modalidade = 'DINHEIRO' AND f.idempresa = ${emp}
+          ORDER BY f.idpgto LIMIT 1`.execute(trx)).rows[0]?.d;
+      if (chav && c.data <= chav) throw new BusinessRuleError('FECHAMENTO_CAIXA_CHAVEADO', { ate: chav });
+
+      // 2) o grupo do turno (`GetGrupo`, :513-559)
+      const chaveOuDia = (col: string, colData: string) => (c.chave ? sql`${sql.ref(col)} = ${c.chave}` : sql`${sql.ref(col)} IS NULL AND ${this.noDia(colData, c)}`);
+      const grupos = (await sql<{ codgrupo: number }>`SELECT DISTINCT cx.codgrupo FROM cx_vendas cx
+          WHERE cx.nropdv = ${c.pdv} AND cx.codoperadora = ${c.op} AND ${chaveOuDia('cx.chave', 'cx.data')} AND cx.idempresa = ${emp}
+            AND coalesce(cx.codgrupo, 0) > 0 ORDER BY cx.codgrupo`.execute(trx)).rows.map((r) => num(r.codgrupo));
+      if (!grupos.length) throw new BusinessRuleError('FECHAMENTO_REABRIR_NAO_FECHADO');
+      if (grupos.length > 1) throw new BusinessRuleError('FECHAMENTO_REABRIR_VARIOS_GRUPOS', { grupos });
+      const g = grupos[0];
+      await sql`SELECT codcxvendas FROM cx_vendas WHERE codgrupo = ${g} FOR UPDATE`.execute(trx);
+
+      // 3) contabilizado: sem integração automática, não reabre; com ela, estorna o grupo (:730-750)
+      const empresa = (await sql<{ integracao: string | null }>`SELECT integracao FROM empresas WHERE idempresa = ${emp}`.execute(trx)).rows[0];
+      const contabilizado = (await sql`SELECT 1 FROM caixa WHERE codgrupo = ${g} AND contabilizado = 'S' LIMIT 1`.execute(trx)).rows.length > 0;
+      if (contabilizado && String(empresa?.integracao ?? '') !== 'AUTOMATICA') throw new BusinessRuleError('FECHAMENTO_REABRIR_CONTABILIZADO');
+      const chaveamento = (await sql<{ d: string | null }>`SELECT to_char(chaveamento_periodo, 'YYYY-MM-DD') AS d FROM config_integracao_contabil LIMIT 1`.execute(trx)).rows[0]?.d;
+      if (chaveamento) {
+        const noChaveado = (await sql`SELECT 1 FROM diario d WHERE d.codorigem = 17 AND d.datalan <= ${chaveamento}::date
+            AND (d.complemento = ${String(g)} OR (d.tipodoc = 'QUEBRA/SOBRA' AND d.idorigem IN (SELECT idsaldoop FROM saldo_operador WHERE codgrupo = ${g}))) LIMIT 1`.execute(trx)).rows.length > 0;
+        if (noChaveado) throw new BusinessRuleError('PERIODO_CONTABIL_CHAVEADO', { ate: chaveamento });
+      }
+      const estorno = await this.contabil.estornarNaTrx(trx, emp, { codgrupo: g });
+
+      // 4) os títulos gerados pelo fechamento (`ExcluiApagarGerado`, :561-619)
+      const titulos = (await sql<Record<string, unknown>>`SELECT codapg, quitada, codgrupo, agrupado FROM apagar WHERE codgrupo_fcx = ${g} ORDER BY codapg`.execute(trx)).rows;
+      for (const t of titulos) {
+        const codapg = num(t.codapg);
+        if (t.quitada === 'S') {
+          const baixas = (await sql<Record<string, unknown>>`SELECT bx.codapgbx, mv.codmovconta, mv.origem FROM apagar_bx bx
+              JOIN mov_contas_bancarias mv ON mv.idlote = bx.idlote WHERE coalesce(bx.indr, 'I') = 'I' AND bx.codapg = ${codapg}`.execute(trx)).rows;
+          for (const b of baixas) {
+            // só a baixa automática (recarga/correspondente) é revertida; a baixa de gente bloqueia
+            if (!['REC', 'COR'].includes(String(b.origem ?? ''))) throw new BusinessRuleError('FECHAMENTO_REABRIR_APAGAR_BAIXADO', { codapg });
+            await sql`DELETE FROM mov_contas_bancarias WHERE codmovconta = ${num(b.codmovconta)}`.execute(trx);
+            await sql`DELETE FROM apagar_bx WHERE codapgbx = ${num(b.codapgbx)}`.execute(trx);
+          }
+        }
+        if (t.agrupado === 'S') throw new BusinessRuleError('FECHAMENTO_REABRIR_APAGAR_AGRUPADO', { codapg });
+        await sql`DELETE FROM caixa WHERE codgrupo = ${num(t.codgrupo)} AND codcxapagar IN (SELECT codcxapagar FROM cx_apagar WHERE codgrupo = ${num(t.codgrupo)})`.execute(trx);
+        await sql`DELETE FROM cx_apagar WHERE codgrupo = ${num(t.codgrupo)}`.execute(trx);
+        await sql`DELETE FROM apagar WHERE codapg = ${codapg}`.execute(trx);
+      }
+
+      // 5) a quebra (:947-983) — antes da CAIXA do turno, que a leva junto quando o operador é quem fechou
+      const quebras = (await sql<Record<string, unknown>>`SELECT s.idsaldoop, s.codrcb, c.codcx, r.quitada,
+             (SELECT count(*) FROM areceber_bx b WHERE b.codrcb = r.codrcb AND coalesce(b.indr, 'I') = 'I')::int AS baixas
+          FROM saldo_operador s LEFT JOIN areceber r ON r.codrcb = s.codrcb LEFT JOIN caixa c ON c.codrcb = r.codrcb
+         WHERE s.codoperador = ${c.op} AND ${c.chave ? sql`s.chave = ${c.chave}` : sql`s.chave IS NULL AND s.datafechamento = ${c.data}::date`}
+           AND s.excluido = 'N' AND s.codpdv = ${c.pdv}`.execute(trx)).rows;
+      for (const q of quebras) {
+        if (num(q.codrcb) > 0 && (q.quitada === 'S' || num(q.baixas) > 0)) throw new BusinessRuleError('FECHAMENTO_REABRIR_QUEBRA_BAIXADA', { codrcb: num(q.codrcb) });
+      }
+      for (const q of quebras) {
+        await sql`UPDATE saldo_operador SET excluido = 'S', codrcb = NULL WHERE idsaldoop = ${num(q.idsaldoop)}`.execute(trx);
+        if (num(q.codcx) > 0) await sql`DELETE FROM caixa WHERE codcx = ${num(q.codcx)}`.execute(trx);
+        if (num(q.codrcb) > 0) await sql`DELETE FROM areceber WHERE codrcb = ${num(q.codrcb)}`.execute(trx);
+      }
+
+      // 6) a CAIXA do turno (:752-767): com chave, a do operador na chave; sem chave, a do grupo
+      const cxWhere = c.chave ? sql`operador = ${c.op} AND chave = ${c.chave} AND idempresa = ${emp}` : sql`codgrupo = ${g}`;
+      const nCaixa = Number((await sql<{ n: number }>`SELECT count(*)::int AS n FROM caixa WHERE ${cxWhere}`.execute(trx)).rows[0]?.n ?? 0);
+      if (!nCaixa && !quebras.some((q) => num(q.codcx) > 0)) throw new BusinessRuleError('FECHAMENTO_REABRIR_SEM_CAIXA');
+
+      // 7) o MCB (:769-868): excluir (E, o padrão) ou lançar o débito que o reverte (D)
+      const modo = (await this.cfg(trx, 'EXCLUI_OU_LANCA_DEBITO_REABRIR_CAIXA', emp)) === 'D' ? 'D' : 'E';
+      const mcbWhere = sql`m.codoperador = ${c.op} AND ${c.chave ? sql`m.chave = ${c.chave}` : sql`m.chave IS NULL AND ${this.noDia('m.data_fechamento', c)}`}
+          AND m.idempresa_fechamento = ${emp} AND m.nropdv_fechamento = ${c.pdv}`;
+      const nomeOper = String((await sql<{ nome: string | null }>`SELECT nome FROM operadores WHERE codoperador = ${c.op}`.execute(trx)).rows[0]?.nome ?? '');
+      let nMcb = 0;
+      if (modo === 'D') {
+        const movs = (await sql<Record<string, unknown>>`SELECT m.codmovconta, m.nropdv_fechamento, to_char(m.data_fechamento AT TIME ZONE ${c.tz}, 'DD/MM/YYYY') AS dia,
+               coalesce(o.nome, 'NÃO ENCONTRADO') AS nome, coalesce(f.modalidade, 'NÃO ENCONTRADO') AS modalidade
+            FROM mov_contas_bancarias m LEFT JOIN operadores o ON o.codoperador = m.codoperador LEFT JOIN formas_pgto f ON f.idpgto = m.idpgto
+           WHERE ${mcbWhere} AND m.idorigem IS NOT NULL ORDER BY m.codmovconta`.execute(trx)).rows;
+        if (!movs.length) throw new BusinessRuleError('FECHAMENTO_REABRIR_SEM_MCB');
+        const nomeLogado = String((await sql<{ nome: string | null }>`SELECT nome FROM operadores WHERE codoperador = ${logado}`.execute(trx)).rows[0]?.nome ?? '');
+        const hoje = (await sql<{ d: string }>`SELECT to_char(now() AT TIME ZONE ${c.tz}, 'DD/MM/YYYY') AS d`.execute(trx)).rows[0].d;
+        const colunas = (await sql<{ c: string }>`SELECT column_name AS c FROM information_schema.columns
+            WHERE table_schema = current_schema() AND table_name = 'mov_contas_bancarias'
+              AND column_name NOT IN ('codmovconta', 'dtemissao', 'dtvenc', 'tipomovimento', 'valor', 'historico', 'idorigem')
+            ORDER BY ordinal_position`.execute(trx)).rows.map((r) => r.c);
+        for (const m of movs) {
+          const historico = `Reabertura do caixa ${num(m.nropdv_fechamento)}, do operador ${m.nome}, do dia ${m.dia ?? ''}, referente a forma de pagamento "${m.modalidade}", realizado pelo(a) usuário(a) ${nomeLogado} no dia ${hoje}.`.slice(0, 300);
+          const lista = sql.join(colunas.map((col) => sql.ref(col)));
+          await sql`INSERT INTO mov_contas_bancarias (${lista}, dtemissao, dtvenc, tipomovimento, valor, historico, idorigem)
+              SELECT ${lista}, (now() AT TIME ZONE ${c.tz})::date, (now() AT TIME ZONE ${c.tz})::date,
+                     CASE WHEN tipomovimento = 'C' THEN 'D' ELSE 'C' END, -valor, ${historico}, NULL
+                FROM mov_contas_bancarias WHERE codmovconta = ${num(m.codmovconta)}`.execute(trx);
+          nMcb++;
+        }
+        await sql`UPDATE mov_contas_bancarias m SET idorigem = NULL WHERE ${mcbWhere} AND m.idorigem IS NOT NULL`.execute(trx);
+      } else {
+        // as duas formas antigas do histórico (:846-864) também saem
+        const semChave = c.chave ? sql`m.chave = ${c.chave}` : sql`m.chave IS NULL`;
+        const r = await sql`DELETE FROM mov_contas_bancarias m WHERE (${mcbWhere})
+            OR ((m.historico LIKE ${`Fechamento do caixa ${c.pdv}, do operador ${nomeOper}, no dia ${dataCx}%`}
+                 OR m.historico LIKE ${`% Dt: ${dataCx} cx: ${c.pdv} op: ${nomeOper}`})
+                AND ${semChave} AND m.idpgto IN (SELECT idpgto FROM formas_pgto WHERE idempresa = ${emp}))`.execute(trx);
+        nMcb = Number(r.numAffectedRows ?? 0);
+        if (!nMcb) throw new BusinessRuleError('FECHAMENTO_REABRIR_SEM_MCB');
+      }
+      await sql`DELETE FROM caixa WHERE ${cxWhere}`.execute(trx);
+
+      // 8) o turno volta a aberto e os documentos perdem a conciliação (:878-944, :985-1012)
+      await sql`UPDATE cx_vendas cx SET status = NULL, codgrupo = NULL, tesouraria = NULL
+          WHERE cx.nropdv = ${c.pdv} AND cx.codoperadora = ${c.op} AND ${chaveOuDia('cx.chave', 'cx.data')} AND cx.idempresa = ${emp}`.execute(trx);
+      await sql`UPDATE cartao SET consiliado = NULL WHERE codoperador = ${c.op} AND ${chaveOuDia('chave', 'dtvenda')} AND idempresa = ${emp} AND codpdv = ${c.pdv}`.execute(trx);
+      await sql`UPDATE areceber SET consiliado = NULL WHERE codoperador = ${c.op} AND ${chaveOuDia('chave', 'dtvenda')} AND codempresa = ${emp} AND codpdv = ${c.pdv}`.execute(trx);
+      await sql`UPDATE cheque SET consiliado = NULL WHERE operador = ${c.op} AND ${chaveOuDia('chave', 'dtemissao')} AND idempresa = ${emp} AND codpdv = ${c.pdv}`.execute(trx);
+      await sql`UPDATE hist_devolucao SET conciliado = NULL WHERE codoperador = ${c.op} AND ${chaveOuDia('chave', 'dtvenda')} AND idempresa = ${emp} AND codpdv = ${c.pdv}`.execute(trx);
+      await sql`UPDATE finaliza_fechamento SET consolidado = NULL WHERE operador = ${c.op} AND ${chaveOuDia('chave', 'data')} AND idempresa = ${emp} AND pdv = ${c.pdv}`.execute(trx);
+
+      // 9) o HISTORICO (:1021-1028)
+      await sql`INSERT INTO historico (tabela, historico, coddoc, codoperador, codempresa, data, auxiliar)
+          VALUES ('CAIXA', ${`Reabertura do caixa ${c.pdv}, do operador ${nomeOper}, no dia ${dataCx}.`}, ${String(g)}, ${logado}, ${emp},
+                  date_trunc('second', now() AT TIME ZONE ${c.tz}), ${c.chave})`.execute(trx);
+
+      c.situacao = 1;
+      return { ...(await this.montar(trx, c)), reaberto: { codgrupo: g, estorno: estorno.linhas, titulos: titulos.length, quebras: quebras.length, caixa: nCaixa, mcb: nMcb, modo } };
     });
   }
 }

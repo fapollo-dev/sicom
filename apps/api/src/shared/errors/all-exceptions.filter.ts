@@ -176,7 +176,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
  * Códigos cujo `details` do AppError PODE ser ecoado ao cliente no envelope (`detalhe`) — allowlist explícita
  * (evita vazar dados internos de outros erros: saldos, form/opção de RBAC, etc.). Só o que o front consome.
  */
-const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE', 'CLASS_TRIB_EM_USO', 'PRODUTO_SEM_CLASSIFICACAO', 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO', 'APURACAO_IBSCBS_JA_EXISTE', 'SPLIT_MANUAL_EXCEDE', 'CLUBE_DESCONTO_SOBREPOSTO', 'TRANSFERENCIA_NAO_PERMITIDA', 'PEDIDO_LOJA_FECHADA', 'PEDIDO_LOJA_FORA_DO_PEDIDO', 'PEDIDO_LOJA_INEXISTENTE', 'PEDIDO_FECHADO_NA_EMPRESA', 'PEDIDO_FECHADO_PARCIAL', 'PEDIDO_META_DIARIA_EXCEDIDA', 'FECHAMENTO_DOCUMENTOS_NAO_SELECIONADOS', 'FECHAMENTO_OPERADOR_SEM_PARCEIRO', 'FECHAMENTO_CC_QUEBRA', 'FECHAMENTO_MODALIDADE_SEM_PDV', 'FECHAMENTO_FORMA_SEM_CONTA', 'FECHAMENTO_FORMA_NAO_ENCONTRADA']);
+const DETALHE_CODES = new Set<string>(['NFE_PRODUTOS_NAO_CASADOS', 'PEDIDO_LIMITE_EXCEDIDO', 'FAIXA_JA_INUTILIZADA', 'NUMERACAO_EM_USO', 'LOTE_INCOMPLETO', 'CARTAO_BAIXA_EXCEDE', 'CLASS_TRIB_EM_USO', 'PRODUTO_SEM_CLASSIFICACAO', 'CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO', 'APURACAO_IBSCBS_JA_EXISTE', 'SPLIT_MANUAL_EXCEDE', 'CLUBE_DESCONTO_SOBREPOSTO', 'TRANSFERENCIA_NAO_PERMITIDA', 'PEDIDO_LOJA_FECHADA', 'PEDIDO_LOJA_FORA_DO_PEDIDO', 'PEDIDO_LOJA_INEXISTENTE', 'PEDIDO_FECHADO_NA_EMPRESA', 'PEDIDO_FECHADO_PARCIAL', 'PEDIDO_META_DIARIA_EXCEDIDA', 'FECHAMENTO_DOCUMENTOS_NAO_SELECIONADOS', 'FECHAMENTO_OPERADOR_SEM_PARCEIRO', 'FECHAMENTO_CC_QUEBRA', 'FECHAMENTO_MODALIDADE_SEM_PDV', 'FECHAMENTO_FORMA_SEM_CONTA', 'FECHAMENTO_FORMA_NAO_ENCONTRADA', 'FECHAMENTO_REABRIR_VARIOS_GRUPOS', 'FECHAMENTO_REABRIR_APAGAR_BAIXADO', 'FECHAMENTO_REABRIR_APAGAR_AGRUPADO', 'FECHAMENTO_REABRIR_QUEBRA_BAIXADA']);
 
 const CODE_PT: Record<string, string> = {
   // regra de negócio (BusinessRuleError 422)
@@ -547,6 +547,23 @@ const CODE_PT: Record<string, string> = {
   FECHAMENTO_FORMA_SEM_CONTA: 'A conta corrente deve ser informada no cadastro da forma de pagamento antes de fechar o caixa.',
   FECHAMENTO_FORMA_NAO_ENCONTRADA: 'A forma de pagamento do recurso não foi encontrada.',
   FECHAMENTO_DOCUMENTOS_NAO_SELECIONADOS: 'Há finalizadoras com documentos que não foram selecionados. Deseja continuar?',
+  // a reabertura do caixa (btnReabrirClick, uFechamentoCaixa.pas:504-1086)
+  FECHAMENTO_REABRIR_SEM_OPERADOR: 'Informe o operador antes de reabrir o caixa.',
+  FECHAMENTO_REABRIR_SEM_PDV: 'Informe o número do PDV antes de reabrir o caixa.',
+  FECHAMENTO_CAIXA_CHAVEADO: 'Caixa FECHADO não é permitida alteração dos documentos!',
+  FECHAMENTO_REABRIR_NAO_FECHADO: 'Este caixa não foi fechado na retaguarda: não há o que reabrir.',
+  FECHAMENTO_REABRIR_VARIOS_GRUPOS: 'Este turno tem mais de um fechamento gravado. Reabrir apagaria só um deles — acione o suporte.',
+  FECHAMENTO_REABRIR_CONTABILIZADO: 'Não é permitido reabrir este caixa pois já foi contabilizado.',
+  FECHAMENTO_REABRIR_APAGAR_BAIXADO: 'Uma conta a pagar gerada do fechamento deste caixa já foi baixada. Não será possível realizar a reversão.',
+  FECHAMENTO_REABRIR_APAGAR_AGRUPADO: 'Uma conta a pagar gerada do fechamento deste caixa já foi agrupada. Não será possível realizar a reversão.',
+  FECHAMENTO_REABRIR_QUEBRA_BAIXADA: 'O título da quebra de caixa deste fechamento já foi baixado. Estorne a baixa antes de reabrir o caixa.',
+  FECHAMENTO_REABRIR_SEM_CAIXA: 'Registro do caixa não foi encontrado. Favor acionar o suporte da Apollo Sistemas.',
+  FECHAMENTO_REABRIR_SEM_MCB: 'Registro da movimentação bancária não foi encontrado. Favor acionar o suporte da Apollo Sistemas.',
+  // a contabilização (TIntegracaoContabil)
+  SITUACAO_NAO_CONFIGURADA: 'A situação do documento não foi definida na configuração da integração contábil.',
+  CONFIG_INTEGRACAO_NAO_DEFINIDA: 'A configuração da integração contábil não foi definida. Entre em contato com o suporte da Apollo.',
+  CONTA_ANALITICA_NAO_INFORMADA: 'Não foi informada a conta contábil para o lançamento automático.',
+  SITUACAO_DOCUMENTO_NAO_INFORMADA: 'A situação do documento não foi informada.',
   // restrições da situação do documento fora da NF (UCadSituacaoNF.md C5) — as mensagens de cada tela do legado
   SITUACAO_FORNECEDOR_NAO_PERMITIDO: 'O fornecedor informado não é permitido para a situação do documento selecionada.',
   SITUACAO_CLIENTE_NAO_PERMITIDO: 'O cliente informado não é permitido para a situação do documento selecionada.',
@@ -715,4 +732,9 @@ function pgOffendingColumn(err: PgErrorLike): string | undefined {
   // detail: 'Key (codigo)=(1) already exists.'
   const m = err.detail?.match(/Key \(([^)]+)\)=/);
   return m?.[1];
+}
+
+/** a mensagem em português de um código de erro — para quem precisa do texto fora da resposta HTTP (os avisos). */
+export function mensagemPt(code: string): string | undefined {
+  return CODE_PT[code];
 }

@@ -5,7 +5,7 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import {
   cartaoPendentes, integrarCartao, estornarCartao, integrarBaixa, estornarBaixa,
-  integrarDocumento, estornarDocumento, type Periodo, type Resultado, type TipoDoc,
+  integrarDocumento, estornarDocumento, integrarFechamento, estornarFechamento, type Periodo, type Resultado, type TipoDoc,
 } from './integracaoApi';
 
 /**
@@ -85,7 +85,12 @@ const ORIGENS: Origem[] = [
     integrar: um((p) => integrarDocumento('transf', p)), estornar: um((p) => estornarDocumento('transf', p)),
   },
   { id: 'nf', label: 'Notas fiscais', codigos: '12', nota: 'Contabilizada pela própria nota, no momento em que ela é processada ou autorizada.' },
-  { id: 'caixafech', label: 'Fechamento de caixa', codigos: '17', nota: 'Contabilizado pela tela do caixa.' },
+  {
+    id: 'caixafech', label: 'Fechamento de caixa', codigos: '17 · 14 · 13',
+    nota: 'O fechamento com integração automática já contabiliza; aqui fica o que ficou pendente. Leva junto a sobra, a quebra e os títulos que o fechamento gerou.',
+    rotuloCodigo: 'Grupo do fechamento',
+    integrar: um(integrarFechamento), estornar: um(estornarFechamento),
+  },
   { id: 'cheque', label: 'Baixas de cheques', codigos: '52', nota: 'Não migrada: o cliente não usa (zero lançamentos no razão).' },
   { id: 'reducaoz', label: 'Vendas — Redução Z', codigos: '18', nota: 'Não migrada: a tabela REDUCAOZ está vazia.' },
   { id: 'nfce', label: 'NFC-e', codigos: '67', nota: 'É do PDV, fora do escopo da retaguarda.' },
@@ -101,12 +106,15 @@ function resumir(rs: Resultado[]): string {
   const partes: string[] = [];
   const push = (n: number, um_: string, muitos: string) => { if (n > 0) partes.push(`${n} ${n === 1 ? um_ : muitos}`); };
   push(soma('lotes'), 'lote', 'lotes');
+  push(soma('fechamentos'), 'fechamento', 'fechamentos');
   push(soma('documentos'), 'documento', 'documentos');
   push(soma('cartoes') + soma('baixas'), 'item', 'itens');
   push(soma('lancamentos'), 'lançamento', 'lançamentos');
   push(soma('linhas'), 'linha apagada', 'linhas apagadas');
   const total = soma('total');
   if (total > 0) partes.push(`total ${total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`);
+  // o que falhou por dentro sem derrubar a rodada (o título da quebra, o do troco) fica listado
+  for (const a of rs.flatMap((r) => r.avisos ?? [])) partes.push(`pendente — ${a.documento}: ${a.mensagem}`);
   return partes.length ? partes.join(' · ') : 'nada a fazer no período';
 }
 

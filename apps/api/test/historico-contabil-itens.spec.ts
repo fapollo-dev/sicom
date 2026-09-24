@@ -33,7 +33,7 @@ const SENTINELA: Required<CtxHistorico> = {
   documento: 'documento', documentoTexto: 'documentoTexto', lote: 'lote', parceiro: 'parceiro',
   codparceiro: 777, cnpj: 'cnpj', tipodoc: 'tipodoc', notafiscal: 'notafiscal', operadora: 'operadora',
   usuario: 'usuario', historicoMov: 'historicoMov', obs: 'obs', verba: 'verba', conta: 'conta', cfop: 'cfop',
-  loja: 'loja',
+  loja: 'loja', pdv: 'pdv', operadorNome: 'operadorNome', especie: 'especie',
 };
 
 const TEMPLATES: Record<number, string> = {
