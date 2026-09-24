@@ -20247,6 +20247,44 @@ async function main() {
         await pgC9.end();
       }
     }
+    // ══ §184 FECHAMENTO DE CAIXA, corte 4: OBRIGA_FECHAR_CAIXA_PDV (Ucxaberto.pas:466 — abre, mas não efetiva) ══
+    {
+      const pgCA = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const FC = 'cobranca/fechamento-caixa';
+      const DIA = '2038-03-17';
+      const CHA = '79170338080000';
+      const tA = { data: DIA, chave: CHA, nropdv: 79, codoperadora: 7 };
+      const post = async (path: string, body: unknown) => {
+        const r = await fetch(`${base}/${FC}/${path}`, { method: 'POST', headers: H, body: JSON.stringify(body) });
+        return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+      };
+      try {
+        await pgCA.query(`INSERT INTO pdv (codpdv, nropdv, descricao, codempresa) VALUES (979, 79, 'PDV 79 SMOKE', 1) ON CONFLICT DO NOTHING`);
+        await pgCA.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, debito_credito, valor, troco, nropedido, chave)
+            VALUES (1, $1, 79, 7, 'DINHEIRO', 'C', 50, 0, '796001', $2)`, [`${DIA} 09:00:00-03`, CHA]);
+        await pgCA.query(`INSERT INTO caixa_pdv (codcaixa, codpdv, codoperadora, data, horaentrada, chave, idempresa, sangria, fundocaixa)
+            VALUES (9918401, 79, 7, $1, $1, $2, 1, 0, 0)`, [`${DIA} 08:00:00-03`, CHA]);
+        const sem = await post('turno/abrir', tA);
+        await pgCA.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, config_especificas_permitidas, descricao) VALUES (991841, 'OBRIGA_FECHAR_CAIXA_PDV', 'S', 'texto', 'Modulo;Empresa', 'smoke') ON CONFLICT DO NOTHING`);
+        const com = (await (await fetch(`${base}/${FC}/turno?${new URLSearchParams({ data: DIA, chave: CHA, nropdv: '79', codoperadora: '7' })}`, { headers: H })).json()) as any;
+        const ef = await post('turno/efetivar', { ...tA, dinheiroContado: 50, documentos: [] });
+        await pgCA.query(`UPDATE caixa_pdv SET horasaida = $1 WHERE codcaixa = 9918401`, [`${DIA} 18:00:00-03`]);
+        const fechado = (await (await fetch(`${base}/${FC}/turno?${new URLSearchParams({ data: DIA, chave: CHA, nropdv: '79', codoperadora: '7' })}`, { headers: H })).json()) as any;
+        check('FECHAMENTO §184 [OBRIGA_FECHAR_CAIXA_PDV]: sem a configuração o turno aberto no PDV fecha normalmente (pdvNaoFechado falso); com ela em S e a CAIXA_PDV sem HORASAIDA a conferência abre com o aviso e efetivar → 422 "O caixa selecionado ainda não foi fechado no PDV."; com a HORASAIDA o aviso some',
+          sem.status === 200 && sem.j.pdvNaoFechado === false && com.pdvNaoFechado === true && ef.status === 422 && ef.j.code === 'FECHAMENTO_PDV_NAO_FECHADO' && fechado.pdvNaoFechado === false,
+          { sem: [sem.status, sem.j.pdvNaoFechado], com: com.pdvNaoFechado, ef: [ef.status, ef.j.code], fechado: fechado.pdvNaoFechado });
+      } finally {
+        await pgCA.query(`DELETE FROM configuracoes WHERE id = 991841`).catch(() => undefined);
+        await pgCA.query(`DELETE FROM doc_fechamento WHERE codifinfech IN (SELECT codifinfech FROM finaliza_fechamento WHERE chave = $1)`, [CHA]).catch(() => undefined);
+        await pgCA.query(`DELETE FROM finaliza_fechamento WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgCA.query(`DELETE FROM hist_sangria_suprimento WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgCA.query(`DELETE FROM ticket WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgCA.query(`DELETE FROM caixa_pdv WHERE codcaixa = 9918401`).catch(() => undefined);
+        await pgCA.query(`DELETE FROM cx_vendas WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgCA.query(`DELETE FROM pdv WHERE codpdv = 979`).catch(() => undefined);
+        await pgCA.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

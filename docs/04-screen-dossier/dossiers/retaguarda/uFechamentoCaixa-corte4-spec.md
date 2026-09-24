@@ -274,6 +274,6 @@ Todas carregam o .fr3 de `Relatorios\` (fonte de 14/05/2020).
 5. ✅ (4.4, 24/09) **CARTAO da refechada** com o casamento por multiconjunto em centavos e o gatilho de reaberto. Levar ao usuário a decisão sobre as 202 linhas fantasma (R$ 6.593,84) na carga.
 6. **Impressões**, nesta ordem: Fechamento de caixa (e multi, pelos caixas abertos), comprovante de quebra, histórico (com o filtro corrigido), listas dos documentos, relatório de análise, link do Relatório de caixa.
 7. ✅ (4.6, 24/09) **Diálogos de leitura de cancelamentos (F5) e descontos (F6)**, cópia da chave e link ao histórico de vendas.
-8. **`OBRIGA_FECHAR_CAIXA_PDV`** e o atalho de transferência (F6 dos caixas abertos → tela existente).
+8. ✅ (4.7, 24/09) **`OBRIGA_FECHAR_CAIXA_PDV`** e o atalho de transferência (F6 dos caixas abertos → tela existente).
 9. **Lançamento provisório** (só modalidade + DADOSCX) e **CAIXA_OBS** (upsert + coluna no relatório): baixo uso.
 10. **Não implementar** (mortos, com prova): cheque, devolução e recarga manuais, correspondente e voucher, colunas de tesouraria, sangria/suprimento do lançamento provisório, Abrir Caixa manual, Balcão/OS. O troco solidário fica só como lista.

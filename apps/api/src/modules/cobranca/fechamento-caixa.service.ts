@@ -280,6 +280,20 @@ export class FechamentoCaixaService {
     return num(r?.total);
   }
 
+  /**
+   * o turno já foi fechado NO PDV? (`TfrmFechamentoCaixa.CaixaFechadoNoPDV`, uFechamentoCaixa.pas): a primeira linha da CAIXA_PDV
+   * do operador e do PDV — pela chave, ou sem chave no dia; com `FECHAMENTO_CAIXA_SOMENTE_CHAVE`='N' (a produção) também no dia —
+   * com HORASAIDA. O legado não filtra a empresa (o parâmetro vem e não é usado).
+   */
+  private async caixaFechadoNoPdv(db: AnyDB, c: Ctx): Promise<boolean> {
+    const porData = (await this.cfg(db, 'FECHAMENTO_CAIXA_SOMENTE_CHAVE', c.emp)) === 'N';
+    const r = (await sql<{ fechado: boolean }>`SELECT (cp.horasaida IS NOT NULL) AS fechado FROM caixa_pdv cp
+        WHERE cp.codoperadora = ${c.op} AND cp.codpdv = ${c.pdv} ${porData ? sql`AND ${this.noDia('cp.data', c)}` : sql``}
+          AND ${c.chave ? sql`cp.chave = ${c.chave}` : sql`cp.chave IS NULL AND ${this.noDia('cp.data', c)}`}
+        ORDER BY cp.codcaixa LIMIT 1`.execute(db)).rows[0];
+    return !!r?.fechado;
+  }
+
   // ── a montagem da tela ─────────────────────────────────────────────────────────────────────────────────────────
   private async montar(db: AnyDB, c: Ctx) {
     const situacao = await this.situacaoDo(db, c);
@@ -351,6 +365,9 @@ export class FechamentoCaixaService {
       // o limite da diferença acima do qual a caixa "saldo do operador" é marcada sozinha (VerificaCheckGeralSaldo)
       limiteSaldo: Number(String((await this.cfg(db, 'LIMITE_LANCAR_SALDO_AUTOMATICAMENTE_FECHAMENTO', c.emp)) ?? '0').replace(',', '.')) || 0,
       filtraPdv: String(emp?.filtrapdv ?? '') !== 'NAO',
+      // `OBRIGA_FECHAR_CAIXA_PDV`='S' e o turno sem HORASAIDA no PDV: abre, mas não efetiva (Ucxaberto.pas:466 — o
+      // vbbPermissaoFechar). Na produção está 'N' desde 09/07/2026 (esteve 'S' de 07/05 a 09/07/2026).
+      pdvNaoFechado: modo === 'fechamento' && (await this.cfg(db, 'OBRIGA_FECHAR_CAIXA_PDV', c.emp)) === 'S' && !(await this.caixaFechadoNoPdv(db, c)),
       adicionais: { recarga, correspondente, voucher, trocoSolidario },
       cancelamentos: cp.cancelamentos,
       descontos: await this.descontos(db, c),
@@ -590,8 +607,7 @@ export class FechamentoCaixaService {
   private async manutencaoDocumentos(db: AnyDB, c: Ctx, det: Awaited<ReturnType<FechamentoCaixaService['montar']>>, tipo: TipoConferencia | 'SANGRIA') {
     const nada = { edicao: null as 'completa' | 'operadora' | null, insercao: false, exclusao: false, liberacaoExclusao: false };
     if (tipo !== 'CARTAO' && tipo !== 'RCB' && tipo !== 'TICKET') return nada;
-    const fechadoNoPdv = det.turno.situacao !== 1 && (await sql`SELECT 1 FROM caixa_pdv cp WHERE cp.codpdv = ${c.pdv} AND cp.idempresa = ${c.emp}
-        AND cp.horasaida IS NOT NULL AND ${c.chave ? sql`cp.chave = ${c.chave}` : sql`cp.chave IS NULL AND ${this.noDia('cp.data', c)}`} LIMIT 1`.execute(db)).rows.length > 0;
+    const fechadoNoPdv = det.turno.situacao !== 1 && (await this.caixaFechadoNoPdv(db, c));
     let [editar, inserir, excluir] = det.modo === 'consulta' ? [false, false, false] : [true, true, true];
     if ((await this.cfg(db, 'USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO', c.emp)) === 'S') {
       [editar, inserir, excluir] = fechadoNoPdv ? [true, false, false] : [true, true, true];
@@ -1179,6 +1195,7 @@ export class FechamentoCaixaService {
       // o rascunho com a seleção da tela — é dele que saem o REAL e os documentos (o legado grava ao fechar a tela)
       const det = await this.gravarRascunho(trx, c, dto);
       if (det.modo === 'consulta') throw new BusinessRuleError('FECHAMENTO_CAIXA_CONSULTA');
+      if (det.pdvNaoFechado) throw new BusinessRuleError('FECHAMENTO_PDV_NAO_FECHADO');
       const cfg = (k: string) => this.cfg(trx, k, emp);
       const ccOperador = (await cfg('FECHA_CAIXA_CC_OPERADOR')) === 'S';
       const enviaSangriaFiscal = (await cfg('ENVIA_SANGRIA_SUPRIMENTO_CONTA_FISCAL')) === 'S';

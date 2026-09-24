@@ -456,3 +456,12 @@ com a comparação certa (NROPEDIDO + valor numérico).
   - O duplo clique na grade principal que abre a consulta de histórico de vendas. O Apollo não mostra a grade de CX_VENDAS por venda.
   - O detalhe dos itens de um cupom (Enter no cupom do `frmCuponsFiscais`). Os itens estão na tela de histórico de vendas.
 - **Smoke §183:** 1520/0.
+
+### 4.7 ENTREGUE (24/09/2026) — `OBRIGA_FECHAR_CAIXA_PDV` e o atalho de transferência
+
+- **`OBRIGA_FECHAR_CAIXA_PDV`='S'** (Ucxaberto.pas:466): o turno sem HORASAIDA na CAIXA_PDV abre com o aviso "O caixa selecionado ainda não foi fechado no PDV.", mas não efetiva.
+  - O botão fica desabilitado, e o `POST turno/efetivar` responde 422 `FECHAMENTO_PDV_NAO_FECHADO`.
+  - Na produção está 'N' desde 09/07/2026 (esteve 'S' de 07/05 a 09/07/2026).
+- **`caixaFechadoNoPdv`** reproduz o `CaixaFechadoNoPDV` do legado: a primeira CAIXA_PDV do operador e do PDV, pela chave, e também no dia com `FECHAMENTO_CAIXA_SOMENTE_CHAVE`='N'. Não filtra a empresa, como o legado. O modo 'P' do 4.1/4.2 passou a usá-lo; antes, ignorava o operador.
+- **Transferência:** o F6 dos caixas em aberto vira o botão "Transferência" da lista, que leva a `/financeiro/contas-correntes` (a transferência do controle de contas já migrada).
+- **Smoke §184:** 1521/0.

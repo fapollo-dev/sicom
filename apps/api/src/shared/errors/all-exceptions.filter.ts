@@ -576,6 +576,7 @@ const CODE_PT: Record<string, string> = {
   FECHAMENTO_DOCUMENTO_FORA_DO_TURNO: 'O documento informado não pertence a este caixa.',
   FECHAMENTO_DOCUMENTO_CAMPO_BLOQUEADO: 'Caixa já fechado no PDV: no documento só se altera a operadora.',
   FECHAMENTO_DOCUMENTO_SEM_CLIENTE: 'Obrigatório a informação do cliente!',
+  FECHAMENTO_PDV_NAO_FECHADO: 'O caixa selecionado ainda não foi fechado no PDV.',
   FECHAMENTO_EXCLUSAO_SEM_PERMISSAO: 'Você não tem permissões para excluir documentos. Verifique.',
   FECHAMENTO_EXCLUSAO_LIBERACAO: 'Informe o usuário e a senha de quem pode liberar a exclusão de documentos.',
   FECHAMENTO_EXCLUSAO_NAO_LIBERADA: 'O usuário informado não tem permissão para excluir documentos.',

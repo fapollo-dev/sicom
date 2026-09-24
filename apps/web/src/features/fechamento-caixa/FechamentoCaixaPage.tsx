@@ -310,6 +310,8 @@ export function FechamentoCaixaPage() {
           <div className="flex flex-wrap items-end gap-gp-sm">
             <div className="w-44"><DateField label="&Data do caixa" value={data} onChange={(v) => setData(v ?? hoje())} /></div>
             <Button label="&Caixas do dia" variant="soft" onClick={() => void pesquisar()} disabled={ocupado} />
+            {/* F6 dos caixas em aberto: a transferência de espécie é a do controle de contas correntes (Utransferencia) */}
+            <Button label="&Transferência" variant="ghost" onClick={() => navigate('/financeiro/contas-correntes')} />
             {/* Imprimir › "Relatório de caixa": só um atalho para a tela do relatório (FRMRELATORIOCAIXA, já migrada) */}
             <Button label="&Relatório de caixa" variant="ghost" onClick={() => navigate('/relatorios/caixa-dre')} />
           </div>
@@ -355,11 +357,12 @@ export function FechamentoCaixaPage() {
                   <> · chave <button type="button" className="tabular-nums underline" title="Copiar a chave" onClick={copiarChave}>{det.turno.chave}</button></>
                 )}
                 {det.completadas ? ` · ${det.completadas} modalidade(s) incluída(s) zerada(s)` : ''}
+                {det.pdvNaoFechado && <strong className="text-fg-danger"> · O caixa selecionado ainda não foi fechado no PDV.</strong>}
               </small>
             </div>
             <div className="flex flex-wrap gap-gp-sm">
               {!consulta && <Button label="&Gravar conferência" variant="soft" onClick={() => void salvar()} disabled={ocupado} />}
-              {!consulta && <Button label="&Efetivar fechamento" onClick={() => void efetivar()} disabled={ocupado} />}
+              {!consulta && <Button label="&Efetivar fechamento" onClick={() => void efetivar()} disabled={ocupado || !!det.pdvNaoFechado} />}
               {consulta && det.turno.situacao === 3 && <Button label="&Reabrir caixa" variant="soft" onClick={() => void reabrir()} disabled={ocupado} />}
               <Button label="Comprovante de &quebra" variant="ghost" onClick={imprimirQuebra} disabled={ocupado} />
               <Button label="&Histórico" variant="ghost" onClick={imprimirHist} disabled={ocupado} />

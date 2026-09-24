@@ -54,6 +54,8 @@ export interface DetalheTurno {
   fixas: Record<Fixa, number>;
   dinheiroContado: number;
   contadoHabilitado: boolean;
+  /** OBRIGA_FECHAR_CAIXA_PDV e o turno ainda aberto no PDV: consulta a conferência, mas não efetiva */
+  pdvNaoFechado?: boolean;
   limiteSaldo: number;
   adicionais: { recarga: number; correspondente: number; voucher: number; trocoSolidario: number };
   cancelamentos: number;
