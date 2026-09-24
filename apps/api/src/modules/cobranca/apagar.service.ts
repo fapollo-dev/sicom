@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { gravarLogDaLinha, type CampoLog } from '../../shared/log/registro-log';
 import { sql, type Kysely } from 'kysely';
 import { apagarRateioDoGrupo, novoGrupo, rateioUnico, refazerCaixaDoGrupo } from './apagar-caixa';
 import { DatabaseProvider } from '../../shared/database/database.provider';
@@ -99,6 +100,27 @@ export class ApagarService {
     return out;
   }
 
+  /**
+   * a LOG "Contas a pagar" (o form-base do `frmAPagar`, `TLog.GravaLog` com o DataSet): os campos do dataset na ordem do legado
+   * (lida na produção, 22/09/2026). O legado grava a LOG de todo título que passa pela tela — 4.600 Inseriu e 5.225 Alterou em 2026.
+   */
+  static readonly CAMPOS_LOG: readonly CampoLog[] = [
+    'codapg', 'duplicata', 'obs', ['DTCOMPRA', 'dtcompra_log'], 'codoperador', 'codparceiro', 'quitada', ['IDEMPRESA', 'codempresa'], 'idnf', 'valor',
+    'txjuros', ['DTVENC', 'dtvenc_log'], 'tipodoc', 'gfat', 'nrparcela', 'codgrupo', 'vendor', 'convenio', 'desconto', 'form', 'operacao_convenio_funcionario',
+    'codplcfuncionarios', 'idsituacao_nf', 'agrupamento', 'agrupado', 'percjuros', 'mora', 'nrodup', 'codbarrasblt', 'cadastrado_manualmente', 'gerado',
+    'origem', 'chavenfe',
+  ];
+  private async linhaLog(trx: AnyDB, id: number): Promise<Record<string, unknown> | undefined> {
+    const emp = this.emp();
+    const tz = String((await this.cfg(trx, 'FUSO_HORARIO_ACESSO', emp)) ?? 'America/Sao_Paulo');
+    return (await sql<Record<string, unknown>>`SELECT *, to_char(coalesce(dtcompra::timestamp, dtvenda AT TIME ZONE ${tz}), 'DD/MM/YYYY') AS dtcompra_log,
+        to_char(dtvenc AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS dtvenc_log FROM apagar WHERE codapg = ${id}`.execute(trx)).rows[0];
+  }
+  private async logTitulo(trx: AnyDB, acao: 'Inseriu' | 'Alterou', id: number, antes: Record<string, unknown> | undefined, depois: Record<string, unknown> | undefined) {
+    if (!depois) return;
+    await gravarLogDaLinha(trx, { acao, formulario: 'Contas a pagar', tabela: 'APAGAR', chave: 'CODAPG', valor: id, idempresa: this.emp(), campos: ApagarService.CAMPOS_LOG, antes, depois });
+  }
+
   async criar(dto: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
@@ -119,7 +141,7 @@ export class ApagarService {
         .insertInto('apagar')
         .values({
           ...d, codempresa: emp, quitada: 'N', agrupado: 'N', consiliado: 'S',
-          cadastrado_manualmente: 'S', gerado: 'OPERADOR', codgrupo, codoperador: op,
+          cadastrado_manualmente: 'S', gerado: 'OPERADOR', codgrupo, codoperador: op, form: 'TfrmAPagar',
           usultalteracao: op, dtultimalteracao: sql`now()`, dtcadastro: sql`now()`,
         })
         .returning('codapg')
@@ -134,6 +156,7 @@ export class ApagarService {
         await refazerCaixaDoGrupo(trx, codgrupo, op);
       }
       await this.integrarGrupo(trx, emp, codgrupo);
+      await this.logTitulo(trx, 'Inseriu', codapg, undefined, await this.linhaLog(trx, codapg));
       return codapg;
     });
     return this.read(id);
@@ -272,6 +295,7 @@ export class ApagarService {
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const t = await this.titulo(trx, id, emp);
       const antes = await this.paraHistorico(trx, id, emp);
+      const antesLog = await this.linhaLog(trx, id);
       ApagarService.travasDaTela(t);
       // período fechado × BLOQ_APG — trava pela DTVENDA (=DTCOMPRA) atual (uAPagar:1018) E pela nova (:1703).
       await assertPeriodoNaoFechado(trx, emp, t.dtvenda, 'bloq_apg');
@@ -302,6 +326,7 @@ export class ApagarService {
       }
       const depois = await this.paraHistorico(trx, id, emp);
       await this.historicoDaEdicao(trx, emp, antes, depois);
+      await this.logTitulo(trx, 'Alterou', id, antesLog, await this.linhaLog(trx, id));
 
       // o Gravar da tela atualiza o rateio no lugar e refaz a CAIXA do grupo (CAIXA-escritores.md §2)
       const lancaSeparado = (await this.cfg(trx, 'LANCAR_CENTROCUSTO_DESCACREJRS_CONTAS_PAGAR', emp)) === 'S';

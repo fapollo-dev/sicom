@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { gravarLogDaLinha, type CampoLog } from '../../shared/log/registro-log';
 import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
@@ -147,6 +148,22 @@ export class AreceberService {
   }
 
   /** Cria um título MANUAL (cadastrado_manualmente='S', gerado='OPERADOR', quitada='N'). */
+  /**
+   * a LOG "Contas a receber" (o form-base do `frmCadAReceber`, `TLog.GravaLog` com o DataSet): os campos do dataset na ordem do
+   * legado (lida na produção, 21/09/2026) — 1.108 Inseriu e 725 Alterou em 2026.
+   */
+  static readonly CAMPOS_LOG: readonly CampoLog[] = [
+    'codrcb', 'dtvenda', 'codoperador', 'codparceiro', 'quitada', 'logado', 'codempresa', 'gerado', 'valor', 'txjuros', 'dtvenc', 'tipodoc', 'nrodup',
+    'total', 'codgrupo', 'codoperadorman', 'codbco', 'idpgto', 'consiliado', 'codplc', 'desconto_boleto', 'cadastrado_manualmente', 'usultalteracao',
+    'dtultimalteracao', 'dtcadastro', 'idsituacao_nf', 'nfadicmanual', 'total_brt', 'txmulta', 'valor_perc_multa', 'dtagendamento', 'obs', 'duplicata',
+    'nrocupom', 'origem', 'chave', 'codpdv',
+  ];
+  private async logTitulo(trx: AnyDB, acao: 'Inseriu' | 'Alterou', id: number, antes: Record<string, unknown> | undefined) {
+    const depois = (await sql<Record<string, unknown>>`SELECT * FROM areceber WHERE codrcb = ${id}`.execute(trx)).rows[0];
+    if (!depois) return;
+    await gravarLogDaLinha(trx, { acao, formulario: 'Contas a receber', tabela: 'ARECEBER', chave: 'CODRCB', valor: id, idempresa: this.emp(), campos: AreceberService.CAMPOS_LOG, antes, depois });
+  }
+
   async criar(dto: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
@@ -180,6 +197,7 @@ export class AreceberService {
       const codrcb = Number((ins as Record<string, unknown>).codrcb);
       await lancarCaixaDoAreceber(trx, codrcb, emp, 'incluir'); // a CAIXA gerencial do título (uCadAReceber.pas:1075)
       await this.integrarDocumento(trx, emp, codrcb);
+      await this.logTitulo(trx, 'Inseriu', codrcb, undefined);
       return codrcb;
     });
     return this.read(id);
@@ -376,6 +394,7 @@ export class AreceberService {
       await assertRestricoesSituacao(trx, d, t as Record<string, unknown>, { papel: 'cliente' });
       await this.estornarSeContabilizado(trx, emp, t);
       const antes = await this.paraHistorico(trx, id, emp);
+      const antesLog = (await sql<Record<string, unknown>>`SELECT * FROM areceber WHERE codrcb = ${id}`.execute(trx)).rows[0];
       if (Object.keys(d).length) {
         await trx
           .updateTable('areceber')
@@ -387,6 +406,7 @@ export class AreceberService {
       }
       await this.historicoDaEdicao(trx, emp, antes, await this.paraHistorico(trx, id, emp));
       await this.integrarDocumento(trx, emp, id);
+      if (Object.keys(d).length) await this.logTitulo(trx, 'Alterou', id, antesLog);
     });
     return this.read(id);
   }

@@ -20542,6 +20542,42 @@ async function main() {
         await pgCG.end();
       }
     }
+    // ══ §191 LOG "Contas a pagar" / "Contas a receber" (o form-base do frmAPagar/frmCadAReceber — TLog.GravaLog com o DataSet) ══
+    {
+      const pgLg = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      let codapg = 0;
+      let codrcb = 0;
+      try {
+        const ap = (await (await fetch(`${base}/cadastro/apagar`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2041-09-21', dtvenc: '2041-10-19', valor: 275.6, duplicata: 'LOG191' }) })).json()) as any;
+        codapg = Number(ap.codapg);
+        await fetch(`${base}/cadastro/apagar/${codapg}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 300 }) });
+        const logsAp = (await pgLg.query(`SELECT acao, formulario, tabela, chave, historico FROM log WHERE tabela = 'APAGAR' AND valor = $1 ORDER BY idlog`, [codapg])).rows as any[];
+        const form = ((await pgLg.query(`SELECT form FROM apagar WHERE codapg = $1`, [codapg])).rows[0] as any)?.form;
+        const ar = (await (await fetch(`${base}/cadastro/areceber`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, dtvenda: '2041-09-21', dtvenc: '2041-10-21', valor: 770.14 }) })).json()) as any;
+        codrcb = Number(ar.codrcb);
+        await fetch(`${base}/cadastro/areceber/${codrcb}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 800 }) });
+        const logsAr = (await pgLg.query(`SELECT acao, formulario, chave, historico FROM log WHERE tabela = 'ARECEBER' AND valor = $1 ORDER BY idlog`, [codrcb])).rows as any[];
+        const ins = logsAp.find((l) => l.acao === 'Inseriu');
+        const alt = logsAp.find((l) => l.acao === 'Alterou');
+        check('LOG §191 [contas a pagar/receber]: incluir o título grava a LOG "Contas a pagar"/Inseriu na APAGAR (chave CODAPG) com os campos do dataset do legado na ordem dele — CODAPG primeiro, DTCOMPRA dd/mm/aaaa, IDEMPRESA, o VALOR com a vírgula do Delphi (275,6) e o FORM TfrmAPagar (gravado também no título) —; alterar grava a Alterou só com o que mudou (VALOR 275,6 → 300); o A Receber idem ("Contas a receber", CODRCB, 770,14 → 800)',
+          form === 'TfrmAPagar' && ins?.formulario === 'Contas a pagar' && ins.chave === 'CODAPG'
+          && /^INSERIU: \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2} \r\nCAMPO: CODAPG   VALOR: \d+/.test(ins.historico)
+          && ins.historico.includes('CAMPO: VALOR   VALOR: 275,6') && ins.historico.includes('CAMPO: DTCOMPRA   VALOR: 21/09/2041') && ins.historico.includes('CAMPO: FORM   VALOR: TFRMAPAGAR')
+          && ins.historico.includes('CAMPO: IDEMPRESA   VALOR: 1') && ins.historico.indexOf('CAMPO: CODAPG') < ins.historico.indexOf('CAMPO: DUPLICATA')
+          && alt?.historico.includes('CAMPO: VALOR    VALOR ANTERIOR: 275,6    VALOR ATUAL: 300') && !alt.historico.includes('CAMPO: DUPLICATA')
+          && logsAr.some((l) => l.acao === 'Inseriu' && l.formulario === 'Contas a receber' && l.chave === 'CODRCB' && l.historico.includes('CAMPO: VALOR   VALOR: 770,14'))
+          && logsAr.some((l) => l.acao === 'Alterou' && l.historico.includes('CAMPO: VALOR    VALOR ANTERIOR: 770,14    VALOR ATUAL: 800')),
+          { form, logsAp, logsAr });
+      } finally {
+        await pgLg.query(`DELETE FROM log WHERE (tabela = 'APAGAR' AND valor = $1) OR (tabela = 'ARECEBER' AND valor = $2)`, [codapg, codrcb]).catch(() => undefined);
+        await pgLg.query(`DELETE FROM historico WHERE (tabela = 'APAGAR' AND coddoc = $1::text) OR (tabela = 'ARECEBER' AND coddoc = $2::text)`, [codapg, codrcb]).catch(() => undefined);
+        await pgLg.query(`DELETE FROM caixa WHERE codgrupo IN (SELECT codgrupo FROM apagar WHERE codapg = $1) OR codrcb = $2`, [codapg, codrcb]).catch(() => undefined);
+        await pgLg.query(`DELETE FROM cx_apagar WHERE codapg = $1`, [codapg]).catch(() => undefined);
+        await pgLg.query(`DELETE FROM apagar WHERE codapg = $1`, [codapg]).catch(() => undefined);
+        await pgLg.query(`DELETE FROM areceber WHERE codrcb = $1`, [codrcb]).catch(() => undefined);
+        await pgLg.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

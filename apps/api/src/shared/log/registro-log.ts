@@ -32,7 +32,7 @@ export function normalizarLog(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
 }
 
-/** o VarToStr do valor de um campo: data como o Delphi mostra, nulo como vazio */
+/** o VarToStr do valor de um campo: data como o Delphi mostra, nulo como vazio, número com a vírgula do pt-BR ("275,6") */
 function valorLegado(v: unknown): string {
   if (v === null || v === undefined) return '';
   if (v instanceof Date) {
@@ -40,9 +40,13 @@ function valorLegado(v: unknown): string {
     return s.endsWith(' 00:00:00') ? s.slice(0, 10) : s;
   }
   if (typeof v === 'boolean') return v ? 'S' : 'N';
+  if (typeof v === 'number') return String(v).replace('.', ',');
   if (typeof v === 'object') return JSON.stringify(v);
+  // o numeric do banco chega como texto ('275.60'): o Delphi mostra o float sem os zeros à direita e com vírgula
+  if (typeof v === 'string' && DECIMAL.test(v.trim())) return String(Number(v.trim())).replace('.', ',');
   return String(v);
 }
+const DECIMAL = /^-?\d+\.\d+$/;
 
 const ISO_DATA = /^\d{4}-\d{2}-\d{2}$/;
 const ISO_DATAHORA = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
@@ -162,4 +166,28 @@ export async function gravarLogDeCadastro(
   await gravarLog(trx, {
     acao, formulario: cfg.log.formulario, tabela: cfg.log.tabela ?? cfg.tabela, chave: cfg.log.chave ?? cfg.pk, valor: id, historico,
   });
+}
+
+/** um campo da linha na ordem do legado: o nome da coluna (o mesmo aqui e lá) ou [nome no legado, coluna aqui] */
+export type CampoLog = string | [string, string];
+
+/**
+ * a LOG da linha INTEIRA, como o form-base a grava com o DataSet da tela (`TLog.GravaLog(acao, …, DataSet)`): os campos do
+ * dataset do legado, NA ORDEM DELE e com o nome dele — Inseriu lista os preenchidos, Alterou os que mudaram. As colunas só do
+ * Apollo ficam de fora (não estão no dataset do legado). `antes`/`depois` são as linhas lidas do banco (SELECT *).
+ */
+export async function gravarLogDaLinha(trx: AnyDB, r: {
+  acao: AcaoLog; formulario: string; tabela: string; chave: string; valor: number; idempresa?: number | null; campos: readonly CampoLog[];
+  antes?: Record<string, unknown> | null; depois: Record<string, unknown>;
+}): Promise<void> {
+  const ordenar = (linha: Record<string, unknown> | null | undefined) => {
+    const o: Record<string, unknown> = {};
+    for (const c of r.campos) {
+      const [nome, col] = Array.isArray(c) ? c : [c.toUpperCase(), c];
+      o[nome] = linha ? linha[col] : undefined;
+    }
+    return o;
+  };
+  const h = historicoDeGravacao(r.acao, ordenar(r.antes), ordenar(r.depois));
+  if (h) await gravarLog(trx, { acao: r.acao, formulario: r.formulario, tabela: r.tabela, chave: r.chave, valor: r.valor, historico: h, idempresa: r.idempresa ?? null });
 }
