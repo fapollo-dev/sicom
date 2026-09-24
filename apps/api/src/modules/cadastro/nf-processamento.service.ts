@@ -4,11 +4,13 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ConfigService } from './config.service';
+import { NfFaturamentoService } from './nf-faturamento.service';
 import { NfContabilizacaoService } from './nf-contabilizacao.service';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 import { validarItensNoProcessamento } from './nf-cfop-situacao';
 import { totaisProdutosNf } from '@apollo/shared';
 import { gerarCaixaDaNf, reverterCaixaDaNf } from './nf-caixa';
+import { configNaTrx } from '../compras/pedido-heranca';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -47,6 +49,7 @@ export class NfProcessamentoService {
     private readonly dbp: DatabaseProvider,
     private readonly config: ConfigService,
     private readonly contab: NfContabilizacaoService,
+    private readonly faturamento: NfFaturamentoService,
   ) {}
 
   async processar(codnf: number): Promise<void> {
@@ -87,7 +90,7 @@ export class NfProcessamentoService {
       if (!nf) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf });
       // trava de edição (espelha nf.aggregate.validar): NF com efeito é read-only.
       if (nf.proc === 'S') throw new BusinessRuleError('NF_PROCESSADA', { codnf });
-      if (nf.faturada === 'S') throw new BusinessRuleError('NF_TEM_FATURAMENTO', { codnf });
+      // (sem trava de faturada: o menu do legado só olha o PROC — uNF.pas:16401-16410; auditoria g1 #12)
       if (nf.contabilizado === 'S') throw new BusinessRuleError('NF_CONTABILIZADA', { codnf });
       if (nf.cancelada === 'S' || nf.statusnfe === 'C') throw new BusinessRuleError('NF_CANCELADA', { codnf });
       if (nf.statusnfe === 'P' || nf.statusnfe === 'D') throw new BusinessRuleError('NF_ENVIADA', { codnf });
@@ -142,11 +145,11 @@ export class NfProcessamentoService {
         // (DENEGADA) liberam: a denegada é fiscalmente inválida e precisa voltar a editável p/ reemissão
         // (uNF.pas:8939 bloqueava 'D' por não haver caminho de estorno; migrado abre-o).
         if (nf.statusnfe && nf.statusnfe !== 'T' && nf.statusnfe !== 'D') throw new BusinessRuleError('NF_ENVIADA', { codnf });
-        // reverter + FATURADA (uNF.pas:9000-9002 `ReverteProcessamento` desfaz o financeiro junto com o
-        // estoque): no legado processar/reverter geram/desfazem o financeiro juntos. No corte-1 o faturar
-        // é ação SEPARADA (F4b) — reverter uma NF faturada aqui deixaria os títulos ARECEBER/APAGAR órfãos.
-        // Espelhamos a INTENÇÃO barrando: o operador estorna o faturamento (endpoint próprio) antes de reverter.
-        if (nf.faturada === 'S') throw new BusinessRuleError('NF_TEM_FATURAMENTO', { codnf });
+        // reverter a NF com financeiro (uNF.pas:9171 → `CancelaFaturamento(codnf, tipo, 'R')`, :6668): o legado NÃO barra. Com
+        // `ESTORNA_FINANCEIRO_NF`='S' exclui o financeiro se nada foi baixado/agrupado/contabilizado (senão avisa e mantém); com
+        // 'N' (a produção) MANTÉM os títulos e marca a pendência (`AdicionaPendenciaFinanceiro`: STATUS_PENDENCIA 'R' pela IDNF).
+        // O Apollo recusava — 295 reversões em 2025 e 151 em 2026 tinham financeiro (auditoria g1 #15).
+        if (nf.faturada === 'S') await this.cancelarFaturamentoNaReversao(trx, codnf, String(nf.tipo), emp, op);
         // reverter + contabilizada (uNF.pas:8949): se a empresa é AUTOMATICA, ESTORNA o contábil e segue;
         // senão bloqueia (o operador tem de estornar o contábil manualmente antes).
         if (nf.contabilizado === 'S') {
@@ -201,6 +204,26 @@ export class NfProcessamentoService {
    * (não grava), esta é a barreira que impede processar uma NF com total/ICMS-ST adulterado ou defasado.
    * TOTAL sempre; ICMS-ST só quando EMPRESAS.FIGURAFISCAL='D' (paridade fiel).
    */
+  /**
+   * `CancelaFaturamento(ACodNF, ATipoNota, 'R')` na reversão (uNF.pas:6668-6725): com `ESTORNA_FINANCEIRO_NF`='S' e nenhum título
+   * baixado, agrupado ou contabilizado (`VerificaExisteBaixas`), exclui o financeiro (o estorno do faturamento) e a NF volta a não
+   * faturada; senão — e sempre com 'N', que é a produção — MANTÉM os títulos e marca a pendência 'R' (`AdicionaPendenciaFinanceiro`:
+   * APAGAR na entrada, ARECEBER na saída, pela IDNF). A reversão segue nos dois casos.
+   */
+  private async cancelarFaturamentoNaReversao(trx: AnyDB, codnf: number, tipo: string, emp: number, op: number | null): Promise<void> {
+    const tabela = tipo === 'E' ? 'apagar' : 'areceber';
+    const cfg = String((await configNaTrx(trx, 'ESTORNA_FINANCEIRO_NF', { empresaId: emp, operadorId: op, modulo: 'Retaguarda' })) ?? 'N').toUpperCase();
+    if (cfg === 'S') {
+      const bx = tipo === 'E'
+        ? (await sql`SELECT 1 FROM apagar a WHERE a.idnf = ${codnf} AND (a.quitada = 'S' OR coalesce(a.agrupado, 'N') = 'S' OR coalesce(a.contabilizado, 'N') = 'S'
+              OR EXISTS (SELECT 1 FROM apagar_bx b WHERE b.codapg = a.codapg AND coalesce(b.indr, 'I') = 'I')) LIMIT 1`.execute(trx)).rows.length > 0
+        : (await sql`SELECT 1 FROM areceber a WHERE a.idnf = ${codnf} AND (a.quitada = 'S' OR coalesce(a.agrupado, 'N') = 'S' OR coalesce(a.contabilizado, 'N') = 'S'
+              OR EXISTS (SELECT 1 FROM areceber_bx b WHERE b.codrcb = a.codrcb AND coalesce(b.indr, 'I') = 'I')) LIMIT 1`.execute(trx)).rows.length > 0;
+      if (!bx && (await this.faturamento.estornarNoCancelamento(trx, codnf, tipo, emp, op)) === 'estornado') return;
+    }
+    await sql`UPDATE ${sql.table(tabela)} SET status_pendencia = 'R' WHERE idnf = ${codnf}`.execute(trx);
+  }
+
   private async reconciliarTotais(trx: AnyDB, codnf: number, emp: number, nf: Record<string, unknown>): Promise<void> {
     const itens = await trx
       .selectFrom('nf_prod')
@@ -220,9 +243,9 @@ export class NfProcessamentoService {
       totalprod - totaldesc + num(nf.totalfrete) + num(nf.totalseguro) + num(nf.totalacessorias) + totalipi + totalicmSt
       + num(nf.totalipi_devolucao), // o IPI devolvido entra no total da nota (udmNF.pas:5557), como no `derivar`
     );
-    if (Math.abs(num(nf.totalnf) - totalnfRec) > 0.01) {
-      throw new BusinessRuleError('NF_TOTAL_DIVERGENTE', { informado: num(nf.totalnf), calculado: totalnfRec });
-    }
+    // ⚠️ o TOTALNF não é conferido: o legado só confere o ICMS-ST (`ValidaTotalICMSStNota`, uProcessaNotaFiscal.pas:564-585) —
+    // 643 NFs de entrada (2025) e 459 (2026) da produção não fecham com a fórmula e cairiam ao reprocessar (auditoria g1 #17).
+    void totalnfRec;
     // ICMS-ST só quando FIGURAFISCAL='D' (uProcessaNotaFiscal.pas:564-585).
     const ef = await trx.selectFrom('empresas').select('figurafiscal').where('idempresa', '=', emp).executeTakeFirst();
     if (ef?.figurafiscal === 'D' && Math.abs(num(nf.totalicm_st) - r2(totalicmSt)) > 0.01) {

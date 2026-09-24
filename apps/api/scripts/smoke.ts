@@ -1797,12 +1797,28 @@ async function main() {
     const nfRevFat = await novaNf(baseNf({ tipo: 'S', nronf: 'R7007', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     await fetch(`${base}/fiscal/nf/${nfRevFat}/processar`, { method: 'POST', headers: H });
     await fetch(`${base}/fiscal/nf/${nfRevFat}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const pgRvf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    // (auditoria g1 #15) o legado REVERTE a NF faturada e chama `CancelaFaturamento(..., 'R')`: com ESTORNA_FINANCEIRO_NF 'N'
+    // (a produção) mantém os títulos e marca a pendência 'R'; com 'S' exclui o financeiro se nada foi baixado
     const revFat = await fetch(`${base}/fiscal/nf/${nfRevFat}/reverter`, { method: 'POST', headers: H });
     const revFatB = (await revFat.json().catch(() => ({}))) as any;
-    check('reverter NF FATURADA → 422 NF_TEM_FATURAMENTO (sem título órfão)', revFat.status === 422 && revFatB.code === 'NF_TEM_FATURAMENTO', { status: revFat.status, code: revFatB.code });
-    await fetch(`${base}/fiscal/nf/${nfRevFat}/estornar-faturamento`, { method: 'POST', headers: H });
+    const titRev = (await pgRvf.query(`SELECT count(*)::int AS n, bool_and(status_pendencia = 'R') AS pend FROM areceber WHERE idnf = $1`, [nfRevFat])).rows[0] as any;
+    const nfRevEst = (await pgRvf.query(`SELECT proc, faturada FROM nf WHERE codnf = $1`, [nfRevFat])).rows[0] as any;
+    check('reverter NF FATURADA (ESTORNA_FINANCEIRO_NF N) → 200: reverte, MANTÉM os títulos e marca STATUS_PENDENCIA R (CancelaFaturamento)',
+      revFat.status === 200 && titRev?.n >= 1 && titRev.pend === true && nfRevEst?.proc === 'N' && nfRevEst?.faturada === 'S', { status: revFat.status, code: revFatB.code, titRev, nfRevEst });
+    const estornaAntes = ((await pgRvf.query(`SELECT valor FROM configuracoes WHERE codigo = 'ESTORNA_FINANCEIRO_NF'`)).rows[0] as any)?.valor;
+    await pgRvf.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, config_especificas_permitidas, descricao)
+        SELECT 991961, 'ESTORNA_FINANCEIRO_NF', 'S', 'texto', 'Modulo;Empresa', 'smoke' WHERE NOT EXISTS (SELECT 1 FROM configuracoes WHERE codigo = 'ESTORNA_FINANCEIRO_NF')`);
+    await pgRvf.query(`UPDATE configuracoes SET valor = 'S' WHERE codigo = 'ESTORNA_FINANCEIRO_NF'`);
+    await pgRvf.query(`DELETE FROM configuracoes_especificas WHERE id IN (SELECT id FROM configuracoes WHERE codigo = 'ESTORNA_FINANCEIRO_NF')`);
+    await fetch(`${base}/fiscal/nf/${nfRevFat}/processar`, { method: 'POST', headers: H });
     const revFat2 = await fetch(`${base}/fiscal/nf/${nfRevFat}/reverter`, { method: 'POST', headers: H });
-    check('após estornar-faturamento, reverter é liberado (200)', revFat2.status === 200, revFat2.status);
+    const titRev2 = Number(((await pgRvf.query(`SELECT count(*)::int AS n FROM areceber WHERE idnf = $1`, [nfRevFat])).rows[0] as any).n);
+    const nfRev2 = (await pgRvf.query(`SELECT proc, faturada FROM nf WHERE codnf = $1`, [nfRevFat])).rows[0] as any;
+    await pgRvf.query(`DELETE FROM configuracoes WHERE id = 991961`);
+    if (estornaAntes !== undefined) await pgRvf.query(`UPDATE configuracoes SET valor = $1 WHERE codigo = 'ESTORNA_FINANCEIRO_NF'`, [estornaAntes]);
+    check('reverter NF FATURADA com ESTORNA_FINANCEIRO_NF S e nada baixado → exclui o financeiro e a NF volta a não faturada', revFat2.status === 200 && titRev2 === 0 && nfRev2?.faturada === 'N', { status: revFat2.status, titRev2, nfRev2 });
+    await pgRvf.end();
 
     // 21.8) DELETE bloqueado em NF REFERENCIADA por outra (cert 2026-07-02, uNF:4145): a nota-origem de uma
     // devolução/complemento aponta p/ esta via nf_referencia.codnf_ref — apagar romperia a cadeia (órfão).
@@ -2192,10 +2208,8 @@ async function main() {
     const procRec = await fetch(`${base}/fiscal/nf/${nfRec}/processar`, { method: 'POST', headers: H });
     const procRecBody = (await procRec.json().catch(() => ({}))) as any;
     const procRecState = (await pgF3b.query(`SELECT proc FROM nf WHERE codnf=$1`, [nfRec])).rows[0]?.proc;
-    check('F3b reconciliação: total adulterado → 422 NF_TOTAL_DIVERGENTE, proc intacto (N)', procRec.status === 422 && procRecBody.code === 'NF_TOTAL_DIVERGENTE' && procRecState === 'N', { status: procRec.status, code: procRecBody.code, proc: procRecState });
-    await pgF3b.query(`UPDATE nf SET totalnf = totalnf - 1 WHERE codnf=$1`, [nfRec]);
-    const procRecOk = await fetch(`${base}/fiscal/nf/${nfRec}/processar`, { method: 'POST', headers: H });
-    check('F3b reconciliação: total correto → processa (200)', procRecOk.status === 200, { status: procRecOk.status });
+    // (auditoria g1 #17) o legado não confere o TOTALNF (só o ICMS-ST, `ValidaTotalICMSStNota`) — 643+459 NFs da produção não fecham
+    check('F3b: o TOTALNF divergente NÃO barra o processar (o legado só confere o ICMS-ST)', procRec.status === 200 && procRecState === 'S', { status: procRec.status, code: procRecBody.code, proc: procRecState });
     // 28.2) reconciliação de ICMS-ST (empresa figurafiscal='D'): totalicm_st adulterado → 422 NF_ST_DIVERGENTE.
     const nfSt = await novaNf(baseNf({ tipo: 'S', nronf: 'E8102', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     await pgF3b.query(`UPDATE nf SET totalicm_st = 5 WHERE codnf=$1`, [nfSt]);
@@ -2213,7 +2227,7 @@ async function main() {
     check('F3b denegada: transmitir cStat 110 → statusnfe=D, proc=S (estoque preso)', txDen.status === 200 && stDen?.statusnfe === 'D' && stDen?.proc === 'S', { status: txDen.status, statusnfe: stDen?.statusnfe, proc: stDen?.proc });
     const fatDen = await fetch(`${base}/fiscal/nf/${nfDen}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-09-10', intervaloDias: 30 }) });
     const fatDenBody = (await fatDen.json().catch(() => ({}))) as any;
-    check('F3b denegada: faturar → 422 NF_DENEGADA', fatDen.status === 422 && fatDenBody.code === 'NF_DENEGADA', { status: fatDen.status, code: fatDenBody.code });
+    check('F3b denegada: faturar é LIBERADO (o btnFaturamentoClick do legado aceita a própria com STATUSNFE P ou D — auditoria g1 #21)', fatDen.status === 200, { status: fatDen.status, code: fatDenBody.code });
     const revDen = await fetch(`${base}/fiscal/nf/${nfDen}/reverter`, { method: 'POST', headers: H });
     const stRev = (await pgF3b.query(`SELECT statusnfe, chavenfe, proc FROM nf WHERE codnf=$1`, [nfDen])).rows[0];
     check('F3b denegada: reverter estorna estoque + limpa status (statusnfe/chave null, proc N, saldo restaurado)', revDen.status === 200 && stRev?.statusnfe === null && stRev?.chavenfe === null && stRev?.proc === 'N' && (await saldoProd1()) === s0Den, { status: revDen.status, statusnfe: stRev?.statusnfe, chave: stRev?.chavenfe, proc: stRev?.proc, saldo: await saldoProd1(), s0Den });

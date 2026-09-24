@@ -67,8 +67,9 @@ export class NfFaturamentoService {
       .executeTakeFirst();
     if (!nf) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf });
     if (nf.cancelada === 'S' || nf.statusnfe === 'C') throw new BusinessRuleError('NF_CANCELADA', { codnf });
-    if (nf.statusnfe === 'D') throw new BusinessRuleError('NF_DENEGADA', { codnf });
-    if (nf.contabilizado === 'S') throw new BusinessRuleError('NF_CONTABILIZADA', { codnf });
+    // ⚠️ sem trava de DENEGADA nem de CONTABILIZADA (auditoria g1 #21/#22): o `btnFaturamentoClick` do legado (uNF.pas:4332-4374)
+    // libera a denegada e não olha o CONTABILIZADO — e no legado o processar GERA o financeiro e só depois integra o contábil
+    // (udmNF.pas:7772-7788); o Apollo contabiliza no processar, então a trava deixava sem faturar 5.409 NFs (2025) e 2.716 (2026).
     if (nf.faturada === 'S') throw new BusinessRuleError('NF_JA_FATURADA', { codnf });
     const tabela: 'areceber' | 'apagar' = nf.tipo === 'E' ? 'apagar' : 'areceber';
     const ja = await trx.selectFrom(tabela).select('idnf').where('idnf', '=', codnf).where('codempresa', '=', emp).executeTakeFirst();

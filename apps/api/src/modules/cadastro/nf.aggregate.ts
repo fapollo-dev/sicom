@@ -165,7 +165,9 @@ export const nfAggregateConfig: AggregateConfig = {
         .executeTakeFirst()) as typeof atual;
       if (atual) {
         if (atual.proc === 'S') throw new BusinessRuleError('NF_PROCESSADA');
-        if (atual.faturada === 'S') throw new BusinessRuleError('NF_TEM_FATURAMENTO');
+        // ⚠️ SEM trava de faturada: `btnEditarClick` (uNF.pas:3905-4004) só barra contabilizada, processada e dia fechado — com o
+        // financeiro gerado ele só desabilita o "Gerar financeiro". É o fluxo diário: a NF importada já nasce com o A Pagar e o
+        // operador ajusta antes de processar (4.436 edições em 2025, 5.816 em 2026 — auditoria g1 #2)
         if (atual.contabilizado === 'S') throw new BusinessRuleError('NF_CONTABILIZADA');
         if (atual.cancelada === 'S' || atual.statusnfe === 'C') throw new BusinessRuleError('NF_CANCELADA');
         if (atual.statusnfe === 'P' || atual.statusnfe === 'D') throw new BusinessRuleError('NF_ENVIADA');

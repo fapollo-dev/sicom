@@ -453,3 +453,16 @@ rotativo já existiam no Apollo. Convertido (`nf-scrap.service.ts`, `NfScrapModa
   (`AtualizaStatusScrap`) na exclusão (apaga a PEDIDO_NF) e no cancelamento (mantém);
 - o OBS "1,2,3)" que o legado escreve é sobrescrito pela mensagem de tributos (nenhuma NF de scrap da produção o
   guarda) — não reproduzido; scrap com `MOV_ESTOQUE='S'` não entra (baixaria duas vezes — sem caso na produção).
+
+## Auditoria de travas inventadas (g1, 24/09/2026) — o que saiu
+
+Relatório: `docs/05-migration-engineering/auditoria-travas/g1-compras-fiscal.md`.
+
+- **Editar NF faturada** (a trava `NF_TEM_FATURAMENTO` no agregado e no sincronizar CFOP): o `btnEditarClick` só barra contabilizada, processada e dia fechado. É o fluxo diário (a NF importada nasce com o A Pagar): 4.436 edições em 2025 e 5.816 em 2026.
+- **Faturar NF contabilizada ou denegada:** o `btnFaturamentoClick` não olha o CONTABILIZADO e libera a denegada. No legado o processar gera o financeiro antes de integrar o contábil; o Apollo contabiliza no processar e deixava 5.409 NFs (2025) e 2.716 (2026) sem faturar.
+- **Reverter NF faturada:** segue o `CancelaFaturamento(codnf, tipo, 'R')`.
+  - Com `ESTORNA_FINANCEIRO_NF`='N' (a produção), mantém os títulos e marca STATUS_PENDENCIA 'R' (`AdicionaPendenciaFinanceiro`).
+  - Com 'S' e nada baixado/agrupado/contabilizado, exclui o financeiro.
+  - A reversão segue nos dois casos. Eram 295 reversões com financeiro em 2025 e 151 em 2026.
+- **TOTALNF no processar:** não é mais conferido. O legado só confere o ICMS-ST; 643 + 459 NFs da produção não fecham com a fórmula.
+- **Mantidas (ancoradas):** processada, contabilizada, cancelada/enviada, chave duplicada, CFOP × situação, estorno com título quitado, entre outras (tabela completa no relatório).
