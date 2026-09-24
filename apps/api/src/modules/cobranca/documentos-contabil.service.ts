@@ -471,16 +471,18 @@ export class DocumentosContabilService {
       `.execute(trx)).rows;
       if (!rcb.length || !apg.length) throw new BusinessRuleError('CONVENIO_GRUPO_SEM_REGISTROS', { codgrupo });
 
-      const valor = r2(rcb.reduce((s, r) => s + num(r.valor), 0));
+      // o valor do lançamento é o do A PAGAR do convênio (débito = Σ APG em 30 de 30 grupos); o débito não traz IDORIGEM nem
+      // DOCUMENTO no dataset — fica com o primeiro recebível e documento vazio, como no razão do cliente (grupo 93439)
+      const valor = r2(apg.reduce((s, a) => s + num(a.valor), 0));
       await lancarNoDiario(trx, {
         emp, codorigem: ORIGEM.CONVENIO, situacao, data: String(g.data), valor,
-        idorigem: Number(rcb[0].codrcb), documento: String(rcb[0].codrcb), complemento: String(codgrupo),
+        idorigem: Number(rcb[0].codrcb), documento: '', complemento: String(codgrupo),
         dataSetC: rcb.map((r) => ({ codplanocontas: r.conta == null ? null : Number(r.conta), valor: r2(num(r.valor)),
           idorigem: Number(r.codrcb), documento: String(r.codrcb), complemento: String(codgrupo), descricao: `o parceiro ${r.codparceiro}`,
           // um texto por recebível: nos 30 grupos do cliente, nenhum tem texto único
           ctxHist: { documento: Number(r.codrcb), parceiro: String(r.razao ?? '') } })),
         dataSetD: apg.map((a) => ({ codplanocontas: a.conta == null ? null : Number(a.conta), valor: r2(num(a.valor)),
-          idorigem: Number(a.codapg), documento: String(a.codapg), complemento: String(codgrupo), descricao: `o parceiro ${a.codparceiro}` })),
+          complemento: String(codgrupo), descricao: `o parceiro ${a.codparceiro}` })),
         desclote: `Agrupamento de convênio — grupo ${codgrupo}`,
         // histórico 104 no débito (só o documento) e 105 no crédito (documento + parceiro) — é por serem
         // diferentes que este é o lançamento mais desigual do razão: 15.089 só-crédito contra 30 só-débito.

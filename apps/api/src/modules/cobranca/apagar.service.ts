@@ -76,7 +76,7 @@ export class ApagarService {
     const t = { ...v, ...x };
     const bloqueados = ApagarService.origemAutomatica(t) && (await this.cfg(db, 'BLOQUEIA_CONTAS_PAGAR_ORIGEM_AUTO', emp)) === 'S'
       ? [...ApagarService.CAMPOS_ORIGEM_AUTO]
-      : (t.agrupamento === 'S' || t.origem === 'A' ? ['valor'] : []);
+      : (t.agrupamento === 'S' ? ['valor'] : []);
     return { ...t, total_doc: r2(num(t.valor) + num(t.vendor) - num(t.desconto)), campos_bloqueados: bloqueados };
   }
 
@@ -280,8 +280,8 @@ export class ApagarService {
         }
       }
       // o valor do título de agrupamento não se digita (`edtVALOR.Enabled := not AGRUPAMENTO`, :1060): é a soma dos agrupados
-      // (o consolidado do Apollo é ORIGEM 'A'; o do legado, AGRUPAMENTO='S') — para mexer no valor, reverte-se o agrupamento
-      if ((t.agrupamento === 'S' || t.origem === 'A') && d.valor !== undefined && num(d.valor) !== num(t.valor)) {
+      // — para mexer no valor, reverte-se o agrupamento
+      if (t.agrupamento === 'S' && d.valor !== undefined && num(d.valor) !== num(t.valor)) {
         throw new BusinessRuleError('TITULO_AGRUPAMENTO');
       }
       await assertRestricoesSituacao(trx, d, t as Record<string, unknown>, { papel: 'fornecedor' });
@@ -364,7 +364,7 @@ export class ApagarService {
       const pago = grupo == null ? 0 : num((await sql<{ t: string }>`SELECT coalesce(sum(b.valorpg), 0) AS t FROM apagar_bx b JOIN apagar a ON a.codapg = b.codapg
           WHERE a.codgrupo = ${grupo} AND coalesce(b.indr, 'I') = 'I'`.execute(trx)).rows[0]?.t);
       if (pago > 0) throw new BusinessRuleError('TITULO_GRUPO_COM_PAGAMENTO');
-      if (t.agrupamento === 'S' || t.origem === 'A') throw new BusinessRuleError('TITULO_AGRUPAMENTO');
+      if (t.agrupamento === 'S') throw new BusinessRuleError('TITULO_AGRUPAMENTO');
       if (num(t.cod_desconto_titulo) > 0) throw new BusinessRuleError('TITULO_DESCONTO_VINCULADO');
       if (num(t.codgrupo_desconto_titulo) > 0) throw new BusinessRuleError('TITULO_DE_DESCONTO');
       await this.estornarSeContabilizado(trx, emp, t);

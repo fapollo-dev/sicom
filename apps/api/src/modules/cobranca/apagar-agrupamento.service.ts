@@ -3,25 +3,36 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
+import { configNaTrx } from '../compras/pedido-heranca';
+import { apagarRateioDoGrupo, novoGrupo, rateioUnico, refazerCaixaDoGrupo } from './apagar-caixa';
 
 type AnyDB = Kysely<any>;
-const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+const r2 = (n: number) => Math.round((n + (n >= 0 ? Number.EPSILON : -Number.EPSILON)) * 100) / 100;
 const num = (v: unknown): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };
+const milhar = (v: unknown) => String(Math.round(num(v))).padStart(3, '0').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
+export interface AgruparApagarInput {
+  codapgs: number[];
+  codparceiro?: number;
+  dtvenc?: string;
+  obs?: string;
+  codplc?: number;
+  /** as parcelas do consolidado (o agrupamento também reparcela: 5 de 78 grupos em 2026) — sem elas, uma com o total */
+  parcelas?: Array<{ valor: number; dtvenc: string }>;
+}
 
 /**
- * AGRUPAMENTO de CONTAS A PAGAR (uAgrupaContasAPagar) — GÊMEO do AR (areceber-agrupamento.service). Consolida N
- * títulos ABERTOS de UM fornecedor num título CONSOLIDADO (ORIGEM='A', valor = Σ): os originais ficam
- * AGRUPADO='S' + CODGRUPO_AGRUPAMENTO_APG = codapg do consolidado (somem dos "abertos"). `reverter` desfaz o
- * grupo (se o consolidado não foi quitado/pago); `removerTitulo` tira um membro e abate o valor. TOTAL é
- * derivado na view get_apagar (valor + juro) → SEM o bug do legado (TOTAL=VALOR±delta). Tenant por CODEMPRESA.
- *
- * Divergências CONSCIENTES (iguais ao AR, ver areceber-agrupamento.service): consolidado ORIGEM='A' + vínculo por
- * CODAPG (golden: ORIGEM=NULL + CODGRUPO) → CUTOVER remapear se APAGAR legado for importado; elegibilidade mais
- * estrita (barra CONTABILIZADO/IDNF). AP NÃO tem "em-lote" (lote de cobrança é só recebível). dtvenc do
- * consolidado = HOJE (não max dos membros). ADIADO: snapshot AGRUPAPAGAR, convênio, taxa ADM/desconto.
+ * AGRUPAMENTO DE CONTAS A PAGAR (`uAgrupaContasAPagar` + o gravar do `uAPagar` com `AgrupaAPagar`; dossiê `uAgrupaContas.md`).
+ * O MODELO DO LEGADO: o consolidado (uma ou mais parcelas) é AGRUPAMENTO='S', ORIGEM nula, um CODGRUPO novo; os membros
+ * ficam AGRUPADO='S' com CODGRUPO_AGRUPAMENTO_APG = esse CODGRUPO (o DRE do caixa e o contábil do convênio leem assim).
+ * Total = Σ valor dos membros; com fornecedores diversos (33 de 78 grupos em 2026), o título vai para o parceiro informado.
+ * TIPODOC 'BOLETO', juros `EMPRESAS.TX_JURO_APAGAR`, OBS "Referente Agrupamento" + as notas / os códigos. Com centro de
+ * custo, o rateio e a CAIXA do grupo (18 de 78 grupos); os membros mantêm os seus. A baixa do consolidado NÃO quita os
+ * membros (0 de 186 no dado — ao contrário do A Receber).
  */
 @Injectable()
 export class ApagarAgrupamentoService {
@@ -33,125 +44,133 @@ export class ApagarAgrupamentoService {
     return e;
   }
 
-  /** agrupa `codapgs` (≥2, mesmo fornecedor, abertos) num consolidado ORIGEM='A' (valor = Σ). */
-  async agrupar(dto: { codapgs: number[]; dtvenc?: string; obs?: string }): Promise<{ codgrupo: number; consolidado: number; membros: number; total: number }> {
-    const emp = this.emp();
-    const op = currentTenant().operadorId ?? null;
-    const ids = [...new Set((dto.codapgs ?? []).map(Number).filter((n) => Number.isFinite(n)))];
-    if (ids.length < 2) throw new BusinessRuleError('AGRUPAMENTO_MINIMO_2');
-
-    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const membros = (await trx
-        .selectFrom('apagar')
-        .select(['codapg', 'codparceiro', 'valor', 'quitada', 'agrupado', 'contabilizado', 'idnf'])
-        .where('codapg', 'in', ids).where('codempresa', '=', emp)
-        .forUpdate().execute()) as Array<Record<string, unknown>>;
-      if (membros.length !== ids.length) throw new BusinessRuleError('TITULO_NAO_ENCONTRADO');
-
-      // estado POR-TÍTULO primeiro (erro do título), depois a coesão de fornecedor.
-      for (const m of membros) {
-        if (m.quitada === 'S') throw new BusinessRuleError('TITULO_JA_BAIXADO', { codapg: m.codapg });
-        if (m.agrupado === 'S') throw new BusinessRuleError('TITULO_AGRUPADO', { codapg: m.codapg });
-        if (m.contabilizado === 'S') throw new BusinessRuleError('TITULO_CONTABILIZADO', { codapg: m.codapg });
-        if (m.idnf != null) throw new BusinessRuleError('TITULO_DE_NF', { codapg: m.codapg });
-      }
-      const fornecedores = new Set(membros.map((m) => Number(m.codparceiro)));
-      if (fornecedores.size !== 1) throw new BusinessRuleError('AGRUPAMENTO_PARCEIROS_DIVERSOS');
-
-      const codparceiro = Number(membros[0].codparceiro);
-      const total = r2(membros.reduce((s, m) => s + num(m.valor), 0));
-      const dtvenc = dto.dtvenc ?? null; // HOJE por default (não max dos membros — evita nascer vencido)
-      const e = await trx.selectFrom('empresas').select('txjuropadrao').where('idempresa', '=', emp).executeTakeFirst();
-
-      const ins = await trx
-        .insertInto('apagar')
-        .values({
-          codempresa: emp, codparceiro, valor: total, txjuros: (e as any)?.txjuropadrao ?? null,
-          dtvenda: sql`current_date`, dtvenc: dtvenc ?? sql`current_date`, tipodoc: 'DUPLICATA', origem: 'A',
-          quitada: 'N', agrupado: 'N', consiliado: 'S', cadastrado_manualmente: 'N', gerado: 'SISTEMA',
-          obs: dto.obs ?? `Agrupamento de ${ids.length} títulos do fornecedor ${codparceiro}.`,
-          data_agrupamento: sql`now()`, usultalteracao: op, dtultimalteracao: sql`now()`, dtcadastro: sql`now()`,
-        })
-        .returning('codapg').executeTakeFirstOrThrow();
-      const codConsolidado = Number((ins as any).codapg);
-
-      await trx
-        .updateTable('apagar')
-        .set({ agrupado: 'S', codgrupo_agrupamento_apg: codConsolidado, data_agrupamento: sql`now()`, usultalteracao: op, dtultimalteracao: sql`now()` })
-        .where('codapg', 'in', ids).where('codempresa', '=', emp).execute();
-
-      return { codgrupo: codConsolidado, consolidado: codConsolidado, membros: ids.length, total };
-    });
+  private async tz(db: AnyDB, emp: number): Promise<string> {
+    return (await configNaTrx(db, 'FUSO_HORARIO_ACESSO', { empresaId: emp, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' })) ?? 'America/Sao_Paulo';
   }
 
-  /** trava do consolidado: existe, ORIGEM='A', não quitado/pago-ativo/contabilizado. (AP não tem em-lote.) */
-  private async travarConsolidado(trx: AnyDB, emp: number, codConsolidado: number): Promise<Record<string, unknown>> {
-    const c = (await trx
-      .selectFrom('apagar')
-      .select(['codapg', 'valor', 'origem', 'quitada', 'contabilizado'])
-      .where('codapg', '=', codConsolidado).where('codempresa', '=', emp)
-      .forUpdate().executeTakeFirst()) as Record<string, unknown> | undefined;
-    if (!c) throw new BusinessRuleError('TITULO_NAO_ENCONTRADO', { codapg: codConsolidado });
-    if (String(c.origem ?? '') !== 'A') throw new BusinessRuleError('NAO_E_AGRUPAMENTO', { codapg: codConsolidado });
-    if (c.quitada === 'S') throw new BusinessRuleError('TITULO_JA_BAIXADO', { codapg: codConsolidado });
-    if (c.contabilizado === 'S') throw new BusinessRuleError('TITULO_CONTABILIZADO', { codapg: codConsolidado });
-    // só pagamento ATIVO (indr='I') bloqueia — o estorno marca indr='E' e mantém a linha.
-    const bx = await trx.selectFrom('apagar_bx').select('codapgbx').where('codapg', '=', codConsolidado).where(sql`coalesce(indr,'I')`, '=', 'I').executeTakeFirst();
-    if (bx) throw new BusinessRuleError('AGRUPAMENTO_BAIXADO', { codapg: codConsolidado });
+  private async consolidado(trx: AnyDB, emp: number, codapg: number): Promise<Record<string, unknown>> {
+    const c = (await sql<Record<string, unknown>>`SELECT a.*, p.razao FROM apagar a LEFT JOIN parceiros p ON p.codparceiro = a.codparceiro
+        WHERE a.codapg = ${codapg} AND a.codempresa = ${emp} FOR UPDATE OF a`.execute(trx)).rows[0];
+    if (!c) throw new BusinessRuleError('TITULO_NAO_ENCONTRADO', { codapg });
+    if (c.agrupamento !== 'S' || !num(c.codgrupo)) throw new BusinessRuleError('NAO_E_AGRUPAMENTO', { codapg });
     return c;
   }
 
-  /** desfaz o agrupamento inteiro: limpa os membros (AGRUPADO='N') e apaga o consolidado. */
+  async agrupar(dto: AgruparApagarInput): Promise<{ codgrupo: number; consolidado: number; parcelas: number[]; membros: number; total: number }> {
+    const emp = this.emp();
+    const op = currentTenant().operadorId ?? null;
+    const ids = [...new Set((dto.codapgs ?? []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
+    if (!ids.length) throw new BusinessRuleError('AGRUPAMENTO_SEM_DOCUMENTOS');
+
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const lidos = (await sql<Record<string, unknown>>`SELECT a.codapg, a.codparceiro, a.valor, a.quitada, a.agrupado, n.nronf
+          FROM apagar a LEFT JOIN nf n ON n.codnf = a.idnf
+         WHERE a.codapg = ANY(${ids}::int[]) AND a.codempresa = ${emp} FOR UPDATE OF a`.execute(trx)).rows;
+      if (lidos.length !== ids.length) throw new BusinessRuleError('TITULO_NAO_ENCONTRADO');
+      const membros = ids.map((id) => lidos.find((m) => num(m.codapg) === id) as Record<string, unknown>);
+      for (const m of membros) {
+        if (m.quitada === 'S') throw new BusinessRuleError('TITULO_JA_BAIXADO', { codapg: m.codapg });
+        if (m.agrupado === 'S') throw new BusinessRuleError('TITULO_AGRUPADO', { codapg: m.codapg });
+      }
+      const fornecedores = new Set(membros.map((m) => num(m.codparceiro)));
+      const codparceiro = num(dto.codparceiro) || (fornecedores.size === 1 ? [...fornecedores][0] : 0);
+      if (!codparceiro) throw new BusinessRuleError('AGRUPAMENTO_INFORME_FORNECEDOR');
+      if (!(await sql`SELECT 1 FROM parceiros WHERE codparceiro = ${codparceiro}`.execute(trx)).rows.length) throw new BusinessRuleError('PARCEIRO_NAO_ENCONTRADO', { codparceiro });
+      const total = r2(membros.reduce((s, m) => s + num(m.valor), 0));
+
+      // a OBS do legado: a do usuário, "Referente Agrupamento" e as notas fiscais / os códigos das contas sem nota
+      const notas = [...new Set(membros.filter((m) => m.nronf != null && String(m.nronf) !== '').map((m) => String(m.nronf)))];
+      const codigos = [...new Set(membros.filter((m) => m.nronf == null || String(m.nronf) === '').map((m) => String(num(m.codapg))))];
+      const ref = [notas.length ? `Notas fiscais: ${notas.join(', ')}` : '', codigos.length ? `Códigos das contas: ${codigos.join(', ')}` : ''].filter(Boolean).join('\r\n');
+      const obs = `${dto.obs && dto.obs.trim() ? `${dto.obs}\r\n` : ''}Referente Agrupamento\r\n${ref}`.slice(0, 1000);
+
+      const tz = await this.tz(trx, emp);
+      const hoje = (await sql<{ d: string }>`SELECT to_char(now() AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS d`.execute(trx)).rows[0].d;
+      const parcelas = dto.parcelas?.length ? dto.parcelas : [{ valor: total, dtvenc: dto.dtvenc ?? hoje }];
+      for (const p of parcelas) {
+        if (!(num(p.valor) > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(String(p.dtvenc ?? ''))) throw new BusinessRuleError('AGRUPAMENTO_PARCELA_INVALIDA');
+      }
+      await assertPeriodoNaoFechado(trx, emp, hoje, 'bloq_apg');
+      const empresa = (await sql<{ tx_juro_apagar: unknown }>`SELECT tx_juro_apagar FROM empresas WHERE idempresa = ${emp}`.execute(trx)).rows[0];
+      const dia = (d: string) => sql`((${d}::date)::timestamp AT TIME ZONE ${tz})`;
+      const codgrupo = await novoGrupo(trx);
+      const gerados: number[] = [];
+      for (let i = 0; i < parcelas.length; i++) {
+        const p = parcelas[i];
+        const t = (await sql<{ codapg: number }>`
+          INSERT INTO apagar (codempresa, codparceiro, valor, txjuros, dtvenda, dtcompra, dtvenc, tipodoc, nrodup, nrparcela, agrupamento, agrupado,
+                              quitada, codgrupo, obs, gerado, gfat, consiliado, cadastrado_manualmente, codoperador, usultalteracao, dtultimalteracao, dtcadastro,
+                              desconto, vendor, convenio, operacao_convenio_funcionario, codplc)
+          VALUES (${emp}, ${codparceiro}, ${r2(num(p.valor))}, ${num(empresa?.tx_juro_apagar)}, ${dia(hoje)}, ${hoje}::date, ${dia(p.dtvenc)}, 'BOLETO',
+                  ${parcelas.length}, ${`${i + 1}/${parcelas.length}`}, 'S', 'N', 'N', ${codgrupo}, ${obs}, 'OPERADOR', 'N', 'S', 'S', ${op}, ${op}, now(), now(),
+                  0, 0, 'N', 'D', ${num(dto.codplc) || null})
+          RETURNING codapg`.execute(trx)).rows[0];
+        await sql`UPDATE apagar SET duplicata = ${String(t.codapg)} WHERE codapg = ${t.codapg}`.execute(trx);
+        gerados.push(num(t.codapg));
+      }
+      await sql`UPDATE apagar SET agrupado = 'S', codgrupo_agrupamento_apg = ${codgrupo}, data_agrupamento = now(), usultalteracao = ${op}, dtultimalteracao = now()
+          WHERE codapg = ANY(${ids}::int[]) AND codempresa = ${emp}`.execute(trx);
+      // com centro de custo, o rateio do documento e a CAIXA do grupo (o Gravar da tela de contas a pagar)
+      if (num(dto.codplc) > 0) {
+        await rateioUnico(trx, { codapg: gerados[0], codgrupo, codcc: num(dto.codplc), valor: r2(parcelas.reduce((s, p) => s + num(p.valor), 0)) });
+        await refazerCaixaDoGrupo(trx, codgrupo, op);
+      }
+      return { codgrupo, consolidado: gerados[0], parcelas: gerados, membros: ids.length, total };
+    });
+  }
+
+  /**
+   * REVERTER (`btnReverterAgrupamentoClick` do uAPagar; RBAC FRMAPAGAR.BTNREVERTERAGRUPAMENTO): recusa com desconto de título ou
+   * parcela quitada; os membros voltam e o documento inteiro sai (com o rateio e a CAIXA dele), com o histórico de exclusão.
+   * Integridade que o legado não verificava: o pagamento ativo (a exclusão levaria a baixa).
+   */
   async reverter(codConsolidado: number): Promise<{ revertido: true; consolidado: number; membros: number }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      await this.travarConsolidado(trx, emp, codConsolidado);
-      const membros = (await trx
-        .selectFrom('apagar').select('codapg')
-        .where('codgrupo_agrupamento_apg', '=', codConsolidado).where('codempresa', '=', emp)
-        .execute()) as Array<{ codapg: number }>;
-      if (membros.length === 0) throw new BusinessRuleError('AGRUPAMENTO_SEM_MEMBROS', { codapg: codConsolidado });
-      await trx
-        .updateTable('apagar')
-        .set({ agrupado: 'N', codgrupo_agrupamento_apg: null, data_agrupamento: null, usultalteracao: op, dtultimalteracao: sql`now()` })
-        .where('codgrupo_agrupamento_apg', '=', codConsolidado).where('codempresa', '=', emp).execute();
-      await trx.deleteFrom('apagar').where('codapg', '=', codConsolidado).where('codempresa', '=', emp).execute();
-      return { revertido: true as const, consolidado: codConsolidado, membros: membros.length };
+      const c = await this.consolidado(trx, emp, codConsolidado);
+      const g = num(c.codgrupo);
+      const parcelas = (await sql<Record<string, unknown>>`SELECT codapg, quitada, cod_desconto_titulo FROM apagar WHERE codgrupo = ${g} AND codempresa = ${emp} FOR UPDATE`.execute(trx)).rows;
+      if (parcelas.some((p) => num(p.cod_desconto_titulo) > 0)) throw new BusinessRuleError('AGRUPAMENTO_DESCONTO_TITULO');
+      if (parcelas.some((p) => p.quitada === 'S')) throw new BusinessRuleError('AGRUPAMENTO_PARCELAS_QUITADAS');
+      const codigos = parcelas.map((p) => num(p.codapg));
+      if ((await sql`SELECT 1 FROM apagar_bx WHERE codapg = ANY(${codigos}::int[]) AND coalesce(indr, 'I') = 'I' LIMIT 1`.execute(trx)).rows.length) {
+        throw new BusinessRuleError('AGRUPAMENTO_BAIXADO', { codapg: codConsolidado });
+      }
+      const r = await sql`UPDATE apagar SET agrupado = 'N', codgrupo_agrupamento_apg = NULL, usultalteracao = ${op}, dtultimalteracao = now()
+          WHERE codgrupo_agrupamento_apg = ${g} AND codempresa = ${emp}`.execute(trx);
+      await apagarRateioDoGrupo(trx, g);
+      await sql`DELETE FROM apagar WHERE codgrupo = ${g} AND codempresa = ${emp}`.execute(trx);
+      await sql`INSERT INTO historico (coddoc, tabela, historico, data, codoperador, codempresa)
+          VALUES (${String(codConsolidado)}, 'APAGAR', ${`EXCLUSAO DO REGISTRO  REVERSÃO DE AGRUPAMENTO CLIENTE: ${num(c.codparceiro)}-${c.razao ?? ''}, DOCUMENTO: ${c.duplicata ?? ''}, VALOR: ${milhar(c.valor)}`.slice(0, 600)},
+                  current_date, ${op}, ${emp})`.execute(trx);
+      return { revertido: true as const, consolidado: codConsolidado, membros: Number(r.numAffectedRows ?? 0) };
     });
   }
 
-  /** remove UM membro do grupo: libera o título (AGRUPADO='N') e abate o valor do consolidado. Não o último. */
+  /** remove UM membro do grupo (recurso do Apollo — o legado não o tem no A Pagar): libera o título e abate o valor da parcela */
   async removerTitulo(codConsolidado: number, codMembro: number): Promise<{ consolidado: number; removido: number; novoValor: number; membrosRestantes: number }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const c = await this.travarConsolidado(trx, emp, codConsolidado);
-      const membro = (await trx
-        .selectFrom('apagar').select(['codapg', 'valor', 'codgrupo_agrupamento_apg'])
-        .where('codapg', '=', codMembro).where('codempresa', '=', emp)
-        .forUpdate().executeTakeFirst()) as Record<string, unknown> | undefined;
-      if (!membro || Number(membro.codgrupo_agrupamento_apg) !== codConsolidado) throw new BusinessRuleError('TITULO_NAO_PERTENCE_AGRUPAMENTO', { codapg: codMembro });
-
-      const totalMembros = Number(((await trx
-        .selectFrom('apagar').select(sql<number>`count(*)`.as('n'))
-        .where('codgrupo_agrupamento_apg', '=', codConsolidado).where('codempresa', '=', emp)
-        .executeTakeFirst()) as any).n);
-      if (totalMembros <= 1) throw new BusinessRuleError('AGRUPAMENTO_REMOVER_ULTIMO', { codapg: codConsolidado });
-
-      const novoValor = r2(num(c.valor) - num(membro.valor));
-      await trx.updateTable('apagar').set({ valor: novoValor, usultalteracao: op, dtultimalteracao: sql`now()` }).where('codapg', '=', codConsolidado).where('codempresa', '=', emp).execute();
-      await trx.updateTable('apagar').set({ agrupado: 'N', codgrupo_agrupamento_apg: null, data_agrupamento: null, usultalteracao: op, dtultimalteracao: sql`now()` }).where('codapg', '=', codMembro).where('codempresa', '=', emp).execute();
-      return { consolidado: codConsolidado, removido: codMembro, novoValor, membrosRestantes: totalMembros - 1 };
+      const c = await this.consolidado(trx, emp, codConsolidado);
+      if (c.quitada === 'S') throw new BusinessRuleError('TITULO_JA_BAIXADO', { codapg: codConsolidado });
+      const m = (await sql<Record<string, unknown>>`SELECT codapg, valor, codgrupo_agrupamento_apg FROM apagar WHERE codapg = ${codMembro} AND codempresa = ${emp} FOR UPDATE`.execute(trx)).rows[0];
+      if (!m || num(m.codgrupo_agrupamento_apg) !== num(c.codgrupo)) throw new BusinessRuleError('TITULO_NAO_PERTENCE_AGRUPAMENTO', { codapg: codMembro });
+      await sql`UPDATE apagar SET agrupado = 'N', codgrupo_agrupamento_apg = NULL, usultalteracao = ${op}, dtultimalteracao = now() WHERE codapg = ${codMembro}`.execute(trx);
+      const novoValor = r2(num(c.valor) - num(m.valor));
+      await sql`UPDATE apagar SET valor = ${novoValor}, usultalteracao = ${op}, dtultimalteracao = now() WHERE codapg = ${codConsolidado}`.execute(trx);
+      const restantes = Number((await sql<{ n: number }>`SELECT count(*)::int AS n FROM apagar WHERE codgrupo_agrupamento_apg = ${num(c.codgrupo)} AND codempresa = ${emp}`.execute(trx)).rows[0].n);
+      return { consolidado: codConsolidado, removido: codMembro, novoValor, membrosRestantes: restantes };
     });
   }
 
-  /** lista os membros de um agrupamento consolidado (consulta). */
+  /** os membros do consolidado — pelo CODGRUPO dele */
   async membros(codConsolidado: number): Promise<Array<Record<string, unknown>>> {
     const emp = this.emp();
-    return (await (this.dbp.forTenantRead() as AnyDB)
-      .selectFrom('apagar').select(['codapg', 'codparceiro', 'valor', 'dtvenc', 'duplicata'])
-      .where('codgrupo_agrupamento_apg', '=', codConsolidado).where('codempresa', '=', emp)
-      .orderBy('codapg').execute()) as Array<Record<string, unknown>>;
+    return (await sql<Record<string, unknown>>`SELECT m.codapg, m.codparceiro, m.valor, m.dtvenc, m.duplicata, m.quitada
+        FROM apagar c JOIN apagar m ON m.codgrupo_agrupamento_apg = c.codgrupo AND m.codempresa = c.codempresa
+       WHERE c.codapg = ${codConsolidado} AND c.codempresa = ${emp} AND c.agrupamento = 'S'
+       ORDER BY m.codapg`.execute(this.dbp.forTenantRead() as AnyDB)).rows;
   }
 }

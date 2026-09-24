@@ -1,10 +1,10 @@
 import {
   Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put, Query, UseGuards,
 } from '@nestjs/common';
-import { areceberSchema, atualizarAreceberSchema, baixarTituloSchema, gerarParcelasAreceberSchema, agruparAreceberSchema } from '@apollo/shared';
+import { areceberSchema, atualizarAreceberSchema, baixarTituloSchema, gerarParcelasAreceberSchema, agruparAreceberSchema, adicionarAgrupamentoAreceberSchema } from '@apollo/shared';
 import { AreceberService } from './areceber.service';
 import { AreceberBaixaService } from './areceber-baixa.service';
-import { AreceberAgrupamentoService } from './areceber-agrupamento.service';
+import { AreceberAgrupamentoService, type AgruparAreceberInput } from './areceber-agrupamento.service';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -82,27 +82,36 @@ export class AreceberController {
     return this.baixa.estornar(id);
   }
 
-  // ── AGRUPAMENTO (uAgrupaContasAReceber) ──
-  /** agrupa ≥2 títulos abertos do mesmo cliente num consolidado. `agrupar` é segmento literal (≠ `:id`). */
+  // ── AGRUPAMENTO (uAgrupaContasAReceber; dossiê uAgrupaContas.md) — o RBAC é o do legado: a tela de agrupar, e o menu do
+  //    contas a receber (reverter, adicionar e remover não têm componente próprio: basta o acesso à tela) ──
+  /** agrupa títulos abertos num consolidado (AGRUPAMENTO='S'); com clientes diversos, informe o parceiro. */
   @Post('agrupar')
   @HttpCode(200)
-  @RequerAcesso('FRMAGRUPACONTASARECEBER', 'BTNAGRUPAR')
-  agrupar(@Body(new ZodValidationPipe(agruparAreceberSchema)) dto: { codrcbs: number[]; dtvenc?: string; obs?: string }) {
+  @RequerAcesso('FRMAGRUPACONTASARECEBER', 'FRMAGRUPACONTASARECEBER')
+  agrupar(@Body(new ZodValidationPipe(agruparAreceberSchema)) dto: AgruparAreceberInput) {
     return this.agrupamento.agrupar(dto);
   }
 
   /** reverte o agrupamento inteiro (o :id é o título CONSOLIDADO). */
   @Post(':id/reverter-agrupamento')
   @HttpCode(200)
-  @RequerAcesso('FRMAGRUPACONTASARECEBER', 'BTNREVERTER')
+  @RequerAcesso('FRMCADARECEBER', 'FRMCADARECEBER')
   reverterAgrupamento(@Param('id', ParseIntPipe) id: number) {
     return this.agrupamento.reverter(id);
+  }
+
+  /** adiciona títulos ao agrupamento consolidado (:id). */
+  @Post(':id/adicionar-ao-agrupamento')
+  @HttpCode(200)
+  @RequerAcesso('FRMCADARECEBER', 'FRMCADARECEBER')
+  adicionarAoAgrupamento(@Param('id', ParseIntPipe) id: number, @Body(new ZodValidationPipe(adicionarAgrupamentoAreceberSchema)) dto: { codrcbs: number[] }) {
+    return this.agrupamento.adicionarTitulos(id, dto.codrcbs);
   }
 
   /** remove UM membro (:membro) do agrupamento consolidado (:id), abatendo o valor. */
   @Post(':id/remover-do-agrupamento/:membro')
   @HttpCode(200)
-  @RequerAcesso('FRMAGRUPACONTASARECEBER', 'BTNREVERTER')
+  @RequerAcesso('FRMCADARECEBER', 'FRMCADARECEBER')
   removerDoAgrupamento(@Param('id', ParseIntPipe) id: number, @Param('membro', ParseIntPipe) membro: number) {
     return this.agrupamento.removerTitulo(id, membro);
   }

@@ -177,9 +177,20 @@ export type GerarParcelasAreceberDto = z.infer<typeof gerarParcelasBase>;
  * (valor = Σ). `dtvenc` opcional = vencimento do consolidado (default: o maior vencimento dos membros).
  */
 export const agruparAreceberSchema = z.object({
-  codrcbs: z.array(z.coerce.number().int().positive()).min(2, 'Selecione ao menos 2 títulos para agrupar.').max(500, 'Máximo de 500 títulos por agrupamento.'),
+  // o legado agrupa até 1 título (e grupos de 687 no convênio)
+  codrcbs: z.array(z.coerce.number().int().positive()).min(1, 'Nenhum documento foi selecionado para realizar o agrupamento.').max(5000, 'Máximo de 5.000 títulos por agrupamento.'),
+  codparceiro: opcional(z.coerce.number().int().positive()),
+  dtvenda: opcional(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (use AAAA-MM-DD).')),
   dtvenc: opcional(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data de vencimento inválida (use AAAA-MM-DD).')),
-  obs: opcional(z.string().max(300)),
+  idpgto: opcional(z.coerce.number().int().positive()),
+  obs: opcional(z.string().max(1000)),
+  desconto: opcional(z.coerce.number().min(0, 'O desconto não pode ser negativo.')),
+  jurosDe: z.array(z.coerce.number().int().positive()).optional(),
+  cobrarTaxaAdm: z.boolean().optional(),
+});
+/** ADICIONAR TÍTULO ao agrupamento (uAddTituloAgrupamentoAReceber) */
+export const adicionarAgrupamentoAreceberSchema = z.object({
+  codrcbs: z.array(z.coerce.number().int().positive()).min(1, 'Selecione ao menos um título.').max(5000),
 });
 export type AgruparAreceberDto = z.infer<typeof agruparAreceberSchema>;
 

@@ -279,7 +279,7 @@ export class AreceberService {
       const livres = num(t.idnf) !== 0 ? new Set(['desconto_boleto', 'txjuros']) : new Set<string>();
       return AreceberService.CAMPOS_ORIGEM_AUTO.filter((c) => !livres.has(c));
     }
-    return t.agrupamento === 'S' || t.origem === 'A' ? ['valor'] : [];
+    return t.agrupamento === 'S' ? ['valor'] : [];
   }
 
   private async titulo(trx: AnyDB, id: number, emp: number): Promise<Record<string, unknown>> {
@@ -357,7 +357,7 @@ export class AreceberService {
       };
       for (const campo of await this.camposBloqueados(trx, emp, t)) {
         if (d[campo] !== undefined && !igual(d[campo], t[campo])) {
-          throw new BusinessRuleError(campo === 'valor' && (t.agrupamento === 'S' || t.origem === 'A') ? 'TITULO_AGRUPAMENTO' : 'TITULO_CAMPO_BLOQUEADO', { campo });
+          throw new BusinessRuleError(campo === 'valor' && (t.agrupamento === 'S') ? 'TITULO_AGRUPAMENTO' : 'TITULO_CAMPO_BLOQUEADO', { campo });
         }
       }
       await assertRestricoesSituacao(trx, d, t as Record<string, unknown>, { papel: 'cliente' });
@@ -393,7 +393,7 @@ export class AreceberService {
       if (AreceberService.origemAutomatica(t) && (await this.cfg(trx, 'BLOQUEIA_CONTAS_RECEBER_ORIGEM_AUTO', emp)) === 'S') {
         throw new BusinessRuleError('TITULO_ORIGEM_AUTO', { origem: t.origem ?? null, idnf: t.idnf ?? null });
       }
-      if (t.agrupamento === 'S' || t.origem === 'A') throw new BusinessRuleError('TITULO_AGRUPAMENTO');
+      if (t.agrupamento === 'S') throw new BusinessRuleError('TITULO_AGRUPAMENTO');
       if (num(t.codgrupo_desconto_titulo) > 0) throw new BusinessRuleError('TITULO_DE_DESCONTO');
       if (num(t.cod_desconto_titulo) > 0) throw new BusinessRuleError('TITULO_DESCONTO_VINCULADO');
       await this.estornarSeContabilizado(trx, emp, t);

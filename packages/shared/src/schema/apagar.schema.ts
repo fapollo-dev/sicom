@@ -66,9 +66,15 @@ export const apagarSchema = z.preprocess(stripNulls, apagarBase).superRefine(ref
 /** AGRUPAMENTO A PAGAR (uAgrupaContasAPagar) — consolida ≥2 títulos ABERTOS do MESMO fornecedor. `dtvenc`
  *  opcional = vencimento do consolidado (default HOJE). Gêmeo do agruparAreceberSchema. */
 export const agruparApagarSchema = z.object({
-  codapgs: z.array(z.coerce.number().int().positive()).min(2, 'Selecione ao menos 2 títulos para agrupar.').max(500, 'Máximo de 500 títulos por agrupamento.'),
+  codapgs: z.array(z.coerce.number().int().positive()).min(1, 'Nenhum documento foi selecionado para realizar o agrupamento.').max(5000, 'Máximo de 5.000 títulos por agrupamento.'),
+  codparceiro: opcional(z.coerce.number().int().positive()),
   dtvenc: opcional(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data de vencimento inválida (use AAAA-MM-DD).')),
-  obs: opcional(z.string().max(300)),
+  obs: opcional(z.string().max(1000)),
+  codplc: opcional(z.coerce.number().int().positive()),
+  parcelas: z.array(z.object({
+    valor: z.coerce.number().positive('O valor da parcela deve ser maior que zero.'),
+    dtvenc: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data de vencimento inválida (use AAAA-MM-DD).'),
+  })).max(200, 'O número de parcelas deve ser menor que 200.').optional(),
 });
 export type AgruparApagarDto = z.infer<typeof agruparApagarSchema>;
 export const atualizarApagarSchema = z

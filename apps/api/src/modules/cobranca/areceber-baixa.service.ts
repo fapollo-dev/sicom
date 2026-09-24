@@ -157,6 +157,9 @@ export class AreceberBaixaService {
       if (Number(upd?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('TITULO_JA_BAIXADO', { codrcb });
       // título nascido de ADIANTAMENTO a parceiro (tipo 'D') → quita o adiantamento (UBaixaAreceber.pas:1233).
       await AdiantamentoFornService.marcarQuitada(trx, emp, (t as any).codadiantamento, 'S');
+      // o CONSOLIDADO do agrupamento pago quita os membros (`AtualizaAgrupamento`, UBaixaAreceber; 152 membros no mesmo segundo
+      // da baixa em 07/04/2026 — sem ARECEBER_BX para eles)
+      await this.cascataDoAgrupamento(trx, emp, op, codrcb, 'S');
 
       // BAIXA PARCIAL: gera um NOVO título com o SALDO (total − pago), ORIGEM='B' (UBaixaAreceber.pas:1449),
       // e vincula à baixa (codrcb_gerado) p/ o estorno poder removê-lo. Herda cliente/datas/juros do original.
@@ -280,11 +283,21 @@ export class AreceberBaixaService {
         .where('quitada', '=', 'S')
         .executeTakeFirst();
       if (Number(upd?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('TITULO_NAO_BAIXADO', { codrcb });
+      // a reversão da baixa do consolidado reabre os membros (UReversaoBaixaContasReceber)
+      await this.cascataDoAgrupamento(trx, emp, op, codrcb, 'N');
       // reabre o adiantamento de origem. O legado seta 'S' aqui (UReversaoBaixaContasReceber.pas:71) — bug nunca
       // exercido: no golden não existe adiantamento 'S' com título 'N'. Simétrico à reversão de A PAGAR ('N').
       const adto = await trx.selectFrom('areceber').select('codadiantamento').where('codrcb', '=', codrcb).where('codempresa', '=', emp).executeTakeFirst();
       await AdiantamentoFornService.marcarQuitada(trx, emp, (adto as any)?.codadiantamento, 'N');
 
       return { codrcb, quitada: 'N' };
+  }
+
+  /** a cascata do agrupamento: o consolidado (AGRUPAMENTO='S') leva o QUITADA aos membros do seu CODGRUPO */
+  private async cascataDoAgrupamento(trx: AnyDB, emp: number, op: number | null, codrcb: number, quitada: 'S' | 'N'): Promise<void> {
+    const c = (await sql<{ agrupamento: string | null; codgrupo: unknown }>`SELECT agrupamento, codgrupo FROM areceber WHERE codrcb = ${codrcb}`.execute(trx)).rows[0];
+    if (c?.agrupamento !== 'S' || !Number(c.codgrupo)) return;
+    await sql`UPDATE areceber SET quitada = ${quitada}, usultalteracao = ${op}, dtultimalteracao = now()
+        WHERE agrupado = 'S' AND codgrupo_agrupamento_rcb = ${Number(c.codgrupo)} AND codempresa = ${emp}`.execute(trx);
   }
 }
