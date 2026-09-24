@@ -937,6 +937,87 @@ export class FechamentoCaixaService {
     });
   }
 
+  // ── os diálogos de leitura: cancelamentos (F5) e descontos (F6) ────────────────────────────────────────────────
+  /**
+   * CANCELAMENTOS do turno (Enter em "Cancelamentos", `edtCancelamentosKeyDown` UfinalizaFechamento.pas:1019; `frmCuponsFiscais`):
+   * os cupons cancelados (VENDAS CANCELADO 'S' / TIPOCANC 'C', uma linha por pedido, com o motivo e o responsável do HISTORICO_PDV)
+   * e os itens cancelados (TIPOCANC 'I', com o produto e o total líquido da linha). Duas versões, como o legado:
+   * - `FECHAMENTO_CAIXA_SOMENTE_CHAVE`='N' (a produção) ou turno sem chave: o dia, o operador e a chave (`sqqCupomT` do .dfm —
+   *   o motivo do cupom sem filtrar o tipo);
+   * - senão, só a chave — a do cancelamento quando houver (`GetSQLCupomTChaveTurno`, motivo do CANC_V), sem operador nem dia.
+   * O ROWNUM <= 1 sem ordem do Oracle vira o primeiro registro (menor IDHISTORICO).
+   */
+  async cancelamentos(t: TurnoFechamentoDto) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const c = await this.contexto(db, t);
+    const pdv = `${String(c.pdv).padStart(2, '0')}%`;
+    const porData = !c.chave || (await this.cfg(db, 'FECHAMENTO_CAIXA_SOMENTE_CHAVE', c.emp)) === 'N';
+    const cupons = (await sql<Record<string, unknown>>`
+      SELECT v.nrocupom, substr(v.nropedido, 1, 2) AS pdv, v.nropedido,
+             (SELECT h.motivo FROM historico_pdv h WHERE h.nropedido = v.nropedido ${porData ? sql`` : sql`AND h.tipo = 'CANC_V'`}
+               ORDER BY h.idhistorico LIMIT 1) AS motivo,
+             sum(v.qtde) AS qtde, sum(v.qtde * v.vrvenda) AS total,
+             (SELECT h.responsavel FROM historico_pdv h WHERE h.nropedido = v.nropedido AND h.tipo = 'CANC_V' ORDER BY h.idhistorico LIMIT 1) AS responsavel
+        FROM vendas v
+       WHERE v.nropedido LIKE ${pdv} AND v.idempresa = ${c.emp} AND v.cancelado = 'S' AND v.tipocanc = 'C'
+         AND ${porData ? sql`${this.noDia('v.dtvenda', c)} AND v.operador = ${c.op} AND ${this.daChave('v.chave', c)}` : sql`coalesce(v.chave_cancelamento, v.chave) = ${c.chave}`}
+       GROUP BY v.nrocupom, substr(v.nropedido, 1, 2), v.nropedido
+       ORDER BY v.nrocupom, substr(v.nropedido, 1, 2)`.execute(db)).rows;
+    const itens = (await sql<Record<string, unknown>>`
+      SELECT v.nrocupom, v.nroitem, v.vrvenda, v.qtde, v.codproduto, p.codbarra, p.descricao,
+             (CASE WHEN v.iat = 'A' THEN round(v.qtde * v.vrvenda, 2) ELSE trunc(v.qtde * v.vrvenda * 100) / 100 END)
+             + (greatest(coalesce(v.desc_acre_medio, 0), 0) + greatest(coalesce(v.desc_acre_item, 0), 0))
+             - (coalesce(v.desc_promocao, 0) + coalesce(v.desc_departamento, 0)
+                + greatest(-coalesce(v.desc_acre_medio, 0), 0) + greatest(-coalesce(v.desc_acre_item, 0), 0)) AS total,
+             (SELECT h.motivo FROM historico_pdv h WHERE h.nropedido = v.nropedido AND h.nroitem = v.nroitem ORDER BY h.idhistorico LIMIT 1) AS motivo,
+             (SELECT h.responsavel FROM historico_pdv h WHERE h.nropedido = v.nropedido AND h.nroitem = v.nroitem ORDER BY h.idhistorico LIMIT 1) AS responsavel
+        FROM vendas v JOIN produtos p ON p.idproduto = v.codproduto
+       WHERE v.cancelado = 'S' AND v.tipocanc = 'I' AND ${porData ? sql`${this.noDia('v.dtvenda', c)} AND` : sql``}
+             v.nropedido LIKE ${pdv} AND v.idempresa = ${c.emp} AND v.operador = ${c.op} AND ${this.daChave('v.chave', c)}
+       ORDER BY v.nrocupom, v.nroitem`.execute(db)).rows;
+    return {
+      cupons: cupons.map((r) => ({ nrocupom: r.nrocupom, pdv: r.pdv, nropedido: r.nropedido, motivo: r.motivo ?? null, qtde: num(r.qtde), total: r2(num(r.total)), responsavel: r.responsavel ?? null })),
+      itens: itens.map((r) => ({
+        nrocupom: r.nrocupom, nroitem: r.nroitem, vrvenda: num(r.vrvenda), qtde: num(r.qtde), codproduto: r.codproduto, codbarra: r.codbarra ?? null,
+        descricao: r.descricao ?? null, total: r2(num(r.total)), motivo: r.motivo ?? null, responsavel: r.responsavel ?? null,
+      })),
+    };
+  }
+
+  /**
+   * VENDAS COM DESCONTOS do turno (Enter em "Descontos"/F6, `TFrmRelVendasComDescontos`, URelVendasComDescontos.pas:48-142):
+   * por cupom × produto, a soma do desconto (DESC_ACRE_MEDIO + DESC_ACRE_ITEM, só as linhas com algum negativo), o RESPONSÁVEL
+   * (o último DESC_I do item no HISTORICO_PDV; no desconto do cupom, o último DESC_V/DESC_C; sem registro, o operador) e o MOTIVO
+   * (o último com motivo). Venda não cancelada ('N'), do dia, do operador, do PDV e da chave. Vazio: "Não foram encontrados
+   * descontos nas vendas.".
+   */
+  async descontosDoTurno(t: TurnoFechamentoDto) {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const c = await this.contexto(db, t);
+    const ultimo = (campo: 'responsavel' | 'motivo', item: boolean) => sql`(SELECT ${sql.ref(`h.${campo}`)} FROM historico_pdv h
+        WHERE h.nropedido = v.nropedido AND h.idempresa = v.idempresa ${item ? sql`AND h.nroitem = v.nroitem AND h.tipo = 'DESC_I'` : sql`AND h.tipo IN ('DESC_V', 'DESC_C')`}
+          ${campo === 'motivo' ? sql`AND h.motivo IS NOT NULL` : sql``}
+        ORDER BY h.idhistorico DESC LIMIT 1)`;
+    const rows = (await sql<Record<string, unknown>>`
+      SELECT cur.nrocupom, cur.codbarra, cur.descricao, cur.codproduto, sum(cur.desc_acre_medio + cur.desc_acre_item) AS desconto, cur.responsavel, cur.motivo
+        FROM (SELECT v.nrocupom, p.codbarra, v.descricao, v.codproduto, coalesce(v.desc_acre_medio, 0) AS desc_acre_medio, coalesce(v.desc_acre_item, 0) AS desc_acre_item,
+                     CASE WHEN coalesce(v.desc_acre_item, 0) < 0 THEN coalesce(${ultimo('responsavel', true)}, o.nome)
+                          WHEN coalesce(v.desc_acre_medio, 0) < 0 THEN coalesce(${ultimo('responsavel', false)}, o.nome)
+                          ELSE o.nome END AS responsavel,
+                     CASE WHEN coalesce(v.desc_acre_item, 0) < 0 THEN ${ultimo('motivo', true)}
+                          WHEN coalesce(v.desc_acre_medio, 0) < 0 THEN ${ultimo('motivo', false)} END AS motivo
+                FROM vendas v JOIN operadores o ON o.codoperador = v.operador JOIN produtos p ON p.idproduto = v.codproduto
+               WHERE (coalesce(v.desc_acre_medio, 0) < 0 OR coalesce(v.desc_acre_item, 0) < 0)
+                 AND ${this.noDia('v.dtvenda', c)} AND v.idempresa = ${c.emp} AND v.operador = ${c.op}
+                 AND v.nropedido LIKE ${`${String(c.pdv).padStart(2, '0')}%`} AND v.cancelado = 'N' AND ${this.daChave('v.chave', c)}) cur
+       GROUP BY cur.nrocupom, cur.codbarra, cur.descricao, cur.codproduto, cur.responsavel, cur.motivo
+       ORDER BY cur.nrocupom, cur.descricao`.execute(db)).rows;
+    return rows.map((r) => ({
+      nrocupom: r.nrocupom, codbarra: r.codbarra ?? null, descricao: r.descricao ?? null, codproduto: r.codproduto, desconto: r2(num(r.desconto)),
+      responsavel: r.responsavel ?? null, motivo: r.motivo ?? null,
+    }));
+  }
+
   // ── impressões (corte 4) ───────────────────────────────────────────────────────────────────────────────────────
   /**
    * o COMPROVANTE DE QUEBRA DE CAIXA (`ImprimeComprovanteQuebraCaixa`, UdmFechamentoCaixa.pas:705; `FDQSaldoOperador` no .dfm;

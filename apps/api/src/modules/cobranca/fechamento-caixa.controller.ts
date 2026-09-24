@@ -32,6 +32,20 @@ export class FechamentoCaixaController {
     return this.svc.detalhe(q);
   }
 
+  /** os cupons e itens cancelados do turno (Enter em "Cancelamentos" na finalização) — o diálogo não tem RBAC próprio */
+  @Get('turno/cancelamentos')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNFECHA')
+  cancelamentos(@Query(new ZodValidationPipe(turnoFechamentoSchema)) q: TurnoFechamentoDto) {
+    return this.svc.cancelamentos(q);
+  }
+
+  /** as vendas com descontos do turno (F6 / Enter em "Descontos" na finalização) */
+  @Get('turno/descontos')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNFECHA')
+  descontos(@Query(new ZodValidationPipe(turnoFechamentoSchema)) q: TurnoFechamentoDto) {
+    return this.svc.descontosDoTurno(q);
+  }
+
   /** o comprovante de quebra de caixa do turno (Imprimir › "Comprovante de quebra de caixa"; o menu não tem RBAC próprio) */
   @Get('turno/quebra')
   @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNCXABERTO')

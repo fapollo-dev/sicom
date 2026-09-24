@@ -11,8 +11,8 @@ import { imprimirPagina } from '../../shared/print/imprimirPagina';
 import { imprimirComprovanteQuebra, imprimirHistorico } from './imprimirFechamento';
 import { useMensagem } from '../../shared/mensagem';
 import {
-  abrirTurno, comprovanteQuebra, detalheTurno, documentosTurno, editarDocumento, historicoTurno, efetivarTurno, excluirDocumento, inserirDocumento, listarTurnos, reabrirTurno, salvarRascunho,
-  type CamposDocumento, type DetalheTurno, type DocumentoConferencia, type Documentos, type Fixa, type LinhaFechamento, type TurnoRef, type TurnoResumo,
+  abrirTurno, cancelamentosTurno, comprovanteQuebra, descontosTurno, detalheTurno, documentosTurno, editarDocumento, historicoTurno, efetivarTurno, excluirDocumento, inserirDocumento, listarTurnos, reabrirTurno, salvarRascunho,
+  type CamposDocumento, type CancelamentosTurno, type DescontoTurno, type DetalheTurno, type DocumentoConferencia, type Documentos, type Fixa, type LinhaFechamento, type TurnoRef, type TurnoResumo,
 } from './fechamentoCaixaApi';
 
 /**
@@ -56,6 +56,8 @@ export function FechamentoCaixaPage() {
   const [avisos, setAvisos] = useState<string[]>([]);
   const [edicao, setEdicao] = useState<Edicao | null>(null);
   const [exclusao, setExclusao] = useState<Exclusao | null>(null);
+  // os diálogos de leitura da finalização: cancelamentos (Enter no campo) e vendas com descontos (F6)
+  const [leitura, setLeitura] = useState<{ tipo: 'cancelamentos'; d: CancelamentosTurno } | { tipo: 'descontos'; d: DescontoTurno[] } | null>(null);
   const [operadoras, setOperadoras] = useState<Operadora[]>([]);
   useEffect(() => {
     if (docs?.d.tipo === 'CARTAO' && (docs.d.edicao || docs.d.insercao) && operadoras.length === 0) listarOperadoras().then(setOperadoras).catch(() => undefined);
@@ -245,6 +247,19 @@ export function FechamentoCaixaPage() {
     carregar(r);
     mensagem.sucesso('Caixa reaberto com sucesso!');
   });
+  const verCancelamentos = () => executar(async () => { if (ref) setLeitura({ tipo: 'cancelamentos', d: await cancelamentosTurno(ref) }); });
+  const verDescontos = () => executar(async () => {
+    if (!ref) return;
+    const d = await descontosTurno(ref);
+    if (!d.length) { mensagem.erro(new Error('Não foram encontrados descontos nas vendas.')); return; }
+    setLeitura({ tipo: 'descontos', d });
+  });
+  // clique na chave (o rótulo do legado): copia para a área de transferência
+  const copiarChave = () => {
+    if (!det?.turno.chave) return;
+    void navigator.clipboard?.writeText(det.turno.chave).then(() => mensagem.sucesso('Chave copiada!')).catch(() => undefined);
+  };
+
   // IMPRIMIR (o menu do legado): a janela abre no clique e o dado chega depois (popup-blocker)
   const imprimirComDado = async (carregarDado: (win: Window) => Promise<boolean>) => {
     const win = window.open('', '_blank');
@@ -336,6 +351,9 @@ export function FechamentoCaixaPage() {
               <strong>{consulta ? 'Consulta do fechamento de caixa' : 'Conferência do caixa'}</strong>
               <small className="text-fg-muted">
                 Operador(a) {det.turno.codoperadora} — {det.turno.nome ?? ''} · PDV {det.turno.nropdv} · {det.turno.data.split('-').reverse().join('/')}
+                {det.turno.chave && (
+                  <> · chave <button type="button" className="tabular-nums underline" title="Copiar a chave" onClick={copiarChave}>{det.turno.chave}</button></>
+                )}
                 {det.completadas ? ` · ${det.completadas} modalidade(s) incluída(s) zerada(s)` : ''}
               </small>
             </div>
@@ -434,11 +452,82 @@ export function FechamentoCaixaPage() {
                 ['Voucher', det.adicionais.voucher], ['Troco solidário', det.adicionais.trocoSolidario],
                 ['Venda líquida do operador', det.totais.valor], ['Cancelamentos', det.cancelamentos], ['Descontos nas vendas', det.descontos],
               ] as Array<[string, number]>).map(([k, v]) => (
-                <div key={k} className="flex justify-between gap-gp-sm"><span>{k}</span><span className="tabular-nums">{moeda(v)}</span></div>
+                <div key={k} className="flex items-center justify-between gap-gp-sm">
+                  <span>
+                    {k}
+                    {k === 'Cancelamentos' && <> <Button label="Ver" variant="ghost" onClick={() => void verCancelamentos()} disabled={ocupado} /></>}
+                    {k === 'Descontos nas vendas' && <> <Button label="Ver" variant="ghost" onClick={() => void verDescontos()} disabled={ocupado} /></>}
+                  </span>
+                  <span className="tabular-nums">{moeda(v)}</span>
+                </div>
               ))}
             </div>
           </section>
         </>
+      )}
+
+      {leitura && (
+        <Modal
+          open
+          onClose={() => setLeitura(null)}
+          size="lg"
+          title={leitura.tipo === 'cancelamentos' ? 'Vendas canceladas' : 'Vendas com descontos'}
+          primaryAction={{ label: 'Sair', onClick: () => setLeitura(null) }}
+        >
+          {leitura.tipo === 'cancelamentos' ? (
+            <div className="flex flex-col gap-gp-sm">
+              <strong className="text-sm">Cupons cancelados</strong>
+              {leitura.d.cupons.length === 0 ? <small className="text-fg-muted">Nenhum cupom cancelado.</small> : (
+                <div className="max-h-64 overflow-auto rounded-md border border-border">
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-left text-fg-muted"><th className="px-2 py-1">Cupom</th><th className="px-2 py-1">PDV</th><th className="px-2 py-1 text-right">Qtde</th><th className="px-2 py-1 text-right">Total</th><th className="px-2 py-1">Motivo</th><th className="px-2 py-1">Responsável</th></tr></thead>
+                    <tbody>
+                      {leitura.d.cupons.map((x) => (
+                        <tr key={x.nropedido} className="border-t border-border">
+                          <td className="px-2 py-1 tabular-nums">{x.nrocupom}</td><td className="px-2 py-1 tabular-nums">{x.pdv}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">{x.qtde.toLocaleString('pt-BR')}</td><td className="px-2 py-1 text-right tabular-nums">{moeda(x.total)}</td>
+                          <td className="px-2 py-1">{x.motivo ?? ''}</td><td className="px-2 py-1">{x.responsavel ?? ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <strong className="text-sm">Itens cancelados</strong>
+              {leitura.d.itens.length === 0 ? <small className="text-fg-muted">Nenhum item cancelado.</small> : (
+                <div className="max-h-64 overflow-auto rounded-md border border-border">
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-left text-fg-muted"><th className="px-2 py-1">Cupom</th><th className="px-2 py-1">Item</th><th className="px-2 py-1">Produto</th><th className="px-2 py-1 text-right">Qtde</th><th className="px-2 py-1 text-right">Total</th><th className="px-2 py-1">Motivo</th><th className="px-2 py-1">Responsável</th></tr></thead>
+                    <tbody>
+                      {leitura.d.itens.map((x) => (
+                        <tr key={`${x.nrocupom}-${x.nroitem}`} className="border-t border-border">
+                          <td className="px-2 py-1 tabular-nums">{x.nrocupom}</td><td className="px-2 py-1 tabular-nums">{x.nroitem}</td>
+                          <td className="px-2 py-1">{x.codbarra ?? x.codproduto} · {x.descricao ?? ''}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">{x.qtde.toLocaleString('pt-BR')}</td><td className="px-2 py-1 text-right tabular-nums">{moeda(x.total)}</td>
+                          <td className="px-2 py-1">{x.motivo ?? ''}</td><td className="px-2 py-1">{x.responsavel ?? ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="max-h-96 overflow-auto rounded-md border border-border">
+              <table className="w-full text-sm">
+                <thead><tr className="text-left text-fg-muted"><th className="px-2 py-1">Nro. Cupom</th><th className="px-2 py-1">Código de barras</th><th className="px-2 py-1">Descrição</th><th className="px-2 py-1 text-right">Desconto</th><th className="px-2 py-1">Responsável</th><th className="px-2 py-1">Motivo</th></tr></thead>
+                <tbody>
+                  {leitura.d.map((x, i) => (
+                    <tr key={`${x.nrocupom}-${x.codproduto}-${i}`} className="border-t border-border">
+                      <td className="px-2 py-1 tabular-nums">{x.nrocupom}</td><td className="px-2 py-1 tabular-nums">{x.codbarra ?? ''}</td><td className="px-2 py-1">{x.descricao ?? ''}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{moeda(x.desconto)}</td><td className="px-2 py-1">{x.responsavel ?? ''}</td><td className="px-2 py-1">{x.motivo ?? ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Modal>
       )}
 
       {docs && (

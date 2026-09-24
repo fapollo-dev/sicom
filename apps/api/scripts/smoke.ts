@@ -20198,6 +20198,55 @@ async function main() {
         await pgC8.end();
       }
     }
+    // ══ §183 FECHAMENTO DE CAIXA, corte 4: os diálogos de CANCELAMENTOS (frmCuponsFiscais) e VENDAS COM DESCONTOS (F6) ══
+    {
+      const pgC9 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const FC = 'cobranca/fechamento-caixa';
+      const DIA = '2038-03-16';
+      const CHA = '79160338080000';
+      const ts = (h: string) => `${DIA} ${h}-03`;
+      const qsT = new URLSearchParams({ data: DIA, chave: CHA, nropdv: '79', codoperadora: '7', situacao: '3' }).toString();
+      try {
+        const prod = ((await pgC9.query(`SELECT idproduto, codbarra FROM produtos ORDER BY idproduto LIMIT 1`)).rows[0] as any);
+        const nome7 = String(((await pgC9.query(`SELECT nome FROM operadores WHERE codoperador = 7`)).rows[0] as any)?.nome ?? '');
+        const v = (ped: string, cupom: string, item: number, qtde: number, vr: number, canc: string, tipocanc: string | null, extra: { chaveCanc?: string | null; op?: number; dmed?: number; ditem?: number; iat?: string } = {}) =>
+          pgC9.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nrocupom, nroitem, codproduto, qtde, vrvenda, iat, cancelado, tipocanc, chave, chave_cancelamento, operador, desc_acre_medio, desc_acre_item, descricao)
+              VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'PRODUTO SMOKE 183')`,
+            [ts('10:00:00'), ped, cupom, item, prod.idproduto, qtde, vr, extra.iat ?? 'T', canc, tipocanc, CHA, extra.chaveCanc ?? null, extra.op ?? 7, extra.dmed ?? 0, extra.ditem ?? 0]);
+        // cupom 795001 cancelado inteiro (2 itens, 3 × 2,50 + 1 × 4) e o 795002 cancelado por OUTRO operador com a chave do cancelamento
+        await v('79500100', '795001', 1, 3, 2.5, 'S', 'C');
+        await v('79500100', '795001', 2, 1, 4, 'S', 'C');
+        await v('79500200', '795002', 1, 1, 9.9, 'S', 'C', { op: 90 });
+        // item cancelado de um cupom vivo: 0,333 × 10 truncado (IAT T) = 3,33, − 0,50 de promoção
+        await v('79500300', '795003', 1, 0.333, 10, 'S', 'I');
+        // desconto: item com −1,50 (DESC_I com responsável e motivo) e desconto no cupom −2 (sem registro → o operador)
+        await v('79500400', '795004', 1, 1, 20, 'N', null, { ditem: -1.5 });
+        await v('79500500', '795005', 1, 1, 30, 'N', null, { dmed: -2 });
+        await pgC9.query(`UPDATE vendas SET desc_promocao = 0.5 WHERE nropedido = '79500300'`);
+        await pgC9.query(`INSERT INTO historico_pdv (idhistorico, idempresa, nropedido, nroitem, tipo, motivo, responsavel, data) VALUES
+            (9918301, 1, '79500100', NULL, 'CANC_V', 'CLIENTE DESISTIU', 'FISCAL ANA', $1), (9918302, 1, '79500300', 1, 'CANC_I', 'ITEM ERRADO', 'FISCAL BIA', $1),
+            (9918303, 1, '79500400', 1, 'DESC_I', NULL, 'FISCAL VELHO', $1), (9918304, 1, '79500400', 1, 'DESC_I', 'AVARIA', 'FISCAL CAIO', $1)`, [ts('10:05:00')]);
+        const get = async (path: string) => { const r = await fetch(`${base}/${FC}/turno/${path}?${qsT}`, { headers: H }); return { status: r.status, j: (await r.json()) as any }; };
+        const c1 = await get('cancelamentos');
+        await pgC9.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, config_especificas_permitidas, descricao) VALUES (991831, 'FECHAMENTO_CAIXA_SOMENTE_CHAVE', 'N', 'texto', 'Modulo;Empresa', 'smoke') ON CONFLICT DO NOTHING`);
+        const c2 = await get('cancelamentos');
+        const d1 = await get('descontos');
+        check('FECHAMENTO §183 [cancelamentos e descontos]: com a chave (FECHAMENTO_CAIXA_SOMENTE_CHAVE ≠ N) os cupons cancelados da chave, de qualquer operador — 795001 (qtde 4, total 11,50, motivo e responsável do CANC_V) e 795002; com a versão por dia (a produção, "N") só os do operador do caixa; os itens cancelados com o produto e o total líquido (0,333 × 10 truncado = 3,33 − 0,50 de promoção = 2,83) e o motivo/responsável do item; as vendas com descontos por cupom × produto: o do item (−1,50) com o ÚLTIMO DESC_I (FISCAL CAIO, AVARIA) e o do cupom (−2) sem registro, com o nome do operador',
+          c1.status === 200 && c1.j.cupons?.map((x: any) => x.nrocupom).join(',') === '795001,795002'
+          && c1.j.cupons[0].qtde === 4 && c1.j.cupons[0].total === 11.5 && c1.j.cupons[0].motivo === 'CLIENTE DESISTIU' && c1.j.cupons[0].responsavel === 'FISCAL ANA' && c1.j.cupons[0].pdv === '79'
+          && c2.j.cupons?.map((x: any) => x.nrocupom).join(',') === '795001'
+          && c1.j.itens?.length === 1 && c1.j.itens[0].total === 2.83 && c1.j.itens[0].motivo === 'ITEM ERRADO' && c1.j.itens[0].responsavel === 'FISCAL BIA' && c1.j.itens[0].codbarra === (prod.codbarra ?? null)
+          && d1.status === 200 && d1.j.length === 2
+          && d1.j[0].nrocupom === '795004' && d1.j[0].desconto === -1.5 && d1.j[0].responsavel === 'FISCAL CAIO' && d1.j[0].motivo === 'AVARIA'
+          && d1.j[1].nrocupom === '795005' && d1.j[1].desconto === -2 && d1.j[1].responsavel === nome7 && d1.j[1].motivo == null,
+          { c1: c1.j, c2: c2.j?.cupons, d1: d1.j });
+      } finally {
+        await pgC9.query(`DELETE FROM configuracoes WHERE id = 991831`).catch(() => undefined);
+        await pgC9.query(`DELETE FROM historico_pdv WHERE idhistorico BETWEEN 9918301 AND 9918304`).catch(() => undefined);
+        await pgC9.query(`DELETE FROM vendas WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgC9.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

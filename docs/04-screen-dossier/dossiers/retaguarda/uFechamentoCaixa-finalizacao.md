@@ -436,3 +436,23 @@ com a comparação certa (NROPEDIDO + valor numérico).
 - **Web:** tudo pela camada global `imprimirPagina` (`imprimirFechamento.ts`). A janela abre no clique.
 - **Pendente do item 6:** o relatório "Fechamento de caixa" (`MontaRel`, RBAC FECHAMENTOCAIXA1) e o "Relatório de análise". A spec está em `uFechamentoCaixa-impressoes-spec.md` (recon em andamento).
 - **Smoke §182:** 1519/0.
+
+### 4.6 ENTREGUE (24/09/2026) — diálogos de leitura: cancelamentos e vendas com descontos; a chave copiável
+
+- **Cancelamentos** (`GET turno/cancelamentos`; Enter em "Cancelamentos", `edtCancelamentosKeyDown` UfinalizaFechamento.pas:1019, `frmCuponsFiscais`):
+  - Cupons cancelados: VENDAS CANCELADO 'S', TIPOCANC 'C', uma linha por pedido, com qtde, total, motivo e responsável do HISTORICO_PDV.
+  - Itens cancelados: TIPOCANC 'I', com o produto e o total líquido (IAT 'A' arredonda, senão trunca; + acréscimos − descontos).
+  - **Duas versões, como o legado:**
+    - `FECHAMENTO_CAIXA_SOMENTE_CHAVE`='N' (a produção) ou turno sem chave: o dia, o operador e a chave.
+    - Senão, só a chave: a do cancelamento quando houver (`GetSQLCupomTChaveTurno`), de qualquer operador.
+  - O `ROWNUM <= 1` sem ordem do Oracle vira o menor IDHISTORICO.
+- **Vendas com descontos** (`GET turno/descontos`; F6, `TFrmRelVendasComDescontos`): por cupom × produto, com a soma do desconto.
+  - Responsável: o último DESC_I do item, ou o último DESC_V/DESC_C do cupom. Sem registro, o operador.
+  - Motivo: o último com motivo.
+  - Vazio: "Não foram encontrados descontos nas vendas.".
+- **Mig 333:** os índices que o Oracle tem e o Apollo não tinha: VENDAS.CHAVE, a chave do cancelamento (parcial, só canceladas) e HISTORICO_PDV (pedido, item). Sem eles, os diálogos varreriam 18,9 milhões de vendas.
+- **Chave:** aparece no cabeçalho da finalização; clicar copia ("Chave copiada!").
+- **Não feito:**
+  - O duplo clique na grade principal que abre a consulta de histórico de vendas. O Apollo não mostra a grade de CX_VENDAS por venda.
+  - O detalhe dos itens de um cupom (Enter no cupom do `frmCuponsFiscais`). Os itens estão na tela de histórico de vendas.
+- **Smoke §183:** 1520/0.

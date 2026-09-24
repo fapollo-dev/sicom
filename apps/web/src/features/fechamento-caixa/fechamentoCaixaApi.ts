@@ -122,3 +122,10 @@ export interface ComprovanteQuebra {
 export interface LinhaHistorico { codhist: number; data: string; historico: string; usuario: string }
 export const comprovanteQuebra = (t: TurnoRef) => req<ComprovanteQuebra>(`${P}/turno/quebra?${qs(t)}`);
 export const historicoTurno = (t: TurnoRef) => req<LinhaHistorico[]>(`${P}/turno/historico?${qs(t)}`);
+export interface CancelamentosTurno {
+  cupons: Array<{ nrocupom: string | null; pdv: string; nropedido: string; motivo: string | null; qtde: number; total: number; responsavel: string | null }>;
+  itens: Array<{ nrocupom: string | null; nroitem: number; vrvenda: number; qtde: number; codproduto: number; codbarra: string | null; descricao: string | null; total: number; motivo: string | null; responsavel: string | null }>;
+}
+export interface DescontoTurno { nrocupom: string | null; codbarra: string | null; descricao: string | null; codproduto: number; desconto: number; responsavel: string | null; motivo: string | null }
+export const cancelamentosTurno = (t: TurnoRef) => req<CancelamentosTurno>(`${P}/turno/cancelamentos?${qs(t)}`);
+export const descontosTurno = (t: TurnoRef) => req<DescontoTurno[]>(`${P}/turno/descontos?${qs(t)}`);
