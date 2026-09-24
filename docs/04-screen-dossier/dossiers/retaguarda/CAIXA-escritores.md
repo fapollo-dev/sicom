@@ -40,3 +40,26 @@ CAIXA. **Reconstruir pelo dado** (a regra do percentual, a data, o que acontece 
 3. BAIXA CARTAO, ✅ ARECEBER, BAIXA APAGAR/ARECEBER.
 4. O movimento de caixa gerencial (`uMovCaixa`, F06) — conversão da tela.
 5. FECHAMENTO — no corte 2 do fechamento de caixa.
+
+## 4. BAIXA APAGAR / BAIXA ARECEBER — recon (24/09/2026)
+
+**Fonte** (`UBaixaApagar.pas:501-523`, chamadas em `:790-792`): ao gravar a baixa em lote, uma linha de CAIXA por natureza
+com valor ≠ 0 — juros (`'Ref. juros pgto lote N'`, negativo, CC `EdtCodPlcJuro`), acréscimos (`'Ref. acréscimos pgto lote
+N'`, negativo, CC `EdtCodPlcAcrescimo`) e descontos (`'Ref. descontos recebidos lote N'`, positivo, CC `EdtCodPlcDesconto`).
+DATA e DTVENC = data da baixa, TIPORECURSO 'DINHEIRO', CODPARCEIRO 0, NRPARCELA '1', GERADO 'SISTEMA', IDLOTE, ORIGEM
+'BAIXA APAGAR'. `ValidaCentroCustos` (`:1766`) soma juros (com `CALCULAJURO`), acréscimos (`ACRE_DESC > 0`) e descontos
+(`ACRE_DESC < 0`) e exige o CC de cada natureza com valor. A Receber é o espelho (`UBaixaAreceber.pas:1264`):
+`'Ref. acréscimos recebidos lote N'` (+) e `'Ref. descontos concedidos lote N'` (−). O CC fica também em
+`APAGAR_BX.CODPLC_ACREDESC` / `CODPLC_JUROS` (e em `ARECEBER_BX`).
+
+**Produção 2026:** 47 acréscimos (R$ −2.792,68, CC 4) e 65 descontos (R$ 10.170,66, CC 1077); nenhum juros. Acréscimo: a
+linha = Σ `ACRE_DESC > 0` do lote em **47/47**. Desconto: **31/144** lotes com desconto batem — ⚠️ **defeito do legado**: a
+soma percorre o dataset da GRADE de parcelas (`GrdParcelasDBTableView1.DataController.DataSource.DataSet`), que é detalhe do
+fornecedor posicionado; só entram os descontos do fornecedor em foco (lote 90372: descontos 9,37 + 186 + 95 + 95, CAIXA
+195,37 = os dois primeiros; 79 lotes com desconto e nenhuma linha). O certo é a soma do lote inteiro — não copiar.
+
+**Lacuna no Apollo:** a baixa (`apagar-baixa.service.ts` / `areceber-baixa.service.ts`) é por título, não grava `IDLOTE` nem
+`CODPLC_ACREDESC`/`CODPLC_JUROS`, e a tela não pede os centros de custo. Converter = a baixa pedir os CCs quando houver
+juros/acréscimo/desconto (as mensagens do `ValidaCentroCustos`), gravá-los em APAGAR_BX/ARECEBER_BX e lançar as linhas;
+o "lote" do Apollo é a baixa (`IDLOTE` nulo → `-codapgbx` no `cons-apg-bx`). O estorno apaga as linhas (a reversão do
+legado exclui o CAIXA do lote).
