@@ -5,6 +5,7 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ConfigService } from '../cadastro/config.service';
 import { LiberacaoService } from '../auth/liberacao.service';
+import { novoHistorico } from './pedido-lojas';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -200,7 +201,7 @@ export class AnalisePedidoNfService {
    * em USUARIOS_PERMITIDOS_LIBERAR_PEDIDO_COMPRA (reusa o E8 ChamaLiberacaoLogin + LOG_LIBERACOES) → 'LIBERADO COM
    * DIVERGENCIA' (grava o supervisor em codoperador_liberacao). Sem override → 422 (precisa do supervisor).
    */
-  async liberar(codnf: number, override?: { login?: string; senha?: string }): Promise<{ codnf: number; status: string; temDivergencia: boolean; divergencias: Divergencia[] }> {
+  async liberar(codnf: number, override?: { login?: string; senha?: string; fecharPedido?: boolean }): Promise<{ codnf: number; status: string; temDivergencia: boolean; divergencias: Divergencia[]; pedidoFechado: boolean }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     const { divergencias, temDivergencia } = await this.divergencias(codnf);
@@ -223,12 +224,26 @@ export class AnalisePedidoNfService {
       codoperadorLiberacao = r.codOperador ?? null;
     }
 
-    await (this.dbp.forTenant() as AnyDB)
-      .updateTable('nf')
-      .set({ status_pedcomp: status, codoperador_liberacao: codoperadorLiberacao })
-      .where('codnf', '=', codnf)
-      .where('idempresa', '=', emp)
-      .execute();
-    return { codnf, status, temDivergencia, divergencias };
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const nf = (await trx.updateTable('nf')
+        .set({ status_pedcomp: status, codoperador_liberacao: codoperadorLiberacao })
+        .where('codnf', '=', codnf)
+        .where('idempresa', '=', emp)
+        .returning(['codpedcomp', 'nronf'])
+        .executeTakeFirst()) as { codpedcomp?: number | null; nronf?: unknown } | undefined;
+      // "Deseja fechar o pedido de compra?" (UanalisaPedComp_NF.pas:730-760): o pedido (IMPORTADO, NRONF, FECHADO) e a
+      // quantidade DA LOJA, com a data e o operador do fechamento, e o histórico do pedido
+      const codpedcomp = Number(nf?.codpedcomp ?? 0);
+      let pedidoFechado = false;
+      if (override?.fecharPedido && codpedcomp > 0) {
+        await trx.updateTable('pedidocompra').set({ importado: 'S', nronf: nf?.nronf == null ? null : Number(nf.nronf), fechado: 'S' })
+          .where('codpedcomp', '=', codpedcomp).execute();
+        await sql`UPDATE pedido_compra_qtde SET fechado = 'S', data_fechamento = now(), codoperador = ${op}
+                   WHERE idempresa = ${emp} AND codpedcompi IN (SELECT codpedcompi FROM pedidocompra_i WHERE codpedcomp = ${codpedcomp})`.execute(trx);
+        await novoHistorico(trx, codpedcomp, op, `Pedido fechado para a empresa ${emp} através da análise entre nota fiscal e pedido de compra.`);
+        pedidoFechado = true;
+      }
+      return { codnf, status, temDivergencia, divergencias, pedidoFechado };
+    });
   }
 }

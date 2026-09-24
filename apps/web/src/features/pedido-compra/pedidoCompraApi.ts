@@ -183,8 +183,8 @@ export function divergenciasNf(codnf: number): Promise<{ codnf: number; codpedco
 /** POST compras/analise-pedido-nf/:codnf/liberar — libera a conferência; com divergência exige supervisor (login+senha). */
 export function liberarConferencia(
   codnf: number,
-  override?: { login?: string; senha?: string },
-): Promise<{ codnf: number; status: string; temDivergencia: boolean; divergencias: Divergencia[] }> {
+  override?: { login?: string; senha?: string; fecharPedido?: boolean },
+): Promise<{ codnf: number; status: string; temDivergencia: boolean; divergencias: Divergencia[]; pedidoFechado: boolean }> {
   return req(`/compras/analise-pedido-nf/${codnf}/liberar`, { method: 'POST', body: JSON.stringify(override ?? {}) });
 }
 

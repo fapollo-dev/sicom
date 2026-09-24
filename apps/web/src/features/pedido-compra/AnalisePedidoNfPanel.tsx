@@ -71,9 +71,11 @@ export function AnalisePedidoNfPanel({ codpedcomp, refreshKey = 0, ultimoCodnf }
     if (exec || codnf == null) return;
     setExec(true);
     try {
-      const override = div?.temDivergencia ? { login: login.trim(), senha } : undefined;
+      // "Deseja fechar o pedido de compra?" — o legado pergunta depois de liberar, com NÃO como padrão
+      const fecharPedido = window.confirm('Deseja fechar o pedido de compra?');
+      const override = div?.temDivergencia ? { login: login.trim(), senha, fecharPedido } : { fecharPedido };
       const r = await liberarConferencia(codnf, override);
-      mensagem.sucesso(`Conferência da NF ${codnf} liberada: ${r.status}.`);
+      mensagem.sucesso(r.pedidoFechado ? 'Pedido Liberado e Fechado com Sucesso.' : `Conferência da NF ${codnf} liberada: ${r.status}.`);
       setDiv(null);
       setLogin('');
       setSenha('');

@@ -323,6 +323,8 @@ export type LiberarLimiteSupervisorDto = z.infer<typeof liberarLimiteSupervisorS
 export const liberarConferenciaSchema = z.object({
   login: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().trim().max(50).optional()),
   senha: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().max(200).optional()),
+  /** "Deseja fechar o pedido de compra?" (UanalisaPedComp_NF.pas:730, padrão NÃO) */
+  fecharPedido: z.boolean().optional(),
 });
 export type LiberarConferenciaDto = z.infer<typeof liberarConferenciaSchema>;
 

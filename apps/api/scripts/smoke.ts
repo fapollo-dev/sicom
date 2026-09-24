@@ -7821,9 +7821,14 @@ async function main() {
     const rp = await crPed({ codparceiro: 22, data: '2026-07-08', itens: [{ idproduto: 1, fatorembalagem: 10, vrcusto: 5 }, { idproduto: 2, fatorembalagem: 3, vrcusto: 2.5 }] });
     const rpId = Number(((await rp.json().catch(() => ({}))) as any).codpedcomp);
 
-    // 49.1) gerar-nf de pedido RASCUNHO (não fechado) → 422 PEDIDO_NAO_FECHADO.
-    const r1 = await gerarNf(rpId);
-    check('RECEB: gerar-nf de rascunho → 422 PEDIDO_NAO_FECHADO', r1.status === 422 && ((await r1.json().catch(() => ({}))) as any).code === 'PEDIDO_NAO_FECHADO', { status: r1.status });
+    // 49.1) gerar-nf de pedido ABERTO → 200: o fechamento não é pré-requisito (GET_PEDIDOCOMPRA não filtra FECHADO,
+    // uNF.pas:5638; 1.719 de 1.738 pedidos de 2025-26 nunca foram fechados). Num pedido à parte, para não mexer no saldo abaixo.
+    const rpAb = await crPed({ codparceiro: 22, data: '2026-07-08', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 5 }] });
+    const rpAbId = Number(((await rpAb.json().catch(() => ({}))) as any).codpedcomp);
+    const r1 = await gerarNf(rpAbId);
+    const r1J = (await r1.json().catch(() => ({}))) as any;
+    check('RECEB: gerar-nf de pedido aberto → 200 (o legado não exige fechar antes de receber)', r1.status === 200 && Number(r1J.codnf) > 0, { status: r1.status, r1J });
+    if (r1J.codnf) { await pgRec.query(`DELETE FROM nf_prod WHERE codnf=$1`, [Number(r1J.codnf)]); await pgRec.query(`DELETE FROM nf WHERE codnf=$1`, [Number(r1J.codnf)]); }
 
     await fetch(`${base}/${PED}/${rpId}/fechar`, { method: 'POST', headers: H });
     // 49.2) gerar-nf do pedido FECHADO → 200 {codnf}; NF tipo=E, vinculada, terceiros modelo 1.
@@ -9644,6 +9649,23 @@ async function main() {
         const nfARow = (await pgA2.query(`SELECT status_pedcomp, codoperador_liberacao FROM nf WHERE codnf=$1`, [nfA])).rows[0] as any;
         check('ANÁLISE §81.1: NF sem divergência → temDivergencia:false; liberar → LIBERADO SEM DIVERGENCIA (operador da sessão 7)',
           divA.temDivergencia === false && libA.status === 200 && libAJ.status === 'LIBERADO SEM DIVERGENCIA' && nfARow?.status_pedcomp === 'LIBERADO SEM DIVERGENCIA' && Number(nfARow?.codoperador_liberacao) === 7, { div: divA, lib: libAJ, row: nfARow });
+
+        // 81.1b) pedido ABERTO recebe; a liberação pergunta "Deseja fechar o pedido de compra?" (UanalisaPedComp_NF.pas:730)
+        // e, com SIM, fecha o pedido (IMPORTADO/NRONF/FECHADO), a quantidade da loja e grava o histórico.
+        const pF = await crPed({ codparceiro: 22, data: '2026-07-08', itens: [{ idproduto: 1, qtde: 1, fatorembalagem: 10, vrcusto: 5 }] });
+        const pFId = Number(((await pF.json().catch(() => ({}))) as any).codpedcomp);
+        const nfF = Number(((await (await gerarNf(pFId)).json().catch(() => ({}))) as any).codnf);
+        const libF = await fetch(`${base}/${A2}/${nfF}/liberar`, { method: 'POST', headers: H, body: JSON.stringify({ fecharPedido: true }) });
+        const libFJ = (await libF.json().catch(() => ({}))) as any;
+        const pFRow = (await pgA2.query(`SELECT fechado, importado, nronf FROM pedidocompra WHERE codpedcomp=$1`, [pFId])).rows[0] as any;
+        const nfFNro = (await pgA2.query(`SELECT nronf FROM nf WHERE codnf=$1`, [nfF])).rows[0] as any;
+        const qtdeF = (await pgA2.query(`SELECT count(*) FILTER (WHERE q.fechado='S' AND q.data_fechamento IS NOT NULL AND q.codoperador=7)::int f, count(*)::int n
+                                           FROM pedido_compra_qtde q JOIN pedidocompra_i i ON i.codpedcompi=q.codpedcompi WHERE i.codpedcomp=$1 AND q.idempresa=1`, [pFId])).rows[0] as any;
+        const histF = Number((await pgA2.query(`SELECT count(*)::int n FROM pedido_compra_historico WHERE codpedcomp=$1 AND pch_historico = 'Pedido fechado para a empresa 1 através da análise entre nota fiscal e pedido de compra.'`, [pFId])).rows[0].n);
+        check('ANÁLISE §81.1b: pedido aberto recebe; liberar com "fechar o pedido" → pedido FECHADO/IMPORTADO com o NRONF, a quantidade da loja fechada (data e operador) e o histórico',
+          nfF > 0 && libF.status === 200 && libFJ.pedidoFechado === true && pFRow?.fechado === 'S' && pFRow?.importado === 'S'
+          && String(pFRow?.nronf ?? '') === String(nfFNro?.nronf ?? '') && Number(qtdeF?.n) > 0 && Number(qtdeF?.f) === Number(qtdeF?.n) && histF === 1,
+          { libFJ, pFRow, nfFNro, qtdeF, histF });
 
         // 81.2) NF com divergência de PREÇO (custo NF 8 ≠ custo pedido 5) → temDivergencia:true.
         const pB = await crPed({ codparceiro: 22, data: '2026-07-08', itens: [{ idproduto: 1, qtde: 1, fatorembalagem: 10, vrcusto: 5 }] });
@@ -18576,19 +18598,16 @@ async function main() {
           : [];
         const idempNf1 = nf1J.codnf ? (await pgMl.query(`SELECT idempresa FROM nf WHERE codnf = $1`, [Number(nf1J.codnf)])).rows[0]?.idempresa : null;
         const saldo1 = (await (await fetch(`${base}/${PED}/${cod}/saldo`, { headers: H })).json().catch(() => ({}))) as any;
-        const nf2 = await fetch(`${base}/${PED}/${cod}/gerar-nf`, { method: 'POST', headers: H2, body: JSON.stringify({}) });
-        const nf2J = (await nf2.json().catch(() => ({}))) as any;
         const edit2Pos = await fetch(`${base}/${PED}/${cod}`, { method: 'PUT', headers: H2, body: JSON.stringify({ obs: 'loja 2 segue aberta' }) });
         const reabre1 = await fetch(`${base}/${PED}/${cod}/reabrir`, { method: 'POST', headers: H });
         const reabre1J = (await reabre1.json().catch(() => ({}))) as any;
-        check('PEDIDO MULTI-LOJA §164.5 [o RECEBIMENTO é por loja]: a nota de entrada gerada do pedido leva a quantidade DA LOJA da nota (`LEFT JOIN PEDIDO_COMPRA_QTDE Q … AND Q.IDEMPRESA = :IDEMPRESA`, udmNF.dfm:15370) — a loja 1 recebe 18 unidades do produto 1 (3 caixas × 6) e 2 do produto 2, na nota DELA, e o saldo dela zera. A loja 2, reaberta, não recebe (422 PEDIDO_NAO_FECHADO — feche antes de receber); a nota da loja 1 não trava a loja 2, que segue editando; e a loja 1 não reabre o que já recebeu (422 PEDIDO_FATURADO)',
+        check('PEDIDO MULTI-LOJA §164.5 [o RECEBIMENTO é por loja]: a nota de entrada gerada do pedido leva a quantidade DA LOJA da nota (`LEFT JOIN PEDIDO_COMPRA_QTDE Q … AND Q.IDEMPRESA = :IDEMPRESA`, udmNF.dfm:15370) — a loja 1 recebe 18 unidades do produto 1 (3 caixas × 6) e 2 do produto 2, na nota DELA, e o saldo dela zera. A nota da loja 1 não trava a loja 2, que segue editando; e a loja 1 não reabre o que já recebeu (422 PEDIDO_FATURADO)',
           (nf1.status === 200 || nf1.status === 201) && Number(idempNf1) === 1
           && JSON.stringify(itensNf1) === JSON.stringify([[1, 18], [2, 2]])
           && saldo1.totalmenteRecebido === true
-          && nf2.status === 422 && nf2J.code === 'PEDIDO_NAO_FECHADO'
           && edit2Pos.status === 200
           && reabre1.status === 422 && reabre1J.code === 'PEDIDO_FATURADO',
-          { nf1: [nf1.status, nf1J.code ?? nf1J.codnf], idempNf1, itensNf1, saldo1: saldo1.itens, nf2: [nf2.status, nf2J.code], edit2Pos: edit2Pos.status, reabre1: [reabre1.status, reabre1J.code] });
+          { nf1: [nf1.status, nf1J.code ?? nf1J.codnf], idempNf1, itensNf1, saldo1: saldo1.itens, edit2Pos: edit2Pos.status, reabre1: [reabre1.status, reabre1J.code] });
         if (nf1J.codnf) {
           await pgMl.query(`DELETE FROM nf_prod WHERE codnf = $1`, [Number(nf1J.codnf)]);
           await pgMl.query(`DELETE FROM nf WHERE codnf = $1`, [Number(nf1J.codnf)]);
