@@ -9072,8 +9072,8 @@ async function main() {
       const putEnc = await fetch(`${base}/${AP}/${codag}`, { method: 'PUT', headers: H, body: JSON.stringify({ nomepromo: 'EDIT', dtiniciopromocao: '2029-09-01T08:00', dtfimpromocao: '2029-09-03T22:00', itens: [{ idproduto: 1, vlrpromocao: 1.29 }] }) });
       const putEncJ = (await putEnc.json().catch(() => ({}))) as any;
       const reab = await fetch(`${base}/${AP}/${codag}/reabrir`, { method: 'POST', headers: H });
-      check('PROMO 76.5: encerrar → dtencerramento; editar encerrada → 422 PROMOCAO_ENCERRADA; reabrir → 200',
-        enc.status === 200 && encSit?.dtencerramento != null && putEnc.status === 422 && putEncJ.code === 'PROMOCAO_ENCERRADA' && reab.status === 200,
+      check('PROMO 76.5: encerrar → dtencerramento; editar a encerrada GRAVA (o legado não trava — a produção alterou agendas encerradas; auditoria g2 #4); reabrir → 200',
+        enc.status === 200 && encSit?.dtencerramento != null && putEnc.status === 200 && reab.status === 200,
         { enc: enc.status, put: [putEnc.status, putEncJ.code], reab: reab.status });
 
       // 76.6) RBAC: criar sem grant → 403.
@@ -9103,7 +9103,9 @@ async function main() {
       // 76.8) FOLD BAIXA: produto REPETIDO na mesma agenda → 422 PROMOCAO_PRODUTO_DUPLICADO (dedup, uCadAgendaPromocao:951).
       const p8 = await crPromo({ nomepromo: 'DUP', dtiniciopromocao: '2030-01-01T00:00', dtfimpromocao: '2030-01-02T00:00', itens: [{ idproduto: 1, vlrpromocao: 1 }, { idproduto: 1, vlrpromocao: 2 }] });
       const p8J = (await p8.json().catch(() => ({}))) as any;
-      check('PROMO 76.8 FOLD: produto repetido na mesma agenda → 422 PROMOCAO_PRODUTO_DUPLICADO', p8.status === 422 && p8J.code === 'PROMOCAO_PRODUTO_DUPLICADO', { status: p8.status, code: p8J.code });
+      const p8Itens = Number(((await pgPromo.query(`SELECT count(*)::int AS n FROM agenda_promocao_itens WHERE codagenda = $1`, [Number(p8J.codagenda)])).rows[0] as any)?.n ?? -1);
+      check('PROMO 76.8: produto repetido NOVO na mesma agenda sai em silêncio (o legado não inclui o código que já está na grade — Locate :950); a agenda grava com 1 item',
+        p8.status === 201 && p8Itens === 1, { status: p8.status, code: p8J.code, itens: p8Itens });
 
       // 76.9) FOLD ALTA: anti-sobreposição NÃO burlável por PUT parcial. Com config N: A(prod 3, 2031-01) + B(prod 3,
       // 2031-06 não sobrepõe) criadas OK; PUT em B mudando SÓ o período p/ sobrepor A (sem enviar itens) → validar faz
@@ -9114,10 +9116,13 @@ async function main() {
       const p9bId = Number(((await p9b.json().catch(() => ({}))) as any).codagenda);
       const p9put = await fetch(`${base}/${AP}/${p9bId}`, { method: 'PUT', headers: H, body: JSON.stringify({ dtiniciopromocao: '2031-01-10T00:00', dtfimpromocao: '2031-01-20T00:00' }) });
       const p9putJ = (await p9put.json().catch(() => ({}))) as any;
+      // o item NOVO que sobrepõe outra agenda continua recusado (é o que o legado checa ao incluir o item)
+      const p9c = await crPromo({ nomepromo: 'C31', dtiniciopromocao: '2031-01-12T00:00', dtfimpromocao: '2031-01-14T00:00', itens: [{ idproduto: 3, vlrpromocao: 1 }] });
+      const p9cJ = (await p9c.json().catch(() => ({}))) as any;
       await pgPromo.query(`UPDATE configuracoes SET valor='S' WHERE codigo='PERMITE_PRODUTO_MAIS_UMA_AGENDA'`);
-      check('PROMO 76.9 FOLD ALTA: PUT parcial (só período) NÃO burla a anti-sobreposição (fallback aos itens persistidos) → 422',
-        p9a.status === 201 && p9b.status === 201 && p9put.status === 422 && p9putJ.code === 'PROMOCAO_PRODUTO_SOBREPOSTO',
-        { a: p9a.status, b: p9b.status, put: [p9put.status, p9putJ.code] });
+      check('PROMO 76.9: com config N, a troca de período de uma agenda NÃO revalida os itens já gravados (o Gravar do legado não revalida; auditoria g2 #1) — grava; incluir o produto numa agenda nova sobreposta → 422 PROMOCAO_PRODUTO_SOBREPOSTO',
+        p9a.status === 201 && p9b.status === 201 && p9put.status === 200 && p9c.status === 422 && p9cJ.code === 'PROMOCAO_PRODUTO_SOBREPOSTO',
+        { a: p9a.status, b: p9b.status, put: [p9put.status, p9putJ.code], c: [p9c.status, p9cJ.code] });
 
       // 76.10) efeito-PDV — SCHEDULER de vigência (processar-vigencia): LIGA a agenda que entrou na janela
       // [dtinicio, dtfim) e DESLIGA a que saiu (sem encerrar). Idempotente (multi_preco.codagenda = marcador).
@@ -20661,6 +20666,32 @@ async function main() {
       } finally {
         for (const a of antes) await pgPd.query(`UPDATE produtos SET codbarra = $2, ativo = $3 WHERE idproduto = $1`, [a.idproduto, a.codbarra, a.ativo]).catch(() => undefined);
         await pgPd.end();
+      }
+    }
+    // ══ §195 AGENDA DE PROMOÇÃO — auditoria g2: produto desativado depois não trava a agenda; a agenda EXECUTANDO não se exclui ══
+    {
+      const pgAg = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const AP = 'cadastro/agenda-promocao';
+      let cod = 0;
+      const antes = ((await pgAg.query(`SELECT ativo FROM produtos WHERE idproduto = 2`)).rows[0] as any)?.ativo;
+      try {
+        const cr = await fetch(`${base}/${AP}`, { method: 'POST', headers: H, body: JSON.stringify({ empresas: [1], nomepromo: 'SMOKE 195', dtiniciopromocao: '2033-03-01T08:00', dtfimpromocao: '2033-03-05T22:00', itens: [{ idproduto: 2, vlrpromocao: 3.33 }] }) });
+        cod = Number(((await cr.json().catch(() => ({}))) as any).codagenda);
+        await pgAg.query(`UPDATE produtos SET ativo = 'N' WHERE idproduto = 2`);
+        const put = await fetch(`${base}/${AP}/${cod}`, { method: 'PUT', headers: H, body: JSON.stringify({ nomepromo: 'SMOKE 195 ALTERADA', dtiniciopromocao: '2033-03-01T08:00', dtfimpromocao: '2033-03-05T22:00', itens: [{ idproduto: 2, vlrpromocao: 3.33 }] }) });
+        const putJ = (await put.json().catch(() => ({}))) as any;
+        await pgAg.query(`UPDATE agenda_promocao SET flagpromocao = 'E' WHERE codagenda = $1`, [cod]);
+        const del = await fetch(`${base}/${AP}/${cod}`, { method: 'DELETE', headers: H });
+        const delJ = (await del.json().catch(() => ({}))) as any;
+        check('AGENDA §195 [auditoria g2]: o produto da agenda desativado DEPOIS não impede gravar a agenda (o legado só filtra o produto ao incluir o item); a agenda EXECUTANDO não se exclui — 422 PROMOCAO_EXECUTANDO (o Excluir fica desabilitado, :1212)',
+          cr.status === 201 && put.status === 200 && del.status === 422 && delJ.code === 'PROMOCAO_EXECUTANDO',
+          { cr: cr.status, put: [put.status, putJ.code], del: [del.status, delJ.code] });
+      } finally {
+        await pgAg.query(`UPDATE produtos SET ativo = $1 WHERE idproduto = 2`, [antes ?? 'S']).catch(() => undefined);
+        await pgAg.query(`DELETE FROM agenda_promocao_itens WHERE codagenda = $1`, [cod]).catch(() => undefined);
+        await pgAg.query(`DELETE FROM agenda_promocao_empresa WHERE codagenda = $1`, [cod]).catch(() => undefined);
+        await pgAg.query(`DELETE FROM agenda_promocao WHERE codagenda = $1`, [cod]).catch(() => undefined);
+        await pgAg.end();
       }
     }
   } finally {

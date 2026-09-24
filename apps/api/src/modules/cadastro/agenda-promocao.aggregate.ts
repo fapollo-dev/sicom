@@ -16,10 +16,10 @@ import { csvLojas, lojasDaAgenda, lojasDoCsv } from './agenda-promocao-lojas';
  * preço promocional). **SEM efeito** no corte-1 (o UPDATE MULTI_PRECO da ativação é o corte-2).
  *
  * - derivarItensTrx: ATIVO default 'S'; NROITEM sequencial; DTATIVO=now p/ itens ativos (fiel ao legado).
- * - validar: agenda ENCERRADA (dtencerramento) é read-only; período dtfim>dtini (schema); cada produto existe
- *   e está ATIVO; ANTI-SOBREPOSIÇÃO — nenhum produto ativo pode estar em OUTRA agenda não-encerrada da mesma
- *   empresa com período sobreposto (uCadAgendaPromocao:1616).
- * - validarRemocao: agenda ENCERRADA não pode ser excluída (reabra antes).
+ * - validar: período dtfim>dtini (schema); o item NOVO ou REATIVADO tem de ser produto ATIVO e não pode estar em outra
+ *   agenda aberta/executando da mesma loja com período sobreposto (uCadAgendaPromocao:1616) — o que já estava gravado não
+ *   se revalida (o legado só checa ao incluir/ativar o item); produto repetido novo sai em silêncio.
+ * - validarRemocao: agenda EXECUTANDO não se exclui (:1212).
  */
 
 /** resolve config (base + override por Empresa) com o handle do validar — espelha ConfigService (helper local). */
@@ -109,7 +109,8 @@ export const agendaPromocaoAggregateConfig: AggregateConfig = {
         .where(sql`coalesce(indr,'I')`, '<>', 'E')
         .executeTakeFirst()) as typeof atual;
       if (!atual) throw new BusinessRuleError('PROMOCAO_NAO_ENCONTRADA', { codagenda: id });
-      if (atual.dtencerramento != null) throw new BusinessRuleError('PROMOCAO_ENCERRADA');
+      // ⚠️ sem trava de "encerrada": o legado não tem (DTENCERRAMENTO nem aparece no fonte) e a produção alterou agendas depois
+      // de encerradas (8941, 10288, 10948 em 2023) — auditoria g2 #4
       // o STATUS à mão (cbbStatus): desabilitado enquanto ABERTA (:517); de EXECUTANDO não vai para FECHADA nem de
       // FECHADA para EXECUTANDO (cbbStatusExit:1088) — sobra voltar para ABERTA
       const de = String(atual.flagpromocao ?? 'N');
@@ -141,22 +142,36 @@ export const agendaPromocaoAggregateConfig: AggregateConfig = {
 
     // itens EFETIVOS: se o dto traz `itens` (substituição), valida esses; senão (PUT que não mexe em itens)
     // valida os PERSISTIDOS contra o (possivelmente novo) período — fecha o bypass do fold ALTA.
+    // os itens GRAVADOS: o legado só checa o produto ao INCLUIR ou ATIVAR o item (CarregarItens :925, marcar ativo :1421) — o
+    // Gravar não revalida o que já estava na agenda nem a troca de período (auditoria g2 #1/#3)
+    const gravados = id != null
+      ? ((await db.selectFrom('agenda_promocao_itens').select(['idproduto', 'ativo']).where('codagenda', '=', id).execute()) as Array<{ idproduto: number; ativo: string | null }>)
+      : [];
+    const qtdGravada = new Map<number, number>();
+    const ativoGravado = new Set<number>();
+    for (const g of gravados) {
+      qtdGravada.set(Number(g.idproduto), (qtdGravada.get(Number(g.idproduto)) ?? 0) + 1);
+      if (String(g.ativo ?? 'S') !== 'N') ativoGravado.add(Number(g.idproduto));
+    }
     let itens: Record<string, unknown>[];
     if (Array.isArray(dto.itens)) {
-      itens = dto.itens as Record<string, unknown>[];
-      // dedup dentro da MESMA agenda (fold BAIXA; o legado dedup por CODBARRA no CarregarItens): produto repetido → erro.
-      const vistos = new Set<number>();
-      for (const it of itens) {
+      // o produto repetido NOVO sai em silêncio (o legado não inclui o código que já está na grade — `Locate('CODBARRA')` :950);
+      // os repetidos que já estavam gravados ficam (a produção tem 13 grupos assim em 2026 — auditoria g2 #2)
+      const vistos = new Map<number, number>();
+      itens = (dto.itens as Record<string, unknown>[]).filter((it) => {
         const idp = Number(it.idproduto);
-        if (idp > 0 && vistos.has(idp)) throw new BusinessRuleError('PROMOCAO_PRODUTO_DUPLICADO', { idproduto: idp });
-        vistos.add(idp);
-      }
-    } else if (id != null) {
-      itens = (await db.selectFrom('agenda_promocao_itens').select(['idproduto', 'ativo']).where('codagenda', '=', id).execute()) as Record<string, unknown>[];
+        if (!(idp > 0)) return true;
+        const n = (vistos.get(idp) ?? 0) + 1;
+        vistos.set(idp, n);
+        return n <= Math.max(1, qtdGravada.get(idp) ?? 0);
+      });
+      dto.itens = itens;
     } else {
-      itens = [];
+      itens = gravados as unknown as Record<string, unknown>[];
     }
-    const idsAtivos = [...new Set(itens.filter((it) => it.ativo !== 'N').map((it) => Number(it.idproduto)))].filter((x) => x > 0);
+    // só o item NOVO ou REATIVADO passa pelas checagens de produto (ativo e sobreposição)
+    const idsAtivos = [...new Set(itens.filter((it) => it.ativo !== 'N').map((it) => Number(it.idproduto)))]
+      .filter((x) => x > 0 && !ativoGravado.has(x));
 
     // cada produto tem de existir e estar ATIVO (SegProduto do legado). FK garante existência no insert;
     // aqui checamos o ATIVO='S' (produto morto não entra em promoção).
@@ -204,12 +219,14 @@ export const agendaPromocaoAggregateConfig: AggregateConfig = {
   validarRemocao: async ({ id, db }) => {
     const ap = (await db
       .selectFrom('agenda_promocao')
-      .select(['dtencerramento'])
+      .select(['flagpromocao'])
       .where('codagenda', '=', id)
       .where(sql`coalesce(indr,'I')`, '<>', 'E')
-      .executeTakeFirst()) as { dtencerramento?: unknown } | undefined;
+      .executeTakeFirst()) as { flagpromocao?: string | null } | undefined;
     if (!ap) return; // já excluída / not-found → soft-delete idempotente
-    if (ap.dtencerramento != null) throw new BusinessRuleError('PROMOCAO_ENCERRADA');
+    // o Excluir fica desabilitado com a agenda EXECUTANDO (`btnExcluir.Enabled := cbbStatus.ItemIndex <> 1`, :1212) — a regra que
+    // faltava; a "encerrada" não trava (o legado não tem)
+    if (String(ap.flagpromocao ?? 'N') === 'E') throw new BusinessRuleError('PROMOCAO_EXECUTANDO');
   },
   // o que o btnGravar faz além de gravar (uCadAgendaPromocao.pas:703-770)
   aposGravarTrx: async ({ trx, id, dto, criado }) => {

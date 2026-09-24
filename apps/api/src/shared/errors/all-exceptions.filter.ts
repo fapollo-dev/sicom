@@ -588,6 +588,7 @@ const CODE_PT: Record<string, string> = {
   INDEXADOR_MVA_NAO_PERMITIDO: 'Não informar MVA para itens tributados!',
   INDEXADOR_DESATIVADO: 'Não é possível alterar o registro, pois ele foi desativado.',
   INDEXADOR_PARCEIRO_INEXISTENTE: 'Parceiro não encontrado ou desativado. Verifique o cadastro!',
+  PROMOCAO_EXECUTANDO: 'Não é possível excluir a agenda enquanto ela está executando.',
   FECHAMENTO_PDV_NAO_FECHADO: 'O caixa selecionado ainda não foi fechado no PDV.',
   FECHAMENTO_PDV_NAO_CADASTRADO: 'O PDV não foi cadastrado para a empresa.',
   FECHAMENTO_RELATORIO_PDV: 'Um dos PDVs selecionados não foi cadastrado para a empresa.',
