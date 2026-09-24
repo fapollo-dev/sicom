@@ -26,6 +26,17 @@ const hoje = () => { const d = new Date(); return `${d.getFullYear()}-${String(d
 const atras = (dias: number) => { const d = new Date(Date.now() - dias * 86400000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 type Linha = Record<string, unknown>;
+interface ParcelaEd { nrparcela: string; valor: string; dtvenc: string }
+interface Sugestao {
+  chavenfe: string; nronf: string; razao: string | null; totalnf: number; fonte: 'FINANCEIRO' | 'XML' | 'TOTAL';
+  configurado: boolean; codparceiro: number | null; fornecedor: string | null; jaGerada: boolean;
+  parcelas: Array<{ nrparcela: string; valor: number; dtvenc: string | null }>;
+}
+const FONTE: Record<Sugestao['fonte'], string> = {
+  FINANCEIRO: 'parcelas da grade financeira da nota',
+  XML: 'duplicatas do XML',
+  TOTAL: 'a nota não tem duplicatas — uma parcela com o total; informe o vencimento',
+};
 
 /**
  * MANIFESTO DO DFe — corte 1 (local): a fila das NF-e emitidas contra a empresa, com a situação de
@@ -44,6 +55,8 @@ export function ManifestoDfePage() {
   const [eventos, setEventos] = useState<Linha[] | null>(null);
   const [chaveEv, setChaveEv] = useState('');
   const [busy, setBusy] = useState(false);
+  // a previsão de contas a pagar da nota (binário novo): a sugestão e as parcelas que o usuário ajusta
+  const [prev, setPrev] = useState<{ cod: number; sug: Sugestao; parcelas: ParcelaEd[] } | null>(null);
 
   const consultar = async () => {
     if (busy) return;
@@ -105,6 +118,28 @@ export function ManifestoDfePage() {
       mensagem.sucesso(r.ja_importada ? `Esta NF-e já estava importada (NF ${r.codnf}).` : 'NF-e importada para o sistema.');
       void consultar();
     } catch (e) { mensagem.erro(e); }
+  };
+
+  const abrirPrevisao = async (l: Linha) => {
+    try {
+      const sug = await req<Sugestao>(`/compras/manifesto-dfe/previsao-apagar/${l.codnfe_naocad}`);
+      setPrev({ cod: Number(l.codnfe_naocad), sug, parcelas: sug.parcelas.map((p) => ({ nrparcela: p.nrparcela, valor: String(p.valor), dtvenc: p.dtvenc ?? '' })) });
+    } catch (e) { mensagem.erro(e); }
+  };
+
+  const editarParcela = (i: number, campo: keyof ParcelaEd, v: string) =>
+    setPrev((s) => (s ? { ...s, parcelas: s.parcelas.map((p, k) => (k === i ? { ...p, [campo]: v } : p)) } : s));
+
+  const gerarPrevisao = async () => {
+    if (!prev || busy) return;
+    setBusy(true);
+    try {
+      const r = await post<{ titulos: number[]; total: number }>(`/compras/manifesto-dfe/previsao-apagar/${prev.cod}`, {
+        parcelas: prev.parcelas.map((p) => ({ nrparcela: p.nrparcela, valor: Number(String(p.valor).replace(',', '.')), dtvenc: p.dtvenc })),
+      });
+      mensagem.sucesso(`Previsão gerada: ${r.titulos.length} título(s) de contas a pagar, ${brl(r.total)}.`);
+      setPrev(null);
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
   const baixarXml = async (chave: string) => {
@@ -195,6 +230,7 @@ export function ManifestoDfePage() {
                   {!Number(l.ciencia) && !Number(l.confirmacao) && <>{' · '}<button className="underline" onClick={() => void manifestar(l, 'CIENCIA')}>ciência</button></>}
                   {!Number(l.confirmacao) && <>{' · '}<button className="underline" onClick={() => void manifestar(l, 'CONFIRMACAO')}>confirmar</button></>}
                   {l.importada !== 'S' && l.ignorada !== 'S' && <>{' · '}<button className="underline font-semibold" onClick={() => void importar(l)}>importar</button></>}
+                  {l.ignorada !== 'S' && !Number(l.cancelada) && <>{' · '}<button className="underline" onClick={() => void abrirPrevisao(l)}>previsão a pagar</button></>}
                 </td>
               </tr>
             ))}
@@ -202,6 +238,38 @@ export function ManifestoDfePage() {
           </tbody>
         </table>
       </div>
+
+      {prev && (
+        <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <div className="flex flex-col">
+            <strong>Previsão de contas a pagar — NF {prev.sug.nronf} · {prev.sug.fornecedor ?? prev.sug.razao ?? ''}</strong>
+            <small className="text-fg-muted">Origem: {FONTE[prev.sug.fonte]}. Um título por parcela, sem movimentar o caixa; ao faturar a nota, a previsão vira o título.</small>
+            {prev.sug.jaGerada && <small className="text-fg-danger">Já existe previsão em aberto para esta nota.</small>}
+            {!prev.sug.configurado && <small className="text-fg-danger">A geração não está configurada (situação e centro de custo da previsão do manifesto).</small>}
+            {prev.sug.codparceiro == null && <small className="text-fg-danger">O fornecedor da nota não está cadastrado.</small>}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="text-body-sm">
+              <thead><tr className="text-left text-fg-muted"><th className="p-pad-xs">Parcela</th><th className="p-pad-xs">Valor</th><th className="p-pad-xs">Vencimento</th><th className="p-pad-xs" /></tr></thead>
+              <tbody>
+                {prev.parcelas.map((p, i) => (
+                  <tr key={i} className="border-t border-border">
+                    <td className="p-pad-xs w-28"><Field label="" aria-label={`Parcela ${i + 1}`} value={p.nrparcela} onChange={(e) => editarParcela(i, 'nrparcela', e.target.value)} /></td>
+                    <td className="p-pad-xs w-36"><Field label="" aria-label={`Valor da parcela ${i + 1}`} inputMode="decimal" value={p.valor} onChange={(e) => editarParcela(i, 'valor', e.target.value)} /></td>
+                    <td className="p-pad-xs w-44"><Field label="" aria-label={`Vencimento da parcela ${i + 1}`} type="date" value={p.dtvenc} onChange={(e) => editarParcela(i, 'dtvenc', e.target.value)} /></td>
+                    <td className="p-pad-xs">{prev.parcelas.length > 1 && <button className="underline" onClick={() => setPrev((s) => (s ? { ...s, parcelas: s.parcelas.filter((_, k) => k !== i) } : s))}>remover</button>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-wrap gap-gp-sm">
+            <Button label="&Adicionar parcela" variant="soft" onClick={() => setPrev((s) => (s ? { ...s, parcelas: [...s.parcelas, { nrparcela: String(s.parcelas.length + 1).padStart(3, '0'), valor: '', dtvenc: '' }] } : s))} />
+            <Button label="&Gerar previsão" disabled={busy || prev.sug.jaGerada || !prev.sug.configurado || prev.sug.codparceiro == null} onClick={() => void gerarPrevisao()} />
+            <Button label="&Fechar" variant="soft" onClick={() => setPrev(null)} />
+          </div>
+        </section>
+      )}
 
       {eventos && (
         <>

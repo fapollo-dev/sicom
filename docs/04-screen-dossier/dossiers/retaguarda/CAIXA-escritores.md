@@ -43,7 +43,8 @@ Outros escritores no fonte sem linha em 2026: `UbaixaCheque.pas:352`, `UCadMapaD
   do CODCONTABILNF, CAIXA), o rateio da retenção ST (sem CAIXA), o título digitado (rateio pelo CC, CAIXA; editar refaz;
   excluir apaga) e o estorno. ⚠️ A mig 327 também sincroniza `apagar.dtcompra` (o do legado, carregado) com `dtvenda` (o
   que a tela do Apollo lia): o título migrado aparecia sem data de emissão. ✅ **Linhas D/E** (24/09, `uCadAPagar.md` §4: desconto e
-  embutidos da tela viram as linhas D/E com `LANCAR_CENTROCUSTO_DESCACREJRS_CONTAS_PAGAR`). **Falta:** a previsão do manifesto.
+  embutidos da tela viram as linhas D/E com `LANCAR_CENTROCUSTO_DESCACREJRS_CONTAS_PAGAR`). ✅ **Previsão do manifesto** (24/09, mig 329,
+  `previsao-apagar-manifesto.md`: sem CAIXA na geração; a CAIXA nasce na conversão pelo faturamento da NF).
 
 ## 3. Ordem proposta
 

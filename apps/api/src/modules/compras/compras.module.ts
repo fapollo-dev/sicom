@@ -26,6 +26,7 @@ import { CotacaoController } from './cotacao.controller';
 import { ConferenciaNotaService } from './conferencia-nota.service';
 import { ManifestoDfeController } from './manifesto-dfe.controller';
 import { ManifestoDfeService } from './manifesto-dfe.service';
+import { ManifestoPrevisaoService } from './manifesto-previsao.service';
 import { SefazDfeService } from './sefaz-dfe.service';
 import { PendenciaOperadorController } from './pendencia-operador.controller';
 import { RelAnalisePedidoNfController } from './rel-analise-pedido-nf.controller';
@@ -67,6 +68,6 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
     ManifestoDfeController,
     PendenciaOperadorController, RelAnalisePedidoNfController,
   ],
-  providers: [FaturamentoService, CotacaoFornService, PedidoVendaService, PedidoCompraService, PedidoImpressaoService, PedidoItemPrecoService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, ManifestoDfeService, SefazDfeService, PendenciaOperadorService, RelAnalisePedidoNfService, AnaliseMotorService, ConfigService, DatabaseProvider],
+  providers: [FaturamentoService, CotacaoFornService, PedidoVendaService, PedidoCompraService, PedidoImpressaoService, PedidoItemPrecoService, RecebimentoService, DevolucaoCompraService, DeParaService, AnalisePedidoNfService, CotacaoService, ConferenciaNotaService, ManifestoDfeService, ManifestoPrevisaoService, SefazDfeService, PendenciaOperadorService, RelAnalisePedidoNfService, AnaliseMotorService, ConfigService, DatabaseProvider],
 })
 export class ComprasModule {}

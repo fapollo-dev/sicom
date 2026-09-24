@@ -85,6 +85,9 @@ SELECT setval('seq_idlote', greatest(
   coalesce((SELECT max(idlote) FROM chq_proprio WHERE idlote < 800000000), 0),
   coalesce((SELECT max(idlote) FROM mov_contas_bancarias WHERE idlote < 800000000), 0))::bigint + 1, false);
 
+-- A GRADE FINANCEIRA DO MANIFESTO (mig 329): a sequência do ID_ID_FM depois das parcelas carregadas.
+SELECT setval('seq_nfe_financeiro_manifesto', coalesce((SELECT max(id_fm) FROM nfe_financeiro_manifesto), 0)::bigint + 1, false);
+
 -- A DATA DO TÍTULO A PAGAR (mig 327): o legado só tem DTCOMPRA; a tela do Apollo lê `dtvenda`. A trigger da mig 327
 -- sincroniza as duas a cada gravação — aqui para o caso de a carga ter rodado com as triggers desligadas. Idempotente.
 UPDATE apagar SET dtvenda = (dtcompra::timestamp AT TIME ZONE 'America/Sao_Paulo') WHERE dtvenda IS NULL AND dtcompra IS NOT NULL;

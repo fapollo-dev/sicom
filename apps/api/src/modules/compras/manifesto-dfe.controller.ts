@@ -1,6 +1,8 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
 import { manifestoListarSchema, manifestoIgnorarSchema, type ManifestoListarDto, type ManifestoIgnorarDto } from '@apollo/shared';
 import { ManifestoDfeService } from './manifesto-dfe.service';
+import { ManifestoPrevisaoService } from './manifesto-previsao.service';
+import { BusinessRuleError } from '../../shared/errors/app-error';
 import { SefazDfeService, EVENTOS_MANIFESTO } from './sefaz-dfe.service';
 import { manifestarSchema, type ManifestarDto } from '@apollo/shared';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -14,7 +16,27 @@ export class ManifestoDfeController {
   constructor(
     private readonly svc: ManifestoDfeService,
     private readonly sefaz: SefazDfeService,
+    private readonly previsao: ManifestoPrevisaoService,
   ) {}
+
+  /** a previsão de A Pagar da nota (binário novo): as parcelas sugeridas — a grade financeira, o XML ou o total */
+  @Get('previsao-apagar/:cod')
+  @RequerAcesso('FRMMANIFESTODFE', 'FRMMANIFESTODFE')
+  previsaoSugestao(@Param('cod', ParseIntPipe) cod: number) {
+    return this.previsao.sugestao(cod);
+  }
+
+  /** gera a previsão (um título por parcela, sem CAIXA; o faturamento da nota a converte) */
+  @Post('previsao-apagar/:cod')
+  @HttpCode(200)
+  @RequerAcesso('FRMMANIFESTODFE', 'BTNIMPORTAR')
+  previsaoGerar(@Param('cod', ParseIntPipe) cod: number, @Body() body: { parcelas?: Array<{ nrparcela?: string; valor: number; dtvenc: string }> }) {
+    const parcelas = Array.isArray(body?.parcelas) ? body.parcelas : undefined;
+    if (parcelas?.some((p) => !(Number(p?.valor) > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(String(p?.dtvenc ?? '')))) {
+      throw new BusinessRuleError('PREVISAO_MANIFESTO_PARCELA_INVALIDA');
+    }
+    return this.previsao.gerar(cod, { parcelas: parcelas?.map((p) => ({ nrparcela: p.nrparcela, valor: Number(p.valor), dtvenc: String(p.dtvenc) })) });
+  }
 
   @Post('listar')
   @HttpCode(200)

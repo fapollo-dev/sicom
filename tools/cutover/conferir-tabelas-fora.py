@@ -89,7 +89,6 @@ VEREDITOS = {
     'GERATITULOS2022': ('MORTA', 'idem GERATITULOS'),
     'GERATITULOS2023': ('MORTA', 'idem GERATITULOS'),
     'HISTORICO_MENSALIDADES_APOLLO': ('MORTA', 'cobrança do fornecedor (colunas "2018"/"2019"/"2020")'),
-    'NFE_FINANCEIRO_MANIFESTO': ('EQUIVALENTE', 'as parcelas digitadas viram APAGAR: 264/264 chaves lançadas como NF, 233/269 parcelas batem'),
     'ARECEBER_BKP_FLAVIA': ('BACKUP', 'cópia de ARECEBER (93 colunas)'),
     'CARTOES_FLAVIA': ('BACKUP', 'planilha de adquirente (DATA_DA_VENDA, NÚMERO_DE_PARCELAS)'),
     'PIX_FLAVIA': ('BACKUP', 'planilha de adquirente'),

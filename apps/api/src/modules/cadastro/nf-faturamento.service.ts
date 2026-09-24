@@ -91,6 +91,58 @@ export class NfFaturamentoService {
   }
 
   /**
+   * A CONVERSÃO DA PREVISÃO DO MANIFESTO (binário novo; `compras/manifesto-previsao.service.ts`). No faturamento da nota de
+   * entrada, a previsão aberta da chave:
+   *  - com UMA parcela, é CONVERTIDA no lugar (5.910 das 6.632 previsões): TIPODOC 'BOLETO', IDNF = a nota, VALOR e vencimento do
+   *    faturamento (o valor mudou em 406); o rateio 'V' leva o valor novo e **fica** no CC 3721 e na situação 3540, a OBS de
+   *    previsão, a DTCOMPRA (= o vencimento original) e a DUPLICATA = o código — como o legado, que nunca reclassifica; a CAIXA
+   *    nasce aqui (o Gravar da tela). O faturamento não cria título nem grupo novo.
+   *  - com VÁRIAS, o faturamento cria os títulos da nota e as previsões SAEM (rateio e CAIXA junto).
+   * ⚠️ divergência consciente: o legado apagava só UMA previsão (a de menor código) e deixava as outras órfãs — 253 títulos,
+   * R$ 379.985,33 em aberto em 24/09/2026, 233 já vencidos, e 2 baixas caíram na previsão. Aqui saem todas (e as que sobram numa
+   * conversão de uma parcela também).
+   */
+  private async converterPrevisoesDoManifesto(trx: AnyDB, codnf: number, emp: number, op: number | null, parcelas: Array<{ valor: number; dtvenc: string }>): Promise<boolean> {
+    const chave = (await sql<{ chavenfe: string | null }>`SELECT chavenfe FROM nf WHERE codnf = ${codnf}`.execute(trx)).rows[0]?.chavenfe;
+    if (!chave) return false;
+    const tz = (await configNaTrx(trx, 'FUSO_HORARIO_ACESSO', { empresaId: emp, operadorId: op, modulo: 'Retaguarda' })) ?? 'America/Sao_Paulo';
+    const previsoes = (await sql<Record<string, unknown>>`SELECT codapg, valor, codgrupo, codparceiro, duplicata, to_char(dtvenc AT TIME ZONE ${tz}, 'DD/MM/YYYY') AS dtvenc_h
+        FROM apagar WHERE chavenfe = ${chave} AND codempresa = ${emp} AND tipodoc = 'PREVISÃO' AND idnf IS NULL AND coalesce(quitada, 'N') = 'N'
+        ORDER BY codapg FOR UPDATE`.execute(trx)).rows;
+    if (!previsoes.length) return false;
+    const historico = (codapg: unknown, texto: string) => sql`INSERT INTO historico (coddoc, tabela, historico, data, codoperador, codempresa)
+        VALUES (${String(num(codapg))}, 'APAGAR', ${texto.slice(0, 600)}, current_date, ${op}, ${emp})`.execute(trx);
+    const tirar = async (p: Record<string, unknown>) => {
+      await sql`DELETE FROM caixa WHERE codgrupo = ${p.codgrupo} AND codcxapagar IN (SELECT codcxapagar FROM cx_apagar WHERE codgrupo = ${p.codgrupo})`.execute(trx);
+      await sql`DELETE FROM cx_apagar WHERE codgrupo = ${p.codgrupo}`.execute(trx);
+      await sql`DELETE FROM apagar WHERE codapg = ${p.codapg}`.execute(trx);
+      const razao = (await sql<{ razao: string | null }>`SELECT razao FROM parceiros WHERE codparceiro = ${num(p.codparceiro)}`.execute(trx)).rows[0]?.razao ?? '';
+      const milhar = String(Math.round(num(p.valor))).padStart(3, '0').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+      await historico(p.codapg, `EXCLUSAO DO REGISTRO FORNECEDOR: ${num(p.codparceiro)}-${razao}, DOCUMENTO: ${p.duplicata ?? ''}, VALOR: ${milhar}`);
+    };
+    if (parcelas.length !== 1) {
+      for (const p of previsoes) await tirar(p);
+      return false;
+    }
+    const [p0, ...resto] = previsoes;
+    const parc = parcelas[0];
+    const valor = Math.round(num(parc.valor) * 100) / 100;
+    await sql`UPDATE apagar SET tipodoc = 'BOLETO', idnf = ${codnf}, valor = ${valor}, dtvenc = ((${parc.dtvenc}::date)::timestamp AT TIME ZONE ${tz}),
+                percjuros = 0, mora = 0, codplcfuncionarios = 0, usultalteracao = ${op}, dtultimalteracao = now()
+              WHERE codapg = ${p0.codapg}`.execute(trx);
+    await sql`UPDATE cx_apagar SET valor = ${valor}, dtultimalteracao = now() WHERE codgrupo = ${p0.codgrupo} AND coalesce(tipo, 'V') = 'V'`.execute(trx);
+    const n = (v: unknown) => String(Number(v)).replace('.', ',');
+    const novoVenc = `${parc.dtvenc.slice(8, 10)}/${parc.dtvenc.slice(5, 7)}/${parc.dtvenc.slice(0, 4)}`;
+    await historico(p0.codapg, 'ALTERACAO DO CAMPO TIPODOC DE: PREVISÃO PARA: BOLETO');
+    await historico(p0.codapg, `ALTERACAO DO CAMPO IDNF DE: 0 PARA: ${codnf}`);
+    if (num(p0.valor) !== valor) await historico(p0.codapg, `ALTERACAO DO CAMPO VALOR DE: ${n(p0.valor)} PARA: ${n(valor)}`);
+    if (String(p0.dtvenc_h ?? '') !== novoVenc) await historico(p0.codapg, `ALTERACAO DO CAMPO DTVENC DE: ${p0.dtvenc_h ?? ''} PARA: ${novoVenc}`);
+    await refazerCaixaDoGrupo(trx, num(p0.codgrupo), op);
+    for (const p of resto) await tirar(p);
+    return true;
+  }
+
+  /**
    * o GRUPO do faturamento no A Pagar (CAIXA-escritores.md §2): o título do fornecedor nasce com CODGRUPO, a OBS do legado
    * (" REFERENTE A NOTA FISCAL <nº> EMITIDA EM dd/mm/aaaa", `SetObs`) e a parcela "i/N"; depois, o rateio pelo
    * CODCONTABILNF e a CAIXA do grupo, como o Gravar da tela de Contas a Pagar por onde o faturamento do legado passa.
@@ -341,9 +393,16 @@ export class NfFaturamentoService {
       const resto = totalCents - baseCents * p.numParcelas;
       const venc0 = new Date(`${p.primeiroVencimento}T00:00:00Z`); // UTC (não escorrega 1 dia)
       const dtdoc = nf.tipo === 'E' ? nf.dtemissao : nf.dtcontabil; // APAGAR=emissão / ARECEBER=contábil
-      const grupo = tabela === 'apagar' ? await this.grupoDoFaturamento(trx, nf) : null;
+      const plano = Array.from({ length: p.numParcelas }, (_, i) => {
+        const dt = new Date(venc0);
+        dt.setUTCDate(dt.getUTCDate() + i * p.intervaloDias);
+        return { valor: (baseCents + (i === p.numParcelas - 1 ? resto : 0)) / 100, dtvenc: dt.toISOString().slice(0, 10) };
+      });
+      // a previsão do manifesto da chave: com uma parcela ela vira o título; com várias, sai
+      const convertida = tabela === 'apagar' && (await this.converterPrevisoesDoManifesto(trx, codnf, emp, op, plano));
+      const grupo = tabela === 'apagar' && !convertida ? await this.grupoDoFaturamento(trx, nf) : null;
 
-      for (let i = 0; i < p.numParcelas; i++) {
+      for (let i = 0; i < (convertida ? 0 : p.numParcelas); i++) {
         const cents = baseCents + (i === p.numParcelas - 1 ? resto : 0);
         const dt = new Date(venc0);
         dt.setUTCDate(dt.getUTCDate() + i * p.intervaloDias);
@@ -393,9 +452,12 @@ export class NfFaturamentoService {
       const N = duplicatas.length;
       const dtdoc = nf.tipo === 'E' ? nf.dtemissao : nf.dtcontabil;
       let totalCents = 0;
-      const grupo = tabela === 'apagar' ? await this.grupoDoFaturamento(trx, nf) : null;
+      const plano = duplicatas.map((d) => ({ valor: num(d.vDup), dtvenc: d.dVenc && d.dVenc.trim() ? d.dVenc.slice(0, 10) : String(dtdoc).slice(0, 10) }));
+      const convertida = tabela === 'apagar' && (await this.converterPrevisoesDoManifesto(trx, codnf, emp, op, plano));
+      if (convertida) totalCents = Math.round(num(duplicatas[0].vDup) * 100);
+      const grupo = tabela === 'apagar' && !convertida ? await this.grupoDoFaturamento(trx, nf) : null;
 
-      for (let i = 0; i < N; i++) {
+      for (let i = 0; i < (convertida ? 0 : N); i++) {
         const d = duplicatas[i];
         const cents = Math.round(num(d.vDup) * 100);
         if (cents <= 0) throw new BusinessRuleError('NF_SEM_VALOR', { codnf, parcela: i + 1 }); // parcela tem de ser > 0

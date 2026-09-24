@@ -19605,6 +19605,95 @@ async function main() {
         await pgR.end();
       }
     }
+    // ══ §176 PREVISÃO DE A PAGAR DO MANIFESTO (binário novo; mig 329): gerar pela fila do manifesto e converter no faturamento ══
+    {
+      const pgP = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const MF = 'compras/manifesto-dfe/previsao-apagar';
+      const chA = '31390899176000017655001000001761000001761001';
+      const chB = '31390899176000017655001000001771000001771002';
+      const end6 = ((await pgP.query(`SELECT cnpj_cpf FROM parceiros_end WHERE codend = 6`)).rows[0] as any)?.cnpj_cpf ?? null;
+      const nfs: number[] = [];
+      try {
+        await pgP.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, config_especificas_permitidas, descricao) VALUES
+            (991761, 'SITUACAO_GERACAO_PREVISAO_APAGAR_MANIFESTO', '900', 'numero', 'Modulo', 'smoke'),
+            (991762, 'CC_GERACAO_PREVISAO_APAGAR_MANIFESTO', '1', 'numero', 'Modulo', 'smoke') ON CONFLICT DO NOTHING`);
+        await pgP.query(`UPDATE parceiros_end SET cnpj_cpf = '99176000000176' WHERE codend = 6`);
+        await pgP.query(`INSERT INTO nfe_nao_cadastradas (codnfe_naocad, chavenfe, cnpj, razao, idempresa, totalnf, nronf, dtemissao) VALUES
+            (99176, $1, '99176000000176', 'CLIENTE GAMA', 1, 35, '000176', '2039-08-01'), (99177, $2, '99176000000176', 'CLIENTE GAMA', 1, 35, '000177', '2039-08-01')`, [chA, chB]);
+        const prevs = async (ch: string) => (await pgP.query(`SELECT codapg, tipodoc, obs, to_char(dtcompra, 'YYYY-MM-DD') AS dtc, to_char(dtvenc AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS dtv,
+            duplicata, nrodup, nrparcela, codgrupo, idsituacao_nf, idnf, gerado, valor::float AS valor, codparceiro, gfat FROM apagar WHERE chavenfe = $1 ORDER BY codapg`, [ch])).rows as any[];
+
+        // 176.1 — gerar: sem duplicatas e sem vencimento não gera; com as parcelas digitadas, um título por parcela, sem CAIXA
+        const sug = (await (await fetch(`${base}/${MF}/99176`, { headers: H })).json().catch(() => ({}))) as any;
+        const semVenc = await fetch(`${base}/${MF}/99176`, { method: 'POST', headers: H, body: JSON.stringify({}) });
+        const semVencJ = (await semVenc.json().catch(() => ({}))) as any;
+        const g1 = await fetch(`${base}/${MF}/99176`, { method: 'POST', headers: H, body: JSON.stringify({ parcelas: [{ valor: 35, dtvenc: '2039-08-20' }] }) });
+        const g1J = (await g1.json().catch(() => ({}))) as any;
+        const dup = await fetch(`${base}/${MF}/99176`, { method: 'POST', headers: H, body: JSON.stringify({ parcelas: [{ valor: 35, dtvenc: '2039-08-20' }] }) });
+        const dupJ = (await dup.json().catch(() => ({}))) as any;
+        const a = await prevs(chA);
+        const rateioA = (await pgP.query(`SELECT codcc, valor::float AS valor, tipo, idsituacao_nf FROM cx_apagar WHERE codgrupo = $1`, [a[0]?.codgrupo ?? -1])).rows as any[];
+        const caixaA = Number(((await pgP.query(`SELECT count(*)::int AS n FROM caixa WHERE codgrupo = $1`, [a[0]?.codgrupo ?? -1])).rows[0] as any).n);
+        const fm = Number(((await pgP.query(`SELECT count(*)::int AS n FROM nfe_financeiro_manifesto WHERE chavenfe = $1`, [chA])).rows[0] as any).n);
+        check('PREVISÃO DO MANIFESTO §176.1 [gerar]: a sugestão vem do total da nota quando não há grade nem XML (sem vencimento → 422); com a parcela digitada (gravada na NFE_FINANCEIRO_MANIFESTO) nasce o título PREVISÃO do fornecedor da nota — DTCOMPRA = vencimento, DUPLICATA = o código, "1/1", NRODUP 1, a situação e o CC das configurações, a CHAVENFE, IDNF nulo, GERADO SISTEMA, OBS "PREVISÃO GERADA … DA NOTA FISCAL N:176" —, o rateio V e nenhuma CAIXA; gerar de novo com previsão aberta → 422',
+          sug.fonte === 'TOTAL' && sug.parcelas?.length === 1 && Number(sug.parcelas[0].valor) === 35 && sug.parcelas[0].dtvenc == null && sug.configurado === true && Number(sug.codparceiro) === 22
+          && semVenc.status === 422 && semVencJ.code === 'PREVISAO_MANIFESTO_SEM_VENCIMENTO' && g1.status === 200 && g1J.titulos?.length === 1 && fm === 1
+          && a.length === 1 && a[0].tipodoc === 'PREVISÃO' && a[0].dtc === '2039-08-20' && a[0].dtv === '2039-08-20' && a[0].duplicata === String(a[0].codapg)
+          && a[0].nrparcela === '1/1' && Number(a[0].nrodup) === 1 && Number(a[0].idsituacao_nf) === 900 && a[0].idnf == null && a[0].gerado === 'SISTEMA'
+          && Number(a[0].codparceiro) === 22 && a[0].obs === 'PREVISÃO GERADA A PARTIR DO MANIFESTO AO IMPORTAR A NF NO SISTEMA, DA NOTA FISCAL N:176'
+          && rateioA.length === 1 && Number(rateioA[0].codcc) === 1 && rateioA[0].valor === 35 && Number(rateioA[0].idsituacao_nf) === 900 && caixaA === 0
+          && dup.status === 422 && dupJ.code === 'PREVISAO_MANIFESTO_JA_GERADA',
+          { sug, semVenc: [semVenc.status, semVencJ.code], g1: [g1.status, g1J], dup: [dup.status, dupJ.code], a, rateioA, caixaA, fm });
+
+        // 176.2 — faturar com UMA parcela converte a previsão no lugar (fica no CC e na situação da previsão; a CAIXA nasce)
+        const nfA = await novaNf(baseNf({ tipo: 'E', nronf: 'PRV176', codparceiro: 22, itens: [itemP1(10)] }));
+        nfs.push(nfA);
+        await pgP.query(`UPDATE nf SET chavenfe = $1 WHERE codnf = $2`, [chA, nfA]);
+        const totA = Number(((await pgP.query(`SELECT totalnf FROM nf WHERE codnf = $1`, [nfA])).rows[0] as any).totalnf);
+        const fA = await fetch(`${base}/fiscal/nf/${nfA}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2039-08-25', intervaloDias: 30 }) });
+        const a2 = await prevs(chA);
+        const daNf = (await pgP.query(`SELECT codapg FROM apagar WHERE idnf = $1`, [nfA])).rows as any[];
+        const rateioA2 = (await pgP.query(`SELECT codcc, valor::float AS valor, idsituacao_nf FROM cx_apagar WHERE codgrupo = $1`, [a2[0]?.codgrupo ?? -1])).rows as any[];
+        const caixaA2 = (await pgP.query(`SELECT valor::float AS valor, codplc FROM caixa WHERE codgrupo = $1 AND origem = 'APAGAR'`, [a2[0]?.codgrupo ?? -1])).rows as any[];
+        const histA = ((await pgP.query(`SELECT historico FROM historico WHERE tabela = 'APAGAR' AND coddoc = $1 ORDER BY codhist`, [String(a2[0]?.codapg ?? -1)])).rows as any[]).map((r) => r.historico);
+        check('PREVISÃO DO MANIFESTO §176.2 [a conversão, 1 parcela]: o faturamento não cria título — a previsão vira o título da nota (TIPODOC BOLETO, IDNF, valor e vencimento do faturamento), fica com o CC e a situação da previsão, a DTCOMPRA e a DUPLICATA dela (o legado nunca reclassifica); o rateio leva o valor e a CAIXA nasce (−valor no CC da previsão); HISTORICO "TIPODOC DE: PREVISÃO PARA: BOLETO" e "IDNF DE: 0 PARA: <nota>"',
+          fA.status === 200 && a2.length === 1 && daNf.length === 1 && Number(daNf[0].codapg) === Number(a[0]?.codapg) && a2[0].tipodoc === 'BOLETO'
+          && Number(a2[0].idnf) === nfA && a2[0].valor === totA && a2[0].dtv === '2039-08-25' && a2[0].dtc === '2039-08-20' && a2[0].duplicata === String(a2[0].codapg) && a2[0].gfat == null
+          && rateioA2.length === 1 && rateioA2[0].valor === totA && Number(rateioA2[0].codcc) === 1 && Number(rateioA2[0].idsituacao_nf) === 900
+          && caixaA2.length === 1 && caixaA2[0].valor === -totA && Number(caixaA2[0].codplc) === 1
+          && histA.includes('ALTERACAO DO CAMPO TIPODOC DE: PREVISÃO PARA: BOLETO') && histA.includes(`ALTERACAO DO CAMPO IDNF DE: 0 PARA: ${nfA}`),
+          { fA: fA.status, a2, daNf, rateioA2, caixaA2, histA, totA });
+
+        // 176.3 — faturar com VÁRIAS parcelas: os títulos da nota nascem e TODAS as previsões da chave saem (o legado deixava órfãs)
+        await fetch(`${base}/${MF}/99177`, { method: 'POST', headers: H, body: JSON.stringify({ parcelas: [{ valor: 20, dtvenc: '2039-08-20' }, { valor: 15, dtvenc: '2039-09-20' }] }) });
+        const b0 = await prevs(chB);
+        const nfB = await novaNf(baseNf({ tipo: 'E', nronf: 'PRV177', codparceiro: 22, itens: [itemP1(10)] }));
+        nfs.push(nfB);
+        await pgP.query(`UPDATE nf SET chavenfe = $1 WHERE codnf = $2`, [chB, nfB]);
+        const fB = await fetch(`${base}/fiscal/nf/${nfB}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 2, primeiroVencimento: '2039-08-25', intervaloDias: 30 }) });
+        const b1 = await prevs(chB);
+        const reais = (await pgP.query(`SELECT codapg, gfat, nrparcela FROM apagar WHERE idnf = $1 AND coalesce(retencao, '') = '' ORDER BY codapg`, [nfB])).rows as any[];
+        const histB = ((await pgP.query(`SELECT historico FROM historico WHERE tabela = 'APAGAR' AND coddoc = ANY($1::text[]) AND historico LIKE 'EXCLUSAO%'`, [b0.map((x) => String(x.codapg))])).rows as any[]);
+        check('PREVISÃO DO MANIFESTO §176.3 [faturamento de várias parcelas]: as duas previsões da chave (um grupo por título, "1/1" em cada) saem com o rateio e o HISTORICO de exclusão; os títulos da nota nascem normais (GFAT S, "1/2" e "2/2") — divergência consciente: o legado apagava só a primeira previsão e deixava as outras órfãs (253 títulos, R$ 379.985,33 em aberto)',
+          b0.length === 2 && new Set(b0.map((x) => x.codgrupo)).size === 2 && b0.every((x) => x.nrparcela === '1/1')
+          && fB.status === 200 && b1.length === 0 && reais.length === 2 && reais.every((x) => x.gfat === 'S') && reais[0].nrparcela === '1/2' && histB.length === 2,
+          { b0: b0.map((x) => [x.codapg, x.codgrupo, x.nrparcela]), fB: fB.status, b1: b1.length, reais, histB: histB.length });
+      } finally {
+        for (const nf of nfs) {
+          await pgP.query(`DELETE FROM caixa WHERE codgrupo IN (SELECT codgrupo FROM apagar WHERE idnf = $1)`, [nf]).catch(() => undefined);
+          await pgP.query(`DELETE FROM cx_apagar WHERE codgrupo IN (SELECT codgrupo FROM apagar WHERE idnf = $1)`, [nf]).catch(() => undefined);
+          await pgP.query(`DELETE FROM apagar WHERE idnf = $1`, [nf]).catch(() => undefined);
+          await pgP.query(`UPDATE nf SET chavenfe = NULL WHERE codnf = $1`, [nf]).catch(() => undefined);
+        }
+        await pgP.query(`DELETE FROM cx_apagar WHERE codgrupo IN (SELECT codgrupo FROM apagar WHERE chavenfe IN ($1, $2))`, [chA, chB]).catch(() => undefined);
+        await pgP.query(`DELETE FROM apagar WHERE chavenfe IN ($1, $2)`, [chA, chB]).catch(() => undefined);
+        await pgP.query(`DELETE FROM nfe_financeiro_manifesto WHERE chavenfe IN ($1, $2)`, [chA, chB]).catch(() => undefined);
+        await pgP.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad IN (99176, 99177)`).catch(() => undefined);
+        await pgP.query(`UPDATE parceiros_end SET cnpj_cpf = $1 WHERE codend = 6`, [end6]).catch(() => undefined);
+        await pgP.query(`DELETE FROM configuracoes WHERE id IN (991761, 991762)`).catch(() => undefined);
+        await pgP.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

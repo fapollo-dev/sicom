@@ -34137,6 +34137,55 @@
     }
    ]
   },
+  "nfe_financeiro_manifesto": {
+   "colunas": {
+    "id_fm": {
+     "tipo": "integer",
+     "tam": 32,
+     "escala": 0,
+     "nulo": false,
+     "default": "nextval('seq_nfe_financeiro_manifesto'::regclass)"
+    },
+    "nrparcela": {
+     "tipo": "character varying",
+     "tam": 20,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "chavenfe": {
+     "tipo": "character varying",
+     "tam": 50,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "data": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "valor": {
+     "tipo": "numeric",
+     "tam": 13,
+     "escala": 2,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "id_fm"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "nfe_financeiro_manifesto_pkey",
+     "def": "CREATE UNIQUE INDEX nfe_financeiro_manifesto_pkey ON public.nfe_financeiro_manifesto USING btree (id_fm)"
+    }
+   ]
+  },
   "nfe_inutilizada": {
    "colunas": {
     "codinutilizacao": {
