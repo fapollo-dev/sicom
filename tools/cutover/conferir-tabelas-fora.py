@@ -103,7 +103,6 @@ VEREDITOS = {
     # ── fiscal, NF, SPED ────────────────────────────────────────────────────────────────────────────────────────
     'ICME_PROD_APURACAO': ('EQUIVALENTE', 'uma linha por loja×fornecedor×produto; as 4.640 de 2026 = nf_prod.icme (carregado)'),
     'REF_MENSAGENS_NF': ('EQUIVALENTE', 'o texto aplicado está em NF.OBS e no XML (548/580 de 2026 achados em NF.OBS)'),
-    'NF_CUPONS_REFERENCIA': ('EQUIVALENTE', 'nf.cupons_ref_devolucao; as 5 linhas são VENDA_NFC=S, ramo que a view não usa'),
     'PRODUTOS_IMPORTACAO_NFE': ('AUX', 'produtos não casados do XML importado (uNF.pas:12290); o Apollo tem a própria importação'),
     'NF_CARTA_CORRECAO': ('MORTA', 'substituída por NFE_EVENTOS tipo 110110 (117 CC-e); 3 linhas de 2023'),
     'AMBIENTE_CONTINGENCIA': ('MORTA', 'as linhas ativas dizem ambiente 1, que é o padrão sem linha (udmNF.pas:9469)'),

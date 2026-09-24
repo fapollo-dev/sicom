@@ -140,6 +140,8 @@ import { NfScrapController } from './nf-scrap.controller';
 import { NfScrapService } from './nf-scrap.service';
 import { NfVendasController } from './nf-vendas.controller';
 import { NfVendasService } from './nf-vendas.service';
+import { NfDevolucaoVendasController } from './nf-devolucao-vendas.controller';
+import { NfDevolucaoVendasService } from './nf-devolucao-vendas.service';
 import { NfProcessamentoService } from './nf-processamento.service';
 import { FechamentoDiarioController } from './fechamento-diario.controller';
 import { FechamentoDiarioService } from './fechamento-diario.service';
@@ -195,6 +197,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     NfProcessamentoController, // F3 — processar/reverter (move estoque atômico)
     NfScrapController, // importar SCRAP na NF de saída (uNF.pas:1880)
     NfVendasController, // a NF de cupom: importar VENDAS (uNF.pas:13201)
+    NfDevolucaoVendasController, // a NF de entrada de devolução de vendas (uNF.pas:5900)
     NfLoteController, // lotes/validade do item (uNFLoteValidade)
     FechamentoDiarioController, // fechamento diário (FRMFECHAMENTODIARIO)
     NfFaturamentoController, // F4 — faturar/estornar (gera títulos ARECEBER/APAGAR atômico)
@@ -270,6 +273,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     NfProcessamentoService,
     NfScrapService,
     NfVendasService,
+    NfDevolucaoVendasService,
     NfLoteService,
     FechamentoDiarioService,
     NfFaturamentoService,

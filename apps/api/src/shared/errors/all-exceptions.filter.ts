@@ -513,6 +513,11 @@ const CODE_PT: Record<string, string> = {
   VENDA_JA_IMPORTADA: 'Cupom fiscal já importado. Informe a senha administrativa para continuar.',
   PERIODO_OBRIGATORIO: 'Informe o período (data inicial e final).',
   SENHA_ADM_INVALIDA: 'Senha administrativa inválida.',
+  // importar a devolução de vendas na NF de entrada (uNF.pas:5900)
+  DEVOLUCAO_VENDA_NAO_ENCONTRADA: 'Devolução de venda não encontrada nesta empresa.',
+  DEVOLUCAO_VENDA_JA_IMPORTADA: 'Existem devoluções de venda que já foram importadas. Informe o login e a senha de um usuário que libera a reimportação.',
+  DEVOLUCAO_VENDA_SEM_LIBERADOR: 'Nenhum usuário foi definido para liberar importações de devolução de vendas.',
+  DEVOLUCAO_VENDA_SEM_PARCEIRO_EMPRESA: 'Necessário associar um parceiro ao cadastro da empresa para emitir esta nota fiscal.',
   // o fechamento de caixa — conferência e rascunho (UfinalizaFechamento.pas)
   FECHAMENTO_DATA_OBRIGATORIA: 'Informe a data do caixa.',
   // o centro de custo de juros/acréscimo/desconto da baixa (ValidaCentroCustos, UBaixaApagar/UBaixaAreceber)

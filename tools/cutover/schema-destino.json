@@ -13007,7 +13007,7 @@
      "tam": 32,
      "escala": 0,
      "nulo": false,
-     "default": null
+     "default": "nextval('seq_cx_apagar'::regclass)"
     },
     "codapg": {
      "tipo": "integer",
@@ -31613,6 +31613,79 @@
     }
    ]
   },
+  "nf_cupons_referencia": {
+   "colunas": {
+    "codnf": {
+     "tipo": "numeric",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "codvendas": {
+     "tipo": "numeric",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "nropedido": {
+     "tipo": "character varying",
+     "tam": 80,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "nrocupom": {
+     "tipo": "numeric",
+     "tam": 10,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "dtvenda": {
+     "tipo": "date",
+     "tam": null,
+     "escala": null,
+     "nulo": false,
+     "default": null
+    },
+    "nroecf": {
+     "tipo": "numeric",
+     "tam": 10,
+     "escala": 0,
+     "nulo": false,
+     "default": null
+    },
+    "finalidade": {
+     "tipo": "character",
+     "tam": 4,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    },
+    "venda_nfc": {
+     "tipo": "character",
+     "tam": 4,
+     "escala": null,
+     "nulo": true,
+     "default": null
+    }
+   },
+   "pk": [
+    "codnf",
+    "nrocupom",
+    "dtvenda",
+    "nroecf"
+   ],
+   "fks": [],
+   "unicos": [
+    {
+     "nome": "nf_cupons_referencia_pkey",
+     "def": "CREATE UNIQUE INDEX nf_cupons_referencia_pkey ON public.nf_cupons_referencia USING btree (codnf, nrocupom, dtvenda, nroecf)"
+    }
+   ]
+  },
   "nf_forma_pagamento": {
    "colunas": {
     "codnforpgto": {
@@ -46123,7 +46196,7 @@
      "tam": 10,
      "escala": 0,
      "nulo": false,
-     "default": null
+     "default": "nextval('seq_cod_speed_aux'::regclass)"
     },
     "tipo_registro": {
      "tipo": "character varying",

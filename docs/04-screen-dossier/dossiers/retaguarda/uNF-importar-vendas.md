@@ -66,4 +66,17 @@
 - **C2** — ✅ a frase "Notas Fiscais Ref.: <chaves>. " na OBS, montada na TRANSMISSÃO (NFe.pas:960-990) com as chaves
   dos documentos 55/57/65 referenciados, se ainda não estiver lá (produção 2026: 355 de 423 NFs autorizadas com
   referência). A referência por número (modelo 1/produtor, "Notas Fiscais Ref. Nro:") não tem uso desde 2024 (3 linhas
-  com modelo nulo/0). Pendente: a DEVOLUÇÃO DE VENDA de entrada (`IncluiProdDevoucaoVendas`, situação 'DE', 1 por ano).
+  com modelo nulo/0).
+- **C3** ✅ 24/09 (mig 326, `nf-devolucao-vendas.service.ts`, `NfDevolucaoVendasModal`, smoke §170) — a **DEVOLUÇÃO DE VENDAS
+  na NF de entrada** (`IniciarImportacaoEntrada(1)`, uNF.pas:5900-6140; `IncluiProdDevoucaoVendas` :13816), disparada pela
+  situação 2 (`IMPORTACAO_AUTO_NF='DE'`): uma NF por ano (2021, 2023-2026). A pesquisa `GET_DEVOLUCAO_VENDAS` (cupom ×
+  produto com `VENDAS.DEVOLUCAO='D'`, importado / NF-e enviada); parceiro = o da empresa com
+  `EMITIR_DEVOL_VENDA_PARCEIRO_EMP` ou o do cupom (vira fornecedor); CFOP 1202/2202; o item com a quantidade e o valor
+  devolvidos, o desconto/acréscimo rateado, a alíquota da venda e CFOP 1411/2411 no produto STB (as 2 NFs de 2025-26
+  batem: IST → 1202 CST 40, STB → 1411 CST 60); agrupado por produto; `DESTACA_ICMS_DEVOLUCAO_VENDA` ('S' na produção)
+  ou o ICMS zerado com CST 41 (90 em GO); NFC-e como referência 65; OBS com os cupons; reimportação com a liberação de
+  `USUARIOS_LIBERAM_DEVOL_VENDA_NF`; no gravar, NF_CUPONS_REFERENCIA + `VENDAS.IMPORTADO_DEVOLUCAO/CODNF_DEVOLUCAO` +
+  `NF.CUPONS_REF_DEVOLUCAO`; a exclusão estorna. ⚠️ NF_CUPONS_REFERENCIA estava fora do plano como "equivalente" — a
+  importação grava nela e a view a lê. ⚠️ O legado só marca o produto que criou a referência (o 2º produto do mesmo cupom
+  ficava sem marca) — aqui todos. ⚠️ **Defeito corrigido em outra tela:** a devolução de vendas do Apollo juntava
+  `DEVOLUCAO_VENDAS.CODVENDAS` (o CUPOM do legado) com `vendas.codvendas` (o id da linha) — na base migrada nada casava.

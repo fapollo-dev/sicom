@@ -62,7 +62,8 @@ export class DevolucaoVendasService {
              d.codmotivoop, mo.descricao AS motivo
         FROM vendas v
         LEFT JOIN produtos p ON p.idproduto = v.codproduto
-        LEFT JOIN devolucao_vendas d ON d.codvendas = v.codvendas AND d.nroitem = v.nroitem
+        -- DEVOLUCAO_VENDAS.CODVENDAS é o CUPOM do legado (vendas.codvendas_legado); o nosso codvendas é o id da linha
+        LEFT JOIN devolucao_vendas d ON d.codvendas = coalesce(v.codvendas_legado, v.codvendas) AND d.nroitem = v.nroitem
                                     AND d.codproduto = v.codproduto AND d.idempresa = v.idempresa
         LEFT JOIN motivos_operacao mo ON mo.codmotivoop = d.codmotivoop
        WHERE v.idempresa = ${emp}
@@ -121,7 +122,7 @@ export class DevolucaoVendasService {
       const registrados: Array<Record<string, unknown>> = [];
       for (const it of dto.itens) {
         const v = (await sql<Record<string, unknown>>`
-          SELECT codvendas, nroitem, nropedido, nrocupom, qtde, vrvenda, coalesce(devolucao, '') AS devolucao
+          SELECT codvendas, coalesce(codvendas_legado, codvendas) AS cupom, nroitem, nropedido, nrocupom, qtde, vrvenda, coalesce(devolucao, '') AS devolucao
             FROM vendas
            WHERE codvendas = ${it.codvendas} AND nroitem = ${it.nroitem} AND codproduto = ${it.codproduto} AND idempresa = ${emp}
              AND coalesce(cancelado, 'N') = 'N'
@@ -136,7 +137,7 @@ export class DevolucaoVendasService {
 
         const d = (await sql<{ coddevolucaovenda: unknown }>`
           INSERT INTO devolucao_vendas (datadevolucao, operador, codvendas, codproduto, idempresa, nroitem, codmotivoop, codoperador)
-          VALUES (now(), ${nome}, ${it.codvendas}, ${it.codproduto}, ${emp}, ${it.nroitem}, ${dto.codmotivoop ?? null}, ${op})
+          VALUES (now(), ${nome}, ${Number(v.cupom)}, ${it.codproduto}, ${emp}, ${it.nroitem}, ${dto.codmotivoop ?? null}, ${op})
           RETURNING coddevolucaovenda`.execute(trx)).rows[0];
 
         // a marca na venda — e o ESTOQUE NÃO É TOCADO (uDevolucaoVendas.pas:400-403, com a razão no fonte)
@@ -162,7 +163,8 @@ export class DevolucaoVendasService {
       for (const it of dto.itens) {
         const d = (await sql<Record<string, unknown>>`
           SELECT coddevolucaovenda FROM devolucao_vendas
-           WHERE codvendas = ${it.codvendas} AND nroitem = ${it.nroitem} AND codproduto = ${it.codproduto} AND idempresa = ${emp}
+           WHERE codvendas = (SELECT coalesce(codvendas_legado, codvendas) FROM vendas WHERE codvendas = ${it.codvendas} AND idempresa = ${emp})
+             AND nroitem = ${it.nroitem} AND codproduto = ${it.codproduto} AND idempresa = ${emp}
            FOR UPDATE`.execute(trx)).rows[0];
         if (!d) throw new BusinessRuleError('DEVOLUCAO_NAO_ENCONTRADA', { codvendas: it.codvendas, nroitem: it.nroitem, codproduto: it.codproduto });
 
@@ -181,12 +183,12 @@ export class DevolucaoVendasService {
     const emp = this.emp();
     const mot = q.codmotivoop ?? null;
     const rows = (await sql<Record<string, unknown>>`
-      SELECT d.coddevolucaovenda, d.datadevolucao, d.operador, d.codvendas, d.nroitem, d.codproduto,
+      SELECT d.coddevolucaovenda, d.datadevolucao, d.operador, coalesce(v.codvendas, d.codvendas) AS codvendas, d.codvendas AS cupom, d.nroitem, d.codproduto,
              p.descricao, d.codmotivoop, mo.descricao AS motivo,
              v.nrocupom, v.nroserie, v.dtvenda, coalesce(v.qtde_devolvido, 0) AS qtde_devolvido,
              coalesce(v.total_item_devolvido, 0) AS total
         FROM devolucao_vendas d
-        LEFT JOIN vendas v ON v.codvendas = d.codvendas AND v.nroitem = d.nroitem AND v.codproduto = d.codproduto AND v.idempresa = d.idempresa
+        LEFT JOIN vendas v ON coalesce(v.codvendas_legado, v.codvendas) = d.codvendas AND v.nroitem = d.nroitem AND v.codproduto = d.codproduto AND v.idempresa = d.idempresa
         LEFT JOIN produtos p ON p.idproduto = d.codproduto
         LEFT JOIN motivos_operacao mo ON mo.codmotivoop = d.codmotivoop
        WHERE d.idempresa = ${emp}

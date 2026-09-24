@@ -19194,6 +19194,72 @@ async function main() {
       }
     }
 
+    // ══ §170 NF DE ENTRADA DE DEVOLUÇÃO DE VENDAS (uNF.pas:5900-6140; mig 326) + o CUPOM da devolução é o codvendas_legado ══
+    {
+      const pgNd = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const ND = 'fiscal/nf/devolucao-vendas';
+      try {
+        const aliqP2 = (await pgNd.query(`SELECT aliquota FROM produtos WHERE idproduto = 2`)).rows[0] as any;
+        await pgNd.query(`UPDATE produtos SET aliquota = 'STB' WHERE idproduto = 2`);
+        // cupom ECF 7101 (dois produtos) e cupom NFC-e 7102; o CODVENDAS do legado (o cupom) vai em codvendas_legado
+        await pgNd.query(`INSERT INTO vendas (codvendas, codvendas_legado, idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, aliquota,
+            cancelado, devolucao, qtde_devolvido, total_item_devolvido, codparceiro, venda_nfc, chavenfe, desc_acre_item) VALUES
+          (99170101, 88170001, 1, '2061-05-10 09:00:00-03', '22100561090000', '1', 7101, 1, 1, 1, 10, 'T01', 'N', 'D', 1, 10, 20, 'N', NULL, -1),
+          (99170102, 88170001, 1, '2061-05-10 09:00:00-03', '22100561090000', '1', 7101, 2, 2, 2, 8, 'T01', 'N', 'D', 1.5, 12, 20, 'N', NULL, 0),
+          (99170103, 88170002, 1, '2061-05-10 10:00:00-03', '23100561100000', '1', 7102, 1, 1, 2, 12, 'T01', 'N', 'D', 2, 24, 20, 'S', '35610500000000000000650010000071021000071020', 0)`);
+        await pgNd.query(`INSERT INTO devolucao_vendas (datadevolucao, operador, codvendas, codproduto, idempresa, nroitem) VALUES
+          ('2061-05-11 08:00:00-03', 'SMOKE', 88170001, 1, 1, 1), ('2061-05-11 08:00:00-03', 'SMOKE', 88170001, 2, 1, 2), ('2061-05-11 08:00:00-03', 'SMOKE', 88170002, 1, 1, 1)`);
+        const disp = (await (await fetch(`${base}/${ND}/disponiveis?data_ini=2061-05-10&data_fim=2061-05-10`, { headers: H })).json().catch(() => [])) as any[];
+        const itens = [{ codvendas: 88170001, codproduto: 1 }, { codvendas: 88170001, codproduto: 2 }, { codvendas: 88170002, codproduto: 1 }];
+        const pv = await fetch(`${base}/${ND}/previa`, { method: 'POST', headers: H, body: JSON.stringify({ itens }) });
+        const pvJ = (await pv.json().catch(() => ({}))) as any;
+        const ufs = (await pgNd.query(`SELECT (SELECT uf FROM empresas WHERE idempresa = 1) AS ue, (SELECT e.uf FROM parceiros p JOIN parceiros_end e ON e.codend = p.codend WHERE p.codparceiro = 20) AS up`)).rows[0] as any;
+        const dentro = !ufs?.up || String(ufs.up).trim() === String(ufs.ue ?? '').trim();
+        const i1 = (pvJ.itens ?? []).find((i: any) => i.codproduto === 1);
+        const i2 = (pvJ.itens ?? []).find((i: any) => i.codproduto === 2);
+        const cstEsperado = String(ufs?.ue ?? '').trim() === 'GO' ? 90 : 41;
+        check('NF DEVOLUÇÃO §170.1 [a pesquisa e a prévia]: a pesquisa GET_DEVOLUCAO_VENDAS traz um item devolvido por cupom × produto (3); a prévia usa o cliente do cupom e o CFOP 1202/2202 pela UF; o produto 1 dos dois cupons vira UMA linha (1 × 10 + 2 × 12 → 3 a 11,3333, UsaLocate) com o desconto rateado de 1,00; o produto em ST (alíquota STB) vai com CFOP 1411/2411; sem DESTACA_ICMS_DEVOLUCAO_VENDA o ICMS sai zerado com CST 41 (90 em GO); a NFC-e vira referência modelo 65 e a OBS lista os cupons',
+          disp.length === 3 && disp.every((d: any) => d.importado === 'N')
+          && pv.status === 200 && pvJ.codparceiro === 20 && pvJ.cfop === (dentro ? '1202' : '2202') && (pvJ.itens ?? []).length === 2
+          && Number(i1?.quantidade) === 3 && Math.abs(Number(i1?.vrcusto) - 34 / 3) < 1e-6 && Number(i1?.vrdescprod) === 1 && i1?.cfop === (dentro ? '1202' : '2202') && i1?.importado_de === 'DEVOLUCAO_VENDAS'
+          && Number(i2?.quantidade) === 1.5 && Number(i2?.vrcusto) === 8 && i2?.cfop === (dentro ? '1411' : '2411') && Number(i2?.nroitem_venda) === 2
+          && Number(i1?.icms) === 0 && Number(i1?.cst) === cstEsperado
+          && (pvJ.referencias ?? []).length === 1 && pvJ.referencias[0].modelo === 65 && String(pvJ.referencias[0].chavenfe).endsWith('71020')
+          && pvJ.obs === 'Nota Fiscal Referente ao(s) Cupom(ns): 7101,7102',
+          { disp: disp.length, status: pv.status, code: pvJ.code, cfop: pvJ.cfop, dentro, i1, i2, refs: pvJ.referencias, obs: pvJ.obs });
+
+        const crNf = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify(baseNf({ tipo: 'E', nronf: 'DEVVEN170', codparceiro: 20, cfop: pvJ.cfop, dtemissao: '2061-05-12', dtcontabil: '2061-05-12',
+          itens: (pvJ.itens ?? []).map((it: any, k: number) => ({ ...it, nroitem: k + 1 })) })) });
+        const crNfJ = (await crNf.json().catch(() => ({}))) as any;
+        const nfDev = Number(crNfJ.codnf) || -1;
+        if (nfDev < 0) console.log('[smoke] §170 NF não criada:', crNf.status, JSON.stringify(crNfJ).slice(0, 800));
+        const vin = await fetch(`${base}/fiscal/nf/${nfDev}/devolucao-vendas`, { method: 'POST', headers: H, body: JSON.stringify({ itens }) });
+        const vinJ = (await vin.json().catch(() => ({}))) as any;
+        const refs = (await pgNd.query(`SELECT codvendas, nrocupom, nroecf, finalidade, venda_nfc FROM nf_cupons_referencia WHERE codnf = $1 ORDER BY nrocupom`, [nfDev])).rows as any[];
+        const marc = (await pgNd.query(`SELECT count(*) FILTER (WHERE importado_devolucao = 'S' AND codnf_devolucao = $1)::int AS n FROM vendas WHERE codvendas_legado IN (88170001, 88170002)`, [nfDev])).rows[0] as any;
+        const nfRow = (await pgNd.query(`SELECT cupons_ref_devolucao FROM nf WHERE codnf = $1`, [nfDev])).rows[0] as any;
+        const de_novo = await fetch(`${base}/${ND}/previa`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [itens[0]] }) });
+        const de_novoJ = (await de_novo.json().catch(() => ({}))) as any;
+        const dv = (await (await fetch(`${base}/relatorios/devolucao-vendas/venda?nrocupom=7101`, { headers: H })).json().catch(() => ({}))) as any;
+        const del = await fetch(`${base}/fiscal/nf/${nfDev}`, { method: 'DELETE', headers: H });
+        const depois = (await pgNd.query(`SELECT count(*) FILTER (WHERE importado_devolucao = 'N' AND codnf_devolucao IS NULL)::int AS n,
+            (SELECT count(*)::int FROM nf_cupons_referencia WHERE codnf = $1) AS refs FROM vendas WHERE codvendas_legado IN (88170001, 88170002)`, [nfDev])).rows[0] as any;
+        check('NF DEVOLUÇÃO §170.2 [o vínculo ao gravar, a reimportação, o estorno e o CUPOM da devolução]: gravar liga a NF aos cupons em NF_CUPONS_REFERENCIA (um por cupom, finalidade D, PDV do pedido), marca as 3 linhas de venda IMPORTADO_DEVOLUCAO com a NF e grava NF.CUPONS_REF_DEVOLUCAO; importar de novo sem liberador configurado é 422 DEVOLUCAO_VENDA_SEM_LIBERADOR; a tela de devolução de vendas acha o registro pelo CUPOM (DEVOLUCAO_VENDAS.CODVENDAS = o codvendas do legado — antes juntava com o id da linha e nada casava na base migrada); excluir a NF devolve os cupons a não importados e leva as referências',
+          nfDev > 0 && vin.status === 200 && refs.length === 2 && refs[0].nroecf == 22 && refs[0].finalidade.trim() === 'D' && refs[1].venda_nfc.trim() === 'S' && Number(refs[0].codvendas) === 88170001
+          && marc?.n === 3 && nfRow?.cupons_ref_devolucao === '7101,7101,7102'
+          && de_novo.status === 422 && de_novoJ.code === 'DEVOLUCAO_VENDA_SEM_LIBERADOR'
+          && (dv.itens ?? []).filter((i: any) => i.coddevolucaovenda != null).length === 2
+          && del.status < 300 && depois?.n === 3 && depois?.refs === 0,
+          { nfDev, vin: [vin.status, vinJ.code ?? vinJ.cupons], refs, marc, nfRow, de_novo: [de_novo.status, de_novoJ.code], dv: (dv.itens ?? []).map((i: any) => i.coddevolucaovenda), del: del.status, depois });
+
+        await pgNd.query(`DELETE FROM devolucao_vendas WHERE codvendas IN (88170001, 88170002)`);
+        await pgNd.query(`DELETE FROM vendas WHERE codvendas IN (99170101, 99170102, 99170103)`);
+        await pgNd.query(`UPDATE produtos SET aliquota = $1 WHERE idproduto = 2`, [aliqP2?.aliquota ?? null]);
+      } finally {
+        await pgNd.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

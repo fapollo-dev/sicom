@@ -100,7 +100,7 @@ export const nfItemSchema = z.object({
   idproduto_filho: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()), // o produto filho (NF_PROD.IDPRODUTO_FILHO)
   // TRANSITÓRIO (não é coluna): o item veio de uma importação (scrap, rotativo) e não do diálogo do item — o legado só
   // confere o CFOP×situação do item digitado (uItensNF.pas:1525); o importado passa no gravar (UCadSituacaoNF.md C2)
-  importado_de: z.enum(['SCRAP', 'ROTATIVO', 'VENDAS']).optional(),
+  importado_de: z.enum(['SCRAP', 'ROTATIVO', 'VENDAS', 'DEVOLUCAO_VENDAS']).optional(),
   nroitem_venda: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()), // o item do cupom (NF de cupom)
   quantidade: z.preprocess(
     (v) => (typeof v === 'string' ? Number(v) : v),
@@ -566,3 +566,15 @@ export const importarVendasNfSchema = z.object({
   senhaAdm: z.string().max(100).optional(),
 });
 export type ImportarVendasNfDto = z.infer<typeof importarVendasNfSchema>;
+
+/**
+ * importar a DEVOLUÇÃO DE VENDAS na NF de entrada (uNF.pas:5900-6140): os itens devolvidos (cupom × produto) e, se algum
+ * já foi importado, o login e a senha de quem libera (USUARIOS_LIBERAM_DEVOL_VENDA_NF)
+ */
+export const importarDevolucaoVendasNfSchema = z.object({
+  itens: z.array(z.object({ codvendas: z.coerce.number().int().positive(), codproduto: z.coerce.number().int().positive() }))
+    .min(1, 'Selecione ao menos uma devolução.').max(500),
+  login: z.string().trim().max(60).optional(),
+  senha: z.string().max(100).optional(),
+});
+export type ImportarDevolucaoVendasNfDto = z.infer<typeof importarDevolucaoVendasNfSchema>;

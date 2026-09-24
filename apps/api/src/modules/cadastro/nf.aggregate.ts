@@ -11,6 +11,7 @@ import { leitorCfopsDaSituacao } from './nf-cfop-situacao';
 import { normalizarItensNf } from './nf-item-padrao';
 import { estornarVinculoScrap } from './nf-scrap.service';
 import { estornarVinculoVendas } from './nf-vendas.service';
+import { estornarDevolucaoVendas } from './nf-devolucao-vendas.service';
 import { preencherRateioContabil } from './nf-rateio';
 
 /**
@@ -312,6 +313,8 @@ export const nfAggregateConfig: AggregateConfig = {
     await estornarVinculoVendas(db, id, nf.tipo ?? null);
     // o scrap importado nesta nota volta a "não importado" e a PEDIDO_NF da nota sai (udmNF.pas:3217; uNF.pas:4216)
     await estornarVinculoScrap(db, id, nf.tipo ?? null, true);
+    // a devolução de vendas importada nesta nota volta a "não importada" (RemoveRefCuponsDevolucao, uNF.pas:4287)
+    await estornarDevolucaoVendas(db, id, emp);
   },
   detalhes: [
     {
