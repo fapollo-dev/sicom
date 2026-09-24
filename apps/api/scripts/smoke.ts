@@ -4058,6 +4058,23 @@ async function main() {
           apN.status === 422 && apNJ.code === 'SCRAP_BAIXA_PELA_NF' && (await saldoSc()) === 50, { status: apN.status, code: apNJ.code, saldo: await saldoSc() });
         await pgSc.query(`DELETE FROM scrap WHERE codscrap=$1`, [sN]);
 
+        // 47b.10b) a perda na CAIXA gerencial (uCadSCRAP.pas:716): a cada gravação com centro de custo, a DIFERENÇA entre a
+        // perda (qtde × custo do MULTI_PRECO = 10) e o já lançado; a exclusão leva a CAIXA junto (FK ON DELETE CASCADE)
+        const sCx = await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ codplc: 3, itens: [{ idproduto: PRD, qtde: 3, codmotivoop: 261 }] }) });
+        const sCxId = Number(((await sCx.json().catch(() => ({}))) as any).codscrap);
+        const cxScrap = async () => (await pgSc.query(`SELECT valor::float AS valor, obs, origem, codplc, nrparcela, codparceiro, tiporecurso FROM caixa WHERE codscrap=$1 ORDER BY codcx`, [sCxId])).rows as any[];
+        const cx1s = await cxScrap();
+        await fetch(`${base}/${SC}/${sCxId}`, { method: 'PUT', headers: H, body: JSON.stringify({ codplc: 3, itens: [{ idproduto: PRD, qtde: 2, codmotivoop: 261 }] }) });
+        const cx2s = await cxScrap();
+        const delS = await fetch(`${base}/${SC}/${sCxId}`, { method: 'DELETE', headers: H });
+        const cx3s = await cxScrap();
+        check('SCRAP na CAIXA: gravar com centro de custo lança −30 "Perca de produtos" (3 × 10, origem SCRAP, parcela 1, parceiro 0, DINHEIRO) · regravar com 2 lança +10 "Estorno de perca produtos" · excluir apaga as linhas',
+          sCx.status === 201 && cx1s.length === 1 && cx1s[0].valor === -30 && cx1s[0].obs === 'Perca de produtos' && cx1s[0].origem === 'SCRAP' && Number(cx1s[0].codplc) === 3
+          && cx1s[0].nrparcela === '1' && Number(cx1s[0].codparceiro) === 0 && cx1s[0].tiporecurso === 'DINHEIRO'
+          && cx2s.length === 2 && cx2s[1].valor === 10 && cx2s[1].obs === 'Estorno de perca produtos'
+          && delS.status === 204 && cx3s.length === 0,
+          { st: sCx.status, cx1s, cx2s, del: delS.status, depois: cx3s.length });
+
         // 47b.11) IMPORTAR SCRAP NA NF DE SAÍDA (uNF.pas:1880): destinatário = a própria empresa (endereço com o CNPJ
         // dela), CFOP 5927 na UF; itens agrupados por produto a custo do MULTI_PRECO; vínculo no gravar; reimportação
         // só com liberação; estorno na exclusão; o processamento da NF é quem baixa o estoque

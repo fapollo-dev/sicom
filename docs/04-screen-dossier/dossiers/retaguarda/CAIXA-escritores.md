@@ -12,7 +12,7 @@
 | FECHAMENTO | 13.939 | R$ 19.951.875,03 | `UfinalizaFechamento.pas:1753` (efetivar do fechamento de caixa) | FALTA — corte 2 do fechamento (`uFechamentoCaixa-finalizacao.md`) |
 | APAGAR (sistema) | 8.297 | R$ −25.132.770,34 | **binário novo** (o texto "100,00% do Documento nº" não está no fonte de 2020); `uAPagar.pas:4961` (`GeraCaixa`) só cobre o convênio de funcionários | FALTA |
 | APAGAR (manual 'S') | 462 | R$ −523.445,84 | idem (títulos digitados na tela) | FALTA |
-| SCRAP | 4.880 | R$ −7.296.171,67 | `uCadSCRAP.pas:736` | FALTA ("lançamento gerencial em CAIXA" adiado no `uCadSCRAP.md`) |
+| SCRAP | 4.880 | R$ −7.296.171,67 | `uCadSCRAP.pas:736` | ✅ 24/09 (`scrap-caixa.ts`: a diferença a cada gravação, com a linha de 0,00 do legado; a exclusão leva junto) |
 | BAIXA CARTAO | 1.722 | R$ −85.411,37 | `UbaixaCartao.pas:1158/1188`, `UConciliadorCartao.pas:394` | FALTA |
 | NF | 1.011 | R$ 764.054,09 | `udmNF.pas:9283` | ✅ C4 (`nf-caixa.ts`) |
 | ARECEBER | 441 | R$ 687.687,98 | `uCadAReceber.pas:1075/1110` | FALTA |
@@ -36,7 +36,7 @@ CAIXA. **Reconstruir pelo dado** (a regra do percentual, a data, o que acontece 
 ## 3. Ordem proposta
 
 1. APAGAR (faturamento da NF + tela) — o rateio `CX_APAGAR` e a CAIXA por linha.
-2. SCRAP (`uCadSCRAP.pas:736`) — gravar do scrap.
+2. ✅ SCRAP (`uCadSCRAP.pas:736`) — gravar do scrap.
 3. BAIXA CARTAO, ARECEBER, BAIXA APAGAR/ARECEBER.
 4. O movimento de caixa gerencial (`uMovCaixa`, F06) — conversão da tela.
 5. FECHAMENTO — no corte 2 do fechamento de caixa.

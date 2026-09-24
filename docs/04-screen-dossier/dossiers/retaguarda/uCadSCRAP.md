@@ -59,7 +59,7 @@ Idempotência de aplicar/estornar (`forUpdate` + guard de `mov_estoque` re-checa
 
 ## 4. Adiado (com procedência)
 
-- **Lançamento gerencial em CAIXA** (`btnGravarClick`).
+- ~~**Lançamento gerencial em CAIXA**~~ ✅ 24/09/2026 — `scrap-caixa.ts` (a diferença da perda a cada gravação; `CAIXA-escritores.md`).
 - ~~**NF de perda CFOP 5927**~~ ✅ 23/09/2026 — a importação do SCRAP na NF de saída (`nf-scrap.service.ts`, `NfScrapModal`).
 - **Importador F7** de perdas identificadas (`UmportaVendasPerdas`).
 - **Gating de config PLC** (`PERDA='S'`, `FLG_USO_SETOR`, `OBRIGA_MOTIVO`) e de setor.

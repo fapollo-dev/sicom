@@ -3,6 +3,7 @@ import { createAggregateController } from '../../shared/crud/aggregate.controlle
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { assertCentroCustoDaSituacao } from '../shared/situacao-restricoes';
+import { lancarCaixaDoScrap } from './scrap-caixa';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 
 /**
@@ -117,6 +118,14 @@ export const scrapAggregateConfig: AggregateConfig = {
     const s = (await db.selectFrom('scrap').select(['mov_estoque', 'importado']).where('codscrap', '=', id).executeTakeFirst()) as { mov_estoque?: string; importado?: string } | undefined;
     if (s?.mov_estoque === 'S') throw new BusinessRuleError('SCRAP_ESTOQUE_APLICADO', { codscrap: id }); // estornar antes
     if (s?.importado === 'S') throw new BusinessRuleError('SCRAP_JA_FATURADO', { codscrap: id });
+  },
+  // a perda na CAIXA gerencial: a diferença a cada gravação (uCadSCRAP.pas:716; scrap-caixa.ts)
+  aposGravarTrx: async ({ trx, id, emp }) => {
+    await lancarCaixaDoScrap(trx, id, emp ?? null);
+  },
+  // e a exclusão leva a CAIXA junto (FK_CAIXA_SCRAP ON DELETE CASCADE no Oracle)
+  aoRemover: async ({ id, db }) => {
+    await db.deleteFrom('caixa').where('codscrap', '=', id).execute();
   },
 };
 
