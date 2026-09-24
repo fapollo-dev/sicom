@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type RawBuilder } from 'kysely';
-import type { EfetivarFechamentoDto, RascunhoFechamentoDto, TurnoFechamentoDto } from '@apollo/shared';
+import type { EditarDocumentoFechamentoDto, EfetivarFechamentoDto, RascunhoFechamentoDto, TurnoFechamentoDto } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { configNaTrx } from '../compras/pedido-heranca';
 import { FechamentoContabilService, avisoDoErro, emSavepoint, type AvisoContabil } from './fechamento-contabil.service';
+import { gravarLog, historicoDeGravacao } from '../../shared/log/registro-log';
 
 type AnyDB = any;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -432,7 +433,7 @@ export class FechamentoCaixaService {
     } else if (tipo === 'RCB') {
       rows = (await sql<Record<string, unknown>>`
         SELECT r.codrcb AS codigo, r.nrocupom, to_char(r.dtvenda AT TIME ZONE ${c.tz}, 'YYYY-MM-DD HH24:MI:SS') AS dtvenda, r.valor,
-               r.dtvenc, r.codoperador, r.codparceiro, r.codpdv, p.razao, r.obs, r.idpgto, r.quitada, r.consiliado, r.txjuros, r.chave, r.origem
+               to_char(r.dtvenc AT TIME ZONE ${c.tz}, 'YYYY-MM-DD') AS dtvenc, r.codoperador, r.codparceiro, r.codpdv, p.razao, r.obs, r.idpgto, r.quitada, r.consiliado, r.txjuros, r.chave, r.origem
           FROM areceber r LEFT JOIN parceiros p ON p.codparceiro = r.codparceiro LEFT JOIN formas_pgto g ON g.idpgto = r.idpgto
          WHERE r.codempresa = ${c.emp} ${pdvOp('r.codpdv', 'r.codoperador')} ${forma('r.idpgto')} ${naoConc('r.consiliado')} ${chave('r.chave')}
            AND ${this.noDia('r.dtvenda', c)}
@@ -504,8 +505,105 @@ export class FechamentoCaixaService {
     const lista = docs.map((d) => ({ ...d, sel: marcados.has(d.codigo) }));
     return {
       operacao, tipo: linha.tipo, destino: linha.destino, idpgto: linha.idpgto, modo: det.modo, marcacaoLivre: !consulta,
+      edicao: await this.edicaoDocumentos(db, c, det, linha.tipo),
       documentos: lista, conferido: r2(lista.filter((d) => d.sel).reduce((s, d) => s + d.valor, 0)),
     };
+  }
+
+  // ── editar um documento (corte 4) ──────────────────────────────────────────────────────────────────────────────
+  /**
+   * `UConsDocs.AlteraDocs` (:2349; spec `uFechamentoCaixa-corte4-spec.md` §1). Com `USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO`
+   * ='S' (a produção) a edição vale também no turno já fechado; sem ela, só na conferência. No turno fechado no caixa e no PDV
+   * (o `ControleManutencao='P'`), a tela completa de cartão só deixa trocar a operadora (`AjustarComponentesAcesso`) — que é o
+   * que o cliente faz: 15.354 reclassificações de "CARTAO A CLASSIFICAR" em 2026. `NAO_ALTERAR_DOC_FECHAMENTO_CAIXA`='S' na
+   * produção é "permitido" (as edições seguiram no mesmo ritmo depois de ligada): não pede senha.
+   * Rastro: o LOG "Lançamento de Cartões" (a tela completa) e o HISTORICO `ALTERACAO DO DOCUMENTO <cupom>, VALOR: DE … PARA …,
+   * NO DIA <dia do caixa> DA ECF: <pdv>, FEITO PELO OPERADOR: <código> <nome>`. ⚠️ divergência: o "DE" do cartão sai com o valor
+   * anterior — o legado o gravava vazio.
+   */
+  /**
+   * o que o diálogo deixa editar (`UConsDocs.FormShow :1200-1245`): nada fora do cartão e do A Receber (cheque e devolução
+   * ainda não); no turno já fechado, só com `USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO`='S'; no cartão do turno
+   * fechado no caixa e no PDV (`ControleManutencao='P'`), só a operadora.
+   */
+  private async edicaoDocumentos(db: AnyDB, c: Ctx, det: Awaited<ReturnType<FechamentoCaixaService['montar']>>, tipo: TipoConferencia | 'SANGRIA'):
+    Promise<'completa' | 'operadora' | null> {
+    if (tipo !== 'CARTAO' && tipo !== 'RCB') return null;
+    if (det.modo === 'consulta' && (await this.cfg(db, 'USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO', c.emp)) !== 'S') return null;
+    if (tipo !== 'CARTAO' || det.turno.situacao === 1) return 'completa';
+    const fechadoNoPdv = (await sql`SELECT 1 FROM caixa_pdv cp WHERE cp.codpdv = ${c.pdv} AND cp.idempresa = ${c.emp} AND cp.horasaida IS NOT NULL
+        AND ${c.chave ? sql`cp.chave = ${c.chave}` : sql`cp.chave IS NULL AND ${this.noDia('cp.data', c)}`} LIMIT 1`.execute(db)).rows.length > 0;
+    return fechadoNoPdv ? 'operadora' : 'completa';
+  }
+
+  async editarDocumento(dto: EditarDocumentoFechamentoDto) {
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const c = await this.contexto(trx, dto);
+      const emp = c.emp;
+      const logado = currentTenant().operadorId ?? null;
+      const operacao = String(dto.operacao ?? '').trim().toUpperCase();
+      const det = await this.montar(trx, c);
+      const linha = det.linhas.find((l) => l.operacao === operacao);
+      if (!linha) throw new BusinessRuleError('FECHAMENTO_OPERACAO_FORA_DO_TURNO', { operacao });
+      if ((linha.tipo !== 'CARTAO' && linha.tipo !== 'RCB') || linha.idpgto == null) throw new BusinessRuleError('FECHAMENTO_DOCUMENTO_NAO_EDITAVEL', { operacao });
+      const edicao = await this.edicaoDocumentos(trx, c, det, linha.tipo);
+      if (!edicao) throw new BusinessRuleError('FECHAMENTO_CAIXA_CONSULTA');
+      const docs = await this.listarDocs(trx, c, linha.tipo, linha.idpgto, true, det.filtraPdv);
+      const doc = docs.find((d) => d.codigo === dto.codigo);
+      if (!doc) throw new BusinessRuleError('FECHAMENTO_DOCUMENTO_FORA_DO_TURNO', { codigo: dto.codigo });
+      const soOperadora = edicao === 'operadora';
+      const nomeLogado = String((await sql<{ nome: string | null }>`SELECT nome FROM operadores WHERE codoperador = ${logado}`.execute(trx)).rows[0]?.nome ?? '');
+      const dataCx = c.data.split('-').reverse().join('/');
+      const cupom = String(doc.nrocupom ?? '').trim() || '0';
+      const campos = dto.campos ?? {};
+      const hist = (tabela: string, de: string, para: string) => sql`INSERT INTO historico (coddoc, tabela, historico, data, codoperador, codempresa)
+          VALUES (${cupom}, ${tabela}, ${`ALTERACAO DO DOCUMENTO ${cupom}, VALOR: DE ${de} PARA ${para}, NO DIA ${dataCx} DA ECF: ${c.pdv}, FEITO PELO OPERADOR: ${logado ?? ''} ${nomeLogado}`.slice(0, 600)},
+                  current_date, ${logado}, ${emp})`.execute(trx);
+
+      if (linha.tipo === 'CARTAO') {
+        const antes = (await sql<Record<string, unknown>>`SELECT valor, codoperadora, nsu, nsuhost, autorizacao, codrede, nroparcela, obs FROM cartao
+            WHERE codvendcartao = ${dto.codigo} FOR UPDATE`.execute(trx)).rows[0];
+        const editaveis = soOperadora ? ['codoperadora'] : ['valor', 'codoperadora', 'nsu', 'nsuhost', 'autorizacao', 'codrede', 'nroparcela', 'obs'];
+        const muda: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(campos)) {
+          if (v === undefined || !['valor', 'codoperadora', 'nsu', 'nsuhost', 'autorizacao', 'codrede', 'nroparcela', 'obs'].includes(k)) continue;
+          const igual = String(antes[k] ?? '') === String(v ?? '') || (typeof v === 'number' && Number(antes[k]) === v);
+          if (igual) continue;
+          if (!editaveis.includes(k)) throw new BusinessRuleError('FECHAMENTO_DOCUMENTO_CAMPO_BLOQUEADO', { campo: k });
+          muda[k] = v;
+        }
+        const novo = { ...antes, ...muda };
+        if (!(num(novo.valor) > 0)) throw new BusinessRuleError('CARTAO_VALOR_OBRIGATORIO');
+        if (num(novo.nroparcela) >= 200) throw new BusinessRuleError('CARTAO_PARCELAS_MAXIMO');
+        if (!num(novo.codoperadora) || !(await sql`SELECT 1 FROM operadoras WHERE codoperadoras = ${num(novo.codoperadora)}`.execute(trx)).rows.length) {
+          throw new BusinessRuleError('CARTAO_OPERADORA_OBRIGATORIA');
+        }
+        if (Object.keys(muda).length) {
+          await trx.updateTable('cartao').set({ ...muda, dtultimalteracao: sql`now()`, usultalteracao: logado }).where('codvendcartao', '=', dto.codigo).execute();
+          const h = historicoDeGravacao('Alterou', antes, novo);
+          if (h) await gravarLog(trx, { acao: 'Alterou', formulario: 'Lançamento de Cartões', tabela: 'CARTAO', chave: 'CODVENDCARTAO', valor: dto.codigo, historico: h, idempresa: emp });
+          const f2 = (v: unknown) => num(v).toFixed(2).replace('.', ',');
+          await hist('CARTAO', f2(antes.valor), f2(novo.valor));
+        }
+        return { tipo: 'CARTAO', codigo: dto.codigo, alterados: Object.keys(muda), soOperadora };
+      }
+
+      // A Receber: valor, vencimento, cliente (obrigatório) e obs
+      const antes = (await sql<Record<string, unknown>>`SELECT valor, to_char(dtvenc AT TIME ZONE ${c.tz}, 'YYYY-MM-DD') AS dtvenc, codparceiro, obs FROM areceber
+          WHERE codrcb = ${dto.codigo} FOR UPDATE`.execute(trx)).rows[0];
+      const novo = {
+        valor: campos.valor ?? num(antes.valor), dtvenc: campos.dtvenc ?? antes.dtvenc,
+        codparceiro: campos.codparceiro ?? antes.codparceiro, obs: campos.obs ?? antes.obs,
+      };
+      if (!num(novo.codparceiro)) throw new BusinessRuleError('FECHAMENTO_DOCUMENTO_SEM_CLIENTE');
+      if (!(num(novo.valor) > 0)) throw new BusinessRuleError('FECHAMENTO_DOCUMENTO_VALOR');
+      await sql`UPDATE areceber SET valor = ${r2(num(novo.valor))}, dtvenc = ${novo.dtvenc ? sql`((${novo.dtvenc}::date)::timestamp AT TIME ZONE ${c.tz})` : sql`dtvenc`},
+                codparceiro = ${num(novo.codparceiro)}, obs = ${novo.obs ?? null}, usultalteracao = ${logado}, dtultimalteracao = now()
+              WHERE codrcb = ${dto.codigo}`.execute(trx);
+      const fF = (v: unknown) => String(Number(v ?? 0)).replace('.', ',');
+      await hist('ARECEBER', fF(antes.valor), fF(novo.valor));
+      return { tipo: 'RCB', codigo: dto.codigo, alterados: Object.keys(campos).filter((k) => (campos as Record<string, unknown>)[k] !== undefined), soOperadora: false };
+    });
   }
 
   // ── o rascunho ─────────────────────────────────────────────────────────────────────────────────────────────────

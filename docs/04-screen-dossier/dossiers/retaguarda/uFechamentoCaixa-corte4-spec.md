@@ -267,7 +267,7 @@ Todas carregam o .fr3 de `Relatorios\` (fonte de 14/05/2020).
 
 ## Ordem recomendada de implementação
 
-1. **Edição de cartão no diálogo** (operadora/NSU/autorização/rede; valor e parcelas só fora do modo 'P'), inclusive em consulta de turno fechado. Cerca de 15 mil por ano. Reusar `cadastro/cartao` e gravar HISTORICO + LOG como o legado.
+1. ✅ (4.1, 24/09) **Edição de cartão no diálogo** (operadora/NSU/autorização/rede; valor e parcelas só fora do modo 'P'), inclusive em consulta de turno fechado. Cerca de 15 mil por ano. Reusar `cadastro/cartao` e gravar HISTORICO + LOG como o legado.
 2. **A Receber manual** (inserir ORIGEM 'F', editar, excluir): 631 + 173 + 14 em 2026.
 3. **Cartão manual** (tela completa; a básica é opcional e rara): 459 em 2026. Mais a exclusão com liberação `USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO` (reusar `LiberacaoService` / LOG_LIBERACOES 'EXCLUIR DOCUMENTOS') e `DELETAR_DOCUMENTO_FCX`.
 4. **Sangria/suprimento manual** com liberação (`USUARIOS_PERMITIDOS_ALTERAR_SUP_SAN_FECHAMENTO`), MCB na conta fiscal, IDENTIFICADOR_MOVCB, e a exclusão levando a MCB.

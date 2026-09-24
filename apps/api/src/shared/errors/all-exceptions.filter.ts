@@ -571,6 +571,15 @@ const CODE_PT: Record<string, string> = {
   FECHAMENTO_FORMA_SEM_CONTA: 'A conta corrente deve ser informada no cadastro da forma de pagamento antes de fechar o caixa.',
   FECHAMENTO_FORMA_NAO_ENCONTRADA: 'A forma de pagamento do recurso não foi encontrada.',
   FECHAMENTO_DOCUMENTOS_NAO_SELECIONADOS: 'Há finalizadoras com documentos que não foram selecionados. Deseja continuar?',
+  // a edição de documento no diálogo do fechamento (UConsDocs.AlteraDocs)
+  FECHAMENTO_DOCUMENTO_NAO_EDITAVEL: 'Os documentos desta finalizadora não se editam pelo fechamento.',
+  FECHAMENTO_DOCUMENTO_FORA_DO_TURNO: 'O documento informado não pertence a este caixa.',
+  FECHAMENTO_DOCUMENTO_CAMPO_BLOQUEADO: 'Caixa já fechado no PDV: no documento só se altera a operadora.',
+  FECHAMENTO_DOCUMENTO_SEM_CLIENTE: 'Obrigatório a informação do cliente!',
+  FECHAMENTO_DOCUMENTO_VALOR: 'O valor deve ser maior que zero.',
+  CARTAO_VALOR_OBRIGATORIO: 'Informe o valor do cartão.',
+  CARTAO_PARCELAS_MAXIMO: 'O número de parcelas deve ser menor que 200.',
+  CARTAO_OPERADORA_OBRIGATORIA: 'Informe a operadora do cartão.',
   // a reabertura do caixa (btnReabrirClick, uFechamentoCaixa.pas:504-1086)
   FECHAMENTO_REABRIR_SEM_OPERADOR: 'Informe o operador antes de reabrir o caixa.',
   FECHAMENTO_REABRIR_SEM_PDV: 'Informe o número do PDV antes de reabrir o caixa.',

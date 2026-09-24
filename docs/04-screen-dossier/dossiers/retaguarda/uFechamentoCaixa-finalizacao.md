@@ -346,3 +346,18 @@ com a comparação certa (NROPEDIDO + valor numérico).
 ### Falta
 - **Corte 4 — acessórios**: impressões, comprovante de quebra, documentos manuais, F5/F6, lançamento provisório e o CARTAO
   da refechada.
+
+## CORTE 4 — acessórios (em andamento; spec em `uFechamentoCaixa-corte4-spec.md`)
+
+### 4.1 ENTREGUE (24/09/2026) — editar o documento no diálogo (`UConsDocs.AlteraDocs :2349`)
+
+- **API:** `PUT cobranca/fechamento-caixa/turno/documentos` (RBAC `FRMFECHAMENTOCAIXA/BTNFECHA` — o diálogo não tem componente próprio). O `GET turno/documentos` agora diz `edicao`: `completa`, `operadora` ou nula.
+- **Quando edita** (`FormShow :1200-1245`): cartão e A Receber. No turno já fechado, só com `USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO`='S' (o global da produção). No cartão do turno fechado também no PDV (`CAIXA_PDV.HORASAIDA`, o `ControleManutencao='P'`), só a operadora (`AjustarComponentesAcesso`) — é a reclassificação do "CARTAO A CLASSIFICAR", 15 mil por ano.
+- **Cartão** (TFrmCadCartao em `maFechamentoCaixa`): VALOR, CODOPERADORA, NSU, NSUHOST, AUTORIZACAO, CODREDE, NROPARCELA, OBS, mais DTULTIMALTERACAO/USULTALTERACAO. Validações do legado: valor, parcelas < 200, operadora. LOG "Lançamento de Cartões"/Alterou. `CARTAO.OPERADORA` (texto) não muda, como no legado.
+- **A Receber:** valor, vencimento, cliente (obrigatório: "Obrigatorio a informação do cliente!") e OBS.
+- **HISTORICO** (CODDOC = o cupom, '0' se vazio; DATA = só a data): `ALTERACAO DO DOCUMENTO <cupom>, VALOR: DE <ant> PARA <novo>, NO DIA dd/mm/aaaa DA ECF: <pdv>, FEITO PELO OPERADOR: <cód> <nome>`. O cartão formata com 2 casas; o A Receber, como o AsString do Delphi.
+- **`NAO_ALTERAR_DOC_FECHAMENTO_CAIXA`='S'** (produção, desde 28/04/2025) **não pede senha**: as edições seguiram no mesmo ritmo depois de ligada, então no binário 'S' é "permitido".
+- ⚠️ **Divergência consciente:** no cartão, o "DE" do HISTORICO sai com o valor anterior. O legado o gravava vazio.
+- **Fora deste corte:** a tela básica de cartão (`frmManipulaFin`, com o desdobramento em parcelas; a Empresa 1 usa a completa) e a edição de cheque e devolução (mortos, spec §10).
+- **Web:** botão "Editar" por documento no diálogo, com os campos que a regra libera. Na consulta, o turno é recarregado depois de gravar.
+- **Smoke §178** (3 checks): turno aberto (cartão + validações + 403), A Receber, e turno fechado (consulta → completa → só operadora).

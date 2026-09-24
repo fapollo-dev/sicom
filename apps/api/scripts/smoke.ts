@@ -19749,6 +19749,115 @@ async function main() {
         await pgS.end();
       }
     }
+    // ══ §178 FECHAMENTO DE CAIXA, corte 4: EDITAR o documento no diálogo (UConsDocs.AlteraDocs) — cartão e A Receber ══
+    {
+      const pgC4 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const FC = 'cobranca/fechamento-caixa';
+      const DIA = '2038-03-11';
+      const CHA = '79110338080000';
+      const CHB = '79110338150000';
+      const ts = (h: string) => `${DIA} ${h}-03`;
+      const tA = { data: DIA, chave: CHA, nropdv: 79, codoperadora: 7 };
+      const tB = { data: DIA, chave: CHB, nropdv: 79, codoperadora: 7, situacao: 3 };
+      const qsT = (t: Record<string, unknown>, op: string) => new URLSearchParams({ ...Object.fromEntries(Object.entries(t).map(([k, v]) => [k, String(v)])), operacao: op }).toString();
+      const put = async (body: unknown, headers = H) => {
+        const r = await fetch(`${base}/${FC}/turno/documentos`, { method: 'PUT', headers, body: JSON.stringify(body) });
+        return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+      };
+      const docsDe = async (t: Record<string, unknown>, op: string) => (await (await fetch(`${base}/${FC}/turno/documentos?${qsT(t, op)}`, { headers: H })).json()) as any;
+      const ids: { cartao: number[]; rcb: number[] } = { cartao: [], rcb: [] };
+      try {
+        const oprs = ((await pgC4.query(`SELECT codoperadoras FROM operadoras ORDER BY codoperadoras LIMIT 2`)).rows as any[]).map((r) => Number(r.codoperadoras));
+        const nomeLog = String(((await pgC4.query(`SELECT nome FROM operadores WHERE codoperador = 7`)).rows[0] as any)?.nome ?? '');
+        await pgC4.query(`INSERT INTO pdv (codpdv, nropdv, descricao, codempresa) VALUES (979, 79, 'PDV 79 SMOKE', 1) ON CONFLICT DO NOTHING`);
+        const ins = async (ch: string, op: string, valor: number, ped: string, hora: string, fechado: boolean) =>
+          pgC4.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, debito_credito, valor, troco, nropedido, chave, status, tesouraria)
+            VALUES (1, $1, 79, 7, $2, 'C', $3, 0, $4, $5, $6, $7)`, [ts(hora), op, valor, ped, ch, fechado ? 'F' : null, fechado ? 'S' : null]);
+        await ins(CHA, 'CARTOES', 50, '791001', '09:00:00', false);
+        await ins(CHA, 'CONVENIO', 30, '791002', '09:10:00', false);
+        await ins(CHB, 'CARTOES', 40, '791003', '15:30:00', true);
+        await pgC4.query(`INSERT INTO caixa_pdv (codcaixa, codpdv, codoperadora, data, horaentrada, chave, idempresa, sangria, fundocaixa)
+          VALUES (9917801, 79, 7, $1, $1, $2, 1, 0, 0), (9917802, 79, 7, $3, $3, $4, 1, 0, 0)`, [ts('08:00:00'), CHA, ts('15:00:00'), CHB]);
+        const cartao = async (valor: number, ped: string, hora: string, ch: string) => Number(((await pgC4.query(`INSERT INTO cartao (idempresa, codoperadora, idpgto, dtvenda, valor, codpdv, codoperador, nropedido, nrocupom, chave)
+            VALUES (1, $1, 3, $2, $3, 79, 7, $4, $4, $5) RETURNING codvendcartao`, [oprs[0], ts(hora), valor, ped, ch])).rows[0] as any).codvendcartao);
+        const cA = await cartao(50, '791001', '09:00:00', CHA);
+        const cB = await cartao(40, '791003', '15:30:00', CHB);
+        ids.cartao.push(cA, cB);
+        const rA = Number(((await pgC4.query(`INSERT INTO areceber (codempresa, idpgto, dtvenda, dtvenc, valor, codpdv, codoperador, nrocupom, chave)
+            VALUES (1, 4, $1, $1, 30, 79, 7, '791002', $2) RETURNING codrcb`, [ts('09:10:00'), CHA])).rows[0] as any).codrcb);
+        ids.rcb.push(rA);
+        const hist = async (tabela: string, coddoc: string) => ((await pgC4.query(`SELECT historico, codoperador, codempresa, to_char(data, 'YYYY-MM-DD') AS data FROM historico
+            WHERE tabela = $1 AND coddoc = $2 AND historico LIKE 'ALTERACAO DO DOCUMENTO%' ORDER BY codhist`, [tabela, coddoc])).rows as any[]);
+        const reNome = nomeLog.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+        // 178.1 — turno aberto: o cartão (valor, operadora, NSU, autorização) e as validações do TFrmCadCartao
+        await fetch(`${base}/${FC}/turno/abrir`, { method: 'POST', headers: H, body: JSON.stringify(tA) });
+        const dA = await docsDe(tA, 'CARTOES');
+        const e1 = await put({ ...tA, operacao: 'CARTOES', codigo: cA, campos: { valor: 55, codoperadora: oprs[1], nsu: '123456', autorizacao: 'AB12' } });
+        const cart1 = (await pgC4.query(`SELECT valor::float AS valor, codoperadora, nsu, autorizacao, usultalteracao, dtultimalteracao IS NOT NULL AS alt FROM cartao WHERE codvendcartao = $1`, [cA])).rows[0] as any;
+        const log1 = (await pgC4.query(`SELECT acao, formulario, tabela, chave, historico FROM log WHERE tabela = 'CARTAO' AND valor = $1 ORDER BY idlog DESC LIMIT 1`, [cA])).rows[0] as any;
+        const h1 = await hist('CARTAO', '791001');
+        const e1Parc = await put({ ...tA, operacao: 'CARTOES', codigo: cA, campos: { nroparcela: 200 } });
+        const e1Zero = await put({ ...tA, operacao: 'CARTOES', codigo: cA, campos: { valor: 0 } });
+        const e1Fora = await put({ ...tA, operacao: 'CARTOES', codigo: cB, campos: { valor: 41 } });
+        const e1Rbac = await put({ ...tA, operacao: 'CARTOES', codigo: cA, campos: { valor: 56 } }, H_SEM_ACESSO);
+        check('FECHAMENTO §178.1 [editar o cartão no turno aberto]: o diálogo diz edição completa; gravar troca valor (50 → 55), operadora, NSU e autorização, com DTULTIMALTERACAO/USULTALTERACAO; a LOG "Lançamento de Cartões"/Alterou na CARTAO e o HISTORICO "ALTERACAO DO DOCUMENTO 791001, VALOR: DE 50,00 PARA 55,00, NO DIA 11/03/2038 DA ECF: 79, FEITO PELO OPERADOR: 7 …" (CODDOC = o cupom); 200 parcelas → 422 CARTAO_PARCELAS_MAXIMO; valor zero → 422 CARTAO_VALOR_OBRIGATORIO; o cartão de outro turno → 422 FECHAMENTO_DOCUMENTO_FORA_DO_TURNO; sem o BTNFECHA → 403',
+          dA.edicao === 'completa' && e1.status === 200 && e1.j.soOperadora === false
+          && cart1?.valor === 55 && Number(cart1.codoperadora) === oprs[1] && cart1.nsu === '123456' && cart1.autorizacao === 'AB12' && Number(cart1.usultalteracao) === 7 && cart1.alt
+          && log1?.acao === 'Alterou' && /Lan.amento de Cart.es/.test(String(log1.formulario)) && log1.chave === 'CODVENDCARTAO'
+          && h1.length === 1 && new RegExp(`^ALTERACAO DO DOCUMENTO 791001, VALOR: DE 50,00 PARA 55,00, NO DIA 11/03/2038 DA ECF: 79, FEITO PELO OPERADOR: 7 ${reNome}$`).test(h1[0].historico)
+          && Number(h1[0].codoperador) === 7 && Number(h1[0].codempresa) === 1
+          && e1Parc.status === 422 && e1Parc.j.code === 'CARTAO_PARCELAS_MAXIMO' && e1Zero.status === 422 && e1Zero.j.code === 'CARTAO_VALOR_OBRIGATORIO'
+          && e1Fora.status === 422 && e1Fora.j.code === 'FECHAMENTO_DOCUMENTO_FORA_DO_TURNO' && e1Rbac.status === 403,
+          { edicao: dA.edicao, e1: [e1.status, e1.j], cart1, log1, h1, e1Parc: [e1Parc.status, e1Parc.j.code], e1Zero: [e1Zero.status, e1Zero.j.code], e1Fora: [e1Fora.status, e1Fora.j.code], e1Rbac: e1Rbac.status });
+
+        // 178.2 — o A Receber (convênio): o cliente é obrigatório
+        const e2Sem = await put({ ...tA, operacao: 'CONVENIO', codigo: rA, campos: { valor: 31.5 } });
+        const e2 = await put({ ...tA, operacao: 'CONVENIO', codigo: rA, campos: { valor: 31.5, codparceiro: 20, dtvenc: '2038-04-10', obs: 'CONVENIO SMOKE' } });
+        const rcb2 = (await pgC4.query(`SELECT valor::float AS valor, codparceiro, obs, to_char(dtvenc AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS dtvenc, usultalteracao FROM areceber WHERE codrcb = $1`, [rA])).rows[0] as any;
+        const h2 = await hist('ARECEBER', '791002');
+        const dConv = await docsDe(tA, 'CONVENIO');
+        check('FECHAMENTO §178.2 [editar o A Receber]: sem cliente → 422 FECHAMENTO_DOCUMENTO_SEM_CLIENTE ("Obrigatorio a informação do cliente!"); com ele grava valor 31,5, vencimento 10/04/2038, cliente 20 e a OBS; HISTORICO "ALTERACAO DO DOCUMENTO 791002, VALOR: DE 30 PARA 31,5, …" (o AsString do Delphi); o diálogo relido mostra o valor novo',
+          e2Sem.status === 422 && e2Sem.j.code === 'FECHAMENTO_DOCUMENTO_SEM_CLIENTE' && e2.status === 200
+          && rcb2?.valor === 31.5 && Number(rcb2.codparceiro) === 20 && rcb2.obs === 'CONVENIO SMOKE' && rcb2.dtvenc === '2038-04-10' && Number(rcb2.usultalteracao) === 7
+          && h2.length === 1 && h2[0].historico.startsWith('ALTERACAO DO DOCUMENTO 791002, VALOR: DE 30 PARA 31,5, NO DIA 11/03/2038 DA ECF: 79, FEITO PELO OPERADOR: 7')
+          && dConv.documentos?.find((x: any) => x.codigo === rA)?.valor === 31.5 && dConv.documentos?.find((x: any) => x.codigo === rA)?.dtvenc === '2038-04-10',
+          { e2Sem: [e2Sem.status, e2Sem.j.code], e2: [e2.status, e2.j], rcb2, h2, conv: dConv.documentos });
+
+        // 178.3 — o turno já fechado: só com USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO; fechado também no PDV, só a operadora
+        const dB0 = await docsDe(tB, 'CARTOES');
+        const e3Cons = await put({ ...tB, operacao: 'CARTOES', codigo: cB, campos: { codoperadora: oprs[1] } });
+        await pgC4.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, config_especificas_permitidas, descricao)
+            VALUES (991781, 'USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO', 'S', 'texto', 'Modulo;Empresa;Grupo;Usuario', 'smoke') ON CONFLICT DO NOTHING`);
+        const dB1 = await docsDe(tB, 'CARTOES');
+        await pgC4.query(`UPDATE caixa_pdv SET horasaida = $1 WHERE codcaixa = 9917802`, [ts('16:00:00')]);
+        const dB2 = await docsDe(tB, 'CARTOES');
+        const e3Val = await put({ ...tB, operacao: 'CARTOES', codigo: cB, campos: { valor: 45, codoperadora: oprs[1] } });
+        const e3 = await put({ ...tB, operacao: 'CARTOES', codigo: cB, campos: { codoperadora: oprs[1], valor: 40 } });
+        const cart3 = (await pgC4.query(`SELECT valor::float AS valor, codoperadora FROM cartao WHERE codvendcartao = $1`, [cB])).rows[0] as any;
+        const h3 = await hist('CARTAO', '791003');
+        check('FECHAMENTO §178.3 [o turno fechado]: sem USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO o diálogo é só consulta (edição nula; gravar → 422 FECHAMENTO_CAIXA_CONSULTA); com ela, edição completa; com o turno fechado também no PDV (CAIXA_PDV.HORASAIDA, o ControleManutencao "P"), só a operadora: mudar o valor → 422 FECHAMENTO_DOCUMENTO_CAMPO_BLOQUEADO, trocar a operadora (reclassificar o "CARTAO A CLASSIFICAR") grava, com o valor igual aceito, e o HISTORICO "VALOR: DE 40,00 PARA 40,00"',
+          dB0.edicao === null && e3Cons.status === 422 && e3Cons.j.code === 'FECHAMENTO_CAIXA_CONSULTA' && dB1.edicao === 'completa' && dB2.edicao === 'operadora'
+          && e3Val.status === 422 && e3Val.j.code === 'FECHAMENTO_DOCUMENTO_CAMPO_BLOQUEADO' && e3.status === 200 && e3.j.soOperadora === true
+          && cart3?.valor === 40 && Number(cart3.codoperadora) === oprs[1]
+          && h3.length === 1 && h3[0].historico.startsWith('ALTERACAO DO DOCUMENTO 791003, VALOR: DE 40,00 PARA 40,00, NO DIA 11/03/2038 DA ECF: 79'),
+          { dB0: dB0.edicao ?? dB0, e3Cons: [e3Cons.status, e3Cons.j.code], dB1: dB1.edicao, dB2: dB2.edicao, e3Val: [e3Val.status, e3Val.j.code], e3: [e3.status, e3.j], cart3, h3 });
+      } finally {
+        await pgC4.query(`DELETE FROM configuracoes WHERE id = 991781`).catch(() => undefined);
+        await pgC4.query(`DELETE FROM historico WHERE coddoc IN ('791001', '791002', '791003') AND historico LIKE 'ALTERACAO DO DOCUMENTO%'`).catch(() => undefined);
+        await pgC4.query(`DELETE FROM log WHERE tabela = 'CARTAO' AND valor = ANY($1::int[])`, [ids.cartao]).catch(() => undefined);
+        await pgC4.query(`DELETE FROM doc_fechamento WHERE codifinfech IN (SELECT codifinfech FROM finaliza_fechamento WHERE chave = ANY($1::text[]))`, [[CHA, CHB]]).catch(() => undefined);
+        await pgC4.query(`DELETE FROM finaliza_fechamento WHERE chave = ANY($1::text[])`, [[CHA, CHB]]).catch(() => undefined);
+        await pgC4.query(`DELETE FROM hist_sangria_suprimento WHERE chave = ANY($1::text[])`, [[CHA, CHB]]).catch(() => undefined);
+        await pgC4.query(`DELETE FROM ticket WHERE chave = ANY($1::text[])`, [[CHA, CHB]]).catch(() => undefined);
+        await pgC4.query(`DELETE FROM cartao WHERE codvendcartao = ANY($1::int[]) OR chave = ANY($2::text[])`, [ids.cartao, [CHA, CHB]]).catch(() => undefined);
+        await pgC4.query(`DELETE FROM areceber WHERE codrcb = ANY($1::int[]) OR chave = ANY($2::text[])`, [ids.rcb, [CHA, CHB]]).catch(() => undefined);
+        await pgC4.query(`DELETE FROM caixa_pdv WHERE codcaixa IN (9917801, 9917802)`).catch(() => undefined);
+        await pgC4.query(`DELETE FROM cx_vendas WHERE chave = ANY($1::text[])`, [[CHA, CHB]]).catch(() => undefined);
+        await pgC4.query(`DELETE FROM pdv WHERE codpdv = 979`).catch(() => undefined);
+        await pgC4.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

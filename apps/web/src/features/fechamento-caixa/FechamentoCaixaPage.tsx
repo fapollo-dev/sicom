@@ -1,13 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal, PageHeader } from '@apollosg/design-system';
 import { DateField } from '../../shared/ui/DateField';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
+import { SelectField } from '../../shared/ui/SelectField';
+import { listarOperadoras, type Operadora } from '../cartao/cartaoApi';
 import { useMensagem } from '../../shared/mensagem';
 import {
-  abrirTurno, detalheTurno, documentosTurno, efetivarTurno, listarTurnos, reabrirTurno, salvarRascunho,
-  type DetalheTurno, type Documentos, type Fixa, type LinhaFechamento, type TurnoRef, type TurnoResumo,
+  abrirTurno, detalheTurno, documentosTurno, editarDocumento, efetivarTurno, listarTurnos, reabrirTurno, salvarRascunho,
+  type CamposDocumento, type DetalheTurno, type DocumentoConferencia, type Documentos, type Fixa, type LinhaFechamento, type TurnoRef, type TurnoResumo,
 } from './fechamentoCaixaApi';
 
 /**
@@ -31,6 +33,9 @@ const SITUACAO: Record<number, { rotulo: string; cor: string }> = {
 const FIXAS: Fixa[] = ['SANGRIA EM DINHEIRO', 'SANGRIA EM CHEQUE', 'OUTRAS SANGRIAS', 'SUPRIMENTO'];
 
 interface Conferida { codigos: number[]; total: number }
+/** o formulário de edição de um documento (UConsDocs.AlteraDocs): tudo em texto, convertido ao gravar */
+interface Edicao { doc: DocumentoConferencia; f: Record<keyof CamposDocumento, string> }
+const txt = (v: unknown) => (v == null ? '' : String(v));
 
 export function FechamentoCaixaPage() {
   const mensagem = useMensagem();
@@ -44,6 +49,11 @@ export function FechamentoCaixaPage() {
   const [ocupado, setOcupado] = useState(false);
   const [gerarSaldo, setGerarSaldo] = useState(false); // CkSaldoOperador — marcada sozinha acima do limite
   const [avisos, setAvisos] = useState<string[]>([]);
+  const [edicao, setEdicao] = useState<Edicao | null>(null);
+  const [operadoras, setOperadoras] = useState<Operadora[]>([]);
+  useEffect(() => {
+    if (docs?.d.tipo === 'CARTAO' && docs.d.edicao && operadoras.length === 0) listarOperadoras().then(setOperadoras).catch(() => undefined);
+  }, [docs, operadoras.length]);
 
   const executar = async (f: () => Promise<void>) => {
     setOcupado(true);
@@ -90,6 +100,36 @@ export function FechamentoCaixaPage() {
     const d = await documentosTurno(ref, operacao);
     const c = conferidas.get(operacao);
     setDocs({ d, aConferir, marcados: new Set(c ? c.codigos : d.documentos.filter((x) => x.sel).map((x) => x.codigo)) });
+  });
+
+  // EDITAR (F2/Enter do legado, UConsDocs.AlteraDocs): o cartão e o A Receber; no cartão do turno fechado no PDV, só a operadora
+  const editar = (x: DocumentoConferencia) => setEdicao({
+    doc: x,
+    f: {
+      valor: txt(x.valor), codoperadora: txt(x.codoperadora), nsu: txt(x.nsu), nsuhost: txt(x.nsuhost), autorizacao: txt(x.autorizacao),
+      codrede: txt(x.codrede), nroparcela: txt(x.nroparcela), obs: txt(x.obs), dtvenc: txt(x.dtvenc), codparceiro: txt(x.codparceiro),
+    },
+  });
+  const campo = (k: keyof CamposDocumento) => ({
+    value: edicao?.f[k] ?? '',
+    onChange: (e: { target: { value: string } }) => setEdicao((s) => (s ? { ...s, f: { ...s.f, [k]: e.target.value } } : s)),
+  });
+  const gravarEdicao = () => executar(async () => {
+    if (!ref || !docs || !edicao) return;
+    const f = edicao.f;
+    const n = (v: string) => (v.trim() === '' ? undefined : Number(v.replace(',', '.')));
+    const campos: CamposDocumento = docs.d.tipo === 'CARTAO'
+      ? docs.d.edicao === 'operadora'
+        ? { codoperadora: n(f.codoperadora) }
+        : { valor: n(f.valor), codoperadora: n(f.codoperadora), nsu: f.nsu, nsuhost: f.nsuhost, autorizacao: f.autorizacao, codrede: n(f.codrede), nroparcela: n(f.nroparcela), obs: f.obs }
+      : { valor: n(f.valor), dtvenc: f.dtvenc || undefined, codparceiro: n(f.codparceiro), obs: f.obs };
+    await editarDocumento(ref, docs.d.operacao, edicao.doc.codigo, campos);
+    const d = await documentosTurno(ref, docs.d.operacao);
+    setDocs((s) => (s ? { ...s, d } : s));
+    setEdicao(null);
+    // na consulta o REAL vem do banco: recarrega o turno para refletir o valor novo
+    if (consulta) setDet(await detalheTurno(ref));
+    mensagem.sucesso('Documento alterado.');
   });
 
   const alternar = (cod: number) => setDocs((s) => {
@@ -341,6 +381,44 @@ export function FechamentoCaixaPage() {
               A conferir <strong className="tabular-nums">{moeda(docs.aConferir)}</strong> · Conferido <strong className="tabular-nums">{moeda(aConferirDocs)}</strong>
               {' '}· {docs.marcados.size} de {docs.d.documentos.length} documento(s)
             </small>
+            {edicao && (
+              <section className="flex flex-col gap-gp-sm rounded-md border border-border p-3">
+                <strong className="text-sm">
+                  Editar documento {edicao.doc.codigo}{edicao.doc.nrocupom ? ` · cupom ${String(edicao.doc.nrocupom)}` : ''}
+                  {docs.d.edicao === 'operadora' && <small className="font-normal text-fg-muted"> — turno fechado no PDV: só a operadora</small>}
+                </strong>
+                {docs.d.tipo === 'CARTAO' ? (
+                  <div className="grid grid-cols-2 gap-gp-sm md:grid-cols-4">
+                    <Field label="Valor" inputMode="decimal" disabled={docs.d.edicao === 'operadora'} {...campo('valor')} />
+                    <div className="col-span-2">
+                      <SelectField
+                        label="Operadora"
+                        value={edicao.f.codoperadora}
+                        onChange={(v) => setEdicao((s) => (s ? { ...s, f: { ...s.f, codoperadora: v } } : s))}
+                        options={operadoras.map((o) => ({ value: String(o.codoperadoras), label: `${o.codoperadoras} · ${o.operadora}` }))}
+                      />
+                    </div>
+                    <Field label="Parcelas" inputMode="numeric" disabled={docs.d.edicao === 'operadora'} {...campo('nroparcela')} />
+                    <Field label="NSU" maxLength={10} disabled={docs.d.edicao === 'operadora'} {...campo('nsu')} />
+                    <Field label="NSU host" maxLength={30} disabled={docs.d.edicao === 'operadora'} {...campo('nsuhost')} />
+                    <Field label="Autorização" maxLength={30} disabled={docs.d.edicao === 'operadora'} {...campo('autorizacao')} />
+                    <Field label="Rede" inputMode="numeric" disabled={docs.d.edicao === 'operadora'} {...campo('codrede')} />
+                    <div className="col-span-2 md:col-span-4"><Field label="Observação" disabled={docs.d.edicao === 'operadora'} {...campo('obs')} /></div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-gp-sm md:grid-cols-4">
+                    <Field label="Valor" inputMode="decimal" {...campo('valor')} />
+                    <DateField label="Vencimento" value={edicao.f.dtvenc} onChange={(v) => setEdicao((s) => (s ? { ...s, f: { ...s.f, dtvenc: v ?? '' } } : s))} />
+                    <Field label="Cliente (código)" inputMode="numeric" {...campo('codparceiro')} />
+                    <div className="col-span-2 md:col-span-4"><Field label="Observação" {...campo('obs')} /></div>
+                  </div>
+                )}
+                <div className="flex justify-end gap-gp-sm">
+                  <Button label="Cancelar" variant="ghost" onClick={() => setEdicao(null)} disabled={ocupado} />
+                  <Button label="Gravar" onClick={gravarEdicao} disabled={ocupado} />
+                </div>
+              </section>
+            )}
             {docs.d.documentos.length === 0
               ? <small className="text-fg-muted">Nenhum documento para esta operação.</small>
               : (
@@ -357,6 +435,11 @@ export function FechamentoCaixaPage() {
                             />
                           </td>
                           <td className="px-2 py-1 text-right tabular-nums">{moeda(x.valor)}</td>
+                          {docs.d.edicao && (
+                            <td className="px-2 py-1 text-right">
+                              <Button label="Editar" variant="ghost" onClick={() => editar(x)} disabled={ocupado} />
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>

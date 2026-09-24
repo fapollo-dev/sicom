@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Post, Put, Query, UseGuards } from '@nestjs/common';
-import { efetivarFechamentoSchema, rascunhoFechamentoSchema, turnoFechamentoSchema, type EfetivarFechamentoDto, type RascunhoFechamentoDto, type TurnoFechamentoDto } from '@apollo/shared';
+import { editarDocumentoFechamentoSchema, efetivarFechamentoSchema, rascunhoFechamentoSchema, turnoFechamentoSchema, type EditarDocumentoFechamentoDto, type EfetivarFechamentoDto, type RascunhoFechamentoDto, type TurnoFechamentoDto } from '@apollo/shared';
 import { FechamentoCaixaService } from './fechamento-caixa.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -47,6 +47,13 @@ export class FechamentoCaixaController {
   @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNFECHA')
   rascunho(@Body(new ZodValidationPipe(rascunhoFechamentoSchema)) body: RascunhoFechamentoDto) {
     return this.svc.salvarRascunho(body);
+  }
+
+  /** editar um documento no diálogo de documentos (corte 4) — o diálogo não tem RBAC próprio: vale o da finalização */
+  @Put('turno/documentos')
+  @RequerAcesso('FRMFECHAMENTOCAIXA', 'BTNFECHA')
+  editarDocumento(@Body(new ZodValidationPipe(editarDocumentoFechamentoSchema)) body: EditarDocumentoFechamentoDto) {
+    return this.svc.editarDocumento(body);
   }
 
   /** efetivar o fechamento (corte 2) — o mesmo botão Fechar do legado (BTNFECHA) */
