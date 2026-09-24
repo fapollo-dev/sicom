@@ -905,6 +905,11 @@ ela contava como coberta. O legado tem ~20 campos e 4 detalhes (CFOPs permitidos
 esses campos — entre elas os **lançamentos de caixa da NF** (`GerarLancamentosDeCaixa`, udmNF.pas:9266: 1.011 em 2026,
 origem 'NF'; o Apollo não gera nenhum). Dossiê `UCadSituacaoNF.md`: **C1 (a tela) ✅ mig 317**; **C2 NF×CFOP ✅**; **C2b transferência ✅ (veredito: a importação de pedido/transferência está morta)**; **C3 rateio ✅**; **C4 caixa da NF ✅ (mig 319-320)**; **C5 restrições fora da NF ✅** (⚠️ o movimento de caixa gerencial F06 é conversão própria); **C6 ✅ (mig 321)**. **Situação do documento COMPLETA.**
 
+**⚠️ ALTA — A CAIXA GERENCIAL só é escrita pela NF e pelo OFX (achado de 24/09/2026, `CAIXA-escritores.md`).** Em 2026
+a CAIXA recebeu 8.759 linhas de títulos a pagar (R$ −25,7 mi, geradas pelo binário novo), 4.880 do scrap (R$ −7,3 mi),
+1.722 de baixa de cartão, 441 do contas a receber, 13.939 do fechamento de caixa… A DRE e o fluxo de caixa do Apollo
+leem a CAIXA: depois da virada, perderiam essas linhas. Épico transversal na fila.
+
 **✅ C1 entregue em 23/09/2026 (`uNF-importar-vendas.md`) — era: ⚠️ ALTA — A NF DE CUPOM não existe no Apollo (achado do C6, 23/09/2026).** O importar da NF tem 10 origens; o Apollo
 tinha devolução de compra e inventário rotativo, e ganhou o SCRAP (`42ffd69`). A origem **VENDAS** (`btnAddPedidoClick`
 opção 1, disparada pela situação 9 "NOTA FISCAL DE CUPOM" com `IMPORTACAO_AUTO_NF='VE'`) está viva e crescendo —
