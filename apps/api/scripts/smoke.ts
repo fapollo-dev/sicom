@@ -19313,6 +19313,78 @@ async function main() {
       }
     }
 
+    // ══ §172 LANÇAMENTO DE CAIXA (FRMMOVCAIXA, uMovCaixa, F06 — o binário de produção) ══
+    {
+      const pgMv = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const LC = 'cobranca/lancamento-caixa';
+      try {
+        const tp = (await pgMv.query(`SELECT codplc, tpconta FROM plc WHERE codplc IN (2, 3, 5)`)).rows as any[];
+        await pgMv.query(`UPDATE plc SET tpconta = 1 WHERE codplc IN (2, 3)`);
+        await pgMv.query(`UPDATE plc SET tpconta = 0 WHERE codplc = 5`);
+        await pgMv.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa)
+          SELECT 'FRMMOVCAIXA', o, 7, 1 FROM unnest(ARRAY['FRMMOVCAIXA', 'BTNADICIONARREGISTRO', 'BTNEDITAR', 'BTNEXCLUIR']) AS o
+           WHERE NOT EXISTS (SELECT 1 FROM permissoes p WHERE p.form = 'FRMMOVCAIXA' AND p.opcao = o AND p.codoperador = 7 AND p.codempresa = 1)`);
+        await pgMv.query(`INSERT INTO situacao_nf (idsituacao_nf, descricao, tipo, tipo_operacao, ativo) VALUES (99172, 'LANCAMENTO DE CAIXA SMOKE', 'S', 'F06', 'S') ON CONFLICT DO NOTHING`);
+        const conta = Number(((await pgMv.query(`SELECT codconta FROM contas_bancarias WHERE idempresa = 1 ORDER BY codconta LIMIT 1`)).rows[0] as any)?.codconta);
+        const corpo = { data: '2063-03-10', valor: 55.5, codplc: 2, codparceiro: 22, codconta: conta, idsituacao_nf: 99172, obs: 'taxa rede' };
+        const cr = await fetch(`${base}/${LC}`, { method: 'POST', headers: H, body: JSON.stringify(corpo) });
+        const crJ = (await cr.json().catch(() => ({}))) as any;
+        const cx = Number(crJ.codcx);
+        const lin = (await pgMv.query(`SELECT valor::float AS valor, origem, idorigem, obs, idlote, contabilizado, cadastrado_manualmente, tiporecurso, codconta, idempresa,
+            to_char(data AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS d FROM caixa WHERE codcx = $1`, [cx])).rows[0] as any;
+        const mcb = (await pgMv.query(`SELECT valor::float AS valor, tipomovimento, liberado, historico, codconta, idpgto FROM mov_contas_bancarias WHERE idlote = $1`, [lin?.idlote ?? -1])).rows as any[];
+        const apg = (await pgMv.query(`SELECT a.valor::float AS valor, a.quitada, a.obs, a.tipodoc, a.nrparcela, to_char(a.dtcompra, 'YYYY-MM-DD') AS dc, a.duplicata, a.codgrupo,
+            x.codcc, x.valor::float AS xv, x.tipo, b.valorpg::float AS pg, b.obs AS bobs, b.idlote AS blote
+            FROM apagar a LEFT JOIN cx_apagar x ON x.codgrupo = a.codgrupo LEFT JOIN apagar_bx b ON b.codapg = a.codapg WHERE a.codapg = $1`, [lin?.idorigem ?? -1])).rows[0] as any;
+        const rateioCaixa = Number(((await pgMv.query(`SELECT count(*)::int AS n FROM caixa WHERE codgrupo = $1 AND codcxapagar IS NOT NULL`, [apg?.codgrupo ?? -1])).rows[0] as any).n);
+        check('LANÇAMENTO DE CAIXA §172.1 [a despesa]: o centro de custo de despesa deixa o valor NEGATIVO (−55,50) e a linha nasce digitada (CADASTRADO_MANUALMENTE S), DINHEIRO, com o LOTE, a OBS em maiúsculas, CONTABILIZADO N e ORIGEM APAGAR; a movimentação bancária do lote é débito de −55,50 liberado com a OBS; e o binário novo gera o título A Pagar JÁ QUITADO (55,50, BOLETO, "1/1", "Documento gerado através do LANCAMENTO DE CAIXA  TITULO Nº: <lançamento>") com o rateio no CC (−55,50) e a baixa "DOCUMENTO BAIXADO VIA LANCAMENTO DE CAIXA …|LOTE:… | TAXA REDE" — sem a CAIXA do rateio (o lançamento é a linha)',
+          cr.status === 201 && lin?.valor === -55.5 && lin?.origem === 'APAGAR' && lin?.obs === 'TAXA REDE' && Number(lin?.idlote) > 0 && lin?.contabilizado === 'N'
+          && lin?.cadastrado_manualmente === 'S' && lin?.tiporecurso === 'DINHEIRO' && lin?.d === '2063-03-10'
+          && mcb.length === 1 && mcb[0].valor === -55.5 && mcb[0].tipomovimento === 'D' && mcb[0].liberado === 'S' && mcb[0].historico === 'TAXA REDE' && Number(mcb[0].codconta) === conta
+          && apg?.valor === 55.5 && apg?.quitada === 'S' && apg?.obs === `Documento gerado através do LANCAMENTO DE CAIXA  TITULO Nº: ${cx}` && apg?.tipodoc === 'BOLETO'
+          && apg?.nrparcela === '1/1' && apg?.dc === '2063-03-10' && apg?.duplicata === String(lin?.idorigem)
+          && Number(apg?.codcc) === 2 && apg?.xv === -55.5 && apg?.tipo === 'V' && apg?.pg === 55.5 && Number(apg?.blote) === Number(lin?.idlote)
+          && String(apg?.bobs).startsWith(`DOCUMENTO BAIXADO VIA LANCAMENTO DE CAIXA TITULO Nº: ${cx}, TITULO Nº: ${lin?.idorigem} |LOTE:${lin?.idlote} | TAXA REDE`)
+          && rateioCaixa === 0,
+          { cr: [cr.status, crJ.code, crJ.campos], lin, mcb, apg, rateioCaixa });
+
+        const rc = await fetch(`${base}/${LC}`, { method: 'POST', headers: H, body: JSON.stringify({ ...corpo, codplc: 5, valor: 10, obs: 'venda de sucata' }) });
+        const rcJ = (await rc.json().catch(() => ({}))) as any;
+        const rec = (await pgMv.query(`SELECT c.valor::float AS valor, c.origem, c.idorigem, m.tipomovimento, m.valor::float AS mv FROM caixa c JOIN mov_contas_bancarias m ON m.idlote = c.idlote WHERE c.codcx = $1`, [Number(rcJ.codcx)])).rows[0] as any;
+        const ed = await fetch(`${base}/${LC}/${cx}`, { method: 'PUT', headers: H, body: JSON.stringify({ ...corpo, valor: 70 }) });
+        const edL = (await pgMv.query(`SELECT c.valor::float AS valor, m.valor::float AS mv, a.valor::float AS av, a.tipodoc, x.valor::float AS xv
+            FROM caixa c JOIN mov_contas_bancarias m ON m.idlote = c.idlote JOIN apagar a ON a.codapg = c.idorigem JOIN cx_apagar x ON x.codgrupo = a.codgrupo WHERE c.codcx = $1`, [cx])).rows as any[];
+        const antigoTitulo = Number(((await pgMv.query(`SELECT count(*)::int AS n FROM apagar WHERE codapg = $1`, [lin?.idorigem ?? -1])).rows[0] as any).n);
+        const nfCx = (await pgMv.query(`SELECT codcx FROM caixa WHERE coalesce(cadastrado_manualmente, 'N') <> 'S' LIMIT 1`)).rows[0] as any;
+        const outra = nfCx ? await fetch(`${base}/${LC}/${nfCx.codcx}`, { method: 'PUT', headers: H, body: JSON.stringify(corpo) }) : null;
+        const outraJ = outra ? ((await outra.json().catch(() => ({}))) as any) : null;
+        await pgMv.query(`INSERT INTO situacao_nf_plc (idsituacao_nf, codplc) VALUES (99172, 3) ON CONFLICT DO NOTHING`);
+        const fora = await fetch(`${base}/${LC}`, { method: 'POST', headers: H, body: JSON.stringify(corpo) });
+        const foraJ = (await fora.json().catch(() => ({}))) as any;
+        const loteEd = Number(((await pgMv.query(`SELECT idlote FROM caixa WHERE codcx = $1`, [cx])).rows[0] as any)?.idlote);
+        const tituloEd = Number(((await pgMv.query(`SELECT idorigem FROM caixa WHERE codcx = $1`, [cx])).rows[0] as any)?.idorigem);
+        const del = await fetch(`${base}/${LC}/${cx}`, { method: 'DELETE', headers: H });
+        const sobra = (await pgMv.query(`SELECT (SELECT count(*)::int FROM caixa WHERE codcx = $1) AS c, (SELECT count(*)::int FROM mov_contas_bancarias WHERE idlote = $2) AS m,
+            (SELECT count(*)::int FROM apagar WHERE codapg = $3) AS a, (SELECT count(*)::int FROM apagar_bx WHERE codapg = $3) AS b`, [cx, loteEd, tituloEd])).rows[0] as any;
+        check('LANÇAMENTO DE CAIXA §172.2 [receita, edição, restrições e exclusão]: o CC de receita deixa o valor positivo (+10), ORIGEM DIN, crédito na conta e nenhum título; editar o valor para 70 refaz a linha, a movimentação e o título (70, BOLETO, rateio −70 — sem o título negativo "DINHEIRO" do legado) e o título velho sai; o lançamento de OUTRA operação não se edita aqui (422); o CC fora dos permitidos da situação é recusado (422 SITUACAO_CC_NAO_PERMITIDO); excluir leva a linha, a movimentação do lote e o título quitado com a baixa',
+          rc.status === 201 && rec?.valor === 10 && rec?.origem === 'DIN' && rec?.idorigem == null && rec?.tipomovimento === 'C' && rec?.mv === 10
+          && ed.status === 200 && edL.length === 1 && edL[0].valor === -70 && edL[0].mv === -70 && edL[0].av === 70 && edL[0].tipodoc === 'BOLETO' && edL[0].xv === -70
+          && antigoTitulo === 0
+          && (outra == null || (outra.status === 422 && outraJ.code === 'LANCAMENTO_CAIXA_DE_OUTRA_OPERACAO'))
+          && fora.status === 422 && foraJ.code === 'SITUACAO_CC_NAO_PERMITIDO'
+          && del.status === 204 && sobra?.c === 0 && sobra?.m === 0 && sobra?.a === 0 && sobra?.b === 0,
+          { rc: [rc.status, rcJ.code], rec, ed: ed.status, edL, antigoTitulo, outra: [outra?.status, outraJ?.code], fora: [fora.status, foraJ.code], del: del.status, sobra });
+
+        await pgMv.query(`DELETE FROM mov_contas_bancarias WHERE idlote = (SELECT idlote FROM caixa WHERE codcx = $1)`, [Number(rcJ.codcx)]);
+        await pgMv.query(`DELETE FROM caixa WHERE codcx = $1`, [Number(rcJ.codcx)]);
+        await pgMv.query(`DELETE FROM situacao_nf_plc WHERE idsituacao_nf = 99172`);
+        await pgMv.query(`DELETE FROM situacao_nf WHERE idsituacao_nf = 99172`);
+        for (const r of tp) await pgMv.query(`UPDATE plc SET tpconta = $1 WHERE codplc = $2`, [r.tpconta, r.codplc]);
+      } finally {
+        await pgMv.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

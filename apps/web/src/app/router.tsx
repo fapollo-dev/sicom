@@ -20,6 +20,7 @@ import { DreRelatorio } from '../features/dre/DreRelatorio';
 import { RazaoRelatorio } from '../features/razao/RazaoRelatorio';
 import { CaixaPage } from '../features/caixa/CaixaPage';
 import { FechamentoCaixaPage } from '../features/fechamento-caixa/FechamentoCaixaPage';
+import { LancamentoCaixaPage } from '../features/lancamento-caixa/LancamentoCaixaPage';
 import { OperadoresCadMaster } from '../features/operadores/OperadoresCadMaster';
 import { FormasPgtoCadMaster } from '../features/formas-pgto/FormasPgtoCadMaster';
 import { ParceirosCadMaster } from '../features/parceiros/ParceirosCadMaster';
@@ -185,6 +186,7 @@ export const router = createBrowserRouter([
       { path: '/cadastro/apagar', element: <ContasPagarCadMaster /> }, // contas a pagar (gêmea)
       { path: '/cobranca/caixa', element: <CaixaPage /> }, // caixa (sessão + movimento manual, corte-1)
       { path: '/cobranca/fechamento-caixa', element: <FechamentoCaixaPage /> }, // FRMFECHAMENTOCAIXA — conferência + rascunho (corte 1)
+      { path: '/cobranca/lancamento-caixa', element: <LancamentoCaixaPage /> }, // FRMMOVCAIXA — lançamento de caixa (F06)
       { path: '/estoque/ajuste', element: <AjusteEstoquePage /> }, // ajuste de estoque (move o saldo + kardex)
       { path: '/estoque/inventario', element: <InventarioPage /> }, // inventário (contagem física; sobrescreve o saldo)
       { path: '/estoque/inventario-rotativo', element: <InventarioRotativoPage /> }, // rotativo: lote (abrir/fechar) + zerar estoque
