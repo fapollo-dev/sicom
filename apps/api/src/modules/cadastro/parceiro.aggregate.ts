@@ -1,6 +1,7 @@
 import { parceiroSchema, atualizarParceiroSchema } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
+import { capturarAlteracaoParceiro } from '../sped/sped-alteracoes';
 
 /**
  * PARCEIROS (Cliente/Fornecedor/Funcionário/Transportador/Convênio) — tela UNIFICADA,
@@ -69,6 +70,11 @@ export const parceiroAggregateConfig: AggregateConfig = {
     { tabela: 'parceiros_vendedores', pk: 'codparceirovendedor', fk: 'codparceiro', chave: 'vendedores', colunas: ['codvendedor'] },
   ],
   colunasPesquisa: ['codparceiro', 'razao', 'fantasia', 'cnpj_cpf', 'cidade', 'uf', 'tipofj', 'cli', 'frn', 'fun', 'tra', 'con'],
+  // o registro 0175 do SPED: nome, documento, município ou endereço do participante mudou (uCadClientes.pas:2113-2114).
+  // No UPDATE o `validar` roda na transação do save, antes da troca dos endereços — lê o endereço ainda gravado.
+  validar: async ({ dto, id, db }) => {
+    if (id != null) await capturarAlteracaoParceiro(db, id, dto);
+  },
 };
 
 export const ParceiroAggregateController = createAggregateController({

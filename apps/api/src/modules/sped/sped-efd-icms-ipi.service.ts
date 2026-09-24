@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type Kysely } from 'kysely';
+import { alteracoesParaSped } from './sped-alteracoes';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -110,8 +111,14 @@ export class SpedEfdIcmsIpiService {
       const rows = (await db.selectFrom('produtos').select(['idproduto', 'descricao', 'codbarra', 'unidade', 'ncmsh', 'cest', 'aliquota']).where('idproduto', 'in', invProdIds).execute()) as Array<Record<string, any>>;
       for (const r of rows) { docs.produtos.set(Number(r.idproduto), r); const u = String(r.unidade ?? '').trim(); if (u) docs.unidades.add(u); }
     }
-    this.emitirCadastros(arq, docs);
+    // 0175/0205 — as alterações de cadastro do participante e do item (TB_SPEED_AUX; Uspedfiscal.pas:1548-1600, :1725-1750)
+    const alt0175 = await alteracoesParaSped(db, '0175', [...docs.parceiros.keys()], dtini, dtfim);
+    const alt0205 = await alteracoesParaSped(db, '0205', [...docs.produtos.keys()], dtini, dtfim);
+    this.emitirCadastros(arq, docs, { alt0175, alt0205, dtini, dtfim });
     arq.fecharBloco('0990', '0');
+    // o SPED marca como informadas as alterações que leu (REG_INFORMADO 'S'); regerar o mesmo período as traz de novo
+    const lidas = [...alt0175, ...alt0205].filter((r) => r.reg_informado === 'N').map((r) => Number(r.cod_speed_aux));
+    if (lidas.length) await sql`UPDATE tb_speed_aux SET reg_informado = 'S' WHERE cod_speed_aux = ANY(${lidas}::bigint[])`.execute(this.dbp.forTenant() as AnyDB);
 
     // BLOCO C — documentos de ENTRADA (crédito) + SAÍDA (débito)
     const { creditoIcms, debitoIcms } = this.emitirBlocoC(arq, docs);
@@ -332,17 +339,59 @@ export class SpedEfdIcmsIpiService {
   }
 
   /** 0150 (participantes) / 0190 (unidades) / 0200 (itens) — COD_PART=codparceiro / COD_ITEM=idproduto (consistente com o bloco C). */
-  private emitirCadastros(arq: SpedArquivo, docs: { parceiros: Map<number, Record<string, any>>; produtos: Map<number, Record<string, any>>; unidades: Set<string> }): void {
+  private emitirCadastros(
+    arq: SpedArquivo, docs: { parceiros: Map<number, Record<string, any>>; produtos: Map<number, Record<string, any>>; unidades: Set<string> },
+    alt: { alt0175: Array<Record<string, unknown>>; alt0205: Array<Record<string, unknown>>; dtini: string; dtfim: string } = { alt0175: [], alt0205: [], dtini: '', dtfim: '' },
+  ): void {
+    // DT_FIM fora do período vira o penúltimo dia dele (`GetDtFim0205`); DT_INI não passa do DT_FIM (`GetDtIni0205`)
+    const dtFimSped = (d: string) => {
+      if (d >= alt.dtini.slice(0, 10) && d <= alt.dtfim.slice(0, 10)) return d;
+      const f = new Date(`${alt.dtfim.slice(0, 10)}T00:00:00Z`);
+      f.setUTCDate(f.getUTCDate() - 1);
+      return f.toISOString().slice(0, 10);
+    };
+    const porCodigo = (rows: Array<Record<string, unknown>>) => {
+      const m = new Map<number, Array<Record<string, unknown>>>();
+      for (const r of rows) m.set(Number(r.codigo_registro), [...(m.get(Number(r.codigo_registro)) ?? []), r]);
+      return m;
+    };
+    const a0175 = porCodigo(alt.alt0175);
+    const a0205 = porCodigo(alt.alt0205);
+    const semAcento = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\|/g, ' ');
     for (const p of docs.parceiros.values()) {
       const doc = soDigitos(p.cnpj_cpf as string);
       // 0150 (12): COD_PART|NOME|COD_PAIS|CNPJ|CPF|IE|COD_MUN|SUFRAMA|ENDERECO|NUM|COMPL|BAIRRO
       arq.add('0150', [String(p.codparceiro), String(p.razao ?? '').trim(), '1058', doc.length === 14 ? doc : '', doc.length === 11 ? doc : '', '', p.idcidade != null ? String(p.idcidade) : '', '', String(p.endereco ?? '').trim().slice(0, 60), '', '', String(p.bairro ?? '').trim()]);
+      // 0175 (3): DT_ALT|NR_CAMPO|CONT_ANT — o CNPJ anterior vazio não é informado
+      for (const r of a0175.get(Number(p.codparceiro)) ?? []) {
+        if (r.campo === '05' && String(r.vl_anterior ?? '') === '') continue;
+        arq.add('0175', [fmtData(dtFimSped(String(r.dt_fim))), String(r.campo), semAcento(String(r.vl_anterior ?? ''))]);
+      }
     }
     for (const u of docs.unidades) arq.add('0190', [u, u]); // UNID|DESCR
     for (const p of docs.produtos.values()) {
       const ncm = String(p.ncmsh ?? '').replace(/\D/g, '');
       // 0200 (12): COD_ITEM|DESCR_ITEM|COD_BARRA|COD_ANT_ITEM|UNID_INV|TIPO_ITEM(00)|COD_NCM|EX_IPI|COD_GEN|COD_LST|ALIQ_ICMS|CEST
       arq.add('0200', [String(p.idproduto), String(p.descricao ?? '').trim(), String(p.codbarra ?? '').trim(), '', String(p.unidade ?? '').trim(), '00', ncm ? ncm.padStart(8, '0') : '', '', ncm.slice(0, 2), '', '', String(p.cest ?? '').trim()]);
+      // 0205 (4): DESCR_ANT_ITEM|DT_INI|DT_FIM|COD_ANT_ITEM — primeiro as descrições, depois os códigos; períodos
+      // sobrepostos do mesmo campo são pulados (`InsereRegistro0205`: o DT_INI tem de passar do DT_FIM anterior)
+      const rows = a0205.get(Number(p.idproduto)) ?? [];
+      for (const campo of ['DESCRICAO', 'CODBARRA']) {
+        let ultFim = '';
+        for (const r of rows.filter((x) => x.campo === campo)) {
+          const fim = dtFimSped(String(r.dt_fim));
+          let ini = String(r.dt_ini) >= fim ? fim : String(r.dt_ini);
+          if (ini === ultFim && ini < fim) {
+            const d = new Date(`${ini}T00:00:00Z`);
+            d.setUTCDate(d.getUTCDate() + 1);
+            ini = d.toISOString().slice(0, 10);
+          }
+          if (ultFim && ini <= ultFim) continue;
+          const anterior = String(r.vl_anterior ?? '').trim();
+          arq.add('0205', campo === 'DESCRICAO' ? [anterior.slice(0, 105), fmtData(ini), fmtData(fim), ''] : ['', fmtData(ini), fmtData(fim), anterior]);
+          ultFim = fim;
+        }
+      }
     }
   }
 

@@ -4,6 +4,7 @@ import { produtoSchema, atualizarProdutoSchema } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { capturarAlteracaoProduto } from '../sped/sped-alteracoes';
 
 /**
  * Unidade do produto (= PARA do fator de conversão, read-only no legado). Prioriza a unidade do dto
@@ -223,6 +224,9 @@ export const produtoAggregateConfig: AggregateConfig = {
         vistos.add(chave);
       }
     }
+    // o registro 0205 do SPED: a descrição ou o código de barras mudou (UCadProduto.pas:3072 → RegistroSPEED0205).
+    // No UPDATE o `validar` roda na transação do save — se a gravação falhar, a alteração não fica.
+    if (id != null) await capturarAlteracaoProduto(db, id, dto);
   },
   detalhes: [
     {

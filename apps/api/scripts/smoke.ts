@@ -13441,6 +13441,48 @@ async function main() {
           { c100Sai: c100Sai.slice(0, 30), c190Sai, e110: e110F, e116: e116F, val: efdFJ.validacao },
         );
 
+        // §90-0205/0175) as ALTERAÇÕES DE CADASTRO (TB_SPEED_AUX, mig 324): o save do produto e do parceiro captura; o SPED emite
+        const hojeSp = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+        const prodAntes = (await pgFi.query(`SELECT descricao FROM produtos WHERE idproduto = 1`)).rows[0] as any;
+        const parcAntes = (await pgFi.query(`SELECT razao FROM parceiros WHERE codparceiro = 20`)).rows[0] as any;
+        const putP = await fetch(`${base}/cadastro/produtos/1`, { method: 'PUT', headers: H, body: JSON.stringify({ descricao: 'PRODUTO SPED 0205 A' }) });
+        await fetch(`${base}/cadastro/produtos/1`, { method: 'PUT', headers: H, body: JSON.stringify({ descricao: 'PRODUTO SPED 0205 B' }) });
+        const capP = (await pgFi.query(`SELECT vl_anterior, vl_atual, campo, reg_informado, to_char(dt_fim AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS fim
+            FROM tb_speed_aux WHERE tipo_registro = '0205' AND codigo_registro = 1 ORDER BY cod_speed_aux`)).rows as any[];
+        const putC = await fetch(`${base}/cadastro/parceiros/20`, { method: 'PUT', headers: H, body: JSON.stringify({ razao: 'CLIENTE SPED 0175' }) });
+        const capC = (await pgFi.query(`SELECT vl_anterior, vl_atual, campo FROM tb_speed_aux WHERE tipo_registro = '0175' AND codigo_registro = 20 ORDER BY cod_speed_aux`)).rows as any[];
+        await fetch(`${base}/cadastro/produtos/1`, { method: 'PUT', headers: H, body: JSON.stringify({ descricao: prodAntes?.descricao }) });
+        await fetch(`${base}/cadastro/parceiros/20`, { method: 'PUT', headers: H, body: JSON.stringify({ razao: parcAntes?.razao }) });
+        check('SPED §90 [0205/0175 — a captura]: mudar a descrição do produto grava a alteração pendente (UCadProduto.pas:3072 → RegistroSPEED0205): valor anterior, atual e DT_FIM = hoje; mudar de novo ATUALIZA o pendente em vez de criar outro (GravaRegistro); mudar o nome do parceiro grava o 0175 campo 03 (uCadClientes.pas:2113)',
+          putP.status === 200 && capP.length === 1 && capP[0].campo === 'DESCRICAO' && capP[0].vl_anterior === 'PRODUTO SPED 0205 A' && capP[0].vl_atual === 'PRODUTO SPED 0205 B'
+          && capP[0].reg_informado === 'N' && capP[0].fim === hojeSp
+          && putC.status === 200 && capC.length === 1 && capC[0].campo === '03' && capC[0].vl_anterior === String(parcAntes?.razao ?? '') && capC[0].vl_atual === 'CLIENTE SPED 0175',
+          { putP: putP.status, capP, putC: putC.status, capC });
+        await pgFi.query(`DELETE FROM tb_speed_aux WHERE codigo_registro IN (1, 20)`);
+        const ts = (d: string) => `${d} 00:00:00-03`;
+        await pgFi.query(`INSERT INTO tb_speed_aux (tipo_registro, codigo_registro, vl_anterior, vl_atual, campo, dt_ini, dt_fim, reg_informado) VALUES
+          ('0205', 1, 'DESCRICAO ANTIGA', 'X', 'DESCRICAO', $1, $2, 'N'),
+          ('0205', 1, '7890000000001', '7890000000002', 'CODBARRA', $3, $4, 'N'),
+          ('0205', 1, 'FUTURA', 'Y', 'DESCRICAO', $4, $5, 'N'),
+          ('0175', 20, 'RAZAO ANTIGA', 'Z', '03', $6, $7, 'N'),
+          ('0175', 20, '3106200', '5300108', '08', $6, $7, 'N')`,
+          [ts('2026-10-01'), ts('2026-11-10'), ts('2026-11-02'), ts('2026-11-12'), ts('2026-12-05'), ts('2026-01-01'), ts('2026-11-15')]);
+        const efdAlt = (await (await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-01', dtfim: '2026-11-30' }) })).json().catch(() => ({}))) as any;
+        const linAlt = String(efdAlt.arquivo ?? '').split('\r\n');
+        const i0200 = linAlt.findIndex((l) => l.startsWith('|0200|1|'));
+        const i0150 = linAlt.findIndex((l) => l.startsWith('|0150|20|'));
+        const marcados = (await pgFi.query(`SELECT campo, reg_informado FROM tb_speed_aux WHERE codigo_registro IN (1, 20) ORDER BY tipo_registro, campo, cod_speed_aux`)).rows.map((r: any) => `${r.campo}:${r.reg_informado}`);
+        const efdAlt2 = (await (await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-01', dtfim: '2026-11-30' }) })).json().catch(() => ({}))) as any;
+        const repete = String(efdAlt2.arquivo ?? '').includes('|0205|DESCRICAO ANTIGA|01102026|10112026||') && String(efdAlt2.arquivo ?? '').includes('|0175|15112026|03|RAZAO ANTIGA|');
+        check('SPED §90 [0205/0175 — a emissão]: logo abaixo do 0200 do item sai o 0205 da descrição anterior (01/10 a 10/11) e o do código de barras anterior; a alteração depois do período fica para o próximo; abaixo do 0150 do participante, o 0175 do nome anterior (DT_ALT 15/11, campo 03); o município que mudou de UF não é 0175 (sqqSpeedAux). As lidas viram informadas, e regerar o mês as traz de novo; o arquivo valida (0175 com 3 campos, 0205 com 4)',
+          i0200 > 0 && linAlt[i0200 + 1] === '|0205|DESCRICAO ANTIGA|01102026|10112026||' && linAlt[i0200 + 2] === '|0205||02112026|12112026|7890000000001|'
+          && !linAlt.some((l) => l.startsWith('|0205|FUTURA|'))
+          && i0150 > 0 && linAlt[i0150 + 1] === '|0175|15112026|03|RAZAO ANTIGA|' && !linAlt.some((l) => l.startsWith('|0175|') && l.includes('|08|'))
+          && JSON.stringify(marcados) === JSON.stringify(['03:S', '08:N', 'CODBARRA:S', 'DESCRICAO:S', 'DESCRICAO:N'])
+          && repete && efdAlt.validacao?.ok === true,
+          { v0200: linAlt.slice(i0200, i0200 + 3), v0150: linAlt.slice(i0150, i0150 + 2), marcados, repete, val: efdAlt.validacao?.erros });
+        await pgFi.query(`DELETE FROM tb_speed_aux WHERE codigo_registro IN (1, 20)`);
+
         // §90b) CORTE-2 do épico da apuração: quando existe apuração GRAVADA do período, o E110 sai DELA — com os
         // ajustes manuais, os estornos, o saldo credor anterior e as deduções, que a derivação do bloco C nunca
         // teve (é o que o legado faz: ele LÊ a APURACAO_ICMS, não recalcula do bloco C).
