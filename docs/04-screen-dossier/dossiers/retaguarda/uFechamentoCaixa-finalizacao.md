@@ -117,8 +117,9 @@ A tela voltou para a fila por decisão do usuário ("corrija e siga"). Medido no
 - Abre em "Caixas em aberto" (`Ucxaberto.pas:108-155`: CX_VENDAS × OPERADORES × PDV × CAIXA_PDV). Verde = TESOURARIA 'S',
   vermelho = STATUS 'F'. F5 observação (CAIXA_OBS), F6 transferência.
 - Turno aberto: **completa o CX_VENDAS** com uma linha `NROPEDIDO='00000'` por modalidade de FORMAS_PGTO (DESTINO<>'QUE')
-  que falta (`:1583-1601`) e abre a finalização. Na produção essas linhas vêm `LANC_PROVISORIO='S'` (27.941 em 2026) — o
-  binário novo mudou isso; e vazam modalidades da outra empresa.
+  que falta (`:1583-1601`) e abre a finalização. Na produção essas linhas vêm `LANC_PROVISORIO='S'` (27.941 em 2026) —
+  ⚠️ correção (24/09): isso é do FONTE de 2020 (`UdmLancProv.pas:94-100`, o `OnNewRecord` do `cdsLancProv`), não do binário
+  novo; o `LANC_PROVISORIO_USUARIO` é o usuário logado. E vazam modalidades da outra empresa (§ corte 1).
 - Grade (`ProcessaSQL :1785-2006`): data+hora, PDV, operador, turno (CHAVE), operação, status (1 aberto, 2 F sem
   tesouraria, 3 tesouraria), empresa; exclui DESCONTO/ACRESCIMO/SANGRIA/SUPRIMENTO.
 - Ações: Fechar/Consultar, Abrir (`UabertCaixa`), Caixas abertos, Reabrir (`:504-1086`), Lançamento provisório (DADOSCX),
@@ -169,3 +170,62 @@ por modalidade, marcas, APAGAR do troco, reabertura do turno — FALTAM. SALDO_O
 3. **contábil + reabertura**: a semântica do legado (CAIXA por tipo de recurso, 2010; SALDO_OPERADOR com as situações de
    CONFIG 2002/2019; APAGAR CODGRUPO_FCX; CODORIGEM 17) e a reabertura completa.
 4. **acessórios**: lançamento provisório/DADOSCX, relatórios, comprovante, CAIXA_OBS, documentos manuais.
+
+---
+
+## CORTE 1 ENTREGUE (24/09/2026) — conferência + rascunho, sem efeito financeiro
+
+Mig 322 · `fechamento-caixa.service.ts` / `.controller.ts` · `FechamentoCaixaPage` (`/cobranca/fechamento-caixa`) · smoke §168 (7).
+Especificação lida no fonte e medida na produção (só leitura) — os números de cobertura abaixo são de 2026.
+
+### O que entrou
+- **Turnos do dia** (`Ucxaberto.pas:108-155`, `SQL_Sem_Chave` — `FECHAMENTO_CAIXA_SOMENTE_CHAVE='N'` na produção; o
+  `SQL_Com_Chave` existe para 'S' sem movimento sem chave no dia): PDV × operador × CHAVE × status; hora de entrada do
+  CAIXA_PDV ou, sem ela (PDVs 21-23 de autoatendimento), da própria CHAVE (PDV + ddmmyy + hhmiss). RBAC `BTNCXABERTO`.
+- **Detalhe do turno** (`ProcessaSQL` + `FormShow`): grade por operação (`cdsFechaVendas`: sistema = valor − troco − balcão −
+  sangrias + suprimentos; na prática valor − troco), exclui DESCONTO/ACRESCIMO/SANGRIA/SUPRIMENTO; REAL do rascunho; saldo
+  = real − |sistema|; sangria em dinheiro/cheque/outras e suprimento pelo HIST (tipo × destino da forma), com o valor do
+  rascunho quando > 0; adicionais do CAIXA_PDV ou, zerados, do HIST_RECARGA/CORRESPONDENTE/VOUCHER/TROCO_SOLIDARIO;
+  cancelamentos; descontos das vendas (informativo); diferença = real − (sistema + adicionais) + devolução em dinheiro.
+  Turno fechado = **consulta** (lê o rascunho sem o filtro de consolidado, lista documentos já conciliados, não grava).
+- **Abrir para fechar**: completa o CX_VENDAS (uma linha zerada por modalidade DESTINO<>'QUE' que falta, `'00000'`, 'C',
+  00:00 do dia, `LANC_PROVISORIO='S'` + data + usuário); insere a sangria/o fundo do CAIXA_PDV sem histórico ("Inserido
+  automaticamente pelo fechamento de caixa", forma = a única `%DINHEIRO%` — com mais de uma o subselect do legado falha e
+  a exceção é engolida: não insere); cria o TICKET que falta com a CHAVE (o binário novo grava; o fonte não).
+- **Documentos** (`UConsDocs`): CARTAO (TEF/CRT), ARECEBER (RCB), CHEQUE (CHQ/CHP, com a marca de sangria), TICKET (CXA com
+  "TICKET", sem filtro de chave, pelo líquido), HIST_DEVOLUCAO (DEV); filtros empresa, PDV, operador, `(forma OR
+  DINHEIRO)`, não conciliado (fora da consulta), CHAVE, dia; `EMPRESAS.FILTRAPDV='NAO'` deixa só o dia. Sangria: sempre
+  todos marcados. Na primeira vez nada vem marcado; depois, os do rascunho. Tecla T marca/desmarca todos.
+- **Rascunho** (`ProcessaFinalizaFechamento`): apaga as operações duplicadas inteiras (com chave); uma linha por operação
+  da grade + as 4 fixas + DINHEIRO CONTADO, todas mesmo zeradas, na data do caixa; `CODIFINFECH`/`CODDOCFEH` pelas
+  sequências (PK nova: únicos no Oracle); documentos marcados entram, desmarcados saem; a operação que não foi conferida
+  nesta vez fica como estava (o `cdsSel` do legado nasce do rascunho). O REAL é recalculado no servidor pela soma dos
+  documentos listáveis (o que foi mandado e não está na lista é recusado); DINHEIRO = contado + sangria − suprimento na
+  primeira linha que começa com DINHEIRO (o `Locate` parcial). `EMPRESAS.VALIDACAIXA='N'` trava o contado.
+
+### Decisões conscientes (defeitos do legado não copiados)
+1. **Vazamento de modalidade entre empresas** (22,6% dos turnos de 2026 levaram linha de completar de outra empresa: o
+   `cdsOperacoes` carregado uma vez no `FormShow`): aqui é sempre o FORMAS_PGTO da empresa do turno.
+2. **`LimpaRetorno` sem argumento** apagando a seleção da última modalidade (78 linhas de produção com REAL e sem DOC): o
+   REAL sai sempre dos documentos gravados.
+3. **Corte das horas no minuto 23:59**: o dia inteiro (em 2026 nenhuma venda entre 23:59:01 e 23:59:59).
+4. **Sem transação no legado** (autocommit + ApplyUpdates): aqui tudo numa transação.
+5. **Filtro de empresa** no HIST de sangria e no CAIXA_PDV (o legado filtra só PDV/operador/chave/dia): igual na prática
+   (a chave carrega PDV + data/hora) e necessário no tenant multiempresa.
+6. **Momento do TICKET**: o legado cria ao abrir o diálogo do ticket; aqui ao abrir o turno. Mesmo estado final para quem
+   confere (4 linhas de TICKET desde 2025).
+7. **A coluna "Venda Balcão" do dfm aponta para VALORB**: aqui mostra a VENDA_BALCAO (0 em 2026).
+
+### Tabelas (mig 322)
+HIST_SANGRIA_SUPRIMENTO ganha as 9 colunas do binário novo (IDENTIFICADOR, IDENTIFICADOR_MOVCB, CODOPERADOR_CADASTRO,
+…_FECHADO/LOTE/DATA, …_AUTENTICADO/LOTE/DATA) e sai da exclusão do plano ("PDV" era errado: o retaguarda lê e grava);
+TICKET (49), HIST_TROCO_SOLIDARIO (11.134), HIST_RECARGA/CORRESPONDENTE/VOUCHER/DEVOLUCAO (vazias, estrutura inteira)
+entram com todas as colunas; os vereditos "PDV" de TICKET e TROCO_SOLIDÁRIO no `conferir-tabelas-fora.py` saem.
+
+### Falta (cortes 2-4)
+- **Corte 2 — efetivar**: validações (conta por PDV×forma, documentos não marcados, LIMITE da quebra), CAIXA 'FECHAMENTO'
+  por linha, MCB FCP, CONTACORRENTEOP, SALDO_OPERADOR, quebra (ARECEBER 'Q' + CAIXA), marcas CONSILIADO/DTFECHAMENTOCX,
+  CX_VENDAS STATUS/TESOURARIA/CODGRUPO, `CONSOLIDADO='F'` (com a data de hoje, como o legado), APAGAR do troco solidário.
+- **Corte 3 — contábil + reabertura**. **Corte 4 — acessórios**: diálogos de recarga/voucher/troco, documentos manuais
+  (inserir/editar/excluir no diálogo, `USUARIOS_PERMITIDOS_EXCLUIR_DOCUMENTOS_FECHAMENTO`), CARTAO criado só com
+  `ReabriuCaixa`, lançamento provisório, F5 observação, F6 transferência, impressões.

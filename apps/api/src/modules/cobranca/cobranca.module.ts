@@ -60,6 +60,8 @@ import { DocumentosContabilService } from './documentos-contabil.service';
 import { SaldoEmpresaController } from './saldo-empresa.controller';
 import { SaldoEmpresaService } from './saldo-empresa.service';
 import { RelCaixaController } from './rel-caixa.controller';
+import { FechamentoCaixaController } from './fechamento-caixa.controller';
+import { FechamentoCaixaService } from './fechamento-caixa.service';
 import { RelCaixaService } from './rel-caixa.service';
 import { ConfigService } from '../cadastro/config.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
@@ -86,14 +88,16 @@ import { CadastroModule } from '../cadastro/cadastro.module';
     // FRMSALDOEMPRESA — o fluxo de caixa projetado (611 acessos).
     SaldoEmpresaController,
     // FRMRELCAIXA — divergências de caixa e caixas abertos (505 acessos).
-    RelCaixaController],
+    RelCaixaController,
+    // FRMFECHAMENTOCAIXA — a conferência do turno do PDV e o rascunho (corte 1 do fechamento de caixa).
+    FechamentoCaixaController],
   providers: [FluxoCartoesService, DescontoTituloService, DescontoTituloExecService, ConsCliRcbService, ConsApgBxService, ConsRcbBxService, PeriodoContabilCadService, ExtratoClientesService, ExtratoFuncionarioService, CaixaDmeService, RelBalancoService, GerarFinanceiroLoteService, RelDiarioContabilService, BalanceteService, 
     LotesCobrancaService, LoteCobrancaRepository,
     AreceberService, AreceberBaixaService, AreceberAgrupamentoService, ApagarService, ApagarBaixaService, ApagarAgrupamentoService,
     CaixaService, CaixaContabilService, CaixaPdvContabilService, CaixaConferenciaService, BaixaContabilService,
     CnabRemessaService, AdiantamentoFornService, ConfigService,
     // INTEGRAÇÃO CONTÁBIL (FRMTRON) corte-1: baixa de cartões — origens 51 (baixa), 61 (taxa) e 62 (outras despesas).
-    CartaoContabilService, BaixaTronContabilService, DocumentosContabilService, ConfigIntegracaoContabilService, ConfIntegBancariaService, SaldoEmpresaService, RelCaixaService,
+    CartaoContabilService, BaixaTronContabilService, DocumentosContabilService, ConfigIntegracaoContabilService, ConfIntegBancariaService, SaldoEmpresaService, RelCaixaService, FechamentoCaixaService,
     DatabaseProvider,
   ],
   exports: [LotesCobrancaService],

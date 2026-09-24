@@ -364,6 +364,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('319_caixa_codgrupo.sql'));
   await pool.query(sql('320_tipos_do_legado.sql'));
   await pool.query(sql('321_situacao_importacao_auto.sql'));
+  await pool.query(sql('322_fechamento_conferencia.sql'));
   await pool.end();
   return pg;
 }

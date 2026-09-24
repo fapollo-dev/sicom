@@ -921,7 +921,9 @@ NF. As outras origens estão mortas na produção (PEDIDO/TRANSFERÊNCIA desde 2
 **A finalização do fechamento de caixa volta para a fila (decisão do usuário, 23/09/2026: "corrija e siga").** Tinha
 saído em 19/08 pela regra "nada de PDV" — interpretação minha, não do usuário: é a tesouraria do RETAGUARDA
 consolidando o que os PDVs apuraram (`FINALIZA_FECHAMENTO` 386 mil + `DOC_FECHAMENTO` 2,1 mi, vivas;
-`FRMFECHAMENTOCAIXA` 64.854 acessos). Os dados entram (mig 311); a conversão está em andamento
+`FRMFECHAMENTOCAIXA` 64.854 acessos). Os dados entram (mig 311); **corte 1 (conferência + rascunho) ✅ 24/09/2026**
+(mig 322: turnos, detalhe, completar o CX_VENDAS, sangria automática, documentos, FF/DOC, consulta; tela
+`/cobranca/fechamento-caixa`); falta o efetivar (corte 2), contábil/reabertura (3) e acessórios (4)
 (`uFechamentoCaixa-finalizacao.md`).
 
 **Correções de vereditos antigos:** a FILA dizia que o inventário de tabelas vivas sem destino estava fechado — não

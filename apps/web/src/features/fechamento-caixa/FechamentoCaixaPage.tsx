@@ -1,0 +1,312 @@
+import { useMemo, useState } from 'react';
+import { Modal, PageHeader } from '@apollosg/design-system';
+import { DateField } from '../../shared/ui/DateField';
+import { Field } from '../../shared/ui/Field';
+import { Button } from '../../shared/ui/Button';
+import { CheckboxField } from '../../shared/ui/CheckboxField';
+import { useMensagem } from '../../shared/mensagem';
+import {
+  abrirTurno, detalheTurno, documentosTurno, listarTurnos, salvarRascunho,
+  type DetalheTurno, type Documentos, type Fixa, type LinhaFechamento, type TurnoRef, type TurnoResumo,
+} from './fechamentoCaixaApi';
+
+/**
+ * FECHAMENTO DE CAIXA (`FRMFECHAMENTOCAIXA`, 41 mil acessos) — corte 1: a CONFERÊNCIA do turno do PDV e o RASCUNHO
+ * (dossiê uFechamentoCaixa-finalizacao.md). Os turnos do dia ("Caixas em aberto"); abrir um turno aberto completa o
+ * movimento com as modalidades zeradas e abre a finalização; cada operação é conferida pelos documentos (cartões,
+ * convênios, cheques, tickets) e o dinheiro pelo contado + sangria − suprimento. O rascunho é gravado ao sair, como
+ * no legado. Efetivar o fechamento (caixa, conta do operador, quebra) é o próximo corte.
+ */
+const moeda = (v: number | null | undefined) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const hoje = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+const hora = (v: string | null) => (v ? v.slice(11, 16) : '');
+const r2 = (n: number) => Math.round((n + (n >= 0 ? Number.EPSILON : -Number.EPSILON)) * 100) / 100;
+const SITUACAO: Record<number, { rotulo: string; cor: string }> = {
+  1: { rotulo: 'Aberto', cor: 'text-fg-default' },
+  2: { rotulo: 'Fechado no caixa', cor: 'text-fg-danger' },
+  3: { rotulo: 'Fechado na tesouraria', cor: 'text-fg-success' },
+};
+const FIXAS: Fixa[] = ['SANGRIA EM DINHEIRO', 'SANGRIA EM CHEQUE', 'OUTRAS SANGRIAS', 'SUPRIMENTO'];
+
+interface Conferida { codigos: number[]; total: number }
+
+export function FechamentoCaixaPage() {
+  const mensagem = useMensagem();
+  const [data, setData] = useState(hoje());
+  const [turnos, setTurnos] = useState<TurnoResumo[] | null>(null);
+  const [ref, setRef] = useState<TurnoRef | null>(null);
+  const [det, setDet] = useState<DetalheTurno | null>(null);
+  const [contado, setContado] = useState('0');
+  const [conferidas, setConferidas] = useState<Map<string, Conferida>>(new Map());
+  const [docs, setDocs] = useState<{ d: Documentos; marcados: Set<number>; aConferir: number } | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+
+  const executar = async (f: () => Promise<void>) => {
+    setOcupado(true);
+    try { await f(); } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  };
+
+  const pesquisar = () => executar(async () => { setTurnos(await listarTurnos(data)); });
+
+  const carregar = (d: DetalheTurno) => {
+    setDet(d);
+    setContado(String(d.dinheiroContado ?? 0));
+    setConferidas(new Map());
+  };
+
+  const abrir = (t: TurnoResumo) => executar(async () => {
+    const r: TurnoRef = { data, chave: t.chave, nropdv: t.nropdv, codoperadora: t.codoperadora, situacao: t.situacao };
+    setRef(r);
+    // turno aberto: completa o movimento e abre para fechar; fechado: consulta
+    carregar(t.situacao === 1 ? await abrirTurno(r) : await detalheTurno(r));
+  });
+
+  const consulta = det?.modo !== 'fechamento';
+  const contadoNum = Number(String(contado).replace(',', '.')) || 0;
+
+  const realDe = (l: LinhaFechamento): number => {
+    if (!det || consulta) return l.real ?? 0;
+    const c = conferidas.get(l.operacao);
+    if (c) return c.total;
+    if (l.linhaDinheiro && det.contadoHabilitado) return r2(contadoNum + det.fixas['SANGRIA EM DINHEIRO'] - det.fixas.SUPRIMENTO);
+    return l.real ?? 0;
+  };
+
+  const totais = useMemo(() => {
+    if (!det) return null;
+    const real = r2(det.linhas.reduce((s, l) => s + realDe(l), 0));
+    return { real, diferenca: r2(real - det.totais.fechamento + det.totais.devolucaoDinheiro) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [det, conferidas, contadoNum]);
+
+  const verDocumentos = (operacao: string, aConferir: number) => executar(async () => {
+    if (!ref) return;
+    const d = await documentosTurno(ref, operacao);
+    const c = conferidas.get(operacao);
+    setDocs({ d, aConferir, marcados: new Set(c ? c.codigos : d.documentos.filter((x) => x.sel).map((x) => x.codigo)) });
+  });
+
+  const alternar = (cod: number) => setDocs((s) => {
+    if (!s || !s.d.marcacaoLivre) return s;
+    const m = new Set(s.marcados);
+    if (m.has(cod)) m.delete(cod); else m.add(cod);
+    return { ...s, marcados: m };
+  });
+  // a tecla T do legado: marca todos se nem todos estão marcados, senão desmarca (UConsDocs.pas:1601)
+  const marcarTodos = () => setDocs((s) => {
+    if (!s || !s.d.marcacaoLivre) return s;
+    const todos = s.marcados.size === s.d.documentos.length;
+    return { ...s, marcados: todos ? new Set() : new Set(s.d.documentos.map((x) => x.codigo)) };
+  });
+
+  // fechar o diálogo confirma (RealizaConf): a seleção da operação vira o REAL dela
+  const confirmarDocs = () => {
+    if (!docs) return;
+    if (docs.d.marcacaoLivre && !consulta) {
+      const codigos = docs.d.documentos.filter((x) => docs.marcados.has(x.codigo)).map((x) => x.codigo);
+      const total = r2(docs.d.documentos.filter((x) => docs.marcados.has(x.codigo)).reduce((s, x) => s + x.valor, 0));
+      setConferidas((m) => new Map(m).set(docs.d.operacao, { codigos, total }));
+    }
+    setDocs(null);
+  };
+
+  const gravar = async () => {
+    if (!ref || !det || consulta) return;
+    const r = await salvarRascunho(ref, {
+      dinheiroContado: contadoNum,
+      documentos: [...conferidas].map(([operacao, c]) => ({ operacao, codigos: c.codigos })),
+    });
+    carregar(r);
+  };
+
+  const salvar = () => executar(async () => { await gravar(); mensagem.sucesso('Conferência gravada.'); });
+  // sair da finalização grava o rascunho, como o FormClose do legado
+  const voltar = () => executar(async () => {
+    await gravar();
+    setDet(null);
+    setRef(null);
+    setTurnos(await listarTurnos(data));
+  });
+
+  const aConferirDocs = docs ? r2(docs.d.documentos.filter((x) => docs.marcados.has(x.codigo)).reduce((s, x) => s + x.valor, 0)) : 0;
+
+  return (
+    <div className="flex flex-col gap-gp-md">
+      <PageHeader title="Fechamento de caixa" />
+
+      {!det && (
+        <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <div className="flex flex-wrap items-end gap-gp-sm">
+            <div className="w-44"><DateField label="&Data do caixa" value={data} onChange={(v) => setData(v ?? hoje())} /></div>
+            <Button label="&Caixas do dia" variant="soft" onClick={() => void pesquisar()} disabled={ocupado} />
+          </div>
+          {turnos && (turnos.length === 0
+            ? <small className="text-fg-muted">Nenhum movimento de PDV nesta data.</small>
+            : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-fg-muted">
+                      <th className="px-2 py-1">PDV</th><th className="px-2 py-1">Operador(a)</th><th className="px-2 py-1">Entrada</th>
+                      <th className="px-2 py-1">Saída</th><th className="px-2 py-1">Situação</th><th className="px-2 py-1" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {turnos.map((t) => (
+                      <tr key={`${t.nropdv}-${t.codoperadora}-${t.chave}-${t.situacao}`} className="border-t border-border">
+                        <td className="px-2 py-1 tabular-nums">{t.nropdv}</td>
+                        <td className="px-2 py-1">{t.codoperadora} — {t.nome ?? ''}</td>
+                        <td className="px-2 py-1 tabular-nums" title={t.horaDaChave ? 'Hora tirada da chave do turno' : undefined}>{hora(t.horaentrada)}{t.horaDaChave ? '*' : ''}</td>
+                        <td className="px-2 py-1 tabular-nums">{t.horasaida ? hora(t.horasaida) : <span className="text-fg-muted">não fechado no PDV</span>}</td>
+                        <td className={`px-2 py-1 ${SITUACAO[t.situacao].cor}`}>{SITUACAO[t.situacao].rotulo}</td>
+                        <td className="px-2 py-1 text-right">
+                          <Button label={t.situacao === 1 ? 'Fechar caixa' : 'Consultar caixa'} variant="ghost" onClick={() => void abrir(t)} disabled={ocupado} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+        </section>
+      )}
+
+      {det && totais && (
+        <>
+          <section className="flex flex-wrap items-center justify-between gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
+            <div className="flex flex-col">
+              <strong>{consulta ? 'Consulta do fechamento de caixa' : 'Conferência do caixa'}</strong>
+              <small className="text-fg-muted">
+                Operador(a) {det.turno.codoperadora} — {det.turno.nome ?? ''} · PDV {det.turno.nropdv} · {det.turno.data.split('-').reverse().join('/')}
+                {det.completadas ? ` · ${det.completadas} modalidade(s) incluída(s) zerada(s)` : ''}
+              </small>
+            </div>
+            <div className="flex flex-wrap gap-gp-sm">
+              {!consulta && <Button label="&Gravar conferência" onClick={() => void salvar()} disabled={ocupado} />}
+              <Button label="&Voltar" variant="soft" onClick={() => void voltar()} disabled={ocupado} />
+            </div>
+          </section>
+
+          <section className="grid grid-cols-1 gap-gp-sm sm:grid-cols-3">
+            <div className="rounded-radius-md border border-border bg-bg-surface p-pad-sm">
+              <small className="text-fg-muted">Total do fechamento (sistema + adicionais)</small>
+              <div className="text-body-lg tabular-nums">{moeda(det.totais.fechamento)}</div>
+            </div>
+            <div className="rounded-radius-md border border-border bg-bg-surface p-pad-sm">
+              <small className="text-fg-muted">Total conferido</small>
+              <div className="text-body-lg tabular-nums">{moeda(totais.real)}</div>
+            </div>
+            <div className="rounded-radius-md border border-border bg-bg-surface p-pad-sm">
+              <small className="text-fg-muted">Diferença</small>
+              <div className={`text-body-lg tabular-nums ${totais.diferenca < 0 ? 'text-fg-danger' : totais.diferenca > 0 ? 'text-fg-success' : ''}`}>{moeda(totais.diferenca)}</div>
+            </div>
+          </section>
+
+          <section className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-fg-muted">
+                  <th className="px-2 py-1">Operação</th><th className="px-2 py-1 text-right">Valor bruto</th><th className="px-2 py-1 text-right">Troco</th>
+                  <th className="px-2 py-1 text-right">Sistema</th><th className="px-2 py-1 text-right">Real</th><th className="px-2 py-1 text-right">Saldo</th><th className="px-2 py-1" />
+                </tr>
+              </thead>
+              <tbody>
+                {det.linhas.map((l) => {
+                  const real = realDe(l);
+                  const saldo = r2(real - Math.abs(l.valor));
+                  const temDocs = l.tipo && l.tipo !== 'DINHEIRO';
+                  return (
+                    <tr key={l.operacao} className="border-t border-border">
+                      <td className="px-2 py-1">{l.operacao}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{moeda(l.valorb)}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{moeda(l.troco)}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{moeda(l.valor)}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{moeda(real)}</td>
+                      <td className={`px-2 py-1 text-right tabular-nums ${saldo < 0 ? 'text-fg-danger' : ''}`}>{moeda(saldo)}</td>
+                      <td className="px-2 py-1 text-right">
+                        {temDocs && <Button label="Documentos" variant="ghost" onClick={() => void verDocumentos(l.operacao, l.valor)} disabled={ocupado} />}
+                        {l.linhaDinheiro && <small className="text-fg-muted">contado + sangria − suprimento</small>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </section>
+
+          <section className="grid grid-cols-1 gap-gp-md rounded-radius-md border border-border bg-bg-surface p-pad-md md:grid-cols-2">
+            <div className="flex flex-col gap-gp-xs">
+              <strong className="text-body-sm">Dinheiro, sangrias e suprimento</strong>
+              <div className="w-48">
+                <Field label="Dinheiro &contado" inputMode="decimal" value={contado} disabled={consulta || !det.contadoHabilitado}
+                  onChange={(e) => setContado(e.target.value.replace(/[^\d.,-]/g, ''))} />
+              </div>
+              {FIXAS.map((fx) => (
+                <div key={fx} className="flex items-center justify-between gap-gp-sm">
+                  <span>{fx.charAt(0) + fx.slice(1).toLowerCase()}</span>
+                  <span className="flex items-center gap-gp-xs tabular-nums">
+                    {moeda(det.fixas[fx])}
+                    <Button label="Ver" variant="ghost" onClick={() => void verDocumentos(fx, det.fixas[fx])} disabled={ocupado} />
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-col gap-gp-xs">
+              <strong className="text-body-sm">Adicionais e informativos</strong>
+              {([
+                ['Recarga', det.adicionais.recarga], ['Correspondente', det.adicionais.correspondente],
+                ['Voucher', det.adicionais.voucher], ['Troco solidário', det.adicionais.trocoSolidario],
+                ['Venda líquida do operador', det.totais.valor], ['Cancelamentos', det.cancelamentos], ['Descontos nas vendas', det.descontos],
+              ] as Array<[string, number]>).map(([k, v]) => (
+                <div key={k} className="flex justify-between gap-gp-sm"><span>{k}</span><span className="tabular-nums">{moeda(v)}</span></div>
+              ))}
+            </div>
+          </section>
+        </>
+      )}
+
+      {docs && (
+        <Modal
+          open
+          onClose={confirmarDocs}
+          size="lg"
+          title={`Documentos — ${docs.d.operacao}`}
+          primaryAction={{ label: 'Confirmar', onClick: confirmarDocs }}
+          secondaryAction={docs.d.marcacaoLivre ? { label: 'Marcar/desmarcar todos (T)', onClick: marcarTodos } : undefined}
+        >
+          <div
+            className="flex flex-col gap-gp-sm"
+            onKeyDown={(e) => { if ((e.key === 't' || e.key === 'T') && !(e.target instanceof HTMLInputElement && e.target.type !== 'checkbox')) { e.preventDefault(); marcarTodos(); } }}
+          >
+            <small>
+              A conferir <strong className="tabular-nums">{moeda(docs.aConferir)}</strong> · Conferido <strong className="tabular-nums">{moeda(aConferirDocs)}</strong>
+              {' '}· {docs.marcados.size} de {docs.d.documentos.length} documento(s)
+            </small>
+            {docs.d.documentos.length === 0
+              ? <small className="text-fg-muted">Nenhum documento para esta operação.</small>
+              : (
+                <div className="max-h-96 overflow-auto rounded-md border border-border">
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {docs.d.documentos.map((x) => (
+                        <tr key={x.codigo} className="border-t border-border">
+                          <td className="px-2 py-1">
+                            <CheckboxField
+                              label={`${x.codigo} · ${String(x.nropedido ?? x.nrocupom ?? x.descricao ?? x.nrocheque ?? '')}${x.razao ? ` · ${String(x.razao)}` : ''}${x.operadora ? ` · ${String(x.operadora)}` : ''}`}
+                              value={docs.marcados.has(x.codigo) ? 'S' : 'N'}
+                              onChange={() => alternar(x.codigo)}
+                            />
+                          </td>
+                          <td className="px-2 py-1 text-right tabular-nums">{moeda(x.valor)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}

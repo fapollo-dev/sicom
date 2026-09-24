@@ -513,6 +513,10 @@ const CODE_PT: Record<string, string> = {
   VENDA_JA_IMPORTADA: 'Cupom fiscal já importado. Informe a senha administrativa para continuar.',
   PERIODO_OBRIGATORIO: 'Informe o período (data inicial e final).',
   SENHA_ADM_INVALIDA: 'Senha administrativa inválida.',
+  // o fechamento de caixa — conferência e rascunho (UfinalizaFechamento.pas)
+  FECHAMENTO_DATA_OBRIGATORIA: 'Informe a data do caixa.',
+  FECHAMENTO_CAIXA_CONSULTA: 'Este caixa já foi fechado: a conferência está em modo consulta e não grava.',
+  FECHAMENTO_OPERACAO_FORA_DO_TURNO: 'A operação informada não faz parte do movimento deste caixa.',
   // restrições da situação do documento fora da NF (UCadSituacaoNF.md C5) — as mensagens de cada tela do legado
   SITUACAO_FORNECEDOR_NAO_PERMITIDO: 'O fornecedor informado não é permitido para a situação do documento selecionada.',
   SITUACAO_CLIENTE_NAO_PERMITIDO: 'O cliente informado não é permitido para a situação do documento selecionada.',

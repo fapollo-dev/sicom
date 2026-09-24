@@ -75,8 +75,6 @@ VEREDITOS = {
     'VENDAS_DASHBOARD': ('EXTERNA', 'cópia de VENDAS feita uma vez em 05/08/2026 para 26 views GET_APOLLOGESTOR_*'),
     'PAINEL1': ('MORTA', 'painel de notificação do PDV, última em 31/05/2023'),
     # ── caixa, financeiro, cartão ───────────────────────────────────────────────────────────────────────────────
-    'HIST_TROCO_SOLIDARIO': ('PDV', 'gravada pelo PDV (vendas Uvenda.pas:5678); o resultado financeiro é o APAGAR origem T'),
-    'TICKET': ('PDV', 'sem INSERT no retaguarda; CONSILIADO nulo em 49/49'),
     'HIST_VALE_TROCO': ('PDV', 'PDV Uvenda.pas:5686 + API ValeTroco; HIST_VALE_TROCO_BX tem 0 linhas'),
     'HIST_COMANDA': ('PDV', 'log do PDV (Udm.pas:5265), STATUS=CONSULTADA em 23/23'),
     'CONS_REG10': ('AUX', 'TRUNCATE em UbaixaCartao.pas:1618 e DELETE por conciliadora antes de refazer'),

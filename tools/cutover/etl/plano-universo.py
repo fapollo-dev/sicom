@@ -41,7 +41,6 @@ TABELA_ORIGEM = {
 # o que NÃO entra, com motivo (fica no JSON para quem ler o plano)
 EXCLUSOES = {
     'historico_pdv': 'PDV — instrução do usuário (19/08): nada de PDV; a tabela existe no destino só como estrutura',
-    'hist_sangria_suprimento': 'PDV (sangria/suprimento é do fechamento por PDV, fora da regra)',
     # estava só no JSON, posta à mão — a regeneração de 23/09/2026 a apagou; agora mora aqui
     'REMESSA_LOTE': 'log de REPLICACAO, nao regra: 11.048.221 linhas de (tabela, id, data) apontando outras tabelas (HISTORICO_PDV, ARECEBER, CX_VENDAS, NFC, VENDAS) — e o Apollo tem outro mecanismo de sincronizacao. Migrar o log de sincronismo do legado nao reproduz regra nenhuma.',
 }

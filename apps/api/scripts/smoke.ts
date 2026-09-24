@@ -18802,6 +18802,162 @@ async function main() {
       }
     }
 
+    // ══ §168 FECHAMENTO DE CAIXA, corte 1: a conferência do turno e o rascunho (mig 322; uFechamentoCaixa-finalizacao.md) ══
+    {
+      const pgFc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const FC = 'cobranca/fechamento-caixa';
+      const DIA = '2037-09-22';
+      const CH = '77220937073450';   // PDV 77 + 22/09/37 + 07:34:50
+      const CH78 = '78220937061500'; // PDV 78, autoatendimento: sem HORAENTRADA no CAIXA_PDV
+      const ts = (h: string) => `${DIA} ${h}-03`;
+      const r2s = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+      const q = (extra = '') => `data=${DIA}&chave=${CH}&nropdv=77&codoperadora=7${extra}`;
+      try {
+        const opr = Number(((await pgFc.query(`SELECT min(codoperadoras) AS c FROM operadoras`)).rows[0] as any).c);
+        await pgFc.query(`INSERT INTO formas_pgto (idempresa, modalidade, atalho, destino) VALUES (1, 'TICKETS', 'T7', 'CXA')`);
+        const ins = async (op: string, valor: number, troco: number, ped: string, hora: string, chave = CH, pdv = 77) =>
+          pgFc.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, debito_credito, valor, troco, nropedido, chave)
+            VALUES (1, $1, $2, 7, $3, 'C', $4, $5, $6, $7)`, [ts(hora), pdv, op, valor, troco, ped, chave]);
+        await ins('DINHEIRO', 100, 10, '770001', '10:00:00');
+        await ins('DINHEIRO', 50, 0, '770007', '10:05:00');
+        await ins('CARTOES', 80, 0, '770002', '11:00:00');
+        await ins('CARTOES', 40.5, 0, '770003', '12:00:00');
+        await ins('CARTOES', 9.5, 0, '770005', '23:30:00');   // 02:30 UTC do dia seguinte — o dia é o da loja
+        await ins('CONVENIO', 30, 0, '770004', '13:00:00');
+        await ins('TICKETS', 25, 0, '770006', '14:00:00');
+        await ins('SANGRIA', 60, 0, '770008', '15:00:00');     // fora da grade
+        await ins('DINHEIRO', 12, 0, '780001', '09:00:00', CH78, 78);
+        await pgFc.query(`INSERT INTO caixa_pdv (codcaixa, codpdv, codoperadora, data, horaentrada, chave, idempresa, sangria, fundocaixa)
+          VALUES (9916801, 77, 7, $1, $2, $3, 1, 60, 20), (9916802, 78, 7, $4, NULL, $5, 1, 0, 0)`, [ts('07:34:50'), ts('07:34:50'), CH, ts('06:15:00'), CH78]);
+        const cartao = async (valor: number, hora: string, ped: string, chave: string | null, consiliado: string | null) =>
+          Number(((await pgFc.query(`INSERT INTO cartao (idempresa, codoperadora, idpgto, dtvenda, valor, codpdv, codoperador, nropedido, chave, consiliado)
+            VALUES (1, $1, 3, $2, $3, 77, 7, $4, $5, $6) RETURNING codvendcartao`, [opr, ts(hora), valor, ped, chave, consiliado])).rows[0] as any).codvendcartao);
+        const c80 = await cartao(80, '11:00:00', '770002', CH, null);
+        const c40 = await cartao(40.5, '12:00:00', '770003', CH, null);
+        const c9 = await cartao(9.5, '23:30:00', '770005', CH, null);
+        const cOutraChave = await cartao(7, '11:10:00', '779999', '77220937000000', null);
+        const cConc = await cartao(3, '11:20:00', '779998', CH, 'S');
+        const r30 = Number(((await pgFc.query(`INSERT INTO areceber (codempresa, idpgto, dtvenda, dtvenc, valor, codpdv, codoperador, nrocupom, chave)
+          VALUES (1, 4, $1, $1, 30, 77, 7, '770004', $2) RETURNING codrcb`, [ts('13:00:00'), CH])).rows[0] as any).codrcb);
+
+        // RBAC: a lista de turnos é o botão "Caixas abertos"
+        const semGrant = await fetch(`${base}/${FC}/turnos?data=${DIA}`, { headers: H });
+        await pgFc.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) SELECT 'FRMFECHAMENTOCAIXA', 'BTNCXABERTO', 7, 1
+          WHERE NOT EXISTS (SELECT 1 FROM permissoes WHERE form = 'FRMFECHAMENTOCAIXA' AND opcao = 'BTNCXABERTO' AND codoperador = 7 AND codempresa = 1)`);
+        const turnos = (await (await fetch(`${base}/${FC}/turnos?data=${DIA}`, { headers: H })).json().catch(() => [])) as any[];
+        const t77 = turnos.find((t) => t.chave === CH);
+        const t78 = turnos.find((t) => t.chave === CH78);
+        check('FECHAMENTO §168.1 [a lista de turnos do dia]: "Caixas em aberto" (Ucxaberto.pas:108) — um turno por PDV × operador × CHAVE × status, com a hora de entrada do CAIXA_PDV; no PDV de autoatendimento, sem HORAENTRADA, a hora sai da própria CHAVE (PDV + ddmmyy + hhmiss). Sem o botão BTNCXABERTO é 403',
+          semGrant.status === 403 && t77?.nropdv === 77 && t77?.codoperadora === 7 && t77?.situacao === 1 && t77?.horaentrada === '2037-09-22 07:34:50' && t77?.horaDaChave === false
+          && t78?.horaentrada === '2037-09-22 06:15:00' && t78?.horaDaChave === true,
+          { semGrant: semGrant.status, t77, t78 });
+
+        const antes = (await (await fetch(`${base}/${FC}/turno?${q()}`, { headers: H })).json().catch(() => ({}))) as any;
+        const lin = (d: any, op: string) => (d.linhas ?? []).find((l: any) => l.operacao === op);
+        check('FECHAMENTO §168.2 [a finalização soma o turno por operação]: DINHEIRO 150 bruto − 10 de troco = 140; CARTOES 130 com a venda das 23:30 (02:30 UTC do dia seguinte — o dia é o da loja); CONVENIO 30; TICKETS 25; a SANGRIA não é linha da grade. Turno aberto = modo fechamento, e a sangria (60) e o fundo de caixa (20) do CAIXA_PDV sem histórico ficam pendentes de inserção',
+          antes.modo === 'fechamento' && lin(antes, 'DINHEIRO')?.valorb === 150 && lin(antes, 'DINHEIRO')?.troco === 10 && lin(antes, 'DINHEIRO')?.valor === 140
+          && lin(antes, 'CARTOES')?.valor === 130 && lin(antes, 'CONVENIO')?.valor === 30 && lin(antes, 'TICKETS')?.tipo === 'TICKET'
+          && !lin(antes, 'SANGRIA') && lin(antes, 'DINHEIRO')?.linhaDinheiro === true && lin(antes, 'CARTOES')?.tipo === 'CARTAO'
+          && JSON.stringify(antes.sangriaPendente) === JSON.stringify([{ fixa: 'SANGRIA EM DINHEIRO', valor: 60 }, { fixa: 'SUPRIMENTO', valor: 20 }]),
+          { modo: antes.modo, linhas: antes.linhas, pend: antes.sangriaPendente });
+
+        const faltam = Number(((await pgFc.query(`SELECT count(*) AS n FROM formas_pgto WHERE idempresa = 1 AND destino <> 'QUE'
+            AND upper(modalidade) NOT IN ('DINHEIRO', 'CARTOES', 'CONVENIO', 'TICKETS')`)).rows[0] as any).n);
+        const dinheiros = Number(((await pgFc.query(`SELECT count(*) AS n FROM formas_pgto WHERE idempresa = 1 AND modalidade LIKE '%DINHEIRO%'`)).rows[0] as any).n);
+        const ab = (await (await fetch(`${base}/${FC}/turno/abrir`, { method: 'POST', headers: H, body: JSON.stringify({ data: DIA, chave: CH, nropdv: 77, codoperadora: 7 }) })).json().catch(() => ({}))) as any;
+        const compl = (await pgFc.query(`SELECT operacao, nropedido, valor, debito_credito, lanc_provisorio, lanc_provisorio_usuario, chave,
+            to_char(data AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD HH24:MI:SS') AS dl FROM cx_vendas WHERE chave = $1 AND nropedido = '00000' ORDER BY operacao`, [CH])).rows as any[];
+        const hist = (await pgFc.query(`SELECT tipo, valor, idpgto, descricao, codoperador, responsavel, codpdv,
+            to_char(data AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI:SS') AS h FROM hist_sangria_suprimento WHERE chave = $1 ORDER BY tipo`, [CH])).rows as any[];
+        const tk = (await pgFc.query(`SELECT valor, valorliq, nropedido, liberado, chave, codpdv, codoperador FROM ticket WHERE nropedido = '770006'`)).rows as any[];
+        const ab2 = (await (await fetch(`${base}/${FC}/turno/abrir`, { method: 'POST', headers: H, body: JSON.stringify({ data: DIA, chave: CH, nropdv: 77, codoperadora: 7 }) })).json().catch(() => ({}))) as any;
+        const fantasma = (await (await fetch(`${base}/${FC}/turno/abrir`, { method: 'POST', headers: H, body: JSON.stringify({ data: DIA, chave: '79220937080000', nropdv: 79, codoperadora: 7 }) })).json().catch(() => ({}))) as any;
+        const nFantasma = Number(((await pgFc.query(`SELECT count(*) AS n FROM cx_vendas WHERE chave = '79220937080000'`)).rows[0] as any).n);
+        check('FECHAMENTO §168.3 [abrir o turno completa o CX_VENDAS, insere a sangria que o PDV não registrou e o ticket que falta]: uma linha zerada por modalidade da empresa que o turno não movimentou (DESTINO <> QUE): pedido 00000, crédito, 00:00 do dia do caixa, LANC_PROVISORIO S com o usuário (UdmLancProv.pas:94 — é do fonte de 2020, não do binário novo); a sangria 60 e o suprimento 20 do CAIXA_PDV entram no histórico "Inserido automaticamente…" na forma DINHEIRO; a venda TICKETS de 25 ganha o TICKET com a CHAVE (o binário novo grava). Abrir de novo não duplica nada, e abrir um turno que não existe não cria movimento fantasma',
+          ab.completadas === faltam && compl.length === faltam && compl.every((r) => r.nropedido === '00000' && Number(r.valor) === 0 && r.debito_credito === 'C'
+            && r.lanc_provisorio === 'S' && Number(r.lanc_provisorio_usuario) === 7 && r.dl === `${DIA} 00:00:00`)
+          && dinheiros === 1
+          && (ab.sangriasInseridas === 2 && hist.length === 2 && hist[0].tipo === 'SAN' && Number(hist[0].valor) === 60 && Number(hist[0].idpgto) === 1
+              && hist[1].tipo === 'SUP' && Number(hist[1].valor) === 20 && hist[0].descricao === 'Inserido automaticamente pelo fechamento de caixa'
+              && Number(hist[0].codoperador) === 7 && Number(hist[0].responsavel) === 7 && Number(hist[0].codpdv) === 77 && hist[0].h === '00:00:00')
+          && ab.ticketsCriados === 1 && tk.length === 1 && Number(tk[0].valor) === 25 && Number(tk[0].valorliq) === 25 && tk[0].liberado === 'N' && tk[0].chave === CH
+          && ab2.completadas === 0 && ab2.sangriasInseridas === 0 && ab2.ticketsCriados === 0
+          && fantasma.completadas === 0 && fantasma.modo === 'consulta' && nFantasma === 0,
+          { fantasma: [fantasma.completadas, fantasma.modo, nFantasma], ab: [ab.completadas, ab.sangriasInseridas, ab.ticketsCriados, ab.code], faltam, compl, dinheiros, hist, tk, ab2: [ab2.completadas, ab2.sangriasInseridas, ab2.ticketsCriados] });
+
+        const docC = (await (await fetch(`${base}/${FC}/turno/documentos?${q('&operacao=CARTOES')}`, { headers: H })).json().catch(() => ({}))) as any;
+        const docS = (await (await fetch(`${base}/${FC}/turno/documentos?${q('&operacao=SANGRIA%20EM%20DINHEIRO')}`, { headers: H })).json().catch(() => ({}))) as any;
+        const codsC = (docC.documentos ?? []).map((d: any) => d.codigo).sort((a: number, b: number) => a - b);
+        check('FECHAMENTO §168.4 [os documentos da operação]: os cartões do PDV, do operador, da forma, da CHAVE e do dia da loja, ainda não conciliados — o de outra chave e o conciliado ficam de fora; na primeira vez nada vem marcado (UConsDocs.pas:1164). A sangria lista o histórico e vem sempre toda marcada',
+          docC.tipo === 'CARTAO' && JSON.stringify(codsC) === JSON.stringify([c80, c40, c9].sort((a, b) => a - b))
+          && (docC.documentos ?? []).every((d: any) => d.sel === false) && !codsC.includes(cOutraChave) && !codsC.includes(cConc)
+          && docS.tipo === 'SANGRIA' && (dinheiros !== 1 || (docS.documentos?.length === 1 && docS.documentos[0].sel === true && docS.conferido === 60)),
+          { docC: [docC.tipo, codsC, docC.code], docS: [docS.tipo, docS.documentos?.length, docS.conferido] });
+
+        const put = async (body: any) => fetch(`${base}/${FC}/turno/rascunho`, { method: 'PUT', headers: H, body: JSON.stringify({ data: DIA, chave: CH, nropdv: 77, codoperadora: 7, ...body }) });
+        const p1 = await put({ dinheiroContado: 5, documentos: [{ operacao: 'CARTOES', codigos: [c80, c40, cOutraChave, cConc] }, { operacao: 'convenio', codigos: [r30] }] });
+        const p1J = (await p1.json().catch(() => ({}))) as any;
+        const ff = async () => (await pgFc.query(`SELECT codifinfech, operacao, vrreal, to_char(data AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD HH24:MI:SS') AS dl, operador, pdv, idempresa, chave
+            FROM finaliza_fechamento WHERE chave = $1 ORDER BY codifinfech`, [CH])).rows as any[];
+        const docs = async () => (await pgFc.query(`SELECT d.operacao, d.codigo FROM doc_fechamento d JOIN finaliza_fechamento f ON f.codifinfech = d.codifinfech
+            WHERE f.chave = $1 ORDER BY d.operacao, d.codigo`, [CH])).rows.map((r: any) => [r.operacao, Number(r.codigo)]);
+        const ff1 = await ff();
+        const vr = (rows: any[], op: string) => rows.filter((r) => r.operacao === op).map((r) => Number(r.vrreal));
+        const d1 = await docs();
+        const nLinhas = (p1J.linhas ?? []).length;
+        const sangria = dinheiros === 1 ? 60 : 0;
+        const suprimento = dinheiros === 1 ? 20 : 0;
+        check('FECHAMENTO §168.5 [o rascunho grava TODAS as linhas, mesmo zeradas, e o REAL vem dos documentos]: FINALIZA_FECHAMENTO com uma linha por operação da grade + SANGRIA EM DINHEIRO/EM CHEQUE/OUTRAS SANGRIAS/SUPRIMENTO + DINHEIRO CONTADO, na data do caixa; CARTOES = 80 + 40,50 (o cartão de outra chave e o conciliado mandados junto são recusados); CONVENIO 30 (a operação em minúsculas casa); DINHEIRO = contado 5 + sangria 60 − suprimento 20 = 45; os documentos em DOC_FECHAMENTO. Diferença = real − (sistema + adicionais)',
+          p1.status === 200 && ff1.length === nLinhas + 5 && vr(ff1, 'CARTOES')[0] === 120.5 && vr(ff1, 'CONVENIO')[0] === 30
+          && vr(ff1, 'DINHEIRO')[0] === 5 + sangria - suprimento && vr(ff1, 'SANGRIA EM DINHEIRO')[0] === sangria && vr(ff1, 'SUPRIMENTO')[0] === suprimento
+          && vr(ff1, 'DINHEIRO CONTADO')[0] === 5 && vr(ff1, 'SANGRIA EM CHEQUE')[0] === 0 && vr(ff1, 'OUTRAS SANGRIAS')[0] === 0 && vr(ff1, 'TICKETS')[0] === 0
+          && ff1.every((r) => r.dl === `${DIA} 00:00:00` && Number(r.operador) === 7 && Number(r.pdv) === 77 && Number(r.idempresa) === 1)
+          && JSON.stringify(d1) === JSON.stringify([['CARTOES', Math.min(c80, c40)], ['CARTOES', Math.max(c80, c40)], ['CONVENIO', r30]])
+          && p1J.totais?.real === r2s(120.5 + 30 + 5 + sangria - suprimento) && p1J.totais?.diferenca === r2s(p1J.totais.real - p1J.totais.fechamento),
+          { p1: [p1.status, p1J.code], ff1, d1, totais: p1J.totais, nLinhas });
+
+        // a operação duplicada sai inteira e volta uma (ExcluiFinalizaFechamento); desmarcar tira o documento; operação não enviada fica
+        await pgFc.query(`INSERT INTO finaliza_fechamento (data, operador, operacao, vrreal, idempresa, pdv, chave) VALUES ($1, 7, 'CHEQUE', 99, 1, 77, $2)`, [ts('00:00:00'), CH]);
+        const p2 = await put({ dinheiroContado: 5, documentos: [{ operacao: 'CARTOES', codigos: [c80, c9] }] });
+        const ff2 = await ff();
+        const d2 = await docs();
+        const detD = (await (await fetch(`${base}/${FC}/turno/documentos?${q('&operacao=CARTOES')}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('FECHAMENTO §168.6 [regravar o rascunho]: as linhas existentes são atualizadas (mesmos códigos), a operação duplicada é apagada inteira e volta uma só (CHEQUE 0, não 99); desmarcar 40,50 e marcar 9,50 troca o documento e o REAL de CARTOES vira 89,50; o CONVENIO, que não veio, fica como estava; reabrir os documentos traz marcados os do rascunho',
+          p2.status === 200 && ff2.length === ff1.length && vr(ff2, 'CHEQUE').length === 1 && vr(ff2, 'CHEQUE')[0] === 0
+          && ff1.filter((r) => r.operacao !== 'CHEQUE').every((r) => ff2.some((x) => Number(x.codifinfech) === Number(r.codifinfech)))
+          && vr(ff2, 'CARTOES')[0] === 89.5 && vr(ff2, 'CONVENIO')[0] === 30
+          && JSON.stringify(d2) === JSON.stringify([['CARTOES', Math.min(c80, c9)], ['CARTOES', Math.max(c80, c9)], ['CONVENIO', r30]])
+          && JSON.stringify((detD.documentos ?? []).filter((d: any) => d.sel).map((d: any) => d.codigo).sort((a: number, b: number) => a - b)) === JSON.stringify([c80, c9].sort((a, b) => a - b))
+          && detD.conferido === 89.5,
+          { p2: p2.status, ff2: ff2.map((r) => [r.operacao, Number(r.vrreal)]), d2, detD: detD.conferido });
+
+        // fechado (o efetivar é o corte 2): CONSULTA — lê sem o filtro de conciliado e não grava
+        await pgFc.query(`UPDATE cx_vendas SET status = 'F', tesouraria = 'S' WHERE chave = $1`, [CH]);
+        const cons = (await (await fetch(`${base}/${FC}/turno?${q()}`, { headers: H })).json().catch(() => ({}))) as any;
+        const consD = (await (await fetch(`${base}/${FC}/turno/documentos?${q('&operacao=CARTOES')}`, { headers: H })).json().catch(() => ({}))) as any;
+        const p3 = await put({ dinheiroContado: 1, documentos: [] });
+        const p3J = (await p3.json().catch(() => ({}))) as any;
+        const ab3 = (await (await fetch(`${base}/${FC}/turno/abrir`, { method: 'POST', headers: H, body: JSON.stringify({ data: DIA, chave: CH, nropdv: 77, codoperadora: 7 }) })).json().catch(() => ({}))) as any;
+        check('FECHAMENTO §168.7 [turno fechado é consulta]: com STATUS F e TESOURARIA S a tela abre em consulta (situação 3) com o REAL e o contado do rascunho; os documentos listam também o cartão já conciliado, com os do rascunho marcados; gravar o rascunho é 422 FECHAMENTO_CAIXA_CONSULTA e abrir não completa nada',
+          cons.modo === 'consulta' && cons.turno?.situacao === 3 && lin(cons, 'CARTOES')?.real === 89.5 && cons.dinheiroContado === 5
+          && (consD.documentos ?? []).some((d: any) => d.codigo === cConc) && consD.marcacaoLivre === false && consD.conferido === 89.5
+          && p3.status === 422 && p3J.code === 'FECHAMENTO_CAIXA_CONSULTA' && ab3.completadas === 0 && ab3.modo === 'consulta',
+          { cons: [cons.modo, cons.turno, lin(cons, 'CARTOES')?.real, cons.dinheiroContado], consD: [consD.documentos?.length, consD.conferido], p3: [p3.status, p3J.code], ab3: [ab3.completadas, ab3.modo] });
+
+        await pgFc.query(`DELETE FROM doc_fechamento WHERE codifinfech IN (SELECT codifinfech FROM finaliza_fechamento WHERE chave = $1)`, [CH]);
+        await pgFc.query(`DELETE FROM finaliza_fechamento WHERE chave = $1`, [CH]);
+        await pgFc.query(`DELETE FROM hist_sangria_suprimento WHERE chave = $1`, [CH]);
+        await pgFc.query(`DELETE FROM ticket WHERE chave = $1`, [CH]);
+        await pgFc.query(`DELETE FROM cartao WHERE codvendcartao = ANY($1::int[])`, [[c80, c40, c9, cOutraChave, cConc]]);
+        await pgFc.query(`DELETE FROM areceber WHERE codrcb = $1`, [r30]);
+        await pgFc.query(`DELETE FROM caixa_pdv WHERE codcaixa IN (9916801, 9916802)`);
+        await pgFc.query(`DELETE FROM cx_vendas WHERE chave IN ($1, $2)`, [CH, CH78]);
+        await pgFc.query(`DELETE FROM formas_pgto WHERE idempresa = 1 AND modalidade = 'TICKETS'`);
+      } finally {
+        await pgFc.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();
