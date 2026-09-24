@@ -15419,9 +15419,11 @@ async function main() {
         const codsFev = (saldoFev.linhas ?? []).map((l: any) => Number(l.codapg));
         const saldoAbr = (await (await fetch(`${base}/${EF}?dataIni=2040-04-30&modelo=SALDO`, { headers: H })).json().catch(() => ({}))) as any;
         const codsAbr = (saldoAbr.linhas ?? []).map((l: any) => Number(l.codapg));
+        // só os títulos deste teste: os do Apollo agora também têm DTCOMPRA (mig 327) e entram no saldo de 2040
+        const somaDoTeste = (r: any) => (r.linhas ?? []).filter((l: any) => [t1, t2].includes(Number(l.codapg))).reduce((acc: number, l: any) => acc + Number(l.valor), 0);
         check('EXTRATO FORNECEDORES §118.1 [o saldo retroativo olha a DATA DO PAGAMENTO, não o flag]: em 28/02/2040 o título pago só em 10/03 **ainda era dívida** — os dois aparecem, R$ 1.300,00. Em 30/04, com o pagamento já feito, sobra só o que continua aberto, R$ 300,00. É a diferença entre um saldo retroativo correto e um que conserta o passado com a informação de hoje',
-          codsFev.includes(t1) && codsFev.includes(t2) && Math.abs(Number(saldoFev.totais?.valor) - 1300) < 0.005
-          && !codsAbr.includes(t1) && codsAbr.includes(t2) && Math.abs(Number(saldoAbr.totais?.valor) - 300) < 0.005,
+          codsFev.includes(t1) && codsFev.includes(t2) && Math.abs(somaDoTeste(saldoFev) - 1300) < 0.005
+          && !codsAbr.includes(t1) && codsAbr.includes(t2) && Math.abs(somaDoTeste(saldoAbr) - 300) < 0.005,
           { fev: codsFev, totaisFev: saldoFev.totais, abr: codsAbr, totaisAbr: saldoAbr.totais });
 
         const porVenc = (await (await fetch(`${base}/${EF}?dataIni=2040-02-01&dataFim=2040-02-28&modelo=PERIODO&base=VENCIMENTO`, { headers: H })).json().catch(() => ({}))) as any;
@@ -19257,6 +19259,57 @@ async function main() {
         await pgNd.query(`UPDATE produtos SET aliquota = $1 WHERE idproduto = 2`, [aliqP2?.aliquota ?? null]);
       } finally {
         await pgNd.end();
+      }
+    }
+
+    // ══ §171 O A PAGAR NA CAIXA GERENCIAL (CAIXA-escritores.md §2; mig 327) ══
+    {
+      const pgAc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        // a NF 102183 da produção: 4 parcelas de 123,77 e o rateio contábil 48,83 (CC 2) + 446,25 (CC 3)
+        const cr = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify(baseNf({ tipo: 'E', nronf: '102183', codparceiro: 22, dtemissao: '2062-06-25', dtcontabil: '2062-06-25',
+          itens: [{ codproduto: 1, quantidade: 1, vrcusto: 495.08, cfop: '1102', aliquota: 'T01' }] })) });
+        const nfA = Number(((await cr.json().catch(() => ({}))) as any).codnf);
+        await pgAc.query(`UPDATE nf SET totalnf = 495.08 WHERE codnf = $1`, [nfA]);
+        await pgAc.query(`DELETE FROM nf_contabil WHERE codnf = $1`, [nfA]);
+        await pgAc.query(`INSERT INTO nf_contabil (codnf, codcc, valor, adicional, tipovalor) VALUES ($1, 2, 48.83, 'N', 'V'), ($1, 3, 446.25, 'N', 'V'), ($1, 4, 9.99, 'S', 'V')`, [nfA]);
+        const fat = await fetch(`${base}/fiscal/nf/${nfA}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 4, primeiroVencimento: '2062-07-20', intervaloDias: 30 }) });
+        const tit = (await pgAc.query(`SELECT codapg, codgrupo, nrparcela, obs, to_char(dtcompra, 'YYYY-MM-DD') AS dc, to_char(dtvenda, 'YYYY-MM-DD') AS dv FROM apagar WHERE idnf = $1 ORDER BY codapg`, [nfA])).rows as any[];
+        const g = Number(tit[0]?.codgrupo);
+        const rat = (await pgAc.query(`SELECT codapg, codcc, valor::float AS valor, tipo FROM cx_apagar WHERE codgrupo = $1 ORDER BY codcxapagar`, [g])).rows as any[];
+        const cx = (await pgAc.query(`SELECT idorigem, valor::float AS valor, vrtitulo::float AS vt, codplc, nrparcela, obs, codnf, origem, to_char(data, 'YYYY-MM-DD') AS d FROM caixa WHERE codgrupo = $1 ORDER BY codcx`, [g])).rows as any[];
+        check('A PAGAR NA CAIXA §171.1 [o faturamento da NF]: os 4 títulos nascem no MESMO grupo, com a OBS " REFERENTE A NOTA FISCAL 102183 EMITIDA EM 25/06/2062" e a parcela 1/4…4/4; o rateio CX_APAGAR sai do CODCONTABILNF com CC e não adicional (48,83 no CC 2 e 446,25 no CC 3, o adicional de fora), no 1º título; a CAIXA ORIGEM APAGAR tem uma linha por título × CC: −12,21 (9,86%) e −111,56 (90,14%) em cada parcela, na data de emissão, com a NF, e a OBS "… , 9,86% do Documento nº <título>" (como a NF 102183 da produção: grupo 100979)',
+          fat.status === 200 && tit.length === 4 && tit.every((t) => Number(t.codgrupo) === g && t.obs === ' REFERENTE A NOTA FISCAL 102183 EMITIDA EM 25/06/2062\r\n')
+          && JSON.stringify(tit.map((t) => t.nrparcela)) === JSON.stringify(['1/4', '2/4', '3/4', '4/4']) && tit[0].dc === '2062-06-25' && tit[0].dv === '2062-06-25'
+          && rat.length === 2 && Number(rat[0].codapg) === Number(tit[0].codapg) && rat[0].valor === 48.83 && rat[1].valor === 446.25 && Number(rat[0].codcc) === 2
+          && cx.length === 8 && cx.every((c, k) => c.valor === (k % 2 === 0 ? -12.21 : -111.56) && c.vt === c.valor && Number(c.codplc) === (k % 2 === 0 ? 2 : 3) && Number(c.codnf) === nfA && c.origem === 'APAGAR' && c.d === '2062-06-25')
+          && cx[0].obs === ` REFERENTE A NOTA FISCAL 102183 EMITIDA EM 25/06/2062\n , 9,86% do Documento nº ${tit[0].codapg}` && cx[7].obs.endsWith(`, 90,14% do Documento nº ${tit[3].codapg}`)
+          && cx[6].nrparcela === '4/4',
+          { fat: fat.status, nfA, tit: tit.map((t) => [t.codgrupo, t.nrparcela, t.dc, JSON.stringify(t.obs)]), rat, cx: cx.map((c) => [c.idorigem, c.valor, c.vt, c.codplc, c.nrparcela, c.codnf, c.d, JSON.stringify(c.obs)]) });
+
+        const est = await fetch(`${base}/fiscal/nf/${nfA}/estornar-faturamento`, { method: 'POST', headers: H });
+        const sobra = (await pgAc.query(`SELECT (SELECT count(*)::int FROM cx_apagar WHERE codgrupo = $1) AS r, (SELECT count(*)::int FROM caixa WHERE codgrupo = $1) AS c`, [g])).rows[0] as any;
+
+        // o título digitado na tela: o CC da tela vira o rateio; editar refaz; excluir apaga
+        const man = await fetch(`${base}/cadastro/apagar`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, dtvenda: '2062-07-01', dtvenc: '2062-07-10', valor: 100, codplc: 2, obs: 'DARF DE PIS E COFINS' }) });
+        const manJ = (await man.json().catch(() => ({}))) as any;
+        const cm = Number(manJ.codapg);
+        const cxM = async () => (await pgAc.query(`SELECT c.valor::float AS valor, c.obs, c.codplc, c.nrparcela FROM caixa c JOIN apagar a ON a.codgrupo = c.codgrupo WHERE a.codapg = $1 AND c.origem = 'APAGAR'`, [cm])).rows as any[];
+        const m1 = await cxM();
+        await fetch(`${base}/cadastro/apagar/${cm}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 150 }) });
+        const m2 = await cxM();
+        const gm = Number(((await pgAc.query(`SELECT codgrupo FROM apagar WHERE codapg = $1`, [cm])).rows[0] as any)?.codgrupo);
+        const del = await fetch(`${base}/cadastro/apagar/${cm}`, { method: 'DELETE', headers: H });
+        const m3 = (await pgAc.query(`SELECT (SELECT count(*)::int FROM cx_apagar WHERE codgrupo = $1) AS r, (SELECT count(*)::int FROM caixa WHERE codgrupo = $1) AS c`, [gm])).rows[0] as any;
+        check('A PAGAR NA CAIXA §171.2 [estorno, título digitado, edição e exclusão]: estornar o faturamento apaga o rateio e a CAIXA do grupo (a reversão do financeiro; a trigger CAIXA_APAGAR); o título digitado com o CC 2 ganha o rateio de 100 e a CAIXA −100 "DARF DE PIS E COFINS , 100,00% do Documento nº <título>"; editar o valor para 150 refaz a CAIXA (−150, uma linha só); excluir leva o rateio e a CAIXA',
+          est.status < 300 && sobra?.r === 0 && sobra?.c === 0
+          && man.status === 201 && m1.length === 1 && m1[0].valor === -100 && m1[0].obs === `DARF DE PIS E COFINS , 100,00% do Documento nº ${cm}` && Number(m1[0].codplc) === 2
+          && m2.length === 1 && m2[0].valor === -150
+          && del.status < 300 && m3?.r === 0 && m3?.c === 0,
+          { est: est.status, sobra, man: [man.status, manJ.code], m1, m2, del: del.status, m3 });
+        await pgAc.query(`DELETE FROM nf_contabil WHERE codnf = $1`, [nfA]);
+      } finally {
+        await pgAc.end();
       }
     }
 

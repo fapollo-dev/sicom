@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'kysely';
+import { configNaTrx } from '../compras/pedido-heranca';
+import { apagarRateioDoGrupo, novoGrupo, rateioDoFaturamento, rateioUnico, refazerCaixaDoGrupo } from '../cobranca/apagar-caixa';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -80,8 +82,33 @@ export class NfFaturamentoService {
     trx: AnyDB,
     tabela: 'areceber' | 'apagar',
     row: { codparceiro: number; codempresa: number; idnf: number; dtvenda: unknown; dtvenc: string; duplicata: string; nrodup: number; valor: number; txjuros: number; tipodoc?: string },
+    extraApagar?: { codgrupo: number; obs: string; nrparcela: string; codoperador: number | null },
   ): Promise<void> {
-    await trx.insertInto(tabela).values({ ...row, quitada: 'N', consiliado: 'N' }).execute();
+    await trx.insertInto(tabela).values({ ...row, ...(tabela === 'apagar' && extraApagar ? extraApagar : {}), quitada: 'N', consiliado: 'N' }).execute();
+  }
+
+  /**
+   * o GRUPO do faturamento no A Pagar (CAIXA-escritores.md §2): o título do fornecedor nasce com CODGRUPO, a OBS do legado
+   * (" REFERENTE A NOTA FISCAL <nº> EMITIDA EM dd/mm/aaaa", `SetObs`) e a parcela "i/N"; depois, o rateio pelo
+   * CODCONTABILNF e a CAIXA do grupo, como o Gravar da tela de Contas a Pagar por onde o faturamento do legado passa.
+   */
+  private async grupoDoFaturamento(trx: AnyDB, nf: { codnf: number; nronf?: unknown; dtemissao?: unknown }): Promise<{ codgrupo: number; obs: string }> {
+    const codgrupo = await novoGrupo(trx);
+    const emissao = (await sql<{ d: string | null }>`SELECT to_char(${nf.dtemissao}::date, 'DD/MM/YYYY') AS d`.execute(trx)).rows[0]?.d ?? '';
+    return { codgrupo, obs: ` REFERENTE A NOTA FISCAL ${nf.nronf ?? nf.codnf} EMITIDA EM ${emissao}\r\n` };
+  }
+
+  private async fecharGrupoDoFaturamento(trx: AnyDB, codnf: number, codgrupo: number, op: number | null): Promise<void> {
+    const primeiro = (await sql<{ c: string | null }>`SELECT min(codapg) AS c FROM apagar WHERE codgrupo = ${codgrupo}`.execute(trx)).rows[0]?.c;
+    if (primeiro == null) return;
+    await rateioDoFaturamento(trx, codnf, codgrupo, Number(primeiro));
+    await refazerCaixaDoGrupo(trx, codgrupo, op);
+  }
+
+  /** estornar o faturamento apaga o rateio (e a CAIXA) dos grupos dos títulos da NF — a reversão do financeiro do legado */
+  private async apagarRateiosDaNf(trx: AnyDB, codnf: number, emp: number): Promise<void> {
+    const grupos = (await sql<{ codgrupo: number }>`SELECT DISTINCT codgrupo FROM apagar WHERE idnf = ${codnf} AND codempresa = ${emp} AND codgrupo IS NOT NULL`.execute(trx)).rows;
+    for (const g of grupos) await apagarRateioDoGrupo(trx, Number(g.codgrupo));
   }
 
   /**
@@ -135,8 +162,16 @@ export class NfFaturamentoService {
         obs,
         quitada: 'N',
         consiliado: 'N',
+        codgrupo: await novoGrupo(trx),
       })
-      .execute();
+      .returning(['codapg', 'codgrupo'])
+      .executeTakeFirstOrThrow()
+      .then(async (t: { codapg: number; codgrupo: number }) => {
+        // o rateio da retenção vai no CC CENTROCUSTO_RET_ICMSST (173/173 em 2026); a CAIXA só nasce se for gravado na tela
+        const cc = Number((await configNaTrx(trx, 'CENTROCUSTO_RET_ICMSST', { empresaId: emp, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' })) ?? 0);
+        const existe = cc > 0 && (await sql`SELECT 1 FROM plc WHERE codplc = ${cc}`.execute(trx)).rows.length > 0;
+        if (existe) await rateioUnico(trx, { codapg: Number(t.codapg), codgrupo: Number(t.codgrupo), codcc: cc, valor: val });
+      });
     return 1;
   }
 
@@ -303,6 +338,7 @@ export class NfFaturamentoService {
       const resto = totalCents - baseCents * p.numParcelas;
       const venc0 = new Date(`${p.primeiroVencimento}T00:00:00Z`); // UTC (não escorrega 1 dia)
       const dtdoc = nf.tipo === 'E' ? nf.dtemissao : nf.dtcontabil; // APAGAR=emissão / ARECEBER=contábil
+      const grupo = tabela === 'apagar' ? await this.grupoDoFaturamento(trx, nf) : null;
 
       for (let i = 0; i < p.numParcelas; i++) {
         const cents = baseCents + (i === p.numParcelas - 1 ? resto : 0);
@@ -320,8 +356,9 @@ export class NfFaturamentoService {
           valor: cents / 100,
           txjuros,
           ...(p.tipodoc ? { tipodoc: p.tipodoc } : {}), // devolução passa 'BOLETO' (golden); F4 manual mantém NULL
-        });
+        }, grupo ? { codgrupo: grupo.codgrupo, obs: grupo.obs, nrparcela: `${i + 1}/${p.numParcelas}`, codoperador: op } : undefined);
       }
+      if (grupo) await this.fecharGrupoDoFaturamento(trx, codnf, grupo.codgrupo, op);
 
       // corte-4c: título RESIDUAL ST (ICMS-ST a recolher) junto do faturamento — só entrada, só se >0.
       await this.gerarTituloStResidual(trx, nf, emp);
@@ -353,6 +390,7 @@ export class NfFaturamentoService {
       const N = duplicatas.length;
       const dtdoc = nf.tipo === 'E' ? nf.dtemissao : nf.dtcontabil;
       let totalCents = 0;
+      const grupo = tabela === 'apagar' ? await this.grupoDoFaturamento(trx, nf) : null;
 
       for (let i = 0; i < N; i++) {
         const d = duplicatas[i];
@@ -374,9 +412,10 @@ export class NfFaturamentoService {
           valor: cents / 100,
           txjuros,
           tipodoc: 'BOLETO', // faturamento por duplicata do XML = boleto (fiel ao GeraApagar do legado)
-        });
+        }, grupo ? { codgrupo: grupo.codgrupo, obs: grupo.obs, nrparcela: `${i + 1}/${N}`, codoperador: op } : undefined);
       }
       if (totalCents <= 0) throw new BusinessRuleError('NF_SEM_VALOR', { codnf });
+      if (grupo) await this.fecharGrupoDoFaturamento(trx, codnf, grupo.codgrupo, op);
 
       // corte-4c: título RESIDUAL ST (ICMS-ST a recolher) junto do faturamento — só entrada, só se >0.
       await this.gerarTituloStResidual(trx, nf, emp);
@@ -417,6 +456,7 @@ export class NfFaturamentoService {
         .executeTakeFirst();
       if (quit) throw new BusinessRuleError('TITULO_QUITADO', { codnf });
 
+      if (tabela === 'apagar') await this.apagarRateiosDaNf(trx, codnf, emp);
       await trx.deleteFrom(tabela).where('idnf', '=', codnf).where('codempresa', '=', emp).execute();
 
       const r = await trx
@@ -462,6 +502,7 @@ export class NfFaturamentoService {
       .where('quitada', '=', 'S')
       .executeTakeFirst();
     if (quit) return 'mantido-quitado'; // título baixado → não exclui (pendência); cancelamento segue
+    if (tabela === 'apagar') await this.apagarRateiosDaNf(trx, codnf, emp);
     await trx.deleteFrom(tabela).where('idnf', '=', codnf).where('codempresa', '=', emp).execute();
     await trx
       .updateTable('nf')

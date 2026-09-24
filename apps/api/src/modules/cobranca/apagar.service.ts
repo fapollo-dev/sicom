@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type Kysely } from 'kysely';
+import { apagarRateioDoGrupo, novoGrupo, rateioUnico, refazerCaixaDoGrupo } from './apagar-caixa';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -85,16 +86,23 @@ export class ApagarService {
         const e = await trx.selectFrom('empresas').select('txjuropadrao').where('idempresa', '=', emp).executeTakeFirst();
         d.txjuros = e?.txjuropadrao ?? null;
       }
+      const codgrupo = await novoGrupo(trx);
       const ins = await trx
         .insertInto('apagar')
         .values({
           ...d, codempresa: emp, quitada: 'N', agrupado: 'N', consiliado: 'S',
-          cadastrado_manualmente: 'S', gerado: 'OPERADOR',
+          cadastrado_manualmente: 'S', gerado: 'OPERADOR', codgrupo, codoperador: op,
           usultalteracao: op, dtultimalteracao: sql`now()`, dtcadastro: sql`now()`,
         })
         .returning('codapg')
         .executeTakeFirstOrThrow();
-      return Number((ins as Record<string, unknown>).codapg);
+      const codapg = Number((ins as Record<string, unknown>).codapg);
+      // o rateio pelo CC digitado e a CAIXA do grupo (o Gravar da tela, CAIXA-escritores.md §2)
+      if (d.codplc != null && Number(d.codplc) > 0) {
+        await rateioUnico(trx, { codapg, codgrupo, codcc: Number(d.codplc), valor: Number(d.valor ?? 0), idsituacao_nf: (d.idsituacao_nf as number | null) ?? null });
+        await refazerCaixaDoGrupo(trx, codgrupo, op);
+      }
+      return codapg;
     });
     return this.read(id);
   }
@@ -141,6 +149,24 @@ export class ApagarService {
           .where('codempresa', '=', emp)
           .execute();
       }
+      // o Gravar da tela atualiza o rateio no lugar e refaz a CAIXA do grupo (CAIXA-escritores.md §2)
+      const g = (await trx.selectFrom('apagar').select(['codgrupo', 'codplc', 'valor', 'idsituacao_nf']).where('codapg', '=', id).executeTakeFirst()) as { codgrupo: number | null; codplc: number | null; valor: unknown; idsituacao_nf: number | null } | undefined;
+      let codgrupo = g?.codgrupo ?? null;
+      if (g && g.codplc != null && Number(g.codplc) > 0) {
+        if (codgrupo == null) {
+          codgrupo = await novoGrupo(trx);
+          await trx.updateTable('apagar').set({ codgrupo }).where('codapg', '=', id).execute();
+        }
+        const soma = Number((await sql<{ t: string }>`SELECT sum(valor) AS t FROM apagar WHERE codgrupo = ${codgrupo}`.execute(trx)).rows[0]?.t ?? 0);
+        const linha = (await sql<{ codcxapagar: number }>`SELECT codcxapagar FROM cx_apagar WHERE codgrupo = ${codgrupo} AND coalesce(tipo, 'V') = 'V' ORDER BY codcxapagar LIMIT 1`.execute(trx)).rows[0];
+        if (linha) {
+          await sql`UPDATE cx_apagar SET codcc = ${Number(g.codplc)}, valor = ${soma}, idsituacao_nf = ${g.idsituacao_nf ?? null}, dtultimalteracao = now()
+                    WHERE codcxapagar = ${linha.codcxapagar}`.execute(trx);
+        } else {
+          await rateioUnico(trx, { codapg: id, codgrupo, codcc: Number(g.codplc), valor: soma, idsituacao_nf: g.idsituacao_nf ?? null });
+        }
+      }
+      await refazerCaixaDoGrupo(trx, codgrupo, op);
     });
     return this.read(id);
   }
@@ -150,6 +176,9 @@ export class ApagarService {
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const t = await this.travarEditavel(trx, id, emp);
       await assertPeriodoNaoFechado(trx, emp, t.dtvenda, 'bloq_apg');
+      // o rateio do grupo sai (e a trigger CAIXA_APAGAR do legado leva a CAIXA) antes do título
+      const g = (await trx.selectFrom('apagar').select('codgrupo').where('codapg', '=', id).executeTakeFirst()) as { codgrupo: number | null } | undefined;
+      await apagarRateioDoGrupo(trx, g?.codgrupo ?? null);
       await trx.deleteFrom('apagar').where('codapg', '=', id).where('codempresa', '=', emp).execute();
     });
   }

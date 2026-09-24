@@ -10,28 +10,40 @@
 | origem | linhas | Σ valor | escritor no legado | Apollo |
 |---|---:|---:|---|---|
 | FECHAMENTO | 13.939 | R$ 19.951.875,03 | `UfinalizaFechamento.pas:1753` (efetivar do fechamento de caixa) | ✅ 24/09 corte 2 do fechamento (`fechamento-caixa.service.ts` `efetivar`: a linha por operação com REAL > 0 e a da quebra) |
-| APAGAR (sistema) | 8.297 | R$ −25.132.770,34 | **binário novo** (o texto "100,00% do Documento nº" não está no fonte de 2020); `uAPagar.pas:4961` (`GeraCaixa`) só cobre o convênio de funcionários | FALTA |
-| APAGAR (manual 'S') | 462 | R$ −523.445,84 | idem (títulos digitados na tela) | FALTA |
+| APAGAR (sistema) | 8.297 | R$ −25.132.770,34 | **binário novo**: o GRAVAR da tela de Contas a Pagar (também no faturamento da NF) refaz a CAIXA do grupo inteiro a partir do CX_APAGAR (§2) | ✅ 24/09 (`apagar-caixa.ts`, mig 327: faturamento da NF, título digitado, edição, exclusão e estorno) |
+| APAGAR (manual 'S') | 462 | R$ −523.445,84 | ⚠️ correção: é o **lançamento de caixa** (`uMovCaixa`, F06) — a despesa gera um título já quitado (APAGAR + CX_APAGAR + APAGAR_BX), a CAIXA é o registro primário | FALTA — conversão do F06 |
 | SCRAP | 4.880 | R$ −7.296.171,67 | `uCadSCRAP.pas:736` | ✅ 24/09 (`scrap-caixa.ts`: a diferença a cada gravação, com a linha de 0,00 do legado; a exclusão leva junto) |
 | BAIXA CARTAO | 1.722 | R$ −85.411,37 | `UbaixaCartao.pas:1158/1188`, `UConciliadorCartao.pas:394` | ✅ a TAXA (24/09, `cartao-baixa.service.ts`: uma linha por lote no CC da taxa ou no de multa/juros; o estorno apaga). ✅ OUTRAS DESPESAS (24/09: o valor digitado sai do crédito, rateado pelos cartões — sobra no maior; a linha vai antes da taxa, no CC de descontos concedidos; 363 dos 1.362 lotes de 2026; o ajuste do rateio do legado tem o sinal trocado, não copiado). FALTA o conciliador de cartão |
 | NF | 1.011 | R$ 764.054,09 | `udmNF.pas:9283` | ✅ C4 (`nf-caixa.ts`) |
 | ARECEBER | 441 | R$ 687.687,98 | `uCadAReceber.pas:1075/1110` | ✅ 24/09 (`areceber-caixa.ts`: uma linha por documento — o título, ou o total das parcelas geradas juntas; edição relança; exclusão apaga) |
-| manual (sem origem, 'S') | 166 | R$ −41.936,86 | `uMovCaixa` (FRMMOVCAIXA, 5.022 acessos) | FALTA — o `caixa_mov` do Apollo é outro modelo |
+| manual (sem origem, 'S') | 166 | R$ −41.936,86 | ⚠️ correção: é a **conciliação OFX** ("Gerado pela conciliação bancária.", `CONFIG_LANCAMENTO_AUTO_OFX`) | ✅ já no Apollo (`conciliacao-bancaria.service.ts`, mig 298) |
 | BAIXA APAGAR | 112 | R$ 7.377,98 | `UBaixaApagar.pas:505` | ✅ 24/09 (`baixa-caixa.ts`: juros/acréscimo/desconto no CC da baixa ou no padrão da empresa, lote `seq_idlote`; o estorno apaga) |
 | BAIXA ARECEBER | 33 | R$ −349,54 | `UBaixaAreceber.pas:1264` | ✅ 24/09 (idem) |
 | CONVENIO PARCEIRO | 1 | R$ −20.051,06 | `uConvenioParceiro.pas:136` | FALTA |
 
 Outros escritores no fonte sem linha em 2026: `UbaixaCheque.pas:352`, `UCadMapaDeCarga.pas:6036`,
-`uCadAcordoComercial.pas:967`, `uCadClientes.pas:3964`. Nenhuma trigger do Oracle escreve na CAIXA (user_source).
+`uCadAcordoComercial.pas:967`, `uCadClientes.pas:3964`. ⚠️ correção: a trigger `CAIXA_APAGAR` (BEFORE DELETE em CX_APAGAR) APAGA a CAIXA do rateio (`WHERE CODGRUPO AND CODCXAPAGAR`); até 02/2022 ela também inseria (9.111 linhas 'TRIGGER CAIXA_PAGAR').
 
-## 2. APAGAR — o maior, e do binário novo
+## 2. APAGAR — a regra (reconstruída pelo dado em 24/09/2026; VALOR e OBS batem em 8.283 de 8.304 linhas de 2026)
 
-Uma linha de CAIXA por linha de rateio do título (`CX_APAGAR`): `IDORIGEM` = CODAPG, `CODCXAPAGAR` = a linha do
-rateio, valor NEGATIVO, `CODPLC` = o centro de custo da linha, `CODNF`, `TIPORECURSO` = a forma (BOLETO…),
-`CODGRUPO` do título, `NRPARCELA` '1/1', `DTVENC` do título, OBS "REFERENTE A NOTA FISCAL <nro> EMITIDA EM
-<data>\n , 100,00% do Documento nº <codapg>". Cobertura 2026: 7.737 de 8.077 títulos vindos de NF e 462 de 651 manuais
-têm CAIXA; CX_APAGAR em 6.833/8.077 e 649/651. O faturamento da NF do Apollo cria o título mas NÃO grava CX_APAGAR nem
-CAIXA. **Reconstruir pelo dado** (a regra do percentual, a data, o que acontece na baixa, no estorno, na exclusão).
+- **O RATEIO (CX_APAGAR) é por GRUPO (APAGAR.CODGRUPO) × CC**, pendurado no 1º título do grupo (menor CODAPG) com o valor
+  TOTAL (ΣV = Σ títulos em 6.395 de 6.396 grupos). Faturamento da NF: uma linha por CODCONTABILNF com CC e não adicional
+  (TIPO = TIPOVALOR ou 'V'; 2.705 de 2.708 na criação). Título digitado: o CC da tela, com a situação do título.
+  Previsão do manifesto: `CC_GERACAO_PREVISAO_APAGAR_MANIFESTO`/`SITUACAO_…`. Retenção de ICMS-ST: `CENTROCUSTO_RET_ICMSST`.
+  Linhas D (desconto) e E (embutidos) só com `LANCAR_CENTROCUSTO_DESCACREJRS_CONTAS_PAGAR`.
+- **A CAIXA é refeita pelo GRAVAR da tela** (o faturamento passa por ela): apaga as linhas do grupo e lança, por título ×
+  CC, −round(valor × CC/Σrateio, 2); no último título o último CC fecha: −(base + ΣE − ΣD) − o já lançado nele (no
+  agrupamento, base = −(Σ demais)). DATA = DTCOMPRA, DTVENC, CODPLC = o CC, CODNF, TIPORECURSO = TIPODOC, NRPARCELA,
+  OPERADOR = quem grava, ORIGEM 'APAGAR', IDORIGEM = o título, CODCXAPAGAR; OBS = a do título sem CR + " , 9,86% do
+  Documento nº <título>". Quem é criado por rotina (previsão, retenção) só ganha CAIXA quando alguém grava na tela
+  (259 em 2026).
+- **Apagar o rateio leva a CAIXA** (trigger `CAIXA_APAGAR` do Oracle, BEFORE DELETE em CX_APAGAR); a exclusão do título e a
+  reversão do financeiro da NF apagam o rateio do grupo. A baixa não toca nem o rateio nem a CAIXA do título.
+- **Entregue (mig 327):** o faturamento da NF (grupo, OBS " REFERENTE A NOTA FISCAL … EMITIDA EM …", parcela "i/N", rateio
+  do CODCONTABILNF, CAIXA), o rateio da retenção ST (sem CAIXA), o título digitado (rateio pelo CC, CAIXA; editar refaz;
+  excluir apaga) e o estorno. ⚠️ A mig 327 também sincroniza `apagar.dtcompra` (o do legado, carregado) com `dtvenda` (o
+  que a tela do Apollo lia): o título migrado aparecia sem data de emissão. **Falta:** as linhas D/E (config), a previsão
+  do manifesto e o lançamento de caixa (F06, que gera o título já quitado).
 
 ## 3. Ordem proposta
 
