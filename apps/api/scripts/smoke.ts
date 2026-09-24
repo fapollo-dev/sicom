@@ -19694,6 +19694,34 @@ async function main() {
         await pgP.end();
       }
     }
+    // ══ §177 GERENCIAR SUGESTÃO DE PROMOÇÃO (FRMGERENCIARSUGESTAOPROMOCAO; mig 330 — reconstruída do dado de SUGEST_PROMO_PROD) ══
+    {
+      const pgS = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const SG = 'cadastro/sugestao-promocao';
+      try {
+        const c1 = await fetch(`${base}/${SG}`, { method: 'POST', headers: H, body: JSON.stringify({ idproduto: 1 }) });
+        const c1J = (await c1.json().catch(() => ({}))) as any;
+        const rep = await fetch(`${base}/${SG}`, { method: 'POST', headers: H, body: JSON.stringify({ idproduto: 1 }) });
+        const repJ = (await rep.json().catch(() => ({}))) as any;
+        const semProd = await fetch(`${base}/${SG}`, { method: 'POST', headers: H, body: JSON.stringify({ idproduto: 987654321 }) });
+        const abertas = (await (await fetch(`${base}/${SG}`, { headers: H })).json().catch(() => [])) as any[];
+        const id = Number(c1J.idsugest_promo_prod);
+        const res = await fetch(`${base}/${SG}/${id}/resolver`, { method: 'POST', headers: H });
+        const de_novo = await fetch(`${base}/${SG}/${id}/resolver`, { method: 'POST', headers: H });
+        const resolvidas = (await (await fetch(`${base}/${SG}?situacao=resolvidas`, { headers: H })).json().catch(() => [])) as any[];
+        const linha = (await pgS.query(`SELECT indr, indr_usuario, indr_data IS NOT NULL AS d, operador, idempresa FROM sugest_promo_prod WHERE idsugest_promo_prod = $1`, [id])).rows[0] as any;
+        const semAcesso = await fetch(`${base}/${SG}`, { headers: H_SEM_ACESSO });
+        check('SUGESTÃO DE PROMOÇÃO §177: sugerir grava o produto com o operador, a loja e a data; a repetida em aberto → 422 SUGESTAO_PROMOCAO_JA_EXISTE; produto inexistente → 422; a lista em aberto a traz; resolver é a exclusão lógica (INDR S + usuário + data) e sai da lista em aberto para a de resolvidas; resolver de novo → 422; sem acesso à tela → 403',
+          c1.status === 201 && id > 0 && rep.status === 422 && repJ.code === 'SUGESTAO_PROMOCAO_JA_EXISTE' && semProd.status === 422
+          && abertas.some((s) => Number(s.idsugest_promo_prod) === id && s.indr == null) && res.status === 200 && de_novo.status === 422
+          && resolvidas.some((s) => Number(s.idsugest_promo_prod) === id) && linha?.indr === 'S' && Number(linha?.indr_usuario) === 7 && linha?.d === true
+          && Number(linha?.operador) === 7 && Number(linha?.idempresa) === 1 && semAcesso.status === 403,
+          { c1: [c1.status, c1J], rep: [rep.status, repJ.code], semProd: semProd.status, abertas: abertas.length, res: res.status, de_novo: de_novo.status, linha, semAcesso: semAcesso.status });
+        await pgS.query(`DELETE FROM sugest_promo_prod WHERE idsugest_promo_prod = $1`, [id]);
+      } finally {
+        await pgS.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

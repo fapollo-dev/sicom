@@ -101,6 +101,8 @@ import { RegistrosLogService } from './registros-log.service';
 import { PermissoesService } from './permissoes.service';
 import { SenhaOperacaoController } from './senha-operacao.controller';
 import { SenhaOperacaoService } from './senha-operacao.service';
+import { SugestaoPromocaoService } from './sugestao-promocao.service';
+import { SugestaoPromocaoController } from './sugestao-promocao.controller';
 import { BairroCrudController } from './bairro.crud';
 import { PrecoCrudController } from './preco.crud';
 import { NcmCrudController } from './ncm.crud';
@@ -166,7 +168,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
  */
 @Module({
   imports: [PrecificacaoModule, AuthModule], // motor fiscal na NF F2 + LiberacaoService (zerar estoque do rotativo)
-  controllers: [RelPerdasController, PisCofinsCadController, ExportaNfeController, 
+  controllers: [SugestaoPromocaoController, RelPerdasController, PisCofinsCadController, ExportaNfeController, 
     BancosController, // hand-written (referência + paridade SQL + golden)
     OperacoesContaCrudController, // engine (combo)
     ContasBancariasCrudController, // engine (FK/lookup)
@@ -299,6 +301,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     PerfilRelacaoService,
     PermissoesService,
     SenhaOperacaoService,
+    SugestaoPromocaoService,
     // Porta SEFAZ (F6): seleção REAL por env SEFAZ_PROVIDER (default 'simulador'). Hoje só existe
     // o SIMULADOR (homologação); o provider real (ACBrLibNFe/lib NFe Node/microserviço) implementa
     // a mesma SefazPort e entra aqui sem tocar no service. Travas: 'simulador' é PROIBIDO em

@@ -311,6 +311,8 @@ const CODE_PT: Record<string, string> = {
   TITULO_DESCONTO_VINCULADO: 'Não é possível excluir uma conta vinculada a um desconto de títulos.',
   TITULO_DE_DESCONTO: 'Não é possível excluir uma conta gerada de um desconto de títulos.',
   APAGAR_SITUACAO_DESC_EMBUT_NAO_CONFIGURADA: 'Necessário configurar situação de documento para descontos/embutidos no integrador contábil (Contábil, Cadastro, Integração contábil, aba financeiro, contas a pagar).',
+  SUGESTAO_PROMOCAO_JA_EXISTE: 'Este produto já tem uma sugestão de promoção em aberto nesta loja.',
+  SUGESTAO_PROMOCAO_NAO_ENCONTRADA: 'Sugestão de promoção não encontrada (ou já resolvida).',
   PREVISAO_MANIFESTO_NAO_CONFIGURADA: 'A geração da previsão de contas a pagar do manifesto não está configurada (SITUACAO_GERACAO_PREVISAO_APAGAR_MANIFESTO e CC_GERACAO_PREVISAO_APAGAR_MANIFESTO).',
   PREVISAO_MANIFESTO_JA_GERADA: 'Já existe previsão de contas a pagar em aberto para esta nota.',
   PREVISAO_MANIFESTO_PARCELA_INVALIDA: 'Informe o valor (maior que zero) e o vencimento de cada parcela da previsão.',

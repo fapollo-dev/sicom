@@ -222,6 +222,7 @@ const TELAS = [
   { href: '/fiscal/reforma-ibscbs', name: 'Reforma IBS/CBS', icon: Tag },
   { href: '/fiscal/apuracao-ibscbs', name: 'Apuração IBS/CBS', icon: Tag },
   { href: '/precificacao/clube-desconto', name: 'Clube de desconto', icon: Tag },
+  { href: '/precificacao/sugestao-promocao', name: 'Sugestões de promoção', icon: Tag },
   { href: '/precificacao/hist-processamento-nf', name: 'Histórico de custo (NF)', icon: Tag },
   { href: '/fiscal/nf-esteira', name: 'Esteira da nota', icon: Tag },
   { href: '/cadastro/motivos', name: 'Motivos de ajuste de estoque', icon: ListChecks },

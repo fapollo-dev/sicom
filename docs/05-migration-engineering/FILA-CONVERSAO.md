@@ -49,7 +49,7 @@ ambos. As 🟡 que restam são o trabalho que sobra desta fila:
 | 124 | `FRMAUTORIZACAOPAGAMENTO` | alçada de pagamento — viva em 06/2026, sem fonte |
 | 139 | `FRMRECEBIMENTOS` | recebimento de mercadoria — vivo em 08/2026, sem fonte |
 | 148 | `FRMCADCODIGOAJUSTE` | códigos de ajuste do SPED — tabela vazia, mas acesso em 09/2026 |
-| 151 | `FRMGERENCIARSUGESTAOPROMOCAO` | sugestão de promoção — viva em 08/2026, sem fonte |
+| 151 | `FRMGERENCIARSUGESTAOPROMOCAO` | sugestão de promoção — viva em 08/2026, sem fonte | ✅ **convertida** (24/09/2026, mig 330, `cadastro/sugestao-promocao`, tela `/precificacao/sugestao-promocao`, smoke §177) — reconstruída do dado de `SUGEST_PROMO_PROD` (471 linhas): lista por loja com quem sugeriu e a última promoção do produto; resolver = exclusão lógica (INDR 'S' + usuário + data, 343 no dado); sugestão repetida em aberto recusada (0 no dado) |
 
 | # | tela | acessos | operadores | nota |
 |---|---|---|---|---|
