@@ -6945,8 +6945,15 @@ async function main() {
           && l12?.importada === 'S' && l11?.importada === 'N',
           { sem: impSem.status, ja: impJa.ja_importada, codnf: impJa.codnf, rec12: l12?.importada, rec11: l11?.importada });
 
+        // a contingência (IMPORTACAO_MANUAL='S', UManifestoDFe.pas:1800) passa pela confirmação: sem XML, o erro já é o seguinte
+        await pgRv.query(`INSERT INTO nfe_nao_cadastradas (codnfe_naocad, chavenfe, cnpj, razao, dtemissao, tipo, totalnf, situacao, idempresa, modelo, nfe_importada_sistema, importacao_manual) VALUES
+          (97013,'52991201000000000013550010000010013000010013','11222333000181','FORN IMP C','2026-12-02 12:00:00-03','E',300,1,1,55,'N','S')`);
+        const impCont = (await (await fetch(`${base}/compras/manifesto-dfe/importar/97013`, { method: 'POST', headers: H, body: '{}' })).json().catch(() => ({}))) as any;
+        check('MANIFESTO importar: a nota em contingência (IMPORTACAO_MANUAL=S) importa sem a confirmação 210200, como o legado — sem o XML o erro passa a ser XML_NAO_DISPONIVEL',
+          impCont.code === 'XML_NAO_DISPONIVEL', impCont);
+
         await pgRv.query(`DELETE FROM nf WHERE codnf=$1`, [nfMan.rows[0].codnf]);
-        await pgRv.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad IN (97011,97012)`);
+        await pgRv.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad IN (97011,97012,97013)`);
 
         // 47as) PENDÊNCIAS DO OPERADOR (FRMPENDENCIASOPERADOR) — a fila de trabalho: criar (APN vinculada
         // a uma NF resolve o FORNECEDOR), finalizar exige existir e recusa refinalizar, reabrir volta a A.

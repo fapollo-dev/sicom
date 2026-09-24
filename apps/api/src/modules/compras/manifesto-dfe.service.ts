@@ -163,8 +163,8 @@ export class ManifestoDfeService {
    * IMPORTAR a NF-e da fila para o sistema — a ponte para o import de XML já existente (mig 062).
    * Regras do legado (ImportarNFEParaSistema):
    *  · exige a CONFIRMAÇÃO DA OPERAÇÃO (evento 210200 na chave) antes de importar — "Realize a confirmação
-   *    da operação para importar a NF-e" (o ramo de contingência do legado alerta e permite; a fila da
-   *    distribuição não carrega tipoemissao, então aqui vale a regra principal);
+   *    da operação para importar a NF-e" —, menos na contingência (IMPORTACAO_MANUAL='S'), que importa com o alerta do
+   *    legado (auditoria g1: 3 das 115 importações sem 210200 de 2025-26; as outras 112 são eventos não gravados);
    *  · sem XML completo → orientar a aguardar a liberação da SEFAZ (ou sincronizar);
    *  · se JÁ EXISTE NF com a chave na empresa → não duplica: devolve o vínculo (a tela oferece visualizar)
    *    e reconcilia o flag.
@@ -184,13 +184,21 @@ export class ManifestoDfeService {
         .where('codnfe_naocad', '=', cod).execute();
       return { ja_importada: true, codnf: nfExistente.codnf };
     }
-    // a regra central: só importa quem CONFIRMOU a operação (210200)
-    const conf = await db.selectFrom('nfe_eventos').select('codnfe_evento')
-      .where('chave_acesso', '=', chave).where('tipo_evento', '=', 210200).executeTakeFirst();
-    if (!conf) {
-      throw new BusinessRuleError('CONFIRMACAO_NECESSARIA', {
-        instrucao: 'Realize a confirmação da operação (manifestação 210200) para importar a NF-e.',
-      });
+    // a regra central: só importa quem CONFIRMOU a operação (210200) — exceto a nota em CONTINGÊNCIA, que o legado importa
+    // com alerta (UManifestoDFe.pas:1800-1804). Na fila do manifesto a contingência é `IMPORTACAO_MANUAL='S'`
+    // (GET_NF_MANIFESTO: `CASE WHEN COALESCE(IMPORTACAO_MANUAL,'N')='S' THEN 'SIM'`; 1.158 linhas em produção)
+    const contingencia = String((fila as Record<string, unknown>).importacao_manual ?? 'N') === 'S';
+    let aviso: string | null = null;
+    if (contingencia) {
+      aviso = 'Nota fiscal classificada como enviada em ambiente de contingência. A importação será permitida mas será necessário o envio das manifestações no futuro.';
+    } else {
+      const conf = await db.selectFrom('nfe_eventos').select('codnfe_evento')
+        .where('chave_acesso', '=', chave).where('tipo_evento', '=', 210200).executeTakeFirst();
+      if (!conf) {
+        throw new BusinessRuleError('CONFIRMACAO_NECESSARIA', {
+          instrucao: 'Realize a confirmação da operação (manifestação 210200) para importar a NF-e.',
+        });
+      }
     }
     const x = await db.selectFrom('nfe_xml').select(['xml'])
       .where('chavenfe', '=', chave).orderBy(sql`codnfexml desc`).executeTakeFirst();
@@ -205,7 +213,7 @@ export class ManifestoDfeService {
     await db.updateTable('nfe_nao_cadastradas')
       .set({ nfe_importada_sistema: 'S', nronf: String((r as Record<string, unknown>).nronf ?? '').slice(0, 9) || null })
       .where('codnfe_naocad', '=', cod).execute();
-    return { ja_importada: false, ...r };
+    return { ja_importada: false, ...r, aviso };
   }
 
   /** o XML completo da chave (p/ exportar ou encaminhar à importação de NF-e — mig 062). */
