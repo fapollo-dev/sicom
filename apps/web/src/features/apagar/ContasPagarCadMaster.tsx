@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Controller, type UseFormReturn } from 'react-hook-form';
+import { useNavigate } from 'react-router-dom';
 import { apagarSchema, AR_TIPODOC_OPCOES, type CriarApagarDto } from '@apollo/shared';
 import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
@@ -13,7 +14,6 @@ import { Tabs, TabPanel, type TabDef } from '../../shared/ui/Tabs';
 import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
 import { useSituacoesDaOperacao, useSituacaoUnica } from '../../shared/situacao/situacaoDaOperacao';
 import { useMensagem } from '../../shared/mensagem';
-import { baixarApagar, estornarBaixaApagar } from './apagarApi';
 
 const hojeISO = () => new Date().toISOString().slice(0, 10);
 const fmtBRL = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -147,108 +147,20 @@ function EstadoBar({ form }: { form: UseFormReturn<CriarApagarDto> }) {
   );
 }
 
-/** BAIXA / pagamento: pagar quando aberto, estornar quando pago. Só em título gravado. */
+/** a BAIXA é a tela própria do legado (`FRMBAIXAAPAGAR`, em lote); a reversão, a consulta de baixas por lote (`FRMCONSAPGBX`) */
 function BaixaSection({ form }: { form: UseFormReturn<CriarApagarDto> }) {
-  const mensagem = useMensagem();
+  const navigate = useNavigate();
   const g = form.getValues() as Record<string, unknown>;
   const codapg = g.codapg as number | undefined;
   const quitada = (form.watch('quitada' as any) ?? g.quitada) === 'S';
   const agrupado = (form.watch('agrupado' as any) ?? g.agrupado) === 'S';
-  const [executando, setExecutando] = useState(false);
-  const [dtpgto, setDtpgto] = useState<string | undefined>(hojeISO());
-  const [juros, setJuros] = useState<number | undefined>(undefined);
-  const [desconto, setDesconto] = useState<number | undefined>(undefined);
-  const [recurso, setRecurso] = useState<string>(''); // '' = sem caixa · DINHEIRO = caixa · BANCO = pagto por banco
-  const [codconta, setCodconta] = useState<number | undefined>(undefined);
-  // o centro de custo dos juros e do desconto (ValidaCentroCustos): vazio = o padrão da empresa (EMPRESAS.CODPLC_*)
-  const [codplcJuros, setCodplcJuros] = useState<string>('');
-  const [codplcDesconto, setCodplcDesconto] = useState<string>('');
-  const { data: ccOptions = [] } = useResourceOptions('cadastro/plc', (c: any) => ({ value: String(c.codplc), label: `${c.desccodplc ?? c.codplc} - ${c.descricao}` }));
-  const { data: contasBancarias = [] } = useResourceOptions(
-    'cadastro/contas-bancarias',
-    (c: any) => ({ value: String(c.codconta), label: `${c.codconta} - ${c.titular ?? ''}${c.nroconta ? ' (' + c.nroconta + ')' : ''}` }),
-  );
-  if (codapg == null) return null;
-
-  const pagar = async () => {
-    if (executando) return;
-    setExecutando(true);
-    try {
-      const r = await baixarApagar(codapg, {
-        dtpgto, juros, desconto,
-        codplcJuros: codplcJuros ? Number(codplcJuros) : undefined,
-        codplcDesconto: codplcDesconto ? Number(codplcDesconto) : undefined,
-        recurso: recurso === 'DINHEIRO' || recurso === 'BANCO' ? (recurso as 'DINHEIRO' | 'BANCO') : undefined,
-        codconta: recurso === 'BANCO' ? codconta : undefined,
-      });
-      form.setValue('quitada' as any, 'S');
-      mensagem.sucesso(`Título pago: R$ ${fmtBRL(r.valorpg)} (juros R$ ${fmtBRL(r.juros)}).`);
-    } catch (e) {
-      mensagem.erro(e);
-    } finally {
-      setExecutando(false);
-    }
-  };
-  const estornar = async () => {
-    if (executando) return;
-    if (!window.confirm('Estornar o pagamento deste título? O título volta a ficar em aberto.')) return;
-    setExecutando(true);
-    try {
-      await estornarBaixaApagar(codapg);
-      form.setValue('quitada' as any, 'N');
-      mensagem.sucesso('Pagamento estornado: título reaberto.');
-    } catch (e) {
-      mensagem.erro(e);
-    } finally {
-      setExecutando(false);
-    }
-  };
-
+  if (codapg == null || agrupado) return null;
   return (
-    <fieldset className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
-      <legend className="px-pad-xs text-body-sm font-semibold text-fg-default">Baixa / Pagamento</legend>
-      {agrupado ? (
-        <small className="text-fg-muted">Título agrupado — o pagamento é feito pelo agrupamento (fase futura).</small>
-      ) : quitada ? (
-        <div className="flex flex-wrap items-center gap-gp-sm">
-          <Button label="&Estornar pagamento" variant="soft" onClick={() => void estornar()} />
-          <small className="text-fg-muted">Título pago. O estorno reabre o título.</small>
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="w-44"><DateField label="Data do &pagamento" value={dtpgto} onChange={setDtpgto} /></div>
-          <div className="w-36"><NumberField label="&Juros (R$)" value={juros} onChange={setJuros} decimais={2} min={0} /></div>
-          <div className="w-36"><NumberField label="&Desconto (R$)" value={desconto} onChange={setDesconto} decimais={2} min={0} /></div>
-          {!!juros && Number(juros) > 0 && (
-            <div className="w-56"><SelectField label="C. custo dos juros" options={ccOptions} value={codplcJuros || undefined} onChange={(v) => setCodplcJuros(v ?? '')} placeholder="Padrão da empresa" /></div>
-          )}
-          {!!desconto && Number(desconto) > 0 && (
-            <div className="w-56"><SelectField label="C. custo do desconto" options={ccOptions} value={codplcDesconto || undefined} onChange={(v) => setCodplcDesconto(v ?? '')} placeholder="Padrão da empresa" /></div>
-          )}
-          <div className="w-44">
-            <SelectField
-              label="&Recurso"
-              options={[{ value: '', label: '— (outro)' }, { value: 'DINHEIRO', label: 'Dinheiro (caixa)' }, { value: 'BANCO', label: 'Banco (depósito)' }]}
-              value={recurso}
-              onChange={(v) => { setRecurso(v); if (v !== 'BANCO') setCodconta(undefined); }}
-            />
-          </div>
-          {recurso === 'BANCO' && (
-            <div className="w-56">
-              <SelectField
-                label="&Conta bancária"
-                options={contasBancarias}
-                value={codconta != null ? String(codconta) : undefined}
-                onChange={(v) => setCodconta(v ? Number(v) : undefined)}
-                placeholder="Selecione a conta…"
-              />
-            </div>
-          )}
-          <Button label="&Pagar título" variant="soft" onClick={() => void pagar()} />
-          <small className="text-fg-muted">Dinheiro exige caixa aberto; Banco paga pela conta contábil do banco.</small>
-        </div>
-      )}
-    </fieldset>
+    <div className="flex flex-wrap items-center gap-gp-sm rounded-radius-base border border-border bg-bg-subtle p-pad-sm">
+      {quitada
+        ? <><span className="text-fg-muted">Título pago. A reversão da baixa é pelo lote.</span><Button label="Baixas do a pagar (lotes)" variant="ghost" onClick={() => navigate('/cobranca/cons-apg-bx')} /></>
+        : <><span className="text-fg-muted">O pagamento é feito na tela de baixa, em lote.</span><Button label="&Baixar na tela de baixa" variant="soft" onClick={() => navigate('/cobranca/baixa-apagar')} /></>}
+    </div>
   );
 }
 

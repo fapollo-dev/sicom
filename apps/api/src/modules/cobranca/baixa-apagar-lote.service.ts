@@ -141,6 +141,44 @@ export class BaixaApagarLoteService {
     };
   }
 
+  /**
+   * MANUTENÇÃO — a entrada pela consulta de baixas (`UConsAPGbx.pas:203-290`): valida o `ReversaoPermitida` do lote (a
+   * reversão roda e é desfeita), e devolve os documentos com "Calcula juro" e o acréscimo/desconto da baixa e a data do
+   * pagamento. Os recursos não voltam: o usuário lança de novo. O lote novo sai do "Iniciar baixa".
+   */
+  async manutencao(lote: number): Promise<{ loteAntigo: number; dtpgto: string; documentos: Record<string, unknown>[] }> {
+    const emp = this.emp();
+    const op = this.op();
+    const db = this.dbp.forTenant() as AnyDB;
+    const desfazer = new Error('desfazer');
+    try {
+      await db.transaction().execute(async (trx: AnyDB) => {
+        await this.reverterLoteNaTrx(trx, emp, op, lote);
+        throw desfazer;
+      });
+    } catch (e) {
+      if (e !== desfazer) throw e;
+    }
+    const rows = (await sql<Record<string, unknown>>`
+      SELECT a.codapg, a.duplicata AS nr_documento, a.nrparcela, p.razao AS fornecedor, a.codparceiro, a.codempresa,
+             a.valor, coalesce(a.vendor, 0) AS vendor, coalesce(a.desconto, 0) AS desconto, coalesce(a.txjuros, 0) AS txjuros,
+             to_char(n.dtemissao, 'YYYY-MM-DD') AS emissao, to_char(a.dtvenc, 'YYYY-MM-DD') AS vencimento, a.tipodoc,
+             coalesce(b.acre_desc, 0) AS acre_desc, coalesce(b.juros, 0) AS juros_baixa, to_char(b.dtpgto, 'YYYY-MM-DD') AS dtpgto
+        FROM apagar_bx b
+        JOIN apagar a ON a.codapg = b.codapg
+        LEFT JOIN parceiros p ON p.codparceiro = a.codparceiro
+        LEFT JOIN nf n ON n.codnf = a.idnf
+       WHERE b.idlote = ${lote} AND coalesce(b.indr, 'I') = 'I'
+       ORDER BY b.codapgbx`.execute(db)).rows;
+    return {
+      loteAntigo: lote, dtpgto: String(rows[0]?.dtpgto ?? ''),
+      documentos: rows.map((t) => ({
+        ...t, codapg: Number(t.codapg), valor: r2(num(t.valor)), vendor: r2(num(t.vendor)), desconto: r2(num(t.desconto)), txjuros: num(t.txjuros),
+        base: r2(num(t.valor) + num(t.vendor)), acre_desc: r2(num(t.acre_desc)), calcula_juro: num(t.juros_baixa) > 0,
+      })),
+    };
+  }
+
   /** GRAVAR a baixa do lote (e, na manutenção, reverter o lote antigo antes, na mesma transação) */
   async gravar(dto: BaixaApagarGravarDto): Promise<{ idlote: number; documentos: number; valorPago: number; parcial: boolean; codapgSaldo: number | null; contabilizado: boolean }> {
     const emp = this.emp();

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@apollosg/design-system';
 import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
@@ -26,6 +27,7 @@ interface Detalhe { lote: number; semLote: boolean; revertido: boolean; parcialm
 
 export function ConsApgBxPage() {
   const mensagem = useMensagem();
+  const navigate = useNavigate();
   const [f, setF] = useState({ dataIni: inicioDoMes(), dataFim: hoje(), codparceiro: '', situacao: 'todos' });
   const [lotes, setLotes] = useState<LoteResumo[] | null>(null);
   const [det, setDet] = useState<Detalhe | null>(null);
@@ -124,6 +126,10 @@ export function ConsApgBxPage() {
             <h3 className="text-body-sm font-semibold">{det.semLote ? 'Baixa avulsa' : `Lote ${det.lote}`} · {det.totais.titulos} título(s) · pago {moeda(det.totais.valorPago)}</h3>
             {det.revertido ? <span className="rounded-radius-sm border border-border px-pad-sm py-pad-xs text-body-sm font-semibold text-fg-danger">Lote revertido</span>
               : <Button label="&Reverter baixa" variant="outline" disabled={ocupado} onClick={() => void reverter()} />}
+            {/* a manutenção do lote (UConsAPGbx.pas:203-290): reabre na tela de baixa e regrava num lote novo */}
+            {!det.revertido && !det.semLote && det.movimentos.length > 0 && (
+              <Button label="&Manutenção do lote" variant="ghost" disabled={ocupado} onClick={() => navigate(`/cobranca/baixa-apagar?manutencao=${det.lote}`)} />
+            )}
           </div>
 
           <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">

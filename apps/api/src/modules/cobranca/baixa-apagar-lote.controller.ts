@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { baixaApagarGravarSchema, baixaApagarTitulosSchema, type BaixaApagarGravarDto, type BaixaApagarTitulosDto } from '@apollo/shared';
 import { BaixaApagarLoteService } from './baixa-apagar-lote.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -27,6 +27,13 @@ export class BaixaApagarLoteController {
   @RequerAcesso('FRMBAIXAAPAGAR', 'FRMBAIXAAPAGAR')
   padroes() {
     return this.svc.padroes();
+  }
+
+  /** a manutenção entra pela consulta de baixas (o botão de manutenção do FRMCONSAPGBX) */
+  @Get('manutencao/:lote')
+  @RequerAcesso('FRMBAIXAAPAGAR', 'BTNGRAVAR')
+  manutencao(@Param('lote', ParseIntPipe) lote: number) {
+    return this.svc.manutencao(lote);
   }
 
   @Post('iniciar')

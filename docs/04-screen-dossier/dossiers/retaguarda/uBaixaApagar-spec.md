@@ -603,3 +603,13 @@ Importar o retorno, casar pelo código de barras (`CODBARRASBLT`), recurso autom
 Delphi, 1899-12-30); `CODPLC_JUROS=3707` nas linhas de desconto (binário novo, origem não identificada) não é copiado;
 cheque próprio/terceiros, devolução e retorno ficam fora (0 uso, §5). A baixa título a título antiga
 (`cadastro/apagar/:id/baixar`, sessão de caixa) segue no ar só até a tela nova assumir.
+
+## 8. Conversão — corte A, tela (24/09/2026)
+
+`/cobranca/baixa-apagar` (`BaixaApagarPage`, menu "Baixa de contas a pagar"): Iniciar baixa (o lote), pesquisa com
+multisseleção (bloqueado em vermelho, fornecedor com débito em azul — só cor), grade com "Calcula juro" e Acre/Desc
+editáveis enquanto não há recurso, totais, CCs com o padrão da empresa, recursos (tipo, conta do operador — a caixa só no
+DINHEIRO —, valor sugerido = restante, histórico `REFERENTE A BAIXA DO LOTE: N`), avisos de data (não bloqueiam), parcial
+com a pergunta do legado e o vencimento do saldo. Manutenção: botão na consulta de baixas → `?manutencao=<lote>` (valida o
+`ReversaoPermitida` sem reverter, traz documentos e data, aloca lote novo). O painel "baixar título" do cadastro de Contas a
+Pagar (invenção do Apollo) virou atalho para a tela. Falta: o recibo (`recibopagar.fr3`).

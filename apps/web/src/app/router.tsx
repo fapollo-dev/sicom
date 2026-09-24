@@ -74,6 +74,7 @@ import { AnaliseComportamentoPeriodoPage } from '../features/analise-comportamen
 import { AnaliseComportamentoPage } from '../features/analise-comportamento/AnaliseComportamentoPage';
 import { RelAnalisePedidoNfPage } from '../features/rel-analise-pedido-nf/RelAnalisePedidoNfPage';
 import { ConsApgBxPage } from '../features/cons-apg-bx/ConsApgBxPage';
+import { BaixaApagarPage } from '../features/baixa-apagar/BaixaApagarPage';
 import { ConsRcbBxPage } from '../features/cons-rcb-bx/ConsRcbBxPage';
 import { RelPerdasPage } from '../features/rel-perdas/RelPerdasPage';
 import { PeriodoContabilPage } from '../features/periodo-contabil/PeriodoContabilPage';
@@ -283,6 +284,7 @@ export const router = createBrowserRouter([
       { path: '/relatorios/analise-comportamento', element: <AnaliseComportamentoPage /> }, // FRMANALISECOMPORTAMENTO
       { path: '/compras/rel-analise-pedido-nf', element: <RelAnalisePedidoNfPage /> }, // FRMRELANALISEPEDIDONF
       { path: '/cobranca/cons-apg-bx', element: <ConsApgBxPage /> }, // FRMCONSAPGBX
+      { path: '/cobranca/baixa-apagar', element: <BaixaApagarPage /> }, // FRMBAIXAAPAGAR — baixa em lote
       { path: '/cobranca/cons-rcb-bx', element: <ConsRcbBxPage /> }, // FRMCONSRCBBX
       { path: '/cadastro/rel-perdas', element: <RelPerdasPage /> }, // FRMRELPERDAS
       { path: '/contabil/periodo-contabil', element: <PeriodoContabilPage /> }, // FRMCADPERIODOCONTABIL

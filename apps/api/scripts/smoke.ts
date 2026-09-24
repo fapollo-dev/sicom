@@ -20917,6 +20917,14 @@ async function main() {
         // 196.6 MANUTENÇÃO: baixa do t1 no banco (lote L4) e o regravar em outro lote (L5) com outra conta — na mesma transação
         const L4 = await iniciar();
         const g4 = await post(`${BA}/gravar`, { idlote: L4, dtpgto: '2026-09-21', documentos: [{ codapg: t1 }], recursos: [{ tipo: 4, codconta: bcB, valor: 90 }] });
+        const man = await fetch(`${base}/${BA}/manutencao/${L4}`, { headers: H });
+        const manJ = (await man.json().catch(() => ({}))) as any;
+        const aindaAtivo = (await pgBa.query(`SELECT indr FROM apagar_bx WHERE idlote = $1`, [L4])).rows[0] as any;
+        const manRev = await fetch(`${base}/${BA}/manutencao/${L1}`, { headers: H });
+        check('BAIXA-AP §196.6a: a carga da manutenção valida o lote sem revertê-lo (a baixa segue INDR I) e traz o documento com o acréscimo/desconto da baixa e a data; lote já revertido → 422 LOTE_JA_REVERTIDO',
+          man.status === 200 && manJ.loteAntigo === L4 && manJ.dtpgto === '2026-09-21' && manJ.documentos?.length === 1 && Number(manJ.documentos[0].acre_desc) === -10
+          && aindaAtivo?.indr === 'I' && manRev.status === 422 && ((await manRev.json().catch(() => ({}))) as any).code === 'LOTE_JA_REVERTIDO',
+          { man: man.status, manJ, aindaAtivo, manRev: manRev.status });
         const L5 = await iniciar();
         const g5 = await post(`${BA}/gravar`, { idlote: L5, dtpgto: '2026-09-21', documentos: [{ codapg: t1, acreDesc: -12 }], recursos: [{ tipo: 0, codconta: bcB, valor: 88 }], loteManutencao: L4 });
         const bx4 = (await pgBa.query(`SELECT indr FROM apagar_bx WHERE idlote = $1`, [L4])).rows[0] as any;
