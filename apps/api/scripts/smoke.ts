@@ -20424,6 +20424,65 @@ async function main() {
         await pgCD.end();
       }
     }
+    // ══ §188 AGRUPAMENTO corte E: o CONVÊNIO DO MESMO CNPJ (frmConvenioParceiro + GeraApagar; reversão pelo A Pagar) ══
+    {
+      const pgCE = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const antesEmp = (await pgCE.query(`SELECT cnpj, codplcfechamentoconvenio, fechamento_caixa, integracao FROM empresas WHERE idempresa = 1`)).rows[0] as any;
+      const PARC = 9918801;
+      const titulos: number[] = [];
+      let codapg = 0;
+      let codcx = 0;
+      try {
+        await pgCE.query(`UPDATE empresas SET cnpj = '37954975000169', codplcfechamentoconvenio = NULL, fechamento_caixa = 'N', integracao = 'MANUAL' WHERE idempresa = 1`);
+        await pgCE.query(`INSERT INTO parceiros (codparceiro, razao, cli, frn) VALUES ($1, 'JF SUPERMERCADOS SMOKE', 'S', 'S') ON CONFLICT DO NOTHING`, [PARC]);
+        await pgCE.query(`INSERT INTO parceiros_end (codparceiro, cnpj_cpf) VALUES ($1, '37.954.975/0001-69')`, [PARC]);
+        await pgCE.query(`INSERT INTO plc (codplc, descricao, tpconta) VALUES (99188, 'DESPESA CONVENIO SMOKE', 1), (99189, 'RECEITA SMOKE', 0) ON CONFLICT DO NOTHING`);
+        for (const [parc, v, dia] of [[20, 120, '2026-03-02'], [22, 80.5, '2026-03-05']] as Array<[number, number, string]>) {
+          titulos.push(Number(((await pgCE.query(`INSERT INTO areceber (codempresa, codparceiro, valor, total, dtvenda, dtvenc, quitada, idpgto, nrodup)
+              VALUES (1, $1, $2, $2, $3::date, $3::date + 30, 'N', 4, 1) RETURNING codrcb`, [parc, v, dia])).rows[0] as any).codrcb));
+        }
+        const agr = async (body: Record<string, unknown>) => {
+          const r = await fetch(`${base}/cadastro/areceber/agrupar`, { method: 'POST', headers: H, body: JSON.stringify({ codrcbs: titulos, codparceiro: PARC, ...body }) });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const e0 = await agr({});
+        const e1 = await agr({ convenio: { codplc: 99189, idpgto: 4 } });
+        const ok = await agr({ convenio: { codplc: 99188, idpgto: 4 } });
+        codapg = Number(ok.j.convenio?.codapg);
+        codcx = Number(ok.j.convenio?.codcx);
+        const cx = (await pgCE.query(`SELECT valor::float AS valor, vrtitulo::float AS vrtitulo, codplc, tiporecurso, codparceiro, nrparcela, gerado, origem, obs, codgrupo,
+            to_char(data AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS dia FROM caixa WHERE codcx = $1`, [codcx])).rows[0] as any;
+        const ap = (await pgCE.query(`SELECT codparceiro, valor::float AS valor, quitada, duplicata, obs, nrodup, operacao_convenio_funcionario, convenio, tipodoc, gerado, idnf,
+            codcxagrupamentocr, agrupamento, codgrupo FROM apagar WHERE codapg = $1`, [codapg])).rows[0] as any;
+        const mem = (await pgCE.query(`SELECT agrupado, quitada, codgrupo_agrupamento_apg, data_agrupamento IS NOT NULL AS dt FROM areceber WHERE codrcb = ANY($1::int[])`, [titulos])).rows as any[];
+        const rev = await fetch(`${base}/cadastro/apagar/${codapg}/reverter-agrupamento`, { method: 'POST', headers: H });
+        const revJ = (await rev.json().catch(() => ({}))) as any;
+        const memDepois = (await pgCE.query(`SELECT agrupado, quitada, codgrupo_agrupamento_apg FROM areceber WHERE codrcb = ANY($1::int[])`, [titulos])).rows as any[];
+        const sobrou = Number(((await pgCE.query(`SELECT (SELECT count(*) FROM caixa WHERE codcx = $1) + (SELECT count(*) FROM apagar WHERE codapg = $2) AS n`, [codcx, codapg])).rows[0] as any).n);
+        check('AGRUPAMENTO §188 [o convênio do mesmo CNPJ]: o parceiro com o CNPJ da empresa desvia o agrupamento — sem os dados do convênio, 422 com a sugestão (a data da venda do último título e a obs padrão); centro de custo que não é despesa → 422 "O centro de custo é inválido"; gravado: a CAIXA ORIGEM "CONVENIO PARCEIRO" de −200,50 na despesa, com o nome da forma, GERADO SISTEMA, parceiro 0, parcela 1, na data sugerida; o A PAGAR já QUITADO para a empresa (200,50, DUPLICATA = o código, "Originado do agrupamento de contas à receber.", D, CONVENIO N, BOLETO, IDNF 0, CODCXAGRUPAMENTOCR = a CAIXA, AGRUPAMENTO S e o grupo); os títulos AGRUPADO S e QUITADA S no grupo do A Pagar; reverter pelo A Pagar solta os títulos (QUITADA N sem baixa) e apaga a CAIXA e o A Pagar',
+          e0.status === 422 && e0.j.code === 'AGRUPAMENTO_CONVENIO_MESMO_CNPJ' && e0.j.detalhe?.sugestao?.data === '2026-03-05' && e0.j.detalhe?.sugestao?.obs === 'Originado do lancamento do adiantamento de parceiro com mesmo CNPJ.'
+          && e1.status === 422 && e1.j.code === 'AGRUPAMENTO_CONVENIO_CC_INVALIDO'
+          && ok.status === 200 && ok.j.consolidado === null && ok.j.total === 200.5
+          && cx?.valor === -200.5 && cx.vrtitulo === -200.5 && Number(cx.codplc) === 99188 && cx.tiporecurso === 'CONVENIO' && Number(cx.codparceiro) === 0 && Number(cx.nrparcela) === 1
+          && cx.gerado === 'SISTEMA' && cx.origem === 'CONVENIO PARCEIRO' && cx.codgrupo == null && cx.dia === '2026-03-05'
+          && Number(ap?.codparceiro) === PARC && ap.valor === 200.5 && ap.quitada === 'S' && ap.duplicata === String(codapg) && ap.obs === 'Originado do agrupamento de contas à receber.'
+          && Number(ap.nrodup) === 1 && ap.operacao_convenio_funcionario === 'D' && ap.convenio === 'N' && ap.tipodoc === 'BOLETO' && ap.gerado === 'SISTEMA' && Number(ap.idnf) === 0
+          && Number(ap.codcxagrupamentocr) === codcx && ap.agrupamento === 'S' && Number(ap.codgrupo) === Number(ok.j.codgrupo)
+          && mem.length === 2 && mem.every((m) => m.agrupado === 'S' && m.quitada === 'S' && Number(m.codgrupo_agrupamento_apg) === Number(ok.j.codgrupo) && m.dt)
+          && rev.status === 200 && revJ.membros === 2 && memDepois.every((m) => m.agrupado === 'N' && m.quitada === 'N' && m.codgrupo_agrupamento_apg == null) && sobrou === 0,
+          { e0: [e0.status, e0.j.code, e0.j.detalhe], e1: [e1.status, e1.j.code], ok: [ok.status, ok.j], cx, ap, mem, rev: [rev.status, revJ], memDepois, sobrou });
+      } finally {
+        await pgCE.query(`DELETE FROM caixa WHERE codcx = $1`, [codcx]).catch(() => undefined);
+        await pgCE.query(`DELETE FROM apagar WHERE codapg = $1`, [codapg]).catch(() => undefined);
+        await pgCE.query(`DELETE FROM areceber WHERE codrcb = ANY($1::int[])`, [titulos]).catch(() => undefined);
+        await pgCE.query(`DELETE FROM parceiros_end WHERE codparceiro = $1`, [PARC]).catch(() => undefined);
+        await pgCE.query(`DELETE FROM parceiros WHERE codparceiro = $1`, [PARC]).catch(() => undefined);
+        await pgCE.query(`DELETE FROM plc WHERE codplc IN (99188, 99189)`).catch(() => undefined);
+        await pgCE.query(`UPDATE empresas SET cnpj = $1, codplcfechamentoconvenio = $2, fechamento_caixa = $3, integracao = $4 WHERE idempresa = 1`,
+          [antesEmp?.cnpj ?? null, antesEmp?.codplcfechamentoconvenio ?? null, antesEmp?.fechamento_caixa ?? null, antesEmp?.integracao ?? null]).catch(() => undefined);
+        await pgCE.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

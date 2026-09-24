@@ -187,6 +187,13 @@ export const agruparAreceberSchema = z.object({
   desconto: opcional(z.coerce.number().min(0, 'O desconto não pode ser negativo.')),
   jurosDe: z.array(z.coerce.number().int().positive()).optional(),
   cobrarTaxaAdm: z.boolean().optional(),
+  /** o convênio do MESMO CNPJ (frmConvenioParceiro): centro de custo de despesa, forma, data do caixa e obs */
+  convenio: z.object({
+    codplc: opcional(z.coerce.number().int().positive()),
+    idpgto: opcional(z.coerce.number().int().positive()),
+    data: opcional(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (use AAAA-MM-DD).')),
+    obs: opcional(z.string().max(1000)),
+  }).optional(),
 });
 /** ADICIONAR TÍTULO ao agrupamento (uAddTituloAgrupamentoAReceber) */
 export const adicionarAgrupamentoAreceberSchema = z.object({

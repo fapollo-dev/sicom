@@ -19,8 +19,24 @@
 - **TRON convênio** (G15): o valor é Σ do A Pagar; o débito fica com o primeiro recebível e documento vazio, como no razão.
 - Integridade mantida (o legado não verificava): baixa ativa e lote de cobrança bloqueiam o reverter; consolidado pago não
   recebe nem perde título.
-- **Falta**: o fluxo de convênio com mesmo CNPJ (corte E: CAIXA 'CONVENIO PARCEIRO', APAGAR quitada, membros quitados,
-  contábil 65 automático, reversão pelo AP), a tela web de agrupar/reverter, e os relatórios (corte F).
+- **Falta**: a tela web de agrupar/reverter e os relatórios (corte F).
+
+## ✅ ENTREGUE (24/09/2026) — corte E: o convênio do mesmo CNPJ
+
+- **Desvio no `POST cadastro/areceber/agrupar`** quando o CNPJ do parceiro (primeiro endereço) é o da empresa logada.
+  - A chave do XML da estação ('AGRUPAR BAIXA RECEBER - ATIVA CONVENIO') não existe no banco; aqui vale só o CNPJ.
+  - Sem os dados do convênio: 422 `AGRUPAMENTO_CONVENIO_MESMO_CNPJ` com a sugestão (centro de custo da empresa, forma do último título, data, obs padrão), para a tela perguntar.
+  - Com eles, na mesma transação:
+    - a CAIXA ORIGEM 'CONVENIO PARCEIRO' de −total no centro de custo de DESPESA (`tpconta` 1; `CODPLCFECHAMENTOCONVENIO` quando houver);
+    - o A PAGAR já QUITADO para a empresa, com CODCXAGRUPAMENTOCR, AGRUPAMENTO 'S' e grupo novo (todos os campos do §2.3);
+    - os membros AGRUPADO e QUITADA 'S' no grupo do A Pagar;
+    - com a integração automática, o contábil 65 na hora, num savepoint; a falha não desfaz, como o `except end`.
+  - `DocumentosContabilService` ganhou `integrarConvenioNaTrx`/`estornarConvenioNaTrx` por grupo.
+- **Reversão pelo A Pagar** (`POST cadastro/apagar/:id/reverter-agrupamento`, o CODCXAGRUPAMENTOCR identifica):
+  - Contabilizado, só com integração automática, que estorna o razão do grupo (origem 65, complemento). Senão: "Não é permitido reverter este agrupamento pois já foi contabilizado.".
+  - Solta os títulos, apaga a CAIXA e o A Pagar.
+  - ⚠️ **Inferido:** a reversão devolve QUITADA 'N' aos membros sem baixa. O fonte de 2020 não mexe, mas também não quitava; a auditoria da produção não guarda AGRUPADO, e não há reversão medível.
+- **Smoke §188:** 1525/0.
 
 **Fontes lidas:** `uAgrupaContasAReceber.pas`, `uAddTituloAgrupamentoAReceber.pas`, `uCadAReceber.pas` (os trechos de agrupamento: 400-1240, 2620-2880, 2985-3200, 3480-4248), `udmCadAReceber.pas/.dfm`, `uAgrupaContasAPagar.pas`, `uAPagar.pas` (reverter, impressão, `AgrupaAPagar`), `udmAPagar.dfm`, `uConvenioParceiro.pas`, `UIntegracaoContabil.pas` (3035-3320 e o filtro do CR), `UBaixaAreceber.pas`, `UReversaoBaixaContasReceber.pas`, `udmConfigura.pas` e `uDescontoTitulo.pas`.
 

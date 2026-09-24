@@ -6,6 +6,8 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 import { configNaTrx } from '../compras/pedido-heranca';
 import { novoGrupo } from './apagar-caixa';
+import { DocumentosContabilService } from './documentos-contabil.service';
+import { emSavepoint } from './fechamento-contabil.service';
 
 type AnyDB = Kysely<any>;
 const r2 = (n: number) => Math.round((n + (n >= 0 ? Number.EPSILON : -Number.EPSILON)) * 100) / 100;
@@ -27,7 +29,12 @@ export interface AgruparAreceberInput {
   /** os títulos com "Calc. Juros" marcado — o juro do dia entra no total */
   jurosDe?: number[];
   cobrarTaxaAdm?: boolean;
+  /** o convênio do MESMO CNPJ (`frmConvenioParceiro`): o centro de custo de despesa, a forma, a data do caixa e a obs */
+  convenio?: { codplc?: number; idpgto?: number; data?: string; obs?: string };
 }
+
+/** a obs padrão da CAIXA do convênio (`frmConvenioParceiro`) */
+const OBS_CONVENIO = 'Originado do lancamento do adiantamento de parceiro com mesmo CNPJ.';
 
 /**
  * AGRUPAMENTO DE CONTAS A RECEBER (`uAgrupaContasAReceber`, `uAddTituloAgrupamentoAReceber`, o menu de agrupamento do
@@ -43,7 +50,7 @@ export interface AgruparAreceberInput {
  */
 @Injectable()
 export class AreceberAgrupamentoService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(private readonly dbp: DatabaseProvider, private readonly contabil: DocumentosContabilService) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -75,7 +82,7 @@ export class AreceberAgrupamentoService {
    * cliente diverso). Com mais de um cliente, "informe o parceiro para gerar o título"; a forma, o banco, o cobrador e o
    * vendedor vêm do último título da grade, como no legado.
    */
-  async agrupar(dto: AgruparAreceberInput): Promise<{ codgrupo: number; consolidado: number; membros: number; total: number }> {
+  async agrupar(dto: AgruparAreceberInput): Promise<{ codgrupo: number; consolidado: number | null; membros: number; total: number; convenio?: Record<string, unknown> }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     const ids = [...new Set((dto.codrcbs ?? []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
@@ -114,6 +121,9 @@ export class AreceberAgrupamentoService {
 
       const tz = await this.tz(trx, emp);
       const hoje = (await sql<{ d: string }>`SELECT to_char(now() AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS d`.execute(trx)).rows[0].d;
+      if (await this.mesmoCnpj(trx, emp, codparceiro)) {
+        return this.agruparConvenio(trx, { emp, op, tz, hoje, ids, membros, codparceiro, total, idpgtoPadrao: num(ultimo.idpgto), convenio: dto.convenio });
+      }
       const dtvenda = dto.dtvenda ?? hoje;
       const dtvenc = dto.dtvenc ?? hoje;
       if (dtvenc < dtvenda) throw new BusinessRuleError('AGRUPAMENTO_VENCIMENTO_ANTERIOR');
@@ -133,6 +143,83 @@ export class AreceberAgrupamentoService {
           WHERE codrcb = ANY(${ids}::int[]) AND codempresa = ${emp}`.execute(trx);
       return { codgrupo, consolidado: num(ins.codrcb), membros: ids.length, total };
     });
+  }
+
+  /** o CNPJ do parceiro é o da empresa logada? (`ApenasNumero(CNPJ_CPF) = ApenasNumero(EMPRESA.CNPJ)`) — o CNPJ do parceiro mora no
+   *  primeiro endereço (PARCEIROS_END), como o contábil lê */
+  private async mesmoCnpj(trx: AnyDB, emp: number, codparceiro: number): Promise<boolean> {
+    const r = (await sql<{ p: string | null; e: string | null }>`
+      SELECT regexp_replace(coalesce((SELECT pe.cnpj_cpf FROM parceiros_end pe WHERE pe.codparceiro = ${codparceiro} ORDER BY pe.codend LIMIT 1), ''), '[^0-9]', '', 'g') AS p,
+             regexp_replace(coalesce((SELECT cnpj FROM empresas WHERE idempresa = ${emp}), ''), '[^0-9]', '', 'g') AS e`.execute(trx)).rows[0];
+    return !!r?.p && r.p === r.e;
+  }
+
+  /**
+   * O CONVÊNIO DO MESMO CNPJ (`frmConvenioParceiro` + `GeraApagar`, uCadAReceber; dossiê §2): quando o parceiro do agrupamento é a
+   * PRÓPRIA empresa (na produção, o 87199 JF SUPERMERCADOS = empresa 1; 32 grupos desde 2020, 1 em 2026), o legado não cria o
+   * consolidado a receber — os títulos dos conveniados viram um A PAGAR já QUITADO para a empresa e uma CAIXA negativa na despesa:
+   * - CAIXA ORIGEM 'CONVENIO PARCEIRO': a data do caixa (vários títulos: a venda do último; um: hoje), −total, o centro de custo de
+   *   DESPESA (`EMPRESAS.CODPLCFECHAMENTOCONVENIO` quando houver), o nome da forma, GERADO 'SISTEMA', parceiro 0, parcela 1;
+   * - APAGAR: o parceiro, DTCOMPRA = DTVENC = hoje, o total, DUPLICATA = o código, "Originado do agrupamento de contas à receber.",
+   *   QUITADA 'S', NRODUP 1, OPERACAO_CONVENIO_FUNCIONARIO 'D', CONVENIO 'N', BOLETO, GERADO 'SISTEMA', IDNF 0,
+   *   CODCXAGRUPAMENTOCR = a CAIXA, AGRUPAMENTO 'S' e o CODGRUPO novo;
+   * - os membros: AGRUPADO 'S' com CODGRUPO_AGRUPAMENTO_APG e a data — e QUITADA 'S' (o binário novo; a auditoria mostra 230/230);
+   * - com a integração automática, o contábil do convênio (origem 65) na hora; a falha não desfaz o agrupamento (o `except end`).
+   * O gatilho no legado também depende de uma chave do XML da estação ('AGRUPAR BAIXA RECEBER - ATIVA CONVENIO'), que não existe
+   * no banco: aqui vale só o CNPJ. Sem os dados do convênio, responde 422 com a sugestão, para a tela perguntar.
+   */
+  private async agruparConvenio(trx: AnyDB, a: {
+    emp: number; op: number | null; tz: string; hoje: string; ids: number[]; membros: Array<Record<string, unknown>>; codparceiro: number; total: number;
+    idpgtoPadrao: number; convenio?: AgruparAreceberInput['convenio'];
+  }) {
+    const empresa = (await sql<{ codplc: unknown; integracao: string | null }>`SELECT codplcfechamentoconvenio AS codplc, integracao FROM empresas WHERE idempresa = ${a.emp}`.execute(trx)).rows[0];
+    const plcPadrao = num(empresa?.codplc) || null;
+    const ultimo = a.membros[a.membros.length - 1];
+    const dataPadrao = a.ids.length > 1
+      ? (await sql<{ d: string | null }>`SELECT to_char(dtvenda AT TIME ZONE ${a.tz}, 'YYYY-MM-DD') AS d FROM areceber WHERE codrcb = ${num(ultimo.codrcb)}`.execute(trx)).rows[0]?.d ?? a.hoje
+      : a.hoje;
+    const cv = a.convenio;
+    if (!cv) {
+      throw new BusinessRuleError('AGRUPAMENTO_CONVENIO_MESMO_CNPJ', {
+        codparceiro: a.codparceiro, total: a.total, sugestao: { codplc: plcPadrao, idpgto: a.idpgtoPadrao || null, data: dataPadrao, obs: OBS_CONVENIO },
+      });
+    }
+    const codplc = plcPadrao ?? num(cv.codplc);
+    if (!codplc) throw new BusinessRuleError('AGRUPAMENTO_CONVENIO_CC_OBRIGATORIO');
+    const plc = (await sql<{ tpconta: unknown }>`SELECT tpconta FROM plc WHERE codplc = ${codplc}`.execute(trx)).rows[0];
+    if (!plc || num(plc.tpconta) !== 1) throw new BusinessRuleError('AGRUPAMENTO_CONVENIO_CC_INVALIDO');
+    const idpgto = num(cv.idpgto) || a.idpgtoPadrao;
+    const forma = idpgto ? (await sql<{ modalidade: string }>`SELECT modalidade FROM formas_pgto WHERE idpgto = ${idpgto} AND idempresa = ${a.emp}`.execute(trx)).rows[0] : undefined;
+    if (!forma) throw new BusinessRuleError('AGRUPAMENTO_FORMA_OBRIGATORIA');
+    const data = cv.data ?? dataPadrao;
+    await assertPeriodoNaoFechado(trx, a.emp, data, 'bloq_rcb');
+    const dia = (d: string) => sql`((${d}::date)::timestamp AT TIME ZONE ${a.tz})`;
+    const obs = cv.obs ?? OBS_CONVENIO;
+
+    const cx = (await sql<{ codcx: number }>`
+      INSERT INTO caixa (data, valor, vrtitulo, obs, operador, codplc, idempresa, tiporecurso, codconta, codparceiro, nrparcela, codgrupo, dtvenc,
+                         gerado, codrcb, dtcadastro, origem)
+      VALUES (${dia(data)}, ${-a.total}, ${-a.total}, ${obs}, ${a.op}, ${codplc}, ${a.emp}, ${forma.modalidade}, NULL, 0, 1, NULL, ${dia(data)},
+              'SISTEMA', NULL, now(), 'CONVENIO PARCEIRO')
+      RETURNING codcx`.execute(trx)).rows[0];
+    const codgrupo = await novoGrupo(trx);
+    const apg = (await sql<{ codapg: number }>`
+      INSERT INTO apagar (codempresa, codparceiro, dtcompra, dtvenc, valor, obs, quitada, nrodup, operacao_convenio_funcionario, convenio, tipodoc,
+                          txjuros, gerado, idnf, codcxagrupamentocr, agrupamento, codgrupo, codoperador, dtcadastro)
+      VALUES (${a.emp}, ${a.codparceiro}, ${dia(a.hoje)}, ${dia(a.hoje)}, ${a.total}, 'Originado do agrupamento de contas à receber.', 'S', 1, 'D', 'N', 'BOLETO',
+              0, 'SISTEMA', 0, ${Number(cx.codcx)}, 'S', ${codgrupo}, ${a.op}, now())
+      RETURNING codapg`.execute(trx)).rows[0];
+    const codapg = Number(apg.codapg);
+    await sql`UPDATE apagar SET duplicata = ${String(codapg)} WHERE codapg = ${codapg}`.execute(trx);
+    await sql`UPDATE areceber SET agrupado = 'S', codgrupo_agrupamento_apg = ${codgrupo}, data_agrupamento = now(), quitada = 'S',
+                                  usultalteracao = ${a.op}, dtultimalteracao = now()
+        WHERE codrcb = ANY(${a.ids}::int[]) AND codempresa = ${a.emp}`.execute(trx);
+    let contabil: { lancamentos: number } | { erro: string } | null = null;
+    if (String(empresa?.integracao ?? '').toUpperCase() === 'AUTOMATICA') {
+      const r = await emSavepoint(trx, 'contabil_convenio', () => this.contabil.integrarConvenioNaTrx(trx, codgrupo));
+      contabil = r.ok ? { lancamentos: Number((r.v as { lancamentos?: number }).lancamentos ?? 0) } : { erro: r.erro instanceof Error ? r.erro.message : String(r.erro) };
+    }
+    return { codgrupo, consolidado: null, membros: a.ids.length, total: a.total, convenio: { codapg, codcx: Number(cx.codcx), contabil } };
   }
 
   /**

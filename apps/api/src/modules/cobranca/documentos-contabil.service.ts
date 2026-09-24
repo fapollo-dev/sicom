@@ -77,6 +77,30 @@ export class DocumentosContabilService {
     return r.length;
   }
 
+  /** o convênio de UM grupo (`IntegraAgrupamentoConvenio(CodGrupo)`), na transação de quem agrupa — o agrupamento de convênio
+   *  do mesmo CNPJ contabiliza na hora com a integração automática (uCadAReceber `AgrupaConvenio`) */
+  async integrarConvenioNaTrx(trx: AnyDB, codgrupo: number): Promise<ResultadoDocumentos> {
+    const emp = this.emp();
+    const cfg = (await trx.selectFrom('config_integracao_contabil').selectAll().executeTakeFirstOrThrow()) as Record<string, number | null>;
+    return this.convenio(trx, emp, { dataIni: '1900-01-01', dataFim: '2999-12-31', codigo: codgrupo }, cfg);
+  }
+
+  /** o estorno do convênio de UM grupo (`TIntegracaoAgrupamentoConvenio.Estornar(CODGRUPO)`): o razão da origem 65 com o grupo no
+   *  complemento e as marcas dos títulos do grupo — a reversão do convênio pelo contas a pagar */
+  async estornarConvenioNaTrx(trx: AnyDB, codgrupo: number): Promise<number> {
+    const emp = this.emp();
+    const r = (await sql<{ codlote: number | null }>`DELETE FROM diario WHERE codorigem = ${ORIGEM.CONVENIO} AND complemento = ${String(codgrupo)} AND codempresa = ${emp}
+                RETURNING codlote`.execute(trx)).rows;
+    const lotes = [...new Set(r.map((x) => num(x.codlote)).filter((n) => n > 0))];
+    if (lotes.length) {
+      await sql`DELETE FROM lote_contabil l WHERE l.codlotecontabil = ANY(${lotes}::int[])
+                  AND NOT EXISTS (SELECT 1 FROM diario d WHERE d.codlote = l.codlotecontabil)`.execute(trx);
+    }
+    await sql`UPDATE areceber SET contabilizado_agrupamento = NULL WHERE codempresa = ${emp} AND codgrupo_agrupamento_apg = ${codgrupo}`.execute(trx);
+    await sql`UPDATE apagar SET contabilizado_agrupamento = NULL WHERE codempresa = ${emp} AND codgrupo = ${codgrupo}`.execute(trx);
+    return r.length;
+  }
+
   async integrar(tipo: TipoDocumento, p: { dataIni: string; dataFim: string; codigo?: number | null }): Promise<ResultadoDocumentos> {
     const emp = this.emp();
     const db = this.dbp.forTenant() as AnyDB;

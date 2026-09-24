@@ -6,6 +6,7 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 import { assertPeriodoNaoFechado } from '../shared/periodo-contabil';
 import { configNaTrx } from '../compras/pedido-heranca';
 import { apagarRateioDoGrupo, novoGrupo, rateioUnico, refazerCaixaDoGrupo } from './apagar-caixa';
+import { DocumentosContabilService } from './documentos-contabil.service';
 
 type AnyDB = Kysely<any>;
 const r2 = (n: number) => Math.round((n + (n >= 0 ? Number.EPSILON : -Number.EPSILON)) * 100) / 100;
@@ -36,7 +37,7 @@ export interface AgruparApagarInput {
  */
 @Injectable()
 export class ApagarAgrupamentoService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(private readonly dbp: DatabaseProvider, private readonly contabil: DocumentosContabilService) {}
 
   private emp(): number {
     const e = currentTenant().empresaId ?? null;
@@ -130,8 +131,11 @@ export class ApagarAgrupamentoService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const c = await this.consolidado(trx, emp, codConsolidado);
       const g = num(c.codgrupo);
-      const parcelas = (await sql<Record<string, unknown>>`SELECT codapg, quitada, cod_desconto_titulo FROM apagar WHERE codgrupo = ${g} AND codempresa = ${emp} FOR UPDATE`.execute(trx)).rows;
+      const parcelas = (await sql<Record<string, unknown>>`SELECT codapg, quitada, cod_desconto_titulo, codcxagrupamentocr, contabilizado_agrupamento FROM apagar
+          WHERE codgrupo = ${g} AND codempresa = ${emp} FOR UPDATE`.execute(trx)).rows;
       if (parcelas.some((p) => num(p.cod_desconto_titulo) > 0)) throw new BusinessRuleError('AGRUPAMENTO_DESCONTO_TITULO');
+      const cxConvenio = parcelas.map((p) => num(p.codcxagrupamentocr)).find((n) => n > 0);
+      if (cxConvenio) return this.reverterConvenio(trx, emp, op, codConsolidado, g, cxConvenio, parcelas.some((p) => p.contabilizado_agrupamento === 'S'));
       if (parcelas.some((p) => p.quitada === 'S')) throw new BusinessRuleError('AGRUPAMENTO_PARCELAS_QUITADAS');
       const codigos = parcelas.map((p) => num(p.codapg));
       if ((await sql`SELECT 1 FROM apagar_bx WHERE codapg = ANY(${codigos}::int[]) AND coalesce(indr, 'I') = 'I' LIMIT 1`.execute(trx)).rows.length) {
@@ -146,6 +150,29 @@ export class ApagarAgrupamentoService {
                   current_date, ${op}, ${emp})`.execute(trx);
       return { revertido: true as const, consolidado: codConsolidado, membros: Number(r.numAffectedRows ?? 0) };
     });
+  }
+
+  /**
+   * REVERTER O CONVÊNIO DO MESMO CNPJ (`frmAPagar.btnReverterAgrupamento` com o grid de RCB; dossiê §2.5): contabilizado, só com a
+   * integração automática — aí estorna o razão do grupo (origem 65) —, senão "Não é permitido reverter este agrupamento pois já foi
+   * contabilizado."; os títulos a receber saem do grupo; a CAIXA do CODCXAGRUPAMENTOCR e o A Pagar do grupo são apagados.
+   * ⚠️ Divergência inferida: o fonte de 2020 não volta QUITADA para 'N' (não a punha como 'S'); o binário novo quita os membros ao
+   * agrupar, então aqui a reversão devolve 'N' aos que não têm baixa — senão ficariam pagos sem baixa nenhuma.
+   */
+  private async reverterConvenio(trx: AnyDB, emp: number, op: number | null, codapg: number, g: number, codcx: number, contabilizado: boolean) {
+    if (contabilizado) {
+      const integracao = String((await sql<{ i: string | null }>`SELECT integracao AS i FROM empresas WHERE idempresa = ${emp}`.execute(trx)).rows[0]?.i ?? '').toUpperCase();
+      if (integracao !== 'AUTOMATICA') throw new BusinessRuleError('AGRUPAMENTO_CONTABILIZADO');
+      await this.contabil.estornarConvenioNaTrx(trx, g);
+    }
+    const r = await sql`UPDATE areceber a SET agrupado = 'N', codgrupo_agrupamento_apg = NULL, data_agrupamento = NULL,
+                            quitada = CASE WHEN EXISTS (SELECT 1 FROM areceber_bx b WHERE b.codrcb = a.codrcb AND coalesce(b.indr, 'I') = 'I') THEN a.quitada ELSE 'N' END,
+                            usultalteracao = ${op}, dtultimalteracao = now()
+        WHERE a.codgrupo_agrupamento_apg = ${g} AND a.codempresa = ${emp}`.execute(trx);
+    if (!Number(r.numAffectedRows ?? 0)) throw new BusinessRuleError('AGRUPAMENTO_CONVENIO_SEM_TITULOS');
+    await sql`DELETE FROM caixa WHERE codcx = ${codcx}`.execute(trx);
+    await sql`DELETE FROM apagar WHERE codgrupo = ${g} AND codempresa = ${emp}`.execute(trx);
+    return { revertido: true as const, consolidado: codapg, membros: Number(r.numAffectedRows ?? 0) };
   }
 
   /** remove UM membro do grupo (recurso do Apollo — o legado não o tem no A Pagar): libera o título e abate o valor da parcela */
