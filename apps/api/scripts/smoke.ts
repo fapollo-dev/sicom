@@ -4357,6 +4357,25 @@ async function main() {
         check('CARTÃO baixa: estornar lote → recebíveis ABERTOS (liberado=N, idlote null) + crédito MCB apagado + a taxa sai da CAIXA',
           es.status === 200 && libE?.liberado === 'N' && libE?.idlote == null && mcbE === 0 && cxE === 0, { es: es.status, libE, mcbE, cxE });
 
+        // OUTRAS DESPESAS (UbaixaCartao.pas:1151, :1240): saem do crédito, rateadas pelos cartões, e vão à CAIXA antes da taxa
+        const bxOdX = await fetch(`${base}/${CART}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, codvendcartaos: [c1, c2], outrasDespesas: 150 }) });
+        const bxOdXJ = (await bxOdX.json().catch(() => ({}))) as any;
+        const bxOd = await fetch(`${base}/${CART}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, codvendcartaos: [c1, c2], outrasDespesas: 7.35 }) });
+        const bxOdJ = (await bxOd.json().catch(() => ({}))) as any;
+        const loteOd = Number(bxOdJ.idlote);
+        const mcbOd = (await pgCa.query(`SELECT valor FROM mov_contas_bancarias WHERE origem='BXCARTAO' AND idorigem=$1`, [loteOd])).rows[0] as any;
+        const odRat = ((await pgCa.query(`SELECT codvendcartao, valor_outras_despesas_paga FROM cartao WHERE codvendcartao = ANY($1::int[]) ORDER BY codvendcartao`, [[c1, c2]])).rows as any[]).map((r) => Number(r.valor_outras_despesas_paga));
+        const cxOd = (await pgCa.query(`SELECT valor::float AS valor, codplc FROM caixa WHERE idlotebxcartao=$1 ORDER BY codcx`, [loteOd])).rows as any[];
+        const ccDc = (await pgCa.query(`SELECT codplc_descontos_concedidos FROM empresas WHERE idempresa=1`)).rows[0]?.codplc_descontos_concedidos ?? null;
+        await fetch(`${base}/${CART}/estornar-lote/${loteOd}`, { method: 'POST', headers: H });
+        const odDepois = (await pgCa.query(`SELECT count(*) FILTER (WHERE valor_outras_despesas_paga IS NOT NULL)::int AS n FROM cartao WHERE codvendcartao = ANY($1::int[])`, [[c1, c2]])).rows[0] as any;
+        check('CARTÃO baixa [outras despesas]: mais que o total a baixar é 422 ("Valor das despesas não pode ser maior que o total da baixa!"); R$ 7,35 saem do crédito (147 → 139,65), rateados pelo líquido (4,90 + 2,45 em VALOR_OUTRAS_DESPESAS_PAGA) e vão à CAIXA ANTES da taxa, −7,35 no CC de descontos concedidos da empresa, e a taxa −3 depois; o estorno limpa o rateio e as duas linhas',
+          bxOdX.status === 422 && bxOdXJ.code === 'CARTAO_OUTRAS_DESPESAS_EXCEDE' && bxOd.status === 200 && Number(bxOdJ.total_liquido) === 139.65
+          && Number(mcbOd?.valor) === 139.65 && JSON.stringify(odRat) === JSON.stringify(c1 < c2 ? [4.9, 2.45] : [2.45, 4.9])
+          && cxOd.length === 2 && cxOd[0].valor === -7.35 && (ccDc == null || Number(cxOd[0].codplc) === Number(ccDc)) && cxOd[1].valor === -3
+          && Number(odDepois?.n) === 0,
+          { bxOdX: [bxOdX.status, bxOdXJ.code], bxOdJ, mcbOd, odRat, cxOd, ccDc, odDepois });
+
         // recebível inexistente/não-aberto → 422; RBAC sem grant → 403.
         const bxEmpty = await fetch(`${base}/${CART}/baixar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, codvendcartaos: [999999999] }) });
         const bxRb = await fetch(`${base}/${CART}/baixar`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codconta, codvendcartaos: [c1] }) });

@@ -521,6 +521,7 @@ const CODE_PT: Record<string, string> = {
   BAIXA_CC_DESCONTO_RECEBIDO: 'Informe o centro de custo para descontos recebidos.',
   BAIXA_CC_DESCONTO_CONCEDIDO: 'Informe o centro de custo para descontos concedidos.',
   BAIXA_CC_INVALIDO: 'Centro de custo não encontrado.',
+  CARTAO_OUTRAS_DESPESAS_EXCEDE: 'Valor das despesas não pode ser maior que o total da baixa!',
   FECHAMENTO_CAIXA_CONSULTA: 'Este caixa já foi fechado: a conferência está em modo consulta e não grava.',
   FECHAMENTO_OPERACAO_FORA_DO_TURNO: 'A operação informada não faz parte do movimento deste caixa.',
   // restrições da situação do documento fora da NF (UCadSituacaoNF.md C5) — as mensagens de cada tela do legado

@@ -21,8 +21,11 @@ const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
  * que o próprio valor, porque o lote era estornado sem marcar a baixa e o recebível era baixado de novo.
  * A TAXA vai à CAIXA gerencial (UbaixaCartao.pas:1180-1206; `CAIXA-escritores.md`): uma linha negativa por lote, no CC
  * da taxa (ou o de multa/juros da empresa), "Ref. a bx cartao lote N"; o estorno do lote a apaga (UConsCRTbx.pas:265).
- * ADIADO (fiel): ajuste/antecipação, OUTRAS DESPESAS (a 2ª linha da CAIXA — o Apollo não tem o campo), PLC/período,
- * conciliação de extrato.
+ * OUTRAS DESPESAS (UbaixaCartao.pas:1151-1176, :1240-1280): o valor digitado sai do crédito, é rateado pelos cartões
+ * (VALOR_OUTRAS_DESPESAS_PAGA, sobra no maior) e vai à CAIXA antes da taxa, negativo, no CC de descontos concedidos da
+ * empresa (ou o de multa/juros). Produção 2026: 363 dos 1.362 lotes; a linha = o valor digitado. O ajuste do rateio no
+ * legado soma a diferença com o sinal trocado (Σ dos cartões fica 2 centavos longe) — aqui a sobra fecha o total.
+ * ADIADO (fiel): ajuste/antecipação, PLC/período, conciliação de extrato.
  */
 @Injectable()
 export class CartaoBaixaService {
@@ -39,7 +42,7 @@ export class CartaoBaixaService {
     return o;
   }
 
-  async baixar(dto: { codconta: number; codvendcartaos: number[]; codplcTaxa?: number }): Promise<{ idlote: number; itens: number; total_liquido: number; total_taxa: number }> {
+  async baixar(dto: { codconta: number; codvendcartaos: number[]; codplcTaxa?: number; outrasDespesas?: number; codplcOutrasDesp?: number }): Promise<{ idlote: number; itens: number; total_liquido: number; total_taxa: number; outras_despesas: number }> {
     const emp = this.emp();
     const op = this.op();
     const ids = Array.from(new Set((dto.codvendcartaos ?? []).map(Number).filter((n) => Number.isInteger(n) && n > 0)));
@@ -63,6 +66,25 @@ export class CartaoBaixaService {
       // líquido COMPUTADO pela view get_cartao (sem lock — só leitura do cálculo).
       const netRows = (await trx.selectFrom('get_cartao').select(['codvendcartao', 'valor_com_taxa']).where('codvendcartao', 'in', abertos.map((a) => a.codvendcartao)).where('idempresa', '=', emp).execute()) as Array<{ codvendcartao: number; valor_com_taxa: unknown }>;
       const netMap = new Map(netRows.map((r) => [Number(r.codvendcartao), r2(num(r.valor_com_taxa))]));
+      // outras despesas: não passam do total a baixar (`edtOutrasDespExit`) e pedem o CC de descontos concedidos
+      const outras = r2(num(dto.outrasDespesas));
+      const totalBaixar = r2(abertos.reduce((s, r) => s + (netMap.get(Number(r.codvendcartao)) ?? r2(num(r.valor))), 0));
+      if (outras > totalBaixar) throw new BusinessRuleError('CARTAO_OUTRAS_DESPESAS_EXCEDE', { outras, totalBaixar });
+      const empCc = (await trx.selectFrom('empresas').select(['ccmultajuros', 'codplc_descontos_concedidos']).where('idempresa', '=', emp).executeTakeFirst()) as { ccmultajuros?: unknown; codplc_descontos_concedidos?: unknown } | undefined;
+      const ccOutras = Number(dto.codplcOutrasDesp ?? empCc?.codplc_descontos_concedidos ?? 0) || null;
+      if (outras > 0 && ccOutras == null) throw new BusinessRuleError('BAIXA_CC_DESCONTO_CONCEDIDO');
+      // o rateio pelos cartões, proporcional ao líquido; a sobra do arredondamento vai para o maior
+      const rateio = new Map<number, number>();
+      if (outras > 0 && totalBaixar > 0) {
+        let maior = abertos[0];
+        for (const r of abertos) {
+          const liq = netMap.get(Number(r.codvendcartao)) ?? r2(num(r.valor));
+          if (liq > (netMap.get(Number(maior.codvendcartao)) ?? r2(num(maior.valor)))) maior = r;
+          rateio.set(Number(r.codvendcartao), r2((outras / totalBaixar) * liq));
+        }
+        const soma = r2([...rateio.values()].reduce((s, v) => s + v, 0));
+        if (soma !== outras) rateio.set(Number(maior.codvendcartao), r2((rateio.get(Number(maior.codvendcartao)) ?? 0) + (outras - soma)));
+      }
       const loteRes = await trx.executeQuery(sql`select nextval('seq_idlote') as v`.compile(trx));
       const idlote = Number((loteRes.rows[0] as { v: number | string }).v);
       let totalLiq = 0;
@@ -78,27 +100,38 @@ export class CartaoBaixaService {
           codvendcartao: Number(r.codvendcartao), idempresa: emp, valorpg: r2(num(r.valor)), idlote, codopbx: op,
           obs: `DOCUMENTO BAIXADO NO LOTE: ${idlote}`,
         });
-        await trx.updateTable('cartao').set({ liberado: 'S', dtbaixa: sql`now()`, idlote, valor_taxa_paga: taxa, usultalteracao: op, dtultimalteracao: sql`now()` }).where('codvendcartao', '=', r.codvendcartao).where('idempresa', '=', emp).execute();
+        await trx.updateTable('cartao').set({
+          liberado: 'S', dtbaixa: sql`now()`, idlote, valor_taxa_paga: taxa, valor_outras_despesas_paga: rateio.get(Number(r.codvendcartao)) ?? null,
+          usultalteracao: op, dtultimalteracao: sql`now()`,
+        }).where('codvendcartao', '=', r.codvendcartao).where('idempresa', '=', emp).execute();
       }
       // crédito do líquido na conta bancária (razão MCB), 1 linha por lote.
       // `idlote` é a coluna do LEGADO que amarra o crédito ao lote (é por ela que a integração contábil soma o
       // total baixado do lote — `GetSQLMovimentacao`, `UIntegracaoContabil.pas:1979`). `origem`/`idorigem`
       // continuam sendo a chave do nosso estorno.
       await trx.insertInto('mov_contas_bancarias').values({
-        codconta: dto.codconta, idempresa: emp, valor: totalLiq, tipomovimento: 'C', origem: 'BXCARTAO', idorigem: idlote, idlote,
-        historico: `Baixa de cartão — lote ${idlote} (${abertos.length} recebível(is), taxa ${totalTaxa})`,
+        codconta: dto.codconta, idempresa: emp, valor: r2(totalLiq - outras), tipomovimento: 'C', origem: 'BXCARTAO', idorigem: idlote, idlote,
+        historico: `Baixa de cartão — lote ${idlote} (${abertos.length} recebível(is), taxa ${totalTaxa}${outras > 0 ? `, outras despesas ${outras}` : ''})`,
         codoperador: op, data_fechamento: sql`now()`, dtcadastro: sql`now()`,
       }).execute();
+      // OUTRAS DESPESAS na CAIXA gerencial, antes da taxa: o valor digitado, negativo (UbaixaCartao.pas:1151)
+      if (outras > 0) {
+        await trx.insertInto('caixa').values({
+          data: sql`current_date`, valor: -outras, vrtitulo: -outras, obs: `Ref. a bx cartao lote ${idlote}`, operador: op,
+          codplc: ccOutras || Number(empCc?.ccmultajuros ?? 0) || null, idempresa: emp, tiporecurso: 'DINHEIRO', codconta: null, codparceiro: 0,
+          nrparcela: '1', codgrupo: null, dtvenc: sql`current_date`, gerado: 'SISTEMA', idlotebxcartao: idlote, origem: 'BAIXA CARTAO',
+        }).execute();
+      }
       // a TAXA na CAIXA gerencial: negativa, no CC da taxa ou no de multa/juros da empresa (UbaixaCartao.pas:1180)
       if (totalTaxa > 0) {
-        const cc = dto.codplcTaxa ?? Number(((await trx.selectFrom('empresas').select('ccmultajuros').where('idempresa', '=', emp).executeTakeFirst()) as { ccmultajuros?: unknown } | undefined)?.ccmultajuros ?? 0);
+        const cc = dto.codplcTaxa ?? Number(empCc?.ccmultajuros ?? 0);
         await trx.insertInto('caixa').values({
           data: sql`current_date`, valor: -totalTaxa, vrtitulo: -totalTaxa, obs: `Ref. a bx cartao lote ${idlote}`, operador: op,
           codplc: cc || null, idempresa: emp, tiporecurso: 'DINHEIRO', codconta: null, codparceiro: 0, nrparcela: '1', codgrupo: null,
           dtvenc: sql`current_date`, gerado: 'SISTEMA', idlotebxcartao: idlote, origem: 'BAIXA CARTAO',
         }).execute();
       }
-      return { idlote, itens: abertos.length, total_liquido: totalLiq, total_taxa: totalTaxa };
+      return { idlote, itens: abertos.length, total_liquido: r2(totalLiq - outras), total_taxa: totalTaxa, outras_despesas: outras };
     });
   }
 
@@ -160,7 +193,7 @@ export class CartaoBaixaService {
       // ativas somando R$ 131.623,12 A MAIS que o próprio valor. Aqui a baixa morre junto com o lote.
       await sql`UPDATE cartao_bx SET indr = 'E', indr_usuario = ${op}, indr_data = now()
                  WHERE idlote = ${idlote} AND idempresa = ${emp} AND coalesce(indr, 'I') <> 'E'`.execute(trx);
-      await trx.updateTable('cartao').set({ liberado: 'N', dtbaixa: null, idlote: null, valor_taxa_paga: null, usultalteracao: op, dtultimalteracao: sql`now()` }).where('idlote', '=', idlote).where('idempresa', '=', emp).execute();
+      await trx.updateTable('cartao').set({ liberado: 'N', dtbaixa: null, idlote: null, valor_taxa_paga: null, valor_outras_despesas_paga: null, usultalteracao: op, dtultimalteracao: sql`now()` }).where('idlote', '=', idlote).where('idempresa', '=', emp).execute();
       await trx.deleteFrom('mov_contas_bancarias').where('origem', '=', 'BXCARTAO').where('idorigem', '=', idlote).where('idempresa', '=', emp).execute();
       await trx.deleteFrom('caixa').where('idlotebxcartao', '=', idlote).where('idempresa', '=', emp).execute(); // UConsCRTbx.pas:265
       return { idlote, itens: recs.length };

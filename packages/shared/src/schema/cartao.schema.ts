@@ -75,5 +75,8 @@ export const baixarCartaoSchema = z.object({
   codvendcartaos: z.array(z.coerce.number().int().positive()).min(1, 'Selecione ao menos um recebível.'),
   // o centro de custo da TAXA na CAIXA gerencial (EdtCodPlcTaxa, UbaixaCartao.pas:1183); vazio = o de multa/juros da empresa
   codplcTaxa: z.coerce.number().int().positive().optional(),
+  // OUTRAS DESPESAS (edtOutrasDesp, UbaixaCartao.pas:1151): saem do crédito e vão à CAIXA no CC de descontos concedidos
+  outrasDespesas: z.coerce.number().min(0).optional(),
+  codplcOutrasDesp: z.coerce.number().int().positive().optional(),
 });
 export type BaixarCartaoDto = z.infer<typeof baixarCartaoSchema>;

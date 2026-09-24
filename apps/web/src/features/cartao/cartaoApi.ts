@@ -59,8 +59,8 @@ export function criarCartao(body: { valor: number; codoperadora: number; dtvenda
 export function excluirCartao(id: number): Promise<void> { return req(`/cadastro/cartao/${id}`, { method: 'DELETE' }); }
 // baixa (corte-2)
 export function listarContas(): Promise<ContaBancaria[]> { return req('/cadastro/contas-bancarias', { method: 'GET' }); }
-export function baixarCartoes(codconta: number, codvendcartaos: number[]): Promise<{ idlote: number; itens: number; total_liquido: number; total_taxa: number }> {
-  return req('/cadastro/cartao/baixar', { method: 'POST', body: JSON.stringify({ codconta, codvendcartaos }) });
+export function baixarCartoes(codconta: number, codvendcartaos: number[], outrasDespesas?: number): Promise<{ idlote: number; itens: number; total_liquido: number; total_taxa: number; outras_despesas?: number }> {
+  return req('/cadastro/cartao/baixar', { method: 'POST', body: JSON.stringify({ codconta, codvendcartaos, ...(outrasDespesas ? { outrasDespesas } : {}) }) });
 }
 export function estornarLoteCartao(idlote: number): Promise<{ idlote: number; itens: number }> {
   return req(`/cadastro/cartao/estornar-lote/${idlote}`, { method: 'POST' });

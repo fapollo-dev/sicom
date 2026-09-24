@@ -22,6 +22,7 @@ export function CartaoPage() {
   const [operadoras, setOperadoras] = useState<Operadora[]>([]);
   const [contas, setContas] = useState<ContaBancaria[]>([]);
   const [contaBaixa, setContaBaixa] = useState('');
+  const [outrasDesp, setOutrasDesp] = useState<number | undefined>(undefined); // edtOutrasDesp (UbaixaCartao.pas:1151)
   const [carregando, setCarregando] = useState(true);
   const [filtro, setFiltro] = useState<'N' | 'S' | ''>('N'); // aberto / baixado / todos
   const [valor, setValor] = useState<number | undefined>();
@@ -68,8 +69,9 @@ export function CartaoPage() {
     if (!window.confirm(`Baixar ${ids.length} recebível(is) abertos → creditar o líquido na conta selecionada?`)) return;
     setBusy(true);
     try {
-      const r = await baixarCartoes(Number(contaBaixa), ids);
-      mensagem.sucesso(`Lote ${r.idlote} baixado — ${r.itens} recebível(is); líquido ${brl(r.total_liquido)} creditado (taxa ${brl(r.total_taxa)}).`);
+      const r = await baixarCartoes(Number(contaBaixa), ids, outrasDesp);
+      setOutrasDesp(undefined);
+      mensagem.sucesso(`Lote ${r.idlote} baixado — ${r.itens} recebível(is); líquido ${brl(r.total_liquido)} creditado (taxa ${brl(r.total_taxa)}${r.outras_despesas ? `, outras despesas ${brl(r.outras_despesas)}` : ''}).`);
       await carregar();
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
@@ -110,6 +112,7 @@ export function CartaoPage() {
         {filtro === 'N' && (
           <>
             <div className="w-64"><SelectField label="Conta p/ &baixa" value={contaBaixa} onChange={setContaBaixa} options={contas.map((c) => ({ value: String(c.codconta), label: `${c.banco ?? ''} ${c.titular ?? ''}`.trim() || String(c.codconta) }))} placeholder="(conta de destino)" /></div>
+            <div className="w-40"><NumberField label="Ou&tras despesas" value={outrasDesp} onChange={setOutrasDesp} decimais={2} min={0} /></div>
             <Button label="&Baixar abertos" variant="soft" disabled={busy || !linhas.length} onClick={() => void baixarAbertos()} />
           </>
         )}
