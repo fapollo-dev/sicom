@@ -449,6 +449,28 @@ export class BaixaReceberLoteService {
     return Number(ins.codrcb);
   }
 
+  /**
+   * RECIBO do lote (`Config\\recibo.fr3` sobre `GET_ARECEBERBX WHERE LOTE = :LOTE`, UBaixaAreceber.pas:1842-1850): a empresa,
+   * "RECEBEMOS DO(A) SR(A)(S)" o cliente, os documentos (duplicata, data da venda, vencimento, valor, juros, acréscimo/desconto,
+   * pago), o total, o restante e as três notas do rodapé.
+   */
+  async recibo(lote: number): Promise<Record<string, unknown>> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const itens = (await sql<Record<string, unknown>>`
+      SELECT r.duplicata, to_char(r.dtvenda AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS data_venda, to_char(r.dtvenc AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS vencimento,
+             to_char(x.dtpgto, 'YYYY-MM-DD') AS data_pagamento, r.valor AS valor_documento, coalesce(x.juros, 0) AS juros, coalesce(x.acre_desc, 0) AS acres_desc,
+             x.valorpg AS valor_pago, p.razao AS cliente
+        FROM areceber_bx x JOIN areceber r ON r.codrcb = x.codrcb LEFT JOIN parceiros p ON p.codparceiro = r.codparceiro
+       WHERE x.idlote = ${lote} AND coalesce(x.indr, 'I') <> 'E'
+       ORDER BY x.codrcbbx`.execute(db)).rows;
+    if (!itens.length) throw new BusinessRuleError('LOTE_NAO_ENCONTRADO', { lote });
+    const e = (await sql<Record<string, unknown>>`SELECT coalesce(razao_social, nome) AS razaosocial, endereco, numero, bairro, cidade, uf, cnpj, insc, fone1 FROM empresas WHERE idempresa = ${emp}`.execute(db)).rows[0] ?? {};
+    const docs = itens.map((i): Record<string, any> => ({ ...i, valor_documento: r2(num(i.valor_documento)), juros: r2(num(i.juros)), acres_desc: r2(num(i.acres_desc)), valor_pago: r2(num(i.valor_pago)) }));
+    const total = r2(docs.reduce((s, d) => s + d.valor_pago, 0));
+    return { lote, empresa: e, dataPagamento: docs[0].data_pagamento, cliente: docs[0].cliente, documentos: docs, total, restante: r2(docs.reduce((s, d) => s + d.valor_documento, 0) - total) };
+  }
+
   /** MANUTENÇÃO (`UconsRCBbx.pas:278-380`): valida sem reverter e devolve os documentos com o acréscimo/desconto e o juro da baixa */
   async manutencao(lote: number): Promise<{ loteAntigo: number; dtpgto: string; documentos: Record<string, unknown>[] }> {
     const emp = this.emp();

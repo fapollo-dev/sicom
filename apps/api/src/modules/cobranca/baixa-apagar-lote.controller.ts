@@ -29,6 +29,13 @@ export class BaixaApagarLoteController {
     return this.svc.padroes();
   }
 
+  /** o recibo do lote (recibopagar.fr3) */
+  @Get('recibo/:lote')
+  @RequerAcesso('FRMBAIXAAPAGAR', 'FRMBAIXAAPAGAR')
+  recibo(@Param('lote', ParseIntPipe) lote: number) {
+    return this.svc.recibo(lote);
+  }
+
   /** a manutenção entra pela consulta de baixas (o botão de manutenção do FRMCONSAPGBX) */
   @Get('manutencao/:lote')
   @RequerAcesso('FRMBAIXAAPAGAR', 'BTNGRAVAR')

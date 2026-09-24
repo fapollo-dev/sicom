@@ -7,6 +7,8 @@ import { SelectField } from '../../shared/ui/SelectField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
+import { apiHeaders } from '../../shared/auth/session';
+import { imprimirRecibo, type ReciboBaixa } from '../baixa-apagar/imprimirRecibo';
 import {
   contasBaixaReceber, gravarBaixaReceber, iniciarBaixaReceber, manutencaoBaixaReceber, padroesBaixaReceber, retornoBaixaReceber, titulosBaixaReceber,
   type ContaReceber, type FiltroReceber, type FormaCartao, type PadroesReceber, type TituloReceber,
@@ -50,6 +52,7 @@ export function BaixaReceberPage() {
   const [liberacao, setLiberacao] = useState<{ login: string; senha: string } | null>(null);
   const [arquivoRetorno, setArquivoRetorno] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  const [ultimoLote, setUltimoLote] = useState<number | null>(null);
 
   const executar = async (fn: () => Promise<void>) => {
     setOcupado(true);
@@ -190,7 +193,8 @@ export function BaixaReceberPage() {
         ccJuros: num(cc.juros), ccAcrescimo: num(cc.acrescimo), ccDesconto: num(cc.desconto),
         parcial, loteManutencao: loteManutencao ?? undefined,
       });
-      mensagem.sucesso(`Documentos baixados com sucesso. Lote ${r.idlote}${r.codrcbSaldo ? ` — saldo no título ${r.codrcbSaldo}` : ''}.`);
+      setUltimoLote(r.idlote);
+    mensagem.sucesso(`Documentos baixados com sucesso. Lote ${r.idlote}${r.codrcbSaldo ? ` — saldo no título ${r.codrcbSaldo}` : ''}.`);
       setLote(null);
       setLoteManutencao(null);
       setDocs([]);
@@ -222,12 +226,26 @@ export function BaixaReceberPage() {
   const tipoSel = padroes?.recursos.find((x) => x.tipo === Number(novo?.tipo ?? 0));
   const contasDoTipo = contas.filter((c) => (c.caixa ? tipoSel?.caixa : tipoSel?.banco));
 
+  // "Deseja fazer a emissão do recibo?" — a janela abre no clique e o dado chega depois (popup-blocker)
+  const imprimirReciboLote = (lote: number) => {
+    const win = window.open('', '_blank');
+    if (!win) { mensagem.erro(new Error('O navegador bloqueou a janela de impressão.')); return; }
+    void executar(async () => {
+      try {
+        const res = await fetch(`${import.meta.env.VITE_API_URL ?? 'http://localhost:3000'}/cobranca/baixa-receber/recibo/${lote}`, { headers: apiHeaders() });
+        if (!res.ok) throw new Error('Não foi possível carregar o recibo.');
+        imprimirRecibo(win, (await res.json()) as ReciboBaixa, 'AR');
+      } catch (e) { win.close(); throw e; }
+    });
+  };
+
   return (
     <div className="flex flex-col gap-gp-md">
       <PageHeader title="Baixa de contas a receber" />
 
       <section className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         {!lote && <Button label="&Iniciar baixa" onClick={() => void iniciar()} disabled={ocupado} />}
+        {!lote && ultimoLote && <Button label={`Imprimir &recibo do lote ${ultimoLote}`} variant="ghost" onClick={() => imprimirReciboLote(ultimoLote)} disabled={ocupado} />}
         {!lote && (
           <label className="inline-flex cursor-pointer items-center gap-gp-xs rounded-radius-md border border-border px-pad-sm py-pad-xs text-body-sm focus-within:ring-2">
             Importar arquivo retorno

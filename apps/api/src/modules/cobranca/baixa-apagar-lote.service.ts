@@ -142,6 +142,32 @@ export class BaixaApagarLoteService {
   }
 
   /**
+   * RECIBO do lote (`recibopagar.fr3` sobre `GET_APAGARBX WHERE LOTE = :LOTE`, UBaixaApagar.pas:843-870): a empresa, "PAGAMOS À"
+   * o fornecedor (ou "Vários fornecedores"), os documentos — duplicata (ou a NF), vencimento, valor do documento (VALOR + VENDOR
+   * − DESCONTO), juros, acréscimo/desconto (ACRE_DESC − DESCONTO, como a view) e o pago —, o total e o restante.
+   */
+  async recibo(lote: number): Promise<Record<string, unknown>> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const itens = (await sql<Record<string, unknown>>`
+      SELECT a.duplicata, n.nronf, to_char(a.dtvenc AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS vencimento, to_char(b.dtpgto, 'YYYY-MM-DD') AS data_pagamento,
+             (a.valor + coalesce(a.vendor, 0) - coalesce(a.desconto, 0)) AS valor_documento, coalesce(b.juros, 0) AS juros,
+             coalesce(b.acre_desc, 0) - coalesce(a.desconto, 0) AS acres_desc, b.valorpg AS valor_pago, p.razao AS fornecedor, a.codparceiro
+        FROM apagar_bx b JOIN apagar a ON a.codapg = b.codapg LEFT JOIN parceiros p ON p.codparceiro = a.codparceiro LEFT JOIN nf n ON n.codnf = a.idnf
+       WHERE b.idlote = ${lote} AND coalesce(b.indr, 'I') = 'I'
+       ORDER BY b.codapgbx`.execute(db)).rows;
+    if (!itens.length) throw new BusinessRuleError('LOTE_NAO_ENCONTRADO', { lote });
+    const e = (await sql<Record<string, unknown>>`SELECT coalesce(razao_social, nome) AS razaosocial, endereco, numero, bairro, cidade, uf, cnpj, insc, fone1 FROM empresas WHERE idempresa = ${emp}`.execute(db)).rows[0] ?? {};
+    const docs = itens.map((i): Record<string, any> => ({ ...i, valor_documento: r2(num(i.valor_documento)), juros: r2(num(i.juros)), acres_desc: r2(num(i.acres_desc)), valor_pago: r2(num(i.valor_pago)) }));
+    const total = r2(docs.reduce((s, d) => s + d.valor_pago, 0));
+    return {
+      lote, empresa: e, dataPagamento: docs[0].data_pagamento,
+      variosFornecedores: new Set(docs.map((d) => d.codparceiro)).size > 1, fornecedor: docs[0].fornecedor,
+      documentos: docs, total, restante: r2(docs.reduce((s, d) => s + d.valor_documento, 0) - total),
+    };
+  }
+
+  /**
    * MANUTENÇÃO — a entrada pela consulta de baixas (`UConsAPGbx.pas:203-290`): valida o `ReversaoPermitida` do lote (a
    * reversão roda e é desfeita), e devolve os documentos com "Calcula juro" e o acréscimo/desconto da baixa e a data do
    * pagamento. Os recursos não voltam: o usuário lança de novo. O lote novo sai do "Iniciar baixa".

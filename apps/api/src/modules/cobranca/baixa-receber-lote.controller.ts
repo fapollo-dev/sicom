@@ -29,6 +29,13 @@ export class BaixaReceberLoteController {
     return this.svc.padroes();
   }
 
+  /** o recibo do lote (recibo.fr3) */
+  @Get('recibo/:lote')
+  @RequerAcesso('FRMBAIXAARECEBER', 'FRMBAIXAARECEBER')
+  recibo(@Param('lote', ParseIntPipe) lote: number) {
+    return this.svc.recibo(lote);
+  }
+
   @Get('manutencao/:lote')
   @RequerAcesso('FRMBAIXAARECEBER', 'BTNGRAVAR')
   manutencao(@Param('lote', ParseIntPipe) lote: number) {

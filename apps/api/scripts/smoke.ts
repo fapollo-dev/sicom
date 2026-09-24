@@ -20954,6 +20954,12 @@ async function main() {
           && Number(cx5?.valor) === 2,
           { g4, g5, bx4, bx5, cx5, contra4 });
 
+        // 196.6b o RECIBO do lote (recibopagar.fr3): os documentos, o total e o restante
+        const rec = (await (await fetch(`${base}/${BA}/recibo/${L5}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('BAIXA-AP §196.6b: o recibo do lote traz o documento (valor 90 = 100 − desconto 10; acréscimo/desconto −22 = ACRE_DESC − DESCONTO, como a GET_APAGARBX — que desconta de novo o desconto já pré-preenchido pelo binário novo), o pago 88, o total e o restante 2',
+          rec.lote === L5 && rec.documentos?.length === 1 && Number(rec.documentos[0].valor_documento) === 90 && Number(rec.documentos[0].acres_desc) === -22
+          && Number(rec.total) === 88 && Number(rec.restante) === 2 && rec.variosFornecedores === false, rec);
+
         // 196.7 RBAC: iniciar sem a opção → 403
         const semGrant = await fetch(`${base}/${BA}/iniciar`, { method: 'POST', headers: H_SEM_ACESSO });
         check('BAIXA-AP §196.7: iniciar sem a opção BTNADICIONARREGISTRO → 403', semGrant.status === 403, { status: semGrant.status });
@@ -21115,6 +21121,9 @@ async function main() {
           && ret.j.naoEncontrados?.length === 1 && ret.j.nomeArquivo === 'CN22096A.RET',
           ret);
 
+        const recR = (await (await fetch(`${base}/${BR}/recibo/${L6}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('BAIXA-AR §197.8c: o recibo do lote (recibo.fr3) traz o cliente, o documento com a data da venda, o pago 100 e o restante 0',
+          recR.lote === L6 && recR.documentos?.length === 1 && recR.documentos[0].data_venda === '2026-09-01' && Number(recR.total) === 100 && Number(recR.restante) === 0 && !!recR.cliente, recR);
         const semGrant = await fetch(`${base}/${BR}/iniciar`, { method: 'POST', headers: H_SEM_ACESSO });
         check('BAIXA-AR §197.9: iniciar sem a opção BTNADICIONARREGISTRO → 403', semGrant.status === 403, { status: semGrant.status });
       } finally {
