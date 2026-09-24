@@ -483,3 +483,12 @@ Recibo (`recibo.fr3`) e boleto do saldo parcial acompanham os cortes A e C.
 
 Fora (0 uso em 2025-26): cheque, cheque pré, permuta, SALDO, troco, antecipação por documento. Próximo: tela web e o arquivo
 retorno (corte B, 80% do valor).
+
+## 7. Conversão — tela (24/09/2026)
+
+`/cobranca/baixa-receber` (`BaixaReceberPage`, menu "Baixa de contas a receber"): Iniciar baixa, pesquisa multisseleção
+(vencidos em vermelho, desconto do cliente pela data), grade com % e R$ de acréscimo/desconto editáveis enquanto não há
+recurso, acréscimo/desconto geral rateado com a senha de desconto, CCs padrão, recursos (tipo × conta caixa/banco, forma do
+cartão, histórico `BAIXA DO LOTE N` obrigatório), o excesso do recurso vira acréscimo, campos do liberador quando o servidor
+pede a liberação do desconto, parcial com a pergunta do legado. Manutenção pela consulta de baixas (`?manutencao=<lote>`).
+O painel de baixa por título do cadastro de Contas a Receber virou atalho. Falta o recibo (`recibo.fr3`).

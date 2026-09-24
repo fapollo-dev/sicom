@@ -77,6 +77,7 @@ const TELAS = [
   { href: '/cobranca/lotes', name: 'Lote de Cobrança', icon: ListChecks },
   { href: '/cobranca/cnab', name: 'Boleto / Remessa CNAB', icon: Landmark },
   { href: '/cadastro/areceber', name: 'Contas a Receber', icon: HandCoins },
+  { href: '/cobranca/baixa-receber', name: 'Baixa de contas a receber', icon: HandCoins },
   { href: '/cadastro/apagar', name: 'Contas a Pagar', icon: Banknote },
   { href: '/cobranca/baixa-apagar', name: 'Baixa de contas a pagar', icon: Banknote },
   { href: '/cobranca/agrupar-receber', name: 'Agrupar contas a receber', icon: HandCoins },
