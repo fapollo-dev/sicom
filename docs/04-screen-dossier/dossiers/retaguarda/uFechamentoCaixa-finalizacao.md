@@ -407,3 +407,15 @@ com a comparação certa (NROPEDIDO + valor numérico).
   - DELETE da linha e da MOV_CONTAS_BANCARIAS do IDENTIFICADOR_MOVCB (`ExcluiMovimentacaoBancaria`).
 - **Web:** no diálogo das linhas fixas, "Incluir sangria/suprimento" (forma, valor, descrição, login e senha) e "Excluir". O turno é recarregado sem perder a conferência.
 - **Smoke §180** (3 checks): 1517/0.
+
+### 4.4 ENTREGUE (24/09/2026) — o CARTAO da refechada, com o casamento certo (`RealizaConf`, UfinalizaFechamento.pas:2440-2485)
+
+- **Quando:** ao abrir os documentos de uma forma POS (DESTINO 'CRT', não TEF), na conferência, de um turno **reaberto**. O gatilho é o HISTORICO "Reabertura do caixa…" da chave, que o corte 3 grava; no legado era a memória da tela (`ReabriuCaixa`).
+- **O que cria:** o CARTAO de cada venda da CX_VENDAS da forma que não tem par.
+- **A correção:** o legado comparava em ponto flutuante, e 19,99, 23,99, 47,98… nunca casavam. Cada reabertura do diálogo duplicava de novo: 145 dos 154 cartões de 2026 são duplicatas. Aqui o casamento é **multiconjunto de (NROPEDIDO, centavos)**, criando só a falta e contando os já criados. É idempotente, e uma trava por turno evita a corrida. Ficam de fora a linha '00000' e o valor zero.
+- **Colunas:** DTVENDA = dia do caixa, VALOR, operador do caixa, PDV, NROPEDIDO, forma, LIBERADO 'N', CHAVE da venda, sem cupom.
+- **CODOPERADORA NULO**, com mig 332 (a coluna ficou anulável). O legado grava 0, que não existe em OPERADORAS e que a FK do Apollo recusa para linha nova. Os 213 cartões com 0 da produção entram como estão: o carregador recria a FK NOT VALID para as órfãs do legado. Quem lê trata 0 e nulo como "sem operadora".
+- **Grava ao abrir o diálogo**, como o legado (`ApplyUpdates` na hora). O GET devolve `cartoesCriados` quando cria.
+- **Continua com o usuário:** as 202 linhas fantasma já na base (R$ 6.593,84), que a carga traz como estão.
+- **Smoke §181:** 1518/0.
+- **Observação dos conferidores:** o **homolog** (192.168.1.240) ganhou tabelas que a produção não tem (CUSTO_MEDIO_BUCKET/PARAM, FGF4_* ×9, INTEGRACAO_IBSCBS) e `VRCUSTO_MEDIO` NUMBER(18,6). É desenvolvimento do fornecedor. Contra a produção, os três conferidores dão exit 0. Os conferidores devem rodar com `ORACLE_HOST=hiperpinheirao.ddns.com.br`, porque o padrão deles é o homolog.

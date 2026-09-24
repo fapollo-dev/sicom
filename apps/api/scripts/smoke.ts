@@ -20104,6 +20104,63 @@ async function main() {
         await pgC6.end();
       }
     }
+    // ══ §181 FECHAMENTO DE CAIXA, corte 4: o CARTAO da refechada (RealizaConf :2440-2485) — o multiconjunto em centavos ══
+    {
+      const pgC7 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const FC = 'cobranca/fechamento-caixa';
+      const DIA = '2038-03-14';
+      const CHA = '79140338080000';
+      const ts = (h: string) => `${DIA} ${h}-03`;
+      const tA = { data: DIA, chave: CHA, nropdv: 79, codoperadora: 7 };
+      const docsDe = async (op: string) => (await (await fetch(`${base}/${FC}/turno/documentos?${new URLSearchParams({ data: DIA, chave: CHA, nropdv: '79', codoperadora: '7', operacao: op })}`, { headers: H })).json()) as any;
+      try {
+        const opr = Number(((await pgC7.query(`SELECT min(codoperadoras) AS c FROM operadoras`)).rows[0] as any).c);
+        await pgC7.query(`INSERT INTO formas_pgto (idpgto, idempresa, modalidade, atalho, destino, recebe_pdv, permite_sangria_pdv) VALUES (99181, 1, 'POS SMOKE', '#', 'CRT', 'S', 'N') ON CONFLICT DO NOTHING`);
+        await pgC7.query(`INSERT INTO pdv (codpdv, nropdv, descricao, codempresa) VALUES (979, 79, 'PDV 79 SMOKE', 1) ON CONFLICT DO NOTHING`);
+        const vendas: Array<[string, number]> = [['794001', 19.99], ['794002', 23.99], ['794003', 47.98], ['794004', 10], ['794005', 5.5], ['794005', 5.5], ['00000', 0]];
+        for (const [i, [ped, v]] of vendas.entries()) {
+          await pgC7.query(`INSERT INTO cx_vendas (idempresa, data, nropdv, codoperadora, operacao, debito_credito, valor, troco, nropedido, chave)
+              VALUES (1, $1, 79, 7, 'POS SMOKE', 'C', $2, 0, $3, $4)`, [ts(`09:${String(10 + i).padStart(2, '0')}:00`), v, ped, CHA]);
+        }
+        await pgC7.query(`INSERT INTO caixa_pdv (codcaixa, codpdv, codoperadora, data, horaentrada, chave, idempresa, sangria, fundocaixa)
+            VALUES (9918101, 79, 7, $1, $1, $2, 1, 0, 0)`, [ts('08:00:00'), CHA]);
+        // os cartões que o PDV gravou: os três valores que o legado nunca casava em ponto flutuante e um dos dois 5,50
+        for (const [ped, v] of [['794001', 19.99], ['794002', 23.99], ['794003', 47.98], ['794005', 5.5]] as Array<[string, number]>) {
+          await pgC7.query(`INSERT INTO cartao (idempresa, codoperadora, idpgto, dtvenda, valor, codpdv, codoperador, nropedido, chave) VALUES (1, $1, 99181, $2, $3, 79, 7, $4, $5)`,
+            [opr, ts('09:30:00'), v, ped, CHA]);
+        }
+        await fetch(`${base}/${FC}/turno/abrir`, { method: 'POST', headers: H, body: JSON.stringify(tA) });
+        const n = async () => ((await pgC7.query(`SELECT nropedido, valor::float AS valor, codoperadora, nrocupom, liberado, codoperador, idpgto, chave,
+            to_char(dtvenda AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD HH24:MI') AS dv FROM cartao WHERE chave = $1 ORDER BY codvendcartao`, [CHA])).rows as any[]);
+        const d0 = await docsDe('POS SMOKE');
+        const antes = await n();
+        await pgC7.query(`INSERT INTO historico (tabela, historico, coddoc, codoperador, codempresa, data, auxiliar)
+            VALUES ('CAIXA', 'Reabertura do caixa 79, do operador SMOKE, no dia 14/03/2038.', '0', 7, 1, now(), $1)`, [CHA]);
+        const d1 = await docsDe('POS SMOKE');
+        const depois1 = await n();
+        const d2 = await docsDe('POS SMOKE');
+        const depois2 = await n();
+        const novos = depois1.slice(antes.length);
+        check('FECHAMENTO §181 [o CARTAO da refechada]: sem reabertura, abrir os documentos da forma POS (DESTINO CRT) não cria nada; reaberto (o HISTORICO "Reabertura do caixa…" da chave), cria só a FALTA do multiconjunto (NROPEDIDO, centavos): 19,99, 23,99 e 47,98 casam (o legado os duplicava em ponto flutuante), a linha "00000" de valor zero fica de fora e dos dois 5,50 falta um — 2 cartões, 794004 (10) e 794005 (5,5), sem operadora (nula; o legado grava 0), sem cupom, LIBERADO N, do operador do caixa, na forma e na chave, no dia do caixa; abrir de novo não cria nada',
+          d0.cartoesCriados === undefined && antes.length === 4 && d1.cartoesCriados === 2 && depois1.length === 6 && d2.cartoesCriados === undefined && depois2.length === 6
+          && novos.map((x) => `${x.nropedido}:${x.valor}`).sort().join(',') === '794004:10,794005:5.5'
+          && novos.every((x) => x.codoperadora == null && x.nrocupom == null && x.liberado === 'N' && Number(x.codoperador) === 7 && Number(x.idpgto) === 99181 && x.chave === CHA && x.dv === `${DIA} 00:00`)
+          && d1.documentos?.length === 6,
+          { d0: d0.cartoesCriados, antes: antes.length, d1: d1.cartoesCriados, depois1: depois1.length, d2: d2.cartoesCriados, depois2: depois2.length, novos, docs: d1.documentos?.length });
+      } finally {
+        await pgC7.query(`DELETE FROM historico WHERE auxiliar = $1`, [CHA]).catch(() => undefined);
+        await pgC7.query(`DELETE FROM doc_fechamento WHERE codifinfech IN (SELECT codifinfech FROM finaliza_fechamento WHERE chave = $1)`, [CHA]).catch(() => undefined);
+        await pgC7.query(`DELETE FROM finaliza_fechamento WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgC7.query(`DELETE FROM hist_sangria_suprimento WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgC7.query(`DELETE FROM ticket WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgC7.query(`DELETE FROM cartao WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgC7.query(`DELETE FROM caixa_pdv WHERE codcaixa = 9918101`).catch(() => undefined);
+        await pgC7.query(`DELETE FROM cx_vendas WHERE chave = $1`, [CHA]).catch(() => undefined);
+        await pgC7.query(`DELETE FROM pdv WHERE codpdv = 979`).catch(() => undefined);
+        await pgC7.query(`DELETE FROM formas_pgto WHERE idpgto = 99181`).catch(() => undefined);
+        await pgC7.end();
+      }
+    }
   } finally {
     await app.close();
     await pg.stop();

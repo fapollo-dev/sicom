@@ -6035,7 +6035,7 @@
      "tipo": "integer",
      "tam": 32,
      "escala": 0,
-     "nulo": false,
+     "nulo": true,
      "default": null
     },
     "idpgto": {
@@ -45916,7 +45916,7 @@
      "tam": 10,
      "escala": 0,
      "nulo": false,
-     "default": null
+     "default": "nextval('seq_sugest_promo_prod'::regclass)"
     },
     "idproduto": {
      "tipo": "numeric",

@@ -523,14 +523,59 @@ export class FechamentoCaixaService {
     if (!linha.tipo || linha.tipo === 'DINHEIRO' || linha.idpgto == null) {
       return { operacao, tipo: linha.tipo, modo: det.modo, marcacaoLivre: false, documentos: [], conferido: 0 };
     }
+    const refechada = await this.cartoesDaRefechada(c, det, linha);
     const docs = await this.listarDocs(db, c, linha.tipo, linha.idpgto, consulta, det.filtraPdv);
     const marcados = new Set(linha.documentos);
     const lista = docs.map((d) => ({ ...d, sel: marcados.has(d.codigo) }));
     return {
       operacao, tipo: linha.tipo, destino: linha.destino, idpgto: linha.idpgto, modo: det.modo, marcacaoLivre: !consulta,
       ...(await this.manutencaoDocumentos(db, c, det, linha.tipo)),
+      ...(refechada ? { cartoesCriados: refechada } : {}),
       documentos: lista, conferido: r2(lista.filter((d) => d.sel).reduce((s, d) => s + d.valor, 0)),
     };
+  }
+
+  /**
+   * o CARTAO da refechada (`RealizaConf`, UfinalizaFechamento.pas:2440-2485; spec `uFechamentoCaixa-corte4-spec.md` §5). Ao abrir
+   * os documentos de uma forma POS (DESTINO 'CRT', não TEF) de um turno REABERTO e ainda não refechado, o legado cria o CARTAO de
+   * cada venda da CX_VENDAS que não acha na lista (`Locate('NROPEDIDO;VALOR')`) — o cartão que o reabrir deixou sem par. Mas
+   * compara em ponto flutuante: 19,99, 23,99, 47,98… nunca casam, e cada reabertura do diálogo duplica de novo — 145 dos 154
+   * criados em 2026 são duplicatas de cartão do PDV (nenhum selecionado, conciliado ou baixado). Aqui o casamento é o certo:
+   * MULTICONJUNTO de (NROPEDIDO, centavos), criando só a falta — contando os já criados, então abrir de novo não cria nada
+   * (idempotente; a trava do turno evita a corrida). Fora a linha '00000' e o valor zero. Resultado esperado em 2026: 7, não 154.
+   * O gatilho "reaberto" é o HISTORICO "Reabertura do caixa…" da chave (o corte 3 grava) com o turno aberto — no legado era a
+   * memória da tela (`ReabriuCaixa`), que não existe no web. CODOPERADORA vai NULO — o legado grava 0, que não existe em
+   * OPERADORAS (mig 332); o operador reclassifica na edição. Grava ao abrir o diálogo, como o legado (`ApplyUpdates` na hora).
+   */
+  private async cartoesDaRefechada(c: Ctx, det: Awaited<ReturnType<FechamentoCaixaService['montar']>>, linha: { operacao: string; tipo: TipoConferencia; destino: string | null; idpgto: number | null }): Promise<number> {
+    if (linha.tipo !== 'CARTAO' || linha.destino !== 'CRT' || det.modo !== 'fechamento' || !c.chave || linha.idpgto == null) return 0;
+    const idpgto = linha.idpgto;
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const reaberto = (await sql`SELECT 1 FROM historico WHERE tabela = 'CAIXA' AND auxiliar = ${c.chave} AND historico LIKE 'Reabertura do caixa %' LIMIT 1`.execute(trx)).rows.length > 0;
+      if (!reaberto) return 0;
+      await sql`SELECT pg_advisory_xact_lock(hashtext(${`fechamento-refechada:${c.emp}:${c.chave}`}))`.execute(trx);
+      const vendas = (await sql<{ nropedido: string | null; valor: unknown; chave: string | null }>`
+        SELECT cx.nropedido, (cx.valor - coalesce(cx.troco, 0)) AS valor, cx.chave FROM cx_vendas cx
+         WHERE ${this.turnoWhere(c)} AND ${this.status(1)} AND upper(cx.operacao) = ${linha.operacao}
+           AND coalesce(cx.nropedido, '') <> '00000' AND cx.valor <> 0
+         ORDER BY cx.codcxvendas`.execute(trx)).rows;
+      const chave = (ped: unknown, v: unknown) => `${String(ped ?? '').trim()}|${Math.round(num(v) * 100)}`;
+      const existentes = new Map<string, number>();
+      for (const d of await this.listarDocs(trx, c, 'CARTAO', idpgto, false, det.filtraPdv)) {
+        const k = chave(d.nropedido, d.valor);
+        existentes.set(k, (existentes.get(k) ?? 0) + 1);
+      }
+      let criados = 0;
+      for (const v of vendas) {
+        const k = chave(v.nropedido, v.valor);
+        const n = existentes.get(k) ?? 0;
+        if (n > 0) { existentes.set(k, n - 1); continue; }
+        await sql`INSERT INTO cartao (dtvenda, valor, codoperador, codoperadora, codpdv, nropedido, idempresa, idpgto, liberado, chave)
+            VALUES (${this.ini(c)}, ${r2(num(v.valor))}, ${c.op}, NULL, ${c.pdv}, ${v.nropedido}, ${c.emp}, ${idpgto}, 'N', ${v.chave})`.execute(trx);
+        criados++;
+      }
+      return criados;
+    });
   }
 
   // ── a manutenção dos documentos no diálogo (corte 4) ─────────────────────────────────────────────────────────────
