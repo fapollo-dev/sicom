@@ -208,7 +208,10 @@ const CODE_PT: Record<string, string> = {
   SENHA_ADMINISTRATIVA_INVALIDA: 'Senha administrativa inválida.',
   PEDIDO_LOJA_NAO_PARTICIPA: 'Esta loja não participa do pedido.',
   TRANSFERENCIA_NAO_PERMITIDA: 'Esta conta só pode transferir para as contas cadastradas como permitidas.',
-  TRANSFERENCIA_MESMA_CONTA: 'A conta de origem e a de destino são a mesma.',
+  TRANSFERENCIA_MESMA_CONTA: 'A conta de destino deve ser diferente da conta de origem.',
+  TRANSFERENCIA_CONTABILIZADA: 'A transferência já foi contabilizada.',
+  CONTA_CAIXA_FECHADA: 'Caixa FECHADO não é permitida alteração dos documentos!',
+  MOVIMENTO_COM_LOTE: 'Esse documento não pode ser excluído, pois contém referência de lote.',
   SALDO_INSUFICIENTE: 'Saldo insuficiente na conta para este lançamento.',
   CLUBE_DESCONTO_SOBREPOSTO: 'Já existe regra igual para este produto na mesma vigência — o PDV não teria como escolher.',
   CLASSIFICACAO_EXIGE_TRATAMENTO_PROPRIO:

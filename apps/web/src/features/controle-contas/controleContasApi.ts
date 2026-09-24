@@ -29,6 +29,9 @@ export interface Movimento {
   origem?: string | null;
   idorigem?: number | null;
   data_fechamento?: string | null;
+  dtemissao?: string | null;
+  nrodocumento?: string | null;
+  idlote?: number | null;
   mov_conciliado?: string | null;
   valor_com_sinal: number;
   saldo_corrente: number;
@@ -48,6 +51,6 @@ export function lancar(body: { codconta: number; codopconta: number; valor: numb
 export function transferir(body: { codorigem: number; coddestino: number; valor: number; historico?: string }): Promise<{ idlote: number; debito: number; credito: number }> {
   return req('/cadastro/controle-contas/transferir', { method: 'POST', body: JSON.stringify(body) });
 }
-export function estornar(codmovconta: number): Promise<{ codmovconta: number; removidos: number; origem: string }> {
+export function estornar(codmovconta: number): Promise<{ codmovconta: number; removidos: number; transferencia: boolean }> {
   return req(`/cadastro/controle-contas/${codmovconta}`, { method: 'DELETE' });
 }

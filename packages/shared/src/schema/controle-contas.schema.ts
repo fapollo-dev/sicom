@@ -17,14 +17,16 @@ export const lancarContaSchema = z.object({
 });
 export type LancarContaDto = z.infer<typeof lancarContaSchema>;
 
-/** TRANSFERÊNCIA: débito na conta ORIGEM + crédito na conta DESTINO (mesmo valor), atômica. */
+/** TRANSFERÊNCIA (`Utransferencia.pas`): débito na conta ORIGEM (da loja) + crédito na conta DESTINO (qualquer loja), no mesmo lote. */
 export const transferirContaSchema = z
   .object({
     codorigem: z.coerce.number().int().positive({ message: 'Informe a conta de origem.' }),
     coddestino: z.coerce.number().int().positive({ message: 'Informe a conta de destino.' }),
     valor: z.coerce.number().positive({ message: 'O valor deve ser maior que zero.' }),
-    historico: z.string().trim().max(255).optional(),
+    historico: z.string().trim().max(200).optional(), // complemento do histórico padrão das duas pernas
     data: z.string().trim().optional(),
+    idpgtoOrigem: z.coerce.number().int().positive().optional(), // modalidade de cada lado (padrão: DINHEIRO)
+    idpgtoDestino: z.coerce.number().int().positive().optional(),
   })
   .refine((v) => v.codorigem !== v.coddestino, { message: 'A conta de destino deve ser diferente da origem.', path: ['coddestino'] });
 export type TransferirContaDto = z.infer<typeof transferirContaSchema>;

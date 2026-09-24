@@ -4819,39 +4819,85 @@ async function main() {
           && (ext.movimentos ?? [])[0]?.tipomovimento === 'D',
           { saldo: ext.saldo, saque: mvSaque?.saldo_corrente, dep: mvDep?.saldo_corrente });
 
-        // 47h.3) TRANSFERÊNCIA 50 do CAIXA → BANCO: 2 pernas atômicas (débito caixa + crédito banco), 1 lote.
-        const tr = await fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H, body: JSON.stringify({ codorigem: cxa, coddestino: bco, valor: 50, historico: 'transf teste' }) });
+        // 47h.3) TRANSFERÊNCIA 50 do CAIXA → BANCO (Utransferencia.pas): 2 pernas no MESMO lote, NRODOCUMENTO
+        // 'TRANSFERENCIA', LIBERADO S, operação 0, histórico do binário novo ("TRANSF. CONTA DESTINO: <nº da outra conta>").
+        await pgCc.query(`UPDATE contas_bancarias SET nroconta = CASE codconta WHEN $1::int THEN 'CX-1' ELSE 'BC-2' END WHERE codconta IN ($1::int, $2::int)`, [cxa, bco]);
+        const tr = await fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H, body: JSON.stringify({ codorigem: cxa, coddestino: bco, valor: 50, data: '2026-09-20' }) });
         const trJ = (await tr.json().catch(() => ({}))) as any;
-        const pernas = Number((await pgCc.query(`SELECT count(*)::int n FROM mov_contas_bancarias WHERE origem='TRANSF' AND idorigem=$1`, [Number(trJ.idlote)])).rows[0].n);
-        check('CONTA-CC: transferir 50 caixa→banco → 2 pernas (lote) + caixa 20 + banco 50',
-          tr.status === 200 && Number(trJ.idlote) > 0 && pernas === 2 && (await saldo(cxa)) === 20 && (await saldo(bco)) === 50,
-          { trJ, pernas, cxa: await saldo(cxa), bco: await saldo(bco) });
+        const pernasR = (await pgCc.query(`SELECT codconta, tipomovimento, valor, liberado, codopconta, origem, codoperador, historico, to_char(dtemissao,'YYYY-MM-DD') dt, to_char(dtvenc,'YYYY-MM-DD') dv
+                                             FROM mov_contas_bancarias WHERE nrodocumento='TRANSFERENCIA' AND idlote=$1 ORDER BY tipomovimento DESC`, [Number(trJ.idlote)])).rows as any[];
+        const [pD, pC] = pernasR;
+        check('CONTA-CC: transferir 50 caixa→banco → 2 pernas no lote (TRANSFERENCIA, liberado S, op 0, data 20/09, origem/operador nulos) + caixa 20 + banco 50',
+          tr.status === 200 && Number(trJ.idlote) > 0 && pernasR.length === 2 && pD?.tipomovimento === 'D' && pD?.codconta === cxa && pC?.codconta === bco
+          && pernasR.every((x) => x.liberado === 'S' && Number(x.codopconta) === 0 && x.origem == null && x.codoperador == null && x.dt === '2026-09-20' && x.dv === '2026-09-20')
+          && (await saldo(cxa)) === 20 && (await saldo(bco)) === 50,
+          { trJ, pernasR, cxa: await saldo(cxa), bco: await saldo(bco) });
+        check('CONTA-CC: histórico das pernas = "TRANSF. CONTA DESTINO: <nº da outra conta>\\r\\n Lote: N\\r\\nRealizada pelo(a) usuário(a) NOME."',
+          String(pD?.historico).startsWith(`TRANSF. CONTA DESTINO: BC-2\r\n Lote: ${trJ.idlote}\r\nRealizada pelo(a) usuário(a) `)
+          && String(pC?.historico).startsWith(`TRANSF. CONTA DESTINO: CX-1\r\n Lote: ${trJ.idlote}\r\n`) && String(pC?.historico).endsWith('.'),
+          { d: pD?.historico, c: pC?.historico });
 
-        // 47h.4) ESTORNAR a transferência (pela perna débito) → apaga as 2 pernas; caixa volta 70, banco 0.
-        const perna = Number((await pgCc.query(`SELECT codmovconta FROM mov_contas_bancarias WHERE origem='TRANSF' AND idorigem=$1 AND tipomovimento='D'`, [Number(trJ.idlote)])).rows[0].codmovconta);
+        // 47h.4) REMOVER a transferência (pela perna débito) → apaga o lote; caixa volta 70, banco 0.
+        const perna = Number((await pgCc.query(`SELECT codmovconta FROM mov_contas_bancarias WHERE idlote=$1 AND tipomovimento='D'`, [Number(trJ.idlote)])).rows[0].codmovconta);
         const es = await fetch(`${base}/${CC}/${perna}`, { method: 'DELETE', headers: H });
         const esJ = (await es.json().catch(() => ({}))) as any;
-        check('CONTA-CC: estornar transferência → apaga as 2 pernas + caixa 70 + banco 0',
-          es.status === 200 && Number(esJ.removidos) === 2 && (await saldo(cxa)) === 70 && (await saldo(bco)) === 0,
+        check('CONTA-CC: remover transferência → apaga as 2 pernas do lote + caixa 70 + banco 0',
+          es.status === 200 && Number(esJ.removidos) === 2 && esJ.transferencia === true && (await saldo(cxa)) === 70 && (await saldo(bco)) === 0,
           { esJ, cxa: await saldo(cxa), bco: await saldo(bco) });
 
-        // 47h.5) SALDO NEGATIVO travado só p/ CAIXA (codbco 0): saque 999 → 422 SALDO_INSUFICIENTE; banco pode negativar.
+        // 47h.5) SALDO: a transferência a partir de conta CAIXA testa o saldo ("Saldo insuficiente!", Utransferencia.pas:185);
+        // o lançamento NÃO testa (UlancamentoSaldo.pas:54 com VerifSaldo=False) — o caixa pode ficar negativo por ele.
+        const trNeg = await fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H, body: JSON.stringify({ codorigem: cxa, coddestino: bco, valor: 999 }) });
         const neg = await fetch(`${base}/${CC}/lancar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: cxa, codopconta: 902, valor: 999 }) });
         const negBco = await fetch(`${base}/${CC}/lancar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: bco, codopconta: 902, valor: 500 }) });
-        check('CONTA-CC: saldo negativo → CAIXA(codbco 0) 422 SALDO_INSUFICIENTE; BANCO pode negativar (200, saldo −500)',
-          neg.status === 422 && ((await neg.json().catch(() => ({}))) as any).code === 'SALDO_INSUFICIENTE'
-          && negBco.status === 200 && (await saldo(bco)) === -500,
-          { neg: neg.status, bco: await saldo(bco) });
+        check('CONTA-CC: transferência do CAIXA sem saldo → 422 SALDO_INSUFICIENTE; lançamento de saque no caixa passa (−929); banco −500',
+          trNeg.status === 422 && ((await trNeg.json().catch(() => ({}))) as any).code === 'SALDO_INSUFICIENTE'
+          && neg.status === 200 && (await saldo(cxa)) === -929 && negBco.status === 200 && (await saldo(bco)) === -500,
+          { trNeg: trNeg.status, neg: neg.status, cxa: await saldo(cxa), bco: await saldo(bco) });
+        await fetch(`${base}/${CC}/lancar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: cxa, codopconta: 901, valor: 999 }) }); // caixa volta a 70
 
-        // 47h.6) estornar linha de OUTRO módulo (origem='FCP') → 422 MOVIMENTO_NAO_MANUAL; conciliada → 422 MOVIMENTO_CONCILIADO.
-        const fcp = Number((await pgCc.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, historico, data_fechamento) VALUES ($1,1,10,'C','FCP','fechamento',now()) RETURNING codmovconta`, [cxa])).rows[0].codmovconta);
-        const conc = Number((await pgCc.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, historico, data_fechamento, mov_conciliado) VALUES ($1,1,5,'C','MANUAL','conciliada',now(),'S') RETURNING codmovconta`, [cxa])).rows[0].codmovconta);
+        // 47h.6) REMOVER fora da transferência (uCadMovContasBancarias.pas:107): só a movimentação SEM lote; com lote → 422.
+        // Conciliada remove (o legado não olha conciliação). Contabilizada sem integração automática → 422; com ela, estorna o razão.
+        const fcp = Number((await pgCc.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, historico, dtemissao, mov_conciliado) VALUES ($1,1,10,'C','FCP','fechamento',current_date,'S') RETURNING codmovconta`, [cxa])).rows[0].codmovconta);
+        const comLote = Number((await pgCc.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, historico, dtemissao, idlote) VALUES ($1,1,5,'D','baixa',current_date, 987654) RETURNING codmovconta`, [cxa])).rows[0].codmovconta);
         const esFcp = await fetch(`${base}/${CC}/${fcp}`, { method: 'DELETE', headers: H });
-        const esConc = await fetch(`${base}/${CC}/${conc}`, { method: 'DELETE', headers: H });
-        check('CONTA-CC: estornar linha de outro módulo (FCP) → 422 MOVIMENTO_NAO_MANUAL; conciliada → 422 MOVIMENTO_CONCILIADO',
-          esFcp.status === 422 && ((await esFcp.json().catch(() => ({}))) as any).code === 'MOVIMENTO_NAO_MANUAL'
-          && esConc.status === 422 && ((await esConc.json().catch(() => ({}))) as any).code === 'MOVIMENTO_CONCILIADO',
-          { esFcp: esFcp.status, esConc: esConc.status });
+        const esLote = await fetch(`${base}/${CC}/${comLote}`, { method: 'DELETE', headers: H });
+        check('CONTA-CC: remover sem lote (mesmo conciliada) → 200; com lote e sem ser transferência → 422 MOVIMENTO_COM_LOTE',
+          esFcp.status === 200 && esLote.status === 422 && ((await esLote.json().catch(() => ({}))) as any).code === 'MOVIMENTO_COM_LOTE',
+          { esFcp: esFcp.status, esLote: esLote.status });
+        await pgCc.query(`DELETE FROM mov_contas_bancarias WHERE codmovconta = $1`, [comLote]);
+
+        // 47h.6b) destino em conta de OUTRA loja (477 lotes em 2025-26): a perna de crédito fica na empresa da conta.
+        const bco2 = Number((await pgCc.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular, nroconta) VALUES ($1,2,'BANCO LOJA 2','L2-9') RETURNING codconta`, [bancoReal])).rows[0].codconta);
+        const tr2 = await fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H, body: JSON.stringify({ codorigem: cxa, coddestino: bco2, valor: 20 }) });
+        const tr2J = (await tr2.json().catch(() => ({}))) as any;
+        const emp2 = (await pgCc.query(`SELECT codconta, idempresa FROM mov_contas_bancarias WHERE idlote=$1 ORDER BY tipomovimento DESC`, [Number(tr2J.idlote)])).rows as any[];
+        check('CONTA-CC: transferir para conta de outra loja → 200; débito na loja 1, crédito na loja 2',
+          tr2.status === 200 && emp2.length === 2 && Number(emp2[0].idempresa) === 1 && Number(emp2[1].idempresa) === 2, { st: tr2.status, tr2J, emp2 });
+        // contabilizada: sem AUTOMATICA → 422; com AUTOMATICA → estorna o razão (origem 19) e apaga as duas pernas, inclusive a da loja 2
+        const intCc = ((await pgCc.query(`SELECT integracao FROM empresas WHERE idempresa = 1`)).rows[0] as any)?.integracao ?? null;
+        const credito2 = Number((await pgCc.query(`SELECT codmovconta FROM mov_contas_bancarias WHERE idlote=$1 AND tipomovimento='C'`, [Number(tr2J.idlote)])).rows[0].codmovconta);
+        const debito2 = Number((await pgCc.query(`SELECT codmovconta FROM mov_contas_bancarias WHERE idlote=$1 AND tipomovimento='D'`, [Number(tr2J.idlote)])).rows[0].codmovconta);
+        await pgCc.query(`UPDATE mov_contas_bancarias SET contabilizado='S' WHERE idlote=$1`, [Number(tr2J.idlote)]);
+        await pgCc.query(`INSERT INTO diario (datalan, contadebito, contacredito, valor, codorigem, idorigem, complemento, codempresa) VALUES (current_date, NULL, NULL, 20, 19, $1, $2, 2)`, [credito2, String(tr2J.idlote)]);
+        await pgCc.query(`UPDATE empresas SET integracao='MANUAL' WHERE idempresa=1`);
+        const esCont = await fetch(`${base}/${CC}/${debito2}`, { method: 'DELETE', headers: H });
+        await pgCc.query(`UPDATE empresas SET integracao='AUTOMATICA' WHERE idempresa=1`);
+        const esAuto = await fetch(`${base}/${CC}/${debito2}`, { method: 'DELETE', headers: H });
+        const esAutoJ = (await esAuto.json().catch(() => ({}))) as any;
+        const diarioResta = Number((await pgCc.query(`SELECT count(*)::int n FROM diario WHERE codorigem=19 AND idorigem=$1`, [credito2])).rows[0].n);
+        await pgCc.query(`UPDATE empresas SET integracao = $1 WHERE idempresa = 1`, [intCc]);
+        check('CONTA-CC: transferência contabilizada → sem integração automática 422 TRANSFERENCIA_CONTABILIZADA; com ela estorna o razão e remove as 2 pernas',
+          esCont.status === 422 && ((await esCont.json().catch(() => ({}))) as any).code === 'TRANSFERENCIA_CONTABILIZADA'
+          && esAuto.status === 200 && Number(esAutoJ.removidos) === 2 && diarioResta === 0,
+          { esCont: esCont.status, esAuto: esAuto.status, esAutoJ, diarioResta });
+
+        // 47h.6c) conta com chaveamento: data da transferência até o chaveamento → 422 ("Caixa FECHADO...")
+        await pgCc.query(`UPDATE contas_bancarias SET dtchaveamento = '2026-09-10' WHERE codconta = $1`, [bco]);
+        const chav = await fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H, body: JSON.stringify({ codorigem: cxa, coddestino: bco, valor: 1, data: '2026-09-10' }) });
+        await pgCc.query(`UPDATE contas_bancarias SET dtchaveamento = NULL WHERE codconta = $1`, [bco]);
+        check('CONTA-CC: transferência com data ≤ chaveamento da conta destino → 422 CONTA_CAIXA_FECHADA',
+          chav.status === 422 && ((await chav.json().catch(() => ({}))) as any).code === 'CONTA_CAIXA_FECHADA', { chav: chav.status });
 
         // 47h.7) transferência p/ a mesma conta → 400 (schema); RBAC sem grant → 403.
         const mesma = await fetch(`${base}/${CC}/transferir`, { method: 'POST', headers: H, body: JSON.stringify({ codorigem: cxa, coddestino: cxa, valor: 10 }) });

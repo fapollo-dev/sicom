@@ -17,7 +17,7 @@ const nomeConta = (c: ContaBancaria) => `${c.banco ?? ''} ${c.titular ?? ''}`.tr
 /**
  * CONTROLE DE CONTAS CORRENTES (FRMCONTROLECONTASBANCARIAS) — corte-1. A tela-hub financeira: escolhe a conta → vê o
  * SALDO + o EXTRATO (razão mov_contas_bancarias) → «Novo lançamento» (operação C/D) ou «Transferência» entre contas
- * (2 pernas atômicas) → estorna manual/transferência. Split LIBERADO, forma-pgto e chaveamento de período = adiados.
+ * (2 pernas no mesmo lote) → remove a transferência (o lote) ou a movimentação sem lote. Split LIBERADO, forma-pgto e chaveamento de período = adiados.
  */
 export function ControleContasPage() {
   const mensagem = useMensagem();
@@ -77,18 +77,20 @@ export function ControleContasPage() {
 
   const estornarMov = async (m: Movimento) => {
     if (busy) return;
-    const msg = m.origem === 'TRANSF' ? 'Estornar a TRANSFERÊNCIA? As duas pernas (débito e crédito) serão apagadas.' : 'Estornar este lançamento?';
+    const msg = transferencia(m) ? 'Deseja remover a transferência? As duas movimentações do lote serão apagadas.' : 'Deseja remover registro?';
     if (!window.confirm(msg)) return;
     setBusy(true);
     try {
       const r = await estornar(m.codmovconta);
-      mensagem.sucesso(`Estornado — ${r.removidos} lançamento(s) removido(s).`);
+      mensagem.sucesso(`Removido — ${r.removidos} movimentação(ões).`);
       await carregar(Number(conta));
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
   const opcoesConta = contas.map((c) => ({ value: String(c.codconta), label: nomeConta(c) }));
-  const manual = (o?: string | null) => o === 'MANUAL' || o === 'TRANSF';
+  // como o legado: a transferência sai pelo lote (UconsMovBancaria.pas:925); a movimentação sem lote, pelo cadastro (:107)
+  const transferencia = (m: Movimento) => m.nrodocumento === 'TRANSFERENCIA' && Number(m.idlote ?? 0) > 0;
+  const removivel = (m: Movimento) => transferencia(m) || !Number(m.idlote ?? 0);
 
   return (
     <div className="flex flex-col gap-gp-md p-pad-md">
@@ -135,12 +137,12 @@ export function ControleContasPage() {
             <tbody>
               {movimentos.map((m) => (
                 <tr key={m.codmovconta} className="border-t border-border">
-                  <td className="p-pad-xs tabular-nums">{dia(m.data_fechamento)}</td>
+                  <td className="p-pad-xs tabular-nums">{dia(m.dtemissao ?? m.data_fechamento)}</td>
                   <td className="p-pad-xs">{m.historico ?? '—'}{m.mov_conciliado === 'S' ? ' 🔒' : ''}</td>
                   <td className="p-pad-xs text-fg-muted">{m.origem ?? '—'}</td>
                   <td className={`p-pad-xs text-right tabular-nums ${m.valor_com_sinal < 0 ? 'text-danger' : 'text-fg'}`}>{m.valor_com_sinal < 0 ? '−' : '+'}{brl(Math.abs(m.valor_com_sinal))}</td>
                   <td className="p-pad-xs text-right tabular-nums">{brl(m.saldo_corrente)}</td>
-                  <td className="p-pad-xs text-right">{manual(m.origem) && m.mov_conciliado !== 'S' ? <Button label="Estornar" variant="ghost" onClick={() => void estornarMov(m)} /> : <span className="text-fg-muted text-body-xs">—</span>}</td>
+                  <td className="p-pad-xs text-right">{removivel(m) ? <Button label="Remover" variant="ghost" onClick={() => void estornarMov(m)} /> : <span className="text-fg-muted text-body-xs">—</span>}</td>
                 </tr>
               ))}
               {!movimentos.length && <tr><td colSpan={6} className="p-pad-md text-fg-muted">Sem movimentos nesta conta.</td></tr>}

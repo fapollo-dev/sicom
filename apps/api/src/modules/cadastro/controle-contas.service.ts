@@ -4,20 +4,26 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { destinosPermitidos } from './contas-transf-perm.service';
+import { configNaTrx } from '../compras/pedido-heranca';
+import { estornarTransferenciaLote, integrarTransferencias } from '../cobranca/documentos-contabil.service';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
-const ORIGENS_MANUAIS = ['MANUAL', 'TRANSF']; // as únicas que esta tela cria/estorna (as demais são de outros módulos)
+const hoje = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+/** a data da movimentação é a EMISSÃO (a carga traz a do legado); o fechamento de caixa antigo só tinha DATA_FECHAMENTO */
+const DATA_MOV = sql`coalesce(dtemissao, data_fechamento::date)`;
+type ContaCompleta = { codconta: number; idempresa: number; nroconta: string | null; codbco: number; dtchaveamento: string | null };
+/** o lote da transferência sai do mesmo `ID_IDLOTE` das baixas, cartão e fechamento (`GetID('IDLOTE')`) */
+const novoLoteTransferencia = async (trx: AnyDB): Promise<number> =>
+  Number((await sql<{ id: string }>`SELECT nextval('seq_idlote') AS id`.execute(trx)).rows[0].id);
 
 /**
- * CONTROLE DE CONTAS CORRENTES (FRMCONTROLECONTASBANCARIAS) — corte-1. Lançamentos MANUAIS no razão de tesouraria
- * (mov_contas_bancarias). `saldo`/`extrato`: Σ com sinal (C:+ / D:−) da conta. `lancar`: 1 linha (operação C/D →
- * tipomovimento, VALOR magnitude, origem='MANUAL'). `transferir`: 2 linhas (débito origem + crédito destino) ligadas
- * por idorigem=lote, origem='TRANSF', numa ÚNICA transação (o legado faz 2 posts soltos — melhoramos). `estornar`:
- * transferência apaga as DUAS pernas por lote; manual apaga a linha; bloqueia linhas de OUTRO módulo (origem≠MANUAL/
- * TRANSF) e já conciliadas (mov_conciliado='S'). Saldo-negativo travado só p/ conta CAIXA (codbco=0), fiel ao legado.
- * Tenant fail-closed por idempresa.
+ * CONTROLE DE CONTAS CORRENTES (FRMCONTROLECONTASBANCARIAS). Movimentação da tesouraria (mov_contas_bancarias).
+ * `saldo`/`extrato`: Σ com sinal (C:+ / D:−) do LIBERADO da conta, pela data de EMISSÃO. `lancar`: 1 linha (operação
+ * C/D → tipomovimento, VALOR magnitude). `transferir`: as 2 pernas do legado (lote + NRODOCUMENTO 'TRANSFERENCIA'),
+ * destino em qualquer loja. `estornar`: a remoção de transferência (o lote inteiro) ou a exclusão da movimentação
+ * sem lote, como as duas telas do legado. Saldo-negativo travado só na transferência a partir de conta CAIXA.
  */
 @Injectable()
 export class ControleContasService {
@@ -49,7 +55,7 @@ export class ControleContasService {
       .where('idempresa', '=', emp)
       // o saldo do legado conta só o LIBERADO (mig 297); N e nulo são "a prazo", à parte
       .where(sql`coalesce(liberado, 'N')`, '=', 'S');
-    if (ateData) q = q.where(sql`data_fechamento`, '<=', ateData);
+    if (ateData) q = q.where(DATA_MOV, '<=', ateData);
     const r = (await q.executeTakeFirst()) as { saldo?: unknown } | undefined;
     return r2(num(r?.saldo));
   }
@@ -92,13 +98,13 @@ export class ControleContasService {
     const ancora = dtfim ? await this.saldoDe(db, codconta, emp, dtfim) : saldoAtual; // saldo após o mais recente do recorte
     let q = db
       .selectFrom('mov_contas_bancarias')
-      .select(['codmovconta', 'valor', 'tipomovimento', 'codopconta', 'historico', 'origem', 'idorigem', 'data_fechamento', 'mov_conciliado', 'liberado'])
+      .select(['codmovconta', 'valor', 'tipomovimento', 'codopconta', 'historico', 'origem', 'idorigem', 'data_fechamento', 'mov_conciliado', 'liberado', 'nrodocumento', 'idlote', 'contabilizado', sql<string>`to_char(${DATA_MOV}, 'YYYY-MM-DD')`.as('dtemissao')])
       .where('codconta', '=', codconta)
       .where('idempresa', '=', emp);
-    if (dtini) q = q.where(sql`data_fechamento`, '>=', dtini);
-    if (dtfim) q = q.where(sql`data_fechamento`, '<=', dtfim);
+    if (dtini) q = q.where(DATA_MOV, '>=', dtini);
+    if (dtfim) q = q.where(DATA_MOV, '<=', dtfim);
     // mais recentes primeiro (limita aos 5000 últimos, não aos primeiros).
-    const rows = (await q.orderBy('data_fechamento', 'desc').orderBy('codmovconta', 'desc').limit(5000).execute()) as Record<string, unknown>[];
+    const rows = (await q.orderBy(DATA_MOV, 'desc').orderBy('codmovconta', 'desc').limit(5000).execute()) as Record<string, unknown>[];
     // saldo corrente: da linha mais nova (após ela = âncora) descendo p/ as mais antigas.
     let running = ancora;
     const movimentos = rows.map((m) => {
@@ -113,89 +119,153 @@ export class ControleContasService {
     return { codconta, saldo: saldoAtual, movimentos };
   }
 
-  /** lançamento MANUAL (1 linha). A operação define o tipomovimento (C/D); VALOR gravado como magnitude. */
+  /** lançamento MANUAL (1 linha). A operação define o tipomovimento (C/D); VALOR gravado como magnitude. Sem teste de
+   *  saldo: o lançamento do legado chama `ValidaSaldoAnterior(..., VerifSaldo=False)` (`UlancamentoSaldo.pas:54`) e o
+   *  cadastro de movimentação não testa (`uCadMovContasBancarias.pas:115-131`). Com operação, LIBERADO 'S' na data. */
   async lancar(dto: { codconta: number; codopconta: number; valor: number; historico?: string; idpgto?: number; data?: string }): Promise<{ codmovconta: number; tipomovimento: string; saldo: number }> {
     const emp = this.emp();
     const op = this.op();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const { codbco } = await this.conta(trx, dto.codconta, emp);
+      await this.conta(trx, dto.codconta, emp);
       const oc = (await trx.selectFrom('operacoes_conta').select(['codopconta', 'tipo']).where('codopconta', '=', dto.codopconta).where('codopconta', '>', 0).executeTakeFirst()) as { tipo?: string } | undefined;
       if (!oc) throw new BusinessRuleError('OPERACAO_NAO_ENCONTRADA', { codopconta: dto.codopconta });
       const tipo = String(oc.tipo) === 'D' ? 'D' : 'C';
       const valor = r2(num(dto.valor));
-      // saldo-negativo travado só p/ conta CAIXA (codbco=0) — fiel a Utransferencia.pas:187 / udmPrincipal:2232.
-      if (tipo === 'D' && codbco === 0) {
-        const saldo = await this.saldoDe(trx, dto.codconta, emp);
-        if (r2(saldo - valor) < 0) throw new BusinessRuleError('SALDO_INSUFICIENTE', { codconta: dto.codconta, saldo, valor });
-      }
+      const data = dto.data ? dto.data.slice(0, 10) : hoje();
       const ins = (await trx.insertInto('mov_contas_bancarias').values({
-        codconta: dto.codconta, idempresa: emp, valor, tipomovimento: tipo, codopconta: dto.codopconta, origem: 'MANUAL', idorigem: null,
-        historico: dto.historico ?? null, idpgto: dto.idpgto ?? null, codoperador: op, data_fechamento: dto.data ?? sql`now()`, dtcadastro: sql`now()`,
+        codconta: dto.codconta, idempresa: emp, valor, tipomovimento: tipo, codopconta: dto.codopconta, origem: null, idorigem: null,
+        historico: dto.historico ?? null, idpgto: dto.idpgto ?? null, codoperador: op, dtcadastro: sql`now()`,
+        dtemissao: data, dtvenc: data, liberado: 'S', dtliberacao: data,
       }).returning('codmovconta').executeTakeFirstOrThrow()) as { codmovconta: number };
       return { codmovconta: Number(ins.codmovconta), tipomovimento: tipo, saldo: await this.saldoDe(trx, dto.codconta, emp) };
     });
   }
 
-  /** TRANSFERÊNCIA: débito origem + crédito destino (mesmo valor) numa ÚNICA transação, ligados por idorigem=lote. */
-  async transferir(dto: { codorigem: number; coddestino: number; valor: number; historico?: string; data?: string }): Promise<{ idlote: number; debito: number; credito: number }> {
+  /**
+   * TRANSFERÊNCIA — `TfrmTransferencia.btnFechaClick` + `Transfere` (`Utransferencia.pas:118-330`). Duas movimentações
+   * com o MESMO lote (`GetID('IDLOTE')`), `NRODOCUMENTO='TRANSFERENCIA'`, emissão/vencimento/liberação na data,
+   * LIBERADO 'S', operação 0, a modalidade de cada lado (`IDPGTO`). É pelo NRODOCUMENTO + lote que a integração
+   * contábil (origem 19) e a remoção reconhecem a transferência.
+   *
+   * A conta de ORIGEM é da loja (`btnBuscaCCClick`: `IDEMPRESA = empresa`); a de DESTINO é qualquer conta
+   * (`SpeedButton1Click` sem filtro) — 477 dos lotes de 2025-26 foram para conta de outra loja. Cada perna fica na
+   * empresa da sua conta, como a carga faz com o dado migrado.
+   *
+   * O histórico segue o que o binário novo grava (o fonte de 2020 dizia ORIGEM na perna de crédito; o dado de
+   * produção diz DESTINO nas duas, 475 de 476): `TRANSF. CONTA DESTINO: <nº da outra conta>` + o complemento +
+   * `\r\n Lote: N` + `\r\nRealizada pelo(a) usuário(a) NOME.`. O CODOPERADOR fica nulo, como no legado.
+   */
+  async transferir(dto: { codorigem: number; coddestino: number; valor: number; historico?: string; data?: string; idpgtoOrigem?: number; idpgtoDestino?: number }): Promise<{ idlote: number; debito: number; credito: number; contabilizada: boolean }> {
     const emp = this.emp();
     const op = this.op();
+    // "A conta de destino deve ser diferente da conta de origem." (`Utransferencia.pas:151`)
     if (dto.codorigem === dto.coddestino) throw new BusinessRuleError('TRANSFERENCIA_MESMA_CONTA', { conta: dto.codorigem });
-    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const orig = await this.conta(trx, dto.codorigem, emp);
-      await this.conta(trx, dto.coddestino, emp);
+    const res = await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const orig = await this.contaCompleta(trx, dto.codorigem, emp);
+      const dest = await this.contaCompleta(trx, dto.coddestino, null);
       // a matriz de transferências permitidas (mig 295): origem com linhas ativas só vai para os destinos listados
       const permitidos = await destinosPermitidos(trx, dto.codorigem);
       if (permitidos && !permitidos.includes(dto.coddestino)) {
         throw new BusinessRuleError('TRANSFERENCIA_NAO_PERMITIDA', { origem: dto.codorigem, destino: dto.coddestino, permitidos });
       }
+      // NAO_PERMITIDO_ALTERAR_DATA_TRANSF_MOV_CONTAS_BANCARIAS (por usuário) desabilita a data: vale o dia
+      const travaData = await configNaTrx(trx, 'NAO_PERMITIDO_ALTERAR_DATA_TRANSF_MOV_CONTAS_BANCARIAS', { empresaId: emp, operadorId: op, modulo: 'Retaguarda' });
+      const data = travaData === 'S' || !dto.data ? hoje() : dto.data.slice(0, 10);
+      // "Caixa FECHADO não é permitida alteração dos documentos!" — o chaveamento de cada conta (`:156-183`)
+      for (const c of [orig, dest]) {
+        if (c.dtchaveamento && data <= c.dtchaveamento) throw new BusinessRuleError('CONTA_CAIXA_FECHADA', { codconta: c.codconta, ate: c.dtchaveamento });
+      }
       const valor = r2(num(dto.valor));
+      // "Saldo insuficiente!" — só com a origem em conta caixa (`:185-190`)
       if (orig.codbco === 0) {
         const saldo = await this.saldoDe(trx, dto.codorigem, emp);
         if (r2(saldo - valor) < 0) throw new BusinessRuleError('SALDO_INSUFICIENTE', { codconta: dto.codorigem, saldo, valor });
       }
-      const loteRes = await trx.executeQuery(sql`select nextval('seq_controle_lote') as lote`.compile(trx));
-      const lote = Number((loteRes.rows[0] as { lote: number | string }).lote);
-      const hist = (dto.historico ?? 'Transferência entre contas').slice(0, 240);
-      const dataMov = dto.data ?? sql`now()`;
-      const deb = (await trx.insertInto('mov_contas_bancarias').values({
-        codconta: dto.codorigem, idempresa: emp, valor, tipomovimento: 'D', codopconta: 0, origem: 'TRANSF', idorigem: lote,
-        historico: `${hist} — p/ conta ${dto.coddestino} (lote ${lote})`, codoperador: op, data_fechamento: dataMov, dtcadastro: sql`now()`,
-      }).returning('codmovconta').executeTakeFirstOrThrow()) as { codmovconta: number };
-      const cre = (await trx.insertInto('mov_contas_bancarias').values({
-        codconta: dto.coddestino, idempresa: emp, valor, tipomovimento: 'C', codopconta: 0, origem: 'TRANSF', idorigem: lote,
-        historico: `${hist} — de conta ${dto.codorigem} (lote ${lote})`, codoperador: op, data_fechamento: dataMov, dtcadastro: sql`now()`,
-      }).returning('codmovconta').executeTakeFirstOrThrow()) as { codmovconta: number };
+      const idpgtoOrigem = dto.idpgtoOrigem ?? (await this.idpgtoDinheiro(trx, emp));
+      const idpgtoDestino = dto.idpgtoDestino ?? idpgtoOrigem;
+      const lote = await novoLoteTransferencia(trx);
+      const nome = op == null ? '' : String((await trx.selectFrom('operadores').select('nome').where('codoperador', '=', op).executeTakeFirst() as { nome?: string } | undefined)?.nome ?? '');
+      const complemento = (dto.historico ?? '').trim();
+      const historico = (outra: string | null) =>
+        `TRANSF. CONTA DESTINO: ${outra ?? ''}${complemento ? ' ' + complemento : ''}\r\n Lote: ${lote}\r\nRealizada pelo(a) usuário(a) ${nome}.`.slice(0, 300);
+      const perna = (c: ContaCompleta, tipo: 'D' | 'C', outra: ContaCompleta, idpgto: number | null) => ({
+        codconta: c.codconta, idempresa: c.idempresa, valor, tipomovimento: tipo, codopconta: 0, idpgto,
+        nrodocumento: 'TRANSFERENCIA', idlote: lote, historico: historico(outra.nroconta),
+        dtemissao: data, dtvenc: data, liberado: 'S', dtliberacao: data, dtcadastro: sql`now()`,
+      });
+      const deb = (await trx.insertInto('mov_contas_bancarias').values(perna(orig, 'D', dest, idpgtoOrigem)).returning('codmovconta').executeTakeFirstOrThrow()) as { codmovconta: number };
+      const cre = (await trx.insertInto('mov_contas_bancarias').values(perna(dest, 'C', orig, idpgtoDestino)).returning('codmovconta').executeTakeFirstOrThrow()) as { codmovconta: number };
       return { idlote: lote, debito: Number(deb.codmovconta), credito: Number(cre.codmovconta) };
+    });
+    // com a integração AUTOMÁTICA, contabiliza o lote depois de gravar — e o erro não desfaz a transferência
+    // (`IntegraTransferencia`, `:258` e `:476-488`, dentro de try/except vazio)
+    const contabilizada = await this.integrarTransferencia(emp, res.idlote);
+    return { ...res, contabilizada };
+  }
+
+  /**
+   * REMOVER — dois caminhos do legado, pela linha escolhida:
+   * - transferência (`NRODOCUMENTO='TRANSFERENCIA'`, `Removertransferencia1Click`, `UconsMovBancaria.pas:925-966`): se
+   *   contabilizada, com a integração AUTOMÁTICA estorna o razão do lote e segue; sem ela, "A transferência já foi
+   *   contabilizada.". Apaga TODAS as movimentações do lote (`DELETE ... WHERE IDLOTE`), inclusive a perna na conta
+   *   de outra loja. Não olha conciliação.
+   * - qualquer outra (`TfrmCadMovContasBancarias.btnExcluirClick`, `uCadMovContasBancarias.pas:107-111`): só barra a que
+   *   tem lote ("Esse documento não pode ser excluido, pois contém referencia de Lote. Verifique!").
+   */
+  async estornar(codmovconta: number): Promise<{ codmovconta: number; removidos: number; transferencia: boolean }> {
+    const emp = this.emp();
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const m = (await trx.selectFrom('mov_contas_bancarias').select(['codmovconta', 'nrodocumento', 'idlote', 'contabilizado']).where('codmovconta', '=', codmovconta).where('idempresa', '=', emp).forUpdate().executeTakeFirst()) as { nrodocumento?: string | null; idlote?: number | null; contabilizado?: string | null } | undefined;
+      if (!m) throw new BusinessRuleError('MOVIMENTO_NAO_ENCONTRADO', { codmovconta });
+      const idlote = num(m.idlote);
+      if (String(m.nrodocumento ?? '') === 'TRANSFERENCIA' && idlote > 0) {
+        await trx.selectFrom('mov_contas_bancarias').select('codmovconta').where('idlote', '=', idlote).forUpdate().execute();
+        if (String(m.contabilizado ?? '') === 'S') {
+          const e = (await trx.selectFrom('empresas').select('integracao').where('idempresa', '=', emp).executeTakeFirst()) as { integracao?: string | null } | undefined;
+          if (String(e?.integracao ?? '') !== 'AUTOMATICA') throw new BusinessRuleError('TRANSFERENCIA_CONTABILIZADA', { idlote });
+          await estornarTransferenciaLote(trx, idlote);
+        }
+        const res = await trx.deleteFrom('mov_contas_bancarias').where('idlote', '=', idlote).executeTakeFirst();
+        return { codmovconta, removidos: Number((res as any)?.numDeletedRows ?? 0), transferencia: true };
+      }
+      if (idlote > 0) throw new BusinessRuleError('MOVIMENTO_COM_LOTE', { codmovconta, idlote });
+      const res = await trx.deleteFrom('mov_contas_bancarias').where('codmovconta', '=', codmovconta).where('idempresa', '=', emp).executeTakeFirst();
+      return { codmovconta, removidos: Number((res as any)?.numDeletedRows ?? 0), transferencia: false };
     });
   }
 
-  /** estorna (apaga) um movimento MANUAL/TRANSFERÊNCIA. Transferência apaga as 2 pernas por lote. Bloqueia linhas de
-   *  outro módulo (origem≠MANUAL/TRANSF) e já conciliadas. */
-  async estornar(codmovconta: number): Promise<{ codmovconta: number; removidos: number; origem: string }> {
-    const emp = this.emp();
-    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const m = (await trx.selectFrom('mov_contas_bancarias').select(['codmovconta', 'origem', 'idorigem', 'mov_conciliado']).where('codmovconta', '=', codmovconta).where('idempresa', '=', emp).forUpdate().executeTakeFirst()) as { origem?: string; idorigem?: number; mov_conciliado?: string } | undefined;
-      if (!m) throw new BusinessRuleError('MOVIMENTO_NAO_ENCONTRADO', { codmovconta });
-      const origem = String(m.origem ?? '');
-      if (!ORIGENS_MANUAIS.includes(origem)) throw new BusinessRuleError('MOVIMENTO_NAO_MANUAL', { codmovconta, origem }); // de outro módulo
-      if (String(m.mov_conciliado ?? 'N') === 'S') throw new BusinessRuleError('MOVIMENTO_CONCILIADO', { codmovconta }); // desfazer a conciliação antes
-      let removidos = 0;
-      if (origem === 'TRANSF' && m.idorigem != null) {
-        // trava AS DUAS pernas do lote com o MESMO predicado do delete (fold auditoria: senão o SELECT inicial trava só
-        // 1 perna e um `conciliar` concorrente na OUTRA sneak-in → junção pendurada). Serializa com conciliar (forUpdate).
-        await trx.selectFrom('mov_contas_bancarias').select('codmovconta').where('origem', '=', 'TRANSF').where('idorigem', '=', Number(m.idorigem)).where('idempresa', '=', emp).forUpdate().execute();
-        // trava se QUALQUER perna do lote já foi conciliada (senão apagar só uma deixaria meia-transferência).
-        const conc = Number((await trx.selectFrom('mov_contas_bancarias').select(sql`count(*)`.as('n')).where('origem', '=', 'TRANSF').where('idorigem', '=', Number(m.idorigem)).where('idempresa', '=', emp).where(sql`coalesce(mov_conciliado,'N')`, '=', 'S').executeTakeFirst() as any)?.n ?? 0);
-        if (conc > 0) throw new BusinessRuleError('MOVIMENTO_CONCILIADO', { codmovconta });
-        // apaga as DUAS pernas do lote (fiel a UconsMovBancaria.pas:924 DELETE ... WHERE IDLOTE=...).
-        const res = await trx.deleteFrom('mov_contas_bancarias').where('origem', '=', 'TRANSF').where('idorigem', '=', Number(m.idorigem)).where('idempresa', '=', emp).executeTakeFirst();
-        removidos = Number((res as any)?.numDeletedRows ?? 0);
-      } else {
-        const res = await trx.deleteFrom('mov_contas_bancarias').where('codmovconta', '=', codmovconta).where('idempresa', '=', emp).executeTakeFirst();
-        removidos = Number((res as any)?.numDeletedRows ?? 0);
-      }
-      return { codmovconta, removidos, origem };
-    });
+  /** a conta com o que a transferência usa; `emp` nulo = qualquer loja (o destino) */
+  private async contaCompleta(db: AnyDB, codconta: number, emp: number | null): Promise<ContaCompleta> {
+    let q = db.selectFrom('contas_bancarias').select(['codconta', 'codbco', 'idempresa', 'nroconta', sql<string | null>`to_char(dtchaveamento, 'YYYY-MM-DD')`.as('dtchaveamento')]).where('codconta', '=', codconta);
+    if (emp != null) q = q.where('idempresa', '=', emp);
+    const c = (await q.executeTakeFirst()) as Record<string, unknown> | undefined;
+    if (!c) throw new BusinessRuleError('CONTA_NAO_ENCONTRADA', { codconta });
+    return {
+      codconta, idempresa: Number(c.idempresa), nroconta: c.nroconta == null ? null : String(c.nroconta).trim(),
+      codbco: c.codbco == null ? -1 : Number(c.codbco), dtchaveamento: c.dtchaveamento == null ? null : String(c.dtchaveamento),
+    };
+  }
+
+  /** a forma DINHEIRO da loja — o que o legado posiciona antes de gravar (`cdsFormaPto.Locate('MODALIDADE','DINHEIRO')`) */
+  private async idpgtoDinheiro(db: AnyDB, emp: number): Promise<number | null> {
+    const f = (await sql<{ idpgto: number }>`SELECT idpgto FROM formas_pgto WHERE upper(modalidade) = 'DINHEIRO'
+                ORDER BY (idempresa = ${emp}) DESC NULLS LAST, idpgto LIMIT 1`.execute(db)).rows[0];
+    return f ? Number(f.idpgto) : null;
+  }
+
+  private async integrarTransferencia(emp: number, idlote: number): Promise<boolean> {
+    const db = this.dbp.forTenant() as AnyDB;
+    try {
+      const e = (await db.selectFrom('empresas').select('integracao').where('idempresa', '=', emp).executeTakeFirst()) as { integracao?: string | null } | undefined;
+      if (String(e?.integracao ?? '') !== 'AUTOMATICA') return false;
+      return await db.transaction().execute(async (trx: AnyDB) => {
+        const cfg = (await trx.selectFrom('config_integracao_contabil').selectAll().executeTakeFirst()) as Record<string, number | null> | undefined;
+        if (!cfg) return false;
+        const r = await integrarTransferencias(trx, emp, { dataIni: '1900-01-01', dataFim: '2999-12-31', codigo: idlote }, cfg);
+        return r.lancamentos > 0;
+      });
+    } catch {
+      return false;
+    }
   }
 }

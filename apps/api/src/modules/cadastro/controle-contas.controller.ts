@@ -47,10 +47,10 @@ export class ControleContasController {
   @HttpCode(200)
   @RequerAcesso('FRMCONTROLECONTASBANCARIAS', 'BTNGRAVAR')
   transferir(@Body(new ZodValidationPipe(transferirContaSchema)) body: TransferirContaDto) {
-    return this.svc.transferir({ codorigem: body.codorigem, coddestino: body.coddestino, valor: body.valor, historico: body.historico, data: body.data });
+    return this.svc.transferir({ codorigem: body.codorigem, coddestino: body.coddestino, valor: body.valor, historico: body.historico, data: body.data, idpgtoOrigem: body.idpgtoOrigem, idpgtoDestino: body.idpgtoDestino });
   }
 
-  /** estorna (apaga) um movimento manual/transferência. */
+  /** remove a transferência (o lote inteiro) ou a movimentação sem lote. */
   @Delete(':id')
   @RequerAcesso('FRMCONTROLECONTASBANCARIAS', 'BTNEXCLUIR')
   estornar(@Param('id', ParseIntPipe) id: number) {

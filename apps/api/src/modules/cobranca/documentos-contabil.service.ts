@@ -110,7 +110,7 @@ export class DocumentosContabilService {
       switch (tipo) {
         case 'CP': return this.contasPagar(trx, emp, p, cfg);
         case 'CR': return this.contasReceber(trx, emp, p, cfg);
-        case 'TRANSF': return this.transferencias(trx, emp, p, cfg);
+        case 'TRANSF': return integrarTransferencias(trx, emp, p, cfg);
         case 'ADTO': return this.adiantamentos(trx, emp, p);
         case 'CAIXA': return this.movimentacaoCaixa(trx, emp, p);
         case 'CONVENIO': return this.convenio(trx, emp, p, cfg);
@@ -285,63 +285,6 @@ export class DocumentosContabilService {
       total = r2(total + valor);
     }
     return { documentos: docs.length - pulados, lancamentos, total };
-  }
-
-  /**
-   * TRANSFERÊNCIA ENTRE CONTAS — origem 19 (`:4283-4400`), a terceira maior do razão (17.581 linhas, todas
-   * balanceadas). A transferência é reconhecida por `NRODOCUMENTO LIKE '%TRANSFERENCIA%'` (37.572 linhas no
-   * cliente) e o par vem do LOTE: a movimentação de crédito é a conta que RECEBEU (débito contábil) e a de
-   * débito do mesmo lote é a que ENVIOU (crédito contábil). As duas contas saem do `CODLANCCONTABIL`.
-   */
-  private async transferencias(trx: AnyDB, emp: number, p: { dataIni: string; dataFim: string; codigo?: number | null }, cfg: Record<string, number | null>): Promise<ResultadoDocumentos> {
-    const situacao = cfg.config_transferencia_bancaria;
-    if (!situacao) throw new BusinessRuleError('SITUACAO_NAO_CONFIGURADA', { qual: 'config_transferencia_bancaria' });
-    const docs = (await sql<Record<string, unknown>>`
-      SELECT m.codmovconta, m.idlote, to_char(m.dtemissao, 'YYYY-MM-DD') AS data, abs(m.valor) AS valor,
-             cbd.codlanccontabil AS conta_deb, cbd.codconta AS codconta_deb,
-             (SELECT cbc.codlanccontabil FROM mov_contas_bancarias mc
-                JOIN contas_bancarias cbc ON cbc.codconta = mc.codconta
-               WHERE mc.idlote = m.idlote AND mc.tipomovimento = 'D' LIMIT 1) AS conta_cred,
-             (SELECT mc.codconta FROM mov_contas_bancarias mc
-               WHERE mc.idlote = m.idlote AND mc.tipomovimento = 'D' LIMIT 1) AS codconta_cred,
-             -- histórico 86: "CREDITO CONTA .: * DA CONTA .: * LOTE .: *" — o 1º é o TITULAR da conta que
-             -- recebe (esta linha, a de crédito) e o 2º é o HISTORICO desta mesma movimentação.
-             coalesce(cbd.titular,'') AS titular, coalesce(m.historico,'') AS historico
-        FROM mov_contas_bancarias m
-        JOIN contas_bancarias cbd ON cbd.codconta = m.codconta
-       WHERE m.tipomovimento = 'C'
-         AND abs(m.valor) <> 0
-         AND coalesce(m.contabilizado,'N') = 'N'
-         AND upper(coalesce(m.nrodocumento,'')) LIKE '%TRANSFERENCIA%'
-         AND m.idempresa = ${emp}
-         AND ((${p.codigo ?? null}::int IS NOT NULL AND m.idlote = ${p.codigo ?? null}::int)
-           OR (${p.codigo ?? null}::int IS NULL AND m.dtemissao BETWEEN ${p.dataIni}::date AND ${p.dataFim}::date))
-       ORDER BY m.codmovconta
-    `.execute(trx)).rows;
-
-    let lancamentos = 0;
-    let total = 0;
-    for (const d of docs) {
-      const valor = r2(num(d.valor));
-      if (!d.data) throw new BusinessRuleError('DOCUMENTO_SEM_DATA', { origem: 'TRANSF', documento: Number(d.codmovconta) });
-      await lancarNoDiario(trx, {
-        emp, codorigem: ORIGEM.TRANSF, situacao, data: String(d.data), valor,
-        idorigem: Number(d.codmovconta), documento: String(d.codmovconta), complemento: String(d.idlote ?? ''),
-        dataSetD: [{ codplanocontas: d.conta_deb == null ? null : Number(d.conta_deb), valor, descricao: `a conta ${d.codconta_deb}` }],
-        dataSetC: [{ codplanocontas: d.conta_cred == null ? null : Number(d.conta_cred), valor, descricao: `a conta ${d.codconta_cred ?? ''}` }],
-        desclote: `Transferência bancária — lote ${d.idlote}`,
-        ctxHist: {
-          conta: String(d.titular ?? ''), historicoMov: String(d.historico ?? ''),
-          lote: d.idlote == null ? null : String(d.idlote),
-        },
-      });
-      // o legado marca o LOTE inteiro (`:4381`), as duas pontas de uma vez.
-      await trx.updateTable('mov_contas_bancarias').set({ contabilizado: 'S' })
-        .where('idlote', '=', Number(d.idlote)).where('idempresa', '=', emp).execute();
-      lancamentos += 1;
-      total = r2(total + valor);
-    }
-    return { documentos: docs.length, lancamentos, total };
   }
 
   /**
@@ -567,4 +510,81 @@ export class DocumentosContabilService {
         break;
     }
   }
+}
+
+/**
+ * TRANSFERÊNCIA ENTRE CONTAS — origem 19 (`:4283-4400`), a terceira maior do razão (17.581 linhas, todas
+ * balanceadas). A transferência é reconhecida por `NRODOCUMENTO LIKE '%TRANSFERENCIA%'` (37.572 linhas no
+ * cliente) e o par vem do LOTE: a movimentação de crédito é a conta que RECEBEU (débito contábil) e a de
+ * débito do mesmo lote é a que ENVIOU (crédito contábil). As duas contas saem do `CODLANCCONTABIL`.
+ */
+export async function integrarTransferencias(trx: AnyDB, emp: number, p: { dataIni: string; dataFim: string; codigo?: number | null }, cfg: Record<string, number | null>): Promise<ResultadoDocumentos> {
+  const situacao = cfg.config_transferencia_bancaria;
+  if (!situacao) throw new BusinessRuleError('SITUACAO_NAO_CONFIGURADA', { qual: 'config_transferencia_bancaria' });
+  const docs = (await sql<Record<string, unknown>>`
+    SELECT m.codmovconta, m.idlote, to_char(m.dtemissao, 'YYYY-MM-DD') AS data, abs(m.valor) AS valor,
+           cbd.codlanccontabil AS conta_deb, cbd.codconta AS codconta_deb,
+           (SELECT cbc.codlanccontabil FROM mov_contas_bancarias mc
+              JOIN contas_bancarias cbc ON cbc.codconta = mc.codconta
+             WHERE mc.idlote = m.idlote AND mc.tipomovimento = 'D' LIMIT 1) AS conta_cred,
+           (SELECT mc.codconta FROM mov_contas_bancarias mc
+             WHERE mc.idlote = m.idlote AND mc.tipomovimento = 'D' LIMIT 1) AS codconta_cred,
+           -- histórico 86: "CREDITO CONTA .: * DA CONTA .: * LOTE .: *" — o 1º é o TITULAR da conta que
+           -- recebe (esta linha, a de crédito) e o 2º é o HISTORICO desta mesma movimentação.
+           coalesce(cbd.titular,'') AS titular, coalesce(m.historico,'') AS historico, m.idempresa
+      FROM mov_contas_bancarias m
+      JOIN contas_bancarias cbd ON cbd.codconta = m.codconta
+     WHERE m.tipomovimento = 'C'
+       AND abs(m.valor) <> 0
+       AND coalesce(m.contabilizado,'N') = 'N'
+       AND upper(coalesce(m.nrodocumento,'')) LIKE '%TRANSFERENCIA%'
+       -- pelo LOTE o legado não filtra empresa (UIntegracaoContabil.pas:4299-4309): a transferência para a conta de
+       -- outra loja (477 lotes em 2025-26) tem a perna de crédito lá, e o razão vai para a empresa dessa conta
+       AND (${p.codigo ?? null}::int IS NOT NULL OR m.idempresa = ${emp})
+       AND ((${p.codigo ?? null}::int IS NOT NULL AND m.idlote = ${p.codigo ?? null}::int)
+         OR (${p.codigo ?? null}::int IS NULL AND m.dtemissao BETWEEN ${p.dataIni}::date AND ${p.dataFim}::date))
+     ORDER BY m.codmovconta
+  `.execute(trx)).rows;
+
+  let lancamentos = 0;
+  let total = 0;
+  for (const d of docs) {
+    const valor = r2(num(d.valor));
+    if (!d.data) throw new BusinessRuleError('DOCUMENTO_SEM_DATA', { origem: 'TRANSF', documento: Number(d.codmovconta) });
+    await lancarNoDiario(trx, {
+      emp: d.idempresa == null ? emp : Number(d.idempresa), codorigem: ORIGEM.TRANSF, situacao, data: String(d.data), valor,
+      idorigem: Number(d.codmovconta), documento: String(d.codmovconta), complemento: String(d.idlote ?? ''),
+      dataSetD: [{ codplanocontas: d.conta_deb == null ? null : Number(d.conta_deb), valor, descricao: `a conta ${d.codconta_deb}` }],
+      dataSetC: [{ codplanocontas: d.conta_cred == null ? null : Number(d.conta_cred), valor, descricao: `a conta ${d.codconta_cred ?? ''}` }],
+      desclote: `Transferência bancária — lote ${d.idlote}`,
+      ctxHist: {
+        conta: String(d.titular ?? ''), historicoMov: String(d.historico ?? ''),
+        lote: d.idlote == null ? null : String(d.idlote),
+      },
+    });
+    // o legado marca o LOTE inteiro (`:4381`), as duas pontas de uma vez.
+    await trx.updateTable('mov_contas_bancarias').set({ contabilizado: 'S' })
+      .where('idlote', '=', Number(d.idlote)).execute();
+    lancamentos += 1;
+    total = r2(total + valor);
+  }
+  return { documentos: docs.length, lancamentos, total };
+}
+
+/**
+ * o estorno de UMA transferência pelo lote (`TIntegracaoContabil.Estornar(IDLOTE, …, TIntegracaoTransferenciaContas)`,
+ * UconsMovBancaria.pas:939) — o razão da origem 19 guarda a movimentação de crédito no IDORIGEM e o lote no complemento.
+ * Fica fora da classe para o controle de contas (CadastroModule) usar sem depender do CobrancaModule.
+ */
+export async function estornarTransferenciaLote(trx: AnyDB, idlote: number): Promise<number> {
+  const r = (await sql<{ codlote: number | null }>`DELETE FROM diario WHERE codorigem = ${ORIGEM.TRANSF}
+              AND idorigem IN (SELECT codmovconta FROM mov_contas_bancarias WHERE idlote = ${idlote})
+              RETURNING codlote`.execute(trx)).rows;
+  const lotes = [...new Set(r.map((x) => num(x.codlote)).filter((n) => n > 0))];
+  if (lotes.length) {
+    await sql`DELETE FROM lote_contabil l WHERE l.codlotecontabil = ANY(${lotes}::int[])
+                AND NOT EXISTS (SELECT 1 FROM diario d WHERE d.codlote = l.codlotecontabil)`.execute(trx);
+  }
+  await sql`UPDATE mov_contas_bancarias SET contabilizado = NULL WHERE idlote = ${idlote}`.execute(trx);
+  return r.length;
 }
