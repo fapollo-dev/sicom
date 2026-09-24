@@ -90,16 +90,24 @@ const ehSenha = (c: string) => /senha/i.test(c);
 
 /**
  * o texto do histórico de uma gravação de cadastro (TLog.GravaLog com DataSet, uLog.pas:236-330):
- *  - Inseriu: cada campo preenchido → "Campo: X   Valor: V";
+ *  - Inseriu: cada campo preenchido → " Campo: X   Valor: V" (com o espaço inicial da produção);
+ *  - Excluiu: cada campo preenchido do registro apagado → "Campo: X   Valor: V";
  *  - Alterou: cada campo que mudou → "Campo: X    Valor anterior: A    Valor atual: B";
  *  - nenhum campo → null (o legado cancela: `FRegistrou = false`).
  */
 export function historicoDeGravacao(acao: AcaoLog, antes: Record<string, unknown>, depois: Record<string, unknown>, quando = new Date()): string | null {
   const linhas: string[] = [];
-  for (const [c, novo] of Object.entries(depois)) {
+  const colunas = acao === 'Excluiu' ? Object.keys(antes) : Object.keys(depois);
+  for (const c of colunas) {
+    const novo = depois[c];
     if (ehSenha(c)) continue;
     if (acao === 'Inseriu') {
+      // o Inseriu da produção abre cada linha com um espaço (" CAMPO: X   VALOR: V" — todas as telas, lido em 24/09/2026)
       const s = exibir(novo);
+      if (s !== '') linhas.push(` Campo: ${c.toUpperCase()}   Valor: ${s}`);
+    } else if (acao === 'Excluiu') {
+      // o Excluiu lista os campos do registro apagado, sem o espaço ("CAMPO: CODCX   VALOR: 250817")
+      const s = exibir(antes[c]);
       if (s !== '') linhas.push(`Campo: ${c.toUpperCase()}   Valor: ${s}`);
     } else if (canonico(antes[c]) !== canonico(novo)) {
       linhas.push(`Campo: ${c.toUpperCase()}    Valor anterior: ${exibir(antes[c])}    Valor atual: ${exibir(novo)}`);

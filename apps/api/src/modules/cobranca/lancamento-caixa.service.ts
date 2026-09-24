@@ -9,6 +9,7 @@ import { assertCentroCustoDaSituacao } from '../shared/situacao-restricoes';
 import { DocumentosContabilService } from './documentos-contabil.service';
 import { novoLote } from './baixa-caixa';
 import { novoGrupo } from './apagar-caixa';
+import { gravarLogDaLinha, type CampoLog } from '../../shared/log/registro-log';
 
 type AnyDB = any;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -30,6 +31,15 @@ const CODORIGEM_CAIXA = 64;
  * e fora de transação, estorno contábil ao só CLICAR em editar, o sinal que só valia ao sair do campo, a edição que
  * deixava o título negativo com tipo DINHEIRO.
  */
+/** a LOG "Movimentação de caixa" (CAIXA, chave CODCX — 2.411 linhas em 2025-26): os campos do dataset do uMovCaixa, na ordem da produção */
+const CAIXA_CAMPOS_LOG: readonly CampoLog[] = [
+  'codcx', 'data', 'valor', 'obs', 'operador', 'codplc', 'idlote', 'idempresa', 'tiporecurso', 'codconta', 'codparceiro', 'contabilizado',
+  'idsituacao_nf', 'neutra', 'cadastrado_manualmente', 'idorigem', 'origem',
+];
+const logCaixa = async (trx: any, acao: 'Inseriu' | 'Alterou' | 'Excluiu', codcx: number, antes: Record<string, unknown> | null, depois: Record<string, unknown>) =>
+  gravarLogDaLinha(trx, { acao, formulario: 'Movimentação de caixa', tabela: 'CAIXA', chave: 'CODCX', valor: codcx, campos: CAIXA_CAMPOS_LOG, antes, depois });
+const linhaCaixa = async (trx: any, codcx: number) => ((await sql<Record<string, unknown>>`SELECT * FROM caixa WHERE codcx = ${codcx}`.execute(trx)).rows[0] ?? {});
+
 @Injectable()
 export class LancamentoCaixaService {
   constructor(private readonly dbp: DatabaseProvider, private readonly docs: DocumentosContabilService) {}
@@ -200,6 +210,7 @@ export class LancamentoCaixaService {
         const codapg = await this.gravarTitulo(trx, { codcx, idlote, data: dto.data, valor: p.valor, dto, idsituacao: p.idsituacao, idempresa: p.idempresa, codbco: p.codbco, op });
         await sql`UPDATE caixa SET idorigem = ${codapg} WHERE codcx = ${codcx}`.execute(trx);
       }
+      await logCaixa(trx, 'Inseriu', codcx, null, await linhaCaixa(trx, codcx));
       return { codcx, idlote };
     });
     await this.integrar(r.idlote, dto.data);
@@ -240,6 +251,7 @@ export class LancamentoCaixaService {
       let codapg: number | null = null;
       if (p.despesa) codapg = await this.gravarTitulo(trx, { codcx, idlote, data: dto.data, valor: p.valor, dto, idsituacao: p.idsituacao, idempresa: p.idempresa, codbco: p.codbco, op });
       await sql`UPDATE caixa SET idorigem = ${codapg} WHERE codcx = ${codcx}`.execute(trx);
+      await logCaixa(trx, 'Alterou', codcx, c, await linhaCaixa(trx, codcx));
       return { idlote };
     });
     if (r.idlote) await this.integrar(r.idlote, dto.data);
@@ -253,6 +265,7 @@ export class LancamentoCaixaService {
       await this.verificarContabilizado(trx, c, emp, 'excluir');
       const idlote = num(c.idlote);
       await sql`DELETE FROM caixa WHERE codcx = ${codcx}`.execute(trx);
+      await logCaixa(trx, 'Excluiu', codcx, c, {});
       // o lote leva a movimentação (e o cheque/cheque próprio, ramos mortos) — só com lote: o legado apagava IDLOTE = 0
       if (idlote > 0) {
         await sql`DELETE FROM mov_contas_bancarias WHERE idlote = ${idlote}`.execute(trx);

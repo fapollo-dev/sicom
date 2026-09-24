@@ -9493,7 +9493,7 @@ async function main() {
       const lc = await logDe('PARCEIROS', cpl);
       check('LOG §77L.2: cadastro grava Inseriu (campos) + Alterou só com o campo mudado (FANTASIA LOG ANTES → LOG DEPOIS); regravar sem mudar não grava',
         lpc.status === 201 && lc.length === 2 && lc[0].acao === 'Inseriu' && lc[0].formulario === 'Cadastro de parceiros' && lc[0].chave === 'CODPARCEIRO'
-        && /^INSERIU: \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2} \r\nCAMPO: /.test(lc[0].historico) && /CAMPO: RAZAO   VALOR: PARCEIRO DO LOG LTDA/.test(lc[0].historico)
+        && /^INSERIU: \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2} \r\n CAMPO: /.test(lc[0].historico) && /CAMPO: RAZAO   VALOR: PARCEIRO DO LOG LTDA/.test(lc[0].historico)
         && lc[1].acao === 'Alterou' && /CAMPO: FANTASIA    VALOR ANTERIOR: LOG ANTES    VALOR ATUAL: LOG DEPOIS/.test(lc[1].historico)
         && !/DESCONTO_PEDIDOS/.test(lc[1].historico),
         lc.map((l) => [l.acao, l.historico]));
@@ -19397,6 +19397,13 @@ async function main() {
           && rateioCaixa === 0,
           { cr: [cr.status, crJ.code, crJ.campos], lin, mcb, apg, rateioCaixa });
 
+        const logCx = (await pgMv.query(`SELECT acao, formulario, tabela, chave, historico FROM log WHERE tabela = 'CAIXA' AND valor = $1 ORDER BY idlog`, [cx])).rows as any[];
+        check('LANÇAMENTO DE CAIXA §172.1b [a LOG]: "Movimentação de caixa" — Inseriu CAIXA (chave CODCX) com os campos do dataset na ordem da produção, cada linha com o espaço inicial, e o IDORIGEM do título',
+          logCx.length === 1 && logCx[0].acao === 'Inseriu' && logCx[0].formulario === 'Movimentação de caixa' && logCx[0].chave === 'CODCX'
+          && String(logCx[0].historico).includes(`\r\n CAMPO: CODCX   VALOR: ${cx}\r\n CAMPO: DATA   VALOR: 10/03/2063`) && String(logCx[0].historico).includes(` CAMPO: IDORIGEM   VALOR: ${lin?.idorigem}`)
+          && String(logCx[0].historico).endsWith(' CAMPO: ORIGEM   VALOR: APAGAR'),
+          logCx);
+
         const rc = await fetch(`${base}/${LC}`, { method: 'POST', headers: H, body: JSON.stringify({ ...corpo, codplc: 5, valor: 10, obs: 'venda de sucata' }) });
         const rcJ = (await rc.json().catch(() => ({}))) as any;
         const rec = (await pgMv.query(`SELECT c.valor::float AS valor, c.origem, c.idorigem, m.tipomovimento, m.valor::float AS mv FROM caixa c JOIN mov_contas_bancarias m ON m.idlote = c.idlote WHERE c.codcx = $1`, [Number(rcJ.codcx)])).rows[0] as any;
@@ -20698,7 +20705,7 @@ async function main() {
         const alt = logsAp.find((l) => l.acao === 'Alterou');
         check('LOG §191 [contas a pagar/receber]: incluir o título grava a LOG "Contas a pagar"/Inseriu na APAGAR (chave CODAPG) com os campos do dataset do legado na ordem dele — CODAPG primeiro, DTCOMPRA dd/mm/aaaa, IDEMPRESA, o VALOR com a vírgula do Delphi (275,6) e o FORM TfrmAPagar (gravado também no título) —; alterar grava a Alterou só com o que mudou (VALOR 275,6 → 300); o A Receber idem ("Contas a receber", CODRCB, 770,14 → 800)',
           form === 'TfrmAPagar' && ins?.formulario === 'Contas a pagar' && ins.chave === 'CODAPG'
-          && /^INSERIU: \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2} \r\nCAMPO: CODAPG   VALOR: \d+/.test(ins.historico)
+          && /^INSERIU: \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2} \r\n CAMPO: CODAPG   VALOR: \d+/.test(ins.historico)
           && ins.historico.includes('CAMPO: VALOR   VALOR: 275,6') && ins.historico.includes('CAMPO: DTCOMPRA   VALOR: 21/09/2041') && ins.historico.includes('CAMPO: FORM   VALOR: TFRMAPAGAR')
           && ins.historico.includes('CAMPO: IDEMPRESA   VALOR: 1') && ins.historico.indexOf('CAMPO: CODAPG') < ins.historico.indexOf('CAMPO: DUPLICATA')
           && alt?.historico.includes('CAMPO: VALOR    VALOR ANTERIOR: 275,6    VALOR ATUAL: 300') && !alt.historico.includes('CAMPO: DUPLICATA')
