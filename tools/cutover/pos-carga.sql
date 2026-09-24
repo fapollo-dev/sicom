@@ -103,3 +103,35 @@ UPDATE apagar a SET codplc = x.codcc
 UPDATE apagar a SET dtpgto = b.dt
   FROM (SELECT codapg, max(dtpgto) AS dt FROM apagar_bx WHERE coalesce(indr, 'I') <> 'E' GROUP BY codapg) b
  WHERE a.codapg = b.codapg AND a.quitada = 'S' AND a.dtpgto IS NULL;
+
+-- ── Achado 21 (24/09/2026): colunas só do Apollo que a tela/serviço lê e a carga não preenche ─────────────────────────────
+-- O SALDO DA BAIXA PARCIAL: o estorno da baixa do Apollo apaga o título de saldo pelo vínculo `codapg_gerado`/`codrcb_gerado`,
+-- que o legado não tem. No A Pagar o saldo (ORIGEM 'B') aponta o título pai (CODAPG_PAI) e o lote (604 de 604 casam).
+UPDATE apagar_bx b SET codapg_gerado = s.codapg
+  FROM apagar s
+ WHERE b.codapg_gerado IS NULL AND s.origem = 'B' AND s.codapg_pai = b.codapg AND s.idlote = b.idlote;
+-- No A Receber não há CODRCB_PAI: o pai vem da OBS ("…baixa parcial do título Nº:151…") ou, na forma "…do lote: N", do lote
+-- com um só título baixado do mesmo cliente (256 de 293); o que fica ambíguo segue sem vínculo (o estorno não o apaga).
+UPDATE areceber_bx b SET codrcb_gerado = s.codrcb
+  FROM areceber s
+ WHERE b.codrcb_gerado IS NULL AND s.origem = 'B' AND s.idlote = b.idlote AND s.obs ~ 'Nº:[0-9]+'
+   AND substring(s.obs from 'Nº:([0-9]+)')::int = b.codrcb;
+UPDATE areceber_bx b SET codrcb_gerado = s.codrcb
+  FROM areceber s, areceber p
+ WHERE b.codrcb_gerado IS NULL AND coalesce(b.indr, 'I') = 'I' AND p.codrcb = b.codrcb
+   AND s.origem = 'B' AND s.idlote = b.idlote AND s.codparceiro = p.codparceiro AND s.obs !~ 'Nº:[0-9]+'
+   AND NOT EXISTS (SELECT 1 FROM areceber_bx b2 JOIN areceber p2 ON p2.codrcb = b2.codrcb
+                    WHERE b2.idlote = b.idlote AND p2.codparceiro = p.codparceiro AND coalesce(b2.indr, 'I') = 'I' AND b2.codrcbbx <> b.codrcbbx)
+   AND (SELECT count(*) FROM areceber s2 WHERE s2.origem = 'B' AND s2.idlote = b.idlote AND s2.codparceiro = p.codparceiro) = 1
+   AND NOT EXISTS (SELECT 1 FROM areceber_bx b3 WHERE b3.codrcb_gerado = s.codrcb);
+
+-- O Nº DO PEDIDO DO A RECEBER: a tela do Apollo usa `nroped`; o legado grava NROPEDIDO (12.656 títulos em 2026).
+UPDATE areceber SET nroped = nropedido WHERE nroped IS NULL AND nropedido IS NOT NULL;
+
+-- O CÓDIGO IBGE DA UF DA EMPRESA (`cuf`): a emissão da NF-e exige, o legado não tem a coluna (deriva da UF).
+UPDATE empresas SET cuf = CASE upper(trim(uf))
+    WHEN 'RO' THEN 11 WHEN 'AC' THEN 12 WHEN 'AM' THEN 13 WHEN 'RR' THEN 14 WHEN 'PA' THEN 15 WHEN 'AP' THEN 16 WHEN 'TO' THEN 17
+    WHEN 'MA' THEN 21 WHEN 'PI' THEN 22 WHEN 'CE' THEN 23 WHEN 'RN' THEN 24 WHEN 'PB' THEN 25 WHEN 'PE' THEN 26 WHEN 'AL' THEN 27
+    WHEN 'SE' THEN 28 WHEN 'BA' THEN 29 WHEN 'MG' THEN 31 WHEN 'ES' THEN 32 WHEN 'RJ' THEN 33 WHEN 'SP' THEN 35 WHEN 'PR' THEN 41
+    WHEN 'SC' THEN 42 WHEN 'RS' THEN 43 WHEN 'MS' THEN 50 WHEN 'MT' THEN 51 WHEN 'GO' THEN 52 WHEN 'DF' THEN 53 END
+ WHERE cuf IS NULL AND uf IS NOT NULL;

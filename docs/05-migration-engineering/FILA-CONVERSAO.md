@@ -961,3 +961,11 @@ aparecia sem data de emissão (mig 327 sincroniza pelo fuso). Varredura: 186 col
 carregadas; a maioria é carimbo do próprio Apollo ou já calculada na carga. Tratadas: `apagar.codplc` (o CC mora no
 CX_APAGAR) e `apagar.dtpgto` (a data vem da APAGAR_BX), na pós-carga. A registrar para decisão (não é do código):
 `empresas.ambiente` nasce '2' (homologação) — no legado a falta de linha em AMBIENTE_CONTINGENCIA significa produção.
+
+**Triagem completa das 186 (24/09/2026)**: 38 são lidas pelo código sem menção na carga; as de autenticação (hashes,
+tentativas, bloqueio) já têm a conversão própria (`cutover-senha-*`), as de NF-e (`simulado`, `cstat`) são lidas com
+`coalesce` ou só na transmissão nova, e as de apuração/cadastro recente só valem para o dado novo. As que quebrariam a base
+migrada foram tratadas na pós-carga: **o saldo da baixa parcial** (`apagar_bx.codapg_gerado` pelo CODAPG_PAI + lote, 604 de
+604; `areceber_bx.codrcb_gerado` pela OBS ou lote + cliente único, 256+9 de 293 — sem ele o estorno da baixa migrada não
+apagava o título de saldo); **o Nº do pedido do A Receber** (`nroped` ← NROPEDIDO, 12.656 em 2026; e a tela passa a gravar
+os dois — a contabilização lê o NROPEDIDO); **o código IBGE da UF da empresa** (`cuf`, que a emissão da NF-e exige).

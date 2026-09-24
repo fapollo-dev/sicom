@@ -128,6 +128,8 @@ export class AreceberService {
   private delta(dto: Record<string, unknown>): Record<string, unknown> {
     const out: Record<string, unknown> = {};
     for (const c of AreceberService.COLUNAS) if (dto[c] !== undefined) out[c] = dto[c];
+    // o Nº do pedido da tela é o NROPEDIDO do legado (12.656 títulos em 2026) — é ele que a contabilização lê para achar a venda
+    if (out.nroped !== undefined) out.nropedido = out.nroped;
     return out;
   }
 
@@ -213,6 +215,7 @@ export class AreceberService {
     for (const c of ['codparceiro', 'tipodoc', 'txjuros', 'txmulta', 'desconto_boleto', 'codvendedor', 'codcobrador', 'idpgto', 'codbco', 'codplc', 'nroped', 'obs'] as const) {
       if (dto[c] !== undefined) cab[c] = dto[c];
     }
+    if (cab.nroped !== undefined) cab.nropedido = cab.nroped; // o NROPEDIDO do legado (ver `delta`)
 
     const codrcbs = await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       // trava de período contábil fechado (uma vez, na dtvenda × BLOQ_RCB).
