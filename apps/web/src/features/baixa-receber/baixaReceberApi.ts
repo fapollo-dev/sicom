@@ -40,3 +40,6 @@ export const manutencaoBaixaReceber = (lote: number) => req<{ loteAntigo: number
 export const gravarBaixaReceber = (body: BaixaReceberGravarDto) =>
   req<{ idlote: number; documentos: number; valorPago: number; parcial: boolean; codrcbSaldo: number | null; contabilizado: boolean }>(
     '/cobranca/baixa-receber/gravar', { method: 'POST', body: JSON.stringify(body) });
+export const retornoBaixaReceber = (arquivo: string, nome: string) =>
+  req<{ banco: number; dtpgto: string | null; nomeArquivo: string | null; documentos: TituloReceber[]; naoEncontrados: Array<{ nosso_numero: string; valor_recebido: number }> }>(
+    '/cobranca/baixa-receber/retorno', { method: 'POST', body: JSON.stringify({ arquivo, nome }) });

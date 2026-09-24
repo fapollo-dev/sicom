@@ -21083,6 +21083,20 @@ async function main() {
           && mov6?.liberado === 'N' && mov6?.recurso === '5 - DÉBITO EM CONTA',
           { g5, man: man.status, manJ, ativo5, g6, bx5, mov6 });
 
+        // 197.8b ARQUIVO RETORNO (Itaú 400, os CN*.RET da conta 182): preenche a grade — data do arquivo, acréscimo = recebido − documento
+        const r6 = await titulo(20, 150, 'BR197-6');
+        const linhaR = (nn: number, vlrDoc: number, vlrPago: number) =>
+          ('1'.padEnd(62, ' ') + String(nn).padStart(8, '0') + ' '.repeat(38) + '06' + '220926'
+            + ' '.repeat(36) + String(Math.round(vlrDoc * 100)).padStart(13, '0')
+            + ' '.repeat(87) + String(Math.round(vlrPago * 100)).padStart(13, '0') + '0'.repeat(13)).padEnd(400, ' ');
+        const hdrR = ('0'.padEnd(79, ' ') + 'BANCO ITAU' + ' '.repeat(5) + '220926').padEnd(400, ' ');
+        const ret = await post(`${BR}/retorno`, { arquivo: [hdrR, linhaR(r6, 150, 152.5), linhaR(9999991, 10, 10)].join('\r\n'), nome: 'CN22096A.RET' });
+        const dR = (ret.j.documentos ?? [])[0];
+        check('BAIXA-AR §197.8b: o retorno Itaú devolve o documento (acréscimo 2,50 = 152,50 − 150), a data da baixa = a do arquivo (22/09/2026) e o nosso número sem título como não encontrado',
+          ret.status === 200 && ret.j.dtpgto === '2026-09-22' && ret.j.documentos?.length === 1 && dR?.codrcb === r6 && Number(dR?.acre_desc) === 2.5
+          && ret.j.naoEncontrados?.length === 1 && ret.j.nomeArquivo === 'CN22096A.RET',
+          ret);
+
         const semGrant = await fetch(`${base}/${BR}/iniciar`, { method: 'POST', headers: H_SEM_ACESSO });
         check('BAIXA-AR §197.9: iniciar sem a opção BTNADICIONARREGISTRO → 403', semGrant.status === 403, { status: semGrant.status });
       } finally {

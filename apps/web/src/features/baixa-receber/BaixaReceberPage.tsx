@@ -8,7 +8,7 @@ import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import {
-  contasBaixaReceber, gravarBaixaReceber, iniciarBaixaReceber, manutencaoBaixaReceber, padroesBaixaReceber, titulosBaixaReceber,
+  contasBaixaReceber, gravarBaixaReceber, iniciarBaixaReceber, manutencaoBaixaReceber, padroesBaixaReceber, retornoBaixaReceber, titulosBaixaReceber,
   type ContaReceber, type FiltroReceber, type FormaCartao, type PadroesReceber, type TituloReceber,
 } from './baixaReceberApi';
 
@@ -48,6 +48,7 @@ export function BaixaReceberPage() {
   const [novo, setNovo] = useState<{ tipo: string; codconta: string; valor: string; historico: string; idpgto: string } | null>(null);
   const [dtvencSaldo, setDtvencSaldo] = useState(hoje());
   const [liberacao, setLiberacao] = useState<{ login: string; senha: string } | null>(null);
+  const [arquivoRetorno, setArquivoRetorno] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
   const executar = async (fn: () => Promise<void>) => {
@@ -89,6 +90,7 @@ export function BaixaReceberPage() {
   const restante = r2(totalDocs - totalRecursos);
 
   const iniciar = () => executar(async () => {
+    setArquivoRetorno(null);
     setLote((await iniciarBaixaReceber()).idlote);
     setLoteManutencao(null);
     setDocs([]);
@@ -99,6 +101,24 @@ export function BaixaReceberPage() {
     setDtpgto(hoje());
     setPesquisa(await titulosBaixaReceber({ ...filtro, dtpgto: hoje() }));
     setMarcados(new Set());
+  });
+  // "Importar arquivo retorno" (`ProcessarArquivoRetorno`, :2596-2775): a grade vem do arquivo, a data é a do arquivo e o
+  // histórico padrão do recurso cita o arquivo; grava pelo fluxo normal
+  const importarRetorno = (arquivo: File) => executar(async () => {
+    const texto = await arquivo.text();
+    const r = await retornoBaixaReceber(texto, arquivo.name);
+    const novoLote = (await iniciarBaixaReceber()).idlote;
+    setLote(novoLote);
+    setLoteManutencao(null);
+    setRecursos([]);
+    setNovo(null);
+    setGlobal({ valor: '', senha: '' });
+    setLiberacao(null);
+    setPesquisa(null);
+    setDtpgto(r.dtpgto ?? hoje());
+    setArquivoRetorno(r.nomeArquivo ?? arquivo.name);
+    setDocs(r.documentos.map((d) => ({ ...d, desconto_cliente: 0, percentual: 0, acreDescValor: d.acre_desc ?? 0 })));
+    if (r.naoEncontrados.length) mensagem.erro(new Error(`${r.naoEncontrados.length} boleto(s) do arquivo não foram encontrados no sistema ou já foram baixados.`));
   });
   const pesquisar = () => executar(async () => {
     setPesquisa(await titulosBaixaReceber({ ...filtro, dtpgto }));
@@ -121,7 +141,7 @@ export function BaixaReceberPage() {
   const abrirRecurso = () => {
     if (!docs.length) { mensagem.erro(new Error('Nenhum documento foi selecionado ainda.')); return; }
     if (restante <= 0) { mensagem.erro(new Error('Total de recursos ja informado!')); return; }
-    setNovo({ tipo: '0', codconta: '', valor: String(restante).replace('.', ','), historico: `BAIXA DO LOTE ${lote ?? ''}`, idpgto: '' });
+    setNovo({ tipo: '0', codconta: '', valor: String(restante).replace('.', ','), historico: arquivoRetorno ? `REF BX LOTE: ${lote ?? ''} - ARQ RET: ${arquivoRetorno}` : `BAIXA DO LOTE ${lote ?? ''}`, idpgto: '' });
   };
   const salvarRecurso = () => {
     if (!novo) return;
@@ -178,6 +198,7 @@ export function BaixaReceberPage() {
       setPesquisa(null);
       setGlobal({ valor: '', senha: '' });
       setLiberacao(null);
+      setArquivoRetorno(null);
       if (params.get('manutencao')) navigate('/cobranca/baixa-receber', { replace: true });
     } catch (e) {
       // "Informe o login e senha de um usuário com permissão para liberar o desconto." — abre os campos do liberador
@@ -187,6 +208,7 @@ export function BaixaReceberPage() {
     }
   });
   const cancelar = () => {
+    setArquivoRetorno(null);
     setLote(null);
     setLoteManutencao(null);
     setDocs([]);
@@ -206,9 +228,16 @@ export function BaixaReceberPage() {
 
       <section className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         {!lote && <Button label="&Iniciar baixa" onClick={() => void iniciar()} disabled={ocupado} />}
+        {!lote && (
+          <label className="inline-flex cursor-pointer items-center gap-gp-xs rounded-radius-md border border-border px-pad-sm py-pad-xs text-body-sm focus-within:ring-2">
+            Importar arquivo retorno
+            <input type="file" accept=".ret,.RET,.txt" className="sr-only" disabled={ocupado}
+              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importarRetorno(f); }} />
+          </label>
+        )}
         {lote && (
           <>
-            <strong className="text-sm">Lote {lote}{loteManutencao ? ` · manutenção do lote ${loteManutencao}` : ''}</strong>
+            <strong className="text-sm">Lote {lote}{loteManutencao ? ` · manutenção do lote ${loteManutencao}` : ''}{arquivoRetorno ? ` · retorno ${arquivoRetorno}` : ''}</strong>
             <div className="w-44"><DateField label="&Data da baixa" value={dtpgto} onChange={(v) => setDtpgto(v ?? hoje())} /></div>
             <div className="flex-1" />
             <Button label="Cancelar" variant="ghost" onClick={cancelar} disabled={ocupado} />
@@ -217,7 +246,7 @@ export function BaixaReceberPage() {
         )}
       </section>
 
-      {lote && !loteManutencao && (
+      {lote && !loteManutencao && !arquivoRetorno && (
         <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
           <strong className="text-sm">Documentos a receber em aberto</strong>
           <div className="flex flex-wrap items-end gap-gp-sm">

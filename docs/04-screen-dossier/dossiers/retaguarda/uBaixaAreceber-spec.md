@@ -492,3 +492,14 @@ recurso, acréscimo/desconto geral rateado com a senha de desconto, CCs padrão,
 cartão, histórico `BAIXA DO LOTE N` obrigatório), o excesso do recurso vira acréscimo, campos do liberador quando o servidor
 pede a liberação do desconto, parcial com a pergunta do legado. Manutenção pela consulta de baixas (`?manutencao=<lote>`).
 O painel de baixa por título do cadastro de Contas a Receber virou atalho. Falta o recibo (`recibo.fr3`).
+
+## 8. Conversão — corte B, arquivo retorno (24/09/2026)
+
+A conta 182 (400 dos 410 lotes de retorno) é do banco 526 = **Itaú** (agência 3034, `CONF_INTEG_BANCARIA.LAYOUTREMESSA='C400'`;
+os `CN*.RET` são o nome do retorno Itaú) — o leiaute que o Apollo já lia na proposta de baixa do CNAB. O parse virou
+`lerRetornoCnab` (cnab-remessa.service.ts) e a baixa ganhou `POST cobranca/baixa-receber/retorno`: nosso número → CODRCB
+(últimos 9 dígitos), só não quitados das empresas do operador (o legado não filtra empresa), acréscimo/desconto = recebido −
+documento, data da baixa = a do arquivo; a tela preenche a grade e o histórico padrão `REF BX LOTE: N - ARQ RET: <arquivo>`.
+Diferente do legado, a baixa parcial funciona com o retorno (lá o `cdsDoctosRec` vazio a impedia). Pendentes: o retorno BB
+400 (conta 322, 10 lotes, último em jan/2025) e a certificação das posições com um arquivo real (não há retorno guardado no
+Oracle).

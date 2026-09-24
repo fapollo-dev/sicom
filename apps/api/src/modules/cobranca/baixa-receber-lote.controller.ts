@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
-import { baixaReceberGravarSchema, baixaReceberTitulosSchema, type BaixaReceberGravarDto, type BaixaReceberTitulosDto } from '@apollo/shared';
+import { baixaReceberGravarSchema, baixaReceberRetornoSchema, baixaReceberTitulosSchema, type BaixaReceberGravarDto, type BaixaReceberRetornoDto, type BaixaReceberTitulosDto } from '@apollo/shared';
 import { BaixaReceberLoteService } from './baixa-receber-lote.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -33,6 +33,14 @@ export class BaixaReceberLoteController {
   @RequerAcesso('FRMBAIXAARECEBER', 'BTNGRAVAR')
   manutencao(@Param('lote', ParseIntPipe) lote: number) {
     return this.svc.manutencao(lote);
+  }
+
+  /** "Importar arquivo retorno" (`btnImportaArqRetornoBoletoClick`) — preenche a grade; grava pelo fluxo normal */
+  @Post('retorno')
+  @HttpCode(200)
+  @RequerAcesso('FRMBAIXAARECEBER', 'BTNADICIONARREGISTRO')
+  retorno(@Body(new ZodValidationPipe(baixaReceberRetornoSchema)) body: BaixaReceberRetornoDto) {
+    return this.svc.retorno(body);
   }
 
   @Post('iniciar')

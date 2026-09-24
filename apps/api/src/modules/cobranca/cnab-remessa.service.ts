@@ -602,36 +602,7 @@ export class CnabRemessaService {
   async importarRetorno(dto: { arquivo: string }) {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
-    const linhas = String(dto.arquivo ?? '').replace(/\r\n/g, '\n').split('\n').filter((l) => l.trim().length > 0);
-    if (!linhas.length) throw new BusinessRuleError('RETORNO_VAZIO');
-    const h = linhas[0];
-    const banco =
-      h[0] === '0' && h.slice(79, 89) === 'BANCO ITAU' ? 341
-      : (h[7] === '0' && h.slice(102, 117) === 'BANCO DO BRASIL') || h.slice(76, 94).replace(/\s/g, '') === '001BANCODOBRASIL' ? 1
-      : h[0] === '0' && h.slice(79, 87) === 'BRADESCO' ? 237
-      : (h[0] === '0' && h.slice(82, 89) === 'BANCOOB') || h.slice(0, 3) === '756' ? 756
-      : 0;
-    if (!banco) throw new BusinessRuleError('RETORNO_BANCO_NAO_RECONHECIDO');
-    if (banco !== 341) throw new BusinessRuleError('RETORNO_LAYOUT_NAO_SUPORTADO', { banco });
-
-    // data do arquivo: header do Itaú 400, posições 95-100 (DDMMAA) — a mesma do arquivo de remessa
-    const dArq = dig(h.slice(94, 100));
-    const dataArquivo = dArq.length === 6 ? `20${dArq.slice(4, 6)}-${dArq.slice(2, 4)}-${dArq.slice(0, 2)}` : null;
-
-    // detalhe do retorno Itaú 400 (leiaute do banco): nosso número 63-70 · ocorrência 109-110 ·
-    // data da ocorrência 111-116 · valor do título 153-165 · valor pago 253-265 · juros 266-278.
-    const boletos = linhas
-      .filter((l) => l.length >= 265 && l[0] === '1')
-      .map((l) => ({
-        nosso_numero: dig(l.slice(62, 70)),
-        ocorrencia: l.slice(108, 110),
-        data_ocorrencia: dig(l.slice(110, 116)),
-        valor_documento: Number(dig(l.slice(152, 165)) || 0) / 100,
-        valor_recebido: Number(dig(l.slice(252, 265)) || 0) / 100,
-        juros: l.length >= 278 ? Number(dig(l.slice(265, 278)) || 0) / 100 : 0,
-      }))
-      .filter((b) => b.valor_recebido > 0); // :2680 — só quem foi pago
-    if (!boletos.length) throw new BusinessRuleError('RETORNO_SEM_PAGAMENTO');
+    const { banco, dataArquivo, boletos } = lerRetornoCnab(dto.arquivo);
 
     // nosso número → CODRCB (os últimos 9 dígitos, sem zeros à esquerda)
     const codrcbs = Array.from(new Set(boletos.map((b) => Number(b.nosso_numero.slice(-9)) || 0).filter((n) => n > 0)));
@@ -836,4 +807,42 @@ export function validarCnab400(arquivo: string): string[] {
     if (dig(l.slice(220, 234)).replace(/^0+/, '') === '') erros.push(`linha ${i + 1}: sacado sem CNPJ/CPF`);
   }
   return erros;
+}
+
+/**
+ * o PARSE do arquivo de retorno (a parte que no legado é da ACBr) — a detecção do banco pelo header (UBaixaAreceber.pas:2635-2666),
+ * a data do arquivo e os boletos pagos (VALOR RECEBIDO > 0, :2680). Usado pela proposta de baixa desta tela e pela baixa em lote.
+ */
+export function lerRetornoCnab(arquivo: string): { banco: number; dataArquivo: string | null; boletos: Array<{ nosso_numero: string; ocorrencia: string; data_ocorrencia: string; valor_documento: number; valor_recebido: number; juros: number }> } {
+  const linhas = String(arquivo ?? '').replace(/\r\n/g, '\n').split('\n').filter((l) => l.trim().length > 0);
+  if (!linhas.length) throw new BusinessRuleError('RETORNO_VAZIO');
+  const h = linhas[0];
+  const banco =
+    h[0] === '0' && h.slice(79, 89) === 'BANCO ITAU' ? 341
+    : (h[7] === '0' && h.slice(102, 117) === 'BANCO DO BRASIL') || h.slice(76, 94).replace(/\s/g, '') === '001BANCODOBRASIL' ? 1
+    : h[0] === '0' && h.slice(79, 87) === 'BRADESCO' ? 237
+    : (h[0] === '0' && h.slice(82, 89) === 'BANCOOB') || h.slice(0, 3) === '756' ? 756
+    : 0;
+  if (!banco) throw new BusinessRuleError('RETORNO_BANCO_NAO_RECONHECIDO');
+  if (banco !== 341) throw new BusinessRuleError('RETORNO_LAYOUT_NAO_SUPORTADO', { banco });
+
+  // data do arquivo: header do Itaú 400, posições 95-100 (DDMMAA) — a mesma do arquivo de remessa
+  const dArq = dig(h.slice(94, 100));
+  const dataArquivo = dArq.length === 6 ? `20${dArq.slice(4, 6)}-${dArq.slice(2, 4)}-${dArq.slice(0, 2)}` : null;
+
+  // detalhe do retorno Itaú 400 (leiaute do banco): nosso número 63-70 · ocorrência 109-110 ·
+  // data da ocorrência 111-116 · valor do título 153-165 · valor pago 253-265 · juros 266-278.
+  const boletos = linhas
+    .filter((l) => l.length >= 265 && l[0] === '1')
+    .map((l) => ({
+      nosso_numero: dig(l.slice(62, 70)),
+      ocorrencia: l.slice(108, 110),
+      data_ocorrencia: dig(l.slice(110, 116)),
+      valor_documento: Number(dig(l.slice(152, 165)) || 0) / 100,
+      valor_recebido: Number(dig(l.slice(252, 265)) || 0) / 100,
+      juros: l.length >= 278 ? Number(dig(l.slice(265, 278)) || 0) / 100 : 0,
+    }))
+    .filter((b) => b.valor_recebido > 0); // :2680 — só quem foi pago
+  if (!boletos.length) throw new BusinessRuleError('RETORNO_SEM_PAGAMENTO');
+  return { banco, dataArquivo, boletos };
 }

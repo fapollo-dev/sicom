@@ -86,3 +86,10 @@ export const baixaReceberGravarSchema = z.object({
   loteManutencao: opcionalNum,
 });
 export type BaixaReceberGravarDto = z.infer<typeof baixaReceberGravarSchema>;
+
+/** o arquivo de retorno do banco (o conteúdo em texto e o nome, que vai para o histórico do recurso) */
+export const baixaReceberRetornoSchema = z.object({
+  arquivo: z.string().min(1, 'Informe o conteúdo do arquivo de retorno.').max(4_000_000),
+  nome: z.string().trim().max(120).optional(),
+});
+export type BaixaReceberRetornoDto = z.infer<typeof baixaReceberRetornoSchema>;

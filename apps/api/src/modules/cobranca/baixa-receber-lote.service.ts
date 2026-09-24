@@ -12,6 +12,7 @@ import { LiberacaoService } from '../auth/liberacao.service';
 import { AdiantamentoFornService } from './adiantamento-forn.service';
 import { BaixaTronContabilService } from './baixa-tron-contabil.service';
 import { estornarCaixaDaBaixa, lancarCaixaDaBaixaLote, type CentrosBaixa } from './baixa-caixa';
+import { lerRetornoCnab } from './cnab-remessa.service';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -107,6 +108,43 @@ export class BaixaReceberLoteService {
        LIMIT 2000
     `.execute(db)).rows;
     return rows.map((t) => ({ ...t, codrcb: Number(t.codrcb), valor: r2(num(t.valor)), txjuros: num(t.txjuros), desconto_cliente: r2(num(t.desconto_cliente)), vencido: String(t.vencimento ?? '') < data }));
+  }
+
+  /**
+   * ARQUIVO RETORNO (`ProcessarArquivoRetorno`, :2596-2775) — 410 lotes e 80% do valor recebido em 2025-26 (conta 182, Itaú 400,
+   * arquivos `CN*.RET`). Não grava: devolve os documentos para a grade — nosso número → CODRCB (últimos 9 dígitos), só os não
+   * quitados, o acréscimo/desconto = recebido − documento, a data da baixa = a do arquivo. O legado não filtra empresa na busca
+   * (`WHERE G.CODIGO IN (…)`); aqui, as empresas do operador.
+   */
+  async retorno(dto: { arquivo: string; nome?: string }): Promise<Record<string, unknown>> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const { banco, dataArquivo, boletos } = lerRetornoCnab(dto.arquivo);
+    const permitidas = await this.empresasPermitidas(db, emp, this.op());
+    const codrcbs = Array.from(new Set(boletos.map((b) => Number(b.nosso_numero.slice(-9)) || 0).filter((n) => n > 0)));
+    const rows = (await sql<Record<string, unknown>>`
+      SELECT r.codrcb, r.duplicata, p.razao AS cliente, r.codparceiro, r.codempresa, r.valor, coalesce(r.txjuros, 0) AS txjuros,
+             to_char(r.dtvenda AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS emissao, to_char(r.dtvenc AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS vencimento, r.nroped
+        FROM areceber r LEFT JOIN parceiros p ON p.codparceiro = r.codparceiro
+       WHERE r.codrcb = ANY(${codrcbs.length ? codrcbs : [0]}::int[]) AND coalesce(r.quitada, 'N') <> 'S' AND r.codempresa = ANY(${permitidas}::int[])
+       ORDER BY r.codrcb`.execute(db)).rows;
+    // "Os boletos não foram encontrados no sistema ou já foram baixados." (:2710-2711)
+    if (!rows.length) throw new BusinessRuleError('RETORNO_TITULOS_NAO_ENCONTRADOS', { codrcbs });
+    const porCod = new Map<number, (typeof boletos)[number]>();
+    for (const b of boletos) porCod.set(Number(b.nosso_numero.slice(-9)) || 0, b);
+    const documentos = rows.map((t) => {
+      const b = porCod.get(Number(t.codrcb))!;
+      return {
+        ...t, codrcb: Number(t.codrcb), valor: r2(num(t.valor)), txjuros: num(t.txjuros), desconto_cliente: 0,
+        // :2724-2730 — a diferença entre o recebido e o documento vira acréscimo/desconto do documento
+        acre_desc: r2(b.valor_recebido - b.valor_documento), valor_recebido: b.valor_recebido,
+      };
+    });
+    const achados = new Set(documentos.map((d) => d.codrcb));
+    return {
+      banco, dtpgto: dataArquivo, nomeArquivo: dto.nome ?? null, documentos,
+      naoEncontrados: boletos.filter((b) => !achados.has(Number(b.nosso_numero.slice(-9)) || 0)).map((b) => ({ nosso_numero: b.nosso_numero, valor_recebido: b.valor_recebido })),
+    };
   }
 
   /** as contas do operador (F3: `ATIVO<>'N'` com linha em CONTAS_BANCARIAS_OP, :1016-1026) e as formas de cartão da loja */
