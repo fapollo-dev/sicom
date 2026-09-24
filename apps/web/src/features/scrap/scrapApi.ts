@@ -35,10 +35,12 @@ export interface ScrapItem {
   codmotivoop?: number | null;
   codsetor?: number | null;
   codfor?: number | null;
+  idproduto_filho?: number | null;
 }
 export interface ScrapDetalhe extends ScrapHeader {
   codplc?: number | null;
   codparceiro?: number | null;
+  idsituacao_nf?: number | null;
   obs?: string | null;
   itens: ScrapItem[];
 }
@@ -55,10 +57,11 @@ export function listarScraps(): Promise<ScrapHeader[]> {
 export function obterScrap(id: number): Promise<ScrapDetalhe> {
   return req(`/cadastro/scrap/${id}`, { method: 'GET' });
 }
-export function criarScrap(body: { codparceiro?: number; codplc?: number; obs?: string; itens?: ScrapItem[] }): Promise<ScrapDetalhe> {
+export interface ScrapGravar { codplc?: number | null; idsituacao_nf?: number | null; obs?: string; itens: ScrapItem[] }
+export function criarScrap(body: ScrapGravar): Promise<ScrapDetalhe> {
   return req('/cadastro/scrap', { method: 'POST', body: JSON.stringify(body) });
 }
-export function atualizarScrap(id: number, body: { codparceiro?: number; codplc?: number; obs?: string; itens: ScrapItem[] }): Promise<ScrapDetalhe> {
+export function atualizarScrap(id: number, body: ScrapGravar): Promise<ScrapDetalhe> {
   return req(`/cadastro/scrap/${id}`, { method: 'PUT', body: JSON.stringify(body) });
 }
 export function excluirScrap(id: number): Promise<void> {
@@ -74,4 +77,19 @@ export function estornarScrap(id: number): Promise<{ codscrap: number; mov_estoq
 export async function listarMotivosPerda(): Promise<MotivoPerda[]> {
   const todos = await req<MotivoPerda[]>('/cadastro/motivos-operacao', { method: 'GET' });
   return (todos ?? []).filter((m) => m.tipo_operacao === 'PERDA' && m.indr !== 'E');
+}
+
+/** o apoio da tela: situações de SCRAP (E02), centros de custo de perda, setores, o parceiro da empresa e as configurações */
+export interface ScrapApoio {
+  situacoes: Array<{ idsituacao_nf: number; descricao: string }>;
+  centros: Array<{ codplc: number; desccodplc: string | null; descricao: string; uso_setor: string; obriga_motivo: string }>;
+  centrosDaSituacao: Record<string, number[]>;
+  setores: Array<{ codsetor: number; nome: string }>;
+  parceiro: { codparceiro: number | null; razao: string | null } | null;
+  informaSituacao: boolean;
+  informaMotivo: boolean;
+  baixarEstoque: boolean;
+}
+export function apoioScrap(): Promise<ScrapApoio> {
+  return req('/cadastro/scrap/apoio/dados', { method: 'GET' });
 }

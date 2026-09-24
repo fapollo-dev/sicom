@@ -39,6 +39,37 @@ export class ScrapService {
     return o;
   }
 
+  /**
+   * o apoio da tela (uCadSCRAP.pas): as situações de SCRAP (TIPO_OPERACAO 'E02', `InformaSituacaoDocumento` :1625), os centros de
+   * custo de perda (GET_PLC com PERDA='S' e o comprimento da máscara, `btnBuscaPLCClick`; a lista da situação vem em
+   * `situacao_nf_plc`), os setores (FAMILIAS_PROD TIPO 'E' — o 'SETOR' do GET_FAMILIAS_PROD — ativos, :455), o parceiro da empresa e as três configurações.
+   */
+  async apoio(): Promise<Record<string, unknown>> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const ctx = { empresaId: emp, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' };
+    const cfg = async (c: string, def: string) => String((await configNaTrx(db, c, ctx)) ?? def).toUpperCase() === 'S';
+    const situacoes = (await sql<Record<string, unknown>>`SELECT idsituacao_nf, descricao FROM situacao_nf WHERE tipo_operacao = 'E02' ORDER BY idsituacao_nf`.execute(db)).rows;
+    const permitidos = (await sql<{ s: number; p: number }>`SELECT idsituacao_nf AS s, codplc AS p FROM situacao_nf_plc WHERE idsituacao_nf IN (SELECT idsituacao_nf FROM situacao_nf WHERE tipo_operacao = 'E02')`.execute(db)).rows;
+    const mascara = (await sql<{ m: string | null }>`SELECT mascaraplc AS m FROM empresas WHERE idempresa = ${emp}`.execute(db)).rows[0]?.m ?? null;
+    const centros = (await sql<Record<string, unknown>>`
+      SELECT codplc, desccodplc, descricao, coalesce(flg_uso_setor, 'N') AS uso_setor, coalesce(plc_obriga_motivo_perda, 'N') AS obriga_motivo
+        FROM plc WHERE coalesce(flg_perda, 'N') = 'S'
+         AND (${mascara}::text IS NULL OR char_length(coalesce(desccodplc, '')) = char_length(${mascara}::text))
+       ORDER BY desccodplc, codplc`.execute(db)).rows;
+    const setores = (await sql<Record<string, unknown>>`SELECT codfamilia AS codsetor, descricao AS nome FROM familias_prod WHERE tipo = 'E' AND coalesce(ativo, 'S') = 'S' ORDER BY descricao`.execute(db)).rows;
+    const parc = (await sql<{ codparceiro: number | null; razao: string | null }>`
+      SELECT e.codparceiro, p.razao FROM empresas e LEFT JOIN parceiros p ON p.codparceiro = e.codparceiro WHERE e.idempresa = ${emp} LIMIT 1`.execute(db)).rows[0];
+    return {
+      situacoes, centros,
+      centrosDaSituacao: permitidos.reduce<Record<number, number[]>>((acc, r) => ((acc[Number(r.s)] ??= []).push(Number(r.p)), acc), {}),
+      setores, parceiro: parc ?? null,
+      informaSituacao: await cfg('INFORMA_SITUACAO_DOCUMENTO_SCRAP', 'N'),
+      informaMotivo: await cfg('INFORMA_MOTIVO_PERDA_SCRAP', 'N'),
+      baixarEstoque: await cfg('BAIXAR_ESTOQUE_NO_SCRAP', 'N'),
+    };
+  }
+
   /** sem `BAIXAR_ESTOQUE_NO_SCRAP='S'` a baixa é da NF de perda — aplicar/estornar aqui recusa */
   private async exigirBaixaNoScrap(trx: AnyDB, emp: number): Promise<void> {
     const v = await configNaTrx(trx, 'BAIXAR_ESTOQUE_NO_SCRAP', { empresaId: emp, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' });

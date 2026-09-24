@@ -78,3 +78,21 @@ Re-save de documentos legados com motivo **não-PERDA** (51 linhas: {6, 3000, 38
 - [uInventario.md](uInventario.md) — o primo que definiu o "aplicar decoplado".
 - [uAjusteEstoque.md](uAjusteEstoque.md) — o molde do movimento relativo + Kardex.
 - [uTrocaMercadoriaFor.md](uTrocaMercadoriaFor.md) — mesmo molde, lado do fornecedor.
+
+## Corte "o documento como o legado" (24/09/2026) — auditoria de esqueletos §4.3
+
+A tela web criava o documento vazio (`criarScrap({})`) e salvava só `{obs, itens}` — sem centro de custo a CAIXA gerencial
+nunca era lançada (produção 2025-26: 12.006 linhas, R$ −9.169.081,45 em 607 scraps). Agora (smoke §203):
+
+- **Rascunho local + um só gravar**, com situação, centro de custo, fornecedor e itens — como o `btnGravarClick`.
+- Travas do servidor (uCadSCRAP.pas:603-700, :306-335; udmCadSCRAP.pas): "Obrigatório informar um item. Verifique!",
+  "Informe o centro de custo e tente novamente!" (623 de 623 com CC), "Quantidade não pode ser MENOR QUE ZERO" (0 negativos
+  em 28.532 itens de 2025-26), item de quantidade zero descartado ao gravar (a tela confirma antes).
+- **Situação** obrigatória com INFORMA_SITUACAO_DOCUMENTO_SCRAP — global 'N', mas o override "Modulo Retaguarda" = 'S' (621 de
+  623 com situação) — e de TIPO_OPERACAO 'E02' (3000 PERCA, 3001 USO E CONSUMO, 3400 TRANSFORMAÇÃO).
+- **Fornecedor** = o parceiro da empresa (`cdsSCRAPNewRecord`; 87199 nas 623).
+- **Setor** obrigatório no item incluído quando o CC tem FLG_USO_SETOR; **motivo** com INFORMA_MOTIVO_PERDA_SCRAP ou
+  PLC_OBRIGA_MOTIVO_PERDA do CC. Setores = FAMILIAS_PROD tipo 'E' (o 'SETOR' do GET_FAMILIAS_PROD). Produto filho no item.
+- `usucadastro` do item gravado. «Aplicar» só aparece com BAIXAR_ESTOQUE_NO_SCRAP='S' ('N' no cliente).
+- Apoio da tela: `GET cadastro/scrap/apoio/dados` (situações, centros de perda com as flags e a lista por situação, setores,
+  parceiro, configurações).

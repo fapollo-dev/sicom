@@ -3973,7 +3973,7 @@ async function main() {
         const kardexSc = async () => (await pgSc.query(`SELECT tipo, qtde, saldo_anterior, saldo_novo, origem FROM historico_prod WHERE idproduto=$1 AND origem='SCRAP' ORDER BY codmov DESC`, [PRD])).rows as any[];
 
         // 47b.1) criar perda (1 item, qtde 8, motivo 261-PERDA IDENTIFICADA) → 201; vr_custo derivado=10; valor=80.
-        const cr = await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idproduto: PRD, qtde: 8, codmotivoop: 261 }] }) });
+        const cr = await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ codplc: 3, itens: [{ idproduto: PRD, qtde: 8, codmotivoop: 261 }] }) });
         const crJ = (await cr.json().catch(() => ({}))) as any;
         const codscrap = Number(crJ.codscrap);
         const det = (await (await fetch(`${base}/${SC}/${codscrap}`, { headers: H })).json().catch(() => ({}))) as any;
@@ -4021,15 +4021,15 @@ async function main() {
           { es2: es2.status, del2: del2.status });
 
         // 47b.7) validação: produto inexistente → 422 PRODUTO_NAO_ENCONTRADO; motivo fora de PERDA → 422 MOTIVO_NAO_ENCONTRADO.
-        const vP = await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idproduto: 999999, qtde: 1 }] }) });
-        const vM = await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idproduto: PRD, qtde: 1, codmotivoop: 1 }] }) }); // motivo 1 é AJUSTE, não PERDA
+        const vP = await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ codplc: 3, itens: [{ idproduto: 999999, qtde: 1 }] }) });
+        const vM = await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ codplc: 3, itens: [{ idproduto: PRD, qtde: 1, codmotivoop: 1 }] }) }); // motivo 1 é AJUSTE, não PERDA
         check('SCRAP: produto inexistente → 422 PRODUTO_NAO_ENCONTRADO; motivo não-PERDA → 422 MOTIVO_NAO_ENCONTRADO',
           vP.status === 422 && ((await vP.json().catch(() => ({}))) as any).code === 'PRODUTO_NAO_ENCONTRADO'
           && vM.status === 422 && ((await vM.json().catch(() => ({}))) as any).code === 'MOTIVO_NAO_ENCONTRADO',
           { prod: vP.status, mot: vM.status });
 
         // 47b.8) vr_custo do CLIENTE é IGNORADO (server-authoritative de MULTI_PRECO=10, não o forjado 999).
-        const cf = await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idproduto: PRD, qtde: 2, vr_custo: 999 }] }) });
+        const cf = await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ codplc: 3, itens: [{ idproduto: PRD, qtde: 2, vr_custo: 999 }] }) });
         const cfId = Number(((await cf.json().catch(() => ({}))) as any).codscrap);
         const cfDet = (await (await fetch(`${base}/${SC}/${cfId}`, { headers: H })).json().catch(() => ({}))) as any;
         check('SCRAP: vr_custo do cliente ignorado → custo do servidor (MULTI_PRECO 10), valor da perda não forjável',
@@ -4038,12 +4038,12 @@ async function main() {
         await pgSc.query(`DELETE FROM scrap WHERE codscrap=$1`, [cfId]);
 
         // 47b.9) RBAC sem grant → 403.
-        const rb = await fetch(`${base}/${SC}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ itens: [{ idproduto: PRD, qtde: 1 }] }) });
+        const rb = await fetch(`${base}/${SC}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codplc: 3, itens: [{ idproduto: PRD, qtde: 1 }] }) });
         check('SCRAP: POST sem grant RBAC → 403', rb.status === 403, { status: rb.status });
 
         // 47b.10) a PRODUÇÃO: BAIXAR_ESTOQUE_NO_SCRAP='N' — o scrap não baixa o estoque, quem baixa é a NF de perda
         await pgSc.query(`UPDATE configuracoes SET valor='N' WHERE codigo='BAIXAR_ESTOQUE_NO_SCRAP'`);
-        const sN = Number(((await (await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idproduto: PRD, qtde: 1, codmotivoop: 261 }] }) })).json().catch(() => ({}))) as any).codscrap);
+        const sN = Number(((await (await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ codplc: 3, itens: [{ idproduto: PRD, qtde: 1, codmotivoop: 261 }] }) })).json().catch(() => ({}))) as any).codscrap);
         const apN = await fetch(`${base}/${SC}/${sN}/aplicar`, { method: 'POST', headers: H });
         const apNJ = (await apN.json().catch(() => ({}))) as any;
         check('SCRAP: com BAIXAR_ESTOQUE_NO_SCRAP=N (a produção) o aplicar recusa — a baixa é da NF de perda (422 SCRAP_BAIXA_PELA_NF, saldo intacto)',
@@ -4075,7 +4075,7 @@ async function main() {
         await pgSc.query(`INSERT INTO cfop (codcfop, descricao, tipo) VALUES ('5927','LANCAMENTO EFETUADO A TITULO DE BAIXA DE ESTOQUE','S'), ('6927','LANCAMENTO EFETUADO A TITULO DE BAIXA DE ESTOQUE','S'), ('5949','OUTRA SAIDA','S'), ('6949','OUTRA SAIDA','S') ON CONFLICT DO NOTHING`);
         await pgSc.query(`INSERT INTO situacao_nf (idsituacao_nf, descricao, tipo, tipo_operacao) VALUES (7920,'NF DE SCRAP PERDA','S','E01'), (7921,'SAIDA USO OU CONSUMO','S','E01') ON CONFLICT DO NOTHING`);
         await pgSc.query(`INSERT INTO isituacao_nf (idsituacao_nf, codcfop) VALUES (7920, 5927), (7920, 6927), (7921, 6949)`);
-        const crSc = async (itens: Array<{ idproduto: number; qtde: number }>) => Number(((await (await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ itens: itens.map((i) => ({ ...i, codmotivoop: 261 })) }) })).json().catch(() => ({}))) as any).codscrap);
+        const crSc = async (itens: Array<{ idproduto: number; qtde: number }>) => Number(((await (await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify({ codplc: 3, itens: itens.map((i) => ({ ...i, codmotivoop: 261 })) }) })).json().catch(() => ({}))) as any).codscrap);
         const scA = await crSc([{ idproduto: 1, qtde: 3 }, { idproduto: 1, qtde: 2 }, { idproduto: 2, qtde: 1 }]);
         const scB = await crSc([{ idproduto: 1, qtde: 4 }]);
         const disp = (await (await fetch(`${base}/fiscal/nf/scrap/disponiveis`, { headers: H })).json().catch(() => [])) as any[];
@@ -21439,6 +21439,70 @@ async function main() {
         await pgPl.query(`UPDATE empresas SET sincroniza_preco_nf=$1 WHERE idempresa=1`, [sincAntes]);
       } finally {
         await pgPl.end();
+      }
+    }
+
+    // ══ §203 SCRAP (auditoria de esqueletos §4.3): as travas do gravar do legado e o apoio da tela — sem centro de custo a
+    // perda nunca chegava à CAIXA gerencial (R$ −9,17 mi de 2025-26 no cliente)
+    {
+      const pgS3 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const SC = 'cadastro/scrap';
+        const post = async (b: Record<string, unknown>) => {
+          const r = await fetch(`${base}/${SC}`, { method: 'POST', headers: H, body: JSON.stringify(b) });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const semCc = await post({ itens: [{ idproduto: 1, qtde: 1 }] });
+        const semIt = await post({ codplc: 3, itens: [] });
+        const soZero = await post({ codplc: 3, itens: [{ idproduto: 1, qtde: 0 }] });
+        const neg = await post({ codplc: 3, itens: [{ idproduto: 1, qtde: -2 }] });
+        check('SCRAP §203.1 [as travas do gravar]: sem centro de custo → 422 SCRAP_SEM_CENTRO_CUSTO ("Informe o centro de custo…"); sem item, ou só com quantidade zero → 422 SCRAP_ITEM_OBRIGATORIO; quantidade negativa → 422 SCRAP_QTDE_NEGATIVA',
+          semCc.status === 422 && semCc.j.code === 'SCRAP_SEM_CENTRO_CUSTO' && semIt.status === 422 && semIt.j.code === 'SCRAP_ITEM_OBRIGATORIO'
+          && soZero.status === 422 && soZero.j.code === 'SCRAP_ITEM_OBRIGATORIO' && neg.status === 422 && neg.j.code === 'SCRAP_QTDE_NEGATIVA',
+          { semCc: [semCc.status, semCc.j.code], semIt: [semIt.status, semIt.j.code], soZero: [soZero.status, soZero.j.code], neg: [neg.status, neg.j.code] });
+
+        // situação obrigatória (override de módulo do cliente) e de TIPO_OPERACAO E02; o parceiro é o da empresa
+        await pgS3.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, descricao, config_especificas_permitidas)
+          SELECT 9203, 'INFORMA_SITUACAO_DOCUMENTO_SCRAP', 'N', 'String', 'Informa a situação do documento no SCRAP.', 'Modulo;Empresa'
+           WHERE NOT EXISTS (SELECT 1 FROM configuracoes WHERE codigo='INFORMA_SITUACAO_DOCUMENTO_SCRAP')`);
+        const cfgSit = Number((await pgS3.query(`SELECT id FROM configuracoes WHERE codigo='INFORMA_SITUACAO_DOCUMENTO_SCRAP'`)).rows[0].id);
+        await pgS3.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) VALUES ($1,'Modulo','Retaguarda','S') ON CONFLICT DO NOTHING`, [cfgSit]);
+        await pgS3.query(`INSERT INTO situacao_nf (idsituacao_nf, descricao, tipo, tipo_operacao) VALUES (92030,'PERCA SMOKE','S','E02') ON CONFLICT DO NOTHING`);
+        const parcAntes = (await pgS3.query(`SELECT codparceiro FROM empresas WHERE idempresa=1`)).rows[0]?.codparceiro ?? null;
+        await pgS3.query(`UPDATE empresas SET codparceiro=1 WHERE idempresa=1`);
+        const semSit = await post({ codplc: 3, itens: [{ idproduto: 1, qtde: 1 }] });
+        const sitErr = await post({ codplc: 3, idsituacao_nf: 7920, itens: [{ idproduto: 1, qtde: 1 }] });
+        const ok = await post({ codplc: 3, idsituacao_nf: 92030, itens: [{ idproduto: 1, qtde: 2, codmotivoop: 261 }, { idproduto: 2, qtde: 0 }] });
+        const okId = Number(ok.j.codscrap) || 0;
+        const cab = (await pgS3.query(`SELECT codparceiro, idsituacao_nf, codplc FROM scrap WHERE codscrap=$1`, [okId])).rows[0] as any;
+        const its = (await pgS3.query(`SELECT idproduto, usucadastro FROM scrap_item WHERE codscrap=$1`, [okId])).rows as any[];
+        const cxOk = Number((await pgS3.query(`SELECT count(*)::int n FROM caixa WHERE codscrap=$1`, [okId])).rows[0].n);
+        check('SCRAP §203.2 [situação, parceiro, item zerado e a CAIXA]: com INFORMA_SITUACAO_DOCUMENTO_SCRAP (override Modulo=S) sem situação → 422 SCRAP_SEM_SITUACAO; situação que não é E02 → 422 SCRAP_SITUACAO_INVALIDA; com a E02 grava — o fornecedor é o PARCEIRO DA EMPRESA, o item de quantidade zero é descartado, o item leva o USUCADASTRO e a perda vai à CAIXA',
+          semSit.status === 422 && semSit.j.code === 'SCRAP_SEM_SITUACAO' && sitErr.status === 422 && sitErr.j.code === 'SCRAP_SITUACAO_INVALIDA'
+          && ok.status === 201 && Number(cab?.codparceiro) === 1 && Number(cab?.idsituacao_nf) === 92030
+          && its.length === 1 && Number(its[0].idproduto) === 1 && Number(its[0].usucadastro) === 7 && cxOk === 1,
+          { semSit: [semSit.status, semSit.j.code], sitErr: [sitErr.status, sitErr.j.code], ok: [ok.status, ok.j.code], cab, its, cxOk });
+
+        // o centro de custo com FLG_USO_SETOR obriga o setor no item INCLUÍDO; o apoio da tela traz situações, centros e setores
+        const plcAntes = (await pgS3.query(`SELECT flg_uso_setor, flg_perda FROM plc WHERE codplc=3`)).rows[0] as any;
+        await pgS3.query(`UPDATE plc SET flg_uso_setor='S', flg_perda='S' WHERE codplc=3`);
+        const semSetor = await post({ codplc: 3, idsituacao_nf: 92030, itens: [{ idproduto: 1, qtde: 1 }] });
+        const apoio = (await (await fetch(`${base}/${SC}/apoio/dados`, { headers: H })).json().catch(() => ({}))) as any;
+        check('SCRAP §203.3 [setor e apoio]: centro de custo com "Uso de setor" e item sem setor → 422 SCRAP_SETOR_OBRIGATORIO; o apoio da tela lista as situações E02, o centro de perda (com a flag), o parceiro da empresa e informaSituacao=true',
+          semSetor.status === 422 && semSetor.j.code === 'SCRAP_SETOR_OBRIGATORIO'
+          && (apoio.situacoes ?? []).some((x: any) => Number(x.idsituacao_nf) === 92030) && !(apoio.situacoes ?? []).some((x: any) => Number(x.idsituacao_nf) === 7920)
+          && (apoio.centros ?? []).some((c: any) => Number(c.codplc) === 3 && c.uso_setor === 'S')
+          && Number(apoio.parceiro?.codparceiro) === 1 && apoio.informaSituacao === true,
+          { semSetor: [semSetor.status, semSetor.j.code], apoio });
+
+        await pgS3.query(`UPDATE plc SET flg_uso_setor=$1, flg_perda=$2 WHERE codplc=3`, [plcAntes?.flg_uso_setor ?? null, plcAntes?.flg_perda ?? null]);
+        await pgS3.query(`DELETE FROM caixa WHERE codscrap=$1`, [okId]);
+        await pgS3.query(`DELETE FROM scrap WHERE codscrap=$1`, [okId]);
+        await pgS3.query(`DELETE FROM configuracoes_especificas WHERE id=$1 AND tipo='Modulo'`, [cfgSit]);
+        await pgS3.query(`DELETE FROM situacao_nf WHERE idsituacao_nf=92030`);
+        await pgS3.query(`UPDATE empresas SET codparceiro=$1 WHERE idempresa=1`, [parcAntes]);
+      } finally {
+        await pgS3.end();
       }
     }
 

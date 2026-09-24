@@ -1,4 +1,4 @@
-import { Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
 import { ScrapService } from './scrap.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -12,6 +12,14 @@ import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 @UseGuards(AcessoGuard)
 export class ScrapController {
   constructor(private readonly svc: ScrapService) {}
+
+  /** o apoio da tela: situações E02, centros de custo de perda, setores, o parceiro da empresa e as configurações.
+   *  Dois segmentos: o GET :id do agregado engoliria um só. */
+  @Get('apoio/dados')
+  @RequerAcesso('FRMCADSCRAP', 'BTNGRAVAR')
+  apoio() {
+    return this.svc.apoio();
+  }
 
   /** APLICA a baixa de estoque de todos os itens do scrap (mov_estoque='S'). */
   @Post(':id/aplicar')

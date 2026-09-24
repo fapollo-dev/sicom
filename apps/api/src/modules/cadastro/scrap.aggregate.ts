@@ -5,6 +5,8 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 import { assertCentroCustoDaSituacao } from '../shared/situacao-restricoes';
 import { lancarCaixaDoScrap } from './scrap-caixa';
 import { currentTenant } from '../../shared/tenant/tenant-context';
+import { sql } from 'kysely';
+import { configNaTrx } from '../compras/pedido-heranca';
 
 /**
  * SCRAP / PERDAS (FRMCADSCRAP — uCadSCRAP) — corte-1: NÚCLEO do documento (agregado mestre-detalhe `scrap` +
@@ -19,6 +21,47 @@ const num = (v: unknown): number => {
   const n = typeof v === 'string' ? Number(v) : (v as number);
   return Number.isFinite(n) ? n : 0;
 };
+
+/**
+ * As travas do gravar (`btnGravarClick`, uCadSCRAP.pas:603-700; `BtnAdicionarItemClick` :306-335; udmCadSCRAP.pas):
+ * - "Obrigatório informar um item. Verifique!" e "Informe o centro de custo e tente novamente!" (623 de 623 com CC);
+ * - "Quantidade não pode ser MENOR QUE ZERO" (`cdsSCRAP_ItemBeforePost`; 0 negativos em 28.532 itens de 2025-26);
+ * - a SITUAÇÃO do documento, de TIPO_OPERACAO 'E02', com INFORMA_SITUACAO_DOCUMENTO_SCRAP (override "Modulo Retaguarda" = S
+ *   no cliente — 621 de 623 com situação);
+ * - o centro de custo com FLG_USO_SETOR obriga o setor de consumo, e INFORMA_MOTIVO_PERDA_SCRAP ou o PLC_OBRIGA_MOTIVO_PERDA
+ *   do centro de custo obrigam o motivo — cobrados, como no legado, nos itens INCLUÍDOS (o item antigo não é revalidado).
+ */
+async function validarDocumento(db: any, dto: Record<string, unknown>, id: number | null, antes: { codplc?: unknown; idsituacao_nf?: unknown }): Promise<void> {
+  const itens = Array.isArray(dto.itens) ? (dto.itens as Array<Record<string, unknown>>) : null;
+  if (itens && itens.some((i) => num(i.qtde) < 0)) throw new BusinessRuleError('SCRAP_QTDE_NEGATIVA');
+  if ((id == null || itens) && !(itens ?? []).some((i) => num(i.qtde) !== 0)) throw new BusinessRuleError('SCRAP_ITEM_OBRIGATORIO');
+  const codplc = dto.codplc !== undefined ? dto.codplc : antes.codplc;
+  if (!(num(codplc) > 0)) throw new BusinessRuleError('SCRAP_SEM_CENTRO_CUSTO');
+  const ctx = { empresaId: currentTenant().empresaId ?? null, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' };
+  const sit = dto.idsituacao_nf !== undefined ? dto.idsituacao_nf : antes.idsituacao_nf;
+  if (id == null && String((await configNaTrx(db, 'INFORMA_SITUACAO_DOCUMENTO_SCRAP', ctx)) ?? 'N') === 'S' && !(num(sit) > 0)) {
+    throw new BusinessRuleError('SCRAP_SEM_SITUACAO');
+  }
+  if (num(sit) > 0 && (dto.idsituacao_nf !== undefined || id == null)) {
+    const s = (await sql<{ t: string | null }>`SELECT tipo_operacao AS t FROM situacao_nf WHERE idsituacao_nf = ${num(sit)}`.execute(db)).rows[0];
+    if (!s || String(s.t ?? '') !== 'E02') throw new BusinessRuleError('SCRAP_SITUACAO_INVALIDA', { idsituacao_nf: num(sit) });
+  }
+  const plc = (await sql<{ setor: string | null; motivo: string | null }>`
+    SELECT flg_uso_setor AS setor, plc_obriga_motivo_perda AS motivo FROM plc WHERE codplc = ${num(codplc)}`.execute(db)).rows[0];
+  if (!plc) throw new BusinessRuleError('CENTRO_CUSTO_NAO_ENCONTRADO', { codplc: num(codplc) });
+  if (!itens) return;
+  const existentes = id == null ? new Set<number>() : new Set(((await db.selectFrom('scrap_item').select('idproduto').where('codscrap', '=', id).execute()) as Array<{ idproduto: number }>).map((r) => Number(r.idproduto)));
+  const novos = itens.filter((i) => num(i.qtde) !== 0 && !existentes.has(num(i.idproduto)));
+  if (String(plc.setor ?? '') === 'S') {
+    const sem = novos.find((i) => !(num(i.codsetor) > 0));
+    if (sem) throw new BusinessRuleError('SCRAP_SETOR_OBRIGATORIO', { idproduto: num(sem.idproduto) });
+  }
+  const obrigaMotivo = String(plc.motivo ?? '') === 'S' || String((await configNaTrx(db, 'INFORMA_MOTIVO_PERDA_SCRAP', ctx)) ?? 'N') === 'S';
+  if (obrigaMotivo) {
+    const sem = novos.find((i) => !(num(i.codmotivoop) > 0));
+    if (sem) throw new BusinessRuleError('SCRAP_MOTIVO_OBRIGATORIO', { idproduto: num(sem.idproduto) });
+  }
+}
 
 export const scrapAggregateConfig: AggregateConfig = {
   tabela: 'scrap',
@@ -40,12 +83,14 @@ export const scrapAggregateConfig: AggregateConfig = {
       chaveNatural: ['idproduto'],
       // idem (lição 124)
       preservarNaoGerenciadas: true,
-      colunas: ['idempresa', 'idproduto', 'idproduto_filho', 'qtde', 'vr_custo', 'vrcustorep', 'codmotivoop', 'codsetor', 'codfor', 'origem', 'motivo', 'origem_estoque', 'faturado', 'obs'],
+      colunas: ['idempresa', 'idproduto', 'idproduto_filho', 'qtde', 'vr_custo', 'vrcustorep', 'codmotivoop', 'codsetor', 'codfor', 'origem', 'motivo', 'origem_estoque', 'faturado', 'obs', 'usucadastro'],
       // SNAPSHOT server-authoritative do custo: o operador fornece produto/qtde/motivo; vr_custo/vrcustorep vêm de
       // MULTI_PRECO (por empresa) — fiel a SetaOutrasInformacoesItemScrap. origem/motivo/faturado = defaults do legado.
       derivarItensTrx: async (itens, trx, emp) => {
         const out: Record<string, unknown>[] = [];
         for (const it of itens) {
+          // "Existem produtos com quantidade zerada que serão excluídos da lista do scrap ao gravar." (uCadSCRAP.pas:640-665)
+          if (num(it.qtde) === 0) continue;
           const pid = Number(it.idproduto);
           const mp = (await trx
             .selectFrom('multi_preco')
@@ -71,13 +116,23 @@ export const scrapAggregateConfig: AggregateConfig = {
             faturado: 'N',
             origem_estoque: it.origem_estoque ?? 'E', // default do golden (LOJA); single-bucket ignora o balde
             obs: it.obs ?? null,
+            // quem incluiu o item (28.527 de 28.531 preenchidos no legado); o item que já existia mantém o seu (preservarNaoGerenciadas)
+            usucadastro: it.usucadastro ?? currentTenant().operadorId ?? null,
           });
         }
         return out;
       },
     },
   ],
-  derivarTrx: async () => ({ usucadastro: currentTenant().operadorId ?? null, usultalteracao: currentTenant().operadorId ?? null }),
+  derivarTrx: async ({ dto, trx, emp }) => {
+    const out: Record<string, unknown> = { usucadastro: currentTenant().operadorId ?? null, usultalteracao: currentTenant().operadorId ?? null };
+    // o fornecedor do documento é o PARCEIRO DA EMPRESA (`cdsSCRAPNewRecord`, udmCadSCRAP.pas:208-214) — 623 de 623 no cliente
+    if (dto.codparceiro == null && emp != null) {
+      const e = (await sql<{ p: number | null }>`SELECT codparceiro AS p FROM empresas WHERE idempresa = ${emp}`.execute(trx)).rows[0];
+      if (num(e?.p) > 0) out.codparceiro = Number(e?.p);
+    }
+    return out;
+  },
   validar: async ({ dto, id, db }) => {
     // fold auditoria [ALTA]: editar (PUT) um scrap com baixa APLICADA (mov_estoque='S') ou já FATURADO
     // (importado='S') dessincronizaria a baixa do conjunto de itens (o estornar usa os itens ATUAIS). Trava aqui —
@@ -89,6 +144,7 @@ export const scrapAggregateConfig: AggregateConfig = {
       if (s?.importado === 'S') throw new BusinessRuleError('SCRAP_JA_FATURADO', { codscrap: id });
       antes = s ?? {};
     }
+    await validarDocumento(db, dto, id ?? null, antes);
     // o centro de custo da situação do documento (edtCodPLCExit, uCadSCRAP.pas:1311; UCadSituacaoNF.md C5) — cobrado
     // quando a situação ou o centro de custo é informado/alterado
     const mudou = (c: 'codplc' | 'idsituacao_nf') => dto[c] !== undefined && Number(dto[c] ?? 0) !== Number(antes[c] ?? 0);
