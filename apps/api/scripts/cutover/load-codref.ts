@@ -1,7 +1,7 @@
 /**
  * CUTOVER do de-para — LOADER idempotente. Carrega as linhas LIMPAS (já de-dup'adas pelo motor) em
- * `codreferencia_for` via `INSERT ... ON CONFLICT (codfor, codref) DO UPDATE` — re-executável (re-rodar não
- * duplica; atualiza o vínculo se mudou). Usa um client `pg` (Pool) — o padrão dos scripts (smoke/cutover),
+ * `codreferencia_for` via `INSERT ... ON CONFLICT (idproduto, codfor, codref) DO UPDATE` — re-executável (re-rodar não
+ * duplica). A unicidade é por produto desde a mig 337 (a carga real, extrair.py, traz todas as linhas). Usa um client `pg` (Pool) — o padrão dos scripts (smoke/cutover),
  * portável para o banco do tenant real quando existir. Verificado contra o Postgres de teste (§74).
  */
 import type { CleanCodref } from './dedup-codref';
@@ -28,8 +28,7 @@ export async function loadCodref(pg: PgLike, rows: CleanCodref[], operador = 0, 
     const text = `
       INSERT INTO codreferencia_for (idproduto, codfor, codref, tiporef, fator_embalagem, usucadastro, usultalteracao)
       VALUES ${tuplas.join(',')}
-      ON CONFLICT (codfor, codref) DO UPDATE SET
-        idproduto = EXCLUDED.idproduto,
+      ON CONFLICT (idproduto, codfor, codref) DO UPDATE SET
         tiporef = EXCLUDED.tiporef,
         fator_embalagem = EXCLUDED.fator_embalagem,
         usultalteracao = EXCLUDED.usultalteracao,

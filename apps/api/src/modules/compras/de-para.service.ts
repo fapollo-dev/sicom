@@ -175,7 +175,7 @@ export class DeParaService {
       await db
         .insertInto('codreferencia_for')
         .values({ idproduto: p.idproduto, codfor: p.codfor, codref: p.codref, tiporef: p.tiporef, usucadastro: op, usultalteracao: op })
-        .onConflict((oc: any) => oc.columns(['codfor', 'codref']).doUpdateSet({ idproduto: p.idproduto, tiporef: p.tiporef, usultalteracao: op, dtultimalteracao: sql`now()` }))
+        .onConflict((oc: any) => oc.columns(['idproduto', 'codfor', 'codref']).doUpdateSet({ tiporef: p.tiporef, usultalteracao: op, dtultimalteracao: sql`now()` })) // unicidade por produto (mig 337)
         .execute();
       gravadas++;
     }

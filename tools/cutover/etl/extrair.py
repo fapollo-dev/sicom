@@ -360,9 +360,7 @@ DEDUP = {'cotacao_prodqtde': ['codcpr', 'idempresa'],
          # quem cede é a carga: fica a última por ROWID. Perda: 20 linhas de uma cotação quebrada, registrada.
          'cotacao_forn_itens': ['codctcforn', 'codcpr'],  # produção: 2 pares idênticos (qtde 0) — o índice único barraria a carga
          'det_aliquota': ['aliquota', 'uf'], 'caixa_pdv': ['codcaixa'],
-         # o de-para do fornecedor NÃO é 1:1 no legado (76 chaves com produtos diferentes), mas o UPSERT do
-         # recebimento depende da unicidade: a carga fica com a última referência de cada (codfor, codref).
-         'codreferencia_for': ['codfor', 'codref'],
+         # (codreferencia_for saiu daqui: a mig 337 pôs a unicidade por produto, como o legado — as 230 linhas vêm todas)
          'cotacao_prod': ['codctc', 'idproduto']}
 
 fase = (sys.argv[1] if len(sys.argv) > 1 else 'f0').lower()

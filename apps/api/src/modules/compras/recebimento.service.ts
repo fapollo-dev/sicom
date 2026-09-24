@@ -269,7 +269,8 @@ export class RecebimentoService {
       const refs = Array.from(new Set(naoCasados.flatMap((nc) => [normRef(nc.cProd), normRef(nc.cEAN)]).filter(Boolean)));
       const porRef = new Map<string, number>(); // codref → idproduto
       if (refs.length) {
-        for (const r of (await db.selectFrom('codreferencia_for').select(['codref', 'idproduto']).where('codfor', '=', codparceiro).where('codref', 'in', refs).execute()) as any[]) {
+        // a mesma referência pode estar em mais de um produto (mig 337): vence a mais recente
+        for (const r of (await db.selectFrom('codreferencia_for').select(['codref', 'idproduto']).where('codfor', '=', codparceiro).where('codref', 'in', refs).orderBy('codreferencia_for').execute()) as any[]) {
           porRef.set(String(r.codref), Number(r.idproduto));
         }
       }
@@ -507,7 +508,7 @@ export class RecebimentoService {
   /**
    * DE-PARA (corte-3): vincula o(s) código(s) do fornecedor ao nosso produto (resolve as pendências do import).
    * Por vínculo grava DOIS registros quando presentes — 'E' (cEAN) e 'P' (cProd) — espelhando o legado
-   * (frmProdNC/InsereRefFornecedorXML). Upsert por (codfor, codref): re-resolver é idempotente. Depois o
+   * (frmProdNC/InsereRefFornecedorXML). Upsert por (idproduto, codfor, codref) (mig 337): re-resolver é idempotente. Depois o
    * operador reimporta e o match casa sozinho. Tenant+operador fail-closed; fornecedor tem de ser FRN='S'.
    */
   async vincularProdutos(dto: {
@@ -539,8 +540,9 @@ export class RecebimentoService {
           await trx
             .insertInto('codreferencia_for')
             .values({ idproduto: v.idproduto, codfor: dto.codfor, codref: l.codref, tiporef: l.tiporef, fator_embalagem: v.fator ?? null, usucadastro: op, dtcadastro: sql`now()` })
+            // a unicidade é por produto (mig 337): a mesma referência do fornecedor pode apontar outro produto, como no legado
             .onConflict((oc: any) =>
-              oc.columns(['codfor', 'codref']).doUpdateSet({ idproduto: v.idproduto, tiporef: l.tiporef, usultalteracao: op, dtultimalteracao: sql`now()` }),
+              oc.columns(['idproduto', 'codfor', 'codref']).doUpdateSet({ tiporef: l.tiporef, fator_embalagem: v.fator ?? null, usultalteracao: op, dtultimalteracao: sql`now()` }),
             )
             .execute();
           gravados++;

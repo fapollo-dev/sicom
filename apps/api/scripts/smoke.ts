@@ -9535,9 +9535,15 @@ async function main() {
       // 78.2) duplicado (mesmo codfor+codref) → 422; fornecedor não-FRN (20) → 422.
       const d2 = await fetch(`${base}/${DP}`, { method: 'POST', headers: H, body: JSON.stringify({ idproduto: 1, codfor: 22, codref: '789123' }) });
       const d3 = await fetch(`${base}/${DP}`, { method: 'POST', headers: H, body: JSON.stringify({ idproduto: 1, codfor: 20, codref: 'ABC' }) });
-      check('DE-PARA §78.2: duplicado (codfor,codref) → 422 DEPARA_DUPLICADO; fornecedor não-FRN → 422 DEPARA_FORNECEDOR_INVALIDO',
-        d2.status === 422 && ((await d2.json().catch(() => ({}))) as any).code === 'DEPARA_DUPLICADO' && d3.status === 422 && ((await d3.json().catch(() => ({}))) as any).code === 'DEPARA_FORNECEDOR_INVALIDO',
-        { dup: d2.status, forn: d3.status });
+      // a mesma referência do fornecedor em OUTRO produto grava (mig 337: o legado só avisa, e só no mesmo produto — 103
+      // inserções de 2025-26 repetiram a referência de outro produto)
+      const d2b = await fetch(`${base}/${DP}`, { method: 'POST', headers: H, body: JSON.stringify({ idproduto: 2, codfor: 22, codref: '789123' }) });
+      const d2bJ = (await d2b.json().catch(() => ({}))) as any;
+      if (d2bJ.codreferencia_for) await fetch(`${base}/${DP}/${d2bJ.codreferencia_for}`, { method: 'DELETE', headers: H });
+      check('DE-PARA §78.2: duplicado no MESMO produto (idproduto,codfor,codref) → 422 DEPARA_DUPLICADO; a referência em outro produto → 201; fornecedor não-FRN → 422 DEPARA_FORNECEDOR_INVALIDO',
+        d2.status === 422 && ((await d2.json().catch(() => ({}))) as any).code === 'DEPARA_DUPLICADO' && d2b.status === 201
+        && d3.status === 422 && ((await d3.json().catch(() => ({}))) as any).code === 'DEPARA_FORNECEDOR_INVALIDO',
+        { dup: d2.status, outro: d2b.status, forn: d3.status });
 
       // 78.3) atualizar tiporef E→P (tiporefd vira PLU); RE-APONTAR idproduto (fold auditoria: era no-op); remover.
       const d4 = await fetch(`${base}/${DP}/${codRef1}`, { method: 'PUT', headers: H, body: JSON.stringify({ tiporef: 'P' }) });

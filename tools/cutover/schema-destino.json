@@ -8955,8 +8955,8 @@
      "def": "CREATE UNIQUE INDEX codreferencia_for_pkey ON public.codreferencia_for USING btree (codreferencia_for)"
     },
     {
-     "nome": "ux_codref_for",
-     "def": "CREATE UNIQUE INDEX ux_codref_for ON public.codreferencia_for USING btree (codfor, codref)"
+     "nome": "ux_codref_for_produto",
+     "def": "CREATE UNIQUE INDEX ux_codref_for_produto ON public.codreferencia_for USING btree (idproduto, codfor, codref)"
     }
    ]
   },
