@@ -226,15 +226,22 @@ export const produtoAggregateConfig: AggregateConfig = {
       antesDeSubstituirTrx: async ({ trx, masterId }) =>
         new Map(((await trx.selectFrom('codauxiliar').select(['codauxiliar', 'codbarra', 'fatoremb', 'codunidade', 'operacao', 'porcentagem_valor', 'dtcadastro', 'dtalteracao']).where('idproduto', '=', masterId).execute()) as Array<Record<string, unknown>>)
           .map((r) => [String(r.codauxiliar), r])),
-      derivarItensTrx: async (itens, _trx, _emp, _header, _masterId, snapshot) => {
+      derivarItensTrx: async (itens, trx, _emp, header, masterId, snapshot) => {
         const antes = (snapshot as Map<string, Record<string, unknown>> | undefined) ?? new Map();
         const agora = new Date().toISOString();
+        // CODAUXILIAR.CODBARRA é o código PRINCIPAL do produto (1.147 de 1.147 iguais na produção): o gatilho UPDATE_CODAUXILIAR (mig 368)
+        // o acompanha quando o produto troca de código, e o item regravado aqui leva o do produto — não o que a tela carregou antes
+        const h = (header ?? {}) as Record<string, unknown>;
+        const principal = !vazio(h.codbarra) ? h.codbarra
+          : masterId != null ? ((await trx.selectFrom('produtos').select('codbarra').where('idproduto', '=', masterId).executeTakeFirst()) as { codbarra?: unknown } | undefined)?.codbarra : undefined;
         return itens.map((it) => {
           const a = antes.get(String(it.codauxiliar));
-          if (!a) return { ...it, dtcadastro: it.dtcadastro ?? agora, dtalteracao: agora, porcentagem_valor: it.porcentagem_valor ?? 100 };
-          const mudou = ['codbarra', 'fatoremb', 'codunidade', 'operacao'].some((c) => it[c] !== undefined && String(it[c] ?? '') !== String(a[c] ?? ''));
+          const codbarra = principal ?? it.codbarra;
+          if (!a) return { ...it, codbarra, dtcadastro: it.dtcadastro ?? agora, dtalteracao: agora, porcentagem_valor: it.porcentagem_valor ?? 100 };
+          // o código principal acompanhando o produto não é alteração da linha (o gatilho do legado só troca o CODBARRA)
+          const mudou = ['fatoremb', 'codunidade', 'operacao'].some((c) => it[c] !== undefined && String(it[c] ?? '') !== String(a[c] ?? ''));
           // as colunas que a tela não manda ficam com o que a linha tinha
-          const base = { ...it, porcentagem_valor: it.porcentagem_valor ?? a.porcentagem_valor, dtcadastro: it.dtcadastro ?? a.dtcadastro, dtalteracao: it.dtalteracao ?? a.dtalteracao };
+          const base = { ...it, codbarra, porcentagem_valor: it.porcentagem_valor ?? a.porcentagem_valor, dtcadastro: it.dtcadastro ?? a.dtcadastro, dtalteracao: it.dtalteracao ?? a.dtalteracao };
           return mudou ? { ...base, dtalteracao: agora } : base;
         });
       },

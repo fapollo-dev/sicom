@@ -22755,6 +22755,21 @@ async function main() {
           && logs.some((l) => l.tabela === 'CODAUXILIAR ' && l.acao === 'Inseriu' && /CAMPO: CODAUXILIAR   VALOR: 7899000990719/.test(l.historico))
           && Number(ca?.porcentagem_valor) === 100 && ca?.dtcadastro != null,
           { pu: [pu.status, puJ.code], mp, logs: logs.map((l) => [l.tabela, l.acao, String(l.historico).slice(0, 80)]), ca });
+
+        // o gatilho UPDATE_CODAUXILIAR: CODAUXILIAR.CODBARRA é o código principal do produto — trocar o código (pela multi-atualização, SQL
+        // direto, ou pelo cadastro, que devolve as linhas com o código que carregou) leva o novo às linhas, sem carimbar DTALTERACAO
+        const dtAux0 = (await pgB2.query(`SELECT dtalteracao FROM codauxiliar WHERE idproduto = 990710 AND codauxiliar = '7899000990719'`)).rows[0]?.dtalteracao;
+        await pgB2.query(`UPDATE produtos SET codbarra = '7899000990793' WHERE idproduto = 990710`);
+        const aux1 = (await pgB2.query(`SELECT DISTINCT codbarra FROM codauxiliar WHERE idproduto = 990710`)).rows.map((r: any) => String(r.codbarra).trim());
+        const prAux = (await (await fetch(`${base}/cadastro/produtos/990710`, { headers: J })).json().catch(() => ({}))) as any;
+        const puAux = await fetch(`${base}/cadastro/produtos/990710`, { method: 'PUT', headers: J, body: JSON.stringify({ ...prAux, codbarra: '7899000990786',
+          codauxiliares: (prAux.codauxiliares ?? []).map((c: any) => ({ ...c, codbarra: '7899000990793' })) }) });
+        const aux2 = (await pgB2.query(`SELECT codbarra, dtalteracao FROM codauxiliar WHERE idproduto = 990710`)).rows as any[];
+        check('PRODUTO §UPDATE_CODAUXILIAR: o produto troca de código → as linhas do CODAUXILIAR levam o novo (SQL direto: 7899000990793; cadastro com as linhas carregadas no código antigo: 7899000990786), sem carimbar DTALTERACAO (1.147 de 1.147 iguais na produção)',
+          aux1.length === 1 && aux1[0] === '7899000990793' && puAux.status === 200 && aux2.length > 0
+          && aux2.every((c) => String(c.codbarra).trim() === '7899000990786')
+          && String(aux2.find(() => true)?.dtalteracao ?? '') !== '' && String((await pgB2.query(`SELECT dtalteracao FROM codauxiliar WHERE idproduto = 990710 AND codauxiliar = '7899000990719'`)).rows[0]?.dtalteracao) === String(dtAux0),
+          { aux1, puAux: puAux.status, aux2 });
       } finally {
         await pgB2.end();
       }

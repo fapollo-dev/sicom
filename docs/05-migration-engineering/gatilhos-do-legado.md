@@ -65,7 +65,7 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
 | `VALIDA_AGRUPAMENTO` | APAGAR | AFTER I/U | Erro se CODGRUPO = 0 ou CODGRUPO_AGRUPAMENTO_APG = 0 | trava sem disparo: 0 casos | sem a trava; o código vem de sequência (`apagar-caixa.ts:20`) | ❌ |
 | `VALIDA_ADIANTAMENTO` | ADIANTAMENTO_FORN | AFTER I/U | Erro se CODMOVCONTA, VALOR ou CODPARCEIRO nulo | sim: 586, último 24/09/2026 | `migrations/159_adiantamento_forn.sql:12,16,19` (NOT NULL) | ✅ |
 | `ATUALIZATRIBUTOS` | MULTI_PRECO | AFTER I/U | Copia para PRODUTOS o que mudou na linha: IDPISCOFINS, TIPOPIS, IDTABELA, CODFIGURAFISCAL e ALIQUOTASAIDA → ALIQUOTA | sim: PRODUTOS × linha da loja 1 iguais em 98,7% (alíquota) | ✅ (25/09/2026) mig 366 `trg_multi_preco_atualiza_tributos` (UPDATE; o INSERT das inclusões do Apollo não muda o produto) + o `AtualizaTributos` da alteração (`produto-lojas.ts` espalharTributosNaUf) | ✅ |
-| `UPDATE_CODAUXILIAR` | PRODUTOS | BEFORE UPDATE | CODBARRA mudou: CODAUXILIAR.CODBARRA := novo (a coluna é o código principal) | sim: 1.147 de 1.147 iguais | não sincroniza; o cadastro grava o que vier por linha (`produto.aggregate.ts:190-218`) e a multi-atualização troca `produtos.codbarra` sozinha | ❌ |
+| `UPDATE_CODAUXILIAR` | PRODUTOS | BEFORE UPDATE | CODBARRA mudou: CODAUXILIAR.CODBARRA := novo (a coluna é o código principal) | sim: 1.147 de 1.147 iguais | ✅ (25/09/2026) `migrations/368_update_codauxiliar.sql` + o detalhe do cadastro leva o código do produto (sem carimbar DTALTERACAO) | ✅ |
 | `UPDATE_PRODUTOS_FILHOS` | PRODUTOS | BEFORE UPDATE (autônoma) | Replica 25 campos fiscais/cadastrais do pai nos filhos (CODGRUPOPRECO só se DIF = 0) | sim: 201 filhos | `migrations/132_produtos_filhos_propagacao.sql:40-160` (mesma transação, divergência documentada) | ✅ |
 | `CASCATA_FAMILIA_PROD` | FAMILIAS_PROD | BEFORE UPDATE | CODDPTO/CODGRUPO da família mudou: move **todos** os produtos do departamento/grupo antigo para o novo. O ramo de TIPO é no-op (mesmo código) | sim: 99% dos produtos batem com o subgrupo | `familias.crud.ts` não arrasta os produtos | ❌ |
 | `REM_PARCEIROS` | PARCEIROS | AFTER I/U/D | Além da remessa: ATIVADO mudou → PARCEIROS_END, _REL e _PGTO recebem o mesmo | sim: 827 endereços N/N | `parceiro.aggregate.ts` grava o ativado do endereço como veio; não desce | ❌ |
@@ -135,7 +135,8 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
 7. ✅ **`CHECK_REMESSAS_BOLETOS_CONTAS` (corrigido em 25/09/2026, mig 367).** Título já enviado ao banco podia ser excluído (o boleto ficava
    registrado no banco sem título no sistema). Agora é gatilho do banco — vale para todos os caminhos de exclusão — e o erro volta 422
    ARECEBER_EM_REMESSA_BOLETO com o texto do legado (HINT 'APOLLO:<código>', mapeado no filtro de erros para qualquer gatilho portado).
-8. **`UPDATE_CODAUXILIAR` (❌, venda).** Trocar o código de barras principal deixa o código auxiliar apontando o antigo.
+8. ✅ **`UPDATE_CODAUXILIAR` (corrigido em 25/09/2026, mig 368 + `produto.aggregate.ts`).** Trocar o código de barras principal deixava o código auxiliar
+   apontando o antigo. Agora o gatilho do banco acompanha (multi-atualização) e o cadastro regrava as linhas com o código do produto.
 9. **`CLUBE_DESCONTO_ESTOQUE` (⚠️, promoção).** O Apollo aceita ENCERRADA do payload; o legado a recalcula em toda
    alteração. O teto por estoque nunca foi usado.
 10. **`SET_DEFAULTS` (⚠️, financeiro, baixo).** TOTAL_BRT fica nulo em 12 dos 14 caminhos de inclusão.
