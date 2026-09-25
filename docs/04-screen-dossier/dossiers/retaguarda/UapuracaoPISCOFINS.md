@@ -288,10 +288,29 @@ migrations 098, 123, 151, 240, 290, 310, 320; tela `apps/web/src/features/apurac
 
 | Corte | Conteúdo | Golden |
 |---|---|---|
-| **A — dado fiel** | `apuracao_pc.idempresa` aceita nulo (ou coluna de escopo "raiz"); ETL carrega NULL como NULL; tirar/relaxar o UNIQUE; motor e carga gravam `apuracao`, `descricaobase`, `descricaopc`, `basecalculoapura`, `valorpisapura`, `valorcofinsapura`; `id_tipocredito` numérico; criar `apuracao_pc_ajuste_m` (todos os campos). | as 193 linhas carregadas ao centavo |
-| **B — tela de consulta fiel** | Apurações Realizadas (todas do escopo), abrir, excluir; Créditos/Débitos pai/filho por (tipo de crédito, alíquota) com pai recalculado; `*_APURA` lado a lado; Resumo com crédito anterior manual; mesmo período → "carregar?" em vez de refazer. Mostrar o total pelo recálculo (não pela soma gravada). | 341, 261, 22 abertas iguais ao legado |
-| **C — motor do crédito** | fórmula do item, PC_CONFIG pelo CFOP do item, 12 filtros, ICMS fiscal (T e PROC_CUPOM), alíquota ENT, tipo de crédito do catálogo, `*_APURA` com 1,65/7,6 (regra 2025+). Escopo raiz CNPJ. | 261 (6/7 ✓), 22 (6/7 ✓), 181 (ICMS 4/4 ✓) |
-| **D — motor do débito NFC-e** | VENDAS⋈NFC com as 5 chaves, VL_OPR com IAT, − ICMS dos itens 'T', 1 linha por situação, contingência por config. | 261 e 22: 3/3 ✓ cada |
+| ✅ **A — dado fiel** | `apuracao_pc.idempresa` aceita nulo (ou coluna de escopo "raiz"); ETL carrega NULL como NULL; tirar/relaxar o UNIQUE; motor e carga gravam `apuracao`, `descricaobase`, `descricaopc`, `basecalculoapura`, `valorpisapura`, `valorcofinsapura`; `id_tipocredito` numérico; criar `apuracao_pc_ajuste_m` (todos os campos). | as 193 linhas carregadas ao centavo |
+| ✅ **B — tela de consulta fiel** | Apurações Realizadas (todas do escopo), abrir, excluir; Créditos/Débitos pai/filho por (tipo de crédito, alíquota) com pai recalculado; `*_APURA` lado a lado; Resumo com crédito anterior manual; mesmo período → "carregar?" em vez de refazer. Mostrar o total pelo recálculo (não pela soma gravada). | 341, 261, 22 abertas iguais ao legado |
+| ✅ **C — motor do crédito** | fórmula do item, PC_CONFIG pelo CFOP do item, 12 filtros, ICMS fiscal (T e PROC_CUPOM), alíquota ENT, tipo de crédito do catálogo, `*_APURA` com 1,65/7,6 (regra 2025+). Escopo raiz CNPJ. | 261 (6/7 ✓), 22 (6/7 ✓), 181 (ICMS 4/4 ✓) |
+| ✅ **D — motor do débito NFC-e** | VENDAS⋈NFC com as 5 chaves, VL_OPR com IAT, − ICMS dos itens 'T', 1 linha por situação, contingência por config. | 261 e 22: 3/3 ✓ cada |
 | **E — acessórios** | ajuste manual de crédito, aba Configuração (PC_CONFIG), impressão, seleção de empresa por config. | — |
 | **F — SPED bloco M** | só depois de decidir §7.1 e §7.2 com o usuário: coluna lida, abortar ou não sem apuração, M105 (natureza pelo `id_basecredito`, CST do catálogo). | arquivo de um mês com apuração (jul/2025) |
 | **G — SAIDA NF** | novo recon com o binário/dado; fica fora até fechar §7.5. | 22, 261 |
+
+---
+
+## Estado da conversão (25/09/2026)
+
+- ✅ **A** (mig 363): `apuracao_pc.idempresa` aceita nulo e sem UNIQUE (a carga passa a trazer o NULL — o `nvl(idempresa, 1)` automático só
+  vale para coluna NOT NULL); `id_tipocredito` inteiro; `piscofins.id_tipocredito`; `pc_basecredito` com as 18 linhas;
+  `apuracao_pc_ajuste_m` (todos os campos); as configs 820 (seleção de empresa), 811 (a lista de CFOPs fora da base) e 293.
+- ✅ **C/D** (`sped-apuracao-pc.service.ts`): o escopo da raiz do CNPJ (IDEMPRESA nulo; por empresa só com a config 820 = S), o crédito
+  pela fórmula do item com o ICMS fora (menos PROC_CUPOM) e os 12 filtros, o frete pelo VRFRETE do item (a fatia — é o que fecha a
+  106/1/11 da 261), o débito da NFC-e pelo VL_OPR menos o ICMS sem filtro de empresa, a SAIDA NF do fonte (ramo não reproduzido), as
+  colunas APURACAO/TIPO do legado, tipo e base de crédito do catálogo, as descrições e os `*_APURA` (alíquota cheia = a de saída do
+  catálogo). O mesmo período volta a existente (`existente: true`).
+- ✅ **B**: a consulta no escopo, os pais (tipo de crédito × alíquota) recalculados — o total não herda o defeito da última linha —, os
+  `*_APURA` lado a lado; o "Apurar" de um período já feito carrega a existente.
+- O bloco M passou a achar a apuração de IDEMPRESA nulo (o período exato, a primeira se houver duas). O resto do **F** (qual coluna ler,
+  abortar sem apuração) e o **E** (ajuste manual, crédito anterior, aba PC_CONFIG, impressão) e o **G** seguem pendentes.
+- Smoke §88/§90c (o dado de teste passou a ter a situação PIS/COFINS e o ICMS que a regra do legado usa), §117 (totais pelo pai) e
+  §259 (crédito, NFC-e, *_APURA, escopo e período repetido).

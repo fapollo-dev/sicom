@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { SpedApuracaoPcService } from './sped-apuracao-pc.service';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -27,82 +28,103 @@ const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
  */
 @Injectable()
 export class ApuracaoPcConsultaService {
-  constructor(private readonly dbp: DatabaseProvider) {}
+  constructor(private readonly dbp: DatabaseProvider, private readonly motor: SpedApuracaoPcService) {}
 
-  private emp(): number {
-    const e = currentTenant().empresaId ?? null;
-    if (e == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
-    return e;
+  /** as apurações do escopo (a raiz do CNPJ — IDEMPRESA nulo nas do legado — ou a empresa, com a config de seleção) */
+  private async filtro(db: AnyDB): Promise<{ cond: ReturnType<typeof sql> }> {
+    const { porEmpresa, emp, empresas } = await this.motor.escopo(db);
+    // embrulhado: um RawBuilder devolvido por função async seria "awaitado" (o Kysely recusa)
+    return { cond: porEmpresa ? sql`a.idempresa = ${emp}` : sql`(a.idempresa IS NULL OR a.idempresa = ANY(${empresas}::int[]))` };
   }
 
-  /** as "Apurações Realizadas" da tela, com o total de cada uma. */
+  /** as "Apurações Realizadas" da tela (todas do escopo), com o total de cada uma pelo recálculo do pai */
   async listar(): Promise<Array<Record<string, unknown>>> {
-    const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
-    return (await sql<Record<string, unknown>>`
-      SELECT a.codapuracao_pc, a.dataini, a.datafim, a.codoperador, a.dtcadastro,
-             coalesce(o.nome, '') AS operador,
-             (SELECT count(*) FROM apuracao_pc_det d WHERE d.codapuracao_pc = a.codapuracao_pc)::int AS linhas,
-             coalesce((SELECT sum(d.valorpis + d.valorcofins) FROM apuracao_pc_det d
-                        WHERE d.codapuracao_pc = a.codapuracao_pc AND d.tipo = 'C'), 0) AS credito,
-             coalesce((SELECT sum(d.valorpis + d.valorcofins) FROM apuracao_pc_det d
-                        WHERE d.codapuracao_pc = a.codapuracao_pc AND d.tipo = 'D'), 0) AS debito
-        FROM apuracao_pc a
-        LEFT JOIN operadores o ON o.codoperador = a.codoperador
-       WHERE a.idempresa = ${emp}
-       ORDER BY a.dataini DESC, a.codapuracao_pc DESC
-    `.execute(db)).rows;
+    const { cond: f } = await this.filtro(db);
+    const cabs = (await sql<Record<string, unknown>>`
+      SELECT a.codapuracao_pc, a.dataini, a.datafim, a.idempresa, a.codoperador, a.dtcadastro, coalesce(o.nome, '') AS operador,
+             (SELECT count(*) FROM apuracao_pc_det d WHERE d.codapuracao_pc = a.codapuracao_pc)::int AS linhas
+        FROM apuracao_pc a LEFT JOIN operadores o ON o.codoperador = a.codoperador
+       WHERE ${f}
+       ORDER BY a.dataini DESC, a.codapuracao_pc DESC`.execute(db)).rows;
+    const out: Array<Record<string, unknown>> = [];
+    for (const c of cabs) {
+      const t = totaisPeloPai(await this.itens(db, Number(c.codapuracao_pc)));
+      out.push({ ...c, credito: r2(t.creditoPis + t.creditoCofins), debito: r2(t.debitoPis + t.debitoCofins) });
+    }
+    return out;
   }
 
-  /** uma apuração aberta: o detalhe por tipo e o saldo por tributo. */
-  async obter(cod: number): Promise<Record<string, unknown>> {
-    const emp = this.emp();
-    const db = this.dbp.forTenantRead() as AnyDB;
-    const cab = (await sql<Record<string, unknown>>`
-      SELECT * FROM apuracao_pc WHERE codapuracao_pc = ${cod} AND idempresa = ${emp}
-    `.execute(db)).rows[0];
-    if (!cab) throw new BusinessRuleError('APURACAO_PC_NAO_ENCONTRADA', { cod });
-
-    const itens = (await sql<Record<string, unknown>>`
-      SELECT d.codapuracao_pc_det, d.tipo, d.id_tipocredito, d.id_basecredito, d.idpiscofins, d.cst_pis,
-             d.basecalculo, d.aliqpis, d.valorpis, d.aliqcofins, d.valorcofins,
-             coalesce(p.descricao, '') AS descricao
+  private async itens(db: AnyDB, cod: number) {
+    return (await sql<Record<string, unknown>>`
+      SELECT d.codapuracao_pc_det, d.tipo, d.apuracao, d.tipo_origem, d.id_tipocredito, t.descricao AS descricao_tipocredito, d.id_basecredito, d.descricaobase,
+             d.idpiscofins, coalesce(d.descricaopc, p.descricao, '') AS descricao, d.cst_pis,
+             d.basecalculo, d.aliqpis, d.valorpis, d.aliqcofins, d.valorcofins, d.basecalculoapura, d.valorpisapura, d.valorcofinsapura
         FROM apuracao_pc_det d
         LEFT JOIN piscofins p ON p.idpiscofins = d.idpiscofins
+        LEFT JOIN pc_tipocredito t ON t.id_tipocredito = d.id_tipocredito
        WHERE d.codapuracao_pc = ${cod}
-       ORDER BY d.tipo, d.cst_pis, d.aliqpis
-    `.execute(db)).rows;
+       ORDER BY d.tipo, d.id_tipocredito, d.id_basecredito, d.idpiscofins, d.codapuracao_pc_det`.execute(db)).rows;
+  }
 
-    const soma = (t: string, campo: 'valorpis' | 'valorcofins' | 'basecalculo') =>
-      r2(itens.filter((i) => i.tipo === t).reduce((s, i) => s + num(i[campo]), 0));
-
-    const credPis = soma('C', 'valorpis');
-    const credCof = soma('C', 'valorcofins');
-    const debPis = soma('D', 'valorpis');
-    const debCof = soma('D', 'valorcofins');
-
+  /** uma apuração aberta: o detalhe e os pais (tipo de crédito × alíquota) e o saldo por tributo */
+  async obter(cod: number): Promise<Record<string, unknown>> {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const { cond: f } = await this.filtro(db);
+    const cab = (await sql<Record<string, unknown>>`SELECT a.* FROM apuracao_pc a WHERE a.codapuracao_pc = ${cod} AND ${f}`.execute(db)).rows[0];
+    if (!cab) throw new BusinessRuleError('APURACAO_PC_NAO_ENCONTRADA', { cod });
+    const itens = await this.itens(db, cod);
+    const t = totaisPeloPai(itens);
     return {
       ...cab,
       itens,
+      pais: t.pais,
       totais: {
-        baseCredito: soma('C', 'basecalculo'), baseDebito: soma('D', 'basecalculo'),
-        creditoPis: credPis, creditoCofins: credCof, debitoPis: debPis, debitoCofins: debCof,
+        baseCredito: t.baseCredito, baseDebito: t.baseDebito,
+        creditoPis: t.creditoPis, creditoCofins: t.creditoCofins, debitoPis: t.debitoPis, debitoCofins: t.debitoCofins,
         // o M200/M600: a recolher é o que sobra do débito depois do crédito; o resto transporta
-        aRecolherPis: r2(Math.max(debPis - credPis, 0)),
-        aRecolherCofins: r2(Math.max(debCof - credCof, 0)),
-        creditoTransportarPis: r2(Math.max(credPis - debPis, 0)),
-        creditoTransportarCofins: r2(Math.max(credCof - debCof, 0)),
+        aRecolherPis: r2(Math.max(t.debitoPis - t.creditoPis, 0)),
+        aRecolherCofins: r2(Math.max(t.debitoCofins - t.creditoCofins, 0)),
+        creditoTransportarPis: r2(Math.max(t.creditoPis - t.debitoPis, 0)),
+        creditoTransportarCofins: r2(Math.max(t.creditoCofins - t.debitoCofins, 0)),
       },
     };
   }
 
   async excluir(cod: number): Promise<{ codapuracao_pc: number }> {
-    const emp = this.emp();
     const db = this.dbp.forTenant() as AnyDB;
-    const r = await sql`
-      DELETE FROM apuracao_pc WHERE codapuracao_pc = ${cod} AND idempresa = ${emp}
-    `.execute(db);
+    const { cond: f } = await this.filtro(db);
+    const r = await sql`DELETE FROM apuracao_pc a WHERE a.codapuracao_pc = ${cod} AND ${f}`.execute(db);
     if (!Number(r.numAffectedRows ?? 0)) throw new BusinessRuleError('APURACAO_PC_NAO_ENCONTRADA', { cod });
     return { codapuracao_pc: cod };
   }
+}
+
+/**
+ * Os pais das grades Créditos e Débitos da tela (`UapuracaoPISCOFINS.pas:1034-1092`): por (tipo de crédito, alíquota PIS), a base somada e o
+ * PIS/COFINS RECALCULADOS — round(Σbase × alíq/100, 2) — e não a soma do gravado. É o que a tela mostra, e é o que não herda o defeito
+ * da última linha das apurações do legado (a NFC-e 106 com o VALORPIS errado em 18 de 18: somar o gravado dobra o débito na 341).
+ */
+function totaisPeloPai(itens: Array<Record<string, unknown>>) {
+  const pais = new Map<string, { tipo: string; id_tipocredito: unknown; aliqpis: number; aliqcofins: number; base: number; pis: number; cofins: number; linhas: number }>();
+  for (const i of itens) {
+    const tipo = String(i.tipo ?? '');
+    if (tipo !== 'C' && tipo !== 'D') continue;
+    const k = `${tipo}|${i.id_tipocredito ?? ''}|${num(i.aliqpis).toFixed(4)}`;
+    const p = pais.get(k) ?? { tipo, id_tipocredito: i.id_tipocredito, aliqpis: num(i.aliqpis), aliqcofins: num(i.aliqcofins), base: 0, pis: 0, cofins: 0, linhas: 0 };
+    p.base = r2(p.base + num(i.basecalculo));
+    p.linhas++;
+    pais.set(k, p);
+  }
+  for (const p of pais.values()) {
+    p.pis = r2((p.base * p.aliqpis) / 100);
+    p.cofins = r2((p.base * p.aliqcofins) / 100);
+  }
+  const lista = [...pais.values()];
+  const soma = (tipo: string, campo: 'base' | 'pis' | 'cofins') => r2(lista.filter((p) => p.tipo === tipo).reduce((s, p) => s + p[campo], 0));
+  return {
+    pais: lista,
+    baseCredito: soma('C', 'base'), baseDebito: soma('D', 'base'),
+    creditoPis: soma('C', 'pis'), creditoCofins: soma('C', 'cofins'), debitoPis: soma('D', 'pis'), debitoCofins: soma('D', 'cofins'),
+  };
 }

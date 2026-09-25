@@ -107,7 +107,10 @@ export class SpedEfdContribuicoesService {
    * (débito por alíquota). COFINS espelha (M500/M505/M600/M610). Sem apuração → M001 IND_MOV=1. Retorna true se houve dado.
    */
   private async gerarBlocoM(arq: SpedArquivo, db: AnyDB, emp: number, dtini: string, dtfim: string): Promise<boolean> {
-    const cab = (await db.selectFrom('apuracao_pc').select('codapuracao_pc').where('idempresa', '=', emp).where('dataini', '=', dtini).where('datafim', '=', dtfim).executeTakeFirst()) as { codapuracao_pc?: number } | undefined;
+    // a apuração do período EXATO (`UdmSpedPisCofins.dfm:6204-6206`): a do escopo da raiz do CNPJ tem IDEMPRESA nulo (as 18 do legado); se
+    // houver mais de uma, vale a primeira
+    const cab = (await db.selectFrom('apuracao_pc').select('codapuracao_pc').where((eb: any) => eb.or([eb('idempresa', '=', emp), eb('idempresa', 'is', null)]))
+      .where('dataini', '=', dtini).where('datafim', '=', dtfim).orderBy('codapuracao_pc').executeTakeFirst()) as { codapuracao_pc?: number } | undefined;
     const det = cab
       ? ((await db.selectFrom('apuracao_pc_det').selectAll().where('codapuracao_pc', '=', Number(cab.codapuracao_pc)).orderBy('codapuracao_pc_det').execute()) as Array<Record<string, unknown>>)
       : [];

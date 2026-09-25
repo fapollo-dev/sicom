@@ -3,15 +3,16 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { configNaTrx } from '../compras/pedido-heranca';
 
 type AnyDB = Kysely<any>;
 
 /**
- * APURAÇÃO PIS/COFINS (EFD-Contribuições bloco M). CRÉDITO de ENTRADA (corte-2a): NFs de entrada migrados
- * (nf_prod.bcpiscofinse/vrpise/vrcofinse), agrupado por (CST, alíquota) → apuracao_pc_det TIPO='C'. DÉBITO de
- * SAÍDA (corte-1 do PDV): itens de VENDAS (NFC-e) do período → apuracao_pc_det TIPO='D'. A consolidação
- * (M200/M600, valor a recolher = débito − crédito) sai no bloco M do SPED. Idempotente por período (delete-then-
- * insert). COD_CRED/NAT_BC_CRED usam defaults ('101'/1) — a classificação completa do crédito é refino.
+ * APURAÇÃO PIS/COFINS (`UapuracaoPISCOFINS` — o "Apurar"; dossiê UapuracaoPISCOFINS.md, cortes C e D). Grava APURACAO_PC/APURACAO_PC_DET
+ * como o legado: o escopo da raiz do CNPJ, CRÉDITO/ENTRADA pela fórmula do item com o ICMS fora da base, DÉBITO/NFC-e pelo VL_OPR menos
+ * o ICMS, DÉBITO/SAIDA NF (ramo não reproduzido, do fonte), com APURACAO, TIPO do legado, tipo de crédito e base de crédito do catálogo,
+ * as descrições e os `*_APURA`. O mesmo período não é refeito (volta o existente). As linhas `I` (receita não tributada, M400/M800) são do
+ * Apollo — o legado as calcula na geração do SPED.
  */
 @Injectable()
 export class SpedApuracaoPcService {
@@ -23,168 +24,197 @@ export class SpedApuracaoPcService {
     return e;
   }
 
-  async apurar(dtini: string, dtfim: string): Promise<{ codapuracao_pc: number; grupos: number; total_credito_pis: number; total_credito_cofins: number; grupos_debito: number; total_debito_pis: number; total_debito_cofins: number; grupos_isento: number; total_receita_nao_tributada: number }> {
+  /**
+   * O ESCOPO da apuração (`UapuracaoPISCOFINS.pas:714`, dossiê R3/R5): a raiz do CNPJ da empresa logada — as empresas 1 e 2 juntas — e
+   * IDEMPRESA nulo; só com `SELECIONAR_EMPRESA_APURACAO_GERACAO_SPED_CONTRIB` = 'S' (a produção tem 'N') a apuração é da empresa.
+   */
+  async escopo(db: AnyDB): Promise<{ porEmpresa: boolean; emp: number; empresas: number[] }> {
     const emp = this.emp();
+    const cfg = String((await configNaTrx(db, 'SELECIONAR_EMPRESA_APURACAO_GERACAO_SPED_CONTRIB', { empresaId: emp, operadorId: currentTenant().operadorId ?? null, modulo: 'Retaguarda' })) ?? 'N')
+      .toUpperCase() === 'S';
+    if (cfg) return { porEmpresa: true, emp, empresas: [emp] };
+    const empresas = (await sql<{ idempresa: number }>`
+      SELECT e.idempresa FROM empresas e, empresas me
+       WHERE me.idempresa = ${emp} AND substr(regexp_replace(coalesce(e.cnpj, ''), '\D', '', 'g'), 1, 8) = substr(regexp_replace(coalesce(me.cnpj, ''), '\D', '', 'g'), 1, 8)
+       ORDER BY e.idempresa`.execute(db)).rows.map((r) => Number(r.idempresa));
+    return { porEmpresa: false, emp, empresas: empresas.length ? empresas : [emp] };
+  }
+
+  async apurar(dtini: string, dtfim: string): Promise<{ codapuracao_pc: number; existente?: boolean; grupos: number; total_credito_pis: number; total_credito_cofins: number; grupos_debito: number; total_debito_pis: number; total_debito_cofins: number; grupos_isento: number; total_receita_nao_tributada: number }> {
     const op = currentTenant().operadorId ?? null;
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      // idempotente: remove a apuração anterior do mesmo período (cascade no detalhe).
-      await trx.deleteFrom('apuracao_pc').where('idempresa', '=', emp).where('dataini', '=', dtini).where('datafim', '=', dtfim).execute();
+      const { porEmpresa, emp, empresas } = await this.escopo(trx);
+      const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+      // o MESMO período não é refeito (`btnVendasClick`, :676-689: "já realizada, deseja carregar?"): volta a existente; refazer = excluir antes
+      const ja = (await sql<{ codapuracao_pc: number }>`
+        SELECT codapuracao_pc FROM apuracao_pc
+         WHERE dataini = ${dtini}::date AND datafim = ${dtfim}::date AND ${porEmpresa ? sql`idempresa = ${emp}` : sql`(idempresa IS NULL OR idempresa = ANY(${empresas}::int[]))`}
+         ORDER BY codapuracao_pc LIMIT 1`.execute(trx)).rows[0];
+      if (ja) {
+        const t = (await sql<Record<string, unknown>>`
+          SELECT count(*) FILTER (WHERE tipo = 'C')::int AS gc, count(*) FILTER (WHERE tipo = 'D')::int AS gd, count(*) FILTER (WHERE tipo = 'I')::int AS gi,
+                 coalesce(sum(valorpis) FILTER (WHERE tipo = 'C'), 0) AS cp, coalesce(sum(valorcofins) FILTER (WHERE tipo = 'C'), 0) AS cc,
+                 coalesce(sum(valorpis) FILTER (WHERE tipo = 'D'), 0) AS dp, coalesce(sum(valorcofins) FILTER (WHERE tipo = 'D'), 0) AS dc
+            FROM apuracao_pc_det WHERE codapuracao_pc = ${ja.codapuracao_pc}`.execute(trx)).rows[0];
+        return { codapuracao_pc: Number(ja.codapuracao_pc), existente: true, grupos: Number(t.gc), total_credito_pis: r2(Number(t.cp)), total_credito_cofins: r2(Number(t.cc)),
+          grupos_debito: Number(t.gd), total_debito_pis: r2(Number(t.dp)), total_debito_cofins: r2(Number(t.dc)), grupos_isento: Number(t.gi), total_receita_nao_tributada: 0 };
+      }
       const cab = (await trx
         .insertInto('apuracao_pc')
-        .values({ idempresa: emp, dataini: dtini, datafim: dtfim, codoperador: op })
+        .values({ idempresa: porEmpresa ? emp : null, dataini: dtini, datafim: dtfim, codoperador: op })
         .returning('codapuracao_pc')
         .executeTakeFirstOrThrow()) as { codapuracao_pc: number };
       const codapuracao_pc = Number(cab.codapuracao_pc);
+      const ctxCfg = { empresaId: emp, operadorId: op, modulo: 'Retaguarda' };
+      const foraDaBase = String((await configNaTrx(trx, 'FILTRAR_CFOP_CALCULO_PIS_COFINS_BASE_ENT', ctxCfg)) ?? '1407, 1556, 1653, 1908, 1910, 2556, 2910, 1949')
+        .split(/[,; ]+/).map((x) => x.trim()).filter(Boolean);
+      const contingencia = String((await configNaTrx(trx, 'CONSIDERA_NFCE_CONTINGENCIA_SPED_FISCAL', ctxCfg)) ?? 'N').toUpperCase() === 'S';
+      const linha = (l: Record<string, unknown>) => trx.insertInto('apuracao_pc_det').values({ codapuracao_pc, ...l }).execute();
 
-      // CRÉDITO de entrada agregado por (CST, alíquota PIS/COFINS) a partir dos itens dos NFs de entrada do período
-      // (processados, não cancelados). Base/valor = os já valorados do import do XML (mig 089). Só linhas com crédito.
-      const grupos = (await trx
-        .selectFrom('nf_prod as np')
-        .innerJoin('nf as n', 'n.codnf', 'np.codnf')
-        .select([
-          // fold auditoria [BAIXA]: CST nulo → default '50' (crédito básico) — o M105 exige CST_PIS preenchido.
-          sql`coalesce(nullif(trim(np.cstpiscofins),''),'50')`.as('cst'),
-          sql`coalesce(np.aliqpise,0)`.as('aliqpis'),
-          sql`coalesce(np.aliqcofinse,0)`.as('aliqcofins'),
-          sql`round(coalesce(sum(np.bcpiscofinse),0),2)`.as('basecalculo'),
-          sql`round(coalesce(sum(np.vrpise),0),2)`.as('valorpis'),
-          sql`round(coalesce(sum(np.vrcofinse),0),2)`.as('valorcofins'),
-        ])
-        .where('n.idempresa', '=', emp)
-        .where('n.tipo', '=', 'E')
-        .where(sql`coalesce(n.proc,'N')`, '=', 'S')
-        .where(sql`coalesce(n.cancelada,'N')`, '<>', 'S')
-        .where(sql`coalesce(n.statusnfe,'')`, '<>', 'C')
-        .where(sql`n.dtcontabil`, '>=', dtini)
-        .where(sql`n.dtcontabil`, '<=', dtfim)
-        .where((eb) => eb.or([eb('np.vrpise', '>', 0), eb('np.vrcofinse', '>', 0)]))
-        .groupBy([sql`coalesce(nullif(trim(np.cstpiscofins),''),'50')`, sql`coalesce(np.aliqpise,0)`, sql`coalesce(np.aliqcofinse,0)`])
-        .execute()) as Array<{ cst: number | null; aliqpis: unknown; aliqcofins: unknown; basecalculo: unknown; valorpis: unknown; valorcofins: unknown }>;
-
+      // ── CRÉDITO / ENTRADA (`UdmapuracaoPISCOFINS.dfm:1491-1541`, dossiê R6/R7) ─────────────────────────────────────────────
+      // itens das NFs de ENTRADA processadas do período (DTCONTABIL) das empresas da raiz, com o CFOP no PC_CONFIG e fora da lista de
+      // exclusão, produto com situação PIS/COFINS, alíquota de entrada > 0, CST de entrada 50-56/60 e fornecedor pessoa jurídica.
+      // Base do item = (VRCUSTO×QTD − VRDESCPROD) + DEPSACESS + SEGURO% + o frete do item (VRFRETE, a fatia do frete da nota — a do
+      // binário novo: 882,69 da apuração 261 fecha com ela, não com o FRETE% do fonte), em NUMERIC(15,2), somada e MENOS o ICMS fiscal
+      // do item tributado ('T…'), exceto CFOP de PROC_CUPOM (o 1403): 6 de 7 linhas da 261 e da 22 fecham ao centavo.
+      // Uma linha por (tipo de crédito, base de crédito do CFOP — 0 sem ela —, situação, alíquotas de entrada do catálogo).
+      const creditos = (await sql<Record<string, unknown>>`
+        SELECT cpc.id_tipocredito, coalesce(pc.id_basecredito, 0) AS id_basecredito, pb.descricao AS descricaobase, cpc.idpiscofins, cpc.descricao AS descricaopc,
+               cpc.aliq_pis_ent, cpc.aliq_cofins_ent, cpc.aliq_pis_sai, cpc.aliq_cofins_sai, cpc.cst_pis_ent, cpc.cst_cofins_ent,
+               sum(x.b) AS bruta, sum(x.icm) AS icm
+          FROM (
+            SELECT np.cfop, coalesce(np.idpiscofins, p.idpiscofins) AS sit,
+                   CAST(((np.vrcusto * np.quantidade) - coalesce(np.vrdescprod, 0)) + coalesce(np.depsacess, 0)
+                        + (coalesce(np.seguro, 0) * ((np.vrcusto * np.quantidade) - coalesce(np.vrdescprod, 0))) / 100
+                        + coalesce(np.vrfrete, 0) AS numeric(15,2)) AS b,
+                   CASE WHEN coalesce(c.proc_cupom, 'N') = 'S' THEN 0 WHEN substr(coalesce(np.aliquota, ''), 1, 1) = 'T' THEN coalesce(np.vricm, 0) ELSE 0 END AS icm
+              FROM nf_prod np
+              JOIN nf n ON n.codnf = np.codnf
+              LEFT JOIN parceiros pe ON pe.codparceiro = n.codparceiro
+              LEFT JOIN produtos p ON p.idproduto = np.codproduto
+              LEFT JOIN cfop c ON c.codcfop = np.cfop
+             WHERE n.tipo = 'E' AND n.dtcontabil::date BETWEEN ${dtini}::date AND ${dtfim}::date
+               AND n.idempresa = ANY(${empresas}::int[])
+               AND n.nronf IS NOT NULL AND n.nronf <> '0'
+               AND np.cfop IN (SELECT pcx.cfop FROM pc_config pcx)
+               AND coalesce(n.cancelada, 'N') = 'N' AND coalesce(n.proc, 'N') = 'S'
+               AND p.idpiscofins > 0
+               AND pe.tipofj NOT IN ('F', 'R')
+               AND NOT (np.cfop = ANY(${foraDaBase}::text[]))
+          ) x
+          JOIN piscofins cpc ON cpc.idpiscofins = x.sit
+          LEFT JOIN pc_config pc ON pc.cfop = x.cfop
+          LEFT JOIN pc_basecredito pb ON pb.idbasecredito = pc.id_basecredito
+         WHERE cpc.aliq_pis_ent > 0 AND cpc.cst_pis_ent IN (50, 51, 52, 53, 54, 55, 56, 60)
+         GROUP BY cpc.id_tipocredito, coalesce(pc.id_basecredito, 0), pb.descricao, cpc.idpiscofins, cpc.descricao, cpc.aliq_pis_ent, cpc.aliq_cofins_ent,
+                  cpc.aliq_pis_sai, cpc.aliq_cofins_sai, cpc.cst_pis_ent, cpc.cst_cofins_ent
+         ORDER BY 1, 2, 3, 4`.execute(trx)).rows;
       let totPis = 0;
       let totCofins = 0;
-      for (const g of grupos) {
-        await trx
-          .insertInto('apuracao_pc_det')
-          .values({
-            codapuracao_pc,
-            tipo: 'C',
-            tipo_origem: 'ENTRADA', // o TIPO do legado (mig 320)
-            id_tipocredito: '101',
-            id_basecredito: 1,
-            idpiscofins: null,
-            cst_pis: g.cst != null ? Number(g.cst) : null,
-            basecalculo: Number(g.basecalculo) || 0,
-            aliqpis: Number(g.aliqpis) || 0,
-            valorpis: Number(g.valorpis) || 0,
-            aliqcofins: Number(g.aliqcofins) || 0,
-            valorcofins: Number(g.valorcofins) || 0,
-          })
-          .execute();
-        totPis += Number(g.valorpis) || 0;
-        totCofins += Number(g.valorcofins) || 0;
+      for (const g of creditos) {
+        const base = r2(Number(g.bruta) - Number(g.icm));
+        const aPis = Number(g.aliq_pis_ent) || 0;
+        const aCof = Number(g.aliq_cofins_ent) || 0;
+        const vPis = r2((base * aPis) / 100);
+        const vCof = r2((base * aCof) / 100);
+        await linha({
+          tipo: 'C', apuracao: 'CREDITO', tipo_origem: 'ENTRADA', id_tipocredito: g.id_tipocredito != null ? Number(g.id_tipocredito) : null,
+          id_basecredito: Number(g.id_basecredito), descricaobase: g.descricaobase ?? null, idpiscofins: Number(g.idpiscofins), descricaopc: g.descricaopc ?? null,
+          cst_pis: g.cst_pis_ent != null ? Number(g.cst_pis_ent) : null, cst_cofins: g.cst_cofins_ent != null ? Number(g.cst_cofins_ent) : null,
+          basecalculo: base, aliqpis: aPis, valorpis: vPis, aliqcofins: aCof, valorcofins: vCof,
+          // `*_APURA` (dossiê R12, regra de 2025+): a base líquida de ICMS com a alíquota cheia (a de saída do catálogo, 1,65/7,6) — no
+          // crédito presumido também
+          basecalculoapura: base, valorpisapura: r2((base * (Number(g.aliq_pis_sai) || 0)) / 100), valorcofinsapura: r2((base * (Number(g.aliq_cofins_sai) || 0)) / 100),
+        });
+        totPis += vPis;
+        totCofins += vCof;
       }
 
-      // DÉBITO de SAÍDA (corte-1 do PDV): itens de VENDAS (NFC-e) do período, agrupados por (CST_PIS, alíq PIS,
-      // alíq COFINS). Base = Σ pis_bcalculo já computado no PDV; valor RE-DERIVADO no grupo round(Σbase×alíq/100,2)
-      // (fiel ao APURACAO_PC_DET do legado: RoundTo(BASECALCULO*ALIQ/100,-2) por CST/alíq). Elegibilidade fiel-
-      // conservadora: NFC-e autorizada (venda_nfc='S', statusnfe='P', chavenfe não-nulo), item não cancelado, tributado.
-      // ADIADO corte-1b: (a) base = VL_OPR reconstruído (IAT/descontos/abatimento-ICMS por GET_CONFIG_ABATER_ICMS_PC)
-      // em vez de pis_bcalculo puro; (b) NFC-e em CONTINGÊNCIA (statusnfe='G') também é devida (hoje só 'P' — pode
-      // subcontar em período com contingência). 'C' (cancelada) fica de fora (fiel ao legado).
+      // ── DÉBITO / NFC-e (`UdmapuracaoPISCOFINS.dfm:1825-1886`, dossiê R4/R8) ──────────────────────────────────────────────────
+      // as vendas das NFC-e autorizadas (contingência só com a config) do período; o VL_OPR do item (IAT 'A' arredonda, senão trunca, +
+      // acréscimos − promoção − departamento − descontos) menos o ICMS do item; uma linha por situação PIS/COFINS com alíquota de saída.
+      // O ramo NFC-e do legado não filtra empresa (R4) — com o escopo da raiz, também não aqui. 3 de 3 linhas da 261 e da 22 fecham.
       const d0 = String(dtini).slice(0, 10);
       const dfimNext = new Date(`${String(dtfim).slice(0, 10)}T00:00:00Z`);
       dfimNext.setUTCDate(dfimNext.getUTCDate() + 1);
-      const d1 = dfimNext.toISOString().slice(0, 10); // limite superior EXCLUSIVO = dia seguinte a dtfim
-      const gruposDeb = (await trx
-        .selectFrom('vendas')
-        .select([
-          sql`coalesce(nullif(trim(pis_cst),''),'01')`.as('cst'),
-          sql`coalesce(pis_aliquota,0)`.as('aliqpis'),
-          sql`coalesce(cofins_aliquota,0)`.as('aliqcofins'),
-          sql`round(coalesce(sum(pis_bcalculo),0),2)`.as('basecalculo'),
-        ])
-        .where('idempresa', '=', emp)
-        .where(sql`coalesce(venda_nfc,'N')`, '=', 'S')
-        .where(sql`coalesce(cancelado,'N')`, '<>', 'S')
-        .where(sql`coalesce(statusnfe,'')`, '=', 'P')
-        .where('chavenfe', 'is not', null)
-        // intervalo SEMIABERTO por DATA [d0, d1) — cobre o dia inteiro (sem perder 23:59:59.x) e tolera input com hora.
-        .where(sql`dtvenda`, '>=', d0)
-        .where(sql`dtvenda`, '<', d1)
-        .where((eb) => eb.or([eb('pis_aliquota', '>', 0), eb('cofins_aliquota', '>', 0)]))
-        .groupBy([sql`coalesce(nullif(trim(pis_cst),''),'01')`, sql`coalesce(pis_aliquota,0)`, sql`coalesce(cofins_aliquota,0)`])
-        .execute()) as Array<{ cst: unknown; aliqpis: unknown; aliqcofins: unknown; basecalculo: unknown }>;
-
+      const d1 = dfimNext.toISOString().slice(0, 10);
+      const nfce = (await sql<Record<string, unknown>>`
+        SELECT cpc.id_tipocredito, cpc.idpiscofins, cpc.descricao AS descricaopc, cpc.aliq_pis_sai, cpc.aliq_cofins_sai, cpc.cst_pis_sai, cpc.cst_cofins_sai,
+               sum(x.vl) AS vl, sum(x.icms) AS icms
+          FROM (
+            SELECT coalesce(v.idpiscofins, p.idpiscofins) AS sit,
+                   (CASE WHEN v.iat = 'A' THEN CAST(v.qtde * v.vrvenda AS numeric(18,2)) ELSE trunc(v.qtde * v.vrvenda, 2) END)
+                   + greatest(coalesce(v.desc_acre_medio, 0), 0) + greatest(coalesce(v.desc_acre_item, 0), 0)
+                   - (coalesce(v.desc_promocao, 0) + coalesce(v.desc_departamento, 0) + greatest(-coalesce(v.desc_acre_medio, 0), 0) + greatest(-coalesce(v.desc_acre_item, 0), 0)) AS vl,
+                   CAST(coalesce(v.icms_valor, 0) AS numeric(13,2)) AS icms
+              FROM vendas v JOIN produtos p ON p.idproduto = v.codproduto
+             WHERE v.dtvenda >= ${d0} AND v.dtvenda < ${d1} AND coalesce(v.cancelado, 'N') = 'N'
+               AND coalesce(v.venda_nfc, 'N') = 'S' AND v.chavenfe IS NOT NULL
+               AND (coalesce(v.statusnfe, '') = 'P' OR (${contingencia} AND coalesce(v.statusnfe, '') = 'G'))
+               ${porEmpresa ? sql`AND v.idempresa = ${emp}` : sql``}
+          ) x
+          JOIN piscofins cpc ON cpc.idpiscofins = x.sit
+         WHERE cpc.aliq_pis_sai > 0
+         GROUP BY cpc.id_tipocredito, cpc.idpiscofins, cpc.descricao, cpc.aliq_pis_sai, cpc.aliq_cofins_sai, cpc.cst_pis_sai, cpc.cst_cofins_sai
+         ORDER BY 1, 2`.execute(trx)).rows;
       let totDebPis = 0;
       let totDebCofins = 0;
-      const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
-      for (const g of gruposDeb) {
-        const base = Number(g.basecalculo) || 0;
-        const aPis = Number(g.aliqpis) || 0;
-        const aCof = Number(g.aliqcofins) || 0;
+      for (const g of nfce) {
+        const base = r2(Number(g.vl) - Number(g.icms));
+        const aPis = Number(g.aliq_pis_sai) || 0;
+        const aCof = Number(g.aliq_cofins_sai) || 0;
         const vPis = r2((base * aPis) / 100);
         const vCof = r2((base * aCof) / 100);
-        await trx
-          .insertInto('apuracao_pc_det')
-          .values({
-            codapuracao_pc,
-            tipo: 'D',
-            tipo_origem: 'NFC-e', // o TIPO do legado (mig 320)
-            id_tipocredito: null,
-            id_basecredito: null,
-            idpiscofins: null,
-            cst_pis: g.cst != null ? Number(g.cst) : null,
-            basecalculo: base,
-            aliqpis: aPis,
-            valorpis: vPis,
-            aliqcofins: aCof,
-            valorcofins: vCof,
-          })
-          .execute();
+        await linha({
+          tipo: 'D', apuracao: 'DEBITO', tipo_origem: 'NFC-e', id_tipocredito: g.id_tipocredito != null ? Number(g.id_tipocredito) : null, id_basecredito: 0,
+          descricaobase: null, idpiscofins: Number(g.idpiscofins), descricaopc: g.descricaopc ?? null,
+          cst_pis: g.cst_pis_sai != null ? Number(g.cst_pis_sai) : null, cst_cofins: g.cst_cofins_sai != null ? Number(g.cst_cofins_sai) : null,
+          basecalculo: base, aliqpis: aPis, valorpis: vPis, aliqcofins: aCof, valorcofins: vCof,
+          basecalculoapura: base, valorpisapura: vPis, valorcofinsapura: vCof,
+        });
         totDebPis += vPis;
         totDebCofins += vCof;
       }
 
-      // DÉBITO de SAÍDA por NF-e mod-55 (SAÍDA-NF-mod55): itens das NFs tipo='S' processadas do período. A saída
-      // não grava base/valor de PIS/COFINS (só as alíquotas aliqpiss/aliqcofinss) → base = Σ(qtd×vrcusto − vrdescprod)
-      // (o valor da linha é o VRCUSTO e o desconto em dinheiro é o VRDESCPROD — nf-valor.ts do shared)
-      // e valor = round(base×alíq/100,2), mesma mecânica do débito de VENDAS. Agrupa por (CST, alíq PIS, alíq COFINS)
-      // e alimenta o M200/M600 JUNTO com o PDV. ADIADO (fiel-conservador): abatimento de ICMS na base (GET_CONFIG_
-      // ABATER_ICMS_PC) e descontos rateados — o corte usa a base bruta de venda.
-      const gruposDebNf = (await trx
-        .selectFrom('nf_prod as np')
-        .innerJoin('nf as n', 'n.codnf', 'np.codnf')
-        .select([
-          sql`coalesce(nullif(trim(np.cstpiscofins),''),'01')`.as('cst'),
-          sql`coalesce(np.aliqpiss,0)`.as('aliqpis'),
-          sql`coalesce(np.aliqcofinss,0)`.as('aliqcofins'),
-          sql`round(coalesce(sum(np.quantidade*np.vrcusto - coalesce(np.vrdescprod,0)),0),2)`.as('basecalculo'),
-        ])
-        .where('n.idempresa', '=', emp)
-        .where('n.tipo', '=', 'S')
-        .where('n.modelo', '=', 55) // só mod-55; NFC-e mod-65 (PDV) já vem de `vendas` (evita double-count)
-        .where(sql`coalesce(n.proc,'N')`, '=', 'S')
-        .where(sql`coalesce(n.cancelada,'N')`, '<>', 'S')
-        .where(sql`coalesce(n.statusnfe,'')`, '<>', 'C')
-        .where(sql`n.dtcontabil`, '>=', dtini)
-        .where(sql`n.dtcontabil`, '<=', dtfim)
-        .where((eb) => eb.or([eb('np.aliqpiss', '>', 0), eb('np.aliqcofinss', '>', 0)]))
-        .groupBy([sql`coalesce(nullif(trim(np.cstpiscofins),''),'01')`, sql`coalesce(np.aliqpiss,0)`, sql`coalesce(np.aliqcofinss,0)`])
-        .execute()) as Array<{ cst: unknown; aliqpis: unknown; aliqcofins: unknown; basecalculo: unknown }>;
-      for (const g of gruposDebNf) {
-        const base = Number(g.basecalculo) || 0;
-        const aPis = Number(g.aliqpis) || 0;
-        const aCof = Number(g.aliqcofins) || 0;
+      // ── DÉBITO / SAIDA NF — o ramo que o recon não reproduziu (dossiê §4, "Não determinado" 5). Do fonte: NF de saída processada, fora
+      // dos CFOPs de devolução ao fornecedor (5202/6202/5411/6411) e de cupom (5929/6929/5927), ID_BASECREDITO 1 e a descrição fixa; a
+      // base líquida do ICMS do item tributado (a regra de 2025+). Agrupa por situação e alíquotas de saída do catálogo.
+      const saidaNf = (await sql<Record<string, unknown>>`
+        SELECT cpc.id_tipocredito, cpc.idpiscofins, cpc.descricao AS descricaopc, cpc.aliq_pis_sai, cpc.aliq_cofins_sai, cpc.cst_pis_sai, cpc.cst_cofins_sai,
+               sum(x.b) AS bruta, sum(x.icm) AS icm
+          FROM (
+            SELECT coalesce(np.idpiscofins, p.idpiscofins) AS sit,
+                   CAST((np.vrcusto * np.quantidade) - coalesce(np.vrdescprod, 0) AS numeric(15,2)) AS b,
+                   CASE WHEN substr(coalesce(np.aliquota, ''), 1, 1) = 'T' THEN coalesce(np.vricm, 0) ELSE 0 END AS icm
+              FROM nf_prod np JOIN nf n ON n.codnf = np.codnf LEFT JOIN produtos p ON p.idproduto = np.codproduto
+             WHERE n.tipo = 'S' AND n.dtcontabil::date BETWEEN ${dtini}::date AND ${dtfim}::date AND n.idempresa = ANY(${empresas}::int[])
+               AND coalesce(n.proc, 'N') = 'S' AND coalesce(n.cancelada, 'N') = 'N' AND coalesce(n.statusnfe, '') <> 'C'
+               AND n.nronf IS NOT NULL AND n.nronf <> '0'
+               AND NOT (np.cfop = ANY(ARRAY['5202','6202','5411','6411','5929','6929','5927']))
+          ) x
+          JOIN piscofins cpc ON cpc.idpiscofins = x.sit
+         WHERE cpc.aliq_pis_sai > 0
+         GROUP BY cpc.id_tipocredito, cpc.idpiscofins, cpc.descricao, cpc.aliq_pis_sai, cpc.aliq_cofins_sai, cpc.cst_pis_sai, cpc.cst_cofins_sai
+         ORDER BY 1, 2`.execute(trx)).rows;
+      for (const g of saidaNf) {
+        const base = r2(Number(g.bruta) - Number(g.icm));
+        const aPis = Number(g.aliq_pis_sai) || 0;
+        const aCof = Number(g.aliq_cofins_sai) || 0;
         const vPis = r2((base * aPis) / 100);
         const vCof = r2((base * aCof) / 100);
-        await trx
-          .insertInto('apuracao_pc_det')
-          .values({ codapuracao_pc, tipo: 'D', tipo_origem: 'SAIDA NF', id_tipocredito: null, id_basecredito: null, idpiscofins: null, cst_pis: g.cst != null ? Number(g.cst) : null, basecalculo: base, aliqpis: aPis, valorpis: vPis, aliqcofins: aCof, valorcofins: vCof })
-          .execute();
+        await linha({
+          tipo: 'D', apuracao: 'DEBITO', tipo_origem: 'SAIDA NF', id_tipocredito: g.id_tipocredito != null ? Number(g.id_tipocredito) : null, id_basecredito: 1,
+          descricaobase: 'AQUISICAO DE BENS PARA REVENDA', idpiscofins: Number(g.idpiscofins), descricaopc: g.descricaopc ?? null,
+          cst_pis: g.cst_pis_sai != null ? Number(g.cst_pis_sai) : null, cst_cofins: g.cst_cofins_sai != null ? Number(g.cst_cofins_sai) : null,
+          basecalculo: base, aliqpis: aPis, valorpis: vPis, aliqcofins: aCof, valorcofins: vCof,
+          basecalculoapura: base, valorpisapura: vPis, valorcofinsapura: vCof,
+        });
         totDebPis += vPis;
         totDebCofins += vCof;
       }
+      const grupos = creditos;
+      const gruposDeb = nfce;
+      const gruposDebNf = saidaNf;
 
       // RECEITA NÃO-TRIBUTADA (isenta/alíquota-zero/monofásica → M400/M410 PIS + M800/M810). Fiel a sqqBaseIsenta:
       // a receita de SAÍDA SEM débito de PIS E de COFINS (complemento do filtro do débito), agrupada por (CST_PIS,
@@ -229,7 +259,7 @@ export class SpedApuracaoPcService {
           FROM vendas v
           LEFT JOIN produtos p ON p.idproduto = v.codproduto
           LEFT JOIN pc_tipocreditoisento i ON i.idtabela = p.idtabela
-          WHERE v.idempresa = ${emp}
+          WHERE v.idempresa = ANY(${empresas}::int[])
             AND coalesce(v.venda_nfc,'N') = 'S'
             AND coalesce(v.cancelado,'N') <> 'S'
             AND coalesce(v.statusnfe,'') = 'P'
@@ -288,7 +318,7 @@ export class SpedApuracaoPcService {
             SELECT n2.codnf
             FROM nf n2
             LEFT JOIN nf_prod np2 ON np2.codnf = n2.codnf
-            WHERE n2.idempresa = ${emp}
+            WHERE n2.idempresa = ANY(${empresas}::int[])
               AND n2.tipo = 'S'
               AND coalesce(n2.proc,'N') = 'S'
               AND coalesce(n2.cancelada,'N') = 'N'

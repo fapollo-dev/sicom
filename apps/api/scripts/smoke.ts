@@ -13546,13 +13546,14 @@ async function main() {
         // NF de entrada no período 2026-02 + crédito PIS/COFINS no item (via pg — como o import do XML valoraria).
         const nfCred = await novaNf(baseNf({ tipo: 'E', nronf: 'SPEDM01', codparceiro: 22, dtemissao: '2026-02-10', dtcontabil: '2026-02-10', itens: [{ codproduto: 1, quantidade: 1, vrvenda: 100, vrcusto: 100, cfop: '1102', aliquota: 'T01', cstpiscofins: '50' }] }));
         // o C170 da Contribuições lê o PISCOFINS do item (ou do produto) pelo CASE do legado: o 13 (1,65 / 7,60, CST 50)
-        await pgSp.query(`UPDATE nf_prod SET bcpiscofinse=100, vrpise=1.65, vrcofinse=7.60, aliqpise=1.65, aliqcofinse=7.60, cstpiscofins='50', idpiscofins=13 WHERE codnf=$1`, [nfCred]);
+        // (a apuração do legado parte da situação PIS/COFINS do item — a 13, TRIBUTADOS — e tira da base o ICMS do item 'T': zerado aqui)
+        await pgSp.query(`UPDATE nf_prod SET bcpiscofinse=100, vrpise=1.65, vrcofinse=7.60, aliqpise=1.65, aliqcofinse=7.60, cstpiscofins='50', idpiscofins=13, vricm=0 WHERE codnf=$1`, [nfCred]);
         await pgSp.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfCred]);
 
         // 88.1) apuração: 1 grupo (CST 50, alíq 1,65/7,6), base 100, crédito PIS 1,65 / COFINS 7,60.
         const apur = await fetch(`${base}/fiscal/sped/apuracao-pc`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-02-01', dtfim: '2026-02-28' }) });
         const apurJ = (await apur.json().catch(() => ({}))) as any;
-        const det = (await pgSp.query(`SELECT d.cst_pis, d.basecalculo, d.valorpis, d.valorcofins FROM apuracao_pc_det d JOIN apuracao_pc c ON c.codapuracao_pc=d.codapuracao_pc WHERE c.idempresa=1 AND c.dataini='2026-02-01' AND d.tipo='C'`)).rows as any[];
+        const det = (await pgSp.query(`SELECT d.cst_pis, d.basecalculo, d.valorpis, d.valorcofins FROM apuracao_pc_det d JOIN apuracao_pc c ON c.codapuracao_pc=d.codapuracao_pc WHERE c.idempresa IS NULL AND c.dataini='2026-02-01' AND d.tipo='C'`)).rows as any[];
         check('SPED §88.1 apuração: 1 grupo crédito de entrada (CST 50, base 100, PIS 1,65, COFINS 7,60)',
           apur.status === 200 && Number(apurJ.grupos) === 1 && Number(apurJ.total_credito_pis) === 1.65 && Number(apurJ.total_credito_cofins) === 7.6
           && det.length === 1 && Number(det[0].cst_pis) === 50 && Number(det[0].basecalculo) === 100 && Number(det[0].valorpis) === 1.65,
@@ -13584,12 +13585,12 @@ async function main() {
         // 88.4) SAÍDA do PDV (corte-1 VENDAS): débito de PIS/COFINS. Período 2035-09 ISOLADO. Vendas NFC-e (base
         // Σ1500) + 1 crédito de entrada (base 200). Débito PIS=round(1500×1,65/100)=24,75; COFINS=114,00. Crédito
         // PIS 3,30 / COFINS 15,20 → a recolher PIS 21,45 / COFINS 98,80; crédito 100% descontado (deb>cred).
-        await pgSp.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, cfop, venda_nfc, cancelado, statusnfe, chavenfe, pis_cst, pis_bcalculo, pis_aliquota, pis_valor, cofins_cst, cofins_bcalculo, cofins_aliquota, cofins_valor) VALUES
-          (1,'2035-09-05 10:00:00-03','V1','001',101,1,1,1,1000,5102,'S','N','P','35260900000000000000000000000000000000000101','01',1000,1.65,16.50,'01',1000,7.60,76.00),
-          (1,'2035-09-06 11:00:00-03','V2','001',102,1,1,1, 500,5102,'S','N','P','35260900000000000000000000000000000000000102','01', 500,1.65, 8.25,'01', 500,7.60,38.00),
-          (1,'2035-09-07 12:00:00-03','V3','001',103,1,1,1, 999,5102,'S','N','C','35260900000000000000000000000000000000000103','01', 999,1.65,16.48,'01', 999,7.60,75.92)`); // V3 NFC-e CANCELADA no SEFAZ (statusnfe='C') → fora do débito; C100 COD_SIT=02
+        await pgSp.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, cfop, venda_nfc, cancelado, statusnfe, chavenfe, pis_cst, pis_bcalculo, pis_aliquota, pis_valor, cofins_cst, cofins_bcalculo, cofins_aliquota, cofins_valor, idpiscofins) VALUES
+          (1,'2035-09-05 10:00:00-03','V1','001',101,1,1,1,1000,5102,'S','N','P','35260900000000000000000000000000000000000101','01',1000,1.65,16.50,'01',1000,7.60,76.00,13),
+          (1,'2035-09-06 11:00:00-03','V2','001',102,1,1,1, 500,5102,'S','N','P','35260900000000000000000000000000000000000102','01', 500,1.65, 8.25,'01', 500,7.60,38.00,13),
+          (1,'2035-09-07 12:00:00-03','V3','001',103,1,1,1, 999,5102,'S','N','C','35260900000000000000000000000000000000000103','01', 999,1.65,16.48,'01', 999,7.60,75.92,13)`); // V3 NFC-e CANCELADA no SEFAZ (statusnfe='C') → fora do débito; C100 COD_SIT=02
         const nfCredS = await novaNf(baseNf({ tipo: 'E', nronf: 'SPEDS01', codparceiro: 22, dtemissao: '2035-09-02', dtcontabil: '2035-09-02', itens: [{ codproduto: 1, quantidade: 1, vrvenda: 200, vrcusto: 200, cfop: '1102', aliquota: 'T01', cstpiscofins: '50' }] }));
-        await pgSp.query(`UPDATE nf_prod SET bcpiscofinse=200, vrpise=3.30, vrcofinse=15.20, aliqpise=1.65, aliqcofinse=7.60, cstpiscofins='50' WHERE codnf=$1`, [nfCredS]);
+        await pgSp.query(`UPDATE nf_prod SET bcpiscofinse=200, vrpise=3.30, vrcofinse=15.20, aliqpise=1.65, aliqcofinse=7.60, cstpiscofins='50', idpiscofins=13, vricm=0 WHERE codnf=$1`, [nfCredS]);
         await pgSp.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfCredS]);
 
         const apurS = await fetch(`${base}/fiscal/sped/apuracao-pc`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2035-09-01', dtfim: '2035-09-30' }) });
@@ -13956,10 +13957,11 @@ async function main() {
       try {
         // período 2026-12: entrada (crédito PIS 0,66 / COFINS 3,04) + saída mod-55 (débito PIS 1,65 / COFINS 7,60).
         const nfEnt = await novaNf(baseNf({ tipo: 'E', nronf: 'SCENT01', codparceiro: 22, dtemissao: '2026-12-03', dtcontabil: '2026-12-03', itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, vrcusto: 10, cfop: '1102', aliquota: 'T01' }] }));
-        await pgSc.query(`UPDATE nf_prod SET bcpiscofinse=100, vrpise=0.66, vrcofinse=3.04, aliqpise=0.66, aliqcofinse=3.04, cstpiscofins='50' WHERE codnf=$1`, [nfEnt]);
+        // o crédito presumido da carne (situação 1: 0,66 / 3,04 na entrada) — tipo de crédito 106 no catálogo
+        await pgSc.query(`UPDATE nf_prod SET bcpiscofinse=100, vrpise=0.66, vrcofinse=3.04, aliqpise=0.66, aliqcofinse=3.04, cstpiscofins='50', idpiscofins=1, vricm=0 WHERE codnf=$1`, [nfEnt]);
         await pgSc.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfEnt]);
         const nfSai = await novaNf(baseNf({ tipo: 'S', nronf: 'SCSAI01', modelo: 55, cfop: '5102', codparceiro: 20, dtemissao: '2026-12-04', dtcontabil: '2026-12-04', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
-        await pgSc.query(`UPDATE nf_prod SET vrvenda=10, desconto=0, aliqpiss=1.65, aliqcofinss=7.60, cstpiscofins='01' WHERE codnf=$1`, [nfSai]);
+        await pgSc.query(`UPDATE nf_prod SET vrvenda=10, desconto=0, aliqpiss=1.65, aliqcofinss=7.60, cstpiscofins='01', idpiscofins=13, vricm=0 WHERE codnf=$1`, [nfSai]);
         await pgSc.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfSai]);
         // apuração: débito da saída mod-55 (1,65 / 7,60) além do crédito de entrada (0,66 / 3,04).
         const apurSc = await fetch(`${base}/fiscal/sped/apuracao-pc`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-12-01', dtfim: '2026-12-31' }) });
@@ -15703,36 +15705,38 @@ async function main() {
       try {
         const cod = Number((await pgAp2.query(`INSERT INTO apuracao_pc (idempresa, dataini, datafim, codoperador)
           VALUES (1, '2039-01-01', '2039-01-31', 7) RETURNING codapuracao_pc`)).rows[0].codapuracao_pc);
-        // crédito de entrada: PIS 100 / COFINS 460 · débito de saída: PIS 160 / COFINS 700
-        await pgAp2.query(`INSERT INTO apuracao_pc_det (codapuracao_pc, tipo, basecalculo, aliqpis, valorpis, aliqcofins, valorcofins, cst_pis) VALUES
-          ($1,'C', 6060.61, 1.65, 100.00, 7.60, 460.00, 50),
-          ($1,'D', 9696.97, 1.65, 160.00, 7.60, 700.00, 1)`, [cod]);
+        // crédito 101: base 6.060,61 · débito 101: base 9.696,97 · débito 106 (a NFC-e do presumido): base 100 com o VALORPIS ERRADO que o
+        // legado grava na última linha de toda apuração (15.428,89 na 341) — a tela recalcula o pai e não soma o gravado
+        await pgAp2.query(`INSERT INTO apuracao_pc_det (codapuracao_pc, tipo, apuracao, tipo_origem, id_tipocredito, basecalculo, aliqpis, valorpis, aliqcofins, valorcofins, cst_pis) VALUES
+          ($1,'C','CREDITO','ENTRADA',101, 6060.61, 1.65, 100.00, 7.60, 460.61, 50),
+          ($1,'D','DEBITO','NFC-e',101, 9696.97, 1.65, 160.00, 7.60, 736.97, 1),
+          ($1,'D','DEBITO','NFC-e',106, 100.00, 1.65, 15428.89, 7.60, 71066.41, 1)`, [cod]);
 
         const lista = (await (await fetch(`${base}/${AP}`, { headers: H })).json().catch(() => ([]))) as any[];
-        const minha = (lista ?? []).find((x: any) => Number(x.codapuracao_pc) === cod);
+        const minha = (Array.isArray(lista) ? lista : []).find((x: any) => Number(x.codapuracao_pc) === cod);
         const det = (await (await fetch(`${base}/${AP}/${cod}`, { headers: H })).json().catch(() => ({}))) as any;
-        check('APURAÇÃO PIS/COFINS §117.1 [o saldo, que é o que o contador procura]: a lista traz crédito e débito de cada apuração, e o detalhe separa os dois lados. O **a recolher** é `débito − crédito` por tributo (o M200/M600): PIS 160 − 100 = **60,00** e COFINS 700 − 460 = **240,00**',
-          !!minha && Math.abs(Number(minha.credito) - 560) < 0.005 && Math.abs(Number(minha.debito) - 860) < 0.005
-          && (det.itens ?? []).length === 2
-          && Math.abs(Number(det.totais?.aRecolherPis) - 60) < 0.005
-          && Math.abs(Number(det.totais?.aRecolherCofins) - 240) < 0.005
+        check('APURAÇÃO PIS/COFINS §117.1 [o saldo pelo recálculo do pai, como a tela do legado]: os pais (tipo de crédito × alíquota) recalculam round(Σbase × alíq) — o débito 106 com o VALORPIS errado (o defeito da última linha do legado) entra como 1,65/7,60 e não como 15.428,89; débito PIS 161,65 / COFINS 744,57 contra crédito 100,00 / 460,61 ⇒ a recolher 61,65 / 283,96 (o M200/M600)',
+          !!minha && Math.abs(Number(minha.credito) - 560.61) < 0.005 && Math.abs(Number(minha.debito) - 906.22) < 0.005
+          && (det.itens ?? []).length === 3 && (det.pais ?? []).length === 3
+          && Math.abs(Number(det.totais?.debitoPis) - 161.65) < 0.005 && Math.abs(Number(det.totais?.debitoCofins) - 744.57) < 0.005
+          && Math.abs(Number(det.totais?.aRecolherPis) - 61.65) < 0.005 && Math.abs(Number(det.totais?.aRecolherCofins) - 283.96) < 0.005
           && Number(det.totais?.creditoTransportarPis) === 0,
-          { daLista: minha, totais: det.totais });
+          { daLista: minha, totais: det.totais, pais: det.pais });
 
         // crédito MAIOR que o débito ⇒ transporta, e o a recolher é zero (não um número negativo)
-        await pgAp2.query(`UPDATE apuracao_pc_det SET valorpis=500, valorcofins=900 WHERE codapuracao_pc=$1 AND tipo='C'`, [cod]);
+        await pgAp2.query(`UPDATE apuracao_pc_det SET basecalculo=40000 WHERE codapuracao_pc=$1 AND tipo='C'`, [cod]);
         const det2 = (await (await fetch(`${base}/${AP}/${cod}`, { headers: H })).json().catch(() => ({}))) as any;
-        check('APURAÇÃO PIS/COFINS §117.2 [crédito maior que o débito TRANSPORTA]: com crédito 500/900 contra débito 160/700, o a recolher é **zero** e o que sobra vira crédito a transportar (340 de PIS, 200 de COFINS) — é assim que o contador lê, e não como um valor a recolher negativo',
+        check('APURAÇÃO PIS/COFINS §117.2 [crédito maior que o débito TRANSPORTA]: com o crédito de base 40.000 (660,00 / 3.040,00) contra o débito 161,65 / 744,57, o a recolher é **zero** e o que sobra vira crédito a transportar (498,35 de PIS, 2.295,43 de COFINS)',
           Number(det2.totais?.aRecolherPis) === 0 && Number(det2.totais?.aRecolherCofins) === 0
-          && Math.abs(Number(det2.totais?.creditoTransportarPis) - 340) < 0.005
-          && Math.abs(Number(det2.totais?.creditoTransportarCofins) - 200) < 0.005,
+          && Math.abs(Number(det2.totais?.creditoTransportarPis) - 498.35) < 0.005
+          && Math.abs(Number(det2.totais?.creditoTransportarCofins) - 2295.43) < 0.005,
           { totais: det2.totais });
 
         const semGrant = await fetch(`${base}/${AP}`, { headers: H_SEM_ACESSO });
         const naoExiste = await fetch(`${base}/${AP}/999777`, { headers: H });
         const del = await fetch(`${base}/${AP}/${cod}`, { method: 'DELETE', headers: H });
         const sobrou = (await pgAp2.query(`SELECT count(*)::int n FROM apuracao_pc_det WHERE codapuracao_pc=$1`, [cod])).rows[0] as any;
-        check('APURAÇÃO PIS/COFINS §117.3: excluir é o "reabrir" do legado — a apuração é idempotente por período, então refazer é apurar de novo; a exclusão leva o detalhe junto e serve para quando o recorte muda. Sem grant, 403; apuração inexistente, 422',
+        check('APURAÇÃO PIS/COFINS §117.3: excluir é o "reabrir" do legado — o mesmo período não é refeito (a tela carrega a existente), então refazer é excluir e apurar de novo; a exclusão leva o detalhe junto. Sem grant, 403; apuração inexistente, 422',
           semGrant.status === 403 && naoExiste.status === 422
           && (del.status === 200 || del.status === 204) && Number(sobrou.n) === 0,
           { rbac: semGrant.status, inexistente: naoExiste.status, del: del.status, detalheRestante: sobrou.n });
@@ -24479,6 +24483,61 @@ async function main() {
         await pgSg.query(`DELETE FROM contagem_cedulas WHERE lote_fechado IN (SELECT lote_fechado FROM hist_sangria_suprimento WHERE codhistsangria = ANY($1::int[]) AND lote_fechado IS NOT NULL) OR (idempresa = 1 AND valor = 350.5)`, [ids]).catch(() => undefined);
         await pgSg.query(`DELETE FROM hist_sangria_suprimento WHERE codhistsangria = ANY($1::int[])`, [ids]).catch(() => undefined);
         await pgSg.end();
+      }
+    }
+
+    // ══ §259 APURAÇÃO PIS/COFINS pela regra do legado (UapuracaoPISCOFINS — crédito, débito NFC-e, *_APURA, escopo, período repetido) ══
+    {
+      const pgAq = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const antes = (await pgAq.query(`SELECT idproduto, idpiscofins FROM produtos WHERE idproduto IN (1,2,3)`)).rows as any[];
+      const procCupom = (await pgAq.query(`SELECT proc_cupom FROM cfop WHERE codcfop = '1403'`)).rows[0]?.proc_cupom ?? null;
+      let nfA = 0;
+      try {
+        await pgAq.query(`UPDATE produtos SET idpiscofins = 13 WHERE idproduto IN (1,2,3)`);
+        await pgAq.query(`UPDATE cfop SET proc_cupom = 'S' WHERE codcfop = '1403'`);
+        nfA = await novaNf(baseNf({ tipo: 'E', nronf: 'APUR259', codparceiro: 22, dtemissao: '2040-05-10', dtcontabil: '2040-05-10', itens: [
+          { codproduto: 1, quantidade: 10, vrcusto: 10, cfop: '1102', aliquota: 'T01' },
+          { codproduto: 2, quantidade: 1, vrcusto: 200, cfop: '1403', aliquota: 'T01' },
+          { codproduto: 3, quantidade: 1, vrcusto: 300, cfop: '1253', aliquota: 'F' },
+          { codproduto: 1, quantidade: 1, vrcusto: 50, cfop: '1102', aliquota: 'F' } ] }));
+        await pgAq.query(`UPDATE nf SET proc = 'S' WHERE codnf = $1`, [nfA]);
+        await pgAq.query(`UPDATE nf_prod p SET vricm = CASE o.rn WHEN 1 THEN 18 WHEN 2 THEN 36 ELSE 0 END, idpiscofins = CASE o.rn WHEN 4 THEN 1 ELSE 13 END,
+            vrfrete = 0, depsacess = 0, seguro = 0, vrdescprod = 0
+          FROM (SELECT codnfprod, row_number() OVER (ORDER BY codnfprod) AS rn FROM nf_prod WHERE codnf = $1) o WHERE p.codnfprod = o.codnfprod`, [nfA]);
+        await pgAq.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, iat, desc_acre_item, desc_acre_medio, desc_promocao, icms_valor, cfop, venda_nfc, cancelado, statusnfe, chavenfe, idpiscofins) VALUES
+          (1,'2040-05-12 10:00:00-03','A259','001',259,1,1,1.5,3.33,'A',0.50,0,1.00,1.20,5102,'S','N','P','31400500000000000000000000000000000000000259',13),
+          (1,'2040-05-12 10:00:00-03','A259','001',259,2,2,1.5,3.33,'T',0,-0.40,0,0,5102,'S','N','P','31400500000000000000000000000000000000000259',13)`);
+        const ap = await fetch(`${base}/fiscal/sped/apuracao-pc`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2040-05-01', dtfim: '2040-05-31' }) });
+        const apJ = (await ap.json().catch(() => ({}))) as any;
+        const det = (await pgAq.query(`SELECT d.tipo, d.apuracao, d.tipo_origem, d.id_tipocredito, d.id_basecredito, d.descricaobase, d.idpiscofins, d.descricaopc, d.cst_pis,
+            d.basecalculo, d.aliqpis, d.valorpis, d.aliqcofins, d.valorcofins, d.basecalculoapura, d.valorpisapura, d.valorcofinsapura, c.idempresa
+          FROM apuracao_pc_det d JOIN apuracao_pc c ON c.codapuracao_pc = d.codapuracao_pc WHERE d.codapuracao_pc = $1 AND d.tipo IN ('C','D') ORDER BY d.tipo, d.id_tipocredito, d.id_basecredito`, [apJ.codapuracao_pc])).rows as any[];
+        const achar = (t: string, tc: number, bc: number) => det.find((d) => d.tipo === t && Number(d.id_tipocredito) === tc && Number(d.id_basecredito) === bc);
+        const c1 = achar('C', 101, 1), c4 = achar('C', 101, 4), c106 = achar('C', 106, 1), dn = det.find((d) => d.tipo === 'D' && d.tipo_origem === 'NFC-e');
+        const de_novo = await fetch(`${base}/fiscal/sped/apuracao-pc`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2040-05-01', dtfim: '2040-05-31' }) });
+        const de_novoJ = (await de_novo.json().catch(() => ({}))) as any;
+        const nCab = Number((await pgAq.query(`SELECT count(*) AS n FROM apuracao_pc WHERE dataini = '2040-05-01' AND datafim = '2040-05-31'`)).rows[0].n);
+        check('APURAÇÃO PIS/COFINS §259.1 [o crédito do legado]: a base do item tira o ICMS do item tributado (100 − 18) mas não o do CFOP de PROC_CUPOM (o 1403: 200 inteiros) → 282,00 na linha 101/base 1/situação 13 (PIS 4,65, COFINS 21,43, CST 50 do catálogo); a energia (CFOP 1253 → base de crédito 4 do PC_CONFIG, com a descrição) sai em linha própria; o presumido da carne (situação 1) é o tipo de crédito 106 com a alíquota de entrada 0,66/3,04 (0,33/1,52) e o *_APURA na alíquota cheia (0,83/3,80); CREDITO/ENTRADA e IDEMPRESA nulo (a raiz do CNPJ)',
+          ap.status === 200 && !!c1 && Number(c1.basecalculo) === 282 && Number(c1.valorpis) === 4.65 && Number(c1.valorcofins) === 21.43 && Number(c1.cst_pis) === 50
+          && c1.apuracao === 'CREDITO' && c1.tipo_origem === 'ENTRADA' && Number(c1.idpiscofins) === 13 && c1.descricaopc === 'TRIBUTADOS' && c1.descricaobase === 'AQUISICAO DE BENS PARA REVENDA'
+          && Number(c1.basecalculoapura) === 282 && Number(c1.valorpisapura) === 4.65
+          && !!c4 && Number(c4.basecalculo) === 300 && String(c4.descricaobase ?? '').startsWith('ENERGIA ELETRICA')
+          && !!c106 && Number(c106.basecalculo) === 50 && Number(c106.aliqpis) === 0.66 && Number(c106.valorpis) === 0.33 && Number(c106.valorcofins) === 1.52
+          && Number(c106.valorpisapura) === 0.83 && Number(c106.valorcofinsapura) === 3.8 && det.every((d) => d.idempresa == null),
+          { apJ, det });
+        check('APURAÇÃO PIS/COFINS §259.2 [o débito da NFC-e e o período repetido]: VL_OPR = item (IAT A arredonda 1,5 × 3,33 = 4,995 → 5,00; senão trunca → 4,99) + acréscimo positivo − promoção − acréscimo negativo, MENOS o ICMS do item: 4,50 + 4,59 − 1,20 = 7,89 → PIS 0,13 / COFINS 0,60 (DEBITO/NFC-e, base de crédito 0); apurar de novo o mesmo período não refaz — volta a existente, sem cabeçalho novo',
+          !!dn && Number(dn.basecalculo) === 7.89 && Number(dn.valorpis) === 0.13 && Number(dn.valorcofins) === 0.6 && dn.apuracao === 'DEBITO' && Number(dn.id_basecredito) === 0
+          && de_novo.status === 200 && de_novoJ.existente === true && Number(de_novoJ.codapuracao_pc) === Number(apJ.codapuracao_pc) && nCab === 1,
+          { dn, de_novoJ, nCab });
+      } catch (e) {
+        check('APURAÇÃO PIS/COFINS §259 [preparo]', false, { erro: (e as Error).message });
+      } finally {
+        await pgAq.query(`DELETE FROM apuracao_pc WHERE dataini = '2040-05-01' AND datafim = '2040-05-31'`).catch(() => undefined);
+        await pgAq.query(`DELETE FROM vendas WHERE nropedido = 'A259'`).catch(() => undefined);
+        if (nfA) { await pgAq.query(`DELETE FROM nf_prod WHERE codnf = $1`, [nfA]).catch(() => undefined); await pgAq.query(`DELETE FROM nf WHERE codnf = $1`, [nfA]).catch(() => undefined); }
+        for (const r of antes) await pgAq.query(`UPDATE produtos SET idpiscofins = $1 WHERE idproduto = $2`, [r.idpiscofins, r.idproduto]).catch(() => undefined);
+        await pgAq.query(`UPDATE cfop SET proc_cupom = $1 WHERE codcfop = '1403'`, [procCupom]).catch(() => undefined);
+        await pgAq.end();
       }
     }
 
