@@ -22755,7 +22755,16 @@ async function main() {
         await fetch(`${base}/cadastro/agenda-promocao/${codAg}`, { method: 'PUT', headers: J, body: JSON.stringify({ ...agR, itens: (agR.itens ?? []).map((i: any) => ({ ...i, vlrpromocao: 7.99 })) }) });
         const it2 = (await pgB2.query(`SELECT codagendaitem FROM agenda_promocao_itens WHERE codagenda = $1`, [codAg])).rows[0];
         const agR2 = (await (await fetch(`${base}/cadastro/agenda-promocao/${codAg}`, { headers: H })).json().catch(() => ({}))) as any;
-        await fetch(`${base}/cadastro/agenda-promocao/${codAg}`, { method: 'PUT', headers: J, body: JSON.stringify({ ...agR2, itens: [] }) });
+        // o gatilho CONTROLADELETEAGENDA: o item removido desliga a PROMOCAO do produto em TODAS as lojas — até a de outra origem (loja 2, sem agenda)
+        await pgB2.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, promocao, vrpromo) VALUES (992190,1,10,'S',9),(992190,2,10,'S',9)
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET promocao = 'S', vrpromo = 9`);
+        const regravaSemRemover = await fetch(`${base}/cadastro/agenda-promocao/${codAg}`, { method: 'PUT', headers: J, body: JSON.stringify({ ...agR2 }) });
+        const promoFica = (await pgB2.query(`SELECT string_agg(promocao, ',' ORDER BY idempresa) p FROM multi_preco WHERE idproduto = 992190 AND idempresa IN (1,2)`)).rows[0]?.p;
+        const agR3 = (await (await fetch(`${base}/cadastro/agenda-promocao/${codAg}`, { headers: H })).json().catch(() => ({}))) as any;
+        await fetch(`${base}/cadastro/agenda-promocao/${codAg}`, { method: 'PUT', headers: J, body: JSON.stringify({ ...agR3, itens: [] }) });
+        const promoSai = (await pgB2.query(`SELECT string_agg(promocao, ',' ORDER BY idempresa) p FROM multi_preco WHERE idproduto = 992190 AND idempresa IN (1,2)`)).rows[0]?.p;
+        check('AGENDA §219.4b [o gatilho CONTROLADELETEAGENDA]: regravar a agenda sem tirar o item não mexe na promoção (S,S); tirar o item desliga a PROMOCAO do produto nas duas lojas — inclusive a da loja 2, de outra origem (o filtro por loja está comentado no gatilho)',
+          regravaSemRemover.status === 200 && promoFica === 'S,S' && promoSai === 'N,N', { promoFica, promoSai });
         const lAg = (await pgB2.query(`SELECT acao, historico FROM log WHERE tabela = 'AGENDA_PROMOCAO_ITEM' AND valor = $1 ORDER BY idlog`, [codAg])).rows as any[];
         const cab = `\n CODITEM: ${it1?.codagendaitem}\n IDPRODUTO: 992190\n DESCRIÇÃO: ITEM AGENDA 219`;
         check('BAIXA §219.4 [agenda]: a LOG por item como o binário novo — "INCLUSÃO DE ITEM NA AGENDA: …", "MODIFICAÇÃO DE ITEM DA AGENDA: … CAMPO: VLRPROMOCAO / VALOR ANTERIOR: 8,5 / VALOR ATUAL: 7,99" (só o que mudou: o DTATIVO do item que já era ativo fica) e "EXCLUSÃO DE ITEM DA AGENDA: …"; o CODITEM não muda ao regravar',

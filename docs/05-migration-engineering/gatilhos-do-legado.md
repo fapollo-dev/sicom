@@ -55,7 +55,7 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
 | `UPDATE_CUSTO_MULTI_PRECO` | MULTI_PRECO | AFTER UPDATE | HISTORICO_DINAMICO de VRCUSTO, VRCUSTOREP, VRPROMO, VRVENDA; operador = CLIENT_IDENTIFIER/CODUSUALT/PRODUTOS | sim: 135.758 linhas em 2026 | `migrations/354_multi_preco_historico_custo.sql:16-45` | ✅ |
 | `ATUALIZAPROD` | MULTI_PRECO | BEFORE I/U | Sempre DTULTIMALTERACAO := agora. INSERT: DTULTPRECOALTERADO e ETQ_IMPRESSA 'N'. UPDATE com VRVENDA/VRPROMO/PROMOCAO/**ATACAREJO_ATIVO** mudado: idem | sim | ✅ (25/09/2026) UPDATE: `migrations/365_atualizaprod.sql` (com ATACAREJO_ATIVO e DTULTIMALTERACAO); INSERT: `produto-lojas.ts` incluirNasLojas e `produto.aggregate.ts` (linha nova do cadastro), fora do banco por causa do delete+insert | ✅ |
 | `CLUBE_DESCONTO_ESTOQUE` | CLUBE_DESCONTO | BEFORE UPDATE | Toda alteração recalcula ENCERRADA: 'T' só se MAXIMO_ESTOQUE>0 e VENDA_ESTOQUE ≥ teto; senão 'F' | sim (3.125 regras, 0 com teto, 0 encerradas) | ✅ (25/09/2026) `migrations/369_clube_desconto_estoque.sql` | ✅ |
-| `CONTROLADELETEAGENDA` | AGENDA_PROMOCAO_ITENS | BEFORE DELETE | MULTI_PRECO.PROMOCAO := 'N' do produto **em todas as lojas** (o filtro por loja está comentado) | raro: 3 exclusões de item em 2026 | `agenda-promocao.aggregate.ts:377-386` desliga só as linhas desta agenda (codagenda); não toca promoção de outra origem | ⚠️ |
+| `CONTROLADELETEAGENDA` | AGENDA_PROMOCAO_ITENS | BEFORE DELETE | MULTI_PRECO.PROMOCAO := 'N' do produto **em todas as lojas** (o filtro por loja está comentado) | raro: 3 exclusões de item em 2026 | ✅ (25/09/2026) `agenda-promocao.aggregate.ts` aposInserirItensTrx — o item removido desliga a PROMOCAO nas lojas todas | ✅ |
 | `ATUALIZAPROD_ATACAREJO` | MULTI_PRECO_ATACAREJO | BEFORE I/U | Inclusão ou VALOR/QUANTIDADE mudado: MULTI_PRECO.DTULTPRECOALTERADO e ETQ_IMPRESSA 'N' | quase: 3 linhas; escrita por `uAjustePrecos`, `udmCadProduto` | a tabela não existe no destino | ❌ |
 | `CHECK_REMESSAS_BOLETOS_CONTAS` | ARECEBER | BEFORE DELETE | Erro se o título está em REMESSAS_BOLETOS_CONTAS com INDR ≠ 'E' | sim: 14.133 de 14.224 linhas ativas, última em 01/09/2026 | ✅ (25/09/2026) `migrations/367_areceber_remessa_boleto.sql` — gatilho BEFORE DELETE, todos os caminhos; 422 pelo HINT | ✅ |
 | `REM_RECEBER` | ARECEBER | AFTER I/U/D | Além da remessa: HISTARECEBER "DATA DA VENDA ALTERADA"; apaga/atualiza TESOURARIA (RCB), NF_FINANCEIRO_DIF_PEDIDO e MAPA_DE_CARGA_RECEBIMENTOS | HISTARECEBER sim (16, até 12/2025); as outras 3 tabelas estão vazias | `migrations/315_histareceber.sql:15-31`. O resto é morto | ✅ |
@@ -143,8 +143,9 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
 11. ✅ **`CASCATA_FAMILIA_PROD` (portado em 25/09/2026, mig 371, como está).** Mudar o departamento ou grupo de uma família não arrastava os
     produtos. ⚠️ O gatilho move TODOS os produtos do departamento/grupo antigo, não só os da família — portado igual; nenhuma alteração
     desse tipo está na LOG da produção. Se o cliente preferir mover só os produtos da família, é uma linha no gatilho (decisão dele).
-12. **`CONTROLADELETEAGENDA` (⚠️, preço, baixo).** O Apollo desliga só o preço da agenda; o legado desliga PROMOCAO do
-    produto em todas as lojas. 3 casos em 2026.
+12. ✅ **`CONTROLADELETEAGENDA` (corrigido em 25/09/2026, `agenda-promocao.aggregate.ts`).** O Apollo desligava só o preço da agenda; agora o item
+    removido desliga a PROMOCAO do produto em todas as lojas, como o gatilho (inclusive a de outra origem). No código, não no banco: o detalhe
+    é regravado por delete+insert. A exclusão da agenda é lógica e não dispara (como no legado).
 13. **`REM_PARCEIROS` (❌, cadastro, baixo).** Inativar o parceiro não inativa endereços, relacionados e pagamentos.
     Quem lê é o PDV (via remessa).
 14. **`RECEITA_PROD_HIST`, `PRODUCAO_HIST`, `ITENS_PRODUCAO_HIST`, `ITENS_PRODUCAO_RECEITA_HIST` (❌, fiscal/auditoria,

@@ -183,8 +183,15 @@ export const agendaPromocaoAggregateConfig: AggregateConfig = {
       },
       // a LOG por ITEM do binário novo (formulário "Agenda de Promoção", tabela AGENDA_PROMOCAO_ITEM, chave CODAGENDA — 12.396 Inseriu, 2.114
       // Alterou e 8 Excluiu em 2025-26), texto como a produção grava (LF, acentuado)
-      aposInserirItensTrx: async ({ trx, masterId, snapshot, emp }) => {
-        await logDosItens(trx, masterId, (snapshot as { linhas?: Map<number, Record<string, unknown>> } | undefined)?.linhas ?? new Map(), emp);
+      aposInserirItensTrx: async ({ trx, masterId, snapshot, emp, itens }) => {
+        const linhas = (snapshot as { linhas?: Map<number, Record<string, unknown>> } | undefined)?.linhas ?? new Map<number, Record<string, unknown>>();
+        await logDosItens(trx, masterId, linhas, emp);
+        // o gatilho CONTROLADELETEAGENDA (BEFORE DELETE em AGENDA_PROMOCAO_ITENS): o item REMOVIDO desliga a PROMOCAO do produto em TODAS as
+        // lojas (o filtro por loja está comentado no gatilho) — inclusive promoção de outra origem. Fica no código: o detalhe é regravado por
+        // delete+insert, e no banco cada gravação desligaria a promoção de todos os itens. A exclusão da agenda é lógica (INDR), não dispara
+        const ficam = new Set(itens.map((i) => Number(i.idproduto)));
+        const removidos = [...linhas.keys()].filter((p) => !ficam.has(p));
+        if (removidos.length) await trx.updateTable('multi_preco').set({ promocao: 'N' }).where('idproduto', 'in', removidos).execute();
       },
       // ATIVO default 'S'; NROITEM sequencial; DTATIVO=now nos ativos (fiel ao legado, DTATIVO gravado ao ativar).
       // EMPRESAS: a lista selecionada vale para todos os itens (btnGravar:703-708); sem lista no dto, cada produto fica
