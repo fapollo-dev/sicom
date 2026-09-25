@@ -2697,6 +2697,13 @@ async function main() {
         && delRem2.status === 204,
         { del: [delRem.status, delRemJ], aindaExiste, del2: delRem2.status });
       await pgParcelas.query(`DELETE FROM remessas_boletos WHERE codremessa = $1`, [codRemessa]);
+      // o gatilho VALIDA_AGRUPAMENTO: título a pagar com CODGRUPO (ou CODGRUPO_AGRUPAMENTO_APG) 0 é recusado com o texto do legado
+      const apg = Number(((await pgParcelas.query(`SELECT min(codapg) AS c FROM apagar`)).rows[0] as any)?.c);
+      const tenta = async (set: string) => { try { await pgParcelas!.query(`UPDATE apagar SET ${set} WHERE codapg = $1`, [apg]); return 'ok'; } catch (e: any) { return `${e.hint}|${e.message}`; } };
+      const g0 = await tenta('codgrupo = 0');
+      const a0 = await tenta('codgrupo_agrupamento_apg = 0');
+      check('AP §VALIDA_AGRUPAMENTO: CODGRUPO 0 ou CODGRUPO_AGRUPAMENTO_APG 0 no título a pagar → erro APAGAR_GRUPO_ZERO com o texto do legado ("ERRO: ACIONAR O SUPORTE…"); a linha não muda',
+        apg > 0 && g0.startsWith('APOLLO:APAGAR_GRUPO_ZERO|ERRO: ACIONAR O SUPORTE') && a0.startsWith('APOLLO:APAGAR_GRUPO_ZERO|'), { apg, g0, a0 });
     }
 
     // 31.7) RBAC: operador sem grant não cria.
