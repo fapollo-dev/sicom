@@ -130,7 +130,7 @@ export class DevolucaoCompraService {
     });
   }
 
-  /** FINALIZAR DIGITAÇÃO (EM_DIGITACAO → DIGITADO): exige ≥1 item. */
+  /** FINALIZAR DIGITAÇÃO ('EM DIGITACAO' → DIGITADO): exige ≥1 item. */
   async finalizar(codpeddevcompra: number): Promise<{ codpeddevcompra: number; status: string }> {
     const emp = this.emp();
     // exige ao menos 1 item antes de finalizar (btnFinalizar do legado).
@@ -141,24 +141,24 @@ export class DevolucaoCompraService {
       .executeTakeFirst();
     if (Number((n as any)?.n ?? 0) === 0) throw new BusinessRuleError('DEVOLUCAO_SEM_ITENS', { codpeddevcompra });
     void emp;
-    return this.setStatus(codpeddevcompra, ['EM_DIGITACAO'], 'DIGITADO', 'DEVOLUCAO_ESTADO_INVALIDO');
+    return this.setStatus(codpeddevcompra, ['EM DIGITACAO'], 'DIGITADO', 'DEVOLUCAO_ESTADO_INVALIDO');
   }
 
-  /** REABRIR PARA DIGITAÇÃO (DIGITADO → EM_DIGITACAO). */
+  /** REABRIR PARA DIGITAÇÃO (DIGITADO → 'EM DIGITACAO'). */
   async reabrir(codpeddevcompra: number): Promise<{ codpeddevcompra: number; status: string }> {
-    return this.setStatus(codpeddevcompra, ['DIGITADO'], 'EM_DIGITACAO', 'DEVOLUCAO_NAO_DIGITADA');
+    return this.setStatus(codpeddevcompra, ['DIGITADO'], 'EM DIGITACAO', 'DEVOLUCAO_NAO_DIGITADA');
   }
 
-  /** CANCELAR (EM_DIGITACAO/DIGITADO → CANCELADO): libera o saldo dos itens de volta (deixam de contar). */
+  /** CANCELAR ('EM DIGITACAO'/DIGITADO → CANCELADO): libera o saldo dos itens de volta (deixam de contar). */
   async cancelar(codpeddevcompra: number): Promise<{ codpeddevcompra: number; status: string }> {
-    return this.setStatus(codpeddevcompra, ['EM_DIGITACAO', 'DIGITADO'], 'CANCELADO', 'DEVOLUCAO_NAO_CANCELAVEL');
+    return this.setStatus(codpeddevcompra, ['EM DIGITACAO', 'DIGITADO'], 'CANCELADO', 'DEVOLUCAO_NAO_CANCELAVEL');
   }
 
   /**
    * corte-2 — GERAR NF DE DEVOLUÇÃO (uNF.ImportaPedidoDevolucaoCompra): materializa a NF de SAÍDA finalidade=4
    * a partir do documento DIGITADO. Itens = qtd_devolvida + custo + ESPELHO fiscal RATEADO da entrada
    * (proporção qtd_devolvida/qtd_entrada); CFOP = o de devolução do item; `nf_referencia` (refNFe) = 1 por NF
-   * de entrada distinta; codparceiro = fornecedor. Vincula codnf_emitida + status→NOTA_FISCAL_EMITIDA. Os
+   * de entrada distinta; codparceiro = fornecedor. Vincula codnf_emitida + status→'NOTA FISCAL EMITIDA'. Os
    * EFEITOS (estoque−, A RECEBER contra o fornecedor) o operador roda na própria NF (F3/F4 — máquina existente).
    * Anti-duplo: CAS-first no status (M2). Guarda: NF de origem não pode estar CANCELADA (M3).
    */
@@ -190,7 +190,7 @@ export class DevolucaoCompraService {
     if (jaNf) {
       await (this.dbp.forTenant() as AnyDB)
         .updateTable('pedido_devolucao_compra')
-        .set({ status: 'NOTA_FISCAL_EMITIDA', codnf_emitida: jaNf.codnf, usultalteracao: op, dtultimalteracao: sql`now()` })
+        .set({ status: 'NOTA FISCAL EMITIDA', codnf_emitida: jaNf.codnf, usultalteracao: op, dtultimalteracao: sql`now()` })
         .where('codpeddevcompra', '=', codpeddevcompra)
         .where('idempresa', '=', emp)
         .execute();
@@ -362,10 +362,10 @@ export class DevolucaoCompraService {
       referencias, // exigido por validaDevolucao (finalidade='4' → ≥1 documento referenciado)
     };
 
-    // CAS-first anti-duplo (M2): DIGITADO+codnf_emitida null → NOTA_FISCAL_EMITIDA. Só UMA chamada concorrente passa.
+    // CAS-first anti-duplo (M2): DIGITADO+codnf_emitida null → 'NOTA FISCAL EMITIDA'. Só UMA chamada concorrente passa.
     const marca = await (this.dbp.forTenant() as AnyDB)
       .updateTable('pedido_devolucao_compra')
-      .set({ status: 'NOTA_FISCAL_EMITIDA', usultalteracao: op, dtultimalteracao: sql`now()` })
+      .set({ status: 'NOTA FISCAL EMITIDA', usultalteracao: op, dtultimalteracao: sql`now()` })
       .where('codpeddevcompra', '=', codpeddevcompra)
       .where('idempresa', '=', emp)
       .where('status', '=', 'DIGITADO')

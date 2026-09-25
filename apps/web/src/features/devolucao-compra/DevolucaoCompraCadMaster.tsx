@@ -16,7 +16,8 @@ const n = (v: unknown) => (Number(v) || 0);
 const fmtQtd = (v: unknown) => n(v).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 const fmtMoeda = (v: unknown) => n(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const STATUS_LABEL: Record<string, string> = {
-  EM_DIGITACAO: 'Em digitação', DIGITADO: 'Digitado', NOTA_FISCAL_EMITIDA: 'NF emitida', FINALIZADO: 'Finalizado', CANCELADO: 'Cancelado',
+  // os valores do legado (STATUS_PEDIDO, com espaço)
+  'EM DIGITACAO': 'Em digitação', DIGITADO: 'Digitado', 'NOTA FISCAL EMITIDA': 'NF emitida', FINALIZADO: 'Finalizado', CANCELADO: 'Cancelado',
 };
 
 /**
@@ -125,7 +126,7 @@ export function DevolucaoCompraCadMaster() {
         const id = Number(r.codpeddevcompra);
         const st = String(r.status);
         const acts: any[] = [];
-        if (st === 'EM_DIGITACAO') {
+        if (st === 'EM DIGITACAO') {
           acts.push({ id: 'finalizar', label: 'Finalizar', icon: <CheckCircle2 size={16} />, onClick: () => void acao(() => finalizarDevolucao(id), 'Devolução finalizada.') });
           acts.push({ id: 'excluir', label: 'Excluir', icon: <Trash2 size={16} />, destructive: true, onClick: () => void acao(() => removerDevolucao(id), 'Devolução excluída.') });
         }
@@ -133,10 +134,10 @@ export function DevolucaoCompraCadMaster() {
           acts.push({ id: 'gerarnf', label: 'Gerar NF', icon: <FileOutput size={16} />, onClick: () => void acao(() => gerarNfDevolucao(id), 'NF de devolução gerada. Processe/fature na tela da NF de saída.') });
           acts.push({ id: 'reabrir', label: 'Reabrir', icon: <RotateCcw size={16} />, onClick: () => void acao(() => reabrirDevolucao(id), 'Devolução reaberta.') });
         }
-        if (st === 'NOTA_FISCAL_EMITIDA') {
+        if (st === 'NOTA FISCAL EMITIDA') {
           acts.push({ id: 'faturar', label: 'Faturar', icon: <HandCoins size={16} />, onClick: () => void acao(() => faturarDevolucao(id), 'Devolução faturada: A Receber gerado contra o fornecedor.') });
         }
-        if (st === 'EM_DIGITACAO' || st === 'DIGITADO') {
+        if (st === 'EM DIGITACAO' || st === 'DIGITADO') {
           acts.push({ id: 'cancelar', label: 'Cancelar', icon: <Ban size={16} />, destructive: true, onClick: () => void acao(() => cancelarDevolucao(id), 'Devolução cancelada.') });
         }
         return acts;

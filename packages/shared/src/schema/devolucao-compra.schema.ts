@@ -23,7 +23,7 @@ const dec = (inner: z.ZodNumber = z.number()) =>
     return v;
   }, inner.optional());
 
-export const DEVOLUCAO_STATUS = ['EM_DIGITACAO', 'DIGITADO', 'NOTA_FISCAL_EMITIDA', 'FINALIZADO', 'CANCELADO'] as const;
+export const DEVOLUCAO_STATUS = ['EM DIGITACAO', 'DIGITADO', 'NOTA FISCAL EMITIDA', 'FINALIZADO', 'CANCELADO'] as const;
 export type DevolucaoStatus = (typeof DEVOLUCAO_STATUS)[number];
 
 /** Item da devolução: referencia o item da NF de ENTRADA (codnf, codnfprod) + quanto devolver. */

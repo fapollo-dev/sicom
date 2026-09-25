@@ -112,3 +112,14 @@ regravado herda da linha antiga, casada por chave, o que o agregado não gerenci
 estoque por loja, composição, decomposição, receita), inventário, troca, scrap e taxas das operadoras.
 
 Smoke §73.9 (IPI da nota), §73.9b (valores da nota + IPI devolvido), §73.9c (a NF salva sem apagar). **1445/0.**
+
+## Corte "a unidade e o status do legado" (25/09/2026) — auditoria de esqueletos §4.8 (mig 338)
+
+- **Unidade do item = a de venda**: 'UN', salvo nota em 'KG' (`CarregaItens`, uCadPedidoDevolucaoCompras.pas:995-1001); a da
+  nota fica em UNIDADE_NOTA, o FATOR_EMBALAGEM é o da nota (:1003) e o VALOR_VENDA é o `NF_PROD.VRVENDA` (:1105). O Apollo
+  gravava a unidade da nota com fator 1 — a NF-e sairia "24 CX" onde o legado emite "24 UN" (242 itens em 94 de 217
+  devoluções de 2025-26; devolução 10326: FD na entrada, UN na NF 163455).
+- **Status com os valores do legado**: 'EM DIGITACAO' e 'NOTA FISCAL EMITIDA' (com espaço; produção 64 e 34). O Apollo usava
+  com sublinhado e a devolução aberta migrada não podia ser editada, finalizada nem cancelada. Mig 338 converte e troca o default.
+- Smoke §205. Pendentes: NF_STATUS_PROCESSO stDevolucao (transversal), VRCUSTOREP (não vem do CarregaItens), FINALIZADO (não
+  provado no fonte).

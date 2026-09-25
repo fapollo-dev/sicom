@@ -8875,8 +8875,8 @@ async function main() {
     const d73C1J = (await d73C1.json().catch(() => ({}))) as any;
     const d73Id1 = Number(d73C1J.codpeddevcompra ?? d73C1J.codigo);
     const d73Read1 = await (await fetch(`${base}/${DEV}/${d73Id1}`, { headers: H })).json() as any;
-    check('DEVOLUÇÃO: cria parcial (qtd 4) → 201, status EM_DIGITACAO, total_produto_devolvido=20 (custo×qtd)',
-      d73C1.status === 201 && d73Read1.status === 'EM_DIGITACAO' && (d73Read1.itens ?? []).length === 1 && Number(d73Read1.itens[0].total_produto_devolvido) === 20,
+    check('DEVOLUÇÃO: cria parcial (qtd 4) → 201, status "EM DIGITACAO" (o valor do legado, com espaço), total_produto_devolvido=20 (custo×qtd)',
+      d73C1.status === 201 && d73Read1.status === 'EM DIGITACAO' && (d73Read1.itens ?? []).length === 1 && Number(d73Read1.itens[0].total_produto_devolvido) === 20,
       { status: d73C1.status, read: { status: d73Read1.status, tot: d73Read1.itens?.[0]?.total_produto_devolvido } });
 
     // 73.3) SALDO decresce: picker agora mostra saldo 6; devolver 7 → 422 QTDE_EXCEDE; devolver 6 (exato) → 201.
@@ -8936,7 +8936,7 @@ async function main() {
       && Number(nfHdr?.cod_ped_dev_compra) === d73Id1 // vínculo IN-ROW (fold anti-duplo)
       && Number(nfItm?.quantidade) === 4 && nfItm?.cfop === '5202' && Number(nfRef?.codnf_ref) === d73Nf
       && Number(nfHdr?.idsituacao_nf) === 17 // corte SPED c1: situação operacional do CFOP de saída (golden 17)
-      && devLink?.status === 'NOTA_FISCAL_EMITIDA' && Number(devLink?.codnf_emitida) === codnfDev
+      && devLink?.status === 'NOTA FISCAL EMITIDA' && Number(devLink?.codnf_emitida) === codnfDev
       && d73GnfAgain.status === 422 && d73GnfAgainJ.code === 'DEVOLUCAO_NF_JA_EMITIDA',
       { gnf: [d73Gnf.status, codnfDev], nf: nfHdr, item: nfItm, ref: nfRef, link: devLink, again: [d73GnfAgain.status, d73GnfAgainJ.code] });
 
@@ -21576,6 +21576,33 @@ async function main() {
         await pgAg.query(`DELETE FROM agenda_promocao WHERE codagenda = ANY($1::int[])`, [[cod, cod2]]);
       } finally {
         await pgAg.end();
+      }
+    }
+
+    // ══ §205 DEVOLUÇÃO DE COMPRAS (auditoria de esqueletos §4.8): a unidade do item é a de VENDA — 'UN', salvo nota em 'KG'
+    {
+      const pgDv = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const DEV = 'compras/devolucao-compra';
+        const nf = Number((await pgDv.query(`INSERT INTO nf (idempresa,tipo,modelo,serie,dtemissao,dtcontabil,tipoemissao,finalidade,cfop,codparceiro,proc,totalnf,totalprod) VALUES (1,'E',55,'1',now(),now(),'0','1','1102',22,'N',0,0) RETURNING codnf`)).rows[0].codnf);
+        const itCx = Number((await pgDv.query(`INSERT INTO nf_prod (codnf,nroitem,codproduto,quantidade,fatorembal,unidade,vrcusto,vrvenda,cfop,total_produto_nota) VALUES ($1,1,1,2,12,'CX',60,4.99,'1102',120) RETURNING codnfprod`, [nf])).rows[0].codnfprod);
+        const itKg = Number((await pgDv.query(`INSERT INTO nf_prod (codnf,nroitem,codproduto,quantidade,fatorembal,unidade,vrcusto,cfop,total_produto_nota) VALUES ($1,2,2,3.5,1,'KG',8,'1102',28) RETURNING codnfprod`, [nf])).rows[0].codnfprod);
+        const cr = await fetch(`${base}/${DEV}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, itens: [
+          { codnf: nf, codnfprod: itCx, idproduto: 1, qtd_devolvida: 24 }, { codnf: nf, codnfprod: itKg, idproduto: 2, qtd_devolvida: 3.5 },
+        ] }) });
+        const crJ = (await cr.json().catch(() => ({}))) as any;
+        const cod = Number(crJ.codpeddevcompra ?? crJ.codigo) || 0;
+        const its = (await pgDv.query(`SELECT codnfprod, unidade, unidade_nota, fatorembalagem::float AS f, valor_venda::float AS vv, qtd_devolvida::float AS q FROM pedido_devolucao_compra_i WHERE codpeddevcompra=$1 ORDER BY codnfprod`, [cod])).rows as any[];
+        const st = (await pgDv.query(`SELECT status FROM pedido_devolucao_compra WHERE codpeddevcompra=$1`, [cod])).rows[0]?.status;
+        const cx = its.find((i) => Number(i.codnfprod) === itCx), kg = its.find((i) => Number(i.codnfprod) === itKg);
+        check('DEVOLUÇÃO §205 [a unidade da NF-e]: a nota entrou em 2 CX × 12 — a devolução de 24 sai em UN (a NF-e dizia "24 CX"; 242 itens em 94 de 217 devoluções de 2025-26), com UNIDADE_NOTA CX, FATOR_EMBALAGEM 12 e o VALOR_VENDA do item da nota; o item em KG fica KG; o status nasce "EM DIGITACAO" (o do legado)',
+          cr.status === 201 && cx?.unidade === 'UN' && cx?.unidade_nota === 'CX' && cx?.f === 12 && cx?.vv === 4.99 && cx?.q === 24
+          && kg?.unidade === 'KG' && kg?.unidade_nota === 'KG' && st === 'EM DIGITACAO',
+          { status: cr.status, crJ, its, st });
+        await pgDv.query(`DELETE FROM pedido_devolucao_compra_i WHERE codpeddevcompra=$1`, [cod]);
+        await pgDv.query(`DELETE FROM pedido_devolucao_compra WHERE codpeddevcompra=$1`, [cod]);
+      } finally {
+        await pgDv.end();
       }
     }
 

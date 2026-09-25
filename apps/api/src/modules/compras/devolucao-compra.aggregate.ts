@@ -62,6 +62,8 @@ export const devolucaoCompraAggregateConfig: AggregateConfig = {
       colunas: [
         'codnf', 'codnfprod', 'idproduto', 'nroitem', 'unidade', 'fatorembalagem', 'cfop',
         'qtd_nota_fiscal', 'qtd_devolvida', 'valor_custo', 'total_produto_nota', 'total_produto_devolvido', 'obs',
+        // a unidade da nota de entrada e o preço de venda do item da nota (CarregaItens :993, :1105)
+        'unidade_nota', 'valor_venda',
         // mig 308: os tributos DA NOTA (o que o fornecedor destacou) e a parte devolvida — calculados no servidor
         ...COLUNAS_FISCAIS_DEVOLUCAO,
       ],
@@ -82,7 +84,7 @@ export const devolucaoCompraAggregateConfig: AggregateConfig = {
             .innerJoin('nf as n', 'n.codnf', 'p.codnf')
             .leftJoin('cfop as c', (j: any) => j.on(sql`c.codcfop = coalesce(p.cfop_original::text, p.cfop)`))
             .select([
-              'p.codproduto as idproduto', 'p.vrcusto as vrcusto', 'p.unidade as unidade', 'p.descricao as descricao',
+              'p.codproduto as idproduto', 'p.vrcusto as vrcusto', 'p.unidade as unidade', 'p.descricao as descricao', 'p.fatorembal as fatorembal', 'p.vrvenda as vrvenda',
               sql<number>`coalesce(p.quantidade,0) * coalesce(p.fatorembal,1)`.as('qtd'),
               'c.cfop_devolucao as cfop_dev', sql<string>`coalesce(p.cfop_original::text, p.cfop)`.as('cfop_origem'),
               'p.cst_nota', 'p.cst', 'p.icms_aliq_nota', 'p.icms_nota_bc', 'p.icms_nota_valor', 'p.icms_red_bc_nota',
@@ -107,9 +109,14 @@ export const devolucaoCompraAggregateConfig: AggregateConfig = {
           const item: Record<string, unknown> = {
             ...it,
             idproduto: o.idproduto ?? it.idproduto,
-            unidade: (o.unidade as string) ?? it.unidade,
+            // a devolução sai na unidade de VENDA: 'UN', salvo nota em 'KG' (CarregaItens :995-1001) — a quantidade já é
+            // quantidade × fator. Com a unidade da nota, a NF-e sairia "24 CX" onde o legado emite "24 UN" (auditoria §4.8:
+            // 242 itens em 94 de 217 devoluções de 2025-26); a unidade da nota fica em UNIDADE_NOTA
+            unidade: String(o.unidade ?? it.unidade ?? '').trim().toUpperCase() === 'KG' ? 'KG' : 'UN',
+            unidade_nota: (o.unidade as string) ?? null,
             descricao_produto: (o.descricao as string) ?? null,
-            fatorembalagem: 1, // recebimento novo grava fatorembal=1; a qtd efetiva já está em qtd_nota_fiscal
+            fatorembalagem: num(o.fatorembal) > 0 ? num(o.fatorembal) : 1, // FATOR_EMBALAGEM da nota (:1003)
+            valor_venda: o.vrvenda != null ? num(o.vrvenda) : null,
             cfop: (o.cfop_dev as string) ?? it.cfop,
             valor_custo: r4(custo),
             qtd_nota_fiscal: qtdEnt,
@@ -180,7 +187,7 @@ export const devolucaoCompraAggregateConfig: AggregateConfig = {
         .where(sql`coalesce(indr,'I')`, '<>', 'E')
         .executeTakeFirst()) as { status?: string } | undefined;
       if (!atual) throw new BusinessRuleError('DEVOLUCAO_NAO_ENCONTRADA', { codpeddevcompra: id });
-      if (atual.status !== 'EM_DIGITACAO') throw new BusinessRuleError('DEVOLUCAO_NAO_EDITAVEL', { status: atual.status });
+      if (atual.status !== 'EM DIGITACAO') throw new BusinessRuleError('DEVOLUCAO_NAO_EDITAVEL', { status: atual.status });
     }
 
     // fornecedor tem de existir e ser fornecedor (FRN='S') — mesmo padrão do pedido de compra.
@@ -271,7 +278,7 @@ export const devolucaoCompraAggregateConfig: AggregateConfig = {
       .where(sql`coalesce(indr,'I')`, '<>', 'E')
       .executeTakeFirst()) as { status?: string } | undefined;
     if (!d) return; // já excluído / not-found → soft-delete idempotente
-    if (d.status !== 'EM_DIGITACAO') throw new BusinessRuleError('DEVOLUCAO_NAO_EDITAVEL', { status: d.status });
+    if (d.status !== 'EM DIGITACAO') throw new BusinessRuleError('DEVOLUCAO_NAO_EDITAVEL', { status: d.status });
   },
 };
 
