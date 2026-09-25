@@ -2040,6 +2040,11 @@ async function main() {
     );
     const nfTxRead = (await (await fetch(`${base}/fiscal/nf/${nfTx}`, { headers: H })).json()) as any;
     check('NF fica statusnfe=P + chavenfe + protocolo_nfe após transmitir', nfTxRead.statusnfe === 'P' && nfTxRead.chavenfe === txBody.chave && !!nfTxRead.protocolo_nfe, { statusnfe: nfTxRead.statusnfe, chavenfe: nfTxRead.chavenfe, protocolo: nfTxRead.protocolo_nfe });
+    // o cNF da chave é o CODNOTAFISCAL que o ERP gera e grava antes do envio (NFe.pas:810-846; 747 de 747 chaves de 2026)
+    const cnfTx = (await pg23.query(`SELECT codnotafiscal FROM nf WHERE codnf = $1`, [nfTx])).rows[0]?.codnotafiscal;
+    check('NF-e §23.1c [o cNF da chave é o CODNOTAFISCAL]: a nota ganha o código numérico antes do envio (aleatório, fora das sequências proibidas, ≠ nNF) e a chave o carrega nas posições 36-43',
+      Number(cnfTx) > 0 && String(txBody.chave ?? '').slice(35, 43) === String(cnfTx).padStart(8, '0') && Number(cnfTx) !== 9001,
+      { cnf: cnfTx, chave: txBody.chave });
 
     // 23.1b) auditoria: grava nfe_xml (1) + historico_envio_nfe (tipo S).
     const xmlN = (await pg23.query(`SELECT count(*)::int n FROM nfe_xml WHERE codnf=$1`, [nfTx])).rows[0];

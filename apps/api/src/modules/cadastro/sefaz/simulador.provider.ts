@@ -33,9 +33,9 @@ export class SimuladorSefazProvider implements SefazPort {
   }
 
   async transmitir(req: TransmitirReq): Promise<TransmitirRes> {
-    // código numérico (cNF) aleatório de 8 díg, diferente do nNF (regra SEFAZ).
-    let cnf = Math.floor(Math.random() * 100_000_000);
-    if (cnf === Number(req.numero)) cnf = (cnf + 1) % 100_000_000;
+    // código numérico (cNF): o da nota (gerado e gravado pelo ERP antes do envio); sem ele, aleatório de 8 díg ≠ nNF (regra SEFAZ)
+    let cnf = Number(req.cnf) > 0 ? Number(req.cnf) : Math.floor(Math.random() * 100_000_000);
+    if (!(Number(req.cnf) > 0) && cnf === Number(req.numero)) cnf = (cnf + 1) % 100_000_000;
     const chave = montarChaveNfe({
       cuf: req.cuf,
       aamm: this.aamm(req.dtemissao),

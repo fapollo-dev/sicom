@@ -25,6 +25,8 @@ export interface TransmitirReq {
   cuf: number; // IBGE da UF do emitente
   ambiente: string; // '1' produção / '2' homologação
   tpEmis: number; // 1 normal
+  /** o código numérico da chave (cNF) que a nota já tem (NF.CODNOTAFISCAL) — o provider o usa, para a retransmissão sair com a mesma chave */
+  cnf?: number;
   /**
    * ⚠️ OS GRUPOS DA REFORMA (IBS/CBS/IS) — obrigatórios no leiaute da NF-e desde a fase-teste de 2026.
    *

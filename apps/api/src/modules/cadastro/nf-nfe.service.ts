@@ -55,11 +55,42 @@ export class NfNfeService {
   ) {}
 
   /** transmite a NFe (mod.55) à SEFAZ (via porta) e persiste chave/protocolo/status. */
+  /**
+   * o código numérico da chave (cNF, NF.CODNOTAFISCAL) — `EnviarNFe`, NFe.pas:810-846: a nota que ainda não tem ganha um aleatório
+   * `random(99999999)` que não seja uma das sequências proibidas (00000000, 11111111 … 99999999, 12345678, 23456789 … 01234567), nem o
+   * nNF, nem o código de outra nota de emissão própria; e ele é gravado ANTES do envio — a nota que não chegou a ser autorizada guarda o
+   * seu (19 das 38 sem chave em 2026) e a retransmissão sai com a mesma chave. Na produção, 747 de 747 chaves têm o CODNOTAFISCAL nas
+   * posições 36-43.
+   */
+  private async codigoNumericoDaChave(codnf: number, emp: number): Promise<number | undefined> {
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const nf = (await trx.selectFrom('nf').select(['codnotafiscal', 'nronf', 'modelo', 'tipoemissao', 'proc', 'statusnfe', 'cancelada']).where('codnf', '=', codnf)
+        .where('idempresa', '=', emp).forUpdate().executeTakeFirst()) as Record<string, unknown> | undefined;
+      // só a nota que vai de fato ao envio (as pré-condições do transmitir, que recusa as outras com o erro dele)
+      if (!nf || Number(nf.modelo) !== 55 || String(nf.tipoemissao) === '1' || nf.proc !== 'S' || nf.cancelada === 'S' || ['P', 'D', 'C'].includes(String(nf.statusnfe ?? ''))) {
+        return undefined;
+      }
+      if (num(nf.codnotafiscal) > 0) return num(nf.codnotafiscal);
+      const proibidos = new Set([0, 11111111, 22222222, 33333333, 44444444, 55555555, 66666666, 77777777, 88888888, 99999999, 12345678, 23456789,
+        34567890, 45678901, 56789012, 67890123, 78901234, 89012345, 90123456, 1234567]);
+      const nnf = Number(String(nf.nronf ?? '').replace(/\D/g, '')) || -1;
+      for (;;) {
+        const c = Math.floor(Math.random() * 99999999);
+        if (proibidos.has(c) || c === nnf) continue;
+        const existe = await trx.selectFrom('nf').select('codnf').where('codnotafiscal', '=', c).where('tipoemissao', '=', '0').executeTakeFirst();
+        if (existe) continue;
+        await trx.updateTable('nf').set({ codnotafiscal: c }).where('codnf', '=', codnf).execute();
+        return c;
+      }
+    });
+  }
+
   async transmitir(codnf: number) {
     const t = currentTenant();
     const emp = t.empresaId ?? null;
     const op = t.operadorId ?? null;
     if (emp == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
+    const cnf = await this.codigoNumericoDaChave(codnf, emp);
 
     const resultado = await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nf = await trx
@@ -143,6 +174,7 @@ export class NfNfeService {
         cuf: Number(ef.cuf),
         ambiente: ef.ambiente ?? '2',
         tpEmis: num(nf.tpemissao) || 1,
+        ...(cnf ? { cnf } : {}),
         ...(grupoCab ? {
           ibscbs: {
             total: {
