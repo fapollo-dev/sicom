@@ -16,7 +16,7 @@
  *    há, senão os do XML (:3979-4014);
  *  - remessa para depósito (CFOP da nota 5906/1906/1905): CST 90, CSOSN 400, alíquota NTB (:4201-4206).
  * Os valores DA NOTA (os `*_NOTA`, CFOP_ORIGINAL, MVA_AJUSTADO = pMVAST, VRBASE_STEXTERNO, FCP-ST/retido, desonerado, crédito do SN,
- * IPI devolvido) não passam pela tela: saem em `extras`, gravados no item depois de criado.
+ * IPI devolvido, a base e os valores de PIS/COFINS) não passam pela tela: saem em `extras`, gravados no item depois de criado.
  * Ficam como o Apollo já fazia (o dado não segue o fonte de 2020, ou é a análise do item que decide): ARREDONDA (a config), CST/CSOSN
  * e CSTPISCOFINS.
  */
@@ -128,9 +128,6 @@ export function itemImportado(
     aliqpiss: prod.tem_piscofins ? n(prod.aliq_pis_sai) : 0,
     aliqcofinse: aliqCofinsE,
     aliqcofinss: prod.tem_piscofins ? n(prod.aliq_cofins_sai) : 0,
-    bcpiscofinse: aliqPisE > 0 ? it.vBcPisCofins : undefined,
-    vrpise: aliqPisE > 0 ? it.vPIS : undefined,
-    vrcofinse: aliqCofinsE > 0 ? it.vCOFINS : undefined,
     // GERAESTOQUE/MOVIMENTA_ESTOQUE saem do PROC_QTDE do CFOP do item no processar (a importação não decide); ORIGEM_ESTOQUE é o
     // DEFAULT 'E' (100% na produção — o SPED não o usa mais para o CST)
   };
@@ -165,6 +162,10 @@ export function itemImportado(
     fcp_aliquota_st_ret: it.pFCPSTRet,
     fcp_valor_st_ret: it.vFCPSTRet,
     vricms_desonerado: it.vICMSDeson,
+    // a base e os valores de PIS/COFINS do XML, só com a alíquota do cadastro > 0 (:4086-4097)
+    bcpiscofinse: aliqPisE > 0 ? it.vBcPisCofins : 0,
+    vrpise: aliqPisE > 0 ? it.vPIS : 0,
+    vrcofinse: aliqCofinsE > 0 ? it.vCOFINS : 0,
   };
   return { item, extras };
 }

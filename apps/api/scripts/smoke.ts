@@ -8468,6 +8468,13 @@ async function main() {
     check('IMPORT PIS/COFINS-valor: item 1 vrpise=0,83 vrcofinse=3,80 bc=50,00 com as alíquotas do PISCOFINS do produto (1,65/7,60); item 2, produto isento (alíquota 0 no cadastro) → 0',
       Number(itImp[0].vrpise) === 0.83 && Number(itImp[0].vrcofinse) === 3.8 && Number(itImp[0].bcpiscofinse) === 50 && Number(itImp[0].aliqpise) === 1.65 && Number(itImp[0].aliqcofinse) === 7.6 && Number(itImp[1].vrpise) === 0 && Number(itImp[1].vrcofinse) === 0,
       { it1: { vrpise: itImp[0].vrpise, vrcofinse: itImp[0].vrcofinse, bc: itImp[0].bcpiscofinse }, it2: { vrpise: itImp[1].vrpise } });
+    // regravar a nota pela tela (o schema do item não tem esses campos): o motor os preserva — eram colunas gerenciadas e voltavam a 0
+    const nfImpGet = (await (await fetch(`${base}/fiscal/nf/${cnfImp}`, { headers: H })).json().catch(() => ({}))) as any;
+    const putImp = await fetch(`${base}/fiscal/nf/${cnfImp}`, { method: 'PUT', headers: H, body: JSON.stringify({ itens: nfImpGet.itens }) });
+    const itImp2 = (await pgImp.query(`SELECT bcpiscofinse, vrpise, vrcofinse FROM nf_prod WHERE codnf=$1 ORDER BY nroitem`, [cnfImp])).rows as any[];
+    check('IMPORT PIS/COFINS-valor: regravar a nota pela tela preserva a base e os valores de PIS/COFINS do XML (0,83 / 3,80 / 50,00) — a tela não os tem e o motor os zerava',
+      putImp.status === 200 && Number(itImp2[0]?.vrpise) === 0.83 && Number(itImp2[0]?.vrcofinse) === 3.8 && Number(itImp2[0]?.bcpiscofinse) === 50,
+      { status: putImp.status, itImp2 });
     for (const r of pcAntesImp) await pgImp.query(`UPDATE produtos SET idpiscofins = $1 WHERE idproduto = $2`, [r.idpiscofins, r.idproduto]);
 
     // 50.3) XML cru guardado em nfe_xml (vínculo por codnf + chave).

@@ -509,7 +509,6 @@ export const nfAggregateConfig: AggregateConfig = {
         'ipi', 'vripi', 'geraicm_ipi', 'geraicm_frete', 'geraicm_acess',
         'fcp_aliquota', 'fcp_valor', 'pis', 'cstpiscofins',
         'aliqpise', 'aliqpiss', 'aliqcofinse', 'aliqcofinss',
-        'bcpiscofinse', 'vrpise', 'vrcofinse', // valor do crédito PIS/COFINS da entrada (Wave 5, XML verbatim)
         'debitopiscofins', // Wave 5: débito projetado de saída = round((aliqpiss+aliqcofinss)×vrvenda/100,2) — rentabilidade
         'frete', 'seguro', 'vroutrasdesp', 'depsacess', 'arredonda', 'vl_custo', 'descricao',
         // o RETRATO DO PRODUTO no item (derivado no servidor — `retratoDoProduto`): o que o cliente mandar é ignorado
