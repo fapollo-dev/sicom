@@ -23047,6 +23047,52 @@ async function main() {
       }
     }
 
+    // ══ §235 ITEM DA NF — o NewRecord (zeros e constantes) e o RETRATO DO PRODUTO (edtCodProdExit) ═════════════════════════════════
+    {
+      const pgNr = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const mpAntes = (await pgNr.query(`SELECT vrcusto, vrcustorep, vrvenda, markup, vrcustoreal FROM multi_preco WHERE idproduto = 1 AND idempresa = 1`)).rows[0] as any;
+      const nfs: number[] = [];
+      try {
+        await pgNr.query(`UPDATE multi_preco SET vrcusto = 4.1, vrcustorep = 4.3, vrvenda = 7.9, markup = 35, vrcustoreal = 4.2 WHERE idproduto = 1 AND idempresa = 1`);
+        const idpc = (await pgNr.query(`SELECT idpiscofins FROM produtos WHERE idproduto = 1`)).rows[0]?.idpiscofins ?? null;
+        const corpo = (tipo: string, nronf: string, itens: Array<Record<string, unknown>>) => ({ modelo: 55, serie: '1', tipo, nronf, codparceiro: 22, dtemissao: '2036-06-04', dtcontabil: '2036-06-04', tipoemissao: '0', cfop: tipo === 'E' ? '1102' : '5102', itens });
+        const item = (tipo: string, extra: Record<string, unknown> = {}) => ({ nroitem: 1, codproduto: 1, quantidade: 2, vrcusto: 5, cfop: tipo === 'E' ? '1102' : '5102', aliquota: 'T01', ultcusto: 999, ...extra });
+        const criE = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify(corpo('E', 'NR235E', [item('E')])) });
+        const codE = Number(((await criE.json().catch(() => ({}))) as any).codnf); nfs.push(codE);
+        const ler = async (codnf: number) => (await pgNr.query(`SELECT vrpis, creditoicm, markupl, frete2, vicmsufdest, total_produto_nota, fcp_valor_st, vrcomissao, beneficio, item_perda_total,
+            atualiza_multipreco_decomp, destacicmssn, decomposicao, origem_estoque, ultcusto, ultcustorep, ultvenda, markup, vrcustoreal, idpiscofins FROM nf_prod WHERE codnf = $1`, [codnf])).rows[0] as any;
+        const e1 = await ler(codE);
+        const zeros = ['vrpis', 'creditoicm', 'markupl', 'frete2', 'vicmsufdest', 'total_produto_nota', 'fcp_valor_st', 'vrcomissao'].every((c) => e1?.[c] != null && Number(e1[c]) === 0);
+        check('ITEM DA NF §235.1 [o NewRecord]: o item novo nasce com 0 nos numéricos que a tela não gerencia (o ZeroToFields do legado — VRPIS, CREDITOICM, MARKUPL, FRETE2, DIFAL, os valores da nota, FCP-ST, comissão: nunca NULL nos 67.574 itens de 2026 criados pelo NewRecord) e com as constantes: BENEFICIO 2, ITEM_PERDA_TOTAL N, ATUALIZA_MULTIPRECO_DECOMP S, DESTACICMSSN N, DECOMPOSICAO N, ORIGEM_ESTOQUE E',
+          criE.status === 201 && zeros && Number(e1?.beneficio) === 2 && e1?.item_perda_total === 'N' && e1?.atualiza_multipreco_decomp === 'S' && e1?.destacicmssn === 'N'
+          && e1?.decomposicao === 'N' && String(e1?.origem_estoque ?? '').trim() === 'E',
+          { status: criE.status, e1 });
+        const retratoOk = Number(e1?.ultcusto) === 4.1 && Number(e1?.ultcustorep) === 4.3 && Number(e1?.ultvenda) === 7.9 && Number(e1?.markup) === 35 && Number(e1?.vrcustoreal) === 4.1
+          && (e1?.idpiscofins ?? null) === (idpc ?? null);
+        // o preço muda; regravar sem o diálogo mantém o retrato; o OK do diálogo tira de novo (e o MARKUP, que não estava 0, fica)
+        await pgNr.query(`UPDATE multi_preco SET vrcusto = 4.6, vrcustorep = 4.8, vrvenda = 8.4, markup = 40 WHERE idproduto = 1 AND idempresa = 1`);
+        await fetch(`${base}/fiscal/nf/${codE}`, { method: 'PUT', headers: H, body: JSON.stringify(corpo('E', 'NR235E', [item('E', { quantidade: 3 })])) });
+        const e2 = await ler(codE);
+        await fetch(`${base}/fiscal/nf/${codE}`, { method: 'PUT', headers: H, body: JSON.stringify(corpo('E', 'NR235E', [item('E', { quantidade: 3, dialogo: true })])) });
+        const e3 = await ler(codE);
+        const criS = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify(corpo('S', 'NR235S', [item('S', { dialogo: true })])) });
+        const codS = Number(((await criS.json().catch(() => ({}))) as any).codnf); nfs.push(codS);
+        const s1 = await ler(codS);
+        check('ITEM DA NF §235.2 [o retrato do produto]: a inclusão de ENTRADA copia da linha de preço ULTCUSTO/ULTCUSTOREP/ULTVENDA/MARKUP, o VRCUSTOREAL (= VRCUSTO, nota não importada com custo real) e o IDPISCOFINS do produto — o que o cliente manda é ignorado; regravar sem o diálogo mantém o retrato; o OK do diálogo tira de novo, sem trocar o MARKUP que não era 0 (uItensNF.pas:2724); a inclusão de SAÍDA não tira (0)',
+          retratoOk && Number(e2?.ultcusto) === 4.1 && Number(e3?.ultcusto) === 4.6 && Number(e3?.ultcustorep) === 4.8 && Number(e3?.ultvenda) === 8.4 && Number(e3?.markup) === 35
+          && criS.status === 201 && Number(s1?.ultcusto) === 0 && Number(s1?.markup) === 0,
+          { e1: [e1?.ultcusto, e1?.ultcustorep, e1?.ultvenda, e1?.markup, e1?.vrcustoreal, e1?.idpiscofins, idpc], e2: e2?.ultcusto, e3: [e3?.ultcusto, e3?.ultcustorep, e3?.ultvenda, e3?.markup], s: [criS.status, s1?.ultcusto, s1?.markup] });
+      } finally {
+        if (mpAntes) await pgNr.query(`UPDATE multi_preco SET vrcusto = $1, vrcustorep = $2, vrvenda = $3, markup = $4, vrcustoreal = $5 WHERE idproduto = 1 AND idempresa = 1`,
+          [mpAntes.vrcusto, mpAntes.vrcustorep, mpAntes.vrvenda, mpAntes.markup, mpAntes.vrcustoreal]).catch(() => undefined);
+        for (const c of nfs.filter((n) => n > 0)) {
+          await pgNr.query(`DELETE FROM nf_prod WHERE codnf = $1`, [c]).catch(() => undefined);
+          await pgNr.query(`DELETE FROM nf WHERE codnf = $1`, [c]).catch(() => undefined);
+        }
+        await pgNr.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();

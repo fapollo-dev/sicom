@@ -32,6 +32,14 @@ MINIMO = int(ARGS.get('min', 5))
 
 # carimbos do form-base e o que o motor escreve por conta própria
 IGNORAR = {'dtcadastro', 'dtultimalteracao', 'usultalteracao', 'indr', 'indr_usuario', 'indr_data'}
+# o que a LOG lista mas o Apollo cobre por outro caminho (com a prova no recon da tabela)
+COBERTAS = {
+    'nf_prod': {
+        'especificacao': 'P.ESPECIFICACAO do JOIN do qryItensNota, ProviderFlags [] — nunca gravada (udmNF.dfm:2950)',
+        'idsituacao_nf': 'aposGravarTrx da NF preenche a do cabeçalho',
+        'informacoes_adicionais': 'extra da devolução de compra (devolucao-compra.service.ts)',
+    },
+}
 # tabelas cujo nome na LOG difere do destino
 TABELA_DESTINO = {'codauxiliar ': 'codauxiliar', 'concilicao_bancaria_ofx': 'conciliacao_bancaria_ofx',
                   'concilicao_bancaria_mov': 'conciliacao_bancaria_mov'}
@@ -73,17 +81,30 @@ def colunas_da_config(arquivos):
                 j += 1
             corpo = resto[i:j - 1]
             cols = set(re.findall(r"'([a-z_0-9]+)'", corpo))
-            pk = re.search(r"\bpk:\s*'([a-z_0-9]+)'", resto[:c.start()])
-            if pk:
-                cols.add(pk.group(1))
+            for chave in ('pk', 'fk'):
+                m2 = re.search(r"\b" + chave + r":\s*'([a-z_0-9]+)'", resto[:c.start()])
+                if m2:
+                    cols.add(m2.group(1))
             for sp in re.findall(r'\.\.\.([A-Z_][A-Z0-9_]*)', corpo):
                 cols |= consts.get(sp, set())
             out[m.group(1)] |= cols
     return out
 
 
+def defaults_das_migrations():
+    """tabela → colunas com DEFAULT posto por migration (`ALTER TABLE t ALTER COLUMN c SET DEFAULT`): a inclusão as grava"""
+    out = collections.defaultdict(set)
+    pasta = '/Library/Apollo/apps/api/migrations'
+    for n in sorted(os.listdir(pasta)):
+        if n.endswith('.sql'):
+            for m in re.finditer(r'ALTER TABLE\s+(\w+)\s+ALTER COLUMN\s+(\w+)\s+SET DEFAULT', open(os.path.join(pasta, n), encoding='utf-8').read(), re.I):
+                out[m.group(1).lower()].add(m.group(2).lower())
+    return out
+
+
 def main() -> int:
     arquivos = ler_codigo()
+    defaults = defaults_das_migrations()
     palavras = {p: {w.lower() for w in PALAVRA.findall(t)} for p, t in arquivos.items()}
     config = colunas_da_config(arquivos)
     # a LOG trunca o histórico em 4.000 caracteres: o último nome sai cortado ("BCPISCO") — só vale nome de coluna real
@@ -113,6 +134,11 @@ def main() -> int:
             if campo in IGNORAR or i + a < MINIMO:
                 continue
             if destino in schema and campo not in schema[destino]['colunas']:
+                continue
+            if campo in COBERTAS.get(destino, {}):
+                continue
+            # o DEFAULT cobre a inclusão; só sobra se a tela também o muda depois (o "Alterou")
+            if campo in defaults.get(destino, set()) and a < MINIMO:
                 continue
             if geren is not None and geren:
                 if campo in geren or campo == destino:

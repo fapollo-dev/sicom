@@ -28,6 +28,52 @@ function leitorDescricaoProduto(trx: any): (idproduto: number) => Promise<string
   };
 }
 
+/** as colunas do retrato do produto no item da NF */
+const RETRATO = ['ultcusto', 'ultcustorep', 'ultvenda', 'markup', 'vrcustoreal', 'idpiscofins'] as const;
+
+/**
+ * O RETRATO DO PRODUTO no item da NF — o que o diálogo do item copia da linha de preço da loja ao sair do código do produto
+ * (`TfrmItensNF.edtCodProdExit`, uItensNF.pas:2553-2571 na inclusão de ENTRADA e :2724-2743 na edição, de qualquer tipo):
+ *  - ULTCUSTO, ULTCUSTOREP e ULTVENDA = MULTI_PRECO.VRCUSTO, VRCUSTOREP e VRVENDA (o preço do produto FILHO quando o item tem um,
+ *    `cdsProdutos`, udmNF.pas:6235);
+ *  - MARKUP = MULTI_PRECO.MARKUP na inclusão; na edição, só se o item estava com 0 (:2724);
+ *  - VRCUSTOREAL = MULTI_PRECO.VRCUSTO quando a nota não veio de XML e a linha de preço tem custo real (:2567 — na importada é o
+ *    vUnCom do XML);
+ *  - IDPISCOFINS = PRODUTOS.IDPISCOFINS (binário novo, fora do fonte de 2020: 95,4% dos itens de 2026 iguais ao do produto).
+ * A inclusão de SAÍDA não tira o retrato (o ramo 'Nota de Saida', :2607, não o faz); a edição pelo diálogo tira, de qualquer tipo —
+ * na produção o ULTCUSTO muda em 62.534 "Alterou" de entrada (a análise do item) e 1.863 de saída. Fora disso fica o que o item tinha.
+ */
+async function retratoDoProduto(
+  trx: any, emp: number | null, it: Record<string, unknown>, antiga: Record<string, unknown> | undefined,
+  cab: { tipo?: string | null; nf_importacao_nfe?: string | null } | undefined,
+): Promise<Record<string, unknown>> {
+  const importada = String(cab?.nf_importacao_nfe ?? '').toUpperCase() === 'S';
+  // o que o item já tinha (NULL inclusive, o da carga); o item novo fica com o DEFAULT da coluna (0, mig 351)
+  const manter: Record<string, unknown> = Object.fromEntries(RETRATO.map((c) => [c, antiga ? antiga[c] : undefined]));
+  // na nota importada, o VRCUSTOREAL do item novo é o vUnCom do XML (NFe.pas:4023), que a importação manda
+  if (importada && antiga == null && it.vrcustoreal != null) manter.vrcustoreal = it.vrcustoreal;
+  const cod = it.codproduto != null ? Number(it.codproduto) : null;
+  const tipo = String(cab?.tipo ?? '').toUpperCase();
+  const tirar = cod != null && emp != null && ((antiga == null && tipo === 'E') || (antiga != null && it.dialogo === true));
+  if (!tirar) return manter;
+  const mp = (await trx.selectFrom('multi_preco').select(['vrcusto', 'vrcustorep', 'vrvenda', 'markup', 'vrcustoreal'])
+    .where('idproduto', '=', cod).where('idempresa', '=', emp).executeTakeFirst()) as Record<string, unknown> | undefined;
+  if (!mp) return manter;
+  const filho = Number(it.idproduto_filho) > 0
+    ? ((await trx.selectFrom('multi_preco').select('vrvenda').where('idproduto', '=', Number(it.idproduto_filho)).where('idempresa', '=', emp).executeTakeFirst()) as { vrvenda?: unknown } | undefined)
+    : undefined;
+  const prod = (await trx.selectFrom('produtos').select('idpiscofins').where('idproduto', '=', cod).executeTakeFirst()) as { idpiscofins?: unknown } | undefined;
+  const markupAntigo = Number(antiga?.markup ?? 0);
+  return {
+    ultcusto: mp.vrcusto ?? 0,
+    ultcustorep: mp.vrcustorep ?? 0,
+    ultvenda: filho?.vrvenda ?? mp.vrvenda ?? 0,
+    markup: antiga == null || markupAntigo === 0 ? mp.markup ?? 0 : antiga.markup,
+    vrcustoreal: !importada && Number(mp.vrcustoreal ?? 0) > 0 ? mp.vrcusto : manter.vrcustoreal,
+    idpiscofins: prod?.idpiscofins ?? manter.idpiscofins,
+  };
+}
+
 /**
  * NOTA FISCAL (tela-coroa) — Fase 1: NÚCLEO CADASTRO, agregado mestre-detalhe via
  * AggregateEngineService: master `nf` (empresaScoped) + detalhes `nf_prod` (itens) e
@@ -437,20 +483,24 @@ export const nfAggregateConfig: AggregateConfig = {
         'bcpiscofinse', 'vrpise', 'vrcofinse', // valor do crédito PIS/COFINS da entrada (Wave 5, XML verbatim)
         'debitopiscofins', // Wave 5: débito projetado de saída = round((aliqpiss+aliqcofinss)×vrvenda/100,2) — rentabilidade
         'frete', 'seguro', 'vroutrasdesp', 'depsacess', 'arredonda', 'vl_custo', 'descricao',
+        // o RETRATO DO PRODUTO no item (derivado no servidor — `retratoDoProduto`): o que o cliente mandar é ignorado
+        'ultcusto', 'ultcustorep', 'ultvenda', 'markup', 'vrcustoreal', 'idpiscofins',
       ],
       // a DESCRIÇÃO que cada item tinha, para o item regravado sem ela (casada pelo produto, como a preservação)
       antesDeSubstituirTrx: async ({ trx, masterId }) =>
-        trx.selectFrom('nf_prod').select(['codproduto', 'descricao']).where('codnf', '=', masterId).orderBy('codnfprod').execute(),
+        trx.selectFrom('nf_prod').select(['codproduto', 'descricao', ...RETRATO]).where('codnf', '=', masterId).orderBy('codnfprod').execute(),
       // congela o CUSTO do item = MULTI_PRECO.VRCUSTO corrente por (produto, empresa) no lançamento
       // (GetCustoProduto, udmNF.pas:12057). É a base do CMV; snapshot (não acompanha a deriva do MP).
       derivarItensTrx: async (itens, trx, emp, _header, _masterId, snapshot) => {
         const out: Record<string, unknown>[] = [];
-        const antigas = new Map<string, string[]>();
-        for (const a of (snapshot as Array<{ codproduto: unknown; descricao: unknown }> | undefined) ?? []) {
+        const antigas = new Map<string, Array<Record<string, unknown>>>();
+        for (const a of (snapshot as Array<Record<string, unknown>> | undefined) ?? []) {
           const k = String(a.codproduto);
-          antigas.set(k, [...(antigas.get(k) ?? []), String(a.descricao ?? '')]);
+          antigas.set(k, [...(antigas.get(k) ?? []), a]);
         }
         const descricaoDoProduto = await leitorDescricaoProduto(trx);
+        const cab = (await trx.selectFrom('nf').select(['tipo', 'nf_importacao_nfe']).where('codnf', '=', _masterId).executeTakeFirst()) as
+          { tipo?: string | null; nf_importacao_nfe?: string | null } | undefined;
         for (const it of itens) {
           const cod = it.codproduto != null ? Number(it.codproduto) : null;
           let vl = 0;
@@ -469,8 +519,9 @@ export const nfAggregateConfig: AggregateConfig = {
           // escolher o produto (uItensNF.pas:2531) — na produção, 6.372 de 6.391 itens de set/2026 têm a do produto
           const antiga = antigas.get(String(cod))?.shift();
           const veio = typeof it.descricao === 'string' && it.descricao.trim() !== '' ? it.descricao : null;
-          const descricao = veio ?? (antiga || null) ?? (cod != null ? await descricaoDoProduto(cod) : null);
-          out.push({ ...it, vl_custo: vl, debitopiscofins: debitoPisCofins(it.vrvenda, it.aliqpiss, it.aliqcofinss), descricao: descricao?.slice(0, 120) ?? null });
+          const descricao = veio ?? (String(antiga?.descricao ?? '') || null) ?? (cod != null ? await descricaoDoProduto(cod) : null);
+          const retrato = await retratoDoProduto(trx, emp, it, antiga, cab);
+          out.push({ ...it, vl_custo: vl, debitopiscofins: debitoPisCofins(it.vrvenda, it.aliqpiss, it.aliqcofinss), descricao: descricao?.slice(0, 120) ?? null, ...retrato });
         }
         return out;
       },
