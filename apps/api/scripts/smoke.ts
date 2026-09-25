@@ -24074,6 +24074,41 @@ async function main() {
       }
     }
 
+    // ══ §253 EFD ICMS-IPI — as NFC-e (GeraNFC) e as numerações inutilizadas (GeraNFInutilizadas) no bloco C ══════════
+    {
+      const pgNc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgNc.query(`INSERT INTO vendas (idempresa, dtvenda, nropedido, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, cfop, venda_nfc, cancelado, statusnfe, chavenfe,
+            iat, icms_cst, icms_aliquota, icms_base_calculo, icms_valor, desc_promocao, desc_acre_item) VALUES
+          (1,'2038-04-05 10:00:00-03','NC1','009',501,1,1,2,10.00,5102,'S','N','P','31380400000000000000650090000005011000000001','A','00',18,20,3.60,0,0),
+          (1,'2038-04-05 10:00:00-03','NC1','009',501,2,2,1.235,5.99,5405,'S','N','P','31380400000000000000650090000005011000000001','T','60',0,0,0,1,0.50),
+          (1,'2038-04-05 10:00:00-03','NC1','009',501,3,3,1,99,5102,'S','S','P','31380400000000000000650090000005011000000001','A','00',18,99,17.82,0,0),
+          (1,'2038-04-06 11:00:00-03','NC2','009',502,1,1,1,50,5102,'S','N','C','31380400000000000000650090000005021000000002','A','00',18,50,9,0,0)`);
+        await pgNc.query(`INSERT INTO nfe_inutilizada (codempresa, data, tiponf, serie, numeracao_ini, numeracao_fim) VALUES (1, '2038-04-07 09:00:00-03', 'NFCE', '9', 10, 12)`);
+        const efd = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2038-04-01', dtfim: '2038-04-30' }) });
+        const j = (await efd.json().catch(() => ({}))) as any;
+        const lin = String(j.arquivo ?? '').split('\r\n');
+        const c100 = lin.filter((l) => l.startsWith('|C100|'));
+        const inut = c100.filter((l) => l.startsWith('|C100|1|0||65|05|009|'));
+        const reg = c100.find((l) => l.includes('|501|')) ?? '';
+        const canc = c100.find((l) => l.includes('|502|')) ?? '';
+        const iReg = lin.indexOf(reg);
+        const c190 = lin.slice(iReg + 1, iReg + 3);
+        const e110 = lin.find((l) => l.startsWith('|E110|')) ?? '';
+        check('EFD ICMS-IPI §253 [as NFC-e e as inutilizadas]: a faixa inutilizada 10-12 da série 9 sai como três C100 modelo 65, COD_SIT 05, antes das notas; a NFC-e 501 (das vendas: a NFC não migra) sai C100 65 sem participante com VL_DOC = produtos 27,39 (20 + 1,235 × 5,99 = 7,39765 truncado pelo IAT) − desconto 1 + acréscimo 0,50 = 26,89, IND_PGTO 1, VL_OUT_DA 0,50 e o ICMS 3,60 — o item cancelado fora —, e o C190 por CST/CFOP/alíquota (000/5102/18 e 060/5405/0); a cancelada 502 sai só o cabeçalho com a chave; o E110 derivado soma o débito da NFC-e; validação sem erros',
+          efd.status === 200 && inut.length === 3 && inut.map((l) => l.split('|')[8]).join(',') === '10,11,12' && c100.indexOf(inut[0]) === 0
+          && reg.startsWith('|C100|1|0||65|00|009|501|31380400000000000000650090000005011000000001|05042038|05042038|26,89|1|1,00|0,00|27,39|9|0,00|0,00|0,50|20,00|3,60|')
+          && c190[0] === '|C190|000|5102|18,00|20,00|20,00|3,60|0,00|0,00|0,00|0,00||' && c190[1] === '|C190|060|5405|0,00|6,89|0,00|0,00|0,00|0,00|0,00|0,00||'
+          && canc.startsWith('|C100|1|0||65|02|009|502|31380400000000000000650090000005021000000002|') && !lin[lin.indexOf(canc) + 1]?.startsWith('|C190|')
+          && e110.startsWith('|E110|3,60|') && j.validacao?.ok !== false,
+          { inut, reg, c190, canc, e110, validacao: j.validacao });
+      } finally {
+        await pgNc.query(`DELETE FROM vendas WHERE nropedido IN ('NC1','NC2') AND idempresa = 1`).catch(() => undefined);
+        await pgNc.query(`DELETE FROM nfe_inutilizada WHERE codempresa = 1 AND data::date = '2038-04-07'`).catch(() => undefined);
+        await pgNc.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();

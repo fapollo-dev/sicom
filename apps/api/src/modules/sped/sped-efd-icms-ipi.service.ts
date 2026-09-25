@@ -70,6 +70,13 @@ function codVersaoFiscal(dtini: string): string {
  * de emissão própria, entrada ou saída (ckbC170Saidas desmarcada, Uspedfiscal.pas:2707) e as regras do item/C190 são as do legado
  * (`sped-c-legado.ts`: CST de 3 dígitos, ICMS zerado por CFOP/CST/alíquota, VL_OPR, VL_RED_BC, QTD × fator, PIS/COFINS do cadastro).
  */
+/** uma NFC-e montada das vendas para o EFD ICMS-IPI */
+interface NfceSped {
+  serie: string; nronf: string; chavenfe: string; dtemissao: string; cancelada: boolean;
+  totalProd: number; totalDesc: number; totalAcre: number; bc: number; icms: number;
+  c190: Array<{ cst: string; cfop: string; aliq: number; vlOpr: number; bc: number; icms: number; bcSt: number; icmsSt: number }>;
+}
+
 @Injectable()
 export class SpedEfdIcmsIpiService {
   constructor(private readonly dbp: DatabaseProvider) {}
@@ -122,8 +129,11 @@ export class SpedEfdIcmsIpiService {
     const lidas = [...alt0175, ...alt0205].filter((r) => r.reg_informado === 'N').map((r) => Number(r.cod_speed_aux));
     if (lidas.length) await sql`UPDATE tb_speed_aux SET reg_informado = 'S' WHERE cod_speed_aux = ANY(${lidas}::bigint[])`.execute(this.dbp.forTenant() as AnyDB);
 
-    // BLOCO C — documentos de ENTRADA (crédito) + SAÍDA (débito)
-    const { creditoIcms, debitoIcms } = this.emitirBlocoC(arq, docs);
+    // BLOCO C — documentos de ENTRADA (crédito) + SAÍDA (débito), as numerações INUTILIZADAS e as NFC-e (GeraNFInutilizadas / GeraNF /
+    // GeraNFC, Uspedfiscal.pas:4118-4120)
+    const inutilizadas = await this.coletarInutilizadas(db, emp, dtini, dtfim);
+    const nfce = await this.coletarNfce(db, emp, dtini, dtfim);
+    const { creditoIcms, debitoIcms } = this.emitirBlocoC(arq, docs, inutilizadas, nfce, dtini);
 
     // BLOCO D — documentos fiscais de SERVIÇOS (transporte/comunicação): sem dados (não migrado) — o opener é de
     // ocorrência OBRIGATÓRIA no EFD ICMS/IPI (IND_MOV=1 sem-dados), o PVA espera todos os blocos.
@@ -149,7 +159,7 @@ export class SpedEfdIcmsIpiService {
     const origemE110 = apur
       ? `da APURAÇÃO ${Number(apur.codapuracaoicms)} gravada do período (com ajustes, estornos, saldo credor anterior e deduções)`
       : `derivado do bloco C (débito ${fmtNum(debitoIcms)} − crédito ${fmtNum(creditoIcms)}) — sem apuração gravada para o período`;
-    const temApuracao = docs.nfs.length > 0 || apur != null;
+    const temApuracao = docs.nfs.length > 0 || nfce.length > 0 || apur != null;
     arq.add('E001', [temApuracao ? '0' : '1']);
     if (temApuracao) {
       arq.add('E100', [fmtData(dtini), fmtData(dtfim)]);
@@ -222,7 +232,7 @@ export class SpedEfdIcmsIpiService {
       documentos: docs.nfs.length,
       parcial: true,
       validacao: validarSpedFiscal(arquivo),
-      aviso: `PARCIAL (corte-4): bloco 0 + bloco C (${docs.nfs.length} docs; C100/C170/C190 mod-55 por IND_OPER + C500/C590 energia/gás/água mod 06/28/29) + bloco E (E110 ${origemE110}; E116 quando há a recolher) + bloco H (${inventario.livros.length} inventário(s); H005/H010) + blocos D/G/K/1 (só opener, sem dados) + bloco 9. Estrutura de blocos completa. Sem ST/DIFAL/IPI; conteúdo de D/G/K/1 não migrado. C176/C195/C197/C800 confirmados mortos (cópia fiel).`,
+      aviso: `PARCIAL (corte-4): bloco 0 + bloco C (${docs.nfs.length} docs; C100/C170/C190 por IND_OPER + ${nfce.length} NFC-e (C100 65 + C190) + ${inutilizadas.length} faixa(s) inutilizada(s) + C500/C590 energia/gás/água mod 06/28/29) + bloco E (E110 ${origemE110}; E116 quando há a recolher) + bloco H (${inventario.livros.length} inventário(s); H005/H010) + blocos D/G/K/1 (só opener, sem dados) + bloco 9. Estrutura de blocos completa. Sem ST/DIFAL/IPI; conteúdo de D/G/K/1 não migrado. C176/C195/C197/C800 confirmados mortos (cópia fiel).`,
     };
   }
 
@@ -425,12 +435,22 @@ export class SpedEfdIcmsIpiService {
 
   /** BLOCO C: C001 + por NF de ENTRADA/SAÍDA C100/C170 + C190 (analítico por CST_ICMS+CFOP+ALIQ_ICMS) + C990.
    *  IND_OPER por sentido (0=entrada/1=saída). Retorna o ICMS de ENTRADA (crédito) e de SAÍDA (débito) p/ o E110. */
-  private emitirBlocoC(arq: SpedArquivo, docs: { nfs: Array<Record<string, any> & { itens: Array<Record<string, any>> }>; produtos: Map<number, Record<string, any>> }): { creditoIcms: number; debitoIcms: number } {
-    const temDocs = docs.nfs.length > 0;
+  private emitirBlocoC(arq: SpedArquivo, docs: { nfs: Array<Record<string, any> & { itens: Array<Record<string, any>> }>; produtos: Map<number, Record<string, any>> },
+    inutilizadas: Array<Record<string, any>> = [], nfce: NfceSped[] = [], dtini = ''): { creditoIcms: number; debitoIcms: number } {
+    const temDocs = docs.nfs.length > 0 || inutilizadas.length > 0 || nfce.length > 0;
     arq.add('C001', [temDocs ? '0' : '1']);
     let creditoIcms = 0;
     let debitoIcms = 0;
     if (!temDocs) { arq.fecharBloco('C990', 'C'); return { creditoIcms: 0, debitoIcms: 0 }; }
+    // as numerações INUTILIZADAS (GeraNFInutilizadas, Uspedfiscal.pas:2236-2303): um C100 por número da faixa, saída de emissão própria,
+    // modelo 65 (NFCE) ou 55, COD_SIT 05 e só o cabeçalho
+    for (const f of inutilizadas) {
+      const codMod = String(f.tiponf ?? '').trim().toUpperCase() === 'NFCE' ? '65' : '55';
+      const ser = String(f.serie ?? '').trim().padStart(3, '0');
+      for (let num = Number(f.numeracao_ini); num <= Number(f.numeracao_fim); num++) {
+        arq.add('C100', ['1', '0', '', codMod, '05', ser, String(num), '', ...Array(20).fill('')]);
+      }
+    }
     const ENERGIA = new Set([6, 28, 29]); // mod 06 energia / 28 gás / 29 água → C500/C590 (não C100)
     // mod 21/22 (telecom): o legado os leva ao D500/D590 (GeraBlocoD, Uspedfiscal.pas:516-672), que ainda não está convertido — ficam
     // fora do bloco C (COD_MOD 21/22 não é do C100)
@@ -513,6 +533,26 @@ export class SpedEfdIcmsIpiService {
         else creditoIcms = r2(creditoIcms + g.vl); // ENTRADA → crédito de ICMS
       }
     }
+    // as NFC-e (GeraNFC, Uspedfiscal.pas:3212-3460): C100 modelo 65 sem participante (chkGerarNFCParticipante desmarcado), sem C170
+    // (CkbGerarItensNFCe desmarcado) e o C190 por CST/CFOP/alíquota das vendas; a cancelada, só o cabeçalho com a chave
+    for (const c of nfce) {
+      const ser = String(c.serie ?? '').trim().padStart(3, '0');
+      if (c.cancelada) {
+        arq.add('C100', ['1', '0', '', '65', '02', ser, c.nronf, c.chavenfe, ...Array(20).fill('')]);
+        continue;
+      }
+      const dt = fmtData(c.dtemissao);
+      // C100 (28): IND_OPER|IND_EMIT|COD_PART|COD_MOD|COD_SIT|SER|NUM_DOC|CHV_NFE|DT_DOC|DT_E_S|VL_DOC|IND_PGTO|VL_DESC|VL_ABAT_NT|VL_MERC|IND_FRT|VL_FRT|VL_SEG|VL_OUT_DA|VL_BC_ICMS|VL_ICMS|VL_BC_ICMS_ST|VL_ICMS_ST|VL_IPI|VL_PIS|VL_COFINS|VL_PIS_ST|VL_COFINS_ST
+      // VL_DOC = produtos − descontos + acréscimos (= NFC.TOTALNF em 1.338 de 1.338); IND_PGTO 1 (NFC.IND_PGTO nunca é nulo); VL_OUT_DA =
+      // os acréscimos (= NFC.TOTALVROUTROS, 868 de 868)
+      arq.add('C100', ['1', '0', '', '65', '00', ser, c.nronf, c.chavenfe, dt, dt, fmtNum(r2(c.totalProd - c.totalDesc + c.totalAcre)), '1', fmtNum(c.totalDesc), fmtNum(0),
+        fmtNum(c.totalProd), '9', fmtNum(0), fmtNum(0), fmtNum(c.totalAcre), fmtNum(c.bc), fmtNum(c.icms), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0)]);
+      for (const g of c.c190) {
+        // C190 (11): CST_ICMS|CFOP|ALIQ_ICMS|VL_OPR|VL_BC_ICMS|VL_ICMS|VL_BC_ICMS_ST|VL_ICMS_ST|VL_RED_BC|VL_IPI|COD_OBS
+        arq.add('C190', [g.cst, g.cfop, fmtNum(g.aliq, 2), fmtNum(g.vlOpr), fmtNum(g.bc), fmtNum(g.icms), fmtNum(g.bcSt), fmtNum(g.icmsSt), fmtNum(0), fmtNum(0), '']);
+        debitoIcms = r2(debitoIcms + g.icms);
+      }
+    }
     // C500/C590 — energia elétrica (06) / gás (28) / água (29): documento de utility em registro próprio (fiel a
     // GeraNFEnergia, Uspedfiscal.pas:4040). IND_EMIT sempre terceiros ('1', edTerceiros); COD_CONS='01' só p/ energia
     // elétrica (mod 06 — classe de consumo é conceito de energia; gás/água → ''); TP_LIGACAO/COD_GRUPO_TENSAO ''
@@ -560,4 +600,72 @@ export class SpedEfdIcmsIpiService {
     arq.fecharBloco('C990', 'C');
     return { creditoIcms, debitoIcms };
   }
+
+  /** NFE_INUTILIZADA do período (cdsNF_Inutilizada: TRUNC(DATA) no período, a empresa) */
+  private async coletarInutilizadas(db: AnyDB, emp: number, dtini: string, dtfim: string): Promise<Array<Record<string, any>>> {
+    return (await db.selectFrom('nfe_inutilizada').select(['tiponf', 'serie', 'numeracao_ini', 'numeracao_fim'])
+      .where('codempresa', '=', emp)
+      .where(sql`cast(data at time zone 'America/Sao_Paulo' as date)`, '>=', String(dtini).slice(0, 10))
+      .where(sql`cast(data at time zone 'America/Sao_Paulo' as date)`, '<=', String(dtfim).slice(0, 10))
+      .orderBy('codinutilizacao').execute()) as Array<Record<string, any>>;
+  }
+
+  /**
+   * as NFC-e do período a partir das VENDAS (a NFC, do PDV, não migra — a chave e o status vêm para a venda na carga): QryNFC/adqC190NFC
+   * (UdmSpedFiscal.dfm:8528-8900) — autorizadas ('P', e a contingência 'G' com CONSIDERA_NFCE_CONTINGENCIA_SPED_FISCAL) e as canceladas
+   * ('C'); NUM_DOC = o cupom (= NFC.NRONF em 100%); por cupom os totais (produto pelo IAT: arredonda 'A', senão trunca), os descontos e os
+   * acréscimos, e o C190 por CST/CFOP/alíquota das vendas não canceladas
+   */
+  private async coletarNfce(db: AnyDB, emp: number, dtini: string, dtfim: string): Promise<NfceSped[]> {
+    const cfg = (await sql<{ valor: string | null }>`
+      SELECT coalesce((SELECT e.valor FROM configuracoes_especificas e WHERE e.id = c.id LIMIT 1), c.valor) AS valor
+        FROM configuracoes c WHERE c.codigo = 'CONSIDERA_NFCE_CONTINGENCIA_SPED_FISCAL' LIMIT 1`.execute(db)).rows[0];
+    const status = ['P', 'C', ...(String(cfg?.valor ?? '').trim().toUpperCase() === 'S' ? ['G'] : [])];
+    const rows = (await db.selectFrom('vendas')
+      .select(['nroserie', 'nrocupom', 'chavenfe', 'statusnfe', sql`to_char(dtvenda at time zone 'America/Sao_Paulo', 'YYYY-MM-DD')`.as('dtemissao'), 'iat', 'qtde', 'vrvenda',
+        'desc_promocao', 'desc_departamento', 'desc_acre_medio', 'desc_acre_item', 'icms_base_calculo', 'icms_valor', 'icms_valor_base_calculo_st', 'icms_valor_st', 'icms_cst',
+        'icms_aliquota', 'cfop', 'cancelado'])
+      .where('idempresa', '=', emp)
+      .where(sql`coalesce(venda_nfc,'N')`, '=', 'S')
+      .where('chavenfe', 'is not', null)
+      .where('statusnfe', 'in', status)
+      .where(sql`cast(dtvenda at time zone 'America/Sao_Paulo' as date)`, '>=', String(dtini).slice(0, 10))
+      .where(sql`cast(dtvenda at time zone 'America/Sao_Paulo' as date)`, '<=', String(dtfim).slice(0, 10))
+      .orderBy('nroserie').orderBy('nrocupom').orderBy('nroitem')
+      .execute()) as Array<Record<string, any>>;
+    const nn = (v: unknown) => (v == null || v === '' ? 0 : Number(v) || 0);
+    const porCupom = new Map<string, NfceSped & { grupos: Map<string, NfceSped['c190'][number]> }>();
+    for (const v of rows) {
+      const k = `${v.nroserie}|${v.nrocupom}|${v.chavenfe}`;
+      let c = porCupom.get(k);
+      if (!c) {
+        c = { serie: String(v.nroserie ?? ''), nronf: String(v.nrocupom ?? ''), chavenfe: String(v.chavenfe ?? ''), dtemissao: String(v.dtemissao ?? ''),
+          cancelada: String(v.statusnfe ?? '') === 'C', totalProd: 0, totalDesc: 0, totalAcre: 0, bc: 0, icms: 0, c190: [], grupos: new Map() };
+        porCupom.set(k, c);
+      }
+      if (String(v.cancelado ?? 'N') === 'S') continue; // o item cancelado fica fora dos totais e do C190
+      const bruto = nn(v.qtde) * nn(v.vrvenda);
+      const total = String(v.iat ?? '') === 'A' ? r2(bruto) : Math.trunc(bruto * 100 + 1e-9) / 100;
+      const neg = (x: unknown) => (nn(x) < 0 ? -nn(x) : 0);
+      const pos = (x: unknown) => (nn(x) > 0 ? nn(x) : 0);
+      const desc = nn(v.desc_promocao) + nn(v.desc_departamento) + neg(v.desc_acre_medio) + neg(v.desc_acre_item);
+      const acre = pos(v.desc_acre_medio) + pos(v.desc_acre_item);
+      c.totalProd = r2(c.totalProd + total);
+      c.totalDesc = r2(c.totalDesc + desc);
+      c.totalAcre = r2(c.totalAcre + acre);
+      c.bc = r2(c.bc + r2(nn(v.icms_base_calculo)));
+      c.icms = r2(c.icms + r2(nn(v.icms_valor)));
+      const cst = String(Math.trunc(nn(v.icms_cst))).padStart(3, '0');
+      const gk = `${cst}|${v.cfop}|${nn(v.icms_aliquota)}`;
+      const g = c.grupos.get(gk) ?? { cst, cfop: String(v.cfop ?? ''), aliq: nn(v.icms_aliquota), vlOpr: 0, bc: 0, icms: 0, bcSt: 0, icmsSt: 0 };
+      g.vlOpr = r2(g.vlOpr + total + acre - desc);
+      g.bc = r2(g.bc + nn(v.icms_base_calculo));
+      g.icms = r2(g.icms + nn(v.icms_valor));
+      g.bcSt = r2(g.bcSt + nn(v.icms_valor_base_calculo_st));
+      g.icmsSt = r2(g.icmsSt + nn(v.icms_valor_st));
+      c.grupos.set(gk, g);
+    }
+    return [...porCupom.values()].map(({ grupos, ...c }) => ({ ...c, c190: [...grupos.values()] }));
+  }
+
 }
