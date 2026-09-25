@@ -151,6 +151,75 @@ export class ApuracaoPcConsultaService {
     });
   }
 
+  /**
+   * A IMPRESSÃO (`btnImprimirClick` → `MontarValoresApuracao`, `UapuracaoPISCOFINS.pas:237-651`; `ApuracaoPis_Cofins.fr3`): os totais do
+   * relatório. Das linhas da apuração (pelo TIPO do legado — aqui `tipo_origem`): as receitas (SAIDA ECF; SAIDA NF + NFC-e), a de alíquota
+   * zero, os bens para revenda (ENTRADA; os com alíquota > 0 são os de 9,25%) e os créditos/débitos. Das notas do período (a fórmula do
+   * item do próprio relatório, NUMERIC(15,2), sem filtro de empresa — o RAIZCNPJ está comentado): frete sobre compras (CFOP 2353), energia
+   * (1253), devolução de venda (situação 2, CFOP 1202) e devolução de compra (saída, situação 17), com os ajustes a 1,65/7,6.
+   * Divergências conscientes: o frete do item é o VRFRETE (a fatia — o FRETE% do fonte de 2020 mudou de sentido no binário novo, lição 157);
+   * a Devolução de Vendas sai com o valor (o fonte a zera antes de imprimir, `:556`, mas a soma na base dos créditos); o "a recolher" do PIS
+   * soma os outros créditos do PIS (o fonte soma os da COFINS, `:597` — os dois são sempre 0). Os totais que o fonte nunca calcula (serviços,
+   * outras receitas, monofásicos, outros débitos/créditos, dedução processual) saem 0, como no relatório.
+   */
+  async relatorio(cod: number): Promise<Record<string, unknown>> {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const { cond: f } = await this.filtro(db);
+    const cab = (await sql<{ codapuracao_pc: number; dataini: unknown; datafim: unknown }>`
+      SELECT a.codapuracao_pc, a.dataini, a.datafim FROM apuracao_pc a WHERE a.codapuracao_pc = ${cod} AND ${f}`.execute(db)).rows[0];
+    if (!cab) throw new BusinessRuleError('APURACAO_PC_NAO_ENCONTRADA', { cod });
+    const emp = currentTenant().empresaId ?? null;
+    const empresa = (await sql<Record<string, unknown>>`SELECT razao_social, fantasia, cnpj, insc, fone1 FROM empresas WHERE idempresa = ${emp}`.execute(db)).rows[0] ?? {};
+    const soma = async (cond: ReturnType<typeof sql>) => (await sql<{ b: unknown; p: unknown; c: unknown }>`
+      SELECT coalesce(sum(basecalculo), 0) AS b, coalesce(sum(valorpis), 0) AS p, coalesce(sum(valorcofins), 0) AS c
+        FROM apuracao_pc_det WHERE codapuracao_pc = ${cod} AND ${cond}`.execute(db)).rows[0];
+    const ecf = await soma(sql`tipo_origem = 'SAIDA ECF'`);
+    const nf = await soma(sql`tipo_origem IN ('SAIDA NF', 'NFC-e')`);
+    const zero = await soma(sql`tipo_origem IN ('SAIDA NF', 'SAIDA ECF', 'NFC-e') AND descricaopc = 'ALIQUOTA ZERO'`);
+    const ent = await soma(sql`tipo_origem = 'ENTRADA'`);
+    const entAlq = await soma(sql`tipo_origem = 'ENTRADA' AND aliqpis > 0 AND aliqcofins > 0`);
+    // a base do item no relatório: (VRCUSTO×QTD − o desconto%) + ST + despesas acessórias + outras despesas + frete + IPI%
+    const baseNotas = async (tipo: 'E' | 'S', extra: ReturnType<typeof sql>) => num((await sql<{ b: unknown }>`
+      SELECT coalesce(sum(CAST(((np.vrcusto * np.quantidade) - CAST(((np.vrcusto * np.quantidade) * coalesce(np.desconto, 0)) / 100 AS numeric(13,2)))
+               + coalesce(np.vricmst, 0) + coalesce(np.depsacess, 0) + coalesce(np.vroutrasdesp, 0) + coalesce(np.vrfrete, 0)
+               + (coalesce(np.ipi, 0) * CAST(((np.vrcusto - ((np.vrcusto * coalesce(np.desconto, 0)) / 100)) * np.quantidade) AS numeric(13,2))) / 100
+             AS numeric(15,2))), 0) AS b
+        FROM nf_prod np
+        JOIN nf n ON n.codnf = np.codnf
+        LEFT JOIN parceiros pe ON pe.codparceiro = n.codparceiro
+        LEFT JOIN produtos p ON p.idproduto = np.codproduto
+        LEFT JOIN piscofins cpc ON cpc.idpiscofins = coalesce(np.idpiscofins, p.idpiscofins)
+       WHERE n.tipo = ${tipo} AND n.dtcontabil::date BETWEEN ${cab.dataini}::date AND ${cab.datafim}::date
+         AND coalesce(n.cancelada, 'N') = 'N' AND coalesce(n.proc, 'N') = 'S'
+         AND p.idpiscofins > 0 AND cpc.aliq_pis_ent > 0
+         AND NOT (pe.tipofj IN ('F', 'R') AND cpc.cst_pis_ent NOT IN (50, 51, 52, 53, 54, 55, 56, 60))
+         AND ${extra}`.execute(db)).rows[0]?.b);
+    const frete = await baseNotas('E', sql`trim(np.cfop) = '2353'`);
+    const energia = await baseNotas('E', sql`trim(np.cfop) = '1253'`);
+    const devVendas = await baseNotas('E', sql`n.idsituacao_nf = 2 AND trim(np.cfop) = '1202'`);
+    const devCompras = await baseNotas('S', sql`n.idsituacao_nf = 17`);
+    const TOTRECECF = num(ecf.b), TOTRECNF = num(nf.b), TOTRECZERO = num(zero.b);
+    const neg = (v: number) => (v > 0 ? -v : v);
+    const TOTDEBSAIPIS = neg(num(ecf.p) + num(nf.p));
+    const TOTDEBSAICOF = neg(num(ecf.c) + num(nf.c));
+    const TOTBENSREV = num(ent.b), TOTBENADQALQ = num(entAlq.b);
+    const TOTBENADQDIF = TOTBENSREV - TOTBENADQALQ;
+    const TOTAJUSNEGDEVPIS = (devVendas * 1.65) / 100, TOTAJUSNEGDEVCOF = (devVendas * 7.6) / 100;
+    const TOTAJUNEGPIS = -((devCompras * 1.65) / 100), TOTAJUNEGCOF = -((devCompras * 7.6) / 100);
+    const TOTVALCREENTPIS = num(ent.p), TOTVALCREENTCOF = num(ent.c);
+    const TOTOUTCREPIS = 0, TOTOUTCRECOF = 0;
+    return {
+      codapuracao_pc: cod, dataini: cab.dataini, datafim: cab.datafim, empresa,
+      TOTRECECF, TOTRECNF, TOTRECSERV: 0, TOTRECOUT: 0, TOTRECZERO, BASEAPURACAO: TOTRECECF + TOTRECNF - TOTRECZERO,
+      TOTBENSREV, TOTBENADQALQ, TOTBENADQDIF, TOTBENADQMON: 0, TOTCREDFRETE: frete, TOTCREDELE: energia, TOTDEVVENDAS: devVendas,
+      TOTBASECRED: TOTBENADQALQ + TOTBENADQDIF + 0 + frete + energia + devVendas,
+      TOTDEBSAIPIS, TOTDEBSAICOF, TOTAJUSNEGDEVPIS, TOTAJUSNEGDEVCOF, TOTOUTDEBPIS: 0, TOTOUTDEBCOF: 0,
+      TOTVALCREENTPIS, TOTVALCREENTCOF, TOTOUTCREPIS, TOTOUTCRECOF, TOTAJUNEGPIS, TOTAJUNEGCOF, TOTDEDCREPIS: 0, TOTDEDCRECOF: 0,
+      TOTVALRECPIS: TOTDEBSAIPIS + TOTAJUNEGPIS + TOTAJUSNEGDEVPIS + TOTVALCREENTPIS + TOTOUTCREPIS,
+      TOTVALRECCOF: TOTDEBSAICOF + TOTAJUNEGCOF + TOTAJUSNEGDEVCOF + TOTVALCREENTCOF + TOTOUTCRECOF,
+    };
+  }
+
   /** a aba CONFIGURAÇÃO (`cdsConfig`): os CFOPs que entram na base do crédito, cada um com a base de crédito (PC_CONFIG — 18 na produção) */
   async listarConfig(): Promise<Array<Record<string, unknown>>> {
     return (await sql<Record<string, unknown>>`

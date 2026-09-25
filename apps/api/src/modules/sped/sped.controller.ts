@@ -86,6 +86,13 @@ export class SpedController {
     return this.apuracaoConsulta.excluirCredito(cod, tipo == null || tipo === '' ? null : Number(tipo), Number(aliqpis ?? 0));
   }
 
+  /** a impressão da apuração (ApuracaoPis_Cofins.fr3): os totais do relatório. */
+  @Get('apuracao-pc/:cod/relatorio')
+  @RequerAcesso('FRMAPURACAOPISCOFINS', 'FRMAPURACAOPISCOFINS')
+  relatorioApuracaoPc(@Param('cod', ParseIntPipe) cod: number) {
+    return this.apuracaoConsulta.relatorio(cod);
+  }
+
   /** a aba Configuração da apuração: os CFOPs da base do crédito (PC_CONFIG). */
   @Get('apuracao-pc-config')
   @RequerAcesso('FRMAPURACAOPISCOFINS', 'FRMAPURACAOPISCOFINS')

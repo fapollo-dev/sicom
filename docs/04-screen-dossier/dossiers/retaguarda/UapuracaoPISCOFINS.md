@@ -292,7 +292,7 @@ migrations 098, 123, 151, 240, 290, 310, 320; tela `apps/web/src/features/apurac
 | ✅ **B — tela de consulta fiel** | Apurações Realizadas (todas do escopo), abrir, excluir; Créditos/Débitos pai/filho por (tipo de crédito, alíquota) com pai recalculado; `*_APURA` lado a lado; Resumo com crédito anterior manual; mesmo período → "carregar?" em vez de refazer. Mostrar o total pelo recálculo (não pela soma gravada). | 341, 261, 22 abertas iguais ao legado |
 | ✅ **C — motor do crédito** | fórmula do item, PC_CONFIG pelo CFOP do item, 12 filtros, ICMS fiscal (T e PROC_CUPOM), alíquota ENT, tipo de crédito do catálogo, `*_APURA` com 1,65/7,6 (regra 2025+). Escopo raiz CNPJ. | 261 (6/7 ✓), 22 (6/7 ✓), 181 (ICMS 4/4 ✓) |
 | ✅ **D — motor do débito NFC-e** | VENDAS⋈NFC com as 5 chaves, VL_OPR com IAT, − ICMS dos itens 'T', 1 linha por situação, contingência por config. | 261 e 22: 3/3 ✓ cada |
-| ◐ **E — acessórios** | ✅ ajuste manual de crédito, [DEL] no pai, aba Configuração (PC_CONFIG), crédito anterior; seleção de empresa (config 820) no motor; falta a impressão. | §259.3/§259.4 |
+| ✅ **E — acessórios** | ajuste manual de crédito, [DEL] no pai, aba Configuração (PC_CONFIG), crédito anterior, impressão; seleção de empresa (config 820) no motor. | §259.3-§259.5 |
 | **F — SPED bloco M** | só depois de decidir §7.1 e §7.2 com o usuário: coluna lida, abortar ou não sem apuração, M105 (natureza pelo `id_basecredito`, CST do catálogo). | arquivo de um mês com apuração (jul/2025) |
 | **G — SAIDA NF** | novo recon com o binário/dado; fica fora até fechar §7.5. | 22, 261 |
 
@@ -310,11 +310,14 @@ migrations 098, 123, 151, 240, 290, 310, 320; tela `apps/web/src/features/apurac
   catálogo). O mesmo período volta a existente (`existente: true`).
 - ✅ **B**: a consulta no escopo, os pais (tipo de crédito × alíquota) recalculados — o total não herda o defeito da última linha —, os
   `*_APURA` lado a lado; o "Apurar" de um período já feito carrega a existente.
-- ◐ **E** (25/09/2026): o **ajuste manual de crédito** (`POST fiscal/sped/apuracao-pc/:cod/ajustes` — base de crédito, PIS/COFINS com as
+- ✅ **E** (25/09/2026): o **ajuste manual de crédito** (`POST fiscal/sped/apuracao-pc/:cod/ajustes` — base de crédito, PIS/COFINS com as
   alíquotas de ENTRADA, base; a linha CREDITO/ENTRADA sem `*_APURA` nem CST, como o fonte; os textos "Tipo de Crédito não encontrado!",
   "Base de cédito não encontrada!", "Pis e Cofins não encontrado!"), o **[DEL] no pai** de Créditos (`DELETE …/creditos?tipo&aliqpis`), a
   **aba Configuração** (PC_CONFIG: listar/incluir/excluir, "Código não encontrado!") e o **crédito anterior** do Resumo (campo da tela, não
-  gravado: a recolher = débito − (anterior + crédito)). Smoke §259.3/§259.4. Falta a **impressão** (`ApuracaoPis_Cofins.fr3`, ~30 totais).
+  gravado: a recolher = débito − (anterior + crédito)) e a **impressão** (`GET …/:cod/relatorio` + `imprimirPagina`, os totais do
+  `MontarValoresApuracao` no layout do `ApuracaoPis_Cofins.fr3`; divergências conscientes: o frete do item é o VRFRETE, a Devolução de
+  Vendas sai com o valor em vez de zerada, o "a recolher" do PIS soma os outros créditos do PIS — os dois "outros" são sempre 0). Smoke
+  §259.3/§259.4/§259.5. **E completo.**
 - O bloco M passou a achar a apuração de IDEMPRESA nulo (o período exato, a primeira se houver duas). O resto do **F** (qual coluna ler,
   abortar sem apuração) e o **E** (ajuste manual, crédito anterior, aba PC_CONFIG, impressão) e o **G** seguem pendentes.
 - Smoke §88/§90c (o dado de teste passou a ter a situação PIS/COFINS e o ICMS que a regra do legado usa), §117 (totais pelo pai) e

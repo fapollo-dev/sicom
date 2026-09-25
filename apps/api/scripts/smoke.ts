@@ -24796,6 +24796,13 @@ async function main() {
           && cfgAdd.status === 201 && cfg1.some((c) => c.cfop === '1556' && Number(c.id_basecredito) === 2)
           && cfgBad.status === 422 && cfgBadJ.message === 'Código não encontrado!' && cfgDel.status === 200 && !cfg2.some((c) => c.cfop === '1556') && semAcesso.status === 403,
           { n0: cfg0.length, cfgAdd: cfgAdd.status, cfgBad: [cfgBad.status, cfgBadJ.message], cfgDel: cfgDel.status, semAcesso: semAcesso.status });
+        // a impressão (ApuracaoPis_Cofins.fr3): os totais do MontarValoresApuracao
+        const rl = (await (await fetch(`${base}/fiscal/sped/apuracao-pc/${cod}/relatorio`, { headers: H })).json().catch(() => ({}))) as any;
+        const q = (x: unknown, y: number) => Math.abs(Number(x) - y) < 0.005;
+        check('APURAÇÃO PIS/COFINS §259.5 [a impressão]: receitas das NF/NFC-e 7,89 (débito −0,13/−0,60, o sinal do relatório), bens para revenda 632,00 (as 3 linhas de ENTRADA, todas com alíquota → 9,25% = 632, diferenciada 0), crédito de energia 300,00 pelas notas (CFOP 1253), base dos créditos 932,00, crédito de entrada PIS 9,93 e o "a recolher" do PIS −0,13 + 9,93 = 9,80',
+          q(rl.TOTRECNF, 7.89) && q(rl.TOTDEBSAIPIS, -0.13) && q(rl.TOTDEBSAICOF, -0.6) && q(rl.TOTBENSREV, 632) && q(rl.TOTBENADQALQ, 632) && q(rl.TOTBENADQDIF, 0)
+          && q(rl.TOTCREDELE, 300) && q(rl.TOTCREDFRETE, 0) && q(rl.TOTBASECRED, 932) && q(rl.TOTVALCREENTPIS, 9.93) && q(rl.TOTVALRECPIS, 9.8) && q(rl.BASEAPURACAO, 7.89),
+          { rl });
       } catch (e) {
         check('APURAÇÃO PIS/COFINS §259 [preparo]', false, { erro: (e as Error).message });
       } finally {
