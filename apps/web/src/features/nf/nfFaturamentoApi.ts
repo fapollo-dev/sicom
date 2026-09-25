@@ -1,10 +1,8 @@
 /**
- * Fetcher do FATURAMENTO da NF (F4 — gera títulos financeiros). Espelha `nfProcessamentoApi.ts`
- * (headers/BASE + envelope ErroResposta/ADR-015). ESCRITA/EFEITO: gera N parcelas em
- * ARECEBER (saída) / APAGAR (entrada) por IDNF, atômico. Erros (já faturada, total zero,
- * título quitado) sobem como envelope PT, exibido via `useMensagem`.
+ * Fetcher do FINANCEIRO da NF: as parcelas (FATURAMENTO) da aba de cobrança, o botão "Faturamento" (que abre a tela do
+ * Faturamento, onde a parcela vira título) e o estorno. Erros sobem como envelope PT, exibido via `useMensagem`.
  */
-import { isErroResposta, type ErroResposta, type FaturarNfDto, type GerarParcelasNfDto } from '@apollo/shared';
+import { isErroResposta, type ErroResposta, type GerarParcelasNfDto } from '@apollo/shared';
 
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
@@ -22,15 +20,9 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-export interface FaturamentoResultado {
-  codnf: number;
-  tabela: 'areceber' | 'apagar';
-  parcelas: number;
-}
-
-/** Fatura a NF: gera N parcelas como títulos (ARECEBER/APAGAR) por IDNF. */
-export function faturarNf(codnf: number, body: FaturarNfDto): Promise<FaturamentoResultado> {
-  return req<FaturamentoResultado>(`/fiscal/nf/${codnf}/faturar`, { body: JSON.stringify(body) });
+/** o botão "Faturamento" da nota: os gates do legado (enviada, com parcela pendente) e o filtro com que o Faturamento abre */
+export function faturamentoDaNota(codnf: number): Promise<{ codnf: number; tipo: string; nronf: string | null; dataIni: string; dataFim: string; pendentes: number[] }> {
+  return req(`/fiscal/nf/${codnf}/faturamento`, { method: 'GET' });
 }
 
 /** Estorna o faturamento: apaga os títulos por IDNF (bloqueado se houver título quitado). */

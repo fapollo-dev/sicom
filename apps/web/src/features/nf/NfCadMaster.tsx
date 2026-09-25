@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { Pencil, Trash2, Layers } from 'lucide-react';
 import { DataTable, type DataTableColumnDef, Modal } from '@apollosg/design-system';
@@ -39,7 +40,7 @@ import { vincularNfRotativo, type LadoRotativoNf } from '../inventario-rotativo/
 import { createResourceApi } from '../../shared/cadmaster/resourceApi';
 import { recalcularNf } from './nfFiscalApi';
 import { processarNf, reverterNf } from './nfProcessamentoApi';
-import { faturarNf, estornarFaturamentoNf, configuracaoParcelas, gerarParcelas, sequenciaDuplicata, type ParcelaGerada } from './nfFaturamentoApi';
+import { faturamentoDaNota, estornarFaturamentoNf, configuracaoParcelas, gerarParcelas, sequenciaDuplicata, type ParcelaGerada } from './nfFaturamentoApi';
 import { transmitirNf, cancelarNf, cceNf } from './nfNfeApi';
 
 /** Tipo da nota (parametrização Entrada/Saída — espelha o `ParametroCriacao` 35/36 do legado). */
@@ -569,8 +570,8 @@ function FinTab({ form, liberado, tipo }: { form: UseFormReturn<CriarNfDto>; lib
       )}
       {sub === 'docs' && (
         <small className="text-fg-muted">
-          Os documentos financeiros (títulos em {tipo === 'E' ? 'A Pagar' : 'A Receber'}) são gerados ao
-          «Faturar» (aba «Dados da cobrança») e aparecem no Lote de Cobrança. {!liberado && ''}
+          Os documentos financeiros (títulos em {tipo === 'E' ? 'A Pagar' : 'A Receber'}) nascem das parcelas no
+          «Faturamento» (aba «Dados da cobrança»). {!liberado && ''}
         </small>
       )}
       {sub === 'formas' && <PlaceholderTab nome="Formas de pagamento" />}
@@ -841,39 +842,29 @@ function ParcelasSection({ form, liberado }: { form: UseFormReturn<CriarNfDto>; 
   );
 }
 
-// ───────────────────────────── Faturamento (F4) ─────────────────────────────
+// ───────────────────────────── Faturamento ─────────────────────────────
 
 /**
- * Ações de FATURAMENTO (F4): geram títulos (ARECEBER saída / APAGAR entrada) por IDNF. Vive na aba
- * Financeiro › Dados da cobrança (fiel ao legado). "Faturar" com nº parcelas / 1º venc / intervalo.
+ * O botão "Faturamento" da nota (`btnFaturamentoClick`, uNF.pas:4332): a nota própria só depois de enviada, e só com parcela pendente;
+ * abre a tela do Faturamento com o filtro da nota (emissão, número, A Pagar / A Receber), onde a parcela vira título. O estorno
+ * apaga os títulos (as parcelas voltam a pendentes).
  */
 function FaturamentoSection({ form, tipo }: { form: UseFormReturn<CriarNfDto>; tipo: NfTipo }) {
   const mensagem = useMensagem();
+  const navigate = useNavigate();
   const [executando, setExecutando] = useState(false);
-  const [numParcelas, setNumParcelas] = useState<number | undefined>(1);
-  const [primeiroVencimento, setPrimeiroVencimento] = useState<string | undefined>(hojeISO());
-  const [intervaloDias, setIntervaloDias] = useState<number | undefined>(30);
   const faturada = form.watch('faturada');
   const codnf = (form.getValues() as { codnf?: number }).codnf;
-  if (codnf == null) return <small className="text-fg-muted">Grave a nota para faturar.</small>;
-
+  if (codnf == null) return null;
   const modalidade = tipo === 'E' ? 'A Pagar' : 'A Receber';
 
-  const faturar = async () => {
-    if (executando) return;
-    setExecutando(true);
+  const abrirFaturamento = async () => {
     try {
-      const r = await faturarNf(codnf, {
-        numParcelas: Number(numParcelas) || 1,
-        primeiroVencimento: primeiroVencimento ?? hojeISO(),
-        intervaloDias: Number(intervaloDias) || 0,
-      });
-      form.setValue('faturada', 'S');
-      mensagem.sucesso(`Faturamento gerado: ${r.parcelas} parcela(s) em ${modalidade}.`);
+      const r = await faturamentoDaNota(codnf);
+      sessionStorage.setItem('apollo.faturamento.nota', JSON.stringify(r));
+      navigate('/compras/faturamento');
     } catch (e) {
       mensagem.erro(e);
-    } finally {
-      setExecutando(false);
     }
   };
 
@@ -893,27 +884,10 @@ function FaturamentoSection({ form, tipo }: { form: UseFormReturn<CriarNfDto>; t
   };
 
   return (
-    <div className="flex flex-col gap-gp-sm">
-      <span className="text-body-sm font-semibold text-fg-default">Faturas ({modalidade})</span>
-      {faturada === 'S' ? (
-        <div className="flex flex-wrap items-center gap-gp-sm">
-          <Button label="&Estornar faturamento" variant="soft" onClick={() => void estornar()} />
-          <small className="text-fg-muted">Financeiro gerado (títulos em {modalidade}).</small>
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-end gap-gp-sm">
-          <div className="w-32">
-            <NumberField label="Nº &parcelas" value={numParcelas} onChange={setNumParcelas} decimais={0} min={1} />
-          </div>
-          <div className="w-44">
-            <DateField label="1º &vencimento" value={primeiroVencimento} onChange={setPrimeiroVencimento} />
-          </div>
-          <div className="w-36">
-            <NumberField label="&Intervalo (dias)" value={intervaloDias} onChange={setIntervaloDias} decimais={0} min={0} />
-          </div>
-          <Button label="&Gerar financeiro" variant="soft" onClick={() => void faturar()} />
-        </div>
-      )}
+    <div className="flex flex-wrap items-center gap-gp-sm">
+      <Button label="&Faturamento" variant="soft" onClick={() => void abrirFaturamento()} />
+      {faturada === 'S' && <Button label="&Estornar faturamento" variant="soft" onClick={() => void estornar()} />}
+      <small className="text-fg-muted">As parcelas viram títulos em {modalidade} na tela do Faturamento.</small>
     </div>
   );
 }

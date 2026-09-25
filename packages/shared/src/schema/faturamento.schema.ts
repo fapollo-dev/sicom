@@ -36,3 +36,28 @@ export function situacaoParcela(vencimento: string | null | undefined, liberado:
   if (v === hoje) return 'VENCE_HOJE';
   return v < hoje ? 'ATRASADA' : 'A_VENCER';
 }
+
+/** as parcelas escolhidas na grade do Faturamento (espaço/clique; "marcar todas") */
+export const parcelasFaturamentoSchema = z.object({
+  codfaturamento: z.array(z.coerce.number().int().positive()).min(1, 'Selecione ao menos uma parcela.').max(500),
+});
+export type ParcelasFaturamentoDto = z.infer<typeof parcelasFaturamentoSchema>;
+
+/**
+ * PROCESSAR (F2): as parcelas e o que o operador ajustou no pré-lançamento — a tela de Contas a Pagar / Receber que o Faturamento
+ * abre deixa trocar o vencimento, o valor, o tipo de documento (BOLETO, CARTÃO PRÓPRIO, A VISTA…), o código de barras e, na
+ * saída, a forma de pagamento.
+ */
+export const processarFaturamentoSchema = parcelasFaturamentoSchema.extend({
+  ajustes: z.array(z.object({
+    codfaturamento: z.coerce.number().int().positive(),
+    dtvenc: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (use AAAA-MM-DD).').optional(),
+    valor: z.coerce.number().positive('O valor da parcela tem de ser maior que zero.').optional(),
+    tipodoc: z.string().trim().min(1).max(25).optional(),
+    codbarrasblt: z.string().trim().max(48).nullable().optional(),
+    idpgto: z.coerce.number().int().positive().optional(),
+  })).optional(),
+  /** a resposta a "O sistema identificou que esta conta pode ter sido lançada anteriormente… Deseja continuar?" */
+  confirmarRepetida: z.boolean().optional(),
+});
+export type ProcessarFaturamentoDto = z.infer<typeof processarFaturamentoSchema>;

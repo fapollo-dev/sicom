@@ -201,6 +201,8 @@ export class NfProcessamentoService {
       // o CAIXA gerencial da NF (GerarLancamentosDeCaixa / ReverteLancamentosDeCaixa; UCadSituacaoNF.md C4) — o
       // legado gera depois do commit do processamento; aqui na mesma transação, para não sobrar caixa de nota não processada
       if (modo === 'processar') await gerarCaixaDaNf(trx, codnf, emp, op);
+      // retenções, RESIDUAL ST e o financeiro automático nascem no processar, como no legado (udmNF.pas:7771-7775)
+      if (modo === 'processar') await this.faturamento.aposProcessar(trx, codnf, emp, op);
       else await reverterCaixaDaNf(trx, codnf, emp);
       // a LOG do processamento/reversão: o que mudou no cabeçalho e nos itens ("Alterou NF — PROC N→S", …)
       await logDaDiferencaNf(trx, codnf, fotoLog);

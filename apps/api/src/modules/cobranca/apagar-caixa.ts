@@ -20,11 +20,17 @@ export async function novoGrupo(trx: AnyDB): Promise<number> {
   return Number((await sql<{ id: string }>`SELECT nextval('seq_caixa_codgrupo') AS id`.execute(trx)).rows[0].id);
 }
 
-/** o rateio do faturamento da NF (CODCONTABILNF com CC, não adicional), no 1º título do grupo */
-export async function rateioDoFaturamento(trx: AnyDB, codnf: number, codgrupo: number, codapg: number): Promise<number> {
+/**
+ * o rateio do faturamento da NF (CODCONTABILNF com CC, não adicional), no 1º título do grupo. Com desconto de ACORDO comercial, a
+ * linha da situação da nota leva o acordo somado (`QryContabilSicomNF`, uAPagar.pas:4574-4578: `VALOR + TOTAL_DESC_ACORDO` quando
+ * IDSITUACAO_NOTA = IDSITUACAO_NF da linha)
+ */
+export async function rateioDoFaturamento(trx: AnyDB, codnf: number, codgrupo: number, codapg: number, acordo = 0): Promise<number> {
   const r = await sql`
     INSERT INTO cx_apagar (codapg, codcc, valor, codgrupo, tipo, idsituacao_nf, dtultimalteracao)
-    SELECT ${codapg}, c.codcc, c.valor, ${codgrupo}, coalesce(nullif(trim(c.tipovalor), ''), 'V'), NULL, now()
+    SELECT ${codapg}, c.codcc,
+           c.valor + CASE WHEN ${acordo}::numeric > 0 AND c.idsituacao_nf = (SELECT n.idsituacao_nf FROM nf n WHERE n.codnf = ${codnf}) THEN ${acordo}::numeric ELSE 0 END,
+           ${codgrupo}, coalesce(nullif(trim(c.tipovalor), ''), 'V'), NULL, now()
       FROM nf_contabil c
      WHERE c.codnf = ${codnf} AND c.codcc IS NOT NULL AND coalesce(c.adicional, 'N') <> 'S'
      ORDER BY c.codcontabilnf`.execute(trx);

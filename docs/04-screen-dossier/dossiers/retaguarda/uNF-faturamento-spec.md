@@ -702,3 +702,35 @@ E pode ir junto de B.
 
 **Efeito no smoke:** o processar das NFs de teste passou a exigir as parcelas (regra do legado). O helper `processarNf` grava
 uma parcela com a base e a apaga depois; a regra em si é o §215.
+
+### Corte B — ✅ 25/09/2026 (mig 341, smoke §216 + os 25 testes do antigo `/faturar` reescritos no fluxo real)
+
+| item | onde | prova |
+|---|---|---|
+| `POST compras/faturamento/previa` — o pré-lançamento (a tela de Contas a Pagar/Receber que o Faturamento abre) | `NfFaturamentoService.preLancamento` | §216.1 |
+| `POST compras/faturamento/processar` — um título por parcela, ajustes do operador (vencimento, valor, TIPODOC, código de barras; forma na saída), parcela LIBERADO='S' por CODFATURAMENTO sem LOG, esteira stGerarFinanceiro | `processar` / `faturarNaTrx` | §216.2-3 |
+| A PAGAR no shape do DADO (10.287 GFAT 2025-26): GFAT S, **GERADO e NRODUP nulos**, FORM 'TfrmAPagar', operador, TXJUROS 0, DTCOMPRA = emissão, DUPLICATA = NRONF, NRPARCELA n/t, BOLETO, CODBARRASBLT, IDSITUACAO_NF = situação financeira (0), CODPLANOCONTAS_DEB_BAIXA_CP da situação; VALOR + acordo/n e DESCONTO = acordo/n; rateio pelo CODCONTABILNF com o acordo na situação da nota; CAIXA do grupo; LOG "Contas a pagar" | idem, `rateioDoFaturamento(…, acordo)` | §216.2 |
+| **um grupo por nota** (o dado: 8.756 grupos GFAT, todos com 1 IDNF, e cada IDNF em 1 grupo) | `preLancamento` agrupa por IDNF | — |
+| `ValidaDocumentoRepetido` → 422 FATURAMENTO_CONTA_REPETIDA (com o CODAPG) e `confirmarRepetida` | `faturarNaTrx` | §216.4 |
+| A RECEBER (112 de NF): DTVENDA = emissão, DUPLICATA da parcela ou "NRONF - 001/002", NRODUP n, TOTAL/TOTAL_BRT = TOTALNF − bonificado, BOLETO, CODPLC do CODCONTABILNF, NROPEDIDO/CODVENDEDOR/OBS dos pedidos, CONSILIADO S, cadastrado manualmente, LOGADO/CODOPERADORMAN, TXJUROS = padrão da empresa (`cdsReceberNewRecord`), CAIXA por título (111 de 111), LOG "Contas a receber"; pedidos liquidados (PROCESSO_LIQUIDADO/CX_PEDIDOS) | idem | §216.5 |
+| forma da saída: FORMAS_PGTO com MODALIDADE = a da parcela, senão o operador escolhe ("Informe a forma de pagamento.") — na produção não existe forma 'A RECEBER' (a devolução foi na 'DEVOLUCAO', IDPGTO 23) | idem | §216.5 |
+| `POST compras/faturamento/bonificar` (LIBERADO S + BONIFICADO, sem título; gate BONIFICACAO_FATURAMENTO_NF) | `bonificar` | §216.6 |
+| só nota processada (`BuscaDocsAFaturar`) | `parcelasEscolhidas` | §216.7 |
+| `GET fiscal/nf/:id/faturamento` — o botão da nota: "Envie a nota antes de gerar o faturamento!" / "Não existe faturamento pendente…" + o filtro com que a tela abre | `daNota` | §216.1, 216.3, 216.5 |
+| **Corte E junto**: retenções federais (inclui FUNRURAL), RESIDUAL ST e o `GerarFinanceiroAutomaticamente` (GERA_FINANCEIRO_AUTO+PROC_FINANCEIRO, GERADO 'SISTEMA') saem do "faturar" e rodam no PROCESSAR | `aposProcessar`, chamado em `nf-processamento` | 4c/4c-b, §216.8 |
+| o `/fiscal/nf/:id/faturar` por DTO e o `faturarComParcelas` **saíram** (invenção do Apollo: o legado sempre tem os dois tempos) | — | — |
+| devolução de compra: a parcela da nota de devolução (atalho: uma com a base e o vencimento de `DataPrimeiraParcelaNotaDevolucao`) é faturada com a forma escolhida | `devolucao-compra.faturarNf`, `parcelaUnicaNaTrx` | DEV 73.7, c4 |
+| mig 341: o seed da 064 ligava GERA_FINANCEIRO_AUTO no 1102 (a produção não tem nenhum) — com o automático no processar, faturava tudo sozinho no dev; e as configurações do faturamento (BONIFICACAO_FATURAMENTO_NF, FINANCEIRO_BONIFICACAO_ACORDO, PERMITE_EXCLUIR_FINANCEIRO_DA_NF, ESTORNA_FINANCEIRO) com os valores da produção | — | — |
+| web: FaturamentoPage operacional (marcar, Processar F2 com o pré-lançamento editável, Bonificar F4, abre pelo botão da nota); NF com o botão "Faturamento"; devolução pede a forma | `FaturamentoPage.tsx`, `NfCadMaster.tsx`, `DevolucaoCompraCadMaster.tsx` | web tsc/build |
+
+**Divergências e pendências registradas:**
+- **Estorno provisório**: `estornar-faturamento` apaga os títulos e devolve as parcelas a pendentes. O `ExcluiFaturamento` do legado
+  apaga também a FATURAMENTO e marca CANCELA_FATURAMENTO='S' — é o Corte C.
+- **Base da parcela = legado**: desconta TOTAL_RETENCOES **calculado** (a COFINS calculada sem dia de vencimento também sai do
+  fornecedor). O Apollo antes descontava só as retenções que viravam título ("livro balanceado"); o dado (Σ = base em 14.790 de
+  14.790) decide.
+- `GerarAReceberDeAcordoComercial` **não convertido**: 0 NFs com TOTAL_DESC_ACORDO em 2025-26 e 14 linhas históricas em
+  AUX_ACORDO_COMERCIAL — pendência, não regra desligada (o VALOR+acordo/DESCONTO do título e o rateio com o acordo estão feitos).
+- `INFORMA_CHEQUE_CARTAO_PROPRIO` = N na produção: o CARTÃO PRÓPRIO/A VISTA é só o TIPODOC (0 baixa imediata sistemática no dado).
+- Os lotes (`LOTE_FATURAMENTO`) seguem fora: 0 linhas, o legado nunca faz ApplyUpdates.
+- `nf.faturada` continua sendo marcado (S no processar do Faturamento) até o Corte D o trocar pelos predicados.

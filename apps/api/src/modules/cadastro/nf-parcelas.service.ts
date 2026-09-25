@@ -275,6 +275,33 @@ export class NfParcelasService {
     return { parcelas: novas.length, total: r2(duplicatas.reduce((s, d) => s + num(d.vDup), 0)) };
   }
 
+  /**
+   * ATALHO da devolução de compra (a tela de devolução fatura sem passar pela aba de cobrança): a nota sem parcela nenhuma ganha UMA,
+   * com a base inteira e o vencimento de `DataPrimeiraParcelaNotaDevolucao` — o que o "Gerar financeiro" daria com 1 parcela. Só com o
+   * CFOP que gera financeiro; LOG Inseriu como a grade.
+   */
+  async parcelaUnicaNaTrx(trx: AnyDB, codnf: number): Promise<number> {
+    const emp = this.emp();
+    const op = currentTenant().operadorId ?? null;
+    const nf = await this.carregar(trx, codnf, emp);
+    const ja = num((await sql<{ n: number }>`SELECT count(*)::int AS n FROM faturamento WHERE idnf = ${codnf}`.execute(trx)).rows[0]?.n);
+    if (ja > 0) return 0;
+    const liberada = nf.proc_financeiro === 'S'
+      || (BONIFICACAO.includes(String(nf.cfop)) && (await configNaTrx(trx, 'FINANCEIRO_BONIFICACAO_ACORDO', { empresaId: emp, operadorId: op, modulo: 'Retaguarda' })) === 'S');
+    if (!liberada) throw new BusinessRuleError('NF_PARCELAS_CFOP_SEM_FINANCEIRO', { codnf });
+    const venc = num(nf.cod_ped_dev_compra) > 0 ? await this.vencimentoDaDevolucao(trx, Number(nf.cod_ped_dev_compra), emp, op) : hojeSP();
+    const td = await this.tipoDuplicata(trx, emp);
+    const nronf = nf.nronf != null ? String(nf.nronf) : null;
+    const linha = (await trx.insertInto('faturamento').values({
+      idnf: codnf, data: venc, valor: NfParcelasService.base(nf), liberado: 'N', nrofatura: 1, totalparcelasfatura: 1, nronf,
+      modalidade: modalidadeDaParcela(String(nf.tipo ?? ''), td.modelo),
+      duplicata: duplicataDaParcela({ modelo: td.modelo, separador: td.separador, nroDup: null, nronf: nronf ?? '', i: 0, hoje: hojeSP() }),
+    }).returningAll().executeTakeFirstOrThrow()) as Record<string, unknown>;
+    const cab = (await trx.selectFrom('nf').select(['tipo']).where('codnf', '=', codnf).executeTakeFirst()) as Record<string, unknown>;
+    await gravarLogDaLinha(trx, { acao: 'Inseriu', formulario: formularioDaNf(cab), tabela: 'FATURAMENTO', chave: 'CODNF', valor: codnf, campos: FATURAMENTO_CAMPOS_LOG, depois: linha });
+    return 1;
+  }
+
   /** "Deseja gerar sequencia de duplicatas?" → `GetID('NRODUP')` (btnGerarSeqFinClick, uNF.pas:2856) */
   async proximaDuplicata(): Promise<{ nroDup: number }> {
     this.emp();

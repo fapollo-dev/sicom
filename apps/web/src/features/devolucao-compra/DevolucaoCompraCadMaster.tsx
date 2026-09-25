@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { gradeLayoutService } from '../../shared/grade/savedViewsService';
-import { DataTable, type DataTableColumnDef, PageHeader } from '@apollosg/design-system';
+import { DataTable, type DataTableColumnDef, Modal, PageHeader } from '@apollosg/design-system';
 import { CheckCircle2, RotateCcw, Ban, Trash2, FileOutput, HandCoins } from 'lucide-react';
 import type { DevolucaoCompra, ItemDisponivelDevolucao, DevolucaoCompraItemDto } from '@apollo/shared';
 import { Button } from '../../shared/ui/Button';
@@ -35,6 +35,11 @@ export function DevolucaoCompraCadMaster() {
   const [codparceiro, setCodparceiro] = useState<number | undefined>(undefined);
   const [disponiveis, setDisponiveis] = useState<ItemDisponivelDevolucao[]>([]);
   const [qtds, setQtds] = useState<Record<number, number | undefined>>({});
+  // faturar pede a forma do título a receber (a tela de Contas a Receber que o Faturamento abre; na produção, DEVOLUCAO)
+  const [faturando, setFaturando] = useState<number | null>(null);
+  const [idpgto, setIdpgto] = useState<string | undefined>(undefined);
+  const { data: formaOptions = [] } = useResourceOptions('cadastro/formas-pgto',
+    (x: any) => ({ value: String(x.idpgto), label: `${x.idpgto} - ${x.modalidade ?? ''}` }));
 
   const { data: fornecedorOptions = [] } = useResourceOptions(
     'cadastro/parceiros',
@@ -135,7 +140,7 @@ export function DevolucaoCompraCadMaster() {
           acts.push({ id: 'reabrir', label: 'Reabrir', icon: <RotateCcw size={16} />, onClick: () => void acao(() => reabrirDevolucao(id), 'Devolução reaberta.') });
         }
         if (st === 'NOTA FISCAL EMITIDA') {
-          acts.push({ id: 'faturar', label: 'Faturar', icon: <HandCoins size={16} />, onClick: () => void acao(() => faturarDevolucao(id), 'Devolução faturada: A Receber gerado contra o fornecedor.') });
+          acts.push({ id: 'faturar', label: 'Faturar', icon: <HandCoins size={16} />, onClick: () => { setIdpgto(undefined); setFaturando(id); } });
         }
         if (st === 'EM DIGITACAO' || st === 'DIGITADO') {
           acts.push({ id: 'cancelar', label: 'Cancelar', icon: <Ban size={16} />, destructive: true, onClick: () => void acao(() => cancelarDevolucao(id), 'Devolução cancelada.') });
@@ -203,6 +208,14 @@ export function DevolucaoCompraCadMaster() {
       </fieldset>
 
       <DataTable columns={colunas} rows={lista} loading={carregando} />
+
+      {faturando != null && (
+        <Modal open onClose={() => setFaturando(null)} size="sm" title="Faturar devolução"
+          primaryAction={{ label: 'Faturar', disabled: !idpgto, onClick: () => { const id = faturando; setFaturando(null); void acao(() => faturarDevolucao(id, Number(idpgto)), 'Devolução faturada: A Receber gerado contra o fornecedor.'); } }}
+          secondaryAction={{ label: 'Cancelar', onClick: () => setFaturando(null) }}>
+          <SelectField label="&Forma de pagamento" options={formaOptions} value={idpgto} onChange={(v) => setIdpgto(v || undefined)} placeholder="Selecione a forma…" />
+        </Modal>
+      )}
     </div>
   );
 }

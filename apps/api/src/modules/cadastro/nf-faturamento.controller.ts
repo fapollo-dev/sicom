@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
-import { faturarNfSchema, gerarParcelasNfSchema, type FaturarNfDto, type GerarParcelasNfDto } from '@apollo/shared';
+import { gerarParcelasNfSchema, type GerarParcelasNfDto } from '@apollo/shared';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -42,14 +42,11 @@ export class NfFaturamentoController {
     return this.parcelas.proximaDuplicata();
   }
 
-  @Post(':id/faturar')
-  @HttpCode(200)
+  /** o botão "Faturamento" da nota: os gates do legado e o filtro com que o Faturamento abre */
+  @Get(':id/faturamento')
   @RequerAcesso('FRMNF', 'BTNFATURAMENTO')
-  faturar(
-    @Param('id', ParseIntPipe) id: number,
-    @Body(new ZodValidationPipe(faturarNfSchema)) dto: FaturarNfDto,
-  ) {
-    return this.fat.faturar(id, dto);
+  daNota(@Param('id', ParseIntPipe) id: number) {
+    return this.fat.daNota(id);
   }
 
   @Post(':id/estornar-faturamento')

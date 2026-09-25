@@ -5,6 +5,7 @@ import type { ItemDisponivelDevolucao } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { AggregateEngineService } from '../../shared/crud/aggregate-engine.service';
 import { nfAggregateConfig } from '../cadastro/nf.aggregate';
+import { NfParcelasService } from '../cadastro/nf-parcelas.service';
 import { NfFaturamentoService } from '../cadastro/nf-faturamento.service';
 import { ConfigService } from '../cadastro/config.service';
 import { currentTenant } from '../../shared/tenant/tenant-context';
@@ -35,6 +36,7 @@ export class DevolucaoCompraService {
     private readonly engine: AggregateEngineService,
     private readonly fat: NfFaturamentoService,
     private readonly config: ConfigService,
+    private readonly parcelas: NfParcelasService,
   ) {}
 
   private emp(): number {
@@ -410,13 +412,13 @@ export class DevolucaoCompraService {
   }
 
   /**
-   * corte-3 — FATURAR a devolução → A RECEBER contra o FORNECEDOR. Vencimento default = DTEMISSAO da NF +
-   * `QUANTIDADE_DIAS_GERAR_BOLETO_DEVOLUCAO` (golden PINHEIRAO: 15); título ÚNICO (1 parcela), BOLETO. Delega
-   * ao F4 (`nf-faturamento.faturar`; tipo='S'→areceber com codparceiro=fornecedor). O operador pode ajustar o
-   * vencimento na tela da NF (o alinhamento ao vencimento da compra original é comportamento de fluxo — divergência
-   * consciente). Requer a NF já gerada (codnf_emitida).
+   * FATURAR a devolução → A RECEBER contra o FORNECEDOR, pelo caminho do legado: a PARCELA da nota de devolução (FATURAMENTO) vira
+   * título no Faturamento. Atalho da tela: a nota sem parcela nenhuma ganha uma, com a base inteira e o vencimento de
+   * `DataPrimeiraParcelaNotaDevolucao` (1º vencimento da FATURAMENTO da nota devolvida + QUANTIDADE_DIAS_GERAR_BOLETO_DEVOLUCAO); a
+   * pendente é faturada com a forma escolhida (na produção a devolução vai na forma 'DEVOLUCAO' — IDPGTO 23 —, que o operador escolhe;
+   * não há forma 'A RECEBER'). Requer a NF gerada e processada (o Faturamento só lista nota processada).
    */
-  async faturarNf(codpeddevcompra: number): Promise<{ codnf: number; parcelas: number; vencimento: string }> {
+  async faturarNf(codpeddevcompra: number, dto: { idpgto?: number } = {}): Promise<{ codnf: number; parcelas: number; vencimento: string | null }> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
     const dev = (await db
@@ -429,44 +431,14 @@ export class DevolucaoCompraService {
     if (!dev) throw new BusinessRuleError('DEVOLUCAO_NAO_ENCONTRADA', { codpeddevcompra });
     if (dev.codnf_emitida == null) throw new BusinessRuleError('DEVOLUCAO_SEM_NF', { codpeddevcompra });
     const codnf = Number(dev.codnf_emitida);
-
-    const nfRow = (await db
-      .selectFrom('nf')
-      .select([sql<string>`to_char(dtemissao::date, 'YYYY-MM-DD')`.as('emissao')])
-      .where('codnf', '=', codnf)
-      .where('idempresa', '=', emp)
-      .executeTakeFirst()) as { emissao?: string } | undefined;
-    // config ausente → 15 (default do legado); '0' é VÁLIDO (boleto à vista) — não usar `|| 15` (engoliria o 0).
-    const cfgRaw = await this.config.resolver('QUANTIDADE_DIAS_GERAR_BOLETO_DEVOLUCAO', { empresaId: emp });
-    const dias = cfgRaw != null && cfgRaw !== '' ? numCfg(cfgRaw) : 15;
-    const hojeIso = nfRow?.emissao ?? new Date().toISOString().slice(0, 10); // emissão da devolução = hoje
-
-    // corte SPED c4: VENCIMENTO ANCORADO na NF de ENTRADA (DataPrimeiraParcelaNotaDevolucao, udmNF.pas:6334).
-    // Quando a devolução vem de UMA ÚNICA NF de entrada (178/545 no golden), a base do vencimento é a MENOR
-    // dtvenc do A Pagar dessa entrada (se hoje > essa data → hoje). >1 NF de entrada (ou entrada sem A Pagar)
-    // → base = hoje. Depois soma os dias do boleto de devolução. O operador ainda pode editar na tela.
-    const refs = (await db.selectFrom('nf_referencia').select('codnf_ref').where('codnf', '=', codnf).execute()) as Array<{ codnf_ref?: number }>;
-    let baseIso = hojeIso;
-    if (refs.length === 1 && refs[0].codnf_ref != null) {
-      const menor = (await db
-        .selectFrom('apagar')
-        .select([sql<string>`to_char(min(dtvenc)::date, 'YYYY-MM-DD')`.as('dtvenc')])
-        .where('idnf', '=', Number(refs[0].codnf_ref))
-        .where('codempresa', '=', emp)
-        // fold auditoria: SÓ as duplicatas do fornecedor (FATURAMENTO no legado). Exclui RESIDUAL ST (venc=DTCONTABIL,
-        // à vista) e retenção federal (venc dia-fixo) — gravados no mesmo apagar/idnf com retencao<>NULL — que
-        // ancorariam o boleto na data ERRADA (o RESIDUAL ST vence antes das duplicatas).
-        .where('retencao', 'is', null)
-        .executeTakeFirst()) as { dtvenc?: string | null } | undefined;
-      // hoje > menor → hoje; senão a data da entrada (fallback hoje se a entrada não tem A Pagar).
-      if (menor?.dtvenc && menor.dtvenc > hojeIso) baseIso = menor.dtvenc;
-    }
-    const base = new Date(`${baseIso}T00:00:00Z`);
-    base.setUTCDate(base.getUTCDate() + Math.round(dias));
-    const vencimento = base.toISOString().slice(0, 10);
-
-    // tipodoc='BOLETO' (golden do A Receber da devolução); 1 parcela.
-    const r = await this.fat.faturar(codnf, { numParcelas: 1, primeiroVencimento: vencimento, intervaloDias: 0, tipodoc: 'BOLETO' });
-    return { codnf, parcelas: r.parcelas, vencimento };
+    await (this.dbp.forTenant() as AnyDB).transaction().execute((trx: AnyDB) => this.parcelas.parcelaUnicaNaTrx(trx, codnf));
+    const pend = (await sql<{ codfaturamento: number; data: string }>`SELECT codfaturamento, to_char(data, 'YYYY-MM-DD') AS data FROM faturamento
+        WHERE idnf = ${codnf} AND coalesce(liberado, 'N') <> 'S' ORDER BY nrofatura, codfaturamento`.execute(db)).rows;
+    if (!pend.length) throw new BusinessRuleError('NF_FATURAMENTO_SEM_PENDENTE', { codnf });
+    await this.fat.processar({
+      codfaturamento: pend.map((p) => Number(p.codfaturamento)),
+      ajustes: dto.idpgto != null ? pend.map((p) => ({ codfaturamento: Number(p.codfaturamento), idpgto: Number(dto.idpgto) })) : [],
+    });
+    return { codnf, parcelas: pend.length, vencimento: pend[0]?.data ?? null };
   }
 }

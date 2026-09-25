@@ -1,4 +1,4 @@
-import { Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { DevolucaoCompraService } from './devolucao-compra.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -48,11 +48,12 @@ export class DevolucaoCompraController {
     return this.svc.gerarNf(id);
   }
 
-  /** corte-3: fatura a devolução → A RECEBER contra o fornecedor (venc = emissão + config dias; 1 parcela BOLETO). */
+  /** fatura a devolução → A RECEBER contra o fornecedor: a parcela da nota de devolução vira título no Faturamento (body: `idpgto`) */
   @Post(':id/faturar')
   @HttpCode(200)
   @RequerAcesso('FRMCADPEDIDODEVOLUCAOCOMPRAS', 'BTNFATURAR')
-  faturarNf(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.faturarNf(id);
+  faturarNf(@Param('id', ParseIntPipe) id: number, @Body() b: { idpgto?: unknown } = {}) {
+    const idpgto = b?.idpgto != null && b.idpgto !== '' ? Number(b.idpgto) : undefined;
+    return this.svc.faturarNf(id, { idpgto: Number.isInteger(idpgto) && (idpgto as number) > 0 ? idpgto : undefined });
   }
 }

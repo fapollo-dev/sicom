@@ -84,6 +84,7 @@ export function gerarNfDevolucao(id: number): Promise<{ codnf: number; codpeddev
 }
 
 /** corte-3: fatura a devolução → A Receber contra o fornecedor (venc = emissão + config dias). */
-export function faturarDevolucao(id: number): Promise<{ codnf: number; parcelas: number; vencimento: string }> {
-  return req(`${DEV}/${id}/faturar`, { method: 'POST' });
+/** a parcela da nota de devolução vira título a receber no Faturamento, na forma escolhida (na produção, a forma DEVOLUCAO) */
+export function faturarDevolucao(id: number, idpgto: number): Promise<{ codnf: number; parcelas: number; vencimento: string | null }> {
+  return req(`${DEV}/${id}/faturar`, { method: 'POST', body: JSON.stringify({ idpgto }) });
 }

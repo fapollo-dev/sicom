@@ -7,6 +7,13 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ConfigService } from './config.service';
+import { gravarLogDaLinha } from '../../shared/log/registro-log';
+import { ApagarService } from '../cobranca/apagar.service';
+import { AreceberService } from '../cobranca/areceber.service';
+import { lancarCaixaDoAreceber } from '../cobranca/areceber-caixa';
+
+/** o que o operador ajusta no pré-lançamento antes de gravar (a tela de Contas a Pagar / Receber aberta pelo Faturamento) */
+export interface AjusteTitulo { codfaturamento: number; dtvenc?: string; valor?: number; tipodoc?: string; codbarrasblt?: string | null; idpgto?: number }
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -44,53 +51,6 @@ export class NfFaturamentoService {
     private readonly dbp: DatabaseProvider,
     private readonly config: ConfigService,
   ) {}
-
-  /**
-   * Carrega a NF sob lock + valida que pode faturar (mesmas travas p/ o F4 computado e o corte-4 por
-   * duplicatas do XML): existe, não cancelada/denegada/contabilizada/faturada, sem título por idnf.
-   * Devolve a NF, a tabela alvo (APAGAR entrada / ARECEBER saída) e o txjuros padrão da empresa.
-   */
-  private async carregarNfFaturavel(
-    trx: AnyDB,
-    codnf: number,
-    emp: number,
-  ): Promise<{ nf: any; tabela: 'areceber' | 'apagar'; txjuros: number }> {
-    const nf = await trx
-      .selectFrom('nf')
-      .select([
-        'codnf', 'tipo', 'nronf', 'cancelada', 'faturada', 'contabilizado', 'codparceiro', 'totalnf', 'dtemissao', 'dtcontabil', 'statusnfe', 'icms_st_apagar',
-        'idsituacao_nf', 'total_ret_pis', 'total_ret_cofins', 'total_ret_csll', 'total_ret_ir', 'total_ret_inss', 'total_ret_issqn', 'total_ret_funrural',
-        'perc_aliquota_ret_pis', 'perc_aliquota_ret_cofins', 'perc_aliquota_ret_csll', 'perc_aliquota_ret_ir', 'perc_aliquota_ret_inss', 'perc_aliquota_ret_issqn', 'perc_aliquota_ret_funrural',
-      ])
-      .where('codnf', '=', codnf)
-      .where('idempresa', '=', emp)
-      .forUpdate()
-      .executeTakeFirst();
-    if (!nf) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf });
-    if (nf.cancelada === 'S' || nf.statusnfe === 'C') throw new BusinessRuleError('NF_CANCELADA', { codnf });
-    // ⚠️ sem trava de DENEGADA nem de CONTABILIZADA (auditoria g1 #21/#22): o `btnFaturamentoClick` do legado (uNF.pas:4332-4374)
-    // libera a denegada e não olha o CONTABILIZADO — e no legado o processar GERA o financeiro e só depois integra o contábil
-    // (udmNF.pas:7772-7788); o Apollo contabiliza no processar, então a trava deixava sem faturar 5.409 NFs (2025) e 2.716 (2026).
-    if (nf.faturada === 'S') throw new BusinessRuleError('NF_JA_FATURADA', { codnf });
-    const tabela: 'areceber' | 'apagar' = nf.tipo === 'E' ? 'apagar' : 'areceber';
-    const ja = await trx.selectFrom(tabela).select('idnf').where('idnf', '=', codnf).where('codempresa', '=', emp).executeTakeFirst();
-    if (ja) throw new BusinessRuleError('NF_JA_FATURADA', { codnf });
-    const empFin = await trx.selectFrom('empresas').select('txjuropadrao').where('idempresa', '=', emp).executeTakeFirst();
-    return { nf, tabela, txjuros: num(empFin?.txjuropadrao) };
-  }
-
-  /** insere UM título (fonte única do shape de coluna de areceber/apagar — evita drift entre os caminhos). */
-  private async inserirTituloFat(
-    trx: AnyDB,
-    tabela: 'areceber' | 'apagar',
-    row: { codparceiro: number; codempresa: number; idnf: number; dtvenda: unknown; dtvenc: string; duplicata: string; nrodup: number; valor: number; txjuros: number; tipodoc?: string },
-    extraApagar?: { codgrupo: number; obs: string; nrparcela: string; codoperador: number | null },
-  ): Promise<void> {
-    // o título do faturamento é GFAT='S' e GERADO 'SISTEMA' (uAPagar.pas:2034-2037; 3.430 títulos de NF em 2026) — é por aí que
-    // a tela de contas a pagar o reconhece como de origem automática e trava valor, fornecedor e rateio
-    const doFaturamento = tabela === 'apagar' ? { gfat: 'S', gerado: 'SISTEMA' } : {};
-    await trx.insertInto(tabela).values({ ...row, ...(tabela === 'apagar' && extraApagar ? extraApagar : {}), ...doFaturamento, quitada: 'N', consiliado: 'N' }).execute();
-  }
 
   /**
    * A CONVERSÃO DA PREVISÃO DO MANIFESTO (binário novo; `compras/manifesto-previsao.service.ts`). No faturamento da nota de
@@ -149,16 +109,15 @@ export class NfFaturamentoService {
    * (" REFERENTE A NOTA FISCAL <nº> EMITIDA EM dd/mm/aaaa", `SetObs`) e a parcela "i/N"; depois, o rateio pelo
    * CODCONTABILNF e a CAIXA do grupo, como o Gravar da tela de Contas a Pagar por onde o faturamento do legado passa.
    */
-  private async grupoDoFaturamento(trx: AnyDB, nf: { codnf: number; nronf?: unknown; dtemissao?: unknown }): Promise<{ codgrupo: number; obs: string }> {
-    const codgrupo = await novoGrupo(trx);
+  private async obsDaNota(trx: AnyDB, nf: { codnf: number; nronf?: unknown; dtemissao?: unknown }): Promise<string> {
     const emissao = (await sql<{ d: string | null }>`SELECT to_char(${nf.dtemissao}::date, 'DD/MM/YYYY') AS d`.execute(trx)).rows[0]?.d ?? '';
-    return { codgrupo, obs: ` REFERENTE A NOTA FISCAL ${nf.nronf ?? nf.codnf} EMITIDA EM ${emissao}\r\n` };
+    return ` REFERENTE A NOTA FISCAL ${nf.nronf ?? nf.codnf} EMITIDA EM ${emissao}\r\n`;
   }
 
-  private async fecharGrupoDoFaturamento(trx: AnyDB, codnf: number, codgrupo: number, op: number | null): Promise<void> {
+  private async fecharGrupoDoFaturamento(trx: AnyDB, codnf: number, codgrupo: number, op: number | null, acordo = 0): Promise<void> {
     const primeiro = (await sql<{ c: string | null }>`SELECT min(codapg) AS c FROM apagar WHERE codgrupo = ${codgrupo}`.execute(trx)).rows[0]?.c;
     if (primeiro == null) return;
-    await rateioDoFaturamento(trx, codnf, codgrupo, Number(primeiro));
+    await rateioDoFaturamento(trx, codnf, codgrupo, Number(primeiro), acordo);
     await refazerCaixaDoGrupo(trx, codgrupo, op);
   }
 
@@ -357,142 +316,325 @@ export class NfFaturamentoService {
     return somaRetida;
   }
 
-  /** flip idempotente nf.faturada 'N'→'S' (CAS) — 0 linhas ⇒ corrida perdida (já faturada). */
-  private async marcarFaturada(trx: AnyDB, codnf: number, emp: number, op: number | null): Promise<void> {
-    const r = await trx
-      .updateTable('nf')
-      .set({ faturada: 'S', usultalteracao: op, dtultimalteracao: sql`now()` })
-      .where('codnf', '=', codnf).where('idempresa', '=', emp).where('faturada', '=', 'N')
-      .executeTakeFirst();
-    if (Number(r?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('NF_JA_FATURADA', { codnf });
-    // a ESTEIRA: gerar o financeiro da nota de entrada marca stGerarFinanceiro (uFinanceiroNotaFiscal.pas:290, udmNF.pas:8462)
-    const chave = await chaveDeEntrada(trx, codnf);
-    if (chave) await registrarProcessoNf(trx, 'stGerarFinanceiro', chave, emp, op);
+  // ───────────────────────── o FATURAMENTO: parcela pendente → título (TfrmFaturamento2) ─────────────────────────
+
+  /**
+   * as parcelas escolhidas, com a nota, na ordem da nota e do nº da parcela. Só da empresa da sessão; só PENDENTES
+   * (`LIBERADO` 'N' ou nulo — `MarcarDocumento`, uFaturamento2.pas:702, não marca a liberada); e só de nota PROCESSADA
+   * (`BuscaDocsAFaturar`, :310, lista `COALESCE(N.PROC,'N')='S'`).
+   */
+  private async parcelasEscolhidas(db: AnyDB, codfats: number[], emp: number, travar: boolean): Promise<Array<Record<string, any>>> {
+    const ids = [...new Set(codfats.map(Number).filter((x) => Number.isInteger(x) && x > 0))];
+    if (!ids.length) throw new BusinessRuleError('FATURAMENTO_SEM_PARCELA');
+    const linhas = (await sql<Record<string, any>>`
+      SELECT f.codfaturamento, f.idnf, f.data, to_char(f.data, 'YYYY-MM-DD') AS vencimento, f.valor, f.liberado, f.modalidade, f.nrofatura,
+             f.totalparcelasfatura, f.duplicata, f.codbarrasboleto,
+             n.tipo, n.nronf, n.codparceiro, n.dtemissao, to_char(n.dtemissao, 'YYYY-MM-DD') AS emissao, n.totalnf, n.total_bonificado,
+             n.total_desc_acordo, n.idsituacao_nf, n.nropedido, n.chavenfe, n.proc, n.cfop, p.razao
+        FROM faturamento f
+        JOIN nf n ON n.codnf = f.idnf
+        LEFT JOIN parceiros p ON p.codparceiro = n.codparceiro
+       WHERE f.codfaturamento = ANY(${ids}::int[]) AND n.idempresa = ${emp}
+       ORDER BY f.idnf, f.nrofatura, f.codfaturamento
+       ${travar ? sql`FOR UPDATE OF f` : sql``}`.execute(db)).rows;
+    if (linhas.length !== ids.length) throw new BusinessRuleError('FATURAMENTO_PARCELA_NAO_ENCONTRADA', { pedidas: ids.length, achadas: linhas.length });
+    const liberada = linhas.find((l) => l.liberado === 'S');
+    if (liberada) throw new BusinessRuleError('FATURAMENTO_PARCELA_JA_FATURADA', { codfaturamento: liberada.codfaturamento });
+    const semProc = linhas.find((l) => String(l.proc ?? 'N') !== 'S');
+    if (semProc) throw new BusinessRuleError('FATURAMENTO_NOTA_NAO_PROCESSADA', { codnf: semProc.idnf });
+    return linhas;
   }
 
-  async faturar(
-    codnf: number,
-    p: { numParcelas: number; primeiroVencimento: string; intervaloDias: number; tipodoc?: string },
-  ): Promise<{ codnf: number; tabela: 'areceber' | 'apagar'; parcelas: number }> {
-    const t = currentTenant();
-    const emp = t.empresaId ?? null;
-    const op = t.operadorId ?? null;
-    if (emp == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
-    if (!(p.numParcelas >= 1 && p.numParcelas <= 200)) throw new BusinessRuleError('NUM_PARCELAS_INVALIDO');
-
-    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const { nf, tabela, txjuros } = await this.carregarNfFaturavel(trx, codnf, emp);
-
-      // corte-4c-b: gera os títulos de retenção federal (órgão) ANTES e ABATE a base do fornecedor → o
-      // fornecedor recebe o LÍQUIDO (bruto − retenções). DIVERGÊNCIA CONSCIENTE: o legado abate TOTAL_RETENCOES
-      // = Σ dos 7 total_ret_* COMPUTADOS (uFinanceiroNotaFiscal.pas:552); nós abatemos Σ dos títulos GERADOS
-      // (somaRet). Igual no caso normal (todo imposto computado é configurado p/ gerar); diferente só quando um
-      // imposto é computado mas não gerado (órgão/dia off) — aí o legado DESBALANCEIA (abate sem gerar título,
-      // o valor "some"); nós mantemos Σ(órgão)+Σ(fornecedor)=totalnf. Escolha por livro balanceado.
-      const somaRet = await this.gerarTitulosRetencao(trx, nf, emp);
-      const totalCents = Math.round((num(nf.totalnf) - somaRet) * 100); // base LÍQUIDA em CENTAVOS
-      if (totalCents <= 0) throw new BusinessRuleError('NF_SEM_VALOR', { codnf });
-
-      // rateio: base por parcela + sobra na ÚLTIMA → Σ == totalCents exatamente.
-      const baseCents = Math.floor(totalCents / p.numParcelas);
-      const resto = totalCents - baseCents * p.numParcelas;
-      const venc0 = new Date(`${p.primeiroVencimento}T00:00:00Z`); // UTC (não escorrega 1 dia)
-      const dtdoc = nf.tipo === 'E' ? nf.dtemissao : nf.dtcontabil; // APAGAR=emissão / ARECEBER=contábil
-      const plano = Array.from({ length: p.numParcelas }, (_, i) => {
-        const dt = new Date(venc0);
-        dt.setUTCDate(dt.getUTCDate() + i * p.intervaloDias);
-        return { valor: (baseCents + (i === p.numParcelas - 1 ? resto : 0)) / 100, dtvenc: dt.toISOString().slice(0, 10) };
-      });
-      // a previsão do manifesto da chave: com uma parcela ela vira o título; com várias, sai
-      const convertida = tabela === 'apagar' && (await this.converterPrevisoesDoManifesto(trx, codnf, emp, op, plano));
-      const grupo = tabela === 'apagar' && !convertida ? await this.grupoDoFaturamento(trx, nf) : null;
-
-      for (let i = 0; i < (convertida ? 0 : p.numParcelas); i++) {
-        const cents = baseCents + (i === p.numParcelas - 1 ? resto : 0);
-        const dt = new Date(venc0);
-        dt.setUTCDate(dt.getUTCDate() + i * p.intervaloDias);
-        await this.inserirTituloFat(trx, tabela, {
-          codparceiro: nf.codparceiro,
-          codempresa: emp,
-          idnf: codnf,
-          dtvenda: dtdoc,
-          dtvenc: dt.toISOString().slice(0, 10),
-          // golden: "<NRONF> - NNN/NNN"; NRODUP=total de parcelas; nronf pode faltar em rascunho → codnf.
-          duplicata: `${nf.nronf ?? codnf} - ${String(i + 1).padStart(3, '0')}/${String(p.numParcelas).padStart(3, '0')}`,
-          nrodup: p.numParcelas,
-          valor: cents / 100,
-          txjuros,
-          ...(p.tipodoc ? { tipodoc: p.tipodoc } : {}), // devolução passa 'BOLETO' (golden); F4 manual mantém NULL
-        }, grupo ? { codgrupo: grupo.codgrupo, obs: grupo.obs, nrparcela: `${i + 1}/${p.numParcelas}`, codoperador: op } : undefined);
+  /**
+   * o PRÉ-LANÇAMENTO de cada nota — o que o Faturamento põe na tela de Contas a Pagar (`ProcessarAPagar` → uAPagar.pas:4487-4600) ou
+   * de Contas a Receber (`ProcessarAReceber`, uFaturamento2.pas:781-986), um título por parcela, no shape do DADO de produção:
+   *  - A PAGAR (10.287 títulos GFAT 2025-26): VALOR = parcela + acordo/n e DESCONTO = acordo/n; DTCOMPRA = emissão; DUPLICATA = NRONF;
+   *    NRPARCELA 'n/t'; TIPODOC 'BOLETO'; CODBARRASBLT da parcela; IDSITUACAO_NF = a situação financeira da situação da nota (0 em
+   *    todos); CODPLANOCONTAS_DEB_BAIXA_CP da situação; GFAT 'S', FORM 'TfrmAPagar', operador; GERADO e NRODUP NULOS (o fonte manda
+   *    'SISTEMA' e RecordCount, mas o dado tem nulo em 10.287 de 10.287 — o dado decide).
+   *  - A RECEBER (112 títulos): DTVENDA = emissão; DUPLICATA = a da parcela ou '<NRONF> - 001/003'; NRODUP = nº de parcelas; TOTAL =
+   *    TOTALNF − bonificado; TIPODOC 'BOLETO'; IDPGTO pela FORMAS_PGTO de MODALIDADE = a da parcela (senão o operador escolhe — na
+   *    produção não há forma 'A RECEBER', e ele escolhe); CODPLC do CODCONTABILNF não adicional; NROPEDIDO/CODVENDEDOR do pedido.
+   */
+  private async preLancamento(db: AnyDB, linhas: Array<Record<string, any>>, emp: number): Promise<Array<{ nf: Record<string, any>; tabela: 'apagar' | 'areceber'; titulos: Array<Record<string, any>> }>> {
+    const porNf = new Map<number, Array<Record<string, any>>>();
+    for (const l of linhas) porNf.set(Number(l.idnf), [...(porNf.get(Number(l.idnf)) ?? []), l]);
+    const out: Array<{ nf: Record<string, any>; tabela: 'apagar' | 'areceber'; titulos: Array<Record<string, any>> }> = [];
+    for (const [codnf, parc] of porNf) {
+      const nf = parc[0];
+      const sit = nf.idsituacao_nf != null
+        ? ((await sql<{ fin: number | null; cp: number | null; }>`SELECT idsituacao_nf_financeiro AS fin, codplanocontas_deb_baixa_cp AS cp FROM situacao_nf WHERE idsituacao_nf = ${nf.idsituacao_nf}`.execute(db)).rows[0])
+        : undefined;
+      const idsituacao = Number(sit?.fin ?? 0) || 0;
+      const n = parc.length;
+      if (nf.tipo === 'E') {
+        const acordo = num(nf.total_desc_acordo);
+        const obs = await this.obsDaNota(db, { codnf, nronf: nf.nronf, dtemissao: nf.dtemissao });
+        out.push({
+          nf, tabela: 'apagar',
+          titulos: parc.map((p) => ({
+            codfaturamento: Number(p.codfaturamento),
+            valor: Math.round((num(p.valor) + acordo / n) * 100) / 100,
+            desconto: acordo > 0 ? Math.round((acordo / n) * 100) / 100 : 0,
+            dtvenc: p.vencimento,
+            dtcompra: nf.emissao,
+            duplicata: nf.nronf != null ? String(nf.nronf).slice(0, 20) : null,
+            nrparcela: `${p.nrofatura ?? 1}/${p.totalparcelasfatura ?? n}`,
+            tipodoc: 'BOLETO',
+            codbarrasblt: p.codbarrasboleto ?? null,
+            idsituacao_nf: idsituacao,
+            codplanocontas_deb_baixa_cp: Number(sit?.cp ?? 0) > 0 ? Number(sit?.cp) : null,
+            obs,
+          })),
+        });
+      } else {
+        const forma = async (modalidade: unknown) => modalidade
+          ? ((await sql<{ idpgto: number }>`SELECT idpgto FROM formas_pgto WHERE modalidade = ${String(modalidade)} AND idempresa = ${emp} ORDER BY idpgto LIMIT 1`.execute(db)).rows[0]?.idpgto ?? null)
+          : null;
+        const plc = (await sql<{ codcc: number }>`SELECT codcc FROM nf_contabil WHERE codnf = ${codnf} AND coalesce(adicional, 'N') = 'N' AND codcc IS NOT NULL ORDER BY codcontabilnf LIMIT 1`.execute(db)).rows[0]?.codcc ?? null;
+        const pedidos = (await sql<{ tipo: string | null; nropedido: string | null; nrocupom: unknown; codvendedor: number | null }>`
+            SELECT pn.tipo, d.nropedido, v.nrocupom, d.codvendedor
+              FROM pedido_nf pn LEFT JOIN pedidos d ON d.codpedidos = pn.codpedido LEFT JOIN vendas v ON v.codvendas = pn.codpedido
+             WHERE pn.codnf = ${codnf} AND coalesce(pn.indr, 'I') <> 'E'
+             ORDER BY pn.codpedido`.execute(db)).rows;
+        // "REFERENTE AO(S) PEDIDO(S): 1, 2" / "REFERENTE AO(S) CUPOM(NS): …" — o tipo do ÚLTIMO decide o rótulo, como no legado (:815-826)
+        const refs = pedidos.map((x) => (x.tipo === 'V' ? String(x.nrocupom ?? '') : String(x.nropedido ?? ''))).filter((x) => x !== '');
+        const obsPed = refs.length ? `${pedidos[pedidos.length - 1].tipo === 'V' ? 'REFERENTE AO(S) CUPOM(NS): ' : 'REFERENTE AO(S) PEDIDO(S): '}${[...new Set(refs)].join(', ')}` : null;
+        const nroped = nf.nropedido ? String(nf.nropedido) : (pedidos.find((x) => x.nropedido)?.nropedido ?? null);
+        const vendedor = Number(pedidos[0]?.codvendedor ?? 0) || 0;
+        const total = Math.round((num(nf.totalnf) - num(nf.total_bonificado)) * 100) / 100;
+        const tits: Array<Record<string, any>> = [];
+        for (let i = 0; i < parc.length; i++) {
+          const p = parc[i];
+          const pad = (x: number) => String(x).padStart(3, '0');
+          tits.push({
+            codfaturamento: Number(p.codfaturamento),
+            valor: num(p.valor),
+            dtvenc: p.vencimento,
+            dtvenda: nf.emissao,
+            docnf: nf.nronf != null && /^\d+$/.test(String(nf.nronf)) ? Number(nf.nronf) : null,
+            duplicata: (p.duplicata ? String(p.duplicata) : `${nf.nronf ? `${nf.nronf} - ` : ''}${pad(i + 1)}/${pad(n)}`).slice(0, 20),
+            nrodup: n,
+            total,
+            tipodoc: 'BOLETO',
+            idpgto: await forma(p.modalidade),
+            codplc: plc,
+            idsituacao_nf: idsituacao,
+            nropedido: nroped,
+            codvendedor: vendedor,
+            obs: obsPed,
+          });
+        }
+        out.push({ nf, tabela: 'areceber', titulos: tits });
       }
-      if (grupo) await this.fecharGrupoDoFaturamento(trx, codnf, grupo.codgrupo, op);
+    }
+    return out;
+  }
 
-      // corte-4c: título RESIDUAL ST (ICMS-ST a recolher) junto do faturamento — só entrada, só se >0.
-      await this.gerarTituloStResidual(trx, nf, emp);
+  /** a prévia do Processar (F2): o pré-lançamento que a tela mostra para o operador ajustar antes de gravar */
+  async previa(codfats: number[]) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const pre = await this.preLancamento(db, await this.parcelasEscolhidas(db, codfats, emp, false), emp);
+    return pre.map((x) => ({ codnf: Number(x.nf.idnf), nronf: x.nf.nronf, tipo: x.nf.tipo, titular: x.nf.razao, tabela: x.tabela, titulos: x.titulos }));
+  }
 
-      await this.marcarFaturada(trx, codnf, emp, op);
-      return { codnf, tabela, parcelas: p.numParcelas };
+  private emp(): number {
+    const e = currentTenant().empresaId ?? null;
+    if (e == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
+    return e;
+  }
+
+  /**
+   * PROCESSAR (F2) as parcelas escolhidas: um título por parcela, no shape do pré-lançamento com os ajustes do operador (vencimento,
+   * valor, tipo de documento, código de barras; na saída também a forma), numa transação. Cada nota vira um grupo; a parcela fica
+   * LIBERADO='S' (`UpdateFaturamento`, udmFaturamento.pas:328 — por CODFATURAMENTO, sem LOG) e a esteira marca stGerarFinanceiro.
+   */
+  async processar(dto: { codfaturamento: number[]; ajustes?: AjusteTitulo[]; confirmarRepetida?: boolean }) {
+    const emp = this.emp();
+    const op = currentTenant().operadorId ?? null;
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const linhas = await this.parcelasEscolhidas(trx, dto.codfaturamento, emp, true);
+      return this.faturarNaTrx(trx, linhas, emp, op, { ajustes: dto.ajustes ?? [], confirmarRepetida: !!dto.confirmarRepetida });
+    });
+  }
+
+  private async faturarNaTrx(
+    trx: AnyDB, linhas: Array<Record<string, any>>, emp: number, op: number | null,
+    o: { ajustes: AjusteTitulo[]; confirmarRepetida: boolean; automatico?: boolean },
+  ): Promise<{ notas: Array<{ codnf: number; tabela: 'apagar' | 'areceber'; titulos: number[] }> }> {
+    const ajuste = new Map(o.ajustes.map((a) => [Number(a.codfaturamento), a]));
+    const pre = await this.preLancamento(trx, linhas, emp);
+    const notas: Array<{ codnf: number; tabela: 'apagar' | 'areceber'; titulos: number[] }> = [];
+    for (const { nf, tabela, titulos } of pre) {
+      const codnf = Number(nf.idnf);
+      for (const t of titulos) {
+        const a = ajuste.get(t.codfaturamento);
+        if (!a) continue;
+        if (a.dtvenc) t.dtvenc = String(a.dtvenc).slice(0, 10);
+        if (a.valor != null) t.valor = Math.round(num(a.valor) * 100) / 100;
+        if (a.tipodoc) t.tipodoc = String(a.tipodoc).slice(0, 25);
+        if (tabela === 'apagar' && a.codbarrasblt !== undefined) t.codbarrasblt = a.codbarrasblt || null;
+        if (tabela === 'areceber' && a.idpgto != null) t.idpgto = Number(a.idpgto);
+      }
+      if (titulos.some((t) => !(num(t.valor) > 0))) throw new BusinessRuleError('FATURAMENTO_VALOR_INVALIDO', { codnf });
+      const ids: number[] = [];
+      if (tabela === 'apagar') {
+        // `ValidaDocumentoRepetido` (uAPagar.pas): outra conta da mesma nota, fornecedor e data de compra com o mesmo total
+        const soma = Math.round(titulos.reduce((s, t) => s + num(t.valor), 0) * 100) / 100;
+        if (!o.confirmarRepetida && !o.automatico) {
+          const rep = (await sql<{ codapg: number }>`
+            SELECT min(a.codapg) AS codapg FROM apagar a
+             WHERE a.idnf = ${codnf} AND a.codparceiro = ${nf.codparceiro} AND (a.dtcompra)::date = ${nf.emissao}::date
+               AND ((a.codgrupo IS NOT NULL AND a.codgrupo IN (SELECT g.codgrupo FROM apagar g WHERE g.idnf = ${codnf} AND g.codgrupo IS NOT NULL
+                                                               GROUP BY g.codgrupo HAVING sum(g.valor) = ${soma}))
+                    OR (a.codgrupo IS NULL AND a.valor = ${soma}))`.execute(trx)).rows[0];
+          if (rep?.codapg != null) throw new BusinessRuleError('FATURAMENTO_CONTA_REPETIDA', { codnf, codapg: Number(rep.codapg) });
+        }
+        // a previsão do manifesto da chave: com uma parcela vira o título; com várias, sai
+        const convertida = await this.converterPrevisoesDoManifesto(trx, codnf, emp, op, titulos.map((t) => ({ valor: num(t.valor), dtvenc: String(t.dtvenc) })));
+        if (convertida) {
+          const c = (await sql<{ codapg: number }>`SELECT codapg FROM apagar WHERE idnf = ${codnf} AND tipodoc = 'BOLETO' ORDER BY codapg DESC LIMIT 1`.execute(trx)).rows[0];
+          if (c) ids.push(Number(c.codapg));
+        } else {
+          const codgrupo = await novoGrupo(trx);
+          for (const t of titulos) {
+            const { codfaturamento: _cf, ...cols } = t;
+            const ins = (await trx.insertInto('apagar').values({
+              ...cols,
+              dtvenda: t.dtcompra, // a data do documento para os leitores do Apollo (o legado só tem DTCOMPRA)
+              codparceiro: nf.codparceiro, codempresa: emp, idnf: codnf, codgrupo, codoperador: op, txjuros: 0,
+              gfat: 'S', gerado: o.automatico ? 'SISTEMA' : null, nrodup: null, form: 'TfrmAPagar', quitada: 'N', consiliado: 'N',
+              vendor: 0, convenio: 'N', operacao_convenio_funcionario: 'D', codplcfuncionarios: 0, agrupamento: 'N', agrupado: 'N', percjuros: 0, mora: 0,
+              usultalteracao: op, dtultimalteracao: sql`now()`, dtcadastro: sql`now()`,
+            }).returning('codapg').executeTakeFirstOrThrow()) as { codapg: number };
+            ids.push(Number(ins.codapg));
+          }
+          await this.fecharGrupoDoFaturamento(trx, codnf, codgrupo, op, num(nf.total_desc_acordo));
+          for (const id of ids) await this.logDoTitulo(trx, 'apagar', id, emp);
+        }
+      } else {
+        const semForma = titulos.find((t) => t.idpgto == null);
+        if (semForma) throw new BusinessRuleError('FATURAMENTO_FORMA_OBRIGATORIA', { codnf, codfaturamento: semForma.codfaturamento });
+        const login = op == null ? null : ((await trx.selectFrom('operadores').select('login').where('codoperador', '=', op).executeTakeFirst()) as { login?: string } | undefined)?.login ?? null;
+        // o juros do título a receber é o padrão da empresa (`cdsReceberNewRecord`, udmCadAReceber.pas:415; nulo na produção → 0)
+        const txjuros = num(((await trx.selectFrom('empresas').select('txjuropadrao').where('idempresa', '=', emp).executeTakeFirst()) as { txjuropadrao?: unknown } | undefined)?.txjuropadrao);
+        for (const t of titulos) {
+          const { codfaturamento: _cf, ...cols } = t;
+          const ins = (await trx.insertInto('areceber').values({
+            ...cols,
+            total_brt: t.total, codparceiro: nf.codparceiro, codempresa: emp, idnf: codnf, codoperador: op, codoperadorman: op, logado: login,
+            quitada: 'N', agrupado: 'N', consiliado: 'S', cadastrado_manualmente: 'S', nfadicmanual: 'N', valor_perc_multa: 'F',
+            txjuros, txmulta: 0, codgrupo: 0, codbco: 0,
+            usultalteracao: op, dtultimalteracao: sql`now()`, dtcadastro: sql`now()`, dtagendamento: sql`now()`,
+          }).returning('codrcb').executeTakeFirstOrThrow()) as { codrcb: number };
+          ids.push(Number(ins.codrcb));
+          await lancarCaixaDoAreceber(trx, Number(ins.codrcb), emp, 'incluir'); // a CAIXA de cada título (111 de 111 na produção)
+          await this.logDoTitulo(trx, 'areceber', Number(ins.codrcb), emp);
+        }
+        // os pedidos da nota viram liquidados (uFaturamento2.pas:960-975)
+        await sql`UPDATE pedidos SET processo_liquidado = 'L', dt_fatu = now()
+                   WHERE nropedido IN (SELECT d.nropedido FROM pedido_nf pn JOIN pedidos d ON d.codpedidos = pn.codpedido WHERE pn.codnf = ${codnf} AND d.nropedido IS NOT NULL)`.execute(trx);
+        await sql`UPDATE cx_pedidos SET faturado = 'S', dt_processamento = now()
+                   WHERE nropedido IN (SELECT d.nropedido FROM pedido_nf pn JOIN pedidos d ON d.codpedidos = pn.codpedido WHERE pn.codnf = ${codnf} AND d.nropedido IS NOT NULL)`.execute(trx);
+      }
+      // a parcela vira LIBERADO='S', uma a uma (sem LOG: 0 "Alterou LIBERADO" em 12.582 na produção); 0 linhas = corrida perdida
+      for (const t of titulos) {
+        const r = await sql`UPDATE faturamento SET liberado = 'S' WHERE codfaturamento = ${t.codfaturamento} AND coalesce(liberado, 'N') <> 'S'`.execute(trx);
+        if (Number(r.numAffectedRows ?? 0) === 0) throw new BusinessRuleError('FATURAMENTO_PARCELA_JA_FATURADA', { codfaturamento: t.codfaturamento });
+      }
+      // o flag do Apollo (até o corte D o trocar pelos predicados do legado)
+      await sql`UPDATE nf SET faturada = 'S', usultalteracao = ${op}, dtultimalteracao = now() WHERE codnf = ${codnf}`.execute(trx);
+      const chave = await chaveDeEntrada(trx, codnf);
+      if (chave) await registrarProcessoNf(trx, 'stGerarFinanceiro', chave, emp, op);
+      notas.push({ codnf, tabela, titulos: ids });
+    }
+    return { notas };
+  }
+
+  /** a LOG do título gravado pela tela de Contas a Pagar / Contas a Receber por onde o Faturamento passa (Inseriu) */
+  private async logDoTitulo(trx: AnyDB, tabela: 'apagar' | 'areceber', id: number, emp: number): Promise<void> {
+    if (tabela === 'apagar') {
+      const depois = (await sql<Record<string, unknown>>`SELECT *, to_char(coalesce(dtcompra::timestamp, dtvenda), 'DD/MM/YYYY') AS dtcompra_log,
+          to_char(dtvenc, 'DD/MM/YYYY') AS dtvenc_log FROM apagar WHERE codapg = ${id}`.execute(trx)).rows[0];
+      if (depois) await gravarLogDaLinha(trx, { acao: 'Inseriu', formulario: 'Contas a pagar', tabela: 'APAGAR', chave: 'CODAPG', valor: id, idempresa: emp, campos: ApagarService.CAMPOS_LOG, depois });
+    } else {
+      const depois = (await sql<Record<string, unknown>>`SELECT * FROM areceber WHERE codrcb = ${id}`.execute(trx)).rows[0];
+      if (depois) await gravarLogDaLinha(trx, { acao: 'Inseriu', formulario: 'Contas a receber', tabela: 'ARECEBER', chave: 'CODRCB', valor: id, idempresa: emp, campos: AreceberService.CAMPOS_LOG, depois });
+    }
+  }
+
+  /**
+   * BONIFICAR (F4, `btnBonificarClick` → `AtualizarFaturamento('BONIFICADO')`, uFaturamento2.pas:160-206): a parcela fica LIBERADO='S'
+   * e MODALIDADE='BONIFICADO' SEM título. O botão só aparece com BONIFICACAO_FATURAMENTO_NF='S' (a produção).
+   */
+  async bonificar(codfats: number[]): Promise<{ parcelas: number }> {
+    const emp = this.emp();
+    const op = currentTenant().operadorId ?? null;
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      if (String((await configNaTrx(trx, 'BONIFICACAO_FATURAMENTO_NF', { empresaId: emp, operadorId: op, modulo: 'Retaguarda' })) ?? 'N').toUpperCase() !== 'S') {
+        throw new BusinessRuleError('FATURAMENTO_BONIFICAR_DESLIGADO');
+      }
+      const linhas = await this.parcelasEscolhidas(trx, codfats, emp, true);
+      for (const l of linhas) {
+        await sql`UPDATE faturamento SET liberado = 'S', modalidade = 'BONIFICADO' WHERE codfaturamento = ${l.codfaturamento} AND coalesce(liberado, 'N') <> 'S'`.execute(trx);
+      }
+      return { parcelas: linhas.length };
     });
   }
 
   /**
-   * Corte-4 — faturar a partir das DUPLICATAS EXPLÍCITAS do XML (`<cobr><dup>`): 1 título por `<dup>`,
-   * `valor=vDup`, `dtvenc=dVenc` (VERBATIM, sem rateio — as parcelas reais do fornecedor). Reusa as mesmas
-   * travas + txjuros + flip faturada do F4. `duplicata` = o nDup real do fornecedor (fallback formato F4).
-   * Chamado pelo import (auto-on-import, fiel a NFe.pas:3457) quando há duplicatas. Estorno = o mesmo
-   * `estornarFaturamento` (delete por idnf) — os títulos são idênticos em forma aos do F4.
+   * o botão "Faturamento" da nota (`btnFaturamentoClick`, uNF.pas:4332-4369): a nota própria só depois de enviada ("Envie a nota antes
+   * de gerar o faturamento!") e só com parcela pendente ("Não existe faturamento pendente para esta nota fiscal a ser processado.").
+   * Devolve o filtro com que o Faturamento abre (emissão, número, A Pagar/A Receber).
    */
-  async faturarComParcelas(
-    codnf: number,
-    duplicatas: Array<{ nDup: string; dVenc: string; vDup: number }>,
-  ): Promise<{ codnf: number; tabela: 'areceber' | 'apagar'; parcelas: number; total: number }> {
-    const t = currentTenant();
-    const emp = t.empresaId ?? null;
-    const op = t.operadorId ?? null;
-    if (emp == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
-    if (!duplicatas.length) throw new BusinessRuleError('NF_SEM_DUPLICATAS', { codnf });
+  async daNota(codnf: number) {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const nf = (await sql<Record<string, any>>`SELECT codnf, tipo, nronf, tipoemissao, statusnfe, to_char(dtemissao, 'YYYY-MM-DD') AS emissao FROM nf WHERE codnf = ${codnf} AND idempresa = ${emp}`.execute(db)).rows[0];
+    if (!nf) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf });
+    if (String(nf.tipoemissao ?? '0') === '0' && !['P', 'D'].includes(String(nf.statusnfe ?? ''))) throw new BusinessRuleError('NF_FATURAMENTO_ENVIE_A_NOTA', { codnf });
+    const pend = (await sql<{ codfaturamento: number }>`SELECT codfaturamento FROM faturamento WHERE idnf = ${codnf} AND coalesce(liberado, 'N') = 'N' ORDER BY nrofatura, codfaturamento`.execute(db)).rows;
+    if (!pend.length) throw new BusinessRuleError('NF_FATURAMENTO_SEM_PENDENTE', { codnf });
+    return { codnf, tipo: nf.tipo, nronf: nf.nronf, dataIni: nf.emissao, dataFim: nf.emissao, pendentes: pend.map((p) => Number(p.codfaturamento)) };
+  }
 
-    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const { nf, tabela, txjuros } = await this.carregarNfFaturavel(trx, codnf, emp);
-      const N = duplicatas.length;
-      const dtdoc = nf.tipo === 'E' ? nf.dtemissao : nf.dtcontabil;
-      let totalCents = 0;
-      const plano = duplicatas.map((d) => ({ valor: num(d.vDup), dtvenc: d.dVenc && d.dVenc.trim() ? d.dVenc.slice(0, 10) : String(dtdoc).slice(0, 10) }));
-      const convertida = tabela === 'apagar' && (await this.converterPrevisoesDoManifesto(trx, codnf, emp, op, plano));
-      if (convertida) totalCents = Math.round(num(duplicatas[0].vDup) * 100);
-      const grupo = tabela === 'apagar' && !convertida ? await this.grupoDoFaturamento(trx, nf) : null;
+  /**
+   * o que o PROCESSAR da nota dispara depois de gravar (`UpdateProdutos`, udmNF.pas:7771-7775): as retenções federais, o RESIDUAL ST e o
+   * financeiro automático. Antes o Apollo fazia os dois primeiros dentro do "faturar" — no legado eles não dependem do Faturamento.
+   * `GerarFinanceiroAutomaticamente` (udmNF.pas:8112, gate `CFOPGeraFinanceiroAutomatico` = GERA_FINANCEIRO_AUTO e PROC_FINANCEIRO 'S',
+   * :9902) fatura sozinho as parcelas pendentes, com GERADO 'SISTEMA' (`GeraApagar`) — nenhum CFOP da produção o liga.
+   */
+  async aposProcessar(trx: AnyDB, codnf: number, emp: number, op: number | null): Promise<void> {
+    const nf = await trx
+      .selectFrom('nf')
+      .select([
+        'codnf', 'tipo', 'nronf', 'cfop', 'codparceiro', 'totalnf', 'dtcontabil', 'icms_st_apagar', 'idsituacao_nf',
+        'total_ret_pis', 'total_ret_cofins', 'total_ret_csll', 'total_ret_ir', 'total_ret_inss', 'total_ret_issqn', 'total_ret_funrural',
+        'perc_aliquota_ret_pis', 'perc_aliquota_ret_cofins', 'perc_aliquota_ret_csll', 'perc_aliquota_ret_ir', 'perc_aliquota_ret_inss', 'perc_aliquota_ret_issqn', 'perc_aliquota_ret_funrural',
+      ])
+      .where('codnf', '=', codnf)
+      .executeTakeFirst();
+    if (!nf) return;
+    await this.gerarTitulosRetencao(trx, nf, emp);
+    await this.gerarTituloStResidual(trx, nf, emp);
+    const cfop = (await sql<{ auto: string | null; fin: string | null }>`SELECT gera_financeiro_auto AS auto, proc_financeiro AS fin FROM cfop WHERE codcfop = ${nf.cfop}`.execute(trx)).rows[0];
+    if (cfop?.auto !== 'S' || cfop?.fin !== 'S') return;
+    const pend = (await sql<{ codfaturamento: number }>`SELECT codfaturamento FROM faturamento WHERE idnf = ${codnf} AND coalesce(liberado, 'N') <> 'S'`.execute(trx)).rows;
+    if (!pend.length) return;
+    // a nota acabou de virar PROC='S' nesta transação
+    const linhas = await this.parcelasEscolhidas(trx, pend.map((p) => Number(p.codfaturamento)), emp, true);
+    if (nf.tipo !== 'E' && (await this.preLancamento(trx, linhas, emp)).some((x) => x.titulos.some((t) => t.idpgto == null))) return; // sem forma resolvida, fica para o operador
+    await this.faturarNaTrx(trx, linhas, emp, op, { ajustes: [], confirmarRepetida: true, automatico: true });
+  }
 
-      for (let i = 0; i < (convertida ? 0 : N); i++) {
-        const d = duplicatas[i];
-        const cents = Math.round(num(d.vDup) * 100);
-        if (cents <= 0) throw new BusinessRuleError('NF_SEM_VALOR', { codnf, parcela: i + 1 }); // parcela tem de ser > 0
-        totalCents += cents;
-        // nDup = duplicata REAL do fornecedor (mais útil que o NRONF do legado); fallback formato F4.
-        // Trunca a 20 (coluna apagar.duplicata varchar(20); NFe permite nDup até 60 — não abortar o import).
-        const dup = ((d.nDup && d.nDup.trim()) || `${nf.nronf ?? codnf} - ${String(i + 1).padStart(3, '0')}/${String(N).padStart(3, '0')}`).slice(0, 20);
-        await this.inserirTituloFat(trx, tabela, {
-          codparceiro: nf.codparceiro,
-          codempresa: emp,
-          idnf: codnf,
-          dtvenda: dtdoc,
-          // dVenc já vem 'YYYY-MM-DD' do parser; vazio (raro) → data do documento.
-          dtvenc: d.dVenc && d.dVenc.trim() ? d.dVenc.slice(0, 10) : String(dtdoc).slice(0, 10),
-          duplicata: dup,
-          nrodup: N,
-          valor: cents / 100,
-          txjuros,
-          tipodoc: 'BOLETO', // faturamento por duplicata do XML = boleto (fiel ao GeraApagar do legado)
-        }, grupo ? { codgrupo: grupo.codgrupo, obs: grupo.obs, nrparcela: `${i + 1}/${N}`, codoperador: op } : undefined);
-      }
-      if (totalCents <= 0) throw new BusinessRuleError('NF_SEM_VALOR', { codnf });
-      if (grupo) await this.fecharGrupoDoFaturamento(trx, codnf, grupo.codgrupo, op);
-
-      // corte-4c: título RESIDUAL ST (ICMS-ST a recolher) junto do faturamento — só entrada, só se >0.
-      await this.gerarTituloStResidual(trx, nf, emp);
-
-      await this.marcarFaturada(trx, codnf, emp, op);
-      return { codnf, tabela, parcelas: N, total: totalCents / 100 };
-    });
+  /**
+   * sem os títulos, as parcelas faturadas voltam a pendentes (a bonificada fica). ⚠️ PROVISÓRIO até o corte C: o `ExcluiFaturamento`
+   * do legado (udmNF.pas:6436) APAGA a FATURAMENTO e marca CANCELA_FATURAMENTO='S'; o Apollo ainda não refaz as parcelas de uma nota
+   * processada, então as mantém para faturar de novo.
+   */
+  private async parcelasVoltamAPendente(trx: AnyDB, codnf: number): Promise<void> {
+    await sql`UPDATE faturamento SET liberado = 'N' WHERE idnf = ${codnf} AND liberado = 'S' AND coalesce(modalidade, '') <> 'BONIFICADO'`.execute(trx);
   }
 
   async estornarFaturamento(codnf: number): Promise<void> {
@@ -528,6 +670,7 @@ export class NfFaturamentoService {
 
       if (tabela === 'apagar') await this.apagarRateiosDaNf(trx, codnf, emp);
       await trx.deleteFrom(tabela).where('idnf', '=', codnf).where('codempresa', '=', emp).execute();
+      await this.parcelasVoltamAPendente(trx, codnf);
 
       const r = await trx
         .updateTable('nf')
@@ -577,6 +720,7 @@ export class NfFaturamentoService {
     if (quit) return 'mantido-quitado'; // título baixado → não exclui (pendência); cancelamento segue
     if (tabela === 'apagar') await this.apagarRateiosDaNf(trx, codnf, emp);
     await trx.deleteFrom(tabela).where('idnf', '=', codnf).where('codempresa', '=', emp).execute();
+    await this.parcelasVoltamAPendente(trx, codnf);
     await trx
       .updateTable('nf')
       .set({ faturada: 'N', usultalteracao: op, dtultimalteracao: sql`now()` })

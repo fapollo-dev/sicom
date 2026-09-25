@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { PageHeader } from '@apollosg/design-system';
+import { useCallback, useEffect, useState } from 'react';
+import { Modal, PageHeader } from '@apollosg/design-system';
+import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { DATAS_FATURAMENTO, isErroResposta, type ErroResposta } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
@@ -13,6 +14,8 @@ import { exportarGradeCsv } from '../../shared/export/exportarGradeCsv';
  *
  * As parcelas de cada nota: quando vencem, quanto, e se já viraram título. A legenda de três estados do
  * original — **vencendo hoje**, **atrasada**, **faturada** — está nas cores da tabela.
+ * Operacional (corte B): marca as parcelas pendentes (clique; "marcar todas"), **Processar (F2)** abre o pré-lançamento
+ * da tela de Contas a Pagar / Receber para ajustar e gravar os títulos, **Bonificar (F4)** libera a parcela sem título.
  */
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -42,6 +45,24 @@ const ROTULO: Record<string, string> = {
   A_VENCER: 'A vencer', SEM_VENCIMENTO: 'Sem vencimento',
 };
 
+interface Titulo {
+  codfaturamento: number; valor: number; dtvenc: string; tipodoc: string; duplicata?: string | null; nrparcela?: string;
+  codbarrasblt?: string | null; idpgto?: number | null; desconto?: number;
+}
+interface NotaPrevia { codnf: number; nronf: string | null; tipo: string; titular: string | null; tabela: 'apagar' | 'areceber'; titulos: Titulo[] }
+const TIPOS_DOC = ['BOLETO', 'CARTÃO PRÓPRIO', 'A VISTA', 'DEPÓSITO', 'TRANSFERÊNCIA'];
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(`${BASE}/${path}`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
+  handle401(r);
+  const b = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const env: ErroResposta = isErroResposta(b) ? b : { statusCode: r.status, code: 'ERRO', message: r.statusText };
+    throw Object.assign(new Error(env.code), { envelope: env, body: b });
+  }
+  return b as T;
+}
+
 export function FaturamentoPage() {
   const mensagem = useMensagem();
   const [f, setF] = useState({
@@ -50,13 +71,18 @@ export function FaturamentoPage() {
   });
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  const [sel, setSel] = useState<Set<number>>(new Set());
+  const [previa, setPrevia] = useState<NotaPrevia[] | null>(null);
+  const { data: formaOptions = [] } = useResourceOptions('cadastro/formas-pgto',
+    (x: any) => ({ value: String(x.idpgto), label: `${x.idpgto} - ${x.modalidade ?? ''}` }));
 
-  const buscar = async () => {
+  const buscar = useCallback(async (filtro = f) => {
     setOcupado(true);
+    setSel(new Set());
     try {
-      const q = new URLSearchParams({ dataIni: f.dataIni, dataFim: f.dataFim, base: f.base, tipo: f.tipo, liberado: f.liberado });
-      if (f.nronf) q.set('nronf', f.nronf);
-      if (f.codparceiro) q.set('codparceiro', f.codparceiro);
+      const q = new URLSearchParams({ dataIni: filtro.dataIni, dataFim: filtro.dataFim, base: filtro.base, tipo: filtro.tipo, liberado: filtro.liberado });
+      if (filtro.nronf) q.set('nronf', filtro.nronf);
+      if (filtro.codparceiro) q.set('codparceiro', filtro.codparceiro);
       const r = await fetch(`${BASE}/compras/faturamento?${q}`, { headers: apiHeaders() });
       handle401(r);
       if (!r.ok) {
@@ -66,7 +92,70 @@ export function FaturamentoPage() {
       }
       setRes((await r.json()) as Resultado);
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  }, [f, mensagem]);
+
+  // o botão "Faturamento" da nota abre aqui com o filtro pronto (emissão, número, lado) e busca (uNF.pas:4350-4366)
+  useEffect(() => {
+    let pend: { tipo?: string; nronf?: string; dataIni?: string; dataFim?: string } | null = null;
+    try { pend = JSON.parse(sessionStorage.getItem('apollo.faturamento.nota') ?? 'null'); sessionStorage.removeItem('apollo.faturamento.nota'); } catch { pend = null; }
+    if (!pend) return;
+    const filtro = { ...f, base: 'EMISSAO', liberado: 'N', tipo: pend.tipo ?? 'E', nronf: pend.nronf ?? '', dataIni: pend.dataIni ?? f.dataIni, dataFim: pend.dataFim ?? f.dataFim };
+    setF(filtro);
+    void buscar(filtro);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const marcar = (l: Linha) => {
+    if (l.liberado === 'S') return; // a parcela liberada não marca (MarcarDocumento, uFaturamento2.pas:702)
+    setSel((s0) => { const s1 = new Set(s0); if (s1.has(l.codfaturamento)) s1.delete(l.codfaturamento); else s1.add(l.codfaturamento); return s1; });
   };
+  const pendentes = (res?.linhas ?? []).filter((l) => l.liberado !== 'S');
+  const todasMarcadas = pendentes.length > 0 && pendentes.every((l) => sel.has(l.codfaturamento));
+  const marcarTodas = () => setSel(todasMarcadas ? new Set() : new Set(pendentes.map((l) => l.codfaturamento)));
+
+  const abrirProcessar = async () => {
+    if (!sel.size) { mensagem.erro(Object.assign(new Error('FATURAMENTO_SEM_PARCELA'), { envelope: { statusCode: 400, code: 'FATURAMENTO_SEM_PARCELA', message: 'Selecione ao menos uma parcela.' } })); return; }
+    try { setPrevia(await postJson<NotaPrevia[]>('compras/faturamento/previa', { codfaturamento: [...sel] })); } catch (e) { mensagem.erro(e); }
+  };
+  const editarTitulo = (ni: number, ti: number, campo: keyof Titulo, v: unknown) =>
+    setPrevia((p) => p && p.map((n, i) => (i !== ni ? n : { ...n, titulos: n.titulos.map((t, j) => (j !== ti ? t : { ...t, [campo]: v })) })));
+  const gravar = async (confirmarRepetida = false): Promise<void> => {
+    if (!previa) return;
+    const ajustes = previa.flatMap((n) => n.titulos.map((t) => ({
+      codfaturamento: t.codfaturamento, dtvenc: t.dtvenc, valor: Number(String(t.valor).replace(',', '.')), tipodoc: t.tipodoc,
+      ...(n.tabela === 'apagar' ? { codbarrasblt: t.codbarrasblt ?? null } : t.idpgto ? { idpgto: Number(t.idpgto) } : {}),
+    })));
+    try {
+      const r = await postJson<{ notas: Array<{ titulos: number[] }> }>('compras/faturamento/processar', { codfaturamento: previa.flatMap((n) => n.titulos.map((t) => t.codfaturamento)), ajustes, confirmarRepetida });
+      mensagem.sucesso(`${r.notas.reduce((s0, n) => s0 + n.titulos.length, 0)} título(s) gerado(s).`);
+      setPrevia(null);
+      await buscar();
+    } catch (e) {
+      const env = (e as { envelope?: { code?: string; detalhe?: { codapg?: number } } }).envelope;
+      if (env?.code === 'FATURAMENTO_CONTA_REPETIDA'
+        && window.confirm(`O sistema identificou que esta conta pode ter sido lançada anteriormente (conta ${env.detalhe?.codapg ?? ''}).\nDeseja continuar?`)) {
+        return gravar(true);
+      }
+      mensagem.erro(e);
+    }
+  };
+  const bonificar = async () => {
+    if (!sel.size) return;
+    try {
+      await postJson('compras/faturamento/bonificar', { codfaturamento: [...sel] });
+      mensagem.sucesso('Parcela(s) bonificada(s).');
+      await buscar();
+    } catch (e) { mensagem.erro(e); }
+  };
+  useEffect(() => {
+    const tecla = (ev: KeyboardEvent) => {
+      if (previa) return;
+      if (ev.key === 'F2') { ev.preventDefault(); void abrirProcessar(); }
+      if (ev.key === 'F4') { ev.preventDefault(); void bonificar(); }
+    };
+    window.addEventListener('keydown', tecla);
+    return () => window.removeEventListener('keydown', tecla);
+  });
 
   return (
     <div className="flex flex-col gap-gp-md">
@@ -104,6 +193,8 @@ export function FaturamentoPage() {
           <div className="w-32"><Field label="&Nota fiscal" value={f.nronf} onChange={(e) => setF({ ...f, nronf: e.target.value })} /></div>
           <div className="w-32"><Field label="&Parceiro" value={f.codparceiro} onChange={(e) => setF({ ...f, codparceiro: e.target.value })} /></div>
           <Button label="&Consultar" disabled={ocupado} onClick={() => void buscar()} />
+          <Button label="&Processar (F2)" disabled={ocupado || !sel.size} onClick={() => void abrirProcessar()} />
+          <Button variant="outline" label="&Bonificar (F4)" disabled={ocupado || !sel.size} onClick={() => void bonificar()} />
           {res && (
             <Button variant="outline" label="&Exportar" onClick={() => exportarGradeCsv(
               res.linhas,
@@ -147,6 +238,7 @@ export function FaturamentoPage() {
           <table className="w-full min-w-[1000px] border-collapse text-body-sm">
             <thead>
               <tr className="border-b border-border text-left text-fg-muted">
+                <th className="p-pad-xs"><input type="checkbox" aria-label="Marcar todas" checked={todasMarcadas} onChange={marcarTodas} /></th>
                 <th className="p-pad-xs">NF</th><th className="p-pad-xs">Titular</th>
                 <th className="p-pad-xs">Emissão</th><th className="p-pad-xs">Vencimento</th>
                 <th className="p-pad-xs">Parcela</th><th className="p-pad-xs">Valor</th>
@@ -156,7 +248,8 @@ export function FaturamentoPage() {
             </thead>
             <tbody>
               {res.linhas.map((l) => (
-                <tr key={l.codfaturamento} className="border-b border-border">
+                <tr key={l.codfaturamento} className={`border-b border-border ${sel.has(l.codfaturamento) ? 'bg-bg-subtle' : ''}`} onClick={() => marcar(l)}>
+                  <td className="p-pad-xs">{l.liberado !== 'S' && <input type="checkbox" aria-label="Marcar parcela" checked={sel.has(l.codfaturamento)} onChange={() => marcar(l)} onClick={(e) => e.stopPropagation()} />}</td>
                   <td className="p-pad-xs">{l.nronf}{l.serie ? `/${l.serie}` : ''}</td>
                   <td className="p-pad-xs">{l.titular}</td>
                   <td className="p-pad-xs">{dataBr(l.dtemissao)}</td>
@@ -173,6 +266,54 @@ export function FaturamentoPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {previa && (
+        <Modal open onClose={() => setPrevia(null)} size="lg" title="Processar faturamento — pré-lançamento"
+          primaryAction={{ label: 'Gravar títulos', onClick: () => void gravar() }} secondaryAction={{ label: 'Cancelar', onClick: () => setPrevia(null) }}>
+          <div className="flex flex-col gap-gp-md">
+            {previa.map((n, ni) => (
+              <div key={n.codnf} className="flex flex-col gap-gp-xs">
+                <strong className="text-body-sm">NF {n.nronf ?? n.codnf} · {n.titular ?? ''} · {n.tabela === 'apagar' ? 'Contas a pagar' : 'Contas a receber'}</strong>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-body-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left text-fg-muted">
+                        <th className="p-pad-xs">Parcela</th><th className="p-pad-xs">Vencimento</th><th className="p-pad-xs">Valor</th>
+                        <th className="p-pad-xs">Tipo de documento</th>
+                        <th className="p-pad-xs">{n.tabela === 'apagar' ? 'Código de barras' : 'Forma de pagamento'}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {n.titulos.map((t, ti) => (
+                        <tr key={t.codfaturamento} className="border-b border-border/50">
+                          <td className="p-pad-xs tabular-nums">{t.nrparcela ?? t.duplicata}</td>
+                          <td className="p-pad-xs"><input type="date" className="rounded-radius-sm border border-border bg-bg-base px-1" value={t.dtvenc} onChange={(e) => editarTitulo(ni, ti, 'dtvenc', e.target.value)} /></td>
+                          <td className="p-pad-xs"><input className="w-28 rounded-radius-sm border border-border bg-bg-base px-1 text-right tabular-nums" inputMode="decimal" value={t.valor} onChange={(e) => editarTitulo(ni, ti, 'valor', e.target.value)} /></td>
+                          <td className="p-pad-xs">
+                            <select className="rounded-radius-sm border border-border bg-bg-base px-1" value={t.tipodoc} onChange={(e) => editarTitulo(ni, ti, 'tipodoc', e.target.value)}>
+                              {[...new Set([t.tipodoc, ...TIPOS_DOC])].map((d) => <option key={d} value={d}>{d}</option>)}
+                            </select>
+                          </td>
+                          <td className="p-pad-xs">
+                            {n.tabela === 'apagar'
+                              ? <input className="w-72 rounded-radius-sm border border-border bg-bg-base px-1" maxLength={48} value={t.codbarrasblt ?? ''} onChange={(e) => editarTitulo(ni, ti, 'codbarrasblt', e.target.value)} />
+                              : (
+                                <select className="rounded-radius-sm border border-border bg-bg-base px-1" value={t.idpgto != null ? String(t.idpgto) : ''} onChange={(e) => editarTitulo(ni, ti, 'idpgto', e.target.value ? Number(e.target.value) : null)}>
+                                  <option value="">Selecione…</option>
+                                  {formaOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                </select>
+                              )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Modal>
       )}
     </div>
   );

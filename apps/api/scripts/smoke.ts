@@ -87,6 +87,48 @@ async function processarNf(codnf: unknown, headers: Record<string, string>): Pro
   return r;
 }
 
+/**
+ * FATURAR a NF pelo caminho do legado (o antigo `/faturar` por DTO saiu no corte B): as parcelas (FATURAMENTO) com o nº de parcelas,
+ * o 1º vencimento e o intervalo pedidos (round(base/n) e a sobra na última), a nota PROCESSADA (o Faturamento só lista nota
+ * processada) e o Processar do Faturamento sobre elas — a saída na forma `idpgto` (1). Se a nota já tem parcela faturada, reenvia
+ * essas (o Faturamento recusa). Devolve o que o `/faturar` devolvia: { codnf, tabela, parcelas }.
+ */
+async function faturarNf(codnf: unknown, p: { numParcelas: number; primeiroVencimento: string; intervaloDias?: number; idpgto?: number }, headers: Record<string, string> = H): Promise<{ status: number; json: () => Promise<any> }> {
+  pgParcelas ??= new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+  const id = Number(codnf);
+  const nf = (await pgParcelas.query(`SELECT proc, tipo, nronf,
+      round(coalesce(totalnf, 0) - coalesce(total_bonificado, 0) - coalesce(total_desc_acordo, 0) - coalesce(total_desc_pedido, 0)
+        - coalesce(total_ret_pis, 0) - coalesce(total_ret_cofins, 0) - coalesce(total_ret_csll, 0) - coalesce(total_ret_inss, 0)
+        - coalesce(total_ret_ir, 0) - coalesce(total_ret_issqn, 0) - coalesce(total_ret_funrural, 0), 2) AS base
+      FROM nf WHERE codnf = $1`, [id])).rows[0] as any;
+  const lib = (await pgParcelas.query(`SELECT codfaturamento FROM faturamento WHERE idnf = $1 AND liberado = 'S' ORDER BY nrofatura`, [id])).rows as any[];
+  let ids: number[] = lib.map((r) => Number(r.codfaturamento));
+  if (nf && !ids.length) {
+    await pgParcelas.query(`DELETE FROM faturamento WHERE idnf = $1`, [id]);
+    const n = Math.max(1, Math.trunc(Number(p.numParcelas) || 0));
+    const cent = Math.round(Number(nf.base) * 100);
+    const parc = Math.round(cent / n);
+    for (let i = 0; i < n; i++) {
+      const v = (i < n - 1 ? parc : cent - parc * (n - 1)) / 100;
+      const r = await pgParcelas.query(`INSERT INTO faturamento (idnf, data, modalidade, valor, liberado, nrofatura, totalparcelasfatura, nronf)
+          VALUES ($1, $2::date + $3::int, $4, $5, 'N', $6, $7, $8) RETURNING codfaturamento`,
+        [id, p.primeiroVencimento, i * Math.trunc(Number(p.intervaloDias ?? 30)), nf.tipo === 'E' ? 'A PAGAR' : 'A RECEBER', v, i + 1, n, nf.nronf]);
+      ids.push(Number(r.rows[0].codfaturamento));
+    }
+    if (String(nf.proc ?? 'N') !== 'S') {
+      const pr = await fetch(`${base}/fiscal/nf/${id}/processar`, { method: 'POST', headers });
+      if (pr.status !== 200) { const j = await pr.json().catch(() => ({})); return { status: pr.status, json: async () => j }; }
+    }
+  }
+  const r = await fetch(`${base}/compras/faturamento/processar`, { method: 'POST', headers, body: JSON.stringify({
+    codfaturamento: ids.length ? ids : [0], confirmarRepetida: true,
+    ajustes: nf?.tipo === 'S' ? ids.map((c) => ({ codfaturamento: c, idpgto: p.idpgto ?? 1 })) : undefined,
+  }) });
+  const j = (await r.json().catch(() => ({}))) as any;
+  const nota = j?.notas?.[0];
+  return { status: r.status, json: async () => (r.status === 200 ? { codnf: id, tabela: nota?.tabela, parcelas: nota?.titulos?.length ?? 0 } : j) };
+}
+
 async function main() {
   console.log('[smoke] iniciando Postgres embarcado...');
   const pg = await startEmbeddedPg();
@@ -1588,7 +1630,7 @@ async function main() {
     // 20.1) SAÍDA com itens (totalnf>0) → faturar 3 parcelas → títulos em ARECEBER, Σ == totalnf.
     const nfFat = await novaNf(baseNf({ tipo: 'S', nronf: 'F4001', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     const totalNf = Number(((await (await fetch(`${base}/fiscal/nf/${nfFat}`, { headers: H })).json()) as any).totalnf);
-    const fatRes = await fetch(`${base}/fiscal/nf/${nfFat}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 3, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const fatRes = await faturarNf(nfFat, { numParcelas: 3, primeiroVencimento: '2026-07-10', intervaloDias: 30 }, H);
     const fatBody = (await fatRes.json().catch(() => ({}))) as any;
     const titulos1 = await titulosDaNf(nfFat);
     const soma1 = titulos1.reduce((s, t) => s + Number(t.valor), 0);
@@ -1601,9 +1643,9 @@ async function main() {
     check('NF fica faturada=S após faturar', nfFatRead.faturada === 'S', { faturada: nfFatRead.faturada });
 
     // 20.2) faturar 2x → 422 NF_JA_FATURADA (idempotência).
-    const fat2 = await fetch(`${base}/fiscal/nf/${nfFat}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const fat2 = await faturarNf(nfFat, { numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }, H);
     const fat2Body = (await fat2.json().catch(() => ({}))) as any;
-    check('faturar nota já faturada → 422 NF_JA_FATURADA, nunca 500', fat2.status === 422 && fat2Body.code === 'NF_JA_FATURADA', { status: fat2.status, code: fat2Body.code });
+    check('faturar nota já faturada → 422 FATURAMENTO_PARCELA_JA_FATURADA (a parcela liberada não volta ao Faturamento), nunca 500', fat2.status === 422 && fat2Body.code === 'FATURAMENTO_PARCELA_JA_FATURADA', { status: fat2.status, code: fat2Body.code });
 
     // 20.3) ESTORNAR → títulos somem; faturada=N.
     const estRes = await fetch(`${base}/fiscal/nf/${nfFat}/estornar-faturamento`, { method: 'POST', headers: H });
@@ -1617,7 +1659,7 @@ async function main() {
 
     // 20.4) ENTRADA → faturar gera em APAGAR (modalidade A Pagar).
     const nfFatE = await novaNf(baseNf({ tipo: 'E', nronf: 'F4100', codparceiro: 22, itens: [itemP1(4)] }));
-    const fatE = await fetch(`${base}/fiscal/nf/${nfFatE}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 2, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const fatE = await faturarNf(nfFatE, { numParcelas: 2, primeiroVencimento: '2026-07-10', intervaloDias: 30 }, H);
     const fatEBody = (await fatE.json().catch(() => ({}))) as any;
     check('faturar (entrada) gera em APAGAR (2 parcelas)', fatE.status === 200 && fatEBody.tabela === 'apagar' && fatEBody.parcelas === 2, { status: fatE.status, body: fatEBody });
 
@@ -1639,7 +1681,7 @@ async function main() {
 
     // 54.2) faturar (entrada) gera o título RESIDUAL ST golden-exato (à vista = DTCONTABIL, não DTEMISSAO)
     // + OBS byte-a-byte com VÍRGULA decimal ('VALOR NOTA FISCAL: 14,00') + duplicata=NRONF.
-    const fatSt = await fetch(`${base}/fiscal/nf/${nfStr1}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-15', intervaloDias: 30 }) });
+    const fatSt = await faturarNf(nfStr1, { numParcelas: 1, primeiroVencimento: '2026-07-15', intervaloDias: 30 }, H);
     const strTit = await stResidualDaNf(nfStr1);
     const obsEsperada = 'REF. À RETENÇÕES DE IMPOSTOS. IMPOSTO: ICMSST\n'
       + 'NOTA FISCAL NRO: STR001\n'
@@ -1660,13 +1702,13 @@ async function main() {
     // 54.3) ICMS_ST_PAGO_FONTE abate o residual (100 − 30 = 70).
     const nfSt2 = await novaNf(baseNf({ tipo: 'E', nronf: 'STR002', codparceiro: 22, dtemissao: '2026-06-16', dtcontabil: '2026-06-16', total_icmst_externo: 100, icms_st_pago_fonte: 30, itens: [itemP1(4)] }));
     const nfSt2Read = (await (await fetch(`${base}/fiscal/nf/${nfSt2}`, { headers: H })).json()) as any;
-    await fetch(`${base}/fiscal/nf/${nfSt2}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-16', intervaloDias: 30 }) });
+    await faturarNf(nfSt2, { numParcelas: 1, primeiroVencimento: '2026-07-16', intervaloDias: 30 }, H);
     const strTit2 = await stResidualDaNf(nfSt2);
     check('4c: icms_st_pago_fonte abate o residual (externo 100 − pago 30 = 70)', Number(nfSt2Read.icms_st_apagar) === 70 && strTit2.length === 1 && Number(strTit2[0].valor) === 70, { icms_st_apagar: nfSt2Read.icms_st_apagar, strTit2 });
 
     // 54.4) sem ST externo → 0 títulos RESIDUAL ST (gate `if TOTALICM_STEXTERNO>0`).
     const nfSt3 = await novaNf(baseNf({ tipo: 'E', nronf: 'STR003', codparceiro: 22, dtemissao: '2026-06-17', dtcontabil: '2026-06-17', itens: [itemP1(4)] }));
-    await fetch(`${base}/fiscal/nf/${nfSt3}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-17', intervaloDias: 30 }) });
+    await faturarNf(nfSt3, { numParcelas: 1, primeiroVencimento: '2026-07-17', intervaloDias: 30 }, H);
     const strTit3 = await stResidualDaNf(nfSt3);
     check('4c: NF sem ST externo → 0 título RESIDUAL ST', strTit3.length === 0, { strTit3 });
 
@@ -1677,7 +1719,7 @@ async function main() {
 
     // 54.6) SAÍDA com total_icmst_externo → NÃO gera RESIDUAL ST (só entrada recolhe).
     const nfStS = await novaNf(baseNf({ tipo: 'S', nronf: 'STR004', cfop: '5102', codparceiro: 20, total_icmst_externo: 50, itens: [{ codproduto: 1, quantidade: 5, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
-    await fetch(`${base}/fiscal/nf/${nfStS}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-18', intervaloDias: 30 }) });
+    await faturarNf(nfStS, { numParcelas: 1, primeiroVencimento: '2026-07-18', intervaloDias: 30 }, H);
     const strTitS = await stResidualDaNf(nfStS);
     check('4c: SAÍDA com total_icmst_externo → 0 RESIDUAL ST (só entrada recolhe)', strTitS.length === 0, { strTitS });
 
@@ -1702,7 +1744,7 @@ async function main() {
     // NF entrada de serviço E03 (idsituacao_nf 1031, seed da 039) com retenções JÁ calculadas: PIS 10 + INSS 110
     // = 120 retidos. Item 40×3,50 = 140 (totalnf). Fornecedor=22; órgão=20. Líquido ao fornecedor = 140 − 120 = 20.
     const nfRet = await novaNf(baseNf({ tipo: 'E', nronf: 'RET001', codparceiro: 22, idsituacao_nf: 1031, dtemissao: '2026-06-10', dtcontabil: '2026-06-15', total_ret_pis: 10, total_ret_inss: 110, total_ret_cofins: 5, itens: [itemP1(40)] }));
-    const fatRet = await fetch(`${base}/fiscal/nf/${nfRet}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const fatRet = await faturarNf(nfRet, { numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }, H);
     const titsRet = await apagarDaNf(nfRet);
     const retPis = titsRet.find((t) => t.retencao === 'PIS');
     const retInss = titsRet.find((t) => t.retencao === 'INSS');
@@ -1714,8 +1756,10 @@ async function main() {
       && Number(retPis.codparceiro) === 20 && Number(retInss.codparceiro) === 20
       && retPis.tipodoc === 'BOLETO' && retPis.gerado === 'SISTEMA' && retPis.origem === 'N',
       { status: fatRet.status, titsRet });
-    check('4c-b: ABATE o fornecedor — título do fornecedor = líquido (140 − 120 = 20), codparceiro=22',
-      forn.length === 1 && Number(forn[0].valor) === 20 && Number(forn[0].codparceiro) === 22 && !forn[0].retencao,
+    // a parcela desconta TOTAL_RETENCOES CALCULADO (PIS 10 + COFINS 5 + INSS 110 = 125), como o legado (Σ parcelas = TOTALNF −
+    // TOTAL_RETENCOES em 14.790 de 14.790 NFs) — mesmo a COFINS, que não virou título por falta de dia de vencimento
+    check('4c-b: ABATE o fornecedor — título do fornecedor = base da parcela (140 − 125 calculados = 15), codparceiro=22',
+      forn.length === 1 && Number(forn[0].valor) === 15 && Number(forn[0].codparceiro) === 22 && !forn[0].retencao,
       { forn });
     check('4c-b: vencimento = MontarDataVencimento (dia 21 do MÊS SEGUINTE → 2026-07-21)',
       !!retPis && retPis.dtvenc === '2026-07-21',
@@ -1733,14 +1777,14 @@ async function main() {
 
     // 55.3) SAÍDA com total_ret_* → NÃO gera retenção (só entrada de serviço recolhe).
     const nfRetS = await novaNf(baseNf({ tipo: 'S', nronf: 'RET002', cfop: '5102', codparceiro: 20, total_ret_pis: 10, itens: [{ codproduto: 1, quantidade: 5, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
-    await fetch(`${base}/fiscal/nf/${nfRetS}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    await faturarNf(nfRetS, { numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }, H);
     const titsRetS = (await pgRet.query(`SELECT count(*)::int AS n FROM apagar WHERE idnf=$1 AND retencao IS NOT NULL`, [nfRetS])).rows[0]?.n;
     check('4c-b: SAÍDA com total_ret_* → 0 título de retenção (só entrada)', Number(titsRetS) === 0, { titsRetS });
 
     // 55.4) gate E03 no FATURAMENTO: total_ret_* órfão numa NF que NÃO é E03 (sem idsituacao_nf) → NÃO gera
     // (o snapshot pode estar velho; SituacaoGeraRetencao re-checado). FUNRURAL é exceção (gate por CFOP).
     const nfRetNaoE03 = await novaNf(baseNf({ tipo: 'E', nronf: 'RET003', codparceiro: 22, dtcontabil: '2026-06-15', total_ret_pis: 10, itens: [itemP1(40)] }));
-    await fetch(`${base}/fiscal/nf/${nfRetNaoE03}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    await faturarNf(nfRetNaoE03, { numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }, H);
     const titsN = (await pgRet.query(`SELECT count(*)::int AS n FROM apagar WHERE idnf=$1 AND retencao='PIS'`, [nfRetNaoE03])).rows[0]?.n;
     check('4c-b: gate E03 — PIS órfão em NF não-E03 → 0 título (SituacaoGeraRetencao re-checado no faturamento)', Number(titsN) === 0, { titsN });
 
@@ -1748,27 +1792,27 @@ async function main() {
     // relida no F4. Prova o drift: snapshot 0,99% ≠ config ALIQUOTA_RETENCAO_PIS (0,65%). Antes do corte a OBS
     // mostraria 0,65 (config); agora mostra 0,99 (snapshot congelado). Config PARCEIRO/DIA já ligados no §55.
     const nfSnap = await novaNf(baseNf({ tipo: 'E', nronf: 'RET004', codparceiro: 22, idsituacao_nf: 1031, dtemissao: '2026-06-10', dtcontabil: '2026-06-15', total_ret_pis: 10, perc_aliquota_ret_pis: 0.99, itens: [itemP1(40)] }));
-    await fetch(`${base}/fiscal/nf/${nfSnap}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    await faturarNf(nfSnap, { numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }, H);
     const titSnap = (await apagarDaNf(nfSnap)).find((t) => t.retencao === 'PIS');
     check('4c-b/(e): OBS usa a alíquota SNAPSHOT do F2 (0,99%), não a config relida no F4 (0,65%) — fecha o drift',
       !!titSnap && titSnap.obs === 'REF. À RETENÇÕES DE IMPOSTOS. IMPOSTO: PIS\nNOTA FISCAL NRO: RET004\nVALOR NOTA FISCAL: 140,00\nALIQUOTA PIS: 0,99%',
       { obs: titSnap?.obs });
     await pgRet.end();
 
-    // 20.5) totalnf=0 (item com vrvenda 0) → 422 NF_SEM_VALOR.
+    // 20.5) totalnf=0 (item com vrvenda 0) → a parcela de 0,00 não vira título: 422 FATURAMENTO_VALOR_INVALIDO.
     const nfZero = await novaNf(baseNf({ tipo: 'S', nronf: 'F4200', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 0, cfop: '5102', aliquota: 'T01' }] }));
-    const fatZero = await fetch(`${base}/fiscal/nf/${nfZero}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    const fatZero = await faturarNf(nfZero, { numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }, H);
     const fatZeroBody = (await fatZero.json().catch(() => ({}))) as any;
-    check('faturar NF com total 0 → 422 NF_SEM_VALOR', fatZero.status === 422 && fatZeroBody.code === 'NF_SEM_VALOR', { status: fatZero.status, code: fatZeroBody.code });
+    check('faturar NF com total 0 → 422 FATURAMENTO_VALOR_INVALIDO (parcela de 0,00 não vira título)', fatZero.status === 422 && fatZeroBody.code === 'FATURAMENTO_VALOR_INVALIDO', { status: fatZero.status, code: fatZeroBody.code });
 
-    // 20.6) numParcelas inválido (0) → 400 VALIDACAO (zod).
-    const fatBad = await fetch(`${base}/fiscal/nf/${nfZero}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 0, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    // 20.6) o Processar do Faturamento sem parcela escolhida → 400 VALIDACAO (zod: "Selecione ao menos uma parcela.")
+    const fatBad = await fetch(`${base}/compras/faturamento/processar`, { method: 'POST', headers: H, body: JSON.stringify({ codfaturamento: [] }) });
     const fatBadBody = (await fatBad.json().catch(() => ({}))) as any;
-    check('faturar com numParcelas 0 → 400 VALIDACAO', fatBad.status === 400 && fatBadBody.code === 'VALIDACAO', { status: fatBad.status, code: fatBadBody.code });
+    check('processar o Faturamento sem parcela → 400 VALIDACAO', fatBad.status === 400 && fatBadBody.code === 'VALIDACAO', { status: fatBad.status, code: fatBadBody.code });
 
     // 20.7) TRAVA de estorno: título QUITADO bloqueia (simula baixa via UPDATE direto no pg).
     const nfQuit = await novaNf(baseNf({ tipo: 'S', nronf: 'F4300', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 5, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
-    await fetch(`${base}/fiscal/nf/${nfQuit}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 2, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    await faturarNf(nfQuit, { numParcelas: 2, primeiroVencimento: '2026-07-10', intervaloDias: 30 }, H);
     const pool = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     await pool.query(`UPDATE areceber SET quitada='S' WHERE idnf=$1`, [nfQuit]);
     await pool.end();
@@ -1781,10 +1825,11 @@ async function main() {
       { status: estQuit.status, code: estQuitBody.code, n: titulosQuit.length },
     );
 
-    // 20.8) INVARIANTE: faturar NÃO move estoque (F3 intacta).
-    const sFat = await saldoProd1();
+    // 20.8) INVARIANTE: faturar NÃO move estoque (F3 intacta) — o estoque se move no processar, antes do Faturamento.
     const nfFatInv = await novaNf(baseNf({ tipo: 'S', nronf: 'F4400', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 3, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
-    await fetch(`${base}/fiscal/nf/${nfFatInv}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    await processarNf(nfFatInv, H);
+    const sFat = await saldoProd1();
+    await faturarNf(nfFatInv, { numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }, H);
     check('faturar NÃO move estoque (invariante F3)', (await saldoProd1()) === sFat, { sFat, depois: await saldoProd1() });
 
     // 21) REVIEW — locks de edição/exclusão + validações F1 reintroduzidas (gap-analysis).
@@ -1797,10 +1842,11 @@ async function main() {
 
     // 21.2) DELETE bloqueado em NF FATURADA (apagar deixaria títulos órfãos).
     const nfDelF = await novaNf(baseNf({ tipo: 'S', nronf: 'R7002', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
-    await fetch(`${base}/fiscal/nf/${nfDelF}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    await faturarNf(nfDelF, { numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }, H);
     const delF = await fetch(`${base}/fiscal/nf/${nfDelF}`, { method: 'DELETE', headers: H });
     const delFB = (await delF.json().catch(() => ({}))) as any;
-    check('DELETE NF faturada → 422 NF_TEM_FATURAMENTO (sem título órfão)', delF.status === 422 && delFB.code === 'NF_TEM_FATURAMENTO', { status: delF.status, code: delFB.code });
+    // o Faturamento só fatura nota PROCESSADA, então a nota faturada já cai na trava do processamento
+    check('DELETE NF faturada → 422 (NF_PROCESSADA: só a nota processada é faturada; sem título órfão)', delF.status === 422 && ['NF_PROCESSADA', 'NF_TEM_FATURAMENTO'].includes(delFB.code), { status: delF.status, code: delFB.code });
 
     // 21.3) EDIT bloqueado em NF CANCELADA.
     const nfCanc = await novaNf(baseNf({ tipo: 'S', nronf: 'R7003', cfop: '5102', codparceiro: 20, cancelada: 'S', itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
@@ -1828,7 +1874,7 @@ async function main() {
     // barramos para não deixar título ARECEBER/APAGAR órfão. Estornar o faturamento LIBERA o reverter.
     const nfRevFat = await novaNf(baseNf({ tipo: 'S', nronf: 'R7007', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
     await processarNf(nfRevFat, H);
-    await fetch(`${base}/fiscal/nf/${nfRevFat}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    await faturarNf(nfRevFat, { numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }, H);
     const pgRvf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     // (auditoria g1 #15) o legado REVERTE a NF faturada e chama `CancelaFaturamento(..., 'R')`: com ESTORNA_FINANCEIRO_NF 'N'
     // (a produção) mantém os títulos e marca a pendência 'R'; com 'S' exclui o financeiro se nada foi baixado
@@ -2065,11 +2111,11 @@ async function main() {
 
     // 24.4) F4b: faturar grava txjuros = empresas.txjuropadrao (5,0), não mais do parceiro.
     const nfTxj = await novaNf(baseNf({ tipo: 'S', nronf: 'E5001', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 5, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
-    await fetch(`${base}/fiscal/nf/${nfTxj}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }) });
+    await faturarNf(nfTxj, { numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }, H);
     const pgTxj = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
     const titTxj = (await pgTxj.query(`SELECT txjuros FROM areceber WHERE idnf=$1`, [nfTxj])).rows[0];
     await pgTxj.end();
-    check('F4b: faturar grava txjuros = empresas.txjuropadrao (5,0), não do parceiro', Number(titTxj?.txjuros) === 5, { txjuros: titTxj?.txjuros, esperado: 5 });
+    check('F4b: faturar grava txjuros = empresas.txjuropadrao (5,0), não do parceiro (cdsReceberNewRecord, udmCadAReceber.pas:415)', Number(titTxj?.txjuros) === 5, { txjuros: titTxj?.txjuros, esperado: 5 });
 
     // 25) Camada de config (APROVEITAMENTO_CREDITO_ICMSST_NF) + F2c (gate SN da empresa).
     const pgCfg = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
@@ -2206,7 +2252,7 @@ async function main() {
     const prepCancelavel = async (nronf: string): Promise<number> => {
       const id = await novaNf(baseNf({ tipo: 'S', nronf, cfop: '5102', codparceiro: 20, modelo: 55, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
       await processarNf(id, H);
-      await fetch(`${base}/fiscal/nf/${id}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 2, primeiroVencimento: '2026-08-10', intervaloDias: 30 }) });
+      await faturarNf(id, { numParcelas: 2, primeiroVencimento: '2026-08-10', intervaloDias: 30 }, H);
       await fetch(`${base}/fiscal/nf/${id}/transmitir`, { method: 'POST', headers: H });
       return id;
     };
@@ -2257,7 +2303,7 @@ async function main() {
     delete process.env.SEFAZ_SIM_CSTAT;
     const stDen = (await pgF3b.query(`SELECT statusnfe, proc FROM nf WHERE codnf=$1`, [nfDen])).rows[0];
     check('F3b denegada: transmitir cStat 110 → statusnfe=D, proc=S (estoque preso)', txDen.status === 200 && stDen?.statusnfe === 'D' && stDen?.proc === 'S', { status: txDen.status, statusnfe: stDen?.statusnfe, proc: stDen?.proc });
-    const fatDen = await fetch(`${base}/fiscal/nf/${nfDen}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2026-09-10', intervaloDias: 30 }) });
+    const fatDen = await faturarNf(nfDen, { numParcelas: 1, primeiroVencimento: '2026-09-10', intervaloDias: 30 }, H);
     const fatDenBody = (await fatDen.json().catch(() => ({}))) as any;
     check('F3b denegada: faturar é LIBERADO (o btnFaturamentoClick do legado aceita a própria com STATUSNFE P ou D — auditoria g1 #21)', fatDen.status === 200, { status: fatDen.status, code: fatDenBody.code });
     const revDen = await fetch(`${base}/fiscal/nf/${nfDen}/reverter`, { method: 'POST', headers: H });
@@ -8980,7 +9026,8 @@ async function main() {
       { gnf: [d73Gnf.status, codnfDev], nf: nfHdr, item: nfItm, ref: nfRef, link: devLink, again: [d73GnfAgain.status, d73GnfAgainJ.code] });
 
     // 73.7) corte-3 — FATURAR (d73Id1 em NOTA_FISCAL_EMITIDA): A Receber contra o fornecedor 22, venc = emissão + 15.
-    const d73Fat = await fetch(`${base}/${DEV}/${d73Id1}/faturar`, { method: 'POST', headers: H });
+    await processarNf(codnfDev, H); // o Faturamento só fatura nota processada
+    const d73Fat = await fetch(`${base}/${DEV}/${d73Id1}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ idpgto: 1 }) });
     const d73FatJ = (await d73Fat.json().catch(() => ({}))) as any;
     const d73Ar = (await pgDev.query(`SELECT codparceiro, valor, tipodoc, to_char(dtvenc,'YYYY-MM-DD') AS dtvenc FROM areceber WHERE idnf=$1`, [codnfDev])).rows[0] as any;
     const d73NfE = (await pgDev.query(`SELECT to_char(dtemissao,'YYYY-MM-DD') AS e, totalnf FROM nf WHERE codnf=$1`, [codnfDev])).rows[0] as any;
@@ -9073,9 +9120,13 @@ async function main() {
     const ancCJ = (await (await crDev({ codparceiro: 22, itens: [{ codnf: ancNf, codnfprod: ancIt, idproduto: 1, qtd_nota_fiscal: 10, qtd_devolvida: 3, valor_custo: 5, cfop: '5202' }] })).json().catch(() => ({}))) as any;
     const ancId = Number(ancCJ.codpeddevcompra ?? ancCJ.codigo);
     await fetch(`${base}/${DEV}/${ancId}/finalizar`, { method: 'POST', headers: H });
-    await fetch(`${base}/${DEV}/${ancId}/gerar-nf`, { method: 'POST', headers: H });
-    const ancFat = (await (await fetch(`${base}/${DEV}/${ancId}/faturar`, { method: 'POST', headers: H })).json().catch(() => ({}))) as any;
-    check('DEVOLUÇÃO SPED c4: venc ancorado na DUPLICATA da entrada (2027-01-01 + 15 = 2027-01-16); RESIDUAL ST (venc 2026-08-01) NÃO ancora (fold auditoria)',
+    // o 1º vencimento vem da FATURAMENTO da nota devolvida (DataPrimeiraParcelaNotaDevolucao lê a FATURAMENTO, udmNF.pas:6363) — o
+    // RESIDUAL ST nunca é parcela, então não ancora
+    await pgDev.query(`INSERT INTO faturamento (idnf, data, modalidade, valor, liberado, nrofatura, totalparcelasfatura) VALUES ($1, '2027-01-01', 'A PAGAR', 50, 'S', 1, 1)`, [ancNf]);
+    const ancG = (await (await fetch(`${base}/${DEV}/${ancId}/gerar-nf`, { method: 'POST', headers: H })).json().catch(() => ({}))) as any;
+    await processarNf(Number(ancG.codnf), H); // o Faturamento só fatura nota processada
+    const ancFat = (await (await fetch(`${base}/${DEV}/${ancId}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ idpgto: 1 }) })).json().catch(() => ({}))) as any;
+    check('DEVOLUÇÃO SPED c4: venc ancorado na PARCELA (FATURAMENTO) da entrada (2027-01-01 + 15 = 2027-01-16); o RESIDUAL ST (venc 2026-08-01) não é parcela e NÃO ancora',
       ancFat.vencimento === '2027-01-16', { venc: ancFat.vencimento });
     } finally {
       await pgDev.end();
@@ -15826,7 +15877,7 @@ async function main() {
           (991691, $2, 'A PAGAR', 500.00, 'N', 1, 1),
           (991690, '0202-06-05', 'A PAGAR', 99.00, 'N', 5, 4)`, [ontem, hojeIso, amanha]);
 
-        const aFaturar = (await (await fetch(`${base}/${FT}?dataIni=0001-01-01&dataFim=2100-12-31&base=PARCELA&tipo=E&liberado=N`, { headers: H })).json().catch(() => ({}))) as any;
+        const aFaturar = (await (await fetch(`${base}/${FT}?dataIni=0001-01-01&dataFim=2100-12-31&base=PARCELA&tipo=E&liberado=N&codparceiro=2`, { headers: H })).json().catch(() => ({}))) as any;
         const codigos = (aFaturar.linhas ?? []).map((l: any) => Number(l.idnf));
         check('FATURAMENTO §123.1 [só nota PROCESSADA, e só o que falta faturar]: o legado exige `COALESCE(N.PROC,\'N\') = \'S\'` — a nota não processada (991691) fica de fora. E `liberado=N` traz só o que ainda não virou título: **4 parcelas** da nota 991690 (as três de vencimento mais a de ano inválido), não a que já foi liberada',
           (aFaturar.linhas ?? []).length === 4 && !codigos.includes(991691)
@@ -15841,7 +15892,7 @@ async function main() {
           && (aFaturar.linhas ?? []).some((l: any) => l.situacao === 'A_VENCER'),
           { totais: aFaturar.totais, situacoes: (aFaturar.linhas ?? []).map((l: any) => l.situacao) });
 
-        const faturadas = (await (await fetch(`${base}/${FT}?dataIni=0001-01-01&dataFim=2100-12-31&base=PARCELA&tipo=E&liberado=S`, { headers: H })).json().catch(() => ({}))) as any;
+        const faturadas = (await (await fetch(`${base}/${FT}?dataIni=0001-01-01&dataFim=2100-12-31&base=PARCELA&tipo=E&liberado=S&codparceiro=2`, { headers: H })).json().catch(() => ({}))) as any;
         const modalidades = new Set((aFaturar.linhas ?? []).map((l: any) => l.modalidade_norm));
         const semGrant = await fetch(`${base}/${FT}?dataIni=2044-01-01&dataFim=2044-12-31`, { headers: H_SEM_ACESSO });
         check('FATURAMENTO §123.3: o outro lado (o já faturado) traz 1 parcela; as duas grafias da modalidade (`A PAGAR` e `APAGAR`, 45.897 e 7 no cliente) normalizam para a mesma; sem grant, 403',
@@ -19419,7 +19470,7 @@ async function main() {
         await pgAc.query(`UPDATE nf SET totalnf = 495.08 WHERE codnf = $1`, [nfA]);
         await pgAc.query(`DELETE FROM nf_contabil WHERE codnf = $1`, [nfA]);
         await pgAc.query(`INSERT INTO nf_contabil (codnf, codcc, valor, adicional, tipovalor) VALUES ($1, 2, 48.83, 'N', 'V'), ($1, 3, 446.25, 'N', 'V'), ($1, 4, 9.99, 'S', 'V')`, [nfA]);
-        const fat = await fetch(`${base}/fiscal/nf/${nfA}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 4, primeiroVencimento: '2062-07-20', intervaloDias: 30 }) });
+        const fat = await faturarNf(nfA, { numParcelas: 4, primeiroVencimento: '2062-07-20', intervaloDias: 30 }, H);
         const tit = (await pgAc.query(`SELECT codapg, codgrupo, nrparcela, obs, to_char(dtcompra, 'YYYY-MM-DD') AS dc, to_char(dtvenda, 'YYYY-MM-DD') AS dv FROM apagar WHERE idnf = $1 ORDER BY codapg`, [nfA])).rows as any[];
         const g = Number(tit[0]?.codgrupo);
         const rat = (await pgAc.query(`SELECT codapg, codcc, valor::float AS valor, tipo FROM cx_apagar WHERE codgrupo = $1 ORDER BY codcxapagar`, [g])).rows as any[];
@@ -19918,7 +19969,7 @@ async function main() {
         nfs.push(nfA);
         await pgP.query(`UPDATE nf SET chavenfe = $1 WHERE codnf = $2`, [chA, nfA]);
         const totA = Number(((await pgP.query(`SELECT totalnf FROM nf WHERE codnf = $1`, [nfA])).rows[0] as any).totalnf);
-        const fA = await fetch(`${base}/fiscal/nf/${nfA}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 1, primeiroVencimento: '2039-08-25', intervaloDias: 30 }) });
+        const fA = await faturarNf(nfA, { numParcelas: 1, primeiroVencimento: '2039-08-25', intervaloDias: 30 }, H);
         const a2 = await prevs(chA);
         const daNf = (await pgP.query(`SELECT codapg FROM apagar WHERE idnf = $1`, [nfA])).rows as any[];
         const rateioA2 = (await pgP.query(`SELECT codcc, valor::float AS valor, idsituacao_nf FROM cx_apagar WHERE codgrupo = $1`, [a2[0]?.codgrupo ?? -1])).rows as any[];
@@ -19938,7 +19989,7 @@ async function main() {
         const nfB = await novaNf(baseNf({ tipo: 'E', nronf: 'PRV177', codparceiro: 22, itens: [itemP1(10)] }));
         nfs.push(nfB);
         await pgP.query(`UPDATE nf SET chavenfe = $1 WHERE codnf = $2`, [chB, nfB]);
-        const fB = await fetch(`${base}/fiscal/nf/${nfB}/faturar`, { method: 'POST', headers: H, body: JSON.stringify({ numParcelas: 2, primeiroVencimento: '2039-08-25', intervaloDias: 30 }) });
+        const fB = await faturarNf(nfB, { numParcelas: 2, primeiroVencimento: '2039-08-25', intervaloDias: 30 }, H);
         const b1 = await prevs(chB);
         const reais = (await pgP.query(`SELECT codapg, gfat, nrparcela FROM apagar WHERE idnf = $1 AND coalesce(retencao, '') = '' ORDER BY codapg`, [nfB])).rows as any[];
         const histB = ((await pgP.query(`SELECT historico FROM historico WHERE tabela = 'APAGAR' AND coddoc = ANY($1::text[]) AND historico LIKE 'EXCLUSAO%'`, [b0.map((x) => String(x.codapg))])).rows as any[]);
@@ -22061,6 +22112,128 @@ async function main() {
         await pgFa.query(`UPDATE parceiros SET venc_prev = $1, diasprazo = $2 WHERE codparceiro = 22`, [pz0?.venc_prev ?? null, pz0?.diasprazo ?? null]);
       } finally {
         await pgFa.end();
+      }
+    }
+
+    // ══ §216 O FATURAMENTO (corte B): a parcela pendente vira título pelo Faturamento (TfrmFaturamento2) — o pré-lançamento no shape do
+    // dado de produção, os ajustes do operador, a parcela LIBERADO='S', a conta repetida, a forma na saída, o Bonificar, o botão da nota
+    // e o financeiro automático do processar
+    {
+      const pgFb = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const J = { ...H, 'content-type': 'application/json' };
+        const FT = 'compras/faturamento';
+        const post = (path: string, b: unknown) => fetch(`${base}/${path}`, { method: 'POST', headers: J, body: JSON.stringify(b) });
+        // uma nota com N parcelas gravadas pela grade (gerar → PUT), opcionalmente processada
+        const notaComParcelas = async (dto: Record<string, unknown>, n: number, processar = true) => {
+          const cr = await post('fiscal/nf', { modelo: 1, serie: '1', dtemissao: '2026-09-20', dtcontabil: '2026-09-20', tipoemissao: '1', finalidade: '1', ...dto });
+          const codnf = Number(((await cr.json().catch(() => ({}))) as any).codnf) || 0;
+          const g = (await (await post(`fiscal/nf/${codnf}/gerar-parcelas`, { numParcelas: n, vencimento: '2031-03-10', tipoCalc: 'I', intervalo: 30 })).json().catch(() => ({}))) as any;
+          const reg = (await (await fetch(`${base}/fiscal/nf/${codnf}`, { headers: H })).json().catch(() => ({}))) as any;
+          await fetch(`${base}/fiscal/nf/${codnf}`, { method: 'PUT', headers: J, body: JSON.stringify({ ...reg, faturamento: g.parcelas ?? [] }) });
+          const pr = processar ? await fetch(`${base}/fiscal/nf/${codnf}/processar`, { method: 'POST', headers: H }) : null;
+          const pend = (await pgFb.query(`SELECT codfaturamento FROM faturamento WHERE idnf = $1 ORDER BY nrofatura`, [codnf])).rows.map((r: any) => Number(r.codfaturamento));
+          return { codnf, pend, pr: pr?.status ?? null, cr: cr.status };
+        };
+        const itensE = [{ codproduto: 1, quantidade: 3, vrcusto: 10, cfop: '1102', aliquota: 'T01' }];
+
+        // 216.1 — o botão da nota e a prévia
+        const e1 = await notaComParcelas({ tipo: 'E', nronf: '921601', cfop: '1102', codparceiro: 22, itens: itensE }, 2);
+        const dn = (await (await fetch(`${base}/fiscal/nf/${e1.codnf}/faturamento`, { headers: H })).json().catch(() => ({}))) as any;
+        const pv = (await (await post(`${FT}/previa`, { codfaturamento: e1.pend })).json().catch(() => ({}))) as any;
+        const t0 = pv?.[0]?.titulos ?? [];
+        check('FATURAMENTO §216.1 [o botão da nota e o pré-lançamento]: a nota de terceiros processada com 2 parcelas pendentes abre o Faturamento com emissão/número/A Pagar · o pré-lançamento é o da tela de Contas a Pagar: 15,00 + 15,00, DTCOMPRA = emissão, DUPLICATA = NRONF, NRPARCELA 1/2 e 2/2, BOLETO, a OBS da nota',
+          e1.cr === 201 && e1.pr === 200 && e1.pend.length === 2 && dn.tipo === 'E' && dn.nronf === '921601' && dn.dataIni === '2026-09-20' && (dn.pendentes ?? []).length === 2
+          && pv?.[0]?.tabela === 'apagar' && t0.map((t: any) => t.valor).join() === '15,15' && t0.every((t: any) => t.dtcompra === '2026-09-20' && t.duplicata === '921601' && t.tipodoc === 'BOLETO')
+          && t0.map((t: any) => t.nrparcela).join() === '1/2,2/2' && t0[0]?.obs === ' REFERENTE A NOTA FISCAL 921601 EMITIDA EM 20/09/2026\r\n',
+          { e1, dn, pv });
+
+        // 216.2 — processar com ajuste
+        const p1 = await post(`${FT}/processar`, { codfaturamento: e1.pend, ajustes: [{ codfaturamento: e1.pend[1], tipodoc: 'CARTÃO PRÓPRIO', dtvenc: '2031-05-01' }] });
+        const p1J = (await p1.json().catch(() => ({}))) as any;
+        const aps = (await pgFb.query(`SELECT codapg, valor, tipodoc, to_char(dtvenc,'YYYY-MM-DD') AS dtvenc, to_char(dtcompra,'YYYY-MM-DD') AS dtcompra, duplicata, nrparcela, gfat, gerado, nrodup, form, codoperador, txjuros, codgrupo, obs, codparceiro
+            FROM apagar WHERE idnf = $1 ORDER BY codapg`, [e1.codnf])).rows as any[];
+        const libs = (await pgFb.query(`SELECT liberado FROM faturamento WHERE idnf = $1`, [e1.codnf])).rows.map((r: any) => r.liberado);
+        const logAp = Number((await pgFb.query(`SELECT count(*)::int n FROM log WHERE tabela = 'APAGAR' AND formulario = 'Contas a pagar' AND acao = 'Inseriu' AND valor = ANY($1::int[])`, [aps.map((a) => Number(a.codapg))])).rows[0].n);
+        const fatNf = (await pgFb.query(`SELECT faturada FROM nf WHERE codnf = $1`, [e1.codnf])).rows[0]?.faturada;
+        check('FATURAMENTO §216.2 [parcela → título, no shape do dado]: 2 títulos A Pagar no MESMO grupo — GFAT S, GERADO e NRODUP nulos (10.287 de 10.287 na produção), FORM TfrmAPagar, operador, TXJUROS 0, DTCOMPRA = emissão, DUPLICATA = NRONF, 1/2 e 2/2 · o ajuste do operador vale (a 2ª em CARTÃO PRÓPRIO, vencendo 01/05/2031) · as parcelas viram LIBERADO S · LOG "Contas a pagar" Inseriu por título',
+          p1.status === 200 && aps.length === 2 && aps.every((a) => a.gfat === 'S' && a.gerado == null && a.nrodup == null && a.form === 'TfrmAPagar' && Number(a.codoperador) === 7
+            && Number(a.txjuros) === 0 && a.dtcompra === '2026-09-20' && a.duplicata === '921601' && Number(a.codparceiro) === 22)
+          && Number(aps[0].codgrupo) === Number(aps[1].codgrupo) && aps[0].tipodoc === 'BOLETO' && aps[1].tipodoc === 'CARTÃO PRÓPRIO' && aps[1].dtvenc === '2031-05-01'
+          && aps.map((a) => a.nrparcela).join() === '1/2,2/2' && libs.every((l) => l === 'S') && logAp === 2 && fatNf === 'S',
+          { status: p1.status, p1J, aps, libs, logAp, fatNf });
+
+        const p1b = await post(`${FT}/processar`, { codfaturamento: e1.pend });
+        const p1bJ = (await p1b.json().catch(() => ({}))) as any;
+        const dn2 = await fetch(`${base}/fiscal/nf/${e1.codnf}/faturamento`, { headers: H });
+        const dn2J = (await dn2.json().catch(() => ({}))) as any;
+        check('FATURAMENTO §216.3 [a parcela liberada não volta]: reprocessar → 422 FATURAMENTO_PARCELA_JA_FATURADA · o botão da nota sem pendente → "Não existe faturamento pendente para esta nota fiscal a ser processado."',
+          p1b.status === 422 && p1bJ.code === 'FATURAMENTO_PARCELA_JA_FATURADA' && dn2.status === 422 && dn2J.message === 'Não existe faturamento pendente para esta nota fiscal a ser processado.',
+          { p1b: [p1b.status, p1bJ.code], dn2: [dn2.status, dn2J.message] });
+
+        // 216.4 — conta repetida (ValidaDocumentoRepetido)
+        const e2 = await notaComParcelas({ tipo: 'E', nronf: '921602', cfop: '1102', codparceiro: 22, itens: itensE }, 1);
+        const apMan = Number((await pgFb.query(`INSERT INTO apagar (codempresa, codparceiro, idnf, valor, dtvenc, dtcompra, quitada) VALUES (1, 22, $1, 30, '2031-03-10', '2026-09-20', 'N') RETURNING codapg`, [e2.codnf])).rows[0].codapg);
+        const rp = await post(`${FT}/processar`, { codfaturamento: e2.pend });
+        const rpJ = (await rp.json().catch(() => ({}))) as any;
+        const rpOk = await post(`${FT}/processar`, { codfaturamento: e2.pend, confirmarRepetida: true });
+        check('FATURAMENTO §216.4 [a conta que pode ter sido lançada antes]: outra conta da mesma nota, fornecedor e data de compra com o mesmo total → 422 FATURAMENTO_CONTA_REPETIDA com o código dela · confirmando, grava',
+          rp.status === 422 && rpJ.code === 'FATURAMENTO_CONTA_REPETIDA' && Number(rpJ.detalhe?.codapg) === apMan && rpOk.status === 200,
+          { rp: [rp.status, rpJ], ok: rpOk.status, apMan });
+
+        // 216.5 — saída: a forma e o shape do A Receber
+        const s1 = await notaComParcelas({ tipo: 'S', tipoemissao: '0', modelo: 55, nronf: '921603', cfop: '5102', codparceiro: 20, itens: [{ codproduto: 1, quantidade: 2, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }, 2);
+        const dnS = await fetch(`${base}/fiscal/nf/${s1.codnf}/faturamento`, { headers: H });
+        const dnSJ = (await dnS.json().catch(() => ({}))) as any;
+        const sf = await post(`${FT}/processar`, { codfaturamento: s1.pend });
+        const sfJ = (await sf.json().catch(() => ({}))) as any;
+        const sOk = await post(`${FT}/processar`, { codfaturamento: s1.pend, ajustes: s1.pend.map((c) => ({ codfaturamento: c, idpgto: 1 })) });
+        const ars = (await pgFb.query(`SELECT codrcb, valor, duplicata, nrodup, total, total_brt, to_char(dtvenda,'YYYY-MM-DD') AS dtvenda, tipodoc, consiliado, cadastrado_manualmente, codoperadorman, logado, idpgto, codparceiro, nfadicmanual
+            FROM areceber WHERE idnf = $1 ORDER BY codrcb`, [s1.codnf])).rows as any[];
+        const login7 = (await pgFb.query(`SELECT login FROM operadores WHERE codoperador = 7`)).rows[0]?.login ?? null;
+        const logAr = Number((await pgFb.query(`SELECT count(*)::int n FROM log WHERE tabela = 'ARECEBER' AND formulario = 'Contas a receber' AND acao = 'Inseriu' AND valor = ANY($1::int[])`, [ars.map((a) => Number(a.codrcb))])).rows[0].n);
+        check('FATURAMENTO §216.5 [a saída]: a nota própria não enviada não abre pelo botão ("Envie a nota antes de gerar o faturamento!") · sem forma → "Informe a forma de pagamento." · com a forma: 2 títulos A Receber — DUPLICATA "921603 - 001/002", NRODUP 2, TOTAL = TOTALNF, DTVENDA = emissão, BOLETO, CONSILIADO S, cadastrado manualmente, LOGADO/CODOPERADORMAN do operador · LOG "Contas a receber"',
+          s1.pr === 200 && dnS.status === 422 && dnSJ.message === 'Envie a nota antes de gerar o faturamento!' && sf.status === 422 && sfJ.message === 'Informe a forma de pagamento.'
+          && sOk.status === 200 && ars.length === 2 && ars.map((a) => a.duplicata).join() === '921603 - 001/002,921603 - 002/002'
+          && ars.every((a) => Number(a.nrodup) === 2 && Number(a.total) === 20 && Number(a.total_brt) === 20 && a.dtvenda === '2026-09-20' && a.tipodoc === 'BOLETO'
+            && a.consiliado === 'S' && a.cadastrado_manualmente === 'S' && Number(a.codoperadorman) === 7 && a.logado === login7 && Number(a.idpgto) === 1 && Number(a.codparceiro) === 20 && a.nfadicmanual === 'N')
+          && logAr === 2,
+          { dnS: [dnS.status, dnSJ.message], sf: [sf.status, sfJ.message], sOk: sOk.status, ars, logAr });
+
+        // 216.6 — bonificar
+        const b1 = await notaComParcelas({ tipo: 'E', nronf: '921604', cfop: '1102', codparceiro: 22, itens: itensE }, 1);
+        const cfgB = (await pgFb.query(`SELECT id, valor FROM configuracoes WHERE codigo = 'BONIFICACAO_FATURAMENTO_NF'`)).rows[0];
+        await pgFb.query(`UPDATE configuracoes SET valor = 'N' WHERE id = $1`, [cfgB.id]);
+        const bN = await post(`${FT}/bonificar`, { codfaturamento: b1.pend });
+        const bNJ = (await bN.json().catch(() => ({}))) as any;
+        await pgFb.query(`UPDATE configuracoes SET valor = 'S' WHERE id = $1`, [cfgB.id]);
+        const bS = await post(`${FT}/bonificar`, { codfaturamento: b1.pend });
+        const bRow = (await pgFb.query(`SELECT liberado, modalidade FROM faturamento WHERE idnf = $1`, [b1.codnf])).rows[0];
+        const bTit = Number((await pgFb.query(`SELECT count(*)::int n FROM apagar WHERE idnf = $1`, [b1.codnf])).rows[0].n);
+        await pgFb.query(`UPDATE configuracoes SET valor = $2 WHERE id = $1`, [cfgB.id, cfgB.valor]);
+        check('FATURAMENTO §216.6 [Bonificar, F4]: com BONIFICACAO_FATURAMENTO_NF N o botão não existe (422) · com S (a produção) a parcela fica LIBERADO S e MODALIDADE BONIFICADO, sem título',
+          cfgB.valor === 'S' && bN.status === 422 && bNJ.code === 'FATURAMENTO_BONIFICAR_DESLIGADO' && bS.status === 200 && bRow?.liberado === 'S' && bRow?.modalidade === 'BONIFICADO' && bTit === 0,
+          { cfg: cfgB, bN: [bN.status, bNJ.code], bS: bS.status, bRow, bTit });
+
+        // 216.7 — só nota processada
+        const np = await notaComParcelas({ tipo: 'E', nronf: '921605', cfop: '1102', codparceiro: 22, itens: itensE }, 1, false);
+        const npv = await post(`${FT}/previa`, { codfaturamento: np.pend });
+        const npvJ = (await npv.json().catch(() => ({}))) as any;
+        check('FATURAMENTO §216.7 [só nota processada]: a parcela de nota não processada não entra no Faturamento (BuscaDocsAFaturar exige PROC S) → 422 FATURAMENTO_NOTA_NAO_PROCESSADA',
+          npv.status === 422 && npvJ.code === 'FATURAMENTO_NOTA_NAO_PROCESSADA', { status: npv.status, npvJ });
+
+        // 216.8 — o financeiro automático do processar (GERA_FINANCEIRO_AUTO)
+        const auto0 = (await pgFb.query(`SELECT gera_financeiro_auto FROM cfop WHERE codcfop = '1102'`)).rows[0]?.gera_financeiro_auto ?? null;
+        await pgFb.query(`UPDATE cfop SET gera_financeiro_auto = 'S' WHERE codcfop = '1102'`);
+        const au = await notaComParcelas({ tipo: 'E', nronf: '921606', cfop: '1102', codparceiro: 22, itens: itensE }, 2);
+        await pgFb.query(`UPDATE cfop SET gera_financeiro_auto = $1 WHERE codcfop = '1102'`, [auto0]);
+        const auAp = (await pgFb.query(`SELECT gfat, gerado FROM apagar WHERE idnf = $1`, [au.codnf])).rows as any[];
+        const auLib = (await pgFb.query(`SELECT liberado FROM faturamento WHERE idnf = $1`, [au.codnf])).rows.map((r: any) => r.liberado);
+        check('FATURAMENTO §216.8 [financeiro automático no processar]: CFOP com GERA_FINANCEIRO_AUTO e PROC_FINANCEIRO S → o processar fatura sozinho as parcelas (GFAT S, GERADO SISTEMA — o GeraApagar) e elas ficam LIBERADO S; a produção não tem nenhum CFOP assim',
+          au.pr === 200 && auAp.length === 2 && auAp.every((a) => a.gfat === 'S' && a.gerado === 'SISTEMA') && auLib.every((l) => l === 'S'),
+          { au, auAp, auLib });
+      } finally {
+        await pgFb.end();
       }
     }
 
