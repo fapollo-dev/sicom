@@ -81,7 +81,7 @@ export class LoteCobrancaRepository {
       .select('codparceiro')
       .where('codparceiro', '=', codparceiro)
       .where('fun', '=', 'S')
-      .where('idempresa', '=', empresaId) // escopo multi-tenant: cobrador tem de ser da empresa do contexto
+      // o cobrador (funcionário) é da REDE — o parceiro não tem loja no legado (auditoria de esqueletos §4.5)
       .executeTakeFirst();
     if (!row) throw new BusinessRuleError('FORNECEDOR_NAO_ENCONTRADO', { codparceiro });
   }
@@ -97,7 +97,7 @@ export class LoteCobrancaRepository {
       .selectFrom('parceiros')
       .select(['codparceiro', 'razao'])
       .where('fun', '=', 'S')
-      .where('idempresa', '=', empresaId) // escopo multi-tenant: só cobradores da empresa do contexto
+      // os cobradores da REDE (o parceiro não tem loja no legado)
       .orderBy('razao')
       .execute();
   }

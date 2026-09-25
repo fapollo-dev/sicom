@@ -163,13 +163,11 @@ export class ParceiroHistoricoService {
     });
 
     // Crédito do parceiro (campo master, exibido direto) + Restante = (Pagar + Crédito) − Receber.
-    // parceiros é empresaScoped por IDEMPRESA — filtrar por empresa TAMBÉM aqui (senão vaza o crédito de
-    // um parceiro de outra empresa; as demais leituras de parceiros escopam por idempresa).
+    // o parceiro é da REDE (o legado não filtra por loja — auditoria de esqueletos §4.5): o crédito é o do cadastro
     const p = await db
       .selectFrom('parceiros')
       .select(['credito'])
       .where('codparceiro', '=', codparceiro)
-      .where('idempresa', '=', emp)
       .executeTakeFirst();
     const credito = Number((p as { credito?: unknown } | undefined)?.credito ?? 0);
     const restante = r2(pagar + credito - receber);

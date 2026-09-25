@@ -21,7 +21,11 @@ export const parceiroAggregateConfig: AggregateConfig = {
   rbacForm: 'FRMCADCLIENTES',
   // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
   log: { formulario: 'Cadastro de parceiros' },
-  empresaScoped: true,
+  // o PARCEIRO é da REDE: o legado não filtra por loja (udmParceiros.dfm:59) e 17.690 de 19.073 têm IDEMPRESA nulo — com o
+  // escopo por loja, as lojas 2/50/51 não enxergavam os parceiros dos próprios títulos (auditoria de esqueletos §4.5). A loja da
+  // sessão só carimba o parceiro novo.
+  empresaScoped: false,
+  derivarTrx: async ({ emp }) => (emp != null ? { idempresa: emp } : {}),
   colunas: [
     'razao', 'fantasia', 'tipofj',
     'cli', 'frn', 'fun', 'tra', 'con', 'ass',

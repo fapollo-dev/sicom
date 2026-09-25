@@ -64,7 +64,7 @@ export class HistProcNfService {
                 AND a.historico = 'PRODUTO'
           LEFT JOIN produtos  p  ON p.idproduto  = d.codproduto
           LEFT JOIN nf        f  ON f.codnf      = d.codnf
-          LEFT JOIN parceiros pa ON pa.codparceiro = d.codparceiro AND pa.idempresa = ${emp}
+          LEFT JOIN parceiros pa ON pa.codparceiro = d.codparceiro
          WHERE d.historico = 'PROCESSAMENTO'
            AND (${q.codproduto ?? 0}::int = 0 OR d.codproduto = ${q.codproduto ?? 0})
            AND (${q.codnf ?? 0}::int = 0 OR d.codnf = ${q.codnf ?? 0})

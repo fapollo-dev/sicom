@@ -334,7 +334,6 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
         .selectFrom('parceiros')
         .select(['codparceiro', 'frn'])
         .where('codparceiro', '=', cod)
-        .where('idempresa', '=', empDono)
         .executeTakeFirst()) as { frn?: string } | undefined;
       if (!forn || forn.frn !== 'S') throw new BusinessRuleError('PEDIDO_FORNECEDOR_INVALIDO', { codparceiro: cod });
     }
@@ -359,7 +358,6 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
         .selectFrom('parceiros')
         .select('qtde_dias_maximo_fp_pc')
         .where('codparceiro', '=', fornEf)
-        .where('idempresa', '=', empDono)
         .executeTakeFirst()) as { qtde_dias_maximo_fp_pc?: number } | undefined;
       const max = fp?.qtde_dias_maximo_fp_pc != null ? Number(fp.qtde_dias_maximo_fp_pc) : 0;
       if (max > 0) {

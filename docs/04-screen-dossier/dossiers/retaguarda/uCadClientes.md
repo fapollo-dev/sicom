@@ -591,3 +591,13 @@ PK enviada (o schema do endereço passou a aceitar `codend`) ou pela chave natur
 
 Pendente (MÉDIA): o escopo por loja — o legado não filtra parceiro por empresa (udmParceiros.dfm:59) e 17.690 de 19.073 têm
 IDEMPRESA nulo (a carga os põe na loja 1); o `empresaScoped` do agregado os esconde das lojas 2/50/51.
+
+## Corte "parceiro da rede" (25/09/2026) — auditoria de esqueletos §4.5, lacuna 2
+
+O legado não filtra parceiro por loja (udmParceiros.dfm:59) e 17.690 de 19.073 PARCEIROS têm IDEMPRESA nulo (a carga os põe
+na loja 1). Com o `empresaScoped` do agregado e os filtros `idempresa` das consultas, as lojas 2/50/51 não enxergavam os
+parceiros dos próprios títulos (AR 2025-26: 3.926 títulos de 50 parceiros na loja 2, 2.243 de 114 na 50, 63 de 9 na 51).
+Agora o agregado é da rede (a loja da sessão só carimba o parceiro novo) e saíram os filtros de loja sobre `parceiros` em:
+devolução de compras, pedido de compra (fornecedor e prazo máximo), de-para (validação, escopo e listagem), recebimento
+(XML e vínculo), cobrador do lote de cobrança, cotação, adiantamento, promoção, histórico de processamento da NF, apuração
+IBS/CBS e o crédito no histórico do parceiro. Smoke §214 e §78.4 (reescrito).

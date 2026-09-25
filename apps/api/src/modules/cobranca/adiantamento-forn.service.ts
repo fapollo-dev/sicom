@@ -78,7 +78,7 @@ export class AdiantamentoFornService {
    *  operador da empresa 1 gravaria adiantamento/título/histórico com parceiro da empresa 2), ATIVADO='S' e, se a
    *  situação tiver lista em situacao_nf_parceiros, dentro da lista — o filtro do picker. */
   private async assertParceiro(db: AnyDB, codparceiro: number, idsituacao_nf: number | null, emp: number): Promise<void> {
-    const p = (await db.selectFrom('parceiros').select(['codparceiro', 'ativado']).where('codparceiro', '=', codparceiro).where('idempresa', '=', emp).executeTakeFirst()) as { ativado?: string } | undefined;
+    const p = (await db.selectFrom('parceiros').select(['codparceiro', 'ativado']).where('codparceiro', '=', codparceiro).executeTakeFirst()) as { ativado?: string } | undefined;
     if (!p) throw new BusinessRuleError('PARCEIRO_NAO_ENCONTRADO', { codparceiro });
     if (String(p.ativado ?? 'S') !== 'S') throw new BusinessRuleError('PARCEIRO_INATIVO', { codparceiro });
     if (idsituacao_nf == null) return;
@@ -201,7 +201,7 @@ export class AdiantamentoFornService {
     const emp = this.emp();
     let q = (this.dbp.forTenantRead() as AnyDB)
       .selectFrom('adiantamento_forn as a')
-      .leftJoin('parceiros as p', (j: any) => j.onRef('p.codparceiro', '=', 'a.codparceiro').on('p.idempresa', '=', emp))
+      .leftJoin('parceiros as p', 'p.codparceiro', 'a.codparceiro')
       .leftJoin('contas_bancarias as cc', (j: any) => j.onRef('cc.codconta', '=', 'a.codcontacorrente').on('cc.idempresa', '=', emp))
       // os joins do título casam TAMBÉM adfornecedor + a OBS gerada (fold auditoria [MÉDIA]): `codadiantamento`
       // não é 1:1 — o golden tem 6 títulos de OUTROS fluxos com CODADIANTAMENTO preenchido, e um join só por ele
@@ -244,7 +244,7 @@ export class AdiantamentoFornService {
       // fim (pas:396-401). Assim `codmovconta` pode ser NOT NULL, como a trigger VALIDA_ADIANTAMENTO exige.
       // HISTORICO = OBS (em MAIÚSCULAS, como o dbmOBSKeyPress do legado força — 563/563 do golden), ou o default
       // de ValidaSaldoAnterior quando a OBS vem vazia (caminho que o golden NUNCA exerceu: 0/563).
-      const razao = (await trx.selectFrom('parceiros').select('razao').where('codparceiro', '=', dto.codparceiro).where('idempresa', '=', emp).executeTakeFirst()) as { razao?: string } | undefined;
+      const razao = (await trx.selectFrom('parceiros').select('razao').where('codparceiro', '=', dto.codparceiro).executeTakeFirst()) as { razao?: string } | undefined;
       const obs = dto.obs?.trim() ? dto.obs.trim().toUpperCase().slice(0, 255) : null;
       const historico = (obs || (tipo === 'D' ? `ADIANTAMENTO PARA O PARCEIRO ${razao?.razao ?? dto.codparceiro}` : `ADIANTAMENTO DO PARCEIRO ${razao?.razao ?? dto.codparceiro}`)).slice(0, 255);
       const mov = (await trx

@@ -120,7 +120,7 @@ async function alvoCategoriaExiste(db: any, emp: number | null, subtipo: string,
   if (subtipo === 'P') // produto GLOBAL, ATIVO='S' (mesmo filtro do GET_PRODUTOS que P/F/V exigem)
     return !!(await db.selectFrom('produtos').select('idproduto').where('idproduto', '=', id).where('ativo', '=', 'S').executeTakeFirst());
   if (subtipo === 'F') // fornecedor: FRN='S' + escopo de EMPRESA (parceiros é multi-empresa; convenção uniforme do repo)
-    return !!(await db.selectFrom('parceiros').select('codparceiro').where('codparceiro', '=', id).where('frn', '=', 'S').where('idempresa', '=', emp).executeTakeFirst());
+    return !!(await db.selectFrom('parceiros').select('codparceiro').where('codparceiro', '=', id).where('frn', '=', 'S').executeTakeFirst());
   if (subtipo === 'M') // marca GLOBAL, não soft-deletada (INDR<>'E')
     return !!(await db.selectFrom('marcas').select('idmarca').where('idmarca', '=', id).where(sql<boolean>`coalesce(indr,'I') <> 'E'`).executeTakeFirst());
   return false;

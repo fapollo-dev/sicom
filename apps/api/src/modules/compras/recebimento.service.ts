@@ -229,7 +229,6 @@ export class RecebimentoService {
       .innerJoin('parceiros_end as e', 'e.codparceiro', 'p.codparceiro')
       .select(['p.codparceiro', 'p.frn'])
       .where(sql`regexp_replace(e.cnpj_cpf, '[^0-9]', '', 'g')`, '=', nfe.emitCnpj)
-      .where('p.idempresa', '=', emp)
       .executeTakeFirst()) as { codparceiro: number; frn?: string } | undefined;
     if (!forn) throw new BusinessRuleError('NFE_FORNECEDOR_NAO_ENCONTRADO', { cnpj: nfe.emitCnpj });
     if (forn.frn !== 'S') throw new BusinessRuleError('PEDIDO_FORNECEDOR_INVALIDO', { codparceiro: forn.codparceiro });
@@ -528,7 +527,7 @@ export class RecebimentoService {
       // fornecedor tem de existir na empresa e ser fornecedor (FRN='S') — mesma guarda do import.
       const forn = (await trx
         .selectFrom('parceiros').select(['codparceiro', 'frn'])
-        .where('codparceiro', '=', dto.codfor).where('idempresa', '=', emp).executeTakeFirst()) as { frn?: string } | undefined;
+        .where('codparceiro', '=', dto.codfor).executeTakeFirst()) as { frn?: string } | undefined;
       if (!forn || forn.frn !== 'S') throw new BusinessRuleError('PEDIDO_FORNECEDOR_INVALIDO', { codparceiro: dto.codfor });
 
       let gravados = 0;

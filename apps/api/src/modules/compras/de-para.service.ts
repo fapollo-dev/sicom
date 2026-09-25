@@ -34,20 +34,18 @@ export class DeParaService {
         'c.codref as codref', 'c.tiporef as tiporef', 'c.fator_embalagem as fator_embalagem',
         'p.razao as razao',
         sql<string>`case c.tiporef when 'P' then 'PLU' when 'E' then 'EAN' end`.as('tiporefd'),
-      ])
-      .where('p.idempresa', '=', this.emp());
+      ]);
     if (filtro.idproduto != null) q = q.where('c.idproduto', '=', filtro.idproduto);
     if (filtro.codfor != null) q = q.where('c.codfor', '=', filtro.codfor);
     return q.orderBy('c.codfor').orderBy('c.codref').limit(1000).execute();
   }
 
-  /** valida que o fornecedor pertence à empresa E é FRN='S' (SegFornecedor). Retorna o codparceiro. */
+  /** valida que o fornecedor existe e é FRN='S' (SegFornecedor) — o parceiro é da REDE, sem loja. Retorna o codparceiro. */
   private async assertFornecedor(db: AnyDB, codfor: number): Promise<void> {
     const forn = (await db
       .selectFrom('parceiros')
       .select(['codparceiro', 'frn'])
       .where('codparceiro', '=', codfor)
-      .where('idempresa', '=', this.emp())
       .executeTakeFirst()) as { frn?: string } | undefined;
     if (!forn || forn.frn !== 'S') throw new BusinessRuleError('DEPARA_FORNECEDOR_INVALIDO', { codfor });
   }
@@ -59,7 +57,6 @@ export class DeParaService {
       .innerJoin('parceiros as p', 'p.codparceiro', 'c.codfor')
       .select(['c.codreferencia_for as codreferencia_for', 'c.codfor as codfor'])
       .where('c.codreferencia_for', '=', id)
-      .where('p.idempresa', '=', this.emp())
       .executeTakeFirst()) as { codreferencia_for: number; codfor: number } | undefined;
     if (!row) throw new BusinessRuleError('DEPARA_NAO_ENCONTRADO', { codreferencia_for: id });
     return row;

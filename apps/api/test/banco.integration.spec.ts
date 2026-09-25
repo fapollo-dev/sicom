@@ -684,7 +684,7 @@ describe('10ª — MESTRE-DETALHE DECLARATIVO (AggregateEngineService espelha o 
   });
 });
 
-describe('11ª — PARCEIROS unificado (multi-papel + endereços; empresaScoped; dup CNPJ)', () => {
+describe('11ª — PARCEIROS unificado (multi-papel + endereços; da rede; dup CNPJ)', () => {
   const eng = () => new AggregateEngineService(dbp);
   const cfg = parceiroAggregateConfig;
 
@@ -728,11 +728,13 @@ describe('11ª — PARCEIROS unificado (multi-papel + endereços; empresaScoped;
     expect(linha?.uf).toBe('SP');
   });
 
-  it('empresaScoped: outra empresa NÃO enxerga os parceiros da empresa 1', async () => {
-    const lista = (await runWithTenant({ tenantId: 'pinheirao', operadorId: 7, empresaId: 2 }, () =>
+  // o parceiro é da REDE: o legado não filtra por loja (udmParceiros.dfm:59) — auditoria de esqueletos §4.5
+  it('parceiro da rede: a outra empresa ENXERGA os parceiros cadastrados pela empresa 1', async () => {
+    const lista1 = (await withTenant(() => eng().list(cfg))) as any[];
+    const lista2 = (await runWithTenant({ tenantId: 'pinheirao', operadorId: 7, empresaId: 2 }, () =>
       eng().list(cfg),
     )) as any[];
-    expect(lista.length).toBe(0);
+    expect(lista2.length).toBe(lista1.length);
   });
 
   it('DUP de CNPJ é rejeitada pelo índice único (vira 409 DUPLICADO no HTTP)', async () => {

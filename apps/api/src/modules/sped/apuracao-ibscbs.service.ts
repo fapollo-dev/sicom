@@ -254,7 +254,7 @@ export class ApuracaoIbsCbsService {
         SELECT d.*, f.nronf, f.serie, f.dtcontabil, p.razao AS parceiro
           FROM apuracao_ibscbs_nf d
           LEFT JOIN nf f ON f.codnf = d.codnf
-          LEFT JOIN parceiros p ON p.codparceiro = f.codparceiro AND p.idempresa = f.idempresa
+          LEFT JOIN parceiros p ON p.codparceiro = f.codparceiro
          WHERE d.codapuracao_ibscbs = ${cod}
          ORDER BY d.direcao, d.ibs + d.cbs DESC
          LIMIT ${dto.limite_detalhe}`.execute(db)).rows;

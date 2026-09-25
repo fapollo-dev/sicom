@@ -53,7 +53,7 @@ export class CotacaoService {
     }
     if (codparceiros.length) {
       const forn = new Map<number, string>(
-        ((await db.selectFrom('parceiros').select(['codparceiro', 'frn']).where('codparceiro', 'in', codparceiros).where('idempresa', '=', emp).execute()) as Array<{ codparceiro: number; frn?: string }>).map((r) => [Number(r.codparceiro), r.frn ?? 'N']),
+        ((await db.selectFrom('parceiros').select(['codparceiro', 'frn']).where('codparceiro', 'in', codparceiros).execute()) as Array<{ codparceiro: number; frn?: string }>).map((r) => [Number(r.codparceiro), r.frn ?? 'N']),
       );
       for (const cp of codparceiros) if (forn.get(cp) !== 'S') throw new BusinessRuleError('COTACAO_FORNECEDOR_INVALIDO', { codparceiro: cp });
     }

@@ -9636,8 +9636,10 @@ async function main() {
       const listaEmp1 = (await (await fetch(`${base}/${DP}?idproduto=1`, { headers: H })).json().catch(() => [])) as any[];
       const vazouEmp2 = listaEmp1.some((r) => Number(r.codfor) === 990002);
       const delAlheia = await fetch(`${base}/${DP}/${alheia}`, { method: 'DELETE', headers: H });
-      check('DE-PARA §78.4: ESCOPO fornecedor→empresa — de-para de fornecedor da emp 2 NÃO aparece na emp 1 nem é excluível (404)',
-        !vazouEmp2 && delAlheia.status !== 204 && ((await delAlheia.json().catch(() => ({}))) as any).code === 'DEPARA_NAO_ENCONTRADO', { vazou: vazouEmp2, del: delAlheia.status });
+      // o parceiro é da REDE (o legado não filtra por loja — auditoria de esqueletos §4.5): a de-para do fornecedor cadastrado
+      // pela loja 2 aparece e se mantém na loja 1, como no legado (CODREFERENCIA_FOR não tem loja)
+      check('DE-PARA §78.4: o fornecedor é da REDE — a de-para de um fornecedor cadastrado pela loja 2 aparece na loja 1 e é excluível (o legado não separa por loja)',
+        vazouEmp2 && delAlheia.status === 204, { vazou: vazouEmp2, del: delAlheia.status });
 
       // 78.5) RBAC: criar sem grant → 403.
       const d6 = await fetch(`${base}/${DP}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ idproduto: 1, codfor: 22, codref: 'X' }) });
@@ -21885,6 +21887,18 @@ async function main() {
       } finally {
         await pgEs.end();
       }
+    }
+
+    // ══ §214 PARCEIRO DA REDE (auditoria de esqueletos §4.5, lacuna 2): o parceiro cadastrado numa loja aparece nas outras
+    {
+      const cr = await fetch(`${base}/cadastro/parceiros`, { method: 'POST', headers: H, body: JSON.stringify({ razao: 'PARCEIRO DA REDE', tipofj: 'F', cli: 'S', enderecos: [] }) });
+      const crJ = (await cr.json().catch(() => ({}))) as any;
+      const cod = Number(crJ.codparceiro) || 0;
+      const naLoja2 = await fetch(`${base}/cadastro/parceiros/${cod}`, { headers: H_EMP2 });
+      const naLoja2J = (await naLoja2.json().catch(() => ({}))) as any;
+      check('PARCEIRO §214 [da rede, não da loja]: o parceiro cadastrado pela loja 1 (carimbado com ela) é lido pela loja 2 — o legado não filtra parceiro por loja e 17.690 de 19.073 têm IDEMPRESA nulo; com o escopo por loja, as lojas 2/50/51 não enxergavam os parceiros dos próprios títulos',
+        cr.status === 201 && Number(crJ.idempresa) === 1 && naLoja2.status === 200 && Number(naLoja2J.codparceiro) === cod,
+        { cr: [cr.status, crJ.idempresa], loja2: [naLoja2.status, naLoja2J.code] });
     }
 
   } finally {

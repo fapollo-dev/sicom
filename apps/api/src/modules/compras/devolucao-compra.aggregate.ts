@@ -211,7 +211,6 @@ export const devolucaoCompraAggregateConfig: AggregateConfig = {
         .selectFrom('parceiros')
         .select(['frn'])
         .where('codparceiro', '=', cod)
-        .where('idempresa', '=', emp)
         .executeTakeFirst()) as { frn?: string } | undefined;
       if (!forn || forn.frn !== 'S') throw new BusinessRuleError('DEVOLUCAO_FORNECEDOR_INVALIDO', { codparceiro: cod });
     }
