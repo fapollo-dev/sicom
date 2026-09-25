@@ -10141,11 +10141,12 @@ async function main() {
         const invB2 = Number(liv2.rows[0].codinvent);
         const imp1 = await fetch(`${base}/${INV}/${invB2}/importar-balanco`, { method: 'POST', headers: H, body: JSON.stringify({ codbalanco: g1J.codbalanco }) });
         const imp1J = (await imp1.json().catch(() => ({}))) as any;
-        const fol1 = (await pgB.query(`SELECT idproduto, qtde, vrcusto FROM inventario WHERE codinvent=$1 ORDER BY idproduto`, [invB2])).rows as any[];
+        const fol1 = (await pgB.query(`SELECT idproduto, qtde, vrcusto, to_char(datainventario,'YYYY-MM-DD') AS datainventario, tipo FROM inventario WHERE codinvent=$1 ORDER BY idproduto`, [invB2])).rows as any[];
         const linha1 = fol1.find((x: any) => Number(x.idproduto) === 1);
-        check('BALANÇO §83b.5: "Importar Balanço" usa a foto só como LISTA DE PRODUTOS — a quantidade vem de ESTOQUE + ESTOQUE_DEP de hoje (' + String(est1B) + ' + 7), NÃO os 77 gravados na foto',
+        check('BALANÇO §83b.5: "Importar Balanço" usa a foto só como LISTA DE PRODUTOS — a quantidade vem de ESTOQUE + ESTOQUE_DEP de hoje (' + String(est1B) + ' + 7), NÃO os 77 gravados na foto; cada linha leva a data do inventário do livro (DATAINVENTARIO 2027-04-30) e o TIPO do tipo do inventário (1 → P)',
           imp1.status === 200 && Number(imp1J.itens) === 2 && fol1.length === 2
-          && Math.abs(Number(linha1?.qtde) - (est1B + 7)) < 0.001 && Number(linha1?.qtde) !== 77,
+          && Math.abs(Number(linha1?.qtde) - (est1B + 7)) < 0.001 && Number(linha1?.qtde) !== 77
+          && fol1.every((x: any) => x.datainventario === '2027-04-30' && x.tipo === 'P'),
           { imp: imp1J, linha1, est1B });
 
         // 83b.6) a folha já tem linhas → precisa do "confirmar" ("O inventário atual será excluído").
@@ -15559,12 +15560,15 @@ async function main() {
 
         const ok = await fetch(`${base}/${CP}`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'E', niveis: [1, 1, 2, 2, 5, 3], descricao: 'Plano empresarial' }) });
         const depois = (await (await fetch(`${base}/${CP}`, { headers: H })).json().catch(() => ({}))) as any;
-        check('CONF PLANO §114.3: a máscara é editável nível a nível (o legado tem oito; o cliente usa cinco e deixa o resto nulo), e um sexto nível entra no CSV sem mexer no que já existe — a máscara SUGERE o próximo código, não valida o histórico, e o plano real tem contas dos dois formatos',
+        const ndig = (await pgCp.query(`SELECT ndig_1, ndig_2, ndig_3, ndig_4, ndig_5, ndig_6, ndig_7, usultalteracao FROM config_plano_contas WHERE tipo='E'`)).rows[0] as any;
+        check('CONF PLANO §114.3: a máscara é editável nível a nível (o legado tem oito — NDIG_1..NDIG_8; o cliente usa cinco e deixa o resto nulo), e um sexto nível entra sem mexer no que já existe — a máscara SUGERE o próximo código, não valida o histórico. O gravar escreve os NDIG do legado (a carga traz eles; a `mascara` é espelho) e quem alterou',
           ok.status === 200 && String(depois.mascara) === '1,1,2,2,5,3'
-          && JSON.stringify(depois.niveis) === JSON.stringify([1, 1, 2, 2, 5, 3]),
-          { gravou: ok.status, mascara: depois.mascara });
+          && JSON.stringify(depois.niveis) === JSON.stringify([1, 1, 2, 2, 5, 3])
+          && [ndig?.ndig_1, ndig?.ndig_2, ndig?.ndig_3, ndig?.ndig_4, ndig?.ndig_5, ndig?.ndig_6].map(Number).join() === '1,1,2,2,5,3' && ndig?.ndig_7 == null
+          && Number(ndig?.usultalteracao) === 7,
+          { gravou: ok.status, mascara: depois.mascara, ndig });
 
-        await pgCp.query(`UPDATE config_plano_contas SET mascara='1,1,2,2,5' WHERE tipo='E'`);
+        await pgCp.query(`UPDATE config_plano_contas SET mascara='1,1,2,2,5', ndig_6 = NULL WHERE tipo='E'`);
       } finally {
         await pgCp.end();
       }

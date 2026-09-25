@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type Kysely } from 'kysely';
+import { niveisDaConfig } from './conf-plano-contas.service';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -51,12 +52,11 @@ export class PlanoContasService {
     return String(cod).split('.').filter((s) => s !== '').length;
   }
 
-  /** larguras por nível da máscara (config_plano_contas.mascara CSV → [1,1,2,2,4]); [] se não configurada. */
+  /** larguras por nível da máscara (os NDIG_1..8 do legado — `niveisDaConfig`; sem eles, a `mascara` CSV); [] se não configurada. */
   private async segmentos(tipo = 'E'): Promise<number[]> {
     const row = (await (this.dbp.forTenantRead() as AnyDB)
-      .selectFrom('config_plano_contas').select('mascara').where('tipo', '=', tipo).executeTakeFirst()) as { mascara?: string } | undefined;
-    if (!row?.mascara) return [];
-    return String(row.mascara).split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isFinite(n) && n > 0);
+      .selectFrom('config_plano_contas').selectAll().where('tipo', '=', tipo).executeTakeFirst()) as Record<string, unknown> | undefined;
+    return niveisDaConfig(row);
   }
 
   /** máscara do plano (larguras por nível + padrão de exibição '9.9.99.99.9999') — corte-2 (uCadConfPlanoContas). */

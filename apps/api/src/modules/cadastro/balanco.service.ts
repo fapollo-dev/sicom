@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type Kysely } from 'kysely';
 import type { BalancoResumo } from '@apollo/shared';
+import { carimboDaFolha } from './inventario-folha';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -35,16 +36,16 @@ export class BalancoService {
   }
 
   /** o livro do inventário (fail-closed no tenant) — devolve a data, que é a chave do balanço. */
-  private async livro(db: AnyDB, codinvent: number, emp: number): Promise<{ codinvent: number; data: string }> {
+  private async livro(db: AnyDB, codinvent: number, emp: number): Promise<{ codinvent: number; data: string; carimbo: { datainventario: string | null; tipo: string | null } }> {
     const l = (await db
       .selectFrom('inventario_livro')
-      .select(['codinvent', sql<string>`to_char(dtinventario,'YYYY-MM-DD')`.as('data')])
+      .select(['codinvent', sql<string>`to_char(dtinventario,'YYYY-MM-DD')`.as('data'), 'tipoinventario'])
       .where('codinvent', '=', codinvent)
       .where('idempresa', '=', emp)
       .where(sql`coalesce(indr,'I')`, '<>', 'E')
-      .executeTakeFirst()) as { codinvent: number; data: string } | undefined;
+      .executeTakeFirst()) as { codinvent: number; data: string; tipoinventario: unknown } | undefined;
     if (!l) throw new BusinessRuleError('INVENTARIO_NAO_ENCONTRADO', { codinvent });
-    return l;
+    return { codinvent: l.codinvent, data: l.data, carimbo: carimboDaFolha({ dtinventario: l.data, tipoinventario: l.tipoinventario }) };
   }
 
   /**
@@ -162,7 +163,7 @@ export class BalancoService {
     const op = currentTenant().operadorId ?? null;
     const custoFiscal = (await this.config.resolver('VRCUSTO_INVENTARIO', { empresaId: emp })) === 'FISCAL';
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      await this.livro(trx, codinvent, emp);
+      const { carimbo } = await this.livro(trx, codinvent, emp);
 
       const bal = (await trx
         .selectFrom('balanco')
@@ -226,7 +227,7 @@ export class BalancoService {
               qtde: num(r.qtde), // = saldo atual (estoque + depósito), NÃO a qtde do balanço
               vrcusto: num(r.vrcusto),
               vrvenda: num(r.vrvenda),
-              tipo: 'P',
+              ...carimbo,
               usucadastro: op,
               dtcadastro: sql`now()`,
             })),
@@ -350,7 +351,7 @@ export class BalancoService {
               aliquota: (r.aliquota as string) ?? null,
               qtde: num(r.saldo), // sem piso em zero: o HAVING do legado está comentado
               vrcusto: num(r.vrcusto), vrvenda: num(r.vrvenda),
-              tipo: 'P', usucadastro: op, dtcadastro: sql`now()`,
+              ...l.carimbo, usucadastro: op, dtcadastro: sql`now()`,
             })),
           )
           .execute();

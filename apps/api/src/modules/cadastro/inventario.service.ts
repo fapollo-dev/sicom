@@ -3,6 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import type { InventarioDiferenca } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
+import { carimboDaFolha } from './inventario-folha';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { SenhaOperacaoService } from './senha-operacao.service';
 import { ConfigService } from './config.service';
@@ -32,15 +33,16 @@ export class InventarioService {
   }
 
   /** garante que o livro existe no tenant (fail-closed). */
-  private async carregarLivro(db: AnyDB, codinvent: number, emp: number): Promise<void> {
+  private async carregarLivro(db: AnyDB, codinvent: number, emp: number): Promise<{ datainventario: string | null; tipo: string | null }> {
     const l = await db
       .selectFrom('inventario_livro')
-      .select('codinvent')
+      .select(['codinvent', sql<string>`to_char(dtinventario,'YYYY-MM-DD')`.as('dtinventario'), 'tipoinventario'])
       .where('codinvent', '=', codinvent)
       .where('idempresa', '=', emp)
       .where(sql`coalesce(indr,'I')`, '<>', 'E')
       .executeTakeFirst();
     if (!l) throw new BusinessRuleError('INVENTARIO_NAO_ENCONTRADO', { codinvent });
+    return carimboDaFolha(l);
   }
 
   /**
@@ -60,7 +62,7 @@ export class InventarioService {
     // outros quatro pontos da tela): 'FISCAL' → `vrcustofiscal` com fallback p/ `vrcusto`. Golden = 'PRODUTO'.
     const custoFiscal = (await this.config.resolver('VRCUSTO_INVENTARIO', { empresaId: emp })) === 'FISCAL';
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      await this.carregarLivro(trx, codinvent, emp);
+      const carimbo = await this.carregarLivro(trx, codinvent, emp);
       await trx.deleteFrom('inventario').where('codinvent', '=', codinvent).where('idempresa', '=', emp).execute();
 
       // DRIVE por MULTI_PRECO da empresa (só produtos desta empresa) + saldo (estoque) + exclui filhos.
@@ -95,7 +97,7 @@ export class InventarioService {
               unidade: r.unidade ?? null, aliquota: r.aliquota ?? null,
               qtde: num(r.saldo), // CONTADO nasce = saldo de sistema (fold ALTA: import→aplicar = no-op)
               vrcusto: num(r.vrcusto), vrvenda: num(r.vrvenda),
-              tipo: 'P', usucadastro: op, dtcadastro: sql`now()`,
+              ...carimbo, usucadastro: op, dtcadastro: sql`now()`,
             })),
           )
           .execute();

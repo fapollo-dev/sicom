@@ -8,6 +8,22 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 type AnyDB = Kysely<any>;
 
 /**
+ * os NÍVEIS da máscara: no legado são NDIG_1..NDIG_8 (a linha da produção: 1, 1, 2, 2, 5 e três nulos) — é o que a carga traz; a
+ * coluna `mascara` (texto "1,1,2,2,5") é do Apollo e fica como espelho. Lê os NDIG e, sem eles, a `mascara`.
+ */
+export function niveisDaConfig(c: Record<string, unknown> | undefined): number[] {
+  if (!c) return [];
+  const ndig: number[] = [];
+  for (let i = 1; i <= 8; i++) {
+    const v = Number(c[`ndig_${i}`]);
+    if (!(v > 0)) break;
+    ndig.push(v);
+  }
+  if (ndig.length) return ndig;
+  return String(c.mascara ?? '').split(',').map((x) => parseInt(x.trim(), 10)).filter((x) => Number.isFinite(x) && x > 0);
+}
+
+/**
  * CONFIGURAÇÕES DO PLANO DE CONTAS (`FRMCADCONFPLANOCONTAS`). **45 acessos, 2 operadores.**
  * Migration 237 (a tabela veio nas 103 e 108).
  *
@@ -60,7 +76,7 @@ export class ConfPlanoContasService {
 
     return {
       ...c,
-      niveis: String(c.mascara ?? '').split(',').map(Number).filter((n) => n > 0),
+      niveis: niveisDaConfig(c),
       contas,
       formatos,
     };
@@ -95,9 +111,13 @@ export class ConfPlanoContasService {
       }
 
       const mascara = dto.niveis.join(',');
+      const ndig = Array.from({ length: 8 }, (_, i) => dto.niveis[i] ?? null);
       const r = await sql`
         UPDATE config_plano_contas
            SET mascara = ${mascara}, descricao = ${dto.descricao ?? null},
+               ndig_1 = ${ndig[0]}, ndig_2 = ${ndig[1]}, ndig_3 = ${ndig[2]}, ndig_4 = ${ndig[3]},
+               ndig_5 = ${ndig[4]}, ndig_6 = ${ndig[5]}, ndig_7 = ${ndig[6]}, ndig_8 = ${ndig[7]},
+               usultalteracao = ${operador ?? currentTenant().operadorId ?? null}, dtultimalteracao = now(),
                codcontasintetica_for = ${dto.codcontasintetica_for ?? null},
                codcontaanalitica_for = ${dto.codcontaanalitica_for ?? null},
                codcontasintetica_cli = ${dto.codcontasintetica_cli ?? null},
@@ -109,7 +129,6 @@ export class ConfPlanoContasService {
          WHERE tipo = ${dto.tipo}
       `.execute(trx);
       if (!Number(r.numAffectedRows ?? 0)) throw new BusinessRuleError('CONFIG_PLANO_NAO_ENCONTRADA', { tipo: dto.tipo });
-      void operador;
       return { tipo: dto.tipo };
     });
   }

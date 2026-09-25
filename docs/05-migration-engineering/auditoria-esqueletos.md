@@ -640,4 +640,19 @@ leitura), as colunas preenchidas em ≥ 50% que nenhum código do Apollo que gra
   LIBERAR_AGENDA_APP 'N', receita/produção fatores 1, cotação QTDEATUAL/VALORCOTACAO 0, cheque QTDECHQ 1); ✅ o destinatário do manifesto
   (CNPJ/RAZAO_DESTINATARIO do `<dest>` do XML completo, 98,7%). Não determinado: `pedido_devolucao_compra_i.VRCUSTOREP` (63% = o do item da NF;
   o resto não fecha). Fora: NFC-e/senhas da EMPRESAS, MONITORNOTAFISCAL, PDV, a integração FGF (figura_fiscal origem/destino).
+- **3ª rodada do conferidor (25/09/2026, 111 candidatas):**
+  - ✅ `inventario.DATAINVENTARIO` e `TIPO`: a data do inventário do livro no momento da geração (uInventario.pas:1438 e as outras 3
+    gerações; o livro 242 teve a data trocada depois e as linhas ficaram com a antiga) e o tipo pelo TIPOINVENTARIO (1..5 = P/T/B/A/F; sem
+    tipo, NULL — 3 das 4 folhas da produção). O Apollo gravava 'P' fixo e a data vazia. Smoke §83b.5.
+  - ✅ `config_plano_contas.NDIG_1..8`: o legado guarda a máscara nos NDIG (a carga traz 1,1,2,2,5); o Apollo lia e gravava só a sua
+    `mascara` (texto). Agora lê os NDIG (a `mascara` é espelho) e o gravar escreve os dois + USULTALTERACAO/DTULTIMALTERACAO. Smoke §114.3.
+  - Falso positivo: os 6 campos de `config_integracao_contabil` (custo de vendas, NFC-e, ICMS/PIS/COFINS NFC-e, desconto concedido de
+    cheque) — a lista vive em `packages/shared` (CAMPOS_CONFIG_IC) e o serviço grava por `sql.ref`.
+  - Dormente: `itens_producao_receita` (UNIDADE_PRODUTO, FATOR_CONVERSAO_CX_PROD[_UTIL]) — a produção não é usada desde 01/10/2024
+    (513 linhas, 79 com FATOR_CONVERSAO ≠ 0/1). As regras de conversão estão em uCadProducao.pas:414-512 e uDMProducao.pas:675-705.
+  - Binário novo, sem fonte: `contas_bancarias` (ESTORNO_DTHR_BAIXA, EXIBE_SALDO_EMP) e `formas_pgto` (BAIXA_DOCUMENTO_AUTOMATICO,
+    EXIGE_PERMISSAO) — carregadas e preservadas; o comportamento não está no fonte de 2020 (não determinado).
+  - Em recon: a **tesouraria** (HIST_SANGRIA_SUPRIMENTO *_FECHADO/*_AUTENTICADO + CONTAGEM_CEDULAS + MOV_CONTAS_BANCARIAS.CODCONTAGEM_CEDULAS
+    — uma tela do binário novo que o Apollo não tem; 72 contagens em set/2026) e a **apuração PIS/COFINS** (`apuracao_pc_det` com a
+    estrutura do legado: CRÉDITO/DÉBITO, ENTRADA/SAÍDA NF/NFC-e, os valores *_APURA; o Apollo tem uma versão simplificada).
 - 51 tabelas sem PK simples na origem ficaram fora da amostra (ex.: `adiantamento_forn`, `multi_preco`, `vendas`, `pedidos`).
