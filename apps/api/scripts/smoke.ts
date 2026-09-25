@@ -1576,7 +1576,7 @@ async function main() {
         tipo: 'E', modelo: 55, nronf: '6001', serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10',
         tipoemissao: '0', cfop: '1102', codparceiro: 22,
         itens: [
-          { codproduto: 1, quantidade: 10, vrcusto: 3.5, aliquota: 'T01', cfop: '1102', vrbasecalculo: 35, vricm: 7.7, vripi: 1.75, cst: 0 },
+          { codproduto: 1, quantidade: 10, vrcusto: 3.5, aliquota: 'T01', cfop: '1102', vrbasecalculo: 35, vricm: 7.7, vripi: 1.75, cst: 0, icme: 22, bcr: 100 },
           { codproduto: 3, quantidade: 2, vrcusto: 20, aliquota: 'STB', cfop: '1403', vrbasecalculo: 0, vricm: 0, vrbasest: 58, vricmst: 3.24, cst: 60 },
         ],
       }),
@@ -23640,6 +23640,33 @@ async function main() {
           await pgSt.query(`DELETE FROM nf WHERE codnf = $1`, [c]).catch(() => undefined);
         }
         await pgSt.end();
+      }
+    }
+
+    // ══ §246 ITEM DA NF — o OK regrava a BASE e o ICMS do item com os calculados (CalculaBaseICME) ══════════
+    {
+      const pgBc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      let cod = 0;
+      try {
+        const r = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 1, serie: '1', tipo: 'E', nronf: 'BC246', tipoemissao: '1', codparceiro: 22,
+          dtemissao: '2037-01-06', dtcontabil: '2037-01-06', cfop: '1102', itens: [
+            { nroitem: 1, codproduto: 1, quantidade: 10, vrcusto: 10, cfop: '1102', aliquota: 'T01', cst: 0, icme: 12, bcr: 100, vrbasecalculo: 100, vricm: 18 },
+            { nroitem: 2, codproduto: 2, quantidade: 5, vrcusto: 10, cfop: '1102', aliquota: 'T01', cst: 40, icme: 18, bcr: 100, vrbasecalculo: 50, vricm: 9 },
+          ] }) });
+        cod = Number(((await r.json().catch(() => ({}))) as any).codnf) || 0;
+        const it = (await pgBc.query(`SELECT nroitem, vrbasecalculo, vricm, vrbasecalculoicm_calc, vricm_calc FROM nf_prod WHERE codnf = $1 ORDER BY nroitem`, [cod])).rows as any[];
+        const h = (await pgBc.query(`SELECT totalbaseicm, totalicm FROM nf WHERE codnf = $1`, [cod])).rows[0] as any;
+        const N = (v: unknown) => Number(v);
+        check('ITEM DA NF §246 [o OK regrava base e ICMS com os calculados]: o item tributado fica com a base 100 × BCR e o ICMS pelo ICME (12, não os 18 digitados); o x102 com CST 40 zera base e ICMS (o legado zera no CalcValorNota); o cabeçalho soma (TOTALBASEICM 100, TOTALICM 12) — nos importados de 2026, base = VRBASECALCULOICM_CALC e ICMS = VRICM_CALC em 99,9% (os do XML: 74%)',
+          N(it[0]?.vrbasecalculo) === 100 && N(it[0]?.vricm) === 12 && N(it[1]?.vrbasecalculo) === 0 && N(it[1]?.vricm) === 0
+          && N(it[0]?.vricm_calc) === 12 && N(h?.totalbaseicm) === 100 && N(h?.totalicm) === 12,
+          { it, h });
+      } finally {
+        if (cod) {
+          await pgBc.query(`DELETE FROM nf_prod WHERE codnf = $1`, [cod]).catch(() => undefined);
+          await pgBc.query(`DELETE FROM nf WHERE codnf = $1`, [cod]).catch(() => undefined);
+        }
+        await pgBc.end();
       }
     }
 

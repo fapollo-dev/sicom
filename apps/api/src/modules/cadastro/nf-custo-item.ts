@@ -264,6 +264,7 @@ export async function recalcularMetricasEntrada(trx: AnyDB, codnf: number, somen
     totalBaseIcmt: n(nf.totalbaseicmt), totalIcmSt: n(nf.totalicm_st), totalProdSt: n(nf.totalprodst),
   } : null;
   let stDoItemMudou = false;
+  let baseIcmsMudou = false;
   const passaramPeloOk: number[] = [];
   let gravados = 0;
   for (const it of itens) {
@@ -298,6 +299,14 @@ export async function recalcularMetricasEntrada(trx: AnyDB, codnf: number, somen
     }
     const c = custoDoItemNaEntrada(it, empresa, ctxCusto);
     Object.assign(set, { vrbasecalculoicm_calc: arred(c.tempbaseicme, 4), vricm_calc: c.vricmCalc });
+    if (pendente && ctxSt) {
+      // o OK regrava a base e o ICMS do item com os calculados (`CalculaBaseICME`, uItensNF.pas: VRBASECALCULO := TEMPBASEICME,
+      // VRICM := TEMPVLRICME) — nos itens importados de 2026, base = VRBASECALCULOICM_CALC e ICMS = VRICM_CALC em 99,9% (os do XML: 74%)
+      const bc = arred(c.tempbaseicme, 2);
+      if (bc !== n(it.vrbasecalculo) || c.vricmCalc !== n(it.vricm)) baseIcmsMudou = true;
+      Object.assign(set, { vrbasecalculo: bc, vricm: c.vricmCalc });
+      Object.assign(it, { vrbasecalculo: bc, vricm: c.vricmCalc });
+    }
     if (pendente && c.qtdetotal > 0) {
       // o preço sugerido: TMargemPreco(empresa, produto, custo real; reposição em D/M).CalculaValorVenda(MARKUP) — uDMNF.pas:3898-3921
       const idp = Number(it.codproduto);
@@ -332,7 +341,7 @@ export async function recalcularMetricasEntrada(trx: AnyDB, codnf: number, somen
     }
     await trx.updateTable('nf_prod').set(set).where('codnfprod', '=', Number(it.codnfprod)).execute();
   }
-  if (ctxSt) await totaisStExternoDaNota(trx, codnf, itens, stDoItemMudou, !ctxSt.importada && ctxSt.tipoemissao === '0' ? passaramPeloOk : []);
+  if (ctxSt) await totaisStExternoDaNota(trx, codnf, itens, stDoItemMudou, !ctxSt.importada && ctxSt.tipoemissao === '0' ? passaramPeloOk : [], baseIcmsMudou);
   return gravados;
 }
 
@@ -345,7 +354,8 @@ export async function recalcularMetricasEntrada(trx: AnyDB, codnf: number, somen
  * o calculado (VRBASECALCULO/VRICM), e no cabeçalho TOTALICM_ST = Σ STREAL − Σ separado (sem negativo), TOTALBASEICMT = Σ
  * VRBASE_STEXTERNO e os ICMS da nota = Σ calculados. Só quando algum item passou pelo OK — o item preservado guarda os da nota.
  */
-async function totaisStExternoDaNota(trx: AnyDB, codnf: number, itens: Array<Record<string, unknown>>, stDoItemMudou: boolean, okEmissaoPropria: number[]): Promise<void> {
+async function totaisStExternoDaNota(trx: AnyDB, codnf: number, itens: Array<Record<string, unknown>>, stDoItemMudou: boolean, okEmissaoPropria: number[],
+  baseIcmsMudou: boolean): Promise<void> {
   const soma = (k: string) => arred(itens.reduce((a, it) => a + n(it[k]), 0));
   const totalExterno = soma('vricms_stexterno');
   const cab = (await trx.selectFrom('nf').selectAll().where('codnf', '=', codnf).executeTakeFirst()) as Record<string, unknown>;
@@ -354,6 +364,8 @@ async function totaisStExternoDaNota(trx: AnyDB, codnf: number, itens: Array<Rec
     totalicm_stexterno_sepnf: soma('vricms_stexterno_separadonf'),
     icms_st_apagar: totalExterno > 0 ? Math.max(0, arred(totalExterno - n(cab.icms_st_pago_fonte))) : 0,
   };
+  // TOTALICM/TOTALBASEICM = Σ dos itens (o OK copia as somas do dataset, uItensNF.pas:1807-1808)
+  if (baseIcmsMudou) Object.assign(set, { totalicm: soma('vricm'), totalbaseicm: soma('vrbasecalculo') });
   if (okEmissaoPropria.length) {
     set.totalicm_st = Math.max(0, arred(soma('streal') - soma('vricms_stexterno_separadonf')));
     set.totalbaseicmt = soma('vrbase_stexterno');
