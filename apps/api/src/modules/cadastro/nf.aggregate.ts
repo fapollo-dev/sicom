@@ -15,6 +15,7 @@ import { estornarVinculoScrap } from './nf-scrap.service';
 import { estornarVinculoVendas } from './nf-vendas.service';
 import { estornarDevolucaoVendas } from './nf-devolucao-vendas.service';
 import { preencherRateioContabil } from './nf-rateio';
+import { totalNfLegado } from './nf-total';
 
 /** a descrição do produto, lida uma vez por produto na gravação */
 function leitorDescricaoProduto(trx: any): (idproduto: number) => Promise<string | null> {
@@ -27,6 +28,10 @@ function leitorDescricaoProduto(trx: any): (idproduto: number) => Promise<string
     return cache.get(idproduto) ?? null;
   };
 }
+
+/** as parcelas do TOTALNF que o formulário não calcula: vêm do dto ou, no PUT que não as traz, do banco (`validar` → `_totaisNota`) */
+const NF_TOTAIS_DA_FORMULA = ['valorservico', 'totalvroutros', 'totaldescfinal', 'total_icmsdeson'] as const;
+const NF_PARCELAS_DO_TOTAL = [...NF_TOTAIS_DA_FORMULA, 'totalfrete', 'totalseguro', 'totalacessorias', 'totalipi_devolucao', 'total_fcp_valor_st', 'complemento'] as const;
 
 /** as colunas do retrato do produto no item da NF */
 const RETRATO = ['ultcusto', 'ultcustorep', 'ultvenda', 'markup', 'vrcustoreal', 'idpiscofins'] as const;
@@ -181,6 +186,12 @@ export const nfAggregateConfig: AggregateConfig = {
     'totalicm', 'totalbaseicm', 'totalipi', 'totalicm_st', 'totalisento',
     // mig 308: IPI DEVOLVIDO (entra no total da nota, udmNF.pas:5557) e os totais de FCP-ST — a NF de devolução os preenche
     'totalipi_devolucao', 'total_fcp_valor_st', 'total_fcp_valor_st_ret',
+    // o resto da fórmula do TOTALNF (cdsNotaCalcFields) e o cabeçalho da nota importada (ImportaNFe): os totais "da nota", que não se
+    // alteram, o controle do total (VALIDATOTALNF = vNF), a origem, os volumes e a NF avulsa do fisco
+    ...NF_TOTAIS_DA_FORMULA, 'validatotalnf', 'totalbaseicmt', 'total_streal', 'totalbase_stexterno', 'total_icms_nota_valor',
+    'total_icms_nota_bc', 'imp_importadormassa', 'imp_manifesto', 'rateio_ipi', 'rateio_st', 'qtde',
+    'fisco_emit_orgao', 'fisco_emit_cnpj', 'fisco_emit_matr', 'fisco_emit_agente', 'fisco_emit_reparticao', 'fisco_emit_uf',
+    'fisco_emit_fone', 'fisco_emit_dar_nro', 'fisco_emit_dar_valor', 'fisco_emit_dar_dtemis', 'fisco_emit_dar_dtpgto',
     // ST residual (corte-4c): TOTALICM_STEXTERNO/ICMS_ST_PAGO_FONTE são inputs de cabeçalho (F2/operador);
     // ICMS_ST_APAGAR é derivado (=max(0, externo−pago_fonte)) mas fica no allowlist p/ persistir o derivado.
     'total_icmst_externo', 'icms_st_pago_fonte', 'icms_st_apagar',
@@ -245,11 +256,10 @@ export const nfAggregateConfig: AggregateConfig = {
       if (String(it.aliquota) === 'IST') totalisento += totalProdutoItem(it);
     }
     const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
-    const totalfrete = num(dto.totalfrete);
-    const totalseguro = num(dto.totalseguro);
-    const totalacessorias = num(dto.totalacessorias);
-    const totalipiDev = num(dto.totalipi_devolucao);
-    const totalnf = r2(totalprod - totaldesc + totalfrete + totalseguro + totalacessorias + totalipi + totalicm_st + totalipiDev);
+    // cada parcela: a do dto; senão a que a nota já tinha (o `validar` a lê do banco no PUT)
+    const doBanco = (dto._totaisNota ?? {}) as Record<string, unknown>;
+    const parcela = (k: string) => (dto[k] !== undefined ? dto[k] : doBanco[k]);
+    const totalnf = totalNfLegado({ totalprod, totaldesc, totalipi, totalicm_st }, parcela);
     return {
       totalprod: r2(totalprod),
       totaldesc: r2(totaldesc),
@@ -267,6 +277,10 @@ export const nfAggregateConfig: AggregateConfig = {
     const emp = currentTenant().empresaId ?? null;
     // o item completo ANTES do derivar somar os totais: ARREDONDA padrão, VRVENDA nulo = 0, DESCONTO % do VRDESCPROD
     await normalizarItensNf(db, emp, dto.itens);
+    // as parcelas do TOTALNF que o PUT não trouxe: as da nota gravada (o `derivar` é síncrono e não lê o banco)
+    if (id != null && Array.isArray(dto.itens) && NF_PARCELAS_DO_TOTAL.some((k) => dto[k] === undefined)) {
+      dto._totaisNota = (await db.selectFrom('nf').select([...NF_PARCELAS_DO_TOTAL]).where('codnf', '=', id).executeTakeFirst()) ?? {};
+    }
     // a linha do rateio sem ADICIONAL: 'S' quando a situação é de bonificação — tem CFOP 1910/2910
     // (`SituacaoDeBonificacao`, uLancamentoContabilNF.pas:762, no Exit da situação)
     if (Array.isArray(dto.contabil)) {

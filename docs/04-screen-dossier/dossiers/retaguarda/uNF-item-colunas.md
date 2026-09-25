@@ -289,8 +289,11 @@ VRSALDOFLEX/VRCOMISSAO do pedido de venda (`uNF.pas:1650-1651`); PRODUC_PESO_* d
 - **SPED — CST_ICMS**: o Apollo monta `origem_estoque[0] + CST(2)`; no legado ORIGEM_ESTOQUE é 'E' em 100% dos itens (seria "E60") e
   o SPED do legado usa `FormatFloat('000', NF_PROD.CST)` (Uspedfiscal.pas:2789) — no de PIS/COFINS, `GetCstIcms(CST, SN)`
   (UspedPisCofins.pas:958). Corrigir o SPED antes de o import passar a gravar 'E' no ORIGEM_ESTOQUE (hoje grava a origem do produto).
-- **Cabeçalho da NF importada** (NFe.pas:3355-3450): FINALIDADE, DTHORASAIDA, VALIDATOTALNF = vNF, os totais da nota
-  (TOTAL_ICMS_NOTA_VALOR/BC, TOTALBASE_STEXTERNO, TOTAL_STREAL, TOTAL_FCP_VALOR_ST/_RET, TOTAL_ICMSDESON), IMP_IMPORTADORMASSA 'N',
-  IMP_MANIFESTO 'S', INDICADOR_PRESENCA, PESOBRUTO/ESPECIE/MARCA — o import do Apollo não grava.
+- ✅ **Cabeçalho da NF importada** (NFe.pas:3150-3450): FINALIDADE, DTHORASAIDA, INDICADOR_PRESENCA, VERSAOXML, VALIDATOTALNF = vNF,
+  os totais da nota, IMP_MANIFESTO 'S'/IMP_IMPORTADORMASSA 'N', RATEIO×3 'N', TIPOFRETE, volumes, NF avulsa do fisco, o pedido da análise
+  do manifesto (GetMaiorPedidoCompraPelaChaveNFe), o destinatário (outra loja/nenhuma → recusa), o fornecedor sem FRN marcado (o Apollo
+  recusava) com CODPARCEIRO_END, e a transportadora (TRA 'S'; sem cadastro → recusa com os dados). E o **TOTALNF do legado**
+  (`nf-total.ts`: + FCP-ST + serviço + outros + desconto final − desonerado; complementar = IPI + ST) — 98,7% das notas de 2026 (a conta
+  antiga, 93%). Smoke §238. Falta na web: abrir o cadastro de parceiro com os dados que a recusa traz.
 - **CSOSN/CST/CSTPISCOFINS do item importado**: o legado deixa CSOSN e CSTPISCOFINS NULL na entrada (99,9% / 100%) e o CST final
   sai da análise do item (indexador — corte 5); o Apollo grava os do XML, e o SPED de PIS/COFINS depende do CSTPISCOFINS.

@@ -227,15 +227,35 @@ export class RecebimentoService {
     const nfe = parseNfeXml(dto.xml); // valida estrutura + chave (DV)
     const db = this.dbp.forTenantRead() as AnyDB;
 
-    // fornecedor por CNPJ (o CNPJ vive em parceiros_end.cnpj_cpf, não em parceiros) + FRN='S'.
+    // a nota tem de ser DESTA loja (ImportaNFe, NFe.pas:3398-3418): o CNPJ do destinatário é o da loja da sessão; sendo o de outra loja,
+    // o legado troca a empresa logada — aqui a tela troca e importa de novo; de loja nenhuma, recusa como o legado
+    const cnpjLoja = String(((await db.selectFrom('empresas').select('cnpj').where('idempresa', '=', emp).executeTakeFirst()) as { cnpj?: string } | undefined)?.cnpj ?? '').replace(/\D/g, '');
+    if (nfe.destCnpj && cnpjLoja && nfe.destCnpj !== cnpjLoja) {
+      const outra = (await db.selectFrom('empresas').select(['idempresa', 'fantasia']).where(sql`regexp_replace(cnpj, '[^0-9]', '', 'g')`, '=', nfe.destCnpj).executeTakeFirst()) as
+        { idempresa: number; fantasia?: string } | undefined;
+      if (outra) throw new BusinessRuleError('NFE_DESTINATARIO_OUTRA_LOJA', { cnpj: nfe.destCnpj, idempresa: Number(outra.idempresa), loja: outra.fantasia ?? null });
+      throw new BusinessRuleError('NFE_DESTINATARIO_DIVERGE', { cnpj: nfe.destCnpj, cnpjLoja });
+    }
+
+    // fornecedor pelo CNPJ do endereço, parceiro ATIVADO (NFe.pas:3176): grava o parceiro E o endereço, e o que não era fornecedor passa a
+    // ser (`UPDATE PARCEIROS SET FRN = 'S'`, :3189 — o Apollo recusava). Sem cadastro, o legado abre o cadastro de parceiro já preenchido
+    // (`ImportaParceiro`, :2933) e o operador grava: aqui a recusa leva os dados para a tela preencher o cadastro
     const forn = (await db
       .selectFrom('parceiros as p')
       .innerJoin('parceiros_end as e', 'e.codparceiro', 'p.codparceiro')
-      .select(['p.codparceiro', 'p.frn'])
+      .select(['p.codparceiro', 'p.frn', 'e.codend'])
       .where(sql`regexp_replace(e.cnpj_cpf, '[^0-9]', '', 'g')`, '=', nfe.emitCnpj)
-      .executeTakeFirst()) as { codparceiro: number; frn?: string } | undefined;
-    if (!forn) throw new BusinessRuleError('NFE_FORNECEDOR_NAO_ENCONTRADO', { cnpj: nfe.emitCnpj });
-    if (forn.frn !== 'S') throw new BusinessRuleError('PEDIDO_FORNECEDOR_INVALIDO', { codparceiro: forn.codparceiro });
+      .where(sql`coalesce(p.ativado, 'S')`, '=', 'S')
+      .orderBy('e.codend')
+      .executeTakeFirst()) as { codparceiro: number; frn?: string; codend?: number } | undefined;
+    if (!forn) {
+      throw new BusinessRuleError('NFE_FORNECEDOR_NAO_ENCONTRADO', {
+        cnpj: nfe.emitCnpj,
+        parceiro: { razao: (nfe.emitNome ?? '').toUpperCase(), fantasia: (nfe.emit.xFant ?? '').toUpperCase(), frn: 'S', tipofj: nfe.emitCnpj.length === 14 ? 'J' : 'F',
+          cnpj_cpf: nfe.emitCnpj, rg_insc: nfe.emit.IE ?? null, endereco: nfe.emit.xLgr ?? null, bairro: nfe.emit.xBairro ?? null, cidade: nfe.emit.xMun ?? null,
+          idcidade: nfe.emit.cMun ?? null, uf: nfe.emit.UF ?? null, cep: nfe.emit.CEP ?? null, telefone: nfe.emit.fone ?? null },
+      });
+    }
     const codparceiro = Number(forn.codparceiro);
 
     // limites anti-DoS (SEFAZ: ≤ 990 itens; parcelas na prática ≤ ~120) — evita N+1 gigante num request.
@@ -348,6 +368,38 @@ export class RecebimentoService {
       return item;
     });
 
+    // TRANSPORTADORA (NFe.pas:3243-3340): com CNPJ e nome no XML, a do cadastro pelo CNPJ (marcada TRA='S' se não era) com o endereço, a
+    // placa e a UF; sem cadastro, o legado abre o cadastro já preenchido e aborta se o operador não gravar — aqui a recusa leva os dados
+    const tr = nfe.transp.transporta;
+    let transp: { codtransp: number; codtransp_end: number | null; tra?: string } | undefined;
+    if (tr && tr.cnpjCpf && tr.xNome) {
+      transp = (await db.selectFrom('parceiros as p').innerJoin('parceiros_end as e', 'e.codparceiro', 'p.codparceiro')
+        .select(['p.codparceiro as codtransp', 'e.codend as codtransp_end', 'p.tra'])
+        .where(sql`regexp_replace(e.cnpj_cpf, '[^0-9]', '', 'g')`, '=', tr.cnpjCpf).orderBy('e.codend').executeTakeFirst()) as typeof transp;
+      if (!transp) {
+        throw new BusinessRuleError('NFE_TRANSPORTADORA_NAO_ENCONTRADA', {
+          cnpj: tr.cnpjCpf,
+          parceiro: { razao: tr.xNome.toUpperCase(), fantasia: tr.xNome.toUpperCase(), tra: 'S', tipofj: tr.cnpjCpf.length === 14 ? 'J' : 'F', cnpj_cpf: tr.cnpjCpf,
+            rg_insc: tr.IE ?? null, endereco: tr.xEnder || 'NÃO INFORMADO', bairro: 'NÃO INFORMADO', cep: '99999999',
+            cidade: tr.xMun || (nfe.emit.xMun ?? '').toUpperCase() || null, uf: tr.UF || nfe.transp.veic?.UF || nfe.emit.UF || null,
+            placa: nfe.transp.veic?.placa ?? null, ufplaca: nfe.transp.veic?.UF ?? null },
+        });
+      }
+    }
+    // o pedido que a análise do manifesto vinculou à chave (GetMaiorPedidoCompraPelaChaveNFe, UAnalisePedidosNF.pas:495): o maior pedido
+    // da análise FINALIZADA mais recente — só o cabeçalho, como no legado
+    const pedidoDoManifesto = dto.codpedcomp != null ? null : Number(((await sql<{ codpedcomp: number }>`
+        SELECT max(p.codpedcomp) AS codpedcomp
+          FROM analise_pedido_nf a
+          JOIN analise_pedido_nf_nf n     ON n.apn_id = a.apn_id
+          JOIN analise_pedido_nf_pedido p ON p.apn_id = a.apn_id
+          JOIN nfe_nao_cadastradas c      ON c.codnfe_naocad = n.apnn_ref_nf
+         WHERE c.chavenfe = ${nfe.chave} AND a.apn_status = 'F'
+         GROUP BY a.apn_id ORDER BY a.apn_id DESC LIMIT 1`.execute(db)).rows[0]?.codpedcomp ?? 0)) || null;
+    const semAcento = (v: string | undefined, max: number) => (v ? v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9 ]/g, '').slice(0, max) || undefined : undefined);
+    const vol = nfe.transp.vol;
+    const avulsa = nfe.procEmi === '1' ? nfe.avulsa : undefined;
+
     // DTCONTABIL = data do IMPORT (hoje), não a emissão — fiel ao legado (cdsNF.DTCONTABIL:=Now, NFe.pas:3373;
     // no golden 80% dos imports têm DTCONTABIL≠DTEMISSAO). É a competência do lançamento (entra no dia que chega).
     const hojeISO = new Date().toISOString().slice(0, 10);
@@ -366,6 +418,36 @@ export class RecebimentoService {
       protocolo_nfe: nfe.protocolo ?? undefined,
       // a nota veio do XML (NFe.pas:3442): trava a base do ICMS da nota na tela e decide o VRCUSTOREAL do item (6.124 notas em 2026)
       nf_importacao_nfe: 'S',
+      // o cabeçalho do ImportaNFe (NFe.pas:3150-3450; na produção, 100% das importadas com FINALIDADE, DTHORASAIDA, PRESENÇA e
+      // VALIDATOTALNF = TOTALNF; IMP_MANIFESTO 'S' e IMP_IMPORTADORMASSA 'N' em 6.051 de 6.125)
+      codparceiro_end: forn.codend ?? undefined,
+      finalidade: nfe.finNFe,
+      dthorasaida: nfe.dhSaiEnt,
+      indicador_presenca: Number(nfe.indPres ?? 9) || 9,
+      versaoxml: nfe.versao,
+      rateio: 'N',
+      rateio_ipi: 'N',
+      rateio_st: 'N',
+      imp_importadormassa: 'N',
+      imp_manifesto: 'S',
+      validatotalnf: nfe.total.vNF,
+      totalbaseicmt: nfe.total.vBCST,
+      total_streal: nfe.total.vST,
+      totalbase_stexterno: nfe.total.vBCST,
+      total_icms_nota_valor: nfe.total.vICMS,
+      total_icms_nota_bc: nfe.total.vBC,
+      total_fcp_valor_st: nfe.total.vFCPST,
+      total_fcp_valor_st_ret: nfe.total.vFCPSTRet,
+      total_icmsdeson: nfe.total.vICMSDeson,
+      tipofrete: nfe.transp.modFrete || '9',
+      ...(transp ? { codtransp: Number(transp.codtransp), codtransp_end: transp.codtransp_end ?? undefined, placatransp: nfe.transp.veic?.placa, ufplacatransp: nfe.transp.veic?.UF } : {}),
+      ...(vol ? { qtde: vol.qVol, pesoliquido: vol.pesoL, pesobruto: vol.pesoB, especie: semAcento(vol.esp, 60), marca: semAcento(vol.marca, 10) } : {}),
+      ...(avulsa ? {
+        fisco_emit_orgao: avulsa.xOrgao, fisco_emit_cnpj: avulsa.CNPJ, fisco_emit_matr: avulsa.matr, fisco_emit_agente: avulsa.xAgente,
+        fisco_emit_reparticao: avulsa.repEmi, fisco_emit_uf: avulsa.UF, fisco_emit_fone: avulsa.fone, fisco_emit_dar_nro: avulsa.nDAR,
+        fisco_emit_dar_valor: avulsa.vDAR, fisco_emit_dar_dtemis: avulsa.dEmi, fisco_emit_dar_dtpgto: avulsa.dPag,
+      } : {}),
+      ...(pedidoDoManifesto ? { codpedcomp: pedidoDoManifesto } : {}),
       // frete/seguro/acessórias no header (o derivar os lê do dto p/ compor TOTALNF)
       totalfrete: nfe.total.vFrete || undefined,
       totalseguro: nfe.total.vSeg || undefined,
@@ -378,6 +460,10 @@ export class RecebimentoService {
     if (dto.codpedcomp != null) dtoNf.codpedcomp = dto.codpedcomp;
 
     const codpedcomp = dto.codpedcomp ?? null;
+    // o fornecedor passa a ser fornecedor e a transportadora, transportadora (ExecutaSQL do legado, sem LOG — NFe.pas:3189, :3249)
+    const dbw = this.dbp.forTenant() as AnyDB;
+    if (forn.frn !== 'S') await dbw.updateTable('parceiros').set({ frn: 'S' }).where('codparceiro', '=', codparceiro).execute();
+    if (transp && transp.tra !== 'S') await dbw.updateTable('parceiros').set({ tra: 'S' }).where('codparceiro', '=', Number(transp.codtransp)).execute();
     const codnf = await this.persistirComVinculo(dtoNf, codpedcomp, emp, op, codparceiro);
     // os valores DA NOTA que a tela não gerencia (os `*_NOTA`, CFOP_ORIGINAL, MVA_AJUSTADO, FCP-ST, desonerado…): no item já criado —
     // e preservados nos saves seguintes da NF (preservarNaoGerenciadas). São o lado "nota" da devolução de compra e da conferência.

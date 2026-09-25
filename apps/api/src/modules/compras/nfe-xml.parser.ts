@@ -94,6 +94,21 @@ export interface NfeParsed {
   total: {
     vNF: number; vProd: number; vICMS: number; vBC: number; vIPI: number;
     vST: number; vDesc: number; vFrete: number; vSeg: number; vOutro: number; vBCST: number;
+    vFCPST: number; vFCPSTRet: number; vICMSDeson: number;
+  };
+  // o cabeçalho que o ImportaNFe grava (NFe.pas:3150-3450)
+  versao: number; // 400 / 310 (VERSAOXML)
+  dhSaiEnt?: string; // ide.dhSaiEnt (DTHORASAIDA), como veio
+  indPres?: string; // ide.indPres (INDICADOR_PRESENCA)
+  procEmi?: string; // '1' = avulsa pelo fisco
+  avulsa?: { xOrgao: string; CNPJ: string; matr: string; xAgente: string; repEmi: string; UF: string; fone: string; nDAR: string; vDAR: number; dEmi?: string; dPag?: string };
+  destCnpj: string; // só dígitos — a loja a que a nota se destina
+  emit: { xFant?: string; IE?: string; xLgr?: string; nro?: string; xBairro?: string; xMun?: string; cMun?: number; UF?: string; CEP?: string; fone?: string };
+  transp: {
+    modFrete?: string;
+    transporta?: { cnpjCpf: string; xNome: string; IE?: string; xEnder?: string; xMun?: string; UF?: string };
+    veic?: { placa?: string; UF?: string };
+    vol?: { qVol: number; pesoL: number; pesoB: number; esp?: string; marca?: string };
   };
   itens: NfeItemParsed[];
   duplicatas: NfeDuplicataParsed[]; // <cobr><dup> — vazio quando à vista (sem <cobr>)
@@ -260,7 +275,38 @@ export function parseNfeXml(xml: string): NfeParsed {
       vSeg: num(tot.vSeg),
       vOutro: num(tot.vOutro),
       vBCST: num(tot.vBCST),
+      vFCPST: num(tot.vFCPST),
+      vFCPSTRet: num(tot.vFCPSTRet),
+      vICMSDeson: num(tot.vICMSDeson),
     },
+    versao: str(inf['@_versao']).startsWith('4') ? 400 : 310,
+    dhSaiEnt: str(ide.dhSaiEnt || ide.dSaiEnt) || undefined,
+    indPres: str(ide.indPres) || undefined,
+    procEmi: str(ide.procEmi) || undefined,
+    avulsa: inf.avulsa ? {
+      xOrgao: str(inf.avulsa.xOrgao), CNPJ: str(inf.avulsa.CNPJ).replace(/\D/g, ''), matr: str(inf.avulsa.matr), xAgente: str(inf.avulsa.xAgente),
+      repEmi: str(inf.avulsa.repEmi), UF: str(inf.avulsa.UF), fone: str(inf.avulsa.fone), nDAR: str(inf.avulsa.nDAR), vDAR: num(inf.avulsa.vDAR),
+      dEmi: str(inf.avulsa.dEmi).slice(0, 10) || undefined, dPag: str(inf.avulsa.dPag).slice(0, 10) || undefined,
+    } : undefined,
+    destCnpj: str(inf.dest?.CNPJ || inf.dest?.CPF).replace(/\D/g, ''),
+    emit: {
+      xFant: str(emit.xFant) || undefined, IE: str(emit.IE) || undefined, xLgr: str(emit.enderEmit?.xLgr) || undefined, nro: str(emit.enderEmit?.nro) || undefined,
+      xBairro: str(emit.enderEmit?.xBairro) || undefined, xMun: str(emit.enderEmit?.xMun) || undefined, cMun: Number(str(emit.enderEmit?.cMun)) || undefined,
+      UF: str(emit.enderEmit?.UF) || undefined, CEP: str(emit.enderEmit?.CEP) || undefined, fone: str(emit.enderEmit?.fone) || undefined,
+    },
+    transp: (() => {
+      const t = inf.transp ?? {};
+      const tr = t.transporta ?? {};
+      const vols: any[] = Array.isArray(t.vol) ? t.vol : t.vol ? [t.vol] : [];
+      const v = vols[0];
+      const cnpjCpf = str(tr.CNPJ || tr.CPF).replace(/\D/g, '');
+      return {
+        modFrete: str(t.modFrete) || undefined,
+        transporta: cnpjCpf || str(tr.xNome) ? { cnpjCpf, xNome: str(tr.xNome), IE: str(tr.IE) || undefined, xEnder: str(tr.xEnder) || undefined, xMun: str(tr.xMun) || undefined, UF: str(tr.UF) || undefined } : undefined,
+        veic: t.veicTransp ? { placa: str(t.veicTransp.placa) || undefined, UF: str(t.veicTransp.UF) || undefined } : undefined,
+        vol: v ? { qVol: num(v.qVol), pesoL: num(v.pesoL), pesoB: num(v.pesoB), esp: str(v.esp) || undefined, marca: str(v.marca) || undefined } : undefined,
+      };
+    })(),
     itens,
     duplicatas,
     formasPagamento,

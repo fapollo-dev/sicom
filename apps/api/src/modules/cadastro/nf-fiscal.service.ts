@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { totalNfLegado } from './nf-total';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { currentTenant } from '../../shared/tenant/tenant-context';
@@ -142,7 +143,7 @@ export class NfFiscalService {
       totalipi += num(it.vripi);
       totalicmSt += num(it.vricmst);
     }
-    const totalnf = r2(totalprod - totaldesc + num(dto.totalfrete) + num(dto.totalseguro) + num(dto.totalacessorias) + totalipi + totalicmSt);
+    const totalnf = totalNfLegado({ totalprod, totaldesc, totalipi, totalicm_st: totalicmSt }, (k) => dto[k]);
     if (totalnf <= 0) return zero;
 
     const db = this.dbp.forTenantRead() as AnyDB;

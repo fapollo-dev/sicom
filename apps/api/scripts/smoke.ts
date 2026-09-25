@@ -23130,12 +23130,13 @@ async function main() {
           && N(a?.icms) === (esperadoIcms != null ? N(esperadoIcms) : 12) && N(a?.icme) === 12 && N(a?.bcr) === 100 && N(a?.ipi) === 5 && N(a?.vripi) === 9
           && Math.abs(N(a?.frete) - 100 / 30) < 1e-4 && Math.abs(N(a?.seguro) - 100 / 60) < 1e-4 && N(a?.depsacess) === 1.8 && N(a?.vl_unitario) === 5 && N(a?.vrcustoreal) === 60 && N(b?.vrcustoreal) === 3,
           { status: r.status, rj, a, b, esperadoIcms });
-        check('IMPORTAÇÃO §236.2 [os valores DA NOTA]: TOTAL_PRODUTO_NOTA, QTD_NOTA, CFOP_ORIGINAL (5403, o do fornecedor), FRETE/SEGURO/OUTRAS/IPI da nota, ICMS da nota (base e valor), alíquota e redução do ST, VRBASE_STEXTERNO, STREAL, FCP-ST e CST_NOTA vão ao item — o lado "nota" da devolução de compra e da conferência; o pMVAST vai ao MVA_AJUSTADO (NFe.pas:4159), não ao MVA',
+        check('IMPORTAÇÃO §236.2 [os valores DA NOTA e o total com o FCP-ST, 240,20 = vNF]: TOTAL_PRODUTO_NOTA, QTD_NOTA, CFOP_ORIGINAL (5403, o do fornecedor), FRETE/SEGURO/OUTRAS/IPI da nota, ICMS da nota (base e valor), alíquota e redução do ST, VRBASE_STEXTERNO, STREAL, FCP-ST e CST_NOTA vão ao item — o lado "nota" da devolução de compra e da conferência; o pMVAST vai ao MVA_AJUSTADO (NFe.pas:4159), não ao MVA',
           N(a?.total_produto_nota) === 180 && N(a?.qtd_nota) === 3 && N(a?.cfop_original) === 5403 && N(a?.frete_nota) === 6 && N(a?.seguro_nota) === 3 && N(a?.outras_despesas_nota) === 1.8
           && N(a?.ipi_nota) === 9 && N(a?.icms_nota_bc) === 180 && N(a?.icms_nota_valor) === 21.6 && N(a?.icms_aliq_nota) === 12 && N(a?.icms_st_aliq_nota) === 18 && N(a?.icms_st_red_bc_nota) === 10
           && N(a?.vrbase_stexterno) === 250 && N(a?.streal) === 23.4 && N(a?.fcp_bc_st) === 250 && N(a?.fcp_aliquota_st) === 2 && N(a?.fcp_valor_st) === 5 && N(a?.cst_nota) === 10
-          && N(a?.mva_ajustado) === 40 && N(a?.mva) === 0 && N(b?.cfop_original) === 5102 && N(b?.cst_nota) === 0,
-          { a, b });
+          && N(a?.mva_ajustado) === 40 && N(a?.mva) === 0 && N(b?.cfop_original) === 5102 && N(b?.cst_nota) === 0
+          && N(rj.totalnf) === 240.2 && rj.divergencia === false,
+          { a, b, rj });
       } finally {
         for (const x of antes) await pgXi.query(`UPDATE produtos SET fatorcx = $1 WHERE idproduto = $2`, [x.fatorcx, x.idproduto]).catch(() => undefined);
         await pgXi.query(`DELETE FROM nfe_nao_cadastradas_itens WHERE chavenfe = $1`, [chave]).catch(() => undefined);
@@ -23184,6 +23185,71 @@ async function main() {
           await pgSy.query(`DELETE FROM nf WHERE codnf = $1`, [codnf]).catch(() => undefined);
         }
         await pgSy.end();
+      }
+    }
+
+    // ══ §238 IMPORTAÇÃO DO XML — o cabeçalho do ImportaNFe (destinatário, fornecedor, transportadora, totais da nota) ═══════════════
+    {
+      const pgXh = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const antes = (await pgXh.query(`SELECT p.codparceiro, p.frn, p.tra, e.codend, e.cnpj_cpf FROM parceiros p JOIN parceiros_end e ON e.codparceiro = p.codparceiro WHERE e.codend IN (5, 6)`)).rows as any[];
+      const nnf = 902381;
+      const chave = montarChaveNfe({ cuf: 31, aamm: '2609', cnpj: '44555666000172', modelo: 55, serie: 1, numero: nnf, tpEmis: 1, cnf: 23812381 });
+      const xml = (dest: string, comTransp = true) => `<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc versao="4.00"><NFe><infNFe Id="NFe${chave}" versao="4.00">
+<ide><cUF>31</cUF><nNF>${nnf}</nNF><serie>1</serie><mod>55</mod><dhEmi>2026-09-21T09:00:00-03:00</dhEmi><dhSaiEnt>2026-09-21T11:30:00-03:00</dhSaiEnt><tpNF>1</tpNF><finNFe>1</finNFe><indPres>1</indPres><procEmi>0</procEmi><tpAmb>2</tpAmb></ide>
+<emit><CNPJ>44555666000172</CNPJ><xNome>Cliente Gama Industria SA</xNome><xFant>Gama</xFant><IE>123456789</IE><enderEmit><xLgr>Av. Getulio Vargas</xLgr><xBairro>Centro</xBairro><cMun>2211209</cMun><xMun>Timon</xMun><UF>MA</UF><CEP>65630000</CEP></enderEmit></emit>
+<dest><CNPJ>${dest}</CNPJ><xNome>LOJA</xNome></dest>
+<det nItem="1"><prod><cProd>G1</cProd><cEAN>2000001000005</cEAN><xProd>QUEIJO</xProd><NCM>04061010</NCM><CFOP>5403</CFOP><uCom>UN</uCom><qCom>10.0000</qCom><vUnCom>6.00</vUnCom><vProd>60.00</vProd></prod><imposto><ICMS><ICMS10><orig>0</orig><CST>10</CST><vBC>60.00</vBC><pICMS>18.00</pICMS><vICMS>10.80</vICMS><vBCST>80.00</vBCST><pICMSST>18.00</pICMSST><vICMSST>8.00</vICMSST><vBCFCPST>80.00</vBCFCPST><pFCPST>2.50</pFCPST><vFCPST>2.00</vFCPST></ICMS10></ICMS></imposto></det>
+<total><ICMSTot><vBC>60.00</vBC><vICMS>10.80</vICMS><vBCST>80.00</vBCST><vST>8.00</vST><vFCPST>2.00</vFCPST><vProd>60.00</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vDesc>0.00</vDesc><vIPI>0.00</vIPI><vOutro>0.00</vOutro><vNF>70.00</vNF></ICMSTot></total>
+<transp><modFrete>0</modFrete>${comTransp ? '<transporta><CNPJ>55666777000188</CNPJ><xNome>Transportes Delta</xNome><IE>ISENTO</IE><xMun>Caxias</xMun><UF>MA</UF></transporta><veicTransp><placa>ABC1D23</placa><UF>MG</UF></veicTransp>' : ''}<vol><qVol>3</qVol><esp>Caixa</esp><marca>ACMÉ</marca><pesoL>28.500</pesoL><pesoB>30.500</pesoB></vol></transp>
+<pag><detPag><tPag>01</tPag><vPag>70.00</vPag></detPag></pag>
+</infNFe></NFe><protNFe><infProt><nProt>131260000023810</nProt></infProt></protNFe></nfeProc>`;
+      const importar = async (x: string) => {
+        const r = await fetch(`${base}/compras/recebimento/importar-xml`, { method: 'POST', headers: H, body: JSON.stringify({ xml: x }) });
+        return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+      };
+      let codnf = 0;
+      try {
+        await pgXh.query(`UPDATE parceiros_end SET cnpj_cpf = '44.555.666/0001-72' WHERE codend = 6`);
+        await pgXh.query(`UPDATE parceiros SET frn = 'N' WHERE codparceiro = 22`);
+        const outraLoja = await importar(xml('00000000009100'));
+        const semLoja = await importar(xml('99888777000166'));
+        const semTransp = await importar(xml('11222333000181'));
+        await pgXh.query(`UPDATE parceiros_end SET cnpj_cpf = '55.666.777/0001-88' WHERE codend = 5`);
+        await pgXh.query(`UPDATE parceiros SET tra = 'N' WHERE codparceiro = 21`);
+        const ok = await importar(xml('11222333000181'));
+        codnf = Number(ok.j.codnf) || 0;
+        const nf = (await pgXh.query(`SELECT codparceiro, codparceiro_end, codtransp, codtransp_end, placatransp, ufplacatransp, finalidade, dthorasaida, indicador_presenca, versaoxml,
+            totalnf, validatotalnf, total_icms_nota_valor, total_icms_nota_bc, totalbaseicmt, total_streal, totalbase_stexterno, total_fcp_valor_st, imp_manifesto, imp_importadormassa,
+            rateio, rateio_ipi, rateio_st, tipofrete, qtde, pesoliquido, pesobruto, especie, marca, nf_importacao_nfe FROM nf WHERE codnf = $1`, [codnf])).rows[0] as any;
+        const flags = (await pgXh.query(`SELECT codparceiro, frn, tra FROM parceiros WHERE codparceiro IN (21, 22) ORDER BY codparceiro`)).rows as any[];
+        check('IMPORTAÇÃO §238.1 [destinatário, fornecedor e transportadora]: nota de outra loja → 422 NFE_DESTINATARIO_OUTRA_LOJA (com a loja); CNPJ de loja nenhuma → 422 NFE_DESTINATARIO_DIVERGE; transportadora sem cadastro → 422 NFE_TRANSPORTADORA_NAO_ENCONTRADA com os dados do XML para o cadastro; com cadastro: o fornecedor que não era fornecedor passa a ser (FRN S — o Apollo recusava), a transportadora vira TRA S, e a nota grava o endereço do fornecedor, a transportadora, o endereço dela, a placa e a UF',
+          outraLoja.status === 422 && outraLoja.j.code === 'NFE_DESTINATARIO_OUTRA_LOJA' && Number(outraLoja.j.detalhe?.idempresa) === 91
+          && semLoja.status === 422 && semLoja.j.code === 'NFE_DESTINATARIO_DIVERGE'
+          && semTransp.status === 422 && semTransp.j.code === 'NFE_TRANSPORTADORA_NAO_ENCONTRADA' && semTransp.j.detalhe?.parceiro?.tra === 'S' && semTransp.j.detalhe?.parceiro?.placa === 'ABC1D23'
+          && ok.status === 200 && Number(nf?.codparceiro) === 22 && Number(nf?.codparceiro_end) === 6 && Number(nf?.codtransp) === 21 && Number(nf?.codtransp_end) === 5
+          && nf?.placatransp === 'ABC1D23' && nf?.ufplacatransp === 'MG' && flags[0]?.tra === 'S' && flags[1]?.frn === 'S',
+          { outraLoja, semLoja: semLoja.j.code, semTransp: [semTransp.status, semTransp.j.code, semTransp.j.detalhe], ok: [ok.status, ok.j.code], nf, flags });
+        const N = (v: unknown) => Number(v);
+        check('IMPORTAÇÃO §238.2 [o cabeçalho e o total]: FINALIDADE, DTHORASAIDA, INDICADOR_PRESENCA, VERSAOXML 400, os totais DA NOTA (ICMS base/valor, base e valor do ST, base do ST externo, FCP-ST), VALIDATOTALNF = vNF, IMP_MANIFESTO S, IMP_IMPORTADORMASSA N, RATEIO/RATEIO_IPI/RATEIO_ST N, TIPOFRETE do XML e os volumes (quantidade, pesos, espécie e marca sem acento); o TOTALNF é o do legado (soma o FCP-ST — 70,00 = vNF; o Apollo dava 68,00)',
+          nf?.finalidade === '1' && nf?.dthorasaida != null && N(nf?.indicador_presenca) === 1 && N(nf?.versaoxml) === 400
+          && N(nf?.totalnf) === 70 && N(nf?.validatotalnf) === 70 && ok.j.divergencia === false && N(nf?.total_icms_nota_valor) === 10.8 && N(nf?.total_icms_nota_bc) === 60
+          && N(nf?.totalbaseicmt) === 80 && N(nf?.total_streal) === 8 && N(nf?.totalbase_stexterno) === 80 && N(nf?.total_fcp_valor_st) === 2
+          && nf?.imp_manifesto === 'S' && nf?.imp_importadormassa === 'N' && nf?.rateio === 'N' && nf?.rateio_ipi === 'N' && nf?.rateio_st === 'N'
+          && String(nf?.tipofrete).trim() === '0' && N(nf?.qtde) === 3 && N(nf?.pesoliquido) === 28.5 && N(nf?.pesobruto) === 30.5 && nf?.especie === 'Caixa' && nf?.marca === 'ACME',
+          { nf, divergencia: ok.j.divergencia });
+      } finally {
+        for (const a of antes) {
+          await pgXh.query(`UPDATE parceiros_end SET cnpj_cpf = $1 WHERE codend = $2`, [a.cnpj_cpf, a.codend]).catch(() => undefined);
+          await pgXh.query(`UPDATE parceiros SET frn = $1, tra = $2 WHERE codparceiro = $3`, [a.frn, a.tra, a.codparceiro]).catch(() => undefined);
+        }
+        if (codnf) {
+          for (const sqlDel of [`DELETE FROM nf_prod_lote WHERE codnfprod IN (SELECT codnfprod FROM nf_prod WHERE codnf = $1)`, `DELETE FROM nf_forma_pagamento WHERE codnf = $1`,
+            `DELETE FROM faturamento WHERE idnf = $1`, `DELETE FROM nfe_xml WHERE codnf = $1`, `DELETE FROM nf_prod WHERE codnf = $1`, `DELETE FROM nf WHERE codnf = $1`]) {
+            await pgXh.query(sqlDel, [codnf]).catch(() => undefined);
+          }
+        }
+        await pgXh.end();
       }
     }
 
