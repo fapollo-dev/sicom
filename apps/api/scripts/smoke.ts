@@ -23266,6 +23266,31 @@ async function main() {
       }
     }
 
+    // ══ §239 CABEÇALHO DA NF — o NewRecord (zeros e constantes) e o total de conferência da saída ═════════════════════════════════
+    {
+      const pgNh = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      let codnf = 0;
+      try {
+        const cri = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 55, serie: '1', tipo: 'S', nronf: 'NH239', codparceiro: 22, dtemissao: '2036-08-04', dtcontabil: '2036-08-04', tipoemissao: '0', cfop: '5102',
+          itens: [{ nroitem: 1, codproduto: 1, quantidade: 3, vrcusto: 4, cfop: '5102', aliquota: 'T01' }] }) });
+        codnf = Number(((await cri.json().catch(() => ({}))) as any).codnf) || 0;
+        const nf = (await pgNh.query(`SELECT totalnf, validatotalnf, stexterno, sequencia_nfe, rateio_ipi, rateio_st, tpemissao, complemento, versaoxml, nota_neutra, abater_icms_deson,
+            totalrepicm, pis_nfe, cofins_nfe, total_bonificado, total_ret_senar, totalfrete2, vtoticmsufdest FROM nf WHERE codnf = $1`, [codnf])).rows[0] as any;
+        const zeros = ['totalrepicm', 'pis_nfe', 'cofins_nfe', 'total_bonificado', 'total_ret_senar', 'totalfrete2', 'vtoticmsufdest'].every((c) => nf?.[c] != null && Number(nf[c]) === 0);
+        check('CABEÇALHO DA NF §239 [o NewRecord e o total de conferência]: a nota nova nasce com 0 nos numéricos (ZeroToFields — nunca NULL nas 7.201 notas de 2026 criadas pelo NewRecord) e com STEXTERNO N, SEQUENCIA_NFE S, RATEIO_IPI/RATEIO_ST N, TPEMISSAO 1, COMPLEMENTO N, VERSAOXML 400, NOTA_NEUTRA N, ABATER_ICMS_DESON N; na saída o VALIDATOTALNF é o total da nota (uNF.pas:4688 — 771 de 771)',
+          cri.status === 201 && zeros && nf?.stexterno === 'N' && nf?.sequencia_nfe === 'S' && nf?.rateio_ipi === 'N' && nf?.rateio_st === 'N' && Number(nf?.tpemissao) === 1
+          && nf?.complemento === 'N' && String(nf?.versaoxml) === '400' && nf?.nota_neutra === 'N' && nf?.abater_icms_deson === 'N'
+          && Number(nf?.totalnf) === 12 && Number(nf?.validatotalnf) === 12,
+          { status: cri.status, nf });
+      } finally {
+        if (codnf) {
+          await pgNh.query(`DELETE FROM nf_prod WHERE codnf = $1`, [codnf]).catch(() => undefined);
+          await pgNh.query(`DELETE FROM nf WHERE codnf = $1`, [codnf]).catch(() => undefined);
+        }
+        await pgNh.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();

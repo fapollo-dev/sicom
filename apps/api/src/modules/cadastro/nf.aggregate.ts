@@ -31,7 +31,7 @@ function leitorDescricaoProduto(trx: any): (idproduto: number) => Promise<string
 
 /** as parcelas do TOTALNF que o formulário não calcula: vêm do dto ou, no PUT que não as traz, do banco (`validar` → `_totaisNota`) */
 const NF_TOTAIS_DA_FORMULA = ['valorservico', 'totalvroutros', 'totaldescfinal', 'total_icmsdeson'] as const;
-const NF_PARCELAS_DO_TOTAL = [...NF_TOTAIS_DA_FORMULA, 'totalfrete', 'totalseguro', 'totalacessorias', 'totalipi_devolucao', 'total_fcp_valor_st', 'complemento'] as const;
+const NF_PARCELAS_DO_TOTAL = [...NF_TOTAIS_DA_FORMULA, 'totalfrete', 'totalseguro', 'totalacessorias', 'totalipi_devolucao', 'total_fcp_valor_st', 'complemento', 'tipo'] as const;
 
 /** as colunas do retrato do produto no item da NF */
 const RETRATO = ['ultcusto', 'ultcustorep', 'ultvenda', 'markup', 'vrcustoreal', 'idpiscofins'] as const;
@@ -260,6 +260,9 @@ export const nfAggregateConfig: AggregateConfig = {
     const doBanco = (dto._totaisNota ?? {}) as Record<string, unknown>;
     const parcela = (k: string) => (dto[k] !== undefined ? dto[k] : doBanco[k]);
     const totalnf = totalNfLegado({ totalprod, totaldesc, totalipi, totalicm_st }, parcela);
+    // o total de conferência: na SAÍDA o gravar copia o total da nota (uNF.pas:4688; 771 de 771 em 2026); na ENTRADA é o "Total NF" que
+    // o operador informa (ou o vNF do XML) — fica o do dto
+    const validaSaida = String(dto.tipo ?? (dto._totaisNota as Record<string, unknown> | undefined)?.tipo ?? '').toUpperCase() === 'S' ? { validatotalnf: totalnf } : {};
     return {
       totalprod: r2(totalprod),
       totaldesc: r2(totaldesc),
@@ -269,6 +272,7 @@ export const nfAggregateConfig: AggregateConfig = {
       totalbaseicm: r2(totalbaseicm),
       totalisento: r2(totalisento),
       totalnf,
+      ...validaSaida,
       ...stOut,
     };
   },

@@ -297,3 +297,13 @@ VRSALDOFLEX/VRCOMISSAO do pedido de venda (`uNF.pas:1650-1651`); PRODUC_PESO_* d
   antiga, 93%). Smoke §238. Falta na web: abrir o cadastro de parceiro com os dados que a recusa traz.
 - **CSOSN/CST/CSTPISCOFINS do item importado**: o legado deixa CSOSN e CSTPISCOFINS NULL na entrada (99,9% / 100%) e o CST final
   sai da análise do item (indexador — corte 5); o Apollo grava os do XML, e o SPED de PIS/COFINS depende do CSTPISCOFINS.
+
+### Cabeçalho da NF — NewRecord e total de conferência (25/09/2026)
+
+- ✅ mig 352: DEFAULT 0 nas 40 colunas numéricas do cabeçalho que o `ZeroToFields(cdsNota)` nunca deixa NULL (6.447/6.521 de entrada e
+  754/771 de saída em 2026; as 74 de entrada restantes são da importação em massa) e as constantes do `cdsNotaNewRecord` (STEXTERNO N,
+  SEQUENCIA_NFE S, RATEIO_IPI/RATEIO_IPI_DEVOLUCAO/RATEIO_ST N, TPEMISSAO 1, COMPLEMENTO N, VERSAOXML 400) + NOTA_NEUTRA e ABATER_ICMS_DESON
+  N (binário novo). VALIDATOTALNF da SAÍDA = total da nota (uNF.pas:4688). Smoke §239.
+- ⏳ **"Total NF" da ENTRADA** (edtValidaNF → VALIDATOTALNF): campo obrigatório no gravar da entrada ("É necessário informar o campo total
+  NF, para dar continuidade!", uNF.pas:4647) e a conferência `CompareTotals` com a tolerância EMPRESAS.TOLERANCIANF — a tela do Apollo não
+  tem o campo (a importação já grava o vNF).
