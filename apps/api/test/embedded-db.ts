@@ -402,6 +402,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('357_nf_processar_preco_config.sql'));
   await pool.query(sql('358_sped_pc_config.sql'));
   await pool.query(sql('359_sped_nfce_contingencia_config.sql'));
+  await pool.query(sql('360_defaults_da_inclusao.sql'));
   await pool.end();
   return pg;
 }

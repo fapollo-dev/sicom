@@ -21886,6 +21886,14 @@ async function main() {
           && est.length === 10 && est[0].processo === 'stManifesto' && est[0].status === 'R' && est.slice(1).every((e) => e.status === 'P') && Number(f1?.codnfstatuspro) === Number(est[0].codnfstatuspro)
           && estS === 0 && evs === 1,
           { r1, r2, fila, est: est.map((e) => `${e.ordem}:${e.processo}:${e.status}`), estS, evs, maxAntes });
+        // o XML completo (procNFe) chega depois do resumo: a linha da fila ganha o DESTINATÁRIO (CNPJ formatado e a razão como o
+        // emitente digitou — CNPJ_DESTINATARIO/RAZAO_DESTINATARIO em 98,7% das linhas da produção)
+        const proc = `<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><NFe><infNFe Id="NFe${ch1}" versao="4.00"><emit><CNPJ>22327834000149</CNPJ><xNome>FORNECEDOR SMOKE LTDA</xNome></emit><dest><CNPJ>11222333000181</CNPJ><xNome>JF SUPERMERCADOS LTDA ( 6607)</xNome></dest></infNFe></NFe></nfeProc>`;
+        await runWithTenant({ tenantId: 'pinheirao', operadorId: 7, empresaId: 1 }, () => svc.processarDocs(1, [{ nsu: '9', schema: 'procNFe_v4.00.xsd', xml: proc }]));
+        const dest = (await pgMf.query(`SELECT cnpj_destinatario, razao_destinatario FROM nfe_nao_cadastradas WHERE chavenfe = $1`, [ch1])).rows[0] as any;
+        check('MANIFESTO §206.2 [o destinatário]: o XML completo que chega depois do resumo grava na linha da fila o CNPJ do destinatário formatado (11.222.333/0001-81) e a razão como o emitente digitou ("JF SUPERMERCADOS LTDA ( 6607)" — na produção a razão varia assim, por fornecedor); o resumo não tem destinatário',
+          dest?.cnpj_destinatario === '11.222.333/0001-81' && dest?.razao_destinatario === 'JF SUPERMERCADOS LTDA ( 6607)', { dest });
+        await pgMf.query(`DELETE FROM nfe_xml WHERE chavenfe = $1`, [ch1]);
         await pgMf.query(`DELETE FROM nfe_eventos WHERE chave_acesso=$1`, [ch1]);
         await pgMf.query(`DELETE FROM nfe_nao_cadastradas WHERE chavenfe = ANY($1::text[])`, [[ch1, ch2, chSaida]]);
         await pgMf.query(`DELETE FROM nf_status_processo WHERE chavenfe = ANY($1::text[])`, [[ch1, ch2, chSaida]]);

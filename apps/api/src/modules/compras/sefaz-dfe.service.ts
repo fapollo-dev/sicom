@@ -45,6 +45,14 @@ const tag = (xml: string, nome: string): string | null => {
   return m ? m[1].trim() : null;
 };
 
+/** o destinatário do XML completo (<dest>): CNPJ/CPF formatado e a razão como o emitente digitou — o resumo (resNFe) não tem */
+const destinatarioDoXml = (xml: string): { cnpj_destinatario: string | null; razao_destinatario: string | null } => {
+  const dest = xml.match(/<dest>([\s\S]*?)<\/dest>/)?.[1];
+  if (!dest) return { cnpj_destinatario: null, razao_destinatario: null };
+  const doc = tag(dest, 'CNPJ') ?? tag(dest, 'CPF');
+  return { cnpj_destinatario: doc ? formatarCpfCnpj(doc) : null, razao_destinatario: tag(dest, 'xNome') };
+};
+
 /**
  * MANIFESTO DO DFe — corte 2: a INTEGRAÇÃO SEFAZ que faltava (no legado é o ACBr; aqui é HTTP+XML nativos).
  *
@@ -157,6 +165,11 @@ export class SefazDfeService {
           const ja = (await sql<{ id: number }>`SELECT codnfexml AS id FROM nfe_xml WHERE chavenfe = ${chave} ORDER BY codnfexml LIMIT 1`.execute(db)).rows[0];
           if (ja) await sql`UPDATE nfe_xml SET xml = ${d.xml}, modelo = 55, dtcadastro = now(), codoperador = ${op}, arquivo_exportado = 'N' WHERE codnfexml = ${Number(ja.id)}`.execute(db);
           else await db.insertInto('nfe_xml').values({ chavenfe: chave, xml: d.xml, modelo: 55, dtcadastro: sql`now()`, codoperador: op, arquivo_exportado: 'N' }).execute();
+          // a linha que entrou pelo resumo ganha o destinatário do XML completo (CNPJ_DESTINATARIO/RAZAO_DESTINATARIO em 98,7% das linhas)
+          const dest = destinatarioDoXml(d.xml);
+          if (dest.cnpj_destinatario) {
+            await db.updateTable('nfe_nao_cadastradas').set(dest).where('chavenfe', '=', chave).where('idempresa', '=', emp).where('cnpj_destinatario', 'is', null).execute();
+          }
         }
         if (await this.registrarNaFila(db, emp, op, chave, d.xml)) completa ? completas++ : resumos++;
       } else if (d.schema.startsWith('resEvento') || d.schema.startsWith('procEventoNFe')) {
@@ -183,6 +196,7 @@ export class SefazDfeService {
       totalnf: Number(tag(xml, 'vNF') ?? 0), dtrecbo: tag(xml, 'dhRecbto'), protocolo: tag(xml, 'nProt'),
       situacao: Number(tag(xml, 'cSitNFe') ?? 1), modelo: 55, arquivo: '', dtconsulta: sql`now()`, codoperador: op, idempresa: emp,
       xml_resumido: xml, importacao_manual: 'N', nronf: String(Number(chave.substring(25, 34))), nfe_importada_sistema: 'N',
+      ...destinatarioDoXml(xml),
     }).execute();
     if (tpNF !== '0') await registrarProcessoNf(db, 'stManifesto', chave, emp, op);
     return true;

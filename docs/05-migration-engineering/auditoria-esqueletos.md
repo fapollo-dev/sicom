@@ -635,4 +635,9 @@ leitura), as colunas preenchidas em ≥ 50% que nenhum código do Apollo que gra
   (que o Apollo guarda em hash).
 - **Outro processo, fora:** `nf.EXPORTADA/APP_EXPORTACAO/DATA_EXPORTACAO` (o MONITORNOTAFISCAL), `operadores.PERMISSAOPDV` e
   `operadoras.OPERADORA_PDV` (PDV), `operadores_acessos.EXECUTAVEL` (o executável do legado).
+- **2ª rodada do conferidor (25/09/2026, 114 candidatas):** ✅ mig 360 — os DEFAULTs do Oracle que faltavam no parceiro (4 percentuais de
+  retenção de saída 0, DISPENSADO_COLETA/PEDIDO_COMPRA 'N') e o NewRecord do binário novo (IBS/CBS do item CODCCLASS…ANEXOS 0, agenda
+  LIBERAR_AGENDA_APP 'N', receita/produção fatores 1, cotação QTDEATUAL/VALORCOTACAO 0, cheque QTDECHQ 1); ✅ o destinatário do manifesto
+  (CNPJ/RAZAO_DESTINATARIO do `<dest>` do XML completo, 98,7%). Não determinado: `pedido_devolucao_compra_i.VRCUSTOREP` (63% = o do item da NF;
+  o resto não fecha). Fora: NFC-e/senhas da EMPRESAS, MONITORNOTAFISCAL, PDV, a integração FGF (figura_fiscal origem/destino).
 - 51 tabelas sem PK simples na origem ficaram fora da amostra (ex.: `adiantamento_forn`, `multi_preco`, `vendas`, `pedidos`).
