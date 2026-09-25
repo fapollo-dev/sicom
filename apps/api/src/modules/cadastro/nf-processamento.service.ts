@@ -380,13 +380,20 @@ export class NfProcessamentoService {
     op: number | null,
     emp: number,
   ): Promise<void> {
-    const itens = await trx
-      .selectFrom('nf_prod')
-      .select(['codproduto', 'quantidade', 'fatorembal', 'geraestoque', 'movimenta_estoque'])
-      .where('codnf', '=', codnf)
-      .execute();
+    const nf = ((await trx.selectFrom('nf').select(['finalidade', 'nronf', 'dtcontabil']).where('codnf', '=', codnf).executeTakeFirst()) ?? {}) as Record<string, unknown>;
+    const itens = (await sql<Record<string, unknown>>`
+      SELECT i.codproduto, i.quantidade, i.fatorembal, i.geraestoque, i.movimenta_estoque, i.vrvenda, i.cfop, i.idsituacao_nf, s.descricao AS desc_sit,
+             i.codoperador_lib_estoqueneg, o.login AS login_neg, coalesce(nullif(trim(i.origem_estoque), ''), 'E') AS origem_estoque,
+             coalesce(nullif(trim(i.decomposicao), ''), 'N') AS decomposicao, nullif(trim(i.estoqueretiradatroca), '') AS estoqueretiradatroca
+        FROM nf_prod i
+        LEFT JOIN situacao_nf s ON s.idsituacao_nf = i.idsituacao_nf
+        LEFT JOIN operadores o ON o.codoperador = i.codoperador_lib_estoqueneg
+       WHERE i.codnf = ${codnf}
+       ORDER BY i.nroitem NULLS LAST, i.codnfprod`.execute(trx)).rows;
+    // o texto do kardex do gatilho ESTOQUE_NOTAS: a finalidade, o CFOP e a situação do item, e quem liberou o estoque negativo
+    const fin = ({ '1': 'NORMAL', '2': 'COMPLEMENTAR', '3': 'AJUSTE', '4': 'DEVOLUCAO' } as Record<string, string>)[String(nf.finalidade ?? '').trim()] ?? '';
 
-    for (const it of itens as Record<string, unknown>[]) {
+    for (const it of itens) {
       // guarda fiel à trigger (2 flags de NF_PROD; sem PRODUTOS.GERAQTDE).
       if (it.geraestoque !== 'S' || it.movimenta_estoque !== 'S') continue;
       const qtdex = num(it.quantidade) * (num(it.fatorembal) || 1); // qtde efetiva
@@ -417,13 +424,38 @@ export class NfProcessamentoService {
         )
         .execute();
 
-      // kardex (mesma transação).
+      // a ÚLTIMA VENDA / ENTRADA no ESTOQUE (o gatilho ESTOQUE_NOTAS, no ramo da loja e fora da decomposição e da troca): o processar
+      // guarda a anterior e carimba esta nota (a data contábil, a quantidade e a origem); a reversão e o cancelamento só desfazem se a
+      // última ainda for esta nota ("só é possível estornar o registro caso o anterior seja ele mesmo")
+      const semTroca = it.estoqueretiradatroca == null;
+      if (semTroca && origem === 'NF' && String(it.origem_estoque) === 'E' && String(it.decomposicao) !== 'S') {
+        if (tipo === 'S') {
+          await sql`UPDATE estoque SET dtvenda_anterior = dtvenda, dtvenda = ${nf.dtcontabil ?? null}, origem = 'NF', idorigem = ${codnf},
+                      qtde_venda_anterior = qtde_venda, qtde_venda = ${Math.abs(qtdex)} WHERE idproduto = ${cod} AND idempresa = ${emp}`.execute(trx);
+        } else if (tipo === 'E') {
+          await sql`UPDATE estoque SET dtent_anterior = dtent, dtent = ${nf.dtcontabil ?? null}, origem = 'NF', idorigem_ent = ${codnf},
+                      qtde_ent_anterior = qtde_ent, qtde_ent = ${Math.abs(qtdex)} WHERE idproduto = ${cod} AND idempresa = ${emp}`.execute(trx);
+        }
+      } else if (semTroca && origem !== 'NF') {
+        if (tipo === 'S') {
+          await sql`UPDATE estoque SET dtvenda = dtvenda_anterior, dtvenda_anterior = NULL, qtde_venda = qtde_venda_anterior, qtde_venda_anterior = NULL
+                     WHERE idproduto = ${cod} AND idempresa = ${emp} AND idorigem = ${codnf}`.execute(trx);
+        } else if (tipo === 'E') {
+          await sql`UPDATE estoque SET dtent = dtent_anterior, dtent_anterior = NULL, qtde_ent = qtde_ent_anterior, qtde_ent_anterior = NULL
+                     WHERE idproduto = ${cod} AND idempresa = ${emp} AND idorigem_ent = ${codnf}`.execute(trx);
+        }
+      }
+
+      // kardex (mesma transação), com o texto e o valor (VRVENDA do item) do legado
+      const neg = num(it.codoperador_lib_estoqueneg) > 0
+        ? `; CIÊNCIA DE QTDE NEGATIVA E AUTORIZADO POR: (${num(it.codoperador_lib_estoqueneg)}) ${String(it.login_neg ?? '').slice(0, 8)}` : '';
+      const resto = `; FIN.: ${fin}; CFOP: ${it.cfop ?? ''}; SIT.DOC: ${it.idsituacao_nf ?? ''}-${String(it.desc_sit ?? '').slice(0, 20)}${neg}`;
       const historico =
         origem === 'NF-REV'
-          ? `ESTORNO DE ESTOQUE; REF. A REVERSAO DA NOTA COD: ${codnf}`
+          ? `ESTORNO DE ESTOQUE  REF. A REVERSAO DA NOTA COD. ${codnf}${resto}`
           : origem === 'NF-CANC'
-            ? `ESTORNO DE ESTOQUE; REF. AO CANCELAMENTO DA NOTA COD: ${codnf}`
-            : `${tipo === 'E' ? 'ENTRADA' : 'SAIDA'} DE ESTOQUE; REF. NOTA COD: ${codnf}`;
+            ? `ESTORNO DE ESTOQUE  REF. AO CANC. DA NOTA NRO: ${nf.nronf ?? ''}${resto}`
+            : `${tipo === 'S' ? 'SAIDA' : 'ENTRADA'} DE ESTOQUE; REF. NOTA COD: ${codnf}${resto}`;
       await trx
         .insertInto('historico_prod')
         .values({
@@ -435,7 +467,9 @@ export class NfProcessamentoService {
           saldo_novo: saldoNovo,
           origem,
           codnf,
-          historico,
+          historico: historico.slice(0, 255),
+          valor_alter: num(it.vrvenda),
+          valor_atual: num(it.vrvenda),
           codoperador: op,
         })
         .execute();

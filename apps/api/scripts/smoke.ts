@@ -24554,6 +24554,37 @@ async function main() {
       }
     }
 
+    // ══ §260 ESTOQUE_NOTAS — a última entrada no ESTOQUE e o texto do kardex do processar da NF ══════════
+    {
+      const pgEn2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      let nfK = 0;
+      const antes = (await pgEn2.query(`SELECT qtde, dtent, qtde_ent, idorigem_ent, dtent_anterior, qtde_ent_anterior FROM estoque WHERE idproduto = 2 AND idempresa = 1`)).rows[0] as any;
+      try {
+        await pgEn2.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES (2, 1, 100) ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde = 100`);
+        await pgEn2.query(`UPDATE estoque SET dtent = '2037-01-01', qtde_ent = 1, idorigem_ent = 1, dtent_anterior = NULL, qtde_ent_anterior = NULL WHERE idproduto = 2 AND idempresa = 1`);
+        nfK = await novaNf(baseNf({ tipo: 'E', nronf: 'KDX260', codparceiro: 22, finalidade: '1', dtemissao: '2037-03-05', dtcontabil: '2037-03-05', itens: [{ codproduto: 2, quantidade: 3, vrvenda: 9.99, vrcusto: 5, cfop: '1102', aliquota: 'T01' }] }));
+        const pr = await processarNf(nfK, H);
+        const e1 = (await pgEn2.query(`SELECT to_char(dtent,'YYYY-MM-DD') dtent, qtde_ent, idorigem_ent, to_char(dtent_anterior,'YYYY-MM-DD') dtent_anterior, qtde_ent_anterior FROM estoque WHERE idproduto = 2 AND idempresa = 1`)).rows[0] as any;
+        const k = (await pgEn2.query(`SELECT historico, valor_alter FROM historico_prod WHERE codnf = $1 ORDER BY codmov DESC LIMIT 1`, [nfK])).rows[0] as any;
+        const rv = await fetch(`${base}/fiscal/nf/${nfK}/reverter`, { method: 'POST', headers: H });
+        const e2 = (await pgEn2.query(`SELECT to_char(dtent,'YYYY-MM-DD') dtent, qtde_ent, dtent_anterior, qtde_ent_anterior FROM estoque WHERE idproduto = 2 AND idempresa = 1`)).rows[0] as any;
+        const kr = (await pgEn2.query(`SELECT historico FROM historico_prod WHERE codnf = $1 ORDER BY codmov DESC LIMIT 1`, [nfK])).rows[0] as any;
+        check('ESTOQUE_NOTAS §260 [a última entrada e o kardex]: processar a entrada guarda a anterior (01/01/2037, 1) e carimba no ESTOQUE a data contábil, a quantidade 3 e a nota (IDORIGEM_ENT); o kardex leva "ENTRADA DE ESTOQUE; REF. NOTA COD: n; FIN.: NORMAL; CFOP: 1102; SIT.DOC: …" e o valor (VRVENDA 9,99); reverter volta a anterior (a última ainda era esta nota) e o kardex diz "ESTORNO DE ESTOQUE  REF. A REVERSAO DA NOTA COD. n; FIN.: …"',
+          pr.status === 200 && e1?.dtent === '2037-03-05' && Number(e1?.qtde_ent) === 3 && Number(e1?.idorigem_ent) === nfK && e1?.dtent_anterior === '2037-01-01' && Number(e1?.qtde_ent_anterior) === 1
+          && String(k?.historico ?? '').startsWith(`ENTRADA DE ESTOQUE; REF. NOTA COD: ${nfK}; FIN.: NORMAL; CFOP: 1102; SIT.DOC: `) && Number(k?.valor_alter) === 9.99
+          && rv.status === 200 && e2?.dtent === '2037-01-01' && Number(e2?.qtde_ent) === 1 && e2?.dtent_anterior == null && e2?.qtde_ent_anterior == null
+          && String(kr?.historico ?? '').startsWith(`ESTORNO DE ESTOQUE  REF. A REVERSAO DA NOTA COD. ${nfK}; FIN.: NORMAL; CFOP: 1102`),
+          { pr: pr.status, e1, k, rv: rv.status, e2, kr });
+      } catch (e) {
+        check('ESTOQUE_NOTAS §260 [preparo]', false, { erro: (e as Error).message });
+      } finally {
+        if (nfK) { await pgEn2.query(`DELETE FROM nf_prod WHERE codnf = $1`, [nfK]).catch(() => undefined); await pgEn2.query(`DELETE FROM nf WHERE codnf = $1`, [nfK]).catch(() => undefined); }
+        if (antes) await pgEn2.query(`UPDATE estoque SET qtde = $1, dtent = $2, qtde_ent = $3, idorigem_ent = $4, dtent_anterior = $5, qtde_ent_anterior = $6 WHERE idproduto = 2 AND idempresa = 1`,
+          [antes.qtde, antes.dtent, antes.qtde_ent, antes.idorigem_ent, antes.dtent_anterior, antes.qtde_ent_anterior]).catch(() => undefined);
+        await pgEn2.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();

@@ -111,7 +111,7 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
 
 1. ✅ **`ESTOQUE_TROCA` (corrigido em 25/09/2026, `troca-estoque.ts`).** O momento da baixa é outro. Os 130 itens de troca carregados em aberto já saíram
    do estoque no legado; o "fechar" do Apollo os baixa de novo. O "reabrir" devolve saldo que o legado não devolve.
-2. **`ESTOQUE_NOTAS` (⚠️, estoque).** A NF não carimba a última entrada/saída em ESTOQUE (DTENT, QTDE_ENT, IDORIGEM_ENT,
+2. ◐ **`ESTOQUE_NOTAS` (25/09/2026: a última entrada/venda no ESTOQUE e o texto/valor do kardex ✅; falta a decomposição da antiga estrutura — dormente).** A NF não carimba a última entrada/saída em ESTOQUE (DTENT, QTDE_ENT, IDORIGEM_ENT,
    DTVENDA, QTDE_VENDA e os _ANTERIOR). A Prévia do fornecedor do Apollo lê DTENT/QTDE_ENT: congela na virada.
    O Kardex perde FIN/CFOP/SIT.DOC, o autorizador do negativo e o valor. Item de decomposição na nota não reparte.
 3. **`ESTOQUE_AJUSTE` (⚠️, estoque).** O zeramento do inventário rotativo não deixa linha no Kardex e grava DESTINO
