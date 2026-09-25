@@ -60,7 +60,7 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
 | `CHECK_REMESSAS_BOLETOS_CONTAS` | ARECEBER | BEFORE DELETE | Erro se o título está em REMESSAS_BOLETOS_CONTAS com INDR ≠ 'E' | sim: 14.133 de 14.224 linhas ativas, última em 01/09/2026 | ✅ (25/09/2026) `migrations/367_areceber_remessa_boleto.sql` — gatilho BEFORE DELETE, todos os caminhos; 422 pelo HINT | ✅ |
 | `REM_RECEBER` | ARECEBER | AFTER I/U/D | Além da remessa: HISTARECEBER "DATA DA VENDA ALTERADA"; apaga/atualiza TESOURARIA (RCB), NF_FINANCEIRO_DIF_PEDIDO e MAPA_DE_CARGA_RECEBIMENTOS | HISTARECEBER sim (16, até 12/2025); as outras 3 tabelas estão vazias | `migrations/315_histareceber.sql:15-31`. O resto é morto | ✅ |
 | `CAIXA_APAGAR` | CX_APAGAR | BEFORE DELETE | Apaga a CAIXA do rateio (CODGRUPO + CODCXAPAGAR) | sim | `apagar-caixa.ts:47-51`; os outros DELETE de cx_apagar apagam a CAIXA antes ou a refazem (`fechamento-caixa.service.ts:1752`, `nf-faturamento.service.ts:116`, `apagar.service.ts:155-156`) | ✅ |
-| `SET_DEFAULTS` | ARECEBER | BEFORE I/U | TOTAL_BRT := TOTAL quando nulo | sim | só 2 dos 14 INSERT em areceber gravam (`nf-faturamento.service.ts:564`, `fechamento-caixa.service.ts:1621`). Nenhum leitor no fonte; a LOG do binário novo o lista | ⚠️ |
+| `SET_DEFAULTS` | ARECEBER | BEFORE I/U | TOTAL_BRT := TOTAL quando nulo | sim | ✅ (25/09/2026) `migrations/370_areceber_set_defaults.sql` — todos os caminhos | ✅ |
 | `TEMP_AGRUPADO` | ARECEBER | BEFORE I/U | AGRUPADO := 'N' quando nulo | sim | `migrations/043_areceber_gestao.sql:25` (DEFAULT 'N') | ✅ |
 | `VALIDA_AGRUPAMENTO` | APAGAR | AFTER I/U | Erro se CODGRUPO = 0 ou CODGRUPO_AGRUPAMENTO_APG = 0 | trava sem disparo: 0 casos | sem a trava; o código vem de sequência (`apagar-caixa.ts:20`) | ❌ |
 | `VALIDA_ADIANTAMENTO` | ADIANTAMENTO_FORN | AFTER I/U | Erro se CODMOVCONTA, VALOR ou CODPARCEIRO nulo | sim: 586, último 24/09/2026 | `migrations/159_adiantamento_forn.sql:12,16,19` (NOT NULL) | ✅ |
@@ -139,7 +139,7 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
    apontando o antigo. Agora o gatilho do banco acompanha (multi-atualização) e o cadastro regrava as linhas com o código do produto.
 9. ✅ **`CLUBE_DESCONTO_ESTOQUE` (corrigido em 25/09/2026, mig 369).** O Apollo aceitava ENCERRADA do payload; agora o gatilho do banco a recalcula
    em toda alteração pelo teto de estoque (nenhuma regra da produção usa o teto).
-10. **`SET_DEFAULTS` (⚠️, financeiro, baixo).** TOTAL_BRT fica nulo em 12 dos 14 caminhos de inclusão.
+10. ✅ **`SET_DEFAULTS` (corrigido em 25/09/2026, mig 370).** TOTAL_BRT ficava nulo em 12 dos 14 caminhos de inclusão; agora é gatilho do banco.
 11. **`CASCATA_FAMILIA_PROD` (❌, cadastro/relatórios).** Mudar o departamento ou grupo de uma família não arrasta os
     produtos. Relatórios por departamento divergem.
 12. **`CONTROLADELETEAGENDA` (⚠️, preço, baixo).** O Apollo desliga só o preço da agenda; o legado desliga PROMOCAO do

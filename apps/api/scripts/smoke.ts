@@ -2682,6 +2682,11 @@ async function main() {
       const codRemessa = Number((await pgParcelas.query(`INSERT INTO remessas_boletos (nomearquivoremessa, tiporemessa, codbanco, nomebanco, nroconta, agencia, codremessabanco)
         VALUES ('CB-SMOKE.REM','E',341,'ITAU','1','1',1) RETURNING codremessa`)).rows[0].codremessa);
       await pgParcelas.query(`INSERT INTO remessas_boletos_contas (codremessa, codrcb) VALUES ($1,$2)`, [codRemessa, idRem]);
+      // o gatilho SET_DEFAULTS: TOTAL_BRT nulo recebe o TOTAL, na inclusão e na alteração
+      await pgParcelas.query(`UPDATE areceber SET total = 12.5, total_brt = NULL WHERE codrcb = $1`, [idRem]);
+      const tb = (await pgParcelas.query(`SELECT total::float AS t, total_brt::float AS tb FROM areceber WHERE codrcb = $1`, [idRem])).rows[0] as any;
+      check('CR §SET_DEFAULTS: TOTAL_BRT nulo recebe o TOTAL (12,50) — o gatilho do legado, para todos os caminhos de inclusão e alteração',
+        tb?.t === 12.5 && tb?.tb === 12.5, { tb });
       const delRem = await fetch(`${base}/${AR}/${idRem}`, { method: 'DELETE', headers: H });
       const delRemJ = (await delRem.json().catch(() => ({}))) as any;
       const aindaExiste = Number((await pgParcelas.query(`SELECT count(*)::int n FROM areceber WHERE codrcb = $1`, [idRem])).rows[0].n);
