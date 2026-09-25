@@ -1,5 +1,6 @@
 import { empresaSchema, atualizarEmpresaSchema } from '@apollo/shared';
 import { createCrudController } from '../../shared/crud/crud.controller.factory';
+import { EMPRESA_CAMPOS_LEGADO } from '@apollo/shared';
 import type { CrudConfig } from '../../shared/crud/crud-config';
 
 /**
@@ -34,7 +35,11 @@ export const empresasCrudConfig: CrudConfig = {
     'codparceiro', 'sincroniza_preco_nf',
     'pc_curva_abc_a', 'pc_curva_abc_b', 'pc_curva_abc_c', 'pc_curva_comp_a', 'pc_curva_comp_b', 'pc_curva_comp_c',
     'aream2', 'aream2_venda', 'tef_loja', 'tef_servidor', 'junta_comercial', 'codplc_nf_pdv', 'idsituacao_nf_pdv',
+    // os campos do UCadEmpresa (e do binário novo) que a tela não tinha — `empresa-legado.ts` do shared (186 colunas)
+    ...EMPRESA_CAMPOS_LEGADO.map((c) => c.coluna),
   ], // NÃO inclui idempresa (PK digitada, fornecida no dto)
+  // senhas de certificado/e-mail, tokens e CSC: graváveis, nunca devolvidos na leitura
+  colunasOcultasLeitura: EMPRESA_CAMPOS_LEGADO.filter((c) => c.segredo).map((c) => c.coluna),
   colunasPesquisa: ['idempresa', 'razao_social', 'cnpj', 'uf', 'classfiscal'],
   softDelete: false,
   replica: false,

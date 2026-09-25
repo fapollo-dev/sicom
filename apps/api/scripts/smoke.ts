@@ -22938,6 +22938,29 @@ async function main() {
       }
     }
 
+    // ══ §232 EMPRESAS — os campos do UCadEmpresa (e do binário novo) que a tela não tinha (empresa-legado.ts) ═══════════════════════
+    {
+      const pgEp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const antes = (await pgEp.query(`SELECT mascaraplc, numeitensnota, email_aut_tls, certificado_senha, izio_token, cnae_principal, perfilsped FROM empresas WHERE idempresa = 1`)).rows[0] as any;
+      try {
+        const up = await fetch(`${base}/cadastro/empresas/1`, { method: 'PUT', headers: H, body: JSON.stringify({
+          mascaraplc: '9.99.999', numeitensnota: 30, email_aut_tls: 'S', certificado_senha: 'segredo123', izio_token: 'tok-izio', cnae_principal: '4711302', perfilsped: 'B' }) });
+        const r1 = (await pgEp.query(`SELECT mascaraplc, numeitensnota, email_aut_tls, certificado_senha, izio_token, cnae_principal, perfilsped FROM empresas WHERE idempresa = 1`)).rows[0] as any;
+        const lido = (await (await fetch(`${base}/cadastro/empresas/1`, { headers: H })).json().catch(() => ({}))) as any;
+        const eco = await fetch(`${base}/cadastro/empresas/1`, { method: 'PUT', headers: H, body: JSON.stringify({ ...lido }) });
+        const r2 = (await pgEp.query(`SELECT certificado_senha, izio_token FROM empresas WHERE idempresa = 1`)).rows[0] as any;
+        check('EMPRESAS §232 [os campos do legado]: a máscara do plano (MASCARAPLC), a quantidade de itens da NF, o TLS do e-mail, o CNAE e o perfil do SPED gravam; a senha do certificado e o token da integração gravam mas NÃO voltam na leitura, e regravar o eco da leitura não os apaga',
+          up.status === 200 && r1?.mascaraplc === '9.99.999' && Number(r1?.numeitensnota) === 30 && r1?.email_aut_tls === 'S' && r1?.cnae_principal === '4711302' && r1?.perfilsped === 'B'
+          && r1?.certificado_senha === 'segredo123' && r1?.izio_token === 'tok-izio'
+          && !('certificado_senha' in lido) && !('izio_token' in lido) && eco.status === 200 && r2?.certificado_senha === 'segredo123' && r2?.izio_token === 'tok-izio',
+          { up: up.status, r1, lidoTem: ['certificado_senha' in lido, 'izio_token' in lido], eco: eco.status, r2 });
+      } finally {
+        await pgEp.query(`UPDATE empresas SET mascaraplc = $1, numeitensnota = $2, email_aut_tls = $3, certificado_senha = $4, izio_token = $5, cnae_principal = $6, perfilsped = $7 WHERE idempresa = 1`,
+          [antes?.mascaraplc ?? null, antes?.numeitensnota ?? null, antes?.email_aut_tls ?? null, antes?.certificado_senha ?? null, antes?.izio_token ?? null, antes?.cnae_principal ?? null, antes?.perfilsped ?? null]);
+        await pgEp.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();

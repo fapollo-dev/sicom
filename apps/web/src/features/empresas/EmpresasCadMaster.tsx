@@ -3,7 +3,9 @@ import { CadMaster } from '../../shared/cadmaster/CadMaster';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { NumberField } from '../../shared/ui/NumberField';
-import { UFS, empresaSchema, type CriarEmpresaDto } from '@apollo/shared';
+import { UFS, empresaSchema, EMPRESA_CAMPOS_LEGADO, type CriarEmpresaDto } from '@apollo/shared';
+import { CheckboxField } from '../../shared/ui/CheckboxField';
+import { DateField } from '../../shared/ui/DateField';
 
 const UF_SIGLA_OPCOES = UFS.map((u) => ({ value: u.sigla, label: `${u.sigla} — ${u.nome}` }));
 const CLASSFISCAL_OPCOES = [
@@ -22,6 +24,46 @@ const AMBIENTE_OPCOES = [
   { value: '1', label: 'Produção' },
   { value: '2', label: 'Homologação' },
 ];
+
+/** as abas do legado com os campos que a tela não tinha (`empresa-legado.ts`), na ordem das abas do UCadEmpresa */
+const ABAS_LEGADO = Array.from(new Set(EMPRESA_CAMPOS_LEGADO.map((c) => c.aba)));
+
+/** os campos do UCadEmpresa (e do binário novo) por aba — recolhidos; segredos não voltam na leitura (digite para trocar) */
+function CamposLegado({ form, editavel }: { form: UseFormReturn<CriarEmpresaDto>; editavel: boolean }) {
+  return (
+    <div className="flex flex-col gap-form-gap">
+      {ABAS_LEGADO.map((aba) => (
+        <details key={aba} className="rounded-radius-md border border-border p-pad-md">
+          <summary className="cursor-pointer text-fg-muted">{aba}</summary>
+          <div className="mt-pad-sm grid grid-cols-1 gap-form-gap sm:grid-cols-3">
+            {EMPRESA_CAMPOS_LEGADO.filter((c) => c.aba === aba).map((c) => (
+              <Controller
+                key={c.coluna}
+                control={form.control}
+                name={c.coluna as never}
+                render={({ field }: any) => {
+                  if (c.tipo === 'sn') return <CheckboxField label={c.rotulo} value={(field.value as string | undefined) ?? 'N'} onChange={field.onChange} disabled={!editavel} />;
+                  if (c.tipo === 'inteiro' || c.tipo === 'numero') {
+                    return <NumberField label={c.rotulo} value={field.value != null && field.value !== '' ? Number(field.value) : undefined} onChange={field.onChange} decimais={c.tipo === 'inteiro' ? 0 : 4} disabled={!editavel} />;
+                  }
+                  if (c.tipo === 'opcao') {
+                    return <SelectField label={c.rotulo} options={(c.opcoes ?? []).map(([value, label]) => ({ value, label }))} value={field.value != null && field.value !== '' ? String(field.value) : undefined} onChange={(v) => field.onChange(v || undefined)} placeholder="—" disabled={!editavel} />;
+                  }
+                  if (c.tipo === 'data') return <DateField label={c.rotulo} value={field.value ? String(field.value).slice(0, 10) : undefined} onChange={field.onChange} disabled={!editavel} />;
+                  return (
+                    <Field label={c.rotulo} disabled={!editavel} maxLength={c.max} type={c.segredo ? 'password' : undefined}
+                      placeholder={c.segredo ? 'não exibida — digite para trocar' : undefined} value={(field.value as string | undefined) ?? ''}
+                      onChange={(e) => field.onChange(e.target.value === '' ? undefined : e.target.value)} />
+                  );
+                }}
+              />
+            ))}
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
 
 /** campo numérico (percentual/valor) ligado ao form via Controller. */
 function NumCampo({ form, name, label, decimais = 2 }: { form: UseFormReturn<CriarEmpresaDto>; name: keyof CriarEmpresaDto; label: string; decimais?: number }) {
@@ -175,6 +217,7 @@ export function EmpresasCadMaster() {
                 <NumCampo form={form} name="idsituacao_nf_pdv" label="Situação da NF do PDV" decimais={0} />
               </div>
             </fieldset>
+            <CamposLegado form={form} editavel={editavel} />
           </div>
         );
       }}

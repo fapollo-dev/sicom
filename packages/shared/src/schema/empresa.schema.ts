@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { zCnpj, zUf } from '../validators/br';
+import { EMPRESA_CAMPOS_LEGADO } from './empresa-legado';
 
 /**
  * Cadastro de EMPRESAS (legado `UCadEmpresa`, tabela EMPRESAS — 265 colunas). Corte 1:
@@ -110,10 +111,24 @@ const empresaBase = z
     idsituacao_nf_pdv: dec(z.number().int().positive()),
   });
 
-export const empresaSchema = empresaBase.superRefine(validaEmpresa);
+/** os campos do legado que a tela não tinha (`empresa-legado.ts`): o tipo do schema do destino; as opções dos combos NÃO estreitam o
+ *  domínio (lição 141 — o dado pode ter valor fora do combo) */
+const snLegado = z.preprocess((v) => (v == null || v === '' ? undefined : v === 'S' ? 'S' : 'N'), z.enum(['S', 'N']).optional());
+const shapeLegado: Record<string, z.ZodTypeAny> = {};
+for (const c of EMPRESA_CAMPOS_LEGADO) {
+  shapeLegado[c.coluna] =
+    c.tipo === 'inteiro' ? dec(z.number().int())
+    : c.tipo === 'numero' ? dec(z.number())
+    : c.tipo === 'sn' ? snLegado
+    : c.tipo === 'data' ? opcional(z.string().trim())
+    : opcional(z.coerce.string().trim().max(c.max ?? 4000));
+}
+const empresaComLegado = empresaBase.extend(shapeLegado);
+
+export const empresaSchema = empresaComLegado.superRefine(validaEmpresa);
 export type CriarEmpresaDto = z.infer<typeof empresaSchema>;
 
-export const atualizarEmpresaSchema = empresaBase.partial().superRefine(validaEmpresa);
+export const atualizarEmpresaSchema = empresaComLegado.partial().superRefine(validaEmpresa);
 export type AtualizarEmpresaDto = z.infer<typeof atualizarEmpresaSchema>;
 
 export interface Empresa extends CriarEmpresaDto {}

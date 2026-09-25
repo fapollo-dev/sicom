@@ -14,6 +14,7 @@ export * from './schema/produto.schema';
 export * from './schema/nf.schema';
 export * from './schema/situacao-nf.schema';
 export * from './schema/empresa.schema';
+export * from './schema/empresa-legado';
 export * from './schema/areceber.schema';
 export * from './schema/apagar.schema';
 export * from './schema/baixa-apagar.schema';

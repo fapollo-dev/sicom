@@ -625,8 +625,11 @@ leitura), as colunas preenchidas em ≥ 50% que nenhum código do Apollo que gra
   FATOR_CONVERSAO_CX_PROD[_UTIL]); `apuracao_pc_det` (DESCRICAOBASE, DESCRICAOPC, BASECALCULOAPURA, VALORPISAPURA, VALORCOFINSAPURA);
   `pedido_devolucao_compra.CNPJ_CPF`, `pedido_devolucao_compra_i.VRCUSTOREP`; `plc` (NIVELCONTA, DESCPLCCONTABIL);
   `plano_contas.CODEXPINTEIRO`; `figura_fiscal` (origem/destino); `contas_bancarias` (ESTORNO_DTHR_BAIXA, EXIBE_SALDO_EMP);
-  `formas_pgto` (BAIXA_DOCUMENTO_AUTOMATICO, EXIGE_PERMISSAO); `hist_sangria_suprimento` (*_FECHADO, *_AUTENTICADO); `empresas`
-  (configurações de NFC-e, e-mail, senhas, CSC).
+  `formas_pgto` (BAIXA_DOCUMENTO_AUTOMATICO, EXIGE_PERMISSAO); `hist_sangria_suprimento` (*_FECHADO, *_AUTENTICADO).
+- ✅ EMPRESAS (smoke §232): a tela gerenciava 53 das 273 colunas; entram 186 (`empresa-legado.ts`, gerado do UCadEmpresa.dfm — rótulo,
+  aba e itens dos combos — e do schema do destino), por aba do legado; senhas de certificado/e-mail, tokens e CSC graváveis e nunca
+  devolvidos na leitura. Fora: NSU, carimbos, hashes, certificados (binário), as datas de contingência do PDV e as senhas de operação
+  (que o Apollo guarda em hash).
 - **Outro processo, fora:** `nf.EXPORTADA/APP_EXPORTACAO/DATA_EXPORTACAO` (o MONITORNOTAFISCAL), `operadores.PERMISSAOPDV` e
   `operadoras.OPERADORA_PDV` (PDV), `operadores_acessos.EXECUTAVEL` (o executável do legado).
 - 51 tabelas sem PK simples na origem ficaram fora da amostra (ex.: `adiantamento_forn`, `multi_preco`, `vendas`, `pedidos`).
