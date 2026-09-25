@@ -3,7 +3,7 @@ import { PageHeader } from '@apollosg/design-system';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
-import { listarContas, pendentes, sugestoes, conciliar, importarOfx, type ContaBancaria, type OfxLinha, type MovLinha, lancarAutomaticos } from './conciliacaoApi';
+import { listarContas, pendentes, sugestoes, conciliar, conciliarAutomatica, importarOfx, type ContaBancaria, type OfxLinha, type MovLinha, lancarAutomaticos } from './conciliacaoApi';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—');
@@ -22,6 +22,7 @@ export function ConciliacaoBancariaPage() {
   const [selOfx, setSelOfx] = useState<Set<number>>(new Set());
   const [selMov, setSelMov] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [paresAuto, setParesAuto] = useState<Array<{ mboId: number; codmovcontas: number[] }>>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { void listarContas().then(setContas).catch(() => setContas([])); }, []);
@@ -29,7 +30,7 @@ export function ConciliacaoBancariaPage() {
   const carregar = async (cod: number) => {
     try {
       const p = await pendentes(cod);
-      setOfx(p.ofx ?? []); setMov(p.mov ?? []); setSelOfx(new Set()); setSelMov(new Set());
+      setOfx(p.ofx ?? []); setMov(p.mov ?? []); setSelOfx(new Set()); setSelMov(new Set()); setParesAuto([]);
     } catch (e) { mensagem.erro(e); }
   };
   const escolherConta = (v: string) => { setConta(v); if (v) void carregar(Number(v)); else { setOfx([]); setMov([]); } };
@@ -58,8 +59,9 @@ export function ConciliacaoBancariaPage() {
       // o LOTE vem primeiro: uma baixa em lote vira UM movimento no extrato, e ele só concilia inteiro
       setSelOfx(new Set([...lotes.map((l) => l.mbo_id), ...pares.map((p) => p.mbo_id)]));
       setSelMov(new Set([...lotes.flatMap((l) => l.codmovcontas), ...pares.map((p) => p.codmovconta)]));
+      setParesAuto([...lotes.map((l) => ({ mboId: l.mbo_id, codmovcontas: l.codmovcontas })), ...pares.map((p) => ({ mboId: p.mbo_id, codmovcontas: [p.codmovconta] }))]);
       const parteLote = lotes.length ? ` e ${lotes.length} lote(s) inteiro(s)` : '';
-      mensagem.sucesso(`${pares.length} par(es)${parteLote} sugerido(s). Confira e concilie.`);
+      mensagem.sucesso(`${pares.length} par(es)${parteLote} sugerido(s). Confira e confirme a conciliação automática.`);
     } catch (e) { mensagem.erro(e); }
   };
 
@@ -79,6 +81,18 @@ export function ConciliacaoBancariaPage() {
   const totOfx = ofx.filter((o) => selOfx.has(o.mbo_id)).reduce((s, o) => s + Number(o.mbo_valor), 0);
   const totMov = mov.filter((m) => selMov.has(m.codmovconta)).reduce((s, m) => s + Number(m.valor), 0);
   const iguais = Math.round(totOfx * 100) === Math.round(totMov * 100);
+
+  // a automática confirmada: um evento por par, cada movimento liberado na data da sua emissão (ConfirmaConciliacaoAutomatica)
+  const confirmarAuto = async () => {
+    if (busy || !conta || !paresAuto.length) return;
+    setBusy(true);
+    try {
+      const r = await conciliarAutomatica(Number(conta), paresAuto);
+      mensagem.sucesso(`${r.conciliacoes} conciliação(ões) automática(s) gravada(s) — ${r.mov} lançamento(s) liberado(s).`);
+      setParesAuto([]);
+      await carregar(Number(conta));
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
 
   const conciliarSel = async () => {
     if (busy || !conta) return;
@@ -100,6 +114,7 @@ export function ConciliacaoBancariaPage() {
         <input ref={fileRef} type="file" accept=".ofx,text/plain" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void importarArquivo(f); }} />
         <Button label="&Importar .ofx" variant="ghost" disabled={busy || !conta} onClick={() => fileRef.current?.click()} />
         <Button label="&Sugerir automática" variant="ghost" disabled={!conta || !ofx.length} onClick={() => void sugerir()} />
+        {paresAuto.length > 0 && <Button label={`Confirmar a&utomática (${paresAuto.length})`} variant="soft" disabled={busy} onClick={() => void confirmarAuto()} />}
         <Button label="&Lançamentos automáticos" variant="ghost" disabled={busy || !conta || !ofx.length} onClick={() => void lancarAuto()} />
         <Button label="&Conciliar selecionados" variant="soft" disabled={busy || !iguais || !selOfx.size || !selMov.size} onClick={() => void conciliarSel()} />
         <div className="flex-1 text-right text-body-sm">Selecionado — extrato <b className={iguais ? 'text-fg' : 'text-danger'}>{brl(totOfx)}</b> · razão <b className={iguais ? 'text-fg' : 'text-danger'}>{brl(totMov)}</b> {selOfx.size + selMov.size > 0 && (iguais ? '✓' : '≠')}</div>

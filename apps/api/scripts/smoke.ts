@@ -4462,10 +4462,10 @@ async function main() {
           codconta = Number((await pgCo.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES ($1,1,'CONTA CONC') RETURNING codconta`, [codbco])).rows[0].codconta);
         }
         // razão interno: 3 lançamentos MCB da conta (100@06-01, 50@06-02, 999@06-03), não-conciliados.
-        const mv = async (valor: number, data: string) => Number((await pgCo.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, data_fechamento, dtcadastro) VALUES ($1,1,$2,'C','CONC',$3,now()) RETURNING codmovconta`, [codconta, valor, data])).rows[0].codmovconta);
+        const mv = async (valor: number, data: string) => Number((await pgCo.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, data_fechamento, dtemissao, dtcadastro) VALUES ($1,1,$2,'C','CONC',$3,$3,now()) RETURNING codmovconta`, [codconta, valor, data])).rows[0].codmovconta);
         const m100 = await mv(100, '2026-06-01'), m50 = await mv(50, '2026-06-02'), m999 = await mv(999, '2026-06-03');
         // lançamento de DÉBITO de mesmo valor/data que o crédito OFX 50 — NÃO pode casar (direção diferente).
-        const mD50 = Number((await pgCo.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, data_fechamento, dtcadastro) VALUES ($1,1,50,'D','CONC','2026-06-02',now()) RETURNING codmovconta`, [codconta])).rows[0].codmovconta);
+        const mD50 = Number((await pgCo.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, data_fechamento, dtemissao, dtcadastro) VALUES ($1,1,50,'D','CONC','2026-06-02','2026-06-02',now()) RETURNING codmovconta`, [codconta])).rows[0].codmovconta);
 
         // 47e.1) importar 2 linhas do extrato (FITID) → inseridas 2; reimportar → duplicadas 2 (dedup por FITID).
         const linhas = [{ data: '2026-06-01', valor: 100, credito_debito: 'C', descricao: 'PIX 100', transacao_id: 'FIT100' }, { data: '2026-06-02', valor: 50, credito_debito: 'C', descricao: 'PIX 50', transacao_id: 'FIT50' }];
@@ -4490,10 +4490,11 @@ async function main() {
         const con = await fetch(`${base}/${CO}/conciliar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, mboIds: [mbo100], codmovcontas: [m100] }) });
         const conJ = (await con.json().catch(() => ({}))) as any;
         const mboC = (await pgCo.query(`SELECT mbo_conciliado FROM movimentacao_bancaria_ofx WHERE mbo_id=$1`, [mbo100])).rows[0] as any;
-        const movC = (await pgCo.query(`SELECT mov_conciliado FROM mov_contas_bancarias WHERE codmovconta=$1`, [m100])).rows[0] as any;
+        const movC = (await pgCo.query(`SELECT mov_conciliado, liberado, to_char((dtliberacao AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD') AS dtlib FROM mov_contas_bancarias WHERE codmovconta=$1`, [m100])).rows[0] as any;
         const jun = Number((await pgCo.query(`SELECT count(*)::int n FROM conciliacao_bancaria_ofx WHERE cb_id=$1`, [Number(conJ.cb_id)])).rows[0].n);
-        check('CONCILIAÇÃO: conciliar (Σ 100=100) → evento CB + junções + MBO/MCB conciliado=S',
-          con.status === 200 && Number(conJ.cb_id) > 0 && Number(conJ.total) === 100 && mboC?.mbo_conciliado === 'S' && movC?.mov_conciliado === 'S' && jun === 1,
+        check('CONCILIAÇÃO: conciliar (Σ 100=100) → evento CB + junções + MBO/MCB conciliado=S, e o lançamento LIBERADO na data do extrato (MarcaConciliadoMov — auditoria de esqueletos §4.7: 1.721 movimentos ficavam "a prazo")',
+          con.status === 200 && Number(conJ.cb_id) > 0 && Number(conJ.total) === 100 && mboC?.mbo_conciliado === 'S' && movC?.mov_conciliado === 'S' && jun === 1
+          && movC?.liberado === 'S' && movC?.dtlib === '2026-06-01',
           { con: conJ, mboC, movC, jun });
 
         // 47e.4) conciliar com totais divergentes (mbo50=50 × m999=999) → 422; já-conciliado (mbo100) → 422.
@@ -4572,8 +4573,8 @@ async function main() {
         // Uma baixa em lote (3 títulos pagos juntos) vira UM débito de 300 no extrato.
         const lote = 99276001;
         const mvLote = async (valor: number) => Number((await pgCo.query(
-          `INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, idlote, data_fechamento, dtcadastro)
-           VALUES ($1,1,$2,'D','BAIXA AP',$3,'2026-07-10','2026-07-10') RETURNING codmovconta`, [codconta, valor, lote])).rows[0].codmovconta);
+          `INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, idlote, data_fechamento, dtemissao, dtcadastro)
+           VALUES ($1,1,$2,'D','BAIXA AP',$3,'2026-07-10','2026-07-10','2026-07-10') RETURNING codmovconta`, [codconta, valor, lote])).rows[0].codmovconta);
         const l1 = await mvLote(120), l2 = await mvLote(100), l3 = await mvLote(80);
         await pgCo.query(`INSERT INTO movimentacao_bancaria_ofx (codconta, idempresa, mbo_data, mbo_valor, mbo_credito_debito, mbo_descricao, mbo_transacao_id, mbo_conciliado)
           VALUES ($1,1,'2026-07-10',300,'D','PAGTO FORNECEDORES LOTE','FITLOTE300','N')`, [codconta]);
@@ -4582,13 +4583,14 @@ async function main() {
         const sugLote = (sugL.lotes ?? []).find((l: any) => Number(l.idlote) === lote);
         const parcial = await fetch(`${base}/${CO}/conciliar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, mboIds: [mboLote], codmovcontas: [l1, l2] }) });
         const parcialJ = (await parcial.json().catch(() => ({}))) as any;
-        const inteiro = await fetch(`${base}/${CO}/conciliar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, mboIds: [mboLote], codmovcontas: [l1, l2, l3] }) });
+        // a sugestão confirmada pela conciliação AUTOMÁTICA: um evento pelo par, cada movimento liberado na data da emissão
+        const inteiro = await fetch(`${base}/${CO}/conciliar-automatica`, { method: 'POST', headers: H, body: JSON.stringify({ codconta, pares: [{ mboId: mboLote, codmovcontas: [l1, l2, l3] }] }) });
         const inteiroJ = (await inteiro.json().catch(() => ({}))) as any;
-        const conciliados = Number((await pgCo.query(`SELECT count(*) n FROM mov_contas_bancarias WHERE idlote=$1 AND coalesce(mov_conciliado,'N')='S'`, [lote])).rows[0].n);
+        const conciliados = Number((await pgCo.query(`SELECT count(*) n FROM mov_contas_bancarias WHERE idlote=$1 AND coalesce(mov_conciliado,'N')='S' AND liberado='S' AND (dtliberacao AT TIME ZONE 'America/Sao_Paulo')::date = '2026-07-10'`, [lote])).rows[0].n);
         check('CONCILIAÇÃO §47e.6 [corte-3: o LOTE não se concilia pela metade]: no cliente **206.211 de 291.484** lançamentos têm `IDLOTE` — uma baixa em lote vira UM movimento no extrato. A sugestão automática casa o LOTE INTEIRO (3 linhas de 120+100+80 = 300) contra a linha OFX de 300; conciliar só 2 das 3 é **422 LOTE_INCOMPLETO** dizendo qual lote e o que falta (é a trava `ValidaSelecaoLoteCompleto` do legado, que desmarcava o lote inteiro); com as 3, concilia e marca as 3',
           sugLote && Number(sugLote.mbo_id) === mboLote && Number(sugLote.valor) === 300 && (sugLote.codmovcontas ?? []).length === 3
           && parcial.status === 422 && parcialJ.code === 'LOTE_INCOMPLETO' && (parcialJ.detalhe?.faltando ?? []).includes(l3)
-          && inteiro.status === 200 && Number(inteiroJ.total) === -300 && conciliados === 3,
+          && inteiro.status === 200 && Number(inteiroJ.conciliacoes) === 1 && Number(inteiroJ.mov) === 3 && conciliados === 3,
           { sugLote, parcial: [parcial.status, parcialJ.code, parcialJ.detalhe], inteiro: [inteiro.status, inteiroJ.total], conciliados });
       } finally {
         await pgCo.end();

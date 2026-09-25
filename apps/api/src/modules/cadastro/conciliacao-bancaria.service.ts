@@ -91,8 +91,13 @@ export class ConciliacaoBancariaService {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
     await this.contaDaEmpresa(db, codconta, emp);
-    const ofx = (await db.selectFrom('movimentacao_bancaria_ofx').select(['mbo_id', 'mbo_data', 'mbo_valor', 'mbo_credito_debito', 'mbo_descricao', 'mbo_transacao_id']).where('codconta', '=', codconta).where('idempresa', '=', emp).where(sql`coalesce(mbo_conciliado,'N')`, '=', 'N').orderBy('mbo_data').orderBy('mbo_id').limit(2000).execute()) as Record<string, unknown>[];
-    const mov = (await db.selectFrom('mov_contas_bancarias').select(['codmovconta', 'data_fechamento as data', 'valor', 'tipomovimento', 'historico', 'origem', 'idlote']).where('codconta', '=', codconta).where('idempresa', '=', emp).where(sql`coalesce(mov_conciliado,'N')`, '=', 'N').orderBy('data_fechamento').orderBy('codmovconta').limit(2000).execute()) as Record<string, unknown>[];
+    const ofx = (await db.selectFrom('movimentacao_bancaria_ofx').select(['mbo_id', sql<string>`to_char((mbo_data AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD')`.as('mbo_data'), 'mbo_valor', 'mbo_credito_debito', 'mbo_descricao', 'mbo_transacao_id']).where('codconta', '=', codconta).where('idempresa', '=', emp).where(sql`coalesce(mbo_conciliado,'N')`, '=', 'N').orderBy('mbo_data').orderBy('mbo_id').limit(2000).execute()) as Record<string, unknown>[];
+    // a data do movimento é a EMISSÃO (`TRUNC(DTEMISSAO)`, UDMConciliacaoBancaria.dfm:166-172) — DATA_FECHAMENTO é do
+    // fechamento de caixa e está nula em 73% das linhas de 2025-26
+    const mov = (await db.selectFrom('mov_contas_bancarias')
+      .select(['codmovconta', sql<string>`to_char((dtemissao AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD')`.as('data'), 'valor', 'tipomovimento', 'historico', 'origem', 'idlote'])
+      .where('codconta', '=', codconta).where('idempresa', '=', emp).where(sql`coalesce(mov_conciliado,'N')`, '=', 'N')
+      .orderBy('dtemissao').orderBy('codmovconta').limit(2000).execute()) as Record<string, unknown>[];
     return { ofx, mov };
   }
 
@@ -148,48 +153,79 @@ export class ConciliacaoBancariaService {
     return { pares, lotes };
   }
 
-  /** concilia N linhas OFX ↔ N lançamentos do razão (Σ valores iguais) → 1 evento CB + junções + marca os dois lados. */
+  /**
+   * CONCILIAÇÃO MANUAL (`ConfirmaConciliacaoManual`, UDMConciliacaoBancaria.pas:521-620): N linhas do extrato ↔ N lançamentos
+   * do razão (Σ iguais) → 1 evento CB. Os lançamentos ficam LIBERADOS na data da linha do extrato (`MarcaConciliadoMov`,
+   * :636 — com várias, a da última) — o que tira o movimento de "a prazo" e o põe no saldo do controle de contas.
+   */
   async conciliar(dto: { codconta: number; mboIds: number[]; codmovcontas: number[] }): Promise<{ cb_id: number; ofx: number; mov: number; total: number }> {
     const emp = this.emp();
     const op = this.op();
-    const mboIds = Array.from(new Set(dto.mboIds.map(Number)));
-    const movIds = Array.from(new Set(dto.codmovcontas.map(Number)));
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       await this.contaDaEmpresa(trx, dto.codconta, emp);
-      // trava + valida as linhas do extrato (da conta, não-conciliadas).
-      const ofx = (await trx.selectFrom('movimentacao_bancaria_ofx').select(['mbo_id', 'mbo_valor', 'mbo_credito_debito']).where('mbo_id', 'in', mboIds).where('codconta', '=', dto.codconta).where('idempresa', '=', emp).where(sql`coalesce(mbo_conciliado,'N')`, '=', 'N').forUpdate().execute()) as Array<{ mbo_id: number; mbo_valor: unknown; mbo_credito_debito: string }>;
-      if (ofx.length !== mboIds.length) throw new BusinessRuleError('OFX_LINHA_INDISPONIVEL', { esperado: mboIds.length, achado: ofx.length });
-      // trava + valida os lançamentos do razão (da conta, não-conciliados).
-      const mov = (await trx.selectFrom('mov_contas_bancarias').select(['codmovconta', 'valor', 'tipomovimento', 'idlote']).where('codmovconta', 'in', movIds).where('codconta', '=', dto.codconta).where('idempresa', '=', emp).where(sql`coalesce(mov_conciliado,'N')`, '=', 'N').forUpdate().execute()) as Array<{ codmovconta: number; valor: unknown; tipomovimento: string }>;
-      if (mov.length !== movIds.length) throw new BusinessRuleError('MOV_LANCAMENTO_INDISPONIVEL', { esperado: movIds.length, achado: mov.length });
-
-      // corte-3 (mig 276): **o LOTE não se concilia pela metade**. `ValidaSelecaoLoteCompleto` do legado
-      // (UDMConciliacaoBancaria.pas) acusa 'O lote %d não foi conciliado totalmente' e desmarca o lote inteiro.
-      // Uma baixa em lote vira UM movimento no extrato: conciliar parte casaria valor errado e deixaria o resto
-      // órfão, sem o movimento do banco para casar depois. No cliente, 206.211 de 291.484 lançamentos têm lote.
-      const lotesSelecionados = Array.from(new Set(mov.map((m: any) => (m.idlote == null ? null : Number(m.idlote))).filter((l): l is number => l != null)));
-      for (const lote of lotesSelecionados) {
-        const doLote = (await trx.selectFrom('mov_contas_bancarias').select(['codmovconta'])
-          .where('codconta', '=', dto.codconta).where('idempresa', '=', emp).where('idlote', '=', lote)
-          .where(sql`coalesce(mov_conciliado, 'N')`, '=', 'N').execute()) as Array<{ codmovconta: number }>;
-        const faltando = doLote.map((l) => Number(l.codmovconta)).filter((id) => !movIds.includes(id));
-        if (faltando.length) {
-          throw new BusinessRuleError('LOTE_INCOMPLETO', { idlote: lote, selecionados: doLote.length - faltando.length, faltando });
-        }
-      }
-      // Σ valores COM SINAL iguais (fold auditoria [MÉDIA]: débito conta negativo, crédito positivo — senão uma
-      // seleção mista C/D fecharia por magnitude mas com direções trocadas). Fiel: total interno = total OFX.
-      const totalOfx = r2(ofx.reduce((s, o) => s + (String(o.mbo_credito_debito) === 'D' ? -num(o.mbo_valor) : num(o.mbo_valor)), 0));
-      const totalMov = r2(mov.reduce((s, m) => s + (String(m.tipomovimento) === 'D' ? -num(m.valor) : num(m.valor)), 0));
-      if (totalOfx !== totalMov) throw new BusinessRuleError('CONCILIACAO_TOTAIS_DIVERGENTES', { totalOfx, totalMov });
-
-      const cbId = await this.registrarConciliacao(trx, emp, op, dto.codconta, ofx.map((o) => Number(o.mbo_id)), mov.map((m) => Number(m.codmovconta)));
-      return { cb_id: cbId, ofx: ofx.length, mov: mov.length, total: totalOfx };
+      return this.conciliarNaTrx(trx, emp, op, dto.codconta, dto.mboIds, dto.codmovcontas, 'manual');
     });
   }
 
+  /**
+   * CONCILIAÇÃO AUTOMÁTICA (`ConfirmaConciliacaoAutomatica`, :314-520): cada par sugerido (uma linha do extrato ↔ um movimento
+   * ou um lote inteiro) é o SEU evento CB, e cada movimento fica LIBERADO na data da própria emissão (:354, :452).
+   */
+  async conciliarAutomatica(dto: { codconta: number; pares: Array<{ mboId: number; codmovcontas: number[] }> }): Promise<{ conciliacoes: number; ofx: number; mov: number }> {
+    const emp = this.emp();
+    const op = this.op();
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      await this.contaDaEmpresa(trx, dto.codconta, emp);
+      let mov = 0;
+      for (const p of dto.pares) {
+        const r = await this.conciliarNaTrx(trx, emp, op, dto.codconta, [p.mboId], p.codmovcontas, 'automatica');
+        mov += r.mov;
+      }
+      return { conciliacoes: dto.pares.length, ofx: dto.pares.length, mov };
+    });
+  }
+
+  private async conciliarNaTrx(trx: AnyDB, emp: number, op: number | null, codconta: number, mboIdsIn: number[], movIdsIn: number[], modo: 'manual' | 'automatica'): Promise<{ cb_id: number; ofx: number; mov: number; total: number }> {
+    const mboIds = Array.from(new Set(mboIdsIn.map(Number)));
+    const movIds = Array.from(new Set(movIdsIn.map(Number)));
+    // trava + valida as linhas do extrato (da conta, não-conciliadas).
+    const ofx = (await trx.selectFrom('movimentacao_bancaria_ofx').select(['mbo_id', 'mbo_valor', 'mbo_credito_debito', sql<string>`to_char((mbo_data AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD')`.as('data')]).where('mbo_id', 'in', mboIds).where('codconta', '=', codconta).where('idempresa', '=', emp).where(sql`coalesce(mbo_conciliado,'N')`, '=', 'N').orderBy('mbo_id').forUpdate().execute()) as Array<{ mbo_id: number; mbo_valor: unknown; mbo_credito_debito: string; data: string }>;
+    if (ofx.length !== mboIds.length) throw new BusinessRuleError('OFX_LINHA_INDISPONIVEL', { esperado: mboIds.length, achado: ofx.length });
+    // trava + valida os lançamentos do razão (da conta, não-conciliados).
+    const mov = (await trx.selectFrom('mov_contas_bancarias').select(['codmovconta', 'valor', 'tipomovimento', 'idlote']).where('codmovconta', 'in', movIds).where('codconta', '=', codconta).where('idempresa', '=', emp).where(sql`coalesce(mov_conciliado,'N')`, '=', 'N').forUpdate().execute()) as Array<{ codmovconta: number; valor: unknown; tipomovimento: string }>;
+    if (mov.length !== movIds.length) throw new BusinessRuleError('MOV_LANCAMENTO_INDISPONIVEL', { esperado: movIds.length, achado: mov.length });
+
+    // corte-3 (mig 276): **o LOTE não se concilia pela metade**. `ValidaSelecaoLoteCompleto` do legado
+    // (UDMConciliacaoBancaria.pas) acusa 'O lote %d não foi conciliado totalmente' e desmarca o lote inteiro.
+    // Uma baixa em lote vira UM movimento no extrato: conciliar parte casaria valor errado e deixaria o resto
+    // órfão, sem o movimento do banco para casar depois. No cliente, 206.211 de 291.484 lançamentos têm lote.
+    const lotesSelecionados = Array.from(new Set(mov.map((m: any) => (m.idlote == null ? null : Number(m.idlote))).filter((l): l is number => l != null)));
+    for (const lote of lotesSelecionados) {
+      const doLote = (await trx.selectFrom('mov_contas_bancarias').select(['codmovconta'])
+        .where('codconta', '=', codconta).where('idempresa', '=', emp).where('idlote', '=', lote)
+        .where(sql`coalesce(mov_conciliado, 'N')`, '=', 'N').execute()) as Array<{ codmovconta: number }>;
+      const faltando = doLote.map((l) => Number(l.codmovconta)).filter((id) => !movIds.includes(id));
+      if (faltando.length) {
+        throw new BusinessRuleError('LOTE_INCOMPLETO', { idlote: lote, selecionados: doLote.length - faltando.length, faltando });
+      }
+    }
+    // Σ valores COM SINAL iguais (fold auditoria [MÉDIA]: débito conta negativo, crédito positivo — senão uma
+    // seleção mista C/D fecharia por magnitude mas com direções trocadas). Fiel: total interno = total OFX.
+    const totalOfx = r2(ofx.reduce((s, o) => s + (String(o.mbo_credito_debito) === 'D' ? -num(o.mbo_valor) : num(o.mbo_valor)), 0));
+    const totalMov = r2(mov.reduce((s, m) => s + (String(m.tipomovimento) === 'D' ? -num(m.valor) : num(m.valor)), 0));
+    if (totalOfx !== totalMov) throw new BusinessRuleError('CONCILIACAO_TOTAIS_DIVERGENTES', { totalOfx, totalMov });
+
+    const dataExtrato = modo === 'manual' ? ofx[ofx.length - 1].data : null;
+    const cbId = await this.registrarConciliacao(trx, emp, op, codconta, ofx.map((o) => Number(o.mbo_id)), mov.map((m) => Number(m.codmovconta)), dataExtrato);
+    return { cb_id: cbId, ofx: ofx.length, mov: mov.length, total: totalOfx };
+  }
+
   /** o evento de conciliação: 1 CB + as junções dos dois lados + a marca de conciliado em cada linha. */
-  private async registrarConciliacao(trx: AnyDB, emp: number, op: number | null, codconta: number, mboIds: number[], movIds: number[]): Promise<number> {
+  /**
+   * `dataLiberacao`: a data em que os lançamentos ficam LIBERADOS (`MarcaConciliadoMov`: LIBERADO 'S', MOV_CONCILIADO 'S',
+   * DTLIBERACAO) — a do extrato na manual; nula = a emissão de cada lançamento (a automática e o lançamento pelo extrato).
+   */
+  private async registrarConciliacao(trx: AnyDB, emp: number, op: number | null, codconta: number, mboIds: number[], movIds: number[], dataLiberacao: string | null = null): Promise<number> {
     const cb = await trx.insertInto('conciliacao_bancaria').values({ idempresa: emp, codconta, cb_data: sql`now()`, cb_operador: op }).returning('cb_id').executeTakeFirstOrThrow();
     const cbId = Number((cb as any).cb_id);
     for (const id of mboIds) {
@@ -198,7 +234,10 @@ export class ConciliacaoBancariaService {
     }
     for (const id of movIds) {
       await trx.insertInto('conciliacao_bancaria_mov').values({ cb_id: cbId, codmovconta: id }).execute();
-      await trx.updateTable('mov_contas_bancarias').set({ mov_conciliado: 'S' }).where('codmovconta', '=', id).where('idempresa', '=', emp).execute();
+      await trx.updateTable('mov_contas_bancarias').set({
+        mov_conciliado: 'S', liberado: 'S',
+        dtliberacao: dataLiberacao ? sql`${dataLiberacao}::date` : sql`((dtemissao AT TIME ZONE 'America/Sao_Paulo')::date)`,
+      }).where('codmovconta', '=', id).where('idempresa', '=', emp).execute();
     }
     return cbId;
   }

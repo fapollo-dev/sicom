@@ -38,3 +38,8 @@ export function conciliar(codconta: number, mboIds: number[], codmovcontas: numb
 export function lancarAutomaticos(codconta: number): Promise<{ codconta: number; lancados: number }> {
   return req('/cadastro/conciliacao-bancaria/lancamentos-automaticos', { method: 'POST', body: JSON.stringify({ codconta }) });
 }
+
+/** confirma a conciliação AUTOMÁTICA: um evento por par sugerido (linha do extrato ↔ movimento ou lote inteiro) */
+export function conciliarAutomatica(codconta: number, pares: Array<{ mboId: number; codmovcontas: number[] }>): Promise<{ conciliacoes: number; ofx: number; mov: number }> {
+  return req('/cadastro/conciliacao-bancaria/conciliar-automatica', { method: 'POST', body: JSON.stringify({ codconta, pares }) });
+}

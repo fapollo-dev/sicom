@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
-import { importarOfxSchema, importarOfxArquivoSchema, conciliarSchema, lancarAutomaticosSchema, type ImportarOfxDto, type ImportarOfxArquivoDto, type ConciliarDto, type LancarAutomaticosDto } from '@apollo/shared';
+import { importarOfxSchema, importarOfxArquivoSchema, conciliarSchema, conciliarAutomaticaSchema, lancarAutomaticosSchema, type ImportarOfxDto, type ImportarOfxArquivoDto, type ConciliarDto, type ConciliarAutomaticaDto, type LancarAutomaticosDto } from '@apollo/shared';
 import { ConciliacaoBancariaService } from './conciliacao-bancaria.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -42,6 +42,14 @@ export class ConciliacaoBancariaController {
   @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNGRAVAR')
   sugestoes(@Query('codconta', ParseIntPipe) codconta: number) {
     return this.svc.sugerir(codconta);
+  }
+
+  /** a conciliação AUTOMÁTICA confirmada: um evento por par, cada movimento liberado na data da sua emissão */
+  @Post('conciliar-automatica')
+  @HttpCode(200)
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNGRAVAR')
+  conciliarAutomatica(@Body(new ZodValidationPipe(conciliarAutomaticaSchema)) body: ConciliarAutomaticaDto) {
+    return this.svc.conciliarAutomatica({ codconta: body.codconta, pares: body.pares });
   }
 
   /** concilia os selecionados (Σ valores iguais) → evento CB + marca os dois lados. */

@@ -76,3 +76,15 @@ própria — nenhum fluxo do Apollo gravava na CAIXA até aqui.
 ⚠️ **Adiado, com o motivo**: as regras T (5.254) e o `TIPO_DESCRICAO='3'` (2 regras T) — sem nenhum movimento do
 cliente gerado por elas, não há efeito para copiar. E o gatilho: no legado não se sabe se o lançamento roda ao
 importar ou por comando (os 17 têm datas de linha variadas); aqui é um comando explícito.
+
+## Corte "conciliar libera" (25/09/2026) — auditoria de esqueletos §4.7
+
+- **A conciliação libera o lançamento** (`MarcaConciliadoMov`, UDMConciliacaoBancaria.pas:636): LIBERADO 'S', MOV_CONCILIADO
+  'S' e DTLIBERACAO — na **manual** a data da linha do extrato (`MBO_DATA`; com várias, a da última), na **automática** a
+  emissão de cada movimento (:354, :452). O Apollo só marcava MOV_CONCILIADO: pelo AUDIT, 1.721 movimentos conciliados
+  estavam 'N' e o legado os liberou — aqui seguiam "a prazo" e fora do saldo do controle de contas.
+- **A automática confirmada** (`ConfirmaConciliacaoAutomatica`, :314-520) é um evento CB por par (linha do extrato ↔ movimento
+  ou lote inteiro): `POST conciliar-automatica`; a tela guarda os pares sugeridos e ganha "Confirmar automática (N)".
+- **A data do movimento é a emissão** (`TRUNC(DTEMISSAO)`, UDMConciliacaoBancaria.dfm:166-172) em pendentes e na sugestão —
+  DATA_FECHAMENTO (do fechamento de caixa) é nula em 73% das linhas de 2025-26, e a sugestão não casava sobre dado migrado.
+  A data do extrato sai como 'YYYY-MM-DD' no fuso de São Paulo nos dois lados.

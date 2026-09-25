@@ -40,6 +40,16 @@ export const conciliarSchema = z.object({
 });
 export type ConciliarDto = z.infer<typeof conciliarSchema>;
 
+/** CONCILIAÇÃO AUTOMÁTICA (`ConfirmaConciliacaoAutomatica`): cada par sugerido (uma linha do extrato ↔ um movimento ou um lote inteiro) vira o seu evento */
+export const conciliarAutomaticaSchema = z.object({
+  codconta: z.coerce.number().int().positive(),
+  pares: z.array(z.object({
+    mboId: z.coerce.number().int().positive(),
+    codmovcontas: z.array(z.coerce.number().int().positive()).min(1),
+  })).min(1, 'Nenhum par a conciliar.'),
+});
+export type ConciliarAutomaticaDto = z.infer<typeof conciliarAutomaticaSchema>;
+
 /** LANÇAMENTO AUTOMÁTICO DO EXTRATO (mig 298): aplica as regras 'N' da conta às linhas pendentes. */
 export const lancarAutomaticosSchema = z.object({ codconta: z.coerce.number().int().positive() });
 export type LancarAutomaticosDto = z.infer<typeof lancarAutomaticosSchema>;
