@@ -72,10 +72,10 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
 | `PLC_BI0` | PLC | BEFORE INSERT | CODPLC := sequência | sim | `migrations/349_plc_cadastro.sql:5` | ✅ |
 | `COTACAO_FORN_BI` | COTACAO_FORN | BEFORE INSERT | CODCTCFORN := sequência. O fonte desliga ao gravar com código próprio (`uCadCotacaoForn.pas:640-673`) | sim | `migrations/091_cotacao.sql:49` (bigserial) | ✅ |
 | `COTACAO_FORN_ITENS_BI` | COTACAO_FORN_ITENS | BEFORE INSERT | CODCTCFIT := sequência (idem) | sim | `migrations/091_cotacao.sql:60` | ✅ |
-| `RECEITA_PROD_HIST` | RECEITA_PROD | BEFORE I/U/D | Histórico I/U/D da receita em RECEITA_PROD_HIST (lido em "Histórico de modificações – Receitas", `UCadProduto.pas:3414`) | sim: 858, última 15/10/2025 | a tabela veio na carga (`migrations/311_todos_os_dados.sql:153`); ninguém grava | ❌ |
-| `PRODUCAO_HIST` | PRODUCAO | BEFORE I/U/D | Histórico da ordem de produção. O SPED lê para o K270/K275 (`UdmSpedFiscal.pas:1586-1602`) | parado: 79, última 01/10/2024 | a tabela não existe no destino | ❌ |
-| `ITENS_PRODUCAO_HIST` | ITENS_PRODUCAO | BEFORE I/U/D | Idem, itens (SPED, `Uspedfiscal.pas:1849`) | parado: 52, 10/2024 | não existe | ❌ |
-| `ITENS_PRODUCAO_RECEITA_HIST` | ITENS_PRODUCAO_RECEITA | BEFORE I/U/D | Idem, insumos (SPED, `Uspedfiscal.pas:1860`) | parado: 563, 10/2024 | não existe | ❌ |
+| `RECEITA_PROD_HIST` | RECEITA_PROD | BEFORE I/U/D | Histórico I/U/D da receita em RECEITA_PROD_HIST (lido em "Histórico de modificações – Receitas", `UCadProduto.pas:3414`) | sim: 858, última 15/10/2025 | ✅ (25/09/2026) o cadastro de produto grava só o que mudou (`produto.aggregate.ts`); sequência na mig 373 | ✅ |
+| `PRODUCAO_HIST` | PRODUCAO | BEFORE I/U/D | Histórico da ordem de produção. O SPED lê para o K270/K275 (`UdmSpedFiscal.pas:1586-1602`) | parado: 79, última 01/10/2024 | a tabela não existe no destino | ⛔ fora: MORTA (OPTANTE_BLOCOK=N; `conferir-tabelas-fora.py`) |
+| `ITENS_PRODUCAO_HIST` | ITENS_PRODUCAO | BEFORE I/U/D | Idem, itens (SPED, `Uspedfiscal.pas:1849`) | parado: 52, 10/2024 | não existe | ⛔ fora: MORTA (idem) |
+| `ITENS_PRODUCAO_RECEITA_HIST` | ITENS_PRODUCAO_RECEITA | BEFORE I/U/D | Idem, insumos (SPED, `Uspedfiscal.pas:1860`) | parado: 563, 10/2024 | não existe | ⛔ fora: MORTA (idem) |
 | `ESTOQUE` | VENDAS | AFTER I/U | Baixa/estorna ESTOQUE (ou congelado) por item do PDV, Kardex "BAIXA DE ESTOQUE DERIVADO DO PDV", DTVENDA/QTDE_VENDA, PRODUTOS.ULTIMAVENDA, carimba PEDIDOS; cancelamento apaga CX_VENDAS, ARECEBER e CHEQUE | sim: 1,8 mi linhas de Kardex em 2026 | PDV | FORA |
 | `CASCATA_ESTOQUE` | VENDAS | BEFORE I/U | Produto com COMPOSICAO='S': baixa/estorna os componentes | sim (9 produtos compostos) | PDV | FORA |
 | `VENDA_ESTOQUE_CLUBE_DESCONTO` | VENDAS | AFTER I/U | Soma/abate CLUBE_DESCONTO.VENDA_ESTOQUE | sim | PDV | FORA |
@@ -148,9 +148,9 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
     é regravado por delete+insert. A exclusão da agenda é lógica e não dispara (como no legado).
 13. ✅ **`REM_PARCEIROS` (corrigido em 25/09/2026, mig 372 + `parceiro.aggregate.ts`).** Inativar o parceiro não inativava endereços, relacionados e
     pagamentos. Agora o gatilho do banco cascateia (a REMESSA_SERVER do PDV fica fora) e o cadastro acompanha nos endereços.
-14. **`RECEITA_PROD_HIST`, `PRODUCAO_HIST`, `ITENS_PRODUCAO_HIST`, `ITENS_PRODUCAO_RECEITA_HIST` (❌, fiscal/auditoria,
-    baixo).** O histórico para na virada. O SPED do legado usa os três de produção no K270/K275. As três tabelas de
-    produção nem existem no destino. Produção parada desde 10/2024.
+14. ✅ **`RECEITA_PROD_HIST` (corrigido em 25/09/2026, `produto.aggregate.ts` + mig 373)** — o histórico da receita só do que mudou (I/U/D), com o
+    CODRECEITA estável. ⛔ **`PRODUCAO_HIST`, `ITENS_PRODUCAO_HIST`, `ITENS_PRODUCAO_RECEITA_HIST` ficam fora**, com o veredito MORTA de
+    `tools/cutover/conferir-tabelas-fora.py`: a empresa tem OPTANTE_BLOCOK=N (o K270/K275 que os lê não é gerado) e a produção parou em 10/2024.
 15. **`VALIDA_AGRUPAMENTO` (❌, financeiro, baixo).** Sem a trava de CODGRUPO = 0. O Apollo usa sequência.
 16. **`ATUALIZAPROD_ATACAREJO` (❌, preço, baixo).** A tabela MULTI_PRECO_ATACAREJO não existe no destino (3 linhas).
 
