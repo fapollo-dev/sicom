@@ -565,3 +565,14 @@ da tabela do fornecedor) e na consulta dos associados (uPedidoCompra.dfm:4972). 
   fornecedor repetido é ignorado (o Locate do BtnAdicionar); um PUT que não traz a lista não a apaga (o pedido também
   desassocia, por fora da tela);
 - `seq_pfd` (o `ID_PFD_ID` do legado) e um par por (fornecedor, produto) — a produção não tem repetição.
+
+## Corte "parcelas a cada gravação" (25/09/2026) — auditoria de esqueletos §4.11
+
+- **As parcelas acompanham o total a cada gravação**: o legado chama `RatearTotalNasParcelas(False)` no gravar
+  (uPedidoCompra.pas:6866) e `SalvaParcelas` depois (`EventoDepoisGravar`, :696). O Apollo só gravava pelo botão ou quando o
+  dto as trazia — depois de editar os itens as parcelas ficavam velhas, e são elas que alimentam o limite por dia/semana
+  (TIPO_FLUXO_CAIXA_PC='D'; 1.385 de 1.658 pedidos). Agora `reratearParcelas` (`compras/pedido-parcelas.ts`, o rateio por loja
+  extraído do serviço) roda no aposGravar; como no legado, a parcela digitada à mão é sobrescrita e, sem prazo nenhum, as
+  parcelas ficam como estão.
+- **CODCOMPRADOR** do PEDIDO_COMPRA_QTDE (coluna do binário novo; 88.121 de 89.322 preenchidos): o motor reconstrói o neto, então
+  a linha regravada reaplica o de antes e a nova leva o operador.

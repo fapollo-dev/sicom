@@ -6,6 +6,7 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 import { estadoFechamento, lojaFechada, lojaRecebeu, lojasDoPedido, novoHistorico } from './pedido-lojas';
 import { SenhaOperacaoService } from '../cadastro/senha-operacao.service';
 import { herdarDoCatalogo } from './pedido-heranca';
+import { prazosDoPedido, rateioPorLoja, totaisPorLoja } from './pedido-parcelas';
 import { CAMPOS_HERDADOS_ITEM } from '@apollo/shared';
 import { gravarHistorico, gravarHistoricoMarca } from '../../shared/crud/historico';
 import { ConfigService } from '../cadastro/config.service';
@@ -107,7 +108,7 @@ export class PedidoCompraService {
    * jeito — a liberação que a mensagem pede não travava nada. No cliente a meta é nula nas 5 empresas.
    */
   private async validarMetaDiaria(trx: AnyDB, codpedcomp: number, pc: Record<string, unknown>, senhaAdm?: string): Promise<void> {
-    const lojas = (await this.totaisPorLoja(trx, codpedcomp, pc.empresas, pc.idempresa as number | null)).map((t) => t.idempresa);
+    const lojas = (await totaisPorLoja(trx, codpedcomp, pc.empresas, pc.idempresa as number | null)).map((t) => t.idempresa);
     const excedidas: Array<{ idempresa: number; meta: number; total: number }> = [];
     for (const loja of lojas) {
       const r = (await sql<{ meta: unknown; total: unknown }>`
@@ -156,64 +157,6 @@ export class PedidoCompraService {
   }
 
   /**
-   * O TOTAL DE CADA LOJA do pedido (`sqqTotalPedido`, udmPedidoCompra.dfm:3939: Σ PEDIDO_COMPRA_QTDE.TOTALCUSTO por
-   * IDEMPRESA), em centavos, na ordem da loja. A loja do CSV sem linha entra com zero — o legado a acrescenta ao
-   * `cdsTotalPedido` com TOTALCUSTO 0 (uPedidoCompra.pas:857, :4544) e ela ganha parcelas zeradas (222 na produção,
-   * 2025-26). Pedido sem linha por loja nenhuma (legado anterior à mig 303): a soma dos itens, na loja dona.
-   */
-  private async totaisPorLoja(trx: AnyDB, codpedcomp: number, empresas: unknown, idempresa: number | null): Promise<Array<{ idempresa: number; cents: number }>> {
-    const rows = (await sql<{ idempresa: number; s: unknown }>`
-        SELECT q.idempresa, sum(q.totalcusto) AS s
-          FROM pedido_compra_qtde q
-          JOIN pedidocompra_i i ON i.codpedcompi = q.codpedcompi
-         WHERE i.codpedcomp = ${codpedcomp}
-         GROUP BY q.idempresa
-         ORDER BY q.idempresa`.execute(trx)).rows;
-    const lojas = lojasDoPedido(empresas, idempresa);
-    if (!rows.length) {
-      const tot = (await trx.selectFrom('pedidocompra_i').select(({ fn }: any) => [fn.sum('totalcusto').as('s')])
-        .where('codpedcomp', '=', codpedcomp).executeTakeFirst()) as { s?: unknown } | undefined;
-      return [{ idempresa: lojas[0] ?? Number(idempresa), cents: Math.round(num(tot?.s) * 100) }];
-    }
-    const out = rows.map((r) => ({ idempresa: Number(r.idempresa), cents: Math.round(num(r.s) * 100) }));
-    for (const l of lojas) if (!out.some((o) => o.idempresa === l)) out.push({ idempresa: l, cents: 0 });
-    return out;
-  }
-
-  /**
-   * O RATEIO (`RatearTotalNasParcelas`, uPedidoCompra.pas:8892) — POR LOJA: para cada loja do `cdsTotalPedido`,
-   * VALOR = round(total DA LOJA / nº de prazos), a SOBRA na PRIMEIRA (Σ = total da loja ao centavo), a mesma data
-   * para todas as lojas (base + CDn; na produção 1.521 de 1.521 parcelas têm a mesma data nas duas lojas).
-   * Pedido de uma loja só = um grupo, o comportamento de sempre.
-   */
-  private rateioPorLoja(totais: Array<{ idempresa: number; cents: number }>, prazos: number[], baseISO: string):
-    Array<{ idempresa: number; parcela: number; data: string; valor: number; dias: number }> {
-    const out: Array<{ idempresa: number; parcela: number; data: string; valor: number; dias: number }> = [];
-    const n = prazos.length;
-    for (const t of totais) {
-      const valorCents = Math.round(t.cents / n);
-      const residuo = t.cents - valorCents * n;
-      prazos.forEach((dias, i) => {
-        const dt = new Date(`${baseISO}T00:00:00Z`);
-        dt.setUTCDate(dt.getUTCDate() + dias);
-        out.push({ idempresa: t.idempresa, parcela: i + 1, data: dt.toISOString().slice(0, 10), valor: (valorCents + (i === 0 ? residuo : 0)) / 100, dias });
-      });
-    }
-    return out;
-  }
-
-  /** os prazos efetivos: CD1..CD8 do PEDIDO (override); se nenhum, os da CONDIÇÃO (codconpagto). */
-  private async prazosDoPedido(trx: AnyDB, pc: Record<string, unknown>): Promise<number[]> {
-    let prazos = CD_COLS.map((c) => pc[c]).filter((v) => v != null && v !== '').map((v) => Number(v));
-    if (prazos.length === 0 && pc.codconpagto != null) {
-      const cond = (await trx.selectFrom('condicoes_pagto').select([...CD_COLS])
-        .where('codconpagto', '=', Number(pc.codconpagto)).executeTakeFirst()) as Record<string, unknown> | undefined;
-      if (cond) prazos = CD_COLS.map((c) => cond[c]).filter((v) => v != null && v !== '').map((v) => Number(v));
-    }
-    return prazos;
-  }
-
-  /**
    * a trava de FATURADO para a loja (mig 303): no multi-loja, a nota DA LOJA vinculada ao pedido (a da loja 1 não
    * trava a loja 2); na loja só, o marcador `dtfaturamento` do cabeçalho — o comportamento de sempre.
    */
@@ -241,15 +184,15 @@ export class PedidoCompraService {
       if (await this.faturadoNaLoja(trx, pc, codpedcomp, emp)) throw new BusinessRuleError('PEDIDO_FATURADO', { codpedcomp });
       await this.exigirEditavel(trx, codpedcomp, emp, pc.fechado); // mig 303: trava por loja
 
-      const prazos = await this.prazosDoPedido(trx, pc);
+      const prazos = await prazosDoPedido(trx, pc);
       if (prazos.length === 0) throw new BusinessRuleError('PEDIDO_SEM_CONDICAO_PAGTO', { codpedcomp });
 
       // total = Σ TOTALCUSTO (078, FLIP: TOTALCUSTO = QTDE×VLREMBALAGEM, fiel ao sqqTotalPedido) — agora POR LOJA.
-      const totais = await this.totaisPorLoja(trx, codpedcomp, pc.empresas, pc.idempresa as number | null);
+      const totais = await totaisPorLoja(trx, codpedcomp, pc.empresas, pc.idempresa as number | null);
       const totalCents = totais.reduce((s, t) => s + t.cents, 0);
       if (totalCents <= 0) throw new BusinessRuleError('PEDIDO_SEM_VALOR', { codpedcomp });
 
-      const parcelas = this.rateioPorLoja(totais, prazos, String(pc.base));
+      const parcelas = rateioPorLoja(totais, prazos, String(pc.base));
       await trx.deleteFrom('pedidocompra_parcelas').where('codpedcomp', '=', codpedcomp).execute();
       for (const p of parcelas) {
         await trx.insertInto('pedidocompra_parcelas').values({
@@ -297,14 +240,14 @@ export class PedidoCompraService {
       .where('codpedcomp', '=', codpedcomp)
       .executeTakeFirst()) as Record<string, unknown> | undefined;
     if (!pc) return [];
-    const totais = (await this.totaisPorLoja(trx, codpedcomp, pc.empresas, pc.idempresa as number | null))
+    const totais = (await totaisPorLoja(trx, codpedcomp, pc.empresas, pc.idempresa as number | null))
       .filter((t) => !comNf.has(t.idempresa));
     const totalCents = totais.reduce((s, t) => s + t.cents, 0);
     if (totalCents <= 0) return [];
-    const prazos = await this.prazosDoPedido(trx, pc);
+    const prazos = await prazosDoPedido(trx, pc);
     const baseISO = String(pc.base);
     if (prazos.length === 0) return [{ data: baseISO, valor: totalCents / 100 }];
-    return this.rateioPorLoja(totais, prazos, baseISO).map((p) => ({ data: p.data, valor: p.valor }));
+    return rateioPorLoja(totais, prazos, baseISO).map((p) => ({ data: p.data, valor: p.valor }));
   }
 
   /**

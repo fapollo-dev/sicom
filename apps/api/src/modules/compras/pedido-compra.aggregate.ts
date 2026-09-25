@@ -7,6 +7,7 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { derivarPisCofinsRentabPedido } from '../shared/piscofins-rentab';
 import { estadoFechamento, formatarEmpresas, lojaFechada, lojaRecebeu, lojasDoPedido, quantidadesPorLoja } from './pedido-lojas';
 import { configNaTrx, herdarDoCatalogo } from './pedido-heranca';
+import { reratearParcelas } from './pedido-parcelas';
 
 /**
  * PEDIDO DE COMPRA (FRMPEDIDOCOMPRA) — a MAIOR tela do legado. Corte-1: NÚCLEO cadastro, agregado
@@ -88,6 +89,10 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
   derivar: (dto) => (dto.empresas === undefined || dto.empresas === null || dto.empresas === ''
     ? {} : { empresas: formatarEmpresas(lojasDoPedido(dto.empresas)) }),
   colunasPesquisa: ['codpedcomp', 'codparceiro', 'fornecedor', 'data', 'fechado', 'total', 'empresas'],
+  // as parcelas acompanham o total a cada gravação (`RatearTotalNasParcelas` + `EventoDepoisGravar := SalvaParcelas`)
+  aposGravarTrx: async ({ trx, id }) => {
+    await reratearParcelas(trx, id);
+  },
   detalhes: [
     {
       tabela: 'pedidocompra_i',
@@ -177,21 +182,34 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
           .where('codpedcomp', '=', masterId).orderBy('codpedcompi').execute()) as Array<Record<string, unknown>>) {
           if (!anteriores.has(Number(r.idproduto))) anteriores.set(Number(r.idproduto), r);
         }
-        return { fechadas: (await estadoFechamento(trx, masterId)).lojas.filter((l) => l.fechado), anteriores };
+        // CODCOMPRADOR de cada loja de cada produto (88.121 de 89.322 linhas preenchidas no cliente): o motor reconstrói o neto,
+        // então a linha regravada o reaplica; a nova leva o operador que a digitou (auditoria de esqueletos §4.11)
+        const compradores = new Map<string, number | null>();
+        for (const r of (await sql<{ idproduto: number; idempresa: number; codcomprador: number | null }>`
+            SELECT i.idproduto, q.idempresa, q.codcomprador FROM pedido_compra_qtde q JOIN pedidocompra_i i ON i.codpedcompi = q.codpedcompi
+             WHERE i.codpedcomp = ${masterId}`.execute(trx)).rows) {
+          const k = `${Number(r.idproduto)}|${Number(r.idempresa)}`;
+          if (!compradores.has(k)) compradores.set(k, r.codcomprador == null ? null : Number(r.codcomprador));
+        }
+        return { fechadas: (await estadoFechamento(trx, masterId)).lojas.filter((l) => l.fechado), anteriores, compradores };
       },
       aposInserirItensTrx: async ({ trx, itens, snapshot }) => {
         const fechadas = new Map((((snapshot as { fechadas?: Array<{ idempresa: number; data_fechamento: unknown; codoperador: number | null }> } | undefined)?.fechadas) ?? [])
           .map((l) => [l.idempresa, l]));
+        const compradores = (snapshot as { compradores?: Map<string, number | null> } | undefined)?.compradores;
+        const op = currentTenant().operadorId ?? null;
         const linhas: Record<string, unknown>[] = [];
         for (const it of itens) {
           for (const l of (it.lojas as Array<{ idempresa: number; qtde: number }>) ?? []) {
             const f = fechadas.get(l.idempresa);
+            const k = `${Number(it.idproduto)}|${Number(l.idempresa)}`;
             linhas.push({
               codpedcompi: it.codpedcompi, idempresa: l.idempresa, qtde: l.qtde,
               qtdtotal: r4(l.qtde * num(it.fatorembalagem)),
               totalcusto: Math.round((l.qtde * num(it.vlrembalagem) + Number.EPSILON) * 100) / 100,
               fechado: f ? 'S' : null, data_fechamento: f ? f.data_fechamento : null, codoperador: f ? f.codoperador : null,
               digitacao_fechada: 'N',
+              codcomprador: compradores?.has(k) ? compradores.get(k) : op,
             });
           }
         }

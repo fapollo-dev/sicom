@@ -7285,6 +7285,7 @@ async function main() {
         await pgRv.query(`DELETE FROM nfe_nao_cadastradas_itens WHERE chavenfe='35261200000000000000000000000000000000990995'`);
         await pgRv.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad=990995`);
         await pgRv.query(`DELETE FROM pedidocompra_i WHERE codpedcomp=$1`, [pedMot.codpedcomp]);
+        await pgRv.query(`DELETE FROM pedidocompra_parcelas WHERE codpedcomp=$1`, [pedMot.codpedcomp]);
         await pgRv.query(`DELETE FROM pedidocompra WHERE codpedcomp=$1`, [pedMot.codpedcomp]);
         await pgRv.query(`DELETE FROM produtos WHERE idproduto IN (990996,990997,990998)`);
 
@@ -8027,12 +8028,19 @@ async function main() {
     const genC = await fetch(`${base}/${PED}/${pcCId}/gerar-parcelas`, { method: 'POST', headers: H });
     check('4c-2: gerar-parcelas sem condição/CD → 422 PEDIDO_SEM_CONDICAO_PAGTO', genC.status === 422 && ((await genC.json().catch(() => ({}))) as any).code === 'PEDIDO_SEM_CONDICAO_PAGTO', { status: genC.status });
 
-    // 48P.5) parcelas EDITÁVEIS via PUT (2º detalhe) — o operador ajusta valores/datas.
+    // 48P.5) a gravação RE-RATEIA as parcelas pela condição (`RatearTotalNasParcelas` no gravar + `SalvaParcelas` depois,
+    // uPedidoCompra.pas:6866/:696 — auditoria de esqueletos §4.11): a parcela digitada à mão não sobrevive, e editar os itens
+    // atualiza as parcelas (antes ficavam velhas e alimentavam o limite de valor por dia/semana)
     const putParc = await fetch(`${base}/${PED}/${pcAId}`, { method: 'PUT', headers: H, body: JSON.stringify({ parcelas: [{ parcela: 1, valor: 100, data: '2026-12-01', qtdediasaposfaturamento: 0 }] }) });
     const pcAread2 = (await (await fetch(`${base}/${PED}/${pcAId}`, { headers: H })).json()) as any;
-    check('4c-2: parcelas editáveis via PUT (2º detalhe) → substitui (1 parcela de 100)',
-      (putParc.status === 200 || putParc.status === 201) && (pcAread2.parcelas ?? []).length === 1 && Number(pcAread2.parcelas[0].valor) === 100,
-      { status: putParc.status, parcelas: pcAread2.parcelas });
+    const parcA2 = ((pcAread2.parcelas ?? []) as any[]).slice().sort((a, b) => a.parcela - b.parcela);
+    const pgQc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+    const qtdeComprador = (await pgQc.query(`SELECT count(*) FILTER (WHERE q.codcomprador = 7)::int AS c, count(*)::int AS n FROM pedido_compra_qtde q JOIN pedidocompra_i i ON i.codpedcompi = q.codpedcompi WHERE i.codpedcomp = $1`, [pcAId])).rows[0] as any;
+    check('4c-2: a gravação re-rateia as parcelas pela condição 30/60/90 (a parcela de 100 digitada vira 33,34/33,33/33,33, como no legado) e a quantidade da loja leva o CODCOMPRADOR (o operador)',
+      (putParc.status === 200 || putParc.status === 201) && parcA2.length === 3 && Number(parcA2[0].valor) === 33.34 && Number(parcA2[2].valor) === 33.33
+      && Number(qtdeComprador?.n) > 0 && Number(qtdeComprador?.c) === Number(qtdeComprador?.n),
+      { status: putParc.status, parcelas: pcAread2.parcelas, qtdeComprador });
+    await pgQc.end();
 
     // 48P.6) gerar-parcelas em pedido FECHADO → 422 PEDIDO_FECHADO (é uma edição; reabra antes).
     await fetch(`${base}/${PED}/${pcBId}/fechar`, { method: 'POST', headers: H });
@@ -16044,6 +16052,7 @@ async function main() {
 
         await pgPp.query(`DELETE FROM historico_prod WHERE idproduto = ${PP}`);
         await pgPp.query(`DELETE FROM pedidocompra_i WHERE idproduto = ${PP}`);
+        await pgPp.query(`DELETE FROM pedidocompra_parcelas WHERE codpedcomp = $1`, [pcId]);
         await pgPp.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [pcId]);
         await pgPp.query(`DELETE FROM nf_prod WHERE codnf = $1`, [nfE]);
         await pgPp.query(`DELETE FROM nf WHERE codnf = $1`, [nfE]);
@@ -16302,6 +16311,7 @@ async function main() {
 
         await pgRa.query(`DELETE FROM analise_pedido_nf WHERE apn_id IN (991801,991802,991803,991804)`);
         await pgRa.query(`DELETE FROM nfe_nao_cadastradas WHERE codnfe_naocad IN (991811,991812,991813)`);
+        await pgRa.query(`DELETE FROM pedidocompra_parcelas WHERE codpedcomp IN ($1,$2,$3)`, [pc1, pc2, pc3]);
         await pgRa.query(`DELETE FROM pedidocompra WHERE codpedcomp IN ($1,$2,$3)`, [pc1, pc2, pc3]);
       } finally {
         await pgRa.end();
@@ -18720,6 +18730,7 @@ async function main() {
 
         await pgMl.query(`DELETE FROM pedido_compra_historico WHERE codpedcomp = $1`, [cod]);
         await pgMl.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [cod]);
+        await pgMl.query(`DELETE FROM pedidocompra_parcelas WHERE codpedcomp = $1`, [cod]);
         await pgMl.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [cod]);
 
         // ══ §165 — PARCELAS POR LOJA (RatearTotalNasParcelas, uPedidoCompra.pas:8892) ══
@@ -18831,6 +18842,7 @@ async function main() {
           { gM: [gM.status, gMJ], ctM: ctM.codctc ?? ctM, empresas: pedM?.empresas, pcqM });
         if (codM) {
           await pgMl.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [codM]);
+          await pgMl.query(`DELETE FROM pedidocompra_parcelas WHERE codpedcomp = $1`, [codM]);
           await pgMl.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [codM]);
         }
 
@@ -18853,6 +18865,7 @@ async function main() {
           sitOk = Number(itS?.idsituacao_nf) === Number(sit.idsituacao_nf) && impS.lojas?.[0]?.itens?.[0]?.situacao === String(sit.descricao).trim();
           sitInfo = { cS: cS.status, itS, impS: impS.lojas?.[0]?.itens?.[0]?.situacao };
           await pgMl.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [codS]);
+          await pgMl.query(`DELETE FROM pedidocompra_parcelas WHERE codpedcomp = $1`, [codS]);
           await pgMl.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [codS]);
         }
         check('PEDIDO MULTI-LOJA §165.6 [a impressão do pedido é POR LOJA, e o agrupado soma]: o `ped_compra.fr3` agrupa por IDEMPRESA — cada loja com os dados dela (é para onde a mercadoria vai) e a quantidade DELA (`PEDIDO_COMPRA_QTDE`): loja 1 = 3 caixas do produto 1 (18 un., R$ 36) e 1 do produto 2 (R$ 10,01); loja 2 = 5 caixas (30 un., R$ 60). O agrupado soma: 8 caixas (48 un., R$ 96). Condição "30-60-90" (o script do relatório escreve os prazos), total da compra R$ 106,01. E a situação da NF do item herda a do cabeçalho e sai na impressão (mig 305)',
@@ -18885,6 +18898,7 @@ async function main() {
           { cR: cR.status, ped: doR(rPed), parc: parcRel(rPed), rParc: [doR(rParc), parcRel(rParc).length], rFat: doR(rFat), rSess: doR(rSess), erro: rPed.code });
         if (codR) {
           await pgMl.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [codR]);
+          await pgMl.query(`DELETE FROM pedidocompra_parcelas WHERE codpedcomp = $1`, [codR]);
           await pgMl.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [codR]);
         }
 
@@ -18930,6 +18944,7 @@ async function main() {
           && Number(iH3?.ipi) === 6 && Number(iH3?.icmst) === 1.2,
           { cH: cH.status, iH1, iH2, iH3 });
         await pgMl.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [codH]);
+        await pgMl.query(`DELETE FROM pedidocompra_parcelas WHERE codpedcomp = $1`, [codH]);
         await pgMl.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [codH]);
         if (mpAntes) {
           await pgMl.query(`UPDATE multi_preco SET vrcusto = $1, vrcustorep = $2, vrvenda = $3, markup = $4, ipi = $5, icmst = $6, frete = $7, seguro = $8,
@@ -18989,6 +19004,7 @@ async function main() {
           await pgMl.query(`DELETE FROM pedidocompra_parcelas WHERE codpedcomp = $1`, [c]);
           await pgMl.query(`DELETE FROM pedido_compra_historico WHERE codpedcomp = $1`, [c]);
           await pgMl.query(`DELETE FROM pedidocompra_i WHERE codpedcomp = $1`, [c]);
+          await pgMl.query(`DELETE FROM pedidocompra_parcelas WHERE codpedcomp = $1`, [c]);
           await pgMl.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [c]);
         }
       } finally {
