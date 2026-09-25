@@ -11,6 +11,8 @@ import { NcmCadMaster } from '../features/ncm/NcmCadMaster';
 import { CfopCadMaster } from '../features/cfop/CfopCadMaster';
 import { FamiliasCadMaster } from '../features/familias/FamiliasCadMaster';
 import { PlcCadMaster } from '../features/plc/PlcCadMaster';
+import { AliquotasPage } from '../features/aliquotas/AliquotasPage';
+import { UnidadesCadMaster } from '../features/unidades/UnidadesCadMaster';
 import { SituacaoNfCadMaster } from '../features/situacao-nf/SituacaoNfCadMaster';
 import { OperacoesContaCadMaster } from '../features/operacoes-conta/OperacoesContaCadMaster';
 import { ContasBancariasCadMaster } from '../features/contas-bancarias/ContasBancariasCadMaster';
@@ -179,6 +181,8 @@ export const router = createBrowserRouter([
       { path: '/cadastro/cfop', element: <CfopCadMaster /> },
       { path: '/cadastro/familias', element: <FamiliasCadMaster /> },
       { path: '/cadastro/centro-custos', element: <PlcCadMaster /> },
+      { path: '/cadastro/aliquotas', element: <AliquotasPage /> },
+      { path: '/cadastro/unidades', element: <UnidadesCadMaster /> },
       { path: '/cadastro/situacao-documento', element: <SituacaoNfCadMaster /> },
       { path: '/cadastro/operacoes-conta', element: <OperacoesContaCadMaster /> },
       { path: '/cadastro/contas-bancarias', element: <ContasBancariasCadMaster /> },

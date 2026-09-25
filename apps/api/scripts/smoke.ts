@@ -23005,6 +23005,48 @@ async function main() {
       }
     }
 
+    // ══ §234 UNIDADES (FRMCADUNIDADE) e ALÍQUOTAS (FRMCADALIQUOTA) — as duas telas que só tinham a API ═══════════════════════════════
+    {
+      const pgUn = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const U = `${base}/cadastro/unidades`;
+      let novaId = 0;
+      const aliqAntes = (await pgUn.query(`SELECT icm, lei FROM det_aliquota WHERE aliquota = 'T01' AND uf = 'SP'`)).rows[0] as any;
+      try {
+        const cria = await fetch(U, { method: 'POST', headers: H, body: JSON.stringify({ sigla: 'ZQ', descricao: 'SMOKE 234', producao: 'S' }) });
+        const criaJ = (await cria.json().catch(() => ({}))) as any; novaId = Number(criaJ.codunidade) || 0;
+        const dup = await fetch(U, { method: 'POST', headers: H, body: JSON.stringify({ sigla: 'zq', descricao: 'DUPLICADA' }) });
+        const dupJ = (await dup.json().catch(() => ({}))) as any;
+        const longa = await fetch(U, { method: 'POST', headers: H, body: JSON.stringify({ sigla: 'ZQX', descricao: 'LONGA' }) });
+        const ru = (await pgUn.query(`SELECT ativo, producao FROM unidade WHERE codunidade = $1`, [novaId])).rows[0] as any;
+        const delUsada = await fetch(`${U}/1`, { method: 'DELETE', headers: H });
+        const delUsadaJ = (await delUsada.json().catch(() => ({}))) as any;
+        const delLivre = await fetch(`${U}/${novaId}`, { method: 'DELETE', headers: H });
+        const rd = (await pgUn.query(`SELECT indr FROM unidade WHERE codunidade = $1`, [novaId])).rows[0] as any;
+        check('UNIDADES §234.1 [UCadUnidade]: a inclusão grava ATIVO S; a sigla é única sem olhar caixa (zq → 422 UNIDADE_SIGLA_EXISTE) e tem 2 caracteres (UNIDADE.SIGLA CHAR(2)); excluir a unidade de um produto (UN) → 422 UNIDADE_EM_USO_PRODUTO; livre → exclusão lógica (INDR E)',
+          cria.status === 201 && novaId > 0 && ru?.ativo === 'S' && ru?.producao === 'S' && dup.status === 422 && dupJ.code === 'UNIDADE_SIGLA_EXISTE' && longa.status === 400
+          && delUsada.status === 422 && delUsadaJ.code === 'UNIDADE_EM_USO_PRODUTO' && delLivre.ok && rd?.indr === 'E',
+          { cria: [cria.status, novaId], ru, dup: [dup.status, dupJ.code], longa: longa.status, delUsada: [delUsada.status, delUsadaJ.code], delLivre: delLivre.status, rd });
+        const A = `${base}/cadastro/det-aliquota`;
+        const listaR = (await (await fetch(`${A}/aliquotas`, { headers: H })).json().catch(() => [])) as any;
+        const lista: any[] = Array.isArray(listaR) ? listaR : [];
+        const put = await fetch(`${A}/T01/SP`, { method: 'PUT', headers: H, body: JSON.stringify({ icm: 18, lei: 'LEI SMOKE 234' }) });
+        const linhasR = (await (await fetch(`${A}?aliquota=T01`, { headers: H })).json().catch(() => [])) as any;
+        const linhas: any[] = Array.isArray(linhasR) ? linhasR : [];
+        const sp = linhas.find((l) => l.uf === 'SP');
+        const naoExiste = await fetch(`${A}/T01/ZZ`, { method: 'PUT', headers: H, body: JSON.stringify({ icm: 1 }) });
+        const naoExisteJ = (await naoExiste.json().catch(() => ({}))) as any;
+        const semGrant = await fetch(`${A}/T01/SP`, { method: 'PUT', headers: H_SEM_ACESSO, body: JSON.stringify({ icm: 1 }) });
+        check('ALÍQUOTAS §234.2 [UcadAliquota]: a lista das alíquotas vem da DET_ALIQUOTA; a edição da linha (alíquota + UF) grava ICMS e lei; UF sem linha → 422 DET_ALIQUOTA_NAO_ENCONTRADA (a tela não inclui); sem grant → 403',
+          Array.isArray(lista) && lista.some((a) => a.aliquota === 'T01') && put.ok && Number(sp?.icm) === 18 && sp?.lei === 'LEI SMOKE 234'
+          && naoExiste.status === 422 && naoExisteJ.code === 'DET_ALIQUOTA_NAO_ENCONTRADA' && semGrant.status === 403,
+          { lista: Array.isArray(listaR) ? lista.length : listaR, put: put.status, sp, naoExiste: [naoExiste.status, naoExisteJ.code], semGrant: semGrant.status });
+      } finally {
+        await pgUn.query(`UPDATE det_aliquota SET icm = $1, lei = $2 WHERE aliquota = 'T01' AND uf = 'SP'`, [aliqAntes?.icm ?? null, aliqAntes?.lei ?? null]).catch(() => undefined);
+        if (novaId) await pgUn.query(`DELETE FROM unidade WHERE codunidade = $1`, [novaId]).catch(() => undefined);
+        await pgUn.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();

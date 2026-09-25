@@ -68,6 +68,8 @@ const TELAS = [
   { href: '/cadastro/marcas', name: 'Marcas', icon: Tags },
   { href: '/cadastro/familias', name: 'Categorias e departamentos', icon: Tags },
   { href: '/cadastro/centro-custos', name: 'Centro de custos', icon: Tags },
+  { href: '/cadastro/aliquotas', name: 'Alíquotas', icon: FileText },
+  { href: '/cadastro/unidades', name: 'Unidades', icon: Tags },
   { href: '/cadastro/bairros', name: 'Bairros', icon: MapPin },
   { href: '/cadastro/cidades', name: 'Cidades', icon: Building2 },
   { href: '/cadastro/precos', name: 'Reajuste de Preço', icon: DollarSign },

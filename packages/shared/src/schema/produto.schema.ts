@@ -437,8 +437,12 @@ export interface Produto extends CriarProdutoDto {
 
 /** UNIDADE (catálogo). SIGLA obrigatória (máx. 6). */
 const unidadeBase = z.object({
-  sigla: z.string().trim().min(1, 'Informe a sigla.').max(6, 'Sigla deve ter no máximo 6 caracteres.'),
-  descricao: z.string().trim().max(60).optional(),
+  // os tamanhos da tela do legado (UNIDADE.SIGLA CHAR(2), DESCRICAO VARCHAR2(15)): a sigla vira PRODUTOS.UNIDADE, que tem 2
+  sigla: z.string().trim().min(1, 'Informe a sigla.').max(2, 'Sigla deve ter no máximo 2 caracteres.'),
+  descricao: z.string().trim().max(15).optional(),
+  ativo: snFlag(),
+  producao: snFlag(), // "Produção"
+  fracionado: snFlag(), // "Fracionado"
 });
 export const unidadeSchema = z.preprocess(stripNulls, unidadeBase); // fold varredura null→ausente
 export type CriarUnidadeDto = z.infer<typeof unidadeSchema>;
