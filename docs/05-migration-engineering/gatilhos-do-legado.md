@@ -54,7 +54,7 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
 | `ATUALIZA_CUSTO_COTACAO` | COTACAO_FORN_ITENS | BEFORE INSERT | ULTIMO_VALOR := VRCUSTOREP do item na última NF de entrada processada do fornecedor (CFOPs de compra, até a data da cotação) | sim: 550 de 1.562 itens de 2026 | ✅ (25/09/2026) mig 364 `apollo_ultimo_custo_rep_cotacao`, gravada nas duas inclusões (`cotacao-forn.service.ts` abrir, `cotacao.service.ts` lançar preços) e lida ao vivo na matriz | ✅ |
 | `UPDATE_CUSTO_MULTI_PRECO` | MULTI_PRECO | AFTER UPDATE | HISTORICO_DINAMICO de VRCUSTO, VRCUSTOREP, VRPROMO, VRVENDA; operador = CLIENT_IDENTIFIER/CODUSUALT/PRODUTOS | sim: 135.758 linhas em 2026 | `migrations/354_multi_preco_historico_custo.sql:16-45` | ✅ |
 | `ATUALIZAPROD` | MULTI_PRECO | BEFORE I/U | Sempre DTULTIMALTERACAO := agora. INSERT: DTULTPRECOALTERADO e ETQ_IMPRESSA 'N'. UPDATE com VRVENDA/VRPROMO/PROMOCAO/**ATACAREJO_ATIVO** mudado: idem | sim | ✅ (25/09/2026) UPDATE: `migrations/365_atualizaprod.sql` (com ATACAREJO_ATIVO e DTULTIMALTERACAO); INSERT: `produto-lojas.ts` incluirNasLojas e `produto.aggregate.ts` (linha nova do cadastro), fora do banco por causa do delete+insert | ✅ |
-| `CLUBE_DESCONTO_ESTOQUE` | CLUBE_DESCONTO | BEFORE UPDATE | Toda alteração recalcula ENCERRADA: 'T' só se MAXIMO_ESTOQUE>0 e VENDA_ESTOQUE ≥ teto; senão 'F' | sim (3.125 regras, 0 com teto, 0 encerradas) | `clube-desconto.service.ts:155` grava a ENCERRADA que vier; sem a regra do teto | ⚠️ |
+| `CLUBE_DESCONTO_ESTOQUE` | CLUBE_DESCONTO | BEFORE UPDATE | Toda alteração recalcula ENCERRADA: 'T' só se MAXIMO_ESTOQUE>0 e VENDA_ESTOQUE ≥ teto; senão 'F' | sim (3.125 regras, 0 com teto, 0 encerradas) | ✅ (25/09/2026) `migrations/369_clube_desconto_estoque.sql` | ✅ |
 | `CONTROLADELETEAGENDA` | AGENDA_PROMOCAO_ITENS | BEFORE DELETE | MULTI_PRECO.PROMOCAO := 'N' do produto **em todas as lojas** (o filtro por loja está comentado) | raro: 3 exclusões de item em 2026 | `agenda-promocao.aggregate.ts:377-386` desliga só as linhas desta agenda (codagenda); não toca promoção de outra origem | ⚠️ |
 | `ATUALIZAPROD_ATACAREJO` | MULTI_PRECO_ATACAREJO | BEFORE I/U | Inclusão ou VALOR/QUANTIDADE mudado: MULTI_PRECO.DTULTPRECOALTERADO e ETQ_IMPRESSA 'N' | quase: 3 linhas; escrita por `uAjustePrecos`, `udmCadProduto` | a tabela não existe no destino | ❌ |
 | `CHECK_REMESSAS_BOLETOS_CONTAS` | ARECEBER | BEFORE DELETE | Erro se o título está em REMESSAS_BOLETOS_CONTAS com INDR ≠ 'E' | sim: 14.133 de 14.224 linhas ativas, última em 01/09/2026 | ✅ (25/09/2026) `migrations/367_areceber_remessa_boleto.sql` — gatilho BEFORE DELETE, todos os caminhos; 422 pelo HINT | ✅ |
@@ -137,8 +137,8 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
    ARECEBER_EM_REMESSA_BOLETO com o texto do legado (HINT 'APOLLO:<código>', mapeado no filtro de erros para qualquer gatilho portado).
 8. ✅ **`UPDATE_CODAUXILIAR` (corrigido em 25/09/2026, mig 368 + `produto.aggregate.ts`).** Trocar o código de barras principal deixava o código auxiliar
    apontando o antigo. Agora o gatilho do banco acompanha (multi-atualização) e o cadastro regrava as linhas com o código do produto.
-9. **`CLUBE_DESCONTO_ESTOQUE` (⚠️, promoção).** O Apollo aceita ENCERRADA do payload; o legado a recalcula em toda
-   alteração. O teto por estoque nunca foi usado.
+9. ✅ **`CLUBE_DESCONTO_ESTOQUE` (corrigido em 25/09/2026, mig 369).** O Apollo aceitava ENCERRADA do payload; agora o gatilho do banco a recalcula
+   em toda alteração pelo teto de estoque (nenhuma regra da produção usa o teto).
 10. **`SET_DEFAULTS` (⚠️, financeiro, baixo).** TOTAL_BRT fica nulo em 12 dos 14 caminhos de inclusão.
 11. **`CASCATA_FAMILIA_PROD` (❌, cadastro/relatórios).** Mudar o departamento ou grupo de uma família não arrasta os
     produtos. Relatórios por departamento divergem.

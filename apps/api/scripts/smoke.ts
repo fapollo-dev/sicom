@@ -18518,6 +18518,18 @@ async function main() {
           && outraJanela.status === 201 && semProduto.status === 422 && semGrant.status === 403,
           { sobreposta: [sobreposta.status, sobrepostaJ.code], outraJanela: outraJanela.status, semProduto: semProduto.status, rbac: semGrant.status });
 
+        // o gatilho CLUBE_DESCONTO_ESTOQUE: toda alteração recalcula a ENCERRADA pelo teto de estoque
+        const idCl = Number((await pgCl.query(`SELECT idclubedesconto FROM clube_desconto WHERE idempresa = 1 ORDER BY idclubedesconto LIMIT 1`)).rows[0]?.idclubedesconto);
+        const enc = async (set: string) => {
+          await pgCl.query(`UPDATE clube_desconto SET ${set} WHERE idclubedesconto = $1`, [idCl]);
+          return String((await pgCl.query(`SELECT encerrada FROM clube_desconto WHERE idclubedesconto = $1`, [idCl])).rows[0]?.encerrada);
+        };
+        const semTeto = await enc(`encerrada = 'T', maximo_estoque = NULL`);
+        const noTeto = await enc(`maximo_estoque = 10, venda_estoque = 10`);
+        const abaixo = await enc(`venda_estoque = 4`);
+        check('CLUBE DE DESCONTO §156.5 [o gatilho CLUBE_DESCONTO_ESTOQUE]: a ENCERRADA é recalculada em toda alteração — sem teto de estoque fica F mesmo mandando T; com teto 10 e venda 10 vira T; com venda 4 volta a F',
+          semTeto === 'F' && noTeto === 'T' && abaixo === 'F', { idCl, semTeto, noTeto, abaixo });
+
         await pgCl.query(`DELETE FROM clube_desconto WHERE idempresa = 1`);
         await pgCl.query(`DELETE FROM multi_preco WHERE idproduto IN (994601,994602)`);
         await pgCl.query(`DELETE FROM produtos WHERE idproduto IN (994601,994602)`);
