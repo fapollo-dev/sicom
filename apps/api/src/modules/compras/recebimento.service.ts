@@ -470,8 +470,11 @@ export class RecebimentoService {
     // e preservados nos saves seguintes da NF (preservarNaoGerenciadas). São o lado "nota" da devolução de compra e da conferência.
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       for (const e of extras) {
-        const { nroitem, ...cols } = e;
+        const { nroitem, mva_ajustado, ...cols } = e;
         await trx.updateTable('nf_prod').set(cols).where('codnf', '=', codnf).where('nroitem', '=', Number(nroitem)).execute();
+        // o pMVAST da nota vai ao MVA_AJUSTADO só do item SEM indexador — com ele, vale o MVA ajustado da análise (uItensNF.pas:992)
+        await trx.updateTable('nf_prod').set({ mva_ajustado }).where('codnf', '=', codnf).where('nroitem', '=', Number(nroitem))
+          .where(sql`coalesce(indexadortrib, 0)`, '=', 0).execute();
       }
       // a ANÁLISE automática dos itens (uItensNF.pas:3890 → btnOkClick): com o item completo — o FCP-ST, o IPI devolvido e a base do ST
       // externo entram no custo

@@ -17,6 +17,11 @@ import { estornarDevolucaoVendas } from './nf-devolucao-vendas.service';
 import { preencherRateioContabil } from './nf-rateio';
 import { totalNfLegado } from './nf-total';
 import { recalcularMetricasEntrada } from './nf-custo-item';
+import { contextoIndexadorNf, indexadorDoItem } from './nf-indexador-item';
+import { TributacaoRepository } from '../precificacao/tributacao.repository';
+
+/** o repositório da tributação sem a injeção (o agregado é configuração): toda consulta passa a transação */
+const tributacaoSemDi = new TributacaoRepository(null as never);
 
 /** a descrição do produto, lida uma vez por produto na gravação */
 function leitorDescricaoProduto(trx: any): (idproduto: number) => Promise<string | null> {
@@ -416,7 +421,8 @@ export const nfAggregateConfig: AggregateConfig = {
     // a ESTEIRA: gravar a nota de ENTRADA com os itens repassados (ligados a produto) marca stRepasseItens (uNF.pas:5171-5181)
     const chave = await chaveDeEntrada(trx, id);
     if (chave && emp != null) {
-      const rep = (await sql<{ n: number }>`SELECT count(*)::int AS n FROM nf_prod WHERE codnf = ${id} AND coalesce(codproduto, 0) > 0`.execute(trx)).rows[0];
+      // o item REPASSADO (uNF.pas:4978, :5171-5181) — o proxy `codproduto > 0` marcava ~106 NFs a mais (recon do indexador, C4)
+      const rep = (await sql<{ n: number }>`SELECT count(*)::int AS n FROM nf_prod WHERE codnf = ${id} AND repassado = 'S'`.execute(trx)).rows[0];
       if (Number(rep?.n) > 0) await registrarProcessoNf(trx, 'stRepasseItens', chave, emp, currentTenant().operadorId ?? null);
     }
   },
@@ -511,10 +517,12 @@ export const nfAggregateConfig: AggregateConfig = {
         'vl_unitario', // o custo da unidade (VRCUSTO / FATOREMBAL), refeito a cada gravação como o legado (uNF.pas:4935)
         // a ANÁLISE do item (o OK do diálogo): 0 no item novo ou editado no diálogo = pendente; o aposGravarTrx recalcula o custo e a escada
         'custo_real_unit',
+        // o INDEXADOR e o REPASSE do item de entrada (`indexadorDoItem`) — derivados no servidor
+        'indexadortrib', 'repassado', 'mva_ajustado',
       ],
       // a DESCRIÇÃO que cada item tinha, para o item regravado sem ela (casada pelo produto, como a preservação)
       antesDeSubstituirTrx: async ({ trx, masterId }) =>
-        trx.selectFrom('nf_prod').select(['codproduto', 'descricao', 'custo_real_unit', ...RETRATO]).where('codnf', '=', masterId).orderBy('codnfprod').execute(),
+        trx.selectFrom('nf_prod').select(['codproduto', 'descricao', 'custo_real_unit', 'indexadortrib', 'repassado', 'mva_ajustado', ...RETRATO]).where('codnf', '=', masterId).orderBy('codnfprod').execute(),
       // congela o CUSTO do item = MULTI_PRECO.VRCUSTO corrente por (produto, empresa) no lançamento
       // (GetCustoProduto, udmNF.pas:12057). É a base do CMV; snapshot (não acompanha a deriva do MP).
       derivarItensTrx: async (itens, trx, emp, _header, _masterId, snapshot) => {
@@ -527,6 +535,7 @@ export const nfAggregateConfig: AggregateConfig = {
         const descricaoDoProduto = await leitorDescricaoProduto(trx);
         const cab = (await trx.selectFrom('nf').select(['tipo', 'nf_importacao_nfe']).where('codnf', '=', _masterId).executeTakeFirst()) as
           { tipo?: string | null; nf_importacao_nfe?: string | null } | undefined;
+        const ctxIdx = String(cab?.tipo ?? '').toUpperCase() === 'E' ? await contextoIndexadorNf(trx, Number(_masterId)) : null;
         for (const it of itens) {
           const cod = it.codproduto != null ? Number(it.codproduto) : null;
           let vl = 0;
@@ -552,7 +561,15 @@ export const nfAggregateConfig: AggregateConfig = {
           // o item de entrada que chega pelo diálogo (ou é novo) volta para a análise; o outro mantém a que tinha
           const analisar = String(cab?.tipo ?? '').toUpperCase() === 'E' && (antiga == null || it.dialogo === true);
           const custoReal = analisar ? 0 : antiga ? antiga.custo_real_unit : undefined;
-          out.push({ ...it, custo_real_unit: custoReal, vl_unitario: vlUnitario, vl_custo: vl, debitopiscofins: debitoPisCofins(it.vrvenda, it.aliqpiss, it.aliqcofinss), descricao: descricao?.slice(0, 120) ?? null, ...retrato });
+          // o indexador: o item NOVO de entrada o consulta (a escolha do produto no diálogo / a análise da importação); o OK do diálogo de
+          // um item existente refaz só o REPASSADO (o operador pode ter ajustado CST/alíquota); o resto fica o que o item tinha
+          let idx: Record<string, unknown> = antiga ? { indexadortrib: antiga.indexadortrib, repassado: antiga.repassado, mva_ajustado: antiga.mva_ajustado } : {};
+          if (ctxIdx && cod != null && antiga == null) idx = await indexadorDoItem(trx, ctxIdx, it, tributacaoSemDi);
+          else if (ctxIdx && antiga != null && it.dialogo === true) {
+            const livre = ctxIdx.figuraFiscal === 'D' || ctxIdx.liberada;
+            idx.repassado = livre ? 'S' : Number(antiga.indexadortrib ?? 0) > 0 || ctxIdx.fornecedorLivre || ctxIdx.finalidade === '4' ? 'S' : ctxIdx.figuraFiscal === 'O' ? 'N' : 'S';
+          }
+          out.push({ ...it, ...idx, custo_real_unit: custoReal, vl_unitario: vlUnitario, vl_custo: vl, debitopiscofins: debitoPisCofins(it.vrvenda, it.aliqpiss, it.aliqcofinss), descricao: descricao?.slice(0, 120) ?? null, ...retrato });
         }
         return out;
       },

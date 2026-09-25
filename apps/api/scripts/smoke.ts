@@ -1521,10 +1521,16 @@ async function main() {
         Number(i0.cst) === 0 && Number(i0.icme) === 22 && Number(i0.bcr) === 100 && Number(i0.vripi) === 1.75,
       { status: recalc.status, i0 },
     );
+    // o ST calculado é o da SAÍDA (5403): na ENTRADA o legado mantém o ST da nota e calcula o ST externo à parte (RecalculaICMSST)
+    const recalcS = await fetch(`${base}/fiscal/nf/recalcular`, { method: 'POST', headers: H, body: JSON.stringify({
+      tipo: 'S', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22,
+      itens: [{ codproduto: 3, quantidade: 2, vrcusto: 20, aliquota: 'STB', cfop: '5403', ncm: '04061010' }] }) });
+    const i1s = (((await recalcS.json().catch(() => ({}))) as any)?.itens ?? [])[0] ?? {};
     check(
-      'recalcular calcula ICMS-ST do item STB/CFOP 1403 (reuso calcularIcmsSt: baseST 58, ST 3,24, CST 60)',
-      Number(i1.cst) === 60 && Number(i1.vrbasest) === 58 && Number(i1.vricmst) === 3.24 && Number(i1.vrbasecalculo) === 0,
-      i1,
+      'recalcular calcula o ICMS-ST do item STB na SAÍDA 5403 (calcularIcmsSt: baseST 58, ST 3,24, CST 60) e NÃO na entrada 1403 (fica o ST da nota — o legado não recalcula; CST 60 e base do ICMS 0)',
+      Number(i1s.cst) === 60 && Number(i1s.vrbasest) === 58 && Number(i1s.vricmst) === 3.24
+      && Number(i1.cst) === 60 && Number(i1.vrbasecalculo) === 0 && !(Number(i1.vrbasest) > 0) && !(Number(i1.vricmst) > 0),
+      { i1s, i1 },
     );
 
     // 17.1b) REDUÇÃO DE BASE: a redução vive 1× no BCR; o destaque usa a alíquota CHEIA
@@ -1593,14 +1599,14 @@ async function main() {
     const recSt = await fetch(`${base}/fiscal/nf/recalcular`, {
       method: 'POST', headers: H,
       body: JSON.stringify({
-        tipo: 'E', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22,
-        itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, aliquota: 'STB', cfop: '1403', ncm: '99999999' }],
+        tipo: 'S', modelo: 55, serie: '1', dtemissao: '2026-06-10', dtcontabil: '2026-06-10', codparceiro: 22,
+        itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, aliquota: 'STB', cfop: '5403', ncm: '99999999' }],
       }),
     });
     const recStB = (await recSt.json().catch(() => ({}))) as any;
     const iSt = recStB.itens?.[0] ?? {};
     check(
-      'F2b ST profundo: MVA ajustado (40→46,667) + REDCOM 70 → vrbasest/vricmst conferem (interestadual, LR)',
+      'F2b ST profundo (saída 5403): MVA ajustado (40→46,667) + REDCOM 70 → vrbasest/vricmst conferem (interestadual, LR)',
       recSt.status === 200 && Number(iSt.mva) === mvaAj && Number(iSt.vrbasest) === baseStEsperado && Number(iSt.vricmst) === stEsperado,
       { mva: iSt.mva, mvaAj, vrbasest: iSt.vrbasest, baseStEsperado, vricmst: iSt.vricmst, stEsperado },
     );
@@ -23483,6 +23489,58 @@ async function main() {
           }
         }
         await pgUp.end();
+      }
+    }
+
+    // ══ §244 ITEM DA NF — o INDEXADOR TRIBUTÁRIO e o REPASSE do item de entrada (CarregaIndexadorTributario / OK do item) ══════════
+    {
+      const pgIx = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const figAntes = (await pgIx.query(`SELECT figurafiscal FROM empresas WHERE idempresa = 1`)).rows[0]?.figurafiscal ?? null;
+      const prodAntes = (await pgIx.query(`SELECT idproduto, codfigurafiscal, mva FROM produtos WHERE idproduto IN (2, 3)`)).rows as any[];
+      const livreAntes = (await pgIx.query(`SELECT retira_fornindex FROM parceiros WHERE codparceiro = 22`)).rows[0]?.retira_fornindex ?? null;
+      const ufAntes = (await pgIx.query(`SELECT uf FROM parceiros_end WHERE codend = 6`)).rows[0]?.uf ?? null;
+      const nfs: number[] = [];
+      let idx = 0;
+      try {
+        await pgIx.query(`UPDATE empresas SET figurafiscal = 'O' WHERE idempresa = 1`);
+        await pgIx.query(`UPDATE produtos SET codfigurafiscal = 77, mva = 33 WHERE idproduto IN (2, 3)`);
+        await pgIx.query(`UPDATE parceiros SET retira_fornindex = 'N' WHERE codparceiro = 22`);
+        await pgIx.query(`UPDATE parceiros_end SET uf = 'MA' WHERE codend = 6`);
+        idx = Number((await pgIx.query(`INSERT INTO indexador_tributario (codfigurafiscal, tp_cadastro, origem, destino, codcfop, operacao, icm_fonte, aliquota_dest, reducao, redcom, mva, aliquota_fem, tp_figura)
+          VALUES (77, 'F', 'MA', 'MG', 1403, 'F', 12, 18, 100, 100, 40, 0, 'N') RETURNING codindexadortributario`)).rows[0].codindexadortributario);
+        const criar = async (nronf: string) => {
+          const r = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 1, serie: '1', tipo: 'E', nronf, tipoemissao: '1', codparceiro: 22, codparceiro_end: 6,
+            dtemissao: '2037-01-04', dtcontabil: '2037-01-04', cfop: '1403', itens: [
+              { nroitem: 1, codproduto: 3, quantidade: 1, vrcusto: 10, cfop: '1403', aliquota: 'STB', cst: 10, icme: 18, bcr: 90 },
+              { nroitem: 2, codproduto: 2, quantidade: 1, vrcusto: 10, cfop: '1102', aliquota: 'T01', cst: 0, icme: 18, bcr: 100 },
+            ] }) });
+          const id = Number(((await r.json().catch(() => ({}))) as any).codnf) || 0; nfs.push(id); return id;
+        };
+        const ler = async (c: number) => (await pgIx.query(`SELECT nroitem, indexadortrib, repassado, cst, icme, bcr, mva, mva_ajustado FROM nf_prod WHERE codnf = $1 ORDER BY nroitem`, [c])).rows as any[];
+        const a = await ler(await criar('IX244A'));
+        await pgIx.query(`UPDATE parceiros SET retira_fornindex = 'S' WHERE codparceiro = 22`);
+        const b = await ler(await criar('IX244B'));
+        await pgIx.query(`UPDATE parceiros SET retira_fornindex = 'N' WHERE codparceiro = 22`);
+        await pgIx.query(`UPDATE empresas SET figurafiscal = 'D' WHERE idempresa = 1`);
+        const c = await ler(await criar('IX244C'));
+        const N = (v: unknown) => Number(v);
+        check('ITEM DA NF §244 [o indexador tributário e o repasse]: na loja "O" o item de entrada consulta o indexador (figura do produto, MA→MG, tipo F, CFOP do item): CST 60 pela operação F, ICME 12 (ICM_FONTE), BCR 100 (REDUÇÃO), MVA 40 e MVA ajustado 50,244 (interestadual — a fórmula do TIndexadorTributario), INDEXADORTRIB e REPASSADO S; o item sem indexador fica REPASSADO N (a trava do processamento é o próximo corte) com o MVA do produto; com o fornecedor livre de indexador, REPASSADO S sem consultar; na loja "D", S sem consultar',
+          a.length === 2 && N(a[0]?.indexadortrib) === idx && a[0]?.repassado === 'S' && N(a[0]?.cst) === 60 && N(a[0]?.icme) === 12 && N(a[0]?.bcr) === 100
+          && N(a[0]?.mva) === 40 && N(a[0]?.mva_ajustado) === 50.244 && N(a[1]?.indexadortrib) === 0 && a[1]?.repassado === 'N' && N(a[1]?.mva) === 33
+          && N(b[0]?.indexadortrib) === 0 && b[0]?.repassado === 'S' && b[1]?.repassado === 'S' && N(b[0]?.cst) === 10
+          && N(c[0]?.indexadortrib) === 0 && c[0]?.repassado === 'S' && c[1]?.repassado === 'S',
+          { idx, a, b, c });
+      } finally {
+        await pgIx.query(`UPDATE empresas SET figurafiscal = $1 WHERE idempresa = 1`, [figAntes]).catch(() => undefined);
+        for (const p of prodAntes) await pgIx.query(`UPDATE produtos SET codfigurafiscal = $1, mva = $2 WHERE idproduto = $3`, [p.codfigurafiscal, p.mva, p.idproduto]).catch(() => undefined);
+        await pgIx.query(`UPDATE parceiros SET retira_fornindex = $1 WHERE codparceiro = 22`, [livreAntes]).catch(() => undefined);
+        await pgIx.query(`UPDATE parceiros_end SET uf = $1 WHERE codend = 6`, [ufAntes]).catch(() => undefined);
+        if (idx) await pgIx.query(`DELETE FROM indexador_tributario WHERE codindexadortributario = $1`, [idx]).catch(() => undefined);
+        for (const c of nfs.filter((x) => x > 0)) {
+          await pgIx.query(`DELETE FROM nf_prod WHERE codnf = $1`, [c]).catch(() => undefined);
+          await pgIx.query(`DELETE FROM nf WHERE codnf = $1`, [c]).catch(() => undefined);
+        }
+        await pgIx.end();
       }
     }
 

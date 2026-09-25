@@ -93,6 +93,13 @@ export class TributacaoRepository {
    * Retorna null se não houver figura (o chamador cai no caminho por alíquota/NCM). NÃO substitui o
    * resolverIndexador (caminho NCM do ST F2b, intacto p/ compat).
    */
+  /**
+   * A FIGURA (INDEXADOR_TRIBUTARIO) do item — a consulta `cdsFigFiscal` do legado (udmNF.dfm:17567-17602 + o sufixo `CODCFOP < 4000` na
+   * entrada / `> 4000` na saída, uItensNF.pas:811): figura do produto, origem/destino, tipo 'F'/'C', CFOP do item, e o código de barras, o
+   * NCM (do PRODUTO) e o parceiro da nota iguais OU nulos. Desempate (:826-885): o mais específico (barra > NCM > parceiro — a soma 4/2/1
+   * equivale ao filtro sequencial: 0 exceções em 44.149 itens da produção); no empate (4,6% dos itens) o legado leva o 1º registro físico —
+   * aqui o menor código (93,7% dos empates).
+   */
   async resolverFigura(chave: {
     codfigurafiscal: number;
     tpCadastro: string; // 'F' entrada / 'C' saída
@@ -102,7 +109,8 @@ export class TributacaoRepository {
     codbarra?: string | null;
     ncm?: string | null;
     codparceiro?: number | null;
-  }): Promise<{
+  }, db?: any): Promise<{
+    codindexadortributario: number;
     aliquotaDest: number;
     icmFonte: number;
     mva: number;
@@ -112,8 +120,13 @@ export class TributacaoRepository {
     tpFigura: string;
     operacao: string;
     cst: number;
+    stExterno: boolean;
+    lei3166: boolean;
+    aliquotaReduzidaLei3166: number;
+    considerarDescontoCalcSt: boolean;
+    multiplos: boolean;
   } | null> {
-    const rows = await (this.dbp.forTenantRead() as any)
+    const rows = await ((db ?? this.dbp.forTenantRead()) as any)
       .selectFrom('indexador_tributario')
       .selectAll()
       .where('codfigurafiscal', '=', chave.codfigurafiscal)
@@ -121,22 +134,25 @@ export class TributacaoRepository {
       .where('origem', '=', chave.origem)
       .where('destino', '=', chave.destino)
       .where('codcfop', '=', chave.codcfop)
+      .where('codcfop', chave.tpCadastro === 'F' ? '<' : '>', 4000)
       .where(sql`coalesce(indr, 'I')`, '<>', 'E')
+      .orderBy('codindexadortributario')
       .execute();
     // OR-null: mantém a linha cujo campo é NULL (curinga) OU casa exatamente a chave.
     const casa = (rowVal: unknown, chaveVal: unknown) =>
-      rowVal == null || String(rowVal) === String(chaveVal ?? '');
+      rowVal == null || String(rowVal).trim() === String(chaveVal ?? '').trim();
     const cands = (rows as Record<string, unknown>[]).filter(
       (r) => casa(r.codbarra, chave.codbarra) && casa(r.ncm, chave.ncm) && casa(r.codparceiro, chave.codparceiro),
     );
     if (!cands.length) return null;
-    // desempate por ESPECIFICIDADE (udmNF.pas:10029-10088): CODBARRA > NCM > CODPARCEIRO.
     const esp = (r: Record<string, unknown>) =>
       (r.codbarra != null ? 4 : 0) + (r.ncm != null ? 2 : 0) + (r.codparceiro != null ? 1 : 0);
-    cands.sort((a, b) => esp(b) - esp(a));
-    const r = cands[0];
+    const topo = Math.max(...cands.map(esp));
+    const empatados = cands.filter((r) => esp(r) === topo); // já em ordem de código
+    const r = empatados[0];
     const operacao = r.operacao != null ? String(r.operacao) : 'T';
     return {
+      codindexadortributario: Number(r.codindexadortributario),
       aliquotaDest: Number(r.aliquota_dest),
       icmFonte: Number(r.icm_fonte),
       mva: Number(r.mva),
@@ -146,6 +162,11 @@ export class TributacaoRepository {
       tpFigura: r.tp_figura != null ? String(r.tp_figura) : 'N',
       operacao,
       cst: TributacaoRepository.cstDaOperacao(operacao),
+      stExterno: String(r.st_externo ?? '') === 'S',
+      lei3166: String(r.aliquota_fonte_lei_3166 ?? 'N') === 'S',
+      aliquotaReduzidaLei3166: Number(r.aliquota_reduzida_lei_3166 ?? 0),
+      considerarDescontoCalcSt: String(r.considerar_desconto_calc_st ?? '') === 'S',
+      multiplos: empatados.length > 1,
     };
   }
 

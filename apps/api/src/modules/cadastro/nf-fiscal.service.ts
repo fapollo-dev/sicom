@@ -93,7 +93,7 @@ export class NfFiscalService {
     const calculados: Record<string, unknown>[] = [];
     for (const it of itens)
       calculados.push(
-        await this.calcularItem(it, uf, empresa?.uf ?? null, empresaSn, aproveitaCreditoSt, tipoNota, alqSimplesNac, figuraFiscal),
+        await this.calcularItem(it, uf, empresa?.uf ?? null, empresaSn, aproveitaCreditoSt, tipoNota, alqSimplesNac, figuraFiscal, dto.codparceiro != null ? Number(dto.codparceiro) : null),
       );
     // A1 — retenções de serviço no cabeçalho (CalcularRetencoes, udmNF.pas:3558). Só ENTRADA c/ situação E03.
     const retencoes = await this.calcularRetencoes(dto, tipoNota, emp, calculados);
@@ -254,6 +254,7 @@ export class NfFiscalService {
     tipoNota: string,
     alqSimplesNac: number,
     figuraFiscal: string,
+    codparceiroNota: number | null = null,
   ): Promise<Record<string, unknown>> {
     const item: Record<string, unknown> = { ...it };
     const codAliquota = it.aliquota != null ? String(it.aliquota).trim() : '';
@@ -281,18 +282,21 @@ export class NfFiscalService {
     if (figuraFiscal === 'O' || figuraFiscal === 'S') {
       const prod = await (this.dbp.forTenantRead() as AnyDB)
         .selectFrom('produtos')
-        .select('codfigurafiscal')
+        .select(['codfigurafiscal', 'codbarra', 'ncmsh'])
         .where('idproduto', '=', Number(it.codproduto))
         .executeTakeFirst();
       if (prod?.codfigurafiscal != null) {
+        // as chaves do legado (uItensNF.pas:816-823): o código de barras e o NCM do PRODUTO e o parceiro DA NOTA — o caller passava o NCM
+        // do item, nenhum código de barras e um parceiro indefinido (só 7 de 11.357 linhas de entrada podiam casar)
         figura = await this.trib.resolverFigura({
           codfigurafiscal: Number(prod.codfigurafiscal),
           tpCadastro: tipoNota === 'E' ? 'F' : 'C', // entrada 'F' / saída 'C'
-          origem: tipoNota === 'E' ? uf : ufOrigem ?? '', // entrada: parceiro→empresa; saída: empresa→parceiro
+          origem: tipoNota === 'E' ? uf : ufOrigem ?? '', // `uf` = a do parceiro; entrada: parceiro→empresa; saída: empresa→parceiro
           destino: tipoNota === 'E' ? ufOrigem ?? '' : uf,
           codcfop: Number(it.cfop),
-          ncm: it.ncm != null ? String(it.ncm).trim() : null,
-          codparceiro: it.codparceiro != null ? Number(it.codparceiro) : null,
+          codbarra: prod.codbarra != null ? String(prod.codbarra).trim() : null,
+          ncm: prod.ncmsh != null ? String(prod.ncmsh).trim() : null,
+          codparceiro: codparceiroNota,
         });
         if (figura) item.cst = figura.cst; // CST pela OPERAÇÃO da figura (sobrepõe o de resolverAtual)
       }
@@ -331,9 +335,11 @@ export class NfFiscalService {
     const cfop = String(it.cfop ?? '');
     const ncm = it.ncm != null ? String(it.ncm).trim() : '';
     let stp: { aliquotaDest: number; icmFonte: number; mva: number; redcom: number; aliquotaFem: number; tpFigura: string } | null = null;
-    if (figura) {
+    // na ENTRADA o legado mantém a base e o ST DA NOTA e calcula o ST externo à parte (RecalculaICMSST — recon do indexador, R7/C3): a conta
+    // de saída e o `resolverIndexador(ncm)` (a primeira linha com o NCM, de qualquer figura/UF/CFOP) não valem para ela
+    if (tipoNota !== 'E' && figura) {
       stp = { aliquotaDest: figura.aliquotaDest, icmFonte: figura.icmFonte, mva: figura.mva, redcom: figura.redcom, aliquotaFem: figura.aliquotaFem, tpFigura: figura.tpFigura };
-    } else if (NfFiscalService.CFOP_ST.has(cfop) && ncm && !this.bonificacaoSemSt(cfop, a.cst)) {
+    } else if (tipoNota !== 'E' && NfFiscalService.CFOP_ST.has(cfop) && ncm && !this.bonificacaoSemSt(cfop, a.cst)) {
       stp = await this.trib.resolverIndexador(ncm);
     }
     if (stp && stp.mva > 0) {
