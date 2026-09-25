@@ -28,7 +28,7 @@ export interface ProcessamentoResultado {
 }
 
 export type ModoPrecoProcessar = 'online' | 'lote' | 'nenhum';
-export interface EscolhasDoProcessar { precos?: { modo?: ModoPrecoProcessar; sincronizar?: boolean; itens?: number[] }; semAlterarCusto?: number[] }
+export interface EscolhasDoProcessar { precos?: { modo?: ModoPrecoProcessar; sincronizar?: boolean; itens?: number[] }; semAlterarCusto?: number[]; liberacaoEstoqueNegativo?: { login: string; senha: string } }
 
 /** Processa a NF: move o estoque (entrada soma / saída baixa), atualiza os produtos e o preço (na entrada) e trava a nota (proc='S'). */
 export function processarNf(codnf: number, escolhas?: EscolhasDoProcessar): Promise<ProcessamentoResultado> {
@@ -54,8 +54,14 @@ export async function opcoesDoProcessarNf(codnf: number): Promise<OpcoesDoProces
 }
 
 /** Reverte o processamento: estorna o estoque (sentido inverso) e libera a nota (proc='N'). */
-export function reverterNf(codnf: number): Promise<ProcessamentoResultado> {
-  return req<ProcessamentoResultado>(`/fiscal/nf/${codnf}/reverter`);
+export function reverterNf(codnf: number, liberacaoEstoqueNegativo?: { login: string; senha: string }): Promise<ProcessamentoResultado> {
+  return req<ProcessamentoResultado>(`/fiscal/nf/${codnf}/reverter`, liberacaoEstoqueNegativo ? { liberacaoEstoqueNegativo } : undefined);
+}
+
+/** o servidor pediu a liberação do estoque negativo (PERMITE_PROC_NF_ESTOQUE_NEG = 'N'): os itens negativos */
+export function pedeLiberacaoEstoqueNegativo(e: unknown): Array<{ nroitem: number; codproduto: number; saldo: number }> | null {
+  const env = (e as { envelope?: { code?: string; detalhe?: { itens?: Array<{ nroitem: number; codproduto: number; saldo: number }>; exigeLiberacao?: boolean } } })?.envelope;
+  return env?.code === 'NF_ESTOQUE_NEGATIVO' && env.detalhe?.exigeLiberacao ? env.detalhe.itens ?? [] : null;
 }
 
 export interface ParDeSincronizacao { de: string; para: string }

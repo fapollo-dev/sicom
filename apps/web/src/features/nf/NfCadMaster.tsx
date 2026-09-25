@@ -30,6 +30,7 @@ import { useMensagem } from '../../shared/mensagem';
 import { NfItemModal } from './NfItemModal';
 import { NfSincronizarModal } from './NfSincronizarModal';
 import { NfProcessarModal } from './NfProcessarModal';
+import { LiberacaoEstoqueNegativoModal } from './NfLiberacaoEstoqueNegativoModal';
 import { NfRotativoModal } from './NfRotativoModal';
 import { NfLoteModal } from './NfLoteModal';
 import { NfScrapModal } from './NfScrapModal';
@@ -41,7 +42,7 @@ import { vincularDevolucaoVendasNf, type CredenciaisDevolucao, type ItemDevoluca
 import { vincularNfRotativo, type LadoRotativoNf } from '../inventario-rotativo/inventarioRotativoApi';
 import { createResourceApi } from '../../shared/cadmaster/resourceApi';
 import { configuracaoItemNf, recalcularNf } from './nfFiscalApi';
-import { lerNf, liberarIndexadorNf, processarNf, repasseAutomaticoNf, reverterNf } from './nfProcessamentoApi';
+import { lerNf, liberarIndexadorNf, pedeLiberacaoEstoqueNegativo, processarNf, repasseAutomaticoNf, reverterNf } from './nfProcessamentoApi';
 import { faturamentoDaNota, excluirFinanceiroNf, configuracaoParcelas, gerarParcelas, sequenciaDuplicata, processarFinanceiroNf, type ParcelaGerada } from './nfFaturamentoApi';
 import { transmitirNf, cancelarNf, cceNf } from './nfNfeApi';
 
@@ -680,6 +681,7 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
   const [podeLiberar, setPodeLiberar] = useState(false);
   const [liberando, setLiberando] = useState(false);
   const [processando, setProcessando] = useState(false);
+  const [liberandoNegativo, setLiberandoNegativo] = useState<{ itens: Array<{ nroitem: number; codproduto: number; saldo: number }>; acao: (c: { login: string; senha: string }) => Promise<void> } | null>(null);
   useEffect(() => {
     let vivo = true;
     configuracaoItemNf().then((c) => { if (vivo) setPodeLiberar(Boolean(c.liberaNfIndexador)); }).catch(() => undefined);
@@ -690,15 +692,18 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
 
   const enviada = statusnfe === 'P' || statusnfe === 'D';
 
-  const processar = async () => {
+  const processar = async (cred?: { login: string; senha: string }) => {
     if (executando) return;
     setExecutando(true);
     try {
-      await processarNf(codnf);
+      await processarNf(codnf, cred ? { liberacaoEstoqueNegativo: cred } : undefined);
       form.setValue('proc', 'S');
+      setLiberandoNegativo(null);
       mensagem.sucesso('Nota processada: estoque movimentado.');
     } catch (e) {
-      mensagem.erro(e);
+      const itens = pedeLiberacaoEstoqueNegativo(e);
+      if (itens && !cred) setLiberandoNegativo({ itens, acao: (c) => processar(c) });
+      else mensagem.erro(e);
     } finally {
       setExecutando(false);
     }
@@ -721,16 +726,19 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
     }
   };
 
-  const reverter = async () => {
+  const reverter = async (cred?: { login: string; senha: string }) => {
     if (executando) return;
-    if (!window.confirm('Ao reverter o processamento, o estoque será revertido. Confirma a operação?')) return;
+    if (!cred && !window.confirm('Ao reverter o processamento, o estoque será revertido. Confirma a operação?')) return;
     setExecutando(true);
     try {
-      await reverterNf(codnf);
+      await reverterNf(codnf, cred);
       form.setValue('proc', 'N');
+      setLiberandoNegativo(null);
       mensagem.sucesso('Processamento revertido: estoque estornado.');
     } catch (e) {
-      mensagem.erro(e);
+      const itens = pedeLiberacaoEstoqueNegativo(e);
+      if (itens && !cred) setLiberandoNegativo({ itens, acao: (c) => reverter(c) });
+      else mensagem.erro(e);
     } finally {
       setExecutando(false);
     }
@@ -764,6 +772,9 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
             form.setValue('itens', itens as never, { shouldDirty: false });
             setSincronizando(false);
           }} />
+      )}
+      {liberandoNegativo && (
+        <LiberacaoEstoqueNegativoModal itens={liberandoNegativo.itens} onFechar={() => setLiberandoNegativo(null)} onConfirmar={(c) => void liberandoNegativo.acao(c)} />
       )}
       {processando && (
         <NfProcessarModal codnf={codnf} onFechar={() => setProcessando(false)} onProcessado={() => { form.setValue('proc', 'S'); setProcessando(false); }} />

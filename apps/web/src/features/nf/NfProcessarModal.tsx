@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Modal } from '@apollosg/design-system';
 import { useMensagem } from '../../shared/mensagem';
-import { opcoesDoProcessarNf, processarNf, type ModoPrecoProcessar, type OpcoesDoProcessar } from './nfProcessamentoApi';
+import { opcoesDoProcessarNf, pedeLiberacaoEstoqueNegativo, processarNf, type ModoPrecoProcessar, type OpcoesDoProcessar } from './nfProcessamentoApi';
+import { LiberacaoEstoqueNegativoModal } from './NfLiberacaoEstoqueNegativoModal';
 
 /**
  * A TELA DE PROCESSAR da nota de entrada (`TfrmEstoqueNF`): o preço de venda — On-line / Gerar lote / Não atualizar (o on-line travado por
@@ -50,19 +51,25 @@ export function NfProcessarModal({ codnf, onFechar, onProcessado }: Props) {
     return () => window.removeEventListener('keydown', tecla);
   }, [opcoes, preco]);
 
-  const confirmar = async () => {
+  const [negativos, setNegativos] = useState<Array<{ nroitem: number; codproduto: number; saldo: number }> | null>(null);
+  const confirmar = async (cred?: { login: string; senha: string }) => {
     if (executando || !opcoes) return;
-    if (!window.confirm('Confirma o processamento da nota fiscal?')) return;
+    if (!cred && !window.confirm('Confirma o processamento da nota fiscal?')) return;
     setExecutando(true);
     try {
       await processarNf(codnf, {
         precos: { modo, sincronizar, itens: opcoes.itens.filter((i) => preco[i.codnfprod]).map((i) => i.codnfprod) },
         semAlterarCusto: opcoes.itens.filter((i) => !custo[i.codnfprod]).map((i) => i.codnfprod),
+        ...(cred ? { liberacaoEstoqueNegativo: cred } : {}),
       });
       mensagem.sucesso('Nota processada: estoque movimentado e produtos atualizados.');
+      setNegativos(null);
       onProcessado();
     } catch (e) {
-      mensagem.erro(e);
+      // PERMITE_PROC_NF_ESTOQUE_NEG = 'N': o servidor pede a liberação dos itens com estoque negativo
+      const itens = pedeLiberacaoEstoqueNegativo(e);
+      if (itens && !cred) setNegativos(itens);
+      else mensagem.erro(e);
     } finally {
       setExecutando(false);
     }
@@ -79,6 +86,7 @@ export function NfProcessarModal({ codnf, onFechar, onProcessado }: Props) {
     <Modal open onClose={onFechar} size="lg" title="Processar nota fiscal"
       primaryAction={{ label: executando ? 'Processando…' : 'Processar', onClick: () => void confirmar() }}
       secondaryAction={{ label: 'Cancelar', onClick: onFechar }}>
+      {negativos && <LiberacaoEstoqueNegativoModal itens={negativos} onFechar={() => setNegativos(null)} onConfirmar={(c) => void confirmar(c)} />}
       {!opcoes ? <small className="text-fg-muted">Carregando…</small> : (
         <div className="flex flex-col gap-form-gap">
           <div className="flex flex-wrap gap-gp-lg">
