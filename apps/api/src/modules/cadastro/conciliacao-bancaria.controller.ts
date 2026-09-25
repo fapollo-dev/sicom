@@ -3,6 +3,7 @@ import { importarOfxSchema, importarOfxArquivoSchema, conciliarSchema, conciliar
 import { ConciliacaoBancariaService } from './conciliacao-bancaria.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
+import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 
 /**
@@ -58,6 +59,24 @@ export class ConciliacaoBancariaController {
   @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNGRAVAR')
   conciliar(@Body(new ZodValidationPipe(conciliarSchema)) body: ConciliarDto) {
     return this.svc.conciliar({ codconta: body.codconta, mboIds: body.mboIds, codmovcontas: body.codmovcontas });
+  }
+
+  /** as conciliações feitas na conta */
+  @Get('conciliadas')
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNGRAVAR')
+  conciliadas(@Query('codconta', ParseIntPipe) codconta: number) {
+    return this.svc.conciliadas(codconta);
+  }
+
+  /** desfaz a conciliação (o CB, ou a partir de uma linha do extrato ou de um lançamento conciliado) */
+  @Post('desfazer')
+  @HttpCode(200)
+  @RequerAcesso('FRMCONCILIACAOBANCARIA', 'BTNGRAVAR')
+  desfazer(@Body() body: { cbId?: unknown; mboId?: unknown; codmovconta?: unknown }) {
+    const n = (v: unknown) => (v != null && v !== '' && Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : undefined);
+    const dto = { cbId: n(body?.cbId), mboId: n(body?.mboId), codmovconta: n(body?.codmovconta) };
+    if (dto.cbId == null && dto.mboId == null && dto.codmovconta == null) throw new BusinessRuleError('CONCILIACAO_NAO_ENCONTRADA');
+    return this.svc.desfazer(dto);
   }
 
   /** lança e concilia as linhas pendentes que casam com uma regra 'N' da conta (mig 298). */

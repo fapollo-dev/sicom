@@ -22491,6 +22491,58 @@ async function main() {
       }
     }
 
+    // ══ §220 CONCILIAÇÃO BANCÁRIA — DESFAZER (binário novo; reconstruído das 244 reversões de 2025-26 no dado de produção) ══════
+    {
+      const pgDc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const CB = 'cadastro/conciliacao-bancaria';
+        const bancoDc = Number((await pgDc.query(`SELECT codbco FROM bancos WHERE codbco > 0 ORDER BY codbco LIMIT 1`)).rows[0]?.codbco ?? 1);
+        const cD = Number((await pgDc.query(`INSERT INTO contas_bancarias (codbco, idempresa, titular) VALUES ($1,1,'SMOKE DESFAZER') RETURNING codconta`, [bancoDc])).rows[0].codconta);
+        const mbo = Number((await pgDc.query(`INSERT INTO movimentacao_bancaria_ofx (codconta, idempresa, mbo_data, mbo_valor, mbo_credito_debito, mbo_descricao, mbo_transacao_id, mbo_conciliado)
+          VALUES ($1,1,'2048-08-03 00:00:00-03',13.5,'D','PAG BOLETO SMOKE','DC1','N') RETURNING mbo_id`, [cD])).rows[0].mbo_id);
+        const mov = Number((await pgDc.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, historico, data_fechamento, dtemissao, dtcadastro, liberado)
+          VALUES ($1,1,13.5,'D','CONC','PAGTO SMOKE','2048-08-01','2048-08-01',now(),'N') RETURNING codmovconta`, [cD])).rows[0].codmovconta);
+        const conc = await fetch(`${base}/${CB}/conciliar`, { method: 'POST', headers: H, body: JSON.stringify({ codconta: cD, mboIds: [mbo], codmovcontas: [mov] }) });
+        const concJ = (await conc.json().catch(() => ({}))) as any;
+        const lista = (await (await fetch(`${base}/${CB}/conciliadas?codconta=${cD}`, { headers: H })).json().catch(() => [])) as any[];
+        const semGrant = await fetch(`${base}/${CB}/desfazer`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ cbId: concJ.cb_id }) });
+        const idlog0 = Number((await pgDc.query(`SELECT coalesce(max(idlog),0) AS m FROM log`)).rows[0].m);
+        const desf = await fetch(`${base}/${CB}/desfazer`, { method: 'POST', headers: H, body: JSON.stringify({ mboId: mbo }) });
+        const desfJ = (await desf.json().catch(() => ({}))) as any;
+        const oM = (await pgDc.query(`SELECT mbo_conciliado FROM movimentacao_bancaria_ofx WHERE mbo_id = $1`, [mbo])).rows[0];
+        const mM = (await pgDc.query(`SELECT mov_conciliado, liberado FROM mov_contas_bancarias WHERE codmovconta = $1`, [mov])).rows[0];
+        const junc = Number((await pgDc.query(`SELECT (SELECT count(*) FROM conciliacao_bancaria_ofx WHERE cb_id = $1) + (SELECT count(*) FROM conciliacao_bancaria_mov WHERE cb_id = $1) AS n`, [concJ.cb_id])).rows[0].n);
+        const cbFica = Number((await pgDc.query(`SELECT count(*)::int AS n FROM conciliacao_bancaria WHERE cb_id = $1`, [concJ.cb_id])).rows[0].n);
+        const logs = (await pgDc.query(`SELECT tabela, acao, chave, valor, formulario, historico FROM log WHERE idlog > $1 AND formulario = 'Conciliação bancária' ORDER BY idlog`, [idlog0])).rows as any[];
+        const listaDepois = (await (await fetch(`${base}/${CB}/conciliadas?codconta=${cD}`, { headers: H })).json().catch(() => [])) as any[];
+        const deNovo = await fetch(`${base}/${CB}/desfazer`, { method: 'POST', headers: H, body: JSON.stringify({ mboId: mbo }) });
+        const pend = (await (await fetch(`${base}/${CB}/pendentes?codconta=${cD}`, { headers: H })).json().catch(() => ({}))) as any;
+        check('CONCILIAÇÃO §220.1 [desfazer]: a conciliação aparece na lista da conta (1 linha do extrato, 1 lançamento, R$ 13,50) e, desfeita pela linha do extrato, as duas pontas voltam a pendentes (MBO_CONCILIADO e MOV_CONCILIADO \'N\'), as junções saem, o evento CB e o LIBERADO do lançamento ficam — como as 244 reversões do cliente; desfazer de novo não acha a conciliação; sem o grant é 403',
+          conc.status === 200 && lista.length === 1 && Number(lista[0].cb_id) === Number(concJ.cb_id) && Number(lista[0].qt_ofx) === 1 && Number(lista[0].qt_mov) === 1 && Number(lista[0].total_ofx) === 13.5
+          && semGrant.status === 403 && desf.status === 200 && Number(desfJ.ofx) === 1 && Number(desfJ.mov) === 1
+          && oM?.mbo_conciliado === 'N' && mM?.mov_conciliado === 'N' && mM?.liberado === 'S' && junc === 0 && cbFica === 1
+          && listaDepois.length === 0 && deNovo.status === 422
+          && (pend.ofx ?? []).some((o: any) => Number(o.mbo_id) === mbo) && (pend.mov ?? []).some((m: any) => Number(m.codmovconta) === mov),
+          { conc: [conc.status, concJ], lista, rbac: semGrant.status, desf: [desf.status, desfJ], oM, mM, junc, cbFica, listaDepois: listaDepois.length, deNovo: deNovo.status });
+        const ordem = logs.map((l) => `${l.tabela}/${l.acao}`);
+        const lMov = logs.find((l) => l.tabela === 'MOV_CONTAS_BANCARIAS');
+        const lMbo = logs.find((l) => l.tabela === 'MOVIMENTACAO_BANCARIA_OFX');
+        check('CONCILIAÇÃO §220.2 [a LOG da reversão]: 4 registros no formulário "Conciliação bancária", na ordem do legado — MOV_CONTAS_BANCARIAS Alterou (CODMOVCONTA), CONCILICAO_BANCARIA_MOV Alterou (CB_ID), CONCILICAO_BANCARIA_OFX Excluiu (CB_ID), MOVIMENTACAO_BANCARIA_OFX Excluiu (MBO_ID) — cada um "REVERSAO Campo: X   Valor: V" com a linha como estava: o valor do débito com o sinal (-13,5), o campo vazio também, a data como o Delphi mostra (03/08/2048), sem normalizar a caixa',
+          ordem.join(' > ') === 'MOV_CONTAS_BANCARIAS/Alterou > CONCILICAO_BANCARIA_MOV/Alterou > CONCILICAO_BANCARIA_OFX/Excluiu > MOVIMENTACAO_BANCARIA_OFX/Excluiu'
+          && lMov?.chave === 'CODMOVCONTA' && Number(lMov?.valor) === mov && String(lMov?.historico).startsWith(`REVERSAO Campo: CODMOVCONTA   Valor: ${mov}\n`)
+          && String(lMov?.historico).includes('Campo: VALOR   Valor: -13,5\n') && String(lMov?.historico).includes('Campo: MOV_CONCILIADO   Valor: S\n') && String(lMov?.historico).includes('Campo: NRODOCUMENTO   Valor: \n')
+          && lMbo?.chave === 'MBO_ID' && Number(lMbo?.valor) === mbo && String(lMbo?.historico).includes('Campo: MBO_DESCRICAO   Valor: PAG BOLETO SMOKE\n') && String(lMbo?.historico).includes('Campo: MBO_DATA   Valor: 03/08/2048')
+          && logs.filter((l) => l.chave === 'CB_ID').every((l) => Number(l.valor) === Number(concJ.cb_id)),
+          { ordem, lMov: String(lMov?.historico).slice(0, 200), lMbo: String(lMbo?.historico).slice(0, 200) });
+        await pgDc.query(`DELETE FROM conciliacao_bancaria WHERE codconta = $1`, [cD]);
+        await pgDc.query(`DELETE FROM mov_contas_bancarias WHERE codconta = $1`, [cD]);
+        await pgDc.query(`DELETE FROM movimentacao_bancaria_ofx WHERE codconta = $1`, [cD]);
+        await pgDc.query(`DELETE FROM contas_bancarias WHERE codconta = $1`, [cD]);
+      } finally {
+        await pgDc.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();

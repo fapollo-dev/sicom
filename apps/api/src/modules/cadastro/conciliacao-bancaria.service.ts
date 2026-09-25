@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { gravarLog } from '../../shared/log/registro-log';
 import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
@@ -21,6 +22,35 @@ const dia = (v: unknown) => String(v ?? '').slice(0, 10); // 'YYYY-MM-DD'
  * movimento do extrato (soma do lote = valor da linha, mesmo dia e direção) antes do 1:1, e `conciliar`
  * recusa seleção com lote pela metade (422 LOTE_INCOMPLETO) — a trava `ValidaSelecaoLoteCompleto` do legado.
  */
+/** as colunas da LOG da reversão, na ordem do Oracle */
+const CAMPOS_MBO_REVERSAO = [
+  'mbo_id', 'mbo_data', 'codconta', 'mbo_valor', 'mbo_credito_debito', 'mbo_descricao', 'mbo_transacao_id', 'mbo_conciliado', 'mbo_check_num',
+  'codoperador_importacao', 'mbo_data_importacao', 'mbo_nome_arquivo', 'indr', 'indr_usuario', 'indr_data',
+];
+const CAMPOS_MOV_REVERSAO = [
+  'codmovconta', 'codconta', 'valor', 'dtemissao', 'dtvenc', 'nrodocumento', 'liberado', 'tipomovimento', 'historico', 'idlote', 'codopconta', 'tipo',
+  'idpgto', 'codadiantamento', 'dtliberacao', 'coddestino', 'contabilizado', 'chave', 'bkpidpgto', 'bkpidpgto2', 'identificador', 'nropdv_fechamento',
+  'codoperador', 'idempresa_fechamento', 'data_fechamento', 'dtpgtobx', 'origem', 'idorigem', 'idlote_reversao', 'revertido', 'mov_conciliado',
+  'codcontagem_cedulas', 'usucad_lancamento_saldo', 'lancamento_saldo', 'codconta_destino', 'recurso', 'clao_id',
+];
+
+/** "REVERSAO Campo: X   Valor: V\n…" — todos os campos (vazio também), data como o Delphi mostra, número com vírgula */
+function textoReversao(linha: Record<string, unknown>, campos: string[]): string {
+  const fmt = (v: unknown): string => {
+    if (v == null) return '';
+    if (v instanceof Date) {
+      const p = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).formatToParts(v);
+      const g = (t: string) => p.find((x) => x.type === t)?.value ?? '';
+      const s = `${g('day')}/${g('month')}/${g('year')} ${g('hour')}:${g('minute')}:${g('second')}`;
+      return s.endsWith(' 00:00:00') ? s.slice(0, 10) : s;
+    }
+    const t = String(v);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return `${t.slice(8, 10)}/${t.slice(5, 7)}/${t.slice(0, 4)}`;
+    return /^-?\d+(\.\d+)?$/.test(t) ? String(Number(t)).replace('.', ',') : t;
+  };
+  return `REVERSAO ${campos.map((c) => `Campo: ${c.toUpperCase()}   Valor: ${fmt(linha[c])}\n`).join('')}`;
+}
+
 @Injectable()
 export class ConciliacaoBancariaService {
   constructor(private readonly dbp: DatabaseProvider) {}
@@ -218,6 +248,60 @@ export class ConciliacaoBancariaService {
     const dataExtrato = modo === 'manual' ? ofx[ofx.length - 1].data : null;
     const cbId = await this.registrarConciliacao(trx, emp, op, codconta, ofx.map((o) => Number(o.mbo_id)), mov.map((m) => Number(m.codmovconta)), dataExtrato);
     return { cb_id: cbId, ofx: ofx.length, mov: mov.length, total: totalOfx };
+  }
+
+  /** as conciliações feitas na conta (mais recentes primeiro), com os dois lados resumidos — de onde se desfaz */
+  async conciliadas(codconta: number): Promise<Array<Record<string, unknown>>> {
+    const emp = this.emp();
+    return (await sql<Record<string, unknown>>`
+      SELECT cb.cb_id, cb.cb_data, cb.cb_operador, o.nome AS operador,
+             (SELECT count(*)::int FROM conciliacao_bancaria_ofx x WHERE x.cb_id = cb.cb_id) AS qt_ofx,
+             (SELECT coalesce(sum(m.mbo_valor), 0) FROM conciliacao_bancaria_ofx x JOIN movimentacao_bancaria_ofx m ON m.mbo_id = x.mbo_id WHERE x.cb_id = cb.cb_id) AS total_ofx,
+             (SELECT string_agg(m.mbo_descricao, ' · ' ORDER BY m.mbo_id) FROM conciliacao_bancaria_ofx x JOIN movimentacao_bancaria_ofx m ON m.mbo_id = x.mbo_id WHERE x.cb_id = cb.cb_id) AS descricao,
+             (SELECT count(*)::int FROM conciliacao_bancaria_mov x WHERE x.cb_id = cb.cb_id) AS qt_mov
+        FROM conciliacao_bancaria cb LEFT JOIN operadores o ON o.codoperador = cb.cb_operador
+       WHERE cb.idempresa = ${emp} AND cb.codconta = ${codconta}
+         AND EXISTS (SELECT 1 FROM conciliacao_bancaria_ofx x WHERE x.cb_id = cb.cb_id)
+       ORDER BY cb.cb_id DESC LIMIT 200`.execute(this.dbp.forTenantRead() as AnyDB)).rows;
+  }
+
+  /**
+   * DESFAZER A CONCILIAÇÃO (binário novo — fora do fonte de 2020; reconstruído do dado: 244 reversões em 2025-26): o evento CB fica, as
+   * junções saem, e as linhas dos dois lados voltam a pendentes (MBO_CONCILIADO e MOV_CONCILIADO 'N'; o LIBERADO do lançamento fica). A
+   * LOG é a do legado, formulário "Conciliação bancária", na ordem em que ele grava: o lançamento (MOV_CONTAS_BANCARIAS, Alterou), a junção
+   * do razão (CONCILICAO_BANCARIA_MOV, Alterou), a do extrato (CONCILICAO_BANCARIA_OFX, Excluiu) e a linha do extrato
+   * (MOVIMENTACAO_BANCARIA_OFX, Excluiu) — "REVERSAO Campo: X   Valor: V" com a linha como estava, todos os campos, sem normalizar.
+   * Aceita o CB, uma linha do extrato ou um lançamento conciliado.
+   */
+  async desfazer(dto: { cbId?: number; mboId?: number; codmovconta?: number }): Promise<{ cb_id: number; ofx: number; mov: number }> {
+    const emp = this.emp();
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      let cbId = dto.cbId != null ? Number(dto.cbId) : null;
+      if (cbId == null && dto.mboId != null) cbId = Number((await sql<{ cb_id: number }>`SELECT cb_id FROM conciliacao_bancaria_ofx WHERE mbo_id = ${Number(dto.mboId)} ORDER BY cb_id DESC LIMIT 1`.execute(trx)).rows[0]?.cb_id ?? NaN);
+      if (cbId == null && dto.codmovconta != null) cbId = Number((await sql<{ cb_id: number }>`SELECT cb_id FROM conciliacao_bancaria_mov WHERE codmovconta = ${Number(dto.codmovconta)} ORDER BY cb_id DESC LIMIT 1`.execute(trx)).rows[0]?.cb_id ?? NaN);
+      if (cbId == null || !Number.isFinite(cbId)) throw new BusinessRuleError('CONCILIACAO_NAO_ENCONTRADA', dto);
+      const cb = (await sql<{ cb_id: number }>`SELECT cb_id FROM conciliacao_bancaria WHERE cb_id = ${cbId} AND idempresa = ${emp} FOR UPDATE`.execute(trx)).rows[0];
+      if (!cb) throw new BusinessRuleError('CONCILIACAO_NAO_ENCONTRADA', { cbId });
+      const cbo = (await sql<Record<string, unknown>>`SELECT * FROM conciliacao_bancaria_ofx WHERE cb_id = ${cbId} ORDER BY mbo_id`.execute(trx)).rows;
+      const cbm = (await sql<Record<string, unknown>>`SELECT * FROM conciliacao_bancaria_mov WHERE cb_id = ${cbId} ORDER BY codmovconta`.execute(trx)).rows;
+      const movs = cbm.length ? (await sql<Record<string, unknown>>`SELECT * FROM mov_contas_bancarias WHERE codmovconta = ANY(${cbm.map((x) => Number(x.codmovconta))}::int[]) ORDER BY codmovconta FOR UPDATE`.execute(trx)).rows : [];
+      const mbos = cbo.length ? (await sql<Record<string, unknown>>`SELECT * FROM movimentacao_bancaria_ofx WHERE mbo_id = ANY(${cbo.map((x) => Number(x.mbo_id))}::int[]) ORDER BY mbo_id FOR UPDATE`.execute(trx)).rows : [];
+      const log = (acao: 'Alterou' | 'Excluiu', tabela: string, chave: string, valor: number, linha: Record<string, unknown>, campos: string[]) =>
+        gravarLog(trx, { acao, formulario: 'Conciliação bancária', tabela, chave, valor, idempresa: emp, normalizar: false, historico: textoReversao(linha, campos) });
+      for (const m of movs) {
+        // o valor com o sinal do legado (o Apollo guarda o absoluto e o TIPOMOVIMENTO)
+        const comSinal = { ...m, valor: String(m.tipomovimento ?? '') === 'D' ? -Math.abs(Number(m.valor ?? 0)) : Math.abs(Number(m.valor ?? 0)) };
+        await log('Alterou', 'MOV_CONTAS_BANCARIAS', 'CODMOVCONTA', Number(m.codmovconta), comSinal, CAMPOS_MOV_REVERSAO);
+      }
+      for (const j of cbm) await log('Alterou', 'CONCILICAO_BANCARIA_MOV', 'CB_ID', cbId, j, ['cb_id', 'codmovconta']);
+      for (const j of cbo) await log('Excluiu', 'CONCILICAO_BANCARIA_OFX', 'CB_ID', cbId, j, ['cb_id', 'mbo_id']);
+      for (const o of mbos) await log('Excluiu', 'MOVIMENTACAO_BANCARIA_OFX', 'MBO_ID', Number(o.mbo_id), o, CAMPOS_MBO_REVERSAO);
+      await sql`DELETE FROM conciliacao_bancaria_mov WHERE cb_id = ${cbId}`.execute(trx);
+      await sql`DELETE FROM conciliacao_bancaria_ofx WHERE cb_id = ${cbId}`.execute(trx);
+      if (movs.length) await sql`UPDATE mov_contas_bancarias SET mov_conciliado = 'N' WHERE codmovconta = ANY(${movs.map((m) => Number(m.codmovconta))}::int[])`.execute(trx);
+      if (mbos.length) await sql`UPDATE movimentacao_bancaria_ofx SET mbo_conciliado = 'N' WHERE mbo_id = ANY(${mbos.map((o) => Number(o.mbo_id))}::int[])`.execute(trx);
+      return { cb_id: cbId, ofx: mbos.length, mov: movs.length };
+    });
   }
 
   /** o evento de conciliação: 1 CB + as junções dos dois lados + a marca de conciliado em cada linha. */

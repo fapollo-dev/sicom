@@ -3,7 +3,7 @@ import { PageHeader } from '@apollosg/design-system';
 import { SelectField } from '../../shared/ui/SelectField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
-import { listarContas, pendentes, sugestoes, conciliar, conciliarAutomatica, importarOfx, type ContaBancaria, type OfxLinha, type MovLinha, lancarAutomaticos } from './conciliacaoApi';
+import { listarContas, pendentes, sugestoes, conciliar, conciliarAutomatica, importarOfx, type ContaBancaria, type OfxLinha, type MovLinha, lancarAutomaticos, conciliadas, desfazerConciliacao, type Conciliada } from './conciliacaoApi';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—');
@@ -24,6 +24,7 @@ export function ConciliacaoBancariaPage() {
   const [busy, setBusy] = useState(false);
   const [paresAuto, setParesAuto] = useState<Array<{ mboId: number; codmovcontas: number[] }>>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [feitas, setFeitas] = useState<Conciliada[]>([]);
 
   useEffect(() => { void listarContas().then(setContas).catch(() => setContas([])); }, []);
 
@@ -31,9 +32,21 @@ export function ConciliacaoBancariaPage() {
     try {
       const p = await pendentes(cod);
       setOfx(p.ofx ?? []); setMov(p.mov ?? []); setSelOfx(new Set()); setSelMov(new Set()); setParesAuto([]);
+      setFeitas(await conciliadas(cod).catch(() => []));
     } catch (e) { mensagem.erro(e); }
   };
   const escolherConta = (v: string) => { setConta(v); if (v) void carregar(Number(v)); else { setOfx([]); setMov([]); } };
+
+  // desfazer uma conciliação: as linhas do extrato e do razão voltam a pendentes (a reversão do legado)
+  const desfazer = async (c: Conciliada) => {
+    if (busy || !window.confirm(`Desfazer a conciliação ${c.cb_id}? As ${c.qt_ofx} linha(s) do extrato e os ${c.qt_mov} lançamento(s) voltam a pendentes.`)) return;
+    setBusy(true);
+    try {
+      await desfazerConciliacao(c.cb_id);
+      mensagem.sucesso(`Conciliação ${c.cb_id} desfeita.`);
+      await carregar(Number(conta));
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
 
   const importarArquivo = async (file: File) => {
     if (busy) return;
@@ -158,6 +171,31 @@ export function ConciliacaoBancariaPage() {
           </table>
         </div>
       </div>
+      {feitas.length > 0 && (
+        <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
+          <table className="w-full text-body-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-fg-muted">
+                <th className="p-pad-xs">Conciliação</th><th className="p-pad-xs">Data</th><th className="p-pad-xs">Operador</th>
+                <th className="p-pad-xs">Extrato</th><th className="p-pad-xs text-right">Valor</th><th className="p-pad-xs">Razão</th><th className="p-pad-xs" />
+              </tr>
+            </thead>
+            <tbody>
+              {feitas.map((c) => (
+                <tr key={c.cb_id} className="border-b border-border/50">
+                  <td className="p-pad-xs tabular-nums">{c.cb_id}</td>
+                  <td className="p-pad-xs">{c.cb_data ? new Date(c.cb_data).toLocaleString('pt-BR') : ''}</td>
+                  <td className="p-pad-xs">{c.operador ?? ''}</td>
+                  <td className="p-pad-xs">{c.qt_ofx} · {c.descricao ?? ''}</td>
+                  <td className="p-pad-xs text-right tabular-nums">{Number(c.total_ofx).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                  <td className="p-pad-xs">{c.qt_mov} lançamento(s)</td>
+                  <td className="p-pad-xs"><Button label="Desfazer" variant="ghost" disabled={busy} onClick={() => void desfazer(c)} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

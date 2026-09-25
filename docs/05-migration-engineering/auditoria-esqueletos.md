@@ -539,5 +539,17 @@ ajuste de estoque (texto do histórico), baixa de cartão (LIBERADO do crédito)
 "MODIFICAÇÃO DE ITEM DA AGENDA: … CAMPO/VALOR ANTERIOR/VALOR ATUAL", uma por campo, "EXCLUSÃO DE ITEM DA AGENDA: …"; LF, acentuado, sem
 normalizar), o CODITEM estável (`pkEstavel`) e o DTATIVO só quando o item é ativado.
 
+**LOG vertical (25/09/2026, smoke §220):** os formulários da LOG de produção 2025-26 cruzados com o que o Apollo grava.
+- §4.7 conciliação: **desfazer a conciliação** (244 reversões; binário novo, fora do fonte de 2020) — reconstruído do dado: o evento CB fica,
+  as junções CONCILICAO_BANCARIA_OFX/_MOV saem, MBO_CONCILIADO e MOV_CONCILIADO voltam 'N', o LIBERADO do lançamento fica; LOG
+  "REVERSAO Campo: X   Valor: V" (todos os campos, o valor do débito com sinal) na ordem MOV_CONTAS_BANCARIAS Alterou →
+  CONCILICAO_BANCARIA_MOV Alterou → CONCILICAO_BANCARIA_OFX Excluiu → MOVIMENTACAO_BANCARIA_OFX Excluiu. Na tela, a lista das
+  conciliações da conta com "Desfazer".
+- **Não provado, fica de fora:** a exclusão de movimento pelo grid da conciliação (92 LOGs "DELETADO VIA TELA CONCILIAÇÃO BANCÁRIA GRID
+  MOVIMENTAÇÃO SISTEMA. IDLOTE = x E CODMOVCONTA = y") — o texto está no dado, as guardas (lote baixado? contabilizado?) não.
+- **Tela não convertida achada:** "Processamento rápido de nota fiscal" (`uProcessaNotaFiscal`; altera VL_CUSTO/USOCONSUMO da nota).
+- **Fora de escopo:** `CONFERENCIA NF` (16.432, coletor), `Cadastro de Relatórios` (upload .fr3 do suporte). O título da LOG do parceiro
+  por papel ("- Fornecedor"/"- Transportadora", 620 linhas) depende do menu de entrada — divergência de texto, não de regra.
+
 **Pendentes:** devolução (o status FINALIZADO — 181 de 217 no legado, mas nenhum caminho no fonte de 2020 o grava: não provado),
 produto (outbox `replica`, decisão de projeto) e a decisão de projeto sobre AUDIT_*.

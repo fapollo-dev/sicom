@@ -43,3 +43,11 @@ export function lancarAutomaticos(codconta: number): Promise<{ codconta: number;
 export function conciliarAutomatica(codconta: number, pares: Array<{ mboId: number; codmovcontas: number[] }>): Promise<{ conciliacoes: number; ofx: number; mov: number }> {
   return req('/cadastro/conciliacao-bancaria/conciliar-automatica', { method: 'POST', body: JSON.stringify({ codconta, pares }) });
 }
+
+/** as conciliações feitas na conta (mais recentes primeiro) */
+export interface Conciliada { cb_id: number; cb_data: string; operador: string | null; qt_ofx: number; total_ofx: number; descricao: string | null; qt_mov: number }
+export function conciliadas(codconta: number): Promise<Conciliada[]> { return req(`/cadastro/conciliacao-bancaria/conciliadas?codconta=${codconta}`, { method: 'GET' }); }
+/** desfaz a conciliação: as linhas dos dois lados voltam a pendentes */
+export function desfazerConciliacao(cbId: number): Promise<{ cb_id: number; ofx: number; mov: number }> {
+  return req('/cadastro/conciliacao-bancaria/desfazer', { method: 'POST', body: JSON.stringify({ cbId }) });
+}
