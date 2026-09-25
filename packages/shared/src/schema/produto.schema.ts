@@ -310,6 +310,48 @@ const produtoBase = z.object({
   pallet_produtos_por_caixa: z.number().int().optional(),
   pallet_produtos_por_pallet: z.number().int().optional(),
   fatorcx_prod: dec(z.number().nonnegative()),
+  // corte P1 do produto (25/09/2026) — o que a tela do legado preenche e o Apollo não gerenciava (LOG de produção 2026: o "Inseriu" lista todos, e o
+  // operador altera RECEITAUNIDADE 302 vezes, TPDESCPRECO2 785, VRDESCPRECO2 527, PRODUTO_NOTAVEL 164, USO_CONSUMO 16…)
+  uso_consumo: snFlag(), // "Uso e consumo" (chkUSO_CONSUMO) — governa as validações de preço/fiscais do gravar
+  visivel_rel: snFlag(), // "Visível relatório de vendas"
+  imprimircomp: snFlag(), // "Imprime composição"
+  pis: snFlag(), // "Pis / Cofins"
+  tipopis: opcional(z.string().trim().max(1)), // o domínio da produção (N, 3, Z, C, z, A) — mais largo que o combo (lição 141)
+  gerar_m220_m620: snFlag(),
+  tipo_item: dec(z.number().int().min(0).max(99)), // SPED 0200 TIPO_ITEM
+  nao_atu_produtos_entrada: snFlag(),
+  imprime_voucher: snFlag(),
+  produto_voucher: snFlag(),
+  tipo_produto: opcional(z.string().trim().max(1)),
+  saida_expedicao: snFlag(),
+  gluten: snFlag(),
+  produto_notavel: snFlag(),
+  produto_ancora: snFlag(),
+  decomposicao_livre: snFlag(),
+  nao_decompor_saida: snFlag(),
+  decomposicao_un: snFlag(),
+  entrada_decomposta: snFlag(),
+  atualiza_multipreco_decomp: snFlag(),
+  receitaunidade: opcional(z.string().trim().max(2)), // KG / UN
+  apresentacao_etiqueta: dec(z.number().nonnegative()),
+  dias_validade_minimo: dec(z.number().int().nonnegative()), // "Mínimo dias validade"
+  fator_pedidocompra: dec(z.number().nonnegative()),
+  descmax: dec(z.number().nonnegative()),
+  comissao: dec(z.number().nonnegative()),
+  taraembalagem: dec(z.number().nonnegative()),
+  especificacao: opcional(z.string().max(300)),
+  // o desconto do PREÇO 2 (tipo, valor e vigência)
+  tpdescpreco2: opcional(z.string().trim().max(1)),
+  vrdescpreco2: dec(z.number().nonnegative()),
+  preco2dtini: opcional(z.string().trim()),
+  preco2dtfim: opcional(z.string().trim()),
+  // a medida caseira do nutricional (parte inteira, fração e a medida usada)
+  inteiramedida: dec(z.number().int().nonnegative()),
+  partedec: dec(z.number().int().min(0).max(5)),
+  usadamedida: dec(z.number().int().nonnegative()),
+  // o preço por unidade de medida da etiqueta (conteúdo da embalagem e a unidade de apresentação)
+  conteudo_embalagem: dec(z.number().nonnegative()),
+  unidade_apresentacao: opcional(z.string().trim().max(2)),
   // detalhes 1:N (engine de agregado grava todos numa transação)
   codauxiliares: z.array(codAuxiliarSchema).optional().default([]),
   precos: z.array(precoProdutoSchema).optional().default([]), // F2 — MULTI_PRECO por empresa (mesma form)

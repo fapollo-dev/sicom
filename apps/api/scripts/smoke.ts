@@ -22660,6 +22660,49 @@ async function main() {
       }
     }
 
+    // ══ §224 PRODUTO — corte P1: os 39 campos que a tela do legado preenche e o Apollo não gerenciava ══════════════════════
+    {
+      const pgP1 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const cr = await fetch(`${base}/cadastro/produtos`, { method: 'POST', headers: H, body: JSON.stringify({
+          codbarra: '7890000224001', descricao: 'PRODUTO P1 SMOKE', unidade: 'UN', codfor: 2, aliquota: 'T01',
+          precos: [{ idempresa: 1, vrcusto: 5, markup: 20, vrvenda: 9.9, promocao: 'N', ativo: 'S', ativo_compra: 'S' }],
+          estoques: [{ idempresa: 1, qtde: 0, minimo: 0, maximo: 0 }],
+        }) });
+        const crJ = (await cr.json().catch(() => ({}))) as any;
+        const idp = Number(crJ.idproduto) || 0;
+        const r1 = (await pgP1.query(`SELECT visivel_rel, receitaunidade, apresentacao_etiqueta, tipo_item, pis, tipopis, gluten, imprimircomp, saida_expedicao, codoperador, gerar_m220_m620, compqtde FROM produtos WHERE idproduto = $1`, [idp])).rows[0] as any;
+        check('PRODUTO §224.1 [o NewRecord do legado]: o produto novo nasce como os 2.354 do "Inseriu" de 2026 — VISIVEL_REL S, RECEITAUNIDADE KG, APRESENTACAO_ETIQUETA 1, TIPO_ITEM 0, PIS S, TIPOPIS N, as flags N, os DEFAULTs do Oracle (GERAR_M220_M620 N, COMPQTDE 0) e o CODOPERADOR de quem cria',
+          cr.status === 201 && r1?.visivel_rel === 'S' && String(r1?.receitaunidade).trim() === 'KG' && Number(r1?.apresentacao_etiqueta) === 1 && Number(r1?.tipo_item) === 0
+          && r1?.pis === 'S' && r1?.tipopis === 'N' && r1?.gluten === 'N' && r1?.imprimircomp === 'N' && r1?.saida_expedicao === 'N' && Number(r1?.codoperador) === 7
+          && r1?.gerar_m220_m620 === 'N' && Number(r1?.compqtde) === 0,
+          { status: cr.status, crJ: crJ.code, r1 });
+        const idlog0 = Number((await pgP1.query(`SELECT coalesce(max(idlog),0) AS m FROM log`)).rows[0].m);
+        const lido = (await (await fetch(`${base}/cadastro/produtos/${idp}`, { headers: H })).json().catch(() => ({}))) as any;
+        const alt = await fetch(`${base}/cadastro/produtos/${idp}`, { method: 'PUT', headers: H, body: JSON.stringify({ ...lido,
+          uso_consumo: 'S', tpdescpreco2: 'P', vrdescpreco2: 5, preco2dtini: '2036-01-01', preco2dtfim: '2036-01-31', produto_notavel: 'S',
+          descmax: 10, comissao: 2.5, dias_validade_minimo: 30, fator_pedidocompra: 12, especificacao: 'Especificação do smoke', partedec: 3, usadamedida: 7,
+          inteiramedida: 1, tipo_item: 7, gluten: 'S' }) });
+        const altJ = (await alt.json().catch(() => ({}))) as any;
+        const r2 = (await pgP1.query(`SELECT uso_consumo, tpdescpreco2, vrdescpreco2, to_char(preco2dtini AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') dtini, produto_notavel, descmax, comissao, dias_validade_minimo, fator_pedidocompra, especificacao, partedec, usadamedida, tipo_item, gluten FROM produtos WHERE idproduto = $1`, [idp])).rows[0] as any;
+        const lg = (await pgP1.query(`SELECT historico FROM log WHERE idlog > $1 AND formulario = 'Cadastro de produtos' AND tabela = 'PRODUTOS' AND acao = 'Alterou'`, [idlog0])).rows as any[];
+        // reabrir e gravar sem mexer (os numéricos voltam como texto do Postgres) não reprova
+        const lido2 = (await (await fetch(`${base}/cadastro/produtos/${idp}`, { headers: H })).json().catch(() => ({}))) as any;
+        const eco = await fetch(`${base}/cadastro/produtos/${idp}`, { method: 'PUT', headers: H, body: JSON.stringify(lido2) });
+        check('PRODUTO §224.2 [os campos editáveis]: USO_CONSUMO, o desconto do PREÇO 2 (tipo P, 5, vigência), PRODUTO_NOTAVEL, DESCMAX, COMISSAO, DIAS_VALIDADE_MINIMO, FATOR_PEDIDOCOMPRA, a ESPECIFICACAO, a medida caseira, TIPO_ITEM 7 e GLUTEN — gravados e na LOG "Alterou"; reabrir e gravar o eco da leitura passa',
+          alt.status === 200 && r2?.uso_consumo === 'S' && r2?.tpdescpreco2 === 'P' && Number(r2?.vrdescpreco2) === 5 && r2?.dtini === '2036-01-01' && r2?.produto_notavel === 'S'
+          && Number(r2?.descmax) === 10 && Number(r2?.comissao) === 2.5 && Number(r2?.dias_validade_minimo) === 30 && Number(r2?.fator_pedidocompra) === 12
+          && r2?.especificacao === 'Especificação do smoke' && Number(r2?.partedec) === 3 && Number(r2?.usadamedida) === 7 && Number(r2?.tipo_item) === 7 && r2?.gluten === 'S'
+          && lg.some((l) => /CAMPO: TPDESCPRECO2/.test(l.historico) && /CAMPO: USO_CONSUMO/.test(l.historico)) && eco.status === 200,
+          { alt: [alt.status, altJ.code, altJ.message], r2, lg: lg.map((l) => String(l.historico).slice(0, 160)), eco: eco.status });
+        await pgP1.query(`DELETE FROM multi_preco WHERE idproduto = $1`, [idp]);
+        await pgP1.query(`DELETE FROM estoque WHERE idproduto = $1`, [idp]);
+        await pgP1.query(`DELETE FROM produtos WHERE idproduto = $1`, [idp]);
+      } finally {
+        await pgP1.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();

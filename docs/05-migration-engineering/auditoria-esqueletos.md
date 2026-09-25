@@ -578,9 +578,18 @@ leitura), as colunas preenchidas em ≥ 50% que nenhum código do Apollo que gra
   limpa o lado oposto da situação, PROCESSA FINANCEIRO governa o automático, o CFOP de devolução é de devolução e do mesmo destino, a
   alíquota é da UF). Smoke §223.
 
+- PRODUTO corte P1: a comparação exata (o "Inseriu"/"Alterou" da LOG de 2026 × as colunas do agregado) deu 45 colunas que a tela do
+  legado preenche ou altera e o Apollo não gerenciava — o filtro por nome tinha visto 12. Entraram 39 (as flags do binário novo,
+  USO_CONSUMO, PIS/TIPOPIS, TIPO_ITEM, o desconto do PREÇO 2 — TPDESCPRECO2 alterado 785 vezes em 2026 —, DESCMAX, COMISSAO,
+  TARAEMBALAGEM, DIAS_VALIDADE_MINIMO, FATOR_PEDIDOCOMPRA, ESPECIFICACAO, a medida caseira, …) com o NewRecord medido (VISIVEL_REL 'S',
+  RECEITAUNIDADE 'KG', APRESENTACAO_ETIQUETA 1, TIPO_ITEM 0, PIS 'S', TIPOPIS 'N', o resto 'N') e o CODOPERADOR de quem cria. Smoke §224.
+  Ficam: PRODUTOS.HASHPAF (outro hash, a reconstruir como o do MULTI_PRECO), DT_*_FGF (a integração de consulta tributária) e
+  CHAVECOMPOSICAO.
+
 **Fila (por dano provável):**
-- `produtos`: NAO_DECOMPOR_SAIDA, VISIVEL_REL, USO_CONSUMO, SAIDA_EXPEDICAO, NAO_ATU_PRODUTOS_ENTRADA, APRESENTACAO_ETIQUETA,
-  IMPRIME_VOUCHER, TIPO_PRODUTO, GLUTEN, DECOMPOSICAO_UN, RECEITAUNIDADE, DECOMPOSICAO_LIVRE — flags do cadastro de produto.
+- PRODUTO corte P2: as validações do gravar (UCadProduto.pas:2608-3070), nenhuma no Apollo — NCM obrigatório (8 dígitos, existente)
+  para produto que não é filho nem uso e consumo; natureza PIS/COFINS; custo ≠ 0; VALOR DE VENDA obrigatório (config); seção/depto/grupo/
+  subgrupo obrigatórios (config); PIS/COFINS obrigatório fora do Simples; BLOQ_VENDA_MAIOR_CUSTO; a figura fiscal do uso e consumo; o GLP.
 - `pedidocompra_i`: PISCONFIS, ICME, LUCROBRUTOP, LUCROLIQP, VLREMBALAGEMB (a rentabilidade do item); `pedidocompra.DTENCERRAMENTO`
   (90,5%).
 - `nf_prod`: REPASSADO, INDEXADORTRIB, VRCREDSN/ALIQCREDSN/DESTACICMSSN (crédito do Simples), VRFRETE, CUSTO_RECALCULO_BONIF,

@@ -20,6 +20,8 @@ import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { NumberField } from '../../shared/ui/NumberField';
 import { CurrencyField } from '../../shared/ui/CurrencyField';
+import { DateField } from '../../shared/ui/DateField';
+import { TextArea } from '../../shared/ui/TextArea';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
@@ -140,6 +142,14 @@ export function ProdutoCadMaster() {
       peso: undefined,
       fatorcx: 1,
       controle_validade: 'S',
+      // o NewRecord do binário novo (o "Inseriu" de 2026): o servidor aplica os mesmos quando a tela não manda
+      uso_consumo: 'N',
+      visivel_rel: 'S',
+      pis: 'S',
+      tipopis: 'N',
+      tipo_item: 0,
+      receitaunidade: 'KG',
+      apresentacao_etiqueta: 1,
       codauxiliares: [],
       // F2 — MULTI_PRECO por empresa: a tela edita a linha da empresa única INLINE em
       // `precos.0`; semeada aqui p/ o binding existir num registro NOVO (defaults do legado).
@@ -214,6 +224,7 @@ export function ProdutoCadMaster() {
           <NutricionalSection form={form} editavel={editavel} />
           <LogisticaSection form={form} editavel={editavel} />
           <OutrosSection form={form} editavel={editavel} />
+          <ComplementosSection form={form} editavel={editavel} />
           {/* mig 314 — Fornecedores desassociados (TbsFornecedoresDesassociados): as importações do pedido pulam o produto. */}
           <FornecedoresDesassociadosSection form={form} editavel={editavel} fornecedorOptions={fornecedorOptions} />
           {/* Referência Fornecedor (CODREFERENCIA_FOR / DE-PARA) — visto por idproduto; só p/ produto gravado. */}
@@ -482,6 +493,13 @@ function PrincipalSection({
                 onChange={field.onChange}
                 disabled={!editavel}
               />
+            )}
+          />
+          <Controller
+            control={form.control}
+            name="uso_consumo"
+            render={({ field }) => (
+              <CheckboxField label="Uso e consumo" value={(field.value as string | undefined) ?? 'N'} onChange={field.onChange} disabled={!editavel} />
             )}
           />
           <Controller
@@ -2401,7 +2419,93 @@ const OUTROS_FLAGS: { name: keyof CriarProdutoDto; label: string }[] = [
   { name: 'prod_sem_gtin', label: 'Não possui GTIN' },
   { name: 'vasilhame', label: 'Vasilhame' },
   { name: 'cotacao', label: 'Cotação' },
+  // o que o binário novo acrescentou (corte P1 do produto, 25/09/2026) — gravado no "Inseriu" de todo produto novo
+  { name: 'visivel_rel', label: 'Visível no relatório de vendas' },
+  { name: 'imprimircomp', label: 'Imprime composição' },
+  { name: 'gerar_m220_m620', label: 'Gera M220/M620 (SPED Contribuições)' },
+  { name: 'nao_atu_produtos_entrada', label: 'Não atualiza o produto na entrada de NF' },
+  { name: 'imprime_voucher', label: 'Imprime voucher' },
+  { name: 'produto_voucher', label: 'Produto voucher' },
+  { name: 'saida_expedicao', label: 'Saída pela expedição' },
+  { name: 'gluten', label: 'Contém glúten' },
+  { name: 'produto_notavel', label: 'Produto notável' },
+  { name: 'produto_ancora', label: 'Produto âncora' },
+  { name: 'decomposicao_livre', label: 'Decomposição livre' },
+  { name: 'nao_decompor_saida', label: 'Não decompor na saída' },
+  { name: 'decomposicao_un', label: 'Decomposição por unidade' },
+  { name: 'entrada_decomposta', label: 'Entrada decomposta' },
+  { name: 'atualiza_multipreco_decomp', label: 'Atualiza o preço da decomposição' },
 ];
+
+// SPED 0200 — TIPO_ITEM (tabela do leiaute)
+const TIPOS_ITEM = [
+  ['0', 'Mercadoria para revenda'], ['1', 'Matéria-prima'], ['2', 'Embalagem'], ['3', 'Produto em processo'], ['4', 'Produto acabado'],
+  ['5', 'Subproduto'], ['6', 'Produto intermediário'], ['7', 'Material de uso e consumo'], ['8', 'Ativo imobilizado'], ['9', 'Serviços'],
+  ['10', 'Outros insumos'], ['99', 'Outras'],
+].map(([v, l]) => ({ value: v, label: `${v.padStart(2, '0')} - ${l}` }));
+// o combo cmbTIPOPIS (os três primeiros com legenda no .dfm) + os códigos que a produção tem sem legenda
+const TIPOS_PIS = [
+  { value: 'N', label: 'N - Cumulativo (Lei 10.833/2003) — 3,65%' }, { value: 'A', label: 'A - Isento "retido" (Lei 10.147/2001)' },
+  { value: 'I', label: 'I - Alíquota zero (Lei 10.925/2004)' }, ...['S', 'z', 'Z', '3', 'C'].map((v) => ({ value: v, label: v })),
+];
+const PARTES_DEC = ['0', '1/4', '1/3', '1/2', '2/3', '3/4'].map((l, i) => ({ value: String(i), label: `[${i}] ${l}` }));
+const MEDIDAS_USADAS = [
+  [0, 'Colher(es) de sopa'], [5, 'Unidade(s)'], [6, 'Pacote(s)'], [7, 'Fatia(s)'], [8, 'Fatia(s) fina(s)'], [10, 'Folha(s)'], [12, 'Biscoito(s)'],
+  [13, 'Bisnaguinha(s)'], [14, 'Disco(s)'], [15, 'Copo(s)'], [17, 'Tablete(s)'], [20, 'Bife(s)'], [22, 'Concha(s)'], [23, 'Bala(s)'],
+  [24, 'Prato(s) fundo(s)'], [25, 'Pitada(s)'], [26, 'Lata(s)'],
+].map(([v, l]) => ({ value: String(v), label: `[${String(v).padStart(2, '0')}] ${l}` }));
+
+/** os campos do legado que não cabiam nas outras abas: SPED, PIS, validade, comissão, o desconto do preço 2 e as medidas */
+function ComplementosSection({ form, editavel }: { form: UseFormReturn<CriarProdutoDto>; editavel: boolean }) {
+  const num = (name: keyof CriarProdutoDto, label: string, decimais = 0) => (
+    <Controller control={form.control} name={name} render={({ field }) => (
+      <NumberField label={label} value={field.value != null && field.value !== '' ? Number(field.value) : undefined} onChange={field.onChange} decimais={decimais} min={0} disabled={!editavel} />
+    )} />
+  );
+  const sel = (name: keyof CriarProdutoDto, label: string, options: Array<{ value: string; label: string }>, numero = false) => (
+    <Controller control={form.control} name={name} render={({ field }) => (
+      <SelectField label={label} options={options} value={field.value != null && field.value !== '' ? String(field.value) : undefined}
+        onChange={(v) => field.onChange(v === '' || v == null ? undefined : numero ? Number(v) : v)} placeholder="Selecione…" disabled={!editavel} />
+    )} />
+  );
+  return (
+    <fieldset disabled={!editavel} className="rounded-radius-md border border-border p-pad-md">
+      <legend className="px-pad-xs text-fg-muted">Complementos</legend>
+      <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
+        {sel('tipo_item', 'Tipo do item (SPED)', TIPOS_ITEM, true)}
+        <Controller control={form.control} name="pis" render={({ field }) => (
+          <CheckboxField label="Pis / Cofins" value={(field.value as string | undefined) ?? 'N'} onChange={field.onChange} disabled={!editavel} />
+        )} />
+        {sel('tipopis', 'Tipo de PIS', TIPOS_PIS)}
+        {num('dias_validade_minimo', 'Mínimo de dias de validade')}
+        {num('fator_pedidocompra', 'Fator no pedido de compra', 3)}
+        {sel('receitaunidade', 'Unidade da receita', [{ value: 'KG', label: 'KG' }, { value: 'UN', label: 'UN' }])}
+        {num('descmax', 'Desconto máximo', 2)}
+        {num('comissao', 'Comissão (%)', 2)}
+        {num('taraembalagem', 'Tara da embalagem', 2)}
+        {num('apresentacao_etiqueta', 'Apresentação na etiqueta')}
+        {num('conteudo_embalagem', 'Conteúdo da embalagem', 4)}
+        {sel('unidade_apresentacao', 'Unidade de apresentação', [{ value: 'KG', label: 'KG' }, { value: 'LT', label: 'LT' }, { value: 'UN', label: 'UN' }])}
+        {sel('tpdescpreco2', 'Desconto do preço 2 — tipo', [{ value: 'P', label: 'P' }, { value: 'F', label: 'F' }, { value: 'D', label: 'D' }])}
+        {num('vrdescpreco2', 'Desconto do preço 2 — valor', 2)}
+        <div />
+        <Controller control={form.control} name="preco2dtini" render={({ field }) => (
+          <DateField label="Preço 2 — início" value={field.value ? String(field.value).slice(0, 10) : undefined} onChange={field.onChange} disabled={!editavel} />
+        )} />
+        <Controller control={form.control} name="preco2dtfim" render={({ field }) => (
+          <DateField label="Preço 2 — fim" value={field.value ? String(field.value).slice(0, 10) : undefined} onChange={field.onChange} disabled={!editavel} />
+        )} />
+        <div />
+        {num('inteiramedida', 'Medida caseira — parte inteira')}
+        {sel('partedec', 'Medida caseira — fração', PARTES_DEC, true)}
+        {sel('usadamedida', 'Medida caseira — medida usada', MEDIDAS_USADAS, true)}
+        <div className="sm:col-span-3">
+          <TextArea label="Especificação" disabled={!editavel} {...form.register('especificacao')} />
+        </div>
+      </div>
+    </fieldset>
+  );
+}
 function OutrosSection({ form, editavel }: { form: UseFormReturn<CriarProdutoDto>; editavel: boolean }) {
   return (
     <fieldset disabled={!editavel} className="rounded-radius-md border border-border p-pad-md">

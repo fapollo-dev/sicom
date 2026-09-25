@@ -88,7 +88,28 @@ export const produtoAggregateConfig: AggregateConfig = {
     'pesobruto_produto', 'pesobruto_caixa', 'pesobruto_pallet',
     'pallet_caixas_por_camada', 'pallet_camadas_por_pallet', 'pallet_caixas_por_pallet',
     'pallet_empilhamento', 'pallet_produtos_por_caixa', 'pallet_produtos_por_pallet', 'fatorcx_prod',
+    // corte P1 do produto (25/09/2026) — o que a tela do legado preenche e o Apollo não gerenciava (o "Inseriu" da LOG de 2026 lista todos; o operador
+    // altera RECEITAUNIDADE 302 vezes, TPDESCPRECO2 785, VRDESCPRECO2 527, PRODUTO_NOTAVEL 164, USO_CONSUMO 16…)
+    'uso_consumo', 'visivel_rel', 'imprimircomp', 'pis', 'tipopis', 'gerar_m220_m620', 'tipo_item',
+    'nao_atu_produtos_entrada', 'imprime_voucher', 'produto_voucher', 'tipo_produto', 'saida_expedicao', 'gluten',
+    'produto_notavel', 'produto_ancora', 'decomposicao_livre', 'nao_decompor_saida', 'decomposicao_un', 'entrada_decomposta',
+    'atualiza_multipreco_decomp', 'receitaunidade', 'apresentacao_etiqueta', 'dias_validade_minimo', 'fator_pedidocompra',
+    'descmax', 'comissao', 'taraembalagem', 'especificacao', 'tpdescpreco2', 'vrdescpreco2', 'preco2dtini', 'preco2dtfim',
+    'inteiramedida', 'partedec', 'usadamedida', 'conteudo_embalagem', 'unidade_apresentacao',
   ],
+  // o NewRecord do produto (binário novo): o que o legado grava num produto novo quando a tela não mexe — medido no "Inseriu" de
+  // 2026 (2.354 inclusões: VISIVEL_REL 'S', RECEITAUNIDADE 'KG', APRESENTACAO_ETIQUETA 1, TIPO_ITEM 0, PIS 'S', TIPOPIS 'N', as
+  // demais 'N') — e o CODOPERADOR de quem cria (2.354 de 2.354). Só no create.
+  derivarTrx: async ({ dto }) => {
+    const padrao: Record<string, unknown> = {
+      visivel_rel: 'S', saida_expedicao: 'N', nao_atu_produtos_entrada: 'N', imprime_voucher: 'N', tipo_produto: 'N', gluten: 'N',
+      decomposicao_livre: 'N', nao_decompor_saida: 'N', receitaunidade: 'KG', apresentacao_etiqueta: 1, imprimircomp: 'N',
+      tipo_item: 0, pis: 'S', tipopis: 'N',
+    };
+    const out: Record<string, unknown> = { codoperador: currentTenant().operadorId ?? null };
+    for (const [k, v] of Object.entries(padrao)) if (dto[k] === undefined) out[k] = v;
+    return out;
+  },
   // F4 — flags COMPOSICAO/DECOMPOSICAO/RECEITA derivadas da presença de itens ('N' se vazio),
   // só quando o respectivo array vem no dto (espelha o set 'N' no btnGravar do legado).
   derivar: (dto) => {
