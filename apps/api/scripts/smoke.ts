@@ -16,6 +16,7 @@ import { chaveNfeValida, montarChaveNfe, gerarCodigoInternoEan13 } from '@apollo
 import { startEmbeddedPg, PG_CONN } from '../test/embedded-db';
 import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/shared/errors/all-exceptions.filter';
+import { hashPaf } from '../src/modules/shared/hash-paf';
 import { AgendaVigenciaAgendador } from '../src/modules/cadastro/agenda-vigencia.agendador';
 import { SefazDfeService } from '../src/modules/compras/sefaz-dfe.service';
 import { runWithTenant } from '../src/shared/tenant/tenant-context';
@@ -22421,6 +22422,49 @@ async function main() {
           { cp: [cp.status, cpJ.code], pr, logEnd });
       } finally {
         await pgBx.end();
+      }
+    }
+
+    // ══ §219 AUDITORIA DE ESQUELETOS — BAIXA lote 2: PERMISSOES da empresa retirada, mínimo/máximo do ajuste, HASHPAF e a LOG do preço e
+    // do código auxiliar no cadastro de produto, o recurso "1 - DINHEIRO" e o histórico digitado na baixa de cartão
+    {
+      const pgB2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const J = { ...H, 'content-type': 'application/json' };
+        // 219.1 — a empresa retirada do operador leva as permissões dele nela
+        await fetch(`${base}/cadastro/operadores`, { method: 'POST', headers: J, body: JSON.stringify({ senha: 'op219', codoperador: 921900, nome: 'OP 219', login: 'OP219', tipoop: 'SUP', empresas: [{ codempresa: 1 }, { codempresa: 2 }] }) });
+        await pgB2.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMNF','FRMNF',921900,1), ('FRMNF','FRMNF',921900,2)`);
+        const op = (await (await fetch(`${base}/cadastro/operadores/921900`, { headers: H })).json().catch(() => ({}))) as any;
+        const put = await fetch(`${base}/cadastro/operadores/921900`, { method: 'PUT', headers: J, body: JSON.stringify({ ...op, empresas: [{ codempresa: 1 }] }) });
+        const perms = (await pgB2.query(`SELECT codempresa FROM permissoes WHERE codoperador = 921900 ORDER BY codempresa`)).rows.map((r: any) => Number(r.codempresa));
+        check('BAIXA §219.1 [usuários]: tirar a empresa 2 do operador apaga as PERMISSOES dele na empresa 2 (ExcluirPermissoesEmpresasExluidas); as da empresa 1 ficam',
+          put.status === 200 && JSON.stringify(perms) === '[1]', { put: put.status, perms });
+
+        // 219.2 — o mínimo e o máximo do ajuste de estoque
+        const aj = await fetch(`${base}/cadastro/ajuste-estoque`, { method: 'POST', headers: J, body: JSON.stringify({ idproduto: 990710, operacao: 'AUMENTAR', qtde: 5, codmotivo: 1, minimo: 3, maximo: 9 }) });
+        const ajJ = (await aj.json().catch(() => ({}))) as any;
+        const est = (await pgB2.query(`SELECT minimo, maximo FROM estoque WHERE idproduto = 990710 AND idempresa = 1`)).rows[0];
+        const ajR = (await pgB2.query(`SELECT minimo, maximo FROM ajuste_estoque WHERE codajuste = $1`, [Number(ajJ.codajuste)])).rows[0];
+        check('BAIXA §219.2 [ajuste de estoque]: o mínimo 3 e o máximo 9 da tela vão ao saldo e ao ajuste (UajusteEstoque.pas:355, :423)',
+          aj.status === 200 && Number(est?.minimo) === 3 && Number(est?.maximo) === 9 && Number(ajR?.minimo) === 3 && Number(ajR?.maximo) === 9, { aj: [aj.status, ajJ.code], est, ajR });
+
+        // 219.3 — o cadastro de produto: HASHPAF e as LOGs do preço e do código auxiliar
+        const pr = (await (await fetch(`${base}/cadastro/produtos/990710`, { headers: H })).json().catch(() => ({}))) as any;
+        const precos = (pr.precos ?? []).map((p: any) => (Number(p.idempresa) === 1 ? { ...p, vrvenda: 33 } : p));
+        const cods = [...(pr.codauxiliares ?? []), { codauxiliar: '7899000990719', codbarra: '7899000990710', fatoremb: 6, operacao: 'X' }];
+        const pu = await fetch(`${base}/cadastro/produtos/990710`, { method: 'PUT', headers: J, body: JSON.stringify({ ...pr, precos, codauxiliares: cods }) });
+        const puJ = (await pu.json().catch(() => ({}))) as any;
+        const mp = (await pgB2.query(`SELECT vrvenda, vrcusto, hashpaf FROM multi_preco WHERE idproduto = 990710 AND idempresa = 1`)).rows[0];
+        const logs = (await pgB2.query(`SELECT tabela, acao, historico FROM log WHERE formulario = 'Cadastro de produtos' AND valor = 990710 AND tabela IN ('MULTI_PRECO', 'CODAUXILIAR', 'CODAUXILIAR ') ORDER BY idlog`)).rows as any[];
+        const ca = (await pgB2.query(`SELECT porcentagem_valor, dtcadastro FROM codauxiliar WHERE codauxiliar = '7899000990719'`)).rows[0];
+        check('BAIXA §219.3 [produto]: o preço gravado ganha o HASHPAF = MD5(IDPRODUTO+IDEMPRESA+VRVENDA+VRCUSTO) · LOG MULTI_PRECO "Alterou" da loja da sessão com VRVENDA e HASHPAF · o código auxiliar novo nasce com PORCENTAGEM_VALOR 100 e DTCADASTRO, e a LOG "Inseriu" vai com a tabela \'CODAUXILIAR \' (o espaço do legado)',
+          pu.status === 200 && Number(mp?.vrvenda) === 33 && mp?.hashpaf === hashPaf(990710, 1, mp?.vrvenda, mp?.vrcusto)
+          && logs.some((l) => l.tabela === 'MULTI_PRECO' && l.acao === 'Alterou' && /CAMPO: VRVENDA/.test(l.historico) && /CAMPO: HASHPAF/.test(l.historico))
+          && logs.some((l) => l.tabela === 'CODAUXILIAR ' && l.acao === 'Inseriu' && /CAMPO: CODAUXILIAR   VALOR: 7899000990719/.test(l.historico))
+          && Number(ca?.porcentagem_valor) === 100 && ca?.dtcadastro != null,
+          { pu: [pu.status, puJ.code], mp, logs: logs.map((l) => [l.tabela, l.acao, String(l.historico).slice(0, 80)]), ca });
+      } finally {
+        await pgB2.end();
       }
     }
 

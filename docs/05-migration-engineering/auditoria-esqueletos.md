@@ -519,7 +519,21 @@
 (VALOR_VENDA, UNIDADE_NOTA, fator da nota, stDevolucao), etiqueta (log por cópia com VALOR_IMPRESSAO), pedido (CODCOMPRADOR),
 ajuste de estoque (texto do histórico), baixa de cartão (LIBERADO do crédito).
 
-**Pendentes:** produto (LOG de MULTI_PRECO/CODAUXILIAR, HASHPAF, outbox), scrap (botão Aplicar com BAIXAR_ESTOQUE_NO_SCRAP='N'),
-agenda (VRVENDA do item, LOG por item, DESCRICAO_PROMOCAO), baixa de cartão (tiporecurso, texto), devolução (FINALIZADO), usuários
-(PERMISSOES das empresas retiradas), etiqueta (marcação da fila, "adicionar" manual), ajuste de preços (histórico por produto), ajuste
-de estoque (mínimo/máximo), contas bancárias (filtro por loja) e a decisão de projeto sobre AUDIT_*.
+**Lote 2 (25/09/2026, smoke §219 + `test/hash-paf.spec.ts`):**
+- §4.1 produto: **HASHPAF** reconstruído do dado — `MD5(IDPRODUTO‖IDEMPRESA‖VRVENDA‖VRCUSTO)`, valores no `CurrToStr` pt-BR, hex maiúsculo
+  (`getHASH_MultiPreco` está fora do fonte; bate em 1.726 de 2.953 preços de ago-set/2026 — o resto é hash velho deixado pelo lote de
+  preço, que não o refaz). Recalculado na linha que a tela grava (nova ou com preço/custo mudado) e na precificação por custo. LOG
+  MULTI_PRECO (o registro da loja da sessão, na ordem do `cdsMulti_Preco_Update`) e CODAUXILIAR (Inseriu com a tabela `'CODAUXILIAR '`,
+  o espaço do legado; Alterou; Excluiu); o código auxiliar novo nasce com DTCADASTRO/DTALTERACAO e PORCENTAGEM_VALOR 100.
+- §4.9 usuários: a empresa retirada leva as PERMISSOES do operador nela; o operador excluído perde as dele.
+- §4.14 ajuste de estoque: mínimo/máximo no saldo e no ajuste.
+- §4.6 baixa de cartão: TIPORECURSO "1 - DINHEIRO" na CAIXA (3.600 de 3.632); o histórico digitado vai antes de "REF. BX LOTE: N"
+  ("AMEX REF. BX LOTE: 91347").
+- Conferidos e já em ordem: scrap (Aplicar só com BAIXAR_ESTOQUE_NO_SCRAP='S'), etiqueta (a busca não enfileira; a marcação é por
+  produto), agenda (VRVENDA e DESCRICAO_PROMOCAO do item — feitos no §4.4), ajuste de preços (1 linha VRVENDA por lote, como o dado:
+  1.240 de 1.240).
+- **Não provado, mantido:** contas bancárias — o registro é aberto pelo código sem filtro de loja (uRDmCadContaBancaria.dfm), mas a
+  pesquisa é a do form-base e não há prova de que ela não filtre; a trava de isolamento por loja (smoke MT) fica.
+
+**Pendentes:** agenda (a LOG por item — formato do binário novo "INCLUSÃO DE ITEM NA AGENDA" / "MODIFICAÇÃO DE ITEM DA AGENDA"),
+devolução (FINALIZADO, não provado no fonte), produto (outbox `replica`) e a decisão de projeto sobre AUDIT_*.

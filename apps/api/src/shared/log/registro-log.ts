@@ -142,7 +142,7 @@ export async function gravarLog(trx: AnyDB, r: RegistroLog): Promise<void> {
     idlog: sql`nextval('seq_log')`,
     acao: r.acao,
     formulario: r.formulario.slice(0, 150),
-    tabela: r.tabela.toUpperCase().slice(0, 100),
+    tabela: r.tabela.toUpperCase().slice(0, 100), // (o espaço do 'CODAUXILIAR ' do legado fica)
     chave: r.chave.toUpperCase().slice(0, 50),
     valor: r.valor,
     codusuario: op,
@@ -178,6 +178,10 @@ export interface LogDetalhe {
   campos: readonly CampoLog[];
   /** registra o item removido (Excluiu, com os campos dele) — a FATURAMENTO registra; a NF_PROD não (0 "Excluiu NF_PROD") */
   excluiu?: boolean;
+  /** o nome da tabela no Inseriu quando o legado grava diferente (o código auxiliar: 'CODAUXILIAR ', com espaço, em 40 de 40) */
+  tabelaInseriu?: string;
+  /** só as linhas que o legado registra (o `GravaLog` com o dataset registra o registro corrente — ex.: o preço da loja da sessão) */
+  filtro?: (linha: Record<string, unknown>) => boolean;
 }
 
 /** a gravação de cadastro: monta o texto e grava, se algum campo entrou ou mudou */

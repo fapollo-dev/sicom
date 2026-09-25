@@ -43,6 +43,10 @@ export const operadoresAggregateConfig: AggregateConfig = {
   // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
   log: { formulario: 'Cadastro de usuários' },
   softDelete: true, // excluir master → INDR='E' (a ponte é apagada na cascata)
+  // o operador excluído perde as PERMISSOES (`ExcluirPermissoesOperadorExcluido`, uRdmCadUsuarios.pas:324 — com INDR='E')
+  aoRemover: async ({ id, db }) => {
+    await db.deleteFrom('permissoes').where('codoperador', '=', id).execute();
+  },
   // senha_hash (070) NUNCA sai no read/echo — a allowlist `colunas` só filtra a escrita; o read faz selectAll.
   colunasOcultasLeitura: ['senha_hash'],
   empresaScoped: false, // operador é global no schema
@@ -50,7 +54,18 @@ export const operadoresAggregateConfig: AggregateConfig = {
   colunasPesquisa: ['codoperador', 'nome', 'login', 'tipoop'],
   detalhes: [
     // empresas-permitidas: ponte N:N (PK surrogate codrelacao gerada por sequence; substitute no update).
-    { tabela: 'relacao_operador_empresa', pk: 'codrelacao', fk: 'codoperador', chave: 'empresas', colunas: ['codempresa'] },
+    {
+      tabela: 'relacao_operador_empresa', pk: 'codrelacao', fk: 'codoperador', chave: 'empresas', colunas: ['codempresa'],
+      // a empresa retirada do operador leva as PERMISSOES dele nela (`ExcluirPermissoesEmpresasExluidas`, uRdmCadUsuarios.pas:291-322)
+      antesDeSubstituirTrx: async ({ trx, masterId }) =>
+        ((await trx.selectFrom('relacao_operador_empresa').select('codempresa').where('codoperador', '=', masterId).execute()) as Array<{ codempresa: number }>).map((r) => Number(r.codempresa)),
+      aposInserirItensTrx: async ({ trx, masterId, itens, snapshot }) => {
+        const antes = (snapshot as number[] | undefined) ?? [];
+        const agora = new Set(itens.map((i) => Number(i.codempresa)));
+        const retiradas = antes.filter((e) => !agora.has(e));
+        if (retiradas.length) await trx.deleteFrom('permissoes').where('codoperador', '=', masterId).where('codempresa', 'in', retiradas).execute();
+      },
+    },
   ],
   // idgrupo derivado do tipo (uCadUsuarios.pas:451-462) — o usuário nunca digita o grupo.
   derivar: (dto) => {

@@ -167,15 +167,17 @@ export class AggregateEngineService extends CrudEngineService {
         return { linha, antiga };
       });
       // o item que saiu: o legado registra o Excluiu ANTES dos demais (o `cds…Delete` da tela é gravado primeiro — uNF.pas:5104)
+      const registra = (l: Record<string, unknown>) => !det.log?.filtro || det.log.filtro(l);
       if (det.log.excluiu) {
         for (const a of antigas) {
-          if (casadas.has(a)) continue;
+          if (casadas.has(a) || !registra(a)) continue;
           await gravarLogDaLinha(trx, { acao: 'Excluiu', formulario, tabela: det.log.tabela, chave: det.log.chave, valor: id, campos: det.log.campos, antes: a, depois: {} });
         }
       }
       for (const { linha, antiga } of pares) {
+        if (!registra(linha)) continue;
         await gravarLogDaLinha(trx, {
-          acao: antiga ? 'Alterou' : 'Inseriu', formulario, tabela: det.log.tabela, chave: det.log.chave, valor: id, campos: det.log.campos,
+          acao: antiga ? 'Alterou' : 'Inseriu', formulario, tabela: !antiga && det.log.tabelaInseriu ? det.log.tabelaInseriu : det.log.tabela, chave: det.log.chave, valor: id, campos: det.log.campos,
           // a PK do item muda no delete+insert do motor: não é alteração
           antes: antiga ? { ...antiga, [det.pk]: linha[det.pk] } : null, depois: linha,
         });

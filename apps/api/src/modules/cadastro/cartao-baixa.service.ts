@@ -27,6 +27,17 @@ const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
  * ADIADO (fiel): o ajuste da diferença/baixa parcial por valor digitado (VALOR_MAXIMO_DIFERENCA_BAIXA, `AjustarDiferenca`),
  * a taxa de antecipação e a conciliação de extrato (E-Extrato/SITEF).
  */
+/**
+ * o HISTORICO do crédito da baixa: a tela entra no campo com "REF. BX LOTE: <lote>" (`dbmObsEnter`, UbaixaCartao.pas:1290) e o operador
+ * digita o nome antes — "AMEX REF. BX LOTE: 91347", "MASTER V REF. BX LOTE: 91365". Aqui o lote só existe ao gravar: o que o operador
+ * digitou vai na frente de "REF. BX LOTE: <lote>" (salvo se ele já escreveu o texto inteiro).
+ */
+export function historicoDaBaixa(digitado: string | undefined | null, idlote: number): string {
+  const t = String(digitado ?? '').trim();
+  if (!t) return `REF. BX LOTE: ${idlote}`;
+  return (/BX LOTE/i.test(t) ? t : `${t} REF. BX LOTE: ${idlote}`).slice(0, 255);
+}
+
 @Injectable()
 export class CartaoBaixaService {
   constructor(private readonly dbp: DatabaseProvider) {}
@@ -166,7 +177,7 @@ export class CartaoBaixaService {
       const aLiberar = destino !== 'TESOURARIA';
       await trx.insertInto('mov_contas_bancarias').values({
         codconta: dto.codconta, idempresa: Number(conta.idempresa), valor: r2(totalLiq - outras), tipomovimento: 'C', idlote, idpgto: 1, codopconta: 0,
-        historico: (dto.historico?.trim() || `REF. BX LOTE: ${idlote}`).slice(0, 255), liberado: aLiberar ? 'N' : 'S',
+        historico: historicoDaBaixa(dto.historico, idlote), liberado: aLiberar ? 'N' : 'S',
         dtemissao: sql`${data}::date`, dtvenc: sql`${data}::date`, dtliberacao: aLiberar ? sql`${data}::date` : null,
         codoperador: op, dtcadastro: sql`now()`,
       }).execute();
@@ -198,11 +209,14 @@ export class CartaoBaixaService {
           debitos++;
         }
       }
+      // o recurso da CAIXA da baixa: "1 - DINHEIRO" (a forma 1 como a tela a mostra — 3.600 de 3.632 linhas de 2025-26)
+      const f1 = (await sql<{ modalidade: string | null }>`SELECT modalidade FROM formas_pgto WHERE idpgto = 1 ORDER BY (idempresa = ${emp}) DESC LIMIT 1`.execute(trx)).rows[0];
+      const recursoCaixa = f1?.modalidade ? `1 - ${f1.modalidade}` : 'DINHEIRO';
       // OUTRAS DESPESAS na CAIXA gerencial, antes da taxa: o valor digitado, negativo, na data da baixa (UbaixaCartao.pas:1151)
       if (outras > 0) {
         await trx.insertInto('caixa').values({
           data: sql`${data}::date`, valor: -outras, vrtitulo: -outras, obs: `Ref. a bx cartao lote ${idlote}`, operador: op,
-          codplc: ccOutras || ccMulta, idempresa: emp, tiporecurso: 'DINHEIRO', codconta: null, codparceiro: 0,
+          codplc: ccOutras || ccMulta, idempresa: emp, tiporecurso: recursoCaixa, codconta: null, codparceiro: 0,
           nrparcela: '1', codgrupo: null, dtvenc: sql`${data}::date`, gerado: 'SISTEMA', idlotebxcartao: idlote, origem: 'BAIXA CARTAO',
         }).execute();
       }
@@ -210,7 +224,7 @@ export class CartaoBaixaService {
       if (totalTaxa > 0) {
         await trx.insertInto('caixa').values({
           data: sql`${data}::date`, valor: -totalTaxa, vrtitulo: -totalTaxa, obs: `Ref. a bx cartao lote ${idlote}`, operador: op,
-          codplc: ccTaxa || null, idempresa: emp, tiporecurso: 'DINHEIRO', codconta: null, codparceiro: 0, nrparcela: '1', codgrupo: null,
+          codplc: ccTaxa || null, idempresa: emp, tiporecurso: recursoCaixa, codconta: null, codparceiro: 0, nrparcela: '1', codgrupo: null,
           dtvenc: sql`${data}::date`, gerado: 'SISTEMA', idlotebxcartao: idlote, origem: 'BAIXA CARTAO',
         }).execute();
       }

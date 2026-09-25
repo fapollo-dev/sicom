@@ -135,7 +135,7 @@ export function CartaoPage() {
             <div className="w-64"><SelectField label="&Conta corrente" value={contaBaixa} onChange={setContaBaixa} options={contas.filter((c) => destino === 'TESOURARIA' || !c.caixa).map((c) => ({ value: String(c.codconta), label: `${c.codconta} · ${c.nroconta ?? ''} ${c.titular ?? ''}`.trim() }))} placeholder="(conta de destino)" /></div>
             <div className="w-40"><DateField label="Data da ba&ixa" value={dataBaixa} onChange={(v) => setDataBaixa(v ?? '')} /></div>
             <div className="w-40"><NumberField label="Ou&tras despesas" value={outrasDesp} onChange={setOutrasDesp} decimais={2} min={0} /></div>
-            <div className="w-64"><Field label="&Histórico" value={historico} onChange={(e) => setHistorico(e.target.value)} placeholder="REF. BX LOTE: (nº do lote)" /></div>
+            <div className="w-64"><Field label="&Histórico" value={historico} onChange={(e) => setHistorico(e.target.value)} placeholder="ex.: AMEX — vira «AMEX REF. BX LOTE: nº»" /></div>
             <Button label="&Baixar marcados" variant="soft" disabled={busy || !linhas.length} onClick={() => void baixarSelecionados()} />
           </>
         )}

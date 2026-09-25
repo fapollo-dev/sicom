@@ -31,6 +31,9 @@ export function AjusteEstoquePage() {
   const [qtde, setQtde] = useState<number | undefined>(undefined);
   const [codmotivo, setCodmotivo] = useState<number | undefined>(undefined);
   const [obs, setObs] = useState('');
+  // o mínimo e o máximo da tela (vazio = mantém os atuais do saldo)
+  const [minimo, setMinimo] = useState<number | undefined>(undefined);
+  const [maximo, setMaximo] = useState<number | undefined>(undefined);
 
   const { data: produtoOptions = [] } = useResourceOptions(
     'cadastro/produtos',
@@ -60,7 +63,7 @@ export function AjusteEstoquePage() {
     if (qtde == null || qtde <= 0) return mensagem.erro('Informe a quantidade (maior que zero).');
     setExecutando(true);
     try {
-      const r = await ajustarEstoque({ idproduto, operacao: operacao as any, destino: destino as any, qtde, codmotivo, obs: obs || undefined });
+      const r = await ajustarEstoque({ idproduto, operacao: operacao as any, destino: destino as any, qtde, codmotivo, obs: obs || undefined, minimo, maximo });
       mensagem.sucesso(`Ajuste aplicado: saldo ${fmtQtd(r.qtdeanterior)} → ${fmtQtd(r.qtdeatual)}.`);
       setQtde(undefined); setObs('');
       await recarregar();
@@ -116,6 +119,12 @@ export function AjusteEstoquePage() {
           </div>
           <div className="w-36">
             <NumberField label="&Quantidade" value={qtde} onChange={setQtde} decimais={3} min={0} />
+          </div>
+          <div className="w-32">
+            <NumberField label="M&ínimo" value={minimo} onChange={setMinimo} decimais={3} min={0} />
+          </div>
+          <div className="w-32">
+            <NumberField label="Má&ximo" value={maximo} onChange={setMaximo} decimais={3} min={0} />
           </div>
           <div className="w-44">
             <SelectField label="&Motivo" options={motivoOptions} value={codmotivo != null ? String(codmotivo) : undefined} onChange={(v) => setCodmotivo(v ? Number(v) : undefined)} placeholder="Motivo…" />

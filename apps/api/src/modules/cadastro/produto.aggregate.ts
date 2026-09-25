@@ -1,6 +1,8 @@
 import { sql } from 'kysely';
 import { produtoSchema, atualizarProdutoSchema } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
+import { currentTenant } from '../../shared/tenant/tenant-context';
+import { hashPaf } from '../shared/hash-paf';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { capturarAlteracaoProduto } from '../sped/sped-alteracoes';
@@ -164,7 +166,28 @@ export const produtoAggregateConfig: AggregateConfig = {
       chave: 'codauxiliares',
       chaveNatural: ['codauxiliar'],
       preservarNaoGerenciadas: true,
-      colunas: ['codauxiliar', 'codbarra', 'fatoremb', 'codunidade', 'operacao'],
+      colunas: ['codauxiliar', 'codbarra', 'fatoremb', 'codunidade', 'operacao', 'porcentagem_valor', 'dtcadastro', 'dtalteracao'],
+      // a LOG do código auxiliar (binário novo): Inseriu com a tabela 'CODAUXILIAR ' (com o espaço — 40 de 40 em 2026), Alterou e Excluiu
+      log: {
+        tabela: 'CODAUXILIAR', tabelaInseriu: 'CODAUXILIAR ', chave: 'IDPRODUTO', excluiu: true,
+        campos: ['chaveaux', 'codauxiliar', 'codbarra', 'fatoremb', 'idproduto', 'codunidade', 'operacao', 'porcentagem_valor', 'dtcadastro', 'dtalteracao'],
+      },
+      // o novo nasce com DTCADASTRO/DTALTERACAO = agora e PORCENTAGEM_VALOR 100 (o dado); o alterado ganha DTALTERACAO nova
+      antesDeSubstituirTrx: async ({ trx, masterId }) =>
+        new Map(((await trx.selectFrom('codauxiliar').select(['codauxiliar', 'codbarra', 'fatoremb', 'codunidade', 'operacao', 'porcentagem_valor', 'dtcadastro', 'dtalteracao']).where('idproduto', '=', masterId).execute()) as Array<Record<string, unknown>>)
+          .map((r) => [String(r.codauxiliar), r])),
+      derivarItensTrx: async (itens, _trx, _emp, _header, _masterId, snapshot) => {
+        const antes = (snapshot as Map<string, Record<string, unknown>> | undefined) ?? new Map();
+        const agora = new Date().toISOString();
+        return itens.map((it) => {
+          const a = antes.get(String(it.codauxiliar));
+          if (!a) return { ...it, dtcadastro: it.dtcadastro ?? agora, dtalteracao: agora, porcentagem_valor: it.porcentagem_valor ?? 100 };
+          const mudou = ['codbarra', 'fatoremb', 'codunidade', 'operacao'].some((c) => it[c] !== undefined && String(it[c] ?? '') !== String(a[c] ?? ''));
+          // as colunas que a tela não manda ficam com o que a linha tinha
+          const base = { ...it, porcentagem_valor: it.porcentagem_valor ?? a.porcentagem_valor, dtcadastro: it.dtcadastro ?? a.dtcadastro, dtalteracao: it.dtalteracao ?? a.dtalteracao };
+          return mudou ? { ...base, dtalteracao: agora } : base;
+        });
+      },
     },
     // mig 314 — a aba "Fornecedores desassociados" (TbsFornecedoresDesassociados, UCadProduto.pas:679/1830): os
     // fornecedores de quem o produto foi tirado; as importações de itens do pedido de compra o pulam para eles
@@ -195,11 +218,37 @@ export const produtoAggregateConfig: AggregateConfig = {
       pk: 'id_multi_preco',
       fk: 'idproduto',
       chave: 'precos',
+      // a LOG do preço (UCadProduto.pas:3079/3084): o registro corrente do `cdsMulti_Preco_Update` — a linha da LOJA DA SESSÃO —, na ordem
+      // do dataset (2.727 Alterou e 1.179 Inseriu em 2026)
+      log: {
+        tabela: 'MULTI_PRECO', chave: 'IDPRODUTO',
+        campos: [
+          'idproduto', 'idempresa', 'vrcustoreal', 'vrcusto', 'markup', 'vrvenda', 'promocao', 'vrpromo', 'markupfixo', 'icme', 'frete', 'seguro',
+          'despacessorio', 'icmst', 'ipi', 'frete2', 'margeml', 'creditoicm', 'creditopiscofins', 'debitoicm', 'debitopiscofins', 'vendaliq',
+          'lucrobrutov', 'lucrobrutop', 'despopv', 'lucroliqv', 'lucroliqp', 'imprend', 'contsocial', 'margeml2v', 'margeml2', 'vrcustofiscal',
+          'vrcustorep', 'pmz', 'vrcustocsi', 'bc_reduzida', 'ippt', 'hashpaf', 'ativo', 'ativo_compra', 'vrfcpst', 'vrcustoajuste', 'fcp_saida',
+          'bonificacao', 'idpiscofins', 'idtabela', 'codfigurafiscal', 'tipopis', 'aliquotasaida',
+        ],
+        filtro: (l) => Number(l.idempresa) === Number(currentTenant().empresaId ?? -1),
+      },
+      // o HASHPAF (o `cdsMultiPrecoBeforePost`): recalculado na linha que a tela grava — nova ou com preço/custo mudado; a que não mudou
+      // fica com o dela (o lote de preço deixa hash velho, e regravar o produto não o refaz se a tela não postou a linha)
+      antesDeSubstituirTrx: async ({ trx, masterId }) =>
+        new Map(((await trx.selectFrom('multi_preco').select(['idempresa', 'vrvenda', 'vrcusto', 'hashpaf']).where('idproduto', '=', masterId).execute()) as Array<Record<string, unknown>>)
+          .map((r) => [Number(r.idempresa), r])),
+      derivarItensTrx: async (itens, _trx, _emp, _header, masterId, snapshot) => {
+        const antes = (snapshot as Map<number, Record<string, unknown>> | undefined) ?? new Map();
+        return itens.map((it) => {
+          const a = antes.get(Number(it.idempresa));
+          const mudou = !a || Number(a.vrvenda ?? 0) !== Number(it.vrvenda ?? 0) || Number(a.vrcusto ?? 0) !== Number(it.vrcusto ?? 0);
+          return { ...it, hashpaf: mudou ? hashPaf(masterId ?? it.idproduto, it.idempresa, it.vrvenda, it.vrcusto) : (a?.hashpaf ?? null) };
+        });
+      },
       // o que o cadastro não gerencia (idpiscofins/idtabela/figura fiscal por loja, custo fiscal) sobrevive ao save (lição 124)
       preservarNaoGerenciadas: true,
       colunas: [
         'idempresa', 'vrcusto', 'vrcustorep', 'markup', 'vrvenda', 'vrpromo',
-        'promocao', 'margeml', 'aliquotasaida', 'ativo', 'ativo_compra',
+        'promocao', 'margeml', 'aliquotasaida', 'ativo', 'ativo_compra', 'hashpaf',
         // OWNED pelo banco/outros módulos — entram em `colunas` APENAS p/ serem PRESERVADAS no substitute
         // (delete+insert), como o `qtde` do estoque. Fold auditoria: sem isso, todo save do produto ZERAVA
         // etq_impressa (a etiqueta perdia o "precisa reimprimir"), dtultprecoalterado e codagenda (quebrando o

@@ -6,6 +6,7 @@ import { BusinessRuleError } from '../../shared/errors/app-error';
 import { FiscalPricingService } from './preco-fiscal.service';
 import { ConfigService } from '../cadastro/config.service';
 import { gerarLotesFilhos } from './lote-filho';
+import { hashPaf } from '../shared/hash-paf';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -309,6 +310,8 @@ export class PrecificacaoCustoService {
           margeml2: painel.margeml2, margeml2v: painel.margeml2v,
           // quem alterou por último (`cdsMultiPrecoCODUSUALT := operador`, UPrificacaoCusto.pas:963-965)
           codusualt: op,
+          // o selo do PAF (`cdsMultiPrecoBeforePost` do datamodule que esta tela usa)
+          hashpaf: hashPaf(dto.idproduto, e, vendaGravada, r4(num(dto.vrcusto))),
         };
         // alvos de PRODUTO: o próprio + os do mesmo grupo de preço nessa empresa (propagação do legado :1097-1159).
         // Fold auditoria [ALTA]: a propagação é guardada por `rdbOnLine.Checked` (:1062) — em MODO LOTE o legado

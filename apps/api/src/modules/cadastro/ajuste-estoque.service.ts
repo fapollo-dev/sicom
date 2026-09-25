@@ -36,7 +36,7 @@ export class AjusteEstoqueService {
 
   async ajustar(dto: {
     idproduto: number; operacao: 'AUMENTAR' | 'DIMINUIR' | 'SUBSTITUIR'; destino?: string;
-    qtde: number; codmotivo: number; obs?: string;
+    qtde: number; codmotivo: number; obs?: string; minimo?: number; maximo?: number;
   }): Promise<{ codajuste: number; idproduto: number; operacao: string; qtdeanterior: number; qtdeatual: number }> {
     const emp = this.emp();
     const op = this.op();
@@ -52,7 +52,7 @@ export class AjusteEstoqueService {
       if (destino === 'D') return this.ajustarDeposito(trx, emp, op, dto, qtde);
       // lê e TRAVA o saldo (por produto+empresa). Sem linha → saldo 0 (será criada).
       const est = await trx
-        .selectFrom('estoque').select(['id_estoque', 'qtde'])
+        .selectFrom('estoque').select(['id_estoque', 'qtde', 'minimo', 'maximo'])
         .where('idproduto', '=', dto.idproduto).where('idempresa', '=', emp)
         .forUpdate().executeTakeFirst();
       const qtdeanterior = r3(num((est as any)?.qtde));
@@ -64,11 +64,14 @@ export class AjusteEstoqueService {
       // produto já negativado por venda sem entrada). Divergência do NF (que bloqueia negativo por gate).
 
       // grava o saldo (write-path que faltava): UPDATE se existe, senão INSERT (com backstop de corrida).
+      // o MÍNIMO e o MÁXIMO da tela vão junto no saldo e no ajuste (UajusteEstoque.pas:355-356, :423-424); a tela os abre com os atuais
+      const minimo = dto.minimo != null ? r3(num(dto.minimo)) : (est as any)?.minimo ?? null;
+      const maximo = dto.maximo != null ? r3(num(dto.maximo)) : (est as any)?.maximo ?? null;
       if (est) {
-        await trx.updateTable('estoque').set({ qtde: qtdeatual }).where('id_estoque', '=', (est as any).id_estoque).execute();
+        await trx.updateTable('estoque').set({ qtde: qtdeatual, minimo, maximo }).where('id_estoque', '=', (est as any).id_estoque).execute();
       } else {
         try {
-          await trx.insertInto('estoque').values({ idproduto: dto.idproduto, idempresa: emp, qtde: qtdeatual }).execute();
+          await trx.insertInto('estoque').values({ idproduto: dto.idproduto, idempresa: emp, qtde: qtdeatual, minimo, maximo }).execute();
         } catch (e) {
           // forUpdate não trava linha inexistente (MVCC): 2 ajustes do mesmo produto NOVO batem no UNIQUE
           // (idproduto,idempresa). Traduz o 23505 p/ erro de domínio (retry) em vez de "DUPLICADO" cru.
@@ -83,7 +86,7 @@ export class AjusteEstoqueService {
         .insertInto('ajuste_estoque')
         .values({
           idproduto: dto.idproduto, idempresa: emp, operacao: dto.operacao, destino,
-          qtde, qtdeanterior, qtdeatual, codmotivo: dto.codmotivo, codoperador: op, origem: 'A',
+          qtde, qtdeanterior, qtdeatual, codmotivo: dto.codmotivo, codoperador: op, origem: 'A', minimo, maximo,
           // DATA = a hora do servidor (`GetDataHoraServidor`, :414) — é a coluna que o legado e o histórico migrado usam
           obs: dto.obs ?? null, data: sql`now()`, dtcadastro: sql`now()`,
         })
@@ -93,15 +96,17 @@ export class AjusteEstoqueService {
   }
 
   /** o ajuste no DEPÓSITO (CBdestino item 1): ESTOQUE_DEP; o depósito não tem kardex próprio (historico_prod é o da loja) */
-  private async ajustarDeposito(trx: AnyDB, emp: number, op: number, dto: { idproduto: number; operacao: 'AUMENTAR' | 'DIMINUIR' | 'SUBSTITUIR'; qtde: number; codmotivo: number; obs?: string }, qtde: number) {
-    const dep = await trx.selectFrom('estoque_dep').select(['qtde']).where('idproduto', '=', dto.idproduto).where('idempresa', '=', emp).forUpdate().executeTakeFirst();
+  private async ajustarDeposito(trx: AnyDB, emp: number, op: number, dto: { idproduto: number; operacao: 'AUMENTAR' | 'DIMINUIR' | 'SUBSTITUIR'; qtde: number; codmotivo: number; obs?: string; minimo?: number; maximo?: number }, qtde: number) {
+    const dep = await trx.selectFrom('estoque_dep').select(['qtde', 'minimo', 'maximo']).where('idproduto', '=', dto.idproduto).where('idempresa', '=', emp).forUpdate().executeTakeFirst();
+    const minimo = dto.minimo != null ? r3(num(dto.minimo)) : (dep as any)?.minimo ?? null;
+    const maximo = dto.maximo != null ? r3(num(dto.maximo)) : (dep as any)?.maximo ?? null;
     const qtdeanterior = r3(num((dep as any)?.qtde));
     const qtdeatual = dto.operacao === 'AUMENTAR' ? r3(qtdeanterior + qtde) : dto.operacao === 'DIMINUIR' ? r3(qtdeanterior - qtde) : qtde;
-    if (dep) await trx.updateTable('estoque_dep').set({ qtde: qtdeatual }).where('idproduto', '=', dto.idproduto).where('idempresa', '=', emp).execute();
-    else await trx.insertInto('estoque_dep').values({ idproduto: dto.idproduto, idempresa: emp, qtde: qtdeatual }).execute();
+    if (dep) await trx.updateTable('estoque_dep').set({ qtde: qtdeatual, minimo, maximo }).where('idproduto', '=', dto.idproduto).where('idempresa', '=', emp).execute();
+    else await trx.insertInto('estoque_dep').values({ idproduto: dto.idproduto, idempresa: emp, qtde: qtdeatual, minimo, maximo }).execute();
     const ins = await trx.insertInto('ajuste_estoque').values({
       idproduto: dto.idproduto, idempresa: emp, operacao: dto.operacao, destino: 'D',
-      qtde, qtdeanterior, qtdeatual, codmotivo: dto.codmotivo, codoperador: op, origem: 'A',
+      qtde, qtdeanterior, qtdeatual, codmotivo: dto.codmotivo, codoperador: op, origem: 'A', minimo, maximo,
       obs: dto.obs ?? null, data: sql`now()`, dtcadastro: sql`now()`,
     }).returning('codajuste').executeTakeFirstOrThrow();
     return { codajuste: Number((ins as any).codajuste), idproduto: dto.idproduto, operacao: dto.operacao, qtdeanterior, qtdeatual };
@@ -139,7 +144,7 @@ export class AjusteEstoqueService {
             .where('idproduto', '=', idproduto).where('idempresa', '=', emp)
             .forUpdate().executeTakeFirst()
         : await trx
-            .selectFrom('estoque').select(['id_estoque', 'qtde'])
+            .selectFrom('estoque').select(['id_estoque', 'qtde', 'minimo', 'maximo'])
             .where('idproduto', '=', idproduto).where('idempresa', '=', emp)
             .forUpdate().executeTakeFirst();
       const saldoAtual = r3(num((est as any)?.qtde));

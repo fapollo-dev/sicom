@@ -26,6 +26,9 @@ export const ajustarEstoqueSchema = z
     qtde: z.coerce.number({ message: 'Quantidade inválida.' }).min(0, 'Quantidade inválida.'),
     codmotivo: z.coerce.number({ message: 'Motivo inválido.' }).int().positive('Informe o motivo do ajuste.'),
     obs: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().trim().max(1000).optional()),
+    // o mínimo e o máximo da tela (edtQtdeMinimo/edtQtdeMaximo) — gravados no saldo e no ajuste; vazio = mantém os atuais
+    minimo: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().min(0).optional()),
+    maximo: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().min(0).optional()),
   })
   .superRefine((v, ctx) => {
     if (v.operacao !== 'SUBSTITUIR' && !(v.qtde > 0))
