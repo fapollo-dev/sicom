@@ -90,6 +90,11 @@ export interface ContextoCustoEntrada {
   totalProdNotaUmItem?: number | null;
   /** a alíquota interna do indexador do item (ou a do ST da nota), para o ajuste do Decreto 47.530 de MG */
   aliqInternaIndexador?: number | null;
+  /**
+   * o TOTALFRETE da nota: no binário novo o FRETE do item é a FATIA do frete da nota e VRFRETE = TOTALFRETE × FRETE / 100 (267 de 267 itens
+   * de entrada de 2026; a conta do fonte de 2020 — produtos × FRETE% — bate 0 de 267). Sem ele, a conta do fonte
+   */
+  totalFreteNota?: number | null;
 }
 
 export interface CustoItemEntrada {
@@ -127,7 +132,7 @@ export function custoDoItemNaEntrada(it: ItemCustoEntrada, emp: EmpresaCusto, ct
   let totalprods = (arredonda ? arred : trunca)(qtdetotal * vrcustofinalc, 2);
   if (ctx.totalProdNotaUmItem != null && Math.abs(totalprods - ctx.totalProdNotaUmItem) <= 0.02) totalprods = ctx.totalProdNotaUmItem;
   const pct = (p: unknown) => cur((totalprods * n(p)) / 100);
-  const vrfrete = pct(it.frete);
+  const vrfrete = ctx.totalFreteNota != null ? arred((ctx.totalFreteNota * n(it.frete)) / 100, 2) : pct(it.frete);
   const vrseguro = pct(it.seguro);
   const despextrap = pct(it.despextra);
   const vripi = arred((totalprods * n(it.ipi)) / 100, 2);
@@ -240,7 +245,7 @@ const fiscal = new FiscalPricingService();
  */
 export async function recalcularMetricasEntrada(trx: AnyDB, codnf: number, somente: 'pendentes' | 'todos'): Promise<number> {
   const nf = (await trx.selectFrom('nf').select(['tipo', 'cfop', 'idempresa', 'nf_importacao_nfe', 'totalprod', 'tipoemissao', 'rateio', 'rateio_st', 'totalbaseicmt',
-    'totalicm_st', 'totalprodst']).where('codnf', '=', codnf).executeTakeFirst()) as Record<string, unknown> | undefined;
+    'totalicm_st', 'totalprodst', 'totalfrete']).where('codnf', '=', codnf).executeTakeFirst()) as Record<string, unknown> | undefined;
   if (!nf || String(nf.tipo) !== 'E') return 0;
   const emp = Number(nf.idempresa ?? currentTenant().empresaId ?? 0);
   const empresa = ((await trx.selectFrom('empresas').select(['classfiscal', 'despfederativas', 'despoperacional', 'alqsimplesnac', 'imprenda', 'contsocial', 'uf'])
@@ -273,7 +278,7 @@ export async function recalcularMetricasEntrada(trx: AnyDB, codnf: number, somen
       ? ((await trx.selectFrom('indexador_tributario').selectAll().where('codindexadortributario', '=', indexador).executeTakeFirst()) as FiguraSt | undefined) ?? null
       : null;
     const aliqInterna = n(fig?.aliquota_dest) || n(it.icms_st_aliq_nota);
-    const ctxCusto = { cfopNota: nf.cfop, aproveitamentoCreditoIcmsSt: aproveitamento, totalProdNotaUmItem: umItem, aliqInternaIndexador: aliqInterna };
+    const ctxCusto = { cfopNota: nf.cfop, aproveitamentoCreditoIcmsSt: aproveitamento, totalProdNotaUmItem: umItem, aliqInternaIndexador: aliqInterna, totalFreteNota: n(nf.totalfrete) };
     const pendente = somente === 'todos' || n(it.custo_real_unit) === 0;
     const set: Record<string, unknown> = {};
     if (pendente && ctxSt) {
@@ -298,7 +303,8 @@ export async function recalcularMetricasEntrada(trx: AnyDB, codnf: number, somen
       passaramPeloOk.push(Number(it.codnfprod));
     }
     const c = custoDoItemNaEntrada(it, empresa, ctxCusto);
-    Object.assign(set, { vrbasecalculoicm_calc: arred(c.tempbaseicme, 4), vricm_calc: c.vricmCalc });
+    // o VRFRETE do item (o binário novo o grava — 267 de 267 com frete em 2026)
+    Object.assign(set, { vrbasecalculoicm_calc: arred(c.tempbaseicme, 4), vricm_calc: c.vricmCalc, vrfrete: c.vrfrete });
     if (pendente && ctxSt) {
       // o OK regrava a base e o ICMS do item com os calculados (`CalculaBaseICME`, uItensNF.pas: VRBASECALCULO := TEMPBASEICME,
       // VRICM := TEMPVLRICME) — nos itens importados de 2026, base = VRBASECALCULOICM_CALC e ICMS = VRICM_CALC em 99,9% (os do XML: 74%)

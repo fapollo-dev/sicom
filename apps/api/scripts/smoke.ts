@@ -23185,16 +23185,16 @@ async function main() {
         const r = await fetch(`${base}/compras/recebimento/importar-xml`, { method: 'POST', headers: H, body: JSON.stringify({ xml }) });
         const rj = (await r.json().catch(() => ({}))) as any;
         codnf = Number(rj.codnf) || 0;
-        const it = (await pgXi.query(`SELECT nroitem, codproduto, fatorembal, unidade, icms, icme, bcr, ipi, vripi, frete, seguro, depsacess, mva, mva_ajustado, total_produto_nota, qtd_nota, cfop_original,
+        const it = (await pgXi.query(`SELECT nroitem, codproduto, fatorembal, unidade, icms, icme, bcr, ipi, vripi, frete, vrfrete, seguro, depsacess, mva, mva_ajustado, total_produto_nota, qtd_nota, cfop_original,
             frete_nota, seguro_nota, outras_despesas_nota, ipi_nota, icms_nota_bc, icms_nota_valor, icms_aliq_nota, icms_st_aliq_nota, icms_st_red_bc_nota, vrbase_stexterno, streal,
             fcp_bc_st, fcp_aliquota_st, fcp_valor_st, cst_nota, vrcustoreal, vl_unitario FROM nf_prod WHERE codnf = $1 ORDER BY nroitem`, [codnf])).rows as any[];
         const esperadoIcms = (await pgXi.query(`SELECT d.icm_efetivo FROM produtos p JOIN det_aliquota d ON d.aliquota = p.aliquota JOIN empresas e ON e.uf = d.uf AND e.idempresa = 1 WHERE p.idproduto = 2`)).rows[0]?.icm_efetivo;
         const [a, b] = it;
         const N = (v: unknown) => Number(v);
-        check('IMPORTAÇÃO §236.1 [o item do ImportaNFe]: FATOREMBAL = o FATORCX do produto (12; o Apollo gravava 1 — metade dos itens de 2026 entra em caixa) e, por cima, o do item no MANIFESTO da chave (5); UNIDADE = a do XML sem ponto ("Cx." → CX); ICMS = o ICM efetivo da DET_ALIQUOTA da loja, ICME = pICMS, BCR/IPI/FRETE/SEGURO em % de vProd − vDesc, DEPSACESS = vOutro; VL_UNITARIO = VRCUSTO / FATOREMBAL',
+        check('IMPORTAÇÃO §236.1 [o item do ImportaNFe]: FATOREMBAL = o FATORCX do produto (12; o Apollo gravava 1 — metade dos itens de 2026 entra em caixa) e, por cima, o do item no MANIFESTO da chave (5); UNIDADE = a do XML sem ponto ("Cx." → CX); ICMS = o ICM efetivo da DET_ALIQUOTA da loja, ICME = pICMS, BCR/IPI/SEGURO em % de vProd − vDesc, o FRETE como a fatia do frete total da nota (6 de 6 = 100%; VRFRETE = TOTALFRETE × FRETE = 6 — 267 de 267 em 2026), DEPSACESS = vOutro; VL_UNITARIO = VRCUSTO / FATOREMBAL',
           r.status === 200 && it.length === 2 && N(a?.fatorembal) === 12 && a?.unidade === 'CX' && N(b?.fatorembal) === 5 && b?.unidade === 'UN'
           && N(a?.icms) === (esperadoIcms != null ? N(esperadoIcms) : 12) && N(a?.icme) === 12 && N(a?.bcr) === 100 && N(a?.ipi) === 5 && N(a?.vripi) === 9
-          && Math.abs(N(a?.frete) - 100 / 30) < 1e-4 && Math.abs(N(a?.seguro) - 100 / 60) < 1e-4 && N(a?.depsacess) === 1.8 && N(a?.vl_unitario) === 5 && N(a?.vrcustoreal) === 60 && N(b?.vrcustoreal) === 3,
+          && Math.abs(N(a?.frete) - 100) < 1e-4 && N(a?.vrfrete) === 6 && Math.abs(N(a?.seguro) - 100 / 60) < 1e-4 && N(a?.depsacess) === 1.8 && N(a?.vl_unitario) === 5 && N(a?.vrcustoreal) === 60 && N(b?.vrcustoreal) === 3,
           { status: r.status, rj, a, b, esperadoIcms });
         check('IMPORTAÇÃO §236.2 [os valores DA NOTA e o total com o FCP-ST, 240,20 = vNF]: TOTAL_PRODUTO_NOTA, QTD_NOTA, CFOP_ORIGINAL (5403, o do fornecedor), FRETE/SEGURO/OUTRAS/IPI da nota, ICMS da nota (base e valor), alíquota e redução do ST, VRBASE_STEXTERNO, STREAL, FCP-ST e CST_NOTA vão ao item — o lado "nota" da devolução de compra e da conferência; o pMVAST vai ao MVA_AJUSTADO (NFe.pas:4159), não ao MVA',
           N(a?.total_produto_nota) === 180 && N(a?.qtd_nota) === 3 && N(a?.cfop_original) === 5403 && N(a?.frete_nota) === 6 && N(a?.seguro_nota) === 3 && N(a?.outras_despesas_nota) === 1.8

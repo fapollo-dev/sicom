@@ -365,6 +365,7 @@ export class RecebimentoService {
         remessaDeposito,
         vrvenda: precos.get(Number(r.idproduto)) ?? 0,
         cfop: this.cfopEntrada(r.it.cfopXml),
+        freteTotalNota: num(nfe.total.vFrete),
       });
       extras.push({ nroitem: item.nroitem, ...ex });
       return item;

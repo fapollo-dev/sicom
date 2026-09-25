@@ -11,7 +11,8 @@
  *    (:4086-4097);
  *  - ICMS = o ICM_EFETIVO da DET_ALIQUOTA (alíquota do produto, UF da loja) — 99,9% —, ou o pICMS; produto sem alíquota: a da
  *    DET_ALIQUOTA com esse ICM efetivo (:4114-4145); ICME = pICMS; BCR = vBC / (vProd − vDesc) (:4148-4151);
- *  - IPI (%) = vIPI / (vProd − vDesc), FRETE e SEGURO (%) idem, DEPSACESS = vOutro (:4037-4054, :4078);
+ *  - IPI (%) = vIPI / (vProd − vDesc), SEGURO (%) idem, DEPSACESS = vOutro (:4037-4054, :4078); o FRETE, no binário novo, é a fatia do frete
+ *    total da nota (vFrete do item / vFrete da nota — VRFRETE = TOTALFRETE × FRETE, 267 de 267 em 2026);
  *  - NCM/CEST: com ATUALIZAR_NCMCEST_PRODUTO_XMLNFE='S' os do XML (senão os do produto); com 'N' (a produção) os do produto quando
  *    há, senão os do XML (:3979-4014);
  *  - remessa para depósito (CFOP da nota 5906/1906/1905): CST 90, CSOSN 400, alíquota NTB (:4201-4206).
@@ -50,6 +51,8 @@ export interface ContextoItemImportacao {
   remessaDeposito: boolean;
   vrvenda: number;
   cfop: string;
+  /** o vFrete TOTAL da nota (ICMSTot) — o FRETE do item é a fatia dele */
+  freteTotalNota: number;
 }
 
 const n = (v: unknown): number => {
@@ -119,7 +122,8 @@ export function itemImportado(
     streal: it.vICMSST,
     ipi: pct(it.vIPI, totalProduto),
     vripi: it.vIPI,
-    frete: pct(it.vFrete, totalProduto),
+    // o FRETE é a FATIA do frete da nota (VRFRETE = TOTALFRETE × FRETE / 100, 267 de 267 em 2026), não % do valor do item
+    frete: ctx.freteTotalNota > 0 ? Math.round((it.vFrete / ctx.freteTotalNota) * 100 * 1e6) / 1e6 : undefined,
     seguro: pct(it.vSeg, totalProduto),
     depsacess: it.vOutro,
     pis: vazio(prod.pis),

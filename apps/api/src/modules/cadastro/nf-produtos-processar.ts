@@ -34,7 +34,7 @@ const floatToStr = (v: unknown) => String(Number(n(v).toPrecision(15))).replace(
 export interface OpcoesProcessarEntrada { precos?: PedidoPrecoProcessar; semAlterarCusto?: number[]; liberacaoEstoqueNegativo?: { login?: string; senha?: string } }
 
 export async function atualizarProdutosDaEntrada(trx: AnyDB, codnf: number, emp: number, op: number | null, opcoes: OpcoesProcessarEntrada = {}): Promise<void> {
-  const nf = (await trx.selectFrom('nf').select(['tipo', 'cfop', 'codparceiro', 'nronf', 'nf_importacao_nfe', 'totalprod']).where('codnf', '=', codnf).executeTakeFirst()) as
+  const nf = (await trx.selectFrom('nf').select(['tipo', 'cfop', 'codparceiro', 'nronf', 'nf_importacao_nfe', 'totalprod', 'totalfrete']).where('codnf', '=', codnf).executeTakeFirst()) as
     Record<string, unknown> | undefined;
   if (!nf || String(nf.tipo) !== 'E') return;
   const cfopNota = (await trx.selectFrom('cfop').select(['proc_transf', 'devolucao']).where(sql`codcfop::text`, '=', String(nf.cfop ?? '')).executeTakeFirst()) as
@@ -64,7 +64,7 @@ export async function atualizarProdutosDaEntrada(trx: AnyDB, codnf: number, emp:
     if (!mp) continue; // só o produto com linha de preço na loja da nota (udmNF.pas:7320)
     const prod = (await trx.selectFrom('produtos as p').leftJoin('unidade as u', 'u.codunidade', 'p.codunidade')
       .select(['p.fatorcx', 'p.codfor', 'p.unidade', 'p.codgrupopreco', 'u.sigla']).where('p.idproduto', '=', idp).executeTakeFirst()) as Record<string, unknown> | undefined;
-    const c = custoDoItemNaEntrada(it, empresa, { cfopNota: nf.cfop, aproveitamentoCreditoIcmsSt: aproveitamento, totalProdNotaUmItem: umItem });
+    const c = custoDoItemNaEntrada(it, empresa, { cfopNota: nf.cfop, aproveitamentoCreditoIcmsSt: aproveitamento, totalProdNotaUmItem: umItem, totalFreteNota: n(nf.totalfrete) });
     const qtd = n(it.quantidade) * (n(it.fatorembal) || 1);
     const q = c.qtdetotal || qtd;
     const esto = semCusto.has(Number(it.codnfprod)) ? 'N' : 'S';
