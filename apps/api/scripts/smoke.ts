@@ -22807,6 +22807,41 @@ async function main() {
       }
     }
 
+    // ══ §227 PRODUTO — a classificação fiscal da linha de preço (MULTI_PRECO.CODFIGURAFISCAL/IDPISCOFINS/IDTABELA) ══════════════
+    {
+      const pgMf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      let idp = 0;
+      try {
+        const cr = await fetch(`${base}/cadastro/produtos`, { method: 'POST', headers: H, body: JSON.stringify({
+          codbarra: '7890000227001', descricao: 'PRODUTO 227 FISCAL', unidade: 'UN', codfor: 2, aliquota: 'T01', ...PROD_FISCAL, codfigurafiscal: 7, idtabela: 12,
+          precos: [{ idempresa: 1, vrcusto: 5, vrcustorep: 5, markup: 20, vrvenda: 9.9, promocao: 'N', ativo: 'S', ativo_compra: 'S' }],
+        }) });
+        idp = Number(((await cr.json().catch(() => ({}))) as any).idproduto) || 0;
+        const linhas = async () => (await pgMf.query(`SELECT idempresa, codfigurafiscal, idpiscofins, idtabela FROM multi_preco WHERE idproduto = $1 ORDER BY idempresa`, [idp])).rows as any[];
+        const l1 = await linhas();
+        const lido = (await (await fetch(`${base}/cadastro/produtos/${idp}`, { headers: H })).json().catch(() => ({}))) as any;
+        const up = await fetch(`${base}/cadastro/produtos/${idp}`, { method: 'PUT', headers: H, body: JSON.stringify({ ...lido, idpiscofins: 1, codfigurafiscal: 18 }) });
+        const l2 = await linhas();
+        const sessao1 = l1.find((l) => Number(l.idempresa) === 1);
+        const outras1 = l1.filter((l) => Number(l.idempresa) !== 1);
+        const sessao2 = l2.find((l) => Number(l.idempresa) === 1);
+        const outras2 = l2.filter((l) => Number(l.idempresa) !== 1);
+        check('PRODUTO §227 [a classificação fiscal da linha de preço]: a linha da loja da sessão espelha a do produto — figura 7, PIS/COFINS 9, tabela 12 (produção: PIS/COFINS 578 de 579, figura 557 de 579) —; a inclusão leva PIS/COFINS e tabela às outras lojas, a figura não; regravar o produto com PIS/COFINS 1 e figura 18 muda só a linha da sessão',
+          cr.status === 201 && Number(sessao1?.codfigurafiscal) === 7 && Number(sessao1?.idpiscofins) === 9 && Number(sessao1?.idtabela) === 12
+          && outras1.length > 0 && outras1.every((l) => Number(l.idpiscofins) === 9 && Number(l.idtabela) === 12 && l.codfigurafiscal == null)
+          && up.status === 200 && Number(sessao2?.idpiscofins) === 1 && Number(sessao2?.codfigurafiscal) === 18 && outras2.every((l) => Number(l.idpiscofins) === 9),
+          { cr: cr.status, l1, up: up.status, l2 });
+      } finally {
+        if (idp) {
+          await pgMf.query(`DELETE FROM multi_preco WHERE idproduto = $1`, [idp]).catch(() => undefined);
+          await pgMf.query(`DELETE FROM estoque WHERE idproduto = $1`, [idp]).catch(() => undefined);
+          await pgMf.query(`DELETE FROM estoque_dep WHERE idproduto = $1`, [idp]).catch(() => undefined);
+          await pgMf.query(`DELETE FROM produtos WHERE idproduto = $1`, [idp]).catch(() => undefined);
+        }
+        await pgMf.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();

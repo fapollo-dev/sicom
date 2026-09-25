@@ -226,6 +226,10 @@ export async function incluirNasLojas(trx: AnyDB, id: number): Promise<void> {
       linha.ativo = ativaSoAtual ? 'N' : origem.ativo ?? null;
       linha.ativo_compra = ativaSoAtual ? 'N' : origem.ativo_compra ?? null;
       if (cols.has('usa_flex')) linha.usa_flex = origem.usa_flex ?? null;
+      // a natureza e a tabela de PIS/COFINS vão para todas as lojas (produção: 578 de 579 e 491 de 579 iguais ao produto em cada loja); a
+      // figura fiscal não (nas outras lojas ela fica vazia em metade dos produtos de 2026)
+      linha.idpiscofins = origem.idpiscofins ?? null;
+      linha.idtabela = origem.idtabela ?? null;
       linha.promocao = null;
       await trx.insertInto('multi_preco').values(linha).execute();
     }

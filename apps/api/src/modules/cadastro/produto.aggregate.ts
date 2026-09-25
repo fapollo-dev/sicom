@@ -40,6 +40,9 @@ async function unidadeDoProduto(
  * - O detalhe `codauxiliares` é substituído (delete+insert) a cada gravação do agregado.
  */
 
+/** a classificação fiscal que a linha de preço guarda por loja (o `cdsMulti_Preco_Update` da tela) */
+const FISCAL_DA_LINHA = ['codfigurafiscal', 'idpiscofins', 'idtabela'] as const;
+
 export const produtoAggregateConfig: AggregateConfig = {
   tabela: 'produtos',
   pk: 'idproduto',
@@ -258,14 +261,22 @@ export const produtoAggregateConfig: AggregateConfig = {
       // o HASHPAF (o `cdsMultiPrecoBeforePost`): recalculado na linha que a tela grava — nova ou com preço/custo mudado; a que não mudou
       // fica com o dela (o lote de preço deixa hash velho, e regravar o produto não o refaz se a tela não postou a linha)
       antesDeSubstituirTrx: async ({ trx, masterId }) =>
-        new Map(((await trx.selectFrom('multi_preco').select(['idempresa', 'vrvenda', 'vrcusto', 'hashpaf']).where('idproduto', '=', masterId).execute()) as Array<Record<string, unknown>>)
+        new Map(((await trx.selectFrom('multi_preco').select(['idempresa', 'vrvenda', 'vrcusto', 'hashpaf', ...FISCAL_DA_LINHA]).where('idproduto', '=', masterId).execute()) as Array<Record<string, unknown>>)
           .map((r) => [Number(r.idempresa), r])),
-      derivarItensTrx: async (itens, _trx, _emp, _header, masterId, snapshot) => {
+      derivarItensTrx: async (itens, _trx, emp, header, masterId, snapshot) => {
         const antes = (snapshot as Map<number, Record<string, unknown>> | undefined) ?? new Map();
+        const h = (header ?? {}) as Record<string, unknown>;
         return itens.map((it) => {
           const a = antes.get(Number(it.idempresa));
           const mudou = !a || Number(a.vrvenda ?? 0) !== Number(it.vrvenda ?? 0) || Number(a.vrcusto ?? 0) !== Number(it.vrcusto ?? 0);
-          return { ...it, hashpaf: mudou ? hashPaf(masterId ?? it.idproduto, it.idempresa, it.vrvenda, it.vrcusto) : (a?.hashpaf ?? null) };
+          // a classificação fiscal da linha: a da loja da sessão espelha a do produto gravado (produção: IDPISCOFINS 578 de 579, a figura
+          // 557 de 579 na loja 1); nas outras lojas fica a que a linha tinha
+          const fiscal: Record<string, unknown> = {};
+          for (const c of FISCAL_DA_LINHA) {
+            const doProduto = Number(it.idempresa) === emp ? h[c] : undefined;
+            fiscal[c] = doProduto !== undefined ? doProduto : it[c] !== undefined ? it[c] : a?.[c] ?? null;
+          }
+          return { ...it, ...fiscal, hashpaf: mudou ? hashPaf(masterId ?? it.idproduto, it.idempresa, it.vrvenda, it.vrcusto) : (a?.hashpaf ?? null) };
         });
       },
       // o que o cadastro não gerencia (idpiscofins/idtabela/figura fiscal por loja, custo fiscal) sobrevive ao save (lição 124)
@@ -273,6 +284,7 @@ export const produtoAggregateConfig: AggregateConfig = {
       colunas: [
         'idempresa', 'vrcusto', 'vrcustorep', 'markup', 'vrvenda', 'vrpromo',
         'promocao', 'margeml', 'aliquotasaida', 'ativo', 'ativo_compra', 'hashpaf',
+        ...FISCAL_DA_LINHA,
         // OWNED pelo banco/outros módulos — entram em `colunas` APENAS p/ serem PRESERVADAS no substitute
         // (delete+insert), como o `qtde` do estoque. Fold auditoria: sem isso, todo save do produto ZERAVA
         // etq_impressa (a etiqueta perdia o "precisa reimprimir"), dtultprecoalterado e codagenda (quebrando o

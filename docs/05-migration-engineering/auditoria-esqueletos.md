@@ -603,7 +603,7 @@ leitura), as colunas preenchidas em ≥ 50% que nenhum código do Apollo que gra
 - NF — cabeçalho: ~50 totais do legado que o Apollo não grava (QTDE, PIS/COFINS_NFE, RATEIO_ST, TOTALBASE_STEXTERNO, TOTAL_STREAL,
   TOTALREPICM, DTPROCESSAMENTO, TOTAL_BONIFICADO, VALIDATOTALNF…); item: ~90 (os valores da nota do fornecedor, custo real/reposição, PMZ,
   venda sugerida, lucros e margens, USOCONSUMO, SINCRONIZADO_*, a decomposição na entrada, REPASSADO, INDEXADORTRIB, ESPECIFICACAO…).
-- MULTI_PRECO pelo cadastro de produto: CODFIGURAFISCAL, IDPISCOFINS, IDTABELA, TIPOPIS, VRCUSTOFISCAL, ABC, ATACAREJO_ATIVO.
+- MULTI_PRECO pelo cadastro de produto: ✅ CODFIGURAFISCAL/IDPISCOFINS/IDTABELA (a linha da sessão espelha o produto; a inclusão leva PIS/COFINS e tabela às outras lojas — §227). Faltam VRCUSTOFISCAL, ABC/DATA_ABC/PERC_ABC, ATACAREJO_ATIVO (TIPOPIS da linha não espelha: 135 de 579).
 - Agenda de promoção: DATAEXECUCAO/IDSITUACAO_NF/CODPARCEIRO (468 alterações — a execução) e os markups do item; SCRAP.MOV_ESTOQUE.
 - `pedidocompra_i`: PISCONFIS, ICME, LUCROBRUTOP, LUCROLIQP, VLREMBALAGEMB (a rentabilidade do item); `pedidocompra.DTENCERRAMENTO`
   (90,5%).
