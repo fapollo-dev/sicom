@@ -4,6 +4,7 @@ import type { AdiantamentoCriarDto, AdiantamentoEditarDto, AdiantamentoListarDto
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { gravarLogDaLinha } from '../../shared/log/registro-log';
 import { ConfigService } from '../cadastro/config.service';
 import { DocumentosContabilService } from './documentos-contabil.service';
 import { assertPeriodoNaoFechado, type BloqPeriodo } from '../shared/periodo-contabil';
@@ -14,6 +15,17 @@ const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 /** F19→'C' (dinheiro ENTRA, gera A PAGAR) · F20→'D' (dinheiro SAI, gera A RECEBER) · F21→'E' (como 'C', com ADCREDITO). */
 const TIPO_POR_OPERACAO: Record<string, 'C' | 'D' | 'E'> = { F19: 'C', F20: 'D', F21: 'E' };
+/**
+ * a LOG do form-base (TfrmCadMaster com o `cdsAdiantamentoForn`, udmCadAdiantamentoFornecedor.dfm): os campos da tabela no
+ * dataset, na ordem dele — os de junção (RAZAO, NROCONTA, TITULAR, SITUACAO_DESCRICAO) não entram; o IDDOCGERADO é do binário
+ * novo e fecha a lista (produção: "Adiantamento a Parceiro", 588 Inseriu desde 2020, Alterou e Excluiu em 2025-26)
+ */
+const CAMPOS_LOG = [
+  'codadiantamento', 'dtadiantamento', 'codparceiro', 'quitada', 'codcontacorrente', 'valor', 'codmovconta', 'tipo', 'obs', 'idempresa',
+  'idsituacao_nf', 'contabilizado', 'dtvencimento', 'codmapa', 'iddocgerado',
+] as const;
+const FORMULARIO_LOG = 'Adiantamento a Parceiro';
+
 /** a frase que o legado grava no título gerado (é o predicado do delete no legado — aqui só o texto). */
 const obsTitulo = (cod: number) => `Originado do lancamento do adiantamento de parceiro n: ${cod}`;
 
@@ -273,6 +285,9 @@ export class AdiantamentoFornService {
         .returning('codadiantamento')
         .executeTakeFirstOrThrow()) as { codadiantamento: number };
       const cod = Number(ins.codadiantamento);
+      // o Inseriu é o post do registro — antes do título, por isso sem o IDDOCGERADO (como as 588 da produção)
+      await gravarLogDaLinha(trx, { acao: 'Inseriu', formulario: FORMULARIO_LOG, tabela: 'ADIANTAMENTO_FORN', chave: 'CODADIANTAMENTO', valor: cod, campos: CAMPOS_LOG,
+        depois: (await trx.selectFrom('adiantamento_forn').selectAll().where('codadiantamento', '=', cod).executeTakeFirst()) as Record<string, unknown> });
       // fecha o vínculo inverso no movimento (MOV_CONTAS_BANCARIAS.CODADIANTAMENTO, pas:396-401).
       await trx.updateTable('mov_contas_bancarias').set({ codadiantamento: cod }).where('codmovconta', '=', codmovconta).where('idempresa', '=', emp).execute();
 
@@ -302,6 +317,8 @@ export class AdiantamentoFornService {
           .executeTakeFirstOrThrow()) as { codapg: number };
         codapg = Number(t.codapg);
       }
+      // IDDOCGERADO = o título gerado (binário novo: CODRCB no 'D', CODAPG no 'C' — 25 de 25 desde jul/2025, nenhum nulo em 2026)
+      await trx.updateTable('adiantamento_forn').set({ iddocgerado: codrcb ?? codapg }).where('codadiantamento', '=', cod).where('idempresa', '=', emp).execute();
       return { codadiantamento: cod, tipo, codmovconta, codrcb, codapg, saldo: await this.saldoDinheiro(trx, dto.codcontacorrente, emp) };
     });
     await this.integrarSeAutomatica(emp, res.codadiantamento);
@@ -413,12 +430,15 @@ export class AdiantamentoFornService {
       // btnEditarClick põe 1 (pas:208)
       await this.assertParceiro(trx, dto.codparceiro, atual.idsituacao_nf, emp);
       const valor = r2(num(dto.valor));
+      const antes = (await trx.selectFrom('adiantamento_forn').selectAll().where('codadiantamento', '=', dto.codadiantamento).where('idempresa', '=', emp).executeTakeFirst()) as Record<string, unknown>;
       await trx
         .updateTable('adiantamento_forn')
         .set({ codparceiro: dto.codparceiro, dtadiantamento: dto.dtadiantamento, dtvencimento: dto.dtvencimento, valor, obs: dto.obs?.trim() ? dto.obs.trim().toUpperCase().slice(0, 255) : null, usultalteracao: op, dtultimalteracao: sql`now()` })
         .where('codadiantamento', '=', dto.codadiantamento)
         .where('idempresa', '=', emp)
         .execute();
+      await gravarLogDaLinha(trx, { acao: 'Alterou', formulario: FORMULARIO_LOG, tabela: 'ADIANTAMENTO_FORN', chave: 'CODADIANTAMENTO', valor: dto.codadiantamento, campos: CAMPOS_LOG, antes,
+        depois: (await trx.selectFrom('adiantamento_forn').selectAll().where('codadiantamento', '=', dto.codadiantamento).where('idempresa', '=', emp).executeTakeFirst()) as Record<string, unknown> });
       if (atual.codmovconta != null) {
         // o UPDATE do legado (linha 409) mexe em VALOR/DTEMISSAO/DTVENC/DTLIBERACAO e **não** no HISTORICO — é por
         // isso que 6 dos 563 movimentos do golden têm HISTORICO ≠ OBS (a OBS foi editada depois). Cópia fiel: o
@@ -485,7 +505,9 @@ export class AdiantamentoFornService {
           .executeTakeFirst();
         titulo_removido = Number((t as any)?.numDeletedRows ?? 0) > 0;
       }
+      const antes = (await trx.selectFrom('adiantamento_forn').selectAll().where('codadiantamento', '=', cod).where('idempresa', '=', emp).executeTakeFirst()) as Record<string, unknown>;
       await trx.deleteFrom('adiantamento_forn').where('codadiantamento', '=', cod).where('idempresa', '=', emp).execute();
+      await gravarLogDaLinha(trx, { acao: 'Excluiu', formulario: FORMULARIO_LOG, tabela: 'ADIANTAMENTO_FORN', chave: 'CODADIANTAMENTO', valor: cod, campos: CAMPOS_LOG, antes, depois: {} });
       return { codadiantamento: cod, movimento_removido, titulo_removido };
     });
   }

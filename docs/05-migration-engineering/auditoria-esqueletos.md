@@ -539,7 +539,7 @@ ajuste de estoque (texto do histórico), baixa de cartão (LIBERADO do crédito)
 "MODIFICAÇÃO DE ITEM DA AGENDA: … CAMPO/VALOR ANTERIOR/VALOR ATUAL", uma por campo, "EXCLUSÃO DE ITEM DA AGENDA: …"; LF, acentuado, sem
 normalizar), o CODITEM estável (`pkEstavel`) e o DTATIVO só quando o item é ativado.
 
-**LOG vertical (25/09/2026, smoke §220-§221):** os formulários da LOG de produção 2025-26 cruzados com o que o Apollo grava.
+**LOG vertical (25/09/2026, smoke §220-§222):** os formulários da LOG de produção 2025-26 cruzados com o que o Apollo grava.
 - §4.7 conciliação: **desfazer a conciliação** (244 reversões; binário novo, fora do fonte de 2020) — reconstruído do dado: o evento CB fica,
   as junções CONCILICAO_BANCARIA_OFX/_MOV saem, MBO_CONCILIADO e MOV_CONCILIADO voltam 'N', o LIBERADO do lançamento fica; LOG
   "REVERSAO Campo: X   Valor: V" (todos os campos, o valor do débito com sinal) na ordem MOV_CONTAS_BANCARIAS Alterou →
@@ -552,6 +552,10 @@ normalizar), o CODITEM estável (`pkEstavel`) e o DTATIVO só quando o item é a
   da do produto, com o CODOPERADOR no IDEMPRESA como o legado grava (o GravaLog recebe o operador na posição da empresa).
 - NF — a LOG do cancelamento ("Notas fiscais", 39 de 39 canceladas): "Nota fiscal cancelada pelo usuário: <NOME>, com a justificativa:
   <J> ,em <data>" — a justificativa no UpperCase do Delphi (só a-z), sem normalizar, sem empresa.
+- Adiantamento a parceiro: a LOG do form-base ("Adiantamento a Parceiro", 588 Inseriu desde 2020 — o Apollo não gravava nenhuma), com
+  os campos da tabela na ordem do `cdsAdiantamentoForn` (os de junção ficam de fora); e o **IDDOCGERADO** = o título gerado (CODRCB no
+  'D', CODAPG no 'C' — 25 de 25 desde o binário novo de jul/2025; o comentário da mig 159, "gancho quase morto", era leitura da
+  homologação).
 - **Não provado, fica de fora:** a exclusão de movimento pelo grid da conciliação (92 LOGs "DELETADO VIA TELA CONCILIAÇÃO BANCÁRIA GRID
   MOVIMENTAÇÃO SISTEMA. IDLOTE = x E CODMOVCONTA = y") — o texto está no dado, as guardas (lote baixado? contabilizado?) não.
 - **Tela não convertida achada:** "Processamento rápido de nota fiscal" (`uProcessaNotaFiscal`; altera VL_CUSTO/USOCONSUMO da nota).

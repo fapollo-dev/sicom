@@ -14575,6 +14575,23 @@ async function main() {
           && (await adSaldo(adCx)) === 1000
           && adContas.some((c) => Number(c.codconta) === adCx && Number(c.saldo) === 1000) && !adContas.some((c) => Number(c.codconta) === adCxOutra),
           { del: adDelJ, sobra: adSobra, saldo: await adSaldo(adCx), contas: adContas.map((c) => [c.codconta, c.saldo]) });
+        {
+          // §222 LOG VERTICAL — a LOG do form-base ("Adiantamento a Parceiro") e o IDDOCGERADO = o título gerado
+          const lAd = (await pgAd.query(`SELECT acao, chave, idempresa, historico FROM log WHERE tabela = 'ADIANTAMENTO_FORN' AND valor = $1 AND formulario = 'Adiantamento a Parceiro' ORDER BY idlog`, [adDJ.codadiantamento])).rows as any[];
+          const docC = (await pgAd.query(`SELECT iddocgerado FROM adiantamento_forn WHERE codadiantamento = $1`, [adCJ.codadiantamento])).rows[0]?.iddocgerado;
+          const ins = lAd[0];
+          const alt = lAd.find((l) => l.acao === 'Alterou');
+          const exc = lAd[lAd.length - 1];
+          check('LOG VERTICAL §222 [adiantamento]: a LOG do form-base em "Adiantamento a Parceiro" (588 Inseriu no legado; o Apollo não gravava nenhuma) — Inseriu com os campos da tabela na ordem do dataset e sem o IDDOCGERADO (o post vem antes do título), Alterou só com o que mudou (parceiro 1→20, valor 100→250, a OBS), Excluiu com o registro inteiro e o IDDOCGERADO = o título a receber; sem empresa. O IDDOCGERADO do tipo C é o título a pagar (binário novo: 25 de 25 desde jul/2025)',
+            ins?.acao === 'Inseriu' && ins?.chave === 'CODADIANTAMENTO' && ins?.idempresa == null
+            && String(ins?.historico).includes(`\r\n CAMPO: CODADIANTAMENTO   VALOR: ${adDJ.codadiantamento}\r\n CAMPO: DTADIANTAMENTO   VALOR: 01/07/2026\r\n CAMPO: CODPARCEIRO   VALOR: 1\r\n CAMPO: QUITADA   VALOR: N\r\n`)
+            && String(ins?.historico).includes(' CAMPO: VALOR   VALOR: 100\r\n') && String(ins?.historico).includes(' CAMPO: OBS   VALOR: ADIANT P/ TESTE\r\n') && !String(ins?.historico).includes('IDDOCGERADO')
+            && /CAMPO: CODPARCEIRO    VALOR ANTERIOR: 1    VALOR ATUAL: 20/.test(String(alt?.historico)) && /CAMPO: VALOR    VALOR ANTERIOR: 100    VALOR ATUAL: 250/.test(String(alt?.historico))
+            && /CAMPO: OBS    VALOR ANTERIOR: ADIANT P\/ TESTE    VALOR ATUAL: ADIANT EDITADO/.test(String(alt?.historico))
+            && exc?.acao === 'Excluiu' && String(exc?.historico).includes(`\r\nCAMPO: IDDOCGERADO   VALOR: ${adDJ.codrcb}`)
+            && Number(docC) === Number(adCJ.codapg),
+            { lAd: lAd.map((l) => [l.acao, String(l.historico).slice(0, 160)]), docC, codapg: adCJ.codapg });
+        }
 
         // 82.12) LISTAR com filtros + RBAC: excluir sem grant → 403 (BTNEXCLUIR é o privilégio mais restrito no golden).
         const adLis = (await (await fetch(`${base}/${AD}/listar`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'C', quitada: 'N' }) })).json().catch(() => ([]))) as any[];
