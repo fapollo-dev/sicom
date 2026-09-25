@@ -39,8 +39,8 @@ import { NfDevolucaoVendasModal } from './NfDevolucaoVendasModal';
 import { vincularDevolucaoVendasNf, type CredenciaisDevolucao, type ItemDevolucao } from './nfDevolucaoVendasApi';
 import { vincularNfRotativo, type LadoRotativoNf } from '../inventario-rotativo/inventarioRotativoApi';
 import { createResourceApi } from '../../shared/cadmaster/resourceApi';
-import { recalcularNf } from './nfFiscalApi';
-import { lerNf, processarNf, repasseAutomaticoNf, reverterNf } from './nfProcessamentoApi';
+import { configuracaoItemNf, recalcularNf } from './nfFiscalApi';
+import { lerNf, liberarIndexadorNf, processarNf, repasseAutomaticoNf, reverterNf } from './nfProcessamentoApi';
 import { faturamentoDaNota, excluirFinanceiroNf, configuracaoParcelas, gerarParcelas, sequenciaDuplicata, processarFinanceiroNf, type ParcelaGerada } from './nfFaturamentoApi';
 import { transmitirNf, cancelarNf, cceNf } from './nfNfeApi';
 
@@ -638,6 +638,28 @@ function AcoesNfeBar({ form }: { form: UseFormReturn<CriarNfDto> }) {
 
 // ───────────────────────────── Processamento (F3) ─────────────────────────────
 
+/** o login de liberação do PRÓPRIO usuário para liberar a nota do indexador (o `ChamaLiberacaoLogin` com a lista só dele) */
+function LiberarIndexadorModal({ liberada, onFechar, onConfirmar }: { liberada: boolean; onFechar: () => void; onConfirmar: (c: { login: string; senha: string }) => void }) {
+  const [login, setLogin] = useState('');
+  const [senha, setSenha] = useState('');
+  return (
+    <Modal
+      open
+      onClose={onFechar}
+      size="sm"
+      title={liberada ? 'Utilizar indexador tributário na nota fiscal' : 'Liberar nota fiscal para não usar indexador'}
+      primaryAction={{ label: 'Confirmar', onClick: () => onConfirmar({ login, senha }) }}
+      secondaryAction={{ label: 'Cancelar', onClick: onFechar }}
+    >
+      <div className="flex flex-col gap-form-gap">
+        <small className="text-fg-muted">Confirme com o seu login e a sua senha.</small>
+        <Field label="&Login" value={login} onChange={(e) => setLogin(e.target.value)} autoComplete="off" />
+        <Field label="&Senha" type="password" value={senha} onChange={(e) => setSenha(e.target.value)} autoComplete="off" />
+      </div>
+    </Modal>
+  );
+}
+
 /** os totais do cabeçalho que a análise automática refaz (somas dos itens) */
 const TOTAIS_DA_ANALISE = ['totalicm', 'totalbaseicm', 'totalicm_st', 'totalbaseicmt', 'totalnf', 'total_icmst_externo', 'totalbase_stexterno', 'total_streal',
   'icms_st_apagar', 'totalicm_stexterno_sepnf'] as const;
@@ -653,6 +675,14 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
   const proc = form.watch('proc');
   const statusnfe = form.watch('statusnfe');
   const tipoNota = form.watch('tipo');
+  const liberada = String(form.watch('libera_nf_indexador' as never) ?? '') === 'S';
+  const [podeLiberar, setPodeLiberar] = useState(false);
+  const [liberando, setLiberando] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    configuracaoItemNf().then((c) => { if (vivo) setPodeLiberar(Boolean(c.liberaNfIndexador)); }).catch(() => undefined);
+    return () => { vivo = false; };
+  }, []);
   const codnf = (form.getValues() as { codnf?: number }).codnf;
   if (codnf == null) return null;
 
@@ -711,6 +741,9 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
         {proc !== 'S' && <Button label="&Processar nota" variant="soft" onClick={() => void processar()} />}
         {proc !== 'S' && <Button label="Sincronizar CFOP/alíq./CST" variant="soft" onClick={() => setSincronizando(true)} />}
         {proc !== 'S' && tipoNota === 'E' && <Button label="Análise automática dos itens [F7]" variant="soft" onClick={() => void analisarItens()} />}
+        {proc !== 'S' && podeLiberar && (
+          <Button label={liberada ? 'Utilizar indexador tributário na nota fiscal' : 'Liberar nota fiscal para não usar indexador'} variant="soft" onClick={() => setLiberando(true)} />
+        )}
         {proc === 'S' && !enviada && (
           <Button label="&Reverter processamento" variant="soft" onClick={() => void reverter()} />
         )}
@@ -730,6 +763,21 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
             setSincronizando(false);
           }} />
       )}
+      {liberando && (
+        <LiberarIndexadorModal liberada={liberada} onFechar={() => setLiberando(false)} onConfirmar={async (cred) => {
+          try {
+            const r = await liberarIndexadorNf(codnf, cred);
+            form.setValue('libera_nf_indexador' as never, r.libera_nf_indexador as never, { shouldDirty: false });
+            setLiberando(false);
+            mensagem.sucesso(r.libera_nf_indexador === 'S'
+              ? 'Nota liberada do uso do indexador. Repasse os itens (análise automática) para recalcular.'
+              : 'A nota volta a usar o indexador tributário. Repasse os itens (análise automática) para recalcular.');
+          } catch (e) {
+            mensagem.erro(e);
+          }
+        }} />
+      )}
+      {liberada && <small className="text-warning">Nota fiscal liberada para não usar indexador.</small>}
       <small className="text-fg-muted">
         {proc === 'S' ? 'Nota processada (estoque movimentado).' : 'Nota não processada.'}
         {enviada ? ' Enviada à SEFAZ — reversão bloqueada.' : ''}

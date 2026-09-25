@@ -434,6 +434,8 @@ const CODE_PT: Record<string, string> = {
   NF_ITENS_NAO_REPASSADOS: 'Não é permitido processamento sem repassar todos os itens! Verifique!',
   NF_TOTAL_NF_DIVERGENTE: 'Valor informado no campo total da NF não confere com o Valor Total da Nota, Verifique!',
   NF_TOTAL_NF_OBRIGATORIO: 'É necessário informar o campo total NF, para dar continuidade!',
+  NF_LIBERAR_INDEXADOR_SEM_PERMISSAO: 'Usuário sem permissão para liberar nota fiscal do uso do indexador.',
+  NF_LIBERAR_INDEXADOR_NEGADO: 'O usuário informado não tem permissão para liberar nota fiscal do uso do indexador.',
   NFE_DESTINATARIO_OUTRA_LOJA: 'A nota fiscal (XML) é destinada a outra loja. Entre na loja do destinatário para importá-la.',
   NFE_DESTINATARIO_DIVERGE: 'O CNPJ contido na nota fiscal (XML) difere do CNPJ no cadastro da empresa logada. Verifique!',
   NFE_TRANSPORTADORA_NAO_ENCONTRADA: 'A transportadora da nota não está cadastrada. Cadastre-a com os dados do XML e importe de novo.',

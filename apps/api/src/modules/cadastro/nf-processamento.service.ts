@@ -20,6 +20,7 @@ import { recalcularMetricasEntrada } from './nf-custo-item';
 import { retratoDoProduto } from './nf.aggregate';
 import { TributacaoRepository } from '../precificacao/tributacao.repository';
 import { validarTravasEntradaNoProcessamento } from './nf-travas-processamento';
+import { LiberacaoService } from '../auth/liberacao.service';
 
 type AnyDB = any;
 
@@ -77,6 +78,7 @@ export class NfProcessamentoService {
     private readonly config: ConfigService,
     private readonly contab: NfContabilizacaoService,
     private readonly faturamento: NfFaturamentoService,
+    private readonly liberacao: LiberacaoService,
   ) {}
 
   async processar(codnf: number): Promise<void> {
@@ -468,6 +470,35 @@ export class NfProcessamentoService {
       if (chave && Number(rep?.n) > 0) await registrarProcessoNf(trx, 'stRepasseItens', chave, emp, op);
       return { codnf, itens: itens.length, comIndexador, repassados: Number(rep?.n ?? 0) };
     });
+  }
+
+
+  /**
+   * LIBERAR A NF DO USO DO INDEXADOR (menu `LiberarNFdousodeindexadorClick`, uNF.pas:17780-17829) — alterna: 'S' com o operador que
+   * liberou em CODOPERADOR_LIB_NF_INDEX, ou 'N' e limpa. Barra a nota processada; exige `LIBERA_NF_USO_INDEXADOR` = 'S' para o usuário
+   * (na produção só o usuário 1) e o login de liberação do PRÓPRIO usuário da sessão (a lista do `ChamaLiberacaoLogin` é só ele) —
+   * LOG_LIBERACOES "LIBERAR NOTA FISCAL DO USO DO INDEXADOR". Liberada, a nota se comporta como a loja 'D' (sem consulta, REPASSADO 'S',
+   * ST externo pelo ramo 'D', sem a ValidaIndexadores); o legado avisa para repassar os itens — o [F7].
+   */
+  async liberarIndexador(codnf: number, cred: { login?: string; senha?: string; computador?: string | null }): Promise<{ codnf: number; libera_nf_indexador: 'S' | 'N' }> {
+    const t = currentTenant();
+    const emp = t.empresaId ?? null;
+    const op = t.operadorId ?? null;
+    if (emp == null || op == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
+    const db = this.dbp.forTenant() as AnyDB;
+    const nf = (await db.selectFrom('nf').select(['codnf', 'proc', 'libera_nf_indexador']).where('codnf', '=', codnf).where('idempresa', '=', emp).executeTakeFirst()) as
+      Record<string, unknown> | undefined;
+    if (!nf) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf });
+    if (nf.proc === 'S') throw new BusinessRuleError('NF_PROCESSADA', { codnf });
+    const cfg = await configNaTrx(db, 'LIBERA_NF_USO_INDEXADOR', { empresaId: emp, operadorId: op, modulo: 'Retaguarda' });
+    if (String(cfg ?? 'N').toUpperCase() !== 'S') throw new BusinessRuleError('NF_LIBERAR_INDEXADOR_SEM_PERMISSAO');
+    const lib = await this.liberacao.validar({ codigo: 'LIBERA_NF_USO_INDEXADOR', login: String(cred?.login ?? ''), senha: String(cred?.senha ?? ''),
+      liberacao: 'LIBERAR NOTA FISCAL DO USO DO INDEXADOR', computador: cred?.computador ?? null, permitidos: [op] });
+    if (!lib.liberado) throw new BusinessRuleError('NF_LIBERAR_INDEXADOR_NEGADO');
+    const liberar = String(nf.libera_nf_indexador ?? '') !== 'S';
+    await db.updateTable('nf').set(liberar ? { libera_nf_indexador: 'S', codoperador_lib_nf_index: op } : { libera_nf_indexador: 'N', codoperador_lib_nf_index: null })
+      .where('codnf', '=', codnf).execute();
+    return { codnf, libera_nf_indexador: liberar ? 'S' : 'N' };
   }
 
 }

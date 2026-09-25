@@ -23831,6 +23831,62 @@ async function main() {
       }
     }
 
+    // ══ §249 LIBERAR A NF DO USO DO INDEXADOR (uNF.pas:17780-17829) ══════════
+    {
+      const pgLb = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const figAntes = (await pgLb.query(`SELECT figurafiscal FROM empresas WHERE idempresa = 1`)).rows[0]?.figurafiscal ?? null;
+      const livreAntes = (await pgLb.query(`SELECT retira_fornindex FROM parceiros WHERE codparceiro = 22`)).rows[0]?.retira_fornindex ?? null;
+      const prodAntes = (await pgLb.query(`SELECT codfigurafiscal FROM produtos WHERE idproduto = 1`)).rows[0]?.codfigurafiscal ?? null;
+      let cod = 0;
+      try {
+        await pgLb.query(`UPDATE empresas SET figurafiscal = 'O' WHERE idempresa = 1`);
+        await pgLb.query(`UPDATE parceiros SET retira_fornindex = 'N' WHERE codparceiro = 22`);
+        await pgLb.query(`UPDATE produtos SET codfigurafiscal = NULL WHERE idproduto = 1`);
+        const r = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 1, serie: '1', tipo: 'E', nronf: 'LB249', tipoemissao: '1', codparceiro: 22,
+          dtemissao: '2037-01-09', dtcontabil: '2037-01-09', cfop: '1102', validatotalnf: 100,
+          itens: [{ nroitem: 1, codproduto: 1, quantidade: 10, vrcusto: 10, cfop: '1102', aliquota: 'T01', cst: 0, icme: 18, bcr: 100 }] }) });
+        cod = Number(((await r.json().catch(() => ({}))) as any).codnf) || 0;
+        const lib = (body: Record<string, unknown>) => fetch(`${base}/fiscal/nf/${cod}/liberar-indexador`, { method: 'POST', headers: H, body: JSON.stringify(body) });
+        const semCfg = await lib({ login: 'SMOKE', senha: 'smoke123' });
+        const semCfgJ = (await semCfg.json().catch(() => ({}))) as any;
+        await pgLb.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) SELECT id, 'Usuario', '7', 'S' FROM configuracoes WHERE codigo = 'LIBERA_NF_USO_INDEXADOR'
+          ON CONFLICT (id, tipo, chave) DO UPDATE SET valor = 'S'`);
+        const cfgWeb = (await (await fetch(`${base}/fiscal/nf/item/configuracao`, { headers: H })).json().catch(() => ({}))) as any;
+        const outro = await lib({ login: 'OP8', senha: 'smoke123' });
+        const outroJ = (await outro.json().catch(() => ({}))) as any;
+        const errada = await lib({ login: 'SMOKE', senha: 'errada' });
+        const ok = await lib({ login: 'SMOKE', senha: 'smoke123' });
+        const okJ = (await ok.json().catch(() => ({}))) as any;
+        const h1 = (await pgLb.query(`SELECT libera_nf_indexador, codoperador_lib_nf_index FROM nf WHERE codnf = $1`, [cod])).rows[0] as any;
+        const log = (await pgLb.query(`SELECT usuario_sistema, usuario_liberou FROM log_liberacoes WHERE liberacao = 'LIBERAR NOTA FISCAL DO USO DO INDEXADOR' ORDER BY id DESC LIMIT 1`)).rows[0] as any;
+        // liberada: o [F7] repassa sem consultar (REPASSADO S) e o processar passa pelas travas
+        await pgLb.query(`UPDATE nf SET idsituacao_nf = 1031 WHERE codnf = $1`, [cod]);
+        const f7 = await fetch(`${base}/fiscal/nf/${cod}/repasse-automatico`, { method: 'POST', headers: H });
+        const rep = (await pgLb.query(`SELECT repassado FROM nf_prod WHERE codnf = $1`, [cod])).rows[0] as any;
+        const volta = await lib({ login: 'SMOKE', senha: 'smoke123' });
+        const voltaJ = (await volta.json().catch(() => ({}))) as any;
+        const h2 = (await pgLb.query(`SELECT libera_nf_indexador, codoperador_lib_nf_index FROM nf WHERE codnf = $1`, [cod])).rows[0] as any;
+        check('LIBERAR A NF DO INDEXADOR §249 [a válvula das travas]: sem LIBERA_NF_USO_INDEXADOR para o usuário, 422 ("Usuário sem permissão…"); com ela (na produção só o usuário 1) a tela mostra a opção, e só o login do PRÓPRIO usuário libera — outro usuário ou a senha errada, 422; liberada: LIBERA_NF_INDEXADOR S, CODOPERADOR_LIB_NF_INDEX = quem liberou e LOG_LIBERACOES "LIBERAR NOTA FISCAL DO USO DO INDEXADOR"; o [F7] repassa sem consultar (REPASSADO S); a segunda vez volta a usar o indexador (N, operador limpo)',
+          semCfg.status === 422 && semCfgJ.code === 'NF_LIBERAR_INDEXADOR_SEM_PERMISSAO' && cfgWeb.liberaNfIndexador === true
+          && outro.status === 422 && outroJ.code === 'NF_LIBERAR_INDEXADOR_NEGADO' && errada.status === 422
+          && ok.status === 200 && okJ.libera_nf_indexador === 'S' && h1?.libera_nf_indexador === 'S' && Number(h1?.codoperador_lib_nf_index) === 7
+          && Number(log?.usuario_sistema) === 7 && String(log?.usuario_liberou) === '7'
+          && f7.status === 200 && rep?.repassado === 'S'
+          && volta.status === 200 && voltaJ.libera_nf_indexador === 'N' && h2?.libera_nf_indexador === 'N' && h2?.codoperador_lib_nf_index == null,
+          { semCfg: [semCfg.status, semCfgJ.code], cfgWeb, outro: [outro.status, outroJ.code], errada: errada.status, ok: [ok.status, okJ], h1, log, f7: f7.status, rep, volta: voltaJ, h2 });
+      } finally {
+        await pgLb.query(`DELETE FROM configuracoes_especificas WHERE tipo = 'Usuario' AND chave = '7' AND id = (SELECT id FROM configuracoes WHERE codigo = 'LIBERA_NF_USO_INDEXADOR')`).catch(() => undefined);
+        await pgLb.query(`UPDATE empresas SET figurafiscal = $1 WHERE idempresa = 1`, [figAntes]).catch(() => undefined);
+        await pgLb.query(`UPDATE parceiros SET retira_fornindex = $1 WHERE codparceiro = 22`, [livreAntes]).catch(() => undefined);
+        await pgLb.query(`UPDATE produtos SET codfigurafiscal = $1 WHERE idproduto = 1`, [prodAntes]).catch(() => undefined);
+        if (cod) {
+          await pgLb.query(`DELETE FROM nf_prod WHERE codnf = $1`, [cod]).catch(() => undefined);
+          await pgLb.query(`DELETE FROM nf WHERE codnf = $1`, [cod]).catch(() => undefined);
+        }
+        await pgLb.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();

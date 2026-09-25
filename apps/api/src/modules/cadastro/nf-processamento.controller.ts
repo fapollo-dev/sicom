@@ -40,6 +40,14 @@ export class NfProcessamentoController {
     return this.proc.repasseAutomatico(id, item != null && item !== '' ? Number(item) : undefined);
   }
 
+  /** liberar a NF do uso do indexador (ou voltar a usar) — config LIBERA_NF_USO_INDEXADOR + o login do próprio usuário (uNF.pas:17780) */
+  @Post(':id/liberar-indexador')
+  @HttpCode(200)
+  @RequerAcesso('FRMNF', 'BTNGRAVAR')
+  liberarIndexador(@Param('id', ParseIntPipe) id: number, @Body() body: { login?: string; senha?: string; computador?: string }) {
+    return this.proc.liberarIndexador(id, body ?? {});
+  }
+
   /** sincroniza CFOP (`mapa`), ALÍQUOTA e CST dos itens por DE-PARA (uSincronizaCFOPNotaFiscal). Edição → RBAC de gravação. */
   @Post(':id/sincronizar-cfop')
   @HttpCode(200)

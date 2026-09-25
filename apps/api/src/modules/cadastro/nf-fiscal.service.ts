@@ -69,10 +69,13 @@ export class NfFiscalService {
 
   /** Recalcula os impostos de cada item; devolve o dto enriquecido (NÃO grava). */
   /** `EDITAR_DESCRICAO_ITEM_NF` (a descrição do item editável no diálogo; na produção 'N') */
-  async configuracaoItem(): Promise<{ editarDescricao: boolean }> {
+  async configuracaoItem(): Promise<{ editarDescricao: boolean; liberaNfIndexador: boolean }> {
     const t = currentTenant();
-    const v = await configNaTrx(this.dbp.forTenantRead(), 'EDITAR_DESCRICAO_ITEM_NF', { empresaId: t.empresaId ?? null, operadorId: t.operadorId ?? null, modulo: 'Retaguarda' });
-    return { editarDescricao: String(v ?? 'N').toUpperCase() === 'S' };
+    const ctx = { empresaId: t.empresaId ?? null, operadorId: t.operadorId ?? null, modulo: 'Retaguarda' };
+    const v = await configNaTrx(this.dbp.forTenantRead(), 'EDITAR_DESCRICAO_ITEM_NF', ctx);
+    // o menu "Liberar nota fiscal para não usar indexador" só aparece com LIBERA_NF_USO_INDEXADOR = 'S' (uNF.pas:8402)
+    const lib = await configNaTrx(this.dbp.forTenantRead(), 'LIBERA_NF_USO_INDEXADOR', ctx);
+    return { editarDescricao: String(v ?? 'N').toUpperCase() === 'S', liberaNfIndexador: String(lib ?? 'N').toUpperCase() === 'S' };
   }
 
   async recalcular(dto: Record<string, unknown>): Promise<Record<string, unknown>> {

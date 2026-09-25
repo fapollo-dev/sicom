@@ -76,8 +76,12 @@ export class LiberacaoService {
    * `qualquerUsuario`: o `ChamaLiberacaoLogin(nil, …)` do legado — sem lista de liberadores, qualquer usuário ativo com a
    * senha certa libera (a sangria manual do fechamento quando a USUARIOS_PERMITIDOS_ALTERAR_SUP_SAN_FECHAMENTO está vazia).
    */
-  async validar(dados: { codigo: string; login: string; senha: string; liberacao: string; computador?: string | null; qualquerUsuario?: boolean }): Promise<{ liberado: boolean; codOperador?: number; nome?: string }> {
-    if (!CHAVES_LIBERACAO.has(dados.codigo)) throw new BusinessRuleError('LIBERACAO_CHAVE_INVALIDA', { codigo: dados.codigo });
+  /**
+   * `permitidos`: a lista que o chamador monta, como o `ChamaLiberacaoLogin(UsuariosPermitidos, …)` que passa só o próprio usuário da
+   * sessão (liberar a NF do indexador, uNF.pas:17798) — aí o `codigo` não é uma chave de configuração.
+   */
+  async validar(dados: { codigo: string; login: string; senha: string; liberacao: string; computador?: string | null; qualquerUsuario?: boolean; permitidos?: number[] }): Promise<{ liberado: boolean; codOperador?: number; nome?: string }> {
+    if (!dados.permitidos && !CHAVES_LIBERACAO.has(dados.codigo)) throw new BusinessRuleError('LIBERACAO_CHAVE_INVALIDA', { codigo: dados.codigo });
     const db = this.dbp.forTenant() as AnyDB; // precisa gravar (lockout + log)
     const sup = (await db
       .selectFrom('operadores')
@@ -99,7 +103,7 @@ export class LiberacaoService {
     }
 
     const senhaOk = verificarSenha(dados.senha, sup?.senha_hash ?? DUMMY_HASH); // sempre roda (anti-timing)
-    const permitidos = dados.qualquerUsuario ? null : new Set(await this.usuariosPermitidosLocal(dados.codigo));
+    const permitidos = dados.qualquerUsuario ? null : new Set(dados.permitidos ?? await this.usuariosPermitidosLocal(dados.codigo));
     const liberado = !!sup && sup.desabilitado !== 'S' && senhaOk && (!permitidos || permitidos.has(Number(sup.codoperador)));
 
     if (!liberado) {

@@ -357,7 +357,7 @@ Observação lateral: uma rotina diária move o **DTCONTABIL das NFs não proces
 | C4 — esteira pelo REPASSADO | ✅ |
 | C5 — análise automática: [F7] repasse em lote e [F8] um item (`POST /fiscal/nf/:id/repasse-automatico[?item=]`, botão na tela da NF; configs BLOQUEIA_ANALISE_AUTOMATICA_ITENS_NF e OBRIGA_SITUACAONF_ANALISA_ITEM_NF — mig 355) | ✅ smoke §247 (a saída ainda não: o indexador da saída vive no recálculo fiscal) |
 | C6 — travas do processar da entrada (`nf-travas-processamento.ts`: ValidaIndexadores, Total NF digitado × total, REPASSADO 'N' em 'O'/'S' e em 'D' de terceiros — a chave da estação vale ligada sem o ConfigDB.xml; isenção finalidade 4 e importação 'T') + Total NF obrigatório no gravar da entrada e o campo na tela | ✅ smoke §248 (a trava da saída espera o indexador do item de saída) |
-| C7 — liberar a NF do indexador | ⏳ |
+| C7 — liberar a NF do indexador (`POST /fiscal/nf/:id/liberar-indexador`: config LIBERA_NF_USO_INDEXADOR — mig 356 —, login do próprio usuário, alterna S/N com o operador, LOG_LIBERACOES; botão na tela quando a config permite) | ✅ smoke §249 |
 
 ### C3 — o que a produção mostrou (itens de entrada de 2026, lojas "O"; só leitura)
 

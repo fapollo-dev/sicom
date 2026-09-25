@@ -35,6 +35,6 @@ export function recalcularNf(dto: CriarNfDto): Promise<CriarNfDto> {
 }
 
 /** a configuração do diálogo do item: a descrição editável (`EDITAR_DESCRICAO_ITEM_NF`) */
-export function configuracaoItemNf(): Promise<{ editarDescricao: boolean }> {
-  return req<{ editarDescricao: boolean }>('/fiscal/nf/item/configuracao', { method: 'GET' });
+export function configuracaoItemNf(): Promise<{ editarDescricao: boolean; liberaNfIndexador?: boolean }> {
+  return req<{ editarDescricao: boolean; liberaNfIndexador?: boolean }>('/fiscal/nf/item/configuracao', { method: 'GET' });
 }

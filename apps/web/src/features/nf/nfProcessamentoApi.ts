@@ -64,3 +64,8 @@ export async function lerNf(codnf: number): Promise<Record<string, unknown>> {
   if (!res.ok) throw Object.assign(new Error('ERRO'), { status: res.status });
   return (await res.json()) as Record<string, unknown>;
 }
+
+/** liberar a NF do uso do indexador (ou voltar a usar) — o login do próprio usuário (uNF.pas:17780) */
+export function liberarIndexadorNf(codnf: number, cred: { login: string; senha: string }): Promise<{ codnf: number; libera_nf_indexador: 'S' | 'N' }> {
+  return req(`/fiscal/nf/${codnf}/liberar-indexador`, cred);
+}
