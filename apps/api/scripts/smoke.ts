@@ -21706,6 +21706,10 @@ async function main() {
           cr.status === 201 && idp > 0 && mps.length === nEmp && nEst === nEmp && nDep === nEmp
           && !!outra && outra.vrvenda === 9.9 && outra.vrcusto === 5 && outra.promocao == null && outra.ativo === 'S',
           { status: cr.status, idp, mps, nEst, nDep, nEmp });
+        const carimbosInc = (await pgPl.query(`SELECT idempresa, etq_impressa, dtultprecoalterado IS NOT NULL AS dtp, dtultimalteracao IS NOT NULL AS dtu FROM multi_preco WHERE idproduto=$1 ORDER BY idempresa`, [idp])).rows as any[];
+        check('PRODUTO §202.1b [o ramo INSERT do gatilho ATUALIZAPROD]: toda linha de preço nova — a da loja da sessão (cadastro) e as das outras lojas (inclusão) — nasce com ETQ_IMPRESSA N e com DTULTPRECOALTERADO e DTULTIMALTERACAO carimbadas (produção: 461 de 477 linhas dos produtos de set/2026)',
+          carimbosInc.length === nEmp && carimbosInc.every((c) => c.etq_impressa === 'N' && c.dtp && c.dtu),
+          { carimbosInc });
 
         // um FILHO do produto (sem diferença: fica com o preço do pai) para o GeraLoteFilho
         const idFilho = 990620;
@@ -21746,6 +21750,30 @@ async function main() {
           put2.status === 200 && mp2.every((m) => m.vrvenda === 13.9) && mp2[0].etq_impressa === 'N'
           && hist.length === lojasOp.length - 1 && hist.every((h) => Number(h.codempresa) !== 1 && h.historico === 'Precificação do Custo'),
           { put: put2.status, mp2, hist });
+
+        // o gatilho ATUALIZAPROD no resto: regravar o produto mudando só o MARKUP da sessão não pede etiqueta (ETQ_IMPRESSA e DTULTPRECOALTERADO
+        // ficam) mas carimba DTULTIMALTERACAO só nessa linha; a outra loja, intocada, fica como estava. No banco: mudar ATACAREJO_ATIVO pede
+        // etiqueta; mudar só o custo carimba DTULTIMALTERACAO e não mexe na etiqueta
+        // o setup com o gatilho desligado (ele carimbaria o próprio UPDATE de 2020)
+        const semGatilho = async (q: string) => {
+          await pgPl.query(`ALTER TABLE multi_preco DISABLE TRIGGER trg_multi_preco_preco_alterado`);
+          try { await pgPl.query(q, [idp]); } finally { await pgPl.query(`ALTER TABLE multi_preco ENABLE TRIGGER trg_multi_preco_preco_alterado`); }
+        };
+        await semGatilho(`UPDATE multi_preco SET etq_impressa='S', dtultprecoalterado='2020-01-01', dtultimalteracao='2020-01-01' WHERE idproduto=$1`);
+        const mpAntes4 = (await pgPl.query(`SELECT idempresa, markup::float AS markup FROM multi_preco WHERE idproduto=$1 AND idempresa=1`, [idp])).rows[0] as any;
+        const put4 = await editarSessao({ markup: Number(mpAntes4?.markup ?? 0) + 1 });
+        const mp4 = (await pgPl.query(`SELECT idempresa, etq_impressa, dtultprecoalterado::date::text AS dtp, dtultimalteracao::date::text AS dtu FROM multi_preco WHERE idproduto=$1 AND idempresa IN (1,2) ORDER BY idempresa`, [idp])).rows as any[];
+        await pgPl.query(`UPDATE multi_preco SET atacarejo_ativo='S' WHERE idproduto=$1 AND idempresa=2`, [idp]);
+        await semGatilho(`UPDATE multi_preco SET etq_impressa='S', dtultimalteracao='2020-01-01' WHERE idproduto=$1 AND idempresa=1`);
+        await pgPl.query(`UPDATE multi_preco SET vrcusto=vrcusto+1 WHERE idproduto=$1 AND idempresa=1`, [idp]);
+        const mp5 = (await pgPl.query(`SELECT idempresa, etq_impressa, dtultprecoalterado::date::text AS dtp, dtultimalteracao::date::text AS dtu FROM multi_preco WHERE idproduto=$1 AND idempresa IN (1,2) ORDER BY idempresa`, [idp])).rows as any[];
+        check('PRODUTO §202.4 [o gatilho ATUALIZAPROD]: regravar o produto mudando só o markup da sessão não pede etiqueta (S e 2020 ficam) e carimba DTULTIMALTERACAO só nessa linha (a loja 2 segue 2020); no banco, ATACAREJO_ATIVO mudado pede etiqueta e carimba DTULTPRECOALTERADO, e o custo mudado só carimba DTULTIMALTERACAO',
+          put4.status === 200
+          && mp4[0].etq_impressa === 'S' && mp4[0].dtp === '2020-01-01' && mp4[0].dtu !== '2020-01-01'
+          && mp4[1].etq_impressa === 'S' && mp4[1].dtu === '2020-01-01'
+          && mp5[1].etq_impressa === 'N' && mp5[1].dtp !== '2020-01-01' && mp5[1].dtu !== '2020-01-01'
+          && mp5[0].etq_impressa === 'S' && mp5[0].dtp === '2020-01-01' && mp5[0].dtu !== '2020-01-01',
+          { put: put4.status, mp4, mp5 });
 
         await pgPl.query(`DELETE FROM lote_preco WHERE idproduto IN ($1,$2)`, [idp, idFilho]);
         await pgPl.query(`DELETE FROM produtos WHERE idproduto = $1`, [idFilho]);

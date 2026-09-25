@@ -53,7 +53,7 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
 | `VALIDA_SCRAP` | SCRAP_ITEM | AFTER I/U | Erro se o scrap aparece na view VALIDA_SCRAP_ITEM (Kardex de SCRAP duplicado desde 29/07/2025) — trava contra baixa dupla | sim: SCRAP_ITEM até hoje | equivalente na origem: `scrap.service.ts:90` (mov_estoque com lock) e `scrap.aggregate.ts:143` (aplicado não edita) | ✅ |
 | `ATUALIZA_CUSTO_COTACAO` | COTACAO_FORN_ITENS | BEFORE INSERT | ULTIMO_VALOR := VRCUSTOREP do item na última NF de entrada processada do fornecedor (CFOPs de compra, até a data da cotação) | sim: 550 de 1.562 itens de 2026 | ✅ (25/09/2026) mig 364 `apollo_ultimo_custo_rep_cotacao`, gravada nas duas inclusões (`cotacao-forn.service.ts` abrir, `cotacao.service.ts` lançar preços) e lida ao vivo na matriz | ✅ |
 | `UPDATE_CUSTO_MULTI_PRECO` | MULTI_PRECO | AFTER UPDATE | HISTORICO_DINAMICO de VRCUSTO, VRCUSTOREP, VRPROMO, VRVENDA; operador = CLIENT_IDENTIFIER/CODUSUALT/PRODUTOS | sim: 135.758 linhas em 2026 | `migrations/354_multi_preco_historico_custo.sql:16-45` | ✅ |
-| `ATUALIZAPROD` | MULTI_PRECO | BEFORE I/U | Sempre DTULTIMALTERACAO := agora. INSERT: DTULTPRECOALTERADO e ETQ_IMPRESSA 'N'. UPDATE com VRVENDA/VRPROMO/PROMOCAO/**ATACAREJO_ATIVO** mudado: idem | sim | `migrations/127_ajuste_precos.sql:56-68` só no UPDATE e sem ATACAREJO_ATIVO nem DTULTIMALTERACAO; a inclusão nas lojas (`produto-lojas.ts:241`) não carimba | ⚠️ |
+| `ATUALIZAPROD` | MULTI_PRECO | BEFORE I/U | Sempre DTULTIMALTERACAO := agora. INSERT: DTULTPRECOALTERADO e ETQ_IMPRESSA 'N'. UPDATE com VRVENDA/VRPROMO/PROMOCAO/**ATACAREJO_ATIVO** mudado: idem | sim | ✅ (25/09/2026) UPDATE: `migrations/365_atualizaprod.sql` (com ATACAREJO_ATIVO e DTULTIMALTERACAO); INSERT: `produto-lojas.ts` incluirNasLojas e `produto.aggregate.ts` (linha nova do cadastro), fora do banco por causa do delete+insert | ✅ |
 | `CLUBE_DESCONTO_ESTOQUE` | CLUBE_DESCONTO | BEFORE UPDATE | Toda alteração recalcula ENCERRADA: 'T' só se MAXIMO_ESTOQUE>0 e VENDA_ESTOQUE ≥ teto; senão 'F' | sim (3.125 regras, 0 com teto, 0 encerradas) | `clube-desconto.service.ts:155` grava a ENCERRADA que vier; sem a regra do teto | ⚠️ |
 | `CONTROLADELETEAGENDA` | AGENDA_PROMOCAO_ITENS | BEFORE DELETE | MULTI_PRECO.PROMOCAO := 'N' do produto **em todas as lojas** (o filtro por loja está comentado) | raro: 3 exclusões de item em 2026 | `agenda-promocao.aggregate.ts:377-386` desliga só as linhas desta agenda (codagenda); não toca promoção de outra origem | ⚠️ |
 | `ATUALIZAPROD_ATACAREJO` | MULTI_PRECO_ATACAREJO | BEFORE I/U | Inclusão ou VALOR/QUANTIDADE mudado: MULTI_PRECO.DTULTPRECOALTERADO e ETQ_IMPRESSA 'N' | quase: 3 linhas; escrita por `uAjustePrecos`, `udmCadProduto` | a tabela não existe no destino | ❌ |
@@ -121,8 +121,11 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
    A coluna existia com outro significado ("preço anterior", inventado; 0 de 550 linhas de 2026 batem com isso, 549 batem com o gatilho). Agora
    as duas inclusões gravam o custo do gatilho, a matriz do comprador mostra o "Ult. Custo Rep." ao vivo e a tela do fornecedor deixou de receber
    esse custo e o custo/venda da loja (o legado não os seleciona no preencher). VALOREMBAL_BK: nulo nas 16.014 linhas da produção, o Apollo não grava mais.
-5. **`ATUALIZAPROD` (⚠️, preço/etiqueta).** Mudar o atacarejo não pede reimpressão de etiqueta. Linha nova de loja
-   nasce sem DTULTPRECOALTERADO. DTULTIMALTERACAO não é carimbada.
+5. ✅ **`ATUALIZAPROD` (corrigido em 25/09/2026, mig 365 + `produto.aggregate.ts`/`produto-lojas.ts`).** Mudar o atacarejo não pedia reimpressão de etiqueta; linha nova de loja
+   nascia sem DTULTPRECOALTERADO; DTULTIMALTERACAO não era carimbada. Agora o UPDATE (gatilho do banco) cobre ATACAREJO_ATIVO e carimba DTULTIMALTERACAO;
+   o ramo INSERT fica no código (a inclusão nas lojas e as linhas novas do cadastro), porque o cadastro regrava o detalhe por delete+insert e 92.471 linhas
+   da produção têm ETQ_IMPRESSA nula — no banco, cada gravação pediria etiqueta de todas. No cadastro, a linha que já existia segue o UPDATE do legado:
+   preço/promoção/atacarejo mudado pede etiqueta, qualquer outra mudança só carimba DTULTIMALTERACAO, linha intocada fica como estava.
 6. **`ATUALIZATRIBUTOS` (⚠️, fiscal).** PRODUTOS.ALIQUOTA e TIPOPIS não seguem a linha de preço. É a alíquota que o
    PDV recebe (REM_PRODUTO replica PRODUTOS quando ALIQUOTA muda).
 7. **`CHECK_REMESSAS_BOLETOS_CONTAS` (❌, financeiro).** Título já enviado ao banco pode ser excluído. O boleto fica
@@ -147,7 +150,7 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
 
 | Gatilho (migração) | Corresponde a |
 |---|---|
-| `trg_multi_preco_preco_alterado` (127:67) | `ATUALIZAPROD`, parcial |
+| `trg_multi_preco_preco_alterado` (127:67, 365) | `ATUALIZAPROD` (o ramo UPDATE; o INSERT no código) |
 | `trg_produtos_propaga_filhos` (132:157) | `UPDATE_PRODUTOS_FILHOS` |
 | `trg_areceber_historico` (315:30) | `REM_RECEBER` (HISTARECEBER) + `ExcluiHistAReceber` do fonte |
 | `trg_apagar_dtcompra` (327:20) | nenhum: regra do Apollo (DTCOMPRA ↔ DTVENDA) |

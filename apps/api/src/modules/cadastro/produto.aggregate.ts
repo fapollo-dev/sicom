@@ -43,6 +43,22 @@ async function unidadeDoProduto(
 /** a classificação fiscal que a linha de preço guarda por loja (o `cdsMulti_Preco_Update` da tela) */
 const FISCAL_DA_LINHA = ['codfigurafiscal', 'idpiscofins', 'idtabela'] as const;
 
+/** IS DISTINCT FROM (o gatilho do Apollo, mig 127/365): vazio × vazio é igual; número compara como número (o pg devolve '9.9000') */
+const vazio = (v: unknown) => v === null || v === undefined || v === '';
+function distinto(x: unknown, y: unknown): boolean {
+  if (vazio(x) && vazio(y)) return false;
+  if (vazio(x) || vazio(y)) return true;
+  if (x instanceof Date || y instanceof Date) return new Date(x as string).getTime() !== new Date(y as string).getTime();
+  const nx = Number(x);
+  const ny = Number(y);
+  if (Number.isFinite(nx) && Number.isFinite(ny)) return Math.abs(nx - ny) > 1e-9;
+  return String(x).trim() !== String(y).trim();
+}
+/** os campos do preço que pedem etiqueta nova (o gatilho ATUALIZAPROD) */
+const PRECO_DA_ETIQUETA = ['vrvenda', 'vrpromo', 'promocao', 'atacarejo_ativo'] as const;
+/** os carimbos do ATUALIZAPROD — não contam como "a linha mudou" */
+const CARIMBOS_DO_PRECO = new Set(['etq_impressa', 'dtultprecoalterado', 'dtultimalteracao', 'hashpaf', 'id_multi_preco', 'idproduto', 'idempresa']);
+
 export const produtoAggregateConfig: AggregateConfig = {
   tabela: 'produtos',
   pk: 'idproduto',
@@ -265,7 +281,7 @@ export const produtoAggregateConfig: AggregateConfig = {
       // o HASHPAF (o `cdsMultiPrecoBeforePost`): recalculado na linha que a tela grava — nova ou com preço/custo mudado; a que não mudou
       // fica com o dela (o lote de preço deixa hash velho, e regravar o produto não o refaz se a tela não postou a linha)
       antesDeSubstituirTrx: async ({ trx, masterId }) =>
-        new Map(((await trx.selectFrom('multi_preco').select(['idempresa', 'vrvenda', 'vrcusto', 'hashpaf', ...FISCAL_DA_LINHA]).where('idproduto', '=', masterId).execute()) as Array<Record<string, unknown>>)
+        new Map(((await trx.selectFrom('multi_preco').selectAll().where('idproduto', '=', masterId).execute()) as Array<Record<string, unknown>>)
           .map((r) => [Number(r.idempresa), r])),
       derivarItensTrx: async (itens, _trx, emp, header, masterId, snapshot) => {
         const antes = (snapshot as Map<number, Record<string, unknown>> | undefined) ?? new Map();
@@ -280,7 +296,22 @@ export const produtoAggregateConfig: AggregateConfig = {
             const doProduto = Number(it.idempresa) === emp ? h[c] : undefined;
             fiscal[c] = doProduto !== undefined ? doProduto : it[c] !== undefined ? it[c] : a?.[c] ?? null;
           }
-          return { ...it, ...fiscal, hashpaf: mudou ? hashPaf(masterId ?? it.idproduto, it.idempresa, it.vrvenda, it.vrcusto) : (a?.hashpaf ?? null) };
+          // o gatilho ATUALIZAPROD, que o delete+insert do detalhe não dispara como no legado: a linha NOVA nasce com a etiqueta a imprimir e
+          // os dois carimbos; na que já existia, preço/promoção/atacarejo mudado pede etiqueta nova, e qualquer mudança carimba DTULTIMALTERACAO
+          // (o legado só dá UPDATE nas linhas que a tela postou). O ramo INSERT não vai para o banco: 92.471 linhas da produção têm ETQ_IMPRESSA
+          // nula, e o delete+insert pediria etiqueta de todas a cada gravação
+          const novo = { ...it, ...fiscal };
+          const agora = new Date();
+          const carimbos: Record<string, unknown> = {};
+          if (!a) {
+            Object.assign(carimbos, { etq_impressa: 'N', dtultprecoalterado: agora, dtultimalteracao: agora });
+          } else if (PRECO_DA_ETIQUETA.some((c) => novo[c] !== undefined && distinto(a[c], novo[c]))) {
+            Object.assign(carimbos, { etq_impressa: 'N', dtultprecoalterado: agora, dtultimalteracao: agora });
+          } else {
+            const alterou = Object.keys(novo).some((c) => !CARIMBOS_DO_PRECO.has(c) && c in a && novo[c] !== undefined && distinto(a[c], novo[c]));
+            carimbos.dtultimalteracao = alterou ? agora : (a.dtultimalteracao ?? null);
+          }
+          return { ...novo, ...carimbos, hashpaf: mudou ? hashPaf(masterId ?? it.idproduto, it.idempresa, it.vrvenda, it.vrcusto) : (a?.hashpaf ?? null) };
         });
       },
       // o que o cadastro não gerencia (idpiscofins/idtabela/figura fiscal por loja, custo fiscal) sobrevive ao save (lição 124)
@@ -293,7 +324,7 @@ export const produtoAggregateConfig: AggregateConfig = {
         // (delete+insert), como o `qtde` do estoque. Fold auditoria: sem isso, todo save do produto ZERAVA
         // etq_impressa (a etiqueta perdia o "precisa reimprimir"), dtultprecoalterado e codagenda (quebrando o
         // reverter da agenda de promoção, que casa por codagenda).
-        'etq_impressa', 'dtultprecoalterado', 'codagenda',
+        'etq_impressa', 'dtultprecoalterado', 'codagenda', 'dtultimalteracao',
         // ... e o PAINEL de precificação (mig 129), owned pela tela Precificação de Mercadorias. Fold auditoria
         // [ALTA]: sem preservar, um save do produto ZERAVA os 29 campos (componentes de custo E derivados) —
         // no golden 35k linhas têm ICME, 33k ICMST, 100k MARKUPFIXO. Mesma classe do fold do etq_impressa.

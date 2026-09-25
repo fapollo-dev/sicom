@@ -407,6 +407,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('362_tesouraria_sangria.sql'));
   await pool.query(sql('363_apuracao_pc_legado.sql'));
   await pool.query(sql('364_cotacao_ultimo_custo_rep.sql'));
+  await pool.query(sql('365_atualizaprod.sql'));
   await pool.end();
   return pg;
 }

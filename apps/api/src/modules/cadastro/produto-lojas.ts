@@ -238,6 +238,11 @@ export async function incluirNasLojas(trx: AnyDB, id: number): Promise<void> {
       linha.idpiscofins = origem.idpiscofins ?? null;
       linha.idtabela = origem.idtabela ?? null;
       linha.promocao = null;
+      // o ramo INSERT do gatilho ATUALIZAPROD: a linha nova nasce com a etiqueta a imprimir e os dois carimbos (produção: 461 de 477 linhas
+      // dos produtos de set/2026 com ETQ_IMPRESSA 'N' e DTULTPRECOALTERADO do cadastro)
+      linha.etq_impressa = 'N';
+      linha.dtultprecoalterado = sql`now()`;
+      linha.dtultimalteracao = sql`now()`;
       await trx.insertInto('multi_preco').values(linha).execute();
     }
   }
