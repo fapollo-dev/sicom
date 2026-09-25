@@ -16,7 +16,7 @@ import { chaveNfeValida, montarChaveNfe, gerarCodigoInternoEan13 } from '@apollo
 import { startEmbeddedPg, PG_CONN } from '../test/embedded-db';
 import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/shared/errors/all-exceptions.filter';
-import { hashPaf } from '../src/modules/shared/hash-paf';
+import { hashPaf, hashProduto } from '../src/modules/shared/hash-paf';
 import { AgendaVigenciaAgendador } from '../src/modules/cadastro/agenda-vigencia.agendador';
 import { SefazDfeService } from '../src/modules/compras/sefaz-dfe.service';
 import { runWithTenant } from '../src/shared/tenant/tenant-context';
@@ -1525,6 +1525,14 @@ async function main() {
       putReg.status === 200 && Number(estRegB?.qtde) === saldoReal && Number(estRegB?.minimo) === 33,
       { status: putReg.status, saldoReal, qtde: estRegB?.qtde, minimo: estRegB?.minimo },
     );
+    // o HASHPAF do produto (getHASH_Produtos no BeforePost da tela): refeito a cada gravação com os valores gravados
+    {
+      const pgHp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const ph = (await pgHp.query(`SELECT idproduto, codbarra, descricao, unidade, aliquota, ativo, ncmsh, cest, hashpaf FROM produtos WHERE idproduto = 1`)).rows[0] as any;
+      await pgHp.end();
+      check('PRODUTO: o HASHPAF é o MD5 de IDPRODUTO+CODBARRA+DESCRICAO+UNIDADE+ALIQUOTA+ATIVO+NCMSH+CEST (o acento como "?"), refeito no gravar da tela',
+        !!ph?.hashpaf && ph.hashpaf === hashProduto(ph), { hashpaf: ph?.hashpaf, esperado: ph ? hashProduto(ph) : null });
+    }
 
     // 17) NF F2 — RECÁLCULO fiscal por item (REUSO do motor precificacao). PURO (não grava).
     // 17.1) recalcular: parceiro 22 (UF=MA, seed 026), item T01 (ICMS próprio + IPI) + item STB/CFOP-ST.

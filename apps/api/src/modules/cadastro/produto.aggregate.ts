@@ -3,7 +3,7 @@ import { produtoSchema, atualizarProdutoSchema } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { validarGravacaoProduto } from './produto-gravar';
-import { hashPaf } from '../shared/hash-paf';
+import { hashPaf, hashProduto } from '../shared/hash-paf';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { capturarAlteracaoProduto } from '../sped/sped-alteracoes';
@@ -184,6 +184,10 @@ export const produtoAggregateConfig: AggregateConfig = {
   aposGravarTrx: async ({ trx, id, dto, criado }) => {
     if (criado) await incluirNasLojas(trx, id);
     else await sincronizarPrecoNasLojas(trx, id, dto);
+    // o HASHPAF do produto (o BeforePost da tela, a cada gravação — `hashProduto`), com os valores gravados
+    const p = (await trx.selectFrom('produtos').select(['idproduto', 'codbarra', 'descricao', 'unidade', 'aliquota', 'ativo', 'ncmsh', 'cest'])
+      .where('idproduto', '=', id).executeTakeFirst()) as Record<string, unknown> | undefined;
+    if (p) await trx.updateTable('produtos').set({ hashpaf: hashProduto(p as never) }).where('idproduto', '=', id).execute();
   },
   detalhes: [
     {
