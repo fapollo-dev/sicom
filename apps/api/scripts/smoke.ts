@@ -22457,6 +22457,29 @@ async function main() {
         const mp = (await pgB2.query(`SELECT vrvenda, vrcusto, hashpaf FROM multi_preco WHERE idproduto = 990710 AND idempresa = 1`)).rows[0];
         const logs = (await pgB2.query(`SELECT tabela, acao, historico FROM log WHERE formulario = 'Cadastro de produtos' AND valor = 990710 AND tabela IN ('MULTI_PRECO', 'CODAUXILIAR', 'CODAUXILIAR ') ORDER BY idlog`)).rows as any[];
         const ca = (await pgB2.query(`SELECT porcentagem_valor, dtcadastro FROM codauxiliar WHERE codauxiliar = '7899000990719'`)).rows[0];
+        // 219.4 — a LOG por item da agenda de promoção (binário novo), com o CODITEM estável
+        await pgB2.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES (992190,'7000000992190','ITEM AGENDA 219','UN',1,'T01','S') ON CONFLICT (idproduto) DO NOTHING`);
+        await pgB2.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, promocao) VALUES (992190,1,10,'N') ON CONFLICT (idproduto, idempresa) DO NOTHING`);
+        const ini = new Date(Date.now() + 5 * 86400_000).toISOString().slice(0, 16);
+        const fim = new Date(Date.now() + 9 * 86400_000).toISOString().slice(0, 16);
+        const ag = await fetch(`${base}/cadastro/agenda-promocao`, { method: 'POST', headers: J, body: JSON.stringify({ nomepromo: 'AGENDA 219', dtiniciopromocao: ini, dtfimpromocao: fim, empresas: [1], itens: [{ idproduto: 992190, vlrpromocao: 8.5 }] }) });
+        const codAg = Number(((await ag.json().catch(() => ({}))) as any).codagenda) || 0;
+        const it1 = (await pgB2.query(`SELECT codagendaitem FROM agenda_promocao_itens WHERE codagenda = $1`, [codAg])).rows[0];
+        const agR = (await (await fetch(`${base}/cadastro/agenda-promocao/${codAg}`, { headers: H })).json().catch(() => ({}))) as any;
+        await fetch(`${base}/cadastro/agenda-promocao/${codAg}`, { method: 'PUT', headers: J, body: JSON.stringify({ ...agR, itens: (agR.itens ?? []).map((i: any) => ({ ...i, vlrpromocao: 7.99 })) }) });
+        const it2 = (await pgB2.query(`SELECT codagendaitem FROM agenda_promocao_itens WHERE codagenda = $1`, [codAg])).rows[0];
+        const agR2 = (await (await fetch(`${base}/cadastro/agenda-promocao/${codAg}`, { headers: H })).json().catch(() => ({}))) as any;
+        await fetch(`${base}/cadastro/agenda-promocao/${codAg}`, { method: 'PUT', headers: J, body: JSON.stringify({ ...agR2, itens: [] }) });
+        const lAg = (await pgB2.query(`SELECT acao, historico FROM log WHERE tabela = 'AGENDA_PROMOCAO_ITEM' AND valor = $1 ORDER BY idlog`, [codAg])).rows as any[];
+        const cab = `\n CODITEM: ${it1?.codagendaitem}\n IDPRODUTO: 992190\n DESCRIÇÃO: ITEM AGENDA 219`;
+        check('BAIXA §219.4 [agenda]: a LOG por item como o binário novo — "INCLUSÃO DE ITEM NA AGENDA: …", "MODIFICAÇÃO DE ITEM DA AGENDA: … CAMPO: VLRPROMOCAO / VALOR ANTERIOR: 8,5 / VALOR ATUAL: 7,99" (só o que mudou: o DTATIVO do item que já era ativo fica) e "EXCLUSÃO DE ITEM DA AGENDA: …"; o CODITEM não muda ao regravar',
+          ag.status === 201 && Number(it1?.codagendaitem) === Number(it2?.codagendaitem)
+          && lAg.map((l) => l.acao).join() === 'Inseriu,Alterou,Excluiu'
+          && lAg[0].historico === `INCLUSÃO DE ITEM NA AGENDA: ${cab}`
+          && lAg[1].historico === `MODIFICAÇÃO DE ITEM DA AGENDA:${cab}\n CAMPO: VLRPROMOCAO\n VALOR ANTERIOR: 8,5\n VALOR ATUAL: 7,99`
+          && lAg[2].historico === `EXCLUSÃO DE ITEM DA AGENDA:${cab}`,
+          { ag: ag.status, it1, it2, lAg });
+
         check('BAIXA §219.3 [produto]: o preço gravado ganha o HASHPAF = MD5(IDPRODUTO+IDEMPRESA+VRVENDA+VRCUSTO) · LOG MULTI_PRECO "Alterou" da loja da sessão com VRVENDA e HASHPAF · o código auxiliar novo nasce com PORCENTAGEM_VALOR 100 e DTCADASTRO, e a LOG "Inseriu" vai com a tabela \'CODAUXILIAR \' (o espaço do legado)',
           pu.status === 200 && Number(mp?.vrvenda) === 33 && mp?.hashpaf === hashPaf(990710, 1, mp?.vrvenda, mp?.vrcusto)
           && logs.some((l) => l.tabela === 'MULTI_PRECO' && l.acao === 'Alterou' && /CAMPO: VRVENDA/.test(l.historico) && /CAMPO: HASHPAF/.test(l.historico))

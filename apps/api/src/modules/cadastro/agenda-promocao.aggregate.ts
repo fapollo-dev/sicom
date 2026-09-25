@@ -1,4 +1,5 @@
 import { sql } from 'kysely';
+import { gravarLog } from '../../shared/log/registro-log';
 import { agendaPromocaoSchema, atualizarAgendaPromocaoSchema } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
@@ -81,6 +82,52 @@ async function gerarGrupoDePreco(trx: any, lista: Array<Record<string, unknown>>
   return lista;
 }
 
+/** o valor como a LOG do item o mostra: número com vírgula (sem zeros à direita), data "dd/mm/aaaa hh:mm:ss", nulo vazio */
+function valorDoItem(v: unknown): string {
+  if (v == null) return '';
+  if (v instanceof Date) {
+    const p = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).formatToParts(v);
+    const g = (t: string) => p.find((x) => x.type === t)?.value ?? '';
+    return `${g('day')}/${g('month')}/${g('year')} ${g('hour')}:${g('minute')}:${g('second')}`;
+  }
+  const t = String(v);
+  return /^-?\d+(\.\d+)?$/.test(t) ? String(Number(t)).replace('.', ',') : t;
+}
+
+/**
+ * a LOG por item da agenda (binário novo — fora do fonte de 2020; formato lido na produção):
+ *  "INCLUSÃO DE ITEM NA AGENDA: \n CODITEM: …\n IDPRODUTO: …\n DESCRIÇÃO: …" (Inseriu),
+ *  "MODIFICAÇÃO DE ITEM DA AGENDA:\n … CAMPO: X\n VALOR ANTERIOR: a\n VALOR ATUAL: b" (Alterou — uma LOG por campo),
+ *  "EXCLUSÃO DE ITEM DA AGENDA:\n …" (Excluiu).
+ */
+async function logDosItens(trx: any, codagenda: number, antes: Map<number, Record<string, unknown>>, emp: number | null): Promise<void> {
+  const depois = (await sql<Record<string, unknown>>`SELECT i.*, p.descricao AS descricao_produto FROM agenda_promocao_itens i LEFT JOIN produtos p ON p.idproduto = i.idproduto
+      WHERE i.codagenda = ${codagenda} ORDER BY i.nroitem, i.codagendaitem`.execute(trx)).rows;
+  const desc = async (idp: unknown) => (await sql<{ d: string | null }>`SELECT descricao AS d FROM produtos WHERE idproduto = ${Number(idp)}`.execute(trx)).rows[0]?.d ?? '';
+  const cab = (r: Record<string, unknown>, d: unknown) => `\n CODITEM: ${r.codagendaitem}\n IDPRODUTO: ${r.idproduto}\n DESCRIÇÃO: ${d ?? ''}`;
+  const grava = (acao: 'Inseriu' | 'Alterou' | 'Excluiu', historico: string) =>
+    gravarLog(trx, { acao, formulario: 'Agenda de Promoção', tabela: 'AGENDA_PROMOCAO_ITEM', chave: 'CODAGENDA', valor: codagenda, historico, idempresa: emp, normalizar: false });
+  const ignorar = new Set(['codagendaitem', 'codagenda', 'idproduto', 'nroitem', 'descricao_produto', 'usucadastro', 'dtcadastro', 'usultalteracao', 'dtultimalteracao']);
+  const vistos = new Set<number>();
+  for (const d of depois) {
+    const idp = Number(d.idproduto);
+    vistos.add(idp);
+    const a = antes.get(idp);
+    if (!a) { await grava('Inseriu', `INCLUSÃO DE ITEM NA AGENDA: ${cab(d, d.descricao_produto)}`); continue; }
+    for (const c of Object.keys(d)) {
+      if (ignorar.has(c)) continue;
+      const va = valorDoItem(a[c]);
+      const vd = valorDoItem(d[c]);
+      if (va === vd) continue;
+      await grava('Alterou', `MODIFICAÇÃO DE ITEM DA AGENDA:${cab(d, d.descricao_produto)}\n CAMPO: ${c.toUpperCase()}\n VALOR ANTERIOR: ${va}\n VALOR ATUAL: ${vd}`);
+    }
+  }
+  for (const [idp, a] of antes) {
+    if (vistos.has(idp)) continue;
+    await grava('Excluiu', `EXCLUSÃO DE ITEM DA AGENDA:${cab(a, await desc(idp))}`);
+  }
+}
+
 export const agendaPromocaoAggregateConfig: AggregateConfig = {
   tabela: 'agenda_promocao',
   pk: 'codagenda',
@@ -108,6 +155,8 @@ export const agendaPromocaoAggregateConfig: AggregateConfig = {
       pk: 'codagendaitem',
       fk: 'codagenda',
       chaveNatural: ['idproduto'],
+      // o CODITEM é o do item (a LOG do legado o cita e ele não muda a cada gravação)
+      pkEstavel: true,
       // "todos os campos" (mig 310): o que o cadastro não gerencia sobrevive ao save (lição 124)
       preservarNaoGerenciadas: true,
       chave: 'itens',
@@ -127,13 +176,21 @@ export const agendaPromocaoAggregateConfig: AggregateConfig = {
           porProduto: new Map(r.map((x) => [Number(x.idproduto), x.empresas])),
           grupoPorProduto: new Map(r.map((x) => [Number(x.idproduto), { atualizacao_grupo: x.atualizacao_grupo, codgrupo: x.codgrupo, opcoes: x.opcoes, descricao_promocao: x.descricao_promocao }])),
           lojas: await lojasDaAgenda(trx, masterId),
+          // a linha inteira de cada item, para o DTATIVO e a LOG por item
+          linhas: new Map(((await trx.selectFrom('agenda_promocao_itens').selectAll().where('codagenda', '=', masterId).execute()) as Array<Record<string, unknown>>)
+            .map((x) => [Number(x.idproduto), x])),
         };
+      },
+      // a LOG por ITEM do binário novo (formulário "Agenda de Promoção", tabela AGENDA_PROMOCAO_ITEM, chave CODAGENDA — 12.396 Inseriu, 2.114
+      // Alterou e 8 Excluiu em 2025-26), texto como a produção grava (LF, acentuado)
+      aposInserirItensTrx: async ({ trx, masterId, snapshot, emp }) => {
+        await logDosItens(trx, masterId, (snapshot as { linhas?: Map<number, Record<string, unknown>> } | undefined)?.linhas ?? new Map(), emp);
       },
       // ATIVO default 'S'; NROITEM sequencial; DTATIVO=now nos ativos (fiel ao legado, DTATIVO gravado ao ativar).
       // EMPRESAS: a lista selecionada vale para todos os itens (btnGravar:703-708); sem lista no dto, cada produto fica
       // com a sua e o produto novo leva a da agenda.
       derivarItensTrx: async (itens, trx, emp, header, _masterId, snapshot) => {
-        const snap = snapshot as { porProduto?: Map<number, string | null>; grupoPorProduto?: Map<number, Record<string, unknown>>; lojas?: number[] } | undefined;
+        const snap = snapshot as { porProduto?: Map<number, string | null>; grupoPorProduto?: Map<number, Record<string, unknown>>; lojas?: number[]; linhas?: Map<number, Record<string, unknown>> } | undefined;
         const doDto = Array.isArray(header?.empresas) ? csvLojas(header!.empresas as number[]) : null;
         const daAgenda = csvLojas(snap?.lojas?.length ? snap.lojas : emp != null ? [emp] : []);
         let lista = itens.map((it, i) => {
@@ -146,7 +203,8 @@ export const agendaPromocaoAggregateConfig: AggregateConfig = {
             ...it,
             ativo,
             nroitem: it.nroitem != null ? it.nroitem : i + 1,
-            dtativo: ativo === 'S' ? sql`now()` : null,
+            // DTATIVO = quando o item foi ATIVADO: o item que já era ativo fica com a data dele (a produção: 70 DTATIVO para 68 ATIVO)
+            dtativo: ativo === 'S' ? (String(snap?.linhas?.get(Number(it.idproduto))?.ativo ?? '') === 'S' && snap?.linhas?.get(Number(it.idproduto))?.dtativo != null ? snap?.linhas?.get(Number(it.idproduto))?.dtativo : sql`now()`) : null,
             empresas: doDto ?? (antes ? csvLojas(lojasDoCsv(antes, [])) : daAgenda) ?? null,
             atualizacao_grupo: grupo,
             codgrupo: it.codgrupo ?? g?.codgrupo ?? null,

@@ -535,5 +535,9 @@ ajuste de estoque (texto do histórico), baixa de cartão (LIBERADO do crédito)
 - **Não provado, mantido:** contas bancárias — o registro é aberto pelo código sem filtro de loja (uRDmCadContaBancaria.dfm), mas a
   pesquisa é a do form-base e não há prova de que ela não filtre; a trava de isolamento por loja (smoke MT) fica.
 
-**Pendentes:** agenda (a LOG por item — formato do binário novo "INCLUSÃO DE ITEM NA AGENDA" / "MODIFICAÇÃO DE ITEM DA AGENDA"),
-devolução (FINALIZADO, não provado no fonte), produto (outbox `replica`) e a decisão de projeto sobre AUDIT_*.
+**Lote 3 (25/09/2026, smoke §219.4):** agenda — a LOG por item no formato do binário novo ("INCLUSÃO DE ITEM NA AGENDA: …",
+"MODIFICAÇÃO DE ITEM DA AGENDA: … CAMPO/VALOR ANTERIOR/VALOR ATUAL", uma por campo, "EXCLUSÃO DE ITEM DA AGENDA: …"; LF, acentuado, sem
+normalizar), o CODITEM estável (`pkEstavel`) e o DTATIVO só quando o item é ativado.
+
+**Pendentes:** devolução (o status FINALIZADO — 181 de 217 no legado, mas nenhum caminho no fonte de 2020 o grava: não provado),
+produto (outbox `replica`, decisão de projeto) e a decisão de projeto sobre AUDIT_*.
