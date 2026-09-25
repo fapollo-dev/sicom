@@ -25,9 +25,9 @@ export function faturamentoDaNota(codnf: number): Promise<{ codnf: number; tipo:
   return req(`/fiscal/nf/${codnf}/faturamento`, { method: 'GET' });
 }
 
-/** Estorna o faturamento: apaga os títulos por IDNF (bloqueado se houver título quitado). */
-export function estornarFaturamentoNf(codnf: number): Promise<{ codnf: number; faturada: 'N' }> {
-  return req<{ codnf: number; faturada: 'N' }>(`/fiscal/nf/${codnf}/estornar-faturamento`);
+/** "Excluir documentos financeiros" (ExcluirDocumentosFinanceiros): títulos, rateio, CAIXA e parcelas da nota saem (bloqueado com baixa) */
+export function excluirFinanceiroNf(codnf: number): Promise<{ codnf: number }> {
+  return req<{ codnf: number }>(`/fiscal/nf/${codnf}/excluir-financeiro`);
 }
 
 // ── as PARCELAS da nota (FATURAMENTO) — a aba de cobrança ─────────────────────────────────────────────────────────────
@@ -35,6 +35,7 @@ export function estornarFaturamentoNf(codnf: number): Promise<{ codnf: number; f
 export interface ConfiguracaoParcelas {
   codnf: number;
   habilitado: boolean;
+  habilitadoFinanceiro: boolean;
   motivo: string | null;
   legenda: string;
   exigeSenha: boolean;
@@ -76,4 +77,9 @@ export function gerarParcelas(
 /** "Gerar sequência de duplicatas" → o próximo nº do gerador NRODUP */
 export function sequenciaDuplicata(): Promise<{ nroDup: number }> {
   return req<{ nroDup: number }>(`/fiscal/nf/parcelas/sequencia-duplicata`);
+}
+
+/** o GRAVAR do "Processar financeiro" da nota já processada: as parcelas da grade (Σ = base) */
+export function processarFinanceiroNf(codnf: number, faturamento: unknown[]): Promise<{ codnf: number; parcelas: number }> {
+  return req(`/fiscal/nf/${codnf}/processar-financeiro`, { body: JSON.stringify({ faturamento }) });
 }

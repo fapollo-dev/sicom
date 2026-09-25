@@ -126,6 +126,8 @@ export interface RegistroLog {
   chave: string;
   valor: number | null;
   historico: string;
+  /** false = grava o texto como está (o `TLog.GravaLog(…, false)` do `EnviarParaRegistroDeLog`, udmNF.pas:6425) */
+  normalizar?: boolean;
   /** só quando a tela passa (o form-base passa 0 = sem empresa) */
   idempresa?: number | null;
 }
@@ -146,7 +148,8 @@ export async function gravarLog(trx: AnyDB, r: RegistroLog): Promise<void> {
     codusuario: op,
     usuario: normalizarLog(String(nome?.nome ?? nome?.login ?? '')).slice(0, 100) || null,
     datahora: sql`now()`,
-    historico: normalizarLog(r.historico).slice(0, 4000),
+    // o GravaLog normaliza (maiúsculas, sem acento); o `EnviarParaRegistroDeLog` da NF chama com o último parâmetro false e grava como está
+    historico: (r.normalizar === false ? r.historico : normalizarLog(r.historico)).slice(0, 4000),
     idempresa: r.idempresa && r.idempresa > 0 ? r.idempresa : null,
   }).execute();
 }
@@ -204,7 +207,7 @@ export type CampoLog = string | [string, string];
  */
 export async function gravarLogDaLinha(trx: AnyDB, r: {
   acao: AcaoLog; formulario: string; tabela: string; chave: string; valor: number; idempresa?: number | null; campos: readonly CampoLog[];
-  antes?: Record<string, unknown> | null; depois: Record<string, unknown>;
+  antes?: Record<string, unknown> | null; depois: Record<string, unknown>; normalizar?: boolean;
 }): Promise<void> {
   const ordenar = (linha: Record<string, unknown> | null | undefined) => {
     const o: Record<string, unknown> = {};
@@ -215,5 +218,5 @@ export async function gravarLogDaLinha(trx: AnyDB, r: {
     return o;
   };
   const h = historicoDeGravacao(r.acao, ordenar(r.antes), ordenar(r.depois));
-  if (h) await gravarLog(trx, { acao: r.acao, formulario: r.formulario, tabela: r.tabela, chave: r.chave, valor: r.valor, historico: h, idempresa: r.idempresa ?? null });
+  if (h) await gravarLog(trx, { acao: r.acao, formulario: r.formulario, tabela: r.tabela, chave: r.chave, valor: r.valor, historico: h, idempresa: r.idempresa ?? null, normalizar: r.normalizar });
 }

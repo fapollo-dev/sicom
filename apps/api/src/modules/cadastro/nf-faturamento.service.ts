@@ -7,10 +7,48 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ConfigService } from './config.service';
-import { gravarLogDaLinha } from '../../shared/log/registro-log';
+import { gravarLogDaLinha, type CampoLog } from '../../shared/log/registro-log';
 import { ApagarService } from '../cobranca/apagar.service';
 import { AreceberService } from '../cobranca/areceber.service';
 import { lancarCaixaDoAreceber } from '../cobranca/areceber-caixa';
+
+/** as colunas de cada tabela na ORDEM DO ORACLE (a LOG "Nota fiscal" é o `SELECT *` do legado), com o nome do Apollo onde difere */
+const LOG_FATURAMENTO: readonly CampoLog[] = [
+  'codfaturamento', 'data', 'idnf', 'modalidade', 'valor', 'liberado', 'obs', 'codoperador', 'nrofatura', 'totalparcelasfatura', 'tiporef', 'codref',
+  'nronf', 'codbco', 'duplicata', 'valor_desconto', 'valor_bonificado', 'codbarrasboleto',
+];
+const LOG_CX_APAGAR: readonly CampoLog[] = ['codcxapagar', 'codapg', 'codcc', 'valor', 'codgrupo', 'dtultimalteracao', 'tipo', 'idsituacao_nf'];
+const LOG_AUX_ACORDO: readonly CampoLog[] = ['id_auxacordo', 'codacordo', 'codaux', 'tabela', 'ativo', 'indr', 'indr_usuario', 'indr_data'];
+const LOG_APAGAR: readonly CampoLog[] = [
+  'codapg', 'duplicata', 'docnf', 'obs', 'dtcompra', 'codoperador', 'codparceiro', 'quitada', 'logado', ['IDEMPRESA', 'codempresa'], 'idnf', 'gerado', 'valor',
+  'txjuros', 'dtvenc', 'tipodoc', 'codbco', 'nrodup', 'nrparcela', 'codgrupo', 'gfat', 'codcentrocusto', 'vendor', 'convenio', 'usultalteracao',
+  'dtultimalteracao', 'idlote', 'adfornecedor', 'contabilizado', 'codapg_pai', 'desconto', 'old_codparceiro', 'dtcadastro', 'form',
+  'operacao_convenio_funcionario', 'codplcfuncionarios', 'codconvenio', 'codcxagrupamentocr', 'status_pendencia', 'codoperador_aceite_pendencia',
+  'data_aceite_pendencia', 'bloqueio', 'idsituacao_nf', 'geradocartaoproprio', 'codapgcartao', 'adcredito', 'origem', 'codgrupo_fcx', 'contabilnf',
+  'agrupamento', 'agrupado', 'codgrupo_agrupamento_apg', 'codadiantamento', 'codbarrasblt', 'remessa_gerada', 'contabilizado_agrupamento', 'retencao',
+  'codplanocontas_deb_baixa_cp', 'codparceirocedente', 'cod_desconto_titulo', 'codgrupo_desconto_titulo', 'cadastrado_manualmente', 'lote_remessa',
+  'retorno_op', 'percjuros', 'mora', 'cod_agenda_prev_pagto', 'baixa_autorizada', 'codoperador_autorizada', 'data_autorizada', 'obs_autorizada',
+  'codoperador_auto_paga', 'data_auto_paga', 'obs_auto_paga', 'baixa_auto_paga', 'codoperador_auto_trans', 'data_auto_trans', 'obs_auto_trans',
+  'baixa_auto_trans', 'codoperador_autentica_trans', 'data_autentica_trans', 'obs_autentica_trans', 'baixa_autentica_trans', 'chavenfe',
+];
+const LOG_ARECEBER: readonly CampoLog[] = [
+  'codrcb', 'duplicata', 'nrocupom', 'docnf', 'obs', 'dtvenda', 'quitada', 'logado', 'nropedido', 'idnf', 'gerado', 'valor', 'txjuros', 'dtvenc', 'tipodoc',
+  'nrodup', 'total', 'codgrupo', 'codcobrador', 'codoperador', 'codparceiro', 'codvendedor', 'codoperadorman', 'codempresa', 'nrodoc', 'parcela', 'codcx',
+  'codpdv', 'codbco', 'idpgto', 'antecipado', 'lotecob', 'consiliado', 'datalotcob', 'registro_arq_remessa', 'nome_arq_remessa', 'login_arq_remessa',
+  'data_arq_remessa', 'txadm', 'usultalteracao', 'dtultimalteracao', 'baixado', 'idrds', 'codconta', 'datatransf', 'lotetransf', 'idlote', 'dtcadastro',
+  'codplc', 'status_boleto', 'adfornecedor', 'contabilizado', 'desconto_boleto', 'desconto_boleto_tipo', 'desconto', 'desconto_tipo', 'old_codparceiro',
+  'dtfechamentocx', 'chave', 'cadastrado_manualmente', 'status_pendencia', 'codoperador_aceite_pendencia', 'data_aceite_pendencia', 'sequencia',
+  'contabilnf', 'agrupamento', 'agrupado', 'codgrupo_agrupamento_apg', 'codgrupo_agrupamento_rcb', 'idsituacao_nf', 'codadiantamento', 'origem',
+  'data_agrupamento', 'contabilizado_agrupamento', 'codplanocontas_cred_baixa_cr', 'cod_desconto_titulo', 'codgrupo_desconto_titulo', 'nfadicmanual',
+  'diferenca_pedcomp', 'total_brt', 'codagenda', 'nosso_numero_boleto', 'codcfo', 'remessa', 'importado', 'txmulta', 'valor_perc_multa',
+  'codparceiropinheirao', 'carencia', 'idintegracao', 'dtpgto', 'dtagendamento', 'codoperador_liberacao', 'qrcodepix',
+];
+const LOG_CAIXA: readonly CampoLog[] = [
+  'codcx', 'data', 'valor', 'vrtitulo', 'obs', 'operador', 'codplc', 'idlote', 'idempresa', 'tiporecurso', 'codconta', 'codparceiro', 'codnf', 'nrparcela',
+  'codgrupo', 'dtvenc', 'gfat', 'gerado', 'codpdv', 'status', 'codfiscalcx', 'usultalteracao', 'dtultimalteracao', 'codrcb', 'dtcadastro', 'contabilizado',
+  'old_codparceiro', 'idlotebxcartao', 'codscrap', 'chave', 'idsituacao_nf', 'neutra', 'cadastrado_manualmente', 'codmapadesp', 'codcxapagar',
+  'bonificado', 'origem', 'idorigem', 'codhistsangria', 'formapgto',
+];
 
 /** o que o operador ajusta no pré-lançamento antes de gravar (a tela de Contas a Pagar / Receber aberta pelo Faturamento) */
 export interface AjusteTitulo { codfaturamento: number; dtvenc?: string; valor?: number; tipodoc?: string; codbarrasblt?: string | null; idpgto?: number }
@@ -628,107 +666,126 @@ export class NfFaturamentoService {
     await this.faturarNaTrx(trx, linhas, emp, op, { ajustes: [], confirmarRepetida: true, automatico: true });
   }
 
-  /**
-   * sem os títulos, as parcelas faturadas voltam a pendentes (a bonificada fica). ⚠️ PROVISÓRIO até o corte C: o `ExcluiFaturamento`
-   * do legado (udmNF.pas:6436) APAGA a FATURAMENTO e marca CANCELA_FATURAMENTO='S'; o Apollo ainda não refaz as parcelas de uma nota
-   * processada, então as mantém para faturar de novo.
-   */
-  private async parcelasVoltamAPendente(trx: AnyDB, codnf: number): Promise<void> {
-    await sql`UPDATE faturamento SET liberado = 'N' WHERE idnf = ${codnf} AND liberado = 'S' AND coalesce(modalidade, '') <> 'BONIFICADO'`.execute(trx);
+  // ───────────────────────── o DESFAZER do legado (corte C) ─────────────────────────
+
+  /** `ExisteFinanceiro` (udmNF.pas:11787): algum título, a pagar ou a receber, com a IDNF */
+  async existeFinanceiro(db: AnyDB, codnf: number): Promise<boolean> {
+    return (await sql`SELECT 1 FROM apagar WHERE idnf = ${codnf} UNION ALL SELECT 1 FROM areceber WHERE idnf = ${codnf} LIMIT 1`.execute(db)).rows.length > 0;
   }
 
-  async estornarFaturamento(codnf: number): Promise<void> {
-    const t = currentTenant();
-    const emp = t.empresaId ?? null;
-    const op = t.operadorId ?? null;
-    if (emp == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
+  /**
+   * `VerificaExisteBaixas` (udmNF.pas:11848-11940): baixa ativa (APAGAR_BX/ARECEBER_BX com INDR 'I') ou título quitado, agrupado ou
+   * contabilizado, a pagar ou a receber, da nota
+   */
+  async existeBaixa(db: AnyDB, codnf: number): Promise<boolean> {
+    return (await sql`
+      SELECT 1 FROM apagar_bx b WHERE coalesce(b.indr, 'I') = 'I' AND b.codapg IN (SELECT codapg FROM apagar WHERE idnf = ${codnf})
+      UNION ALL SELECT 1 FROM areceber_bx b WHERE coalesce(b.indr, 'I') = 'I' AND b.codrcb IN (SELECT codrcb FROM areceber WHERE idnf = ${codnf})
+      UNION ALL SELECT 1 FROM areceber WHERE idnf = ${codnf} AND (coalesce(agrupado, 'N') = 'S' OR coalesce(quitada, 'N') = 'S' OR coalesce(contabilizado, 'N') = 'S')
+      UNION ALL SELECT 1 FROM apagar WHERE idnf = ${codnf} AND (coalesce(agrupado, 'N') = 'S' OR coalesce(quitada, 'N') = 'S' OR coalesce(contabilizado, 'N') = 'S')
+      LIMIT 1`.execute(db)).rows.length > 0;
+  }
 
+  /** a LOG "Nota fiscal" do `ExcluiFaturamento` (`EnviarParaRegistroDeLog`, udmNF.pas:6401): Excluiu com a linha, CHAVE CODNF, sem normalizar */
+  private async logNotaFiscal(trx: AnyDB, tabela: string, codnf: number, linhas: Array<Record<string, unknown>>, campos: readonly CampoLog[], emp: number): Promise<void> {
+    for (const antes of linhas) {
+      await gravarLogDaLinha(trx, { acao: 'Excluiu', formulario: 'Nota fiscal', tabela, chave: 'CODNF', valor: codnf, idempresa: emp, campos, antes, depois: {}, normalizar: false });
+    }
+  }
+
+  /**
+   * `ExcluiFaturamento` (udmNF.pas:6436-6626): apaga o financeiro da nota — o rateio e a CAIXA dos títulos, o A Receber de acordo
+   * comercial (com a AUX_ACORDO_COMERCIAL), os títulos pela IDNF (os do fornecedor, os de retenção e o RESIDUAL ST) e as PARCELAS
+   * (FATURAMENTO) —, marca CANCELA_FATURAMENTO='S' e grava a LOG "Nota fiscal" de cada tabela. A esteira desmarca stGerarFinanceiro.
+   * ⚠️ divergências conscientes: o legado apaga o rateio/CAIXA só do PRIMEIRO título (na saída sobram as CAIXAs dos outros) e a LOG
+   * registra só a primeira linha de cada tabela (o dataset do `GravaLog` fica no 1º registro: 1 LOG por tabela em 100% dos casos de
+   * 2025-26); aqui vão todos.
+   */
+  async excluiFaturamentoNaTrx(trx: AnyDB, codnf: number, tipo: string, emp: number): Promise<void> {
+    const entrada = tipo === 'E';
+    const tabela = entrada ? 'apagar' : 'areceber';
+    const titulos = (await sql<Record<string, unknown>>`SELECT * FROM ${sql.table(tabela)} WHERE idnf = ${codnf} ORDER BY ${sql.ref(entrada ? 'codapg' : 'codrcb')}`.execute(trx)).rows;
+    if (entrada) {
+      const grupos = [...new Set(titulos.map((t) => t.codgrupo).filter((g) => g != null).map(Number))];
+      if (grupos.length) {
+        const cx = (await sql<Record<string, unknown>>`SELECT * FROM cx_apagar WHERE codgrupo = ANY(${grupos}::int[]) ORDER BY codcxapagar`.execute(trx)).rows;
+        await this.logNotaFiscal(trx, 'CX_APAGAR', codnf, cx, LOG_CX_APAGAR, emp);
+        for (const g of grupos) await apagarRateioDoGrupo(trx, g); // o rateio leva a CAIXA (a trigger CAIXA_APAGAR)
+      }
+      const acordos = (await sql<Record<string, unknown>>`
+          SELECT r.*, a.id_auxacordo FROM areceber r JOIN aux_acordo_comercial a ON a.codaux = r.codrcb AND a.tabela = 'ARECEBER'
+           WHERE r.idnf = ${codnf} ORDER BY r.codrcb`.execute(trx)).rows;
+      if (acordos.length) {
+        await this.logNotaFiscal(trx, 'ARECEBER', codnf, acordos, LOG_ARECEBER, emp);
+        const aux = (await sql<Record<string, unknown>>`SELECT * FROM aux_acordo_comercial WHERE id_auxacordo = ANY(${acordos.map((x) => Number(x.id_auxacordo))}::numeric[])`.execute(trx)).rows;
+        await this.logNotaFiscal(trx, 'AUX_ACORDO_COMERCIAL', codnf, aux, LOG_AUX_ACORDO, emp);
+        await sql`DELETE FROM caixa WHERE codrcb = ANY(${acordos.map((x) => Number(x.codrcb))}::int[])`.execute(trx);
+        await sql`DELETE FROM areceber WHERE codrcb = ANY(${acordos.map((x) => Number(x.codrcb))}::int[])`.execute(trx);
+        await sql`DELETE FROM aux_acordo_comercial WHERE id_auxacordo = ANY(${acordos.map((x) => Number(x.id_auxacordo))}::numeric[])`.execute(trx);
+      }
+    } else if (titulos.length) {
+      const ids = titulos.map((t) => Number(t.codrcb));
+      const cx = (await sql<Record<string, unknown>>`SELECT * FROM caixa WHERE codrcb = ANY(${ids}::int[]) ORDER BY codcx`.execute(trx)).rows;
+      await this.logNotaFiscal(trx, 'CAIXA', codnf, cx, LOG_CAIXA, emp);
+      await sql`DELETE FROM caixa WHERE codrcb = ANY(${ids}::int[])`.execute(trx);
+    }
+    await this.logNotaFiscal(trx, tabela.toUpperCase(), codnf, titulos, entrada ? LOG_APAGAR : LOG_ARECEBER, emp);
+    await sql`DELETE FROM ${sql.table(tabela)} WHERE idnf = ${codnf}`.execute(trx);
+    const parcelas = (await sql<Record<string, unknown>>`SELECT * FROM faturamento WHERE idnf = ${codnf} ORDER BY codfaturamento`.execute(trx)).rows;
+    await this.logNotaFiscal(trx, 'FATURAMENTO', codnf, parcelas, LOG_FATURAMENTO, emp);
+    await sql`DELETE FROM faturamento WHERE idnf = ${codnf}`.execute(trx);
+    // "define se o faturamento será liberado para nova inserção ao processar a nota fiscal" (udmNF.pas:6605); o flag do Apollo até o corte D
+    await sql`UPDATE nf SET cancela_faturamento = 'S', faturada = 'N' WHERE codnf = ${codnf}`.execute(trx);
+    const chave = await chaveDeEntrada(trx, codnf);
+    if (chave) await desregistrarProcessoNf(trx, 'stGerarFinanceiro', chave);
+  }
+
+  /**
+   * `CancelaFaturamento(codnf, tipo, pendência)` (uNF.pas:6668-6733), chamado pela exclusão ('E'), pelo cancelamento ('C'), pela
+   * denegação ('N') e pela reversão do processamento ('R'):
+   *  - sem título, nada;
+   *  - ESTORNA_FINANCEIRO_NF='S': com baixa, avisa e MANTÉM ("Existem documentos financeiros que já foram baixados…"); sem baixa, exclui
+   *    (`ExcluiFaturamento`) — com ESTORNA_FINANCEIRO='S' só se o operador confirmar, senão vira pendência;
+   *  - ESTORNA_FINANCEIRO_NF≠'S' (a produção): `AdicionaPendenciaFinanceiro` — STATUS_PENDENCIA = o código nos títulos da nota (a pagar
+   *    na entrada, a receber na saída); títulos e parcelas FICAM.
+   */
+  async cancelaFaturamentoNaTrx(
+    trx: AnyDB, codnf: number, tipo: string, codigo: 'E' | 'C' | 'N' | 'R', emp: number, op: number | null, confirmado = false,
+  ): Promise<'sem-financeiro' | 'excluido' | 'mantido-baixado' | 'pendencia'> {
+    if (!(await this.existeFinanceiro(trx, codnf))) return 'sem-financeiro';
+    const cfg = async (c: string) => String((await configNaTrx(trx, c, { empresaId: emp, operadorId: op, modulo: 'Retaguarda' })) ?? 'N').toUpperCase();
+    if ((await cfg('ESTORNA_FINANCEIRO_NF')) === 'S') {
+      if (await this.existeBaixa(trx, codnf)) return 'mantido-baixado';
+      if ((await cfg('ESTORNA_FINANCEIRO')) !== 'S' || confirmado) {
+        await this.excluiFaturamentoNaTrx(trx, codnf, tipo, emp);
+        return 'excluido';
+      }
+    }
+    await this.adicionaPendenciaNaTrx(trx, codnf, tipo, codigo);
+    return 'pendencia';
+  }
+
+  /** `AdicionaPendenciaFinanceiro` (uNF.pas:17885): D devolvida · R revertida · C cancelada · N denegada · E excluída */
+  async adicionaPendenciaNaTrx(trx: AnyDB, codnf: number, tipo: string, codigo: string): Promise<void> {
+    await sql`UPDATE ${sql.table(tipo === 'E' ? 'apagar' : 'areceber')} SET status_pendencia = ${codigo} WHERE idnf = ${codnf}`.execute(trx);
+  }
+
+  /**
+   * "Excluir documentos financeiros" da nota (`ExcluirDocumentosFinanceiros`, uNF.pas:17710-17752): só com
+   * PERMITE_EXCLUIR_FINANCEIRO_DA_NF='S' (a produção); com baixa, avisa e não exclui; senão `ExcluiFaturamento`.
+   */
+  async excluirDocumentosFinanceiros(codnf: number): Promise<{ codnf: number }> {
+    const emp = this.emp();
+    const op = currentTenant().operadorId ?? null;
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
-      const nf = await trx
-        .selectFrom('nf')
-        .select(['codnf', 'tipo', 'faturada', 'contabilizado'])
-        .where('codnf', '=', codnf)
-        .where('idempresa', '=', emp)
-        .forUpdate()
-        .executeTakeFirst();
+      if (String((await configNaTrx(trx, 'PERMITE_EXCLUIR_FINANCEIRO_DA_NF', { empresaId: emp, operadorId: op, modulo: 'Retaguarda' })) ?? 'N').toUpperCase() !== 'S') {
+        throw new BusinessRuleError('NF_EXCLUIR_FINANCEIRO_SEM_PERMISSAO', { codnf });
+      }
+      const nf = (await trx.selectFrom('nf').select(['codnf', 'tipo']).where('codnf', '=', codnf).where('idempresa', '=', emp).forUpdate().executeTakeFirst()) as { tipo?: string } | undefined;
       if (!nf) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf });
-      if (nf.faturada !== 'S') throw new BusinessRuleError('NF_NAO_FATURADA', { codnf });
-      // estorno bloqueado se já contabilizada (uNF.pas:8951 — espelha a guarda do reverter).
-      if (nf.contabilizado === 'S') throw new BusinessRuleError('NF_CONTABILIZADA', { codnf });
-
-      const tabela = nf.tipo === 'E' ? 'apagar' : 'areceber';
-
-      // trava: não estornar se algum título já foi quitado (espelha VerificaExisteBaixas; corte 1).
-      const quit = await trx
-        .selectFrom(tabela)
-        .select('idnf')
-        .where('idnf', '=', codnf)
-        .where('codempresa', '=', emp)
-        .where('quitada', '=', 'S')
-        .executeTakeFirst();
-      if (quit) throw new BusinessRuleError('TITULO_QUITADO', { codnf });
-
-      if (tabela === 'apagar') await this.apagarRateiosDaNf(trx, codnf, emp);
-      await trx.deleteFrom(tabela).where('idnf', '=', codnf).where('codempresa', '=', emp).execute();
-      await this.parcelasVoltamAPendente(trx, codnf);
-
-      const r = await trx
-        .updateTable('nf')
-        .set({ faturada: 'N', usultalteracao: op, dtultimalteracao: sql`now()` })
-        .where('codnf', '=', codnf)
-        .where('idempresa', '=', emp)
-        .where('faturada', '=', 'S')
-        .executeTakeFirst();
-      if (Number(r?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('NF_NAO_FATURADA', { codnf });
-      // excluir o financeiro desmarca stGerarFinanceiro (uEstoqueNF.pas:1024)
-      const chaveEst = await chaveDeEntrada(trx, codnf);
-      if (chaveEst) await desregistrarProcessoNf(trx, 'stGerarFinanceiro', chaveEst);
+      if (await this.existeBaixa(trx, codnf)) throw new BusinessRuleError('NF_FINANCEIRO_BAIXADO', { codnf });
+      await this.excluiFaturamentoNaTrx(trx, codnf, String(nf.tipo ?? ''), emp);
     });
-  }
-
-  /**
-   * Estorno do financeiro DENTRO da transação do CANCELAMENTO da NFe (F6→F4b). Espelha
-   * `CancelaFaturamento` (uNF.pas:6668) quando `ESTORNA_FINANCEIRO_NF='S'`: exclui os títulos
-   * (`ExcluiFaturamento`) e reabre `nf.faturada`. **Best-effort** — se algum título já foi
-   * quitado (`VerificaExisteBaixas`, uNF:6683), MANTÉM o financeiro e NÃO aborta o cancelamento
-   * fiscal já efetivado (o legado só exibe mensagem / registra pendência). NÃO abre transação
-   * própria: usa a `trx` do cancelamento (atômico com o flip P→C). O gate de config e a guarda
-   * `faturada='S'` são responsabilidade do chamador (nf-nfe.cancelar). Retorna o desfecho.
-   */
-  async estornarNoCancelamento(
-    trx: AnyDB,
-    codnf: number,
-    tipo: string,
-    emp: number,
-    op: number | null,
-  ): Promise<'estornado' | 'mantido-quitado' | 'sem-financeiro'> {
-    const tabela = tipo === 'E' ? 'apagar' : 'areceber';
-    const existe = await trx
-      .selectFrom(tabela)
-      .select('idnf')
-      .where('idnf', '=', codnf)
-      .where('codempresa', '=', emp)
-      .executeTakeFirst();
-    if (!existe) return 'sem-financeiro';
-    const quit = await trx
-      .selectFrom(tabela)
-      .select('idnf')
-      .where('idnf', '=', codnf)
-      .where('codempresa', '=', emp)
-      .where('quitada', '=', 'S')
-      .executeTakeFirst();
-    if (quit) return 'mantido-quitado'; // título baixado → não exclui (pendência); cancelamento segue
-    if (tabela === 'apagar') await this.apagarRateiosDaNf(trx, codnf, emp);
-    await trx.deleteFrom(tabela).where('idnf', '=', codnf).where('codempresa', '=', emp).execute();
-    await this.parcelasVoltamAPendente(trx, codnf);
-    await trx
-      .updateTable('nf')
-      .set({ faturada: 'N', usultalteracao: op, dtultimalteracao: sql`now()` })
-      .where('codnf', '=', codnf)
-      .where('idempresa', '=', emp)
-      .execute();
-    const chaveCanc = await chaveDeEntrada(trx, codnf);
-    if (chaveCanc) await desregistrarProcessoNf(trx, 'stGerarFinanceiro', chaveCanc);
-    return 'estornado';
+    return { codnf };
   }
 }

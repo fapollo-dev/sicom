@@ -5,7 +5,8 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { configNaTrx } from '../compras/pedido-heranca';
 import { gravarLogDaLinha } from '../../shared/log/registro-log';
-import { FATURAMENTO_CAMPOS_LOG, formularioDaNf } from './nf.aggregate';
+import { FATURAMENTO_CAMPOS_LOG, formularioDaNf, limparCodBarrasBoleto } from './nf.aggregate';
+import { chaveDeEntrada, registrarProcessoNf } from '../shared/nf-status-processo';
 import { SenhaOperacaoService } from './senha-operacao.service';
 import { buildParcelas, duplicataDaParcela, modalidadeDaParcela, proximoMes, somarDias, dataDoMes, type TipoCalcParc } from './nf-parcelas';
 
@@ -116,12 +117,14 @@ export class NfParcelasService {
   }
 
   /** o motivo de o gerar estar desligado (`btnGerarFin.Enabled`, uNF.pas:16207), ou null */
-  private async motivoBloqueio(db: AnyDB, nf: Record<string, any>, emp: number, op: number | null): Promise<string | null> {
+  private async motivoBloqueio(db: AnyDB, nf: Record<string, any>, emp: number, op: number | null, modoFinanceiro = false): Promise<string | null> {
     // as duas mensagens do legado são a mesma — o parceiro vazio também diz "CFOP" (uNF.pas:16191-16195)
     if (!nf.cfop || !nf.codparceiro) return 'NF_PARCELAS_SEM_CFOP';
     const liberada = nf.proc_financeiro === 'S'
       || (BONIFICACAO.includes(String(nf.cfop)) && (await configNaTrx(db, 'FINANCEIRO_BONIFICACAO_ACORDO', { empresaId: emp, operadorId: op, modulo: 'Retaguarda' })) === 'S');
     if (!liberada) return 'NF_PARCELAS_CFOP_SEM_FINANCEIRO';
+    // o menu "Processar financeiro" (uFinanceiroNotaFiscal.pas:846) só olha o CFOP: `btnGerarFin.Enabled := LiberarNotaParaGerarFinanceiro`
+    if (modoFinanceiro) return null;
     if (await this.temFinanceiro(db, Number(nf.codnf))) return 'NF_PARCELAS_TEM_FINANCEIRO';
     if (nf.proc === 'S') return 'NF_PARCELAS_NOTA_PROCESSADA';
     return null;
@@ -156,6 +159,8 @@ export class NfParcelasService {
     return {
       codnf,
       habilitado: motivo == null,
+      // o "Processar financeiro" da nota processada: só o CFOP decide
+      habilitadoFinanceiro: (await this.motivoBloqueio(db, nf, emp, op, true)) == null,
       motivo,
       legenda: BONIFICACAO.includes(String(nf.cfop)) ? 'Ge&rar financeiro bonificação' : 'Ge&rar financeiro',
       exigeSenha: BONIFICACAO.includes(String(nf.cfop)),
@@ -191,13 +196,13 @@ export class NfParcelasService {
   /** o `btnGerarFinClick`: calcula as parcelas (não grava — vão para a grade e são gravadas com a nota) */
   async gerar(codnf: number, dto: {
     numParcelas?: number; vencimento?: string; intervalo?: number; diaVenc?: number; tipoCalc?: TipoCalcParc; nroDup?: number | null;
-    proximoMes?: boolean; senhaAdmin?: string;
+    proximoMes?: boolean; senhaAdmin?: string; modo?: 'nota' | 'financeiro';
   }): Promise<{ parcelas: ParcelaGerada[]; valorAFaturar: number } | { perguntarProximoMes: true; vencimento: string }> {
     const emp = this.emp();
     const op = currentTenant().operadorId ?? null;
     const db = this.dbp.forTenantRead() as AnyDB;
     const nf = await this.carregar(db, codnf, emp);
-    const motivo = await this.motivoBloqueio(db, nf, emp, op);
+    const motivo = await this.motivoBloqueio(db, nf, emp, op, dto.modo === 'financeiro');
     if (motivo) throw new BusinessRuleError(motivo, { codnf });
     // 1910/2910 (bonificação): SenhaAdministrativa('ADM') (uNF.pas:4399)
     if (BONIFICACAO.includes(String(nf.cfop))) {
@@ -300,6 +305,56 @@ export class NfParcelasService {
     const cab = (await trx.selectFrom('nf').select(['tipo']).where('codnf', '=', codnf).executeTakeFirst()) as Record<string, unknown>;
     await gravarLogDaLinha(trx, { acao: 'Inseriu', formulario: formularioDaNf(cab), tabela: 'FATURAMENTO', chave: 'CODNF', valor: codnf, campos: FATURAMENTO_CAMPOS_LOG, depois: linha });
     return 1;
+  }
+
+  /**
+   * o GRAVAR do "Processar financeiro" da nota (`TFrmFinanceiroNotaFiscal.btnGravarClick`, uFinanceiroNotaFiscal.pas:184-404): as parcelas
+   * de uma nota JÁ PROCESSADA — o caminho do legado para refazer o financeiro depois de excluí-lo. Com o CFOP que gera financeiro, Σ
+   * parcelas = base ("O total das faturas é diferente do valor da nota. Confira!"); a parcela casada pela PK fica no lugar e com o
+   * LIBERADO dela; LOG FATURAMENTO Excluiu/Alterou/Inseriu com o título da nota (:337-363); depois as retenções, o RESIDUAL ST e o
+   * financeiro automático (:300-303) e a esteira stProcessarFaturar (:278). A renumeração da PK do legado (:224-233) não é copiada.
+   */
+  async gravarFinanceiro(codnf: number, parcelas: Array<Record<string, unknown>>, aposGravar: (trx: AnyDB, codnf: number, emp: number, op: number | null) => Promise<void>) {
+    const emp = this.emp();
+    const op = currentTenant().operadorId ?? null;
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const nf = await this.carregar(trx, codnf, emp);
+      if (await this.motivoBloqueio(trx, nf, emp, op, true)) throw new BusinessRuleError('NF_PARCELAS_CFOP_SEM_FINANCEIRO', { codnf });
+      const soma = Math.round(parcelas.reduce((s0, p) => s0 + num(p.valor), 0) * 100) / 100;
+      if (NfParcelasService.base(nf).toFixed(2) !== soma.toFixed(2)) throw new BusinessRuleError('NF_FATURAS_DIFERENTES', { codnf, base: NfParcelasService.base(nf), parcelas: soma });
+      const cab = (await trx.selectFrom('nf').select(['tipo']).where('codnf', '=', codnf).executeTakeFirst()) as Record<string, unknown>;
+      const formulario = formularioDaNf(cab);
+      const antigas = (await trx.selectFrom('faturamento').selectAll().where('idnf', '=', codnf).orderBy('codfaturamento').forUpdate().execute()) as Array<Record<string, unknown>>;
+      const porPk = new Map(antigas.map((a) => [String(a.codfaturamento), a]));
+      const ficam = new Set(parcelas.map((p) => (p.codfaturamento != null ? String(p.codfaturamento) : '')).filter((k) => porPk.has(k)));
+      const log = (acao: 'Inseriu' | 'Alterou' | 'Excluiu', antes: Record<string, unknown> | null, depois: Record<string, unknown>) =>
+        gravarLogDaLinha(trx, { acao, formulario, tabela: 'FATURAMENTO', chave: 'CODNF', valor: codnf, campos: FATURAMENTO_CAMPOS_LOG, antes, depois });
+      for (const a of antigas) {
+        if (ficam.has(String(a.codfaturamento))) continue;
+        await log('Excluiu', a, {});
+        await trx.deleteFrom('faturamento').where('codfaturamento', '=', a.codfaturamento).execute();
+      }
+      const COLS = ['data', 'modalidade', 'valor', 'obs', 'codoperador', 'nrofatura', 'totalparcelasfatura', 'nronf', 'codbco', 'duplicata', 'valor_desconto', 'valor_bonificado', 'codbarrasboleto'];
+      for (const p of parcelas) {
+        const vals: Record<string, unknown> = {};
+        for (const c of COLS) if (p[c] !== undefined) vals[c] = p[c] === '' ? null : p[c];
+        if (vals.codbarrasboleto != null) vals.codbarrasboleto = limparCodBarrasBoleto(vals.codbarrasboleto);
+        const k = p.codfaturamento != null ? String(p.codfaturamento) : '';
+        const antiga = porPk.get(k);
+        if (antiga && ficam.has(k)) {
+          await trx.updateTable('faturamento').set(vals).where('codfaturamento', '=', antiga.codfaturamento).execute();
+          const depois = (await trx.selectFrom('faturamento').selectAll().where('codfaturamento', '=', antiga.codfaturamento).executeTakeFirst()) as Record<string, unknown>;
+          await log('Alterou', antiga, depois);
+        } else {
+          const linha = (await trx.insertInto('faturamento').values({ ...vals, idnf: codnf, liberado: 'N' }).returningAll().executeTakeFirstOrThrow()) as Record<string, unknown>;
+          await log('Inseriu', null, linha);
+        }
+      }
+      await aposGravar(trx, codnf, emp, op);
+      const chave = await chaveDeEntrada(trx, codnf);
+      if (chave) await registrarProcessoNf(trx, 'stProcessarFaturar', chave, emp, op);
+      return { codnf, parcelas: parcelas.length };
+    });
   }
 
   /** "Deseja gerar sequencia de duplicatas?" → `GetID('NRODUP')` (btnGerarSeqFinClick, uNF.pas:2856) */

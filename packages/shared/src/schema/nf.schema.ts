@@ -442,8 +442,16 @@ export const gerarParcelasNfSchema = z.object({
   nroDup: z.number().int().nullable().optional(),
   proximoMes: z.boolean().optional(), // a resposta à pergunta "Deseja calcular o vencimento da primeira parcela para o próximo mês?"
   senhaAdmin: z.string().optional(), // CFOP 1910/2910 (bonificação)
+  /** 'financeiro' = o menu "Processar financeiro" da nota processada (só o CFOP decide) */
+  modo: z.enum(['nota', 'financeiro']).optional(),
 });
 export type GerarParcelasNfDto = z.infer<typeof gerarParcelasNfSchema>;
+
+/** o GRAVAR do "Processar financeiro" (nota já processada): as parcelas da grade */
+export const processarFinanceiroNfSchema = z.object({
+  faturamento: z.array(nfFaturamentoSchema).min(1, 'Gere as parcelas antes de gravar.'),
+});
+export type ProcessarFinanceiroNfDto = z.infer<typeof processarFinanceiroNfSchema>;
 
 /**
  * F2 — body do recálculo fiscal (POST /fiscal/nf/recalcular). É o dto da NF (header + itens),

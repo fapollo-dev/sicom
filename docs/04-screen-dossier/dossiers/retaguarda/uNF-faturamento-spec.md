@@ -734,3 +734,24 @@ uma parcela com a base e a apaga depois; a regra em si é o §215.
 - `INFORMA_CHEQUE_CARTAO_PROPRIO` = N na produção: o CARTÃO PRÓPRIO/A VISTA é só o TIPODOC (0 baixa imediata sistemática no dado).
 - Os lotes (`LOTE_FATURAMENTO`) seguem fora: 0 linhas, o legado nunca faz ApplyUpdates.
 - `nf.faturada` continua sendo marcado (S no processar do Faturamento) até o Corte D o trocar pelos predicados.
+
+### Corte C — ✅ 25/09/2026 (mig 342, smoke §217 + F4b 'N' com a pendência 'C')
+
+| item | onde | prova |
+|---|---|---|
+| `ExcluiFaturamento`: rateio e CAIXA dos títulos, A Receber de acordo (+AUX_ACORDO_COMERCIAL), títulos pela IDNF (fornecedor, retenções, RESIDUAL ST), PARCELAS; CANCELA_FATURAMENTO='S'; esteira desmarca stGerarFinanceiro | `NfFaturamentoService.excluiFaturamentoNaTrx` | §217.1 |
+| LOG "Nota fiscal" `Excluiu` (CHAVE CODNF) de CX_APAGAR/CAIXA, ARECEBER, AUX_ACORDO_COMERCIAL, APAGAR/ARECEBER, FATURAMENTO — na ordem do legado, colunas na ordem do Oracle, texto **sem normalizar** (o `TLog.GravaLog(…, false)` do `EnviarParaRegistroDeLog`: "Excluiu: … \nCampo: CODAPG   Valor: …", igual à produção) | `logNotaFiscal` + `gravarLog({ normalizar: false })` | §217.1 |
+| `CancelaFaturamento(codnf, tipo, E/C/N/R)`: sem título nada; ESTORNA_FINANCEIRO_NF 'S' exclui (baixado fica; ESTORNA_FINANCEIRO 'S' pede confirmação, senão pendência); 'N' (a produção) → `AdicionaPendenciaFinanceiro` | `cancelaFaturamentoNaTrx` / `adicionaPendenciaNaTrx` | F4b, §217.3 |
+| reversão 'R' (sem depender do flag), cancelamento 'C' (antes não marcava nada com ESTORNA N), denegada 'N' na transmissão | `nf-processamento`, `nf-nfe` | §217.3, F4b |
+| devolução (finalidade 4) autorizada → pendência 'D' nos A Pagar das notas referenciadas (`CancelaFaturamentoNFDevolucao`) | `nf-nfe.transmitir` | §217.4 |
+| excluir NF: barra pelo título (as duas mensagens do legado: baixado / existente); a parcela pendente sai com a nota | `nf.aggregate.validarRemocao` | §217.2 |
+| "Excluir documentos financeiros" (`POST fiscal/nf/:id/excluir-financeiro`, gate PERMITE_EXCLUIR_FINANCEIRO_DA_NF com a mensagem do legado; baixado → a mensagem de baixa) — substitui o "estornar-faturamento" do Apollo | `excluirDocumentosFinanceiros` | §217.1, 20.7 |
+| "Processar financeiro" da nota processada (uFinanceiroNotaFiscal): gerar em modo financeiro (só o CFOP decide) e `POST fiscal/nf/:id/processar-financeiro` (Σ = base, PK no lugar, LOG como a grade, retenções/ST/automático, esteira stProcessarFaturar) — o caminho do legado para refazer o financeiro depois de excluí-lo | `NfParcelasService.gravarFinanceiro` | §217.5 |
+| web: "Excluir documentos financeiros" com a confirmação do legado; na nota processada a aba de cobrança vira o Processar financeiro ("Gravar faturas") | `NfCadMaster.tsx` | web tsc/build |
+| mig 342: FRMNF/FRMNF para o operador de dev (o link do legado não tem permissão própria); sai o BTNESTORNARFATURAMENTO (invenção da mig 028) | — | — |
+
+**Divergências conscientes:**
+- o legado apaga o rateio/CAIXA só do **primeiro** título (na saída sobram CAIXAs) e a LOG "Nota fiscal" registra só a **primeira linha** de
+  cada tabela (o dataset do `GravaLog` fica no 1º registro — 1 LOG por tabela em 100% dos casos de 2025-26); o Apollo apaga e registra todos.
+- a renumeração da PK das parcelas no gravar do Processar financeiro (:224-233) não é copiada (nenhum leitor depende dela).
+- o estorno provisório do Corte B (parcelas voltando a pendente) saiu: agora é o `ExcluiFaturamento`.

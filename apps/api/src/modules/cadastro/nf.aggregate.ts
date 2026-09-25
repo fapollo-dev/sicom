@@ -360,7 +360,16 @@ export const nfAggregateConfig: AggregateConfig = {
       | undefined;
     if (!nf) return; // not-found é tratado pelo fluxo normal
     if (nf.proc === 'S') throw new BusinessRuleError('NF_PROCESSADA'); // reverter o processamento antes
-    if (nf.faturada === 'S') throw new BusinessRuleError('NF_TEM_FATURAMENTO'); // estornar o faturamento antes
+    // o financeiro barra pela EXISTÊNCIA do título (btnExcluirClick, uNF.pas:4105-4121), não pelo flag: primeiro o baixado, depois qualquer um.
+    // A parcela pendente (FATURAMENTO) não barra — sai junto com a nota (o detalhe).
+    const fin = (await sql<{ baixa: boolean; titulo: boolean }>`SELECT
+        EXISTS (SELECT 1 FROM apagar_bx b WHERE coalesce(b.indr, 'I') = 'I' AND b.codapg IN (SELECT codapg FROM apagar WHERE idnf = ${id}))
+        OR EXISTS (SELECT 1 FROM areceber_bx b WHERE coalesce(b.indr, 'I') = 'I' AND b.codrcb IN (SELECT codrcb FROM areceber WHERE idnf = ${id}))
+        OR EXISTS (SELECT 1 FROM apagar WHERE idnf = ${id} AND (coalesce(agrupado, 'N') = 'S' OR coalesce(quitada, 'N') = 'S' OR coalesce(contabilizado, 'N') = 'S'))
+        OR EXISTS (SELECT 1 FROM areceber WHERE idnf = ${id} AND (coalesce(agrupado, 'N') = 'S' OR coalesce(quitada, 'N') = 'S' OR coalesce(contabilizado, 'N') = 'S')) AS baixa,
+        EXISTS (SELECT 1 FROM apagar WHERE idnf = ${id}) OR EXISTS (SELECT 1 FROM areceber WHERE idnf = ${id}) AS titulo`.execute(db)).rows[0];
+    if (fin?.baixa) throw new BusinessRuleError('NF_EXCLUSAO_FINANCEIRO_BAIXADO', { codnf: id });
+    if (fin?.titulo) throw new BusinessRuleError('NF_EXCLUSAO_TEM_FINANCEIRO', { codnf: id });
     if (nf.contabilizado === 'S') throw new BusinessRuleError('NF_CONTABILIZADA');
     if (nf.cancelada === 'S' || nf.statusnfe === 'C') throw new BusinessRuleError('NF_CANCELADA');
     if (nf.statusnfe === 'P' || nf.statusnfe === 'D') throw new BusinessRuleError('NF_ENVIADA');

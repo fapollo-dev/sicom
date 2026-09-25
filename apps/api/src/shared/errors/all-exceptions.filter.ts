@@ -319,6 +319,11 @@ const CODE_PT: Record<string, string> = {
   FATURAMENTO_FORMA_OBRIGATORIA: 'Informe a forma de pagamento.',
   FATURAMENTO_CONTA_REPETIDA: 'O sistema identificou que esta conta pode ter sido lançada anteriormente. Deseja continuar?',
   FATURAMENTO_BONIFICAR_DESLIGADO: 'A bonificação pelo faturamento não está habilitada (BONIFICACAO_FATURAMENTO_NF).',
+  // o desfazer do financeiro da nota (corte C) — mensagens do legado
+  NF_EXCLUSAO_FINANCEIRO_BAIXADO: 'Está nota fiscal não pode ser excluída\nExistem financeiros relacionados a mesma que estão baixados, contabilizados ou agrupados.',
+  NF_EXCLUSAO_TEM_FINANCEIRO: 'Está nota fiscal não pode ser excluída\nExistem financeiros relacionados a ela. Para excluí-la, será necessário excluir os financeiros.',
+  NF_FINANCEIRO_BAIXADO: 'Existem documentos financeiros que já foram baixados, agrupados ou contabilizados relacionados à essa nota. Não é possível excluir o financeiro. Verifique!',
+  NF_EXCLUIR_FINANCEIRO_SEM_PERMISSAO: 'Você não possui permissão para excluir documentos financeiros pela nota fiscal! \nPermissão no configurador geral, Retaguarda, Nota fiscal.',
   NF_FATURAMENTO_ENVIE_A_NOTA: 'Envie a nota antes de gerar o faturamento!',
   NF_FATURAMENTO_SEM_PENDENTE: 'Não existe faturamento pendente para esta nota fiscal a ser processado.',
   // as parcelas da nota (FATURAMENTO) — o gerar da aba de cobrança (SetConfiguracoesFaturamento, uNF.pas:16184)

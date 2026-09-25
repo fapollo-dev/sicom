@@ -63,7 +63,7 @@ export class NfNfeService {
     const resultado = await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nf = await trx
         .selectFrom('nf')
-        .select(['codnf', 'tipo', 'tipoemissao', 'modelo', 'nronf', 'serie', 'dtemissao', 'codparceiro', 'totalnf', 'proc', 'statusnfe', 'cancelada', 'tpemissao', 'obs'])
+        .select(['codnf', 'tipo', 'tipoemissao', 'modelo', 'nronf', 'serie', 'dtemissao', 'codparceiro', 'totalnf', 'proc', 'statusnfe', 'cancelada', 'tpemissao', 'obs', 'finalidade'])
         .where('codnf', '=', codnf)
         .where('idempresa', '=', emp)
         .forUpdate()
@@ -187,6 +187,13 @@ export class NfNfeService {
         .where((eb: AnyDB) => eb.or([eb('statusnfe', 'is', null), eb('statusnfe', '=', '')]))
         .executeTakeFirst();
       if (Number(r?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('NF_JA_TRANSMITIDA', { codnf });
+      // denegada: `CancelaFaturamento(…, 'N')` (uNF.pas:16458); a devolução (finalidade 4) autorizada põe os títulos das notas
+      // REFERENCIADAS em pendência 'D' (`CancelaFaturamentoNFDevolucao`, uNF.pas:6735-6768 — sempre na tabela A PAGAR)
+      if (res.status === 'D') await this.fat.cancelaFaturamentoNaTrx(trx, codnf, String(nf.tipo), 'N', emp, op);
+      if (res.status === 'P' && res.protocolo && String(nf.finalidade ?? '') === '4') {
+        const refs = (await sql<{ codnf_ref: number }>`SELECT codnf_ref FROM nf_referencia WHERE codnf = ${codnf} AND codnf_ref IS NOT NULL`.execute(trx)).rows;
+        for (const r0 of refs) await this.fat.adicionaPendenciaNaTrx(trx, Number(r0.codnf_ref), 'E', 'D');
+      }
       // o número da nota nas parcelas e nos títulos dela (`TNFe.UpdateNFE`, NFe.pas:4666-4667 — ExecSQL, sem LOG)
       await sql`UPDATE faturamento SET nronf = ${String(nf.nronf)} WHERE idnf = ${codnf}`.execute(trx);
       await sql`UPDATE apagar SET duplicata = ${String(nf.nronf)} WHERE idnf = ${codnf}`.execute(trx);
@@ -327,13 +334,9 @@ export class NfNfeService {
         await this.proc.estornarEstoquePorCancelamento(trx, codnf, String(nf.tipo), op, emp);
       }
 
-      // financeiro (F4b): CancelaFaturamento (uNF.pas:6668/6802) é GATED por ESTORNA_FINANCEIRO_NF
-      // (default golden 'N' → NÃO deleta títulos, fiel ao legado; só 'S' exclui). Best-effort: título
-      // quitado é mantido (VerificaExisteBaixas) sem abortar o cancelamento fiscal. Mesma transação.
-      let financeiro: 'estornado' | 'mantido-quitado' | 'sem-financeiro' | 'nao-aplicavel' = 'nao-aplicavel';
-      if (nf.faturada === 'S' && (await this.config.ligado('ESTORNA_FINANCEIRO_NF', { empresaId: emp, operadorId: op ?? undefined }))) {
-        financeiro = await this.fat.estornarNoCancelamento(trx, codnf, String(nf.tipo), emp, op);
-      }
+      // financeiro: `CancelaFaturamento(…, 'C')` (uNF.pas:6802) — sem título nada; com ESTORNA_FINANCEIRO_NF 'N' (a produção) os títulos
+      // ficam com a pendência 'C'; com 'S' saem (salvo baixados, que ficam). Mesma transação do cancelamento.
+      const financeiro = await this.fat.cancelaFaturamentoNaTrx(trx, codnf, String(nf.tipo), 'C', emp, op);
 
       // contábil (F5b): cancelar estorna o DIÁRIO se contabilizada (TIntegracaoContabil.Estornar,
       // uNF.pas:6808). Na MESMA transação. Inerte se a NF não foi contabilizada.

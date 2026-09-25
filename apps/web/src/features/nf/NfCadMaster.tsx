@@ -40,7 +40,7 @@ import { vincularNfRotativo, type LadoRotativoNf } from '../inventario-rotativo/
 import { createResourceApi } from '../../shared/cadmaster/resourceApi';
 import { recalcularNf } from './nfFiscalApi';
 import { processarNf, reverterNf } from './nfProcessamentoApi';
-import { faturamentoDaNota, estornarFaturamentoNf, configuracaoParcelas, gerarParcelas, sequenciaDuplicata, type ParcelaGerada } from './nfFaturamentoApi';
+import { faturamentoDaNota, excluirFinanceiroNf, configuracaoParcelas, gerarParcelas, sequenciaDuplicata, processarFinanceiroNf, type ParcelaGerada } from './nfFaturamentoApi';
 import { transmitirNf, cancelarNf, cceNf } from './nfNfeApi';
 
 /** Tipo da nota (parametrização Entrada/Saída — espelha o `ParametroCriacao` 35/36 do legado). */
@@ -564,7 +564,7 @@ function FinTab({ form, liberado, tipo }: { form: UseFormReturn<CriarNfDto>; lib
       <Tabs tabs={subTabs} active={sub} onChange={setSub} variant="sub" />
       {sub === 'cobranca' && (
         <>
-          <ParcelasSection form={form} liberado={liberado} />
+          <ParcelasSection form={form} liberado={liberado} processada={form.watch('proc') === 'S' && form.watch('cancelada') !== 'S'} />
           <FaturamentoSection form={form} tipo={tipo} />
         </>
       )}
@@ -691,7 +691,7 @@ const diaNoMes = (iso: string, dia: number) => {
  * As PARCELAS da nota (FATURAMENTO) — a aba "Dados da cobrança" do legado (uNF.pas:4389 e :16184): calcula as parcelas pela
  * base da nota e as põe na grade, que é gravada com a nota. O título nasce da parcela depois, no Faturamento.
  */
-function ParcelasSection({ form, liberado }: { form: UseFormReturn<CriarNfDto>; liberado: boolean }) {
+function ParcelasSection({ form, liberado, processada }: { form: UseFormReturn<CriarNfDto>; liberado: boolean; processada: boolean }) {
   const mensagem = useMensagem();
   const codnf = (form.getValues() as { codnf?: number }).codnf;
   const { fields, replace, update, remove } = useFieldArray<CriarNfDto, 'faturamento', 'fieldId'>({ control: form.control, name: 'faturamento', keyName: 'fieldId' });
@@ -721,7 +721,10 @@ function ParcelasSection({ form, liberado }: { form: UseFormReturn<CriarNfDto>; 
   const soma = Math.round(linhas.reduce((s, p) => s + (Number(p.valor) || 0), 0) * 100) / 100;
   const base = cfg?.base ?? 0;
   const aFaturar = Math.round((base - soma) * 100) / 100;
-  const podeGerar = liberado && !!cfg?.habilitado && !executando;
+  // nota PROCESSADA: o menu "Processar financeiro" do legado (uFinanceiroNotaFiscal) — só o CFOP decide, e as faturas gravam à parte
+  const modoFin = processada && !liberado;
+  const podeGerar = (modoFin ? !!cfg?.habilitadoFinanceiro : liberado && !!cfg?.habilitado) && !executando;
+  const editavel = liberado || (modoFin && !!cfg?.habilitadoFinanceiro);
 
   const gerar = async (proximoMes?: boolean, senhaAdmin?: string): Promise<void> => {
     let senha = senhaAdmin;
@@ -734,7 +737,7 @@ function ParcelasSection({ form, liberado }: { form: UseFormReturn<CriarNfDto>; 
     try {
       const r = await gerarParcelas(codnf, {
         numParcelas: Number(numParcelas) || 1, vencimento, intervalo: Number(intervalo) || 0, diaVenc: Number(diaVenc) || 0, tipoCalc,
-        nroDup: nroDup ?? null, proximoMes, senhaAdmin: senha,
+        nroDup: nroDup ?? null, proximoMes, senhaAdmin: senha, modo: modoFin ? 'financeiro' : 'nota',
       });
       if ('perguntarProximoMes' in r) {
         setExecutando(false);
@@ -764,12 +767,27 @@ function ParcelasSection({ form, liberado }: { form: UseFormReturn<CriarNfDto>; 
     }
   };
 
+  const gravarFaturas = async () => {
+    setExecutando(true);
+    try {
+      await processarFinanceiroNf(codnf, form.getValues('faturamento') ?? []);
+      const rec = await createResourceApi<{ faturamento?: unknown[] }>('fiscal/nf').ler(codnf);
+      replace((rec.faturamento ?? []) as never);
+      mensagem.sucesso('Faturas geradas com sucesso!\nEfetue o processamento do financeiro na tela de faturamento.');
+      void refetch();
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
   const editar = (i: number, campo: keyof ParcelaForm, v: unknown) => update(i, { ...(linhas[i] as object), [campo]: v } as never);
   const cel = 'w-full rounded-radius-sm border border-border bg-bg-surface px-1 py-0.5 text-body-sm disabled:opacity-60';
 
   return (
     <div className="flex flex-col gap-gp-sm">
-      <span className="text-body-sm font-semibold text-fg-default">Parcelas da nota</span>
+      <span className="text-body-sm font-semibold text-fg-default">{modoFin ? 'Parcelas da nota — processar financeiro' : 'Parcelas da nota'}</span>
       <div className="flex flex-wrap items-end gap-gp-sm">
         <div className="w-28">
           <NumberField label="Nº &parcelas" value={numParcelas} onChange={setNumParcelas} decimais={0} min={1} disabled={!podeGerar} />
@@ -795,6 +813,7 @@ function ParcelasSection({ form, liberado }: { form: UseFormReturn<CriarNfDto>; 
         )}
         <Button label={cfg?.legenda ?? 'Ge&rar financeiro'} variant="soft" disabled={!podeGerar} onClick={() => void gerar()} />
         <Button label="&Limpar" variant="soft" disabled={!podeGerar || !linhas.length} onClick={limpar} />
+        {modoFin && <Button label="Gra&var faturas" variant="soft" disabled={!podeGerar || !linhas.length} onClick={() => void gravarFaturas()} />}
       </div>
       <small className="text-fg-muted">
         Cálculo por {tipoCalc === 'D' ? 'dia fixo' : 'intervalo de dias'} · base {base.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} ·
@@ -817,7 +836,7 @@ function ParcelasSection({ form, liberado }: { form: UseFormReturn<CriarNfDto>; 
             </thead>
             <tbody>
               {linhas.map((p, i) => {
-                const ed = liberado && p.liberado !== 'S';
+                const ed = editavel && p.liberado !== 'S';
                 return (
                   <tr key={p.fieldId} className="border-b border-border/50">
                     <td className="py-1 pr-2 tabular-nums">{p.nrofatura}{p.totalparcelasfatura ? `/${p.totalparcelasfatura}` : ''}</td>
@@ -846,14 +865,13 @@ function ParcelasSection({ form, liberado }: { form: UseFormReturn<CriarNfDto>; 
 
 /**
  * O botão "Faturamento" da nota (`btnFaturamentoClick`, uNF.pas:4332): a nota própria só depois de enviada, e só com parcela pendente;
- * abre a tela do Faturamento com o filtro da nota (emissão, número, A Pagar / A Receber), onde a parcela vira título. O estorno
- * apaga os títulos (as parcelas voltam a pendentes).
+ * abre a tela do Faturamento com o filtro da nota (emissão, número, A Pagar / A Receber), onde a parcela vira título. "Excluir
+ * documentos financeiros" apaga títulos, rateio, CAIXA e parcelas (ExcluiFaturamento).
  */
 function FaturamentoSection({ form, tipo }: { form: UseFormReturn<CriarNfDto>; tipo: NfTipo }) {
   const mensagem = useMensagem();
   const navigate = useNavigate();
   const [executando, setExecutando] = useState(false);
-  const faturada = form.watch('faturada');
   const codnf = (form.getValues() as { codnf?: number }).codnf;
   if (codnf == null) return null;
   const modalidade = tipo === 'E' ? 'A Pagar' : 'A Receber';
@@ -868,14 +886,16 @@ function FaturamentoSection({ form, tipo }: { form: UseFormReturn<CriarNfDto>; t
     }
   };
 
-  const estornar = async () => {
+  // "Excluir documentos financeiros" (uNF.pas:17710): a confirmação do legado; o servidor confere a permissão e as baixas
+  const excluirFinanceiro = async () => {
     if (executando) return;
-    if (!window.confirm('Remover o faturamento desta nota? Os títulos financeiros serão excluídos.')) return;
+    if (!window.confirm('Deseja remover o faturamento e o financeiro desta nota?\nEsta ação é IRREVERSÍVEL, pois as contas A PAGAR ou A RECEBER serão excluídas!')) return;
     setExecutando(true);
     try {
-      await estornarFaturamentoNf(codnf);
+      await excluirFinanceiroNf(codnf);
       form.setValue('faturada', 'N');
-      mensagem.sucesso('Faturamento estornado: títulos removidos.');
+      form.setValue('faturamento' as never, [] as never);
+      mensagem.sucesso('Financeiro excluído com sucesso!');
     } catch (e) {
       mensagem.erro(e);
     } finally {
@@ -886,7 +906,7 @@ function FaturamentoSection({ form, tipo }: { form: UseFormReturn<CriarNfDto>; t
   return (
     <div className="flex flex-wrap items-center gap-gp-sm">
       <Button label="&Faturamento" variant="soft" onClick={() => void abrirFaturamento()} />
-      {faturada === 'S' && <Button label="&Estornar faturamento" variant="soft" onClick={() => void estornar()} />}
+      <Button label="E&xcluir documentos financeiros" variant="soft" onClick={() => void excluirFinanceiro()} />
       <small className="text-fg-muted">As parcelas viram títulos em {modalidade} na tela do Faturamento.</small>
     </div>
   );

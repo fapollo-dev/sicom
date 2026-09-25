@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
-import { gerarParcelasNfSchema, type GerarParcelasNfDto } from '@apollo/shared';
+import { gerarParcelasNfSchema, processarFinanceiroNfSchema, type GerarParcelasNfDto, type ProcessarFinanceiroNfDto } from '@apollo/shared';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -34,6 +34,14 @@ export class NfFaturamentoController {
     return this.parcelas.gerar(id, dto);
   }
 
+  /** o GRAVAR do "Processar financeiro" da nota já processada (uFinanceiroNotaFiscal.pas:184): as parcelas com Σ = base */
+  @Post(':id/processar-financeiro')
+  @HttpCode(200)
+  @RequerAcesso('FRMNF', 'BTNFATURAMENTO')
+  processarFinanceiro(@Param('id', ParseIntPipe) id: number, @Body(new ZodValidationPipe(processarFinanceiroNfSchema)) b: ProcessarFinanceiroNfDto) {
+    return this.parcelas.gravarFinanceiro(id, b.faturamento as Array<Record<string, unknown>>, (trx, codnf, emp, op) => this.fat.aposProcessar(trx, codnf, emp, op));
+  }
+
   /** "Gerar sequência de duplicatas" (GetID('NRODUP')) */
   @Post('parcelas/sequencia-duplicata')
   @HttpCode(200)
@@ -49,11 +57,12 @@ export class NfFaturamentoController {
     return this.fat.daNota(id);
   }
 
-  @Post(':id/estornar-faturamento')
+  /** "Excluir documentos financeiros" (ExcluirDocumentosFinanceiros, uNF.pas:17710) — gate PERMITE_EXCLUIR_FINANCEIRO_DA_NF; o link do
+   * legado não tem permissão própria (a tela FRMNF basta) */
+  @Post(':id/excluir-financeiro')
   @HttpCode(200)
-  @RequerAcesso('FRMNF', 'BTNESTORNARFATURAMENTO')
-  async estornar(@Param('id', ParseIntPipe) id: number) {
-    await this.fat.estornarFaturamento(id);
-    return { codnf: id, faturada: 'N' };
+  @RequerAcesso('FRMNF', 'FRMNF')
+  excluirFinanceiro(@Param('id', ParseIntPipe) id: number) {
+    return this.fat.excluirDocumentosFinanceiros(id);
   }
 }

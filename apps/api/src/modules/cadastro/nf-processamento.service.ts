@@ -157,7 +157,7 @@ export class NfProcessamentoService {
         // `ESTORNA_FINANCEIRO_NF`='S' exclui o financeiro se nada foi baixado/agrupado/contabilizado (senão avisa e mantém); com
         // 'N' (a produção) MANTÉM os títulos e marca a pendência (`AdicionaPendenciaFinanceiro`: STATUS_PENDENCIA 'R' pela IDNF).
         // O Apollo recusava — 295 reversões em 2025 e 151 em 2026 tinham financeiro (auditoria g1 #15).
-        if (nf.faturada === 'S') await this.cancelarFaturamentoNaReversao(trx, codnf, String(nf.tipo), emp, op);
+        await this.faturamento.cancelaFaturamentoNaTrx(trx, codnf, String(nf.tipo), 'R', emp, op);
         // reverter + contabilizada (uNF.pas:8949): se a empresa é AUTOMATICA, ESTORNA o contábil e segue;
         // senão bloqueia (o operador tem de estornar o contábil manualmente antes).
         if (nf.contabilizado === 'S') {
@@ -228,20 +228,6 @@ export class NfProcessamentoService {
    * faturada; senão — e sempre com 'N', que é a produção — MANTÉM os títulos e marca a pendência 'R' (`AdicionaPendenciaFinanceiro`:
    * APAGAR na entrada, ARECEBER na saída, pela IDNF). A reversão segue nos dois casos.
    */
-  private async cancelarFaturamentoNaReversao(trx: AnyDB, codnf: number, tipo: string, emp: number, op: number | null): Promise<void> {
-    const tabela = tipo === 'E' ? 'apagar' : 'areceber';
-    const cfg = String((await configNaTrx(trx, 'ESTORNA_FINANCEIRO_NF', { empresaId: emp, operadorId: op, modulo: 'Retaguarda' })) ?? 'N').toUpperCase();
-    if (cfg === 'S') {
-      const bx = tipo === 'E'
-        ? (await sql`SELECT 1 FROM apagar a WHERE a.idnf = ${codnf} AND (a.quitada = 'S' OR coalesce(a.agrupado, 'N') = 'S' OR coalesce(a.contabilizado, 'N') = 'S'
-              OR EXISTS (SELECT 1 FROM apagar_bx b WHERE b.codapg = a.codapg AND coalesce(b.indr, 'I') = 'I')) LIMIT 1`.execute(trx)).rows.length > 0
-        : (await sql`SELECT 1 FROM areceber a WHERE a.idnf = ${codnf} AND (a.quitada = 'S' OR coalesce(a.agrupado, 'N') = 'S' OR coalesce(a.contabilizado, 'N') = 'S'
-              OR EXISTS (SELECT 1 FROM areceber_bx b WHERE b.codrcb = a.codrcb AND coalesce(b.indr, 'I') = 'I')) LIMIT 1`.execute(trx)).rows.length > 0;
-      if (!bx && (await this.faturamento.estornarNoCancelamento(trx, codnf, tipo, emp, op)) === 'estornado') return;
-    }
-    await sql`UPDATE ${sql.table(tabela)} SET status_pendencia = 'R' WHERE idnf = ${codnf}`.execute(trx);
-  }
-
   private async reconciliarTotais(trx: AnyDB, codnf: number, emp: number, nf: Record<string, unknown>): Promise<void> {
     const itens = await trx
       .selectFrom('nf_prod')
