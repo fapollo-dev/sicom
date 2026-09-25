@@ -239,7 +239,8 @@ export const produtoAggregateConfig: AggregateConfig = {
           const codbarra = principal ?? it.codbarra;
           if (!a) return { ...it, codbarra, dtcadastro: it.dtcadastro ?? agora, dtalteracao: agora, porcentagem_valor: it.porcentagem_valor ?? 100 };
           // o código principal acompanhando o produto não é alteração da linha (o gatilho do legado só troca o CODBARRA)
-          const mudou = ['fatoremb', 'codunidade', 'operacao'].some((c) => it[c] !== undefined && String(it[c] ?? '') !== String(a[c] ?? ''));
+          // (numérico compara como número: a tela manda 6, o banco devolve '6.000' — por texto, todo gravar carimbava a linha)
+          const mudou = ['fatoremb', 'codunidade', 'operacao'].some((c) => it[c] !== undefined && distinto(a[c], it[c]));
           // as colunas que a tela não manda ficam com o que a linha tinha
           const base = { ...it, codbarra, porcentagem_valor: it.porcentagem_valor ?? a.porcentagem_valor, dtcadastro: it.dtcadastro ?? a.dtcadastro, dtalteracao: it.dtalteracao ?? a.dtalteracao };
           return mudou ? { ...base, dtalteracao: agora } : base;
