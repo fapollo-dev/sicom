@@ -134,9 +134,9 @@ export class AjusteEstoqueService {
       const qtdeanterior = r3(num((a as any).qtdeanterior));
 
       // FOLD (auditoria de correção): o ajuste pode ser do DEPÓSITO — o zeramento do inventário rotativo
-      // (uInvRotativoGrid) grava `destino='DEPOSITO'` mexendo em `estoque_dep`. Estornar sempre em `estoque`
+      // (uInvRotativoGrid) grava `destino='D'` mexendo em `estoque_dep`. Estornar sempre em `estoque`
       // devolvia o saldo no bucket ERRADO (a loja ganhava o saldo do depósito e o depósito continuava zerado).
-      // 'D' é o código da tela; 'DEPOSITO' o que o zeramento do inventário rotativo grava
+      // 'D' é o código do estoque (tela e zeramento do rotativo, gatilho ESTOQUE_AJUSTE); 'DEPOSITO' o que o Apollo gravava antes
       const noDeposito = ['D', 'DEPOSITO'].includes(String((a as any).destino ?? '').toUpperCase());
       const est = noDeposito
         ? await trx

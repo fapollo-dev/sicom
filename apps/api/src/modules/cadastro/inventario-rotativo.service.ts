@@ -251,8 +251,10 @@ export class InventarioRotativoService {
     if (!lib.liberado) throw new BusinessRuleError('LIBERACAO_NEGADA', { codigo: 'USUARIOS_ZERAM_ESTOQUE_INVENTARIO' });
 
     const buckets: Array<{ tabela: 'estoque' | 'estoque_dep'; destinoColeta: string; destinoAjuste: string }> = [];
-    if (dto.loja) buckets.push({ tabela: 'estoque', destinoColeta: 'LOJA', destinoAjuste: 'ESTOQUE' });
-    if (dto.deposito) buckets.push({ tabela: 'estoque_dep', destinoColeta: 'DEPOSITO', destinoAjuste: 'DEPOSITO' });
+    // o DESTINO do ajuste é o código do estoque do legado ('E' loja, 'D' depósito — o CDESCRICAOESTOQUE do gatilho ESTOQUE_AJUSTE): a
+    // produção grava 'E' desde 2022 ('ESTOQUE' só até 30/08/2022)
+    if (dto.loja) buckets.push({ tabela: 'estoque', destinoColeta: 'LOJA', destinoAjuste: 'E' });
+    if (dto.deposito) buckets.push({ tabela: 'estoque_dep', destinoColeta: 'DEPOSITO', destinoAjuste: 'D' });
 
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       let zerados = 0;
@@ -286,6 +288,16 @@ export class InventarioRotativoService {
             .executeTakeFirstOrThrow()) as { codinv_rotativo: number };
           coletas++;
 
+          // o KARDEX do ajuste (o gatilho ESTOQUE_AJUSTE, ORIGEM 'I' com IDORIGEM = a coleta): "AJUSTE DE ESTOQUE INVENTARIO ROTATIVO
+          // OPERADOR: <cod>  / CODINV = <coleta>" — o do depósito não tem kardex no Apollo (HISTORICO_PROD_DEP; a última linha no legado é de 2023)
+          const codOpAjuste = op ?? lib.codOperador ?? 0;
+          if (b.tabela === 'estoque' && anterior !== 0) {
+            await trx.insertInto('historico_prod').values({
+              idproduto, idempresa: emp, tipo: anterior < 0 ? 'E' : 'S', qtde: Math.abs(anterior), saldo_anterior: anterior, saldo_novo: 0,
+              origem: 'AJUSTE', codnf: null, data: sql`now()`, codoperador: codOpAjuste,
+              historico: `AJUSTE DE ESTOQUE INVENTARIO ROTATIVO OPERADOR: ${codOpAjuste}  / CODINV = ${Number(coleta.codinv_rotativo)}`,
+            }).execute();
+          }
           await trx
             .insertInto('ajuste_estoque')
             .values({

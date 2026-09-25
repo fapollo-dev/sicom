@@ -10550,13 +10550,23 @@ async function main() {
           && Number(cols.find((c: any) => Number(c.idproduto) === 1 && c.destino === 'DEPOSITO')?.qtd_anterior) === 9;
         const okAjustes = ajs.length === 3 && ajs.every((a: any) => Number(a.codmotivo) === 999 && a.origem === 'I' && Number(a.tem_origem) === 1);
         const okNegativo = ajP2?.operacao === 'AUMENTAR' && Math.abs(Number(ajP2?.qtde) - 6) < 0.001 && Number(ajP2?.codoperador_liberacao) > 0;
-        check('ROTATIVO §88.9: com liberação válida, zerar faz os TRÊS fatos por produto×bucket — saldo 0 em estoque e estoque_dep (3 zerados), coleta SUBSTITUIR com QTD_ANTERIOR do saldo e DESTINO LOJA/DEPOSITO, e ajuste com CODMOTIVO=999, ORIGEM=I e IDORIGEM apontando para a coleta; o saldo NEGATIVO (−6) vira ajuste de AUMENTAR com qtde 6 (não DIMINUIR)',
-          okStatus && okSaldos && okColetas && okAjustes && okNegativo,
-          { flags: { okStatus, okSaldos, okColetas, okAjustes, okNegativo }, z: zOkJ, est: [est1z, est2z, dep1z], nCols: cols.length, nAjs: ajs.length });
+        // o gatilho ESTOQUE_AJUSTE: o DESTINO do ajuste é o código do estoque ('E' loja, 'D' depósito — a produção grava assim desde 2022)
+        // e a loja ganha a linha de kardex "AJUSTE DE ESTOQUE INVENTARIO ROTATIVO OPERADOR: <cod>  / CODINV = <coleta>"
+        const okDestino = ajs.map((a: any) => `${a.idproduto}${String(a.destino).trim()}`).sort().join(',') === '1D,1E,2E';
+        const kz = (await pgR.query(`SELECT h.idproduto, h.tipo, h.qtde, h.saldo_anterior, h.saldo_novo, h.origem, h.historico, r.codinv_rotativo
+                                       FROM historico_prod h JOIN inventario_rotativo r ON r.idproduto = h.idproduto AND r.idempresa = h.idempresa AND r.destino = 'LOJA' AND r.operacao = 'SUBSTITUIR'
+                                      WHERE h.idempresa = 1 AND h.historico LIKE 'AJUSTE DE ESTOQUE INVENTARIO ROTATIVO%' ORDER BY h.idproduto`)).rows as any[];
+        const okKardex = kz.length === 2
+          && kz[0].tipo === 'S' && Number(kz[0].qtde) === 40 && Number(kz[0].saldo_anterior) === 40 && Number(kz[0].saldo_novo) === 0
+          && kz[1].tipo === 'E' && Number(kz[1].qtde) === 6 && Number(kz[1].saldo_anterior) === -6 && Number(kz[1].saldo_novo) === 0
+          && kz.every((k: any) => /^AJUSTE DE ESTOQUE INVENTARIO ROTATIVO OPERADOR: \d+  \/ CODINV = (\d+)$/.exec(k.historico)?.[1] === String(k.codinv_rotativo));
+        check('ROTATIVO §88.9: com liberação válida, zerar faz os TRÊS fatos por produto×bucket — saldo 0 em estoque e estoque_dep (3 zerados), coleta SUBSTITUIR com QTD_ANTERIOR do saldo e DESTINO LOJA/DEPOSITO, e ajuste com CODMOTIVO=999, ORIGEM=I e IDORIGEM apontando para a coleta; o saldo NEGATIVO (−6) vira ajuste de AUMENTAR com qtde 6 (não DIMINUIR); o gatilho ESTOQUE_AJUSTE: DESTINO do ajuste E/D e o kardex da loja com o texto do legado (S 40→0, E −6→0, CODINV da coleta)',
+          okStatus && okSaldos && okColetas && okAjustes && okNegativo && okDestino && okKardex,
+          { flags: { okStatus, okSaldos, okColetas, okAjustes, okNegativo, okDestino, okKardex }, z: zOkJ, est: [est1z, est2z, dep1z], nCols: cols.length, nAjs: ajs.length, kz });
 
         // 88.10) FOLD da auditoria (ALTA, dinheiro): estornar o ajuste do DEPÓSITO reverte em `estoque_dep`, não
         // em `estoque` — antes o estorno era cego ao `destino` e devolvia o saldo do depósito na loja.
-        const ajDep = (await pgR.query(`SELECT codajuste FROM ajuste_estoque WHERE origem='I' AND idempresa=1 AND destino='DEPOSITO' ORDER BY codajuste DESC LIMIT 1`)).rows[0] as any;
+        const ajDep = (await pgR.query(`SELECT codajuste FROM ajuste_estoque WHERE origem='I' AND idempresa=1 AND destino='D' ORDER BY codajuste DESC LIMIT 1`)).rows[0] as any;
         const est = await fetch(`${base}/cadastro/ajuste-estoque/${ajDep?.codajuste}/estornar`, { method: 'POST', headers: H, body: JSON.stringify({}) });
         const depPos = Number((await pgR.query(`SELECT qtde FROM estoque_dep WHERE idproduto=1 AND idempresa=1`)).rows[0]?.qtde);
         const lojaPos = Number((await pgR.query(`SELECT qtde FROM estoque WHERE idproduto=1 AND idempresa=1`)).rows[0]?.qtde);
