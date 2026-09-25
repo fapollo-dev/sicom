@@ -80,8 +80,8 @@ export function createCrudController(opts: {
     @Delete(':id')
     @RequerAcesso(config.rbacForm, 'BTNEXCLUIR')
     @HttpCode(204)
-    excluir(@Param('id', ParseIntPipe) id: number) {
-      return this.engine.remove(config, id);
+    excluir(@Param('id', ParseIntPipe) id: number, @Query('senhaAdmin') senhaAdmin?: string) {
+      return this.engine.remove(config, id, { senhaAdmin });
     }
   }
 

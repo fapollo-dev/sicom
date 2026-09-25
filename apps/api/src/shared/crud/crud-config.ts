@@ -67,6 +67,10 @@ export interface CrudConfig {
    * As colunas derivadas devem estar em `colunas` para serem persistidas.
    */
   derivar?: (dto: Record<string, unknown>, id?: number) => Record<string, unknown>;
+  /** regra do gravar na transação (CRUD simples): `id` ausente = inclusão. Deve LANÇAR para bloquear. */
+  validarTrx?: (ctx: { trx: any; id?: number; dto: Record<string, unknown> }) => Promise<void>;
+  /** regra do excluir na transação (CRUD simples); `senhaAdmin` vem da query (o `SenhaAdministrativa('ADM')` do legado). */
+  validarRemocaoTrx?: (ctx: { trx: any; id: number; senhaAdmin?: string; dbp: any }) => Promise<void>;
 }
 
 /**

@@ -64,6 +64,9 @@ export const cartaoSchema = z.object({
   autorizacao: opcional(z.string().max(30)),
   nrocartao: opcional(z.string().max(50)),
   obs: opcional(z.string().max(2000)),
+  // os campos da conciliação (UcadCartao: edtNSUHost/edtCodRede)
+  nsuhost: opcional(z.string().max(30)),
+  codrede: dec(z.number().int()),
 });
 export type CartaoDto = z.infer<typeof cartaoSchema>;
 export const atualizarCartaoSchema = cartaoSchema.partial();

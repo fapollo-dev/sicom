@@ -184,6 +184,8 @@ const CODE_PT: Record<string, string> = {
   LOTE_INCOMPLETO: 'O lote não pode ser conciliado pela metade — selecione todas as linhas dele.',
   CARTAO_BAIXA_EXCEDE: 'A baixa passaria do valor do recebível de cartão.',
   CENTRO_CUSTO_NAO_ENCONTRADO: 'Centro de custo não encontrado.',
+  CARTAO_CONCILIADO_VALOR: 'Documento já conciliado na tesouraria, não é possível alteração de valores!',
+  CARTAO_CONCILIADO_EXCLUSAO: 'Documento já conciliado na tesouraria, não é possível excluí-lo sem a senha administrativa!',
   OPERADOR_SENHA_NAO_CONFERE: 'A senha informada não confere!',
   OPERADOR_SENHA_OBRIGATORIA: 'Informe a senha do usuário.',
   SCRAP_ITEM_OBRIGATORIO: 'Obrigatório informar um item. Verifique!',

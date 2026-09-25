@@ -56,7 +56,10 @@ export function excluirOperadora(id: number): Promise<void> { return req(`/cadas
 // ── recebíveis (cartão)
 export function listarCartoes(): Promise<CartaoRecebivel[]> { return req('/cadastro/cartao', { method: 'GET' }); }
 export function criarCartao(body: { valor: number; codoperadora: number; dtvenda?: string; nrocupom?: string; nroparcela?: number }): Promise<CartaoRecebivel> { return req('/cadastro/cartao', { method: 'POST', body: JSON.stringify(body) }); }
-export function excluirCartao(id: number): Promise<void> { return req(`/cadastro/cartao/${id}`, { method: 'DELETE' }); }
+/** exclui; o cartão CONCILIADO exige a senha administrativa (btnExcluirClick, UcadCartao.pas:293) */
+export function excluirCartao(id: number, senhaAdmin?: string): Promise<void> {
+  return req(`/cadastro/cartao/${id}${senhaAdmin ? `?senhaAdmin=${encodeURIComponent(senhaAdmin)}` : ''}`, { method: 'DELETE' });
+}
 // baixa (corte-2)
 export function listarContas(): Promise<ContaBancaria[]> { return req('/cadastro/contas-bancarias', { method: 'GET' }); }
 export type DestinoBaixaCartao = 'BANCARIA' | 'ANTECIPACAO' | 'TESOURARIA';

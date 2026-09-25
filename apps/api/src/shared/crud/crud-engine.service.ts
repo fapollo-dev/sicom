@@ -103,6 +103,7 @@ export class CrudEngineService {
   async create(cfg: CrudConfig, dto: Record<string, unknown>): Promise<number> {
     const op = currentTenant().operadorId ?? null;
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx) => {
+      if (cfg.validarTrx) await cfg.validarTrx({ trx, dto });
       const d = this.delta(cfg, this.derivados(cfg, dto, cfg.pkGerada === false ? Number(dto[cfg.pk]) : undefined));
       // carimba o escopo de empresa (multi-tenant) — fail-closed se ausente.
       if (cfg.empresaScoped) d.idempresa = this.emp();
@@ -132,6 +133,7 @@ export class CrudEngineService {
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx) => {
       // escopo multi-tenant (fail-closed): só escreve se a linha for da empresa do contexto.
       if (!(await this.pertenceAEmpresa(trx, cfg, id))) return;
+      if (cfg.validarTrx) await cfg.validarTrx({ trx, id, dto });
       const d = this.delta(cfg, this.derivados(cfg, dto, id));
       // lê o estado anterior ANTES do update (diff campo-a-campo p/ o histórico)
       const antes =
@@ -147,11 +149,12 @@ export class CrudEngineService {
     });
   }
 
-  async remove(cfg: CrudConfig, id: number): Promise<void> {
+  async remove(cfg: CrudConfig, id: number, opts: { senhaAdmin?: string } = {}): Promise<void> {
     const op = currentTenant().operadorId ?? null;
     await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx) => {
       // escopo multi-tenant (fail-closed): só exclui se a linha for da empresa do contexto.
       if (!(await this.pertenceAEmpresa(trx, cfg, id))) return;
+      if (cfg.validarRemocaoTrx) await cfg.validarRemocaoTrx({ trx, id, senhaAdmin: opts.senhaAdmin, dbp: this.dbp });
       if (cfg.softDelete) {
         await trx
           .updateTable(cfg.tabela)

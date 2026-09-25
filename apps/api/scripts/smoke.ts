@@ -21765,6 +21765,38 @@ async function main() {
       }
     }
 
+    // ══ §210 CONTROLE DE CARTÕES (auditoria de esqueletos §4.13): CONSILIADO='S' em toda gravação, NSUHOST/CODREDE editáveis, o
+    // valor do conciliado travado e a exclusão só com a senha administrativa
+    {
+      const pgCt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const CART = 'cadastro/cartao';
+        const oper = Number((await pgCt.query(`SELECT codoperadoras FROM operadoras ORDER BY codoperadoras LIMIT 1`)).rows[0]?.codoperadoras);
+        const cr = await fetch(`${base}/${CART}`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 80, codoperadora: oper, dtvenda: '2026-09-20', nsuhost: 'H123', codrede: 5 }) });
+        const crJ = (await cr.json().catch(() => ({}))) as any;
+        const id = Number(crJ.codvendcartao) || 0;
+        const row = (await pgCt.query(`SELECT consiliado, nsuhost, codrede FROM cartao WHERE codvendcartao=$1`, [id])).rows[0] as any;
+        const putValor = await fetch(`${base}/${CART}/${id}`, { method: 'PUT', headers: H, body: JSON.stringify({ valor: 90 }) });
+        const putValorJ = (await putValor.json().catch(() => ({}))) as any;
+        const putNsu = await fetch(`${base}/${CART}/${id}`, { method: 'PUT', headers: H, body: JSON.stringify({ nsuhost: 'H999', codrede: 7 }) });
+        const row2 = (await pgCt.query(`SELECT valor::float AS valor, nsuhost, codrede FROM cartao WHERE codvendcartao=$1`, [id])).rows[0] as any;
+        const delSem = await fetch(`${base}/${CART}/${id}`, { method: 'DELETE', headers: H });
+        const delSemJ = (await delSem.json().catch(() => ({}))) as any;
+        const delErr = await fetch(`${base}/${CART}/${id}?senhaAdmin=errada`, { method: 'DELETE', headers: H });
+        const delErrJ = (await delErr.json().catch(() => ({}))) as any;
+        const ainda = Number((await pgCt.query(`SELECT count(*)::int n FROM cartao WHERE codvendcartao=$1`, [id])).rows[0].n);
+        check('CARTÃO §210 [controle de cartões como o legado]: a gravação marca CONSILIADO=S e aceita NSUHOST/CODREDE; o valor do cartão conciliado não muda (422 CARTAO_CONCILIADO_VALOR) mas NSUHOST/CODREDE sim; excluir o conciliado sem a senha administrativa → 422 CARTAO_CONCILIADO_EXCLUSAO, com a errada → 422 SENHA_ADM_INVALIDA, e o cartão fica',
+          cr.status === 201 && row?.consiliado === 'S' && row?.nsuhost === 'H123' && Number(row?.codrede) === 5
+          && putValor.status === 422 && putValorJ.code === 'CARTAO_CONCILIADO_VALOR' && putNsu.status === 200 && row2?.valor === 80 && row2?.nsuhost === 'H999' && Number(row2?.codrede) === 7
+          && delSem.status === 422 && delSemJ.code === 'CARTAO_CONCILIADO_EXCLUSAO' && delErr.status === 422 && delErrJ.code === 'SENHA_ADM_INVALIDA' && ainda === 1,
+          { cr: [cr.status, crJ], row, putValor: [putValor.status, putValorJ.code], putNsu: putNsu.status, row2, delSem: [delSem.status, delSemJ.code], delErr: [delErr.status, delErrJ.code], ainda });
+        await pgCt.query(`DELETE FROM cartao WHERE codvendcartao=$1`, [id]);
+        await pgCt.query(`DELETE FROM empresas_senha_lockout WHERE idempresa=1 AND tipo='admin'`);
+      } finally {
+        await pgCt.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

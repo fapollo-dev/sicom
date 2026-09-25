@@ -73,3 +73,13 @@ E: auditoria por subagente pode falhar (API 529) — ter o **review inline como 
 - [uCadAReceber.md](uCadAReceber.md) — o A Receber genérico do qual este é a especialização.
 - [uCaixa.md](uCaixa.md) — destino da baixa no corte-2.
 - [uCadUsuarios.md](uCadUsuarios.md) — o outro "operador", para não confundir.
+
+## Corte "conciliação e travas" (25/09/2026) — auditoria de esqueletos §4.13
+
+- **CONSILIADO='S' em toda gravação** (UcadCartao.pas:366-367; 94% dos cartões de 2026 conciliados) e **NSUHOST/CODREDE**
+  editáveis — os campos da conciliação (445 e 178 alterações no HISTORICO de 2025-26).
+- **Travas**: o valor e a parcela do cartão conciliado não mudam ("Documento já conciliado na tesouraria, não é possível
+  alteração de valores!", :283-290); excluir o conciliado exige a **senha administrativa** (:293-300) — `DELETE ?senhaAdmin=`,
+  verificada pela senha de operação 'admin' da empresa (com o lockout); a tela pede a senha.
+- O motor CRUD ganhou os ganchos genéricos `validarTrx` e `validarRemocaoTrx` (com a senha administrativa da query).
+- Smoke §210. Pendente (BAIXA): HISTORICO "ALTERACAO DO CAMPO X" (o app grava HISTORICO_DINAMICO).

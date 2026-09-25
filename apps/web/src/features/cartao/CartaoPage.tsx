@@ -64,7 +64,19 @@ export function CartaoPage() {
 
   const excluir = async (id: number) => {
     if (!window.confirm(`Excluir o recebível nº ${id}?`)) return;
-    try { await excluirCartao(id); mensagem.sucesso('Recebível excluído.'); await carregar(); } catch (e) { mensagem.erro(e); }
+    try {
+      await excluirCartao(id);
+      mensagem.sucesso('Recebível excluído.'); await carregar();
+    } catch (e) {
+      // "Documento já conciliado na tesouraria" — só com a senha administrativa
+      if ((e as { envelope?: { code?: string } })?.envelope?.code === 'CARTAO_CONCILIADO_EXCLUSAO') {
+        const senha = window.prompt('Documento já conciliado na tesouraria. Informe a senha administrativa para excluir:');
+        if (!senha) return;
+        try { await excluirCartao(id, senha); mensagem.sucesso('Recebível excluído.'); await carregar(); } catch (e2) { mensagem.erro(e2); }
+        return;
+      }
+      mensagem.erro(e);
+    }
   };
 
   const baixarSelecionados = async () => {
