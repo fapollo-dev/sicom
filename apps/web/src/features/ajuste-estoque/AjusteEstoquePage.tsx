@@ -27,7 +27,7 @@ export function AjusteEstoquePage() {
 
   const [idproduto, setIdproduto] = useState<number | undefined>(undefined);
   const [operacao, setOperacao] = useState<string>('AUMENTAR');
-  const [destino, setDestino] = useState<string>('LOJA');
+  const [destino, setDestino] = useState<string>('E');
   const [qtde, setQtde] = useState<number | undefined>(undefined);
   const [codmotivo, setCodmotivo] = useState<number | undefined>(undefined);
   const [obs, setObs] = useState('');
@@ -92,7 +92,7 @@ export function AjusteEstoquePage() {
     { field: 'qtde', headerName: 'Qtde', type: 'number', width: 100, valueGetter: (r) => fmtQtd(r.qtde) },
     { field: 'saldo', headerName: 'Saldo', type: 'text', width: 150, valueGetter: (r) => `${fmtQtd(r.qtdeanterior)} → ${fmtQtd(r.qtdeatual)}` },
     { field: 'motivo', headerName: 'Motivo', type: 'text' },
-    { field: 'dtcadastro', headerName: 'Data', type: 'text', width: 160, valueGetter: (r) => fmtDataHora(r.dtcadastro) },
+    { field: 'data', headerName: 'Data', type: 'text', width: 160, valueGetter: (r) => fmtDataHora((r as { data?: string }).data ?? r.dtcadastro) },
     {
       field: 'acoes', headerName: '', type: 'actions', width: 120,
       getActions: ({ row: r }: { row: AjusteEstoque }) =>

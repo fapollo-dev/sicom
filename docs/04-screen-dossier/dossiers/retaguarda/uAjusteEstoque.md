@@ -38,3 +38,12 @@
 - **CODOPERADOR_LIBERACAO / aprovação** (feature morta no legado — 0 linhas).
 - **MINIMO/MAXIMO no ajuste** (editáveis via Produto; o ajuste do legado também os grava como snapshot).
 - **Inventário (origem='I', FRMINVENTARIO)** — o AJUSTE_ESTOQUE unifica manual('A')+inventário('I'); o corte-1 faz só o manual.
+
+## Corte "DATA e destino do legado" (25/09/2026) — auditoria de esqueletos §4.14
+
+- Grava **DATA** (hora do servidor, UajusteEstoque.pas:414) — a coluna do legado e do histórico migrado; antes só `dtcadastro`,
+  e a lista mostrava a data da carga nos migrados. A lista agora usa `coalesce(data, dtcadastro)`.
+- **Destino como código**: 'E' loja (ESTOQUE), 'D' depósito (ESTOQUE_DEP) — a produção tem 'E' em 100% de 2025-26. O 'D' mexe
+  no saldo do depósito (antes a opção "depósito" alterava a loja); o estorno reconhece 'D' e o 'DEPOSITO' do inventário rotativo.
+- Histórico do kardex com o texto do trigger ESTOQUE_AJUSTE: "AJUSTE DE ESTOQUE LOJA <motivo> OPERADOR:<login>" (ajuste 23915).
+- Smoke §209.

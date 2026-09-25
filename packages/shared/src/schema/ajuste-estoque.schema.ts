@@ -8,11 +8,12 @@ export const AJUSTE_OPERACAO_OPCOES = [
   { value: 'DIMINUIR', label: 'Diminuir (saída)' },
   { value: 'SUBSTITUIR', label: 'Substituir (definir saldo)' },
 ] as const;
-/** DESTINO (rótulo; nosso estoque é single-bucket — o split loja/depósito = ESTOQUE_DEP, adiado). */
-export const AJUSTE_DESTINO = ['LOJA', 'ESTOQUE'] as const;
+/** DESTINO — o código que a produção grava (AJUSTE_ESTOQUE.DESTINO: 'E' em 100% de 2025-26): 'E' = loja (ESTOQUE),
+ *  'D' = depósito (ESTOQUE_DEP), os dois itens do CBdestino (UajusteEstoque.dfm:554). */
+export const AJUSTE_DESTINO = ['E', 'D'] as const;
 export const AJUSTE_DESTINO_OPCOES = [
-  { value: 'LOJA', label: 'Loja' },
-  { value: 'ESTOQUE', label: 'Estoque (depósito)' },
+  { value: 'E', label: 'Loja' },
+  { value: 'D', label: 'Depósito' },
 ] as const;
 
 /** AJUSTE DE ESTOQUE (FRMAJUSTEESTOQUE) — movimento manual do saldo. */

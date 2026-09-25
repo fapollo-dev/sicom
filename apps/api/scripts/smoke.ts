@@ -21722,6 +21722,33 @@ async function main() {
       }
     }
 
+    // ══ §209 AJUSTE DE ESTOQUE (auditoria de esqueletos §4.14): a DATA do legado, o destino como código ('E'/'D') e o histórico
+    {
+      const pgAe = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const AJ = 'cadastro/ajuste-estoque';
+        const mot = Number((await pgAe.query(`SELECT codmotivo FROM motivos WHERE coalesce(indr,'I')='I' ORDER BY codmotivo LIMIT 1`)).rows[0]?.codmotivo);
+        const motDesc = String((await pgAe.query(`SELECT descricao FROM motivos WHERE codmotivo=$1`, [mot])).rows[0]?.descricao ?? '').trim();
+        const login = String((await pgAe.query(`SELECT login FROM operadores WHERE codoperador=7`)).rows[0]?.login ?? '').trim();
+        await pgAe.query(`INSERT INTO estoque_dep (idproduto, idempresa, qtde) VALUES (2,1,10) ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde=10`);
+        const loja = await fetch(`${base}/${AJ}`, { method: 'POST', headers: H, body: JSON.stringify({ idproduto: 2, operacao: 'AUMENTAR', destino: 'E', qtde: 2, codmotivo: mot }) });
+        const lojaJ = (await loja.json().catch(() => ({}))) as any;
+        const dep = await fetch(`${base}/${AJ}`, { method: 'POST', headers: H, body: JSON.stringify({ idproduto: 2, operacao: 'DIMINUIR', destino: 'D', qtde: 3, codmotivo: mot }) });
+        const depJ = (await dep.json().catch(() => ({}))) as any;
+        const rows = (await pgAe.query(`SELECT codajuste, destino, data IS NOT NULL AS tem_data FROM ajuste_estoque WHERE codajuste = ANY($1::int[]) ORDER BY codajuste`, [[Number(lojaJ.codajuste), Number(depJ.codajuste)]])).rows as any[];
+        const hist = (await pgAe.query(`SELECT historico FROM historico_prod WHERE idproduto=2 AND origem='AJUSTE' ORDER BY codmov DESC LIMIT 1`)).rows[0]?.historico;
+        const depSaldo = Number((await pgAe.query(`SELECT qtde FROM estoque_dep WHERE idproduto=2 AND idempresa=1`)).rows[0]?.qtde);
+        const lista = (await (await fetch(`${base}/${AJ}`, { headers: H })).json().catch(() => [])) as any[];
+        const naLista = (lista ?? []).find((l: any) => Number(l.codajuste) === Number(lojaJ.codajuste));
+        check('AJUSTE §209 [o ajuste como o legado]: grava a DATA (a coluna do legado e do histórico migrado — antes só dtcadastro), o destino como CÓDIGO (\'E\' loja, \'D\' depósito — a produção tem \'E\' em 100%), o histórico "AJUSTE DE ESTOQUE LOJA <motivo> OPERADOR:<login>" e o depósito mexe no ESTOQUE_DEP (10 → 7), não na loja; a lista mostra a DATA',
+          loja.status === 200 && dep.status === 200 && rows.length === 2 && rows[0].destino === 'E' && rows[1].destino === 'D' && rows.every((r) => r.tem_data)
+          && hist === `AJUSTE DE ESTOQUE LOJA ${motDesc} OPERADOR:${login}` && depSaldo === 7 && !!naLista?.data,
+          { loja: [loja.status, lojaJ], dep: [dep.status, depJ], rows, hist, depSaldo, naLista });
+      } finally {
+        await pgAe.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

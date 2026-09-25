@@ -47,6 +47,9 @@ export class AjusteEstoqueService {
       const mot = await trx.selectFrom('motivos').select('codmotivo').where('codmotivo', '=', dto.codmotivo).where(sql`coalesce(indr,'I')`, '=', 'I').executeTakeFirst();
       if (!mot) throw new BusinessRuleError('MOTIVO_NAO_ENCONTRADO', { codmotivo: dto.codmotivo });
 
+      // o DESTINO (CBdestino, UajusteEstoque.pas:336-395): 'E' = o saldo da LOJA (ESTOQUE), 'D' = o do DEPÓSITO (ESTOQUE_DEP)
+      const destino = dto.destino === 'D' ? 'D' : 'E';
+      if (destino === 'D') return this.ajustarDeposito(trx, emp, op, dto, qtde);
       // lê e TRAVA o saldo (por produto+empresa). Sem linha → saldo 0 (será criada).
       const est = await trx
         .selectFrom('estoque').select(['id_estoque', 'qtde'])
@@ -73,18 +76,41 @@ export class AjusteEstoqueService {
           throw e;
         }
       }
-      await this.kardex(trx, emp, dto.idproduto, qtdeanterior, qtdeatual, op, `Ajuste ${dto.operacao} (motivo ${dto.codmotivo})`);
+      // o texto do trigger ESTOQUE_AJUSTE: "AJUSTE DE ESTOQUE LOJA <motivo> OPERADOR:<login>" (produção: ajuste 23915)
+      await this.kardex(trx, emp, dto.idproduto, qtdeanterior, qtdeatual, op, await this.historicoLegado(trx, dto.codmotivo, op));
 
       const ins = await trx
         .insertInto('ajuste_estoque')
         .values({
-          idproduto: dto.idproduto, idempresa: emp, operacao: dto.operacao, destino: dto.destino ?? null,
+          idproduto: dto.idproduto, idempresa: emp, operacao: dto.operacao, destino,
           qtde, qtdeanterior, qtdeatual, codmotivo: dto.codmotivo, codoperador: op, origem: 'A',
-          obs: dto.obs ?? null, dtcadastro: sql`now()`,
+          // DATA = a hora do servidor (`GetDataHoraServidor`, :414) — é a coluna que o legado e o histórico migrado usam
+          obs: dto.obs ?? null, data: sql`now()`, dtcadastro: sql`now()`,
         })
         .returning('codajuste').executeTakeFirstOrThrow();
       return { codajuste: Number((ins as any).codajuste), idproduto: dto.idproduto, operacao: dto.operacao, qtdeanterior, qtdeatual };
     });
+  }
+
+  /** o ajuste no DEPÓSITO (CBdestino item 1): ESTOQUE_DEP; o depósito não tem kardex próprio (historico_prod é o da loja) */
+  private async ajustarDeposito(trx: AnyDB, emp: number, op: number, dto: { idproduto: number; operacao: 'AUMENTAR' | 'DIMINUIR' | 'SUBSTITUIR'; qtde: number; codmotivo: number; obs?: string }, qtde: number) {
+    const dep = await trx.selectFrom('estoque_dep').select(['qtde']).where('idproduto', '=', dto.idproduto).where('idempresa', '=', emp).forUpdate().executeTakeFirst();
+    const qtdeanterior = r3(num((dep as any)?.qtde));
+    const qtdeatual = dto.operacao === 'AUMENTAR' ? r3(qtdeanterior + qtde) : dto.operacao === 'DIMINUIR' ? r3(qtdeanterior - qtde) : qtde;
+    if (dep) await trx.updateTable('estoque_dep').set({ qtde: qtdeatual }).where('idproduto', '=', dto.idproduto).where('idempresa', '=', emp).execute();
+    else await trx.insertInto('estoque_dep').values({ idproduto: dto.idproduto, idempresa: emp, qtde: qtdeatual }).execute();
+    const ins = await trx.insertInto('ajuste_estoque').values({
+      idproduto: dto.idproduto, idempresa: emp, operacao: dto.operacao, destino: 'D',
+      qtde, qtdeanterior, qtdeatual, codmotivo: dto.codmotivo, codoperador: op, origem: 'A',
+      obs: dto.obs ?? null, data: sql`now()`, dtcadastro: sql`now()`,
+    }).returning('codajuste').executeTakeFirstOrThrow();
+    return { codajuste: Number((ins as any).codajuste), idproduto: dto.idproduto, operacao: dto.operacao, qtdeanterior, qtdeatual };
+  }
+
+  private async historicoLegado(trx: AnyDB, codmotivo: number, op: number | null): Promise<string> {
+    const m = (await trx.selectFrom('motivos').select('descricao').where('codmotivo', '=', codmotivo).executeTakeFirst()) as { descricao?: string } | undefined;
+    const o = op == null ? undefined : ((await trx.selectFrom('operadores').select('login').where('codoperador', '=', op).executeTakeFirst()) as { login?: string } | undefined);
+    return `AJUSTE DE ESTOQUE LOJA ${String(m?.descricao ?? '').trim()} OPERADOR:${String(o?.login ?? '').trim()}`.slice(0, 200);
   }
 
   async estornar(codajuste: number): Promise<{ codajuste: number; estornado: true; qtde: number }> {
@@ -105,7 +131,8 @@ export class AjusteEstoqueService {
       // FOLD (auditoria de correção): o ajuste pode ser do DEPÓSITO — o zeramento do inventário rotativo
       // (uInvRotativoGrid) grava `destino='DEPOSITO'` mexendo em `estoque_dep`. Estornar sempre em `estoque`
       // devolvia o saldo no bucket ERRADO (a loja ganhava o saldo do depósito e o depósito continuava zerado).
-      const noDeposito = String((a as any).destino ?? '').toUpperCase() === 'DEPOSITO';
+      // 'D' é o código da tela; 'DEPOSITO' o que o zeramento do inventário rotativo grava
+      const noDeposito = ['D', 'DEPOSITO'].includes(String((a as any).destino ?? '').toUpperCase());
       const est = noDeposito
         ? await trx
             .selectFrom('estoque_dep').select(['idproduto as id_estoque', 'qtde'])
@@ -159,9 +186,11 @@ export class AjusteEstoqueService {
         'a.codajuste', 'a.idproduto', 'p.descricao as produto', 'a.operacao', 'a.destino',
         'a.qtde', 'a.qtdeanterior', 'a.qtdeatual', 'a.codmotivo', 'm.descricao as motivo',
         'a.codoperador', 'a.origem', 'a.obs', 'a.estornado', 'a.dtcadastro',
+        // a DATA do ajuste (a do legado; a do histórico migrado) — o `dtcadastro` é só do Apollo
+        sql<string>`coalesce(a.data, a.dtcadastro)`.as('data'),
       ])
       .where('a.idempresa', '=', emp)
-      .orderBy('a.codajuste', 'desc')
+      .orderBy(sql`coalesce(a.data, a.dtcadastro)`, 'desc').orderBy('a.codajuste', 'desc')
       .limit(limite)
       .execute();
   }
