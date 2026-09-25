@@ -219,6 +219,8 @@ export class PlanoContasService {
         .insertInto('plano_contas')
         .values({
           codiexpandido,
+          // o BeforePost do legado (uCadContaContabil.pas:213): o código sem os pontos (a DESCRICAO_COMPLETA é campo calculado — está na view)
+          codexpinteiro: codiexpandido.replace(/\./g, ''),
           codireduzido: (dto.codireduzido as string) ?? null,
           descricao: dto.descricao,
           classe: dto.classe, // 'A'/'T'
@@ -275,8 +277,10 @@ export class PlanoContasService {
       if (dto.classe === 'T' && atual.classe === 'A' && (await this.contaTemMovimento(trx, id)))
         throw new BusinessRuleError('CONTA_COM_MOVIMENTO');
       if (Object.keys(d).length) {
+        // o BeforePost refaz o código sem pontos a cada gravação (uCadContaContabil.pas:213)
+        const cod = String(d.codiexpandido ?? atual.codiexpandido);
         await trx.updateTable('plano_contas')
-          .set({ ...d, usultalteracao: op, dtultimalteracao: sql`now()` })
+          .set({ ...d, codexpinteiro: cod.replace(/\./g, ''), usultalteracao: op, dtultimalteracao: sql`now()` })
           .where('codplanocontas', '=', id).execute();
       }
     });

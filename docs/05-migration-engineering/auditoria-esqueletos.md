@@ -620,13 +620,13 @@ leitura), as colunas preenchidas em ≥ 50% que nenhum código do Apollo que gra
   ✅ **VRFRETE** — o binário novo mudou o FRETE do item para a FATIA do frete da nota: VRFRETE = TOTALFRETE × FRETE (267/267 em 2026; a conta
   do fonte, produtos × FRETE%, 0/267) — o custo, a gravação e a importação seguem isso; CUSTO_RECALCULO_BONIF e VRCFOP_ABATIDO são sempre 0 em 2026 (o DEFAULT 0 cobre); ✅ `nf_forma_pagamento`: o VRTROCO do XML na primeira
   forma, o INTEGRADO pelo tpIntegra e a operadora do cartão de crédito pela bandeira (NFe.pas:3495-3524) — o Apollo gravava INTEGRADO 'N' fixo.
-- `parceiros`: VISUALIZA_PC_PARC, CLUBEFIDELIDADE, SOMA_ST_BONIFICACAO, HABILITA_RETENCAO_SENAR_NF.
-- `cartao`: TIPOMODALIDADE, MODALIDADEOPERADORA, SEQUENCIA, CODOPERADORAORIGEM, VALOR_OPERACAO.
+- ✅ `parceiros`: VISUALIZA_PC_PARC, CLUBEFIDELIDADE, SOMA_ST_BONIFICACAO, HABILITA_RETENCAO_SENAR_NF ('N' no parceiro novo — `fe3b0ed`).
+- `cartao`: TIPOMODALIDADE, MODALIDADEOPERADORA, SEQUENCIA, CODOPERADORAORIGEM, VALOR_OPERACAO — **só as linhas do PDV** (30.721 de 30.729 em set/2026; as 18 lançadas na retaguarda não têm): fora (PDV).
 - ✅ `nfe_evento` do cancelamento e da CC-e: ORGAO_RECEPCAO (UF da chave) e ID_EVENTO ("ID"+tipo+chave+seq) como o legado grava (smoke §231); CNPJ do autor e mensagem são só da manifestação (que vem da SEFAZ).
 - ✅ `lote_preco.VRCUSTO_ANTERIOR` (e o CODOPERADOR) — sem gatilho: o binário novo grava, por origem: lote do FILHO = o custo da linha do filho + o operador (49/49); do PEDIDO = o custo do item (212/224), sem operador; do AJUSTE no cadastro/precificação do custo = o custo da linha ANTES do ajuste (81% quando o custo muda junto); da NF = sem custo, com o operador. `cotacao_prod` (QTDEATUAL, VALORCOTACAO, VLRUNITARIO); `itens_producao_receita` (UNIDADE_PRODUTO,
   FATOR_CONVERSAO_CX_PROD[_UTIL]); `apuracao_pc_det` (DESCRICAOBASE, DESCRICAOPC, BASECALCULOAPURA, VALORPISAPURA, VALORCOFINSAPURA);
   `pedido_devolucao_compra.CNPJ_CPF`, `pedido_devolucao_compra_i.VRCUSTOREP`; `plc` (NIVELCONTA, DESCPLCCONTABIL);
-  `plano_contas.CODEXPINTEIRO`; `figura_fiscal` (origem/destino); `contas_bancarias` (ESTORNO_DTHR_BAIXA, EXIBE_SALDO_EMP);
+  ✅ `plano_contas.CODEXPINTEIRO` (o código sem os pontos, o BeforePost de uCadContaContabil.pas:213; a DESCRICAO_COMPLETA é campo calculado — está na view); `figura_fiscal` (origem/destino); `contas_bancarias` (ESTORNO_DTHR_BAIXA, EXIBE_SALDO_EMP);
   `formas_pgto` (BAIXA_DOCUMENTO_AUTOMATICO, EXIGE_PERMISSAO); `hist_sangria_suprimento` (*_FECHADO, *_AUTENTICADO).
 - ✅ CENTRO DE CUSTOS (FRMCADPLC) convertida — dossiê uCadPLC.md, smoke §233 (a tela não existia; 2 de 20 colunas; sem sequência).
 - ✅ EMPRESAS (smoke §232): a tela gerenciava 53 das 273 colunas; entram 186 (`empresa-legado.ts`, gerado do UCadEmpresa.dfm — rótulo,

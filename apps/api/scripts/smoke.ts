@@ -3917,6 +3917,13 @@ async function main() {
     // conta FRESCA (sem movimento/filhos/IIC/PLC/parceiro) → a ÚNICA referência será o CONFIG → isola a trava nova.
     const novaConta = await fetch(`${base}/cadastro/plano-contas`, { method: 'POST', headers: H, body: JSON.stringify({ codiexpandido: '3.1.01.01.9099', descricao: 'TESTE T1.4 GUARD', classe: 'A', natureza: 4, codpai: 9016, codireduzido: '90991' }) });
     const novaId = Number(((await novaConta.json().catch(() => ({}))) as any).codplanocontas);
+    {
+      // o BeforePost do legado grava o CODEXPINTEIRO = o código sem os pontos (uCadContaContabil.pas:213)
+      const pgCx = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const cx = (await pgCx.query(`SELECT codexpinteiro FROM plano_contas WHERE codplanocontas = $1`, [novaId])).rows[0]?.codexpinteiro;
+      await pgCx.end();
+      check('PLANO DE CONTAS [o CODEXPINTEIRO]: a conta nova grava o código expandido sem os pontos (3.1.01.01.9099 → 3101019099), como o BeforePost do legado — o SPED usa no COD_CTA do inventário/CIAP', cx === '3101019099', { cx });
+    }
     await fetch(`${base}/${CONF}`, { method: 'PUT', headers: H, body: JSON.stringify({ codcontaanalitica_cli: novaId }) }); // aponta o default p/ a conta fresca
     const delGuard = await fetch(`${base}/cadastro/plano-contas/${novaId}`, { method: 'DELETE', headers: H });
     const delGuardJ = (await delGuard.json().catch(() => ({}))) as any;
