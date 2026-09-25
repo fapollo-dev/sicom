@@ -64,6 +64,8 @@ import { SaldoEmpresaService } from './saldo-empresa.service';
 import { RelCaixaController } from './rel-caixa.controller';
 import { FechamentoCaixaController } from './fechamento-caixa.controller';
 import { FechamentoCaixaService } from './fechamento-caixa.service';
+import { FechamentoSangriaService } from './fechamento-sangria.service';
+import { FechamentoSangriaController } from './fechamento-sangria.controller';
 import { AuthModule } from '../auth/auth.module';
 import { FechamentoContabilService } from './fechamento-contabil.service';
 import { LancamentoCaixaController } from './lancamento-caixa.controller';
@@ -84,7 +86,7 @@ import { CadastroModule } from '../cadastro/cadastro.module';
   // CaixaController (cobranca/caixa) = CAIXA (sessão + movimento manual, corte-1).
   // AdiantamentoFornController (financeiro/adiantamentos) = ADIANTAMENTO A FORNECEDOR/PARCEIRO: movimento na conta
   // corrente + título gerado (areceber no tipo 'D', apagar em 'C'/'E').
-  controllers: [
+  controllers: [FechamentoSangriaController, 
     // FRMFLUXOCARTOES — o recebível de cartão por dia (98 acessos).
     FluxoCartoesController,
     // FRMDESCONTOTITULO — encontro de contas RCB × APG (68 acessos, 11 operadores).
@@ -106,7 +108,7 @@ import { CadastroModule } from '../cadastro/cadastro.module';
     CaixaService, CaixaContabilService, BaixaContabilService,
     CnabRemessaService, AdiantamentoFornService, ConfigService,
     // INTEGRAÇÃO CONTÁBIL (FRMTRON) corte-1: baixa de cartões — origens 51 (baixa), 61 (taxa) e 62 (outras despesas).
-    CartaoContabilService, BaixaTronContabilService, DocumentosContabilService, ConfigIntegracaoContabilService, ConfIntegBancariaService, SaldoEmpresaService, RelCaixaService, FechamentoCaixaService, FechamentoContabilService, LancamentoCaixaService,
+    CartaoContabilService, BaixaTronContabilService, DocumentosContabilService, ConfigIntegracaoContabilService, ConfIntegBancariaService, SaldoEmpresaService, RelCaixaService, FechamentoCaixaService, FechamentoSangriaService, FechamentoContabilService, LancamentoCaixaService,
     DatabaseProvider,
   ],
   exports: [LotesCobrancaService],

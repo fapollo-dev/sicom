@@ -24,6 +24,7 @@ import { DreRelatorio } from '../features/dre/DreRelatorio';
 import { RazaoRelatorio } from '../features/razao/RazaoRelatorio';
 import { CaixaPage } from '../features/caixa/CaixaPage';
 import { FechamentoCaixaPage } from '../features/fechamento-caixa/FechamentoCaixaPage';
+import { FechamentoSangriaPage } from '../features/fechamento-sangria/FechamentoSangriaPage';
 import { AgruparPagarPage, AgruparReceberPage } from '../features/agrupamento/AgrupamentoPage';
 import { LancamentoCaixaPage } from '../features/lancamento-caixa/LancamentoCaixaPage';
 import { OperadoresCadMaster } from '../features/operadores/OperadoresCadMaster';
@@ -200,6 +201,7 @@ export const router = createBrowserRouter([
       { path: '/cobranca/agrupar-receber', element: <AgruparReceberPage /> }, // FRMAGRUPACONTASARECEBER — agrupar/consultar/reverter (+ convênio do mesmo CNPJ)
       { path: '/cobranca/agrupar-pagar', element: <AgruparPagarPage /> }, // FRMAGRUPACONTASAPAGAR — agrupar/consultar/reverter
       { path: '/cobranca/fechamento-caixa', element: <FechamentoCaixaPage /> }, // FRMFECHAMENTOCAIXA — conferência + rascunho (corte 1)
+      { path: '/cobranca/fechamento-sangria', element: <FechamentoSangriaPage /> }, // FRMFECHAMENTOSANGRIA — a tesouraria
       { path: '/cobranca/lancamento-caixa', element: <LancamentoCaixaPage /> }, // FRMMOVCAIXA — lançamento de caixa (F06)
       { path: '/estoque/ajuste', element: <AjusteEstoquePage /> }, // ajuste de estoque (move o saldo + kardex)
       { path: '/estoque/inventario', element: <InventarioPage /> }, // inventário (contagem física; sobrescreve o saldo)

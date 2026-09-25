@@ -88,6 +88,7 @@ const TELAS = [
   { href: '/cobranca/agrupar-pagar', name: 'Agrupar contas a pagar', icon: Banknote },
   { href: '/cobranca/caixa', name: 'Caixa', icon: Coins },
   { href: '/cobranca/fechamento-caixa', name: 'Fechamento de Caixa', icon: Coins },
+  { href: '/cobranca/fechamento-sangria', name: 'Fechamento de Sangria', icon: Coins },
   { href: '/cobranca/lancamento-caixa', name: 'Lançamento de Caixa', icon: Coins },
   { href: '/financeiro/cartoes', name: 'Cartões / Recebíveis', icon: CreditCard },
   { href: '/financeiro/conciliacao', name: 'Conciliação Bancária', icon: Landmark },

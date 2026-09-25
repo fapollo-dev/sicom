@@ -24414,6 +24414,66 @@ async function main() {
       }
     }
 
+    // ══ §258 FECHAMENTO DE SANGRIA (FRMFECHAMENTOSANGRIA) — autenticar, fechar o lote com a contagem e estornar ══════════
+    {
+      const pgSg = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const ids: number[] = [];
+      try {
+        const ins = async (emp: number, tipo: string, valor: number, desc: string | null) => {
+          const id = Number((await pgSg.query(`INSERT INTO hist_sangria_suprimento (idempresa, data, codpdv, descricao, valor, codoperador, responsavel, tipo)
+            VALUES ($1, '2037-02-10 14:00:00-03', 5, $2, $3, 7, 7, $4) RETURNING codhistsangria`, [emp, desc, valor, tipo])).rows[0].codhistsangria);
+          ids.push(id);
+          return id;
+        };
+        const s1 = await ins(1, 'SAN', 100, null), s2 = await ins(1, 'SAN', 250.5, null), s3 = await ins(1, 'SAN', 49.5, 'DESPESA VT');
+        const sup = await ins(1, 'SUP', 80, null), outraLoja = await ins(2, 'SAN', 10, null);
+        const B = `${base}/cobranca/fechamento-sangria`;
+        const post = async (path: string, body: unknown, h = H) => {
+          const r = await fetch(`${B}${path}`, { method: 'POST', headers: h, body: JSON.stringify(body) });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const lista = (await (await fetch(`${B}?dataIni=2037-02-10&dataFim=2037-02-10`, { headers: H })).json().catch(() => ({}))) as any;
+        const semAut = await post('/fechar', { sangrias: [s1, s2] });
+        const autSup = await post('/autenticar', { sangrias: [sup] });
+        const aut = await post('/autenticar', { sangrias: [s2, s1] });
+        const autDe = (await pgSg.query(`SELECT codhistsangria, autenticado, codoperador_autenticado, data_autenticado IS NOT NULL AS tem_data, lote_autenticado FROM hist_sangria_suprimento WHERE codhistsangria = ANY($1::int[]) ORDER BY codhistsangria`, [[s1, s2]])).rows as any[];
+        const autDeNovo = await post('/autenticar', { sangrias: [s1] });
+        const semGrant = await post('/fechar', { sangrias: [s1, s2] }, H_SEM_ACESSO);
+        const fecha = await post('/fechar', { sangrias: [s1, s2], cedulas: { r100: 3, r50: 1, c50: 1 } });
+        const fechadas = (await pgSg.query(`SELECT fechado, codoperador_fechado, lote_fechado, data_fechado IS NOT NULL AS tem_data FROM hist_sangria_suprimento WHERE codhistsangria = ANY($1::int[])`, [[s1, s2]])).rows as any[];
+        const cont = (await pgSg.query(`SELECT idempresa, valor, codoperador, lote_fechado, r100, r50, c50, r200, indr FROM contagem_cedulas WHERE codcontagem_cedulas = $1`, [fecha.j.codcontagem_cedulas])).rows[0] as any;
+        const lista2 = (await (await fetch(`${B}?dataIni=2037-02-10&dataFim=2037-02-10`, { headers: H })).json().catch(() => ({}))) as any;
+        const deOutraLoja = await post('/fechar', { sangrias: [outraLoja] });
+        const est = await post(`/lotes/${fecha.j.codcontagem_cedulas}/estornar`, {});
+        const depoisEst = (await pgSg.query(`SELECT count(*) FILTER (WHERE fechado IS NULL AND lote_fechado IS NULL AND codoperador_fechado IS NULL AND data_fechado IS NULL AND autenticado = 'S')::int AS abertas FROM hist_sangria_suprimento WHERE codhistsangria = ANY($1::int[])`, [[s1, s2]])).rows[0] as any;
+        const contEst = (await pgSg.query(`SELECT indr, indr_usuario, indr_data IS NOT NULL AS tem_data FROM contagem_cedulas WHERE codcontagem_cedulas = $1`, [fecha.j.codcontagem_cedulas])).rows[0] as any;
+        const estDeNovo = await post(`/lotes/${fecha.j.codcontagem_cedulas}/estornar`, {});
+        check('FECHAMENTO DE SANGRIA §258.1 [a lista e autenticar]: a loja vê só as SANGRIAS dela do dia (o suprimento e a sangria da outra loja não), com a config 392 da loja 1 = S; fechar sem autenticar recusa; o suprimento não se autentica; autenticar carimba cada sangria com o operador, a hora e um número PRÓPRIO e consecutivo da sequência; autenticar de novo recusa',
+          Array.isArray(lista.sangrias) && lista.sangrias.map((x: any) => Number(x.codhistsangria)).join() === [s1, s2, s3].join() && lista.exigeAutenticacao === true
+          && semAut.status === 422 && semAut.j.code === 'SANGRIA_EXIGE_AUTENTICACAO' && autSup.j.code === 'SANGRIA_SUPRIMENTO_NAO_AUTENTICA'
+          && aut.status === 200 && Number(aut.j.autenticadas) === 2 && autDe.every((x) => x.autenticado === 'S' && Number(x.codoperador_autenticado) === 7 && x.tem_data)
+          && Number(autDe[1]?.lote_autenticado) === Number(autDe[0]?.lote_autenticado) + 1 && autDeNovo.j.code === 'SANGRIA_JA_AUTENTICADA',
+          { lista: lista.sangrias?.length, exige: lista.exigeAutenticacao, semAut: semAut.j.code, autSup: autSup.j.code, aut, autDe, autDeNovo: autDeNovo.j.code });
+        check('FECHAMENTO DE SANGRIA §258.2 [fechar o lote e a contagem]: sem "Fechar/Reverter" (BTNPROCESSO), 403; as duas sangrias ganham o MESMO lote, quem fechou e a hora; a contagem é uma linha da loja com VALOR = Σ (350,50), o operador, o lote e as cédulas digitadas (3×100, 1×50, 1×0,50); a lista traz o lote sem divergência; a sangria de outra loja não fecha',
+          semGrant.status === 403 && fecha.status === 200 && Number(fecha.j.valor) === 350.5 && fechadas.length === 2
+          && fechadas.every((x) => x.fechado === 'S' && Number(x.codoperador_fechado) === 7 && Number(x.lote_fechado) === Number(fecha.j.lote) && x.tem_data)
+          && Number(cont?.idempresa) === 1 && Number(cont?.valor) === 350.5 && Number(cont?.codoperador) === 7 && Number(cont?.lote_fechado) === Number(fecha.j.lote)
+          && Number(cont?.r100) === 3 && Number(cont?.r50) === 1 && Number(cont?.c50) === 1 && Number(cont?.r200) === 0 && cont?.indr == null
+          && lista2.lotes?.length === 1 && lista2.lotes[0].divergente === false && Number(lista2.lotes[0].sangrias) === 2 && deOutraLoja.j.code === 'SANGRIA_NAO_ENCONTRADA',
+          { semGrant: semGrant.status, fecha, fechadas, cont, lotes: lista2.lotes, deOutraLoja: deOutraLoja.j.code });
+        check('FECHAMENTO DE SANGRIA §258.3 [estornar]: o lote estornado fica com a contagem marcada (INDR E, quem e quando) e as sangrias voltam a abertas — autenticadas, sem lote nem carimbo de fechamento; estornar de novo recusa',
+          est.status === 200 && Number(est.j.sangrias) === 2 && Number(depoisEst?.abertas) === 2 && contEst?.indr === 'E' && Number(contEst?.indr_usuario) === 7 && contEst?.tem_data
+          && estDeNovo.j.code === 'CONTAGEM_JA_ESTORNADA',
+          { est, depoisEst, contEst, estDeNovo: estDeNovo.j.code });
+      } catch (e) {
+        check('FECHAMENTO DE SANGRIA §258 [preparo]', false, { erro: (e as Error).message });
+      } finally {
+        await pgSg.query(`DELETE FROM contagem_cedulas WHERE lote_fechado IN (SELECT lote_fechado FROM hist_sangria_suprimento WHERE codhistsangria = ANY($1::int[]) AND lote_fechado IS NOT NULL) OR (idempresa = 1 AND valor = 350.5)`, [ids]).catch(() => undefined);
+        await pgSg.query(`DELETE FROM hist_sangria_suprimento WHERE codhistsangria = ANY($1::int[])`, [ids]).catch(() => undefined);
+        await pgSg.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();
