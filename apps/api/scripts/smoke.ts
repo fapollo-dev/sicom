@@ -8424,6 +8424,9 @@ async function main() {
 </infNFe></NFe><protNFe><infProt><nProt>131260000000001</nProt></infProt></protNFe></nfeProc>`;
 
     // 50.1) import válido standalone → 200 + NF valorada (tipo E, chave, mod 55, terceiros) + reconciliação OK.
+    // as alíquotas de PIS/COFINS do item vêm do PISCOFINS do PRODUTO (NFe.pas:3967): o 2 tributado (13: 1,65/7,60), o 3 isento (9)
+    const pcAntesImp = (await pgImp.query(`SELECT idproduto, idpiscofins FROM produtos WHERE idproduto IN (2, 3)`)).rows as any[];
+    await pgImp.query(`UPDATE produtos SET idpiscofins = CASE idproduto WHEN 2 THEN 13 ELSE 9 END WHERE idproduto IN (2, 3)`);
     const nnf1 = 900001;
     const imp1 = await importar(mkXml(mkChave(nnf1), nnf1));
     const imp1J = (await imp1.json().catch(() => ({}))) as any;
@@ -8435,15 +8438,17 @@ async function main() {
 
     // 50.2) itens valorados com os impostos REAIS do XML + CFOP ajustado saída→entrada (5102→1102, 5403→1403).
     const itImp = (await pgImp.query(`SELECT codproduto, quantidade, vrvenda, vricm, vricmst, cfop, codprodnota, bcpiscofinse, vrpise, vrcofinse, aliqpise, aliqcofinse FROM nf_prod WHERE codnf=$1 ORDER BY nroitem`, [cnfImp])).rows as any[];
-    check('IMPORT: itens com ICMS/ST reais do XML (vricm 9,00 / vricmst 1,44) + CFOP entrada (1102/1403) + codprodnota=cProd',
-      itImp.length === 2 && Number(itImp[0].codproduto) === 2 && Number(itImp[0].vricm) === 9 && itImp[0].cfop === '1102' && itImp[0].codprodnota === 'FA' && Number(itImp[1].codproduto) === 3 && Number(itImp[1].vricmst) === 1.44 && itImp[1].cfop === '1403',
-      { itens: itImp });
+    const cbImp = (await pgImp.query(`SELECT idproduto, codbarra FROM produtos WHERE idproduto IN (2, 3) ORDER BY idproduto`)).rows as any[];
+    check('IMPORT: itens com ICMS/ST reais do XML (vricm 9,00 / vricmst 1,44) + CFOP entrada (1102/1403) + CODPRODNOTA = o código de barras do produto (NFe.pas:3936 — 99,8% na produção), não o cProd',
+      itImp.length === 2 && Number(itImp[0].codproduto) === 2 && Number(itImp[0].vricm) === 9 && itImp[0].cfop === '1102' && itImp[0].codprodnota === cbImp[0]?.codbarra && Number(itImp[1].codproduto) === 3 && Number(itImp[1].vricmst) === 1.44 && itImp[1].cfop === '1403' && itImp[1].codprodnota === cbImp[1]?.codbarra,
+      { itens: itImp, cbImp });
 
     // 50.2b) PIS/COFINS VALOR do crédito de entrada (Wave 5): item 1 traz vBC 50,00 / vPIS 0,83 / vCOFINS 3,80 do
     // XML → persistidos VERBATIM (bcpiscofinse/vrpise/vrcofinse) + alíquotas 1,65/7,60. Item 2 (sem grupo PIS) → 0.
-    check('IMPORT PIS/COFINS-valor: item 1 vrpise=0,83 vrcofinse=3,80 bc=50,00 (aliq 1,65/7,60); item 2 sem PIS → 0',
+    check('IMPORT PIS/COFINS-valor: item 1 vrpise=0,83 vrcofinse=3,80 bc=50,00 com as alíquotas do PISCOFINS do produto (1,65/7,60); item 2, produto isento (alíquota 0 no cadastro) → 0',
       Number(itImp[0].vrpise) === 0.83 && Number(itImp[0].vrcofinse) === 3.8 && Number(itImp[0].bcpiscofinse) === 50 && Number(itImp[0].aliqpise) === 1.65 && Number(itImp[0].aliqcofinse) === 7.6 && Number(itImp[1].vrpise) === 0 && Number(itImp[1].vrcofinse) === 0,
       { it1: { vrpise: itImp[0].vrpise, vrcofinse: itImp[0].vrcofinse, bc: itImp[0].bcpiscofinse }, it2: { vrpise: itImp[1].vrpise } });
+    for (const r of pcAntesImp) await pgImp.query(`UPDATE produtos SET idpiscofins = $1 WHERE idproduto = $2`, [r.idpiscofins, r.idproduto]);
 
     // 50.3) XML cru guardado em nfe_xml (vínculo por codnf + chave).
     const xmlRow = (await pgImp.query(`SELECT chavenfe, length(xml) AS n FROM nfe_xml WHERE codnf=$1`, [cnfImp])).rows[0] as any;
@@ -23090,6 +23095,58 @@ async function main() {
           await pgNr.query(`DELETE FROM nf WHERE codnf = $1`, [c]).catch(() => undefined);
         }
         await pgNr.end();
+      }
+    }
+
+    // ══ §236 IMPORTAÇÃO DO XML — o item como o ImportaNFe o monta (fator, unidade, ICMS efetivo, os valores da nota) ═══════════════
+    {
+      const pgXi = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const antes = (await pgXi.query(`SELECT idproduto, fatorcx FROM produtos WHERE idproduto IN (2, 3)`)).rows as any[];
+      const nnf = 902361;
+      const chave = montarChaveNfe({ cuf: 31, aamm: '2609', cnpj: '11222333000181', modelo: 55, serie: 1, numero: nnf, tpEmis: 1, cnf: 23612361 });
+      let codnf = 0;
+      try {
+        await pgXi.query(`UPDATE produtos SET fatorcx = CASE idproduto WHEN 2 THEN 12 ELSE 0 END WHERE idproduto IN (2, 3)`);
+        await pgXi.query(`INSERT INTO nfe_nao_cadastradas_itens (chavenfe, idproduto, nroitem, fatorembal) VALUES ($1, 3, 2, 5)`, [chave]);
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc versao="4.00"><NFe><infNFe Id="NFe${chave}" versao="4.00">
+<ide><cUF>31</cUF><nNF>${nnf}</nNF><serie>1</serie><mod>55</mod><dhEmi>2026-09-20T10:00:00-03:00</dhEmi><tpNF>0</tpNF><finNFe>1</finNFe><tpAmb>2</tpAmb></ide>
+<emit><CNPJ>11222333000181</CNPJ><xNome>FORNECEDOR TESTE</xNome></emit>
+<det nItem="1"><prod><cProd>FX1</cProd><cEAN>7894900011517</cEAN><xProd>REFRI CX</xProd><NCM>22021000</NCM><CFOP>5403</CFOP><uCom>Cx.</uCom><qCom>3.0000</qCom><vUnCom>60.00</vUnCom><vProd>180.00</vProd><vFrete>6.00</vFrete><vSeg>3.00</vSeg><vOutro>1.80</vOutro></prod><imposto><ICMS><ICMS10><orig>0</orig><CST>10</CST><vBC>180.00</vBC><pICMS>12.00</pICMS><vICMS>21.60</vICMS><pMVAST>40.00</pMVAST><pRedBCST>10.00</pRedBCST><vBCST>250.00</vBCST><pICMSST>18.00</pICMSST><vICMSST>23.40</vICMSST><vBCFCPST>250.00</vBCFCPST><pFCPST>2.00</pFCPST><vFCPST>5.00</vFCPST></ICMS10></ICMS><IPI><cEnq>999</cEnq><IPITrib><CST>50</CST><vBC>180.00</vBC><pIPI>5.00</pIPI><vIPI>9.00</vIPI></IPITrib></IPI></imposto></det>
+<det nItem="2"><prod><cProd>FX2</cProd><cEAN>2000001000005</cEAN><xProd>QUEIJO</xProd><NCM>04061010</NCM><CFOP>5102</CFOP><uCom>UN</uCom><qCom>4.0000</qCom><vUnCom>3.00</vUnCom><vProd>12.00</vProd></prod><imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><vBC>12.00</vBC><pICMS>18.00</pICMS><vICMS>2.16</vICMS></ICMS00></ICMS></imposto></det>
+<total><ICMSTot><vProd>192.00</vProd><vNF>240.20</vNF><vICMS>23.76</vICMS><vBC>192.00</vBC><vST>23.40</vST><vFCPST>5.00</vFCPST><vIPI>9.00</vIPI><vDesc>0.00</vDesc><vFrete>6.00</vFrete><vSeg>3.00</vSeg><vOutro>1.80</vOutro><vBCST>250.00</vBCST></ICMSTot></total><pag><detPag><tPag>01</tPag><vPag>240.20</vPag></detPag></pag>
+</infNFe></NFe><protNFe><infProt><nProt>131260000023610</nProt></infProt></protNFe></nfeProc>`;
+        const r = await fetch(`${base}/compras/recebimento/importar-xml`, { method: 'POST', headers: H, body: JSON.stringify({ xml }) });
+        const rj = (await r.json().catch(() => ({}))) as any;
+        codnf = Number(rj.codnf) || 0;
+        const it = (await pgXi.query(`SELECT nroitem, codproduto, fatorembal, unidade, icms, icme, bcr, ipi, vripi, frete, seguro, depsacess, mva, mva_ajustado, total_produto_nota, qtd_nota, cfop_original,
+            frete_nota, seguro_nota, outras_despesas_nota, ipi_nota, icms_nota_bc, icms_nota_valor, icms_aliq_nota, icms_st_aliq_nota, icms_st_red_bc_nota, vrbase_stexterno, streal,
+            fcp_bc_st, fcp_aliquota_st, fcp_valor_st, cst_nota, vrcustoreal, vl_unitario FROM nf_prod WHERE codnf = $1 ORDER BY nroitem`, [codnf])).rows as any[];
+        const esperadoIcms = (await pgXi.query(`SELECT d.icm_efetivo FROM produtos p JOIN det_aliquota d ON d.aliquota = p.aliquota JOIN empresas e ON e.uf = d.uf AND e.idempresa = 1 WHERE p.idproduto = 2`)).rows[0]?.icm_efetivo;
+        const [a, b] = it;
+        const N = (v: unknown) => Number(v);
+        check('IMPORTAÇÃO §236.1 [o item do ImportaNFe]: FATOREMBAL = o FATORCX do produto (12; o Apollo gravava 1 — metade dos itens de 2026 entra em caixa) e, por cima, o do item no MANIFESTO da chave (5); UNIDADE = a do XML sem ponto ("Cx." → CX); ICMS = o ICM efetivo da DET_ALIQUOTA da loja, ICME = pICMS, BCR/IPI/FRETE/SEGURO em % de vProd − vDesc, DEPSACESS = vOutro; VL_UNITARIO = VRCUSTO / FATOREMBAL',
+          r.status === 200 && it.length === 2 && N(a?.fatorembal) === 12 && a?.unidade === 'CX' && N(b?.fatorembal) === 5 && b?.unidade === 'UN'
+          && N(a?.icms) === (esperadoIcms != null ? N(esperadoIcms) : 12) && N(a?.icme) === 12 && N(a?.bcr) === 100 && N(a?.ipi) === 5 && N(a?.vripi) === 9
+          && Math.abs(N(a?.frete) - 100 / 30) < 1e-4 && Math.abs(N(a?.seguro) - 100 / 60) < 1e-4 && N(a?.depsacess) === 1.8 && N(a?.vl_unitario) === 5 && N(a?.vrcustoreal) === 60 && N(b?.vrcustoreal) === 3,
+          { status: r.status, rj, a, b, esperadoIcms });
+        check('IMPORTAÇÃO §236.2 [os valores DA NOTA]: TOTAL_PRODUTO_NOTA, QTD_NOTA, CFOP_ORIGINAL (5403, o do fornecedor), FRETE/SEGURO/OUTRAS/IPI da nota, ICMS da nota (base e valor), alíquota e redução do ST, VRBASE_STEXTERNO, STREAL, FCP-ST e CST_NOTA vão ao item — o lado "nota" da devolução de compra e da conferência; o pMVAST vai ao MVA_AJUSTADO (NFe.pas:4159), não ao MVA',
+          N(a?.total_produto_nota) === 180 && N(a?.qtd_nota) === 3 && N(a?.cfop_original) === 5403 && N(a?.frete_nota) === 6 && N(a?.seguro_nota) === 3 && N(a?.outras_despesas_nota) === 1.8
+          && N(a?.ipi_nota) === 9 && N(a?.icms_nota_bc) === 180 && N(a?.icms_nota_valor) === 21.6 && N(a?.icms_aliq_nota) === 12 && N(a?.icms_st_aliq_nota) === 18 && N(a?.icms_st_red_bc_nota) === 10
+          && N(a?.vrbase_stexterno) === 250 && N(a?.streal) === 23.4 && N(a?.fcp_bc_st) === 250 && N(a?.fcp_aliquota_st) === 2 && N(a?.fcp_valor_st) === 5 && N(a?.cst_nota) === 10
+          && N(a?.mva_ajustado) === 40 && N(a?.mva) === 0 && N(b?.cfop_original) === 5102 && N(b?.cst_nota) === 0,
+          { a, b });
+      } finally {
+        for (const x of antes) await pgXi.query(`UPDATE produtos SET fatorcx = $1 WHERE idproduto = $2`, [x.fatorcx, x.idproduto]).catch(() => undefined);
+        await pgXi.query(`DELETE FROM nfe_nao_cadastradas_itens WHERE chavenfe = $1`, [chave]).catch(() => undefined);
+        if (codnf) {
+          for (const t of ['nf_prod_lote', 'nf_forma_pagamento', 'faturamento', 'nfe_xml']) {
+            await pgXi.query(t === 'nf_prod_lote' ? `DELETE FROM nf_prod_lote WHERE codnfprod IN (SELECT codnfprod FROM nf_prod WHERE codnf = $1)` : `DELETE FROM ${t} WHERE ${t === 'faturamento' ? 'idnf' : 'codnf'} = $1`, [codnf]).catch(() => undefined);
+          }
+          await pgXi.query(`DELETE FROM nf_prod WHERE codnf = $1`, [codnf]).catch(() => undefined);
+          await pgXi.query(`DELETE FROM nf WHERE codnf = $1`, [codnf]).catch(() => undefined);
+        }
+        await pgXi.end();
       }
     }
 

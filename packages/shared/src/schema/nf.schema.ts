@@ -298,6 +298,7 @@ const nfBase = z.object({
   protocolo_cancelamento: opcional(z.string().trim().max(20)),
   xjust: opcional(z.string().trim().max(255)),
   sequencia_nfe: sn().optional(), // CHAR(1) 'S'/'N': numerada na sequência da NF-e (uNF.pas:10863; mig 320)
+  nf_importacao_nfe: opcional(z.string().trim().max(1)), // 'S' importada do XML (NFe.pas:3442), 'T' (uNF.pas:7332), 'N'/vazio
   tpemissao: z.number().int().optional(),
   // flags
   rateio: sn().optional(),

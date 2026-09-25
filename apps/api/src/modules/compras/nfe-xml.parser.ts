@@ -40,6 +40,24 @@ export interface NfeItemParsed {
   vBcPisCofins: number; // base do PIS/COFINS (grupo PIS.vBC — mesma base p/ COFINS)
   vPIS: number; // valor do PIS (crédito de entrada) — XML verbatim
   vCOFINS: number; // valor do COFINS (crédito de entrada) — XML verbatim
+  // os valores DA NOTA que o ImportaNFe grava no item (NFe.pas:4033-4186) — o lado "nota" da devolução e da conferência
+  vFrete: number;
+  vSeg: number;
+  vOutro: number;
+  pRedBC: number;
+  pICMSST: number;
+  pRedBCST: number;
+  vBCFCPST: number;
+  pFCPST: number;
+  vFCPST: number;
+  vBCFCPSTRet: number;
+  pFCPSTRet: number;
+  vFCPSTRet: number;
+  vICMSDeson: number;
+  vCredICMSSN: number;
+  pCredSN: number;
+  pDevol: number; // grupo impostoDevol (UA): percentual da mercadoria devolvida
+  vIPIDevol: number; // grupo impostoDevol/IPI: IPI devolvido
   /**
    * grupo `rastro` (I80 do layout): lote/validade por item. O legado grava cada um em `NF_PROD_LOTE` decidindo
    * entre editar e inserir por (CODNFPROD, LOTE) — `NFe.pas:4212-4225`. Repete por item, então força array.
@@ -170,6 +188,23 @@ export function parseNfeXml(xml: string): NfeParsed {
       vBcPisCofins: num(pis.vBC),
       vPIS: num(pis.vPIS),
       vCOFINS: num(cof.vCOFINS),
+      vFrete: num(prod.vFrete),
+      vSeg: num(prod.vSeg),
+      vOutro: num(prod.vOutro),
+      pRedBC: num(icms.pRedBC),
+      pICMSST: num(icms.pICMSST),
+      pRedBCST: num(icms.pRedBCST),
+      vBCFCPST: num(icms.vBCFCPST),
+      pFCPST: num(icms.pFCPST),
+      vFCPST: num(icms.vFCPST),
+      vBCFCPSTRet: num(icms.vBCFCPSTRet),
+      pFCPSTRet: num(icms.pFCPSTRet),
+      vFCPSTRet: num(icms.vFCPSTRet),
+      vICMSDeson: num(icms.vICMSDeson),
+      vCredICMSSN: num(icms.vCredICMSSN),
+      pCredSN: num(icms.pCredSN),
+      pDevol: num(d?.impostoDevol?.pDevol),
+      vIPIDevol: num(d?.impostoDevol?.IPI?.vIPIDevol),
       rastro: rastros.map((r) => ({
         nLote: str(r?.nLote),
         qLote: num(r?.qLote),

@@ -197,6 +197,8 @@ export const nfAggregateConfig: AggregateConfig = {
     'chavenfe', 'protocolo_nfe', 'protocolo_cancelamento', 'xjust', 'sequencia_nfe', 'tpemissao',
     // flags
     'rateio', 'contribuinte_icms', 'aproveitamentocredito', 'alteraestoquereversao', 'codnf_ref',
+    // a origem da nota: 'S' importada do XML (NFe.pas:3442), 'T' das inclusões de uNF.pas:7332/7543 — o RecebimentoService carimba
+    'nf_importacao_nfe',
     // vínculo com o Pedido de Compra (recebimento) — carimbado pelo RecebimentoService no create; o front
     // da NF nunca o envia (não editável na tela), então um PUT normal não o altera.
     'codpedcomp',
@@ -485,6 +487,7 @@ export const nfAggregateConfig: AggregateConfig = {
         'frete', 'seguro', 'vroutrasdesp', 'depsacess', 'arredonda', 'vl_custo', 'descricao',
         // o RETRATO DO PRODUTO no item (derivado no servidor — `retratoDoProduto`): o que o cliente mandar é ignorado
         'ultcusto', 'ultcustorep', 'ultvenda', 'markup', 'vrcustoreal', 'idpiscofins',
+        'vl_unitario', // o custo da unidade (VRCUSTO / FATOREMBAL), refeito a cada gravação como o legado (uNF.pas:4935)
       ],
       // a DESCRIÇÃO que cada item tinha, para o item regravado sem ela (casada pelo produto, como a preservação)
       antesDeSubstituirTrx: async ({ trx, masterId }) =>
@@ -521,7 +524,9 @@ export const nfAggregateConfig: AggregateConfig = {
           const veio = typeof it.descricao === 'string' && it.descricao.trim() !== '' ? it.descricao : null;
           const descricao = veio ?? (String(antiga?.descricao ?? '') || null) ?? (cod != null ? await descricaoDoProduto(cod) : null);
           const retrato = await retratoDoProduto(trx, emp, it, antiga, cab);
-          out.push({ ...it, vl_custo: vl, debitopiscofins: debitoPisCofins(it.vrvenda, it.aliqpiss, it.aliqcofinss), descricao: descricao?.slice(0, 120) ?? null, ...retrato });
+          const fator = Number(it.fatorembal) > 0 ? Number(it.fatorembal) : 1;
+          const vlUnitario = it.vrcusto != null ? Math.round((Number(it.vrcusto) / fator) * 1e4) / 1e4 : undefined;
+          out.push({ ...it, vl_unitario: vlUnitario, vl_custo: vl, debitopiscofins: debitoPisCofins(it.vrvenda, it.aliqpiss, it.aliqcofinss), descricao: descricao?.slice(0, 120) ?? null, ...retrato });
         }
         return out;
       },

@@ -277,9 +277,20 @@ VRSALDOFLEX/VRCOMISSAO do pedido de venda (`uNF.pas:1650-1651`); PRODUC_PESO_* d
 |---|---|---|
 | 0 higiene do conferidor | ✅ | `conferir-campos-da-log.py`: `COBERTAS` (ESPECIFICACAO, IDSITUACAO_NF, INFORMACOES_ADICIONAIS), coluna com DEFAULT de migration conta como gravada na inclusão, FK conta como gerenciada — 327 → ~200 campos |
 | 1 zeros/constantes do NewRecord | ✅ | mig 351: DEFAULT 0 nas 72 colunas numéricas não gerenciadas que o NewRecord nunca deixa NULL (perfil nulo×zero de 2026: 59.099/60.717 de entrada e 8.475/8.568 de saída; os 1.618 de entrada restantes são importações sem o NewRecord — sem LOG "Inseriu" — e ficam NULL); constantes ITEM_PERDA_TOTAL N, ATUALIZA_MULTIPRECO_DECOMP S, DESTACICMSSN N (binário novo), BENEFICIO 2, DECOMPOSICAO N, ORIGEM_ESTOQUE E. Smoke §235.1 |
-| 2 valores da nota (XML) | ⏳ | — |
+| 2 valores da nota (XML) | ✅ | `nfe-item-importacao.ts` + `recebimento.service.ts`: o item como o ImportaNFe o monta — FATOREMBAL (FATORCX/FATORKG do produto e o fator do MANIFESTO, NFE_NAO_CADASTRADAS_ITENS: o Apollo gravava 1 e metade dos itens de 2026 são caixa), CODPRODNOTA = código de barras do produto (99,8%), UNIDADE do XML, PIS/COFINS do cadastro, ICMS = ICM efetivo da DET_ALIQUOTA (99,9%), ICME, BCR, IPI/FRETE/SEGURO em %, DEPSACESS, NCM/CEST pela config, remessa para depósito; os valores da nota como extras no item (TOTAL_PRODUTO_NOTA, QTD_NOTA, CFOP_ORIGINAL, *_NOTA, MVA_AJUSTADO = pMVAST — o Apollo punha no MVA —, VRBASE_STEXTERNO, FCP-ST/retido, desonerado, crédito SN, IPI devolvido); NF_IMPORTACAO_NFE='S' no cabeçalho (o motor o descartava); VL_UNITARIO = VRCUSTO/FATOREMBAL em toda gravação (99,98%). Smoke §236 |
 | 3 retrato do produto | ✅ | `retratoDoProduto` (nf.aggregate.ts): ULTCUSTO/ULTCUSTOREP/ULTVENDA/MARKUP/VRCUSTOREAL/IDPISCOFINS na inclusão de entrada e na edição pelo diálogo (qualquer tipo); a inclusão de saída não tira. Smoke §235.2 |
 | 4 métricas de precificação | ⏳ | — |
 | 5 indexador/repasse | ⏳ | — |
 | 6 fluxos posteriores | ⏳ | — |
 | 7 decomposição na entrada | ⏳ | — |
+
+### Achados para os próximos cortes (25/09/2026)
+
+- **SPED — CST_ICMS**: o Apollo monta `origem_estoque[0] + CST(2)`; no legado ORIGEM_ESTOQUE é 'E' em 100% dos itens (seria "E60") e
+  o SPED do legado usa `FormatFloat('000', NF_PROD.CST)` (Uspedfiscal.pas:2789) — no de PIS/COFINS, `GetCstIcms(CST, SN)`
+  (UspedPisCofins.pas:958). Corrigir o SPED antes de o import passar a gravar 'E' no ORIGEM_ESTOQUE (hoje grava a origem do produto).
+- **Cabeçalho da NF importada** (NFe.pas:3355-3450): FINALIDADE, DTHORASAIDA, VALIDATOTALNF = vNF, os totais da nota
+  (TOTAL_ICMS_NOTA_VALOR/BC, TOTALBASE_STEXTERNO, TOTAL_STREAL, TOTAL_FCP_VALOR_ST/_RET, TOTAL_ICMSDESON), IMP_IMPORTADORMASSA 'N',
+  IMP_MANIFESTO 'S', INDICADOR_PRESENCA, PESOBRUTO/ESPECIE/MARCA — o import do Apollo não grava.
+- **CSOSN/CST/CSTPISCOFINS do item importado**: o legado deixa CSOSN e CSTPISCOFINS NULL na entrada (99,9% / 100%) e o CST final
+  sai da análise do item (indexador — corte 5); o Apollo grava os do XML, e o SPED de PIS/COFINS depende do CSTPISCOFINS.

@@ -10,8 +10,10 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { pedidoParaReceber } from './pedido-lojas';
 import { parseNfeXml, type NfeItemParsed } from './nfe-xml.parser';
+import { itemImportado, type ProdutoImportacao } from './nfe-item-importacao';
 import { normRef, digEan } from './codref-normalize';
 import { AnalisePedidoNfService } from './analise-pedido-nf.service';
+import { configNaTrx } from './pedido-heranca';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -290,19 +292,19 @@ export class RecebimentoService {
       }
     }
 
-    // atributos dos produtos casados (aliquota/unidade/origem) — 1 query.
+    // o que o item importado copia do produto (ImportaNFe, NFe.pas:3913-3977): código de barras, fatores, NCM/CEST, PIS e as
+    // alíquotas do PISCOFINS do cadastro — 1 query.
     const idsCasados = Array.from(new Set(matchByIdx.values()));
-    const attrs = new Map<number, { aliquota?: string; unidade?: string; origemprod?: string }>();
+    const attrs = new Map<number, ProdutoImportacao>();
     if (idsCasados.length) {
-      for (const r of (await db.selectFrom('produtos').select(['idproduto', 'aliquota', 'unidade', 'origemprod']).where('idproduto', 'in', idsCasados).execute()) as any[]) {
-        attrs.set(Number(r.idproduto), { aliquota: r.aliquota, unidade: r.unidade, origemprod: r.origemprod });
+      for (const r of (await db.selectFrom('produtos as p').leftJoin('piscofins as pc', 'pc.idpiscofins', 'p.idpiscofins')
+        .select(['p.idproduto', 'p.aliquota', 'p.unidade', 'p.origemprod', 'p.codbarra', 'p.fatorcx', 'p.fatorkg', 'p.ncmsh', 'p.cest', 'p.pis',
+          'pc.idpiscofins as tem_pc', 'pc.aliq_pis_ent', 'pc.aliq_pis_sai', 'pc.aliq_cofins_ent', 'pc.aliq_cofins_sai'])
+        .where('p.idproduto', 'in', idsCasados).execute()) as any[]) {
+        attrs.set(Number(r.idproduto), { ...r, tem_piscofins: r.tem_pc != null });
       }
     }
-    const resolvidos = nfe.itens.map((it, i) => {
-      const idproduto = matchByIdx.get(i) as number;
-      const a = attrs.get(idproduto) ?? {};
-      return { it, idproduto, aliquota: a.aliquota, unidade: a.unidade, origemprod: a.origemprod };
-    });
+    const resolvidos = nfe.itens.map((it, i) => ({ it, idproduto: matchByIdx.get(i) as number }));
 
     // CFOPs de entrada (ajustados) têm de existir no catálogo (FK nf_prod.cfop/nf.cfop) — upsert dos distintos.
     const cfops = new Set<string>(resolvidos.map((r) => this.cfopEntrada(r.it.cfopXml)));
@@ -316,44 +318,34 @@ export class RecebimentoService {
         precos.set(Number(m.idproduto), num(m.vrvenda));
       }
     }
+    // o ICM efetivo da UF da loja (DET_ALIQUOTA) e o fator do item no manifesto da chave (NFE_NAO_CADASTRADAS_ITENS)
+    const ufLoja = String(((await db.selectFrom('empresas').select('uf').where('idempresa', '=', emp).executeTakeFirst()) as { uf?: string } | undefined)?.uf ?? '').trim();
+    const detAliq = (await db.selectFrom('det_aliquota').select(['aliquota', 'icm_efetivo']).where('uf', '=', ufLoja).execute()) as Array<{ aliquota: string; icm_efetivo: unknown }>;
+    const efetivoPorAliq = new Map(detAliq.map((d) => [String(d.aliquota).trim(), d.icm_efetivo == null ? null : num(d.icm_efetivo)]));
+    const manifesto = (await db.selectFrom('nfe_nao_cadastradas_itens').select(['idproduto', 'nroitem', 'fatorembal'])
+      .where('chavenfe', '=', nfe.chave).where('fatorembal', '>', 0).execute()) as Array<{ idproduto: unknown; nroitem: unknown; fatorembal: unknown }>;
+    const fatorManifesto = (idproduto: number, nItem: number): number | null => {
+      const doProduto = manifesto.filter((m) => Number(m.idproduto) === idproduto);
+      const m = doProduto.find((x) => Number(x.nroitem) === nItem) ?? doProduto[0];
+      return m ? num(m.fatorembal) : null;
+    };
+    const atualizarNcmCest = String((await configNaTrx(db, 'ATUALIZAR_NCMCEST_PRODUTO_XMLNFE', { empresaId: emp, operadorId: op, modulo: 'Retaguarda' })) ?? 'N').toUpperCase() === 'S';
+    const remessaDeposito = ['5906', '1906', '1905'].includes(this.cfopEntrada(nfe.itens[0].cfopXml));
+    const extras: Array<Record<string, unknown>> = [];
     const nfItens: Record<string, unknown>[] = resolvidos.map((r, idx) => {
-      const it = r.it;
-      const u = (r.unidade ?? it.uCom ?? '').slice(0, 2) || undefined;
-      return {
-        nroitem: it.nItem || idx + 1,
-        codproduto: r.idproduto,
-        codprodnota: it.cProd || undefined, // código do fornecedor (base de futura de-para CODREFERENCIA_FOR)
-        quantidade: it.qCom,
-        fatorembal: 1,
-        unidade: u,
+      const prod = attrs.get(Number(r.idproduto)) ?? {};
+      const aliq = String(prod.aliquota ?? '').trim();
+      const { item, extras: ex } = itemImportado({ ...r.it, nItem: r.it.nItem || idx + 1 }, Number(r.idproduto), prod, {
+        icmEfetivo: aliq ? efetivoPorAliq.get(aliq) ?? null : null,
+        aliquotaPeloIcms: aliq ? null : detAliq.find((d) => d.icm_efetivo != null && Math.abs(num(d.icm_efetivo) - r.it.pICMS) < 1e-9)?.aliquota ?? null,
+        fatorManifesto: fatorManifesto(Number(r.idproduto), r.it.nItem || idx + 1),
+        atualizarNcmCest,
+        remessaDeposito,
         vrvenda: precos.get(Number(r.idproduto)) ?? 0,
-        vrcusto: it.vUnCom,
-        vrdescprod: it.vDesc || undefined, // o desconto em DINHEIRO do item do XML
-        cfop: this.cfopEntrada(it.cfopXml),
-        ncm: it.ncm ?? undefined,
-        cest: it.cest ?? undefined,
-        origem_estoque: r.origemprod ?? it.origem ?? undefined, // origem do PRODUTO (legado); XML como fallback
-        aliquota: r.aliquota ?? undefined, // código local (do produto); F2 não é necessário (imposto veio do XML)
-        cst: it.cst != null ? Number(it.cst) : undefined,
-        csosn: it.csosn ?? undefined,
-        vrbasecalculo: it.vBC || undefined,
-        icms: it.pICMS || undefined,
-        vricm: it.vICMS || undefined,
-        vrbasest: it.vBCST || undefined,
-        vricmst: it.vICMSST || undefined,
-        mva: it.pMVAST || undefined,
-        ipi: it.pIPI || undefined,
-        vripi: it.vIPI || undefined,
-        cstpiscofins: it.cstPisCofins ?? undefined,
-        aliqpise: it.pPIS || undefined,
-        aliqcofinse: it.pCOFINS || undefined,
-        // VALOR do crédito PIS/COFINS da entrada (Wave 5) — XML verbatim (vBC/vPIS/vCOFINS), como ICMS/ST.
-        bcpiscofinse: it.vBcPisCofins || undefined,
-        vrpise: it.vPIS || undefined,
-        vrcofinse: it.vCOFINS || undefined,
-        geraestoque: 'S',
-        movimenta_estoque: 'S',
-      };
+        cfop: this.cfopEntrada(r.it.cfopXml),
+      });
+      extras.push({ nroitem: item.nroitem, ...ex });
+      return item;
     });
 
     // DTCONTABIL = data do IMPORT (hoje), não a emissão — fiel ao legado (cdsNF.DTCONTABIL:=Now, NFe.pas:3373;
@@ -372,6 +364,8 @@ export class RecebimentoService {
       codparceiro,
       chavenfe: nfe.chave,
       protocolo_nfe: nfe.protocolo ?? undefined,
+      // a nota veio do XML (NFe.pas:3442): trava a base do ICMS da nota na tela e decide o VRCUSTOREAL do item (6.124 notas em 2026)
+      nf_importacao_nfe: 'S',
       // frete/seguro/acessórias no header (o derivar os lê do dto p/ compor TOTALNF)
       totalfrete: nfe.total.vFrete || undefined,
       totalseguro: nfe.total.vSeg || undefined,
@@ -385,6 +379,14 @@ export class RecebimentoService {
 
     const codpedcomp = dto.codpedcomp ?? null;
     const codnf = await this.persistirComVinculo(dtoNf, codpedcomp, emp, op, codparceiro);
+    // os valores DA NOTA que a tela não gerencia (os `*_NOTA`, CFOP_ORIGINAL, MVA_AJUSTADO, FCP-ST, desonerado…): no item já criado —
+    // e preservados nos saves seguintes da NF (preservarNaoGerenciadas). São o lado "nota" da devolução de compra e da conferência.
+    await (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      for (const e of extras) {
+        const { nroitem, ...cols } = e;
+        await trx.updateTable('nf_prod').set(cols).where('codnf', '=', codnf).where('nroitem', '=', Number(nroitem)).execute();
+      }
+    });
 
     // RASTREABILIDADE (grupo `rastro` do XML → NF_PROD_LOTE): fiel a NFe.pas:4212-4225, que percorre os rastros do
     // item e decide entre EDITAR e INSERIR por (CODNFPROD, LOTE). Aqui o upsert usa a mesma chave. Não valida lote
