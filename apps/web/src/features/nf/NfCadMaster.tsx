@@ -40,7 +40,7 @@ import { vincularDevolucaoVendasNf, type CredenciaisDevolucao, type ItemDevoluca
 import { vincularNfRotativo, type LadoRotativoNf } from '../inventario-rotativo/inventarioRotativoApi';
 import { createResourceApi } from '../../shared/cadmaster/resourceApi';
 import { recalcularNf } from './nfFiscalApi';
-import { processarNf, reverterNf } from './nfProcessamentoApi';
+import { lerNf, processarNf, repasseAutomaticoNf, reverterNf } from './nfProcessamentoApi';
 import { faturamentoDaNota, excluirFinanceiroNf, configuracaoParcelas, gerarParcelas, sequenciaDuplicata, processarFinanceiroNf, type ParcelaGerada } from './nfFaturamentoApi';
 import { transmitirNf, cancelarNf, cceNf } from './nfNfeApi';
 
@@ -615,6 +615,10 @@ function AcoesNfeBar({ form }: { form: UseFormReturn<CriarNfDto> }) {
 
 // ───────────────────────────── Processamento (F3) ─────────────────────────────
 
+/** os totais do cabeçalho que a análise automática refaz (somas dos itens) */
+const TOTAIS_DA_ANALISE = ['totalicm', 'totalbaseicm', 'totalicm_st', 'totalbaseicmt', 'totalnf', 'total_icmst_externo', 'totalbase_stexterno', 'total_streal',
+  'icms_st_apagar', 'totalicm_stexterno_sepnf'] as const;
+
 /**
  * Ações de PROCESSAMENTO (F3): movem o estoque (entrada soma / saída baixa) e travam a nota.
  * "Processar" quando proc='N'; "Reverter" quando proc='S' e a nota não foi enviada à SEFAZ.
@@ -625,6 +629,7 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
   const [sincronizando, setSincronizando] = useState(false);
   const proc = form.watch('proc');
   const statusnfe = form.watch('statusnfe');
+  const tipoNota = form.watch('tipo');
   const codnf = (form.getValues() as { codnf?: number }).codnf;
   if (codnf == null) return null;
 
@@ -637,6 +642,23 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
       await processarNf(codnf);
       form.setValue('proc', 'S');
       mensagem.sucesso('Nota processada: estoque movimentado.');
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  // [F7] da análise de itens: o servidor refaz indexador, ST externo, base/ICMS e custo de cada item; a tela relê a nota
+  const analisarItens = async () => {
+    if (executando) return;
+    setExecutando(true);
+    try {
+      const r = await repasseAutomaticoNf(codnf);
+      const nf = await lerNf(codnf);
+      form.setValue('itens', (nf.itens ?? []) as never, { shouldDirty: false });
+      for (const k of TOTAIS_DA_ANALISE) if (nf[k] !== undefined) form.setValue(k as never, nf[k] as never, { shouldDirty: false });
+      mensagem.sucesso(`Análise automática: ${r.itens} ${r.itens === 1 ? 'item' : 'itens'}, ${r.comIndexador} com indexador, ${r.repassados} repassado(s).`);
     } catch (e) {
       mensagem.erro(e);
     } finally {
@@ -665,6 +687,7 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
       <div className="flex flex-wrap items-center gap-gp-sm">
         {proc !== 'S' && <Button label="&Processar nota" variant="soft" onClick={() => void processar()} />}
         {proc !== 'S' && <Button label="Sincronizar CFOP/alíq./CST" variant="soft" onClick={() => setSincronizando(true)} />}
+        {proc !== 'S' && tipoNota === 'E' && <Button label="Análise automática dos itens [F7]" variant="soft" onClick={() => void analisarItens()} />}
         {proc === 'S' && !enviada && (
           <Button label="&Reverter processamento" variant="soft" onClick={() => void reverter()} />
         )}

@@ -15,6 +15,10 @@ import { gerarCaixaDaNf, reverterCaixaDaNf } from './nf-caixa';
 import { configNaTrx } from '../compras/pedido-heranca';
 import { fotoDaNf, logDaDiferencaNf } from './nf-log';
 import { atualizarProdutosDaEntrada } from './nf-produtos-processar';
+import { contextoIndexadorNf, indexadorDoItem } from './nf-indexador-item';
+import { recalcularMetricasEntrada } from './nf-custo-item';
+import { retratoDoProduto } from './nf.aggregate';
+import { TributacaoRepository } from '../precificacao/tributacao.repository';
 
 type AnyDB = any;
 
@@ -405,4 +409,62 @@ export class NfProcessamentoService {
         .execute();
     }
   }
+
+  /**
+   * A ANÁLISE AUTOMÁTICA dos itens de entrada — o [F7] "repasse automático" da tela de análise (`UAnalisaItemNF.pas:541-636`), ou o [F8]
+   * de um item só (`:638-670`): cada item passa pelo diálogo com `AlteraFigura` + `AnalisaAutomatico` e é confirmado sozinho — relê o
+   * produto (o retrato da linha de preço), consulta o INDEXADOR de novo (CST/ICME/BCR/MVA/MVA ajustado/INDEXADORTRIB/REPASSADO), refaz o
+   * ST externo, a base/ICMS e o custo (a análise do OK). Travas do legado: F7 com `BLOQUEIA_ANALISE_AUTOMATICA_ITENS_NF` = 'S' ("Análise
+   * automática de itens não está liberada!"); nota processada ("Nota processada não permite análise de itens!"); a tela só abre com a
+   * SITUAÇÃO da nota na loja 'O' ou com `OBRIGA_SITUACAONF_ANALISA_ITEM_NF` (uNF.pas:2815). O legado anda item a item e guarda o ponto
+   * de parada em NF.ULT_CODNFPROD_REPASSE (zerado no fim); aqui é uma transação só — termina com 0. A saída ainda não está convertida
+   * (o indexador da saída vive no recálculo fiscal).
+   */
+  async repasseAutomatico(codnf: number, codnfprod?: number): Promise<{ codnf: number; itens: number; comIndexador: number; repassados: number }> {
+    const t = currentTenant();
+    const emp = t.empresaId ?? null;
+    const op = t.operadorId ?? null;
+    if (emp == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
+    return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
+      const ctxCfg = { empresaId: emp, operadorId: op, modulo: 'Retaguarda' };
+      if (codnfprod == null && String((await configNaTrx(trx, 'BLOQUEIA_ANALISE_AUTOMATICA_ITENS_NF', ctxCfg)) ?? 'N').toUpperCase() === 'S') {
+        throw new BusinessRuleError('NF_ANALISE_AUTOMATICA_BLOQUEADA');
+      }
+      const nf = (await trx.selectFrom('nf')
+        .select(['codnf', 'tipo', 'proc', 'contabilizado', 'statusnfe', 'cancelada', 'dtcontabil', 'idsituacao_nf', 'nf_importacao_nfe'])
+        .where('codnf', '=', codnf).where('idempresa', '=', emp).forUpdate().executeTakeFirst()) as Record<string, unknown> | undefined;
+      if (!nf) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf });
+      nf.figurafiscal = ((await trx.selectFrom('empresas').select('figurafiscal').where('idempresa', '=', emp).executeTakeFirst()) as { figurafiscal?: unknown } | undefined)?.figurafiscal;
+      if (nf.proc === 'S') throw new BusinessRuleError('NF_PROCESSADA', { codnf });
+      if (nf.contabilizado === 'S') throw new BusinessRuleError('NF_CONTABILIZADA', { codnf });
+      if (nf.cancelada === 'S' || nf.statusnfe === 'C') throw new BusinessRuleError('NF_CANCELADA', { codnf });
+      if (nf.statusnfe === 'P' || nf.statusnfe === 'D') throw new BusinessRuleError('NF_ENVIADA', { codnf });
+      if (nf.dtcontabil != null) await assertPeriodoNaoFechado(trx, emp, nf.dtcontabil, 'bloq_nf');
+      if (String(nf.tipo) !== 'E') throw new BusinessRuleError('NF_ANALISE_SO_ENTRADA', { codnf });
+      const obrigaSituacao = String(nf.figurafiscal ?? '').trim().toUpperCase() === 'O'
+        || String((await configNaTrx(trx, 'OBRIGA_SITUACAONF_ANALISA_ITEM_NF', ctxCfg)) ?? 'N').toUpperCase() === 'S';
+      if (obrigaSituacao && !(Number(nf.idsituacao_nf) > 0)) throw new BusinessRuleError('NF_ANALISE_SEM_SITUACAO', { codnf });
+      const ctx = await contextoIndexadorNf(trx, codnf);
+      let q = trx.selectFrom('nf_prod').selectAll().where('codnf', '=', codnf);
+      if (codnfprod != null) q = q.where('codnfprod', '=', codnfprod);
+      const itens = (await q.orderBy('codnfprod').execute()) as Array<Record<string, unknown>>;
+      if (codnfprod != null && !itens.length) throw new BusinessRuleError('NF_ITEM_NAO_ENCONTRADO', { codnf, codnfprod });
+      const trib = new TributacaoRepository(null as never);
+      let comIndexador = 0;
+      for (const it of itens) {
+        const idx = ctx ? await indexadorDoItem(trx, ctx, it, trib) : {};
+        if (Number(idx.indexadortrib ?? 0) > 0) comIndexador++;
+        const retrato = await retratoDoProduto(trx, emp, { ...it, dialogo: true }, it, nf as never);
+        // CUSTO_REAL_UNIT 0 = o item volta para a análise do OK (ST externo, base/ICMS, custo e escada) logo abaixo
+        await trx.updateTable('nf_prod').set({ ...idx, ...retrato, custo_real_unit: 0 }).where('codnfprod', '=', Number(it.codnfprod)).execute();
+      }
+      await recalcularMetricasEntrada(trx, codnf, 'pendentes');
+      await trx.updateTable('nf').set({ ult_codnfprod_repasse: 0 }).where('codnf', '=', codnf).execute();
+      const rep = (await sql<{ n: number }>`SELECT count(*)::int AS n FROM nf_prod WHERE codnf = ${codnf} AND repassado = 'S'`.execute(trx)).rows[0];
+      const chave = await chaveDeEntrada(trx, codnf);
+      if (chave && Number(rep?.n) > 0) await registrarProcessoNf(trx, 'stRepasseItens', chave, emp, op);
+      return { codnf, itens: itens.length, comIndexador, repassados: Number(rep?.n ?? 0) };
+    });
+  }
+
 }

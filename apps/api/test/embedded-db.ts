@@ -397,6 +397,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('352_nf_new_record.sql'));
   await pool.query(sql('353_cfop_proc_qtde_seed.sql'));
   await pool.query(sql('354_multi_preco_historico_custo.sql'));
+  await pool.query(sql('355_nf_analise_automatica_config.sql'));
   await pool.end();
   return pg;
 }

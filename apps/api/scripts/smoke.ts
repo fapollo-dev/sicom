@@ -23670,6 +23670,73 @@ async function main() {
       }
     }
 
+    // ══ §247 ANÁLISE AUTOMÁTICA DOS ITENS — o [F7] repasse automático e o [F8] de um item (UAnalisaItemNF) ══════════
+    {
+      const pgRp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const figAntes = (await pgRp.query(`SELECT figurafiscal FROM empresas WHERE idempresa = 1`)).rows[0]?.figurafiscal ?? null;
+      const prodAntes = (await pgRp.query(`SELECT codfigurafiscal, mva FROM produtos WHERE idproduto = 3`)).rows[0] as any;
+      const livreAntes = (await pgRp.query(`SELECT retira_fornindex FROM parceiros WHERE codparceiro = 22`)).rows[0]?.retira_fornindex ?? null;
+      const ufAntes = (await pgRp.query(`SELECT uf FROM parceiros_end WHERE codend = 6`)).rows[0]?.uf ?? null;
+      let cod = 0;
+      let idx = 0;
+      try {
+        await pgRp.query(`UPDATE empresas SET figurafiscal = 'O' WHERE idempresa = 1`);
+        await pgRp.query(`UPDATE produtos SET codfigurafiscal = 79, mva = 0 WHERE idproduto = 3`);
+        await pgRp.query(`UPDATE parceiros SET retira_fornindex = 'N' WHERE codparceiro = 22`);
+        await pgRp.query(`UPDATE parceiros_end SET uf = 'MA' WHERE codend = 6`);
+        const r = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 1, serie: '1', tipo: 'E', nronf: 'RP247', tipoemissao: '1', codparceiro: 22, codparceiro_end: 6,
+          dtemissao: '2037-01-07', dtcontabil: '2037-01-07', cfop: '1403', itens: [
+            { nroitem: 1, codproduto: 3, quantidade: 10, vrcusto: 10, cfop: '1403', aliquota: 'STB', cst: 10, icme: 12, bcr: 100, vrbasest: 150, vricmst: 5 },
+          ] }) });
+        cod = Number(((await r.json().catch(() => ({}))) as any).codnf) || 0;
+        const item = async () => (await pgRp.query(`SELECT codnfprod, indexadortrib, repassado, cst, mva_ajustado, streal, vricms_stexterno FROM nf_prod WHERE codnf = $1`, [cod])).rows[0] as any;
+        const antes = await item();
+        const rp = (q = '') => fetch(`${base}/fiscal/nf/${cod}/repasse-automatico${q}`, { method: 'POST', headers: H });
+        const semSit = await rp();
+        const semSitJ = (await semSit.json().catch(() => ({}))) as any;
+        await pgRp.query(`UPDATE nf SET idsituacao_nf = 1031 WHERE codnf = $1`, [cod]);
+        // o operador cadastra o indexador que faltava ([F5] na análise) e roda o [F7]
+        idx = Number((await pgRp.query(`INSERT INTO indexador_tributario (codfigurafiscal, tp_cadastro, origem, destino, codcfop, operacao, icm_fonte, aliquota_dest, reducao, redcom, mva, aliquota_fem, tp_figura, st_externo)
+          VALUES (79, 'F', 'MA', 'MG', 1403, 'F', 12, 18, 100, 100, 40, 0, 'N', 'N') RETURNING codindexadortributario`)).rows[0].codindexadortributario);
+        const f7 = await rp();
+        const f7J = (await f7.json().catch(() => ({}))) as any;
+        const depois = await item();
+        const h = (await pgRp.query(`SELECT icms_st_apagar, ult_codnfprod_repasse FROM nf WHERE codnf = $1`, [cod])).rows[0] as any;
+        const N = (v: unknown) => Number(v);
+        check('ANÁLISE AUTOMÁTICA §247.1 [o F7 repassa o item que ficou sem indexador]: o item nasce REPASSADO N (loja "O", sem indexador); com a situação vazia a análise é recusada (OBRIGA_SITUACAONF_ANALISA_ITEM_NF = S na produção → 422 NF_ANALISE_SEM_SITUACAO); cadastrado o indexador, o [F7] consulta de novo: INDEXADORTRIB, CST 60, MVA ajustado 50,244, REPASSADO S, e refaz o ST externo (STREAL 15,04, a recolher 10,04 → ICMS_ST_APAGAR 10,04); ULT_CODNFPROD_REPASSE termina 0',
+          antes?.repassado === 'N' && N(antes?.indexadortrib) === 0 && semSit.status === 422 && semSitJ.code === 'NF_ANALISE_SEM_SITUACAO'
+          && f7.status === 200 && N(f7J.itens) === 1 && N(f7J.comIndexador) === 1 && N(f7J.repassados) === 1
+          && N(depois?.indexadortrib) === idx && depois?.repassado === 'S' && N(depois?.cst) === 60 && N(depois?.mva_ajustado) === 50.244
+          && N(depois?.streal) === 15.04 && N(depois?.vricms_stexterno) === 10.04 && N(h?.icms_st_apagar) === 10.04 && N(h?.ult_codnfprod_repasse) === 0,
+          { antes, semSit: [semSit.status, semSitJ.code], f7: [f7.status, f7J], depois, h });
+        // BLOQUEIA_ANALISE_AUTOMATICA_ITENS_NF = S barra o F7 (não o F8); sem BTNGRAVAR, 403; nota processada, 422
+        await pgRp.query(`UPDATE configuracoes_especificas SET valor = 'S' WHERE tipo = 'Modulo' AND chave = 'Retaguarda' AND id = (SELECT id FROM configuracoes WHERE codigo = 'BLOQUEIA_ANALISE_AUTOMATICA_ITENS_NF')`);
+        const bloq = await rp();
+        const bloqJ = (await bloq.json().catch(() => ({}))) as any;
+        const f8 = await rp(`?item=${N(depois?.codnfprod)}`);
+        await pgRp.query(`UPDATE configuracoes_especificas SET valor = 'N' WHERE tipo = 'Modulo' AND chave = 'Retaguarda' AND id = (SELECT id FROM configuracoes WHERE codigo = 'BLOQUEIA_ANALISE_AUTOMATICA_ITENS_NF')`);
+        const semGrant = await fetch(`${base}/fiscal/nf/${cod}/repasse-automatico`, { method: 'POST', headers: H_SEM_ACESSO });
+        await pgRp.query(`UPDATE nf SET proc = 'S' WHERE codnf = $1`, [cod]);
+        const proc = await rp();
+        const procJ = (await proc.json().catch(() => ({}))) as any;
+        await pgRp.query(`UPDATE nf SET proc = 'N' WHERE codnf = $1`, [cod]);
+        check('ANÁLISE AUTOMÁTICA §247.2 [as travas do legado]: BLOQUEIA_ANALISE_AUTOMATICA_ITENS_NF = S barra o [F7] ("Análise automática de itens não está liberada!", 422) mas não o [F8] de um item (200); sem permissão de gravar a nota, 403; nota processada, 422 NF_PROCESSADA',
+          bloq.status === 422 && bloqJ.code === 'NF_ANALISE_AUTOMATICA_BLOQUEADA' && f8.status === 200 && semGrant.status === 403 && proc.status === 422 && procJ.code === 'NF_PROCESSADA',
+          { bloq: [bloq.status, bloqJ.code], f8: f8.status, semGrant: semGrant.status, proc: [proc.status, procJ.code] });
+      } finally {
+        await pgRp.query(`UPDATE empresas SET figurafiscal = $1 WHERE idempresa = 1`, [figAntes]).catch(() => undefined);
+        await pgRp.query(`UPDATE produtos SET codfigurafiscal = $1, mva = $2 WHERE idproduto = 3`, [prodAntes?.codfigurafiscal, prodAntes?.mva]).catch(() => undefined);
+        await pgRp.query(`UPDATE parceiros SET retira_fornindex = $1 WHERE codparceiro = 22`, [livreAntes]).catch(() => undefined);
+        await pgRp.query(`UPDATE parceiros_end SET uf = $1 WHERE codend = 6`, [ufAntes]).catch(() => undefined);
+        if (idx) await pgRp.query(`DELETE FROM indexador_tributario WHERE codindexadortributario = $1`, [idx]).catch(() => undefined);
+        if (cod) {
+          await pgRp.query(`DELETE FROM nf_prod WHERE codnf = $1`, [cod]).catch(() => undefined);
+          await pgRp.query(`DELETE FROM nf WHERE codnf = $1`, [cod]).catch(() => undefined);
+        }
+        await pgRp.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();

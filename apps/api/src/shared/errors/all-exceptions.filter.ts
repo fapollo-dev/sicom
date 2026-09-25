@@ -424,6 +424,11 @@ const CODE_PT: Record<string, string> = {
   TITULO_VALOR_EXCEDE: 'O valor excede o total do título. Só em dinheiro o excesso vira troco; em banco/outro recurso não é permitido.',
   NF_CFOP_INVALIDO: 'CFOP de destino inválido ou não cadastrado.',
   NF_ALIQUOTA_INVALIDA: 'Alíquota de destino não cadastrada.',
+  // a análise automática dos itens (UAnalisaItemNF)
+  NF_ANALISE_AUTOMATICA_BLOQUEADA: 'Análise automática de itens não está liberada!',
+  NF_ANALISE_SO_ENTRADA: 'A análise automática dos itens é da nota de entrada.',
+  NF_ANALISE_SEM_SITUACAO: 'Informe a situação da nota antes de analisar os itens.',
+  NF_ITEM_NAO_ENCONTRADO: 'Item não encontrado nesta nota fiscal.',
   NFE_DESTINATARIO_OUTRA_LOJA: 'A nota fiscal (XML) é destinada a outra loja. Entre na loja do destinatário para importá-la.',
   NFE_DESTINATARIO_DIVERGE: 'O CNPJ contido na nota fiscal (XML) difere do CNPJ no cadastro da empresa logada. Verifique!',
   NFE_TRANSPORTADORA_NAO_ENCONTRADA: 'A transportadora da nota não está cadastrada. Cadastre-a com os dados do XML e importe de novo.',

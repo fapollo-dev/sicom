@@ -355,7 +355,7 @@ Observação lateral: uma rotina diária move o **DTCONTABIL das NFs não proces
 | C1/C2 — indexador e REPASSADO do item de entrada (`nf-indexador-item.ts`): item novo consulta; OK do diálogo refaz o REPASSADO; o pMVAST do XML só vai ao MVA_AJUSTADO do item sem indexador | ✅ smoke §244 |
 | C3 — ST externo da entrada (`calculoIndexador` + `stExternoDoItem`; roda na análise do item antes do custo; o cabeçalho soma os itens e o ICMS_ST_APAGAR sai dessa soma) | ✅ smoke §245 + teste-ouro (183 itens reais) |
 | C4 — esteira pelo REPASSADO | ✅ |
-| C5 — repasse em lote (F7) | ⏳ |
+| C5 — análise automática: [F7] repasse em lote e [F8] um item (`POST /fiscal/nf/:id/repasse-automatico[?item=]`, botão na tela da NF; configs BLOQUEIA_ANALISE_AUTOMATICA_ITENS_NF e OBRIGA_SITUACAONF_ANALISA_ITEM_NF — mig 355) | ✅ smoke §247 (a saída ainda não: o indexador da saída vive no recálculo fiscal) |
 | C6/C7 — travas do processamento + liberar a NF | ⏳ (só depois de C5; ligar antes bloqueia ~74% das entradas da loja 2) |
 
 ### C3 — o que a produção mostrou (itens de entrada de 2026, lojas "O"; só leitura)
@@ -366,3 +366,7 @@ Observação lateral: uma rotina diária move o **DTCONTABIL das NFs não proces
 - Totais do cabeçalho = Σ itens em 6.522 de 6.522 notas; ICMS_ST_APAGAR = max(0, TOTALICM_STEXTERNO − ICMS_ST_PAGO_FONTE) em 6.521 de 6.522. **O TOTALICM_STEXTERNO deixou de ser digitado no cabeçalho** (o smoke do RESIDUAL ST passou a pôr o valor no item).
 - O ramo "emissão própria + ST_EXTERNO + 1403/2403" (ST separada da NF) não tem nenhum caso em 2025-26 (TOTALICM_STEXTERNO_SEPNF = 0 em 15.743 notas) — portado do fonte.
 - Os TEMP do `CalcValorNota` (fornecedor livre / loja "D" com MVA ou ALIQOPE_INTERNA no produto, nota digitada): ramo do MVA do item e o da proporção do ST do cabeçalho (ConstICMST); sem caso na produção de 2026.
+
+### Achado do C5 — o OK do item regrava a base e o ICMS (`6575c3b`)
+
+`CalculaBaseICME` (uItensNF.pas): VRBASECALCULO := TEMPBASEICME e VRICM := TEMPVLRICME, com as zeragens do CalcValorNota. Nos itens de entrada importados de jun-set/2026: base = VRBASECALCULOICM_CALC em 99,9%, ICMS = VRICM_CALC em 99,9%; iguais aos do XML só em 74%. O Apollo mantinha os do XML — a análise do item (e o F7) agora grava os calculados e o cabeçalho soma. E o OK da nota digitada de emissão própria (`7c47e3d`): TOTALICM_ST = Σ STREAL − Σ separado, TOTALBASEICMT = Σ base externa, ICMS "da nota" = calculados; na loja 'D' o ST externo é o da nota.

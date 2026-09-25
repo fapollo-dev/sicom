@@ -54,7 +54,7 @@ const RETRATO = ['ultcusto', 'ultcustorep', 'ultvenda', 'markup', 'vrcustoreal',
  * A inclusão de SAÍDA não tira o retrato (o ramo 'Nota de Saida', :2607, não o faz); a edição pelo diálogo tira, de qualquer tipo —
  * na produção o ULTCUSTO muda em 62.534 "Alterou" de entrada (a análise do item) e 1.863 de saída. Fora disso fica o que o item tinha.
  */
-async function retratoDoProduto(
+export async function retratoDoProduto(
   trx: any, emp: number | null, it: Record<string, unknown>, antiga: Record<string, unknown> | undefined,
   cab: { tipo?: string | null; nf_importacao_nfe?: string | null } | undefined,
 ): Promise<Record<string, unknown>> {

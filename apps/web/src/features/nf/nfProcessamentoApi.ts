@@ -46,3 +46,21 @@ export interface ParDeSincronizacao { de: string; para: string }
 export function sincronizarNf(codnf: number, pares: { mapa: ParDeSincronizacao[]; aliquotas: ParDeSincronizacao[]; csts: ParDeSincronizacao[] }): Promise<{ codnf: number; itens: number; sincronizados: number }> {
   return req(`/fiscal/nf/${codnf}/sincronizar-cfop`, pares);
 }
+
+export interface RepasseAutomaticoResultado { codnf: number; itens: number; comIndexador: number; repassados: number }
+
+/**
+ * A análise automática dos itens de entrada — [F7] todos, ou [F8] um (`codnfprod`) — UAnalisaItemNF: relê o produto, consulta o indexador
+ * de novo e refaz o ST externo, a base/ICMS e o custo de cada item. Grava no servidor; a tela relê a nota depois.
+ */
+export function repasseAutomaticoNf(codnf: number, codnfprod?: number): Promise<RepasseAutomaticoResultado> {
+  return req<RepasseAutomaticoResultado>(`/fiscal/nf/${codnf}/repasse-automatico${codnfprod != null ? `?item=${codnfprod}` : ''}`);
+}
+
+/** relê a nota gravada (GET do agregado) — para refletir na tela o que uma ação do servidor mudou */
+export async function lerNf(codnf: number): Promise<Record<string, unknown>> {
+  const res = await fetch(`${BASE}/fiscal/nf/${codnf}`, { headers: apiHeaders() });
+  handle401(res);
+  if (!res.ok) throw Object.assign(new Error('ERRO'), { status: res.status });
+  return (await res.json()) as Record<string, unknown>;
+}

@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { NfProcessamentoService } from './nf-processamento.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -27,6 +27,17 @@ export class NfProcessamentoController {
   async reverter(@Param('id', ParseIntPipe) id: number) {
     await this.proc.reverter(id);
     return { codnf: id, proc: 'N' };
+  }
+
+  /**
+   * a análise automática dos itens de entrada: [F7] todos (`repasse-automatico`) ou [F8] um (`?item=CODNFPROD`) — UAnalisaItemNF. O legado
+   * exige o usuário com edição e gravação na nota (`fUsuarioComPermissao`) → RBAC de gravação.
+   */
+  @Post(':id/repasse-automatico')
+  @HttpCode(200)
+  @RequerAcesso('FRMNF', 'BTNGRAVAR')
+  repasseAutomatico(@Param('id', ParseIntPipe) id: number, @Query('item') item?: string) {
+    return this.proc.repasseAutomatico(id, item != null && item !== '' ? Number(item) : undefined);
   }
 
   /** sincroniza CFOP (`mapa`), ALÍQUOTA e CST dos itens por DE-PARA (uSincronizaCFOPNotaFiscal). Edição → RBAC de gravação. */
