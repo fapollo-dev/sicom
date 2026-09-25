@@ -79,6 +79,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const campos: CampoErro[] = [];
 
     switch (err.code) {
+      case 'P0001': // raise_exception — a regra de um gatilho do legado portado para o banco (HINT 'APOLLO:<código>', texto do legado)
+        if (typeof err.hint === 'string' && err.hint.startsWith('APOLLO:')) {
+          return { statusCode: HttpStatus.UNPROCESSABLE_ENTITY, code: err.hint.slice('APOLLO:'.length), message: err.message ?? 'Operação não permitida.' };
+        }
+        return this.fromUnknown(err);
+
       case '23503': // foreign_key_violation
         return {
           statusCode: HttpStatus.CONFLICT,
@@ -930,6 +936,8 @@ function httpExceptionMessage(err: HttpException): string | undefined {
 // ── pg error duck-typing ──────────────────────────────────────────────────────
 interface PgErrorLike {
   code: string;
+  message?: string;
+  hint?: string;
   detail?: string;
   column?: string;
   table?: string;

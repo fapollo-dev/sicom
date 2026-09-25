@@ -2673,6 +2673,26 @@ async function main() {
     check('CR: DELETE título manual → 204', arDel.status === 204, { status: arDel.status });
     const arDelQ = await fetch(`${base}/${AR}/999`, { method: 'DELETE', headers: H });
     check('CR: DELETE título quitado → 422 TITULO_JA_BAIXADO', arDelQ.status === 422 && ((await arDelQ.json().catch(() => ({}))) as any).code === 'TITULO_JA_BAIXADO', { status: arDelQ.status });
+    // o gatilho CHECK_REMESSAS_BOLETOS_CONTAS: o título que está numa remessa de boleto ativa não sai; com a linha da remessa excluída (INDR E), sai
+    {
+      const arRem = (await (await fetch(`${base}/${AR}`, { method: 'POST', headers: H,
+        body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 12.5, duplicata: 'CR-REMESSA', tipodoc: 'DUPLICATA' }) })).json().catch(() => ({}))) as any;
+      const idRem = Number(arRem.codrcb);
+      pgParcelas ??= new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const codRemessa = Number((await pgParcelas.query(`INSERT INTO remessas_boletos (nomearquivoremessa, tiporemessa, codbanco, nomebanco, nroconta, agencia, codremessabanco)
+        VALUES ('CB-SMOKE.REM','E',341,'ITAU','1','1',1) RETURNING codremessa`)).rows[0].codremessa);
+      await pgParcelas.query(`INSERT INTO remessas_boletos_contas (codremessa, codrcb) VALUES ($1,$2)`, [codRemessa, idRem]);
+      const delRem = await fetch(`${base}/${AR}/${idRem}`, { method: 'DELETE', headers: H });
+      const delRemJ = (await delRem.json().catch(() => ({}))) as any;
+      const aindaExiste = Number((await pgParcelas.query(`SELECT count(*)::int n FROM areceber WHERE codrcb = $1`, [idRem])).rows[0].n);
+      await pgParcelas.query(`UPDATE remessas_boletos_contas SET indr = 'E' WHERE codremessa = $1`, [codRemessa]);
+      const delRem2 = await fetch(`${base}/${AR}/${idRem}`, { method: 'DELETE', headers: H });
+      check('CR §CHECK_REMESSAS_BOLETOS_CONTAS: título numa remessa de boleto ativa → 422 ARECEBER_EM_REMESSA_BOLETO com o texto do gatilho ("…dependências na tabela REMESSAS_BOLETOS_CONTAS.") e o título fica; com a linha da remessa excluída (INDR E) → 204',
+        delRem.status === 422 && delRemJ.code === 'ARECEBER_EM_REMESSA_BOLETO' && String(delRemJ.message ?? '').includes('REMESSAS_BOLETOS_CONTAS') && aindaExiste === 1
+        && delRem2.status === 204,
+        { del: [delRem.status, delRemJ], aindaExiste, del2: delRem2.status });
+      await pgParcelas.query(`DELETE FROM remessas_boletos WHERE codremessa = $1`, [codRemessa]);
+    }
 
     // 31.7) RBAC: operador sem grant não cria.
     const arRbac = await fetch(`${base}/${AR}`, { method: 'POST', headers: H_SEM_ACESSO, body: JSON.stringify({ codparceiro: 20, dtvenda: '2026-07-01', dtvenc: '2026-08-01', valor: 10 }) });

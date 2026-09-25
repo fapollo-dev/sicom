@@ -57,7 +57,7 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
 | `CLUBE_DESCONTO_ESTOQUE` | CLUBE_DESCONTO | BEFORE UPDATE | Toda alteração recalcula ENCERRADA: 'T' só se MAXIMO_ESTOQUE>0 e VENDA_ESTOQUE ≥ teto; senão 'F' | sim (3.125 regras, 0 com teto, 0 encerradas) | `clube-desconto.service.ts:155` grava a ENCERRADA que vier; sem a regra do teto | ⚠️ |
 | `CONTROLADELETEAGENDA` | AGENDA_PROMOCAO_ITENS | BEFORE DELETE | MULTI_PRECO.PROMOCAO := 'N' do produto **em todas as lojas** (o filtro por loja está comentado) | raro: 3 exclusões de item em 2026 | `agenda-promocao.aggregate.ts:377-386` desliga só as linhas desta agenda (codagenda); não toca promoção de outra origem | ⚠️ |
 | `ATUALIZAPROD_ATACAREJO` | MULTI_PRECO_ATACAREJO | BEFORE I/U | Inclusão ou VALOR/QUANTIDADE mudado: MULTI_PRECO.DTULTPRECOALTERADO e ETQ_IMPRESSA 'N' | quase: 3 linhas; escrita por `uAjustePrecos`, `udmCadProduto` | a tabela não existe no destino | ❌ |
-| `CHECK_REMESSAS_BOLETOS_CONTAS` | ARECEBER | BEFORE DELETE | Erro se o título está em REMESSAS_BOLETOS_CONTAS com INDR ≠ 'E' | sim: 14.133 de 14.224 linhas ativas, última em 01/09/2026 | nenhum caminho de exclusão confere (`areceber.service.ts:420-446`, agrupamento, baixa em lote, caixa…); a tabela não tem FK (`migrations/153_cnab_remessa_cobranca.sql:86-90`) | ❌ |
+| `CHECK_REMESSAS_BOLETOS_CONTAS` | ARECEBER | BEFORE DELETE | Erro se o título está em REMESSAS_BOLETOS_CONTAS com INDR ≠ 'E' | sim: 14.133 de 14.224 linhas ativas, última em 01/09/2026 | ✅ (25/09/2026) `migrations/367_areceber_remessa_boleto.sql` — gatilho BEFORE DELETE, todos os caminhos; 422 pelo HINT | ✅ |
 | `REM_RECEBER` | ARECEBER | AFTER I/U/D | Além da remessa: HISTARECEBER "DATA DA VENDA ALTERADA"; apaga/atualiza TESOURARIA (RCB), NF_FINANCEIRO_DIF_PEDIDO e MAPA_DE_CARGA_RECEBIMENTOS | HISTARECEBER sim (16, até 12/2025); as outras 3 tabelas estão vazias | `migrations/315_histareceber.sql:15-31`. O resto é morto | ✅ |
 | `CAIXA_APAGAR` | CX_APAGAR | BEFORE DELETE | Apaga a CAIXA do rateio (CODGRUPO + CODCXAPAGAR) | sim | `apagar-caixa.ts:47-51`; os outros DELETE de cx_apagar apagam a CAIXA antes ou a refazem (`fechamento-caixa.service.ts:1752`, `nf-faturamento.service.ts:116`, `apagar.service.ts:155-156`) | ✅ |
 | `SET_DEFAULTS` | ARECEBER | BEFORE I/U | TOTAL_BRT := TOTAL quando nulo | sim | só 2 dos 14 INSERT em areceber gravam (`nf-faturamento.service.ts:564`, `fechamento-caixa.service.ts:1621`). Nenhum leitor no fonte; a LOG do binário novo o lista | ⚠️ |
@@ -132,8 +132,9 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
    iguais nas 5 lojas. O Apollo mudava só a linha da sessão (o §227 tinha lido só a inclusão): a figura/PIS/alíquota editadas não chegavam às
    lojas 2/50/51/52. Agora: o UPDATE da linha devolve ao produto o que mudou (gatilho), a alteração espalha pela UF, a linha da sessão espelha a
    alíquota do produto e a web deixou de ter a "Alíquota saída" separada.
-7. **`CHECK_REMESSAS_BOLETOS_CONTAS` (❌, financeiro).** Título já enviado ao banco pode ser excluído. O boleto fica
-   registrado no banco sem título no sistema.
+7. ✅ **`CHECK_REMESSAS_BOLETOS_CONTAS` (corrigido em 25/09/2026, mig 367).** Título já enviado ao banco podia ser excluído (o boleto ficava
+   registrado no banco sem título no sistema). Agora é gatilho do banco — vale para todos os caminhos de exclusão — e o erro volta 422
+   ARECEBER_EM_REMESSA_BOLETO com o texto do legado (HINT 'APOLLO:<código>', mapeado no filtro de erros para qualquer gatilho portado).
 8. **`UPDATE_CODAUXILIAR` (❌, venda).** Trocar o código de barras principal deixa o código auxiliar apontando o antigo.
 9. **`CLUBE_DESCONTO_ESTOQUE` (⚠️, promoção).** O Apollo aceita ENCERRADA do payload; o legado a recalcula em toda
    alteração. O teto por estoque nunca foi usado.
