@@ -53,6 +53,8 @@ export async function validarGravacaoProduto(dto: Record<string, unknown>, id: n
     : undefined;
   let linha: Record<string, unknown> | undefined = gravada || veio ? { ...(gravada ?? {}) } : undefined;
   if (linha && veio) for (const [k, v] of Object.entries(veio)) if (v !== undefined) linha[k] = v;
+  // a alíquota de saída da linha da sessão é a do produto (o combo único do legado; `produto.aggregate.ts` a espelha na gravação)
+  if (linha && !vazio(dto.aliquota)) linha.aliquotasaida = dto.aliquota;
   const empresa = emp != null
     ? ((await db.selectFrom('empresas').select(['classfiscal', 'preen_ncm', 'uf']).where('idempresa', '=', emp).executeTakeFirst()) as { classfiscal?: string; preen_ncm?: string; uf?: string } | undefined)
     : undefined;

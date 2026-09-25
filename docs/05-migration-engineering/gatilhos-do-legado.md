@@ -64,7 +64,7 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
 | `TEMP_AGRUPADO` | ARECEBER | BEFORE I/U | AGRUPADO := 'N' quando nulo | sim | `migrations/043_areceber_gestao.sql:25` (DEFAULT 'N') | ✅ |
 | `VALIDA_AGRUPAMENTO` | APAGAR | AFTER I/U | Erro se CODGRUPO = 0 ou CODGRUPO_AGRUPAMENTO_APG = 0 | trava sem disparo: 0 casos | sem a trava; o código vem de sequência (`apagar-caixa.ts:20`) | ❌ |
 | `VALIDA_ADIANTAMENTO` | ADIANTAMENTO_FORN | AFTER I/U | Erro se CODMOVCONTA, VALOR ou CODPARCEIRO nulo | sim: 586, último 24/09/2026 | `migrations/159_adiantamento_forn.sql:12,16,19` (NOT NULL) | ✅ |
-| `ATUALIZATRIBUTOS` | MULTI_PRECO | AFTER I/U | Copia para PRODUTOS o que mudou na linha: IDPISCOFINS, TIPOPIS, IDTABELA, CODFIGURAFISCAL e ALIQUOTASAIDA → ALIQUOTA | sim: PRODUTOS × linha da loja 1 iguais em 98,7% (alíquota) | o cadastro faz o inverso (produto → linha da loja) para figura/PIS/tabela (`produto.aggregate.ts:276-282`). ALIQUOTA e TIPOPIS não seguem a linha; clone e lote (`produto-lojas.ts:154`) não propagam | ⚠️ |
+| `ATUALIZATRIBUTOS` | MULTI_PRECO | AFTER I/U | Copia para PRODUTOS o que mudou na linha: IDPISCOFINS, TIPOPIS, IDTABELA, CODFIGURAFISCAL e ALIQUOTASAIDA → ALIQUOTA | sim: PRODUTOS × linha da loja 1 iguais em 98,7% (alíquota) | ✅ (25/09/2026) mig 366 `trg_multi_preco_atualiza_tributos` (UPDATE; o INSERT das inclusões do Apollo não muda o produto) + o `AtualizaTributos` da alteração (`produto-lojas.ts` espalharTributosNaUf) | ✅ |
 | `UPDATE_CODAUXILIAR` | PRODUTOS | BEFORE UPDATE | CODBARRA mudou: CODAUXILIAR.CODBARRA := novo (a coluna é o código principal) | sim: 1.147 de 1.147 iguais | não sincroniza; o cadastro grava o que vier por linha (`produto.aggregate.ts:190-218`) e a multi-atualização troca `produtos.codbarra` sozinha | ❌ |
 | `UPDATE_PRODUTOS_FILHOS` | PRODUTOS | BEFORE UPDATE (autônoma) | Replica 25 campos fiscais/cadastrais do pai nos filhos (CODGRUPOPRECO só se DIF = 0) | sim: 201 filhos | `migrations/132_produtos_filhos_propagacao.sql:40-160` (mesma transação, divergência documentada) | ✅ |
 | `CASCATA_FAMILIA_PROD` | FAMILIAS_PROD | BEFORE UPDATE | CODDPTO/CODGRUPO da família mudou: move **todos** os produtos do departamento/grupo antigo para o novo. O ramo de TIPO é no-op (mesmo código) | sim: 99% dos produtos batem com o subgrupo | `familias.crud.ts` não arrasta os produtos | ❌ |
@@ -126,8 +126,12 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
    o ramo INSERT fica no código (a inclusão nas lojas e as linhas novas do cadastro), porque o cadastro regrava o detalhe por delete+insert e 92.471 linhas
    da produção têm ETQ_IMPRESSA nula — no banco, cada gravação pediria etiqueta de todas. No cadastro, a linha que já existia segue o UPDATE do legado:
    preço/promoção/atacarejo mudado pede etiqueta, qualquer outra mudança só carimba DTULTIMALTERACAO, linha intocada fica como estava.
-6. **`ATUALIZATRIBUTOS` (⚠️, fiscal).** PRODUTOS.ALIQUOTA e TIPOPIS não seguem a linha de preço. É a alíquota que o
-   PDV recebe (REM_PRODUTO replica PRODUTOS quando ALIQUOTA muda).
+6. ✅ **`ATUALIZATRIBUTOS` (corrigido em 25/09/2026, mig 366 + `produto-lojas.ts` espalharTributosNaUf).** PRODUTOS.ALIQUOTA e TIPOPIS não seguiam a linha de preço.
+   O recon achou mais: no legado o combo "Alíquota" do cadastro É a MULTI_PRECO.ALIQUOTASAIDA (cmbALIQUOTA em dtsMulti_Preco) e o gravar da
+   alteração espalha a tributação para todas as lojas da UF (`AtualizaTributos`, UCadProduto.pas:1302) — 96 de 96 produtos alterados em set/2026
+   iguais nas 5 lojas. O Apollo mudava só a linha da sessão (o §227 tinha lido só a inclusão): a figura/PIS/alíquota editadas não chegavam às
+   lojas 2/50/51/52. Agora: o UPDATE da linha devolve ao produto o que mudou (gatilho), a alteração espalha pela UF, a linha da sessão espelha a
+   alíquota do produto e a web deixou de ter a "Alíquota saída" separada.
 7. **`CHECK_REMESSAS_BOLETOS_CONTAS` (❌, financeiro).** Título já enviado ao banco pode ser excluído. O boleto fica
    registrado no banco sem título no sistema.
 8. **`UPDATE_CODAUXILIAR` (❌, venda).** Trocar o código de barras principal deixa o código auxiliar apontando o antigo.

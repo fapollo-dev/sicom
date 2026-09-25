@@ -21767,10 +21767,10 @@ async function main() {
         await semGatilho(`UPDATE multi_preco SET etq_impressa='S', dtultimalteracao='2020-01-01' WHERE idproduto=$1 AND idempresa=1`);
         await pgPl.query(`UPDATE multi_preco SET vrcusto=vrcusto+1 WHERE idproduto=$1 AND idempresa=1`, [idp]);
         const mp5 = (await pgPl.query(`SELECT idempresa, etq_impressa, dtultprecoalterado::date::text AS dtp, dtultimalteracao::date::text AS dtu FROM multi_preco WHERE idproduto=$1 AND idempresa IN (1,2) ORDER BY idempresa`, [idp])).rows as any[];
-        check('PRODUTO §202.4 [o gatilho ATUALIZAPROD]: regravar o produto mudando só o markup da sessão não pede etiqueta (S e 2020 ficam) e carimba DTULTIMALTERACAO só nessa linha (a loja 2 segue 2020); no banco, ATACAREJO_ATIVO mudado pede etiqueta e carimba DTULTPRECOALTERADO, e o custo mudado só carimba DTULTIMALTERACAO',
+        check('PRODUTO §202.4 [o gatilho ATUALIZAPROD]: regravar o produto mudando só o markup da sessão não pede etiqueta em loja nenhuma (S e 2020 ficam) e carimba DTULTIMALTERACAO — na sessão e, pelo AtualizaTributos do gravar (UPDATE da tributação nas lojas da UF), na loja 2; no banco, ATACAREJO_ATIVO mudado pede etiqueta e carimba DTULTPRECOALTERADO, e o custo mudado só carimba DTULTIMALTERACAO',
           put4.status === 200
           && mp4[0].etq_impressa === 'S' && mp4[0].dtp === '2020-01-01' && mp4[0].dtu !== '2020-01-01'
-          && mp4[1].etq_impressa === 'S' && mp4[1].dtu === '2020-01-01'
+          && mp4[1].etq_impressa === 'S' && mp4[1].dtp === '2020-01-01' && mp4[1].dtu !== '2020-01-01'
           && mp5[1].etq_impressa === 'N' && mp5[1].dtp !== '2020-01-01' && mp5[1].dtu !== '2020-01-01'
           && mp5[0].etq_impressa === 'S' && mp5[0].dtp === '2020-01-01' && mp5[0].dtu !== '2020-01-01',
           { put: put4.status, mp4, mp5 });
@@ -22946,11 +22946,16 @@ async function main() {
         const custo0 = await post(base225(3, {}, { vrcusto: 0 }));
         const rep0 = await post(base225(4, {}, { vrcustorep: 0 }));
         const semPis = await post(base225(5, { idpiscofins: undefined }));
-        const stbSemCest = await post(base225(6, {}, { aliquotasaida: 'STB' }));
+        // STB sem CEST: a alíquota é a do produto (o combo único do legado; STB no cadastro sem CEST já para no schema, 400); o 422 do gravar
+        // vale para a alteração que troca só a alíquota da linha de preço para STB
+        const stbBase = await post(base225(6));
+        const stbPut = stbBase.id ? await fetch(`${base}/cadastro/produtos/${stbBase.id}`, { method: 'PUT', headers: H, body: JSON.stringify({ descricao: 'PRODUTO P2 SMOKE 6',
+          precos: [{ idempresa: 1, vrcusto: 5, vrcustorep: 5, markup: 20, vrvenda: 9.9, promocao: 'N', ativo: 'S', ativo_compra: 'S', aliquotasaida: 'STB' }] }) }) : null;
+        const stbSemCest = { status: stbPut?.status ?? 0, code: stbPut ? (((await stbPut.json().catch(() => ({}))) as any).code as string | undefined) : undefined };
         const cestFora = await post(base225(7, { cest: '9999999' }));
         const ok = await post(base225(8, { cest: '1702404' }));
         // o uso e consumo passa sem NCM e sem PIS/COFINS, e ganha a figura fiscal pela alíquota de saída (IST → 5)
-        const uso = await post(base225(9, { uso_consumo: 'S', ncmsh: undefined, idpiscofins: undefined, pis: 'N' }, { aliquotasaida: 'IST' }));
+        const uso = await post(base225(9, { uso_consumo: 'S', ncmsh: undefined, idpiscofins: undefined, pis: 'N', aliquota: 'IST' }));
         const rUso = uso.id ? (await pgP2.query(`SELECT codfigurafiscal, codbalanca FROM produtos WHERE idproduto = $1`, [uso.id])).rows[0] as any : null;
         check('PRODUTO §225.1 [o gravar do legado]: produto que não é filho nem uso e consumo — sem NCM → 422 PRODUTO_NCM_OBRIGATORIO; NCM fora da tabela → PRODUTO_NCM_NAO_ENCONTRADO; custo 0 → PRODUTO_CUSTO_ZERO; custo de reposição 0 → PRODUTO_CUSTO_REP_ZERO; sem PIS/COFINS numa empresa fora do Simples → PRODUTO_PISCOFINS_OBRIGATORIO; STB sem CEST → PRODUTO_CEST_STB; CEST fora da tabela → PRODUTO_CEST_NAO_ENCONTRADO; o certo grava. O de USO E CONSUMO passa sem NCM e sem PIS/COFINS e ganha a figura fiscal 5 (IST) e o CODBALANCA 1',
           semNcm.code === 'PRODUTO_NCM_OBRIGATORIO' && ncmFora.code === 'PRODUTO_NCM_NAO_ENCONTRADO' && custo0.code === 'PRODUTO_CUSTO_ZERO'
@@ -23019,20 +23024,31 @@ async function main() {
           precos: [{ idempresa: 1, vrcusto: 5, vrcustorep: 5, markup: 20, vrvenda: 9.9, promocao: 'N', ativo: 'S', ativo_compra: 'S' }],
         }) });
         idp = Number(((await cr.json().catch(() => ({}))) as any).idproduto) || 0;
-        const linhas = async () => (await pgMf.query(`SELECT idempresa, codfigurafiscal, idpiscofins, idtabela FROM multi_preco WHERE idproduto = $1 ORDER BY idempresa`, [idp])).rows as any[];
+        const linhas = async () => (await pgMf.query(`SELECT idempresa, codfigurafiscal, idpiscofins, idtabela, trim(aliquotasaida) AS aliq, tipopis FROM multi_preco WHERE idproduto = $1 ORDER BY idempresa`, [idp])).rows as any[];
         const l1 = await linhas();
         const lido = (await (await fetch(`${base}/cadastro/produtos/${idp}`, { headers: H })).json().catch(() => ({}))) as any;
-        const up = await fetch(`${base}/cadastro/produtos/${idp}`, { method: 'PUT', headers: H, body: JSON.stringify({ ...lido, idpiscofins: 1, codfigurafiscal: 18 }) });
+        const up = await fetch(`${base}/cadastro/produtos/${idp}`, { method: 'PUT', headers: H, body: JSON.stringify({ ...lido, idpiscofins: 1, codfigurafiscal: 18, aliquota: 'NTB' }) });
         const l2 = await linhas();
+        // as lojas da mesma UF da sessão (AtualizaTributos: `WHERE IDEMPRESA IN (SELECT CODEMPRESA FROM EMPRESAS WHERE UF = :UF)`)
+        const daUf = ((await pgMf.query(`SELECT idempresa FROM empresas WHERE uf = (SELECT uf FROM empresas WHERE idempresa = 1)`)).rows as any[]).map((r) => Number(r.idempresa));
         const sessao1 = l1.find((l) => Number(l.idempresa) === 1);
         const outras1 = l1.filter((l) => Number(l.idempresa) !== 1);
-        const sessao2 = l2.find((l) => Number(l.idempresa) === 1);
-        const outras2 = l2.filter((l) => Number(l.idempresa) !== 1);
-        check('PRODUTO §227 [a classificação fiscal da linha de preço]: a linha da loja da sessão espelha a do produto — figura 7, PIS/COFINS 9, tabela 12 (produção: PIS/COFINS 578 de 579, figura 557 de 579) —; a inclusão leva PIS/COFINS e tabela às outras lojas, a figura não; regravar o produto com PIS/COFINS 1 e figura 18 muda só a linha da sessão',
-          cr.status === 201 && Number(sessao1?.codfigurafiscal) === 7 && Number(sessao1?.idpiscofins) === 9 && Number(sessao1?.idtabela) === 12
+        const naUf2 = l2.filter((l) => daUf.includes(Number(l.idempresa)));
+        const prod2 = (await pgMf.query(`SELECT trim(aliquota) AS aliq, idpiscofins, codfigurafiscal FROM produtos WHERE idproduto = $1`, [idp])).rows[0] as any;
+        check('PRODUTO §227 [a classificação fiscal da linha de preço]: a linha da loja da sessão espelha o produto — figura 7, PIS/COFINS 9, tabela 12 e a alíquota T01 na ALIQUOTASAIDA (o combo "Alíquota" do legado É essa coluna) —; a inclusão leva PIS/COFINS e tabela às outras lojas, a figura não (produção: figura/alíquota iguais em 69 de 257 inclusões); ALTERAR o produto (PIS/COFINS 1, figura 18, alíquota NTB) espalha a tributação para TODAS as lojas da UF — o AtualizaTributos do gravar (produção: 96 de 96 produtos alterados em set/2026 iguais nas 5 lojas)',
+          cr.status === 201 && Number(sessao1?.codfigurafiscal) === 7 && Number(sessao1?.idpiscofins) === 9 && Number(sessao1?.idtabela) === 12 && sessao1?.aliq === 'T01'
           && outras1.length > 0 && outras1.every((l) => Number(l.idpiscofins) === 9 && Number(l.idtabela) === 12 && l.codfigurafiscal == null)
-          && up.status === 200 && Number(sessao2?.idpiscofins) === 1 && Number(sessao2?.codfigurafiscal) === 18 && outras2.every((l) => Number(l.idpiscofins) === 9),
-          { cr: cr.status, l1, up: up.status, l2 });
+          && up.status === 200 && naUf2.length === daUf.length && daUf.length > 1
+          && naUf2.every((l) => Number(l.idpiscofins) === 1 && Number(l.codfigurafiscal) === 18 && l.aliq === 'NTB' && Number(l.idtabela) === 12)
+          && prod2?.aliq === 'NTB' && Number(prod2?.idpiscofins) === 1 && Number(prod2?.codfigurafiscal) === 18,
+          { cr: cr.status, l1, up: up.status, l2, daUf, prod2 });
+
+        // o gatilho ATUALIZATRIBUTOS: o que muda na linha de preço (qualquer loja) vai para o produto — a figura, o tipo do PIS e a
+        // ALIQUOTASAIDA (→ PRODUTOS.ALIQUOTA); o que não muda não mexe
+        await pgMf.query(`UPDATE multi_preco SET codfigurafiscal = 7, tipopis = 'C', aliquotasaida = 'T01' WHERE idproduto = $1 AND idempresa = 2`, [idp]);
+        const prod3 = (await pgMf.query(`SELECT trim(aliquota) AS aliq, idpiscofins, codfigurafiscal, tipopis FROM produtos WHERE idproduto = $1`, [idp])).rows[0] as any;
+        check('PRODUTO §227.2 [o gatilho ATUALIZATRIBUTOS]: mudar figura, tipo do PIS e alíquota de saída na linha da loja 2 leva os três ao produto (figura 7, tipo C, ALIQUOTA T01) e o PIS/COFINS, que não mudou, fica 1',
+          prod3?.aliq === 'T01' && Number(prod3?.codfigurafiscal) === 7 && prod3?.tipopis === 'C' && Number(prod3?.idpiscofins) === 1, { prod3 });
       } finally {
         if (idp) {
           await pgMf.query(`DELETE FROM multi_preco WHERE idproduto = $1`, [idp]).catch(() => undefined);

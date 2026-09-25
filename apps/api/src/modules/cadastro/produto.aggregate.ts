@@ -7,7 +7,7 @@ import { hashPaf, hashProduto } from '../shared/hash-paf';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { capturarAlteracaoProduto } from '../sped/sped-alteracoes';
-import { prepararPrecoDaSessao, sincronizarPrecoNasLojas, incluirNasLojas } from './produto-lojas';
+import { prepararPrecoDaSessao, sincronizarPrecoNasLojas, incluirNasLojas, espalharTributosNaUf } from './produto-lojas';
 
 /**
  * Unidade do produto (= PARA do fator de conversão, read-only no legado). Prioriza a unidade do dto
@@ -199,7 +199,10 @@ export const produtoAggregateConfig: AggregateConfig = {
   // o clone nas lojas do operador + o lote/update do grupo de preço e dos filhos (produto-lojas.ts)
   aposGravarTrx: async ({ trx, id, dto, criado }) => {
     if (criado) await incluirNasLojas(trx, id);
-    else await sincronizarPrecoNasLojas(trx, id, dto);
+    else {
+      await sincronizarPrecoNasLojas(trx, id, dto);
+      await espalharTributosNaUf(trx, id);
+    }
     // o HASHPAF do produto (o BeforePost da tela, a cada gravação — `hashProduto`), com os valores gravados
     const p = (await trx.selectFrom('produtos').select(['idproduto', 'codbarra', 'descricao', 'unidade', 'aliquota', 'ativo', 'ncmsh', 'cest'])
       .where('idproduto', '=', id).executeTakeFirst()) as Record<string, unknown> | undefined;
@@ -296,6 +299,9 @@ export const produtoAggregateConfig: AggregateConfig = {
             const doProduto = Number(it.idempresa) === emp ? h[c] : undefined;
             fiscal[c] = doProduto !== undefined ? doProduto : it[c] !== undefined ? it[c] : a?.[c] ?? null;
           }
+          // a ALÍQUOTA: no legado o combo do cadastro é a ALIQUOTASAIDA da linha da sessão (cmbALIQUOTA em dtsMulti_Preco) e PRODUTOS.ALIQUOTA
+          // vem dela pelo gatilho ATUALIZATRIBUTOS — aqui o campo único é a alíquota do produto, e a linha da sessão a espelha
+          if (Number(it.idempresa) === emp && !vazio(h.aliquota)) fiscal.aliquotasaida = h.aliquota;
           // o gatilho ATUALIZAPROD, que o delete+insert do detalhe não dispara como no legado: a linha NOVA nasce com a etiqueta a imprimir e
           // os dois carimbos; na que já existia, preço/promoção/atacarejo mudado pede etiqueta nova, e qualquer mudança carimba DTULTIMALTERACAO
           // (o legado só dá UPDATE nas linhas que a tela postou). O ramo INSERT não vai para o banco: 92.471 linhas da produção têm ETQ_IMPRESSA

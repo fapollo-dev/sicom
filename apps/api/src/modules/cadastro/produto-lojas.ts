@@ -213,6 +213,30 @@ export async function sincronizarPrecoNasLojas(trx: AnyDB, id: number, dto: Reco
   }
 }
 
+/**
+ * `AtualizaTributos` (UCadProduto.pas:1302, no gravar da ALTERAÇÃO, :3348): a tributação da linha da loja da sessão — alíquota de saída,
+ * PIS/COFINS, tipo do PIS, tabela (natureza) e figura fiscal — vai para TODAS as lojas da mesma UF (`WHERE IDEMPRESA IN (SELECT CODEMPRESA
+ * FROM EMPRESAS WHERE UF = :UF)`). O tipo do PIS é o do produto (cmbTipoPIS, quando escolhido). Produção: 96 de 96 produtos alterados em
+ * set/2026 com figura, alíquota, PIS/COFINS e tipo do PIS iguais nas 5 lojas; na inclusão isso não acontece (figura/alíquota iguais em 69
+ * de 257). O UPDATE passa pelos gatilhos da linha: carimba DTULTIMALTERACAO (ATUALIZAPROD) e devolve ao produto o que mudou (ATUALIZATRIBUTOS).
+ * ⚠️ Quando o operador não passa pelos campos fiscais, o legado espalha a linha da última loja da UF (o laço é por IDEMPRESA); aqui vale
+ * sempre a da sessão, que espelha o produto — depois da primeira alteração as lojas já estão iguais e as duas leituras coincidem.
+ */
+export async function espalharTributosNaUf(trx: AnyDB, id: number): Promise<void> {
+  const { emp } = ctx();
+  if (emp == null) return;
+  const s = (await trx.selectFrom('multi_preco').select(['aliquotasaida', 'idpiscofins', 'tipopis', 'idtabela', 'codfigurafiscal'])
+    .where('idproduto', '=', id).where('idempresa', '=', emp).executeTakeFirst()) as Record<string, unknown> | undefined;
+  if (!s) return;
+  const p = (await trx.selectFrom('produtos').select('tipopis').where('idproduto', '=', id).executeTakeFirst()) as { tipopis?: string | null } | undefined;
+  const tipopis = String(p?.tipopis ?? '').trim() !== '' ? p!.tipopis : s.tipopis ?? null;
+  await sql`UPDATE multi_preco
+               SET aliquotasaida = ${s.aliquotasaida ?? null}, idpiscofins = ${s.idpiscofins ?? null}, tipopis = ${tipopis},
+                   idtabela = ${s.idtabela ?? null}, codfigurafiscal = ${s.codfigurafiscal ?? null}
+             WHERE idproduto = ${id}
+               AND idempresa IN (SELECT idempresa FROM empresas WHERE uf = (SELECT uf FROM empresas WHERE idempresa = ${emp}))`.execute(trx);
+}
+
 /** depois do CREATE: a MULTI_PRECO, a ESTOQUE e a ESTOQUE_DEP de cada empresa (udmCadProduto.pas:2745; udmPrincipal `SetaEstoque`) */
 export async function incluirNasLojas(trx: AnyDB, id: number): Promise<void> {
   const { emp, op } = ctx();

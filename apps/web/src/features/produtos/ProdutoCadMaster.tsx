@@ -775,9 +775,10 @@ function PrecosSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [precos]);
 
-  // alíquota de saída efetiva p/ o cálculo: a do preço, senão a do produto (default).
+  // a alíquota do cálculo é a do produto: no legado o combo "Alíquota" do cadastro é a própria ALIQUOTASAIDA da linha da loja (a API a
+  // espelha ao gravar e a espalha para as lojas da UF)
   const aliquotaCalc =
-    (form.watch('precos.0.aliquotasaida') ?? '').trim() || (produtoAliquota ?? '').trim();
+    (produtoAliquota ?? '').trim() || (form.watch('precos.0.aliquotasaida') ?? '').trim();
 
   /** REUSO do motor: POST /precificacao/produto → seta `precos.0.vrvenda` (e mostra o CST). */
   const calcularVenda = async () => {
@@ -888,23 +889,6 @@ function PrecosSection({
                 value={field.value as number | undefined}
                 onChange={field.onChange}
                 error={form.formState.errors.precos?.[0]?.vrpromo?.message as string | undefined}
-              />
-            )}
-          />
-          {/* alíquota de saída — default da alíquota fiscal do produto (form.watch('aliquota')). */}
-          <Controller
-            control={form.control}
-            name="precos.0.aliquotasaida"
-            render={({ field }) => (
-              <SelectField
-                label="A&líquota saída"
-                options={aliquotaOptions}
-                value={field.value ?? undefined}
-                onChange={(v) => field.onChange(v || undefined)}
-                placeholder={produtoAliquota ? `Padrão: ${produtoAliquota}` : 'Selecione a alíquota…'}
-                error={
-                  form.formState.errors.precos?.[0]?.aliquotasaida?.message as string | undefined
-                }
               />
             )}
           />
