@@ -11,7 +11,7 @@ import { operadorSchema, OPERADOR_TIPO_OPCOES, type CriarOperadorDto } from '@ap
  * PK DIGITADA (pkGerada={false}); GLOBAL. Header: nome, login (único), tipo (deriva o grupo no
  * servidor), parceiro/funcionário (lookup FUN='S', uCadUsuarios.pas:491), supervisor (lookup operadores,
  * uCadUsuarios.pas), flags. Detalhe: EMPRESAS-PERMITIDAS (ponte 1:N; ≥1 obrigatória — uCadUsuarios.pas:444).
- * Senha, perfis/RBAC granular, biometria e enforcement das empresas no login = cortes seguintes.
+ * A senha do cadastro vai ao hash do servidor (troca no 1º acesso). Perfis/RBAC granular e biometria = cortes seguintes.
  */
 export function OperadoresCadMaster() {
   const { data: parceiroOptions = [] } = useResourceOptions(
@@ -85,6 +85,26 @@ export function OperadoresCadMaster() {
             disabled={!editavel}
             error={form.formState.errors.login?.message as string | undefined}
             {...form.register('login')}
+          />
+          {/* a senha (uCadUsuarios.pas:423-432): obrigatória na inclusão; na alteração, vazia mantém a atual. O usuário troca no
+              primeiro acesso. */}
+          <Field
+            label="S&enha"
+            type="password"
+            autoComplete="new-password"
+            maxLength={50}
+            disabled={!editavel}
+            error={form.formState.errors.senha?.message as string | undefined}
+            {...form.register('senha')}
+          />
+          <Field
+            label="Con&firmar senha"
+            type="password"
+            autoComplete="new-password"
+            maxLength={50}
+            disabled={!editavel}
+            error={form.formState.errors.confirmacaoSenha?.message as string | undefined}
+            {...form.register('confirmacaoSenha')}
           />
           <Controller
             control={form.control}

@@ -239,3 +239,13 @@ admin definir a senha (empty legado ≈ sem senha usável; fiel). Auto-revisão 
 pequeno; sem auditor dedicado): sem SQL-injection (coluna literal), sem vazamento de claro, non-clobber testado.
 
 **Verde:** api tsc 0 · api test **156** (151 + 5) · smoke **581/0** (§82) · web inalterado.
+
+## Corte "a senha no cadastro" (25/09/2026) — auditoria de esqueletos §4.9, lacuna 1
+
+O operador criado pelo Apollo não conseguia entrar: a tela não gravava senha e não havia como o administrador definir a de
+outro operador (`auth/trocar-senha` exige a atual, contra um hash nulo). No legado, 88 de 88 inclusões de 2025-26 têm senha.
+Agora o cadastro tem Senha e Confirmar senha (uCadUsuarios.pas:423-432): obrigatória na inclusão, opcional na alteração (vazia
+mantém); "A senha informada não confere!"; vai ao `senha_hash` (scrypt) com SOLICITAR_ALTERACAO_SENHA='S' (troca no 1º
+acesso), zera tentativas/bloqueio, e nunca volta na leitura. **Divergência consciente:** a cifra reversível do legado
+(SENHA = César +13, LOGIN_SENHA = CryptApollo) não é gravada — é a mesma decisão do cutover das senhas. Smoke §208.
+Pendente (MÉDIA): SENHAPDV/SENHARETAGUARDA e as 19 flags de PERMISSAOPDV (PDV fora do escopo).

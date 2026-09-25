@@ -2,6 +2,8 @@ import { operadorSchema, atualizarOperadorSchema, TIPOOP_IDGRUPO } from '@apollo
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
+import { hashSenha } from '../../shared/auth/crypto';
+import { sql } from 'kysely';
 
 /**
  * OPERADORES (uCadUsuarios) — corte-2: migra o CRUD simples para MESTRE-DETALHE (AggregateEngineService)
@@ -60,7 +62,19 @@ export const operadoresAggregateConfig: AggregateConfig = {
   // (b) não EDITAR um operador de sistema existente (checa o login gravado pela PK, no update).
   validar: async ({ dto, id, db }) => {
     if (ehProtegido(dto.login)) throw new BusinessRuleError('OPERADOR_PROTEGIDO', { login: dto.login });
+    // "A senha informada não confere!" (:423); na inclusão a senha é obrigatória — sem ela o operador não entra (auditoria de
+    // esqueletos §4.9: 88 de 88 inclusões de 2025-26 com senha no legado; o app não tinha como definir a de outro operador)
+    if (dto.senha != null && dto.confirmacaoSenha != null && dto.senha !== dto.confirmacaoSenha) throw new BusinessRuleError('OPERADOR_SENHA_NAO_CONFERE');
+    if (id == null && !String(dto.senha ?? '').length) throw new BusinessRuleError('OPERADOR_SENHA_OBRIGATORIA');
     if (id != null && (await loginProtegido(db, id))) throw new BusinessRuleError('OPERADOR_PROTEGIDO', { codoperador: id });
+  },
+  // a senha do cadastro vai ao hash forte (a cifra reversível do legado — SENHA/LOGIN_SENHA — não é gravada, como no cutover
+  // das senhas) e o operador troca no primeiro acesso (SOLICITAR_ALTERACAO_SENHA)
+  aposGravarTrx: async ({ trx, id, dto }) => {
+    const senha = String(dto.senha ?? '');
+    if (!senha) return;
+    await sql`UPDATE operadores SET senha_hash = ${hashSenha(senha)}, solicitar_alteracao_senha = 'S', tentativas_login = 0, bloqueado_ate = NULL
+               WHERE codoperador = ${id}`.execute(trx);
   },
   validarRemocao: async ({ id, db }) => {
     if (await loginProtegido(db, id)) throw new BusinessRuleError('OPERADOR_PROTEGIDO', { codoperador: id });

@@ -3393,7 +3393,7 @@ async function main() {
     const opList = (await (await fetch(`${base}/${OP}`, { headers: H })).json().catch(() => [])) as any[];
     check('OPER: GET lista inclui operadores semeados (op 7)', Array.isArray(opList) && opList.some((o) => Number(o.codoperador) === 7), { n: opList?.length });
     // 40.2) cria operador (PK digitada 500), tipo SUP → idgrupo DERIVADO 3 + empresas-permitidas [1].
-    const opCreate = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 500, nome: 'TESTE OP', login: 'TESTEOP', tipoop: 'SUP', empresas: [{ codempresa: 1 }] }) });
+    const opCreate = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ senha: 'op123', codoperador: 500, nome: 'TESTE OP', login: 'TESTEOP', tipoop: 'SUP', empresas: [{ codempresa: 1 }] }) });
     check('OPER: POST cria operador (PK digitada + empresas) → 201', opCreate.status === 201, { status: opCreate.status });
     const op500 = (await (await fetch(`${base}/${OP}/500`, { headers: H })).json().catch(() => ({}))) as any;
     check('OPER: tipo SUP deriva idgrupo 3 + empresas [1] no read do agregado', Number(op500.idgrupo) === 3 && op500.tipoop === 'SUP' && Array.isArray(op500.empresas) && op500.empresas.length === 1 && Number(op500.empresas[0].codempresa) === 1, { op500 });
@@ -3401,7 +3401,7 @@ async function main() {
     const opInList = ((await (await fetch(`${base}/${OP}`, { headers: H })).json().catch(() => [])) as any[]).find((o) => Number(o.codoperador) === 500);
     check('OPER: view get_operadores expõe grupo=Supervisor', opInList?.grupo === 'Supervisor', { opInList });
     // 40.3) LOGIN único (case-insensitive) → 409 (com empresas p/ passar o schema e chegar no índice).
-    const opDup = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 501, nome: 'X', login: 'testeop', empresas: [{ codempresa: 1 }] }) });
+    const opDup = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ senha: 'op123', codoperador: 501, nome: 'X', login: 'testeop', empresas: [{ codempresa: 1 }] }) });
     check('OPER: login duplicado (case-insensitive) → 409 LOGIN_DUPLICADO', opDup.status === 409 && ((await opDup.json().catch(() => ({}))) as any).code === 'LOGIN_DUPLICADO', { status: opDup.status });
     // 40.4) PUT edita e RE-DERIVA idgrupo (OPE→2); SEM empresas no body → mantém as existentes (substitute só quando enviado).
     const opPut = await fetch(`${base}/${OP}/500`, { method: 'PUT', headers: H, body: JSON.stringify({ nome: 'TESTE OP EDIT', tipoop: 'OPE' }) });
@@ -3417,7 +3417,7 @@ async function main() {
     const opEmptyEmp = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 511, nome: 'EMP VAZIA', login: 'EMPVAZIA', empresas: [] }) });
     check('OPER: ≥1 empresa obrigatória (sem/vazia → 400)', opNoEmp.status === 400 && opEmptyEmp.status === 400, { sem: opNoEmp.status, vazia: opEmptyEmp.status });
     // 40.7) supervisor (idsupervisor) — lookup opcional (auto-relação; 0 dados reais, sem regra).
-    const opSup = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 512, nome: 'COM SUP', login: 'COMSUP', idsupervisor: 7, empresas: [{ codempresa: 1 }] }) });
+    const opSup = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ senha: 'op123', codoperador: 512, nome: 'COM SUP', login: 'COMSUP', idsupervisor: 7, empresas: [{ codempresa: 1 }] }) });
     const op512 = (await (await fetch(`${base}/${OP}/512`, { headers: H })).json().catch(() => ({}))) as any;
     check('OPER: idsupervisor gravado (lookup opcional)', opSup.status === 201 && Number(op512.idsupervisor) === 7, { op512 });
     // 40.8) TRAVA usuário-sistema (op 1 = ADMIN real): PUT e DELETE → 422 OPERADOR_PROTEGIDO.
@@ -3439,7 +3439,7 @@ async function main() {
     check('OPER: DELETE soft (INDR=E) → 204 + vínculos de empresa apagados (cascata)', opDel.status === 204 && (await opEmpresas(500)).length === 0, { status: opDel.status, emp: await opEmpresas(500) });
     const opGone = await fetch(`${base}/${OP}/500`, { headers: H });
     check('OPER: operador excluído some do GET :id', opGone.status === 404 || ((await opGone.json().catch(() => null)) == null), { status: opGone.status });
-    const opReuse = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 502, nome: 'REUSO', login: 'testeop', empresas: [{ codempresa: 1 }] }) });
+    const opReuse = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ senha: 'op123', codoperador: 502, nome: 'REUSO', login: 'testeop', empresas: [{ codempresa: 1 }] }) });
     check('OPER: login liberado após soft-delete → 201 (reuso)', opReuse.status === 201, { status: opReuse.status });
     // 40.10) validação: sem nome/login → 400.
     const opBad = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify({ codoperador: 503, empresas: [{ codempresa: 1 }] }) });
@@ -21688,6 +21688,37 @@ async function main() {
         await pgPe.query(`DELETE FROM parceiros WHERE codparceiro=$1`, [cod]);
       } finally {
         await pgPe.end();
+      }
+    }
+
+    // ══ §208 USUÁRIOS (auditoria de esqueletos §4.9): a senha no cadastro — sem ela o operador criado no app não entrava
+    {
+      const pgUs = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const OP = 'cadastro/operadores';
+        const post = async (b: Record<string, unknown>) => {
+          const r = await fetch(`${base}/${OP}`, { method: 'POST', headers: H, body: JSON.stringify(b) });
+          return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
+        };
+        const semSenha = await post({ codoperador: 20801, nome: 'SEM SENHA', login: 'SEMSENHA208', empresas: [{ codempresa: 1 }] });
+        const naoConfere = await post({ codoperador: 20801, nome: 'NAO CONFERE', login: 'NCONF208', senha: 'abc123', confirmacaoSenha: 'abc124', empresas: [{ codempresa: 1 }] });
+        const ok = await post({ codoperador: 20802, nome: 'LILA SMOKE', login: 'LILA208', senha: 'inicial1', confirmacaoSenha: 'inicial1', empresas: [{ codempresa: 1 }] });
+        const row = (await pgUs.query(`SELECT senha_hash IS NOT NULL AS tem, solicitar_alteracao_senha AS sol FROM operadores WHERE codoperador=20802`)).rows[0] as any;
+        const login = await fetch(`${base}/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-tenant-id': 'pinheirao' }, body: JSON.stringify({ login: 'LILA208', senha: 'inicial1', empresa: 1 }) });
+        const loginJ = (await login.json().catch(() => ({}))) as any;
+        const leitura = (await (await fetch(`${base}/${OP}/20802`, { headers: H })).json().catch(() => ({}))) as any;
+        check('USUÁRIOS §208 [a senha no cadastro]: incluir sem senha → 422 OPERADOR_SENHA_OBRIGATORIA; senha e confirmação diferentes → 422 ("A senha informada não confere!"); com senha grava o HASH e pede a troca — o operador ENTRA com ela (troca obrigatória no 1º acesso) e a senha nunca volta na leitura',
+          semSenha.status === 422 && semSenha.j.code === 'OPERADOR_SENHA_OBRIGATORIA' && naoConfere.status === 422 && naoConfere.j.code === 'OPERADOR_SENHA_NAO_CONFERE'
+          && ok.status === 201 && row?.tem === true && row?.sol === 'S'
+          && login.status === 200 && (loginJ.mustChangePassword === true || !!loginJ.token)
+          && leitura.senha_hash === undefined,
+          { semSenha: [semSenha.status, semSenha.j.code], naoConfere: [naoConfere.status, naoConfere.j.code], ok: [ok.status, ok.j.code], row, login: [login.status, loginJ.mustChangePassword, !!loginJ.token, loginJ.code] });
+        await pgUs.query(`DELETE FROM operadores_acessos WHERE codoperador=20802`);
+        await pgUs.query(`DELETE FROM operadores_refresh_tokens WHERE codoperador=20802`);
+        await pgUs.query(`DELETE FROM relacao_operador_empresa WHERE codoperador=20802`);
+        await pgUs.query(`DELETE FROM operadores WHERE codoperador=20802`);
+      } finally {
+        await pgUs.end();
       }
     }
 

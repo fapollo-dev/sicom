@@ -55,6 +55,10 @@ const operadorBase = z.object({
   desabilita_operacoes_basicas: opcional(z.enum(['S', 'N'])),
   desabilita_desconto_pdv: opcional(z.enum(['S', 'N'])),
   solicitar_alteracao_senha: opcional(z.enum(['S', 'N'])),
+  // a SENHA do cadastro (edtSenha/edtConfSenha, uCadUsuarios.pas:423-432): obrigatória na inclusão, opcional na alteração (vazia
+  // = mantém). Vai ao `senha_hash` do servidor e o operador troca no primeiro acesso; nunca volta na leitura.
+  senha: opcional(z.string().min(1).max(50)),
+  confirmacaoSenha: opcional(z.string().max(50)),
   // EMPRESAS-PERMITIDAS (corte-2): detalhe 1:N RELACAO_OPERADOR_EMPRESA. O legado exige ≥1 empresa
   // no gravar (uCadUsuarios.pas:444). No update parcial (.partial()) o campo é opcional — só valida se
   // enviado; omitir mantém as existentes (substitute do engine só ocorre quando a chave vem no dto).
