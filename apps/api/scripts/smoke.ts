@@ -24285,9 +24285,14 @@ async function main() {
         const nfGet = (await (await fetch(`${base}/fiscal/nf/${codnf}`, { headers: H })).json().catch(() => ({}))) as any;
         const DECO = ['decomposicao', 'codprodutopai_decomposicao', 'item_perda_total', 'atualiza_multipreco_decomp', 'descricao_prodpai_decomp', 'nroitem_decomp', 'cfop_original', 'vrbase_stexterno'];
         const itensPut = (nfGet.itens ?? []).map((it: any) => Object.fromEntries(Object.entries(it).filter(([k]) => !DECO.includes(k))));
+        const pksAntes = filhos.map((x) => Number(x.codnfprod)).join();
+        await pgDc.query(`INSERT INTO nf_prod_ibscbs (codnfprod, codnf, idempresa, codproduto, cst, cclasstrib, vbc) VALUES ($1, $2, 1, ${FA}, '000', '000001', 714.28)`, [f(FA)?.codnfprod, codnf]);
         const put = await fetch(`${base}/fiscal/nf/${codnf}`, { method: 'PUT', headers: H, body: JSON.stringify({ validatotalnf: nfGet.validatotalnf ?? nfGet.totalnf, itens: itensPut }) });
         const depoisPut = (await pgDc.query(`SELECT count(*) FILTER (WHERE codprodutopai_decomposicao = ${PAI} AND nroitem_decomp = 1) AS deco,
-            (SELECT count(*) FROM nf_prod_lote l JOIN nf_prod p ON p.codnfprod = l.codnfprod WHERE p.codnf = $1) AS lotes FROM nf_prod WHERE codnf = $1`, [codnf])).rows[0] as any;
+            (SELECT count(*) FROM nf_prod_lote l JOIN nf_prod p ON p.codnfprod = l.codnfprod WHERE p.codnf = $1) AS lotes,
+            string_agg(codnfprod::text, ',' ORDER BY nroitem) AS pks,
+            (SELECT count(*) FROM nf_prod_ibscbs g WHERE g.codnf = $1 AND g.codnfprod = ${Number(f(FA)?.codnfprod) || 0} AND g.cclasstrib = '000001') AS ibscbs
+          FROM nf_prod WHERE codnf = $1`, [codnf])).rows[0] as any;
         // (6) processar: só os filhos movem o estoque (o pai não está na nota)
         await pgDc.query(`UPDATE nf SET validatotalnf = totalnf WHERE codnf = $1`, [codnf]);
         const p6 = await processarNf(codnf, H);
@@ -24311,10 +24316,10 @@ async function main() {
             && Number(x.vrbasecalculo) === 0 && Number(x.vricm) === 0 && Number(x.lotes) === 1)
           && Number(f(FA)?.vrvenda) === 20 && Math.abs(somaBase - Number(paiRow?.vrbasest)) <= 0.02 && Number(cab?.totalprod) === 1000 && Number(cab?.qtde) === 100,
           { ok4: [ok4.status, ok4.j], filhos, cab, somaBase, paiBase: paiRow?.vrbasest });
-        check('ENTRADA DECOMPOSTA §256.3 [o gravar e o processar]: o PUT da tela (sem as colunas da decomposição) mantém o pai de cada filho e os lotes (a FK do lote é ON DELETE CASCADE e o gravar substituía os itens — todo Gravar apagava os lotes); o processar passa e só os filhos entram no estoque (50/30/20), o pai não',
-          put.status === 200 && Number(depoisPut?.deco) === 3 && Number(depoisPut?.lotes) === 3 && p6.status === 200
+        check('ENTRADA DECOMPOSTA §256.3 [o gravar e o processar]: o PUT da tela (sem as colunas da decomposição) mantém o pai de cada filho, o CODNFPROD de cada item (o legado atualiza no lugar), os lotes e o grupo IBS/CBS do item (as FKs são ON DELETE CASCADE e o gravar substituía os itens — todo Gravar apagava os dois); o processar passa e só os filhos entram no estoque (50/30/20), o pai não',
+          put.status === 200 && Number(depoisPut?.deco) === 3 && Number(depoisPut?.lotes) === 3 && depoisPut?.pks === pksAntes && Number(depoisPut?.ibscbs) === 1 && p6.status === 200
           && saldo(FA) === 50 && saldo(FB) === 30 && saldo(FC) === 20 && saldo(PAI) === 0,
-          { put: put.status, depoisPut, p6: [p6.status, p6J.code, p6J.message], est });
+          { put: put.status, depoisPut, pksAntes, p6: [p6.status, p6J.code, p6J.message], est });
         // (7) ValidaProdutosComDecomposicao: o item de produto com DECOMPOSICAO=S e o cadastro que não soma 100 trava o processar (entrada e saída)
         await pgDc.query(`UPDATE decomposicao SET percentual = 10 WHERE idproduto = ${PAI} AND idproduto_01 = ${FC}`);
         const rs = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 1, serie: '1', tipo: 'S', nronf: 'DC256B', tipoemissao: '0', codparceiro: 20,

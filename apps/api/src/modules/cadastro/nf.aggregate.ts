@@ -516,6 +516,9 @@ export const nfAggregateConfig: AggregateConfig = {
       // NF as apagaria. O motor as mantém, casando o item pelo produto (lição 124)
       chaveNatural: ['codproduto'],
       preservarNaoGerenciadas: true,
+      // o CODNFPROD do item não muda ao gravar (no legado o item é atualizado no lugar): o histórico do processamento, a devolução de
+      // compra (COD_ITEM_NF), o ULT_CODNFPROD_REPASSE do produto e os filhos do item guardam essa chave
+      pkEstavel: true,
       colunas: [
         'nroitem', 'codproduto', 'idproduto_filho', 'nroitem_venda', 'codprodnota', 'quantidade', 'fatorembal', 'unidade',
         'geraestoque', 'movimenta_estoque',
@@ -547,7 +550,10 @@ export const nfAggregateConfig: AggregateConfig = {
           .where('p.codnf', '=', masterId).orderBy('l.codnfprodlote').execute()) as Array<Record<string, unknown>>;
         const porItem = new Map<number, Array<Record<string, unknown>>>();
         for (const l of lotes) porItem.set(Number(l.codnfprod), [...(porItem.get(Number(l.codnfprod)) ?? []), l]);
-        return itens.map((i) => ({ ...i, _lotes: porItem.get(Number(i.codnfprod)) ?? [] }));
+        // o grupo IBS/CBS do item (NF_PROD_IBSCBS, a reforma): mesma FK em cascata
+        const ibscbs = new Map(((await trx.selectFrom('nf_prod_ibscbs').selectAll().where('codnf', '=', masterId).execute()) as Array<Record<string, unknown>>)
+          .map((g) => [Number(g.codnfprod), g]));
+        return itens.map((i) => ({ ...i, _lotes: porItem.get(Number(i.codnfprod)) ?? [], _ibscbs: ibscbs.get(Number(i.codnfprod)) ?? null }));
       },
       // congela o CUSTO do item = MULTI_PRECO.VRCUSTO corrente por (produto, empresa) no lançamento
       // (GetCustoProduto, udmNF.pas:12057). É a base do CMV; snapshot (não acompanha a deriva do MP).
@@ -616,11 +622,23 @@ export const nfAggregateConfig: AggregateConfig = {
         // os lotes voltam para o item regravado — casado pelo produto na ordem, como a preservação das colunas (o item excluído leva os seus)
         const fila = new Map<string, Array<Record<string, unknown>>>();
         for (const a of (snapshot as Array<Record<string, unknown>> | undefined) ?? []) fila.set(String(a.codproduto), [...(fila.get(String(a.codproduto)) ?? []), a]);
+        // o casamento é o do motor (PK estável: a linha antiga de mesma PK; senão a n-ésima do produto)
+        const porPk = new Map(((snapshot as Array<Record<string, unknown>> | undefined) ?? []).map((a) => [Number(a.codnfprod), a]));
+        const usadas = new Set<Record<string, unknown>>();
         for (const it of itens) {
+          let antiga = porPk.get(Number(it.codnfprod));
+          if (!antiga || usadas.has(antiga)) {
+            const q = fila.get(String(it.codproduto)) ?? [];
+            while (q.length && usadas.has(q[0])) q.shift();
+            antiga = q.shift();
+          }
+          if (antiga) usadas.add(antiga);
           // o filho da decomposição chega com os lotes do pai (`_lotesNovos`)
-          const lotes = [...((fila.get(String(it.codproduto))?.shift()?._lotes ?? []) as Array<Record<string, unknown>>),
+          const lotes = [...((antiga?._lotes ?? []) as Array<Record<string, unknown>>),
             ...((Array.isArray(it._lotesNovos) ? it._lotesNovos : []) as Array<Record<string, unknown>>)];
           if (lotes.length) await trx.insertInto('nf_prod_lote').values(lotes.map((l) => ({ ...l, codnfprod: Number(it.codnfprod) }))).execute();
+          const g = antiga?._ibscbs as Record<string, unknown> | null | undefined;
+          if (g) await trx.insertInto('nf_prod_ibscbs').values({ ...g, codnfprod: Number(it.codnfprod), codproduto: Number(it.codproduto) }).execute();
         }
         const descricaoDoProduto = await leitorDescricaoProduto(trx);
         for (const it of itens) {
