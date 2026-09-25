@@ -68,7 +68,7 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
 | `UPDATE_CODAUXILIAR` | PRODUTOS | BEFORE UPDATE | CODBARRA mudou: CODAUXILIAR.CODBARRA := novo (a coluna é o código principal) | sim: 1.147 de 1.147 iguais | ✅ (25/09/2026) `migrations/368_update_codauxiliar.sql` + o detalhe do cadastro leva o código do produto (sem carimbar DTALTERACAO) | ✅ |
 | `UPDATE_PRODUTOS_FILHOS` | PRODUTOS | BEFORE UPDATE (autônoma) | Replica 25 campos fiscais/cadastrais do pai nos filhos (CODGRUPOPRECO só se DIF = 0) | sim: 201 filhos | `migrations/132_produtos_filhos_propagacao.sql:40-160` (mesma transação, divergência documentada) | ✅ |
 | `CASCATA_FAMILIA_PROD` | FAMILIAS_PROD | BEFORE UPDATE | CODDPTO/CODGRUPO da família mudou: move **todos** os produtos do departamento/grupo antigo para o novo. O ramo de TIPO é no-op (mesmo código) | sim: 99% dos produtos batem com o subgrupo | ✅ (25/09/2026) `migrations/371_cascata_familia_prod.sql`, como está (move pelo departamento/grupo antigo) | ✅ |
-| `REM_PARCEIROS` | PARCEIROS | AFTER I/U/D | Além da remessa: ATIVADO mudou → PARCEIROS_END, _REL e _PGTO recebem o mesmo | sim: 827 endereços N/N | `parceiro.aggregate.ts` grava o ativado do endereço como veio; não desce | ❌ |
+| `REM_PARCEIROS` | PARCEIROS | AFTER I/U/D | Além da remessa: ATIVADO mudou → PARCEIROS_END, _REL e _PGTO recebem o mesmo | sim: 827 endereços N/N | ✅ (25/09/2026) `migrations/372_parceiros_ativado.sql` + o detalhe de endereços acompanha (`parceiro.aggregate.ts`) | ✅ |
 | `PLC_BI0` | PLC | BEFORE INSERT | CODPLC := sequência | sim | `migrations/349_plc_cadastro.sql:5` | ✅ |
 | `COTACAO_FORN_BI` | COTACAO_FORN | BEFORE INSERT | CODCTCFORN := sequência. O fonte desliga ao gravar com código próprio (`uCadCotacaoForn.pas:640-673`) | sim | `migrations/091_cotacao.sql:49` (bigserial) | ✅ |
 | `COTACAO_FORN_ITENS_BI` | COTACAO_FORN_ITENS | BEFORE INSERT | CODCTCFIT := sequência (idem) | sim | `migrations/091_cotacao.sql:60` | ✅ |
@@ -146,8 +146,8 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
 12. ✅ **`CONTROLADELETEAGENDA` (corrigido em 25/09/2026, `agenda-promocao.aggregate.ts`).** O Apollo desligava só o preço da agenda; agora o item
     removido desliga a PROMOCAO do produto em todas as lojas, como o gatilho (inclusive a de outra origem). No código, não no banco: o detalhe
     é regravado por delete+insert. A exclusão da agenda é lógica e não dispara (como no legado).
-13. **`REM_PARCEIROS` (❌, cadastro, baixo).** Inativar o parceiro não inativa endereços, relacionados e pagamentos.
-    Quem lê é o PDV (via remessa).
+13. ✅ **`REM_PARCEIROS` (corrigido em 25/09/2026, mig 372 + `parceiro.aggregate.ts`).** Inativar o parceiro não inativava endereços, relacionados e
+    pagamentos. Agora o gatilho do banco cascateia (a REMESSA_SERVER do PDV fica fora) e o cadastro acompanha nos endereços.
 14. **`RECEITA_PROD_HIST`, `PRODUCAO_HIST`, `ITENS_PRODUCAO_HIST`, `ITENS_PRODUCAO_RECEITA_HIST` (❌, fiscal/auditoria,
     baixo).** O histórico para na virada. O SPED do legado usa os três de produção no K270/K275. As três tabelas de
     produção nem existem no destino. Produção parada desde 10/2024.
