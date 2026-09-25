@@ -414,6 +414,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('369_clube_desconto_estoque.sql'));
   await pool.query(sql('370_areceber_set_defaults.sql'));
   await pool.query(sql('371_cascata_familia_prod.sql'));
+  await pool.query(sql('372_parceiros_ativado.sql'));
   await pool.end();
   return pg;
 }

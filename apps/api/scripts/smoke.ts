@@ -22064,6 +22064,19 @@ async function main() {
           cr.status === 201 && e0.length === 2 && put1.status === 200 && put2.status === 200 && mesmo(e0, e1) && mesmo(e0, e2)
           && e1.find((e) => Number(e.codend) === endP)?.endereco === 'RUA A NOVA',
           { cr: cr.status, crJ, e0, e1, e2, put1: put1.status, put2: put2.status });
+
+        // o gatilho REM_PARCEIROS (fora a remessa do PDV): inativar o parceiro inativa endereços, relacionamentos e pagamentos — pelo cadastro
+        // (que devolve os endereços como carregou, ATIVADO S) e por fora (SQL direto, reativando)
+        await pgPe.query(`INSERT INTO parceiros_rel (codparceiro, nome, ativado) VALUES ($1, 'REL 207', 'S')`, [cod]);
+        const regA = (await (await fetch(`${base}/${PA}/${cod}`, { headers: H })).json().catch(() => ({}))) as any;
+        const putA = await fetch(`${base}/${PA}/${cod}`, { method: 'PUT', headers: H, body: JSON.stringify({ ...regA, ativado: 'N' }) });
+        const atv = async () => (await pgPe.query(`SELECT (SELECT string_agg(DISTINCT coalesce(ativado,'-'), ',') FROM parceiros_end WHERE codparceiro = $1) e,
+                                                          (SELECT string_agg(DISTINCT coalesce(ativado,'-'), ',') FROM parceiros_rel WHERE codparceiro = $1) r`, [cod])).rows[0] as any;
+        const aN = await atv();
+        await pgPe.query(`UPDATE parceiros SET ativado = 'S' WHERE codparceiro = $1`, [cod]);
+        const aS = await atv();
+        check('PARCEIRO §207.2 [o gatilho REM_PARCEIROS]: inativar o parceiro pelo cadastro leva ATIVADO N aos endereços (mesmo com a tela devolvendo S) e ao relacionamento; reativar por fora (SQL) leva S aos dois',
+          putA.status === 200 && aN?.e === 'N' && aN?.r === 'N' && aS?.e === 'S' && aS?.r === 'S', { putA: putA.status, aN, aS });
         await pgPe.query(`DELETE FROM parceiros_end WHERE codparceiro=$1`, [cod]);
         await pgPe.query(`DELETE FROM parceiros WHERE codparceiro=$1`, [cod]);
       } finally {

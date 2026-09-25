@@ -90,6 +90,12 @@ export const parceiroAggregateConfig: AggregateConfig = {
         'cnpj_cpf', 'rg_insc', 'telefone', 'celular', 'fax', 'tipo_endereco',
         'endereco_padrao', 'ativado', 'codpais',
       ],
+      // o gatilho REM_PARCEIROS (mig 372): o parceiro que muda de ATIVADO leva o valor aos endereços — o regravado aqui acompanha, em vez
+      // de voltar com o que a tela carregou
+      derivarItensTrx: async (itens, _trx, _emp, header) => {
+        const novo = (header as Record<string, unknown> | undefined)?._ativadoMudou;
+        return novo === undefined ? itens : itens.map((it) => ({ ...it, ativado: novo }));
+      },
     },
     // F2 — sub-recursos 1:N (engine grava todos na mesma transação; substitui no update)
     { tabela: 'parceiros_bancos', pk: 'codparceirobanco', fk: 'codparceiro', chave: 'bancos', colunas: ['codbco', 'agencia', 'nrconta'],
@@ -104,6 +110,11 @@ export const parceiroAggregateConfig: AggregateConfig = {
   // No UPDATE o `validar` roda na transação do save, antes da troca dos endereços — lê o endereço ainda gravado.
   validar: async ({ dto, id, db }) => {
     if (id != null) await capturarAlteracaoParceiro(db, id, dto);
+    // o ATIVADO de antes (o gatilho REM_PARCEIROS cascateia na gravação do cabeçalho; o detalhe de endereços precisa saber que mudou)
+    if (id != null && dto.ativado !== undefined) {
+      const atual = (await (db as any).selectFrom('parceiros').select('ativado').where('codparceiro', '=', id).executeTakeFirst()) as { ativado?: string | null } | undefined;
+      if (atual?.ativado != null && dto.ativado != null && String(atual.ativado) !== String(dto.ativado)) (dto as Record<string, unknown>)._ativadoMudou = dto.ativado;
+    }
   },
 };
 
