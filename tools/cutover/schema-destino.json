@@ -6989,7 +6989,7 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::bpchar"
     },
     "compra": {
      "tipo": "character",
@@ -7080,7 +7080,7 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     },
     "nao_gera_sped_contribuicao": {
      "tipo": "character",
@@ -7129,7 +7129,7 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     }
    },
    "pk": [
@@ -7848,42 +7848,42 @@
      "tam": 16,
      "escala": 0,
      "nulo": true,
-     "default": null
+     "default": "0"
     },
     "ind_cred_pres": {
      "tipo": "smallint",
      "tam": 16,
      "escala": 0,
      "nulo": true,
-     "default": null
+     "default": "0"
     },
     "ind_mono": {
      "tipo": "smallint",
      "tam": 16,
      "escala": 0,
      "nulo": true,
-     "default": null
+     "default": "0"
     },
     "ind_mono_reten": {
      "tipo": "smallint",
      "tam": 16,
      "escala": 0,
      "nulo": true,
-     "default": null
+     "default": "0"
     },
     "ind_mono_ret": {
      "tipo": "smallint",
      "tam": 16,
      "escala": 0,
      "nulo": true,
-     "default": null
+     "default": "0"
     },
     "ind_mono_dif": {
      "tipo": "smallint",
      "tam": 16,
      "escala": 0,
      "nulo": true,
-     "default": null
+     "default": "0"
     },
     "credito_para": {
      "tipo": "character varying",
@@ -9639,14 +9639,14 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": "'N'::bpchar"
+     "default": "'S'::bpchar"
     },
     "buscaautorizacao": {
      "tipo": "character",
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": "'N'::bpchar"
+     "default": "'S'::bpchar"
     },
     "usultalteracao": {
      "tipo": "integer",
@@ -10713,7 +10713,7 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     }
    },
    "pk": [
@@ -16399,14 +16399,14 @@
      "tam": 15,
      "escala": 4,
      "nulo": true,
-     "default": null
+     "default": "0"
     },
     "qtde_bk": {
      "tipo": "numeric",
      "tam": 15,
      "escala": 4,
      "nulo": true,
-     "default": null
+     "default": "0"
     },
     "dtvenda": {
      "tipo": "timestamp without time zone",
@@ -16646,14 +16646,14 @@
      "tam": 13,
      "escala": 3,
      "nulo": true,
-     "default": null
+     "default": "0"
     },
     "qtde_bk": {
      "tipo": "numeric",
      "tam": 13,
      "escala": 3,
      "nulo": true,
-     "default": null
+     "default": "0"
     },
     "local": {
      "tipo": "character varying",
@@ -27833,7 +27833,7 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::bpchar"
     },
     "vrcusto_anterior": {
      "tipo": "numeric",
@@ -29787,7 +29787,7 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     }
    },
    "pk": [
@@ -29829,7 +29829,7 @@
      "tam": 1,
      "escala": null,
      "nulo": false,
-     "default": null
+     "default": "'P'::bpchar"
     },
     "prefixo_match": {
      "tipo": "character varying",
@@ -29885,28 +29885,28 @@
      "tam": 2,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'06'::character varying"
     },
     "cst_cofins_sai": {
      "tipo": "character varying",
      "tam": 2,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'06'::character varying"
     },
     "cst_pis_ent": {
      "tipo": "character varying",
      "tam": 2,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'73'::character varying"
     },
     "cst_cofins_ent": {
      "tipo": "character varying",
      "tam": 2,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'73'::character varying"
     },
     "tributo": {
      "tipo": "character varying",
@@ -31117,7 +31117,7 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'S'::character varying"
     },
     "codoperador_libera_nfserv": {
      "tipo": "numeric",
@@ -33278,7 +33278,7 @@
      "tam": 4,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     },
     "codtribbebida": {
      "tipo": "numeric",
@@ -34207,7 +34207,7 @@
      "tam": 10,
      "escala": null,
      "nulo": false,
-     "default": "'NFCE'::character varying"
+     "default": "'NFE'::character varying"
     },
     "serie": {
      "tipo": "character varying",
@@ -34302,7 +34302,7 @@
      "tam": 32,
      "escala": 0,
      "nulo": false,
-     "default": null
+     "default": "nextval('seq_nfe_nao_cadastradas'::regclass)"
     },
     "chavenfe": {
      "tipo": "character varying",
@@ -37028,7 +37028,7 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::bpchar"
     },
     "mensalidade2501": {
      "tipo": "numeric",
@@ -37056,7 +37056,7 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::bpchar"
     },
     "cod_intermediador_trans": {
      "tipo": "character",
@@ -37203,70 +37203,70 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     },
     "hab_ret_cofins_nf_sai": {
      "tipo": "character varying",
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     },
     "hab_ret_csll_nf_sai": {
      "tipo": "character varying",
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     },
     "hab_ret_ir_nf_sai": {
      "tipo": "character varying",
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     },
     "hab_ret_inss_nf_sai": {
      "tipo": "character varying",
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     },
     "hab_ret_issqn_nf_sai": {
      "tipo": "character varying",
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     },
     "hab_ret_funrural_nf_sai": {
      "tipo": "character varying",
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     },
     "hab_ret_senar_nf_sai": {
      "tipo": "character varying",
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     },
     "libera_digitar_retencoes_sai": {
      "tipo": "character varying",
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     },
     "retencao_cooperativa_sai": {
      "tipo": "character varying",
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     },
     "codparceiro_ent_issqn_sai": {
      "tipo": "numeric",
@@ -37280,28 +37280,28 @@
      "tam": 7,
      "escala": 4,
      "nulo": true,
-     "default": null
+     "default": "0"
     },
     "perc_aliquota_ir_sai": {
      "tipo": "numeric",
      "tam": 7,
      "escala": 4,
      "nulo": true,
-     "default": null
+     "default": "0"
     },
     "perc_aliquota_funr_sai": {
      "tipo": "numeric",
      "tam": 7,
      "escala": 4,
      "nulo": true,
-     "default": null
+     "default": "0"
     },
     "perc_aliquota_senar_sai": {
      "tipo": "numeric",
      "tam": 7,
      "escala": 4,
      "nulo": true,
-     "default": null
+     "default": "0"
     },
     "codvendedor_balanca": {
      "tipo": "numeric",
@@ -37883,7 +37883,7 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'S'::bpchar"
     }
    },
    "pk": [
@@ -37925,7 +37925,7 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'S'::bpchar"
     }
    },
    "pk": [
@@ -38184,7 +38184,7 @@
      "tam": 15,
      "escala": 2,
      "nulo": true,
-     "default": null
+     "default": "0"
     },
     "indr": {
      "tipo": "character varying",
@@ -38332,7 +38332,7 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     },
     "digitacao_data_fechamento": {
      "tipo": "timestamp with time zone",
@@ -38411,7 +38411,7 @@
      "tam": 20,
      "escala": null,
      "nulo": false,
-     "default": "'EM_DIGITACAO'::character varying"
+     "default": "'EM DIGITACAO'::character varying"
     },
     "codnf_emitida": {
      "tipo": "integer",
@@ -41437,7 +41437,7 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     },
     "plc_obriga_motivo_perda": {
      "tipo": "character varying",
@@ -42508,14 +42508,14 @@
      "tam": 13,
      "escala": 2,
      "nulo": true,
-     "default": null
+     "default": "0"
     },
     "compfator": {
      "tipo": "numeric",
      "tam": 13,
      "escala": 4,
      "nulo": true,
-     "default": null
+     "default": "0"
     },
     "tipopis": {
      "tipo": "character",
@@ -43215,7 +43215,7 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": null
+     "default": "'N'::character varying"
     },
     "uf_orig_comb_nac": {
      "tipo": "character varying",
@@ -45071,7 +45071,7 @@
      "tam": 1,
      "escala": null,
      "nulo": true,
-     "default": "'N'::bpchar"
+     "default": "'S'::bpchar"
     },
     "codrcb": {
      "tipo": "bigint",
@@ -46575,7 +46575,7 @@
      "tam": 10,
      "escala": 0,
      "nulo": true,
-     "default": null
+     "default": "0"
     }
    },
    "pk": [
