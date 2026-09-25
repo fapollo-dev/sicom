@@ -604,7 +604,12 @@ leitura), as colunas preenchidas em ≥ 50% que nenhum código do Apollo que gra
   TOTALREPICM, DTPROCESSAMENTO, TOTAL_BONIFICADO, VALIDATOTALNF…); item: ~90 (os valores da nota do fornecedor, custo real/reposição, PMZ,
   venda sugerida, lucros e margens, USOCONSUMO, SINCRONIZADO_*, a decomposição na entrada, REPASSADO, INDEXADORTRIB, ESPECIFICACAO…).
 - MULTI_PRECO pelo cadastro de produto: ✅ CODFIGURAFISCAL/IDPISCOFINS/IDTABELA (a linha da sessão espelha o produto; a inclusão leva PIS/COFINS e tabela às outras lojas — §227). Faltam VRCUSTOFISCAL, ABC/DATA_ABC/PERC_ABC, ATACAREJO_ATIVO (TIPOPIS da linha não espelha: 135 de 579).
-- Agenda de promoção: DATAEXECUCAO/IDSITUACAO_NF/CODPARCEIRO (468 alterações — a execução) e os markups do item; SCRAP.MOV_ESTOQUE.
+- ✅ A inclusão: CARTÃO grava o CODOPERADOR de quem lança; DEVOLUÇÃO DE COMPRA o CNPJ_CPF do endereço do parceiro (77 de 79); FAMÍLIA
+  ATIVO 'S' e a loja — e o **TIPO da família com o domínio do legado**: P = GRUPO DE PREÇO, R = PRODUÇÃO (UCadFamiliaProd.dfm:105-122),
+  E = SETOR; o Apollo tinha 'R' como grupo de preço e recusava 'P' — 1.818 famílias, 9.397 produtos (smoke §228). A TELA de famílias
+  (FRMCADFAMILIAPROD, 83 acessos) não existe na web do Apollo — só a API com 2 das 29 colunas: a converter.
+- Ruído da LOG, não é lacuna: a agenda de promoção (DATAEXECUCAO/IDSITUACAO_NF/CODPARCEIRO, 468) e o SCRAP.MOV_ESTOQUE (141) são
+  "vazio → vazio" (o gravar troca '' por NULL e o form-base registra); o conferidor passou a ignorar.
 - `pedidocompra_i`: PISCONFIS, ICME, LUCROBRUTOP, LUCROLIQP, VLREMBALAGEMB (a rentabilidade do item); `pedidocompra.DTENCERRAMENTO`
   (90,5%).
 - `nf_prod`: REPASSADO, INDEXADORTRIB, VRCREDSN/ALIQCREDSN/DESTACICMSSN (crédito do Simples), VRFRETE, CUSTO_RECALCULO_BONIF,

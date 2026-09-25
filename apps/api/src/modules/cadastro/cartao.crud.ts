@@ -78,8 +78,9 @@ export const cartaoCrudConfig: CrudConfig = {
   empresaScoped: true,
   // NSUHOST e CODREDE: os campos da conciliação (445 e 178 alterações no HISTORICO de 2025-26); CONSILIADO vai 'S' em toda
   // gravação (UcadCartao.pas:366-367 — 94% dos cartões de 2026 conciliados)
-  colunas: ['dtvenda', 'valor', 'codoperadora', 'idpgto', 'nrocupom', 'nropedido', 'codpdv', 'nroparcela', 'qtde_parcelas', 'tipocartao', 'codbandeira', 'nsu', 'autorizacao', 'nrocartao', 'obs', 'nsuhost', 'codrede', 'consiliado'],
-  derivar: () => ({ consiliado: 'S' }),
+  colunas: ['dtvenda', 'valor', 'codoperadora', 'idpgto', 'nrocupom', 'nropedido', 'codpdv', 'nroparcela', 'qtde_parcelas', 'tipocartao', 'codbandeira', 'nsu', 'autorizacao', 'nrocartao', 'obs', 'nsuhost', 'codrede', 'consiliado', 'codoperador'],
+  // e o CODOPERADOR de quem lança — só na inclusão (558 de 558 em 2026; conferir-campos-da-log.py)
+  derivar: (_dto, id) => (id == null ? { consiliado: 'S', codoperador: currentTenant().operadorId ?? null } : { consiliado: 'S' }),
   // "Documento ja consiliado na tesouraria, não é possivel alteração de valores!" (btnEditarClick :283-290): o VALOR e a
   // PARCELA do cartão conciliado não mudam
   validarTrx: async ({ trx, id, dto }) => {

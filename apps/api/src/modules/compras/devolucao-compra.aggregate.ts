@@ -186,7 +186,16 @@ export const devolucaoCompraAggregateConfig: AggregateConfig = {
     },
   ],
   // CODOPERADOR = operador do contexto (só no create — derivarTrx não roda no update).
-  derivarTrx: async () => ({ codoperador: currentTenant().operadorId ?? null }),
+  // e o CNPJ_CPF do fornecedor — o do endereço do parceiro (PARCEIROS.CODEND): 77 de 79 devoluções de 2026 (conferir-campos-da-log.py)
+  derivarTrx: async ({ dto, trx }) => {
+    const out: Record<string, unknown> = { codoperador: currentTenant().operadorId ?? null };
+    if (dto.codparceiro != null) {
+      const r = (await trx.selectFrom('parceiros as p').innerJoin('parceiros_end as e', (j: any) => j.onRef('e.codend', '=', 'p.codend'))
+        .select('e.cnpj_cpf').where('p.codparceiro', '=', Number(dto.codparceiro)).executeTakeFirst()) as { cnpj_cpf?: string | null } | undefined;
+      out.cnpj_cpf = r?.cnpj_cpf ?? null;
+    }
+    return out;
+  },
   validar: async ({ dto, id, db }) => {
     const emp = currentTenant().empresaId ?? null;
 

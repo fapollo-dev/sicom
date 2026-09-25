@@ -1,4 +1,5 @@
 import { familiaSchema, atualizarFamiliaSchema } from '@apollo/shared';
+import { currentTenant } from '../../shared/tenant/tenant-context';
 import { createCrudController } from '../../shared/crud/crud.controller.factory';
 import type { CrudConfig } from '../../shared/crud/crud-config';
 
@@ -11,7 +12,9 @@ export const familiasCrudConfig: CrudConfig = {
   tabela: 'familias_prod',
   pk: 'codfamilia',
   view: 'get_familias_prod',
-  colunas: ['tipo', 'descricao'],
+  colunas: ['tipo', 'descricao', 'ativo', 'idempresa'],
+  // a inclusão grava ATIVO 'S' e a loja da sessão (48 de 48 em 2026; conferir-campos-da-log.py)
+  derivar: (_dto, id) => (id == null ? { ativo: 'S', idempresa: currentTenant().empresaId ?? null } : {}),
   rbacForm: 'FRMCADFAMILIAPROD',
   // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
   log: { formulario: 'Cadastro de categorias e departamentos' },

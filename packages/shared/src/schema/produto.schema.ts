@@ -448,17 +448,23 @@ export interface Unidade extends CriarUnidadeDto {
   codunidade: number;
 }
 
-/** FAMILIAS_PROD (catálogo único com discriminador TIPO: G/S/D/O/R). */
+/**
+ * FAMILIAS_PROD (catálogo único com discriminador TIPO) — o combo do legado (UCadFamiliaProd.dfm:105-122: D Departamento, G Grupo,
+ * S Subgrupo, P GRUPO DE PREÇO, R PRODUÇÃO, O Seção) e o SETOR do binário novo (E). O Apollo tinha 'R' como grupo de preço e recusava
+ * 'P' — os 1.818 grupos de preço do cliente (9.397 produtos apontam para eles) não gravavam.
+ */
 export const FAMILIA_TIPO_OPCOES = [
+  { value: 'D', label: 'Departamento' },
   { value: 'G', label: 'Grupo' },
   { value: 'S', label: 'Subgrupo' },
-  { value: 'D', label: 'Departamento' },
+  { value: 'P', label: 'Grupo de preço' },
+  { value: 'R', label: 'Produção' },
   { value: 'O', label: 'Seção' },
-  { value: 'R', label: 'Grupo de preço' },
+  { value: 'E', label: 'Setor' },
 ] as const;
 
 const familiaBase = z.object({
-  tipo: z.enum(['G', 'S', 'D', 'O', 'R'], { message: 'Tipo de família inválido.' }),
+  tipo: z.enum(['D', 'G', 'S', 'P', 'R', 'O', 'E'], { message: 'Tipo de família inválido.' }),
   descricao: z.string().trim().max(60).optional(),
 });
 export const familiaSchema = z.preprocess(stripNulls, familiaBase); // fold varredura null→ausente

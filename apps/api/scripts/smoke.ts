@@ -21994,8 +21994,17 @@ async function main() {
         // a devolução dos itens dessa nota
         const itNf = Number((await pgEs.query(`SELECT codnfprod FROM nf_prod WHERE codnf=$1 LIMIT 1`, [codnf])).rows[0]?.codnfprod);
         await pgEs.query(`UPDATE nf_prod SET cfop_original='1102' WHERE codnf=$1`, [codnf]);
+        await pgEs.query(`UPDATE parceiros_end SET cnpj_cpf = '44.555.666/0001-72' WHERE codend = 6 AND cnpj_cpf IS NULL`); // o endereço do 22 (seed sem CNPJ)
         const dv = await fetch(`${base}/compras/devolucao-compra`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, itens: [{ codnf, codnfprod: itNf, idproduto: 1, qtd_devolvida: 1 }] }) });
         const dvJ = (await dv.json().catch(() => ({}))) as any;
+        {
+          // §228: o CNPJ_CPF do fornecedor vai para a devolução (o do endereço do parceiro — 77 de 79 em 2026)
+          const cnpjDv = (await pgEs.query(`SELECT cnpj_cpf FROM pedido_devolucao_compra WHERE codpeddevcompra = $1`, [Number(dvJ.codpeddevcompra ?? dvJ.codigo)])).rows[0]?.cnpj_cpf;
+          const cnpjEnd = (await pgEs.query(`SELECT e.cnpj_cpf FROM parceiros p JOIN parceiros_end e ON e.codend = p.codend WHERE p.codparceiro = 22`)).rows[0]?.cnpj_cpf;
+          check('DEVOLUÇÃO §228.1 [o CNPJ do fornecedor]: a devolução grava o CNPJ_CPF do endereço do parceiro (PARCEIROS.CODEND), como as 79 do legado em 2026',
+            dv.status === 201 && cnpjDv === '44.555.666/0001-72' && cnpjDv === cnpjEnd, { status: dv.status, cnpjDv, cnpjEnd });
+          await pgEs.query(`UPDATE parceiros_end SET cnpj_cpf = NULL WHERE codend = 6 AND cnpj_cpf = '44.555.666/0001-72'`);
+        }
         const devR = await etapa('stDevolucao');
         const canc = await fetch(`${base}/compras/devolucao-compra/${Number(dvJ.codpeddevcompra ?? dvJ.codigo)}/cancelar`, { method: 'POST', headers: H });
         const devP = await etapa('stDevolucao');
@@ -22839,6 +22848,31 @@ async function main() {
           await pgMf.query(`DELETE FROM produtos WHERE idproduto = $1`, [idp]).catch(() => undefined);
         }
         await pgMf.end();
+      }
+    }
+
+    // ══ §228 o que a inclusão grava — CARTÃO (o operador) e FAMÍLIA (ATIVO, loja e o domínio do TIPO do legado) ═══════════════════
+    {
+      const pgFc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const oper = Number((await pgFc.query(`SELECT codoperadoras FROM operadoras ORDER BY codoperadoras LIMIT 1`)).rows[0]?.codoperadoras);
+        const cc = await fetch(`${base}/cadastro/cartao`, { method: 'POST', headers: H, body: JSON.stringify({ valor: 12.34, codoperadora: oper, dtvenda: '2036-06-01' }) });
+        const ccJ = (await cc.json().catch(() => ({}))) as any;
+        const codc = Number(ccJ.codvendcartao ?? ccJ.id ?? ccJ.codigo);
+        const rc = (await pgFc.query(`SELECT codoperador, liberado, idempresa FROM cartao WHERE codvendcartao = $1`, [codc])).rows[0] as any;
+        const fp = await fetch(`${base}/cadastro/familias`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'P', descricao: 'GRUPO DE PRECO SMOKE' }) });
+        const fpJ = (await fp.json().catch(() => ({}))) as any;
+        const rf = (await pgFc.query(`SELECT tipo, ativo, idempresa FROM familias_prod WHERE codfamilia = $1`, [Number(fpJ.codfamilia)])).rows[0] as any;
+        const fe = await fetch(`${base}/cadastro/familias`, { method: 'POST', headers: H, body: JSON.stringify({ tipo: 'E', descricao: 'SETOR SMOKE' }) });
+        const feJ = (await fe.json().catch(() => ({}))) as any;
+        check('INCLUSÃO §228.2 [cartão e família]: o lançamento de cartão grava o CODOPERADOR de quem lança (558 de 558), com LIBERADO N e a loja; a família nova grava ATIVO S e a loja (48 de 48); o TIPO aceita P = GRUPO DE PREÇO (UCadFamiliaProd.dfm — 1.818 no cliente, que o Apollo recusava) e E = SETOR',
+          cc.status === 201 && Number(rc?.codoperador) === 7 && rc?.liberado === 'N' && Number(rc?.idempresa) === 1
+          && fp.status === 201 && rf?.tipo === 'P' && rf?.ativo === 'S' && Number(rf?.idempresa) === 1 && fe.status === 201,
+          { cc: [cc.status, ccJ.code], rc, fp: [fp.status, fpJ.code], rf, fe: [fe.status, feJ.code] });
+        if (codc) await pgFc.query(`DELETE FROM cartao WHERE codvendcartao = $1`, [codc]);
+        await pgFc.query(`DELETE FROM familias_prod WHERE codfamilia IN ($1, $2)`, [Number(fpJ.codfamilia) || 0, Number(feJ.codfamilia) || 0]);
+      } finally {
+        await pgFc.end();
       }
     }
 

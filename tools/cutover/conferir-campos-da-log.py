@@ -95,7 +95,13 @@ def main() -> int:
                    where datahora >= to_date(:d, 'YYYY-MM-DD') and acao in ('Inseriu', 'Alterou') and historico like '%CAMPO:%'""", d=DESDE)
     cont = collections.defaultdict(lambda: collections.defaultdict(lambda: [0, 0]))
     for form, tab, acao, hist in cu:
-        for campo in set(re.findall(r'CAMPO: (\w+)', hist or '')):
+        if acao == 'Inseriu':
+            campos = set(re.findall(r'CAMPO: (\w+)', hist or ''))
+        else:
+            # o legado registra "vazio → vazio" (o gravar troca '' por NULL e o form-base vê diferença): isso não é alteração
+            campos = {m.group(1) for m in re.finditer(r'CAMPO: (\w+)\s+VALOR ANTERIOR: (.*?)\s+VALOR ATUAL: (.*?)(?:\r|\n|$)', hist or '')
+                      if m.group(2).strip() != m.group(3).strip()}
+        for campo in campos:
             cont[(form, tab)][campo.lower()][0 if acao == 'Inseriu' else 1] += 1
     total = 0
     for (form, tab), campos in sorted(cont.items(), key=lambda kv: -sum(a + b for a, b in kv[1].values())):
