@@ -409,7 +409,8 @@ const validaDecomposicao100 = (
 
 /** Regra do legado (btnGravarClick): CEST é obrigatório quando a alíquota é do tipo 'STB' (ST). */
 export const produtoSchema = z.preprocess(stripNulls, produtoBase).superRefine((d, ctx) => {
-  if (d.aliquota === 'STB' && !(d.cest && d.cest.trim())) {
+  // o legado só cobra do produto que não é filho nem uso e consumo (UCadProduto.pas:2717): no uso e consumo, 4 de 45 STB de 2026 não têm CEST
+  if (d.aliquota === 'STB' && !(d.cest && d.cest.trim()) && d.uso_consumo !== 'S' && !d.idproduto_pai) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: 'Para alíquota do tipo "STB", a informação do CEST é obrigatória.',

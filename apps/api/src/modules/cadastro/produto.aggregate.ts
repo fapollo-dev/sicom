@@ -2,6 +2,7 @@ import { sql } from 'kysely';
 import { produtoSchema, atualizarProdutoSchema } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import { currentTenant } from '../../shared/tenant/tenant-context';
+import { validarGravacaoProduto } from './produto-gravar';
 import { hashPaf } from '../shared/hash-paf';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -136,6 +137,8 @@ export const produtoAggregateConfig: AggregateConfig = {
     // A LINHA DA LOJA DA SESSÃO (produto-lojas.ts): o que mudou nela e, no modo lote (HABILITA_GERACAO_LOTE_PRODUTO,
     // resolvida com o escopo Módulo), a reversão do VRVENDA/PROMOCAO no dto — fiel a UCadProduto.pas:3087-3115. Só em UPDATE.
     if (id != null) await prepararPrecoDaSessao(dto, id, db);
+    // o btnGravarClick (UCadProduto.pas:2608-3070): as validações provadas vivas e as derivações do gravar — produto-gravar.ts
+    await validarGravacaoProduto(dto, id ?? undefined, db);
     // Produtos filhos (EdtProdutoPaiExit, pas:2843): o produto pai deve ser DIFERENTE do próprio produto.
     if (id != null && dto.idproduto_pai != null && Number(dto.idproduto_pai) === id) {
       throw new BusinessRuleError('PRODUTO_PAI_IGUAL_FILHO', { idproduto: id });

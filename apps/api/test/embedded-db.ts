@@ -389,6 +389,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('344_nf_item_descricao.sql'));
   await pool.query(sql('345_defaults_do_oracle.sql'));
   await pool.query(sql('346_cfop_cadastro_completo.sql'));
+  await pool.query(sql('347_produto_gravar_seed.sql'));
   await pool.end();
   return pg;
 }

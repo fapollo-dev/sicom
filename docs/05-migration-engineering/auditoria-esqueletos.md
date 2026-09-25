@@ -586,10 +586,15 @@ leitura), as colunas preenchidas em ≥ 50% que nenhum código do Apollo que gra
   Ficam: PRODUTOS.HASHPAF (outro hash, a reconstruir como o do MULTI_PRECO), DT_*_FGF (a integração de consulta tributária) e
   CHAVECOMPOSICAO.
 
+- PRODUTO corte P2 (`produto-gravar.ts`, smoke §225): as validações do `btnGravarClick` (UCadProduto.pas:2608-3070) — nenhuma existia
+  no Apollo —, só as provadas vivas no dado de 2026: NCM obrigatório, 8 dígitos, existente e vigente (0 de 519 sem); CEST 7 dígitos e
+  existente, obrigatório no STB (1 de 422 sem) — ambos para o produto que não é filho nem uso e consumo (o Apollo cobrava o CEST do STB
+  de todos: no uso e consumo, 4 de 45 não têm); custo e custo de reposição ≠ 0 (0 de 575); PIS/COFINS fora do Simples; a config
+  BLOQ_VENDA_MAIOR_CUSTO ('N' na produção); a figura fiscal do uso e consumo pela alíquota de saída (~96% batem); CODBALANCA 1.
+  **Não aplicadas, com prova:** VALOR DE VENDA obrigatório (331 de 575 com venda 0), seção/depto/grupo/subgrupo obrigatórios (1.168 de
+  1.175 sem seção), natureza PIS/COFINS (573 de 1.175 sem ela). Mig 347 semeia na base de dev os NCMs e o PIS/COFINS dos produtos-semente.
+
 **Fila (por dano provável):**
-- PRODUTO corte P2: as validações do gravar (UCadProduto.pas:2608-3070), nenhuma no Apollo — NCM obrigatório (8 dígitos, existente)
-  para produto que não é filho nem uso e consumo; natureza PIS/COFINS; custo ≠ 0; VALOR DE VENDA obrigatório (config); seção/depto/grupo/
-  subgrupo obrigatórios (config); PIS/COFINS obrigatório fora do Simples; BLOQ_VENDA_MAIOR_CUSTO; a figura fiscal do uso e consumo; o GLP.
 - `pedidocompra_i`: PISCONFIS, ICME, LUCROBRUTOP, LUCROLIQP, VLREMBALAGEMB (a rentabilidade do item); `pedidocompra.DTENCERRAMENTO`
   (90,5%).
 - `nf_prod`: REPASSADO, INDEXADORTRIB, VRCREDSN/ALIQCREDSN/DESTACICMSSN (crédito do Simples), VRFRETE, CUSTO_RECALCULO_BONIF,

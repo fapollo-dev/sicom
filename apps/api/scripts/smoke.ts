@@ -46,6 +46,9 @@ const H = {
 };
 // operador 999 não tem grant em PERMISSOES → deve ser negado (RBAC).
 const H_SEM_ACESSO = { ...H, 'x-operador-id': '999' };
+// o gravar do produto valida como o legado (produto-gravar.ts): NCM existente, PIS/COFINS fora do Simples, custo ≠ 0 na linha da loja
+const PROD_FISCAL = { ncmsh: '17019900', pis: 'S', idpiscofins: 9 };
+const PRECO_MIN = { idempresa: 1, vrcusto: 1, vrcustorep: 1, markup: 0, vrvenda: 1, promocao: 'N', ativo: 'S', ativo_compra: 'S' };
 
 let ok = 0;
 let fail = 0;
@@ -245,14 +248,14 @@ async function main() {
 
     // 11) NCM (CHAVE NATURAL + data + memo) — o código vem no corpo, não é gerado
     const ncms = (await (await fetch(`${base}/cadastro/ncm`, { headers: H })).json()) as any[];
-    check('GET /cadastro/ncm lista o seed (3)', Array.isArray(ncms) && ncms.length === 3, ncms?.length);
+    check('GET /cadastro/ncm lista o seed (3 + os 3 dos produtos-semente, mig 347)', Array.isArray(ncms) && ncms.length === 6, ncms?.length);
     const postNcm = await fetch(`${base}/cadastro/ncm`, {
       method: 'POST',
       headers: H,
-      body: JSON.stringify({ codigo: 22021000, ncmsh: '22021000', descricao: 'Refrigerantes', vigencia_inicio: '2021-05-10' }),
+      body: JSON.stringify({ codigo: 22029900, ncmsh: '22029900', descricao: 'Outras bebidas não alcoólicas', vigencia_inicio: '2021-05-10' }),
     });
     const ncmBody = (await postNcm.json()) as any;
-    check('POST /cadastro/ncm cria com CHAVE NATURAL (codigo digitado)', postNcm.status === 201 && ncmBody.codigo === 22021000, ncmBody);
+    check('POST /cadastro/ncm cria com CHAVE NATURAL (codigo digitado)', postNcm.status === 201 && ncmBody.codigo === 22029900, ncmBody);
     check('NCM relê a vigência (date 2021-05-10)', String(ncmBody.vigencia_inicio ?? '').includes('2021-05-10') || String(new Date(ncmBody.vigencia_inicio).getFullYear()) === '2021', ncmBody?.vigencia_inicio);
 
     // 12) LOOKUP/FK — Cidades (alvo) + Bairro referenciando idcidade
@@ -570,6 +573,7 @@ async function main() {
         codunidade: 1,
         codfor: 2,
         aliquota: 'T01',
+        ...PROD_FISCAL, precos: [PRECO_MIN],
         // aba "Outros" (14 flags da mig 113): S/N round-trip, incl. as 3 do achado de paridade.
         servico: 'S', atacado: 'S', vende_site: 'S', retirapromo: 'N',
         prod_sem_gtin: 'S', vasilhame: 'N', cotacao: 'S',
@@ -656,7 +660,7 @@ async function main() {
       (await (await fetch(`${base}/cadastro/produtos`, {
         method: 'POST',
         headers: H,
-        body: JSON.stringify({ codbarra: gerarCodigoInternoEan13(seq), descricao: `PROD FILHO SMOKE ${seq}`, unidade: 'UN', codunidade: 1, codfor: 2, aliquota: 'T01', ...extra }),
+        body: JSON.stringify({ codbarra: gerarCodigoInternoEan13(seq), descricao: `PROD FILHO SMOKE ${seq}`, unidade: 'UN', codunidade: 1, codfor: 2, aliquota: 'T01', ...PROD_FISCAL, precos: [PRECO_MIN], ...extra }),
       })).json()) as any;
     const paiProd = await crProd(900001);
     const paiId = Number(paiProd.idproduto);
@@ -690,7 +694,8 @@ async function main() {
         unidade: 'UN',
         codfor: 2,
         aliquota: 'T01',
-        precos: [{ idempresa: 1, vrcusto: 8, markup: 25, vrvenda: 10, promocao: 'N', aliquotasaida: 'T01', ativo: 'S' }],
+        ...PROD_FISCAL,
+        precos: [{ idempresa: 1, vrcusto: 8, vrcustorep: 8, markup: 25, vrvenda: 10, promocao: 'N', aliquotasaida: 'T01', ativo: 'S' }],
       }),
     });
     const prodPreco = (await prodPrecoPost.json()) as any;
@@ -792,6 +797,7 @@ async function main() {
         unidade: 'UN',
         codfor: 2,
         aliquota: 'T01',
+        ...PROD_FISCAL, precos: [PRECO_MIN],
         estoques: [{ idempresa: 1, qtde: 0, minimo: 7, maximo: 70, local: 'SMOKE' }],
       }),
     });
@@ -856,6 +862,7 @@ async function main() {
         unidade: 'UN',
         codfor: 2,
         aliquota: 'T01',
+        ...PROD_FISCAL, precos: [PRECO_MIN],
         composicoes: [{ idproduto_01: 2, qtde: 1, valor: 3 }],
       }),
     });
@@ -2385,7 +2392,7 @@ async function main() {
     const cof792 = (lin792 as any[]).find((l) => Number(l.contadebito) === 129 && Number(l.contacredito) === 236);
     check('F5b GAP sit.792: saída geral 5102 → PIS 1,65 (D128/C235) + COFINS 7,60 (D129/C236) [antes: CONTAS_NAO_INFORMADAS]',
       con792.status === 200 && Number(pis792?.valor) === 1.65 && Number(cof792?.valor) === 7.6, { status: con792.status, pis: pis792?.valor, cofins: cof792?.valor });
-    await pgCon.query(`UPDATE produtos SET idpiscofins=NULL WHERE idproduto=1`);
+    await pgCon.query(`UPDATE produtos SET idpiscofins=9 WHERE idproduto=1`);
     // 29g) F5b-fase4b: CMV — vl_custo CONGELADO de multi_preco no lançamento (snapshot não acompanha o MP).
     await pgCon.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto) VALUES (1,1,5.57) ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto=5.57`);
     const nfCmv = await novaNf(baseNf({ tipo: 'S', nronf: 'E9008', cfop: '5102', codparceiro: 20, modelo: 55, statusnfe: 'P', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] }));
@@ -2409,7 +2416,7 @@ async function main() {
     const conMc = await fetch(`${base}/fiscal/nf/${nfMc}/contabilizar`, { method: 'POST', headers: H });
     const pisMc = (await diarioDe(nfMc) as any[]).find((l) => Number(l.contadebito) === 235 && Number(l.contacredito) === 154);
     check('F5b-4b: PIS multi-CFOP arredonda por CFOP (0,83+0,83=1,66; não round(1,65))', conMc.status === 200 && Number(pisMc?.valor) === 1.66, { pis: pisMc?.valor });
-    await pgCon.query(`UPDATE produtos SET idpiscofins=NULL WHERE idproduto=1`);
+    await pgCon.query(`UPDATE produtos SET idpiscofins=9 WHERE idproduto=1`);
     await pgCon.query(`UPDATE cfop SET situacao_pis_entradas_nf=NULL, situacao_cofins_entradas_nf=NULL WHERE codcfop='1102'`);
     // 29d) F5b-fase3: AUTO-DISPARO — processar uma ENTRADA (AUTOMATICA) COM rateio contabiliza sozinho;
     // reverter (AUTOMATICA) estorna o contábil e reverte o estoque.
@@ -5270,6 +5277,9 @@ async function main() {
         await pgEm.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrcusto, promocao) VALUES
           (990500,1,10.00,6.00,'N'),(990501,1,8.00,5.00,'S')
           ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda=EXCLUDED.vrvenda, promocao=EXCLUDED.promocao, vrpromo=NULL`);
+        // o gravar do produto valida como o legado (NCM existente, PIS/COFINS, custo de reposição ≠ 0) — o 990500 é gravado pela tela abaixo
+        await pgEm.query(`UPDATE produtos SET ncmsh = '17019900', pis = 'S', idpiscofins = 9 WHERE idproduto IN (990500, 990501)`);
+        await pgEm.query(`UPDATE multi_preco SET vrcustorep = vrcusto WHERE idproduto IN (990500, 990501)`);
 
         // 47k.1) PEDIDO: gerar-lote-preco → enfileira o item com preço divergente (12,50), PULA o em promoção,
         // carimba LTPRECO_PROCESSADO e recusa a 2ª geração (fiel a uPedidoCompra.pas:1373).
@@ -5299,7 +5309,7 @@ async function main() {
         // grava no multi_preco (REVERSÃO fiel) e ENFILEIRA lote ORIGEM='P' c/ operador e alteroupromocao.
         await pgEm.query(`UPDATE configuracoes SET valor='S' WHERE codigo='HABILITA_GERACAO_LOTE_PRODUTO'`);
         const putProd = await fetch(`${base}/cadastro/produtos/990500`, { method: 'PUT', headers: H, body: JSON.stringify({
-          descricao: 'BISCOITO RECHEADO', precos: [{ idempresa: 1, vrvenda: 19.9, vrcusto: 6, markup: 25, promocao: 'S', vrpromo: 17.5 }],
+          descricao: 'BISCOITO RECHEADO', precos: [{ idempresa: 1, vrvenda: 19.9, vrcusto: 6, vrcustorep: 6, markup: 25, promocao: 'S', vrpromo: 17.5 }],
         }) });
         const vrDepois = Number((await pgEm.query(`SELECT vrvenda FROM multi_preco WHERE idproduto=990500 AND idempresa=1`)).rows[0].vrvenda);
         const loteP = (await pgEm.query(`SELECT vrvenda, markup, promocao, vrpromo, alteroupromocao, origem, codoperador, obs FROM lote_preco WHERE idproduto=990500 AND origem='P' ORDER BY codlotepreco DESC LIMIT 1`)).rows[0] as any;
@@ -5317,7 +5327,7 @@ async function main() {
         await pgEm.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) VALUES ($1,'Empresa','1','S') ON CONFLICT DO NOTHING`, [cfgId]);
         const vrAntesOv = Number((await pgEm.query(`SELECT vrvenda FROM multi_preco WHERE idproduto=990500 AND idempresa=1`)).rows[0].vrvenda);
         await fetch(`${base}/cadastro/produtos/990500`, { method: 'PUT', headers: H, body: JSON.stringify({
-          descricao: 'BISCOITO RECHEADO', precos: [{ idempresa: 1, vrvenda: 31.9, vrcusto: 6 }],
+          descricao: 'BISCOITO RECHEADO', precos: [{ idempresa: 1, vrvenda: 31.9, vrcusto: 6, vrcustorep: 6 }],
         }) });
         const vrDepoisOv = Number((await pgEm.query(`SELECT vrvenda FROM multi_preco WHERE idproduto=990500 AND idempresa=1`)).rows[0].vrvenda);
         const loteOv = (await pgEm.query(`SELECT vrvenda FROM lote_preco WHERE idproduto=990500 AND origem='P' ORDER BY codlotepreco DESC LIMIT 1`)).rows[0] as any;
@@ -5329,7 +5339,7 @@ async function main() {
         await pgEm.query(`UPDATE configuracoes SET valor='N' WHERE codigo='HABILITA_GERACAO_LOTE_PRODUTO'`);
         const nLotesAntes = Number((await pgEm.query(`SELECT count(*)::int n FROM lote_preco WHERE idproduto=990500 AND origem='P'`)).rows[0].n);
         await fetch(`${base}/cadastro/produtos/990500`, { method: 'PUT', headers: H, body: JSON.stringify({
-          descricao: 'BISCOITO RECHEADO', precos: [{ idempresa: 1, vrvenda: 14.4, vrcusto: 6 }],
+          descricao: 'BISCOITO RECHEADO', precos: [{ idempresa: 1, vrvenda: 14.4, vrcusto: 6, vrcustorep: 6 }],
         }) });
         const vrOnline = Number((await pgEm.query(`SELECT vrvenda FROM multi_preco WHERE idproduto=990500 AND idempresa=1`)).rows[0].vrvenda);
         const nLotesDepois = Number((await pgEm.query(`SELECT count(*)::int n FROM lote_preco WHERE idproduto=990500 AND origem='P'`)).rows[0].n);
@@ -5912,6 +5922,12 @@ async function main() {
         // auditoria: `PRODUTOS.SERVICO` é '0' em 33.936 das 43.116 linhas do golden e o snFlag do schema coage
         // '0'→'N' na gravação — então um save que só corrige a DESCRIÇÃO do pai reescrevia servico, a guarda crua
         // via "mudança" e propagava a classificação fiscal inteira. 50 dos 85 pais do golden têm SERVICO='0'.
+        // o gravar do produto valida como o legado (CEST existente, PIS/COFINS, custo ≠ 0 na loja): o pai nasceu por SQL
+        await pgRv.query(`INSERT INTO cest (cest, descricao) VALUES ('1701100','CEST SMOKE PAI') ON CONFLICT DO NOTHING`);
+        await pgRv.query(`INSERT INTO ncm (codigo, ncmsh, descricao, vigencia_inicio) VALUES (4061090,'04061090','Outros queijos',DATE '2017-01-01') ON CONFLICT DO NOTHING`);
+        await pgRv.query(`UPDATE produtos SET pis='S' WHERE idproduto=991000`);
+        await pgRv.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrcustorep, vrvenda, promocao) VALUES (991000,1,10,10,15,'N')
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto = 10, vrcustorep = 10`);
         await pgRv.query(`UPDATE produtos SET servico='0' WHERE idproduto=991000`);          // o estado real do golden
         await pgRv.query(`UPDATE produtos SET ncmsh='11111111', aliquota='IST' WHERE idproduto=991001`); // sujeira no filho
         const pPai = (await (await fetch(`${base}/cadastro/produtos/991000`, { headers: H })).json().catch(() => ({}))) as any;
@@ -5922,7 +5938,7 @@ async function main() {
         const apos = await pgRv.query(`SELECT ncmsh, aliquota FROM produtos WHERE idproduto=991001`);
         check('PRODUTO propagação — save pelo MOTOR que muda só a DESCRIÇÃO não propaga nada: a flag SERVICO="0" (33.936 dos 43.116 no golden) é coagida p/ "N" na gravação, e a guarda normaliza as 5 flags S/N para não ler isso como alteração fiscal (senão 9 filhos seriam reclassificados, um de T03 tributada p/ IST isenta)',
           putPai.status === 200 && apos.rows[0]?.ncmsh === '11111111' && apos.rows[0]?.aliquota === 'IST',
-          { put: putPai.status, filhoApos: apos.rows[0] });
+          { put: putPai.status, putJ: await putPai.clone().json().then((j: any) => [j.code, j.message, j.detalhes ?? j.details]).catch(() => null), filhoApos: apos.rows[0] });
 
         // 47o.6) filho com dif NULL — que é 100% da produção (dif_preco_prod_filho_x_pai é NULL nas 43.116 linhas
         // do golden, nem 0). Tem de cair no ramo B (herda o grupo de preço), igual ao ELSE do Oracle, onde
@@ -13584,7 +13600,7 @@ async function main() {
         await pgSp.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2035-09-01' AND dtvenda < '2035-11-01'`);
         await pgSp.query(`DELETE FROM pc_tipocreditoisento WHERE idtabela IN (9101,9102,9103,9104)`);
         await pgSp.query(`DELETE FROM configuracoes_sped WHERE idempresa=1`);
-        await pgSp.query(`UPDATE produtos SET idtabela=NULL, idpiscofins=NULL WHERE idproduto=1`);
+        await pgSp.query(`UPDATE produtos SET idtabela=NULL, idpiscofins=9 WHERE idproduto=1`);
         await pgSp.query(`UPDATE nf_prod SET idpiscofins=NULL WHERE codnf=$1`, [nfIsenta]);
       } finally {
         await pgSp.end();
@@ -13630,6 +13646,7 @@ async function main() {
         const prodAntes = (await pgFi.query(`SELECT descricao FROM produtos WHERE idproduto = 1`)).rows[0] as any;
         const parcAntes = (await pgFi.query(`SELECT razao FROM parceiros WHERE codparceiro = 20`)).rows[0] as any;
         const putP = await fetch(`${base}/cadastro/produtos/1`, { method: 'PUT', headers: H, body: JSON.stringify({ descricao: 'PRODUTO SPED 0205 A' }) });
+        const putPJ = (await putP.clone().json().catch(() => ({}))) as any;
         await fetch(`${base}/cadastro/produtos/1`, { method: 'PUT', headers: H, body: JSON.stringify({ descricao: 'PRODUTO SPED 0205 B' }) });
         const capP = (await pgFi.query(`SELECT vl_anterior, vl_atual, campo, reg_informado, to_char(dt_fim AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS fim
             FROM tb_speed_aux WHERE tipo_registro = '0205' AND codigo_registro = 1 ORDER BY cod_speed_aux`)).rows as any[];
@@ -13641,7 +13658,7 @@ async function main() {
           putP.status === 200 && capP.length === 1 && capP[0].campo === 'DESCRICAO' && capP[0].vl_anterior === 'PRODUTO SPED 0205 A' && capP[0].vl_atual === 'PRODUTO SPED 0205 B'
           && capP[0].reg_informado === 'N' && capP[0].fim === hojeSp
           && putC.status === 200 && capC.length === 1 && capC[0].campo === '03' && capC[0].vl_anterior === String(parcAntes?.razao ?? '') && capC[0].vl_atual === 'CLIENTE SPED 0175',
-          { putP: putP.status, capP, putC: putC.status, capC });
+          { putP: putP.status, putPJ: [putPJ.code, putPJ.message], capP, putC: putC.status, capC });
         await pgFi.query(`DELETE FROM tb_speed_aux WHERE codigo_registro IN (1, 20)`);
         const ts = (d: string) => `${d} 00:00:00-03`;
         await pgFi.query(`INSERT INTO tb_speed_aux (tipo_registro, codigo_registro, vl_anterior, vl_atual, campo, dt_ini, dt_fim, reg_informado) VALUES
@@ -21518,8 +21535,8 @@ async function main() {
         if (!permAntes) await pgPl.query(`INSERT INTO permissoes (form, opcao, codoperador, codempresa) VALUES ('FRMCADPRODUTO','BTNGRAVAR',7,2)`);
         const nEmp = Number((await pgPl.query(`SELECT count(*)::int n FROM empresas`)).rows[0].n);
         const cr = await fetch(`${base}/cadastro/produtos`, { method: 'POST', headers: H, body: JSON.stringify({
-          codbarra: '7890000006200', descricao: 'PRODUTO NAS LOJAS SMOKE', unidade: 'UN', codfor: 2, aliquota: 'T01',
-          precos: [{ idempresa: 1, vrcusto: 5, markup: 20, vrvenda: 9.9, promocao: 'N', ativo: 'S', ativo_compra: 'S' }],
+          codbarra: '7890000006200', descricao: 'PRODUTO NAS LOJAS SMOKE', unidade: 'UN', codfor: 2, aliquota: 'T01', ...PROD_FISCAL,
+          precos: [{ idempresa: 1, vrcusto: 5, vrcustorep: 5, markup: 20, vrvenda: 9.9, promocao: 'N', ativo: 'S', ativo_compra: 'S' }],
           estoques: [{ idempresa: 1, qtde: 0, minimo: 3, maximo: 30 }],
         }) });
         const crJ = (await cr.json().catch(() => ({}))) as any;
@@ -22476,6 +22493,9 @@ async function main() {
           aj.status === 200 && Number(est?.minimo) === 3 && Number(est?.maximo) === 9 && Number(ajR?.minimo) === 3 && Number(ajR?.maximo) === 9, { aj: [aj.status, ajJ.code], est, ajR });
 
         // 219.3 — o cadastro de produto: HASHPAF e as LOGs do preço e do código auxiliar
+        // (o gravar do produto valida como o legado — NCM existente, PIS/COFINS, custo de reposição ≠ 0: o 990710 nasceu por SQL)
+        await pgB2.query(`UPDATE produtos SET ncmsh = '17019900', pis = 'S', idpiscofins = 9 WHERE idproduto = 990710`);
+        await pgB2.query(`UPDATE multi_preco SET vrcustorep = vrcusto WHERE idproduto = 990710 AND idempresa = 1`);
         const pr = (await (await fetch(`${base}/cadastro/produtos/990710`, { headers: H })).json().catch(() => ({}))) as any;
         const precos = (pr.precos ?? []).map((p: any) => (Number(p.idempresa) === 1 ? { ...p, vrvenda: 33 } : p));
         const cods = [...(pr.codauxiliares ?? []), { codauxiliar: '7899000990719', codbarra: '7899000990710', fatoremb: 6, operacao: 'X' }];
@@ -22665,8 +22685,8 @@ async function main() {
       const pgP1 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       try {
         const cr = await fetch(`${base}/cadastro/produtos`, { method: 'POST', headers: H, body: JSON.stringify({
-          codbarra: '7890000224001', descricao: 'PRODUTO P1 SMOKE', unidade: 'UN', codfor: 2, aliquota: 'T01',
-          precos: [{ idempresa: 1, vrcusto: 5, markup: 20, vrvenda: 9.9, promocao: 'N', ativo: 'S', ativo_compra: 'S' }],
+          codbarra: '7890000224001', descricao: 'PRODUTO P1 SMOKE', unidade: 'UN', codfor: 2, aliquota: 'T01', ...PROD_FISCAL,
+          precos: [{ idempresa: 1, vrcusto: 5, vrcustorep: 5, markup: 20, vrvenda: 9.9, promocao: 'N', ativo: 'S', ativo_compra: 'S' }],
           estoques: [{ idempresa: 1, qtde: 0, minimo: 0, maximo: 0 }],
         }) });
         const crJ = (await cr.json().catch(() => ({}))) as any;
@@ -22700,6 +22720,57 @@ async function main() {
         await pgP1.query(`DELETE FROM produtos WHERE idproduto = $1`, [idp]);
       } finally {
         await pgP1.end();
+      }
+    }
+
+    // ══ §225 PRODUTO — corte P2: as validações do gravar provadas vivas (UCadProduto.pas:2608-3070) ══════════════════════════
+    {
+      const pgP2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const criados: number[] = [];
+      try {
+        await pgP2.query(`INSERT INTO cest (cest, descricao) VALUES ('1702404','CEST SMOKE') ON CONFLICT DO NOTHING`).catch(() => undefined);
+        const base225 = (seq: number, extra: Record<string, unknown> = {}, preco: Record<string, unknown> = {}) => ({
+          codbarra: `78900002250${String(seq).padStart(2, '0')}`.slice(0, 13), descricao: `PRODUTO P2 SMOKE ${seq}`, unidade: 'UN', codfor: 2, aliquota: 'T01', ...PROD_FISCAL, ...extra,
+          precos: [{ idempresa: 1, vrcusto: 5, vrcustorep: 5, markup: 20, vrvenda: 9.9, promocao: 'N', ativo: 'S', ativo_compra: 'S', ...preco }],
+        });
+        const post = async (b: Record<string, unknown>) => {
+          const r = await fetch(`${base}/cadastro/produtos`, { method: 'POST', headers: H, body: JSON.stringify(b) });
+          const j = (await r.json().catch(() => ({}))) as any;
+          if (j.idproduto) criados.push(Number(j.idproduto));
+          return { status: r.status, code: j.code as string | undefined, id: Number(j.idproduto) || 0 };
+        };
+        const semNcm = await post(base225(1, { ncmsh: undefined }));
+        const ncmFora = await post(base225(2, { ncmsh: '99999999' }));
+        const custo0 = await post(base225(3, {}, { vrcusto: 0 }));
+        const rep0 = await post(base225(4, {}, { vrcustorep: 0 }));
+        const semPis = await post(base225(5, { idpiscofins: undefined }));
+        const stbSemCest = await post(base225(6, {}, { aliquotasaida: 'STB' }));
+        const cestFora = await post(base225(7, { cest: '9999999' }));
+        const ok = await post(base225(8, { cest: '1702404' }));
+        // o uso e consumo passa sem NCM e sem PIS/COFINS, e ganha a figura fiscal pela alíquota de saída (IST → 5)
+        const uso = await post(base225(9, { uso_consumo: 'S', ncmsh: undefined, idpiscofins: undefined, pis: 'N' }, { aliquotasaida: 'IST' }));
+        const rUso = uso.id ? (await pgP2.query(`SELECT codfigurafiscal, codbalanca FROM produtos WHERE idproduto = $1`, [uso.id])).rows[0] as any : null;
+        check('PRODUTO §225.1 [o gravar do legado]: produto que não é filho nem uso e consumo — sem NCM → 422 PRODUTO_NCM_OBRIGATORIO; NCM fora da tabela → PRODUTO_NCM_NAO_ENCONTRADO; custo 0 → PRODUTO_CUSTO_ZERO; custo de reposição 0 → PRODUTO_CUSTO_REP_ZERO; sem PIS/COFINS numa empresa fora do Simples → PRODUTO_PISCOFINS_OBRIGATORIO; STB sem CEST → PRODUTO_CEST_STB; CEST fora da tabela → PRODUTO_CEST_NAO_ENCONTRADO; o certo grava. O de USO E CONSUMO passa sem NCM e sem PIS/COFINS e ganha a figura fiscal 5 (IST) e o CODBALANCA 1',
+          semNcm.code === 'PRODUTO_NCM_OBRIGATORIO' && ncmFora.code === 'PRODUTO_NCM_NAO_ENCONTRADO' && custo0.code === 'PRODUTO_CUSTO_ZERO'
+          && rep0.code === 'PRODUTO_CUSTO_REP_ZERO' && semPis.code === 'PRODUTO_PISCOFINS_OBRIGATORIO' && stbSemCest.code === 'PRODUTO_CEST_STB'
+          && cestFora.code === 'PRODUTO_CEST_NAO_ENCONTRADO' && ok.status === 201
+          && uso.status === 201 && Number(rUso?.codfigurafiscal) === 5 && Number(rUso?.codbalanca) === 1,
+          { semNcm, ncmFora, custo0, rep0, semPis, stbSemCest, cestFora, ok, uso, rUso });
+        // BLOQ_VENDA_MAIOR_CUSTO (produção 'N'): ligada, a venda abaixo do custo não grava
+        await pgP2.query(`UPDATE configuracoes SET valor = 'S' WHERE codigo = 'BLOQ_VENDA_MAIOR_CUSTO'`);
+        const vendaBaixa = await post(base225(10, {}, { vrvenda: 4 }));
+        await pgP2.query(`UPDATE configuracoes SET valor = 'N' WHERE codigo = 'BLOQ_VENDA_MAIOR_CUSTO'`);
+        const vendaBaixaN = await post(base225(11, {}, { vrvenda: 4 }));
+        check('PRODUTO §225.2 [BLOQ_VENDA_MAIOR_CUSTO]: com a configuração ligada, venda menor que o custo → 422 PRODUTO_VENDA_MENOR_CUSTO; desligada (o valor da produção) grava',
+          vendaBaixa.code === 'PRODUTO_VENDA_MENOR_CUSTO' && vendaBaixaN.status === 201, { vendaBaixa, vendaBaixaN });
+      } finally {
+        for (const id of criados) {
+          await pgP2.query(`DELETE FROM multi_preco WHERE idproduto = $1`, [id]).catch(() => undefined);
+          await pgP2.query(`DELETE FROM estoque WHERE idproduto = $1`, [id]).catch(() => undefined);
+          await pgP2.query(`DELETE FROM estoque_dep WHERE idproduto = $1`, [id]).catch(() => undefined);
+          await pgP2.query(`DELETE FROM produtos WHERE idproduto = $1`, [id]).catch(() => undefined);
+        }
+        await pgP2.end();
       }
     }
 

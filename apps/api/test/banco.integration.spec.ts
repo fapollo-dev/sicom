@@ -48,6 +48,10 @@ afterAll(async () => {
   await pg?.stop();
 });
 
+// o gravar do produto valida como o legado (produto-gravar.ts): NCM existente, PIS/COFINS fora do Simples, custo ≠ 0 na linha da loja
+const FISCAL = { ncmsh: '17019900', pis: 'S', idpiscofins: 9 };
+const PRECO = { idempresa: 1, vrcusto: 1, vrcustorep: 1, markup: 0, vrvenda: 1, promocao: 'N', ativo: 'S', ativo_compra: 'S' };
+
 describe('Integração — Cadastro de Bancos (Postgres real)', () => {
   it('seed carregou os 15 bancos reais + GET_BANCOS funciona', async () => {
     const lista = await withTenant(() => repo.list());
@@ -563,9 +567,9 @@ describe('8ª tela — NCM (CHAVE NATURAL + data + memo via engine; hard-delete)
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
-  it('seed: 3 NCMs; view casta DESCRICAO e traz vigência', async () => {
+  it('seed: 3 NCMs (+ os 3 dos produtos-semente, mig 347); view casta DESCRICAO e traz vigência', async () => {
     const lista = (await withTenant(() => eng().list(cfg, { orderBy: 'codigo', orderDir: 'asc' }))) as any[];
-    expect(lista.length).toBe(3);
+    expect(lista.length).toBe(6);
     const ketchup = lista.find((n) => n.codigo === 21032010);
     expect(ketchup.descricao).toContain('ketchup');
     expect(ymd(ketchup.vigencia_inicio)).toBe('2017-01-01');
@@ -867,6 +871,7 @@ describe('14ª — PRODUTO núcleo (MESTRE-DETALHE: produtos + codauxiliar; GLOB
         aliquota: 'T01',
         balanca: 'N',
         ativo: 'S',
+        ...FISCAL, precos: [PRECO],
         codauxiliares: [{ codauxiliar: '7891000053508', codbarra: '7896000000123', fatoremb: 6, codunidade: 3 }],
       }),
     );
@@ -925,8 +930,9 @@ describe('15ª — PRODUTO F2 (MULTI_PRECO por empresa)', () => {
         codfor: 2,
         aliquota: 'T01',
         codauxiliares: [],
+        ...FISCAL,
         precos: [
-          { idempresa: 1, vrcusto: 10, markup: 50, vrvenda: 15, promocao: 'N', aliquotasaida: 'T01', ativo: 'S' },
+          { idempresa: 1, vrcusto: 10, vrcustorep: 10, markup: 50, vrvenda: 15, promocao: 'N', aliquotasaida: 'T01', ativo: 'S' },
         ],
       }),
     );
@@ -940,7 +946,7 @@ describe('15ª — PRODUTO F2 (MULTI_PRECO por empresa)', () => {
 
   it('UPDATE substitui precos (delete+insert): vrvenda 15 → 19.9', async () => {
     await withTenant(() =>
-      eng().updateAggregate(cfg, cod, { precos: [{ idempresa: 1, vrvenda: 19.9, aliquotasaida: 'T01' }] }),
+      eng().updateAggregate(cfg, cod, { precos: [{ idempresa: 1, vrcusto: 10, vrcustorep: 10, vrvenda: 19.9, aliquotasaida: 'T01' }] }),
     );
     const agg = (await withTenant(() => eng().readAggregate(cfg, cod))) as any;
     expect(agg.precos.length).toBe(1); // substituição (não acréscimo)
@@ -977,6 +983,7 @@ describe('PRODUTO F3 (ESTOQUE por empresa)', () => {
         codfor: 2,
         aliquota: 'T01',
         codauxiliares: [],
+        ...FISCAL, precos: [PRECO],
         estoques: [{ idempresa: 1, qtde: 0, minimo: 5, maximo: 50, local: 'X1' }],
       }),
     );
@@ -1041,6 +1048,7 @@ describe('PRODUTO F4 (kit/BOM)', () => {
         unidade: 'UN',
         codfor: 2,
         aliquota: 'T01',
+        ...FISCAL, precos: [PRECO],
         composicoes: [{ idproduto_01: 2, qtde: 1, valor: 3 }],
       }),
     );
