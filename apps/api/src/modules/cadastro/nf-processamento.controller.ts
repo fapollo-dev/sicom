@@ -23,11 +23,13 @@ export class NfProcessamentoController {
   @RequerAcesso('FRMNF', 'BTNPROCESSAR')
   async processar(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body?: { precos?: { modo?: 'online' | 'lote' | 'nenhum'; sincronizar?: boolean; itens?: number[] }; semAlterarCusto?: number[] },
+    @Body() body?: { precos?: { modo?: 'online' | 'lote' | 'nenhum'; sincronizar?: boolean; itens?: number[] }; semAlterarCusto?: number[];
+      liberacaoEstoqueNegativo?: { login?: string; senha?: string } },
   ) {
     const modo = body?.precos?.modo;
     if (modo != null && !['online', 'lote', 'nenhum'].includes(modo)) throw new BusinessRuleError('NF_PRECO_MODO_INVALIDO', { modo });
-    await this.proc.processar(id, { precos: body?.precos, semAlterarCusto: Array.isArray(body?.semAlterarCusto) ? body!.semAlterarCusto : undefined });
+    await this.proc.processar(id, { precos: body?.precos, semAlterarCusto: Array.isArray(body?.semAlterarCusto) ? body!.semAlterarCusto : undefined,
+      liberacaoEstoqueNegativo: body?.liberacaoEstoqueNegativo });
     return { codnf: id, proc: 'S' };
   }
 
@@ -41,8 +43,8 @@ export class NfProcessamentoController {
   @Post(':id/reverter')
   @HttpCode(200)
   @RequerAcesso('FRMNF', 'BTNREVERTER')
-  async reverter(@Param('id', ParseIntPipe) id: number) {
-    await this.proc.reverter(id);
+  async reverter(@Param('id', ParseIntPipe) id: number, @Body() body?: { liberacaoEstoqueNegativo?: { login?: string; senha?: string } }) {
+    await this.proc.reverter(id, { liberacaoEstoqueNegativo: body?.liberacaoEstoqueNegativo });
     return { codnf: id, proc: 'N' };
   }
 

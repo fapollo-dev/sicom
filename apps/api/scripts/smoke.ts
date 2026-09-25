@@ -1474,8 +1474,8 @@ async function main() {
     const procNeg = await processarNf(nfNegN, H);
     const procNegBody = (await procNeg.json().catch(() => ({}))) as any;
     check(
-      "F3b config 'N': saída que deixaria negativo → 422 NF_ESTOQUE_NEGATIVO, saldo INALTERADO (rollback)",
-      procNeg.status === 422 && procNegBody.code === 'NF_ESTOQUE_NEGATIVO' && (await saldoProd1()) === s3 && procNeg.status !== 500,
+      "F3b config 'N': saída que deixaria negativo, sem usuário autorizado a liberar na config → 422 NF_ESTOQUE_NEG_SEM_LIBERADORES (UsuarioAutorizouComSenha), saldo INALTERADO (rollback)",
+      procNeg.status === 422 && procNegBody.code === 'NF_ESTOQUE_NEG_SEM_LIBERADORES' && (await saldoProd1()) === s3 && procNeg.status !== 500,
       { status: procNeg.status, code: procNegBody.code, saldo: await saldoProd1(), s3 },
     );
     // (b) default 'S' (fiel ao legado) → PERMITE saldo negativo; processa e reverte p/ restaurar.
@@ -24149,6 +24149,54 @@ async function main() {
           await pgBd.query(`DELETE FROM nf WHERE codnf = $1`, [c]).catch(() => undefined);
         }
         await pgBd.end();
+      }
+    }
+
+    // ══ §255 PROCESSAR COM ESTOQUE NEGATIVO — PermiteReverterComProdutoEstoqueNeg (udmNF.pas:11600-11688) ══════════
+    {
+      const pgEn = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const saldoAntes = (await pgEn.query(`SELECT qtde FROM estoque WHERE idproduto = 3 AND idempresa = 1`)).rows[0]?.qtde ?? null;
+      const nfs: number[] = [];
+      try {
+        await pgEn.query(`INSERT INTO estoque (idproduto, idempresa, qtde, minimo, maximo) VALUES (3, 1, -5, 0, 0) ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde = -5`);
+        const criar = async (nronf: string, tipo: 'E' | 'S', qtd: number) => {
+          const r = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 1, serie: '1', tipo, nronf, tipoemissao: tipo === 'E' ? '1' : '0', codparceiro: tipo === 'E' ? 22 : 20,
+            dtemissao: '2037-01-12', dtcontabil: '2037-01-12', cfop: tipo === 'E' ? '1102' : '5102', itens: [{ nroitem: 1, codproduto: 3, quantidade: qtd, vrcusto: 10, cfop: tipo === 'E' ? '1102' : '5102', aliquota: 'T01', cst: 0 }] }) });
+          const c = Number(((await r.json().catch(() => ({}))) as any).codnf) || 0;
+          if (c) nfs.push(c);
+          return c;
+        };
+        const lib = async (c: number) => (await pgEn.query(`SELECT codoperador_lib_estoqueneg FROM nf_prod WHERE codnf = $1`, [c])).rows[0]?.codoperador_lib_estoqueneg ?? null;
+        // (1) config 'S' (a produção): a ENTRADA de produto com saldo negativo (−5) processa e grava quem processou no item — a conta usa o saldo ATUAL
+        const e1 = await criar('EN255A', 'E', 2);
+        const pe1 = await processarNf(e1, H);
+        const libE1 = await lib(e1);
+        await fetch(`${base}/fiscal/nf/${e1}/reverter`, { method: 'POST', headers: H });
+        // (2) config 'N' na empresa + OP8 autorizado: sem login → 422 com os itens; login de quem não está na lista → 422; o do OP8 → processa e grava 8
+        await pgEn.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) VALUES (84, 'Empresa', '1', 'N') ON CONFLICT (id, tipo, chave) DO UPDATE SET valor = 'N'`);
+        await pgEn.query(`INSERT INTO configuracoes_especificas (id, tipo, chave, valor) SELECT 84, 'Usuario', codoperador::text, 'S' FROM operadores WHERE upper(login) = 'OP8' ON CONFLICT (id, tipo, chave) DO UPDATE SET valor = 'S'`);
+        const s1 = await criar('EN255B', 'S', 1);
+        const ps1 = await processarNf(s1, H);
+        const ps1J = (await ps1.json().catch(() => ({}))) as any;
+        const ps2 = await processarNf(s1, H, { liberacaoEstoqueNegativo: { login: 'SMOKE', senha: 'smoke123' } });
+        const ps2J = (await ps2.json().catch(() => ({}))) as any;
+        const ps3 = await processarNf(s1, H, { liberacaoEstoqueNegativo: { login: 'OP8', senha: 'smoke123' } });
+        const libS1 = await lib(s1);
+        const op8 = Number((await pgEn.query(`SELECT codoperador FROM operadores WHERE upper(login) = 'OP8'`)).rows[0]?.codoperador);
+        await fetch(`${base}/fiscal/nf/${s1}/reverter`, { method: 'POST', headers: H, body: JSON.stringify({ liberacaoEstoqueNegativo: { login: 'OP8', senha: 'smoke123' } }) });
+        check('ESTOQUE NEGATIVO §255 [PermiteReverterComProdutoEstoqueNeg]: com PERMITE_PROC_NF_ESTOQUE_NEG = S (a produção) a entrada de produto com saldo −5 processa e grava quem processou em CODOPERADOR_LIB_ESTOQUENEG (11.469 itens de entrada de 2026 têm); com N, a saída que deixa negativo pede a liberação — sem login, 422 com os itens; o login de quem não está entre os autorizados da config, 422; o do autorizado (OP8) processa e fica gravado no item',
+          pe1.status === 200 && Number(libE1) === 7 && ps1.status === 422 && ps1J.code === 'NF_ESTOQUE_NEGATIVO' && ps1J.detalhe?.itens?.[0]?.nroitem === 1
+          && ps2.status === 422 && ps2J.code === 'NF_ESTOQUE_NEG_LIBERACAO_NEGADA' && ps3.status === 200 && Number(libS1) === op8,
+          { pe1: pe1.status, libE1, ps1: [ps1.status, ps1J.code, ps1J.detalhe], ps2: [ps2.status, ps2J.code], ps3: ps3.status, libS1, op8 });
+      } finally {
+        await pgEn.query(`DELETE FROM configuracoes_especificas WHERE id = 84 AND ((tipo = 'Empresa' AND chave = '1') OR tipo = 'Usuario')`).catch(() => undefined);
+        for (const c of nfs) {
+          await pgEn.query(`DELETE FROM nf_prod WHERE codnf = $1`, [c]).catch(() => undefined);
+          await pgEn.query(`DELETE FROM nf WHERE codnf = $1`, [c]).catch(() => undefined);
+        }
+        if (saldoAntes == null) await pgEn.query(`DELETE FROM estoque WHERE idproduto = 3 AND idempresa = 1`).catch(() => undefined);
+        else await pgEn.query(`UPDATE estoque SET qtde = $1 WHERE idproduto = 3 AND idempresa = 1`, [saldoAntes]).catch(() => undefined);
+        await pgEn.end();
       }
     }
 

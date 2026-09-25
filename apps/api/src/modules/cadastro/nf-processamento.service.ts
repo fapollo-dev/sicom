@@ -62,14 +62,13 @@ const num = (v: unknown): number => {
  *    é carregado mas não gateia o ramo loja). Aqui exigimos GERAQTDE & GERAESTOQUE & MOVIMENTA_ESTOQUE
  *    = 'S' — MAIS restritivo (conservador): só PULA o movimento, nunca o inventa.
  *
- * Estoque negativo: gateado por config PERMITE_PROC_NF_ESTOQUE_NEG (udmNF.pas:11643) — 'S' (default
- * legado, confirmado no golden PINHEIRAO) PERMITE saldo negativo; 'N' bloqueia (NF_ESTOQUE_NEGATIVO,
+ * Estoque negativo: `liberarEstoqueNegativo` (PermiteReverterComProdutoEstoqueNeg) — 'S' (a produção) grava quem processou no item;
+ * 'N' exige a liberação por login dos usuários da config (NF_ESTOQUE_NEGATIVO com os itens,
  * com rollback atômico). Incremento SEMPRE relativo (`qtde = qtde + delta`, nunca absoluto) +
  * `.forUpdate()` → à prova de corrida. CAS no flip (`WHERE proc=<esperado>`) → idempotente.
  *
  * Adiado (F3b+, dossiê §10): ORIGEM 'D'/'P'/'X' (depósito/produção/almox), local/congelado,
- * composição/decomposição (kit), **override de negativo por SENHA** (UsuarioAutorizouComSenha,
- * uNF:11659) + **escopo Grupo** do whitelist, conferência, e os efeitos financeiro (F4)/contábil
+ * composição/decomposição (kit), **escopo Grupo** do whitelist, conferência, e os efeitos financeiro (F4)/contábil
  * (F5). O corte 1 move SÓ a loja (ESTOQUE.QTDE), sem gatear por ORIGEM_ESTOQUE.
  */
 @Injectable()
@@ -88,8 +87,41 @@ export class NfProcessamentoService {
     // saída M55 é barrada aqui (exige statusnfe='P') e integra no transmitir. Best-effort (não aborta).
     await this.contab.tentarContabilizar(codnf);
   }
-  reverter(codnf: number): Promise<void> {
-    return this.mover(codnf, 'reverter');
+  reverter(codnf: number, opcoes: OpcoesProcessarEntrada = {}): Promise<void> {
+    return this.mover(codnf, 'reverter', opcoes);
+  }
+
+  /**
+   * `PermiteReverterComProdutoEstoqueNeg` (udmNF.pas:11600-11688), chamado no processar (uEstoqueNF.pas:944) e no reverter (uNF.pas:8994):
+   * o item que move estoque cujo saldo — na entrada o saldo ATUAL, na saída o saldo menos a quantidade × fator; da loja, ou do depósito com
+   * ORIGEM_ESTOQUE 'D' — é negativo: com PERMITE_PROC_NF_ESTOQUE_NEG = 'S' (a produção) grava o operador em CODOPERADOR_LIB_ESTOQUENEG
+   * (11.469 itens de entrada e 1.251 de saída processados em 2026); com 'N' exige a liberação por login de um dos usuários da config
+   * (`UsuarioAutorizouComSenha` — um login vale para todos os itens, o "executar para todos"), que fica gravado no item
+   */
+  private async liberarEstoqueNegativo(trx: AnyDB, codnf: number, tipo: string, emp: number, op: number | null, cred?: { login?: string; senha?: string }): Promise<void> {
+    const itens = (await trx.selectFrom('nf_prod').select(['codnfprod', 'nroitem', 'codproduto', 'quantidade', 'fatorembal', 'geraestoque', 'movimenta_estoque', 'origem_estoque'])
+      .where('codnf', '=', codnf).orderBy('codnfprod').execute()) as Array<Record<string, unknown>>;
+    const negativos: Array<{ codnfprod: number; nroitem: number; codproduto: number; saldo: number }> = [];
+    for (const it of itens) {
+      if (it.geraestoque !== 'S' || it.movimenta_estoque !== 'S') continue;
+      const tabela = String(it.origem_estoque ?? '').trim() === 'D' ? 'estoque_dep' : 'estoque';
+      const saldo = num(((await trx.selectFrom(tabela).select('qtde').where('idproduto', '=', Number(it.codproduto)).where('idempresa', '=', emp).executeTakeFirst()) as { qtde?: unknown } | undefined)?.qtde);
+      const verificar = tipo === 'E' ? saldo : saldo - num(it.quantidade) * (num(it.fatorembal) || 1);
+      if (verificar < 0) negativos.push({ codnfprod: Number(it.codnfprod), nroitem: Number(it.nroitem), codproduto: Number(it.codproduto), saldo });
+    }
+    if (!negativos.length) return;
+    let liberador = op;
+    const permite = await this.config.ligado('PERMITE_PROC_NF_ESTOQUE_NEG', { empresaId: emp, operadorId: op ?? undefined });
+    if (!permite) {
+      const permitidos = await this.config.usuariosPermitidos('PERMITE_PROC_NF_ESTOQUE_NEG');
+      if (!permitidos.length) throw new BusinessRuleError('NF_ESTOQUE_NEG_SEM_LIBERADORES');
+      if (!cred?.login) throw new BusinessRuleError('NF_ESTOQUE_NEGATIVO', { itens: negativos.map(({ nroitem, codproduto, saldo }) => ({ nroitem, codproduto, saldo })), exigeLiberacao: true });
+      const lib = await this.liberacao.validar({ codigo: 'PERMITE_PROC_NF_ESTOQUE_NEG', login: String(cred.login), senha: String(cred.senha ?? ''),
+        liberacao: 'LIBERAR PROCESSAMENTO DA NF COM ESTOQUE NEGATIVO', permitidos });
+      if (!lib.liberado) throw new BusinessRuleError('NF_ESTOQUE_NEG_LIBERACAO_NEGADA');
+      liberador = lib.codOperador ?? op;
+    }
+    await trx.updateTable('nf_prod').set({ codoperador_lib_estoqueneg: liberador }).where('codnfprod', 'in', negativos.map((x) => x.codnfprod)).execute();
   }
 
   /**
@@ -232,6 +264,8 @@ export class NfProcessamentoService {
       // USOCONSUMO do produto. O Apollo gravava GERAESTOQUE 'S' fixo na importação: 2.856 itens de uso/consumo/serviço de 2026 (CFOP
       // 1556/2556/1949/1933/1407…) entrariam no estoque
       if (modo === 'processar') await flagsDoItemNoProcessar(trx, codnf);
+      // o ESTOQUE NEGATIVO (PermiteReverterComProdutoEstoqueNeg, udmNF.pas:11600-11688 — no processar e no reverter)
+      await this.liberarEstoqueNegativo(trx, codnf, String(nf.tipo), emp, op, opcoes.liberacaoEstoqueNegativo);
       await this.aplicarMovimentoItens(trx, codnf, String(nf.tipo), sinal, modo === 'reverter' ? 'NF-REV' : 'NF', op, emp);
       // a entrada nos PRODUTOS (UpdateProdutos): o histórico do processamento, a linha de preço e o custo — reverter não desfaz
       if (modo === 'processar') await atualizarProdutosDaEntrada(trx, codnf, emp, op, opcoes);
@@ -344,14 +378,6 @@ export class NfProcessamentoService {
     op: number | null,
     emp: number,
   ): Promise<void> {
-    // Gate PERMITE_PROC_NF_ESTOQUE_NEG (udmNF.pas:11643): 'S' (default legado, golden PINHEIRAO) PERMITE
-    // saldo negativo; 'N' bloqueia. Resolvido uma vez por movimento (Empresa/Usuario/Modulo/default).
-    // Adiado: override por senha (UsuarioAutorizouComSenha, uNF:11659) e escopo Grupo.
-    const permiteNegativo = await this.config.ligado('PERMITE_PROC_NF_ESTOQUE_NEG', {
-      empresaId: emp,
-      operadorId: op ?? undefined,
-    });
-
     const itens = await trx
       .selectFrom('nf_prod')
       .select(['codproduto', 'quantidade', 'fatorembal', 'geraestoque', 'movimenta_estoque'])
@@ -377,10 +403,8 @@ export class NfProcessamentoService {
       const saldoAnt = num(ant?.qtde);
       const saldoNovo = Math.round((saldoAnt + delta) * 1000) / 1000;
 
-      // bloqueio de negativo gateado por config (udmNF.pas:11643): só bloqueia se PERMITE_PROC_NF_ESTOQUE_NEG='N'.
-      if (!permiteNegativo && saldoNovo < 0) {
-        throw new BusinessRuleError('NF_ESTOQUE_NEGATIVO', { idproduto: cod, saldo: saldoAnt, qtde: qtdex });
-      }
+      // o estoque negativo é conferido ANTES de mover (liberarEstoqueNegativo — a regra do legado, com a liberação por login); o
+      // cancelamento (NF-CANC) não confere, como o legado (só o processar e o reverter chamam PermiteReverterComProdutoEstoqueNeg)
 
       // upsert RELATIVO (resolve linha ausente + concorrência) — nunca grava saldo absoluto.
       await trx

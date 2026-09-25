@@ -56,18 +56,18 @@ export class DatabaseProvider implements OnModuleDestroy {
   dbFor(tenantId: string): Kysely<TenantDB> {
     let db = this.pools.get(tenantId);
     if (!db) {
-      db = new Kysely<TenantDB>({
-        dialect: new PostgresDialect({
-          pool: new Pool({
-            host: this.conn.host,
-            port: this.conn.port,
-            user: this.conn.user,
-            password: this.conn.password,
-            database: this.conn.databasePrefix + tenantId,
-            max: 10,
-          }),
-        }),
+      const pool = new Pool({
+        host: this.conn.host,
+        port: this.conn.port,
+        user: this.conn.user,
+        password: this.conn.password,
+        database: this.conn.databasePrefix + tenantId,
+        max: 10,
       });
+      // a conexão OCIOSA que o servidor derruba (reinício, failover, "terminating connection due to administrator command") chega como
+      // 'error' no pool — sem ouvinte, o Node derruba o processo inteiro; o pg-pool já descarta o cliente e a próxima consulta reconecta
+      pool.on('error', (err) => console.warn(`[db:${tenantId}] conexão ociosa encerrada pelo servidor: ${err.message}`));
+      db = new Kysely<TenantDB>({ dialect: new PostgresDialect({ pool }) });
       this.pools.set(tenantId, db);
     }
     return db;

@@ -31,7 +31,7 @@ const div = (a: number, b: number) => (b > 0 ? a / b : 0);
 const floatToStr = (v: unknown) => String(Number(n(v).toPrecision(15))).replace('.', ',');
 
 /** o que o operador escolhe na tela de processar (`TfrmEstoqueNF`): o preço de venda e os itens sem "altera custo" */
-export interface OpcoesProcessarEntrada { precos?: PedidoPrecoProcessar; semAlterarCusto?: number[] }
+export interface OpcoesProcessarEntrada { precos?: PedidoPrecoProcessar; semAlterarCusto?: number[]; liberacaoEstoqueNegativo?: { login?: string; senha?: string } }
 
 export async function atualizarProdutosDaEntrada(trx: AnyDB, codnf: number, emp: number, op: number | null, opcoes: OpcoesProcessarEntrada = {}): Promise<void> {
   const nf = (await trx.selectFrom('nf').select(['tipo', 'cfop', 'codparceiro', 'nronf', 'nf_importacao_nfe', 'totalprod']).where('codnf', '=', codnf).executeTakeFirst()) as
