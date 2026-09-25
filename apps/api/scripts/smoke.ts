@@ -23174,6 +23174,24 @@ async function main() {
           set1.status === 201 && set2.code === 'FAMILIA_SETOR_PERDA_PADRAO_EXISTE' && delUsado.status === 422 && delUsadoJ.code === 'FAMILIA_EM_USO_PRODUTO'
           && delLivre.ok && r2?.excluido === 'S' && r2?.ativo === 'N',
           { set1, set2, delUsado: [delUsado.status, delUsadoJ.code], delLivre: delLivre.status, r2 });
+
+        // o gatilho CASCATA_FAMILIA_PROD, como está: trocar o departamento de UM subgrupo move TODOS os produtos do departamento antigo
+        // (os do outro subgrupo também); trocar o grupo, idem
+        const fam = async (codfamilia: number, tipo: string, extra = '') => {
+          await pgFa.query(`INSERT INTO familias_prod (codfamilia, tipo, descricao, ativo${extra ? ', coddpto, codgrupo' : ''}) VALUES ($1,$2,$3,'S'${extra}) ON CONFLICT (codfamilia) DO NOTHING`, [codfamilia, tipo, `FAM ${codfamilia}`]);
+          ids.push(codfamilia);
+        };
+        await fam(992301, 'D'); await fam(992302, 'D'); await fam(992303, 'G'); await fam(992304, 'G');
+        await fam(992305, 'S', ', 992301, 992303'); await fam(992306, 'S', ', 992301, 992303');
+        await pgFa.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto, codgrupo, codsubgrupo) VALUES
+          (992311,'7899000992311','PROD CASCATA 1','UN',2,'T01','S',992301,992303,992305), (992312,'7899000992312','PROD CASCATA 2','UN',2,'T01','S',992301,992303,992306)
+          ON CONFLICT (idproduto) DO NOTHING`);
+        await pgFa.query(`UPDATE familias_prod SET coddpto = 992302, codgrupo = 992304 WHERE codfamilia = 992305`);
+        const cas = (await pgFa.query(`SELECT idproduto, coddpto, codgrupo, codsubgrupo FROM produtos WHERE idproduto IN (992311, 992312) ORDER BY idproduto`)).rows as any[];
+        check('FAMÍLIAS §229.3 [o gatilho CASCATA_FAMILIA_PROD, como está]: o subgrupo 992305 passa do departamento 992301 para 992302 e do grupo 992303 para 992304 → os DOIS produtos do departamento/grupo antigo vão junto (o do subgrupo 992306 também — o gatilho move pelo departamento, não pela família); o subgrupo de cada um fica',
+          cas.length === 2 && cas.every((c) => Number(c.coddpto) === 992302 && Number(c.codgrupo) === 992304)
+          && Number(cas[0].codsubgrupo) === 992305 && Number(cas[1].codsubgrupo) === 992306, { cas });
+        await pgFa.query(`DELETE FROM produtos WHERE idproduto IN (992311, 992312)`);
       } finally {
         await pgFa.query(`DELETE FROM familias_prod WHERE codfamilia = ANY($1::int[])`, [ids.filter(Boolean)]).catch(() => undefined);
         await pgFa.end();
