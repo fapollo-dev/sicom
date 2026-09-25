@@ -323,6 +323,10 @@ export class NfNfeService {
           chavenfe: nf.chavenfe,
           tipo_evento: 110111, // cancelamento
           seq_evento: 1,
+          // como o legado grava o evento (740 de 740 cancelamentos): o órgão é o UF da chave e o Id é o do leiaute do evento
+          // ("ID" + tipo + chave + sequência — o Oracle corta em 17 caracteres, VARCHAR2(17); o destino guarda inteiro)
+          orgao_recepcao: nf.chavenfe ? String(nf.chavenfe).slice(0, 2) : null,
+          id_evento: nf.chavenfe ? `ID110111${nf.chavenfe}01` : null,
           ambiente: ef.ambiente ?? '2',
           descricao: 'Cancelamento',
           texto: xjust,
@@ -408,6 +412,8 @@ export class NfNfeService {
           chavenfe: nf.chavenfe,
           tipo_evento: 110110, // carta de correção
           seq_evento: seq,
+          orgao_recepcao: nf.chavenfe ? String(nf.chavenfe).slice(0, 2) : null, // (117 de 117 no legado)
+          id_evento: nf.chavenfe ? `ID110110${nf.chavenfe}${String(seq).padStart(2, '0')}` : null,
           ambiente: ef.ambiente ?? '2',
           descricao: 'Carta de Correcao',
           texto: correcao,

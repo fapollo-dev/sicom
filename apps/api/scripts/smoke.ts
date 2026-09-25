@@ -2050,6 +2050,9 @@ async function main() {
     );
     {
       const lCan = (await pg23.query(`SELECT acao, formulario, chave, historico, idempresa FROM log WHERE tabela = 'NF' AND valor = $1 AND formulario = 'Notas fiscais'`, [nfTx])).rows as any[];
+      const evCan = (await pg23.query(`SELECT e.orgao_recepcao, e.id_evento, n.chavenfe FROM nfe_evento e JOIN nf n ON n.codnf = e.codnf WHERE e.codnf = $1 AND e.tipo_evento = 110111`, [nfTx])).rows[0] as any;
+      check('NFE_EVENTO §231 [o evento de cancelamento como o legado o grava]: ORGAO_RECEPCAO = o UF da chave e ID_EVENTO = "ID" + 110111 + chave + 01 (740 de 740 no legado)',
+        evCan?.orgao_recepcao === String(evCan?.chavenfe ?? '').slice(0, 2) && evCan?.id_evento === `ID110111${evCan?.chavenfe}01`, { evCan });
       const nomeOp = String((await pg23.query(`SELECT nome FROM operadores WHERE codoperador = 7`)).rows[0]?.nome ?? '');
       check('LOG VERTICAL §221.3 [cancelar a NF grava a LOG do binário novo]: 1 linha "Notas fiscais"/NF/CODNF Alterou, sem empresa, texto sem normalizar — "Nota fiscal cancelada pelo usuário: <NOME do operador>, com a justificativa: <J> ,em dd/mm/aaaa hh:mm:ss" (39 de 39 cancelamentos de 2025-26 a têm)',
         lCan.length === 1 && lCan[0].acao === 'Alterou' && lCan[0].chave === 'CODNF' && lCan[0].idempresa == null

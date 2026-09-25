@@ -615,12 +615,12 @@ leitura), as colunas preenchidas em ≥ 50% que nenhum código do Apollo que gra
   parcelas, liberar limite e importar itens de pedido já recebido (PEDIDO_FATURADO) — o legado não tem essa trava (editar: fechamento,
   uPedidoCompra.pas:6610; excluir: fechamento/transferência, :6661; reabrir: só a liberação, :7754). O carimbo do 1º recebimento
   (`dtfaturamento` do Apollo; a data digitada do legado vai para `data_faturamento`) fica como metadado.
-- `pedidocompra_i`: PISCONFIS, ICME, LUCROBRUTOP, LUCROLIQP, VLREMBALAGEMB (a rentabilidade do item).
+- ~~`pedidocompra_i`: PISCONFIS, ICME, LUCROBRUTOP, LUCROLIQP, VLREMBALAGEMB~~ — falso positivo do conferidor por nome: a herança do catálogo (mig 307, `pedido-heranca.ts`) já os grava.
 - `nf_prod`: REPASSADO, INDEXADORTRIB, VRCREDSN/ALIQCREDSN/DESTACICMSSN (crédito do Simples), VRFRETE, CUSTO_RECALCULO_BONIF,
   VRCFOP_ABATIDO; `nf.ULT_CODNFPROD_REPASSE`; `nf_forma_pagamento.VRTROCO`.
 - `parceiros`: VISUALIZA_PC_PARC, CLUBEFIDELIDADE, SOMA_ST_BONIFICACAO, HABILITA_RETENCAO_SENAR_NF.
 - `cartao`: TIPOMODALIDADE, MODALIDADEOPERADORA, SEQUENCIA, CODOPERADORAORIGEM, VALOR_OPERACAO.
-- `nfe_evento`: ORGAO_RECEPCAO, ID_EVENTO, CNPJ_CPF_AUTOR_EVENTO, MENSAGEM_AUTORIZACAO.
+- ✅ `nfe_evento` do cancelamento e da CC-e: ORGAO_RECEPCAO (UF da chave) e ID_EVENTO ("ID"+tipo+chave+seq) como o legado grava (smoke §231); CNPJ do autor e mensagem são só da manifestação (que vem da SEFAZ).
 - `lote_preco.VRCUSTO_ANTERIOR`; `cotacao_prod` (QTDEATUAL, VALORCOTACAO, VLRUNITARIO); `itens_producao_receita` (UNIDADE_PRODUTO,
   FATOR_CONVERSAO_CX_PROD[_UTIL]); `apuracao_pc_det` (DESCRICAOBASE, DESCRICAOPC, BASECALCULOAPURA, VALORPISAPURA, VALORCOFINSAPURA);
   `pedido_devolucao_compra.CNPJ_CPF`, `pedido_devolucao_compra_i.VRCUSTOREP`; `plc` (NIVELCONTA, DESCPLCCONTABIL);
