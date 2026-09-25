@@ -381,6 +381,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('336_controle_contas_permissoes.sql'));
   await pool.query(sql('337_codref_for_por_produto.sql'));
   await pool.query(sql('338_devolucao_status_do_legado.sql'));
+  await pool.query(sql('339_nfe_nao_cadastradas_sequencia.sql'));
   await pool.end();
   return pg;
 }

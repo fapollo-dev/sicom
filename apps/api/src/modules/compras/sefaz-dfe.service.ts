@@ -8,6 +8,7 @@ import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { ConfigService } from '../cadastro/config.service';
+import { registrarProcessoNf } from '../shared/nf-status-processo';
 
 type AnyDB = Kysely<any>;
 
@@ -30,6 +31,14 @@ const URLS = {
     '2': 'https://hom1.nfe.fazenda.gov.br/NFeRecepcaoEvento4/NFeRecepcaoEvento4.asmx',
   },
 };
+
+/** `FormataCPFCNPJ`: 14 dígitos → 00.000.000/0000-00; 11 → 000.000.000-00 (a fila e os eventos do legado guardam formatado) */
+export function formatarCpfCnpj(v: string | null | undefined): string | null {
+  const d = String(v ?? '').replace(/\D/g, '');
+  if (d.length === 14) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+  if (d.length === 11) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+  return v ? String(v) : null;
+}
 
 const tag = (xml: string, nome: string): string | null => {
   const m = xml.match(new RegExp(`<${nome}[^>]*>([\\s\\S]*?)</${nome}>`));
@@ -123,58 +132,87 @@ export class SefazDfeService {
   }
 
   /**
-   * Processa os DOCUMENTOS já descompactados de um lote da distribuição (PURA — o smoke/unit testa isto).
-   * schema: resNFe (resumo) · procNFe (nota completa) · resEvento/procEventoNFe (evento).
+   * Processa os DOCUMENTOS já descompactados de um lote da distribuição (`ProcessaRetornoDistribuicao`,
+   * UManifestoDFe.pas:2557-2796). resNFe/procNFe viram a linha da FILA (`NFE_NAO_CADASTRADAS`) — pulando a chave que já é NF
+   * ou já está na fila da empresa — com o CNPJ formatado, o TIPO invertido pelo tpNF (a saída do emitente é a nossa entrada),
+   * o NRONF da chave, DTRECBO, o operador e as flags 'N'; e a nota de entrada abre a ESTEIRA (stManifesto). procNFe grava o
+   * XML completo em `NFE_XML` (upsert pela chave). resEvento/procEventoNFe vão a `NFE_EVENTOS` em upsert (chave + sequência +
+   * tipo + órgão). A chave da fila vem da sequência (antes era o NSU, que colidia com a chave migrada e entre empresas).
    */
   async processarDocs(emp: number, docs: { nsu: string; schema: string; xml: string }[]) {
     const db = this.dbp.forTenant() as AnyDB;
+    const op = currentTenant().operadorId ?? null;
     let resumos = 0; let completas = 0; let eventos = 0;
+    // a sequência nunca fica atrás da maior chave (a carga — inclusive o delta da virada — grava a chave do legado)
+    if (docs.length) {
+      await sql`SELECT setval('seq_nfe_nao_cadastradas', greatest((SELECT last_value FROM seq_nfe_nao_cadastradas),
+                        (SELECT coalesce(max(codnfe_naocad), 0) FROM nfe_nao_cadastradas))::bigint, true)`.execute(db);
+    }
     for (const d of docs) {
-      if (d.schema.startsWith('resNFe')) {
-        const chave = tag(d.xml, 'chNFe') ?? '';
-        if (!chave) continue;
-        await db.insertInto('nfe_nao_cadastradas').values({
-          // PK do legado é digitado/sequencial no Oracle; aqui derivamos do NSU (estável e único por lote)
-          codnfe_naocad: Number(d.nsu) || null,
-          chavenfe: chave,
-          cnpj: tag(d.xml, 'CNPJ'), razao: tag(d.xml, 'xNome'), ie: tag(d.xml, 'IE'),
-          dtemissao: tag(d.xml, 'dhEmi'), totalnf: Number(tag(d.xml, 'vNF') ?? 0),
-          situacao: Number(tag(d.xml, 'cSitNFe') ?? 1),
-          idempresa: emp, modelo: 55, tipo: 'E',
-          dtconsulta: sql`now()`, xml_resumido: d.xml,
-          protocolo: tag(d.xml, 'nProt'),
-        }).onConflict((oc) => oc.column('chavenfe').doNothing()).execute();
-        resumos++;
-      } else if (d.schema.startsWith('procNFe')) {
+      if (d.schema.startsWith('resNFe') || d.schema.startsWith('procNFe')) {
+        const completa = d.schema.startsWith('procNFe');
         const chave = tag(d.xml, 'chNFe') ?? (d.xml.match(/Id="NFe(\d{44})"/)?.[1] ?? '');
         if (!chave) continue;
-        await db.insertInto('nfe_xml').values({ chavenfe: chave, xml: d.xml, modelo: 55, dtcadastro: sql`now()` }).execute();
-        // garante a linha da fila mesmo quando o AN manda a completa sem o resumo antes
-        await db.insertInto('nfe_nao_cadastradas').values({
-          codnfe_naocad: Number(d.nsu) || null, chavenfe: chave,
-          cnpj: tag(d.xml, 'CNPJ'), razao: tag(d.xml, 'xNome'),
-          dtemissao: tag(d.xml, 'dhEmi'), totalnf: Number(tag(d.xml, 'vNF') ?? 0),
-          situacao: 1, idempresa: emp, modelo: 55, tipo: 'E', dtconsulta: sql`now()`,
-          protocolo: tag(d.xml, 'nProt'),
-        }).onConflict((oc) => oc.column('chavenfe').doNothing()).execute();
-        completas++;
+        if (completa) {
+          const ja = (await sql<{ id: number }>`SELECT codnfexml AS id FROM nfe_xml WHERE chavenfe = ${chave} ORDER BY codnfexml LIMIT 1`.execute(db)).rows[0];
+          if (ja) await sql`UPDATE nfe_xml SET xml = ${d.xml}, modelo = 55, dtcadastro = now(), codoperador = ${op}, arquivo_exportado = 'N' WHERE codnfexml = ${Number(ja.id)}`.execute(db);
+          else await db.insertInto('nfe_xml').values({ chavenfe: chave, xml: d.xml, modelo: 55, dtcadastro: sql`now()`, codoperador: op, arquivo_exportado: 'N' }).execute();
+        }
+        if (await this.registrarNaFila(db, emp, op, chave, d.xml)) completa ? completas++ : resumos++;
       } else if (d.schema.startsWith('resEvento') || d.schema.startsWith('procEventoNFe')) {
-        await db.insertInto('nfe_eventos').values({
-          orgao_recepcao: tag(d.xml, 'cOrgao'), ambiente: tag(d.xml, 'tpAmb'),
-          chave_acesso: tag(d.xml, 'chNFe'),
-          cnpj_cpf_autor_evento: tag(d.xml, 'CNPJ') ?? tag(d.xml, 'CPF'),
-          data_evento: tag(d.xml, 'dhEvento'),
-          tipo_evento: Number(tag(d.xml, 'tpEvento') ?? 0),
-          seq_evento: Number(tag(d.xml, 'nSeqEvento') ?? 1),
-          descricao_evento: tag(d.xml, 'xEvento') ?? tag(d.xml, 'descEvento'),
-          protocolo_autorizacao: tag(d.xml, 'nProt'),
-          data_autorizacao: tag(d.xml, 'dhRecbto'),
-          xml: d.xml,
-        }).execute();
+        await this.gravarEventoDistribuicao(db, op, d.schema.startsWith('procEventoNFe'), d.xml);
         eventos++;
       }
     }
     return { resumos, completas, eventos };
+  }
+
+  /** a linha da fila do manifesto; devolve false quando a chave já é NF ou já está na fila da empresa */
+  private async registrarNaFila(db: AnyDB, emp: number, op: number | null, chave: string, xml: string): Promise<boolean> {
+    const nf = (await sql<{ c: number }>`SELECT codnf AS c FROM nf WHERE chavenfe = ${chave} AND idempresa = ${emp} LIMIT 1`.execute(db)).rows[0];
+    if (nf) return false;
+    const fila = (await sql<{ c: number }>`SELECT codnfe_naocad AS c FROM nfe_nao_cadastradas WHERE chavenfe = ${chave} AND idempresa = ${emp} LIMIT 1`.execute(db)).rows[0];
+    if (fila) return false;
+    const tpNF = tag(xml, 'tpNF');
+    await db.insertInto('nfe_nao_cadastradas').values({
+      chavenfe: chave,
+      cnpj: formatarCpfCnpj(tag(xml, 'CNPJ') ?? tag(xml, 'CPF')), razao: tag(xml, 'xNome'), ie: tag(xml, 'IE'),
+      dtemissao: tag(xml, 'dhEmi'),
+      // "existe uma inversão para que o usuário entenda que a nota de saída é uma nota de entrada para o sistema"
+      tipo: tpNF === '0' ? 'S' : 'E',
+      totalnf: Number(tag(xml, 'vNF') ?? 0), dtrecbo: tag(xml, 'dhRecbto'), protocolo: tag(xml, 'nProt'),
+      situacao: Number(tag(xml, 'cSitNFe') ?? 1), modelo: 55, arquivo: '', dtconsulta: sql`now()`, codoperador: op, idempresa: emp,
+      xml_resumido: xml, importacao_manual: 'N', nronf: String(Number(chave.substring(25, 34))), nfe_importada_sistema: 'N',
+    }).execute();
+    if (tpNF !== '0') await registrarProcessoNf(db, 'stManifesto', chave, emp, op);
+    return true;
+  }
+
+  /** o evento da distribuição em NFE_EVENTOS, upsert por chave + sequência + tipo + órgão (:2566-2640) */
+  private async gravarEventoDistribuicao(db: AnyDB, op: number | null, completo: boolean, xml: string): Promise<void> {
+    const chave = tag(xml, 'chNFe');
+    const seq = Number(tag(xml, 'nSeqEvento') ?? 1);
+    const tipo = Number(tag(xml, 'tpEvento') ?? 0);
+    const orgao = tag(xml, 'cOrgao');
+    const valores: Record<string, unknown> = {
+      orgao_recepcao: orgao, ambiente: tag(xml, 'tpAmb'), chave_acesso: chave,
+      cnpj_cpf_autor_evento: formatarCpfCnpj(tag(xml, 'CNPJ') ?? tag(xml, 'CPF')),
+      data_evento: tag(xml, 'dhEvento'), tipo_evento: tipo, seq_evento: seq,
+      descricao_evento: completo ? tag(xml, 'descEvento') ?? tag(xml, 'xEvento') : tag(xml, 'xEvento') ?? tag(xml, 'descEvento'),
+      // o resumo traz a hora do recebimento; o completo, a do evento
+      data_autorizacao: completo ? tag(xml, 'dhEvento') : tag(xml, 'dhRecbto'),
+      protocolo_autorizacao: tag(xml, 'nProt'), codoperador: op, xml,
+      ...(completo ? {
+        id_evento: xml.match(/<infEvento[^>]*Id="([^"]+)"/)?.[1] ?? null,
+        just_op_nao_realizada: tag(xml, 'xJust'), correcao: tag(xml, 'xCorrecao'), razao: tag(xml, 'xNome'),
+      } : {}),
+    };
+    const ja = (await sql<{ id: number }>`
+      SELECT codnfe_evento AS id FROM nfe_eventos
+       WHERE chave_acesso = ${chave} AND seq_evento = ${seq} AND tipo_evento = ${tipo} AND orgao_recepcao IS NOT DISTINCT FROM ${orgao}
+       ORDER BY codnfe_evento LIMIT 1`.execute(db)).rows[0];
+    if (ja) await db.updateTable('nfe_eventos').set(valores).where('codnfe_evento', '=', Number(ja.id)).execute();
+    else await db.insertInto('nfe_eventos').values(valores).execute();
   }
 
   /** distribuição DF-e: consulta por último NSU, processa e avança o cursor. */
@@ -268,17 +306,29 @@ export class SefazDfeService {
     const corpo = `<nfeRecepcaoEvento xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeRecepcaoEvento4"><nfeDadosMsg>${envEvento}</nfeDadosMsg></nfeRecepcaoEvento>`;
 
     const resp = await this.soap(URLS.evento[ctx.amb as '1' | '2'], 'nfeRecepcaoEvento', corpo, this.agent(cred));
-    const cStat = tag(resp.match(/<infEvento[\s\S]*?<\/infEvento>/)?.[0] ?? resp, 'cStat') ?? tag(resp, 'cStat');
-    if (cStat !== '135' && cStat !== '136') {
-      throw new BusinessRuleError('MANIFESTACAO_REJEITADA', { cStat, xMotivo: tag(resp, 'xMotivo') });
+    const retEv = resp.match(/<infEvento[\s\S]*?<\/infEvento>/g)?.pop() ?? resp;
+    const cStat = tag(retEv, 'cStat') ?? tag(resp, 'cStat');
+    // 135 = registrado e vinculado; 573 = duplicidade — o legado marca a esteira e grava o evento se ainda não tem (:2216-2270);
+    // 136 (sem vinculação) e o resto são erro (:2196)
+    if (cStat !== '135' && cStat !== '573') {
+      throw new BusinessRuleError('MANIFESTACAO_REJEITADA', { cStat, xMotivo: tag(retEv, 'xMotivo') ?? tag(resp, 'xMotivo') });
     }
-    await db.insertInto('nfe_eventos').values({
-      orgao_recepcao: '91', ambiente: ctx.amb, chave_acesso: ch, id_evento: id,
-      cnpj_cpf_autor_evento: ctx.cnpj, data_evento: dh, tipo_evento: ev.tipo, seq_evento: seq,
-      descricao_evento: ev.desc, mensagem_autorizacao: tag(resp, 'xMotivo'),
-      protocolo_autorizacao: tag(resp, 'nProt'), data_autorizacao: tag(resp, 'dhRegEvento'),
-      codoperador: op, just_op_nao_realizada: ev.exigeJust ? justificativa : null, xml: envEvento,
-    }).execute();
-    return { ok: true, tipo_evento: ev.tipo, seq_evento: seq, protocolo: tag(resp, 'nProt'), cStat };
+    const jaTem = cStat === '573'
+      ? (await db.selectFrom('nfe_eventos').select('codnfe_evento').where('chave_acesso', '=', ch).where('tipo_evento', '=', ev.tipo).executeTakeFirst())
+      : undefined;
+    if (!jaTem) {
+      const dhReg = tag(retEv, 'dhRegEvento');
+      await db.insertInto('nfe_eventos').values({
+        orgao_recepcao: '91', ambiente: ctx.amb, chave_acesso: ch, id_evento: id,
+        // DATA_EVENTO e DATA_AUTORIZACAO = o dhRegEvento do retorno (:2145, :2149)
+        cnpj_cpf_autor_evento: ctx.cnpj, data_evento: dhReg ?? dh, tipo_evento: ev.tipo, seq_evento: seq,
+        descricao_evento: ev.desc, mensagem_autorizacao: tag(retEv, 'xMotivo'),
+        protocolo_autorizacao: tag(retEv, 'nProt'), data_autorizacao: dhReg,
+        codoperador: op, just_op_nao_realizada: ev.exigeJust ? justificativa : null, xml: envEvento,
+      }).execute();
+    }
+    // a ciência e a confirmação marcam a esteira da nota (:2157-2170)
+    if (ev.tipo === 210210 || ev.tipo === 210200) await registrarProcessoNf(db, ev.tipo === 210200 ? 'stConfirmacaoOp' : 'stCiencia', ch, emp, op);
+    return { ok: true, tipo_evento: ev.tipo, seq_evento: seq, protocolo: tag(retEv, 'nProt'), cStat, ...(cStat === '573' ? { aviso: 'Duplicidade de evento: a manifestação já estava registrada.' } : {}) };
   }
 }

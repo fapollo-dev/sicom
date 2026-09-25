@@ -90,6 +90,9 @@ SELECT setval('seq_nfe_financeiro_manifesto', coalesce((SELECT max(id_fm) FROM n
 
 -- A SUGESTÃO DE PROMOÇÃO (mig 330): a sequência depois das sugestões carregadas.
 SELECT setval('seq_sugest_promo_prod', coalesce((SELECT max(idsugest_promo_prod) FROM sugest_promo_prod), 0)::bigint + 1, false);
+-- mig 339: a fila do manifesto (NFE_NAO_CADASTRADAS) e a esteira da nota (NF_STATUS_PROCESSO) depois da carga
+SELECT setval('seq_nfe_nao_cadastradas', coalesce((SELECT max(codnfe_naocad) FROM nfe_nao_cadastradas), 0)::bigint + 1, false);
+SELECT setval('seq_nf_status_processo', coalesce((SELECT max(codnfstatuspro) FROM nf_status_processo), 0)::bigint + 1, false);
 -- mig 334: o cabeçalho do lançamento provisório do fechamento de caixa (DADOSCX, 133 linhas na produção)
 SELECT setval('seq_dadoscx', coalesce((SELECT max(coddadoscx) FROM dadoscx), 0)::bigint + 1, false);
 

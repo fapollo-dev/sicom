@@ -17,6 +17,8 @@ import { startEmbeddedPg, PG_CONN } from '../test/embedded-db';
 import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/shared/errors/all-exceptions.filter';
 import { AgendaVigenciaAgendador } from '../src/modules/cadastro/agenda-vigencia.agendador';
+import { SefazDfeService } from '../src/modules/compras/sefaz-dfe.service';
+import { runWithTenant } from '../src/shared/tenant/tenant-context';
 import { dedupCodref, type RawCodref } from './cutover/dedup-codref';
 import { loadCodref } from './cutover/load-codref';
 import { cutoverSenhasEmpresa } from './cutover/senha-empresa';
@@ -21603,6 +21605,52 @@ async function main() {
         await pgDv.query(`DELETE FROM pedido_devolucao_compra WHERE codpeddevcompra=$1`, [cod]);
       } finally {
         await pgDv.end();
+      }
+    }
+
+    // ══ §206 MANIFESTO — a DISTRIBUIÇÃO (auditoria de esqueletos §4.2): o processamento dos documentos do AN grava a fila
+    // como o legado e abre a esteira da nota; antes quebrava no 1º resumo (ON CONFLICT num índice parcial) e usava o NSU como chave
+    {
+      const pgMf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const ch1 = '31260922327834000149550010005198081159244720';
+        const ch2 = '31260922327834000149550010005198091159244721';
+        const chSaida = '31260922327834000149550010005198101159244722';
+        await pgMf.query(`DELETE FROM nfe_nao_cadastradas WHERE chavenfe = ANY($1::text[])`, [[ch1, ch2, chSaida]]);
+        await pgMf.query(`DELETE FROM nf_status_processo WHERE chavenfe = ANY($1::text[])`, [[ch1, ch2, chSaida]]);
+        // uma linha migrada com chave 1 — o NSU "1" do lote não pode mais colidir com ela
+        const maxAntes = Number((await pgMf.query(`SELECT coalesce(max(codnfe_naocad),0) m FROM nfe_nao_cadastradas`)).rows[0].m);
+        const res = (ch: string, tp: string, v: string) => `<resNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.01"><chNFe>${ch}</chNFe><CNPJ>22327834000149</CNPJ><xNome>FORNECEDOR SMOKE LTDA</xNome><IE>0012345678</IE><dhEmi>2026-09-24T08:00:00-03:00</dhEmi><tpNF>${tp}</tpNF><vNF>${v}</vNF><digVal>abc</digVal><dhRecbto>2026-09-24T08:05:00-03:00</dhRecbto><nProt>131260000000001</nProt><cSitNFe>1</cSitNFe></resNFe>`;
+        const evt = `<resEvento xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.01"><cOrgao>31</cOrgao><CNPJ>22327834000149</CNPJ><chNFe>${ch1}</chNFe><dhEvento>2026-09-24T09:00:00-03:00</dhEvento><tpEvento>110111</tpEvento><nSeqEvento>1</nSeqEvento><xEvento>Cancelamento</xEvento><dhRecbto>2026-09-24T09:01:00-03:00</dhRecbto><nProt>131260000000009</nProt></resEvento>`;
+        const svc = app.get(SefazDfeService);
+        const docs = [
+          { nsu: '1', schema: 'resNFe_v1.01.xsd', xml: res(ch1, '1', '154.44') },
+          { nsu: '2', schema: 'resNFe_v1.01.xsd', xml: res(ch2, '1', '10.00') },
+          { nsu: '3', schema: 'resNFe_v1.01.xsd', xml: res(chSaida, '0', '5.00') },
+          { nsu: '4', schema: 'resEvento_v1.01.xsd', xml: evt },
+        ];
+        // ch2 já é NF da empresa → não entra na fila
+        const nfCh2 = Number((await pgMf.query(`INSERT INTO nf (idempresa,tipo,modelo,serie,dtemissao,dtcontabil,tipoemissao,finalidade,cfop,codparceiro,proc,totalnf,totalprod,chavenfe) VALUES (1,'E',55,'1',now(),now(),'0','1','1102',22,'N',0,0,$1) RETURNING codnf`, [ch2])).rows[0].codnf);
+        const r1 = await runWithTenant({ tenantId: 'pinheirao', operadorId: 7, empresaId: 1 }, () => svc.processarDocs(1, docs));
+        const r2 = await runWithTenant({ tenantId: 'pinheirao', operadorId: 7, empresaId: 1 }, () => svc.processarDocs(1, docs));
+        const fila = (await pgMf.query(`SELECT chavenfe, codnfe_naocad, cnpj, tipo, nronf, dtrecbo, codoperador, importacao_manual, nfe_importada_sistema, codnfstatuspro FROM nfe_nao_cadastradas WHERE chavenfe = ANY($1::text[]) ORDER BY chavenfe`, [[ch1, ch2, chSaida]])).rows as any[];
+        const f1 = fila.find((f) => f.chavenfe === ch1), fS = fila.find((f) => f.chavenfe === chSaida);
+        const est = (await pgMf.query(`SELECT ordem, processo, status, codnfstatuspro FROM nf_status_processo WHERE chavenfe=$1 ORDER BY ordem`, [ch1])).rows as any[];
+        const estS = Number((await pgMf.query(`SELECT count(*)::int n FROM nf_status_processo WHERE chavenfe=$1`, [chSaida])).rows[0].n);
+        const evs = Number((await pgMf.query(`SELECT count(*)::int n FROM nfe_eventos WHERE chave_acesso=$1 AND tipo_evento=110111`, [ch1])).rows[0].n);
+        check('MANIFESTO §206 [a distribuição como o legado]: 2 resumos entram na fila (a chave que já é NF fica de fora) com CODNFE_NAOCAD da sequência (> o maior migrado, não o NSU), CNPJ formatado, NRONF da chave (519808), TIPO pelo tpNF (0 → S), DTRECBO, operador e flags N; a nota de entrada abre a ESTEIRA — 10 etapas, stManifesto R e as demais P, CODNFSTATUSPRO na fila; a de saída não; o evento entra em upsert; reprocessar o mesmo lote não duplica nada',
+          r1.resumos === 2 && r2.resumos === 0 && fila.length === 2 && !fila.some((f) => f.chavenfe === ch2)
+          && Number(f1?.codnfe_naocad) > maxAntes && f1?.cnpj === '22.327.834/0001-49' && f1?.nronf === '519808' && f1?.tipo === 'E' && f1?.dtrecbo != null
+          && Number(f1?.codoperador) === 7 && f1?.importacao_manual === 'N' && f1?.nfe_importada_sistema === 'N' && fS?.tipo === 'S' && fS?.nronf === '519810'
+          && est.length === 10 && est[0].processo === 'stManifesto' && est[0].status === 'R' && est.slice(1).every((e) => e.status === 'P') && Number(f1?.codnfstatuspro) === Number(est[0].codnfstatuspro)
+          && estS === 0 && evs === 1,
+          { r1, r2, fila, est: est.map((e) => `${e.ordem}:${e.processo}:${e.status}`), estS, evs, maxAntes });
+        await pgMf.query(`DELETE FROM nfe_eventos WHERE chave_acesso=$1`, [ch1]);
+        await pgMf.query(`DELETE FROM nfe_nao_cadastradas WHERE chavenfe = ANY($1::text[])`, [[ch1, ch2, chSaida]]);
+        await pgMf.query(`DELETE FROM nf_status_processo WHERE chavenfe = ANY($1::text[])`, [[ch1, ch2, chSaida]]);
+        await pgMf.query(`DELETE FROM nf WHERE codnf=$1`, [nfCh2]);
+      } finally {
+        await pgMf.end();
       }
     }
 

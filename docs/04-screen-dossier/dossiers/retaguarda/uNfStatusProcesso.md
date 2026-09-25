@@ -88,3 +88,18 @@ própria chave:
 É o cursor da nota na esteira, e em 1.321 notas ele não foi avançado. Por isso o "parada em" da tela sai das
 **dez linhas**, não do ponteiro — ler o ponteiro diria que a nota está atrás de onde está. A coluna migra
 como o legado a gravou (fidelidade), sem FK: `nfe_nao_cadastradas` carrega na f0 e a esteira na f2.
+
+## Escritor (25/09/2026) — auditoria de esqueletos §4.2 (mig 339)
+
+`registrarProcessoNf` (`modules/shared/nf-status-processo.ts`) reconstrói o `RegistrarProcessoNotaFiscal` (FuncoesApollo, fora do
+fonte) pelo dado: na 1ª marcação da chave nascem as 10 etapas 'P' (sem operador/data); a marcada vira 'R' com operador, hora e
+empresa; `NFE_NAO_CADASTRADAS.CODNFSTATUSPRO` (coluna do legado que não tinha destino — 15.393 de 15.398 preenchidos; mig 339)
+aponta a última realizada. Prova: esteira 451661-451670 da chave 31260922327834000149550010005198081159244720. Marcam hoje: a
+distribuição do manifesto (stManifesto, só nota de entrada — tpNF ≠ 0), a ciência (stCiencia) e a confirmação (stConfirmacaoOp,
+inclusive no cStat 573). Pendentes: as outras telas da entrada (repasse, processar, financeiro, devolução, conferência).
+
+A distribuição (`processarDocs`) foi refeita como o `ProcessaRetornoDistribuicao` (UManifestoDFe.pas:2557-2796): chave da fila
+pela sequência (antes o NSU, que colidia com a chave migrada e entre empresas; e o ON CONFLICT no índice parcial quebrava no 1º
+resumo), pula a chave que já é NF ou já está na fila, CNPJ formatado, TIPO pelo tpNF, NRONF da chave, DTRECBO, operador, flags
+'N'; NFE_XML e NFE_EVENTOS em upsert. O manifestar: 136 volta a ser erro, 573 marca a esteira e grava o evento se faltar,
+DATA_EVENTO = dhRegEvento. Smoke §206.
