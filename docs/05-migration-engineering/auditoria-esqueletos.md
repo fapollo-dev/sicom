@@ -564,3 +564,36 @@ normalizar), o CODITEM estável (`pkEstavel`) e o DTATIVO só quando o item é a
 
 **Pendentes:** devolução (o status FINALIZADO — 181 de 217 no legado, mas nenhum caminho no fonte de 2020 o grava: não provado),
 produto (outbox `replica`, decisão de projeto) e a decisão de projeto sobre AUDIT_*.
+
+## 7. Colunas que o legado preenche e o Apollo não escreve (25/09/2026)
+
+`tools/cutover/conferir-colunas-nao-escritas.py`: nas 2.000 linhas mais novas de cada tabela que o Apollo grava (produção, só
+leitura), as colunas preenchidas em ≥ 50% que nenhum código do Apollo que grava a tabela cita. Heurística de triagem — nome comum
+("descricao") passa por escrito; foi como `nf_prod.descricao` escapou até o LOG vertical achá-la.
+
+**Feitos:**
+- DEFAULTs do Oracle (mig 345): 48 colunas com DEFAULT no legado e nenhum no destino, e 4 com outro — a linha nascida no Apollo ficava
+  NULL onde o legado grava 'N'/0/'S'.
+- CFOP (mig 346): a tela editava 11 das 45 colunas (nem o TIPO, NOT NULL no Oracle); agora todas, com as regras do UCadCFOP (o TIPO
+  limpa o lado oposto da situação, PROCESSA FINANCEIRO governa o automático, o CFOP de devolução é de devolução e do mesmo destino, a
+  alíquota é da UF). Smoke §223.
+
+**Fila (por dano provável):**
+- `produtos`: NAO_DECOMPOR_SAIDA, VISIVEL_REL, USO_CONSUMO, SAIDA_EXPEDICAO, NAO_ATU_PRODUTOS_ENTRADA, APRESENTACAO_ETIQUETA,
+  IMPRIME_VOUCHER, TIPO_PRODUTO, GLUTEN, DECOMPOSICAO_UN, RECEITAUNIDADE, DECOMPOSICAO_LIVRE — flags do cadastro de produto.
+- `pedidocompra_i`: PISCONFIS, ICME, LUCROBRUTOP, LUCROLIQP, VLREMBALAGEMB (a rentabilidade do item); `pedidocompra.DTENCERRAMENTO`
+  (90,5%).
+- `nf_prod`: REPASSADO, INDEXADORTRIB, VRCREDSN/ALIQCREDSN/DESTACICMSSN (crédito do Simples), VRFRETE, CUSTO_RECALCULO_BONIF,
+  VRCFOP_ABATIDO; `nf.ULT_CODNFPROD_REPASSE`; `nf_forma_pagamento.VRTROCO`.
+- `parceiros`: VISUALIZA_PC_PARC, CLUBEFIDELIDADE, SOMA_ST_BONIFICACAO, HABILITA_RETENCAO_SENAR_NF.
+- `cartao`: TIPOMODALIDADE, MODALIDADEOPERADORA, SEQUENCIA, CODOPERADORAORIGEM, VALOR_OPERACAO.
+- `nfe_evento`: ORGAO_RECEPCAO, ID_EVENTO, CNPJ_CPF_AUTOR_EVENTO, MENSAGEM_AUTORIZACAO.
+- `lote_preco.VRCUSTO_ANTERIOR`; `cotacao_prod` (QTDEATUAL, VALORCOTACAO, VLRUNITARIO); `itens_producao_receita` (UNIDADE_PRODUTO,
+  FATOR_CONVERSAO_CX_PROD[_UTIL]); `apuracao_pc_det` (DESCRICAOBASE, DESCRICAOPC, BASECALCULOAPURA, VALORPISAPURA, VALORCOFINSAPURA);
+  `pedido_devolucao_compra.CNPJ_CPF`, `pedido_devolucao_compra_i.VRCUSTOREP`; `plc` (NIVELCONTA, DESCPLCCONTABIL);
+  `plano_contas.CODEXPINTEIRO`; `figura_fiscal` (origem/destino); `contas_bancarias` (ESTORNO_DTHR_BAIXA, EXIBE_SALDO_EMP);
+  `formas_pgto` (BAIXA_DOCUMENTO_AUTOMATICO, EXIGE_PERMISSAO); `hist_sangria_suprimento` (*_FECHADO, *_AUTENTICADO); `empresas`
+  (configurações de NFC-e, e-mail, senhas, CSC).
+- **Outro processo, fora:** `nf.EXPORTADA/APP_EXPORTACAO/DATA_EXPORTACAO` (o MONITORNOTAFISCAL), `operadores.PERMISSAOPDV` e
+  `operadoras.OPERADORA_PDV` (PDV), `operadores_acessos.EXECUTAVEL` (o executável do legado).
+- 51 tabelas sem PK simples na origem ficaram fora da amostra (ex.: `adiantamento_forn`, `multi_preco`, `vendas`, `pedidos`).

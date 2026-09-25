@@ -325,6 +325,12 @@ const CODE_PT: Record<string, string> = {
   NF_FINANCEIRO_BAIXADO: 'Existem documentos financeiros que já foram baixados, agrupados ou contabilizados relacionados à essa nota. Não é possível excluir o financeiro. Verifique!',
   NF_EXCLUIR_FINANCEIRO_SEM_PERMISSAO: 'Você não possui permissão para excluir documentos financeiros pela nota fiscal! \nPermissão no configurador geral, Retaguarda, Nota fiscal.',
   CONCILIACAO_NAO_ENCONTRADA: 'Conciliação não encontrada.',
+  CFOP_TIPO_OBRIGATORIO: 'Informe o tipo do CFOP: entrada ou saída.',
+  CFOP_DEVOLUCAO_INVALIDO: 'Não foi encontrado nenhum CFOP de devolução para o mesmo destino com o código digitado!',
+  CFOP_CONTA_INVALIDA: 'Conta contábil não encontrada no plano de contas.',
+  CFOP_ALIQUOTA_INVALIDA: 'Alíquota não encontrada para a UF da empresa.',
+  CFOP_PISCOFINS_INVALIDO: 'Tabela de PIS/COFINS não encontrada.',
+  CFOP_CLASS_TRIB_INVALIDA: 'Classificação tributária não encontrada.',
   NF_FATURAMENTO_ENVIE_A_NOTA: 'Envie a nota antes de gerar o faturamento!',
   NF_FATURAMENTO_SEM_PENDENTE: 'Não existe faturamento pendente para esta nota fiscal a ser processado.',
   // as parcelas da nota (FATURAMENTO) — o gerar da aba de cobrança (SetConfiguracoesFaturamento, uNF.pas:16184)

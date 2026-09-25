@@ -517,22 +517,58 @@ export interface Nf extends CriarNfDto {
 
 /** SITUACAO_NF — a tela inteira (27 campos + 4 detalhes) mora em `situacao-nf.schema.ts` (mig 317). */
 
-/** CFOP — catálogo (chave natural codcfop char(4)). */
+/**
+ * CFOP — o cadastro inteiro (UCadCFOP + o que o binário novo acrescentou; mig 301/310 trouxeram as 45 colunas). Chave natural
+ * codcfop char(4). Os códigos que se escolhem numa lista aceitam '' para LIMPAR (o null é descartado pelo stripNulls, e a tela
+ * precisa desmarcar — o "Excluir alíquota" do legado).
+ */
+const codigoLimpavel = z.union([z.number().int(), z.literal('')]).optional();
 const cfopBase = z.object({
   codcfop: z.string().trim().min(4, 'O CFOP deve ter 4 dígitos.').max(4, 'O CFOP deve ter 4 dígitos.'),
   descricao: z.string().trim().min(1, 'Informe a descrição.').max(120),
-  // CFOP × SITUAÇÃO (aba "Situação do documento" do UCadCFOP) — a SITUACAO_NF "refina" o CFOP por imposto e
-  // sentido; cada FK → situacao_nf. Alimenta a derivação fiscal/contábil da NF (diário/SPED). Opcionais.
-  situacao_icms_entradas_nf: z.number().int().optional(),
-  situacao_icms_saidas_nf: z.number().int().optional(),
-  situacao_pis_entradas_nf: z.number().int().optional(),
-  situacao_pis_saidas_nf: z.number().int().optional(),
-  situacao_cofins_entradas_nf: z.number().int().optional(),
-  situacao_cofins_saidas_nf: z.number().int().optional(),
-  idsituacao_nf_saida: z.number().int().optional(),
-  cfop_devolucao: z.string().trim().max(4).optional(), // CFOP de saída p/ devolver este CFOP de entrada
+  // ENTRADA/SAÍDA (Oracle NOT NULL); sem ele, o gravar usa o 1º dígito do código (1-3 entrada, 5-7 saída)
+  tipo: z.enum(['E', 'S'], { message: 'Informe o tipo: entrada ou saída.' }).optional(),
+  tipoestado: z.enum(['DENTRO', 'FORA'], { message: 'Destino inválido.' }).optional(), // "Destino": dentro/fora do estado
+  // CFOP × SITUAÇÃO (aba "Situação do documento"): o lado do TIPO; o outro é limpo no gravar (SetTipoCFOP)
+  situacao_icms_entradas_nf: codigoLimpavel,
+  situacao_icms_saidas_nf: codigoLimpavel,
+  situacao_pis_entradas_nf: codigoLimpavel,
+  situacao_pis_saidas_nf: codigoLimpavel,
+  situacao_cofins_entradas_nf: codigoLimpavel,
+  situacao_cofins_saidas_nf: codigoLimpavel,
+  idsituacao_nf_saida: codigoLimpavel,
+  cfop_devolucao: z.string().trim().max(4).optional(), // o CFOP de devolução (DEVOLUCAO='S', mesmo destino); '' limpa
+  codplanocontas: codigoLimpavel, // conta contábil
+  aliquota: z.string().trim().max(3).optional(), // alíquota de saída (DET_ALIQUOTA da UF da empresa); '' limpa
+  cod_bc_credito: z.union([z.number().int().min(1, 'Base de crédito inválida.').max(18, 'Base de crédito inválida.'), z.literal('')]).optional(), // EFD-Contribuições, tabela 4.3.7
+  idpiscofins: codigoLimpavel,
+  codclass_trib: codigoLimpavel, // classificação tributária IBS/CBS
+  tipo_cfop: codigoLimpavel,
+  // processamento da NF
+  proc_qtde: sn().optional(), // processa quantidade (estoque)
+  proc_financeiro: sn().optional(), // processa financeiro — sem ele o financeiro automático cai
+  proc_transf: sn().optional(), // processa transferência
   proc_cupom: sn().optional(), // "Zerar ICMS Cupom/Sintegra/Sped"
   gera_financeiro_auto: sn().optional(), // gera título financeiro automaticamente ao processar
+  altera_custo_nf: sn().optional(), // ao processar a NF: altera o custo do produto
+  atualiza_venda_nf: sn().optional(), // ao processar a NF: atualiza o preço de venda
+  preco_custo: sn().optional(), // "Carregar valor custo"
+  devolucao: sn().optional(), // CFOP de devolução
+  sintegra: sn().optional(),
+  nao_gera_sped: sn().optional(), // não compõe SPED
+  nao_gera_sped_contribuicao: sn().optional(),
+  nao_gera_apuracao_icms: sn().optional(), // não compõe a apuração de ICMS
+  naoalimentadre: sn().optional(), // não alimenta a DRE
+  dispensado_coleta: sn().optional(),
+  dispensado_pedido_compra: sn().optional(),
+  informaiest: sn().optional(),
+  nao_atualiza_forn_prod: sn().optional(),
+  abater_cfop: sn().optional(),
+  filtro_prec_nf: sn().optional(),
+  compra: sn().optional(),
+  venda: sn().optional(),
+  transferencia: sn().optional(),
+  calcula_pauta_st: sn().optional(),
 });
 // stripNulls (como nfSchema): a MAIORIA dos CFOP tem as colunas de situação NULL → ao reabrir+gravar, o form
 // ecoa null e `z.number/string().optional()` (só aceita undefined) reprovaria (400/no-op). O preprocess

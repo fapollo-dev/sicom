@@ -1317,11 +1317,13 @@ async function main() {
     // 16.12b) CFOP × SITUAÇÃO (UCadCFOP aba "Situação do documento"): grava/lê o mapa situação-por-imposto +
     // CFOP de devolução + flags. idsituacao_nf_saida é FK → situacao_nf (900 seedado); demais são integer livre.
     const sitId = Number((sits.find((s) => Number(s.idsituacao_nf) === 900) ?? sits[0])?.idsituacao_nf);
+    // o CFOP de devolução tem de ser um CFOP DEVOLUCAO='S' do mesmo destino (segCFOP) — o 5202 semeado vira um
+    await fetch(`${base}/cadastro/cfops/5202`, { method: 'PUT', headers: H, body: JSON.stringify({ devolucao: 'S', tipoestado: 'DENTRO' }) });
     const cfopXPost = await fetch(`${base}/cadastro/cfops`, {
       method: 'POST',
       headers: H,
       body: JSON.stringify({
-        codcfop: '9199', descricao: 'CFOP SMOKE × SITUAÇÃO',
+        codcfop: '9199', descricao: 'CFOP SMOKE × SITUAÇÃO', tipo: 'S', tipoestado: 'DENTRO', proc_financeiro: 'S',
         situacao_icms_saidas_nf: sitId, situacao_pis_saidas_nf: sitId, situacao_cofins_saidas_nf: sitId,
         idsituacao_nf_saida: sitId, cfop_devolucao: '5202', proc_cupom: 'S', gera_financeiro_auto: 'N',
       }),
@@ -22603,6 +22605,58 @@ async function main() {
         await pgDi.query(`DELETE FROM nf WHERE codnf = $1`, [codnf]);
       } finally {
         await pgDi.end();
+      }
+    }
+
+    // ══ §223 CADASTRO DE CFOP inteiro (mig 346): as 45 colunas e as regras da tela ══════════════════════════════════════════
+    {
+      const pgCf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const CF = `${base}/cadastro/cfops`;
+      try {
+        const sit = Number((await pgCf.query(`SELECT idsituacao_nf FROM situacao_nf ORDER BY idsituacao_nf LIMIT 1`)).rows[0]?.idsituacao_nf);
+        const aliq = String((await pgCf.query(`SELECT d.aliquota FROM det_aliquota d JOIN empresas e ON e.uf = d.uf WHERE e.idempresa = 1 ORDER BY d.aliquota LIMIT 1`)).rows[0]?.aliquota ?? '');
+        await pgCf.query(`INSERT INTO cfop (codcfop, descricao, tipo, tipoestado, devolucao) VALUES ('5998','DEV SMOKE DENTRO','S','DENTRO','S'),('6998','DEV SMOKE FORA','S','FORA','S'),('5997','NAO DEV SMOKE','S','DENTRO','N') ON CONFLICT (codcfop) DO NOTHING`);
+        // sem o TIPO ele vem do 1º dígito; o lado de SAÍDA de um CFOP de entrada sai limpo; sem PROCESSA FINANCEIRO não há automático
+        const cri = await fetch(CF, { method: 'POST', headers: H, body: JSON.stringify({ codcfop: '1998', descricao: 'CFOP SMOKE COMPLETO', tipoestado: 'DENTRO',
+          situacao_icms_entradas_nf: sit, situacao_icms_saidas_nf: sit, gera_financeiro_auto: 'S', proc_qtde: 'S' }) });
+        const r1 = (await pgCf.query(`SELECT tipo, situacao_icms_entradas_nf, situacao_icms_saidas_nf, gera_financeiro_auto, proc_qtde, dtcadastro, usultalteracao FROM cfop WHERE codcfop = '1998'`)).rows[0] as any;
+        const semTipo = await fetch(CF, { method: 'POST', headers: H, body: JSON.stringify({ codcfop: '9197', descricao: 'SEM TIPO' }) });
+        const semTipoJ = (await semTipo.json().catch(() => ({}))) as any;
+        check('CFOP §223.1 [criar]: sem o TIPO ele vem do 1º dígito (1998 → entrada); a situação de SAÍDA de um CFOP de entrada sai limpa (SetTipoCFOP — 398 de 398 na produção); sem PROCESSA FINANCEIRO o financeiro automático vira N (btnGravarClick); os carimbos do form-base (DTCADASTRO, USULTALTERACAO); código que não diz o tipo (9197) → 422 CFOP_TIPO_OBRIGATORIO',
+          cri.status === 201 && r1?.tipo === 'E' && Number(r1?.situacao_icms_entradas_nf) === sit && r1?.situacao_icms_saidas_nf == null
+          && r1?.gera_financeiro_auto === 'N' && r1?.proc_qtde === 'S' && r1?.dtcadastro != null && Number(r1?.usultalteracao) === 7
+          && semTipo.status === 422 && semTipoJ.code === 'CFOP_TIPO_OBRIGATORIO',
+          { cri: cri.status, r1, semTipo: [semTipo.status, semTipoJ.code] });
+
+        const put = (b: Record<string, unknown>) => fetch(`${CF}/1998`, { method: 'PUT', headers: H, body: JSON.stringify(b) });
+        const devFora = await put({ cfop_devolucao: '6998' });
+        const devNao = await put({ cfop_devolucao: '5997' });
+        const devOk = await put({ cfop_devolucao: '5998' });
+        const devFJ = (await devFora.json().catch(() => ({}))) as any;
+        const aliqRuim = await put({ aliquota: 'ZZ9' });
+        const aliqOk = aliq ? await put({ aliquota: aliq }) : null;
+        const aliqGravada = (await pgCf.query(`SELECT aliquota, cfop_devolucao FROM cfop WHERE codcfop = '1998'`)).rows[0] as any;
+        await put({ aliquota: '' });
+        const aliqLimpa = (await pgCf.query(`SELECT aliquota FROM cfop WHERE codcfop = '1998'`)).rows[0]?.aliquota;
+        check('CFOP §223.2 [os códigos escolhidos]: o CFOP de devolução tem de ser DEVOLUCAO=S do MESMO destino — o de fora e o que não é de devolução → 422 CFOP_DEVOLUCAO_INVALIDO ("Não foi encontrado nenhum CFOP de devolução para o mesmo destino…"), o certo grava; a alíquota de saída é uma da UF da empresa (outra → 422) e o "Excluir alíquota" (\'\') a limpa',
+          devFora.status === 422 && devFJ.code === 'CFOP_DEVOLUCAO_INVALIDO' && devNao.status === 422 && devOk.status === 200 && aliqGravada?.cfop_devolucao === '5998'
+          && aliqRuim.status === 422 && (!aliq || (aliqOk?.status === 200 && String(aliqGravada?.aliquota).trim() === aliq)) && aliqLimpa == null,
+          { devFora: [devFora.status, devFJ.code], devNao: devNao.status, devOk: devOk.status, aliqRuim: aliqRuim.status, aliqOk: aliqOk?.status, aliqGravada, aliqLimpa });
+
+        const idlog0 = Number((await pgCf.query(`SELECT coalesce(max(idlog),0) AS m FROM log`)).rows[0].m);
+        const fl = await put({ proc_financeiro: 'S', gera_financeiro_auto: 'S', naoalimentadre: 'S', abater_cfop: 'S', dispensado_coleta: 'S', tipo_cfop: 182, cod_bc_credito: 1, nao_gera_apuracao_icms: 'S', altera_custo_nf: 'S' });
+        const r3 = (await pgCf.query(`SELECT proc_financeiro, gera_financeiro_auto, naoalimentadre, abater_cfop, dispensado_coleta, tipo_cfop, cod_bc_credito, nao_gera_apuracao_icms, altera_custo_nf, dtultimalteracao FROM cfop WHERE codcfop = '1998'`)).rows[0] as any;
+        const lg = (await pgCf.query(`SELECT acao, historico FROM log WHERE idlog > $1 AND formulario = 'Cadastro de CFOP' ORDER BY idlog`, [idlog0])).rows as any[];
+        await put({ proc_financeiro: 'N' });
+        const r4 = (await pgCf.query(`SELECT gera_financeiro_auto FROM cfop WHERE codcfop = '1998'`)).rows[0]?.gera_financeiro_auto;
+        check('CFOP §223.3 [as flags que o cliente muda]: PROC_FINANCEIRO, NAOALIMENTADRE, ABATER_CFOP, DISPENSADO_COLETA, TIPO_CFOP 182, a base de crédito 1, NAO_GERA_APURACAO_ICMS, ALTERA_CUSTO_NF — gravadas e na LOG "Cadastro de CFOP"; com o financeiro processado o automático fica S, e desligar o PROCESSA FINANCEIRO o derruba',
+          fl.status === 200 && r3?.proc_financeiro === 'S' && r3?.gera_financeiro_auto === 'S' && r3?.naoalimentadre === 'S' && r3?.abater_cfop === 'S'
+          && r3?.dispensado_coleta === 'S' && Number(r3?.tipo_cfop) === 182 && Number(r3?.cod_bc_credito) === 1 && r3?.nao_gera_apuracao_icms === 'S' && r3?.altera_custo_nf === 'S'
+          && r3?.dtultimalteracao != null && lg.some((l) => l.acao === 'Alterou' && /NAOALIMENTADRE/.test(l.historico) && /TIPO_CFOP/.test(l.historico)) && r4 === 'N',
+          { fl: fl.status, r3, lg: lg.map((l) => String(l.historico).slice(0, 200)), r4 });
+        await pgCf.query(`DELETE FROM cfop WHERE codcfop IN ('1998','5998','6998','5997','9197')`);
+      } finally {
+        await pgCf.end();
       }
     }
 
