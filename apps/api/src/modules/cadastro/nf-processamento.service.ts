@@ -20,7 +20,7 @@ import { contextoIndexadorNf, indexadorDoItem } from './nf-indexador-item';
 import { recalcularMetricasEntrada } from './nf-custo-item';
 import { retratoDoProduto } from './nf.aggregate';
 import { TributacaoRepository } from '../precificacao/tributacao.repository';
-import { validarTravasDoIndexadorNoProcessamento } from './nf-travas-processamento';
+import { validarDecomposicaoNoProcessamento, validarTravasDoIndexadorNoProcessamento } from './nf-travas-processamento';
 import { LiberacaoService } from '../auth/liberacao.service';
 
 type AnyDB = any;
@@ -227,6 +227,8 @@ export class NfProcessamentoService {
       if (modo === 'processar') {
         if (nf.cancelada === 'S') throw new BusinessRuleError('NF_CANCELADA', { codnf });
         if (nf.proc === 'S') throw new BusinessRuleError('NF_JA_PROCESSADA', { codnf });
+        // o pai de entrada decomposta que ficou na nota e o cadastro da decomposição (uNF.pas:14810-14817 — antes das outras travas)
+        await validarDecomposicaoNoProcessamento(trx, codnf);
         // reconciliação (ValidaTotalICMSStNota, uProcessaNotaFiscal.pas:564): recomputa os totais
         // dos itens e confere contra o header ANTES de mover estoque (evita processar total adulterado).
         await this.reconciliarTotais(trx, codnf, emp, nf);

@@ -421,7 +421,7 @@ O item comum sai com ATUALIZA_MULTIPRECO_DECOMP 'S' pelo NewRecord (`udmNF.pas:4
 
 ## Cortes propostos (do menor para o maior risco)
 
-1. **C1 — Trava e cadastro.**
+1. ✅ **C1 — Trava e cadastro.** (25/09/2026: `validarDecomposicaoNoProcessamento` em `nf-travas-processamento.ts`, antes das outras travas; CV/CR e % Perdas na tela do produto, com o rótulo do legado; smoke §256.1 e §256.4)
    - Portar `ValidaProdutosComEntradaEmDecomposicao` no processar da entrada: item com `produtos.entrada_decomposta='S'` bloqueia, com a mensagem literal de §1.1.
    - Pôr `calculo_valor_custo_decomp` (rádio CV/CR) e `percentual_perdas` na lista gerenciada do produto e na tela.
    - Corrigir o rótulo do checkbox.
@@ -432,7 +432,7 @@ O item comum sai com ATUALIZA_MULTIPRECO_DECOMP 'S' pelo NewRecord (`udmNF.pas:4
    - Incluir as 6 colunas de decomposição nas `colunas` do item, ou garantir a preservação por posição: um mesmo produto aparece em dois grupos em 201 NFs de 2026.
    - Tratar `nroitem` NULL dos filhos na ordenação e na renumeração.
    - Risco baixo.
-3. **C3 — Motor puro `decomporItemEntrada`**, sem banco. Entradas: pai, cadastro, VRVENDA dos filhos, modo CV/CR e perdas. Deve implementar:
+3. ✅ **C3 — Motor puro `decomporItemEntrada`**, sem banco. (25/09/2026: `nf-decomposicao.ts` + `test/nf-decomposicao.spec.ts` — os 95 grupos consistentes de set/2026: **88 de 88 fecham exatos** (quantidade e custo a 9 casas); os 7 restantes são os do PERNIL com IDPRODUTO_FILHO do binário de set/2026, não portado; ST ±0,01 em ≥ 98%) Entradas: pai, cadastro, VRVENDA dos filhos, modo CV/CR e perdas. Deve implementar:
    - quantidade a 3 casas;
    - custo CV a **6 casas**; CR a 4 casas mais a perda;
    - ITEM_PERDA_TOTAL/0,01;
@@ -440,7 +440,7 @@ O item comum sai com ATUALIZA_MULTIPRECO_DECOMP 'S' pelo NewRecord (`udmNF.pas:4
    - rateio do ST por TOTALPRODS sem ajuste de sobra.
    - Teste de ouro: os 824 grupos consistentes de 2026 (e a NF 17650 para o CR).
    - Risco médio (numérico), mas isolado.
-4. **C4 — Diálogo "Confirmar decomposição"** e troca pai → filhos numa transação:
+4. ✅ **C4 — Diálogo "Confirmar decomposição"** e troca pai → filhos numa transação: (25/09/2026: `nf-decomposicao.service.ts` — `GET /fiscal/nf/:id/decomposicao/pendentes` e `POST /fiscal/nf/:id/decomposicao`; a troca passa pelo GRAVAR da nota (o que o legado faz: troca em memória + Gravar), então os filhos ganham indexador, retrato, totais e análise como item novo; REPASSADO 'S' e VRBASECALCULO/VRICM 0 nos filhos (dado); as 8 colunas da decomposição viraram gerenciadas com "a que o item tinha" quando o PUT não as traz; web `NfDecomposicaoModal.tsx`, aberto ao abrir a nota de entrada não processada; smoke §256.2-3)
    - no OK do item de entrada (NF não processada) e ao abrir para edição uma NF importada que tenha pai;
    - quantidade em KG, valor total e CFOP validado contra a tabela CFOP;
    - fiscal por filho: DET_ALIQUOTA (alíquota do filho, UF do fornecedor) e depois `indexadorDoItem` como item novo;
@@ -458,6 +458,13 @@ O item comum sai com ATUALIZA_MULTIPRECO_DECOMP 'S' pelo NewRecord (`udmNF.pas:4
    - Em 2026 são só 2 itens de saída, e a config está 'N'. Risco alto e ganho baixo: por último, e só com decisão do usuário.
 
 ---
+
+### Achado do corte C4 (não era da decomposição)
+
+`NF_PROD_LOTE.CODNFPROD` é `REFERENCES nf_prod ON DELETE CASCADE` (mig 169) e o gravar da NF substitui os itens (delete + insert):
+**todo Gravar da tela apagava os lotes dos itens**, inclusive os do `<rastro>` do XML. No legado o lote é aninhado no item
+(`cdsNF_Prod_Lote`) e segue com ele. Corrigido no agregado: a foto dos lotes vai no `antesDeSubstituirTrx` e volta no item regravado
+(casado pelo produto na ordem, como a preservação das colunas); o item excluído leva os seus. Smoke §256.3.
 
 ## Não determinado
 

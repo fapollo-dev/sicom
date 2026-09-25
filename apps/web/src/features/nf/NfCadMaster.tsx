@@ -42,7 +42,9 @@ import { vincularDevolucaoVendasNf, type CredenciaisDevolucao, type ItemDevoluca
 import { vincularNfRotativo, type LadoRotativoNf } from '../inventario-rotativo/inventarioRotativoApi';
 import { createResourceApi } from '../../shared/cadmaster/resourceApi';
 import { configuracaoItemNf, recalcularNf } from './nfFiscalApi';
-import { lerNf, liberarIndexadorNf, pedeLiberacaoEstoqueNegativo, processarNf, repasseAutomaticoNf, reverterNf } from './nfProcessamentoApi';
+import { decomporItemNf, lerNf, liberarIndexadorNf, pedeLiberacaoEstoqueNegativo, pendentesDecomposicaoNf, processarNf, repasseAutomaticoNf, reverterNf,
+  type PaiDecomposicao } from './nfProcessamentoApi';
+import { NfDecomposicaoModal } from './NfDecomposicaoModal';
 import { faturamentoDaNota, excluirFinanceiroNf, configuracaoParcelas, gerarParcelas, sequenciaDuplicata, processarFinanceiroNf, type ParcelaGerada } from './nfFaturamentoApi';
 import { transmitirNf, cancelarNf, cceNf } from './nfNfeApi';
 
@@ -688,7 +690,34 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
     return () => { vivo = false; };
   }, []);
   const codnf = (form.getValues() as { codnf?: number }).codnf;
+  // a ENTRADA DECOMPOSTA (VerificaProdutosComEntradaEmDescomposicao, uNF.pas:17435): a nota de entrada não processada com item de produto que
+  // entra decomposto abre o diálogo de cada um — o legado faz no Editar; aqui, ao abrir a nota gravada (e depois de cada gravação).
+  // Cancelar deixa o item (e o processar travado); o aviso fica com o botão para retomar
+  const itensGravados = form.watch('itens');
+  const chaveItens = (itensGravados ?? []).map((i) => `${i.codproduto}`).join(',');
+  const [pendentes, setPendentes] = useState<PaiDecomposicao[]>([]);
+  const [decompondo, setDecompondo] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    if (codnf == null || tipoNota !== 'E' || proc === 'S' || form.formState.isDirty) { setPendentes([]); return; }
+    pendentesDecomposicaoNf(codnf).then((p) => { if (vivo) { setPendentes(p); setDecompondo(p.length > 0); } }).catch(() => undefined);
+    return () => { vivo = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codnf, tipoNota, proc, chaveItens]);
   if (codnf == null) return null;
+
+  const decompor = async (pai: PaiDecomposicao, e: { qtdTotal: number; valorTotal: number; cfop: number }) => {
+    if (form.formState.isDirty) { mensagem.erro('Grave a nota fiscal antes de iniciar a decomposição.'); return; }
+    try {
+      await decomporItemNf(codnf, { codnfprod: pai.codnfprod, ...e });
+      const nf = await lerNf(codnf);
+      form.setValue('itens', (nf.itens ?? []) as never, { shouldDirty: false });
+      for (const k of [...TOTAIS_DA_ANALISE, 'totalprod', 'qtde'] as const) if (nf[k] !== undefined) form.setValue(k as never, nf[k] as never, { shouldDirty: false });
+      mensagem.sucesso(`${pai.descricao ?? 'Item'}: os produtos da decomposição foram lançados à nota.`);
+    } catch (err) {
+      mensagem.erro(err);
+    }
+  };
 
   const enviada = statusnfe === 'P' || statusnfe === 'D';
 
@@ -792,6 +821,18 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
             mensagem.erro(e);
           }
         }} />
+      )}
+      {decompondo && pendentes[0] && (
+        <NfDecomposicaoModal key={pendentes[0].codnfprod} pai={pendentes[0]} restantes={pendentes.length - 1}
+          onFechar={() => setDecompondo(false)} onConfirmar={(e) => void decompor(pendentes[0], e)} />
+      )}
+      {pendentes.length > 0 && proc !== 'S' && (
+        <div className="flex flex-wrap items-center gap-gp-sm">
+          <small className="text-warning">
+            {pendentes.map((p) => p.descricao).join(', ')}: entrada em decomposição. Os produtos da decomposição deverão ser lançados à nota.
+          </small>
+          {!decompondo && <Button label="Decompor" variant="soft" onClick={() => setDecompondo(true)} />}
+        </div>
       )}
       {liberada && <small className="text-warning">Nota fiscal liberada para não usar indexador.</small>}
       <small className="text-fg-muted">

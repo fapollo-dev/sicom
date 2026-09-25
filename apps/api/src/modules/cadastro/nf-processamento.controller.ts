@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { NfProcessamentoService } from './nf-processamento.service';
+import { NfDecomposicaoService } from './nf-decomposicao.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 
@@ -12,7 +13,23 @@ import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 @Controller('fiscal/nf')
 @UseGuards(AcessoGuard)
 export class NfProcessamentoController {
-  constructor(private readonly proc: NfProcessamentoService) {}
+  constructor(private readonly proc: NfProcessamentoService, private readonly deco: NfDecomposicaoService) {}
+
+  /** a ENTRADA DECOMPOSTA: os itens-pai que o Editar da nota abre no diálogo "Item de decomposição nota fiscal", com os padrões dele */
+  @Get(':id/decomposicao/pendentes')
+  @RequerAcesso('FRMNF', 'BTNGRAVAR')
+  pendentesDeDecomposicao(@Param('id', ParseIntPipe) id: number) {
+    return this.deco.pendentes(id);
+  }
+
+  /** "Confirmar decomposição": o pai sai e os filhos do cadastro entram, com a quantidade em KG, o valor total e o CFOP do diálogo */
+  @Post(':id/decomposicao')
+  @HttpCode(200)
+  @RequerAcesso('FRMNF', 'BTNGRAVAR')
+  async decompor(@Param('id', ParseIntPipe) id: number, @Body() body: { codnfprod?: number; qtdTotal?: number; valorTotal?: number; cfop?: number }) {
+    await this.deco.decompor(id, { codnfprod: Number(body?.codnfprod), qtdTotal: Number(body?.qtdTotal), valorTotal: Number(body?.valorTotal), cfop: Number(body?.cfop) });
+    return { codnf: id };
+  }
 
   /**
    * processar — o corpo opcional é a tela de processar da entrada (`TfrmEstoqueNF`): `precos` { modo: online|lote|nenhum, sincronizar,

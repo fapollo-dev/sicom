@@ -96,3 +96,19 @@ export async function lerNf(codnf: number): Promise<Record<string, unknown>> {
 export function liberarIndexadorNf(codnf: number, cred: { login: string; senha: string }): Promise<{ codnf: number; libera_nf_indexador: 'S' | 'N' }> {
   return req(`/fiscal/nf/${codnf}/liberar-indexador`, cred);
 }
+
+/** o item-pai de entrada decomposta que o Editar da nota abre no diálogo "Item de decomposição nota fiscal", com os padrões dele */
+export interface PaiDecomposicao {
+  codnfprod: number; nroitem: number | null; codproduto: number; descricao: string | null; codbarra: string | null; unidade: string | null;
+  fatorembal: number; qtdetotal: number; totalprods: number; cfop: number | null;
+}
+export async function pendentesDecomposicaoNf(codnf: number): Promise<PaiDecomposicao[]> {
+  const res = await fetch(`${BASE}/fiscal/nf/${codnf}/decomposicao/pendentes`, { headers: apiHeaders() });
+  handle401(res);
+  if (!res.ok) return []; // sem a permissão de gravar a nota, não há o que decompor
+  return (await res.json()) as PaiDecomposicao[];
+}
+/** "Confirmar decomposição": o pai sai e os produtos da decomposição entram na nota */
+export function decomporItemNf(codnf: number, escolhas: { codnfprod: number; qtdTotal: number; valorTotal: number; cfop: number }): Promise<{ codnf: number }> {
+  return req(`/fiscal/nf/${codnf}/decomposicao`, escolhas);
+}

@@ -243,7 +243,12 @@ const fiscal = new FiscalPricingService();
  * `pendentes`: só os itens sem análise (CUSTO_REAL_UNIT 0 — o item novo nasce com 0, e o agregado zera o que passou pelo diálogo);
  * `todos`: a importação, depois de gravar os valores da nota no item (a análise automática roda com o item completo).
  */
-export async function recalcularMetricasEntrada(trx: AnyDB, codnf: number, somente: 'pendentes' | 'todos'): Promise<number> {
+/**
+ * `semIcmsProprio`: os filhos que a decomposição acabou de inserir — `InsereProdutosDaDecomposicao` grava VRBASECALCULO/VRICM com os TEMP
+ * do insert (antes do indexador) e nada os refaz: 0 em 7.132 de 7.132 filhos de 2026, inclusive os de CST 70/ICME 18 do indexador. O
+ * item editado depois no diálogo passa pelo OK e ganha os calculados, como qualquer outro.
+ */
+export async function recalcularMetricasEntrada(trx: AnyDB, codnf: number, somente: 'pendentes' | 'todos', opcoes: { semIcmsProprio?: Set<number> } = {}): Promise<number> {
   const nf = (await trx.selectFrom('nf').select(['tipo', 'cfop', 'idempresa', 'nf_importacao_nfe', 'totalprod', 'tipoemissao', 'rateio', 'rateio_st', 'totalbaseicmt',
     'totalicm_st', 'totalprodst', 'totalfrete']).where('codnf', '=', codnf).executeTakeFirst()) as Record<string, unknown> | undefined;
   if (!nf || String(nf.tipo) !== 'E') return 0;
@@ -305,7 +310,7 @@ export async function recalcularMetricasEntrada(trx: AnyDB, codnf: number, somen
     const c = custoDoItemNaEntrada(it, empresa, ctxCusto);
     // o VRFRETE do item (o binário novo o grava — 267 de 267 com frete em 2026)
     Object.assign(set, { vrbasecalculoicm_calc: arred(c.tempbaseicme, 4), vricm_calc: c.vricmCalc, vrfrete: c.vrfrete });
-    if (pendente && ctxSt) {
+    if (pendente && ctxSt && !opcoes.semIcmsProprio?.has(Number(it.codnfprod))) {
       // o OK regrava a base e o ICMS do item com os calculados (`CalculaBaseICME`, uItensNF.pas: VRBASECALCULO := TEMPBASEICME,
       // VRICM := TEMPVLRICME) — nos itens importados de 2026, base = VRBASECALCULOICM_CALC e ICMS = VRICM_CALC em 99,9% (os do XML: 74%)
       const bc = arred(c.tempbaseicme, 2);

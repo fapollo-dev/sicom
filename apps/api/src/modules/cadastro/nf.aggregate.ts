@@ -41,6 +41,14 @@ const NF_PARCELAS_DO_TOTAL = [...NF_TOTAIS_DA_FORMULA, 'totalfrete', 'totalsegur
 
 /** as colunas do retrato do produto no item da NF */
 const RETRATO = ['ultcusto', 'ultcustorep', 'ultvenda', 'markup', 'vrcustoreal', 'idpiscofins'] as const;
+/**
+ * a ENTRADA DECOMPOSTA no item (`InsereProdutosDaDecomposicao`, udmNF.pas:10647-10652; nf-decomposicao.ts): o filho carrega o pai
+ * (CODPRODUTOPAI_DECOMPOSICAO, DESCRICAO_PRODPAI_DECOMP, NROITEM_DECOMP), o flag da multi-preço do pai, o de perda total, o CFOP do XML
+ * (CFOP_ORIGINAL) e a base do ST rateada (VRBASE_STEXTERNO). A tela não as edita: o item regravado sem elas fica com as que tinha
+ * (casado pelo produto, como a preservação); só a decomposição (o serviço) as manda.
+ */
+const DECOMPOSICAO_ITEM = ['decomposicao', 'codprodutopai_decomposicao', 'item_perda_total', 'atualiza_multipreco_decomp', 'descricao_prodpai_decomp',
+  'nroitem_decomp', 'cfop_original', 'vrbase_stexterno'] as const;
 
 /**
  * O RETRATO DO PRODUTO no item da NF — o que o diálogo do item copia da linha de preço da loja ao sair do código do produto
@@ -394,8 +402,8 @@ export const nfAggregateConfig: AggregateConfig = {
       let permiteBcr: boolean | null = null;
       for (const it of dto.itens as Array<Record<string, unknown>>) {
         const par = antigos.get(String(it.codproduto))?.shift();
-        // o item que veio de importação (scrap, rotativo, XML) não passou pelo diálogo
-        if (it.importado_de) continue;
+        // o item que veio de importação (scrap, rotativo, XML) não passou pelo diálogo — nem o filho da decomposição
+        if (it.importado_de || it.decomposto === true) continue;
         if (tipoNf === 'E' && sitNf > 0 && it.cfop != null && it.cfop !== '' && (!par || Number(par.cfop) !== Number(it.cfop))) {
           const sitIt = [it.idsituacao_nf, par?.idsituacao_nf].map(Number).find((s) => s > 0) ?? sitNf;
           if (!(await cfopsDe(sitIt)).has(Number(it.cfop))) {
@@ -417,7 +425,7 @@ export const nfAggregateConfig: AggregateConfig = {
   // a SITUAÇÃO DO ITEM (UCadSituacaoNF.md C2): o item entra com a situação do cabeçalho (uNF.pas:1594, 5724, 13699,
   // 16043) — 99,5% dos itens de 2026. O item que já tinha a sua (701 linhas da produção diferem do cabeçalho) mantém:
   // a coluna não é gerenciada pelo formulário, então o motor a preserva, e aqui só se preenche a que falta.
-  aposGravarTrx: async ({ trx, id, emp }) => {
+  aposGravarTrx: async ({ trx, id, emp, dto }) => {
     await sql`
       UPDATE nf_prod p SET idsituacao_nf = n.idsituacao_nf
         FROM nf n
@@ -425,7 +433,7 @@ export const nfAggregateConfig: AggregateConfig = {
     // o rateio contábil que o gravar do legado preenche sozinho (InserirLancamentosContabil; UCadSituacaoNF.md C3)
     await preencherRateioContabil(trx, id, emp ?? null);
     // a análise do item de entrada (custo real, reposição, CSI, PMZ, venda sugerida e a escada) e o ICMS calculado de todos os itens
-    await recalcularMetricasEntrada(trx, id, 'pendentes');
+    await recalcularMetricasEntrada(trx, id, 'pendentes', { semIcmsProprio: new Set(((dto as Record<string, unknown>)._decompostos as number[] | undefined) ?? []) });
     // a ESTEIRA: gravar a nota de ENTRADA com os itens repassados (ligados a produto) marca stRepasseItens (uNF.pas:5171-5181)
     const chave = await chaveDeEntrada(trx, id);
     if (chave && emp != null) {
@@ -526,10 +534,21 @@ export const nfAggregateConfig: AggregateConfig = {
         'custo_real_unit',
         // o INDEXADOR e o REPASSE do item de entrada (`indexadorDoItem`) — derivados no servidor
         'indexadortrib', 'repassado', 'mva_ajustado',
+        ...DECOMPOSICAO_ITEM,
       ],
       // a DESCRIÇÃO que cada item tinha, para o item regravado sem ela (casada pelo produto, como a preservação)
-      antesDeSubstituirTrx: async ({ trx, masterId }) =>
-        trx.selectFrom('nf_prod').select(['codproduto', 'descricao', 'custo_real_unit', 'indexadortrib', 'repassado', 'mva_ajustado', ...RETRATO]).where('codnf', '=', masterId).orderBy('codnfprod').execute(),
+      // e os LOTES de cada item (NF_PROD_LOTE): a FK é ON DELETE CASCADE e o gravar substitui os itens — sem esta foto, todo Gravar da tela
+      // apagava os lotes (os do <rastro> do XML inclusive). No legado o lote é aninhado no item e segue com ele (cdsNF_Prod_Lote)
+      antesDeSubstituirTrx: async ({ trx, masterId }) => {
+        const itens = (await trx.selectFrom('nf_prod')
+          .select(['codnfprod', 'codproduto', 'descricao', 'custo_real_unit', 'indexadortrib', 'repassado', 'mva_ajustado', ...RETRATO, ...DECOMPOSICAO_ITEM])
+          .where('codnf', '=', masterId).orderBy('codnfprod').execute()) as Array<Record<string, unknown>>;
+        const lotes = (await trx.selectFrom('nf_prod_lote as l').innerJoin('nf_prod as p', 'p.codnfprod', 'l.codnfprod').selectAll('l')
+          .where('p.codnf', '=', masterId).orderBy('l.codnfprodlote').execute()) as Array<Record<string, unknown>>;
+        const porItem = new Map<number, Array<Record<string, unknown>>>();
+        for (const l of lotes) porItem.set(Number(l.codnfprod), [...(porItem.get(Number(l.codnfprod)) ?? []), l]);
+        return itens.map((i) => ({ ...i, _lotes: porItem.get(Number(i.codnfprod)) ?? [] }));
+      },
       // congela o CUSTO do item = MULTI_PRECO.VRCUSTO corrente por (produto, empresa) no lançamento
       // (GetCustoProduto, udmNF.pas:12057). É a base do CMV; snapshot (não acompanha a deriva do MP).
       derivarItensTrx: async (itens, trx, emp, _header, _masterId, snapshot) => {
@@ -560,6 +579,9 @@ export const nfAggregateConfig: AggregateConfig = {
           // EDITAR_DESCRICAO_ITEM_NF='S'); senão a que o item já tinha; senão a do produto, que é o que o legado põe ao
           // escolher o produto (uItensNF.pas:2531) — na produção, 6.372 de 6.391 itens de set/2026 têm a do produto
           const antiga = antigas.get(String(cod))?.shift();
+          // a decomposição que o item já tinha (o PUT da tela não a traz)
+          const deco: Record<string, unknown> = {};
+          for (const c of DECOMPOSICAO_ITEM) if (it[c] === undefined && antiga) deco[c] = antiga[c];
           const veio = typeof it.descricao === 'string' && it.descricao.trim() !== '' ? it.descricao : null;
           const descricao = veio ?? (String(antiga?.descricao ?? '') || null) ?? (cod != null ? await descricaoDoProduto(cod) : null);
           const retrato = await retratoDoProduto(trx, emp, it, antiga, cab);
@@ -578,14 +600,28 @@ export const nfAggregateConfig: AggregateConfig = {
             const livre = ctxIdx.figuraFiscal === 'D' || ctxIdx.liberada;
             idx.repassado = livre ? 'S' : Number(antiga.indexadortrib ?? 0) > 0 || ctxIdx.fornecedorLivre || ctxIdx.finalidade === '4' ? 'S' : ctxIdx.figuraFiscal === 'O' ? 'N' : 'S';
           }
-          out.push({ ...it, ...idx, custo_real_unit: custoReal, vl_unitario: vlUnitario, vl_custo: vl, debitopiscofins: debitoPisCofins(it.vrvenda, it.aliqpiss, it.aliqcofinss), descricao: descricao?.slice(0, 120) ?? null, ...retrato });
+          // o filho da entrada decomposta consulta o indexador como item novo (`CarregarIndexadorItemDecomposicao`), mas fica REPASSADO 'S'
+          // com ou sem indexador: 7.132 de 7.132 filhos de 2026, nas duas lojas (na loja 2, 'O', 26% sem indexador)
+          if (it.decomposto === true) idx.repassado = 'S';
+          out.push({ ...it, ...deco, ...idx, custo_real_unit: custoReal, vl_unitario: vlUnitario, vl_custo: vl, debitopiscofins: debitoPisCofins(it.vrvenda, it.aliqpiss, it.aliqcofinss), descricao: descricao?.slice(0, 120) ?? null, ...retrato });
         }
         return out;
       },
       // o OK do diálogo do item (`TfrmItensNF.GravaLog`, uItensNF.pas:4058): a descrição do item diferente da do produto vai à LOG,
       // a cada confirmação — "Usuario alterou descricao do item <NROITEM> (<a do produto>) para <A DO ITEM>". O legado passa o
       // CODOPERADOR na posição da empresa, e é o que a LOG guarda (142 de 142 em 2025-26).
-      aposInserirItensTrx: async ({ trx, itens }) => {
+      aposInserirItensTrx: async ({ trx, itens, header, snapshot }) => {
+        // os filhos que a decomposição acabou de inserir (o aposGravarTrx os trata na análise — sem ICMS próprio)
+        if (header) header._decompostos = itens.filter((it) => it.decomposto === true).map((it) => Number(it.codnfprod));
+        // os lotes voltam para o item regravado — casado pelo produto na ordem, como a preservação das colunas (o item excluído leva os seus)
+        const fila = new Map<string, Array<Record<string, unknown>>>();
+        for (const a of (snapshot as Array<Record<string, unknown>> | undefined) ?? []) fila.set(String(a.codproduto), [...(fila.get(String(a.codproduto)) ?? []), a]);
+        for (const it of itens) {
+          // o filho da decomposição chega com os lotes do pai (`_lotesNovos`)
+          const lotes = [...((fila.get(String(it.codproduto))?.shift()?._lotes ?? []) as Array<Record<string, unknown>>),
+            ...((Array.isArray(it._lotesNovos) ? it._lotesNovos : []) as Array<Record<string, unknown>>)];
+          if (lotes.length) await trx.insertInto('nf_prod_lote').values(lotes.map((l) => ({ ...l, codnfprod: Number(it.codnfprod) }))).execute();
+        }
         const descricaoDoProduto = await leitorDescricaoProduto(trx);
         for (const it of itens) {
           if (it.dialogo !== true || it.codproduto == null) continue;

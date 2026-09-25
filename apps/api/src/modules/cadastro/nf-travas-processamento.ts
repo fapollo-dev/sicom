@@ -15,6 +15,7 @@
  * compra e CFOP da nota 5102/6102/5403/6403/5949/6949, com algum item de INDEXADORTRIB nulo ou 0 — a mesma mensagem.
  */
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { sql } from 'kysely';
 
 type AnyDB = any;
 const n = (v: unknown): number => {
@@ -61,5 +62,46 @@ export async function validarTravasDoIndexadorNoProcessamento(trx: AnyDB, codnf:
   const foraDaIsencao = finalidade !== '4' && importacao !== 'T';
   if (naoRepassados.length && foraDaIsencao && (figura !== 'D' || terceiros)) {
     throw new BusinessRuleError('NF_ITENS_NAO_REPASSADOS', { itens: naoRepassados });
+  }
+}
+
+/**
+ * As travas da DECOMPOSIÇÃO no processar (`TfrmNF.Processamento`, uNF.pas:14810-14817), antes das demais:
+ *  1. só na entrada, `ValidaProdutosComEntradaEmDecomposicao` (:16887-16912): o 1º item (na ordem da nota) cujo produto tem
+ *     ENTRADA_DECOMPOSTA='S' — um pai que ainda não foi trocado pelos filhos — bloqueia. Sem isto, o processamento moveria o
+ *     estoque do PAI (na produção, 0 itens assim nas entradas de 2026: o legado nunca deixa passar);
+ *  2. na entrada e na saída, `ValidaProdutosComDecomposicao` (:16846-16885 → `ProdutoComDecomposicaoValida`, udmNF.pas:11730-11756):
+ *     cada item cujo produto tem DECOMPOSICAO='S' e cadastro em DECOMPOSICAO com algum PERCENTUAL <= 0 ou soma ≠ 100,00 entra na
+ *     lista (um código por item, na ordem da nota). Produto sem linhas no cadastro passa.
+ */
+export async function validarDecomposicaoNoProcessamento(trx: AnyDB, codnf: number): Promise<void> {
+  const nf = (await trx.selectFrom('nf').select(['tipo']).where('codnf', '=', codnf).executeTakeFirst()) as { tipo: unknown } | undefined;
+  if (!nf) return;
+  const itens = (await sql<{ codproduto: number; descricao: string | null; entrada_decomposta: string | null; decomposicao: string | null }>`
+    SELECT i.codproduto, i.descricao, p.entrada_decomposta, p.decomposicao
+      FROM nf_prod i LEFT JOIN produtos p ON p.idproduto = i.codproduto
+     WHERE i.codnf = ${codnf}
+     ORDER BY i.nroitem NULLS LAST, i.codnfprod`.execute(trx)).rows;
+  if (String(nf.tipo) === 'E') {
+    const pai = itens.find((i) => String(i.entrada_decomposta ?? '') === 'S');
+    if (pai) {
+      throw new BusinessRuleError('NF_ENTRADA_EM_DECOMPOSICAO', { codproduto: pai.codproduto, descricao: pai.descricao },
+        `Produto: ${pai.descricao ?? ''}, com entrada em decomposição. Os produtos da decomposição deverão ser lançados à nota. Altere a nota fiscal para iniciar a decomposição.`);
+    }
+  }
+  const comDecomposicao = itens.filter((i) => String(i.decomposicao ?? 'N') === 'S');
+  if (!comDecomposicao.length) return;
+  const cadastro = (await sql<{ idproduto: number; linhas: number; negativos: number; total: string | null }>`
+    SELECT idproduto, COUNT(*)::int AS linhas, COUNT(*) FILTER (WHERE COALESCE(percentual, 0) <= 0)::int AS negativos, SUM(percentual) AS total
+      FROM decomposicao WHERE idproduto = ANY(${[...new Set(comDecomposicao.map((i) => Number(i.codproduto)))]}::int[])
+     GROUP BY idproduto`.execute(trx)).rows;
+  const porProduto = new Map(cadastro.map((c) => [Number(c.idproduto), c]));
+  const invalidos = comDecomposicao.map((i) => Number(i.codproduto)).filter((cod) => {
+    const c = porProduto.get(cod);
+    return !!c && c.linhas > 0 && (c.negativos > 0 || n(c.total).toFixed(2) !== '100.00');
+  });
+  if (invalidos.length) {
+    throw new BusinessRuleError('NF_DECOMPOSICAO_INVALIDA', { produtos: invalidos },
+      `Os produtos ${invalidos.join(',')} estão com erros na decomposição. Verifique o cadastro do produto para continuar com o processamento da nota fiscal!`);
   }
 }

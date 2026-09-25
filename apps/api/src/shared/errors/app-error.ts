@@ -13,11 +13,13 @@ export abstract class AppError extends Error {
 /** Regra de negócio violada (ex.: BANCO_OBRIGATORIO). */
 export class BusinessRuleError extends AppError {
   readonly httpStatus = 422;
+  /** `mensagem`: o texto do legado quando ele interpola dados (ex.: a descrição do produto); sem ela, o CODE_PT do código */
   constructor(
     readonly code: string,
     details?: Record<string, unknown>,
+    mensagem?: string,
   ) {
-    super(code, details);
+    super(mensagem ?? code, details);
   }
 }
 

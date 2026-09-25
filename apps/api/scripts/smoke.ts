@@ -24227,6 +24227,118 @@ async function main() {
       }
     }
 
+    // ══ §256 A ENTRADA DECOMPOSTA — a trava do processar, o diálogo e a troca pai → filhos (InsereProdutosDaDecomposicao) ══════════
+    {
+      const pgDc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const PAI = 997601, FA = 997602, FB = 997603, FC = 997604;
+      const nfs: number[] = [];
+      try {
+        await pgDc.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, entrada_decomposta, decomposicao, atualiza_multipreco_decomp, calculo_valor_custo_decomp) VALUES
+          (${PAI},'7000000997601','DECO SUINO INTEIRO','KG',2,'STB','S','S','S','S',NULL),
+          (${FA},'7000000997602','DECO ALCATRA','KG',2,'STB','S','N','N',NULL,NULL),
+          (${FB},'7000000997603','DECO BISTECA','KG',2,'STB','S','N','N',NULL,NULL),
+          (${FC},'7000000997604','DECO COSTELA','KG',2,'STB','S','N','N',NULL,NULL)
+          ON CONFLICT (idproduto) DO UPDATE SET descricao = EXCLUDED.descricao, entrada_decomposta = EXCLUDED.entrada_decomposta, decomposicao = EXCLUDED.decomposicao,
+            atualiza_multipreco_decomp = EXCLUDED.atualiza_multipreco_decomp, calculo_valor_custo_decomp = EXCLUDED.calculo_valor_custo_decomp`);
+        await pgDc.query(`DELETE FROM decomposicao WHERE idproduto = ${PAI}`);
+        await pgDc.query(`INSERT INTO decomposicao (idproduto, idproduto_01, percentual) VALUES (${PAI},${FC},20),(${PAI},${FA},50),(${PAI},${FB},30)`);
+        // o VRVENDA da loja: a COSTELA com 0 primeiro (a guarda: recusa ANTES de apagar o pai)
+        await pgDc.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda) VALUES (${PAI},1,9,0),(${FA},1,1,20),(${FB},1,1,10),(${FC},1,1,0)
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda = EXCLUDED.vrvenda`);
+        await pgDc.query(`INSERT INTO estoque (idproduto, idempresa, qtde) VALUES (${PAI},1,0),(${FA},1,0),(${FB},1,0),(${FC},1,0) ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde = 0`);
+        const r = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 1, serie: '1', tipo: 'E', nronf: 'DC256A', tipoemissao: '1', codparceiro: 22,
+          dtemissao: '2037-01-13', dtcontabil: '2037-01-13', cfop: '1403',
+          itens: [{ nroitem: 1, codproduto: PAI, quantidade: 100, vrcusto: 10, cfop: '1403', aliquota: 'STB', cst: 60, vrbasest: 50, vricmst: 5 }] }) });
+        const criadaJ = (await r.json().catch(() => ({}))) as any;
+        const codnf = Number(criadaJ.codnf) || 0;
+        if (codnf) nfs.push(codnf);
+        if (!codnf) throw new Error(`§256: a NF não foi criada: ${r.status} ${JSON.stringify(criadaJ)}`);
+        const paiRow = (await pgDc.query(`SELECT codnfprod, vrbasest, vricmst FROM nf_prod WHERE codnf = $1`, [codnf])).rows[0] as any;
+        await pgDc.query(`INSERT INTO nf_prod_lote (codnfprod, idempresa, idproduto, lote, dtvalidade, dtfabricacao) VALUES ($1, 1, ${PAI}, 'L256', '2037-06-01', '2036-12-01')`, [paiRow?.codnfprod]);
+        // (1) a trava do processar: o pai ainda na nota
+        const p1 = await processarNf(codnf, H);
+        const p1J = (await p1.json().catch(() => ({}))) as any;
+        // (2) os pendentes (o Editar abre o diálogo) com os padrões: QTDETOTAL 100, TOTALPRODS 1000, CFOP 1403
+        const pend = (await (await fetch(`${base}/fiscal/nf/${codnf}/decomposicao/pendentes`, { headers: H })).json().catch(() => [])) as any[];
+        // (3) as validações do diálogo e a guarda do valor de venda zero
+        const post = async (b: Record<string, unknown>) => {
+          const x = await fetch(`${base}/fiscal/nf/${codnf}/decomposicao`, { method: 'POST', headers: H, body: JSON.stringify({ codnfprod: paiRow?.codnfprod, ...b }) });
+          return { status: x.status, j: (await x.json().catch(() => ({}))) as any };
+        };
+        const semCfop = await post({ qtdTotal: 100, valorTotal: 1000, cfop: 0 });
+        const cfopInex = await post({ qtdTotal: 100, valorTotal: 1000, cfop: 9876 });
+        const semQtd = await post({ qtdTotal: 0, valorTotal: 1000, cfop: 1403 });
+        const vendaZero = await post({ qtdTotal: 100, valorTotal: 1000, cfop: 1403 });
+        const paiFicou = Number((await pgDc.query(`SELECT count(*) AS c FROM nf_prod WHERE codnf = $1 AND codproduto = ${PAI}`, [codnf])).rows[0]?.c);
+        // (4) a troca: VV 20/10/5, TV = 50×20 + 30×10 + 20×5 = 1.400; custos 14,285714 / 7,142857 / 3,571429 → Σ totais 1.000,01; o −0,01 cai
+        // na ALCATRA (1ª em ordem de descrição): (714,2857 − 0,01)/50 = 14,285514
+        await pgDc.query(`UPDATE multi_preco SET vrvenda = 5 WHERE idproduto = ${FC} AND idempresa = 1`);
+        const ok4 = await post({ qtdTotal: 100, valorTotal: 1000, cfop: 1403 });
+        const filhos = (await pgDc.query(`SELECT i.codnfprod, i.nroitem, i.codproduto, i.quantidade, i.vrcusto, i.vrvenda, i.cfop, i.vrbasest, i.vricmst, i.vrbasecalculo, i.vricm,
+            i.decomposicao, i.codprodutopai_decomposicao, i.nroitem_decomp, i.descricao_prodpai_decomp, i.atualiza_multipreco_decomp, i.item_perda_total, i.repassado,
+            (SELECT count(*) FROM nf_prod_lote l WHERE l.codnfprod = i.codnfprod AND l.lote = 'L256' AND l.dtfabricacao = '2036-12-01' AND l.dtvalidade = '2037-06-01' AND l.idproduto = i.codproduto) AS lotes
+          FROM nf_prod i WHERE i.codnf = $1 ORDER BY i.nroitem`, [codnf])).rows as any[];
+        const cab = (await pgDc.query(`SELECT totalprod, qtde FROM nf WHERE codnf = $1`, [codnf])).rows[0] as any;
+        const f = (id: number) => filhos.find((x) => Number(x.codproduto) === id);
+        const somaBase = filhos.reduce((s2, x) => s2 + Number(x.vrbasest), 0);
+        // (5) o GRAVAR da tela (o PUT sem as colunas da decomposição — o schema as descarta) mantém a decomposição e os lotes dos filhos
+        const nfGet = (await (await fetch(`${base}/fiscal/nf/${codnf}`, { headers: H })).json().catch(() => ({}))) as any;
+        const DECO = ['decomposicao', 'codprodutopai_decomposicao', 'item_perda_total', 'atualiza_multipreco_decomp', 'descricao_prodpai_decomp', 'nroitem_decomp', 'cfop_original', 'vrbase_stexterno'];
+        const itensPut = (nfGet.itens ?? []).map((it: any) => Object.fromEntries(Object.entries(it).filter(([k]) => !DECO.includes(k))));
+        const put = await fetch(`${base}/fiscal/nf/${codnf}`, { method: 'PUT', headers: H, body: JSON.stringify({ validatotalnf: nfGet.validatotalnf ?? nfGet.totalnf, itens: itensPut }) });
+        const depoisPut = (await pgDc.query(`SELECT count(*) FILTER (WHERE codprodutopai_decomposicao = ${PAI} AND nroitem_decomp = 1) AS deco,
+            (SELECT count(*) FROM nf_prod_lote l JOIN nf_prod p ON p.codnfprod = l.codnfprod WHERE p.codnf = $1) AS lotes FROM nf_prod WHERE codnf = $1`, [codnf])).rows[0] as any;
+        // (6) processar: só os filhos movem o estoque (o pai não está na nota)
+        await pgDc.query(`UPDATE nf SET validatotalnf = totalnf WHERE codnf = $1`, [codnf]);
+        const p6 = await processarNf(codnf, H);
+        const p6J = p6.status === 200 ? {} : ((await p6.json().catch(() => ({}))) as any);
+        const est = (await pgDc.query(`SELECT idproduto, qtde FROM estoque WHERE idempresa = 1 AND idproduto IN (${PAI},${FA},${FB},${FC})`)).rows as any[];
+        const saldo = (id: number) => Number(est.find((x) => Number(x.idproduto) === id)?.qtde ?? NaN);
+        await fetch(`${base}/fiscal/nf/${codnf}/reverter`, { method: 'POST', headers: H });
+        check('ENTRADA DECOMPOSTA §256.1 [a trava e o diálogo]: com o item de produto ENTRADA_DECOMPOSTA=S na nota, o processar recusa com a mensagem do legado ("Produto: <descrição>, com entrada em decomposição…"); os pendentes trazem o item com QTDETOTAL 100, TOTALPRODS 1.000 e o CFOP 1403; o diálogo recusa CFOP 0, CFOP fora da tabela e quantidade 0 com as mensagens dele; o filho com valor de venda zero recusa e o pai CONTINUA na nota (o fonte o apagava antes do erro)',
+          p1.status === 422 && p1J.code === 'NF_ENTRADA_EM_DECOMPOSICAO' && String(p1J.message ?? '').startsWith('Produto: DECO SUINO INTEIRO, com entrada em decomposição')
+          && pend.length === 1 && Number(pend[0]?.qtdetotal) === 100 && Number(pend[0]?.totalprods) === 1000 && Number(pend[0]?.cfop) === 1403
+          && semCfop.j.code === 'NF_DECOMPOSICAO_SEM_CFOP' && cfopInex.j.code === 'NF_DECOMPOSICAO_CFOP_NAO_CADASTRADO' && semQtd.j.code === 'NF_DECOMPOSICAO_SEM_QUANTIDADE'
+          && vendaZero.status === 422 && vendaZero.j.code === 'NF_DECOMPOSICAO_VENDA_ZERO' && String(vendaZero.j.message ?? '') === 'Produto "7000000997604 - DECO COSTELA" com valor de venda zero. Verifique!' && paiFicou === 1,
+          { p1: [p1.status, p1J.code, p1J.message], pend, semCfop: semCfop.j.code, cfopInex: cfopInex.j.code, semQtd: semQtd.j.code, vendaZero: [vendaZero.status, vendaZero.j.code, vendaZero.j.message], paiFicou });
+        check('ENTRADA DECOMPOSTA §256.2 [a troca pai → filhos]: o pai sai e entram os 3 filhos na ordem da descrição (nroitem 1..3): quantidade = 100 × % (50/30/20), custo pelo valor de venda a 6 casas (7,142857 e 3,571429) e a ALCATRA absorve o −0,01 (14,285514); CFOP do diálogo, VRVENDA da loja, DECOMPOSICAO N, o pai/NROITEM_DECOMP 1/descrição do pai, a multi-preço do pai (S), REPASSADO S, sem ICMS próprio; o ST do pai rateado (Σ base ≈ a do pai); NF.TOTALPROD 1.000 e QTDE 100; o lote do pai em cada filho com a fabricação do lote',
+          ok4.status === 200 && filhos.length === 3 && !filhos.some((x) => Number(x.codproduto) === PAI)
+          && filhos.map((x) => Number(x.codproduto)).join() === [FA, FB, FC].join() && filhos.map((x) => Number(x.nroitem)).join() === '1,2,3'
+          && Number(f(FA)?.quantidade) === 50 && Number(f(FB)?.quantidade) === 30 && Number(f(FC)?.quantidade) === 20
+          && Math.abs(Number(f(FA)?.vrcusto) - 14.285514) < 1e-9 && Math.abs(Number(f(FB)?.vrcusto) - 7.142857) < 1e-9 && Math.abs(Number(f(FC)?.vrcusto) - 3.571429) < 1e-9
+          && filhos.every((x) => String(x.cfop) === '1403' && x.decomposicao === 'N' && Number(x.codprodutopai_decomposicao) === PAI && Number(x.nroitem_decomp) === 1
+            && x.descricao_prodpai_decomp === 'DECO SUINO INTEIRO' && x.atualiza_multipreco_decomp === 'S' && x.item_perda_total === 'N' && x.repassado === 'S'
+            && Number(x.vrbasecalculo) === 0 && Number(x.vricm) === 0 && Number(x.lotes) === 1)
+          && Number(f(FA)?.vrvenda) === 20 && Math.abs(somaBase - Number(paiRow?.vrbasest)) <= 0.02 && Number(cab?.totalprod) === 1000 && Number(cab?.qtde) === 100,
+          { ok4: [ok4.status, ok4.j], filhos, cab, somaBase, paiBase: paiRow?.vrbasest });
+        check('ENTRADA DECOMPOSTA §256.3 [o gravar e o processar]: o PUT da tela (sem as colunas da decomposição) mantém o pai de cada filho e os lotes (a FK do lote é ON DELETE CASCADE e o gravar substituía os itens — todo Gravar apagava os lotes); o processar passa e só os filhos entram no estoque (50/30/20), o pai não',
+          put.status === 200 && Number(depoisPut?.deco) === 3 && Number(depoisPut?.lotes) === 3 && p6.status === 200
+          && saldo(FA) === 50 && saldo(FB) === 30 && saldo(FC) === 20 && saldo(PAI) === 0,
+          { put: put.status, depoisPut, p6: [p6.status, p6J.code, p6J.message], est });
+        // (7) ValidaProdutosComDecomposicao: o item de produto com DECOMPOSICAO=S e o cadastro que não soma 100 trava o processar (entrada e saída)
+        await pgDc.query(`UPDATE decomposicao SET percentual = 10 WHERE idproduto = ${PAI} AND idproduto_01 = ${FC}`);
+        const rs = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 1, serie: '1', tipo: 'S', nronf: 'DC256B', tipoemissao: '0', codparceiro: 20,
+          dtemissao: '2037-01-13', dtcontabil: '2037-01-13', cfop: '5102', itens: [{ nroitem: 1, codproduto: PAI, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'STB', cst: 60 }] }) });
+        const nfS = Number(((await rs.json().catch(() => ({}))) as any).codnf) || 0;
+        if (nfS) nfs.push(nfS);
+        const p7 = await processarNf(nfS, H);
+        const p7J = (await p7.json().catch(() => ({}))) as any;
+        check('ENTRADA DECOMPOSTA §256.4 [ValidaProdutosComDecomposicao]: a saída com o produto de DECOMPOSICAO=S cujo cadastro soma 90 recusa o processar com a lista dos produtos, na mensagem do legado',
+          p7.status === 422 && p7J.code === 'NF_DECOMPOSICAO_INVALIDA' && p7J.message === `Os produtos ${PAI} estão com erros na decomposição. Verifique o cadastro do produto para continuar com o processamento da nota fiscal!`,
+          { p7: [p7.status, p7J.code, p7J.message] });
+      } catch (e) {
+        check('ENTRADA DECOMPOSTA §256 [preparo]', false, { erro: (e as Error).message });
+      } finally {
+        for (const c of nfs) {
+          await pgDc.query(`DELETE FROM nf_prod WHERE codnf = $1`, [c]).catch(() => undefined);
+          await pgDc.query(`DELETE FROM nf WHERE codnf = $1`, [c]).catch(() => undefined);
+        }
+        await pgDc.query(`DELETE FROM decomposicao WHERE idproduto = ${PAI}`).catch(() => undefined);
+        await pgDc.query(`UPDATE produtos SET entrada_decomposta = 'N', decomposicao = 'N' WHERE idproduto = ${PAI}`).catch(() => undefined);
+        await pgDc.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();

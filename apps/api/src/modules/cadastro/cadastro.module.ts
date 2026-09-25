@@ -148,6 +148,7 @@ import { NfVendasService } from './nf-vendas.service';
 import { NfDevolucaoVendasController } from './nf-devolucao-vendas.controller';
 import { NfDevolucaoVendasService } from './nf-devolucao-vendas.service';
 import { NfProcessamentoService } from './nf-processamento.service';
+import { NfDecomposicaoService } from './nf-decomposicao.service';
 import { FechamentoDiarioController } from './fechamento-diario.controller';
 import { FechamentoDiarioService } from './fechamento-diario.service';
 import { NfLoteController } from './nf-lote.controller';
@@ -277,6 +278,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     ConfiguracoesAdminService,
     NfFiscalService,
     NfProcessamentoService,
+    NfDecomposicaoService,
     NfScrapService,
     NfVendasService,
     NfDevolucaoVendasService,

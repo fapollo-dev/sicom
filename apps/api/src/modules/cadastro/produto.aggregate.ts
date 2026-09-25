@@ -97,7 +97,7 @@ export const produtoAggregateConfig: AggregateConfig = {
     'uso_consumo', 'visivel_rel', 'imprimircomp', 'pis', 'tipopis', 'gerar_m220_m620', 'tipo_item',
     'nao_atu_produtos_entrada', 'imprime_voucher', 'produto_voucher', 'tipo_produto', 'saida_expedicao', 'gluten',
     'produto_notavel', 'produto_ancora', 'decomposicao_livre', 'nao_decompor_saida', 'decomposicao_un', 'entrada_decomposta',
-    'atualiza_multipreco_decomp', 'receitaunidade', 'apresentacao_etiqueta', 'dias_validade_minimo', 'fator_pedidocompra',
+    'atualiza_multipreco_decomp', 'calculo_valor_custo_decomp', 'percentual_perdas', 'receitaunidade', 'apresentacao_etiqueta', 'dias_validade_minimo', 'fator_pedidocompra',
     'descmax', 'comissao', 'taraembalagem', 'especificacao', 'tpdescpreco2', 'vrdescpreco2', 'preco2dtini', 'preco2dtfim',
     'inteiramedida', 'partedec', 'usadamedida', 'conteudo_embalagem', 'unidade_apresentacao',
   ],

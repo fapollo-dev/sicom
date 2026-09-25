@@ -1476,6 +1476,22 @@ function DecomposicaoSection({
             </small>
           </>
         )}
+        {/* o rodapé da aba no legado (UCadProduto.dfm:8237-8276): a entrada decomposta na NF, o custo dela e a multi-preço */}
+        <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+          <div className="flex flex-col gap-gp-sm">
+            <Controller control={form.control} name="entrada_decomposta" render={({ field }) => (
+              <CheckboxField label="Entrada deste produto na nota fiscal será decomposta" value={(field.value as string | undefined) ?? 'N'} onChange={field.onChange} disabled={!editavel} />
+            )} />
+            <Controller control={form.control} name="atualiza_multipreco_decomp" render={({ field }) => (
+              <CheckboxField label="Atualiza valor de custo dos itens de decomposição na multi-preço" value={(field.value as string | undefined) ?? 'N'} onChange={field.onChange} disabled={!editavel} />
+            )} />
+          </div>
+          <Controller control={form.control} name="calculo_valor_custo_decomp" render={({ field }) => (
+            <SelectField label="Valor de custo na entrada de nota fiscal" value={field.value ? String(field.value) : undefined}
+              options={[{ value: 'CV', label: 'Calcula valor de custo pelo valor de venda' }, { value: 'CR', label: 'Calcula valor de custo rateado' }]}
+              onChange={(v) => field.onChange(v ? v : undefined)} placeholder="Selecione…" disabled={!editavel} />
+          )} />
+        </div>
       </div>
 
       {editIdx != null && (
@@ -2433,8 +2449,6 @@ const OUTROS_FLAGS: { name: keyof CriarProdutoDto; label: string }[] = [
   { name: 'decomposicao_livre', label: 'Decomposição livre' },
   { name: 'nao_decompor_saida', label: 'Não decompor na saída' },
   { name: 'decomposicao_un', label: 'Decomposição por unidade' },
-  { name: 'entrada_decomposta', label: 'Entrada decomposta' },
-  { name: 'atualiza_multipreco_decomp', label: 'Atualiza o preço da decomposição' },
 ];
 
 // SPED 0200 — TIPO_ITEM (tabela do leiaute)
@@ -2485,6 +2499,12 @@ function ComplementosSection({ form, editavel }: { form: UseFormReturn<CriarProd
         {num('taraembalagem', 'Tara da embalagem', 2)}
         {num('apresentacao_etiqueta', 'Apresentação na etiqueta')}
         {num('conteudo_embalagem', 'Conteúdo da embalagem', 4)}
+        {/* "% Perdas" (edtPERCENTUAL_PERDAS): só o produto em KG edita (UCadProduto.pas:2442-2445); entre 0 e 100 (:5928-5945).
+            É a perda do corte na entrada decomposta rateada (100 = item de perda total) */}
+        <Controller control={form.control} name="percentual_perdas" render={({ field }) => (
+          <NumberField label="% Perdas" value={field.value != null ? Number(field.value) : undefined} onChange={field.onChange}
+            decimais={3} min={0} max={100} disabled={!editavel || String(form.watch('unidade') ?? '').toUpperCase() !== 'KG'} />
+        )} />
         {sel('unidade_apresentacao', 'Unidade de apresentação', [{ value: 'KG', label: 'KG' }, { value: 'LT', label: 'LT' }, { value: 'UN', label: 'UN' }])}
         {sel('tpdescpreco2', 'Desconto do preço 2 — tipo', [{ value: 'P', label: 'P' }, { value: 'F', label: 'F' }, { value: 'D', label: 'D' }])}
         {num('vrdescpreco2', 'Desconto do preço 2 — valor', 2)}

@@ -332,6 +332,10 @@ const produtoBase = z.object({
   decomposicao_un: snFlag(),
   entrada_decomposta: snFlag(),
   atualiza_multipreco_decomp: snFlag(),
+  // o custo dos filhos na entrada decomposta (dbrgrpEntradaDecomposicaoCusto): CV = pelo valor de venda (e o NULL), CR = rateado pelo percentual
+  calculo_valor_custo_decomp: opcional(z.enum(['CV', 'CR'])),
+  // "% Perdas" do produto em KG (edtPERCENTUAL_PERDASExit: 0 a 100) — no rateio CR, 100 = item de perda total
+  percentual_perdas: dec(z.number().min(0, 'Percentual inválido').max(100, 'Percentual inválido')),
   receitaunidade: opcional(z.string().trim().max(2)), // KG / UN
   apresentacao_etiqueta: dec(z.number().nonnegative()),
   dias_validade_minimo: dec(z.number().int().nonnegative()), // "Mínimo dias validade"
