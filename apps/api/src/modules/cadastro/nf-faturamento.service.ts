@@ -581,8 +581,6 @@ export class NfFaturamentoService {
         const r = await sql`UPDATE faturamento SET liberado = 'S' WHERE codfaturamento = ${t.codfaturamento} AND coalesce(liberado, 'N') <> 'S'`.execute(trx);
         if (Number(r.numAffectedRows ?? 0) === 0) throw new BusinessRuleError('FATURAMENTO_PARCELA_JA_FATURADA', { codfaturamento: t.codfaturamento });
       }
-      // o flag do Apollo (até o corte D o trocar pelos predicados do legado)
-      await sql`UPDATE nf SET faturada = 'S', usultalteracao = ${op}, dtultimalteracao = now() WHERE codnf = ${codnf}`.execute(trx);
       const chave = await chaveDeEntrada(trx, codnf);
       if (chave) await registrarProcessoNf(trx, 'stGerarFinanceiro', chave, emp, op);
       notas.push({ codnf, tabela, titulos: ids });
@@ -734,8 +732,8 @@ export class NfFaturamentoService {
     const parcelas = (await sql<Record<string, unknown>>`SELECT * FROM faturamento WHERE idnf = ${codnf} ORDER BY codfaturamento`.execute(trx)).rows;
     await this.logNotaFiscal(trx, 'FATURAMENTO', codnf, parcelas, LOG_FATURAMENTO, emp);
     await sql`DELETE FROM faturamento WHERE idnf = ${codnf}`.execute(trx);
-    // "define se o faturamento será liberado para nova inserção ao processar a nota fiscal" (udmNF.pas:6605); o flag do Apollo até o corte D
-    await sql`UPDATE nf SET cancela_faturamento = 'S', faturada = 'N' WHERE codnf = ${codnf}`.execute(trx);
+    // "define se o faturamento será liberado para nova inserção ao processar a nota fiscal" (udmNF.pas:6605)
+    await sql`UPDATE nf SET cancela_faturamento = 'S' WHERE codnf = ${codnf}`.execute(trx);
     const chave = await chaveDeEntrada(trx, codnf);
     if (chave) await desregistrarProcessoNf(trx, 'stGerarFinanceiro', chave);
   }

@@ -1640,7 +1640,8 @@ async function main() {
       { status: fatRes.status, tabela: fatBody.tabela, n: titulos1.length, soma1, totalNf },
     );
     const nfFatRead = (await (await fetch(`${base}/fiscal/nf/${nfFat}`, { headers: H })).json()) as any;
-    check('NF fica faturada=S após faturar', nfFatRead.faturada === 'S', { faturada: nfFatRead.faturada });
+    // corte D: sem o flag — a nota faturada é a que tem título pela IDNF (ExisteFinanceiro)
+    check('NF faturada = tem título pela IDNF (o antigo nf.faturada saiu)', titulos1.length === 3 && nfFatRead.faturada === undefined, { titulos: titulos1.length, faturada: nfFatRead.faturada });
 
     // 20.2) faturar 2x → 422 NF_JA_FATURADA (idempotência).
     const fat2 = await faturarNf(nfFat, { numParcelas: 1, primeiroVencimento: '2026-07-10', intervaloDias: 30 }, H);
@@ -1652,9 +1653,9 @@ async function main() {
     const titulosPosEstorno = await titulosDaNf(nfFat);
     const nfFatRead2 = (await (await fetch(`${base}/fiscal/nf/${nfFat}`, { headers: H })).json()) as any;
     check(
-      'POST /fiscal/nf/:id/estornar-faturamento apaga os títulos e seta faturada=N',
-      estRes.status === 200 && titulosPosEstorno.length === 0 && nfFatRead2.faturada === 'N',
-      { status: estRes.status, n: titulosPosEstorno.length, faturada: nfFatRead2.faturada },
+      'POST /fiscal/nf/:id/excluir-financeiro apaga os títulos (a nota deixa de ter financeiro)',
+      estRes.status === 200 && titulosPosEstorno.length === 0,
+      { status: estRes.status, n: titulosPosEstorno.length },
     );
 
     // 20.4) ENTRADA → faturar gera em APAGAR (modalidade A Pagar).
@@ -1881,9 +1882,9 @@ async function main() {
     const revFat = await fetch(`${base}/fiscal/nf/${nfRevFat}/reverter`, { method: 'POST', headers: H });
     const revFatB = (await revFat.json().catch(() => ({}))) as any;
     const titRev = (await pgRvf.query(`SELECT count(*)::int AS n, bool_and(status_pendencia = 'R') AS pend FROM areceber WHERE idnf = $1`, [nfRevFat])).rows[0] as any;
-    const nfRevEst = (await pgRvf.query(`SELECT proc, faturada FROM nf WHERE codnf = $1`, [nfRevFat])).rows[0] as any;
+    const nfRevEst = (await pgRvf.query(`SELECT proc FROM nf WHERE codnf = $1`, [nfRevFat])).rows[0] as any;
     check('reverter NF FATURADA (ESTORNA_FINANCEIRO_NF N) → 200: reverte, MANTÉM os títulos e marca STATUS_PENDENCIA R (CancelaFaturamento)',
-      revFat.status === 200 && titRev?.n >= 1 && titRev.pend === true && nfRevEst?.proc === 'N' && nfRevEst?.faturada === 'S', { status: revFat.status, code: revFatB.code, titRev, nfRevEst });
+      revFat.status === 200 && titRev?.n >= 1 && titRev.pend === true && nfRevEst?.proc === 'N', { status: revFat.status, code: revFatB.code, titRev, nfRevEst });
     const estornaAntes = ((await pgRvf.query(`SELECT valor FROM configuracoes WHERE codigo = 'ESTORNA_FINANCEIRO_NF'`)).rows[0] as any)?.valor;
     await pgRvf.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor, config_especificas_permitidas, descricao)
         SELECT 991961, 'ESTORNA_FINANCEIRO_NF', 'S', 'texto', 'Modulo;Empresa', 'smoke' WHERE NOT EXISTS (SELECT 1 FROM configuracoes WHERE codigo = 'ESTORNA_FINANCEIRO_NF')`);
@@ -1892,10 +1893,10 @@ async function main() {
     await processarNf(nfRevFat, H);
     const revFat2 = await fetch(`${base}/fiscal/nf/${nfRevFat}/reverter`, { method: 'POST', headers: H });
     const titRev2 = Number(((await pgRvf.query(`SELECT count(*)::int AS n FROM areceber WHERE idnf = $1`, [nfRevFat])).rows[0] as any).n);
-    const nfRev2 = (await pgRvf.query(`SELECT proc, faturada FROM nf WHERE codnf = $1`, [nfRevFat])).rows[0] as any;
+    const nfRev2 = (await pgRvf.query(`SELECT proc FROM nf WHERE codnf = $1`, [nfRevFat])).rows[0] as any;
     await pgRvf.query(`DELETE FROM configuracoes WHERE id = 991961`);
     if (estornaAntes !== undefined) await pgRvf.query(`UPDATE configuracoes SET valor = $1 WHERE codigo = 'ESTORNA_FINANCEIRO_NF'`, [estornaAntes]);
-    check('reverter NF FATURADA com ESTORNA_FINANCEIRO_NF S e nada baixado → exclui o financeiro e a NF volta a não faturada', revFat2.status === 200 && titRev2 === 0 && nfRev2?.faturada === 'N', { status: revFat2.status, titRev2, nfRev2 });
+    check('reverter NF FATURADA com ESTORNA_FINANCEIRO_NF S e nada baixado → exclui o financeiro e a NF volta a não faturada', revFat2.status === 200 && titRev2 === 0 && nfRev2?.proc === 'N', { status: revFat2.status, titRev2, nfRev2 });
     await pgRvf.end();
 
     // 21.8) DELETE bloqueado em NF REFERENCIADA por outra (cert 2026-07-02, uNF:4145): a nota-origem de uma
@@ -1928,8 +1929,8 @@ async function main() {
     // 22.1b) SEM EFEITO: criar NF com rateio NÃO move estoque, NÃO contabiliza/fatura.
     check(
       'rateio contábil é CONFIG (não contabiliza/fatura)',
-      (nfCtbBody.contabilizado == null || nfCtbBody.contabilizado === 'N') && (nfCtbBody.faturada == null || nfCtbBody.faturada === 'N'),
-      { contabilizado: nfCtbBody.contabilizado, faturada: nfCtbBody.faturada },
+      (nfCtbBody.contabilizado == null || nfCtbBody.contabilizado === 'N'),
+      { contabilizado: nfCtbBody.contabilizado },
     );
 
     // 22.2) soma ≠ total → ACEITA (201): a soma=TOTALNF é ADVISORY no legado (label, sem Abort) —
@@ -2268,8 +2269,8 @@ async function main() {
     const nfFinS = await prepCancelavel('E7002');
     const canS = await fetch(`${base}/fiscal/nf/${nfFinS}/cancelar`, { method: 'POST', headers: H, body: JSON.stringify({ xjust: 'CANCELAMENTO TESTE F4B S ESTORNA FINANCEIRO' }) });
     const canSBody = (await canS.json().catch(() => ({}))) as any;
-    const fatS = (await pgFin.query(`SELECT faturada FROM nf WHERE codnf=$1`, [nfFinS])).rows[0]?.faturada;
-    check("F4b config 'S': cancelar ESTORNA os títulos e reabre faturada", canS.status === 200 && (await titulosDe(nfFinS)) === 0 && fatS === 'N' && canSBody.financeiro === 'excluido', { status: canS.status, titulos: await titulosDe(nfFinS), faturada: fatS, fin: canSBody.financeiro });
+    const fatS = (await pgFin.query(`SELECT cancela_faturamento FROM nf WHERE codnf=$1`, [nfFinS])).rows[0]?.cancela_faturamento;
+    check("F4b config 'S': cancelar EXCLUI os títulos e as parcelas (ExcluiFaturamento, CANCELA_FATURAMENTO S)", canS.status === 200 && (await titulosDe(nfFinS)) === 0 && fatS === 'S' && canSBody.financeiro === 'excluido', { status: canS.status, titulos: await titulosDe(nfFinS), faturada: fatS, fin: canSBody.financeiro });
     // (c) 'S' mas título QUITADO → MANTÉM financeiro (VerificaExisteBaixas), sem abortar o cancelamento.
     const nfFinQ = await prepCancelavel('E7003');
     await pgFin.query(`UPDATE areceber SET quitada='S' WHERE idnf=$1 AND codempresa=1`, [nfFinQ]);
@@ -22156,7 +22157,7 @@ async function main() {
             FROM apagar WHERE idnf = $1 ORDER BY codapg`, [e1.codnf])).rows as any[];
         const libs = (await pgFb.query(`SELECT liberado FROM faturamento WHERE idnf = $1`, [e1.codnf])).rows.map((r: any) => r.liberado);
         const logAp = Number((await pgFb.query(`SELECT count(*)::int n FROM log WHERE tabela = 'APAGAR' AND formulario = 'Contas a pagar' AND acao = 'Inseriu' AND valor = ANY($1::int[])`, [aps.map((a) => Number(a.codapg))])).rows[0].n);
-        const fatNf = (await pgFb.query(`SELECT faturada FROM nf WHERE codnf = $1`, [e1.codnf])).rows[0]?.faturada;
+        const fatNf = (await pgFb.query(`SELECT CASE WHEN EXISTS (SELECT 1 FROM apagar WHERE idnf = $1) THEN 'S' ELSE 'N' END AS f`, [e1.codnf])).rows[0]?.f;
         check('FATURAMENTO §216.2 [parcela → título, no shape do dado]: 2 títulos A Pagar no MESMO grupo — GFAT S, GERADO e NRODUP nulos (10.287 de 10.287 na produção), FORM TfrmAPagar, operador, TXJUROS 0, DTCOMPRA = emissão, DUPLICATA = NRONF, 1/2 e 2/2 · o ajuste do operador vale (a 2ª em CARTÃO PRÓPRIO, vencendo 01/05/2031) · as parcelas viram LIBERADO S · LOG "Contas a pagar" Inseriu por título',
           p1.status === 200 && aps.length === 2 && aps.every((a) => a.gfat === 'S' && a.gerado == null && a.nrodup == null && a.form === 'TfrmAPagar' && Number(a.codoperador) === 7
             && Number(a.txjuros) === 0 && a.dtcompra === '2026-09-20' && a.duplicata === '921601' && Number(a.codparceiro) === 22)
@@ -22269,13 +22270,13 @@ async function main() {
           fat: Number((await pgFc.query(`SELECT count(*)::int n FROM faturamento WHERE idnf = $1`, [e1])).rows[0].n),
           cx: Number((await pgFc.query(`SELECT count(*)::int n FROM cx_apagar WHERE codgrupo = $1`, [grupo])).rows[0].n),
           caixa: Number((await pgFc.query(`SELECT count(*)::int n FROM caixa WHERE codgrupo = $1`, [grupo])).rows[0].n),
-          nf: (await pgFc.query(`SELECT cancela_faturamento, faturada FROM nf WHERE codnf = $1`, [e1])).rows[0],
+          nf: (await pgFc.query(`SELECT cancela_faturamento FROM nf WHERE codnf = $1`, [e1])).rows[0],
         };
         const logs = (await pgFc.query(`SELECT tabela, historico FROM log WHERE formulario = 'Nota fiscal' AND acao = 'Excluiu' AND valor = $1 ORDER BY idlog`, [e1])).rows as any[];
         check('DESFAZER §217.1 [Excluir documentos financeiros]: sem PERMITE_EXCLUIR_FINANCEIRO_DA_NF → a mensagem do legado · com S (a produção): saem os 2 títulos, o rateio e a CAIXA do grupo e as 2 PARCELAS; CANCELA_FATURAMENTO S · LOG "Nota fiscal" Excluiu na ordem do legado (CX_APAGAR, APAGAR, FATURAMENTO), CHAVE CODNF, texto como o legado grava (sem maiúsculas: "Campo: CODAPG   Valor: …")',
           fat.status === 200 && antes.cx === 1 && antes.caixa === 2
           && semPerm.status === 422 && semPermJ.message === 'Você não possui permissão para excluir documentos financeiros pela nota fiscal! \nPermissão no configurador geral, Retaguarda, Nota fiscal.'
-          && ex.status === 200 && depois.ap === 0 && depois.fat === 0 && depois.cx === 0 && depois.caixa === 0 && depois.nf?.cancela_faturamento === 'S' && depois.nf?.faturada === 'N'
+          && ex.status === 200 && depois.ap === 0 && depois.fat === 0 && depois.cx === 0 && depois.caixa === 0 && depois.nf?.cancela_faturamento === 'S'
           && logs.map((l) => l.tabela).join() === 'CX_APAGAR,APAGAR,APAGAR,FATURAMENTO,FATURAMENTO'
           && /^Excluiu: \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2} \r\nCampo: CODAPG   Valor: \d+\r\nCampo: DUPLICATA   Valor: 921701/.test(logs[1]?.historico ?? '')
           && /Campo: OBS   Valor:  REFERENTE A NOTA FISCAL 921701/.test(logs[1]?.historico ?? '') && /Campo: CODFATURAMENTO   Valor: \d+/.test(logs[3]?.historico ?? ''),

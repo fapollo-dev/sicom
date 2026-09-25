@@ -44,13 +44,7 @@ UPDATE pedidocompra p
  WHERE x.codpedcomp = p.codpedcomp
    AND p.dtfaturamento IS NULL;
 
--- A NOTA JÁ FATURADA (23/09/2026). O Apollo marca `nf.faturada='S'` ao gerar os títulos (F4) e exige o 'S' para o
--- ESTORNO do faturamento; o legado não tem o flag — a nota faturada é a que tem título (`IDNF` em ARECEBER/APAGAR).
--- A carga põe o padrão 'N' em todas: sem isto, nenhuma nota migrada poderia ter o faturamento estornado. Idempotente.
-UPDATE nf SET faturada = 'S'
- WHERE coalesce(faturada, 'N') <> 'S'
-   AND (EXISTS (SELECT 1 FROM areceber r WHERE r.idnf = nf.codnf)
-        OR EXISTS (SELECT 1 FROM apagar p WHERE p.idnf = nf.codnf));
+-- (o `nf.faturada` do Apollo saiu no corte D do faturamento, mig 343: a nota com financeiro é a que tem título pela IDNF, como no legado)
 
 -- O TURNO DO PDV QUE O LEGADO JÁ CONTABILIZOU (recon do fechamento de caixa, 23/09/2026). A contabilização do legado marca os
 -- lançamentos de CAIXA do fechamento (ORIGEM 'FECHAMENTO', mesmo CODGRUPO do turno) e nunca o CX_VENDAS — CONTABILIZADO vem

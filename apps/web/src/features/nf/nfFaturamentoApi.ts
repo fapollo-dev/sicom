@@ -48,6 +48,8 @@ export interface ConfiguracaoParcelas {
   vencimento: string;
   base: number;
   valorAFaturar: number;
+  temFinanceiro: boolean;
+  parcelasPendentes: number;
 }
 
 export interface ParcelaGerada {

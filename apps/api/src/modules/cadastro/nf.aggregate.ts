@@ -219,15 +219,15 @@ export const nfAggregateConfig: AggregateConfig = {
     }
 
     // estado atual (update): travas de edição por estado + fallback dos campos da chave.
-    // Espelha NotaEletronica/btnEditar do legado: NF processada/contabilizada/faturada/enviada/
+    // Espelha NotaEletronica/btnEditar do legado: NF processada/contabilizada/enviada/
     // cancelada é read-only (editar deixaria efeitos dessincronizados).
     let atual:
-      | { proc?: string; statusnfe?: string; contabilizado?: string; cancelada?: string; faturada?: string; nronf?: string; serie?: string; modelo?: number; tipoemissao?: string; codparceiro?: number; dtcontabil?: unknown; cfop?: unknown; idsituacao_nf?: unknown; tipo?: string }
+      | { proc?: string; statusnfe?: string; contabilizado?: string; cancelada?: string; nronf?: string; serie?: string; modelo?: number; tipoemissao?: string; codparceiro?: number; dtcontabil?: unknown; cfop?: unknown; idsituacao_nf?: unknown; tipo?: string }
       | undefined;
     if (id != null) {
       atual = (await db
         .selectFrom('nf')
-        .select(['proc', 'statusnfe', 'contabilizado', 'cancelada', 'faturada', 'nronf', 'serie', 'modelo', 'tipoemissao', 'codparceiro', 'dtcontabil', 'cfop', 'idsituacao_nf', 'tipo'])
+        .select(['proc', 'statusnfe', 'contabilizado', 'cancelada', 'nronf', 'serie', 'modelo', 'tipoemissao', 'codparceiro', 'dtcontabil', 'cfop', 'idsituacao_nf', 'tipo'])
         .where('codnf', '=', id)
         .where('idempresa', '=', emp)
         .executeTakeFirst()) as typeof atual;
@@ -341,7 +341,7 @@ export const nfAggregateConfig: AggregateConfig = {
   },
   // Guarda de EXCLUSÃO (btnExcluir do legado, uNF.pas:4072): não apagar NF com efeitos — apagar deixaria
   // estoque movido e títulos órfãos. Exige reverter (F3) / estornar (F4) antes.
-  //   • Travas de estado (proc/faturada/contabilizada/enviada/cancelada) — uNF:4080/4085/4109 → abaixo.
+  //   • Travas de estado (proc/contabilizada/enviada/cancelada + o título existente) — uNF:4080/4085/4109 → abaixo.
   //   • Referenciada por OUTRA NF (devolução/complemento apontam p/ esta) — uNF:4145 → abaixo (F5b, tabela existe).
   //   • "Numeração gerada" (uNF:4099: NRONF≠'000000' AND STATUSNFE not null) → já coberto pelas travas de
   //     statusnfe P/C/D abaixo (própria numerada+transmitida cai nelas; própria numerada SEM status é rascunho
@@ -352,11 +352,11 @@ export const nfAggregateConfig: AggregateConfig = {
     const emp = currentTenant().empresaId ?? null;
     const nf = (await db
       .selectFrom('nf')
-      .select(['proc', 'faturada', 'contabilizado', 'statusnfe', 'cancelada', 'dtcontabil'])
+      .select(['proc', 'contabilizado', 'statusnfe', 'cancelada', 'dtcontabil'])
       .where('codnf', '=', id)
       .where('idempresa', '=', emp)
       .executeTakeFirst()) as
-      | { proc?: string; faturada?: string; contabilizado?: string; statusnfe?: string; cancelada?: string; dtcontabil?: unknown }
+      | { proc?: string; contabilizado?: string; statusnfe?: string; cancelada?: string; dtcontabil?: unknown }
       | undefined;
     if (!nf) return; // not-found é tratado pelo fluxo normal
     if (nf.proc === 'S') throw new BusinessRuleError('NF_PROCESSADA'); // reverter o processamento antes

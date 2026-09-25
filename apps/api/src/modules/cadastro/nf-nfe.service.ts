@@ -254,7 +254,7 @@ export class NfNfeService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nf = await trx
         .selectFrom('nf')
-        .select(['codnf', 'tipo', 'chavenfe', 'protocolo_nfe', 'statusnfe', 'cancelada', 'proc', 'faturada', 'contabilizado'])
+        .select(['codnf', 'tipo', 'chavenfe', 'protocolo_nfe', 'statusnfe', 'cancelada', 'proc', 'contabilizado'])
         .where('codnf', '=', codnf)
         .where('idempresa', '=', emp)
         .forUpdate()

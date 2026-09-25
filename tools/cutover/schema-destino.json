@@ -30447,13 +30447,6 @@
      "nulo": true,
      "default": null
     },
-    "faturada": {
-     "tipo": "character",
-     "tam": 1,
-     "escala": null,
-     "nulo": true,
-     "default": "'N'::bpchar"
-    },
     "total_ret_pis": {
      "tipo": "numeric",
      "tam": 13,

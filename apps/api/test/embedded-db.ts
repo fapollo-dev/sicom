@@ -385,6 +385,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('340_faturamento_nrodup.sql'));
   await pool.query(sql('341_cfop_financeiro_auto_seed.sql'));
   await pool.query(sql('342_nf_excluir_financeiro.sql'));
+  await pool.query(sql('343_nf_sem_faturada.sql'));
   await pool.end();
   return pg;
 }

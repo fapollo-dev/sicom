@@ -85,7 +85,7 @@ export class NfProcessamentoService {
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nf = await trx
         .selectFrom('nf')
-        .select(['codnf', 'proc', 'faturada', 'contabilizado', 'statusnfe', 'cancelada', 'dtcontabil'])
+        .select(['codnf', 'proc', 'contabilizado', 'statusnfe', 'cancelada', 'dtcontabil'])
         .where('codnf', '=', codnf)
         .where('idempresa', '=', emp)
         .forUpdate()
@@ -127,7 +127,7 @@ export class NfProcessamentoService {
       const nf = await trx
         .selectFrom('nf')
         .select([
-          'codnf', 'tipo', 'proc', 'cancelada', 'statusnfe', 'contabilizado', 'faturada',
+          'codnf', 'tipo', 'proc', 'cancelada', 'statusnfe', 'contabilizado',
           'totalnf', 'totalicm_st', 'totalfrete', 'totalseguro', 'totalacessorias', 'totalipi_devolucao',
         ])
         .where('codnf', '=', codnf)
@@ -221,12 +221,6 @@ export class NfProcessamentoService {
    * contra o header, com tolerância de ±0,01 (o legado usa FormatFloat '0.00'). Como `recalcular` é PURO
    * (não grava), esta é a barreira que impede processar uma NF com total/ICMS-ST adulterado ou defasado.
    * TOTAL sempre; ICMS-ST só quando EMPRESAS.FIGURAFISCAL='D' (paridade fiel).
-   */
-  /**
-   * `CancelaFaturamento(ACodNF, ATipoNota, 'R')` na reversão (uNF.pas:6668-6725): com `ESTORNA_FINANCEIRO_NF`='S' e nenhum título
-   * baixado, agrupado ou contabilizado (`VerificaExisteBaixas`), exclui o financeiro (o estorno do faturamento) e a NF volta a não
-   * faturada; senão — e sempre com 'N', que é a produção — MANTÉM os títulos e marca a pendência 'R' (`AdicionaPendenciaFinanceiro`:
-   * APAGAR na entrada, ARECEBER na saída, pela IDNF). A reversão segue nos dois casos.
    */
   private async reconciliarTotais(trx: AnyDB, codnf: number, emp: number, nf: Record<string, unknown>): Promise<void> {
     const itens = await trx

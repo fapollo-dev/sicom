@@ -755,3 +755,16 @@ uma parcela com a base e a apaga depois; a regra em si é o §215.
   cada tabela (o dataset do `GravaLog` fica no 1º registro — 1 LOG por tabela em 100% dos casos de 2025-26); o Apollo apaga e registra todos.
 - a renumeração da PK das parcelas no gravar do Processar financeiro (:224-233) não é copiada (nenhum leitor depende dela).
 - o estorno provisório do Corte B (parcelas voltando a pendente) saiu: agora é o `ExcluiFaturamento`.
+
+### Corte D — ✅ 25/09/2026 (mig 343)
+
+`nf.faturada` saiu (a coluna não existe no Oracle). Leitores migrados para os predicados do legado:
+- escritores do Faturamento/ExcluiFaturamento: não marcam mais nada além de `CANCELA_FATURAMENTO`;
+- reversão/cancelamento/exclusão: já usavam `ExisteFinanceiro`/`VerificaExisteBaixas` desde o Corte C;
+- `GET fiscal/nf/:id/parcelas/configuracao` expõe `temFinanceiro` (ExisteFinanceiro) e `parcelasPendentes`
+  (ExisteFaturamentoAGerarFinanceiro); a web mostra os dois na aba de cobrança;
+- a web **não trava mais a edição da nota pelo financeiro** (o `btnEditarClick` do legado não trava — o servidor já não travava);
+- `pos-carga.sql`: sai o UPDATE que derivava o flag; `schema-destino.json` sem a coluna; smoke sem asserções sobre o flag.
+
+**O épico do FATURAMENTO da NF (A→E) está fechado.** Pendências registradas: `GerarAReceberDeAcordoComercial` (0 NFs com acordo em
+2025-26); a impressão/DANFE com o texto de faturamento e o `<cobr>` da NF-e própria (a SEFAZ do Apollo é simulada).

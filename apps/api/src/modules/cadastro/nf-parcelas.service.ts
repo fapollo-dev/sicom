@@ -173,6 +173,9 @@ export class NfParcelasService {
       vencimento,
       base,
       valorAFaturar: r2(base - soma),
+      // os predicados do legado no lugar do antigo `nf.faturada` (corte D): `ExisteFinanceiro` e `ExisteFaturamentoAGerarFinanceiro`
+      temFinanceiro: await this.temFinanceiro(db, codnf),
+      parcelasPendentes: num((await sql<{ n: number }>`SELECT count(*)::int AS n FROM faturamento WHERE idnf = ${codnf} AND coalesce(liberado, 'N') = 'N'`.execute(db)).rows[0]?.n),
     };
   }
 

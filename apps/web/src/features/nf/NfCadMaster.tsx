@@ -87,7 +87,7 @@ type LookupOptions = {
  * Wiring por fase: Cadastro/Itens/Cálculo (F1/F2), Financeiro (F4), Contábil (F5), NFe/SEFAZ (F6).
  * As abas presentes-mas-inertes (Pedidos/Serviço/Importação/Devoluções/NFe Avulsa/NF devolução/Acesso
  * XML/Carta Correção como aba) reproduzem o strip do legado; o conteúdo entra em fases futuras (dossiê §10).
- * As TRAVAS de estado (proc/faturada/contabilizado/enviada) desabilitam os campos (o servidor reforça 422).
+ * As TRAVAS de estado (proc/contabilizado/enviada/cancelada) desabilitam os campos (o servidor reforça 422).
  */
 export function NfCadMaster({ tipo }: { tipo: NfTipo }) {
   const flag = PAPEL_FLAG[tipo];
@@ -232,9 +232,9 @@ function NfForm({
   const statusnfe = form.watch('statusnfe');
   const contabilizado = form.watch('contabilizado');
   const cancelada = form.watch('cancelada');
-  const faturada = form.watch('faturada');
+  // (sem trava pelo financeiro: o `btnEditarClick` do legado não barra a nota com título — corte D do faturamento)
   const travado =
-    proc === 'S' || contabilizado === 'S' || faturada === 'S' ||
+    proc === 'S' || contabilizado === 'S' ||
     cancelada === 'S' || statusnfe === 'P' || statusnfe === 'D' || statusnfe === 'C';
   const liberado = editavel && !travado;
 
@@ -264,13 +264,11 @@ function NfForm({
           Nota{' '}
           {proc === 'S'
             ? 'processada'
-            : faturada === 'S'
-              ? 'faturada'
-              : cancelada === 'S' || statusnfe === 'C'
-                ? 'cancelada'
-                : contabilizado === 'S'
-                  ? 'contabilizada'
-                  : 'enviada à Receita'}{' '}
+            : cancelada === 'S' || statusnfe === 'C'
+              ? 'cancelada'
+              : contabilizado === 'S'
+                ? 'contabilizada'
+                : 'enviada à Receita'}{' '}
           — edição bloqueada.
         </div>
       )}
@@ -818,7 +816,9 @@ function ParcelasSection({ form, liberado, processada }: { form: UseFormReturn<C
       <small className="text-fg-muted">
         Cálculo por {tipoCalc === 'D' ? 'dia fixo' : 'intervalo de dias'} · base {base.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} ·
         a faturar <strong className={aFaturar !== 0 ? 'text-danger' : ''}>{aFaturar.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
-        {cfg && !cfg.habilitado && cfg.motivo ? ` · ${cfg.motivo === 'NF_PARCELAS_CFOP_SEM_FINANCEIRO' ? 'o CFOP desta nota não gera financeiro' : cfg.motivo === 'NF_PARCELAS_TEM_FINANCEIRO' ? 'a nota já tem documentos financeiros' : cfg.motivo === 'NF_PARCELAS_NOTA_PROCESSADA' ? 'nota processada' : 'informe o CFOP e o parceiro'}` : ''}
+        {cfg?.temFinanceiro ? ' · a nota tem documentos financeiros' : ''}
+        {cfg && cfg.parcelasPendentes > 0 ? ` · ${cfg.parcelasPendentes} parcela(s) a faturar` : ''}
+        {cfg && !cfg.habilitado && cfg.motivo && cfg.motivo !== 'NF_PARCELAS_TEM_FINANCEIRO' ? ` · ${cfg.motivo === 'NF_PARCELAS_CFOP_SEM_FINANCEIRO' ? 'o CFOP desta nota não gera financeiro' : cfg.motivo === 'NF_PARCELAS_TEM_FINANCEIRO' ? 'a nota já tem documentos financeiros' : cfg.motivo === 'NF_PARCELAS_NOTA_PROCESSADA' ? 'nota processada' : 'informe o CFOP e o parceiro'}` : ''}
       </small>
       {linhas.length > 0 && (
         <div className="overflow-x-auto">
@@ -893,7 +893,6 @@ function FaturamentoSection({ form, tipo }: { form: UseFormReturn<CriarNfDto>; t
     setExecutando(true);
     try {
       await excluirFinanceiroNf(codnf);
-      form.setValue('faturada', 'N');
       form.setValue('faturamento' as never, [] as never);
       mensagem.sucesso('Financeiro excluído com sucesso!');
     } catch (e) {

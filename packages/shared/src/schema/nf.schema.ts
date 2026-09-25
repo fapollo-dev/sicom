@@ -296,7 +296,6 @@ const nfBase = z.object({
   sequencia_nfe: sn().optional(), // CHAR(1) 'S'/'N': numerada na sequência da NF-e (uNF.pas:10863; mig 320)
   tpemissao: z.number().int().optional(),
   // flags
-  faturada: sn().optional(), // F4: financeiro gerado (server-controlled; fora das colunas do agregado)
   rateio: sn().optional(),
   contribuinte_icms: z.string().trim().max(1).optional(),
   aproveitamentocredito: z.string().trim().max(1).optional(),
