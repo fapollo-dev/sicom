@@ -542,7 +542,7 @@ export const nfAggregateConfig: AggregateConfig = {
         const descricaoDoProduto = await leitorDescricaoProduto(trx);
         const cab = (await trx.selectFrom('nf').select(['tipo', 'nf_importacao_nfe']).where('codnf', '=', _masterId).executeTakeFirst()) as
           { tipo?: string | null; nf_importacao_nfe?: string | null } | undefined;
-        const ctxIdx = String(cab?.tipo ?? '').toUpperCase() === 'E' ? await contextoIndexadorNf(trx, Number(_masterId)) : null;
+        const ctxIdx = ['E', 'S'].includes(String(cab?.tipo ?? '').toUpperCase()) ? await contextoIndexadorNf(trx, Number(_masterId)) : null;
         for (const it of itens) {
           const cod = it.codproduto != null ? Number(it.codproduto) : null;
           let vl = 0;
@@ -571,7 +571,9 @@ export const nfAggregateConfig: AggregateConfig = {
           // o indexador: o item NOVO de entrada o consulta (a escolha do produto no diálogo / a análise da importação); o OK do diálogo de
           // um item existente refaz só o REPASSADO (o operador pode ter ajustado CST/alíquota); o resto fica o que o item tinha
           let idx: Record<string, unknown> = antiga ? { indexadortrib: antiga.indexadortrib, repassado: antiga.repassado, mva_ajustado: antiga.mva_ajustado } : {};
-          if (ctxIdx && cod != null && antiga == null) idx = await indexadorDoItem(trx, ctxIdx, it, tributacaoSemDi);
+          // o item importado (SCRAP, rotativo, vendas, devolução de vendas) não passa pelo OK do diálogo: REPASSADO fica nulo (os 5927/5929
+          // da loja 2 em 2026)
+          if (ctxIdx && cod != null && antiga == null && !it.importado_de) idx = await indexadorDoItem(trx, ctxIdx, it, tributacaoSemDi);
           else if (ctxIdx && antiga != null && it.dialogo === true) {
             const livre = ctxIdx.figuraFiscal === 'D' || ctxIdx.liberada;
             idx.repassado = livre ? 'S' : Number(antiga.indexadortrib ?? 0) > 0 || ctxIdx.fornecedorLivre || ctxIdx.finalidade === '4' ? 'S' : ctxIdx.figuraFiscal === 'O' ? 'N' : 'S';

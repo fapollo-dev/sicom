@@ -23887,6 +23887,55 @@ async function main() {
       }
     }
 
+    // ══ §250 O INDEXADOR DA SAÍDA — o item de saída grava o indexador (tipo C) e o processar da 5102/…/5949 exige (uNF.pas:14969) ══════════
+    {
+      const pgSx = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const figAntes = (await pgSx.query(`SELECT figurafiscal FROM empresas WHERE idempresa = 1`)).rows[0]?.figurafiscal ?? null;
+      const livreAntes = (await pgSx.query(`SELECT retira_fornindex FROM parceiros WHERE codparceiro = 22`)).rows[0]?.retira_fornindex ?? null;
+      const prodAntes = (await pgSx.query(`SELECT codfigurafiscal FROM produtos WHERE idproduto = 1`)).rows[0]?.codfigurafiscal ?? null;
+      const ufDest = String((await pgSx.query(`SELECT uf FROM parceiros_end WHERE codend = 6`)).rows[0]?.uf ?? 'MG').trim();
+      const nfs: number[] = [];
+      let idx = 0;
+      try {
+        await pgSx.query(`UPDATE empresas SET figurafiscal = 'O' WHERE idempresa = 1`);
+        await pgSx.query(`UPDATE parceiros SET retira_fornindex = 'N' WHERE codparceiro = 22`);
+        await pgSx.query(`UPDATE produtos SET codfigurafiscal = 80 WHERE idproduto = 1`);
+        const criar = async (nronf: string) => {
+          const r = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 55, serie: '1', tipo: 'S', nronf, tipoemissao: '0', codparceiro: 22, codparceiro_end: 6,
+            dtemissao: '2037-01-10', dtcontabil: '2037-01-10', cfop: '5949', itens: [{ nroitem: 1, codproduto: 1, quantidade: 1, vrcusto: 3.5, cfop: '5949', aliquota: 'T01' }] }) });
+          const c = Number(((await r.json().catch(() => ({}))) as any).codnf) || 0;
+          if (c) nfs.push(c);
+          return c;
+        };
+        const item = async (c: number) => (await pgSx.query(`SELECT indexadortrib, repassado FROM nf_prod WHERE codnf = $1`, [c])).rows[0] as any;
+        const a = await criar('SX250A');
+        const ia = await item(a);
+        const pa = await processarNf(a, H);
+        const paJ = (await pa.json().catch(() => ({}))) as any;
+        idx = Number((await pgSx.query(`INSERT INTO indexador_tributario (codfigurafiscal, tp_cadastro, origem, destino, codcfop, operacao, icm_fonte, aliquota_dest, reducao, redcom, mva, aliquota_fem, tp_figura)
+          VALUES (80, 'C', 'MG', $1, 5949, 'T', 18, 18, 100, 100, 0, 0, 'N') RETURNING codindexadortributario`, [ufDest])).rows[0].codindexadortributario);
+        const b = await criar('SX250B');
+        const ib = await item(b);
+        const pb = await processarNf(b, H);
+        const pbJ = (await pb.json().catch(() => ({}))) as any;
+        if (pb.status === 200) await fetch(`${base}/fiscal/nf/${b}/reverter`, { method: 'POST', headers: H });
+        check('O INDEXADOR DA SAÍDA §250 [o item de saída e a trava]: na loja "O" o item de saída consulta o indexador de tipo C (da loja para o destinatário): sem ele fica INDEXADORTRIB 0 e REPASSADO N, e o processar da 5949 recusa ("Existe(m) item(ns) sem indexador tributário configurado" — na loja 2, os 627 itens 5949 de 2026 têm indexador); cadastrado, o item novo grava o INDEXADORTRIB e REPASSADO S, e o processar passa da trava',
+          Number(ia?.indexadortrib) === 0 && ia?.repassado === 'N' && pa.status === 422 && paJ.code === 'NF_ITEM_SEM_INDEXADOR'
+          && Number(ib?.indexadortrib) === idx && ib?.repassado === 'S' && pbJ.code !== 'NF_ITEM_SEM_INDEXADOR',
+          { ia, pa: [pa.status, paJ.code], ib, pb: [pb.status, pbJ.code, pbJ.message] });
+      } finally {
+        await pgSx.query(`UPDATE empresas SET figurafiscal = $1 WHERE idempresa = 1`, [figAntes]).catch(() => undefined);
+        await pgSx.query(`UPDATE parceiros SET retira_fornindex = $1 WHERE codparceiro = 22`, [livreAntes]).catch(() => undefined);
+        await pgSx.query(`UPDATE produtos SET codfigurafiscal = $1 WHERE idproduto = 1`, [prodAntes]).catch(() => undefined);
+        if (idx) await pgSx.query(`DELETE FROM indexador_tributario WHERE codindexadortributario = $1`, [idx]).catch(() => undefined);
+        for (const c of nfs) {
+          await pgSx.query(`DELETE FROM nf_prod WHERE codnf = $1`, [c]).catch(() => undefined);
+          await pgSx.query(`DELETE FROM nf WHERE codnf = $1`, [c]).catch(() => undefined);
+        }
+        await pgSx.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();

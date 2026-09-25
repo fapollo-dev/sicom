@@ -23,6 +23,7 @@ const n = (v: unknown): number => {
 const roundTo = (v: number, casas: number) => Math.round((v + Number.EPSILON) * 10 ** casas) / 10 ** casas;
 
 export interface ContextoIndexadorNf {
+  tipo: 'E' | 'S';
   figuraFiscal: string;
   ufLoja: string;
   ufParceiro: string;
@@ -33,7 +34,7 @@ export interface ContextoIndexadorNf {
   finalidade: string;
 }
 
-/** o contexto da nota para o indexador (lido uma vez por gravação) */
+/** o contexto da nota para o indexador (lido uma vez por gravação) — entrada e saída */
 export async function contextoIndexadorNf(trx: AnyDB, codnf: number): Promise<ContextoIndexadorNf | null> {
   const nf = (await trx.selectFrom('nf as n')
     .leftJoin('empresas as e', 'e.idempresa', 'n.idempresa')
@@ -41,13 +42,13 @@ export async function contextoIndexadorNf(trx: AnyDB, codnf: number): Promise<Co
     .leftJoin('parceiros as p', 'p.codparceiro', 'n.codparceiro')
     .select(['n.tipo', 'n.codparceiro', 'n.libera_nf_indexador', 'n.cod_ped_dev_compra', 'n.finalidade', 'e.figurafiscal', 'e.uf as uf_loja', 'pe.uf as uf_parceiro', 'p.retira_fornindex'])
     .where('n.codnf', '=', codnf).executeTakeFirst()) as Record<string, unknown> | undefined;
-  if (!nf || String(nf.tipo) !== 'E') return null;
+  if (!nf || !['E', 'S'].includes(String(nf.tipo))) return null;
   const figuraFiscal = String(nf.figurafiscal ?? 'D').trim().toUpperCase();
   const liberada = String(nf.libera_nf_indexador ?? '') === 'S';
   // o fornecedor só é lido fora de 'D' e com a NF não liberada; nos outros casos é tratado como livre (uItensNF.pas:3862-3877)
   const fornecedorLivre = figuraFiscal === 'D' || liberada ? true : String(nf.retira_fornindex ?? '') === 'S';
   return {
-    figuraFiscal, liberada, fornecedorLivre,
+    tipo: String(nf.tipo) as 'E' | 'S', figuraFiscal, liberada, fornecedorLivre,
     ufLoja: String(nf.uf_loja ?? '').trim().toUpperCase(),
     ufParceiro: String(nf.uf_parceiro ?? '').trim().toUpperCase(),
     codparceiro: nf.codparceiro != null ? Number(nf.codparceiro) : null,
@@ -70,15 +71,24 @@ export async function indexadorDoItem(trx: AnyDB, ctx: ContextoIndexadorNf, it: 
   const idp = Number(it.codproduto);
   const prod = (await trx.selectFrom('produtos').select(['codfigurafiscal', 'codbarra', 'ncmsh', 'mva']).where('idproduto', '=', idp).executeTakeFirst()) as
     Record<string, unknown> | undefined;
+  const saida = ctx.tipo === 'S';
+  // a NF gerada pela devolução de compra não passa pelo diálogo (REPASSADO nulo em 69 de 75 itens 5411 da loja 2 em 2026)
+  if (saida && ctx.pedidoDevolucao) return {};
   const consulta = (ctx.figuraFiscal === 'O' || ctx.figuraFiscal === 'S') && !ctx.fornecedorLivre && !ctx.pedidoDevolucao && !ctx.liberada;
+  // a saída consulta o indexador de tipo C, da loja para o destinatário (uItensNF.pas:808-822)
   const figura = consulta && prod?.codfigurafiscal != null
     ? await trib.resolverFigura({
-      codfigurafiscal: Number(prod.codfigurafiscal), tpCadastro: 'F', origem: ctx.ufParceiro, destino: ctx.ufLoja, codcfop: Number(it.cfop),
+      codfigurafiscal: Number(prod.codfigurafiscal), tpCadastro: saida ? 'C' : 'F', origem: saida ? ctx.ufLoja : ctx.ufParceiro, destino: saida ? ctx.ufParceiro : ctx.ufLoja,
+      codcfop: Number(it.cfop),
       codbarra: prod.codbarra != null ? String(prod.codbarra).trim() : null, ncm: prod.ncmsh != null ? String(prod.ncmsh).trim() : null, codparceiro: ctx.codparceiro,
     }, trx)
     : null;
   const out: Record<string, unknown> = {};
-  if (figura) {
+  if (saida) {
+    // na saída, CST/alíquota/base/MVA do indexador são do recálculo fiscal (nf-fiscal.service, a mesma figura); aqui o que o OK grava
+    out.indexadortrib = figura ? figura.codindexadortributario : 0;
+    if (figura) out.mva_ajustado = mvaAjustado(figura.mva, figura.icmFonte, figura.aliquotaDest, figura.aliquotaFem, ctx.ufParceiro !== ctx.ufLoja, figura.tpFigura === 'S');
+  } else if (figura) {
     const operacoes: Record<string, number> = { T: 0, R: 20, C: 10, F: 60, S: 50, D: 51, I: 40, N: 90, Y: 41, Z: 70, '': 0 };
     if (figura.operacao in operacoes) out.cst = operacoes[figura.operacao];
     out.icme = figura.lei3166 ? figura.aliquotaReduzidaLei3166 : figura.icmFonte;
