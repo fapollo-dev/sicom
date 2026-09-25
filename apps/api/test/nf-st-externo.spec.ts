@@ -50,7 +50,8 @@ describe('ST externo do item de entrada contra a produção', () => {
     const daNota = { streal: 5, vrbase_stexterno: 150, vricms_stexterno: 0, vricms_stexterno_separadonf: 0 };
     expect(stExternoDoItem(item, null, ctxO({ fornecedorLivre: true }))).toEqual(daNota);
     expect(stExternoDoItem(item, null, ctxO({ figuraFiscal: 'D' }))).toEqual(daNota);
-    expect(stExternoDoItem(item, null, ctxO({ figuraFiscal: 'D', tipoemissao: '0' }))).toEqual({});
+    expect(stExternoDoItem(item, null, ctxO({ figuraFiscal: 'D', tipoemissao: '0' }))).toEqual(daNota); // o OK da emissão própria digitada
+    expect(stExternoDoItem(item, null, ctxO({ figuraFiscal: 'D', tipoemissao: '0', importada: true }))).toEqual({});
     expect(stExternoDoItem(item, null, ctxO({}))).toEqual({}); // sem indexador: fica como está
     // TEMP: (100) × 1,40 = 140; 140 × 18% − ICMS próprio 12 = 13,20
     expect(stExternoDoItem({ ...item, mvaProduto: 40, aliqopeInterna: 18, vricm: 12 }, null, ctxO({ fornecedorLivre: true })))

@@ -7,6 +7,7 @@
  * 99,2%, reposição 98,2%, CSI 98,1%, PMZ 98,8%, créditos de ICMS 100% e de PIS/COFINS 99,99%; a escada 99-100% nos valores.
  */
 
+import { sql } from 'kysely';
 import { configNaTrx } from '../compras/pedido-heranca';
 import { FiscalPricingService } from '../precificacao/preco-fiscal.service';
 import { currentTenant } from '../../shared/tenant/tenant-context';
@@ -263,6 +264,7 @@ export async function recalcularMetricasEntrada(trx: AnyDB, codnf: number, somen
     totalBaseIcmt: n(nf.totalbaseicmt), totalIcmSt: n(nf.totalicm_st), totalProdSt: n(nf.totalprodst),
   } : null;
   let stDoItemMudou = false;
+  const passaramPeloOk: number[] = [];
   let gravados = 0;
   for (const it of itens) {
     const indexador = Number(it.indexadortrib ?? 0);
@@ -292,6 +294,7 @@ export async function recalcularMetricasEntrada(trx: AnyDB, codnf: number, somen
       if ((st.vricmst !== undefined && st.vricmst !== n(it.vricmst)) || (st.vrbasest !== undefined && st.vrbasest !== n(it.vrbasest))) stDoItemMudou = true;
       Object.assign(it, st);
       Object.assign(set, st);
+      passaramPeloOk.push(Number(it.codnfprod));
     }
     const c = custoDoItemNaEntrada(it, empresa, ctxCusto);
     Object.assign(set, { vrbasecalculoicm_calc: arred(c.tempbaseicme, 4), vricm_calc: c.vricmCalc });
@@ -329,7 +332,7 @@ export async function recalcularMetricasEntrada(trx: AnyDB, codnf: number, somen
     }
     await trx.updateTable('nf_prod').set(set).where('codnfprod', '=', Number(it.codnfprod)).execute();
   }
-  if (ctxSt) await totaisStExternoDaNota(trx, codnf, itens, stDoItemMudou);
+  if (ctxSt) await totaisStExternoDaNota(trx, codnf, itens, stDoItemMudou, !ctxSt.importada && ctxSt.tipoemissao === '0' ? passaramPeloOk : []);
   return gravados;
 }
 
@@ -338,8 +341,11 @@ export async function recalcularMetricasEntrada(trx: AnyDB, codnf: number, somen
  * entrada de 2026; o separado da NF idem) e o ICMS_ST_APAGAR = TOTALICM_STEXTERNO − ICMS_ST_PAGO_FONTE, sem negativo, só com ST externo
  * (uNF.pas:4817; 6.521 de 6.522). Quando o recálculo trocou a ST de algum item (emissão própria com ST externo, os TEMP do fornecedor
  * livre), o TOTALICM_ST e o TOTALNF acompanham.
+ * Na nota DIGITADA de EMISSÃO PRÓPRIA o OK do item faz mais (uItensNF.pas:1812-1836): o ICMS "da nota" do item que passou pelo OK =
+ * o calculado (VRBASECALCULO/VRICM), e no cabeçalho TOTALICM_ST = Σ STREAL − Σ separado (sem negativo), TOTALBASEICMT = Σ
+ * VRBASE_STEXTERNO e os ICMS da nota = Σ calculados. Só quando algum item passou pelo OK — o item preservado guarda os da nota.
  */
-async function totaisStExternoDaNota(trx: AnyDB, codnf: number, itens: Array<Record<string, unknown>>, stDoItemMudou: boolean): Promise<void> {
+async function totaisStExternoDaNota(trx: AnyDB, codnf: number, itens: Array<Record<string, unknown>>, stDoItemMudou: boolean, okEmissaoPropria: number[]): Promise<void> {
   const soma = (k: string) => arred(itens.reduce((a, it) => a + n(it[k]), 0));
   const totalExterno = soma('vricms_stexterno');
   const cab = (await trx.selectFrom('nf').selectAll().where('codnf', '=', codnf).executeTakeFirst()) as Record<string, unknown>;
@@ -348,8 +354,17 @@ async function totaisStExternoDaNota(trx: AnyDB, codnf: number, itens: Array<Rec
     totalicm_stexterno_sepnf: soma('vricms_stexterno_separadonf'),
     icms_st_apagar: totalExterno > 0 ? Math.max(0, arred(totalExterno - n(cab.icms_st_pago_fonte))) : 0,
   };
-  if (stDoItemMudou) {
+  if (okEmissaoPropria.length) {
+    set.totalicm_st = Math.max(0, arred(soma('streal') - soma('vricms_stexterno_separadonf')));
+    set.totalbaseicmt = soma('vrbase_stexterno');
+    set.total_icms_nota_bc = soma('vrbasecalculo');
+    set.total_icms_nota_valor = soma('vricm');
+    await trx.updateTable('nf_prod').set({ icms_nota_bc: sql`coalesce(vrbasecalculo, 0)`, icms_nota_valor: sql`coalesce(vricm, 0)` })
+      .where('codnf', '=', codnf).where('codnfprod', 'in', okEmissaoPropria).execute();
+  } else if (stDoItemMudou) {
     set.totalicm_st = soma('vricmst');
+  }
+  if (set.totalicm_st !== undefined && n(set.totalicm_st) !== n(cab.totalicm_st)) {
     set.totalnf = totalNfLegado({ totalprod: n(cab.totalprod), totaldesc: n(cab.totaldesc), totalipi: n(cab.totalipi), totalicm_st: n(set.totalicm_st) }, (k) => cab[k]);
   }
   await trx.updateTable('nf').set(set).where('codnf', '=', codnf).execute();

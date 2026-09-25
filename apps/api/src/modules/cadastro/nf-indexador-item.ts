@@ -234,9 +234,19 @@ export function stTempDoItem(it: ItemSt, ctx: ContextoStExterno): { base: number
  *    · com indexador: STREAL = ST calculado, VRBASE_STEXTERNO = BC-ST calculada, VRICMS_STEXTERNO = a recolher;
  *    · sem indexador: o legado usa o que sobrou do item anterior no objeto (`InicializarVariaveis` não limpa a ST da nota) — o item fica
  *      como está (a importação guarda o ST da nota, 72 de 72);
- *  - loja 'D' ou NF liberada: só terceiros (TIPOEMISSAO 1) ou a config — os TEMP (produto com MVA, não importada) ou o ST da nota.
+ *  - loja 'D' ou NF liberada: só terceiros (TIPOEMISSAO 1) ou a config — os TEMP (produto com MVA, não importada) ou o ST da nota;
+ *  - e o OK do item por cima: nota digitada de emissão própria na loja 'D' fica com o ST da nota.
  */
 export function stExternoDoItem(it: ItemSt, fig: FiguraSt | null, ctx: ContextoStExterno): StExternoItem {
+  const r = recalculaIcmsSt(it, fig, ctx);
+  // o OK do item (uItensNF.pas:1815-1823): nota digitada de emissão própria na loja 'D' — o ST externo é o da nota
+  if (ctx.figuraFiscal === 'D' && !ctx.importada && ctx.tipoemissao === '0') {
+    return { ...r, streal: r.vricmst ?? it.vricmst, vrbase_stexterno: r.vrbasest ?? it.vrbasest, vricms_stexterno: 0, vricms_stexterno_separadonf: 0 };
+  }
+  return r;
+}
+
+function recalculaIcmsSt(it: ItemSt, fig: FiguraSt | null, ctx: ContextoStExterno): StExternoItem {
   const temp = (): StExternoItem => {
     const t = stTempDoItem(it, ctx);
     return { vrbasest: arred2(t.base), vricmst: arred2(t.valor), streal: arred2(t.valor), vrbase_stexterno: arred2(t.base) };

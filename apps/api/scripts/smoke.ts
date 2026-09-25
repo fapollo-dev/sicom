@@ -9140,8 +9140,8 @@ async function main() {
     else await pgDev.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor) VALUES (99308, 'IPI_DEVOLUCAO_EM_TRIBUTOS_DEVOLVIDOS', 'S', 'S/N')`);
     const vnNf = Number((await pgDev.query(`INSERT INTO nf (idempresa,tipo,modelo,serie,dtemissao,dtcontabil,tipoemissao,finalidade,cfop,codparceiro,proc,totalnf,totalprod,chavenfe) VALUES (1,'E',55,'1',now(),now(),'0','1','1102',22,'N',0,0,'31260900000000000000550010000999011000000001') RETURNING codnf`)).rows[0].codnf);
     const vnIt = Number((await pgDev.query(`INSERT INTO nf_prod (codnf,nroitem,codproduto,quantidade,fatorembal,unidade,vrcusto,cfop,icms,vrbasecalculo,vricm,
-        cst_nota,icms_aliq_nota,icms_nota_bc,icms_nota_valor,icms_red_bc_nota,total_produto_nota,ipi_nota,frete_nota,arredonda)
-      VALUES ($1,1,1,10,1,'UN',5,'1102',18,0,0, 0,18,100,18,0,60,8,4,'S') RETURNING codnfprod`, [vnNf])).rows[0].codnfprod);
+        cst_nota,icms_aliq_nota,icms_nota_bc,icms_nota_valor,icms_red_bc_nota,total_produto_nota,ipi_nota,frete_nota,arredonda,custo_real_unit)
+      VALUES ($1,1,1,10,1,'UN',5,'1102',18,0,0, 0,18,100,18,0,60,8,4,'S',5) RETURNING codnfprod`, [vnNf])).rows[0].codnfprod);
     const vnC = (await (await crDev({ codparceiro: 22, itens: [{ codnf: vnNf, codnfprod: vnIt, idproduto: 1, qtd_nota_fiscal: 10, qtd_devolvida: 5, valor_custo: 5, cfop: '5202' }] })).json().catch(() => ({}))) as any;
     const vnId = Number(vnC.codpeddevcompra ?? vnC.codigo);
     const vnItem = (await pgDev.query(`SELECT valor_custo, total_produto_devolvido, cst, icms_aliquota, icms_bc, icms_valor, icms_bc_nota, icms_nota, ipi, ipi_nota, frete FROM pedido_devolucao_compra_i WHERE codpeddevcompra=$1`, [vnId])).rows[0] as any;
@@ -23618,6 +23618,17 @@ async function main() {
           && N(d.i?.vricms_stexterno) === 15.04 && N(d.i?.vricms_stexterno_separadonf) === 15.04
           && N(d.h?.totalicm_st) === 0 && N(d.h?.totalicm_stexterno_sepnf) === 15.04 && N(d.h?.total_icmst_externo) === 15.04 && N(d.h?.totalnf) === 100,
           { d });
+        // o OK do item na nota digitada de emissão própria, loja 'D': o ST externo é o da nota; TOTALICM_ST = Σ STREAL, TOTALBASEICMT = Σ base
+        // externa, e o ICMS "da nota" do item = o calculado
+        await pgSt.query(`UPDATE empresas SET figurafiscal = 'D' WHERE idempresa = 1`);
+        const cE = await criar('ST245E', { tipoemissao: '0' });
+        const e = { i: await item(cE), h: (await pgSt.query(`SELECT totalicm_st, totalbaseicmt, total_icms_nota_bc FROM nf WHERE codnf = $1`, [cE])).rows[0] as any,
+          nota: (await pgSt.query(`SELECT icms_nota_bc, vrbasecalculo, icms_nota_valor, vricm FROM nf_prod WHERE codnf = $1`, [cE])).rows[0] as any };
+        await pgSt.query(`UPDATE empresas SET figurafiscal = 'O' WHERE idempresa = 1`);
+        check('ITEM DA NF §245.4 [o OK da nota digitada de emissão própria]: na loja "D", TIPOEMISSAO 0, o item fica com o ST externo da nota (STREAL 5, base 150, nada a recolher); o cabeçalho leva TOTALICM_ST = Σ STREAL (5) e TOTALBASEICMT = Σ base externa (150); o ICMS "da nota" do item = o calculado (uItensNF.pas:1812-1836)',
+          N(e.i?.streal) === 5 && N(e.i?.vrbase_stexterno) === 150 && N(e.i?.vricms_stexterno) === 0 && N(e.h?.totalicm_st) === 5 && N(e.h?.totalbaseicmt) === 150
+          && N(e.nota?.icms_nota_bc) === N(e.nota?.vrbasecalculo) && N(e.nota?.icms_nota_valor) === N(e.nota?.vricm) && N(e.h?.total_icms_nota_bc) === N(e.nota?.vrbasecalculo),
+          { e });
       } finally {
         await pgSt.query(`UPDATE empresas SET figurafiscal = $1 WHERE idempresa = 1`, [figAntes]).catch(() => undefined);
         await pgSt.query(`UPDATE produtos SET codfigurafiscal = $1, mva = $2, aliqope_interna = $3 WHERE idproduto = 3`, [prodAntes?.codfigurafiscal, prodAntes?.mva, prodAntes?.aliqope_interna]).catch(() => undefined);
