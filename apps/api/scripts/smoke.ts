@@ -24380,6 +24380,33 @@ async function main() {
       }
     }
 
+    // ══ §257 OS JOBS DO BANCO DE PRODUÇÃO que mexem em dado (mig 361) — UPDATEICMSNEGATIVO_SPED e UPDATE_INTEGRACAO_… ══════════
+    {
+      const pgJb = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const cli = await pgJb.connect();
+      try {
+        await cli.query('BEGIN');
+        const item = (await cli.query(`SELECT codnfprod FROM nf_prod ORDER BY codnfprod LIMIT 1`)).rows[0] as any;
+        const vricm = item ? Number((await cli.query(`UPDATE nf_prod SET vricm = -12.34 WHERE codnfprod = $1 RETURNING vricm`, [item.codnfprod])).rows[0]?.vricm) : NaN;
+        const tit = (await cli.query(`SELECT codapg FROM apagar ORDER BY codapg LIMIT 1`)).rows[0] as any;
+        const contaDeb = tit ? (await cli.query(`UPDATE apagar SET codplanocontas_deb_baixa_cp = 11141 WHERE codapg = $1 RETURNING codplanocontas_deb_baixa_cp`, [tit.codapg])).rows[0]?.codplanocontas_deb_baixa_cp : 'sem título';
+        const bx = (await cli.query(`SELECT codapgbx FROM apagar_bx ORDER BY codapgbx LIMIT 1`)).rows[0] as any;
+        const semCentro = bx ? (await cli.query(`UPDATE apagar_bx SET acre_desc = -1.5, codplc_juros = NULL WHERE codapgbx = $1 RETURNING codplc_juros`, [bx.codapgbx])).rows[0]?.codplc_juros : 'sem baixa';
+        await cli.query(`INSERT INTO plc (codplc, descricao) VALUES (3707, 'JUROS BANCARIOS') ON CONFLICT (codplc) DO NOTHING`);
+        const comCentro = bx ? Number((await cli.query(`UPDATE apagar_bx SET acre_desc = -1.5, codplc_juros = NULL WHERE codapgbx = $1 RETURNING codplc_juros`, [bx.codapgbx])).rows[0]?.codplc_juros) : NaN;
+        const positivo = bx ? (await cli.query(`UPDATE apagar_bx SET acre_desc = 2, codplc_juros = NULL WHERE codapgbx = $1 RETURNING codplc_juros`, [bx.codapgbx])).rows[0]?.codplc_juros : 'sem baixa';
+        check('JOBS DO BANCO §257 [UPDATEICMSNEGATIVO_SPED e UPDATE_INTEGRACAO_CODPLANOCONTAS_DEB_BAIXA_C]: o VRICM negativo do item da NF vira positivo (o job de 3 em 3 horas); a conta de débito da baixa no título não fica (o job das 05:00 a apaga — 0 títulos com ela na produção); a baixa com acréscimo negativo sem centro de custo ganha o 3707 "JUROS BANCARIOS" quando ele existe na base (363 de 375 em 2026), e nada muda sem o centro ou com acréscimo positivo',
+          vricm === 12.34 && contaDeb == null && semCentro == null && comCentro === 3707 && positivo == null,
+          { vricm, contaDeb, semCentro, comCentro, positivo });
+      } catch (e) {
+        check('JOBS DO BANCO §257 [preparo]', false, { erro: (e as Error).message });
+      } finally {
+        await cli.query('ROLLBACK').catch(() => undefined);
+        cli.release();
+        await pgJb.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();
