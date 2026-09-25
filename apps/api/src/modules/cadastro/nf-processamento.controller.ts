@@ -29,11 +29,14 @@ export class NfProcessamentoController {
     return { codnf: id, proc: 'N' };
   }
 
-  /** sincroniza o CFOP dos itens por DE-PARA (mapa CFOP-atual→CFOP-novo). Edição → RBAC de gravação. */
+  /** sincroniza CFOP (`mapa`), ALÍQUOTA e CST dos itens por DE-PARA (uSincronizaCFOPNotaFiscal). Edição → RBAC de gravação. */
   @Post(':id/sincronizar-cfop')
   @HttpCode(200)
   @RequerAcesso('FRMNF', 'BTNGRAVAR')
-  sincronizarCfop(@Param('id', ParseIntPipe) id: number, @Body() body: { mapa?: Array<{ de?: string; para?: string }> }) {
-    return this.proc.sincronizarCfop(id, body?.mapa ?? []);
+  sincronizarCfop(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { mapa?: Array<{ de?: string; para?: string }>; aliquotas?: Array<{ de?: string; para?: string }>; csts?: Array<{ de?: string | number; para?: string | number }> },
+  ) {
+    return this.proc.sincronizarCfop(id, body?.mapa ?? [], body?.aliquotas ?? [], body?.csts ?? []);
   }
 }

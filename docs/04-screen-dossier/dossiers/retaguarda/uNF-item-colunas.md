@@ -281,7 +281,7 @@ VRSALDOFLEX/VRCOMISSAO do pedido de venda (`uNF.pas:1650-1651`); PRODUC_PESO_* d
 | 3 retrato do produto | ✅ | `retratoDoProduto` (nf.aggregate.ts): ULTCUSTO/ULTCUSTOREP/ULTVENDA/MARKUP/VRCUSTOREAL/IDPISCOFINS na inclusão de entrada e na edição pelo diálogo (qualquer tipo); a inclusão de saída não tira. Smoke §235.2 |
 | 4 métricas de precificação | ⏳ | — |
 | 5 indexador/repasse | ⏳ | — |
-| 6 fluxos posteriores | ⏳ | — |
+| 6 fluxos posteriores | 🟡 | SINCRONIZADO_CFOP/ALIQ/CST ✅ — `sincronizarCfop` com a semântica do uSincronizaCFOPNotaFiscal (CFOP, alíquota e CST; uma troca por item; todos marcados; SN + NTB → CSOSN 400) e o diálogo na NF (smoke §237). USOCONSUMO depende do porte do `UpdateProdutos` (processamento); CODOPERADOR_LIB_ESTOQUENEG, do override de negativo |
 | 7 decomposição na entrada | ⏳ | — |
 
 ### Achados para os próximos cortes (25/09/2026)

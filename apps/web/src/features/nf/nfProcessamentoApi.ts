@@ -9,8 +9,8 @@ import { isErroResposta, type ErroResposta } from '@apollo/shared';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
-async function req<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { method: 'POST', headers: apiHeaders() });
+async function req<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { method: 'POST', headers: apiHeaders(), ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
   handle401(res);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -35,4 +35,14 @@ export function processarNf(codnf: number): Promise<ProcessamentoResultado> {
 /** Reverte o processamento: estorna o estoque (sentido inverso) e libera a nota (proc='N'). */
 export function reverterNf(codnf: number): Promise<ProcessamentoResultado> {
   return req<ProcessamentoResultado>(`/fiscal/nf/${codnf}/reverter`);
+}
+
+export interface ParDeSincronizacao { de: string; para: string }
+
+/**
+ * Sincroniza CFOP, alíquota e CST dos itens por de-para (uSincronizaCFOPNotaFiscal): cada item com o valor "de" recebe o "para" uma
+ * vez, e todos saem marcados como sincronizados. Grava direto (a nota tem de estar editável).
+ */
+export function sincronizarNf(codnf: number, pares: { mapa: ParDeSincronizacao[]; aliquotas: ParDeSincronizacao[]; csts: ParDeSincronizacao[] }): Promise<{ codnf: number; itens: number; sincronizados: number }> {
+  return req(`/fiscal/nf/${codnf}/sincronizar-cfop`, pares);
 }

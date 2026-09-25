@@ -23150,6 +23150,43 @@ async function main() {
       }
     }
 
+    // ══ §237 SINCRONIZAR CFOP / ALÍQUOTA / CST (uSincronizaCFOPNotaFiscal) ═════════════════════════════════════════════════════════
+    {
+      const pgSy = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const classAntes = (await pgSy.query(`SELECT classfiscal FROM empresas WHERE idempresa = 1`)).rows[0]?.classfiscal ?? null;
+      let codnf = 0;
+      try {
+        const cri = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 55, serie: '1', tipo: 'E', nronf: 'SYNC237', codparceiro: 22, dtemissao: '2036-07-04', dtcontabil: '2036-07-04', tipoemissao: '0', cfop: '1102', itens: [
+          { nroitem: 1, codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '1102', aliquota: 'T01', cst: 0 },
+          { nroitem: 2, codproduto: 2, quantidade: 1, vrcusto: 10, cfop: '1403', aliquota: 'STB', cst: 60 },
+          { nroitem: 3, codproduto: 3, quantidade: 1, vrcusto: 10, cfop: '1102', aliquota: 'T01', cst: 0 },
+        ] }) });
+        codnf = Number(((await cri.json().catch(() => ({}))) as any).codnf) || 0;
+        await pgSy.query(`UPDATE empresas SET classfiscal = 'SN' WHERE idempresa = 1`);
+        const r = await fetch(`${base}/fiscal/nf/${codnf}/sincronizar-cfop`, { method: 'POST', headers: H, body: JSON.stringify({
+          mapa: [{ de: '1102', para: '1403' }, { de: '1403', para: '1102' }], aliquotas: [{ de: 'T01', para: 'IST' }, { de: 'STB', para: 'NTB' }], csts: [{ de: '060', para: '010' }] }) });
+        const rj = (await r.json().catch(() => ({}))) as any;
+        const it = (await pgSy.query(`SELECT nroitem, cfop, aliquota, cst, csosn, sincronizado_cfop, sincronizado_aliq, sincronizado_cst FROM nf_prod WHERE codnf = $1 ORDER BY nroitem`, [codnf])).rows as any[];
+        const aliqInv = await fetch(`${base}/fiscal/nf/${codnf}/sincronizar-cfop`, { method: 'POST', headers: H, body: JSON.stringify({ aliquotas: [{ de: 'IST', para: 'ZZZ' }] }) });
+        const aliqInvJ = (await aliqInv.json().catch(() => ({}))) as any;
+        check('SINCRONIZAR §237 [CFOP, alíquota e CST]: a troca 1102↔1403 vale UMA vez por item (o 1102 vira 1403 e não volta; o 1403 vira 1102), a alíquota T01→IST e STB→NTB, o CST 060→010; todos os itens saem com SINCRONIZADO_CFOP/ALIQ/CST = S (a grade traz todos os valores — 12.856 itens de 2026 iguais nos três); na loja do Simples a alíquota nova NTB põe CSOSN 400; alíquota fora do cadastro → 422 NF_ALIQUOTA_INVALIDA',
+          r.status === 200 && Number(rj.itens) === 3 && Number(rj.sincronizados) === 3
+          && it[0]?.cfop === '1403' && it[1]?.cfop === '1102' && it[2]?.cfop === '1403'
+          && String(it[0]?.aliquota).trim() === 'IST' && String(it[1]?.aliquota).trim() === 'NTB' && Number(it[1]?.cst) === 10 && Number(it[0]?.cst) === 0
+          && String(it[1]?.csosn ?? '').trim() === '400' && it[0]?.csosn == null
+          && it.every((x) => x.sincronizado_cfop === 'S' && x.sincronizado_aliq === 'S' && x.sincronizado_cst === 'S')
+          && aliqInv.status === 422 && aliqInvJ.code === 'NF_ALIQUOTA_INVALIDA',
+          { status: r.status, rj, it, aliqInv: [aliqInv.status, aliqInvJ.code] });
+      } finally {
+        await pgSy.query(`UPDATE empresas SET classfiscal = $1 WHERE idempresa = 1`, [classAntes]).catch(() => undefined);
+        if (codnf) {
+          await pgSy.query(`DELETE FROM nf_prod WHERE codnf = $1`, [codnf]).catch(() => undefined);
+          await pgSy.query(`DELETE FROM nf WHERE codnf = $1`, [codnf]).catch(() => undefined);
+        }
+        await pgSy.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();

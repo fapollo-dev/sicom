@@ -66,22 +66,34 @@ export class NfProcessamentoService {
   }
 
   /**
-   * SINCRONIZAR CFOP dos itens — DE-PARA (ação de menu uNF.pas:16401 → uSincronizaCFOPNotaFiscal): o operador
-   * mapeia CFOP-atual→CFOP-novo por linha (`mapa`); cada item cujo CFOP == `de` recebe `para`. NÃO é "copiar o
-   * cabeçalho p/ todos" (isso corromperia uma NF com CFOPs heterogêneos — tributado/ST/isento). Só numa NF
-   * EDITÁVEL (trava do cadastro + período fechado, espelha nf.aggregate.validar) e os `para` têm de existir no
-   * catálogo CFOP (CFOPValido do legado). NÃO recalcula imposto (o operador usa "Recalcular" depois, como no
-   * legado). ADIADO (mesmo form no legado): sincronizar ALIQUOTA e CST. Retorna quantos itens foram ajustados.
+   * SINCRONIZAR CFOP, ALÍQUOTA e CST dos itens (menu uNF.pas:16401 → uSincronizaCFOPNotaFiscal). A tela mostra os valores distintos
+   * de cada um nos itens, com o "novo" igual ao "atual", e o operador troca os que quiser. No OK (btnOKClick, :318-345):
+   *  - todo CFOP novo tem de existir no cadastro (`CFOPValido`, :325 — "CFOP inválido ou não cadastrado");
+   *  - aplica CFOP, depois ALÍQUOTA, depois CST (AtualizarCFOP/ALIQUOTA/CST, :96-300): cada item cujo valor é o "atual" de uma linha
+   *    recebe o "novo" UMA vez (o `cdsItensAlterados*` impede que a troca 5102↔5405 volte ao que era) e é marcado SINCRONIZADO_x = 'S'
+   *    — como as grades trazem todos os valores da nota, todo item sai marcado nos três, mudado ou não (12.856 itens de entrada em
+   *    2026, iguais nos três flags);
+   *  - loja do Simples com a alíquota nova NTB: o CSOSN do item vira 400 (:190).
+   * O legado aplica no dataset e manda GRAVAR; aqui grava direto, com as travas de edição da NF. Não recalcula imposto (o operador
+   * usa "Recalcular" depois, como no legado). Retorna quantos itens tiveram o CFOP trocado e quantos foram sincronizados.
    */
-  async sincronizarCfop(codnf: number, mapa: Array<{ de?: string; para?: string }>): Promise<{ codnf: number; itens: number }> {
+  async sincronizarCfop(
+    codnf: number,
+    mapa: Array<{ de?: string; para?: string }>,
+    aliquotas: Array<{ de?: string; para?: string }> = [],
+    csts: Array<{ de?: string | number; para?: string | number }> = [],
+  ): Promise<{ codnf: number; itens: number; sincronizados: number }> {
     const t = currentTenant();
     const emp = t.empresaId ?? null;
     const op = t.operadorId ?? null;
     if (emp == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
-    const pares = (Array.isArray(mapa) ? mapa : [])
-      .map((m) => ({ de: String(m?.de ?? '').trim(), para: String(m?.para ?? '').trim() }))
-      .filter((m) => m.de !== '' && m.para !== '');
-    if (!pares.length) throw new BusinessRuleError('VALIDACAO', { campo: 'mapa' });
+    const pares = <T>(lista: Array<{ de?: T; para?: T }>, norm: (v: unknown) => string) =>
+      (Array.isArray(lista) ? lista : []).map((m) => ({ de: norm(m?.de), para: norm(m?.para) })).filter((m) => m.de !== '' && m.para !== '');
+    const texto = (v: unknown) => String(v ?? '').trim();
+    const numCst = (v: unknown) => (texto(v) === '' || !Number.isFinite(Number(texto(v))) ? '' : String(Number(texto(v))));
+    const pCfop = pares(mapa, texto);
+    const pAliq = pares(aliquotas, (v) => texto(v).toUpperCase());
+    const pCst = pares(csts, numCst);
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const nf = await trx
         .selectFrom('nf')
@@ -98,21 +110,37 @@ export class NfProcessamentoService {
       if (nf.cancelada === 'S' || nf.statusnfe === 'C') throw new BusinessRuleError('NF_CANCELADA', { codnf });
       if (nf.statusnfe === 'P' || nf.statusnfe === 'D') throw new BusinessRuleError('NF_ENVIADA', { codnf });
       if (nf.dtcontabil != null) await assertPeriodoNaoFechado(trx, emp, nf.dtcontabil, 'bloq_nf'); // período fechado
-      // valida os CFOP-alvo contra o catálogo (CFOPValido, uSincronizaCFOPNotaFiscal.pas:325).
-      const alvos = [...new Set(pares.map((p) => p.para))];
-      const existentes = ((await trx.selectFrom('cfop').select('codcfop').where('codcfop', 'in', alvos).execute()) as Array<{ codcfop: string }>).map((r) => String(r.codcfop));
+      // valida os CFOP-alvo contra o catálogo (CFOPValido, uSincronizaCFOPNotaFiscal.pas:325) e as alíquotas (o combo da grade é a tabela)
+      const alvos = [...new Set(pCfop.map((p) => p.para))];
+      const existentes = alvos.length ? ((await trx.selectFrom('cfop').select('codcfop').where('codcfop', 'in', alvos).execute()) as Array<{ codcfop: string }>).map((r) => String(r.codcfop)) : [];
       const invalido = alvos.find((a) => !existentes.includes(a));
       if (invalido) throw new BusinessRuleError('NF_CFOP_INVALIDO', { cfop: invalido });
-      // aplica o de-para item-a-item (CFOPAtual→CFOPNovo); preserva os itens fora do mapa.
+      const aliqAlvos = [...new Set(pAliq.map((p) => p.para))];
+      const aliqExist = aliqAlvos.length ? ((await trx.selectFrom('aliquota').select('codigo').where('codigo', 'in', aliqAlvos).execute()) as Array<{ codigo: string }>).map((r) => String(r.codigo).trim()) : [];
+      const aliqInv = aliqAlvos.find((a) => !aliqExist.includes(a));
+      if (aliqInv) throw new BusinessRuleError('NF_ALIQUOTA_INVALIDA', { aliquota: aliqInv });
+      const sn = String(((await trx.selectFrom('empresas').select('classfiscal').where('idempresa', '=', emp).executeTakeFirst()) as { classfiscal?: string } | undefined)?.classfiscal ?? '').trim() === 'SN';
       const fotoLog = await fotoDaNf(trx, codnf);
-      let itens = 0;
-      for (const p of pares) {
-        const r = await trx.updateTable('nf_prod').set({ cfop: p.para }).where('codnf', '=', codnf).where('cfop', '=', p.de).executeTakeFirst();
-        itens += Number((r as any)?.numUpdatedRows ?? 0);
+      const itens = (await trx.selectFrom('nf_prod').select(['codnfprod', 'cfop', 'aliquota', 'cst', 'csosn']).where('codnf', '=', codnf).orderBy('codnfprod').execute()) as
+        Array<{ codnfprod: number; cfop: unknown; aliquota: unknown; cst: unknown; csosn: unknown }>;
+      // cada item recebe o "novo" da primeira linha cujo "atual" é o seu valor ORIGINAL — a troca A↔B não volta (cdsItensAlterados*)
+      const trocar = (atual: string, lista: Array<{ de: string; para: string }>) => lista.find((p) => p.de === atual)?.para;
+      let trocados = 0;
+      for (const it of itens) {
+        const cfop = trocar(texto(it.cfop), pCfop);
+        const aliqAtual = texto(it.aliquota).toUpperCase();
+        const aliq = trocar(aliqAtual, pAliq) ?? aliqAtual;
+        const cst = trocar(String(Number(it.cst ?? 0)), pCst);
+        const set: Record<string, unknown> = { sincronizado_cfop: 'S', sincronizado_aliq: 'S', sincronizado_cst: 'S' };
+        if (cfop != null && cfop !== texto(it.cfop)) { set.cfop = cfop; trocados++; }
+        if (aliq !== aliqAtual) set.aliquota = aliq;
+        if (sn && aliq === 'NTB') set.csosn = '400';
+        if (cst != null) set.cst = Number(cst);
+        await trx.updateTable('nf_prod').set(set).where('codnfprod', '=', it.codnfprod).execute();
       }
       await trx.updateTable('nf').set({ usultalteracao: op, dtultimalteracao: sql`now()` }).where('codnf', '=', codnf).where('idempresa', '=', emp).execute();
       await logDaDiferencaNf(trx, codnf, fotoLog);
-      return { codnf, itens };
+      return { codnf, itens: trocados, sincronizados: itens.length };
     });
   }
 

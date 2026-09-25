@@ -28,6 +28,7 @@ import { Tabs, TabPanel, type TabDef } from '../../shared/ui/Tabs';
 import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResourceOptions';
 import { useMensagem } from '../../shared/mensagem';
 import { NfItemModal } from './NfItemModal';
+import { NfSincronizarModal } from './NfSincronizarModal';
 import { NfRotativoModal } from './NfRotativoModal';
 import { NfLoteModal } from './NfLoteModal';
 import { NfScrapModal } from './NfScrapModal';
@@ -621,6 +622,7 @@ function AcoesNfeBar({ form }: { form: UseFormReturn<CriarNfDto> }) {
 function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
   const mensagem = useMensagem();
   const [executando, setExecutando] = useState(false);
+  const [sincronizando, setSincronizando] = useState(false);
   const proc = form.watch('proc');
   const statusnfe = form.watch('statusnfe');
   const codnf = (form.getValues() as { codnf?: number }).codnf;
@@ -662,10 +664,26 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
       <span className="text-body-sm font-semibold text-fg-default">Processamento (estoque)</span>
       <div className="flex flex-wrap items-center gap-gp-sm">
         {proc !== 'S' && <Button label="&Processar nota" variant="soft" onClick={() => void processar()} />}
+        {proc !== 'S' && <Button label="Sincronizar CFOP/alíq./CST" variant="soft" onClick={() => setSincronizando(true)} />}
         {proc === 'S' && !enviada && (
           <Button label="&Reverter processamento" variant="soft" onClick={() => void reverter()} />
         )}
       </div>
+      {sincronizando && (
+        <NfSincronizarModal codnf={codnf} itens={form.getValues('itens') ?? []} onFechar={() => setSincronizando(false)}
+          onSincronizado={(p) => {
+            // o servidor já gravou: reflete nos itens da tela (cada item recebe o "novo" do seu valor original, uma vez)
+            const troca = (lista: Array<{ de: string; para: string }>, v: string) => lista.find((x) => x.de === v)?.para;
+            const itens = (form.getValues('itens') ?? []).map((it) => {
+              const cfop = troca(p.mapa, String(it.cfop ?? ''));
+              const aliq = troca(p.aliquotas, String(it.aliquota ?? '').trim().toUpperCase());
+              const cst = troca(p.csts, String(Number((it as { cst?: unknown }).cst ?? 0)).padStart(3, '0'));
+              return { ...it, ...(cfop ? { cfop } : {}), ...(aliq ? { aliquota: aliq } : {}), ...(cst ? { cst: Number(cst) } : {}) };
+            });
+            form.setValue('itens', itens as never, { shouldDirty: false });
+            setSincronizando(false);
+          }} />
+      )}
       <small className="text-fg-muted">
         {proc === 'S' ? 'Nota processada (estoque movimentado).' : 'Nota não processada.'}
         {enviada ? ' Enviada à SEFAZ — reversão bloqueada.' : ''}
