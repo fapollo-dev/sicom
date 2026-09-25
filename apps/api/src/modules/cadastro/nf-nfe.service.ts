@@ -3,6 +3,7 @@ import { sql } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
+import { dataHoraLegado, gravarLog } from '../../shared/log/registro-log';
 import { SEFAZ_PORT, type SefazPort } from './sefaz/sefaz.port';
 import { NfProcessamentoService } from './nf-processamento.service';
 import { NfFaturamentoService } from './nf-faturamento.service';
@@ -296,6 +297,15 @@ export class NfNfeService {
         .where('statusnfe', '=', 'P')
         .executeTakeFirst();
       if (Number(r?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('NF_NAO_AUTORIZADA', { codnf });
+
+      // a LOG do cancelamento (binário novo — fora do fonte de 2020; 39 de 39 notas canceladas em 2025-26 a têm): formulário
+      // "Notas fiscais", o NOME do operador, a justificativa no `UpperCase` do Delphi (só a-z: "NãO SERIA ESSE CUPOM"), o " ,em"
+      // do legado, texto sem normalizar e sem empresa
+      const nomeOp = op != null ? ((await trx.selectFrom('operadores').select('nome').where('codoperador', '=', op).executeTakeFirst()) as { nome?: string } | undefined)?.nome ?? '' : '';
+      await gravarLog(trx, {
+        acao: 'Alterou', formulario: 'Notas fiscais', tabela: 'NF', chave: 'CODNF', valor: codnf, normalizar: false,
+        historico: `Nota fiscal cancelada pelo usuário: ${nomeOp}, com a justificativa: ${xjust.replace(/[a-z]/g, (c) => c.toUpperCase())} ,em ${dataHoraLegado()}`,
+      });
 
       // ESTORNO das pontes do inventário rotativo: cancelar a nota devolve o lote para "não importado"
       // (udmNF.pas:3406-3463 — o legado faz isso no excluir E no cancelar, escolhendo o lado pelo TIPO da

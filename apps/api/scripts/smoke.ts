@@ -2039,6 +2039,14 @@ async function main() {
       can.status === 200 && canBody.statusnfe === 'C' && nfCanRead.statusnfe === 'C' && nfCanRead.cancelada === 'S' && !!nfCanRead.protocolo_cancelamento && evC.n === 1,
       { status: can.status, statusnfe: nfCanRead.statusnfe, cancelada: nfCanRead.cancelada, protocolo: nfCanRead.protocolo_cancelamento, eventos: evC.n },
     );
+    {
+      const lCan = (await pg23.query(`SELECT acao, formulario, chave, historico, idempresa FROM log WHERE tabela = 'NF' AND valor = $1 AND formulario = 'Notas fiscais'`, [nfTx])).rows as any[];
+      const nomeOp = String((await pg23.query(`SELECT nome FROM operadores WHERE codoperador = 7`)).rows[0]?.nome ?? '');
+      check('LOG VERTICAL §221.3 [cancelar a NF grava a LOG do binário novo]: 1 linha "Notas fiscais"/NF/CODNF Alterou, sem empresa, texto sem normalizar — "Nota fiscal cancelada pelo usuário: <NOME do operador>, com a justificativa: <J> ,em dd/mm/aaaa hh:mm:ss" (39 de 39 cancelamentos de 2025-26 a têm)',
+        lCan.length === 1 && lCan[0].acao === 'Alterou' && lCan[0].chave === 'CODNF' && lCan[0].idempresa == null
+        && new RegExp(`^Nota fiscal cancelada pelo usuário: ${nomeOp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}, com a justificativa: CANCELAMENTO POR ERRO DE DIGITACAO NO PEDIDO ,em \\d{2}/\\d{2}/\\d{4} \\d{2}:\\d{2}:\\d{2}$`).test(String(lCan[0].historico)),
+        { lCan, nomeOp });
+    }
     // 23.6b) GOLDEN: cancelar uma NF PROCESSADA ESTORNA o estoque (saída baixou 10 → cancelar devolve +10)
     // + grava um kardex de estorno NF-CANC (movimento original preservado, net-0).
     const sPosCancel = await saldoProd1();
@@ -22540,6 +22548,44 @@ async function main() {
         await pgDc.query(`DELETE FROM contas_bancarias WHERE codconta = $1`, [cD]);
       } finally {
         await pgDc.end();
+      }
+    }
+
+    // ══ §221 LOG VERTICAL — a DESCRIÇÃO do item da NF (NF_PROD.DESCRICAO) e a LOG do diálogo do item ══════════════════════════
+    {
+      const pgDi = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const descP1 = String((await pgDi.query(`SELECT descricao FROM produtos WHERE idproduto = 1`)).rows[0]?.descricao ?? '');
+        const cfg = (await (await fetch(`${base}/fiscal/nf/item/configuracao`, { headers: H })).json().catch(() => ({}))) as any;
+        const corpo = (itens: Array<Record<string, unknown>>) => ({ modelo: 55, serie: '1', tipo: 'E', nronf: 'DESC221', codparceiro: 22, dtemissao: '2036-05-04', dtcontabil: '2036-05-04', tipoemissao: '0', cfop: '1102', itens });
+        const item = (extra: Record<string, unknown> = {}) => ({ nroitem: 1, codproduto: 1, quantidade: 2, vrcusto: 5, cfop: '1102', aliquota: 'T01', ...extra });
+        const cri = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify(corpo([item()])) });
+        const codnf = Number(((await cri.json().catch(() => ({}))) as any).codnf);
+        const d1 = (await pgDi.query(`SELECT codnfprod, descricao FROM nf_prod WHERE codnf = $1`, [codnf])).rows[0];
+        check('LOG VERTICAL §221.1 [a descrição do item é gravada]: o item novo nasce com a DESCRIÇÃO do produto (o legado a põe ao escolher o produto, uItensNF.pas:2531 — o Apollo deixava NULL em todo item); a configuração EDITAR_DESCRICAO_ITEM_NF vem \'N\' como na produção',
+          cri.status === 201 && d1?.descricao === descP1 && descP1 !== '' && cfg.editarDescricao === false,
+          { status: cri.status, d1, descP1, cfg });
+        const idlog0 = Number((await pgDi.query(`SELECT coalesce(max(idlog),0) AS m FROM log`)).rows[0].m);
+        // o OK do diálogo com a descrição trocada
+        const alt = await fetch(`${base}/fiscal/nf/${codnf}`, { method: 'PUT', headers: H, body: JSON.stringify(corpo([item({ descricao: 'Pernil suíno traseiro s/osso kg', dialogo: true })])) });
+        const d2 = (await pgDi.query(`SELECT codnfprod, descricao FROM nf_prod WHERE codnf = $1`, [codnf])).rows[0];
+        const l2 = (await pgDi.query(`SELECT acao, chave, valor, historico, idempresa FROM log WHERE idlog > $1 AND formulario = 'Itens da nota fiscal' ORDER BY idlog`, [idlog0])).rows as any[];
+        // regravar sem a descrição e sem o diálogo: fica a que o item tinha, sem LOG; o OK do diálogo de novo, com a do produto: sem LOG
+        const idlog1 = Number((await pgDi.query(`SELECT coalesce(max(idlog),0) AS m FROM log`)).rows[0].m);
+        await fetch(`${base}/fiscal/nf/${codnf}`, { method: 'PUT', headers: H, body: JSON.stringify(corpo([item({ quantidade: 3 })])) });
+        const d3 = (await pgDi.query(`SELECT descricao FROM nf_prod WHERE codnf = $1`, [codnf])).rows[0];
+        await fetch(`${base}/fiscal/nf/${codnf}`, { method: 'PUT', headers: H, body: JSON.stringify(corpo([item({ descricao: descP1.toLowerCase(), dialogo: true })])) });
+        const l3 = Number((await pgDi.query(`SELECT count(*)::int AS n FROM log WHERE idlog > $1 AND formulario = 'Itens da nota fiscal'`, [idlog1])).rows[0].n);
+        check('LOG VERTICAL §221.2 [a LOG do diálogo do item]: o OK com a descrição diferente da do produto grava "USUARIO ALTEROU DESCRICAO DO ITEM 1 (<a do produto>) PARA PERNIL SUINO TRASEIRO S/OSSO KG" em "Itens da nota fiscal"/NF_PROD/CODNFPROD do item, com o CODOPERADOR no IDEMPRESA (o legado passa o operador na posição da empresa — 142 de 142); regravar sem a descrição mantém a que o item tinha, sem LOG; o OK com a do produto (outra caixa) não loga',
+          alt.status === 200 && d2?.descricao === 'Pernil suíno traseiro s/osso kg'
+          && l2.length === 1 && l2[0].acao === 'Alterou' && l2[0].chave === 'CODNFPROD' && Number(l2[0].valor) === Number(d2?.codnfprod) && Number(l2[0].idempresa) === 7
+          && l2[0].historico === `USUARIO ALTEROU DESCRICAO DO ITEM 1 (${descP1.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase()}) PARA PERNIL SUINO TRASEIRO S/OSSO KG`
+          && d3?.descricao === 'Pernil suíno traseiro s/osso kg' && l3 === 0,
+          { alt: alt.status, d2, l2, d3, l3 });
+        await pgDi.query(`DELETE FROM nf_prod WHERE codnf = $1`, [codnf]);
+        await pgDi.query(`DELETE FROM nf WHERE codnf = $1`, [codnf]);
+      } finally {
+        await pgDi.end();
       }
     }
 

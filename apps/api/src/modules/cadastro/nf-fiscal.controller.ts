@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
 import { recalcularNfSchema } from '@apollo/shared';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 import { NfFiscalService } from './nf-fiscal.service';
@@ -15,6 +15,12 @@ import { NfFiscalService } from './nf-fiscal.service';
 @Controller('fiscal/nf')
 export class NfFiscalController {
   constructor(private readonly fiscal: NfFiscalService) {}
+
+  /** o que o diálogo do item precisa saber da configuração: se a descrição do item é editável (`EDITAR_DESCRICAO_ITEM_NF`, uItensNF.pas:3657) */
+  @Get('item/configuracao')
+  configuracaoItem() {
+    return this.fiscal.configuracaoItem();
+  }
 
   @Post('recalcular')
   @HttpCode(200) // cálculo (não cria recurso) — 200, não o 201 default do POST

@@ -1205,7 +1205,12 @@ function ItensSection({
         headerName: 'Produto',
         type: 'text',
         isPrimary: true,
-        valueGetter: (row) => rotuloProduto(row.codproduto),
+        // a descrição do ITEM quando ele tem (NF_PROD.DESCRICAO), senão a do produto
+        valueGetter: (row) => {
+          const r = rotuloProduto(row.codproduto);
+          if (!row.descricao) return r;
+          return `${r.includes(' - ') ? r.slice(0, r.indexOf(' - ')) : String(row.codproduto)} - ${row.descricao}`;
+        },
       },
       { field: 'quantidade', headerName: 'Qtde', type: 'number', width: 110 },
       { field: 'unidade', headerName: 'UN', type: 'text', width: 80 },

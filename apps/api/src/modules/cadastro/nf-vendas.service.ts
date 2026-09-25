@@ -154,6 +154,7 @@ export class NfVendasService {
       }
       itens.push({
         codproduto: num(l.codproduto), codprodnota: (l.codbarra as string) ?? undefined, nroitem_venda: num(l.nroitem),
+        descricao: (l.descricao as string) || undefined, // a do cupom (cdsVendaDESCRICAO, uNF.pas:13695)
         quantidade: q, fatorembal: 1, unidade: l.unidade ? String(l.unidade).slice(0, 2) : undefined,
         vrcusto: vr, vrvenda: vr, arredonda: arr, vrdescprod: desconto, depsacess: acrescimo,
         aliquota: String(l.aliquota ?? '').trim() || undefined, // "vem do PDV" — a alíquota da venda

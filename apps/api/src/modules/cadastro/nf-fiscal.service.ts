@@ -7,6 +7,7 @@ import { FiscalPricingService } from '../precificacao/preco-fiscal.service';
 import { ConfigService } from './config.service';
 import { baseProdutoItem, totaisProdutosNf } from '@apollo/shared';
 import { normalizarItensNf } from './nf-item-padrao';
+import { configNaTrx } from '../compras/pedido-heranca';
 
 type AnyDB = any;
 const num = (v: unknown): number => {
@@ -66,6 +67,13 @@ export class NfFiscalService {
   }
 
   /** Recalcula os impostos de cada item; devolve o dto enriquecido (NÃO grava). */
+  /** `EDITAR_DESCRICAO_ITEM_NF` (a descrição do item editável no diálogo; na produção 'N') */
+  async configuracaoItem(): Promise<{ editarDescricao: boolean }> {
+    const t = currentTenant();
+    const v = await configNaTrx(this.dbp.forTenantRead(), 'EDITAR_DESCRICAO_ITEM_NF', { empresaId: t.empresaId ?? null, operadorId: t.operadorId ?? null, modulo: 'Retaguarda' });
+    return { editarDescricao: String(v ?? 'N').toUpperCase() === 'S' };
+  }
+
   async recalcular(dto: Record<string, unknown>): Promise<Record<string, unknown>> {
     const uf = await this.resolverUf(dto);
     const emp = currentTenant().empresaId ?? null;

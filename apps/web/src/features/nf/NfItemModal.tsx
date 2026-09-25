@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Modal } from '@apollosg/design-system';
 import { ORIGEM_OPCOES, type NfItemDto } from '@apollo/shared';
 import { Field } from '../../shared/ui/Field';
@@ -7,6 +7,7 @@ import { NumberField } from '../../shared/ui/NumberField';
 import { CurrencyField } from '../../shared/ui/CurrencyField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
 import type { Opcao } from '../../shared/cadmaster/useResourceOptions';
+import { configuracaoItemNf } from './nfFiscalApi';
 
 /**
  * Modal de ADICIONAR/EDITAR um ITEM da NF (detalhe 1:N — NF_PROD). Espelha o padrão dos
@@ -51,13 +52,21 @@ export function NfItemModal({
   const [item, setItem] = useState<NfItemDto>(inicial ?? ITEM_VAZIO);
   const [erro, setErro] = useState<string | undefined>();
   const set = <K extends keyof NfItemDto>(k: K, v: NfItemDto[K]) => setItem((i) => ({ ...i, [k]: v }));
+  // a descrição do item só se digita com EDITAR_DESCRICAO_ITEM_NF='S' (uItensNF.pas:3657); sem ela é a do produto
+  const [editarDescricao, setEditarDescricao] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    configuracaoItemNf().then((c) => { if (vivo) setEditarDescricao(Boolean(c.editarDescricao)); }).catch(() => undefined);
+    return () => { vivo = false; };
+  }, []);
 
   const salvar = () => {
     if (item.codproduto == null) return setErro('Informe o produto do item.');
     if (!(Number(item.quantidade) > 0)) return setErro('A quantidade deve ser maior que zero.');
     // passou pelo diálogo: deixa de ser "importado" e o CFOP×situação passa a cobrá-lo (uItensNF.pas:1525)
+    // e a gravação confere a descrição contra a do produto e leva a diferença à LOG (o GravaLog do OK, uItensNF.pas:4058)
     const { importado_de: _imp, ...digitado } = item;
-    onConfirmar(digitado as NfItemDto);
+    onConfirmar({ ...digitado, dialogo: true } as NfItemDto);
   };
 
   return (
@@ -77,8 +86,19 @@ export function NfItemModal({
               label="&Produto"
               options={produtoOptions}
               value={item.codproduto != null ? String(item.codproduto) : undefined}
-              onChange={(v) => set('codproduto', v ? Number(v) : (undefined as unknown as number))}
+              // outro produto: a descrição volta a ser a dele (preenchida no gravar)
+              onChange={(v) => setItem((i) => ({ ...i, codproduto: v ? Number(v) : (undefined as unknown as number), descricao: undefined }))}
               placeholder="Selecione o produto…"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <Field
+              label="Descrição"
+              maxLength={120}
+              value={item.descricao ?? ''}
+              disabled={!editarDescricao}
+              placeholder="A do produto"
+              onChange={(e) => set('descricao', e.target.value || undefined)}
             />
           </div>
           <NumberField

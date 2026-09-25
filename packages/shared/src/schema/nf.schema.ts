@@ -101,6 +101,10 @@ export const nfItemSchema = z.object({
   // TRANSITÓRIO (não é coluna): o item veio de uma importação (scrap, rotativo) e não do diálogo do item — o legado só
   // confere o CFOP×situação do item digitado (uItensNF.pas:1525); o importado passa no gravar (UCadSituacaoNF.md C2)
   importado_de: z.enum(['SCRAP', 'ROTATIVO', 'VENDAS', 'DEVOLUCAO_VENDAS']).optional(),
+  // TRANSITÓRIO: o item foi confirmado no diálogo nesta edição (o OK do frmItensNF) — é quando o legado confere a descrição e a leva à LOG
+  dialogo: z.boolean().optional(),
+  // NF_PROD.DESCRICAO: a da origem, ou a digitada com EDITAR_DESCRICAO_ITEM_NF='S'; vazia = a do produto (no gravar)
+  descricao: z.preprocess((v) => (v == null ? undefined : v), z.string().max(120).optional()),
   nroitem_venda: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()), // o item do cupom (NF de cupom)
   quantidade: z.preprocess(
     (v) => (typeof v === 'string' ? Number(v) : v),

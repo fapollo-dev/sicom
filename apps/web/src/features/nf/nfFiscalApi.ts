@@ -33,3 +33,8 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 export function recalcularNf(dto: CriarNfDto): Promise<CriarNfDto> {
   return req<CriarNfDto>('/fiscal/nf/recalcular', { method: 'POST', body: JSON.stringify(dto) });
 }
+
+/** a configuração do diálogo do item: a descrição editável (`EDITAR_DESCRICAO_ITEM_NF`) */
+export function configuracaoItemNf(): Promise<{ editarDescricao: boolean }> {
+  return req<{ editarDescricao: boolean }>('/fiscal/nf/item/configuracao', { method: 'GET' });
+}

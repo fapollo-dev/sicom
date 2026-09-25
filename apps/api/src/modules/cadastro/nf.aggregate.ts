@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import { chaveDeEntrada, desregistrarProcessoNf, registrarProcessoNf } from '../shared/nf-status-processo';
-import type { CampoLog } from '../../shared/log/registro-log';
+import { gravarLog, type CampoLog } from '../../shared/log/registro-log';
 import { nfSchema, atualizarNfSchema, totaisProdutosNf, totalProdutoItem } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
@@ -15,6 +15,18 @@ import { estornarVinculoScrap } from './nf-scrap.service';
 import { estornarVinculoVendas } from './nf-vendas.service';
 import { estornarDevolucaoVendas } from './nf-devolucao-vendas.service';
 import { preencherRateioContabil } from './nf-rateio';
+
+/** a descrição do produto, lida uma vez por produto na gravação */
+function leitorDescricaoProduto(trx: any): (idproduto: number) => Promise<string | null> {
+  const cache = new Map<number, string | null>();
+  return async (idproduto) => {
+    if (!cache.has(idproduto)) {
+      const r = (await trx.selectFrom('produtos').select('descricao').where('idproduto', '=', idproduto).executeTakeFirst()) as { descricao?: string | null } | undefined;
+      cache.set(idproduto, r?.descricao ?? null);
+    }
+    return cache.get(idproduto) ?? null;
+  };
+}
 
 /**
  * NOTA FISCAL (tela-coroa) — Fase 1: NÚCLEO CADASTRO, agregado mestre-detalhe via
@@ -424,12 +436,21 @@ export const nfAggregateConfig: AggregateConfig = {
         'aliqpise', 'aliqpiss', 'aliqcofinse', 'aliqcofinss',
         'bcpiscofinse', 'vrpise', 'vrcofinse', // valor do crédito PIS/COFINS da entrada (Wave 5, XML verbatim)
         'debitopiscofins', // Wave 5: débito projetado de saída = round((aliqpiss+aliqcofinss)×vrvenda/100,2) — rentabilidade
-        'frete', 'seguro', 'vroutrasdesp', 'depsacess', 'arredonda', 'vl_custo',
+        'frete', 'seguro', 'vroutrasdesp', 'depsacess', 'arredonda', 'vl_custo', 'descricao',
       ],
+      // a DESCRIÇÃO que cada item tinha, para o item regravado sem ela (casada pelo produto, como a preservação)
+      antesDeSubstituirTrx: async ({ trx, masterId }) =>
+        trx.selectFrom('nf_prod').select(['codproduto', 'descricao']).where('codnf', '=', masterId).orderBy('codnfprod').execute(),
       // congela o CUSTO do item = MULTI_PRECO.VRCUSTO corrente por (produto, empresa) no lançamento
       // (GetCustoProduto, udmNF.pas:12057). É a base do CMV; snapshot (não acompanha a deriva do MP).
-      derivarItensTrx: async (itens, trx, emp) => {
+      derivarItensTrx: async (itens, trx, emp, _header, _masterId, snapshot) => {
         const out: Record<string, unknown>[] = [];
+        const antigas = new Map<string, string[]>();
+        for (const a of (snapshot as Array<{ codproduto: unknown; descricao: unknown }> | undefined) ?? []) {
+          const k = String(a.codproduto);
+          antigas.set(k, [...(antigas.get(k) ?? []), String(a.descricao ?? '')]);
+        }
+        const descricaoDoProduto = await leitorDescricaoProduto(trx);
         for (const it of itens) {
           const cod = it.codproduto != null ? Number(it.codproduto) : null;
           let vl = 0;
@@ -443,9 +464,32 @@ export const nfAggregateConfig: AggregateConfig = {
             vl = mp?.vrcusto != null ? Number(mp.vrcusto) : 0;
           }
           // Wave 5: PIS/COFINS débito projetado de saída (rentabilidade) das alíquotas de saída do próprio item.
-          out.push({ ...it, vl_custo: vl, debitopiscofins: debitoPisCofins(it.vrvenda, it.aliqpiss, it.aliqcofinss) });
+          // a DESCRIÇÃO do item (NF_PROD.DESCRICAO): a que veio (a da origem — pedido, cupom, scrap — ou a digitada com
+          // EDITAR_DESCRICAO_ITEM_NF='S'); senão a que o item já tinha; senão a do produto, que é o que o legado põe ao
+          // escolher o produto (uItensNF.pas:2531) — na produção, 6.372 de 6.391 itens de set/2026 têm a do produto
+          const antiga = antigas.get(String(cod))?.shift();
+          const veio = typeof it.descricao === 'string' && it.descricao.trim() !== '' ? it.descricao : null;
+          const descricao = veio ?? (antiga || null) ?? (cod != null ? await descricaoDoProduto(cod) : null);
+          out.push({ ...it, vl_custo: vl, debitopiscofins: debitoPisCofins(it.vrvenda, it.aliqpiss, it.aliqcofinss), descricao: descricao?.slice(0, 120) ?? null });
         }
         return out;
+      },
+      // o OK do diálogo do item (`TfrmItensNF.GravaLog`, uItensNF.pas:4058): a descrição do item diferente da do produto vai à LOG,
+      // a cada confirmação — "Usuario alterou descricao do item <NROITEM> (<a do produto>) para <A DO ITEM>". O legado passa o
+      // CODOPERADOR na posição da empresa, e é o que a LOG guarda (142 de 142 em 2025-26).
+      aposInserirItensTrx: async ({ trx, itens }) => {
+        const descricaoDoProduto = await leitorDescricaoProduto(trx);
+        for (const it of itens) {
+          if (it.dialogo !== true || it.codproduto == null) continue;
+          const doProduto = (await descricaoDoProduto(Number(it.codproduto))) ?? '';
+          const doItem = String(it.descricao ?? '');
+          if (doItem.trim().toUpperCase() === doProduto.trim().toUpperCase()) continue;
+          await gravarLog(trx, {
+            acao: 'Alterou', formulario: 'Itens da nota fiscal', tabela: 'NF_PROD', chave: 'CODNFPROD', valor: Number(it.codnfprod),
+            historico: `Usuario alterou descricao do item ${it.nroitem ?? ''} (${doProduto}) para ${doItem.toUpperCase()}`,
+            idempresa: currentTenant().operadorId ?? null,
+          });
+        }
       },
     },
     {
