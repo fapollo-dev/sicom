@@ -353,7 +353,16 @@ Observação lateral: uma rotina diária move o **DTCONTABIL das NFs não proces
 | C0a — `resolverFigura` fiel (CFOP <4000/>4000, código de barras, desempate pelo menor código, campos completos, `multiplos`) | ✅ |
 | C0b — caller com as chaves do legado (barra/NCM do produto, parceiro da nota); a entrada fora da conta de ST da saída e do `resolverIndexador(ncm)` | ✅ |
 | C1/C2 — indexador e REPASSADO do item de entrada (`nf-indexador-item.ts`): item novo consulta; OK do diálogo refaz o REPASSADO; o pMVAST do XML só vai ao MVA_AJUSTADO do item sem indexador | ✅ smoke §244 |
-| C3 — ST externo da entrada | ⏳ |
+| C3 — ST externo da entrada (`calculoIndexador` + `stExternoDoItem`; roda na análise do item antes do custo; o cabeçalho soma os itens e o ICMS_ST_APAGAR sai dessa soma) | ✅ smoke §245 + teste-ouro (183 itens reais) |
 | C4 — esteira pelo REPASSADO | ✅ |
 | C5 — repasse em lote (F7) | ⏳ |
 | C6/C7 — travas do processamento + liberar a NF | ⏳ (só depois de C5; ligar antes bloqueia ~74% das entradas da loja 2) |
+
+### C3 — o que a produção mostrou (itens de entrada de 2026, lojas "O"; só leitura)
+
+- Com indexador: STREAL / VRBASE_STEXTERNO / VRICMS_STEXTERNO **100%** nos 357 itens digitados e **98,2%** nos 44.685 importados (o resto: notas com o item sem análise — tudo 0 — e bases negativas antigas).
+- Fornecedor livre importado: o ST externo é o da nota (STREAL = VRICMST, base externa = VRBASEST, nada a recolher) em 99,1%; loja "D" de terceiros importada, 98,7%.
+- Sem indexador (loja "O"): o legado roda o `TIndexadorTributario` com o que sobrou do item anterior (`InicializarVariaveis` não limpa a ST da nota) — o Apollo deixa o item como está; a importação guarda o ST da nota (72 de 72).
+- Totais do cabeçalho = Σ itens em 6.522 de 6.522 notas; ICMS_ST_APAGAR = max(0, TOTALICM_STEXTERNO − ICMS_ST_PAGO_FONTE) em 6.521 de 6.522. **O TOTALICM_STEXTERNO deixou de ser digitado no cabeçalho** (o smoke do RESIDUAL ST passou a pôr o valor no item).
+- O ramo "emissão própria + ST_EXTERNO + 1403/2403" (ST separada da NF) não tem nenhum caso em 2025-26 (TOTALICM_STEXTERNO_SEPNF = 0 em 15.743 notas) — portado do fonte.
+- Os TEMP do `CalcValorNota` (fornecedor livre / loja "D" com MVA ou ALIQOPE_INTERNA no produto, nota digitada): ramo do MVA do item e o da proporção do ST do cabeçalho (ConstICMST); sem caso na produção de 2026.

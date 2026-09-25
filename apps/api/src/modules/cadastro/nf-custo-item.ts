@@ -10,6 +10,8 @@
 import { configNaTrx } from '../compras/pedido-heranca';
 import { FiscalPricingService } from '../precificacao/preco-fiscal.service';
 import { currentTenant } from '../../shared/tenant/tenant-context';
+import { contextoIndexadorNf, stExternoDoItem, type FiguraSt, type ContextoStExterno } from './nf-indexador-item';
+import { totalNfLegado } from './nf-total';
 
 const n = (v: unknown): number => {
   const x = typeof v === 'string' ? Number(v) : (v as number);
@@ -236,8 +238,8 @@ const fiscal = new FiscalPricingService();
  * `todos`: a importação, depois de gravar os valores da nota no item (a análise automática roda com o item completo).
  */
 export async function recalcularMetricasEntrada(trx: AnyDB, codnf: number, somente: 'pendentes' | 'todos'): Promise<number> {
-  const nf = (await trx.selectFrom('nf').select(['tipo', 'cfop', 'idempresa', 'nf_importacao_nfe', 'totalprod']).where('codnf', '=', codnf).executeTakeFirst()) as
-    Record<string, unknown> | undefined;
+  const nf = (await trx.selectFrom('nf').select(['tipo', 'cfop', 'idempresa', 'nf_importacao_nfe', 'totalprod', 'tipoemissao', 'rateio', 'rateio_st', 'totalbaseicmt',
+    'totalicm_st', 'totalprodst']).where('codnf', '=', codnf).executeTakeFirst()) as Record<string, unknown> | undefined;
   if (!nf || String(nf.tipo) !== 'E') return 0;
   const emp = Number(nf.idempresa ?? currentTenant().empresaId ?? 0);
   const empresa = ((await trx.selectFrom('empresas').select(['classfiscal', 'despfederativas', 'despoperacional', 'alqsimplesnac', 'imprenda', 'contsocial', 'uf'])
@@ -250,15 +252,49 @@ export async function recalcularMetricasEntrada(trx: AnyDB, codnf: number, somen
   const umItem = String(nf.nf_importacao_nfe ?? '') === 'S' && itens.length === 1 ? n(nf.totalprod) : null;
   const sn = String(empresa.classfiscal ?? '').trim().toUpperCase() === 'SN';
   const tributosDe = new Map<number, { pis: number; cofins: number; icmsEfetivo: number }>();
+  const produtoSt = new Map<number, { mva: number; aliqope: number }>();
+  // o ST externo (RecalculaICMSST) roda no diálogo só sem pedido de devolução (uItensNF.pas:747)
+  const ctxIdx = await contextoIndexadorNf(trx, codnf);
+  const ctxSt: ContextoStExterno | null = ctxIdx && !ctxIdx.pedidoDevolucao ? {
+    figuraFiscal: ctxIdx.figuraFiscal, liberada: ctxIdx.liberada, fornecedorLivre: ctxIdx.fornecedorLivre, importada: String(nf.nf_importacao_nfe ?? '') === 'S',
+    tipoemissao: String(nf.tipoemissao ?? '').trim(),
+    calculaSemIndexador: String((await configNaTrx(trx, 'CALCULA_ICMSST_EMISSAOPROPRIA_NF_SEM_INDEX', ctxCfg)) ?? 'N').toUpperCase() === 'S',
+    rateio: String(nf.rateio ?? 'N'), rateioSt: String(nf.rateio_st ?? 'N'),
+    totalBaseIcmt: n(nf.totalbaseicmt), totalIcmSt: n(nf.totalicm_st), totalProdSt: n(nf.totalprodst),
+  } : null;
+  let stDoItemMudou = false;
   let gravados = 0;
   for (const it of itens) {
     const indexador = Number(it.indexadortrib ?? 0);
-    const aliqInterna = indexador > 0
-      ? n(((await trx.selectFrom('indexador_tributario').select('aliquota_dest').where('codindexadortributario', '=', indexador).executeTakeFirst()) as { aliquota_dest?: unknown } | undefined)?.aliquota_dest) || n(it.icms_st_aliq_nota)
-      : n(it.icms_st_aliq_nota);
-    const c = custoDoItemNaEntrada(it, empresa, { cfopNota: nf.cfop, aproveitamentoCreditoIcmsSt: aproveitamento, totalProdNotaUmItem: umItem, aliqInternaIndexador: aliqInterna });
-    const set: Record<string, unknown> = { vrbasecalculoicm_calc: arred(c.tempbaseicme, 4), vricm_calc: c.vricmCalc };
+    const fig = indexador > 0
+      ? ((await trx.selectFrom('indexador_tributario').selectAll().where('codindexadortributario', '=', indexador).executeTakeFirst()) as FiguraSt | undefined) ?? null
+      : null;
+    const aliqInterna = n(fig?.aliquota_dest) || n(it.icms_st_aliq_nota);
+    const ctxCusto = { cfopNota: nf.cfop, aproveitamentoCreditoIcmsSt: aproveitamento, totalProdNotaUmItem: umItem, aliqInternaIndexador: aliqInterna };
     const pendente = somente === 'todos' || n(it.custo_real_unit) === 0;
+    const set: Record<string, unknown> = {};
+    if (pendente && ctxSt) {
+      // o ST externo antes do custo: o custo real soma o STREAL (udmNF.pas:3800)
+      const c0 = custoDoItemNaEntrada(it, empresa, ctxCusto);
+      const idp = Number(it.codproduto);
+      if (!produtoSt.has(idp)) {
+        const p = (await trx.selectFrom('produtos').select(['mva', 'aliqope_interna']).where('idproduto', '=', idp).executeTakeFirst()) as Record<string, unknown> | undefined;
+        produtoSt.set(idp, { mva: n(p?.mva), aliqope: n(p?.aliqope_interna) });
+      }
+      const ps = produtoSt.get(idp)!;
+      const fator = n(it.fatorembal) || 1;
+      const st = stExternoDoItem({
+        totalprods: c0.totalprods, totaldescprod: arred((c0.qtdetotal * (n(it.vrcusto) / fator) * n(it.desconto)) / 100), vripi: c0.vripi, vrfrete: c0.vrfrete,
+        vrseguro: c0.vrseguro, depsacess: n(it.depsacess), vricmst: n(it.vricmst), vrbasest: n(it.vrbasest), vricm: n(it.vricm), cfop: String(it.cfop ?? ''),
+        cst: Math.trunc(n(it.cst)), geraicmFrete: String(it.geraicm_frete ?? '') === 'S', mva: n(it.mva), arredonda: String(it.arredonda ?? 'S').toUpperCase() !== 'N',
+        mvaProduto: ps.mva, aliqopeInterna: ps.aliqope,
+      }, fig, ctxSt);
+      if ((st.vricmst !== undefined && st.vricmst !== n(it.vricmst)) || (st.vrbasest !== undefined && st.vrbasest !== n(it.vrbasest))) stDoItemMudou = true;
+      Object.assign(it, st);
+      Object.assign(set, st);
+    }
+    const c = custoDoItemNaEntrada(it, empresa, ctxCusto);
+    Object.assign(set, { vrbasecalculoicm_calc: arred(c.tempbaseicme, 4), vricm_calc: c.vricmCalc });
     if (pendente && c.qtdetotal > 0) {
       // o preço sugerido: TMargemPreco(empresa, produto, custo real; reposição em D/M).CalculaValorVenda(MARKUP) — uDMNF.pas:3898-3921
       const idp = Number(it.codproduto);
@@ -293,5 +329,28 @@ export async function recalcularMetricasEntrada(trx: AnyDB, codnf: number, somen
     }
     await trx.updateTable('nf_prod').set(set).where('codnfprod', '=', Number(it.codnfprod)).execute();
   }
+  if (ctxSt) await totaisStExternoDaNota(trx, codnf, itens, stDoItemMudou);
   return gravados;
+}
+
+/**
+ * Os totais do ST externo no cabeçalho = Σ dos itens (TOTALICM_STEXTERNO, TOTALBASE_STEXTERNO, TOTAL_STREAL: 6.522 de 6.522 notas de
+ * entrada de 2026; o separado da NF idem) e o ICMS_ST_APAGAR = TOTALICM_STEXTERNO − ICMS_ST_PAGO_FONTE, sem negativo, só com ST externo
+ * (uNF.pas:4817; 6.521 de 6.522). Quando o recálculo trocou a ST de algum item (emissão própria com ST externo, os TEMP do fornecedor
+ * livre), o TOTALICM_ST e o TOTALNF acompanham.
+ */
+async function totaisStExternoDaNota(trx: AnyDB, codnf: number, itens: Array<Record<string, unknown>>, stDoItemMudou: boolean): Promise<void> {
+  const soma = (k: string) => arred(itens.reduce((a, it) => a + n(it[k]), 0));
+  const totalExterno = soma('vricms_stexterno');
+  const cab = (await trx.selectFrom('nf').selectAll().where('codnf', '=', codnf).executeTakeFirst()) as Record<string, unknown>;
+  const set: Record<string, unknown> = {
+    total_icmst_externo: totalExterno, totalbase_stexterno: soma('vrbase_stexterno'), total_streal: soma('streal'),
+    totalicm_stexterno_sepnf: soma('vricms_stexterno_separadonf'),
+    icms_st_apagar: totalExterno > 0 ? Math.max(0, arred(totalExterno - n(cab.icms_st_pago_fonte))) : 0,
+  };
+  if (stDoItemMudou) {
+    set.totalicm_st = soma('vricmst');
+    set.totalnf = totalNfLegado({ totalprod: n(cab.totalprod), totaldesc: n(cab.totaldesc), totalipi: n(cab.totalipi), totalicm_st: n(set.totalicm_st) }, (k) => cab[k]);
+  }
+  await trx.updateTable('nf').set(set).where('codnf', '=', codnf).execute();
 }

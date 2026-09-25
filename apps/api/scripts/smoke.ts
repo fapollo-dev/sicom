@@ -1690,11 +1690,21 @@ async function main() {
       return r.rows;
     };
 
-    // 54.1) derivar computa icms_st_apagar do cabeçalho (externo 316,91 − pago_fonte 0 = 316,91).
+    // o VRICMS_STEXTERNO do item é calculado no servidor (não vem da tela): o cenário grava-o no item e regrava a nota
+    const comStExterno = async (cod: number, valor: number): Promise<void> => {
+      const pg = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      await pg.query(`UPDATE nf_prod SET vricms_stexterno = $2 WHERE codnf = $1`, [cod, valor]);
+      await pg.end();
+      await fetch(`${base}/fiscal/nf/${cod}`, { method: 'PUT', headers: H, body: JSON.stringify({ obs: 'st externo' }) });
+    };
+    // 54.1) o TOTALICM_STEXTERNO do cabeçalho é a Σ do VRICMS_STEXTERNO dos itens (6.522 de 6.522 notas de 2026) e o icms_st_apagar =
+    // externo 316,91 − pago_fonte 0 (loja 'D', emissão própria: o recálculo do ST não mexe no item).
     // dtemissao ≠ dtcontabil DE PROPÓSITO: o golden usa DTCONTABIL no vencimento (não emissão).
-    const nfStr1 = await novaNf(baseNf({ tipo: 'E', nronf: 'STR001', codparceiro: 22, dtemissao: '2026-06-10', dtcontabil: '2026-06-15', total_icmst_externo: 316.91, itens: [itemP1(4)] }));
+    const nfStr1 = await novaNf(baseNf({ tipo: 'E', nronf: 'STR001', codparceiro: 22, dtemissao: '2026-06-10', dtcontabil: '2026-06-15', itens: [itemP1(4)] }));
+    await comStExterno(nfStr1, 316.91);
     const nfStr1Read = (await (await fetch(`${base}/fiscal/nf/${nfStr1}`, { headers: H })).json()) as any;
-    check('4c: derivar calcula icms_st_apagar = total_icmst_externo − icms_st_pago_fonte (316,91)', Number(nfStr1Read.icms_st_apagar) === 316.91, { icms_st_apagar: nfStr1Read.icms_st_apagar });
+    check('4c: total_icmst_externo = Σ itens e icms_st_apagar = externo − icms_st_pago_fonte (316,91)',
+      Number(nfStr1Read.total_icmst_externo) === 316.91 && Number(nfStr1Read.icms_st_apagar) === 316.91, { total: nfStr1Read.total_icmst_externo, icms_st_apagar: nfStr1Read.icms_st_apagar });
 
     // 54.2) faturar (entrada) gera o título RESIDUAL ST golden-exato (à vista = DTCONTABIL, não DTEMISSAO)
     // + OBS byte-a-byte com VÍRGULA decimal ('VALOR NOTA FISCAL: 14,00') + duplicata=NRONF.
@@ -1717,7 +1727,8 @@ async function main() {
       { obs: strTit[0]?.obs, esperada: obsEsperada });
 
     // 54.3) ICMS_ST_PAGO_FONTE abate o residual (100 − 30 = 70).
-    const nfSt2 = await novaNf(baseNf({ tipo: 'E', nronf: 'STR002', codparceiro: 22, dtemissao: '2026-06-16', dtcontabil: '2026-06-16', total_icmst_externo: 100, icms_st_pago_fonte: 30, itens: [itemP1(4)] }));
+    const nfSt2 = await novaNf(baseNf({ tipo: 'E', nronf: 'STR002', codparceiro: 22, dtemissao: '2026-06-16', dtcontabil: '2026-06-16', icms_st_pago_fonte: 30, itens: [itemP1(4)] }));
+    await comStExterno(nfSt2, 100);
     const nfSt2Read = (await (await fetch(`${base}/fiscal/nf/${nfSt2}`, { headers: H })).json()) as any;
     await faturarNf(nfSt2, { numParcelas: 1, primeiroVencimento: '2026-07-16', intervaloDias: 30 }, H);
     const strTit2 = await stResidualDaNf(nfSt2);
@@ -1741,7 +1752,8 @@ async function main() {
     check('4c: SAÍDA com total_icmst_externo → 0 RESIDUAL ST (só entrada recolhe)', strTitS.length === 0, { strTitS });
 
     // 54.7) PUT parcial que NÃO reenvia os inputs de ST NÃO pode zerar o icms_st_apagar persistido.
-    const nfStrPut = await novaNf(baseNf({ tipo: 'E', nronf: 'STR005', codparceiro: 22, dtemissao: '2026-06-20', dtcontabil: '2026-06-20', total_icmst_externo: 200, itens: [itemP1(4)] }));
+    const nfStrPut = await novaNf(baseNf({ tipo: 'E', nronf: 'STR005', codparceiro: 22, dtemissao: '2026-06-20', dtcontabil: '2026-06-20', itens: [itemP1(4)] }));
+    await comStExterno(nfStrPut, 200);
     const putParcial = await fetch(`${base}/fiscal/nf/${nfStrPut}`, { method: 'PUT', headers: H, body: JSON.stringify({ obs: 'edicao parcial' }) });
     const nfStrPutRead = (await (await fetch(`${base}/fiscal/nf/${nfStrPut}`, { headers: H })).json()) as any;
     check('4c: PUT parcial (só obs) preserva icms_st_apagar (200) — não zera o derivado',
@@ -23541,6 +23553,75 @@ async function main() {
           await pgIx.query(`DELETE FROM nf WHERE codnf = $1`, [c]).catch(() => undefined);
         }
         await pgIx.end();
+      }
+    }
+
+    // ══ §245 ITEM DA NF — o ST EXTERNO da entrada (RecalculaICMSST sobre o TIndexadorTributario) e os totais do cabeçalho ══════════
+    {
+      const pgSt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const figAntes = (await pgSt.query(`SELECT figurafiscal FROM empresas WHERE idempresa = 1`)).rows[0]?.figurafiscal ?? null;
+      const prodAntes = (await pgSt.query(`SELECT codfigurafiscal, mva, aliqope_interna FROM produtos WHERE idproduto = 3`)).rows[0] as any;
+      const livreAntes = (await pgSt.query(`SELECT retira_fornindex FROM parceiros WHERE codparceiro = 22`)).rows[0]?.retira_fornindex ?? null;
+      const ufAntes = (await pgSt.query(`SELECT uf FROM parceiros_end WHERE codend = 6`)).rows[0]?.uf ?? null;
+      const nfs: number[] = [];
+      let idx = 0;
+      try {
+        await pgSt.query(`UPDATE empresas SET figurafiscal = 'O' WHERE idempresa = 1`);
+        await pgSt.query(`UPDATE produtos SET codfigurafiscal = 78, mva = 0, aliqope_interna = 0 WHERE idproduto = 3`);
+        await pgSt.query(`UPDATE parceiros SET retira_fornindex = 'N' WHERE codparceiro = 22`);
+        await pgSt.query(`UPDATE parceiros_end SET uf = 'MA' WHERE codend = 6`);
+        idx = Number((await pgSt.query(`INSERT INTO indexador_tributario (codfigurafiscal, tp_cadastro, origem, destino, codcfop, operacao, icm_fonte, aliquota_dest, reducao, redcom, mva, aliquota_fem, tp_figura, st_externo)
+          VALUES (78, 'F', 'MA', 'MG', 1403, 'F', 12, 18, 100, 100, 40, 0, 'N', 'N') RETURNING codindexadortributario`)).rows[0].codindexadortributario);
+        const criar = async (nronf: string, extra: Record<string, unknown> = {}) => {
+          const r = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 1, serie: '1', tipo: 'E', nronf, tipoemissao: '1', codparceiro: 22, codparceiro_end: 6,
+            dtemissao: '2037-01-05', dtcontabil: '2037-01-05', cfop: '1403', ...extra, itens: [
+              { nroitem: 1, codproduto: 3, quantidade: 10, vrcusto: 10, cfop: '1403', aliquota: 'STB', cst: 10, icme: 12, bcr: 100, vrbasest: 150, vricmst: 5 },
+            ] }) });
+          const body = (await r.json().catch(() => ({}))) as any;
+          const id = Number(body.codnf) || 0; nfs.push(id); return id;
+        };
+        const item = async (c: number) => (await pgSt.query(`SELECT vrbasest, vricmst, streal, vrbase_stexterno, vricms_stexterno, vricms_stexterno_separadonf, custo_real_unit FROM nf_prod WHERE codnf = $1`, [c])).rows[0] as any;
+        const cab = async (c: number) => (await pgSt.query(`SELECT total_icmst_externo, totalbase_stexterno, total_streal, totalicm_stexterno_sepnf, icms_st_apagar, totalicm_st, totalnf FROM nf WHERE codnf = $1`, [c])).rows[0] as any;
+        const N = (v: unknown) => Number(v);
+        // loja 'O', indexador MA→MG: MVA ajustado 50,244 → BC-ST 100 × 1,50244 = 150,24; débito 27,04 − crédito 12 − ST da nota 5 = 10,04 a recolher; ST calculado 15,04
+        const createAndRead = async (nronf: string, extra: Record<string, unknown> = {}) => { const c = await criar(nronf, extra); return { i: await item(c), h: await cab(c) }; };
+        const a = await createAndRead('ST245A');
+        check('ITEM DA NF §245.1 [o ST externo pelo indexador]: na loja "O", o item com indexador grava VRBASE_STEXTERNO 150,24 (a BC-ST com o MVA ajustado), STREAL 15,04 (o ST calculado) e VRICMS_STEXTERNO 10,04 (débito − crédito − a ST da nota) — a ST da nota fica como veio; o cabeçalho soma os itens (TOTALICM_STEXTERNO/BASE/STREAL, 6.522 de 6.522 em 2026) e o ICMS_ST_APAGAR = 10,04; o custo real já leva o STREAL (o ST antes do custo)',
+          N(a.i?.vrbasest) === 150 && N(a.i?.vricmst) === 5 && N(a.i?.vrbase_stexterno) === 150.24 && N(a.i?.streal) === 15.04 && N(a.i?.vricms_stexterno) === 10.04
+          && N(a.h?.total_icmst_externo) === 10.04 && N(a.h?.totalbase_stexterno) === 150.24 && N(a.h?.total_streal) === 15.04 && N(a.h?.icms_st_apagar) === 10.04
+          && N(a.i?.custo_real_unit) > 11.4,
+          { a });
+        // fornecedor livre de indexador (produto sem MVA/ALIQOPE_INTERNA): o ST externo é o da nota
+        await pgSt.query(`UPDATE parceiros SET retira_fornindex = 'S' WHERE codparceiro = 22`);
+        const b = await createAndRead('ST245B');
+        await pgSt.query(`UPDATE parceiros SET retira_fornindex = 'N' WHERE codparceiro = 22`);
+        // loja 'D', terceiros: idem
+        await pgSt.query(`UPDATE empresas SET figurafiscal = 'D' WHERE idempresa = 1`);
+        const c = await createAndRead('ST245C');
+        await pgSt.query(`UPDATE empresas SET figurafiscal = 'O' WHERE idempresa = 1`);
+        check('ITEM DA NF §245.2 [sem indexador, o ST externo é o da nota]: com o fornecedor livre de indexador, e na loja "D" com a nota de terceiros, STREAL = a ST da nota (5), VRBASE_STEXTERNO = a BC-ST da nota (150) e nada a recolher (99,1% e 98,7% dos importados de 2026)',
+          N(b.i?.streal) === 5 && N(b.i?.vrbase_stexterno) === 150 && N(b.i?.vricms_stexterno) === 0 && N(b.h?.icms_st_apagar) === 0
+          && N(c.i?.streal) === 5 && N(c.i?.vrbase_stexterno) === 150 && N(c.i?.vricms_stexterno) === 0,
+          { b, c });
+        // emissão própria (TIPOEMISSAO 0) com indexador de ST_EXTERNO, CFOP 1403: a ST sai da nota e vai inteira para o ST externo SEPARADO
+        await pgSt.query(`UPDATE indexador_tributario SET st_externo = 'S' WHERE codindexadortributario = $1`, [idx]);
+        const d = await createAndRead('ST245D', { tipoemissao: '0' });
+        check('ITEM DA NF §245.3 [emissão própria com ST externo]: TIPOEMISSAO 0 + indexador com ST_EXTERNO + CFOP 1403 zera a BC/ST da nota, o STREAL e a base externa, e grava o ST calculado (15,04) como VRICMS_STEXTERNO e SEPARADONF; o cabeçalho acompanha (TOTALICM_ST 0, o separado 15,04, o TOTALNF sem a ST)',
+          N(d.i?.vrbasest) === 0 && N(d.i?.vricmst) === 0 && N(d.i?.streal) === 0 && N(d.i?.vrbase_stexterno) === 0
+          && N(d.i?.vricms_stexterno) === 15.04 && N(d.i?.vricms_stexterno_separadonf) === 15.04
+          && N(d.h?.totalicm_st) === 0 && N(d.h?.totalicm_stexterno_sepnf) === 15.04 && N(d.h?.total_icmst_externo) === 15.04 && N(d.h?.totalnf) === 100,
+          { d });
+      } finally {
+        await pgSt.query(`UPDATE empresas SET figurafiscal = $1 WHERE idempresa = 1`, [figAntes]).catch(() => undefined);
+        await pgSt.query(`UPDATE produtos SET codfigurafiscal = $1, mva = $2, aliqope_interna = $3 WHERE idproduto = 3`, [prodAntes?.codfigurafiscal, prodAntes?.mva, prodAntes?.aliqope_interna]).catch(() => undefined);
+        await pgSt.query(`UPDATE parceiros SET retira_fornindex = $1 WHERE codparceiro = 22`, [livreAntes]).catch(() => undefined);
+        await pgSt.query(`UPDATE parceiros_end SET uf = $1 WHERE codend = 6`, [ufAntes]).catch(() => undefined);
+        if (idx) await pgSt.query(`DELETE FROM indexador_tributario WHERE codindexadortributario = $1`, [idx]).catch(() => undefined);
+        for (const c of nfs.filter((x) => x > 0)) {
+          await pgSt.query(`DELETE FROM nf_prod WHERE codnf = $1`, [c]).catch(() => undefined);
+          await pgSt.query(`DELETE FROM nf WHERE codnf = $1`, [c]).catch(() => undefined);
+        }
+        await pgSt.end();
       }
     }
 
