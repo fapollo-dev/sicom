@@ -27,9 +27,30 @@ export interface ProcessamentoResultado {
   proc: 'S' | 'N';
 }
 
-/** Processa a NF: move o estoque (entrada soma / saída baixa) e trava a nota (proc='S'). */
-export function processarNf(codnf: number): Promise<ProcessamentoResultado> {
-  return req<ProcessamentoResultado>(`/fiscal/nf/${codnf}/processar`);
+export type ModoPrecoProcessar = 'online' | 'lote' | 'nenhum';
+export interface EscolhasDoProcessar { precos?: { modo?: ModoPrecoProcessar; sincronizar?: boolean; itens?: number[] }; semAlterarCusto?: number[] }
+
+/** Processa a NF: move o estoque (entrada soma / saída baixa), atualiza os produtos e o preço (na entrada) e trava a nota (proc='S'). */
+export function processarNf(codnf: number, escolhas?: EscolhasDoProcessar): Promise<ProcessamentoResultado> {
+  return req<ProcessamentoResultado>(`/fiscal/nf/${codnf}/processar`, escolhas);
+}
+
+export interface ItemDoProcessar {
+  codnfprod: number; nroitem: number; codproduto: number; descricao?: string | null; quantidade: unknown; vrvenda: unknown; vrvenda_loja: unknown;
+  alterapreco: boolean; alteracusto: boolean;
+}
+export interface OpcoesDoProcessar { codnf: number; entrada: boolean; modo: ModoPrecoProcessar; sincronizar: boolean; onlineBloqueado: boolean; itens: ItemDoProcessar[] }
+
+/** os padrões da tela de processar (TfrmEstoqueNF.FormShow) */
+export async function opcoesDoProcessarNf(codnf: number): Promise<OpcoesDoProcessar> {
+  const res = await fetch(`${BASE}/fiscal/nf/${codnf}/processar/opcoes`, { headers: apiHeaders() });
+  handle401(res);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const envelope: ErroResposta = isErroResposta(body) ? body : { statusCode: res.status, code: 'ERRO', message: body?.message ?? res.statusText };
+    throw Object.assign(new Error(envelope.code ?? res.statusText), { envelope, status: res.status, body });
+  }
+  return body as OpcoesDoProcessar;
 }
 
 /** Reverte o processamento: estorna o estoque (sentido inverso) e libera a nota (proc='N'). */

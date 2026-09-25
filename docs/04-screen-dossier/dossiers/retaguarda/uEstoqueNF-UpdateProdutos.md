@@ -431,5 +431,5 @@ Reverter (qualquer corte): **não desfazer** nada de produto/histórico/lote —
 | 3 — flags do item no processar | ✅ GERAESTOQUE/MOVIMENTA_ESTOQUE = PROC_QTDE do CFOP do item, ORIGEM_ESTOQUE 'E', USOCONSUMO do produto (`flagsDoItemNoProcessar`); a importação não decide mais (e o SPED não usa ORIGEM_ESTOQUE). Mig 353: PROC_QTDE da semente com o valor da produção. Smoke §241. Falta: troca (ESTOQUERETIRADATROCA) e depósito/produção (TIPO_ESTOQUE) |
 | 4 — MULTI_PRECO "sempre" | ✅ custo fiscal, ST, FCP-ST, seguro, frete, markup, ICME efetivo, despesas, IPI, frete 2, créditos, débitos, escada, CSI, PMZ, venda sugerida, bonificação (regra x910), ajuste; PRODUTOS: PIS (só com o flag no item), alteração |
 | 5 — custo e fornecedor | ✅ VRCUSTO contábil/VRCUSTOREAL/VRCUSTOREP com as 3 chaves; histórico 'NF de Entrada' e 'Processamento da NF Nro: X'; o gatilho UPDATE_CUSTO_MULTI_PRECO portado (mig 354, vale para toda tela); CODFOR com ATUALIZA_FORNEC_PRODUTO_PROCESSAR_NF (módulo Retaguarda). Smoke §243 |
-| 6 — preço de venda (lote/on-line) | ⏳ |
+| 6 — preço de venda (lote/on-line) + a tela de processar da entrada (`nf-preco-venda-processar.ts`, `GET /fiscal/nf/:id/processar/opcoes`, corpo do processar com `precos` e `semAlterarCusto`; mig 357 com as 3 configs) | ✅ smoke §251 |
 | 7 — ramos de config (transferência: o dado diz que NÃO altera custo; seguir o dado) | ⏳ |

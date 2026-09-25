@@ -99,7 +99,7 @@ globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters
  * (uEstoqueNF.pas:833) — então, sem parcela nenhuma, grava UMA com a base inteira antes (o "Gerar financeiro" da aba de cobrança).
  * A regra em si é testada no §215, que chama o processar direto.
  */
-async function processarNf(codnf: unknown, headers: Record<string, string>): Promise<Response> {
+async function processarNf(codnf: unknown, headers: Record<string, string>, corpo?: Record<string, unknown>): Promise<Response> {
   pgParcelas ??= new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
   const criadas = await pgParcelas.query(
     `INSERT INTO faturamento (idnf, data, modalidade, valor, liberado, nrofatura, totalparcelasfatura, nronf)
@@ -113,7 +113,7 @@ async function processarNf(codnf: unknown, headers: Record<string, string>): Pro
      RETURNING codfaturamento`,
     [Number(codnf)],
   );
-  const r = await fetch(`${base}/fiscal/nf/${codnf}/processar`, { method: 'POST', headers });
+  const r = await fetch(`${base}/fiscal/nf/${codnf}/processar`, { method: 'POST', headers, ...(corpo ? { body: JSON.stringify(corpo) } : {}) });
   // a parcela só existia para a conferência: sai, para não aparecer como "a faturar" nas consultas dos outros testes
   for (const row of criadas.rows) await pgParcelas.query(`DELETE FROM faturamento WHERE codfaturamento = $1`, [row.codfaturamento]);
   return r;
@@ -23933,6 +23933,85 @@ async function main() {
           await pgSx.query(`DELETE FROM nf WHERE codnf = $1`, [c]).catch(() => undefined);
         }
         await pgSx.end();
+      }
+    }
+
+    // ══ §251 PROCESSAR A ENTRADA — o PREÇO DE VENDA (lote / on-line) e o "altera custo" do item (UpdateProdutos, udmNF.pas:7352-7503) ══════════
+    {
+      const pgPv = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const mpAntes = (await pgPv.query(`SELECT idempresa, vrvenda, vrcusto, vrcustoreal, vrcustorep, promocao FROM multi_preco WHERE idproduto = 2`)).rows as any[];
+      const grupoAntes = (await pgPv.query(`SELECT codgrupopreco FROM produtos WHERE idproduto = 2`)).rows[0]?.codgrupopreco ?? null;
+      const nfs: number[] = [];
+      try {
+        await pgPv.query(`UPDATE produtos SET codgrupopreco = NULL WHERE idproduto = 2`);
+        for (const e of [1, 2]) {
+          await pgPv.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrcusto, vrcustoreal, vrcustorep, promocao) VALUES (2, $1, 12, 8, 8, 8, 'N')
+            ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda = 12, vrcusto = 8, vrcustoreal = 8, vrcustorep = 8, promocao = 'N'`, [e]);
+        }
+        const criar = async (nronf: string, vrvenda: number, vrcusto = 10) => {
+          const r = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 1, serie: '1', tipo: 'E', nronf, tipoemissao: '1', codparceiro: 22,
+            dtemissao: '2037-01-11', dtcontabil: '2037-01-11', cfop: '1102', itens: [{ nroitem: 1, codproduto: 2, quantidade: 1, vrcusto, vrvenda, cfop: '1102', aliquota: 'T01', cst: 0, icme: 18, bcr: 100 }] }) });
+          const c = Number(((await r.json().catch(() => ({}))) as any).codnf) || 0;
+          if (c) nfs.push(c);
+          const it = Number((await pgPv.query(`SELECT codnfprod FROM nf_prod WHERE codnf = $1`, [c])).rows[0]?.codnfprod);
+          return { c, it };
+        };
+        const lotes = async (nronf: string) => (await pgPv.query(`SELECT idproduto, codempresa, vrvenda, processado FROM lote_preco WHERE obs = $1 ORDER BY codempresa`, [`REFERENTE A NOTA FISCAL DE NRO. ${nronf}`])).rows as any[];
+        const flags = async (c: number) => (await pgPv.query(`SELECT existealteracaovenda, alteravendalote, alteravendaonline, alteracustoesto, existealteracaocusto FROM historico_processamento_nf WHERE codnf = $1 AND historico = 'PROCESSAMENTO'`, [c])).rows[0] as any;
+        const mp = async () => Object.fromEntries(((await pgPv.query(`SELECT idempresa, vrvenda, vrcusto FROM multi_preco WHERE idproduto = 2 AND idempresa IN (1, 2)`)).rows as any[]).map((r) => [r.idempresa, r]));
+        // 1) os padrões da tela: lote (o on-line bloqueado no módulo Retaguarda, como na produção), Individual, nenhum item marcado (ATUALIZA_VENDA_NF = N)
+        const a = await criar('PV251A', 15);
+        const op = (await (await fetch(`${base}/fiscal/nf/${a.c}/processar/opcoes`, { headers: H })).json().catch(() => ({}))) as any;
+        const pa = await processarNf(a.c, H, { precos: { itens: [a.it] } });
+        const la = await lotes('PV251A');
+        const fa = await flags(a.c);
+        const mpA = await mp();
+        // 2) o mesmo preço da loja: com GERA_LOTE_PROD_ALTERADO não gera lote
+        const b = await criar('PV251B', 12);
+        const pb = await processarNf(b.c, H, { precos: { itens: [b.it] } });
+        const lb = await lotes('PV251B');
+        // 3) on-line pedido com o bloqueio → 422 e a nota não processa
+        const c = await criar('PV251C', 16);
+        const pcBloq = await processarNf(c.c, H, { precos: { modo: 'online', sincronizar: true, itens: [c.it] } });
+        const pcBloqJ = (await pcBloq.json().catch(() => ({}))) as any;
+        const procC = (await pgPv.query(`SELECT proc FROM nf WHERE codnf = $1`, [c.c])).rows[0]?.proc;
+        check('PROCESSAR A ENTRADA §251.1 [o preço de venda por lote]: a tela abre em "Gerar lote" (BLOQUEAR_ATUALIZA_PRECO_ONLINE_NF = S no módulo Retaguarda trava o on-line, como na produção), Individual e sem item marcado (ATUALIZA_VENDA_NF do CFOP = N); marcado o item com a venda 15 (a loja tem 12), o processar enfileira UM LOTEPRECO "REFERENTE A NOTA FISCAL DE NRO. PV251A" (loja 1, 15, não processado) sem mexer no preço da loja, e o histórico do processamento marca venda alterada/lote; com o mesmo preço da loja não gera (GERA_LOTE_PROD_ALTERADO); on-line pedido com o bloqueio → 422 e a nota não processa',
+          op.modo === 'lote' && op.onlineBloqueado === true && op.sincronizar === false && op.itens?.[0]?.alterapreco === false && op.itens?.[0]?.alteracusto === true
+          && pa.status === 200 && la.length === 1 && Number(la[0].codempresa) === 1 && Number(la[0].vrvenda) === 15 && la[0].processado === 'N'
+          && Number(mpA[1]?.vrvenda) === 12 && fa?.existealteracaovenda === 'S' && fa?.alteravendalote === 'S' && fa?.alteravendaonline === 'N'
+          && pb.status === 200 && lb.length === 0 && pcBloq.status === 422 && pcBloqJ.code === 'NF_PRECO_ONLINE_BLOQUEADO' && procC === 'N',
+          { op, pa: pa.status, la, fa, mpA, pb: pb.status, lb, pcBloq: [pcBloq.status, pcBloqJ.code], procC });
+        // 4) on-line liberado e Sincronizar: o preço vai às duas lojas, com o histórico 'Processamento da NF Nro: PV251C' por loja
+        await pgPv.query(`UPDATE configuracoes_especificas SET valor = 'N' WHERE tipo = 'Modulo' AND chave = 'Retaguarda' AND id = (SELECT id FROM configuracoes WHERE codigo = 'BLOQUEAR_ATUALIZA_PRECO_ONLINE_NF')`);
+        const pcOn = await processarNf(c.c, H, { precos: { modo: 'online', sincronizar: true, itens: [c.it] } });
+        await pgPv.query(`UPDATE configuracoes_especificas SET valor = 'S' WHERE tipo = 'Modulo' AND chave = 'Retaguarda' AND id = (SELECT id FROM configuracoes WHERE codigo = 'BLOQUEAR_ATUALIZA_PRECO_ONLINE_NF')`);
+        const mpC = await mp();
+        const histC = (await pgPv.query(`SELECT codempresa, valor_anterior, valor_atual FROM historico_dinamico WHERE campo = 'VRVENDA' AND valor_chave = '2' AND historico = 'Processamento da NF Nro: PV251C' ORDER BY codempresa`)).rows as any[];
+        const fc = await flags(c.c);
+        // 5) o "altera custo" desmarcado: o custo da loja não muda (a chave ESTO)
+        const d = await criar('PV251D', 12, 30);
+        const pd = await processarNf(d.c, H, { semAlterarCusto: [d.it] });
+        const fd = await flags(d.c);
+        const mpD = await mp();
+        check('PROCESSAR A ENTRADA §251.2 [o on-line e o "altera custo"]: com o on-line liberado e Sincronizar, o preço 16 vai às lojas 1 e 2 e o histórico dinâmico grava "Processamento da NF Nro: PV251C" em cada uma (12 → 16); o histórico do processamento marca on-line. Com o "altera custo" desmarcado no item (a chave ESTO), o processar não mexe no custo da loja (o custo da nota era 30) e o histórico marca ESTO = N',
+          pcOn.status === 200 && Number(mpC[1]?.vrvenda) === 16 && Number(mpC[2]?.vrvenda) === 16 && histC.length === 2 && histC.every((h) => h.valor_atual === '16')
+          && fc?.alteravendaonline === 'S' && pd.status === 200 && fd?.alteracustoesto === 'N' && fd?.existealteracaocusto === 'N' && Number(mpD[1]?.vrcusto) === Number(mpC[1]?.vrcusto),
+          { pcOn: pcOn.status, mpC, histC, fc, pd: pd.status, fd, mpD });
+      } finally {
+        for (const c of nfs) {
+          await fetch(`${base}/fiscal/nf/${c}/reverter`, { method: 'POST', headers: H }).catch(() => undefined);
+          await pgPv.query(`DELETE FROM historico_processamento_nf WHERE codnf = $1`, [c]).catch(() => undefined);
+          await pgPv.query(`DELETE FROM nf_prod WHERE codnf = $1`, [c]).catch(() => undefined);
+          await pgPv.query(`DELETE FROM nf WHERE codnf = $1`, [c]).catch(() => undefined);
+        }
+        await pgPv.query(`DELETE FROM lote_preco WHERE obs LIKE 'REFERENTE A NOTA FISCAL DE NRO. PV251%'`).catch(() => undefined);
+        await pgPv.query(`DELETE FROM multi_preco WHERE idproduto = 2 AND idempresa IN (1, 2)`).catch(() => undefined);
+        for (const r of mpAntes) {
+          await pgPv.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda, vrcusto, vrcustoreal, vrcustorep, promocao) VALUES (2, $1, $2, $3, $4, $5, $6)
+            ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda = $2, vrcusto = $3, vrcustoreal = $4, vrcustorep = $5, promocao = $6`, [r.idempresa, r.vrvenda, r.vrcusto, r.vrcustoreal, r.vrcustorep, r.promocao]).catch(() => undefined);
+        }
+        await pgPv.query(`UPDATE produtos SET codgrupopreco = $1 WHERE idproduto = 2`, [grupoAntes]).catch(() => undefined);
+        await pgPv.end();
       }
     }
 

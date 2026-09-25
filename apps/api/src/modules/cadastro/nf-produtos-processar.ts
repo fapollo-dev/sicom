@@ -12,12 +12,13 @@
  *    'Processamento da NF Nro: X' (VRCUSTOREAL), como o binário novo grava; as linhas "Alteracao do Valor de Custo…" vêm do gatilho
  *    (mig 354).
  * Transferência: só o histórico (o dado: 0 de 231 itens com o custo alterado, apesar da config). Devolução: só o histórico. Reverter não
- * desfaz nada disto (uNF.pas:8913-9186). O preço de venda (lote/on-line) fica para o corte 6 — ATUALIZA_VENDA_NF é 'N' em todos os CFOPs
- * usados e 2026 não teve lote de preço da NF.
+ * desfaz nada disto (uNF.pas:8913-9186). O preço de venda (lote/on-line) é o `nf-preco-venda-processar.ts`; o operador pode desmarcar o
+ * "altera custo" de um item na tela de processar (a chave ESTO; padrão marcada na entrada, uEstoqueNF.pas:1838).
  */
 import { sql } from 'kysely';
 import { configNaTrx } from '../compras/pedido-heranca';
 import { custoDoItemNaEntrada, arred, type EmpresaCusto } from './nf-custo-item';
+import { opcoesDePreco, precoDeVendaDoItem, type PedidoPrecoProcessar } from './nf-preco-venda-processar';
 
 type AnyDB = any;
 const n = (v: unknown): number => {
@@ -29,7 +30,10 @@ const div = (a: number, b: number) => (b > 0 ? a / b : 0);
 /** o número como o `FloatToStr` do Delphi escreve no histórico da aplicação (vírgula, até 15 dígitos significativos) */
 const floatToStr = (v: unknown) => String(Number(n(v).toPrecision(15))).replace('.', ',');
 
-export async function atualizarProdutosDaEntrada(trx: AnyDB, codnf: number, emp: number, op: number | null): Promise<void> {
+/** o que o operador escolhe na tela de processar (`TfrmEstoqueNF`): o preço de venda e os itens sem "altera custo" */
+export interface OpcoesProcessarEntrada { precos?: PedidoPrecoProcessar; semAlterarCusto?: number[] }
+
+export async function atualizarProdutosDaEntrada(trx: AnyDB, codnf: number, emp: number, op: number | null, opcoes: OpcoesProcessarEntrada = {}): Promise<void> {
   const nf = (await trx.selectFrom('nf').select(['tipo', 'cfop', 'codparceiro', 'nronf', 'nf_importacao_nfe', 'totalprod']).where('codnf', '=', codnf).executeTakeFirst()) as
     Record<string, unknown> | undefined;
   if (!nf || String(nf.tipo) !== 'E') return;
@@ -42,6 +46,14 @@ export async function atualizarProdutosDaEntrada(trx: AnyDB, codnf: number, emp:
   const ctxCfg = { empresaId: emp, operadorId: op, modulo: 'Retaguarda' };
   const aproveitamento = String((await configNaTrx(trx, 'APROVEITAMENTO_CREDITO_ICMSST_NF', ctxCfg)) ?? 'N').toUpperCase() === 'S';
   const trocaFornecedor = String((await configNaTrx(trx, 'ATUALIZA_FORNEC_PRODUTO_PROCESSAR_NF', ctxCfg)) ?? 'N').toUpperCase() === 'S';
+  const precos = await opcoesDePreco(trx, codnf, emp, op, opcoes.precos);
+  const semCusto = new Set((opcoes.semAlterarCusto ?? []).map(Number));
+  const ctxPreco = {
+    emp, op, nronf: String(nf.nronf ?? ''),
+    empresas: ((await trx.selectFrom('empresas').select('idempresa').orderBy('idempresa').execute()) as Array<{ idempresa: number }>).map((r) => Number(r.idempresa)),
+    atualizarGrupoCfg: String((await configNaTrx(trx, 'ENTRADA_ATUALIZAR_PRECO_GRUPO', ctxCfg)) ?? 'N').toUpperCase() === 'S',
+    geraLoteSoAlterado: String((await configNaTrx(trx, 'GERA_LOTE_PROD_ALTERADO', ctxCfg)) ?? 'N').toUpperCase() === 'S',
+  };
   const itens = (await trx.selectFrom('nf_prod as np').leftJoin('cfop as c', (j: any) => j.on(sql`c.codcfop::text`, '=', sql`np.cfop::text`))
     .selectAll('np').select(['c.altera_custo_nf']).where('np.codnf', '=', codnf).orderBy('np.codnfprod').execute()) as Array<Record<string, unknown>>;
   const umItem = String(nf.nf_importacao_nfe ?? '') === 'S' && itens.length === 1 ? n(nf.totalprod) : null;
@@ -51,11 +63,12 @@ export async function atualizarProdutosDaEntrada(trx: AnyDB, codnf: number, emp:
     const mp = (await trx.selectFrom('multi_preco').selectAll().where('idproduto', '=', idp).where('idempresa', '=', emp).executeTakeFirst()) as Record<string, unknown> | undefined;
     if (!mp) continue; // só o produto com linha de preço na loja da nota (udmNF.pas:7320)
     const prod = (await trx.selectFrom('produtos as p').leftJoin('unidade as u', 'u.codunidade', 'p.codunidade')
-      .select(['p.fatorcx', 'p.codfor', 'p.unidade', 'u.sigla']).where('p.idproduto', '=', idp).executeTakeFirst()) as Record<string, unknown> | undefined;
+      .select(['p.fatorcx', 'p.codfor', 'p.unidade', 'p.codgrupopreco', 'u.sigla']).where('p.idproduto', '=', idp).executeTakeFirst()) as Record<string, unknown> | undefined;
     const c = custoDoItemNaEntrada(it, empresa, { cfopNota: nf.cfop, aproveitamentoCreditoIcmsSt: aproveitamento, totalProdNotaUmItem: umItem });
     const qtd = n(it.quantidade) * (n(it.fatorembal) || 1);
     const q = c.qtdetotal || qtd;
-    const esto = 'S';
+    const esto = semCusto.has(Number(it.codnfprod)) ? 'N' : 'S';
+    const alteraPreco = precos.modo !== 'nenhum' && precos.itens.has(Number(it.codnfprod));
     const deco = String(it.atualiza_multipreco_decomp ?? '') === 'S' ? 'S' : 'N';
     const cfopCusto = String(it.altera_custo_nf ?? '') === 'S' ? 'S' : 'N';
     const alteraCusto = esto === 'S' && deco === 'S' && cfopCusto === 'S' ? 'S' : 'N';
@@ -87,7 +100,8 @@ export async function atualizarProdutosDaEntrada(trx: AnyDB, codnf: number, emp:
       vrfcpst: arred(div(n(it.fcp_valor_st), q), 4), frete: n(it.frete), frete2: n(it.frete2), seguro: n(it.seguro), despacessorio: arred(div(n(it.depsacess), q), 4),
       bonificacao: cfopNotaX910 || bonifItemX910 ? 0 : n(it.bonificacao), creditoicm: c.creditoIcm, creditopiscofins: c.creditoPis, debitoicm: n(it.debitoicm),
       debitopiscofins: n(it.debitopiscofins), existealteracaocusto: alteraCusto, alteracustodeco: deco, alteracustoesto: esto, alteracustocfop: cfopCusto,
-      existealteracaovenda: 'N', alteravendaonline: 'N', alteravendalote: 'N', ...flagsItem,
+      existealteracaovenda: alteraPreco ? 'S' : 'N', alteravendaonline: alteraPreco && precos.modo === 'online' ? 'S' : 'N',
+      alteravendalote: alteraPreco && precos.modo === 'lote' ? 'S' : 'N', ...flagsItem,
     }).execute();
     if (transferencia || devolucao) continue;
 
@@ -110,6 +124,9 @@ export async function atualizarProdutosDaEntrada(trx: AnyDB, codnf: number, emp:
     if (bonifItemX910) set.bonificacao = 0;
     else if (!cfopNotaX910) set.bonificacao = n(it.bonificacao);
     if (mp.vrvenda == null) set.vrvenda = 0;
+    // o PREÇO DE VENDA (udmNF.pas:7363-7503): lote ou on-line, com o que o operador marcou
+    const pv = await precoDeVendaDoItem(trx, ctxPreco, it, { codgrupopreco: prod?.codgrupopreco }, mp, precos);
+    if (pv.vrvendaNota !== undefined) set.vrvenda = pv.vrvendaNota;
     // o CUSTO, com as 3 chaves (udmNF.pas:7178-7192, :7507-7510)
     if (alteraCusto === 'S') {
       const vrcusto = arred(c.vrcustofinalc, 4);

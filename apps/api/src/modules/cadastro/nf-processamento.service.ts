@@ -14,7 +14,8 @@ import { totaisProdutosNf } from '@apollo/shared';
 import { gerarCaixaDaNf, reverterCaixaDaNf } from './nf-caixa';
 import { configNaTrx } from '../compras/pedido-heranca';
 import { fotoDaNf, logDaDiferencaNf } from './nf-log';
-import { atualizarProdutosDaEntrada } from './nf-produtos-processar';
+import { atualizarProdutosDaEntrada, type OpcoesProcessarEntrada } from './nf-produtos-processar';
+import { opcoesDePreco } from './nf-preco-venda-processar';
 import { contextoIndexadorNf, indexadorDoItem } from './nf-indexador-item';
 import { recalcularMetricasEntrada } from './nf-custo-item';
 import { retratoDoProduto } from './nf.aggregate';
@@ -81,8 +82,8 @@ export class NfProcessamentoService {
     private readonly liberacao: LiberacaoService,
   ) {}
 
-  async processar(codnf: number): Promise<void> {
-    await this.mover(codnf, 'processar');
+  async processar(codnf: number, opcoes: OpcoesProcessarEntrada = {}): Promise<void> {
+    await this.mover(codnf, 'processar', opcoes);
     // AUTO-DISPARO contábil (F5b-fase3): entrada AUTOMATICA integra no processar (udmNF.pas:7778);
     // saída M55 é barrada aqui (exige statusnfe='P') e integra no transmitir. Best-effort (não aborta).
     await this.contab.tentarContabilizar(codnf);
@@ -170,7 +171,7 @@ export class NfProcessamentoService {
     });
   }
 
-  private async mover(codnf: number, modo: 'processar' | 'reverter'): Promise<void> {
+  private async mover(codnf: number, modo: 'processar' | 'reverter', opcoes: OpcoesProcessarEntrada = {}): Promise<void> {
     const t = currentTenant();
     const emp = t.empresaId ?? null;
     const op = t.operadorId ?? null;
@@ -233,7 +234,7 @@ export class NfProcessamentoService {
       if (modo === 'processar') await flagsDoItemNoProcessar(trx, codnf);
       await this.aplicarMovimentoItens(trx, codnf, String(nf.tipo), sinal, modo === 'reverter' ? 'NF-REV' : 'NF', op, emp);
       // a entrada nos PRODUTOS (UpdateProdutos): o histórico do processamento, a linha de preço e o custo — reverter não desfaz
-      if (modo === 'processar') await atualizarProdutosDaEntrada(trx, codnf, emp, op);
+      if (modo === 'processar') await atualizarProdutosDaEntrada(trx, codnf, emp, op, opcoes);
 
       // flip de estado com compare-and-set (anti-corrida/replay).
       const novoProc = modo === 'processar' ? 'S' : 'N';
@@ -499,6 +500,30 @@ export class NfProcessamentoService {
     await db.updateTable('nf').set(liberar ? { libera_nf_indexador: 'S', codoperador_lib_nf_index: op } : { libera_nf_indexador: 'N', codoperador_lib_nf_index: null })
       .where('codnf', '=', codnf).execute();
     return { codnf, libera_nf_indexador: liberar ? 'S' : 'N' };
+  }
+
+
+  /**
+   * o que a tela de processar (`TfrmEstoqueNF.FormShow`, uEstoqueNF.pas:1724-1969) mostra na entrada: o modo do preço (On-line / Gerar lote /
+   * Não atualizar, com o on-line travado por BLOQUEAR_ATUALIZA_PRECO_ONLINE_NF), Individual ou Sincronizar, e por item o preço da nota × o da
+   * loja, "Atualizar preço de venda? [F7]" (padrão: ATUALIZA_VENDA_NF do CFOP do cabeçalho) e "altera custo" (padrão marcado)
+   */
+  async opcoesDoProcessar(codnf: number): Promise<Record<string, unknown>> {
+    const t = currentTenant();
+    const emp = t.empresaId ?? null;
+    if (emp == null) throw new BusinessRuleError('TENANT_FORBIDDEN');
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const nf = (await db.selectFrom('nf').select(['codnf', 'tipo']).where('codnf', '=', codnf).where('idempresa', '=', emp).executeTakeFirst()) as Record<string, unknown> | undefined;
+    if (!nf) throw new BusinessRuleError('NF_NAO_ENCONTRADA', { codnf });
+    const o = await opcoesDePreco(db, codnf, emp, t.operadorId ?? null);
+    const itens = (await db.selectFrom('nf_prod as i').leftJoin('produtos as p', 'p.idproduto', 'i.codproduto')
+      .leftJoin('multi_preco as m', (j: any) => j.onRef('m.idproduto', '=', 'i.codproduto').on('m.idempresa', '=', emp))
+      .select(['i.codnfprod', 'i.nroitem', 'i.codproduto', 'p.descricao', 'i.quantidade', 'i.fatorembal', 'i.vrvenda', 'm.vrvenda as vrvenda_loja'])
+      .where('i.codnf', '=', codnf).orderBy('i.nroitem').execute()) as Array<Record<string, unknown>>;
+    return {
+      codnf, entrada: String(nf.tipo) === 'E', modo: o.modo, sincronizar: o.sincronizar, onlineBloqueado: o.onlineBloqueado,
+      itens: itens.map((i) => ({ ...i, alterapreco: o.itens.has(Number(i.codnfprod)), alteracusto: String(nf.tipo) === 'E' })),
+    };
   }
 
 }

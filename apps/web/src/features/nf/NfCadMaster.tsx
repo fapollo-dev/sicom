@@ -29,6 +29,7 @@ import { useResourceOptions, type Opcao } from '../../shared/cadmaster/useResour
 import { useMensagem } from '../../shared/mensagem';
 import { NfItemModal } from './NfItemModal';
 import { NfSincronizarModal } from './NfSincronizarModal';
+import { NfProcessarModal } from './NfProcessarModal';
 import { NfRotativoModal } from './NfRotativoModal';
 import { NfLoteModal } from './NfLoteModal';
 import { NfScrapModal } from './NfScrapModal';
@@ -678,6 +679,7 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
   const liberada = String(form.watch('libera_nf_indexador' as never) ?? '') === 'S';
   const [podeLiberar, setPodeLiberar] = useState(false);
   const [liberando, setLiberando] = useState(false);
+  const [processando, setProcessando] = useState(false);
   useEffect(() => {
     let vivo = true;
     configuracaoItemNf().then((c) => { if (vivo) setPodeLiberar(Boolean(c.liberaNfIndexador)); }).catch(() => undefined);
@@ -738,7 +740,7 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
     <div className="flex min-w-56 flex-1 flex-col gap-gp-xs rounded-radius-base border border-border p-pad-sm">
       <span className="text-body-sm font-semibold text-fg-default">Processamento (estoque)</span>
       <div className="flex flex-wrap items-center gap-gp-sm">
-        {proc !== 'S' && <Button label="&Processar nota" variant="soft" onClick={() => void processar()} />}
+        {proc !== 'S' && <Button label="&Processar nota" variant="soft" onClick={() => (tipoNota === 'E' ? setProcessando(true) : void processar())} />}
         {proc !== 'S' && <Button label="Sincronizar CFOP/alíq./CST" variant="soft" onClick={() => setSincronizando(true)} />}
         {proc !== 'S' && tipoNota === 'E' && <Button label="Análise automática dos itens [F7]" variant="soft" onClick={() => void analisarItens()} />}
         {proc !== 'S' && podeLiberar && (
@@ -762,6 +764,9 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
             form.setValue('itens', itens as never, { shouldDirty: false });
             setSincronizando(false);
           }} />
+      )}
+      {processando && (
+        <NfProcessarModal codnf={codnf} onFechar={() => setProcessando(false)} onProcessado={() => { form.setValue('proc', 'S'); setProcessando(false); }} />
       )}
       {liberando && (
         <LiberarIndexadorModal liberada={liberada} onFechar={() => setLiberando(false)} onConfirmar={async (cred) => {

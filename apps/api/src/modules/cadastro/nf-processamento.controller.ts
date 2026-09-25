@@ -1,4 +1,5 @@
-import { Body, Controller, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { BusinessRuleError } from '../../shared/errors/app-error';
 import { NfProcessamentoService } from './nf-processamento.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
@@ -13,12 +14,28 @@ import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 export class NfProcessamentoController {
   constructor(private readonly proc: NfProcessamentoService) {}
 
+  /**
+   * processar — o corpo opcional é a tela de processar da entrada (`TfrmEstoqueNF`): `precos` { modo: online|lote|nenhum, sincronizar,
+   * itens: CODNFPROD com "Atualizar preço de venda" } e `semAlterarCusto` (CODNFPROD com o "altera custo" desmarcado); sem ele, os padrões
+   */
   @Post(':id/processar')
   @HttpCode(200)
   @RequerAcesso('FRMNF', 'BTNPROCESSAR')
-  async processar(@Param('id', ParseIntPipe) id: number) {
-    await this.proc.processar(id);
+  async processar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body?: { precos?: { modo?: 'online' | 'lote' | 'nenhum'; sincronizar?: boolean; itens?: number[] }; semAlterarCusto?: number[] },
+  ) {
+    const modo = body?.precos?.modo;
+    if (modo != null && !['online', 'lote', 'nenhum'].includes(modo)) throw new BusinessRuleError('NF_PRECO_MODO_INVALIDO', { modo });
+    await this.proc.processar(id, { precos: body?.precos, semAlterarCusto: Array.isArray(body?.semAlterarCusto) ? body!.semAlterarCusto : undefined });
     return { codnf: id, proc: 'S' };
+  }
+
+  /** os padrões da tela de processar (o modo do preço, Individual/Sincronizar e as marcações de cada item) */
+  @Get(':id/processar/opcoes')
+  @RequerAcesso('FRMNF', 'BTNPROCESSAR')
+  opcoesDoProcessar(@Param('id', ParseIntPipe) id: number) {
+    return this.proc.opcoesDoProcessar(id);
   }
 
   @Post(':id/reverter')
