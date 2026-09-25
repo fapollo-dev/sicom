@@ -4565,22 +4565,32 @@ async function main() {
         const kardexTr = async () => (await pgTr.query(`SELECT tipo, qtde, saldo_novo, origem FROM historico_prod WHERE idproduto=$1 AND origem='TROCA' ORDER BY codmov DESC`, [PRD])).rows as any[];
         const statusTr = async (id: number) => ((await (await fetch(`${base}/${TR}`, { headers: H })).json().catch(() => [])) as any[]).find((r) => Number(r.codtroca) === id)?.status;
 
-        // 47d.1) criar troca (fornecedor 22, 1 item produto 1 qtde 5) → 201 + vrcusto derivado 10 + status ABERTA.
+        const qtdetrocaTr = async () => Number((await pgTr.query(`SELECT coalesce(qtdetroca,0) AS q FROM estoque WHERE idproduto=$1 AND idempresa=1`, [PRD])).rows[0]?.q);
+        await pgTr.query(`UPDATE estoque SET qtdetroca = 0 WHERE idproduto=$1 AND idempresa=1`, [PRD]);
+        // 47d.1) criar troca (fornecedor 22, 1 item produto 1 qtde 5): a mercadoria SAI na inclusão do item (o gatilho ESTOQUE_TROCA) — 50→45,
+        // QTDETROCA 5 e o kardex "RETIRADA DO ESTOQUE LOJA PARA TROCA. CODIGO TROCA: n. DATA: dd/mm/aaaa" com o CODTROCA
         const cr = await fetch(`${base}/${TR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: FORN, descricao: 'AVARIADOS', itens: [{ idproduto: PRD, qtde: 5 }] }) });
         const crJ = (await cr.json().catch(() => ({}))) as any;
         const codtroca = Number(crJ.codtroca);
         const det = (await (await fetch(`${base}/${TR}/${codtroca}`, { headers: H })).json().catch(() => ({}))) as any;
-        check('TROCA: criar (fornecedor realiza-troca, 1 item qtde 5) → 201 + vrcusto MULTI_PRECO 10 + status ABERTA',
-          cr.status === 201 && codtroca > 0 && Number((det.itens ?? [])[0]?.vrcusto) === 10 && (det.itens ?? [])[0]?.fechado === 'N' && (await statusTr(codtroca)) === 'ABERTA',
-          { status: cr.status, item: (det.itens ?? [])[0], st: await statusTr(codtroca) });
+        const kIns = (await pgTr.query(`SELECT tipo, qtde, saldo_novo, historico, codtroca FROM historico_prod WHERE idproduto=$1 AND origem='TROCA' ORDER BY codmov DESC LIMIT 1`, [PRD])).rows[0] as any;
+        check('TROCA: criar (fornecedor realiza-troca, 1 item qtde 5) → 201 + vrcusto MULTI_PRECO 10 + status ABERTA; a baixa sai NA INCLUSÃO do item (ESTOQUE_TROCA): estoque 50→45, QTDETROCA 5 e o kardex do legado com o CODTROCA',
+          cr.status === 201 && codtroca > 0 && Number((det.itens ?? [])[0]?.vrcusto) === 10 && (det.itens ?? [])[0]?.fechado === 'N' && (await statusTr(codtroca)) === 'ABERTA'
+          && (await saldoTr()) === 45 && (await qtdetrocaTr()) === 5 && kIns?.tipo === 'S' && Number(kIns?.qtde) === 5 && Number(kIns?.codtroca) === codtroca
+          && /^RETIRADA DO ESTOQUE LOJA PARA TROCA\. CODIGO TROCA: \d+\. DATA: \d{2}\/\d{2}\/\d{4}$/.test(String(kIns?.historico ?? '')),
+          { status: cr.status, item: (det.itens ?? [])[0], st: await statusTr(codtroca), saldo: await saldoTr(), qtdetroca: await qtdetrocaTr(), kIns });
 
-        // 47d.2) fechar → baixa estoque (50→45) + kardex(TROCA,S,5) + status FECHADA.
+        // 47d.1b) alterar a quantidade (5 → 8) estorna os 5 e retira os 8 (45→42, QTDETROCA 8)
+        const alt = await fetch(`${base}/${TR}/${codtroca}`, { method: 'PUT', headers: H, body: JSON.stringify({ codparceiro: FORN, descricao: 'AVARIADOS', itens: [{ idproduto: PRD, qtde: 8 }] }) });
+        check('TROCA: alterar a quantidade do item (5 → 8) estorna a antiga e retira a nova: estoque 45 → 42 e QTDETROCA 8',
+          alt.status === 200 && (await saldoTr()) === 42 && (await qtdetrocaTr()) === 8, { alt: alt.status, saldo: await saldoTr(), qtdetroca: await qtdetrocaTr() });
+
+        // 47d.2) fechar → o estoque NÃO se mexe (já saiu); só sai do QTDETROCA (8 → 0); status FECHADA.
         const fc = await fetch(`${base}/${TR}/${codtroca}/fechar`, { method: 'POST', headers: H });
-        const k = await kardexTr();
         const detFc = (await (await fetch(`${base}/${TR}/${codtroca}`, { headers: H })).json().catch(() => ({}))) as any;
-        check('TROCA: fechar → baixa de estoque (50→45) + kardex(origem TROCA, S, 5) + status FECHADA + item fechado=S (base da derivação do front)',
-          fc.status === 200 && (await saldoTr()) === 45 && k[0]?.origem === 'TROCA' && k[0]?.tipo === 'S' && Number(k[0]?.qtde) === 5 && (await statusTr(codtroca)) === 'FECHADA' && (detFc.itens ?? [])[0]?.fechado === 'S',
-          { status: fc.status, saldo: await saldoTr(), kardex: k[0], itFechado: (detFc.itens ?? [])[0]?.fechado });
+        check('TROCA: fechar NÃO baixa de novo (o estoque segue 42 — as trocas abertas que vêm do legado já saíram lá) e só tira do QTDETROCA (8 → 0); status FECHADA + item fechado=S',
+          fc.status === 200 && (await saldoTr()) === 42 && (await qtdetrocaTr()) === 0 && (await statusTr(codtroca)) === 'FECHADA' && (detFc.itens ?? [])[0]?.fechado === 'S',
+          { status: fc.status, saldo: await saldoTr(), qtdetroca: await qtdetrocaTr(), itFechado: (detFc.itens ?? [])[0]?.fechado });
 
         // 47d.3) fechar 2x → 422 TROCA_SEM_ITENS_ABERTOS; 47d.4) excluir com item fechado → 422 TROCA_ITEM_FECHADO.
         const fc2 = await fetch(`${base}/${TR}/${codtroca}/fechar`, { method: 'POST', headers: H });
@@ -4590,13 +4600,16 @@ async function main() {
           && del1.status === 422 && ((await del1.json().catch(() => ({}))) as any).code === 'TROCA_ITEM_FECHADO',
           { fc2: fc2.status, del1: del1.status });
 
-        // 47d.5) reabrir → estorno (45→50) + kardex(E,5); 47d.6) excluir após reabrir → 204.
+        // 47d.5) reabrir → volta ao QTDETROCA (0 → 8), o estoque segue 42; 47d.6) excluir após reabrir → 204 e o item estorna (42 → 50, QTDETROCA 0).
         const rb = await fetch(`${base}/${TR}/${codtroca}/reabrir`, { method: 'POST', headers: H });
-        const k2 = await kardexTr();
+        const qtAposReabrir = await qtdetrocaTr();
+        const saldoAposReabrir = await saldoTr();
         const del2 = await fetch(`${base}/${TR}/${codtroca}`, { method: 'DELETE', headers: H });
-        check('TROCA: reabrir → devolve ao estoque (45→50) + kardex(E,5); excluir após reabrir → 204',
-          rb.status === 200 && k2[0]?.tipo === 'E' && Number(k2[0]?.qtde) === 5 && del2.status === 204 && (await saldoTr()) === 50,
-          { rb: rb.status, saldo: await saldoTr(), del2: del2.status });
+        const kDel = (await kardexTr())[0];
+        check('TROCA: reabrir só volta ao QTDETROCA (8) sem mexer no estoque (42); excluir a troca estorna o item — estoque 50, QTDETROCA 0, kardex de entrada 8 ("ESTORNO DA TROCA PARA O ESTOQUE LOJA…")',
+          rb.status === 200 && qtAposReabrir === 8 && saldoAposReabrir === 42 && del2.status === 204 && (await saldoTr()) === 50 && (await qtdetrocaTr()) === 0
+          && kDel?.tipo === 'E' && Number(kDel?.qtde) === 8,
+          { rb: rb.status, qtAposReabrir, saldoAposReabrir, del2: del2.status, saldo: await saldoTr(), kDel });
 
         // 47d.7) fornecedor que NÃO realiza troca → 422; 47d.8) produto que NÃO realiza troca → 422.
         const vF = await fetch(`${base}/${TR}`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 20, itens: [{ idproduto: PRD, qtde: 1 }] }) });

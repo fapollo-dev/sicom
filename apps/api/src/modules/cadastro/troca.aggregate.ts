@@ -3,13 +3,15 @@ import { createAggregateController } from '../../shared/crud/aggregate.controlle
 import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { currentTenant } from '../../shared/tenant/tenant-context';
+import { movimentoDaTroca, type ItemTroca } from './troca-estoque';
 
 /**
  * TROCA DE MERCADORIA COM FORNECEDOR (FRMTROCAMERCADORIAFOR) — corte-1: NÚCLEO do documento (agregado mestre-detalhe
  * troca + itens_troca). Fornecedor deve realizar troca (parceiros.realiza_troca='S'); produto idem
  * (produtos.realizatroca='S') — fiel ao legado. Custo (vrcusto/vrcustorep) SNAPSHOT de MULTI_PRECO
- * (server-authoritative). A BAIXA de estoque é o passo `fechar` (troca.service) — decoplado como Scrap/Inventário.
- * validarRemocao trava excluir doc com item já FECHADO (baixa aplicada — estorne antes). empresaScoped; exclusão física.
+ * (server-authoritative). O ESTOQUE segue o gatilho `ESTOQUE_TROCA` do legado (troca-estoque.ts): a mercadoria sai quando o item entra
+ * na troca e fica em QTDETROCA; alterar a quantidade ou o lugar estorna e retira de novo; excluir o item (ou a troca) estorna. O
+ * `fechar` só tira do QTDETROCA. validarRemocao trava excluir doc com item já FECHADO. empresaScoped; exclusão física.
  */
 
 const num = (v: unknown): number => {
@@ -38,10 +40,17 @@ export const trocaAggregateConfig: AggregateConfig = {
       // idem: codscrap, o vínculo com o scrap gerado (lição 124)
       preservarNaoGerenciadas: true,
       colunas: ['idempresa', 'idproduto', 'qtde', 'vrcusto', 'vrcustorep', 'estoqueretirada', 'fechado'],
-      // custo SERVER-AUTHORITATIVE de MULTI_PRECO (o operador não digita custo). fechado='N' ao criar (a baixa é o `fechar`).
-      derivarItensTrx: async (itens, trx, emp) => {
+      // os itens como estavam (o gatilho ESTOQUE_TROCA compara o :OLD com o :NEW)
+      antesDeSubstituirTrx: async ({ trx, masterId }) =>
+        trx.selectFrom('itens_troca').select(['coditenstroca', 'idproduto', 'qtde', 'vrcusto', 'estoqueretirada', 'fechado', 'origem_fechamento', 'codscrap'])
+          .where('codtroca', '=', masterId).orderBy('coditenstroca').execute(),
+      // custo SERVER-AUTHORITATIVE de MULTI_PRECO (o operador não digita custo). FECHADO: o que o item já tinha ('N' no item novo — fechar é o passo próprio)
+      derivarItensTrx: async (itens, trx, emp, _h, _m, snapshot) => {
+        const fila = new Map<number, Array<Record<string, unknown>>>();
+        for (const a of (snapshot as Array<Record<string, unknown>> | undefined) ?? []) fila.set(Number(a.idproduto), [...(fila.get(Number(a.idproduto)) ?? []), a]);
         const out: Record<string, unknown>[] = [];
         for (const it of itens) {
+          const antiga = fila.get(Number(it.idproduto))?.shift();
           const pid = Number(it.idproduto);
           const mp = (await trx.selectFrom('multi_preco').select(['vrcusto', 'vrcustorep']).where('idproduto', '=', pid).where('idempresa', '=', emp).executeTakeFirst()) as { vrcusto?: unknown; vrcustorep?: unknown } | undefined;
           out.push({
@@ -52,10 +61,21 @@ export const trocaAggregateConfig: AggregateConfig = {
             vrcusto: num(mp?.vrcusto),
             vrcustorep: num(mp?.vrcustorep),
             estoqueretirada: it.estoqueretirada ?? 'LOJA',
-            fechado: 'N',
+            fechado: antiga ? (antiga.fechado ?? 'N') : 'N',
           });
         }
         return out;
+      },
+      // o movimento de estoque de cada item (o gatilho ESTOQUE_TROCA): casado pelo produto na ordem, o item novo retira, o que saiu
+      // estorna, o alterado estorna e retira
+      aposInserirItensTrx: async ({ trx, itens, snapshot, masterId }) => {
+        const t = (await trx.selectFrom('troca').select(['idempresa', 'dtcadastro']).where('codtroca', '=', masterId).executeTakeFirst()) as { idempresa: number; dtcadastro: unknown } | undefined;
+        if (!t) return;
+        const c = { emp: Number(t.idempresa), codtroca: Number(masterId), dtcadastro: t.dtcadastro, op: currentTenant().operadorId ?? null };
+        const fila = new Map<number, ItemTroca[]>();
+        for (const a of (snapshot as ItemTroca[] | undefined) ?? []) fila.set(Number(a.idproduto), [...(fila.get(Number(a.idproduto)) ?? []), a]);
+        for (const it of itens) await movimentoDaTroca(trx, c, fila.get(Number(it.idproduto))?.shift() ?? null, it as unknown as ItemTroca);
+        for (const sobrou of fila.values()) for (const a of sobrou) await movimentoDaTroca(trx, c, a, null);
       },
     },
   ],
@@ -90,6 +110,15 @@ export const trocaAggregateConfig: AggregateConfig = {
   validarRemocao: async ({ id, db }) => {
     const fechado = await db.selectFrom('itens_troca').select('coditenstroca').where('codtroca', '=', id).where('fechado', '=', 'S').executeTakeFirst();
     if (fechado) throw new BusinessRuleError('TROCA_ITEM_FECHADO', { codtroca: id }); // reabrir/estornar antes
+  },
+  // excluir a troca exclui os itens: cada um estorna (o DELETE do gatilho ESTOQUE_TROCA)
+  aoRemover: async ({ id, db }) => {
+    const t = (await db.selectFrom('troca').select(['idempresa', 'dtcadastro']).where('codtroca', '=', id).executeTakeFirst()) as { idempresa: number; dtcadastro: unknown } | undefined;
+    if (!t) return;
+    const c = { emp: Number(t.idempresa), codtroca: Number(id), dtcadastro: t.dtcadastro, op: currentTenant().operadorId ?? null };
+    const itens = (await db.selectFrom('itens_troca').select(['idproduto', 'qtde', 'vrcusto', 'estoqueretirada', 'fechado', 'origem_fechamento', 'codscrap'])
+      .where('codtroca', '=', id).orderBy('coditenstroca').execute()) as ItemTroca[];
+    for (const it of itens) await movimentoDaTroca(db, c, it, null);
   },
 };
 

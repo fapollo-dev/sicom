@@ -109,7 +109,7 @@ Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO
 
 ## Os ❌ e ⚠️ por dano provável
 
-1. **`ESTOQUE_TROCA` (⚠️, estoque).** O momento da baixa é outro. Os 130 itens de troca carregados em aberto já saíram
+1. ✅ **`ESTOQUE_TROCA` (corrigido em 25/09/2026, `troca-estoque.ts`).** O momento da baixa é outro. Os 130 itens de troca carregados em aberto já saíram
    do estoque no legado; o "fechar" do Apollo os baixa de novo. O "reabrir" devolve saldo que o legado não devolve.
 2. **`ESTOQUE_NOTAS` (⚠️, estoque).** A NF não carimba a última entrada/saída em ESTOQUE (DTENT, QTDE_ENT, IDORIGEM_ENT,
    DTVENDA, QTDE_VENDA e os _ANTERIOR). A Prévia do fornecedor do Apollo lê DTENT/QTDE_ENT: congela na virada.

@@ -15,7 +15,7 @@ const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().joi
 
 /**
  * TROCA DE MERCADORIA COM FORNECEDOR (FRMTROCAMERCADORIAFOR) — corte-1: documento de troca (avariados/vencidos que
- * saem p/ o fornecedor). Custo snapshot de MULTI_PRECO. «Fechar» dá baixa no estoque (kardex origem='TROCA');
+ * saem p/ o fornecedor). Custo snapshot de MULTI_PRECO. o estoque sai quando o item entra na troca (o gatilho ESTOQUE_TROCA) e fica reservado; «Fechar» só encerra a reserva;
  * «Reabrir» estorna. Supplier-side (não-PDV). NF de devolução = corte futuro.
  */
 export function TrocaPage() {
@@ -84,15 +84,15 @@ export function TrocaPage() {
 
   const fechar = async () => {
     if (!sel || busy) return;
-    if (!window.confirm('Fechar a troca? A quantidade de cada item será BAIXADA do estoque (mercadoria enviada ao fornecedor).')) return;
+    if (!window.confirm('Fechar a troca? Os itens saem da reserva de troca (o estoque já foi baixado ao incluir os itens).')) return;
     setBusy(true);
-    try { const r = await fecharTroca(sel.codtroca); mensagem.sucesso(`Troca fechada — ${r.itens} item(ns) baixado(s) do estoque.`); await abrir(sel.codtroca); await carregar(); } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+    try { const r = await fecharTroca(sel.codtroca); mensagem.sucesso(`Troca fechada — ${r.itens} item(ns) encerrado(s).`); await abrir(sel.codtroca); await carregar(); } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
   const reabrir = async () => {
     if (!sel || busy) return;
-    if (!window.confirm('Reabrir a troca? O saldo de cada item volta ao estoque.')) return;
+    if (!window.confirm('Reabrir a troca? Os itens voltam à reserva de troca (o estoque não se altera).')) return;
     setBusy(true);
-    try { const r = await reabrirTroca(sel.codtroca); mensagem.sucesso(`Troca reaberta — ${r.itens} item(ns) devolvido(s) ao estoque.`); await abrir(sel.codtroca); await carregar(); } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+    try { const r = await reabrirTroca(sel.codtroca); mensagem.sucesso(`Troca reaberta — ${r.itens} item(ns) de volta à reserva.`); await abrir(sel.codtroca); await carregar(); } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
   const excluir = async () => {
     if (!sel || busy) return;
@@ -106,15 +106,15 @@ export function TrocaPage() {
   if (sel) {
     return (
       <div className="flex flex-col gap-gp-md p-pad-md">
-        <PageHeader title={`Troca nº ${sel.codtroca}${fechada ? ' — FECHADA (estoque baixado)' : ''}${sel.fornecedor ? ' — ' + sel.fornecedor : ''}`} />
+        <PageHeader title={`Troca nº ${sel.codtroca}${fechada ? ' — FECHADA' : ''}${sel.fornecedor ? ' — ' + sel.fornecedor : ''}`} />
         <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
           <div className="w-96"><Field label="&Descrição" value={sel.descricao ?? ''} onChange={(e) => { setSel({ ...sel, descricao: e.target.value }); setDirty(true); }} placeholder="descrição da troca" disabled={fechada} /></div>
           <Button label="&Salvar" variant="soft" disabled={busy || fechada} onClick={() => void salvar()} />
-          {!fechada && <Button label="&Fechar (baixar estoque)" variant="soft" disabled={busy || !itens.length || dirty} onClick={() => void fechar()} />}
+          {!fechada && <Button label="&Fechar" variant="soft" disabled={busy || !itens.length || dirty} onClick={() => void fechar()} />}
           {fechada && <Button label="&Reabrir" variant="soft" disabled={busy} onClick={() => void reabrir()} />}
           <Button label="E&xcluir" variant="ghost" disabled={busy || fechada} onClick={() => void excluir()} />
           <Button label="&Voltar" variant="ghost" onClick={() => { setSel(null); void carregar(); }} />
-          <small className="w-full text-fg-muted">Valor = quantidade × custo (MULTI_PRECO). {dirty && !fechada ? 'Salve antes de fechar. ' : ''}«Fechar» baixa o estoque; para editar itens de uma troca fechada, reabra antes.</small>
+          <small className="w-full text-fg-muted">Valor = quantidade × custo (MULTI_PRECO). {dirty && !fechada ? 'Salve antes de fechar. ' : ''}O estoque sai ao gravar os itens (alterar a quantidade estorna e retira de novo; excluir devolve). Para editar itens de uma troca fechada, reabra antes.</small>
         </div>
 
         {!fechada && (
@@ -165,7 +165,7 @@ export function TrocaPage() {
         <div className="w-32"><NumberField label="&Fornecedor (cód)" value={novoForn} decimais={0} min={1} onChange={setNovoForn} /></div>
         <div className="w-72"><Field label="&Descrição" value={novaDesc} onChange={(e) => setNovaDesc(e.target.value)} placeholder="ex.: avariados jul/2026" /></div>
         <Button label="&Nova troca" variant="soft" disabled={busy} onClick={() => void criar()} />
-        <small className="text-fg-muted">Devolução de avariados/vencidos ao fornecedor (baixa do estoque ao fechar).</small>
+        <small className="text-fg-muted">Devolução de avariados/vencidos ao fornecedor (o estoque sai ao incluir o item).</small>
       </div>
       <DataTable columns={colunas} rows={lista} loading={carregando} />
     </div>
