@@ -18305,6 +18305,9 @@ async function main() {
           ['stRepasseItens','Lançamento de nota fiscal, repasse'],['stColeta','Coleta'],
           ['stConferencia','Conferência (coleta)'],['stProcessarFaturar','Processar, Faturar'],
           ['stGerarFinanceiro','Gerar financeiro'],['stDevolucao','Devolução']];
+        // as esteiras que as telas já marcaram nas seções anteriores (repasse/processar gravam a esteira desde 25/09) saem —
+        // o painel abaixo conta só as duas notas desta seção
+        await pgEs.query(`DELETE FROM nf_status_processo WHERE idempresa = 1`);
         // a nota 1 andou até a etapa 4 (as 3 primeiras realizadas, a 4ª pendente)
         for (let i = 0; i < ET.length; i++) {
           const ok = i < 3;
@@ -21844,6 +21847,43 @@ async function main() {
           [antes?.codplc_juros_pagos ?? null, antes?.aream2 ?? null, antes?.tef_loja ?? null, antes?.pc_curva_abc_a ?? null, antes?.sincroniza_preco_nf ?? null]);
       } finally {
         await pgEm2.end();
+      }
+    }
+
+    // ══ §213 A ESTEIRA DA NOTA NAS OUTRAS TELAS (NF_STATUS_PROCESSO): gravar a entrada com os itens marca stRepasseItens,
+    // processar marca stProcessarFaturar e reverter desmarca; a devolução marca stDevolucao e o cancelamento desmarca
+    {
+      const pgEs = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const chave = montarChaveNfe({ cuf: 31, aamm: '2609', cnpj: '22327834000149', modelo: 55, serie: 1, numero: 921301, tpEmis: 1, cnf: 21321321 });
+        const r = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({
+          modelo: 55, serie: '1', dtemissao: '2026-09-20', dtcontabil: '2026-09-20', tipoemissao: '0', finalidade: '1',
+          tipo: 'E', nronf: '921301', cfop: '1102', idsituacao_nf: 1031, codparceiro: 22, chavenfe: chave,
+          itens: [{ codproduto: 1, quantidade: 2, vrcusto: 10, cfop: '1102', aliquota: 'T01' }],
+        }) });
+        const rJ = (await r.json().catch(() => ({}))) as any;
+        const codnf = Number(rJ.codnf) || 0;
+        const etapa = async (proc: string) => (await pgEs.query(`SELECT status FROM nf_status_processo WHERE chavenfe=$1 AND processo=$2`, [chave, proc])).rows[0]?.status ?? null;
+        const repasse = await etapa('stRepasseItens');
+        const pr = await fetch(`${base}/fiscal/nf/${codnf}/processar`, { method: 'POST', headers: H });
+        const procR = await etapa('stProcessarFaturar');
+        const rv = await fetch(`${base}/fiscal/nf/${codnf}/reverter`, { method: 'POST', headers: H });
+        const procP = await etapa('stProcessarFaturar');
+        const nEtapas = Number((await pgEs.query(`SELECT count(*)::int n FROM nf_status_processo WHERE chavenfe=$1`, [chave])).rows[0].n);
+        // a devolução dos itens dessa nota
+        const itNf = Number((await pgEs.query(`SELECT codnfprod FROM nf_prod WHERE codnf=$1 LIMIT 1`, [codnf])).rows[0]?.codnfprod);
+        await pgEs.query(`UPDATE nf_prod SET cfop_original='1102' WHERE codnf=$1`, [codnf]);
+        const dv = await fetch(`${base}/compras/devolucao-compra`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, itens: [{ codnf, codnfprod: itNf, idproduto: 1, qtd_devolvida: 1 }] }) });
+        const dvJ = (await dv.json().catch(() => ({}))) as any;
+        const devR = await etapa('stDevolucao');
+        const canc = await fetch(`${base}/compras/devolucao-compra/${Number(dvJ.codpeddevcompra ?? dvJ.codigo)}/cancelar`, { method: 'POST', headers: H });
+        const devP = await etapa('stDevolucao');
+        check('ESTEIRA §213 [as outras telas marcam a esteira]: gravar a entrada com itens → stRepasseItens R (as 10 etapas nascem); processar → stProcessarFaturar R; reverter → volta a P; a devolução dos itens → stDevolucao R; cancelar a devolução → P',
+          r.status === 201 && repasse === 'R' && nEtapas === 10 && pr.status === 200 && procR === 'R' && rv.status === 200 && procP === 'P'
+          && dv.status === 201 && devR === 'R' && canc.status === 200 && devP === 'P',
+          { r: [r.status, rJ.code], repasse, pr: pr.status, procR, rv: rv.status, procP, nEtapas, dv: [dv.status, dvJ.code], devR, canc: canc.status, devP });
+      } finally {
+        await pgEs.end();
       }
     }
 

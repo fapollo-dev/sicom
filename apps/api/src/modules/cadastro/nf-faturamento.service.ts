@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { chaveDeEntrada, desregistrarProcessoNf, registrarProcessoNf } from '../shared/nf-status-processo';
 import { sql } from 'kysely';
 import { configNaTrx } from '../compras/pedido-heranca';
 import { apagarRateioDoGrupo, novoGrupo, rateioDoFaturamento, rateioUnico, refazerCaixaDoGrupo } from '../cobranca/apagar-caixa';
@@ -364,6 +365,9 @@ export class NfFaturamentoService {
       .where('codnf', '=', codnf).where('idempresa', '=', emp).where('faturada', '=', 'N')
       .executeTakeFirst();
     if (Number(r?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('NF_JA_FATURADA', { codnf });
+    // a ESTEIRA: gerar o financeiro da nota de entrada marca stGerarFinanceiro (uFinanceiroNotaFiscal.pas:290, udmNF.pas:8462)
+    const chave = await chaveDeEntrada(trx, codnf);
+    if (chave) await registrarProcessoNf(trx, 'stGerarFinanceiro', chave, emp, op);
   }
 
   async faturar(
@@ -533,6 +537,9 @@ export class NfFaturamentoService {
         .where('faturada', '=', 'S')
         .executeTakeFirst();
       if (Number(r?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('NF_NAO_FATURADA', { codnf });
+      // excluir o financeiro desmarca stGerarFinanceiro (uEstoqueNF.pas:1024)
+      const chaveEst = await chaveDeEntrada(trx, codnf);
+      if (chaveEst) await desregistrarProcessoNf(trx, 'stGerarFinanceiro', chaveEst);
     });
   }
 
@@ -576,6 +583,8 @@ export class NfFaturamentoService {
       .where('codnf', '=', codnf)
       .where('idempresa', '=', emp)
       .execute();
+    const chaveCanc = await chaveDeEntrada(trx, codnf);
+    if (chaveCanc) await desregistrarProcessoNf(trx, 'stGerarFinanceiro', chaveCanc);
     return 'estornado';
   }
 }

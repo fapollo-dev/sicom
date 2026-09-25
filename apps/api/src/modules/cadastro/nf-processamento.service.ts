@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { chaveDeEntrada, desregistrarProcessoNf, registrarProcessoNf } from '../shared/nf-status-processo';
 import { sql } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
@@ -200,6 +201,12 @@ export class NfProcessamentoService {
       else await reverterCaixaDaNf(trx, codnf, emp);
       // a LOG do processamento/reversão: o que mudou no cabeçalho e nos itens ("Alterou NF — PROC N→S", …)
       await logDaDiferencaNf(trx, codnf, fotoLog);
+      // a ESTEIRA da nota de entrada: processar marca stProcessarFaturar (udmNF.pas:7752), reverter a desmarca (uNF.pas:9164)
+      const chave = await chaveDeEntrada(trx, codnf);
+      if (chave) {
+        if (modo === 'processar') await registrarProcessoNf(trx, 'stProcessarFaturar', chave, emp, op);
+        else await desregistrarProcessoNf(trx, 'stProcessarFaturar', chave);
+      }
     });
   }
 

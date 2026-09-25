@@ -1,4 +1,5 @@
 import { sql } from 'kysely';
+import { chaveDeEntrada, desregistrarProcessoNf, registrarProcessoNf } from '../shared/nf-status-processo';
 import type { CampoLog } from '../../shared/log/registro-log';
 import { nfSchema, atualizarNfSchema, totaisProdutosNf, totalProdutoItem } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
@@ -315,6 +316,12 @@ export const nfAggregateConfig: AggregateConfig = {
        WHERE n.codnf = ${id} AND p.codnf = n.codnf AND p.idsituacao_nf IS NULL AND n.idsituacao_nf IS NOT NULL`.execute(trx);
     // o rateio contábil que o gravar do legado preenche sozinho (InserirLancamentosContabil; UCadSituacaoNF.md C3)
     await preencherRateioContabil(trx, id, emp ?? null);
+    // a ESTEIRA: gravar a nota de ENTRADA com os itens repassados (ligados a produto) marca stRepasseItens (uNF.pas:5171-5181)
+    const chave = await chaveDeEntrada(trx, id);
+    if (chave && emp != null) {
+      const rep = (await sql<{ n: number }>`SELECT count(*)::int AS n FROM nf_prod WHERE codnf = ${id} AND coalesce(codproduto, 0) > 0`.execute(trx)).rows[0];
+      if (Number(rep?.n) > 0) await registrarProcessoNf(trx, 'stRepasseItens', chave, emp, currentTenant().operadorId ?? null);
+    }
   },
   // Guarda de EXCLUSÃO (btnExcluir do legado, uNF.pas:4072): não apagar NF com efeitos — apagar deixaria
   // estoque movido e títulos órfãos. Exige reverter (F3) / estornar (F4) antes.

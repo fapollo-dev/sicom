@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { esteiraDaDevolucao } from './devolucao-compra.aggregate';
 import { sql, type Kysely } from 'kysely';
 import type { ItemDisponivelDevolucao } from '@apollo/shared';
 import { DatabaseProvider } from '../../shared/database/database.provider';
@@ -126,6 +127,8 @@ export class DevolucaoCompraService {
         .where('status', 'in', de) // CAS (cinto-e-suspensório com o forUpdate)
         .executeTakeFirst();
       if (Number((upd as any)?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError(erroSeForaDoEstado, { status: d.status });
+      // cancelar a devolução desmarca stDevolucao nas notas de entrada dos itens
+      if (para === 'CANCELADO') await esteiraDaDevolucao(trx, codpeddevcompra, false);
       return { codpeddevcompra, status: para };
     });
   }

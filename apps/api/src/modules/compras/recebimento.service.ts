@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { chaveDeEntrada, desregistrarProcessoNf, registrarProcessoNf } from '../shared/nf-status-processo';
 import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { AggregateEngineService } from '../../shared/crud/aggregate-engine.service';
@@ -189,6 +190,9 @@ export class RecebimentoService {
     try {
       await (this.dbp.forTenant() as AnyDB)
         .updateTable('nf').set({ status_qtd_pedcomp: statusQtd }).where('codnf', '=', codnf).where('idempresa', '=', emp).execute();
+      // o cruzamento com o pedido marca a esteira (stCruzamentoPedido, UanalisaPedComp_NF.pas:726)
+      const chCr = await chaveDeEntrada(this.dbp.forTenant() as AnyDB, codnf);
+      if (chCr) await registrarProcessoNf(this.dbp.forTenant() as AnyDB, 'stCruzamentoPedido', chCr, emp, currentTenant().operadorId ?? null);
     } catch (e) {
       console.error('[recebimento] falha ao marcar status_qtd_pedcomp (gerar-nf prosseguiu)', { codnf, erro: (e as Error)?.message });
     }
@@ -429,6 +433,8 @@ export class RecebimentoService {
         const { totalmenteRecebido } = await this.analise.saldo(codpedcomp);
         await (this.dbp.forTenant() as AnyDB)
           .updateTable('nf').set({ status_qtd_pedcomp: totalmenteRecebido ? 'Total' : 'Parcial' }).where('codnf', '=', codnf).where('idempresa', '=', emp).execute();
+        const chCr2 = await chaveDeEntrada(this.dbp.forTenant() as AnyDB, codnf);
+        if (chCr2) await registrarProcessoNf(this.dbp.forTenant() as AnyDB, 'stCruzamentoPedido', chCr2, emp, currentTenant().operadorId ?? null);
       } catch (e) {
         console.error('[recebimento] falha ao marcar status_qtd_pedcomp no import (prosseguiu)', { codnf, erro: (e as Error)?.message });
       }

@@ -103,3 +103,19 @@ pela sequência (antes o NSU, que colidia com a chave migrada e entre empresas; 
 resumo), pula a chave que já é NF ou já está na fila, CNPJ formatado, TIPO pelo tpNF, NRONF da chave, DTRECBO, operador, flags
 'N'; NFE_XML e NFE_EVENTOS em upsert. O manifestar: 136 volta a ser erro, 573 marca a esteira e grava o evento se faltar,
 DATA_EVENTO = dhRegEvento. Smoke §206.
+
+## As outras telas marcam a esteira (25/09/2026)
+
+`registrarProcessoNf` / `desregistrarProcessoNf` (a etapa volta a 'P' sem operador/data; a fila aponta a última realizada) e
+`chaveDeEntrada` (só a nota de ENTRADA com chave), ligados como no legado:
+
+| etapa | quem marca | quem desmarca | fonte |
+|---|---|---|---|
+| stRepasseItens | gravar a NF de entrada com itens ligados a produto | — | uNF.pas:5171-5181 |
+| stProcessarFaturar | processar a NF | reverter | udmNF.pas:7752 · uNF.pas:9164 |
+| stGerarFinanceiro | faturar (marcarFaturada) | estornar/excluir o financeiro | uFinanceiroNotaFiscal.pas:290 · uEstoqueNF.pas:1024 |
+| stConferencia | aprovar a conferência | — | uConferenciaNota.pas:418 |
+| stCruzamentoPedido | o recebimento/importação marca Total/Parcial | — | UanalisaPedComp_NF.pas:726 |
+| stDevolucao | gravar a devolução (notas dos itens) | cancelar/excluir | uCadPedidoDevolucaoCompras.pas:852/:441 |
+
+Pendentes: o status 'A' (liberação solicitada no cruzamento, :670) e a etapa stColeta. Smoke §213.

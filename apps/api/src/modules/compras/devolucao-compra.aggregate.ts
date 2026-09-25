@@ -1,4 +1,5 @@
 import { sql } from 'kysely';
+import { chaveDeEntrada, desregistrarProcessoNf, registrarProcessoNf } from '../shared/nf-status-processo';
 import { devolucaoCompraSchema, atualizarDevolucaoCompraSchema } from '@apollo/shared';
 import { createAggregateController } from '../../shared/crud/aggregate.controller.factory';
 import type { AggregateConfig } from '../../shared/crud/crud-config';
@@ -39,6 +40,19 @@ export const COLUNAS_FISCAIS_DEVOLUCAO = [
   'fcp_bc_st', 'fcp_bc_st_nota', 'fcp_aliquota_st', 'fcp_aliquota_st_nota', 'fcp_valor_st', 'fcp_valor_st_nota',
   'fcp_bc_st_ret', 'fcp_bc_st_ret_nota', 'fcp_aliquota_st_ret', 'fcp_aliquota_st_ret_nota', 'fcp_valor_st_ret', 'fcp_valor_st_ret_nota',
 ] as const;
+
+/** `RegistraProcessoNotaFiscal(pRegistrar)` da devolução (uCadPedidoDevolucaoCompras.pas:1876-1925): cada nota de ENTRADA dos itens */
+async function esteiraDaDevolucao(trx: any, codpeddevcompra: number, registrar: boolean): Promise<void> {
+  const nfs = (await sql<{ codnf: number }>`SELECT DISTINCT codnf FROM pedido_devolucao_compra_i WHERE codpeddevcompra = ${codpeddevcompra} AND codnf IS NOT NULL`.execute(trx)).rows;
+  const emp = currentTenant().empresaId ?? null;
+  for (const n of nfs) {
+    const chave = await chaveDeEntrada(trx, Number(n.codnf));
+    if (!chave) continue;
+    if (registrar && emp != null) await registrarProcessoNf(trx, 'stDevolucao', chave, emp, currentTenant().operadorId ?? null);
+    else if (!registrar) await desregistrarProcessoNf(trx, 'stDevolucao', chave);
+  }
+}
+export { esteiraDaDevolucao };
 
 export const devolucaoCompraAggregateConfig: AggregateConfig = {
   tabela: 'pedido_devolucao_compra',
@@ -267,6 +281,13 @@ export const devolucaoCompraAggregateConfig: AggregateConfig = {
         }
       }
     }
+  },
+  // gravar a devolução marca stDevolucao nas notas de entrada dos itens (:852); excluir desmarca (:441)
+  aposGravarTrx: async ({ trx, id }) => {
+    await esteiraDaDevolucao(trx, id, true);
+  },
+  aoRemover: async ({ id, db }) => {
+    await esteiraDaDevolucao(db, id, false);
   },
   validarRemocao: async ({ id, db }) => {
     const emp = currentTenant().empresaId ?? null;

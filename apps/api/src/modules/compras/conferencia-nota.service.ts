@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { chaveDeEntrada, desregistrarProcessoNf, registrarProcessoNf } from '../shared/nf-status-processo';
 import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
@@ -157,6 +158,9 @@ export class ConferenciaNotaService {
         .where('codnf', '=', Number(dto.codnf))
         .where('codnfprod', 'in', dto.itens.map(Number))
         .executeTakeFirst();
+      // a ESTEIRA da nota de entrada: aprovar a conferência marca stConferencia (uConferenciaNota.pas:418)
+      const chave = await chaveDeEntrada(trx, Number(dto.codnf));
+      if (chave) await registrarProcessoNf(trx, 'stConferencia', chave, emp, autorizador);
       return { aprovados: Number(r?.numUpdatedRows ?? 0), codoperador_aprova: autorizador };
     });
   }
