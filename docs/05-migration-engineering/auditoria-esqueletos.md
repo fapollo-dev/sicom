@@ -618,7 +618,8 @@ leitura), as colunas preenchidas em ≥ 50% que nenhum código do Apollo que gra
 - ~~`pedidocompra_i`: PISCONFIS, ICME, LUCROBRUTOP, LUCROLIQP, VLREMBALAGEMB~~ — falso positivo do conferidor por nome: a herança do catálogo (mig 307, `pedido-heranca.ts`) já os grava.
 - `nf_prod`: ✅ REPASSADO/INDEXADORTRIB e `nf.ULT_CODNFPROD_REPASSE` (indexador C1-C7); ✅ VRCREDSN/ALIQCREDSN (do XML) e DESTACICMSSN (NewRecord);
   ✅ **VRFRETE** — o binário novo mudou o FRETE do item para a FATIA do frete da nota: VRFRETE = TOTALFRETE × FRETE (267/267 em 2026; a conta
-  do fonte, produtos × FRETE%, 0/267) — o custo, a gravação e a importação seguem isso; faltam CUSTO_RECALCULO_BONIF, VRCFOP_ABATIDO; `nf_forma_pagamento.VRTROCO`.
+  do fonte, produtos × FRETE%, 0/267) — o custo, a gravação e a importação seguem isso; CUSTO_RECALCULO_BONIF e VRCFOP_ABATIDO são sempre 0 em 2026 (o DEFAULT 0 cobre); ✅ `nf_forma_pagamento`: o VRTROCO do XML na primeira
+  forma, o INTEGRADO pelo tpIntegra e a operadora do cartão de crédito pela bandeira (NFe.pas:3495-3524) — o Apollo gravava INTEGRADO 'N' fixo.
 - `parceiros`: VISUALIZA_PC_PARC, CLUBEFIDELIDADE, SOMA_ST_BONIFICACAO, HABILITA_RETENCAO_SENAR_NF.
 - `cartao`: TIPOMODALIDADE, MODALIDADEOPERADORA, SEQUENCIA, CODOPERADORAORIGEM, VALOR_OPERACAO.
 - ✅ `nfe_evento` do cancelamento e da CC-e: ORGAO_RECEPCAO (UF da chave) e ID_EVENTO ("ID"+tipo+chave+seq) como o legado grava (smoke §231); CNPJ do autor e mensagem são só da manifestação (que vem da SEFAZ).

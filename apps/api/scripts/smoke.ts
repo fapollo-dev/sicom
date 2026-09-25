@@ -8682,6 +8682,16 @@ async function main() {
       fp.length === 1 && fp[0].tpag === '01' && Number(fp[0].vrpgto) === 63.44 && Number(fp[0].idpgto) === 1,
       { fp });
 
+    // 53.1b) o TROCO do XML vai à primeira forma e o INTEGRADO sai do tpIntegra (NFe.pas:3509-3524)
+    const nnfTr = 900091;
+    const impTr = await importar(mkXml(mkChave(nnfTr), nnfTr, CNPJ_F1, '7894900011517', '', '1', '5102',
+      '<pag><detPag><tPag>01</tPag><vPag>50.00</vPag><card><tpIntegra>1</tpIntegra></card></detPag><detPag><tPag>01</tPag><vPag>20.00</vPag></detPag><vTroco>6.56</vTroco></pag>'));
+    const impTrJ = (await impTr.json().catch(() => ({}))) as any;
+    const fpTr = (await pgImp.query(`SELECT vrpgto, vrtroco, integrado FROM nf_forma_pagamento WHERE codnf=$1 ORDER BY codnforpgto`, [Number(impTrJ.codnf)])).rows as any[];
+    check('4b: o TROCO do XML (6,56) vai à PRIMEIRA forma de pagamento e as outras ficam 0; INTEGRADO S com o tpIntegra 1 (o Apollo gravava N fixo e nenhum troco — 36 formas com troco na produção)',
+      impTr.status === 200 && fpTr.length === 2 && Number(fpTr[0].vrtroco) === 6.56 && Number(fpTr[1].vrtroco) === 0 && fpTr[0].integrado === 'S' && fpTr[1].integrado === 'N',
+      { status: impTr.status, fpTr });
+
     // 53.2) gate CFOP: header CFOP 1910 (GERA_FINANCEIRO_AUTO='N') COM <cobr> → NF criada, 0 A Pagar.
     const nnfCf = 900071;
     const impCf = await importar(mkXml(mkChave(nnfCf), nnfCf, CNPJ_F1, '7894900011517', COBR.replace('900061', '900071'), '1', '5910')); // 5910→1910 ('N')

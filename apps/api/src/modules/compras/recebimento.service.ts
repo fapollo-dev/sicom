@@ -565,7 +565,7 @@ export class RecebimentoService {
     // Pagar). Best-effort (não derruba o import). tPag → DESTINO (fallback CXA) → IDPGTO de FORMAS_PGTO.
     if (nfe.formasPagamento.length > 0) {
       try {
-        await this.inserirFormasPagamento(codnf, emp, op, nfe.formasPagamento);
+        await this.inserirFormasPagamento(codnf, emp, op, nfe.formasPagamento, nfe.vTroco);
       } catch (e) {
         console.error('[recebimento] falha ao guardar nf_forma_pagamento (import prosseguiu)', { codnf, erro: (e as Error)?.message });
       }
@@ -679,7 +679,8 @@ export class RecebimentoService {
     codnf: number,
     emp: number,
     op: number,
-    formas: Array<{ tPag: string; vPag: number; cAut?: string }>,
+    formas: Array<{ tPag: string; vPag: number; cAut?: string; tpIntegra?: string; tBand?: string }>,
+    vTroco = 0,
   ): Promise<number> {
     const db = this.dbp.forTenant() as AnyDB;
     const destinos = new Set<string>(formas.map((f) => this.tpagDestino(f.tPag)));
@@ -695,9 +696,19 @@ export class RecebimentoService {
     let n = 0;
     for (const f of formas) {
       const idpgto = porDestino.get(this.tpagDestino(f.tPag)) ?? cxa; // fallback CXA
+      // a operadora do CARTÃO DE CRÉDITO fora do caixa (GetIdOperadora, NFe.pas:2895): pela bandeira no nome da operadora ativa
+      let codoperadoras: number | null = null;
+      if (f.tPag === '03' && idpgto != null && idpgto !== cxa) {
+        const bandeira = ({ '01': 'VISA', '02': 'MASTERCARD', '03': 'AMERICAN EXPRESS', '04': 'SOROCRED' } as Record<string, string>)[String(f.tBand ?? '').padStart(2, '0')] ?? 'OUTROS';
+        const opr = (await db.selectFrom('operadoras').select('codoperadoras').where(sql`coalesce(ativo, 'S')`, '=', 'S')
+          .where(sql`upper(operadora)`, 'like', `%${bandeira}%`).orderBy('codoperadoras').executeTakeFirst()) as { codoperadoras?: number } | undefined;
+        codoperadoras = opr?.codoperadoras ?? null;
+      }
+      // o TROCO do XML vai à PRIMEIRA forma (NFe.pas:3519-3524); INTEGRADO pelo tpIntegra (:3509)
       await db
         .insertInto('nf_forma_pagamento')
-        .values({ codnf, idempresa: emp, idpgto, tpag: (f.tPag || '').slice(0, 2) || null, vrpgto: num(f.vPag), numero_aut: f.cAut ?? null, integrado: 'N', codoperador: op, dtcadastro: sql`now()` })
+        .values({ codnf, idempresa: emp, idpgto, tpag: (f.tPag || '').slice(0, 2) || null, vrpgto: num(f.vPag), numero_aut: f.cAut ?? null,
+          integrado: String(f.tpIntegra ?? '') === '1' ? 'S' : 'N', codoperadoras, vrtroco: n === 0 && vTroco > 0 ? vTroco : 0, codoperador: op, dtcadastro: sql`now()` })
         .execute();
       n++;
     }

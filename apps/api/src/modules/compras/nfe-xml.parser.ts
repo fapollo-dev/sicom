@@ -77,6 +77,8 @@ export interface NfePagamentoParsed {
   tPag: string; // 01 dinheiro / 02 cheque / 03,04 cartão / 05 crédito loja / 15 boleto / 17 PIX / 90 sem / 99 outros
   vPag: number; // valor pago
   cAut?: string; // <card><cAut> — autorização (raro em entrada)
+  tpIntegra?: string; // <card><tpIntegra> — 1 integrado ao sistema de automação
+  tBand?: string; // <card><tBand> — a bandeira (01 Visa, 02 Master, 03 Amex, 04 Sorocred…)
 }
 
 export interface NfeParsed {
@@ -113,6 +115,7 @@ export interface NfeParsed {
   itens: NfeItemParsed[];
   duplicatas: NfeDuplicataParsed[]; // <cobr><dup> — vazio quando à vista (sem <cobr>)
   formasPagamento: NfePagamentoParsed[]; // <pag><detPag> — [] quando ausente
+  vTroco: number; // <pag><vTroco>
 }
 
 const num = (v: unknown): number => {
@@ -249,7 +252,10 @@ export function parseNfeXml(xml: string): NfeParsed {
     tPag: str(p.tPag),
     vPag: num(p.vPag),
     cAut: str(p.card?.cAut) || undefined,
+    tpIntegra: str(p.card?.tpIntegra) || undefined,
+    tBand: str(p.card?.tBand) || undefined,
   }));
+  const vTroco = num(inf.pag?.vTroco);
 
   return {
     chave,
@@ -310,5 +316,6 @@ export function parseNfeXml(xml: string): NfeParsed {
     itens,
     duplicatas,
     formasPagamento,
+    vTroco,
   };
 }
