@@ -16,6 +16,7 @@ import { estornarVinculoVendas } from './nf-vendas.service';
 import { estornarDevolucaoVendas } from './nf-devolucao-vendas.service';
 import { preencherRateioContabil } from './nf-rateio';
 import { totalNfLegado } from './nf-total';
+import { recalcularMetricasEntrada } from './nf-custo-item';
 
 /** a descrição do produto, lida uma vez por produto na gravação */
 function leitorDescricaoProduto(trx: any): (idproduto: number) => Promise<string | null> {
@@ -410,6 +411,8 @@ export const nfAggregateConfig: AggregateConfig = {
        WHERE n.codnf = ${id} AND p.codnf = n.codnf AND p.idsituacao_nf IS NULL AND n.idsituacao_nf IS NOT NULL`.execute(trx);
     // o rateio contábil que o gravar do legado preenche sozinho (InserirLancamentosContabil; UCadSituacaoNF.md C3)
     await preencherRateioContabil(trx, id, emp ?? null);
+    // a análise do item de entrada (custo real, reposição, CSI, PMZ, venda sugerida e a escada) e o ICMS calculado de todos os itens
+    await recalcularMetricasEntrada(trx, id, 'pendentes');
     // a ESTEIRA: gravar a nota de ENTRADA com os itens repassados (ligados a produto) marca stRepasseItens (uNF.pas:5171-5181)
     const chave = await chaveDeEntrada(trx, id);
     if (chave && emp != null) {
@@ -506,10 +509,12 @@ export const nfAggregateConfig: AggregateConfig = {
         // o RETRATO DO PRODUTO no item (derivado no servidor — `retratoDoProduto`): o que o cliente mandar é ignorado
         'ultcusto', 'ultcustorep', 'ultvenda', 'markup', 'vrcustoreal', 'idpiscofins',
         'vl_unitario', // o custo da unidade (VRCUSTO / FATOREMBAL), refeito a cada gravação como o legado (uNF.pas:4935)
+        // a ANÁLISE do item (o OK do diálogo): 0 no item novo ou editado no diálogo = pendente; o aposGravarTrx recalcula o custo e a escada
+        'custo_real_unit',
       ],
       // a DESCRIÇÃO que cada item tinha, para o item regravado sem ela (casada pelo produto, como a preservação)
       antesDeSubstituirTrx: async ({ trx, masterId }) =>
-        trx.selectFrom('nf_prod').select(['codproduto', 'descricao', ...RETRATO]).where('codnf', '=', masterId).orderBy('codnfprod').execute(),
+        trx.selectFrom('nf_prod').select(['codproduto', 'descricao', 'custo_real_unit', ...RETRATO]).where('codnf', '=', masterId).orderBy('codnfprod').execute(),
       // congela o CUSTO do item = MULTI_PRECO.VRCUSTO corrente por (produto, empresa) no lançamento
       // (GetCustoProduto, udmNF.pas:12057). É a base do CMV; snapshot (não acompanha a deriva do MP).
       derivarItensTrx: async (itens, trx, emp, _header, _masterId, snapshot) => {
@@ -544,7 +549,10 @@ export const nfAggregateConfig: AggregateConfig = {
           const retrato = await retratoDoProduto(trx, emp, it, antiga, cab);
           const fator = Number(it.fatorembal) > 0 ? Number(it.fatorembal) : 1;
           const vlUnitario = it.vrcusto != null ? Math.round((Number(it.vrcusto) / fator) * 1e4) / 1e4 : undefined;
-          out.push({ ...it, vl_unitario: vlUnitario, vl_custo: vl, debitopiscofins: debitoPisCofins(it.vrvenda, it.aliqpiss, it.aliqcofinss), descricao: descricao?.slice(0, 120) ?? null, ...retrato });
+          // o item de entrada que chega pelo diálogo (ou é novo) volta para a análise; o outro mantém a que tinha
+          const analisar = String(cab?.tipo ?? '').toUpperCase() === 'E' && (antiga == null || it.dialogo === true);
+          const custoReal = analisar ? 0 : antiga ? antiga.custo_real_unit : undefined;
+          out.push({ ...it, custo_real_unit: custoReal, vl_unitario: vlUnitario, vl_custo: vl, debitopiscofins: debitoPisCofins(it.vrvenda, it.aliqpiss, it.aliqcofinss), descricao: descricao?.slice(0, 120) ?? null, ...retrato });
         }
         return out;
       },

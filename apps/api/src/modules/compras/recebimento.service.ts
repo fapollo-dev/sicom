@@ -14,6 +14,7 @@ import { itemImportado, type ProdutoImportacao } from './nfe-item-importacao';
 import { normRef, digEan } from './codref-normalize';
 import { AnalisePedidoNfService } from './analise-pedido-nf.service';
 import { configNaTrx } from './pedido-heranca';
+import { recalcularMetricasEntrada } from '../cadastro/nf-custo-item';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -472,6 +473,9 @@ export class RecebimentoService {
         const { nroitem, ...cols } = e;
         await trx.updateTable('nf_prod').set(cols).where('codnf', '=', codnf).where('nroitem', '=', Number(nroitem)).execute();
       }
+      // a ANÁLISE automática dos itens (uItensNF.pas:3890 → btnOkClick): com o item completo — o FCP-ST, o IPI devolvido e a base do ST
+      // externo entram no custo
+      await recalcularMetricasEntrada(trx, codnf, 'todos');
     });
 
     // RASTREABILIDADE (grupo `rastro` do XML → NF_PROD_LOTE): fiel a NFe.pas:4212-4225, que percorre os rastros do

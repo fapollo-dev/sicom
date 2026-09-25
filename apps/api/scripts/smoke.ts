@@ -23387,6 +23387,45 @@ async function main() {
       }
     }
 
+    // ══ §242 ITEM DA NF — a ANÁLISE do item de entrada (CalcValorNota + CalcValorCusto + MargemL) ════════════════════════════════
+    {
+      const pgMt = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const empAntes = (await pgMt.query(`SELECT classfiscal, despoperacional, despfederativas, imprenda, contsocial FROM empresas WHERE idempresa = 1`)).rows[0] as any;
+      let codnf = 0;
+      try {
+        await pgMt.query(`UPDATE empresas SET classfiscal = 'LR', despoperacional = 20, despfederativas = 0, imprenda = 15, contsocial = 9 WHERE idempresa = 1`);
+        const corpo = (extra: Record<string, unknown> = {}) => ({ modelo: 1, serie: '1', tipo: 'E', nronf: 'MT242', tipoemissao: '1', codparceiro: 22, dtemissao: '2036-11-04', dtcontabil: '2036-11-04', cfop: '1102',
+          itens: [{ nroitem: 1, codproduto: 1, quantidade: 2, fatorembal: 6, vrcusto: 60, cfop: '1102', aliquota: 'T01', cst: 0, icms: 18, icme: 18, bcr: 100, vrbasecalculo: 120, vricm: 21.6,
+            aliqpise: 1.65, aliqcofinse: 7.6, aliqpiss: 1.65, aliqcofinss: 7.6, vrvenda: 15, ...extra }] });
+        const cri = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify(corpo()) });
+        codnf = Number(((await cri.json().catch(() => ({}))) as any).codnf) || 0;
+        const ler = async () => (await pgMt.query(`SELECT custo_real_unit, vrcustorep, vrcustocsi, pmz, vrvendasug, debitoicm, debitopiscofins, vendaliq, lucrobrutov, despopv, lucroliqv, imprend,
+            contsocial, margeml2v, markupl2, vrbasecalculoicm_calc, vricm_calc FROM nf_prod WHERE codnf = $1`, [codnf])).rows[0] as any;
+        const a = await ler();
+        const N = (v: unknown) => Number(v);
+        // regravar SEM o diálogo mantém a análise (mesmo alterada); o OK do diálogo refaz
+        await pgMt.query(`UPDATE nf_prod SET pmz = 99, custo_real_unit = 7.5 WHERE codnf = $1`, [codnf]);
+        await fetch(`${base}/fiscal/nf/${codnf}`, { method: 'PUT', headers: H, body: JSON.stringify(corpo()) });
+        const b = await ler();
+        await fetch(`${base}/fiscal/nf/${codnf}`, { method: 'PUT', headers: H, body: JSON.stringify(corpo({ dialogo: true })) });
+        const c = await ler();
+        check('ITEM DA NF §242 [a análise do item de entrada]: 2 caixas × 6 a R$ 60 → custo unitário 10, crédito de ICMS 1,80 e de PIS/COFINS 0,93 (LR) → CUSTO_REAL_UNIT 7,27, VRCUSTOREP 10, VRCUSTOCSI 7,27, PMZ 13,78 (7,27 / (100 − 9,25 − 18 − 20) × 100); a escada sobre a venda de 15 (débitos 2,70 + 1,39, venda líquida 10,91, lucro bruto 3,64, despesa 3,00, líquido 0,64, IR 0,10, CSLL 0,06, margem 0,48 = 3,2%); o ICMS calculado 120 × 18% = 21,60 — o Apollo deixava tudo NULL; regravar sem o diálogo mantém, o OK do diálogo refaz (bate 99% com a produção, teste-ouro nf-custo-item.spec.ts)',
+          cri.status === 201 && N(a?.custo_real_unit) === 7.27 && N(a?.vrcustorep) === 10 && N(a?.vrcustocsi) === 7.27 && N(a?.pmz) === 13.78
+          && N(a?.debitoicm) === 2.7 && N(a?.debitopiscofins) === 1.39 && N(a?.vendaliq) === 10.91 && N(a?.lucrobrutov) === 3.64 && N(a?.despopv) === 3 && N(a?.lucroliqv) === 0.64
+          && N(a?.imprend) === 0.1 && N(a?.contsocial) === 0.06 && N(a?.margeml2v) === 0.48 && N(a?.markupl2) === 3.2 && N(a?.vrbasecalculoicm_calc) === 120 && N(a?.vricm_calc) === 21.6
+          && N(a?.vrvendasug) >= 0 && N(b?.pmz) === 99 && N(b?.custo_real_unit) === 7.5 && N(c?.pmz) === 13.78 && N(c?.custo_real_unit) === 7.27,
+          { status: cri.status, a, b: { pmz: b?.pmz, custo: b?.custo_real_unit }, c: { pmz: c?.pmz, custo: c?.custo_real_unit } });
+      } finally {
+        await pgMt.query(`UPDATE empresas SET classfiscal = $1, despoperacional = $2, despfederativas = $3, imprenda = $4, contsocial = $5 WHERE idempresa = 1`,
+          [empAntes?.classfiscal, empAntes?.despoperacional, empAntes?.despfederativas, empAntes?.imprenda, empAntes?.contsocial]).catch(() => undefined);
+        if (codnf) {
+          await pgMt.query(`DELETE FROM nf_prod WHERE codnf = $1`, [codnf]).catch(() => undefined);
+          await pgMt.query(`DELETE FROM nf WHERE codnf = $1`, [codnf]).catch(() => undefined);
+        }
+        await pgMt.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();
