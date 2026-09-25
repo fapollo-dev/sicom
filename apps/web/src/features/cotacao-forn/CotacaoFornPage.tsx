@@ -11,7 +11,6 @@ const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 interface Item {
   codctcfit: number; codcpr: number; descricao: string; codbarra: string; unidade: string;
   quantidade: number; valor: number; icms: number; fatorembalagem: number; valortotal: number;
-  ultimo_valor: number | null; valorcusto: number; valorvenda: number;
 }
 interface Sessao { validadoPorEmpresa: boolean; codoperador: number | null; codparceiro: number | null; nome: string | null }
 
@@ -130,7 +129,6 @@ export function CotacaoFornPage() {
       ),
     } as DataTableColumnDef<Item>,
     { field: 'valortotal', headerName: 'Total gravado', type: 'text', width: 125, valueGetter: (i) => moeda(i.valortotal) },
-    { field: 'ultimo_valor', headerName: 'Preço anterior', type: 'text', width: 125, valueGetter: (i) => (i.ultimo_valor == null ? '—' : moeda(i.ultimo_valor)) },
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [edit]);
 

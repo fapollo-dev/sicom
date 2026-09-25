@@ -48,6 +48,8 @@ export interface CotacaoPreco {
   icms: number;
   ganhador: string; // 'A' vencedor / 'I' indefinido
   definido: string; // 'S' escolha manual
+  /** "Ult. Custo Rep." — o VRCUSTOREP do produto na última NF de entrada do fornecedor até a data da cotação */
+  ultimo_custo_rep?: number | null;
 }
 export interface CotacaoDetalhe extends CotacaoLista {
   produtos: CotacaoProd[];

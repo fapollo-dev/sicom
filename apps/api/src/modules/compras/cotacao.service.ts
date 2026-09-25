@@ -188,7 +188,9 @@ export class CotacaoService {
         const valortotal = r4(prod.quantidade * valorembal); // fiel: VALORTOTAL = QUANTIDADE × VALOREMBAL (uCadCotacaoForn:224)
         await trx
           .insertInto('cotacao_forn_itens')
-          .values({ codctcforn: Number(forn.codctcforn), codcpr: prod.codcpr, valor, valorembal, valortotal, fatorembalagem: fator, icms: num(it.icms), ganhador: 'I', definido: 'N', verificado: 'N', datamanut: sql`now()` })
+          .values({ codctcforn: Number(forn.codctcforn), codcpr: prod.codcpr, valor, valorembal, valortotal, fatorembalagem: fator, icms: num(it.icms), ganhador: 'I', definido: 'N', verificado: 'N', datamanut: sql`now()`,
+            // o gatilho ATUALIZA_CUSTO_COTACAO (BEFORE INSERT): o último custo de reposição do produto na NF do fornecedor
+            ultimo_valor: sql`nullif(round(apollo_ultimo_custo_rep_cotacao(${Number(forn.codctcforn)}, ${prod.codcpr}), 2), 0)` })
           .onConflict((oc: any) => oc.columns(['codctcforn', 'codcpr']).doUpdateSet({ valor, valorembal, valortotal, fatorembalagem: fator, icms: num(it.icms), datamanut: sql`now()` }))
           .execute();
         n++;
@@ -255,7 +257,12 @@ export class CotacaoService {
     const qtdes = codcprs.length ? ((await db.selectFrom('cotacao_prodqtde').selectAll().where('codcpr', 'in', codcprs).execute()) as Array<Record<string, unknown>>) : [];
     const fornecedores = (await db.selectFrom('cotacao_forn').selectAll().where('codctc', '=', codctc).orderBy('codctcforn').execute()) as Array<Record<string, unknown>>;
     const codfornos = fornecedores.map((f) => Number(f.codctcforn));
-    const precos = codfornos.length ? ((await db.selectFrom('cotacao_forn_itens').selectAll().where('codctcforn', 'in', codfornos).execute()) as Array<Record<string, unknown>>) : [];
+    // "Ult. Custo Rep." (sqqCotacaoFornVenc): a grade do legado calcula ao vivo, não lê a coluna gravada na inclusão
+    const precos = codfornos.length
+      ? ((await db.selectFrom('cotacao_forn_itens').selectAll()
+          .select(sql<number>`apollo_ultimo_custo_rep_cotacao(codctcforn, codcpr)`.as('ultimo_custo_rep'))
+          .where('codctcforn', 'in', codfornos).execute()) as Array<Record<string, unknown>>)
+      : [];
     return {
       ...header,
       produtos: produtos.map((p) => ({ ...p, qtdes: qtdes.filter((q) => Number(q.codcpr) === Number(p.codcpr)) })),

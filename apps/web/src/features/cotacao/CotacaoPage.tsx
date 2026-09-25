@@ -235,6 +235,11 @@ export function CotacaoPage() {
                         onClick={() => { if (aberta && temPreco) void acao(() => definirGanhadorCotacao(sel.codctc, { idproduto: p.idproduto, codparceiro: f.codparceiro }), 'Vencedor definido manualmente.'); }}
                       >
                         {temPreco ? brl(Number(pr!.valor)) : '—'}{venc ? ' ✓' : ''}{manual ? ' *' : ''}
+                        {Number(pr?.ultimo_custo_rep ?? 0) > 0 && (
+                          <div className="text-body-xs font-normal text-fg-muted" title="Último custo de reposição: o do produto na última nota de entrada deste fornecedor até a data da cotação">
+                            últ. rep. {brl(Number(pr!.ultimo_custo_rep))}
+                          </div>
+                        )}
                       </td>
                     );
                   })}
@@ -244,7 +249,7 @@ export function CotacaoPage() {
             </tbody>
           </table>
         </div>
-        <small className="text-fg-muted">✓ = vencedor apurado (menor preço líquido de ICMS) · * = escolha manual (sobrevive à reapuração) · «fora» = fornecedor não participa da apuração automática.</small>
+        <small className="text-fg-muted">✓ = vencedor apurado (menor preço líquido de ICMS) · * = escolha manual (sobrevive à reapuração) · «fora» = fornecedor não participa da apuração automática · «últ. rep.» = custo de reposição do produto na última nota de entrada do fornecedor.</small>
 
         {/* LANÇAR PREÇOS de um fornecedor */}
         {aberta && (

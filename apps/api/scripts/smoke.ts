@@ -12331,6 +12331,17 @@ async function main() {
           VALUES ('7009000008882','PROD COTACAO 2','UN',2,'T01') RETURNING idproduto`)).rows[0].idproduto);
         await pgCt.query(`INSERT INTO cotacao_prod (codcpr, codctc, idproduto, descricao, quantidade, valorcusto, valorvenda, fatorembalagem)
           VALUES (99712,99701,$1,'PROD COTACAO 2',50,4.00,9.00,6)`, [pCt2]);
+        // o gatilho ATUALIZA_CUSTO_COTACAO: 3 entradas do fornecedor 2 com o produto — a que vale (custo rep. 7,123, contabilizada antes da
+        // cotação), uma CANCELADA mais nova e uma contabilizada DEPOIS da data da cotação (nenhuma das duas conta)
+        const nfCt = async (nronf: string, cancelada: string, dt: string, rep: number) => {
+          const r = await pgCt.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop)
+            VALUES (1,2,$1,55,'1','E','S',$2,$3,$3,1102) RETURNING codnf`, [nronf, cancelada, dt]);
+          await pgCt.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, fatorembal, vrvenda, vrcusto, vl_custo, vrcustorep)
+            VALUES ($1,$2,1,1,0,$3,$3,$3)`, [r.rows[0].codnf, pCt, rep]);
+        };
+        await nfCt('997101', 'N', '2049-01-15', 7.123);
+        await nfCt('997102', 'S', '2049-01-20', 6.5);
+        await nfCt('997103', 'N', '2049-03-01', 9.99);
         // o fornecedor 2 com senha; o hash é o mesmo scrypt dos operadores (a carga hasheia a do legado)
         const { hashSenha } = await import('../src/shared/auth/crypto');
         await pgCt.query(`UPDATE parceiros SET senha_hash=$1 WHERE codparceiro=2`, [await hashSenha('forn#2049')]);
@@ -12353,6 +12364,15 @@ async function main() {
           && Math.abs(Number(it1?.fatorembalagem) - 1) < 0.005
           && Math.abs(Number(it1?.quantidade) - 100) < 0.005,
           { itens: (aj.itens ?? []).length, primeiro: it1 && { valor: it1.valor, fator: it1.fatorembalagem, qtde: it1.quantidade } });
+
+        const uv = (await pgCt.query(`SELECT codcpr, ultimo_valor::float8 u FROM cotacao_forn_itens WHERE codctcforn=$1 ORDER BY codcpr`, [cj.codctcforn])).rows as any[];
+        const vazou = ['ultimo_valor', 'valorcusto', 'valorvenda'].filter((k) => (aj.itens ?? []).some((i: any) => k in i));
+        const obterCt = (await (await fetch(`${base}/compras/cotacao/99701`, { headers: H })).json().catch(() => ({}))) as any;
+        const prCt = (obterCt.precos ?? []).find((x: any) => Number(x.codcpr) === 99711);
+        check('PREENCHER COTAÇÃO §110.2b [o gatilho ATUALIZA_CUSTO_COTACAO]: o item nasce com ULTIMO_VALOR = o VRCUSTOREP do produto na última NF de entrada processada do fornecedor contabilizada até a data da cotação (7,123 → 7,12, o DECIMAL(13,2) do gatilho) — a cancelada e a posterior à cotação não contam, e o produto sem nota fica nulo; a grade do comprador mostra o "Ult. Custo Rep." ao vivo (sqqCotacaoFornVenc); e a tela do FORNECEDOR não recebe nem esse custo nem o custo/venda da loja (o legado não os seleciona no preencher)',
+          uv.length === 2 && Math.abs(Number(uv[0].u) - 7.12) < 0.0001 && uv[1].u == null && vazou.length === 0
+          && Math.abs(Number(prCt?.ultimo_custo_rep) - 7.123) < 0.0001,
+          { uv, vazou, prCt: prCt && prCt.ultimo_custo_rep });
 
         const loginForn = await fetch(`${base}/${CT}/autenticar`, { method: 'POST', headers: H,
           body: JSON.stringify({ comoParceiro: true, codparceiro: 2, senha: 'forn#2049' }) });
@@ -12380,9 +12400,9 @@ async function main() {
         const linha = (await pgCt.query(`SELECT valor::float8 v, valortotal::float8 t, fatorembalagem::float8 f, ultimo_valor::float8 u
           FROM cotacao_forn_itens WHERE codctcfit=$1`, [it1.codctcfit])).rows[0] as any;
         const cabPos = (await pgCt.query(`SELECT codoperador, datamanpar, datamanope FROM cotacao_forn WHERE codctcforn=$1`, [cj.codctcforn])).rows[0] as any;
-        check('PREENCHER COTAÇÃO §110.4 [quem preencheu fica gravado, e em campo separado]: preenchido pelo FORNECEDOR, o `CODOPERADOR` vai a **ZERO** e a data cai em `DATAMANPAR`; se fosse a loja, iria em `DATAMANOPE` com o código do operador. É por isso que dá para saber, quatro anos depois, que 85 das 97 cotações foram o fornecedor que digitou. O total do item é `valor × fator` (7,50 × 12 = **90,00**) e o valor anterior fica guardado em `ULTIMO_VALOR`',
+        check('PREENCHER COTAÇÃO §110.4 [quem preencheu fica gravado, e em campo separado]: preenchido pelo FORNECEDOR, o `CODOPERADOR` vai a **ZERO** e a data cai em `DATAMANPAR`; se fosse a loja, iria em `DATAMANOPE` com o código do operador. É por isso que dá para saber, quatro anos depois, que 85 das 97 cotações foram o fornecedor que digitou. O total do item é `valor × fator` (7,50 × 12 = **90,00**); o `ULTIMO_VALOR` (o custo do gatilho) não muda no preenchimento',
           preench.status === 200 || preench.status === 201 ? (
-            Math.abs(Number(linha.v) - 7.5) < 0.005 && Math.abs(Number(linha.t) - 90) < 0.005
+            Math.abs(Number(linha.v) - 7.5) < 0.005 && Math.abs(Number(linha.t) - 90) < 0.005 && Math.abs(Number(linha.u) - 7.12) < 0.0001
             && Number(cabPos.codoperador) === 0 && cabPos.datamanpar != null && cabPos.datamanope == null
           ) : false,
           { item: linha, cabecalho: cabPos });
@@ -12400,6 +12420,8 @@ async function main() {
         await pgCt.query(`DELETE FROM cotacao_prod WHERE codctc=99701`);
         await pgCt.query(`DELETE FROM cotacao WHERE codctc=99701`);
         await pgCt.query(`UPDATE parceiros SET senha_hash=NULL WHERE codparceiro=2`);
+        await pgCt.query(`DELETE FROM nf_prod WHERE codnf IN (SELECT codnf FROM nf WHERE codparceiro=2 AND nronf IN ('997101','997102','997103'))`);
+        await pgCt.query(`DELETE FROM nf WHERE codparceiro=2 AND nronf IN ('997101','997102','997103')`);
         await pgCt.query(`DELETE FROM produtos WHERE idproduto = ANY($1)`, [[pCt, pCt2]]);
       } finally {
         await pgCt.end();

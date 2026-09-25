@@ -99,15 +99,17 @@ export class CotacaoFornService {
     `.execute(db)).rows[0];
     if (!cab) throw new BusinessRuleError('COTACAO_FORN_NAO_ENCONTRADA', { codctcforn });
 
-    // cria os itens que faltam, zerados, a partir da lista de produtos da cotação
+    // cria os itens que faltam, zerados, a partir da lista de produtos da cotação; o ULTIMO_VALOR é o do gatilho ATUALIZA_CUSTO_COTACAO
+    // (o último custo de reposição do produto na NF do fornecedor, DECIMAL(13,2) no gatilho; só quando > 0)
     await sql`
       INSERT INTO cotacao_forn_itens
-             (codctcfit, codctcforn, codcpr, valor, datamanut, icms, valorembal, valortotal, fatorembalagem)
+             (codctcfit, codctcforn, codcpr, valor, datamanut, icms, valorembal, valortotal, fatorembalagem, ultimo_valor)
       SELECT (SELECT coalesce(max(codctcfit), 0) FROM cotacao_forn_itens)
              + row_number() OVER (ORDER BY cp.codcpr),
              ${codctcforn}, cp.codcpr, 0, now(), 0, 0, 0,
              -- ⛔ sempre 1: o legado grava 1 com o valor de origem comentado ao lado
-             1
+             1,
+             nullif(round(apollo_ultimo_custo_rep_cotacao(${codctcforn}, cp.codcpr), 2), 0)
         FROM cotacao_prod cp
        WHERE cp.codctc = ${cab.codctc}
          AND NOT EXISTS (SELECT 1 FROM cotacao_forn_itens i
@@ -116,10 +118,9 @@ export class CotacaoFornService {
 
     const itens = (await sql<Record<string, unknown>>`
       SELECT i.codctcfit, i.codcpr, i.valor, i.icms, i.valorembal, i.valortotal,
-             i.fatorembalagem, i.definido, i.ganhador, i.verificado, i.marcado, i.ultimo_valor,
+             i.fatorembalagem, i.definido, i.ganhador, i.verificado, i.marcado,
              cp.quantidade, coalesce(cp.descricao, pr.descricao) AS descricao,
-             pr.codbarra, pr.unidade, cp.idproduto,
-             cp.valorcusto, cp.valorvenda
+             pr.codbarra, pr.unidade, cp.idproduto
         FROM cotacao_forn_itens i
         JOIN cotacao_prod cp  ON cp.codcpr = i.codcpr
         LEFT JOIN produtos pr ON pr.idproduto = cp.idproduto
@@ -168,9 +169,7 @@ export class CotacaoFornService {
         const total = r4(num(it.valor) * fator);
         const r = (await sql<{ codctcfit: number }>`
           UPDATE cotacao_forn_itens
-             SET ultimo_valor = valor,
-                 valorembal_bk = valorembal,
-                 valor = ${r4(num(it.valor))},
+             SET valor = ${r4(num(it.valor))},
                  icms = ${r4(num(it.icms))},
                  fatorembalagem = ${fator},
                  valorembal = ${r4(num(it.valorembal))},
