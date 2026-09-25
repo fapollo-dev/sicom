@@ -43,8 +43,8 @@ const RETRATO = ['ultcusto', 'ultcustorep', 'ultvenda', 'markup', 'vrcustoreal',
  *  - ULTCUSTO, ULTCUSTOREP e ULTVENDA = MULTI_PRECO.VRCUSTO, VRCUSTOREP e VRVENDA (o preço do produto FILHO quando o item tem um,
  *    `cdsProdutos`, udmNF.pas:6235);
  *  - MARKUP = MULTI_PRECO.MARKUP na inclusão; na edição, só se o item estava com 0 (:2724);
- *  - VRCUSTOREAL = MULTI_PRECO.VRCUSTO quando a nota não veio de XML e a linha de preço tem custo real (:2567 — na importada é o
- *    vUnCom do XML);
+ *  - VRCUSTOREAL = o VRCUSTO do item na nota digitada (o fonte de 2020 põe o MULTI_PRECO.VRCUSTO, :2567, mas o dado de 2026 tem
+ *    VRCUSTOREAL = VRCUSTO em 1.045 de 1.047 itens — inclusive os 46 em caixa); na importada é o vUnCom do XML;
  *  - IDPISCOFINS = PRODUTOS.IDPISCOFINS (binário novo, fora do fonte de 2020: 95,4% dos itens de 2026 iguais ao do produto).
  * A inclusão de SAÍDA não tira o retrato (o ramo 'Nota de Saida', :2607, não o faz); a edição pelo diálogo tira, de qualquer tipo —
  * na produção o ULTCUSTO muda em 62.534 "Alterou" de entrada (a análise do item) e 1.863 de saída. Fora disso fica o que o item tinha.
@@ -75,7 +75,7 @@ async function retratoDoProduto(
     ultcustorep: mp.vrcustorep ?? 0,
     ultvenda: filho?.vrvenda ?? mp.vrvenda ?? 0,
     markup: antiga == null || markupAntigo === 0 ? mp.markup ?? 0 : antiga.markup,
-    vrcustoreal: !importada && Number(mp.vrcustoreal ?? 0) > 0 ? mp.vrcusto : manter.vrcustoreal,
+    vrcustoreal: !importada && it.vrcusto != null ? it.vrcusto : manter.vrcustoreal,
     idpiscofins: prod?.idpiscofins ?? manter.idpiscofins,
   };
 }

@@ -426,10 +426,10 @@ Reverter (qualquer corte): **não desfazer** nada de produto/histórico/lote —
 
 | Corte | Status |
 |---|---|
-| 1 — custo do item na entrada (porta pura de CalcValorNota/CalcValorCusto) | ⏳ |
-| 2 — par no HISTORICO_PROCESSAMENTO_NF | ⏳ |
+| 1 — custo do item na entrada (porta pura de CalcValorNota/CalcValorCusto) | ✅ `nf-custo-item.ts` (teste-ouro 99,2%) |
+| 2 — par no HISTORICO_PROCESSAMENTO_NF | ✅ `nf-produtos-processar.ts` (PRODUTO antes / PROCESSAMENTO da nota, com os TEMP de fallback) |
 | 3 — flags do item no processar | ✅ GERAESTOQUE/MOVIMENTA_ESTOQUE = PROC_QTDE do CFOP do item, ORIGEM_ESTOQUE 'E', USOCONSUMO do produto (`flagsDoItemNoProcessar`); a importação não decide mais (e o SPED não usa ORIGEM_ESTOQUE). Mig 353: PROC_QTDE da semente com o valor da produção. Smoke §241. Falta: troca (ESTOQUERETIRADATROCA) e depósito/produção (TIPO_ESTOQUE) |
-| 4 — MULTI_PRECO "sempre" | ⏳ |
-| 5 — custo e fornecedor | ⏳ |
+| 4 — MULTI_PRECO "sempre" | ✅ custo fiscal, ST, FCP-ST, seguro, frete, markup, ICME efetivo, despesas, IPI, frete 2, créditos, débitos, escada, CSI, PMZ, venda sugerida, bonificação (regra x910), ajuste; PRODUTOS: PIS (só com o flag no item), alteração |
+| 5 — custo e fornecedor | ✅ VRCUSTO contábil/VRCUSTOREAL/VRCUSTOREP com as 3 chaves; histórico 'NF de Entrada' e 'Processamento da NF Nro: X'; o gatilho UPDATE_CUSTO_MULTI_PRECO portado (mig 354, vale para toda tela); CODFOR com ATUALIZA_FORNEC_PRODUTO_PROCESSAR_NF (módulo Retaguarda). Smoke §243 |
 | 6 — preço de venda (lote/on-line) | ⏳ |
 | 7 — ramos de config (transferência: o dado diz que NÃO altera custo; seguir o dado) | ⏳ |

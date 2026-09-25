@@ -5230,11 +5230,11 @@ async function main() {
 
         // 47j.3) TRIGGER fiel ao ATUALIZAPROD: preço mudou → etq_impressa resetada p/ 'N' + dtultprecoalterado
         // carimbada (nos 3 produtos, incl. o propagado). E o histórico_dinamico ganhou o log VRVENDA anterior→atual.
-        const hist = (await pgAp.query(`SELECT campo, valor_anterior, valor_atual, valor_chave, historico FROM historico_dinamico WHERE tabela='MULTI_PRECO' AND valor_chave='990401' ORDER BY codhistorico DESC LIMIT 1`)).rows[0] as any;
+        const hist = (await pgAp.query(`SELECT campo, valor_anterior, valor_atual, valor_chave, historico FROM historico_dinamico WHERE tabela='MULTI_PRECO' AND valor_chave='990401' AND historico NOT LIKE 'Alteracao do Valor de%' ORDER BY codhistorico DESC LIMIT 1`)).rows[0] as any;
         // fold auditoria: o histórico é UMA linha por LOTE, do produto DO LOTE (o propagado 990401 NÃO gera linha —
         // golden: 31.108/31.112 lotes têm exatamente 1), no formato do legado (vírgula 2dp) e com ORIGEM NULL.
         const histA = (await pgAp.query(`SELECT campo, valor_anterior, valor_atual, valor_chave, historico, origem FROM historico_dinamico WHERE tabela='MULTI_PRECO' AND historico LIKE $1 ORDER BY codhistorico DESC`, [`%lote de preço Nro: ${loteA}%`])).rows as any[];
-        const histProp = Number((await pgAp.query(`SELECT count(*)::int n FROM historico_dinamico WHERE tabela='MULTI_PRECO' AND valor_chave='990401'`)).rows[0].n);
+        const histProp = Number((await pgAp.query(`SELECT count(*)::int n FROM historico_dinamico WHERE tabela='MULTI_PRECO' AND valor_chave='990401' AND historico NOT LIKE 'Alteracao do Valor de%'`)).rows[0].n);
         check('AJUSTE-PREÇO trigger+log: etq_impressa resetada N nos 3 (incl. propagado) + dtultprecoalterado carimbada + histórico 1 linha/lote (5,00→6,49 vírgula-2dp, origem NULL) e NADA p/ o propagado',
           m400.etq_impressa === 'N' && m401.etq_impressa === 'N' && m402.etq_impressa === 'N'
           && m400.dtultprecoalterado != null && m401.dtultprecoalterado != null
@@ -21597,7 +21597,7 @@ async function main() {
         const mp2 = (await pgPl.query(`SELECT idempresa, vrvenda::float AS vrvenda, etq_impressa FROM multi_preco WHERE idproduto=$1 AND idempresa IN (1,2) ORDER BY idempresa`, [idp])).rows as any[];
         // as lojas do clone registram "Precificação do Custo"; a da sessão não registra nada — no legado ela é relida já gravada
         // (cdsMultiPreco_Alteracao, :3268) e o diff sai vazio; o "Cadastro de produtos" é dos OUTROS produtos do grupo
-        const hist = (await pgPl.query(`SELECT codempresa, historico FROM historico_dinamico WHERE tabela='MULTI_PRECO' AND valor_chave=$1 AND campo='VRVENDA' AND valor_atual::numeric = 13.9 ORDER BY codempresa`, [String(idp)])).rows as any[];
+        const hist = (await pgPl.query(`SELECT codempresa, historico FROM historico_dinamico WHERE tabela='MULTI_PRECO' AND valor_chave=$1 AND campo='VRVENDA' AND valor_atual::numeric = 13.9 AND historico NOT LIKE 'Alteracao do Valor de%' ORDER BY codempresa`, [String(idp)])).rows as any[];
         check('PRODUTO §202.3 [on-line nas lojas]: modo on-line — 13,90 nas lojas 1 e 2, ETQ_IMPRESSA da sessão volta a N (o delete+insert não disparava o trigger) e o HISTORICO_DINAMICO do VRVENDA só nas lojas do clone ("Precificação do Custo", uma por loja, sem o falso "13.9000 → 13.9")',
           put2.status === 200 && mp2.every((m) => m.vrvenda === 13.9) && mp2[0].etq_impressa === 'N'
           && hist.length === lojasOp.length - 1 && hist.every((h) => Number(h.codempresa) !== 1 && h.historico === 'Precificação do Custo'),
@@ -22427,7 +22427,7 @@ async function main() {
         await pgBx.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, promocao) VALUES (990710,1,10,20,'N'),(990711,1,10,20,'N'),(990712,1,10,20,'N')
           ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda = 20, codusualt = NULL`);
         const sv = await fetch(`${base}/precificacao/custo/salvar`, { method: 'POST', headers: J, body: JSON.stringify({ idproduto: 990710, idempresa: 1, vrcusto: 10, empresas: [1], vrvenda: 25 }) });
-        const h = (await pgBx.query(`SELECT valor_chave, campo, historico FROM historico_dinamico WHERE tabela = 'MULTI_PRECO' AND valor_chave IN ('990710','990711') AND campo = 'VRVENDA' ORDER BY codhistorico`)).rows as any[];
+        const h = (await pgBx.query(`SELECT valor_chave, campo, historico FROM historico_dinamico WHERE tabela = 'MULTI_PRECO' AND valor_chave IN ('990710','990711') AND campo = 'VRVENDA' AND historico NOT LIKE 'Alteracao do Valor de%' ORDER BY codhistorico`)).rows as any[];
         const cu = (await pgBx.query(`SELECT idproduto, vrvenda, codusualt FROM multi_preco WHERE idproduto IN (990710, 990711) AND idempresa = 1 ORDER BY idproduto`)).rows as any[];
         const svL = await fetch(`${base}/precificacao/custo/salvar`, { method: 'POST', headers: J, body: JSON.stringify({ idproduto: 990710, idempresa: 1, vrcusto: 10, empresas: [1], vrvenda: 30, modoLote: true }) });
         const lotes = (await pgBx.query(`SELECT idproduto, vrvenda, obs FROM lote_preco WHERE idproduto IN (990710, 990711, 990712) AND processado = 'N' ORDER BY idproduto`)).rows as any[];
@@ -23077,7 +23077,7 @@ async function main() {
           criE.status === 201 && zeros && Number(e1?.beneficio) === 2 && e1?.item_perda_total === 'N' && e1?.atualiza_multipreco_decomp === 'S' && e1?.destacicmssn === 'N'
           && e1?.decomposicao === 'N' && String(e1?.origem_estoque ?? '').trim() === 'E',
           { status: criE.status, e1 });
-        const retratoOk = Number(e1?.ultcusto) === 4.1 && Number(e1?.ultcustorep) === 4.3 && Number(e1?.ultvenda) === 7.9 && Number(e1?.markup) === 35 && Number(e1?.vrcustoreal) === 4.1
+        const retratoOk = Number(e1?.ultcusto) === 4.1 && Number(e1?.ultcustorep) === 4.3 && Number(e1?.ultvenda) === 7.9 && Number(e1?.markup) === 35 && Number(e1?.vrcustoreal) === 5
           && (e1?.idpiscofins ?? null) === (idpc ?? null);
         // o preço muda; regravar sem o diálogo mantém o retrato; o OK do diálogo tira de novo (e o MARKUP, que não estava 0, fica)
         await pgNr.query(`UPDATE multi_preco SET vrcusto = 4.6, vrcustorep = 4.8, vrvenda = 8.4, markup = 40 WHERE idproduto = 1 AND idempresa = 1`);
@@ -23088,7 +23088,7 @@ async function main() {
         const criS = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify(corpo('S', 'NR235S', [item('S', { dialogo: true })])) });
         const codS = Number(((await criS.json().catch(() => ({}))) as any).codnf); nfs.push(codS);
         const s1 = await ler(codS);
-        check('ITEM DA NF §235.2 [o retrato do produto]: a inclusão de ENTRADA copia da linha de preço ULTCUSTO/ULTCUSTOREP/ULTVENDA/MARKUP, o VRCUSTOREAL (= VRCUSTO, nota não importada com custo real) e o IDPISCOFINS do produto — o que o cliente manda é ignorado; regravar sem o diálogo mantém o retrato; o OK do diálogo tira de novo, sem trocar o MARKUP que não era 0 (uItensNF.pas:2724); a inclusão de SAÍDA não tira (0)',
+        check('ITEM DA NF §235.2 [o retrato do produto]: a inclusão de ENTRADA copia da linha de preço ULTCUSTO/ULTCUSTOREP/ULTVENDA/MARKUP, o VRCUSTOREAL (= o VRCUSTO do item na nota digitada — 1.045 de 1.047 em 2026) e o IDPISCOFINS do produto — o que o cliente manda é ignorado; regravar sem o diálogo mantém o retrato; o OK do diálogo tira de novo, sem trocar o MARKUP que não era 0 (uItensNF.pas:2724); a inclusão de SAÍDA não tira (0)',
           retratoOk && Number(e2?.ultcusto) === 4.1 && Number(e3?.ultcusto) === 4.6 && Number(e3?.ultcustorep) === 4.8 && Number(e3?.ultvenda) === 8.4 && Number(e3?.markup) === 35
           && criS.status === 201 && Number(s1?.ultcusto) === 0 && Number(s1?.markup) === 0,
           { e1: [e1?.ultcusto, e1?.ultcustorep, e1?.ultvenda, e1?.markup, e1?.vrcustoreal, e1?.idpiscofins, idpc], e2: e2?.ultcusto, e3: [e3?.ultcusto, e3?.ultcustorep, e3?.ultvenda, e3?.markup], s: [criS.status, s1?.ultcusto, s1?.markup] });
@@ -23423,6 +23423,66 @@ async function main() {
           await pgMt.query(`DELETE FROM nf WHERE codnf = $1`, [codnf]).catch(() => undefined);
         }
         await pgMt.end();
+      }
+    }
+
+    // ══ §243 PROCESSAR NF DE ENTRADA — os produtos (UpdateProdutos): histórico, linha de preço e custo com as 3 chaves ══════════════
+    {
+      const pgUp = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const empAntes = (await pgUp.query(`SELECT classfiscal, despoperacional, despfederativas, imprenda, contsocial FROM empresas WHERE idempresa = 1`)).rows[0] as any;
+      const mpAntes = (await pgUp.query(`SELECT * FROM multi_preco WHERE idproduto = 3 AND idempresa = 1`)).rows[0] as any;
+      const cfAntes = (await pgUp.query(`SELECT codcfop, altera_custo_nf FROM cfop WHERE codcfop::text IN ('1102', '1949')`)).rows as any[];
+      const nfs: number[] = [];
+      try {
+        await pgUp.query(`UPDATE empresas SET classfiscal = 'LR', despoperacional = 20, despfederativas = 0, imprenda = 15, contsocial = 9 WHERE idempresa = 1`);
+        await pgUp.query(`UPDATE multi_preco SET vrcusto = 8, vrcustoreal = 6, vrcustorep = 8.5, vrcustocsi = 6, markup = 25, icme = 0 WHERE idproduto = 3 AND idempresa = 1`);
+        await pgUp.query(`UPDATE cfop SET altera_custo_nf = CASE WHEN codcfop::text = '1102' THEN 'S' ELSE 'N' END WHERE codcfop::text IN ('1102', '1949')`);
+        const hd0 = Number((await pgUp.query(`SELECT coalesce(max(codhistorico), 0) AS m FROM historico_dinamico`)).rows[0].m);
+        const criar = async (nronf: string, cfop: string) => {
+          const r = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 55, serie: '1', tipo: 'E', nronf, tipoemissao: '0', codparceiro: 22,
+            dtemissao: '2036-12-04', dtcontabil: '2036-12-04', cfop, itens: [{ nroitem: 1, codproduto: 3, quantidade: 2, fatorembal: 6, vrcusto: 60, cfop, aliquota: 'T01', cst: 0,
+              icms: 18, icme: 18, bcr: 100, vrbasecalculo: 120, vricm: 21.6, aliqpise: 1.65, aliqcofinse: 7.6, aliqpiss: 1.65, aliqcofinss: 7.6, vrvenda: 15, pis: 'S' }] }) });
+          const id = Number(((await r.json().catch(() => ({}))) as any).codnf) || 0; nfs.push(id); return id;
+        };
+        const nfA = await criar('UP243A', '1102');
+        const procA = await processarNf(nfA, H);
+        const par = (await pgUp.query(`SELECT historico, vrcusto, vrcustoreal, vrcustorep, vrcustocsi, pmz, icme, creditoicm, creditopiscofins, markup, fatorembal, existealteracaocusto,
+            alteracustodeco, alteracustocfop FROM historico_processamento_nf WHERE codnf = $1 ORDER BY dthistorico, codhistprocnf`, [nfA])).rows as any[];
+        const mpA = (await pgUp.query(`SELECT vrcusto, vrcustoreal, vrcustorep, vrcustocsi, pmz, markup, icme, creditoicm, creditopiscofins, vrcustofiscal, codusualt FROM multi_preco WHERE idproduto = 3 AND idempresa = 1`)).rows[0] as any;
+        const hd = (await pgUp.query(`SELECT campo, valor_anterior, valor_atual, historico, origem FROM historico_dinamico WHERE codhistorico > $1 AND valor_chave = '3' ORDER BY codhistorico`, [hd0])).rows as any[];
+        // a 2ª entrada pelo 1949 (ALTERA_CUSTO_NF N): o custo fica, o resto da linha de preço muda
+        await pgUp.query(`UPDATE multi_preco SET vrcustocsi = 1 WHERE idproduto = 3 AND idempresa = 1`);
+        const nfB = await criar('UP243B', '1949');
+        const procB = await processarNf(nfB, H);
+        const mpB = (await pgUp.query(`SELECT vrcusto, vrcustocsi FROM multi_preco WHERE idproduto = 3 AND idempresa = 1`)).rows[0] as any;
+        const parB = (await pgUp.query(`SELECT existealteracaocusto, alteracustocfop FROM historico_processamento_nf WHERE codnf = $1 AND historico = 'PROCESSAMENTO'`, [nfB])).rows[0] as any;
+        const N = (v: unknown) => Number(v);
+        check('PROCESSAR NF DE ENTRADA §243 [os produtos — UpdateProdutos]: o par no HISTORICO_PROCESSAMENTO_NF (PRODUTO = a linha de preço antes: custo 8; PROCESSAMENTO = a nota: custo contábil 10, real 7,27, créditos 1,80 + 0,93, as 3 chaves S); a linha de preço com o custo (10 / 7,27 / 10), CSI 7,27, PMZ 13,78, ICME 18, créditos e o custo fiscal da caixa (60) — o Apollo não mexia em produto nenhum ao processar; o histórico dinâmico "NF de Entrada" (VRCUSTO 8 → 10, frmNF), "Processamento da NF Nro: UP243A" (VRCUSTOREAL) e as linhas do gatilho do legado; pelo 1949 (ALTERA_CUSTO_NF N) o custo fica e o CSI muda',
+          procA.status === 200 && par.length === 2 && par[0]?.historico === 'PRODUTO' && N(par[0]?.vrcusto) === 8 && par[1]?.historico === 'PROCESSAMENTO'
+          && N(par[1]?.vrcusto) === 10 && N(par[1]?.vrcustoreal) === 7.27 && N(par[1]?.creditoicm) === 1.8 && N(par[1]?.creditopiscofins) === 0.93 && par[1]?.existealteracaocusto === 'S'
+          && N(mpA?.vrcusto) === 10 && N(mpA?.vrcustoreal) === 7.27 && N(mpA?.vrcustorep) === 10 && N(mpA?.vrcustocsi) === 7.27 && N(mpA?.pmz) === 13.78 && N(mpA?.icme) === 18
+          && N(mpA?.creditoicm) === 1.8 && N(mpA?.vrcustofiscal) === 60 && N(mpA?.codusualt) === 7
+          && hd.some((h) => h.historico === 'NF de Entrada' && h.campo === 'VRCUSTO' && h.valor_anterior === '8' && h.valor_atual === '10' && h.origem === 'frmNF')
+          && hd.some((h) => h.historico === 'Processamento da NF Nro: UP243A' && h.campo === 'VRCUSTOREAL' && h.valor_atual === '7,27')
+          && hd.some((h) => h.historico === 'Alteracao do Valor de Custo' && h.valor_anterior === '8' && h.valor_atual === '10')
+          && hd.some((h) => h.historico === 'Alteracao do Valor de Custo de Reposicao' && h.valor_anterior === '8.5' && h.valor_atual === '10')
+          && procB.status === 200 && N(mpB?.vrcusto) === 10 && N(mpB?.vrcustocsi) === 7.27 && parB?.existealteracaocusto === 'N' && parB?.alteracustocfop === 'N',
+          { procA: procA.status, par, mpA, hd, procB: procB.status, mpB, parB });
+      } finally {
+        await pgUp.query(`UPDATE empresas SET classfiscal = $1, despoperacional = $2, despfederativas = $3, imprenda = $4, contsocial = $5 WHERE idempresa = 1`,
+          [empAntes?.classfiscal, empAntes?.despoperacional, empAntes?.despfederativas, empAntes?.imprenda, empAntes?.contsocial]).catch(() => undefined);
+        for (const c of cfAntes) await pgUp.query(`UPDATE cfop SET altera_custo_nf = $1 WHERE codcfop = $2`, [c.altera_custo_nf, c.codcfop]).catch(() => undefined);
+        if (mpAntes) {
+          const cols = Object.keys(mpAntes).filter((k) => !['idproduto', 'idempresa'].includes(k));
+          await pgUp.query(`UPDATE multi_preco SET ${cols.map((k, i) => `${k} = $${i + 1}`).join(', ')} WHERE idproduto = 3 AND idempresa = 1`, cols.map((k) => mpAntes[k])).catch(() => undefined);
+        }
+        for (const c of nfs.filter((x) => x > 0)) {
+          await pgUp.query(`UPDATE nf SET proc = 'N' WHERE codnf = $1`, [c]).catch(() => undefined);
+          for (const q of [`DELETE FROM historico_processamento_nf WHERE codnf = $1`, `DELETE FROM faturamento WHERE idnf = $1`, `DELETE FROM nf_prod WHERE codnf = $1`, `DELETE FROM nf WHERE codnf = $1`]) {
+            await pgUp.query(q, [c]).catch(() => undefined);
+          }
+        }
+        await pgUp.end();
       }
     }
 

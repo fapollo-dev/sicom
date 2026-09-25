@@ -14,6 +14,7 @@ import { totaisProdutosNf } from '@apollo/shared';
 import { gerarCaixaDaNf, reverterCaixaDaNf } from './nf-caixa';
 import { configNaTrx } from '../compras/pedido-heranca';
 import { fotoDaNf, logDaDiferencaNf } from './nf-log';
+import { atualizarProdutosDaEntrada } from './nf-produtos-processar';
 
 type AnyDB = any;
 
@@ -222,6 +223,8 @@ export class NfProcessamentoService {
       // 1556/2556/1949/1933/1407…) entrariam no estoque
       if (modo === 'processar') await flagsDoItemNoProcessar(trx, codnf);
       await this.aplicarMovimentoItens(trx, codnf, String(nf.tipo), sinal, modo === 'reverter' ? 'NF-REV' : 'NF', op, emp);
+      // a entrada nos PRODUTOS (UpdateProdutos): o histórico do processamento, a linha de preço e o custo — reverter não desfaz
+      if (modo === 'processar') await atualizarProdutosDaEntrada(trx, codnf, emp, op);
 
       // flip de estado com compare-and-set (anti-corrida/replay).
       const novoProc = modo === 'processar' ? 'S' : 'N';
