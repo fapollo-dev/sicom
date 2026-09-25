@@ -148,6 +148,33 @@ export function EmpresasCadMaster() {
                 <NumCampo form={form} name="limite_descmax" label="&Limite desc. máx. (%)" />
               </div>
             </fieldset>
+
+            {/* Parâmetros que a operação altera (centros de custo das baixas, curva ABC, área, TEF, PDV) */}
+            <fieldset className="rounded-radius-md border border-border p-pad-md">
+              <legend className="px-pad-xs text-fg-muted">Parâmetros</legend>
+              <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-3">
+                <NumCampo form={form} name="ccmultajuros" label="CC multas, juros e taxas" decimais={0} />
+                <NumCampo form={form} name="codplc_juros_pagos" label="CC juros pagos" decimais={0} />
+                <NumCampo form={form} name="codplc_acrescimos_pagos" label="CC acréscimos pagos" decimais={0} />
+                <NumCampo form={form} name="codplc_descontos_recebidos" label="CC descontos recebidos" decimais={0} />
+                <NumCampo form={form} name="codplc_descontos_concedidos" label="CC descontos concedidos" decimais={0} />
+                <NumCampo form={form} name="codparceiro" label="Parceiro da empresa" decimais={0} />
+                <SelCampo form={form} name="sincroniza_preco_nf" label="Sincroniza preço nas lojas" options={SN_OPCOES} placeholder="—" />
+                <NumCampo form={form} name="pc_curva_abc_a" label="Curva ABC venda — A (%)" />
+                <NumCampo form={form} name="pc_curva_abc_b" label="Curva ABC venda — B (%)" />
+                <NumCampo form={form} name="pc_curva_abc_c" label="Curva ABC venda — C (%)" />
+                <NumCampo form={form} name="pc_curva_comp_a" label="Curva ABC compra — A (%)" />
+                <NumCampo form={form} name="pc_curva_comp_b" label="Curva ABC compra — B (%)" />
+                <NumCampo form={form} name="pc_curva_comp_c" label="Curva ABC compra — C (%)" />
+                <NumCampo form={form} name="aream2" label="Área (m²)" />
+                <NumCampo form={form} name="aream2_venda" label="Área de venda (m²)" />
+                <Field label="Junta comercial" disabled={!editavel} error={err('junta_comercial')} {...form.register('junta_comercial')} />
+                <Field label="TEF — loja" disabled={!editavel} error={err('tef_loja')} {...form.register('tef_loja')} />
+                <Field label="TEF — servidor" disabled={!editavel} error={err('tef_servidor')} {...form.register('tef_servidor')} />
+                <NumCampo form={form} name="codplc_nf_pdv" label="CC da NF do PDV" decimais={0} />
+                <NumCampo form={form} name="idsituacao_nf_pdv" label="Situação da NF do PDV" decimais={0} />
+              </div>
+            </fieldset>
           </div>
         );
       }}

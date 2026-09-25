@@ -87,6 +87,27 @@ const empresaBase = z
     tx_juro_apagar: dec(z.number().nonnegative()),
     descmax: dec(z.number().nonnegative()),
     limite_descmax: dec(z.number().nonnegative()),
+    // PARÂMETROS que a produção altera (78 alterações no LOG de 2025-26) e que o Apollo lê — auditoria de esqueletos §4.15
+    ccmultajuros: dec(z.number().int().positive()),          // CC de multas, juros e taxas (baixa de cartão/AP)
+    codplc_juros_pagos: dec(z.number().int().positive()),
+    codplc_acrescimos_pagos: dec(z.number().int().positive()),
+    codplc_descontos_recebidos: dec(z.number().int().positive()),
+    codplc_descontos_concedidos: dec(z.number().int().positive()),
+    codparceiro: dec(z.number().int().positive()),            // o parceiro da empresa (fornecedor do SCRAP, destinatário da NF de perda)
+    sincroniza_preco_nf: opcional(z.enum(['S', 'N'])),       // o preço do produto sincroniza nas lojas
+    pc_curva_abc_a: dec(z.number().nonnegative()),
+    pc_curva_abc_b: dec(z.number().nonnegative()),
+    pc_curva_abc_c: dec(z.number().nonnegative()),
+    pc_curva_comp_a: dec(z.number().nonnegative()),
+    pc_curva_comp_b: dec(z.number().nonnegative()),
+    pc_curva_comp_c: dec(z.number().nonnegative()),
+    aream2: dec(z.number().nonnegative()),
+    aream2_venda: dec(z.number().nonnegative()),
+    tef_loja: opcional(z.string().trim().max(20)),
+    tef_servidor: opcional(z.string().trim().max(20)),
+    junta_comercial: opcional(z.string().trim().max(30)),
+    codplc_nf_pdv: dec(z.number().int().positive()),
+    idsituacao_nf_pdv: dec(z.number().int().positive()),
   });
 
 export const empresaSchema = empresaBase.superRefine(validaEmpresa);

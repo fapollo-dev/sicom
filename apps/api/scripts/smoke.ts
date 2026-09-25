@@ -21829,6 +21829,24 @@ async function main() {
       }
     }
 
+    // ══ §212 EMPRESAS (auditoria de esqueletos §4.15): os parâmetros que a produção altera e o Apollo lê ganham editor
+    {
+      const pgEm2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const antes = (await pgEm2.query(`SELECT codplc_juros_pagos, aream2, tef_loja, pc_curva_abc_a, sincroniza_preco_nf FROM empresas WHERE idempresa=1`)).rows[0] as any;
+        const put = await fetch(`${base}/cadastro/empresas/1`, { method: 'PUT', headers: H, body: JSON.stringify({ codplc_juros_pagos: 3, aream2: 1250.5, tef_loja: 'LJ01', pc_curva_abc_a: 80, sincroniza_preco_nf: 'S' }) });
+        const putJ = (await put.json().catch(() => ({}))) as any;
+        const depois = (await pgEm2.query(`SELECT codplc_juros_pagos, aream2::float AS aream2, tef_loja, pc_curva_abc_a::float AS a, sincroniza_preco_nf FROM empresas WHERE idempresa=1`)).rows[0] as any;
+        check('EMPRESAS §212 [parâmetros com editor]: o cadastro grava CC de juros pagos (que a baixa lê), área, TEF, curva ABC e a sincronização de preço — colunas que a produção altera (78 no LOG de 2025-26) e ninguém conseguia manter',
+          put.status === 200 && Number(depois?.codplc_juros_pagos) === 3 && depois?.aream2 === 1250.5 && depois?.tef_loja === 'LJ01' && depois?.a === 80 && depois?.sincroniza_preco_nf === 'S',
+          { put: [put.status, putJ.code], depois });
+        await pgEm2.query(`UPDATE empresas SET codplc_juros_pagos=$1, aream2=$2, tef_loja=$3, pc_curva_abc_a=$4, sincroniza_preco_nf=$5 WHERE idempresa=1`,
+          [antes?.codplc_juros_pagos ?? null, antes?.aream2 ?? null, antes?.tef_loja ?? null, antes?.pc_curva_abc_a ?? null, antes?.sincroniza_preco_nf ?? null]);
+      } finally {
+        await pgEm2.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

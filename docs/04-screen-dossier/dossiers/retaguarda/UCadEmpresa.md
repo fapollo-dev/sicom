@@ -46,3 +46,10 @@ Repontado de `empresa_fiscal` → `empresas` (consolidação): `nf-fiscal.servic
 - **CRT** derivável (SN→1/LR→3) — não é coluna no legado.
 - **`empresas` não-empresaScoped** — cuidado para o engine não filtrar por `idempresa`.
 - **Oracle read-only**; nenhuma DML em homolog.
+
+## Corte "parâmetros com editor" (25/09/2026) — auditoria de esqueletos §4.15
+
+O app editava 33 de 273 colunas; as 78 alterações reais de 2025-26 no LOG caíam em colunas sem editor em módulo nenhum. Entram
+no cadastro (seção "Parâmetros"): os CCs das baixas (CCMULTAJUROS, CODPLC_JUROS_PAGOS — que a baixa de A Pagar lê —,
+ACRESCIMOS_PAGOS, DESCONTOS_RECEBIDOS/CONCEDIDOS), o parceiro da empresa, SINCRONIZA_PRECO_NF, as curvas ABC de venda e compra,
+AREAM2/AREAM2_VENDA, TEF_LOJA/TEF_SERVIDOR, JUNTA_COMERCIAL, CODPLC_NF_PDV e IDSITUACAO_NF_PDV. Smoke §212.

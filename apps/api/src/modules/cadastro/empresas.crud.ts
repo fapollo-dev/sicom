@@ -28,6 +28,12 @@ export const empresasCrudConfig: CrudConfig = {
     'classfiscal', 'figurafiscal', 'contribuinte_icms', 'alqsimplesnac', 'serie_nfe', 'tiponfe', 'ambiente',
     'piscofis', 'imprenda', 'contsocial', 'aliquota_estado',
     'despoperacional', 'margem_venda', 'margem_contribuicao', 'txjuropadrao', 'tx_juro_apagar', 'descmax', 'limite_descmax',
+    // os parâmetros que a produção altera e que o Apollo LÊ (auditoria de esqueletos §4.15: 78 alterações no LOG de 2025-26 sem
+    // editor em módulo nenhum — o CODPLC_JUROS_PAGOS que a baixa lê ninguém conseguia manter)
+    'ccmultajuros', 'codplc_juros_pagos', 'codplc_acrescimos_pagos', 'codplc_descontos_recebidos', 'codplc_descontos_concedidos',
+    'codparceiro', 'sincroniza_preco_nf',
+    'pc_curva_abc_a', 'pc_curva_abc_b', 'pc_curva_abc_c', 'pc_curva_comp_a', 'pc_curva_comp_b', 'pc_curva_comp_c',
+    'aream2', 'aream2_venda', 'tef_loja', 'tef_servidor', 'junta_comercial', 'codplc_nf_pdv', 'idsituacao_nf_pdv',
   ], // NÃO inclui idempresa (PK digitada, fornecida no dto)
   colunasPesquisa: ['idempresa', 'razao_social', 'cnpj', 'uf', 'classfiscal'],
   softDelete: false,
