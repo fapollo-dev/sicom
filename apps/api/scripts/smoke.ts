@@ -23201,7 +23201,7 @@ async function main() {
 <dest><CNPJ>${dest}</CNPJ><xNome>LOJA</xNome></dest>
 <det nItem="1"><prod><cProd>G1</cProd><cEAN>2000001000005</cEAN><xProd>QUEIJO</xProd><NCM>04061010</NCM><CFOP>5403</CFOP><uCom>UN</uCom><qCom>10.0000</qCom><vUnCom>6.00</vUnCom><vProd>60.00</vProd></prod><imposto><ICMS><ICMS10><orig>0</orig><CST>10</CST><vBC>60.00</vBC><pICMS>18.00</pICMS><vICMS>10.80</vICMS><vBCST>80.00</vBCST><pICMSST>18.00</pICMSST><vICMSST>8.00</vICMSST><vBCFCPST>80.00</vBCFCPST><pFCPST>2.50</pFCPST><vFCPST>2.00</vFCPST></ICMS10></ICMS></imposto></det>
 <total><ICMSTot><vBC>60.00</vBC><vICMS>10.80</vICMS><vBCST>80.00</vBCST><vST>8.00</vST><vFCPST>2.00</vFCPST><vProd>60.00</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vDesc>0.00</vDesc><vIPI>0.00</vIPI><vOutro>0.00</vOutro><vNF>70.00</vNF></ICMSTot></total>
-<transp><modFrete>0</modFrete>${comTransp ? '<transporta><CNPJ>55666777000188</CNPJ><xNome>Transportes Delta</xNome><IE>ISENTO</IE><xMun>Caxias</xMun><UF>MA</UF></transporta><veicTransp><placa>ABC1D23</placa><UF>MG</UF></veicTransp>' : ''}<vol><qVol>3</qVol><esp>Caixa</esp><marca>ACMÉ</marca><pesoL>28.500</pesoL><pesoB>30.500</pesoB></vol></transp>
+<transp><modFrete>0</modFrete>${comTransp ? '<transporta><CNPJ>55666777000181</CNPJ><xNome>Transportes Delta</xNome><IE>ISENTO</IE><xMun>Caxias</xMun><UF>MA</UF></transporta><veicTransp><placa>ABC1D23</placa><UF>MG</UF></veicTransp>' : ''}<vol><qVol>3</qVol><esp>Caixa</esp><marca>ACMÉ</marca><pesoL>28.500</pesoL><pesoB>30.500</pesoB></vol></transp>
 <pag><detPag><tPag>01</tPag><vPag>70.00</vPag></detPag></pag>
 </infNFe></NFe><protNFe><infProt><nProt>131260000023810</nProt></infProt></protNFe></nfeProc>`;
       const importar = async (x: string) => {
@@ -23209,27 +23209,35 @@ async function main() {
         return { status: r.status, j: (await r.json().catch(() => ({}))) as any };
       };
       let codnf = 0;
+      let codTransp = 0;
       try {
         await pgXh.query(`UPDATE parceiros_end SET cnpj_cpf = '44.555.666/0001-72' WHERE codend = 6`);
         await pgXh.query(`UPDATE parceiros SET frn = 'N' WHERE codparceiro = 22`);
         const outraLoja = await importar(xml('00000000009100'));
         const semLoja = await importar(xml('99888777000166'));
         const semTransp = await importar(xml('11222333000181'));
-        await pgXh.query(`UPDATE parceiros_end SET cnpj_cpf = '55.666.777/0001-88' WHERE codend = 5`);
-        await pgXh.query(`UPDATE parceiros SET tra = 'N' WHERE codparceiro = 21`);
+        // a tela cadastra a transportadora com os dados da recusa (o ImportaParceiro do legado) e importa de novo
+        const d = (semTransp.j.detalhe?.parceiro ?? {}) as Record<string, any>;
+        const cadTr = await fetch(`${base}/cadastro/parceiros`, { method: 'POST', headers: H, body: JSON.stringify({
+          razao: d.razao, fantasia: d.fantasia, tipofj: d.tipofj, tra: 'S', placa: d.placa, ufplaca: d.ufplaca,
+          enderecos: [{ endereco: d.endereco, bairro: d.bairro, cidade: d.cidade, uf: d.uf, cep: d.cep, cnpj_cpf: d.cnpj_cpf, rg_insc: d.rg_insc, endereco_padrao: 'S', ativado: 'S' }] }) });
+        const cadTrJ = (await cadTr.json().catch(() => ({}))) as any;
+        codTransp = Number(cadTrJ.codparceiro) || 0;
         const ok = await importar(xml('11222333000181'));
         codnf = Number(ok.j.codnf) || 0;
         const nf = (await pgXh.query(`SELECT codparceiro, codparceiro_end, codtransp, codtransp_end, placatransp, ufplacatransp, finalidade, dthorasaida, indicador_presenca, versaoxml,
             totalnf, validatotalnf, total_icms_nota_valor, total_icms_nota_bc, totalbaseicmt, total_streal, totalbase_stexterno, total_fcp_valor_st, imp_manifesto, imp_importadormassa,
             rateio, rateio_ipi, rateio_st, tipofrete, qtde, pesoliquido, pesobruto, especie, marca, nf_importacao_nfe FROM nf WHERE codnf = $1`, [codnf])).rows[0] as any;
-        const flags = (await pgXh.query(`SELECT codparceiro, frn, tra FROM parceiros WHERE codparceiro IN (21, 22) ORDER BY codparceiro`)).rows as any[];
+        const flags = (await pgXh.query(`SELECT codparceiro, frn, tra FROM parceiros WHERE codparceiro IN ($1, 22) ORDER BY codparceiro = 22`, [codTransp])).rows as any[];
+        const endTr = Number((await pgXh.query(`SELECT codend FROM parceiros_end WHERE codparceiro = $1 ORDER BY codend LIMIT 1`, [codTransp])).rows[0]?.codend ?? 0);
         check('IMPORTAÇÃO §238.1 [destinatário, fornecedor e transportadora]: nota de outra loja → 422 NFE_DESTINATARIO_OUTRA_LOJA (com a loja); CNPJ de loja nenhuma → 422 NFE_DESTINATARIO_DIVERGE; transportadora sem cadastro → 422 NFE_TRANSPORTADORA_NAO_ENCONTRADA com os dados do XML para o cadastro; com cadastro: o fornecedor que não era fornecedor passa a ser (FRN S — o Apollo recusava), a transportadora vira TRA S, e a nota grava o endereço do fornecedor, a transportadora, o endereço dela, a placa e a UF',
           outraLoja.status === 422 && outraLoja.j.code === 'NFE_DESTINATARIO_OUTRA_LOJA' && Number(outraLoja.j.detalhe?.idempresa) === 91
           && semLoja.status === 422 && semLoja.j.code === 'NFE_DESTINATARIO_DIVERGE'
           && semTransp.status === 422 && semTransp.j.code === 'NFE_TRANSPORTADORA_NAO_ENCONTRADA' && semTransp.j.detalhe?.parceiro?.tra === 'S' && semTransp.j.detalhe?.parceiro?.placa === 'ABC1D23'
-          && ok.status === 200 && Number(nf?.codparceiro) === 22 && Number(nf?.codparceiro_end) === 6 && Number(nf?.codtransp) === 21 && Number(nf?.codtransp_end) === 5
+          && cadTr.status === 201 && codTransp > 0
+          && ok.status === 200 && Number(nf?.codparceiro) === 22 && Number(nf?.codparceiro_end) === 6 && Number(nf?.codtransp) === codTransp && Number(nf?.codtransp_end) === endTr
           && nf?.placatransp === 'ABC1D23' && nf?.ufplacatransp === 'MG' && flags[0]?.tra === 'S' && flags[1]?.frn === 'S',
-          { outraLoja, semLoja: semLoja.j.code, semTransp: [semTransp.status, semTransp.j.code, semTransp.j.detalhe], ok: [ok.status, ok.j.code], nf, flags });
+          { outraLoja, semLoja: semLoja.j.code, semTransp: [semTransp.status, semTransp.j.code, semTransp.j.detalhe], cadTr: [cadTr.status, cadTrJ], ok: [ok.status, ok.j.code], nf, flags, endTr });
         const N = (v: unknown) => Number(v);
         check('IMPORTAÇÃO §238.2 [o cabeçalho e o total]: FINALIDADE, DTHORASAIDA, INDICADOR_PRESENCA, VERSAOXML 400, os totais DA NOTA (ICMS base/valor, base e valor do ST, base do ST externo, FCP-ST), VALIDATOTALNF = vNF, IMP_MANIFESTO S, IMP_IMPORTADORMASSA N, RATEIO/RATEIO_IPI/RATEIO_ST N, TIPOFRETE do XML e os volumes (quantidade, pesos, espécie e marca sem acento); o TOTALNF é o do legado (soma o FCP-ST — 70,00 = vNF; o Apollo dava 68,00)',
           nf?.finalidade === '1' && nf?.dthorasaida != null && N(nf?.indicador_presenca) === 1 && N(nf?.versaoxml) === 400
@@ -23248,6 +23256,11 @@ async function main() {
             `DELETE FROM faturamento WHERE idnf = $1`, `DELETE FROM nfe_xml WHERE codnf = $1`, `DELETE FROM nf_prod WHERE codnf = $1`, `DELETE FROM nf WHERE codnf = $1`]) {
             await pgXh.query(sqlDel, [codnf]).catch(() => undefined);
           }
+        }
+        if (codTransp) {
+          await pgXh.query(`UPDATE parceiros SET codend = NULL WHERE codparceiro = $1`, [codTransp]).catch(() => undefined);
+          await pgXh.query(`DELETE FROM parceiros_end WHERE codparceiro = $1`, [codTransp]).catch(() => undefined);
+          await pgXh.query(`DELETE FROM parceiros WHERE codparceiro = $1`, [codTransp]).catch(() => undefined);
         }
         await pgXh.end();
       }

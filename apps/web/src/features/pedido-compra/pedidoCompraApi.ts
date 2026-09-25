@@ -218,3 +218,11 @@ export interface VinculoProduto {
 export function vincularProdutos(codfor: number, vinculos: VinculoProduto[]): Promise<{ codfor: number; gravados: number }> {
   return req(`/compras/recebimento/vincular-produto`, { method: 'POST', body: JSON.stringify({ codfor, vinculos }) });
 }
+
+/**
+ * Cadastra o fornecedor ou a transportadora com os dados do XML que o import recusou (o `ImportaParceiro` do legado, NFe.pas:2933:
+ * abre o cadastro de parceiro já preenchido e o operador grava). Devolve o parceiro criado.
+ */
+export function cadastrarParceiroDoXml(dados: Record<string, unknown>): Promise<{ codparceiro: number }> {
+  return req(`/cadastro/parceiros`, { method: 'POST', body: JSON.stringify(dados) });
+}
