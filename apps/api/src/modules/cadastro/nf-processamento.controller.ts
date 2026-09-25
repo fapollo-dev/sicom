@@ -22,12 +22,19 @@ export class NfProcessamentoController {
     return this.deco.pendentes(id);
   }
 
-  /** "Confirmar decomposição": o pai sai e os filhos do cadastro entram, com a quantidade em KG, o valor total e o CFOP do diálogo */
+  /**
+   * "Confirmar decomposição": o pai sai e os filhos do cadastro entram, com a quantidade em KG, o valor total e o CFOP do diálogo. Com `grupo`
+   * é o Ctrl+D da grade: os filhos do grupo saem e o cadastro e os preços ATUAIS os regeram
+   */
   @Post(':id/decomposicao')
   @HttpCode(200)
   @RequerAcesso('FRMNF', 'BTNGRAVAR')
-  async decompor(@Param('id', ParseIntPipe) id: number, @Body() body: { codnfprod?: number; qtdTotal?: number; valorTotal?: number; cfop?: number }) {
-    await this.deco.decompor(id, { codnfprod: Number(body?.codnfprod), qtdTotal: Number(body?.qtdTotal), valorTotal: Number(body?.valorTotal), cfop: Number(body?.cfop) });
+  async decompor(@Param('id', ParseIntPipe) id: number,
+    @Body() body: { codnfprod?: number; grupo?: { codprodutopai?: number; nroitemDecomp?: number | null }; qtdTotal?: number; valorTotal?: number; cfop?: number }) {
+    const grupo = body?.grupo && Number(body.grupo.codprodutopai) > 0
+      ? { codprodutopai: Number(body.grupo.codprodutopai), nroitemDecomp: body.grupo.nroitemDecomp != null ? Number(body.grupo.nroitemDecomp) : null } : undefined;
+    await this.deco.decompor(id, { codnfprod: grupo ? undefined : Number(body?.codnfprod), grupo, qtdTotal: Number(body?.qtdTotal), valorTotal: Number(body?.valorTotal),
+      cfop: Number(body?.cfop) });
     return { codnf: id };
   }
 

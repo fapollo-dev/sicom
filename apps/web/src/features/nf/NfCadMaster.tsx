@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Controller, useFieldArray, type UseFormReturn } from 'react-hook-form';
-import { Pencil, Trash2, Layers } from 'lucide-react';
+import { Pencil, Trash2, Layers, RefreshCw } from 'lucide-react';
 import { DataTable, type DataTableColumnDef, Modal } from '@apollosg/design-system';
 import {
   nfSchema,
@@ -1205,6 +1205,42 @@ function NfeSefazSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
 
 // ───────────────────────────── Itens ─────────────────────────────
 
+/** a linha da grade dos itens: o item, ou o pai virtual de um grupo de decomposição (`_pai`), e o filho (`_filho`, com a chave do `_grupo`) */
+type LinhaItemNf = NfItemDto & {
+  fieldId: string;
+  codnfprod?: number;
+  _pai?: { codprodutopai: number; nroitemDecomp: number | null; total: number; chave: string };
+  _filho?: boolean;
+  _grupo?: string;
+};
+function linhasComDecomposicao(itens: Array<NfItemDto & { fieldId: string }>): LinhaItemNf[] {
+  const deco = (it: NfItemDto) => {
+    const x = it as unknown as { codprodutopai_decomposicao?: unknown; nroitem_decomp?: unknown; descricao_prodpai_decomp?: unknown };
+    const pai = Number(x.codprodutopai_decomposicao) || 0;
+    const nroi = x.nroitem_decomp != null && x.nroitem_decomp !== '' ? Number(x.nroitem_decomp) : null;
+    return { pai, nroi, desc: x.descricao_prodpai_decomp != null ? String(x.descricao_prodpai_decomp) : undefined, chave: `${pai}|${nroi ?? ''}` };
+  };
+  const out: LinhaItemNf[] = [];
+  const emitidos = new Set<string>();
+  for (const it of itens) {
+    const d = deco(it);
+    if (!d.pai) { out.push(it); continue; }
+    if (emitidos.has(d.chave)) continue;
+    emitidos.add(d.chave);
+    const grupo = itens.filter((x) => deco(x).chave === d.chave).sort((a, b) => (Number(a.nroitem) || 0) - (Number(b.nroitem) || 0));
+    const qtd = Math.round(grupo.reduce((s, g) => s + (Number(g.quantidade) || 0), 0) * 1000) / 1000;
+    const total = Math.round(grupo.reduce((s, g) => s + totalProdutoItem(g), 0) * 100) / 100;
+    const soma = (k: 'vricm' | 'vricmst') => Math.round(grupo.reduce((s, g) => s + (Number(g[k]) || 0), 0) * 100) / 100;
+    out.push({
+      fieldId: `deco:${d.chave}`, nroitem: d.nroi ?? undefined, codproduto: d.pai, descricao: d.desc, quantidade: qtd, unidade: grupo[0].unidade,
+      vrcusto: qtd > 0 ? total / qtd : 0, cfop: grupo[0].cfop, cst: grupo[0].cst, vricm: soma('vricm'), vricmst: soma('vricmst'),
+      _pai: { codprodutopai: d.pai, nroitemDecomp: d.nroi, total, chave: d.chave },
+    } as LinhaItemNf);
+    for (const g of grupo) out.push({ ...g, _filho: true, _grupo: d.chave });
+  }
+  return out;
+}
+
 function ItensSection({
   form,
   editavel,
@@ -1352,7 +1388,11 @@ function ItensSection({
   const onConfirmar = (item: NfItemDto) => {
     if (editIdx == null) return;
     if (editIdx < 0) append({ ...item, nroitem: item.nroitem ?? proximoNroItem() });
-    else update(editIdx, item);
+    else {
+      // o que o diálogo não edita (a decomposição do filho, p.ex.) segue com o item na tela
+      const { fieldId: _f, ...antes } = fields[editIdx] as NfItemDto & { fieldId: string };
+      update(editIdx, { ...antes, ...item });
+    }
     setEditIdx(null);
   };
 
@@ -1362,11 +1402,31 @@ function ItensSection({
     return o ? o.label : String(codproduto);
   };
 
-  const itens = fields as Array<NfItemDto & { fieldId: string }>;
+  const itensDaNota = fields as Array<NfItemDto & { fieldId: string }>;
   // o total da linha é quantidade × VRCUSTO (arredondado/truncado pelo item); o desconto é o VRDESCPROD (nf-valor.ts)
-  const totalProd = itens.reduce((s, it) => s + totalProdutoItem(it) - (Number(it.vrdescprod) || 0), 0);
+  const totalProd = itensDaNota.reduce((s, it) => s + totalProdutoItem(it) - (Number(it.vrdescprod) || 0), 0);
+  // a GRADE com a entrada decomposta (`ConstruirGridDosItensDaNota.InserirPai`, udmNF.pas:5729-5820): cada grupo de filhos (pai + NROITEM_DECOMP)
+  // ganha uma linha virtual do pai — Σ quantidade, VRCUSTO = Σ totais / Σ qtd, Σ total, Σ ICMS/ST, CFOP/CST/UN do 1º filho, NROITEM = NROITEM_DECOMP
+  // e a descrição do pai —, com os filhos logo abaixo
+  const itens = useMemo(() => linhasComDecomposicao(itensDaNota), [itensDaNota]);
+  const [regerando, setRegerando] = useState<PaiDecomposicao & { grupo: { codprodutopai: number; nroitemDecomp: number | null } } | null>(null);
+  const regerar = async (e: { qtdTotal: number; valorTotal: number; cfop: number }) => {
+    const codnf = (form.getValues() as { codnf?: number }).codnf;
+    if (!regerando || codnf == null) return;
+    if (form.formState.isDirty) { mensagem.erro('Grave a nota fiscal antes de recalcular a decomposição.'); return; }
+    try {
+      await decomporItemNf(codnf, { codnfprod: 0, grupo: regerando.grupo, ...e });
+      const nf = await lerNf(codnf);
+      form.setValue('itens', (nf.itens ?? []) as never, { shouldDirty: false });
+      for (const k of [...TOTAIS_DA_ANALISE, 'totalprod', 'qtde'] as const) if (nf[k] !== undefined) form.setValue(k as never, nf[k] as never, { shouldDirty: false });
+      setRegerando(null);
+      mensagem.sucesso(`${regerando.descricao ?? 'Decomposição'}: recalculada com o cadastro e os preços atuais.`);
+    } catch (err) {
+      mensagem.erro(err);
+    }
+  };
 
-  const columns = useMemo<DataTableColumnDef<NfItemDto & { fieldId: string }>[]>(
+  const columns = useMemo<DataTableColumnDef<LinhaItemNf>[]>(
     () => [
       { field: 'nroitem', headerName: 'Item', type: 'number', width: 80 },
       {
@@ -1377,8 +1437,9 @@ function ItensSection({
         // a descrição do ITEM quando ele tem (NF_PROD.DESCRICAO), senão a do produto
         valueGetter: (row) => {
           const r = rotuloProduto(row.codproduto);
-          if (!row.descricao) return r;
-          return `${r.includes(' - ') ? r.slice(0, r.indexOf(' - ')) : String(row.codproduto)} - ${row.descricao}`;
+          const filho = (row as LinhaItemNf)._filho ? '↳ ' : '';
+          if (!row.descricao) return `${filho}${r}`;
+          return `${filho}${r.includes(' - ') ? r.slice(0, r.indexOf(' - ')) : String(row.codproduto)} - ${row.descricao}`;
         },
       },
       { field: 'quantidade', headerName: 'Qtde', type: 'number', width: 110 },
@@ -1395,7 +1456,7 @@ function ItensSection({
         headerName: 'Total',
         type: 'text',
         width: 130,
-        valueGetter: (row) => fmtBRL(totalProdutoItem(row)),
+        valueGetter: (row) => fmtBRL((row as LinhaItemNf)._pai ? (row as LinhaItemNf)._pai!.total : totalProdutoItem(row)),
       },
       { field: 'cfop', headerName: 'CFOP', type: 'text', width: 90 },
       { field: 'cst', headerName: 'CST', type: 'text', width: 70 },
@@ -1420,8 +1481,24 @@ function ItensSection({
         width: 110,
         getActions: () => [
           {
+            // o Ctrl+D da grade (RecalcularProdutoEmDecomposicao, uNF.pas:8804): o diálogo com Σ quantidade, Σ total e o CFOP do 1º filho;
+            // o OK apaga os filhos do grupo e regera com o cadastro e os preços atuais
+            id: 'regerar',
+            label: 'Recalcular a decomposição',
+            icon: <RefreshCw className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
+            hidden: (r: LinhaItemNf) => !r._pai,
+            onClick: (r: LinhaItemNf) => {
+              const codnf = (form.getValues() as { codnf?: number }).codnf;
+              if (codnf == null || form.formState.isDirty) { mensagem.erro('Grave a nota fiscal antes de recalcular a decomposição.'); return; }
+              setRegerando({ codnfprod: 0, nroitem: r.nroitem ?? null, codproduto: r.codproduto, descricao: r.descricao ?? null, codbarra: null,
+                unidade: r.unidade ?? null, fatorembal: 1, qtdetotal: Number(r.quantidade) || 0, totalprods: r._pai!.total,
+                cfop: r.cfop != null && r.cfop !== '' ? Number(r.cfop) : null, grupo: { codprodutopai: r._pai!.codprodutopai, nroitemDecomp: r._pai!.nroitemDecomp } });
+            },
+          },
+          {
             id: 'editar',
             label: 'Editar',
+            hidden: (r: LinhaItemNf) => !!r._pai,
             icon: <Pencil className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
             onClick: (r: NfItemDto & { fieldId: string }) => {
               const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
@@ -1431,6 +1508,7 @@ function ItensSection({
           {
             id: 'lotes',
             label: 'Lotes/validade',
+            hidden: (r: LinhaItemNf) => !!r._pai,
             icon: <Layers className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
             onClick: (r: NfItemDto & { fieldId: string; codnfprod?: number }) => {
               if (r.codnfprod == null) { mensagem.erro('Grave a nota antes de informar os lotes do item.'); return; }
@@ -1442,7 +1520,15 @@ function ItensSection({
             label: 'Remover',
             icon: <Trash2 className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
             destructive: true,
-            onClick: (r: NfItemDto & { fieldId: string }) => {
+            onClick: (r: LinhaItemNf) => {
+              // o pai virtual leva o grupo inteiro (btnDelItemClick, uNF.pas:3804-3860); as travas (devolvido, lote, produção) são do gravar
+              if (r._pai) {
+                if (!window.confirm('O item selecionado faz parte de uma decomposição. Todos os itens da decomposição serão excluídos\nDeseja realmente excluí-lo?')) return;
+                const ids = new Set(itens.filter((x) => x._filho && x._grupo === r._pai!.chave).map((x) => x.fieldId));
+                const idxs = fields.map((f, i) => (ids.has(f.fieldId) ? i : -1)).filter((i) => i >= 0);
+                remove(idxs);
+                return;
+              }
               const idx = fields.findIndex((f) => f.fieldId === r.fieldId);
               if (idx >= 0) remove(idx);
             },
@@ -1451,7 +1537,7 @@ function ItensSection({
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fields, remove, opts.produtoOptions],
+    [fields, itens, remove, opts.produtoOptions],
   );
 
   return (
@@ -1567,6 +1653,7 @@ function ItensSection({
               rows={itens}
               columns={columns}
               getRowId={(r) => r.fieldId}
+              getRowClassName={({ row }) => (row._pai ? 'font-semibold' : '')}
               toolbar={{ enableSearch: false, enableFilters: false }}
               paginationConfig={{ enabled: true, initialPageSize: 10 }}
               cardBreakpoint={false}
@@ -1574,6 +1661,10 @@ function ItensSection({
             <small className="text-fg-muted">
               Total dos produtos: R$ {fmtBRL(totalProd)} — o total da nota é calculado ao gravar.
             </small>
+            {regerando && (
+              <NfDecomposicaoModal key={`${regerando.grupo.codprodutopai}-${regerando.grupo.nroitemDecomp}`} pai={regerando} restantes={0}
+                onFechar={() => setRegerando(null)} onConfirmar={(e) => void regerar(e)} />
+            )}
           </>
         )}
       </div>

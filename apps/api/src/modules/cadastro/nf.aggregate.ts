@@ -180,6 +180,42 @@ export const limparCodBarrasBoleto = (v: unknown): string | null => {
 
 export const formularioDaNf = (nf: Record<string, unknown>): string => (String(nf.tipo ?? '').toUpperCase() === 'S' ? 'Notas fiscais de saída' : 'Notas fiscais de entrada');
 
+/**
+ * As travas do EXCLUIR ITEM da nota (`btnDelItemClick` → `Excluir`, uNF.pas:3692-3870), cobradas no item que o gravar tira da nota:
+ *  - nota de devolução de compra: "Não é permitido alterar este campo em notas de devolução de compra." (:3790);
+ *  - na entrada, o item com devolução de compra não cancelada (`ItemFoiDevolvido`, udmNF.pas:11513 — COD_ITEM_NF = CODNFPROD);
+ *  - o item com lote declarado (os lotes vão junto com o item);
+ *  - o item que veio de uma produção (ORIGEMPRODUCAO='S').
+ * O filho da decomposição sai com a mensagem do "excluir o grupo" (:3804-3845), que nomeia o produto.
+ */
+async function travasDoItemExcluido(trx: any, codnf: number, removidos: Array<Record<string, unknown>>): Promise<void> {
+  const nf = (await trx.selectFrom('nf').select(['tipo', 'cod_ped_dev_compra', 'codproducao_req']).where('codnf', '=', codnf).executeTakeFirst()) as Record<string, unknown> | undefined;
+  if (!nf) return;
+  if (num(nf.cod_ped_dev_compra) > 0) throw new BusinessRuleError('NF_DEVOLUCAO_COMPRA_ITENS');
+  const devolvidos = String(nf.tipo) === 'E'
+    ? new Set(((await sql<{ codnfprod: number }>`
+        SELECT i.codnfprod FROM pedido_devolucao_compra_i i JOIN pedido_devolucao_compra p ON p.codpeddevcompra = i.codpeddevcompra
+         WHERE i.codnf = ${codnf} AND upper(coalesce(p.status, '')) <> 'CANCELADO' AND i.codnfprod = ANY(${removidos.map((r) => Number(r.codnfprod))}::int[])`.execute(trx)).rows)
+      .map((r) => Number(r.codnfprod)))
+    : new Set<number>();
+  for (const r of removidos) {
+    const grupo = num(r.codprodutopai_decomposicao) > 0;
+    const desc = String(r.descricao ?? '');
+    if (devolvidos.has(Number(r.codnfprod))) {
+      throw new BusinessRuleError('NF_ITEM_DEVOLVIDO', { codnfprod: Number(r.codnfprod) },
+        grupo ? `O produto ${desc} já foi devolvido. Não é possível excluí-lo da Nota Fiscal de entrada!` : undefined);
+    }
+    if (((r._lotes as unknown[] | undefined) ?? []).length) {
+      throw new BusinessRuleError('NF_ITEM_COM_LOTE', { codnfprod: Number(r.codnfprod) },
+        grupo ? `O produto ${desc}  possui lote(s) declarado(s)! Exclua o(s) lote(s) antes de excluir o item.` : undefined);
+    }
+    if (String(r.origemproducao ?? '') === 'S') {
+      throw new BusinessRuleError('NF_ITEM_DE_PRODUCAO', { codnfprod: Number(r.codnfprod) },
+        `Esse produto não pode ser excluído porque pertence a uma produção. Produção codigo: ${nf.codproducao_req ?? ''}`);
+    }
+  }
+}
+
 export const nfAggregateConfig: AggregateConfig = {
   log: { formulario: 'Notas fiscais de entrada', formularioDe: formularioDaNf, tabela: 'NF', chave: 'CODNF', campos: NF_CAMPOS_LOG },
   tabela: 'nf',
@@ -544,7 +580,7 @@ export const nfAggregateConfig: AggregateConfig = {
       // apagava os lotes (os do <rastro> do XML inclusive). No legado o lote é aninhado no item e segue com ele (cdsNF_Prod_Lote)
       antesDeSubstituirTrx: async ({ trx, masterId }) => {
         const itens = (await trx.selectFrom('nf_prod')
-          .select(['codnfprod', 'codproduto', 'descricao', 'custo_real_unit', 'indexadortrib', 'repassado', 'mva_ajustado', ...RETRATO, ...DECOMPOSICAO_ITEM])
+          .select(['codnfprod', 'codproduto', 'descricao', 'custo_real_unit', 'indexadortrib', 'repassado', 'mva_ajustado', 'origemproducao', ...RETRATO, ...DECOMPOSICAO_ITEM])
           .where('codnf', '=', masterId).orderBy('codnfprod').execute()) as Array<Record<string, unknown>>;
         const lotes = (await trx.selectFrom('nf_prod_lote as l').innerJoin('nf_prod as p', 'p.codnfprod', 'l.codnfprod').selectAll('l')
           .where('p.codnf', '=', masterId).orderBy('l.codnfprodlote').execute()) as Array<Record<string, unknown>>;
@@ -584,7 +620,8 @@ export const nfAggregateConfig: AggregateConfig = {
           // a DESCRIÇÃO do item (NF_PROD.DESCRICAO): a que veio (a da origem — pedido, cupom, scrap — ou a digitada com
           // EDITAR_DESCRICAO_ITEM_NF='S'); senão a que o item já tinha; senão a do produto, que é o que o legado põe ao
           // escolher o produto (uItensNF.pas:2531) — na produção, 6.372 de 6.391 itens de set/2026 têm a do produto
-          const antiga = antigas.get(String(cod))?.shift();
+          // o item `_novo` (o filho que a decomposição insere) não casa com a linha antiga de mesmo produto — como no motor
+          const antiga = it._novo === true ? undefined : antigas.get(String(cod))?.shift();
           // a decomposição que o item já tinha (o PUT da tela não a traz)
           const deco: Record<string, unknown> = {};
           for (const c of DECOMPOSICAO_ITEM) if (it[c] === undefined && antiga) deco[c] = antiga[c];
@@ -616,7 +653,7 @@ export const nfAggregateConfig: AggregateConfig = {
       // o OK do diálogo do item (`TfrmItensNF.GravaLog`, uItensNF.pas:4058): a descrição do item diferente da do produto vai à LOG,
       // a cada confirmação — "Usuario alterou descricao do item <NROITEM> (<a do produto>) para <A DO ITEM>". O legado passa o
       // CODOPERADOR na posição da empresa, e é o que a LOG guarda (142 de 142 em 2025-26).
-      aposInserirItensTrx: async ({ trx, itens, header, snapshot }) => {
+      aposInserirItensTrx: async ({ trx, itens, header, snapshot, masterId }) => {
         // os filhos que a decomposição acabou de inserir (o aposGravarTrx os trata na análise — sem ICMS próprio)
         if (header) header._decompostos = itens.filter((it) => it.decomposto === true).map((it) => Number(it.codnfprod));
         // os lotes voltam para o item regravado — casado pelo produto na ordem, como a preservação das colunas (o item excluído leva os seus)
@@ -626,8 +663,8 @@ export const nfAggregateConfig: AggregateConfig = {
         const porPk = new Map(((snapshot as Array<Record<string, unknown>> | undefined) ?? []).map((a) => [Number(a.codnfprod), a]));
         const usadas = new Set<Record<string, unknown>>();
         for (const it of itens) {
-          let antiga = porPk.get(Number(it.codnfprod));
-          if (!antiga || usadas.has(antiga)) {
+          let antiga = it._novo === true ? undefined : porPk.get(Number(it.codnfprod));
+          if (it._novo !== true && (!antiga || usadas.has(antiga))) {
             const q = fila.get(String(it.codproduto)) ?? [];
             while (q.length && usadas.has(q[0])) q.shift();
             antiga = q.shift();
@@ -640,6 +677,10 @@ export const nfAggregateConfig: AggregateConfig = {
           const g = antiga?._ibscbs as Record<string, unknown> | null | undefined;
           if (g) await trx.insertInto('nf_prod_ibscbs').values({ ...g, codnfprod: Number(it.codnfprod), codproduto: Number(it.codproduto) }).execute();
         }
+        // o item que SAIU da nota passa pelas travas do Excluir item (`btnDelItemClick`, uNF.pas:3692-3870) — a troca da decomposição não
+        const removidos = ((snapshot as Array<Record<string, unknown>> | undefined) ?? []).filter((a) => !usadas.has(a)
+          && !(((header?._removidosPelaDecomposicao as number[] | undefined) ?? []).includes(Number(a.codnfprod))));
+        if (removidos.length) await travasDoItemExcluido(trx, masterId, removidos);
         const descricaoDoProduto = await leitorDescricaoProduto(trx);
         for (const it of itens) {
           if (it.dialogo !== true || it.codproduto == null) continue;

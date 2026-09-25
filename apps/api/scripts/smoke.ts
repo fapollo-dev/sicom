@@ -24320,6 +24320,38 @@ async function main() {
           put.status === 200 && Number(depoisPut?.deco) === 3 && Number(depoisPut?.lotes) === 3 && depoisPut?.pks === pksAntes && Number(depoisPut?.ibscbs) === 1 && p6.status === 200
           && saldo(FA) === 50 && saldo(FB) === 30 && saldo(FC) === 20 && saldo(PAI) === 0,
           { put: put.status, depoisPut, pksAntes, p6: [p6.status, p6J.code, p6J.message], est });
+        // (6b) o Ctrl+D da grade: com a ALCATRA a 30 na loja, o grupo (pai + NROITEM_DECOMP 1) regera com o preço ATUAL — TV = 50×30 + 30×10 + 20×5 = 1.900
+        await pgDc.query(`UPDATE multi_preco SET vrvenda = 30 WHERE idproduto = ${FA} AND idempresa = 1`);
+        await pgDc.query(`UPDATE nf SET validatotalnf = totalnf WHERE codnf = $1`, [codnf]);
+        const rg = await post({ codnfprod: 0, grupo: { codprodutopai: PAI, nroitemDecomp: 1 }, qtdTotal: 100, valorTotal: 1000, cfop: 1403 });
+        const regerados = (await pgDc.query(`SELECT i.codnfprod, i.nroitem, i.codproduto, i.quantidade, i.vrcusto, i.vrvenda, i.codprodutopai_decomposicao, i.nroitem_decomp,
+            (SELECT count(*) FROM nf_prod_lote l WHERE l.codnfprod = i.codnfprod AND l.lote = 'L256') AS lotes
+          FROM nf_prod i WHERE i.codnf = $1 ORDER BY i.nroitem`, [codnf])).rows as any[];
+        const g = (id: number) => regerados.find((x) => Number(x.codproduto) === id);
+        // (6c) as travas do Excluir item no gravar: o filho com lote não sai (a mensagem do grupo nomeia o produto); sem o lote sai. O item com
+        // devolução de compra não cancelada não sai
+        const semItem = async (tirar: number) => {
+          const atual = (await (await fetch(`${base}/fiscal/nf/${codnf}`, { headers: H })).json().catch(() => ({}))) as any;
+          const itensX = (atual.itens ?? []).filter((it: any) => Number(it.codproduto) !== tirar).map((it: any) => Object.fromEntries(Object.entries(it).filter(([k]) => !DECO.includes(k))));
+          const x = await fetch(`${base}/fiscal/nf/${codnf}`, { method: 'PUT', headers: H, body: JSON.stringify({ validatotalnf: atual.validatotalnf ?? atual.totalnf, itens: itensX }) });
+          return { status: x.status, j: x.status === 200 ? {} : ((await x.json().catch(() => ({}))) as any) };
+        };
+        const comLote = await semItem(FA);
+        await pgDc.query(`DELETE FROM nf_prod_lote WHERE codnfprod = $1`, [g(FA)?.codnfprod]);
+        const pdc = Number((await pgDc.query(`INSERT INTO pedido_devolucao_compra (idempresa, codparceiro, status) VALUES (1, 22, 'DIGITADO') RETURNING codpeddevcompra`)).rows[0]?.codpeddevcompra);
+        await pgDc.query(`INSERT INTO pedido_devolucao_compra_i (codpeddevcompra, codnf, codnfprod, idproduto) VALUES ($1, $2, $3, ${FB})`, [pdc, codnf, g(FB)?.codnfprod]);
+        const devolvido = await semItem(FB);
+        await pgDc.query(`DELETE FROM pedido_devolucao_compra WHERE codpeddevcompra = $1`, [pdc]);
+        const semLote = await semItem(FA);
+        const restam = (await pgDc.query(`SELECT codproduto FROM nf_prod WHERE codnf = $1 ORDER BY nroitem`, [codnf])).rows.map((x: any) => Number(x.codproduto));
+        check('ENTRADA DECOMPOSTA §256.5 [o Ctrl+D e as travas do Excluir item]: o grupo regera com o preço atual da loja (TV 1.900: BISTECA 5,263158, COSTELA 2,631579 e a ALCATRA 15,789474 + 0,01/50 = 15,789674), como itens NOVOS (CODNFPROD novo, não os apagados), com NROITEM_DECOMP e o lote em cada filho; no gravar, tirar o filho com lote recusa ("O produto DECO ALCATRA  possui lote(s)…"), tirar o que tem devolução de compra recusa ("O produto DECO BISTECA já foi devolvido…") e, sem o lote, o filho sai',
+          rg.status === 200 && regerados.length === 3 && regerados.every((x) => Number(x.codprodutopai_decomposicao) === PAI && Number(x.nroitem_decomp) === 1 && Number(x.lotes) === 1)
+          && Number(g(FA)?.vrvenda) === 30 && Math.abs(Number(g(FB)?.vrcusto) - 5.263158) < 1e-9 && Math.abs(Number(g(FC)?.vrcusto) - 2.631579) < 1e-9
+          && Math.abs(Number(g(FA)?.vrcusto) - 15.789674) < 1e-9 && !regerados.some((x) => filhos.some((f0) => Number(f0.codnfprod) === Number(x.codnfprod)))
+          && comLote.status === 422 && comLote.j.code === 'NF_ITEM_COM_LOTE' && comLote.j.message === 'O produto DECO ALCATRA  possui lote(s) declarado(s)! Exclua o(s) lote(s) antes de excluir o item.'
+          && devolvido.status === 422 && devolvido.j.code === 'NF_ITEM_DEVOLVIDO' && devolvido.j.message === 'O produto DECO BISTECA já foi devolvido. Não é possível excluí-lo da Nota Fiscal de entrada!'
+          && semLote.status === 200 && restam.join() === [FB, FC].join(),
+          { rg: [rg.status, rg.j], regerados, comLote: [comLote.status, comLote.j.code, comLote.j.message], devolvido: [devolvido.status, devolvido.j.code, devolvido.j.message], semLote, restam });
         // (7) ValidaProdutosComDecomposicao: o item de produto com DECOMPOSICAO=S e o cadastro que não soma 100 trava o processar (entrada e saída)
         await pgDc.query(`UPDATE decomposicao SET percentual = 10 WHERE idproduto = ${PAI} AND idproduto_01 = ${FC}`);
         const rs = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 1, serie: '1', tipo: 'S', nronf: 'DC256B', tipoemissao: '0', codparceiro: 20,

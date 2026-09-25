@@ -292,7 +292,9 @@ export class AggregateEngineService extends CrudEngineService {
     const linhas = itens.map((i, ix) => {
       const row: Record<string, unknown> = { [det.fk]: masterId };
       let antiga = doItem[ix];
-      if (!antiga && antigas) {
+      // `_novo` (transitório): o item é uma linha nova mesmo que a chave natural case com uma antiga — ex.: o filho que a decomposição
+      // regera no lugar do filho de mesmo produto que ela apagou (o legado insere com PK nova)
+      if (!antiga && antigas && i._novo !== true) {
         const q = fila.get(this.chaveNat(det, i)) ?? [];
         while (q.length && usadas.has(q[0])) q.shift();
         antiga = q.shift();

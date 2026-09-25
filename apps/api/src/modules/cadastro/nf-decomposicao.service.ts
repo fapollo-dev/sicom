@@ -30,7 +30,10 @@ export interface PaiPendente {
 }
 
 export interface EscolhasDecomposicao {
-  codnfprod: number;
+  /** o item-pai que ainda está na nota (o OK do item / o Editar) */
+  codnfprod?: number;
+  /** ou o GRUPO já decomposto que o Ctrl+D regera (`RecalcularProdutoEmDecomposicao`, uNF.pas:8804-8906): o pai e o NROITEM_DECOMP */
+  grupo?: { codprodutopai: number; nroitemDecomp: number | null };
   qtdTotal: number;
   valorTotal: number;
   cfop: number;
@@ -101,11 +104,30 @@ export class NfDecomposicaoService {
     if (String(nf.proc ?? '') === 'S') throw new BusinessRuleError('NF_PROCESSADA', { codnf });
     const emp = Number(nf.idempresa);
     const itensDb = (await db.selectFrom('nf_prod').selectAll().where('codnf', '=', codnf).orderBy('nroitem').orderBy('codnfprod').execute()) as Array<Record<string, unknown>>;
-    const pai = itensDb.find((i) => Number(i.codnfprod) === Number(e.codnfprod));
-    if (!pai) throw new BusinessRuleError('NF_ITEM_NAO_ENCONTRADO', { codnf, codnfprod: e.codnfprod });
+    // o pai: o item que está na nota, ou o virtual do grupo (a linha PRODPAIDECO da grade: o produto-pai, a descrição do pai, o NROITEM_DECOMP,
+    // o CFOP_ORIGINAL do 1º filho e o ST somado dos filhos — o que o Ctrl+D passa ao diálogo e à InsereProdutosDaDecomposicao)
+    let pai: Record<string, unknown>;
+    let saem: Array<Record<string, unknown>>;
+    if (e.grupo) {
+      const g = e.grupo;
+      saem = itensDb.filter((i) => Number(i.codprodutopai_decomposicao) === Number(g.codprodutopai)
+        && (g.nroitemDecomp == null ? i.nroitem_decomp == null : Number(i.nroitem_decomp) === Number(g.nroitemDecomp)));
+      if (!saem.length) throw new BusinessRuleError('NF_ITEM_NAO_ENCONTRADO', { codnf, grupo: g });
+      const soma = (k: string) => Math.round(saem.reduce((t, i) => t + n(i[k]), 0) * 100) / 100;
+      pai = {
+        codproduto: Number(g.codprodutopai), descricao: saem[0].descricao_prodpai_decomp ?? null, nroitem: g.nroitemDecomp, cfop_original: saem[0].cfop_original ?? null,
+        vrbasest: soma('vrbasest'), vricmst: soma('vricmst'),
+      };
+    } else {
+      const achado = itensDb.find((i) => Number(i.codnfprod) === Number(e.codnfprod));
+      if (!achado) throw new BusinessRuleError('NF_ITEM_NAO_ENCONTRADO', { codnf, codnfprod: e.codnfprod });
+      pai = achado;
+      saem = [achado];
+    }
     const prodPai = (await db.selectFrom('produtos').select(['entrada_decomposta', 'calculo_valor_custo_decomp', 'atualiza_multipreco_decomp'])
       .where('idproduto', '=', Number(pai.codproduto)).executeTakeFirst()) as Record<string, unknown> | undefined;
-    if (String(prodPai?.entrada_decomposta ?? '') !== 'S') throw new BusinessRuleError('NF_ITEM_SEM_ENTRADA_DECOMPOSTA', { codproduto: Number(pai.codproduto) });
+    // o OK do item e o Editar só abrem o diálogo para produto que entra decomposto (`ProdutoEntraDecomposto`); o Ctrl+D regera o que já está
+    if (!e.grupo && String(prodPai?.entrada_decomposta ?? '') !== 'S') throw new BusinessRuleError('NF_ITEM_SEM_ENTRADA_DECOMPOSTA', { codproduto: Number(pai.codproduto) });
 
     // o cadastro da decomposição (PERCENTUAL > 0, na ordem da descrição) com o VRVENDA da loja e a alíquota do filho (na indústria, a da
     // multi-preço — `ConsultaAliquota`)
@@ -140,7 +162,7 @@ export class NfDecomposicaoService {
 
     const colunas = nfAggregateConfig.detalhes[0].colunas;
     const doBanco = (i: Record<string, unknown>) => Object.fromEntries(colunas.filter((c) => i[c] !== undefined).map((c) => [c, i[c]]));
-    const ficam = itensDb.filter((i) => i !== pai).map(doBanco);
+    const ficam = itensDb.filter((i) => !saem.includes(i)).map(doBanco);
     const novos = decompostos.map((f) => {
       const c = porId.get(f.idproduto)!;
       const d = detDe.get(String(aliquotaDe(c) ?? ''));
@@ -153,18 +175,22 @@ export class NfDecomposicaoService {
         ipi: 0, vripi: 0, frete: 0, seguro: 0, depsacess: 0, arredonda: f.arredonda,
         decomposicao: 'N', codprodutopai_decomposicao: Number(pai.codproduto), item_perda_total: f.item_perda_total, atualiza_multipreco_decomp: atualiza,
         descricao_prodpai_decomp: pai.descricao ?? null, nroitem_decomp: pai.nroitem != null ? Number(pai.nroitem) : null, cfop_original: pai.cfop_original ?? null,
-        decomposto: true,
+        decomposto: true, _novo: true,
       } as Record<string, unknown>;
     });
-    // os lotes do pai em cada filho (udmNF.pas:10658-10668), com a fabricação do lote — o fonte copiava a validade na fabricação
-    const lotesDoPai = (await db.selectFrom('nf_prod_lote').selectAll().where('codnfprod', '=', Number(pai.codnfprod)).orderBy('codnfprodlote').execute()) as
-      Array<Record<string, unknown>>;
+    // os lotes do pai em cada filho (udmNF.pas:10658-10668), com a fabricação do lote — o fonte copiava a validade na fabricação. No Ctrl+D o
+    // fonte recolhe, a cada filho apagado, só os lotes dele (o array recomeça): valem os do último filho que tinha lote (uNF.pas:8866-8881)
+    let lotesDoPai: Array<Record<string, unknown>> = [];
+    for (const i of saem) {
+      const l = (await db.selectFrom('nf_prod_lote').selectAll().where('codnfprod', '=', Number(i.codnfprod)).orderBy('codnfprodlote').execute()) as Array<Record<string, unknown>>;
+      if (l.length) lotesDoPai = l;
+    }
     for (const it of novos) {
       it._lotesNovos = lotesDoPai.map(({ codnfprodlote: _pk, codnfprod: _item, ...l }) => ({ ...l, idproduto: it.codproduto, idempresa: emp }));
     }
     const itens: Array<Record<string, unknown>> = [...ficam, ...novos].map((it, ix) => ({ ...it, nroitem: ix + 1 }));
     // NF.QTDE = Σ quantidade dos itens depois da troca (637 de 644 notas com filhos em 2026)
     const qtde = Math.round(itens.reduce((s, it) => s + n(it.quantidade), 0) * 1000) / 1000;
-    await this.engine.updateAggregate(nfAggregateConfig, codnf, { itens, qtde, _origemServico: true });
+    await this.engine.updateAggregate(nfAggregateConfig, codnf, { itens, qtde, _origemServico: true, _removidosPelaDecomposicao: saem.map((i) => Number(i.codnfprod)) });
   }
 }

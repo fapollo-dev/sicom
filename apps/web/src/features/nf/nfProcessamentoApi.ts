@@ -109,6 +109,6 @@ export async function pendentesDecomposicaoNf(codnf: number): Promise<PaiDecompo
   return (await res.json()) as PaiDecomposicao[];
 }
 /** "Confirmar decomposição": o pai sai e os produtos da decomposição entram na nota */
-export function decomporItemNf(codnf: number, escolhas: { codnfprod: number; qtdTotal: number; valorTotal: number; cfop: number }): Promise<{ codnf: number }> {
+export function decomporItemNf(codnf: number, escolhas: { codnfprod: number; grupo?: { codprodutopai: number; nroitemDecomp: number | null }; qtdTotal: number; valorTotal: number; cfop: number }): Promise<{ codnf: number }> {
   return req(`/fiscal/nf/${codnf}/decomposicao`, escolhas);
 }

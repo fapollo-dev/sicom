@@ -427,7 +427,7 @@ O item comum sai com ATUALIZA_MULTIPRECO_DECOMP 'S' pelo NewRecord (`udmNF.pas:4
    - Corrigir o rótulo do checkbox.
    - Portar `ProdutoComDecomposicaoValida` (soma 100 e nenhum ≤ 0) na trava.
    - Risco baixo: só impede processar errado, que é o que acontece hoje.
-2. **C2 — Leitura e preservação.**
+2. ✅ **C2 — Leitura e preservação.** (25/09/2026: a grade da NF monta a linha virtual do pai por (pai, NROITEM_DECOMP) com as somas de §2 e os filhos embaixo; as colunas da decomposição preservadas no PUT; o CODNFPROD do item não muda mais ao gravar — `pkEstavel`)
    - Na grade da NF, agrupar os filhos por (`codprodutopai_decomposicao`, `nroitem_decomp`) numa linha virtual do pai, com as somas de §2.
    - Incluir as 6 colunas de decomposição nas `colunas` do item, ou garantir a preservação por posição: um mesmo produto aparece em dois grupos em 201 NFs de 2026.
    - Tratar `nroitem` NULL dos filhos na ordenação e na renumeração.
@@ -450,7 +450,7 @@ O item comum sai com ATUALIZA_MULTIPRECO_DECOMP 'S' pelo NewRecord (`udmNF.pas:4
    - lotes do pai copiados para cada filho, **sem** o bug da DTFABRICACAO.
    - Guardas que o fonte não tem: produto sem cadastro não apaga o item; filho com VRVENDA 0 aborta **antes** de apagar o pai.
    - Risco médio-alto (mexe no agregado da NF).
-5. **C5 — Ctrl+D (recalcular o grupo) e excluir o grupo**, com as travas de devolvido, lote e produção de §5. Regera com o cadastro e os preços atuais. Risco médio.
+5. ✅ **C5 — Ctrl+D (recalcular o grupo) e excluir o grupo** (25/09/2026: `POST :id/decomposicao` com `grupo` regera como itens NOVOS — `_novo` no motor, para não herdar PK/lote/análise do filho apagado de mesmo produto; os lotes do último filho que tinha lote. Excluir o pai virtual tira o grupo na tela; as travas de devolvido/lote/produção — que também faltavam no Excluir item comum — ficam no gravar, com as mensagens do legado; smoke §256.5), com as travas de devolvido, lote e produção de §5. Regera com o cadastro e os preços atuais. Risco médio.
 6. **C6 — Processamento e SPED da antiga estrutura.**
    - No processar: `nf_prod.decomposicao := produtos.decomposicao`.
    - Para o item com 'S', mover o estoque dos filhos por PERCENTUAL e registrar `decomposicao_nf_qtde`, **sem** o bug do DELETE no loop.

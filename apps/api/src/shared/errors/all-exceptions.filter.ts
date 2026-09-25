@@ -444,6 +444,11 @@ const CODE_PT: Record<string, string> = {
   NF_ITEM_SEM_ENTRADA_DECOMPOSTA: 'O produto do item não tem entrada decomposta.',
   NF_DECOMPOSICAO_SEM_CADASTRO: 'O produto não tem decomposição cadastrada. Verifique o cadastro do produto!',
   NF_DECOMPOSICAO_VENDA_ZERO: 'Produto da decomposição com valor de venda zero. Verifique!',
+  // as travas do Excluir item da nota (uNF.pas:3692-3870)
+  NF_DEVOLUCAO_COMPRA_ITENS: 'Não é permitido alterar este campo em notas de devolução de compra.',
+  NF_ITEM_DEVOLVIDO: 'Este item já foi devolvido. Não é possível excluí-lo da Nota Fiscal de entrada!',
+  NF_ITEM_COM_LOTE: 'Item possui lote(s) declarado(s)! Exclua o(s) lote(s) antes de excluir o item.',
+  NF_ITEM_DE_PRODUCAO: 'Esse produto não pode ser excluído porque pertence a uma produção.',
   NF_TOTAL_NF_OBRIGATORIO: 'É necessário informar o campo total NF, para dar continuidade!',
   NF_LIBERAR_INDEXADOR_SEM_PERMISSAO: 'Usuário sem permissão para liberar nota fiscal do uso do indexador.',
   NF_LIBERAR_INDEXADOR_NEGADO: 'O usuário informado não tem permissão para liberar nota fiscal do uso do indexador.',
