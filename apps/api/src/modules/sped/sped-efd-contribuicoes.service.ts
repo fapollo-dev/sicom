@@ -1,3 +1,5 @@
+import { pisCofinsDoItemC170, baseCofinsC170, icmsDoItemC170, pisCofinsDoCabecalho, indFreteC100, type PisCofinsCadastro } from './sped-pc-legado';
+import { cst3 } from './sped-c-legado';
 import { Injectable } from '@nestjs/common';
 import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
@@ -255,48 +257,87 @@ export class SpedEfdContribuicoesService {
     }
   }
 
-  /** coleta os NFs de ENTRADA (crédito) e SAÍDA mod-55 (débito) do período (+ itens) e os cadastros que o bloco C
-   *  referencia (participantes/itens/unidades). A SAÍDA mod-65 (NFC-e do PDV) vem separada em coletarVendasSaida/C175. */
+  /**
+   * as NOTAS do bloco C como o `FDqNF` do legado (UdmSpedPisCofins.dfm:1758-1990): entrada e saída de qualquer modelo fora de
+   * 22/21/6/2/57/7/8/3 (e da NFC-e, que vem das vendas no C175), processadas, com número, no período contábil, e com algum item fora de
+   * 5929/6929 (o `ckbGera5929` desmarcado); os itens com o PISCOFINS (do item, senão do produto), o CFOP (PROC_CUPOM, a conta contábil) e
+   * o produto; os participantes pelo endereço DA NOTA (sqqParceiros), com COD_PART = o CNPJ/CPF.
+   */
   private async coletarDocumentosEntrada(
     db: AnyDB,
     emp: number,
     dtini: string,
     dtfim: string,
-  ): Promise<{ nfs: Array<Record<string, unknown> & { itens: Array<Record<string, unknown>> }>; parceiros: Map<number, Record<string, unknown>>; produtos: Map<number, Record<string, unknown>>; unidades: Set<string> }> {
+  ): Promise<{ nfs: Array<Record<string, unknown> & { itens: Array<Record<string, unknown>> }>; parceiros: Map<string, Record<string, unknown>>; produtos: Map<number, Record<string, unknown>>; unidades: Set<string>; pcConfig: Set<number>; abaterIcms: boolean }> {
     const nfs = (await db
-      .selectFrom('nf')
-      .select(['codnf', 'tipo', 'modelo', 'nronf', 'serie', 'chavenfe', 'dtemissao', 'dtcontabil', 'tipoemissao', 'codparceiro', 'totalnf', 'totaldesc', 'totalprod', 'totalfrete', 'totalseguro', 'totalacessorias', 'tipofrete', sql`coalesce(cancelada,'N')`.as('cancelada'), sql`coalesce(statusnfe,'')`.as('statusnfe')])
-      .where('idempresa', '=', emp)
-      // SAÍDA-NF-mod55: entrada (qualquer modelo) + saída SÓ mod-55 (a NFC-e mod-65 do PDV vem via C175, não aqui).
-      .where((eb) => eb.or([eb('tipo', '=', 'E'), eb.and([eb('tipo', '=', 'S'), eb('modelo', '=', 55)])]))
-      .where(sql`coalesce(proc,'N')`, '=', 'S')
-      // fold auditoria [BAIXA]: cancelados ENTRAM no bloco C como COD_SIT=02 (header-only, fiel ao legado) — não filtra aqui.
-      .where(sql`dtcontabil`, '>=', dtini)
-      .where(sql`dtcontabil`, '<=', dtfim)
-      .where('nronf', 'is not', null)
-      .where('nronf', 'not in', ['0', '000000'])
-      .orderBy('codnf')
+      .selectFrom('nf as n')
+      .leftJoin('parceiros as pa', 'pa.codparceiro', 'n.codparceiro')
+      .leftJoin('parceiros_end as pe', 'pe.codend', 'n.codparceiro_end')
+      .select(['n.codnf', 'n.tipo', 'n.modelo', 'n.nronf', 'n.serie', 'n.chavenfe', 'n.dtemissao', 'n.dtcontabil', 'n.tipoemissao', 'n.codparceiro', 'n.codparceiro_end',
+        'n.totalnf', 'n.totaldesc', 'n.totaldescfinal', 'n.totalprod', 'n.totalfrete', 'n.totalseguro', 'n.totalacessorias', 'n.totalipi', 'n.tipofrete', 'n.fisco_emit_cnpj',
+        'n.cfop', 'pa.tipofj', 'pe.cnpj_cpf', sql`coalesce(n.cancelada,'N')`.as('cancelada'), sql`coalesce(n.statusnfe,'')`.as('statusnfe')])
+      .where('n.idempresa', '=', emp)
+      .where(sql`coalesce(n.modelo, 0)`, 'not in', [22, 21, 6, 2, 57, 7, 8, 3, 65])
+      .where(sql`coalesce(n.proc,'N')`, '=', 'S')
+      // cancelados ENTRAM como COD_SIT=02 (só o cabeçalho), como o legado
+      .where(sql`n.dtcontabil`, '>=', dtini)
+      .where(sql`n.dtcontabil`, '<=', dtfim)
+      .where('n.nronf', 'is not', null)
+      .where('n.nronf', 'not in', ['0', '000000'])
+      .where(sql<boolean>`EXISTS (SELECT 1 FROM nf_prod x WHERE x.codnf = n.codnf AND coalesce(x.cfop::text, '') NOT IN ('5929', '6929'))`)
+      .orderBy('n.tipo').orderBy('n.modelo').orderBy('n.dtemissao').orderBy('n.nronf')
       .limit(5000)
       .execute()) as Array<Record<string, unknown>>;
+    // a nota sem o endereço do parceiro usa o primeiro endereço dele (o mesmo recurso do 0150 do ICMS-IPI) — no C100 e no 0150
+    const semEnd = [...new Set(nfs.filter((n) => n.codparceiro_end == null && n.codparceiro != null).map((n) => Number(n.codparceiro)))];
+    if (semEnd.length) {
+      const primeiros = (await db.selectFrom('parceiros_end').select(['codparceiro', sql<number>`min(codend)`.as('codend')]).where('codparceiro', 'in', semEnd).groupBy('codparceiro').execute()) as
+        Array<{ codparceiro: number; codend: number }>;
+      const cnpjs = primeiros.length
+        ? new Map(((await db.selectFrom('parceiros_end').select(['codend', 'cnpj_cpf']).where('codend', 'in', primeiros.map((r) => Number(r.codend))).execute()) as Array<{ codend: number; cnpj_cpf: unknown }>).map((r) => [Number(r.codend), r.cnpj_cpf]))
+        : new Map<number, unknown>();
+      const porParceiro = new Map(primeiros.map((r) => [Number(r.codparceiro), Number(r.codend)]));
+      for (const n of nfs) {
+        if (n.codparceiro_end != null) continue;
+        const e = porParceiro.get(Number(n.codparceiro));
+        if (e != null) Object.assign(n, { codparceiro_end: e, cnpj_cpf: cnpjs.get(e) ?? null });
+      }
+    }
     const nfIds = nfs.map((n) => Number(n.codnf));
+    const decomposicao = await this.configComEspecifica(db, 'CONSIDERA_ITENS_DECOMPOSICAO_SPED_FISCAL', false);
     const itens = nfIds.length
-      ? ((await db.selectFrom('nf_prod').select(['codnf', 'nroitem', 'codproduto', 'quantidade', 'vrcusto', 'vrdescprod', 'desconto', 'vrbasecalculo', 'icms', 'vricm', 'vripi', 'cst', 'origem_estoque', 'cfop', 'bcpiscofinse', 'vrpise', 'vrcofinse', 'aliqpise', 'aliqcofinse', 'aliqpiss', 'aliqcofinss', 'cstpiscofins']).where('codnf', 'in', nfIds).orderBy('codnf').orderBy('nroitem').execute()) as Array<Record<string, unknown>>)
+      ? ((await db.selectFrom('nf_prod as np')
+        .leftJoin('produtos as p', 'p.idproduto', 'np.codproduto')
+        .leftJoin('piscofins as cpc', (j: any) => j.on('cpc.idpiscofins', '=', sql`coalesce(np.idpiscofins, p.idpiscofins)`))
+        .leftJoin('cfop as c', (j: any) => j.on(sql`c.codcfop::text`, '=', sql`np.cfop::text`))
+        .leftJoin('plano_contas as plc', 'plc.codplanocontas', 'c.codplanocontas')
+        .select(['np.codnf', 'np.nroitem', 'np.codproduto', 'np.descricao', 'np.quantidade', 'np.vrcusto', 'np.vrdescprod', 'np.desconto', 'np.vrbasecalculo', 'np.icms', 'np.icme',
+          'np.vricm', 'np.vripi', 'np.cst', 'np.cfop', 'np.aliquota', 'np.depsacess', 'np.seguro', 'np.frete', 'np.ipi', 'np.vroutrasdesp', 'np.vricmst', 'p.decomposicao',
+          'cpc.aliq_pis_ent', 'cpc.aliq_pis_sai', 'cpc.aliq_cofins_ent', 'cpc.aliq_cofins_sai', 'cpc.cst_pis_ent', 'cpc.cst_pis_sai', 'cpc.cst_cofins_ent', 'cpc.cst_cofins_sai',
+          'c.proc_cupom', 'plc.codiexpandido'])
+        .where('np.codnf', 'in', nfIds).orderBy('np.codnf').orderBy('np.nroitem').execute()) as Array<Record<string, unknown>>)
       : [];
     const itensPorNf = new Map<number, Array<Record<string, unknown>>>();
     for (const it of itens) {
+      // CONSIDERA_ITENS_DECOMPOSICAO_SPED_FISCAL ≠ 'N': o produto que entra decomposto sai do C170 (FLG_PRODUTO_DECOMPOSTO 'R')
+      if (decomposicao !== 'N' && String(it.decomposicao ?? '') === 'S') continue;
       const k = Number(it.codnf);
       (itensPorNf.get(k) ?? itensPorNf.set(k, []).get(k)!).push(it);
     }
-    const parceiroIds = [...new Set(nfs.map((n) => Number(n.codparceiro)).filter(Boolean))];
-    const parceiros = new Map<number, Record<string, unknown>>();
-    if (parceiroIds.length) {
-      const rows = (await db
-        .selectFrom('parceiros as p')
-        .leftJoin('parceiros_end as pe', (j: any) => j.onRef('pe.codparceiro', '=', 'p.codparceiro').on('pe.endereco_padrao', '=', 'S'))
-        .select(['p.codparceiro as codparceiro', 'p.razao as razao', 'pe.cnpj_cpf as cnpj_cpf', 'pe.endereco as endereco', 'pe.bairro as bairro', 'pe.idcidade as idcidade'])
-        .where('p.codparceiro', 'in', parceiroIds)
-        .execute()) as Array<Record<string, unknown>>;
-      for (const r of rows) if (!parceiros.has(Number(r.codparceiro))) parceiros.set(Number(r.codparceiro), r);
+    // o 0150 (sqqParceiros): quem está nas notas não canceladas, cliente/fornecedor/transportadora, com o endereço da nota
+    const parceiros = new Map<string, Record<string, unknown>>();
+    const ends = [...new Set(nfs.filter((n) => String(n.cancelada) !== 'S' && ![5929, 6929].includes(Number(n.cfop))).map((n) => Number(n.codparceiro_end)).filter(Boolean))];
+    if (ends.length) {
+      const rows = (await db.selectFrom('parceiros_end as pe').innerJoin('parceiros as p', 'p.codparceiro', 'pe.codparceiro')
+        .select(['p.codparceiro', 'p.razao', 'p.tipofj', 'pe.codend', 'pe.cnpj_cpf', 'pe.rg_insc', 'pe.endereco', 'pe.bairro', 'pe.idcidade'])
+        .where('pe.codend', 'in', ends)
+        .where((eb: any) => eb.or([eb('p.cli', '=', 'S'), eb('p.frn', '=', 'S'), eb('p.tra', '=', 'S')]))
+        .orderBy('pe.codend').execute()) as Array<Record<string, unknown>>;
+      for (const r of rows) {
+        const cod = String(r.cnpj_cpf ?? '').trim();
+        if (String(r.razao ?? '').trim().toUpperCase() === 'AO CONSUMIDOR' || parceiros.has(cod)) continue;
+        parceiros.set(cod, r);
+      }
     }
     const prodIds = [...new Set(itens.map((i) => Number(i.codproduto)).filter(Boolean))];
     const produtos = new Map<number, Record<string, unknown>>();
@@ -309,7 +350,20 @@ export class SpedEfdContribuicoesService {
       const u = String(p.unidade ?? '').trim();
       if (u) unidades.add(u);
     }
-    return { nfs: nfs.map((n) => ({ ...n, itens: itensPorNf.get(Number(n.codnf)) ?? [] })), parceiros, produtos, unidades };
+    const pcConfig = new Set(((await db.selectFrom('pc_config').select('cfop').execute()) as Array<{ cfop: unknown }>).map((r) => Number(r.cfop)).filter(Number.isFinite));
+    const abaterIcms = (await this.configComEspecifica(db, 'ABATER_ICMS_BASE_CALCULO_PIS_COFINS', true)) === 'S';
+    return { nfs: nfs.map((n) => ({ ...n, itens: itensPorNf.get(Number(n.codnf)) ?? [] })), parceiros, produtos, unidades, pcConfig, abaterIcms };
+  }
+
+  /**
+   * as views GET_CONFIG_* do legado: COALESCE(específica, global) — `soSim`: só a específica 'S' conta (GET_CONFIG_ABATER_ICMS_PC);
+   * senão qualquer específica (GET_CONFIG_DECOMPOSICAO)
+   */
+  private async configComEspecifica(db: AnyDB, codigo: string, soSim: boolean): Promise<string> {
+    const r = (await sql<{ valor: string | null }>`
+      SELECT coalesce((SELECT e.valor FROM configuracoes_especificas e WHERE e.id = c.id ${soSim ? sql`AND e.valor = 'S'` : sql``} LIMIT 1), c.valor) AS valor
+        FROM configuracoes c WHERE c.codigo = ${codigo} LIMIT 1`.execute(db)).rows[0];
+    return String(r?.valor ?? '').trim().toUpperCase();
   }
 
   /**
@@ -351,11 +405,14 @@ export class SpedEfdContribuicoesService {
   }
 
   /** emite os cadastros do bloco 0 referenciados pelo bloco C: 0150 (participantes) / 0190 (unidades) / 0200 (itens). */
-  private emitirCadastros(arq: SpedArquivo, docs: { parceiros: Map<number, Record<string, unknown>>; produtos: Map<number, Record<string, unknown>>; unidades: Set<string> }): void {
-    for (const p of docs.parceiros.values()) {
+  private emitirCadastros(arq: SpedArquivo, docs: { parceiros: Map<string, Record<string, unknown>>; produtos: Map<number, Record<string, unknown>>; unidades: Set<string> }): void {
+    for (const [codPart, p] of docs.parceiros) {
       const doc = soDigitos(p.cnpj_cpf as string);
-      // 0150: COD_PART|NOME|COD_PAIS|CNPJ|CPF|IE|COD_MUN|SUFRAMA|ENDERECO|NUM|COMPL|BAIRRO (COD_PART = codparceiro, chave estável)
-      arq.add('0150', [String(p.codparceiro), (p.razao as string) ?? '', '01058', doc.length === 14 ? doc : '', doc.length === 11 ? doc : '', '', p.idcidade != null ? String(p.idcidade) : '', '', (p.endereco as string) ?? '', '', '', (p.bairro as string) ?? '']);
+      const juridica = String(p.tipofj ?? '').trim().toUpperCase() === 'J';
+      const fisica = String(p.tipofj ?? '').trim().toUpperCase() === 'F';
+      // 0150 (UspedPisCofins.pas:478-492): COD_PART = o CNPJ/CPF do endereço da nota; CNPJ para 'J', CPF para os outros; IE fora da 'F'
+      arq.add('0150', [codPart, String(p.razao ?? ''), '1058', juridica ? doc : '', juridica ? '' : doc, fisica ? '' : soDigitos(p.rg_insc as string),
+        p.idcidade != null ? String(p.idcidade) : '', '', String(p.endereco ?? '').slice(0, 60).trim(), '', '', String(p.bairro ?? '')]);
     }
     for (const u of docs.unidades) arq.add('0190', [u, u]);
     for (const p of docs.produtos.values()) {
@@ -367,7 +424,7 @@ export class SpedEfdContribuicoesService {
   /** emite o BLOCO C: C001/C010 + C100/C170 por NF de ENTRADA + C100/C175 por NFC-e de SAÍDA (corte-2) + C990. */
   private emitirBlocoC(
     arq: SpedArquivo,
-    docs: { nfs: Array<Record<string, unknown> & { itens: Array<Record<string, unknown>> }>; produtos: Map<number, Record<string, unknown>> },
+    docs: { nfs: Array<Record<string, unknown> & { itens: Array<Record<string, unknown>> }>; produtos: Map<number, Record<string, unknown>>; pcConfig: Set<number>; abaterIcms: boolean },
     cupons: Array<{ nroserie: string; nrocupom: string; chavenfe: string; statusnfe: string; dtemissao: string; itens: Array<Record<string, unknown>> }>,
     cnpjEstab: string,
   ): void {
@@ -383,53 +440,52 @@ export class SpedEfdContribuicoesService {
     }
     arq.add('C010', [cnpjEstab, '1']); // IND_ESCRI=1 (individualizada)
     for (const nf of docs.nfs) {
-      const saida = String(nf.tipo) === 'S';
-      const indOper = saida ? '1' : '0'; // IND_OPER: 0=entrada / 1=saída (SAÍDA-NF-mod55)
-      const indEmit = String(nf.tipoemissao ?? '0') === '0' ? '0' : '1';
-      // COD_MOD: modelo 90 → '1B' (fiel ao legado; '90' não é COD_MOD da tabela 4.1.1). fold cutover MÉDIA.
+      const tipoNota = String(nf.tipo);
+      const indOper = tipoNota === 'E' ? '0' : '1';
+      const indEmit = String(nf.tipoemissao ?? '0').trim() === '0' ? '0' : '1';
+      // COD_MOD: modelo 90 → '1B' (fiel ao legado; '90' não é COD_MOD da tabela 4.1.1)
       const codMod = String(nf.modelo ?? '') === '90' ? '1B' : String(nf.modelo ?? '').padStart(2, '0');
-      const ser = String(nf.serie ?? '').trim();
+      const ser = String(nf.serie ?? '').trim().padStart(3, '0'); // ConcatenaLeft(trim(SERIE), 3, '0')
       const cancelada = String(nf.cancelada) === 'S' || String(nf.statusnfe) === 'C';
       if (cancelada) {
-        // COD_SIT=02: doc cancelado → só o header identificador, sem C170 (fiel ao legado).
-        arq.add('C100', [indOper, indEmit, '', codMod, '02', ser, String(nf.nronf ?? ''), (nf.chavenfe as string) ?? '', fmtData(nf.dtemissao as string), ...Array(19).fill('')]);
+        // COD_SIT=02: só o cabeçalho identificador, sem C170 (GeraRegistroC100OutrosModelosCanceladas)
+        arq.add('C100', [indOper, indEmit, '', codMod, '02', ser, String(nf.nronf ?? ''), (nf.chavenfe as string) ?? '', ...Array(20).fill('')]);
         continue;
       }
       const itens = nf.itens;
-      const soma = (c: string) => itens.reduce((s, it) => s + nn(it[c]), 0);
-      // PIS/COFINS por item conforme o SENTIDO: ENTRADA usa os valores GRAVADOS (base=bcpiscofinse, valor=vrpise/
-      // vrcofinse); SAÍDA (mod-55) não grava base/valor — só as alíquotas → base = qtd×vrcusto − vrdescprod e valor =
-      // round(base×alíq/100,2) (mesma mecânica do débito de VENDAS/apuração).
-      const pc = itens.map((it) => {
-        const q = nn(it.quantidade);
-        if (saida) {
-          const base = r2(q * nn(it.vrcusto) - nn(it.vrdescprod));
-          const aPis = nn(it.aliqpiss);
-          const aCof = nn(it.aliqcofinss);
-          return { base, aPis, aCof, vPis: r2((base * aPis) / 100), vCof: r2((base * aCof) / 100), vlItem: r2(q * nn(it.vrcusto)) };
-        }
-        return { base: nn(it.bcpiscofinse), aPis: nn(it.aliqpise), aCof: nn(it.aliqcofinse), vPis: nn(it.vrpise), vCof: nn(it.vrcofinse), vlItem: r2(nn(it.vrcusto) * q) };
-      });
-      const somaPis = r2(pc.reduce((s, p) => s + p.vPis, 0));
-      const somaCof = r2(pc.reduce((s, p) => s + p.vCof, 0));
-      // C100 (28 campos): IND_OPER|IND_EMIT|COD_PART|COD_MOD|COD_SIT(00)|SER|NUM_DOC|CHV_NFE|DT_DOC|DT_E_S|VL_DOC|IND_PGTO(1)|VL_DESC|VL_ABAT_NT|VL_MERC|IND_FRT|VL_FRT|VL_SEG|VL_OUT_DA|VL_BC_ICMS|VL_ICMS|VL_BC_ICMS_ST|VL_ICMS_ST|VL_IPI|VL_PIS|VL_COFINS|VL_PIS_ST|VL_COFINS_ST
-      arq.add('C100', [indOper, indEmit, String(nf.codparceiro ?? ''), codMod, '00', ser, String(nf.nronf ?? ''), (nf.chavenfe as string) ?? '', fmtData(nf.dtemissao as string), fmtData(nf.dtcontabil as string), fmtNum(nn(nf.totalnf)), '1', fmtNum(nn(nf.totaldesc)), fmtNum(0), fmtNum(nn(nf.totalprod)), String(nf.tipofrete ?? '9'), fmtNum(nn(nf.totalfrete)), fmtNum(nn(nf.totalseguro)), fmtNum(nn(nf.totalacessorias)), fmtNum(soma('vrbasecalculo')), fmtNum(soma('vricm')), fmtNum(0), fmtNum(0), fmtNum(soma('vripi')), fmtNum(somaPis), fmtNum(somaCof), fmtNum(0), fmtNum(0)]);
+      const pc = (it: Record<string, unknown>) => it as PisCofinsCadastro;
+      // o C100 (GeraRegistroC100OutrosModelosAutorizadas, pas:882-916): o PIS/COFINS é a conta do cabeçalho; base/ICMS = Σ do C170 (o 1º
+      // item x929 zera); COD_SIT 08 com o 1º item x929 ou nota avulsa (FISCO_EMIT_CNPJ); VL_DESC = desconto + |desconto final|
+      const primeiro = itens[0];
+      const x929 = String(primeiro?.cfop ?? '').includes('929');
+      const icmsItens = itens.map((it) => icmsDoItemC170(it, String(it.proc_cupom ?? '') === 'S'));
+      const cab = pisCofinsDoCabecalho(itens.map((it) => ({ it, pc: pc(it) })), tipoNota, String(nf.tipoemissao ?? ''), nf.tipofj, docs.pcConfig, docs.abaterIcms);
+      const vlMerc = r2(itens.filter((it) => !['5929', '6929'].includes(String(it.cfop ?? ''))).reduce((a, it) => a + r2(nn(it.vrcusto) * nn(it.quantidade)), 0));
+      const codSit = x929 || String(nf.fisco_emit_cnpj ?? '').trim() !== '' ? '08' : '00';
+      // C100 (28 campos): IND_OPER|IND_EMIT|COD_PART|COD_MOD|COD_SIT|SER|NUM_DOC|CHV_NFE|DT_DOC|DT_E_S|VL_DOC|IND_PGTO(1)|VL_DESC|VL_ABAT_NT|VL_MERC|IND_FRT|VL_FRT|VL_SEG|VL_OUT_DA|VL_BC_ICMS|VL_ICMS|VL_BC_ICMS_ST|VL_ICMS_ST|VL_IPI|VL_PIS|VL_COFINS|VL_PIS_ST|VL_COFINS_ST
+      arq.add('C100', [indOper, indEmit, String(nf.cnpj_cpf ?? '').trim(), codMod, codSit, ser, String(nf.nronf ?? ''), (nf.chavenfe as string) ?? '', fmtData(nf.dtemissao as string),
+        fmtData(nf.dtcontabil as string), fmtNum(nn(nf.totalnf)), '1', fmtNum(nn(nf.totaldesc) + Math.abs(nn(nf.totaldescfinal))), fmtNum(0), fmtNum(vlMerc), indFreteC100(nf.tipofrete),
+        fmtNum(nn(nf.totalfrete)), fmtNum(nn(nf.totalseguro)), fmtNum(nn(nf.totalacessorias)), fmtNum(x929 ? 0 : r2(icmsItens.reduce((a, i) => a + i.bc, 0))),
+        fmtNum(x929 ? 0 : r2(icmsItens.reduce((a, i) => a + i.valor, 0))), fmtNum(0), fmtNum(0), fmtNum(nn(nf.totalipi)), fmtNum(cab.pis), fmtNum(cab.cofins), fmtNum(0), fmtNum(0)]);
       let nro = 0;
       for (let i = 0; i < itens.length; i++) {
         const it = itens[i];
-        const p = pc[i];
         const prod = docs.produtos.get(Number(it.codproduto));
-        // fold auditoria [BAIXA]: CST PIS/COFINS nulo → default válido (crédito '50' entrada / tributada '01' saída
-        // quando há valor; senão '99').
-        const cstRaw = String(it.cstpiscofins ?? '').replace(/\D/g, '');
-        const cstPc = cstRaw !== '' ? cstRaw.padStart(2, '0') : p.vPis > 0 || p.vCof > 0 ? (saida ? '01' : '50') : '99';
-        const cstIcms = String(it.origem_estoque ?? '0').slice(0, 1) + String(nn(it.cst)).padStart(2, '0');
-        const cstIpi = String(it.cfop ?? '').charAt(0) < '5' ? '49' : '99'; // entrada (1/2/3xxx) → 49
+        const cfop = Number(it.cfop);
+        const t = pisCofinsDoItemC170(cfop, tipoNota, nf.tipofj, pc(it), docs.pcConfig);
+        const base = baseCofinsC170(it, tipoNota, docs.abaterIcms, nn(it.aliq_cofins_sai));
+        const cst = String(Math.trunc(t.cst)).padStart(2, '0'); // um CST só (o de COFINS) nos dois campos, como o legado (pas:946/973)
+        const ic = icmsItens[i];
+        const cstIpi = String(it.cfop ?? '').charAt(0) < '5' ? '49' : '99';
         // C170 (37 campos): NUM_ITEM|COD_ITEM|DESCR_COMPL|QTD|UNID|VL_ITEM|VL_DESC|IND_MOV|CST_ICMS|CFOP|COD_NAT|VL_BC_ICMS|ALIQ_ICMS|VL_ICMS|VL_BC_ICMS_ST|ALIQ_ST|VL_ICMS_ST|IND_APUR|CST_IPI|COD_ENQ|VL_BC_IPI|ALIQ_IPI|VL_IPI|CST_PIS|VL_BC_PIS|ALIQ_PIS|QUANT_BC_PIS|ALIQ_PIS_QUANT|VL_PIS|CST_COFINS|VL_BC_COFINS|ALIQ_COFINS|QUANT_BC_COFINS|ALIQ_COFINS_QUANT|VL_COFINS|COD_CTA|VL_ABAT_NT
-        arq.add('C170', [String(++nro), String(it.codproduto ?? ''), String(prod?.descricao ?? ''), fmtNum(nn(it.quantidade), 3), String(prod?.unidade ?? '').trim(), fmtNum(p.vlItem), fmtNum(nn(it.vrdescprod)), '0', cstIcms, String(it.cfop ?? ''), '', fmtNum(nn(it.vrbasecalculo)), fmtNum(nn(it.icms)), fmtNum(nn(it.vricm)), fmtNum(0), fmtNum(0), fmtNum(0), '0', cstIpi, '', fmtNum(0), fmtNum(0), fmtNum(0), cstPc, fmtNum(p.base), fmtNum(p.aPis, 4), '', '', fmtNum(p.vPis), cstPc, fmtNum(p.base), fmtNum(p.aCof, 4), '', '', fmtNum(p.vCof), '', '']);
+        // VL_DESC: o legado manda o DESCONTO em % (pas:956 — bug: NF 159457 com 54,93 no lugar de R$ 6.689,76); aqui o valor do desconto
+        arq.add('C170', [String(++nro), String(it.codproduto ?? ''), String(it.descricao ?? '').trim(), fmtNum(nn(it.quantidade), 3), String(prod?.unidade ?? '').trim(),
+          fmtNum(r2(nn(it.quantidade) * nn(it.vrcusto))), fmtNum(nn(it.vrdescprod)), '0', cst3(it.cst), String(it.cfop ?? ''), '', fmtNum(ic.bc), fmtNum(ic.aliq), fmtNum(ic.valor),
+          fmtNum(0), fmtNum(0), fmtNum(0), '0', cstIpi, '', fmtNum(0), fmtNum(0), fmtNum(0),
+          cst, fmtNum(t.aliqPis === 0 ? 0 : base), fmtNum(t.aliqPis, 4), '', '', fmtNum(r2((base * t.aliqPis) / 100)),
+          cst, fmtNum(t.aliqCofins === 0 ? 0 : base), fmtNum(t.aliqCofins, 4), '', '', fmtNum(r2((base * t.aliqCofins) / 100)), String(it.codiexpandido ?? ''), '']);
       }
     }
-
     // ── SAÍDA: NFC-e mod 65 (corte-2). 1 C100 por cupom (IND_OPER=1, IND_EMIT=0, consumidor final s/ COD_PART);
     // itens não-cancelados consolidam em C175 por (CFOP, CST_PIS, alíq PIS, CST_COFINS, alíq COFINS). Cupom
     // cancelado no SEFAZ (statusnfe='C') → C100 COD_SIT=02 sem C175 (fiel ao GeraRegistroC100Modelo65 do legado).

@@ -294,16 +294,16 @@ Formatação do ACBr (casas de QTD; CST_PIS de 1 dígito, já que o CAST para `N
 
 | Corte | Status |
 |---|---|
-| A — formatação (CST 3 dígitos, SER 3 dígitos, DESCR_COMPL da nota, CST_IPI vazio, cancelado só com o cabeçalho) | ✅ ICMS-IPI (`sped-c-legado.ts`) · Contribuições ⏳ |
-| B — 0150 pelo endereço da NF | ✅ ICMS-IPI · Contribuições ⏳ |
-| C — seleção (02/03/07/08/57 fora, 55 sem chave fora, CFOP pelo item) | ✅ ICMS-IPI · Contribuições ⏳ |
+| A — formatação (CST 3 dígitos, SER 3 dígitos, DESCR_COMPL da nota, CST_IPI vazio, cancelado só com o cabeçalho) | ✅ ICMS-IPI (`sped-c-legado.ts`) · ✅ Contribuições |
+| B — 0150 pelo endereço da NF | ✅ ICMS-IPI · ✅ Contribuições (COD_PART = CNPJ/CPF, como o legado; sem endereço na nota, o primeiro do parceiro) |
+| C — seleção (02/03/07/08/57 fora, 55 sem chave fora, CFOP pelo item) | ✅ ICMS-IPI · ✅ Contribuições (modelos 22/21/6/2/57/7/8/3 fora, nota só com 5929/6929 fora, entrada e saída de todos os tipos) |
 | D — C170 fora da NF-e própria | ✅ |
 | E — C100 derivados (IND_PGTO, VL_DESC, COD_SIT 08 série 890, VL_MERC, VL_BC/VL_ICMS dos itens zerados, VL_PIS/COFINS) | ✅ |
 | F — ICMS por item (zeragem, ICME, x929 só no C190, VL_RED_BC sem herdar, SN) | ✅ |
 | G — QTD × FATOREMBAL (só ICMS-IPI) | ✅ |
 | H — VL_OPR do C190 (fórmula do legado) | ✅ |
 | I — PIS/COFINS no C170 do ICMS-IPI (PISCOFINS do produto) | ✅ |
-| J — Contribuições C170 (CST pelo CASE de CFOP/PC_CONFIG) | ⏳ |
+| J — Contribuições C100/C170 (`sped-pc-legado.ts`: CST e alíquota pelo CASE de CFOP/PC_CONFIG/TIPOFJ, BASECOFINS, ICMS só 'T…' fora do PROC_CUPOM, x929, COD_CTA do CFOP, PIS/COFINS do C100 pela conta do cabeçalho, COD_SIT 08, VL_DESC do C100 com o desconto final; mig 358 com ABATER_ICMS_BASE_CALCULO_PIS_COFINS e CONSIDERA_ITENS_DECOMPOSICAO_SPED_FISCAL) | ✅ smoke §252 + unit. **Não copiado** (§10): o VL_DESC do C170 em % (bug do legado) — sai o valor do desconto |
 | K — NFC-e + inutilizações no ICMS-IPI; bloco D | ⏳ |
 
 Decisões registradas (legado errado, não copiado): VL_RED_BC herdado do grupo anterior → 0. Copiado com nota: C100 VL_PIS/VL_COFINS

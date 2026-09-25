@@ -13512,7 +13512,8 @@ async function main() {
       try {
         // NF de entrada no período 2026-02 + crédito PIS/COFINS no item (via pg — como o import do XML valoraria).
         const nfCred = await novaNf(baseNf({ tipo: 'E', nronf: 'SPEDM01', codparceiro: 22, dtemissao: '2026-02-10', dtcontabil: '2026-02-10', itens: [{ codproduto: 1, quantidade: 1, vrvenda: 100, vrcusto: 100, cfop: '1102', aliquota: 'T01', cstpiscofins: '50' }] }));
-        await pgSp.query(`UPDATE nf_prod SET bcpiscofinse=100, vrpise=1.65, vrcofinse=7.60, aliqpise=1.65, aliqcofinse=7.60, cstpiscofins='50' WHERE codnf=$1`, [nfCred]);
+        // o C170 da Contribuições lê o PISCOFINS do item (ou do produto) pelo CASE do legado: o 13 (1,65 / 7,60, CST 50)
+        await pgSp.query(`UPDATE nf_prod SET bcpiscofinse=100, vrpise=1.65, vrcofinse=7.60, aliqpise=1.65, aliqcofinse=7.60, cstpiscofins='50', idpiscofins=13 WHERE codnf=$1`, [nfCred]);
         await pgSp.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfCred]);
 
         // 88.1) apuração: 1 grupo (CST 50, alíq 1,65/7,6), base 100, crédito PIS 1,65 / COFINS 7,60.
@@ -24012,6 +24013,64 @@ async function main() {
         }
         await pgPv.query(`UPDATE produtos SET codgrupopreco = $1 WHERE idproduto = 2`, [grupoAntes]).catch(() => undefined);
         await pgPv.end();
+      }
+    }
+
+    // ══ §252 EFD-CONTRIBUIÇÕES — o C100/C170 das notas como o legado (UspedPisCofins.pas:882-986; FDqNF/FDqNFprod) ══════════
+    {
+      const pgPc2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const endAntes = (await pgPc2.query(`SELECT cnpj_cpf FROM parceiros_end WHERE codend = 6`)).rows[0]?.cnpj_cpf ?? null;
+      const fjAntes = (await pgPc2.query(`SELECT tipofj FROM parceiros WHERE codparceiro = 22`)).rows[0]?.tipofj ?? null;
+      const nfs: number[] = [];
+      try {
+        await pgPc2.query(`UPDATE parceiros_end SET cnpj_cpf = '12.345.678/0001-95' WHERE codend = 6`);
+        await pgPc2.query(`UPDATE parceiros SET tipofj = 'J' WHERE codparceiro = 22`);
+        const criar = async (nronf: string, extra: Record<string, unknown>, itens: Array<Record<string, unknown>>) => {
+          const r = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 55, serie: '1', tipo: 'E', nronf, tipoemissao: '1', codparceiro: 22, codparceiro_end: 6,
+            chavenfe: '3138030000000000000055001000000001100000001'.padEnd(44, String(nfs.length)), dtemissao: '2038-03-10', dtcontabil: '2038-03-10', cfop: '1102', ...extra, itens }) });
+          const c = Number(((await r.json().catch(() => ({}))) as any).codnf) || 0;
+          if (c) { nfs.push(c); await pgPc2.query(`UPDATE nf SET proc = 'S' WHERE codnf = $1`, [c]); }
+          return c;
+        };
+        const a = await criar('PC252A', { modelo: 1 }, [
+          { nroitem: 1, codproduto: 1, quantidade: 10, vrcusto: 10, cfop: '1102', aliquota: 'T01', cst: 0, icme: 18, bcr: 100 },
+          { nroitem: 2, codproduto: 2, quantidade: 1, vrcusto: 50, cfop: '1556', aliquota: 'T01', cst: 0, icme: 18, bcr: 100 },
+          { nroitem: 3, codproduto: 3, quantidade: 2, vrcusto: 25, cfop: '1403', aliquota: 'STB', cst: 60, icme: 18, bcr: 100, vrbasecalculo: 50, vricm: 9 },
+        ]);
+        await pgPc2.query(`UPDATE nf_prod SET idpiscofins = 13 WHERE codnf = $1`, [a]);
+        const m3 = await criar('PC252B', { modelo: 3 }, [{ nroitem: 1, codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '1102', aliquota: 'T01' }]);
+        const so929 = await criar('PC252C', { modelo: 1, tipo: 'S', tipoemissao: '0', cfop: '5929' }, [{ nroitem: 1, codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5929', aliquota: 'T01' }]);
+        const avulsa = await criar('PC252D', { modelo: 1 }, [{ nroitem: 1, codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '1102', aliquota: 'T01' }]);
+        await pgPc2.query(`UPDATE nf SET fisco_emit_cnpj = '18715615000160' WHERE codnf = $1`, [avulsa]);
+        const efd = await fetch(`${base}/fiscal/sped/efd-contribuicoes`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2038-03-01', dtfim: '2038-03-31' }) });
+        const lin = String(((await efd.json().catch(() => ({}))) as any).arquivo ?? '').split('\r\n');
+        const c100 = lin.filter((l) => l.startsWith('|C100|0|'));
+        const cA = c100.find((l) => l.includes('|PC252A|')) ?? '';
+        const campos = (l: string) => l.split('|');
+        const idxA = lin.indexOf(cA);
+        const c170 = lin.slice(idxA + 1).filter((l, i, arr) => l.startsWith('|C170|') && arr.slice(0, i).every((x) => x.startsWith('|C170|')));
+        const f = c170.map(campos);
+        const o150 = lin.filter((l) => l.startsWith('|0150|'));
+        check('EFD-CONTRIBUIÇÕES §252.1 [o C170 pelo CASE do legado]: o item 1102 com o PISCOFINS tributado sai CST 50, base 100, PIS 1,65 e COFINS 7,60; o 1556 (uso e consumo) sai CST 74 com alíquota e base 0; o 1403 com a alíquota STB tem o ICMS zerado no C170 (só a "T…" mantém — ≠ ICMS-IPI) e CST 50 (1403 no PC_CONFIG); CST_ICMS com 3 dígitos',
+          efd.status === 200 && f.length === 3
+          && f[0][25] === '50' && f[0][26] === '100,00' && f[0][30] === '1,65' && f[0][36] === '7,60' && f[0][10] === '000'
+          && f[1][25] === '74' && f[1][26] === '0,00' && f[1][30] === '0,00'
+          && f[2][25] === '50' && f[2][13] === '0,00' && f[2][15] === '0,00' && f[2][10] === '060',
+          { c170 });
+        check('EFD-CONTRIBUIÇÕES §252.2 [o C100 e a seleção]: COD_PART = o CNPJ/CPF do endereço da nota (e o 0150 com ele), SER com 3 dígitos (001), VL_MERC = Σ produtos (200); a nota modelo 3 não entra no C100; a nota só com 5929 não entra; a nota avulsa (FISCO_EMIT_CNPJ) sai COD_SIT 08',
+          campos(cA)[4] === '12.345.678/0001-95' && campos(cA)[7] === '001' && campos(cA)[16] === '200,00'
+          && o150.some((l) => l.startsWith('|0150|12.345.678/0001-95|') && l.includes('|12345678000195|'))
+          && !lin.some((l) => l.includes('|PC252B|')) && !lin.some((l) => l.includes('|PC252C|'))
+          && campos(c100.find((l) => l.includes('|PC252D|')) ?? '')[6] === '08',
+          { cA, o150, m3, so929, c100 });
+      } finally {
+        for (const c of nfs) {
+          await pgPc2.query(`DELETE FROM nf_prod WHERE codnf = $1`, [c]).catch(() => undefined);
+          await pgPc2.query(`DELETE FROM nf WHERE codnf = $1`, [c]).catch(() => undefined);
+        }
+        await pgPc2.query(`UPDATE parceiros_end SET cnpj_cpf = $1 WHERE codend = 6`, [endAntes]).catch(() => undefined);
+        await pgPc2.query(`UPDATE parceiros SET tipofj = $1 WHERE codparceiro = 22`, [fjAntes]).catch(() => undefined);
+        await pgPc2.end();
       }
     }
 
