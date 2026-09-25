@@ -21,6 +21,14 @@ export class EtiquetaController {
   }
 
   /** resolve/preview um produto por codbarra (ou id) — p/ o add manual/scan. */
+  /** a pesquisa por ETQ_IMPRESSA — 'N' (padrão) = preço alterado com etiqueta velha, 'S' = já impressa, 'T' = todos */
+  @Get('pesquisa')
+  @RequerAcesso('FRMETIQUETA', 'BTNGRAVAR')
+  pesquisar(@Query('situacao') situacao?: string, @Query('busca') busca?: string, @Query('limite') limite?: string) {
+    const sit = situacao === 'S' || situacao === 'T' ? situacao : 'N';
+    return this.svc.pesquisar({ situacao: sit, busca, limite: limite ? Number(limite) : undefined });
+  }
+
   @Get('produto')
   @RequerAcesso('FRMETIQUETA', 'BTNGRAVAR')
   produto(@Query('codbarra') codbarra?: string, @Query('idproduto') idproduto?: string) {

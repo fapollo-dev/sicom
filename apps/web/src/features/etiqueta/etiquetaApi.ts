@@ -48,3 +48,9 @@ export function remover(idetiqueta: number): Promise<{ idetiqueta: number; remov
 export function imprimir(itens: Array<{ idetiqueta?: number; idproduto: number; qtde: number; descricao?: string; modelo?: string }>): Promise<{ etiquetas: Etiqueta[]; total_etiquetas: number }> {
   return req('/cadastro/etiqueta/imprimir', { method: 'POST', body: JSON.stringify({ itens }) });
 }
+
+/** a pesquisa por ETQ_IMPRESSA (o rádio do legado): 'N' = preço alterado com etiqueta não impressa, 'S' = já impressa, 'T' = todos */
+export function pesquisarPorSituacao(situacao: 'N' | 'S' | 'T', busca?: string): Promise<Array<Etiqueta & { etq_impressa: string | null; dtultprecoalterado: string | null }>> {
+  const q = new URLSearchParams({ situacao, ...(busca ? { busca } : {}) });
+  return req(`/cadastro/etiqueta/pesquisa?${q.toString()}`, { method: 'GET' });
+}

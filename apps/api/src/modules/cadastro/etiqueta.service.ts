@@ -88,6 +88,30 @@ export class EtiquetaService {
     return rows.map((r) => this.montar(r));
   }
 
+  /**
+   * A PESQUISA POR ETQ_IMPRESSA (`btnAdicionarRegistroClick`, Uetiqueta.pas:700-735, o rádio "Já impressa / Não impressa /
+   * Todos"): os produtos ativos da loja pelo flag do preço — 'N' é a gôndola com PREÇO ALTERADO e etiqueta velha (o trigger do
+   * MULTI_PRECO zera o flag a cada troca de preço). A fila do coletor tem só 309 linhas em 2025-26; as impressões são 116 mil —
+   * o grosso vem daqui (auditoria de esqueletos §4.10: 4.965 produtos pendentes na loja 1, 7.159 na 2, 7.586 na 52).
+   */
+  async pesquisar(f: { situacao?: 'N' | 'S' | 'T'; busca?: string; limite?: number }): Promise<Array<Etiqueta & { etq_impressa: string | null; dtultprecoalterado: unknown }>> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const situacao = f.situacao ?? 'N';
+    const busca = (f.busca ?? '').trim().toUpperCase();
+    let q = db
+      .selectFrom('produtos as p')
+      .innerJoin('multi_preco as mp', (j: any) => j.onRef('mp.idproduto', '=', 'p.idproduto').on('mp.idempresa', '=', emp))
+      .select(['p.idproduto', 'p.codbarra', 'p.unidade', 'p.descricao as descricao_produto', sql`coalesce(nullif(p.fator_filho,0),1)`.as('fator'),
+        sql`coalesce(nullif(p.prod_qtde_etiquetas,0),1)`.as('qtde_etiquetas'), 'mp.vrvenda', 'mp.vrpromo', sql`coalesce(mp.promocao,'N')`.as('promocao'),
+        'mp.etq_impressa', 'mp.dtultprecoalterado'])
+      .where(sql`coalesce(p.ativo, 'S')`, '=', 'S');
+    if (situacao !== 'T') q = q.where(sql`coalesce(mp.etq_impressa, 'N')`, '=', situacao);
+    if (busca) q = q.where((eb: any) => eb.or([eb(sql`upper(p.descricao)`, 'like', `%${busca}%`), eb('p.codbarra', '=', busca)]));
+    const rows = (await q.orderBy('mp.dtultprecoalterado', 'desc').orderBy('p.descricao').limit(Math.min(f.limite ?? 500, 2000)).execute()) as Record<string, unknown>[];
+    return rows.map((r) => ({ ...this.montar(r), etq_impressa: (r.etq_impressa as string | null) ?? null, dtultprecoalterado: r.dtultprecoalterado }));
+  }
+
   /** resolve um produto por codbarra (incl. código auxiliar) ou id e devolve a etiqueta computada (preview/add manual). */
   async buscarProduto(idproduto?: number, codbarra?: string): Promise<Etiqueta> {
     const emp = this.emp();
@@ -157,16 +181,19 @@ export class EtiquetaService {
         const et = this.montar(row, Number(it.qtde), it.descricao);
         et.idetiqueta = it.idetiqueta;
         out.push(et);
-        // log web (server-authoritative snapshot)
-        await trx.insertInto('log_impressao_etiqueta').values({
-          idempresa: emp, codoperador: op, datahora_impressao: sql`now()`, codbarra: et.codbarra, descricao_etiqueta: et.descricao,
-          unidade: et.unidade, qtde_impressa: et.qtde, valor_venda: et.valor_venda, valor_promocao: et.valor_promocao,
-          valor_venda_promocao: et.valor_venda_promocao, modelo_etiqueta: it.modelo ?? null,
-        }).execute();
-        // marca a fila (se veio dela) + o flag do preço, fiel ao MarcarImpressa*.
-        if (it.idetiqueta != null) {
-          await trx.updateTable('etiqueta_cons_prod').set({ impressa: 'S' }).where('idetiqueta', '=', Number(it.idetiqueta)).where('idempresa', '=', emp).execute();
+        // LOG_IMPRESSAO_ETIQUETA como a produção grava (binário novo): UMA LINHA POR CÓPIA, com o preço impresso em
+        // VALOR_IMPRESSAO e o modelo (6.279 de 6.279 linhas de set/2026 com VALOR_IMPRESSAO; a amostra do operador 63, 24/09
+        // 18:49:58, 7896098905999 a 4,99, "GONDULA PINHEIRAO")
+        const copias = Math.max(1, Math.round(Number(et.qtde) || 1));
+        for (let c = 0; c < copias; c++) {
+          await trx.insertInto('log_impressao_etiqueta').values({
+            idempresa: emp, codoperador: op, datahora_impressao: sql`now()`, codbarra: et.codbarra,
+            valor_impressao: et.valor_venda_promocao, modelo_etiqueta: it.modelo ?? null,
+          }).execute();
         }
+        // a fila do coletor: TODAS as pendentes do produto (MarcarImpressaEtqConsProd, Uetiqueta.pas:430-443) + o flag do preço
+        await trx.updateTable('etiqueta_cons_prod').set({ impressa: 'S' })
+          .where('idproduto', '=', et.idproduto).where(sql`coalesce(impressa, 'N')`, '=', 'N').where('idempresa', '=', emp).execute();
         await trx.updateTable('multi_preco').set({ etq_impressa: 'S' }).where('idproduto', '=', et.idproduto).where('idempresa', '=', emp).execute();
       }
       const total = out.reduce((s, e) => s + e.qtde, 0);

@@ -4811,14 +4811,24 @@ async function main() {
         // 47g.4) imprimir: 990200 (da fila, qtde 4) → log gravado (valor_venda_promocao 15,98) + IMPRESSA='S' + etq_impressa='S'.
         const imp = await fetch(`${base}/${ET}/imprimir`, { method: 'POST', headers: H, body: JSON.stringify({ itens: [{ idetiqueta: idetq, idproduto: 990200, qtde: 4 }] }) });
         const impJ = (await imp.json().catch(() => ({}))) as any;
-        const logRow = (await pgEt.query(`SELECT valor_venda, valor_venda_promocao, qtde_impressa FROM log_impressao_etiqueta WHERE idempresa=1 AND codbarra='7899000990200' ORDER BY codlog DESC LIMIT 1`)).rows[0] as any;
+        const logRows = (await pgEt.query(`SELECT valor_impressao::float AS vi FROM log_impressao_etiqueta WHERE idempresa=1 AND codbarra='7899000990200' ORDER BY codlog DESC`)).rows as any[];
         const impressaFlag = (await pgEt.query(`SELECT impressa FROM etiqueta_cons_prod WHERE idetiqueta=$1`, [idetq])).rows[0]?.impressa;
         const etqFlag = (await pgEt.query(`SELECT etq_impressa FROM multi_preco WHERE idproduto=990200 AND idempresa=1`)).rows[0]?.etq_impressa;
-        check('ETIQUETA: imprimir → total 4 etiquetas + log (venda 20 / impresso 15,98) + fila IMPRESSA=S + MULTI_PRECO.etq_impressa=S',
+        // o log como a produção grava: UMA LINHA POR CÓPIA com o preço impresso em VALOR_IMPRESSAO (auditoria de esqueletos §4.10)
+        check('ETIQUETA: imprimir → total 4 etiquetas + 4 linhas de LOG_IMPRESSAO_ETIQUETA (uma por cópia, VALOR_IMPRESSAO 15,98) + fila IMPRESSA=S + MULTI_PRECO.etq_impressa=S',
           imp.status === 200 && Number(impJ.total_etiquetas) === 4 && Number(impJ.etiquetas?.[0]?.valor_venda_promocao) === 15.98
-          && Number(logRow?.valor_venda) === 20 && Number(logRow?.valor_venda_promocao) === 15.98 && Number(logRow?.qtde_impressa) === 4
+          && logRows.length === 4 && logRows.every((r) => r.vi === 15.98)
           && impressaFlag === 'S' && etqFlag === 'S',
-          { impJ: impJ.total_etiquetas, logRow, impressaFlag, etqFlag });
+          { impJ: impJ.total_etiquetas, logRows, impressaFlag, etqFlag });
+
+        // a PESQUISA POR ETQ_IMPRESSA (o rádio do legado): o produto com preço alterado (etq_impressa N) aparece em 'N' e some depois de impresso
+        await pgEt.query(`UPDATE multi_preco SET etq_impressa='N' WHERE idproduto=990201 AND idempresa=1`);
+        const pesqN = (await (await fetch(`${base}/${ET}/pesquisa?situacao=N`, { headers: H })).json().catch(() => [])) as any[];
+        const pesqS = (await (await fetch(`${base}/${ET}/pesquisa?situacao=S`, { headers: H })).json().catch(() => [])) as any[];
+        check('ETIQUETA [pesquisa por situação]: "não impressa" traz o produto de preço alterado (990201) e não o recém-impresso (990200), que aparece em "já impressa"',
+          Array.isArray(pesqN) && pesqN.some((e) => Number(e.idproduto) === 990201) && !pesqN.some((e) => Number(e.idproduto) === 990200)
+          && pesqS.some((e) => Number(e.idproduto) === 990200),
+          { n: pesqN?.length, s: pesqS?.length });
 
         // 47g.5) o item impresso saiu da fila (IMPRESSA='S' → fora de get_etiqueta_fila).
         const fila2 = (await (await fetch(`${base}/${ET}/fila`, { headers: H })).json().catch(() => [])) as any[];

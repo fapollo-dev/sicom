@@ -3,7 +3,8 @@ import { PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
-import { listarFila, buscarProduto, adicionar, remover, imprimir, type Etiqueta } from './etiquetaApi';
+import { listarFila, buscarProduto, remover, imprimir, pesquisarPorSituacao, type Etiqueta } from './etiquetaApi';
+import { SelectField } from '../../shared/ui/SelectField';
 import { printEtiquetas } from './printLabels';
 
 const brl = (n: unknown) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -38,26 +39,29 @@ export function EtiquetaPage() {
   }, [mensagem]);
   useEffect(() => { void carregar(); }, [carregar]);
 
+  // "Adicionar" põe o produto na lista de impressão (como o legado) — não enfileira no ETIQUETA_CONS_PROD, que é a fila do COLETOR
   const addPorCodBarra = async () => {
     const cb = codbarra.trim();
     if (!cb || busy) return;
     setBusy(true);
     try {
-      const { etiqueta } = await adicionar({ codbarra: cb });
-      setLinhas((xs) => [paraLinha(etiqueta), ...xs]);
+      const e = await buscarProduto(cb);
+      setLinhas((xs) => [{ ...paraLinha(e), idetiqueta: undefined }, ...xs]);
       setCodbarra('');
-      mensagem.sucesso(`${etiqueta.descricao} adicionado à fila.`);
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
-  const previewCodBarra = async () => {
-    const cb = codbarra.trim();
-    if (!cb || busy) return;
+  // a pesquisa por ETQ_IMPRESSA: a gôndola com preço alterado e etiqueta velha (Uetiqueta.pas:700-735)
+  const [situacao, setSituacao] = useState<'N' | 'S' | 'T'>('N');
+  const carregarPorSituacao = async () => {
+    if (busy) return;
     setBusy(true);
     try {
-      const e = await buscarProduto(cb);
-      setLinhas((xs) => [{ ...paraLinha(e), idetiqueta: undefined }, ...xs]); // avulso (não veio da fila)
-      setCodbarra('');
+      const r = await pesquisarPorSituacao(situacao, codbarra.trim() || undefined);
+      const ja = new Set(linhas.map((l) => l.idproduto));
+      const novas = r.filter((e) => !ja.has(e.idproduto)).map((e) => ({ ...paraLinha(e), idetiqueta: undefined }));
+      setLinhas((xs) => [...xs, ...novas]);
+      mensagem.sucesso(novas.length ? `${novas.length} produto(s) adicionado(s) à lista.` : 'Nenhum produto novo nessa situação.');
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
@@ -93,11 +97,12 @@ export function EtiquetaPage() {
       <PageHeader title="Etiquetas de Preço" />
       <div className="flex flex-wrap items-end gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
         <div className="w-64"><Field label="&Código de barras" value={codbarra} onChange={(e) => setCodbarra(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addPorCodBarra(); }} placeholder="bipe ou digite + Enter" /></div>
-        <Button label="&Adicionar à fila" variant="soft" disabled={busy || !codbarra.trim()} onClick={() => void addPorCodBarra()} />
-        <Button label="Só &imprimir (avulso)" variant="ghost" disabled={busy || !codbarra.trim()} onClick={() => void previewCodBarra()} />
+        <Button label="&Adicionar" variant="soft" disabled={busy || !codbarra.trim()} onClick={() => void addPorCodBarra()} />
+        <div className="w-56"><SelectField label="&Situação da etiqueta" value={situacao} onChange={(v) => setSituacao((v || 'N') as 'N' | 'S' | 'T')} options={[{ value: 'N', label: 'Não impressa (preço alterado)' }, { value: 'S', label: 'Já impressa' }, { value: 'T', label: 'Todos' }]} /></div>
+        <Button label="&Pesquisar produtos" variant="ghost" disabled={busy} onClick={() => void carregarPorSituacao()} />
         <Button label="&Imprimir selecionadas" variant="soft" disabled={busy || !selecionadas.length} onClick={() => void imprimirSel()} />
         <div className="flex-1 text-right text-body-sm">Selecionado — <b>{selecionadas.length}</b> produto(s) · <b>{totalEtiquetas}</b> etiqueta(s)</div>
-        <small className="w-full text-fg-muted">Fila do coletor (pendentes desta empresa). Preço impresso = promo se ativa, senão venda (MULTI_PRECO × fator). «Imprimir» abre a folha (código de barras Code-128) e marca como impressa.</small>
+        <small className="w-full text-fg-muted">Fila do coletor + os produtos pesquisados pela situação da etiqueta (a busca usa o código/descrição digitado). Preço impresso = promo se ativa, senão venda (MULTI_PRECO × fator). «Imprimir» abre a folha (código de barras Code-128) e marca como impressa.</small>
       </div>
 
       <div className="overflow-x-auto rounded-radius-md border border-border bg-bg-surface">
