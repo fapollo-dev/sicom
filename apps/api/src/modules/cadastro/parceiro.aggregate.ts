@@ -56,6 +56,9 @@ export const parceiroAggregateConfig: AggregateConfig = {
       chaveNatural: ['tipo_endereco'],
       // "todos os campos" (mig 310): o que o cadastro não gerencia sobrevive ao save (lição 124)
       preservarNaoGerenciadas: true,
+      // o CODEND não muda na alteração (udmParceiros: `upWhereKeyOnly`, atualiza no lugar) — PARCEIROS.CODEND, NF e pedido o
+      // guardam; o Apollo renumerava a cada PUT (auditoria de esqueletos §4.5: 17.455 NFs de parceiros alterados em 2025-26)
+      pkEstavel: true,
       chave: 'enderecos',
       colunas: [
         'endereco', 'numero', 'complemento', 'bairro', 'cidade', 'idcidade', 'uf', 'cep',

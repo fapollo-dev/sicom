@@ -75,6 +75,11 @@ export interface CrudConfig {
  */
 export interface DetalheConfig {
   /**
+   * PK ESTÁVEL: no delete+insert da gravação, o item mantém a PK da linha que ele era (pela PK enviada ou pela chave natural);
+   * item novo recebe a do default. Para detalhe cuja PK é referenciada de fora (ex.: `parceiros_end.codend`).
+   */
+  pkEstavel?: boolean;
+  /**
    * a LOG dos itens (o dataset filho do legado): Inseriu com os campos preenchidos do item novo, Alterou com os que mudaram
    * no item casado pela `chaveNatural` (o delete+insert do motor troca a PK — ela não conta como alteração). O item removido
    * não é registrado (o legado não registra: 0 "Excluiu NF_PROD" em produção).

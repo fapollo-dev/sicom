@@ -579,3 +579,15 @@ Acordo gera financeiro (APAGAR/ARECEBER) e arquivos (`ARQUIVO_ACORDO`); PKs por 
 - [../../../03-legacy-analysis/dynamic-sql-extraction.md](../../../03-legacy-analysis/dynamic-sql-extraction.md) — capturar SQL/golden em runtime (fecha §4/§9).
 - [../../../03-legacy-analysis/business-rule-extraction.md](../../../03-legacy-analysis/business-rule-extraction.md) · [../../../03-legacy-analysis/hidden-coupling-traps.md](../../../03-legacy-analysis/hidden-coupling-traps.md) · [../../../02-stack-and-standards/keyboard-ux-layer.md](../../../02-stack-and-standards/keyboard-ux-layer.md)
 - [../../../00-orientation/canonical-decisions.md](../../../00-orientation/canonical-decisions.md) — ADR-008/010/011/012.
+
+## Corte "CODEND estável" (25/09/2026) — auditoria de esqueletos §4.5, lacuna 1
+
+O legado atualiza o endereço no lugar (udmParceiros: `upWhereKeyOnly`) — o CODEND não muda e há 0 órfãos. O motor de agregado
+do Apollo apaga e reinsere os detalhes e gerava um CODEND novo a cada PUT: PARCEIROS.CODEND, NF.CODPARCEIRO_END e
+PEDIDOS.CODPARCEIRO_END ficariam órfãos, e as leituras fiscais por CODEND perderiam UF/CNPJ (114 parceiros alterados em 2025-26
+têm 17.455 NFs). Agora o detalhe `parceiros_end` tem `pkEstavel`: o item regravado mantém a PK da linha que ele era — pela
+PK enviada (o schema do endereço passou a aceitar `codend`) ou pela chave natural (tipo do endereço). Opção genérica do motor
+(`DetalheConfig.pkEstavel`) para outros detalhes referenciados de fora. Smoke §207.
+
+Pendente (MÉDIA): o escopo por loja — o legado não filtra parceiro por empresa (udmParceiros.dfm:59) e 17.690 de 19.073 têm
+IDEMPRESA nulo (a carga os põe na loja 1); o `empresaScoped` do agregado os esconde das lojas 2/50/51.

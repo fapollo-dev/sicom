@@ -101,7 +101,7 @@ export class AggregateEngineService extends CrudEngineService {
         // netos que precisam sobreviver ao delete+insert (ex.: o fechamento de cada loja do pedido)
         const snapshot = det.antesDeSubstituirTrx ? await det.antesDeSubstituirTrx({ trx, masterId: id, emp: this.emp() }) : undefined;
         // as colunas que o agregado não gerencia, lidas ANTES do delete (lição 124)
-        const antigas = det.preservarNaoGerenciadas && det.chaveNatural?.length
+        const antigas = (det.preservarNaoGerenciadas && det.chaveNatural?.length) || det.pkEstavel
           ? ((await trx.selectFrom(det.tabela).selectAll().where(det.fk, '=', id).orderBy(det.pk).forUpdate().execute()) as Record<string, unknown>[])
           : undefined;
         await trx.deleteFrom(det.tabela).where(det.fk, '=', id).execute();
@@ -253,10 +253,28 @@ export class AggregateEngineService extends CrudEngineService {
       fila.set(k, [...(fila.get(k) ?? []), a]);
     }
     const gerenciadas = new Set([...det.colunas, det.pk, det.fk]);
-    const linhas = itens.map((i) => {
+    // PK ESTÁVEL (`pkEstavel`): o item regravado mantém a PK da linha que ele era — casada primeiro pela própria PK enviada,
+    // depois pela chave natural. É o "atualizado no lugar" do legado para detalhes referenciados de fora (o CODEND do endereço
+    // do parceiro, que a NF e o pedido guardam): sem isso cada gravação renumerava e deixava órfãos.
+    const porPk = det.pkEstavel && antigas ? new Map(antigas.map((a) => [String(a[det.pk]), a])) : null;
+    const usadas = new Set<Record<string, unknown>>();
+    const doItem = itens.map((i) => {
+      const k = i[det.pk] != null ? String(i[det.pk]) : null;
+      const a = porPk && k != null ? porPk.get(k) : undefined;
+      if (a && !usadas.has(a)) { usadas.add(a); return a; }
+      return undefined;
+    });
+    const linhas = itens.map((i, ix) => {
       const row: Record<string, unknown> = { [det.fk]: masterId };
-      const antiga = antigas ? fila.get(this.chaveNat(det, i))?.shift() : undefined;
+      let antiga = doItem[ix];
+      if (!antiga && antigas) {
+        const q = fila.get(this.chaveNat(det, i)) ?? [];
+        while (q.length && usadas.has(q[0])) q.shift();
+        antiga = q.shift();
+        if (antiga) usadas.add(antiga);
+      }
       if (antiga) for (const [c, v] of Object.entries(antiga)) if (!gerenciadas.has(c)) row[c] = v;
+      if (antiga && det.pkEstavel) row[det.pk] = antiga[det.pk];
       for (const c of det.colunas) if (i[c] !== undefined) row[c] = i[c];
       return row;
     });

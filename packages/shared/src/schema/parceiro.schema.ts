@@ -125,6 +125,8 @@ const stripNulls = (v: unknown): unknown => {
 
 /** Endereço do parceiro (PARCEIROS_END) — documento fiscal mora AQUI. */
 export const enderecoParceiroSchema = z.object({
+  // a chave do endereço, que volta na alteração para ele ficar o MESMO (CODEND estável)
+  codend: z.coerce.number().int().positive().optional(),
   endereco: z.string().trim().max(150).optional(),
   numero: z.string().trim().max(20).optional(),
   complemento: z.string().trim().max(100).optional(),

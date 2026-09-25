@@ -21654,6 +21654,43 @@ async function main() {
       }
     }
 
+    // ══ §207 PARCEIRO (auditoria de esqueletos §4.5): o CODEND do endereço é ESTÁVEL na alteração — a NF e o pedido o guardam
+    {
+      const pgPe = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const PA = 'cadastro/parceiros';
+        const cr = await fetch(`${base}/${PA}`, { method: 'POST', headers: H, body: JSON.stringify({
+          razao: 'CODEND ESTAVEL LTDA', tipofj: 'J', cli: 'S',
+          enderecos: [
+            { endereco: 'RUA A', bairro: 'CENTRO', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', cnpj_cpf: '20720720700033', endereco_padrao: 'S', tipo_endereco: 'P' },
+            { endereco: 'RUA COBRANCA', bairro: 'CENTRO', cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', tipo_endereco: 'C' },
+          ],
+        }) });
+        const crJ = (await cr.json().catch(() => ({}))) as any;
+        const cod = Number(crJ.codparceiro) || 0;
+        const ends = async () => (await pgPe.query(`SELECT codend, tipo_endereco, endereco FROM parceiros_end WHERE codparceiro=$1 ORDER BY codend`, [cod])).rows as any[];
+        const e0 = await ends();
+        // uma NF aponta o endereço principal
+        const endP = Number(e0.find((e) => e.tipo_endereco === 'P')?.codend);
+        // PUT 1: como a web — devolve os endereços carregados (com o codend), mudando a rua do principal
+        const reg = (await (await fetch(`${base}/${PA}/${cod}`, { headers: H })).json().catch(() => ({}))) as any;
+        const put1 = await fetch(`${base}/${PA}/${cod}`, { method: 'PUT', headers: H, body: JSON.stringify({ enderecos: (reg.enderecos ?? []).map((e: any) => (e.tipo_endereco === 'P' ? { ...e, endereco: 'RUA A NOVA' } : e)) }) });
+        const e1 = await ends();
+        // PUT 2: um cliente da API sem o codend — casa pela chave natural (tipo do endereço)
+        const put2 = await fetch(`${base}/${PA}/${cod}`, { method: 'PUT', headers: H, body: JSON.stringify({ enderecos: e1.map((e) => ({ endereco: e.endereco, tipo_endereco: e.tipo_endereco, cidade: 'SAO PAULO', idcidade: 3550308, uf: 'SP', ...(e.tipo_endereco === 'P' ? { cnpj_cpf: '20720720700033' } : {}) })) }) });
+        const e2 = await ends();
+        const mesmo = (a: any[], b: any[]) => a.map((x) => Number(x.codend)).join(',') === b.map((x) => Number(x.codend)).join(',');
+        check('PARCEIRO §207 [CODEND estável]: alterar o parceiro (PUT com os endereços — com o codend, como a web, ou sem ele, pela chave natural) mantém os MESMOS CODENDs (o legado atualiza no lugar); o endereço muda no lugar e a NF que aponta o principal não fica órfã',
+          cr.status === 201 && e0.length === 2 && put1.status === 200 && put2.status === 200 && mesmo(e0, e1) && mesmo(e0, e2)
+          && e1.find((e) => Number(e.codend) === endP)?.endereco === 'RUA A NOVA',
+          { cr: cr.status, crJ, e0, e1, e2, put1: put1.status, put2: put2.status });
+        await pgPe.query(`DELETE FROM parceiros_end WHERE codparceiro=$1`, [cod]);
+        await pgPe.query(`DELETE FROM parceiros WHERE codparceiro=$1`, [cod]);
+      } finally {
+        await pgPe.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();
