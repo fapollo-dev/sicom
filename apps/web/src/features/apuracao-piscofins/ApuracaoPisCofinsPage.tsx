@@ -31,6 +31,13 @@ interface Item {
   basecalculoapura: number | null; valorpisapura: number | null; valorcofinsapura: number | null;
 }
 interface Pai { tipo: string; id_tipocredito: number | null; aliqpis: number; aliqcofins: number; base: number; pis: number; cofins: number; linhas: number }
+interface Apoio {
+  tipos: Array<{ id_tipocredito: number; descricao: string }>;
+  bases: Array<{ idbasecredito: number; descricao: string }>;
+  piscofins: Array<{ idpiscofins: number; descricao: string; aliq_pis_ent: number | null; aliq_cofins_ent: number | null }>;
+}
+interface Config { cfop: string; id_basecredito: number; descricao: string | null }
+const vazioAjuste = { id_tipocredito: '', id_basecredito: '', idpiscofins: '', basecalculo: '' };
 interface Detalhe {
   codapuracao_pc: number; dataini: string; datafim: string; itens: Item[]; pais: Pai[];
   totais: {
@@ -57,12 +64,22 @@ export function ApuracaoPisCofinsPage() {
   const [aberta, setAberta] = useState<Detalhe | null>(null);
   const [periodo, setPeriodo] = useState({ dtini: diaUm(), dtfim: hoje() });
   const [ocupado, setOcupado] = useState(false);
+  const [apoio, setApoio] = useState<Apoio | null>(null);
+  const [config, setConfig] = useState<Config[]>([]);
+  const [novaConfig, setNovaConfig] = useState({ cfop: '', id_basecredito: '' });
+  const [ajuste, setAjuste] = useState(vazioAjuste);
+  // os créditos do período anterior do Resumo — campo da tela, não gravado (`EdtCreditosPISAnterior`/`EdtCreditoCofinsAnt`)
+  const [anterior, setAnterior] = useState({ pis: '', cofins: '' });
 
   const carregar = useCallback(async () => {
     try { setLista(await req<Apuracao[]>(P)); } catch (e) { mensagem.erro(e); }
   }, [mensagem]);
+  const carregarConfig = useCallback(async () => {
+    try { setConfig(await req<Config[]>(`${P}-config`)); } catch (e) { mensagem.erro(e); }
+  }, [mensagem]);
 
-  useEffect(() => { void carregar(); }, [carregar]);
+  useEffect(() => { void carregar(); void carregarConfig(); }, [carregar, carregarConfig]);
+  useEffect(() => { req<Apoio>(`${P}-apoio`).then(setApoio).catch(() => undefined); }, []);
 
   const apurar = async () => {
     setOcupado(true);
@@ -89,7 +106,47 @@ export function ApuracaoPisCofinsPage() {
     } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
   };
 
+  const ajustar = async () => {
+    if (!aberta) return;
+    setOcupado(true);
+    try {
+      await req(`${P}/${aberta.codapuracao_pc}/ajustes`, { method: 'POST', body: JSON.stringify({
+        id_tipocredito: Number(ajuste.id_tipocredito), id_basecredito: Number(ajuste.id_basecredito), idpiscofins: Number(ajuste.idpiscofins),
+        basecalculo: Number(String(ajuste.basecalculo).replace(',', '.')) }) });
+      mensagem.sucesso('Crédito ajustado.');
+      setAjuste(vazioAjuste);
+      await abrir(aberta.codapuracao_pc);
+      await carregar();
+    } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  };
+  const excluirPai = async (p: Pai) => {
+    if (!aberta || !window.confirm('Deseja excluir o registro da apuração?')) return;
+    setOcupado(true);
+    try {
+      await req(`${P}/${aberta.codapuracao_pc}/creditos?${new URLSearchParams({ tipo: p.id_tipocredito == null ? '' : String(p.id_tipocredito), aliqpis: String(p.aliqpis) })}`, { method: 'DELETE' });
+      await abrir(aberta.codapuracao_pc);
+      await carregar();
+    } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  };
+  const incluirConfig = async () => {
+    try {
+      await req(`${P}-config`, { method: 'POST', body: JSON.stringify({ cfop: novaConfig.cfop, id_basecredito: Number(novaConfig.id_basecredito) }) });
+      setNovaConfig({ cfop: '', id_basecredito: '' });
+      await carregarConfig();
+    } catch (e) { mensagem.erro(e); }
+  };
+  const excluirConfig = async (cfop: string) => {
+    try { await req(`${P}-config/${encodeURIComponent(cfop)}`, { method: 'DELETE' }); await carregarConfig(); } catch (e) { mensagem.erro(e); }
+  };
+
   const t = aberta?.totais;
+  const pcAjuste = apoio?.piscofins.find((x) => String(x.idpiscofins) === ajuste.idpiscofins);
+  const baseAjuste = Number(String(ajuste.basecalculo).replace(',', '.')) || 0;
+  // o Resumo do legado (`CalculaRecolher`): a recolher = débito − (crédito anterior + crédito); o que fica negativo transporta
+  const antPis = Number(String(anterior.pis).replace(',', '.')) || 0;
+  const antCof = Number(String(anterior.cofins).replace(',', '.')) || 0;
+  const saldoPis = t ? t.debitoPis - (antPis + t.creditoPis) : 0;
+  const saldoCof = t ? t.debitoCofins - (antCof + t.creditoCofins) : 0;
 
   return (
     <div className="flex flex-col gap-gp-md">
@@ -148,14 +205,18 @@ export function ApuracaoPisCofinsPage() {
               <div className="text-body-sm text-fg-muted">Débito (PIS / COFINS)</div>
               <div className="text-title-sm tabular-nums">{moeda(t.debitoPis)} / {moeda(t.debitoCofins)}</div>
             </div>
+            <div className="flex items-end gap-gp-xs">
+              <div className="w-32"><Field label="Crédito anterior PIS" inputMode="decimal" value={anterior.pis} onChange={(e) => setAnterior({ ...anterior, pis: e.target.value })} /></div>
+              <div className="w-32"><Field label="Crédito anterior COFINS" inputMode="decimal" value={anterior.cofins} onChange={(e) => setAnterior({ ...anterior, cofins: e.target.value })} /></div>
+            </div>
             <div className="rounded-radius-sm border border-border bg-bg-subtle px-pad-sm py-pad-xs">
               <div className="text-body-sm text-fg-muted">A recolher (M200 / M600)</div>
-              <div className="text-title-sm tabular-nums">{moeda(t.aRecolherPis)} / {moeda(t.aRecolherCofins)}</div>
+              <div className="text-title-sm tabular-nums">{moeda(Math.max(saldoPis, 0))} / {moeda(Math.max(saldoCof, 0))}</div>
             </div>
-            {(t.creditoTransportarPis > 0 || t.creditoTransportarCofins > 0) && (
+            {(saldoPis < 0 || saldoCof < 0) && (
               <div>
                 <div className="text-body-sm text-fg-muted">Crédito a transportar</div>
-                <div className="text-title-sm tabular-nums">{moeda(t.creditoTransportarPis)} / {moeda(t.creditoTransportarCofins)}</div>
+                <div className="text-title-sm tabular-nums">{moeda(Math.max(-saldoPis, 0))} / {moeda(Math.max(-saldoCof, 0))}</div>
               </div>
             )}
           </section>
@@ -173,20 +234,72 @@ export function ApuracaoPisCofinsPage() {
                 </thead>
                 <tbody>
                   {aberta.pais.filter((p) => p.tipo === tipo).map((p) => (
-                    <FragmentoPai key={`${p.tipo}-${p.id_tipocredito}-${p.aliqpis}`} pai={p} itens={aberta.itens.filter((i) => i.tipo === tipo && i.id_tipocredito === p.id_tipocredito && Number(i.aliqpis) === Number(p.aliqpis))} />
+                    <FragmentoPai key={`${p.tipo}-${p.id_tipocredito}-${p.aliqpis}`} pai={p} itens={aberta.itens.filter((i) => i.tipo === tipo && i.id_tipocredito === p.id_tipocredito && Number(i.aliqpis) === Number(p.aliqpis))}
+                      onExcluir={tipo === 'C' && !ocupado ? () => void excluirPai(p) : undefined} />
                   ))}
                 </tbody>
               </table>
+              {tipo === 'C' && apoio && (
+                // o "Ajusta Apuração" do legado (UAjustaApuracaoPC): uma linha de crédito digitada, com as alíquotas de ENTRADA da situação
+                <div className="flex flex-wrap items-end gap-gp-sm border-t border-border p-pad-sm">
+                  <label className="flex flex-col text-body-sm">Tipo de crédito
+                    <select className="rounded-radius-sm border border-border bg-bg-surface px-pad-xs py-pad-xs" value={ajuste.id_tipocredito} onChange={(e) => setAjuste({ ...ajuste, id_tipocredito: e.target.value })}>
+                      <option value="">—</option>{apoio.tipos.map((x) => <option key={x.id_tipocredito} value={x.id_tipocredito}>{x.id_tipocredito} {x.descricao}</option>)}
+                    </select>
+                  </label>
+                  <label className="flex flex-col text-body-sm">Base de crédito
+                    <select className="rounded-radius-sm border border-border bg-bg-surface px-pad-xs py-pad-xs" value={ajuste.id_basecredito} onChange={(e) => setAjuste({ ...ajuste, id_basecredito: e.target.value })}>
+                      <option value="">—</option>{apoio.bases.map((x) => <option key={x.idbasecredito} value={x.idbasecredito}>{x.idbasecredito} {x.descricao}</option>)}
+                    </select>
+                  </label>
+                  <label className="flex flex-col text-body-sm">PIS/COFINS
+                    <select className="rounded-radius-sm border border-border bg-bg-surface px-pad-xs py-pad-xs" value={ajuste.idpiscofins} onChange={(e) => setAjuste({ ...ajuste, idpiscofins: e.target.value })}>
+                      <option value="">—</option>{apoio.piscofins.map((x) => <option key={x.idpiscofins} value={x.idpiscofins}>{x.idpiscofins} {x.descricao}</option>)}
+                    </select>
+                  </label>
+                  <div className="w-36"><Field label="Base de cálculo" inputMode="decimal" value={ajuste.basecalculo} onChange={(e) => setAjuste({ ...ajuste, basecalculo: e.target.value })} /></div>
+                  {pcAjuste && (
+                    <span className="text-body-sm tabular-nums text-fg-muted">
+                      PIS {Number(pcAjuste.aliq_pis_ent ?? 0)}% = {moeda((baseAjuste * Number(pcAjuste.aliq_pis_ent ?? 0)) / 100)} · COFINS {Number(pcAjuste.aliq_cofins_ent ?? 0)}% = {moeda((baseAjuste * Number(pcAjuste.aliq_cofins_ent ?? 0)) / 100)}
+                    </span>
+                  )}
+                  <Button label="A&justar crédito" disabled={ocupado || !ajuste.id_tipocredito || !ajuste.id_basecredito || !ajuste.idpiscofins} onClick={() => void ajustar()} />
+                </div>
+              )}
             </div>
           ))}
         </>
       )}
+
+      {/* a aba Configuração do legado: os CFOPs que entram na base do crédito (PC_CONFIG) */}
+      <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
+        <h2 className="mb-form-gap text-title-sm">Configuração — CFOPs da base do crédito</h2>
+        <div className="mb-form-gap flex flex-wrap items-end gap-gp-sm">
+          <div className="w-24"><Field label="CFOP" inputMode="numeric" maxLength={4} value={novaConfig.cfop} onChange={(e) => setNovaConfig({ ...novaConfig, cfop: e.target.value.replace(/\D/g, '') })} /></div>
+          <label className="flex flex-col text-body-sm">Base de crédito
+            <select className="rounded-radius-sm border border-border bg-bg-surface px-pad-xs py-pad-xs" value={novaConfig.id_basecredito} onChange={(e) => setNovaConfig({ ...novaConfig, id_basecredito: e.target.value })}>
+              <option value="">—</option>{(apoio?.bases ?? []).map((x) => <option key={x.idbasecredito} value={x.idbasecredito}>{x.idbasecredito} {x.descricao}</option>)}
+            </select>
+          </label>
+          <Button label="Incluir" variant="soft" disabled={!novaConfig.cfop || !novaConfig.id_basecredito} onClick={() => void incluirConfig()} />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px] border-collapse text-body-sm">
+            <thead><tr className="border-b border-border text-left text-fg-muted"><th className="p-pad-xs">CFOP</th><th className="p-pad-xs">Base de crédito</th><th /></tr></thead>
+            <tbody>{config.map((c) => (
+              <tr key={c.cfop} className="border-b border-border">
+                <td className="p-pad-xs tabular-nums">{c.cfop}</td><td className="p-pad-xs">{c.id_basecredito} {c.descricao ?? ''}</td>
+                <td className="p-pad-xs"><Button variant="outline" label="Excluir" onClick={() => void excluirConfig(c.cfop)} /></td>
+              </tr>))}</tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }
 
 /** o pai (tipo de crédito × alíquota, PIS/COFINS recalculados — como a tela do legado) e os filhos (as linhas gravadas) */
-function FragmentoPai({ pai, itens }: { pai: Pai; itens: Item[] }) {
+function FragmentoPai({ pai, itens, onExcluir }: { pai: Pai; itens: Item[]; onExcluir?: () => void }) {
   const pct = (v: unknown) => `${Number(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%`;
   return (
     <>
@@ -194,7 +307,8 @@ function FragmentoPai({ pai, itens }: { pai: Pai; itens: Item[] }) {
         <td className="p-pad-xs" colSpan={3}>{pai.id_tipocredito ?? ''} {itens[0]?.descricao_tipocredito ?? ''}</td>
         <td className="p-pad-xs text-right tabular-nums">{moeda(pai.base)}</td><td className="p-pad-xs text-right tabular-nums">{pct(pai.aliqpis)}</td>
         <td className="p-pad-xs text-right tabular-nums">{moeda(pai.pis)}</td><td className="p-pad-xs text-right tabular-nums">{pct(pai.aliqcofins)}</td>
-        <td className="p-pad-xs text-right tabular-nums">{moeda(pai.cofins)}</td><td colSpan={3} />
+        <td className="p-pad-xs text-right tabular-nums">{moeda(pai.cofins)}</td>
+        <td colSpan={3} className="p-pad-xs text-right">{onExcluir && <Button variant="outline" label="Excluir" onClick={onExcluir} />}</td>
       </tr>
       {itens.map((i) => (
         <tr key={i.codapuracao_pc_det} className="border-b border-border">

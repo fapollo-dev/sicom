@@ -91,6 +91,91 @@ export class ApuracaoPcConsultaService {
     };
   }
 
+  /** o apoio do ajuste manual (os F3 do `UAjustaApuracaoPC`: GET_BASECREDITO, GET_PISCOFINS) e os tipos de crédito da grade pai */
+  async apoio(): Promise<Record<string, unknown>> {
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const [tipos, bases, piscofins] = await Promise.all([
+      sql`SELECT id_tipocredito, descricao FROM pc_tipocredito ORDER BY id_tipocredito`.execute(db),
+      sql`SELECT idbasecredito::int AS idbasecredito, descricao FROM pc_basecredito ORDER BY idbasecredito`.execute(db),
+      sql`SELECT idpiscofins, descricao, aliq_pis_ent, aliq_cofins_ent FROM piscofins ORDER BY idpiscofins`.execute(db),
+    ]);
+    return { tipos: tipos.rows, bases: bases.rows, piscofins: piscofins.rows };
+  }
+
+  /**
+   * O AJUSTE MANUAL de crédito (`JvDBUltimGrid4KeyDown` Enter, `UapuracaoPISCOFINS.pas:890-960`; `UAjustaApuracaoPC.pas`): na grade pai de
+   * Créditos, o tipo de crédito abre o "Ajusta Apuração" — base de crédito, PIS/COFINS (traz a descrição e as alíquotas de ENTRADA) e a
+   * base; PIS/COFINS = base × alíquota / 100 (o NUMBER(15,2) arredonda). Grava na hora uma linha CREDITO/ENTRADA no detalhe — igual à
+   * calculada. Os `*_APURA` e o CST ficam vazios: o fonte não os grava (dossiê §7.12).
+   */
+  async ajustarCredito(cod: number, dto: { id_tipocredito: number; id_basecredito: number; idpiscofins: number; basecalculo: number }): Promise<Record<string, unknown>> {
+    const db = this.dbp.forTenant() as AnyDB;
+    const { cond: f } = await this.filtro(db);
+    return db.transaction().execute(async (trx: AnyDB) => {
+      const cab = (await sql`SELECT a.codapuracao_pc FROM apuracao_pc a WHERE a.codapuracao_pc = ${cod} AND ${f} FOR UPDATE`.execute(trx)).rows[0];
+      if (!cab) throw new BusinessRuleError('APURACAO_PC_NAO_ENCONTRADA', { cod });
+      const tipo = (await sql<{ descricao: string }>`SELECT descricao FROM pc_tipocredito WHERE id_tipocredito = ${dto.id_tipocredito}`.execute(trx)).rows[0];
+      if (!tipo) throw new BusinessRuleError('APURACAO_PC_TIPOCREDITO_NAO_ENCONTRADO', { id_tipocredito: dto.id_tipocredito }, 'Tipo de Crédito não encontrado!');
+      const base = (await sql<{ descricao: string }>`SELECT descricao FROM pc_basecredito WHERE idbasecredito = ${dto.id_basecredito}`.execute(trx)).rows[0];
+      if (!base) throw new BusinessRuleError('APURACAO_PC_BASECREDITO_NAO_ENCONTRADA', { id_basecredito: dto.id_basecredito }, 'Base de cédito não encontrada!');
+      const pc = (await sql<{ descricao: string; aliq_pis_ent: unknown; aliq_cofins_ent: unknown }>`
+        SELECT descricao, aliq_pis_ent, aliq_cofins_ent FROM piscofins WHERE idpiscofins = ${dto.idpiscofins}`.execute(trx)).rows[0];
+      if (!pc) throw new BusinessRuleError('APURACAO_PC_PISCOFINS_NAO_ENCONTRADO', { idpiscofins: dto.idpiscofins }, 'Pis e Cofins não encontrado!');
+      const b = r2(num(dto.basecalculo));
+      const aPis = num(pc.aliq_pis_ent);
+      const aCof = num(pc.aliq_cofins_ent);
+      const linha = (await sql<Record<string, unknown>>`
+        INSERT INTO apuracao_pc_det (codapuracao_pc, tipo, apuracao, tipo_origem, id_tipocredito, id_basecredito, descricaobase, idpiscofins, descricaopc,
+                                     basecalculo, aliqpis, valorpis, aliqcofins, valorcofins)
+        VALUES (${cod}, 'C', 'CREDITO', 'ENTRADA', ${dto.id_tipocredito}, ${dto.id_basecredito}, ${base.descricao}, ${dto.idpiscofins}, ${pc.descricao},
+                ${b}, ${aPis}, ${r2((b * aPis) / 100)}, ${aCof}, ${r2((b * aCof) / 100)})
+        RETURNING codapuracao_pc_det, basecalculo, valorpis, valorcofins`.execute(trx)).rows[0];
+      return { ...linha, descricao_tipocredito: tipo.descricao };
+    });
+  }
+
+  /**
+   * [DEL] no pai de Créditos (`UapuracaoPISCOFINS.pas:962-980`, "Deseja excluir o registro da apuração?"): sai o pai, os filhos e as linhas
+   * do detalhe — as de CRÉDITO daquele tipo de crédito × alíquota PIS. (O fonte localiza cada filho pela 1ª linha que casa tipo/base/PIS-COFINS;
+   * como os filhos são as próprias linhas do pai, o efeito é o mesmo.)
+   */
+  async excluirCredito(cod: number, idTipocredito: number | null, aliqpis: number): Promise<{ linhas: number }> {
+    const db = this.dbp.forTenant() as AnyDB;
+    const { cond: f } = await this.filtro(db);
+    return db.transaction().execute(async (trx: AnyDB) => {
+      const cab = (await sql`SELECT a.codapuracao_pc FROM apuracao_pc a WHERE a.codapuracao_pc = ${cod} AND ${f} FOR UPDATE`.execute(trx)).rows[0];
+      if (!cab) throw new BusinessRuleError('APURACAO_PC_NAO_ENCONTRADA', { cod });
+      const r = await sql`DELETE FROM apuracao_pc_det WHERE codapuracao_pc = ${cod} AND tipo = 'C'
+                            AND id_tipocredito IS NOT DISTINCT FROM ${idTipocredito}::int AND round(coalesce(aliqpis, 0)::numeric, 4) = round(${aliqpis}::numeric, 4)`.execute(trx);
+      return { linhas: Number(r.numAffectedRows ?? 0) };
+    });
+  }
+
+  /** a aba CONFIGURAÇÃO (`cdsConfig`): os CFOPs que entram na base do crédito, cada um com a base de crédito (PC_CONFIG — 18 na produção) */
+  async listarConfig(): Promise<Array<Record<string, unknown>>> {
+    return (await sql<Record<string, unknown>>`
+      SELECT c.cfop, c.id_basecredito, b.descricao FROM pc_config c LEFT JOIN pc_basecredito b ON b.idbasecredito = c.id_basecredito
+       ORDER BY c.cfop`.execute(this.dbp.forTenantRead() as AnyDB)).rows;
+  }
+
+  /** incluir na configuração (`btnOkClick`): a base tem de existir ("Código não encontrado!", `edtCodBaseExit`) */
+  async incluirConfig(dto: { cfop: string; id_basecredito: number }): Promise<Record<string, unknown>> {
+    const db = this.dbp.forTenant() as AnyDB;
+    const cfop = String(dto.cfop ?? '').trim();
+    if (!cfop) throw new BusinessRuleError('APURACAO_PC_CONFIG_SEM_CFOP', undefined, 'Informe o CFOP.');
+    const base = (await sql`SELECT 1 FROM pc_basecredito WHERE idbasecredito = ${dto.id_basecredito}`.execute(db)).rows[0];
+    if (!base) throw new BusinessRuleError('APURACAO_PC_BASECREDITO_NAO_ENCONTRADA', { id_basecredito: dto.id_basecredito }, 'Código não encontrado!');
+    await sql`INSERT INTO pc_config (cfop, id_basecredito) VALUES (${cfop}, ${dto.id_basecredito})`.execute(db);
+    return { cfop, id_basecredito: dto.id_basecredito };
+  }
+
+  /** excluir da configuração (o `btnCancelarClick` do legado apaga o registro corrente) */
+  async excluirConfig(cfop: string): Promise<{ cfop: string }> {
+    const r = await sql`DELETE FROM pc_config WHERE cfop = ${cfop}`.execute(this.dbp.forTenant() as AnyDB);
+    if (!Number(r.numAffectedRows ?? 0)) throw new BusinessRuleError('APURACAO_PC_CONFIG_NAO_ENCONTRADA', { cfop });
+    return { cfop };
+  }
+
   async excluir(cod: number): Promise<{ codapuracao_pc: number }> {
     const db = this.dbp.forTenant() as AnyDB;
     const { cond: f } = await this.filtro(db);

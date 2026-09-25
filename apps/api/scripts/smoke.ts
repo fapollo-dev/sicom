@@ -24760,6 +24760,42 @@ async function main() {
           !!dn && Number(dn.basecalculo) === 7.89 && Number(dn.valorpis) === 0.13 && Number(dn.valorcofins) === 0.6 && dn.apuracao === 'DEBITO' && Number(dn.id_basecredito) === 0
           && de_novo.status === 200 && de_novoJ.existente === true && Number(de_novoJ.codapuracao_pc) === Number(apJ.codapuracao_pc) && nCab === 1,
           { dn, de_novoJ, nCab });
+
+        // corte E — o AJUSTE MANUAL de crédito (UAjustaApuracaoPC), o [DEL] no pai e a aba Configuração (PC_CONFIG)
+        const cod = Number(apJ.codapuracao_pc);
+        const aj = await fetch(`${base}/fiscal/sped/apuracao-pc/${cod}/ajustes`, { method: 'POST', headers: H, body: JSON.stringify({ id_tipocredito: 102, id_basecredito: 13, idpiscofins: 13, basecalculo: 1000.55 }) });
+        const ajJ = (await aj.json().catch(() => ({}))) as any;
+        const ajTipo = await fetch(`${base}/fiscal/sped/apuracao-pc/${cod}/ajustes`, { method: 'POST', headers: H, body: JSON.stringify({ id_tipocredito: 999, id_basecredito: 13, idpiscofins: 13, basecalculo: 1 }) });
+        const ajTipoJ = (await ajTipo.json().catch(() => ({}))) as any;
+        const ajBase = await fetch(`${base}/fiscal/sped/apuracao-pc/${cod}/ajustes`, { method: 'POST', headers: H, body: JSON.stringify({ id_tipocredito: 102, id_basecredito: 999, idpiscofins: 13, basecalculo: 1 }) });
+        const ajBaseJ = (await ajBase.json().catch(() => ({}))) as any;
+        const lAj = (await pgAq.query(`SELECT apuracao, tipo_origem, descricaobase, descricaopc, basecalculo::float AS b, aliqpis::float AS ap, valorpis::float AS vp, valorcofins::float AS vc, valorpisapura FROM apuracao_pc_det WHERE codapuracao_pc = $1 AND id_tipocredito = 102`, [cod])).rows as any[];
+        const obt = (await (await fetch(`${base}/fiscal/sped/apuracao-pc/${cod}`, { headers: H })).json().catch(() => ({}))) as any;
+        const pai102 = (obt.pais ?? []).find((p: any) => p.tipo === 'C' && Number(p.id_tipocredito) === 102);
+        const delPai = await fetch(`${base}/fiscal/sped/apuracao-pc/${cod}/creditos?tipo=102&aliqpis=${pai102?.aliqpis ?? 0}`, { method: 'DELETE', headers: H });
+        const delPaiJ = (await delPai.json().catch(() => ({}))) as any;
+        const resta = Number((await pgAq.query(`SELECT count(*)::int n FROM apuracao_pc_det WHERE codapuracao_pc = $1 AND id_tipocredito = 102`, [cod])).rows[0].n);
+        const outros = Number((await pgAq.query(`SELECT count(*)::int n FROM apuracao_pc_det WHERE codapuracao_pc = $1 AND id_tipocredito = 101`, [cod])).rows[0].n);
+        check('APURAÇÃO PIS/COFINS §259.3 [o ajuste manual de crédito]: grava uma linha CREDITO/ENTRADA com as descrições da base (13) e da situação (13), as alíquotas de ENTRADA e PIS/COFINS = base × alíquota / 100 arredondado (1.000,55 × 1,65% = 16,51; × 7,6% = 76,04), sem *_APURA; o pai aparece recalculado na consulta; tipo de crédito inexistente → "Tipo de Crédito não encontrado!", base inexistente → "Base de cédito não encontrada!" (o texto do legado); o [DEL] no pai tira as linhas daquele tipo × alíquota e deixa as outras',
+          aj.status === 201 && Number(ajJ.codapuracao_pc_det) > 0 && lAj.length === 1 && lAj[0].apuracao === 'CREDITO' && lAj[0].tipo_origem === 'ENTRADA'
+          && lAj[0].descricaopc === 'TRIBUTADOS' && String(lAj[0].descricaobase ?? '').startsWith('OUTRAS OPERACOES') && lAj[0].b === 1000.55 && lAj[0].ap === 1.65
+          && lAj[0].vp === 16.51 && lAj[0].vc === 76.04 && lAj[0].valorpisapura == null && !!pai102 && Number(pai102.pis) === 16.51
+          && ajTipo.status === 422 && ajTipoJ.message === 'Tipo de Crédito não encontrado!' && ajBase.status === 422 && ajBaseJ.message === 'Base de cédito não encontrada!'
+          && delPai.status === 200 && Number(delPaiJ.linhas) === 1 && resta === 0 && outros > 0,
+          { aj: [aj.status, ajJ], lAj, pai102, ajTipo: [ajTipo.status, ajTipoJ.message], ajBase: [ajBase.status, ajBaseJ.message], delPai: [delPai.status, delPaiJ], resta, outros });
+        const cfg0 = (await (await fetch(`${base}/fiscal/sped/apuracao-pc-config`, { headers: H })).json().catch(() => [])) as any[];
+        const cfgAdd = await fetch(`${base}/fiscal/sped/apuracao-pc-config`, { method: 'POST', headers: H, body: JSON.stringify({ cfop: '1556', id_basecredito: 2 }) });
+        const cfgBad = await fetch(`${base}/fiscal/sped/apuracao-pc-config`, { method: 'POST', headers: H, body: JSON.stringify({ cfop: '1557', id_basecredito: 999 }) });
+        const cfgBadJ = (await cfgBad.json().catch(() => ({}))) as any;
+        const cfg1 = (await (await fetch(`${base}/fiscal/sped/apuracao-pc-config`, { headers: H })).json().catch(() => [])) as any[];
+        const cfgDel = await fetch(`${base}/fiscal/sped/apuracao-pc-config/1556`, { method: 'DELETE', headers: H });
+        const cfg2 = (await (await fetch(`${base}/fiscal/sped/apuracao-pc-config`, { headers: H })).json().catch(() => [])) as any[];
+        const semAcesso = await fetch(`${base}/fiscal/sped/apuracao-pc-config`, { headers: H_SEM_ACESSO });
+        check('APURAÇÃO PIS/COFINS §259.4 [a aba Configuração — PC_CONFIG]: lista os CFOPs da base do crédito com a descrição da base (1253 → 4 ENERGIA…); incluir 1556 → base 2 aparece; base inexistente → "Código não encontrado!"; excluir tira; sem grant, 403',
+          cfg0.some((c) => c.cfop === '1253' && Number(c.id_basecredito) === 4 && String(c.descricao ?? '').startsWith('ENERGIA'))
+          && cfgAdd.status === 201 && cfg1.some((c) => c.cfop === '1556' && Number(c.id_basecredito) === 2)
+          && cfgBad.status === 422 && cfgBadJ.message === 'Código não encontrado!' && cfgDel.status === 200 && !cfg2.some((c) => c.cfop === '1556') && semAcesso.status === 403,
+          { n0: cfg0.length, cfgAdd: cfgAdd.status, cfgBad: [cfgBad.status, cfgBadJ.message], cfgDel: cfgDel.status, semAcesso: semAcesso.status });
       } catch (e) {
         check('APURAÇÃO PIS/COFINS §259 [preparo]', false, { erro: (e as Error).message });
       } finally {
