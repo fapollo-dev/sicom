@@ -1,0 +1,170 @@
+# Os gatilhos do legado
+
+Lidos em 25/09/2026 no Oracle de **produção**, só leitura (`SET TRANSACTION READ ONLY`, só SELECT em `ALL_TRIGGERS`,
+`ALL_SOURCE`, `ALL_OBJECTS` e nas tabelas). Universo: os **119 gatilhos habilitados** do dono PINHEIRAO, fora os das
+tabelas `BKP*` e `AUDIT*`. Todos estão `VALID`.
+
+Para cada um: o corpo inteiro, a prova de uso no dado, quem escreve a tabela (retaguarda ou PDV) e onde o Apollo o
+reproduz (`apps/api/src`, `apps/api/migrations`). "Fonte" é o Delphi de 2020 (`retaguarda-master/fonte/Units`, 1.846 units).
+
+## Resumo
+
+| Grupo | Qtde | Veredito |
+|---|---|---|
+| Replicação pura (`REM_*` sem efeito colateral + `REPLICA_REMESSA`) | 26 | FORA — fila `REMESSA_SERVER` do PDV |
+| Auditoria pura (`AUDIT_*`, fora `AUDIT_CARGAS`) | 33 | FORA — só `AUDIT_PERMISSOES` existe no Apollo |
+| Com regra de negócio | 60 | abaixo |
+
+Os 60 com regra:
+
+| Veredito | Qtde |
+|---|---|
+| ✅ reproduzido | 11 |
+| ⚠️ parcial | 8 |
+| ❌ faltando | 11 |
+| FORA (PDV, replicação, outro processo) | 10 |
+| MORTO (com prova) | 20 |
+
+**Replicação (26).** `REM_BANCOS`, `REM_CENTRALIZADOR_GERAL_PDV`, `REM_CLUBE_DESCONTO(_EXT)`, `REM_CODAUXILIAR`,
+`REM_COMPOSICAO`, `REM_ESTOQUE_DEP`, `REM_FORMAPGTO`, `REM_MOTIVOS_OPERACAO`, `REM_MULTI_PRECO(_ATACAREJO)`,
+`REM_OPERADORAS`, `REM_OPERADORES`, `REM_PARCEIROSEND/PGOT/REL`, `REM_PIX_CONFIG`, `REM_PRODUTO`, `REM_PRODUTOS_IMAGENS`,
+`REM_PROMOCAO_ACUMULATIVA/DEPARTAMENTO`, `REM_PUBLICIDADE_PRE`, `REM_RELACAO_EMP_OP`, `REM_STEF_TERMINAL/USUARIO` e
+`REPLICA_REMESSA` (multiplica a linha por terminal de `EMPRESA_REMESSA`). Só gravam instruções em `REMESSA_SERVER`.
+O sucessor é o protocolo de sync ([sync-protocol.md](sync-protocol.md)). O Apollo tem o esqueleto `outbox`
+(`migrations/001_init.sql:33`), usado só por bancos (`banco.queries.ts:69`); nenhuma config liga `replica: true`.
+Os 9 `REM_*` que também mexem em outras tabelas estão na tabela abaixo.
+
+**Auditoria (33).** Cópia da linha com PROGRAMA/MAQUINA de `GSESSION`. São volumosas (AUDIT_ESTOQUE 15,0 mi,
+AUDIT_CARTAO 7,7 mi, AUDIT_CX_VENDAS 6,2 mi, AUDIT_PEDIDO_COMPRA_QTDE 4,8 mi). **O fonte não lê nenhuma**: grep dos 34
+nomes nas 1.846 units dá 0 leituras. A única citação é `uTron.pas:2590-2609`, que **desliga** AUDIT_APAGAR e
+AUDIT_APAGARBX durante a integração contábil. No Apollo só existe `audit_permissoes` (mig 104; gravada em
+`permissoes.service.ts:89`). Manter ou não as outras é decisão pendente ([auditoria-esqueletos.md](auditoria-esqueletos.md) §3).
+
+## A tabela (os 60 com regra)
+
+Ordem: estoque, custo, preço, financeiro, fiscal, cadastro, depois FORA e MORTO.
+
+| Gatilho | Tabela | Evento | O que faz | Vivo? | Apollo | Veredito |
+|---|---|---|---|---|---|---|
+| `ESTOQUE_NOTAS` | NF | AFTER UPDATE, linha | PROC N→S: move ESTOQUE (ou DEP/ALMOX/local/congelado) por item com GERAESTOQUE; grava HISTORICO_PROD com FIN/CFOP/SIT.DOC e o "CIÊNCIA DE QTDE NEGATIVA E AUTORIZADO POR"; carimba ESTOQUE.DTENT/QTDE_ENT/IDORIGEM_ENT (+_ANTERIOR) na entrada e DTVENDA/QTDE_VENDA/IDORIGEM na saída; item com DECOMPOSICAO='S' reparte nos filhos e grava DECOMPOSICAO_NF_QTDE. Cancelamento/reversão/denegada: estorna e devolve as datas anteriores | sim: 61.835 entradas e 6.444 saídas no Kardex em 2026; 2.840 produtos com DTENT em set/2026 | `nf-processamento.service.ts:385-440` move o saldo e grava o Kardex; `:101-125` estoque negativo. **Não** carimba DTENT/QTDE_ENT/DTVENDA (nenhum escritor no `src`; a Prévia do fornecedor lê, `previa-fornecedor.service.ts:253`); texto do Kardex sem FIN/CFOP/SIT.DOC e sem o sufixo do negativo (15.431 linhas em 2026); sem VALOR_ALTER; DECOMPOSICAO='S' no item (2 em 2026) | ⚠️ |
+| `ESTOQUE_AJUSTE` | AJUSTE_ESTOQUE | AFTER INSERT | Só grava o Kardex do ajuste: HISTORICO_PROD (destino E), _DEP (D), _ALMOX (X) ou _<local>; texto por ORIGEM (A manual, I inventário rotativo, B balanço). Não move saldo | sim: 1.073 ajustes em 2026 (A/E 2.458 desde 2025; I/E 8) | manual da loja ✅ `ajuste-estoque.service.ts:82-83`. Zeramento do inventário rotativo (`inventario-rotativo.service.ts:289-303`) **não grava Kardex** e grava DESTINO 'ESTOQUE' — a produção grava 'E' desde 2022 (36 linhas; 'ESTOQUE' só até 30/08/2022). Ajuste de depósito sem HISTORICO_PROD_DEP (tabela nem existe; última linha no legado em 2023) | ⚠️ |
+| `ESTOQUE_TROCA` | ITENS_TROCA | BEFORE I/U/D | A baixa sai **na inclusão do item** (ESTOQUE ou ESTOQUE_DEP −QTDE) e soma QTDETROCA. Fechar (N→S) só abate QTDETROCA; devolve saldo só com ORIGEM_FECHAMENTO TROCA/SCRAP. Reabrir só volta QTDETROCA. Excluir devolve. Corrige inventário rotativo posterior | sim até 24/11/2025: 317 "RETIRADA DO ESTOQUE LOJA PARA TROCA" | `troca.service.ts:36-78`: baixa **no fechar** e devolve no reabrir. Os 130 itens carregados abertos (105 FECHADO nulo + 25 'N') já saíram do estoque no legado: fechar no Apollo baixa **de novo**. Sem QTDETROCA, depósito e rotativo (`migrations/118_troca.sql:3-7`) | ⚠️ |
+| `VALIDA_ESTOQUE` | ESTOQUE | AFTER I/U | Erro se QTDE nulo | sim | `migrations/022_estoque.sql:21` (NOT NULL) | ✅ |
+| `VALIDA_SCRAP` | SCRAP_ITEM | AFTER I/U | Erro se o scrap aparece na view VALIDA_SCRAP_ITEM (Kardex de SCRAP duplicado desde 29/07/2025) — trava contra baixa dupla | sim: SCRAP_ITEM até hoje | equivalente na origem: `scrap.service.ts:90` (mov_estoque com lock) e `scrap.aggregate.ts:143` (aplicado não edita) | ✅ |
+| `ATUALIZA_CUSTO_COTACAO` | COTACAO_FORN_ITENS | BEFORE INSERT | ULTIMO_VALOR := VRCUSTOREP do item na última NF de entrada processada do fornecedor (CFOPs de compra, até a data da cotação) | sim: 550 de 1.562 itens de 2026 | **não calcula**. `cotacao-forn.service.ts:171` reusa a coluna como "valor anterior da cotação"; as inclusões (`:104`, `cotacao.service.ts:190`) não a preenchem | ❌ |
+| `UPDATE_CUSTO_MULTI_PRECO` | MULTI_PRECO | AFTER UPDATE | HISTORICO_DINAMICO de VRCUSTO, VRCUSTOREP, VRPROMO, VRVENDA; operador = CLIENT_IDENTIFIER/CODUSUALT/PRODUTOS | sim: 135.758 linhas em 2026 | `migrations/354_multi_preco_historico_custo.sql:16-45` | ✅ |
+| `ATUALIZAPROD` | MULTI_PRECO | BEFORE I/U | Sempre DTULTIMALTERACAO := agora. INSERT: DTULTPRECOALTERADO e ETQ_IMPRESSA 'N'. UPDATE com VRVENDA/VRPROMO/PROMOCAO/**ATACAREJO_ATIVO** mudado: idem | sim | `migrations/127_ajuste_precos.sql:56-68` só no UPDATE e sem ATACAREJO_ATIVO nem DTULTIMALTERACAO; a inclusão nas lojas (`produto-lojas.ts:241`) não carimba | ⚠️ |
+| `CLUBE_DESCONTO_ESTOQUE` | CLUBE_DESCONTO | BEFORE UPDATE | Toda alteração recalcula ENCERRADA: 'T' só se MAXIMO_ESTOQUE>0 e VENDA_ESTOQUE ≥ teto; senão 'F' | sim (3.125 regras, 0 com teto, 0 encerradas) | `clube-desconto.service.ts:155` grava a ENCERRADA que vier; sem a regra do teto | ⚠️ |
+| `CONTROLADELETEAGENDA` | AGENDA_PROMOCAO_ITENS | BEFORE DELETE | MULTI_PRECO.PROMOCAO := 'N' do produto **em todas as lojas** (o filtro por loja está comentado) | raro: 3 exclusões de item em 2026 | `agenda-promocao.aggregate.ts:377-386` desliga só as linhas desta agenda (codagenda); não toca promoção de outra origem | ⚠️ |
+| `ATUALIZAPROD_ATACAREJO` | MULTI_PRECO_ATACAREJO | BEFORE I/U | Inclusão ou VALOR/QUANTIDADE mudado: MULTI_PRECO.DTULTPRECOALTERADO e ETQ_IMPRESSA 'N' | quase: 3 linhas; escrita por `uAjustePrecos`, `udmCadProduto` | a tabela não existe no destino | ❌ |
+| `CHECK_REMESSAS_BOLETOS_CONTAS` | ARECEBER | BEFORE DELETE | Erro se o título está em REMESSAS_BOLETOS_CONTAS com INDR ≠ 'E' | sim: 14.133 de 14.224 linhas ativas, última em 01/09/2026 | nenhum caminho de exclusão confere (`areceber.service.ts:420-446`, agrupamento, baixa em lote, caixa…); a tabela não tem FK (`migrations/153_cnab_remessa_cobranca.sql:86-90`) | ❌ |
+| `REM_RECEBER` | ARECEBER | AFTER I/U/D | Além da remessa: HISTARECEBER "DATA DA VENDA ALTERADA"; apaga/atualiza TESOURARIA (RCB), NF_FINANCEIRO_DIF_PEDIDO e MAPA_DE_CARGA_RECEBIMENTOS | HISTARECEBER sim (16, até 12/2025); as outras 3 tabelas estão vazias | `migrations/315_histareceber.sql:15-31`. O resto é morto | ✅ |
+| `CAIXA_APAGAR` | CX_APAGAR | BEFORE DELETE | Apaga a CAIXA do rateio (CODGRUPO + CODCXAPAGAR) | sim | `apagar-caixa.ts:47-51`; os outros DELETE de cx_apagar apagam a CAIXA antes ou a refazem (`fechamento-caixa.service.ts:1752`, `nf-faturamento.service.ts:116`, `apagar.service.ts:155-156`) | ✅ |
+| `SET_DEFAULTS` | ARECEBER | BEFORE I/U | TOTAL_BRT := TOTAL quando nulo | sim | só 2 dos 14 INSERT em areceber gravam (`nf-faturamento.service.ts:564`, `fechamento-caixa.service.ts:1621`). Nenhum leitor no fonte; a LOG do binário novo o lista | ⚠️ |
+| `TEMP_AGRUPADO` | ARECEBER | BEFORE I/U | AGRUPADO := 'N' quando nulo | sim | `migrations/043_areceber_gestao.sql:25` (DEFAULT 'N') | ✅ |
+| `VALIDA_AGRUPAMENTO` | APAGAR | AFTER I/U | Erro se CODGRUPO = 0 ou CODGRUPO_AGRUPAMENTO_APG = 0 | trava sem disparo: 0 casos | sem a trava; o código vem de sequência (`apagar-caixa.ts:20`) | ❌ |
+| `VALIDA_ADIANTAMENTO` | ADIANTAMENTO_FORN | AFTER I/U | Erro se CODMOVCONTA, VALOR ou CODPARCEIRO nulo | sim: 586, último 24/09/2026 | `migrations/159_adiantamento_forn.sql:12,16,19` (NOT NULL) | ✅ |
+| `ATUALIZATRIBUTOS` | MULTI_PRECO | AFTER I/U | Copia para PRODUTOS o que mudou na linha: IDPISCOFINS, TIPOPIS, IDTABELA, CODFIGURAFISCAL e ALIQUOTASAIDA → ALIQUOTA | sim: PRODUTOS × linha da loja 1 iguais em 98,7% (alíquota) | o cadastro faz o inverso (produto → linha da loja) para figura/PIS/tabela (`produto.aggregate.ts:276-282`). ALIQUOTA e TIPOPIS não seguem a linha; clone e lote (`produto-lojas.ts:154`) não propagam | ⚠️ |
+| `UPDATE_CODAUXILIAR` | PRODUTOS | BEFORE UPDATE | CODBARRA mudou: CODAUXILIAR.CODBARRA := novo (a coluna é o código principal) | sim: 1.147 de 1.147 iguais | não sincroniza; o cadastro grava o que vier por linha (`produto.aggregate.ts:190-218`) e a multi-atualização troca `produtos.codbarra` sozinha | ❌ |
+| `UPDATE_PRODUTOS_FILHOS` | PRODUTOS | BEFORE UPDATE (autônoma) | Replica 25 campos fiscais/cadastrais do pai nos filhos (CODGRUPOPRECO só se DIF = 0) | sim: 201 filhos | `migrations/132_produtos_filhos_propagacao.sql:40-160` (mesma transação, divergência documentada) | ✅ |
+| `CASCATA_FAMILIA_PROD` | FAMILIAS_PROD | BEFORE UPDATE | CODDPTO/CODGRUPO da família mudou: move **todos** os produtos do departamento/grupo antigo para o novo. O ramo de TIPO é no-op (mesmo código) | sim: 99% dos produtos batem com o subgrupo | `familias.crud.ts` não arrasta os produtos | ❌ |
+| `REM_PARCEIROS` | PARCEIROS | AFTER I/U/D | Além da remessa: ATIVADO mudou → PARCEIROS_END, _REL e _PGTO recebem o mesmo | sim: 827 endereços N/N | `parceiro.aggregate.ts` grava o ativado do endereço como veio; não desce | ❌ |
+| `PLC_BI0` | PLC | BEFORE INSERT | CODPLC := sequência | sim | `migrations/349_plc_cadastro.sql:5` | ✅ |
+| `COTACAO_FORN_BI` | COTACAO_FORN | BEFORE INSERT | CODCTCFORN := sequência. O fonte desliga ao gravar com código próprio (`uCadCotacaoForn.pas:640-673`) | sim | `migrations/091_cotacao.sql:49` (bigserial) | ✅ |
+| `COTACAO_FORN_ITENS_BI` | COTACAO_FORN_ITENS | BEFORE INSERT | CODCTCFIT := sequência (idem) | sim | `migrations/091_cotacao.sql:60` | ✅ |
+| `RECEITA_PROD_HIST` | RECEITA_PROD | BEFORE I/U/D | Histórico I/U/D da receita em RECEITA_PROD_HIST (lido em "Histórico de modificações – Receitas", `UCadProduto.pas:3414`) | sim: 858, última 15/10/2025 | a tabela veio na carga (`migrations/311_todos_os_dados.sql:153`); ninguém grava | ❌ |
+| `PRODUCAO_HIST` | PRODUCAO | BEFORE I/U/D | Histórico da ordem de produção. O SPED lê para o K270/K275 (`UdmSpedFiscal.pas:1586-1602`) | parado: 79, última 01/10/2024 | a tabela não existe no destino | ❌ |
+| `ITENS_PRODUCAO_HIST` | ITENS_PRODUCAO | BEFORE I/U/D | Idem, itens (SPED, `Uspedfiscal.pas:1849`) | parado: 52, 10/2024 | não existe | ❌ |
+| `ITENS_PRODUCAO_RECEITA_HIST` | ITENS_PRODUCAO_RECEITA | BEFORE I/U/D | Idem, insumos (SPED, `Uspedfiscal.pas:1860`) | parado: 563, 10/2024 | não existe | ❌ |
+| `ESTOQUE` | VENDAS | AFTER I/U | Baixa/estorna ESTOQUE (ou congelado) por item do PDV, Kardex "BAIXA DE ESTOQUE DERIVADO DO PDV", DTVENDA/QTDE_VENDA, PRODUTOS.ULTIMAVENDA, carimba PEDIDOS; cancelamento apaga CX_VENDAS, ARECEBER e CHEQUE | sim: 1,8 mi linhas de Kardex em 2026 | PDV | FORA |
+| `CASCATA_ESTOQUE` | VENDAS | BEFORE I/U | Produto com COMPOSICAO='S': baixa/estorna os componentes | sim (9 produtos compostos) | PDV | FORA |
+| `VENDA_ESTOQUE_CLUBE_DESCONTO` | VENDAS | AFTER I/U | Soma/abate CLUBE_DESCONTO.VENDA_ESTOQUE | sim | PDV | FORA |
+| `UPDATE_PARCEIROS_DTULTCOMPRA` | VENDAS | BEFORE INSERT | PARCEIROS.DTULTCOMPRA := DTVENDA | sim | PDV | FORA |
+| `AUDIT_CARGAS` | VENDAS | AFTER INSERT | Atualiza a linha única de AUDIT_CARGAS com a última venda da loja (monitor) | sim | PDV | FORA |
+| `ESTOQUE_PED` | PEDIDOS | BEFORE I/U/D | PROC='S': baixa/estorna estoque. Cancelamento/exclusão apaga CX_PEDIDOS, ARECEBER, CHEQUE do pedido | PROC='S' só do PDV (36.888), último 04/02/2025; o pedido da retaguarda nasce PROC='N' | o Apollo não inclui, cancela nem exclui pedido (`pedido-venda.service.ts`) | FORA |
+| `EXPORTACAO_NFC_BORBA` | NFC | BEFORE UPDATE | STATUSNFE mudou: EXPORTADA_BORBA := nulo | sim | NFC-e do PDV | FORA |
+| `TG_NF_CANCELAMENTO` | NF_CANCELAMENTO | AFTER I/U | Modelo 65: NFC cancelada; sem NFC viva no pedido, VENDAS CANCELADO='S'/TIPOCANC='C'. O ramo UPDATE está aninhado no INSERTING (morto) | sim: 12.380, hoje | só PDV/monitor; o fonte não cita a tabela | FORA |
+| `REM_CARTAO` | CARTAO | BEFORE I/U/D | INSERT: resolve CODOPERADORA pela OPERADORA_PDV ou cria a OPERADORA ("… - CODREDE n"). TESOURARIA no UPDATE; o DELETE usa :NEW (nunca casa) | sim: 320 mil cartões em 2026 (PDV); 50 operadoras criadas assim | os INSERT do Apollo já trazem codoperadora (`fechamento-caixa.service.ts:591,810`). TESOURARIA vazia | FORA |
+| `REM_EMPRESAS` | EMPRESAS | AFTER I/U/D | Mantém EMPRESA_REMESSA (terminais da replicação); no INSERT usa :OLD (nulo) | sim | configuração da replicação | FORA |
+| `ESTOQUE_BAL` | BALANCOITENS | AFTER INSERT | HISTORICO_PROD "REGISTRO DE SALDO INICIAL" por item | desligado na prática: 135.683 linhas só em 2020; os 4 balanços de 2021 e 2026 (159 mil itens) não geraram nenhuma. LAST_DDL_TIME = o segundo do balanço 61 (13/01/2026 14:40:49) | `balanco.service.ts` não grava | MORTO |
+| `ESTOQUE_TRANS` | SAIDADEP | AFTER INSERT | Só Kardex das transferências entre estoques (não move saldo) | 16 linhas, última 04/02/2021 | — | MORTO |
+| `ESTOQUE_OS` | OS | BEFORE I/U/D | Baixa/estorno do módulo OS | OS vazia | — | MORTO |
+| `DEL_PRODUTO` | PRODUTOS | AFTER DELETE | Apaga VENDAS, ESTOQUE, ESTOQUE_DEP do produto | 0 exclusões em AUDIT_PRODUTOS (32 mil eventos) | FK ON DELETE CASCADE em estoque/estoque_dep (`migrations/022_estoque.sql:19`) | MORTO |
+| `PRODUTOS_COMP` | COMPOSICAO | AFTER UPDATE | Com PARAMETRO.ATUCOMPOSICAO='S': recalcula custo/venda do composto | PARAMETRO vazia: nunca liga | — | MORTO |
+| `COMPOSICAO_PROD` | MULTI_PRECO | AFTER UPDATE | Idem: COMPOSICAO.VALOR := VRVENDA ou VRCUSTO | PARAMETRO vazia | — | MORTO |
+| `COMPOSICAO_PROD_KIT` | MULTI_PRECO | AFTER UPDATE | Kit (TIPO_PRODUTO='K'): rateia a diferença de VRVENDA na COMPOSICAO | 0 produtos 'K' | — | MORTO |
+| `ATUALIZA_VENDAS` | RES_ALIQ_60D | BEFORE UPDATE | Propaga DESC_AJUSTADO_UNIT e VRVENDA para VENDAS | RES_ALIQ_60D vazia | — | MORTO |
+| `ATUALIZA_PEDIDOS` | ITENS_MAPA_DE_CARGA | BEFORE I/D | PEDIDOS.NROMAPA | tabela vazia | — | MORTO |
+| `ATUALIZA_MSN` | PEDIDO_NF | BEFORE INSERT | TIPO='P': mensagem "FATURADO" em MSN | 5 mensagens em 5 anos; o fonte não lê MSN | — | MORTO |
+| `CADCHEQUE` | CHEQUE | AFTER I/U/D | CODCHQREF preenchido: lança MOV_CONTAS_BANCARIAS | 11 cheques, 1 com CODCHQREF, último 12/2023 | — | MORTO |
+| `REM_CHEQUE` | CHEQUE | AFTER I/U/D | Além da remessa: TESOURARIA (CHQ); o DELETE usa :NEW | TESOURARIA vazia | — | MORTO |
+| `TG_HIST_VALE_TROCO_BX` | HIST_VALE_TROCO_BX | AFTER I/U/D | Liga/desliga CODHISTVALETROCOBX em HIST_VALE_TROCO | tabela vazia; o fonte não cita | — | MORTO |
+| `CODPROMOCIONAL_CLUBE_DESCONTO` | HIST_CODIGOPROMOCIONAL | AFTER INSERT | VENDA_ESTOQUE + 1 | tabela vazia | — | MORTO |
+| `FGF_PRODUTOS` | FGF_PRODUTOS | AFTER DELETE | Copia a linha apagada em FGF_PRODUTOS_ESPELHO | as duas vazias | — | MORTO |
+| `INS_PEDIDOS_COZINHA` | PEDIDOS | AFTER I/U/D | Item de cozinha → PEDIDOS_COZINHA | PEDIDOS_COZINHA vazia | — | MORTO |
+| `REM_PEDIDO_ECOMMERCE` | PEDIDO_ECOMMERCE | BEFORE INSERT | Site Mercado: numera, acha loja/cliente, cria PARCEIROS/END | tabela vazia | — | MORTO |
+| `REM_PEDIDO_ECOMMERCE_ITEM` | PEDIDO_ECOMMERCE_ITEM | BEFORE INSERT | Cria o item em PEDIDOS | vazia | — | MORTO |
+| `REM_PEDIDO_ECOMMERCE_PAGAMENTO` | PEDIDO_ECOMMERCE_PAGAMENTO | BEFORE INSERT | Cria CX_PEDIDOS | vazia | — | MORTO |
+| `REM_PEDIDO_ECOMMERCE_CARTAO` | PEDIDO_ECOMMERCE_CARTAO | BEFORE INSERT | Só numera | vazia | — | MORTO |
+
+## Os ❌ e ⚠️ por dano provável
+
+1. **`ESTOQUE_TROCA` (⚠️, estoque).** O momento da baixa é outro. Os 130 itens de troca carregados em aberto já saíram
+   do estoque no legado; o "fechar" do Apollo os baixa de novo. O "reabrir" devolve saldo que o legado não devolve.
+2. **`ESTOQUE_NOTAS` (⚠️, estoque).** A NF não carimba a última entrada/saída em ESTOQUE (DTENT, QTDE_ENT, IDORIGEM_ENT,
+   DTVENDA, QTDE_VENDA e os _ANTERIOR). A Prévia do fornecedor do Apollo lê DTENT/QTDE_ENT: congela na virada.
+   O Kardex perde FIN/CFOP/SIT.DOC, o autorizador do negativo e o valor. Item de decomposição na nota não reparte.
+3. **`ESTOQUE_AJUSTE` (⚠️, estoque).** O zeramento do inventário rotativo não deixa linha no Kardex e grava DESTINO
+   'ESTOQUE', código que a produção abandonou em 2022 (grava 'E').
+4. **`ATUALIZA_CUSTO_COTACAO` (❌, custo).** O comprador perde o último custo de reposição do fornecedor na cotação.
+   A coluna existe, mas com outro significado.
+5. **`ATUALIZAPROD` (⚠️, preço/etiqueta).** Mudar o atacarejo não pede reimpressão de etiqueta. Linha nova de loja
+   nasce sem DTULTPRECOALTERADO. DTULTIMALTERACAO não é carimbada.
+6. **`ATUALIZATRIBUTOS` (⚠️, fiscal).** PRODUTOS.ALIQUOTA e TIPOPIS não seguem a linha de preço. É a alíquota que o
+   PDV recebe (REM_PRODUTO replica PRODUTOS quando ALIQUOTA muda).
+7. **`CHECK_REMESSAS_BOLETOS_CONTAS` (❌, financeiro).** Título já enviado ao banco pode ser excluído. O boleto fica
+   registrado no banco sem título no sistema.
+8. **`UPDATE_CODAUXILIAR` (❌, venda).** Trocar o código de barras principal deixa o código auxiliar apontando o antigo.
+9. **`CLUBE_DESCONTO_ESTOQUE` (⚠️, promoção).** O Apollo aceita ENCERRADA do payload; o legado a recalcula em toda
+   alteração. O teto por estoque nunca foi usado.
+10. **`SET_DEFAULTS` (⚠️, financeiro, baixo).** TOTAL_BRT fica nulo em 12 dos 14 caminhos de inclusão.
+11. **`CASCATA_FAMILIA_PROD` (❌, cadastro/relatórios).** Mudar o departamento ou grupo de uma família não arrasta os
+    produtos. Relatórios por departamento divergem.
+12. **`CONTROLADELETEAGENDA` (⚠️, preço, baixo).** O Apollo desliga só o preço da agenda; o legado desliga PROMOCAO do
+    produto em todas as lojas. 3 casos em 2026.
+13. **`REM_PARCEIROS` (❌, cadastro, baixo).** Inativar o parceiro não inativa endereços, relacionados e pagamentos.
+    Quem lê é o PDV (via remessa).
+14. **`RECEITA_PROD_HIST`, `PRODUCAO_HIST`, `ITENS_PRODUCAO_HIST`, `ITENS_PRODUCAO_RECEITA_HIST` (❌, fiscal/auditoria,
+    baixo).** O histórico para na virada. O SPED do legado usa os três de produção no K270/K275. As três tabelas de
+    produção nem existem no destino. Produção parada desde 10/2024.
+15. **`VALIDA_AGRUPAMENTO` (❌, financeiro, baixo).** Sem a trava de CODGRUPO = 0. O Apollo usa sequência.
+16. **`ATUALIZAPROD_ATACAREJO` (❌, preço, baixo).** A tabela MULTI_PRECO_ATACAREJO não existe no destino (3 linhas).
+
+## Gatilhos do Postgres criados pelo Apollo
+
+| Gatilho (migração) | Corresponde a |
+|---|---|
+| `trg_multi_preco_preco_alterado` (127:67) | `ATUALIZAPROD`, parcial |
+| `trg_produtos_propaga_filhos` (132:157) | `UPDATE_PRODUTOS_FILHOS` |
+| `trg_areceber_historico` (315:30) | `REM_RECEBER` (HISTARECEBER) + `ExcluiHistAReceber` do fonte |
+| `trg_apagar_dtcompra` (327:20) | nenhum: regra do Apollo (DTCOMPRA ↔ DTVENDA) |
+| `update_custo_multi_preco` (354:45) | `UPDATE_CUSTO_MULTI_PRECO` |
+| `nf_prod_vricm_positivo`, `apagar_sem_conta_deb_baixa`, `apagar_bx_plc_juros` (361) | jobs do banco, não gatilhos ([jobs-do-banco.md](jobs-do-banco.md)) |
+
+## Para o fluxo do PDV
+
+Os FORA de VENDAS e NFC continuam sendo regra. Quando a venda do PDV entrar no Apollo, a ingestão precisa fazer o que
+`ESTOQUE`, `CASCATA_ESTOQUE`, `VENDA_ESTOQUE_CLUBE_DESCONTO`, `UPDATE_PARCEIROS_DTULTCOMPRA` e `TG_NF_CANCELAMENTO`
+fazem: baixa e estorno de estoque (com componentes), Kardex, DTVENDA/QTDE_VENDA, ULTIMAVENDA, DTULTCOMPRA, contador do
+clube e, no cancelamento, apagar CX_VENDAS, ARECEBER e CHEQUE. E resolver a operadora do cartão pelo texto (`REM_CARTAO`).
+
+## Observações
+
+- **Gatilho ligado e desligado pelo aplicativo.** O fonte desliga COTACAO_FORN_BI/ITENS_BI (`uCadCotacaoForn.pas:640`),
+  REM_PRODUTO (`udmIntegracaoLote.pas:1742`) e AUDIT_APAGAR/BX (`uTron.pas:2590`). O binário novo faz o mesmo com
+  ESTOQUE_BAL no balanço e com o grupo de ESTOQUE em 23/01/2026 22:21:57, logo após o "POSICIONAMENTO DE SALDO".
+  Status ENABLED não prova que o gatilho roda em toda operação.
+- **Defeitos no próprio legado:** o UPDATE de TG_NF_CANCELAMENTO nunca roda; o DELETE de REM_CARTAO e REM_CHEQUE usa
+  :NEW; CASCATA_FAMILIA_PROD move o departamento inteiro, não só os produtos da família; REM_EMPRESAS grava :OLD no INSERT.
+- **LAST_DDL_TIME recente** (ESTOQUE_NOTAS e UPDATE_PRODUTOS_FILHOS em 10/09/2026; o grupo de MULTI_PRECO em 04/09) pode
+  ser só recompilação após ALTER TABLE. O corpo lido hoje é o que vale; os ports devem ser conferidos contra ele.
