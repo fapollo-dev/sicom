@@ -4232,6 +4232,8 @@ async function main() {
         const pvB = (await (await fetch(`${base}/fiscal/nf/scrap/previa`, { method: 'POST', headers: H, body: JSON.stringify({ codscraps: [scB] }) })).json().catch(() => ({}))) as any;
         const nfB = (await (await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ ...nfBase, nronf: 'SCRAPB', cfop: pvB.cfop, idsituacao_nf: 7920, itens: pvB.itens }) })).json().catch(() => ({}))) as any;
         await fetch(`${base}/fiscal/nf/${Number(nfB.codnf)}/scrap`, { method: 'POST', headers: H, body: JSON.stringify({ codscraps: [scB] }) });
+        // o item move estoque pelo PROC_QTDE do CFOP (5927 'S' na produção; o 6927 da nota interestadual nem existe no cadastro da produção)
+        await pgSc.query(`UPDATE cfop SET proc_qtde = 'S' WHERE codcfop::text IN ('5927', '6927') AND proc_qtde IS NULL`);
         const prB = await processarNf(Number(nfB.codnf), H);
         const saldoDepoisB = await saldoSc();
         // 47b.12) A NF DE CUPOM — importar VENDAS (ImportaVenda, uNF.pas:13201): três cupons de hoje — A NFC-e autorizada
@@ -10137,6 +10139,7 @@ async function main() {
         await pgS.query(`INSERT INTO cfop (codcfop, descricao) VALUES ('1102','COMPRA'),('5102','VENDA'),('5929','CUPOM'),('1949','OUTRA ENTRADA'),('1201','DEVOL VENDA')
           ON CONFLICT (codcfop) DO NOTHING`);
         // gate do "Sincronizar": proc_qtde='S' entra, 'N'/NULL ficam fora
+        const pqAntes = (await pgS.query(`SELECT codcfop, proc_qtde FROM cfop WHERE codcfop IN ('1102','5102','1949','1201')`)).rows as any[];
         await pgS.query(`UPDATE cfop SET proc_qtde='S' WHERE codcfop IN ('1102','5102')`);
         await pgS.query(`UPDATE cfop SET proc_qtde='N' WHERE codcfop='1949'`);
         await pgS.query(`UPDATE cfop SET proc_qtde=NULL WHERE codcfop='1201'`);
@@ -10233,7 +10236,7 @@ async function main() {
         await pgS.query(`DELETE FROM vendas WHERE nropedido LIKE '011006271%'`);
         await pgS.query(`DELETE FROM nf_prod WHERE codnf IN ($1,$2,$3,$4,$5)`, [nfEnt.codnf, nfSai.codnf, nfFora.codnf, nfRet.codnf, nfNeg.codnf]);
         await pgS.query(`DELETE FROM nf WHERE codnf IN ($1,$2,$3,$4,$5)`, [nfEnt.codnf, nfSai.codnf, nfFora.codnf, nfRet.codnf, nfNeg.codnf]);
-        await pgS.query(`UPDATE cfop SET proc_qtde=NULL WHERE codcfop IN ('1102','5102','1949','1201')`);
+        for (const r of pqAntes) await pgS.query(`UPDATE cfop SET proc_qtde = $1 WHERE codcfop = $2`, [r.proc_qtde, r.codcfop]);
         await pgS.query(`DELETE FROM multi_preco WHERE idproduto IN (990870,990871,990872)`);
         await pgS.query(`DELETE FROM produtos WHERE idproduto IN (990870,990871,990872)`);
       } finally {
@@ -23345,6 +23348,42 @@ async function main() {
           await pgSf.query(`DELETE FROM nf WHERE codnf = $1`, [c]).catch(() => undefined);
         }
         await pgSf.end();
+      }
+    }
+
+    // ══ §241 PROCESSAR NF — as flags do item (UpdateProdutos): move estoque só o CFOP com PROC_QTDE 'S' ═══════════════════════════
+    {
+      const pgFl = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const usoAntes = (await pgFl.query(`SELECT uso_consumo FROM produtos WHERE idproduto = 2`)).rows[0]?.uso_consumo ?? null;
+      let codnf = 0;
+      try {
+        await pgFl.query(`UPDATE produtos SET uso_consumo = 'S' WHERE idproduto = 2`);
+        const saldo = async (p: number) => Number((await pgFl.query(`SELECT coalesce(sum(qtde),0) AS q FROM estoque WHERE idproduto = $1 AND idempresa = 1`, [p])).rows[0]?.q ?? 0);
+        const [s1, s2] = [await saldo(1), await saldo(2)];
+        const cri = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 55, serie: '1', tipo: 'E', nronf: 'FL241', tipoemissao: '0', codparceiro: 22,
+          dtemissao: '2036-10-04', dtcontabil: '2036-10-04', cfop: '1556', itens: [
+            { nroitem: 1, codproduto: 1, quantidade: 5, vrcusto: 2, cfop: '1102', aliquota: 'T01', geraestoque: 'S', movimenta_estoque: 'S' },
+            { nroitem: 2, codproduto: 2, quantidade: 3, vrcusto: 4, cfop: '1556', aliquota: 'T01', geraestoque: 'S', movimenta_estoque: 'S' },
+          ] }) });
+        codnf = Number(((await cri.json().catch(() => ({}))) as any).codnf) || 0;
+        const proc = await processarNf(codnf, H); // o helper grava a parcela da nota, como a tela faz antes de processar
+        const procJ = (await proc.json().catch(() => ({}))) as any;
+        const it = (await pgFl.query(`SELECT nroitem, geraestoque, movimenta_estoque, origem_estoque, usoconsumo FROM nf_prod WHERE codnf = $1 ORDER BY nroitem`, [codnf])).rows as any[];
+        const [d1, d2] = [(await saldo(1)) - s1, (await saldo(2)) - s2];
+        check('PROCESSAR NF §241 [as flags do item]: no processar o item move estoque pelo PROC_QTDE do CFOP dele (a compra 1102 soma 5; o uso/consumo 1556, PROC_QTDE N, fica fora — o Apollo gravava GERAESTOQUE S fixo e 2.856 itens de uso/consumo/serviço de 2026 entrariam no estoque); ORIGEM_ESTOQUE E; USOCONSUMO S no produto de uso/consumo',
+          cri.status === 201 && proc.status === 200 && d1 === 5 && d2 === 0
+          && it[0]?.geraestoque === 'S' && it[0]?.movimenta_estoque === 'S' && it[1]?.geraestoque === 'N' && it[1]?.movimenta_estoque === 'N'
+          && it.every((x) => String(x.origem_estoque).trim() === 'E') && it[1]?.usoconsumo === 'S' && it[0]?.usoconsumo !== 'S',
+          { cri: cri.status, proc: [proc.status, procJ.code, JSON.stringify(procJ.detalhe ?? procJ.campos ?? null)], it, d1, d2 });
+        await fetch(`${base}/fiscal/nf/${codnf}/reverter`, { method: 'POST', headers: H });
+      } finally {
+        await pgFl.query(`UPDATE produtos SET uso_consumo = $1 WHERE idproduto = 2`, [usoAntes]).catch(() => undefined);
+        if (codnf) {
+          await pgFl.query(`DELETE FROM faturamento WHERE idnf = $1`, [codnf]).catch(() => undefined);
+          await pgFl.query(`DELETE FROM nf_prod WHERE codnf = $1`, [codnf]).catch(() => undefined);
+          await pgFl.query(`DELETE FROM nf WHERE codnf = $1`, [codnf]).catch(() => undefined);
+        }
+        await pgFl.end();
       }
     }
 

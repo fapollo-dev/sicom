@@ -17,8 +17,8 @@
  *  - remessa para depósito (CFOP da nota 5906/1906/1905): CST 90, CSOSN 400, alíquota NTB (:4201-4206).
  * Os valores DA NOTA (os `*_NOTA`, CFOP_ORIGINAL, MVA_AJUSTADO = pMVAST, VRBASE_STEXTERNO, FCP-ST/retido, desonerado, crédito do SN,
  * IPI devolvido) não passam pela tela: saem em `extras`, gravados no item depois de criado.
- * Ficam como o Apollo já fazia (o dado não segue o fonte de 2020, ou é a análise do item que decide): ARREDONDA (a config), CST/CSOSN,
- * CSTPISCOFINS e ORIGEM_ESTOQUE.
+ * Ficam como o Apollo já fazia (o dado não segue o fonte de 2020, ou é a análise do item que decide): ARREDONDA (a config), CST/CSOSN
+ * e CSTPISCOFINS.
  */
 import type { NfeItemParsed } from './nfe-xml.parser';
 
@@ -106,7 +106,6 @@ export function itemImportado(
     cfop: ctx.cfop,
     ncm: ncmCest.ncm,
     cest: ncmCest.cest,
-    origem_estoque: vazio(prod.origemprod) ?? vazio(it.origem),
     aliquota,
     icms,
     icme: it.pICMS,
@@ -132,8 +131,8 @@ export function itemImportado(
     bcpiscofinse: aliqPisE > 0 ? it.vBcPisCofins : undefined,
     vrpise: aliqPisE > 0 ? it.vPIS : undefined,
     vrcofinse: aliqCofinsE > 0 ? it.vCOFINS : undefined,
-    geraestoque: 'S',
-    movimenta_estoque: 'S',
+    // GERAESTOQUE/MOVIMENTA_ESTOQUE saem do PROC_QTDE do CFOP do item no processar (a importação não decide); ORIGEM_ESTOQUE é o
+    // DEFAULT 'E' (100% na produção — o SPED não o usa mais para o CST)
   };
   if (ctx.remessaDeposito) Object.assign(item, { cst: 90, csosn: '400', aliquota: 'NTB' });
   const extras: Record<string, unknown> = {

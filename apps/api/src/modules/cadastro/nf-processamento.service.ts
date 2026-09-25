@@ -16,6 +16,24 @@ import { configNaTrx } from '../compras/pedido-heranca';
 import { fotoDaNf, logDaDiferencaNf } from './nf-log';
 
 type AnyDB = any;
+
+/**
+ * GERAESTOQUE/MOVIMENTA_ESTOQUE = PROC_QTDE do CFOP do item ('S' só com 'S' — o NULL não move, como os 15 CFOPs sem valor da produção),
+ * ORIGEM_ESTOQUE 'E' e USOCONSUMO 'S' quando o produto é de uso/consumo (o produto 'N' não muda o que o item tinha — o provider do legado
+ * não grava o valor igual ao `COALESCE(N.USOCONSUMO,'N')`, udmNF.dfm:2643).
+ */
+async function flagsDoItemNoProcessar(trx: AnyDB, codnf: number): Promise<void> {
+  await sql`
+    UPDATE nf_prod p SET
+      geraestoque       = CASE WHEN c.proc_qtde = 'S' THEN 'S' ELSE 'N' END,
+      movimenta_estoque = CASE WHEN c.proc_qtde = 'S' THEN 'S' ELSE 'N' END,
+      origem_estoque    = 'E',
+      usoconsumo        = CASE WHEN pr.uso_consumo = 'S' THEN 'S' ELSE p.usoconsumo END
+      FROM nf_prod x
+      LEFT JOIN cfop c      ON c.codcfop::text = x.cfop::text
+      LEFT JOIN produtos pr ON pr.idproduto = x.codproduto
+     WHERE x.codnfprod = p.codnfprod AND p.codnf = ${codnf}`.execute(trx);
+}
 const num = (v: unknown): number => {
   const n = typeof v === 'string' ? Number(v) : (v as number);
   return Number.isFinite(n) ? n : 0;
@@ -198,6 +216,11 @@ export class NfProcessamentoService {
       // sentido: entrada soma / saída baixa; estorno = inverso.
       const base = nf.tipo === 'E' ? 1 : -1;
       const sinal = modo === 'processar' ? base : -base;
+      // as FLAGS DO ITEM que o processar grava antes de mover (UpdateProdutos, udmNF.pas:7287-7317): move estoque o item cujo CFOP
+      // tem PROC_QTDE 'S' (o operador não edita as colunas — PERMITE_EDICAO_PROC_ESTOQUE 'N' no Retaguarda); ORIGEM_ESTOQUE 'E' (loja);
+      // USOCONSUMO do produto. O Apollo gravava GERAESTOQUE 'S' fixo na importação: 2.856 itens de uso/consumo/serviço de 2026 (CFOP
+      // 1556/2556/1949/1933/1407…) entrariam no estoque
+      if (modo === 'processar') await flagsDoItemNoProcessar(trx, codnf);
       await this.aplicarMovimentoItens(trx, codnf, String(nf.tipo), sinal, modo === 'reverter' ? 'NF-REV' : 'NF', op, emp);
 
       // flip de estado com compare-and-set (anti-corrida/replay).
