@@ -70,6 +70,8 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
   log: { formulario: 'Pedido de Compra' },
   empresaScoped: true,
   softDelete: true,
+  // os itens ficam com o cabeçalho excluído (INDR='E'), como no legado
+  manterDetalhesNaExclusao: true,
   // CODOPERADOR (server-set via derivarTrx) e FECHADO (state-controlled) NÃO entram nas colunas editáveis.
   colunas: [
     'codparceiro', 'data', 'dt_vencimento', 'codconpagto',

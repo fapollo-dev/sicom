@@ -91,6 +91,19 @@ export function ConferenciaNotaPage() {
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
   };
 
+  // "Análise produto" (btnAnaliseProdutoClick): os itens voltam a LIBERADO e a esteira desmarca a coleta e a conferência
+  const analisar = async () => {
+    if (busy || !sel.size) return;
+    setBusy(true);
+    try {
+      const r = await req<{ liberados: number }>('/compras/conferencia-nota/analisar', {
+        method: 'POST', body: JSON.stringify({ codnf: Number(codnf), itens: [...sel] }),
+      });
+      mensagem.sucesso(`${r.liberados} item(ns) liberado(s) para análise do produto.`);
+      await carregar();
+    } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+
   const alvo = filtro.trim().toUpperCase();
   const visiveis = alvo
     ? itens.filter((i) => `${i.descricao ?? ''} ${i.codbarra ?? ''} ${i.codprodnota ?? ''} ${i.codproduto}`.toUpperCase().includes(alvo))
@@ -132,6 +145,7 @@ export function ConferenciaNotaPage() {
           <div className="w-40"><Field label="Se&nha" type="password" value={senha} onChange={(e) => setSenha(e.target.value)} /></div>
           <Button label="A&provar selecionados" variant="soft" disabled={busy || !sel.size} onClick={() => void aprovar()} />
           <Button label="&Cancelar aprovação" variant="ghost" disabled={busy || !sel.size} onClick={() => void cancelar()} />
+          <Button label="A&nálise produto" variant="ghost" disabled={busy || !sel.size} onClick={() => void analisar()} />
           <div className="w-52"><Field label="&Localizar (código ou descrição)" value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="filtra a lista" /></div>
           <div className="flex-1 text-right text-body-sm"><b>{sel.size}</b> de {itens.length} selecionado(s)</div>
           <small className="w-full text-fg-muted">

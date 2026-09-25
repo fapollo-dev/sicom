@@ -82,6 +82,12 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
     (p: any) => ({ value: String(p.codparceiro), label: `${p.codparceiro} - ${p.razao}` }),
     { campo: 'con', operador: 'igual', valor: 'S' }, // convênio = parceiro CON='S'
   );
+  // o perfil do cliente (edtCodPerfilCliente → GET_PERFIL com ATIVO='S' e TIPO='PARCEIRO', uCadClientes.pas:4222)
+  const { data: perfilOptions = [] } = useResourceOptions(
+    'cadastro/perfil',
+    (p: any) => ({ value: String(p.codperfil ?? p.codigo), label: `${p.codperfil ?? p.codigo} - ${p.perfil ?? p.descricao ?? ''}` }),
+    { campo: 'tipo', operador: 'igual', valor: 'PARCEIRO' },
+  );
   // F3 — entidade recolhedora de ISSQN: parceiro com TIPOFJ='E' (entidade). Mostra "cod - razão".
   const { data: entidadeIssqnOptions = [] } = useResourceOptions(
     'cadastro/parceiros',
@@ -406,6 +412,19 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
                     onChange={(v) => field.onChange(v ? Number(v) : undefined)}
                     placeholder="Selecione o convênio…"
                     error={form.formState.errors.codconvenio?.message as string | undefined}
+                  />
+                )}
+              />
+              <Controller
+                control={form.control}
+                name="codperfil_parceiro"
+                render={({ field }) => (
+                  <SelectField
+                    label="Perfil do cliente"
+                    options={perfilOptions}
+                    value={field.value != null ? String(field.value) : undefined}
+                    onChange={(v) => field.onChange(v ? Number(v) : undefined)}
+                    placeholder="Selecione o perfil…"
                   />
                 )}
               />

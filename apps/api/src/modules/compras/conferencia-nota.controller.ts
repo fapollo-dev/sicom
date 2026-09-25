@@ -29,6 +29,14 @@ export class ConferenciaNotaController {
     return this.svc.aprovar(dto);
   }
 
+  /** "Análise produto": os itens selecionados voltam a LIBERADO (a esteira desmarca coleta e conferência). */
+  @Post('analisar')
+  @HttpCode(200)
+  @RequerAcesso('FRMCONFERENCIANOTA', 'FRMCONFERENCIANOTA')
+  analisar(@Body(new ZodValidationPipe(conferenciaCancelarSchema)) dto: ConferenciaCancelarDto) {
+    return this.svc.analisar(dto);
+  }
+
   /** cancela a aprovação dos itens selecionados (volta a pendente). */
   @Post('cancelar')
   @HttpCode(200)

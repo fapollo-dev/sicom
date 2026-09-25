@@ -162,6 +162,8 @@ export interface DetalheConfig {
  * TfrmCadMasterDet, recon §5b): validação e itens junto do master; cascata na exclusão.
  */
 export interface AggregateConfig extends CrudConfig {
+  /** exclusão LÓGICA (`softDelete`) sem apagar os detalhes — o legado marca INDR='E' no cabeçalho e os itens ficam */
+  manterDetalhesNaExclusao?: boolean;
   detalhes: DetalheConfig[];
   /**
    * Validação de REGRA DE NEGÓCIO cross-row ANTES de gravar (espelha checagens do btnGravar

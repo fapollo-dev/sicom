@@ -5,6 +5,7 @@ import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { FiscalPricingService } from './preco-fiscal.service';
 import { ConfigService } from '../cadastro/config.service';
+import { gerarLotesFilhos } from './lote-filho';
 
 type AnyDB = Kysely<any>;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
@@ -15,6 +16,38 @@ const r4 = (n: number) => Math.round((n + Number.EPSILON) * 10000) / 10000;
 const fmtBr = (n: number) => n.toFixed(2).replace('.', ',');
 
 /** os 21 campos que o legado audita nesta tela (FCamposHistorico, udmCadProduto.pas:2702-2724). */
+/**
+ * `TAtualizacaoPrecoFilho.AtualizaPrecoFilho` (UAtualizacaoPrecoFilho.pas:75-184), o on-line: os filhos CONFIGURADOS do pai (DIF ≠ 0 e TPDIF
+ * preenchido — `ProdutoPossuiFilhoConfiguradoParaAtualizar`, :322) recebem o custo, o custo de reposição e o preço calculados do pai
+ * (`CalculaPrecoFilho`: 'D' soma a diferença, senão o percentual; o FATOR_FILHO é descartado — :193) e o VRVENDA alterado vai ao
+ * histórico com 'Alteração de preço do produto pai' e o valor com ponto (:202-222). Na produção nenhum filho tem diferença configurada
+ * (0 históricos em 2025-26), então o caminho fica dormente — como no legado.
+ */
+async function atualizarFilhosOnline(trx: AnyDB, idpai: number, idempresa: number, op: number | null): Promise<number> {
+  const pai = (await sql<{ vrvenda: unknown; vrcusto: unknown; vrcustorep: unknown }>`SELECT vrvenda, vrcusto, vrcustorep FROM multi_preco WHERE idproduto = ${idpai} AND idempresa = ${idempresa}`.execute(trx)).rows[0];
+  if (!pai) return 0;
+  const filhos = (await sql<Record<string, unknown>>`
+      SELECT p.idproduto, p.dif_preco_prod_filho_x_pai AS dif, p.tpdif_preco_prod_filho_x_pai AS tp, m.vrvenda, m.vrcusto, m.vrcustorep
+        FROM produtos p JOIN multi_preco m ON m.idproduto = p.idproduto AND m.idempresa = ${idempresa}
+       WHERE p.idproduto_pai = ${idpai} AND coalesce(p.dif_preco_prod_filho_x_pai, 0) <> 0 AND p.tpdif_preco_prod_filho_x_pai IS NOT NULL`.execute(trx)).rows;
+  let n = 0;
+  for (const f of filhos) {
+    const venda = r4(String(f.tp) === 'D' ? num(pai.vrvenda) + num(f.dif) : num(pai.vrvenda) + (num(pai.vrvenda) * num(f.dif)) / 100);
+    const custo = r4(num(pai.vrcusto));
+    const custorep = r4(num(pai.vrcustorep));
+    if (num(f.vrcusto) === custo && num(f.vrcustorep) === custorep && num(f.vrvenda) === venda) continue;
+    await sql`UPDATE multi_preco SET vrcusto = ${custo}, vrcustorep = ${custorep}, vrvenda = ${venda} WHERE idproduto = ${f.idproduto} AND idempresa = ${idempresa}`.execute(trx);
+    if (num(f.vrvenda) !== venda) {
+      await trx.insertInto('historico_dinamico').values({
+        campo: 'VRVENDA', valor_anterior: String(num(f.vrvenda)), valor_atual: String(venda), tabela: 'MULTI_PRECO', data: sql`now()`,
+        codoperador: op, chave: 'IDPRODUTO', valor_chave: String(f.idproduto), codempresa: idempresa, historico: 'Alteração de preço do produto pai',
+      }).execute();
+      n++;
+    }
+  }
+  return n;
+}
+
 const CAMPOS_HISTORICO = [
   'vrcusto', 'vrcustorep', 'vrvenda', 'ativo', 'ativo_compra', 'bonificacao', 'despacessorio', 'ipi', 'seguro',
   'frete', 'frete2', 'icmst', 'icme', 'vrcustocsi', 'promocao', 'vrpromo', 'markupfixo', 'markup', 'vrfcpst',
@@ -274,13 +307,16 @@ export class PrecificacaoCustoService {
           lucrobrutov: painel.lucrobrutov, lucrobrutop: painel.lucrobrutop, despopv: painel.despopv,
           lucroliqv: painel.lucroliqv, lucroliqp: painel.lucroliqp, imprend: painel.imprend, contsocial: painel.contsocial,
           margeml2: painel.margeml2, margeml2v: painel.margeml2v,
+          // quem alterou por último (`cdsMultiPrecoCODUSUALT := operador`, UPrificacaoCusto.pas:963-965)
+          codusualt: op,
         };
         // alvos de PRODUTO: o próprio + os do mesmo grupo de preço nessa empresa (propagação do legado :1097-1159).
         // Fold auditoria [ALTA]: a propagação é guardada por `rdbOnLine.Checked` (:1062) — em MODO LOTE o legado
         // NÃO toca o preço dos peers (só enfileira). Antes eu escrevia o preço ATUAL do produto principal em todos
         // os peers, repreçando o grupo justamente no modo cujo contrato é "não altera preço agora".
         let produtos: number[] = [dto.idproduto];
-        if (!dto.modoLote && grupo?.codgrupopreco != null && Number(grupo.codgrupopreco) > 0) {
+        // o grupo de preço: no on-line o preço vai aos irmãos (:1097-1159); no LOTE eles entram na fila junto (`SQLProduto`, :741-765)
+        if (grupo?.codgrupopreco != null && Number(grupo.codgrupopreco) > 0) {
           const g = (await trx.selectFrom('produtos as p').innerJoin('multi_preco as m', (j) => j.onRef('m.idproduto', '=', 'p.idproduto').on('m.idempresa', '=', e))
             .select('p.idproduto').where('p.codgrupopreco', '=', Number(grupo.codgrupopreco)).execute()) as Array<{ idproduto: number }>;
           produtos = Array.from(new Set([dto.idproduto, ...g.map((r) => Number(r.idproduto))]));
@@ -308,24 +344,37 @@ export class PrecificacaoCustoService {
               margeml2: pv.margeml2, margeml2v: pv.margeml2v,
             };
           }
-          await trx.updateTable('multi_preco').set(patchP).where('idproduto', '=', pid).where('idempresa', '=', e).execute();
-          // auditoria: uma linha por CAMPO alterado, HISTORICO='Precificação do Custo', valores vírgula-2dp.
-          for (const campo of CAMPOS_HISTORICO) {
-            if (!(campo in patchP)) continue;
-            const de = antesP[campo];
-            const para = (patchP as Record<string, unknown>)[campo];
-            const mudou = typeof para === 'number' ? num(de) !== para : String(de ?? '') !== String(para ?? '');
-            if (!mudou) continue;
+          const peerNoLote = dto.modoLote && pid !== dto.idproduto; // no lote o irmão só vai para a fila: o preço dele não muda agora
+          if (!peerNoLote) await trx.updateTable('multi_preco').set(patchP).where('idproduto', '=', pid).where('idempresa', '=', e).execute();
+          // auditoria. O produto: uma linha por CAMPO alterado com 'Precificação do Custo' (o `SetaHistorico_Dinamico` do datamodule,
+          // udmCadProduto.pas:2844) e, no on-line, o VRVENDA de novo com o título da tela, 'Precificação de Mercadorias' (:1093-1104 — as
+          // duas juntas em 585 eventos de 2025-26). O irmão do grupo: só o VRVENDA, com o título da tela (:1147-1157).
+          const hist = async (campo: string, de: unknown, para: unknown, rotulo: string) => {
             await trx.insertInto('historico_dinamico').values({
               campo: campo.toUpperCase(),
               valor_anterior: typeof para === 'number' ? fmtBr(num(de)) : String(de ?? '').slice(0, 20),
               valor_atual: typeof para === 'number' ? fmtBr(num(para)) : String(para ?? '').slice(0, 20),
               tabela: 'MULTI_PRECO', data: sql`now()`, codoperador: op, chave: 'IDPRODUTO', valor_chave: String(pid),
-              codempresa: e, historico: 'Precificação do Custo',
+              codempresa: e, historico: rotulo,
             }).execute();
             historico++;
+          };
+          const vendaMudou = !peerNoLote && num(antesP.vrvenda) !== num((patchP as Record<string, unknown>).vrvenda);
+          if (pid !== dto.idproduto) {
+            if (vendaMudou) await hist('vrvenda', antesP.vrvenda, num((patchP as Record<string, unknown>).vrvenda), 'Precificação de Mercadorias');
           }
-          if (dto.modoLote && precoInformado > 0 && precoInformado !== num(antes.vrvenda) && podePreco) {
+          for (const campo of pid === dto.idproduto ? CAMPOS_HISTORICO : []) {
+            if (!(campo in patchP)) continue;
+            const de = antesP[campo];
+            const para = (patchP as Record<string, unknown>)[campo];
+            const mudou = typeof para === 'number' ? num(de) !== para : String(de ?? '') !== String(para ?? '');
+            if (!mudou) continue;
+            await hist(campo, de, para, 'Precificação do Custo');
+          }
+          if (pid === dto.idproduto && !dto.modoLote && vendaMudou) await hist('vrvenda', antesP.vrvenda, num(patchP.vrvenda), 'Precificação de Mercadorias');
+          // os FILHOS no on-line (`TAtualizacaoPrecoFilho.AtualizaPrecoFilho`, só com filho configurado — DIF e TPDIF, UAtualizacaoPrecoFilho.pas:322)
+          if (!dto.modoLote && vendaMudou) historico += await atualizarFilhosOnline(trx, pid, e, op);
+          if (dto.modoLote && !emPromocao && precoInformado > 0 && precoInformado !== num(antes.vrvenda) && podePreco) {
             // fiel :855/:908 — só enfileira quando o preço REALMENTE mudou (e o operador pode alterá-lo).
             // MODO LOTE: o preço novo vai p/ a fila. OBS igual ao form do produto, ORIGEM NULL (fiel: esta tela não
             // escreve origem), CODOPERADOR preenchido, MARKUP só se > 0.
@@ -336,6 +385,8 @@ export class PrecificacaoCustoService {
               obs: `REFERENTE AO AJUSTE NO CADASTRO DO PRODUTO REALIZADO PELO OPERADOR: ${op ?? ''}-${(nomeOp?.nome ?? '').trim()}`.slice(0, 300),
             }).execute();
             lotes++;
+            // o filho do pai que entrou na fila também entra (`GeraLoteFilho`, :872-877)
+            lotes += await gerarLotesFilhos(trx, pid, e, r4(num(dto.vrvenda)), null);
           }
         }
       }

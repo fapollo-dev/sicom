@@ -91,6 +91,8 @@ export const agendaPromocaoAggregateConfig: AggregateConfig = {
   // a agenda é da REDE (a view de pesquisa do legado não filtra loja); a loja logada só carimba a dona ao criar
   empresaScoped: false,
   softDelete: true,
+  // os itens ficam com o cabeçalho excluído (INDR='E'), como no legado
+  manterDetalhesNaExclusao: true,
   // CODEMPRESA = a loja logada (udmCadAgendaPromocao.pas:360); agenda nova nasce ABERTA ('N', :359) — o combo de status
   // fica desabilitado enquanto ABERTA (uCadAgendaPromocao.pas:517), então o create não escolhe status
   derivarTrx: async ({ emp }) => {

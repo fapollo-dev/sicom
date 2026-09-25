@@ -12,7 +12,7 @@ export const perfilCrudConfig: CrudConfig = {
   view: 'get_perfil',
   colunas: ['perfil', 'ativo', 'tipo'],
   rbacForm: 'FRMCADPERFILOPERADOR',
-  colunasPesquisa: ['codigo', 'perfil', 'ativo'],
+  colunasPesquisa: ['codigo', 'perfil', 'ativo', 'tipo'], // tipo: o perfil do CLIENTE é TIPO 'PARCEIRO' (uCadClientes.pas:4222)
   softDelete: true,
   replica: false,
 };

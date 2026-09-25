@@ -26,6 +26,8 @@ export const parceiroAggregateConfig: AggregateConfig = {
   // sessão só carimba o parceiro novo.
   empresaScoped: false,
   derivarTrx: async ({ emp }) => (emp != null ? { idempresa: emp } : {}),
+  // a data da última alteração carimbada pela TELA em toda gravação (está no dataset: vai na LOG "Alterou" — 280 de 280 em 2026)
+  derivar: () => ({ dtultalteracao: new Date().toISOString() }),
   colunas: [
     'razao', 'fantasia', 'tipofj',
     'cli', 'frn', 'fun', 'tra', 'con', 'ass',
@@ -51,10 +53,18 @@ export const parceiroAggregateConfig: AggregateConfig = {
     'caracteristica_tributaria', 'pronta_entrega', 'desconto_pedidos', 'valor_acres_fin', 'numero_contrato',
     'regras_tabela_fornecedor', 'prazo_entrega', 'prazo_recebimento', 'prazo_reposicao', 'tipo_fornecedor',
     'retira_fornindex', 'realiza_troca',
+    // o perfil do cliente (edtCodPerfilCliente → GET_PERFIL TIPO 'PARCEIRO', uCadClientes.pas:4222) e a data da última alteração.
+    // EMPRESAS e IDENTIFICADOR não estão na tela (vêm de outro processo): o UPDATE não os toca.
+    'codperfil_parceiro', 'dtultalteracao',
   ],
   detalhes: [
     {
       tabela: 'parceiros_end',
+      // a LOG do endereço (uCadClientes.pas:2121/2135): Inseriu/Alterou com os campos do `cdsEndParceiros`, CHAVE CODPARCEIRO
+      log: { tabela: 'PARCEIROS_END', chave: 'CODPARCEIRO', campos: [
+        'codend', 'codparceiro', 'endereco', 'numero', 'bairro', 'cidade', 'uf', 'telefone', 'celular', 'fax', 'cnpj_cpf', 'rg_insc', 'cep',
+        'complemento', 'ativado', 'endereco_padrao', 'razao', 'tipofj', 'idcidade', 'dtultimalteracao', 'tipo_endereco', 'referencia', 'codpais',
+      ] },
       pk: 'codend',
       fk: 'codparceiro',
       chaveNatural: ['tipo_endereco'],
@@ -71,9 +81,11 @@ export const parceiroAggregateConfig: AggregateConfig = {
       ],
     },
     // F2 — sub-recursos 1:N (engine grava todos na mesma transação; substitui no update)
-    { tabela: 'parceiros_bancos', pk: 'codparceirobanco', fk: 'codparceiro', chave: 'bancos', colunas: ['codbco', 'agencia', 'nrconta'] },
+    { tabela: 'parceiros_bancos', pk: 'codparceirobanco', fk: 'codparceiro', chave: 'bancos', colunas: ['codbco', 'agencia', 'nrconta'],
+      log: { tabela: 'PARCEIROS_BANCOS', chave: 'CODPARCEIRO', campos: ['codparceiro', 'codparceirobanco', 'codbco', 'nrconta', 'banco', 'agencia', 'cidade', 'uf'] } },
     { tabela: 'parceiros_pgto', pk: 'codparceiros_pgto', fk: 'codparceiro', chave: 'pgtos', chaveNatural: ['idpgto'], preservarNaoGerenciadas: true, colunas: ['idpgto', 'modalidade'] },
-    { tabela: 'parceiros_rel', pk: 'codrelacionamento', fk: 'codparceiro', chave: 'relacionamentos', chaveNatural: ['nome'], preservarNaoGerenciadas: true, colunas: ['nome', 'doc1', 'doc2', 'tiporel', 'telefone', 'celular', 'endereco'] },
+    { tabela: 'parceiros_rel', pk: 'codrelacionamento', fk: 'codparceiro', chave: 'relacionamentos', chaveNatural: ['nome'], preservarNaoGerenciadas: true, colunas: ['nome', 'doc1', 'doc2', 'tiporel', 'telefone', 'celular', 'endereco'],
+      log: { tabela: 'PARCEIROS_REL', chave: 'CODPARCEIRO', campos: ['codrelacionamento', 'codparceiro', 'tiporel', 'nome', 'doc1', 'doc2', 'telefone', 'celular', 'endereco', 'ativado', 'senha_autpdv'] } },
     { tabela: 'parceiros_vendedores', pk: 'codparceirovendedor', fk: 'codparceiro', chave: 'vendedores', colunas: ['codvendedor'] },
   ],
   colunasPesquisa: ['codparceiro', 'razao', 'fantasia', 'cnpj_cpf', 'cidade', 'uf', 'tipofj', 'cli', 'frn', 'fun', 'tra', 'con'],

@@ -9628,8 +9628,10 @@ async function main() {
       const eco = (await (await fetch(`${base}/cadastro/parceiros/${cpl}`, { headers: H })).json().catch(() => ({}))) as any;
       await fetch(`${base}/cadastro/parceiros/${cpl}`, { method: 'PUT', headers: H, body: JSON.stringify(eco) }); // sem mudança
       const lc = await logDe('PARCEIROS', cpl);
-      check('LOG §77L.2: cadastro grava Inseriu (campos) + Alterou só com o campo mudado (FANTASIA LOG ANTES → LOG DEPOIS); regravar sem mudar não grava',
-        lpc.status === 201 && lc.length === 2 && lc[0].acao === 'Inseriu' && lc[0].formulario === 'Cadastro de parceiros' && lc[0].chave === 'CODPARCEIRO'
+      // a TELA carimba DTULTALTERACAO em toda gravação e ela vai na LOG (280 de 280 "Alterou" de 2026); regravar sem mudar grava só ela
+      // (8 casos em 2026)
+      check('LOG §77L.2: cadastro grava Inseriu (campos) + Alterou só com o campo mudado (FANTASIA LOG ANTES → LOG DEPOIS) e a DTULTALTERACAO; regravar sem mudar grava só a DTULTALTERACAO, como o legado',
+        lpc.status === 201 && lc.length === 3 && /CAMPO: DTULTALTERACAO/.test(lc[1].historico) && (lc[2].historico.match(/CAMPO:/g) ?? []).length === 1 && /CAMPO: DTULTALTERACAO/.test(lc[2].historico) && lc[0].acao === 'Inseriu' && lc[0].formulario === 'Cadastro de parceiros' && lc[0].chave === 'CODPARCEIRO'
         && /^INSERIU: \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2} \r\n CAMPO: /.test(lc[0].historico) && /CAMPO: RAZAO   VALOR: PARCEIRO DO LOG LTDA/.test(lc[0].historico)
         && lc[1].acao === 'Alterou' && /CAMPO: FANTASIA    VALOR ANTERIOR: LOG ANTES    VALOR ATUAL: LOG DEPOIS/.test(lc[1].historico)
         && !/DESCONTO_PEDIDOS/.test(lc[1].historico),
@@ -9643,8 +9645,8 @@ async function main() {
       const visSem = await fetch(`${base}/cadastro/registros-log?form=FRMCADCLIENTES&chave=CODPARCEIRO&valor=${cpl}`, { headers: H_SEM_ACESSO });
       const visBad = await fetch(`${base}/cadastro/registros-log?form=FRMCADCLIENTES`, { headers: H });
       const visPerm = (await (await fetch(`${base}/cadastro/registros-log?form=FRMCTRLPERMISSOES&chave=CODOPERADOR&valor=8`, { headers: H })).json().catch(() => ({}))) as any;
-      check('LOG §77L.3: visualizador traz o log do registro (2 do parceiro, 4 das permissões do op 8) · sem acesso à tela 403 · sem chave 422',
-        vis.status === 200 && visJ.linhas?.length === 2 && visJ.linhas[1].acao === 'Alterou' && visSem.status === 403 && visBad.status === 422 && visPerm.linhas?.length === 4,
+      check('LOG §77L.3: visualizador traz o log do registro (3 do parceiro + o Inseriu do endereço, PARCEIROS_END; 4 das permissões do op 8) · sem acesso à tela 403 · sem chave 422',
+        vis.status === 200 && visJ.linhas?.length === 4 && (visJ.linhas ?? []).some((l: any) => l.tabela === 'PARCEIROS_END' && l.acao === 'Inseriu') && visSem.status === 403 && visBad.status === 422 && visPerm.linhas?.length === 4,
         { status: vis.status, n: visJ.linhas?.length, sem: visSem.status, bad: visBad.status, perm: visPerm.linhas?.length });
 
       // 77L.4) HISTARECEBER (mig 315 — a trigger REM_RECEBER do Oracle): mudar a data da venda grava "DATA DA VENDA
@@ -22342,6 +22344,83 @@ async function main() {
           dv.status === 201 && tr.status === 200 && trJ.statusnfe === 'P' && JSON.stringify(pendD) === '["D"]', { dv: dv.status, tr: [tr.status, trJ.code, trJ.statusnfe], pendD });
       } finally {
         await pgFc.end();
+      }
+    }
+
+    // ══ §218 AUDITORIA DE ESQUELETOS — os BAIXA: precificação por custo (rótulos, CODUSUALT, irmãos no lote, filho), "Análise produto"
+    // da conferência, HISTORICO do cartão, pedido excluído mantém os itens, parceiro (perfil, DTULTALTERACAO, LOG do endereço)
+    {
+      const pgBx = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const J = { ...H, 'content-type': 'application/json' };
+        // 218.1 — precificação por custo
+        await pgBx.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, codgrupopreco, idproduto_pai) VALUES
+          (990710,'7899000990710','PAI DO GRUPO','UN',2,'T01','S',99071,NULL), (990711,'7899000990711','IRMAO DO GRUPO','UN',2,'T01','S',99071,NULL),
+          (990712,'7899000990712','FILHO DO PAI','UN',2,'T01','S',NULL,990710) ON CONFLICT (idproduto) DO NOTHING`);
+        await pgBx.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda, promocao) VALUES (990710,1,10,20,'N'),(990711,1,10,20,'N'),(990712,1,10,20,'N')
+          ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda = 20, codusualt = NULL`);
+        const sv = await fetch(`${base}/precificacao/custo/salvar`, { method: 'POST', headers: J, body: JSON.stringify({ idproduto: 990710, idempresa: 1, vrcusto: 10, empresas: [1], vrvenda: 25 }) });
+        const h = (await pgBx.query(`SELECT valor_chave, campo, historico FROM historico_dinamico WHERE tabela = 'MULTI_PRECO' AND valor_chave IN ('990710','990711') AND campo = 'VRVENDA' ORDER BY codhistorico`)).rows as any[];
+        const cu = (await pgBx.query(`SELECT idproduto, vrvenda, codusualt FROM multi_preco WHERE idproduto IN (990710, 990711) AND idempresa = 1 ORDER BY idproduto`)).rows as any[];
+        const svL = await fetch(`${base}/precificacao/custo/salvar`, { method: 'POST', headers: J, body: JSON.stringify({ idproduto: 990710, idempresa: 1, vrcusto: 10, empresas: [1], vrvenda: 30, modoLote: true }) });
+        const lotes = (await pgBx.query(`SELECT idproduto, vrvenda, obs FROM lote_preco WHERE idproduto IN (990710, 990711, 990712) AND processado = 'N' ORDER BY idproduto`)).rows as any[];
+        const irmao = Number((await pgBx.query(`SELECT vrvenda FROM multi_preco WHERE idproduto = 990711 AND idempresa = 1`)).rows[0].vrvenda);
+        check('BAIXA §218.1 [precificação por custo]: o VRVENDA do produto vai com "Precificação do Custo" (datamodule) E "Precificação de Mercadorias" (título da tela); o do irmão do grupo só com o título da tela · CODUSUALT = o operador · no LOTE o irmão também entra na fila (preço dele não muda) e o filho do pai ganha o lote "REFERENTE A ALTERAÇÃO DE PREÇO DO PRODUTO PAI"',
+          sv.status === 200 && h.filter((x) => x.valor_chave === '990710').map((x) => x.historico).sort().join('|') === 'Precificação de Mercadorias|Precificação do Custo'
+          && h.filter((x) => x.valor_chave === '990711').map((x) => x.historico).join('|') === 'Precificação de Mercadorias'
+          && Number(cu[0].codusualt) === 7 && Number(cu[1].vrvenda) === 25
+          && svL.status === 200 && lotes.map((l) => Number(l.idproduto)).join() === '990710,990711,990712' && lotes.every((l) => Number(l.vrvenda) === 30)
+          && lotes[2].obs === 'REFERENTE A ALTERAÇÃO DE PREÇO DO PRODUTO PAI' && irmao === 25,
+          { sv: sv.status, h, cu, svL: svL.status, lotes, irmao });
+
+        // 218.2 — "Análise produto" da conferência
+        const nfC = Number((await pgBx.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, tipoemissao, finalidade, cfop, codparceiro, proc, totalnf, totalprod, cancelada)
+            VALUES (1, 'E', 55, '1', '921801', now(), now(), '1', '1', '1102', 22, 'N', 10, 10, 'N') RETURNING codnf`)).rows[0].codnf);
+        const itC = Number((await pgBx.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, unidade, vrcusto, cfop, produc_status, codoperador_aprova_coleta)
+            VALUES ($1, 1, 1, 1, 1, 'UN', 10, '1102', 'APROVADO', 7) RETURNING codnfprod`, [nfC])).rows[0].codnfprod);
+        const an = await fetch(`${base}/compras/conferencia-nota/analisar`, { method: 'POST', headers: J, body: JSON.stringify({ codnf: nfC, itens: [itC] }) });
+        const anJ = (await an.json().catch(() => ({}))) as any;
+        const itDep = (await pgBx.query(`SELECT produc_status, codoperador_aprova_coleta FROM nf_prod WHERE codnfprod = $1`, [itC])).rows[0];
+        check('BAIXA §218.2 [Análise produto]: o item volta a LIBERADO (só o status — o operador da aprovação fica)',
+          an.status === 200 && Number(anJ.liberados) === 1 && itDep?.produc_status === 'LIBERADO' && Number(itDep?.codoperador_aprova_coleta) === 7, { an: [an.status, anJ], itDep });
+
+        // 218.3 — o HISTORICO do cartão
+        const oper = Number((await pgBx.query(`SELECT min(codoperadoras) AS c FROM operadoras`)).rows[0].c);
+        const crC = await fetch(`${base}/cadastro/cartao`, { method: 'POST', headers: J, body: JSON.stringify({ valor: 40, codoperadora: oper, dtvenda: '2026-09-20', nsuhost: 'H1', codrede: 5 }) });
+        const idC = Number(((await crC.json().catch(() => ({}))) as any).codvendcartao) || 0;
+        await fetch(`${base}/cadastro/cartao/${idC}`, { method: 'PUT', headers: J, body: JSON.stringify({ nsuhost: 'H2', codrede: 7 }) });
+        const hc = (await pgBx.query(`SELECT historico FROM historico WHERE tabela = 'CARTAO' AND coddoc = $1 ORDER BY codhist`, [String(idC)])).rows.map((r: any) => r.historico);
+        const hdC = Number((await pgBx.query(`SELECT count(*)::int n FROM historico_dinamico WHERE tabela = 'CARTAO' AND valor_chave = $1`, [String(idC)])).rows[0].n);
+        await pgBx.query(`UPDATE cartao SET consiliado = 'N' WHERE codvendcartao = $1`, [idC]);
+        const delC = await fetch(`${base}/cadastro/cartao/${idC}`, { method: 'DELETE', headers: H });
+        const hcDel = (await pgBx.query(`SELECT historico FROM historico WHERE tabela = 'CARTAO' AND coddoc = $1 AND historico LIKE 'EXCLUSAO%'`, [String(idC)])).rows.map((r: any) => r.historico);
+        check('BAIXA §218.3 [HISTORICO do cartão]: a alteração grava "ALTERACAO DO CAMPO NSUHOST DE: H1 PARA: H2" e a do CODREDE no HISTORICO (e não no HISTORICO_DINAMICO) · a exclusão grava "EXCLUSAO DO REGISTRO , NROPEDIDO: , VALOR: 040"',
+          crC.status === 201 && hc.includes('ALTERACAO DO CAMPO NSUHOST DE: H1 PARA: H2') && hc.includes('ALTERACAO DO CAMPO CODREDE DE: 5 PARA: 7') && hdC === 0
+          && (delC.status === 200 || delC.status === 204) && JSON.stringify(hcDel) === '["EXCLUSAO DO REGISTRO , NROPEDIDO: , VALOR: 040"]',
+          { cr: crC.status, hc, hdC, del: delC.status, hcDel });
+
+        // 218.4 — o pedido excluído (INDR='E') mantém os itens
+        const pc = (await (await fetch(`${base}/compras/pedidos`, { method: 'POST', headers: J, body: JSON.stringify({ codparceiro: 22, data: '2026-09-20', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 5 }] }) })).json().catch(() => ({}))) as any;
+        const idP = Number(pc.codpedcomp) || 0;
+        const delP = await fetch(`${base}/compras/pedidos/${idP}`, { method: 'DELETE', headers: H });
+        const pDep = (await pgBx.query(`SELECT indr FROM pedidocompra WHERE codpedcomp = $1`, [idP])).rows[0];
+        const itP = Number((await pgBx.query(`SELECT count(*)::int n FROM pedidocompra_i WHERE codpedcomp = $1`, [idP])).rows[0].n);
+        check('BAIXA §218.4 [pedido excluído]: INDR E e os itens ficam (o legado: 4.179 itens de 216 pedidos excluídos)',
+          idP > 0 && (delP.status === 200 || delP.status === 204) && pDep?.indr === 'E' && itP === 1, { idP, del: delP.status, pDep, itP });
+
+        // 218.5 — parceiro: perfil do cliente, DTULTALTERACAO e a LOG do endereço
+        await pgBx.query(`INSERT INTO perfil (codperfil, perfil, ativo, tipo) VALUES (99218, 'PERFIL CLIENTE SMOKE', 'S', 'PARCEIRO') ON CONFLICT (codperfil) DO NOTHING`);
+        const cp = await fetch(`${base}/cadastro/parceiros`, { method: 'POST', headers: J, body: JSON.stringify({
+          razao: 'PARCEIRO BAIXA 218', tipofj: 'F', cli: 'S', codperfil_parceiro: 99218,
+          enderecos: [{ endereco: 'RUA 218', cidade: 'UBERLANDIA', idcidade: 3170206, uf: 'MG', cnpj_cpf: '52998224725', endereco_padrao: 'S' }] }) });
+        const cpJ = (await cp.json().catch(() => ({}))) as any;
+        const pr = (await pgBx.query(`SELECT codperfil_parceiro, dtultalteracao FROM parceiros WHERE codparceiro = $1`, [Number(cpJ.codparceiro)])).rows[0];
+        const logEnd = (await pgBx.query(`SELECT acao, historico FROM log WHERE tabela = 'PARCEIROS_END' AND valor = $1`, [Number(cpJ.codparceiro)])).rows as any[];
+        check('BAIXA §218.5 [parceiro]: grava o perfil do cliente e a DTULTALTERACAO; a LOG do endereço (PARCEIROS_END, Inseriu) sai junto com a do cabeçalho',
+          cp.status === 201 && Number(pr?.codperfil_parceiro) === 99218 && pr?.dtultalteracao != null && logEnd.length === 1 && logEnd[0].acao === 'Inseriu' && /CAMPO: ENDERECO   VALOR: RUA 218/.test(logEnd[0].historico),
+          { cp: [cp.status, cpJ.code], pr, logEnd });
+      } finally {
+        await pgBx.end();
       }
     }
 

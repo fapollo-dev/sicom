@@ -249,6 +249,7 @@ const parceiroBase = z.object({
   // do fornecedor). Captura pura (sem validação no legado); e-mails são texto livre (o legado não valida
   // formato). Flags char(1) limpas no golden (só NULL/S/N). Só editáveis com FRN='S' (gating no front).
   codcomprador: z.number().int().optional(),
+  codperfil_parceiro: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()), // perfil do cliente (GET_PERFIL, TIPO PARCEIRO)
   diretor_comercial: z.string().trim().max(150).optional(),
   email_diretor_comercial: z.string().trim().max(150).optional(),
   fone_diretor_comercial: z.string().trim().max(20).optional(),

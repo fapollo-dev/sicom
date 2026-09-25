@@ -492,3 +492,34 @@
 - **Ajuste de estoque:** `SELECT EXTRACT(YEAR FROM data), destino, COUNT(*) FROM ajuste_estoque GROUP BY …`; `SELECT text FROM user_source WHERE name='ESTOQUE_AJUSTE'`.
 
 **Rascunhos** (units convertidas para UTF-8, dumps de triggers e saídas brutas): `/private/tmp/claude-501/-Library-Apollo/6bf25248-8079-4341-a66c-543c7c137e42/scratchpad/aud2/{A..E}/`.
+
+---
+
+## 6. Os BAIXA — andamento
+
+**Lote 1 (25/09/2026, smoke §218):**
+- §4.18 remessas: `pos-carga.sql` reposiciona `seq_remessa_banco_itau`/`_bb` pelo maior CODREMESSABANCO gravado (produção 6822/1682; as
+  sequências Oracle estão em 6841/1701 pelo cache) — sem voltar para trás.
+- §4.17 precificação por custo: VRVENDA com "Precificação do Custo" (datamodule, udmCadProduto.pas:2844) **e** "Precificação de
+  Mercadorias" (título da tela, UPrificacaoCusto.pas:1093) — as duas juntas em 585 eventos de 2025-26; o irmão do grupo só com o título
+  da tela; `CODUSUALT`; no lote os irmãos entram na fila (`SQLProduto`, :741) e o filho do pai ganha lote (`GeraLoteFilho`); a
+  atualização on-line do filho (`AtualizaPrecoFilho`) implementada com o gate do legado (DIF ≠ 0) — dormente na produção (0 históricos
+  "Alteração de preço do produto pai").
+- §4.16 conferência: "Análise produto" (LIBERADO, sem operador; a esteira desmarca stColeta e stConferencia). A esteira da aprovação já
+  vinha do commit `51e1d61`.
+- §4.13 cartão: HISTORICO em texto (`SetaHistorico`: "ALTERACAO DO CAMPO X DE: a PARA: b" na ordem do `cdsCartao`, com as descrições
+  OPERADORA/MODALIDADE; "EXCLUSAO DO REGISTRO , NROPEDIDO: x, VALOR: 040"); o HISTORICO_DINAMICO saiu (0 linhas no legado).
+- §4.11 pedido de compra (e agenda de promoção): a exclusão lógica mantém os itens (`manterDetalhesNaExclusao` no motor) — o legado
+  guarda 4.179 itens de 216 pedidos INDR='E' e 172 itens de 11 agendas.
+- §4.5 parceiro: `CODPERFIL_PARCEIRO` (perfil do cliente, TIPO 'PARCEIRO') e `DTULTALTERACAO` carimbada pela tela (vai na LOG "Alterou":
+  280 de 280 em 2026, inclusive a regravação sem mudança); LOG de PARCEIROS_END/REL/BANCOS. EMPRESAS e IDENTIFICADOR não são da tela
+  (outro processo) e o UPDATE não os toca.
+
+**Já resolvidos junto dos ALTA/MÉDIA:** scrap (usucadastro, qtde 0), manifesto (CNPJ formatado, 135/573, `data_evento`), devolução
+(VALOR_VENDA, UNIDADE_NOTA, fator da nota, stDevolucao), etiqueta (log por cópia com VALOR_IMPRESSAO), pedido (CODCOMPRADOR),
+ajuste de estoque (texto do histórico), baixa de cartão (LIBERADO do crédito).
+
+**Pendentes:** produto (LOG de MULTI_PRECO/CODAUXILIAR, HASHPAF, outbox), scrap (botão Aplicar com BAIXAR_ESTOQUE_NO_SCRAP='N'),
+agenda (VRVENDA do item, LOG por item, DESCRICAO_PROMOCAO), baixa de cartão (tiporecurso, texto), devolução (FINALIZADO), usuários
+(PERMISSOES das empresas retiradas), etiqueta (marcação da fila, "adicionar" manual), ajuste de preços (histórico por produto), ajuste
+de estoque (mínimo/máximo), contas bancárias (filtro por loja) e a decisão de projeto sobre AUDIT_*.

@@ -92,6 +92,13 @@ SELECT setval('seq_dadoscx', coalesce((SELECT max(coddadoscx) FROM dadoscx), 0):
 -- as PARCELAS da nota (FATURAMENTO, mig 246): a partir do corte A do faturamento a nota grava as parcelas — a sequência
 -- não é OWNED pela coluna (o setval genérico do carregador não a acha), então vai aqui, depois das 47 mil carregadas
 SELECT setval('seq_faturamento', coalesce((SELECT max(codfaturamento) FROM faturamento), 0)::bigint + 1, false);
+-- o sequencial GLOBAL da remessa por banco (GetID('NRSEQREMESSAITAU'/'NRSEQREMESSABB'): o BB o imprime no header 101-107, e repetir
+-- um número já enviado faz o banco recusar o arquivo). As migs 153/154 começam em 3132/705 (o golden); a produção já está em 6822/1682
+-- (auditoria de esqueletos §4.18). Reposiciona pelo maior número gravado em REMESSAS_BOLETOS, sem voltar para trás.
+SELECT setval('seq_remessa_banco_itau', greatest((SELECT last_value FROM seq_remessa_banco_itau),
+  coalesce((SELECT max(codremessabanco) FROM remessas_boletos WHERE nomebanco IN ('BANCO ITAU SA', 'Banco Itau')), 0))::bigint);
+SELECT setval('seq_remessa_banco_bb', greatest((SELECT last_value FROM seq_remessa_banco_bb),
+  coalesce((SELECT max(codremessabanco) FROM remessas_boletos WHERE nomebanco = 'Banco do Brasil'), 0))::bigint);
 
 -- A DATA DO TÍTULO A PAGAR (mig 327): o legado só tem DTCOMPRA; a tela do Apollo lê `dtvenda`. A trigger da mig 327
 -- sincroniza as duas a cada gravação — aqui para o caso de a carga ter rodado com as triggers desligadas. Idempotente.

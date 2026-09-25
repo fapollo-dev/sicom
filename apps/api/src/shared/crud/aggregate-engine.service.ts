@@ -226,8 +226,11 @@ export class AggregateEngineService extends CrudEngineService {
       if (!(await this.pertenceAEmpresa(trx, cfg, id, true))) return;
       if (cfg.validarRemocao) await cfg.validarRemocao({ id, db: trx });
       if (cfg.aoRemover) await cfg.aoRemover({ id, db: trx });
-      // cascata em código (como TfrmCadMasterDet) — não depende do ON DELETE CASCADE
-      for (const det of cfg.detalhes) await trx.deleteFrom(det.tabela).where(det.fk, '=', id).execute();
+      // cascata em código (como TfrmCadMasterDet) — não depende do ON DELETE CASCADE. Na exclusão LÓGICA com `manterDetalhesNaExclusao`
+      // os itens ficam, como no legado (o pedido de compra INDR='E' guarda os itens: 4.179 de 216 pedidos na produção)
+      if (!(cfg.softDelete && cfg.manterDetalhesNaExclusao)) {
+        for (const det of cfg.detalhes) await trx.deleteFrom(det.tabela).where(det.fk, '=', id).execute();
+      }
       if (cfg.softDelete) {
         await trx
           .updateTable(cfg.tabela)

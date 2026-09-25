@@ -166,6 +166,33 @@ export class ConferenciaNotaService {
   }
 
   /**
+   * ANÁLISE PRODUTO (`btnAnaliseProdutoClick`, uConferenciaNota.pas:291-363): os itens selecionados voltam para a análise do produto —
+   * PRODUC_STATUS='LIBERADO', sem operador nem data (a conferência por nota grava só o status: 1.925 dos 1.961 LIBERADO da produção têm
+   * CODOPERADOR_APROVA_COLETA nulo) — e a esteira da nota DESMARCA stColeta e stConferencia (:335-349). Sem liberação de supervisor.
+   */
+  async analisar(dto: { codnf: number; itens: number[] }): Promise<{ liberados: number }> {
+    const { emp } = this.ctx();
+    if (!dto.itens?.length) throw new BusinessRuleError('CONFERENCIA_SEM_ITENS');
+    const db = this.dbp.forTenant() as AnyDB;
+    return db.transaction().execute(async (trx: AnyDB) => {
+      await this.assertNfDaEmpresa(trx, dto.codnf, emp);
+      const r = await trx
+        .updateTable('nf_prod')
+        .set({ produc_status: 'LIBERADO' })
+        .where('codnf', '=', Number(dto.codnf))
+        .where('codnfprod', 'in', dto.itens.map(Number))
+        .executeTakeFirst();
+      const n = Number(r?.numUpdatedRows ?? 0);
+      const chave = n > 0 ? await chaveDeEntrada(trx, Number(dto.codnf)) : null;
+      if (chave) {
+        await desregistrarProcessoNf(trx, 'stColeta', chave);
+        await desregistrarProcessoNf(trx, 'stConferencia', chave);
+      }
+      return { liberados: n };
+    });
+  }
+
+  /**
    * CANCELAR a aprovação: volta ao "pendente". O legado faz `PRODUC_STATUS := ''` e `CODOPERADOR := 0`, mas no
    * Oracle **string vazia É NULL** — o golden confirma (a linha cancelada lá tem status NULL e operador 0). Então
    * o fiel ao DADO é gravar NULL no status (e 0 no operador, que é número e fica zero mesmo). Gravar `''` criaria
