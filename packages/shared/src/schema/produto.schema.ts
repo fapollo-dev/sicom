@@ -463,9 +463,30 @@ export const FAMILIA_TIPO_OPCOES = [
   { value: 'E', label: 'Setor' },
 ] as const;
 
+const codFamilia = z.union([z.coerce.number().int(), z.literal('')]).optional(); // '' limpa
 const familiaBase = z.object({
   tipo: z.enum(['D', 'G', 'S', 'P', 'R', 'O', 'E'], { message: 'Tipo de família inválido.' }),
   descricao: z.string().trim().max(60).optional(),
+  ativo: snFlag(),
+  // a hierarquia do subgrupo (departamento, grupo, seção, setor) e o que cada tipo tem na tela do legado
+  coddpto: codFamilia,
+  codgrupo: codFamilia,
+  codsecao: codFamilia,
+  codsetor: codFamilia,
+  coberturamaxima: dec(z.number().nonnegative()),
+  exibesicomanda: snFlag(), // "Exibe no SICOMANDA"
+  comissao: dec(z.number().nonnegative()), // o grupo: comissão (%)
+  codperfil_compra: codFamilia, // o departamento: perfil de compra
+  codplc: codFamilia, // centro de custo de perdas
+  codsetor_perda_padrao: snFlag(), // o setor: "definir setor de perda padrão" (um só)
+  vrmargemmin: dec(z.number()),
+  vrmargemmax: dec(z.number()),
+  vrmargemfixa: dec(z.number()),
+  fp_despesa_operacional: dec(z.number()),
+  checkout: opcional(z.string().trim().max(1)),
+  referencia: opcional(z.string().trim().max(15)),
+  modeloeitqueta: opcional(z.string().trim().max(200)),
+  desconsidera_conferencia_peso: snFlag(),
 });
 export const familiaSchema = z.preprocess(stripNulls, familiaBase); // fold varredura null→ausente
 export type CriarFamiliaDto = z.infer<typeof familiaSchema>;

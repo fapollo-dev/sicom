@@ -71,6 +71,11 @@ export interface CrudConfig {
   validarTrx?: (ctx: { trx: any; id?: number; dto: Record<string, unknown> }) => Promise<void>;
   /** regra do excluir na transação (CRUD simples); `senhaAdmin` vem da query (o `SenhaAdministrativa('ADM')` do legado). */
   validarRemocaoTrx?: (ctx: { trx: any; id: number; senhaAdmin?: string; dbp: any }) => Promise<void>;
+  /**
+   * EXCLUSÃO LÓGICA por colunas próprias (quando a tabela do legado não usa INDR): o excluir grava estes valores em vez de apagar —
+   * ex.: FAMILIAS_PROD, que o legado marca com EXCLUIDO='S' e ATIVO='N' (UCadFamiliaProd.pas:293-298).
+   */
+  exclusaoLogica?: Record<string, unknown>;
 }
 
 /**

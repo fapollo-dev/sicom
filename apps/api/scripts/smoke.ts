@@ -22876,6 +22876,49 @@ async function main() {
       }
     }
 
+    // ══ §229 CATEGORIAS E DEPARTAMENTOS (FRMCADFAMILIAPROD) — a tela e as regras do UCadFamiliaProd ═══════════════════════════════
+    {
+      const pgFa = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const F = `${base}/cadastro/familias`;
+      const criar = async (b: Record<string, unknown>) => {
+        const r = await fetch(F, { method: 'POST', headers: H, body: JSON.stringify(b) });
+        const j = (await r.json().catch(() => ({}))) as any;
+        return { status: r.status, code: j.code as string | undefined, id: Number(j.codfamilia) || 0 };
+      };
+      const ids: number[] = [];
+      try {
+        const dep = await criar({ tipo: 'D', descricao: 'DEPTO 229' }); ids.push(dep.id);
+        const gru = await criar({ tipo: 'G', descricao: 'GRUPO 229' }); ids.push(gru.id);
+        const depInativo = await criar({ tipo: 'D', descricao: 'DEPTO INATIVO 229' }); ids.push(depInativo.id);
+        await pgFa.query(`UPDATE familias_prod SET ativo = 'N' WHERE codfamilia = $1`, [depInativo.id]);
+        const subOk = await criar({ tipo: 'S', descricao: 'SUB 229', coddpto: dep.id, codgrupo: gru.id }); ids.push(subOk.id);
+        const subTipoErrado = await criar({ tipo: 'S', descricao: 'SUB ERRADO 229', coddpto: gru.id });
+        const subPaiInativo = await criar({ tipo: 'S', descricao: 'SUB INATIVO 229', coddpto: depInativo.id });
+        const r1 = (await pgFa.query(`SELECT ativo, idempresa, dtcadastro, usultalteracao, coddpto, codgrupo FROM familias_prod WHERE codfamilia = $1`, [subOk.id])).rows[0] as any;
+        check('FAMÍLIAS §229.1 [a hierarquia do subgrupo]: o subgrupo pendura num DEPARTAMENTO e num GRUPO ativos — apontar um grupo no lugar do departamento ou um departamento inativo → 422 FAMILIA_DEPARTAMENTO_INATIVO ("O departamento informado não está ativo!", os exits do UCadFamiliaProd); a inclusão grava ATIVO S, a loja e os carimbos',
+          dep.status === 201 && subOk.status === 201 && subTipoErrado.code === 'FAMILIA_DEPARTAMENTO_INATIVO' && subPaiInativo.code === 'FAMILIA_DEPARTAMENTO_INATIVO'
+          && r1?.ativo === 'S' && Number(r1?.idempresa) === 1 && r1?.dtcadastro != null && Number(r1?.usultalteracao) === 7 && Number(r1?.coddpto) === dep.id,
+          { dep, subOk, subTipoErrado, subPaiInativo, r1 });
+        const set1 = await criar({ tipo: 'E', descricao: 'SETOR 229 A', codsetor_perda_padrao: 'S' }); ids.push(set1.id);
+        const set2 = await criar({ tipo: 'E', descricao: 'SETOR 229 B', codsetor_perda_padrao: 'S' }); if (set2.id) ids.push(set2.id);
+        // grupo de preço usado por produto não sai; o que ninguém usa sai LÓGICO (EXCLUIDO S, ATIVO N — a linha fica)
+        const gp = await criar({ tipo: 'P', descricao: 'GRUPO PRECO 229' }); ids.push(gp.id);
+        await pgFa.query(`UPDATE produtos SET codgrupopreco = $1 WHERE idproduto = 3`, [gp.id]);
+        const delUsado = await fetch(`${F}/${gp.id}`, { method: 'DELETE', headers: H });
+        const delUsadoJ = (await delUsado.json().catch(() => ({}))) as any;
+        await pgFa.query(`UPDATE produtos SET codgrupopreco = NULL WHERE idproduto = 3`);
+        const delLivre = await fetch(`${F}/${gru.id}`, { method: 'DELETE', headers: H });
+        const r2 = (await pgFa.query(`SELECT excluido, ativo FROM familias_prod WHERE codfamilia = $1`, [gru.id])).rows[0] as any;
+        check('FAMÍLIAS §229.2 [setor de perda padrão e exclusão]: o setor de perda padrão é um só (o 2º → 422 FAMILIA_SETOR_PERDA_PADRAO_EXISTE); a família usada por produto não exclui (422 FAMILIA_EM_USO_PRODUTO — "Esse cadastro está relacionado com o cadastro de produtos…"); a livre exclui LÓGICO: EXCLUIDO S e ATIVO N, a linha fica (UCadFamiliaProd.pas:293-298)',
+          set1.status === 201 && set2.code === 'FAMILIA_SETOR_PERDA_PADRAO_EXISTE' && delUsado.status === 422 && delUsadoJ.code === 'FAMILIA_EM_USO_PRODUTO'
+          && delLivre.ok && r2?.excluido === 'S' && r2?.ativo === 'N',
+          { set1, set2, delUsado: [delUsado.status, delUsadoJ.code], delLivre: delLivre.status, r2 });
+      } finally {
+        await pgFa.query(`DELETE FROM familias_prod WHERE codfamilia = ANY($1::int[])`, [ids.filter(Boolean)]).catch(() => undefined);
+        await pgFa.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();

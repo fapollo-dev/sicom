@@ -155,7 +155,12 @@ export class CrudEngineService {
       // escopo multi-tenant (fail-closed): só exclui se a linha for da empresa do contexto.
       if (!(await this.pertenceAEmpresa(trx, cfg, id))) return;
       if (cfg.validarRemocaoTrx) await cfg.validarRemocaoTrx({ trx, id, senhaAdmin: opts.senhaAdmin, dbp: this.dbp });
-      if (cfg.softDelete) {
+      if (cfg.exclusaoLogica) {
+        const antes = cfg.log ? ((await trx.selectFrom(cfg.tabela).selectAll().where(cfg.pk, '=', id).executeTakeFirst()) ?? {}) : {};
+        await trx.updateTable(cfg.tabela).set(cfg.exclusaoLogica).where(cfg.pk, '=', id).execute();
+        await this.stamp(trx, cfg, id, op, false);
+        await gravarLogDeCadastro(trx, cfg, 'Alterou', id, antes as Record<string, unknown>, cfg.exclusaoLogica);
+      } else if (cfg.softDelete) {
         await trx
           .updateTable(cfg.tabela)
           .set({ indr: 'E', indr_usuario: op, indr_data: sql`now()` })

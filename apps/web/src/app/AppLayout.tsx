@@ -66,6 +66,7 @@ const TELAS = [
   { href: '/fiscal/notas/saida', name: 'NF de Saída', icon: FileOutput },
   { href: '/cadastro/bancos', name: 'Bancos', icon: Landmark },
   { href: '/cadastro/marcas', name: 'Marcas', icon: Tags },
+  { href: '/cadastro/familias', name: 'Categorias e departamentos', icon: Tags },
   { href: '/cadastro/bairros', name: 'Bairros', icon: MapPin },
   { href: '/cadastro/cidades', name: 'Cidades', icon: Building2 },
   { href: '/cadastro/precos', name: 'Reajuste de Preço', icon: DollarSign },
