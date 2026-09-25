@@ -23389,7 +23389,8 @@ async function main() {
         const c170 = lin.slice(iEnt + 1, iEnt + 4);
         const c190Ent = lin.slice(iEnt + 4).filter((l, k, arr) => l.startsWith('|C190|') && arr.slice(0, k).every((x) => x.startsWith('|C190|')));
         const depoisSai = lin[iSai + 1] ?? '';
-        const semMod7 = !lin.some((l) => l.includes('|SF240T|'));
+        // o modelo 07 (frete) sai do C100 e vai ao D100 do bloco D (GeraBlocoD)
+        const semMod7 = !lin.some((l) => l.startsWith('|C100|') && l.includes('|SF240T|')) && lin.some((l) => l.startsWith('|D100|') && l.includes('|SF240T|'));
         const r0150 = lin.find((l) => l.startsWith('|0150|22|')) ?? '';
         check('SPED FISCAL §240 [o bloco C do legado]: C170 com a quantidade na unidade do produto (2 caixas × 6 = 12), o CST de 3 dígitos (000/040/020 — o Apollo mandava E00), a alíquota do ICME (12, não o ICMS 18) e o ICMS zerado no x102 com CST 40 (o legado zera: R$ 28 mil de crédito a mais em 8 meses); o C190 do CST 20 com o VL_RED_BC (50 / 50% − 50 = 50); a NF-e própria sem C170; o modelo 07 fora do C100; o 0150 com o CNPJ do endereço da nota',
           r.status === 200 && iEnt > 0
@@ -24106,6 +24107,48 @@ async function main() {
         await pgNc.query(`DELETE FROM vendas WHERE nropedido IN ('NC1','NC2') AND idempresa = 1`).catch(() => undefined);
         await pgNc.query(`DELETE FROM nfe_inutilizada WHERE codempresa = 1 AND data::date = '2038-04-07'`).catch(() => undefined);
         await pgNc.end();
+      }
+    }
+
+    // ══ §254 EFD ICMS-IPI — o BLOCO D (GeraBlocoD): o frete (D100/D190) e a telecomunicação (D500/D590) ══════════
+    {
+      const pgBd = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const nfs: number[] = [];
+      try {
+        const ins = async (modelo: number, nronf: string, chave: string | null, proc: string, itens: Array<[string, number, string, number, number, number]>) => {
+          const c = Number((await pgBd.query(`INSERT INTO nf (idempresa, tipo, modelo, serie, nronf, dtemissao, dtcontabil, tipoemissao, finalidade, cfop, codparceiro, codparceiro_end, proc, totalnf, totalprod,
+              totalbaseicm, totalicm, tipofrete, chavenfe, validatotalnf) VALUES (1, 'E', $1, '1', $2, '2038-05-10', '2038-05-10', '1', '1', $3, 22, 6, $4, 100, 100, 100, 12, 1, $5, 100) RETURNING codnf`,
+            [modelo, nronf, itens[0][0], proc, chave])).rows[0].codnf);
+          nfs.push(c);
+          let i = 0;
+          for (const [cfop, cst, aliq, icme, bc, icm] of itens) {
+            await pgBd.query(`INSERT INTO nf_prod (codnf, nroitem, codproduto, quantidade, fatorembal, vrcusto, cfop, cst, aliquota, icme, vrbasecalculo, vricm, bcr, arredonda)
+              VALUES ($1, $2, 1, 1, 1, 100, $3, $4, $5, $6, $7, $8, 100, 'S')`, [c, ++i, cfop, cst, aliq, icme, bc, icm]);
+          }
+          return c;
+        };
+        await ins(57, 'CTE1', '31380500000000000000570010000000011000000001', 'N', [['1353', 0, 'T12', 12, 100, 12]]);
+        await ins(21, 'TEL1', null, 'S', [['1303', 90, 'IST', 0, 0, 0]]);
+        const efd = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2038-05-01', dtfim: '2038-05-31' }) });
+        const j = (await efd.json().catch(() => ({}))) as any;
+        const lin = String(j.arquivo ?? '').split('\r\n');
+        const d001 = lin.find((l) => l.startsWith('|D001|')) ?? '';
+        const d100 = lin.find((l) => l.startsWith('|D100|')) ?? '';
+        const d190 = lin.find((l) => l.startsWith('|D190|')) ?? '';
+        const d500 = lin.find((l) => l.startsWith('|D500|')) ?? '';
+        const d590 = lin.find((l) => l.startsWith('|D590|')) ?? '';
+        const semC100 = !lin.some((l) => l.startsWith('|C100|') && (l.includes('|CTE1|') || l.includes('|TEL1|')));
+        check('EFD ICMS-IPI §254 [o bloco D]: o CT-e modelo 57 (mesmo não processado — o sqqNFfrete não filtra PROC) sai D100 de entrada de terceiros, série 001, SUB 000, a chave, VL_DOC = VL_SERV = 100, base/ICMS do cabeçalho (100/12) e o D190 000/1353/12 (operação 100, base 100, ICMS 12); a conta de telecomunicação modelo 21 sai D500 (assinante 1) com um D590 (090/1303); nenhum dos dois vai ao C100; D001 com dados; validação sem erros',
+          efd.status === 200 && d001 === '|D001|0|' && d100.startsWith('|D100|0|1|22|57|00|001|000|CTE1|31380500000000000000570010000000011000000001|10052038|10052038|||100,00|0,00|1|100,00|100,00|12,00|0,00|||')
+          && d190 === '|D190|000|1353|12,00|100,00|100,00|12,00|0,00||' && d500.startsWith('|D500|0|1|22|21|00|1||TEL1|10052038|10052038|100,00|') && d500.endsWith('|1|')
+          && d590.startsWith('|D590|090|1303|0,00|100,00|') && semC100 && j.validacao?.ok !== false,
+          { d001, d100, d190, d500, d590, semC100, validacao: j.validacao });
+      } finally {
+        for (const c of nfs) {
+          await pgBd.query(`DELETE FROM nf_prod WHERE codnf = $1`, [c]).catch(() => undefined);
+          await pgBd.query(`DELETE FROM nf WHERE codnf = $1`, [c]).catch(() => undefined);
+        }
+        await pgBd.end();
       }
     }
 

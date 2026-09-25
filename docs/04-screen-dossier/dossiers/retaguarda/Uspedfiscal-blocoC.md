@@ -305,7 +305,7 @@ Formatação do ACBr (casas de QTD; CST_PIS de 1 dígito, já que o CAST para `N
 | I — PIS/COFINS no C170 do ICMS-IPI (PISCOFINS do produto) | ✅ |
 | J — Contribuições C100/C170 (`sped-pc-legado.ts`: CST e alíquota pelo CASE de CFOP/PC_CONFIG/TIPOFJ, BASECOFINS, ICMS só 'T…' fora do PROC_CUPOM, x929, COD_CTA do CFOP, PIS/COFINS do C100 pela conta do cabeçalho, COD_SIT 08, VL_DESC do C100 com o desconto final; mig 358 com ABATER_ICMS_BASE_CALCULO_PIS_COFINS e CONSIDERA_ITENS_DECOMPOSICAO_SPED_FISCAL) | ✅ smoke §252 + unit. **Não copiado** (§10): o VL_DESC do C170 em % (bug do legado) — sai o valor do desconto |
 | K1 — NFC-e (C100 65 sem participante + C190, das VENDAS — a NFC do PDV não migra; NRONF = cupom e TOTALNF = produtos − descontos + acréscimos em 100% na produção) e as inutilizações (NFE_INUTILIZADA, um C100 05 por número, 65/55) no ICMS-IPI; o E110 derivado soma o débito da NFC-e; mig 359 | ✅ smoke §253 |
-| K2 — bloco D (D100/D190 frete 7/8/9/10/11/26/27/57; D500/D590 telecom 21/22) | ⏳ |
+| K2 — bloco D (D100/D190 do frete 7/8/9/10/11/26/27/57, sem filtro de processada; D500/D590 da telecomunicação 21/22, processadas; os participantes no 0150). **Não copiado** (§10): o VL_RED_BC = média do BCR (percentual no campo de valor) — D190 com a regra do C190, D590 0. COD_PART = codparceiro (como o 0150 do Apollo; o legado usa o CODEND) | ✅ smoke §254 (+ §240 com o 07 no D100) |
 
 Decisões registradas (legado errado, não copiado): VL_RED_BC herdado do grupo anterior → 0. Copiado com nota: C100 VL_PIS/VL_COFINS
 com a alíquota de ENTRADA em qualquer tipo (dfm:2636-2646); item com CFOP que não gera SPED sai no C170 e não no C190.

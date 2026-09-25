@@ -54,11 +54,11 @@ function codVersaoFiscal(dtini: string): string {
  * inventário no período (inventario_livro/inventario) H005 (DT_INV|VL_INV=Σ máx(0,qtde×vrcusto)|MOT_INV) + H010 por
  * item (COD_ITEM=idproduto gateado pelo 0200). Fonte: nossas tabelas do épico INVENTÁRIO (mig 090).
  *
- * ESTRUTURA DE BLOCOS COMPLETA: 0/C/D/E/G/H/K/1/9 — todos com opener obrigatório. D/G/K/1 saem só com o opener
+ * ESTRUTURA DE BLOCOS COMPLETA: 0/C/D/E/G/H/K/1/9 — todos com opener obrigatório. G/K/1 saem só com o opener
  * (IND_MOV=1 sem-dados). Bloco B (ISS) é OMITIDO (só p/ informante obrigado ao EFD-ISS municipal; N/A p/ este
- * informante de ICMS/IPI). BLOCO D: o legado EMITE D100/D190 (frete, modelos 7/8/9/10/11/26/27/57) e D500/D590
- * (telecom 21/22) em `GeraBlocoD` (Uspedfiscal.pas:516-672) — ADIADO aqui: as NFs desses modelos ficam fora do bloco C (o PVA recusa
- * COD_MOD 07/08 no C100) e o D001 sai sem dados.
+ * informante de ICMS/IPI). BLOCO D como o `GeraBlocoD` (Uspedfiscal.pas:516-672): D100/D190 do frete (modelos 7/8/9/10/11/26/27/57)
+ * e D500/D590 da telecomunicação (21/22). O ICMS do bloco D, como o da energia, fica fora do E110 derivado. O bloco C traz também as
+ * NFC-e (das vendas) e as numerações inutilizadas (GeraNFC / GeraNFInutilizadas).
  *
  * ADIADO (corte-5+, com procedência): VL_SLD_CREDOR_ANT (carry do saldo credor do período anterior — precisa
  * persistir a apuração/APURACAO_ICMS; hoje 0, superestima a-recolher se houver credor acumulado) · CONTEÚDO dos
@@ -111,6 +111,10 @@ export class SpedEfdIcmsIpiService {
     arq.add('0005', [empresa.fantasia ?? empresa.razao_social ?? '', soDigitos(empresa.cep), empresa.endereco ?? '', empresa.numero ?? 'S/N', '', empresa.bairro ?? '', soDigitos(empresa.fone1), '', '']);
 
     const docs = await this.coletarEntrada(db, emp, dtini, dtfim);
+    // o BLOCO D (GeraBlocoD, Uspedfiscal.pas:516-672): as notas de frete (D100/D190) — os participantes delas entram no 0150
+    const frete = await this.coletarFrete(db, emp, dtini, dtfim, docs.parceiros, [7, 8, 9, 10, 11, 26, 27, 57], false);
+    // e as de telecomunicação 21/22 (sqqNFtelecomunicacao: processadas, sem o filtro de CFOP do C100) — D500/D590
+    const telecom = await this.coletarFrete(db, emp, dtini, dtfim, docs.parceiros, [21, 22], true);
     const inventario = await this.coletarInventario(db, emp, dtini, dtfim);
     // Bloco H (inventário) referencia COD_ITEM no 0200 → mescla os produtos do inventário no cadastro (fiel: o
     // legado gateia o H010 pela pertinência ao 0200; aqui garantimos que o 0200 cobre o inventário — reporta a
@@ -135,10 +139,8 @@ export class SpedEfdIcmsIpiService {
     const nfce = await this.coletarNfce(db, emp, dtini, dtfim);
     const { creditoIcms, debitoIcms } = this.emitirBlocoC(arq, docs, inutilizadas, nfce, dtini);
 
-    // BLOCO D — documentos fiscais de SERVIÇOS (transporte/comunicação): sem dados (não migrado) — o opener é de
-    // ocorrência OBRIGATÓRIA no EFD ICMS/IPI (IND_MOV=1 sem-dados), o PVA espera todos os blocos.
-    arq.add('D001', ['1']);
-    arq.fecharBloco('D990', 'D');
+    // BLOCO D — frete (D100/D190) e telecomunicação (D500/D590), como o GeraBlocoD
+    this.emitirBlocoD(arq, frete, telecom, empresa.idcidade);
 
     // BLOCO E — apuração ICMS. O legado NÃO deriva o E110 do bloco C: ele **lê a APURAÇÃO gravada** do período
     // (uRelRegistros_ES/uDMRelRegistros_ES — migs 164/165, o processo que produz o livro de Entradas e Saídas).
@@ -232,7 +234,7 @@ export class SpedEfdIcmsIpiService {
       documentos: docs.nfs.length,
       parcial: true,
       validacao: validarSpedFiscal(arquivo),
-      aviso: `PARCIAL (corte-4): bloco 0 + bloco C (${docs.nfs.length} docs; C100/C170/C190 por IND_OPER + ${nfce.length} NFC-e (C100 65 + C190) + ${inutilizadas.length} faixa(s) inutilizada(s) + C500/C590 energia/gás/água mod 06/28/29) + bloco E (E110 ${origemE110}; E116 quando há a recolher) + bloco H (${inventario.livros.length} inventário(s); H005/H010) + blocos D/G/K/1 (só opener, sem dados) + bloco 9. Estrutura de blocos completa. Sem ST/DIFAL/IPI; conteúdo de D/G/K/1 não migrado. C176/C195/C197/C800 confirmados mortos (cópia fiel).`,
+      aviso: `PARCIAL (corte-4): bloco 0 + bloco C (${docs.nfs.length} docs; C100/C170/C190 por IND_OPER + ${nfce.length} NFC-e (C100 65 + C190) + ${inutilizadas.length} faixa(s) inutilizada(s) + C500/C590 energia/gás/água mod 06/28/29) + bloco E (E110 ${origemE110}; E116 quando há a recolher) + bloco D (${frete.length} frete D100/D190 + ${telecom.length} telecom D500/D590) + bloco H (${inventario.livros.length} inventário(s); H005/H010) + blocos G/K/1 (só opener, sem dados) + bloco 9. Estrutura de blocos completa. Sem ST/DIFAL/IPI; conteúdo de G/K/1 não migrado. C176/C195/C197/C800 confirmados mortos (cópia fiel).`,
     };
   }
 
@@ -666,6 +668,115 @@ export class SpedEfdIcmsIpiService {
       c.grupos.set(gk, g);
     }
     return [...porCupom.values()].map(({ grupos, ...c }) => ({ ...c, c190: [...grupos.values()] }));
+  }
+
+
+  /**
+   * as notas do bloco D: FRETE (sqqNFfrete, UdmSpedFiscal.dfm:6751-6773 — modelos 7/8/9/10/11/26/27/57 no período contábil, número diferente
+   * de 000000, sem filtro de processada nem de cancelada) e TELECOMUNICAÇÃO (sqqNFtelecomunicacao, :5268 — 21/22 processadas), com os itens
+   * (o analítico) e o endereço da nota
+   */
+  private async coletarFrete(db: AnyDB, emp: number, dtini: string, dtfim: string, parceiros: Map<number, Record<string, any>>, modelos: number[], soProcessadas: boolean):
+    Promise<Array<Record<string, any> & { itens: Array<Record<string, any>> }>> {
+    let q = db.selectFrom('nf').leftJoin('parceiros_end as pe', 'pe.codend', 'nf.codparceiro_end')
+      .select(['nf.codnf', 'nf.tipo', 'nf.modelo', 'nf.nronf', 'nf.serie', 'nf.chavenfe', 'nf.dtemissao', 'nf.dtcontabil', 'nf.codparceiro', 'nf.codparceiro_end', 'nf.totalnf',
+        'nf.totaldesc', 'nf.totalprod', 'nf.totalacessorias', 'nf.totalbaseicm', 'nf.totalicm', 'nf.tipofrete', 'pe.idcidade'])
+      .where('nf.idempresa', '=', emp)
+      .where(sql`coalesce(nf.modelo, 0)`, 'in', modelos)
+      .where('nf.dtcontabil', '>=', dtini)
+      .where('nf.dtcontabil', '<=', dtfim);
+    // o frete não filtra o número nem a processada além do 000000; a telecomunicação só a processada
+    q = soProcessadas ? q.where('nf.proc', '=', 'S') : q.where(sql<boolean>`coalesce(nf.nronf, '') <> '000000'`);
+    const nfs = (await q.orderBy('nf.tipo').orderBy('nf.modelo').orderBy('nf.dtemissao').orderBy('nf.nronf').execute()) as Array<Record<string, any>>;
+    const ids = nfs.map((n) => Number(n.codnf));
+    const itens = ids.length
+      ? ((await db.selectFrom('nf_prod as np').leftJoin('cfop as c', (j: any) => j.on(sql`c.codcfop::text`, '=', sql`np.cfop::text`))
+        .select(['np.codnf', 'np.cst', 'np.cfop', 'np.vrcusto', 'np.desconto', 'np.quantidade', 'np.depsacess', 'np.frete', 'np.ipi', 'np.vricmst', 'np.bcr', 'np.aliquota',
+          'np.icme', 'np.vricm', 'np.vrbasecalculo', 'c.proc_cupom'])
+        .where('np.codnf', 'in', ids).orderBy('np.codnf').orderBy('np.nroitem').execute()) as Array<Record<string, any>>)
+      : [];
+    const porNf = new Map<number, Array<Record<string, any>>>();
+    for (const it of itens) (porNf.get(Number(it.codnf)) ?? porNf.set(Number(it.codnf), []).get(Number(it.codnf))!).push(it);
+    const faltam = [...new Set(nfs.map((n) => Number(n.codparceiro)).filter((c) => c && !parceiros.has(c)))];
+    if (faltam.length) {
+      const endDaNota = new Map<number, number>();
+      for (const n of nfs) if (n.codparceiro != null && n.codparceiro_end != null && !endDaNota.has(Number(n.codparceiro))) endDaNota.set(Number(n.codparceiro), Number(n.codparceiro_end));
+      const rows = (await db.selectFrom('parceiros as p').leftJoin('parceiros_end as pe', 'pe.codparceiro', 'p.codparceiro')
+        .select(['p.codparceiro as codparceiro', 'p.razao as razao', 'pe.codend as codend', 'pe.cnpj_cpf as cnpj_cpf', 'pe.endereco as endereco', 'pe.bairro as bairro', 'pe.idcidade as idcidade'])
+        .where('p.codparceiro', 'in', faltam).orderBy('pe.codend').execute()) as Array<Record<string, any>>;
+      for (const r of rows) {
+        const cod = Number(r.codparceiro);
+        const daNota = endDaNota.get(cod);
+        if (!parceiros.has(cod) || (daNota != null && Number(r.codend) === daNota)) parceiros.set(cod, r);
+      }
+    }
+    return nfs.map((n) => ({ ...n, itens: porNf.get(Number(n.codnf)) ?? [] }));
+  }
+
+  /**
+   * o analítico do frete/telecom (sqqAnaliticoFrete / sqqNFAnaliticoTel): por CST/CFOP/alíquota, o valor da operação (produto − desconto%
+   * + despesas + frete% + IPI% + ST), e o ICMS/base só na alíquota tributada ('T…') fora do PROC_CUPOM, do x401/x403/x933/x556 e do
+   * x101/x102 com CST 40/90
+   */
+  private analiticoD(itens: Array<Record<string, any>>): Array<{ cst: string; cfop: string; aliq: number; vlOpr: number; bc: number; icms: number }> {
+    const nn = (v: unknown) => (v == null || v === '' ? 0 : Number(v) || 0);
+    const grupos = new Map<string, { cst: string; cfop: string; aliq: number; vlOpr: number; bc: number; icms: number }>();
+    for (const it of itens) {
+      const sub = String(it.cfop ?? '').slice(1, 4);
+      const tributa = String(it.proc_cupom ?? '') !== 'S' && !['401', '403', '933', '556'].includes(sub)
+        && !(['102', '101'].includes(sub) && [40, 90].includes(Math.trunc(nn(it.cst)))) && String(it.aliquota ?? '').trim().toUpperCase().startsWith('T');
+      const aliq = tributa ? r2(nn(it.icme)) : 0;
+      const base = r2((nn(it.vrcusto) - (nn(it.vrcusto) * nn(it.desconto)) / 100) * nn(it.quantidade));
+      const valor = base + nn(it.depsacess) + r2((nn(it.frete) * base) / 100) + r2((nn(it.ipi) * base) / 100) + r2(nn(it.vricmst));
+      const cst = cst3(it.cst);
+      const k = `${cst}|${it.cfop}|${aliq}`;
+      const g = grupos.get(k) ?? { cst, cfop: String(it.cfop ?? ''), aliq, vlOpr: 0, bc: 0, icms: 0 };
+      g.vlOpr = r2(g.vlOpr + valor);
+      if (tributa) { g.bc = r2(g.bc + nn(it.vrbasecalculo)); g.icms = r2(g.icms + nn(it.vricm)); }
+      grupos.set(k, g);
+    }
+    return [...grupos.values()];
+  }
+
+  /**
+   * BLOCO D (GeraBlocoD, Uspedfiscal.pas:516-672) — D100 por nota de frete (sempre entrada de terceiros no legado, COD_SIT 00, série com 3
+   * dígitos, SUB 000, a chave do CT-e, VL_DOC = VL_SERV = o total, base/ICMS do cabeçalho quando o analítico tem, os municípios pela direção)
+   * com o D190 por CST/CFOP/alíquota; D500 por nota de telecomunicação 21/22 (assinante comercial/industrial, base e ICMS 0) com UM D590 —
+   * o legado não percorre o analítico, grava o primeiro grupo. O VL_RED_BC do legado é a MÉDIA do BCR (um percentual no campo de valor):
+   * aqui o D190 leva a regra do C190 (CST 20/70: operação − base) e o D590, 0 — decisão documentada no dossiê
+   */
+  private emitirBlocoD(arq: SpedArquivo, frete: Array<Record<string, any> & { itens: Array<Record<string, any>> }>, telecom: Array<Record<string, any> & { itens: Array<Record<string, any>> }>,
+    idcidadeEmpresa: unknown): void {
+    const nn = (v: unknown) => (v == null || v === '' ? 0 : Number(v) || 0);
+    arq.add('D001', [frete.length || telecom.length ? '0' : '1']);
+    for (const nf of frete) {
+      const grupos = this.analiticoD(nf.itens);
+      const bcAnal = grupos.reduce((a, g) => a + g.bc, 0);
+      const icmsAnal = grupos.reduce((a, g) => a + g.icms, 0);
+      const entrada = String(nf.tipo) === 'E';
+      const munNota = nf.idcidade != null ? String(nf.idcidade) : '';
+      const munEmp = idcidadeEmpresa != null ? String(idcidadeEmpresa) : '';
+      const tf = nf.tipofrete == null || String(nf.tipofrete).trim() === '' ? '' : [0, 1, 2, 3, 4, 9].includes(nn(nf.tipofrete)) ? String(nn(nf.tipofrete)) : '';
+      // D100 (24): IND_OPER|IND_EMIT|COD_PART|COD_MOD|COD_SIT|SER|SUB|NUM_DOC|CHV_CTE|DT_DOC|DT_A_P|TP_CT-e|CHV_CTE_REF|VL_DOC|VL_DESC|IND_FRT|VL_SERV|VL_BC_ICMS|VL_ICMS|VL_NT|COD_INF|COD_CTA|COD_MUN_ORIG|COD_MUN_DEST
+      arq.add('D100', ['0', '1', String(nf.codparceiro ?? ''), String(nf.modelo ?? '').padStart(2, '0'), '00', String(nf.serie ?? '').trim().padStart(3, '0'), '000', String(nf.nronf ?? ''),
+        String(nf.chavenfe ?? '').trim(), fmtData(nf.dtemissao as string), fmtData(nf.dtcontabil as string), '', '', fmtNum(nn(nf.totalnf)), fmtNum(0), tf, fmtNum(nn(nf.totalnf)),
+        fmtNum(bcAnal > 0 ? nn(nf.totalbaseicm) : 0), fmtNum(icmsAnal > 0 ? nn(nf.totalicm) : 0), fmtNum(0), '', '', entrada ? munNota : munEmp, entrada ? munEmp : munNota]);
+      for (const g of grupos) {
+        const vlRedBc = ['020', '070'].includes(g.cst) ? r2(Math.max(0, g.vlOpr - g.bc)) : 0;
+        // D190 (8): CST_ICMS|CFOP|ALIQ_ICMS|VL_OPR|VL_BC_ICMS|VL_ICMS|VL_RED_BC|COD_OBS
+        arq.add('D190', [g.cst, g.cfop, fmtNum(g.aliq, 2), fmtNum(g.vlOpr), fmtNum(g.bc), fmtNum(g.icms), fmtNum(vlRedBc), '']);
+      }
+    }
+    for (const nf of telecom) {
+      // D500 (23): IND_OPER|IND_EMIT|COD_PART|COD_MOD|COD_SIT|SER|SUB|NUM_DOC|DT_DOC|DT_A_P|VL_DOC|VL_DESC|VL_SERV|VL_SERV_NT|VL_TERC|VL_DA|VL_BC_ICMS|VL_ICMS|COD_INF|VL_PIS|VL_COFINS|COD_CTA|TP_ASSINANTE
+      arq.add('D500', ['0', '1', String(nf.codparceiro ?? ''), String(nf.modelo ?? ''), '00', String(nf.serie ?? '').trim(), '', String(nf.nronf ?? ''), fmtData(nf.dtemissao as string),
+        fmtData(nf.dtcontabil as string), fmtNum(nn(nf.totalnf)), fmtNum(nn(nf.totaldesc)), fmtNum(nn(nf.totalprod)), fmtNum(0), fmtNum(0), fmtNum(nn(nf.totalacessorias)),
+        fmtNum(0), fmtNum(0), '', fmtNum(0), fmtNum(0), '', '1']);
+      const g = this.analiticoD(nf.itens)[0];
+      // D590 (10): CST_ICMS|CFOP|ALIQ_ICMS|VL_OPR|VL_BC_ICMS|VL_ICMS|VL_BC_ICMS_UF|VL_ICMS_UF|VL_RED_BC|COD_OBS
+      if (g) arq.add('D590', [g.cst, g.cfop, fmtNum(g.aliq, 2), fmtNum(g.vlOpr), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), fmtNum(0), '']);
+    }
+    arq.fecharBloco('D990', 'D');
   }
 
 }
