@@ -310,6 +310,13 @@ const CODE_PT: Record<string, string> = {
   CONFIG_EMPRESA_INVALIDA: 'Só é possível configurar a empresa em que você está autenticado.',
   // faturamento / financeiro (F4)
   NF_JA_FATURADA: 'Esta nota fiscal já está faturada.',
+  // as parcelas da nota (FATURAMENTO) — o gerar da aba de cobrança (SetConfiguracoesFaturamento, uNF.pas:16184)
+  NF_FATURAS_DIFERENTES: 'O total das faturas é diferente do valor da nota. Confira!',
+  NF_PARCELAS_SEM_CFOP: 'Informe um CFOP antes de gerar o financeiro!',
+  NF_PARCELAS_CFOP_SEM_FINANCEIRO: 'O CFOP desta nota fiscal não gera financeiro.',
+  NF_PARCELAS_TEM_FINANCEIRO: 'Esta nota fiscal já tem documentos financeiros. Exclua os financeiros antes de gerar as parcelas novamente.',
+  NF_PARCELAS_NOTA_PROCESSADA: 'Nota fiscal processada: as parcelas não podem ser geradas novamente.',
+  NF_PARCELAS_BONIFICACAO_SENHA: 'Informe a senha administrativa para gerar o financeiro de bonificação.',
   NF_NAO_FATURADA: 'Esta nota fiscal não está faturada.',
   NF_SEM_VALOR: 'A nota fiscal não tem valor total para faturar.',
   NUM_PARCELAS_INVALIDO: 'Número de parcelas inválido.',

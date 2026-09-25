@@ -95,6 +95,9 @@ SELECT setval('seq_nfe_nao_cadastradas', coalesce((SELECT max(codnfe_naocad) FRO
 SELECT setval('seq_nf_status_processo', coalesce((SELECT max(codnfstatuspro) FROM nf_status_processo), 0)::bigint + 1, false);
 -- mig 334: o cabeçalho do lançamento provisório do fechamento de caixa (DADOSCX, 133 linhas na produção)
 SELECT setval('seq_dadoscx', coalesce((SELECT max(coddadoscx) FROM dadoscx), 0)::bigint + 1, false);
+-- as PARCELAS da nota (FATURAMENTO, mig 246): a partir do corte A do faturamento a nota grava as parcelas — a sequência
+-- não é OWNED pela coluna (o setval genérico do carregador não a acha), então vai aqui, depois das 47 mil carregadas
+SELECT setval('seq_faturamento', coalesce((SELECT max(codfaturamento) FROM faturamento), 0)::bigint + 1, false);
 
 -- A DATA DO TÍTULO A PAGAR (mig 327): o legado só tem DTCOMPRA; a tela do Apollo lê `dtvenda`. A trigger da mig 327
 -- sincroniza as duas a cada gravação — aqui para o caso de a carga ter rodado com as triggers desligadas. Idempotente.

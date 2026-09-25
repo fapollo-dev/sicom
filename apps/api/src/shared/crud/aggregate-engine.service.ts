@@ -146,14 +146,34 @@ export class AggregateEngineService extends CrudEngineService {
       if (!det.log) continue;
       if (!criado && !foto?.itens.has(det.chave)) continue; // o update não regravou estes itens
       const depois = (await trx.selectFrom(det.tabela).selectAll().where(det.fk, '=', id).orderBy(det.pk).execute()) as Record<string, unknown>[];
-      // casa o item novo com o antigo pela chave natural (n-ésima ocorrência com a n-ésima), como a preservação de colunas
+      const antigas = criado ? [] : foto?.itens.get(det.chave) ?? [];
+      // casa o item novo com o antigo: pela PK quando ela é estável (`pkEstavel`), senão pela chave natural (n-ésima ocorrência
+      // com a n-ésima), como a preservação de colunas
+      const porPk = det.pkEstavel ? new Map(antigas.map((a) => [String(a[det.pk]), a])) : null;
+      const casadas = new Set<Record<string, unknown>>();
       const fila = new Map<string, Record<string, unknown>[]>();
-      for (const a of criado ? [] : foto?.itens.get(det.chave) ?? []) {
+      for (const a of antigas) {
         const k = this.chaveNat(det, a);
         fila.set(k, [...(fila.get(k) ?? []), a]);
       }
-      for (const linha of depois) {
-        const antiga = det.chaveNatural?.length ? fila.get(this.chaveNat(det, linha))?.shift() : undefined;
+      const pares = depois.map((linha) => {
+        let antiga = porPk?.get(String(linha[det.pk]));
+        if (!antiga && det.chaveNatural?.length) {
+          const q = fila.get(this.chaveNat(det, linha)) ?? [];
+          while (q.length && casadas.has(q[0])) q.shift();
+          antiga = q.shift();
+        }
+        if (antiga) casadas.add(antiga);
+        return { linha, antiga };
+      });
+      // o item que saiu: o legado registra o Excluiu ANTES dos demais (o `cds…Delete` da tela é gravado primeiro — uNF.pas:5104)
+      if (det.log.excluiu) {
+        for (const a of antigas) {
+          if (casadas.has(a)) continue;
+          await gravarLogDaLinha(trx, { acao: 'Excluiu', formulario, tabela: det.log.tabela, chave: det.log.chave, valor: id, campos: det.log.campos, antes: a, depois: {} });
+        }
+      }
+      for (const { linha, antiga } of pares) {
         await gravarLogDaLinha(trx, {
           acao: antiga ? 'Alterou' : 'Inseriu', formulario, tabela: det.log.tabela, chave: det.log.chave, valor: id, campos: det.log.campos,
           // a PK do item muda no delete+insert do motor: não é alteração

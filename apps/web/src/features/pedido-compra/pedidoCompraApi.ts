@@ -196,7 +196,7 @@ export function liberarConferencia(
 export function importarXmlNfe(
   xml: string,
   codpedcomp?: number,
-): Promise<{ codnf: number; chave: string; codparceiro: number; codpedcomp: number | null; itens: number; totalnf: number; totalXml: number; divergencia: boolean; titulosApagar: number }> {
+): Promise<{ codnf: number; chave: string; codparceiro: number; codpedcomp: number | null; itens: number; totalnf: number; totalXml: number; divergencia: boolean; titulosApagar: number; parcelas: number }> {
   return req(`/compras/recebimento/importar-xml`, {
     method: 'POST',
     body: JSON.stringify({ xml, ...(codpedcomp != null ? { codpedcomp } : {}) }),

@@ -169,6 +169,32 @@ export const nfReferenciaSchema = z.object({
 export type NfReferenciaDto = z.infer<typeof nfReferenciaSchema>;
 
 /**
+ * Uma PARCELA da nota (`FATURAMENTO`, o `cdsFaturamento` nested da NF — udmNF.dfm:7075): gravada junto com a nota. É a fonte
+ * do financeiro: o título nasce dela no Faturamento (TfrmFaturamento2), parcela por parcela. `LIBERADO` 'S' = já virou título;
+ * 'N' ou nulo = a faturar. As 18 colunas do legado; a grade da tela edita Nº, Data, Duplicata, Modalidade, Valor e o código de
+ * barras do boleto. `codfaturamento` identifica a linha (a PK é mantida na regravação). TIPOREF/CODREF ficam fora: não estão no
+ * dataset da tela (a regravação os preserva).
+ */
+export const nfFaturamentoSchema = z.object({
+  codfaturamento: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()),
+  data: opcional(z.string().trim()), // o vencimento
+  modalidade: opcional(z.string().trim().max(20)),
+  valor: dec(),
+  liberado: opcional(z.enum(['S', 'N'])),
+  obs: opcional(z.string().trim().max(600)),
+  codoperador: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()),
+  nrofatura: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()),
+  totalparcelasfatura: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()),
+  nronf: opcional(z.string().trim().max(12)),
+  codbco: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()),
+  duplicata: opcional(z.string().trim().max(65)),
+  valor_desconto: dec(),
+  valor_bonificado: dec(),
+  codbarrasboleto: opcional(z.string().trim().max(48)),
+});
+export type NfFaturamentoDto = z.infer<typeof nfFaturamentoSchema>;
+
+/**
  * F5 — linha do rateio contábil (CODCONTABILNF): situação + centro de custo (PLC) + valor.
  * idsituacao_nf/codcc são int opcionais NO SHAPE; a obrigatoriedade + par único + soma=TOTALNF
  * vêm do superRefine `validaRateioContabil` (mensagens verbatim do legado). É config ARMAZENADA.
@@ -284,6 +310,8 @@ const nfBase = z.object({
   itens: z.array(nfItemSchema).optional().default([]),
   referencias: z.array(nfReferenciaSchema).optional().default([]),
   contabil: z.array(nfContabilItemSchema).optional().default([]), // F5 — rateio CODCONTABILNF (config)
+  // as parcelas (FATURAMENTO) — SEM default: quem não manda a chave não toca nas parcelas (o motor só regrava o detalhe presente)
+  faturamento: z.array(nfFaturamentoSchema).optional(),
 });
 
 /** DTCONTABIL não pode ser MENOR que DTEMISSAO (btnGravar). */
@@ -421,6 +449,19 @@ export const faturarNfSchema = z.object({
   intervaloDias: z.number().int().min(0).default(30),
 });
 export type FaturarNfDto = z.infer<typeof faturarNfSchema>;
+
+/** o "Gerar financeiro" da aba de cobrança (btnGerarFinClick): os campos da tela — as parcelas voltam para a grade da nota */
+export const gerarParcelasNfSchema = z.object({
+  numParcelas: z.number().int().max(200, 'Máximo de 200 parcelas.').optional(),
+  vencimento: opcional(z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (use AAAA-MM-DD).')),
+  intervalo: z.number().int().min(0).optional(),
+  diaVenc: z.number().int().min(0).max(31).optional(),
+  tipoCalc: z.enum(['D', 'I']).optional(), // tcDiaFixo · tcIntervalo
+  nroDup: z.number().int().nullable().optional(),
+  proximoMes: z.boolean().optional(), // a resposta à pergunta "Deseja calcular o vencimento da primeira parcela para o próximo mês?"
+  senhaAdmin: z.string().optional(), // CFOP 1910/2910 (bonificação)
+});
+export type GerarParcelasNfDto = z.infer<typeof gerarParcelasNfSchema>;
 
 /**
  * F2 — body do recálculo fiscal (POST /fiscal/nf/recalcular). É o dto da NF (header + itens),

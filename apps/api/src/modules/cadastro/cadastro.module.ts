@@ -102,6 +102,7 @@ import { RegistrosLogService } from './registros-log.service';
 import { PermissoesService } from './permissoes.service';
 import { SenhaOperacaoController } from './senha-operacao.controller';
 import { SenhaOperacaoService } from './senha-operacao.service';
+import { NfParcelasService } from './nf-parcelas.service';
 import { SugestaoPromocaoService } from './sugestao-promocao.service';
 import { SugestaoPromocaoController } from './sugestao-promocao.controller';
 import { BairroCrudController } from './bairro.crud';
@@ -302,6 +303,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     PerfilRelacaoService,
     PermissoesService,
     SenhaOperacaoService,
+    NfParcelasService,
     SugestaoPromocaoService,
     // Porta SEFAZ (F6): seleção REAL por env SEFAZ_PROVIDER (default 'simulador'). Hoje só existe
     // o SIMULADOR (homologação); o provider real (ACBrLibNFe/lib NFe Node/microserviço) implementa
@@ -326,6 +328,6 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
       },
     },
   ],
-  exports: [BancosService, NfFaturamentoService, ConfigService, SenhaOperacaoService], // reusados por ComprasModule (recebimento corte-4/pedido corte-final) e CobrancaModule (E7: gate de senha na baixa AR)
+  exports: [BancosService, NfFaturamentoService, NfParcelasService, ConfigService, SenhaOperacaoService], // reusados por ComprasModule (recebimento corte-4/pedido corte-final) e CobrancaModule (E7: gate de senha na baixa AR)
 })
 export class CadastroModule {}

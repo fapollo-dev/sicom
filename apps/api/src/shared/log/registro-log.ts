@@ -173,6 +173,8 @@ export interface LogDetalhe {
   /** coluna-chave gravada na LOG — a do mestre (ex.: CODNF); o VALOR é o código do mestre */
   chave: string;
   campos: readonly CampoLog[];
+  /** registra o item removido (Excluiu, com os campos dele) — a FATURAMENTO registra; a NF_PROD não (0 "Excluiu NF_PROD") */
+  excluiu?: boolean;
 }
 
 /** a gravação de cadastro: monta o texto e grava, se algum campo entrou ou mudou */

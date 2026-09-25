@@ -39,7 +39,7 @@ import { vincularNfRotativo, type LadoRotativoNf } from '../inventario-rotativo/
 import { createResourceApi } from '../../shared/cadmaster/resourceApi';
 import { recalcularNf } from './nfFiscalApi';
 import { processarNf, reverterNf } from './nfProcessamentoApi';
-import { faturarNf, estornarFaturamentoNf } from './nfFaturamentoApi';
+import { faturarNf, estornarFaturamentoNf, configuracaoParcelas, gerarParcelas, sequenciaDuplicata, type ParcelaGerada } from './nfFaturamentoApi';
 import { transmitirNf, cancelarNf, cceNf } from './nfNfeApi';
 
 /** Tipo da nota (parametrização Entrada/Saída — espelha o `ParametroCriacao` 35/36 do legado). */
@@ -561,7 +561,12 @@ function FinTab({ form, liberado, tipo }: { form: UseFormReturn<CriarNfDto>; lib
   return (
     <div className="flex flex-col gap-form-gap">
       <Tabs tabs={subTabs} active={sub} onChange={setSub} variant="sub" />
-      {sub === 'cobranca' && <FaturamentoSection form={form} tipo={tipo} />}
+      {sub === 'cobranca' && (
+        <>
+          <ParcelasSection form={form} liberado={liberado} />
+          <FaturamentoSection form={form} tipo={tipo} />
+        </>
+      )}
       {sub === 'docs' && (
         <small className="text-fg-muted">
           Os documentos financeiros (títulos em {tipo === 'E' ? 'A Pagar' : 'A Receber'}) são gerados ao
@@ -666,6 +671,172 @@ function ProcessamentoSection({ form }: { form: UseFormReturn<CriarNfDto> }) {
         {proc === 'S' ? 'Nota processada (estoque movimentado).' : 'Nota não processada.'}
         {enviada ? ' Enviada à SEFAZ — reversão bloqueada.' : ''}
       </small>
+    </div>
+  );
+}
+
+// ───────────────────────────── Parcelas da nota (FATURAMENTO) ─────────────────────────────
+
+type ParcelaForm = Omit<Partial<ParcelaGerada>, 'liberado'> & { codfaturamento?: number; codbarrasboleto?: string | null; liberado?: string | null };
+const dataIso = (v: unknown) => (v == null || v === '' ? undefined : String(v).slice(0, 10));
+const somaDias = (iso: string, dias: number) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + dias); return d.toISOString().slice(0, 10); };
+const diaNoMes = (iso: string, dia: number) => {
+  const [a, m] = iso.split('-').map(Number);
+  const ultimo = new Date(Date.UTC(a, m, 0)).getUTCDate();
+  return `${a}-${String(m).padStart(2, '0')}-${String(Math.min(Math.max(dia, 1), ultimo)).padStart(2, '0')}`;
+};
+
+/**
+ * As PARCELAS da nota (FATURAMENTO) — a aba "Dados da cobrança" do legado (uNF.pas:4389 e :16184): calcula as parcelas pela
+ * base da nota e as põe na grade, que é gravada com a nota. O título nasce da parcela depois, no Faturamento.
+ */
+function ParcelasSection({ form, liberado }: { form: UseFormReturn<CriarNfDto>; liberado: boolean }) {
+  const mensagem = useMensagem();
+  const codnf = (form.getValues() as { codnf?: number }).codnf;
+  const { fields, replace, update, remove } = useFieldArray<CriarNfDto, 'faturamento', 'fieldId'>({ control: form.control, name: 'faturamento', keyName: 'fieldId' });
+  const { data: cfg, refetch } = useQuery({
+    queryKey: ['fiscal/nf', codnf, 'parcelas/configuracao'],
+    queryFn: () => configuracaoParcelas(Number(codnf)),
+    enabled: codnf != null,
+  });
+  const [numParcelas, setNumParcelas] = useState<number | undefined>(1);
+  const [vencimento, setVencimento] = useState<string | undefined>(hojeISO());
+  const [diaVenc, setDiaVenc] = useState<number | undefined>(undefined);
+  const [intervalo, setIntervalo] = useState<number | undefined>(undefined);
+  const [tipoCalc, setTipoCalc] = useState<'D' | 'I'>('I');
+  const [nroDup, setNroDup] = useState<number | undefined>(undefined);
+  const [executando, setExecutando] = useState(false);
+  useEffect(() => {
+    if (!cfg) return;
+    setNumParcelas(cfg.numParcelas);
+    setVencimento(cfg.vencimento);
+    setDiaVenc(cfg.diaVenc || undefined);
+    setIntervalo(cfg.intervalo || undefined);
+    setTipoCalc(cfg.tipoCalc);
+  }, [cfg]);
+
+  if (codnf == null) return <small className="text-fg-muted">Grave a nota para gerar o financeiro.</small>;
+  const linhas = fields as Array<ParcelaForm & { fieldId: string }>;
+  const soma = Math.round(linhas.reduce((s, p) => s + (Number(p.valor) || 0), 0) * 100) / 100;
+  const base = cfg?.base ?? 0;
+  const aFaturar = Math.round((base - soma) * 100) / 100;
+  const podeGerar = liberado && !!cfg?.habilitado && !executando;
+
+  const gerar = async (proximoMes?: boolean, senhaAdmin?: string): Promise<void> => {
+    let senha = senhaAdmin;
+    if (cfg?.exigeSenha && senha == null) {
+      const s = window.prompt('Informe a senha administrativa para gerar o financeiro de bonificação:');
+      if (s == null) return;
+      senha = s;
+    }
+    setExecutando(true);
+    try {
+      const r = await gerarParcelas(codnf, {
+        numParcelas: Number(numParcelas) || 1, vencimento, intervalo: Number(intervalo) || 0, diaVenc: Number(diaVenc) || 0, tipoCalc,
+        nroDup: nroDup ?? null, proximoMes, senhaAdmin: senha,
+      });
+      if ('perguntarProximoMes' in r) {
+        setExecutando(false);
+        const sim = window.confirm('A data de vencimento anterior a data de hoje.\nDeseja calcular o vencimento da primeira parcela para o próximo mês?');
+        return gerar(sim, senha);
+      }
+      // regerar apaga as parcelas atuais (uNF.pas:4429) — saem com Excluiu ao gravar a nota
+      replace(r.parcelas as never);
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  const limpar = () => {
+    if (!window.confirm('Deseja apagar todos dados financeiros cadastrados?')) return;
+    replace([]);
+  };
+
+  const sequencia = async () => {
+    if (!window.confirm('Deseja gerar sequencia de duplicatas?')) return;
+    try {
+      setNroDup((await sequenciaDuplicata()).nroDup);
+    } catch (e) {
+      mensagem.erro(e);
+    }
+  };
+
+  const editar = (i: number, campo: keyof ParcelaForm, v: unknown) => update(i, { ...(linhas[i] as object), [campo]: v } as never);
+  const cel = 'w-full rounded-radius-sm border border-border bg-bg-surface px-1 py-0.5 text-body-sm disabled:opacity-60';
+
+  return (
+    <div className="flex flex-col gap-gp-sm">
+      <span className="text-body-sm font-semibold text-fg-default">Parcelas da nota</span>
+      <div className="flex flex-wrap items-end gap-gp-sm">
+        <div className="w-28">
+          <NumberField label="Nº &parcelas" value={numParcelas} onChange={setNumParcelas} decimais={0} min={1} disabled={!podeGerar} />
+        </div>
+        <div className="w-40">
+          <DateField label="1º &vencimento" value={vencimento} onChange={setVencimento} disabled={!podeGerar} />
+        </div>
+        <div className="w-28">
+          <NumberField label="&Dia venc." value={diaVenc} decimais={0} min={0} max={31} disabled={!podeGerar}
+            onChange={(v) => { setDiaVenc(v); if ((v ?? 0) > 0) { setTipoCalc('D'); setVencimento((d) => diaNoMes(d ?? hojeISO(), Number(v))); } }} />
+        </div>
+        <div className="w-28">
+          <NumberField label="&Intervalo" value={intervalo} decimais={0} min={0} disabled={!podeGerar}
+            onChange={(v) => { setIntervalo(v); setTipoCalc('I'); setVencimento(somaDias(hojeISO(), Number(v) || 0)); }} />
+        </div>
+        {cfg?.nroDupHabilitado && (
+          <>
+            <div className="w-32">
+              <NumberField label="Nº d&uplicata" value={nroDup} onChange={setNroDup} decimais={0} min={0} disabled={!podeGerar} />
+            </div>
+            <Button label="Se&quência" variant="soft" disabled={!podeGerar} onClick={() => void sequencia()} />
+          </>
+        )}
+        <Button label={cfg?.legenda ?? 'Ge&rar financeiro'} variant="soft" disabled={!podeGerar} onClick={() => void gerar()} />
+        <Button label="&Limpar" variant="soft" disabled={!podeGerar || !linhas.length} onClick={limpar} />
+      </div>
+      <small className="text-fg-muted">
+        Cálculo por {tipoCalc === 'D' ? 'dia fixo' : 'intervalo de dias'} · base {base.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} ·
+        a faturar <strong className={aFaturar !== 0 ? 'text-danger' : ''}>{aFaturar.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
+        {cfg && !cfg.habilitado && cfg.motivo ? ` · ${cfg.motivo === 'NF_PARCELAS_CFOP_SEM_FINANCEIRO' ? 'o CFOP desta nota não gera financeiro' : cfg.motivo === 'NF_PARCELAS_TEM_FINANCEIRO' ? 'a nota já tem documentos financeiros' : cfg.motivo === 'NF_PARCELAS_NOTA_PROCESSADA' ? 'nota processada' : 'informe o CFOP e o parceiro'}` : ''}
+      </small>
+      {linhas.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-body-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-fg-muted">
+                <th className="py-1 pr-2">Nº</th>
+                <th className="py-1 pr-2">Data</th>
+                <th className="py-1 pr-2">Duplicata</th>
+                <th className="py-1 pr-2">Modalidade</th>
+                <th className="py-1 pr-2 text-right">Valor</th>
+                <th className="py-1 pr-2">Código de barra boleto</th>
+                <th className="py-1" />
+              </tr>
+            </thead>
+            <tbody>
+              {linhas.map((p, i) => {
+                const ed = liberado && p.liberado !== 'S';
+                return (
+                  <tr key={p.fieldId} className="border-b border-border/50">
+                    <td className="py-1 pr-2 tabular-nums">{p.nrofatura}{p.totalparcelasfatura ? `/${p.totalparcelasfatura}` : ''}</td>
+                    <td className="py-1 pr-2"><input type="date" className={cel} value={dataIso(p.data) ?? ''} disabled={!ed} onChange={(e) => editar(i, 'data', e.target.value || null)} /></td>
+                    <td className="py-1 pr-2"><input className={cel} maxLength={65} value={p.duplicata ?? ''} disabled={!ed} onChange={(e) => editar(i, 'duplicata', e.target.value)} /></td>
+                    <td className="py-1 pr-2"><input className={cel} maxLength={20} value={p.modalidade ?? ''} disabled={!ed} onChange={(e) => editar(i, 'modalidade', e.target.value)} /></td>
+                    <td className="py-1 pr-2"><input className={`${cel} text-right tabular-nums`} inputMode="decimal" value={p.valor ?? ''} disabled={!ed}
+                      onChange={(e) => editar(i, 'valor', e.target.value.replace(',', '.'))} /></td>
+                    <td className="py-1 pr-2"><input className={cel} maxLength={48} value={p.codbarrasboleto ?? ''} disabled={!ed} onChange={(e) => editar(i, 'codbarrasboleto', e.target.value)} /></td>
+                    <td className="py-1 text-fg-muted">
+                      {p.liberado === 'S' ? 'faturada' : ed ? <button type="button" aria-label="Excluir parcela" onClick={() => remove(i)}><Trash2 size={14} /></button> : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div><Button label="Atuali&zar" variant="soft" onClick={() => void refetch()} /></div>
     </div>
   );
 }

@@ -661,3 +661,44 @@ em `nf-faturamento.service.ts` (`gerarTitulosRetencao`, `gerarTituloStResidual`)
 
 A → B → C → D (D só depois de B e C, porque os leitores migram para predicados que dependem da FATURAMENTO escrita).
 E pode ir junto de B.
+
+---
+
+## 6. Estado dos cortes
+
+### Corte A — ✅ 25/09/2026 (mig 340, smoke §215 + DUP 52.x reescritos, `test/nf-parcelas.spec.ts`)
+
+| item | onde | prova |
+|---|---|---|
+| detalhe `faturamento` no agregado da NF, PK estável, TIPOREF/CODREF preservados | `nf.aggregate.ts` (`pkEstavel`, `antesDeSubstituirTrx`/`derivarItensTrx`) | §215.5-6 |
+| LOG `FATURAMENTO`/`CODNF` Inseriu/Alterou/Excluiu, formulário da nota, campos na ordem do `cdsFaturamento` | motor: `LogDetalhe.excluiu` + casamento pela PK quando `pkEstavel` | DUP 52.1 (texto idêntico à amostra de produção de 24/09 17:55), §215.5-6 |
+| LIBERADO é do Faturamento: a tela não vira 'S' nem desfaz um 'S' | `derivarItensTrx` | §215.6 |
+| CODBARRASBOLETO sem acento e só `[A-Za-z0-9 ]` | `limparCodBarrasBoleto` | §215.5 |
+| `GET /fiscal/nf/:id/parcelas/configuracao` (SetConfiguracoesFaturamento) e `POST /fiscal/nf/:id/gerar-parcelas` (btnGerarFinClick), sem gravar | `nf-parcelas.service.ts` | §215.1-3, 215.8-9 |
+| BuildParcelas do dado: `round(base/n,2)` + sobra na última; dia fixo mês a mês; intervalo em dias corridos | `nf-parcelas.ts` | 5 NFs reais no spec unitário |
+| base = TOTALNF − bonificado − 7 retenções − acordo − desc. pedido | `NfParcelasService.base` | §215.1 |
+| gates: CFOP/parceiro, PROC_FINANCEIRO (ou 1910/2910 + FINANCEIRO_BONIFICACAO_ACORDO), sem título, não processada; senha ADM no 1910/2910 | idem | §215.7-8 |
+| "próximo mês?" | a API devolve `perguntarProximoMes`; a web pergunta e chama de novo | §215.3 |
+| 1º vencimento da devolução pela FATURAMENTO da nota devolvida + QUANTIDADE_DIAS_GERAR_BOLETO_DEVOLUCAO | `vencimentoDaDevolucao` | §215.9 |
+| "Gerar sequência de duplicatas" = `seq_nrodup` | mig 340 | §215.10 |
+| import do XML grava as parcelas do `<cobr>` (nDup/dVenc/vDup/operador, LIBERADO nulo) e **não cria título**; `refaturar-xml` regrava as parcelas sem título | `recebimento.service.ts`, `regravarDoXml` | DUP 52.1-52.5 |
+| processar confere Σ parcelas = base (NF_FATURAS_DIFERENTES, verbatim) | `conferirParcelasNoProcessamento` | §215.4, 215.7 |
+| número da nota nas parcelas e na DUPLICATA dos títulos ao transmitir (UpdateNFE) | `nf-nfe.service.ts` | — |
+| `setval('seq_faturamento')` no pós-carga (a sequência não é OWNED, o setval genérico não a acha) | `pos-carga.sql` | — |
+| grade na aba Financeiro › Dados da cobrança (Nº, Data, Duplicata, Modalidade, Valor, Código de barra boleto; Gerar / Limpar / Sequência; a faturar) | `NfCadMaster.tsx` `ParcelasSection` | web tsc/build |
+
+**Divergências conscientes e decisões (com prova):**
+- **Regerar sobre parcelas já gravadas** usa a base. No legado o `edtVlrAFaturar` nasce = base (`:16218`, sem descontar as parcelas
+  do banco) e o gerar soma as apagadas de volta (`:4431`) — reabrir uma nota com parcelas e regerar daria base + Σ. O dado não
+  mostra isso (Σ = base em 14.790 de 14.790), então o Apollo usa a base, que é o que a tela quer dizer.
+- **A renumeração de CODFATURAMENTO no processar** (`uEstoqueNF.pas:950-956`) não é copiada: o LOG "Alterou CODFATURAMENTO"
+  some. Nenhum leitor depende do número novo.
+- **O auto-título do import saiu.** O legado não cria título na importação; o `GerarFinanceiroAutomaticamente` é do processar
+  (`udmNF.pas:8112`) e nenhum CFOP da produção tem `GERA_FINANCEIRO_AUTO='S'`. Ele volta, no lugar certo, no Corte B.
+- **`faturar` (F4 por DTO) continua** gerando título direto até o Corte B trocar o gerador pelo Faturamento por parcela.
+- Devolução de uma nota **sem** parcela: o legado deixa o resultado sem valor (`Result` não atribuído); o Apollo usa hoje + dias.
+- `seq_nrodup` nasce no 1: o ID_NRODUP da produção está em 1081, mas nenhuma duplicata gravada tem a forma que ele gera.
+- Dia fixo 29-31 num mês curto → último dia do mês (sem golden; é o que a própria tela faz com o 1º vencimento, `:10439`).
+
+**Efeito no smoke:** o processar das NFs de teste passou a exigir as parcelas (regra do legado). O helper `processarNf` grava
+uma parcela com a base e a apaga depois; a regra em si é o §215.

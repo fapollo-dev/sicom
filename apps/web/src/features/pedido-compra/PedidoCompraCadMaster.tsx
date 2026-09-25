@@ -932,10 +932,10 @@ function AcoesEstadoBar({ form, onRecebeu }: { form: UseFormReturn<CriarPedidoCo
   };
 
   // RECEBIMENTO corte-2/3: sucesso do import de XML (o modal cuida do parse/import/resolução de pendências).
-  const onImportSucesso = (r: { codnf: number; divergencia: boolean; titulosApagar: number }) => {
+  const onImportSucesso = (r: { codnf: number; divergencia: boolean; titulosApagar: number; parcelas?: number }) => {
     form.setValue('dtfaturamento' as any, new Date().toISOString());
     setMostrarImport(false);
-    const tit = r.titulosApagar ? ` ${r.titulosApagar} título(s) A Pagar gerado(s) das duplicatas.` : '';
+    const tit = r.parcelas ? ` ${r.parcelas} parcela(s) das duplicatas gravada(s) na nota — o A Pagar sai delas no Faturamento.` : '';
     mensagem.sucesso(
       `NF de entrada ${r.codnf} importada do XML${r.divergencia ? ' (atenção: total da NF diverge do vNF do XML — confira)' : ''}.${tit} Confira o saldo/divergências abaixo; processe o estoque (F3) em Notas de Entrada.`,
     );

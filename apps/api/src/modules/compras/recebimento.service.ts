@@ -4,6 +4,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { AggregateEngineService } from '../../shared/crud/aggregate-engine.service';
 import { nfAggregateConfig } from '../cadastro/nf.aggregate';
+import { NfParcelasService } from '../cadastro/nf-parcelas.service';
 import { NfFaturamentoService } from '../cadastro/nf-faturamento.service';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
@@ -38,6 +39,7 @@ export class RecebimentoService {
     private readonly engine: AggregateEngineService,
     private readonly fat: NfFaturamentoService,
     private readonly analise: AnalisePedidoNfService,
+    private readonly parcelas: NfParcelasService,
   ) {}
 
   private emp(): number {
@@ -216,7 +218,7 @@ export class RecebimentoService {
    */
   async importarXml(dto: { xml: string; codpedcomp?: number }): Promise<{
     codnf: number; chave: string; codparceiro: number; codpedcomp: number | null; itens: number;
-    totalnf: number; totalXml: number; divergencia: boolean; titulosApagar: number;
+    totalnf: number; totalXml: number; divergencia: boolean; titulosApagar: number; parcelas: number;
   }> {
     const emp = this.emp();
     const op = this.op();
@@ -375,6 +377,9 @@ export class RecebimentoService {
       totalseguro: nfe.total.vSeg || undefined,
       totalacessorias: nfe.total.vOutro || undefined,
       itens: nfItens,
+      // as PARCELAS do <cobr><dup> (FATURAMENTO) nascem com a nota, como no ImportaNFe (NFe.pas:3457-3475): o título sai delas
+      // depois, no Faturamento — a importação não cria A Pagar
+      faturamento: NfParcelasService.parcelasDoXml('E', nfe.nNF || null, nfe.duplicatas, op),
     };
     if (dto.codpedcomp != null) dtoNf.codpedcomp = dto.codpedcomp;
 
@@ -469,45 +474,30 @@ export class RecebimentoService {
       }
     }
 
-    // CORTE-4: gera o A Pagar das DUPLICATAS do XML. Mapa fiel ao GeraApagar do legado (uAPagar.pas:4843):
-    // 1 título por <dup>, valor/venc reais. DIVERGÊNCIA de fluxo consciente: o legado gera no PROCESSAMENTO
-    // (F3); aqui geramos no IMPORT (o XML já traz as parcelas exatas). GATES fiéis: (1) finalidade 2/3/4 não
-    // faturam (udmNF.pas:9107); (2) CFOP.GERA_FINANCEIRO_AUTO='S' (corte-4b, CFOPGeraFinanceiroAutomatico,
-    // udmNF.pas:9902 — no golden só o 1102). Sem <cobr> (à vista) → nada. Transação SEPARADA; CAS evita duplicar.
-    let titulosApagar = 0;
-    const finFatura = !['2', '3', '4'].includes(nfe.finNFe); // 1=normal fatura; 2/3/4 não
-    const cfopHeader = this.cfopEntrada(nfe.itens[0].cfopXml);
-    const cfopRow = (await (this.dbp.forTenantRead() as AnyDB)
-      .selectFrom('cfop').select('gera_financeiro_auto').where('codcfop', '=', cfopHeader).executeTakeFirst()) as { gera_financeiro_auto?: string } | undefined;
-    const cfopGera = cfopRow?.gera_financeiro_auto === 'S'; // só CFOP explicitamente ligado auto-gera
-    if (nfe.duplicatas.length > 0 && finFatura && cfopGera) {
-      const r = await this.fat.faturarComParcelas(codnf, nfe.duplicatas);
-      titulosApagar = r.parcelas;
-    }
+    // a importação NÃO cria título (NFe.pas não chama o financeiro): as duplicatas viraram PARCELAS da nota (o `faturamento` do
+    // dto acima) e o A Pagar sai delas no Faturamento. O auto-título que ficava aqui (gate CFOP.GERA_FINANCEIRO_AUTO) não é do
+    // import no legado — é do PROCESSAR (`GerarFinanceiroAutomaticamente`, udmNF.pas:8112) — e nenhum CFOP da produção o liga.
+    const titulosApagar = 0;
+    const parcelas = nfe.duplicatas.length;
 
-    return { codnf, chave: nfe.chave, codparceiro, codpedcomp, itens: nfItens.length, totalnf, totalXml: nfe.total.vNF, divergencia, titulosApagar };
+    return { codnf, chave: nfe.chave, codparceiro, codpedcomp, itens: nfItens.length, totalnf, totalXml: nfe.total.vNF, divergencia, titulosApagar, parcelas };
   }
 
   /**
-   * RECEBIMENTO resíduo (b) — REFATURAR do XML: regenera os títulos A Pagar EXATOS das duplicatas do `<cobr><dup>`
-   * a partir do XML já armazenado (`nfe_xml`), para quando o faturamento do import não rodou (auto-gate off, ou
-   * falhou) — cenário anotado no importarXml. Reusa `faturarComParcelas` (mesmos títulos/travas/estorno do F4);
-   * a trava `carregarNfFaturavel` (dentro de faturarComParcelas) bloqueia se a NF já está faturada. Sem `<cobr>`
-   * (à vista) → NF_SEM_DUPLICATAS. Fiel a: o legado gera o financeiro no F3 a partir do documento; aqui a fonte
-   * é o XML preservado (a verdade das parcelas do fornecedor).
+   * REGRAVAR AS PARCELAS do XML guardado (`nfe_xml`) — o "recuperar XML" do legado (uNF.pas:6383) passa pelo mesmo ImportaNFe e
+   * refaz as parcelas do `<cobr><dup>`. Só sem título por IDNF (com título as parcelas já foram faturadas → NF_JA_FATURADA).
+   * Sem `<cobr>` (à vista) → NF_SEM_DUPLICATAS. Sem gate de finalidade: o legado grava as parcelas de qualquer nota importada
+   * (o título é que depende do CFOP, no Faturamento).
    */
-  async refaturarXml(codnf: number): Promise<{ codnf: number; tabela: 'areceber' | 'apagar'; parcelas: number; total: number }> {
+  async refaturarXml(codnf: number): Promise<{ codnf: number; parcelas: number; total: number }> {
     const emp = this.emp();
     const linha = (await (this.dbp.forTenantRead() as AnyDB)
       .selectFrom('nfe_xml').select('xml').where('codnf', '=', codnf).where('idempresa', '=', emp).executeTakeFirst()) as { xml?: string } | undefined;
-    if (!linha?.xml) throw new BusinessRuleError('NFE_XML_NAO_ENCONTRADO', { codnf }); // sem XML armazenado → nada a refaturar
+    if (!linha?.xml) throw new BusinessRuleError('NFE_XML_NAO_ENCONTRADO', { codnf }); // sem XML armazenado → nada a refazer
     const nfe = parseNfeXml(linha.xml);
-    // GATE DE FINALIDADE (fold auditoria): finalidade 2/3/4 (complementar/ajuste/devolução) NÃO gera financeiro
-    // do fornecedor — o import já suprime (finFatura) e o legado sai cedo (udmNF.pas:9107 `if FINALIDADE=4 then Exit`).
-    // O refaturar dispensa o gate de CFOP (é seu propósito) mas NÃO o de finalidade.
-    if (['2', '3', '4'].includes(nfe.finNFe)) throw new BusinessRuleError('NF_FINALIDADE_SEM_FINANCEIRO', { codnf, finalidade: nfe.finNFe });
     if (nfe.duplicatas.length === 0) throw new BusinessRuleError('NF_SEM_DUPLICATAS', { codnf }); // à vista (sem <cobr>)
-    return this.fat.faturarComParcelas(codnf, nfe.duplicatas);
+    const r = await (this.dbp.forTenant() as AnyDB).transaction().execute((trx: AnyDB) => this.parcelas.regravarDoXml(trx, codnf, nfe.duplicatas));
+    return { codnf, ...r };
   }
 
   /**

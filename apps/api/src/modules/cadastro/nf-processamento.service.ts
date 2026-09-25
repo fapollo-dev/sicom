@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { conferirParcelasNoProcessamento } from './nf-parcelas.service';
 import { chaveDeEntrada, desregistrarProcessoNf, registrarProcessoNf } from '../shared/nf-status-processo';
 import { sql } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
@@ -144,6 +145,8 @@ export class NfProcessamentoService {
         await this.reconciliarTotais(trx, codnf, emp, nf);
         // CFOP de cada item × a situação dele (uNF.pas:14921; UCadSituacaoNF.md C2)
         await validarItensNoProcessamento(trx, codnf, emp);
+        // Σ parcelas (FATURAMENTO) = base da nota, quando o CFOP gera financeiro e ainda não há título (uEstoqueNF.pas:833)
+        await conferirParcelasNoProcessamento(trx, codnf, emp, op);
       } else {
         if (nf.proc !== 'S') throw new BusinessRuleError('NF_NAO_PROCESSADA', { codnf });
         // reverter bloqueado se já enviada à SEFAZ (uNF.pas:8945) — 'T' (terceiros importada) e 'D'

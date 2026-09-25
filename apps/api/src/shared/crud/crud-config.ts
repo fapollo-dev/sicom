@@ -85,8 +85,8 @@ export interface DetalheConfig {
   pkEstavel?: boolean;
   /**
    * a LOG dos itens (o dataset filho do legado): Inseriu com os campos preenchidos do item novo, Alterou com os que mudaram
-   * no item casado pela `chaveNatural` (o delete+insert do motor troca a PK — ela não conta como alteração). O item removido
-   * não é registrado (o legado não registra: 0 "Excluiu NF_PROD" em produção).
+   * no item casado pela PK (com `pkEstavel`) ou pela `chaveNatural` (o delete+insert do motor troca a PK — ela não conta como
+   * alteração). O item removido só é registrado com `log.excluiu` (a NF_PROD não: 0 "Excluiu NF_PROD" em produção; a FATURAMENTO sim).
    */
   log?: LogDetalhe;
   tabela: string; // tabela do detalhe, ex.: 'itens_lotecob'

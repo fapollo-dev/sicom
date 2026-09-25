@@ -1,9 +1,10 @@
-import { Body, Controller, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
-import { faturarNfSchema, type FaturarNfDto } from '@apollo/shared';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { faturarNfSchema, gerarParcelasNfSchema, type FaturarNfDto, type GerarParcelasNfDto } from '@apollo/shared';
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
 import { RequerAcesso } from '../../shared/acesso/requer-acesso.decorator';
 import { NfFaturamentoService } from './nf-faturamento.service';
+import { NfParcelasService } from './nf-parcelas.service';
 
 /**
  * NF — Fase 4: ações de FATURAMENTO (geram títulos financeiros). ESCRITA/EFEITO → exigem
@@ -13,7 +14,33 @@ import { NfFaturamentoService } from './nf-faturamento.service';
 @Controller('fiscal/nf')
 @UseGuards(AcessoGuard)
 export class NfFaturamentoController {
-  constructor(private readonly fat: NfFaturamentoService) {}
+  constructor(
+    private readonly fat: NfFaturamentoService,
+    private readonly parcelas: NfParcelasService,
+  ) {}
+
+  /** os padrões da aba de cobrança e se o gerar está liberado (SetConfiguracoesFaturamento) */
+  @Get(':id/parcelas/configuracao')
+  @RequerAcesso('FRMNF', 'BTNGRAVAR') // o gerar só existe com a nota em edição — é parte do gravar
+  configuracaoParcelas(@Param('id', ParseIntPipe) id: number) {
+    return this.parcelas.configuracao(id);
+  }
+
+  /** "Gerar financeiro": calcula as parcelas (FATURAMENTO) — não grava; vão para a grade e são gravadas com a nota */
+  @Post(':id/gerar-parcelas')
+  @HttpCode(200)
+  @RequerAcesso('FRMNF', 'BTNGRAVAR') // o gerar só existe com a nota em edição — é parte do gravar
+  gerarParcelas(@Param('id', ParseIntPipe) id: number, @Body(new ZodValidationPipe(gerarParcelasNfSchema)) dto: GerarParcelasNfDto) {
+    return this.parcelas.gerar(id, dto);
+  }
+
+  /** "Gerar sequência de duplicatas" (GetID('NRODUP')) */
+  @Post('parcelas/sequencia-duplicata')
+  @HttpCode(200)
+  @RequerAcesso('FRMNF', 'BTNGRAVAR') // o gerar só existe com a nota em edição — é parte do gravar
+  sequenciaDuplicata() {
+    return this.parcelas.proximaDuplicata();
+  }
 
   @Post(':id/faturar')
   @HttpCode(200)

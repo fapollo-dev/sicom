@@ -187,6 +187,9 @@ export class NfNfeService {
         .where((eb: AnyDB) => eb.or([eb('statusnfe', 'is', null), eb('statusnfe', '=', '')]))
         .executeTakeFirst();
       if (Number(r?.numUpdatedRows ?? 0) === 0) throw new BusinessRuleError('NF_JA_TRANSMITIDA', { codnf });
+      // o número da nota nas parcelas e nos títulos dela (`TNFe.UpdateNFE`, NFe.pas:4666-4667 — ExecSQL, sem LOG)
+      await sql`UPDATE faturamento SET nronf = ${String(nf.nronf)} WHERE idnf = ${codnf}`.execute(trx);
+      await sql`UPDATE apagar SET duplicata = ${String(nf.nronf)} WHERE idnf = ${codnf}`.execute(trx);
 
       // XML autorizado + auditoria do envio (mesma transação).
       await trx

@@ -85,6 +85,22 @@ export const NF_PROD_CAMPOS_LOG: readonly CampoLog[] = [
   'ipi_devolucao_nota', 'vrsaldoflex', 'vrcomissao', 'ultcustorep', 'mva', 'nroitem_venda', 'bcpiscofinse', 'vrpise',
   'vrcofinse', 'codoperador_lib_estoqueneg', 'usoconsumo',
 ];
+/** os campos do `cdsFaturamento` (udmNF.dfm:7184), na ordem dele — TIPOREF/CODREF não estão no dataset */
+export const FATURAMENTO_CAMPOS_LOG: readonly CampoLog[] = [
+  'codfaturamento', 'data', 'idnf', 'modalidade', 'valor', 'liberado', 'obs', 'codoperador', 'nrofatura', 'totalparcelasfatura',
+  'nronf', 'codbco', 'duplicata', 'valor_desconto', 'valor_bonificado', 'codbarrasboleto',
+];
+
+/**
+ * o `cdsFaturamentoBeforePost` (udmNF.pas:4642): `TiraAcento(RetiraCaracterEspecial(CODBARRASBOLETO))`. O `RetiraCaracterEspecial`
+ * está em FuncoesApollo (fora do fonte); aqui fica o que a linha digitável pode ter — letras, dígitos e espaço. Na produção a coluna
+ * nunca foi preenchida (0 de 47 mil), então não há dado que contradiga.
+ */
+export const limparCodBarrasBoleto = (v: unknown): string | null => {
+  if (v == null || String(v) === '') return (v as null) ?? null;
+  return String(v).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9 ]/g, '');
+};
+
 export const formularioDaNf = (nf: Record<string, unknown>): string => (String(nf.tipo ?? '').toUpperCase() === 'S' ? 'Notas fiscais de saída' : 'Notas fiscais de entrada');
 
 export const nfAggregateConfig: AggregateConfig = {
@@ -444,6 +460,33 @@ export const nfAggregateConfig: AggregateConfig = {
       preservarNaoGerenciadas: true,
       chave: 'contabil',
       colunas: ['idsituacao_nf', 'codcc', 'valor', 'adicional', 'tipovalor', 'insert_manual'],
+    },
+    // as PARCELAS da nota (FATURAMENTO): o `cdsFaturamento` nested, gravado no mesmo ApplyUpdates da nota (uNF.pas:4849) e
+    // registrado na LOG com Inseriu, Alterou e Excluiu por linha (uNF.pas:5104-5132). A PK fica (o legado atualiza no lugar);
+    // TIPOREF/CODREF, fora do dataset, sobrevivem à regravação. O título nasce da parcela no Faturamento, que a marca LIBERADO='S'.
+    {
+      tabela: 'faturamento',
+      pk: 'codfaturamento',
+      fk: 'idnf',
+      chave: 'faturamento',
+      pkEstavel: true,
+      log: { tabela: 'FATURAMENTO', chave: 'CODNF', campos: FATURAMENTO_CAMPOS_LOG, excluiu: true },
+      colunas: [
+        'data', 'modalidade', 'valor', 'liberado', 'obs', 'codoperador', 'nrofatura', 'totalparcelasfatura', 'nronf', 'codbco',
+        'duplicata', 'valor_desconto', 'valor_bonificado', 'codbarrasboleto',
+      ],
+      // o LIBERADO é do Faturamento, não da tela: a parcela que já virou título continua 'S' e a nova não nasce 'S' (senão o
+      // Faturamento a pularia e o título nunca sairia) — foto das parcelas ANTES da regravação
+      antesDeSubstituirTrx: async ({ trx, masterId }) =>
+        (await trx.selectFrom('faturamento').select(['codfaturamento', 'liberado']).where('idnf', '=', masterId).execute()) as Array<{ codfaturamento: number; liberado: string | null }>,
+      derivarItensTrx: async (itens, _trx, _emp, _header, _masterId, snapshot) => {
+        const lib = new Map(((snapshot as Array<{ codfaturamento: number; liberado: string | null }> | undefined) ?? []).map((a) => [String(a.codfaturamento), a.liberado]));
+        return itens.map((it) => {
+          const k = it.codfaturamento != null ? String(it.codfaturamento) : null;
+          const liberado = k != null && lib.has(k) ? lib.get(k) ?? null : it.liberado === 'S' ? 'N' : (it.liberado ?? null);
+          return { ...it, liberado, codbarrasboleto: limparCodBarrasBoleto(it.codbarrasboleto) };
+        });
+      },
     },
   ],
   colunasPesquisa: ['codnf', 'nronf', 'serie', 'tipo', 'codparceiro', 'dtemissao', 'statusnfe', 'proc', 'totalnf'],
