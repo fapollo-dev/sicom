@@ -13621,11 +13621,12 @@ async function main() {
       try {
         // ENTRADA com ICMS (crédito 18) + SAÍDA mod-55 com ICMS (débito 30) no período 2026-11 → apuração ICMS.
         const nfIcms = await novaNf(baseNf({ tipo: 'E', nronf: 'SPEDF01', codparceiro: 22, dtemissao: '2026-11-05', dtcontabil: '2026-11-05', itens: [{ codproduto: 1, quantidade: 10, vrvenda: 10, vrcusto: 10, cfop: '1102', aliquota: 'T01', icms: 18 }] }));
-        await pgFi.query(`UPDATE nf_prod SET vrbasecalculo=100, vricm=18, icms=18, vripi=0, cst=0, origem_estoque='0' WHERE codnf=$1`, [nfIcms]);
-        await pgFi.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfIcms]);
+        // o SPED do legado usa o ICME (a alíquota efetiva) e só leva a NF-e 55 COM chave (adqNF, UdmSpedFiscal.dfm:2662)
+        await pgFi.query(`UPDATE nf_prod SET vrbasecalculo=100, vricm=18, icms=18, icme=18, vripi=0, cst=0, origem_estoque='0' WHERE codnf=$1`, [nfIcms]);
+        await pgFi.query(`UPDATE nf SET proc='S', chavenfe='31261111222333000181550010000900011000900011' WHERE codnf=$1`, [nfIcms]);
         const nfSaiF = await novaNf(baseNf({ tipo: 'S', nronf: 'SPEDF02', modelo: 55, cfop: '5102', codparceiro: 20, dtemissao: '2026-11-06', dtcontabil: '2026-11-06', idsituacao_nf: 8, itens: [{ codproduto: 1, quantidade: 10, vrcusto: 10, cfop: '5102', aliquota: 'T01', icms: 30 }] }));
-        await pgFi.query(`UPDATE nf_prod SET vrbasecalculo=100, vricm=30, icms=30, vrcusto=10, vripi=0, cst=0, origem_estoque='0' WHERE codnf=$1`, [nfSaiF]);
-        await pgFi.query(`UPDATE nf SET proc='S' WHERE codnf=$1`, [nfSaiF]);
+        await pgFi.query(`UPDATE nf_prod SET vrbasecalculo=100, vricm=30, icms=30, icme=30, vrcusto=10, vripi=0, cst=0, origem_estoque='0' WHERE codnf=$1`, [nfSaiF]);
+        await pgFi.query(`UPDATE nf SET proc='S', chavenfe='31261111222333000181550010000900021000900021' WHERE codnf=$1`, [nfSaiF]);
         const efdF = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2026-11-01', dtfim: '2026-11-30' }) });
         const efdFJ = (await efdF.json().catch(() => ({}))) as any;
         const linF = String(efdFJ.arquivo ?? '').split('\r\n');
@@ -13697,6 +13698,7 @@ async function main() {
         // teve (é o que o legado faz: ele LÊ a APURACAO_ICMS, não recalcula do bloco C).
         // primeiro SEM chave nas notas: as duas são modelo 55, e o legado exige chave (NFe não transmitida não
         // entra na apuração) ⇒ a apuração fecha em zero. Depois damos a chave e reprocessamos.
+        await pgFi.query(`UPDATE nf SET chavenfe = NULL WHERE codnf IN ($1,$2)`, [nfIcms, nfSaiF]);
         const apSemChave = (await (await fetch(`${base}/fiscal/apuracao-icms/processar`, { method: 'POST', headers: H, body: JSON.stringify({ dataini: '2026-11-01', datafin: '2026-11-30' }) })).json().catch(() => ({}))) as any;
         await pgFi.query(`UPDATE nf SET chavenfe='3526110000000000000000000000000000000' || lpad(codnf::text, 7, '0'), statusnfe='P' WHERE codnf IN ($1,$2)`, [nfIcms, nfSaiF]);
         await fetch(`${base}/fiscal/apuracao-icms/processar`, { method: 'POST', headers: H, body: JSON.stringify({
@@ -18698,7 +18700,7 @@ async function main() {
         await pgCf.query(`INSERT INTO cfop (codcfop, descricao) VALUES ('1102','COMPRA P/ COMERCIALIZA') ON CONFLICT (codcfop) DO NOTHING`);
         const nfBoa = await novaNf(baseNf({ tipo: 'E', nronf: 'CF2949A', codparceiro: 22, cfop: '1102', dtemissao: '2036-03-05', dtcontabil: '2036-03-05', itens: [{ codproduto: 1, quantidade: 1, vrvenda: 10, vrcusto: 10, cfop: '1102', aliquota: 'T01' }] }));
         const nfFora = await novaNf(baseNf({ tipo: 'E', nronf: 'CF2949B', codparceiro: 22, cfop: '2949', dtemissao: '2036-03-06', dtcontabil: '2036-03-06', itens: [{ codproduto: 1, quantidade: 1, vrvenda: 20, vrcusto: 20, cfop: '2949', aliquota: 'T01' }] }));
-        await pgCf.query(`UPDATE nf SET proc = 'S' WHERE codnf IN ($1,$2)`, [nfBoa, nfFora]);
+        await pgCf.query(`UPDATE nf SET proc = 'S', chavenfe = '3136031122233300018155001000' || lpad(codnf::text, 16, '0') WHERE codnf IN ($1,$2)`, [nfBoa, nfFora]);
         const efd = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2036-03-01', dtfim: '2036-03-31' }) });
         const linhas = String(((await efd.json().catch(() => ({}))) as any).arquivo ?? '').split('\r\n');
         const c100 = linhas.filter((l) => l.startsWith('|C100|'));
@@ -23288,6 +23290,61 @@ async function main() {
           await pgNh.query(`DELETE FROM nf WHERE codnf = $1`, [codnf]).catch(() => undefined);
         }
         await pgNh.end();
+      }
+    }
+
+    // ══ §240 SPED FISCAL — o bloco C do legado (CST de 3 dígitos, ICME, zeragem, VL_RED_BC, QTD × fator, C170, seleção, 0150) ══════
+    {
+      const pgSf = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const cnpjAntes = (await pgSf.query(`SELECT cnpj_cpf FROM parceiros_end WHERE codend = 6`)).rows[0]?.cnpj_cpf ?? null;
+      const nfs: number[] = [];
+      const erros: unknown[] = [];
+      try {
+        await pgSf.query(`UPDATE parceiros_end SET cnpj_cpf = '44.555.666/0001-72' WHERE codend = 6`);
+        const criar = async (body: Record<string, unknown>) => {
+          const r = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ serie: '1', codparceiro: 22, codparceiro_end: 6, dtemissao: '2036-09-05', dtcontabil: '2036-09-05', ...body }) });
+          const jb = (await r.json().catch(() => ({}))) as any;
+          const id = Number(jb.codnf) || 0; nfs.push(id); if (!id) erros.push(jb); return id;
+        };
+        // entrada de terceiros com 3 itens: tributado (ICME 12 ≠ ICMS 18, caixa de 6), isento x102/CST 40 (o legado zera) e reduzido CST 20
+        const ent = await criar({ modelo: 1, tipo: 'E', nronf: 'SF240E', tipoemissao: '1', cfop: '1102', itens: [
+          { nroitem: 1, codproduto: 1, quantidade: 2, fatorembal: 6, vrcusto: 50, cfop: '1102', aliquota: 'T01' },
+          { nroitem: 2, codproduto: 2, quantidade: 1, vrcusto: 20, cfop: '1102', aliquota: 'IST' },
+          { nroitem: 3, codproduto: 3, quantidade: 1, vrcusto: 100, cfop: '1102', aliquota: 'T01' },
+        ] });
+        await pgSf.query(`UPDATE nf_prod SET cst = 0, vrbasecalculo = 100, icms = 18, icme = 12, vricm = 12 WHERE codnf = $1 AND nroitem = 1`, [ent]);
+        await pgSf.query(`UPDATE nf_prod SET cst = 40, vrbasecalculo = 20, icms = 18, icme = 18, vricm = 3.6 WHERE codnf = $1 AND nroitem = 2`, [ent]);
+        await pgSf.query(`UPDATE nf_prod SET cst = 20, bcr = 50, vrbasecalculo = 50, icms = 18, icme = 18, vricm = 9 WHERE codnf = $1 AND nroitem = 3`, [ent]);
+        // saída própria NF-e 55 (sem C170) e uma entrada modelo 07 (é do bloco D, fora do C100)
+        const sai = await criar({ modelo: 55, tipo: 'S', nronf: 'SF240S', tipoemissao: '0', cfop: '5102', itens: [{ nroitem: 1, codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '5102', aliquota: 'T01' }] });
+        const mod7 = await criar({ modelo: 7, tipo: 'E', nronf: 'SF240T', tipoemissao: '1', cfop: '1352', itens: [{ nroitem: 1, codproduto: 1, quantidade: 1, vrcusto: 10, cfop: '1102', aliquota: 'T01' }] });
+        await pgSf.query(`UPDATE nf SET proc = 'S', chavenfe = '3136091122233300018155001000' || lpad(codnf::text, 16, '0') WHERE codnf = ANY($1::int[])`, [[ent, sai, mod7]]);
+        const r = await fetch(`${base}/fiscal/sped/efd-icms-ipi`, { method: 'POST', headers: H, body: JSON.stringify({ dtini: '2036-09-01', dtfim: '2036-09-30' }) });
+        const j = (await r.json().catch(() => ({}))) as any;
+        const lin = String(j.arquivo ?? '').split('\r\n');
+        const iEnt = lin.findIndex((l) => l.startsWith('|C100|0|1|22|01|00|001|SF240E|'));
+        const iSai = lin.findIndex((l) => l.startsWith('|C100|1|0|22|55|00|001|SF240S|'));
+        const c170 = lin.slice(iEnt + 1, iEnt + 4);
+        const c190Ent = lin.slice(iEnt + 4).filter((l, k, arr) => l.startsWith('|C190|') && arr.slice(0, k).every((x) => x.startsWith('|C190|')));
+        const depoisSai = lin[iSai + 1] ?? '';
+        const semMod7 = !lin.some((l) => l.includes('|SF240T|'));
+        const r0150 = lin.find((l) => l.startsWith('|0150|22|')) ?? '';
+        check('SPED FISCAL §240 [o bloco C do legado]: C170 com a quantidade na unidade do produto (2 caixas × 6 = 12), o CST de 3 dígitos (000/040/020 — o Apollo mandava E00), a alíquota do ICME (12, não o ICMS 18) e o ICMS zerado no x102 com CST 40 (o legado zera: R$ 28 mil de crédito a mais em 8 meses); o C190 do CST 20 com o VL_RED_BC (50 / 50% − 50 = 50); a NF-e própria sem C170; o modelo 07 fora do C100; o 0150 com o CNPJ do endereço da nota',
+          r.status === 200 && iEnt > 0
+          && c170[0]?.startsWith('|C170|1|1|') && c170[0]?.includes('|12,000|') && c170[0]?.includes('|0|000|1102||100,00|12,00|12,00|')
+          && c170[1]?.includes('|0|040|1102||0,00|0,00|0,00|') && c170[2]?.includes('|0|020|1102||50,00|18,00|9,00|')
+          && c190Ent.some((l) => l.startsWith('|C190|020|1102|18,00|100,00|50,00|9,00|0,00|0,00|50,00|'))
+          && c190Ent.some((l) => l.startsWith('|C190|040|1102|0,00|20,00|0,00|0,00|'))
+          && iSai > 0 && !depoisSai.startsWith('|C170|') && semMod7 && r0150.includes('|44555666000172|')
+          && j.validacao?.ok === true,
+          { status: r.status, c100: lin[iEnt], nfs, erros: JSON.stringify(erros), c170, c190Ent, depoisSai, semMod7, r0150, val: j.validacao?.erros });
+      } finally {
+        await pgSf.query(`UPDATE parceiros_end SET cnpj_cpf = $1 WHERE codend = 6`, [cnpjAntes]).catch(() => undefined);
+        for (const c of nfs.filter((x) => x > 0)) {
+          await pgSf.query(`DELETE FROM nf_prod WHERE codnf = $1`, [c]).catch(() => undefined);
+          await pgSf.query(`DELETE FROM nf WHERE codnf = $1`, [c]).catch(() => undefined);
+        }
+        await pgSf.end();
       }
     }
 
