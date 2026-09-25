@@ -626,6 +626,7 @@ leitura), as colunas preenchidas em ≥ 50% que nenhum código do Apollo que gra
   `pedido_devolucao_compra.CNPJ_CPF`, `pedido_devolucao_compra_i.VRCUSTOREP`; `plc` (NIVELCONTA, DESCPLCCONTABIL);
   `plano_contas.CODEXPINTEIRO`; `figura_fiscal` (origem/destino); `contas_bancarias` (ESTORNO_DTHR_BAIXA, EXIBE_SALDO_EMP);
   `formas_pgto` (BAIXA_DOCUMENTO_AUTOMATICO, EXIGE_PERMISSAO); `hist_sangria_suprimento` (*_FECHADO, *_AUTENTICADO).
+- ✅ CENTRO DE CUSTOS (FRMCADPLC) convertida — dossiê uCadPLC.md, smoke §233 (a tela não existia; 2 de 20 colunas; sem sequência).
 - ✅ EMPRESAS (smoke §232): a tela gerenciava 53 das 273 colunas; entram 186 (`empresa-legado.ts`, gerado do UCadEmpresa.dfm — rótulo,
   aba e itens dos combos — e do schema do destino), por aba do legado; senhas de certificado/e-mail, tokens e CSC graváveis e nunca
   devolvidos na leitura. Fora: NSU, carimbos, hashes, certificados (binário), as datas de contingência do PDV e as senhas de operação

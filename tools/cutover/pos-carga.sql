@@ -92,6 +92,8 @@ SELECT setval('seq_dadoscx', coalesce((SELECT max(coddadoscx) FROM dadoscx), 0):
 -- as PARCELAS da nota (FATURAMENTO, mig 246): a partir do corte A do faturamento a nota grava as parcelas — a sequência
 -- não é OWNED pela coluna (o setval genérico do carregador não a acha), então vai aqui, depois das 47 mil carregadas
 SELECT setval('seq_faturamento', coalesce((SELECT max(codfaturamento) FROM faturamento), 0)::bigint + 1, false);
+-- o código do centro de custo (mig 349): depois do maior carregado
+SELECT setval('seq_plc', coalesce((SELECT max(codplc) FROM plc), 0)::bigint + 1, false);
 -- o sequencial GLOBAL da remessa por banco (GetID('NRSEQREMESSAITAU'/'NRSEQREMESSABB'): o BB o imprime no header 101-107, e repetir
 -- um número já enviado faz o banco recusar o arquivo). As migs 153/154 começam em 3132/705 (o golden); a produção já está em 6822/1682
 -- (auditoria de esqueletos §4.18). Reposiciona pelo maior número gravado em REMESSAS_BOLETOS, sem voltar para trás.

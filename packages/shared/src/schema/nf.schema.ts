@@ -580,10 +580,24 @@ export type AtualizarCfopDto = z.infer<typeof atualizarCfopSchema>;
 export interface Cfop extends CriarCfopDto {}
 
 /** PLC — centro de custo gerencial (chave natural codplc; alvo do CODCC do rateio contábil — F5). */
+/**
+ * PLC — o cadastro de centro de custo (uCadPLC): o código é gerado (`GetID('CODPLC')`), a conta pendura numa conta retrocedente (CODPAI)
+ * e o código da conta começa pelo do pai; o nível vem do pai (+1) e a descrição da conta contábil, da conta escolhida — no gravar.
+ */
+const codPlcLimpavel = z.union([z.coerce.number().int(), z.literal('')]).optional();
 export const plcSchema = z.object({
-  codplc: z.number({ message: 'Informe o código do centro de custo.' }).int('Código inválido.'),
-  desccodplc: opcional(z.string().trim().max(30)),
+  codplc: z.number().int('Código inválido.').optional(), // gerado na inclusão
+  desccodplc: z.string({ message: 'Informe o código da conta.' }).trim().min(1, 'Informe o código da conta.').max(30),
   descricao: z.string().trim().min(1, 'Informe a descrição.').max(80),
+  codpai: codPlcLimpavel, // a conta retrocedente ('' = conta raiz)
+  tpconta: z.union([z.coerce.number().int().min(0).max(2), z.literal('')]).optional(), // 0 receita, 1 despesa, 2 neutra (o combo do legado)
+  codcontabil: codPlcLimpavel, // o lançamento contábil (a conta do plano)
+  apenas_proprietario: z.enum(['S', 'N']).optional(),
+  flg_uso_setor: z.enum(['S', 'N']).optional(),
+  nao_mostrar_scrap_rel_partset: z.enum(['S', 'N']).optional(),
+  flg_perda: z.enum(['S', 'N']).optional(),
+  plc_obriga_motivo_perda: z.enum(['S', 'N']).optional(),
+  limiteplc: dec(z.number().nonnegative()),
 });
 export type CriarPlcDto = z.infer<typeof plcSchema>;
 export const atualizarPlcSchema = plcSchema.partial();

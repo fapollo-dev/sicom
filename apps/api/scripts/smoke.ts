@@ -22961,6 +22961,50 @@ async function main() {
       }
     }
 
+    // ══ §233 CENTRO DE CUSTOS (FRMCADPLC) — a tela e as regras do uCadPLC ═══════════════════════════════════════════════════════════
+    {
+      const pgPl = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const P = `${base}/cadastro/plc`;
+      const criar = async (b: Record<string, unknown>) => {
+        const r = await fetch(P, { method: 'POST', headers: H, body: JSON.stringify(b) });
+        const j = (await r.json().catch(() => ({}))) as any;
+        return { status: r.status, code: j.code as string | undefined, id: Number(j.codplc) || 0 };
+      };
+      const ids: number[] = [];
+      const contacmvAntes = (await pgPl.query(`SELECT contacmv FROM empresas WHERE idempresa = 1`)).rows[0]?.contacmv ?? null;
+      try {
+        const conta = (await pgPl.query(`SELECT codplanocontas, descricao FROM plano_contas ORDER BY codplanocontas LIMIT 1`)).rows[0] as any;
+        const raiz = await criar({ desccodplc: '97', descricao: 'RAIZ SMOKE 233', tpconta: 1 }); ids.push(raiz.id);
+        const raizLonga = await criar({ desccodplc: '97.01', descricao: 'RAIZ LONGA' });
+        const filha = await criar({ desccodplc: '97.01', descricao: 'FILHA SMOKE 233', codpai: raiz.id, codcontabil: conta ? Number(conta.codplanocontas) : undefined, flg_perda: 'S' }); ids.push(filha.id);
+        const prefixo = await criar({ desccodplc: '96.01', descricao: 'PREFIXO ERRADO', codpai: raiz.id });
+        const dup = await criar({ desccodplc: '97.01', descricao: 'DUPLICADA', codpai: raiz.id });
+        const rr = (await pgPl.query(`SELECT codplc, nivelconta, tpconta FROM plc WHERE codplc = $1`, [raiz.id])).rows[0] as any;
+        const rf = (await pgPl.query(`SELECT nivelconta, codpai, descplccontabil, flg_perda FROM plc WHERE codplc = $1`, [filha.id])).rows[0] as any;
+        check('CENTRO DE CUSTOS §233.1 [a árvore]: o código é gerado; a conta raiz tem código de até 2 dígitos (97.01 sem pai → 422 PLC_CODIGO_RAIZ) e nível 1; a derivada começa pelo código do pai (96.01 → 422 PLC_CODIGO_PREFIXO_PAI), tem o nível do pai + 1 e a descrição da conta contábil escolhida; o código é único (422 PLC_CODIGO_EXISTE)',
+          raiz.status === 201 && raiz.id > 0 && Number(rr?.nivelconta) === 1 && Number(rr?.tpconta) === 1 && raizLonga.code === 'PLC_CODIGO_RAIZ'
+          && filha.status === 201 && Number(rf?.nivelconta) === 2 && Number(rf?.codpai) === raiz.id && (!conta || rf?.descplccontabil === conta.descricao) && rf?.flg_perda === 'S'
+          && prefixo.code === 'PLC_CODIGO_PREFIXO_PAI' && dup.code === 'PLC_CODIGO_EXISTE',
+          { raiz, raizLonga, filha, prefixo, dup, rr, rf });
+        const delPai = await fetch(`${P}/${raiz.id}`, { method: 'DELETE', headers: H });
+        const delPaiJ = (await delPai.json().catch(() => ({}))) as any;
+        await pgPl.query(`UPDATE empresas SET contacmv = $1 WHERE idempresa = 1`, [filha.id]);
+        const delUsada = await fetch(`${P}/${filha.id}`, { method: 'DELETE', headers: H });
+        const delUsadaJ = (await delUsada.json().catch(() => ({}))) as any;
+        await pgPl.query(`UPDATE empresas SET contacmv = $1 WHERE idempresa = 1`, [contacmvAntes]);
+        const delLivre = await fetch(`${P}/${filha.id}`, { method: 'DELETE', headers: H });
+        const rd = (await pgPl.query(`SELECT indr FROM plc WHERE codplc = $1`, [filha.id])).rows[0] as any;
+        check('CENTRO DE CUSTOS §233.2 [excluir]: com conta filha → 422 PLC_TEM_FILHAS; em uso (a conta do CMV da empresa) → 422 PLC_EM_USO com o lugar ("no cadastro de empresas"); livre → exclusão lógica (INDR E)',
+          delPai.status === 422 && delPaiJ.code === 'PLC_TEM_FILHAS' && delUsada.status === 422 && delUsadaJ.code === 'PLC_EM_USO' && delUsadaJ.detalhe?.onde === 'no cadastro de empresas'
+          && delLivre.ok && rd?.indr === 'E',
+          { delPai: [delPai.status, delPaiJ.code], delUsada: [delUsada.status, delUsadaJ.code, delUsadaJ.detalhe], delLivre: delLivre.status, rd });
+      } finally {
+        await pgPl.query(`UPDATE empresas SET contacmv = $1 WHERE idempresa = 1`, [contacmvAntes]).catch(() => undefined);
+        await pgPl.query(`DELETE FROM plc WHERE codplc = ANY($1::int[])`, [ids.filter(Boolean)]).catch(() => undefined);
+        await pgPl.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();
