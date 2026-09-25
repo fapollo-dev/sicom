@@ -25,7 +25,14 @@ export const parceiroAggregateConfig: AggregateConfig = {
   // escopo por loja, as lojas 2/50/51 não enxergavam os parceiros dos próprios títulos (auditoria de esqueletos §4.5). A loja da
   // sessão só carimba o parceiro novo.
   empresaScoped: false,
-  derivarTrx: async ({ emp }) => (emp != null ? { idempresa: emp } : {}),
+  // e o NewRecord do binário novo: as 5 flags que o legado grava 'N' em todo parceiro novo (500 de 500 em 2026)
+  derivarTrx: async ({ dto, emp }) => {
+    const out: Record<string, unknown> = emp != null ? { idempresa: emp } : {};
+    for (const k of ['soma_st_bonificacao', 'habilita_retencao_senar_nf', 'visualiza_pc_parc', 'participa_cotacao', 'clubefidelidade']) {
+      if (dto[k] === undefined) out[k] = 'N';
+    }
+    return out;
+  },
   // a data da última alteração carimbada pela TELA em toda gravação (está no dataset: vai na LOG "Alterou" — 280 de 280 em 2026)
   derivar: () => ({ dtultalteracao: new Date().toISOString() }),
   colunas: [
@@ -56,6 +63,10 @@ export const parceiroAggregateConfig: AggregateConfig = {
     // o perfil do cliente (edtCodPerfilCliente → GET_PERFIL TIPO 'PARCEIRO', uCadClientes.pas:4222) e a data da última alteração.
     // EMPRESAS e IDENTIFICADOR não estão na tela (vêm de outro processo): o UPDATE não os toca.
     'codperfil_parceiro', 'dtultalteracao',
+    // o que a tela do binário novo grava e o Apollo não gerenciava (conferir-campos-da-log.py, 2026): as 5 flags de todo parceiro novo,
+    // a conta corrente, o parceiro matriz, "todos os pagamentos" e a placa da transportadora
+    'soma_st_bonificacao', 'habilita_retencao_senar_nf', 'visualiza_pc_parc', 'participa_cotacao', 'clubefidelidade',
+    'codconta', 'codparceiro_matriz', 'todospgtos', 'placa', 'ufplaca',
   ],
   detalhes: [
     {

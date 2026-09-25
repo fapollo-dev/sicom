@@ -38,7 +38,18 @@ export const operadoresAggregateConfig: AggregateConfig = {
     'nome', 'login', 'tipoop', 'idgrupo', 'codparceiro', 'idsupervisor',
     'desabilitado', 'desabilita_operacoes_basicas', 'desabilita_desconto_pdv',
     'solicitar_alteracao_senha',
+    // o MENU (cbbMenu: 1 Padrão, 2 Personalizado — 2 no NewRecord, uRdmCadUsuarios.pas:213), o CODIGOAUXILIAR (EdtCodigoAuxiliar,
+    // uCadUsuarios.dfm:404) e o que o binário novo acrescentou: ATIVO ('S' no novo; S→N 3 vezes em 2026) e BLOQUEARSUPERLIBERARPROP
+    'menu', 'codigoauxiliar', 'ativo', 'bloquearsuperliberarprop',
   ],
+  // o NewRecord: MENU 2, e o que o binário novo grava em todo operador novo (90 de 90 em 2026: ATIVO 'S', BLOQUEARSUPERLIBERARPROP 'N')
+  derivarTrx: async ({ dto }) => {
+    const out: Record<string, unknown> = {};
+    if (dto.menu === undefined) out.menu = 2;
+    if (dto.ativo === undefined) out.ativo = 'S';
+    if (dto.bloquearsuperliberarprop === undefined) out.bloquearsuperliberarprop = 'N';
+    return out;
+  },
   rbacForm: 'FRMCADUSUARIOS',
   // a LOG do form-base (uCadMaster.pas:485): o título da tela como a produção grava — o "Registro de log" a mostra
   log: { formulario: 'Cadastro de usuários' },

@@ -3,6 +3,7 @@ import { CadMasterDet } from '../../shared/cadmaster/CadMasterDet';
 import { Field } from '../../shared/ui/Field';
 import { SelectField } from '../../shared/ui/SelectField';
 import { CheckboxField } from '../../shared/ui/CheckboxField';
+import { NumberField } from '../../shared/ui/NumberField';
 import { useResourceOptions } from '../../shared/cadmaster/useResourceOptions';
 import { operadorSchema, OPERADOR_TIPO_OPCOES, type CriarOperadorDto } from '@apollo/shared';
 
@@ -48,6 +49,9 @@ export function OperadoresCadMaster() {
         desabilita_operacoes_basicas: 'N',
         desabilita_desconto_pdv: 'N',
         solicitar_alteracao_senha: 'S',
+        menu: 2, // o NewRecord do legado (uRdmCadUsuarios.pas:213)
+        ativo: 'S',
+        bloquearsuperliberarprop: 'N',
         empresas: [],
       }}
       detalhe={{
@@ -173,6 +177,37 @@ export function OperadoresCadMaster() {
               name="solicitar_alteracao_senha"
               render={({ field }) => (
                 <CheckboxField label="&Solicitar troca de senha no próximo login" value={field.value ?? 'S'} onChange={field.onChange} disabled={!editavel} />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="ativo"
+              render={({ field }) => (
+                <CheckboxField label="Ativo" value={field.value ?? 'S'} onChange={field.onChange} disabled={!editavel} />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="bloquearsuperliberarprop"
+              render={({ field }) => (
+                <CheckboxField label="Bloquear o supervisor de liberar as próprias operações" value={field.value ?? 'N'} onChange={field.onChange} disabled={!editavel} />
+              )}
+            />
+          </div>
+          <div className="grid grid-cols-1 gap-form-gap sm:grid-cols-2">
+            <Controller
+              control={form.control}
+              name="menu"
+              render={({ field }) => (
+                <SelectField label="Menu" options={[{ value: '1', label: 'Padrão' }, { value: '2', label: 'Personalizado' }]}
+                  value={field.value != null ? String(field.value) : undefined} onChange={(v) => field.onChange(v ? Number(v) : undefined)} disabled={!editavel} />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="codigoauxiliar"
+              render={({ field }) => (
+                <NumberField label="Código auxiliar" value={field.value as number | undefined} onChange={field.onChange} decimais={0} min={0} disabled={!editavel} />
               )}
             />
           </div>

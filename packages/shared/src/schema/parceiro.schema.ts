@@ -80,6 +80,7 @@ export const RETENCOES_PARCEIRO = [
   { campo: 'habilita_retencao_inss_nf', label: 'INSS' },
   { campo: 'habilita_retencao_issqn_nf', label: 'ISSQN' },
   { campo: 'habilita_retencao_funrural_nf', label: 'FUNRURAL' },
+  { campo: 'habilita_retencao_senar_nf', label: 'SENAR' }, // do binário novo — 'N' em todo parceiro novo
 ] as const;
 
 /** trata '' / null como ausente (campo opcional) antes de aplicar um validador que transforma. */
@@ -277,6 +278,18 @@ const parceiroBase = z.object({
   tipo_fornecedor: z.string().trim().max(150).optional(),
   retira_fornindex: sn().optional(),
   realiza_troca: sn().optional(),
+  // o que a tela do binário novo grava (conferir-campos-da-log.py, 2026): as 5 flags de todo parceiro novo ('N' no NewRecord), a conta
+  // corrente, o parceiro matriz, "todos os pagamentos" e a placa da transportadora
+  soma_st_bonificacao: sn().optional(),
+  habilita_retencao_senar_nf: sn().optional(),
+  visualiza_pc_parc: sn().optional(),
+  participa_cotacao: sn().optional(),
+  clubefidelidade: sn().optional(),
+  codconta: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()),
+  codparceiro_matriz: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()),
+  todospgtos: sn().optional(),
+  placa: z.string().trim().max(10).optional(),
+  ufplaca: z.string().trim().max(2).optional(),
   // detalhes 1:N (engine de agregado grava todos numa transação)
   enderecos: z.array(enderecoParceiroSchema).optional().default([]),
   bancos: z.array(bancoParceiroSchema).optional().default([]),

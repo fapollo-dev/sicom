@@ -65,8 +65,13 @@ const operadorBase = z.object({
   empresas: z
     .array(z.object({ codempresa: z.number({ message: 'Empresa inválida.' }).int().positive() }))
     .min(1, 'Informe ao menos uma empresa permitida.'),
-  // ATIVO e CODIGOAUXILIAR são colunas reais mas NÃO editadas pela tela legada (o bloqueio é
-  // DESABILITADO; a situação é INDR; CODIGOAUXILIAR está 0-preenchido no Oracle) → fora do delta.
+  // MENU (cbbMenu: 1 Padrão / 2 Personalizado), CODIGOAUXILIAR (EdtCodigoAuxiliar, uCadUsuarios.dfm:404 — digitado em 24 dos 90 operadores
+  // de 2026) e, do binário novo, ATIVO e BLOQUEARSUPERLIBERARPROP. (A leitura de antes — "não editadas pela tela", "0-preenchido" — era da
+  // homologação.) O bloqueio de acesso continua sendo o DESABILITADO: o ATIVO só é gravado, sem efeito provado no login.
+  menu: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().min(1).max(2).optional()),
+  codigoauxiliar: z.preprocess((v) => (v === '' || v == null ? undefined : Number(v)), z.number().int().optional()),
+  ativo: opcional(z.enum(['S', 'N'])),
+  bloquearsuperliberarprop: opcional(z.enum(['S', 'N'])),
 });
 
 export const operadorSchema = z.preprocess(stripNulls, operadorBase);

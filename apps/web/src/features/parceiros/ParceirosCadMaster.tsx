@@ -151,6 +151,12 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
       habilita_retencao_inss_nf: 'N',
       habilita_retencao_issqn_nf: 'N',
       habilita_retencao_funrural_nf: 'N',
+      // o NewRecord do binário novo: as 5 flags 'N' de todo parceiro novo (o servidor aplica as mesmas)
+      habilita_retencao_senar_nf: 'N',
+      soma_st_bonificacao: 'N',
+      visualiza_pc_parc: 'N',
+      participa_cotacao: 'N',
+      clubefidelidade: 'N',
       perc_aliquota_ir: undefined,
       perc_aliquota_issqn: undefined,
       codparceiro_ent_issqn: undefined,
@@ -428,6 +434,23 @@ export function ParceirosCadMaster({ papel }: { papel: Papel }) {
                   />
                 )}
               />
+              {/* o que a tela do binário novo grava (conferir-campos-da-log.py, 2026) */}
+              <Controller control={form.control} name="codconta" render={({ field }) => (
+                <NumberField label="Conta corrente" value={field.value as number | undefined} onChange={field.onChange} decimais={0} min={0} disabled={!editavel} />
+              )} />
+              <Controller control={form.control} name="codparceiro_matriz" render={({ field }) => (
+                <NumberField label="Parceiro matriz" value={field.value as number | undefined} onChange={field.onChange} decimais={0} min={0} disabled={!editavel} />
+              )} />
+              <Field label="Placa (transportadora)" disabled={!editavel} maxLength={10} {...form.register('placa')} />
+              <Field label="UF da placa" disabled={!editavel} maxLength={2} {...form.register('ufplaca')} />
+              <div className="flex flex-wrap items-center gap-gp-lg">
+                <Controller control={form.control} name="todospgtos" render={({ field }) => (
+                  <CheckboxField label="Todas as formas de pagamento" value={(field.value as string | undefined) ?? 'N'} onChange={field.onChange} disabled={!editavel} />
+                )} />
+                <Controller control={form.control} name="clubefidelidade" render={({ field }) => (
+                  <CheckboxField label="Clube de fidelidade" value={(field.value as string | undefined) ?? 'N'} onChange={field.onChange} disabled={!editavel} />
+                )} />
+              </div>
             </div>
           </fieldset>
 
@@ -541,6 +564,9 @@ function DadosFornecedorSection({
               ['pronta_entrega', 'Pronta entrega'],
               ['retira_fornindex', 'Fornecedor livre de indexador'],
               ['realiza_troca', 'Realiza troca'],
+              ['soma_st_bonificacao', 'Soma ST na bonificação'],
+              ['participa_cotacao', 'Participa de cotação'],
+              ['visualiza_pc_parc', 'Visualiza o pedido de compra'],
             ] as const
           ).map(([name, label]) => (
             <Controller

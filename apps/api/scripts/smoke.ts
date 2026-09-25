@@ -22774,6 +22774,39 @@ async function main() {
       }
     }
 
+    // ══ §226 PARCEIRO e OPERADOR — o que a tela do binário novo grava (conferir-campos-da-log.py) ═════════════════════════════
+    {
+      const pgPo = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const cp = await fetch(`${base}/cadastro/parceiros`, { method: 'POST', headers: H, body: JSON.stringify({ razao: 'PARCEIRO 226', tipofj: 'F', cli: 'S', enderecos: [] }) });
+        const cpJ = (await cp.json().catch(() => ({}))) as any;
+        const codp = Number(cpJ.codparceiro);
+        const r1 = (await pgPo.query(`SELECT soma_st_bonificacao, habilita_retencao_senar_nf, visualiza_pc_parc, participa_cotacao, clubefidelidade, idempresa FROM parceiros WHERE codparceiro = $1`, [codp])).rows[0] as any;
+        const lido = (await (await fetch(`${base}/cadastro/parceiros/${codp}`, { headers: H })).json().catch(() => ({}))) as any;
+        const up = await fetch(`${base}/cadastro/parceiros/${codp}`, { method: 'PUT', headers: H, body: JSON.stringify({ ...lido, codconta: 201, codparceiro_matriz: 20, todospgtos: 'S', placa: 'GND4986', ufplaca: 'MG', habilita_retencao_senar_nf: 'S' }) });
+        const r2 = (await pgPo.query(`SELECT codconta, codparceiro_matriz, todospgtos, placa, ufplaca, habilita_retencao_senar_nf FROM parceiros WHERE codparceiro = $1`, [codp])).rows[0] as any;
+        check('PARCEIRO §226.1 [o que a tela do binário novo grava]: o parceiro novo nasce com as 5 flags N (500 de 500 em 2026) e a loja da sessão; CODCONTA, o parceiro MATRIZ, "todos os pagamentos", a PLACA/UF da transportadora e a retenção de SENAR gravam',
+          cp.status === 201 && r1?.soma_st_bonificacao === 'N' && r1?.habilita_retencao_senar_nf === 'N' && r1?.visualiza_pc_parc === 'N' && r1?.participa_cotacao === 'N'
+          && r1?.clubefidelidade === 'N' && Number(r1?.idempresa) === 1
+          && up.status === 200 && Number(r2?.codconta) === 201 && Number(r2?.codparceiro_matriz) === 20 && r2?.todospgtos === 'S' && r2?.placa === 'GND4986'
+          && r2?.ufplaca === 'MG' && r2?.habilita_retencao_senar_nf === 'S',
+          { cp: [cp.status, cpJ.code], r1, up: up.status, r2 });
+        const co = await fetch(`${base}/cadastro/operadores`, { method: 'POST', headers: H, body: JSON.stringify({ senha: 'op226', codoperador: 922600, nome: 'OP 226', login: 'OP226', tipoop: 'OPE', empresas: [{ codempresa: 1 }] }) });
+        const o1 = (await pgPo.query(`SELECT menu, ativo, bloquearsuperliberarprop, codigoauxiliar FROM operadores WHERE codoperador = 922600`)).rows[0] as any;
+        const op = (await (await fetch(`${base}/cadastro/operadores/922600`, { headers: H })).json().catch(() => ({}))) as any;
+        const uo = await fetch(`${base}/cadastro/operadores/922600`, { method: 'PUT', headers: H, body: JSON.stringify({ ...op, menu: 1, codigoauxiliar: 2107, ativo: 'N' }) });
+        const o2 = (await pgPo.query(`SELECT menu, ativo, codigoauxiliar, desabilitado FROM operadores WHERE codoperador = 922600`)).rows[0] as any;
+        check('OPERADOR §226.2 [a tela do usuário]: o operador novo nasce com MENU 2 (o NewRecord, uRdmCadUsuarios.pas:213), ATIVO S e BLOQUEARSUPERLIBERARPROP N (90 de 90 em 2026); MENU 1 (Padrão), o CÓDIGO AUXILIAR e o ATIVO gravam — sem tocar o DESABILITADO, que é o bloqueio de acesso',
+          co.status === 201 && Number(o1?.menu) === 2 && o1?.ativo === 'S' && o1?.bloquearsuperliberarprop === 'N'
+          && uo.status === 200 && Number(o2?.menu) === 1 && Number(o2?.codigoauxiliar) === 2107 && o2?.ativo === 'N' && (o2?.desabilitado ?? 'N') === 'N',
+          { co: co.status, o1, uo: uo.status, o2 });
+        await pgPo.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 922600`);
+        await pgPo.query(`DELETE FROM operadores WHERE codoperador = 922600`);
+      } finally {
+        await pgPo.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();

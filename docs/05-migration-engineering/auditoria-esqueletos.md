@@ -594,7 +594,17 @@ leitura), as colunas preenchidas em ≥ 50% que nenhum código do Apollo que gra
   **Não aplicadas, com prova:** VALOR DE VENDA obrigatório (331 de 575 com venda 0), seção/depto/grupo/subgrupo obrigatórios (1.168 de
   1.175 sem seção), natureza PIS/COFINS (573 de 1.175 sem ela). Mig 347 semeia na base de dev os NCMs e o PIS/COFINS dos produtos-semente.
 
+- `tools/cutover/conferir-campos-da-log.py` (lição 151): por formulário/tabela da LOG de 2026, os campos que a tela do legado grava
+  (Inseriu/Alterou) e a config do Apollo não gerencia — 460 na primeira rodada. Feitos daí: PARCEIRO (as 5 flags 'N' de todo parceiro
+  novo, SENAR, CODCONTA, matriz, "todos os pagamentos", placa/UF da transportadora) e OPERADOR (MENU — 2 no NewRecord —, CODIGOAUXILIAR,
+  ATIVO, BLOQUEARSUPERLIBERARPROP; o bloqueio de acesso segue o DESABILITADO). Smoke §226.
+
 **Fila (por dano provável):**
+- NF — cabeçalho: ~50 totais do legado que o Apollo não grava (QTDE, PIS/COFINS_NFE, RATEIO_ST, TOTALBASE_STEXTERNO, TOTAL_STREAL,
+  TOTALREPICM, DTPROCESSAMENTO, TOTAL_BONIFICADO, VALIDATOTALNF…); item: ~90 (os valores da nota do fornecedor, custo real/reposição, PMZ,
+  venda sugerida, lucros e margens, USOCONSUMO, SINCRONIZADO_*, a decomposição na entrada, REPASSADO, INDEXADORTRIB, ESPECIFICACAO…).
+- MULTI_PRECO pelo cadastro de produto: CODFIGURAFISCAL, IDPISCOFINS, IDTABELA, TIPOPIS, VRCUSTOFISCAL, ABC, ATACAREJO_ATIVO.
+- Agenda de promoção: DATAEXECUCAO/IDSITUACAO_NF/CODPARCEIRO (468 alterações — a execução) e os markups do item; SCRAP.MOV_ESTOQUE.
 - `pedidocompra_i`: PISCONFIS, ICME, LUCROBRUTOP, LUCROLIQP, VLREMBALAGEMB (a rentabilidade do item); `pedidocompra.DTENCERRAMENTO`
   (90,5%).
 - `nf_prod`: REPASSADO, INDEXADORTRIB, VRCREDSN/ALIQCREDSN/DESTACICMSSN (crédito do Simples), VRFRETE, CUSTO_RECALCULO_BONIF,
