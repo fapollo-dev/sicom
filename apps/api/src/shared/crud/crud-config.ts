@@ -197,7 +197,8 @@ export interface AggregateConfig extends CrudConfig {
    * empresa/modelo/série na emissão própria — SetaNroNF, uNF.pas:15787), onde o valor depende do banco
    * e precisa ser atômico. Só master; recebe o delta já carimbado (com idempresa).
    */
-  derivarTrx?: (ctx: { dto: Record<string, unknown>; trx: any; emp: number | null }) => Promise<Record<string, unknown>>;
+  /** `bruto`: o dto como veio (com os marcadores transitórios, ex.: `_sistema`), antes do filtro das colunas */
+  derivarTrx?: (ctx: { dto: Record<string, unknown>; trx: any; emp: number | null; bruto?: Record<string, unknown> }) => Promise<Record<string, unknown>>;
   /** anexa dados derivados à LEITURA do agregado (ex.: o estado de fechamento de cada loja do pedido). */
   anexarLeitura?: (ctx: { db: any; id: number; registro: Record<string, unknown>; emp: number | null }) => Promise<Record<string, unknown>>;
   /**

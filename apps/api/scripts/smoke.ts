@@ -23034,9 +23034,11 @@ async function main() {
         const cp = await fetch(`${base}/compras/pedidos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, data: '2036-07-10', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 5 }] }) });
         const cpJ = (await cp.json().catch(() => ({}))) as any;
         const cod = Number(cpJ.codpedcomp ?? cpJ.id ?? cpJ.codigo);
-        const r = (await pgPd.query(`SELECT to_char(dtencerramento AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') enc, to_char(dt_vencimento AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') venc, to_char(data_faturamento AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') fat FROM pedidocompra WHERE codpedcomp = $1`, [cod])).rows[0] as any;
-        check('PEDIDO §230 [o que a inclusão grava]: DTENCERRAMENTO = o dia do pedido (568 de 570 em 2026), e o vencimento e a data de faturamento, que a tela não trouxe, na data do pedido (DT_VENCIMENTO = DATA em 570 de 570; DTFATURAMENTO no mesmo dia em 500)',
-          cp.status === 201 && r?.enc === '2036-07-10' && r?.venc === '2036-07-10' && r?.fat === '2036-07-10', { cp: [cp.status, cpJ.code], r });
+        const r = (await pgPd.query(`SELECT to_char(dtencerramento AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') enc, to_char(dt_vencimento AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') venc, to_char(data_faturamento AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') fat,
+            compra_1_para_n_lojas, bonificacao, pc_tipo_frete, pc_valor_frete FROM pedidocompra WHERE codpedcomp = $1`, [cod])).rows[0] as any;
+        check('PEDIDO §230 [o que a inclusão grava]: DTENCERRAMENTO = o dia do pedido (568 de 570 em 2026), e o vencimento e a data de faturamento, que a tela não trouxe, na data do pedido (DT_VENCIMENTO = DATA em 570 de 570; DTFATURAMENTO no mesmo dia em 500); e o NewRecord da tela: COMPRA_1_PARA_N_LOJAS N, BONIFICACAO N, frete CIF e valor 0 (574 pedidos de 2026)',
+          cp.status === 201 && r?.enc === '2036-07-10' && r?.venc === '2036-07-10' && r?.fat === '2036-07-10'
+          && r?.compra_1_para_n_lojas === 'N' && r?.bonificacao === 'N' && r?.pc_tipo_frete === 'CIF' && Number(r?.pc_valor_frete) === 0, { cp: [cp.status, cpJ.code], r });
         await pgPd.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [cod]).catch(() => undefined);
       } finally {
         await pgPd.end();

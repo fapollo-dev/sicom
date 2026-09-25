@@ -264,9 +264,14 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
   // o binário novo também grava, na inclusão, a DTENCERRAMENTO = o dia do pedido (568 de 570 em 2026) e o vencimento e a data de
   // faturamento, quando a tela não os traz, na data do pedido (DT_VENCIMENTO = DATA em 570 de 570; DTFATURAMENTO — o
   // `data_faturamento` daqui — no mesmo dia em 500 de 570)
-  derivarTrx: async ({ dto, emp }) => {
+  // e o NewRecord do pedido da TELA (udmPedidoCompra.pas:1460-1463): COMPRA_1_PARA_N_LOJAS 'N', BONIFICACAO 'N', PC_TIPO_FRETE 'CIF' e
+  // PC_VALOR_FRETE 0 — os quatro juntos em 574 pedidos de 2026; os 70 com os quatro nulos são os gerados por programa (`_sistema`)
+  derivarTrx: async ({ dto, emp, bruto }) => {
     const dia = dto.data != null ? String(dto.data).slice(0, 10) : null;
+    const novoDaTela: Record<string, unknown> = (bruto as Record<string, unknown> | undefined)?._sistema === true ? {} : Object.fromEntries(
+      Object.entries({ compra_1_para_n_lojas: 'N', bonificacao: 'N', pc_tipo_frete: 'CIF', pc_valor_frete: 0 }).filter(([k]) => dto[k] === undefined));
     return {
+      ...novoDaTela,
       codoperador: currentTenant().operadorId ?? null,
       ...(dto.empresas ? {} : { empresas: emp != null ? String(emp) : null }),
       ...(dia ? { dtencerramento: dia } : {}),
