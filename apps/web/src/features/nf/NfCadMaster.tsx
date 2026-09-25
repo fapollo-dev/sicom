@@ -1520,6 +1520,8 @@ function ItensSection({
             label: 'Remover',
             icon: <Trash2 className="size-icon-sm" strokeWidth={1.7} aria-hidden />,
             destructive: true,
+            // o filho da decomposição fica na grade de detalhe do legado: o Excluir age na principal (o item comum e o pai virtual, que leva o grupo)
+            hidden: (r: LinhaItemNf) => !!r._filho,
             onClick: (r: LinhaItemNf) => {
               // o pai virtual leva o grupo inteiro (btnDelItemClick, uNF.pas:3804-3860); as travas (devolvido, lote, produção) são do gravar
               if (r._pai) {
