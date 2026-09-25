@@ -21807,6 +21807,28 @@ async function main() {
       }
     }
 
+    // ══ §211 AJUSTE DE PREÇOS → ETIQUETAS (auditoria de esqueletos §4.12): os produtos dos lotes marcados, expandidos pelo grupo
+    {
+      const pgEl = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        await pgEl.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, codgrupopreco) VALUES
+          (992111,'7000000992111','ETQ GRUPO A','UN',1,'T01','S',99211),(992112,'7000000992112','ETQ GRUPO B','UN',1,'T01','S',99211),(992113,'7000000992113','ETQ SOZINHO','UN',1,'T01','S',NULL)
+          ON CONFLICT (idproduto) DO UPDATE SET codgrupopreco=EXCLUDED.codgrupopreco`);
+        await pgEl.query(`INSERT INTO multi_preco (idproduto, idempresa, vrvenda) VALUES (992111,1,5),(992112,1,5),(992113,1,7) ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrvenda=EXCLUDED.vrvenda`);
+        const l1 = Number((await pgEl.query(`INSERT INTO lote_preco (idproduto, codempresa, vrvenda, promocao, processado, datalote) VALUES (992111,1,5,'N','N',now()) RETURNING codlotepreco`)).rows[0].codlotepreco);
+        const l2 = Number((await pgEl.query(`INSERT INTO lote_preco (idproduto, codempresa, vrvenda, promocao, processado, datalote) VALUES (992113,1,7,'S','N',now()) RETURNING codlotepreco`)).rows[0].codlotepreco);
+        const todos = (await (await fetch(`${base}/cadastro/etiqueta/dos-lotes`, { method: 'POST', headers: H, body: JSON.stringify({ codlotes: [l1, l2] }) })).json().catch(() => [])) as any[];
+        const semPromo = (await (await fetch(`${base}/cadastro/etiqueta/dos-lotes`, { method: 'POST', headers: H, body: JSON.stringify({ codlotes: [l1, l2], semPromocao: true }) })).json().catch(() => [])) as any[];
+        check('AJUSTE DE PREÇOS §211 [o botão "Etiquetas"]: os lotes marcados viram etiquetas — o do grupo traz os DOIS produtos do grupo de preço, o sozinho o dele (3 etiquetas, sem repetir); com "sem os de promoção", o lote em promoção fica de fora (2)',
+          Array.isArray(todos) && todos.map((e) => Number(e.idproduto)).sort().join(',') === '992111,992112,992113'
+          && semPromo.map((e: any) => Number(e.idproduto)).sort().join(',') === '992111,992112',
+          { todos: todos?.map?.((e: any) => e.idproduto), semPromo: semPromo?.map?.((e: any) => e.idproduto) });
+        await pgEl.query(`DELETE FROM lote_preco WHERE codlotepreco = ANY($1::int[])`, [[l1, l2]]);
+      } finally {
+        await pgEl.end();
+      }
+    }
+
   } finally {
     await app.close();
     await pg.stop();

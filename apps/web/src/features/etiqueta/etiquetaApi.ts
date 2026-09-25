@@ -54,3 +54,8 @@ export function pesquisarPorSituacao(situacao: 'N' | 'S' | 'T', busca?: string):
   const q = new URLSearchParams({ situacao, ...(busca ? { busca } : {}) });
   return req(`/cadastro/etiqueta/pesquisa?${q.toString()}`, { method: 'GET' });
 }
+
+/** as etiquetas dos lotes do Ajuste de Preços (expandidas pelo grupo de preço) */
+export function etiquetasDosLotes(codlotes: number[], semPromocao: boolean): Promise<Etiqueta[]> {
+  return req('/cadastro/etiqueta/dos-lotes', { method: 'POST', body: JSON.stringify({ codlotes, semPromocao }) });
+}

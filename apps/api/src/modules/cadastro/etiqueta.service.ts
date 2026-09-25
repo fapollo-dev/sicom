@@ -112,6 +112,49 @@ export class EtiquetaService {
     return rows.map((r) => ({ ...this.montar(r), etq_impressa: (r.etq_impressa as string | null) ?? null, dtultprecoalterado: r.dtultprecoalterado }));
   }
 
+  /**
+   * AS ETIQUETAS DOS LOTES DO AJUSTE DE PREÇOS (`btnEtiquetasClick`, uAjustePrecos.pas:109-260): os produtos dos lotes
+   * marcados, EXPANDIDOS pelo grupo de preço (os irmãos saem juntos), sem repetir código de barras; com "sem promoção", o lote
+   * em promoção fica de fora. O preço é o do MULTI_PRECO (o `imprimir` o recalcula — depois de processar, é o do lote).
+   * Produção: 469 das 789 execuções do ajuste tiveram impressão de etiqueta pelo mesmo operador (auditoria §4.12).
+   */
+  async dosLotes(codlotes: number[], semPromocao = false): Promise<Etiqueta[]> {
+    const emp = this.emp();
+    const db = this.dbp.forTenantRead() as AnyDB;
+    const ids = Array.from(new Set(codlotes.map(Number).filter((n) => Number.isInteger(n) && n > 0)));
+    if (!ids.length) return [];
+    const lotes = (await sql<{ idproduto: number; promocao: string | null; g: number | null }>`
+      SELECT l.idproduto, l.promocao, p.codgrupopreco AS g FROM lote_preco l JOIN produtos p ON p.idproduto = l.idproduto
+       WHERE l.codlotepreco = ANY(${ids}::int[]) AND l.codempresa = ${emp} ORDER BY l.codlotepreco`.execute(db)).rows;
+    const produtos: number[] = [];
+    for (const l of lotes) {
+      if (semPromocao && String(l.promocao ?? '') === 'S') continue;
+      const alvos = l.g != null && Number(l.g) > 0
+        ? (await sql<{ p: number }>`SELECT idproduto AS p FROM produtos WHERE codgrupopreco = ${Number(l.g)} ORDER BY idproduto`.execute(db)).rows.map((r) => Number(r.p))
+        : [Number(l.idproduto)];
+      for (const a of alvos) if (!produtos.includes(a)) produtos.push(a);
+    }
+    if (!produtos.length) return [];
+    const rows = (await db
+      .selectFrom('produtos as p')
+      .leftJoin('multi_preco as mp', (j: any) => j.onRef('mp.idproduto', '=', 'p.idproduto').on('mp.idempresa', '=', emp))
+      .select(['p.idproduto', 'p.codbarra', 'p.unidade', 'p.descricao as descricao_produto', sql`coalesce(nullif(p.fator_filho,0),1)`.as('fator'),
+        sql`coalesce(nullif(p.prod_qtde_etiquetas,0),1)`.as('qtde_etiquetas'), 'mp.vrvenda', 'mp.vrpromo', sql`coalesce(mp.promocao,'N')`.as('promocao')])
+      .where('p.idproduto', 'in', produtos)
+      .execute()) as Record<string, unknown>[];
+    const vistos = new Set<string>();
+    const out: Etiqueta[] = [];
+    for (const pid of produtos) {
+      const r = rows.find((x) => Number(x.idproduto) === pid);
+      if (!r) continue;
+      const cb = String(r.codbarra ?? pid);
+      if (vistos.has(cb)) continue;
+      vistos.add(cb);
+      out.push(this.montar(r));
+    }
+    return out;
+  }
+
   /** resolve um produto por codbarra (incl. código auxiliar) ou id e devolve a etiqueta computada (preview/add manual). */
   async buscarProduto(idproduto?: number, codbarra?: string): Promise<Etiqueta> {
     const emp = this.emp();

@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import { useCallback, useEffect, useState } from 'react';
 import { PageHeader } from '@apollosg/design-system';
 import { SelectField } from '../../shared/ui/SelectField';
@@ -39,6 +40,7 @@ const dia = (s: unknown) => (s ? String(s).slice(0, 10).split('-').reverse().joi
 export function AjustePrecosPage() {
   const mensagem = useMensagem();
   const [lotes, setLotes] = useState<Lote[]>([]);
+  const navigate = useNavigate();
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [origem, setOrigem] = useState('');
   const [busy, setBusy] = useState(false);
@@ -64,8 +66,20 @@ export function AjustePrecosPage() {
     try {
       const r = await req<{ processados: number; aplicados: number; propagados: number; pulados_sem_preco: number }>('/cadastro/ajuste-precos/processar', { method: 'POST', body: JSON.stringify({ ids: [...sel] }) });
       mensagem.sucesso(`${r.processados} lote(s) processado(s) — ${r.aplicados} preço(s) aplicado(s)${r.propagados ? `, ${r.propagados} por grupo de preço` : ''}${r.pulados_sem_preco ? `, ${r.pulados_sem_preco} sem preço` : ''}.`);
+      setUltimos([...sel]);
       await carregar();
     } catch (e) { mensagem.erro(e); } finally { setBusy(false); }
+  };
+
+  // o botão "Etiquetas" (`btnEtiquetasClick`, uAjustePrecos.pas:109): as etiquetas dos lotes marcados (ou dos que acabaram de ser
+  // processados), expandidas pelo grupo de preço, vão para a tela de Etiquetas
+  const [ultimos, setUltimos] = useState<number[]>([]);
+  const [semPromo, setSemPromo] = useState(false);
+  const etiquetas = () => {
+    const codlotes = sel.size ? [...sel] : ultimos;
+    if (!codlotes.length) return;
+    try { sessionStorage.setItem('apollo.etiquetas.lotes', JSON.stringify({ codlotes, semPromocao: semPromo })); } catch { /* sem storage: a tela abre sem os lotes */ }
+    navigate('/estoque/etiquetas');
   };
 
   const excluir = async () => {
@@ -89,6 +103,8 @@ export function AjustePrecosPage() {
         <Button label="&Marcar/desmarcar todos" variant="ghost" disabled={!lotes.length} onClick={todos} />
         <Button label="&Processar selecionados" variant="soft" disabled={busy || !sel.size} onClick={() => void processar()} />
         <Button label="E&xcluir da fila" variant="ghost" disabled={busy || !sel.size} onClick={() => void excluir()} />
+        <Button label="E&tiquetas" variant="ghost" disabled={busy || (!sel.size && !ultimos.length)} onClick={etiquetas} />
+        <label className="flex items-center gap-gp-2xs text-body-sm"><input type="checkbox" checked={semPromo} onChange={(e) => setSemPromo(e.target.checked)} /> sem os de promoção</label>
         <div className="flex-1 text-right text-body-sm"><b>{sel.size}</b> de {lotes.length} lote(s) selecionado(s)</div>
         <small className="w-full text-fg-muted">Lotes de preço pendentes propostos pelas telas de origem. «Processar» aplica o preço no cadastro (por empresa do lote) e propaga aos produtos do mesmo grupo de preço; a etiqueta é marcada para reimpressão. O preço não é editável aqui.</small>
       </div>

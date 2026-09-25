@@ -3,7 +3,7 @@ import { PageHeader } from '@apollosg/design-system';
 import { Field } from '../../shared/ui/Field';
 import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
-import { listarFila, buscarProduto, remover, imprimir, pesquisarPorSituacao, type Etiqueta } from './etiquetaApi';
+import { listarFila, buscarProduto, remover, imprimir, pesquisarPorSituacao, etiquetasDosLotes, type Etiqueta } from './etiquetaApi';
 import { SelectField } from '../../shared/ui/SelectField';
 import { printEtiquetas } from './printLabels';
 
@@ -38,6 +38,17 @@ export function EtiquetaPage() {
     }
   }, [mensagem]);
   useEffect(() => { void carregar(); }, [carregar]);
+  // vindo do Ajuste de Preços (botão "Etiquetas"): os produtos dos lotes entram na lista
+  useEffect(() => {
+    let pend: { codlotes?: number[]; semPromocao?: boolean } | null = null;
+    try { pend = JSON.parse(sessionStorage.getItem('apollo.etiquetas.lotes') ?? 'null'); sessionStorage.removeItem('apollo.etiquetas.lotes'); } catch { pend = null; }
+    if (!pend?.codlotes?.length) return;
+    void etiquetasDosLotes(pend.codlotes, !!pend.semPromocao).then((r) => {
+      setLinhas((xs) => [...r.map((e) => ({ ...paraLinha(e), idetiqueta: undefined })), ...xs.filter((x) => !r.some((e) => e.idproduto === x.idproduto))]);
+      mensagem.sucesso(`${r.length} etiqueta(s) dos lotes do Ajuste de Preços na lista.`);
+    }).catch((e) => mensagem.erro(e));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // "Adicionar" põe o produto na lista de impressão (como o legado) — não enfileira no ETIQUETA_CONS_PROD, que é a fila do COLETOR
   const addPorCodBarra = async () => {

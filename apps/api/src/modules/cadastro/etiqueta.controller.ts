@@ -29,6 +29,14 @@ export class EtiquetaController {
     return this.svc.pesquisar({ situacao: sit, busca, limite: limite ? Number(limite) : undefined });
   }
 
+  /** as etiquetas dos lotes marcados no Ajuste de Preços (o botão "Etiquetas"), expandidas pelo grupo de preço */
+  @Post('dos-lotes')
+  @HttpCode(200)
+  @RequerAcesso('FRMETIQUETA', 'BTNGRAVAR')
+  dosLotes(@Body() body: { codlotes?: number[]; semPromocao?: boolean }) {
+    return this.svc.dosLotes(Array.isArray(body?.codlotes) ? body.codlotes : [], !!body?.semPromocao);
+  }
+
   @Get('produto')
   @RequerAcesso('FRMETIQUETA', 'BTNGRAVAR')
   produto(@Query('codbarra') codbarra?: string, @Query('idproduto') idproduto?: string) {
