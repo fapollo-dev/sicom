@@ -385,11 +385,13 @@ export class PrecificacaoCustoService {
             await trx.insertInto('lote_preco').values({
               idproduto: pid, codempresa: e, vrvenda: r4(num(dto.vrvenda)), ...(mk > 0 ? { markup: mk } : {}),
               processado: 'N', datalote: sql`now()`, codoperador: op,
+              // o custo da linha de preço ANTES do ajuste (binário novo: 81% dos lotes do ajuste com custo alterado junto, set/2026)
+              vrcusto_anterior: antesP?.vrcusto ?? null,
               obs: `REFERENTE AO AJUSTE NO CADASTRO DO PRODUTO REALIZADO PELO OPERADOR: ${op ?? ''}-${(nomeOp?.nome ?? '').trim()}`.slice(0, 300),
             }).execute();
             lotes++;
             // o filho do pai que entrou na fila também entra (`GeraLoteFilho`, :872-877)
-            lotes += await gerarLotesFilhos(trx, pid, e, r4(num(dto.vrvenda)), null);
+            lotes += await gerarLotesFilhos(trx, pid, e, r4(num(dto.vrvenda)), null, op);
           }
         }
       }

@@ -389,11 +389,11 @@ export class PedidoCompraService {
 
       const itens = (await trx
         .selectFrom('pedidocompra_i')
-        .select(['idproduto', 'vrvenda'])
+        .select(['idproduto', 'vrvenda', 'vrcusto'])
         .where('codpedcomp', '=', codpedcomp)
         .where('vrvenda', '>', 0)
         .orderBy('codpedcompi')
-        .execute()) as Array<{ idproduto: number; vrvenda: unknown }>;
+        .execute()) as Array<{ idproduto: number; vrvenda: unknown; vrcusto: unknown }>;
 
       // mesmo conjunto de empresas do ramo on-line: as LOJAS DO PEDIDO, ou todas com a config (mig 303).
       const todas = (await this.config.resolver('ATUALIZA_PRECO_OUTRAS_EMPRESAS', { empresaId: emp })) === 'S';
@@ -424,6 +424,8 @@ export class PedidoCompraService {
           await trx.insertInto('lote_preco').values({
             idproduto: it.idproduto, codempresa: e, vrvenda: venda, processado: 'N', datalote: sql`now()`,
             obs: `REFERENTE AO PEDIDO DE NRO. ${codpedcomp} `, // espaço final = fiel ao literal do legado
+            // o binário novo grava o custo do item do pedido (212 de 224 lotes de pedido de ago-set/2026)
+            vrcusto_anterior: it.vrcusto ?? null,
           }).execute();
           lotes++;
         }

@@ -71,6 +71,8 @@ async function sincronizaPrecoNf(trx: AnyDB, emp: number): Promise<boolean> {
 
 /** o que o validar do UPDATE descobriu sobre a linha da sessão — o aposGravar o usa depois da gravação */
 interface PrecoDaSessao {
+  /** o VRCUSTO de cada linha de preço do produto antes do gravar (o VRCUSTO_ANTERIOR do lote) */
+  custosAntes?: Record<number, unknown>;
   emp: number;
   vendaMudou: boolean;
   flagMudou: boolean;
@@ -102,8 +104,11 @@ export async function prepararPrecoDaSessao(dto: Record<string, unknown>, id: nu
   const flagMudou = String(linha.promocao ?? '') !== String(atual.promocao ?? '');
   if (!vendaMudou && !flagMudou) return;
   const lote = String((await configNaTrx(trx, 'HABILITA_GERACAO_LOTE_PRODUTO', { empresaId: emp, operadorId: op, modulo: 'Retaguarda' })) ?? 'N') === 'S';
+  // os custos das linhas de preço do produto ANTES do gravar — o VRCUSTO_ANTERIOR do lote (binário novo)
+  const custosAntes = Object.fromEntries(((await trx.selectFrom('multi_preco').select(['idempresa', 'vrcusto']).where('idproduto', '=', id).execute()) as Array<{ idempresa: number; vrcusto: unknown }>)
+    .map((r) => [Number(r.idempresa), r.vrcusto]));
   const info: PrecoDaSessao = {
-    emp, vendaMudou, flagMudou, novoVenda, marcarPromo: String(linha.promocao ?? '') === 'S', valorPromo: n(linha.vrpromo), markup: n(linha.markup), lote,
+    emp, vendaMudou, flagMudou, novoVenda, marcarPromo: String(linha.promocao ?? '') === 'S', valorPromo: n(linha.vrpromo), markup: n(linha.markup), lote, custosAntes,
   };
   if (lote) {
     if (vendaMudou) linha.vrvenda = atual.vrvenda;
@@ -180,9 +185,11 @@ export async function sincronizarPrecoNasLojas(trx: AnyDB, id: number, dto: Reco
         ...(info.markup > 0 ? { markup: info.markup } : {}),
         promocao: info.marcarPromo ? 'S' : 'N', vrpromo: info.valorPromo, alteroupromocao: info.flagMudou ? 'S' : 'N',
         datalote: sql`now()`, obs, origem: 'P', codoperador: op, processado: 'N',
+        vrcusto_anterior: a.idproduto === id ? info.custosAntes?.[a.idempresa] ?? null
+          : ((await trx.selectFrom('multi_preco').select('vrcusto').where('idproduto', '=', a.idproduto).where('idempresa', '=', a.idempresa).executeTakeFirst()) as { vrcusto?: unknown } | undefined)?.vrcusto ?? null,
       }).execute();
       // o lote dos FILHOS do produto sem pai, quando o VRVENDA mudou (`GeraLoteFilho`, :3256)
-      if (a.pai === 0 && info.vendaMudou) await gerarLotesFilhos(trx, a.idproduto, a.idempresa, info.novoVenda, null);
+      if (a.pai === 0 && info.vendaMudou) await gerarLotesFilhos(trx, a.idproduto, a.idempresa, info.novoVenda, null, op);
     }
   } else {
     // modo on-line: o UPDATE de cada linha do grupo × empresas (cdsMultiPreco_Alteracao, :3262-3290) + HISTORICO_DINAMICO

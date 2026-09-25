@@ -365,10 +365,12 @@ export class PrecificacaoNfService {
             codempresa: e,
             codoperador: op,
             origem: 'PRECIFICACAO_NF',
+            // o custo da linha de preço antes do lote (binário novo: os lotes da precificação têm o VRCUSTO_ANTERIOR)
+            vrcusto_anterior: ((await trx.selectFrom('multi_preco').select('vrcusto').where('idproduto', '=', it.idproduto).where('idempresa', '=', e).executeTakeFirst()) as { vrcusto?: unknown } | undefined)?.vrcusto ?? null,
           }).execute();
           lotes += 1;
           // e os FILHOS do produto precificado — que podem nem estar na nota
-          lotes += await gerarLotesFilhos(trx, it.idproduto, e, r2(it.vrvenda), 'PRECIFICACAO_NF');
+          lotes += await gerarLotesFilhos(trx, it.idproduto, e, r2(it.vrvenda), 'PRECIFICACAO_NF', op);
         }
       }
       return { lotes, empresas: alvo };

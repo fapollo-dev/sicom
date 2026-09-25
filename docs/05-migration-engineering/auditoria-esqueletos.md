@@ -621,7 +621,7 @@ leitura), as colunas preenchidas em ≥ 50% que nenhum código do Apollo que gra
 - `parceiros`: VISUALIZA_PC_PARC, CLUBEFIDELIDADE, SOMA_ST_BONIFICACAO, HABILITA_RETENCAO_SENAR_NF.
 - `cartao`: TIPOMODALIDADE, MODALIDADEOPERADORA, SEQUENCIA, CODOPERADORAORIGEM, VALOR_OPERACAO.
 - ✅ `nfe_evento` do cancelamento e da CC-e: ORGAO_RECEPCAO (UF da chave) e ID_EVENTO ("ID"+tipo+chave+seq) como o legado grava (smoke §231); CNPJ do autor e mensagem são só da manifestação (que vem da SEFAZ).
-- `lote_preco.VRCUSTO_ANTERIOR`; `cotacao_prod` (QTDEATUAL, VALORCOTACAO, VLRUNITARIO); `itens_producao_receita` (UNIDADE_PRODUTO,
+- ✅ `lote_preco.VRCUSTO_ANTERIOR` (e o CODOPERADOR) — sem gatilho: o binário novo grava, por origem: lote do FILHO = o custo da linha do filho + o operador (49/49); do PEDIDO = o custo do item (212/224), sem operador; do AJUSTE no cadastro/precificação do custo = o custo da linha ANTES do ajuste (81% quando o custo muda junto); da NF = sem custo, com o operador. `cotacao_prod` (QTDEATUAL, VALORCOTACAO, VLRUNITARIO); `itens_producao_receita` (UNIDADE_PRODUTO,
   FATOR_CONVERSAO_CX_PROD[_UTIL]); `apuracao_pc_det` (DESCRICAOBASE, DESCRICAOPC, BASECALCULOAPURA, VALORPISAPURA, VALORCOFINSAPURA);
   `pedido_devolucao_compra.CNPJ_CPF`, `pedido_devolucao_compra_i.VRCUSTOREP`; `plc` (NIVELCONTA, DESCPLCCONTABIL);
   `plano_contas.CODEXPINTEIRO`; `figura_fiscal` (origem/destino); `contas_bancarias` (ESTORNO_DTHR_BAIXA, EXIBE_SALDO_EMP);

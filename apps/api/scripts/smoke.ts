@@ -13193,7 +13193,8 @@ async function main() {
           itens: [{ idproduto: prod, vrvenda: 30.00, markup: 233.33, nronf: '994501' }] }) });
         const aplFJ = (await aplF.json().catch(() => ({}))) as any;
         const lotesF = (await pgPn.query(
-          `SELECT idproduto, vrvenda::float8 v, obs, markup, codoperador FROM lote_preco WHERE idproduto = ANY($1) ORDER BY idproduto`,
+          `SELECT l.idproduto, l.vrvenda::float8 v, l.obs, l.markup, l.codoperador, l.vrcusto_anterior, m.vrcusto AS custo_linha FROM lote_preco l
+             LEFT JOIN multi_preco m ON m.idproduto = l.idproduto AND m.idempresa = l.codempresa WHERE l.idproduto = ANY($1) ORDER BY l.idproduto`,
           [[fSem, fVal, fPct, fIgual]])).rows as any[];
         const byId = (id: number) => lotesF.find((x) => Number(x.idproduto) === id);
 
@@ -13204,10 +13205,11 @@ async function main() {
           && Math.abs(Number(byId(fPct)?.v) - 33) < 0.005,
           { semDif: byId(fSem)?.v, valor: byId(fVal)?.v, pct: byId(fPct)?.v, lotes: aplFJ?.lotes });
 
-        check('PRECIFICAÇÃO NF §104.14 [o filho que já está no preço não entra na fila]: o legado só enfileira quando `VRVENDA <> novo` (`:248`) — senão a fila encheria de lote inócuo a cada precificação. E o lote do filho é diferente do lote do pai: OBS fixa "REFERENTE A ALTERAÇÃO DE PREÇO DO PRODUTO PAI", **sem markup e sem operador** (`InsereLote:310`), porque não houve decisão humana sobre esse preço',
+        check('PRECIFICAÇÃO NF §104.14 [o filho que já está no preço não entra na fila]: o legado só enfileira quando `VRVENDA <> novo` (`:248`) — senão a fila encheria de lote inócuo a cada precificação. E o lote do filho é diferente do lote do pai: OBS fixa "REFERENTE A ALTERAÇÃO DE PREÇO DO PRODUTO PAI" e sem markup (`InsereLote:310`); o binário novo grava o OPERADOR e o VRCUSTO_ANTERIOR = o custo da linha de preço do filho (49 de 49 lotes de filho de set/2026 — o fonte de 2020 não grava)',
           byId(fIgual) === undefined
           && String(byId(fSem)?.obs) === 'REFERENTE A ALTERAÇÃO DE PREÇO DO PRODUTO PAI'
-          && byId(fSem)?.markup == null && byId(fSem)?.codoperador == null,
+          && byId(fSem)?.markup == null && Number(byId(fSem)?.codoperador) === 7
+          && (byId(fSem)?.custo_linha == null ? byId(fSem)?.vrcusto_anterior == null : Number(byId(fSem)?.vrcusto_anterior) === Number(byId(fSem)?.custo_linha)),
           { jaNoPreco: byId(fIgual), loteFilho: byId(fSem) });
 
         // ⛔ FATOR_FILHO é descartado: `CalculaPrecoFilho:192` abre com `pFatorFilho := 1`

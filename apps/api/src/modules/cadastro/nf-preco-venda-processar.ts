@@ -122,8 +122,10 @@ export async function precoDeVendaDoItem(
       for (const p of produtos) {
         await trx.insertInto('lote_preco').values({
           idproduto: p, vrvenda: r4(venda), datalote: sql`now()`, processado: 'N', obs: `REFERENTE A NOTA FISCAL DE NRO. ${ctx.nronf.trim()}`, codempresa: e,
+          // o binário novo grava o operador (CODOPERADOR 1 nos lotes da NF de out/2025) e não o custo anterior
+          codoperador: ctx.op,
         }).execute();
-        await gerarLotesFilhos(trx, p, e, venda, null);
+        await gerarLotesFilhos(trx, p, e, venda, null, ctx.op);
       }
     }
     return {};

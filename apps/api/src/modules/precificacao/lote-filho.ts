@@ -29,12 +29,17 @@ const r2 = (x: number) => Math.round((x + Number.EPSILON) * 100) / 100;
  * Como no legado, só enfileira **se o preço mudar** — senão a fila encheria de lote inócuo a cada
  * precificação.
  */
-export async function gerarLotesFilhos(trx: AnyDB, idprodutoPai: number, empresa: number, novoPrecoPai: number, origem: string | null): Promise<number> {
+/**
+ * `op`: o operador — o binário novo grava o CODOPERADOR no lote do filho (49 de 49 de set/2026) e o VRCUSTO_ANTERIOR = o custo da linha
+ * de preço do filho (49 de 49)
+ */
+export async function gerarLotesFilhos(trx: AnyDB, idprodutoPai: number, empresa: number, novoPrecoPai: number, origem: string | null, op: number | null = null): Promise<number> {
   const filhos = (await sql<Record<string, unknown>>`
     SELECT f.idproduto,
            coalesce(f.dif_preco_prod_filho_x_pai, 0) AS dif,
            f.tpdif_preco_prod_filho_x_pai AS tp,
-           coalesce(mf.vrvenda, 0) AS vrvenda_filho
+           coalesce(mf.vrvenda, 0) AS vrvenda_filho,
+           mf.vrcusto AS vrcusto_filho
       FROM produtos f
       LEFT JOIN multi_preco mf ON mf.idproduto = f.idproduto AND mf.idempresa = ${empresa}
      WHERE f.idproduto_pai = ${idprodutoPai}
@@ -55,10 +60,12 @@ export async function gerarLotesFilhos(trx: AnyDB, idprodutoPai: number, empresa
       vrvenda: novoPreco,
       datalote: sql`now()`,
       processado: 'N',
-      // texto fixo do legado (`InsereLote:310`); o lote do filho não leva markup nem operador
+      // texto fixo do legado (`InsereLote:310`); o lote do filho não leva markup — o operador e o custo anterior, sim (binário novo)
       obs: 'REFERENTE A ALTERAÇÃO DE PREÇO DO PRODUTO PAI',
       codempresa: empresa,
       origem,
+      codoperador: op,
+      vrcusto_anterior: f.vrcusto_filho ?? null,
     }).execute();
     n += 1;
   }
