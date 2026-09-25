@@ -180,7 +180,8 @@ export class RecebimentoService {
 
     let codnf: number;
     try {
-      codnf = await this.engine.createAggregate(nfAggregateConfig, dto);
+      // o rascunho da NF do pedido: o operador confere o TOTAL NF na tela antes de processar
+      codnf = await this.engine.createAggregate(nfAggregateConfig, { ...dto, _origemServico: true });
     } catch (e) {
       // a NF NÃO foi criada → desfaz a marca só se fomos nós (1ª remessa); em remessa seguinte o marcador é de outra NF.
       if (nosSetamos) {

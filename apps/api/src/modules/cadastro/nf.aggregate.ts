@@ -326,6 +326,14 @@ export const nfAggregateConfig: AggregateConfig = {
       }
     }
 
+    // o TOTAL NF da entrada (o "Total NF" que o operador confere com a nota em papel — uNF.pas:4644-4652): sem ele o gravar não segue
+    // (nunca 0 nas 6.522 notas de entrada de 2026). A nota que um serviço cria como rascunho (o receber pedido) é conferida depois, na tela
+    if (String(dto.tipo ?? atual?.tipo ?? '').toUpperCase() === 'E' && dto._origemServico !== true) {
+      const informado = dto.validatotalnf !== undefined ? dto.validatotalnf
+        : id != null ? ((await db.selectFrom('nf').select('validatotalnf').where('codnf', '=', id).executeTakeFirst()) as { validatotalnf?: unknown } | undefined)?.validatotalnf : undefined;
+      if (!(Math.abs(num(informado)) > 0)) throw new BusinessRuleError('NF_TOTAL_NF_OBRIGATORIO');
+    }
+
     // período contábil FECHADO (BLOQ_NF, uNF.pas:4565 ValidaPeriodoFechado) barra gravar/editar a NF na DTCONTABIL —
     // reusa o gate do bucket-A. Barra pela data GRAVADA (abrir a edição) E pela nova (salvar), como AR/AP.
     if (emp != null) {

@@ -19,6 +19,7 @@ import { contextoIndexadorNf, indexadorDoItem } from './nf-indexador-item';
 import { recalcularMetricasEntrada } from './nf-custo-item';
 import { retratoDoProduto } from './nf.aggregate';
 import { TributacaoRepository } from '../precificacao/tributacao.repository';
+import { validarTravasEntradaNoProcessamento } from './nf-travas-processamento';
 
 type AnyDB = any;
 
@@ -196,6 +197,8 @@ export class NfProcessamentoService {
         await this.reconciliarTotais(trx, codnf, emp, nf);
         // CFOP de cada item × a situação dele (uNF.pas:14921; UCadSituacaoNF.md C2)
         await validarItensNoProcessamento(trx, codnf, emp);
+        // o indexador, o TOTAL NF digitado e os itens não repassados (uNF.pas:14937-15051)
+        await validarTravasEntradaNoProcessamento(trx, codnf);
         // Σ parcelas (FATURAMENTO) = base da nota, quando o CFOP gera financeiro e ainda não há título (uEstoqueNF.pas:833)
         await conferirParcelasNoProcessamento(trx, codnf, emp, op);
       } else {

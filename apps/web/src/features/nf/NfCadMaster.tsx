@@ -405,6 +405,29 @@ function CabecalhoBand({
         />
       </div>
 
+      {/* o TOTAL NF da entrada: o valor da nota em papel, que o operador confere (obrigatório no gravar; no processar da nota de terceiros
+          tem de bater com o total calculado — uNF.pas:4644, :15003). Na importada vem do XML e fica travado */}
+      {tipo === 'E' && (
+        <div className="mt-form-gap grid grid-cols-2 gap-form-gap sm:grid-cols-3 lg:grid-cols-6">
+          <Controller
+            control={form.control}
+            name={'validatotalnf' as never}
+            render={({ field }) => (
+              <CurrencyField
+                label="Total N&F"
+                value={field.value != null && String(field.value) !== '' ? Number(field.value) : undefined}
+                onChange={(v) => field.onChange(v)}
+                disabled={String(form.watch('nf_importacao_nfe' as never) ?? '') === 'S' && Number(field.value) > 0}
+                error={(err as Record<string, { message?: string }>).validatotalnf?.message}
+              />
+            )}
+          />
+          {Number(form.watch('validatotalnf' as never)) > 0 && Number(form.watch('validatotalnf' as never)).toFixed(2) !== totalnf.toFixed(2) && (
+            <small className="self-end pb-pad-xs text-body-sm text-warning">Não confere com o total da nota (R$ {fmtBRL(totalnf)}).</small>
+          )}
+        </div>
+      )}
+
       {/* linha 2: CFOP / Situação / Finalidade */}
       <div className="mt-form-gap grid grid-cols-1 gap-form-gap sm:grid-cols-3">
         <Controller

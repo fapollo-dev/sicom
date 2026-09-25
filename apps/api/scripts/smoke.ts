@@ -67,6 +67,34 @@ function check(name: string, cond: boolean, extra?: unknown) {
 
 let pgParcelas: Pool | null = null;
 /**
+ * O TOTAL NF da entrada é obrigatório no gravar (uNF.pas:4644) e confere com o total no processar da nota de terceiros (:15003). Os
+ * cenários que não tratam disso criam a nota sem ele: o harness faz o papel do operador que confere — manda um valor provisório e,
+ * criada a nota, iguala ao total calculado. Quem informa `validatotalnf` (inclusive 0) fica com o que mandou; a regra é o §248.
+ */
+const fetchDoNode = globalThis.fetch;
+const TOTAL_NF_PROVISORIO = 987654.32;
+globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+  let conferir = false;
+  if (init?.method === 'POST' && /\/fiscal\/nf$/.test(String(input)) && typeof init.body === 'string') {
+    try {
+      const b = JSON.parse(init.body);
+      if (String(b?.tipo ?? '').toUpperCase() === 'E' && b.validatotalnf === undefined) {
+        init = { ...init, body: JSON.stringify({ ...b, validatotalnf: TOTAL_NF_PROVISORIO }) };
+        conferir = true;
+      }
+    } catch { /* corpo que não é JSON: segue como veio */ }
+  }
+  const res = await fetchDoNode(input, init);
+  if (conferir && res.ok) {
+    const codnf = Number(((await res.clone().json().catch(() => ({}))) as any).codnf);
+    if (codnf > 0) {
+      pgParcelas ??= new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      await pgParcelas.query(`UPDATE nf SET validatotalnf = totalnf WHERE codnf = $1 AND validatotalnf = $2`, [codnf, TOTAL_NF_PROVISORIO]);
+    }
+  }
+  return res;
+}) as typeof fetch;
+/**
  * PROCESSAR a NF como o operador faz: a nota cujo CFOP gera financeiro só processa com as parcelas (FATURAMENTO) fechando a base
  * (uEstoqueNF.pas:833) — então, sem parcela nenhuma, grava UMA com a base inteira antes (o "Gerar financeiro" da aba de cobrança).
  * A regra em si é testada no §215, que chama o processar direto.
@@ -8106,8 +8134,13 @@ async function main() {
     const r6 = await gerarNf(rp6Id, {}, H_SEM_ACESSO);
     check('RECEB: gerar-nf sem grant RBAC → 403', r6.status === 403, { status: r6.status });
 
-    // 49.7) end-to-end: processar (F3) a NF gerada MOVE o estoque (+10 / +3) — o FATO delega à NF.
+    // 49.7) end-to-end: processar (F3) a NF gerada MOVE o estoque (+10 / +3) — o FATO delega à NF. A NF do pedido nasce rascunho: o
+    // operador confere o TOTAL NF na tela antes de processar (sem ele o processar da nota de terceiros recusa — §248)
     const est1a = await estoqueDe(1); const est2a = await estoqueDe(2);
+    const semTotal = await processarNf(codnf, H);
+    const semTotalJ = (await semTotal.json().catch(() => ({}))) as any;
+    check('RECEB: a NF gerada do pedido é rascunho — sem o Total NF conferido o processar recusa (NF_TOTAL_NF_DIVERGENTE)', semTotal.status === 422 && semTotalJ.code === 'NF_TOTAL_NF_DIVERGENTE', { status: semTotal.status, code: semTotalJ.code });
+    await fetch(`${base}/fiscal/nf/${codnf}`, { method: 'PUT', headers: H, body: JSON.stringify({ validatotalnf: Number(((await (await fetch(`${base}/fiscal/nf/${codnf}`, { headers: H })).json()) as any).totalnf) }) });
     const proc = await processarNf(codnf, H);
     const est1b = await estoqueDe(1); const est2b = await estoqueDe(2);
     check('RECEB: processar (F3) a NF gerada move estoque (+10 / +3) — FATO delegado à NF', proc.status === 200 && est1b - est1a === 10 && est2b - est2a === 3, { proc: proc.status, d1: est1b - est1a, d2: est2b - est2a });
@@ -9138,7 +9171,7 @@ async function main() {
     const cfgIpiDev = (await pgDev.query(`SELECT id, valor FROM configuracoes WHERE codigo = 'IPI_DEVOLUCAO_EM_TRIBUTOS_DEVOLVIDOS'`)).rows[0] as any;
     if (cfgIpiDev) await pgDev.query(`UPDATE configuracoes SET valor = 'S' WHERE codigo = 'IPI_DEVOLUCAO_EM_TRIBUTOS_DEVOLVIDOS'`);
     else await pgDev.query(`INSERT INTO configuracoes (id, codigo, valor, tipovalor) VALUES (99308, 'IPI_DEVOLUCAO_EM_TRIBUTOS_DEVOLVIDOS', 'S', 'S/N')`);
-    const vnNf = Number((await pgDev.query(`INSERT INTO nf (idempresa,tipo,modelo,serie,dtemissao,dtcontabil,tipoemissao,finalidade,cfop,codparceiro,proc,totalnf,totalprod,chavenfe) VALUES (1,'E',55,'1',now(),now(),'0','1','1102',22,'N',0,0,'31260900000000000000550010000999011000000001') RETURNING codnf`)).rows[0].codnf);
+    const vnNf = Number((await pgDev.query(`INSERT INTO nf (idempresa,tipo,modelo,serie,dtemissao,dtcontabil,tipoemissao,finalidade,cfop,codparceiro,proc,totalnf,totalprod,chavenfe,validatotalnf) VALUES (1,'E',55,'1',now(),now(),'0','1','1102',22,'N',0,0,'31260900000000000000550010000999011000000001',60) RETURNING codnf`)).rows[0].codnf);
     const vnIt = Number((await pgDev.query(`INSERT INTO nf_prod (codnf,nroitem,codproduto,quantidade,fatorembal,unidade,vrcusto,cfop,icms,vrbasecalculo,vricm,
         cst_nota,icms_aliq_nota,icms_nota_bc,icms_nota_valor,icms_red_bc_nota,total_produto_nota,ipi_nota,frete_nota,arredonda,custo_real_unit)
       VALUES ($1,1,1,10,1,'UN',5,'1102',18,0,0, 0,18,100,18,0,60,8,4,'S',5) RETURNING codnfprod`, [vnNf])).rows[0].codnfprod);
@@ -23734,6 +23767,67 @@ async function main() {
           await pgRp.query(`DELETE FROM nf WHERE codnf = $1`, [cod]).catch(() => undefined);
         }
         await pgRp.end();
+      }
+    }
+
+    // ══ §248 PROCESSAR A ENTRADA — o TOTAL NF digitado e as travas do indexador e do repasse (uNF.pas:14937-15051) ══════════
+    {
+      const pgTv = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const figAntes = (await pgTv.query(`SELECT figurafiscal FROM empresas WHERE idempresa = 1`)).rows[0]?.figurafiscal ?? null;
+      const livreAntes = (await pgTv.query(`SELECT retira_fornindex FROM parceiros WHERE codparceiro = 22`)).rows[0]?.retira_fornindex ?? null;
+      const prodAntes = (await pgTv.query(`SELECT codfigurafiscal FROM produtos WHERE idproduto = 1`)).rows[0]?.codfigurafiscal ?? null;
+      const nfs: number[] = [];
+      try {
+        const criar = async (nronf: string, extra: Record<string, unknown>) => {
+          const r = await fetch(`${base}/fiscal/nf`, { method: 'POST', headers: H, body: JSON.stringify({ modelo: 1, serie: '1', tipo: 'E', nronf, tipoemissao: '1', codparceiro: 22,
+            dtemissao: '2037-01-08', dtcontabil: '2037-01-08', cfop: '1102', ...extra,
+            itens: [{ nroitem: 1, codproduto: 1, quantidade: 10, vrcusto: 10, cfop: '1102', aliquota: 'T01', cst: 0, icme: 18, bcr: 100 }] }) });
+          const j = (await r.json().catch(() => ({}))) as any;
+          if (Number(j.codnf) > 0) nfs.push(Number(j.codnf));
+          return { r, j };
+        };
+        // o Total NF: obrigatório no gravar, e no processar da nota de terceiros confere com o total (100)
+        const zero = await criar('TV248Z', { validatotalnf: 0 });
+        const div = await criar('TV248A', { validatotalnf: 50 });
+        const procDiv = await processarNf(div.j.codnf, H);
+        const procDivJ = (await procDiv.json().catch(() => ({}))) as any;
+        await pgTv.query(`UPDATE nf SET validatotalnf = 100 WHERE codnf = $1`, [div.j.codnf]);
+        const procOk = await processarNf(div.j.codnf, H);
+        if (procOk.status === 200) await fetch(`${base}/fiscal/nf/${div.j.codnf}/reverter`, { method: 'POST', headers: H });
+        check('PROCESSAR A ENTRADA §248.1 [o Total NF]: gravar a entrada sem o Total NF é recusado ("É necessário informar o campo total NF", 422 — nunca 0 nas 6.522 entradas de 2026); informado 50 numa nota de 100, o processar da nota de terceiros recusa (422 NF_TOTAL_NF_DIVERGENTE, com o informado e o total); corrigido para 100, processa (6.494 de 6.494 processadas em 2026 conferem)',
+          zero.r.status === 422 && zero.j.code === 'NF_TOTAL_NF_OBRIGATORIO' && procDiv.status === 422 && procDivJ.code === 'NF_TOTAL_NF_DIVERGENTE'
+          && Number(procDivJ.detalhe?.informado) === 50 && Number(procDivJ.detalhe?.total) === 100 && procOk.status === 200,
+          { zero: [zero.r.status, zero.j.code], procDiv: [procDiv.status, procDivJ.code, procDivJ.detalhe], procOk: procOk.status });
+
+        // loja 'O': o item sem indexador fica REPASSADO N e o processar recusa; importada, a trava do indexador vem antes; 'T' é isenta
+        await pgTv.query(`UPDATE empresas SET figurafiscal = 'O' WHERE idempresa = 1`);
+        await pgTv.query(`UPDATE parceiros SET retira_fornindex = 'N' WHERE codparceiro = 22`);
+        await pgTv.query(`UPDATE produtos SET codfigurafiscal = NULL WHERE idproduto = 1`);
+        const o = await criar('TV248B', { validatotalnf: 100 });
+        const it = (await pgTv.query(`SELECT indexadortrib, repassado FROM nf_prod WHERE codnf = $1`, [o.j.codnf])).rows[0] as any;
+        const pRep = await processarNf(o.j.codnf, H);
+        const pRepJ = (await pRep.json().catch(() => ({}))) as any;
+        await pgTv.query(`UPDATE nf SET nf_importacao_nfe = 'S' WHERE codnf = $1`, [o.j.codnf]);
+        const pIdx = await processarNf(o.j.codnf, H);
+        const pIdxJ = (await pIdx.json().catch(() => ({}))) as any;
+        await pgTv.query(`UPDATE nf SET nf_importacao_nfe = 'T' WHERE codnf = $1`, [o.j.codnf]);
+        const pT = await processarNf(o.j.codnf, H);
+        const pTJ = (await pT.json().catch(() => ({}))) as any;
+        if (pT.status === 200) await fetch(`${base}/fiscal/nf/${o.j.codnf}/reverter`, { method: 'POST', headers: H });
+        check('PROCESSAR A ENTRADA §248.2 [as travas do indexador e do repasse]: na loja "O" o item sem indexador fica REPASSADO N e o processar recusa ("Não é permitido processamento sem repassar todos os itens!", com os itens); se a nota é importada, a ValidaIndexadores vem antes ("Existe(m) item(ns) sem indexador tributário configurado"); a importação "T" é isenta das duas e processa',
+          Number(it?.indexadortrib) === 0 && it?.repassado === 'N'
+          && pRep.status === 422 && pRepJ.code === 'NF_ITENS_NAO_REPASSADOS' && Array.isArray(pRepJ.detalhe?.itens) && Number(pRepJ.detalhe.itens[0]) === 1
+          && pIdx.status === 422 && pIdxJ.code === 'NF_ITEM_SEM_INDEXADOR' && pT.status === 200,
+          { it, pRep: [pRep.status, pRepJ.code, pRepJ.detalhe], pIdx: [pIdx.status, pIdxJ.code], pT: [pT.status, pTJ.code] });
+      } finally {
+        await pgTv.query(`UPDATE empresas SET figurafiscal = $1 WHERE idempresa = 1`, [figAntes]).catch(() => undefined);
+        await pgTv.query(`UPDATE parceiros SET retira_fornindex = $1 WHERE codparceiro = 22`, [livreAntes]).catch(() => undefined);
+        await pgTv.query(`UPDATE produtos SET codfigurafiscal = $1 WHERE idproduto = 1`, [prodAntes]).catch(() => undefined);
+        for (const c of nfs) {
+          await pgTv.query(`DELETE FROM nf_prod WHERE codnf = $1`, [c]).catch(() => undefined);
+          await pgTv.query(`DELETE FROM nf WHERE codnf = $1`, [c]).catch(() => undefined);
+        }
+        await pgTv.end();
       }
     }
 
