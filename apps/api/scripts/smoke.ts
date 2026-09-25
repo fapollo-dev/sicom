@@ -7982,12 +7982,12 @@ async function main() {
     const p16 = await crPed({ codparceiro: 22, data: '2026-07-07', itens: [{ idproduto: 1, fatorembalagem: 99_999_999, vrcusto: 5 }] });
     check('PEDIDO: quantidade acima do teto → 400 (bound anti-overflow)', p16.status === 400, { status: p16.status });
 
-    // 48.17) guarda de FATURAMENTO (coerente com o reabrir): pedido faturado é read-only na edição E exclusão.
-    // dtfaturamento vem da NF de entrada (corte futuro) — aqui simulado por DML no PG de TESTE (descartável).
+    // 48.17) NÃO há trava de "recebido" no legado (25/09/2026): a de editar é o fechamento (btnEditarClick, uPedidoCompra.pas:6610) e a
+    // de excluir o fechamento/transferência (:6661). O carimbo do 1º recebimento (dtfaturamento) não trava nada.
     await pgPed.query(`UPDATE pedidocompra SET dtfaturamento=now() WHERE codpedcomp=$1`, [ped2]);
     const p17e = await fetch(`${base}/${PED}/${ped2}`, { method: 'PUT', headers: H, body: JSON.stringify({ obs: 'x' }) });
     const p17d = await fetch(`${base}/${PED}/${ped2}`, { method: 'DELETE', headers: H });
-    check('PEDIDO: faturado (dtfaturamento) → editar/excluir 422 PEDIDO_FATURADO', p17e.status === 422 && ((await p17e.json().catch(() => ({}))) as any).code === 'PEDIDO_FATURADO' && p17d.status === 422, { put: p17e.status, del: p17d.status });
+    check('PEDIDO: recebido (o carimbo do 1º recebimento) segue editável e excluível — o legado só trava pelo fechamento', p17e.status === 200 && p17d.ok, { put: p17e.status, del: p17d.status });
 
     await pgPed.end();
 
@@ -8036,10 +8036,10 @@ async function main() {
     check('RECEB 078 FLIP: gerar-nf com QTDE>1 → quantidade da NF = QTDTOTAL (4×6=24 unidades), não o fator (6)',
       Number(rpQItem?.quantidade) === 24, { quantidade: rpQItem?.quantidade });
 
-    // 49.4) pedido marcado RECEBIDO (dtfaturamento) → reabrir/editar bloqueados (PEDIDO_FATURADO).
+    // 49.4) pedido RECEBIDO: o legado reabre (mniReabrirPedidoClick → FecharPedido(False), só a liberação) e, reaberto, edita.
     const r4r = await fetch(`${base}/${PED}/${rpId}/reabrir`, { method: 'POST', headers: H });
     const r4e = await fetch(`${base}/${PED}/${rpId}`, { method: 'PUT', headers: H, body: JSON.stringify({ obs: 'x' }) });
-    check('RECEB: pedido recebido → reabrir/editar 422 PEDIDO_FATURADO', r4r.status === 422 && ((await r4r.json().catch(() => ({}))) as any).code === 'PEDIDO_FATURADO' && r4e.status === 422, { reabrir: r4r.status, put: r4e.status });
+    check('RECEB: pedido recebido reabre e edita (o legado não tem trava de recebido)', r4r.status === 200 && r4e.status === 200, { reabrir: r4r.status, put: r4e.status });
 
     // 49.5) Wave 4 (1:N): a 1ª NF (§49.2) pegou o SALDO cheio (10/3) → saldo zerou; gerar-nf de novo → 422
     // PEDIDO_TOTALMENTE_RECEBIDO; segue com 1 NF vinculada (anti-over-receipt pelo SALDO).
@@ -18823,12 +18823,12 @@ async function main() {
         const edit2Pos = await fetch(`${base}/${PED}/${cod}`, { method: 'PUT', headers: H2, body: JSON.stringify({ obs: 'loja 2 segue aberta' }) });
         const reabre1 = await fetch(`${base}/${PED}/${cod}/reabrir`, { method: 'POST', headers: H });
         const reabre1J = (await reabre1.json().catch(() => ({}))) as any;
-        check('PEDIDO MULTI-LOJA §164.5 [o RECEBIMENTO é por loja]: a nota de entrada gerada do pedido leva a quantidade DA LOJA da nota (`LEFT JOIN PEDIDO_COMPRA_QTDE Q … AND Q.IDEMPRESA = :IDEMPRESA`, udmNF.dfm:15370) — a loja 1 recebe 18 unidades do produto 1 (3 caixas × 6) e 2 do produto 2, na nota DELA, e o saldo dela zera. A nota da loja 1 não trava a loja 2, que segue editando; e a loja 1 não reabre o que já recebeu (422 PEDIDO_FATURADO)',
+        check('PEDIDO MULTI-LOJA §164.5 [o RECEBIMENTO é por loja]: a nota de entrada gerada do pedido leva a quantidade DA LOJA da nota (`LEFT JOIN PEDIDO_COMPRA_QTDE Q … AND Q.IDEMPRESA = :IDEMPRESA`, udmNF.dfm:15370) — a loja 1 recebe 18 unidades do produto 1 (3 caixas × 6) e 2 do produto 2, na nota DELA, e o saldo dela zera. A nota da loja 1 não trava a loja 2, que segue editando; e a loja 1 reabre (o legado não tem trava de recebido — só a liberação)',
           (nf1.status === 200 || nf1.status === 201) && Number(idempNf1) === 1
           && JSON.stringify(itensNf1) === JSON.stringify([[1, 18], [2, 2]])
           && saldo1.totalmenteRecebido === true
           && edit2Pos.status === 200
-          && reabre1.status === 422 && reabre1J.code === 'PEDIDO_FATURADO',
+          && reabre1.status === 200,
           { nf1: [nf1.status, nf1J.code ?? nf1J.codnf], idempNf1, itensNf1, saldo1: saldo1.itens, edit2Pos: edit2Pos.status, reabre1: [reabre1.status, reabre1J.code] });
         if (nf1J.codnf) {
           await pgMl.query(`DELETE FROM nf_prod WHERE codnf = $1`, [Number(nf1J.codnf)]);
@@ -22916,6 +22916,22 @@ async function main() {
       } finally {
         await pgFa.query(`DELETE FROM familias_prod WHERE codfamilia = ANY($1::int[])`, [ids.filter(Boolean)]).catch(() => undefined);
         await pgFa.end();
+      }
+    }
+
+    // ══ §230 PEDIDO DE COMPRA — o que a inclusão grava (DTENCERRAMENTO, vencimento e data de faturamento) ═════════════════════════
+    {
+      const pgPd = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const cp = await fetch(`${base}/compras/pedidos`, { method: 'POST', headers: H, body: JSON.stringify({ codparceiro: 22, data: '2036-07-10', itens: [{ idproduto: 1, fatorembalagem: 1, vrcusto: 5 }] }) });
+        const cpJ = (await cp.json().catch(() => ({}))) as any;
+        const cod = Number(cpJ.codpedcomp ?? cpJ.id ?? cpJ.codigo);
+        const r = (await pgPd.query(`SELECT to_char(dtencerramento AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') enc, to_char(dt_vencimento AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') venc, to_char(data_faturamento AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') fat FROM pedidocompra WHERE codpedcomp = $1`, [cod])).rows[0] as any;
+        check('PEDIDO §230 [o que a inclusão grava]: DTENCERRAMENTO = o dia do pedido (568 de 570 em 2026), e o vencimento e a data de faturamento, que a tela não trouxe, na data do pedido (DT_VENCIMENTO = DATA em 570 de 570; DTFATURAMENTO no mesmo dia em 500)',
+          cp.status === 201 && r?.enc === '2036-07-10' && r?.venc === '2036-07-10' && r?.fat === '2036-07-10', { cp: [cp.status, cpJ.code], r });
+        await pgPd.query(`DELETE FROM pedidocompra WHERE codpedcomp = $1`, [cod]).catch(() => undefined);
+      } finally {
+        await pgPd.end();
       }
     }
 

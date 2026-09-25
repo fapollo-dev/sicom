@@ -610,8 +610,12 @@ leitura), as colunas preenchidas em ≥ 50% que nenhum código do Apollo que gra
   (FRMCADFAMILIAPROD) foi convertida — dossiê UCadFamiliaProd.md, smoke §229.
 - Ruído da LOG, não é lacuna: a agenda de promoção (DATAEXECUCAO/IDSITUACAO_NF/CODPARCEIRO, 468) e o SCRAP.MOV_ESTOQUE (141) são
   "vazio → vazio" (o gravar troca '' por NULL e o form-base registra); o conferidor passou a ignorar.
-- `pedidocompra_i`: PISCONFIS, ICME, LUCROBRUTOP, LUCROLIQP, VLREMBALAGEMB (a rentabilidade do item); `pedidocompra.DTENCERRAMENTO`
-  (90,5%).
+- ✅ PEDIDO DE COMPRA (smoke §230): a inclusão grava DTENCERRAMENTO = o dia do pedido (568 de 570), e o vencimento e a data de
+  faturamento na data do pedido quando a tela não os traz. **Trava inventada removida:** o Apollo barrava editar, excluir, reabrir, gerar
+  parcelas, liberar limite e importar itens de pedido já recebido (PEDIDO_FATURADO) — o legado não tem essa trava (editar: fechamento,
+  uPedidoCompra.pas:6610; excluir: fechamento/transferência, :6661; reabrir: só a liberação, :7754). O carimbo do 1º recebimento
+  (`dtfaturamento` do Apollo; a data digitada do legado vai para `data_faturamento`) fica como metadado.
+- `pedidocompra_i`: PISCONFIS, ICME, LUCROBRUTOP, LUCROLIQP, VLREMBALAGEMB (a rentabilidade do item).
 - `nf_prod`: REPASSADO, INDEXADORTRIB, VRCREDSN/ALIQCREDSN/DESTACICMSSN (crédito do Simples), VRFRETE, CUSTO_RECALCULO_BONIF,
   VRCFOP_ABATIDO; `nf.ULT_CODNFPROD_REPASSE`; `nf_forma_pagamento.VRTROCO`.
 - `parceiros`: VISUALIZA_PC_PARC, CLUBEFIDELIDADE, SOMA_ST_BONIFICACAO, HABILITA_RETENCAO_SENAR_NF.

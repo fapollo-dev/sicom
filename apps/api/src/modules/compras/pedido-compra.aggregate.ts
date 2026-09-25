@@ -5,7 +5,7 @@ import type { AggregateConfig } from '../../shared/crud/crud-config';
 import { BusinessRuleError } from '../../shared/errors/app-error';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { derivarPisCofinsRentabPedido } from '../shared/piscofins-rentab';
-import { estadoFechamento, formatarEmpresas, lojaFechada, lojaRecebeu, lojasDoPedido, quantidadesPorLoja } from './pedido-lojas';
+import { estadoFechamento, formatarEmpresas, lojaFechada, lojasDoPedido, quantidadesPorLoja } from './pedido-lojas';
 import { configNaTrx, herdarDoCatalogo } from './pedido-heranca';
 import { reratearParcelas } from './pedido-parcelas';
 
@@ -261,10 +261,19 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
   ],
   // CODOPERADOR = comprador (operador do contexto). Só no create (derivarTrx não roda no update) → imutável.
   // mig 303: sem lojas informadas, o pedido é da loja que o cria (como o legado, que abre com a empresa logada).
-  derivarTrx: async ({ dto, emp }) => ({
-    codoperador: currentTenant().operadorId ?? null,
-    ...(dto.empresas ? {} : { empresas: emp != null ? String(emp) : null }),
-  }),
+  // o binário novo também grava, na inclusão, a DTENCERRAMENTO = o dia do pedido (568 de 570 em 2026) e o vencimento e a data de
+  // faturamento, quando a tela não os traz, na data do pedido (DT_VENCIMENTO = DATA em 570 de 570; DTFATURAMENTO — o
+  // `data_faturamento` daqui — no mesmo dia em 500 de 570)
+  derivarTrx: async ({ dto, emp }) => {
+    const dia = dto.data != null ? String(dto.data).slice(0, 10) : null;
+    return {
+      codoperador: currentTenant().operadorId ?? null,
+      ...(dto.empresas ? {} : { empresas: emp != null ? String(emp) : null }),
+      ...(dia ? { dtencerramento: dia } : {}),
+      ...(dto.dt_vencimento == null && dto.data != null ? { dt_vencimento: dto.data } : {}),
+      ...(dto.data_faturamento == null && dto.data != null ? { data_faturamento: dto.data } : {}),
+    };
+  },
   // o estado de fechamento de cada loja vai junto na leitura: é o que a tela precisa para saber o que pode fazer
   anexarLeitura: async ({ db, id, registro, emp }) => {
     const estado = await estadoFechamento(db, id, registro.fechado as string | null);
@@ -282,13 +291,11 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
     const emp = currentTenant().empresaId ?? null;
     // `_sistema`: geração PROGRAMÁTICA (ex.: GerarPedido da COTAÇÃO) insere o pedido DIRETO, sem os gates
     // INTERATIVOS do btnGravar (condição-obrigatória / prazo-máximo / pendências-fornecedor) — fiel ao legado,
-    // que grava o pedido em lote fora do formulário. As travas de integridade (FRN, estado FECHADO/FATURADO) FICAM.
+    // que grava o pedido em lote fora do formulário. As travas de integridade (FRN, estado FECHADO) FICAM.
     const interativo = (dto as Record<string, unknown>)._sistema !== true;
 
     // travas de edição por estado (update). Pedido excluído (soft-delete INDR='E') é INEXISTENTE — não
-    // se edita um documento morto. FATURADO (dtfaturamento, via NF de entrada = corte futuro) é read-only
-    // — no golden 1.804 pedidos já foram faturados com FECHADO='N', então a trava é por dtfaturamento,
-    // não só por FECHADO. FECHADO='S' é read-only (o fechar/reabrir é o vertical).
+    // se edita um documento morto. FECHADO='S' é read-only (o fechar/reabrir é o vertical).
     let atual:
       | ({ fechado?: string; dtfaturamento?: unknown; codparceiro?: number; codconpagto?: number; idempresa?: number; empresas?: string } & Record<string, unknown>)
       | undefined;
@@ -301,12 +308,9 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
         .where(sql`coalesce(indr,'I')`, '<>', 'E')
         .executeTakeFirst()) as typeof atual;
       if (!atual) throw new BusinessRuleError('PEDIDO_NAO_ENCONTRADO', { codpedcomp: id });
-      // RECEBIDO trava a edição. No pedido de uma loja só é o marcador de antes (dtfaturamento); no multi-loja a nota
-      // é POR LOJA — a loja 1 ter recebido não trava a loja 2, que ainda está aberta (mig 303)
-      const multi = lojasDoPedido(atual.empresas, atual.idempresa).length > 1;
-      if (multi ? (emp != null && (await lojaRecebeu(db, id, emp))) : atual.dtfaturamento != null) {
-        throw new BusinessRuleError('PEDIDO_FATURADO');
-      }
+      // a trava de edição do legado é o FECHAMENTO (total ou da loja — btnEditarClick, uPedidoCompra.pas:6610). Não há trava de
+      // "recebido": o DTFATURAMENTO é a data de faturamento digitada no cabeçalho (edtDtFaturamento), preenchida em 639 de 640 pedidos
+      // de 2026 — 634 deles sem nenhuma nota; o Apollo o usava como marca de recebido e travaria quase todo pedido migrado
       await validarFechamentoPorLoja(db, id, atual, dto, emp);
     }
     // o fornecedor e as configs são os da loja DONA do pedido (parceiros é por empresa no Apollo)
@@ -393,9 +397,8 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
       if (pend) throw new BusinessRuleError('PEDIDO_FORNECEDOR_PENDENCIAS', { codparceiro: cod });
     }
   },
-  // Guarda de EXCLUSÃO (btnExcluir): não apagar pedido com efeitos. FATURADO (dtfaturamento) e FECHADO='S'
-  // são bloqueados (reabra/estorne antes). O vínculo com a NF de entrada (NF.CODPEDCOMP) ainda não existe
-  // no schema migrado → a guarda de "pedido com NF" entra junto com o recebimento (corte futuro).
+  // Guarda de EXCLUSÃO (btnExcluirClick, uPedidoCompra.pas:6661): o fechamento de qualquer loja. Não há trava de "faturado": o
+  // DTFATURAMENTO é a data digitada no cabeçalho (ver a trava de edição).
   validarRemocao: async ({ id, db }) => {
     const emp = currentTenant().empresaId ?? null;
     const pc = (await db
@@ -406,7 +409,6 @@ export const pedidoCompraAggregateConfig: AggregateConfig = {
       .where(sql`coalesce(indr,'I')`, '<>', 'E')
       .executeTakeFirst()) as { fechado?: string; dtfaturamento?: unknown } | undefined;
     if (!pc) return; // já excluído / not-found → fluxo normal (soft-delete idempotente)
-    if (pc.dtfaturamento != null) throw new BusinessRuleError('PEDIDO_FATURADO');
     // excluir o pedido bloqueia se QUALQUER loja fechou — parcial ou total (btnExcluirClick, uPedidoCompra.pas:6664)
     const estado = await estadoFechamento(db, id, pc.fechado);
     if (estado.tipo !== 'nenhum') throw new BusinessRuleError('PEDIDO_FECHADO', { fechamento: estado.tipo });

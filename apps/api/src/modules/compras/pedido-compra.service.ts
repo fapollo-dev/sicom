@@ -3,7 +3,7 @@ import { sql, type Kysely } from 'kysely';
 import { DatabaseProvider } from '../../shared/database/database.provider';
 import { currentTenant } from '../../shared/tenant/tenant-context';
 import { BusinessRuleError } from '../../shared/errors/app-error';
-import { estadoFechamento, lojaFechada, lojaRecebeu, lojasDoPedido, novoHistorico } from './pedido-lojas';
+import { estadoFechamento, lojaFechada, lojasDoPedido, novoHistorico } from './pedido-lojas';
 import { SenhaOperacaoService } from '../cadastro/senha-operacao.service';
 import { herdarDoCatalogo } from './pedido-heranca';
 import { prazosDoPedido, rateioPorLoja, totaisPorLoja } from './pedido-parcelas';
@@ -156,14 +156,6 @@ export class PedidoCompraService {
     if (lojaFechada(estado, emp)) throw new BusinessRuleError('PEDIDO_FECHADO_NA_EMPRESA', { codpedcomp, idempresa: emp });
   }
 
-  /**
-   * a trava de FATURADO para a loja (mig 303): no multi-loja, a nota DA LOJA vinculada ao pedido (a da loja 1 não
-   * trava a loja 2); na loja só, o marcador `dtfaturamento` do cabeçalho — o comportamento de sempre.
-   */
-  private async faturadoNaLoja(trx: AnyDB, pc: Record<string, unknown>, codpedcomp: number, emp: number): Promise<boolean> {
-    if (lojasDoPedido(pc.empresas, pc.idempresa as number).length > 1) return lojaRecebeu(trx, codpedcomp, emp);
-    return pc.dtfaturamento != null;
-  }
 
   /**
    * corte-2 — GERA as parcelas do pedido a partir da condição de pagamento (RatearTotalNasParcelas,
@@ -181,7 +173,6 @@ export class PedidoCompraService {
         'fechado', 'dtfaturamento', 'codconpagto', ...CD_COLS,
         sql<string>`to_char(coalesce(data_faturamento, data)::date, 'YYYY-MM-DD')`.as('base') as any,
       ]);
-      if (await this.faturadoNaLoja(trx, pc, codpedcomp, emp)) throw new BusinessRuleError('PEDIDO_FATURADO', { codpedcomp });
       await this.exigirEditavel(trx, codpedcomp, emp, pc.fechado); // mig 303: trava por loja
 
       const prazos = await prazosDoPedido(trx, pc);
@@ -343,7 +334,6 @@ export class PedidoCompraService {
     }
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const pc = await this.pedidoDaLoja(trx, codpedcomp, emp, ['fechado', 'dtfaturamento']); // mig 303: loja participante
-      if (await this.faturadoNaLoja(trx, pc, codpedcomp, emp)) throw new BusinessRuleError('PEDIDO_FATURADO', { codpedcomp });
       // mig 303: a liberação vale para o fechar da loja — que já tenha fechado, não há o que liberar
       if (lojaFechada(await estadoFechamento(trx, codpedcomp, (pc as any).fechado), emp)) {
         throw new BusinessRuleError('PEDIDO_JA_FECHADO', { codpedcomp });
@@ -713,7 +703,6 @@ export class PedidoCompraService {
     const op = this.op();
     return (this.dbp.forTenant() as AnyDB).transaction().execute(async (trx: AnyDB) => {
       const pc = await this.pedidoDaLoja(trx, codpedcomp, emp, ['fechado', 'dtfaturamento', 'codparceiro']); // mig 303: loja participante
-      if (await this.faturadoNaLoja(trx, pc, codpedcomp, emp)) throw new BusinessRuleError('PEDIDO_FATURADO', { codpedcomp });
       // adicionar item bloqueia só com TODAS as lojas fechadas (btnAdicionarIClick, uPedidoCompra.pas:4432)
       if ((await estadoFechamento(trx, codpedcomp, (pc as any).fechado)).tipo === 'total') {
         throw new BusinessRuleError('PEDIDO_FECHADO', { codpedcomp });
@@ -835,11 +824,6 @@ export class PedidoCompraService {
       const pc = await this.pedidoDaLoja(trx, codpedcomp, emp, ['fechado', 'dtfaturamento']);
       const antes = await estadoFechamento(trx, codpedcomp, (pc as any).fechado);
       if (!lojaFechada(antes, emp)) throw new BusinessRuleError('PEDIDO_NAO_FECHADO', { codpedcomp, idempresa: emp });
-      // recebido não reabre: no multi-loja é a nota DESTA loja (mig 303); numa loja só, o marcador de antes
-      const multi = lojasDoPedido((pc as any).empresas, (pc as any).idempresa).length > 1;
-      if (multi ? await lojaRecebeu(trx, codpedcomp, emp) : (pc as any).dtfaturamento != null) {
-        throw new BusinessRuleError('PEDIDO_FATURADO', { codpedcomp });
-      }
 
       // REARMA o limite (M1) na reabertura — e desfaz o fechamento SÓ da loja logada (uPedidoCompra.pas:7840)
       await trx
