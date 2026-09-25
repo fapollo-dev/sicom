@@ -54,6 +54,8 @@ function distinto(x: unknown, y: unknown): boolean {
   if (Number.isFinite(nx) && Number.isFinite(ny)) return Math.abs(nx - ny) > 1e-9;
   return String(x).trim() !== String(y).trim();
 }
+/** os campos da receita que o gatilho RECEITA_PROD_HIST compara no UPDATE */
+const RECEITA_HIST = ['qtde', 'valor', 'idproduto_receita', 'servico', 'unidade', 'fatorcxprod'] as const;
 /** os campos do preço que pedem etiqueta nova (o gatilho ATUALIZAPROD) */
 const PRECO_DA_ETIQUETA = ['vrvenda', 'vrpromo', 'promocao', 'atacarejo_ativo'] as const;
 /** os carimbos do ATUALIZAPROD — não contam como "a linha mudou" */
@@ -403,7 +405,50 @@ export const produtoAggregateConfig: AggregateConfig = {
       chaveNatural: ['idproduto_receita'],
       // idem (lição 124)
       preservarNaoGerenciadas: true,
-      colunas: ['idproduto_receita', 'qtde', 'valor', 'unidade', 'servico', 'fatorcxprod'],
+      // o CODRECEITA não muda ao regravar (o legado atualiza no lugar: a linha 1086 do produto 832785 vive desde 2023) — o histórico o cita
+      pkEstavel: true,
+      colunas: ['idproduto_receita', 'qtde', 'valor', 'unidade', 'servico', 'fatorcxprod', 'usultalteracao', 'dtcadastro', 'dtultimalteracao'],
+      antesDeSubstituirTrx: async ({ trx, masterId }) =>
+        (await trx.selectFrom('receita_prod').selectAll().where('idproduto', '=', masterId).orderBy('codreceita').execute()) as Array<Record<string, unknown>>,
+      // o que a tela carimba (produção: USULTALTERACAO nunca nulo, DTCADASTRO sempre): a linha nova nasce com o operador e DTCADASTRO; a
+      // alterada ganha o operador e DTULTIMALTERACAO; a intocada fica como estava
+      derivarItensTrx: async (itens, _trx, _emp, _header, _masterId, snapshot) => {
+        const antigas = (snapshot as Array<Record<string, unknown>> | undefined) ?? [];
+        const op = currentTenant().operadorId ?? null;
+        const agora = new Date();
+        const usadas = new Set<Record<string, unknown>>();
+        return itens.map((it) => {
+          let a = it.codreceita != null ? antigas.find((x) => Number(x.codreceita) === Number(it.codreceita) && !usadas.has(x)) : undefined;
+          if (!a) a = antigas.find((x) => Number(x.idproduto_receita) === Number(it.idproduto_receita) && !usadas.has(x));
+          if (a) usadas.add(a);
+          if (!a) return { ...it, usultalteracao: op, dtcadastro: agora, dtultimalteracao: null };
+          const mudou = RECEITA_HIST.some((c) => it[c] !== undefined && distinto(a![c], it[c]));
+          return mudou
+            ? { ...it, usultalteracao: op, dtcadastro: a.dtcadastro ?? null, dtultimalteracao: agora }
+            : { ...it, usultalteracao: a.usultalteracao ?? null, dtcadastro: a.dtcadastro ?? null, dtultimalteracao: a.dtultimalteracao ?? null };
+        });
+      },
+      // o gatilho RECEITA_PROD_HIST (BEFORE I/U/D em RECEITA_PROD): o histórico de modificações da receita (lido em "Histórico de modificações –
+      // Receitas", UCadProduto.pas:3414) — 'I' da linha nova, 'D' da removida (com o usuário que a gravou por último), 'U' da que mudou num
+      // dos campos (comparação `<>` do legado: de/para nulo não conta). No código, não no banco: o detalhe é regravado por delete+insert, e o
+      // legado registra só o que mudou (na produção, cada gravação tem só os D/I dos componentes trocados)
+      aposInserirItensTrx: async ({ trx, masterId, snapshot }) => {
+        const antes = new Map(((snapshot as Array<Record<string, unknown>> | undefined) ?? []).map((r) => [Number(r.codreceita), r]));
+        const depois = new Map(((await trx.selectFrom('receita_prod').selectAll().where('idproduto', '=', masterId).execute()) as Array<Record<string, unknown>>)
+          .map((r) => [Number(r.codreceita), r]));
+        const hist = (r: Record<string, unknown>, operacao: 'I' | 'U' | 'D') => ({
+          codreceita: r.codreceita, idproduto: r.idproduto, qtde: r.qtde, valor: r.valor, idproduto_receita: r.idproduto_receita, servico: r.servico,
+          unidade: r.unidade, fatorcxprod: r.fatorcxprod, fatorcxprod_util: r.fatorcxprod_util, dthistorico: sql`now()`, codusuario: r.usultalteracao ?? null, operacao,
+        });
+        const linhas: Array<Record<string, unknown>> = [];
+        for (const [cod, d] of depois) {
+          const a = antes.get(cod);
+          if (!a) linhas.push(hist(d, 'I'));
+          else if (['codreceita', 'idproduto', ...RECEITA_HIST, 'fatorcxprod_util'].some((c) => a[c] != null && d[c] != null && distinto(a[c], d[c]))) linhas.push(hist(d, 'U'));
+        }
+        for (const [cod, a] of antes) if (!depois.has(cod)) linhas.push(hist(a, 'D'));
+        if (linhas.length) await trx.insertInto('receita_prod_hist').values(linhas).execute();
+      },
     },
     // Fator de conversão de unidades (tabFatorConversao) — FK é `codproduto` (nome fiel ao legado).
     // PARA é DERIVADO da unidade do produto (read-only no legado; golden PARA=unidade 100%): copiada do

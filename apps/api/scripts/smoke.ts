@@ -23134,6 +23134,49 @@ async function main() {
       }
     }
 
+    // ══ §227.3 RECEITA — o histórico de modificações (o gatilho RECEITA_PROD_HIST) e o CODRECEITA estável ══════════════════════════
+    {
+      const pgRc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      let idp = 0;
+      try {
+        const cr = await fetch(`${base}/cadastro/produtos`, { method: 'POST', headers: H, body: JSON.stringify({
+          codbarra: '7890000227308', descricao: 'PRODUTO 227 RECEITA', unidade: 'UN', codfor: 2, aliquota: 'T01', ...PROD_FISCAL,
+          precos: [{ idempresa: 1, vrcusto: 5, vrcustorep: 5, markup: 20, vrvenda: 9.9, promocao: 'N', ativo: 'S', ativo_compra: 'S' }],
+          receitas: [{ idproduto_receita: 1, qtde: 2, valor: 1, unidade: 'UN' }, { idproduto_receita: 2, qtde: 1, valor: 2, unidade: 'UN' }],
+        }) });
+        idp = Number(((await cr.json().catch(() => ({}))) as any).idproduto) || 0;
+        const hist = async () => (await pgRc.query(`SELECT codreceita, idproduto_receita, operacao, codusuario, qtde::float AS qtde FROM receita_prod_hist WHERE idproduto = $1 ORDER BY codreceitahist`, [idp])).rows as any[];
+        const h1 = await hist();
+        const rec1 = (await pgRc.query(`SELECT codreceita, idproduto_receita, usultalteracao, dtcadastro IS NOT NULL AS cad FROM receita_prod WHERE idproduto = $1 ORDER BY idproduto_receita`, [idp])).rows as any[];
+        const lido = (await (await fetch(`${base}/cadastro/produtos/${idp}`, { headers: H })).json().catch(() => ({}))) as any;
+        const receitas = (lido.receitas ?? []).filter((r: any) => Number(r.idproduto_receita) !== 2).map((r: any) => (Number(r.idproduto_receita) === 1 ? { ...r, qtde: 3 } : r));
+        const up = await fetch(`${base}/cadastro/produtos/${idp}`, { method: 'PUT', headers: H, body: JSON.stringify({ ...lido, receitas: [...receitas, { idproduto_receita: 3, qtde: 0.5, valor: 4, unidade: 'KG' }] }) });
+        const h2 = (await hist()).slice(h1.length);
+        const lido2 = (await (await fetch(`${base}/cadastro/produtos/${idp}`, { headers: H })).json().catch(() => ({}))) as any;
+        await fetch(`${base}/cadastro/produtos/${idp}`, { method: 'PUT', headers: H, body: JSON.stringify(lido2) });
+        const h3 = (await hist()).slice(h1.length + h2.length);
+        const cod1 = Number(rec1.find((r) => Number(r.idproduto_receita) === 1)?.codreceita);
+        const cod1b = Number(((await pgRc.query(`SELECT codreceita FROM receita_prod WHERE idproduto = $1 AND idproduto_receita = 1`, [idp])).rows[0] as any)?.codreceita);
+        const op = (o: string, comp: number) => h2.find((h) => h.operacao === o && Number(h.idproduto_receita) === comp);
+        check('RECEITA §227.3 [o gatilho RECEITA_PROD_HIST]: incluir o produto com 2 componentes grava 2 "I" com o operador (e a linha nasce com USULTALTERACAO e DTCADASTRO); regravar mudando a quantidade de um, tirando outro e pondo um terceiro grava só U (qtde 3), D (o removido) e I (o novo) — o CODRECEITA do que ficou não muda; regravar sem mudar nada não grava histórico',
+          cr.status === 201 && h1.length === 2 && h1.every((h) => h.operacao === 'I' && Number(h.codusuario) === 7)
+          && rec1.every((r) => Number(r.usultalteracao) === 7 && r.cad)
+          && up.status === 200 && h2.length === 3 && op('U', 1)?.qtde === 3 && !!op('D', 2) && !!op('I', 3)
+          && cod1 > 0 && cod1 === cod1b && Number(op('U', 1)?.codreceita) === cod1 && h3.length === 0,
+          { cr: cr.status, h1, rec1, up: up.status, h2, h3, cod1, cod1b });
+      } finally {
+        if (idp) {
+          await pgRc.query(`DELETE FROM receita_prod_hist WHERE idproduto = $1`, [idp]).catch(() => undefined);
+          await pgRc.query(`DELETE FROM receita_prod WHERE idproduto = $1`, [idp]).catch(() => undefined);
+          await pgRc.query(`DELETE FROM multi_preco WHERE idproduto = $1`, [idp]).catch(() => undefined);
+          await pgRc.query(`DELETE FROM estoque WHERE idproduto = $1`, [idp]).catch(() => undefined);
+          await pgRc.query(`DELETE FROM estoque_dep WHERE idproduto = $1`, [idp]).catch(() => undefined);
+          await pgRc.query(`DELETE FROM produtos WHERE idproduto = $1`, [idp]).catch(() => undefined);
+        }
+        await pgRc.end();
+      }
+    }
+
     // ══ §228 o que a inclusão grava — CARTÃO (o operador) e FAMÍLIA (ATIVO, loja e o domínio do TIPO do legado) ═══════════════════
     {
       const pgFc = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
