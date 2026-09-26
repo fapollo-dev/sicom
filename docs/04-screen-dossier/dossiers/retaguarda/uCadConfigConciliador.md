@@ -94,3 +94,8 @@ o operador digita e o servidor as reaplica na porta.
 A **importação em si** e o casamento com a venda: ler a planilha pelo layout, gravar em `ITENS_MANCARTAO` e
 achar o `CODVENDCARTAO` por uma das quatro chaves. A tabela destino já está no destino (migration 230) e no
 plano de carga; o que falta é o motor que a preenche.
+
+**Medido em 25/09/2026 (produção, só leitura):** `ARQUIVO_MANCARTAO` tem 694 arquivos (todos do tipo M, configurável) e
+`ITENS_MANCARTAO` 245.984 itens (243.420 encontrados). O uso **caiu**: 138 arquivos em mai/2025, 123 em abr/2025, 44 em
+jun/2025… 3 em fev/2026, **5 em mai/2026 e nenhum desde então** — o mesmo mês em que a integração Boa Vista parou
+(`FILA-CONVERSAO.md`). 🪦 dormente; o histórico está na carga. Reabrir se a importação voltar.
