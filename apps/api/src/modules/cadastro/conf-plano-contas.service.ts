@@ -61,7 +61,7 @@ export class ConfPlanoContasService {
     ]).filter((x) => x > 0);
     const contas = codigos.length
       ? (await sql<Record<string, unknown>>`
-          SELECT codplanocontas, descricao, tipo AS classe FROM plano_contas
+          SELECT codplanocontas, descricao, classe FROM plano_contas
            WHERE codplanocontas = ANY(${codigos}::int[])
         `.execute(db)).rows
       : [];
@@ -99,13 +99,14 @@ export class ConfPlanoContasService {
       ];
       for (const [campo, cod, exigeAnalitica] of pares) {
         if (cod == null) continue;
-        const c = (await sql<{ tipo: string | null }>`
-          SELECT tipo FROM plano_contas WHERE codplanocontas = ${cod}
+        const c = (await sql<{ classe: string | null }>`
+          SELECT classe FROM plano_contas WHERE codplanocontas = ${cod}
         `.execute(trx)).rows[0];
         if (!c) throw new BusinessRuleError('CONTA_NAO_ENCONTRADA', { campo, conta: cod });
-        // ⚠️ conta SINTÉTICA não recebe lançamento: apontar uma como padrão faria a contabilização falhar
-        // no momento do lançamento, longe de quem configurou
-        if (exigeAnalitica && String(c.tipo ?? 'A').toUpperCase() === 'S') {
+        // ⚠️ conta SINTÉTICA (CLASSE 'T', totalizadora) não recebe lançamento: apontar uma como padrão faria a contabilização falhar
+        // no momento do lançamento, longe de quem configurou. A classe é a CLASSE do legado ('A' analítica, 'T' totalizadora — 10.950 e
+        // 78 na produção); o TIPO é 'E' em todas, e a trava que olhava TIPO = 'S' nunca disparava
+        if (exigeAnalitica && String(c.classe ?? 'A').toUpperCase() !== 'A') {
           throw new BusinessRuleError('CONTA_PADRAO_NAO_ANALITICA', { campo, conta: cod });
         }
       }

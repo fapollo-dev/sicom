@@ -15699,13 +15699,15 @@ async function main() {
           { mascara: cfg.mascara, niveis: cfg.niveis, contas: cfg.contas?.length, formatos: cfg.formatos });
 
         // ⚠️ conta SINTÉTICA não pode ser a padrão: ela não recebe lançamento
-        const sint = (await pgCp.query(`SELECT codplanocontas FROM plano_contas WHERE upper(coalesce(tipo,'A'))='S' LIMIT 1`)).rows[0] as any;
-        const comSintetica = sint ? await fetch(`${base}/${CP}`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'E', niveis: [1, 1, 2, 2, 5], codcontaanalitica_for: Number(sint.codplanocontas) }) }) : { status: 422 };
+        // (a sintética é CLASSE 'T' — o TIPO é 'E' em todas; o teste antigo procurava TIPO 'S', não achava nenhuma e fingia o 422)
+        const sint = (await pgCp.query(`SELECT codplanocontas FROM plano_contas WHERE classe = 'T' LIMIT 1`)).rows[0] as any;
+        const comSinteticaR = await fetch(`${base}/${CP}`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'E', niveis: [1, 1, 2, 2, 5], codcontaanalitica_for: Number(sint?.codplanocontas ?? 0) }) });
+        const comSintetica = { status: comSinteticaR.status, code: ((await comSinteticaR.json().catch(() => ({}))) as any).code };
         const contaRuim = await fetch(`${base}/${CP}`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'E', niveis: [1, 1, 2, 2, 5], codcontaanalitica_cli: 999777 }) });
         const semGrant = await fetch(`${base}/${CP}`, { method: 'PUT', headers: H_SEM_ACESSO, body: JSON.stringify({ tipo: 'E', niveis: [1, 1, 2, 2, 5] }) });
         check('CONF PLANO §114.2: a conta padrão tem de existir E ser ANALÍTICA — apontar uma sintética faria a contabilização falhar na hora do lançamento, longe de quem configurou. Sem `BTNGRAVAR`, 403',
-          comSintetica.status === 422 && contaRuim.status === 422 && semGrant.status === 403,
-          { sintetica: comSintetica.status, inexistente: contaRuim.status, rbac: semGrant.status });
+          !!sint && comSintetica.status === 422 && comSintetica.code === 'CONTA_PADRAO_NAO_ANALITICA' && contaRuim.status === 422 && semGrant.status === 403,
+          { sint, sintetica: comSintetica, inexistente: contaRuim.status, rbac: semGrant.status });
 
         const ok = await fetch(`${base}/${CP}`, { method: 'PUT', headers: H, body: JSON.stringify({ tipo: 'E', niveis: [1, 1, 2, 2, 5, 3], descricao: 'Plano empresarial' }) });
         const depois = (await (await fetch(`${base}/${CP}`, { headers: H })).json().catch(() => ({}))) as any;
