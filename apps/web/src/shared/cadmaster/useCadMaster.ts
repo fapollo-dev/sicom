@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import type { ResourceApi } from './resourceApi';
+import { useConfirmarSaida } from '../navegacao/useConfirmarSaida';
 
 /** Estados do form-base (TfrmCadMaster): navegar / inserir / editar. */
 export type ModoCadMaster = 'browse' | 'insert' | 'edit';
@@ -43,6 +44,8 @@ export function useCadMaster<T extends Record<string, any>>(
   colunaCodigo: string = pk,
 ): CadMaster<T> {
   const [modo, setModo] = useState<ModoCadMaster>('browse');
+  // o FormCloseQuery do uCadMaster: registro em inclusão ou edição, sair pergunta "Deseja sair sem salvar as alterações?"
+  useConfirmarSaida(modo !== 'browse', 'Deseja sair sem salvar as alterações?');
   const [registro, setRegistro] = useState<T | null>(null);
   const [carregando, setCarregando] = useState(false);
   // cdsNavegation: lista navegável de códigos, ordenada por PK, carregada sob demanda

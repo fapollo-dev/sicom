@@ -1,15 +1,18 @@
-import { useEffect } from 'react';
-import { useBlocker } from 'react-router-dom';
+import { useContext, useEffect } from 'react';
+import { UNSAFE_DataRouterContext, useBlocker } from 'react-router-dom';
 
 /**
- * O `FormCloseQuery` do legado (27 units): com alteração não gravada na tela, sair pergunta antes — "Deseja realmente sair da tela?"
- * (o texto do `uPrecificacaoNF.pas:680`). Vale para a navegação dentro do app (o `useBlocker` do roteador) e para fechar/recarregar a aba
- * (`beforeunload`, cuja mensagem o navegador não deixa trocar).
+ * O `FormCloseQuery` do legado (27 units; o do `uCadMaster` vale para todos os cadastros): com alteração não gravada na tela, sair
+ * pergunta antes. Vale para a navegação dentro do app (o `useBlocker` do roteador de dados) e para fechar/recarregar a aba
+ * (`beforeunload`, cuja mensagem o navegador não deixa trocar). Fora de um roteador de dados (testes, telas soltas) fica só o da aba.
  */
 export function useConfirmarSaida(ativo: boolean, mensagem = 'Deseja realmente sair da tela?'): void {
-  const bloqueio = useBlocker(({ currentLocation, nextLocation }) => ativo && currentLocation.pathname !== nextLocation.pathname);
+  const roteadorDeDados = useContext(UNSAFE_DataRouterContext) != null;
+  // o contexto do roteador não muda durante a vida do componente: a chamada condicional é estável entre renderizações
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const bloqueio = roteadorDeDados ? useBlocker(({ currentLocation, nextLocation }) => ativo && currentLocation.pathname !== nextLocation.pathname) : null;
   useEffect(() => {
-    if (bloqueio.state !== 'blocked') return;
+    if (!bloqueio || bloqueio.state !== 'blocked') return;
     if (window.confirm(mensagem)) bloqueio.proceed();
     else bloqueio.reset();
   }, [bloqueio, mensagem]);
