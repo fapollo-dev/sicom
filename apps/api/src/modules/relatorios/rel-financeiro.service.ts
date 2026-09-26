@@ -35,10 +35,13 @@ const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
  * porque `NULL LIKE '%%'` é falso — o mesmo defeito já corrigido em outras telas. Aqui o filtro só se aplica
  * quando preenchido.
  *
- * ── Cópia fiel, inclusive no vazio ────────────────────────────────────────────────────────────────────
- * O `UNION ALL` do legado inclui cheques (`CHEQUE`, `CHEQUE_REP`, `CHQ_PROPRIO`) e permutas. No cliente:
- * `CHEQUE` tem **11** linhas e as outras três, **ZERO**. O corte cobre títulos; o ramo de cheque fica
- * declarado, sem substrato que justifique.
+ * ── Os cinco ramos do legado (UdmRelFinanceiro.dfm, `sqqDtos`) ────────────────────────────────────────
+ * Recebíveis: títulos (ARECEBER), CHEQUE (11 no cliente) e CARTÃO (2,06 mi) — o cartão vence em
+ * `DTVENDA + DIASCOMP × NROPARCELA`, recebe o valor menos a taxa da operadora (0,1% se a operadora não tem) quando LIBERADO,
+ * mostra a taxa na coluna de juros e a operadora no lugar do parceiro (o filtro de parceiro não vale para ele). Compromissos: títulos
+ * (APAGAR) e CHEQUE PRÓPRIO. O cheque de terceiros mostra o VALOR como pago mesmo em aberto — é o SQL do legado. `cmbRecebiveis`
+ * e `cmbCompromissos` escolhem os ramos. O filtro de CONTA é o do legado: o LOTE que passou pela conta
+ * (`IDLOTE IN (SELECT IDLOTE FROM MOV_CONTAS_BANCARIAS WHERE CODCONTA = …)`), em todos os ramos.
  */
 @Injectable()
 export class RelFinanceiroService {
@@ -67,12 +70,25 @@ export class RelFinanceiroService {
       : f.situacao === 'BAIXADO' ? sql`AND coalesce(r.quitada, 'N') = 'S'` : sql``;
     const sitP = f.situacao === 'ABERTO' ? sql`AND coalesce(a.quitada, 'N') = 'N'`
       : f.situacao === 'BAIXADO' ? sql`AND coalesce(a.quitada, 'N') = 'S'` : sql``;
+    // os outros três ramos: a data e a situação de cada um, como o `MontaRelatorioAnaliseDescritiva` (UrelFinanceiro.pas:529-575)
+    const vencCartao = sql`(ca.dtvenda + (coalesce(o.diascomp, 0) * coalesce(ca.nroparcela, 1)) * interval '1 day')`;
+    const dataCa = f.filtroData === 'EMISSAO' ? sql`ca.dtvenda` : f.filtroData === 'BAIXA' ? sql`ca.dtbaixa` : vencCartao;
+    const dataCh = f.filtroData === 'EMISSAO' ? sql`ch.dtemissao` : f.filtroData === 'BAIXA' ? sql`ch.databaixa` : sql`ch.bompara`;
+    const dataCp = f.filtroData === 'EMISSAO' ? sql`cp.dtemissao` : f.filtroData === 'BAIXA' ? sql`cp.dtbaixa` : sql`cp.dtvenc`;
+    const sitSN = (col: ReturnType<typeof sql>) => (f.situacao === 'ABERTO' ? sql`AND coalesce(${col}, 'N') = 'N'`
+      : f.situacao === 'BAIXADO' ? sql`AND coalesce(${col}, 'N') = 'S'` : sql``);
+    const rTitulos = f.recebiveis === 'S' && (f.tipoRecebivel === 'TODOS' || f.tipoRecebivel === 'TITULOS');
+    const rCheque = f.recebiveis === 'S' && (f.tipoRecebivel === 'TODOS' || f.tipoRecebivel === 'CHEQUE');
+    const rCartao = f.recebiveis === 'S' && (f.tipoRecebivel === 'TODOS' || f.tipoRecebivel === 'CARTAO');
+    const pTitulos = f.compromissos === 'S' && (f.tipoCompromisso === 'TODOS' || f.tipoCompromisso === 'TITULOS');
+    const pCheque = f.compromissos === 'S' && (f.tipoCompromisso === 'TODOS' || f.tipoCompromisso === 'CHEQUE');
+    const sim = (b: boolean) => (b ? 'S' : 'N');
 
     const linhas = (await sql<Record<string, unknown>>`
       WITH receber AS (
         -- o NRODOC do legado está preenchido em 1 linha de 99.769; o número que o operador reconhece é a
         -- duplicata, e é ela que aparece quando o outro é nulo
-        SELECT 'R'::text AS lado, r.codrcb AS codigo,
+        SELECT 'R'::text AS lado, 'TITULO'::text AS tipo_doc, r.codrcb AS codigo,
                coalesce(nullif(trim(coalesce(r.nrodoc, '')), ''), r.duplicata) AS documento,
                r.dtvenda AS emissao, r.dtvenc AS vencimento, bx.dtpgto AS baixa,
                r.valor, bx.valorpg, coalesce(bx.acre_desc, 0) AS acre_desc, coalesce(bx.juros, 0) AS juros,
@@ -83,17 +99,56 @@ export class RelFinanceiroService {
           -- a baixa estornada fica de fora (INDR='E'); o título sem baixa continua aparecendo
           LEFT JOIN areceber_bx bx ON bx.codrcb = r.codrcb AND coalesce(bx.indr, 'I') = 'I'
          WHERE r.codempresa = ${emp}
-           AND ${f.recebiveis} = 'S'
+           AND ${sim(rTitulos)} = 'S'
            -- o agrupado sai: ele já está representado pelo título do grupo
            AND coalesce(r.agrupado, 'N') = 'N'
            AND ${dataR}::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
            ${sitR}
            -- o filtro só se aplica quando preenchido, para não derrubar título sem parceiro
            AND (${parceiro}::text IS NULL OR upper(coalesce(p.razao, '')) LIKE ${parceiro}::text)
-           AND (${f.codconta ?? null}::int IS NULL OR r.codconta = ${f.codconta ?? null}::int)
+      ), cheque AS (
+        SELECT 'R'::text AS lado, 'CHEQUE'::text AS tipo_doc, ch.codchq AS codigo, ch.nrocheque::text AS documento,
+               ch.dtemissao AS emissao, ch.bompara AS vencimento, ch.databaixa AS baixa,
+               ch.valor, ch.valor AS valorpg, 0::numeric AS acre_desc, 0::numeric AS juros,
+               coalesce(p.razao, '(sem parceiro)') AS parceiro, ch.idlote,
+               coalesce(ch.baixado, 'N') AS quitada, trim(coalesce(ch.observacao, '')) AS obs
+          FROM cheque ch
+          LEFT JOIN parceiros p ON p.codparceiro = ch.codparceiro
+         WHERE ch.idempresa = ${emp}
+           AND ${sim(rCheque)} = 'S'
+           AND ${dataCh}::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
+           ${sitSN(sql`ch.baixado`)}
+           AND (${parceiro}::text IS NULL OR upper(coalesce(p.razao, '')) LIKE ${parceiro}::text)
+      ), cartao AS (
+        SELECT 'R'::text AS lado, 'CARTAO'::text AS tipo_doc, ca.codvendcartao AS codigo, ca.nrocupom::text AS documento,
+               ca.dtvenda AS emissao, ${vencCartao} AS vencimento, ca.dtbaixa AS baixa,
+               ca.valor,
+               CASE WHEN coalesce(ca.liberado, 'N') = 'N' THEN 0 ELSE ca.valor - (ca.valor * coalesce(o.txadm, 0.1) / 100) END AS valorpg,
+               0::numeric AS acre_desc, (ca.valor * coalesce(o.txadm, 0.1) / 100) AS juros,
+               coalesce(o.operadora, '(sem operadora)') AS parceiro, ca.idlote,
+               coalesce(ca.liberado, 'N') AS quitada, trim(coalesce(ca.obs, '')) AS obs
+          FROM cartao ca
+          LEFT JOIN operadoras o ON o.codoperadoras = ca.codoperadora
+         WHERE ca.idempresa = ${emp}
+           AND ${sim(rCartao)} = 'S'
+           AND ${dataCa}::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
+           ${sitSN(sql`ca.liberado`)}
+      ), chq_proprio AS (
+        SELECT 'P'::text AS lado, 'CHQ_PROPRIO'::text AS tipo_doc, cp.codchqproprio AS codigo, cp.nrocheque::text AS documento,
+               cp.dtemissao AS emissao, cp.dtvenc AS vencimento, cp.dtbaixa AS baixa,
+               cp.valor, cp.valor AS valorpg, 0::numeric AS acre_desc, 0::numeric AS juros,
+               coalesce(p.razao, '(sem parceiro)') AS parceiro, cp.idlote,
+               coalesce(cp.baixado, 'N') AS quitada, trim(coalesce(cp.historico, '')) AS obs
+          FROM chq_proprio cp
+          LEFT JOIN parceiros p ON p.codparceiro = cp.codparceiro
+         WHERE cp.idempresa = ${emp}
+           AND ${sim(pCheque)} = 'S'
+           AND ${dataCp}::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
+           ${sitSN(sql`cp.baixado`)}
+           AND (${parceiro}::text IS NULL OR upper(coalesce(p.razao, '')) LIKE ${parceiro}::text)
       ), pagar AS (
         -- o legado imprime o NRODUP como "documento" (CAST para texto), e ele é o número da PARCELA
-        SELECT 'P'::text AS lado, a.codapg AS codigo, a.nrodup::text AS documento,
+        SELECT 'P'::text AS lado, 'TITULO'::text AS tipo_doc, a.codapg AS codigo, a.nrodup::text AS documento,
                a.dtcompra AS emissao, a.dtvenc AS vencimento, pbx.dtpgto AS baixa,
                a.valor, pbx.valorpg, coalesce(pbx.acre_desc, 0) AS acre_desc, coalesce(pbx.juros, 0) AS juros,
                coalesce(pe.razao, '(sem parceiro)') AS parceiro, pbx.idlote,
@@ -102,13 +157,17 @@ export class RelFinanceiroService {
           LEFT JOIN parceiros pe ON pe.codparceiro = a.codparceiro
           LEFT JOIN apagar_bx pbx ON pbx.codapg = a.codapg AND coalesce(pbx.indr, 'I') = 'I'
          WHERE a.codempresa = ${emp}
-           AND ${f.compromissos} = 'S'
+           AND ${sim(pTitulos)} = 'S'
            AND coalesce(a.agrupado, 'N') = 'N'
            AND ${dataP}::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
            ${sitP}
            AND (${parceiro}::text IS NULL OR upper(coalesce(pe.razao, '')) LIKE ${parceiro}::text)
       )
-      SELECT * FROM (SELECT * FROM receber UNION ALL SELECT * FROM pagar) t
+      SELECT * FROM (SELECT * FROM receber UNION ALL SELECT * FROM cheque UNION ALL SELECT * FROM cartao
+                     UNION ALL SELECT * FROM chq_proprio UNION ALL SELECT * FROM pagar) t
+       -- a conta: o LOTE que passou por ela (o filtro do legado, em todos os ramos)
+       WHERE (${f.codconta ?? null}::int IS NULL
+              OR t.idlote IN (SELECT m.idlote FROM mov_contas_bancarias m WHERE m.codconta = ${f.codconta ?? null}::int AND m.idlote IS NOT NULL))
        ORDER BY t.vencimento, t.parceiro, t.codigo
        LIMIT ${f.limite}
     `.execute(db)).rows;
@@ -118,7 +177,7 @@ export class RelFinanceiroService {
     // linha (é o que o legado mostra, uma linha por baixa), mas somar o título N vezes inflaria o total.
     const vistos = new Set<string>();
     for (const l of linhas) {
-      const chave = `${l.lado}:${l.codigo}`;
+      const chave = `${l.lado}:${l.tipo_doc}:${l.codigo}`;
       if (!vistos.has(chave)) {
         vistos.add(chave);
         if (l.lado === 'R') t.receber += num(l.valor); else t.pagar += num(l.valor);

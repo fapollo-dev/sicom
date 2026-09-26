@@ -66,8 +66,12 @@ todas.
 O `UNION ALL` do legado inclui cheques e permutas; o corte cobre **títulos**, e o ramo de cheque fica
 declarado — não há substrato que justifique o esforço hoje.
 
-## 6. O que fica para o próximo corte
+## 6. Os cinco ramos e o filtro de conta (25/09/2026)
 
-O ramo de **cartões** (`CARTAO`, 2,06 milhões de linhas) entra no mesmo `UNION ALL` do legado, com a data de
-compensação calculada (`CA.DTVENDA + DIASCOMP × NROPARCELA`). É volume de verdade e merece corte próprio,
-junto com o extrato de recebíveis de cartão que já existe em `FRMFLUXOCARTOES`.
+O `UNION ALL` do legado tem cinco ramos e agora o Apollo também: títulos a receber, **cheque** (11 no cliente), **cartão**
+(2,06 mi — vence em `DTVENDA + DIASCOMP × NROPARCELA`, recebe o valor menos a taxa da operadora, 0,1% se ela não tem, quando
+LIBERADO; a taxa vai na coluna de juros e a operadora no lugar do parceiro, sem o filtro de parceiro), **cheque próprio** e títulos
+a pagar. O cheque de terceiros mostra o VALOR como pago mesmo em aberto — é o SQL do legado. Os seletores `cmbRecebiveis`
+(todos/títulos/cheques/cartões) e `cmbCompromissos` (todos/títulos/cheques) escolhem os ramos. ⚠️ O filtro de **conta** era do
+Apollo (`areceber.codconta`, só do lado a receber); agora é o do legado: o **lote** que passou pela conta
+(`IDLOTE IN (SELECT IDLOTE FROM MOV_CONTAS_BANCARIAS WHERE CODCONTA = …)`), em todos os ramos. Smoke §115.5.

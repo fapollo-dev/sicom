@@ -26,6 +26,10 @@ export const relFinanceiroSchema = z.object({
   situacao: z.enum(SITUACOES_REL_FINANCEIRO).default('TODOS'),
   parceiro: z.string().trim().max(120).optional(),
   codconta: z.coerce.number().int().positive().optional(),
+  /** o `cmbRecebiveis` do legado: todos, só títulos, só cheques ou só cartões */
+  tipoRecebivel: z.enum(['TODOS', 'TITULOS', 'CHEQUE', 'CARTAO']).default('TODOS'),
+  /** o `cmbCompromissos` do legado: todos, só títulos ou só cheques próprios */
+  tipoCompromisso: z.enum(['TODOS', 'TITULOS', 'CHEQUE']).default('TODOS'),
   limite: z.coerce.number().int().positive().max(20000).default(2000),
 })
   .refine((f) => f.dataFim >= f.dataIni, { message: 'o fim não pode ser antes do início', path: ['dataFim'] })

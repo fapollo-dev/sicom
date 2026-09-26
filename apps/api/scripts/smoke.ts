@@ -15759,6 +15759,27 @@ async function main() {
           && semGrant.status === 403 && invertido.status === 400,
           { linhas: linhasDoRcb, totais: multi.totais, rbac: semGrant.status, invertido: invertido.status });
 
+        // os outros ramos do legado: o CARTÃO vence em DTVENDA + DIASCOMP × NROPARCELA (01/06 + 30 = 01/07), recebe 0 em aberto, mostra a
+        // taxa da operadora nos juros e a operadora no lugar do parceiro; o seletor de recebíveis escolhe o ramo; e a CONTA filtra pelo lote
+        await pgRf.query(`INSERT INTO operadoras (codoperadoras, operadora, txadm, diascomp) VALUES (9115,'OPER RF',2,30) ON CONFLICT (codoperadoras) DO UPDATE SET txadm = 2, diascomp = 30`);
+        const car = Number((await pgRf.query(`INSERT INTO cartao (idempresa, codoperadora, dtvenda, valor, nroparcela, liberado, nrocupom)
+          VALUES (1,9115,'2037-06-01 10:00:00-03',200.00,1,'N','115001') RETURNING codvendcartao`)).rows[0].codvendcartao);
+        const julho = (tipo: string, extra = '') => fetch(`${base}/${RF}?dataIni=2037-07-01&dataFim=2037-07-31&filtroData=VENCIMENTO&tipoRecebivel=${tipo}${extra}`, { headers: H }).then((r) => r.json()).catch(() => ({})) as Promise<any>;
+        const todos = await julho('TODOS');
+        const soTit = await julho('TITULOS');
+        const soCar = await julho('CARTAO');
+        const lc = (todos.linhas ?? []).find((l: any) => l.tipo_doc === 'CARTAO' && Number(l.codigo) === car);
+        // a conta: o lote da baixa do recebível passou pela conta 1 — só ele aparece com o filtro
+        await pgRf.query(`UPDATE areceber_bx SET idlote = 991151 WHERE codrcb = $1`, [rcb]);
+        await pgRf.query(`INSERT INTO mov_contas_bancarias (codconta, idempresa, valor, tipomovimento, origem, idlote, historico, indr) VALUES (1,1,500,'C','BXRCB',991151,'RF 115','I')`);
+        const porConta = (await (await fetch(`${base}/${RF}?dataIni=2037-06-01&dataFim=2037-07-31&filtroData=EMISSAO&codconta=1`, { headers: H })).json().catch(() => ({}))) as any;
+        check('REL FINANCEIRO §115.5 [os ramos de cartão e cheque e o filtro de conta do legado]: o cartão vence em 01/07 (01/06 + 30 dias × 1 parcela), recebe 0 em aberto, mostra a taxa de 2% (4,00) nos juros e a operadora como parceiro; "Títulos" tira o cartão e "Cartões" deixa só ele; a conta filtra pelo LOTE que passou por ela (só o recebível baixado com o lote 991151 fica)',
+          !!lc && String(lc.vencimento).slice(0, 10) === '2037-07-01' && Number(lc.valorpg) === 0 && Math.abs(Number(lc.juros) - 4) < 0.005 && lc.parceiro === 'OPER RF'
+          && !(soTit.linhas ?? []).some((l: any) => l.tipo_doc === 'CARTAO') && (soCar.linhas ?? []).length > 0 && (soCar.linhas ?? []).every((l: any) => l.tipo_doc === 'CARTAO')
+          && (porConta.linhas ?? []).length > 0 && (porConta.linhas ?? []).every((l: any) => Number(l.idlote) === 991151),
+          { lc, soTit: (soTit.linhas ?? []).map((l: any) => l.tipo_doc), soCar: (soCar.linhas ?? []).length, porConta: (porConta.linhas ?? []).map((l: any) => [l.tipo_doc, l.codigo, l.idlote]) });
+        await pgRf.query(`DELETE FROM mov_contas_bancarias WHERE idlote = 991151`);
+        await pgRf.query(`DELETE FROM cartao WHERE codvendcartao = $1`, [car]);
         await pgRf.query(`DELETE FROM areceber_bx WHERE codrcb=$1`, [rcb]);
         await pgRf.query(`DELETE FROM areceber WHERE codrcb IN ($1,$2)`, [rcb, semParc]);
         await pgRf.query(`DELETE FROM apagar WHERE codapg=$1`, [apg]);

@@ -24,6 +24,7 @@ const hoje = () => hojeNaLoja();
 const diaUm = () => `${new Date().toISOString().slice(0, 7)}-01`;
 
 interface Linha {
+  tipo_doc?: string;
   lado: string; codigo: number; documento: string | null; emissao: string | null;
   vencimento: string | null; baixa: string | null; valor: number; valorpg: number | null;
   acre_desc: number; juros: number; parceiro: string; idlote: number | null;
@@ -38,7 +39,7 @@ export function RelFinanceiroPage() {
   const mensagem = useMensagem();
   const [f, setF] = useState({
     dataIni: diaUm(), dataFim: hoje(), recebiveis: 'S', compromissos: 'S',
-    filtroData: 'VENCIMENTO', situacao: 'TODOS', parceiro: '',
+    filtroData: 'VENCIMENTO', situacao: 'TODOS', parceiro: '', tipoRecebivel: 'TODOS', tipoCompromisso: 'TODOS',
   });
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -62,6 +63,8 @@ export function RelFinanceiroPage() {
   const cols = useMemo<DataTableColumnDef<Linha>[]>(() => [
     { field: 'lado', headerName: '', type: 'text', width: 60, isPrimary: true,
       valueGetter: (l: Linha) => (l.lado === 'R' ? 'Receber' : 'Pagar') },
+    { field: 'tipo_doc', headerName: 'Tipo', type: 'text', width: 95,
+      valueGetter: (l: Linha) => ({ TITULO: 'Título', CHEQUE: 'Cheque', CARTAO: 'Cartão', CHQ_PROPRIO: 'Cheque próprio' } as Record<string, string>)[String(l.tipo_doc ?? 'TITULO')] ?? '' },
     { field: 'codigo', headerName: 'Código', type: 'text', width: 90 },
     { field: 'documento', headerName: 'Documento', type: 'text', width: 110 },
     { field: 'parceiro', headerName: 'Parceiro', type: 'text' },
@@ -107,10 +110,19 @@ export function RelFinanceiroPage() {
             <input type="checkbox" checked={f.recebiveis === 'S'} onChange={(e) => setF({ ...f, recebiveis: e.target.checked ? 'S' : 'N' })} />
             Recebíveis
           </label>
+          {/* o cmbRecebiveis e o cmbCompromissos do legado */}
+          <select aria-label="Tipo de recebível" className="h-9 rounded-radius-sm border border-border bg-bg-base px-pad-sm" disabled={f.recebiveis !== 'S'}
+            value={f.tipoRecebivel} onChange={(e) => setF({ ...f, tipoRecebivel: e.target.value })}>
+            <option value="TODOS">Todos</option><option value="TITULOS">Títulos</option><option value="CHEQUE">Cheques</option><option value="CARTAO">Cartões</option>
+          </select>
           <label className="flex items-center gap-gp-xs text-body-sm">
             <input type="checkbox" checked={f.compromissos === 'S'} onChange={(e) => setF({ ...f, compromissos: e.target.checked ? 'S' : 'N' })} />
             Compromissos
           </label>
+          <select aria-label="Tipo de compromisso" className="h-9 rounded-radius-sm border border-border bg-bg-base px-pad-sm" disabled={f.compromissos !== 'S'}
+            value={f.tipoCompromisso} onChange={(e) => setF({ ...f, tipoCompromisso: e.target.value })}>
+            <option value="TODOS">Todos</option><option value="TITULOS">Títulos</option><option value="CHEQUE">Cheques próprios</option>
+          </select>
           <Button label="&Consultar" disabled={ocupado} onClick={() => void buscar()} />
           {res && (
             <Button variant="outline" label="&Exportar" onClick={() => exportarGradeCsv(
