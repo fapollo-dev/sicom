@@ -45,8 +45,11 @@ Todas saem do que o motor de cálculo precisa para não mentir:
 | ⚠️ **uma conta só pode estar em uma linha** | senão ela entra **duas vezes** no DRE e o resultado fecha errado sem nada acusando. O legado não trava; aqui o índice único `ux_dre_conta_conta` trava |
 | trocar o tipo para sintético **solta as contas** | deixá-las penduradas numa linha que já soma as filhas dobraria o valor |
 
-## 4. O que fica para o próximo corte
+## 4. O vínculo em lote (25/09/2026)
 
-A tela do legado tem um seletor de plano de contas com árvore e busca para montar o vínculo em lote; aqui o
-vínculo entra pela API (`POST contas`, que substitui o conjunto da linha) e a tela ainda mostra só a contagem.
-Com **10.439 vínculos** no cliente, o seletor em massa é a próxima peça útil.
+A tela do legado tem duas grades — **disponíveis** × **vinculadas** —, o filtro e quatro botões (Vincular, Vincular todos,
+Desvincular, Desvincular todos). Agora o Apollo também: o botão **Contas** da linha analítica abre o painel; as disponíveis vêm de
+`GET cadastro/dre-estrutura/:cod/disponiveis?filtro=` com o critério do `QryPlanoContas` (analíticas `TIPO 'E'`/`CLASSE 'A'` desta
+linha ou sem linha — a de outra linha não aparece, o que casa com a trava de uma conta numa linha só) e o filtro do `BtnFiltrarClick`
+(código expandido/reduzido começando com o texto, descrição contendo); **Gravar vínculos** manda o conjunto (`POST contas`, que agora
+aceita a lista vazia — o "Desvincular todos"). Smoke §111.4b.

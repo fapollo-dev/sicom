@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Query, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { dreContaVinculoSchema, dreEstruturaSchema, type DreContaVinculoDto, type DreEstruturaDto } from '@apollo/shared';
 import { DreEstruturaService } from './dre-estrutura.service';
 import { AcessoGuard } from '../../shared/acesso/acesso.guard';
@@ -22,6 +22,12 @@ export class DreEstruturaController {
   @RequerAcesso('FRMCONFIGDRECONTABIL', 'FRMCONFIGDRECONTABIL')
   arvore() {
     return this.svc.arvore();
+  }
+
+  @Get(':cod/disponiveis')
+  @RequerAcesso('FRMCONFIGDRECONTABIL', 'FRMCONFIGDRECONTABIL')
+  disponiveis(@Param('cod', ParseIntPipe) cod: number, @Query('filtro') filtro?: string) {
+    return this.svc.disponiveis(cod, filtro ?? null);
   }
 
   @Get(':cod/contas')

@@ -47,7 +47,8 @@ export const dreEstruturaSchema = z.object({
 
 export const dreContaVinculoSchema = z.object({
   codestrutura: z.coerce.number().int().positive(),
-  codplanocontas: z.array(z.coerce.number().int().positive()).min(1).max(20000),
+  // vazio desvincula todas (o "Desvincular todos" do legado)
+  codplanocontas: z.array(z.coerce.number().int().positive()).max(20000),
 });
 
 export type DreEstruturaDto = z.infer<typeof dreEstruturaSchema>;

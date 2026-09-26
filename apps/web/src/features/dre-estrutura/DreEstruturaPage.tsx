@@ -47,6 +47,8 @@ export function DreEstruturaPage() {
   const [editando, setEditando] = useState<number | null>(null);
   const [form, setForm] = useState<DreEstruturaDto | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  // o vínculo em lote do legado: as duas grades (disponíveis × vinculadas), o filtro e os quatro botões
+  const [vinculo, setVinculo] = useState<{ linha: Linha; disponiveis: Conta[]; vinculadas: Conta[]; filtro: string; marcadasD: Set<number>; marcadasV: Set<number> } | null>(null);
 
   const carregar = useCallback(async () => {
     try { setLinhas(await req<Linha[]>(P)); } catch (e) { mensagem.erro(e); }
@@ -85,6 +87,37 @@ export function DreEstruturaPage() {
   };
 
   /** ao trocar o tipo, a classe vem junto: a correlação é fixa (P→A, F/E→S). */
+  const abrirVinculo = async (l: Linha, filtro = '') => {
+    try {
+      const todas = await req<Conta[]>(`${P}/${l.codestrutura}/disponiveis?${new URLSearchParams({ filtro })}`);
+      const atuais = vinculo?.linha.codestrutura === l.codestrutura ? vinculo.vinculadas : todas.filter((c) => c.vinculada);
+      const ids = new Set(atuais.map((c) => c.codplanocontas));
+      setVinculo({ linha: l, filtro, vinculadas: atuais, disponiveis: todas.filter((c) => !ids.has(c.codplanocontas)), marcadasD: new Set(), marcadasV: new Set() });
+    } catch (e) { mensagem.erro(e); }
+  };
+  const mover = (paraVinculadas: boolean, todas: boolean) => {
+    if (!vinculo) return;
+    const origem = paraVinculadas ? vinculo.disponiveis : vinculo.vinculadas;
+    const marcadas = paraVinculadas ? vinculo.marcadasD : vinculo.marcadasV;
+    const vao = origem.filter((c) => todas || marcadas.has(c.codplanocontas));
+    const ficam = origem.filter((c) => !(todas || marcadas.has(c.codplanocontas)));
+    const destino = [...(paraVinculadas ? vinculo.vinculadas : vinculo.disponiveis), ...vao]
+      .sort((a, b) => String(a.codiexpandido ?? '').localeCompare(String(b.codiexpandido ?? '')));
+    setVinculo(paraVinculadas
+      ? { ...vinculo, disponiveis: ficam, vinculadas: destino, marcadasD: new Set() }
+      : { ...vinculo, vinculadas: ficam, disponiveis: destino, marcadasV: new Set() });
+  };
+  const gravarVinculo = async () => {
+    if (!vinculo) return;
+    setOcupado(true);
+    try {
+      await req(`${P}/contas`, { method: 'POST', body: JSON.stringify({ codestrutura: vinculo.linha.codestrutura, codplanocontas: vinculo.vinculadas.map((c) => c.codplanocontas) }) });
+      mensagem.sucesso(`${vinculo.vinculadas.length} conta(s) vinculada(s) a ${vinculo.linha.descricao}.`);
+      setVinculo(null);
+      await carregar();
+    } catch (e) { mensagem.erro(e); } finally { setOcupado(false); }
+  };
+
   const trocarTipo = (tipo: string) => {
     if (!form) return;
     const meta = TIPOS_CALCULO_DRE.find((t) => t.value === tipo)!;
@@ -135,6 +168,7 @@ export function DreEstruturaPage() {
                 <td className="p-pad-xs">
                   <span className="flex gap-gp-xs">
                     <Button variant="outline" label="Editar" onClick={() => abrir(l)} />
+                    {l.tipo_calculo === 'P' && <Button variant="outline" label="Contas" onClick={() => void abrirVinculo(l)} />}
                     <Button variant="outline" label="Excluir" disabled={ocupado} onClick={() => void excluir(l)} />
                   </span>
                 </td>
@@ -143,6 +177,32 @@ export function DreEstruturaPage() {
           </tbody>
         </table>
       </div>
+
+      {vinculo && (
+        <section className="rounded-radius-md border border-border bg-bg-surface p-pad-md">
+          <h2 className="mb-form-gap text-title-sm">Contas da linha {vinculo.linha.codexpandido} — {vinculo.linha.descricao}</h2>
+          <div className="mb-form-gap flex flex-wrap items-end gap-gp-sm">
+            <div className="w-64"><Field label="Filtro (código ou descrição)" value={vinculo.filtro} onChange={(e) => setVinculo({ ...vinculo, filtro: e.target.value })} /></div>
+            <Button label="Filtrar" variant="soft" onClick={() => void abrirVinculo(vinculo.linha, vinculo.filtro)} />
+          </div>
+          <div className="grid gap-gp-md md:grid-cols-[1fr_auto_1fr]">
+            <ListaContas titulo={`Disponíveis (${vinculo.disponiveis.length})`} contas={vinculo.disponiveis} marcadas={vinculo.marcadasD}
+              alternar={(id) => { const m = new Set(vinculo.marcadasD); if (m.has(id)) m.delete(id); else m.add(id); setVinculo({ ...vinculo, marcadasD: m }); }} />
+            <div className="flex flex-col justify-center gap-gp-xs">
+              <Button label="Vincular ›" variant="soft" onClick={() => mover(true, false)} />
+              <Button label="Vincular todos »" variant="soft" onClick={() => mover(true, true)} />
+              <Button label="‹ Desvincular" variant="soft" onClick={() => mover(false, false)} />
+              <Button label="« Desvincular todos" variant="soft" onClick={() => mover(false, true)} />
+            </div>
+            <ListaContas titulo={`Vinculadas (${vinculo.vinculadas.length})`} contas={vinculo.vinculadas} marcadas={vinculo.marcadasV}
+              alternar={(id) => { const m = new Set(vinculo.marcadasV); if (m.has(id)) m.delete(id); else m.add(id); setVinculo({ ...vinculo, marcadasV: m }); }} />
+          </div>
+          <div className="mt-form-gap flex gap-gp-sm">
+            <Button label="&Gravar vínculos" disabled={ocupado} onClick={() => void gravarVinculo()} />
+            <Button label="Cancelar" variant="outline" onClick={() => setVinculo(null)} />
+          </div>
+        </section>
+      )}
 
       {form && (
         <section className="flex flex-col gap-gp-sm rounded-radius-md border border-border bg-bg-surface p-pad-md">
@@ -208,6 +268,26 @@ export function DreEstruturaPage() {
           </div>
         </section>
       )}
+    </div>
+  );
+}
+
+interface Conta { codplanocontas: number; codiexpandido: string | null; descricao: string; codireduzido: string | null; vinculada?: boolean }
+
+/** uma das duas grades do vínculo (disponíveis / vinculadas), com marcação por linha */
+function ListaContas({ titulo, contas, marcadas, alternar }: { titulo: string; contas: Conta[]; marcadas: Set<number>; alternar: (id: number) => void }) {
+  return (
+    <div className="flex flex-col gap-gp-xs">
+      <span className="text-body-sm text-fg-muted">{titulo}</span>
+      <div className="max-h-80 overflow-auto rounded-radius-sm border border-border">
+        <table className="w-full border-collapse text-body-sm">
+          <tbody>{contas.map((c) => (
+            <tr key={c.codplanocontas} className="border-b border-border">
+              <td className="p-pad-xs"><input type="checkbox" aria-label={`Marcar a conta ${c.codiexpandido ?? c.codplanocontas}`} checked={marcadas.has(c.codplanocontas)} onChange={() => alternar(c.codplanocontas)} /></td>
+              <td className="p-pad-xs font-mono">{c.codiexpandido ?? ''}</td><td className="p-pad-xs">{c.codireduzido ?? ''}</td><td className="p-pad-xs">{c.descricao}</td>
+            </tr>))}</tbody>
+        </table>
+      </div>
     </div>
   );
 }

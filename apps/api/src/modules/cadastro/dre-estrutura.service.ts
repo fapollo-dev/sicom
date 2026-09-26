@@ -128,6 +128,26 @@ export class DreEstruturaService {
     return { codestrutura: cod };
   }
 
+  /**
+   * As contas DISPONÍVEIS para vincular (`QryPlanoContas` do UFrmCadConfigDREContabil): analíticas (TIPO 'E', CLASSE 'A') que já são
+   * desta linha ou que não estão em linha nenhuma — a vinculada a outra linha não aparece. O filtro é o `BtnFiltrarClick`: código
+   * expandido ou reduzido COMEÇANDO com o texto, ou descrição CONTENDO. Ordem pelo código expandido; `vinculada` diz se já é desta linha.
+   */
+  async disponiveis(codestrutura: number, filtro: string | null): Promise<Array<Record<string, unknown>>> {
+    this.emp();
+    const f = (filtro ?? '').trim().toUpperCase();
+    return (await sql<Record<string, unknown>>`
+      SELECT p.codplanocontas, p.codiexpandido, p.descricao, p.codireduzido, (c.codestrutura IS NOT NULL) AS vinculada
+        FROM plano_contas p
+        LEFT JOIN dre_conta c ON c.codplanocontas = p.codplanocontas
+       WHERE p.tipo = 'E' AND p.classe = 'A'
+         AND (c.codestrutura IS NULL OR c.codestrutura = ${codestrutura})
+         AND (${f} = '' OR upper(coalesce(p.codiexpandido, '')) LIKE ${`${f}%`} OR upper(p.descricao) LIKE ${`%${f}%`}
+              OR upper(coalesce(p.codireduzido, '')) LIKE ${`${f}%`})
+       ORDER BY p.codiexpandido NULLS LAST, p.codplanocontas
+       LIMIT 5000`.execute(this.dbp.forTenantRead() as AnyDB)).rows;
+  }
+
   /** substitui o conjunto de contas de uma linha analítica. */
   async vincularContas(dto: DreContaVinculoDto): Promise<{ vinculadas: number }> {
     this.emp();

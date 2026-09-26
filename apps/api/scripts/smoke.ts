@@ -15523,6 +15523,27 @@ async function main() {
           { ok: vincOk.status, sintetica: vincSintetica.status, repetida: vincRepetida.status,
             contas: Array.isArray(daLinha) ? daLinha.length : daLinha });
 
+        // o vínculo em lote do legado (QryPlanoContas): as DISPONÍVEIS são as analíticas (TIPO E, CLASSE A) desta linha ou sem linha — a
+        // de outra linha não aparece; o filtro casa o começo do código ou a descrição; gravar vazio desvincula todas
+        const livre = Number(((await pgDe.query(`SELECT p.codplanocontas FROM plano_contas p WHERE NOT EXISTS (SELECT 1 FROM dre_conta c WHERE c.codplanocontas = p.codplanocontas)
+                                                  AND p.codplanocontas <> $1 ORDER BY p.codplanocontas LIMIT 1`, [Number(conta[0].codplanocontas)])).rows[0] as any).codplanocontas);
+        const outra = Number(((await pgDe.query(`SELECT codplanocontas FROM dre_conta WHERE codestrutura <> $1 LIMIT 1`, [filhaJ.codestrutura])).rows[0] as any)?.codplanocontas ?? 0);
+        const bkp = (await pgDe.query(`SELECT codplanocontas, tipo, classe FROM plano_contas WHERE codplanocontas = ANY($1::int[])`, [[Number(conta[0].codplanocontas), livre, outra]])).rows as any[];
+        await pgDe.query(`UPDATE plano_contas SET tipo = 'E', classe = 'A' WHERE codplanocontas = ANY($1::int[])`, [[Number(conta[0].codplanocontas), livre, outra]]);
+        const disp = (await (await fetch(`${base}/${DE}/${filhaJ.codestrutura}/disponiveis`, { headers: H })).json().catch(() => [])) as any[];
+        const descLivre = String(((await pgDe.query(`SELECT descricao FROM plano_contas WHERE codplanocontas = $1`, [livre])).rows[0] as any).descricao);
+        const dispF = (await (await fetch(`${base}/${DE}/${filhaJ.codestrutura}/disponiveis?filtro=${encodeURIComponent(descLivre.slice(1, 6))}`, { headers: H })).json().catch(() => [])) as any[];
+        const vazio = await fetch(`${base}/${DE}/contas`, { method: 'POST', headers: H, body: JSON.stringify({ codestrutura: filhaJ.codestrutura, codplanocontas: [] }) });
+        const restam = Number(((await pgDe.query(`SELECT count(*)::int n FROM dre_conta WHERE codestrutura = $1`, [filhaJ.codestrutura])).rows[0] as any).n);
+        await fetch(`${base}/${DE}/contas`, { method: 'POST', headers: H, body: JSON.stringify({ codestrutura: filhaJ.codestrutura, codplanocontas: [Number(conta[0].codplanocontas)] }) });
+        for (const b of bkp) await pgDe.query(`UPDATE plano_contas SET tipo = $2, classe = $3 WHERE codplanocontas = $1`, [b.codplanocontas, b.tipo, b.classe]);
+        check('CONFIG DRE §111.4b [o vínculo em lote — as duas grades do legado]: as disponíveis trazem a conta desta linha (marcada vinculada) e a livre, e NÃO a de outra linha; o filtro pela descrição acha a livre; gravar a lista vazia desvincula todas (o "Desvincular todos")',
+          disp.some((c) => Number(c.codplanocontas) === Number(conta[0].codplanocontas) && c.vinculada === true)
+          && disp.some((c) => Number(c.codplanocontas) === livre && c.vinculada === false)
+          && (outra === 0 || !disp.some((c) => Number(c.codplanocontas) === outra))
+          && dispF.some((c) => Number(c.codplanocontas) === livre) && vazio.status === 200 && restam === 0,
+          { n: disp.length, livre, outra, dispF: dispF.length, vazio: vazio.status, restam });
+
         // exclusão: com filha, com conta, referenciada
         const delComFilha = await fetch(`${base}/${DE}/${raizJ.codestrutura}`, { method: 'DELETE', headers: H });
         const delComConta = await fetch(`${base}/${DE}/${filhaJ.codestrutura}`, { method: 'DELETE', headers: H });
