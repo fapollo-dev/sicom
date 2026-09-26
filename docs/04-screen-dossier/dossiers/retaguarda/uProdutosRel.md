@@ -1,38 +1,39 @@
-# RELATÓRIOS DE PRODUTOS (`FRMPRODUTOSREL`) — recon e corte-1
+# RELATÓRIOS DE PRODUTOS (`FRMPRODUTOSREL`) — recon, corte-1 e corte-2
 
 `uProdutosRel.pas` (2.687) + `.dfm` (3.640) + `UDMProdutosRel` (410 + 3.699) + três grades auxiliares
 (`Grid`, `ListaConferenciaGrid`, `PercasGrid`). **~10.900 linhas.** 162 acessos, 19 operadores.
 
 ## 1. ⚠️ Isto é um épico, não uma tela
 
-**Quinze relatórios num combo só** (`cbbTipoRel`), servidos por **21 datasets**. Contados antes de começar,
-para não repetir o erro da Precificação NF:
+**⚠️ Correção (25/09/2026): o combo tem 21 itens, não 15** (`uProdutosRel.dfm`:1033-1054), e **quatro dos "mortos" estavam vivos** —
+a medição de 15/09 olhou a tabela errada. Recon completo, na produção e só leitura, com a SQL de cada item: seis relatórios (15-20) nem
+constavam aqui. A numeração abaixo é o `ItemIndex` (base 0) do Pascal.
 
-| # | relatório | substrato medido na produção (15/09/2026) | feito |
+| ItemIndex | relatório | substrato na produção (25/09/2026) | Apollo |
 |---|---|---|---|
-| 1 | Relatório para análise | `estoque` + `multi_preco` | ✅ |
-| 4 | Ruptura na loja | `estoque` | ✅ |
-| 5 | Estoque atual | `estoque`: 203.546 linhas, **4.121 negativos** | ✅ |
-| 14 | **Alterações de preço** | `historico_dinamico`: **97.977 registros, 15.471 produtos**, o último de hoje | ✅ |
-| 8 | Estoque saldo | `estoque` — variação do nº 5 | |
-| 2 | Lista para conferência | grade própria | |
-| 6 | Relatório para análise pedido | `pedidos` | |
-| 11 | Estoques - Venda Externa | | |
-| 3 | Receitas | `receita_prod`: **86 linhas** | 🪦 marginal |
-| 13 | Produtos com preço 2 | `multi_preco.vrdescpreco2`: **38 produtos** | 🪦 marginal |
-| 7 | Estoque por data | `historico_prod_dep`: **19 linhas** | 🪦 morto |
-| 12 | Lotes e validades | `lote_produto_validade`: **1 linha** | 🪦 morto |
-| 9 | Troca de mercadorias | `estoquetroca`: **0 linhas** | 🪦 morto |
-| 15 | Inativos em agenda de promoções | **0** produtos inativos com promoção | 🪦 morto |
-| 10 | Percas | grade própria; sem tabela `percas` no banco | 🪦 sem substrato |
+| 0 | Relatório para análise | ESTOQUE + MULTI_PRECO | ✅ corte-1 |
+| 1 | Lista para conferência | ESTOQUE (emp 1: 10.926 ≠ 0; emp 2: 5.717) | ✅ corte-2 (a folha de contagem com as colunas em branco) |
+| 2 | Receitas | RECEITA_PROD 86 linhas / 10 produtos; a página de receitas **não tem provider** no fonte (resíduo DBX→FireDAC) | 🪦 marginal e quebrado |
+| 3 | Ruptura na loja | ESTOQUE | ✅ corte-1 |
+| 4 | Estoque atual | ESTOQUE | ✅ corte-1 |
+| 5 | Análise pedido | PEDIDOS: 53 linhas em 2026 (a metade "venda" morta; a de estoque/custo = item 0) | 🪦 marginal |
+| 6 | Estoque por data | ~~HISTORICO_PROD_DEP 19 linhas~~ → **HISTORICO_PROD 14,7 M**, último de hoje; o último saldo bate com ESTOQUE em 100% | ✅ corte-2 |
+| 7 | Estoque saldo | substrato vivo, **relatório falho** (o HAVING por dia descarta 87% das saídas; saldo inicial fixo no balanço de 2020 com empresa 0; filtros dão ORA-00979) | ⛔ não converter fiel — o 6 dá o saldo na data certo |
+| 8 | Troca de mercadorias | lê PARCEIROS (não ESTOQUETROCA): REALIZA_TROCA 'S' em 94%, OBS_TROCA 0, lista repetida por produto | 🪦 morto |
+| 9 | Percas | ~~"sem tabela"~~ → **SCRAP 3.795 / SCRAP_ITEM 133.613**, último de hoje | ✅ corte-2 |
+| 10 | Venda externa | nenhum produto ATACADO = 'S' (os 1.277 NULL saem "ATACADO") | 🪦 marginal |
+| 11 | Lotes e validades | ~~LOTE_PRODUTO_VALIDADE 1 linha~~ → **NF_PROD_LOTE 132.166 lotes** (2.979 vencem até 31/12/2026) | ✅ corte-2 |
+| 12 | Preço 2 | 10 produtos (47 linhas) | 🪦 marginal |
+| 13 | Alterações de preço | HISTORICO_DINAMICO 97.977 | ✅ corte-1 |
+| 14 | Inativos em agenda | ~~0 produtos inativos~~ → o filtro é o **item** da agenda inativo: **953**, 83 em 2026 | ✅ corte-2 |
+| 15 | Estoque atual/vendas período | VENDAS 19 M, ~7 mil/dia | ✅ corte-2 |
+| 16 | Validade de inventário | FAMILIAS_PROD_AREA 0 linhas; 1 produto com seção | 🪦 morto |
+| 17 | Produtos por fornecedor | vivo, semântica frágil ("última NF" = maior CODNF: errada em 4,4%; estoque na entrada com sinal trocado) | ⏳ redesenhar sobre o HISTORICO_PROD |
+| 18 | Comparativo de mix (estoque × loja) | 5.053 produtos com estoque na 1 e sem na 2 | ✅ corte-2 |
+| 19 | Comparativo de mix (estoque × giros) | MOVIMENTACAO_DIARIA 4,05 M (a rotina GIROS rodou hoje) | ✅ corte-2 |
+| 20 | Coletados para promoção | LOTE_PRODUTO_VALIDADE_PROMO 0 linhas | 🪦 morto |
 
-**O placar importa mais que a contagem.** Dos quinze, quatro estão entregues e **sete estão mortos ou
-marginais neste cliente** — somados, 144 linhas de dado. Os quatro que sobram (estoque saldo, lista para
-conferência, análise de pedido e venda externa) valem um corte-2 quando alguém pedir; os sete mortos não
-valem nenhum, e ter medido isso é o que evita gastar uma sessão inteira com eles.
-
-O corte-1 entregou os três do núcleo de estoque; o corte-2 acrescentou o de **alterações de preço**, que era
-o único vivo entre os doze restantes.
+**Placar: 12 de 21 entregues**; 6 mortos/marginais medidos; o 7 não se converte fiel (defeitos que o 6 não tem); o 17 pede redesenho.
 
 ## 2. ⚠️ Duas tabelas gêmeas de estoque, e escolher a errada zera o relatório
 
@@ -87,10 +88,36 @@ um nome.
    antes do inventário;
 5. as alterações de preço, com variação em reais e em percentual, e a alteração de custo ficando de fora.
 
-## 7. O que falta
+## 7. Corte-2 (25/09/2026) — os oito vivos do recon
 
-Os **quatro relatórios vivos** que sobraram no §1 (estoque saldo, lista para conferência, análise de pedido,
-venda externa) — os sete mortos não entram —, mais: salvar/carregar layout, o `rgDisponivelEm` (disponibilidade por loja), o
-`rgPercas` e as três grades auxiliares.
+`produtos-rel-2.service.ts` (mesma rota, `tipo` novo; multi-empresa como o `GetMultiEmpresa`: as marcadas, recortadas às do operador).
+Smoke §264 (7 checks). Cada relatório com a regra do legado e o que foi decidido diferente:
+
+- **15 Estoque × vendas no período** — venda bruta (IAT 'A' arredonda, os demais truncam), unitários médios do período, quantidade
+  vendida NULA sem venda, a **seção filtra só a venda** (a lista segue inteira), estoque em valor só quando positivo (SEM_INCIDENCIA).
+  Divisão por zero protegida (o legado daria ORA-01476; nunca aconteceu).
+- **6 Estoque por data** — o `saldo_novo` (QTDE_ATUAL) do último movimento do HISTORICO_PROD até 23:59:59, a custo/venda atuais,
+  arredondado a 2 casas como o CAST do legado; o filtro de saldo sempre vale (padrão "> 0" esconde os negativos e o produto sem
+  movimento). Desempate no mesmo instante pelo código do movimento (o legado casa por DATA sem empresa; sem colisão na produção).
+- **18 Mix estoque × loja** — a empresa do login é o CD; lista o que ele tem (> 0) e a loja marcada não (≤ 0), com as lojas juntas.
+  O legado encadeia o ESTOQUE do CD no ESTOQUE_DEP (sem a linha do depósito o produto some): aqui cada um conta por si.
+- **19 Mix estoque × giros** — o estoque medido no CD (login), o "sem giro" em cada empresa marcada — **mantido como o legado**: é a
+  mesma leitura do 18 (CD × lojas), não um defeito. "Última execução do giros" = PROCESSOS.GIROS.
+- **11 Lotes e validades** — NF_PROD_LOTE das NF de entrada; o 2º ramo (LOTE_PRODUTO_VALIDADE, morto) fica de fora; lote de NF
+  cancelada aparece como no legado, **marcado**; as descrições de família não dependem da linha de ESTOQUE nem da empresa da família.
+- **9 Percas** — o SQL do `FDqPercas` inteiro: perca pelo custo gravado, entradas (NF de compra × fator + AUMENTAR), saídas (NF de saída
+  fora de 5929/6929 × fator + giro + DIMINUIR), saldo inicial do balanço nº 1, % = perca ÷ entradas. A grade/impressão do legado estão
+  meio quebradas no fonte (dataset desligado); aqui a grade e a impressão mostram tudo.
+- **1 Lista para conferência** — a folha de contagem por empresa e fornecedor com as duas colunas em branco (a impressão da tela).
+- **14 Inativos em agenda** — o item de agenda desativado, todo o histórico, preço da empresa do login.
+
+**Achado colateral: a MOVIMENTACAO_DIARIA não era regenerada no Apollo.** O giro (19), a perca (9) e o DDE leem a tabela que o
+processo GIROS do legado refaz todo dia (`GERA_MOVIMENTACAO_DIARIA`, fórmula conferida em 100% das linhas de 5 janelas). Virou rotina
+do `rotinas-do-banco.agendador.ts` (mig 378, smoke §263) — ver `procedures-do-banco.md`.
+
+## 8. O que falta
+
+O **17** (produtos por fornecedor) redesenhado sobre o HISTORICO_PROD; salvar/carregar layout; o `rgDisponivelEm` (qual das três
+colunas de saldo o 6 imprime — a API devolve as três).
 
 ✅ **exportar a grade** foi implementado (CSV com `;` e BOM UTF-8, o que está na tela e já filtrado).

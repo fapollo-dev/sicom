@@ -59,7 +59,7 @@ VEREDITOS = {
     'VERSAO': ('AUX', 'versão dos binários do legado'),
     'SUPORTE': ('MORTA', '1 linha de 11/11/2024'),
     'ATUALIZACAO_SCRIPT': ('AUX', 'scripts de schema aplicados no legado (uLogin.pas:626) — o Apollo tem migrations/'),
-    'PROCESSOS': ('AUX', 'trava de processo; job DELETAPROCESSOSVERSAO apaga a cada 5 s'),
+    'PROCESSOS': ('AUX', 'trava de processo; job DELETAPROCESSOSVERSAO apaga a cada 5 s — a linha GIROS o Apollo mantém sozinho (mig 378, rotina GIROS)'),
     'TERMINAIS': ('PDV', 'cadastro de terminais PDV (UCadTerminais)'),
     'REMESSA_SERVER': ('AUX', 'fila de réplica p/ os PDVs (34 triggers REM_*; job apaga > 2 dias) — o Apollo tem o outbox'),
     'CENTRALIZADOR_GERAL_PDV': ('PDV', 'configuração de PDV (uCentralizadorConfigPDV)'),

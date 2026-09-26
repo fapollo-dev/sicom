@@ -311,9 +311,24 @@ export const conferenciaNfIndexadorSchema = z.object({
 });
 export type ConferenciaNfIndexadorDto = z.infer<typeof conferenciaNfIndexadorSchema>;
 
-/** RELATÓRIOS DE PRODUTOS (`FRMPRODUTOSREL`), corte-1: os três do núcleo de estoque. */
+/** RELATÓRIOS DE PRODUTOS (`FRMPRODUTOSREL`): corte-1 (núcleo de estoque + alterações de preço) e corte-2 (os oito vivos do recon). */
 export const produtosRelSchema = z.object({
-  tipo: z.enum(['ESTOQUE_ATUAL', 'RUPTURA', 'ANALISE', 'ALTERACOES_PRECO']),
+  tipo: z.enum([
+    'ESTOQUE_ATUAL', 'RUPTURA', 'ANALISE', 'ALTERACOES_PRECO',
+    'ESTOQUE_VENDAS_PERIODO', 'ESTOQUE_POR_DATA', 'MIX_ESTOQUE_LOJA', 'MIX_ESTOQUE_GIROS', 'LOTES_VALIDADES', 'PERCAS', 'LISTA_CONFERENCIA', 'INATIVOS_AGENDA',
+  ]),
+  /** corte-2: as empresas marcadas ("1,2"), recortadas às do operador; vazio = a do login */
+  empresas: z.preprocess(
+    (v) => (v == null || v === '' ? undefined : Array.isArray(v) ? v : String(v).split(',').map((x) => x.trim()).filter(Boolean)),
+    z.array(z.coerce.number().int().positive()).max(50).optional(),
+  ),
+  /** o `cbbEstoque` × `cbbSinal` × `edtEstoqueQtde` (no ESTOQUE_POR_DATA, o filtro de saldo: só sinal e quantidade) */
+  estoqueEm: z.enum(['TODOS', 'ESTOQUE', 'DEPOSITO']).nullish(),
+  estoqueSinal: z.enum(['>', '=', '<']).nullish(),
+  estoqueQtde: z.coerce.number().nullish(),
+  local: z.string().max(60).nullish(),
+  /** LOTES_VALIDADES: lotes separados por ";" */
+  lotes: z.string().max(500).nullish(),
   /** o `cmbFiltro`: as quinze comparações entre a quantidade e o mínimo/máximo, na ordem do combo. */
   filtroEstoque: z.enum([
     'TODOS',
@@ -329,7 +344,7 @@ export const produtosRelSchema = z.object({
   codfor: z.coerce.number().int().positive().nullish(),
   produto: z.string().max(150).nullish(),
   diasSemVenda: z.coerce.number().int().min(0).max(3650).nullish(),
-  /** só ALTERACOES_PRECO usa: a janela do histórico. */
+  /** a janela: do histórico de preço, da venda (estoque × vendas), do giro, da validade (lotes), da perca; o ESTOQUE_POR_DATA usa só o fim */
   dataIni: dataISO.nullish(),
   dataFim: dataISO.nullish(),
 });

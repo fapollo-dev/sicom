@@ -686,6 +686,8 @@ const CODE_PT: Record<string, string> = {
   VENDA_NFC_NAO_PROCESSADA: 'Os cupons selecionados ainda não foram processados e não podem ser importados.',
   VENDA_JA_IMPORTADA: 'Cupom fiscal já importado. Informe a senha administrativa para continuar.',
   PERIODO_OBRIGATORIO: 'Informe o período (data inicial e final).',
+  EMPRESA_FORA_DO_ESCOPO: 'Nenhuma das empresas escolhidas está liberada para o operador.',
+  MIX_SEM_LOJA: 'Marque ao menos uma loja além da empresa em que você está (ela é o depósito do comparativo).',
   SENHA_ADM_INVALIDA: 'Senha administrativa inválida.',
   // importar a devolução de vendas na NF de entrada (uNF.pas:5900)
   DEVOLUCAO_VENDA_NAO_ENCONTRADA: 'Devolução de venda não encontrada nesta empresa.',

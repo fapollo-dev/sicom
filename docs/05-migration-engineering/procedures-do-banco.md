@@ -4,14 +4,20 @@ Auditoria de 25/09/2026, na produção (só leitura): as 38 `PROCEDURE`/`FUNCTIO
 lidas do `user_source`, com quem chama (fonte Delphi de mai/2020, `user_dependencies`, `user_scheduler_jobs`) e o que cada uma grava.
 Complementa [gatilhos-do-legado.md](gatilhos-do-legado.md) e [jobs-do-banco.md](jobs-do-banco.md).
 
-**O que a auditoria mudou no Apollo:** a `SP_ATUALIZA_DTCONTABIL_NF` virou rotina (`rotinas-do-banco.agendador.ts`, smoke §261). O resto
-já tinha equivalente, é tabela de trabalho de relatório (o Apollo consulta direto), PDV, morto (inválido ou sem uso) ou utilitário.
+**O que a auditoria mudou no Apollo:** a `SP_ATUALIZA_DTCONTABIL_NF` e a `GERA_MOVIMENTACAO_DIARIA` viraram rotinas
+(`rotinas-do-banco.agendador.ts`, smoke §261 e §263). O resto já tinha equivalente, é tabela de trabalho de relatório (o Apollo consulta
+direto), PDV, morto (inválido ou sem uso) ou utilitário.
+
+⚠️ **Correção de 25/09/2026 (noite):** a `GERA_MOVIMENTACAO_DIARIA` estava abaixo como "tabela de trabalho — o Apollo consulta a origem".
+Errado: a MOVIMENTACAO_DIARIA não é refeita a cada relatório, é **a** fonte do DDE, do comparativo de mix × giros e das percas, e o
+Apollo a carregava na virada sem ninguém a atualizar depois. Achado no recon dos relatórios de produtos.
 
 ## A que estava viva e faltava
 
 | objeto | o que faz | quem chama | prova na produção | Apollo |
 |---|---|---|---|---|
 | `SP_ATUALIZA_DTCONTABIL_NF` (2014) | `UPDATE NF SET DTCONTABIL = SYSDATE WHERE PROC = 'N'` | nada no fonte de 2020 nem nos jobs — o binário novo | as **327** notas não processadas de 25/09/2026 têm DTCONTABIL = o dia; **641 de 653** entradas processadas em set/2026 ficaram com a data do processamento | ✅ `RotinasDoBancoAgendador` (a cada minuto por tenant, no fuso da loja, idempresa-agnóstico como a procedure) |
+| `GERA_MOVIMENTACAO_DIARIA` | apaga e regrava a MOVIMENTACAO_DIARIA da janela: Σ VENDAS não canceladas + Σ itens de NF de saída processada nas CFOPs de venda (5405, 6405, 5402, 6402, 5102, 6102, 5403, 6403), por dia/produto/loja, com `UNION` (não `ALL`) | o processo **GIROS** de um executável fora do fonte (PROCESSOS.GIROS: 25/09/2026 05:33 → 05:40), até o dia anterior | a fórmula reproduz a tabela em **100%** das linhas de set/2026, jun/2026, jan/2026, jun/2025 e mar/2021; exceções: 3 linhas de 17/08/2026 com venda alterada depois (janela curta) e a loja 51, que o GIROS nunca rodou | ✅ rotina GIROS do agendador (mig 378: PROCESSOS): 1×/dia a partir das 05:30 da loja, refaz os últimos 7 dias; a linha GIROS de PROCESSOS é a trava e o "Última execução do giros" das telas |
 
 ## As demais
 
@@ -24,7 +30,7 @@ já tinha equivalente, é tabela de trabalho de relatório (o Apollo consulta di
 | `SP_REPLICA_PERMISSAO` | PERMISSOES | `uCtrlPermissoes` (copiar para) | ✅ `permissoes.service.ts` (clonar) |
 | `POE_REPLICA_USUARIO` | PERMISSOES | ninguém | equivalente ao acima, sem chamador |
 | `SP_PROCESSA_MERGE_CARTAO` | CARTAO (valor líquido, taxa, NSU do extrato CONS_REG10) | `UbaixaCartao` | o Apollo concilia o extrato na baixa de cartão (`cartao-baixa.service.ts`, CONS_REG10) |
-| `GERA_MOVIMENTACAO_DIARIA`, `POE_MOVIMENTOS_VENDAS`, `POE_REL_ANALISE_VENDAS`, `POE_FECHAMENTO_DIARIO`, `POE_PEDIDOS`, `POE_PEDIDOS_PED`, `SP_GERA_REL_AUX`, `SP_GERA_REL_AUX_NF`, `SP_PROCESSA_DADOS_AUX_COMP` | só tabelas de trabalho (MOVIMENTACAO_DIARIA, MOVIMENTOS_VENDAS/VENDAS_DIARIO, VENDAS_TEMP, RES_ALIQ_60D, SELECT_PEDIDOS, REL_AUX, NFAUXCOMP/NF_PRODAUXCOMP) | as telas de relatório e o pedido de compra | tabela de trabalho: o Apollo consulta a origem direto (ex.: a Análise Geral lê a venda, não a cache — smoke §126.2) |
+| `POE_MOVIMENTOS_VENDAS`, `POE_REL_ANALISE_VENDAS`, `POE_FECHAMENTO_DIARIO`, `POE_PEDIDOS`, `POE_PEDIDOS_PED`, `SP_GERA_REL_AUX`, `SP_GERA_REL_AUX_NF`, `SP_PROCESSA_DADOS_AUX_COMP` | só tabelas de trabalho (MOVIMENTOS_VENDAS/VENDAS_DIARIO, VENDAS_TEMP, RES_ALIQ_60D, SELECT_PEDIDOS, REL_AUX, NFAUXCOMP/NF_PRODAUXCOMP) | as telas de relatório e o pedido de compra | tabela de trabalho: o Apollo consulta a origem direto (ex.: a Análise Geral lê a venda, não a cache — smoke §126.2) |
 | `POE_REL_PRECOS_ALTERADOS`, `SP_PEDIDOS_ATENDI`, `SP_GERA_IMOBILIZADO`, `GETESTOQUEPRODUTO`, `GETESTOQUEDEPOSITOPRODUTO`, `GETESTOQUETOTALPRODUTO`, `OBTER_VALOR_GET_APAGARBX` | — | — | ⛔ **INVÁLIDAS** no banco (não compilam, não rodam). O relatório de preços alterados do Apollo consulta direto (§121) |
 | `SP_CX_PEDIDOS_ATENDI` | CX_PEDIDOS | integração do pedido de atendimento | PDV — fora |
 | `ENVIA_EMAIL` | — (UTL_SMTP) | `uCadCotacao` | épico de plataforma "envio de e-mail" (FILA) |

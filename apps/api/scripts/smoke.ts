@@ -25040,6 +25040,212 @@ async function main() {
         await pgRg.end();
       }
     }
+
+    // ══ §263 ROTINA GIROS — a GERA_MOVIMENTACAO_DIARIA (a venda por produto e por dia que o DDE e o giro leem) ════════════════════
+    {
+      const pgGi = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const d = (await pgGi.query(`SELECT (h - 1)::text d1, (h - 2)::text d2, (h - 3)::text d3, (h - 30)::text d30, h::text d0
+                                     FROM (SELECT (now() AT TIME ZONE 'America/Sao_Paulo')::date h) x`)).rows[0] as any;
+      const notas: number[] = [];
+      try {
+        await pgGi.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo) VALUES
+            (992631, '7899000992631', 'GIROS VENDA', 'UN', 2, 'T01', 'S'), (992632, '7899000992632', 'GIROS NOTA', 'UN', 2, 'T01', 'S'),
+            (992633, '7899000992633', 'GIROS EMPATE', 'UN', 2, 'T01', 'S') ON CONFLICT (idproduto) DO NOTHING`);
+        await pgGi.query(`DELETE FROM movimentacao_diaria WHERE codproduto IN (992631, 992632, 992633)`);
+        // a linha velha DENTRO da janela some; a de 30 dias atrás (fora da janela) fica
+        await pgGi.query(`INSERT INTO movimentacao_diaria (idempresa, codproduto, data, qtde) VALUES (1, 992631, $1, 99), (1, 992631, $2, 7)`, [d.d2, d.d30]);
+        const hora = (dia: string, hh: string) => `${dia} ${hh}:00-03`;
+        await pgGi.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, aliquota, cancelado) VALUES
+            (1, $1, '263', 1, 1, 992631, 2, 5, 3, 'A', 5102, 'T01', 'N'),
+            (1, $2, '263', 2, 1, 992631, 3, 5, 3, 'A', 5102, 'T01', 'N'),
+            (1, $3, '263', 3, 1, 992631, 10, 5, 3, 'A', 5102, 'T01', 'S'),
+            (1, $4, '263', 4, 1, 992633, 4, 5, 3, 'A', 5102, 'T01', 'N'),
+            (1, $5, '263', 5, 1, 992631, 1, 5, 3, 'A', 5102, 'T01', 'N')`,
+          [hora(d.d1, '09:00'), hora(d.d1, '23:30'), hora(d.d1, '10:00'), hora(d.d3, '11:00'), hora(d.d0, '08:00')]);
+        const nfSai = async (cfop: string, dia: string, proc: string, cancelada: string, prod: number, q: number) => {
+          const r = await pgGi.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop)
+                                      VALUES (1, 22, $1, 55, '1', 'S', $2, $3, $4, $4, $5) RETURNING codnf`, [`G263${notas.length}`, proc, cancelada, dia, cfop]);
+          const cod = Number(r.rows[0].codnf); notas.push(cod);
+          await pgGi.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, fatorembal, vrvenda, vrcusto) VALUES ($1, $2, $3, 1, 5, 3)`, [cod, prod, q]);
+        };
+        await nfSai('5102', d.d2, 'S', 'N', 992632, 6);     // conta
+        await nfSai('5929', d.d2, 'S', 'N', 992632, 50);    // CFOP fora da lista
+        await nfSai('5102', d.d2, 'N', 'N', 992632, 40);    // não processada
+        await nfSai('5405', d.d2, 'S', 'S', 992632, 30);    // cancelada
+        await nfSai('5102', d.d3, 'S', 'N', 992633, 4);     // mesma quantidade da venda do mesmo dia → o UNION da procedure junta
+
+        const { RotinasDoBancoAgendador } = await import('../src/modules/cadastro/rotinas-do-banco.agendador');
+        const { runWithTenant } = await import('../src/shared/tenant/tenant-context');
+        const ag = app.get(RotinasDoBancoAgendador);
+        const n1 = await runWithTenant({ tenantId: 'pinheirao' }, () => ag.giros({ forcar: true }));
+        const n2 = await runWithTenant({ tenantId: 'pinheirao' }, () => ag.giros());
+        const mov = (await pgGi.query(`SELECT codproduto, data::text AS data, qtde::float AS qtde FROM movimentacao_diaria WHERE codproduto IN (992631, 992632, 992633) ORDER BY codproduto, data`)).rows as any[];
+        const pr = (await pgGi.query(`SELECT status, inicioexecucao IS NOT NULL AS ini, fimexecucao >= inicioexecucao AS fim FROM processos WHERE nomeprocesso = 'GIROS'`)).rows[0] as any;
+        const q = (p: number, dia: string) => mov.find((m) => Number(m.codproduto) === p && m.data === dia)?.qtde;
+        check('ROTINA GIROS §263 [GERA_MOVIMENTACAO_DIARIA]: refaz os 7 dias até ontem — a venda não cancelada soma por dia da loja (2+3, a das 23:30 fica no dia; a cancelada não), a NF de saída processada e não cancelada nas CFOPs de venda soma pela emissão (6; a 5929, a não processada e a cancelada não), a venda e a nota do mesmo produto/dia com a mesma quantidade viram UMA linha (o UNION da procedure: 4, não 8), a linha velha dentro da janela some e a de 30 dias atrás fica, hoje não entra; PROCESSOS.GIROS registra a execução e a 2ª chamada do dia não roda',
+          q(992631, d.d1) === 5 && q(992631, d.d2) === undefined && q(992631, d.d30) === 7 && q(992631, d.d0) === undefined
+          && q(992632, d.d2) === 6 && q(992633, d.d3) === 4 && Number(n1) > 0 && n2 === null
+          && Number(pr?.status) === 0 && pr?.ini === true && pr?.fim === true,
+          { mov, n1, n2, pr, d });
+      } finally {
+        await pgGi.query(`DELETE FROM movimentacao_diaria WHERE codproduto IN (992631, 992632, 992633)`);
+        await pgGi.query(`DELETE FROM vendas WHERE nroserie = '263' AND codproduto IN (992631, 992633)`);
+        if (notas.length) { await pgGi.query(`DELETE FROM nf_prod WHERE codnf = ANY($1::int[])`, [notas]); await pgGi.query(`DELETE FROM nf WHERE codnf = ANY($1::int[])`, [notas]); }
+        await pgGi.query(`DELETE FROM produtos WHERE idproduto IN (992631, 992632, 992633)`);
+        await pgGi.end();
+      }
+    }
+
+    // ══ §264 RELATÓRIOS DE PRODUTOS — corte 2: os oito relatórios vivos do FRMPRODUTOSREL (recon 25/09/2026) ═════════════════════════
+    {
+      const pgPr2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const [P1, P2, P3] = [992641, 992642, 992643];
+      const notas: number[] = [];
+      let agenda: number | null = null;
+      const tinhaRel2 = Number((await pgPr2.query(`SELECT count(*)::int n FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`)).rows[0].n) > 0;
+      const rel = async (q: Record<string, string>) => {
+        const r = await fetch(`${base}/relatorios/produtos?${new URLSearchParams({ coddpto: '99264', ...q })}`, { headers: H });
+        const j = (await r.json().catch(() => ({}))) as any;
+        return { status: r.status, code: j.code, linhas: (j.linhas ?? []) as any[], totais: j.totais ?? {}, ultimoGiro: j.ultimoGiro };
+      };
+      const de = (ls: any[], id: number, emp?: number) => ls.find((l) => Number(l.idproduto) === id && (emp == null || Number(l.idempresa) === emp));
+      try {
+        if (!tinhaRel2) await pgPr2.query(`INSERT INTO relacao_operador_empresa (codoperador, codempresa) VALUES (7, 2)`);
+        await pgPr2.query(`INSERT INTO familias_prod (codfamilia, tipo, descricao) VALUES (99264, 'D', 'DEPTO SMOKE 264') ON CONFLICT (codfamilia) DO NOTHING`);
+        await pgPr2.query(`INSERT INTO produtos (idproduto, codbarra, descricao, unidade, codfor, aliquota, ativo, coddpto, fatorcx, atacado) VALUES
+            (${P1}, '7899000992641', 'REL264 ALFA', 'UN', 2, 'T01', 'S', 99264, 6, 'N'), (${P2}, '7899000992642', 'REL264 BETA', 'UN', 2, 'T01', 'S', 99264, 1, 'N'),
+            (${P3}, '7899000992643', 'REL264 GAMA', 'UN', 2, 'T01', 'S', 99264, 1, NULL) ON CONFLICT (idproduto) DO NOTHING`);
+        for (const e of [1, 2]) {
+          await pgPr2.query(`INSERT INTO multi_preco (idproduto, idempresa, vrcusto, vrvenda) VALUES ($1, $4, 2, 5), ($2, $4, 2, 5), ($3, $4, 2, 5)
+                             ON CONFLICT (idproduto, idempresa) DO UPDATE SET vrcusto = 2, vrvenda = 5`, [P1, P2, P3, e]);
+          await pgPr2.query(`INSERT INTO estoque_dep (idproduto, idempresa, qtde) VALUES ($1, $4, 0), ($2, $4, 0), ($3, $4, 0)
+                             ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde = 0`, [P1, P2, P3, e]);
+        }
+        await pgPr2.query(`INSERT INTO estoque (idproduto, idempresa, qtde, local) VALUES ($1, 1, 10, 'A1'), ($2, 1, -3, NULL), ($3, 1, 4, NULL), ($1, 2, 0, NULL), ($2, 2, 6, NULL), ($3, 2, -1, NULL)
+                           ON CONFLICT (idproduto, idempresa) DO UPDATE SET qtde = EXCLUDED.qtde, local = EXCLUDED.local`, [P1, P2, P3]);
+
+        // ── 15 ESTOQUE ATUAL × VENDAS NO PERÍODO ──
+        await pgPr2.query(`INSERT INTO vendas (idempresa, dtvenda, nroserie, nrocupom, nroitem, codproduto, qtde, vrvenda, vrcusto, iat, cfop, aliquota, cancelado) VALUES
+            (1, '2051-03-10 10:00:00-03', '264', 1, 1, $1, 2,   5,     2, 'A', 5102, 'T01', 'N'),
+            (1, '2051-03-11 10:00:00-03', '264', 2, 1, $1, 1.5, 3.333, 2, 'T', 5102, 'T01', 'N'),
+            (1, '2051-03-12 10:00:00-03', '264', 3, 1, $1, 100, 5,     2, 'A', 5102, 'T01', 'S'),
+            (1, '2051-04-01 10:00:00-03', '264', 4, 1, $1, 7,   5,     2, 'A', 5102, 'T01', 'N')`, [P1]);
+        const ev = await rel({ tipo: 'ESTOQUE_VENDAS_PERIODO', empresas: '1', dataIni: '2051-03-01', dataFim: '2051-03-31' });
+        const ev1 = de(ev.linhas, P1), ev2 = de(ev.linhas, P2);
+        const evSec = await rel({ tipo: 'ESTOQUE_VENDAS_PERIODO', empresas: '1', dataIni: '2051-03-01', dataFim: '2051-03-31', codsecao: '99999' });
+        const evSemData = await rel({ tipo: 'ESTOQUE_VENDAS_PERIODO', empresas: '1' });
+        check('PRODUTOS §264.15 [estoque atual × vendas no período]: a venda não cancelada do período soma por produto (3,5 un.; total 14,99 = 10,00 arredondado com IAT A + 4,99 TRUNCADO com IAT T — 1,5 × 3,333 = 4,9995; custo 7,00) e dá os unitários médios (4,28 e 2,00); o estoque vale a custo e venda atual só quando positivo (10 × 2 = 20; o de −3 vale 0); sem venda = quantidade vendida NULA; a seção filtra só a venda (a lista segue com os 3); sem período → 422',
+          ev.status === 200 && ev.linhas.length === 3 && Number(ev1?.qtde_vendida) === 3.5 && Number(ev1?.total_venda) === 14.99 && Number(ev1?.vrvenda_uni) === 4.28
+          && Number(ev1?.total_custo) === 7 && Number(ev1?.vrcusto_uni) === 2 && Number(ev1?.totalcusto) === 20 && Number(ev1?.totalvenda) === 50
+          && Number(ev2?.totalcusto) === 0 && ev2?.qtde_vendida == null && evSec.linhas.length === 3 && evSec.linhas.every((l) => l.qtde_vendida == null)
+          && evSemData.status === 422, { ev1, ev2, n: ev.linhas.length, sec: evSec.linhas.length, semData: evSemData.status });
+
+        // ── 6 ESTOQUE POR DATA ──
+        await pgPr2.query(`INSERT INTO historico_prod (idproduto, idempresa, tipo, qtde, saldo_anterior, saldo_novo, origem, data) VALUES
+            ($1, 1, 'E', 5, 0, 5,   'SMK', '2051-02-10 10:00:00-03'),
+            ($1, 1, 'E', 2, 5, 7,   'SMK', '2051-02-20 10:00:00-03'),
+            ($1, 1, 'E', 2, 7, 9,   'SMK', '2051-02-20 10:00:00-03'),
+            ($1, 1, 'E', 11, 9, 20, 'SMK', '2051-03-01 00:00:30-03'),
+            ($2, 1, 'S', 4, 0, -4,  'SMK', '2051-02-15 10:00:00-03')`, [P1, P2]);
+        const pd = await rel({ tipo: 'ESTOQUE_POR_DATA', empresas: '1', dataFim: '2051-02-28' });
+        const pdNeg = await rel({ tipo: 'ESTOQUE_POR_DATA', empresas: '1', dataFim: '2051-02-28', estoqueSinal: '<', estoqueQtde: '0' });
+        check('PRODUTOS §264.6 [estoque por data]: o saldo na data é o do último movimento do kardex até 23:59:59 (9 — o das 00:00:30 do dia seguinte não entra; dois movimentos no mesmo instante: vale o último gravado), a custo e venda atuais (18 / 45); o filtro de saldo vale sempre ("> 0": o de −4 fica de fora e o produto sem movimento nunca aparece; "< 0" traz só o de −4)',
+          pd.status === 200 && pd.linhas.length === 1 && Number(de(pd.linhas, P1)?.total_estoque) === 9 && Number(de(pd.linhas, P1)?.custo_total) === 18
+          && Number(de(pd.linhas, P1)?.venda_total) === 45 && pdNeg.linhas.length === 1 && Number(de(pdNeg.linhas, P2)?.total_estoque) === -4,
+          { pd: pd.linhas, pdNeg: pdNeg.linhas });
+
+        // ── 18 MIX ESTOQUE × LOJA / 19 MIX ESTOQUE × GIROS ──
+        const mx = await rel({ tipo: 'MIX_ESTOQUE_LOJA', empresas: '1,2' });
+        const mxSo1 = await rel({ tipo: 'MIX_ESTOQUE_LOJA', empresas: '1' });
+        await pgPr2.query(`INSERT INTO movimentacao_diaria (idempresa, codproduto, data, qtde) VALUES (1, $1, '2051-03-10', 3.5), (2, $2, '2051-03-15', 1)
+                           ON CONFLICT (idempresa, codproduto, data) DO UPDATE SET qtde = EXCLUDED.qtde`, [P1, P3]);
+        const gi = await rel({ tipo: 'MIX_ESTOQUE_GIROS', empresas: '1,2', dataIni: '2051-03-01', dataFim: '2051-03-31' });
+        check('PRODUTOS §264.18-19 [comparativos de mix]: estoque × loja — a empresa do login é o depósito: o que tem estoque nela (10 e 4) e está sem estoque na loja 2 sai com "Lojas sem estoque: 2"; o de −3 no depósito não; sem loja marcada → 422 MIX_SEM_LOJA · estoque × giros — o estoque do depósito (login) sem movimento no período em cada empresa marcada: o GAMA na 1 (girou só na 2) e o ALFA na 2 (girou só na 1)',
+          mx.status === 200 && mx.linhas.length === 2 && de(mx.linhas, P1)?.lojas_sem_estoque === '2' && Number(de(mx.linhas, P1)?.qtde) === 10 && Number(de(mx.linhas, P3)?.qtde) === 4
+          && mxSo1.status === 422 && mxSo1.code === 'MIX_SEM_LOJA'
+          && gi.status === 200 && gi.linhas.length === 2 && Number(de(gi.linhas, P3, 1)?.total_estoque) === 4 && Number(de(gi.linhas, P1, 2)?.total_estoque) === 10,
+          { mx: mx.linhas, mxSo1: [mxSo1.status, mxSo1.code], gi: gi.linhas });
+
+        // ── 11 LOTES E VALIDADES ──
+        const nfLote = async (cancelada: string, prod: number, lotes: Array<[string, string]>) => {
+          const r = await pgPr2.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop)
+                                       VALUES (1, 22, $1, 55, '1', 'E', 'S', $2, '2051-05-02', '2051-05-02', '1102') RETURNING codnf`, [`L264${notas.length}`, cancelada]);
+          const cod = Number(r.rows[0].codnf); notas.push(cod);
+          const it = await pgPr2.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, fatorembal, vrvenda, vrcusto, cfop) VALUES ($1, $2, 1, 1, 5, 2, '1102') RETURNING codnfprod`, [cod, prod]);
+          for (const [lote, val] of lotes) await pgPr2.query(`INSERT INTO nf_prod_lote (codnfprod, idempresa, idproduto, lote, dtvalidade) VALUES ($1, 1, $2, $3, $4)`, [it.rows[0].codnfprod, prod, lote, val]);
+        };
+        await nfLote('N', P1, [['L264A', '2051-06-10'], ['L264B', '2051-07-05']]);
+        await nfLote('S', P3, [['L264C', '2051-06-20']]);
+        const lt = await rel({ tipo: 'LOTES_VALIDADES', empresas: '1', dataIni: '2051-06-01', dataFim: '2051-06-30' });
+        const ltC = await rel({ tipo: 'LOTES_VALIDADES', empresas: '1', dataIni: '2051-06-01', dataFim: '2051-06-30', lotes: 'L264C; XPTO' });
+        const la = lt.linhas.find((l) => l.lote === 'L264A');
+        check('PRODUTOS §264.11 [lotes e validades]: os lotes das notas de entrada que vencem no período (L264A; o L264B vence em julho e fica de fora), com o estoque e o fator do produto na empresa da nota; como no legado, o lote de nota cancelada aparece (marcado); o filtro de lotes separados por ";" traz só os pedidos',
+          lt.status === 200 && lt.linhas.length === 2 && la?.dtvalidade === '2051-06-10' && Number(la?.estoque_atual) === 10 && Number(la?.fatorcx) === 6 && la?.atacadovarejo === 'VAREJO'
+          && lt.linhas.find((l) => l.lote === 'L264C')?.cancelada === 'S' && de(lt.linhas, P3)?.atacadovarejo === 'ATACADO'
+          && ltC.linhas.length === 1 && ltC.linhas[0]?.lote === 'L264C', { lt: lt.linhas.map((l) => [l.lote, l.dtvalidade, l.cancelada, l.atacadovarejo]), ltC: ltC.linhas.length });
+
+        // ── 9 PERCAS ──
+        await pgPr2.query(`INSERT INTO scrap (codscrap, idempresa, dt_cadastro, codplc, codparceiro, obs, mov_estoque, importado) VALUES
+            (992641, 1, '2051-03-05 09:00:00-03', 3, 22, 'SMOKE 264', 'S', 'N'), (992642, 1, '2051-04-10 09:00:00-03', 3, 22, 'SMOKE 264 FORA', 'S', 'N')`);
+        await pgPr2.query(`INSERT INTO scrap_item (codscrapitem, codscrap, idempresa, idproduto, qtde, vr_custo, codfor, origem, faturado) VALUES
+            (992641, 992641, 1, $1, 2, 3.00, 2, 'ESTOQUE', 'N'), (992642, 992641, 1, $1, 1, 4.00, 2, 'ESTOQUE', 'N'), (992643, 992642, 1, $2, 5, 1.00, 2, 'ESTOQUE', 'N')`, [P1, P2]);
+        const nfMov = async (tipo: string, cfop: string, q: number, fator: number) => {
+          const r = await pgPr2.query(`INSERT INTO nf (idempresa, codparceiro, nronf, modelo, serie, tipo, proc, cancelada, dtemissao, dtcontabil, cfop)
+                                       VALUES (1, 22, $1, 55, '1', $2, 'S', 'N', '2051-03-03', '2051-03-03', $3) RETURNING codnf`, [`P264${notas.length}`, tipo, cfop]);
+          const cod = Number(r.rows[0].codnf); notas.push(cod);
+          await pgPr2.query(`INSERT INTO nf_prod (codnf, codproduto, quantidade, fatorembal, vrvenda, vrcusto, cfop) VALUES ($1, $2, $3, $4, 5, 2, $5)`, [cod, P1, q, fator, cfop]);
+        };
+        await nfMov('E', '1102', 2, 6);   // entrada 12
+        await nfMov('S', '5102', 1, 1);   // saída 1
+        await nfMov('S', '5929', 9, 1);   // fora (5929)
+        await pgPr2.query(`INSERT INTO ajuste_estoque (idproduto, idempresa, operacao, qtde, codmotivo, codoperador, data) VALUES
+            ($1, 1, 'AUMENTAR', 3, 1, 7, '2051-03-06 10:00:00-03'), ($1, 1, 'DIMINUIR', 1, 1, 7, '2051-03-07 10:00:00-03')`, [P1]);
+        const pc = await rel({ tipo: 'PERCAS', empresas: '1', dataIni: '2051-03-01', dataFim: '2051-03-31' });
+        const pc1 = de(pc.linhas, P1);
+        check('PRODUTOS §264.9 [percas]: só o produto COM perca no período (o de abril não entra); perca 3 un. valendo 10,00 pelo custo GRAVADO no item (2 × 3 + 1 × 4); entradas 15 (NF de compra 2 × fator 6 + ajuste AUMENTAR 3), saídas 5,5 (NF de saída 1 — a 5929 não conta — + giro 3,5 + ajuste DIMINUIR 1); % perca = 3 ÷ 15 = 20%',
+          pc.status === 200 && pc.linhas.length === 1 && Number(pc1?.qtd_percas) === 3 && Number(pc1?.valor_percas) === 10 && Number(pc1?.entradas) === 15
+          && Number(pc1?.saidas) === 5.5 && Number(pc1?.perc_percas) === 20 && Number(pc1?.saldo) === 9.5, { pc: pc.linhas });
+
+        // ── 1 LISTA PARA CONFERÊNCIA ──
+        const lc = await rel({ tipo: 'LISTA_CONFERENCIA', empresas: '1,2' });
+        const lcNeg = await rel({ tipo: 'LISTA_CONFERENCIA', empresas: '1,2', estoqueEm: 'ESTOQUE', estoqueSinal: '<', estoqueQtde: '0' });
+        const lcTodos = await rel({ tipo: 'LISTA_CONFERENCIA', empresas: '1,2', estoqueEm: 'TODOS', estoqueSinal: '>', estoqueQtde: '0' });
+        const lcFora = await rel({ tipo: 'LISTA_CONFERENCIA', empresas: '51' });
+        check('PRODUTOS §264.1 [lista para conferência]: a folha de contagem por empresa (1 e 2) com a quantidade da loja e do depósito e o local (ALFA na 1: 10, A1); "Estoque na loja < 0" traz o −3 da 1 e o −1 da 2; "Loja e depósito > 0" exige os dois (depósito zerado → nada, como no legado); empresa não liberada ao operador → 422',
+          lc.status === 200 && lc.linhas.length === 6 && Number(de(lc.linhas, P1, 1)?.qtde) === 10 && de(lc.linhas, P1, 1)?.local === 'A1'
+          && lcNeg.linhas.length === 2 && Number(de(lcNeg.linhas, P2, 1)?.qtde) === -3 && Number(de(lcNeg.linhas, P3, 2)?.qtde) === -1
+          && lcTodos.linhas.length === 0 && lcFora.status === 422 && lcFora.code === 'EMPRESA_FORA_DO_ESCOPO',
+          { n: lc.linhas.length, neg: lcNeg.linhas.map((l) => [l.idproduto, l.idempresa, l.qtde]), todos: lcTodos.linhas.length, fora: [lcFora.status, lcFora.code] });
+
+        // ── 14 INATIVOS EM AGENDA ──
+        const ag = await pgPr2.query(`INSERT INTO agenda_promocao (idempresa, nomepromo, dtiniciopromocao, dtfimpromocao) VALUES (1, 'AGENDA 264', '2051-03-01 00:00:00-03', '2051-03-10 23:59:59-03') RETURNING codagenda`);
+        agenda = Number(ag.rows[0].codagenda);
+        await pgPr2.query(`INSERT INTO agenda_promocao_itens (codagenda, idproduto, vlrpromocao, ativo, tv) VALUES ($1, $2, 4, 'N', 'T'), ($1, $3, 4, 'S', NULL)`, [agenda, P1, P3]);
+        const ia = await rel({ tipo: 'INATIVOS_AGENDA' });
+        check('PRODUTOS §264.14 [inativos em agenda]: o ITEM de agenda desativado (não o produto inativo), com o preço de venda da empresa do login (5), o da promoção (4), a marca de TV e o nome da agenda; o item ativo não entra',
+          ia.status === 200 && ia.linhas.length === 1 && Number(ia.linhas[0]?.idproduto) === P1 && Number(ia.linhas[0]?.vrvenda) === 5 && Number(ia.linhas[0]?.vlrpromocao) === 4
+          && ia.linhas[0]?.tv === 'T' && ia.linhas[0]?.nomepromo === 'AGENDA 264', { ia: ia.linhas });
+      } finally {
+        if (agenda) { await pgPr2.query(`DELETE FROM agenda_promocao_itens WHERE codagenda = $1`, [agenda]); await pgPr2.query(`DELETE FROM agenda_promocao WHERE codagenda = $1`, [agenda]); }
+        await pgPr2.query(`DELETE FROM scrap_item WHERE codscrap IN (992641, 992642)`);
+        await pgPr2.query(`DELETE FROM scrap WHERE codscrap IN (992641, 992642)`);
+        await pgPr2.query(`DELETE FROM ajuste_estoque WHERE idproduto IN (${P1}, ${P2}, ${P3})`);
+        if (notas.length) {
+          await pgPr2.query(`DELETE FROM nf_prod_lote WHERE codnfprod IN (SELECT codnfprod FROM nf_prod WHERE codnf = ANY($1::int[]))`, [notas]);
+          await pgPr2.query(`DELETE FROM nf_prod WHERE codnf = ANY($1::int[])`, [notas]);
+          await pgPr2.query(`DELETE FROM nf WHERE codnf = ANY($1::int[])`, [notas]);
+        }
+        await pgPr2.query(`DELETE FROM movimentacao_diaria WHERE codproduto IN (${P1}, ${P2}, ${P3})`);
+        await pgPr2.query(`DELETE FROM historico_prod WHERE idproduto IN (${P1}, ${P2}, ${P3})`);
+        await pgPr2.query(`DELETE FROM vendas WHERE nroserie = '264' AND codproduto IN (${P1}, ${P2}, ${P3})`);
+        await pgPr2.query(`DELETE FROM estoque WHERE idproduto IN (${P1}, ${P2}, ${P3})`);
+        await pgPr2.query(`DELETE FROM estoque_dep WHERE idproduto IN (${P1}, ${P2}, ${P3})`);
+        await pgPr2.query(`DELETE FROM multi_preco WHERE idproduto IN (${P1}, ${P2}, ${P3})`);
+        await pgPr2.query(`DELETE FROM produtos WHERE idproduto IN (${P1}, ${P2}, ${P3})`);
+        if (!tinhaRel2) await pgPr2.query(`DELETE FROM relacao_operador_empresa WHERE codoperador = 7 AND codempresa = 2`);
+        await pgPr2.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();
