@@ -1,4 +1,4 @@
-# ANÁLISE DE COMPRA × VENDA (`FRMRELENTSAI`) — completa
+# ANÁLISE DE COMPRA × VENDA (`FRMRELENTSAI`) — completa (as duas visões)
 
 `uRelEntSai.pas` (586) + `.dfm` (1.440) + `udmRelEntSai` + `URelEntSaiGrid`. **84 acessos, 10 operadores.**
 
@@ -52,6 +52,8 @@ sinal da diferença e mandaria o comprador repor o que já está na prateleira.
 
 **Resolvido de outro jeito:** a exportação para Excel é o CSV da grade.
 
-**Ainda falta:** a segunda visão da tela — a **análise por pedido de compra** (`GeraConsultaPedidos:461`),
-que cruza o que foi pedido com o que entrou; o cliente tem pedidos de compra migrados, então ela entra quando
-alguém pedir.
+**✅ A segunda visão (25/09/2026):** `GeraConsultaPedidos` (`:461`) — o dossiê a chamava de "por pedido de compra", mas
+as saídas são os **PEDIDOS de venda** digitados (`PEDIDOS`, a digitação de pedidos): quantidade, valor **truncado**
+(qtde × vrvenda), o departamento do próprio pedido, a descrição do pedido e só `CANCELADO = 'N'`; o agrupar por
+produto não vale nesta visão (o fonte sempre separa por loja). `GET relatorios/compra-venda?modo=pedidos`, o rádio
+"Saídas: Vendas / Pedidos" na tela, smoke §117.5. A digitação parou em fev/2025, mas o histórico está carregado.

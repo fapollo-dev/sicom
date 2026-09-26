@@ -18,7 +18,7 @@ export class RelEntSaiController {
       dataIni: q.dataIni, dataFim: q.dataFim, coddpto: q.coddpto ?? null,
       codgrupo: q.codgrupo ?? null, codsubgrupo: q.codsubgrupo ?? null,
       idproduto: q.idproduto ?? null, codfor: q.codfor ?? null,
-      agruparProdutos: q.agruparProdutos ?? false,
+      agruparProdutos: q.agruparProdutos ?? false, modo: q.modo ?? 'vendas',
     });
   }
 }

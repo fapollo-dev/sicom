@@ -36,7 +36,7 @@ export function RelEntSaiPage() {
   const mensagem = useMensagem();
   const [f, setF] = useState({
     dataIni: diaUm(), dataFim: hoje(), coddpto: '', codgrupo: '', idproduto: '', codfor: '',
-    agruparProdutos: false,
+    agruparProdutos: false, modo: 'vendas' as 'vendas' | 'pedidos',
   });
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -108,10 +108,16 @@ export function RelEntSaiPage() {
             ], 'compra-venda');
           }} />
         </div>
-        <label className="mt-form-gap flex items-center gap-gp-sm text-body-sm">
-          <input type="checkbox" checked={f.agruparProdutos} onChange={(e) => setF({ ...f, agruparProdutos: e.target.checked })} />
-          Agrupar produtos <span className="text-fg-muted">(junta as lojas numa linha só por produto)</span>
-        </label>
+        <div className="mt-form-gap flex flex-wrap items-center gap-gp-md text-body-sm">
+          {/* o `rdgPesquisa` do legado: as saídas da venda do PDV ou dos pedidos de venda digitados */}
+          <span className="text-fg-muted">Saídas:</span>
+          <label className="flex items-center gap-gp-xs"><input type="radio" name="modo" checked={f.modo === 'vendas'} onChange={() => setF({ ...f, modo: 'vendas' })} /> Vendas</label>
+          <label className="flex items-center gap-gp-xs"><input type="radio" name="modo" checked={f.modo === 'pedidos'} onChange={() => setF({ ...f, modo: 'pedidos' })} /> Pedidos</label>
+          <label className="flex items-center gap-gp-sm">
+            <input type="checkbox" checked={f.agruparProdutos} disabled={f.modo === 'pedidos'} onChange={(e) => setF({ ...f, agruparProdutos: e.target.checked })} />
+            Agrupar produtos <span className="text-fg-muted">(junta as lojas numa linha só por produto — só nas vendas)</span>
+          </label>
+        </div>
       </section>
 
       {res && (

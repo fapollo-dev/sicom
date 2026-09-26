@@ -18,6 +18,8 @@ export interface FiltroEntSai {
   codfor?: number | null;
   /** o `chkAgruparProdutos`: junta as empresas numa linha só por produto. */
   agruparProdutos?: boolean;
+  /** o `rdgPesquisa`: saídas da venda do PDV ('vendas') ou dos pedidos de venda digitados ('pedidos') */
+  modo?: 'vendas' | 'pedidos';
 }
 
 /**
@@ -78,9 +80,26 @@ export class RelEntSaiService {
     const baseNf = sql`((np.vrcusto - ((np.vrcusto * coalesce(np.desconto, 0)) / 100)) * np.quantidade)`;
     const baseArred = sql`(${baseNf})::numeric(13,2)`;
 
-    const linhas = (await sql<Record<string, unknown>>`
-      WITH mov AS (
-        -- SAÍDAS: a venda do PDV, líquida
+    // a segunda visão da tela (`GeraConsultaPedidos`, uRelEntSai.pas:461): as saídas são os PEDIDOS de venda digitados — quantidade e
+    // valor TRUNCADO (qtde × vrvenda), o departamento do próprio pedido, a descrição do pedido e só o CANCELADO = 'N' (o nulo fica fora,
+    // como no fonte); o agrupar por produto não vale nesta visão (o fonte sempre separa por loja)
+    const pedidos = f.modo === 'pedidos';
+    const agrupar = f.agruparProdutos && !pedidos;
+    const saidas = pedidos
+      ? sql`
+        SELECT d.descricao AS dpto, pe.idempresa, p.idproduto AS codproduto, pe.descricao,
+               0::numeric AS entradas, sum(pe.qtde) AS saidas,
+               sum(trunc((pe.qtde * pe.vrvenda)::numeric * 100) / 100) AS total_venda,
+               0::numeric AS total_compras
+          FROM pedidos pe
+          LEFT JOIN familias_prod d ON d.codfamilia = pe.coddpto
+          LEFT JOIN produtos p      ON p.idproduto = pe.codproduto
+         WHERE pe.idempresa = ${emp}
+           AND pe.cancelado = 'N'
+           AND pe.dtvenda::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
+           ${prod}
+         GROUP BY pe.idempresa, p.idproduto, pe.descricao, d.descricao`
+      : sql`
         SELECT d.descricao AS dpto, v.idempresa, p.idproduto AS codproduto, p.descricao,
                0::numeric AS entradas, sum(v.qtde) AS saidas,
                sum(CASE WHEN v.iat = 'A' THEN round((v.qtde * v.vrvenda)::numeric, 2)
@@ -97,7 +116,12 @@ export class RelEntSaiService {
            AND coalesce(v.cancelado, 'N') = 'N'
            AND v.dtvenda::date BETWEEN ${f.dataIni}::date AND ${f.dataFim}::date
            ${prod}
-         GROUP BY d.descricao, v.idempresa, p.idproduto, p.descricao
+         GROUP BY d.descricao, v.idempresa, p.idproduto, p.descricao`;
+
+    const linhas = (await sql<Record<string, unknown>>`
+      WITH mov AS (
+        -- SAÍDAS: a venda do PDV, líquida — ou os pedidos de venda
+        ${saidas}
         UNION ALL
         -- ENTRADAS: a compra por nota, em unidade de venda (quantidade × fator de embalagem)
         SELECT d.descricao, nf.idempresa, np.codproduto, p.descricao,
@@ -120,7 +144,7 @@ export class RelEntSaiService {
          GROUP BY d.descricao, nf.idempresa, np.codproduto, p.descricao
       )
       SELECT m.dpto,
-             ${f.agruparProdutos ? sql`0` : sql`m.idempresa`} AS idempresa,
+             ${agrupar ? sql`0` : sql`m.idempresa`} AS idempresa,
              m.codproduto, trim(m.descricao) AS descricao,
              sum(m.entradas) AS entradas,
              sum(m.saidas)   AS saidas,
@@ -130,8 +154,8 @@ export class RelEntSaiService {
              (sum(m.saidas) - sum(m.entradas)) AS dif_qtde,
              round((sum(m.total_venda) - sum(m.total_compras))::numeric, 2) AS dif_valor
         FROM mov m
-       GROUP BY m.dpto, ${f.agruparProdutos ? sql`0` : sql`m.idempresa`}, m.codproduto, trim(m.descricao)
-       ORDER BY 4${f.agruparProdutos ? sql`` : sql`, 2`}
+       GROUP BY m.dpto, ${agrupar ? sql`0` : sql`m.idempresa`}, m.codproduto, trim(m.descricao)
+       ORDER BY ${pedidos ? sql`2, 4` : agrupar ? sql`4` : sql`4, 2`}
        LIMIT 20001
     `.execute(db)).rows;
 

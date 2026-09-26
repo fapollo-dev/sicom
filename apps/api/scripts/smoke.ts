@@ -12917,6 +12917,19 @@ async function main() {
           Math.abs(Number(l2?.entradas) - 120) < 0.005 && Math.abs(Number(l2?.saidas) - 90) < 0.005,
           { entradas: l2?.entradas, saidas: l2?.saidas });
 
+        // a segunda visão (`GeraConsultaPedidos`): as saídas dos PEDIDOS de venda — 7 × 12,345 = 86,415 truncado = 86,41; o cancelado e o de
+        // CANCELADO nulo ficam fora; a entrada é a mesma (120)
+        await pgE2.query(`INSERT INTO pedidos (nropedido, idempresa, codproduto, descricao, qtde, vrvenda, coddpto, cancelado, dtvenda) VALUES
+          ('PV117-1',1,$1,'PROD COMPRA VENDA',7,12.345,9991,'N','2055-06-13'), ('PV117-2',1,$1,'PROD COMPRA VENDA',3,10,9991,'S','2055-06-13'),
+          ('PV117-3',1,$1,'PROD COMPRA VENDA',5,10,9991,NULL,'2055-06-13')`, [pCv]);
+        const rp = await fetch(`${base}/${ES2}?dataIni=2055-06-01&dataFim=2055-06-30&coddpto=9991&modo=pedidos`, { headers: H });
+        const lp = (((await rp.json().catch(() => ({}))) as any).linhas ?? []) as any[];
+        const ped = lp.reduce((acc, x) => ({ saidas: acc.saidas + Number(x.saidas), venda: acc.venda + Number(x.total_venda), entradas: acc.entradas + Number(x.entradas) }), { saidas: 0, venda: 0, entradas: 0 });
+        check('COMPRA × VENDA §117.5 [a visão por PEDIDOS — GeraConsultaPedidos]: as saídas vêm dos pedidos de venda digitados (7 un., 7 × 12,345 = 86,415 → TRUNCADO 86,41, como o fonte), o pedido cancelado e o de CANCELADO nulo ficam fora (o fonte exige = \'N\'), a entrada segue 120',
+          rp.status === 200 && Math.abs(ped.saidas - 7) < 0.005 && Math.abs(ped.venda - 86.41) < 0.005 && Math.abs(ped.entradas - 120) < 0.005,
+          { status: rp.status, lp, ped });
+        await pgE2.query(`DELETE FROM pedidos WHERE nropedido IN ('PV117-1','PV117-2','PV117-3')`);
+
         const inv = await fetch(`${base}/${ES2}?dataIni=2055-06-30&dataFim=2055-06-01`, { headers: H });
         check('COMPRA × VENDA §117.4: data invertida é recusada com mensagem',
           inv.status >= 400, { status: inv.status });

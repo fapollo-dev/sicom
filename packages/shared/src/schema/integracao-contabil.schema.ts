@@ -466,6 +466,8 @@ export const relEntSaiSchema = z.object({
   codfor: z.coerce.number().int().positive().nullish(),
   /** o `chkAgruparProdutos`: junta as empresas numa linha só por produto. */
   agruparProdutos: boolQuery.optional(),
+  /** o `rdgPesquisa`: as saídas da VENDA do PDV (0) ou dos PEDIDOS de venda digitados (1, `GeraConsultaPedidos`). */
+  modo: z.enum(['vendas', 'pedidos']).optional(),
 });
 export type RelEntSaiDto = z.infer<typeof relEntSaiSchema>;
 
