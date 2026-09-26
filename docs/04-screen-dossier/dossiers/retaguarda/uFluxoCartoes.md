@@ -45,6 +45,7 @@ Operadora sem cadastro aparece como `(SEM OPERADORA)` em vez de linha em branco.
 
 **Resolvido de outro jeito:** a exportação é o CSV da grade.
 
-**Ainda falta:** a tela irmã `uFluxoCartaoBandeira`, que abre por bandeira dentro da operadora — o cliente
-tem as operadoras cadastradas, mas a quebra por bandeira depende de `CARTAO.BANDEIRA`, que ainda não veio na
-carga. Entra junto quando alguém pedir a quebra.
+**✅ A tela irmã `uFluxoCartaoBandeira` já estava coberta (conferido em 25/09/2026):** apesar do nome e do título da coluna
+("Bandeira"), a consulta dela (`sqqFluxoCartoesBandeiras`, udmFluxoCartoes.dfm:121-144) agrupa o dia por **OPERADORA**
+(`LEFT JOIN OPERADORAS … GROUP BY TRUNC(C.DTVENDA), O.OPERADORA, C.LIBERADO`) — não por `CARTAO.BANDEIRA`, que nem
+existe na tabela da produção. É o "abrir o dia por operadora" do Apollo (smoke §115.3), com os três totais do rodapé.
