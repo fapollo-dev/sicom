@@ -21,7 +21,7 @@ EMPRESAS é a peça-mãe do `empresaScoped` (todas as 13 telas carimbam/filtram 
 - **Curva ABC = 100%** (`Preenchido(1)`:2289), **CC-taxas-cartão = despesa** (:2373), **Cidade/UF×IBGE** (:1324), **contingência datas+motivo≥14** (:1460/1476) → **adiados** (campos/abas fora do corte-1).
 
 ## 4. Efeitos colaterais
-- Inserir empresa nova no legado **cria estoque/depósito** (`SetaEstoque`) + recarrega `dmPrincipal.Empresa*` → **adiado** (corte-1 só persiste o cadastro).
+- Inserir empresa nova no legado **cria estoque/depósito** (`SetaEstoque`) + recarrega `dmPrincipal.Empresa*` → ✅ (25/09/2026) a inclusão gera ESTOQUE e ESTOQUE_DEP zerados de todos os produtos (`empresas.crud.ts`, o `aposGravarTrx` que o CRUD simples passou a ter; smoke "EMPRESA NOVA").
 - Replicação `REM_*`/HASH_PAF → adiado.
 
 ## 5. O que a NF/precificação consome de EMPRESAS (a justificativa de migrar agora)

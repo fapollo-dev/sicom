@@ -1,3 +1,4 @@
+import { sql } from 'kysely';
 import { empresaSchema, atualizarEmpresaSchema } from '@apollo/shared';
 import { createCrudController } from '../../shared/crud/crud.controller.factory';
 import { EMPRESA_CAMPOS_LEGADO } from '@apollo/shared';
@@ -43,6 +44,17 @@ export const empresasCrudConfig: CrudConfig = {
   colunasPesquisa: ['idempresa', 'razao_social', 'cnpj', 'uf', 'classfiscal'],
   softDelete: false,
   replica: false,
+  // a empresa NOVA ganha ESTOQUE e ESTOQUE_DEP zerados para todos os produtos (`SetaEstoque(teEstoque|teDeposito, 0, taEmpresa)`,
+  // UCadEmpresa.pas:1345-1351) — sem isso, o produto não tem linha de estoque na loja nova e toda movimentação dela falha
+  aposGravarTrx: async ({ trx, id, criado }) => {
+    if (!criado) return;
+    await sql`INSERT INTO estoque (idproduto, idempresa, qtde, minimo, maximo)
+              SELECT p.idproduto, ${id}, 0, 0, 0 FROM produtos p
+               WHERE NOT EXISTS (SELECT 1 FROM estoque e WHERE e.idproduto = p.idproduto AND e.idempresa = ${id})`.execute(trx);
+    await sql`INSERT INTO estoque_dep (idproduto, idempresa, qtde, minimo, maximo)
+              SELECT p.idproduto, ${id}, 0, 0, 0 FROM produtos p
+               WHERE NOT EXISTS (SELECT 1 FROM estoque_dep d WHERE d.idproduto = p.idproduto AND d.idempresa = ${id})`.execute(trx);
+  },
 };
 
 export const EmpresasCrudController = createCrudController({

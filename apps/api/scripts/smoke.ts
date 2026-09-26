@@ -2182,6 +2182,15 @@ async function main() {
     });
     const emp2Body = (await emp2.json().catch(() => ({}))) as any;
     check('POST /cadastro/empresas cria empresa 2 (idempresa digitado)', emp2.status === 201 && Number(emp2Body.idempresa) === 2, { status: emp2.status, id: emp2Body.idempresa });
+    {
+      // a empresa nova ganha ESTOQUE e ESTOQUE_DEP zerados de todos os produtos (SetaEstoque, UCadEmpresa.pas:1345-1351)
+      const pgE2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const ce = (await pgE2.query(`SELECT (SELECT count(*)::int FROM produtos) p, (SELECT count(*)::int FROM estoque WHERE idempresa = 2) e,
+                                           (SELECT count(*)::int FROM estoque_dep WHERE idempresa = 2) d, (SELECT coalesce(sum(abs(qtde)),0)::float FROM estoque WHERE idempresa = 2) q`)).rows[0] as any;
+      await pgE2.end();
+      check('EMPRESA NOVA [SetaEstoque]: incluir a empresa gera ESTOQUE e ESTOQUE_DEP zerados para todos os produtos (sem isso a loja nova não tem linha de estoque e a movimentação dela falha)',
+        ce.e === ce.p && ce.d === ce.p && ce.q === 0, ce);
+    }
 
     // 24.3) validações.
     const empCnpjBad = await fetch(`${base}/cadastro/empresas`, { method: 'POST', headers: H, body: JSON.stringify({ idempresa: 3, razao_social: 'X', cnpj: '11111111111111', uf: 'MG', classfiscal: 'LR' }) });

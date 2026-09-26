@@ -69,6 +69,8 @@ export interface CrudConfig {
   derivar?: (dto: Record<string, unknown>, id?: number) => Record<string, unknown>;
   /** regra do gravar na transação (CRUD simples): `id` ausente = inclusão. Deve LANÇAR para bloquear. */
   validarTrx?: (ctx: { trx: any; id?: number; dto: Record<string, unknown> }) => Promise<void>;
+  /** EFEITO depois do create/update, na mesma transação (no CRUD simples; o agregado tem o seu, com os itens). */
+  aposGravarTrx?: (ctx: { trx: any; id: number; dto: Record<string, unknown>; criado: boolean; emp: number | null }) => Promise<void>;
   /** regra do excluir na transação (CRUD simples); `senhaAdmin` vem da query (o `SenhaAdministrativa('ADM')` do legado). */
   validarRemocaoTrx?: (ctx: { trx: any; id: number; senhaAdmin?: string; dbp: any }) => Promise<void>;
   /**

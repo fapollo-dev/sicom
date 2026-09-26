@@ -124,6 +124,8 @@ export class CrudEngineService {
       if (cfg.historico !== false) await gravarHistorico(trx, this.alvo(cfg), id, op, this.emp(), {}, d, 'INSERT');
       await gravarLogDeCadastro(trx, cfg, 'Inseriu', id, {}, d);
       if (cfg.replica) await this.outbox(trx, cfg, 'INSERT', id);
+      // o efeito do gravar do legado além da linha (ex.: a empresa nova gera o estoque de todos os produtos), na mesma transação
+      if (cfg.aposGravarTrx) await cfg.aposGravarTrx({ trx, id, dto, criado: true, emp: currentTenant().empresaId ?? null });
       return id;
     });
   }
