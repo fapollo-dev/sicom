@@ -1,10 +1,10 @@
 /**
  * Os campos do cadastro de empresas (UCadEmpresa) que a tela do Apollo não tinha — gerado do `UCadEmpresa.dfm` (rótulo, aba, itens dos
  * combos) e do schema do destino (tipo, tamanho); os do binário novo (integrações) sem rótulo no fonte de 2020 levam o nome da coluna.
- * Fora: o que o sistema mantém (NSU, carimbos, hashes, as datas de contingência do PDV), os certificados (binário) e as senhas de
+ * Fora: o que o sistema mantém (NSU, carimbos, hashes), os certificados (binário) e as senhas de
  * operação, que o Apollo guarda em hash (`senha-operacao`). `segredo`: gravável, nunca devolvido na leitura.
  */
-export type TipoCampoEmpresa = 'texto' | 'inteiro' | 'numero' | 'sn' | 'opcao' | 'data';
+export type TipoCampoEmpresa = 'texto' | 'inteiro' | 'numero' | 'sn' | 'opcao' | 'data' | 'datahora';
 export interface CampoEmpresaLegado {
   coluna: string;
   rotulo: string;
@@ -125,6 +125,10 @@ export const EMPRESA_CAMPOS_LEGADO: readonly CampoEmpresaLegado[] = [
   { coluna: 'mercafacil_url', rotulo: "Mercafacil url", aba: "Integrações", tipo: 'texto', max: 200 },
   { coluna: 'meta_compra', rotulo: "Meta de Compra", aba: "Configurações", tipo: 'numero' },
   { coluna: 'modelo_duplicata', rotulo: "Modelo Duplicata", aba: "Configurações", tipo: 'opcao', opcoes: [["1", "PADRÃO"], ["2", "NRONF + QTDEPARCELAS"]] },
+  // a tela grava as datas da contingência a cada gravar (ContigenciaNFC, UCadEmpresa.pas:1450: data + hora digitadas) — a LOG da
+  // produção mostra o 'Cadastro de empresas' alterando-as (empresa 2, 15/01/2024); não é o PDV que as mantém
+  { coluna: 'dtcontingencia_inicio_nfc', rotulo: "Contingência — início (data e hora)", aba: "NFC-e", tipo: 'datahora' },
+  { coluna: 'dtcontingencia_fim_nfc', rotulo: "Contingência — fim (data e hora)", aba: "NFC-e", tipo: 'datahora' },
   { coluna: 'motivo_contingencia_nfc', rotulo: "Motivo de Contingência", aba: "NFC-e", tipo: 'texto', max: 200 },
   { coluna: 'nfce_autenticacao', rotulo: "Certificado", aba: "NFC-e", tipo: 'texto', max: 255, segredo: true },
   { coluna: 'nome', rotulo: "Nome", aba: "Contabilista", tipo: 'texto', max: 200 },
@@ -136,9 +140,7 @@ export const EMPRESA_CAMPOS_LEGADO: readonly CampoEmpresaLegado[] = [
   { coluna: 'pc_curva_abc_a_qtde', rotulo: "Pc curva abc a qtde", aba: "Configurações", tipo: 'numero' },
   { coluna: 'pc_curva_abc_b_qtde', rotulo: "Pc curva abc b qtde", aba: "Configurações", tipo: 'numero' },
   { coluna: 'pc_curva_abc_c_qtde', rotulo: "Pc curva abc c qtde", aba: "Configurações", tipo: 'numero' },
-  { coluna: 'pc_curva_abc_d', rotulo: "Pc curva abc d", aba: "Configurações", tipo: 'numero' },
   { coluna: 'pc_curva_abc_d_qtde', rotulo: "Pc curva abc d qtde", aba: "Configurações", tipo: 'numero' },
-  { coluna: 'pc_curva_abc_e', rotulo: "Pc curva abc e", aba: "Configurações", tipo: 'numero' },
   { coluna: 'pc_curva_abc_e_qtde', rotulo: "Pc curva abc e qtde", aba: "Configurações", tipo: 'numero' },
   { coluna: 'pc_curva_comp_a_qtde', rotulo: "Pc curva comp a qtde", aba: "Configurações", tipo: 'numero' },
   { coluna: 'pc_curva_comp_b_qtde', rotulo: "Pc curva comp b qtde", aba: "Configurações", tipo: 'numero' },

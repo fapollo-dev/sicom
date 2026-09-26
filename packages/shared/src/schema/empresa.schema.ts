@@ -12,7 +12,9 @@ import { EMPRESA_CAMPOS_LEGADO } from './empresa-legado';
  * contingência, contábil/centros-de-custo, master-details, e a camada de config chave-valor.
  *
  * Validações verbatim do legado (UCadEmpresa.pas): CNPJ válido (ExisteDocumento), ALQSIMPLESNAC
- * obrigatória se Simples (cmbCLASSFISCALChange:1438), MARGEM_CONTRIBUICAO ≥ 0 (Preenchido(8):2383).
+ * obrigatória se Simples (cmbCLASSFISCALChange:1438), MARGEM_CONTRIBUICAO ≥ 0 (Preenchido(8):2383). As que leem o
+ * banco ou a linha gravada (curva ABC, centro de custo das taxas, cidade × IBGE, forma de pagamento da quebra,
+ * contingência da NFC-e) ficam no `validarTrx` do empresas.crud.
  * Mensagens em PT (ADR-015).
  */
 
@@ -99,6 +101,9 @@ const empresaBase = z
     pc_curva_abc_a: dec(z.number().nonnegative()),
     pc_curva_abc_b: dec(z.number().nonnegative()),
     pc_curva_abc_c: dec(z.number().nonnegative()),
+    // as faixas D e E da curva do binário novo (D desde 24/02/2025 na LOG da produção): a soma A..E fecha 100% no gravar (empresas.crud)
+    pc_curva_abc_d: dec(z.number().nonnegative()),
+    pc_curva_abc_e: dec(z.number().nonnegative()),
     pc_curva_comp_a: dec(z.number().nonnegative()),
     pc_curva_comp_b: dec(z.number().nonnegative()),
     pc_curva_comp_c: dec(z.number().nonnegative()),
@@ -120,7 +125,7 @@ for (const c of EMPRESA_CAMPOS_LEGADO) {
     c.tipo === 'inteiro' ? dec(z.number().int())
     : c.tipo === 'numero' ? dec(z.number())
     : c.tipo === 'sn' ? snLegado
-    : c.tipo === 'data' ? opcional(z.string().trim())
+    : c.tipo === 'data' || c.tipo === 'datahora' ? opcional(z.string().trim())
     : opcional(z.coerce.string().trim().max(c.max ?? 4000));
 }
 const empresaComLegado = empresaBase.extend(shapeLegado);

@@ -289,7 +289,8 @@ async function main() {
 
     // 12) LOOKUP/FK — Cidades (alvo) + Bairro referenciando idcidade
     const cidades = (await (await fetch(`${base}/cadastro/cidades`, { headers: H })).json()) as any[];
-    check('GET /cadastro/cidades lista o seed (4)', Array.isArray(cidades) && cidades.length === 4, cidades?.length);
+    // 4 do seed da mig 013 + UBERLANDIA/MG (mig 377 — a cidade da empresa 1, que o gravar da empresa confere contra o IBGE)
+    check('GET /cadastro/cidades lista o seed (5)', Array.isArray(cidades) && cidades.length === 5, cidades?.length);
     const bairroFK = await fetch(`${base}/cadastro/bairros`, {
       method: 'POST',
       headers: H,
@@ -2175,10 +2176,17 @@ async function main() {
       { classfiscal: emp1.classfiscal, uf: emp1.uf, idcidade: emp1.idcidade, despoper: emp1.despoperacional, txjuro: emp1.txjuropadrao },
     );
 
+    // fixture: a curva ABC da empresa 1 do seed com os cortes da produção (60/20/10/10) — o gravar confere que a curva fecha 100%
+    {
+      const pgCv = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      await pgCv.query(`UPDATE empresas SET pc_curva_abc_a = 60, pc_curva_abc_b = 20, pc_curva_abc_c = 10, pc_curva_abc_d = 10 WHERE idempresa = 1`);
+      await pgCv.end();
+    }
     // 24.2) POST cria empresa 2 (PK digitada, não-empresaScoped) → 201.
     const emp2 = await fetch(`${base}/cadastro/empresas`, {
       method: 'POST', headers: H,
-      body: JSON.stringify({ idempresa: 2, razao_social: 'EMPRESA DOIS LTDA', cnpj: '11444777000161', uf: 'MG', classfiscal: 'LR', despoperacional: 18, txjuropadrao: 3, figurafiscal: 'O' }),
+      body: JSON.stringify({ idempresa: 2, razao_social: 'EMPRESA DOIS LTDA', cnpj: '11444777000161', uf: 'MG', cidade: 'UBERLANDIA', classfiscal: 'LR', despoperacional: 18, txjuropadrao: 3, figurafiscal: 'O',
+        pc_curva_abc_a: 70, pc_curva_abc_b: 20, pc_curva_abc_c: 10 }),
     });
     const emp2Body = (await emp2.json().catch(() => ({}))) as any;
     check('POST /cadastro/empresas cria empresa 2 (idempresa digitado)', emp2.status === 201 && Number(emp2Body.idempresa) === 2, { status: emp2.status, id: emp2Body.idempresa });
@@ -6443,7 +6451,8 @@ async function main() {
 
         await pgRv.query(`DELETE FROM vendas WHERE idempresa=1 AND dtvenda >= '2026-09-22' AND dtvenda < '2026-09-23'`);
         await pgRv.query(`DELETE FROM produtos WHERE idproduto IN (992201,992202)`);
-        await pgRv.query(`UPDATE empresas SET pc_curva_abc_a=NULL, pc_curva_abc_b=NULL, pc_curva_abc_c=NULL WHERE idempresa=1`);
+        // volta à curva da fixture do §24 (60/20/10/10, a da produção) — o gravar da empresa confere que ela fecha 100%
+        await pgRv.query(`UPDATE empresas SET pc_curva_abc_a=60, pc_curva_abc_b=20, pc_curva_abc_c=10, pc_curva_abc_d=10 WHERE idempresa=1`);
 
         // 47x) VENDAS DATA (rel 02 do hub) — o fechamento DIÁRIO. Três níveis no legado, e o do meio (o CUPOM)
         // não colapsa porque o de cima CONTA grupos. Cenário 2026-09-25, empresa 1:
@@ -22296,15 +22305,16 @@ async function main() {
     {
       const pgEm2 = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
       try {
-        const antes = (await pgEm2.query(`SELECT codplc_juros_pagos, aream2, tef_loja, pc_curva_abc_a, sincroniza_preco_nf FROM empresas WHERE idempresa=1`)).rows[0] as any;
-        const put = await fetch(`${base}/cadastro/empresas/1`, { method: 'PUT', headers: H, body: JSON.stringify({ codplc_juros_pagos: 3, aream2: 1250.5, tef_loja: 'LJ01', pc_curva_abc_a: 80, sincroniza_preco_nf: 'S' }) });
+        const antes = (await pgEm2.query(`SELECT codplc_juros_pagos, aream2, tef_loja, pc_curva_abc_a, pc_curva_abc_b, pc_curva_abc_c, pc_curva_abc_d, sincroniza_preco_nf FROM empresas WHERE idempresa=1`)).rows[0] as any;
+        const put = await fetch(`${base}/cadastro/empresas/1`, { method: 'PUT', headers: H, body: JSON.stringify({ codplc_juros_pagos: 3, aream2: 1250.5, tef_loja: 'LJ01', pc_curva_abc_a: 80, pc_curva_abc_b: 10, pc_curva_abc_c: 5, pc_curva_abc_d: 5, sincroniza_preco_nf: 'S' }) });
         const putJ = (await put.json().catch(() => ({}))) as any;
         const depois = (await pgEm2.query(`SELECT codplc_juros_pagos, aream2::float AS aream2, tef_loja, pc_curva_abc_a::float AS a, sincroniza_preco_nf FROM empresas WHERE idempresa=1`)).rows[0] as any;
         check('EMPRESAS §212 [parâmetros com editor]: o cadastro grava CC de juros pagos (que a baixa lê), área, TEF, curva ABC e a sincronização de preço — colunas que a produção altera (78 no LOG de 2025-26) e ninguém conseguia manter',
           put.status === 200 && Number(depois?.codplc_juros_pagos) === 3 && depois?.aream2 === 1250.5 && depois?.tef_loja === 'LJ01' && depois?.a === 80 && depois?.sincroniza_preco_nf === 'S',
           { put: [put.status, putJ.code], depois });
-        await pgEm2.query(`UPDATE empresas SET codplc_juros_pagos=$1, aream2=$2, tef_loja=$3, pc_curva_abc_a=$4, sincroniza_preco_nf=$5 WHERE idempresa=1`,
-          [antes?.codplc_juros_pagos ?? null, antes?.aream2 ?? null, antes?.tef_loja ?? null, antes?.pc_curva_abc_a ?? null, antes?.sincroniza_preco_nf ?? null]);
+        await pgEm2.query(`UPDATE empresas SET codplc_juros_pagos=$1, aream2=$2, tef_loja=$3, pc_curva_abc_a=$4, sincroniza_preco_nf=$5, pc_curva_abc_b=$6, pc_curva_abc_c=$7, pc_curva_abc_d=$8 WHERE idempresa=1`,
+          [antes?.codplc_juros_pagos ?? null, antes?.aream2 ?? null, antes?.tef_loja ?? null, antes?.pc_curva_abc_a ?? null, antes?.sincroniza_preco_nf ?? null,
+           antes?.pc_curva_abc_b ?? null, antes?.pc_curva_abc_c ?? null, antes?.pc_curva_abc_d ?? null]);
       } finally {
         await pgEm2.end();
       }
@@ -23384,6 +23394,7 @@ async function main() {
       try {
         const up = await fetch(`${base}/cadastro/empresas/1`, { method: 'PUT', headers: H, body: JSON.stringify({
           mascaraplc: '9.99.999', numeitensnota: 30, email_aut_tls: 'S', certificado_senha: 'segredo123', izio_token: 'tok-izio', cnae_principal: '4711302', perfilsped: 'B' }) });
+        const upJ = up.status === 200 ? {} : ((await up.clone().json().catch(() => ({}))) as any);
         const r1 = (await pgEp.query(`SELECT mascaraplc, numeitensnota, email_aut_tls, certificado_senha, izio_token, cnae_principal, perfilsped FROM empresas WHERE idempresa = 1`)).rows[0] as any;
         const lido = (await (await fetch(`${base}/cadastro/empresas/1`, { headers: H })).json().catch(() => ({}))) as any;
         const eco = await fetch(`${base}/cadastro/empresas/1`, { method: 'PUT', headers: H, body: JSON.stringify({ ...lido }) });
@@ -23392,7 +23403,7 @@ async function main() {
           up.status === 200 && r1?.mascaraplc === '9.99.999' && Number(r1?.numeitensnota) === 30 && r1?.email_aut_tls === 'S' && r1?.cnae_principal === '4711302' && r1?.perfilsped === 'B'
           && r1?.certificado_senha === 'segredo123' && r1?.izio_token === 'tok-izio'
           && !('certificado_senha' in lido) && !('izio_token' in lido) && eco.status === 200 && r2?.certificado_senha === 'segredo123' && r2?.izio_token === 'tok-izio',
-          { up: up.status, r1, lidoTem: ['certificado_senha' in lido, 'izio_token' in lido], eco: eco.status, r2 });
+          { up: [up.status, upJ.code, upJ.message], r1, lidoTem: ['certificado_senha' in lido, 'izio_token' in lido], eco: eco.status, r2 });
       } finally {
         await pgEp.query(`UPDATE empresas SET mascaraplc = $1, numeitensnota = $2, email_aut_tls = $3, certificado_senha = $4, izio_token = $5, cnae_principal = $6, perfilsped = $7 WHERE idempresa = 1`,
           [antes?.mascaraplc ?? null, antes?.numeitensnota ?? null, antes?.email_aut_tls ?? null, antes?.certificado_senha ?? null, antes?.izio_token ?? null, antes?.cnae_principal ?? null, antes?.perfilsped ?? null]);
@@ -24958,6 +24969,77 @@ async function main() {
       }
     }
 
+
+    // ══ §262 EMPRESAS — as regras do gravar que leem o banco (UCadEmpresa.pas btnGravarClick:1303-1341), na ordem do legado ═══════════════
+    {
+      const pgRg = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      const cols = 'pc_curva_abc_a, pc_curva_abc_b, pc_curva_abc_c, pc_curva_abc_d, pc_curva_abc_e, codplc_taxas_cartao, cidade, uf, idpgto, dtcontingencia_inicio_nfc, dtcontingencia_fim_nfc, motivo_contingencia_nfc';
+      const antes = (await pgRg.query(`SELECT ${cols} FROM empresas WHERE idempresa = 1`)).rows[0] as any;
+      const put = async (dto: Record<string, unknown>) => {
+        const r = await fetch(`${base}/cadastro/empresas/1`, { method: 'PUT', headers: H, body: JSON.stringify(dto) });
+        const j = (await r.json().catch(() => ({}))) as any;
+        return { status: r.status, code: j.code, message: j.message };
+      };
+      try {
+        await pgRg.query(`INSERT INTO plc (codplc, descricao, tpconta) VALUES (99621, 'SMOKE RECEITA', 0), (99622, 'SMOKE TAXAS DE CARTAO', 1) ON CONFLICT (codplc) DO NOTHING`);
+        await pgRg.query(`INSERT INTO formas_pgto (idpgto, idempresa, modalidade, atalho, destino) VALUES
+                            (99621, 1, 'SMOKE DINHEIRO 262', 'S262A', 'CXA'), (99622, 2, 'SMOKE QUEBRA LOJA 2', 'S262B', 'QUE'), (99623, 1, 'SMOKE QUEBRA 262', 'S262C', 'QUE')
+                          ON CONFLICT (idpgto) DO NOTHING`);
+
+        // 1) a curva ABC fecha 100% — somando a faixa D do binário novo (produção: 60/20/10/10)
+        const cv90 = await put({ pc_curva_abc_a: 60, pc_curva_abc_b: 20, pc_curva_abc_c: 10, pc_curva_abc_d: 0 });
+        const cv100 = await put({ pc_curva_abc_a: 60, pc_curva_abc_b: 20, pc_curva_abc_c: 10, pc_curva_abc_d: 10 });
+        check('EMPRESAS §262.1 [curva ABC]: a soma das faixas da curva que não fecha 100% é recusada com o texto do legado ("Somatória de curva A B C não totaliza 100%"); 60/20/10 + D 10 (o que a produção grava desde mar/2025) passa',
+          cv90.status === 422 && cv90.code === 'EMPRESA_CURVA_ABC_100' && cv90.message === 'Somatória de curva A B C não totaliza 100%' && cv100.status === 200, { cv90, cv100 });
+
+        // 2) o centro de custo das taxas de cartão é de despesa (PLC.TPCONTA = 1)
+        const txRec = await put({ codplc_taxas_cartao: 99621 });
+        const txNada = await put({ codplc_taxas_cartao: 99999 });
+        const txDesp = await put({ codplc_taxas_cartao: 99622 });
+        check('EMPRESAS §262.2 [taxas de cartão]: o centro de custo das taxas que não é de despesa (TPCONTA ≠ 1) ou não existe é recusado; o de despesa grava',
+          txRec.status === 422 && txRec.code === 'EMPRESA_PLC_TAXAS_NAO_DESPESA' && txRec.message === 'O tipo de conta informado em "Centro de custo (Taxas de cartões)" não é de despesa.'
+          && txNada.status === 422 && txDesp.status === 200, { txRec, txNada, txDesp });
+
+        // 3) cidade + UF conferem com a tabela do IBGE
+        const cdErr = await put({ cidade: 'UBERLANDIA', uf: 'SP' });
+        const cdOk = await put({ cidade: 'UBERLANDIA', uf: 'MG' });
+        const semCidade = await fetch(`${base}/cadastro/empresas`, { method: 'POST', headers: H, body: JSON.stringify({ idempresa: 262, razao_social: 'SEM CIDADE', cnpj: '11444777000161', uf: 'MG', classfiscal: 'LR', pc_curva_abc_a: 100 }) });
+        const semCidadeJ = (await semCidade.json().catch(() => ({}))) as any;
+        check('EMPRESAS §262.3 [cidade × IBGE]: cidade que não existe na UF informada é recusada ("… não conferem com  a tabela do IBGE"), inclusive na inclusão sem cidade; UBERLANDIA/MG grava',
+          cdErr.status === 422 && cdErr.code === 'EMPRESA_CIDADE_IBGE' && cdErr.message === 'Cidade e UF informados para empresa não conferem com  a tabela do IBGE. Verifique'
+          && semCidade.status === 422 && semCidadeJ.code === 'EMPRESA_CIDADE_IBGE' && cdOk.status === 200, { cdErr, cdOk, semCidade: [semCidade.status, semCidadeJ.code] });
+
+        // 4) a forma de pagamento da quebra de caixa: existe, destino QUE, da própria empresa
+        const fpNada = await put({ idpgto: 99999 });
+        const fpCxa = await put({ idpgto: 99621 });
+        const fpOutra = await put({ idpgto: 99622 });
+        const fpOk = await put({ idpgto: 99623 });
+        check('EMPRESAS §262.4 [forma da quebra de caixa]: a forma que não existe, a que não tem destino "Quebra de caixa" e a de outra empresa ("… não pertence à empresa 1.") são recusadas; a QUE da própria empresa grava',
+          fpNada.status === 422 && fpNada.code === 'EMPRESA_FORMA_PGTO_INEXISTENTE' && fpCxa.status === 422 && fpCxa.code === 'EMPRESA_FORMA_PGTO_NAO_QUEBRA'
+          && fpOutra.status === 422 && fpOutra.message === 'A forma de pagamento não pertence à empresa 1.' && fpOk.status === 200, { fpNada, fpCxa, fpOutra, fpOk });
+
+        // 5) a contingência da NFC-e (as datas agora estão na tela, como no legado)
+        const ctInv = await put({ dtcontingencia_inicio_nfc: '2026-09-20T18:00:00-03:00', dtcontingencia_fim_nfc: '2026-09-20T10:00:00-03:00', motivo_contingencia_nfc: 'SEFAZ INOPERANTE' });
+        const ctLonga = await put({ dtcontingencia_inicio_nfc: '2026-09-10T08:00:00-03:00', dtcontingencia_fim_nfc: '2026-09-16T08:00:00-03:00' });
+        const ctMotivo = await put({ dtcontingencia_inicio_nfc: '2026-09-20T15:17:00-03:00', dtcontingencia_fim_nfc: '2026-09-20T23:59:00-03:00', motivo_contingencia_nfc: 'SEM SINAL' });
+        const ctIguais = await put({ dtcontingencia_inicio_nfc: '2026-09-20T00:00:00-03:00', dtcontingencia_fim_nfc: '2026-09-20T00:00:00-03:00', motivo_contingencia_nfc: '' });
+        const ctOk = await put({ dtcontingencia_inicio_nfc: '2026-09-20T15:17:00-03:00', dtcontingencia_fim_nfc: '2026-09-20T23:59:00-03:00', motivo_contingencia_nfc: 'SEFAZ INOPERANTE' });
+        const ctLido = (await pgRg.query(`SELECT to_char(dtcontingencia_inicio_nfc AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD HH24:MI') i FROM empresas WHERE idempresa = 1`)).rows[0] as any;
+        check('EMPRESAS §262.5 [contingência NFC-e]: início depois do fim, período de mais de 5 dias e motivo com menos de 14 caracteres (com início ≠ fim) são recusados com o texto do legado; início = fim dispensa o motivo; o período de 8h42 com "SEFAZ INOPERANTE" (o da produção) grava',
+          ctInv.status === 422 && ctInv.code === 'EMPRESA_CONTINGENCIA_INICIO_APOS_FIM' && ctLonga.status === 422 && ctLonga.message === 'Período de contigência muito Longo.'
+          && ctMotivo.status === 422 && ctMotivo.message === 'O motivo da contigência deve ter mais de 14 caracteres.' && ctIguais.status === 200 && ctOk.status === 200
+          && ctLido?.i === '2026-09-20 15:17', { ctInv, ctLonga, ctMotivo, ctIguais, ctOk, ctLido });
+      } finally {
+        await pgRg.query(`UPDATE empresas SET pc_curva_abc_a = $1, pc_curva_abc_b = $2, pc_curva_abc_c = $3, pc_curva_abc_d = $4, pc_curva_abc_e = $5, codplc_taxas_cartao = $6,
+                            cidade = $7, uf = $8, idpgto = $9, dtcontingencia_inicio_nfc = $10, dtcontingencia_fim_nfc = $11, motivo_contingencia_nfc = $12 WHERE idempresa = 1`,
+          [antes?.pc_curva_abc_a ?? null, antes?.pc_curva_abc_b ?? null, antes?.pc_curva_abc_c ?? null, antes?.pc_curva_abc_d ?? null, antes?.pc_curva_abc_e ?? null,
+           antes?.codplc_taxas_cartao ?? null, antes?.cidade ?? null, antes?.uf ?? null, antes?.idpgto ?? null,
+           antes?.dtcontingencia_inicio_nfc ?? null, antes?.dtcontingencia_fim_nfc ?? null, antes?.motivo_contingencia_nfc ?? null]);
+        await pgRg.query(`DELETE FROM formas_pgto WHERE idpgto IN (99621, 99622, 99623)`);
+        await pgRg.query(`DELETE FROM plc WHERE codplc IN (99621, 99622)`);
+        await pgRg.end();
+      }
+    }
   } finally {
     await pgParcelas?.end();
     await app.close();

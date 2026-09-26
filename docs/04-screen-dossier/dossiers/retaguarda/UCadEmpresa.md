@@ -18,7 +18,7 @@ EMPRESAS é a peça-mãe do `empresaScoped` (todas as 13 telas carimbam/filtram 
 - **CNPJ válido** (`ExisteDocumento(dtCNPJ)`, :2276 / udmCadEmpresa:667) → schema `zCnpj` (DV + normaliza 14 díg).
 - **ALQSIMPLESNAC obrigatória se Simples** (`cmbCLASSFISCALChange`:1438) → superRefine (classfiscal='SN').
 - **MARGEM_CONTRIBUICAO ≥ 0** (`Preenchido(8)`:2383) → superRefine.
-- **Curva ABC = 100%** (`Preenchido(1)`:2289), **CC-taxas-cartão = despesa** (:2373), **Cidade/UF×IBGE** (:1324), **contingência datas+motivo≥14** (:1460/1476) → **adiados** (campos/abas fora do corte-1).
+- **Curva ABC = 100%** (`Preenchido(1)`:2289), **CC-taxas-cartão = despesa** (:2373), **Cidade/UF×IBGE** (:1324), **forma da quebra de caixa** (`FormaPgtoValida`:1262), **contingência datas+motivo≥14** (:1460/1476) → ✅ `validarGravar` do `empresas.crud.ts` (25/09/2026, smoke §262) — ver a seção "Regras do gravar" no fim.
 
 ## 4. Efeitos colaterais
 - Inserir empresa nova no legado **cria estoque/depósito** (`SetaEstoque`) + recarrega `dmPrincipal.Empresa*` → ✅ (25/09/2026) a inclusão gera ESTOQUE e ESTOQUE_DEP zerados de todos os produtos (`empresas.crud.ts`, o `aposGravarTrx` que o CRUD simples passou a ter; smoke "EMPRESA NOVA").
@@ -38,7 +38,7 @@ Repontado de `empresa_fiscal` → `empresas` (consolidação): `nf-fiscal.servic
 - **Contingência** (`AMBIENTE_CONTINGENCIA` + `btnVirarAmbiente`), **contábil/centros-de-custo** (PLC/MASCARAPLC/CC_* — depende de PLANO_CONTAS), **master-details** (contabilista, rede estabelecimento, códigos de ajuste SN/IPI/ICMS-ST), **curvas ABC**, **senhas de operação** (ADMIN/DESC/CANCEL/GAVETA — criptografia JvCaesar/CryptApollo).
 - **Camada de config chave-valor** (`CONFIGURACOES`/`CONFIGURACOES_ESPECIFICAS`) — `AMBIENTE_NF`, `APROVEITAMENTO_CREDITO_ICMSST_NF`, etc. = **epic próprio** (subsistema genérico de config por empresa/usuário/módulo).
 - **NF F2c** (caminho-SN do ICMS-ST + seleção de figura fiscal completa) — esta tela só ENTREGA o dado (CLASSFISCAL/FIGURAFISCAL); o cálculo é fase-2.
-- Validações adiadas (com procedência): curva ABC=100% (:2289), CC-taxas-cartão=despesa (:2373), Cidade/UF×IBGE (:1324), contingência (:1460/1476), efeito cria-estoque na inserção (:1349).
+- ~~Validações adiadas~~ ✅ 25/09/2026: curva ABC, CC-taxas-cartão, Cidade/UF×IBGE, forma da quebra, contingência (§262) e o cria-estoque na inserção (`f11052c`).
 
 ## Riscos / notas
 - **`ambiente` achatado** (legado: `AMBIENTE_NF` na config chave-valor) — divergência consciente; migrar p/ a camada de config quando o subsistema existir. **Mapeamento de valor no cutover:** legado usa `'H'`/`'P'` (Homologação/Produção); o migrado usa o `tpAmb` da SEFAZ `'2'`/`'1'` → mapear **H→2, P→1**.
@@ -53,3 +53,25 @@ O app editava 33 de 273 colunas; as 78 alterações reais de 2025-26 no LOG caí
 no cadastro (seção "Parâmetros"): os CCs das baixas (CCMULTAJUROS, CODPLC_JUROS_PAGOS — que a baixa de A Pagar lê —,
 ACRESCIMOS_PAGOS, DESCONTOS_RECEBIDOS/CONCEDIDOS), o parceiro da empresa, SINCRONIZA_PRECO_NF, as curvas ABC de venda e compra,
 AREAM2/AREAM2_VENDA, TEF_LOJA/TEF_SERVIDOR, JUNTA_COMERCIAL, CODPLC_NF_PDV e IDSITUACAO_NF_PDV. Smoke §212.
+
+## Regras do gravar (25/09/2026) — as que leem o banco
+
+`validarGravar` (`empresas.crud.ts`), na ordem do `btnGravarClick` (:1303-1341); o CNPJ e a margem ficam no schema. Produção conferida
+(só leitura): as 5 empresas passam nas 5 regras. Smoke §262.
+
+| regra | legado | prova na produção |
+|---|---|---|
+| a curva ABC fecha 100% | `Preenchido(1)`: A+B+C = 100 no fonte de 2020 | **o binário novo soma as faixas novas** (D; E vazia nas 5 lojas). Reconstruindo a curva pela LOG: até 24/02/2025 todo gravar tinha A+B+C = 100 (no dia em que a D nasceu, 2 gravações somaram 105 sem bloqueio); de 07/03/2025 em diante, **60 gravações com A+B+C = 90 e A..D = 100** (lojas 1, 2, 52: 60/20/10/10), nenhuma com a soma das faixas ≠ 100. Portar o A+B+C do fonte trancaria 3 das 5 lojas |
+| o CC das taxas de cartão é de despesa | `Preenchido(7)`: PLC.TPCONTA = 1 quando CODPLC_TAXAS_CARTAO > 0 | 4 lojas no 305 "TAXAS DE CARTAO", TPCONTA 1 |
+| cidade + UF × IBGE | `RetornarValores('CIDADES','CIDADE;IDUF')` (:1324) — sem cidade também recusa | UBERLANDIA/MG existe nas CIDADES. O seed ganhou a cidade da empresa 1 (mig 377) |
+| a forma da quebra de caixa | `FormaPgtoValida` (só na alteração): existe, DESTINO QUE, da própria empresa | lojas 1, 2, 51 → formas 41, 209, 173, todas QUE e da loja |
+| contingência da NFC-e | `ContigenciaNFC`: início ≤ fim; ≤ 5 dias; início ≠ fim ⇒ motivo com 14+ caracteres | loja 1: 18/08/2022 15:17-23:59, "SEFAZ INOPERANTE" (16) |
+
+**As datas da contingência entram na tela** (aba NFC-e, data e hora): o `empresa-legado.ts` as tinha como "mantidas pelo PDV", mas o
+legado grava as duas a cada gravar a partir dos campos da tela, e a LOG mostra o "Cadastro de empresas" alterando-as (loja 2, 15/01/2024).
+A curva D e E vão para o lado de A/B/C na seção Parâmetros.
+
+**Aberto (não é desta tela):** a faixa D da curva existe na produção desde 02/2025, mas nenhum relatório do fonte de 2020 a lê (as .fr3
+de curva só carregam A/B/C) e a MOVIMENTACAO_MENSAL.CURVA_ABC só tem A/B/C. O relatório de curva do Apollo (rel 09) classifica com 3
+faixas, como a .fr3: com 60/20/10/10, a faixa (90,100] **herda** a letra de cima. Se o binário novo mostra "D", o fonte não prova.
+

@@ -25,6 +25,15 @@ const AMBIENTE_OPCOES = [
   { value: '2', label: 'Homologação' },
 ];
 
+/** ISO do servidor → valor do <input type="datetime-local"> no fuso do navegador */
+const paraLocal = (iso: unknown) => {
+  if (!iso) return '';
+  const d = new Date(String(iso instanceof Date ? iso.toISOString() : iso));
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (x: number) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
 /** as abas do legado com os campos que a tela não tinha (`empresa-legado.ts`), na ordem das abas do UCadEmpresa */
 const ABAS_LEGADO = Array.from(new Set(EMPRESA_CAMPOS_LEGADO.map((c) => c.aba)));
 
@@ -50,6 +59,17 @@ function CamposLegado({ form, editavel }: { form: UseFormReturn<CriarEmpresaDto>
                     return <SelectField label={c.rotulo} options={(c.opcoes ?? []).map(([value, label]) => ({ value, label }))} value={field.value != null && field.value !== '' ? String(field.value) : undefined} onChange={(v) => field.onChange(v || undefined)} placeholder="—" disabled={!editavel} />;
                   }
                   if (c.tipo === 'data') return <DateField label={c.rotulo} value={field.value ? String(field.value).slice(0, 10) : undefined} onChange={field.onChange} disabled={!editavel} />;
+                  if (c.tipo === 'datahora') {
+                    // datetime-local é hora de parede sem fuso: mostra no fuso do navegador e grava ISO com offset
+                    return (
+                      <label className="flex flex-col gap-gp-2xs text-body-sm">
+                        <span className="text-fg-muted">{c.rotulo}</span>
+                        <input type="datetime-local" disabled={!editavel} value={paraLocal(field.value)}
+                          className="rounded-radius-base border border-border bg-bg-default px-pad-sm py-pad-xs"
+                          onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value).toISOString() : undefined)} />
+                      </label>
+                    );
+                  }
                   return (
                     <Field label={c.rotulo} disabled={!editavel} maxLength={c.max} type={c.segredo ? 'password' : undefined}
                       placeholder={c.segredo ? 'não exibida — digite para trocar' : undefined} value={(field.value as string | undefined) ?? ''}
@@ -205,6 +225,8 @@ export function EmpresasCadMaster() {
                 <NumCampo form={form} name="pc_curva_abc_a" label="Curva ABC venda — A (%)" />
                 <NumCampo form={form} name="pc_curva_abc_b" label="Curva ABC venda — B (%)" />
                 <NumCampo form={form} name="pc_curva_abc_c" label="Curva ABC venda — C (%)" />
+                <NumCampo form={form} name="pc_curva_abc_d" label="Curva ABC venda — D (%)" />
+                <NumCampo form={form} name="pc_curva_abc_e" label="Curva ABC venda — E (%)" />
                 <NumCampo form={form} name="pc_curva_comp_a" label="Curva ABC compra — A (%)" />
                 <NumCampo form={form} name="pc_curva_comp_b" label="Curva ABC compra — B (%)" />
                 <NumCampo form={form} name="pc_curva_comp_c" label="Curva ABC compra — C (%)" />

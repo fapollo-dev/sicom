@@ -626,9 +626,10 @@ describe('8ª tela — NCM (CHAVE NATURAL + data + memo via engine; hard-delete)
 describe('9ª tela — CIDADES + LOOKUP/FK em Bairros (FK real Bairro→Cidades)', () => {
   const eng = () => new CrudEngineService(dbp);
 
-  it('CIDADES: seed 4 (chave natural, sem auditoria); pesquisa por nome', async () => {
+  it('CIDADES: seed 5 (chave natural, sem auditoria); pesquisa por nome', async () => {
+    // 4 da mig 013 + UBERLANDIA/MG (mig 377 — a cidade da empresa do seed, conferida contra o IBGE no gravar da empresa)
     const lista = (await withTenant(() => eng().list(cidadeCrudConfig, { orderBy: 'cidade', orderDir: 'asc' }))) as any[];
-    expect(lista.length).toBe(4);
+    expect(lista.length).toBe(5);
     const r = (await withTenant(() => eng().list(cidadeCrudConfig, { campo: 'cidade', operador: 'contem', valor: 'paulo' }))) as any[];
     expect(r.map((c) => c.idcidade)).toContain(3550308);
   });
