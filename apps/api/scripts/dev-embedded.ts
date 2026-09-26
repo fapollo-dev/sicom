@@ -1,3 +1,4 @@
+import '../src/shared/tempo/fuso-do-processo';
 import 'reflect-metadata';
 import { Pool } from 'pg';
 import { NestFactory } from '@nestjs/core';

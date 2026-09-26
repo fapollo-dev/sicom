@@ -63,6 +63,10 @@ export class DatabaseProvider implements OnModuleDestroy {
         password: this.conn.password,
         database: this.conn.databasePrefix + tenantId,
         max: 10,
+        // o fuso da SESSÃO é o da loja: `current_date`, `::date` de timestamptz e `to_char` respondem no dia da loja, qualquer que seja o
+        // fuso do servidor (num Postgres em UTC, das 21h à meia-noite o `current_date` já seria amanhã — o atraso, o vencimento e o período
+        // pulariam um dia). O legado grava a hora local nas colunas DATE/TIMESTAMP; `APOLLO_DB_TIMEZONE` troca, se um dia houver loja em outro fuso.
+        options: `-c TimeZone=${process.env.APOLLO_DB_TIMEZONE ?? 'America/Sao_Paulo'}`,
       });
       // a conexão OCIOSA que o servidor derruba (reinício, failover, "terminating connection due to administrator command") chega como
       // 'error' no pool — sem ouvinte, o Node derruba o processo inteiro; o pg-pool já descarta o cliente e a próxima consulta reconecta

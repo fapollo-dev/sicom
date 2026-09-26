@@ -9,6 +9,7 @@
  * ⚠️ dívida declarada: ainda há cenários fixos em 2026-11 e 2026-12; eles quebram do mesmo jeito quando o
  * relógio chegar lá, e devem ser deslocados junto com os seus `DELETE` de limpeza.
  */
+import '../src/shared/tempo/fuso-do-processo';
 import 'reflect-metadata';
 import { Pool } from 'pg';
 import { NestFactory } from '@nestjs/core';
