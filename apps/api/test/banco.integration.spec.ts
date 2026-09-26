@@ -879,7 +879,9 @@ describe('14ª — PRODUTO núcleo (MESTRE-DETALHE: produtos + codauxiliar; GLOB
     expect(agg.descricao).toBe('PRODUTO TESTE INTEGRACAO');
     expect(agg.codfor).toBe(2);
     expect(agg.codauxiliares.length).toBe(1);
-    expect(agg.codauxiliares[0].codbarra).toBe('7896000000123');
+    // CODAUXILIAR.CODBARRA é o código PRINCIPAL do produto (o gatilho UPDATE_CODAUXILIAR; 1.147 de 1.147 iguais na produção): o que o
+    // cliente mandou na linha não fica
+    expect(agg.codauxiliares[0].codbarra).toBe('7891000053508');
     expect(agg.usultalteracao).toBe(7); // carimbo de auditoria no master
   });
 
