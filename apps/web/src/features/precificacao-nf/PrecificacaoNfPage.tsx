@@ -9,11 +9,12 @@ import { Button } from '../../shared/ui/Button';
 import { useMensagem } from '../../shared/mensagem';
 import { apiHeaders, handle401 } from '../../shared/auth/session';
 import { hojeNaLoja } from '../../shared/tempo';
+import { useConfirmarSaida } from '../../shared/navegacao/useConfirmarSaida';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
 interface Item {
-  codnfprod: number; idproduto: number; codnf: number; nronf: string; dtemissao: string;
+  codnfprod: number; idproduto: number; codnf: number; nronf: string; dtemissao: string; vrcustocsi_nota?: number | null;
   descricao: string; codbarra: string; codprodnota: string; quantidade: number; fatorembal: number;
   vrcusto: number; custo_rep: number; custo_csi: number; ultcusto: number | null;
   ult_custo_rep: number | null; vrvenda: number; preco_venda: number; pmz: number; vrvendasug: number;
@@ -74,6 +75,9 @@ export function PrecificacaoNfPage() {
   const [res, setRes] = useState<Resultado | null>(null);
   /** o que o operador digitou, por item: preço e markup andam juntos. */
   const [edit, setEdit] = useState<Record<number, { vrvenda: number; markup: number }>>({});
+  // o `TemEdicao` do legado: digitou preço ou markup, sair pergunta ("Deseja realmente sair da tela?"); um novo Visualizar zera
+  const [temEdicao, setTemEdicao] = useState(false);
+  useConfirmarSaida(temEdicao);
   const [sel, setSel] = useState<Set<number>>(new Set());
   /**
    * MULTI-EMPRESA (`GetMultiEmpresa`, `:1041`): o legado aplica o mesmo preço em todas as lojas marcadas, de
@@ -100,6 +104,7 @@ export function PrecificacaoNfPage() {
       const j = (await r.json()) as Resultado;
       setRes(j); setSel(new Set());
       // parte de onde o sistema sugeriu; se não houver sugestão, do preço que está valendo
+      setTemEdicao(false);
       setEdit(Object.fromEntries(j.linhas.map((l) => {
         const v = Number(l.vrvendasug) > 0 ? Number(l.vrvendasug) : Number(l.vrvenda);
         const c = j.tipoCusto === 'REPOSICAO' ? Number(l.custo_rep)
@@ -126,12 +131,14 @@ export function PrecificacaoNfPage() {
 
   const mudarPreco = (l: Item, txt: string) => {
     const v = Number(txt.replace(',', '.')) || 0;
+    setTemEdicao(true);
     setEdit((e) => ({ ...e, [l.codnfprod]: { vrvenda: v, markup: pctDe(v, custoDoModo(l)) } }));
   };
   const mudarMarkup = (l: Item, txt: string) => {
     const m = Number(txt.replace(',', '.')) || 0;
     const c = custoDoModo(l);
     // CalcularVenda: venda = custo + custo × markup%/100
+    setTemEdicao(true);
     setEdit((e) => ({ ...e, [l.codnfprod]: { vrvenda: r2(c + (c * m) / 100), markup: m } }));
   };
 
@@ -210,9 +217,13 @@ export function PrecificacaoNfPage() {
       ),
     },
     { field: 'nronf', headerName: 'NF', type: 'text', width: 90, isPrimary: true },
+    // as colunas da grade do legado que faltavam: a loja (LJ), o item da nota (CODNFPROD) e o CSI gravado na nota
+    { field: 'idempresa', headerName: 'LJ', type: 'text', width: 50 },
+    { field: 'codnfprod', headerName: 'Item NF', type: 'text', width: 90 },
     { field: 'descricao', headerName: 'Produto', type: 'text' },
     { field: 'quantidade', headerName: 'Qtde', type: 'text', width: 90, valueGetter: (l) => nfmt(l.quantidade, 0) },
     { field: 'vrcusto', headerName: 'Custo un.', type: 'text', width: 110, valueGetter: (l) => moeda(l.vrcusto) },
+    { field: 'vrcustocsi_nota', headerName: 'CSI da nota', type: 'text', width: 110, valueGetter: (l) => (l.vrcustocsi_nota == null ? '—' : moeda(l.vrcustocsi_nota)) },
     { field: 'ult_custo_rep', headerName: 'Últ. custo', type: 'text', width: 110, valueGetter: (l) => (l.ult_custo_rep == null ? '—' : moeda(l.ult_custo_rep)) },
     { field: 'vrvenda', headerName: 'Venda atual', type: 'text', width: 115, valueGetter: (l) => moeda(l.vrvenda) },
     { field: 'vrvendasug', headerName: 'Sugerido', type: 'text', width: 110, valueGetter: (l) => moeda(l.vrvendasug) },

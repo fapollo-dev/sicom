@@ -123,6 +123,8 @@ export class PrecificacaoNfService {
       WITH item AS (
         SELECT nf.idempresa, nf.codnf, nf.nronf, to_char(nf.dtemissao, 'YYYY-MM-DD') AS dtemissao,
                p.codnfprod, p.codproduto AS idproduto, p.codprodnota, pr.descricao, pr.codbarra,
+               -- o CSI gravado no ITEM da nota (a grade do legado mostra este, ao lado do calculado)
+               p.vrcustocsi AS vrcustocsi_nota,
                -- a quantidade em unidades de VENDA (a nota traz a da embalagem)
                (p.quantidade * coalesce(nullif(p.fatorembal, 0), 1)) AS quantidade,
                coalesce(nullif(p.fatorembal, 0), 1) AS fatorembal,

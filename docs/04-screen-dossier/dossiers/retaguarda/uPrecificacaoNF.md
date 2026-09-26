@@ -223,14 +223,15 @@ diz a mesma coisa sem esconder o motivo atrás de uma cor.
 proposto não pode ficar abaixo do preço de margem zero. Virou coluna, e o que está abaixo aparece em
 destaque.
 
-### 8.5.1 O que ainda falta
+### 8.5.1 O que faltava (conferido e fechado em 25/09/2026)
 
-- o **relatório impresso** `Relatorios\PrecificacaoNF.fr3`, agrupado por empresa com média de margem no
-  rodapé do grupo (`btnImprimir:364`) — aqui a grade imprime em paisagem;
-- **salvar/carregar o layout da grade** por operador (`popgrid`, `:1113`);
-- **Visualizar Bonificação/Verbas**;
-- as colunas `VRCUSTOCSI` **da nota** (temos a calculada), `LJ` e `CODNFPROD` na grade;
-- o **aviso de alteração pendente** ao fechar (`TemEdicao`/`FormCloseQuery`, `:676`).
+- ✅ **salvar/carregar o layout da grade** por operador — a grade usa o layout por operador (mig 219);
+- ✅ **Visualizar Bonificação/Verbas** — é o checkbox `cbBonificao`, o "Incluir bonificação" do Apollo;
+- ✅ as colunas **LJ**, **Item NF** (`CODNFPROD`) e **CSI da nota** (`NF_PROD.VRCUSTOCSI`, ao lado do calculado);
+- ✅ o **aviso de alteração pendente** ao sair (`TemEdicao`/`FormCloseQuery`, `:676`: "Deseja realmente sair da tela?") — hook
+  compartilhado `useConfirmarSaida` (navegação do app e fechar a aba);
+- o **relatório impresso** `PrecificacaoNF.fr3` agrupa por empresa com a média da margem no rodapé — a tela do Apollo é de uma loja
+  (a da sessão), então é um grupo só; a grade imprime em paisagem.
 
 ### 8.6 O que grava, e está fiel
 

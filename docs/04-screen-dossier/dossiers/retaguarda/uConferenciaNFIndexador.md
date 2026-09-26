@@ -77,7 +77,7 @@ Aqui as divisões usam `NULLIF`: o item aparece, com o encargo em zero, e o conf
 
 **Ainda falta** (função do legado sem equivalente aqui):
 
-- **salvar/carregar o layout da grade** por operador (`[F8]`/`[F9]`);
+- ✅ **salvar/carregar o layout da grade** por operador (`[F8]`/`[F9]`) — conferido em 25/09/2026: a grade usa o layout por operador (mig 219);
 - a coluna com o **XML da nota** — de propósito, pelo motivo do §2 (716 MB).
 
 ✅ **exportar a grade (`[F10]`)** foi implementado: leva o que está na tela, já filtrado, para CSV com `;` e
