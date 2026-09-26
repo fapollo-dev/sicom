@@ -53,5 +53,7 @@ o fator, entrada e saída não se comparam — o mesmo cuidado da Precificação
 
 **Resolvido de outro jeito:** os relatórios `.fr3` — a grade imprime em paisagem e exporta em CSV.
 
-**Ainda falta:** os rádios **Custo** (médio × reposição) e **Venda** (média × valor atual), que trocam a base
-das colunas de média do comparativo; hoje usamos sempre o realizado do período.
+**✅ Os rádios Custo e Venda (25/09/2026):** no legado eles só passam `CCusto`/`CVenda` ao `.fr3` do comparativo, cujo
+script troca a coluna: custo **médio** do período × custo de **reposição** atual (`VRCUSTOREP` da linha de preço);
+venda **média** × **valor** de venda atual (`VRVENDA`). A API já devolvia os quatro; a tela ganhou os rádios, que
+trocam a coluna da grade (e, com ela, a impressão e o CSV).

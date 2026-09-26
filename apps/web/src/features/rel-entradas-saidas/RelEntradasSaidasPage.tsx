@@ -43,6 +43,10 @@ export function RelEntradasSaidasPage() {
   });
   const [res, setRes] = useState<Resultado | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  // os rádios do legado (rgCusto/rgVenda, o script do Rel_EntradasESaidas_Comparativo.fr3): a coluna de custo mostra o custo MÉDIO do
+  // período ou o de REPOSIÇÃO atual; a de venda, a venda MÉDIA ou o valor de venda ATUAL
+  const [custo, setCusto] = useState<'medio' | 'reposicao'>('medio');
+  const [venda, setVenda] = useState<'media' | 'atual'>('media');
 
   const gerar = async () => {
     setOcupado(true);
@@ -79,17 +83,21 @@ export function RelEntradasSaidasPage() {
       { field: 'descricao', headerName: 'Produto', type: 'text' },
       { field: 'qtde_entrada', headerName: 'Qtde entrada', type: 'text', width: 120, valueGetter: (l) => nfmt(l.qtde_entrada) },
       { field: 'valor_entrada', headerName: 'Valor entrada', type: 'text', width: 140, valueGetter: (l) => moeda(l.valor_entrada) },
-      { field: 'media_custo', headerName: 'Custo médio', type: 'text', width: 120, valueGetter: (l) => moeda(l.media_custo) },
+      custo === 'medio'
+        ? { field: 'media_custo', headerName: 'Custo médio', type: 'text', width: 120, valueGetter: (l) => moeda(l.media_custo) }
+        : { field: 'vrcustorep', headerName: 'Custo rep.', type: 'text', width: 120, valueGetter: (l) => moeda(l.vrcustorep) },
       { field: 'qtde_saida', headerName: 'Qtde saída', type: 'text', width: 110, valueGetter: (l) => nfmt(l.qtde_saida) },
       { field: 'valor_saida', headerName: 'Valor saída', type: 'text', width: 140, valueGetter: (l) => moeda(l.valor_saida) },
-      { field: 'media_venda', headerName: 'Venda média', type: 'text', width: 120, valueGetter: (l) => moeda(l.media_venda) },
+      venda === 'media'
+        ? { field: 'media_venda', headerName: 'Venda média', type: 'text', width: 120, valueGetter: (l) => moeda(l.media_venda) }
+        : { field: 'vrvenda', headerName: 'Venda valor', type: 'text', width: 120, valueGetter: (l) => moeda(l.vrvenda) },
       { field: 'qtde_dif', headerName: 'Dif. qtde', type: 'text', width: 100, valueGetter: (l) => nfmt(l.qtde_dif) },
       { field: 'valor_dif', headerName: 'Dif. valor', type: 'text', width: 130, valueGetter: (l) => moeda(l.valor_dif) },
       { field: 'qtde_estoque_loja', headerName: 'Estoque loja', type: 'text', width: 120, valueGetter: (l) => nfmt(l.qtde_estoque_loja) },
       { field: 'vaberto', headerName: 'A entrar', type: 'text', width: 100, valueGetter: (l) => nfmt(l.vaberto) },
       { field: 'vrvenda', headerName: 'Preço atual', type: 'text', width: 120, valueGetter: (l) => moeda(l.vrvenda) },
     ];
-  }, [res?.tipo]);
+  }, [res?.tipo, custo, venda]);
 
   return (
     <div className="flex flex-col gap-gp-md">
@@ -111,6 +119,18 @@ export function RelEntradasSaidasPage() {
           <div className="w-32"><Field label="G&rupo" value={f.codgrupo} onChange={(e) => setF({ ...f, codgrupo: e.target.value })} /></div>
           <div className="w-32"><Field label="&Fornecedor" value={f.codfor} onChange={(e) => setF({ ...f, codfor: e.target.value })} /></div>
           <div className="w-52"><Field label="Pr&oduto ou cód. barra" value={f.produto} onChange={(e) => setF({ ...f, produto: e.target.value })} /></div>
+          {f.tipo === 'COMPARATIVO' && (
+            <div className="flex flex-col gap-gp-xs text-body-sm">
+              <span className="flex items-center gap-gp-sm">Custo:
+                <label className="flex items-center gap-gp-xs"><input type="radio" name="es-custo" checked={custo === 'medio'} onChange={() => setCusto('medio')} /> Médio</label>
+                <label className="flex items-center gap-gp-xs"><input type="radio" name="es-custo" checked={custo === 'reposicao'} onChange={() => setCusto('reposicao')} /> Reposição</label>
+              </span>
+              <span className="flex items-center gap-gp-sm">Venda:
+                <label className="flex items-center gap-gp-xs"><input type="radio" name="es-venda" checked={venda === 'media'} onChange={() => setVenda('media')} /> Média</label>
+                <label className="flex items-center gap-gp-xs"><input type="radio" name="es-venda" checked={venda === 'atual'} onChange={() => setVenda('atual')} /> Valor atual</label>
+              </span>
+            </div>
+          )}
           <Button label="&Gerar" disabled={ocupado} onClick={() => void gerar()} />
           <Button label="&Imprimir" variant="soft" disabled={!res} onClick={() => {
             if (!res) return;
