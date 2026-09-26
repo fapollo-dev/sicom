@@ -238,7 +238,8 @@ o **escritor** de `alterado` é a digitação na grade (lição: coluna nova de 
      config: a `USUARIOS_ZERAM_ESTOQUE_INVENTARIO` é do inventário ROTATIVO (`uInvRotativoGrid.pas`);
    - "Atualizar Custo a partir do Cadastro" toca só as linhas selecionadas, com a regra FISCAL/fallback; produto
      sem `multi_preco` na empresa é ignorado (o `Locate` do legado falha e ele segue).
-   Seis checks no smoke (§83d). **Pendência declarada de front**: o "Atualizar Custo" ficou só na API porque a
-   grade do Apollo ainda não tem marcação por linha (o `SELECIONAR` do legado); entra quando a grade ganhar isso.
+   Seis checks no smoke (§83d). ✅ **(25/09/2026)** a folha ganhou a marcação por linha (o `SELECIONAR` do legado, com "marcar
+   todas") e o botão **Atualizar custo do cadastro**, que manda só as marcadas (a permissão
+   `ATUALIZACUSTODOINVENTRIOCOMOPRODUTO1` segue na API).
 4. fora do escopo deste épico: "Restituição de tributação" (fiscal) e o CRUD `FRMCADBALANCO`, se o usuário
    preferir manter a foto só como subproduto do inventário.

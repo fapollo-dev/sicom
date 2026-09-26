@@ -11,7 +11,7 @@ import {
   listarInventarios, obterInventario, criarInventario, atualizarInventario,
   importarProdutosInventario, diferencasInventario, aplicarInventario,
   listarBalancos, gerarBalanco, importarBalanco, importarBalancoSincronizar, sincronizarInventario,
-  relatorioDiferencaBalanco, zerarQtdeInventario, type DiferencaBalancoLinha,
+  relatorioDiferencaBalanco, zerarQtdeInventario, atualizarCustoInventario, type DiferencaBalancoLinha,
   type InventarioLivro, type InventarioDetalhe, type BalancoLinha,
 } from './inventarioApi';
 
@@ -39,6 +39,8 @@ export function InventarioPage() {
   const [balancoSel, setBalancoSel] = useState('');
   const [dtSinc, setDtSinc] = useState('');
   const [soNegativas, setSoNegativas] = useState(false);
+  // o SELECIONAR do legado: as linhas marcadas recebem o "Atualizar Custo do Inventário à partir do Cadastro"
+  const [marcadas, setMarcadas] = useState<Set<number>>(new Set());
   const [relDif, setRelDif] = useState<{ itens: DiferencaBalancoLinha[]; total: number; aviso?: string } | null>(null);
 
   const carregarLista = useCallback(async () => {
@@ -251,6 +253,22 @@ export function InventarioPage() {
     }
   };
 
+  /** "Atualizar Custo do Inventário à partir do Cadastro dos Produtos" — só as linhas marcadas (o SELECIONAR do legado). */
+  const atualizarCusto = async () => {
+    if (!sel || busy || marcadas.size === 0) return;
+    setBusy(true);
+    try {
+      const r = await atualizarCustoInventario(sel.codinvent, { idprodutos: [...marcadas] });
+      mensagem.sucesso(`Custo do cadastro aplicado em ${r.atualizados} linha(s).`);
+      setMarcadas(new Set());
+      await abrir(sel.codinvent);
+    } catch (e) {
+      mensagem.erro(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   /** ZERAR QTDE NA GRADE — com o filtro de negativas, é o check "filtra negativos" do legado. */
   const zerarQtdes = async () => {
     if (!sel || busy) return;
@@ -286,6 +304,7 @@ export function InventarioPage() {
           <CheckboxField label="Só n&egativas (zerar)" value={soNegativas ? 'S' : 'N'} onChange={(v) => setSoNegativas(v === 'S')} />
           <Button label="&Zerar qtdes" variant="ghost" disabled={busy || !itens.length} onClick={() => void zerarQtdes()} />
           <Button label="&Relatório de diferença" variant="ghost" disabled={busy || !itens.length} onClick={() => void verRelatorioDiferenca()} />
+          <Button label={`Atualizar &custo do cadastro${marcadas.size ? ` (${marcadas.size})` : ''}`} variant="ghost" disabled={busy || marcadas.size === 0} onClick={() => void atualizarCusto()} />
           <Button label="&Voltar" variant="ghost" onClick={() => { setSel(null); void carregarLista(); }} />
         </div>
         {/* BALANÇO (a foto de estoque) — os dois comandos do popup do legado que giram nela */}
@@ -317,6 +336,10 @@ export function InventarioPage() {
           <table className="w-full text-body-sm">
             <thead>
               <tr className="text-left text-fg-muted">
+                <th className="p-pad-xs">
+                  <input type="checkbox" aria-label="Marcar todas as linhas" checked={itens.length > 0 && marcadas.size === itens.length}
+                    onChange={(e) => setMarcadas(e.target.checked ? new Set(itens.map((i) => i.idproduto)) : new Set())} />
+                </th>
                 <th className="p-pad-xs">Produto</th>
                 <th className="p-pad-xs">Descrição</th>
                 <th className="p-pad-xs text-right">Contado</th>
@@ -329,6 +352,10 @@ export function InventarioPage() {
                 const d = difs?.[it.idproduto];
                 return (
                   <tr key={it.idproduto} className="border-t border-border">
+                    <td className="p-pad-xs">
+                      <input type="checkbox" aria-label={`Marcar o produto ${it.idproduto}`} checked={marcadas.has(it.idproduto)}
+                        onChange={() => setMarcadas((m) => { const n = new Set(m); if (n.has(it.idproduto)) n.delete(it.idproduto); else n.add(it.idproduto); return n; })} />
+                    </td>
                     <td className="p-pad-xs tabular-nums">{it.idproduto}</td>
                     <td className="p-pad-xs">{it.descricao ?? '—'}</td>
                     <td className="p-pad-xs w-32">
@@ -340,7 +367,7 @@ export function InventarioPage() {
                 );
               })}
               {!itens.length && (
-                <tr><td colSpan={difs ? 5 : 3} className="p-pad-md text-fg-muted">Sem itens. Use «Importar produtos» para popular a folha.</td></tr>
+                <tr><td colSpan={difs ? 6 : 4} className="p-pad-md text-fg-muted">Sem itens. Use «Importar produtos» para popular a folha.</td></tr>
               )}
             </tbody>
           </table>

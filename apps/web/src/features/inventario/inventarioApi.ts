@@ -119,8 +119,7 @@ export function relatorioDiferencaBalanco(id: number, body: { alteradas?: Array<
 export function zerarQtdeInventario(id: number, body: { somenteNegativos?: boolean }): Promise<{ codinvent: number; zerados: number }> {
   return req(`/cadastro/inventario/${id}/zerar-qtde`, { method: 'POST', body: JSON.stringify(body) });
 }
-/** POST cadastro/inventario/:id/atualizar-custo — custo do cadastro nas linhas selecionadas (front pendente: a
- * grade ainda não tem marcação por linha, que é o `SELECIONAR` do legado). */
+/** POST cadastro/inventario/:id/atualizar-custo — custo do cadastro nas linhas marcadas (o `SELECIONAR` do legado). */
 export function atualizarCustoInventario(id: number, body: { idprodutos: number[] }): Promise<{ codinvent: number; atualizados: number }> {
   return req(`/cadastro/inventario/${id}/atualizar-custo`, { method: 'POST', body: JSON.stringify(body) });
 }
