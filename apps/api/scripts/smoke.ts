@@ -12577,6 +12577,20 @@ async function main() {
           && !(ate3.linhas ?? []).some((l: any) => Number(l.idproduto) === pA),
           { soVendidos: soVendidos.totais?.itens, ate3dias: ate3.totais?.itens });
 
+        // o GET_TROCAS_PRODUTO (uDDE.pas:196-203): o que está em troca aberta sai do estoque do produto SEM venda (40 − 6 = 34) e não do
+        // vendido (o A segue 100 com 7 em troca); a troca fechada não conta
+        const trc = Number((await pgDd.query(`INSERT INTO troca (idempresa, codparceiro) VALUES (1, 2) RETURNING codtroca`)).rows[0].codtroca);
+        await pgDd.query(`ALTER TABLE itens_troca DISABLE TRIGGER USER`).catch(() => undefined);
+        await pgDd.query(`INSERT INTO itens_troca (codtroca, idempresa, idproduto, qtde, estoqueretirada, fechado) VALUES
+          ($1,1,$2,6,'LOJA','N'), ($1,1,$2,9,'LOJA','S'), ($1,1,$3,7,'LOJA','N')`, [trc, pD, pA]);
+        await pgDd.query(`ALTER TABLE itens_troca ENABLE TRIGGER USER`).catch(() => undefined);
+        const jt = (await (await fetch(`${base}/${DD}?dias=10&coddpto=9971`, { headers: H })).json().catch(() => ({}))) as any;
+        const dT = (jt.linhas ?? []).find((l: any) => Number(l.idproduto) === pD);
+        const aT = (jt.linhas ?? []).find((l: any) => Number(l.idproduto) === pA);
+        check('DIAS DE ESTOQUE §112.5 [o que está em troca — GET_TROCAS_PRODUTO]: o produto sem venda tem o estoque descontado da troca aberta (40 − 6 = 34; a fechada de 9 não conta) e o valor parado acompanha (34 × 2,00); o vendido não desconta (100, como no ramo dos vendidos do fonte)',
+          Math.abs(Number(dT?.qtde_estoque) - 34) < 0.001 && Math.abs(Number(dT?.valor_parado) - 68) < 0.005 && Math.abs(Number(aT?.qtde_estoque) - 100) < 0.001,
+          { dT: dT && [dT.qtde_estoque, dT.valor_parado], aT: aT?.qtde_estoque });
+        await pgDd.query(`DELETE FROM troca WHERE codtroca = $1`, [trc]);
         await pgDd.query(`DELETE FROM movimentacao_diaria WHERE codproduto = ANY($1)`, [[pA, pB, pC, pD]]);
         await pgDd.query(`DELETE FROM multi_preco WHERE idproduto = ANY($1)`, [[pA, pB, pC, pD]]);
         await pgDd.query(`DELETE FROM estoque WHERE idproduto = ANY($1)`, [[pA, pB, pC, pD]]);

@@ -418,6 +418,7 @@ export async function startEmbeddedPg(): Promise<EmbeddedPostgres> {
   await pool.query(sql('373_receita_prod_hist.sql'));
   await pool.query(sql('374_valida_agrupamento.sql'));
   await pool.query(sql('375_checks_do_oracle.sql'));
+  await pool.query(sql('376_get_trocas_produto.sql'));
   await pool.end();
   return pg;
 }

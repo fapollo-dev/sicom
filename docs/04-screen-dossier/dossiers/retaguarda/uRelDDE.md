@@ -68,6 +68,7 @@ quem usar. (Ver `uProdutosRel.md` §2: escolher só a gêmea daria tudo zero.)
 
 **Resolvido de outro jeito:** a exportação para Excel do legado (`NomeArquivoExcel`) é o CSV da grade.
 
-**Ainda falta:** o `GET_TROCAS_PRODUTO`, que o legado subtrai do estoque **só no ramo dos não vendidos** e
-não no dos vendidos — uma inconsistência do próprio fonte que preferi não replicar sem entender o porquê; e
-os níveis expandidos da impressão.
+**✅ O `GET_TROCAS_PRODUTO` (25/09/2026, mig 376):** a view do legado (lida da produção: 102 produtos × loja, 515 unidades)
+virou view no Apollo — itens de troca não fechados + itens de devolução ao fornecedor com PRODUTO_TROCA 'S' ainda sem nota —
+e o DDE a desconta do estoque **só dos produtos sem venda no período**, como o fonte (`uDDE.pas:196-203`; o ramo dos vendidos
+não desconta — fiel, com o valor parado acompanhando). Smoke §112.5. Os níveis expandidos da impressão seguem na grade.

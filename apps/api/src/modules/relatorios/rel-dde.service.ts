@@ -93,7 +93,10 @@ export class RelDdeService {
            AND m.data >= current_date - ${f.dias}::int
          GROUP BY m.codproduto
       )
-      SELECT ep.idproduto, ep.codbarra, ep.descricao, ep.qtde_estoque,
+      SELECT ep.idproduto, ep.codbarra, ep.descricao,
+             -- o produto SEM venda no período tem o estoque descontado do que está em troca (GET_TROCAS_PRODUTO, uDDE.pas:196-203) — só ele,
+             -- como no fonte (o ramo dos vendidos não desconta)
+             CASE WHEN coalesce(v.qtde_vendida, 0) > 0 THEN ep.qtde_estoque ELSE ep.qtde_estoque - coalesce(tr.quantidade, 0) END AS qtde_estoque,
              coalesce(v.qtde_vendida, 0) AS qtde_vendida,
              -- a média diária: é ela que dá sentido à cobertura
              CASE WHEN coalesce(v.qtde_vendida, 0) > 0
@@ -108,9 +111,12 @@ export class RelDdeService {
              d.descricao AS departamento, g.descricao AS grupo,
              sg.descricao AS subgrupo, sc.descricao AS secao,
              coalesce(mp.vrcusto, 0) AS vrcusto, coalesce(mp.vrvenda, 0) AS vrvenda,
-             round((ep.qtde_estoque * coalesce(mp.vrcusto, 0))::numeric, 2) AS valor_parado
+             round(((CASE WHEN coalesce(v.qtde_vendida, 0) > 0 THEN ep.qtde_estoque ELSE ep.qtde_estoque - coalesce(tr.quantidade, 0) END)
+                    * coalesce(mp.vrcusto, 0))::numeric, 2) AS valor_parado
         FROM estoque_prod ep
         LEFT JOIN vendido v        ON v.codproduto = ep.idproduto
+        LEFT JOIN (SELECT codigo, empresa, sum(quantidade) AS quantidade FROM get_trocas_produto GROUP BY codigo, empresa) tr
+               ON tr.codigo = ep.idproduto AND tr.empresa = ep.idempresa
         LEFT JOIN multi_preco mp   ON mp.idproduto = ep.idproduto AND mp.idempresa = ep.idempresa
         LEFT JOIN familias_prod d  ON d.codfamilia = ep.coddpto     AND d.tipo = 'D'
         LEFT JOIN familias_prod g  ON g.codfamilia = ep.codgrupo    AND g.tipo = 'G'
