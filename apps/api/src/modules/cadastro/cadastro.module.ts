@@ -85,6 +85,7 @@ import { NfAnaliseService } from './nf-analise.service';
 import { CartaoBaixaController } from './cartao-baixa.controller';
 import { CartaoBaixaService } from './cartao-baixa.service';
 import { AgendaVigenciaAgendador } from './agenda-vigencia.agendador';
+import { RotinasDoBancoAgendador } from './rotinas-do-banco.agendador';
 import { ConciliacaoBancariaController } from './conciliacao-bancaria.controller';
 import { ConciliacaoBancariaService } from './conciliacao-bancaria.service';
 import { TrocaAggregateController } from './troca.aggregate';
@@ -301,7 +302,7 @@ import { PrecificacaoModule } from '../precificacao/precificacao.module';
     ExportaBalancaService,
     AjustePrecosService,
     TrocaService,
-    CartaoBaixaService, AgendaVigenciaAgendador, NfAnaliseService, LancamentosContabeisService, PromocaoAcumulativaService, ConferenciaNfIndexadorService, ConfigConciliadorService, MultAtualizacaoService, DreEstruturaService, AgendaLimitacaoService, ConfPlanoContasService, IndexadorTributarioService, GradeLayoutService,
+    CartaoBaixaService, AgendaVigenciaAgendador, RotinasDoBancoAgendador, NfAnaliseService, LancamentosContabeisService, PromocaoAcumulativaService, ConferenciaNfIndexadorService, ConfigConciliadorService, MultAtualizacaoService, DreEstruturaService, AgendaLimitacaoService, ConfPlanoContasService, IndexadorTributarioService, GradeLayoutService,
     ConciliacaoBancariaService,
     AgendaPromocaoService,
     PerfilRelacaoService,

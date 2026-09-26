@@ -24846,6 +24846,29 @@ async function main() {
       }
     }
 
+    // ══ §261 ROTINAS DO BANCO — a SP_ATUALIZA_DTCONTABIL_NF (a nota não processada anda com o dia) ════════════════════════════
+    // (no fim da suíte: o ciclo leva ao dia TODAS as notas não processadas da base de teste)
+    {
+      const pgRb = new Pool({ host: PG_CONN.host, port: PG_CONN.port, user: PG_CONN.user, password: PG_CONN.password, database: `${PG_CONN.databasePrefix}pinheirao` });
+      try {
+        const aberta = await novaNf(baseNf({ tipo: 'E', nronf: 'ROT261A', codparceiro: 22, dtemissao: '2030-01-10', dtcontabil: '2030-01-10', itens: [{ codproduto: 1, quantidade: 1, vrcusto: 5, cfop: '1102', aliquota: 'T01' }] }));
+        const fechada = await novaNf(baseNf({ tipo: 'E', nronf: 'ROT261B', codparceiro: 22, dtemissao: '2030-01-10', dtcontabil: '2030-01-10', itens: [{ codproduto: 1, quantidade: 1, vrcusto: 5, cfop: '1102', aliquota: 'T01' }] }));
+        await pgRb.query(`UPDATE nf SET proc = 'N' WHERE codnf = $1`, [aberta]);
+        await pgRb.query(`UPDATE nf SET proc = 'S' WHERE codnf = $1`, [fechada]);
+        const { RotinasDoBancoAgendador } = await import('../src/modules/cadastro/rotinas-do-banco.agendador');
+        const c = await app.get(RotinasDoBancoAgendador).ciclo();
+        const hoje = (await pgRb.query(`SELECT (now() AT TIME ZONE 'America/Sao_Paulo')::date::text AS d`)).rows[0].d;
+        const dts = (await pgRb.query(`SELECT codnf, dtcontabil::text AS d FROM nf WHERE codnf = ANY($1::int[]) ORDER BY codnf`, [[aberta, fechada]])).rows as any[];
+        const c2 = await app.get(RotinasDoBancoAgendador).ciclo();
+        check('ROTINAS DO BANCO §261 [a SP_ATUALIZA_DTCONTABIL_NF]: o ciclo leva a data contábil da nota NÃO processada ao dia de hoje (2030-01-10 → hoje, no fuso da loja) e não toca a processada; o segundo ciclo não acha nada (idempotente) — na produção as 327 não processadas estão com a data do dia e 641 de 653 entradas de set/2026 ficaram com a data do processamento',
+          dts.find((d) => Number(d.codnf) === aberta)?.d === hoje && dts.find((d) => Number(d.codnf) === fechada)?.d === '2030-01-10'
+          && c.some((t) => t.tenant === 'pinheirao' && Number(t.notas) >= 1) && c2.some((t) => t.tenant === 'pinheirao' && Number(t.notas) === 0),
+          { dts, hoje, c, c2 });
+      } finally {
+        await pgRb.end();
+      }
+    }
+
   } finally {
     await pgParcelas?.end();
     await app.close();
