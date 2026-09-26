@@ -19,6 +19,8 @@ interface Titulo {
 interface Resultado {
   titulos: Titulo[];
   totais: { titulos: number; principal: number; juro: number; total: number; vencidos: number };
+  /** o "Saldo do cliente" do legado: os títulos a pagar de crédito (ADCREDITO) em aberto */
+  saldoCliente?: number;
 }
 
 const moeda = (v: unknown) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -117,6 +119,7 @@ export function ConsCliRcbPage() {
                 <div className="text-body-sm text-fg-muted">Cliente</div>
                 <div className="text-body-lg">{res.titulos[0]?.cliente ?? '—'}</div>
               </div>
+              <div><div className="text-body-sm text-fg-muted">Saldo do cliente</div><div className="text-body-lg tabular-nums">{moeda(res.saldoCliente ?? 0)}</div></div>
               <div><div className="text-body-sm text-fg-muted">Títulos</div><div className="text-body-lg tabular-nums">{res.totais.titulos}</div></div>
               <div><div className="text-body-sm text-fg-muted">Vencidos</div><div className="text-body-lg tabular-nums text-fg-danger">{res.totais.vencidos}</div></div>
               <div><div className="text-body-sm text-fg-muted">Principal</div><div className="text-body-lg tabular-nums">{moeda(res.totais.principal)}</div></div>

@@ -13050,6 +13050,14 @@ async function main() {
           && Number(t3Tol?.atraso) === 60,
           { comTolerancia90: t3Tol && { atraso: t3Tol.atraso, juro: t3Tol.juro, total: t3Tol.total } });
 
+        // o "Saldo do cliente" (GetSaldoCliente): os títulos A PAGAR de crédito do parceiro (ADCREDITO 'S') em aberto — o quitado fica fora
+        const saldo0 = Number(((await pgCr.query(`SELECT coalesce(sum(valor),0) AS v FROM apagar WHERE adcredito = 'S' AND coalesce(quitada,'N') = 'N' AND codparceiro = 2`)).rows[0] as any).v);
+        const cred = (await pgCr.query(`INSERT INTO apagar (codempresa, codparceiro, duplicata, dtvenc, valor, quitada, tipodoc, adcredito) VALUES
+          (1,2,'CRED-119A','2026-09-30',75.50,'N','DP','S'), (1,2,'CRED-119B','2026-09-30',40.00,'S','DP','S') RETURNING codapg`)).rows.map((x: any) => Number(x.codapg));
+        const rs = (await (await fetch(`${base}/${CR}?codparceiro=2&somenteAbertos=true`, { headers: H })).json().catch(() => ({}))) as any;
+        check('CONSULTA A RECEBER §119.5 [o saldo do cliente]: a tela mostra o crédito do cliente — os títulos A PAGAR de crédito (ADCREDITO S) em aberto: +75,50 (o de 40,00 quitado não conta)',
+          Math.abs(Number(rs.saldoCliente) - (saldo0 + 75.5)) < 0.005, { saldo0, saldoCliente: rs.saldoCliente });
+        await pgCr.query(`DELETE FROM apagar WHERE codapg = ANY($1::int[])`, [cred]);
         await pgCr.query(`DELETE FROM areceber WHERE codrcb IN (996001,996002,996003,996004)`);
       } finally {
         await pgCr.end();

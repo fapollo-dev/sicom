@@ -55,6 +55,7 @@ está. Os 40 títulos com taxa própria seguem rendendo; os 99.694 sem taxa para
 
 ## 5. O que ficou de fora
 
-**Ainda falta:** a aba de **títulos a pagar** do mesmo parceiro, que a tela do legado mostra ao lado (o
-cliente que também é fornecedor) — é a mesma consulta com a outra tabela, e liga direto com o encontro de
-contas de `uDescontoTitulo.md`.
+**✅ O saldo do cliente (25/09/2026):** o que este dossiê chamava de "aba de títulos a pagar" é, no fonte, o rótulo
+**"Saldo do cliente"** (`GetSaldoCliente`, `UConsCliRcb.pas:427`): Σ dos títulos A PAGAR de **crédito** do parceiro
+(`ADCREDITO = 'S'`, o haver/adiantamento) ainda não quitados, sem filtro de loja. A consulta devolve `saldoCliente` e a
+tela o mostra no topo. Smoke §119.5.

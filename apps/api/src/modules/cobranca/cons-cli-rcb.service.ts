@@ -57,6 +57,7 @@ export class ConsCliRcbService {
   async consultar(f: { codparceiro: number; somenteAbertos?: boolean; tolerancia?: number | null }): Promise<{
     titulos: Array<Record<string, unknown>>;
     totais: { titulos: number; principal: number; juro: number; total: number; vencidos: number };
+    saldoCliente: number;
   }> {
     const emp = this.emp();
     const db = this.dbp.forTenantRead() as AnyDB;
@@ -87,8 +88,15 @@ export class ConsCliRcbService {
        LIMIT 2001
     `.execute(db)).rows;
 
+    // o "Saldo do cliente" da tela (`GetSaldoCliente`, UConsCliRcb.pas:427): o crédito do cliente — os títulos A PAGAR de crédito
+    // (ADCREDITO 'S', o adiantamento/haver) ainda não quitados, de qualquer loja (o fonte não filtra empresa)
+    const saldoCliente = num(((await sql<{ v: unknown }>`
+      SELECT coalesce(sum(valor), 0) AS v FROM apagar
+       WHERE adcredito = 'S' AND coalesce(quitada, 'N') = 'N' AND codparceiro = ${f.codparceiro}`.execute(db)).rows[0] ?? {}).v);
+
     return {
       titulos,
+      saldoCliente: r2(saldoCliente),
       totais: {
         titulos: titulos.length,
         principal: r2(titulos.reduce((s, t) => s + num(t.valor), 0)),
